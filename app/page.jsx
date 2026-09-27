@@ -178,6 +178,7 @@ function MarsBackground() {
 function SunBackground() {
   const sunRef = useRef();
   const [sunMap, setSunMap] = useState(null);
+  const [glowMap, setGlowMap] = useState(null);
   
   useEffect(() => {
     let isMounted = true;
@@ -189,7 +190,23 @@ function SunBackground() {
         blank.needsUpdate = true;
         if (isMounted) setSunMap(blank);
     });
-    return () => { isMounted = false; };
+    // Procedural radial light-bleed texture: a camera-facing halo so the sun
+    // never reads as a dark disc from any angle.
+    const size = 256;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    grad.addColorStop(0.0, 'rgba(255, 236, 190, 1)');
+    grad.addColorStop(0.22, 'rgba(255, 196, 130, 0.6)');
+    grad.addColorStop(0.5, 'rgba(255, 150, 70, 0.2)');
+    grad.addColorStop(1.0, 'rgba(255, 120, 40, 0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, size, size);
+    const glow = new THREE.CanvasTexture(canvas);
+    glow.colorSpace = THREE.SRGBColorSpace;
+    if (isMounted) setGlowMap(glow);
+    return () => { isMounted = false; glow.dispose(); };
   }, []);
 
   useFrame((state, delta) => { if (sunRef.current) sunRef.current.rotation.y += delta * 0.01; });
@@ -213,6 +230,21 @@ function SunBackground() {
           <sphereGeometry args={[45, 64, 64]} />
           <meshBasicMaterial color="#ff6600" transparent opacity={0.15} blending={THREE.AdditiveBlending} toneMapped={false} />
         </mesh>
+
+        {/* Light bleed: camera-facing halo, luminous from every angle */}
+        {glowMap && (
+          <sprite scale={[430, 430, 1]}>
+            <spriteMaterial
+              map={glowMap}
+              color="#ffe2a8"
+              transparent
+              opacity={0.95}
+              blending={THREE.AdditiveBlending}
+              depthWrite={false}
+              toneMapped={false}
+            />
+          </sprite>
+        )}
         
         <pointLight color="#ffd27f" intensity={4.0} distance={800} decay={1.5} position={[0, 0, 0]} />
       </group>
@@ -636,6 +668,10 @@ export default function NexusHub() {
                     <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">LUGE</span>
                     <span className="text-[10px] text-zinc-500 uppercase mt-1">Neon Descent Engine</span>
                   </button>
+                  <button onClick={() => launchPocketUniverse('/basketball', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
+                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Streetball</span>
+                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Full-Court Shootout</span>
+                  </button>
                 </div>
 
                 {/* 2. UTILITIES (ARES) */}
@@ -687,6 +723,10 @@ export default function NexusHub() {
                   <button onClick={() => launchPocketUniverse('/aquarium', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
                     <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Aquarium</span>
                     <span className="text-[10px] text-zinc-600 uppercase mt-1">Multi-Node Console</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/olympus', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
+                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Olympus</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Grand Multiverse Store</span>
                   </button>
                 </div>
 
