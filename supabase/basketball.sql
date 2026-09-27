@@ -33,3 +33,12 @@ create policy "basketball_scores public insert"
 
 create index if not exists basketball_scores_score_idx
   on public.basketball_scores (score desc);
+
+-- OASIS room parties (2026-09-27): scores can be tagged with a 6-character
+-- room code so everyone in a party shares one leaderboard.
+alter table public.basketball_scores
+  add column if not exists room_code text
+    check (room_code is null or room_code ~ '^[A-Z0-9]{6}$');
+
+create index if not exists basketball_scores_room_code_idx
+  on public.basketball_scores (room_code, score desc);

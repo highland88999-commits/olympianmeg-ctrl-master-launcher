@@ -147,15 +147,20 @@ export default function OasisLobby({ gameSlug, supabase, userId, callsign = 'PLA
               className={`w-full px-6 py-4 text-sm font-bold tracking-widest uppercase transition-all border ${theme.secondaryBorder} ${theme.secondaryText} bg-white/5 hover:bg-white/10 disabled:opacity-50`}>
               Quick Match vs NPC Rivals
             </button>
-            <button onClick={handleHost} disabled={loading}
+            {!userId && (
+              <p className="text-[11px] text-zinc-500 tracking-widest uppercase text-center">
+                Sign in to host or join rooms — Quick Match and boss fights work as a guest.
+              </p>
+            )}
+            <button onClick={handleHost} disabled={loading || !userId}
               className={`w-full px-6 py-4 text-sm font-bold tracking-widest uppercase transition-all border ${theme.accentBorder} ${theme.accentText} ${theme.accentBg} ${theme.accentHover} disabled:opacity-50`}>
               {loading ? 'OPENING ROOM…' : 'Host Multiplayer Room'}
             </button>
             <div className="flex gap-2">
               <input type="text" placeholder="ENTER 6-CHARACTER CODE" maxLength={6}
-                value={joinInput} onChange={(e) => setJoinInput(normalizeCode(e.target.value))} disabled={loading}
+                value={joinInput} onChange={(e) => setJoinInput(normalizeCode(e.target.value))} disabled={loading || !userId}
                 className="w-full px-4 py-3 font-mono text-center text-white uppercase tracking-[0.2em] transition-all bg-black border outline-none border-zinc-700 focus:border-zinc-400 placeholder:text-zinc-600 disabled:opacity-50" />
-              <button onClick={() => handleJoin()} disabled={joinInput.length !== 6 || loading}
+              <button onClick={() => handleJoin()} disabled={joinInput.length !== 6 || loading || !userId}
                 className="px-6 font-bold tracking-widest text-white transition-all border disabled:opacity-50 disabled:cursor-not-allowed border-zinc-500 hover:bg-white hover:text-black">
                 JOIN
               </button>

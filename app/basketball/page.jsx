@@ -7,7 +7,15 @@ import { useThree } from '@react-three/fiber';
 import { GameCanvas } from '@/components/basketball/GameCanvas';
 import { BasketballGame } from '@/lib/basketball/game';
 import { SoundFX } from '@/lib/basketball/audio';
-import { fetchTopScores, submitScore, sanitizeName } from '@/lib/basketball/storage';
+import { fetchTopScores, fetchRoomScores, submitScore, sanitizeName } from '@/lib/basketball/storage';
+import OasisLobby from '@/components/oasis/Lobby';
+import { supabase } from '@/lib/supabase';
+
+/** Simulate an NPC rival's shootout score from its OASIS difficulty (1-10). */
+function simulateNpcScore(difficulty) {
+  const d = Math.max(1, Math.min(10, Number(difficulty) || 3));
+  return Math.max(5, Math.round(10 + d * 4 + (Math.random() * 12 - 6)));
+}
 
 function InputLayer({ game }) {
   const { camera, gl, size } = useThree();
@@ -100,7 +108,31 @@ export default function BasketballPage() {
   const [playerName, setPlayerName] = useState('');
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [oasisOpen, setOasisOpen] = useState(false);
+  const [oasisMatch, setOasisMatch] = useState(null); // {kind:'npc'|'boss', name, rivalScore} | {kind:'party', roomCode}
+  const [userId, setUserId] = useState(null);
+  const [callsign, setCallsign] = useState('');
+  const [roomScores, setRoomScores] = useState([]);
   const sfx = useRef(null);
+
+  // session for OASIS identity; ?code= deep link opens the lobby
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase.auth.getUser();
+        const u = data?.user;
+        if (u) {
+          setUserId(u.id);
+          const stored = typeof localStorage !== 'undefined' ? localStorage.getItem('streetball_name') : '';
+          setCallsign(sanitizeName(stored) || 'PLAYER');
+        }
+      } catch { /* guest play still works */ }
+      if (typeof window !== 'undefined') {
+        const code = new URLSearchParams(window.location.search).get('code');
+        if (code && code.length >= 5) setOasisOpen(true);
+      }
+    })();
+  }, []);
   if (!sfx.current && typeof window !== 'undefined') sfx.current = new SoundFX();
 
   const addPopup = useCallback((text, kind = 'info') => {
@@ -181,15 +213,50 @@ export default function BasketballPage() {
     sfx.current?.stopCrowd();
     setGame(null);
     setSnap(null);
+    setOasisMatch(null);
     setScreen('menu');
   }, []);
+
+  // OASIS: npc/boss -> branded solo shootout vs a simulated rival score;
+  // pvp party -> simultaneous 60s shootout, scores share the room leaderboard.
+  const handleOasisLaunch = useCallback(async ({ mode, room, roster, boss }) => {
+    setOasisOpen(false);
+    if (mode === 'pvp') {
+      const code = room?.room_code;
+      const npcSeats = (roster || []).filter((s) => s.kind === 'npc');
+      // backfilled rivals post simulated scores to the party board
+      for (const seat of npcSeats) {
+        await submitScore({
+          playerName: seat.npc?.name || 'RIVAL',
+          score: simulateNpcScore(seat.npc?.difficulty),
+          mode: 'shootout',
+          roomCode: code,
+        });
+      }
+      setOasisMatch({ kind: 'party', roomCode: code });
+      startGame('shootout');
+      return;
+    }
+    const rival = mode === 'boss' ? boss : (roster || []).find((s) => s.kind === 'npc')?.npc;
+    setOasisMatch({
+      kind: mode === 'boss' ? 'boss' : 'npc',
+      name: rival?.name || 'RIVAL',
+      rivalScore: simulateNpcScore(rival?.difficulty),
+    });
+    startGame('shootout');
+  }, [startGame]);
 
   const handleSave = useCallback(async () => {
     if (!snap || saving || saved) return;
     setSaving(true);
     const name = sanitizeName(playerName);
     try { localStorage.setItem('streetball_name', name); } catch { /* ignore */ }
-    const { ok } = await submitScore({ playerName: name, score: snap.score, mode: snap.mode });
+    const { ok } = await submitScore({
+      playerName: name,
+      score: snap.score,
+      mode: snap.mode,
+      roomCode: oasisMatch?.kind === 'party' ? oasisMatch.roomCode : undefined,
+    });
     setSaving(false);
     if (ok) {
       setSaved(true);
@@ -197,7 +264,20 @@ export default function BasketballPage() {
     } else {
       addPopup('Could not save — try again', 'miss');
     }
-  }, [snap, saving, saved, playerName, addPopup]);
+  }, [snap, saving, saved, playerName, addPopup, oasisMatch]);
+
+  // party room leaderboard: poll while the game-over screen is up
+  useEffect(() => {
+    if (oasisMatch?.kind !== 'party' || snap?.screen !== 'over') return;
+    let alive = true;
+    const load = async () => {
+      const { scores } = await fetchRoomScores(oasisMatch.roomCode);
+      if (alive) setRoomScores(scores);
+    };
+    load();
+    const t = setInterval(load, 2000);
+    return () => { alive = false; clearInterval(t); };
+  }, [oasisMatch, snap?.screen]);
 
   // stop the crowd if the player leaves the route entirely
   useEffect(() => {
@@ -214,7 +294,20 @@ export default function BasketballPage() {
           showHelp={showHelp}
           setShowHelp={setShowHelp}
           onExit={() => router.push('/')}
+          onOasis={() => setOasisOpen(true)}
         />
+      )}
+      {oasisOpen && (
+        <div className="absolute inset-0 z-50">
+          <OasisLobby
+            gameSlug="basketball"
+            supabase={supabase}
+            userId={userId}
+            callsign={callsign}
+            onLaunch={handleOasisLaunch}
+            onExit={() => setOasisOpen(false)}
+          />
+        </div>
       )}
 
       {screen === 'game' && game && snap && (
@@ -255,6 +348,42 @@ export default function BasketballPage() {
                 You made {snap.makes} of {snap.attempts} shots
                 {snap.bestStreak >= 2 ? ` • Best streak: ${snap.bestStreak}` : ''}
               </p>
+              {(oasisMatch?.kind === 'npc' || oasisMatch?.kind === 'boss') && (
+                <div className="mt-4 w-full max-w-xs bg-black/50 border border-amber-400/40 rounded p-4">
+                  <div className="text-[10px] tracking-[0.35em] uppercase text-amber-300/80 mb-2">
+                    {oasisMatch.kind === 'boss' ? 'Boss battle' : 'OASIS quick match'}
+                  </div>
+                  <div className="flex items-center justify-between text-lg font-black tracking-widest uppercase">
+                    <span className="text-cyan-200">You {snap.score}</span>
+                    <span className="text-zinc-500 text-sm">vs</span>
+                    <span className="text-amber-200">{oasisMatch.name} {oasisMatch.rivalScore}</span>
+                  </div>
+                  <div className={`mt-2 text-2xl font-black tracking-[0.25em] uppercase ${
+                    snap.score > oasisMatch.rivalScore ? 'text-emerald-300' : snap.score < oasisMatch.rivalScore ? 'text-red-300' : 'text-zinc-300'
+                  }`}>
+                    {snap.score > oasisMatch.rivalScore ? 'Victory' : snap.score < oasisMatch.rivalScore ? 'Defeat' : 'Draw'}
+                  </div>
+                </div>
+              )}
+              {oasisMatch?.kind === 'party' && (
+                <div className="mt-4 w-full max-w-xs bg-black/50 border border-fuchsia-400/40 rounded p-4">
+                  <div className="text-[10px] tracking-[0.35em] uppercase text-fuchsia-300/80 mb-2">
+                    Party room {oasisMatch.roomCode}
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    {roomScores.map((s, i) => (
+                      <div key={s.id} className="flex items-center justify-between px-3 py-1.5 bg-black/40 border border-zinc-800 rounded text-sm">
+                        <span className="text-zinc-500 font-bold w-8">#{i + 1}</span>
+                        <span className="flex-1 text-left text-zinc-200 tracking-widest uppercase truncate">{s.player_name}</span>
+                        <span className="text-amber-300 font-black">{s.score}</span>
+                      </div>
+                    ))}
+                    {roomScores.length === 0 && (
+                      <p className="text-zinc-500 text-xs tracking-widest uppercase">Waiting for party scores…</p>
+                    )}
+                  </div>
+                </div>
+              )}
               {snap.score > 0 && !saved && (
                 <div className="flex gap-2 mt-4 w-full max-w-xs">
                   <input
@@ -413,7 +542,7 @@ function Popups({ popups }) {
   );
 }
 
-function MenuScreen({ onPlay, scores, scoresNote, showHelp, setShowHelp, onExit }) {
+function MenuScreen({ onPlay, scores, scoresNote, showHelp, setShowHelp, onExit, onOasis }) {
   return (
     <div className="absolute inset-0 z-10 overflow-y-auto bg-gradient-to-b from-[#04060c] via-[#071120] to-[#04060c]">
       <div className="min-h-full flex flex-col items-center justify-center px-6 py-10 text-center max-w-md mx-auto">
@@ -437,6 +566,13 @@ function MenuScreen({ onPlay, scores, scoresNote, showHelp, setShowHelp, onExit 
           >
             <div className="text-lg font-black tracking-[0.2em] uppercase text-zinc-100">Free play</div>
             <div className="text-xs text-zinc-500 tracking-widest uppercase mt-1">No clock • Just shoot around</div>
+          </button>
+          <button
+            onClick={onOasis}
+            className="px-6 py-5 rounded border border-fuchsia-400/60 bg-fuchsia-500/15 hover:bg-fuchsia-500/30 transition-all text-left"
+          >
+            <div className="text-lg font-black tracking-[0.2em] uppercase text-fuchsia-100">OASIS multiplayer</div>
+            <div className="text-xs text-zinc-400 tracking-widest uppercase mt-1">Party rooms • Rival matches • Boss battles</div>
           </button>
           <button
             onClick={() => setShowHelp((v) => !v)}
