@@ -708,6 +708,10 @@ export default function NexusHub() {
                   <button onClick={() => launchPocketUniverse('/ice-dragon', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
                     <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Ice Dragon</span>
                     <span className="text-[10px] text-zinc-500 uppercase mt-1">Wake the Glacial Dragon</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/ice-monster', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
+                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Ice Monster</span>
+                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Calm the Frost Behemoth</span>
                   </button>                </div>
 
                 {/* 2. UTILITIES (ARES) */}
