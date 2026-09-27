@@ -7,121 +7,169 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { supabase } from '@/lib/supabase';
-import { LUGE_COURSES, LUGE_SLEDS } from '@/lib/luge_data';
+import { LUGE_COURSES, LUGE_SLEDS, LUGE_PREMIUM_IDS, LUGE_PREMIUM_COUNT } from '@/lib/luge_data';
 
 // ==========================================
 // 3D TRACK & PHYSICS ENGINE
 // ==========================================
-function LugeTrack({ course, sled, onFinish }) {
+function LugeTrack({ course, sled, tiltData, onFinish }) {
   const { camera } = useThree();
   const sledRef = useRef(null);
-  
+
   const [trackTex, setTrackTex] = useState(null);
+  const [hullTex, setHullTex] = useState(null);
   const progress = useRef(0);
   const speed = useRef(0);
-  const maxSpeed = 80 + (course.turns * 2); 
-  
-  // 1. Dynamic Texture Loader (Safe Fallbacks per Course)
+  const playerX = useRef(0); // Horizontal track offset
+
+  const baseMaxSpeed = 150 + (course.turns * 8);
+
+  // 1. Dynamic Texture Loader & UV Wrapper (course walls)
   useEffect(() => {
     let isMounted = true;
     const loader = new THREE.TextureLoader();
-    
+
     loader.load(course.texture, (tex) => {
       tex.colorSpace = THREE.SRGBColorSpace;
       tex.wrapS = THREE.MirroredRepeatWrapping;
       tex.wrapT = THREE.MirroredRepeatWrapping;
-      // Adjusted for 3x course length so it doesn't stretch 
-      tex.repeat.set(4, course.length / 50); 
-      tex.needsUpdate = true;
+      tex.repeat.set(Math.floor(course.length / 40), 4);
       if (isMounted) setTrackTex(tex);
     }, undefined, () => {
-      console.warn(`[Luge Engine]: ${course.texture} missing. Injecting generic matrix.`);
-      const blank = new THREE.DataTexture(new Uint8Array([30, 30, 35, 255]), 1, 1, THREE.RGBAFormat);
-      blank.needsUpdate = true;
+      const canvas = document.createElement('canvas');
+      canvas.width = 512; canvas.height = 512;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#0a0a14'; ctx.fillRect(0, 0, 512, 512);
+      ctx.strokeStyle = '#00f3ff'; ctx.lineWidth = 4; ctx.strokeRect(0, 0, 512, 512);
+      const blank = new THREE.CanvasTexture(canvas);
+      blank.wrapS = THREE.MirroredRepeatWrapping;
+      blank.wrapT = THREE.MirroredRepeatWrapping;
+      blank.repeat.set(Math.floor(course.length / 40), 4);
       if (isMounted) setTrackTex(blank);
     });
 
     return () => { isMounted = false; };
   }, [course]);
 
+  // 1b. Sled hull texture (falls back to the sled's flat color when absent)
+  useEffect(() => {
+    let isMounted = true;
+    let tex = null;
+    if (sled.hull) {
+      tex = new THREE.TextureLoader().load(
+        sled.hull,
+        (t) => {
+          t.colorSpace = THREE.SRGBColorSpace;
+          t.wrapS = t.wrapT = THREE.RepeatWrapping;
+          if (isMounted) setHullTex(t);
+        },
+        undefined,
+        () => { if (isMounted) setHullTex(null); }
+      );
+    } else {
+      setHullTex(null);
+    }
+    return () => { isMounted = false; if (tex) tex.dispose(); };
+  }, [sled.hull]);
+
   // 2. Mathematically Generate the 3D Spline Curve
   const curve = useMemo(() => {
     const points = [];
-    const numSegments = Math.max(50, course.length / 10);
-    
-    for(let i = 0; i <= numSegments; i++) {
-       const t = i / numSegments; 
-       const x = Math.sin(t * Math.PI * course.turns) * (30 + course.turns * 3);
-       const y = -t * course.drop * 3; 
-       const z = -t * course.length;
-       points.push(new THREE.Vector3(x, y, z));
+    const numSegments = Math.max(100, Math.floor(course.length / 20));
+    for (let i = 0; i <= numSegments; i++) {
+      const t = i / numSegments;
+      const x = Math.sin(t * Math.PI * course.turns) * (30 + course.turns * 3);
+      const y = -t * course.drop * 3;
+      const z = -t * course.length;
+      points.push(new THREE.Vector3(x, y, z));
     }
     return new THREE.CatmullRomCurve3(points, false);
   }, [course]);
 
-  // 3. The 60FPS Game Loop
+  // 3. The 60FPS Game Loop with DeviceOrientation Physics
   useFrame((state, delta) => {
-    if (speed.current < maxSpeed) speed.current += delta * 15;
-    
+    // TILT PHYSICS: Acceleration (Beta)
+    const tiltAccel = tiltData.current.y; // -1 (forward) to 1 (backward)
+    if (tiltAccel < 0) {
+      speed.current += Math.abs(tiltAccel) * delta * 150; // Lean forward to accelerate
+    } else {
+      speed.current -= tiltAccel * delta * 200; // Lean back to brake hard
+    }
+
+    // Auto-accelerate slightly if neutral, clamp limits
+    if (speed.current < baseMaxSpeed && tiltAccel <= 0) speed.current += delta * 40;
+    speed.current = THREE.MathUtils.clamp(speed.current, 20, baseMaxSpeed * 1.5);
+
     progress.current += (speed.current * delta) / course.length;
-    
+
     if (progress.current >= 0.999) {
       onFinish();
       return;
     }
 
     const safeProgress = Math.min(progress.current, 0.999);
-    
     const pos = curve.getPointAt(safeProgress);
     const tangent = curve.getTangentAt(safeProgress);
     const lookAtPos = curve.getPointAt(Math.min(safeProgress + 0.02, 1.0));
-    
-    const roll = tangent.x * Math.PI * 1.2; 
-    
-    const up = new THREE.Vector3(0, 1, 0).applyAxisAngle(new THREE.Vector3(0,0,1), roll);
+
+    const roll = tangent.x * Math.PI * 1.2;
+    const up = new THREE.Vector3(0, 1, 0).applyAxisAngle(new THREE.Vector3(0, 0, 1), roll);
     const down = up.clone().negate();
-    
+    const right = new THREE.Vector3().crossVectors(tangent, up).normalize();
+
+    // TILT PHYSICS: Steering (Gamma)
+    // tilt.x is -1 (left) to 1 (right)
+    const targetX = tiltData.current.x * 14; // Max drift is 14 units left/right
+    playerX.current = THREE.MathUtils.lerp(playerX.current, targetX, delta * 5);
+
     if (sledRef.current) {
-        sledRef.current.position.copy(pos).addScaledVector(tangent, 15).addScaledVector(down, 8.5);
-        const sledMatrix = new THREE.Matrix4().lookAt(sledRef.current.position, sledRef.current.position.clone().add(tangent), up);
-        sledRef.current.quaternion.setFromRotationMatrix(sledMatrix);
+      // Apply pos, tangent, down, AND horizontal steering (right * playerX)
+      sledRef.current.position.copy(pos).addScaledVector(tangent, 15).addScaledVector(down, 8.5).addScaledVector(right, playerX.current);
+      const sledMatrix = new THREE.Matrix4().lookAt(sledRef.current.position, sledRef.current.position.clone().add(tangent), up);
+      sledRef.current.quaternion.setFromRotationMatrix(sledMatrix);
     }
-    
-    camera.position.copy(pos).addScaledVector(up, -3); 
+
+    // Camera physically tracks the sled's horizontal drift
+    const camPos = pos.clone().addScaledVector(up, -2).addScaledVector(right, playerX.current * 0.5);
+    camera.position.copy(camPos);
     camera.up.copy(up);
-    camera.lookAt(lookAtPos);
-    
-    camera.fov = THREE.MathUtils.lerp(camera.fov, 65 + (speed.current * 0.25), delta * 2);
+    camera.lookAt(lookAtPos.addScaledVector(right, playerX.current * 0.5));
+
+    camera.fov = THREE.MathUtils.lerp(camera.fov, 60 + (speed.current * 0.15), delta * 2);
     camera.updateProjectionMatrix();
-    
+
     if (trackTex && trackTex.isTexture) {
-      trackTex.offset.y -= delta * speed.current * 0.02; // Scaled scrolling due to map repeats
+      trackTex.offset.y -= delta * speed.current * 0.02;
     }
   });
 
   return (
     <group>
       <mesh>
-        <tubeGeometry args={[curve, Math.floor(course.length / 5), 10, 24, false]} />
-        {/* CHANGED TO BASIC MATERIAL: Forces the uploaded image textures to display brightly in the dark tunnel */}
-        <meshBasicMaterial 
-          map={trackTex} 
-          side={THREE.BackSide} 
-          color={course.bg === '#0a0a14' ? '#ffffff' : course.bg} 
+        <tubeGeometry args={[curve, Math.floor(course.length / 20), 10, 16, false]} />
+        <meshBasicMaterial
+          key={trackTex ? trackTex.uuid : 'loading'}
+          map={trackTex}
+          side={THREE.BackSide}
+          color={course.bg === '#0a0a14' ? '#ffffff' : course.bg}
         />
       </mesh>
 
       <group ref={sledRef}>
         <mesh castShadow>
           <boxGeometry args={[3, 1, 6]} />
-          <meshStandardMaterial color={sled.color} roughness={0.3} metalness={0.9} />
+          {hullTex ? (
+            <meshStandardMaterial map={hullTex} roughness={0.35} metalness={0.75} />
+          ) : (
+            <meshStandardMaterial color={sled.color} roughness={0.3} metalness={0.9} />
+          )}
         </mesh>
         <mesh position={[0, 0.5, 0]}>
           <boxGeometry args={[3.2, 0.2, 6.2]} />
           <meshBasicMaterial color={sled.accent} toneMapped={false} />
         </mesh>
-        <pointLight color={sled.accent} intensity={3.0} distance={100} position={[0, 2, -5]} />
-        <spotLight color="#ffffff" intensity={4.0} distance={150} angle={Math.PI / 4} penumbra={0.5} position={[0, 1, -3]} target-position={[0, 1, -20]} />
+        {/* Kept small and local: light must never drown out the hull textures. */}
+        <pointLight color={sled.accent} intensity={2.0} distance={60} position={[0, 2, -5]} />
       </group>
     </group>
   );
@@ -130,46 +178,235 @@ function LugeTrack({ course, sled, onFinish }) {
 // ==========================================
 // MAIN APP COMPONENT
 // ==========================================
+const FINAL_COURSE_ID = 20;
+
 export default function LugeEngine() {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
-  const [gameState, setGameState] = useState('menu'); 
-  
+  const [authed, setAuthed] = useState(false);
+
+  // States: 'menu', 'store', 'pre_race_calibrate', 'racing', 'podium'
+  const [gameState, setGameState] = useState('menu');
+
   const [selectedCourse, setSelectedCourse] = useState(LUGE_COURSES[0]);
   const [selectedSled, setSelectedSled] = useState(LUGE_SLEDS[0]);
-  
+
+  // Ownership state (from luge_inventory / luge_redemptions via RLS reads)
+  const [ownedIds, setOwnedIds] = useState(new Set());
+  const [redeemed, setRedeemed] = useState(false);
+  const [inventoryLoaded, setInventoryLoaded] = useState(false);
+
+  // Store display info (price comes from the server)
+  const [storeInfo, setStoreInfo] = useState({ priceUsd: null, premiumCount: LUGE_PREMIUM_COUNT });
+  const [checkoutBusy, setCheckoutBusy] = useState(false);
+  const [storeError, setStoreError] = useState('');
+
+  // Claim state
+  const [claimBusy, setClaimBusy] = useState(false);
+  const [claimResult, setClaimResult] = useState(null); // { email, instructions } | { error }
+  const [purchaseNote, setPurchaseNote] = useState('');
+
+  // Hardware Tilt Refs
+  const tiltData = useRef({ x: 0, y: 0 }); // Normalized -1 to 1
+  const baselineBeta = useRef(40); // Standard holding angle
+  const tokenRef = useRef('');
+
+  const ownsArsenal = LUGE_PREMIUM_IDS.every((id) => ownedIds.has(id));
+
+  const authHeaders = () => ({ Authorization: `Bearer ${tokenRef.current}` });
+
+  const refreshInventory = async () => {
+    try {
+      const { data: inv } = await supabase.from('luge_inventory').select('sled_id');
+      setOwnedIds(new Set((inv || []).map((r) => r.sled_id)));
+      const { data: red } = await supabase.from('luge_redemptions').select('user_id').maybeSingle();
+      setRedeemed(!!red);
+    } catch {
+      // Tables may not exist yet (SQL not run) — treat as owning nothing.
+      setOwnedIds(new Set());
+      setRedeemed(false);
+    } finally {
+      setInventoryLoaded(true);
+    }
+  };
+
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) {
-        if (window.top === window.self) router.push('/');
-        else document.body.innerHTML = '<div style="color:#00ffff; text-align:center; padding:50px;">UNAUTHORIZED. PLEASE LOG IN AT MASTER HUB.</div>';
+        setMounted(true);
+        setAuthed(false);
         return;
       }
+      tokenRef.current = session.access_token;
+      setAuthed(true);
       setMounted(true);
-      
-      const REPO_NAME = window.location.hostname || 'Unknown-Node';
-      supabase.from('central_telemetry').insert([{
-          repository_name: REPO_NAME,
-          action_type: 'game_load',
-          details: { game: 'luge', url: window.location.href, timestamp: new Date().toISOString() }
-      }]);
+      await refreshInventory();
+
+      // Store display info (server-set price).
+      try {
+        const res = await fetch('/api/luge/checkout');
+        const info = await res.json();
+        if (info.ok) setStoreInfo({ priceUsd: info.priceUsd, premiumCount: info.premiumCount });
+      } catch { /* leave defaults */ }
+
+      // Returning from a successful Stripe checkout?
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('purchase') === 'success') {
+          setPurchaseNote('Payment received — your arsenal is unlocking. If your hulls are not showing yet, wait a few seconds and reopen the garage.');
+          // Re-check a few times; the webhook grants within seconds.
+          let tries = 0;
+          const timer = setInterval(async () => {
+            tries += 1;
+            await refreshInventory();
+            if (tries >= 6) clearInterval(timer);
+          }, 5000);
+          window.history.replaceState({}, '', window.location.pathname);
+        } else if (params.get('purchase') === 'cancelled') {
+          setPurchaseNote('Checkout was cancelled — no charge was made.');
+          window.history.replaceState({}, '', window.location.pathname);
+        }
+      }
     });
   }, [router]);
 
+  // Request iOS Gyroscope Permissions & Start Listener
+  const requestTiltAccessAndStart = async () => {
+    const start = () => {
+      window.addEventListener('deviceorientation', handleOrientation);
+      window.addEventListener('keydown', handleKeys);
+      setGameState('racing');
+    };
+    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+      try {
+        const permission = await DeviceOrientationEvent.requestPermission();
+        if (permission !== 'granted') {
+          // Fall through to touch/keyboard steering.
+        }
+      } catch (error) {
+        console.error(error);
+      }
+    }
+    start();
+  };
+
+  const handleOrientation = (event) => {
+    // event.gamma: Left to Right (-90 to 90)
+    // event.beta: Front to Back (-180 to 180)
+
+    // Normalize Gamma (X-axis steering)
+    let rawX = event.gamma || 0;
+    rawX = THREE.MathUtils.clamp(rawX, -45, 45); // Limit extreme tilts
+    tiltData.current.x = rawX / 45; // -1 to 1
+
+    // Normalize Beta (Y-axis accel/brake)
+    let rawY = event.beta || 40;
+    // Difference from neutral baseline
+    let diffY = rawY - baselineBeta.current;
+    diffY = THREE.MathUtils.clamp(diffY, -30, 30);
+    tiltData.current.y = diffY / 30; // -1 (forward) to 1 (backward)
+  };
+
+  // Keyboard fallback (desktop): arrows steer and brake/accelerate.
+  const handleKeys = (event) => {
+    if (event.key === 'ArrowLeft') tiltData.current.x = -1;
+    else if (event.key === 'ArrowRight') tiltData.current.x = 1;
+    else if (event.key === 'ArrowUp') tiltData.current.y = -1;
+    else if (event.key === 'ArrowDown') tiltData.current.y = 1;
+  };
+  const releaseKeys = () => { tiltData.current.x = 0; tiltData.current.y = 0; };
+
+  // Touch fallback: left/right screen halves steer.
+  const touchSteer = (clientX) => {
+    tiltData.current.x = clientX < window.innerWidth / 2 ? -1 : 1;
+  };
+  const touchRelease = () => { tiltData.current.x = 0; };
+
+  // Cleanup listeners on unmount
+  useEffect(() => {
+    return () => {
+      window.removeEventListener('deviceorientation', handleOrientation);
+      window.removeEventListener('keydown', handleKeys);
+      window.removeEventListener('keyup', releaseKeys);
+    };
+  }, []);
+
   const handleFinish = () => {
-    if (selectedCourse.id === 20) {
+    window.removeEventListener('deviceorientation', handleOrientation);
+    window.removeEventListener('keydown', handleKeys);
+    tiltData.current = { x: 0, y: 0 };
+    if (selectedCourse.id === FINAL_COURSE_ID) {
       setGameState('podium');
     } else {
       setGameState('menu');
     }
   };
 
+  const startCheckout = async () => {
+    setCheckoutBusy(true);
+    setStoreError('');
+    try {
+      const res = await fetch('/api/luge/checkout', { method: 'POST', headers: authHeaders() });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        setStoreError(data.error || 'Could not start checkout. Try again.');
+        return;
+      }
+      window.location.href = data.url;
+    } catch {
+      setStoreError('Could not reach the store. Check your connection and try again.');
+    } finally {
+      setCheckoutBusy(false);
+    }
+  };
+
+  const claimHoodie = async () => {
+    setClaimBusy(true);
+    setClaimResult(null);
+    try {
+      const res = await fetch('/api/luge/claim', { method: 'POST', headers: authHeaders() });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        setClaimResult({ error: data.error || 'Could not record your claim. Try again.' });
+        if (res.status === 409) setRedeemed(true);
+        return;
+      }
+      setClaimResult({ email: data.email, instructions: data.instructions });
+      setRedeemed(true);
+    } catch {
+      setClaimResult({ error: 'Could not reach the claim service. Check your connection and try again.' });
+    } finally {
+      setClaimBusy(false);
+    }
+  };
+
+  const isSledLocked = (sled) => sled.type === 'premium' && !ownedIds.has(sled.id);
+
   if (!mounted) return <div className="bg-black w-screen h-screen"></div>;
+
+  if (!authed) {
+    return (
+      <div className="flex flex-col items-center justify-center w-full h-full p-8 text-center text-white bg-zinc-950">
+        <h1 className="mb-2 text-4xl text-cyan-400 uppercase tracking-widest">Cyberpunk Luge</h1>
+        <p className="mb-8 text-sm tracking-widest text-zinc-400 uppercase">Sign in to ride</p>
+        <p className="max-w-md mb-8 text-sm text-zinc-400">
+          Your garage, your hulls, and your hoodie claim all live on your account.
+          Sign in at the master hub, then come back here.
+        </p>
+        <button
+          onClick={() => router.push('/')}
+          className="px-10 py-4 text-sm font-bold tracking-widest text-black uppercase bg-cyan-400 rounded-full hover:bg-white"
+        >
+          Go to the hub
+        </button>
+      </div>
+    );
+  }
 
   return (
     <>
-      <button 
-        onClick={() => router.push('/')} 
+      <button
+        onClick={() => router.push('/')}
         className="absolute z-[9999] px-4 py-2 text-[10px] font-bold tracking-widest text-cyan-400 uppercase transition-colors border rounded top-5 right-5 bg-black/80 border-zinc-700 hover:text-white hover:border-cyan-400"
       >
         EXIT MATRIX
@@ -177,128 +414,251 @@ export default function LugeEngine() {
 
       {gameState === 'menu' && (
         <div className="flex flex-col items-center justify-center w-full h-full p-8 text-center text-white bg-zinc-950">
-            <h1 className="mb-2 font-['Orbitron'] text-4xl text-cyan-400 drop-shadow-[0_0_15px_rgba(0,255,255,0.5)] uppercase tracking-widest">Cyberpunk Luge</h1>
-            <p className="mb-8 text-sm tracking-widest text-zinc-500 uppercase">Neon Descent Engine</p>
+          <h1 className="mb-2 text-4xl text-cyan-400 drop-shadow-[0_0_15px_rgba(0,255,255,0.5)] uppercase tracking-widest">Cyberpunk Luge</h1>
+          <p className="mb-2 text-sm tracking-widest text-zinc-500 uppercase">Neon Descent Engine</p>
+          {ownsArsenal && (
+            <p className="mb-2 text-[11px] font-bold tracking-widest text-amber-400 uppercase">Complete Arsenal owned</p>
+          )}
+          {purchaseNote && (
+            <p className="max-w-xl mb-4 text-xs text-emerald-300">{purchaseNote}</p>
+          )}
 
-            <div className="flex w-full max-w-5xl gap-8 h-[60vh]">
-                <div className="flex flex-col flex-1 p-4 overflow-y-auto border rounded border-cyan-500/30 bg-black/50 custom-scrollbar">
-                    <h2 className="mb-4 font-bold text-fuchsia-400">SELECT COURSE</h2>
-                    {LUGE_COURSES.map(course => (
-                        <div 
-                            key={course.id} 
-                            onClick={() => setSelectedCourse(course)}
-                            className={`p-3 mb-2 text-left border rounded cursor-pointer transition-all ${selectedCourse.id === course.id ? 'border-cyan-400 bg-cyan-900/30' : 'border-zinc-800 hover:border-zinc-500'}`}
-                        >
-                            <div className="text-sm font-bold text-white uppercase">{course.name}</div>
-                            <div className="text-[10px] text-zinc-400">{course.desc}</div>
-                        </div>
-                    ))}
+          <div className="flex w-full max-w-5xl gap-8 h-[60vh]">
+            <div className="flex flex-col flex-1 p-4 overflow-y-auto border rounded border-cyan-500/30 bg-black/50 custom-scrollbar">
+              <h2 className="mb-4 font-bold text-fuchsia-400">SELECT COURSE</h2>
+              {LUGE_COURSES.map(course => (
+                <div
+                  key={course.id}
+                  onClick={() => setSelectedCourse(course)}
+                  className={`p-3 mb-2 text-left border rounded cursor-pointer transition-all ${selectedCourse.id === course.id ? 'border-cyan-400 bg-cyan-900/30' : 'border-zinc-800 hover:border-zinc-500'}`}
+                >
+                  <div className="text-sm font-bold text-white uppercase">{course.name}</div>
+                  <div className="text-[10px] text-zinc-400">{course.desc}</div>
                 </div>
-
-                <div className="flex flex-col flex-1 p-4 overflow-y-auto border rounded border-fuchsia-500/30 bg-black/50 custom-scrollbar">
-                    <h2 className="mb-4 font-bold text-cyan-400">SELECT SLED</h2>
-                    {LUGE_SLEDS.map(sled => (
-                        <div 
-                            key={sled.id} 
-                            onClick={() => setSelectedSled(sled)}
-                            className={`p-3 mb-2 text-left border rounded cursor-pointer transition-all ${selectedSled.id === sled.id ? 'border-fuchsia-400 bg-fuchsia-900/30' : 'border-zinc-800 hover:border-zinc-500'}`}
-                        >
-                            <div className="flex items-center justify-between">
-                                <span className="text-sm font-bold text-white uppercase">{sled.name}</span>
-                                <span className="text-[10px] uppercase text-zinc-500 border border-zinc-700 px-2 py-0.5 rounded">{sled.type}</span>
-                            </div>
-                            <div className="text-[10px] text-amber-400 mt-1">{sled.desc}</div>
-                        </div>
-                    ))}
-                    <button 
-                        onClick={() => setGameState('store')}
-                        className="w-full py-3 mt-4 text-xs font-bold tracking-widest text-black uppercase transition-all bg-amber-400 rounded hover:bg-white"
-                    >
-                        OPEN PREMIUM STORE
-                    </button>
-                </div>
+              ))}
             </div>
 
-            <button 
-                onClick={() => setGameState('racing')}
-                className="px-12 py-4 mt-8 font-['Orbitron'] text-lg font-bold text-black uppercase transition-all bg-cyan-400 rounded-full hover:bg-white hover:shadow-[0_0_30px_rgba(0,255,255,0.6)] tracking-widest"
-            >
-                INITIATE DESCENT
-            </button>
+            <div className="flex flex-col flex-1 p-4 overflow-y-auto border rounded border-fuchsia-500/30 bg-black/50 custom-scrollbar">
+              <h2 className="mb-4 font-bold text-cyan-400">SELECT SLED</h2>
+              {LUGE_SLEDS.map(sled => {
+                const locked = isSledLocked(sled);
+                return (
+                  <div
+                    key={sled.id}
+                    onClick={() => { if (!locked) setSelectedSled(sled); else setGameState('store'); }}
+                    className={`p-3 mb-2 text-left border rounded transition-all ${locked ? 'border-zinc-800 opacity-60 cursor-pointer hover:border-amber-500/60' : `cursor-pointer ${selectedSled.id === sled.id ? 'border-fuchsia-400 bg-fuchsia-900/30' : 'border-zinc-800 hover:border-zinc-500'}`}`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-bold text-white uppercase">{sled.name}</span>
+                      <span className="text-[10px] uppercase text-zinc-500 border border-zinc-700 px-2 py-0.5 rounded">
+                        {locked ? 'Locked' : sled.type}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-amber-400 mt-1">{sled.desc}</div>
+                    {locked && (
+                      <div className="text-[10px] text-zinc-500 mt-1">Part of the Complete Arsenal — tap to view the store.</div>
+                    )}
+                  </div>
+                );
+              })}
+              <button
+                onClick={() => setGameState('store')}
+                className="w-full py-3 mt-4 text-xs font-bold tracking-widest text-black uppercase transition-all bg-amber-400 rounded hover:bg-white"
+              >
+                OPEN PREMIUM STORE
+              </button>
+            </div>
+          </div>
+
+          <button
+            onClick={() => setGameState('pre_race_calibrate')}
+            className="px-12 py-4 mt-8 text-lg font-bold text-black uppercase transition-all bg-cyan-400 rounded-full hover:bg-white hover:shadow-[0_0_30px_rgba(0,255,255,0.6)] tracking-widest"
+          >
+            INITIATE DESCENT
+          </button>
         </div>
       )}
 
       {gameState === 'store' && (
-        <div className="flex flex-col items-center justify-center w-full h-full p-8 text-center text-white bg-zinc-950">
-            <h1 className="mb-2 font-['Orbitron'] text-3xl text-amber-400 drop-shadow-[0_0_15px_rgba(255,215,0,0.5)] uppercase tracking-widest">Premium Sled Store</h1>
-            <p className="mb-8 text-sm tracking-widest text-zinc-400 uppercase">Unlock advanced telemetry matrices.</p>
-            
-            <div className="w-full max-w-3xl p-8 border rounded border-amber-500/30 bg-black/50">
-                <div className="mb-6 text-xl text-fuchsia-400">STORE CONNECTION OFFLINE</div>
-                <p className="text-sm text-zinc-400">The Olympus payment gateway is currently disconnected. All premium sleds have been temporarily unlocked for testing protocols.</p>
-                <button 
-                    onClick={() => setGameState('menu')}
-                    className="px-8 py-3 mt-8 font-bold tracking-widest text-black uppercase bg-amber-400 rounded hover:bg-white"
-                >
-                    RETURN TO GARAGE
-                </button>
+        <div className="flex flex-col items-center justify-center w-full h-full p-8 text-center text-white bg-zinc-950 overflow-y-auto">
+          <h1 className="mb-2 text-3xl text-amber-400 drop-shadow-[0_0_15px_rgba(255,215,0,0.5)] uppercase tracking-widest">Premium Sled Store</h1>
+          <p className="mb-8 text-sm tracking-widest text-zinc-400 uppercase">One pack. Everything in it. Yours forever.</p>
+
+          <div className="w-full max-w-2xl p-8 border rounded border-amber-500/30 bg-black/50 text-left">
+            <div className="text-xl font-bold text-white uppercase tracking-widest mb-1">Complete Arsenal</div>
+            <div className="text-3xl font-black text-amber-400 mb-6">
+              {storeInfo.priceUsd != null ? `$${storeInfo.priceUsd}` : '…'}
+              <span className="text-sm font-normal text-zinc-400"> one-time</span>
             </div>
+
+            <ul className="text-sm text-zinc-300 space-y-3 mb-6">
+              <li>All {storeInfo.premiumCount} premium sled hulls, unlocked in your garage right after payment.</li>
+              <li>Each hull changes how your sled looks on the track.</li>
+              <li>Hoodie reward: finish all 20 courses as an Arsenal owner and you can claim a physical Olympus hoodie — one per rider, while supplies last.</li>
+            </ul>
+
+            <p className="text-xs text-zinc-500 mb-6">
+              No subscription. No loot boxes. You pay once and the hulls are yours.
+              The price is set on our server at checkout — what you see here is what you pay.
+            </p>
+
+            {storeError && <p className="text-sm text-red-400 mb-4">{storeError}</p>}
+
+            <div className="flex flex-col sm:flex-row gap-4">
+              {ownsArsenal ? (
+                <p className="text-sm font-bold text-emerald-300 uppercase tracking-widest py-3">You already own the Complete Arsenal.</p>
+              ) : (
+                <button
+                  onClick={startCheckout}
+                  disabled={checkoutBusy || storeInfo.priceUsd == null}
+                  className="px-8 py-3 font-bold tracking-widest text-black uppercase bg-amber-400 rounded hover:bg-white disabled:opacity-50"
+                >
+                  {checkoutBusy ? 'Starting checkout…' : `Buy the arsenal — $${storeInfo.priceUsd ?? '…'}`}
+                </button>
+              )}
+              <button
+                onClick={() => setGameState('menu')}
+                className="px-8 py-3 font-bold tracking-widest text-zinc-300 uppercase border border-zinc-700 rounded hover:border-zinc-400"
+              >
+                Back to garage
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {gameState === 'pre_race_calibrate' && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
+          <div className="flex flex-col items-center p-8 bg-zinc-950 border border-cyan-500/40 rounded-xl shadow-[0_0_40px_rgba(0,255,255,0.15)] max-w-md text-center">
+            <h2 className="text-2xl font-black text-transparent uppercase bg-clip-text bg-gradient-to-r from-cyan-400 to-fuchsia-500 tracking-widest mb-4">GYRO CALIBRATION</h2>
+            <p className="text-sm text-zinc-300 mb-6 leading-relaxed">
+              Hold your device in a comfortable playing position.
+              <br /><br />
+              <span className="text-cyan-400 font-bold">TILT LEFT/RIGHT</span> to steer. <br />
+              <span className="text-cyan-400 font-bold">TILT FORWARD</span> to accelerate. <br />
+              <span className="text-fuchsia-500 font-bold">TILT BACKWARD</span> to brake.
+            </p>
+            <p className="text-xs text-zinc-500 mb-6">
+              No gyroscope? Tap the left or right half of the screen to steer.
+              On desktop, use the arrow keys.
+            </p>
+            <button
+              onClick={requestTiltAccessAndStart}
+              className="w-full px-8 py-4 text-sm font-bold tracking-widest text-black uppercase transition-all bg-cyan-400 rounded hover:bg-white hover:shadow-[0_0_20px_rgba(0,255,255,0.6)]"
+            >
+              CALIBRATE &amp; IGNITE ENGINE
+            </button>
+          </div>
         </div>
       )}
 
       {gameState === 'racing' && (
-        <div className="relative w-full h-full bg-black">
-            <Canvas camera={{ position: [0, 0, 0], fov: 60 }} style={{ position: 'absolute', inset: 0 }}>
-              <color attach="background" args={['#020202']} />
-              <fogExp2 attach="fog" args={['#020202', 0.005]} />
-              
-              <ambientLight intensity={0.5} />
-              
-              {/* KEY ADDED: Forces the component to unmount/remount on course change, killing stale states */}
-              <LugeTrack 
-                key={selectedCourse.id}
-                course={selectedCourse} 
-                sled={selectedSled} 
-                onFinish={handleFinish} 
-              />
+        <div
+          className="relative w-full h-full bg-black"
+          onTouchStart={(e) => touchSteer(e.touches[0].clientX)}
+          onTouchEnd={touchRelease}
+        >
+          <Canvas camera={{ position: [0, 0, 0], fov: 60 }} style={{ position: 'absolute', inset: 0 }}>
+            <color attach="background" args={['#020202']} />
+            <fogExp2 attach="fog" args={['#020202', 0.005]} />
+            <ambientLight intensity={0.5} />
 
-              <EffectComposer>
-                <Bloom luminanceThreshold={0.5} luminanceSmoothing={0.2} intensity={1.5} />
-              </EffectComposer>
-            </Canvas>
+            <LugeTrack
+              key={selectedCourse.id}
+              course={selectedCourse}
+              sled={selectedSled}
+              tiltData={tiltData}
+              onFinish={handleFinish}
+            />
 
-            <div className="absolute top-5 left-5 bg-black/80 border border-cyan-500/50 p-4 rounded backdrop-blur text-left z-10">
-                <div className="text-cyan-400 font-bold uppercase tracking-widest text-sm mb-1">{selectedCourse.name}</div>
-                <div className="text-zinc-400 text-[10px] uppercase tracking-wider mb-2">SLED: {selectedSled.name}</div>
-                <div className="text-white text-xs font-mono">LENGTH: {selectedCourse.length}M</div>
-                <div className="text-white text-xs font-mono">TURNS: {selectedCourse.turns}</div>
-            </div>
-            
-            <div className="absolute bottom-10 w-full text-center text-zinc-500 text-[10px] tracking-[0.3em] animate-pulse pointer-events-none z-10">
-                SLED IS AUTO-GUIDED. ANALYZING TELEMETRY...
-            </div>
+            {/* Restrained bloom: glow stays local, textures stay readable. */}
+            <EffectComposer>
+              <Bloom luminanceThreshold={0.5} luminanceSmoothing={0.2} intensity={0.7} />
+            </EffectComposer>
+          </Canvas>
+
+          <div className="absolute top-5 left-5 bg-black/80 border border-cyan-500/50 p-4 rounded backdrop-blur text-left z-10 pointer-events-none">
+            <div className="text-cyan-400 font-bold uppercase tracking-widest text-sm mb-1">{selectedCourse.name}</div>
+            <div className="text-zinc-400 text-[10px] uppercase tracking-wider mb-2">SLED: {selectedSled.name}</div>
+            <div className="text-white text-xs font-mono">LENGTH: {selectedCourse.length}M</div>
+            <div className="text-white text-xs font-mono">TURNS: {selectedCourse.turns}</div>
+          </div>
+
+          <div className="absolute bottom-10 w-full text-center text-zinc-500 text-[10px] tracking-[0.3em] pointer-events-none z-10">
+            TILT TO STEER — OR TAP LEFT / RIGHT SIDE OF THE SCREEN.
+          </div>
         </div>
       )}
 
       {gameState === 'podium' && (
-        <div className="flex flex-col items-center justify-center w-full h-full p-8 text-center text-white bg-zinc-950">
-            <h1 className="mb-2 font-['Orbitron'] text-4xl text-amber-400 drop-shadow-[0_0_20px_rgba(255,215,0,0.5)] uppercase tracking-widest">OLYMPUS CONQUERED</h1>
-            <p className="mb-8 text-sm tracking-widest text-zinc-400 uppercase">You have survived all 20 descents.</p>
-            
-            <div className="w-full max-w-2xl p-8 border rounded border-amber-500/50 bg-black/60 shadow-[0_0_50px_rgba(255,215,0,0.1)]">
-                <div className="mb-4 text-lg font-bold text-white">YOUR REWARD AWAITS</div>
-                <p className="text-sm text-zinc-400 mb-6">Take a screenshot of this terminal and email it to <span className="text-cyan-400">stakeme10000@gmail.com</span> to claim your free Olympus physical artifact (Hoodie).</p>
-                <button 
-                    onClick={() => setGameState('menu')}
-                    className="px-8 py-3 font-bold tracking-widest text-black uppercase bg-cyan-400 rounded hover:bg-white"
+        <div className="flex flex-col items-center justify-center w-full h-full p-8 text-center text-white bg-zinc-950 overflow-y-auto">
+          <h1 className="mb-2 text-4xl text-amber-400 drop-shadow-[0_0_20px_rgba(255,215,0,0.5)] uppercase tracking-widest">OLYMPUS CONQUERED</h1>
+          <p className="mb-8 text-sm tracking-widest text-zinc-400 uppercase">You have survived all 20 descents.</p>
+
+          <div className="w-full max-w-2xl p-8 border rounded border-amber-500/50 bg-black/60 shadow-[0_0_50px_rgba(255,215,0,0.1)]">
+            {ownsArsenal ? (
+              redeemed || claimResult?.email ? (
+                <>
+                  <div className="mb-4 text-lg font-bold text-white uppercase tracking-widest">Hoodie claimed</div>
+                  {claimResult?.email ? (
+                    <>
+                      <p className="text-sm text-zinc-300 mb-4">Your claim is recorded. To finish it, email:</p>
+                      <p className="text-lg font-bold text-cyan-400 mb-4 break-all">{claimResult.email}</p>
+                      <ul className="text-sm text-zinc-300 text-left space-y-2 mb-6 max-w-md mx-auto">
+                        {claimResult.instructions.map((step, i) => (
+                          <li key={i}>{i + 1}. {step}</li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : (
+                    <p className="text-sm text-zinc-400 mb-6">
+                      This account already claimed its hoodie — one per rider.
+                      We confirm every claim by hand before shipping.
+                    </p>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div className="mb-4 text-lg font-bold text-white uppercase tracking-widest">Your hoodie is waiting</div>
+                  <p className="text-sm text-zinc-300 mb-6 leading-relaxed">
+                    You own the Complete Arsenal and you conquered every course.
+                    Claim your physical Olympus hoodie — one per rider.
+                  </p>
+                  {claimResult?.error && <p className="text-sm text-red-400 mb-4">{claimResult.error}</p>}
+                  <button
+                    onClick={claimHoodie}
+                    disabled={claimBusy}
+                    className="px-8 py-3 mb-6 font-bold tracking-widest text-black uppercase bg-amber-400 rounded hover:bg-white disabled:opacity-50"
+                  >
+                    {claimBusy ? 'Recording…' : 'CLAIM MY HOODIE'}
+                  </button>
+                </>
+              )
+            ) : (
+              <>
+                <div className="mb-4 text-lg font-bold text-white uppercase tracking-widest">Matrix cleared</div>
+                <p className="text-sm text-zinc-400 mb-6">
+                  Excellent piloting. The Olympus hoodie goes to riders who own the
+                  Complete Arsenal — all {LUGE_PREMIUM_COUNT} premium hulls.
+                </p>
+                <button
+                  onClick={() => setGameState('store')}
+                  className="px-6 py-2 mb-6 text-xs font-bold tracking-widest text-amber-400 uppercase border border-amber-400 rounded hover:bg-amber-400/20"
                 >
-                    RETURN TO MENU
+                  OPEN THE STORE
                 </button>
-            </div>
+              </>
+            )}
+
+            <button
+              onClick={() => setGameState('menu')}
+              className="w-full px-8 py-3 font-bold tracking-widest text-black uppercase bg-cyan-400 rounded hover:bg-white"
+            >
+              RETURN TO MENU
+            </button>
+          </div>
         </div>
       )}
     </>
   );
 }
-
-
