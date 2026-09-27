@@ -7,8 +7,8 @@ import { supabase } from '@/lib/supabase';
 
 export default function ArtifactReader() {
   const router = useRouter();
-  const [loadingMsg, setLoadingMsg] = useState('DECRYPTING ARTIFACT...');
-  const [meta, setMeta] = useState({ title: '...', author: '...' });
+  const [loadingMsg, setLoadingMsg] = useState('Opening your book…');
+  const [meta, setMeta] = useState({ title: '…', author: '…' });
   const [coverUrl, setCoverUrl] = useState('');
   const [chapters, setChapters] = useState([]);
 
@@ -16,88 +16,101 @@ export default function ArtifactReader() {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session) {
         if (window.top === window.self) router.push('/');
-        else document.body.innerHTML = '<div style="color:#08f7fe; text-align:center; padding:50px; font-family:monospace;">UNAUTHORIZED.</div>';
+        else document.body.innerHTML = '<div style="color:#08f7fe; text-align:center; padding:50px; font-family:monospace;">Please log in at the Master Hub to continue.</div>';
         return;
       }
-      
+
       const urlParams = new URLSearchParams(window.location.search);
       const codexId = urlParams.get('id');
 
       if (!codexId) {
-        setLoadingMsg("ERROR: NO ARTIFACT ID PROVIDED");
+        setLoadingMsg('Please pick a book from the library first.');
         return;
       }
 
       supabase.from('manuscripts').select('*').eq('id', codexId).single()
         .then(({ data, error }) => {
           if (error || !data) {
-            setLoadingMsg("ERROR: ARTIFACT CORRUPTED OR NOT FOUND");
+            setLoadingMsg('Something went wrong — that book could not be found.');
             return;
           }
-          setMeta({ title: data.title, author: data.author });
+          setMeta({ title: data.title || 'Untitled', author: data.author || 'Unknown author' });
           if (data.cover_url) setCoverUrl(data.cover_url);
 
-          const chaps = data.content.split('\n\n').filter(p => p.trim() !== '');
+          const chaps = String(data.content || '').split('\n\n').filter(p => p.trim() !== '');
           setChapters(chaps);
           setLoadingMsg('');
         });
     });
   }, [router]);
 
+  const goBack = () => router.push('/alexandria');
+
   return (
     <>
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+      <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Rajdhani:wght@400;600&display=swap" rel="stylesheet" />
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Rajdhani:wght@400;600&display=swap');
-        .artifact-wrapper { --obsidian: #050507; --neon-gold: #FFD700; --neon-cyan: #00F3FF; background-color: var(--obsidian); color: #E0E0E0; font-family: 'Rajdhani', sans-serif; width: 100vw; height: 100vh; overflow: hidden; margin:0; }
-        .artifact-wrapper::before { content: ""; position: fixed; inset: 0; background-image: linear-gradient(rgba(0, 243, 255, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 243, 255, 0.05) 1px, transparent 1px); background-size: 30px 30px; z-index: -1; }
-        .carousel { display: flex; width: 100vw; height: 100vh; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; scroll-behavior: smooth; scrollbar-width: none; }
-        .page { min-width: 100vw; height: 100vh; scroll-snap-align: start; display: flex; justify-content: center; overflow-y: auto; padding: 60px 20px; box-sizing: border-box; }
-        .content { max-width: 900px; width: 100%; background: rgba(18, 18, 21, 0.85); border: 1px solid rgba(0, 243, 255, 0.2); border-radius: 4px; padding: 50px; box-shadow: 0 0 20px rgba(0, 243, 255, 0.03); backdrop-filter: blur(8px); display: flex; flex-direction: column; margin: auto; }
+        .artifact-wrapper { --obsidian: #050507; --neon-gold: #FFD700; --neon-cyan: #00F3FF; background-color: var(--obsidian); color: #E0E0E0; font-family: 'Rajdhani', sans-serif; width: 100vw; height: 100vh; height: 100dvh; overflow: hidden; margin: 0; }
+        .artifact-wrapper::before { content: ""; position: fixed; inset: 0; background-image: linear-gradient(rgba(0, 243, 255, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 243, 255, 0.05) 1px, transparent 1px); background-size: 30px 30px; z-index: 0; pointer-events: none; }
+        .carousel { display: flex; width: 100vw; height: 100vh; height: 100dvh; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; scroll-behavior: smooth; scrollbar-width: none; position: relative; z-index: 10; overscroll-behavior-x: contain; touch-action: pan-x pan-y; }
+        .carousel::-webkit-scrollbar { display: none; }
+        .page { min-width: 100vw; width: 100vw; height: 100vh; height: 100dvh; scroll-snap-align: start; scroll-snap-stop: always; display: flex; justify-content: center; overflow-y: auto; overflow-x: hidden; padding: clamp(1rem, 4vw, 60px) clamp(0.75rem, 4vw, 20px); padding-top: calc(clamp(1rem, 4vw, 60px) + env(safe-area-inset-top)); padding-bottom: calc(clamp(1rem, 4vw, 60px) + env(safe-area-inset-bottom)); box-sizing: border-box; -webkit-overflow-scrolling: touch; }
+        .content { max-width: 900px; width: 100%; background: rgba(18, 18, 21, 0.85); border: 1px solid rgba(0, 243, 255, 0.2); border-radius: 8px; padding: clamp(1.25rem, 5vw, 50px); box-shadow: 0 0 20px rgba(0, 243, 255, 0.03); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); display: flex; flex-direction: column; margin: auto; position: relative; z-index: 2; }
         h1, h2 { font-family: 'Orbitron', sans-serif; text-transform: uppercase; text-align: center; letter-spacing: 2px; }
-        h1 { color: var(--neon-gold); text-shadow: 0 0 12px rgba(255, 215, 0, 0.5); font-size: 3.5rem; }
-        h2 { color: var(--neon-cyan); border-bottom: 1px solid rgba(0, 243, 255, 0.3); padding-bottom: 15px; margin-bottom: 30px; }
-        .author { text-align: center; color: var(--neon-cyan); font-size: 1.2rem; letter-spacing: 2px; text-transform: uppercase; }
-        ul { list-style-type: none; padding: 0; flex-grow: 1; }
-        li { margin-bottom: 18px; line-height: 1.7; font-size: 1.15rem; position: relative; padding-left: 25px; }
+        h1 { color: var(--neon-gold); text-shadow: 0 0 12px rgba(255, 215, 0, 0.5); font-size: clamp(1.9rem, 7vw, 3.5rem); line-height: 1.2; margin: 0 0 1rem 0; }
+        h2 { color: var(--neon-cyan); border-bottom: 1px solid rgba(0, 243, 255, 0.3); padding-bottom: 15px; margin: 0 0 1.75rem 0; font-size: clamp(1rem, 3.5vw, 1.4rem); }
+        .author { text-align: center; color: var(--neon-cyan); font-size: clamp(1rem, 3vw, 1.2rem); letter-spacing: 2px; text-transform: uppercase; line-height: 1.6; }
+        ul { list-style-type: none; padding: 0; margin: 0; flex-grow: 1; }
+        li { margin-bottom: 1.1rem; line-height: 1.75; font-size: clamp(1.05rem, 2.8vw, 1.15rem); position: relative; padding-left: 1.6rem; color: #d8d8d8; }
         li::before { content: "►"; color: var(--neon-gold); position: absolute; left: 0; top: 2px; font-size: 0.8rem; }
-        .footer { text-align: center; font-family: 'Orbitron', sans-serif; color: rgba(255, 215, 0, 0.6); font-size: 0.85rem; letter-spacing: 3px; text-transform: uppercase; margin-top: 40px; padding-top: 20px; border-top: 1px solid rgba(0, 243, 255, 0.15); }
-        .cover-page { background: #050508; background-size: cover; background-position: center; box-shadow: inset 0 0 100px rgba(0,0,0,0.9); }
-        .loading-screen { position: fixed; inset: 0; background: #050507; display: flex; justify-content: center; align-items: center; color: #fe53bb; font-family: 'Orbitron', sans-serif; font-size: 2rem; z-index: 9999; }
+        .footer { text-align: center; font-family: 'Orbitron', sans-serif; color: rgba(255, 215, 0, 0.6); font-size: 0.8rem; letter-spacing: 3px; text-transform: uppercase; margin-top: 2.5rem; padding-top: 1.25rem; border-top: 1px solid rgba(0, 243, 255, 0.15); line-height: 1.8; }
+        .cover-page { background: #050508; background-size: cover; background-position: center; box-shadow: inset 0 0 100px rgba(0,0,0,0.9); align-items: stretch; }
+        .cover-page .content { background: transparent; border: none; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+        .loading-screen { position: fixed; inset: 0; background: #050507; display: flex; justify-content: center; align-items: center; text-align: center; padding: 2rem; color: #fe53bb; font-family: 'Orbitron', sans-serif; font-size: clamp(1.1rem, 4.5vw, 2rem); letter-spacing: 2px; line-height: 1.8; z-index: 9999; }
+        .back-btn { position: fixed; top: calc(14px + env(safe-area-inset-top)); left: 14px; z-index: 50000; background: rgba(5, 5, 8, 0.85); border: 1px solid var(--neon-cyan); color: var(--neon-cyan); min-height: 44px; min-width: 44px; padding: 0.6rem 1.1rem; border-radius: 8px; font-family: 'Orbitron', sans-serif; font-weight: bold; font-size: 0.8rem; letter-spacing: 1px; cursor: pointer; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+        .back-btn:hover { background: var(--neon-cyan); color: #000; }
+        .back-btn:focus-visible { outline: 2px solid var(--neon-cyan); outline-offset: 2px; }
+        .page-hint { position: fixed; bottom: calc(16px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); font-family: monospace; font-size: 0.75rem; color: #888; background: rgba(0,0,0,0.8); padding: 6px 18px; border-radius: 20px; border: 1px solid #333; z-index: 40000; pointer-events: none; white-space: nowrap; }
+        @media (prefers-reduced-motion: reduce) { .carousel { scroll-behavior: auto; } }
       `}</style>
-      
+
       <div className="artifact-wrapper">
-        {loadingMsg && <div className="loading-screen">{loadingMsg}</div>}
-        
+        <button className="back-btn" onClick={goBack} aria-label="Back to the Alexandria library">← Library</button>
+        {loadingMsg && <div className="loading-screen" role="status">{loadingMsg}</div>}
+
         <div className="carousel" id="book-carousel">
-          <div className="page cover-page" style={{backgroundImage: coverUrl ? `url('${coverUrl}')` : 'none'}}></div>
-          
+          <div className="page cover-page" style={{ backgroundImage: coverUrl ? `url('${coverUrl}')` : 'none' }} aria-label="Book cover"></div>
+
           <div className="page">
-            <div className="content" style={{justifyContent: 'center', textAlign: 'center', height: '100%'}}>
-              <div style={{flexGrow: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center'}}>
+            <div className="content" style={{ justifyContent: 'center', textAlign: 'center' }}>
+              <div style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                 <h1>{meta.title}</h1>
-                <div className="author">Written by: {meta.author}</div>
+                <div className="author">Written by {meta.author}</div>
               </div>
-              <div className="footer">Powered By Olympus</div>
+              <div className="footer">Powered by Olympus</div>
             </div>
           </div>
 
           {chapters.map((chap, idx) => (
-            <div className="page" key={idx}>
+            <div className="page" key={idx} aria-label={`Chapter ${idx + 1} of ${chapters.length}`}>
               <div className="content">
-                <h2>CHAPTER {idx + 1}</h2>
+                <h2>Chapter {idx + 1} of {chapters.length}</h2>
                 <ul>
                   {chap.split('\n').filter(l => l.trim() !== '').map((line, i) => (
                     <li key={i}>{line}</li>
                   ))}
                 </ul>
-                <div className="footer">HARDCOPY PUBLISHER CONTRACTS WELCOME</div>
+                <div className="footer">Hardcopy publisher contracts welcome</div>
               </div>
             </div>
           ))}
         </div>
+        {!loadingMsg && chapters.length > 0 && (
+          <div className="page-hint">← Swipe to turn pages →</div>
+        )}
       </div>
     </>
   );
 }
-
-
