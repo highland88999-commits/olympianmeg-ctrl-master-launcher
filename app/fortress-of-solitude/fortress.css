@@ -1,0 +1,38 @@
+:root { 
+  --cyan: #00ffff; 
+  --bg: rgba(0, 5, 10, 0.98); 
+  --neon-cyan: #00ffff;
+  --panel-dark: rgba(2, 6, 14, 0.97);
+  --god-gold: #ffd700;
+  --elder-purple: #b026ff;
+  --krypt-green: #00ff66;
+}
+
+.glass-panel {
+  background: rgba(0, 5, 10, 0.85);
+  border: 1px solid var(--cyan);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 0 15px rgba(0,255,255,0.2);
+}
+
+.btn {
+  background: rgba(0,0,0,0.6); 
+  border: 1px solid var(--cyan); 
+  color: var(--cyan);
+  padding: 12px 15px; 
+  border-radius: 30px; 
+  cursor: pointer; 
+  font-size: 10px;
+  text-transform: uppercase; 
+  font-weight: 800; 
+  letter-spacing: 1px; 
+  transition: 0.3s;
+  white-space: nowrap;
+}
+
+.btn:hover { 
+  box-shadow: 0 0 20px var(--cyan); 
+  background: rgba(0,255,255,0.2); 
+}
+
+
