@@ -26,6 +26,9 @@ import King from '@/components/chess/pieces/King';
 import { useChessEngine } from '@/hooks/chess/useChessEngine';
 import { useMatchmaking } from '@/hooks/chess/useMatchmaking';
 
+// OASIS — universal multiplayer lobby (min-max participation, NPC backfill, bosses)
+import OasisLobby from '@/components/oasis/Lobby';
+
 const PIECE_COMPONENTS = {
   pawn: Pawn,
   knight: Knight,
@@ -67,7 +70,10 @@ function MarsBackground() {
 export default function QuantumChess() {
   const router = useRouter();
   const [user, setUser] = useState<string | null>(null);
-  const [mode, setMode] = useState<string | null>(null); 
+  const [userId, setUserId] = useState<string | null>(null);
+  const [mode, setMode] = useState<string | null>(null);
+  const [oasisOpen, setOasisOpen] = useState(false);
+  const [npcName, setNpcName] = useState<string | null>(null);
   const [selectedPieceId, setSelectedPieceId] = useState<number | null>(null);
   
   const [cyanSkinTex, setCyanSkinTex] = useState<THREE.VideoTexture | null>(null);
@@ -88,13 +94,17 @@ export default function QuantumChess() {
       
       const cached = localStorage.getItem('nexus_user');
       setUser(cached || session.user.email?.split('@')[0].toUpperCase() || 'OPERATOR');
+      setUserId(session.user.id);
+      // Universal deep link: /chess?code=XXXXXX opens the OASIS lobby, which auto-joins.
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('code')) setOasisOpen(true);
     };
     initSession();
   }, [router]);
 
   const { 
     sectorId, playerColor, gameStatus, opponentMove, opponentResigned,
-    hostMatch, joinMatch, broadcastMove, broadcastResign,
+    hostMatch, joinMatch, adoptRoom, broadcastMove, broadcastResign,
     broadcastState, fullStateSync, hostNeedsToSync 
   } = useMatchmaking(user);
   
@@ -214,9 +224,34 @@ export default function QuantumChess() {
   }, [currentTurn, mode, isGameOver, pieces, isValidMove, executeMove]);
 
   const handleModeSelect = async (selectedMode: string, code: string | null = null) => {
+    if (selectedMode === 'oasis') { setOasisOpen(true); return; }
     setMode(selectedMode);
     if (selectedMode === 'host') { await hostMatch(); setMode('global'); }
     if (selectedMode === 'join' && code) { await joinMatch(code); setMode('global'); }
+  };
+
+  // OASIS lobby launch: PvP rooms adopt the shared DB transport; NPC/boss
+  // seats fall back to the local AI engine branded with the rival's name
+  // (Merlin's min-max rule: nobody waits forever for a human opponent).
+  const handleOasisLaunch = async ({ mode: launchMode, room, roster, boss }: any) => {
+    const humans = (roster || []).filter((s: any) => s.kind === 'human');
+    const rivals = (roster || []).filter((s: any) => s.kind !== 'human');
+    const rivalName = boss ? boss.name : rivals[0]?.name || null;
+
+    if (launchMode === 'pvp' && room && humans.length >= 2) {
+      const isHost = room.host_id === userId;
+      const ok = await adoptRoom(room.room_code, isHost ? 'cyan' : 'pink');
+      if (ok) {
+        setNpcName(null);
+        setOasisOpen(false);
+        setMode('global');
+        return;
+      }
+    }
+    // Solo vs NPC / boss, or a PvP room that backfilled to NPCs: play the AI.
+    setNpcName(rivalName);
+    setOasisOpen(false);
+    setMode('ai');
   };
 
   const handleTileClick = (x: number, z: number) => {
@@ -249,14 +284,25 @@ export default function QuantumChess() {
         EXIT MATRIX
       </button>
 
-      {!mode && <Modes onSelectMode={handleModeSelect} />}
+      {!mode && !oasisOpen && <Modes onSelectMode={handleModeSelect} />}
+
+      {oasisOpen && !mode && userId && (
+        <OasisLobby
+          gameSlug="chess"
+          supabase={supabase}
+          userId={userId}
+          callsign={user || 'OPERATOR'}
+          onLaunch={handleOasisLaunch}
+          onExit={() => setOasisOpen(false)}
+        />
+      )}
       
       {mode && (
         <>
           <HUD 
             user={user} sectorId={sectorId} gameMode={mode} gameStatus={gameStatus}
             currentTurn={currentTurn} playerColor={playerColor || 'cyan'} 
-            isCheck={isCheck} 
+            isCheck={isCheck} opponentName={mode === 'ai' ? npcName : null}
             onResign={() => {
               resignGame(playerColor);
               broadcastResign();

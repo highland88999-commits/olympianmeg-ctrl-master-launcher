@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 
-export default function HUD({ user, sectorId, gameMode, gameStatus, currentTurn, playerColor, isCheck, onResign }) {
+export default function HUD({ user, sectorId, gameMode, gameStatus, currentTurn, playerColor, isCheck, onResign, opponentName }) {
   const isYourTurn = currentTurn === playerColor;
   const [copied, setCopied] = useState(false);
   const [isNetworkOpen, setIsNetworkOpen] = useState(true);
@@ -10,7 +10,9 @@ export default function HUD({ user, sectorId, gameMode, gameStatus, currentTurn,
   const handleCopy = () => { navigator.clipboard.writeText(sectorId); setCopied(true); setTimeout(() => setCopied(false), 2000); };
 
   const handleShare = async () => {
-    const shareUrl = `https://wizards-chess-five.vercel.app/?code=${sectorId}`;
+    // Share links stay inside the master launcher (current origin), never a
+    // hardcoded standalone deployment.
+    const shareUrl = `${window.location.origin}/chess?code=${sectorId}`;
     if (navigator.share) {
       try { await navigator.share({ title: 'Quantum Chess', text: `Join my orbital combat sector! Code: ${sectorId}`, url: shareUrl }); } catch (err) { console.log('Share canceled or failed.', err); }
     } else {
@@ -29,7 +31,7 @@ export default function HUD({ user, sectorId, gameMode, gameStatus, currentTurn,
             <div className="flex items-center gap-3">
               <div className={`w-3 h-3 rounded-full shadow-[0_0_10px] ${isYourTurn && gameStatus !== 'waiting' ? 'bg-cyan-400 shadow-cyan-400' : 'bg-fuchsia-500 shadow-fuchsia-500'} animate-pulse`} />
               <span className="text-lg font-bold tracking-wider text-white uppercase sm:text-xl">
-                {gameMode === 'global' && gameStatus === 'waiting' ? <span className="text-fuchsia-400 animate-pulse">Awaiting Opponent...</span> : isCheck ? <span className="text-red-500">CHECK WARNING — {currentTurn}</span> : isYourTurn ? 'Your Turn' : 'Enemy Calculating...'}
+                {gameMode === 'global' && gameStatus === 'waiting' ? <span className="text-fuchsia-400 animate-pulse">Awaiting Opponent...</span> : isCheck ? <span className="text-red-500">CHECK WARNING — {currentTurn}</span> : isYourTurn ? 'Your Turn' : opponentName ? `VS ${opponentName}` : 'Enemy Calculating...'}
               </span>
             </div>
           </div>

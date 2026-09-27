@@ -21,6 +21,7 @@ const ZEUS_POS = [ORBIT_CENTER.x, ORBIT_CENTER.y, ORBIT_CENTER.z + ORBIT_RADIUS]
 const ARES_POS = [ORBIT_CENTER.x + Math.sin((Math.PI * 2) / 10) * ORBIT_RADIUS, ORBIT_CENTER.y, ORBIT_CENTER.z + Math.cos((Math.PI * 2) / 10) * ORBIT_RADIUS];
 const THOTH_POS = [ORBIT_CENTER.x + Math.sin((Math.PI * 4) / 10) * ORBIT_RADIUS, ORBIT_CENTER.y, ORBIT_CENTER.z + Math.cos((Math.PI * 4) / 10) * ORBIT_RADIUS];
 const ARGUS_POS = [ORBIT_CENTER.x + Math.sin((Math.PI * 6) / 10) * ORBIT_RADIUS, ORBIT_CENTER.y, ORBIT_CENTER.z + Math.cos((Math.PI * 6) / 10) * ORBIT_RADIUS];
+const BABEL_POS = [ORBIT_CENTER.x + Math.sin((Math.PI * 7) / 10) * ORBIT_RADIUS, ORBIT_CENTER.y, ORBIT_CENTER.z + Math.cos((Math.PI * 7) / 10) * ORBIT_RADIUS];
 const MEDUSA_POS = [ORBIT_CENTER.x + Math.sin((Math.PI * 8) / 10) * ORBIT_RADIUS, ORBIT_CENTER.y, ORBIT_CENTER.z + Math.cos((Math.PI * 8) / 10) * ORBIT_RADIUS];
 
 function EarthBackground() {
@@ -672,6 +673,14 @@ export default function NexusHub() {
                     <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Streetball</span>
                     <span className="text-[10px] text-zinc-500 uppercase mt-1">Full-Court Shootout</span>
                   </button>
+                  <button onClick={() => launchPocketUniverse('/colosseum', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
+                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Colosseum</span>
+                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Arena Battler</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/underworld', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
+                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Underworld</span>
+                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Game Discovery Catalog</span>
+                  </button>
                 </div>
 
                 {/* 2. UTILITIES (ARES) */}
@@ -692,9 +701,9 @@ export default function NexusHub() {
                     <span className="text-sm font-black text-zinc-400 tracking-widest uppercase group-hover:text-white">Fortress of Solitude</span>
                     <span className="text-[10px] text-zinc-600 uppercase mt-1">Secure 3D Data Vault</span>
                   </button>
-                  <button onClick={() => launchPocketUniverse('/colosseum', ARES_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-fuchsia-500/30 rounded hover:bg-fuchsia-500/20 transition-all group">
-                    <span className="text-sm font-black text-zinc-400 tracking-widest uppercase group-hover:text-white">Colosseum</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Network Telemetry</span>
+                  <button onClick={() => launchPocketUniverse('/ares', ARES_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-red-500/40 rounded hover:bg-red-500/20 transition-all group">
+                    <span className="text-sm font-black text-zinc-400 tracking-widest uppercase group-hover:text-white">Ares Console</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Threat Monitoring & Defense</span>
                   </button>
                 </div>
 
@@ -712,6 +721,10 @@ export default function NexusHub() {
                     <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Nexus Codex</span>
                     <span className="text-[10px] text-zinc-600 uppercase mt-1">Alexandria Archive</span>
                   </button>
+                  <button onClick={() => launchPocketUniverse('/world-engine', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
+                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">World Engine</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">AI 3D World Builder</span>
+                  </button>
                 </div>
 
                 {/* 4. OBSERVATORY (ARGUS) */}
@@ -727,6 +740,18 @@ export default function NexusHub() {
                   <button onClick={() => launchPocketUniverse('/olympus', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
                     <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Olympus</span>
                     <span className="text-[10px] text-zinc-600 uppercase mt-1">Grand Multiverse Store</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/babel', BABEL_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
+                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Babel</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Tower of Pocket Universes</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/hermes', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
+                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Hermes</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Paid Link Directory</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/agora', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
+                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Agora</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Community Town Square</span>
                   </button>
                 </div>
 
