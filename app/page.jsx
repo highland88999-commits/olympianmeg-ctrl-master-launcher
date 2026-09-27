@@ -696,6 +696,10 @@ export default function NexusHub() {
                   <button onClick={() => launchPocketUniverse('/excalibur', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
                     <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Excalibur</span>
                     <span className="text-[10px] text-zinc-500 uppercase mt-1">Sword in the Stone</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/guillotine', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
+                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Guillotine</span>
+                    <span className="text-[10px] text-zinc-500 uppercase mt-1">300-Year-Old Machine in 3D</span>
                   </button>                </div>
 
                 {/* 2. UTILITIES (ARES) */}
