@@ -1,0 +1,10 @@
+{
+  "programName": "Omega Protocol",
+  "maxFloors": 150,
+  "baseMaterial": "obsidian_glass",
+  "generationRules": {
+    "taperFactor": 0.85,
+    "neonBanding": true,
+    "collisionEnabled": true
+  }
+}
