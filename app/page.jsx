@@ -636,6 +636,10 @@ export default function NexusHub() {
                     <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">LUGE</span>
                     <span className="text-[10px] text-zinc-500 uppercase mt-1">Neon Descent Engine</span>
                   </button>
+                  <button onClick={() => launchPocketUniverse('/basketball', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
+                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Streetball</span>
+                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Full-Court Shootout</span>
+                  </button>
                 </div>
 
                 {/* 2. UTILITIES (ARES) */}
@@ -687,6 +691,10 @@ export default function NexusHub() {
                   <button onClick={() => launchPocketUniverse('/aquarium', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
                     <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Aquarium</span>
                     <span className="text-[10px] text-zinc-600 uppercase mt-1">Multi-Node Console</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/olympus', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
+                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Olympus</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Grand Multiverse Store</span>
                   </button>
                 </div>
 
