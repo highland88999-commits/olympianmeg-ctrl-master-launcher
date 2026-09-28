@@ -480,6 +480,15 @@ function NexusHub() {
   }, []);
 
   useEffect(() => {
+    // Device-adaptable menu: start collapsed on phones so the 3D hub is
+    // visible first; the bottom-left menu button opens it on demand.
+    // Runs only on mount (client side), so no SSR window access.
+    if (typeof window !== 'undefined' && window.innerWidth < 640) {
+      setIsMenuExpanded(false);
+    }
+  }, []);
+
+  useEffect(() => {
     const handleKeyDown = (e) => {
       if (appState === 'hub_intro') setAppState('hub_freeroam');
       if(e.key.toLowerCase()==='w') controlsRef.current.keyW = 1;
@@ -616,15 +625,15 @@ function NexusHub() {
         </div>
       )}
       
-      {user && (appState === 'hub_intro' || appState === 'hub_freeroam') && (
+      {(user || cloudOffline) && (appState === 'hub_intro' || appState === 'hub_freeroam') && (
         <>
           <div className="absolute bottom-5 left-5 z-50 flex flex-col items-start gap-4 ui-element pointer-events-auto">
             {isMenuExpanded ? (
-              <div className="bg-zinc-950/90 border border-zinc-800 rounded-xl p-4 shadow-[0_0_30px_rgba(0,0,0,0.5)] backdrop-blur-md w-64 max-h-[70vh] overflow-y-auto custom-scrollbar flex flex-col gap-5">
+              <div className="bg-zinc-950/90 border border-zinc-800 rounded-xl p-4 shadow-[0_0_30px_rgba(0,0,0,0.5)] backdrop-blur-md w-[min(16rem,calc(100vw-2.5rem))] max-h-[70vh] overflow-y-auto custom-scrollbar flex flex-col gap-5">
                 <div className="flex justify-between items-center border-b border-zinc-800 pb-2">
                   <div className="flex flex-col">
                     <span className="text-xs font-bold tracking-widest text-white uppercase">{t('ui.nexusHub')}</span>
-                    <span className="text-[9px] font-mono text-cyan-400 tracking-wider uppercase">{t('ui.operator')}: {user}</span>
+                    <span className="text-[9px] font-mono text-cyan-400 tracking-wider uppercase">{t('ui.operator')}: {user || 'GUEST'}</span>
                   </div>
                   <div className="flex items-center gap-1">
                     <SettingsGear />
@@ -650,18 +659,21 @@ function NexusHub() {
                   );
                 })}
 
-                {/* DISCONNECT */}
+                {/* DISCONNECT — signed-in users only; guests have nothing to disconnect */}
+                {user && (
                 <button 
                   onClick={handleSignOut}
                   className="w-full py-2.5 text-[10px] font-bold tracking-widest text-red-400 uppercase transition-all border border-red-500/30 rounded bg-red-950/20 hover:bg-red-900/40 hover:border-red-500/60 mt-1"
                 >
                   {t('ui.disconnect')}
                 </button>
+                )}
               </div>
             ) : (
               <button 
                 onClick={() => setIsMenuExpanded(true)}
-                className="w-16 h-16 rounded-full flex items-center justify-center shadow-[0_0_25px_rgba(0,255,255,0.4)] hover:scale-105 transition-all overflow-hidden border-2 border-cyan-500 relative"
+                aria-label="Open menu"
+                className="w-16 h-16 rounded-full flex items-center justify-center shadow-[0_0_25px_rgba(0,255,255,0.4)] hover:scale-105 transition-all overflow-hidden border-2 border-cyan-500 relative bg-cyan-950/60"
               >
                 <video src="/gemini_generated_video_758D2655.mov" autoPlay loop muted playsInline className="absolute inset-0 w-full h-full object-cover scale-110" />
               </button>
@@ -689,7 +701,7 @@ function NexusHub() {
         </>
       )}
 
-      {user && (appState === 'diving_to_earth' || appState === 'earth_surface' || appState === 'earth_travel') && (
+      {(user || cloudOffline) && (appState === 'diving_to_earth' || appState === 'earth_surface' || appState === 'earth_travel') && (
         <EarthConsole
           focus={earthFocus}
           phase={appState}
@@ -698,7 +710,7 @@ function NexusHub() {
         />
       )}
 
-      {user && appState === 'hub_freeroam' && (
+      {(user || cloudOffline) && appState === 'hub_freeroam' && (
         <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-40 pointer-events-none">
           <div className="text-[10px] tracking-[0.25em] uppercase text-cyan-300/70 bg-black/40 px-4 py-2 rounded-full border border-cyan-500/20">
             {t('earth.tapHint')}
