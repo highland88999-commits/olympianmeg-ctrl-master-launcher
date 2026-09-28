@@ -50,6 +50,10 @@ function buildWalls() {
   // Right wall + lane floor
   wall(380, 260, 380, 780);
   wall(340, 780, 380, 780, 0.3);
+  // Shooter-lane ceiling: caps the lane so a strong plunge bounces back down
+  // the lane and the one-way gate feeds it into the playfield at a sane speed,
+  // instead of escaping over the top of the table.
+  wall(340, 150, 380, 150);
   // Slingshots (kickers above the inlanes)
   return segs;
 }
@@ -161,6 +165,7 @@ export function createGame() {
     ballSaveTimer: 0,
     gateArmed: false,
     stuckTimer: 0,
+    laneSettleTimer: 0,
     time: 0,
     events: [], // drained each frame by the renderer: {type,x,y,value,text}
     speedMul: 1,
@@ -200,6 +205,7 @@ export function serveBall(game) {
   game.ballSaveTimer = BALL_SAVE_SECONDS;
   game.gateArmed = false;
   game.stuckTimer = 0;
+  game.laneSettleTimer = 0;
   game.mode = 'serve';
   game.events.push({ type: 'serve' });
 }
@@ -246,6 +252,10 @@ function collideSegment(ball, ax, ay, bx, by, rest, surfVx = 0, surfVy = 0) {
 }
 
 function collideArc(ball, arc, rest) {
+  // The shooter lane (x > 340) runs alongside the arc's right end. The arc's
+  // collision band must not reach into the lane and shove the ball mid-launch;
+  // the lane has its own ceiling and the one-way gate handles lane exits.
+  if (ball.x > 340) return false;
   const dx = ball.x - arc.cx;
   const dy = ball.y - arc.cy;
   const dist = Math.hypot(dx, dy);
@@ -320,6 +330,24 @@ export function stepGame(game, dt) {
     substep(game, h);
     remaining -= h;
     if (game.mode !== 'play') break; // drained mid-frame
+  }
+
+  // Shooter-lane recovery: a launch too weak to reach the gate falls back and
+  // settles in the lane. The ball never entered play, so hand it back to the
+  // plunger (serve mode) instead of soft-locking with no way to relaunch.
+  const laneSp = Math.hypot(game.ball.vx, game.ball.vy);
+  const settledInLane =
+    game.mode === 'play' &&
+    game.ball.x > 340 &&
+    game.ball.y > 640 &&
+    laneSp < 60;
+  if (settledInLane) {
+    game.laneSettleTimer += dt;
+    if (game.laneSettleTimer > 0.8) {
+      serveBall(game);
+    }
+  } else {
+    game.laneSettleTimer = 0;
   }
 
   // Stuck-ball rescue: a gentle nudge so the game can never soft-lock.
