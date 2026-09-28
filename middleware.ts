@@ -23,10 +23,13 @@ import { NextResponse } from 'next/server';
 import { scoreRequest } from './lib/ares/heuristics.js';
 import { createRateLimiter } from './lib/ares/rate-limit.js';
 import { isWhitelisted, whitelistFromEnv } from './lib/ares/ip-edge.js';
+import { extractFeatures } from './lib/ares/features.js';
+
+const RATE_MAX = Number(process.env.ARES_RATE_LIMIT_MAX || 120);
 
 const limiter = createRateLimiter({
   windowMs: Number(process.env.ARES_RATE_LIMIT_WINDOW_MS || 60_000),
-  maxHits: Number(process.env.ARES_RATE_LIMIT_MAX || 120),
+  maxHits: RATE_MAX,
 });
 
 const INTERNAL = process.env.ARES_INTERNAL_TOKEN || '';
@@ -46,6 +49,18 @@ function report(url, body) {
     headers: { 'content-type': 'application/json', 'x-ares-internal': INTERNAL },
     body: JSON.stringify(body),
   }).catch(() => {});
+}
+
+// ML fingerprint for the learning pipeline: every reported event carries
+// the numeric feature vector it was scored on, so the evidence log doubles
+// as labeled training data. Pure and edge-safe.
+function mlFingerprint({ userAgent, path, headers, windowHits, windowMax }: {
+  userAgent?: any; path?: any; headers?: any; windowHits?: any; windowMax?: any;
+}) {
+  const { vector, version } = extractFeatures({
+    userAgent, path, headers, windowHits, windowMax,
+  });
+  return { features: vector, feature_version: version };
 }
 
 // Ban list, cached 60s in instance memory.
@@ -79,7 +94,11 @@ export async function middleware(req) {
 
   // 2. Active ban?
   if (phalanxOn && ip !== 'unknown' && (await isBanned(req, ip))) {
-    if (sentinelOn) report(req.url, { ip, eventType: 'blocked_ip_hit', path: url.pathname, userAgent: req.headers.get('user-agent') });
+    if (sentinelOn) report(req.url, {
+      ip, eventType: 'blocked_ip_hit', path: url.pathname,
+      userAgent: req.headers.get('user-agent'),
+      ml: mlFingerprint({ userAgent: req.headers.get('user-agent'), path: url.pathname, headers: req.headers }),
+    });
     return new NextResponse('Forbidden', { status: 403 });
   }
 
@@ -95,6 +114,7 @@ export async function middleware(req) {
         ip, eventType: 'bot_blocked', path: url.pathname,
         userAgent: req.headers.get('user-agent'),
         details: { score: verdict.score, reasons: verdict.reasons },
+        ml: mlFingerprint({ userAgent: req.headers.get('user-agent'), path: url.pathname, headers: req.headers }),
       });
       if (phalanxOn) return new NextResponse('Forbidden', { status: 403 });
     }
@@ -104,7 +124,14 @@ export async function middleware(req) {
   if (ip !== 'unknown') {
     const check = limiter.check(`rl:${ip}`);
     if (!check.allowed) {
-      if (sentinelOn) report(req.url, { ip, eventType: 'rate_limited', path: url.pathname, userAgent: req.headers.get('user-agent') });
+      if (sentinelOn) report(req.url, {
+        ip, eventType: 'rate_limited', path: url.pathname,
+        userAgent: req.headers.get('user-agent'),
+        ml: mlFingerprint({
+          userAgent: req.headers.get('user-agent'), path: url.pathname, headers: req.headers,
+          windowHits: limiter.count(`rl:${ip}`), windowMax: RATE_MAX,
+        }),
+      });
       return new NextResponse('Too many requests. Slow down.', {
         status: 429,
         headers: { 'Retry-After': String(Math.ceil(check.retryAfterMs / 1000)) },
