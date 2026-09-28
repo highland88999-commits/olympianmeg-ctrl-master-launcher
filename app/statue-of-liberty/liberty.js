@@ -80,3 +80,18 @@ export function toScreen(x, y, orbit, zoom, view) {
 export function hotspotById(id) {
   return HOTSPOTS.find((h) => h.id === id) || null;
 }
+
+// 3D anchor points for the hotspot markers, in the procedural monument's
+// local space (same coordinates buildStatueParts() in glb.js uses).
+// y=0 is the ground; the flame tip is ~13.5 units up.
+export const HOTSPOT_ANCHORS_3D = {
+  torch: [1.44, 13.3, 0],
+  crown: [0, 11.1, 0],
+  tablet: [-1.62, 7.9, 0.12],
+  robe: [0, 5.9, 1.0],
+  pedestal: [0, 2.4, 1.8],
+};
+
+export function anchor3DFor(id) {
+  return HOTSPOT_ANCHORS_3D[id] || null;
+}

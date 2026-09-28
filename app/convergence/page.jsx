@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { bandLevels, demoSignal, makeParticle, stepConvergence } from "./engine.js";
+import { bandLevels, demoSignal } from "./engine.js";
+import { createFieldScene } from "./field3d.js";
 
 /**
  * Convergence — audio-reactive particle field.
@@ -21,16 +22,6 @@ export default function ConvergencePage() {
 
   const paramsRef = useRef({ count, strength, hueShift, paused });
   useEffect(() => { paramsRef.current = { count, strength, hueShift, paused }; }, [count, strength, hueShift, paused]);
-
-  function mulberry(seed) {
-    let a = seed >>> 0;
-    return () => {
-      a |= 0; a = (a + 0x6d2b79f5) | 0;
-      let t = Math.imul(a ^ (a >>> 15), 1 | a);
-      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-  }
 
   async function enableMic() {
     setMicError("");
@@ -65,28 +56,20 @@ export default function ConvergencePage() {
     document.title = "Convergence";
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+    // 3D audio-reactive field. The page keeps owning audio + controls.
+    const field = createFieldScene(canvas, { reducedMotion: reduced });
+    // Fixed sample under reduced motion: the field holds one still frame
+    // instead of pulsing with the demo signal or the microphone.
+    const stillLevels = bandLevels(demoSignal(2.5, 128));
+
     function resize() {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const r = canvas.getBoundingClientRect();
-      canvas.width = Math.max(1, Math.floor(r.width * dpr));
-      canvas.height = Math.max(1, Math.floor(r.height * dpr));
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      field.resize(Math.max(1, Math.floor(r.width)), Math.max(1, Math.floor(r.height)));
     }
     resize();
     window.addEventListener("resize", resize);
-
-    const rng = mulberry(20260927);
-    let particles = [];
-    function buildParticles(n) {
-      const w = canvas.clientWidth, h = canvas.clientHeight;
-      particles = [];
-      for (let i = 0; i < n; i++) particles.push(makeParticle(w, h, rng));
-    }
-    buildParticles(paramsRef.current.count);
 
     let running = true;
     let last = performance.now();
@@ -105,50 +88,26 @@ export default function ConvergencePage() {
 
     function frame(now) {
       if (!running) return;
-      const dt = Math.min(0.05, (now - last) / 1000);
+      const dt = reduced ? 0 : Math.min(0.05, (now - last) / 1000);
       last = now;
       const p = paramsRef.current;
-      const w = canvas.clientWidth, h = canvas.clientHeight;
-
-      if (particles.length !== p.count && !reduced) buildParticles(p.count);
-      const lv = currentLevels(now);
-      if (!p.paused) {
-        for (const pt of particles) stepConvergence(pt, lv, w, h, dt, p.strength);
-      }
-
-      ctx.fillStyle = "#000208";
-      ctx.fillRect(0, 0, w, h);
-
-      // core: brightness follows bass, kept small
-      const coreR = 26 + lv.bass * 90;
-      const cg = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, coreR * 2.4);
-      cg.addColorStop(0, `hsla(${p.hueShift},95%,60%,${0.35 + lv.bass * 0.4})`);
-      cg.addColorStop(1, `hsla(${p.hueShift},95%,40%,0)`);
-      ctx.fillStyle = cg;
-      ctx.beginPath(); ctx.arc(w / 2, h / 2, coreR * 2.4, 0, Math.PI * 2); ctx.fill();
-
-      for (const pt of particles) {
-        const hue = (p.hueShift + pt.hue * 0.25 + lv.mid * 60) % 360;
-        ctx.fillStyle = `hsla(${hue},90%,${45 + lv.treble * 30}%,0.85)`;
-        ctx.beginPath(); ctx.arc(pt.x, pt.y, pt.size, 0, Math.PI * 2); ctx.fill();
-      }
+      field.setParams({ count: p.count, strength: p.strength, hueShift: p.hueShift, paused: p.paused });
+      const lv = reduced ? stillLevels : currentLevels(now);
+      field.setState(lv, p.paused ? 0 : dt, reduced ? 0 : now);
+      field.render();
 
       if (now - lastLvlT > 300) {
         lastLvlT = now;
         setLevels({ bass: lv.bass, mid: lv.mid, treble: lv.treble });
       }
-      if (!reduced) requestAnimationFrame(frame);
-    }
-
-    if (reduced) {
-      buildParticles(paramsRef.current.count);
-      frame(performance.now());
-    } else {
       requestAnimationFrame(frame);
     }
 
+    requestAnimationFrame(frame);
+
     return () => {
       running = false;
+      field.dispose();
       window.removeEventListener("resize", resize);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -2,6 +2,9 @@
  * Convergence — audio-reactive convergence field, pure logic. No DOM, no network.
  */
 
+/** World radius of the 3D convergence field (world units). */
+export const FIELD_R = 30;
+
 /** Average a frequency-data slice into bass/mid/treble (0..1). */
 export function bandLevels(freqData) {
   const n = freqData.length;
@@ -84,4 +87,75 @@ export function stepConvergence(p, levels, w, h, dt, strength = 1) {
   if (p.y < 0) p.y = 0;
   if (p.y > h) p.y = h;
   return p;
+}
+
+// ---------------------------------------------------------------------------
+// 3D field: same force model as the 2D version, extended into a volume.
+// Particles live in a sphere of radius FIELD_R around the origin.
+// ---------------------------------------------------------------------------
+
+/** One particle in the 3D convergence field. */
+export function makeParticle3D(rng) {
+  // random direction, radius biased toward the shell so the core reads hollow
+  const u = rng() * 2 - 1;
+  const th = rng() * Math.PI * 2;
+  const s = Math.sqrt(1 - u * u);
+  const r = FIELD_R * (0.35 + rng() * 0.6);
+  return {
+    x: s * Math.cos(th) * r,
+    y: u * r * 0.7,
+    z: s * Math.sin(th) * r,
+    vx: 0,
+    vy: 0,
+    vz: 0,
+    hue: rng() * 360,
+    size: 0.8 + rng() * 2.2,
+    orbit: 0.3 + rng() * 0.9,
+  };
+}
+
+/**
+ * 3D convergence force: pull toward the core ∝ bass, swirl around the
+ * vertical (Y) axis ∝ mid, scatter ∝ treble. Pure function of levels.
+ */
+export function stepConvergence3D(p, levels, dt, strength = 1) {
+  const d = Math.hypot(p.x, p.y, p.z) + 1;
+  // bass: pull toward the core
+  const pull = levels.bass * 900 * strength;
+  p.vx += (-p.x / d) * pull * dt;
+  p.vy += (-p.y / d) * pull * dt;
+  p.vz += (-p.z / d) * pull * dt;
+  // mid: swirl around the Y axis (tangential in the XZ plane)
+  const sw = levels.mid * 320 * strength * p.orbit;
+  p.vx += (-p.z / d) * sw * dt;
+  p.vz += (p.x / d) * sw * dt;
+  // treble: scatter outward along each axis
+  const sc = levels.treble * 260 * strength * 0.5 * dt;
+  p.vx += (p.x < 0 ? -1 : 1) * sc;
+  p.vy += (p.y < 0 ? -1 : 1) * sc;
+  p.vz += (p.z < 0 ? -1 : 1) * sc;
+  // gentle drag
+  p.vx *= 0.985;
+  p.vy *= 0.985;
+  p.vz *= 0.985;
+  p.x += p.vx * dt;
+  p.y += p.vy * dt;
+  p.z += p.vz * dt;
+  // keep inside the field sphere
+  const rr = Math.hypot(p.x, p.y, p.z);
+  if (rr > FIELD_R) {
+    const k = FIELD_R / rr;
+    p.x *= k;
+    p.y *= k;
+    p.z *= k;
+  }
+  return p;
+}
+
+/** Mean distance of particles from the core (0..FIELD_R). Pure diagnostic. */
+export function meanRadius(particles) {
+  if (particles.length === 0) return 0;
+  let sum = 0;
+  for (const p of particles) sum += Math.hypot(p.x, p.y, p.z);
+  return sum / particles.length;
 }

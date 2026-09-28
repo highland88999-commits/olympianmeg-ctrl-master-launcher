@@ -30,6 +30,8 @@ const THOTH_POS = [ORBIT_CENTER.x + Math.sin((Math.PI * 4) / 10) * ORBIT_RADIUS,
 const ARGUS_POS = [ORBIT_CENTER.x + Math.sin((Math.PI * 6) / 10) * ORBIT_RADIUS, ORBIT_CENTER.y, ORBIT_CENTER.z + Math.cos((Math.PI * 6) / 10) * ORBIT_RADIUS];
 const BABEL_POS = [ORBIT_CENTER.x + Math.sin((Math.PI * 7) / 10) * ORBIT_RADIUS, ORBIT_CENTER.y, ORBIT_CENTER.z + Math.cos((Math.PI * 7) / 10) * ORBIT_RADIUS];
 const MEDUSA_POS = [ORBIT_CENTER.x + Math.sin((Math.PI * 8) / 10) * ORBIT_RADIUS, ORBIT_CENTER.y, ORBIT_CENTER.z + Math.cos((Math.PI * 8) / 10) * ORBIT_RADIUS];
+// Merlin's seat — above the hub, apart from every cluster. Everything else orbits it.
+const ARTEMIS_POS = [ORBIT_CENTER.x, ORBIT_CENTER.y + 28, ORBIT_CENTER.z];
 
 function MarsBackground() {
   const marsRef = useRef();
@@ -375,11 +377,12 @@ const ACCENT = {
   THOTH:  { dot: 'bg-emerald-400 shadow-[0_0_5px_#00ff88]', name: 'text-emerald-400', btn: 'bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20', title: 'text-emerald-400 group-hover:text-white', sub: 'text-zinc-600' },
   ARGUS:  { dot: 'bg-amber-400 shadow-[0_0_5px_#ffaa00]', name: 'text-amber-400', btn: 'bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20', title: 'text-amber-400 group-hover:text-white', sub: 'text-zinc-600' },
   MEDUSA: { dot: 'bg-[#33ff66] shadow-[0_0_5px_#33ff66]', name: 'text-[#33ff66]', btn: 'bg-black/40 border border-[#33ff66]/30 rounded hover:bg-[#33ff66]/20', title: 'text-[#33ff66] group-hover:text-white', sub: 'text-zinc-600' },
+  ARTEMIS: { dot: 'bg-[#ffd34d] shadow-[0_0_5px_#ffd34d]', name: 'text-[#ffd34d]', btn: 'bg-black/60 border border-[#ffd34d]/30 rounded hover:bg-[#ffd34d]/20', title: 'text-white group-hover:text-[#ffd34d]', sub: 'text-zinc-500' },
 };
 
 function NexusHub() {
   const { t } = useI18n();
-  const POS_MAP = { ZEUS_POS, ARES_POS, THOTH_POS, ARGUS_POS, BABEL_POS, MEDUSA_POS };
+  const POS_MAP = { ZEUS_POS, ARES_POS, THOTH_POS, ARGUS_POS, BABEL_POS, MEDUSA_POS, ARTEMIS_POS };
 
   const [appState, setAppState] = useState('hub_intro');
   const [isMenuExpanded, setIsMenuExpanded] = useState(true);

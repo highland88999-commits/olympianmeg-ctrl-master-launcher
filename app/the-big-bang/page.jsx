@@ -2,17 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
-  makeParticles,
   stageFor,
   formatYears,
   yearsAfterBang,
   expansionFactor,
-  particlePos,
-  starColor,
-  starBrightness,
-  PLANETS,
-  planetAngle,
 } from "./cosmos";
+import { createUniverseScene } from "./universe3d";
 
 /**
  * The Big Bang — a scrubbable history of the universe, rebuilt.
@@ -29,6 +24,7 @@ export default function BigBangPage() {
   const yearsRef = useRef(null);
   const blurbRef = useRef(null);
   const scrubRef = useRef(null);
+  const [reduced, setReduced] = useState(false); // static scrub-only exhibit when true
   const [ui, setUi] = useState({ playing: false, sound: false, speedIdx: 1 });
   const uiRef = useRef(ui);
   uiRef.current = ui;
@@ -37,126 +33,30 @@ export default function BigBangPage() {
     document.title = "The Big Bang";
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext("2d");
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    setReduced(reduced);
 
-    const particles = makeParticles(20260927, 650);
+    // 3D universe; the page keeps owning the timeline, HUD, and audio.
+    const universe = createUniverseScene(canvas, { reducedMotion: reduced });
     const st = { t: 0.0 };
     const audio = { ctx: null, nodes: null };
 
     function resize() {
-      const dpr = Math.min(2, window.devicePixelRatio || 1);
       const w = canvas.clientWidth;
       const h = canvas.clientHeight;
-      canvas.width = Math.max(1, Math.floor(w * dpr));
-      canvas.height = Math.max(1, Math.floor(h * dpr));
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      universe.resize(Math.max(1, w), Math.max(1, h));
     }
     resize();
     window.addEventListener("resize", resize);
 
-    function smooth(a, b, x) {
-      const k = Math.max(0, Math.min(1, (x - a) / (b - a)));
-      return k * k * (3 - 2 * k);
-    }
-
     function draw(now) {
-      const w = canvas.clientWidth;
-      const h = canvas.clientHeight;
       const t = st.t;
-      const time = now / 1000;
-      ctx.fillStyle = "#010102";
-      ctx.fillRect(0, 0, w, h);
-
-      const cx = w / 2;
-      const cy = h / 2;
-      const R = Math.min(w, h) * 0.44;
-      const tiltX = 0.5;
-
-      // galaxy-stage swirl (skipped under reduced motion)
-      const stage = stageFor(t);
-      const swirlW =
-        stage.id === "galaxies" ? 1 : stage.id === "stars" ? 0.3 : stage.id === "solar" || stage.id === "present" ? 0.15 : 0;
-      const swirl = reduced ? 0 : t * 2.4 * swirlW;
-
-      // the flash: brilliant point at the very beginning
-      if (t < 0.03) {
-        const k = 1 - t / 0.03;
-        const fr = R * (0.15 + expansionFactor(Math.max(t, 0.0005)) * 2);
-        const fg = ctx.createRadialGradient(cx, cy, 1, cx, cy, fr);
-        fg.addColorStop(0, `rgba(255,255,255,${0.95 * k + 0.05})`);
-        fg.addColorStop(0.4, `rgba(255,240,220,${0.5 * k})`);
-        fg.addColorStop(1, "rgba(255,240,220,0)");
-        ctx.fillStyle = fg;
-        ctx.fillRect(cx - fr, cy - fr, fr * 2, fr * 2);
-      }
-
-      // starfield particles
-      const cosS = Math.cos(swirl);
-      const sinS = Math.sin(swirl);
-      const solarBlend = smooth(0.86, 0.96, t);
-      if (solarBlend < 1) {
-        for (const p of particles) {
-          const b = starBrightness(p, t);
-          if (b <= 0.01) continue;
-          const pos = particlePos(p, t, R, tiltX);
-          // swirl rotation in the view plane
-          const x = pos.x * cosS - pos.y * sinS;
-          const y = pos.x * sinS + pos.y * cosS;
-          const [r, g, bl] = starColor(p, t);
-          const a = Math.min(1, b) * (1 - solarBlend);
-          if (a <= 0.02) continue;
-          ctx.fillStyle = `rgba(${r},${g},${bl},${a.toFixed(3)})`;
-          const s = p.size * (0.7 + pos.z / (R + 1) * 0.6);
-          ctx.beginPath();
-          ctx.arc(cx + x, cy + y, Math.max(0.4, s), 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-
-      // solar system crossfade
-      if (solarBlend > 0) {
-        const u = Math.min(1, (t - 0.86) / 0.14);
-        const sr = R * 0.9 * solarBlend;
-        ctx.save();
-        ctx.globalAlpha = solarBlend;
-        // sun (localized glow)
-        const sg = ctx.createRadialGradient(cx, cy, 2, cx, cy, 34);
-        sg.addColorStop(0, "#fff8e8");
-        sg.addColorStop(0.35, "#ffd76e");
-        sg.addColorStop(1, "rgba(255,160,60,0)");
-        ctx.fillStyle = sg;
-        ctx.beginPath();
-        ctx.arc(cx, cy, 34, 0, Math.PI * 2);
-        ctx.fill();
-        // orbits + planets
-        for (const pl of PLANETS) {
-          const or = pl.radius * sr;
-          ctx.strokeStyle = "rgba(160,180,220,0.28)";
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.arc(cx, cy, or, 0, Math.PI * 2);
-          ctx.stroke();
-          const ang = planetAngle(pl, u, pl.radius * 40);
-          const pxp = cx + Math.cos(ang) * or;
-          const pyp = cy + Math.sin(ang) * or * 0.92;
-          ctx.fillStyle = pl.color;
-          ctx.beginPath();
-          ctx.arc(pxp, pyp, pl.size, 0, Math.PI * 2);
-          ctx.fill();
-          if (pl.ring) {
-            ctx.strokeStyle = "rgba(232,216,168,0.7)";
-            ctx.lineWidth = 1.5;
-            ctx.beginPath();
-            ctx.ellipse(pxp, pyp, pl.size * 1.9, pl.size * 0.7, -0.4, 0, Math.PI * 2);
-            ctx.stroke();
-          }
-        }
-        ctx.restore();
-      }
+      universe.setTime(t, reduced ? 0 : 1 / 60);
+      universe.render();
 
       // HUD text
       const years = yearsAfterBang(t);
+      const stage = stageFor(t);
       if (stageNameRef.current) {
         const label = `${stage.name} — ${formatYears(years)} after the bang`;
         if (stageNameRef.current.textContent !== label) stageNameRef.current.textContent = label;
@@ -227,7 +127,9 @@ export default function BigBangPage() {
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
       const U = uiRef.current;
-      if (U.playing) {
+      // Reduced motion: static scrub-only fallback — the timeline never
+      // auto-plays; the visitor moves through cosmic history by scrubbing.
+      if (U.playing && !reduced) {
         st.t += (dt / 75) * SPEEDS[U.speedIdx]; // full timeline ≈ 75s at 1x
         if (st.t >= 1) {
           st.t = 1;
@@ -256,6 +158,7 @@ export default function BigBangPage() {
     raf = requestAnimationFrame(frame);
     return () => {
       cancelAnimationFrame(raf);
+      universe.dispose();
       window.removeEventListener("resize", resize);
       if (audio.ctx) {
         try {
@@ -269,8 +172,10 @@ export default function BigBangPage() {
   }, []);
 
   function togglePlay() {
+    // Under reduced motion the exhibit is scrub-only; Play stays parked.
     if (uiRef.current.t >= 1) window.bigbang && window.bigbang.scrub(0);
-    setUi({ ...ui, playing: !ui.playing });
+    if (uiRef.current.playing) setUi({ ...ui, playing: false });
+    else if (!reduced) setUi({ ...ui, playing: true });
   }
 
   return (
@@ -283,10 +188,12 @@ export default function BigBangPage() {
         <p ref={blurbRef} style={styles.blurb}>Everything there is, smaller than an atom.</p>
       </div>
       <div style={styles.dock}>
-        <button style={styles.btn} onClick={togglePlay} aria-label={ui.playing ? "Pause" : "Play"}>
+        <button style={styles.btn} onClick={togglePlay} aria-label={ui.playing ? "Pause" : "Play"}
+          disabled={reduced} title={reduced ? "Scrub the timeline instead — motion is reduced" : undefined}>
           {ui.playing ? "Pause" : "Play"}
         </button>
-        <button style={styles.btn} onClick={() => window.bigbang && window.bigbang.replay()}>
+        <button style={styles.btn} onClick={() => window.bigbang && window.bigbang.replay()}
+          disabled={reduced} title={reduced ? "Scrub the timeline instead — motion is reduced" : undefined}>
           Replay the bang
         </button>
         <input
