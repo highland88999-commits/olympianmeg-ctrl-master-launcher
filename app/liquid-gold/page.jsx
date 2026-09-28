@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   newState, pourTick, refineTick, barValue, sellBars, buyUpgrade,
   upgradeCost, vatCapacity, flowRate, canSurge, activateSurge,
-  surgeRemaining, surgeCooldownRemaining, UPGRADE_DEFS, TICK,
+  surgeRemaining, surgeCooldownRemaining, togglePour, UPGRADE_DEFS, TICK,
 } from "./engine.js";
 
 /**
@@ -121,25 +121,24 @@ export default function LiquidGoldPage() {
   const pouring = st.pouring;
 
   return (
-    <div style={{ minHeight: "100vh", background: "#060502", color: "#e8cf8a", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", padding: 16, paddingBottom: 40 }}>
+    <div style={{ minHeight: "100dvh", background: "#060502", color: "#e8cf8a", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", padding: 16, paddingBottom: 40 }}>
       <div style={{ maxWidth: 720, margin: "0 auto" }}>
         <h1 style={{ ...gold, fontSize: 20, letterSpacing: 3, textAlign: "center", margin: "8px 0 2px" }}>LIQUID GOLD REFINERY</h1>
-        <p style={{ textAlign: "center", color: "#8a7648", fontSize: 12, marginTop: 0 }}>pour crude · refine to 98% purity · mint bars · sell · upgrade</p>
+        <p style={{ textAlign: "center", color: "#8a7648", fontSize: 12, marginTop: 0 }}>pour crude · refine to 98% purity · bar mints automatically · sell · upgrade</p>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
           <div style={card}>CREDITS<div style={{ fontSize: 22, color: "#ffd34d" }}>{st.credits}</div></div>
           <div style={card}>GOLD BARS<div style={{ fontSize: 22, color: "#ffd34d" }}>{st.bars}</div>
-            <div style={{ fontSize: 11, color: "#8a7648" }}>each worth {barValue(st)}</div></div>
+            <div style={{ fontSize: 11, color: "#8a7648" }}>each worth {barValue(st)}</div>
+            {st.now - st.lastMintAt < 3 && <div style={{ fontSize: 12, color: "#fff3b0", marginTop: 4 }}>⚒ BAR MINTED</div>}</div>
         </div>
 
         <canvas ref={canvasRef} style={{ width: "100%", height: 340, border: "1px solid rgba(255,211,77,0.25)", borderRadius: 10, background: "#060502", display: "block" }} />
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, margin: "12px 0" }}>
           <button style={{ ...btn, background: pouring ? "rgba(120,80,10,0.9)" : btn.background }}
-            onPointerDown={() => { st.pouring = true; }} onPointerUp={() => { st.pouring = false; }}
-            onPointerLeave={() => { st.pouring = false; }}
-            onClick={() => { st.pouring = !st.pouring; rerender(); }}>
-            {pouring ? "POURING… (tap to stop)" : "HOLD / TAP TO POUR"}
+            onClick={() => { togglePour(st); rerender(); }}>
+            {pouring ? "⛽ POURING — TAP TO STOP" : "TAP TO POUR"}
           </button>
           <button style={btn} disabled={st.bars === 0} onClick={() => { sellBars(st); rerender(); }}>
             SELL {st.bars} BAR{st.bars === 1 ? "" : "S"}
@@ -168,6 +167,9 @@ export default function LiquidGoldPage() {
         </div>
 
         <div style={card}>LIFETIME POURED<div style={{ fontSize: 16 }}>{st.pouredTotal.toFixed(1)} L · {st.barsMinted} bars minted</div></div>
+
+        {/* Safari bottom-bar clearance */}
+        <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
       </div>
     </div>
   );
