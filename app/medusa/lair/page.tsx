@@ -3,8 +3,27 @@
 'use client';
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import * as THREE from 'three';
 import { supabase } from '@/lib/supabase';
+
+// Chambers of the lair — the MEDUSA section hub docks every MEDUSA-wave module here.
+const CHAMBERS = [
+  { name: 'ANTI-LIFE', route: '/anti-life', epithet: 'Entropy Core',
+    desc: 'An interactive study of impermanence. Drag through a world that withers — then begin again.' },
+  { name: 'GRIEF GULLY', route: '/grief-gully', epithet: 'Healing Matrix',
+    desc: 'A quiet place to rest: generative soundscapes and a private journal. A companion, not a therapist.' },
+  { name: 'LIFE', route: '/life', epithet: 'Orbital Matrix',
+    desc: 'Six rings in silent orbit around a breathing core. Watch the system align.' },
+  { name: 'MAGIC MIRROR', route: '/magic-mirror', epithet: 'Vortex Mirror',
+    desc: 'A procedural face behind glass. Ask anything — the mirror answers from on-device reflections alone.' },
+  { name: 'MEANING OF LIFE', route: '/meaning-of-life', epithet: 'Visualizer',
+    desc: 'Three movements: Genesis, Interconnection, Transcendence. The universe experiencing itself.' },
+  { name: 'R.E.M.', route: '/rem', epithet: 'Provinces',
+    desc: 'A dream-atlas of Canada — thirteen provinces and territories, every municipality.' },
+  { name: 'THE AFTERLIFE', route: '/the-afterlife', epithet: 'Elysium Odyssey',
+    desc: 'Eight tap-through scenes past the gate. An imagined quiet, not a doctrine.' },
+  { name: 'SURVIVORS PLAYBOOK', route: '/playbook', epithet: '21 Chapters',
+    desc: "Merlin's complete survival doctrine — the expanded twenty-one-chapter edition." },
+];
 
 export default function MedusasLair() {
   const router = useRouter();
@@ -18,7 +37,7 @@ export default function MedusasLair() {
   const [gallery, setGallery] = useState([]);
   const [isVideoActive, setIsVideoActive] = useState(false);
 
-  // Universal Auth Check & Telemetry[span_5](start_span)[span_5](end_span)
+  // Universal Auth Check (telemetry phone-home removed 2026-09-28)
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session) {
@@ -32,80 +51,91 @@ export default function MedusasLair() {
     fetchArtifacts();
   }, [router]);
 
-  // Three.js Vortex Implementation (Replaces iframe[span_6](start_span)[span_6](end_span))
+  // Hand-rolled 2D vortex (replaces the old Three.js scene — no 'three' import needed)
   useEffect(() => {
     if (!mounted || !canvasRef.current) return;
-    
-    let reqId;
+
     const canvas = canvasRef.current;
-    const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(0x030305, 0.05); 
+    const ctx = canvas.getContext('2d');
+    let reqId;
+    let w = 0, h = 0, cx = 0, cy = 0;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
-    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.z = 5;
-
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); 
-
-    const particleCount = 2500;
-    const geometry = new THREE.BufferGeometry();
-    const positions = new Float32Array(particleCount * 3);
-    const colors = new Float32Array(particleCount * 3);
-
-    const colorCyan = new THREE.Color(0x00f3ff);
-    const colorPink = new THREE.Color(0xbc00ff);
-
-    for (let i = 0; i < particleCount; i++) {
-        const z = Math.random() * 40 - 20; 
-        const angle = Math.random() * Math.PI * 2 + (z * 0.5); 
-        const radius = 2 + Math.random() * 1.5; 
-
-        positions[i * 3] = Math.cos(angle) * radius;    
-        positions[i * 3 + 1] = Math.sin(angle) * radius; 
-        positions[i * 3 + 2] = z;                        
-
-        const mixedColor = Math.random() > 0.5 ? colorCyan : colorPink;
-        colors[i * 3] = mixedColor.r;
-        colors[i * 3 + 1] = mixedColor.g;
-        colors[i * 3 + 2] = mixedColor.b;
-    }
-
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-
-    const material = new THREE.PointsMaterial({
-        size: 0.05,
-        vertexColors: true,
-        transparent: true,
-        opacity: 0.8,
-        blending: THREE.AdditiveBlending 
-    });
-
-    const vortexMesh = new THREE.Points(geometry, material);
-    scene.add(vortexMesh);
-
-    function animate() {
-        reqId = requestAnimationFrame(animate);
-        vortexMesh.rotation.z -= 0.002; 
-        camera.position.z -= 0.01;
-        if (camera.position.z < -10) {
-            camera.position.z = 5; 
-        }
-        renderer.render(scene, camera);
-    }
-    animate();
-
-    const handleResize = () => {
-        camera.aspect = window.innerWidth / window.innerHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(window.innerWidth, window.innerHeight);
+    const resize = () => {
+      w = window.innerWidth; h = window.innerHeight;
+      canvas.width = Math.floor(w * dpr); canvas.height = Math.floor(h * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      cx = w / 2; cy = h / 2;
     };
-    window.addEventListener('resize', handleResize);
+    resize();
 
+    const reduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    const maxR = () => Math.hypot(w, h) / 2;
+
+    const spawn = (p, anywhere) => {
+      const R = maxR();
+      p.a = Math.random() * Math.PI * 2;
+      p.r = anywhere ? R * (0.25 + Math.random() * 0.75) : R * (0.92 + Math.random() * 0.08);
+      p.spin = 0.0016 + Math.random() * 0.0032;
+      p.inward = R * (0.0006 + Math.random() * 0.0012);
+      p.cyan = Math.random() > 0.42;
+      p.tw = Math.random() * Math.PI * 2;
+      return p;
+    };
+
+    const N = 700;
+    const P = [];
+    for (let i = 0; i < N; i++) P.push(spawn({}, true));
+
+    const draw = (t) => {
+      ctx.clearRect(0, 0, w, h);
+      const R = maxR();
+      ctx.globalCompositeOperation = 'lighter';
+      for (const p of P) {
+        const depth = 1 - p.r / R; // 0 at rim → 1 at the eye
+        const x = cx + Math.cos(p.a) * p.r;
+        const y = cy + Math.sin(p.a) * p.r * 0.62; // elliptical tilt, like looking down a funnel
+        const twinkle = 0.55 + 0.45 * Math.sin(t * 0.001 + p.tw);
+        const alpha = (0.10 + 0.55 * depth) * twinkle;
+        const size = 0.6 + 2.6 * depth;
+        ctx.beginPath();
+        ctx.fillStyle = p.cyan
+          ? 'rgba(0,243,255,' + alpha.toFixed(3) + ')'
+          : 'rgba(188,0,255,' + alpha.toFixed(3) + ')';
+        ctx.arc(x, y, size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // Restrained glow at the eye of the vortex (lighting rule: never drown the scene)
+      const gr = R * 0.16;
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, gr);
+      g.addColorStop(0, 'rgba(0,243,255,0.10)');
+      g.addColorStop(1, 'rgba(0,243,255,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(cx - gr, cy - gr, gr * 2, gr * 2);
+      ctx.globalCompositeOperation = 'source-over';
+    };
+
+    if (reduced) { draw(0); return; }
+
+    let last = performance.now();
+    const frame = (now) => {
+      const dt = Math.min(50, now - last); last = now;
+      const k = dt / 16.667;
+      const floor = maxR() * 0.03;
+      for (const p of P) {
+        p.a += p.spin * k;
+        p.r -= p.inward * k;
+        if (p.r < floor) spawn(p, false);
+      }
+      draw(now);
+      reqId = requestAnimationFrame(frame);
+    };
+    reqId = requestAnimationFrame(frame);
+
+    window.addEventListener('resize', resize);
     return () => {
-        cancelAnimationFrame(reqId);
-        window.removeEventListener('resize', handleResize);
+      cancelAnimationFrame(reqId);
+      window.removeEventListener('resize', resize);
     };
   }, [mounted]);
 
@@ -233,7 +263,7 @@ export default function MedusasLair() {
         EXIT LAIR
       </button>
 
-      {/* 3D Vortex Background */}
+      {/* 2D Vortex Background (hand-rolled canvas — no three.js) */}
       <canvas ref={canvasRef} className="absolute inset-0 z-[1] w-full h-full pointer-events-none" />
       
       {/* Medusa Video Layer (Fades in/out) */}
@@ -253,49 +283,73 @@ export default function MedusasLair() {
             <div className="text-sm text-[#bc00ff] drop-shadow-[0_0_5px_#bc00ff] hidden sm:block">[ AUTH: ARTEMIS ] // SYSTEM: ONLINE</div>
         </header>
 
-        <div className="w-[95%] max-w-[1200px] grid grid-cols-1 md:grid-cols-2 gap-5 mt-5">
-            
-            {/* Control Panel */}
-            <div className="bg-[rgba(10,10,15,0.85)] border border-[#00f3ff] p-5 flex flex-col gap-4 backdrop-blur-md">
-                <div className="text-lg text-[#00f3ff] border-b border-[#00f3ff] pb-1">UPLINK COMMAND</div>
-                <textarea 
-                    value={promptText}
-                    onChange={(e) => setPromptText(e.target.value)}
-                    rows={4} 
-                    placeholder="Command Medusa... (e.g., 'Turn to stone a cyberpunk warrior')"
-                    className="bg-black/50 border border-[#00f3ff] text-[#00f3ff] p-3 resize-y outline-none focus:shadow-[0_0_8px_rgba(0,243,255,0.5)]"
-                />
-                <input 
-                    type="file" 
-                    onChange={(e) => setFile(e.target.files[0])}
-                    accept="image/*" 
-                    className="bg-black/50 border border-[#00f3ff] text-[#00f3ff] p-2"
-                />
-                <button 
-                    onClick={triggerGeminiUplink}
-                    disabled={loading}
-                    className="bg-transparent text-[#bc00ff] border-2 border-[#bc00ff] p-3 text-lg font-bold uppercase transition-all hover:bg-[#bc00ff] hover:text-black hover:shadow-[0_0_10px_rgba(188,0,255,0.4)] disabled:opacity-50"
-                >
-                    {loading ? 'TRANSMITTING...' : 'TRANSMIT TO MEDUSA'}
-                </button>
-            </div>
+        <div className="w-[95%] max-w-[1200px] mt-5 flex flex-col gap-5">
 
-            {/* Session Logs */}
-            <div className="bg-[rgba(10,10,15,0.85)] border border-[#00f3ff] p-5 flex flex-col gap-4 backdrop-blur-md max-h-[400px]">
-                <div className="text-lg text-[#00f3ff] border-b border-[#00f3ff] pb-1">SESSION LOGS</div>
-                <div className="flex flex-col gap-2 overflow-y-auto custom-scrollbar pr-2">
-                    {logs.map((log, idx) => (
-                        <div key={idx} className={`p-3 text-sm ${log[1].includes('CRITICAL ERROR') ? 'bg-red-900/20 border-l-4 border-red-500 text-white' : 'bg-[#bc00ff]/10 border-l-4 border-[#bc00ff] text-white'}`}>
-                            <div className="text-[#00f3ff] mb-1">Q: {log[0]}</div>
-                            {log[1] === "ARCHIVED_IMAGE" ? <span className="text-[#bc00ff]">[ IMAGE PETRIFIED AND ARCHIVED ]</span> : <div>{log[1]}</div>}
-                        </div>
+            {/* Chambers of the Lair — MEDUSA section hub */}
+            <div className="bg-[rgba(10,10,15,0.85)] border border-[#bc00ff] p-5 backdrop-blur-md">
+                <div className="text-lg text-[#bc00ff] border-b border-[#bc00ff] pb-1">CHAMBERS OF THE LAIR // MEDUSA SECTION HUB</div>
+                <p className="text-zinc-400 text-sm mt-2">Eight chambers orbit this lair — each a pocket universe of its own. Enter where you are called.</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
+                    {CHAMBERS.map((c) => (
+                        <button
+                            key={c.route}
+                            onClick={() => router.push(c.route)}
+                            className="text-left border border-[#00f3ff]/40 bg-black/50 p-4 flex flex-col gap-2 hover:border-[#00f3ff] hover:bg-[#00f3ff]/10 transition-all group min-h-[44px]"
+                        >
+                            <div className="text-[#00f3ff] font-bold tracking-widest text-sm group-hover:text-white">{c.name}</div>
+                            <div className="text-[10px] text-[#bc00ff] tracking-widest uppercase">{c.epithet}</div>
+                            <div className="text-xs text-zinc-400 leading-relaxed">{c.desc}</div>
+                            <div className="text-[10px] text-[#00f3ff] tracking-widest uppercase mt-auto pt-2">Enter →</div>
+                        </button>
                     ))}
-                    {logs.length === 0 && <div className="text-zinc-500 italic">No comms established in this session.</div>}
                 </div>
             </div>
 
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            
+                {/* Control Panel */}
+                <div className="bg-[rgba(10,10,15,0.85)] border border-[#00f3ff] p-5 flex flex-col gap-4 backdrop-blur-md">
+                    <div className="text-lg text-[#00f3ff] border-b border-[#00f3ff] pb-1">UPLINK COMMAND</div>
+                    <textarea 
+                        value={promptText}
+                        onChange={(e) => setPromptText(e.target.value)}
+                        rows={4} 
+                        placeholder="Command Medusa... (e.g., 'Turn to stone a cyberpunk warrior')"
+                        className="bg-black/50 border border-[#00f3ff] text-[#00f3ff] p-3 resize-y outline-none focus:shadow-[0_0_8px_rgba(0,243,255,0.5)]"
+                    />
+                    <input 
+                        type="file" 
+                        onChange={(e) => setFile(e.target.files[0])}
+                        accept="image/*" 
+                        className="bg-black/50 border border-[#00f3ff] text-[#00f3ff] p-2"
+                    />
+                    <button 
+                        onClick={triggerGeminiUplink}
+                        disabled={loading}
+                        className="bg-transparent text-[#bc00ff] border-2 border-[#bc00ff] p-3 text-lg font-bold uppercase transition-all hover:bg-[#bc00ff] hover:text-black hover:shadow-[0_0_10px_rgba(188,0,255,0.4)] disabled:opacity-50"
+                    >
+                        {loading ? 'TRANSMITTING...' : 'TRANSMIT TO MEDUSA'}
+                    </button>
+                </div>
+
+                {/* Session Logs */}
+                <div className="bg-[rgba(10,10,15,0.85)] border border-[#00f3ff] p-5 flex flex-col gap-4 backdrop-blur-md max-h-[400px]">
+                    <div className="text-lg text-[#00f3ff] border-b border-[#00f3ff] pb-1">SESSION LOGS</div>
+                    <div className="flex flex-col gap-2 overflow-y-auto custom-scrollbar pr-2">
+                        {logs.map((log, idx) => (
+                            <div key={idx} className={`p-3 text-sm ${log[1].includes('CRITICAL ERROR') ? 'bg-red-900/20 border-l-4 border-red-500 text-white' : 'bg-[#bc00ff]/10 border-l-4 border-[#bc00ff] text-white'}`}>
+                                <div className="text-[#00f3ff] mb-1">Q: {log[0]}</div>
+                                {log[1] === "ARCHIVED_IMAGE" ? <span className="text-[#bc00ff]">[ IMAGE PETRIFIED AND ARCHIVED ]</span> : <div>{log[1]}</div>}
+                            </div>
+                        ))}
+                        {logs.length === 0 && <div className="text-zinc-500 italic">No comms established in this session.</div>}
+                    </div>
+                </div>
+
+            </div>
+
             {/* Artifact Gallery */}
-            <div className="md:col-span-2 bg-[rgba(10,10,15,0.85)] border border-[#00f3ff] p-5 flex flex-col gap-4 backdrop-blur-md mb-10">
+            <div className="bg-[rgba(10,10,15,0.85)] border border-[#00f3ff] p-5 flex flex-col gap-4 backdrop-blur-md mb-10">
                 <div className="text-lg text-[#00f3ff] border-b border-[#00f3ff] pb-1">LAIR ARTIFACTS // CLOUD ARCHIVE</div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
                     {gallery.map((item, idx) => (
@@ -312,5 +366,3 @@ export default function MedusasLair() {
     </>
   );
 }
-
-
