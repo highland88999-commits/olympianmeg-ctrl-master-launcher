@@ -391,6 +391,8 @@ export default function DutchmanPage() {
           <div style={{ textAlign: 'center', color: '#445566', fontSize: 12, fontStyle: 'italic', marginTop: 22 }}>
             “Part of the ship… part of the crew.”
           </div>
+          {/* Safari bottom-bar clearance: lets the last log content rest above the browser bar */}
+          <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
         </div>
       )}
     </div>

@@ -286,6 +286,7 @@ export default function PearlPage() {
   }, []);
 
   return (
+    <>
     <main className="relative w-full h-[100dvh] bg-black text-slate-200 overflow-hidden font-mono select-none">
       {!entered && (
         <button
@@ -350,7 +351,7 @@ export default function PearlPage() {
           )}
 
           {/* control bar */}
-          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 flex flex-wrap justify-center gap-2 px-4">
+          <div className="absolute bottom-[max(1.5rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-10 flex flex-wrap justify-center gap-2 px-4">
             <button className={scopeMode ? BTN_ACTIVE : BTN} onClick={() => setScopeMode((s) => !s)}>
               [ Telescope{scopeMode ? ': ON' : ''} ]
             </button>
@@ -363,5 +364,8 @@ export default function PearlPage() {
         </>
       )}
     </main>
+    {/* Safari bottom-bar clearance: blank space under the fixed observatory viewport */}
+    <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
+    </>
   );
 }

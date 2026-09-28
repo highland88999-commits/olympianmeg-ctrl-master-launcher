@@ -815,6 +815,7 @@ export default function ZeusProtocolPage() {
   ));
 
   return (
+    <>
     <main className="zs-root">
       <canvas ref={canvasRef} className="zs-canvas" />
 
@@ -918,5 +919,8 @@ export default function ZeusProtocolPage() {
         }
       `}</style>
     </main>
+    {/* Safari bottom-bar clearance: blank space under the fixed game viewport */}
+    <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
+    </>
   );
 }

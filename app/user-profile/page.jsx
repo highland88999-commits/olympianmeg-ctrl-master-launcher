@@ -76,7 +76,7 @@ const CSS = `
 .uv-add label { display: block; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px;
   color: #888; margin-bottom: 6px; }
 .uv-foot { position: fixed; bottom: 0; left: 0; width: 100%; background: rgba(5,5,8,0.95);
-  border-top: 1px solid rgba(8,247,254,0.2); padding: 10px 16px; display: flex; justify-content: center;
+  border-top: 1px solid rgba(8,247,254,0.2); padding: 10px 16px max(10px, env(safe-area-inset-bottom)); display: flex; justify-content: center;
   align-items: center; gap: 16px; font-size: 0.75rem; color: #888; z-index: 50; }
 .uv-toast { position: fixed; bottom: 70px; left: 50%; transform: translateX(-50%); background: rgba(8,247,254,0.92);
   color: #000; font-weight: 700; padding: 10px 18px; border-radius: 8px; font-size: 0.85rem; z-index: 60; }
@@ -235,6 +235,7 @@ export default function UserProfilePage() {
   const currentTab = TABS.find((x) => x.id === tab);
 
   return (
+    <>
     <main className="uv-root">
       <style>{CSS}</style>
       <div className="uv-grid" aria-hidden="true" />
@@ -340,5 +341,8 @@ export default function UserProfilePage() {
 
       {toast && <div className="uv-toast" role="status">{toast}</div>}
     </main>
+    {/* Safari bottom-bar clearance: lets the final content rest above the browser bar */}
+    <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
+    </>
   );
 }

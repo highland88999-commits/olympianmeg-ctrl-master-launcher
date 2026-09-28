@@ -776,6 +776,9 @@ export default function ArachnidWeaver() {
       )}
 
       <style>{`@keyframes awblink { 50% { opacity: 0.25; } }`}</style>
+
+      {/* Safari bottom-bar clearance */}
+      <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
     </div>
   );
 }

@@ -148,7 +148,7 @@ export default function HitchhikersGuidePage() {
         <p className="text-xs tracking-[0.4em] uppercase text-cyan-400 mt-1">to the multiverse</p>
       </div>
 
-      <div className="absolute bottom-0 left-0 right-0 pb-8 flex flex-col items-center gap-3 px-4">
+      <div className="absolute bottom-0 left-0 right-0 pb-[max(2rem,env(safe-area-inset-bottom))] flex flex-col items-center gap-3 px-4">
         <div className="text-center">
           <div className="text-lg font-bold tracking-[0.25em] uppercase" style={{ color: tier.color }}>
             Locked: {tier.name}

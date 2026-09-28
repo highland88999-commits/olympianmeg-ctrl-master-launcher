@@ -260,6 +260,7 @@ export default function StarbloodPage() {
               : ""}
         </span>
       </div>
+      <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
 
       {match.phase === "over" && (
         <div style={styles.overlay}>

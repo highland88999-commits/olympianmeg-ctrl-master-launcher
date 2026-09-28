@@ -187,6 +187,9 @@ export default function OasisProfilePage() {
         <Link href="/" className="text-center text-xs tracking-widest uppercase text-zinc-600 hover:text-zinc-300">
           Back to the launcher
         </Link>
+
+        {/* Safari bottom-bar clearance */}
+        <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
       </div>
     </main>
   );

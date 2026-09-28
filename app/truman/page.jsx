@@ -216,6 +216,7 @@ export default function TrumanPage() {
   };
 
   return (
+    <>
     <div ref={wrapRef} style={{ position: 'fixed', inset: 0, background: '#000', overflow: 'hidden', fontFamily: 'system-ui, sans-serif' }}>
       <canvas ref={canvasRef} style={{ position: 'absolute', inset: 0, touchAction: 'none' }} />
 
@@ -310,5 +311,8 @@ export default function TrumanPage() {
         </>
       )}
     </div>
+    {/* Safari bottom-bar clearance: blank space under the fixed sim viewport */}
+    <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
+    </>
   );
 }

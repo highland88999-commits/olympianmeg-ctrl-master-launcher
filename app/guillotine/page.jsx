@@ -349,7 +349,7 @@ export default function GuillotinePage() {
       )}
 
       {reducedMotion && (
-        <div className="absolute bottom-4 right-4 z-20 text-[10px] tracking-widest uppercase text-zinc-500 pointer-events-none">
+        <div className="absolute bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 z-20 text-[10px] tracking-widest uppercase text-zinc-500 pointer-events-none">
           Calm mode
         </div>
       )}

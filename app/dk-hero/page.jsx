@@ -260,7 +260,7 @@ export default function DKHeroPage() {
 
       {/* Touch controls */}
       {screen === 'playing' && !paused && (
-        <div className="absolute bottom-0 left-0 right-0 flex items-end justify-between px-4 pb-5 pt-2">
+        <div className="absolute bottom-0 left-0 right-0 flex items-end justify-between px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-2">
           <div className="flex gap-3">
             <button aria-label="Move left" className={btn} {...bindHold('left')}>◀</button>
             <button aria-label="Move right" className={btn} {...bindHold('right')}>▶</button>

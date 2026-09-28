@@ -188,6 +188,7 @@ function SceneCanvas({ scene }) {
 // ---------- gatekeeper ----------
 function Gatekeeper({ onBegin }) {
   return (
+    <>
     <div onClick={onBegin} role="button" tabIndex={0}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onBegin(); }}
       aria-label="Enter Elysium"
@@ -222,6 +223,9 @@ function Gatekeeper({ onBegin }) {
         }
       `}</style>
     </div>
+    {/* Safari bottom-bar clearance: blank space under the fixed gatekeeper viewport */}
+    <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
+    </>
   );
 }
 
@@ -232,6 +236,7 @@ function Journey({ state, dispatch }) {
   const tapNext = () => { if (!final) dispatch({ type: 'NEXT' }); };
 
   return (
+    <>
     <div style={{ position: 'fixed', inset: 0, background: '#000', overflow: 'hidden',
       fontFamily: "Georgia, 'Times New Roman', serif" }}>
       <SceneCanvas scene={scene} />
@@ -285,6 +290,9 @@ function Journey({ state, dispatch }) {
         </div>
       </div>
     </div>
+    {/* Safari bottom-bar clearance: blank space under the fixed journey viewport */}
+    <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
+    </>
   );
 }
 

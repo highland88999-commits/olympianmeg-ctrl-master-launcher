@@ -189,6 +189,7 @@ export default function PrometheusPage() {
   const lbl = { fontSize: 11, letterSpacing: 1.5, color: "#a0724f", textTransform: "uppercase" };
 
   return (
+    <>
     <div style={{ position: "fixed", inset: 0, background: "#050308", color: "#ffd9b0", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", overflow: "hidden" }}>
       <canvas ref={canvasRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", touchAction: "none", cursor: "grab" }} />
       <div style={{ position: "absolute", top: 12, left: 12, zIndex: 2, background: "rgba(16,8,5,0.82)", border: "1px solid rgba(255,176,102,0.3)", borderRadius: 10, padding: 12 }}>
@@ -213,5 +214,8 @@ export default function PrometheusPage() {
         </div>
       </div>
     </div>
+    {/* Safari bottom-bar clearance: blank space under the fixed forge viewport */}
+    <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
+    </>
   );
 }

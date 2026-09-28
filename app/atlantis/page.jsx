@@ -306,6 +306,7 @@ export default function AtlantisPage() {
         </div>
 
         <footer style={styles.foot}>Olympus Nexus // Macro-Engineering Division // 2026</footer>
+        <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
       </div>
     </div>
   );

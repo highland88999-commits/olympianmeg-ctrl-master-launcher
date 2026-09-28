@@ -232,6 +232,7 @@ export default function Vault() {
             <div className="artifact-grid" id="acquired-grid"></div>
             </section>
         </main>
+        <div aria-hidden="true" style={{height:'max(5rem, env(safe-area-inset-bottom))'}} />
       </div>
     </>
   );

@@ -23,7 +23,7 @@ const DECKS = [
 ];
 
 const CSS = `
-.mc-wrap { box-sizing: border-box; margin: 0; padding: 0; font-family: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace; background: #020813; color: #e0f7fc; overflow: hidden; height: 100vh; width: 100vw; user-select: none; }
+.mc-wrap { box-sizing: border-box; margin: 0; padding: 0; font-family: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace; background: #020813; color: #e0f7fc; overflow: hidden; height: 100dvh; width: 100vw; user-select: none; }
 .mc-wave { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; opacity: 0.7; }
 .mc-holo { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; background: linear-gradient(rgba(18,16,16,0) 50%, rgba(0,0,0,0.25) 50%), linear-gradient(90deg, rgba(255,0,0,0.06), rgba(0,255,0,0.02), rgba(0,0,255,0.06)); background-size: 100% 4px, 6px 100%; }
 .mc-shell { position: relative; z-index: 3; display: flex; flex-direction: column; height: 100vh; width: 100vw; padding: 20px; box-sizing: border-box; }
@@ -36,7 +36,7 @@ const CSS = `
 .mc-navbtn:hover, .mc-navbtn.active { background: #00f3ff; color: #020813; box-shadow: 0 0 15px #00f3ff; }
 .mc-viewport { flex: 1; overflow: hidden; position: relative; border: 1px solid rgba(0,243,255,0.2); border-radius: 4px; min-height: 0; }
 .mc-carousel { display: flex; height: 100%; width: 500%; transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1); }
-.mc-page { width: 20%; height: 100%; overflow-y: auto; padding: 30px; box-sizing: border-box; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); background: rgba(2,16,32,0.45); scrollbar-width: thin; scrollbar-color: #00f3ff transparent; }
+.mc-page { width: 20%; height: 100%; overflow-y: auto; padding: 30px; padding-bottom: max(30px, env(safe-area-inset-bottom)); box-sizing: border-box; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); background: rgba(2,16,32,0.45); scrollbar-width: thin; scrollbar-color: #00f3ff transparent; }
 .mc-page::-webkit-scrollbar { width: 6px; }
 .mc-page::-webkit-scrollbar-thumb { background: #00f3ff; border-radius: 3px; }
 .mc-page h2 { font-family: system-ui, 'Segoe UI', sans-serif; color: #00f3ff; margin: 0 0 20px; text-transform: uppercase; letter-spacing: 2px; border-left: 4px solid #ff0055; padding-left: 10px; }
@@ -63,7 +63,7 @@ const CSS = `
 .mc-ghostbtn:hover { background: rgba(0,243,255,0.12); }
 @keyframes mcPulse { 0%,100% { opacity: 0.6; } 50% { opacity: 1; text-shadow: 0 0 8px #00ff66; } }
 @keyframes mcFlicker { 0%,100% { opacity: 1; } 45% { opacity: 0.8; } 50% { opacity: 0.3; } 55% { opacity: 1; } }
-@media (max-width: 768px) { .mc-shell { padding: 10px; } .mc-header h1 { font-size: 1.3rem; } .mc-page { padding: 15px; } .mc-card .v { font-size: 1.5rem; } }
+@media (max-width: 768px) { .mc-shell { padding: 10px; } .mc-header h1 { font-size: 1.3rem; } .mc-page { padding: 15px; padding-bottom: max(15px, env(safe-area-inset-bottom)); } .mc-card .v { font-size: 1.5rem; } }
 `;
 
 const HOME_CARDS = [

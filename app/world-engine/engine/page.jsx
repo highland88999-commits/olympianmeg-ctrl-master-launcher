@@ -15,6 +15,7 @@ const WorldCanvas = dynamic(() => import('@/components/world-engine/WorldCanvas'
 
 export default function EnginePage() {
   return (
+    <>
     <main className="relative h-dvh w-full overflow-hidden bg-black text-white">
       <div className="absolute inset-0 z-0">
         <WorldCanvas />
@@ -44,5 +45,8 @@ export default function EnginePage() {
         </p>
       </div>
     </main>
+    {/* Safari bottom-bar clearance: blank space under the fixed 3D viewport */}
+    <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
+    </>
   );
 }

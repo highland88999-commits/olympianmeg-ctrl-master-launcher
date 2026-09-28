@@ -229,6 +229,7 @@ export default function PersymphonyPage() {
   const arena = getArena(arenaId);
 
   return (
+    <>
     <div className="fixed inset-0 bg-black overflow-hidden select-none">
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full block" />
 
@@ -346,5 +347,8 @@ export default function PersymphonyPage() {
         )}
       </div>
     </div>
+    {/* Safari bottom-bar clearance: blank space under the fixed stage viewport */}
+    <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
+    </>
   );
 }

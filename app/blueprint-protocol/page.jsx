@@ -319,6 +319,7 @@ export default function BlueprintProtocolPage() {
       <button type="button" className="bp-top" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
         ↑ Top
       </button>
+      <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
     </div>
   );
 }

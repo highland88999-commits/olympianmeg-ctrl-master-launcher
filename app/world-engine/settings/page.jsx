@@ -134,6 +134,7 @@ export default function SettingsPage() {
             {saving ? 'Saving...' : 'Save settings'}
           </button>
         </div>
+      <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
       </div>
     </main>
   );

@@ -127,6 +127,9 @@ export default function PostDetail() {
         </article>
 
         <CommentSection postId={id} initialLikeCount={post.like_count} initialLiked={liked} />
+
+        {/* Safari bottom-bar clearance */}
+        <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
       </div>
     </main>
   );

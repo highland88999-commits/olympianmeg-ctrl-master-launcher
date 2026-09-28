@@ -236,6 +236,9 @@ export default function OlympusPage() {
           <p className="mt-10 text-center text-xs text-slate-500">
             All items CAD $95.00. Ships after email confirmation.
           </p>
+
+          {/* Safari bottom-bar clearance */}
+          <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
         </main>
       )}
 

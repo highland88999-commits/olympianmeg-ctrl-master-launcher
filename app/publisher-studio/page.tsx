@@ -286,6 +286,8 @@ export default function PublisherStudio() {
         </div>
 
         <div id="terminal-overlay"><div id="term-text" style={{maxWidth:'600px', textAlign:'left', lineHeight:'1.6'}}></div></div>
+        {/* Safari bottom-bar clearance: blank space under the fixed-height editor shell */}
+        <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
       </div>
     </>
   );

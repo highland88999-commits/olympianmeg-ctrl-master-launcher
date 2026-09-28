@@ -399,6 +399,7 @@ export default function ProjectKhaos() {
   };
 
   return (
+    <>
     <div
       style={{
         position: "fixed",
@@ -702,6 +703,9 @@ export default function ProjectKhaos() {
         </div>
       )}
     </div>
+    {/* Safari bottom-bar clearance: blank space under the fixed game viewport */}
+    <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
+    </>
   );
 }
 

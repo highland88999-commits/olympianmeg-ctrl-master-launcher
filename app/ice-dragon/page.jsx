@@ -326,6 +326,8 @@ export default function IceDragonPage() {
           .icedragon-title, .icedragon-ticker { animation: none; }
         }
       `}</style>
+      {/* Safari bottom-bar clearance */}
+      <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
     </div>
   );
 }

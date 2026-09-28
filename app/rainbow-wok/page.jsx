@@ -100,10 +100,10 @@ const CSS = `
 .rw-cardprice { font-weight: 800; color: #b36600; white-space: nowrap; }
 .rw-carddesc { font-size: 0.85rem; color: #64748b; line-height: 1.5; margin: 0; }
 .rw-glyph { font-size: 1.4rem; margin-right: 6px; }
-.rw-ribbon { position: fixed; left: 0; right: 0; bottom: 76px; z-index: 9; display: flex; gap: 8px; overflow-x: auto; padding: 8px 12px; background: rgba(17,18,21,0.92); border-top: 1px solid rgba(255,170,68,0.4); -webkit-overflow-scrolling: touch; }
+.rw-ribbon { position: fixed; left: 0; right: 0; bottom: calc(76px + env(safe-area-inset-bottom)); z-index: 9; display: flex; gap: 8px; overflow-x: auto; padding: 8px 12px; background: rgba(17,18,21,0.92); border-top: 1px solid rgba(255,170,68,0.4); -webkit-overflow-scrolling: touch; }
 .rw-chip { flex: 0 0 auto; background: #1c1d22; border: 1px solid rgba(255,170,68,0.5); color: #ffd9a0; font-family: inherit; font-size: 0.8rem; padding: 10px 14px; border-radius: 20px; cursor: pointer; min-height: 44px; }
 .rw-chip:active { background: #e68a00; color: #1a0d07; }
-.rw-footer { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #0b0c0e; border-top: 2px solid #e68a00; padding: 12px 16px; }
+.rw-footer { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #0b0c0e; border-top: 2px solid #e68a00; padding: 12px 16px max(12px, env(safe-area-inset-bottom)); }
 .rw-trayinfo { font-size: 0.85rem; color: #cbd5e1; }
 .rw-trayinfo strong { display: block; font-size: 1.2rem; color: #fff; }
 .rw-send { background: linear-gradient(to bottom, #e68a00, #b36600); border: 1px solid #ffaa44; color: #fff; padding: 14px 24px; font-weight: bold; border-radius: 4px; cursor: pointer; text-transform: uppercase; font-size: 0.85rem; min-height: 48px; }

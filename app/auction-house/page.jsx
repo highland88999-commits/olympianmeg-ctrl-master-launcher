@@ -294,6 +294,7 @@ export default function AuctionHousePage() {
           onClose={() => setOpenId(null)}
         />
       )}
+      <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
     </main>
   );
 }

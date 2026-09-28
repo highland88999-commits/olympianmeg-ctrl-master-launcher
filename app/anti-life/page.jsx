@@ -120,7 +120,7 @@ export default function AntiLifePage() {
         </div>
       </div>
 
-      <div className="absolute bottom-0 left-0 right-0 flex justify-center pb-5 pointer-events-none px-4">
+      <div className="absolute bottom-0 left-0 right-0 flex justify-center pb-[max(1.25rem,env(safe-area-inset-bottom))] pointer-events-none px-4">
         <p className="text-[10px] sm:text-xs tracking-[0.25em] uppercase text-white/40 text-center">
           {reducedMotion ? 'A world, held mid-breath' : 'Drag to move through time — the world fades where you pass'}
         </p>
@@ -130,7 +130,7 @@ export default function AntiLifePage() {
       {!started && (
         <button
           onClick={begin}
-          className="absolute inset-0 flex flex-col items-center justify-center bg-black/70 backdrop-blur-[2px] cursor-pointer px-6 text-center"
+          className="absolute inset-0 flex flex-col items-center justify-center bg-black/70 backdrop-blur-[2px] cursor-pointer px-6 py-8 text-center overflow-y-auto"
           aria-label="Enter the Anti-Life art piece"
         >
           <span className="text-[10px] tracking-[0.4em] uppercase text-red-400/80">Entropy Core</span>

@@ -118,7 +118,7 @@ export default function OlympusEnergyPage() {
   );
 
   return (
-    <div style={{ minHeight: "100vh", background: "#04070c", color: "#cfeaff", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", padding: 16, paddingBottom: 48 }}>
+    <div style={{ minHeight: "100dvh", background: "#04070c", color: "#cfeaff", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", padding: 16, paddingBottom: 48 }}>
       <div style={{ maxWidth: 860, margin: "0 auto" }}>
         <h1 style={{ fontSize: 20, letterSpacing: 3, textAlign: "center", color: "#8ef3ff", margin: "8px 0 2px" }}>OLYMPUS ENERGY</h1>
         <p style={{ textAlign: "center", color: "#5f7fa6", fontSize: 12, marginTop: 0 }}>simulated microgrid console · deterministic · all local</p>
@@ -161,6 +161,9 @@ export default function OlympusEnergyPage() {
           {slider("Battery", batteryKWh, setBatteryKWh, 10, 120, 5, " kWh")}
         </div>
       </div>
+
+      {/* Safari bottom-bar clearance */}
+      <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
     </div>
   );
 }

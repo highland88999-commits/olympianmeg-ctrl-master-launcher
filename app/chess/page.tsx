@@ -388,6 +388,8 @@ export default function QuantumChess() {
           <Bloom luminanceThreshold={0.4} luminanceSmoothing={0.2} intensity={1.5} />
         </EffectComposer>
       </Canvas>
+      {/* Safari bottom-bar clearance */}
+      <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
     </main>
   );
 }

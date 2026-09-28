@@ -237,6 +237,8 @@ export default function LabyrinthPage() {
           <BigButton onClick={() => startStage(0)}>Walk it again</BigButton>
         </Overlay>
       )}
+      {/* Safari bottom-bar clearance */}
+      <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
     </div>
   );
 }

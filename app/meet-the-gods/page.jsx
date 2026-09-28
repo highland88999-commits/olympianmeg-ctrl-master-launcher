@@ -241,6 +241,9 @@ export default function MeetTheGodsPage() {
       <footer className="px-5 pb-10 text-center text-[11px] uppercase tracking-[0.3em] text-zinc-500 relative">
         Fourteen entries · stored on this page · no network
       </footer>
+
+      {/* Safari bottom-bar clearance */}
+      <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
     </div>
   );
 }

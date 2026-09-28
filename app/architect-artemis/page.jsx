@@ -300,6 +300,7 @@ export default function ArchitectArtemisPage() {
       <footer style={styles.footer}>
         <p>Everything on this page runs on your device. No account, no uploads, no model calls.</p>
       </footer>
+      <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
     </main>
   );
 }

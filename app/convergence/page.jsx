@@ -138,7 +138,7 @@ export default function ConvergencePage() {
         ))}
         {micError && <div style={{ color: "#ff8a8a", fontSize: 11, marginTop: 8 }}>{micError}</div>}
       </div>
-      <div style={{ position: "absolute", left: 12, right: 12, bottom: 12, zIndex: 2, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "stretch" }}>
+      <div style={{ position: "absolute", left: 12, right: 12, bottom: "max(12px, env(safe-area-inset-bottom))", zIndex: 2, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "stretch" }}>
         <button style={btn} onClick={enableMic} disabled={mode === "mic"}>{mode === "mic" ? "MIC LIVE" : "USE MIC"}</button>
         <button style={btn} onClick={useDemo} disabled={mode === "demo"}>DEMO SIGNAL</button>
         <button style={btn} onClick={() => setPaused(!paused)}>{paused ? "Resume" : "Pause"}</button>

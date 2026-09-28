@@ -226,6 +226,7 @@ export default function MindPage() {
           logged activity to a telemetry database behind a sign-in gate; this version
           simulates responses locally and keeps your journal in this browser.
         </footer>
+        <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
       </div>
     </main>
   );

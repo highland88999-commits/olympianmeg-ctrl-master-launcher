@@ -176,6 +176,7 @@ export default function T1000Page() {
   };
 
   return (
+    <>
     <main className="fixed inset-0 bg-black overflow-hidden select-none">
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full touch-none" />
 
@@ -202,5 +203,8 @@ export default function T1000Page() {
         ))}
       </div>
     </main>
+    {/* Safari bottom-bar clearance: blank space under the fixed holo-dome viewport */}
+    <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
+    </>
   );
 }

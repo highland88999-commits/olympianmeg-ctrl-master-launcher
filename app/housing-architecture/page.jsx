@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 const CSS = `
-.ha-root { min-height: 100vh; background: #010604; color: #e0f2fe; overflow-x: hidden;
+.ha-root { min-height: 100dvh; background: #010604; color: #e0f2fe; overflow-x: hidden;
   font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
 .ha-bg { position: fixed; inset: 0; z-index: 0; pointer-events: none;
   background: radial-gradient(circle at 50% 0%, #032415 0%, #010a08 50%, #010604 100%); }
@@ -338,6 +338,9 @@ export default function HousingArchitecturePage() {
       </div>
 
       <footer className="ha-foot">Architectural Blueprint // Concept Study</footer>
+
+      {/* Safari bottom-bar clearance */}
+      <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
     </main>
   );
 }

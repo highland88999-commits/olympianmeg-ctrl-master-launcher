@@ -130,6 +130,7 @@ export default function SurvivorsPlaybook() {
   };
 
   return (
+    <>
     <div className="sp-root" style={{ fontSize: 16 * FONT_SCALES[fontIx] + "px" }}>
       <style>{`
         .sp-root { position: fixed; inset: 0; background: #050507; color: #E0E0E0;
@@ -288,5 +289,8 @@ export default function SurvivorsPlaybook() {
         {page + 1} / {pageCount()}
       </div>
     </div>
+    {/* Safari bottom-bar clearance: blank space under the fixed reader viewport */}
+    <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
+    </>
   );
 }

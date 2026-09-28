@@ -282,6 +282,7 @@ export default function OmegaPostalPage() {
   };
 
   return (
+    <>
     <div className="op-wrap">
       <style>{CSS}</style>
       <canvas ref={canvasRef} className="op-canvas" aria-hidden="true" />
@@ -337,5 +338,8 @@ export default function OmegaPostalPage() {
         </div>
       )}
     </div>
+    {/* Safari bottom-bar clearance: blank space under the fixed game viewport */}
+    <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
+    </>
   );
 }

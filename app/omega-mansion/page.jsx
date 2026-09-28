@@ -333,6 +333,7 @@ export default function MansionPage() {
           THE OBSIDIAN ESTATE — offline rebuild. The original streamed video textures
           and reported visits to a telemetry database; this version draws every room locally.
         </footer>
+        <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
       </div>
     </main>
   );

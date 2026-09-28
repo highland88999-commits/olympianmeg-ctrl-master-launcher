@@ -117,6 +117,7 @@ export default function StatueOfLiberty() {
   const spot = HOTSPOTS.find((h) => h.id === active) || null;
 
   return (
+    <>
     <div
       style={{
         position: "fixed",
@@ -332,6 +333,9 @@ export default function StatueOfLiberty() {
         )}
       </div>
     </div>
+    {/* Safari bottom-bar clearance: blank space under the fixed monument viewport */}
+    <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
+    </>
   );
 }
 
