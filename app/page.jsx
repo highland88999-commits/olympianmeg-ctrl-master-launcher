@@ -853,6 +853,86 @@ export default function NexusHub() {
                     <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">World Engine</span>
                     <span className="text-[10px] text-zinc-600 uppercase mt-1">AI 3D World Builder</span>
                   </button>
+                  <button onClick={() => launchPocketUniverse('/architect-artemis', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
+                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Architect Artemis</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Voice Assistant Console</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/artemis-hub', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
+                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Artemis Hub</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Portal</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/hitchhikers-guide', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
+                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Hitchhiker's Guide</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Singularity Toy</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/maestro', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
+                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Maestro</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">MIDI Piano Player</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/manuscript-forge', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
+                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Manuscript Forge</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Writing Studio</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/meet-the-gods', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
+                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Meet the Gods</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Pantheon Codex</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/merlin-mandates', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
+                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Merlin Mandates</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Mandate Ledger</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/nexus-codex', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
+                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Codex Writer</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Artifact Authoring Studio</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/nexus-model-generation', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
+                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Model Forge</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Local 3D Generator</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/nexus-vortex', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
+                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Nexus Vortex</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Panning Core Flight</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/nexus-symbiote', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
+                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Nexus Symbiote</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Point-Cloud Art Toy</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/nv2-video-library', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
+                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Video Library</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Demo Catalog</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/olympian-education', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
+                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Olympian Education</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Lesson Orbs</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/omega', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
+                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Omega</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">The Omega Arch</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/omega-hub', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
+                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Omega Hub</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Sector Gateway</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/omega-mansion', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
+                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Omega Mansion</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Obsidian Estate</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/omega-mind', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
+                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Omega Mind</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Neural Lattice Journal</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/omegalodon', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
+                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Omegalodon</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Ecosystem Gateway</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/truman', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
+                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Truman</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Simulated City</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/flying-dutchman', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
+                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Flying Dutchman</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Ghost Voyage</span>
+                  </button>
                 </div>
 
                 {/* 4. OBSERVATORY (ARGUS) */}
