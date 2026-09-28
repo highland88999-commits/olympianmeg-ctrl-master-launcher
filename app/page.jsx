@@ -761,6 +761,14 @@ export default function NexusHub() {
                     <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Zeus vs Hades</span>
                     <span className="text-[10px] text-zinc-500 uppercase mt-1">Neon Soul Race</span>
                   </button>
+                  <button onClick={() => launchPocketUniverse('/artemis', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
+                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Artemis</span>
+                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Pocket OS</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/pearl', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
+                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Pearl</span>
+                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Sequential Observatory</span>
+                  </button>
                 </div>
 
                 {/* 2. UTILITIES (ARES) */}
@@ -784,6 +792,14 @@ export default function NexusHub() {
                   <button onClick={() => launchPocketUniverse('/ares', ARES_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-red-500/40 rounded hover:bg-red-500/20 transition-all group">
                     <span className="text-sm font-black text-zinc-400 tracking-widest uppercase group-hover:text-white">Ares Console</span>
                     <span className="text-[10px] text-zinc-600 uppercase mt-1">Threat Monitoring & Defense</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/forge', ARES_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-fuchsia-500/30 rounded hover:bg-fuchsia-500/20 transition-all group">
+                    <span className="text-sm font-black text-zinc-400 tracking-widest uppercase group-hover:text-white">Forge</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Browser Code Editor</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/plutus', ARES_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-fuchsia-500/30 rounded hover:bg-fuchsia-500/20 transition-all group">
+                    <span className="text-sm font-black text-zinc-400 tracking-widest uppercase group-hover:text-white">Plutus</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Personal Finance Dashboard</span>
                   </button>
                 </div>
 
@@ -832,6 +848,18 @@ export default function NexusHub() {
                   <button onClick={() => launchPocketUniverse('/agora', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
                     <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Agora</span>
                     <span className="text-[10px] text-zinc-600 uppercase mt-1">Community Town Square</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/auction-house', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
+                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Auction House</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Demo Auction Catalog</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/aetheris', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
+                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Aetheris</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Air Purification Console</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/olympus-b2b', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
+                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Olympus B2B</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">B2B Services</span>
                   </button>
                 </div>
 
