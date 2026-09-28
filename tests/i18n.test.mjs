@@ -26,9 +26,9 @@ for (const code of LOCALES) {
   t(`${code}: no empty strings (${empty.length})`, empty.length === 0);
 }
 
-// --- key coverage: all 121 satellites + sections + chrome ---
+// --- key coverage: all 122 satellites + sections + chrome ---
 const satKeys = enKeys.filter((k) => k.startsWith('sat.'));
-t('121 satellites x title+subtitle = 242 sat keys', satKeys.length === 242);
+t('122 satellites x title+subtitle = 244 sat keys', satKeys.length === 244);
 t('section names present', ['games', 'utilities', 'ai-programs', 'observatory', 'therapy'].every((s) => en[`sec.${s}.name`]));
 t('ui chrome keys present', ['ui.nexusHub', 'ui.operator', 'ui.collapse', 'ui.language', 'ui.disconnect'].every((k) => en[k]));
 
@@ -36,10 +36,10 @@ t('ui chrome keys present', ['ui.nexusHub', 'ui.operator', 'ui.collapse', 'ui.la
 const regSrc = readFileSync('lib/i18n/satellites.ts', 'utf8');
 const satBlock = regSrc.slice(regSrc.indexOf('export const SATELLITES'), regSrc.indexOf('\n];', regSrc.indexOf('export const SATELLITES')));
 const routes = [...satBlock.matchAll(/route: "([^"]+)"/g)].map((m) => m[1]);
-t('registry has 121 entries', routes.length === 121);
-t('registry routes unique', new Set(routes).size === 121);
+t('registry has 122 entries', routes.length === 122);
+t('registry routes unique', new Set(routes).size === 122);
 const keys = [...satBlock.matchAll(/key: "([^"]+)"/g)].map((m) => m[1]);
-t('registry keys unique', new Set(keys).size === 121);
+t('registry keys unique', new Set(keys).size === 122);
 // every registry key has title+subtitle in en
 const missingKeys = keys.filter((k) => !en[`sat.${k}.title`] || !en[`sat.${k}.subtitle`]);
 t(`every registry key has en title+subtitle (missing: ${missingKeys.length})`, missingKeys.length === 0);
