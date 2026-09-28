@@ -9,9 +9,13 @@ import { Phone, PhoneOff, MessageSquare, Radio, Video, Delete } from 'lucide-rea
 export default function GlassCommsApp() {
   const router = useRouter();
 
-  const [currentPage, setCurrentPage] = useState<number>(2); 
+  const [currentPage, setCurrentPage] = useState<number>(2);
   const [session, setSession] = useState<any>(null);
   const [mounted, setMounted] = useState(false);
+  const [cloudOffline, setCloudOffline] = useState(false);
+  // Set when the database connection is missing (no env vars). The mesh,
+  // WebRTC signaling, and texting all run on the database — without it the
+  // app shows an honest banner instead of a raw error screen.
 
   const [dialString, setDialString] = useState('');
   const [twilioDevice, setTwilioDevice] = useState<Device | null>(null);
@@ -44,14 +48,22 @@ export default function GlassCommsApp() {
 
   useEffect(() => {
     let messageChannel: any;
+    let subscription: { unsubscribe: () => void } | undefined;
 
     const initialize = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      
+      let session;
+      try {
+        ({ data: { session } } = await supabase.auth.getSession());
+      } catch {
+        // No database connection — honest banner instead of a crash.
+        setCloudOffline(true);
+        return;
+      }
+
       if (!session) {
         return router.push('/');
       }
-      
+
       setSession(session);
       setMounted(true);
 
@@ -134,13 +146,17 @@ export default function GlassCommsApp() {
 
     initialize();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) router.push('/');
-      else setSession(session);
-    });
+    try {
+      ({ data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        if (!session) router.push('/');
+        else setSession(session);
+      }));
+    } catch {
+      setCloudOffline(true);
+    }
 
     return () => {
-      subscription.unsubscribe();
+      if (subscription) subscription.unsubscribe();
       if (messageChannel) supabase.removeChannel(messageChannel);
       if (twilioDevice) twilioDevice.destroy();
     };
@@ -269,6 +285,25 @@ export default function GlassCommsApp() {
       <source src="/assets/phone-home/background.mp4" type="video/mp4" />
     </video>
   );
+
+  if (cloudOffline) {
+    return (
+      <main className="min-h-screen w-full flex flex-col items-center justify-center bg-black text-slate-300 px-6 text-center gap-4 select-none">
+        <p className="text-sm tracking-[0.4em] uppercase text-slate-100">Phone Home</p>
+        <p className="text-xs leading-relaxed max-w-sm text-slate-400">
+          Cloud features are offline — this page needs the database connection.
+          Audio, video, and text calling all run through the mesh, which can't
+          connect until the database is set up.
+        </p>
+        <button
+          onClick={() => router.push('/')}
+          className="mt-2 px-6 py-2.5 text-[10px] font-bold tracking-widest uppercase border border-zinc-700 rounded bg-black/80 text-zinc-400 hover:text-fuchsia-400 hover:border-fuchsia-400 transition-colors"
+        >
+          EXIT MATRIX
+        </button>
+      </main>
+    );
+  }
 
   if (!mounted || !session) return <div className="w-screen h-screen bg-black" />;
 

@@ -21,6 +21,7 @@ export default function MilesVaultPage() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [cloudOffline, setCloudOffline] = useState(false);
 
   // add-item form
   const [itemType, setItemType] = useState('note');
@@ -41,7 +42,15 @@ export default function MilesVaultPage() {
   const [openError, setOpenError] = useState('');
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    let auth;
+    try {
+      auth = supabase.auth; // throws 'Supabase is not configured' when env vars are missing
+    } catch {
+      setAuthChecked(true);
+      setCloudOffline(true);
+      return;
+    }
+    auth.getSession().then(({ data: { session } }) => {
       setAuthChecked(true);
       if (!session) return;
       setUserId(session.user.id);
@@ -144,6 +153,24 @@ export default function MilesVaultPage() {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
         <p className="text-amber-200/60 tracking-[0.3em] uppercase text-xs animate-pulse">Opening the vault…</p>
+      </div>
+    );
+  }
+
+  if (cloudOffline) {
+    return (
+      <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-6 text-center">
+        <h1 className="text-xl font-black tracking-[0.25em] text-amber-200 uppercase">Miles&apos; Vault</h1>
+        <p className="text-zinc-400 mt-3 max-w-sm">
+          Cloud features are offline — the vault needs the database connection. Nothing can be listed,
+          sealed, or opened until it&apos;s back.
+        </p>
+        <button
+          onClick={() => router.push('/babel')}
+          className="mt-6 min-h-[44px] px-6 rounded border border-amber-500/40 text-amber-200 font-bold tracking-widest uppercase text-sm hover:bg-amber-500/20"
+        >
+          Back to the Tower
+        </button>
       </div>
     );
   }

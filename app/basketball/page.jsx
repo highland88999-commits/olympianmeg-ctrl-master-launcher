@@ -118,8 +118,10 @@ export default function BasketballPage() {
   // session for OASIS identity; ?code= deep link opens the lobby
   useEffect(() => {
     (async () => {
+      let cloudUp = false;
       try {
         const { data } = await supabase.auth.getUser();
+        cloudUp = true;
         const u = data?.user;
         if (u) {
           setUserId(u.id);
@@ -127,7 +129,9 @@ export default function BasketballPage() {
           setCallsign(sanitizeName(stored) || 'PLAYER');
         }
       } catch { /* guest play still works */ }
-      if (typeof window !== 'undefined') {
+      // Only auto-open the lobby deep link when the database connection is
+      // up — otherwise the lobby would mount with no backend behind it.
+      if (cloudUp && typeof window !== 'undefined') {
         const code = new URLSearchParams(window.location.search).get('code');
         if (code && code.length >= 5) setOasisOpen(true);
       }

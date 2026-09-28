@@ -21,6 +21,7 @@ export default function FortressApp() {
   
   const [user, setUser] = useState<any>(null);
   const [mounted, setMounted] = useState(false);
+  const [cloudOffline, setCloudOffline] = useState(false);
   
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [storageUsed, setStorageUsed] = useState(0); 
@@ -40,38 +41,47 @@ export default function FortressApp() {
   const pointerDownPos = useRef({ x: 0, y: 0 });
 
   useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (!session) return router.push('/')
-      setUser(session.user)
-      
-      const { data } = await supabase.from('fortresses_').select('crystal_matrix').eq('id', session.user.id).maybeSingle();
-      let loadedMatrix = data?.crystal_matrix;
-      
-      if (!loadedMatrix || loadedMatrix.length === 0) {
-          loadedMatrix = Array.from({length: 12}).map((_, i) => ({
-              id: `node_${Date.now()}_${i}`,
-              name: `Crystal ${i + 1}`,
-              color: '#00ffff',
-              fileStorageKey: "",
-              rawSize: 0,
-              height: 4 + Math.random() * 1.5
-          }));
-          await supabase.from('fortresses_').upsert({ id: session.user.id, crystal_matrix: loadedMatrix });
-      }
-      
-      setMatrixData(loadedMatrix);
-      const used = loadedMatrix.reduce((acc: number, curr: any) => acc + (curr.rawSize || 0), 0);
-      setStorageUsed(used);
-      setMounted(true);
-      setTimeout(() => initThreeJSEngine(loadedMatrix), 100); 
-    })
+    // The shared supabase client throws when the database connection isn't
+    // configured. Catch that (and any auth failure) and say so honestly
+    // instead of crashing into the error boundary.
+    let subscription: { unsubscribe(): void } | undefined;
+    try {
+      supabase.auth.getSession().then(async ({ data: { session } }) => {
+        if (!session) return router.push('/')
+        setUser(session.user)
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) router.push('/')
-      else setUser(session.user)
-    })
+        const { data } = await supabase.from('fortresses_').select('crystal_matrix').eq('id', session.user.id).maybeSingle();
+        let loadedMatrix = data?.crystal_matrix;
 
-    return () => subscription.unsubscribe()
+        if (!loadedMatrix || loadedMatrix.length === 0) {
+            loadedMatrix = Array.from({length: 12}).map((_, i) => ({
+                id: `node_${Date.now()}_${i}`,
+                name: `Crystal ${i + 1}`,
+                color: '#00ffff',
+                fileStorageKey: "",
+                rawSize: 0,
+                height: 4 + Math.random() * 1.5
+            }));
+            await supabase.from('fortresses_').upsert({ id: session.user.id, crystal_matrix: loadedMatrix });
+        }
+
+        setMatrixData(loadedMatrix);
+        const used = loadedMatrix.reduce((acc: number, curr: any) => acc + (curr.rawSize || 0), 0);
+        setStorageUsed(used);
+        setMounted(true);
+        setTimeout(() => initThreeJSEngine(loadedMatrix), 100);
+      }).catch(() => setCloudOffline(true))
+
+      const { data: { subscription: sub } } = supabase.auth.onAuthStateChange((_event, session) => {
+        if (!session) router.push('/')
+        else setUser(session.user)
+      })
+      subscription = sub
+    } catch {
+      setCloudOffline(true)
+    }
+
+    return () => subscription?.unsubscribe()
   }, [router]);
 
   const syncDatabase = async (newMatrix: any[]) => {
@@ -461,6 +471,23 @@ export default function FortressApp() {
       
       await syncDatabase(newMatrix);
   }
+
+  if (cloudOffline) return (
+    <div className="w-screen h-screen bg-black flex items-center justify-center p-8">
+      <div className="max-w-md text-center">
+        <p className="text-zinc-300 tracking-widest uppercase text-sm mb-3">Cloud features are offline</p>
+        <p className="text-zinc-500 text-sm mb-6">
+          This page needs the database connection. Check back once the cloud is connected.
+        </p>
+        <button
+          onClick={() => router.push('/')}
+          className="px-4 py-2 text-[10px] font-bold tracking-widest text-zinc-400 uppercase transition-colors border rounded bg-black/80 border-zinc-700 hover:text-fuchsia-400 hover:border-fuchsia-400"
+        >
+          Exit matrix
+        </button>
+      </div>
+    </div>
+  )
 
   if (!mounted || !user) return <div className="w-screen h-screen bg-black" />
 

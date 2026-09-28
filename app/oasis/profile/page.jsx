@@ -24,11 +24,20 @@ export default function OasisProfilePage() {
   const [bossWins, setBossWins] = useState([]);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
+  const [cloudOffline, setCloudOffline] = useState(false);
 
   useEffect(() => { load(); }, []);
 
   const load = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
+    let user;
+    try {
+      ({ data: { user } } = await supabase.auth.getUser());
+    } catch {
+      // Database connection missing — show the page with an honest banner,
+      // never a fake identity or a raw error screen.
+      setCloudOffline(true);
+      return;
+    }
     if (!user) { window.location.href = '/'; return; }
     setUser(user);
     const { data } = await supabase
@@ -92,6 +101,13 @@ export default function OasisProfilePage() {
         </div>
 
         <form onSubmit={handleSave} className="flex flex-col gap-5 p-6 bg-zinc-950 border border-zinc-800 rounded-xl">
+          {cloudOffline && (
+            <p className="text-sm text-amber-300 border border-amber-500/50 bg-amber-950/30 p-3 rounded">
+              Cloud features are offline — this page needs the database connection.
+              Your identity can't be loaded or saved right now; nothing here is fake,
+              it's just unavailable until the connection is set up.
+            </p>
+          )}
           <div className="flex items-center gap-4">
             <div className={`w-16 h-16 rounded-full flex items-center justify-center text-2xl font-black ${avatar.bg} ${avatar.fg} border border-zinc-700`}>
               {avatar.glyph}
@@ -124,9 +140,9 @@ export default function OasisProfilePage() {
             />
           </div>
 
-          <button type="submit" disabled={saving}
+          <button type="submit" disabled={saving || cloudOffline}
             className="w-full px-6 py-3 text-sm font-bold tracking-widest uppercase border border-cyan-500/50 text-cyan-400 bg-cyan-950/20 hover:bg-cyan-900/40 rounded transition-all disabled:opacity-50">
-            {saving ? 'SAVING…' : 'SAVE IDENTITY'}
+            {cloudOffline ? 'CLOUD OFFLINE' : saving ? 'SAVING…' : 'SAVE IDENTITY'}
           </button>
           {msg && <p className="text-xs text-center text-zinc-400">{msg}</p>}
         </form>

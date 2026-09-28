@@ -14,6 +14,7 @@ export default function NewPost() {
   const router = useRouter();
   const [user, setUser] = useState(null);
   const [checking, setChecking] = useState(true);
+  const [cloudOffline, setCloudOffline] = useState(false);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [category, setCategory] = useState(CATEGORIES[0].id);
@@ -21,11 +22,19 @@ export default function NewPost() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    let auth;
+    try {
+      auth = supabase.auth; // throws 'Supabase is not configured' when env vars are missing
+    } catch {
+      setCloudOffline(true);
+      setChecking(false);
+      return;
+    }
+    auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user || null);
       setChecking(false);
     });
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
+    const { data: sub } = auth.onAuthStateChange((_e, s) => {
       setUser(s?.user || null);
       setChecking(false);
     });
@@ -52,6 +61,24 @@ export default function NewPost() {
     if (error) { setError('Could not publish your post. Try again.'); return; }
     router.push(`/agora/post/${data.id}`);
   };
+
+  if (cloudOffline) {
+    return (
+      <main className="relative min-h-screen bg-black text-white">
+        <Starfield />
+        <div className="relative z-10 mx-auto max-w-md px-4 pb-24 pt-16 text-center">
+          <h1 className="mb-2 text-2xl font-black">New post</h1>
+          <p className="mb-6 text-sm text-zinc-400">
+            Cloud features are offline — this page needs the database connection.
+            Sign-in and publishing are unavailable until it&apos;s back.
+          </p>
+          <Link href="/agora" className="text-sm text-zinc-500 underline">
+            Back to the feed
+          </Link>
+        </div>
+      </main>
+    );
+  }
 
   if (checking) {
     return (

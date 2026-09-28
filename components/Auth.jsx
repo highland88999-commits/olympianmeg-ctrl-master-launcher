@@ -13,16 +13,22 @@ export default function Auth({ onLogin }) {
   const [mode, setMode] = useState('login'); 
 
   useEffect(() => {
-    // Listens for the user returning from a password reset email link
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'PASSWORD_RECOVERY') {
-        setMode('update');
-        setMessage('SECURE LINK VERIFIED. ENTER NEW ENCRYPTION KEY.');
-        setError('');
-      }
-    });
-
-    return () => subscription.unsubscribe();
+    // Listens for the user returning from a password reset email link.
+    // Guarded: lib/supabase throws synchronously when env vars are absent.
+    // The launcher's offline gate keeps this panel unmounted while the cloud
+    // is down, so this is a last-resort guard only.
+    try {
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+        if (event === 'PASSWORD_RECOVERY') {
+          setMode('update');
+          setMessage('SECURE LINK VERIFIED. ENTER NEW ENCRYPTION KEY.');
+          setError('');
+        }
+      });
+      return () => subscription.unsubscribe();
+    } catch (e) {
+      return undefined;
+    }
   }, []);
 
   const handleSubmit = async (e) => {

@@ -16,44 +16,61 @@ export default function AgoraFeed() {
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(null);
+  const [cloudOffline, setCloudOffline] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => setUser(session?.user || null));
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setUser(s?.user || null));
+    let auth;
+    try {
+      auth = supabase.auth; // throws 'Supabase is not configured' when env vars are missing
+    } catch {
+      setCloudOffline(true);
+      setLoading(false);
+      return;
+    }
+    auth.getSession().then(({ data: { session } }) => setUser(session?.user || null));
+    const { data: sub } = auth.onAuthStateChange((_e, s) => setUser(s?.user || null));
     return () => sub.subscription.unsubscribe();
   }, []);
 
   const load = useCallback(async (cat, pg, append) => {
     setLoading(true);
-    let query = supabase
-      .from('agora_posts')
-      .select('id, title, body, category, like_count, comment_count, created_at, user_id')
-      .order('created_at', { ascending: false })
-      .range(pageOffset(pg), pageOffset(pg) + PAGE_SIZE);
-    if (cat !== 'all') query = query.eq('category', cat);
-    const { data } = await query;
-    const raw = data || [];
-    const list = raw.slice(0, PAGE_SIZE);
-    // Batch-load author display names.
-    const ids = [...new Set(list.map((p) => p.user_id))];
-    let nameMap = {};
-    if (ids.length) {
-      const { data: profiles } = await supabase
-        .from('agora_profiles')
-        .select('user_id, display_name')
-        .in('user_id', ids);
-      for (const p of profiles || []) nameMap[p.user_id] = p;
+    try {
+      let query = supabase
+        .from('agora_posts')
+        .select('id, title, body, category, like_count, comment_count, created_at, user_id')
+        .order('created_at', { ascending: false })
+        .range(pageOffset(pg), pageOffset(pg) + PAGE_SIZE);
+      if (cat !== 'all') query = query.eq('category', cat);
+      const { data } = await query;
+      const raw = data || [];
+      const list = raw.slice(0, PAGE_SIZE);
+      // Batch-load author display names.
+      const ids = [...new Set(list.map((p) => p.user_id))];
+      let nameMap = {};
+      if (ids.length) {
+        const { data: profiles } = await supabase
+          .from('agora_profiles')
+          .select('user_id, display_name')
+          .in('user_id', ids);
+        for (const p of profiles || []) nameMap[p.user_id] = p;
+      }
+      const enriched = list.map((p) => ({ ...p, agora_profiles: nameMap[p.user_id] || null }));
+      setPosts((prev) => (append ? [...prev, ...enriched] : enriched));
+      setHasMore(raw.length > PAGE_SIZE);
+    } catch {
+      // Database unreachable (missing env vars or network down): degrade honestly.
+      setCloudOffline(true);
+      setPosts((prev) => (append ? prev : []));
+      setHasMore(false);
     }
-    const enriched = list.map((p) => ({ ...p, agora_profiles: nameMap[p.user_id] || null }));
-    setPosts((prev) => (append ? [...prev, ...enriched] : enriched));
-    setHasMore(raw.length > PAGE_SIZE);
     setLoading(false);
   }, []);
 
   useEffect(() => {
+    if (cloudOffline) { setLoading(false); return; }
     setPage(1);
     load(category, 1, false);
-  }, [category, load]);
+  }, [category, load, cloudOffline]);
 
   const showMore = () => {
     const next = page + 1;
@@ -94,7 +111,12 @@ export default function AgoraFeed() {
           )}
         </div>
 
-        {posts.length === 0 && !loading ? (
+        {cloudOffline ? (
+          <div className="rounded-xl border border-white/10 bg-black/50 p-10 text-center">
+            <p className="text-zinc-400">Cloud features are offline — this page needs the database connection.</p>
+            <p className="mt-2 text-sm text-zinc-600">The feed will load once the database is connected.</p>
+          </div>
+        ) : posts.length === 0 && !loading ? (
           <div className="rounded-xl border border-white/10 bg-black/50 p-10 text-center">
             <p className="text-zinc-400">Nothing here yet. Be the first to start a conversation.</p>
             {user && (

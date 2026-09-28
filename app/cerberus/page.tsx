@@ -15,35 +15,65 @@ export default function CerberusApp() {
   const { isZoomModeActive, openFrames, setSession, fetchUserNodes } = useCerberusStore()
   const [localSession, setLocalSession] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [cloudOffline, setCloudOffline] = useState(false)
 
   useEffect(() => {
     let mounted = true;
+    let subscription: { unsubscribe(): void } | undefined;
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (mounted) {
+    // The shared supabase client throws when the database connection isn't
+    // configured. Catch that (and any auth failure) and say so honestly
+    // instead of crashing into the error boundary.
+    const markOffline = () => { if (mounted) { setCloudOffline(true); setIsLoading(false); } };
+
+    try {
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (!mounted) return;
         if (!session) {
           router.push('/')
           return
         }
         setLocalSession(session)
         setSession(session)
-        fetchUserNodes().finally(() => setIsLoading(false))
-      }
-    })
+        fetchUserNodes().finally(() => { if (mounted) setIsLoading(false) })
+      }).catch(markOffline)
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (mounted) {
-        if (!session) return router.push('/')
-        setLocalSession(session)
-        setSession(session)
-      }
-    })
+      const { data: { subscription: sub } } = supabase.auth.onAuthStateChange((_event, session) => {
+        if (mounted) {
+          if (!session) return router.push('/')
+          setLocalSession(session)
+          setSession(session)
+        }
+      })
+      subscription = sub
+    } catch {
+      markOffline()
+    }
 
     return () => {
       mounted = false;
-      subscription.unsubscribe()
+      subscription?.unsubscribe()
     }
   }, [setSession, fetchUserNodes, router])
+
+  if (cloudOffline) return (
+    <div style={{ position: 'fixed', inset: 0, backgroundColor: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32 }}>
+      <div style={{ maxWidth: 420, textAlign: 'center' }}>
+        <p style={{ color: '#c0c0c0', letterSpacing: 3, fontSize: 13, textTransform: 'uppercase', marginBottom: 12 }}>
+          Cloud features are offline
+        </p>
+        <p style={{ color: '#666', fontSize: 14, marginBottom: 24 }}>
+          This page needs the database connection. Check back once the cloud is connected.
+        </p>
+        <button
+          onClick={() => router.push('/')}
+          className="px-4 py-2 text-[10px] font-bold tracking-widest text-[#c0c0c0] uppercase transition-colors border rounded bg-black/80 border-[#333] hover:text-[#00f2ff] hover:border-[#00f2ff]"
+        >
+          [ DISCONNECT NODE ]
+        </button>
+      </div>
+    </div>
+  )
 
   if (isLoading || !localSession) return <div style={{ position: 'fixed', inset: 0, backgroundColor: '#000' }} />
 

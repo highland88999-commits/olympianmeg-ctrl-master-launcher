@@ -71,6 +71,7 @@ export default function QuantumChess() {
   const router = useRouter();
   const [user, setUser] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
+  const [cloudOffline, setCloudOffline] = useState(false);
   const [mode, setMode] = useState<string | null>(null);
   const [oasisOpen, setOasisOpen] = useState(false);
   const [npcName, setNpcName] = useState<string | null>(null);
@@ -89,15 +90,21 @@ export default function QuantumChess() {
 
   useEffect(() => {
     const initSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return router.push('/');
-      
-      const cached = localStorage.getItem('nexus_user');
-      setUser(cached || session.user.email?.split('@')[0].toUpperCase() || 'OPERATOR');
-      setUserId(session.user.id);
-      // Universal deep link: /chess?code=XXXXXX opens the OASIS lobby, which auto-joins.
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('code')) setOasisOpen(true);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return router.push('/');
+
+        const cached = localStorage.getItem('nexus_user');
+        setUser(cached || session.user.email?.split('@')[0].toUpperCase() || 'OPERATOR');
+        setUserId(session.user.id);
+        // Universal deep link: /chess?code=XXXXXX opens the OASIS lobby, which auto-joins.
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('code')) setOasisOpen(true);
+      } catch {
+        // Database connection unavailable (not configured, or unreachable).
+        // Say so honestly instead of leaving a dead black screen.
+        setCloudOffline(true);
+      }
     };
     initSession();
   }, [router]);
@@ -271,6 +278,23 @@ export default function QuantumChess() {
       setSelectedPieceId(null);
     }
   };
+
+  if (cloudOffline) return (
+    <main className="relative w-screen h-screen overflow-hidden bg-[#050505] flex items-center justify-center p-8">
+      <div className="max-w-md text-center">
+        <p className="text-zinc-300 tracking-widest uppercase text-sm mb-3">Cloud features are offline</p>
+        <p className="text-zinc-500 text-sm mb-6">
+          This page needs the database connection. Check back once the cloud is connected.
+        </p>
+        <button
+          onClick={() => router.push('/')}
+          className="px-4 py-2 text-xs font-bold tracking-widest text-zinc-400 uppercase transition-colors border rounded bg-black/80 border-zinc-700 hover:text-cyan-400 hover:border-cyan-400"
+        >
+          Exit matrix
+        </button>
+      </div>
+    </main>
+  )
 
   if (!user) return <div className="w-screen h-screen bg-black" />
 

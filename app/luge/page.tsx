@@ -184,6 +184,7 @@ export default function LugeEngine() {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [authed, setAuthed] = useState(false);
+  const [cloudOffline, setCloudOffline] = useState(false);
 
   // States: 'menu', 'store', 'pre_race_calibrate', 'racing', 'podium'
   const [gameState, setGameState] = useState('menu');
@@ -231,7 +232,11 @@ export default function LugeEngine() {
   };
 
   useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    // The shared supabase client throws when the database connection isn't
+    // configured. Catch that (and any auth failure) and say so honestly
+    // instead of leaving a dead black screen.
+    try {
+      supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) {
         setMounted(true);
         setAuthed(false);
@@ -267,7 +272,10 @@ export default function LugeEngine() {
           window.history.replaceState({}, '', window.location.pathname);
         }
       }
-    });
+      }).catch(() => setCloudOffline(true));
+    } catch {
+      setCloudOffline(true);
+    }
   }, [router]);
 
   // Request iOS Gyroscope Permissions & Start Listener
@@ -381,6 +389,22 @@ export default function LugeEngine() {
   };
 
   const isSledLocked = (sled) => sled.type === 'premium' && !ownedIds.has(sled.id);
+
+  if (cloudOffline) return (
+    <div className="flex flex-col items-center justify-center w-full h-full p-8 text-center text-white bg-zinc-950">
+      <h1 className="mb-2 text-4xl text-cyan-400 uppercase tracking-widest">Cyberpunk Luge</h1>
+      <p className="mb-4 text-sm font-bold tracking-widest text-amber-400 uppercase">Cloud features are offline</p>
+      <p className="max-w-md mb-8 text-sm text-zinc-400">
+        This page needs the database connection. Check back once the cloud is connected.
+      </p>
+      <button
+        onClick={() => router.push('/')}
+        className="px-10 py-4 text-sm font-bold tracking-widest text-black uppercase bg-cyan-400 rounded-full hover:bg-white"
+      >
+        Go to the hub
+      </button>
+    </div>
+  );
 
   if (!mounted) return <div className="bg-black w-screen h-screen"></div>;
 

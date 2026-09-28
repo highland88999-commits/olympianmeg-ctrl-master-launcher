@@ -68,6 +68,7 @@ export default function AquariumConsole() {
   const [mirrored, setMirrored] = useState(false);
   const [isFading, setIsFading] = useState(false);
   const [statusText, setStatusText] = useState("ESTABLISHING DATABASE UPLINK...");
+  const [cloudOffline, setCloudOffline] = useState(false);
   
   const touchStartX = useRef(0);
   const touchEndX = useRef(0);
@@ -76,7 +77,14 @@ export default function AquariumConsole() {
 
   // Universal Auth Check & Init
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    let auth;
+    try {
+      auth = supabase.auth; // throws 'Supabase is not configured' when env vars are missing
+    } catch {
+      setCloudOffline(true);
+      return;
+    }
+    auth.getSession().then(({ data: { session } }) => {
       if (!session) {
         router.push('/');
         return;
@@ -85,7 +93,7 @@ export default function AquariumConsole() {
       initSystem();
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = auth.onAuthStateChange((_event, session) => {
       if (!session) router.push('/');
     });
 
@@ -222,7 +230,18 @@ export default function AquariumConsole() {
       if(!uiOpen) handleSwipe(); 
   };
 
-  if (!mounted) return <div style={{width: '100vw', height: '100vh', background: '#000'}}></div>;
+  if (!mounted) {
+    if (cloudOffline) {
+      return (
+        <div style={{ width: '100vw', height: '100vh', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem', textAlign: 'center' }}>
+          <p style={{ color: '#00f2ff', fontFamily: 'Courier New, monospace', fontSize: '0.8rem', letterSpacing: '2px', lineHeight: 2 }}>
+            CLOUD FEATURES OFFLINE — THIS CONSOLE NEEDS THE DATABASE CONNECTION.
+          </p>
+        </div>
+      );
+    }
+    return <div style={{width: '100vw', height: '100vh', background: '#000'}}></div>;
+  }
 
   const currentNode = nodes[currentIndex] || { id: '', name: 'INITIALIZING' };
 

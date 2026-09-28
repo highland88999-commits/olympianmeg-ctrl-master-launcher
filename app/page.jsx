@@ -387,6 +387,12 @@ function NexusHub() {
   const [appState, setAppState] = useState('hub_intro');
   const [isMenuExpanded, setIsMenuExpanded] = useState(true);
   const [user, setUser] = useState(null);
+  // Honest guest mode: true while no Supabase backend is configured (fresh
+  // deploy before Merlin's new Supabase project exists). The hub stays fully
+  // explorable; the Auth gate is bypassed ONLY in this state. The moment env
+  // vars exist, original auth behavior returns unchanged.
+  const [cloudOffline, setCloudOffline] = useState(false);
+  const [cloudNoteDismissed, setCloudNoteDismissed] = useState(false);
   
   const targetRouteRef = useRef('');
   const adWindowRef = useRef(null);
@@ -430,29 +436,47 @@ function NexusHub() {
   const isLooking = useRef(false);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        const callsign = session.user.user_metadata?.username || session.user.user_metadata?.callsign || localStorage.getItem('nexus_user') || session.user.email?.split('@')[0].toUpperCase();
-        localStorage.setItem('nexus_user', callsign);
-        setUser(callsign);
-      } else {
-        const cached = localStorage.getItem('nexus_user');
-        if (cached) setUser(cached);
-      }
-    });
+    // No backend configured yet: enter honest guest mode instead of crashing.
+    // lib/supabase.ts throws on first use when NEXT_PUBLIC_SUPABASE_* are
+    // missing, so we check before touching the client at all.
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+      setCloudOffline(true);
+      const cached = localStorage.getItem('nexus_user');
+      if (cached) setUser(cached);
+      return;
+    }
+    try {
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session?.user) {
+          const callsign = session.user.user_metadata?.username || session.user.user_metadata?.callsign || localStorage.getItem('nexus_user') || session.user.email?.split('@')[0].toUpperCase();
+          localStorage.setItem('nexus_user', callsign);
+          setUser(callsign);
+        } else {
+          const cached = localStorage.getItem('nexus_user');
+          if (cached) setUser(cached);
+        }
+      });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) {
-        const callsign = session.user.user_metadata?.username || session.user.user_metadata?.callsign || session.user.email?.split('@')[0].toUpperCase();
-        localStorage.setItem('nexus_user', callsign);
-        setUser(callsign);
-      } else {
-        localStorage.removeItem('nexus_user');
-        setUser(null);
-      }
-    });
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        if (session?.user) {
+          const callsign = session.user.user_metadata?.username || session.user.user_metadata?.callsign || session.user.email?.split('@')[0].toUpperCase();
+          localStorage.setItem('nexus_user', callsign);
+          setUser(callsign);
+        } else {
+          localStorage.removeItem('nexus_user');
+          setUser(null);
+        }
+      });
 
-    return () => subscription.unsubscribe();
+      return () => subscription.unsubscribe();
+    } catch (err) {
+      // Backend unreachable/misconfigured at runtime: degrade honestly,
+      // never crash the hub into the error boundary.
+      console.warn('Cloud auth unavailable, entering guest mode:', err);
+      setCloudOffline(true);
+      const cached = localStorage.getItem('nexus_user');
+      if (cached) setUser(cached);
+    }
   }, []);
 
   useEffect(() => {
@@ -491,7 +515,11 @@ function NexusHub() {
   const handleLogin = (callsign) => setUser(callsign);
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
+    try {
+      await supabase.auth.signOut();
+    } catch {
+      // Cloud offline: nothing to sign out of server-side.
+    }
     localStorage.removeItem('nexus_user');
     setUser(null);
   };
@@ -569,7 +597,24 @@ function NexusHub() {
         controlsRef.current.zoom = Math.max(20, Math.min(100, controlsRef.current.zoom));
       }}
     >
-      {!user && <Auth onLogin={handleLogin} />}
+      {!user && !cloudOffline && <Auth onLogin={handleLogin} />}
+      {cloudOffline && !cloudNoteDismissed && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 pointer-events-auto">
+          <div className="flex items-center gap-3 bg-zinc-950/90 border border-amber-500/40 rounded-full pl-4 pr-2 py-2 shadow-lg backdrop-blur-md">
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+            <span className="text-[11px] text-zinc-300 tracking-wide">
+              Cloud features are offline — exploring as a guest. Sign-in and cloud saves return once the database is connected.
+            </span>
+            <button
+              onClick={() => setCloudNoteDismissed(true)}
+              className="text-zinc-500 hover:text-white text-xs px-2"
+              aria-label="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
       
       {user && (appState === 'hub_intro' || appState === 'hub_freeroam') && (
         <>

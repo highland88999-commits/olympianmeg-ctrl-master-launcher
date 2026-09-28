@@ -26,10 +26,18 @@ export default function Alexandria() {
   const canvasRef = useRef(null);
   const gridRef = useRef(null);
   const [mounted, setMounted] = useState(false);
+  const [cloudOffline, setCloudOffline] = useState(false);
 
   // Auth gate: runs on mount, before any library DOM exists.
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    let sessionPromise;
+    try {
+      sessionPromise = supabase.auth.getSession(); // throws when Supabase env vars are missing
+    } catch {
+      setCloudOffline(true);
+      return;
+    }
+    sessionPromise.then(({ data: { session } }) => {
       if (!session) {
         if (window.top === window.self) router.push('/');
         else document.body.innerHTML = '<div style="color:#08f7fe; text-align:center; padding:50px; font-family:monospace;">Please log in at the Master Hub to continue.</div>';
@@ -278,7 +286,18 @@ export default function Alexandria() {
     };
   }, [mounted, router]);
 
-  if (!mounted) return <div style={{ background: '#050508', width: '100vw', height: '100vh' }}></div>;
+  if (!mounted) {
+    if (cloudOffline) {
+      return (
+        <div style={{ background: '#050508', width: '100vw', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem', textAlign: 'center' }}>
+          <p style={{ color: '#08f7fe', fontFamily: 'monospace', lineHeight: 1.8 }}>
+            Cloud features are offline — the library needs the database connection.
+          </p>
+        </div>
+      );
+    }
+    return <div style={{ background: '#050508', width: '100vw', height: '100vh' }}></div>;
+  }
 
   return (
     <>

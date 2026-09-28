@@ -8,9 +8,20 @@ import { supabase } from '@/lib/supabase';
 export default function Vault() {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
+  const [cloudOffline, setCloudOffline] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    (async () => {
+      let session;
+      try {
+        ({ data: { session } } = await supabase.auth.getSession());
+      } catch {
+        // No database connection — open with an honest banner. Profile sync
+        // and library browsing are offline; the on-device saved shelf still works.
+        setCloudOffline(true);
+        setMounted(true);
+        return;
+      }
       if (!session) {
         if (window.top === window.self) router.push('/');
         else document.body.innerHTML = '<div style="color:#08f7fe; text-align:center; padding:50px; font-family:monospace;">UNAUTHORIZED. PLEASE LOG IN AT MASTER HUB.</div>';
@@ -22,16 +33,18 @@ export default function Vault() {
       document.getElementById('display-email').innerText = currentUser.email;
       document.getElementById('input-email-locked').value = currentUser.email;
 
-      supabase.from('profiles').select('*').eq('id', currentUser.id).single().then(({data: profile}) => {
-        if (profile) {
-            if (profile.alias) {
-                document.getElementById('display-alias').innerText = profile.alias;
-                document.getElementById('input-alias').value = profile.alias;
-            }
-            if (profile.bio) document.getElementById('input-bio').value = profile.bio;
-        }
-        loadVaultData('browse');
-      });
+      let profile = null;
+      try {
+        ({ data: profile } = await supabase.from('profiles').select('*').eq('id', currentUser.id).single());
+      } catch { /* profile sync unavailable — defaults stand */ }
+      if (profile) {
+          if (profile.alias) {
+              document.getElementById('display-alias').innerText = profile.alias;
+              document.getElementById('input-alias').value = profile.alias;
+          }
+          if (profile.bio) document.getElementById('input-bio').value = profile.bio;
+      }
+      loadVaultData('browse');
 
       document.getElementById('btn-save-profile').onclick = async () => {
         const btn = document.getElementById('btn-save-profile');
@@ -45,7 +58,7 @@ export default function Vault() {
         }
         setTimeout(() => { btn.innerText = "SYNC PROFILE DATA"; btn.style.borderColor = "var(--neon-cyan)"; btn.style.color = "var(--neon-cyan)"; }, 3000);
       };
-    });
+    })();
 
     const BOOKMARKS_KEY = 'reader_vault_bookmarks_v1';
 
@@ -109,7 +122,13 @@ export default function Vault() {
         saved.forEach(book => renderBookCard(grid, book, 'SAVED', true));
         return;
       }
-      const { data: books } = await supabase.from('manuscripts').select('*').limit(50);
+      let books = null;
+      try {
+        ({ data: books } = await supabase.from('manuscripts').select('*').limit(50));
+      } catch {
+        grid.innerHTML = `<p style="color: var(--text-muted); font-family: monospace; grid-column: 1 / -1;">Cloud features are offline — the library needs the database connection. Your saved artifacts on this device are still under the SAVED tab.</p>`;
+        return;
+      }
       grid.innerHTML = '';
       if (!books || books.length === 0) {
         grid.innerHTML = `<p style="color: var(--text-muted); font-family: monospace; grid-column: 1 / -1;">No artifacts detected in this sector.</p>`;
@@ -173,6 +192,14 @@ export default function Vault() {
             <div className="hero-overlay"></div>
         </div>
 
+        {cloudOffline && (
+          <div style={{width:'100%', maxWidth:'1200px', padding:'0 1.5rem', marginTop:'-30px', position:'relative', zIndex:10}}>
+            <div style={{padding:'12px 16px', border:'1px solid #eab308', background:'rgba(234,179,8,0.08)', color:'#fde68a', fontFamily:'monospace', fontSize:'0.85rem', lineHeight:'1.6'}}>
+              Cloud features are offline — this page needs the database connection. Profile sync and library browsing are unavailable; your saved artifacts on this device still work under the SAVED tab.
+            </div>
+          </div>
+        )}
+
         <main className="container">
             <section className="profile-card">
             <div className="avatar-section">
@@ -188,7 +215,11 @@ export default function Vault() {
                     <div className="form-group"><label>Associated Email</label><input type="email" id="input-email-locked" disabled style={{opacity: 0.5}} /></div>
                 </div>
                 <div className="form-group full-width"><label>Public Bio Matrix</label><textarea id="input-bio" placeholder="Broadcast your status to the network..."></textarea></div>
-                <button className="save-btn" id="btn-save-profile">SYNC PROFILE DATA</button>
+                <button className="save-btn" id="btn-save-profile" disabled={cloudOffline}
+                    style={cloudOffline ? {opacity: 0.4, cursor: 'not-allowed'} : undefined}
+                    title={cloudOffline ? 'Unavailable while cloud features are offline' : undefined}>
+                    SYNC PROFILE DATA
+                </button>
             </div>
             </section>
 
