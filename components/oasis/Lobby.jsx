@@ -30,6 +30,9 @@ import { useOasisJoinLink } from '@/hooks/oasis/useJoinLink';
 
 export default function OasisLobby({ gameSlug, supabase, userId, callsign = 'PLAYER', stats = {}, onLaunch, onExit }) {
   const game = getGame(gameSlug);
+  // Games with npcBackfill: false (e.g. raptor-rush) run real-humans-only
+  // matches: no NPC quick matches, no backfill, no "NPCs will fill in".
+  const noNpc = game.npcBackfill === false;
   const [view, setView] = useState('menu'); // menu | waiting | joining
   const [room, setRoom] = useState(null);
   const [joinInput, setJoinInput] = useState('');
@@ -71,7 +74,8 @@ export default function OasisLobby({ gameSlug, supabase, userId, callsign = 'PLA
 
   const handleNpcSolo = async () => {
     // Solo vs NPCs: no room needed, roster is you + backfill to the minimum.
-    const pool = pickBackfill({ gameSlug, count: game.minPlayers - 1, tier: 'rookie' });
+    // Real-humans-only games skip the backfill — it is a straight solo run.
+    const pool = noNpc ? [] : pickBackfill({ gameSlug, count: game.minPlayers - 1, tier: 'rookie' });
     const { roster } = fillParty({
       humans: [userId], npcs: [], minPlayers: game.minPlayers,
       maxPlayers: game.maxPlayers, npcPool: pool,
@@ -96,7 +100,8 @@ export default function OasisLobby({ gameSlug, supabase, userId, callsign = 'PLA
     const humans = (roomRow.player_ids || []).map((id) => id);
     const chosenNpcs = (npcIds.map(getNpc).filter(Boolean));
     // Backfill to the minimum when humans fall short — the min-max rule.
-    const pool = pickBackfill({
+    // Skipped entirely for real-humans-only games (npcBackfill: false).
+    const pool = noNpc ? [] : pickBackfill({
       gameSlug, count: game.minPlayers, tier: 'rookie',
       excludeIds: chosenNpcs.map((n) => n.id),
     });
@@ -137,7 +142,7 @@ export default function OasisLobby({ gameSlug, supabase, userId, callsign = 'PLA
           <h1 className={`text-3xl sm:text-4xl font-black tracking-[0.2em] mb-2 uppercase ${theme.accentText}`}>{game.name}</h1>
           <p className="text-xs tracking-widest text-zinc-500 uppercase">{game.tagline}</p>
           <p className="text-[10px] tracking-widest text-zinc-600 uppercase mt-1">
-            {game.minPlayers}–{game.maxPlayers} players · NPCs fill empty seats
+            {game.minPlayers}–{game.maxPlayers} players · {noNpc ? 'real hunters only — no NPC fill' : 'NPCs fill empty seats'}
           </p>
         </div>
 
@@ -145,7 +150,7 @@ export default function OasisLobby({ gameSlug, supabase, userId, callsign = 'PLA
           <div className="flex flex-col w-full gap-3">
             <button onClick={handleNpcSolo} disabled={loading}
               className={`w-full px-6 py-4 text-sm font-bold tracking-widest uppercase transition-all border ${theme.secondaryBorder} ${theme.secondaryText} bg-white/5 hover:bg-white/10 disabled:opacity-50`}>
-              Quick Match vs NPC Rivals
+              {noNpc ? 'Quick Match (Solo Hunt)' : 'Quick Match vs NPC Rivals'}
             </button>
             {!userId && (
               <p className="text-[11px] text-zinc-500 tracking-widest uppercase text-center">
@@ -196,11 +201,18 @@ export default function OasisLobby({ gameSlug, supabase, userId, callsign = 'PLA
             <RosterPanel humans={humans} npcIds={npcIds} minPlayers={game.minPlayers} maxPlayers={game.maxPlayers} theme={theme} hostLabel={callsign || 'YOU'} />
             <ShareRoomCode gameSlug={gameSlug} code={room.room_code} codeLabel={game.codeLabel}
               shareTitle={game.shareTitle} shareText={game.shareText(room.room_code)} theme={theme} />
-            <NpcPicker gameSlug={gameSlug} selected={npcIds} maxSelect={game.maxPlayers - 1} onToggle={toggleNpc} theme={theme} title="SEAT NPC RIVALS" />
-            <button onClick={handleStart} disabled={loading}
+            {!noNpc && (
+              <NpcPicker gameSlug={gameSlug} selected={npcIds} maxSelect={game.maxPlayers - 1} onToggle={toggleNpc} theme={theme} title="SEAT NPC RIVALS" />
+            )}
+            <button onClick={handleStart} disabled={loading || (noNpc && humans.length < game.minPlayers)}
               className={`w-full px-6 py-4 text-sm font-black tracking-widest uppercase transition-all border ${theme.accentBorder} ${theme.accentText} ${theme.accentBg} ${theme.accentHover} disabled:opacity-50`}>
-              {needsBackfill(humans.length, game.minPlayers) ? 'START — NPCS WILL FILL IN' : 'START MATCH'}
+              {noNpc || !needsBackfill(humans.length, game.minPlayers) ? 'START MATCH' : 'START — NPCS WILL FILL IN'}
             </button>
+            {noNpc && humans.length < game.minPlayers && (
+              <p className="text-xs text-center text-amber-300/80 tracking-widest uppercase">
+                Waiting for a real rival — share your code. No NPCs will fill in.
+              </p>
+            )}
             {errorMsg && <p className="text-xs text-center text-red-500 animate-pulse">{errorMsg}</p>}
             <button onClick={() => setView('menu')} className="text-xs tracking-widest uppercase text-zinc-600 hover:text-zinc-300">
               Back to menu

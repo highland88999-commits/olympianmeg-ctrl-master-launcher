@@ -1,16 +1,26 @@
 // Raptor Rush — 2D canvas renderer. All art is procedural (no assets, no network).
-// Renders the game state produced by game.js.
+// Renders the game state produced by game.js. The canyon runs dead-ahead:
+// the horizon sits at the top, the track scrolls toward the player at the
+// bottom, and entities shrink toward the horizon (simple linear perspective).
 
 import {
   WORLD_W,
   WORLD_H,
-  GROUND_Y,
-  RAPTOR_X,
+  TRACK_X0,
+  TRACK_X1,
+  RAPTOR_Y,
   OBSTACLE_TYPES,
   raptorBox,
   obstacleBox,
   rabbitBox,
+  escalationAt,
 } from './game';
+
+// Perspective scale for a world y: 0.45 at the horizon, 1.0 at the player.
+export function depthScale(y) {
+  const t = Math.max(0, Math.min(1, y / WORLD_H));
+  return 0.45 + 0.55 * t;
+}
 
 function makeSky(w, h) {
   const c = document.createElement('canvas');
@@ -19,29 +29,32 @@ function makeSky(w, h) {
   const x = c.getContext('2d');
   const grad = x.createLinearGradient(0, 0, 0, h);
   grad.addColorStop(0, '#0b0620');
-  grad.addColorStop(0.55, '#1c0f33');
-  grad.addColorStop(0.8, '#3a1630');
+  grad.addColorStop(0.28, '#241239');
+  grad.addColorStop(0.42, '#4a1c34'); // horizon glow band
+  grad.addColorStop(0.5, '#1a0f28');
   grad.addColorStop(1, '#0a0512');
   x.fillStyle = grad;
   x.fillRect(0, 0, w, h);
-  // Stars.
-  for (let i = 0; i < 110; i++) {
+  // Stars (fade out below the horizon).
+  for (let i = 0; i < 130; i++) {
     const sx = (i * 733) % w;
-    const sy = (i * 389) % Math.floor(h * 0.6);
+    const sy = (i * 389) % Math.floor(h * 0.3);
     const tw = 0.4 + ((i * 17) % 10) / 14;
     x.fillStyle = `rgba(200,220,255,${tw})`;
     x.fillRect(sx, sy, 2, 2);
   }
-  // Low sun.
-  const sun = x.createRadialGradient(w * 0.72, h * 0.62, 4, w * 0.72, h * 0.62, 120);
-  sun.addColorStop(0, 'rgba(255,120,60,0.55)');
-  sun.addColorStop(1, 'rgba(255,120,60,0)');
+  // Low sun on the horizon.
+  const sun = x.createRadialGradient(w * 0.5, h * 0.42, 4, w * 0.5, h * 0.42, 130);
+  sun.addColorStop(0, 'rgba(255,130,60,0.6)');
+  sun.addColorStop(1, 'rgba(255,130,60,0)');
   x.fillStyle = sun;
   x.fillRect(0, 0, w, h);
   return c;
 }
 
-function makeMesaLayer(w, h, color, seed, baseY, amp) {
+// A canyon wall strip that tiles vertically (height h, drawn as wallHeight
+// tiles). Deterministic jagged rock silhouette on one side.
+function makeWallStrip(w, h, color, seed, mirror) {
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;
@@ -49,20 +62,32 @@ function makeMesaLayer(w, h, color, seed, baseY, amp) {
   x.fillStyle = color;
   x.beginPath();
   x.moveTo(0, h);
-  let px = 0;
+  let py = 0;
   let i = 0;
-  while (px < w) {
-    const segW = 90 + ((seed * (i + 3) * 137) % 130);
-    const peak = baseY - ((seed * (i + 7) * 251) % amp);
-    x.lineTo(px + segW * 0.25, peak);
-    x.lineTo(px + segW * 0.55, peak);
-    x.lineTo(px + segW * 0.8, baseY - ((seed * (i + 11) * 97) % (amp * 0.5)));
-    px += segW;
+  while (py < h) {
+    const segH = 70 + ((seed * (i + 3) * 137) % 110);
+    const jag = 24 + ((seed * (i + 7) * 251) % 54);
+    const edge = mirror ? w - jag : jag;
+    x.lineTo(edge, py + segH * 0.3);
+    x.lineTo(edge - (mirror ? -1 : 1) * ((seed * (i + 11) * 97) % 30), py + segH * 0.6);
+    py += segH;
     i++;
   }
+  x.lineTo(0, h);
   x.lineTo(w, h);
+  x.lineTo(mirror ? w : 0, h);
+  x.lineTo(mirror ? w : 0, 0);
   x.closePath();
   x.fill();
+  // Rock strata lines.
+  x.strokeStyle = 'rgba(255,150,110,0.14)';
+  x.lineWidth = 3;
+  for (let ly = 20; ly < h; ly += 46) {
+    x.beginPath();
+    x.moveTo(0, ly);
+    x.lineTo(w, ly + ((seed * ly * 13) % 18) - 9);
+    x.stroke();
+  }
   return c;
 }
 
@@ -75,8 +100,10 @@ export function createRenderer(canvas, opts = {}) {
   let runPhase = 0;
 
   const sky = makeSky(WORLD_W, WORLD_H);
-  const far = makeMesaLayer(WORLD_W, WORLD_H, '#150b26', 7, 430, 150);
-  const near = makeMesaLayer(WORLD_W, WORLD_H, '#1e1030', 13, 470, 80);
+  const wallL = makeWallStrip(TRACK_X0, 480, '#241428', 7, false);
+  const wallR = makeWallStrip(WORLD_W - TRACK_X1, 480, '#241428', 13, true);
+  const wallFarL = makeWallStrip(TRACK_X0, 480, '#170c1e', 21, false);
+  const wallFarR = makeWallStrip(WORLD_W - TRACK_X1, 480, '#170c1e', 29, true);
 
   function resize() {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -89,179 +116,165 @@ export function createRenderer(canvas, opts = {}) {
     offY = (canvas.height - WORLD_H * scale) / 2;
   }
 
-  function drawRaptor(g) {
-    const box = raptorBox(g);
-    const sliding = g.raptor.sliding > 0;
-    const air = g.raptor.y > 1;
-    const cx = box.x + box.w / 2;
-    const feetY = GROUND_Y - g.raptor.y;
+  // --- raptor art, facing UP (running into the screen) --------------------
+  // Reuses the side-view raptor pose from the canyon sprint days, rotated
+  // -90 degrees so it sprints dead-ahead.
+  function drawRaptorSprite(g, s) {
     const blink = g.invincible > 0 && Math.floor(g.time * 14) % 2 === 0;
     if (blink) return; // hit flash
-
-    ctx.save();
-    ctx.translate(cx, feetY);
-
     const body = '#43d17c';
     const dark = '#1e7a44';
     const belly = '#b8f0cd';
+    const bob = reducedMotion ? 0 : Math.sin(runPhase) * 3;
 
-    if (sliding) {
-      // Low lunge pose.
-      ctx.fillStyle = body;
-      ctx.beginPath();
-      ctx.ellipse(0, -22, 46, 18, 0, 0, Math.PI * 2);
-      ctx.fill();
-      // Tail sweeping back.
-      ctx.fillStyle = dark;
-      ctx.beginPath();
-      ctx.moveTo(-40, -26);
-      ctx.lineTo(-78, -14);
-      ctx.lineTo(-40, -14);
-      ctx.closePath();
-      ctx.fill();
-      // Head low and forward.
-      ctx.fillStyle = body;
-      ctx.beginPath();
-      ctx.ellipse(44, -30, 16, 11, 0.2, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#0c2b1a';
-      ctx.beginPath();
-      ctx.arc(48, -32, 2.6, 0, Math.PI * 2);
-      ctx.fill();
-    } else {
-      const bob = air ? 0 : reducedMotion ? 0 : Math.sin(runPhase) * 3;
-      // Tail.
-      ctx.fillStyle = dark;
-      ctx.beginPath();
-      ctx.moveTo(-26, -58 + bob);
-      ctx.lineTo(-72, -40 + bob * 0.5);
-      ctx.lineTo(-26, -44 + bob);
-      ctx.closePath();
-      ctx.fill();
-      // Legs.
-      ctx.strokeStyle = dark;
-      ctx.lineWidth = 9;
-      ctx.lineCap = 'round';
-      const l1 = air ? -14 : Math.sin(runPhase) * 16;
-      const l2 = air ? 10 : Math.sin(runPhase + Math.PI) * 16;
-      ctx.beginPath();
-      ctx.moveTo(-6, -34 + bob);
-      ctx.lineTo(-6 + l1, 0);
-      ctx.moveTo(10, -34 + bob);
-      ctx.lineTo(10 + l2, 0);
-      ctx.stroke();
-      // Body.
-      ctx.fillStyle = body;
-      ctx.beginPath();
-      ctx.ellipse(2, -52 + bob, 34, 22, -0.12, 0, Math.PI * 2);
-      ctx.fill();
-      // Belly.
-      ctx.fillStyle = belly;
-      ctx.beginPath();
-      ctx.ellipse(6, -44 + bob, 22, 12, -0.1, 0, Math.PI * 2);
-      ctx.fill();
-      // Back stripes.
-      ctx.fillStyle = dark;
-      for (let s = 0; s < 3; s++) {
-        ctx.fillRect(-16 + s * 14, -72 + bob, 6, 10);
-      }
-      // Neck + head.
-      ctx.fillStyle = body;
-      ctx.save();
-      ctx.translate(26, -62 + bob);
-      ctx.rotate(air ? -0.25 : -0.1);
-      ctx.beginPath();
-      ctx.ellipse(8, -12, 10, 16, 0.25, 0, Math.PI * 2);
-      ctx.fill();
-      // Snout.
-      ctx.beginPath();
-      ctx.ellipse(20, -20, 14, 8, 0.1, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-      // Eye.
-      ctx.fillStyle = '#0c2b1a';
-      ctx.beginPath();
-      ctx.arc(38, -80 + bob, 3.2, 0, Math.PI * 2);
-      ctx.fill();
-      // Tiny arms.
-      ctx.strokeStyle = dark;
-      ctx.lineWidth = 5;
-      ctx.beginPath();
-      ctx.moveTo(24, -48 + bob);
-      ctx.lineTo(34, -38 + bob);
-      ctx.stroke();
+    // Tail sweeps back (down the screen).
+    ctx.fillStyle = dark;
+    ctx.beginPath();
+    ctx.moveTo(-26 * s, (-58 + bob) * s);
+    ctx.lineTo(-72 * s, (-40 + bob * 0.5) * s);
+    ctx.lineTo(-26 * s, (-44 + bob) * s);
+    ctx.closePath();
+    ctx.fill();
+    // Legs pumping.
+    ctx.strokeStyle = dark;
+    ctx.lineWidth = 9 * s;
+    ctx.lineCap = 'round';
+    const l1 = Math.sin(runPhase) * 16 * s;
+    const l2 = Math.sin(runPhase + Math.PI) * 16 * s;
+    ctx.beginPath();
+    ctx.moveTo(-6 * s, (-34 + bob) * s);
+    ctx.lineTo((-6 + l1) * s, 0);
+    ctx.moveTo(10 * s, (-34 + bob) * s);
+    ctx.lineTo((10 + l2) * s, 0);
+    ctx.stroke();
+    // Body.
+    ctx.fillStyle = body;
+    ctx.beginPath();
+    ctx.ellipse(2 * s, (-52 + bob) * s, 34 * s, 22 * s, -0.12, 0, Math.PI * 2);
+    ctx.fill();
+    // Belly.
+    ctx.fillStyle = belly;
+    ctx.beginPath();
+    ctx.ellipse(6 * s, (-44 + bob) * s, 22 * s, 12 * s, -0.1, 0, Math.PI * 2);
+    ctx.fill();
+    // Back stripes.
+    ctx.fillStyle = dark;
+    for (let i = 0; i < 3; i++) {
+      ctx.fillRect((-16 + i * 14) * s, (-72 + bob) * s, 6 * s, 10 * s);
     }
+    // Neck + head reach forward (up the screen).
+    ctx.fillStyle = body;
+    ctx.save();
+    ctx.translate(26 * s, (-62 + bob) * s);
+    ctx.rotate(-0.1);
+    ctx.beginPath();
+    ctx.ellipse(8 * s, -12 * s, 10 * s, 16 * s, 0.25, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(20 * s, -20 * s, 14 * s, 8 * s, 0.1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    // Eye.
+    ctx.fillStyle = '#0c2b1a';
+    ctx.beginPath();
+    ctx.arc(38 * s, (-80 + bob) * s, 3.2 * s, 0, Math.PI * 2);
+    ctx.fill();
+    // Tiny arms.
+    ctx.strokeStyle = dark;
+    ctx.lineWidth = 5 * s;
+    ctx.beginPath();
+    ctx.moveTo(24 * s, (-48 + bob) * s);
+    ctx.lineTo(34 * s, (-38 + bob) * s);
+    ctx.stroke();
+  }
+
+  function drawRaptor(g) {
+    const box = raptorBox(g);
+    const s = depthScale(RAPTOR_Y);
+    const cx = box.x + box.w / 2;
+    const feetY = RAPTOR_Y;
+    ctx.save();
+    ctx.translate(cx, feetY);
+    ctx.rotate(-Math.PI / 2); // face up-screen (dead-ahead)
+    ctx.scale(s, s);
+    drawRaptorSprite(g, 1);
     ctx.restore();
   }
 
   function drawObstacle(o) {
     const b = obstacleBox(o);
-    const t = OBSTACLE_TYPES[o.type];
+    const s = depthScale(o.y);
+    const cx = b.x + b.w / 2;
+    const cy = b.y + b.h / 2;
     ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(s, s);
     if (o.type === 'spire') {
-      const grad = ctx.createLinearGradient(b.x, b.y, b.x, b.y + b.h);
-      grad.addColorStop(0, '#8a4b6b');
+      const grad = ctx.createLinearGradient(0, -b.h / 2, 0, b.h / 2);
+      grad.addColorStop(0, '#9a5678');
       grad.addColorStop(1, '#3d1c30');
       ctx.fillStyle = grad;
       ctx.beginPath();
-      ctx.moveTo(b.x, b.y + b.h);
-      ctx.lineTo(b.x + b.w * 0.5, b.y);
-      ctx.lineTo(b.x + b.w, b.y + b.h);
+      ctx.moveTo(-b.w / 2, b.h / 2);
+      ctx.lineTo(0, -b.h / 2);
+      ctx.lineTo(b.w / 2, b.h / 2);
       ctx.closePath();
       ctx.fill();
       ctx.fillStyle = 'rgba(255,150,180,0.25)';
       ctx.beginPath();
-      ctx.moveTo(b.x + b.w * 0.5, b.y);
-      ctx.lineTo(b.x + b.w * 0.72, b.y + b.h);
-      ctx.lineTo(b.x + b.w * 0.5, b.y + b.h);
+      ctx.moveTo(0, -b.h / 2);
+      ctx.lineTo(b.w * 0.22, b.h / 2);
+      ctx.lineTo(0, b.h / 2);
       ctx.closePath();
       ctx.fill();
     } else if (o.type === 'boulder') {
-      const grad = ctx.createLinearGradient(b.x, b.y, b.x, b.y + b.h);
-      grad.addColorStop(0, '#6b5a8a');
+      const grad = ctx.createLinearGradient(0, -b.h / 2, 0, b.h / 2);
+      grad.addColorStop(0, '#7a6a9a');
       grad.addColorStop(1, '#2c2340');
       ctx.fillStyle = grad;
       ctx.beginPath();
-      ctx.ellipse(b.x + b.w / 2, b.y + b.h / 2, b.w / 2, b.h / 2, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, b.w / 2, b.h / 2, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = 'rgba(200,180,255,0.2)';
       ctx.beginPath();
-      ctx.ellipse(b.x + b.w * 0.38, b.y + b.h * 0.34, b.w * 0.2, b.h * 0.18, -0.4, 0, Math.PI * 2);
+      ctx.ellipse(-b.w * 0.12, -b.h * 0.16, b.w * 0.2, b.h * 0.18, -0.4, 0, Math.PI * 2);
       ctx.fill();
     } else {
-      // Hanging vines from a branch stub.
-      ctx.fillStyle = '#241a12';
-      ctx.fillRect(b.x - 6, b.y - 14, b.w + 12, 16);
-      ctx.strokeStyle = '#2f8f4e';
-      ctx.lineWidth = 6;
-      ctx.lineCap = 'round';
-      const strands = 5;
-      for (let s = 0; s < strands; s++) {
-        const vx = b.x + 8 + (s / (strands - 1)) * (b.w - 16);
-        const sway = reducedMotion ? 0 : Math.sin(g_time * 3 + s * 1.7) * 6;
-        ctx.beginPath();
-        ctx.moveTo(vx, b.y);
-        ctx.quadraticCurveTo(vx + sway, b.y + b.h * 0.55, vx + sway * 1.6, b.y + b.h);
-        ctx.stroke();
+      // Rockfall: jagged chunk, pulses a warning glow.
+      const pulse = reducedMotion ? 0 : (Math.sin(o.y * 0.05) * 0.5 + 0.5) * 0.25;
+      ctx.fillStyle = `rgba(255,80,60,${0.15 + pulse})`;
+      ctx.beginPath();
+      ctx.arc(0, 0, b.w * 0.75, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#4a3348';
+      ctx.beginPath();
+      const n = 7;
+      for (let i = 0; i <= n; i++) {
+        const a = (i / n) * Math.PI * 2;
+        const rr = (b.w / 2) * (0.8 + ((i * 37) % 10) / 25);
+        const px = Math.cos(a) * rr;
+        const py = Math.sin(a) * rr;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
       }
-      // Leaves.
-      ctx.fillStyle = '#3fae5f';
-      for (let s = 0; s < strands; s++) {
-        const vx = b.x + 8 + (s / (strands - 1)) * (b.w - 16);
-        ctx.beginPath();
-        ctx.ellipse(vx, b.y + b.h * 0.5, 7, 4, 0.5, 0, Math.PI * 2);
-        ctx.fill();
-      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,170,140,0.25)';
+      ctx.beginPath();
+      ctx.ellipse(-b.w * 0.12, -b.h * 0.15, b.w * 0.16, b.h * 0.14, -0.4, 0, Math.PI * 2);
+      ctx.fill();
     }
     ctx.restore();
   }
 
   function drawRabbit(rb) {
     const b = rabbitBox(rb);
+    const s = depthScale(rb.y);
     const cx = b.x + b.w / 2;
-    const baseY = b.y + b.h;
+    const baseY = b.y + b.h; // rabbitBox already bakes in the hop
     ctx.save();
     ctx.translate(cx, baseY);
+    ctx.scale(s, s);
     ctx.fillStyle = '#e8f4ff';
     // Body.
     ctx.beginPath();
@@ -271,7 +284,7 @@ export function createRenderer(canvas, opts = {}) {
     ctx.beginPath();
     ctx.arc(12, -20, 8, 0, Math.PI * 2);
     ctx.fill();
-    // Ears.
+    // Ears flop while hopping.
     const earSway = reducedMotion ? 0 : Math.sin(rb.hopPhase * 2) * 0.15;
     ctx.save();
     ctx.translate(12, -26);
@@ -304,43 +317,70 @@ export function createRenderer(canvas, opts = {}) {
   function draw(g, dt) {
     g_time = g.time;
     if (!reducedMotion) runPhase += dt * (6 + g.speed / 90);
+    const esc = escalationAt(g.time);
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.setTransform(scale, 0, 0, scale, offX, offY);
 
-    // Sky + parallax mesas.
+    // Sky + horizon.
     ctx.drawImage(sky, 0, 0);
+
+    // Canyon walls scroll DOWN toward the player (the world rushes past).
     const par = reducedMotion ? 0 : g.distancePx;
-    const farOff = -(par * 0.08) % WORLD_W;
-    const nearOff = -(par * 0.2) % WORLD_W;
-    ctx.drawImage(far, farOff, 0);
-    ctx.drawImage(far, farOff + WORLD_W, 0);
-    ctx.drawImage(near, nearOff, 0);
-    ctx.drawImage(near, nearOff + WORLD_W, 0);
-
-    // Ground.
-    const groundGrad = ctx.createLinearGradient(0, GROUND_Y, 0, WORLD_H);
-    groundGrad.addColorStop(0, '#2a1a2e');
-    groundGrad.addColorStop(1, '#120a18');
-    ctx.fillStyle = groundGrad;
-    ctx.fillRect(-80, GROUND_Y, WORLD_W + 160, WORLD_H - GROUND_Y);
-    // Ground texture ticks scrolling with the world.
-    ctx.fillStyle = 'rgba(255,180,120,0.16)';
-    const tickOff = reducedMotion ? 0 : -(g.distancePx % 96);
-    for (let tx = tickOff - 96; tx < WORLD_W + 96; tx += 96) {
-      ctx.fillRect(tx, GROUND_Y + 18, 44, 5);
-      ctx.fillRect(tx + 52, GROUND_Y + 44, 30, 4);
+    const tileH = 480;
+    const off = -(par * 0.9) % tileH;
+    for (let wy = off - tileH; wy < WORLD_H + tileH; wy += tileH) {
+      ctx.drawImage(wallFarL, TRACK_X0 - 130, wy, TRACK_X0, tileH);
+      ctx.drawImage(wallL, 0, wy, TRACK_X0, tileH);
+      ctx.drawImage(wallFarR, TRACK_X1, wy, TRACK_X0, tileH);
+      ctx.drawImage(wallR, TRACK_X1 + TRACK_X0, wy, TRACK_X0, tileH);
     }
-    ctx.fillStyle = 'rgba(255,140,90,0.5)';
-    ctx.fillRect(-80, GROUND_Y, WORLD_W + 160, 3);
 
-    // Entities behind raptor, then raptor, then dust on top.
-    for (const rb of g.rabbits) drawRabbit(rb);
-    for (const o of g.obstacles) drawObstacle(o);
+    // Track bed.
+    const trackGrad = ctx.createLinearGradient(0, 0, 0, WORLD_H);
+    trackGrad.addColorStop(0, '#1c1024');
+    trackGrad.addColorStop(0.45, '#241426');
+    trackGrad.addColorStop(1, '#140a1a');
+    ctx.fillStyle = trackGrad;
+    ctx.fillRect(TRACK_X0, 0, TRACK_X1 - TRACK_X0, WORLD_H);
+
+    // Lane dashes scrolling toward the player.
+    ctx.fillStyle = 'rgba(120,255,180,0.13)';
+    const laneW = (TRACK_X1 - TRACK_X0) / 4;
+    const dashOff = reducedMotion ? 0 : -(g.distancePx % 120);
+    for (let l = 1; l < 4; l++) {
+      const lx = TRACK_X0 + laneW * l;
+      for (let dy2 = dashOff - 120; dy2 < WORLD_H + 120; dy2 += 120) {
+        ctx.fillRect(lx - 2, dy2, 4, 52);
+      }
+    }
+    // Wall-edge glow.
+    ctx.fillStyle = 'rgba(255,140,90,0.35)';
+    ctx.fillRect(TRACK_X0 - 3, 0, 3, WORLD_H);
+    ctx.fillRect(TRACK_X1, 0, 3, WORLD_H);
+
+    // Escalation: the track glows hotter as intensity rises.
+    if (esc.level > 0) {
+      const heat = Math.min(esc.level, 6);
+      const hg = ctx.createLinearGradient(0, 0, 0, WORLD_H);
+      hg.addColorStop(0, `rgba(255,60,30,${0.05 * heat})`);
+      hg.addColorStop(1, 'rgba(255,60,30,0)');
+      ctx.fillStyle = hg;
+      ctx.fillRect(TRACK_X0, 0, TRACK_X1 - TRACK_X0, WORLD_H);
+    }
+
+    // Entities: far ones first so near ones draw on top.
+    const drawables = [
+      ...g.rabbits.map((r) => ({ y: r.y, draw: () => drawRabbit(r) })),
+      ...g.obstacles.map((o) => ({ y: o.y, draw: () => drawObstacle(o) })),
+    ];
+    drawables.sort((a, b) => a.y - b.y);
+    for (const d of drawables) d.draw();
     drawRaptor(g);
 
+    // Dust.
     for (const p of g.dust) {
       const a = Math.max(p.life / p.maxLife, 0);
       ctx.fillStyle = `rgba(190,160,140,${0.55 * a})`;
@@ -349,13 +389,13 @@ export function createRenderer(canvas, opts = {}) {
       ctx.fill();
     }
 
-    // Subtle vignette so the edges stay dark and readable.
+    // Vignette.
     const vg = ctx.createRadialGradient(
-      WORLD_W / 2, WORLD_H / 2, WORLD_H * 0.35,
-      WORLD_W / 2, WORLD_H / 2, WORLD_H * 0.85
+      WORLD_W / 2, WORLD_H * 0.55, WORLD_H * 0.3,
+      WORLD_W / 2, WORLD_H * 0.55, WORLD_H * 0.75
     );
     vg.addColorStop(0, 'rgba(0,0,0,0)');
-    vg.addColorStop(1, 'rgba(0,0,0,0.42)');
+    vg.addColorStop(1, 'rgba(0,0,0,0.45)');
     ctx.fillStyle = vg;
     ctx.fillRect(-80, -80, WORLD_W + 160, WORLD_H + 160);
   }
