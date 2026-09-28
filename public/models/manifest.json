@@ -1,0 +1,180 @@
+{
+  "avatars": {
+    "scout": {
+      "file": "avatars/scout.glb",
+      "bytes": 69956,
+      "label": "Scout",
+      "blurb": "Fast recon frame. Light armor, long stride.",
+      "animations": [
+        "idle",
+        "walk",
+        "run",
+        "wave"
+      ]
+    },
+    "brute": {
+      "file": "avatars/brute.glb",
+      "bytes": 64688,
+      "label": "Brute",
+      "blurb": "Heavy assault frame. Built like a bulkhead.",
+      "animations": [
+        "idle",
+        "walk",
+        "run",
+        "wave"
+      ]
+    },
+    "mystic": {
+      "file": "avatars/mystic.glb",
+      "bytes": 90672,
+      "label": "Mystic",
+      "blurb": "Warden of the veil. The staff chooses its bearer.",
+      "animations": [
+        "idle",
+        "walk",
+        "run",
+        "wave"
+      ]
+    },
+    "runner": {
+      "file": "avatars/runner.glb",
+      "bytes": 64680,
+      "label": "Runner",
+      "blurb": "Sprint chassis. Blink and it is gone.",
+      "animations": [
+        "idle",
+        "walk",
+        "run",
+        "wave"
+      ]
+    }
+  },
+  "npcs": {
+    "vendor": {
+      "file": "npcs/vendor.glb",
+      "bytes": 46212,
+      "label": "Vendor",
+      "blurb": "Sells salvage, stories, and spare parts.",
+      "animations": [
+        "idle",
+        "walk"
+      ]
+    },
+    "guard": {
+      "file": "npcs/guard.glb",
+      "bytes": 58636,
+      "label": "Guard",
+      "blurb": "Keeps the peace. Mostly.",
+      "animations": [
+        "idle",
+        "walk"
+      ]
+    },
+    "engineer": {
+      "file": "npcs/engineer.glb",
+      "bytes": 49384,
+      "label": "Engineer",
+      "blurb": "Can fix anything except its own schedule.",
+      "animations": [
+        "idle",
+        "walk"
+      ]
+    },
+    "sage": {
+      "file": "npcs/sage.glb",
+      "bytes": 58424,
+      "label": "Sage",
+      "blurb": "Remembers the old networks.",
+      "animations": [
+        "idle",
+        "walk"
+      ]
+    },
+    "courier": {
+      "file": "npcs/courier.glb",
+      "bytes": 45564,
+      "label": "Courier",
+      "blurb": "Fastest feet in the sector.",
+      "animations": [
+        "idle",
+        "walk"
+      ]
+    },
+    "warden": {
+      "file": "npcs/warden.glb",
+      "bytes": 46440,
+      "label": "Warden",
+      "blurb": "Lights the deep roads.",
+      "animations": [
+        "idle",
+        "walk"
+      ]
+    }
+  },
+  "vehicles": {
+    "rover": {
+      "file": "vehicles/rover.glb",
+      "bytes": 62872,
+      "label": "Rover",
+      "blurb": "Six-wheeled survey rover. Goes anywhere, slowly.",
+      "animations": [
+        "drive"
+      ]
+    },
+    "skiff": {
+      "file": "vehicles/skiff.glb",
+      "bytes": 28160,
+      "label": "Skiff",
+      "blurb": "Twin-rotor hover skiff. Hums when it is happy.",
+      "animations": [
+        "hover"
+      ]
+    },
+    "hauler": {
+      "file": "vehicles/hauler.glb",
+      "bytes": 58540,
+      "label": "Hauler",
+      "blurb": "Heavy cargo hauler. Carries the whole expedition.",
+      "animations": [
+        "drive"
+      ]
+    }
+  },
+  "buildings": {
+    "tower": {
+      "file": "buildings/tower.glb",
+      "bytes": 28688,
+      "label": "Tower",
+      "blurb": "Comms tower. Someone is always listening.",
+      "animations": []
+    },
+    "dome": {
+      "file": "buildings/dome.glb",
+      "bytes": 46412,
+      "label": "Dome",
+      "blurb": "Habitat dome. Warm inside, always.",
+      "animations": []
+    },
+    "hangar": {
+      "file": "buildings/hangar.glb",
+      "bytes": 12936,
+      "label": "Hangar",
+      "blurb": "Vehicle hangar. Mind the doors.",
+      "animations": []
+    },
+    "spire": {
+      "file": "buildings/spire.glb",
+      "bytes": 25552,
+      "label": "Spire",
+      "blurb": "Memorial spire. Its beacon never sleeps.",
+      "animations": [
+        "beacon"
+      ]
+    }
+  },
+  "_meta": {
+    "generator": "olympianmeg-glb-pipeline",
+    "total_bytes": 857816,
+    "asset_count": 17
+  }
+}
