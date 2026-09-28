@@ -9,22 +9,26 @@ import { supabase } from '@/lib/supabase';
 export default function PublisherStudio() {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
+  const [cloudOffline, setCloudOffline] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    (async () => {
+      let session;
+      try {
+        ({ data: { session } } = await supabase.auth.getSession());
+      } catch {
+        // No database connection — open the studio with an honest banner.
+        // Draft saving and publishing stay disabled until it is set up.
+        setCloudOffline(true);
+        setMounted(true);
+        return;
+      }
       if (!session) {
         if (window.top === window.self) router.push('/');
         else document.body.innerHTML = '<div style="color:#fe53bb; text-align:center; padding:50px; font-family:monospace;">UNAUTHORIZED. PLEASE LOG IN AT MASTER HUB.</div>';
         return;
       }
       setMounted(true);
-      
-      const REPO_NAME = window.location.hostname || 'Unknown-Node';
-      supabase.from('central_telemetry').insert([{
-          repository_name: REPO_NAME,
-          action_type: 'page_load',
-          details: { url: window.location.href, timestamp: new Date().toISOString() }
-      }]);
 
       const checkScripts = setInterval(() => {
         if (window.Quill && window.mammoth) {
@@ -32,7 +36,7 @@ export default function PublisherStudio() {
           initEditorAndLogic(session.user);
         }
       }, 200);
-    });
+    })();
   }, [router]);
 
   function initEditorAndLogic(currentUser) {
@@ -193,8 +197,14 @@ export default function PublisherStudio() {
             <div className="status-indicator" id="save-status">AWAITING INPUT</div>
         </header>
 
+        {cloudOffline && (
+          <div style={{margin:'12px 24px 0', padding:'12px 16px', border:'1px solid #eab308', background:'rgba(234,179,8,0.08)', color:'#fde68a', fontFamily:'monospace', fontSize:'0.85rem', lineHeight:'1.6'}}>
+            Cloud features are offline — this page needs the database connection. Draft saving, cloud sync, and publishing are unavailable until it's set up.
+          </div>
+        )}
+
         <div className="video-hero">
-            <video src="https://file.garden/alXjUY_coXedLaNA/gemini_generated_video_D43DD178.mp4" autoPlay loop muted playsInline className="hero-video"></video>
+            <video src="/assets/publisher-studio/golden-rings.mp4" autoPlay loop muted playsInline className="hero-video"></video>
             <div style={{position:'absolute', inset:0, background:'linear-gradient(to bottom, rgba(5,5,8,0.2) 0%, #050508 100%)', zIndex:3}}></div>
         </div>
 

@@ -48,6 +48,9 @@ const CSS = `
 .ha-table tbody tr:hover { background: rgba(255,255,255,0.04); }
 .ha-spec { color: #ffaa00; font-weight: 600; }
 .ha-val { color: #d4d4d8; }
+.ha-warning { background: rgba(255,64,64,0.08); border: 1px solid rgba(255,64,64,0.55); color: #ffb4b4;
+  font-size: 0.82rem; letter-spacing: 0.06em; padding: 12px 14px; border-radius: 6px; margin: 0 0 14px;
+  line-height: 1.6; text-transform: uppercase; }
 .ha-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 16px; }
 .ha-list li { font-size: 0.95rem; color: #d4d4d8; line-height: 1.55; }
 .ha-list strong { display: block; color: #00ff9f; font-size: 1.02rem; margin-bottom: 2px; }
@@ -259,6 +262,10 @@ export default function HousingArchitecturePage() {
 
         <div className="ha-card">
           <h3 className="ha-mono">1. Structural Dimensions &amp; Tolerances</h3>
+          <p className="ha-warning">
+            ⚠ Concept design only — not engineered, not stamped, and not safe to build.
+            These specs are illustrative; do not use as construction documentation.
+          </p>
           <div className="ha-scroll">
             <table className="ha-table">
               <thead>

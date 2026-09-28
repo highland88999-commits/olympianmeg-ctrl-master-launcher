@@ -22,12 +22,20 @@ export default function ProfilePage() {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [cloudOffline, setCloudOffline] = useState(false);
 
   useEffect(() => {
     if (!id) return;
     let cancelled = false;
     (async () => {
-      const { data: { session } } = await supabase.auth.getSession();
+      let auth;
+      try {
+        auth = supabase.auth; // throws 'Supabase is not configured' when env vars are missing
+      } catch {
+        if (!cancelled) { setCloudOffline(true); setLoading(false); }
+        return;
+      }
+      const { data: { session } } = await auth.getSession();
       if (!cancelled) setUser(session?.user || null);
       const { data: prof } = await supabase
         .from('agora_profiles')
@@ -76,6 +84,15 @@ export default function ProfilePage() {
 
   if (loading) {
     return <main className="min-h-screen bg-black p-10 text-center text-zinc-500">Loading…</main>;
+  }
+
+  if (cloudOffline) {
+    return (
+      <main className="min-h-screen bg-black p-10 text-center text-white">
+        <p className="text-zinc-400">Cloud features are offline — this page needs the database connection.</p>
+        <Link href="/agora" className="mt-4 inline-block text-amber-300 underline">Back to the feed</Link>
+      </main>
+    );
   }
 
   return (

@@ -7,7 +7,8 @@
  * from unpkg.com; this build replaces the 3D wood-slat background with
  * pure CSS gradients (no external requests at all).
  * The order tray is a local staging buffer saved on this device only;
- * "Push to POS" stages a dispatch summary — no network calls.
+ * tapping the dispatch button keeps the tray on this device — no network
+ * calls, nothing is sent to any POS or kitchen system.
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -147,8 +148,7 @@ export default function RainbowWokPage() {
       return;
     }
     const total = tray.reduce((s, i) => s + i.price, 0);
-    setToast(`Order staged: ${tray.length} item${tray.length === 1 ? '' : 's'} totaling ${money(total)} — sent to the lounge POS queue.`);
-    saveTray([]);
+    setToast(`Order saved to your tray (local only): ${tray.length} item${tray.length === 1 ? '' : 's'} totaling ${money(total)} — show it at the counter to place it.`);
   };
 
   useEffect(() => {
@@ -255,7 +255,7 @@ export default function RainbowWokPage() {
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button type="button" className="rw-clear" onClick={clearTray} disabled={count === 0}>Clear</button>
-          <button type="button" className="rw-send" onClick={dispatchOrder} disabled={count === 0}>Send to Kitchen</button>
+          <button type="button" className="rw-send" onClick={dispatchOrder} disabled={count === 0}>Stage Order</button>
         </div>
       </footer>
     </div>

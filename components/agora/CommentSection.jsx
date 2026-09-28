@@ -19,27 +19,35 @@ export default function CommentSection({ postId, initialLikeCount, initialLiked 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!cancelled) setUser(session?.user || null);
-      const { data } = await supabase
-        .from('agora_comments')
-        .select('id, body, created_at, user_id')
-        .eq('post_id', postId)
-        .order('created_at', { ascending: true });
-      const list = data || [];
-      // Batch-load display names for the comment authors.
-      const ids = [...new Set(list.map((c) => c.user_id))];
-      let nameMap = {};
-      if (ids.length) {
-        const { data: profiles } = await supabase
-          .from('agora_profiles')
-          .select('user_id, display_name')
-          .in('user_id', ids);
-        for (const p of profiles || []) nameMap[p.user_id] = p;
-      }
-      if (!cancelled) {
-        setComments(list.map((c) => ({ ...c, agora_profiles: nameMap[c.user_id] || null })));
-        setLoading(false);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!cancelled) setUser(session?.user || null);
+        const { data } = await supabase
+          .from('agora_comments')
+          .select('id, body, created_at, user_id')
+          .eq('post_id', postId)
+          .order('created_at', { ascending: true });
+        const list = data || [];
+        // Batch-load display names for the comment authors.
+        const ids = [...new Set(list.map((c) => c.user_id))];
+        let nameMap = {};
+        if (ids.length) {
+          const { data: profiles } = await supabase
+            .from('agora_profiles')
+            .select('user_id, display_name')
+            .in('user_id', ids);
+          for (const p of profiles || []) nameMap[p.user_id] = p;
+        }
+        if (!cancelled) {
+          setComments(list.map((c) => ({ ...c, agora_profiles: nameMap[c.user_id] || null })));
+          setLoading(false);
+        }
+      } catch (e) {
+        // Cloud unreachable or unconfigured: show an honest message instead of a crash.
+        if (!cancelled) {
+          setLoading(false);
+          setError('Comments are unavailable right now — the database connection is offline.');
+        }
       }
     })();
     return () => { cancelled = true; };

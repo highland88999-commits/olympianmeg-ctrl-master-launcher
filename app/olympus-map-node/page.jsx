@@ -348,6 +348,7 @@ export default function OlympusMapNodePage() {
         .nav-speed{width:84px;height:84px;background:rgba(0,0,0,.8);border:2px solid #00f2ff;border-radius:50%;
           display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:0 0 15px rgba(0,242,255,.5)}
         .nav-speed b{font-size:1.4rem} .nav-speed span{font-size:.6rem;color:#00f2ff}
+        .nav-sim{font-size:.55rem!important;color:#9fd8ff!important;letter-spacing:2px;opacity:.75}
         .nav-btn{background:rgba(0,26,51,.9);border:1px solid #00f2ff;color:#00f2ff;padding:12px 18px;border-radius:8px;
           font-family:inherit;font-weight:bold;letter-spacing:1px;cursor:pointer;min-height:48px;font-size:.75rem}
         .nav-btn:hover{background:#00f2ff;color:#000}
@@ -395,7 +396,7 @@ export default function OlympusMapNodePage() {
       <div className="nav-dash">
         {driving ? (
           <>
-            <div className="nav-speed"><b>{speed}</b><span>KM/H</span></div>
+            <div className="nav-speed" title="Drive simulation — speeds are illustrative, not real"><b>{speed}</b><span>KM/H</span><span className="nav-sim">SIM</span></div>
             <div className="nav-eta">{eta}</div>
             <button className={`nav-btn ${voice ? "on" : ""}`} onClick={() => setVoice((v) => !v)}>VOICE {voice ? "ON" : "OFF"}</button>
             <button className="nav-btn danger" onClick={stopDrive}>EXIT NAV</button>

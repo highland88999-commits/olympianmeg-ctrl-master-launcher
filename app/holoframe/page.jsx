@@ -317,7 +317,7 @@ export default function HoloframePage() {
               <div className="hf-frame hf-scan w-full h-full flex flex-col">
                 <div className="flex items-center justify-between px-5 h-10 border-b border-cyan-300/20 bg-black/50 text-[11px] tracking-[2px] shrink-0" style={{ color: ACCENTS[i % ACCENTS.length] }}>
                   <span>{statusLabel(i)}</span>
-                  <span>STATUS: ONLINE</span>
+                  <span>STATUS: READY</span>
                 </div>
                 <div className="flex-1 min-h-0">
                   <MiniShell nodeIndex={i} accent={ACCENTS[i % ACCENTS.length]} />
@@ -333,7 +333,7 @@ export default function HoloframePage() {
               <div className="hf-frame hf-scan w-full flex flex-col" style={{ aspectRatio: '3 / 2' }}>
                 <div className="flex items-center justify-between px-5 h-10 border-b border-cyan-300/20 bg-black/50 text-[11px] tracking-[2px] shrink-0" style={{ color: ACCENTS[i % ACCENTS.length] }}>
                   <span>{statusLabel(i)}</span>
-                  <span>STATUS: ONLINE</span>
+                  <span>STATUS: READY</span>
                 </div>
                 <div className="flex-1 min-h-0">
                   <MiniShell nodeIndex={i} accent={ACCENTS[i % ACCENTS.length]} />

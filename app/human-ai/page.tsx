@@ -9,6 +9,7 @@ import MarkdownRenderer from '@/components/human-ai/MarkdownRenderer';
 export default function HumanAI() {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
+  const [cloudOffline, setCloudOffline] = useState(false);
   
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<{role: string, text: string, isError?: boolean}[]>([]);
@@ -25,16 +26,25 @@ export default function HumanAI() {
   ];
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) return router.push('/');
-      setMounted(true);
-    });
+    // The shared supabase client throws when the database connection isn't
+    // configured. Catch that (and any auth failure) and say so honestly
+    // instead of crashing into the error boundary.
+    let subscription: { unsubscribe(): void } | undefined;
+    try {
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (!session) return router.push('/');
+        setMounted(true);
+      }).catch(() => setCloudOffline(true));
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) router.push('/');
-    });
+      const { data: { subscription: sub } } = supabase.auth.onAuthStateChange((_event, session) => {
+        if (!session) router.push('/');
+      });
+      subscription = sub;
+    } catch {
+      setCloudOffline(true);
+    }
 
-    return () => subscription.unsubscribe();
+    return () => subscription?.unsubscribe();
   }, [router]);
 
   const sendMessage = async () => {
@@ -93,6 +103,23 @@ export default function HumanAI() {
     URL.revokeObjectURL(url);
   };
 
+  if (cloudOffline) return (
+    <div className="w-screen h-screen bg-black flex items-center justify-center p-8">
+      <div className="max-w-md text-center">
+        <p className="text-zinc-300 tracking-widest uppercase text-sm mb-3">Cloud features are offline</p>
+        <p className="text-zinc-500 text-sm mb-6">
+          This page needs the database connection. Check back once the cloud is connected.
+        </p>
+        <button
+          onClick={() => router.push('/')}
+          className="px-4 py-2 text-[10px] font-bold tracking-widest text-zinc-400 uppercase transition-colors border rounded bg-black/80 border-zinc-700 hover:text-emerald-400 hover:border-emerald-400"
+        >
+          Exit matrix
+        </button>
+      </div>
+    </div>
+  );
+
   if (!mounted) return <div className="w-screen h-screen bg-black" />;
 
   return (
@@ -105,7 +132,7 @@ export default function HumanAI() {
       </button>
 
       <video autoPlay loop muted playsInline className="deep-background-video">
-        <source src="https://files.catbox.moe/dddwtq.mov" type="video/mp4" />
+        <source src="/assets/human-ai/deep-background.mov" type="video/mp4" />
       </video>
 
       <div className="app-layout">
@@ -125,7 +152,7 @@ export default function HumanAI() {
 
           <div className="chat-window-wrapper">
             <video autoPlay loop muted playsInline className="logo-background-video">
-              <source src="https://files.catbox.moe/tbqq7i.mov" type="video/mp4" />
+              <source src="/assets/human-ai/logo-background.mov" type="video/mp4" />
             </video>
 
             <div className="chat-window">

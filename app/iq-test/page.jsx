@@ -1,4 +1,4 @@
-// IQ Test — "Axiom Scramble" pocket universe.
+// Axiom Scramble pocket universe.
 // Port of highland88999-commits/IQ-Test. A 3D neon edge-matching puzzle:
 // tiles are scrambled across the board with random rotations. Tap a tile to
 // rotate it, drag a tile onto another slot to swap. Restore every edge to win.
@@ -137,10 +137,10 @@ export default function IqTestPage() {
       {/* Title */}
       <div className="absolute top-4 left-4 z-10 pointer-events-none">
         <h1 className="text-xl font-black tracking-[0.2em] text-cyan-300 uppercase">
-          IQ Test
+          Axiom Scramble
         </h1>
         <p className="text-xs text-fuchsia-300/80 tracking-wider mt-1">
-          Axiom Scramble — unscramble the neon tiles
+          Unscramble the neon tiles — a puzzle score, not an IQ measure
         </p>
       </div>
 
@@ -186,11 +186,14 @@ export default function IqTestPage() {
         <div className="absolute inset-0 z-20 flex items-center justify-center p-6 bg-black/60">
           <div className="w-full max-w-sm rounded-2xl border border-cyan-400/30 bg-[#0a0618]/95 p-6 shadow-[0_0_40px_rgba(0,255,255,0.15)]">
             <h2 className="text-2xl font-black tracking-[0.15em] text-cyan-300 uppercase text-center">
-              IQ Test
+              Axiom Scramble
             </h2>
             <p className="text-sm text-white/70 text-center mt-2">
               The tiles are scrambled. Put every glowing edge back where it
               belongs. Tap rotates, drag swaps.
+            </p>
+            <p className="text-xs text-white/40 text-center mt-2">
+              A puzzle score — not an IQ measure.
             </p>
             <div className="flex flex-col gap-3 mt-6">
               {Object.entries(DIFFICULTIES).map(([key, d]) => (

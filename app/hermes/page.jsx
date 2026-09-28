@@ -26,6 +26,9 @@ async function getListings() {
 }
 
 export default async function HermesPage({ searchParams }) {
+  // getListings() already catches a missing database connection and returns
+  // []. Say so honestly instead of showing an empty directory with no context.
+  const cloudOffline = !process.env.NEXT_PUBLIC_SUPABASE_URL;
   const listings = await getListings();
   const success = searchParams?.success === 'true';
   const cancelled = searchParams?.cancelled === 'true';
@@ -52,6 +55,13 @@ export default async function HermesPage({ searchParams }) {
         {cancelled && (
           <div className="mb-8 p-4 rounded-lg bg-zinc-900 border border-zinc-700 text-zinc-400 text-sm text-center">
             Checkout was cancelled. Nothing was charged and nothing was saved.
+          </div>
+        )}
+
+        {cloudOffline && (
+          <div className="mb-8 p-4 rounded-lg bg-amber-950/60 border border-amber-500/40 text-amber-300 text-sm text-center">
+            Cloud features are offline — this page needs the database connection.
+            Listings will appear here once it&apos;s connected.
           </div>
         )}
 

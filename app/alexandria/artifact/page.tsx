@@ -13,7 +13,14 @@ export default function ArtifactReader() {
   const [chapters, setChapters] = useState([]);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    let sessionPromise;
+    try {
+      sessionPromise = supabase.auth.getSession(); // throws when Supabase env vars are missing
+    } catch {
+      setLoadingMsg('Cloud features are offline — this reader needs the database connection.');
+      return;
+    }
+    sessionPromise.then(({ data: { session } }) => {
       if (!session) {
         if (window.top === window.self) router.push('/');
         else document.body.innerHTML = '<div style="color:#08f7fe; text-align:center; padding:50px; font-family:monospace;">Please log in at the Master Hub to continue.</div>';

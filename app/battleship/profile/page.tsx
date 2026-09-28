@@ -100,7 +100,7 @@ export default function ProfilePage() {
 
   return (
     <div className="relative flex items-center justify-center w-screen h-screen overflow-hidden bg-black text-white">
-      <video autoPlay loop muted playsInline className="absolute inset-0 z-0 object-cover w-full h-full opacity-30" src="https://files.catbox.moe/626bry.mp4" />
+      <video autoPlay loop muted playsInline className="absolute inset-0 z-0 object-cover w-full h-full opacity-30" src="/assets/battleship/profile-bg.mp4" />
       
       <div className="relative z-10 flex flex-col w-full max-w-lg gap-8 p-10 bg-zinc-950/80 backdrop-blur-md border border-cyan-500/40 rounded-xl shadow-[0_0_40px_rgba(0,255,255,0.1)]">
         

@@ -238,11 +238,17 @@ export default function ReferralSystemPage() {
                 to your company&apos;s look and turn your audience into an incentivized,
                 hyper-active sales channel.
               </p>
+              <p className="rs-note">
+                Concept brief &amp; ROI estimator — a planning sketch, not a live product.
+                Payout automation is not built; this page runs the numbers, it does not pay anyone.
+              </p>
               <div style={{ borderTop: '1px dashed rgba(0,243,255,0.3)', paddingTop: 20 }}>
-                <h2 className="rs-h2" style={{ color: '#00f3ff', fontSize: '1.2rem' }}>Total Autonomy</h2>
+                <h2 className="rs-h2" style={{ color: '#00f3ff', fontSize: '1.2rem' }}>Total Autonomy (planned)</h2>
                 <p className="rs-sub" style={{ fontSize: '0.9rem' }}>
-                  Zero administrative overhead. You set the rewards — referrers get paid on
-                  verification, with no 30-day accounting delays.
+                  In the planned build, the goal would be zero administrative overhead: you set
+                  the rewards, and automated payouts would route to referrers on verification,
+                  with no 30-day accounting delays. None of that exists yet — this page is an
+                  estimator, not a payment system.
                 </p>
               </div>
             </div>
@@ -254,9 +260,10 @@ export default function ReferralSystemPage() {
               <h2 className="rs-h2">The Architecture</h2>
               <p className="rs-sub">More than a tracking link — an operational advantage.</p>
               <div className="rs-pillar">
-                <h3>Frictionless Payouts</h3>
-                <p>Automated payout routing. You choose exactly how much to pay your sales
-                  force, and they get paid instantly upon verification.</p>
+                <h3>Frictionless Payouts (planned)</h3>
+                <p>Not built yet. In the planned system, automated payout routing would let you
+                  choose exactly how much to pay your sales force, with payouts released
+                  instantly upon verification. Today, this page only estimates the numbers.</p>
               </div>
               <div className="rs-pillar">
                 <h3>Immersive Brand Elevation</h3>
@@ -274,11 +281,13 @@ export default function ReferralSystemPage() {
           {/* SLIDE 3 */}
           <div className="rs-slide">
             <div className="rs-panel">
-              <h2 className="rs-h2">Protocol Initialization</h2>
+              <h2 className="rs-h2">Example Pricing Model</h2>
               <div className="rs-price">$3,500 <small>CAD</small></div>
               <p className="rs-sub" style={{ fontSize: '0.85rem' }}>
-                One-time setup: custom environment build, interface styling, database
-                integration, and automated payout routing.
+                An example one-time setup price for a hypothetical custom build: environment
+                build, interface styling, database integration, and payout automation.
+                This is a pricing sketch — nothing on this page is for sale and no purchase
+                path exists.
               </p>
               <div className="rs-grid2">
                 <div className="rs-field">
@@ -310,7 +319,8 @@ export default function ReferralSystemPage() {
               <button className="rs-btn gold" onClick={copyBrief}>Copy program brief</button>
               <p className="rs-note">
                 Estimates only — run your own margin math before launch. Your numbers stay on
-                this device; nothing is uploaded anywhere.
+                this device; nothing is uploaded anywhere. Payout automation is not built —
+                this page is an ROI estimator, not a payment system.
               </p>
             </div>
           </div>

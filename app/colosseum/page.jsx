@@ -32,6 +32,7 @@ export default function ColosseumPage() {
   const [user, setUser] = useState(null);
   const [muted, setMuted] = useState(false);
   const [showHow, setShowHow] = useState(false);
+  const [cloudOffline, setCloudOffline] = useState(false);
 
   const gameRef = useRef(null);
   const sfxRef = useRef(null);
@@ -44,12 +45,19 @@ export default function ColosseumPage() {
   useEffect(() => { sfx.setMuted(muted); }, [muted, sfx]);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      const u = data?.user || null;
-      setUser(u);
-      const dn = u?.user_metadata?.display_name;
-      if (dn) setPlayerName(String(dn).slice(0, 24));
-    }).catch(() => {});
+    // The shared supabase client throws synchronously when the database
+    // connection isn't configured — the promise .catch below can't see it,
+    // so wrap the call itself. Solo play stays fully playable offline.
+    try {
+      supabase.auth.getUser().then(({ data }) => {
+        const u = data?.user || null;
+        setUser(u);
+        const dn = u?.user_metadata?.display_name;
+        if (dn) setPlayerName(String(dn).slice(0, 24));
+      }).catch(() => setCloudOffline(true));
+    } catch {
+      setCloudOffline(true);
+    }
     fetchTopScores(10).then(({ scores }) => setHall(scores));
   }, []);
 
@@ -166,6 +174,13 @@ export default function ColosseumPage() {
             Chain kills for combos, finish the wounded for double glory.
           </p>
 
+          {cloudOffline && (
+            <div className="w-full mb-6 p-4 rounded-2xl bg-amber-500/10 border border-amber-400/40 text-amber-200 text-sm text-center">
+              Cloud features are offline — this page needs the database connection.
+              Solo play still works; score saving and multiplayer are unavailable.
+            </div>
+          )}
+
           <div className="w-full space-y-3">
             <button
               onClick={() => startGame('arena')}
@@ -185,15 +200,21 @@ export default function ColosseumPage() {
 
           <div className="w-full mt-8">
             <h2 className="text-sm font-bold tracking-widest text-white/50 mb-3">OASIS MULTIPLAYER</h2>
-            <OasisLobby
-              gameSlug="colosseum"
-              supabase={supabase}
-              userId={user?.id || null}
-              callsign={playerName}
-              stats={{}}
-              onLaunch={(m) => startGame(m.mode === 'boss' ? 'boss' : 'arena', m)}
-              onExit={() => {}}
-            />
+            {cloudOffline ? (
+              <p className="text-white/40 text-sm">
+                Multiplayer needs the database connection — it&apos;s unavailable right now.
+              </p>
+            ) : (
+              <OasisLobby
+                gameSlug="colosseum"
+                supabase={supabase}
+                userId={user?.id || null}
+                callsign={playerName}
+                stats={{}}
+                onLaunch={(m) => startGame(m.mode === 'boss' ? 'boss' : 'arena', m)}
+                onExit={() => {}}
+              />
+            )}
           </div>
 
           <div className="w-full mt-8">

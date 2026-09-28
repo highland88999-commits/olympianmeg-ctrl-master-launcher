@@ -9,9 +9,13 @@ import { Phone, PhoneOff, MessageSquare, Radio, Video, Delete } from 'lucide-rea
 export default function GlassCommsApp() {
   const router = useRouter();
 
-  const [currentPage, setCurrentPage] = useState<number>(2); 
+  const [currentPage, setCurrentPage] = useState<number>(2);
   const [session, setSession] = useState<any>(null);
   const [mounted, setMounted] = useState(false);
+  const [cloudOffline, setCloudOffline] = useState(false);
+  // Set when the database connection is missing (no env vars). The mesh,
+  // WebRTC signaling, and texting all run on the database — without it the
+  // app shows an honest banner instead of a raw error screen.
 
   const [dialString, setDialString] = useState('');
   const [twilioDevice, setTwilioDevice] = useState<Device | null>(null);
@@ -35,20 +39,31 @@ export default function GlassCommsApp() {
   };
 
   const [messages, setMessages] = useState<{ id?: string; sender: string; text: string }[]>([]);
+  const [meshStatus, setMeshStatus] = useState<string>('CONNECTING');
+  const [textPeer, setTextPeer] = useState('');
+  const [draft, setDraft] = useState('');
 
   const touchStartX = useRef<number | null>(null);
   const touchEndX = useRef<number | null>(null);
 
   useEffect(() => {
     let messageChannel: any;
+    let subscription: { unsubscribe: () => void } | undefined;
 
     const initialize = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      
+      let session;
+      try {
+        ({ data: { session } } = await supabase.auth.getSession());
+      } catch {
+        // No database connection — honest banner instead of a crash.
+        setCloudOffline(true);
+        return;
+      }
+
       if (!session) {
         return router.push('/');
       }
-      
+
       setSession(session);
       setMounted(true);
 
@@ -124,18 +139,24 @@ export default function GlassCommsApp() {
             }
           }
         )
-        .subscribe();
+        .subscribe((status: string) => {
+          setMeshStatus(status);
+        });
     };
 
     initialize();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) router.push('/');
-      else setSession(session);
-    });
+    try {
+      ({ data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        if (!session) router.push('/');
+        else setSession(session);
+      }));
+    } catch {
+      setCloudOffline(true);
+    }
 
     return () => {
-      subscription.unsubscribe();
+      if (subscription) subscription.unsubscribe();
       if (messageChannel) supabase.removeChannel(messageChannel);
       if (twilioDevice) twilioDevice.destroy();
     };
@@ -152,7 +173,66 @@ export default function GlassCommsApp() {
     touchEndX.current = null;
   };
 
-  const toggleCall = async () => {};
+  const toggleCall = async () => {
+    if (!inCall) {
+      if (!roomCode) {
+        alert('Enter a Peer Node Hash.');
+        return;
+      }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        localStream.current = stream;
+
+        const pc = new RTCPeerConnection(ICE_SERVERS);
+        peerConnection.current = pc;
+        stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+
+        pc.ontrack = (e) => { if (remoteAudioRef.current) remoteAudioRef.current.srcObject = e.streams[0]; };
+        pc.onicecandidate = async (e) => {
+          if (e.candidate && session) {
+            await supabase.from('sgc_messages').insert({
+              sender_id: session.user.id, recipient_identifier: roomCode, content: JSON.stringify(e.candidate), message_type: 'webrtc_candidate'
+            });
+          }
+        };
+
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
+        if (session) {
+          await supabase.from('sgc_messages').insert({
+            sender_id: session.user.id, recipient_identifier: roomCode, content: JSON.stringify(offer), message_type: 'webrtc_offer'
+          });
+        }
+        setInCall(true);
+      } catch (e) {
+        console.error('Audio Init failed:', e);
+      }
+    } else {
+      localStream.current?.getTracks().forEach((track) => track.stop());
+      peerConnection.current?.close();
+      peerConnection.current = null;
+      if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
+      setInCall(false);
+    }
+  };
+
+  const sendText = async () => {
+    const text = draft.trim();
+    if (!text || !textPeer.trim() || !session) return;
+    setDraft('');
+    setMessages((prev) => [...prev, { sender: 'You', text }]);
+    try {
+      await supabase.from('sgc_messages').insert({
+        sender_id: session.user.id,
+        recipient_identifier: textPeer.trim(),
+        content: text,
+        message_type: 'sms',
+      });
+    } catch (e) {
+      console.error('Text send failed:', e);
+    }
+  };
 
   const toggleVideoCall = async () => {
     if (!inVideoCall) {
@@ -202,9 +282,28 @@ export default function GlassCommsApp() {
 
   const BackgroundVideo = () => (
     <video autoPlay loop muted playsInline className="absolute top-0 left-0 w-full h-full object-cover z-0 pointer-events-none opacity-90">
-      <source src="https://files.catbox.moe/qlxfyk.mp4" type="video/mp4" />
+      <source src="/assets/phone-home/background.mp4" type="video/mp4" />
     </video>
   );
+
+  if (cloudOffline) {
+    return (
+      <main className="min-h-screen w-full flex flex-col items-center justify-center bg-black text-slate-300 px-6 text-center gap-4 select-none">
+        <p className="text-sm tracking-[0.4em] uppercase text-slate-100">Phone Home</p>
+        <p className="text-xs leading-relaxed max-w-sm text-slate-400">
+          Cloud features are offline — this page needs the database connection.
+          Audio, video, and text calling all run through the mesh, which can't
+          connect until the database is set up.
+        </p>
+        <button
+          onClick={() => router.push('/')}
+          className="mt-2 px-6 py-2.5 text-[10px] font-bold tracking-widest uppercase border border-zinc-700 rounded bg-black/80 text-zinc-400 hover:text-fuchsia-400 hover:border-fuchsia-400 transition-colors"
+        >
+          EXIT MATRIX
+        </button>
+      </main>
+    );
+  }
 
   if (!mounted || !session) return <div className="w-screen h-screen bg-black" />;
 
@@ -224,8 +323,8 @@ export default function GlassCommsApp() {
 
       <header className="w-full max-w-md pt-8 px-6 flex justify-between items-center z-10 bg-gradient-to-b from-black/80 to-transparent pb-4">
         <div className="flex items-center gap-2">
-          <span className="w-1.5 h-1.5 rounded-full bg-slate-300 animate-pulse" />
-          <span className="text-[10px] tracking-widest uppercase text-slate-300 drop-shadow-md">Mesh Active</span>
+          <span className={`w-1.5 h-1.5 rounded-full ${meshStatus === 'SUBSCRIBED' ? 'bg-slate-300 animate-pulse' : 'bg-red-400'}`} />
+          <span className="text-[10px] tracking-widest uppercase text-slate-300 drop-shadow-md">{meshStatus === 'SUBSCRIBED' ? 'Mesh Active' : 'Mesh Offline'}</span>
         </div>
       </header>
 
@@ -342,7 +441,48 @@ export default function GlassCommsApp() {
           </section>
 
           {/* PAGE 3: Text */}
-          <section className="w-1/4 h-full flex flex-col px-6 py-4 justify-between">
+          <section className="w-1/4 h-full flex flex-col px-6 py-4">
+            <div className="w-full flex-1 min-h-0 rounded-3xl border border-white/15 bg-black/40 backdrop-blur-3xl p-4 flex flex-col gap-3 shadow-2xl">
+              <div className="text-center">
+                <h2 className="text-sm font-light tracking-widest uppercase text-slate-100">Text Mesh</h2>
+                <p className="text-[11px] text-slate-400 font-light mt-1">Direct to a peer node</p>
+              </div>
+              <input
+                type="text"
+                placeholder="Peer Node Hash"
+                value={textPeer}
+                onChange={(e) => setTextPeer(e.target.value)}
+                className="w-full bg-black/40 border border-white/15 rounded-xl px-4 py-2.5 text-xs text-center text-slate-200 placeholder-slate-500 focus:outline-none focus:border-slate-300 transition"
+              />
+              <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2 pr-1">
+                {messages.length === 0 ? (
+                  <p className="text-[11px] text-slate-500 text-center mt-6 px-4">No messages yet — texts from peer nodes appear here.</p>
+                ) : (
+                  messages.map((m, i) => (
+                    <div key={m.id ?? `local-${i}`} className="rounded-xl border border-white/10 bg-black/30 px-3 py-2">
+                      <span className="text-[9px] uppercase tracking-widest text-slate-500">{m.sender}</span>
+                      <p className="text-xs text-slate-200 break-words mt-0.5">{m.text}</p>
+                    </div>
+                  ))
+                )}
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Write a message"
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') sendText(); }}
+                  className="flex-1 min-w-0 bg-black/40 border border-white/15 rounded-xl px-4 py-2.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-slate-300 transition"
+                />
+                <button
+                  onClick={sendText}
+                  className="px-5 py-2.5 rounded-xl border border-white/20 bg-black/30 text-xs tracking-widest uppercase text-slate-200 hover:border-slate-300 transition"
+                >
+                  Send
+                </button>
+              </div>
+            </div>
           </section>
         </div>
       </div>

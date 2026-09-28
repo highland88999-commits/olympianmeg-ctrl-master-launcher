@@ -22,6 +22,7 @@ function CreditsInner() {
   const [cardPayments, setCardPayments] = useState(null);
   const [buying, setBuying] = useState(null);
   const [notice, setNotice] = useState(null);
+  const [cloudOffline, setCloudOffline] = useState(false);
 
   const checkoutState = searchParams.get('checkout');
 
@@ -39,10 +40,16 @@ function CreditsInner() {
       (d) => setCardPayments(!!d.cardPayments),
       () => setCardPayments(false)
     );
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session) fetchCredits(session.access_token);
-    });
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        setSession(session);
+        if (session) fetchCredits(session.access_token);
+      } catch {
+        // No database connection — honest disabled state, never a fake balance.
+        setCloudOffline(true);
+      }
+    })();
   }, [fetchCredits]);
 
   useEffect(() => {
@@ -95,9 +102,18 @@ function CreditsInner() {
           <div className="border border-[#00f0ff]/40 bg-[#00f0ff]/10 p-3 rounded text-sm text-gray-200">{notice}</div>
         )}
 
+        {cloudOffline && (
+          <div className="border border-yellow-500/40 bg-yellow-500/10 p-3 rounded text-sm text-yellow-200">
+            Cloud features are offline — this page needs the database connection.
+            Your credit balance and buying are unavailable until it's set up.
+          </div>
+        )}
+
         <div className="border border-gray-800 bg-[#05050a] p-6 flex flex-col gap-4">
           <h2 className="text-sm font-bold tracking-widest text-gray-400">Your balance</h2>
-          {!session ? (
+          {cloudOffline ? (
+            <p className="text-sm text-gray-400">Balance unavailable while the database is offline.</p>
+          ) : !session ? (
             <p className="text-sm text-gray-400">Sign in from the launcher to see your balance.</p>
           ) : (
             <>
@@ -127,7 +143,7 @@ function CreditsInner() {
                 <p className="text-2xl text-[#00ffcc] font-bold">{tier.price}</p>
                 <button
                   onClick={() => buy(tier.id)}
-                  disabled={buying !== null || cardPayments === false}
+                  disabled={buying !== null || cardPayments === false || cloudOffline}
                   className="mt-2 border border-[#00ffcc] text-[#00ffcc] hover:bg-[#00ffcc] hover:text-black transition-all py-2 text-sm font-bold tracking-widest disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {buying === tier.id ? 'Starting checkout...' : `Buy ${tier.label}`}

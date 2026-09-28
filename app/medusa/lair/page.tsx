@@ -36,17 +36,28 @@ export default function MedusasLair() {
   const [logs, setLogs] = useState([]);
   const [gallery, setGallery] = useState([]);
   const [isVideoActive, setIsVideoActive] = useState(false);
+  const [cloudOffline, setCloudOffline] = useState(false);
 
-  // Universal Auth Check (telemetry phone-home removed 2026-09-28)
+  // Universal Auth Check (telemetry phone-home removed 2026-09-28).
+  // If the database connection is missing, the lair still opens with an
+  // honest banner — cloud features (uplink, archive) stay disabled.
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    (async () => {
+      let session = null;
+      try {
+        ({ data: { session } } = await supabase.auth.getSession());
+      } catch {
+        setCloudOffline(true);
+        setMounted(true);
+        return;
+      }
       if (!session) {
         if (window.top === window.self) router.push('/');
         else document.body.innerHTML = '<div style="color:#00f3ff; text-align:center; padding:50px;">UNAUTHORIZED. PLEASE LOG IN AT MASTER HUB.</div>';
         return;
       }
       setMounted(true);
-    });
+    })();
 
     fetchArtifacts();
   }, [router]);
@@ -285,6 +296,15 @@ export default function MedusasLair() {
 
         <div className="w-[95%] max-w-[1200px] mt-5 flex flex-col gap-5">
 
+            {/* Honest offline state — no fake data, no fake archive */}
+            {cloudOffline && (
+                <div className="bg-[rgba(10,10,15,0.9)] border border-amber-400 p-4 text-amber-200 text-sm leading-relaxed backdrop-blur-md">
+                    Cloud features are offline — this page needs the database connection.
+                    You can browse the chambers below, but the uplink, petrification uploads,
+                    and the cloud artifact archive are unavailable until the connection is set up.
+                </div>
+            )}
+
             {/* Chambers of the Lair — MEDUSA section hub */}
             <div className="bg-[rgba(10,10,15,0.85)] border border-[#bc00ff] p-5 backdrop-blur-md">
                 <div className="text-lg text-[#bc00ff] border-b border-[#bc00ff] pb-1">CHAMBERS OF THE LAIR // MEDUSA SECTION HUB</div>
@@ -325,10 +345,10 @@ export default function MedusasLair() {
                     />
                     <button 
                         onClick={triggerGeminiUplink}
-                        disabled={loading}
+                        disabled={loading || cloudOffline}
                         className="bg-transparent text-[#bc00ff] border-2 border-[#bc00ff] p-3 text-lg font-bold uppercase transition-all hover:bg-[#bc00ff] hover:text-black hover:shadow-[0_0_10px_rgba(188,0,255,0.4)] disabled:opacity-50"
                     >
-                        {loading ? 'TRANSMITTING...' : 'TRANSMIT TO MEDUSA'}
+                        {cloudOffline ? 'CLOUD OFFLINE' : loading ? 'TRANSMITTING...' : 'TRANSMIT TO MEDUSA'}
                     </button>
                 </div>
 
@@ -357,7 +377,11 @@ export default function MedusasLair() {
                             <img src={item.url} alt="Artifact" className="w-full aspect-square object-cover" />
                         </div>
                     ))}
-                    {gallery.length === 0 && <div className="col-span-full text-zinc-500 italic">Archive is empty.</div>}
+                    {gallery.length === 0 && (
+                        <div className="col-span-full text-zinc-500 italic">
+                            {cloudOffline ? 'Archive unavailable — cloud features are offline.' : 'Archive is empty.'}
+                        </div>
+                    )}
                 </div>
             </div>
 

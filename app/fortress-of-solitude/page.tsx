@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useRef } from "react";
-import { Plus, Share2, Zap, X, Download, Eye, Upload, Palette, MonitorPlay, Grid } from "lucide-react";
+import { Plus, Share2, Download, Eye, Upload, Palette, MonitorPlay, Grid } from "lucide-react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
@@ -21,17 +21,18 @@ export default function FortressApp() {
   
   const [user, setUser] = useState<any>(null);
   const [mounted, setMounted] = useState(false);
+  const [cloudOffline, setCloudOffline] = useState(false);
   
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [storageUsed, setStorageUsed] = useState(0); 
   const [matrixData, setMatrixData] = useState<any[]>([]);
   const [uploadTarget, setUploadTarget] = useState<string | null>(null);
   
-  const [showUpgrade, setShowUpgrade] = useState(false);
   const [statusMsg, setStatusMsg] = useState("");
 
   const [selectedNodeData, setSelectedNodeData] = useState<any>(null);
-  const [activeDecryptedData, setActiveDecryptedData] = useState<{url: string, meta: any} | null>(null);
+  const [activeFileData, setActiveFileData] = useState<{url: string, meta: any} | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const [longPressedNode, setLongPressedNode] = useState<any>(null);
   
   const engineRef = useRef<any>({}); 
@@ -40,52 +41,47 @@ export default function FortressApp() {
   const pointerDownPos = useRef({ x: 0, y: 0 });
 
   useEffect(() => {
-    let clientIP = 'Detecting...';
-    fetch('https://api.ipify.org?format=json').then(res => res.json()).then(data => { clientIP = data.ip; }).catch(() => {});
-    const logAction = async () => {
-      try {
-        await supabase.from('central_telemetry').insert([{
-          repository_name: window.location.hostname || 'Unknown-Node', action_type: 'page_load',
-          details: { ip_address: clientIP, url: window.location.href, timestamp: new Date().toISOString() }
-        }]);
-      } catch (err) {}
-    };
-    logAction();
-  }, []);
+    // The shared supabase client throws when the database connection isn't
+    // configured. Catch that (and any auth failure) and say so honestly
+    // instead of crashing into the error boundary.
+    let subscription: { unsubscribe(): void } | undefined;
+    try {
+      supabase.auth.getSession().then(async ({ data: { session } }) => {
+        if (!session) return router.push('/')
+        setUser(session.user)
 
-  useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (!session) return router.push('/')
-      setUser(session.user)
-      
-      const { data } = await supabase.from('fortresses_').select('crystal_matrix').eq('id', session.user.id).maybeSingle();
-      let loadedMatrix = data?.crystal_matrix;
-      
-      if (!loadedMatrix || loadedMatrix.length === 0) {
-          loadedMatrix = Array.from({length: 12}).map((_, i) => ({
-              id: `node_${Date.now()}_${i}`,
-              name: `Crystal ${i + 1}`,
-              color: '#00ffff',
-              fileStorageKey: "",
-              rawSize: 0,
-              height: 4 + Math.random() * 1.5
-          }));
-          await supabase.from('fortresses_').upsert({ id: session.user.id, crystal_matrix: loadedMatrix });
-      }
-      
-      setMatrixData(loadedMatrix);
-      const used = loadedMatrix.reduce((acc: number, curr: any) => acc + (curr.rawSize || 0), 0);
-      setStorageUsed(used);
-      setMounted(true);
-      setTimeout(() => initThreeJSEngine(loadedMatrix), 100); 
-    })
+        const { data } = await supabase.from('fortresses_').select('crystal_matrix').eq('id', session.user.id).maybeSingle();
+        let loadedMatrix = data?.crystal_matrix;
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) router.push('/')
-      else setUser(session.user)
-    })
+        if (!loadedMatrix || loadedMatrix.length === 0) {
+            loadedMatrix = Array.from({length: 12}).map((_, i) => ({
+                id: `node_${Date.now()}_${i}`,
+                name: `Crystal ${i + 1}`,
+                color: '#00ffff',
+                fileStorageKey: "",
+                rawSize: 0,
+                height: 4 + Math.random() * 1.5
+            }));
+            await supabase.from('fortresses_').upsert({ id: session.user.id, crystal_matrix: loadedMatrix });
+        }
 
-    return () => subscription.unsubscribe()
+        setMatrixData(loadedMatrix);
+        const used = loadedMatrix.reduce((acc: number, curr: any) => acc + (curr.rawSize || 0), 0);
+        setStorageUsed(used);
+        setMounted(true);
+        setTimeout(() => initThreeJSEngine(loadedMatrix), 100);
+      }).catch(() => setCloudOffline(true))
+
+      const { data: { subscription: sub } } = supabase.auth.onAuthStateChange((_event, session) => {
+        if (!session) router.push('/')
+        else setUser(session.user)
+      })
+      subscription = sub
+    } catch {
+      setCloudOffline(true)
+    }
+
+    return () => subscription?.unsubscribe()
   }, [router]);
 
   const syncDatabase = async (newMatrix: any[]) => {
@@ -253,7 +249,7 @@ export default function FortressApp() {
     if (!file || !uploadTarget) return;
 
     if (uploadTarget === 'crystal' && selectedNodeData) {
-      setStatusMsg("Preparing your file securely...");
+      setStatusMsg("Preparing your file...");
       try {
         const zip = new JSZip();
         const manifest = { originName: file.name, mimeType: file.type, rawSizeBytes: file.size, timestamp: Date.now(), nodeId: selectedNodeData.id };
@@ -262,7 +258,7 @@ export default function FortressApp() {
         zip.file("payload.dat", await file.arrayBuffer(), { binary: true });
         const compressedBlob = await zip.generateAsync({ type: "blob" });
 
-        setStatusMsg("Connecting to secure cloud...");
+        setStatusMsg("Getting your upload link...");
         const session = await supabase.auth.getSession();
         const token = session.data.session?.access_token;
 
@@ -291,7 +287,7 @@ export default function FortressApp() {
         }
         
         setStatusMsg("");
-        alert("File securely saved!");
+        alert("File saved!");
       } catch(err: any) {
         setStatusMsg("Issue saving file: " + err.message);
         setTimeout(() => setStatusMsg(""), 4000);
@@ -333,7 +329,7 @@ export default function FortressApp() {
 
   const handleExtract = async (action: 'view' | 'download') => {
     if(!selectedNodeData?.fileStorageKey) return;
-    setStatusMsg("Connecting to secure cloud...");
+    setStatusMsg("Getting your download link...");
     
     try {
       const session = await supabase.auth.getSession();
@@ -347,7 +343,7 @@ export default function FortressApp() {
       const { downloadUrl, error } = await res.json();
       if(error) throw new Error(error);
 
-      setStatusMsg("Unlocking your file...");
+      setStatusMsg("Opening your file...");
       const cloudStream = await fetch(downloadUrl);
       if (!cloudStream.ok) throw new Error(`Access Denied (${cloudStream.status}). Please check CORS configuration.`);
       
@@ -361,7 +357,7 @@ export default function FortressApp() {
       const localUrl = URL.createObjectURL(reconstructedBlob);
       
       setStatusMsg("");
-      if(action === 'view') setActiveDecryptedData({ url: localUrl, meta: manifest });
+      if(action === 'view') setActiveFileData({ url: localUrl, meta: manifest });
       else {
         const a = document.createElement('a'); a.href = localUrl; a.download = manifest.originName; a.click();
       }
@@ -370,6 +366,44 @@ export default function FortressApp() {
        setTimeout(() => setStatusMsg(""), 4000);
     }
   }
+
+  const handleShareLink = async () => {
+      const url = window.location.href;
+      if (navigator.share) {
+         try {
+            await navigator.share({ url, title: 'My Olympus Vault' });
+            return;
+         } catch (err: any) {
+            if (err?.name === 'AbortError') return;
+         }
+      }
+      // Web Share isn't available on this device/browser — copy the link instead.
+      try {
+         await navigator.clipboard.writeText(url);
+         setStatusMsg("Share is not supported here — the page link was copied to your clipboard instead.");
+      } catch {
+         setStatusMsg("Share is not supported here — copy this page's address from the browser bar.");
+      }
+      setTimeout(() => setStatusMsg(""), 5000);
+  };
+  
+  const searchCrystals = (query: string) => {
+      setSearchQuery(query);
+      const q = query.trim().toLowerCase();
+      const { carouselGroup } = engineRef.current;
+      if (!q || !carouselGroup) return;
+      // Select the first crystal whose name matches, the same as tapping it.
+      const hit = (carouselGroup.children as THREE.Mesh[])
+        .find((mesh) => String(mesh.userData?.name || "").toLowerCase().includes(q));
+      if (!hit) return;
+      if (selectedMeshRef.current && selectedMeshRef.current !== hit) {
+        const defaultY = (selectedMeshRef.current.userData.height || 4) / 2;
+        gsap.to(selectedMeshRef.current.position, { y: defaultY, duration: 0.4 });
+      }
+      selectedMeshRef.current = hit;
+      setSelectedNodeData({ ...hit.userData });
+      gsap.to(hit.position, { y: 3.5, duration: 0.4, ease: "back.out" });
+  };
 
   const handleRecenter = () => {
       if(!engineRef.current.camera) return;
@@ -438,6 +472,23 @@ export default function FortressApp() {
       await syncDatabase(newMatrix);
   }
 
+  if (cloudOffline) return (
+    <div className="w-screen h-screen bg-black flex items-center justify-center p-8">
+      <div className="max-w-md text-center">
+        <p className="text-zinc-300 tracking-widest uppercase text-sm mb-3">Cloud features are offline</p>
+        <p className="text-zinc-500 text-sm mb-6">
+          This page needs the database connection. Check back once the cloud is connected.
+        </p>
+        <button
+          onClick={() => router.push('/')}
+          className="px-4 py-2 text-[10px] font-bold tracking-widest text-zinc-400 uppercase transition-colors border rounded bg-black/80 border-zinc-700 hover:text-fuchsia-400 hover:border-fuchsia-400"
+        >
+          Exit matrix
+        </button>
+      </div>
+    </div>
+  )
+
   if (!mounted || !user) return <div className="w-screen h-screen bg-black" />
 
   return (
@@ -462,7 +513,9 @@ export default function FortressApp() {
       <div className="fixed top-6 left-0 w-full z-10 flex justify-center pointer-events-none">
         <input 
             type="text" 
-            placeholder="Search your vault..." 
+            value={searchQuery}
+            onChange={(e) => searchCrystals(e.target.value)}
+            placeholder="Search your crystals..." 
             className="w-11/12 max-w-[700px] bg-black/60 border border-cyan-400/50 rounded-full py-3 px-6 text-center text-sm tracking-wider text-white backdrop-blur-md shadow-[0_5px_20px_rgba(0,0,0,0.5)] focus:border-cyan-400 pointer-events-auto outline-none transition-colors"
         />
       </div>
@@ -496,7 +549,7 @@ export default function FortressApp() {
             />
             
             {!selectedNodeData.fileStorageKey ? (
-               <button className="btn w-full flex items-center justify-center gap-2 py-4" onClick={() => { setUploadTarget('crystal'); fileInputRef.current?.click(); }}><Upload size={18}/> Secure Data Inside</button>
+               <button className="btn w-full flex items-center justify-center gap-2 py-4" onClick={() => { setUploadTarget('crystal'); fileInputRef.current?.click(); }}><Upload size={18}/> Store File Inside</button>
             ) : (
                <div className="flex gap-3">
                  <button className="btn flex-1 flex items-center justify-center gap-2" onClick={() => handleExtract('view')}><Eye size={16}/> Inspect</button>
@@ -521,14 +574,12 @@ export default function FortressApp() {
 
         <div className={`flex flex-col gap-3 transition-all duration-300 origin-bottom-left ${isMenuOpen ? 'scale-100 opacity-100' : 'scale-0 opacity-0 pointer-events-none'}`}>
             <button className="btn flex items-center gap-2 py-3 px-5" onClick={handleAddCrystal}><Plus size={16}/> Generate Crystal</button>
-            <button className="btn flex items-center gap-2 py-3 px-5 border-green-500 text-green-500 hover:shadow-[0_0_20px_#00ff66] hover:bg-green-500/10" onClick={() => navigator.share && navigator.share({ url: window.location.href, title: 'My Olympus Vault' })}><Share2 size={16}/> Share Access</button>
+            <button className="btn flex items-center gap-2 py-3 px-5 border-green-500 text-green-500 hover:shadow-[0_0_20px_#00ff66] hover:bg-green-500/10" onClick={handleShareLink}><Share2 size={16}/> Share Link</button>
             
             <div className="flex gap-2">
               <button className="btn flex-1 flex justify-center py-3 border-gray-400 text-gray-400 hover:bg-white/10" onClick={() => { setUploadTarget('floor'); fileInputRef.current?.click(); }}><Grid size={16} className="mr-2"/> Set Floor</button>
               <button className="btn flex-1 flex justify-center py-3 border-gray-400 text-gray-400 hover:bg-white/10" onClick={() => { setUploadTarget('wall'); fileInputRef.current?.click(); }}><MonitorPlay size={16} className="mr-2"/> Set Walls</button>
             </div>
-
-            <button className="btn flex items-center gap-2 py-3 px-5 border-fuchsia-500 text-fuchsia-500 hover:shadow-[0_0_20px_#d946ef] hover:bg-fuchsia-500/10" onClick={() => setShowUpgrade(true)}><Zap size={16}/> Ascension Portal</button>
             
             <div className="glass-panel p-4 rounded-xl mt-2 w-full max-w-[280px]">
                 <div className="text-[10px] text-cyan-400 tracking-wider mb-3 flex justify-between">
@@ -548,44 +599,17 @@ export default function FortressApp() {
           </div>
       )}
 
-      {activeDecryptedData && (
+      {activeFileData && (
           <HoloframeViewer 
-             url={activeDecryptedData.url} 
-             meta={activeDecryptedData.meta} 
+             url={activeFileData.url} 
+             meta={activeFileData.meta} 
              onClose={() => {
-                URL.revokeObjectURL(activeDecryptedData.url);
-                setActiveDecryptedData(null);
+                URL.revokeObjectURL(activeFileData.url);
+                setActiveFileData(null);
              }} 
           />
       )}
 
-      {showUpgrade && (
-          <div className="fixed inset-0 z-[6000] bg-slate-950/80 backdrop-blur-xl flex items-center justify-center pointer-events-auto p-4">
-              <div className="glass-panel w-full max-w-4xl h-[85dvh] rounded-2xl flex flex-col overflow-hidden">
-                  <div className="flex justify-between items-center p-5 border-b border-cyan-400/30 bg-black/40">
-                      <span className="text-fuchsia-500 tracking-widest font-bold text-sm shadow-fuchsia-500 drop-shadow-md">ASCENSION PORTAL</span>
-                      <button onClick={() => setShowUpgrade(false)} className="text-gray-400 hover:text-white transition-colors p-1"><X size={24}/></button>
-                  </div>
-                  <div className="flex-1 overflow-y-auto p-6 md:p-10 flex flex-wrap justify-center content-start gap-8">
-                      {['ACOLYTE', 'KRYPTONIAN', 'ELDER', 'GOD TIER'].map((tier, i) => {
-                          const conf = [
-                            { cap: '50 GB', src: 'IMG_2874.png', color: 'cyan-400', hex: '#00ffff' },
-                            { cap: '250 GB', src: 'IMG_2871.png', color: 'green-400', hex: '#00ff66' },
-                            { cap: '1 TB', src: 'IMG_2873.png', color: 'purple-500', hex: '#b026ff' },
-                            { cap: '5 TB', src: 'IMG_2872.png', color: 'yellow-400', hex: '#ffd700' }
-                          ][i];
-                          return (
-                          <div key={tier} className={`glass-panel p-8 rounded-2xl flex flex-col items-center w-full max-w-[260px] text-center hover:-translate-y-2 transition-transform border-${conf.color} shadow-[inset_0_0_20px_rgba(255,255,255,0.05)] bg-black/50`}>
-                              <img src={`/${conf.src}`} alt={tier} className={`w-28 h-28 object-contain mb-6 drop-shadow-[0_0_15px_${conf.hex}]`} />
-                              <h3 className={`text-xl font-black tracking-widest text-${conf.color} mb-2`}>{tier}</h3>
-                              <p className="text-sm text-white/70 mb-8 tracking-wide">{conf.cap} STORAGE<br/>Secure Pipeline</p>
-                              <a href="#" className={`btn w-full py-3 text-sm border-${conf.color} text-${conf.color} hover:bg-${conf.color}/10`}>ASCEND</a>
-                          </div>
-                      )})}
-                  </div>
-              </div>
-          </div>
-      )}
     </div>
   );
 }

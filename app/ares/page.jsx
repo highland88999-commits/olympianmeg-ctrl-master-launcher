@@ -20,10 +20,18 @@ export default function AresConsole() {
   const [settings, setSettings] = useState({ sentinelEnabled: true, phalanxEnabled: true });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [cloudOffline, setCloudOffline] = useState(false);
 
   useEffect(() => {
     const init = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
+      let auth;
+      try {
+        auth = supabase.auth; // throws 'Supabase is not configured' when env vars are missing
+      } catch {
+        setCloudOffline(true);
+        return;
+      }
+      const { data: { session } } = await auth.getSession();
       if (!session) { router.push('/'); return; }
       setToken(session.access_token);
     };
@@ -71,7 +79,18 @@ export default function AresConsole() {
     setSaving(false);
   };
 
-  if (!token) return <div className="h-screen w-screen bg-black" />;
+  if (!token) {
+    if (cloudOffline) {
+      return (
+        <div className="flex h-screen w-screen items-center justify-center bg-black p-8 text-center">
+          <p className="max-w-md text-sm text-zinc-400">
+            Cloud features are offline — Ares needs the database connection. The watchtower will come back online once it&apos;s connected.
+          </p>
+        </div>
+      );
+    }
+    return <div className="h-screen w-screen bg-black" />;
+  }
 
   const summary = summarize(events);
 

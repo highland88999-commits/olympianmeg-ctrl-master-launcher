@@ -7,7 +7,7 @@ export const PLAN_SECTIONS = [
     title: 'Vision',
     tagline: 'Air is life, and cities are suffocating.',
     blocks: [
-      'Aetheris Units are towering outdoor purifiers that inhale smog, fine particles, VOCs and dust, and exhale purified air — creating breathable sanctuaries in urban choke zones. This is real, proven technology, ready to scale across the planet.',
+      'Aetheris Units are towering outdoor purifiers that inhale smog, fine particles, VOCs and dust, and exhale purified air — creating breathable sanctuaries in urban choke zones. Based on proven outdoor-purifier technology (examples below) — the ET-GAP-700 is a design, not a deployed product.',
       'The idea started from a simple image: a phone lock screen showing a sleek cylindrical tower, quietly reminding us that clean air is the battery we are all running out of.',
     ],
     facts: [
@@ -19,7 +19,7 @@ export const PLAN_SECTIONS = [
   {
     id: 'specs',
     title: 'Specs — Model ET-GAP-700',
-    tagline: '7-meter breathing towers. Production-ready, modular, solar-compatible.',
+    tagline: '7-meter breathing towers. Modular, solar-compatible design.',
     blocks: [
       'The ET-GAP-700 is designed to reclaim clean air in cities at scale: parks, plazas, traffic choke points and industrial edges. Five to ten units per km\u00b2 for saturation.',
     ],

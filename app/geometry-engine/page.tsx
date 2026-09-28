@@ -11,16 +11,24 @@ export default function GeometryEngine() {
   const router = useRouter();
   const canvasContainerRef = useRef(null);
   const [mounted, setMounted] = useState(false);
+  const [cloudOffline, setCloudOffline] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) {
-        if (window.top === window.self) router.push('/');
-        else document.body.innerHTML = '<div style="color:#08f7fe; text-align:center; padding:50px; font-family:monospace;">UNAUTHORIZED. PLEASE LOG IN AT MASTER HUB.</div>';
-        return;
-      }
-      setMounted(true);
-    });
+    // The shared supabase client throws when the database connection isn't
+    // configured. Catch that (and any auth failure) and say so honestly
+    // instead of crashing into the error boundary.
+    try {
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (!session) {
+          if (window.top === window.self) router.push('/');
+          else document.body.innerHTML = '<div style="color:#08f7fe; text-align:center; padding:50px; font-family:monospace;">UNAUTHORIZED. PLEASE LOG IN AT MASTER HUB.</div>';
+          return;
+        }
+        setMounted(true);
+      }).catch(() => setCloudOffline(true));
+    } catch {
+      setCloudOffline(true);
+    }
 
     if (!canvasContainerRef.current) return;
     let reqId;
@@ -68,6 +76,7 @@ export default function GeometryEngine() {
         historyStack = [];
         historyStack.push(new Float32Array(basePositions));
     }
+    window.createNewGeometry = createNewGeometry;
     createNewGeometry('plane');
 
     function animate() {
@@ -109,6 +118,25 @@ export default function GeometryEngine() {
     return () => cancelAnimationFrame(reqId);
   }, [router]);
 
+  if (cloudOffline) return (
+    <div style={{ background: '#050508', width: '100vw', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32 }}>
+      <div style={{ maxWidth: 420, textAlign: 'center', fontFamily: 'monospace' }}>
+        <p style={{ color: '#08f7fe', letterSpacing: 3, fontSize: 13, textTransform: 'uppercase', marginBottom: 12 }}>
+          Cloud features are offline
+        </p>
+        <p style={{ color: '#888', fontSize: 13, marginBottom: 24 }}>
+          This page needs the database connection. Check back once the cloud is connected.
+        </p>
+        <button
+          onClick={() => router.push('/')}
+          style={{ background: 'rgba(8,247,254,0.1)', border: '1px solid #08f7fe', color: '#08f7fe', padding: '0.65rem 1.8rem', borderRadius: 4, fontWeight: 'bold', fontSize: '0.88rem', cursor: 'pointer', letterSpacing: 1 }}
+        >
+          BACK TO HUB
+        </button>
+      </div>
+    </div>
+  );
+
   if (!mounted) return <div style={{background: '#050508', width: '100vw', height: '100vh'}}></div>;
 
   return (
@@ -140,11 +168,11 @@ export default function GeometryEngine() {
       <div className="engine-wrapper">
         <header>
             <div className="logo">NEXUS ENGINE</div>
-            <button className="export-btn" id="btn-export" onClick={() => window.exportGeometry()}>PUSH TO PUBLISHER ➔</button>
+            <button className="export-btn" id="btn-export" onClick={() => window.exportGeometry()}>Download PNG</button>
         </header>
 
         <div className="video-hero">
-            <video id="hero-video" autoPlay loop muted playsInline className="hero-video" src="https://file.garden/alXjUY_coXedLaNA/gemini_generated_video_1C2C3CD6.mp4"></video>
+            <video id="hero-video" autoPlay loop muted playsInline className="hero-video" src="/assets/geometry-engine/hero-gemini.mp4"></video>
             <div className="hero-overlay"></div>
         </div>
 
