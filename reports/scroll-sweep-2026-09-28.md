@@ -31,11 +31,11 @@ above Safari's bottom browser bar. Desktop behavior is unchanged.
 
 ## Publish
 - Branch: `fix/scroll-sweep-final`
-- Branch commit: TBD
-- Merge commit: TBD
-- Scope note: `app/raptor-rush`, `app/rogers-arena`, `app/astra` were excluded from
-  this publish — owned by other in-flight work; their scroll coverage was already
-  handled in their own edits and they publish separately.
+- Branch commit: `a195bde3bed2a8d294f752a7f351f8dc5db15350`
+- Merge commit: `644abb2e9cb49962e71482ddcf6122961037c28e`
+- Scope: 140 files (139 route pages + this report). `app/raptor-rush`, `app/rogers-arena`,
+  `app/astra` were excluded — owned by other in-flight work; their scroll coverage was
+  already handled in their own edits and they publish separately.
 
 ## Repair found during verification
 - `app/basketball/page.jsx` was found truncated by a worker killed mid-write
