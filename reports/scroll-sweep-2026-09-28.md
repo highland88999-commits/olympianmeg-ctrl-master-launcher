@@ -31,8 +31,10 @@ above Safari's bottom browser bar. Desktop behavior is unchanged.
 
 ## Publish
 - Branch: `fix/scroll-sweep-final`
-- Branch commit: `a195bde3bed2a8d294f752a7f351f8dc5db15350`
-- Merge commit: `644abb2e9cb49962e71482ddcf6122961037c28e`
+- Branch commits: `a195bde3bed2a8d294f752a7f351f8dc5db15350` (sweep), plus a follow-up
+  updating this report with the real SHAs.
+- Merge commits: `644abb2e9cb49962e71482ddcf6122961037c28e` (sweep),
+  `43f389ae8a7bfb96218d66a092d7617d29f857f9` (report SHA fill — current main).
 - Scope: 140 files (139 route pages + this report). `app/raptor-rush`, `app/rogers-arena`,
   `app/astra` were excluded — owned by other in-flight work; their scroll coverage was
   already handled in their own edits and they publish separately.
