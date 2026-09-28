@@ -6,7 +6,7 @@ import { listingExpiryIso, LISTING_TERM_MONTHS } from '@/lib/hermes/listings.js'
 
 export async function POST(req) {
   const stripeKey = process.env.STRIPE_SECRET_KEY;
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  const webhookSecret = process.env.STRIPE_HERMES_WEBHOOK_SECRET || process.env.STRIPE_WEBHOOK_SECRET;
   if (!stripeKey || !webhookSecret) {
     return new Response('Webhook not configured.', { status: 503 });
   }

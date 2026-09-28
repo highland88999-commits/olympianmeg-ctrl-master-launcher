@@ -25,7 +25,7 @@ async function loadStripe() {
 }
 
 export async function POST(request) {
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  const webhookSecret = process.env.STRIPE_WE_WEBHOOK_SECRET || process.env.STRIPE_WEBHOOK_SECRET;
   if (!webhookSecret) {
     console.error('World Engine webhook: STRIPE_WEBHOOK_SECRET is not set; rejecting event.');
     return NextResponse.json({ error: 'Webhook is not configured.' }, { status: 500 });
