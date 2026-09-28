@@ -725,6 +725,42 @@ export default function NexusHub() {
                     <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Loki</span>
                     <span className="text-[10px] text-zinc-500 uppercase mt-1">Illusions & Ambience</span>
                   </button>
+                  <button onClick={() => launchPocketUniverse('/neon-racer', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
+                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Neon Racer</span>
+                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Deep Space Survival</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/omega-pinball', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
+                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Omega Pinball</span>
+                    <span className="text-[10px] text-zinc-500 uppercase mt-1">The 99-Level Ascent</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/persymphony', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
+                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Persymphony</span>
+                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Music Arena</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/raptor-rush', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
+                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Raptor Rush</span>
+                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Canyon Sprint</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/rogers-arena', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
+                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Rogers Arena</span>
+                    <span className="text-[10px] text-zinc-500 uppercase mt-1">A Night at the Arena</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/air-hockey', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
+                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Air Hockey</span>
+                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Arcade Classic</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/t-1000', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
+                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">T-1000</span>
+                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Liquid Metal Dome</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/hive', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
+                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">The Hive</span>
+                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Cyber Hive Core</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/zeus-v-hades', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
+                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Zeus vs Hades</span>
+                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Neon Soul Race</span>
+                  </button>
                 </div>
 
                 {/* 2. UTILITIES (ARES) */}

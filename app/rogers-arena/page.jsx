@@ -1,0 +1,138 @@
+'use client';
+
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  MODES,
+  createCamera,
+  orbitCamera,
+  zoomCamera,
+} from './arena';
+import { createArenaScene } from './scene';
+
+export default function RogersArenaPage() {
+  const mountRef = useRef(null);
+  const sceneRef = useRef(null);
+  const camRef = useRef(createCamera());
+  const dragRef = useRef(null);
+  const reducedMotionRef = useRef(false);
+
+  const [modeId, setModeId] = useState('concert');
+  const mode = MODES.find((m) => m.id === modeId);
+
+  useEffect(() => {
+    reducedMotionRef.current =
+      typeof window !== 'undefined' &&
+      window.matchMedia &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!mountRef.current) return;
+    const scene = createArenaScene(mountRef.current, {
+      mode: modeId,
+      reducedMotion: reducedMotionRef.current,
+    });
+    scene.applyCamera(camRef.current);
+    sceneRef.current = scene;
+    return () => {
+      scene.dispose();
+      sceneRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const pickMode = useCallback((id) => {
+    setModeId(id);
+    if (sceneRef.current) sceneRef.current.setMode(id);
+  }, []);
+
+  const applyCam = useCallback(() => {
+    if (sceneRef.current) sceneRef.current.applyCamera(camRef.current);
+  }, []);
+
+  // Drag to orbit
+  const onPointerDown = useCallback((e) => {
+    dragRef.current = { x: e.clientX, y: e.clientY, id: e.pointerId };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }, []);
+  const onPointerMove = useCallback(
+    (e) => {
+      const d = dragRef.current;
+      if (!d || d.id !== e.pointerId) return;
+      const dx = e.clientX - d.x;
+      const dy = e.clientY - d.y;
+      d.x = e.clientX;
+      d.y = e.clientY;
+      camRef.current = orbitCamera(camRef.current, dx, dy);
+      applyCam();
+    },
+    [applyCam]
+  );
+  const onPointerUp = useCallback((e) => {
+    if (dragRef.current && dragRef.current.id === e.pointerId) dragRef.current = null;
+  }, []);
+
+  // Wheel / pinch to zoom (pinch arrives as wheel with ctrlKey on trackpads)
+  const onWheel = useCallback(
+    (e) => {
+      e.preventDefault();
+      camRef.current = zoomCamera(camRef.current, e.deltaY);
+      applyCam();
+    },
+    [applyCam]
+  );
+
+  useEffect(() => {
+    const el = mountRef.current;
+    if (!el) return;
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [onWheel]);
+
+  return (
+    <main className="fixed inset-0 bg-[#05070d] text-white overflow-hidden select-none">
+      <div
+        ref={mountRef}
+        className="absolute inset-0 touch-none cursor-grab active:cursor-grabbing"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        aria-label="3D arena view. Drag to look around."
+      />
+
+      {/* Header */}
+      <header className="absolute top-0 left-0 right-0 p-4 sm:p-6 pointer-events-none">
+        <h1 className="text-xl sm:text-2xl font-black tracking-widest uppercase drop-shadow">
+          Rogers Arena
+        </h1>
+        <p className="text-xs sm:text-sm text-zinc-400 mt-1 max-w-md">
+          {mode.description}
+        </p>
+      </header>
+
+      {/* Mode picker */}
+      <nav
+        className="absolute bottom-0 left-0 right-0 p-4 sm:p-6 flex flex-col items-center gap-2"
+        aria-label="Arena modes"
+      >
+        <p className="text-[11px] text-zinc-500 uppercase tracking-widest pointer-events-none">
+          Drag to look around &middot; Scroll or pinch to zoom
+        </p>
+        <div className="flex gap-2 sm:gap-3">
+          {MODES.map((m) => (
+            <button
+              key={m.id}
+              onClick={() => pickMode(m.id)}
+              aria-pressed={modeId === m.id}
+              className={`min-h-[44px] px-4 sm:px-6 rounded-full text-xs sm:text-sm font-bold uppercase tracking-widest border transition-all ${
+                modeId === m.id
+                  ? 'bg-cyan-400/90 text-black border-cyan-300'
+                  : 'bg-black/60 text-zinc-300 border-white/20 hover:border-cyan-400/60'
+              }`}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+      </nav>
+    </main>
+  );
+}
