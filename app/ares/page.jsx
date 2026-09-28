@@ -9,6 +9,7 @@ import EventsFeed from '@/components/ares/EventsFeed';
 import TopLists from '@/components/ares/TopLists';
 import ListsManager from '@/components/ares/ListsManager';
 import ModuleToggles from '@/components/ares/ModuleToggles';
+import LearningPanel from '@/components/ares/LearningPanel';
 
 export default function AresConsole() {
   const router = useRouter();
@@ -112,6 +113,7 @@ export default function AresConsole() {
             </div>
             <TopLists events={events} />
             <EventsFeed events={events} />
+            <LearningPanel events={events} authedFetch={authedFetch} />
             <ListsManager authedFetch={authedFetch} whitelist={whitelist} blocks={blocks} onRefresh={load} />
             <footer className="pb-8 pt-2 text-center text-[11px] text-zinc-600">
               Defensive only. Ares logs and blocks; it never retaliates. Evidence older than 90 days is purged.
