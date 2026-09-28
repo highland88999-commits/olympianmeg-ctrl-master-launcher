@@ -1145,6 +1145,34 @@ export default function NexusHub() {
                     <span className="text-sm font-black text-[#33ff66] tracking-widest uppercase group-hover:text-white">Medusa's Lair</span>
                     <span className="text-[10px] text-zinc-600 uppercase mt-1">Gaze Chamber</span>
                   </button>
+                  <button onClick={() => launchPocketUniverse('/anti-life', MEDUSA_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-[#33ff66]/30 rounded hover:bg-[#33ff66]/20 transition-all group">
+                    <span className="text-sm font-black text-[#33ff66] tracking-widest uppercase group-hover:text-white">Anti-Life</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Entropy Core</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/grief-gully', MEDUSA_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-[#33ff66]/30 rounded hover:bg-[#33ff66]/20 transition-all group">
+                    <span className="text-sm font-black text-[#33ff66] tracking-widest uppercase group-hover:text-white">Grief Gully</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Healing Matrix</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/life', MEDUSA_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-[#33ff66]/30 rounded hover:bg-[#33ff66]/20 transition-all group">
+                    <span className="text-sm font-black text-[#33ff66] tracking-widest uppercase group-hover:text-white">Life</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Orbital Matrix</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/magic-mirror', MEDUSA_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-[#33ff66]/30 rounded hover:bg-[#33ff66]/20 transition-all group">
+                    <span className="text-sm font-black text-[#33ff66] tracking-widest uppercase group-hover:text-white">Magic Mirror</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Vortex Mirror</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/meaning-of-life', MEDUSA_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-[#33ff66]/30 rounded hover:bg-[#33ff66]/20 transition-all group">
+                    <span className="text-sm font-black text-[#33ff66] tracking-widest uppercase group-hover:text-white">Meaning of Life</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Visualizer</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/rem', MEDUSA_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-[#33ff66]/30 rounded hover:bg-[#33ff66]/20 transition-all group">
+                    <span className="text-sm font-black text-[#33ff66] tracking-widest uppercase group-hover:text-white">R.E.M.</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Provinces</span>
+                  </button>
+                  <button onClick={() => launchPocketUniverse('/the-afterlife', MEDUSA_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-[#33ff66]/30 rounded hover:bg-[#33ff66]/20 transition-all group">
+                    <span className="text-sm font-black text-[#33ff66] tracking-widest uppercase group-hover:text-white">The Afterlife</span>
+                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Elysium Odyssey</span>
+                  </button>
                 </div>
 
                 {/* DISCONNECT */}

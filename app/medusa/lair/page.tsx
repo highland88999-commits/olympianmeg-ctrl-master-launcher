@@ -27,13 +27,6 @@ export default function MedusasLair() {
         return;
       }
       setMounted(true);
-      
-      const REPO_NAME = window.location.hostname || 'Unknown-Node';
-      supabase.from('central_telemetry').insert([{
-          repository_name: REPO_NAME,
-          action_type: 'page_load',
-          details: { node: 'medusa', url: window.location.href, timestamp: new Date().toISOString() }
-      }]);
     });
 
     fetchArtifacts();
