@@ -7,7 +7,7 @@ import { LUGE_PREMIUM_IDS, arsenalGrantRows, decideWebhookEvent } from '@/lib/lu
 
 export async function POST(req) {
   const stripeKey = process.env.STRIPE_SECRET_KEY;
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  const webhookSecret = process.env.STRIPE_LUGE_WEBHOOK_SECRET || process.env.STRIPE_WEBHOOK_SECRET;
   if (!stripeKey || !webhookSecret) {
     return new Response('Webhook not configured.', { status: 503 });
   }
