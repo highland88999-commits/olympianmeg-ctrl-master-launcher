@@ -256,5 +256,12 @@
   "ui.collapse": "Menü einklappen",
   "ui.language": "Sprache",
   "ui.searchPlaceholder": "Taschenuniversen suchen...",
-  "ui.disconnect": "Rufzeichen trennen"
+  "ui.disconnect": "Rufzeichen trennen",
+  "earth.tapHint": "Tippe auf die Erde zum Absinken",
+  "earth.consoleTitle": "Erdkonsole",
+  "earth.searchPlaceholder": "Ziele suchen...",
+  "earth.returnToOrbit": "Zurück in den Orbit",
+  "earth.locating": "Orte dich...",
+  "earth.traveling": "Bringe die Welt zu dir...",
+  "earth.yourLocation": "Dein Standort"
 }

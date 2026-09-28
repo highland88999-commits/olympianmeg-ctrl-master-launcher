@@ -256,5 +256,12 @@
   "ui.collapse": "Comprimi menu",
   "ui.language": "Lingua",
   "ui.searchPlaceholder": "Cerca universi tascabili...",
-  "ui.disconnect": "Disconnetti Nominativo"
+  "ui.disconnect": "Disconnetti Nominativo",
+  "earth.tapHint": "Tocca la Terra per scendere",
+  "earth.consoleTitle": "Console Terrestre",
+  "earth.searchPlaceholder": "Cerca destinazioni...",
+  "earth.returnToOrbit": "Torna in orbita",
+  "earth.locating": "Localizzazione...",
+  "earth.traveling": "Porto il mondo da te...",
+  "earth.yourLocation": "La tua posizione"
 }

@@ -10,6 +10,10 @@ import { supabase } from '@/lib/supabase';
 import { LanguageProvider, useI18n } from '@/lib/i18n';
 import { SATELLITES, SECTIONS } from '@/lib/i18n/satellites';
 import SettingsGear from '@/components/SettingsGear';
+import NexusEarth from '@/components/NexusEarth';
+import EarthFlightController from '@/components/EarthFlightController';
+import EarthConsole from '@/components/EarthConsole';
+import { getUserPosition, FALLBACK_POSITION } from '@/lib/geo';
 
 import Zeus from '@/components/Zeus';
 import Ares from '@/components/Ares';
@@ -26,116 +30,6 @@ const THOTH_POS = [ORBIT_CENTER.x + Math.sin((Math.PI * 4) / 10) * ORBIT_RADIUS,
 const ARGUS_POS = [ORBIT_CENTER.x + Math.sin((Math.PI * 6) / 10) * ORBIT_RADIUS, ORBIT_CENTER.y, ORBIT_CENTER.z + Math.cos((Math.PI * 6) / 10) * ORBIT_RADIUS];
 const BABEL_POS = [ORBIT_CENTER.x + Math.sin((Math.PI * 7) / 10) * ORBIT_RADIUS, ORBIT_CENTER.y, ORBIT_CENTER.z + Math.cos((Math.PI * 7) / 10) * ORBIT_RADIUS];
 const MEDUSA_POS = [ORBIT_CENTER.x + Math.sin((Math.PI * 8) / 10) * ORBIT_RADIUS, ORBIT_CENTER.y, ORBIT_CENTER.z + Math.cos((Math.PI * 8) / 10) * ORBIT_RADIUS];
-
-function EarthBackground() {
-  const earthRef = useRef();
-  const [textures, setTextures] = useState(null);
-
-  useEffect(() => {
-    let isMounted = true;
-    const loader = new THREE.TextureLoader();
-    const dayUrl = 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_atmos_2048.jpg';
-    const nightUrl = 'https://unpkg.com/three-globe/example/img/earth-night.jpg';
-
-    loader.load(dayUrl, (dayTex) => {
-      dayTex.colorSpace = THREE.SRGBColorSpace;
-      loader.load(nightUrl, (nightTex) => {
-        nightTex.colorSpace = THREE.SRGBColorSpace;
-        if (isMounted) setTextures({ day: dayTex, night: nightTex });
-      }, undefined, () => {
-        const blank = new THREE.DataTexture(new Uint8Array([5, 5, 15, 255]), 1, 1, THREE.RGBAFormat);
-        blank.needsUpdate = true;
-        if (isMounted) setTextures({ day: dayTex, night: blank });
-      });
-    }, undefined, () => {
-      const blankDay = new THREE.DataTexture(new Uint8Array([50, 100, 200, 255]), 1, 1, THREE.RGBAFormat);
-      blankDay.needsUpdate = true;
-      if (isMounted) setTextures({ day: blankDay, night: blankDay });
-    });
-
-    return () => { isMounted = false; };
-  }, []);
-
-  const earthUniforms = useMemo(() => {
-    if (!textures) return null;
-    const sunPos = new THREE.Vector3(0, 90, 250);
-    const earthPos = new THREE.Vector3(0, -60, -120);
-    const sunDir = new THREE.Vector3().subVectors(sunPos, earthPos).normalize();
-    
-    return {
-      dayTexture: { value: textures.day },
-      nightTexture: { value: textures.night },
-      sunDirection: { value: sunDir }
-    };
-  }, [textures]);
-
-  useFrame((state, delta) => { if (earthRef.current) earthRef.current.rotation.y += delta * 0.05; });
-
-  if (!textures) return null;
-
-  return (
-    <group position={[0, -60, -120]}>
-      <mesh ref={earthRef} receiveShadow castShadow>
-        <sphereGeometry args={[55, 64, 64]} />
-        <shaderMaterial
-          uniforms={earthUniforms}
-          vertexShader={`
-            varying vec2 vUv; 
-            varying vec3 vNormalWorld;
-            void main() { 
-              vUv = uv; 
-              vNormalWorld = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
-              gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-            }
-          `}
-          fragmentShader={`
-            uniform sampler2D dayTexture;
-            uniform sampler2D nightTexture;
-            uniform vec3 sunDirection;
-            varying vec2 vUv; 
-            varying vec3 vNormalWorld;
-            void main() {
-              vec3 n = normalize(vNormalWorld);
-              float sunOrientation = dot(n, sunDirection);
-              float dayMix = smoothstep(-0.2, 0.2, sunOrientation);
-              vec3 dayColor = texture2D(dayTexture, vUv).rgb;
-              vec3 nightColor = texture2D(nightTexture, vUv).rgb;
-              vec3 sunset = vec3(0.8, 0.4, 0.1) * (1.0 - abs(sunOrientation * 5.0));
-              sunset = clamp(sunset, 0.0, 1.0) * 0.4;
-              gl_FragColor = vec4(mix(nightColor, dayColor, dayMix) + sunset, 1.0);
-            }
-          `}
-        />
-      </mesh>
-      
-      <mesh scale={[1.025, 1.025, 1.025]}>
-        <sphereGeometry args={[55, 64, 64]} />
-        <shaderMaterial
-          blending={THREE.AdditiveBlending}
-          side={THREE.BackSide}
-          transparent={true}
-          depthWrite={false}
-          vertexShader={`
-            varying vec3 vNormalWorld;
-            void main() {
-              vNormalWorld = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
-              gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-            }
-          `}
-          fragmentShader={`
-            varying vec3 vNormalWorld;
-            void main() {
-              vec3 cameraDir = normalize(cameraPosition - vNormalWorld);
-              float intensity = pow(0.6 - dot(normalize(vNormalWorld), cameraDir), 2.0);
-              vec3 atmosphere = vec3(0.1, 0.4, 1.0) * intensity;
-              gl_FragColor = vec4(atmosphere, 1.0) * (intensity * 1.5);
-            }
-          `}
-        />
-      </mesh>
-    </group>
-  );
-}
 
 function MarsBackground() {
   const marsRef = useRef();
@@ -501,6 +395,27 @@ function NexusHub() {
 
   const [flightAxis, setFlightAxis] = useState('horizontal'); 
 
+  // --- Explorable Earth: the traveler stands still, the world moves. ---
+  const earthQuatRef = useRef(null);
+  if (!earthQuatRef.current && typeof THREE !== 'undefined') {
+    earthQuatRef.current = new THREE.Quaternion();
+  }
+  const [earthFocus, setEarthFocus] = useState(null);   // { lat, lon, label }
+  const [pendingDest, setPendingDest] = useState(null); // destination being brought to us
+
+  const beginEarthDive = () => {
+    if (appState !== 'hub_freeroam') return;
+    setEarthFocus({ ...FALLBACK_POSITION, label: t('earth.locating') });
+    setAppState('diving_to_earth');
+    getUserPosition().then((pos) => {
+      if (pos) setEarthFocus({ lat: pos.lat, lon: pos.lon, label: t('earth.yourLocation') });
+      else setEarthFocus({ ...FALLBACK_POSITION });
+    });
+  };
+  const travelToEarth = (dest) => { setPendingDest(dest); setAppState('earth_travel'); };
+  const arriveEarth = (dest) => { setEarthFocus(dest); setPendingDest(null); setAppState('earth_surface'); };
+  const returnToOrbit = () => { setPendingDest(null); setEarthFocus(null); setAppState('returning_to_orbit'); };
+
   const controlsRef = useRef({
     moveX: 0, moveY: 0, lookDeltaX: 0, lookDeltaY: 0, keyW: 0, keyS: 0, keyA: 0, keyD: 0, zoom: 52, lastPinchDist: null
   });
@@ -726,6 +641,23 @@ function NexusHub() {
         </>
       )}
 
+      {user && (appState === 'diving_to_earth' || appState === 'earth_surface' || appState === 'earth_travel') && (
+        <EarthConsole
+          focus={earthFocus}
+          phase={appState}
+          onTravel={travelToEarth}
+          onReturn={returnToOrbit}
+        />
+      )}
+
+      {user && appState === 'hub_freeroam' && (
+        <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-40 pointer-events-none">
+          <div className="text-[10px] tracking-[0.25em] uppercase text-cyan-300/70 bg-black/40 px-4 py-2 rounded-full border border-cyan-500/20">
+            {t('earth.tapHint')}
+          </div>
+        </div>
+      )}
+
       <div className="absolute inset-0 pointer-events-none">
         <Canvas shadows="soft" camera={{ position: [0, 75, 20], fov: 52, far: 2000 }} style={{ pointerEvents: 'auto' }}>
           <color attach="background" args={['#050505']} />
@@ -736,7 +668,13 @@ function NexusHub() {
           
           <Suspense fallback={null}>
             <SunBackground />
-            <EarthBackground />
+            <NexusEarth
+              onSelect={appState === 'hub_freeroam' ? beginEarthDive : null}
+              quatRef={earthQuatRef}
+              focus={earthFocus}
+              phase={appState}
+              spinEnabled={appState === 'hub_intro' || appState === 'hub_freeroam'}
+            />
             <MarsBackground />
             <TextureProvider onLaunchExternal={(url, id) => {
               adWindowRef.current = window.open('', '_blank');
@@ -754,6 +692,16 @@ function NexusHub() {
             flightAxis={flightAxis}
             adWindowRef={adWindowRef}
             dropTarget={activeSatTarget}
+          />
+
+          <EarthFlightController
+            launchState={appState}
+            setLaunchState={setAppState}
+            quatRef={earthQuatRef}
+            focus={earthFocus}
+            pendingDest={pendingDest}
+            onArriveDest={arriveEarth}
+            controls={controlsRef}
           />
           
           <EffectComposer>

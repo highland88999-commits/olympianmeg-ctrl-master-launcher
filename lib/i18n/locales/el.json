@@ -256,5 +256,12 @@
   "ui.collapse": "Σύμπτυξη μενού",
   "ui.language": "Γλώσσα",
   "ui.searchPlaceholder": "Αναζήτηση συμπάντων τσέπης...",
-  "ui.disconnect": "Αποσύνδεση Διακριτικού"
+  "ui.disconnect": "Αποσύνδεση Διακριτικού",
+  "earth.tapHint": "Πάτα τη Γη για κάθοδο",
+  "earth.consoleTitle": "Κονσόλα Γης",
+  "earth.searchPlaceholder": "Αναζήτηση προορισμών...",
+  "earth.returnToOrbit": "Επιστροφή σε τροχιά",
+  "earth.locating": "Εντοπισμός...",
+  "earth.traveling": "Φέρνω τον κόσμο σε εσένα...",
+  "earth.yourLocation": "Η τοποθεσία σου"
 }

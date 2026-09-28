@@ -256,5 +256,12 @@
   "ui.collapse": "Collapse menu",
   "ui.language": "Language",
   "ui.searchPlaceholder": "Search pocket universes...",
-  "ui.disconnect": "Disconnect Callsign"
+  "ui.disconnect": "Disconnect Callsign",
+  "earth.tapHint": "Click the Earth to descend",
+  "earth.consoleTitle": "Earth Console",
+  "earth.searchPlaceholder": "Search destinations...",
+  "earth.returnToOrbit": "Return to orbit",
+  "earth.locating": "Locating you...",
+  "earth.traveling": "Bringing the world to you...",
+  "earth.yourLocation": "Your location"
 }

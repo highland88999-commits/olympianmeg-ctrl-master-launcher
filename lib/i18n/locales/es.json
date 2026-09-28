@@ -256,5 +256,12 @@
   "ui.collapse": "Contraer menú",
   "ui.language": "Idioma",
   "ui.searchPlaceholder": "Buscar universos de bolsillo...",
-  "ui.disconnect": "Desconectar Distintivo"
+  "ui.disconnect": "Desconectar Distintivo",
+  "earth.tapHint": "Toca la Tierra para descender",
+  "earth.consoleTitle": "Consola Terrestre",
+  "earth.searchPlaceholder": "Buscar destinos...",
+  "earth.returnToOrbit": "Volver a la órbita",
+  "earth.locating": "Localizándote...",
+  "earth.traveling": "Trayendo el mundo hasta ti...",
+  "earth.yourLocation": "Tu ubicación"
 }
