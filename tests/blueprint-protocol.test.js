@@ -12,6 +12,7 @@ function t(name, cond) {
 
 const src = readFileSync('app/blueprint-protocol/page.jsx', 'utf8');
 const launcher = readFileSync('app/page.jsx', 'utf8');
+const registry = readFileSync('lib/i18n/satellites.ts', 'utf8');
 const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
 
 // --- telemetry stripped ---
@@ -31,7 +32,7 @@ t('epoch stepper present with 3 epochs', /EPOCHS/.test(src) && /Epoch 3: Scaled 
 t('canvas 2D particle vortex (no three.js)', /getContext\('2d'\)/.test(src) && !/THREE/.test(src));
 t('document title set for launcher', /document\.title = TITLE/.test(src));
 
-t('launcher menu links route /blueprint-protocol', launcher.includes("launchPocketUniverse('/blueprint-protocol'"));
+t('registry links route /blueprint-protocol', registry.includes("route: \"/blueprint-protocol\"") && registry.includes("key: \"blueprint-protocol\""));
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

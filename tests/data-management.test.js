@@ -12,6 +12,7 @@ function t(name, cond) {
 
 const src = readFileSync('app/data-management/page.jsx', 'utf8');
 const launcher = readFileSync('app/page.jsx', 'utf8');
+const registry = readFileSync('lib/i18n/satellites.ts', 'utf8');
 const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
 
 // --- external requests stripped ---
@@ -31,7 +32,7 @@ t('swipe support for mobile', /onTouchStart/.test(src) && /onTouchEnd/.test(src)
 t('wave canvas background is canvas 2D', /getContext\('2d'\)/.test(src));
 t('exascale metrics present', /3\.0 EXAFLOPS/.test(src) && /333,334 NODES/.test(src));
 
-t('launcher menu links route /data-management', launcher.includes("launchPocketUniverse('/data-management'"));
+t('registry links route /data-management', registry.includes("route: \"/data-management\"") && registry.includes("key: \"data-management\""));
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

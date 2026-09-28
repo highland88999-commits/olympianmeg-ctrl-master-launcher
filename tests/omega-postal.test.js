@@ -13,6 +13,7 @@ function t(name, cond) {
 
 const src = readFileSync('app/omega-postal/page.jsx', 'utf8');
 const launcher = readFileSync('app/page.jsx', 'utf8');
+const registry = readFileSync('lib/i18n/satellites.ts', 'utf8');
 const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
 
 // --- telemetry & externals stripped ---
@@ -33,7 +34,7 @@ t('procedural sky replaces video textures', /createLinearGradient/.test(src));
 t('live feed HUD with package counter', /Packages sorted/.test(src));
 t('volume slider + dispatch burst controls', /DISPATCH BURST/.test(src) && /Mail volume/.test(src));
 
-t('launcher menu links route /omega-postal', launcher.includes("launchPocketUniverse('/omega-postal'"));
+t('registry links route /omega-postal', registry.includes("route: \"/omega-postal\"") && registry.includes("key: \"omega-postal\""));
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

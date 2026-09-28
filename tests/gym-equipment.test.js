@@ -13,6 +13,7 @@ function t(name, cond) {
 
 const src = readFileSync('app/gym-equipment/page.jsx', 'utf8');
 const launcher = readFileSync('app/page.jsx', 'utf8');
+const registry = readFileSync('lib/i18n/satellites.ts', 'utf8');
 const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
 
 // --- telemetry & externals stripped ---
@@ -33,7 +34,7 @@ t('tap triggers sync burst', /burstRef\.current =/.test(src));
 t('spec sheet panel present', /SPEC SHEET/.test(src) && /Digital Strength/.test(src));
 t('motion preference persisted', /quantum-arcade\.prefs/.test(src));
 
-t('launcher menu links route /gym-equipment', launcher.includes("launchPocketUniverse('/gym-equipment'"));
+t('registry links route /gym-equipment', registry.includes("route: \"/gym-equipment\"") && registry.includes("key: \"gym-equipment\""));
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

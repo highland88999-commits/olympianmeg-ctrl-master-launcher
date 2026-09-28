@@ -13,6 +13,7 @@ function t(name, cond) {
 
 const src = readFileSync('app/rainbow-wok/page.jsx', 'utf8');
 const launcher = readFileSync('app/page.jsx', 'utf8');
+const registry = readFileSync('lib/i18n/satellites.ts', 'utf8');
 const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
 
 // --- externals stripped ---
@@ -33,7 +34,7 @@ t('quick-add ribbon chips exist', /rw-chip/.test(src) && /Quick-add menu items/.
 t('send-to-kitchen dispatch is local-only', /Send to Kitchen/.test(src) && /staged/.test(src));
 t('hours & location panel with phone and maps link', /780-942-2388/.test(src) && /google\.com\/maps/.test(src));
 
-t('launcher menu links route /rainbow-wok', launcher.includes("launchPocketUniverse('/rainbow-wok'"));
+t('registry links route /rainbow-wok', registry.includes("route: \"/rainbow-wok\"") && registry.includes("key: \"rainbow-wok\""));
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

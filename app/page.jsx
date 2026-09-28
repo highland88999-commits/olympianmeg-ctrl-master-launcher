@@ -7,6 +7,9 @@ import * as THREE from 'three';
 import { useRouter } from 'next/navigation';
 import Auth from '@/components/Auth'; 
 import { supabase } from '@/lib/supabase';
+import { LanguageProvider, useI18n } from '@/lib/i18n';
+import { SATELLITES, SECTIONS } from '@/lib/i18n/satellites';
+import SettingsGear from '@/components/SettingsGear';
 
 import Zeus from '@/components/Zeus';
 import Ares from '@/components/Ares';
@@ -471,7 +474,19 @@ function TextureProvider({ onLaunchExternal }) {
   );
 }
 
-export default function NexusHub() {
+
+const ACCENT = {
+  ZEUS:   { dot: 'bg-cyan-400 shadow-[0_0_5px_#00ffff]', name: 'text-cyan-400', btn: 'bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20', title: 'text-white group-hover:text-cyan-400', sub: 'text-zinc-500' },
+  ARES:   { dot: 'bg-fuchsia-400 shadow-[0_0_5px_#ff00ff]', name: 'text-fuchsia-400', btn: 'bg-black/40 border border-fuchsia-500/30 rounded hover:bg-fuchsia-500/20', title: 'text-zinc-400 group-hover:text-white', sub: 'text-zinc-600' },
+  THOTH:  { dot: 'bg-emerald-400 shadow-[0_0_5px_#00ff88]', name: 'text-emerald-400', btn: 'bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20', title: 'text-emerald-400 group-hover:text-white', sub: 'text-zinc-600' },
+  ARGUS:  { dot: 'bg-amber-400 shadow-[0_0_5px_#ffaa00]', name: 'text-amber-400', btn: 'bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20', title: 'text-amber-400 group-hover:text-white', sub: 'text-zinc-600' },
+  MEDUSA: { dot: 'bg-[#33ff66] shadow-[0_0_5px_#33ff66]', name: 'text-[#33ff66]', btn: 'bg-black/40 border border-[#33ff66]/30 rounded hover:bg-[#33ff66]/20', title: 'text-[#33ff66] group-hover:text-white', sub: 'text-zinc-600' },
+};
+
+function NexusHub() {
+  const { t } = useI18n();
+  const POS_MAP = { ZEUS_POS, ARES_POS, THOTH_POS, ARGUS_POS, BABEL_POS, MEDUSA_POS };
+
   const [appState, setAppState] = useState('hub_intro');
   const [isMenuExpanded, setIsMenuExpanded] = useState(true);
   const [user, setUser] = useState(null);
@@ -645,542 +660,39 @@ export default function NexusHub() {
               <div className="bg-zinc-950/90 border border-zinc-800 rounded-xl p-4 shadow-[0_0_30px_rgba(0,0,0,0.5)] backdrop-blur-md w-64 max-h-[70vh] overflow-y-auto custom-scrollbar flex flex-col gap-5">
                 <div className="flex justify-between items-center border-b border-zinc-800 pb-2">
                   <div className="flex flex-col">
-                    <span className="text-xs font-bold tracking-widest text-white uppercase">Nexus Hub</span>
-                    <span className="text-[9px] font-mono text-cyan-400 tracking-wider uppercase">OPERATOR: {user}</span>
+                    <span className="text-xs font-bold tracking-widest text-white uppercase">{t('ui.nexusHub')}</span>
+                    <span className="text-[9px] font-mono text-cyan-400 tracking-wider uppercase">{t('ui.operator')}: {user}</span>
                   </div>
-                  <button onClick={() => setIsMenuExpanded(false)} className="text-zinc-500 hover:text-white text-xs">[_]</button>
+                  <div className="flex items-center gap-1">
+                    <SettingsGear />
+                    <button onClick={() => setIsMenuExpanded(false)} title={t('ui.collapse')} className="text-zinc-500 hover:text-white text-xs px-1">[_]</button>
+                  </div>
                 </div>
                 
-                {/* 1. GAMES (ZEUS) */}
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center gap-2 mb-1 border-b border-zinc-800 pb-1">
-                    <div className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_5px_#00ffff]" />
-                    <span className="text-[10px] font-bold tracking-[0.2em] text-zinc-400 uppercase">Games <span className="text-cyan-400">/ Zeus</span></span>
+                {SECTIONS.map((sec) => {
+                  const acc = ACCENT[sec.constellation];
+                  return (
+                  <div key={sec.key} className="flex flex-col gap-2">
+                    <div className="flex items-center gap-2 mb-1 border-b border-zinc-800 pb-1">
+                      <div className={`w-2 h-2 rounded-full ${acc.dot}`} />
+                      <span className="text-[10px] font-bold tracking-[0.2em] text-zinc-400 uppercase">{t(`sec.${sec.key}.name`)} <span className={acc.name}>/ {t(`const.${sec.constellation.toLowerCase()}`)}</span></span>
+                    </div>
+                    {SATELLITES.filter((s) => s.section === sec.name).map((sat) => (
+                      <button key={sat.key} onClick={() => launchPocketUniverse(sat.route, POS_MAP[sat.pos])} className={`flex flex-col text-left px-4 py-3 ${acc.btn} transition-all group`}>
+                        <span className={`text-sm font-black ${acc.title} tracking-widest uppercase`}>{t(`sat.${sat.key}.title`)}</span>
+                        <span className={`text-[10px] ${acc.sub} uppercase mt-1`}>{t(`sat.${sat.key}.subtitle`)}</span>
+                      </button>
+                    ))}
                   </div>
-                  <button onClick={() => launchPocketUniverse('/chess', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
-                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Wizards Chess</span>
-                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Orbital Payload</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/battleship', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
-                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Battleship</span>
-                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Neon Fleet Command</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/luge', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
-                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">LUGE</span>
-                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Neon Descent Engine</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/basketball', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
-                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Streetball</span>
-                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Full-Court Shootout</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/colosseum', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
-                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Colosseum</span>
-                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Arena Battler</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/underworld', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
-                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Underworld</span>
-                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Game Discovery Catalog</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/beehive', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
-                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Beehive</span>
-                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Room-Sized Honeycomb World</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/browsers-castle', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
-                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Browser's Castle</span>
-                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Web Fortress Concept</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/dk-hero', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
-                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">DK Hero</span>
-                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Barrel Siege Arcade Climber</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/excalibur', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
-                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Excalibur</span>
-                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Sword in the Stone</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/guillotine', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
-                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Guillotine</span>
-                    <span className="text-[10px] text-zinc-500 uppercase mt-1">300-Year-Old Machine in 3D</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/hercules', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
-                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Hercules</span>
-                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Voyage Across the Solar System</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/ice-dragon', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
-                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Ice Dragon</span>
-                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Wake the Glacial Dragon</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/ice-monster', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
-                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Ice Monster</span>
-                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Calm the Frost Behemoth</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/iq-test', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
-                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">IQ Test</span>
-                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Axiom Scramble 3D Puzzle</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/labyrinth', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
-                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Labyrinth</span>
-                    <span className="text-[10px] text-zinc-500 uppercase mt-1">3D Maze, the Watching Eye</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/loki', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
-                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Loki</span>
-                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Illusions & Ambience</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/neon-racer', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
-                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Neon Racer</span>
-                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Deep Space Survival</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/omega-pinball', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
-                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Omega Pinball</span>
-                    <span className="text-[10px] text-zinc-500 uppercase mt-1">The 99-Level Ascent</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/persymphony', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
-                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Persymphony</span>
-                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Music Arena</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/raptor-rush', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
-                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Raptor Rush</span>
-                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Canyon Sprint</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/rogers-arena', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
-                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Rogers Arena</span>
-                    <span className="text-[10px] text-zinc-500 uppercase mt-1">A Night at the Arena</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/air-hockey', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
-                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Air Hockey</span>
-                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Arcade Classic</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/t-1000', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
-                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">T-1000</span>
-                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Liquid Metal Dome</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/hive', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
-                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">The Hive</span>
-                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Cyber Hive Core</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/zeus-v-hades', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
-                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Zeus vs Hades</span>
-                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Neon Soul Race</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/artemis', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
-                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Artemis</span>
-                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Pocket OS</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/pearl', ZEUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20 transition-all group">
-                    <span className="text-sm font-black text-white tracking-widest uppercase group-hover:text-cyan-400">Pearl</span>
-                    <span className="text-[10px] text-zinc-500 uppercase mt-1">Sequential Observatory</span>
-                  </button>
-                </div>
-
-                {/* 2. UTILITIES (ARES) */}
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center gap-2 mb-1 border-b border-zinc-800 pb-1">
-                    <div className="w-2 h-2 rounded-full bg-fuchsia-400 shadow-[0_0_5px_#ff00ff]" />
-                    <span className="text-[10px] font-bold tracking-[0.2em] text-zinc-400 uppercase">Utilities <span className="text-fuchsia-400">/ Ares</span></span>
-                  </div>
-                  <button onClick={() => launchPocketUniverse('/cerberus', ARES_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-fuchsia-500/30 rounded hover:bg-fuchsia-500/20 transition-all group">
-                    <span className="text-sm font-black text-zinc-400 tracking-widest uppercase group-hover:text-white">Cerberus Node</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Global Pan Network</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/phone-home', ARES_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-fuchsia-500/30 rounded hover:bg-fuchsia-500/20 transition-all group">
-                    <span className="text-sm font-black text-zinc-400 tracking-widest uppercase group-hover:text-white">Phone Home</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Secure Comms Uplink</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/fortress-of-solitude', ARES_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-fuchsia-500/30 rounded hover:bg-fuchsia-500/20 transition-all group">
-                    <span className="text-sm font-black text-zinc-400 tracking-widest uppercase group-hover:text-white">Fortress of Solitude</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Secure 3D Data Vault</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/ares', ARES_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-red-500/40 rounded hover:bg-red-500/20 transition-all group">
-                    <span className="text-sm font-black text-zinc-400 tracking-widest uppercase group-hover:text-white">Ares Console</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Threat Monitoring & Defense</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/forge', ARES_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-fuchsia-500/30 rounded hover:bg-fuchsia-500/20 transition-all group">
-                    <span className="text-sm font-black text-zinc-400 tracking-widest uppercase group-hover:text-white">Forge</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Browser Code Editor</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/plutus', ARES_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-fuchsia-500/30 rounded hover:bg-fuchsia-500/20 transition-all group">
-                    <span className="text-sm font-black text-zinc-400 tracking-widest uppercase group-hover:text-white">Plutus</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Personal Finance Dashboard</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/terminal', ARES_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-fuchsia-500/30 rounded hover:bg-fuchsia-500/20 transition-all group">
-                    <span className="text-sm font-black text-zinc-400 tracking-widest uppercase group-hover:text-white">Terminal</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Neon Shell Console</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/holoframe', ARES_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-fuchsia-500/30 rounded hover:bg-fuchsia-500/20 transition-all group">
-                    <span className="text-sm font-black text-zinc-400 tracking-widest uppercase group-hover:text-white">Holoframe</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Holographic Monitor Array</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/waste-extraction', ARES_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-fuchsia-500/30 rounded hover:bg-fuchsia-500/20 transition-all group">
-                    <span className="text-sm font-black text-zinc-400 tracking-widest uppercase group-hover:text-white">Waste Extraction</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Holoframe Signal Viewport</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/referral-system', ARES_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-fuchsia-500/30 rounded hover:bg-fuchsia-500/20 transition-all group">
-                    <span className="text-sm font-black text-zinc-400 tracking-widest uppercase group-hover:text-white">Referral System</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Enterprise Referral Architecture</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/resume', ARES_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-fuchsia-500/30 rounded hover:bg-fuchsia-500/20 transition-all group">
-                    <span className="text-sm font-black text-zinc-400 tracking-widest uppercase group-hover:text-white">Resume Studio</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Resume Template Builder</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/housing-architecture', ARES_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-fuchsia-500/30 rounded hover:bg-fuchsia-500/20 transition-all group">
-                    <span className="text-sm font-black text-zinc-400 tracking-widest uppercase group-hover:text-white">Housing Architecture</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Tensegrity Living Node Blueprint</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/user-profile', ARES_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-fuchsia-500/30 rounded hover:bg-fuchsia-500/20 transition-all group">
-                    <span className="text-sm font-black text-zinc-400 tracking-widest uppercase group-hover:text-white">Reader Vault</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Alexandria Reader Profile</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/venus-wifi', ARES_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-fuchsia-500/30 rounded hover:bg-fuchsia-500/20 transition-all group">
-                    <span className="text-sm font-black text-zinc-400 tracking-widest uppercase group-hover:text-white">Venus WiFi</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Artemis Nav Console</span>
-                  </button>
-                </div>
-
-                {/* 3. AI PROGRAMS (THOTH) */}
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center gap-2 mb-1 border-b border-zinc-800 pb-1">
-                    <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_5px_#00ff88]" />
-                    <span className="text-[10px] font-bold tracking-[0.2em] text-zinc-400 uppercase">AI Programs <span className="text-emerald-400">/ Thoth</span></span>
-                  </div>
-                  <button onClick={() => launchPocketUniverse('/human-ai', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
-                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Human AI</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Omega x Olympus</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/alexandria', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
-                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Nexus Codex</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Alexandria Archive</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/world-engine', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
-                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">World Engine</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">AI 3D World Builder</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/architect-artemis', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
-                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Architect Artemis</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Voice Assistant Console</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/artemis-hub', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
-                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Artemis Hub</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Portal</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/hitchhikers-guide', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
-                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Hitchhiker's Guide</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Singularity Toy</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/maestro', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
-                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Maestro</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">MIDI Piano Player</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/manuscript-forge', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
-                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Manuscript Forge</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Writing Studio</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/meet-the-gods', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
-                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Meet the Gods</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Pantheon Codex</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/merlin-mandates', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
-                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Merlin Mandates</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Mandate Ledger</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/nexus-codex', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
-                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Codex Writer</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Artifact Authoring Studio</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/nexus-model-generation', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
-                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Model Forge</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Local 3D Generator</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/nexus-vortex', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
-                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Nexus Vortex</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Panning Core Flight</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/nexus-symbiote', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
-                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Nexus Symbiote</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Point-Cloud Art Toy</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/nv2-video-library', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
-                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Video Library</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Demo Catalog</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/olympian-education', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
-                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Olympian Education</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Lesson Orbs</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/omega', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
-                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Omega</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">The Omega Arch</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/omega-hub', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
-                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Omega Hub</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Sector Gateway</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/omega-mansion', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
-                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Omega Mansion</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Obsidian Estate</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/omega-mind', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
-                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Omega Mind</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Neural Lattice Journal</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/omegalodon', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
-                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Omegalodon</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Ecosystem Gateway</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/truman', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
-                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Truman</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Simulated City</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/flying-dutchman', THOTH_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group">
-                    <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">Flying Dutchman</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Ghost Voyage</span>
-                  </button>
-                </div>
-
-                {/* 4. OBSERVATORY (ARGUS) */}
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center gap-2 mb-1 border-b border-zinc-800 pb-1">
-                    <div className="w-2 h-2 rounded-full bg-amber-400 shadow-[0_0_5px_#ffaa00]" />
-                    <span className="text-[10px] font-bold tracking-[0.2em] text-zinc-400 uppercase">Observatory <span className="text-amber-400">/ Argus</span></span>
-                  </div>
-                  <button onClick={() => launchPocketUniverse('/aquarium', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Aquarium</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Multi-Node Console</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/olympus', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Olympus</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Grand Multiverse Store</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/babel', BABEL_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Babel</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Tower of Pocket Universes</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/hermes', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Hermes</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Paid Link Directory</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/agora', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Agora</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Community Town Square</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/auction-house', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Auction House</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Demo Auction Catalog</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/aetheris', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Aetheris</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Air Purification Console</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/olympus-b2b', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Olympus B2B</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">B2B Services</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/blueprint-protocol', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Blueprint Protocol</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Olympus Blueprint Reader</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/data-management', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Mission Control</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Project Olympus Diagnostic Deck</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/gym-equipment', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Gym Equipment</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Innodigym Quantum Arcade</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/omega-postal', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Postal Hub</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Nexus Vortex Sorting Tower</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/rainbow-wok', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Rainbow Wok</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Lounge Ordering Terminal</span>
-                  </button>
-                                  <button onClick={() => launchPocketUniverse('/abyssal-voyage', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Abyssal Voyage</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Deep-Sea Dive Game</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/aethelgard', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Aethelgard Keep</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Medieval Realm</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/arachnid-weaver', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Arachnid Weaver</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Survival Chase Game</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/architectural-legacy', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Legacy Archive</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Era Gallery</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/astra', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Astra</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Cockpit Shooter</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/atlantis', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Atlantis</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Sunken Blueprint</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/bearth', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Bearth</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Planet Explorer</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/beekeeper', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Apis Nexus</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Bee Ecology Labs</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/convergence', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Convergence</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Audio-Reactive Field</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/hyperion-gravitas', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Hyperion</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">N-D Projection Lab</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/light-particle-engine', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Light Engine</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Particle Laboratory</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/lightning-bolt', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Storm Bolt</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Procedural Storm</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/liquid-gold', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Gold Refinery</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Idle Refinery Game</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/mega-city', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Mega City</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Cyber Metropolis</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/mordor-smelting', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Mordor Works</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Foundry Panorama</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/mount-doom', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Doom Peak</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Erupting Volcano</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/mount-olympus', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Olympus Peak</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Alpine Panorama</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/olympus-aetheris', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Aetheris Globe</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Globe Deployment</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/olympus-eclipse', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Eclipse Engine</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Orbital Diorama</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/olympus-energy', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Energy Grid</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Microgrid Console</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/olympus-map-node', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Nav Core</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Offline Navigator</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/orbital-ascent', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Ascent</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">99-Level Tower Game</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/planet-x', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Planet X</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Software-3D Planet</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/playbook', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Survivors Playbook</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">E-Book Reader</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/project-khaos', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Khaos</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Tier Auction Sim</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/prometheus', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Forge</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Fire-Forging Sim</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/starblood', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Starblood</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Rune Battle Game</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/statue-of-liberty', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Liberty</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Harbor Exhibit</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/the-big-bang', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Big Bang</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Cosmic Timeline</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/to-infinity-and-beyond', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Infinity Drive</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Warp Flight</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/tornado', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Tornado</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Storm Simulator</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/tree', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">The Cycle Tree</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Seasons Engine</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/underworld-awakening', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Awakening</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Underworld Gate</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/vortex', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Vortex</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Vortex Generator</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/zeus-protocol', ARGUS_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20 transition-all group">
-                    <span className="text-sm font-black text-amber-400 tracking-widest uppercase group-hover:text-white">Zeus Protocol</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Deep-Space Shooter</span>
-                  </button>
-</div>
-
-                {/* 5. THERAPY (MEDUSA) */}
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center gap-2 mb-1 border-b border-zinc-800 pb-1">
-                    <div className="w-2 h-2 rounded-full bg-[#33ff66] shadow-[0_0_5px_#33ff66]" />
-                    <span className="text-[10px] font-bold tracking-[0.2em] text-zinc-400 uppercase">Therapy <span className="text-[#33ff66]">/ Medusa</span></span>
-                  </div>
-                  <button onClick={() => launchPocketUniverse('/medusa/lair', MEDUSA_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-[#33ff66]/30 rounded hover:bg-[#33ff66]/20 transition-all group">
-                    <span className="text-sm font-black text-[#33ff66] tracking-widest uppercase group-hover:text-white">Medusa's Lair</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Gaze Chamber</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/anti-life', MEDUSA_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-[#33ff66]/30 rounded hover:bg-[#33ff66]/20 transition-all group">
-                    <span className="text-sm font-black text-[#33ff66] tracking-widest uppercase group-hover:text-white">Anti-Life</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Entropy Core</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/grief-gully', MEDUSA_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-[#33ff66]/30 rounded hover:bg-[#33ff66]/20 transition-all group">
-                    <span className="text-sm font-black text-[#33ff66] tracking-widest uppercase group-hover:text-white">Grief Gully</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Healing Matrix</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/life', MEDUSA_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-[#33ff66]/30 rounded hover:bg-[#33ff66]/20 transition-all group">
-                    <span className="text-sm font-black text-[#33ff66] tracking-widest uppercase group-hover:text-white">Life</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Orbital Matrix</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/magic-mirror', MEDUSA_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-[#33ff66]/30 rounded hover:bg-[#33ff66]/20 transition-all group">
-                    <span className="text-sm font-black text-[#33ff66] tracking-widest uppercase group-hover:text-white">Magic Mirror</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Vortex Mirror</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/meaning-of-life', MEDUSA_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-[#33ff66]/30 rounded hover:bg-[#33ff66]/20 transition-all group">
-                    <span className="text-sm font-black text-[#33ff66] tracking-widest uppercase group-hover:text-white">Meaning of Life</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Visualizer</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/rem', MEDUSA_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-[#33ff66]/30 rounded hover:bg-[#33ff66]/20 transition-all group">
-                    <span className="text-sm font-black text-[#33ff66] tracking-widest uppercase group-hover:text-white">R.E.M.</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Provinces</span>
-                  </button>
-                  <button onClick={() => launchPocketUniverse('/the-afterlife', MEDUSA_POS)} className="flex flex-col text-left px-4 py-3 bg-black/40 border border-[#33ff66]/30 rounded hover:bg-[#33ff66]/20 transition-all group">
-                    <span className="text-sm font-black text-[#33ff66] tracking-widest uppercase group-hover:text-white">The Afterlife</span>
-                    <span className="text-[10px] text-zinc-600 uppercase mt-1">Elysium Odyssey</span>
-                  </button>
-                </div>
+                  );
+                })}
 
                 {/* DISCONNECT */}
                 <button 
                   onClick={handleSignOut}
                   className="w-full py-2.5 text-[10px] font-bold tracking-widest text-red-400 uppercase transition-all border border-red-500/30 rounded bg-red-950/20 hover:bg-red-900/40 hover:border-red-500/60 mt-1"
                 >
-                  [ DISCONNECT CALLSIGN ]
+                  {t('ui.disconnect')}
                 </button>
               </div>
             ) : (
@@ -1253,4 +765,10 @@ export default function NexusHub() {
   );
 }
 
-
+export default function NexusHubPage() {
+  return (
+    <LanguageProvider>
+      <NexusHub />
+    </LanguageProvider>
+  );
+}
