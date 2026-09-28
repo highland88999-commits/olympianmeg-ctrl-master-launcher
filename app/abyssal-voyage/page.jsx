@@ -2,11 +2,13 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { createGame, stepGame, resetGame, DIFFICULTY, depthZone, WORLD } from "./engine";
+import { createDiveScene } from "./dive3d";
 
 /**
- * Abyssal Voyage — an endless deep-sea dive.
+ * Abyssal Voyage — an endless deep-sea dive, now in 3D.
  * Steer a submersible through rock gates, collect pearls, survive the trench.
- * All art is procedural canvas 2D; zero external requests.
+ * Game logic is pure and unchanged (engine.js); the renderer is three.js.
+ * All art is procedural; zero external requests.
  */
 export default function AbyssalVoyagePage() {
   const canvasRef = useRef(null);
@@ -48,39 +50,27 @@ export default function AbyssalVoyagePage() {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
 
-    const W = WORLD.width, H = WORLD.height;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = W * dpr;
-    canvas.height = H * dpr;
-    canvas.style.aspectRatio = `${W}/${H}`;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    // 3D trench renderer. Game logic (engine.js) is untouched; the HUD that
+    // used to be painted on the 2D canvas now lives in HTML overlays below.
+    const dive = createDiveScene(canvas, { reducedMotion: reduced });
 
-    // scrolling parallax rock-wall textures, seeded once
-    const wallSeed = 1234;
-    const rand = (n) => {
-      let x = Math.sin(n * 127.1 + wallSeed * 311.7) * 43758.5453;
-      return x - Math.floor(x);
-    };
-    const wallLumps = [];
-    for (let i = 0; i < 60; i++) wallLumps.push({ x: rand(i) * W, w: 40 + rand(i + 999) * 130, y0: rand(i + 500) * 1200 });
-
-    let last = performance.now();
-    let raf = 0;
-    let hudTick = 0;
-
-    const toWorld = (clientX, clientY) => {
+    function resize() {
       const r = canvas.getBoundingClientRect();
-      return { x: ((clientX - r.left) / r.width) * W, y: ((clientY - r.top) / r.height) * H };
+      dive.resize(Math.max(1, Math.floor(r.width)), Math.max(1, Math.floor(r.height)));
+    }
+    resize();
+    window.addEventListener("resize", resize);
+
+    const toWorldX = (clientX) => {
+      const r = canvas.getBoundingClientRect();
+      return ((clientX - r.left) / r.width) * WORLD.width;
     };
 
     const onPointer = (e) => {
       const g = gameRef.current;
       if (!g || g.phase !== "playing") return;
-      const p = toWorld(e.clientX, e.clientY);
-      inputRef.current.targetX = p.x;
+      inputRef.current.targetX = toWorldX(e.clientX);
     };
     const onKeyDown = (e) => {
       if (e.key === "ArrowLeft" || e.key === "a") { inputRef.current.left = true; inputRef.current.keyboardAxis = -1; }
@@ -89,7 +79,7 @@ export default function AbyssalVoyagePage() {
     };
     const onKeyUp = (e) => {
       if (e.key === "ArrowLeft" || e.key === "a") { inputRef.current.left = false; inputRef.current.keyboardAxis = inputRef.current.right ? 1 : 0; }
-      if (e.key === "ArrowRight" || e.key === "d") { inputRef.current.right = false; inputRef.current.keyboardAxis = inputRef.current.left ? -1 : 0; }
+      if (e.key === "ArrowRight" || e.key === "d") { inputRef.current.right = false; inputRef.current.keyboardAxis = inputRef.current.left ? 1 : 0; }
     };
 
     canvas.addEventListener("pointermove", onPointer);
@@ -97,181 +87,9 @@ export default function AbyssalVoyagePage() {
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
 
-    function drawBackground(g, t) {
-      const zoneMix = Math.min(1, g.depth / 9000);
-      const top = lerpColor([8, 40, 70], [2, 6, 16], zoneMix);
-      const bot = lerpColor([2, 14, 34], [0, 2, 8], zoneMix);
-      const grad = ctx.createLinearGradient(0, 0, 0, H);
-      grad.addColorStop(0, top);
-      grad.addColorStop(1, bot);
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, W, H);
-
-      // god rays (subtle, localized)
-      if (!reduced) {
-        ctx.save();
-        ctx.globalCompositeOperation = "lighter";
-        ctx.globalAlpha = 0.10 * (1 - zoneMix * 0.7);
-        for (let i = 0; i < 4; i++) {
-          const rx = W * (0.15 + i * 0.22) + Math.sin(t * 0.0002 + i) * 20;
-          const rg = ctx.createLinearGradient(rx, 0, rx + 90, H);
-          rg.addColorStop(0, "rgba(120,220,255,0.55)");
-          rg.addColorStop(1, "rgba(120,220,255,0)");
-          ctx.fillStyle = rg;
-          ctx.beginPath();
-          ctx.moveTo(rx, 0); ctx.lineTo(rx + 40, 0);
-          ctx.lineTo(rx + 130, H); ctx.lineTo(rx + 90, H);
-          ctx.closePath(); ctx.fill();
-        }
-        ctx.restore();
-      }
-
-      // parallax wall lumps
-      ctx.fillStyle = "rgba(6,16,28,0.85)";
-      const scroll = g.depth * 0.9;
-      for (const lump of wallLumps) {
-        let y = (lump.y0 - scroll * 0.4) % 1300;
-        if (y < -150) y += 1300;
-        ctx.beginPath();
-        ctx.ellipse(lump.x, y, lump.w / 2, lump.w / 2.6, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.beginPath();
-        ctx.ellipse(W - lump.x, y + 400 > 1300 ? y - 900 : y + 400, lump.w / 2.4, lump.w / 3, 0, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-
-    function drawObstacles(g) {
-      for (const o of g.obstacles) {
-        const gapTop = o.gapY - o.gapH / 2;
-        const gapBot = o.gapY + o.gapH / 2;
-        // rock body
-        for (const rect of [{ x: o.x, y: -200, w: o.w, h: gapTop + 200 }, { x: o.x, y: gapBot, w: o.w, h: H - gapBot + 200 }]) {
-          const rg = ctx.createLinearGradient(rect.x, 0, rect.x + rect.w, 0);
-          rg.addColorStop(0, "#0d1622");
-          rg.addColorStop(0.5, "#16222f");
-          rg.addColorStop(1, "#0d1622");
-          ctx.fillStyle = rg;
-          ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-          // localized rim glow on the gap edges
-          const edge = rect.y < o.gapY ? gapTop : gapBot;
-          ctx.save();
-          ctx.globalCompositeOperation = "lighter";
-          ctx.globalAlpha = 0.5;
-          const eg = ctx.createLinearGradient(0, edge - 26, 0, edge + (rect.y < o.gapY ? 6 : 26));
-          eg.addColorStop(0, "rgba(0,242,255,0)");
-          eg.addColorStop(1, "rgba(0,242,255,0.35)");
-          ctx.fillStyle = eg;
-          ctx.fillRect(o.x, edge - 26, o.w, 32);
-          ctx.restore();
-        }
-      }
-      // pearls & debris
-      for (const b of g.bits) {
-        if (b.kind === "pearl") {
-          ctx.save();
-          ctx.globalCompositeOperation = "lighter";
-          const pg = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, b.r * 2.4);
-          pg.addColorStop(0, "rgba(255,255,255,0.95)");
-          pg.addColorStop(0.4, "rgba(0,242,255,0.6)");
-          pg.addColorStop(1, "rgba(0,242,255,0)");
-          ctx.fillStyle = pg;
-          ctx.beginPath(); ctx.arc(b.x, b.y, b.r * 2.4, 0, Math.PI * 2); ctx.fill();
-          ctx.restore();
-          ctx.fillStyle = "#eaffff";
-          ctx.beginPath(); ctx.arc(b.x, b.y, b.r * 0.55, 0, Math.PI * 2); ctx.fill();
-        } else if (b.kind === "debris") {
-          ctx.fillStyle = "rgba(140,170,190,0.5)";
-          ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill();
-        } else if (b.kind === "spark") {
-          ctx.fillStyle = "rgba(255,180,80,0.9)";
-          ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill();
-        }
-      }
-    }
-
-    function drawSub(g, t) {
-      const p = g.player;
-      const blink = g.invuln > 0 && Math.floor(t / 120) % 2 === 0;
-      ctx.save();
-      ctx.translate(p.x, p.y);
-      // headlight cone (localized)
-      ctx.save();
-      ctx.globalCompositeOperation = "lighter";
-      ctx.globalAlpha = 0.16;
-      const cone = ctx.createLinearGradient(0, 0, 0, -260);
-      cone.addColorStop(0, "rgba(180,240,255,0.8)");
-      cone.addColorStop(1, "rgba(180,240,255,0)");
-      ctx.fillStyle = cone;
-      ctx.beginPath();
-      ctx.moveTo(-14, -10); ctx.lineTo(14, -10); ctx.lineTo(46, -260); ctx.lineTo(-46, -260);
-      ctx.closePath(); ctx.fill();
-      ctx.restore();
-
-      ctx.rotate(Math.max(-0.3, Math.min(0.3, (p.targetX - p.x) * 0.004)));
-      ctx.globalAlpha = blink ? 0.35 : 1;
-      // hull
-      const hg = ctx.createLinearGradient(0, -20, 0, 20);
-      hg.addColorStop(0, "#3fd7ff");
-      hg.addColorStop(0.5, "#1288b8");
-      hg.addColorStop(1, "#083c5c");
-      ctx.fillStyle = hg;
-      ctx.beginPath();
-      ctx.ellipse(0, 0, 26, 15, 0, 0, Math.PI * 2);
-      ctx.fill();
-      // canopy
-      ctx.fillStyle = "#dffaff";
-      ctx.beginPath();
-      ctx.ellipse(2, -4, 10, 7, 0, 0, Math.PI * 2);
-      ctx.fill();
-      // tail fins
-      ctx.fillStyle = "#0a5a80";
-      ctx.beginPath(); ctx.moveTo(-24, -2); ctx.lineTo(-36, -12); ctx.lineTo(-32, 2); ctx.closePath(); ctx.fill();
-      ctx.beginPath(); ctx.moveTo(-24, 2); ctx.lineTo(-36, 12); ctx.lineTo(-32, -2); ctx.closePath(); ctx.fill();
-      // thruster
-      if (!reduced) {
-        const fl = 10 + Math.random() * 14;
-        ctx.fillStyle = "rgba(0,242,255,0.7)";
-        ctx.beginPath(); ctx.moveTo(-26, -5); ctx.lineTo(-26 - fl, 0); ctx.lineTo(-26, 5); ctx.closePath(); ctx.fill();
-      }
-      ctx.restore();
-    }
-
-    function drawHUD(g) {
-      ctx.textBaseline = "top";
-      ctx.font = "600 20px ui-monospace, Menlo, monospace";
-      // depth
-      ctx.fillStyle = "rgba(0,242,255,0.9)";
-      ctx.fillText(`DEPTH ${Math.floor(g.depth)}m`, 18, 16);
-      ctx.fillStyle = "rgba(0,242,255,0.55)";
-      ctx.font = "500 14px ui-monospace, Menlo, monospace";
-      ctx.fillText(depthZone(g.depth), 18, 42);
-      // hull bar
-      const bw = 170;
-      ctx.fillStyle = "rgba(255,255,255,0.12)";
-      ctx.fillRect(W - bw - 18, 18, bw, 12);
-      const hcol = g.hull > 50 ? "#00f2ff" : g.hull > 25 ? "#ffb300" : "#ff3355";
-      ctx.fillStyle = hcol;
-      ctx.fillRect(W - bw - 18, 18, bw * (g.hull / 100), 12);
-      ctx.fillStyle = "rgba(255,255,255,0.75)";
-      ctx.font = "600 13px ui-monospace, Menlo, monospace";
-      ctx.fillText(`HULL ${Math.ceil(g.hull)}%`, W - bw - 18, 36);
-      // score
-      ctx.fillStyle = "rgba(255,255,255,0.85)";
-      ctx.font = "600 18px ui-monospace, Menlo, monospace";
-      ctx.fillText(`SCORE ${Math.floor(g.score)}`, 18, H - 40);
-      ctx.fillStyle = "rgba(255,215,130,0.9)";
-      ctx.fillText(`◈ ${g.pearls}`, W - 90, H - 40);
-      // damage flash
-      if (g.flash > 0) {
-        ctx.fillStyle = `rgba(255,40,80,${Math.min(0.35, g.flash)})`;
-        ctx.fillRect(0, 0, W, H);
-      }
-    }
-
-    function lerpColor(a, b, m) {
-      return `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * m)).join(",")})`;
-    }
+    let last = performance.now();
+    let raf = 0;
+    let hudTick = 0;
 
     function frame(now) {
       raf = requestAnimationFrame(frame);
@@ -291,23 +109,18 @@ export default function AbyssalVoyagePage() {
           setHud({ depth: g.depth, hull: g.hull, score: g.score, pearls: g.pearls, zone: depthZone(g.depth), cause: g.causeOfDeath });
         }
       }
-      if (g) {
-        drawBackground(g, now);
-        drawObstacles(g);
-        drawSub(g, now);
-        drawHUD(g);
-      } else {
-        drawBackground({ depth: 0 }, now);
-      }
+      dive.render(g, reduced ? 0 : dt, now);
     }
     raf = requestAnimationFrame(frame);
 
     return () => {
       cancelAnimationFrame(raf);
+      dive.dispose();
       canvas.removeEventListener("pointermove", onPointer);
       canvas.removeEventListener("pointerdown", onPointer);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("resize", resize);
     };
   }, [reduced, pauseGame]);
 
@@ -320,7 +133,33 @@ export default function AbyssalVoyagePage() {
     <div style={styles.page}>
       <div style={styles.shell}>
         <div style={styles.canvasWrap}>
-          <canvas ref={canvasRef} style={styles.canvas} aria-label="Abyssal Voyage dive canvas" />
+          <canvas ref={canvasRef} style={styles.canvas} aria-label="Abyssal Voyage 3D dive" />
+          {(screen === "playing" || screen === "paused") && (
+            <div style={styles.hud} aria-hidden="true">
+              <div style={styles.hudTop}>
+                <div>
+                  <div style={styles.hudDepth}>DEPTH {Math.floor(hud.depth)}m</div>
+                  <div style={styles.hudZone}>{hud.zone}</div>
+                </div>
+                <div style={styles.hullWrap}>
+                  <div style={styles.hullBar}>
+                    <div
+                      style={{
+                        ...styles.hullFill,
+                        width: `${Math.max(0, Math.min(100, hud.hull))}%`,
+                        background: hud.hull > 50 ? "#00f2ff" : hud.hull > 25 ? "#ffb300" : "#ff3355",
+                      }}
+                    />
+                  </div>
+                  <div style={styles.hullText}>HULL {Math.ceil(hud.hull)}%</div>
+                </div>
+              </div>
+              <div style={styles.hudBottom}>
+                <span>SCORE {Math.floor(hud.score)}</span>
+                <span style={styles.pearls}>◈ {hud.pearls}</span>
+              </div>
+            </div>
+          )}
           {screen === "title" && (
             <div style={styles.overlay}>
               <h1 style={styles.title}>ABYSSAL VOYAGE</h1>
@@ -371,8 +210,18 @@ export default function AbyssalVoyagePage() {
 const styles = {
   page: { minHeight: "100dvh", background: "#00040a", display: "flex", alignItems: "center", justifyContent: "center", padding: 12, fontFamily: "ui-monospace, Menlo, monospace" },
   shell: { width: "min(480px, 100%)" },
-  canvasWrap: { position: "relative", width: "100%", borderRadius: 12, overflow: "hidden", border: "1px solid rgba(0,242,255,0.25)" },
-  canvas: { display: "block", width: "100%", touchAction: "none", cursor: "crosshair" },
+  canvasWrap: { position: "relative", width: "100%", aspectRatio: "720 / 960", borderRadius: 12, overflow: "hidden", border: "1px solid rgba(0,242,255,0.25)" },
+  canvas: { display: "block", width: "100%", height: "100%", touchAction: "none", cursor: "crosshair" },
+  hud: { position: "absolute", inset: 0, pointerEvents: "none", display: "flex", flexDirection: "column", justifyContent: "space-between", padding: 14 },
+  hudTop: { display: "flex", justifyContent: "space-between", alignItems: "flex-start" },
+  hudDepth: { color: "rgba(0,242,255,0.9)", fontWeight: 600, fontSize: 20 },
+  hudZone: { color: "rgba(0,242,255,0.55)", fontSize: 14, marginTop: 4 },
+  hullWrap: { textAlign: "right" },
+  hullBar: { width: 170, height: 12, background: "rgba(255,255,255,0.12)", borderRadius: 3, overflow: "hidden" },
+  hullFill: { height: "100%" },
+  hullText: { color: "rgba(255,255,255,0.75)", fontWeight: 600, fontSize: 13, marginTop: 4 },
+  hudBottom: { display: "flex", justifyContent: "space-between", color: "rgba(255,255,255,0.85)", fontWeight: 600, fontSize: 18 },
+  pearls: { color: "rgba(255,215,130,0.9)" },
   overlay: { position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, background: "rgba(0,6,14,0.72)", backdropFilter: "blur(6px)", textAlign: "center", padding: 20 },
   title: { margin: 0, color: "#00f2ff", letterSpacing: 8, fontSize: "clamp(1.6rem, 8vw, 2.6rem)", textShadow: "0 0 24px rgba(0,242,255,0.6)" },
   title2: { margin: 0, color: "#00f2ff", letterSpacing: 6, fontSize: "1.6rem" },

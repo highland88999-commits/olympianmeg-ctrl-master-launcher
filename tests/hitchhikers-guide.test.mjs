@@ -47,11 +47,14 @@ test('no external URLs, iframes, video tags, or mailto links', () => {
   assert.ok(!allCode.includes('mailto:'), 'no mailto links allowed');
 });
 
-test('no CDN or library imports in built files', () => {
-  const banned = ['unpkg', 'jsdelivr', 'cdnjs', 'catbox', 'three', 'tone', 'quill', 'mammoth', 'vercel.app'];
+test('no CDN imports in built files (three.js comes from the local bundle)', () => {
+  const banned = ['unpkg', 'jsdelivr', 'cdnjs', 'catbox', 'tone', 'quill', 'mammoth', 'vercel.app'];
   for (const s of banned) {
     assert.ok(!allCode.toLowerCase().includes(s), `banned dependency present: ${s}`);
   }
+  // three.js is allowed only as a local package import, never a CDN script
+  assert.ok(!/from\s+['"]https?:/.test(allCode), 'no remote module imports');
+  assert.ok(!/src\s*=\s*["']https?:[^"']*three/i.test(allCode), 'no three.js CDN script tags');
 });
 
 test('no JWT-shaped secrets in built files', () => {
@@ -178,4 +181,77 @@ test('makeStars returns bounded points', () => {
 
 test('GRAVITY is a sane positive constant', () => {
   assert.ok(GRAVITY > 0 && GRAVITY < 10000);
+});
+
+// ---------- 3D view layer (hole3d.js) ----------
+
+import {
+  bodyScenePos,
+  createHoleScene,
+  WORLD_SCALE,
+  PLANE_TILT,
+  ACCRETION_COUNT,
+} from '../app/hitchhikers-guide/hole3d.js';
+
+const sceneSrc = readFileSync(join(appDir, 'hole3d.js'), 'utf8');
+const pageSrc = readFileSync(join(appDir, 'page.jsx'), 'utf8');
+
+test('bodyScenePos centers the world at the origin', () => {
+  const [x, y, z] = bodyScenePos(400, 300, 800, 600);
+  assert.ok(Math.abs(x) < 1e-9 && Math.abs(z) < 1e-9, 'center maps to origin');
+  assert.equal(y, 0, 'bodies live in the orbital plane');
+  const [x2] = bodyScenePos(0, 300, 800, 600);
+  const [x3] = bodyScenePos(800, 300, 800, 600);
+  assert.ok(x2 < 0 && x3 > 0, 'x spans negative to positive');
+  assert.ok(x2 === -x3, 'symmetric');
+});
+
+test('world scale and tilt are sane constants', () => {
+  assert.ok(WORLD_SCALE > 0 && WORLD_SCALE < 0.2);
+  assert.ok(PLANE_TILT < 0 && PLANE_TILT > -Math.PI / 2, 'plane visibly tilted, not edge-on');
+  assert.ok(ACCRETION_COUNT >= 24, 'enough flow particles for a readable disk');
+});
+
+test('createHoleScene is exported as a factory function', () => {
+  assert.equal(typeof createHoleScene, 'function');
+});
+
+test('scene is unlit by construction (mobile-friendly)', () => {
+  assert.ok(!/AmbientLight|DirectionalLight|PointLight|SpotLight/.test(sceneSrc), 'no lights: all MeshBasicMaterial');
+  assert.ok(!/MeshStandardMaterial/.test(sceneSrc), 'no lit materials');
+  assert.ok(!/shadow/.test(sceneSrc.toLowerCase()) || !/\.shadow/.test(sceneSrc), 'no shadow maps');
+});
+
+test('no heavy postprocessing in the 3D view', () => {
+  assert.ok(!/EffectComposer/.test(sceneSrc), 'no effect composer');
+  assert.ok(!/UnrealBloomPass/.test(sceneSrc), 'no bloom pass');
+});
+
+test('scene honors prefers-reduced-motion (static fallback)', () => {
+  assert.ok(/reducedMotion/.test(sceneSrc), 'accepts reducedMotion');
+  assert.ok(/if \(!reducedMotion\)/.test(sceneSrc), 'motion gated on the flag');
+  assert.ok(/prefers-reduced-motion/.test(pageSrc), 'page reads the media query');
+});
+
+test('scene caps pixel ratio and exposes dispose', () => {
+  assert.ok(/setPixelRatio\(Math\.min\(window\.devicePixelRatio \|\| 1, 2\)\)/.test(sceneSrc), 'DPR capped at 2');
+  assert.ok(/dispose\(\)/.test(sceneSrc), 'exposes dispose');
+});
+
+test('page drives the 3D view: create, sync, render, resize, dispose', () => {
+  assert.ok(/createHoleScene/.test(pageSrc), 'page creates the scene');
+  assert.ok(/hole3d\.sync\(/.test(pageSrc), 'page syncs physics to the scene');
+  assert.ok(/hole3d\.render\(/.test(pageSrc), 'page renders each frame');
+  assert.ok(/hole3d\.resize\(/.test(pageSrc), 'page resizes the scene');
+  assert.ok(/hole3d\.dispose\(\)/.test(pageSrc), 'page disposes the scene');
+});
+
+test('old 2D paint path is gone', () => {
+  assert.ok(!/getContext\('2d'\)/.test(pageSrc), 'no 2D context in the page');
+  assert.ok(!/starsRef/.test(pageSrc), '2D starfield refs removed');
+});
+
+test('game logic still drives the frame loop (singularity.js untouched)', () => {
+  assert.ok(/stepWorld\(/.test(pageSrc), 'page still steps the physics');
+  assert.ok(/spawnBody\(/.test(pageSrc), 'launch path kept');
 });
