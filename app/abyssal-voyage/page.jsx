@@ -202,13 +202,14 @@ export default function AbyssalVoyagePage() {
           {screen === "playing" && <button onClick={pauseGame} style={styles.smallBtn}>PAUSE</button>}
           {screen === "playing" && <button onClick={() => startGame()} style={styles.smallBtn}>RESTART</button>}
         </div>
+        <div aria-hidden="true" style={{ height: "max(5rem, env(safe-area-inset-bottom))" }} />
       </div>
     </div>
   );
 }
 
 const styles = {
-  page: { minHeight: "100dvh", background: "#00040a", display: "flex", alignItems: "center", justifyContent: "center", padding: 12, fontFamily: "ui-monospace, Menlo, monospace" },
+  page: { minHeight: "100dvh", background: "#00040a", display: "flex", alignItems: "center", justifyContent: "center", padding: 12, overflowY: "auto", fontFamily: "ui-monospace, Menlo, monospace" },
   shell: { width: "min(480px, 100%)" },
   canvasWrap: { position: "relative", width: "100%", aspectRatio: "720 / 960", borderRadius: 12, overflow: "hidden", border: "1px solid rgba(0,242,255,0.25)" },
   canvas: { display: "block", width: "100%", height: "100%", touchAction: "none", cursor: "crosshair" },

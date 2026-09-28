@@ -244,6 +244,7 @@ export default function TreePage() {
           <button onClick={() => setPaused(!paused)} style={styles.btn}>{paused ? "RESUME CYCLE" : "PAUSE CYCLE"}</button>
           <span style={styles.hint}>Drag to orbit · Tap to draw closer · Scroll to zoom</span>
         </div>
+        <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
       </div>
     </div>
   );

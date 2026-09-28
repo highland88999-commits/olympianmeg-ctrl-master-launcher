@@ -34,7 +34,7 @@ export default function WorldEngineLanding() {
   }, []);
 
   return (
-    <main className="relative min-h-dvh flex items-center justify-center overflow-hidden bg-black font-mono">
+    <main className="relative min-h-dvh flex items-center justify-center bg-black font-mono">
       {/* Ambient backdrop: layered CSS gradients, no hotlinked media */}
       <div
         className="absolute inset-0 z-0"
@@ -104,6 +104,8 @@ export default function WorldEngineLanding() {
         <Link href="/" className="mt-10 text-xs text-gray-500 hover:text-white tracking-[0.2em] uppercase transition-colors">
           &larr; Back to launcher
         </Link>
+        {/* Safari bottom-bar clearance: lets the final content rest above the browser bar */}
+        <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
       </div>
     </main>
   );

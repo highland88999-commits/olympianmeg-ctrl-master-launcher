@@ -496,6 +496,7 @@ function Forge({ onPreview }) {
       </div>
 
       <footer className="vtx-foot">⚡ VORTEX ⚡ PORTAL FORGE ⚡ SYNTHESIZED ON-DEVICE ⚡</footer>
+      <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
     </div>
   );
 }

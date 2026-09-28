@@ -123,7 +123,7 @@ export default function BabelPage() {
 
       {/* elevator panel */}
       {view === 'tower' && (
-        <div className="absolute bottom-0 left-0 right-0 p-3 sm:p-5">
+        <div className="absolute bottom-0 left-0 right-0 p-3 sm:p-5 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           <div className="max-w-2xl mx-auto rounded-xl border border-amber-500/25 bg-black/60 backdrop-blur-md p-3 sm:p-4">
             <p className="text-[10px] font-bold tracking-[0.3em] text-zinc-500 uppercase mb-2 text-center">
               Elevator — choose a floor
@@ -149,7 +149,7 @@ export default function BabelPage() {
 
       {/* floor hint */}
       {view !== 'tower' && (
-        <div className="absolute bottom-3 left-0 right-0 text-center pointer-events-none">
+        <div className="absolute bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-0 right-0 text-center pointer-events-none">
           <p className="text-zinc-500 text-[11px] tracking-widest uppercase">Drag to look around</p>
         </div>
       )}

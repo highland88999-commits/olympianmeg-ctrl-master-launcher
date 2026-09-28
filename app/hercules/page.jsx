@@ -151,14 +151,14 @@ export default function HerculesPage() {
       </button>
 
       {reducedMotion && (
-        <div className="absolute bottom-4 right-4 z-20 text-[10px] tracking-widest uppercase text-zinc-500 pointer-events-none">
+        <div className="absolute bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 z-20 text-[10px] tracking-widest uppercase text-zinc-500 pointer-events-none">
           Calm mode
         </div>
       )}
 
       {/* Mission briefing */}
       {showBriefing && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center p-4 overflow-y-auto bg-black/55" style={{ touchAction: 'pan-y' }}>
+        <div className="absolute inset-0 z-20 flex items-center justify-center p-4 pb-[max(1rem,env(safe-area-inset-bottom))] overflow-y-auto bg-black/55" style={{ touchAction: 'pan-y' }}>
           <div className="w-full max-w-lg rounded-2xl border border-amber-400/30 bg-[#0a0805]/95 p-6 my-8">
             <h1 className="text-2xl font-bold tracking-[0.25em] text-amber-300">HERCULES</h1>
             <p className="mt-1 text-sm text-zinc-300">A voyage across the solar system.</p>
@@ -225,7 +225,7 @@ export default function HerculesPage() {
 
       {/* Mission log */}
       {(showCruise || showArrived || showComplete) && log.length > 0 && (
-        <div className="absolute bottom-4 left-4 z-20 max-w-[300px] pointer-events-none">
+        <div className="absolute bottom-[max(1rem,env(safe-area-inset-bottom))] left-4 z-20 max-w-[300px] pointer-events-none">
           <div className="rounded-xl border border-amber-400/25 bg-black/60 p-3">
             <p className="text-[10px] tracking-[0.3em] uppercase text-amber-300/80 mb-1">Mission log</p>
             {log.slice(-3).map((line, i) => (
@@ -237,7 +237,7 @@ export default function HerculesPage() {
 
       {/* Arrival card */}
       {showArrived && arrivedAt && (
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 w-[92%] max-w-md">
+        <div className="absolute bottom-[max(1rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-20 w-[92%] max-w-md">
           <div className="rounded-2xl border border-amber-400/40 bg-[#0a0805]/95 p-5">
             <div className="flex items-center gap-3">
               <span className="h-6 w-6 rounded-full shrink-0" style={colorStyle(arrivedAt.color)} aria-hidden />

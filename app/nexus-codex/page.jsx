@@ -132,6 +132,9 @@ export default function NexusCodexPage() {
           Clear manuscript
         </button>
       </footer>
+
+      {/* Safari bottom-bar clearance */}
+      <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
     </main>
   );
 }

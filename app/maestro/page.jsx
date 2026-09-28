@@ -289,6 +289,9 @@ export default function MaestroPage() {
       <footer className="px-5 pb-8 text-center text-[11px] text-zinc-500 tracking-widest uppercase">
         Everything runs on your device &middot; files never leave this page
       </footer>
+
+      {/* Safari bottom-bar clearance */}
+      <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
     </div>
   );
 }

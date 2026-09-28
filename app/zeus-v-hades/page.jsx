@@ -209,6 +209,7 @@ export default function ZeusVHadesPage() {
   const meterReady = hud.meter >= 100;
 
   return (
+    <>
     <div className="fixed inset-0 bg-black text-cyan-100 overflow-hidden select-none" style={{ touchAction: 'none' }}>
       <canvas
         ref={canvasRef}
@@ -365,5 +366,8 @@ export default function ZeusVHadesPage() {
         </div>
       )}
     </div>
+    {/* Safari bottom-bar clearance: blank space under the fixed race viewport */}
+    <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
+    </>
   );
 }

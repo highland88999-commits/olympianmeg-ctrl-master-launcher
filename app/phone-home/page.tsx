@@ -487,7 +487,7 @@ export default function GlassCommsApp() {
         </div>
       </div>
 
-      <footer className="w-full max-w-md py-6 px-8 flex justify-around border-t border-white/15 z-10 bg-gradient-to-t from-black/90 to-black/20 backdrop-blur-sm">
+      <footer className="w-full max-w-md pt-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] px-8 flex justify-around border-t border-white/15 z-10 bg-gradient-to-t from-black/90 to-black/20 backdrop-blur-sm">
         <button onClick={() => setCurrentPage(0)} className={`flex flex-col items-center gap-1.5 transition duration-300 ${currentPage === 0 ? 'text-slate-100 scale-110' : 'text-slate-500'}`}>
           <Radio className="w-5 h-5 stroke-1" />
           <span className="text-[9px] uppercase tracking-widest">Audio</span>

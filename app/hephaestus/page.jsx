@@ -560,7 +560,7 @@ const CHAMBERS = [
 export default function HephaestusPage() {
   const [chamber, setChamber] = useState('forge');
   return (
-    <main style={{ minHeight: '100vh', background: '#0a0806', color: '#f5f5f4', fontFamily: 'system-ui, sans-serif' }}>
+    <main style={{ minHeight: '100dvh', background: '#0a0806', color: '#f5f5f4', fontFamily: 'system-ui, sans-serif' }}>
       <a href="/" style={{ display: 'inline-flex', alignItems: 'center', minHeight: 44, padding: '0 16px', color: '#a8a29e', fontSize: 14, textDecoration: 'none' }}>
         ← Launcher
       </a>
@@ -606,6 +606,7 @@ export default function HephaestusPage() {
       <footer style={{ textAlign: 'center', padding: '0 16px 40px', color: '#57534e', fontSize: 13 }}>
         Forged by Artemis&rsquo;s forge · nothing leaves your device · the loop is the point
       </footer>
+      <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
     </main>
   );
 }

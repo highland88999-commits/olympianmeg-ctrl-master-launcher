@@ -259,6 +259,7 @@ export default function OrbitalAscentPage() {
   }
 
   return (
+    <>
     <div style={styles.page}>
       <div ref={levelLabelRef} style={styles.hud}>Level 1 / 99</div>
       <div style={styles.hint}>Steer with ← → or the pad. Press JUMP as the ring closes.</div>
@@ -294,6 +295,9 @@ export default function OrbitalAscentPage() {
         </div>
       )}
     </div>
+    {/* Safari bottom-bar clearance: blank space under the fixed game viewport */}
+    <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
+    </>
   );
 }
 

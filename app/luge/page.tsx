@@ -460,6 +460,8 @@ export default function LugeEngine() {
                   <div className="text-[10px] text-zinc-400">{course.desc}</div>
                 </div>
               ))}
+              {/* Safari bottom-bar clearance */}
+              <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))] shrink-0" />
             </div>
 
             <div className="flex flex-col flex-1 p-4 overflow-y-auto border rounded border-fuchsia-500/30 bg-black/50 custom-scrollbar">
@@ -491,6 +493,8 @@ export default function LugeEngine() {
               >
                 OPEN PREMIUM STORE
               </button>
+              {/* Safari bottom-bar clearance */}
+              <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))] shrink-0" />
             </div>
           </div>
 
@@ -546,6 +550,8 @@ export default function LugeEngine() {
               >
                 Back to garage
               </button>
+              {/* Safari bottom-bar clearance */}
+              <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))] shrink-0" />
             </div>
           </div>
         </div>
@@ -680,6 +686,8 @@ export default function LugeEngine() {
             >
               RETURN TO MENU
             </button>
+            {/* Safari bottom-bar clearance */}
+            <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))] shrink-0" />
           </div>
         </div>
       )}

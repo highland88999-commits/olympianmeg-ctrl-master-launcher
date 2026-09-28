@@ -244,6 +244,9 @@ export default function OlympusB2BPage() {
         <footer className="text-center pb-10 text-zinc-600 text-xs tracking-widest">
           © 2026 OLYMPUS B2B · EDMONTON
         </footer>
+
+        {/* Safari bottom-bar clearance */}
+        <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
       </div>
     </main>
   );

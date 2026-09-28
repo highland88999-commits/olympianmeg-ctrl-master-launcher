@@ -331,6 +331,7 @@ export default function OmegaHubPage() {
           OMEGA HUB — offline rebuild. The original phoned home to a telemetry database and required
           a cloud login; this version keeps everything on your device.
         </footer>
+        <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
       </div>
     </main>
   );

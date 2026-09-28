@@ -564,7 +564,7 @@ export default function FortressApp() {
          </div>
       )}
 
-      <div className="fixed bottom-6 left-6 z-20 flex flex-col-reverse items-start gap-4 pointer-events-auto">
+      <div className="fixed bottom-[max(1.5rem,env(safe-area-inset-bottom))] left-6 z-20 flex flex-col-reverse items-start gap-4 pointer-events-auto">
         <button 
             onClick={() => setIsMenuOpen(!isMenuOpen)}
             className={`w-14 h-14 rounded-full glass-panel flex items-center justify-center text-cyan-400 transition-all duration-300 ${isMenuOpen ? 'rotate-45 shadow-[0_0_20px_#00ffff]' : 'shadow-[0_0_15px_rgba(0,255,255,0.2)]'}`}

@@ -152,6 +152,7 @@ export default function StudioPage() {
             </div>
           </div>
         </div>
+      <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
       </div>
     </main>
   );

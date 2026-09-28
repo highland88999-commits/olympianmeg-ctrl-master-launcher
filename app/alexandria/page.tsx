@@ -311,7 +311,7 @@ export default function Alexandria() {
 
         .carousel-container { display: flex; width: 100vw; height: 100vh; height: 100dvh; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; scroll-behavior: smooth; scrollbar-width: none; position: relative; z-index: 10; overscroll-behavior-x: contain; touch-action: pan-x pan-y; }
         .carousel-container::-webkit-scrollbar { display: none; }
-        .carousel-page { min-width: 100vw; width: 100vw; height: 100vh; height: 100dvh; scroll-snap-align: start; scroll-snap-stop: always; display: flex; flex-direction: column; align-items: center; overflow-y: auto; overflow-x: hidden; position: relative; -webkit-overflow-scrolling: touch; }
+        .carousel-page { min-width: 100vw; width: 100vw; height: 100vh; height: 100dvh; scroll-snap-align: start; scroll-snap-stop: always; display: flex; flex-direction: column; align-items: center; overflow-y: auto; overflow-x: hidden; position: relative; -webkit-overflow-scrolling: touch; box-sizing: border-box; padding-bottom: calc(2rem + env(safe-area-inset-bottom)); }
         #page-studio { background: rgba(5, 5, 8, 0.95); border-right: 2px solid var(--neon-magenta); }
         #page-vault { background: rgba(5, 5, 8, 0.95); border-left: 2px solid var(--neon-cyan); }
 

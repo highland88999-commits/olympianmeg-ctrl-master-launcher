@@ -177,6 +177,7 @@ export default function OmegaPage() {
   }, [reducedMotion]);
 
   return (
+    <>
     <main
       onClick={advance}
       style={{
@@ -224,5 +225,8 @@ export default function OmegaPage() {
         OMEGA // ARCH NODE — OFFLINE BUILD, NO UPLINK
       </div>
     </main>
+    {/* Safari bottom-bar clearance: blank space under the fixed scene viewport */}
+    <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
+    </>
   );
 }

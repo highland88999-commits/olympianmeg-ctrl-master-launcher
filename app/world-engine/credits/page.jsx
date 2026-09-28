@@ -156,6 +156,7 @@ function CreditsInner() {
             when the payment confirmation arrives — never enter card details anywhere else.
           </p>
         </div>
+      <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
       </div>
     </main>
   );

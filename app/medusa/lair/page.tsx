@@ -363,6 +363,8 @@ export default function MedusasLair() {
                             </div>
                         ))}
                         {logs.length === 0 && <div className="text-zinc-500 italic">No comms established in this session.</div>}
+                        {/* Safari bottom-bar clearance */}
+                        <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))] shrink-0" />
                     </div>
                 </div>
 
@@ -386,6 +388,8 @@ export default function MedusasLair() {
             </div>
 
         </div>
+        {/* Safari bottom-bar clearance */}
+        <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))] shrink-0" />
       </div>
     </>
   );

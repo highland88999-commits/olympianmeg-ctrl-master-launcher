@@ -172,6 +172,7 @@ function Selector({ onSelect }) {
           ))}
         </div>
       </div>
+      <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
     </div>
   );
 }
@@ -237,6 +238,7 @@ function ProvinceView({ province, onBack }) {
           )}
         </div>
       </div>
+      <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
     </div>
   );
 }

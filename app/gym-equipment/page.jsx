@@ -30,13 +30,13 @@ const CSS = `
 .qa-header { position: absolute; top: 20px; width: 100%; text-align: center; z-index: 20; pointer-events: none; }
 .qa-brand { color: #0ff; font-size: clamp(1.8rem, 6vw, 2.5rem); font-weight: 900; letter-spacing: 6px; text-shadow: 0 0 15px #0ff; margin-bottom: 5px; }
 .qa-sub { color: #f0f; font-size: clamp(0.75rem, 3vw, 1rem); letter-spacing: 5px; opacity: 0.8; }
-.qa-footer { position: absolute; bottom: 30px; width: 100%; text-align: center; z-index: 20; pointer-events: none; }
+.qa-footer { position: absolute; bottom: max(30px, env(safe-area-inset-bottom)); width: 100%; text-align: center; z-index: 20; pointer-events: none; }
 .qa-prompt { color: #fff; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: clamp(0.65rem, 2.5vw, 0.8rem); letter-spacing: 2px; animation: qaPulse 1s infinite alternate; }
 .qa-impact { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 30; pointer-events: none; }
 .qa-impact span { display: none; color: #fff; font-size: clamp(2.5rem, 10vw, 5rem); font-weight: 900; text-transform: uppercase; text-shadow: 0 0 20px #0ff, 0 0 40px #f0f; animation: qaShake 0.15s infinite; }
 .qa-impact span.show { display: block; }
 .qa-impact span.kapow { color: #ffff00; text-shadow: 0 0 30px #f00; }
-.qa-panel { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 40; background: rgba(2,8,16,0.94); border: 1px solid #0ff; border-radius: 8px; padding: 24px; width: min(420px, 90vw); max-height: 80vh; overflow-y: auto; color: #e8fdff; }
+.qa-panel { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 40; background: rgba(2,8,16,0.94); border: 1px solid #0ff; border-radius: 8px; padding: 24px; padding-bottom: max(24px, env(safe-area-inset-bottom)); width: min(420px, 90vw); max-height: 80vh; overflow-y: auto; color: #e8fdff; }
 .qa-panel h2 { color: #0ff; letter-spacing: 3px; margin: 0 0 16px; font-size: 1.2rem; }
 .qa-disclaimer { background: rgba(255,170,0,0.08); border: 1px solid rgba(255,170,0,0.5); color: #ffd9a0;
   font-size: 0.75rem; letter-spacing: 1px; padding: 10px 12px; border-radius: 4px; margin: 0 0 12px; line-height: 1.5; }

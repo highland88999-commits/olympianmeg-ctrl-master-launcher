@@ -91,6 +91,7 @@ export default function ArchitecturalLegacyPage() {
           </article>
         ))}
       </div>
+      <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
     </main>
   );
 }

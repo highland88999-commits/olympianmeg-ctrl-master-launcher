@@ -98,6 +98,7 @@ export default function AethelgardPage() {
         ))}
       </div>
       <div className="season-note" aria-live="polite">{SEASONS[season].desc}</div>
+      <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
     </main>
   );
 }

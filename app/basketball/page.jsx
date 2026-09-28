@@ -626,6 +626,9 @@ function MenuScreen({ onPlay, scores, scoresNote, showHelp, setShowHelp, onExit,
         <button onClick={onExit} className="mt-8 text-zinc-600 text-xs tracking-[0.3em] uppercase hover:text-zinc-300">
           ← Back to the launcher
         </button>
+
+        {/* Safari bottom-bar clearance: lets the menu content rest above the browser bar */}
+        <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))] shrink-0" />
       </div>
     </div>
   );

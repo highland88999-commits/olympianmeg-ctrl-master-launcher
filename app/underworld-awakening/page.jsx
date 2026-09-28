@@ -239,6 +239,7 @@ export default function UnderworldAwakening() {
   };
 
   return (
+    <>
     <div
       style={{
         position: "fixed",
@@ -417,5 +418,8 @@ export default function UnderworldAwakening() {
         </div>
       )}
     </div>
+    {/* Safari bottom-bar clearance: blank space under the fixed descent viewport */}
+    <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
+    </>
   );
 }

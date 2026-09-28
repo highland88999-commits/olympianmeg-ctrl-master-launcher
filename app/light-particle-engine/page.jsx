@@ -262,6 +262,8 @@ export default function LightParticleEnginePage() {
           <button style={btn} onClick={() => simRef.current?.clear()}>Clear</button>
         </div>
       </div>
+      {/* Safari bottom-bar clearance */}
+      <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
     </div>
   );
 }

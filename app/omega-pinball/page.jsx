@@ -271,6 +271,7 @@ export default function OmegaPinballPage() {
   };
 
   return (
+    <>
     <div
       ref={wrapRef}
       className="fixed inset-0 flex flex-col items-center justify-center bg-black text-white overflow-hidden select-none"
@@ -378,5 +379,8 @@ export default function OmegaPinballPage() {
         </div>
       )}
     </div>
+    {/* Safari bottom-bar clearance: blank space under the fixed game viewport */}
+    <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
+  </>
   );
 }

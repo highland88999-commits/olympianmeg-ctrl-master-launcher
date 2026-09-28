@@ -332,6 +332,7 @@ export default function PlanetXPage() {
   }
 
   return (
+    <>
     <div style={styles.page}>
       <div style={styles.title}>Planet X</div>
       <div ref={hudRef} style={styles.hud}>ORBIT</div>
@@ -361,6 +362,9 @@ export default function PlanetXPage() {
         )}
       </div>
     </div>
+    {/* Safari bottom-bar clearance: blank space under the fixed planet viewport */}
+    <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
+    </>
   );
 }
 
@@ -370,7 +374,7 @@ const styles = {
   hud: { position: "absolute", top: 52, left: 20, zIndex: 5, fontSize: 15, fontWeight: 600, letterSpacing: 1, color: "#9fc0ff", textShadow: "0 0 10px rgba(120,160,255,.5)", pointerEvents: "none" },
   hint: { position: "absolute", top: 78, left: 20, zIndex: 5, fontSize: 13, opacity: 0.7, pointerEvents: "none" },
   title: { position: "absolute", top: 14, left: 20, zIndex: 5, fontSize: 22, fontWeight: 800, letterSpacing: 4, color: "#cfe0ff", textShadow: "0 0 14px rgba(120,160,255,.6)", pointerEvents: "none", textTransform: "uppercase" },
-  dock: { position: "absolute", left: 12, right: 12, bottom: 12, zIndex: 5, display: "flex", gap: 10, alignItems: "center", justifyContent: "center", flexWrap: "wrap", background: "rgba(8,10,24,.72)", border: "1px solid rgba(140,170,255,.25)", borderRadius: 14, padding: "10px 14px", backdropFilter: "blur(8px)" },
+  dock: { position: "absolute", left: 12, right: 12, bottom: "max(12px, env(safe-area-inset-bottom))", zIndex: 5, display: "flex", gap: 10, alignItems: "center", justifyContent: "center", flexWrap: "wrap", background: "rgba(8,10,24,.72)", border: "1px solid rgba(140,170,255,.25)", borderRadius: 14, padding: "10px 14px", backdropFilter: "blur(8px)" },
   row: { display: "flex", alignItems: "center", gap: 8, fontSize: 13, opacity: 0.9 },
   range: { width: 110, accentColor: "#7ea2ff" },
   btn: { background: "rgba(255,255,255,.08)", color: "#fff", border: "1px solid rgba(255,255,255,.25)", borderRadius: 8, padding: "8px 12px", fontSize: 13, cursor: "pointer" },

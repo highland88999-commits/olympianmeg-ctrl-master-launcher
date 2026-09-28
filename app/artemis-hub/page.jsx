@@ -165,6 +165,7 @@ export default function ArtemisHubPage() {
           the trackers were dropped, and every card stays inside this launcher.
         </p>
       </footer>
+      <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
     </main>
   );
 }

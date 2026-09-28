@@ -256,6 +256,7 @@ export default function WasteExtractionPage() {
         <p className="mt-5 text-[11px] text-white/30 text-center max-w-lg">
           An ambient viewport. Every frame is drawn on this device in real time — no video files, no streams, nothing leaves the browser.
         </p>
+        <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
       </main>
     </div>
   );

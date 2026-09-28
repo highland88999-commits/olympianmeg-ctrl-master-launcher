@@ -149,6 +149,9 @@ export default function AgoraFeed() {
         <footer className="mt-12 border-t border-white/10 pt-4 text-xs text-zinc-600">
           <Link href="/" className="underline hover:text-zinc-400">Back to the launcher</Link>
         </footer>
+
+        {/* Safari bottom-bar clearance: keeps last content above the browser bar */}
+        <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
       </div>
     </main>
   );

@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 
 const CSS = `
 .vw-root { height: 100dvh; display: flex; flex-direction: column; background: #0a0a14; color: #fff;
-  font-family: 'Courier New', Courier, monospace; overflow: hidden; position: relative; }
+  font-family: 'Courier New', Courier, monospace; overflow: hidden; position: relative;
+  padding-bottom: env(safe-area-inset-bottom); }
 .vw-scan { position: absolute; inset: 0; z-index: 60; pointer-events: none;
   background: linear-gradient(rgba(18,16,16,0) 50%, rgba(0,0,0,0.25) 50%);
   background-size: 100% 2px; }
@@ -338,6 +339,7 @@ export default function VenusWifiPage() {
   };
 
   return (
+    <>
     <main className="vw-root">
       <style>{CSS}</style>
       <div className="vw-scan" aria-hidden="true" />
@@ -391,5 +393,8 @@ export default function VenusWifiPage() {
 
       {toast && <div className="vw-toast" role="status">{toast}</div>}
     </main>
+    {/* Safari bottom-bar clearance: blank space under the fixed console viewport */}
+    <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
+    </>
   );
 }

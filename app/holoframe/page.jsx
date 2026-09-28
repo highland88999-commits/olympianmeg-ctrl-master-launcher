@@ -341,6 +341,8 @@ export default function HoloframePage() {
               </div>
             </div>
           ))}
+          {/* Safari bottom-bar clearance */}
+          <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))] shrink-0" />
         </div>
       )}
 
@@ -369,6 +371,9 @@ export default function HoloframePage() {
           {prefs.count} MONITOR{prefs.count > 1 ? 'S' : ''} • DRAG NOTHING, JUST TYPE
         </div>
       </footer>
+
+      {/* Safari bottom-bar clearance */}
+      <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))] shrink-0" />
     </div>
   );
 }

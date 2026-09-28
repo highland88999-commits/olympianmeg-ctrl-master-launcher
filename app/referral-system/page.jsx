@@ -46,7 +46,7 @@ const CSS = `
 .rs-kpi div { background: rgba(0,0,0,0.45); border: 1px solid rgba(255,215,0,0.35); border-radius: 8px; padding: 12px 6px; }
 .rs-kpi b { display: block; color: #FFD700; font-size: 1.25rem; }
 .rs-kpi span { font-size: 0.68rem; color: #9fb3c8; text-transform: uppercase; letter-spacing: 1px; }
-.rs-dots { position: absolute; bottom: 26px; left: 50%; transform: translateX(-50%); z-index: 10;
+.rs-dots { position: absolute; bottom: calc(26px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); z-index: 10;
   display: flex; flex-direction: column; align-items: center; gap: 10px; pointer-events: none; }
 .rs-hint { color: #00f3ff; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 2px;
   animation: rs-pulse 2s infinite; }
@@ -209,6 +209,7 @@ export default function ReferralSystemPage() {
   };
 
   return (
+    <>
     <main className="rs-root">
       <style>{CSS}</style>
       <canvas ref={canvasRef} className="rs-bg" aria-hidden="true" />
@@ -338,5 +339,8 @@ export default function ReferralSystemPage() {
 
       {toast && <div className="rs-toast" role="status">{toast}</div>}
     </main>
+    {/* Safari bottom-bar clearance: blank space under the fixed carousel viewport */}
+    <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
+    </>
   );
 }

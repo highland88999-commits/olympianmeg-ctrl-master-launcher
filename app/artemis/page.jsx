@@ -371,6 +371,7 @@ export default function ArtemisRealm() {
             </span>
           </footer>
         </main>
+        <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
       </div>
     </div>
   );

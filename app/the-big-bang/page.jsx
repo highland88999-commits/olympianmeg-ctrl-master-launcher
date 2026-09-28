@@ -179,6 +179,7 @@ export default function BigBangPage() {
   }
 
   return (
+    <>
     <div style={styles.page}>
       <canvas ref={canvasRef} style={styles.canvas} />
       <div style={styles.top}>
@@ -211,6 +212,9 @@ export default function BigBangPage() {
         </button>
       </div>
     </div>
+    {/* Safari bottom-bar clearance: blank space under the fixed cosmic viewport */}
+    <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
+    </>
   );
 }
 
@@ -222,7 +226,7 @@ const styles = {
   stage: { marginTop: 6, fontSize: 17, fontWeight: 700, color: "#ffd76e" },
   years: { fontSize: 13, opacity: 0.75, marginTop: 2 },
   blurb: { fontSize: 14, opacity: 0.85, maxWidth: 620, lineHeight: 1.5, margin: "8px 0 0" },
-  dock: { position: "absolute", left: 12, right: 12, bottom: 12, zIndex: 5, display: "flex", gap: 10, alignItems: "center", background: "rgba(10,8,4,.72)", border: "1px solid rgba(255,215,110,.25)", borderRadius: 14, padding: "10px 14px", backdropFilter: "blur(8px)", flexWrap: "wrap" },
+  dock: { position: "absolute", left: 12, right: 12, bottom: "max(12px, env(safe-area-inset-bottom))", zIndex: 5, display: "flex", gap: 10, alignItems: "center", background: "rgba(10,8,4,.72)", border: "1px solid rgba(255,215,110,.25)", borderRadius: 14, padding: "10px 14px", backdropFilter: "blur(8px)", flexWrap: "wrap" },
   btn: { background: "rgba(255,255,255,.08)", color: "#fff", border: "1px solid rgba(255,255,255,.25)", borderRadius: 8, padding: "8px 12px", fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" },
   scrub: { flex: 1, minWidth: 140, accentColor: "#ffd76e" },
 };
