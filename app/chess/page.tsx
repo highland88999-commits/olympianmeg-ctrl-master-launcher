@@ -146,8 +146,8 @@ export default function QuantumChess() {
       tex.repeat.set(1.5, 0.9); tex.offset.set(0, 0.05); 
       return tex;
     };
-    setCyanSkinTex(loadSkinTexture("https://files.catbox.moe/ktdwd1.mov")); 
-    setPinkSkinTex(loadSkinTexture("https://files.catbox.moe/46h29k.mov")); 
+    setCyanSkinTex(loadSkinTexture("/assets/chess/cyan-skin.mov")); 
+    setPinkSkinTex(loadSkinTexture("/assets/chess/pink-skin.mov")); 
 
     const loadBoardTexture = (src: string) => {
       const vid = document.createElement("video");

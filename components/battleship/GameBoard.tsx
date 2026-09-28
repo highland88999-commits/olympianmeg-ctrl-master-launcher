@@ -1,7 +1,7 @@
 import { useVideoTexture } from '@react-three/drei'
 
 export default function GameBoard() {
-  const videoTexture = useVideoTexture("https://files.catbox.moe/v2ukdm.mov")
+  const videoTexture = useVideoTexture("/assets/battleship/board-texture.mov")
 
   return (
     <group>

@@ -136,8 +136,9 @@ export const SPECS = [
   {
     id: "propulsion",
     no: "04",
-    title: "Propulsion & AI Navigation",
+    title: "Propulsion & Navigation (concept)",
     points: [
+      "Concept prospectus — the island is a design study, not a built vessel.",
       "24 azimuth thrusters (360°) powered by kinetic wave generators and a deep-hull micro-reactor.",
       "Dynamic Positioning System — real-time wind, current and wave compensation without tethers.",
       "Automated AIS/aviation broadcast warns incoming traffic during dome deployments.",

@@ -153,7 +153,8 @@ function ReachCanvas({ sparkCount }) {
       ctx.font = '600 11px system-ui, sans-serif';
       ctx.textAlign = 'center';
       const people = branches.filter((b) => b.depth >= 3 && t - b.born > 30).length * (sparkCount || 1);
-      ctx.fillText(`${people.toLocaleString()} reached`, w / 2, 22);
+      // Branch count of the drawing only — an illustration, never a real reach number.
+      ctx.fillText(`${people.toLocaleString()} branches (illustration)`, w / 2, 22);
       if (!reduce) raf = requestAnimationFrame(draw);
     };
     draw();
@@ -278,7 +279,8 @@ function ForgeChamber() {
       <div style={{ ...card, marginTop: 18 }}>
         <div style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: 2, color: GOLD }}>Commission a universe</div>
         <p style={{ color: '#a8a29e', fontSize: 14, lineHeight: 1.6 }}>
-          Name it, describe it, give it a mythic heart. Your commission joins the forge queue below.
+          Name it, describe it, give it a mythic heart. Your commission is saved to your
+          private planning board below — on this device only, it isn&apos;t sent anywhere.
         </p>
         <form onSubmit={submit} style={{ display: 'grid', gap: 12, marginTop: 12 }}>
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Universe name" aria-label="Universe name" style={input} maxLength={60} />
@@ -294,7 +296,7 @@ function ForgeChamber() {
               {errors.map((er, i) => <li key={i}>{er}</li>)}
             </ul>
           )}
-          <button type="submit" style={btnPrimary}>Send it to the forge</button>
+          <button type="submit" style={btnPrimary}>Save it to my planning board</button>
         </form>
       </div>
 
@@ -513,6 +515,9 @@ function MultiplierChamber() {
       </p>
       <div style={{ ...card, marginTop: 18, padding: 10 }}>
         <ReachCanvas sparkCount={sparks} />
+        <div style={{ fontSize: 12, color: '#78716c', padding: '8px 10px 2px' }}>
+          Illustrative reach map — shows how ideas could branch, not real visitors.
+        </div>
       </div>
       <div style={{ display: 'grid', gap: 12, marginTop: 18 }}>
         {ideas.map((i) => (

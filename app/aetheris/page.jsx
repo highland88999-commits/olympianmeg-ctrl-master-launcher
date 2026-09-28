@@ -15,7 +15,7 @@ export default function AetherisPage() {
           <h1 className="text-3xl md:text-4xl font-black tracking-wide mt-1">Aetheris</h1>
           <p className="text-zinc-400 mt-2 max-w-2xl text-[15px] leading-relaxed">
             The outdoor air-purification program: the business plan for the ET-GAP-700 breathing towers,
-            and a live diagnostic console for UNIT_07.
+            and an interactive simulation console for a fictional UNIT_07.
           </p>
         </header>
 

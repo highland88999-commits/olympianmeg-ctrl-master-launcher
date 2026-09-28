@@ -202,6 +202,7 @@ export default function DiagnosticConsole() {
       <div className="lg:w-72 shrink-0 bg-black/60 border border-zinc-800 rounded p-4">
         <canvas ref={canvasRef} width={200} height={340} className="w-full h-auto" aria-label="UNIT_07 tower schematic" />
         <div className="mt-2 text-[11px] font-mono text-zinc-500 break-all">{UNIT_ID}</div>
+        <div className="mt-1 text-[11px] font-mono text-zinc-600">Simulated unit — no real tower; readings are generated locally.</div>
         <div className="mt-1 text-xs font-mono">
           STATUS: <span className={statusColor + ' font-black'}>{status}</span>
         </div>

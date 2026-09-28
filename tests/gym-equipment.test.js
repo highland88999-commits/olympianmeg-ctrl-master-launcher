@@ -29,8 +29,8 @@ t('no fetch() calls', !/fetch\(/.test(code));
 // --- content & interactivity present ---
 t('title is "INNODIGYM | QUANTUM ARCADE"', /INNODIGYM \| QUANTUM ARCADE/.test(src));
 t('tiered particle field rendered in canvas 2D', /getContext\('2d'\)/.test(src) && /quantum platform/.test(src));
-t('impact text sequence present', /SYNC NOW!/.test(src) && /KAPOW!/.test(src));
-t('tap triggers sync burst', /burstRef\.current =/.test(src));
+t('impact text sequence present', /BURST!/.test(src) && /KAPOW!/.test(src));
+t('tap triggers particle burst (no fake sync claim)', /burstRef\.current =/.test(src) && !/TAP ANYWHERE TO SYNC/.test(src));
 t('spec sheet panel present', /SPEC SHEET/.test(src) && /Digital Strength/.test(src));
 t('motion preference persisted', /quantum-arcade\.prefs/.test(src));
 

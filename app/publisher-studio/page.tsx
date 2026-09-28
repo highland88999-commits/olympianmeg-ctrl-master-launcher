@@ -18,13 +18,6 @@ export default function PublisherStudio() {
         return;
       }
       setMounted(true);
-      
-      const REPO_NAME = window.location.hostname || 'Unknown-Node';
-      supabase.from('central_telemetry').insert([{
-          repository_name: REPO_NAME,
-          action_type: 'page_load',
-          details: { url: window.location.href, timestamp: new Date().toISOString() }
-      }]);
 
       const checkScripts = setInterval(() => {
         if (window.Quill && window.mammoth) {
@@ -194,7 +187,7 @@ export default function PublisherStudio() {
         </header>
 
         <div className="video-hero">
-            <video src="https://file.garden/alXjUY_coXedLaNA/gemini_generated_video_D43DD178.mp4" autoPlay loop muted playsInline className="hero-video"></video>
+            <video src="/assets/publisher-studio/golden-rings.mp4" autoPlay loop muted playsInline className="hero-video"></video>
             <div style={{position:'absolute', inset:0, background:'linear-gradient(to bottom, rgba(5,5,8,0.2) 0%, #050508 100%)', zIndex:3}}></div>
         </div>
 

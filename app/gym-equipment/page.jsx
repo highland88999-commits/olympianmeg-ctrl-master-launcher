@@ -38,6 +38,8 @@ const CSS = `
 .qa-impact span.kapow { color: #ffff00; text-shadow: 0 0 30px #f00; }
 .qa-panel { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 40; background: rgba(2,8,16,0.94); border: 1px solid #0ff; border-radius: 8px; padding: 24px; width: min(420px, 90vw); max-height: 80vh; overflow-y: auto; color: #e8fdff; }
 .qa-panel h2 { color: #0ff; letter-spacing: 3px; margin: 0 0 16px; font-size: 1.2rem; }
+.qa-disclaimer { background: rgba(255,170,0,0.08); border: 1px solid rgba(255,170,0,0.5); color: #ffd9a0;
+  font-size: 0.75rem; letter-spacing: 1px; padding: 10px 12px; border-radius: 4px; margin: 0 0 12px; line-height: 1.5; }
 .qa-panel dl { margin: 0; }
 .qa-panel dt { color: #f0f; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 2px; margin-top: 12px; }
 .qa-panel dd { margin: 4px 0 0; font-size: 1rem; }
@@ -215,12 +217,12 @@ export default function GymEquipmentPage() {
       </div>
 
       <div className="qa-impact">
-        <span ref={(el) => { impactRef.current.shop = el; }}>SYNC NOW!</span>
+        <span ref={(el) => { impactRef.current.shop = el; }}>BURST!</span>
         <span ref={(el) => { impactRef.current.kapow = el; }} className="kapow">KAPOW!</span>
       </div>
 
       <div className="qa-footer">
-        <div className="qa-prompt">/// TAP ANYWHERE TO SYNC ///</div>
+        <div className="qa-prompt">/// TAP ANYWHERE FOR A BURST ///</div>
       </div>
 
       <button type="button" className="qa-toggle" onClick={toggleMotion}>
@@ -238,6 +240,7 @@ export default function GymEquipmentPage() {
       {panelOpen && (
         <div className="qa-panel" role="dialog" aria-label="INNODIGYM P1 Plus specifications">
           <h2>P1 PLUS // SPEC SHEET</h2>
+          <p className="qa-disclaimer">CONCEPT SHOWCASE — not a real product. The specs below are illustrative; nothing on this page is for sale and no sync with any device occurs.</p>
           <dl>
             {SPECS.map((s) => (
               <div key={s.label}>

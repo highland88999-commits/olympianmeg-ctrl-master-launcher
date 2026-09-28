@@ -36,13 +36,6 @@ export default function Alexandria() {
         return;
       }
       setMounted(true);
-
-      const REPO_NAME = window.location.hostname || 'Unknown-Node';
-      supabase.from('central_telemetry').insert([{
-          repository_name: REPO_NAME,
-          action_type: 'page_load',
-          details: { url: window.location.href, timestamp: new Date().toISOString() }
-      }]);
     });
   }, [router]);
 
@@ -401,7 +394,7 @@ export default function Alexandria() {
 
             <div className="video-hero-section">
               <video className="hero-video" autoPlay loop muted playsInline preload="metadata" aria-label="Alexandria archive ambience">
-                <source src="https://file.garden/alXjUY_coXedLaNA/gemini_generated_video_B1DA76E4.mp4" type="video/mp4" />
+                <source src="/assets/alexandria/neon-tower.mp4" type="video/mp4" />
               </video>
             </div>
 

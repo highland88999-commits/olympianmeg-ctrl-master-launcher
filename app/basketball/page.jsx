@@ -231,6 +231,7 @@ export default function BasketballPage() {
           score: simulateNpcScore(seat.npc?.difficulty),
           mode: 'shootout',
           roomCode: code,
+          isNpc: true, // backfilled CPU rival — badge it on the board
         });
       }
       setOasisMatch({ kind: 'party', roomCode: code });
@@ -374,7 +375,12 @@ export default function BasketballPage() {
                     {roomScores.map((s, i) => (
                       <div key={s.id} className="flex items-center justify-between px-3 py-1.5 bg-black/40 border border-zinc-800 rounded text-sm">
                         <span className="text-zinc-500 font-bold w-8">#{i + 1}</span>
-                        <span className="flex-1 text-left text-zinc-200 tracking-widest uppercase truncate">{s.player_name}</span>
+                        <span className="flex-1 text-left text-zinc-200 tracking-widest uppercase truncate">
+                          {s.player_name}
+                          {s.is_npc && (
+                            <span className="ml-2 inline-block px-1.5 py-0.5 text-[10px] font-black tracking-widest uppercase bg-zinc-700 text-zinc-200 rounded align-middle">CPU</span>
+                          )}
+                        </span>
                         <span className="text-amber-300 font-black">{s.score}</span>
                       </div>
                     ))}
@@ -601,7 +607,12 @@ function MenuScreen({ onPlay, scores, scoresNote, showHelp, setShowHelp, onExit,
             {scores.map((s, i) => (
               <div key={s.id} className="flex items-center justify-between px-4 py-2 bg-black/40 border border-zinc-800 rounded text-sm">
                 <span className="text-zinc-500 font-bold w-8">#{i + 1}</span>
-                <span className="flex-1 text-left text-zinc-200 tracking-widest uppercase truncate">{s.player_name}</span>
+                <span className="flex-1 text-left text-zinc-200 tracking-widest uppercase truncate">
+                  {s.player_name}
+                  {s.is_npc && (
+                    <span className="ml-2 inline-block px-1.5 py-0.5 text-[10px] font-black tracking-widest uppercase bg-zinc-700 text-zinc-200 rounded align-middle">CPU</span>
+                  )}
+                </span>
                 <span className="text-cyan-300 font-black">{s.score}</span>
               </div>
             ))}

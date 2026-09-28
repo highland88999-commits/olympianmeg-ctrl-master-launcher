@@ -218,7 +218,7 @@ export default function WasteExtractionPage() {
             FEED: {feed.name}
           </div>
           <div className="absolute top-3 right-4 z-[3] text-[10px] tracking-[0.25em] text-emerald-200/90 bg-black/50 px-2 py-1 rounded">
-            SIGNAL {signal}% {paused ? '• HELD' : '• LIVE'}
+            SIM SIGNAL {signal}% {paused ? '• HELD' : '• LOOPING'}
           </div>
         </div>
 

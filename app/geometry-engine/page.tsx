@@ -68,6 +68,7 @@ export default function GeometryEngine() {
         historyStack = [];
         historyStack.push(new Float32Array(basePositions));
     }
+    window.createNewGeometry = createNewGeometry;
     createNewGeometry('plane');
 
     function animate() {
@@ -140,11 +141,11 @@ export default function GeometryEngine() {
       <div className="engine-wrapper">
         <header>
             <div className="logo">NEXUS ENGINE</div>
-            <button className="export-btn" id="btn-export" onClick={() => window.exportGeometry()}>PUSH TO PUBLISHER ➔</button>
+            <button className="export-btn" id="btn-export" onClick={() => window.exportGeometry()}>Download PNG</button>
         </header>
 
         <div className="video-hero">
-            <video id="hero-video" autoPlay loop muted playsInline className="hero-video" src="https://file.garden/alXjUY_coXedLaNA/gemini_generated_video_1C2C3CD6.mp4"></video>
+            <video id="hero-video" autoPlay loop muted playsInline className="hero-video" src="/assets/geometry-engine/hero-gemini.mp4"></video>
             <div className="hero-overlay"></div>
         </div>
 

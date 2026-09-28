@@ -105,7 +105,7 @@ export default function HumanAI() {
       </button>
 
       <video autoPlay loop muted playsInline className="deep-background-video">
-        <source src="https://files.catbox.moe/dddwtq.mov" type="video/mp4" />
+        <source src="/assets/human-ai/deep-background.mov" type="video/mp4" />
       </video>
 
       <div className="app-layout">
@@ -125,7 +125,7 @@ export default function HumanAI() {
 
           <div className="chat-window-wrapper">
             <video autoPlay loop muted playsInline className="logo-background-video">
-              <source src="https://files.catbox.moe/tbqq7i.mov" type="video/mp4" />
+              <source src="/assets/human-ai/logo-background.mov" type="video/mp4" />
             </video>
 
             <div className="chat-window">

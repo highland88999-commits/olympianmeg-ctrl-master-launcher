@@ -66,7 +66,7 @@ export default function CerberusApp() {
         playsInline 
         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 0, opacity: 0.6 }}
       >
-        <source src="https://files.catbox.moe/w8rm2e.mov" type="video/mp4" />
+        <source src="/assets/cerberus/background.mov" type="video/mp4" />
       </video>
 
       {/* FULLSCREEN 3D WEB (Transparent Background) */}

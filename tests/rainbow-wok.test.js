@@ -31,7 +31,7 @@ t('menu has 6 lounge drinks', (src.match(/lounge: \[/) ? (src.split('lounge: [')
 t('all 6 tabs present', /Apps & Shares/.test(src) && /Bow Blends/.test(src) && /Hours & Location/.test(src));
 t('order tray persisted to localStorage', /rainbow-wok\.tray/.test(src));
 t('quick-add ribbon chips exist', /rw-chip/.test(src) && /Quick-add menu items/.test(src));
-t('send-to-kitchen dispatch is local-only', /Send to Kitchen/.test(src) && /staged/.test(src));
+t('dispatch is local-only and honest', /Stage Order/.test(src) && /show it at the counter to place it/.test(src) && !/POS queue/.test(src));
 t('hours & location panel with phone and maps link', /780-942-2388/.test(src) && /google\.com\/maps/.test(src));
 
 t('registry links route /rainbow-wok', registry.includes("route: \"/rainbow-wok\"") && registry.includes("key: \"rainbow-wok\""));

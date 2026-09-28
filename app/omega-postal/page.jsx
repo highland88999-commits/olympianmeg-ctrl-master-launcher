@@ -304,11 +304,12 @@ export default function OmegaPostalPage() {
       {phase === 'INSIDE' && (
         <>
           <div className="op-hud">
-            <b>NEXUS POSTAL HUB — LIVE FEED</b><br />
+            <b>NEXUS POSTAL HUB — SIM FEED</b><br />
             Packages sorted: <b>{sorted.toLocaleString()}</b><br />
             Sorting rings: <b>4 active</b><br />
             Dispatch antennas: <b>4 online</b><br />
-            Mail volume: <b>{volume}</b> parcels in flight
+            Mail volume: <b>{volume}</b> parcels in flight<br />
+            <span style={{ opacity: 0.55, fontSize: '0.72em' }}>Decorative simulation — numbers are the animation&apos;s own counters.</span>
           </div>
           <div className="op-controls">
             <label className="op-slider">

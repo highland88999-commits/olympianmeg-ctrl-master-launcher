@@ -18,13 +18,6 @@ export default function Vault() {
       }
       setMounted(true);
 
-      const REPO_NAME = window.location.hostname || 'Unknown-Node';
-      supabase.from('central_telemetry').insert([{
-          repository_name: REPO_NAME,
-          action_type: 'page_load',
-          details: { url: window.location.href, timestamp: new Date().toISOString() }
-      }]);
-
       const currentUser = session.user;
       document.getElementById('display-email').innerText = currentUser.email;
       document.getElementById('input-email-locked').value = currentUser.email;
@@ -37,7 +30,7 @@ export default function Vault() {
             }
             if (profile.bio) document.getElementById('input-bio').value = profile.bio;
         }
-        loadMockVaultData('purchased');
+        loadVaultData('browse');
       });
 
       document.getElementById('btn-save-profile').onclick = async () => {
@@ -54,36 +47,75 @@ export default function Vault() {
       };
     });
 
+    const BOOKMARKS_KEY = 'reader_vault_bookmarks_v1';
+
     window.switchTab = function(tabType, btnElement) {
         document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
         btnElement.classList.add('active');
-        loadMockVaultData(tabType);
+        loadVaultData(tabType);
     };
 
-    async function loadMockVaultData(tabType) {
-      const grid = document.getElementById('acquired-grid');
-      grid.innerHTML = `<p style="color: var(--text-muted); font-family: monospace; grid-column: 1 / -1;">Accessing ${tabType.toUpperCase()} database...</p>`;
-      const { data: books } = await supabase.from('manuscripts').select('*').limit(3);
-      grid.innerHTML = '';
-      if (!books || books.length === 0) {
-        grid.innerHTML = `<p style="color: var(--text-muted); font-family: monospace; grid-column: 1 / -1;">No artifacts detected in this sector.</p>`;
-        return;
-      }
-      let tagLabel = tabType === 'purchased' ? 'PERMANENT ASSET' : tabType === 'rentals' ? 'TIME-LOCKED RENTAL' : 'BOOKMARKED';
-      books.forEach(book => {
+    function getBookmarks() {
+        try { return JSON.parse(localStorage.getItem(BOOKMARKS_KEY) || '[]'); }
+        catch { return []; }
+    }
+
+    function toggleBookmark(book) {
+        const saved = getBookmarks();
+        const idx = saved.findIndex(b => String(b.id) === String(book.id));
+        if (idx >= 0) saved.splice(idx, 1);
+        else saved.push({ id: book.id, title: book.title, author: book.author });
+        try { localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(saved)); } catch {}
+        // Refresh whichever tab is currently showing.
+        const active = document.querySelector('.tab-btn.active');
+        loadVaultData(active && active.textContent.trim() === 'SAVED' ? 'saved' : 'browse');
+    }
+
+    function renderBookCard(grid, book, tagLabel, inSavedTab) {
         const readerUrl = `/alexandria/artifact?id=${book.id}`;
         const card = document.createElement('div');
         card.className = 'vault-card';
         card.innerHTML = `
           <span class="card-type">${tagLabel}</span>
-          <div><div class="card-title">${book.title}</div><div class="card-author">By ${book.author}</div></div>
+          <div><div class="card-title"></div><div class="card-author"></div></div>
           <div class="card-actions">
             <a href="${readerUrl}" target="_blank" class="action-link">INITIALIZE CODEX</a>
-            <button class="share-link" onclick="navigator.clipboard.writeText(window.location.origin + '${readerUrl}'); alert('Link Copied!');">SHARE</button>
+            <button class="share-link share-btn">SHARE</button>
+            <button class="share-link bookmark-btn">${inSavedTab ? 'REMOVE' : 'SAVE'}</button>
           </div>
         `;
+        card.querySelector('.card-title').textContent = book.title || 'Untitled';
+        card.querySelector('.card-author').textContent = 'By ' + (book.author || 'Unknown');
+        card.querySelector('.share-btn').addEventListener('click', () => {
+            navigator.clipboard.writeText(window.location.origin + readerUrl)
+              .then(() => alert('Link Copied!'))
+              .catch(() => {});
+        });
+        card.querySelector('.bookmark-btn').addEventListener('click', () => toggleBookmark(book));
         grid.appendChild(card);
-      });
+    }
+
+    async function loadVaultData(tabType) {
+      const grid = document.getElementById('acquired-grid');
+      const loadingMsg = tabType === 'saved' ? 'Loading your saved artifacts...' : 'Browsing the library...';
+      grid.innerHTML = `<p style="color: var(--text-muted); font-family: monospace; grid-column: 1 / -1;">${loadingMsg}</p>`;
+      if (tabType === 'saved') {
+        const saved = getBookmarks();
+        grid.innerHTML = '';
+        if (!saved.length) {
+          grid.innerHTML = `<p style="color: var(--text-muted); font-family: monospace; grid-column: 1 / -1;">Nothing saved yet. Use SAVE on any artifact in Browse to keep it here.</p>`;
+          return;
+        }
+        saved.forEach(book => renderBookCard(grid, book, 'SAVED', true));
+        return;
+      }
+      const { data: books } = await supabase.from('manuscripts').select('*').limit(50);
+      grid.innerHTML = '';
+      if (!books || books.length === 0) {
+        grid.innerHTML = `<p style="color: var(--text-muted); font-family: monospace; grid-column: 1 / -1;">No artifacts detected in this sector.</p>`;
+        return;
+      }
+      books.forEach(book => renderBookCard(grid, book, 'ARTIFACT', false));
     }
   }, [router]);
 
@@ -137,7 +169,7 @@ export default function Vault() {
         </header>
 
         <div className="video-hero">
-            <video src="https://file.garden/alXjUY_coXedLaNA/gemini_generated_video_B57E08C4.mp4" autoPlay loop muted playsInline className="hero-video"></video>
+            <video src="/assets/vault/holo-hall.mp4" autoPlay loop muted playsInline className="hero-video"></video>
             <div className="hero-overlay"></div>
         </div>
 
@@ -161,10 +193,10 @@ export default function Vault() {
             </section>
 
             <section className="vault-section">
+            <p style={{color: 'var(--text-muted)', fontFamily: 'monospace', fontSize: '0.85rem'}}>Browse the Alexandria library. Saved artifacts live on this device only — this is your personal reading shelf, not a store.</p>
             <div className="vault-tabs">
-                <button className="tab-btn active" onClick={(e) => window.switchTab('purchased', e.target)}>PERMANENT LIBRARY</button>
-                <button className="tab-btn" onClick={(e) => window.switchTab('rentals', e.target)}>ACTIVE RENTALS</button>
-                <button className="tab-btn" onClick={(e) => window.switchTab('saved', e.target)}>SAVED ARTIFACTS</button>
+                <button className="tab-btn active" onClick={(e) => window.switchTab('browse', e.target)}>BROWSE</button>
+                <button className="tab-btn" onClick={(e) => window.switchTab('saved', e.target)}>SAVED</button>
             </div>
             <div className="artifact-grid" id="acquired-grid"></div>
             </section>
