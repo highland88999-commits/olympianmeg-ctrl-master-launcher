@@ -18,6 +18,7 @@ export function newState() {
     now: 0,
     pouredTotal: 0,
     barsMinted: 0,
+    lastMintAt: -Infinity, // game-time of the most recent mint (for UI flash)
   };
 }
 
@@ -54,27 +55,42 @@ export function pourTick(state, dt = TICK) {
   return add;
 }
 
-/** Refining converts crude -> purity over time; mint bar when full batch refined. */
+/**
+ * Refining converts crude -> purity over time; mints a bar the moment the
+ * batch reaches 98% purity. The whole refined batch goes into the bar
+ * (crude is consumed into it), so there is no dead wait after the goal
+ * is reached. Returns number of bars minted this tick.
+ */
 export function refineTick(state, dt = TICK) {
   if (state.crude <= 0.001) return 0;
   const filterPower = 0.05 + state.upgrades.filter * 0.03;
   state.purity = Math.min(1, state.purity + filterPower * dt * (0.4 + state.crude / vatCapacity(state)));
-  // consume crude proportionally; when purity crosses threshold and crude batch complete, mint
+  // consume crude proportionally as it refines
   const consumed = Math.min(state.crude, 1.5 * dt * (1 + state.upgrades.filter * 0.25));
   state.crude -= consumed;
   let minted = 0;
-  if (state.purity >= 0.98 && state.crude < 5) {
+  if (state.purity >= 0.98) {
     minted = 1;
     state.bars += 1;
     state.barsMinted += 1;
-    state.crude = 0;
-    state.purity = 0.12;
+    state.crude = 0; // batch fully refined into the bar
+    state.purity = 0.12; // fresh batch starts at base purity
+    state.lastMintAt = state.now;
   }
   return minted;
 }
 
 export function barValue(state) {
   return Math.round(120 * (0.6 + state.upgrades.filter * 0.1));
+}
+
+/**
+ * Toggle the pour latch (the UI pour button is a simple toggle so "tap to
+ * stop" actually stops). Returns the new pouring state.
+ */
+export function togglePour(state) {
+  state.pouring = !state.pouring;
+  return state.pouring;
 }
 
 export function sellBars(state) {
