@@ -169,15 +169,16 @@ export function updateBattle(b, input, dt) {
 
   // --- spawning ---
   const isBossLevel = b.level % 3 === 0;
-  if (isBossLevel) {
-    if (!b.boss && b.bossSpawnedFor !== b.level) spawnBoss(b);
-  } else {
-    b.spawnT -= dt;
-    const interval = Math.max(0.35, 1.1 - b.level * 0.08);
-    if (b.spawnT <= 0) {
-      b.spawnT = interval;
-      spawnDrone(b, rand);
-    }
+  if (isBossLevel && !b.boss && b.bossSpawnedFor !== b.level) spawnBoss(b);
+  // Drones stream in on every level — boss waves add the capital drone
+  // instead of replacing the swarm. If the spawner were gated off during
+  // boss levels, killing the boss would deadlock the wave: no spawns means
+  // no kills, and the 20-kill level-up would never fire.
+  b.spawnT -= dt;
+  const interval = Math.max(0.35, 1.1 - b.level * 0.08);
+  if (b.spawnT <= 0) {
+    b.spawnT = interval;
+    spawnDrone(b, rand);
   }
 
   // --- drones ---
