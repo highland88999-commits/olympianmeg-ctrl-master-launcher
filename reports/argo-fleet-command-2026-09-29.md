@@ -74,3 +74,10 @@ watch it fly a great-circle route. Follow-cam included.
 - The stylized fallback texture is deterministic (seeded RNG) so SSR/prerender
   and client agree.
 - `GoogleEarthTiles` was reused untouched — no changes to `lib/maptiles.js`.
+
+## Addendum — Trim bikes join the dock (2026-09-29)
+
+Merlin asked for his trim bikes. Two joined the ARGO staging dock:
+- **Trim Bike · Wisp** (`wisp`) — agile scout bike, fastest off the line. Accent #00ffcc.
+- **Trim Bike · Comet** (`comet`) — balanced bike, steady and sharp. Accent #38bdf8.
+Both are single-rider space bikes (narrow frame, glass canopy, side trim-thruster pods, stern engine glow, nose +Z) in `components/argo/VehicleArchetypes.jsx`, registered in `FLEET` — the dock and flight rig pick them up automatically. The full trim bike garage (Wisp/Comet/Atlas) lives in the NOVA deep-space module.
