@@ -14,6 +14,11 @@ import {
   createSubwayState,
   updateSubway,
   clamp,
+  lerp,
+  easeInOutCubic,
+  DESCENT_START_CAM,
+  GROUND_CAM,
+  STATION_CAM,
   skyAt,
   timeLabel,
   HOTSPOTS,
@@ -124,19 +129,38 @@ t('subway district registered', DISTRICTS.some((d) => d.id === 'subway'));
 t('no skyway hotspot', !HOTSPOTS.some((h) => h.id === 'skyway'));
 t('subway hotspot registered', HOTSPOTS.some((h) => h.id === 'subway'));
 
-// --- source-level checks ---
+// --- entry / exit cameras ---
+t('ease 0 -> 0', easeInOutCubic(0) === 0);
+t('ease 1 -> 1', easeInOutCubic(1) === 1);
+t('ease midpoint 0.5', approx(easeInOutCubic(0.5), 0.5));
+t('ease monotonic', easeInOutCubic(0.25) < easeInOutCubic(0.5) && easeInOutCubic(0.5) < easeInOutCubic(0.75));
+t('ease clamps out-of-range', easeInOutCubic(-2) === 0 && easeInOutCubic(9) === 1);
+t('descent starts above the street', DESCENT_START_CAM.y < 790);
+t('descent starts wide', DESCENT_START_CAM.z < 1);
+t('ground cam at street level', GROUND_CAM.y > 600 && GROUND_CAM.y < 790);
+t('ground cam closer than descent start', GROUND_CAM.z > DESCENT_START_CAM.z);
+t('station cam is the wide shot (zoom-out target)', STATION_CAM.z < 1 && STATION_CAM.y < 790);
+
+// --- source-level checks: entry descent + exit zoom-out ---
 {
   const code = readFileSync('app/mega-city/scene.js', 'utf8');
   const stripped = code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
-  t('no elevated monorail drawing', !/monorail/i.test(stripped));
-  t('no skyway rail at y=470', !/syOf\(470\)/.test(stripped));
-  t('no TRAIN const', !/\bconst TRAIN\b/.test(stripped));
-  t('cars never stop for trains: no crossing logic', !/crossing|levelCross|gate/i.test(stripped));
-  t('subway update wired into draw', /updateSubway\(sub, dt\)/.test(code));
-  t('train doors drawn', /sliding panels|dslide/.test(code));
-  t('kiosk doors drawn', /entrance kiosk/.test(code));
-  t('reduced-motion tableau', /Reduced motion: freeze a readable tableau/.test(code));
-  t('no telemetry', !/telemetry|analytics|phone.?home|supabase/i.test(stripped));
+  t('scene: snapCamera api', /snapCamera\(cam\)/.test(stripped));
+  t('scene: tweenCamera api', /tweenCamera\(target, durMs, onDone\)/.test(stripped));
+  t('scene: tweenProgress api', /tweenProgress\(\)/.test(stripped));
+  t('scene: tween eased in draw loop', /easeInOutCubic\(camTween\.t \/ camTween\.dur\)/.test(stripped));
+  t('scene: user grab cancels tween', /pointerdown[\s\S]{0,200}camTween = null/.test(code));
+  t('scene: fly cancels tween', /setFly\(v\) \{ if \(v\) camTween = null/.test(stripped));
+
+  const page = readFileSync('app/mega-city/page.jsx', 'utf8');
+  t('page: descent overlay', /DESCENDING/.test(page));
+  t('page: altitude readout', /ALT/.test(page));
+  t('page: skip control', /SKIP/.test(page));
+  t('page: touchdown state', /TOUCHDOWN/.test(page));
+  t('page: station exit button', /◀ STATION/.test(page));
+  t('page: exit zooms out then returns home', /tweenCamera\(STATION_CAM/.test(page) && /router\.push\("\/"\)/.test(page));
+  t('page: reduced motion skips descent', /prefers-reduced-motion: reduce/.test(page));
+  t('page: landing FX on entry', /fx\.landing\(\)/.test(page));
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

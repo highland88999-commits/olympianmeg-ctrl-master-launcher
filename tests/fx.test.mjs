@@ -112,7 +112,7 @@ function installMocks({ vibrate = true, reducedMotion = false } = {}) {
   const correspond = [
     'tap', 'menuOpen', 'menuClose', 'satelliteDrop', 'bikeMount', 'bikeDismount',
     'checkoutConfirm', 'checkoutCancelled', 'error', 'victory',
-    'doorEntry', 'stageWash', 'earthDive',
+    'doorEntry', 'stageWash', 'earthDive', 'landing',
   ];
   for (const name of correspond) {
     resetFxDebug();
