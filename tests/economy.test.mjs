@@ -76,16 +76,16 @@ class FakeSupabase {
 
 // --- config: discount math -------------------------------------------------
 {
-  // Partial cover: 499¢ bill, 200 gold -> 200¢ off, 200 gold spent, 299¢ card.
-  let d = computeGoldDiscount(200, 499);
-  t('partial cover math', d.discountCents === 200 && d.goldToSpend === 200 && d.chargeCents === 299 && d.paidByGold === false);
+  // Partial cover: 499¢ bill, 2000 gold -> 200¢ off, 2000 gold spent, 299¢ card.
+  let d = computeGoldDiscount(2000, 499);
+  t('partial cover math', d.discountCents === 200 && d.goldToSpend === 2000 && d.chargeCents === 299 && d.paidByGold === false);
 
   // Full cover: balance exceeds bill -> paid by gold, no card charge.
-  d = computeGoldDiscount(1000, 499);
-  t('full cover', d.discountCents === 499 && d.goldToSpend === 499 && d.chargeCents === 0 && d.paidByGold === true);
+  d = computeGoldDiscount(10000, 499);
+  t('full cover', d.discountCents === 499 && d.goldToSpend === 4990 && d.chargeCents === 0 && d.paidByGold === true);
 
   // Exact cover.
-  d = computeGoldDiscount(499, 499);
+  d = computeGoldDiscount(4990, 499);
   t('exact cover is paid-by-gold', d.paidByGold === true && d.chargeCents === 0);
 
   // Zero balance -> no discount, full card charge.
@@ -93,11 +93,11 @@ class FakeSupabase {
   t('zero balance', d.discountCents === 0 && d.goldToSpend === 0 && d.chargeCents === 499 && !d.paidByGold);
 
   // Remainder below Stripe's $0.50 minimum -> apply less gold, charge exactly 50¢.
-  d = computeGoldDiscount(190, 200);
-  t('sub-minimum remainder lands on 50c', d.chargeCents === 50 && d.discountCents === 150 && d.goldToSpend === 150 && !d.paidByGold);
+  d = computeGoldDiscount(1900, 200);
+  t('sub-minimum remainder lands on 50c', d.chargeCents === 50 && d.discountCents === 150 && d.goldToSpend === 1500 && !d.paidByGold);
 
   // Remainder of exactly 50¢ is fine as-is.
-  d = computeGoldDiscount(150, 200);
+  d = computeGoldDiscount(1500, 200);
   t('50c remainder untouched', d.chargeCents === 50 && d.discountCents === 150);
 
   // Gold can never exceed the bill (no negative charge, no change).
@@ -105,11 +105,11 @@ class FakeSupabase {
   t('discount never exceeds bill', d.discountCents === 200 && d.chargeCents === 0 && d.paidByGold);
 
   // Whole cents only: fractional gold value stays as gold.
-  t('centsForGold floors', centsForGold(199) === 199);
-  t('goldForCents: 1 cent needs 1 gold', goldForCents(1) === 1);
-  t('goldForCents: $1 needs 100 gold', goldForCents(100) === 100);
-  t('rate default 100 gold = $1', ECONOMY.GOLD_PER_DOLLAR === 100);
-  t('formatGold', formatGold(1500) === '1,500 gold (≈ $15.00)');
+  t('centsForGold floors', centsForGold(1999) === 199);
+  t('goldForCents: 1 cent needs 10 gold', goldForCents(1) === 10);
+  t('goldForCents: $1 needs 1000 gold', goldForCents(100) === 1000);
+  t('rate default 1000 gold = $1', ECONOMY.GOLD_PER_DOLLAR === 1000);
+  t('formatGold', formatGold(1500) === '1,500 gold (≈ $1.50)');
 }
 
 // --- ledger: append-only, idempotent, no-negative, caps --------------------
@@ -254,9 +254,9 @@ function fakeStripe({ failCreate = false } = {}) {
   };
 }
 {
-  // Partial gold: balance 200, bill 499 -> debit 200 gold, charge 299¢.
+  // Partial gold: balance 2000, bill 499 -> debit 2000 gold, charge 299¢.
   const db = new FakeSupabase();
-  await creditGold({ userId: 'u', amountGold: 200, reason: 'mining:liquid-gold', idemKey: 'fund' }, db);
+  await creditGold({ userId: 'u', amountGold: 2000, reason: 'mining:liquid-gold', idemKey: 'fund' }, db);
   const stripe = fakeStripe();
   const r = await applyGoldCheckout({
     surface: 'test', userId: 'u', totalCents: 499, useGold: true, idemKey: 'a1',
@@ -281,7 +281,7 @@ function fakeStripe({ failCreate = false } = {}) {
 
   // Full cover: no Stripe call at all, fulfillment runs.
   const db2 = new FakeSupabase();
-  await creditGold({ userId: 'u', amountGold: 1000, reason: 'mining:liquid-gold', idemKey: 'fund' }, db2);
+  await creditGold({ userId: 'u', amountGold: 10000, reason: 'mining:liquid-gold', idemKey: 'fund' }, db2);
   const stripe2 = fakeStripe();
   let fulfilled = 0;
   const r3 = await applyGoldCheckout({
@@ -291,7 +291,7 @@ function fakeStripe({ failCreate = false } = {}) {
     fulfillPaidByGold: async () => { fulfilled++; return { ok: true }; },
   }, db2);
   t('full cover skips stripe', r3.type === 'gold' && stripe2.calls.length === 0 && fulfilled === 1);
-  t('full cover debits exact bill', db2.balances.get('u') === 1000 - 499);
+  t('full cover debits exact bill', db2.balances.get('u') === 10000 - 4990);
 
   // Race: balance vanishes between quote and debit -> 409, NO stripe call.
   const db3 = new FakeSupabase();
