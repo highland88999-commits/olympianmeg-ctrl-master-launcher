@@ -24,6 +24,11 @@ import {
   saveMediaItem,
   saveProfile,
 } from '@/lib/profile';
+import {
+  registerAllProfileMedia,
+  registerProfileMedia,
+  unregisterProfileMedia,
+} from '@/lib/user-content/bridges';
 
 const SUIT_COLORS = [
   '#08f7fe', '#ff2fd6', '#ffd166', '#06d6a0', '#8b5cf6',
@@ -145,10 +150,16 @@ export default function ProfilePage() {
   const saveTimer = useRef(null);
   const dirtyRef = useRef(false);
 
-  // Load profile + media on mount.
+  // Load profile + media on mount. Existing gallery uploads are registered
+  // into the shared user-content pool exactly once (dedupe by id).
   useEffect(() => {
     setProfile(loadProfile());
-    listMediaItems().then(setMedia).catch(() => setMedia([]));
+    listMediaItems()
+      .then((list) => {
+        setMedia(list);
+        registerAllProfileMedia(list, getMediaItem).catch(() => {});
+      })
+      .catch(() => setMedia([]));
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
     };
@@ -227,7 +238,19 @@ export default function ProfilePage() {
     try {
       for (const f of files) {
         // eslint-disable-next-line no-await-in-loop
-        await saveMediaItem(f);
+        const mediaId = await saveMediaItem(f);
+        // Register the new upload in the shared user-content pool (best-effort).
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          const full = await getMediaItem(mediaId);
+          if (full && full.blob) {
+            // eslint-disable-next-line no-await-in-loop
+            await registerProfileMedia(
+              { id: mediaId, kind: full.kind, name: full.name, createdAt: full.createdAt },
+              full.blob
+            );
+          }
+        } catch { /* pool registration must never break uploads */ }
       }
       refreshMedia();
     } finally {
@@ -238,6 +261,7 @@ export default function ProfilePage() {
 
   const removeMedia = useCallback(async (id) => {
     await deleteMediaItem(id).catch(() => {});
+    unregisterProfileMedia(id).catch(() => {}); // drop from the shared pool too
     setUrls((u) => {
       const next = { ...u };
       if (next[id]) {

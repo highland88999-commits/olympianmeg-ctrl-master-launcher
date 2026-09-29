@@ -17,8 +17,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import ContentPicker from '@/components/user-content/ContentPicker';
+import { getItem, getPool, getPoolAudio, persistPool } from '@/lib/user-content/pool';
+import { seedStationInto } from '@/lib/user-content/station-seed';
 
 const STORAGE_KEY = 'persephone:running-order';
+const AMBIENCE_KEY = 'persephone:preshow-ambience';
 
 const DEFAULT_ORDER = [
   { id: 'slot-1', artist: 'House opener', note: 'Doors set — 60 min', state: 'queued' },
@@ -41,8 +45,45 @@ export default function BroadcastRoom() {
   const [order, setOrder] = useState(DEFAULT_ORDER);
   const [artist, setArtist] = useState('');
   const [notice, setNotice] = useState('');
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [ambienceId, setAmbienceId] = useState(null);
 
   useEffect(() => { setOrder(loadOrder()); }, []);
+
+  // Pre-show ambience: seed the radio station into the shared pool (idempotent)
+  // and restore the user's explicit pick. Explicit selection = explicit share.
+  useEffect(() => {
+    try {
+      const pool = getPool();
+      seedStationInto(pool);
+      persistPool();
+      const saved = localStorage.getItem(AMBIENCE_KEY);
+      if (saved) setAmbienceId(saved);
+    } catch { /* private mode */ }
+  }, []);
+
+  const ambienceItem = ambienceId ? getItem(getPool(), ambienceId) : null;
+  const poolAudioCount = getPoolAudio().length;
+
+  // Station seeds carry spotify: URIs; link out to the real Spotify web player.
+  function spotifyWebUrl(uri) {
+    if (typeof uri !== 'string') return null;
+    const m = uri.match(/^spotify:(track|playlist|album|artist):([A-Za-z0-9]+)$/);
+    return m ? `https://open.spotify.com/${m[1]}/${m[2]}` : null;
+  }
+  const ambienceWebUrl = ambienceItem ? spotifyWebUrl(ambienceItem.remoteUrl) : null;
+
+  function chooseAmbience(item) {
+    if (!item || !item.id) return;
+    setAmbienceId(item.id);
+    try { localStorage.setItem(AMBIENCE_KEY, item.id); } catch { /* private mode */ }
+    setPickerOpen(false);
+  }
+
+  function clearAmbience() {
+    setAmbienceId(null);
+    try { localStorage.removeItem(AMBIENCE_KEY); } catch { /* private mode */ }
+  }
 
   function save(next) {
     setOrder(next);
@@ -116,6 +157,74 @@ export default function BroadcastRoom() {
         </button>
       </div>
       {notice && <p className="mt-2 text-sm text-[#d8a8a8]" role="alert">{notice}</p>}
+
+      {/* Pre-show ambience — explicit user pick from their shared uploads.
+          Explicit selection = explicit share. Nothing is auto-shared, and
+          with no broadcast pipeline yet this plays nowhere — it is saved
+          for when streaming lands. */}
+      <h3 className="mt-8 text-sm tracking-[0.3em] uppercase text-[#8a7f66]">Pre-show ambience</h3>
+      <p className="mt-2 text-sm text-[#a89a78] leading-relaxed">
+        Pick music from your uploads to play before the show. Your pick is saved
+        on this device only — there is no broadcast pipeline yet, so it plays
+        nowhere today.
+        {poolAudioCount > 0 && (
+          <span className="text-[#6a6050]"> ({poolAudioCount} audio upload{poolAudioCount === 1 ? '' : 's'} available)</span>
+        )}
+      </p>
+      <div className="mt-3 rounded-xl border border-[#2a2418] bg-[#0e0b07] px-4 py-3">
+        {ambienceItem ? (
+          <div className="flex items-center gap-3">
+            <div className="flex-1 min-w-0">
+              <p className="text-[#e8d9b0] truncate">{ambienceItem.title || 'Untitled'}</p>
+              <p className="text-xs text-[#6a6050]">
+                {ambienceItem.originProgram === 'radio' ? 'Your radio station' : `From ${ambienceItem.originProgram}`}
+                {ambienceItem.remoteUrl && ambienceItem.remoteUrl.startsWith('spotify:') ? ' · opens in Spotify' : ''}
+              </p>
+            </div>
+            {ambienceWebUrl && (
+              <a
+                href={ambienceWebUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="min-h-[44px] inline-flex items-center rounded-xl border border-[#3a2f1a] px-4 text-xs uppercase tracking-widest text-[#d4af37] hover:bg-[#d4af37]/10"
+              >
+                Open
+              </a>
+            )}
+            <button
+              type="button"
+              onClick={() => setPickerOpen(true)}
+              className="min-h-[44px] rounded-xl border border-[#3a2f1a] px-4 text-xs uppercase tracking-widest text-[#a89a78] hover:bg-white/5"
+            >
+              Change
+            </button>
+            <button
+              type="button"
+              onClick={clearAmbience}
+              aria-label="Clear pre-show ambience"
+              className="min-h-[44px] text-xs text-[#6a6050] hover:text-[#d8a8a8] uppercase tracking-widest"
+            >
+              Clear
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setPickerOpen(true)}
+            className="w-full min-h-[48px] rounded-xl border border-[#d4af37]/60 px-5 text-sm tracking-widest uppercase text-[#d4af37] hover:bg-[#d4af37]/10"
+          >
+            Choose from your uploads
+          </button>
+        )}
+      </div>
+
+      {pickerOpen && (
+        <ContentPicker
+          accept={['audio']}
+          onSelect={chooseAmbience}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
 
       <h3 className="mt-8 text-sm tracking-[0.3em] uppercase text-[#8a7f66]">Before the stream exists — the rehearsal checklist</h3>
       <ul className="mt-3 space-y-2 text-sm text-[#a89a78] leading-relaxed list-disc pl-5">
