@@ -793,7 +793,7 @@ export default function MyriadPage() {
   if (view === 'atlas') {
     return (
       <div className="min-h-screen bg-black text-white select-none">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-6 sm:pt-10 pb-[max(3rem,env(safe-area-inset-bottom))]">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-6 sm:pt-10 pb-[max(5rem,env(safe-area-inset-bottom))]">
           <div className="border-l-2 border-cyan-400/80 pl-4 mb-2">
             <div className="text-[10px] sm:text-[11px] tracking-[0.3em] uppercase text-cyan-300/90">
               100 procedurally generated universes
@@ -1014,7 +1014,7 @@ export default function MyriadPage() {
 
       {/* desktop hint */}
       {!touchUI && (
-        <div className="absolute bottom-0 left-0 right-0 hidden md:flex justify-center pointer-events-none pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <div className="absolute bottom-0 left-0 right-0 hidden md:flex justify-center pointer-events-none pb-[max(5rem,env(safe-area-inset-bottom))]">
           <div className="text-[10px] tracking-[0.25em] uppercase text-white/40">
             WASD / arrows · R/F pitch · Shift boost · Space brake
             {universe.anomaly === 'wormhole' ? ' · fly into the ring to wake up somewhere else' : ''}

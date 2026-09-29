@@ -174,7 +174,7 @@ export default function MeaningOfLifePage() {
         .mol-overlay {
           position: absolute;
           left: 50%;
-          bottom: max(88px, env(safe-area-inset-bottom));
+          bottom: max(9.5rem, env(safe-area-inset-bottom));
           transform: translateX(-50%);
           width: min(92vw, 640px);
           text-align: center;
@@ -231,7 +231,7 @@ export default function MeaningOfLifePage() {
         .mol-nav {
           position: absolute;
           left: 50%;
-          bottom: max(20px, env(safe-area-inset-bottom));
+          bottom: max(5rem, env(safe-area-inset-bottom));
           transform: translateX(-50%);
           display: flex;
           align-items: center;
