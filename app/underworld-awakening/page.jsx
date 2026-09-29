@@ -321,7 +321,7 @@ export default function UnderworldAwakening() {
         <div
           style={{
             position: "absolute",
-            bottom: 26,
+            bottom: "calc(5rem + env(safe-area-inset-bottom))",
             left: 0,
             right: 0,
             display: "flex",
@@ -363,7 +363,8 @@ export default function UnderworldAwakening() {
             flexDirection: "column",
             alignItems: "center",
             justifyContent: "flex-end",
-            paddingBottom: "9vh",
+            // stays above the persistent bottom radio bar on small viewports
+            paddingBottom: "max(9vh, calc(5rem + env(safe-area-inset-bottom)))",
             textAlign: "center",
             pointerEvents: "none",
           }}

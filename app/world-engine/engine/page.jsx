@@ -35,7 +35,7 @@ export default function EnginePage() {
         </div>
       </div>
 
-      <div className="pointer-events-auto absolute bottom-6 left-6 z-20">
+      <div className="pointer-events-auto absolute bottom-[calc(5rem+env(safe-area-inset-bottom))] left-6 z-20">
         <NeuralBackpack />
       </div>
 

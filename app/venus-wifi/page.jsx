@@ -31,7 +31,7 @@ const CSS = `
 .vw-btn.wide { width: 100%; }
 .vw-mapwrap { position: relative; flex: 1; min-height: 0; background: #050510; }
 .vw-mapwrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
-.vw-readout { position: absolute; left: 10px; bottom: 10px; z-index: 62; background: rgba(7,7,15,0.85);
+.vw-readout { position: absolute; left: 10px; bottom: calc(5rem + 10px + env(safe-area-inset-bottom)); z-index: 62; background: rgba(7,7,15,0.85);
   border: 1px solid rgba(0,243,255,0.5); padding: 10px 12px; font-size: 0.78rem; color: #00f3ff;
   line-height: 1.7; max-width: 72vw; }
 .vw-vault { position: absolute; right: 10px; top: 10px; z-index: 62; width: min(260px, 70vw);
@@ -48,7 +48,7 @@ const CSS = `
 .vw-addbar { display: flex; gap: 8px; margin-top: 4px; }
 .vw-addbar input { flex: 1; background: #07070f; border: 1px solid rgba(0,243,255,0.4); color: #fff;
   padding: 10px; font-family: inherit; font-size: 0.8rem; min-width: 0; }
-.vw-toast { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 63;
+.vw-toast { position: absolute; bottom: calc(5rem + 16px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); z-index: 63;
   background: rgba(0,243,255,0.92); color: #000; font-weight: 700; padding: 10px 18px;
   font-size: 0.8rem; white-space: nowrap; max-width: 92vw; overflow: hidden; text-overflow: ellipsis; }
 `;

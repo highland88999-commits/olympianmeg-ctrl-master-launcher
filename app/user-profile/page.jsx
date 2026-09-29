@@ -22,7 +22,7 @@ const CSS = `
 .uv-hero canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 .uv-fade { position: absolute; inset: 0;
   background: linear-gradient(to bottom, rgba(5,5,8,0.2), #050508 100%); }
-.uv-wrap { width: 100%; max-width: 1100px; padding: 0 1.25rem 6rem; z-index: 10; margin-top: -60px;
+.uv-wrap { width: 100%; max-width: 1100px; padding: 0 1.25rem calc(10rem + env(safe-area-inset-bottom)); z-index: 10; margin-top: -60px;
   display: flex; flex-direction: column; gap: 2rem; }
 .uv-card { background: rgba(12,12,18,0.92); backdrop-filter: blur(10px);
   border: 1px solid rgba(8,247,254,0.3); border-radius: 8px; padding: 2rem;
@@ -75,10 +75,10 @@ const CSS = `
 .uv-add { display: grid; grid-template-columns: 2fr 2fr 1fr auto; gap: 10px; align-items: end; }
 .uv-add label { display: block; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px;
   color: #888; margin-bottom: 6px; }
-.uv-foot { position: fixed; bottom: 0; left: 0; width: 100%; background: rgba(5,5,8,0.95);
+.uv-foot { position: fixed; bottom: calc(5rem + env(safe-area-inset-bottom)); left: 0; width: 100%; background: rgba(5,5,8,0.95);
   border-top: 1px solid rgba(8,247,254,0.2); padding: 10px 16px max(10px, env(safe-area-inset-bottom)); display: flex; justify-content: center;
   align-items: center; gap: 16px; font-size: 0.75rem; color: #888; z-index: 50; }
-.uv-toast { position: fixed; bottom: 70px; left: 50%; transform: translateX(-50%); background: rgba(8,247,254,0.92);
+.uv-toast { position: fixed; bottom: calc(11rem + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); background: rgba(8,247,254,0.92);
   color: #000; font-weight: 700; padding: 10px 18px; border-radius: 8px; font-size: 0.85rem; z-index: 60; }
 @media (max-width: 700px) {
   .uv-card { flex-direction: column; align-items: center; text-align: center; padding: 1.5rem; }

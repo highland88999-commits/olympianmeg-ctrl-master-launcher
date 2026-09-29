@@ -266,7 +266,7 @@ export default function ZeusVHadesPage() {
           <button
             onClick={doBoost}
             disabled={!meterReady}
-            className={`absolute bottom-8 right-4 z-30 w-20 h-20 rounded-full font-black text-sm tracking-wider border-2 transition-all ${
+            className={`absolute bottom-[calc(5rem+env(safe-area-inset-bottom))] right-4 z-30 w-20 h-20 rounded-full font-black text-sm tracking-wider border-2 transition-all ${
               meterReady
                 ? 'bg-cyan-400/90 border-cyan-200 text-black'
                 : 'bg-black/60 border-zinc-700 text-zinc-500'

@@ -221,7 +221,7 @@ const styles = {
   title: { margin: 0, fontSize: 22, fontWeight: 800, letterSpacing: 4, textTransform: "uppercase", color: "#bfe9ff" },
   hud: { marginTop: 6, fontSize: 14, fontWeight: 600, letterSpacing: 1, color: "#8fd8ff" },
   hint: { marginTop: 4, fontSize: 13, opacity: 0.7 },
-  dock: { position: "absolute", left: 12, right: 12, bottom: "max(12px, env(safe-area-inset-bottom))", zIndex: 5, display: "flex", gap: 12, alignItems: "center", justifyContent: "center", background: "rgba(6,10,20,.72)", border: "1px solid rgba(140,210,255,.25)", borderRadius: 14, padding: "10px 14px", backdropFilter: "blur(8px)", flexWrap: "wrap" },
+  dock: { position: "absolute", left: 12, right: 12, bottom: "calc(5rem + env(safe-area-inset-bottom))", zIndex: 5, display: "flex", gap: 12, alignItems: "center", justifyContent: "center", background: "rgba(6,10,20,.72)", border: "1px solid rgba(140,210,255,.25)", borderRadius: 14, padding: "10px 14px", backdropFilter: "blur(8px)", flexWrap: "wrap" },
   btn: { background: "rgba(255,255,255,.08)", color: "#fff", border: "1px solid rgba(255,255,255,.25)", borderRadius: 8, padding: "8px 12px", fontSize: 13, cursor: "pointer" },
   row: { display: "flex", alignItems: "center", gap: 8, fontSize: 13 },
   range: { width: 150, accentColor: "#6fd2ff" },

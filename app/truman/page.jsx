@@ -283,8 +283,8 @@ export default function TrumanPage() {
             })}
           </div>
 
-          {/* TIME CONTROLS */}
-          <div style={{ position: 'absolute', bottom: 16, left: 16, right: 16, zIndex: 100, display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', justifyContent: 'center' }}>
+          {/* TIME CONTROLS — raised above the persistent bottom radio bar */}
+          <div style={{ position: 'absolute', bottom: 'calc(5rem + env(safe-area-inset-bottom))', left: 16, right: 16, zIndex: 100, display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', justifyContent: 'center' }}>
             <button style={btn} onClick={() => setPlaying((p) => !p)} aria-label={playing ? 'Pause time' : 'Resume time'}>
               {playing ? '❚❚ PAUSE' : '▶ RUN'}
             </button>
