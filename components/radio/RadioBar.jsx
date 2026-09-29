@@ -4,8 +4,8 @@
 // Three states, one paradigm:
 //   COLLAPSED (default) — slim bottom bar: current track + play/pause + next.
 //                         One tap on the track expands the library.
-//   EXPANDED            — station library opens UPWARD above the bar as a
-//                         scrollable sheet (bottom-sheet behavior on mobile):
+//   EXPANDED            — radio library (station + Full Vault) opens UPWARD above
+//                         the bar as a scrollable sheet (bottom-sheet behavior on mobile):
 //                         tap any song to play it; full transport (previous,
 //                         play/pause, next), shuffle toggle (on by default),
 //                         the official Spotify player, and the deep link.
@@ -23,13 +23,14 @@
 
 'use client';
 
+import { useState } from 'react';
 import {
   Play, Pause, SkipBack, SkipForward, Shuffle, Dices, ChevronDown,
   Minus, Radio, ExternalLink, Music2, ListMusic,
 } from 'lucide-react';
 import { useRadio } from './RadioProvider';
 import SpotifyEmbed from './SpotifyEmbed';
-import { sourceLabel } from '@/lib/radio/station';
+import { sourceLabel, VAULT, vaultReady } from '@/lib/radio/station';
 
 const iconBtn =
   'rounded-full p-2 text-white/80 transition-colors motion-reduce:transition-none hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-300';
@@ -110,6 +111,28 @@ function TransportRow({ big = false }) {
 
 function LibrarySheet() {
   const { station, queue, index, playAt, contributions, setExpanded, setMinimized } = useRadio();
+  // Library section: the radio library is two playlists — the station and the
+  // Full Vault. 'everything' shows the playback queue in order; the other two
+  // group by source, plain-English.
+  const [section, setSection] = useState('everything');
+  const stationCount = queue.filter((t) => t.source === 'station').length;
+  const vaultCount = queue.filter((t) => t.source === 'vault').length;
+  const visible = queue
+    .map((t, i) => ({ t, i }))
+    .filter(({ t }) => section === 'everything' || t.source === section);
+
+  const pill = (key, label) => (
+    <button
+      key={key}
+      type="button"
+      onClick={() => setSection(key)}
+      aria-pressed={section === key}
+      className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors motion-reduce:transition-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-300 ${section === key ? 'bg-teal-300 text-black' : 'bg-white/10 text-white/75 hover:bg-white/15 hover:text-white'}`}
+    >
+      {label}
+    </button>
+  );
+
   return (
     <div className="flex min-h-0 flex-col">
       {/* Mobile bottom-sheet handle — tap to collapse */}
@@ -163,7 +186,7 @@ function LibrarySheet() {
 
       <div className="mt-2 flex items-center justify-between px-3">
         <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-white/70">
-          <ListMusic size={13} aria-hidden="true" /> Station library
+          <ListMusic size={13} aria-hidden="true" /> Radio library
         </h3>
         {contributions.length > 0 && (
           <span className="text-[11px] text-white/50">
@@ -172,11 +195,25 @@ function LibrarySheet() {
         )}
       </div>
 
-      <div className="custom-scrollbar mt-1 min-h-0 flex-1 overflow-y-auto px-1.5" role="listbox" aria-label="Station library — tap a song to play it">
-        {queue.map((t, i) => (
-          <TrackRow key={`${t.uri}-${i}`} track={t} index={i} active={i === index} onPlay={playAt} />
-        ))}
+      <div className="flex gap-1.5 px-3 pt-2" role="group" aria-label="Choose library section">
+        {pill('everything', 'Everything')}
+        {pill('station', `Station (${stationCount})`)}
+        {pill('vault', vaultCount > 0 ? `Full Vault (${vaultCount})` : 'Full Vault — coming soon')}
       </div>
+
+      {section === 'vault' && vaultCount === 0 ? (
+        <p className="px-6 py-8 text-center text-sm leading-relaxed text-white/60">
+          The Full Vault playlist is still being built from Merlin&apos;s other music
+          libraries. It&apos;ll show up here on its own when it&apos;s ready —
+          nothing to do.
+        </p>
+      ) : (
+        <div className="custom-scrollbar mt-1 min-h-0 flex-1 overflow-y-auto px-1.5" role="listbox" aria-label="Radio library — tap a song to play it">
+          {visible.map(({ t, i }) => (
+            <TrackRow key={`${t.uri}-${i}`} track={t} index={i} active={i === index} onPlay={playAt} />
+          ))}
+        </div>
+      )}
 
       <div className="px-3 pb-1 pt-2">
         <a
@@ -187,8 +224,18 @@ function LibrarySheet() {
         >
           <ExternalLink size={15} aria-hidden="true" /> Open “{station.name}” in Spotify
         </a>
+        {vaultReady() && VAULT.openUrl && (
+          <a
+            href={VAULT.openUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-4 py-2.5 text-sm font-semibold text-white transition-colors motion-reduce:transition-none hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
+          >
+            <ExternalLink size={15} aria-hidden="true" /> Open “{VAULT.name}” in Spotify
+          </a>
+        )}
         <p className="mt-1.5 text-center text-[11px] text-white/45">
-          Want to add tracks? The playlist accepts collaborators — Merlin enables that in the Spotify app.
+          Want to add tracks? The playlists accept collaborators — Merlin enables that in the Spotify app.
         </p>
       </div>
     </div>

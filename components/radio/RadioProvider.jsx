@@ -16,6 +16,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import {
   STATION,
   STATION_TRACKS,
+  VAULT_TRACKS,
   buildQueue,
   createContributionStore,
   nextIndex,
@@ -77,6 +78,7 @@ export function RadioProvider({ children }) {
   const rebuildQueue = useCallback((nextShuffle, keepUri) => {
     const q = buildQueue({
       shuffle: nextShuffle,
+      vaultTracks: VAULT_TRACKS,
       contributions: contributionStore.allTracks(),
     });
     let startAt = 0;

@@ -8,6 +8,8 @@ import assert from 'node:assert/strict';
 import {
   STATION,
   STATION_TRACKS,
+  VAULT,
+  VAULT_TRACKS,
   buildQueue,
   createContributionStore,
   isValidModuleId,
@@ -16,6 +18,7 @@ import {
   prevIndex,
   shuffleTracks,
   sourceLabel,
+  vaultReady,
 } from '../lib/radio/station.js';
 
 import {
@@ -135,6 +138,54 @@ test('shuffle shuffles each block within itself, station block stays first', () 
   const stationUris = new Set(STATION_TRACKS.map((t) => t.uri));
   assert.ok(q.slice(0, 10).every((t) => stationUris.has(t.uri)), 'station block first');
   assert.ok(q.slice(10).every((t) => t.source === 'module'), 'encore block last');
+});
+
+// ---------- Full Vault (second playlist) ----------
+
+const FAKE_VAULT = [
+  { uri: 'spotify:track:EEEEEEEEEEEEEEEEEEEEEE', title: 'Vault One', artist: 'Vault', durationMs: 200000, explicit: false, openUrl: 'https://open.spotify.com/track/EEEEEEEEEEEEEEEEEEEEEE' },
+  { uri: 'spotify:track:FFFFFFFFFFFFFFFFFFFFFF', title: 'Vault Two', artist: 'Vault', durationMs: 210000, explicit: false, openUrl: 'https://open.spotify.com/track/FFFFFFFFFFFFFFFFFFFFFF' },
+];
+
+test('vault is pending until its URI arrives — never faked', () => {
+  assert.equal(VAULT.status, 'pending');
+  assert.equal(VAULT.playlistId, null);
+  assert.equal(VAULT.playlistUri, null);
+  assert.deepEqual(VAULT_TRACKS, []);
+  assert.equal(vaultReady(), false);
+  assert.match(VAULT.name, /Full Vault/);
+});
+
+test('empty vault degrades to the station alone', () => {
+  const q = buildQueue({ shuffle: true, vaultTracks: [], rng: seeded(11) });
+  assert.equal(q.length, 10);
+  assert.ok(q.every((t) => t.source === 'station'));
+});
+
+test('shuffle runs ACROSS station + vault as one pool', () => {
+  const q = buildQueue({ shuffle: true, vaultTracks: FAKE_VAULT, rng: seeded(21) });
+  assert.equal(q.length, 12);
+  const uris = q.map((t) => t.uri);
+  // Same full set: nothing lost, nothing invented.
+  assert.deepEqual(uris.slice().sort(), [...STATION_TRACKS.map((t) => t.uri), ...FAKE_VAULT.map((t) => t.uri)].sort());
+  // Truly interleaved: a vault track appears inside the station run (seeded, deterministic).
+  const firstVaultAt = q.findIndex((t) => t.source === 'vault');
+  assert.ok(firstVaultAt > 0 && firstVaultAt < 11, 'vault interleaved across the pool');
+  assert.equal(sourceLabel(q[firstVaultAt]), 'From the Full Vault playlist');
+  assert.equal(q[firstVaultAt].moduleName, 'Full Vault');
+});
+
+test('shuffle:false keeps station order, then vault order, then contributions', () => {
+  const store = createContributionStore();
+  store.contribute('nova', 'NOVA', [
+    { uri: 'spotify:track:AAAAAAAAAAAAAAAAAAAAAA', title: 'N', artist: 'N' },
+  ]);
+  const q = buildQueue({ shuffle: false, vaultTracks: FAKE_VAULT, contributions: store.allTracks() });
+  assert.deepEqual(q.slice(0, 10).map((t) => t.uri), STATION_TRACKS.map((t) => t.uri));
+  assert.deepEqual(q.slice(10, 12).map((t) => t.uri), FAKE_VAULT.map((t) => t.uri));
+  assert.equal(q[12].source, 'module');
+  // Merlin's station order is byte-for-byte his curation even with a vault present.
+  assert.equal(q[0].title, 'Next Episode - HEDEGAARD Instrumental Remix');
 });
 
 // ---------- contribution store ----------
