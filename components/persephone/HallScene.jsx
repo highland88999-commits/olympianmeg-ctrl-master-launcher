@@ -11,10 +11,35 @@
 
 'use client';
 
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { Html, useReducedMotion } from '@react-three/drei';
+import { Html } from '@react-three/drei';
+
+// Local reduced-motion hook. @react-three/drei does NOT export
+// useReducedMotion (importing it yields undefined and crashes the page at
+// runtime while the production build stays green), so we read the media
+// query ourselves. HallScene only ever mounts client-side (ssr: false),
+// but the hook stays guarded anyway.
+function useReducedMotion() {
+  const [reduced, setReduced] = useState(false);
+  useEffect(() => {
+    try {
+      const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+      setReduced(!!mq.matches);
+      const onChange = (e) => setReduced(!!e.matches);
+      if (typeof mq.addEventListener === 'function') mq.addEventListener('change', onChange);
+      else if (typeof mq.addListener === 'function') mq.addListener(onChange);
+      return () => {
+        if (typeof mq.removeEventListener === 'function') mq.removeEventListener('change', onChange);
+        else if (typeof mq.removeListener === 'function') mq.removeListener(onChange);
+      };
+    } catch {
+      /* old browsers / SSR: motion stays on */
+    }
+  }, []);
+  return reduced;
+}
 
 // Deterministic placement so avatars don't jump between polls.
 function hashStr(s) {
