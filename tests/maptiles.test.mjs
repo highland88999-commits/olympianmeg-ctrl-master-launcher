@@ -42,8 +42,8 @@ const okJson = (obj, status = 200) => ({
 
 // --- session request construction ---------------------------------------
 const req = buildSessionRequest('KEY123');
-t('session URL is the 3D-tiles sessions endpoint',
-  req.url === 'https://tile.googleapis.com/v1/3dtiles/sessions?key=KEY123');
+t('session URL is the Map Tiles createSession endpoint',
+  req.url === 'https://tile.googleapis.com/v1/createSession?key=KEY123');
 t('session request is a POST', req.options.method === 'POST');
 t('session request sends the key referrer (HTTP-referrer-restricted key)',
   req.options.headers.Referer === 'https://nexus-phi-taupe.vercel.app/');

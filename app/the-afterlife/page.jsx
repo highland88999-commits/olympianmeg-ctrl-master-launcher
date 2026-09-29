@@ -2,6 +2,7 @@
 
 import { useReducer, useRef, useEffect } from 'react';
 import { SCENES, journeyReducer, initialJourney, isFinalScene } from '../../lib/afterlife/journey.mjs';
+import PassageLink from '@/components/styx/PassageLink';
 
 // ---------- deterministic rng ----------
 function hashStr(s) {
@@ -189,6 +190,7 @@ function SceneCanvas({ scene }) {
 function Gatekeeper({ onBegin }) {
   return (
     <>
+    <PassageLink />
     <div onClick={onBegin} role="button" tabIndex={0}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onBegin(); }}
       aria-label="Enter Elysium"
