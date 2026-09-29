@@ -5,6 +5,7 @@ import {
   mulberry32, depthForSlider, explorerZone, ISLAND,
   spawnBubble, stepBubbles, spawnFish, stepFish, SPECS,
 } from "./engine";
+import RenewalPlanBadge from "@/components/RenewalPlanBadge";
 
 /**
  * Atlantis — the Olympus Anchor macro-engineering prospectus as an
@@ -252,6 +253,7 @@ export default function AtlantisPage() {
         <header style={styles.head}>
           <h1 style={styles.title}>ATLANTIS</h1>
           <p style={styles.tag}>Olympus Anchor · 5-Kilometer Macro-Engineering Prospectus</p>
+          <div style={{ marginTop: 8 }}><RenewalPlanBadge nodeId="node-7" /></div>
         </header>
 
         <div style={styles.heroFrame}>

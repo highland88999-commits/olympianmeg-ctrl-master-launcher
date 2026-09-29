@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import RenewalPlanBadge from "@/components/RenewalPlanBadge";
 import {
   CITIES,
   latLonToVec,
@@ -400,6 +401,7 @@ export default function OlympusAetherisPage() {
       <div className="aeth-hud">
         <h1>OLYMPUS AETHERIS-7</h1>
         <p>Global Atmospheric Network · {built.size}/{CITIES.length} nodes online</p>
+        <RenewalPlanBadge nodeId="node-2" />
       </div>
 
       {selected && weather && (
