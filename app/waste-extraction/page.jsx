@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { FEEDS, getFeed, makeRng, feedParams } from './feeds.js';
+import RenewalPlanBadge from '@/components/RenewalPlanBadge';
 
 const CSS = `
 .wx-mono { font-family: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace; }
@@ -209,6 +210,7 @@ export default function WasteExtractionPage() {
           HOLOFRAME NEXUS
         </div>
         <div className="text-[10px] tracking-[0.35em] text-cyan-300/60 mt-1">WASTE EXTRACTION // SIGNAL VIEWPORT</div>
+        <div className="flex justify-center"><RenewalPlanBadge nodeId="node-5" /></div>
       </header>
 
       <main className="flex-1 flex flex-col items-center px-4 pb-10 w-full max-w-5xl mx-auto">

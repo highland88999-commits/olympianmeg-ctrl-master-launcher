@@ -740,13 +740,23 @@ function NexusHub() {
         <EntranceSequence onDone={() => setShowIntro(false)} />
       )}
       {(user || cloudOffline) && !showIntro && (appState === 'hub_intro' || appState === 'hub_freeroam') && (
-        <button
-          onClick={() => { fx.tap(); setShowIntro(true); }}
-          aria-label="Replay intro"
-          className="absolute top-5 left-5 z-50 px-4 py-2 text-[10px] font-bold tracking-[0.2em] uppercase text-zinc-400 border border-zinc-800 rounded-full bg-zinc-950/80 backdrop-blur-md hover:text-white hover:border-zinc-500 transition-all ui-element pointer-events-auto"
-        >
-          ↺ INTRO
-        </button>
+        <div className="absolute top-5 left-5 z-50 flex flex-col gap-2 ui-element pointer-events-auto">
+          <button
+            onClick={() => { fx.tap(); setShowIntro(true); }}
+            aria-label="Replay intro"
+            className="px-4 py-2 text-[10px] font-bold tracking-[0.2em] uppercase text-zinc-400 border border-zinc-800 rounded-full bg-zinc-950/80 backdrop-blur-md hover:text-white hover:border-zinc-500 transition-all"
+          >
+            ↺ INTRO
+          </button>
+          {/* Merlin's written product roadmap — the 8-node Renewal Plan timeline. */}
+          <button
+            onClick={() => { fx.tap(); router.push('/renewal-plan'); }}
+            aria-label="Open the Renewal Plan timeline"
+            className="px-4 py-2 text-[10px] font-bold tracking-[0.2em] uppercase text-teal-300/80 border border-teal-500/30 rounded-full bg-zinc-950/80 backdrop-blur-md hover:text-teal-100 hover:border-teal-400/60 transition-all"
+          >
+            ◈ RENEWAL PLAN
+          </button>
+        </div>
       )}
       
       {(user || cloudOffline) && (appState === 'hub_intro' || appState === 'hub_freeroam') && (

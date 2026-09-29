@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import PlanViewer from './plan-viewer';
 import DiagnosticConsole from './console';
+import RenewalPlanBadge from '@/components/RenewalPlanBadge';
 
 export default function AetherisPage() {
   const [tab, setTab] = useState('plan');
@@ -17,6 +18,7 @@ export default function AetherisPage() {
             The outdoor air-purification program: the business plan for the ET-GAP-700 breathing towers,
             and an interactive simulation console for a fictional UNIT_07.
           </p>
+          <RenewalPlanBadge nodeId="node-1" />
         </header>
 
         <div className="flex gap-2 mb-6" role="tablist" aria-label="Aetheris views">

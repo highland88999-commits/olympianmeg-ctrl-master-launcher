@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createScene, HOTSPOTS, STAGES, ACCENT, timeLabel, timeString } from "./scene";
+import RenewalPlanBadge from "@/components/RenewalPlanBadge";
 
 export default function MordorSmeltingPage() {
   const canvasRef = useRef(null);
@@ -64,6 +65,7 @@ export default function MordorSmeltingPage() {
         <div className="kicker">ARGUS // Observatory</div>
         <h1>MORDOR SMELTING</h1>
         <div className="sub">The coastal foundry that turns the world's waste into Karbonite. Drag to pan, scroll or pinch to zoom, tap a marker for intel.</div>
+        <RenewalPlanBadge nodeId="node-6" />
       </header>
 
       <div className="stage">
