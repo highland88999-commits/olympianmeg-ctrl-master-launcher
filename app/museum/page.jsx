@@ -4,7 +4,13 @@
 // Gallery wing (searchable, series-filtered grid + lightbox), Films wing
 // (concept videos), and Concepts wing (curated highlights from the
 // 131-concept catalog, with status labels). Kept pieces persist in
-// localStorage only. No telemetry, no external requests.
+// localStorage only. No telemetry.
+//
+// Gallery images are pay-per-download: C$1.00 = 10 credits, 1 credit =
+// 1 download with a reuse license. Purchases and redemptions flow through
+// /api/gallery/* (signed-in users only). Previews are watermarked and the
+// UI offers no direct file URLs; full files are served only through
+// signed, expiring download tokens after a credit is redeemed.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -13,6 +19,8 @@ import {
   conceptsByStatus, searchConcepts,
   loadKept, saveKept, toggleKept,
 } from '@/lib/museum';
+import { LICENSE_TEXT, creditsLabel } from '@/lib/gallery';
+import { supabase } from '@/lib/supabase';
 import { fx, unlockFx } from '@/lib/fx';
 
 const STATUS_COLORS = {
@@ -92,6 +100,109 @@ export default function MuseumPage() {
 
   const item = lightbox != null ? visibleItems[lightbox] : null;
 
+  // --- Pay-per-download: credit balance + purchase/redeem flows ---
+  const [credits, setCredits] = useState(null); // null = unknown (signed out or unconfigured)
+  const [creditBusy, setCreditBusy] = useState(null); // 'buying' | 'redeeming' | null
+  const [creditMsg, setCreditMsg] = useState('');
+
+  const loadCredits = useCallback(async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) { setCredits(null); return; }
+      const res = await fetch('/api/gallery/credits', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (!res.ok) { setCredits(null); return; }
+      const d = await res.json();
+      setCredits(typeof d.balance === 'number' ? d.balance : 0);
+    } catch { setCredits(null); }
+  }, []);
+
+  useEffect(() => {
+    loadCredits();
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const g = params.get('gallery');
+      if (g === 'credits-ok') {
+        setCreditMsg('Payment received — your 10 download credits are being added. Refreshing…');
+        const t = setTimeout(loadCredits, 3000); // the webhook credits the account a moment later
+        params.delete('gallery');
+        window.history.replaceState({}, '', window.location.pathname);
+        return () => clearTimeout(t);
+      }
+      if (g === 'credits-cancelled') {
+        setCreditMsg('Checkout cancelled — no charge, no credits.');
+        params.delete('gallery');
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    } catch {}
+  }, [loadCredits]);
+
+  const buyCredits = useCallback(async () => {
+    setCreditBusy('buying');
+    setCreditMsg('');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        setCreditMsg('Sign in to buy download credits.');
+        setCreditBusy(null);
+        return;
+      }
+      const res = await fetch('/api/gallery/checkout', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const d = await res.json();
+      if (d.url) { window.location.href = d.url; return; }
+      setCreditMsg(d.error || 'Checkout is not available right now.');
+    } catch {
+      setCreditMsg('Checkout is not available right now.');
+    }
+    setCreditBusy(null);
+  }, []);
+
+  const redeemDownload = useCallback(async (itemId) => {
+    setCreditBusy('redeeming');
+    setCreditMsg('');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        setCreditMsg('Sign in to download — downloads cost 1 credit ($0.10) each.');
+        setCreditBusy(null);
+        return;
+      }
+      const res = await fetch('/api/gallery/redeem', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ itemId, idemKey: `${itemId}-${Date.now()}` }),
+      });
+      const d = await res.json();
+      if (d.downloadUrl) {
+        if (typeof d.balanceAfter === 'number') setCredits(d.balanceAfter);
+        try { fx.checkoutConfirm(); } catch {}
+        window.location.href = d.downloadUrl; // signed, expiring attachment download
+        return;
+      }
+      setCreditMsg(d.error || 'Could not redeem your download.');
+    } catch {
+      setCreditMsg('Could not redeem your download. Please try again.');
+    }
+    setCreditBusy(null);
+  }, []);
+
+  // Image protection: previews never offer a download path in the UI, and
+  // OS-level gestures are suppressed. Honest note: nothing on a website can
+  // stop a phone's own screenshot/recording — the burned-in file watermark
+  // (see scripts) is the real protection; these handlers are the deterrent.
+  const protectProps = {
+    onContextMenu: (e) => e.preventDefault(),
+    onDragStart: (e) => e.preventDefault(),
+    draggable: false,
+  };
+
   return (
     <div className="museum-page">
       <header className="museum-head">
@@ -128,6 +239,23 @@ export default function MuseumPage() {
           aria-label="Search"
         />
         {tab === 'gallery' && (
+          <div className="credit-bar" aria-label="Download credits">
+            <span className="credit-chip" title="Your download credits">
+              ⚡ {credits == null ? '—' : creditsLabel(credits)}
+            </span>
+            <button
+              className="credit-buy"
+              onClick={buyCredits}
+              disabled={creditBusy === 'buying'}
+            >
+              {creditBusy === 'buying' ? 'Opening checkout…' : 'Get credits · $1 = 10 downloads'}
+            </button>
+          </div>
+        )}
+        {tab === 'gallery' && creditMsg && (
+          <p className="credit-msg" role="status">{creditMsg}</p>
+        )}
+        {tab === 'gallery' && (
           <div className="chip-row" role="group" aria-label="Filter by series">
             <button className={series === 'all' ? 'chip active' : 'chip'} onClick={() => setSeries('all')}>All</button>
             <button className={series === 'kept' ? 'chip active' : 'chip'} onClick={() => setSeries('kept')}>Kept ♥</button>
@@ -163,8 +291,9 @@ export default function MuseumPage() {
                 key={it.id} className="tile" onClick={() => openLightbox(idx)}
                 aria-label={`${it.title}${s ? ` — ${s.title}` : ''}`}
               >
-                <span className="tile-frame">
-                  <img src={it.src} alt={it.title} loading="lazy" />
+                <span className="tile-frame wm-wrap">
+                  <img src={it.src} alt={it.title} loading="lazy" {...protectProps} />
+                  <span className="wm-mark" aria-hidden="true">© Olympus Gallery</span>
                   {isKept && <span className="kept-dot" aria-hidden="true">♥</span>}
                 </span>
                 <span className="tile-title">{it.title}</span>
@@ -222,7 +351,10 @@ export default function MuseumPage() {
           <button className="lb-nav lb-prev" aria-label="Previous" onClick={(e) => { e.stopPropagation(); stepLightbox(-1); }}>‹</button>
           <button className="lb-nav lb-next" aria-label="Next" onClick={(e) => { e.stopPropagation(); stepLightbox(1); }}>›</button>
           <figure className="lb-figure" onClick={(e) => e.stopPropagation()}>
-            <img src={item.src} alt={item.title} />
+            <div className="lb-img-wrap wm-wrap">
+              <img src={item.src} alt={item.title} {...protectProps} />
+              <span className="wm-mark" aria-hidden="true">© Olympus Gallery</span>
+            </div>
             <figcaption className="lb-cap">
               <div className="lb-row">
                 <div>
@@ -230,15 +362,26 @@ export default function MuseumPage() {
                   <div className="lb-series">{seriesById(item.series)?.title}</div>
                   {item.blurb && <div className="lb-blurb">{item.blurb}</div>}
                 </div>
-                <button
-                  className={kept.includes(item.id) ? 'keep active' : 'keep'}
-                  aria-pressed={kept.includes(item.id)}
-                  aria-label={kept.includes(item.id) ? 'Remove from kept' : 'Keep this piece'}
-                  onClick={() => toggle(item.id)}
-                >
-                  ♥ Keep
-                </button>
+                <div className="lb-actions">
+                  <button
+                    className={kept.includes(item.id) ? 'keep active' : 'keep'}
+                    aria-pressed={kept.includes(item.id)}
+                    aria-label={kept.includes(item.id) ? 'Remove from kept' : 'Keep this piece'}
+                    onClick={() => toggle(item.id)}
+                  >
+                    ♥ Keep
+                  </button>
+                  <button
+                    className="dl-btn"
+                    onClick={() => redeemDownload(item.id)}
+                    disabled={creditBusy === 'redeeming'}
+                    title="Redeem 1 download credit ($0.10)"
+                  >
+                    {creditBusy === 'redeeming' ? 'Preparing…' : '⬇ Download · 1 credit'}
+                  </button>
+                </div>
               </div>
+              <p className="dl-license">{LICENSE_TEXT}</p>
               <div className="lb-count">{lightbox + 1} of {visibleItems.length}</div>
             </figcaption>
           </figure>
@@ -533,6 +676,78 @@ export default function MuseumPage() {
         .lb-next { right: 0.75rem; top: 50%; transform: translateY(-50%); }
         @media (prefers-reduced-motion: reduce) {
           .tile-frame img { transition: none; }
+        }
+        /* --- Pay-per-download commerce --- */
+        .wm-wrap {
+          user-select: none;
+          -webkit-user-select: none;
+          -webkit-touch-callout: none;
+        }
+        .wm-wrap img { -webkit-user-drag: none; }
+        .wm-mark {
+          position: absolute;
+          right: 0.45rem;
+          bottom: 0.45rem;
+          font-size: 0.58rem;
+          letter-spacing: 0.18em;
+          color: rgba(236, 231, 219, 0.8);
+          background: rgba(0, 0, 0, 0.45);
+          padding: 0.22rem 0.55rem;
+          border-radius: 0.25rem;
+          pointer-events: none;
+        }
+        .lb-img-wrap { position: relative; display: inline-block; max-width: 100%; }
+        .credit-bar {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 0.75rem;
+          flex-wrap: wrap;
+          margin: 0 0 1rem;
+        }
+        .credit-chip {
+          border: 1px solid rgba(201, 168, 106, 0.45);
+          color: #e9d9b8;
+          border-radius: 999px;
+          padding: 0.5rem 1rem;
+          font-size: 0.85rem;
+        }
+        .credit-buy {
+          background: #c9a86a;
+          border: none;
+          color: #0b0b0d;
+          font-weight: 600;
+          border-radius: 999px;
+          padding: 0.55rem 1.15rem;
+          font-size: 0.85rem;
+          cursor: pointer;
+        }
+        .credit-buy:disabled { opacity: 0.6; cursor: wait; }
+        .credit-msg {
+          text-align: center;
+          color: #c9a86a;
+          font-size: 0.85rem;
+          margin: -0.4rem 0 1rem;
+        }
+        .lb-actions { display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-end; }
+        .dl-btn {
+          background: #c9a86a;
+          border: none;
+          color: #0b0b0d;
+          font-weight: 600;
+          border-radius: 999px;
+          padding: 0.55rem 1.1rem;
+          font-size: 0.85rem;
+          cursor: pointer;
+          white-space: nowrap;
+        }
+        .dl-btn:disabled { opacity: 0.6; cursor: wait; }
+        .dl-license {
+          font-size: 0.72rem;
+          color: #8a8474;
+          line-height: 1.5;
+          margin: 0.7rem 0 0;
+          max-width: 34rem;
         }
       `}</style>
     </div>
