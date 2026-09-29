@@ -28,6 +28,7 @@ import { useMatchmaking } from '@/hooks/chess/useMatchmaking';
 
 // OASIS — universal multiplayer lobby (min-max participation, NPC backfill, bosses)
 import OasisLobby from '@/components/oasis/Lobby';
+import { fx, unlockFx } from '@/lib/fx';
 
 const PIECE_COMPONENTS = {
   pawn: Pawn,
@@ -230,7 +231,45 @@ export default function QuantumChess() {
     }
   }, [currentTurn, mode, isGameOver, pieces, isValidMove, executeMove]);
 
+  // --- game-feel FX ----------------------------------------------------------
+  // unlock on first gesture (deep links may land here without the hub)
+  useEffect(() => {
+    const unlock = () => unlockFx();
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
+  }, []);
+
+  // capture: a piece just died -> hit-lite
+  const aliveRef = useRef<Record<number, boolean>>({});
+  useEffect(() => {
+    let captured = false;
+    for (const p of pieces) {
+      if (p.alive === false && aliveRef.current[p.id] !== false) captured = true;
+      aliveRef.current[p.id] = p.alive;
+    }
+    if (captured) fx.hit();
+  }, [pieces]);
+
+  // check: soft chime + tick
+  useEffect(() => {
+    if (isCheck && !isGameOver) fx.checkpoint();
+  }, [isCheck, isGameOver]);
+
+  // checkmate / draw: full fanfare for a win, soft settle for a draw
+  const overFxRef = useRef(false);
+  useEffect(() => {
+    if (!isGameOver || overFxRef.current) return;
+    overFxRef.current = true;
+    if (winner && winner !== 'draw') fx.gameWin();
+    else fx.menuClose();
+  }, [isGameOver, winner]);
+
   const handleModeSelect = async (selectedMode: string, code: string | null = null) => {
+    fx.tap(); // mode confirmed
     if (selectedMode === 'oasis') { setOasisOpen(true); return; }
     setMode(selectedMode);
     if (selectedMode === 'host') { await hostMatch(); setMode('global'); }
@@ -376,7 +415,10 @@ export default function QuantumChess() {
               kingAsteroidTex={kingAsteroidTex}
               onClick={(e: any) => {
                 e.stopPropagation();
-                if (p.team === currentTurn) setSelectedPieceId(p.id);
+                if (p.team === currentTurn) {
+                  fx.tap(); // piece selected
+                  setSelectedPieceId(p.id);
+                }
               }}
             />
           );

@@ -6,42 +6,21 @@ import {
   DIFFICULTY_ORDER, DIFFICULTIES,
 } from './physics.js';
 import { drawScene } from './render.js';
+import { fx, unlockFx, setFxEnabled, isFxEnabled } from '@/lib/fx';
 
-// Tiny procedural sound engine — WebAudio oscillators, no audio files, no network.
+// Air-hockey feedback routes through the central FX library (lib/fx.js):
+// matched sound+haptic pairs, one launcher-wide "Sound & vibration" setting.
 function createSound() {
-  let ctx = null;
-  let muted = false;
-  function ensure() {
-    if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
-    if (ctx.state === 'suspended') ctx.resume();
-    return ctx;
-  }
-  function tone(freq, dur, type = 'sine', vol = 0.15, when = 0) {
-    if (muted) return;
-    try {
-      const ac = ensure();
-      const o = ac.createOscillator();
-      const g = ac.createGain();
-      o.type = type;
-      o.frequency.value = freq;
-      const t = ac.currentTime + when;
-      g.gain.setValueAtTime(vol, t);
-      g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-      o.connect(g).connect(ac.destination);
-      o.start(t);
-      o.stop(t + dur + 0.02);
-    } catch { /* audio unavailable — game still works */ }
-  }
   return {
-    unlock() { try { ensure(); } catch {} },
-    toggleMute() { muted = !muted; return muted; },
-    get muted() { return muted; },
-    hit() { tone(240, 0.07, 'square', 0.08); },
-    wall() { tone(170, 0.05, 'triangle', 0.06); },
-    goal() { tone(523, 0.12, 'sine', 0.16); tone(784, 0.16, 'sine', 0.16, 0.1); },
-    conceded() { tone(330, 0.14, 'sawtooth', 0.1); tone(220, 0.2, 'sawtooth', 0.1, 0.12); },
-    win() { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.22, 'sine', 0.16, i * 0.13)); },
-    lose() { [392, 311, 262, 196].forEach((f, i) => tone(f, 0.25, 'sawtooth', 0.1, i * 0.15)); },
+    unlock() { unlockFx(); },
+    toggleMute() { setFxEnabled(!isFxEnabled()); return !isFxEnabled(); },
+    get muted() { return !isFxEnabled(); },
+    hit() { fx.tap(); }, // mallet strikes puck: tiny tick
+    wall() { fx.tap(); }, // rail bounce: tiny tick
+    goal() { fx.checkpoint(); }, // player scores: soft chime + tick
+    conceded() { fx.checkpoint(); }, // AI scores: same chime, no shame
+    win() { fx.gameWin(); }, // match win: full fanfare
+    lose() { fx.menuClose(); }, // defeat: soft settle, no buzz-shame
   };
 }
 
@@ -68,6 +47,7 @@ export default function AirHockeyPage() {
     const g = gameRef.current;
     g.difficulty = diff;
     soundRef.current.unlock();
+    fx.tap(); // match confirmed
     g.start();
     setStarted(true);
     syncHud();
@@ -75,6 +55,7 @@ export default function AirHockeyPage() {
 
   // ---- main loop ----
   useEffect(() => {
+    setMuted(!isFxEnabled()); // mute button reflects the global FX setting
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     const game = gameRef.current;
@@ -253,7 +234,7 @@ export default function AirHockeyPage() {
                   key={d}
                   role="radio"
                   aria-checked={difficulty === d}
-                  onClick={() => setDifficulty(d)}
+                  onClick={() => { fx.tap(); setDifficulty(d); }}
                   className={`px-4 py-2 rounded font-bold uppercase text-sm tracking-wider border transition-all ${
                     difficulty === d
                       ? 'bg-cyan-500/30 border-cyan-400 text-white'

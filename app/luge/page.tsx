@@ -9,6 +9,7 @@ import * as THREE from 'three';
 import { supabase } from '@/lib/supabase';
 import { LUGE_COURSES, LUGE_SLEDS, LUGE_PREMIUM_IDS, LUGE_PREMIUM_COUNT } from '@/lib/luge_data';
 import GoldCheckoutOption from '@/components/economy/GoldCheckoutOption';
+import { fx, unlockFx } from '@/lib/fx';
 
 // ==========================================
 // 3D TRACK & PHYSICS ENGINE
@@ -282,6 +283,8 @@ export default function LugeEngine() {
 
   // Request iOS Gyroscope Permissions & Start Listener
   const requestTiltAccessAndStart = async () => {
+    unlockFx(); // starting is a gesture: make sure FX is live
+    fx.tap(); // ignition confirmed
     const start = () => {
       window.addEventListener('deviceorientation', handleOrientation);
       window.addEventListener('keydown', handleKeys);
@@ -334,14 +337,21 @@ export default function LugeEngine() {
 
   // Cleanup listeners on unmount
   useEffect(() => {
+    // FX system: unlock sound+haptics on the first gesture.
+    const unlock = () => unlockFx();
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
     return () => {
       window.removeEventListener('deviceorientation', handleOrientation);
       window.removeEventListener('keydown', handleKeys);
       window.removeEventListener('keyup', releaseKeys);
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
     };
   }, []);
 
   const handleFinish = () => {
+    fx.gameWin(); // crossed the finish line: full fanfare
     window.removeEventListener('deviceorientation', handleOrientation);
     window.removeEventListener('keydown', handleKeys);
     tiltData.current = { x: 0, y: 0 };

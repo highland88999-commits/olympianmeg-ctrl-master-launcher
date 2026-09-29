@@ -14,6 +14,7 @@ import {
 } from './orbits';
 import { createOrbitalRenderer } from './canvas';
 import { createPilot } from './game';
+import { fx, unlockFx } from '@/lib/fx';
 
 const FONT = "ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, monospace";
 
@@ -52,9 +53,15 @@ export default function LifePage() {
       });
       rendererRef.current.start();
     }
+    // FX system: unlock sound+haptics on the first gesture.
+    const unlock = () => unlockFx();
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
     return () => {
       if (pilotRef.current) pilotRef.current.dispose();
       if (rendererRef.current) rendererRef.current.dispose();
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
     };
   }, []);
 
@@ -63,6 +70,8 @@ export default function LifePage() {
   }, []);
 
   const startPilot = useCallback(() => {
+    unlockFx(); // starting is a gesture: make sure FX is live
+    fx.tap();
     if (pilotRef.current) pilotRef.current.start();
   }, []);
 

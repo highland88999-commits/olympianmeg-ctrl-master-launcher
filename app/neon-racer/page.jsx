@@ -13,7 +13,10 @@ import {
   WORLD,
 } from './game';
 import { createRenderer } from './render';
-import { createAudio } from './audio';
+import { fx, unlockFx, setFxEnabled, isFxEnabled } from '@/lib/fx';
+// Race feedback routes through the central FX library (lib/fx.js): matched
+// sound+haptic pairs, one launcher-wide "Sound & vibration" setting.
+// (The old bespoke ./audio.js synth is retired — left in place, unused.)
 
 function cssUnit(cw, ch) {
   return Math.min(cw, ch) / 2 / 11.5;
@@ -24,7 +27,7 @@ export default function NeonRacerPage() {
   const canvasRef = useRef(null);
   const gameRef = useRef(null);
   const rendererRef = useRef(null);
-  const audioRef = useRef(null);
+  // audioRef removed: race feedback now goes through lib/fx
   const keysRef = useRef(new Set());
   const dragRef = useRef(null);
   const reducedMotionRef = useRef(false);
@@ -53,8 +56,7 @@ export default function NeonRacerPage() {
     gameRef.current = game;
     const renderer = createRenderer(canvas, { reducedMotion: reducedMotionRef.current });
     rendererRef.current = renderer;
-    const audio = createAudio();
-    audioRef.current = audio;
+    setMuted(!isFxEnabled()); // mute button reflects the global FX setting
     renderer.resize();
 
     let raf = 0;
@@ -89,16 +91,16 @@ export default function NeonRacerPage() {
         updateGame(game, dt);
 
         for (const ev of drainEvents(game)) {
-          if (ev.type === 'shoot') audio.shoot();
-          else if (ev.type === 'explosion') audio.explosion();
-          else if (ev.type === 'pickup') audio.pickup();
-          else if (ev.type === 'warp') audio.warp();
+          if (ev.type === 'shoot') fx.shoot(); // laser: light zap + tick
+          else if (ev.type === 'explosion') fx.hit(); // ship destroyed: impact
+          else if (ev.type === 'pickup') fx.coin(); // pickup: bright chirp
+          else if (ev.type === 'warp') fx.checkpoint(); // warp gate: soft chime
           else if (ev.type === 'hit') {
-            audio.hit();
+            fx.hit(); // player hit: dull thud
             renderer.addShake(9);
-          } else if (ev.type === 'win') audio.win();
+          } else if (ev.type === 'win') fx.gameWin(); // run complete: fanfare
           else if (ev.type === 'lose') {
-            audio.lose();
+            fx.death(); // ship lost: long rumble
             renderer.addShake(12);
           }
         }
@@ -173,27 +175,25 @@ export default function NeonRacerPage() {
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('resize', onResize);
       renderer.dispose();
-      audio.dispose();
       gameRef.current = null;
       rendererRef.current = null;
-      audioRef.current = null;
     };
   }, []);
 
   const begin = () => {
     const game = gameRef.current;
-    const audio = audioRef.current;
     if (!game) return;
-    audio && audio.unlock();
+    unlockFx(); // starting is a gesture: make sure FX is live
+    fx.tap(); // run confirmed
     startGame(game);
     setFinalScore(0);
     setPhase('playing');
   };
 
   const toggleMute = () => {
-    const next = !muted;
-    setMuted(next);
-    audioRef.current && audioRef.current.setMuted(next);
+    const next = !isFxEnabled();
+    setFxEnabled(next);
+    setMuted(!next);
   };
 
   return (

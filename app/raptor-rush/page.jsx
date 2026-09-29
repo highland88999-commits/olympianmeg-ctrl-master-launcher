@@ -29,6 +29,7 @@ import {
 } from '@/lib/raptor-rush/storage';
 import OasisLobby from '@/components/oasis/Lobby';
 import { supabase } from '@/lib/supabase';
+import { fx, unlockFx } from '@/lib/fx';
 
 const BEST_KEY = 'raptor_rush_best';
 const NAME_KEY = 'raptor_rush_name';
@@ -45,6 +46,8 @@ export default function RaptorRushPage() {
   const phaseRef = useRef('ready');
   const modeRef = useRef('solo'); // solo | party
   const matchRef = useRef(null); // { kind:'party', roomCode }
+  // Previous-frame values for FX event edges (coin / hit / checkpoint / death).
+  const fxPrevRef = useRef({ prey: 0, hearts: 3, level: 0 });
 
   const [screen, setScreen] = useState('menu'); // menu | game
   const [phase, setPhase] = useState('ready'); // ready | running | over
@@ -80,12 +83,22 @@ export default function RaptorRushPage() {
     setMeters(distanceMeters(g));
     setHearts(g.hearts);
     setClock(timeLeft(g));
-    setIntensity(escalationAt(g.time).level);
+    const level = escalationAt(g.time).level;
+    setIntensity(level);
+    // --- game-feel FX edges -----------------------------------------------
+    const prev = fxPrevRef.current;
+    if (g.prey > prev.prey) fx.coin(); // rabbit eaten: bright pickup chirp
+    const died = g.hearts <= 0 && prev.hearts > 0;
+    if (g.hearts < prev.hearts && !died) fx.hit(); // rock hit: dull thud
+    if (level > prev.level) fx.checkpoint(); // escalation level up: soft chime
+    fxPrevRef.current = { prey: g.prey, hearts: g.hearts, level };
     if (g.phase !== phaseRef.current) {
       phaseRef.current = g.phase;
       setPhase(g.phase);
       if (g.phase === 'over') {
         setTimeUp(!!g.timedOut);
+        if (g.timedOut) fx.gameWin(); // party match ended on the clock: fanfare
+        else fx.death(); // 3 hits: the hunt is over
         if (g.score > bestRef.current) {
           bestRef.current = g.score;
           setBest(g.score);
@@ -99,6 +112,8 @@ export default function RaptorRushPage() {
   const begin = useCallback(() => {
     const g = gameRef.current;
     if (!g) return;
+    fx.tap(); // run confirmed
+    fxPrevRef.current = { prey: 0, hearts: 3, level: 0 };
     setNewBest(false);
     setSaved(false);
     setSaveNote('');
@@ -111,6 +126,7 @@ export default function RaptorRushPage() {
   }, [syncHud]);
 
   const startRun = useCallback((mode, partyRoom) => {
+    fx.tap(); // mode confirmed
     modeRef.current = mode;
     matchRef.current = partyRoom || null;
     setMatch(partyRoom || null);
@@ -147,6 +163,15 @@ export default function RaptorRushPage() {
       setBest(bestRef.current);
       setPlayerName(localStorage.getItem(NAME_KEY) || '');
     } catch { /* ignore */ }
+    // FX system: unlock sound+haptics on the first gesture (deep links may
+    // land here without passing through the hub).
+    const unlock = () => unlockFx();
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
   }, []);
 
   // ?code= deep link opens the lobby once the cloud is reachable.

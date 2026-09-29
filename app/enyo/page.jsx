@@ -24,6 +24,7 @@ import {
   skillByKey,
   hasLineOfSight,
 } from '@/lib/enyo-bots';
+import { fx, unlockFx, setFxEnabled, isFxEnabled } from '@/lib/fx';
 
 const TITLE = 'ENYO — Arena Shooter';
 const EYE = 1.65;
@@ -192,7 +193,8 @@ function collideCircle(pos, r, obstacles) {
 
 function createAudio() {
   let ctx = null;
-  let muted = false;
+  // Mute is global now (lib/fx "Sound & vibration" setting): the local synth
+  // only covers reload clicks; every combat event routes through fx pairs.
   function ensure() {
     if (!ctx) {
       try {
@@ -206,7 +208,7 @@ function createAudio() {
   }
   function noiseBurst(dur, freq, gain) {
     const ac = ensure();
-    if (!ac || muted) return;
+    if (!ac || !isFxEnabled()) return;
     const n = Math.floor(ac.sampleRate * dur);
     const buf = ac.createBuffer(1, n, ac.sampleRate);
     const d = buf.getChannelData(0);
@@ -223,7 +225,7 @@ function createAudio() {
   }
   function blip(freq, dur, gain, slideTo) {
     const ac = ensure();
-    if (!ac || muted) return;
+    if (!ac || !isFxEnabled()) return;
     const o = ac.createOscillator();
     o.type = 'square';
     o.frequency.setValueAtTime(freq, ac.currentTime);
@@ -256,11 +258,10 @@ function createAudio() {
       setTimeout(() => blip(560, 0.06, 0.2), 140);
     },
     toggleMute() {
-      muted = !muted;
-      return muted;
-    },
-    get muted() {
-      return muted;
+      // The mute button now drives the launcher-wide "Sound & vibration"
+      // setting (lib/fx); the page reflects it via isFxEnabled().
+      setFxEnabled(!isFxEnabled());
+      return !isFxEnabled();
     },
   };
 }
@@ -838,7 +839,7 @@ function createEngine(canvas, cfg, cb) {
     player.mag -= 1;
     player.shots += 1;
     audio.ensure();
-    audio.shot(player.weaponKey);
+    fx.shoot(player.weaponKey); // central FX: light zap + tick, throttled for automatics
 
     const moving =
       keys.has('w') || keys.has('a') || keys.has('s') || keys.has('d') || joy.active;
@@ -926,13 +927,14 @@ function createEngine(canvas, cfg, cb) {
     if (target.id === 'player') {
       if (!player.alive || player.protectT > 0) return;
       player.hp -= res.damage;
-      audio.hurt();
+      fx.hit(); // central FX: dull thud + medium buzz for damage taken
       if (!reduced) player.shake = Math.min(1, player.shake + 0.5);
       const ang = Math.atan2(bot.pos.x - player.pos.x, bot.pos.z - player.pos.z);
       cb.damageDir(ang - player.yaw);
       if (player.hp <= 0) {
         player.hp = 0;
         player.alive = false;
+        fx.death(); // central FX: descending tone + long rumble
         player.deaths += 1;
         player.respawnT = RESPAWN_DELAY;
         if (mode === 'tdm') redScore += 1;
@@ -1008,6 +1010,8 @@ function createEngine(canvas, cfg, cb) {
   function endGame(won, reason) {
     over = true;
     result = { won, reason };
+    if (won) fx.gameWin(); // central FX: full match-win fanfare
+    else fx.menuClose(); // defeat: a soft settle, no buzz-shame
     document.exitPointerLock?.();
     const acc = player.shots ? Math.round((player.hits / player.shots) * 100) : 0;
     cb.gameOver({
@@ -1392,12 +1396,20 @@ export default function EnyoPage() {
     try {
       setReduced(!!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
       setIsTouch('ontouchstart' in window || navigator.maxTouchPoints > 0);
+      setMuted(!isFxEnabled()); // mute button reflects the global FX setting
     } catch {
       /* defaults */
     }
+    // FX system: unlock sound+haptics on the first gesture (deep links may
+    // land here without passing through the hub).
+    const unlock = () => unlockFx();
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
     return () => {
       engineRef.current?.destroy();
       engineRef.current = null;
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
     };
   }, []);
 
@@ -1407,6 +1419,7 @@ export default function EnyoPage() {
   }, []);
 
   const deploy = useCallback(() => {
+    fx.tap(); // menu confirm: deploying into the arena
     destroyEngine();
     setFeed([]);
     setResult(null);
@@ -1460,6 +1473,7 @@ export default function EnyoPage() {
   }, [mapKey, mode, diffKey, reduced, destroyEngine, joy.active]);
 
   const exitToMenu = useCallback(() => {
+    fx.menuClose();
     destroyEngine();
     setPhase('menu');
     setHud(null);

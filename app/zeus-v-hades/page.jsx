@@ -13,7 +13,10 @@ import {
   updateRace,
 } from './race';
 import { createRenderer } from './render';
-import { createSfx } from './audio';
+import { fx, unlockFx, setFxEnabled, isFxEnabled } from '@/lib/fx';
+// Race feedback routes through the central FX library (lib/fx.js): matched
+// sound+haptic pairs, one launcher-wide "Sound & vibration" setting.
+// (The old bespoke ./audio.js sfx is retired — left in place, unused.)
 
 const DIFF_KEYS = Object.keys(DIFFICULTIES);
 
@@ -21,7 +24,6 @@ export default function ZeusVHadesPage() {
   const canvasRef = useRef(null);
   const raceRef = useRef(null);
   const rendererRef = useRef(null);
-  const sfxRef = useRef(null);
   const rafRef = useRef(0);
   const lastTRef = useRef(0);
   const hudTRef = useRef(0);
@@ -41,7 +43,8 @@ export default function ZeusVHadesPage() {
       typeof window !== 'undefined' &&
       window.matchMedia &&
       window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    sfxRef.current = createSfx();
+    // (race sfx retired: all feedback now goes through lib/fx)
+    setMuted(!isFxEnabled()); // mute button reflects the global FX setting
     return () => {
       cancelAnimationFrame(rafRef.current);
       if (rendererRef.current) rendererRef.current.dispose();
@@ -52,12 +55,12 @@ export default function ZeusVHadesPage() {
     const race = raceRef.current;
     if (!race) return;
     for (const e of race.events) {
-      if (e === 'soul') sfxRef.current.soul();
-      else if (e === 'bolt') sfxRef.current.bolt();
-      else if (e === 'boostReady') sfxRef.current.boostReady();
-      else if (e === 'boost') sfxRef.current.boost();
+      if (e === 'soul') fx.coin(); // soul pickup: bright chirp
+      else if (e === 'bolt') fx.coin(); // bolt pickup: bright chirp
+      else if (e === 'boostReady') fx.checkpoint(); // meter full: soft chime
+      else if (e === 'boost') fx.boost(); // boost: rising whoosh
       else if (e === 'hit') {
-        sfxRef.current.hit();
+        fx.hit(); // obstacle hit: dull thud
         if (rendererRef.current) rendererRef.current.shake();
       }
     }
@@ -95,8 +98,8 @@ export default function ZeusVHadesPage() {
             bestRef.current = race.player.finishTime;
           }
         }
-        if (won) sfxRef.current.win();
-        else sfxRef.current.lose();
+        if (won) fx.gameWin();
+        else fx.menuClose(); // defeat: soft settle, no buzz-shame
         setResult({
           won,
           playerTime: race.player.finishTime,
@@ -112,7 +115,8 @@ export default function ZeusVHadesPage() {
   );
 
   const startRace = useCallback(() => {
-    sfxRef.current.unlock();
+    unlockFx(); // starting is a gesture: make sure FX is live
+    fx.tap(); // race confirmed
     const seed = (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0;
     raceRef.current = createRace(seed, difficulty);
     if (rendererRef.current) rendererRef.current.dispose();
@@ -126,17 +130,17 @@ export default function ZeusVHadesPage() {
     // Countdown, then go.
     setPhase('countdown');
     setCount(3);
-    sfxRef.current.count();
+    fx.countdownBeep(false);
     let n = 3;
     const iv = setInterval(() => {
       n -= 1;
       if (n > 0) {
         setCount(n);
-        sfxRef.current.count();
+        fx.countdownBeep(n === 1); // the last tick before GO is higher/longer
       } else {
         clearInterval(iv);
         setCount(0);
-        sfxRef.current.go();
+        fx.go();
         raceRef.current.status = 'racing';
         setPhase('racing');
         lastTRef.current = performance.now();
@@ -168,10 +172,9 @@ export default function ZeusVHadesPage() {
         e.preventDefault();
         doBoost();
       } else if (e.key === 'm' || e.key === 'M') {
-        setMuted((m) => {
-          sfxRef.current.setMuted(!m);
-          return !m;
-        });
+        const next = !isFxEnabled();
+        setFxEnabled(next);
+        setMuted(!next);
       } else if (e.key === 'Enter' && phase === 'title') {
         startRace();
       }
@@ -200,10 +203,9 @@ export default function ZeusVHadesPage() {
   };
 
   const toggleMute = () => {
-    setMuted((m) => {
-      sfxRef.current.setMuted(!m);
-      return !m;
-    });
+    const next = !isFxEnabled();
+    setFxEnabled(next);
+    setMuted(!next);
   };
 
   const meterReady = hud.meter >= 100;
@@ -289,7 +291,7 @@ export default function ZeusVHadesPage() {
             {DIFF_KEYS.map((k) => (
               <button
                 key={k}
-                onClick={() => setDifficulty(k)}
+                onClick={() => { fx.tap(); setDifficulty(k); }}
                 className={`px-4 py-3 rounded-lg border-2 font-bold tracking-wider transition-all ${
                   difficulty === k
                     ? 'border-cyan-400 bg-cyan-400/15 text-cyan-200'

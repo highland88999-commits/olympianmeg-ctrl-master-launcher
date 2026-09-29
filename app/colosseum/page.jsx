@@ -5,6 +5,7 @@ import { Pit } from '@/components/colosseum/Pit';
 import { ColosseumGame, ROUND_SECONDS, INJECTOR_MAX } from '@/lib/colosseum/game';
 import { SoundFX } from '@/lib/colosseum/audio';
 import { fetchTopScores, fetchRoomScores, submitScore } from '@/lib/colosseum/storage';
+import { fx, unlockFx } from '@/lib/fx';
 import OasisLobby from '@/components/oasis/Lobby';
 import { supabase } from '@/lib/supabase';
 
@@ -43,6 +44,17 @@ export default function ColosseumPage() {
   const sfx = sfxRef.current;
 
   useEffect(() => { sfx.setMuted(muted); }, [muted, sfx]);
+
+  useEffect(() => {
+    // FX system: unlock sound+haptics on the first gesture.
+    const unlock = () => unlockFx();
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
+  }, []);
 
   useEffect(() => {
     // The shared supabase client throws synchronously when the database
@@ -87,15 +99,21 @@ export default function ColosseumPage() {
       }
     }
     g.onEvent((type, payload = {}) => {
-      if (type === 'strike') sfx.strike();
-      else if (type === 'kill') sfx.kill(payload.combo);
-      else if (type === 'finish') {
+      // The bespoke arena SoundFX stays (crowd, announcer, sword work is its
+      // identity); central FX pairs are layered for haptic-matched feedback.
+      if (type === 'strike') { sfx.strike(); fx.hit(); }
+      else if (type === 'kill') {
+        sfx.kill(payload.combo);
+        if (payload.combo >= 3) fx.levelUp(); // hot streak: arpeggio + buzz
+        else fx.hit();
+      } else if (type === 'finish') {
         sfx.finish();
+        fx.gameWin(); // match finished: full fanfare
         popup(`FINISH! +${payload.points}`, '#fde047');
       } else if (type === 'kill' && payload.combo >= 3) {
         popup(`COMBO x${Math.min(payload.combo, 8)}`, '#5eead4');
-      } else if (type === 'hurt') sfx.hurt();
-      else if (type === 'shockwave') sfx.inject();
+      } else if (type === 'hurt') { sfx.hurt(); fx.hit(); }
+      else if (type === 'shockwave') { sfx.inject(); fx.boost(); }
       else if (type === 'enrage') { sfx.enrage(); popup('THE CHAMPION RAGES', '#ef4444'); }
       else if (type === 'breach') { /* crowd gasp could go here */ }
       else if (type === 'over') onGameOver(g, nextMatch, payload);

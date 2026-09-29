@@ -9,6 +9,7 @@
 // plain Node for tests. createPilot() wires DOM input + localStorage best.
 
 import { mulberry32 } from './orbits.js';
+import { fx } from '../../lib/fx.js';
 
 export const PLAYER_R = 10;
 export const MAX_HULL = 3;
@@ -559,6 +560,16 @@ export function createPilot(canvas, matrixState, opts = {}) {
     },
     hud() {
       const p = g.player;
+      // Game-feel FX: translate drained logic events into matched
+      // sound+haptic pairs. fx is a no-op before the first user gesture.
+      for (const e of drainEvents(g)) {
+        if (e === 'hit') fx.hit(); // shard hit the hull: dull thud
+        else if (e === 'shatter') fx.hit(); // shield absorbed a shard
+        else if (e === 'boost') fx.boost(); // golden surge: speed whoosh
+        else if (e === 'shieldup') fx.coin(); // shield ring pickup: sparkle
+        else if (e === 'levelup') fx.levelUp(); // difficulty ramp: arpeggio
+        else if (e === 'gameover') fx.death(); // hull gone: long rumble
+      }
       return {
         playing: g.playing,
         gameOver: g.gameOver,
@@ -569,7 +580,7 @@ export function createPilot(canvas, matrixState, opts = {}) {
         shield: p.shieldT > 0,
         shieldT: Math.ceil(p.shieldT),
         level: g.level,
-        events: drainEvents(g),
+        events: [],
       };
     },
     dispose() {

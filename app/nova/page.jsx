@@ -42,6 +42,7 @@ import {
   stepFlight,
   steerToward,
 } from '@/lib/nova-flight';
+import { fx, unlockFx } from '@/lib/fx';
 
 const TITLE = 'NOVA — Deep Space';
 const PLAQUE_WORDS = 'Poverty needs to end.';
@@ -94,6 +95,7 @@ function BikeRig({ flightRef, inputRef, bikeKey, autopilotRef, reduced, onWormho
     []
   );
   const lastHud = useRef(0);
+  const wasBoosting = useRef(false); // edge detector for the boost whoosh
 
   useFrame((state, rawDt) => {
     const g = group.current;
@@ -139,6 +141,9 @@ function BikeRig({ flightRef, inputRef, bikeKey, autopilotRef, reduced, onWormho
     f.pitch = next.pitch;
     f.speed = next.speed;
     f.boosting = !!(input.boost && (input.thrust || 0) > 0.1);
+    // Boost edge: fire the whoosh once per engagement, not every frame.
+    if (f.boosting && !wasBoosting.current) fx.boost();
+    wasBoosting.current = f.boosting;
 
     // Wormhole contact?
     for (const w of wormholesIn(f.sector)) {
@@ -448,6 +453,14 @@ export default function NovaPage() {
     } catch {
       /* defaults stand */
     }
+    // FX system: unlock sound+haptics on the first gesture.
+    const unlock = () => unlockFx();
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
   }, []);
 
   // Sync HUD cheaply from the flight ref.
@@ -469,6 +482,7 @@ export default function NovaPage() {
       const from = flightRef.current.sector;
       const to = jumpThrough(from, wormholeId);
       if (!to) return;
+      fx.checkpoint(); // sector jump: soft chime + tick
       const swap = () => {
         flightRef.current.sector = to;
         setSectorKey(to);
@@ -680,7 +694,7 @@ export default function NovaPage() {
                   key={b.key}
                   role="radio"
                   aria-checked={bikeKey === b.key}
-                  onClick={() => setBikeKey(b.key)}
+                  onClick={() => { fx.tap(); setBikeKey(b.key); }}
                   className={`min-h-[44px] flex items-center gap-3 px-3 py-2 rounded-lg border text-left transition-colors ${
                     bikeKey === b.key
                       ? 'border-cyan-400/70 bg-cyan-400/10'

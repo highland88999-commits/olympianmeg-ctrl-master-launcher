@@ -8,6 +8,7 @@ import { GameCanvas } from '@/components/basketball/GameCanvas';
 import { BasketballGame } from '@/lib/basketball/game';
 import { SoundFX } from '@/lib/basketball/audio';
 import { fetchTopScores, fetchRoomScores, submitScore, sanitizeName } from '@/lib/basketball/storage';
+import { fx, unlockFx } from '@/lib/fx';
 import OasisLobby from '@/components/oasis/Lobby';
 import { supabase } from '@/lib/supabase';
 
@@ -159,6 +160,14 @@ export default function BasketballPage() {
       setPlayerName(localStorage.getItem('streetball_name') || '');
       setMuted(localStorage.getItem('streetball_muted') === '1');
     } catch { /* ignore */ }
+    // FX system: unlock sound+haptics on the first gesture.
+    const unlock = () => unlockFx();
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
   }, []);
 
   useEffect(() => {
@@ -174,7 +183,7 @@ export default function BasketballPage() {
         case 'bounce': s?.bounce(payload.intensity); break;
         case 'rim': s?.rim(payload.intensity); break;
         case 'board': s?.board(); break;
-        case 'swish': s?.swish(); break;
+        case 'swish': s?.swish(); fx.coin(); break; // net sparkle + pickup tick layered on the arena swish
         case 'score':
           s?.score(payload.streak);
           if (payload.streak >= 2) s?.crowdCheer(payload.streak >= 4);
@@ -189,6 +198,7 @@ export default function BasketballPage() {
         case 'buzzer': s?.buzzer(); break;
         case 'buzzerBeater':
           s?.buzzerBeater();
+          fx.gameWin(); // buzzer beater: full fanfare moment
           addPopup('BUZZER BEATER!', 'buzzer');
           break;
         case 'over':

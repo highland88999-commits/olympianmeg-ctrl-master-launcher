@@ -25,6 +25,7 @@ import * as THREE from 'three';
 import { TRON_BIKES, bikeByKey } from '@/components/nova/TronBikes';
 import TronRider from '@/components/nova/TronRider';
 import { SpiralGalaxy, Nebula, Wormhole } from '@/components/nova/DeepSpace';
+import { fx, unlockFx } from '@/lib/fx';
 import {
   TRON_BIKE_TUNING,
   tuningFor,
@@ -338,6 +339,7 @@ function BikeRig({ flightRef, inputRef, bikeKey, autopilotRef, reduced, snapCamR
     []
   );
   const lastHud = useRef(0);
+  const wasBoosting = useRef(false); // edge detector for the boost whoosh
 
   useFrame((state, rawDt) => {
     const g = group.current;
@@ -383,6 +385,9 @@ function BikeRig({ flightRef, inputRef, bikeKey, autopilotRef, reduced, snapCamR
     f.pitch = next.pitch;
     f.speed = next.speed;
     f.boosting = !!(input.boost && (input.thrust || 0) > 0.1);
+    // Boost edge: fire the whoosh once per engagement, not every frame.
+    if (f.boosting && !wasBoosting.current) fx.boost();
+    wasBoosting.current = f.boosting;
 
     // Wormhole anomaly contact — ride it somewhere else.
     if (anomaly && anomaly.type === 'wormhole' && dist3(f.pos, anomaly.pos) < anomaly.radius) {
@@ -658,6 +663,14 @@ export default function MyriadPage() {
     } catch {
       /* defaults stand */
     }
+    // FX system: unlock sound+haptics on the first gesture.
+    const unlock = () => unlockFx();
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
   }, []);
 
   // Sync HUD cheaply from the flight ref.
@@ -685,6 +698,7 @@ export default function MyriadPage() {
     (id) => {
       const u = universeById(id);
       if (!u) return;
+      fx.satelliteDrop(); // universe selected from the atlas: the drop fanfare
       resetFlight();
       setUniverseId(id);
       setView('explorer');
@@ -698,6 +712,7 @@ export default function MyriadPage() {
   const rideWormhole = useCallback(() => {
     if (jumpingRef.current) return;
     jumpingRef.current = true;
+    fx.checkpoint(); // sector jump: soft chime + tick
     let next = universeId;
     while (next === universeId) next = 1 + Math.floor(Math.random() * UNIVERSES.length);
     resetFlight();
