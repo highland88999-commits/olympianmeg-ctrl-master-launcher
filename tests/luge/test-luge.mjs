@@ -8,6 +8,13 @@ import {
   decideClaim,
   decideWebhookEvent,
   arsenalGrantRows,
+  courseTopSpeed,
+  minRunMs,
+  RUN_CHEAT_MARGIN,
+  MAX_RUN_MS,
+  validateRun,
+  courseCompletionStatus,
+  decideRewardEligibility,
   LUGE_PREMIUM_IDS,
   LUGE_PREMIUM_COUNT,
 } from '../../lib/luge/logic.js';
@@ -102,12 +109,22 @@ t('page: no hardcoded 24-skin count', !/24 premium/i.test(pageSrc) || /LUGE_PREM
 const claimSrc = readFileSync('app/api/luge/claim/route.js', 'utf8');
 t('claim route: email only from env', /process\.env\.LUGE_FULFILLMENT_EMAIL/.test(claimSrc) && !/stakeme10000/.test(claimSrc));
 const sqlSrc = readFileSync('supabase/luge.sql', 'utf8');
-t('sql: three tables defined',
+t('sql: four luge tables defined',
   /create table if not exists public\.luge_inventory/.test(sqlSrc) &&
   /create table if not exists public\.luge_stripe_events/.test(sqlSrc) &&
-  /create table if not exists public\.luge_redemptions/.test(sqlSrc));
-t('sql: RLS enabled on all three',
-  (sqlSrc.match(/enable row level security/g) || []).length === 3);
+  /create table if not exists public\.luge_redemptions/.test(sqlSrc) &&
+  /create table if not exists public\.luge_course_completions/.test(sqlSrc));
+t('sql: RLS enabled on all four',
+  (sqlSrc.match(/enable row level security/g) || []).length === 4);
+t('sql: completion PK is (user_id, course_id)',
+  /primary key \(user_id, course_id\)/.test(sqlSrc));
+t('sql: completions get an owner-read policy only',
+  /luge_course_completions_owner_read/.test(sqlSrc) && /for select/.test(sqlSrc));
+t('sql: redemptions track reward/size/order',
+  /add column if not exists reward/.test(sqlSrc) &&
+  /add column if not exists size/.test(sqlSrc) &&
+  /add column if not exists store_order_id/.test(sqlSrc));
+t('sql: anti-backfill rule written down', /backfill/i.test(sqlSrc));
 
 // --- hull wrap assets resolve (match OG Luge-Refuge livery descriptions) ---
 import { existsSync, statSync } from 'fs';
@@ -133,6 +150,94 @@ for (const f of RECREATED_FROM_DESCRIPTION) {
 }
 t('wrap generator script present (reproducible recreations)',
   existsSync('scripts/gen-luge-wraps.py'));
+
+// --- free-hoodie reward chain (Merlin 2026-09-29): complete ALL 20 courses
+// AND own the Complete Arsenal -> one free hoodie. Entirely separate from
+// the Valkyrie referral program. Only runs after launch count — no backfills.
+const ALL_COURSE_IDS = LUGE_COURSES.map((c) => c.id);
+const ALL_PREMIUM = LUGE_PREMIUM_IDS.slice();
+
+// Run anti-cheat: the game's own physics is the floor; a client flag
+// alone can never qualify.
+t('run: unknown course rejected (400)',
+  validateRun({ courseId: 999, runMs: 60000, sledId: 'g1', ownedSledIds: [] }).status === 400);
+t('run: unknown sled rejected (400)',
+  validateRun({ courseId: 1, runMs: 60000, sledId: 'ghost', ownedSledIds: [] }).status === 400);
+t('run: unowned premium sled rejected (403)',
+  validateRun({ courseId: 1, runMs: 60000, sledId: 'p1', ownedSledIds: [] }).status === 403);
+t('run: owned premium sled accepted',
+  validateRun({ courseId: 1, runMs: 60000, sledId: 'p1', ownedSledIds: ['p1'] }).ok === true);
+t('run: free sled needs no ownership',
+  validateRun({ courseId: 1, runMs: 60000, sledId: 'g1', ownedSledIds: [] }).ok === true);
+t('run: zero time rejected (400)',
+  validateRun({ courseId: 1, runMs: 0, sledId: 'g1', ownedSledIds: [] }).status === 400);
+t('run: NaN time rejected (400)',
+  validateRun({ courseId: 1, runMs: NaN, sledId: 'g1', ownedSledIds: [] }).status === 400);
+t('run: absurd time rejected (400)',
+  validateRun({ courseId: 1, runMs: MAX_RUN_MS + 1, sledId: 'g1', ownedSledIds: [] }).status === 400);
+const cheatFloor = minRunMs(LUGE_COURSES[0]) * RUN_CHEAT_MARGIN;
+t('run: impossible time rejected (422)',
+  validateRun({ courseId: 1, runMs: Math.floor(cheatFloor) - 1, sledId: 'g1', ownedSledIds: [] }).status === 422);
+t('run: bare client flag cannot qualify',
+  validateRun({ courseId: 1, sledId: 'g1', ownedSledIds: [] }).ok === false);
+t('run: physics floor is finite for every course',
+  LUGE_COURSES.every((c) => Number.isFinite(minRunMs(c)) && minRunMs(c) > 0) &&
+  LUGE_COURSES.every((c) => Number.isFinite(courseTopSpeed(c)) && courseTopSpeed(c) > 0));
+
+// Honest x/20 progress — never claims everything from one run.
+const pNone = courseCompletionStatus([]);
+t('progress: starts at 0 of 20', pNone.completed === 0 && pNone.total === 20 && !pNone.complete);
+const pPartial = courseCompletionStatus([1, 2, 3]);
+t('progress: honest x/20', pPartial.completed === 3 && pPartial.total === 20 &&
+  !pPartial.complete && pPartial.missing.length === 17);
+const pFull = courseCompletionStatus(ALL_COURSE_IDS);
+t('progress: all 20 complete', pFull.complete === true && pFull.missing.length === 0);
+
+// Reward eligibility is always server-derived.
+t('reward: double claim refused (409)',
+  decideRewardEligibility({ completedCourseIds: ALL_COURSE_IDS, ownedSledIds: ALL_PREMIUM, alreadyRedeemed: true }).status === 409);
+t('reward: missing courses refused (403)',
+  decideRewardEligibility({ completedCourseIds: [1], ownedSledIds: ALL_PREMIUM, alreadyRedeemed: false }).status === 403);
+t('reward: missing sleds refused (403)',
+  decideRewardEligibility({ completedCourseIds: ALL_COURSE_IDS, ownedSledIds: ['p1'], alreadyRedeemed: false }).status === 403);
+t('reward: carries the progress breakdown',
+  decideRewardEligibility({ completedCourseIds: [1], ownedSledIds: ALL_PREMIUM, alreadyRedeemed: false }).courses.completed === 1);
+t('reward: fully eligible',
+  decideRewardEligibility({ completedCourseIds: ALL_COURSE_IDS, ownedSledIds: ALL_PREMIUM, alreadyRedeemed: false }).ok === true);
+
+// --- route/source audits: server proof, all-map checks, reward store mode ---
+const completeSrc = readFileSync('app/api/luge/complete/route.js', 'utf8');
+t('complete route: validates runs server-side', /validateRun/.test(completeSrc));
+t('complete route: upserts with (user_id, course_id) guard', /onConflict: 'user_id,course_id'/.test(completeSrc));
+t('complete route: never trusts a client flag',
+  !/body\?\.completed/.test(completeSrc) && !/completed:\s*true/.test(completeSrc));
+const eligSrc = readFileSync('app/api/luge/eligibility/route.js', 'utf8');
+t('eligibility route: checks every course', /courseCompletionStatus/.test(eligSrc));
+t('eligibility route: checks the full arsenal', /ownsArsenal/.test(eligSrc));
+t('eligibility route: honest when tables are missing', /provisioned: false/.test(eligSrc));
+t('claim route: server-side eligibility gate', /decideRewardEligibility/.test(claimSrc));
+t('claim route: requires a size', /Pick a hoodie size first/.test(claimSrc));
+t('claim route: records a $0 reward order', /amount_cents: 0/.test(claimSrc) && /store_orders/.test(claimSrc));
+t('claim route: names the hoodie product', /Axiom Repository - Premium Unisex Hoodie/.test(claimSrc));
+t('claim route: locks redemption before ordering', /luge_redemptions/.test(claimSrc) && /23505/.test(claimSrc));
+t('claim route: never opens a Stripe checkout',
+  !/stripe\.checkout/i.test(claimSrc) && !/checkout\.sessions/i.test(claimSrc));
+t('claim route: states the Valkyrie separation', /separate from the Valkyrie/i.test(claimSrc));
+t('page: records each finish server-side', /\/api\/luge\/complete/.test(pageSrc));
+t('page: reads server eligibility', /\/api\/luge\/eligibility/.test(pageSrc));
+t('page: server-observed run timing', /raceStartRef/.test(pageSrc));
+t('page: podium gated on server eligibility', /eligibility\.eligible/.test(pageSrc));
+t('page: reward CTA links to /store?reward=luge', /\/store\?reward=luge/.test(pageSrc));
+t('page: shows honest x/20 progress', /Courses conquered/.test(pageSrc));
+t('page: no-backfill honesty', /earlier runs/i.test(pageSrc));
+const storeSrc = readFileSync('app/store/page.jsx', 'utf8');
+t('store: reward mode from ?reward=luge', /params\.get\('reward'\) === 'luge'/.test(storeSrc));
+t('store: "Redeem free hoodie" copy', /Redeem free hoodie/.test(storeSrc));
+t('store: redeem posts to the claim route', /\/api\/luge\/claim/.test(storeSrc));
+t('store: reward checks eligibility first', /\/api\/luge\/eligibility/.test(storeSrc));
+const redeemBody = storeSrc.slice(storeSrc.indexOf('const onRedeem'), storeSrc.indexOf('}, []);', storeSrc.indexOf('const onRedeem')));
+t('store: reward path never touches Stripe checkout', !/checkout/i.test(redeemBody));
+t('store: states the Valkyrie separation', /separate from the Valkyrie/i.test(storeSrc));
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

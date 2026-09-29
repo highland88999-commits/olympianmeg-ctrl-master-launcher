@@ -3,6 +3,7 @@
 'use client';
 import { useEffect, useState, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
@@ -205,17 +206,27 @@ export default function LugeEngine() {
   const [storeError, setStoreError] = useState('');
   const [useGold, setUseGold] = useState(false);
 
-  // Claim state
-  const [claimBusy, setClaimBusy] = useState(false);
-  const [claimResult, setClaimResult] = useState(null); // { email, instructions } | { error }
+  // Reward-eligibility state (server-side truth from /api/luge/eligibility).
+  const [eligibility, setEligibility] = useState(null);
   const [purchaseNote, setPurchaseNote] = useState('');
 
   // Hardware Tilt Refs
   const tiltData = useRef({ x: 0, y: 0 }); // Normalized -1 to 1
   const baselineBeta = useRef(40); // Standard holding angle
   const tokenRef = useRef('');
+  const raceStartRef = useRef(0); // Wall-clock ms when the current run began
 
   const ownsArsenal = LUGE_PREMIUM_IDS.every((id) => ownedIds.has(id));
+
+  // Course ids the server has recorded as legitimately completed.
+  const doneCourseIds = useMemo(
+    () => new Set(
+      eligibility && eligibility.provisioned
+        ? LUGE_COURSES.map((c) => c.id).filter((id) => !(eligibility.missingCourses || []).includes(id))
+        : []
+    ),
+    [eligibility]
+  );
 
   const authHeaders = () => ({ Authorization: `Bearer ${tokenRef.current}` });
 
@@ -234,6 +245,18 @@ export default function LugeEngine() {
     }
   };
 
+  // Server-side reward truth: courses completed + arsenal + claim status.
+  // Never trusted from the client.
+  const refreshEligibility = async () => {
+    try {
+      const res = await fetch('/api/luge/eligibility', { headers: authHeaders() });
+      const data = await res.json();
+      if (data && data.ok) setEligibility(data);
+    } catch {
+      // Leave the previous value; the UI degrades honestly without it.
+    }
+  };
+
   useEffect(() => {
     // The shared supabase client throws when the database connection isn't
     // configured. Catch that (and any auth failure) and say so honestly
@@ -249,6 +272,7 @@ export default function LugeEngine() {
       setAuthed(true);
       setMounted(true);
       await refreshInventory();
+      await refreshEligibility();
 
       // Store display info (server-set price).
       try {
@@ -288,6 +312,7 @@ export default function LugeEngine() {
     const start = () => {
       window.addEventListener('deviceorientation', handleOrientation);
       window.addEventListener('keydown', handleKeys);
+      raceStartRef.current = Date.now();
       setGameState('racing');
     };
     if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
@@ -350,12 +375,40 @@ export default function LugeEngine() {
     };
   }, []);
 
-  const handleFinish = () => {
+  const handleFinish = async () => {
     fx.gameWin(); // crossed the finish line: full fanfare
     window.removeEventListener('deviceorientation', handleOrientation);
     window.removeEventListener('keydown', handleKeys);
     tiltData.current = { x: 0, y: 0 };
-    if (selectedCourse.id === FINAL_COURSE_ID) {
+
+    // Record the run server-side (anti-cheat validated there). A failed
+    // recording never blocks the game — the run still happened.
+    let freshEligibility = eligibility;
+    try {
+      const runMs = Math.max(1, Date.now() - (raceStartRef.current || Date.now()));
+      await fetch('/api/luge/complete', {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          courseId: selectedCourse.id,
+          runMs,
+          sledId: selectedSled.id,
+        }),
+      });
+      const res = await fetch('/api/luge/eligibility', { headers: authHeaders() });
+      const data = await res.json();
+      if (data && data.ok) {
+        setEligibility(data);
+        freshEligibility = data;
+      }
+    } catch {
+      // Offline or unprovisioned — the podium still works off this finish.
+    }
+
+    // The reward podium appears when the rider is fully eligible (every
+    // course + the whole Arsenal), whichever course finished last — or
+    // when course 20 itself is conquered.
+    if ((freshEligibility && freshEligibility.eligible) || selectedCourse.id === FINAL_COURSE_ID) {
       setGameState('podium');
     } else {
       setGameState('menu');
@@ -387,26 +440,6 @@ export default function LugeEngine() {
       setStoreError('Could not reach the store. Check your connection and try again.');
     } finally {
       setCheckoutBusy(false);
-    }
-  };
-
-  const claimHoodie = async () => {
-    setClaimBusy(true);
-    setClaimResult(null);
-    try {
-      const res = await fetch('/api/luge/claim', { method: 'POST', headers: authHeaders() });
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        setClaimResult({ error: data.error || 'Could not record your claim. Try again.' });
-        if (res.status === 409) setRedeemed(true);
-        return;
-      }
-      setClaimResult({ email: data.email, instructions: data.instructions });
-      setRedeemed(true);
-    } catch {
-      setClaimResult({ error: 'Could not reach the claim service. Check your connection and try again.' });
-    } finally {
-      setClaimBusy(false);
     }
   };
 
@@ -465,6 +498,16 @@ export default function LugeEngine() {
           {ownsArsenal && (
             <p className="mb-2 text-[11px] font-bold tracking-widest text-amber-400 uppercase">Complete Arsenal owned</p>
           )}
+          {eligibility && eligibility.provisioned && (
+            <p className="mb-1 text-[11px] font-bold tracking-widest text-cyan-300 uppercase">
+              Courses conquered: {eligibility.coursesCompleted} of {eligibility.coursesTotal}
+            </p>
+          )}
+          <p className="mb-4 max-w-xl text-[10px] leading-relaxed text-zinc-500">
+            Free-hoodie reward: conquer all 20 courses with the Complete Arsenal in your
+            garage. Only runs finished after the reward launched count — earlier runs
+            don&apos;t carry over.
+          </p>
           {purchaseNote && (
             <p className="max-w-xl mb-4 text-xs text-emerald-300">{purchaseNote}</p>
           )}
@@ -478,7 +521,10 @@ export default function LugeEngine() {
                   onClick={() => setSelectedCourse(course)}
                   className={`p-3 mb-2 text-left border rounded cursor-pointer transition-all ${selectedCourse.id === course.id ? 'border-cyan-400 bg-cyan-900/30' : 'border-zinc-800 hover:border-zinc-500'}`}
                 >
-                  <div className="text-sm font-bold text-white uppercase">{course.name}</div>
+                  <div className="text-sm font-bold text-white uppercase">
+                    {course.name}
+                    {doneCourseIds.has(course.id) && <span className="ml-2 text-emerald-400">✓</span>}
+                  </div>
                   <div className="text-[10px] text-zinc-400">{course.desc}</div>
                 </div>
               ))}
@@ -544,7 +590,7 @@ export default function LugeEngine() {
             <ul className="text-sm text-zinc-300 space-y-3 mb-6">
               <li>All {storeInfo.premiumCount} premium sled hulls, unlocked in your garage right after payment.</li>
               <li>Each hull changes how your sled looks on the track.</li>
-              <li>Hoodie reward: finish all 20 courses as an Arsenal owner and you can claim a physical Olympus hoodie — one per rider, while supplies last.</li>
+              <li>Free-hoodie reward: conquer all 20 courses with the Complete Arsenal and a physical Olympus hoodie is yours — free, one per rider. Only runs finished after the reward launched count.</li>
             </ul>
 
             <p className="text-xs text-zinc-500 mb-6">
@@ -652,63 +698,73 @@ export default function LugeEngine() {
         </div>
       )}
 
-      {gameState === 'podium' && (
+      {gameState === 'podium' && (() => {
+        const rewardEligible = !!(eligibility && eligibility.eligible && !redeemed);
+        return (
         <div className="flex flex-col items-center justify-center w-full h-full p-8 text-center text-white bg-zinc-950 overflow-y-auto">
-          <h1 className="mb-2 text-4xl text-amber-400 drop-shadow-[0_0_20px_rgba(255,215,0,0.5)] uppercase tracking-widest">OLYMPUS CONQUERED</h1>
-          <p className="mb-8 text-sm tracking-widest text-zinc-400 uppercase">You have survived all 20 descents.</p>
+          <h1 className="mb-2 text-4xl text-amber-400 drop-shadow-[0_0_20px_rgba(255,215,0,0.5)] uppercase tracking-widest">
+            {rewardEligible ? 'REWARD UNLOCKED' : 'OLYMPUS CONQUERED'}
+          </h1>
+          <p className="mb-8 text-sm tracking-widest text-zinc-400 uppercase">
+            {rewardEligible
+              ? 'Every course. Every sled. The hoodie is yours.'
+              : selectedCourse.id === FINAL_COURSE_ID
+                ? 'You have survived all 20 descents.'
+                : 'Another descent conquered.'}
+          </p>
 
           <div className="w-full max-w-2xl p-8 border rounded border-amber-500/50 bg-black/60 shadow-[0_0_50px_rgba(255,215,0,0.1)]">
-            {ownsArsenal ? (
-              redeemed || claimResult?.email ? (
-                <>
-                  <div className="mb-4 text-lg font-bold text-white uppercase tracking-widest">Hoodie claimed</div>
-                  {claimResult?.email ? (
-                    <>
-                      <p className="text-sm text-zinc-300 mb-4">Your claim is recorded. To finish it, email:</p>
-                      <p className="text-lg font-bold text-cyan-400 mb-4 break-all">{claimResult.email}</p>
-                      <ul className="text-sm text-zinc-300 text-left space-y-2 mb-6 max-w-md mx-auto">
-                        {claimResult.instructions.map((step, i) => (
-                          <li key={i}>{i + 1}. {step}</li>
-                        ))}
-                      </ul>
-                    </>
-                  ) : (
-                    <p className="text-sm text-zinc-400 mb-6">
-                      This account already claimed its hoodie — one per rider.
-                      We confirm every claim by hand before shipping.
-                    </p>
-                  )}
-                </>
-              ) : (
-                <>
-                  <div className="mb-4 text-lg font-bold text-white uppercase tracking-widest">Your hoodie is waiting</div>
-                  <p className="text-sm text-zinc-300 mb-6 leading-relaxed">
-                    You own the Complete Arsenal and you conquered every course.
-                    Claim your physical Olympus hoodie — one per rider.
-                  </p>
-                  {claimResult?.error && <p className="text-sm text-red-400 mb-4">{claimResult.error}</p>}
-                  <button
-                    onClick={claimHoodie}
-                    disabled={claimBusy}
-                    className="px-8 py-3 mb-6 font-bold tracking-widest text-black uppercase bg-amber-400 rounded hover:bg-white disabled:opacity-50"
-                  >
-                    {claimBusy ? 'Recording…' : 'CLAIM MY HOODIE'}
-                  </button>
-                </>
-              )
+            {redeemed ? (
+              <>
+                <div className="mb-4 text-lg font-bold text-white uppercase tracking-widest">Hoodie claimed</div>
+                <p className="text-sm text-zinc-400 mb-6">
+                  This account already claimed its free hoodie — one per rider.
+                  Merlin confirms every claim by hand before anything ships.
+                </p>
+              </>
+            ) : rewardEligible ? (
+              <>
+                <div className="mb-4 text-lg font-bold text-white uppercase tracking-widest">Your free hoodie is waiting</div>
+                <p className="text-sm text-zinc-300 mb-6 leading-relaxed">
+                  You conquered all {eligibility.coursesTotal} courses with the Complete Arsenal
+                  in your garage. Claim your physical Olympus hoodie in the store —
+                  free, no charge, one per rider.
+                </p>
+                <Link
+                  href="/store?reward=luge"
+                  className="inline-block px-8 py-3 mb-6 font-bold tracking-widest text-black uppercase bg-amber-400 rounded hover:bg-white"
+                >
+                  CLAIM YOUR FREE HOODIE
+                </Link>
+              </>
             ) : (
               <>
-                <div className="mb-4 text-lg font-bold text-white uppercase tracking-widest">Matrix cleared</div>
-                <p className="text-sm text-zinc-400 mb-6">
-                  Excellent piloting. The Olympus hoodie goes to riders who own the
-                  Complete Arsenal — all {LUGE_PREMIUM_COUNT} premium hulls.
-                </p>
-                <button
-                  onClick={() => setGameState('store')}
-                  className="px-6 py-2 mb-6 text-xs font-bold tracking-widest text-amber-400 uppercase border border-amber-400 rounded hover:bg-amber-400/20"
-                >
-                  OPEN THE STORE
-                </button>
+                <div className="mb-4 text-lg font-bold text-white uppercase tracking-widest">The road to the hoodie</div>
+                {eligibility && eligibility.provisioned ? (
+                  <div className="text-sm text-zinc-300 mb-6 leading-relaxed space-y-2">
+                    <p>Courses conquered: {eligibility.coursesCompleted} of {eligibility.coursesTotal}.</p>
+                    <p>
+                      {eligibility.arsenalComplete
+                        ? 'Complete Arsenal: owned.'
+                        : `Complete Arsenal: ${eligibility.premiumOwned} of ${eligibility.premiumTotal} sleds — the hoodie needs every one.`}
+                    </p>
+                    <p className="text-xs text-zinc-500">
+                      Only runs finished after the reward launched count — earlier runs don&apos;t carry over.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-zinc-400 mb-6">
+                    Reward tracking is not connected yet. Your runs will count once it is — nothing is lost.
+                  </p>
+                )}
+                {!ownsArsenal && (
+                  <button
+                    onClick={() => setGameState('store')}
+                    className="px-6 py-2 mb-6 text-xs font-bold tracking-widest text-amber-400 uppercase border border-amber-400 rounded hover:bg-amber-400/20"
+                  >
+                    OPEN THE STORE
+                  </button>
+                )}
               </>
             )}
 
@@ -722,7 +778,8 @@ export default function LugeEngine() {
             <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))] shrink-0" />
           </div>
         </div>
-      )}
+        );
+      })}
     </>
   );
 }
