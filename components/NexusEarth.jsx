@@ -1,8 +1,10 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
+import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { latLonToVec3, tileGrid } from '@/lib/geo';
+import GoogleEarthTiles from '@/components/GoogleEarthTiles';
 
 // The hub Earth, fused with real satellite imagery.
 // - Clickable: onSelect fires (gated by parent to hub_freeroam).
@@ -11,12 +13,20 @@ import { latLonToVec3, tileGrid } from '@/lib/geo';
 //   still, the environment comes to them).
 // - A detail "lens" patch shows real ESRI World Imagery tiles at the
 //   current focus point.
+// - When Google's photorealistic 3D tiles are available (session minted
+//   server-side from GOOGLE_MAP_TILES_API_KEY), the stylized globe swaps
+//   for the real photorealistic globe. The ESRI lens is the honest fallback:
+//   it stays until the tiles actually render, and returns if they fail.
+// - A small badge names the active layer in plain English.
 export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnabled }) {
   const spinRef = useRef();
   const patchRef = useRef();
   const patchMatRef = useRef();
   const [textures, setTextures] = useState(null);
   const [patchTex, setPatchTex] = useState(null);
+  // 'satellite' = stylized globe + ESRI lens (default, always honest).
+  // 'photorealistic' = Google 3D tiles, only after they really render.
+  const [layer, setLayer] = useState('satellite');
 
   useEffect(() => {
     let isMounted = true;
@@ -121,11 +131,20 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
     }
   }, [focus?.lat, focus?.lon, patchTex]);
 
-  if (!textures) return null;
+  // The stylized globe only renders once its textures exist; the
+  // photorealistic tiles render as soon as Google's tileset loads.
+  if (layer === 'satellite' && !textures) return null;
+  const showStylized = layer === 'satellite' && textures && earthUniforms;
 
   return (
     <group position={[0, -60, -120]}>
       <group ref={spinRef}>
+        <GoogleEarthTiles
+          onSelect={onSelect}
+          onActive={() => setLayer('photorealistic')}
+          onInactive={() => setLayer('satellite')}
+        />
+        {showStylized && (
         <mesh
           receiveShadow
           castShadow
@@ -164,8 +183,9 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
             `}
           />
         </mesh>
+        )}
 
-        {patchTex && (
+        {layer === 'satellite' && patchTex && (
           <mesh ref={patchRef}>
             <circleGeometry args={[5.2, 48]} />
             <meshBasicMaterial
@@ -204,6 +224,13 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
           `}
         />
       </mesh>
+
+      {/* Honest layer badge: names what is actually rendering, in plain English. */}
+      <Html position={[0, 64, 0]} center zIndexRange={[30, 0]} style={{ pointerEvents: 'none' }}>
+        <div className="pointer-events-none select-none whitespace-nowrap rounded-full bg-black/55 px-2.5 py-1 text-[10px] font-medium tracking-wide text-white/90 backdrop-blur-sm">
+          {layer === 'photorealistic' ? 'Photorealistic · Google' : 'Satellite · ESRI'}
+        </div>
+      </Html>
     </group>
   );
 }
