@@ -123,7 +123,7 @@ export const DISTRICTS = [
   { id: "harbor", name: "NEON HARBOR", color: "#00f2ff", desc: "Dockside markets under a permanent neon haze." },
   { id: "spire", name: "SPIRE DISTRICT", color: "#a259ff", desc: "The kilometer-high towers where the city plans itself." },
   { id: "bazaar", name: "DATA BAZAAR", color: "#ff3366", desc: "Open-air stalls trading bandwidth, salvage and secrets." },
-  { id: "skyway", name: "SKYWAY RING", color: "#ffcc33", desc: "Elevated maglev ring circling the downtown core." },
+  { id: "subway", name: "SUBWAY — LINE ONE", color: "#ffcc33", desc: "Trains run underground now. Station doors open for loading; street traffic never stops." },
   { id: "under", name: "FOUNDRY UNDERCITY", color: "#ff7a1f", desc: "Steam, sparks and the machines that feed the towers." },
 ];
 
@@ -136,7 +136,7 @@ export const HOTSPOTS = [
   { id: "harbor", x: 300, y: 600, title: "Neon Harbor", body: "Dockside markets under a permanent neon haze. Ferries run all night to the outer platforms." },
   { id: "spire", x: 800, y: 380, title: "Spire District", body: "Kilometer-high towers where the city plans itself. Observation decks open at dawn." },
   { id: "bazaar", x: 1100, y: 640, title: "Data Bazaar", body: "Open-air stalls trading bandwidth, salvage and secrets. Cash only, questions none." },
-  { id: "skyway", x: 1320, y: 400, title: "Skyway Ring", body: "The elevated maglev ring circling the downtown core — a full loop takes eleven minutes." },
+  { id: "subway", x: 800, y: 910, title: "Subway — Line One", body: "The city's trains run underground now. Step through the station doors while they stand open for loading — up on the street, traffic never stops for a train." },
   { id: "under", x: 560, y: 740, title: "Foundry Undercity", body: "Steam, sparks and the machines that feed the towers. The city breathes down here." },
 ];
 
@@ -163,7 +163,106 @@ const LAYER_MID = buildLayer(0, 740, 220, 430, 70, 140, 22);
 const LAYER_NEAR = buildLayer(0, 790, 120, 260, 90, 180, 33);
 
 const CARS = Array.from({ length: 18 }, (_, i) => ({ x: (i / 18) * WORLD_W, lane: i % 2, v: 60 + (i % 5) * 25, c: i % 3 }));
-const TRAIN = { x: 0 };
+
+// ---------------- subway (underground line, cutaway view) ----------------
+// The trains run BELOW the street in a bored tunnel, drawn as a cutaway so
+// the line stays visible. Grade-separated: there are no level crossings,
+// so street traffic never stops for a train.
+export const SUBWAY = {
+  tunnelTop: 872,
+  tunnelBottom: 952,
+  railY: 928,
+  carH: 30,
+  carLen: 120,
+  cars: 3,
+  stations: [350, 800, 1250],
+  stationNames: ["NEON HARBOR", "SPIRE DISTRICT", "DATA BAZAAR"],
+  stationHalf: 150,
+  cruiseV: 150,
+  accel: 90,
+  brake: 130,
+  dwell: 3.4,
+  doorTime: 0.7,
+  wrapPad: 260,
+};
+export const SUBWAY_PERIOD = WORLD_W + SUBWAY.wrapPad * 2;
+
+// Ahead-distance on the circular line (handles wrap-around).
+export function subwayAhead(sx, x) {
+  return (((sx - x) % SUBWAY_PERIOD) + SUBWAY_PERIOD) % SUBWAY_PERIOD;
+}
+
+// Index of the next station ahead of x.
+export function subwayNextStation(x, stations) {
+  let best = 0, bestD = Infinity;
+  for (let i = 0; i < stations.length; i++) {
+    const d = subwayAhead(stations[i], x);
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  return best;
+}
+
+export function subwayBrakeDistance(v, decel) {
+  return (v * v) / (2 * decel);
+}
+
+// Door openness 0..1 across a dwell window: open, hold, close.
+export function subwayDoorOpen(dwellT, dwell, doorTime) {
+  if (dwellT < 0) return 0;
+  if (dwellT < doorTime) return dwellT / doorTime;
+  if (dwellT > dwell - doorTime) return Math.max(0, (dwell - dwellT) / doorTime);
+  return 1;
+}
+
+export function subwayTrainLength() {
+  return SUBWAY.cars * SUBWAY.carLen;
+}
+
+export function createSubwayState() {
+  return { x: -SUBWAY.wrapPad, v: SUBWAY.cruiseV, mode: "cruise", station: -1, dwellT: 0, door: 0 };
+}
+
+// Advance the subway one tick. Pure-ish: mutates and returns `sub`.
+export function updateSubway(sub, dt) {
+  const S = SUBWAY;
+  if (sub.mode === "cruise" || sub.mode === "depart") {
+    sub.v = Math.min(S.cruiseV, sub.v + S.accel * dt);
+    sub.x += sub.v * dt;
+    const si = subwayNextStation(sub.x, S.stations);
+    const dist = subwayAhead(S.stations[si], sub.x);
+    if (dist <= subwayBrakeDistance(sub.v, S.brake) + 2) {
+      sub.mode = "brake";
+      sub.station = si;
+    } else if (sub.mode === "depart" && sub.v >= S.cruiseV) {
+      sub.mode = "cruise";
+    }
+  } else if (sub.mode === "brake") {
+    sub.v = Math.max(0, sub.v - S.brake * dt);
+    sub.x += sub.v * dt;
+    const sx = S.stations[sub.station];
+    if (sub.v === 0 || sub.x >= sx) {
+      sub.x = sx;
+      sub.v = 0;
+      sub.mode = "dwell";
+      sub.dwellT = 0;
+    }
+  } else if (sub.mode === "dwell") {
+    sub.dwellT += dt;
+    sub.door = subwayDoorOpen(sub.dwellT, S.dwell, S.doorTime);
+    if (sub.dwellT >= S.dwell) {
+      sub.mode = "depart";
+      sub.door = 0;
+    }
+  }
+  if (sub.x > WORLD_W + S.wrapPad) {
+    sub.x -= SUBWAY_PERIOD;
+    sub.v = S.cruiseV;
+    sub.mode = "cruise";
+    sub.station = -1;
+    sub.door = 0;
+  }
+  return sub;
+}
 
 export function createScene(canvas, opts) {
   const onHotspot = (opts && opts.onHotspot) || function () {};
@@ -172,6 +271,9 @@ export function createScene(canvas, opts) {
 
   let W = 0, H = 0, dpr = 1;
   const state = { time: 0.95, traffic: true, cam: defaultCamera(), selected: null, fly: false, t: 0 };
+  const sub = createSubwayState();
+  // Reduced motion: freeze a readable tableau — train dwelling with doors open.
+  if (reduced) { sub.x = 800; sub.v = 0; sub.mode = "dwell"; sub.station = 1; sub.dwellT = 1.2; sub.door = 1; }
 
   function resize() {
     dpr = clamp(window.devicePixelRatio || 1, 1, 2);
@@ -319,30 +421,158 @@ export function createScene(canvas, opts) {
       ctx.globalAlpha = 1;
     }
 
-    // skyway monorail + train
-    const railY = syOf(470);
-    ctx.strokeStyle = mixHex("#3a4a66", "#131a28", dark);
-    ctx.lineWidth = 5 * z;
-    ctx.beginPath();
-    ctx.moveTo(0, railY);
-    ctx.lineTo(W, railY);
-    ctx.stroke();
-    for (let px = 100; px < WORLD_W; px += 220) {
-      const s = w2s(px, 560);
-      ctx.fillRect(s.x - 3 * z, railY, 6 * z, s.y - railY);
+    // subway — the trains run UNDERGROUND now (cutaway view).
+    // Grade-separated: no level crossings, so street cars never stop for trains.
+    if (!reduced) updateSubway(sub, dt);
+    const S = SUBWAY;
+    const tTop = syOf(S.tunnelTop), tBot = syOf(S.tunnelBottom);
+    // soil strata between the street and the tunnel
+    ctx.fillStyle = "rgba(150,110,70,0.10)";
+    for (let sy = 806; sy < S.tunnelTop; sy += 18) {
+      ctx.fillRect(0, syOf(sy), W, 1.5 * z);
     }
-    if (!reduced) {
-      TRAIN.x += 140 * dt;
-      if (TRAIN.x > WORLD_W + 120) TRAIN.x = -120;
+    // tunnel bore
+    ctx.fillStyle = "#04060a";
+    ctx.fillRect(0, tTop, W, tBot - tTop);
+    ctx.strokeStyle = "rgba(150,180,220,0.28)";
+    ctx.lineWidth = 2 * z;
+    ctx.beginPath(); ctx.moveTo(0, tTop + 1 * z); ctx.lineTo(W, tTop + 1 * z); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, tBot - 1 * z); ctx.lineTo(W, tBot - 1 * z); ctx.stroke();
+    for (let px = 0; px < WORLD_W; px += 90) {
+      const s = w2s(px, 0);
+      ctx.fillStyle = "rgba(150,180,220,0.07)";
+      ctx.fillRect(s.x, tTop, 2 * z, tBot - tTop);
     }
-    const ts = w2s(TRAIN.x, 470);
-    const tg = ctx.createRadialGradient(ts.x, ts.y, 0, ts.x, ts.y, 40 * z);
-    tg.addColorStop(0, "rgba(0,242,255," + (0.5 * dark + 0.15) + ")");
-    tg.addColorStop(1, "rgba(0,242,255,0)");
-    ctx.fillStyle = tg;
-    ctx.fillRect(ts.x - 40 * z, ts.y - 40 * z, 80 * z, 80 * z);
-    ctx.fillStyle = "#d8f6ff";
-    ctx.fillRect(ts.x - 44 * z, ts.y - 8 * z, 88 * z, 14 * z);
+    for (let px = 130; px < WORLD_W; px += 260) {
+      const s = w2s(px, S.tunnelTop + 10);
+      ctx.fillStyle = "rgba(255,200,120," + (0.45 + 0.2 * dark) + ")";
+      ctx.beginPath(); ctx.arc(s.x, s.y, 2.5 * z, 0, 6.29); ctx.fill();
+    }
+    // sleepers + rails
+    for (let px = 0; px < WORLD_W; px += 26) {
+      const s = w2s(px, S.railY);
+      ctx.fillStyle = "#0e141d";
+      ctx.fillRect(s.x - 2 * z, s.y - 7 * z, 4 * z, 14 * z);
+    }
+    ctx.strokeStyle = "#5a6a80";
+    ctx.lineWidth = 2 * z;
+    for (const off of [-4, 4]) {
+      const ry = syOf(S.railY + off);
+      ctx.beginPath(); ctx.moveTo(0, ry); ctx.lineTo(W, ry); ctx.stroke();
+    }
+    // stations: platforms, signs, stair shafts, street kiosks with opening doors
+    ctx.textAlign = "center";
+    S.stations.forEach((sx, i) => {
+      const x0 = sx - S.stationHalf, x1 = sx + S.stationHalf;
+      const a = w2s(x0, 0), b = w2s(x1, 0);
+      ctx.fillStyle = "#0a1119";
+      ctx.fillRect(a.x, tTop, b.x - a.x, tBot - tTop);
+      const deckY = syOf(S.railY - S.carH);
+      ctx.fillStyle = "#141c28";
+      ctx.fillRect(a.x, deckY, b.x - a.x, 8 * z);
+      ctx.fillStyle = "rgba(255,205,90,0.75)";
+      for (let px = x0 + 6; px < x1 - 6; px += 24) {
+        ctx.fillRect(w2s(px, 0).x, deckY, 12 * z, 2.5 * z);
+      }
+      const sign = w2s(sx, S.tunnelTop + 28);
+      ctx.fillStyle = "#ffcc33";
+      ctx.beginPath(); ctx.arc(sign.x - 64 * z, sign.y, 3 * z, 0, 6.29); ctx.fill();
+      ctx.fillStyle = "rgba(230,240,255,0.85)";
+      ctx.font = Math.max(9, 10 * z) + "px monospace";
+      ctx.fillText(S.stationNames[i], sign.x, sign.y + 3 * z);
+      for (const lx of [-90, 0, 90]) {
+        const s = w2s(sx + lx, S.tunnelTop + 14);
+        const lg = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, 26 * z);
+        lg.addColorStop(0, "rgba(255,210,140," + (0.3 * dark + 0.1) + ")");
+        lg.addColorStop(1, "rgba(255,210,140,0)");
+        ctx.fillStyle = lg;
+        ctx.fillRect(s.x - 26 * z, s.y - 26 * z, 52 * z, 52 * z);
+      }
+      // stair shaft from the street kiosk down to the platform
+      const kx = sx + 100;
+      const shx = w2s(kx, 0).x;
+      const shaftTop = syOf(790), shaftBot = deckY + 8 * z;
+      ctx.fillStyle = "#030509";
+      ctx.fillRect(shx - 15 * z, shaftTop, 30 * z, shaftBot - shaftTop);
+      ctx.strokeStyle = "rgba(150,180,220,0.22)";
+      ctx.lineWidth = 1.5 * z;
+      let step = 0;
+      for (let wy = 802; wy < S.railY - S.carH - 6; wy += 12) {
+        const s2 = w2s(kx, wy);
+        const left = (step++ % 2) === 0;
+        ctx.beginPath();
+        ctx.moveTo(s2.x + (left ? -15 : 0) * z, s2.y);
+        ctx.lineTo(s2.x + (left ? 0 : 15) * z, s2.y);
+        ctx.stroke();
+      }
+      // entrance kiosk on the street — doors open for loading while the train dwells here
+      const kb = w2s(kx, 790);
+      const kw = 56 * z, kh = 40 * z;
+      ctx.fillStyle = "rgba(120,200,240,0.13)";
+      ctx.fillRect(kb.x - kw / 2, kb.y - kh, kw, kh);
+      ctx.strokeStyle = "rgba(150,210,245,0.5)";
+      ctx.lineWidth = 1.5 * z;
+      ctx.strokeRect(kb.x - kw / 2, kb.y - kh, kw, kh);
+      ctx.fillStyle = "#00f2ff";
+      ctx.font = Math.max(8, 9 * z) + "px monospace";
+      ctx.fillText("SUBWAY", kb.x, kb.y - kh - 6 * z);
+      const open = (sub.mode === "dwell" && sub.station === i) ? sub.door : 0;
+      const dw = 30 * z, dh = 30 * z;
+      const dx = kb.x - dw / 2, dy = kb.y - dh;
+      if (open > 0.02) {
+        ctx.fillStyle = "rgba(255,205,120," + (0.5 * open) + ")";
+        ctx.fillRect(dx, dy, dw, dh);
+      }
+      ctx.fillStyle = "#0d1622";
+      const slide = open * (dw / 2 - 1 * z);
+      ctx.fillRect(dx, dy, dw / 2 - slide, dh);
+      ctx.fillRect(dx + dw / 2 + slide, dy, dw / 2 - slide, dh);
+      ctx.strokeStyle = "rgba(160,200,235,0.5)";
+      ctx.lineWidth = 1 * z;
+      ctx.strokeRect(dx, dy, dw, dh);
+    });
+    // the train — car doors slide open for loading at stations
+    const trainLen = subwayTrainLength();
+    for (let c = 0; c < S.cars; c++) {
+      const cx = sub.x - trainLen / 2 + c * S.carLen;
+      const cs = w2s(cx, S.railY);
+      const cw = S.carLen * z, ch = S.carH * z;
+      ctx.fillStyle = "#16222f";
+      ctx.fillRect(cs.x, cs.y - ch, cw, ch);
+      ctx.fillStyle = "#0b1420";
+      ctx.fillRect(cs.x, cs.y - ch, cw, 5 * z);
+      ctx.fillStyle = "rgba(190,230,255,0.8)";
+      const winY = cs.y - ch + 8 * z, winH = 9 * z;
+      for (const seg of [[0.04, 0.22], [0.4, 0.6], [0.78, 0.96]]) {
+        ctx.fillRect(cs.x + seg[0] * cw, winY, (seg[1] - seg[0]) * cw, winH);
+      }
+      for (const f of [0.3, 0.7]) {
+        const dcx = cs.x + f * cw, dw2 = 10 * z;
+        const dTop = cs.y - ch + 4 * z, dH = ch - 6 * z;
+        if (sub.door > 0.02) {
+          ctx.fillStyle = "rgba(255,205,120," + (0.6 * sub.door) + ")";
+          ctx.fillRect(dcx - dw2, dTop, dw2 * 2, dH);
+        }
+        ctx.fillStyle = "#1d2c3d";
+        const dslide = sub.door * (dw2 - 1 * z);
+        ctx.fillRect(dcx - dw2, dTop, dw2 - dslide, dH);
+        ctx.fillRect(dcx + dslide, dTop, dw2 - dslide, dH);
+        ctx.strokeStyle = "rgba(160,200,235,0.5)";
+        ctx.lineWidth = 1 * z;
+        ctx.strokeRect(dcx - dw2, dTop, dw2 * 2, dH);
+      }
+      if (c > 0) {
+        ctx.fillStyle = "#05080d";
+        ctx.fillRect(cs.x - 2 * z, cs.y - ch + 6 * z, 4 * z, ch - 12 * z);
+      }
+    }
+    // headlight at the front
+    const hs = w2s(sub.x + trainLen / 2, S.railY - 10);
+    const hg2 = ctx.createRadialGradient(hs.x, hs.y, 0, hs.x, hs.y, 22 * z);
+    hg2.addColorStop(0, "rgba(255,240,200," + (0.5 * dark + 0.15) + ")");
+    hg2.addColorStop(1, "rgba(255,240,200,0)");
+    ctx.fillStyle = hg2;
+    ctx.fillRect(hs.x - 22 * z, hs.y - 22 * z, 44 * z, 44 * z);
 
     // undercity steam vents
     if (!reduced && dark > 0.4) {
