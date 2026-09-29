@@ -195,6 +195,84 @@ export function DartArchetype({ color = '#00ff88' }) {
   );
 }
 
+// --- Trim bikes: Merlin's signature single-rider space bikes. Narrow
+// elongated frame, glass rider canopy, two side trim-thruster pods with glow
+// discs, engine glow at the stern. Nose +Z like the rest of the fleet.
+function TrimThrusterPods({ color = '#00ffcc', xOffset = 0.85 }) {
+  return (
+    <group>
+      {[xOffset, -xOffset].map((x, i) => (
+        <group key={i} position={[x, 0.55, -0.2]}>
+          <mesh rotation={[0, 0, Math.PI / 2]}>
+            <cylinderGeometry args={[0.22, 0.26, 1.1, 20]} />
+            <PodShell />
+          </mesh>
+          <mesh position={[0, 0, 0.58]} rotation={[Math.PI / 2, 0, 0]}>
+            <circleGeometry args={[0.16, 20]} />
+            <meshBasicMaterial color={color} transparent opacity={0.9} side={THREE.DoubleSide} />
+          </mesh>
+          <mesh position={[0, 0, -0.58]} rotation={[Math.PI / 2, 0, 0]}>
+            <circleGeometry args={[0.16, 20]} />
+            <meshBasicMaterial color={color} transparent opacity={0.9} side={THREE.DoubleSide} />
+          </mesh>
+        </group>
+      ))}
+    </group>
+  );
+}
+
+export function WispArchetype({ color = '#00ffcc' }) {
+  return (
+    <group>
+      <mesh position={[0, 0.62, 0.1]} rotation={[0.06, 0, 0]}>
+        <boxGeometry args={[0.42, 0.34, 2.6]} />
+        <Paint />
+      </mesh>
+      <mesh position={[0, 0.95, 0.35]}>
+        <sphereGeometry args={[0.3, 20, 16, 0, Math.PI * 2, 0, Math.PI / 2]} />
+        <Glass />
+      </mesh>
+      <mesh position={[0, 0.62, 0.1]}>
+        <boxGeometry args={[0.46, 0.05, 2.62]} />
+        <meshBasicMaterial color={color} transparent opacity={0.55} />
+      </mesh>
+      <mesh position={[0, 0.5, -1.35]}>
+        <circleGeometry args={[0.14, 20]} />
+        <meshBasicMaterial color={color} transparent opacity={0.9} side={THREE.DoubleSide} />
+      </mesh>
+      <TrimThrusterPods color={color} xOffset={0.8} />
+    </group>
+  );
+}
+
+export function CometArchetype({ color = '#38bdf8' }) {
+  return (
+    <group>
+      <mesh position={[0, 0.62, 0]}>
+        <boxGeometry args={[0.55, 0.42, 2.9]} />
+        <Paint />
+      </mesh>
+      <mesh position={[0, 0.98, 0.3]}>
+        <sphereGeometry args={[0.36, 20, 16, 0, Math.PI * 2, 0, Math.PI / 2]} />
+        <Glass />
+      </mesh>
+      <mesh position={[0, 0.35, 0.9]} rotation={[-0.25, 0, 0]}>
+        <boxGeometry args={[0.18, 0.5, 0.9]} />
+        <PodShell />
+      </mesh>
+      <mesh position={[0, 0.62, 0]}>
+        <boxGeometry args={[0.59, 0.05, 2.92]} />
+        <meshBasicMaterial color={color} transparent opacity={0.55} />
+      </mesh>
+      <mesh position={[0, 0.55, -1.5]}>
+        <circleGeometry args={[0.18, 20]} />
+        <meshBasicMaterial color={color} transparent opacity={0.9} side={THREE.DoubleSide} />
+      </mesh>
+      <TrimThrusterPods color={color} xOffset={0.95} />
+    </group>
+  );
+}
+
 // Fleet registry for the staging dock UI. Description is one plain-English line.
 export const FLEET = [
   { key: 'skiff', name: 'Skiff', desc: 'Nimble courier, quick off the dock.', color: '#00d4ff', Cmp: SkiffArchetype },
@@ -202,6 +280,8 @@ export const FLEET = [
   { key: 'hauler', name: 'Hauler', desc: 'Heavy lifter for the big loads.', color: '#f59e0b', Cmp: HaulerArchetype },
   { key: 'titan', name: 'Titan', desc: 'The workhorse of the fleet.', color: '#a78bfa', Cmp: TitanArchetype },
   { key: 'dart', name: 'Dart', desc: 'Interceptor — fastest thing in the sky.', color: '#00ff88', Cmp: DartArchetype },
+  { key: 'wisp', name: 'Trim Bike · Wisp', desc: "Merlin's agile scout bike — fastest off the line.", color: '#00ffcc', Cmp: WispArchetype },
+  { key: 'comet', name: 'Trim Bike · Comet', desc: "Merlin's balanced bike — steady and sharp.", color: '#38bdf8', Cmp: CometArchetype },
 ];
 
 export function fleetByKey(key) {
