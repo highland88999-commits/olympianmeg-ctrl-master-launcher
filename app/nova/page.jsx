@@ -191,12 +191,24 @@ function BikeRig({ flightRef, inputRef, bikeKey, autopilotRef, reduced, onWormho
 }
 
 // Garage turntable: the chosen bike on its dock pad.
-function GaragePreview({ bikeKey, reduced }) {
+// Click/tap the bike itself to mount — same action as the LAUNCH button.
+function GaragePreview({ bikeKey, reduced, onMount }) {
   const group = useRef(null);
   useFrame((state, dt) => {
     if (!reduced && group.current) group.current.rotation.y += dt * 0.35;
   });
   const Bike = bikeByKey(bikeKey).Cmp;
+  const handleBikeClick = (e) => {
+    if (e.delta > 10) return; // swipe/drag across the canvas, not a tap
+    if (onMount) onMount();
+  };
+  const showPointer = (e) => {
+    e.stopPropagation();
+    document.body.style.cursor = 'pointer';
+  };
+  const hidePointer = () => {
+    document.body.style.cursor = '';
+  };
   return (
     <group position={[DOCK_POS.x, DOCK_POS.y, DOCK_POS.z]}>
       {/* dock pad */}
@@ -208,7 +220,18 @@ function GaragePreview({ bikeKey, reduced }) {
         <ringGeometry args={[3.0, 3.4, 48]} />
         <meshBasicMaterial color={bikeByKey(bikeKey).color} transparent opacity={0.7} side={THREE.DoubleSide} />
       </mesh>
-      <group ref={group} position={[0, 0.4, 0]}>
+      <group
+        ref={group}
+        position={[0, 0.4, 0]}
+        onClick={handleBikeClick}
+        onPointerOver={showPointer}
+        onPointerOut={hidePointer}
+      >
+        {/* generous invisible touch target around the bike */}
+        <mesh>
+          <sphereGeometry args={[2.4, 12, 12]} />
+          <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+        </mesh>
         <Bike color={bikeByKey(bikeKey).color} />
         {/* the rider sits the docked bike on the turntable too */}
         <TronRider bikeKey={bikeKey} reduced={reduced} />
@@ -226,6 +249,7 @@ function NovaScene({
   sectorKey,
   reduced,
   onWormhole,
+  onMount,
 }) {
   return (
     <>
@@ -235,7 +259,7 @@ function NovaScene({
         <>
           <Starfield seed={sectorKey === 'shallows' ? 7 : sectorKey === 'gift-drift' ? 21 : 42} />
           {sectorKey === 'shallows' && phase === 'garage' && (
-            <GaragePreview bikeKey={bikeKey} reduced={reduced} />
+            <GaragePreview bikeKey={bikeKey} reduced={reduced} onMount={onMount} />
           )}
           {sectorKey === 'gift-drift' && <TheGift position={GIFT_POS} reduced={reduced} />}
           {sectorKey === 'spiral-reach' && <SpiralReachField reduced={reduced} />}
@@ -551,6 +575,7 @@ export default function NovaPage() {
 
   // --- launch / board / disembark ------------------------------------------
   const launch = useCallback(() => {
+    fx.bikeMount(); // mounting the bike: engine-up sweep + haptics
     flightRef.current = {
       sector: 'shallows',
       pos: { ...SECTOR_SPAWN.shallows },
@@ -630,6 +655,7 @@ export default function NovaPage() {
           sectorKey={sectorKey}
           reduced={reduced}
           onWormhole={doJump}
+          onMount={launch}
         />
       </Canvas>
 

@@ -23,6 +23,7 @@ import GoogleEarthTiles from '@/components/GoogleEarthTiles';
 import StylizedGlobe from '@/components/argo/StylizedGlobe';
 import { FLEET, fleetByKey } from '@/components/argo/VehicleArchetypes';
 import TronRider from '@/components/nova/TronRider';
+import { fx } from '@/lib/fx';
 import {
   DESTINATIONS,
   HOME_KEY,
@@ -73,6 +74,7 @@ function SurfaceMarker({ destKey, color }) {
 }
 
 // Drives the vehicle: great-circle slerp flight, parked hover, follow-cam.
+// Click/tap the parked vehicle to mount — same action as the Launch button.
 function FlightRig({
   flightRef,
   atKey,
@@ -82,6 +84,8 @@ function FlightRig({
   snapCamRef,
   onArrived,
   onProgress,
+  phase,
+  onMount,
 }) {
   const group = useRef(null);
   const { camera } = useThree();
@@ -173,10 +177,36 @@ function FlightRig({
   // Only the two tron bike ports get a mounted rider; the fleet skycraft
   // have no open cockpits.
   const isTronBike = vehicleKey === 'wisp' || vehicleKey === 'comet';
+  // The vehicle is clickable only while parked (dock/arrived) — never mid-flight.
+  const parked = phase === 'dock' || phase === 'arrived';
+  const handleVehicleClick = (e) => {
+    if (e.delta > 10) return; // orbit-drag, not a tap
+    if (parked && onMount) onMount();
+  };
+  const showPointer = (e) => {
+    e.stopPropagation();
+    document.body.style.cursor = 'pointer';
+  };
+  const hidePointer = () => {
+    document.body.style.cursor = '';
+  };
   return (
     <group ref={group} scale={VEHICLE_SCALE}>
-      <Vehicle color={fleetByKey(vehicleKey).color} />
-      {isTronBike && <TronRider bikeKey={vehicleKey} reduced={reduced} />}
+      <group
+        onClick={parked ? handleVehicleClick : undefined}
+        onPointerOver={parked ? showPointer : undefined}
+        onPointerOut={parked ? hidePointer : undefined}
+      >
+        {/* generous invisible touch target around the vehicle */}
+        {parked && (
+          <mesh>
+            <sphereGeometry args={[3.2, 12, 12]} />
+            <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+          </mesh>
+        )}
+        <Vehicle color={fleetByKey(vehicleKey).color} />
+        {isTronBike && <TronRider bikeKey={vehicleKey} reduced={reduced} />}
+      </group>
     </group>
   );
 }
@@ -192,10 +222,12 @@ function ArgoScene({
   followCam,
   reduced,
   layer,
+  snapCamRef,
   onTilesActive,
   onTilesInactive,
   onArrived,
   onProgress,
+  onMount,
 }) {
   return (
     <>
@@ -218,6 +250,8 @@ function ArgoScene({
         snapCamRef={snapCamRef}
         onArrived={onArrived}
         onProgress={onProgress}
+        phase={phase}
+        onMount={onMount}
       />
       {!(followCam && phase !== 'dock') && (
         <OrbitControls
@@ -271,6 +305,9 @@ export default function ArgoPage() {
   const startFlight = useCallback(
     (toKey) => {
       if (toKey === atKey) return;
+      // Mounting a tron bike plays the mount FX pair (engine-up sweep + haptics).
+      const vk = flightRef.current.vehicleKey;
+      if (vk === 'wisp' || vk === 'comet') fx.bikeMount();
       if (reduced) {
         // Reduced motion: jump-cut, no animation, static composition.
         flightRef.current = {
@@ -354,10 +391,12 @@ export default function ArgoPage() {
           followCam={followCam}
           reduced={reduced}
           layer={layer}
+          snapCamRef={snapCamRef}
           onTilesActive={() => setLayer('photorealistic')}
           onTilesInactive={() => setLayer('stylized')}
           onArrived={handleArrived}
           onProgress={handleProgress}
+          onMount={() => startFlight(targetKey)}
         />
       </Canvas>
 
