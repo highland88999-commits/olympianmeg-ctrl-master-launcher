@@ -50,6 +50,7 @@ export const SATELLITES: SatelliteEntry[] = [
   { key: "fortress-of-solitude", route: "/fortress-of-solitude", pos: "ARES_POS", section: "TOOLS", constellation: "ARES" },
   { key: "ares", route: "/ares", pos: "ARES_POS", section: "TOOLS", constellation: "ARES" },
   { key: "hephaestus", route: "/hephaestus", pos: "ARES_POS", section: "TOOLS", constellation: "ARES" },
+  { key: "prime", route: "/prime", pos: "ARES_POS", section: "TOOLS", constellation: "ARES" },
   { key: "waste-extraction", route: "/waste-extraction", pos: "ARES_POS", section: "UTILITIES", constellation: "ARES" },
   { key: "referral-system", route: "/referral-system", pos: "ARES_POS", section: "UTILITIES", constellation: "ARES" },
   { key: "housing-architecture", route: "/housing-architecture", pos: "ARES_POS", section: "UTILITIES", constellation: "ARES" },

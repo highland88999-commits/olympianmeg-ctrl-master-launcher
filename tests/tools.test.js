@@ -40,15 +40,15 @@ const EXPECTED_TOOLS = [
   'forge', 'terminal', 'holoframe', 'nexus-model-generation',
   'manuscript-forge', 'nexus-codex', 'resume',
   'plutus', 'merlin-mandates', 'cerberus',
-  'phone-home', 'fortress-of-solitude', 'ares', 'hephaestus',
+  'phone-home', 'fortress-of-solitude', 'ares', 'hephaestus', 'prime',
 ];
 
 // ---- registry: TOOLS home ----
 t('TOOLS section exists in SECTIONS', secs.some((s) => s.name === 'TOOLS' && s.key === 'tools'));
 t('TOOLS section uses the ARES constellation', secs.find((s) => s.name === 'TOOLS').constellation === 'ARES');
-t('TOOLS section has exactly 15 entries (hub + 14 tools)', TOOLS.length === 15);
+t('TOOLS section has exactly 16 entries (hub + 15 tools)', TOOLS.length === 16);
 t('hub entry /tools is first in the TOOLS block', TOOLS[0].key === 'tools' && TOOLS[0].route === '/tools');
-t('all 14 true tools moved into TOOLS',
+t('all 15 true tools moved into TOOLS',
   EXPECTED_TOOLS.every((k) => TOOLS.some((s) => s.key === k && s.route === '/' + k)));
 t('no true tool left in UTILITIES', !sats.some((s) => s.section === 'UTILITIES' && EXPECTED_TOOLS.includes(s.key)));
 t('no true tool left in AI PROGRAMS', !sats.some((s) => s.section === 'AI PROGRAMS' && EXPECTED_TOOLS.includes(s.key)));
