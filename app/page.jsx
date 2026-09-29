@@ -14,10 +14,13 @@ import GodOrbitRings from '@/components/GodOrbitRings';
 import BikeRig, { BIKE_PARK_POS, RIDER_OFFSET, BIKE_LOOK_AHEAD } from '@/components/BikeRig';
 import { ORBIT_CENTER, orbitTime, orbitPositionFor } from '@/lib/god-orbits';
 import SettingsGear from '@/components/SettingsGear';
+import EntranceSequence from '@/components/EntranceSequence';
+import { createEntranceMachine } from '@/lib/entrance-sequence';
 import NexusEarth from '@/components/NexusEarth';
 import EarthFlightController from '@/components/EarthFlightController';
 import EarthConsole from '@/components/EarthConsole';
 import { getUserPosition, FALLBACK_POSITION } from '@/lib/geo';
+import { fx, unlockFx } from '@/lib/fx';
 
 import Zeus from '@/components/Zeus';
 import Ares from '@/components/Ares';
@@ -422,6 +425,29 @@ function NexusHub() {
   // vars exist, original auth behavior returns unchanged.
   const [cloudOffline, setCloudOffline] = useState(false);
   const [cloudNoteDismissed, setCloudNoteDismissed] = useState(false);
+
+  // Entrance cinematic: auto-plays once per device until explicitly skipped
+  // (the skip preference is persisted in localStorage by
+  // lib/entrance-sequence.js). It renders OVER the already-mounted orbit
+  // scene, so the handoff is a fade — never a blank screen.
+  const [showIntro, setShowIntro] = useState(false);
+  // Merlin's entrance video as a SHADOWED distant backdrop behind the 3D
+  // home scene: true until the <video> reports the file missing, in which
+  // case the Canvas keeps its original opaque #050505 background — honest,
+  // never a fake video.
+  const [bgVideoOk, setBgVideoOk] = useState(true);
+  const introAutoPlayed = useRef(false);
+  useEffect(() => {
+    if ((user || cloudOffline) && !introAutoPlayed.current) {
+      introAutoPlayed.current = true;
+      try {
+        const m = createEntranceMachine(typeof window !== 'undefined' ? window.localStorage : null);
+        if (m.shouldAutoPlay()) setShowIntro(true);
+      } catch {
+        setShowIntro(true);
+      }
+    }
+  }, [user, cloudOffline]);
   
   const targetRouteRef = useRef('');
   const adWindowRef = useRef(null);
@@ -443,6 +469,7 @@ function NexusHub() {
 
   const beginEarthDive = () => {
     if (appState !== 'hub_freeroam') return;
+    fx.earthDive();
     setEarthFocus({ ...FALLBACK_POSITION, label: t('earth.locating') });
     setAppState('diving_to_earth');
     getUserPosition().then((pos) => {
@@ -515,6 +542,23 @@ function NexusHub() {
   }, []);
 
   useEffect(() => {
+    // FX system: unlock sound+haptics on the first user gesture (autoplay
+    // policy keeps audio silent until then, and we never buzz uninvited),
+    // and layer entrance-cinematic haptics via the 'nexus:entrance-phase'
+    // event (sound for those phases stays in lib/entrance-audio.js).
+    const unlock = () => unlockFx();
+    const onPhase = (e) => { try { fx.entrancePhase(e.detail && e.detail.phase); } catch { /* noop */ } };
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
+    window.addEventListener('nexus:entrance-phase', onPhase);
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+      window.removeEventListener('nexus:entrance-phase', onPhase);
+    };
+  }, []);
+
+  useEffect(() => {
     // Device-adaptable menu: start collapsed on phones so the 3D hub is
     // visible first; the bottom-left menu button opens it on demand.
     // Runs only on mount (client side), so no SSR window access.
@@ -569,6 +613,10 @@ function NexusHub() {
   };
 
   const launchPocketUniverse = (route, satKey, fallbackPos, directPos) => {
+    // Sound + haptics for the launch. Internal routes get the drop fanfare;
+    // external affiliate links (stake.com tower panels) get a neutral tap —
+    // no fanfare on his inventory, ever.
+    fx.routeLaunch(route);
     // The one menu-to-satellite function. Drop target resolution:
     // 1. directPos — explicit 3D position (tower ad panels);
     // 2. the satellite's live orbit-node position (god bands);
@@ -591,8 +639,10 @@ function NexusHub() {
 
   const toggleBike = () => {
     if (appState === 'on_bike' || appState === 'to_bike') {
+      fx.bikeDismount();
       setAppState('hub_freeroam');
     } else if (appState === 'hub_intro' || appState === 'hub_freeroam') {
+      fx.bikeMount();
       setAppState('to_bike');
     }
   };
@@ -672,7 +722,7 @@ function NexusHub() {
               Cloud features are offline — exploring as a guest. Sign-in and cloud saves return once the database is connected.
             </span>
             <button
-              onClick={() => setCloudNoteDismissed(true)}
+              onClick={() => { fx.tap(); setCloudNoteDismissed(true); }}
               className="text-zinc-500 hover:text-white text-xs px-2"
               aria-label="Dismiss"
             >
@@ -680,6 +730,22 @@ function NexusHub() {
             </button>
           </div>
         </div>
+      )}
+      
+      {/* Entrance cinematic: plays over the live orbit scene; tap anywhere,
+          the Skip button, or Escape to skip (persisted). Replay anytime via
+          the ↺ INTRO control. */}
+      {(user || cloudOffline) && showIntro && (
+        <EntranceSequence onDone={() => setShowIntro(false)} />
+      )}
+      {(user || cloudOffline) && !showIntro && (appState === 'hub_intro' || appState === 'hub_freeroam') && (
+        <button
+          onClick={() => { fx.tap(); setShowIntro(true); }}
+          aria-label="Replay intro"
+          className="absolute top-5 left-5 z-50 px-4 py-2 text-[10px] font-bold tracking-[0.2em] uppercase text-zinc-400 border border-zinc-800 rounded-full bg-zinc-950/80 backdrop-blur-md hover:text-white hover:border-zinc-500 transition-all ui-element pointer-events-auto"
+        >
+          ↺ INTRO
+        </button>
       )}
       
       {(user || cloudOffline) && (appState === 'hub_intro' || appState === 'hub_freeroam') && (
@@ -694,7 +760,7 @@ function NexusHub() {
                   </div>
                   <div className="flex items-center gap-1">
                     <SettingsGear />
-                    <button onClick={() => setIsMenuExpanded(false)} title={t('ui.collapse')} className="text-zinc-500 hover:text-white text-xs px-1">[_]</button>
+                    <button onClick={() => { fx.menuClose(); setIsMenuExpanded(false); }} title={t('ui.collapse')} className="text-zinc-500 hover:text-white text-xs px-1">[_]</button>
                   </div>
                 </div>
                 
@@ -719,7 +785,7 @@ function NexusHub() {
               </div>
             ) : (
               <button 
-                onClick={() => setIsMenuExpanded(true)}
+                onClick={() => { fx.menuOpen(); setIsMenuExpanded(true); }}
                 aria-label="Open menu"
                 className="w-16 h-16 rounded-full flex items-center justify-center shadow-[0_0_25px_rgba(0,255,255,0.4)] hover:scale-105 transition-all overflow-hidden border-2 border-cyan-500 relative bg-cyan-950/60"
               >
@@ -729,7 +795,7 @@ function NexusHub() {
           </div>
 
           <button 
-            onClick={() => setFlightAxis(m => m === 'horizontal' ? 'vertical' : 'horizontal')}
+            onClick={() => { fx.tap(); setFlightAxis(m => m === 'horizontal' ? 'vertical' : 'horizontal'); }}
             className="absolute top-5 right-5 z-50 px-6 py-4 text-[10px] sm:text-xs font-bold tracking-widest text-cyan-400 uppercase transition-all border border-cyan-500/50 rounded-xl bg-zinc-950/90 shadow-[0_0_20px_rgba(0,255,255,0.15)] backdrop-blur-md hover:bg-cyan-900/40 ui-element pointer-events-auto"
           >
             FLIGHT AXIS: <span className="text-white">{flightAxis}</span>
@@ -777,9 +843,31 @@ function NexusHub() {
         </div>
       )}
 
+      {/* Merlin's entrance video — SHADOWED iteration in the distance behind
+          the main home-scene frame. Same file as the auth background, but
+          dimmed, desaturated, and veiled so the live Earth, orbit rings,
+          satellites, and parked TRON bike sit in front of it. Looping,
+          muted, playsinline. Gated on the hub being visible so it never
+          double-plays under the Auth overlay. */}
+      {(user || cloudOffline) && bgVideoOk && (
+        <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
+          <video
+            src="/media/entrance.mp4"
+            autoPlay
+            loop
+            muted
+            playsInline
+            onError={() => setBgVideoOk(false)}
+            className="absolute inset-0 w-full h-full object-cover"
+            style={{ filter: 'brightness(0.30) saturate(0.55) contrast(0.95)' }}
+          />
+          <div className="absolute inset-0 bg-black/50" />
+        </div>
+      )}
+
       <div className="absolute inset-0 pointer-events-none">
-        <Canvas shadows="soft" camera={{ position: [ORBIT_CENTER.x, ORBIT_CENTER.y, ORBIT_CENTER.z], fov: 52, far: 2000 }} style={{ pointerEvents: 'auto' }}>
-          <color attach="background" args={['#050505']} />
+        <Canvas shadows="soft" gl={{ alpha: true }} camera={{ position: [ORBIT_CENTER.x, ORBIT_CENTER.y, ORBIT_CENTER.z], fov: 52, far: 2000 }} style={{ pointerEvents: 'auto' }}>
+          {!bgVideoOk && <color attach="background" args={['#050505']} />}
           <fogExp2 attach="fog" args={['#050505', 0.015]} />
           <Stars radius={100} depth={50} count={7000} factor={4} saturation={0} fade speed={1} />
           

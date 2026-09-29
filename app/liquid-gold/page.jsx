@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { fx } from "@/lib/fx";
 import GoldBalance from "@/components/economy/GoldBalance";
 import {
   newState, pourTick, refineTick, barValue, sellBars, buyUpgrade,
@@ -57,9 +58,11 @@ export default function LiquidGoldPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not verify your bars.");
       setGoldNotice(data.notice || (data.creditedGold > 0 ? `+${data.creditedGold} gold.` : null));
+      fx.checkoutConfirm(); // bars sold, gold credited — confirm it
       goldBalanceRef.current?.refresh();
     } catch (err) {
       setGoldNotice(err.message || "Could not verify your bars.");
+      fx.error(); // claim failed: the user needs to know and retry
     } finally {
       setClaiming(false);
     }
@@ -153,7 +156,8 @@ export default function LiquidGoldPage() {
       const st = stateRef.current;
       st.now += TICK;
       pourTick(st, TICK);
-      refineTick(st, TICK);
+      const minted = refineTick(st, TICK);
+      if (minted > 0) fx.victory(); // bar minted — the victory moment
       rerender();
     }, TICK * 1000);
 

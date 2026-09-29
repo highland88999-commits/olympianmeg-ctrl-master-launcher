@@ -14,6 +14,7 @@ import { addLine, removeLine, setQty, countItems, enrichCart, serialize, deseria
 import { getProduct, PRICE_CENTS } from '@/lib/olympus/products';
 import { saveOrderRequest } from '@/lib/olympus/storage';
 import ProductCard from '@/components/olympus/ProductCard';
+import { fx } from '@/lib/fx';
 import ProductModal from '@/components/olympus/ProductModal';
 import CartDrawer from '@/components/olympus/CartDrawer';
 import CheckoutPanel from '@/components/olympus/CheckoutPanel';
@@ -35,6 +36,12 @@ function CheckoutNotice() {
   const params = useSearchParams();
   const result = params.get('checkout');
   const [dismissed, setDismissed] = useState(false);
+  useEffect(() => {
+    // Honest confirmation: celebrates the Stripe redirect return, not the
+    // settled payment (the webhook settles that). Modest, never fanfare.
+    if (result === 'success') fx.checkoutConfirm();
+    else if (result) fx.checkoutCancelled();
+  }, [result]);
   if (!result || dismissed) return null;
   const ok = result === 'success';
   return (

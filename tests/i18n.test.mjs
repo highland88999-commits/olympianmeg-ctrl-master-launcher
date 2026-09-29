@@ -26,9 +26,9 @@ for (const code of LOCALES) {
   t(`${code}: no empty strings (${empty.length})`, empty.length === 0);
 }
 
-// --- key coverage: all 122 satellites + sections + chrome ---
+// --- key coverage: all 129 satellites + sections + chrome ---
 const satKeys = enKeys.filter((k) => k.startsWith('sat.'));
-t('123 satellites x title+subtitle = 246 sat keys', satKeys.length === 246);
+t('129 satellites x title+subtitle = 258 sat keys', satKeys.length === 258);
 t('section names present', ['games', 'utilities', 'tools', 'ai-programs', 'observatory', 'therapy', 'sanctum'].every((s) => en[`sec.${s}.name`]));
 t('constellation names present', ['zeus', 'ares', 'thoth', 'argus', 'medusa', 'artemis'].every((c) => en[`const.${c}`]));
 t('ui chrome keys present', ['ui.nexusHub', 'ui.operator', 'ui.collapse', 'ui.language', 'ui.disconnect'].every((k) => en[k]));
@@ -37,10 +37,10 @@ t('ui chrome keys present', ['ui.nexusHub', 'ui.operator', 'ui.collapse', 'ui.la
 const regSrc = readFileSync('lib/i18n/satellites.ts', 'utf8');
 const satBlock = regSrc.slice(regSrc.indexOf('export const SATELLITES'), regSrc.indexOf('\n];', regSrc.indexOf('export const SATELLITES')));
 const routes = [...satBlock.matchAll(/route: "([^"]+)"/g)].map((m) => m[1]);
-t('registry has 123 entries', routes.length === 123);
-t('registry routes unique', new Set(routes).size === 123);
+t('registry has 129 entries', routes.length === 129);
+t('registry routes unique', new Set(routes).size === 129);
 const keys = [...satBlock.matchAll(/key: "([^"]+)"/g)].map((m) => m[1]);
-t('registry keys unique', new Set(keys).size === 123);
+t('registry keys unique', new Set(keys).size === 129);
 // every registry key has title+subtitle in en
 const missingKeys = keys.filter((k) => !en[`sat.${k}.title`] || !en[`sat.${k}.subtitle`]);
 t(`every registry key has en title+subtitle (missing: ${missingKeys.length})`, missingKeys.length === 0);
@@ -54,8 +54,9 @@ t(`no orphaned dictionary keys (orphaned: ${orphaned.length})`, orphaned.length 
 // --- launcher wiring ---
 const launcher = readFileSync('app/page.jsx', 'utf8');
 t('no hardcoded menu buttons remain', !/launchPocketUniverse\('\/[a-z]/.test(launcher));
-t('menu renders from SATELLITES', /SATELLITES\.filter/.test(launcher));
-t('menu uses t() for labels', /t\(`sat\.\$\{sat\.key\}\.title`\)/.test(launcher));
+t('hub builds its satellite index from SATELLITES', /new Map\(SATELLITES\.map/.test(launcher));
+const godMenuPanel = readFileSync('components/GodMenuPanel.jsx', 'utf8');
+t('menu uses t() for labels', /t\(`sat\.\$\{key\}\.title`\)/.test(godMenuPanel));
 t('LanguageProvider wraps hub', /<LanguageProvider>/.test(launcher));
 t('SettingsGear in menu header', /<SettingsGear \/>/.test(launcher));
 t('POS_MAP covers all six targets', /ZEUS_POS, ARES_POS, THOTH_POS, ARGUS_POS, BABEL_POS, MEDUSA_POS/.test(launcher));
