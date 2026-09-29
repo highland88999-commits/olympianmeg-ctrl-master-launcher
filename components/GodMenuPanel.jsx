@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { GOD_MENUS } from '@/lib/god-menus';
+import { fx } from '@/lib/fx';
 
 // Accent styles per god menu. Kept dim on purpose: light must never drown
 // out texture wraps — the banner gradient stays dark, text stays readable.
@@ -60,7 +61,7 @@ export default function GodMenuPanel({ t, satIndex, onLaunch }) {
             className={`rounded-xl border bg-black/60 overflow-hidden transition-all ${acc.ring} ${open ? acc.glow : ''}`}
           >
             <button
-              onClick={() => setOpenGod(open ? null : menu.god)}
+              onClick={() => { if (open) fx.menuClose(); else fx.menuOpen(); setOpenGod(open ? null : menu.god); }}
               aria-expanded={open}
               className="w-full text-left"
             >

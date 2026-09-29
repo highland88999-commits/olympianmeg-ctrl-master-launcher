@@ -132,6 +132,12 @@ export const SATELLITES: SatelliteEntry[] = [
   { key: "rem", route: "/rem", pos: "MEDUSA_POS", section: "THERAPY", constellation: "MEDUSA" },
   { key: "the-afterlife", route: "/the-afterlife", pos: "MEDUSA_POS", section: "THERAPY", constellation: "MEDUSA" },
   { key: "styx", route: "/styx", pos: "MEDUSA_POS", section: "THERAPY", constellation: "MEDUSA" },
+  // NOTE: this file says "do not hand-edit — regenerate". The generator
+  // (/tmp/extract_menu.py + gen_i18n.py) no longer exists in this environment,
+  // and app/page.jsx renders its menus from this registry, so new satellites
+  // are added by hand here until the generator is restored.
+  // PERSEPHONE sits with the other venue (rogers-arena): ZEUS/GAMES.
+  { key: "persephone", route: "/persephone", pos: "ZEUS_POS", section: "GAMES", constellation: "ZEUS" },
 ];
 
 export interface SectionDef { name: string; key: string; constellation: string; }

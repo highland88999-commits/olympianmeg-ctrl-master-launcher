@@ -8,6 +8,11 @@ export default function Auth({ onLogin }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  // Entrance video: true until the <video> element reports the file missing.
+  // Merlin drops his video at public/media/entrance.mp4 (served as
+  // /media/entrance.mp4); until then an animated gradient shows — honest,
+  // never a fake video.
+  const [videoOk, setVideoOk] = useState(true);
   
   // Modes: 'login', 'signup', 'reset', 'update'
   const [mode, setMode] = useState('login'); 
@@ -77,7 +82,36 @@ export default function Auth({ onLogin }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-[#050508]/95 z-[50000] flex justify-center items-center backdrop-blur-md">
+    <div className="fixed inset-0 z-[50000] flex justify-center items-center overflow-hidden">
+      {/* Entrance background — Merlin's one house ad slot. His video plays
+          behind the auth text when public/media/entrance.mp4 exists; an
+          elegant animated gradient shows until then. The dim overlay keeps
+          the auth text readable over either. */}
+      <div className="absolute inset-0 bg-[#050508]" aria-hidden="true">
+        <style>{`@keyframes auth-bg-drift { 0% { transform: scale(1) translate(0, 0); } 100% { transform: scale(1.18) translate(-2%, 3%); } }`}</style>
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              'radial-gradient(ellipse 80% 60% at 50% 28%, #0e323b 0%, #050508 70%),' +
+              'radial-gradient(ellipse 55% 45% at 82% 82%, #33103a 0%, transparent 70%),' +
+              'radial-gradient(ellipse 50% 40% at 15% 75%, #0b2b1a 0%, transparent 70%)',
+            animation: 'auth-bg-drift 26s ease-in-out infinite alternate',
+          }}
+        />
+        {videoOk && (
+          <video
+            src="/media/entrance.mp4"
+            autoPlay
+            loop
+            muted
+            playsInline
+            onError={() => setVideoOk(false)}
+            className="absolute inset-0 w-full h-full object-cover"
+          />
+        )}
+        <div className="absolute inset-0 bg-black/55" />
+      </div>
       <div className="bg-[#0c0c12]/90 p-10 border border-[#08f7fe] rounded-xl w-[90%] max-w-[420px] shadow-[0_0_40px_rgba(8,247,254,0.15)] flex flex-col relative">
         
         <h2 className="font-['Orbitron'] text-[#08f7fe] text-xl text-center tracking-[0.15em] mb-6 uppercase">
