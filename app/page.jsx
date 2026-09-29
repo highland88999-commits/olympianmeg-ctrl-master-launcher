@@ -9,7 +9,7 @@ import Auth from '@/components/Auth';
 import { supabase } from '@/lib/supabase';
 import { LanguageProvider, useI18n } from '@/lib/i18n';
 import { SATELLITES } from '@/lib/i18n/satellites';
-import GodMenuPanel from '@/components/GodMenuPanel';
+import SatelliteMenu from '@/components/SatelliteMenu';
 import GodOrbitRings from '@/components/GodOrbitRings';
 import BikeRig, { BIKE_PARK_POS, RIDER_OFFSET, BIKE_LOOK_AHEAD } from '@/components/BikeRig';
 import { ORBIT_CENTER, orbitTime, orbitPositionFor } from '@/lib/god-orbits';
@@ -755,7 +755,7 @@ function NexusHub() {
               <div className="bg-zinc-950/90 border border-zinc-800 rounded-xl p-4 shadow-[0_0_30px_rgba(0,0,0,0.5)] backdrop-blur-md w-[min(16rem,calc(100vw-2.5rem))] max-h-[70vh] overflow-y-auto custom-scrollbar flex flex-col gap-5">
                 <div className="flex justify-between items-center border-b border-zinc-800 pb-2">
                   <div className="flex flex-col">
-                    <span className="text-xs font-bold tracking-widest text-white uppercase">{t('ui.nexusHub')}</span>
+                    <span className="text-xs font-bold tracking-widest text-white uppercase">Select your satellites</span>
                     <span className="text-[9px] font-mono text-cyan-400 tracking-wider uppercase">{t('ui.operator')}: {user || 'GUEST'}</span>
                   </div>
                   <div className="flex items-center gap-1">
@@ -764,10 +764,11 @@ function NexusHub() {
                   </div>
                 </div>
                 
-                {/* God menus: the 10 god-named navigation menus. Satellites launch
-                    ("drop") out of their parent menu through the one
-                    menu-to-satellite function, launchPocketUniverse. */}
-                <GodMenuPanel
+                {/* Satellite menu: select your satellites. Each satellite row opens
+                    a dropdown of the programming inside it; tapping a program
+                    launches it through the one menu-to-satellite function,
+                    launchPocketUniverse. */}
+                <SatelliteMenu
                   t={t}
                   satIndex={satIndex}
                   onLaunch={(route, key, pos) => launchPocketUniverse(route, key, pos)}

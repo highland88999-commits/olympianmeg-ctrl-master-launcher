@@ -110,6 +110,22 @@ export default function BabelPage() {
     setTouch(isTouchDevice());
   }, []);
 
+  // Deep link from the satellite menu: /babel?floor=<id> opens that floor's
+  // programming directly. Scene floors set the view; the aquarium floor opens
+  // the viewport. ('route' floors link straight to their route instead.)
+  useEffect(() => {
+    try {
+      const fid = new URLSearchParams(window.location.search).get('floor');
+      if (!fid) return;
+      const floor = getFloor(fid);
+      if (!floor) return;
+      if (floor.kind === 'aquarium') setShowAquarium(true);
+      else if (floor.kind === 'scene') setView(floor.id);
+    } catch {
+      // Malformed URL — stay on the tower view.
+    }
+  }, []);
+
   // WASD / arrow-key movement while in walk mode.
   useEffect(() => {
     if (mode !== 'walk') return;
