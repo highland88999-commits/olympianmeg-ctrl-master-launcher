@@ -24,6 +24,20 @@ import {
   shuffleTracks,
 } from '@/lib/radio/station';
 import { registerDockEntry, unregisterDockEntry, updateDockEntry } from '@/lib/window-dock/registry';
+import { supabase } from '@/lib/supabase';
+import {
+  SOURCES,
+  SOURCE_LABELS,
+  isValidSource,
+  LS_SOURCE,
+  SS_VERIFIER,
+  SS_STATE,
+  SS_REDIRECT_URI,
+  buildAuthorizeUrl,
+  codeChallenge,
+  randomString,
+  redirectUriFor,
+} from '@/lib/radio/spotify-auth';
 
 const RadioContext = createContext(null);
 
@@ -44,6 +58,28 @@ function readLS(key, fallback) {
   }
 }
 
+function readSourceLS() {
+  try {
+    const v = window.localStorage.getItem(LS_SOURCE);
+    return isValidSource(v) ? v : SOURCES.NEXUS;
+  } catch {
+    return SOURCES.NEXUS;
+  }
+}
+
+// The app user's Supabase access token for our own API routes.
+async function getBearer() {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token || null;
+  } catch {
+    return null;
+  }
+}
+
+// Inlined by Next.js at build time (public client id — no secret involved).
+const SPOTIFY_CLIENT_ID = process.env.NEXT_PUBLIC_SPOTIFY_CLIENT_ID || '';
+
 export function RadioProvider({ children }) {
   // Shuffle is the station's default mode.
   const [shuffle, setShuffle] = useState(() => (typeof window === 'undefined' ? true : readLS(LS_SHUFFLE, true)));
@@ -55,6 +91,73 @@ export function RadioProvider({ children }) {
   const [engineReady, setEngineReady] = useState(false);
   const [engineError, setEngineError] = useState(null);
   const [contribVersion, setContribVersion] = useState(0); // bump to rebuild queue
+
+  // --- Playback source: "nexus" (house station, default) <-> "my-spotify" ---
+  // Per-user: Supabase is the source of truth when signed in; localStorage
+  // is the offline fallback and syncs up when online.
+  const [source, setSourceState] = useState(() => (typeof window === 'undefined' ? SOURCES.NEXUS : readSourceLS()));
+  const sourceRef = useRef(source);
+  sourceRef.current = source;
+
+  // --- Spotify connection state ("My Spotify" source) ---
+  // status: 'unknown' | 'connected' | 'disconnected'
+  const [spotify, setSpotify] = useState({
+    status: 'unknown',
+    displayName: '',
+    product: 'unknown',
+    premium: false,
+    connecting: false,
+    error: null,
+    revoked: false,
+  });
+
+  useEffect(() => {
+    try { window.localStorage.setItem(LS_SOURCE, source); } catch {}
+  }, [source]);
+
+  // Server (Supabase) is the source of truth for the preference; fall back
+  // to localStorage when offline or signed out.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const bearer = await getBearer();
+      if (!bearer || cancelled) return;
+      try {
+        const res = await fetch('/api/spotify/prefs', {
+          headers: { Authorization: `Bearer ${bearer}` },
+        });
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        if (isValidSource(data?.source) && !cancelled) setSourceState(data.source);
+      } catch {
+        // Offline — the localStorage fallback already holds our choice.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const setSource = useCallback((next) => {
+    if (!isValidSource(next) || sourceRef.current === next) return;
+    // Never let two sources play over each other: leaving the house station
+    // pauses its embed (honest — it resumes only when the user presses play).
+    if (next === SOURCES.MY_SPOTIFY) {
+      const ctl = controllerRef.current;
+      try { if (ctl && typeof ctl.pause === 'function') ctl.pause(); } catch {}
+    }
+    setSourceState(next);
+    // Fire-and-forget sync to the per-user preference.
+    (async () => {
+      const bearer = await getBearer();
+      if (!bearer) return;
+      try {
+        await fetch('/api/spotify/prefs', {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${bearer}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ source: next }),
+        });
+      } catch {}
+    })();
+  }, []);
 
   const controllerRef = useRef(null);
   const indexRef = useRef(0);
@@ -229,6 +332,202 @@ export function RadioProvider({ children }) {
     return () => { unregisterDockEntry('nexus-radio'); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // --- Spotify OAuth actions --------------------------------------------
+
+  // Reads the stored connection (refreshing the token server-side if needed).
+  const refreshSpotifyStatus = useCallback(async () => {
+    const bearer = await getBearer();
+    if (!bearer) {
+      setSpotify((s) => ({ ...s, status: 'disconnected' }));
+      return { connected: false };
+    }
+    try {
+      const res = await fetch('/api/spotify/token', {
+        headers: { Authorization: `Bearer ${bearer}` },
+      });
+      if (!res.ok) {
+        setSpotify((s) => ({ ...s, status: 'disconnected' }));
+        return { connected: false };
+      }
+      const data = await res.json();
+      if (!data?.connected) {
+        setSpotify((s) => ({
+          ...s,
+          status: 'disconnected',
+          revoked: data?.revoked === true,
+          error: data?.revoked === true
+            ? 'Your Spotify connection was revoked. Connect again to keep using My Spotify.'
+            : null,
+        }));
+        if (sourceRef.current === SOURCES.MY_SPOTIFY) setSource(SOURCES.NEXUS);
+        return { connected: false };
+      }
+      setSpotify((s) => ({
+        ...s,
+        status: 'connected',
+        displayName: data.display_name || s.displayName,
+        product: data.product || 'unknown',
+        premium: data.product === 'premium',
+        connecting: false,
+        error: null,
+        revoked: false,
+      }));
+      return data;
+    } catch {
+      // Network hiccup — leave the last known state alone (honest: unknown).
+      return { connected: false };
+    }
+  }, [setSource]);
+
+  // Short-lived access token for Spotify's own Web API / Playback SDK.
+  // The refresh token never leaves the server.
+  const getSpotifyToken = useCallback(async () => {
+    const data = await refreshSpotifyStatus();
+    return data && data.connected ? data : null;
+  }, [refreshSpotifyStatus]);
+
+  // Starts the Authorization Code + PKCE flow on Spotify's own login page.
+  const connectSpotify = useCallback(async () => {
+    if (!SPOTIFY_CLIENT_ID) {
+      setSpotify((s) => ({ ...s, error: 'Spotify sign-in is not configured yet.' }));
+      return;
+    }
+    const bearer = await getBearer();
+    if (!bearer) {
+      setSpotify((s) => ({ ...s, error: 'Sign in to Nexus first, then connect Spotify.' }));
+      return;
+    }
+    setSpotify((s) => ({ ...s, connecting: true, error: null }));
+    try {
+      const verifier = randomString(64);
+      const state = randomString(32);
+      const challenge = await codeChallenge(verifier);
+      const redirectUri = redirectUriFor(window.location.origin);
+      try {
+        window.sessionStorage.setItem(SS_VERIFIER, verifier);
+        window.sessionStorage.setItem(SS_STATE, state);
+        window.sessionStorage.setItem(SS_REDIRECT_URI, redirectUri);
+      } catch {}
+      const url = buildAuthorizeUrl({
+        clientId: SPOTIFY_CLIENT_ID,
+        redirectUri,
+        state,
+        challenge,
+      });
+      window.location.assign(url);
+    } catch {
+      setSpotify((s) => ({ ...s, connecting: false, error: 'Could not start Spotify sign-in. Please try again.' }));
+    }
+  }, []);
+
+  // Finishes the flow after /api/spotify/callback bounces back to the app.
+  // Runs once on mount: verifies `state`, exchanges code+verifier server-side.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('spotify_code');
+    const returnedState = params.get('spotify_state');
+    const spotifyError = params.get('spotify_error');
+
+    const cleanUrl = () => {
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('spotify_code');
+        url.searchParams.delete('spotify_state');
+        url.searchParams.delete('spotify_error');
+        window.history.replaceState({}, '', url.toString());
+      } catch {}
+    };
+
+    if (spotifyError) {
+      cleanUrl();
+      setSpotify((s) => ({
+        ...s,
+        connecting: false,
+        error: spotifyError === 'denied'
+          ? 'Spotify sign-in was cancelled — nothing was connected.'
+          : 'Spotify sign-in failed. Please try again.',
+      }));
+      return;
+    }
+    if (!code) return;
+
+    (async () => {
+      let verifier = null;
+      let redirectUri = null;
+      try {
+        const expectedState = window.sessionStorage.getItem(SS_STATE);
+        verifier = window.sessionStorage.getItem(SS_VERIFIER);
+        redirectUri = window.sessionStorage.getItem(SS_REDIRECT_URI);
+        window.sessionStorage.removeItem(SS_STATE);
+        window.sessionStorage.removeItem(SS_VERIFIER);
+        window.sessionStorage.removeItem(SS_REDIRECT_URI);
+        if (!expectedState || expectedState !== returnedState) {
+          throw new Error('state-mismatch');
+        }
+      } catch {
+        cleanUrl();
+        setSpotify((s) => ({
+          ...s,
+          connecting: false,
+          error: "That sign-in didn't match this browser session. Please try connecting again.",
+        }));
+        return;
+      }
+      cleanUrl();
+      const bearer = await getBearer();
+      if (!bearer) {
+        setSpotify((s) => ({ ...s, connecting: false, error: 'Sign in to Nexus first, then connect Spotify.' }));
+        return;
+      }
+      setSpotify((s) => ({ ...s, connecting: true, error: null }));
+      try {
+        const res = await fetch('/api/spotify/exchange', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${bearer}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code, code_verifier: verifier, redirect_uri: redirectUri }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data?.connected) {
+          throw new Error(data?.error || 'Spotify sign-in failed. Please try again.');
+        }
+        await refreshSpotifyStatus();
+        // Connected — move the listener onto their source (clear cause/effect).
+        setSource(SOURCES.MY_SPOTIFY);
+      } catch (e) {
+        setSpotify((s) => ({ ...s, connecting: false, error: e?.message || 'Spotify sign-in failed.' }));
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Quietly resolve the connection state on mount.
+  useEffect(() => {
+    refreshSpotifyStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const disconnectSpotify = useCallback(async () => {
+    const bearer = await getBearer();
+    if (bearer) {
+      try {
+        await fetch('/api/spotify/disconnect', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${bearer}` },
+        });
+      } catch {
+        // Even if the request fails, the local state clears — the server
+        // row is deleted on the next successful attempt or token refresh.
+      }
+    }
+    setSpotify((s) => ({
+      ...s, status: 'disconnected', displayName: '', product: 'unknown',
+      premium: false, connecting: false, error: null, revoked: false,
+    }));
+    // No connection, no "My Spotify" source — back to the house station.
+    setSource(SOURCES.NEXUS);
+  }, [setSource]);
+
   const current = queue[index] || null;
   useEffect(() => {
     updateDockEntry('nexus-radio', {
@@ -263,10 +562,22 @@ export function RadioProvider({ children }) {
     registerController,
     handlePlaybackUpdate,
     reshuffle: () => rebuildQueue(shuffleRef.current, null), // fresh shuffle, fresh order
+    // --- Playback source toggle ("Nexus Radio" <-> "My Spotify") ---
+    source,
+    sourceLabel: SOURCE_LABELS[source] || SOURCE_LABELS[SOURCES.NEXUS],
+    setSource,
+    spotify,
+    spotifyConfigured: SPOTIFY_CLIENT_ID.length > 0,
+    connectSpotify,
+    disconnectSpotify,
+    refreshSpotifyStatus,
+    getSpotifyToken,
   }), [
     queue, index, playing, engineReady, engineError, shuffle, minimized,
     expanded, contributions, togglePlay, next, prev, toggleShuffle,
     contribute, removeContribution, registerController, handlePlaybackUpdate, rebuildQueue,
+    source, setSource, spotify, connectSpotify, disconnectSpotify,
+    refreshSpotifyStatus, getSpotifyToken,
   ]);
 
   return <RadioContext.Provider value={value}>{children}</RadioContext.Provider>;

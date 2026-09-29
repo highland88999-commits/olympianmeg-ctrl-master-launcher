@@ -294,5 +294,7 @@
   "sat.tools.title": "Herramientas",
   "sat.tools.subtitle": "Consola de Mando",
   "sat.enyo.title": "Enyo",
-  "sat.enyo.subtitle": "Tactical arena shooter"
+  "sat.enyo.subtitle": "Tactical arena shooter",
+  "sat.hygieia.title": "Hygieia",
+  "sat.hygieia.subtitle": "Health reminders & steps"
 }

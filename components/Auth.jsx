@@ -17,7 +17,13 @@ export default function Auth({ onLogin }) {
   const [videoOk, setVideoOk] = useState(true);
   
   // Modes: 'login', 'signup', 'reset', 'update'
-  const [mode, setMode] = useState('login'); 
+  const [mode, setMode] = useState('login');
+  // Resend-verification affordance: shown after a fresh signup, or when a
+  // login fails because the email was never confirmed. Supabase's built-in
+  // mailer is throttled to a few sends per hour and lands in spam often, so
+  // users need a way to trigger a fresh send without re-registering.
+  const [resending, setResending] = useState(false);
+  const [showResend, setShowResend] = useState(false);
 
   useEffect(() => {
     // Listens for the user returning from a password reset email link.
@@ -43,12 +49,14 @@ export default function Auth({ onLogin }) {
     setLoading(true);
     setError('');
     setMessage('');
+    setShowResend(false);
 
     try {
       if (mode === 'signup') {
         const { error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
-        setMessage('VERIFICATION MATRIX SENT. CHECK SECURE COMMS.');
+        setMessage('VERIFICATION MATRIX SENT. CHECK INBOX AND SPAM FOLDER.');
+        setShowResend(true);
       } 
       else if (mode === 'login') {
         const { data, error } = await supabase.auth.signInWithPassword({ email, password });
@@ -77,9 +85,35 @@ export default function Auth({ onLogin }) {
         setTimeout(() => setMode('login'), 3000);
       }
     } catch (err) {
-      setError(err.message.toUpperCase());
+      const msg = (err && err.message) || 'UNKNOWN ERROR';
+      setError(msg.toUpperCase());
+      // Unconfirmed email on login: offer a resend instead of a dead end.
+      if (/email not confirmed/i.test(msg)) setShowResend(true);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Re-sends the signup confirmation email. Counts against the same
+  // provider throttle as the original send, so the UI copy tells the user
+  // to check the spam folder too — that's where the shared Supabase sender
+  // lands most often.
+  const handleResendVerification = async () => {
+    if (!email) {
+      setError('ENTER YOUR SECURE EMAIL FIRST.');
+      return;
+    }
+    setResending(true);
+    setError('');
+    setMessage('');
+    try {
+      const { error } = await supabase.auth.resend({ type: 'signup', email });
+      if (error) throw error;
+      setMessage('VERIFICATION MATRIX RE-SENT. CHECK INBOX AND SPAM FOLDER.');
+    } catch (err) {
+      setError(((err && err.message) || 'RESEND FAILED').toUpperCase());
+    } finally {
+      setResending(false);
     }
   };
 
@@ -147,12 +181,18 @@ export default function Auth({ onLogin }) {
       </div>
       <div className="bg-[#0c0c12]/90 p-10 border border-[#08f7fe] rounded-xl w-[90%] max-w-[420px] shadow-[0_0_40px_rgba(8,247,254,0.15)] flex flex-col relative">
         
-        <h2 className="font-['Orbitron'] text-[#08f7fe] text-xl text-center tracking-[0.15em] mb-6 uppercase">
+        <h2 className="font-['Orbitron'] text-[#08f7fe] text-xl text-center tracking-[0.15em] mb-2 uppercase">
           {mode === 'login' && 'IDENTITY VERIFICATION'}
           {mode === 'signup' && 'REGISTER NEW NODE'}
           {mode === 'reset' && 'NETWORK RECOVERY'}
           {mode === 'update' && 'SECURE NEW KEY'}
         </h2>
+        {/* One Supabase Auth session spans every pocket universe on this
+            origin (single shared client in lib/supabase.ts) — say so plainly
+            so nobody thinks each universe needs its own account. */}
+        <p className="text-zinc-500 text-[10px] text-center font-mono tracking-[0.2em] uppercase mb-6">
+          One account for every universe
+        </p>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           
@@ -182,6 +222,19 @@ export default function Auth({ onLogin }) {
 
           {error && <div className="text-[#ff3366] text-xs text-center font-mono min-h-[20px]">{error}</div>}
           {message && <div className="text-[#00ff88] text-xs text-center font-mono min-h-[20px]">{message}</div>}
+
+          {/* Resend-verification affordance: appears after signup, or when a
+              login fails on an unconfirmed email. Hidden in reset/update modes. */}
+          {showResend && (mode === 'login' || mode === 'signup') && (
+            <button
+              type="button"
+              onClick={handleResendVerification}
+              disabled={resending}
+              className="w-full p-2 bg-transparent border border-[#00ff88] text-[#00ff88] font-['Orbitron'] text-[10px] tracking-widest uppercase rounded hover:bg-[#00ff88] hover:text-black transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {resending ? 'RETRANSMITTING...' : "DIDN'T GET IT? RESEND VERIFICATION"}
+            </button>
+          )}
 
           <button 
             type="submit" 
@@ -227,13 +280,13 @@ export default function Auth({ onLogin }) {
           {mode === 'login' && (
             <>
               <button 
-                onClick={() => { setMode('reset'); setError(''); setMessage(''); }}
+                onClick={() => { setMode('reset'); setError(''); setMessage(''); setShowResend(false); }}
                 className="w-full p-2 bg-transparent border border-zinc-600 text-zinc-400 font-['Orbitron'] text-[10px] tracking-widest uppercase rounded hover:border-amber-400 hover:text-amber-400 transition-all"
               >
                 FORGOT ENCRYPTION KEY?
               </button>
               <button 
-                onClick={() => { setMode('signup'); setError(''); setMessage(''); }}
+                onClick={() => { setMode('signup'); setError(''); setMessage(''); setShowResend(false); }}
                 className="w-full p-2 bg-transparent border border-zinc-600 text-zinc-400 font-['Orbitron'] text-[10px] tracking-widest uppercase rounded hover:border-[#fe53bb] hover:text-[#fe53bb] transition-all"
               >
                 REGISTER NEW NODE
@@ -243,7 +296,7 @@ export default function Auth({ onLogin }) {
 
           {(mode === 'signup' || mode === 'reset') && (
             <button 
-              onClick={() => { setMode('login'); setError(''); setMessage(''); }}
+              onClick={() => { setMode('login'); setError(''); setMessage(''); setShowResend(false); }}
               className="w-full p-2 mt-2 bg-transparent border border-zinc-600 text-zinc-400 font-['Orbitron'] text-[10px] tracking-widest uppercase rounded hover:border-[#08f7fe] hover:text-[#08f7fe] transition-all"
             >
               RETURN TO LOGIN

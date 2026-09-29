@@ -140,6 +140,9 @@ export const SATELLITES: SatelliteEntry[] = [
   // are added by hand here until the generator is restored.
   // PERSEPHONE sits with the other venue (rogers-arena): ZEUS/GAMES.
   { key: "persephone", route: "/persephone", pos: "ZEUS_POS", section: "GAMES", constellation: "ZEUS" },
+  // HYGIEIA (health reminders + step history) sits with the other
+  // healing-world satellites under the HESTIA god menu: MEDUSA/THERAPY.
+  { key: "hygieia", route: "/hygieia", pos: "MEDUSA_POS", section: "THERAPY", constellation: "MEDUSA" },
 ];
 
 export interface SectionDef { name: string; key: string; constellation: string; }
