@@ -467,6 +467,8 @@ export default function BrowsersCastlePage() {
           <br />
           No accounts, no tracking, no uploads.
         </footer>
+        {/* Radio-bar + Safari clearance: keeps last content above the fixed bottom bar */}
+        <div aria-hidden="true" style={{ height: "max(5rem, env(safe-area-inset-bottom))" }} />
       </div>
     </main>
   );

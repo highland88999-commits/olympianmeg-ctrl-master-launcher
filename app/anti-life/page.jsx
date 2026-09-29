@@ -75,12 +75,17 @@ export default function AntiLifePage() {
   return (
     <div
       className="fixed inset-0 overflow-hidden bg-black select-none"
-      style={{ touchAction: 'none', fontFamily: FONT }}
+      style={{ fontFamily: FONT }}
       role="application"
       aria-label="Anti-Life — an interactive study of impermanence"
     >
+      <style>{`
+        /* Page-level lift: PassageLink (shared component, can't edit) sits at
+           bottom:1.25rem, which is under the fixed radio bar. Keep it above. */
+        a[href="/styx?advanced=1"] { bottom: max(5.5rem, calc(env(safe-area-inset-bottom) + 4.5rem)) !important; }
+      `}</style>
       <PassageLink />
-      <canvas ref={canvasRef} className="absolute inset-0 w-full h-full block" aria-hidden="true" />
+      <canvas ref={canvasRef} className="absolute inset-0 w-full h-full block" aria-hidden="true" style={{ touchAction: 'none' }} />
 
       {/* HUD */}
       <div className="absolute top-0 left-0 right-0 flex items-start justify-between p-4 sm:p-5 pointer-events-none">
@@ -122,7 +127,7 @@ export default function AntiLifePage() {
         </div>
       </div>
 
-      <div className="absolute bottom-0 left-0 right-0 flex justify-center pb-[max(1.25rem,env(safe-area-inset-bottom))] pointer-events-none px-4">
+      <div className="absolute bottom-0 left-0 right-0 flex justify-center pb-[max(5.5rem,env(safe-area-inset-bottom))] pointer-events-none px-4">
         <p className="text-[10px] sm:text-xs tracking-[0.25em] uppercase text-white/40 text-center">
           {reducedMotion ? 'A world, held mid-breath' : 'Drag to move through time — the world fades where you pass'}
         </p>

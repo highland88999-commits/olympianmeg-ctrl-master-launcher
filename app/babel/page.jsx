@@ -74,7 +74,7 @@ function Joystick({ inputRef }) {
       onPointerMove={onMove}
       onPointerUp={onUp}
       onPointerCancel={onUp}
-      className="absolute left-4 bottom-[max(1rem,env(safe-area-inset-bottom))] w-28 h-28 rounded-full border border-amber-500/40 bg-black/50 backdrop-blur-sm z-10"
+      className="absolute left-4 bottom-[max(5.5rem,env(safe-area-inset-bottom))] w-28 h-28 rounded-full border border-amber-500/40 bg-black/50 backdrop-blur-sm z-10"
       style={{ touchAction: 'none' }}
       aria-label="Walk joystick"
     >
@@ -330,7 +330,7 @@ export default function BabelPage() {
       <button
         data-ui
         onClick={toggleMode}
-        className="absolute bottom-[max(0.75rem,env(safe-area-inset-bottom))] right-4 sm:right-6 z-10 min-h-[44px] px-5 rounded border border-amber-500/40 text-amber-200 text-sm font-bold tracking-widest uppercase hover:bg-amber-500/20 transition-all bg-black/60"
+        className="absolute bottom-[max(5.5rem,env(safe-area-inset-bottom))] right-4 sm:right-6 z-10 min-h-[44px] px-5 rounded border border-amber-500/40 text-amber-200 text-sm font-bold tracking-widest uppercase hover:bg-amber-500/20 transition-all bg-black/60"
       >
         {mode === 'walk' ? 'Orbit view' : 'Walk mode'}
       </button>
@@ -340,7 +340,7 @@ export default function BabelPage() {
 
       {/* elevator panel — orbit view only, so the mobile layout stays clean in walk mode */}
       {view === 'tower' && mode === 'orbit' && (
-        <div className="absolute bottom-0 left-0 right-0 p-3 sm:p-5 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <div className="absolute bottom-0 left-0 right-0 p-3 sm:p-5 pb-[max(5.5rem,env(safe-area-inset-bottom))]">
           <div className="max-w-2xl mx-auto rounded-xl border border-amber-500/25 bg-black/60 backdrop-blur-md p-3 sm:p-4">
             <p className="text-[10px] font-bold tracking-[0.3em] text-zinc-500 uppercase mb-2 text-center">
               Elevator — choose a floor
@@ -364,8 +364,9 @@ export default function BabelPage() {
         </div>
       )}
 
-      {/* floor hint */}
-      <div className="absolute bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-0 right-0 text-center pointer-events-none">
+      {/* floor hint — lifted above the fixed radio bar; stays tucked behind the
+          elevator panel when the panel is showing (its original position) */}
+      <div className={`absolute ${view === 'tower' && mode === 'orbit' ? 'bottom-[max(0.75rem,env(safe-area-inset-bottom))]' : 'bottom-[max(5.5rem,env(safe-area-inset-bottom))]'} left-0 right-0 text-center pointer-events-none`}>
         <p className="text-zinc-500 text-[11px] tracking-widest uppercase">
           {mode === 'walk'
             ? walkHint

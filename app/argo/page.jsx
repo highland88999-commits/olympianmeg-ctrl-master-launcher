@@ -430,7 +430,7 @@ export default function ArgoPage() {
       {/* Staging dock */}
       {phase === 'dock' && (
         <div className="absolute bottom-0 left-0 right-0 md:left-6 md:right-auto md:top-1/2 md:-translate-y-1/2 md:bottom-auto md:w-[24rem] pointer-events-auto">
-          <div className="bg-zinc-950/90 border border-zinc-800 md:rounded-xl backdrop-blur-md p-4 max-h-[58vh] md:max-h-[82vh] overflow-y-auto pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+          <div className="bg-zinc-950/90 border border-zinc-800 md:rounded-xl backdrop-blur-md p-4 max-h-[58vh] md:max-h-[82vh] overflow-y-auto pb-[max(5.5rem,env(safe-area-inset-bottom))]">
             <div className="text-[10px] tracking-[0.3em] uppercase text-amber-300/80 mb-2">
               Staging dock — {at ? at.name : ''}
             </div>
@@ -501,7 +501,7 @@ export default function ArgoPage() {
       {/* In-flight / on-station bar */}
       {phase !== 'dock' && (
         <div className="absolute bottom-0 left-0 right-0 flex justify-center pointer-events-none px-4">
-          <div className="pointer-events-auto bg-zinc-950/90 border border-zinc-800 rounded-t-xl md:rounded-xl backdrop-blur-md px-4 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))] w-full max-w-xl">
+          <div className="pointer-events-auto bg-zinc-950/90 border border-zinc-800 rounded-t-xl md:rounded-xl backdrop-blur-md px-4 pt-3 pb-[max(5.5rem,env(safe-area-inset-bottom))] w-full max-w-xl">
             {phase === 'flying' && (
               <div
                 className="h-1.5 bg-white/10 rounded overflow-hidden mb-3"

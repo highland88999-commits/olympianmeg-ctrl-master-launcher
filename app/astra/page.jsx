@@ -503,10 +503,9 @@ export default function Astra() {
         overflow: "hidden",
         userSelect: "none",
         WebkitUserSelect: "none",
-        touchAction: "none",
       }}
     >
-      <div ref={wrapRef} style={{ position: "absolute", inset: 0 }}>
+      <div ref={wrapRef} style={{ position: "absolute", inset: 0, touchAction: "none" }}>
         <canvas ref={canvasRef} style={{ display: "block" }} />
       </div>
 
@@ -575,7 +574,7 @@ export default function Astra() {
         <div
           style={{
             position: "absolute",
-            bottom: 20,
+            bottom: "max(5.5rem, calc(env(safe-area-inset-bottom) + 4.5rem))",
             right: 16,
             display: "grid",
             gridTemplateColumns: "repeat(2, 84px)",
@@ -623,8 +622,9 @@ export default function Astra() {
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
-            justifyContent: "center",
+            justifyContent: "safe center",
             textAlign: "center",
+            overflowY: "auto",
             background:
               "radial-gradient(ellipse at center, rgba(2,8,16,0.5) 0%, rgba(1,2,6,0.93) 100%)",
             padding: 24,
@@ -696,8 +696,9 @@ export default function Astra() {
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
-            justifyContent: "center",
+            justifyContent: "safe center",
             textAlign: "center",
+            overflowY: "auto",
             background: "rgba(2,4,10,0.9)",
             padding: 24,
           }}

@@ -13,10 +13,26 @@ body {
   margin: 0;
   padding: 0;
   width: 100vw;
-  height: 100vh;
-  overflow: hidden;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow-x: hidden;
+  overflow-y: auto;
   user-select: none;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Scroll repair (2026-09-29): every page must scroll when content overflows.
+   .scroll-page = scrollable page wrapper. .scroll-clear = bottom padding that
+   clears the fixed radio bar + Safari browser bar so content rests above it. */
+.scroll-page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+.scroll-clear {
+  padding-bottom: calc(6.5rem + env(safe-area-inset-bottom, 0px));
 }
 
 .custom-scrollbar::-webkit-scrollbar {

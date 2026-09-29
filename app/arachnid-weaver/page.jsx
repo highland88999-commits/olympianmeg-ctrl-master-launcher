@@ -531,10 +531,9 @@ export default function ArachnidWeaver() {
         overflow: "hidden",
         userSelect: "none",
         WebkitUserSelect: "none",
-        touchAction: "none",
       }}
     >
-      <div ref={wrapRef} style={{ position: "absolute", inset: 0 }}>
+      <div ref={wrapRef} style={{ position: "absolute", inset: 0, touchAction: "none" }}>
         <canvas ref={canvasRef} style={{ display: "block" }} />
       </div>
 
@@ -622,7 +621,7 @@ export default function ArachnidWeaver() {
           style={{
             position: "absolute",
             right: 18,
-            bottom: 26,
+            bottom: "max(5.5rem, calc(env(safe-area-inset-bottom) + 4.5rem))",
             width: 92,
             height: 92,
             borderRadius: "50%",
@@ -648,8 +647,9 @@ export default function ArachnidWeaver() {
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
-            justifyContent: "center",
+            justifyContent: "safe center",
             textAlign: "center",
+            overflowY: "auto",
             background:
               "radial-gradient(ellipse at center, rgba(10,6,18,0.55) 0%, rgba(4,2,8,0.92) 100%)",
             padding: 24,
@@ -728,8 +728,9 @@ export default function ArachnidWeaver() {
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
-            justifyContent: "center",
+            justifyContent: "safe center",
             textAlign: "center",
+            overflowY: "auto",
             background: "rgba(8,3,10,0.88)",
             padding: 24,
           }}
