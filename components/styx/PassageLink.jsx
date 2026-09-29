@@ -28,7 +28,7 @@ export default function PassageLink() {
       className="fixed z-50 right-4 px-5 py-3 rounded-full text-sm tracking-widest uppercase
                  bg-black/70 border border-[#d4af37]/60 text-[#d4af37]
                  backdrop-blur-sm hover:bg-[#d4af37]/15 transition-colors"
-      style={{ bottom: 'max(5.5rem, env(safe-area-inset-bottom))' }}
+      style={{ bottom: 'calc(4.5rem + env(safe-area-inset-bottom))' }}
     >
       Continue the Passage →
     </a>

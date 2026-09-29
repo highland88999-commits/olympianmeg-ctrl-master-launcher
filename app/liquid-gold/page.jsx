@@ -237,7 +237,7 @@ export default function LiquidGoldPage() {
         <div style={card}>LIFETIME POURED<div style={{ fontSize: 16 }}>{st.pouredTotal.toFixed(1)} L · {st.barsMinted} bars minted</div></div>
 
         {/* Safari bottom-bar clearance */}
-        <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
+        <div aria-hidden="true" style={{ height: 'calc(4.5rem + env(safe-area-inset-bottom))' }} />
       </div>
     </div>
   );

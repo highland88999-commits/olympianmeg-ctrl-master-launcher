@@ -137,7 +137,7 @@ export default function AresConsole() {
             <footer className="pb-8 pt-2 text-center text-[11px] text-zinc-600">
               Defensive only. Ares logs and blocks; it never retaliates. Evidence older than 90 days is purged.
             </footer>
-            <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
+            <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
           </>
         )}
       </div>

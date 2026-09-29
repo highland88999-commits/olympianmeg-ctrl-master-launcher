@@ -329,7 +329,7 @@ export default function ResumePage() {
             <textarea id="rz-skills" value={data.skills} onChange={(e) => set({ skills: e.target.value })} />
           </div>
         )}
-      <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
+      <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
       </div>
     </main>
   );

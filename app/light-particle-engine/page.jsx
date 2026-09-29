@@ -263,7 +263,7 @@ export default function LightParticleEnginePage() {
         </div>
       </div>
       {/* Safari bottom-bar clearance */}
-      <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
+      <div aria-hidden="true" style={{ height: 'calc(4.5rem + env(safe-area-inset-bottom))' }} />
     </div>
   );
 }

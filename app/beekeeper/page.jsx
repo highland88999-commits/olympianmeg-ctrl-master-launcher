@@ -566,7 +566,7 @@ export default function BeekeeperPage() {
         </section>
 
         <footer className="bk-foot">APIS · NEXUS · DECENTRALIZED ECOLOGICAL PROTOCOL · ALL SIMULATION LOCAL</footer>
-        <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
+        <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
       </div>
     </div>
   );

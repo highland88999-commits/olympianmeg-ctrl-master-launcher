@@ -751,7 +751,7 @@ function NexusHub() {
       
       {(user || cloudOffline) && (appState === 'hub_intro' || appState === 'hub_freeroam') && (
         <>
-          <div className="absolute bottom-5 left-5 z-50 flex flex-col items-start gap-4 ui-element pointer-events-auto">
+          <div className="absolute bottom-[calc(4.5rem+env(safe-area-inset-bottom))] left-5 z-50 flex flex-col items-start gap-4 ui-element pointer-events-auto">
             {isMenuExpanded ? (
               <div className="bg-zinc-950/90 border border-zinc-800 rounded-xl p-4 shadow-[0_0_30px_rgba(0,0,0,0.5)] backdrop-blur-md w-[min(16rem,calc(100vw-2.5rem))] max-h-[70vh] overflow-y-auto custom-scrollbar flex flex-col gap-5">
                 <div className="flex justify-between items-center border-b border-zinc-800 pb-2">
@@ -822,7 +822,7 @@ function NexusHub() {
       {(user || cloudOffline) && (appState === 'hub_intro' || appState === 'hub_freeroam' || appState === 'to_bike' || appState === 'on_bike') && (
         <button
           onClick={toggleBike}
-          className="absolute bottom-5 right-5 z-50 px-6 py-4 text-[10px] sm:text-xs font-bold tracking-widest text-teal-300 uppercase transition-all border border-teal-400/50 rounded-xl bg-zinc-950/90 shadow-[0_0_20px_rgba(45,212,191,0.15)] backdrop-blur-md hover:bg-teal-900/40 ui-element pointer-events-auto"
+          className="absolute bottom-[calc(4.5rem+env(safe-area-inset-bottom))] right-5 z-50 px-6 py-4 text-[10px] sm:text-xs font-bold tracking-widest text-teal-300 uppercase transition-all border border-teal-400/50 rounded-xl bg-zinc-950/90 shadow-[0_0_20px_rgba(45,212,191,0.15)] backdrop-blur-md hover:bg-teal-900/40 ui-element pointer-events-auto"
         >
           {(appState === 'on_bike' || appState === 'to_bike') ? 'LEAVE BIKE' : 'SPAWN TO BIKE'}
         </button>

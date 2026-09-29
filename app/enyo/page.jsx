@@ -1493,7 +1493,7 @@ export default function EnyoPage() {
       {/* ================= MENU ================= */}
       {phase === 'menu' && (
         <div className="absolute inset-0 overflow-y-auto bg-gradient-to-b from-[#0b0e1a] via-[#101424] to-black/95">
-          <div className="max-w-3xl mx-auto px-5 pt-10 pb-[max(5rem,env(safe-area-inset-bottom))]">
+          <div className="max-w-3xl mx-auto px-5 pt-10 pb-[calc(4.5rem+env(safe-area-inset-bottom))]">
             <div className="text-[11px] tracking-[0.4em] uppercase text-red-400/90">Goddess of war</div>
             <h1 className="text-5xl font-black tracking-widest mt-1">ENYO</h1>
             <p className="text-neutral-400 mt-2 text-sm max-w-xl">
@@ -1727,7 +1727,7 @@ export default function EnyoPage() {
           {isTouch && phase === 'playing' && !paused && (
             <>
               {/* joystick visual */}
-              <div className="absolute left-6 bottom-[max(5.5rem,env(safe-area-inset-bottom))] w-28 h-28 rounded-full border-2 border-white/25 bg-white/5 pointer-events-none">
+              <div className="absolute left-6 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] w-28 h-28 rounded-full border-2 border-white/25 bg-white/5 pointer-events-none">
                 <div
                   className="absolute w-12 h-12 rounded-full bg-white/30 left-1/2 top-1/2"
                   style={{
@@ -1735,7 +1735,7 @@ export default function EnyoPage() {
                   }}
                 />
               </div>
-              <div className="absolute right-5 bottom-[max(5.5rem,env(safe-area-inset-bottom))] flex flex-col items-end gap-3">
+              <div className="absolute right-5 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] flex flex-col items-end gap-3">
                 <button
                   className="w-20 h-20 rounded-full bg-red-600/80 border-2 border-red-400/60 text-white font-black text-sm active:bg-red-500"
                   onTouchStart={(e) => { e.preventDefault(); engineRef.current?.setFiring(true); }}

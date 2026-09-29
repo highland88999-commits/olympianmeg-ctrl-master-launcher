@@ -350,7 +350,7 @@ export default function HyperionPage() {
         <span style={styles.sonicNote}>drives the visuals only — nothing is recorded or sent</span>
       </div>
       {/* Safari bottom-bar clearance */}
-      <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
+      <div aria-hidden="true" style={{ height: 'calc(4.5rem + env(safe-area-inset-bottom))' }} />
     </div>
   );
 }

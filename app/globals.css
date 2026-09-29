@@ -5,6 +5,12 @@
 :root {
   --background: #050505;
   --foreground: #ffffff;
+  /* Placement language — one canonical token for clearing the fixed radio bar.
+     Collapsed bar = 3.5rem tall + env(safe-area-inset-bottom); --player-air is
+     breathing room above it. Every scrollable page must end above this. */
+  --player-h: 3.5rem;
+  --player-air: 1rem;
+  --player-clear: calc(var(--player-h) + var(--player-air) + env(safe-area-inset-bottom, 0px));
 }
 
 body {
@@ -23,7 +29,8 @@ body {
 
 /* Scroll repair (2026-09-29): every page must scroll when content overflows.
    .scroll-page = scrollable page wrapper. .scroll-clear = bottom padding that
-   clears the fixed radio bar + Safari browser bar so content rests above it. */
+   clears the fixed radio bar + Safari browser bar so content rests above it.
+   Canonical value: --player-clear (bar height + air + safe area) + 1.5rem. */
 .scroll-page {
   min-height: 100vh;
   min-height: 100dvh;
@@ -32,8 +39,53 @@ body {
   -webkit-overflow-scrolling: touch;
 }
 .scroll-clear {
-  padding-bottom: calc(6.5rem + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(var(--player-clear) + 1.5rem);
 }
+
+/* Shared placement helpers (2026-09-29): the placement language every page
+   should speak — content column, sticky header, back button, section rhythm.
+   Opt-in; pages keep their own visual identity. */
+.page-shell {
+  min-height: 100dvh;
+  padding-bottom: var(--player-clear);
+}
+.page-col {
+  margin-left: auto;
+  margin-right: auto;
+  width: 100%;
+  max-width: 72rem;
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+.page-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(5, 5, 5, 0.9);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.page-back {
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  background: transparent;
+  color: #d4d4d8;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.page-back:hover { border-color: rgba(255, 255, 255, 0.35); color: #fff; }
+.page-back:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 2px; }
 
 .custom-scrollbar::-webkit-scrollbar {
   width: 4px;

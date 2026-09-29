@@ -606,7 +606,7 @@ export default function HephaestusPage() {
       <footer style={{ textAlign: 'center', padding: '0 16px 40px', color: '#57534e', fontSize: 13 }}>
         Forged by Artemis&rsquo;s forge · nothing leaves your device · the loop is the point
       </footer>
-      <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
+      <div aria-hidden="true" style={{ height: 'calc(4.5rem + env(safe-area-inset-bottom))' }} />
     </main>
   );
 }

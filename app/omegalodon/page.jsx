@@ -266,7 +266,7 @@ export default function EcosystemGateway() {
           ECOSYSTEM GATEWAY — offline rebuild. The original streamed remote video and linked
           to external apps; this version draws its own backdrop and keeps every session local.
         </footer>
-        <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
+        <div aria-hidden="true" style={{ height: 'calc(4.5rem + env(safe-area-inset-bottom))' }} />
       </div>
     </main>
   );

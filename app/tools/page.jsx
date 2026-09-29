@@ -236,7 +236,7 @@ export default function ToolsPage() {
           The deck is an index — each instrument opens on its own page,
           exactly as it works from the launcher.
         </footer>
-        <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
+        <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
       </div>
     </div>
   );

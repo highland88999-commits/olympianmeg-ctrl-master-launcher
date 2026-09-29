@@ -288,7 +288,7 @@ export default function OlympusEclipsePage() {
         .ecl-alert.meteor{border-color:#00ffaa;color:#00ffaa;background:rgba(0,255,170,.08)}
         .ecl-bar{position:absolute;bottom:0;left:0;right:0;z-index:10;background:rgba(2,6,14,.92);
           border-top:1px solid rgba(0,242,255,.3);padding:12px 16px;display:flex;flex-wrap:wrap;
-          padding-bottom:max(5rem,env(safe-area-inset-bottom));
+          padding-bottom:calc(4.5rem+env(safe-area-inset-bottom));
           gap:10px;align-items:center;justify-content:center}
         .ecl-btn{background:rgba(0,0,0,.5);border:1px solid #00f2ff;color:#00f2ff;padding:10px 16px;
           cursor:pointer;font-size:.7rem;letter-spacing:2px;font-family:inherit;min-height:44px;border-radius:4px}
@@ -350,7 +350,7 @@ export default function OlympusEclipsePage() {
         </div>
       </div>
       {/* Safari bottom-bar clearance */}
-      <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
+      <div aria-hidden="true" style={{ height: 'calc(4.5rem + env(safe-area-inset-bottom))' }} />
     </div>
   );
 }

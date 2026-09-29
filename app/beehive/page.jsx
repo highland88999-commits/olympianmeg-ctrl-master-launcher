@@ -237,7 +237,7 @@ export default function BeehivePage() {
       <div
         style={{
           position: "absolute",
-          bottom: "max(5.5rem, env(safe-area-inset-bottom))",
+          bottom: "calc(4.5rem + env(safe-area-inset-bottom))",
           left: "50%",
           transform: "translateX(-50%)",
           color: "rgba(255, 210, 120, 0.9)",

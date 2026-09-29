@@ -269,7 +269,7 @@ export default function TornadoPage() {
             <button onClick={() => setPaused(!paused)} style={styles.btn}>{paused ? "RESUME" : "PAUSE"}</button>
           </div>
         </div>
-        <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
+        <div aria-hidden="true" style={{ height: 'calc(4.5rem + env(safe-area-inset-bottom))' }} />
       </div>
     </div>
   );

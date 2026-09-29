@@ -392,7 +392,7 @@ export default function DutchmanPage() {
             “Part of the ship… part of the crew.”
           </div>
           {/* Safari bottom-bar clearance: lets the last log content rest above the browser bar */}
-          <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
+          <div aria-hidden="true" style={{ height: 'calc(4.5rem + env(safe-area-inset-bottom))' }} />
         </div>
       )}
     </div>

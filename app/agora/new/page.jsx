@@ -75,7 +75,7 @@ export default function NewPost() {
           <Link href="/agora" className="text-sm text-zinc-500 underline">
             Back to the feed
           </Link>
-          <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
+          <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
         </div>
       </main>
     );
@@ -100,7 +100,7 @@ export default function NewPost() {
           <Link href="/agora" className="mt-6 inline-block text-sm text-zinc-500 underline">
             Back to the feed
           </Link>
-          <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
+          <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
         </div>
       </main>
     );
@@ -172,7 +172,7 @@ export default function NewPost() {
             </Link>
           </div>
         </form>
-        <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
+        <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
       </div>
     </main>
   );

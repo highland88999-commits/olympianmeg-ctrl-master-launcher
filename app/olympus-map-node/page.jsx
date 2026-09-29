@@ -344,7 +344,7 @@ export default function OlympusMapNodePage() {
         .nav-banner{position:absolute;top:76px;left:50%;transform:translateX(-50%);z-index:10;width:min(430px,92vw);
           background:#0f9d58;color:#fff;padding:14px;border-radius:10px;font-weight:bold;text-align:center;font-size:.85rem;
           box-shadow:0 8px 20px rgba(0,0,0,.5);display:${driving ? "block" : "none"}}
-        .nav-dash{position:absolute;bottom:max(5rem,env(safe-area-inset-bottom));left:18px;right:18px;z-index:10;display:flex;gap:10px;align-items:stretch;justify-content:center;flex-wrap:wrap}
+        .nav-dash{position:absolute;bottom:calc(4.5rem+env(safe-area-inset-bottom));left:18px;right:18px;z-index:10;display:flex;gap:10px;align-items:stretch;justify-content:center;flex-wrap:wrap}
         .nav-speed{width:84px;height:84px;background:rgba(0,0,0,.8);border:2px solid #00f2ff;border-radius:50%;
           display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:0 0 15px rgba(0,242,255,.5)}
         .nav-speed b{font-size:1.4rem} .nav-speed span{font-size:.6rem;color:#00f2ff}
@@ -415,7 +415,7 @@ export default function OlympusMapNodePage() {
         )}
       </div>
       {/* Safari bottom-bar clearance */}
-      <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
+      <div aria-hidden="true" style={{ height: 'calc(4.5rem + env(safe-area-inset-bottom))' }} />
     </div>
   );
 }

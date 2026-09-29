@@ -238,7 +238,7 @@ export default function LabyrinthPage() {
         </Overlay>
       )}
       {/* Safari bottom-bar clearance */}
-      <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
+      <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
     </div>
   );
 }

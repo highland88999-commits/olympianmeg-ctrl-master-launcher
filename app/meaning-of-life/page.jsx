@@ -231,7 +231,7 @@ export default function MeaningOfLifePage() {
         .mol-nav {
           position: absolute;
           left: 50%;
-          bottom: max(5rem, env(safe-area-inset-bottom));
+          bottom: calc(4.5rem + env(safe-area-inset-bottom));
           transform: translateX(-50%);
           display: flex;
           align-items: center;

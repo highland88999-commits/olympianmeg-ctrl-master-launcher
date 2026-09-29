@@ -46,7 +46,7 @@ export default function AetherisPage() {
         <footer className="mt-8 text-[11px] text-zinc-600 font-mono">
           All data local. No telemetry, no external requests.
         </footer>
-        <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
+        <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
       </div>
     </main>
   );

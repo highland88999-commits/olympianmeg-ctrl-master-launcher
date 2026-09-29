@@ -227,7 +227,7 @@ export default function NeonRacerPage() {
           <button
             onClick={toggleMute}
             aria-label={muted ? 'Unmute sound' : 'Mute sound'}
-            className="absolute bottom-[max(5rem,env(safe-area-inset-bottom))] right-4 z-20 w-11 h-11 rounded-full border border-cyan-400/40 bg-black/60 text-cyan-300 text-lg"
+            className="absolute bottom-[calc(4.5rem+env(safe-area-inset-bottom))] right-4 z-20 w-11 h-11 rounded-full border border-cyan-400/40 bg-black/60 text-cyan-300 text-lg"
           >
             {muted ? '🔇' : '🔊'}
           </button>
@@ -287,7 +287,7 @@ export default function NeonRacerPage() {
         )}
       </div>
       {/* Safari bottom-bar clearance */}
-      <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
+      <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
     </div>
   );
 }

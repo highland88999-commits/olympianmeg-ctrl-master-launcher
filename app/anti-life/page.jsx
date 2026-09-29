@@ -127,7 +127,7 @@ export default function AntiLifePage() {
         </div>
       </div>
 
-      <div className="absolute bottom-0 left-0 right-0 flex justify-center pb-[max(5.5rem,env(safe-area-inset-bottom))] pointer-events-none px-4">
+      <div className="absolute bottom-0 left-0 right-0 flex justify-center pb-[calc(4.5rem+env(safe-area-inset-bottom))] pointer-events-none px-4">
         <p className="text-[10px] sm:text-xs tracking-[0.25em] uppercase text-white/40 text-center">
           {reducedMotion ? 'A world, held mid-breath' : 'Drag to move through time — the world fades where you pass'}
         </p>

@@ -261,7 +261,7 @@ export default function TerminalPage() {
         <p className="mt-4 text-[11px] text-white/35">
           Files persist in this browser only. Nothing is sent anywhere — this console has no network code at all.
         </p>
-        <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
+        <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
       </main>
 
       {/* Editor overlay */}

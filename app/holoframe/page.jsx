@@ -342,7 +342,7 @@ export default function HoloframePage() {
             </div>
           ))}
           {/* Safari bottom-bar clearance */}
-          <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))] shrink-0" />
+          <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))] shrink-0" />
         </div>
       )}
 
@@ -373,7 +373,7 @@ export default function HoloframePage() {
       </footer>
 
       {/* Safari bottom-bar clearance */}
-      <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))] shrink-0" />
+      <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))] shrink-0" />
     </div>
   );
 }

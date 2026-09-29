@@ -226,7 +226,7 @@ function Gatekeeper({ onBegin }) {
       `}</style>
     </div>
     {/* Safari bottom-bar clearance: blank space under the fixed gatekeeper viewport */}
-    <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
+    <div aria-hidden="true" style={{ height: 'calc(4.5rem + env(safe-area-inset-bottom))' }} />
     </>
   );
 }
@@ -293,7 +293,7 @@ function Journey({ state, dispatch }) {
       </div>
     </div>
     {/* Safari bottom-bar clearance: blank space under the fixed journey viewport */}
-    <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
+    <div aria-hidden="true" style={{ height: 'calc(4.5rem + env(safe-area-inset-bottom))' }} />
     </>
   );
 }

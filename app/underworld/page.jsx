@@ -259,7 +259,7 @@ export default function UnderworldPage() {
             Cover art via the RAWG games database · Links open the official stores — nothing is sold here
           </p>
         </footer>
-        <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
+        <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
       </div>
     </main>
   );

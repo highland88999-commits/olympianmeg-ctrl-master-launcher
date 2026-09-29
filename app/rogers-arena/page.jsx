@@ -174,7 +174,7 @@ export default function RogersArenaPage() {
       )}
     </main>
     {/* Safari bottom-bar clearance: blank space under the fixed arena viewport */}
-    <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
+    <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
     </>
   );
 }

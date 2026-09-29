@@ -36,7 +36,7 @@ export default function PersephonePage() {
   return (
     <main
       className="min-h-screen w-full bg-[#070305] text-[#e8d9b0]"
-      style={{ paddingBottom: 'max(5rem, env(safe-area-inset-bottom))' }}
+      style={{ paddingBottom: 'calc(4.5rem + env(safe-area-inset-bottom))' }}
     >
       {/* header */}
       <header className="px-6 pt-10 pb-6 text-center max-w-3xl mx-auto">

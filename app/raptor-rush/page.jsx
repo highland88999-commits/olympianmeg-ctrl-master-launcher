@@ -416,7 +416,7 @@ export default function RaptorRushPage() {
           <button onClick={() => router.push('/')} className="mt-8 text-zinc-600 text-xs tracking-[0.3em] uppercase hover:text-zinc-300 min-h-[44px]">
             ← Back to the launcher
           </button>
-          <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
+          <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
         </div>
 
         {/* OASIS lobby (host/join need sign-in; guests get the disabled buttons) */}

@@ -202,7 +202,7 @@ export default function AbyssalVoyagePage() {
           {screen === "playing" && <button onClick={pauseGame} style={styles.smallBtn}>PAUSE</button>}
           {screen === "playing" && <button onClick={() => startGame()} style={styles.smallBtn}>RESTART</button>}
         </div>
-        <div aria-hidden="true" style={{ height: "max(5rem, env(safe-area-inset-bottom))" }} />
+        <div aria-hidden="true" style={{ height: "calc(4.5rem + env(safe-area-inset-bottom))" }} />
       </div>
     </div>
   );

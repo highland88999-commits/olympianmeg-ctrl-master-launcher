@@ -757,7 +757,7 @@ export default function NovaPage() {
 
       {/* board-the-gift button */}
       {nearGift && (
-        <div className="absolute bottom-0 left-0 right-0 flex justify-center pointer-events-none px-4 pb-[max(5rem,env(safe-area-inset-bottom))]">
+        <div className="absolute bottom-0 left-0 right-0 flex justify-center pointer-events-none px-4 pb-[calc(4.5rem+env(safe-area-inset-bottom))]">
           <button
             onClick={boardGift}
             className="pointer-events-auto min-h-[56px] px-8 rounded-2xl bg-amber-300 text-black text-base font-black tracking-[0.15em] uppercase shadow-[0_0_30px_rgba(252,211,77,0.45)] hover:bg-amber-200 transition-colors"
@@ -770,7 +770,7 @@ export default function NovaPage() {
       {/* gift interior plaque */}
       {phase === 'interior' && (
         <div className="absolute inset-0 flex items-end sm:items-center justify-center pointer-events-none p-4">
-          <div className="pointer-events-auto w-full max-w-md bg-zinc-950/92 border border-amber-200/30 rounded-2xl backdrop-blur-md p-6 max-h-[62vh] overflow-y-auto pb-[max(5rem,env(safe-area-inset-bottom))]">
+          <div className="pointer-events-auto w-full max-w-md bg-zinc-950/92 border border-amber-200/30 rounded-2xl backdrop-blur-md p-6 max-h-[62vh] overflow-y-auto pb-[calc(4.5rem+env(safe-area-inset-bottom))]">
             <div className="text-[10px] tracking-[0.35em] uppercase text-amber-200/80 mb-3">
               Inside the gift
             </div>
@@ -793,7 +793,7 @@ export default function NovaPage() {
 
       {/* desktop hint */}
       {phase === 'flying' && !touchUI && (
-        <div className="absolute bottom-0 left-0 right-0 hidden md:flex justify-center pointer-events-none pb-[max(5rem,env(safe-area-inset-bottom))]">
+        <div className="absolute bottom-0 left-0 right-0 hidden md:flex justify-center pointer-events-none pb-[calc(4.5rem+env(safe-area-inset-bottom))]">
           <div className="text-[10px] tracking-[0.25em] uppercase text-white/40">
             WASD / arrows · R/F pitch · Shift boost · Space brake · fly into a ring to jump
           </div>

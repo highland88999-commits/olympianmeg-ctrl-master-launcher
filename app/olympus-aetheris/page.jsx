@@ -384,11 +384,11 @@ export default function OlympusAetherisPage() {
         .aeth-fill { height:100%; background:linear-gradient(90deg,#00d4ff,#00ff88); transition:width 0.05s linear; }
         .aeth-band { position:absolute; top:0; bottom:0; background:rgba(0,255,136,0.25); border-left:1px solid #00ff88; border-right:1px solid #00ff88; }
         .aeth-msg { font-size:0.78rem; margin-top:10px; min-height:2.2em; color:#ffd94d; }
-        .aeth-hint { position:absolute; bottom:max(5rem,env(safe-area-inset-bottom)); left:50%; transform:translateX(-50%); z-index:10;
+        .aeth-hint { position:absolute; bottom:calc(4.5rem+env(safe-area-inset-bottom)); left:50%; transform:translateX(-50%); z-index:10;
           font-size:0.75rem; opacity:0.6; pointer-events:none; text-align:center; width:90%; }
         .aeth-close { position:absolute; top:8px; right:10px; background:none; border:none; color:#9fd8ff;
           font-size:1.1rem; cursor:pointer; padding:8px; }
-        @media (max-width:640px){ .aeth-panel{ top:auto; bottom:max(5rem,env(safe-area-inset-bottom)); right:50%; transform:translateX(50%); } }
+        @media (max-width:640px){ .aeth-panel{ top:auto; bottom:calc(4.5rem+env(safe-area-inset-bottom)); right:50%; transform:translateX(50%); } }
       `}</style>
 
       <canvas
@@ -439,7 +439,7 @@ export default function OlympusAetherisPage() {
 
       <div className="aeth-hint">{hint}</div>
       {/* Safari bottom-bar clearance */}
-      <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
+      <div aria-hidden="true" style={{ height: 'calc(4.5rem + env(safe-area-inset-bottom))' }} />
     </div>
   );
 }
