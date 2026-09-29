@@ -174,7 +174,8 @@ his HEVC upload for browser compatibility; original at
 ## Publish
 
 Merged to `main` via incremental Git Data API publish (strict allowlist,
-base_tree, parented merge commit). Merge commit: `<SHA>`.
+base_tree, parented merge commit). Merge commit:
+`80c39d7fce131c46b9f6ce9d3edc8b71112e2999` — verified as the remote main tip.
 
 ## Queued Merlin-only actions
 
