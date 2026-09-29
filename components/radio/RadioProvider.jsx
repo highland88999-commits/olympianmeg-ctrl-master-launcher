@@ -229,6 +229,7 @@ export function RadioProvider({ children }) {
     return () => { unregisterDockEntry('nexus-radio'); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  const current = queue[index] || null;
   useEffect(() => {
     updateDockEntry('nexus-radio', {
       minimized,
