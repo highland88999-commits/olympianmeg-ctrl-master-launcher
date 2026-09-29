@@ -37,7 +37,7 @@ export default async function HermesPage({ searchParams }) {
     <main className="relative min-h-screen w-full bg-black text-white overflow-x-hidden">
       <GalaxyCanvas />
 
-      <div className="relative z-10 max-w-6xl mx-auto px-5 pt-24 pb-24">
+      <div className="relative z-10 max-w-6xl mx-auto px-5 pt-14 sm:pt-20 pb-16">
         <header className="text-center mb-10">
           <p className="text-xs uppercase tracking-[0.3em] text-amber-500/80 mb-3">Argus Observatory</p>
           <h1 className="text-3xl sm:text-4xl font-black tracking-wide">HERMES</h1>

@@ -442,7 +442,6 @@ export default function BrowsersCastlePage() {
             <ul style={{ ...panelTextStyle, paddingLeft: 20, margin: 0 }}>
               <li>Link vault on this device — <strong style={{ color: "#00ff9d" }}>working now</strong></li>
               <li>Address bar that opens pages in a new tab — <strong style={{ color: "#00ff9d" }}>working now</strong></li>
-              <li>Desktop apps for Mac and Windows — <strong style={{ color: "#ffd700" }}>coming soon</strong></li>
               <li>A full browser of its own — <strong style={{ color: "#ffd700" }}>a bigger project for later</strong></li>
             </ul>
           </section>

@@ -194,7 +194,7 @@ function LotDetail({ lot, nowMs, watched, onWatch, onClose }) {
           <div className="text-amber-200 text-sm font-bold">Bidding is disabled in this demo catalog.</div>
           <p className="text-zinc-400 text-xs mt-1">
             Minimum next bid would be {formatUSD(nextMinBid(bid))}. All lots, bidders, and prices are fictional
-            and for showcase only — no real bidding, payments, or accounts.
+            and for showcase only.
           </p>
         </div>
       </div>
@@ -242,9 +242,6 @@ export default function AuctionHousePage() {
             A curated showcase of fictional lots. Browse the catalog, follow the demo bidding,
             keep a watchlist — everything here is imaginary.
           </p>
-          <div className="mt-3 inline-block text-[11px] uppercase tracking-widest px-3 py-1.5 rounded border border-amber-500/40 bg-amber-500/10 text-amber-200">
-            Demo catalog — no real bidding, payments, or accounts
-          </div>
         </header>
 
         <nav className="mt-8 flex flex-wrap justify-center gap-2" aria-label="Categories">

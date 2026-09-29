@@ -115,7 +115,7 @@ export default function Tickets() {
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 pb-24">
       {/* Header */}
-      <div className="pt-20 sm:pt-24 pb-4">
+      <div className="pt-4 sm:pt-6 pb-4">
         <h1 className="text-xl sm:text-2xl font-black tracking-widest uppercase">
           Event Tickets
         </h1>

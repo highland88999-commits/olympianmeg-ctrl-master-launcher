@@ -127,7 +127,7 @@ export default function PlutusPage() {
       <div className="fixed inset-0 pointer-events-none" aria-hidden
         style={{ background: 'radial-gradient(ellipse 80% 50% at 50% -10%, rgba(80,255,176,0.07), transparent)' }} />
 
-      <div className="relative max-w-6xl mx-auto px-5 pt-24 pb-24">
+      <div className="relative max-w-6xl mx-auto px-5 pt-14 sm:pt-20 pb-16">
         <header className="text-center mb-8">
           <p className="text-xs uppercase tracking-[0.3em] text-emerald-500/80 mb-3">Utilities · Ares</p>
           <h1 className="text-3xl sm:text-4xl font-black tracking-wide">PLUTUS</h1>
@@ -138,13 +138,6 @@ export default function PlutusPage() {
             <span aria-hidden>🔒</span>
             Your data never leaves this device — no accounts, no bank connections, no tracking.
           </div>
-          {data.demo && (
-            <div className="mt-3">
-              <button onClick={wipeAll} className="text-xs text-amber-400 underline underline-offset-2 hover:text-amber-300">
-                You&apos;re viewing demo data — wipe it and start fresh
-              </button>
-            </div>
-          )}
         </header>
 
         {/* tabs */}
@@ -361,15 +354,11 @@ export default function PlutusPage() {
                 </label>
               </div>
               <div className="flex flex-wrap gap-3">
-                <button className={ghostCls} onClick={seedDemo}>Load demo data</button>
+                {!data.demo && <button className={ghostCls} onClick={seedDemo}>Load demo data</button>}
                 <button className="px-4 py-2 rounded border border-rose-700 text-rose-400 hover:bg-rose-950 text-sm transition-colors" onClick={wipeAll}>
                   Wipe all data
                 </button>
               </div>
-              <p className="text-xs text-zinc-500 mt-4 leading-relaxed">
-                Plutus has no accounts and no servers. Backups are plain JSON files you keep —
-                nothing is ever uploaded anywhere.
-              </p>
             </Card>
           </div>
         )}
