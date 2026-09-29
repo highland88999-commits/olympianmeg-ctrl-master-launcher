@@ -1,6 +1,8 @@
 import { Inter } from "next/font/google";
 import './globals.css';
 import EconomyHeartbeat from '@/components/economy/EconomyHeartbeat';
+import { RadioProvider } from '@/components/radio/RadioProvider';
+import RadioBar from '@/components/radio/RadioBar';
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -21,8 +23,11 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en" className="dark">
       <body className={`${inter.className} bg-[#050505] antialiased text-white`}>
-        <EconomyHeartbeat />
-        {children}
+        <RadioProvider>
+          <EconomyHeartbeat />
+          {children}
+          <RadioBar />
+        </RadioProvider>
       </body>
     </html>
   );
