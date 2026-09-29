@@ -123,6 +123,7 @@ export const SATELLITES: SatelliteEntry[] = [
   { key: "tree", route: "/tree", pos: "ARGUS_POS", section: "OBSERVATORY", constellation: "ARGUS" },
   { key: "underworld-awakening", route: "/underworld-awakening", pos: "ARGUS_POS", section: "OBSERVATORY", constellation: "ARGUS" },
   { key: "vortex", route: "/vortex", pos: "ARGUS_POS", section: "OBSERVATORY", constellation: "ARGUS" },
+  { key: "museum", route: "/museum", pos: "ARGUS_POS", section: "OBSERVATORY", constellation: "ARGUS" },
   { key: "zeus-protocol", route: "/zeus-protocol", pos: "ZEUS_POS", section: "GAMES", constellation: "ZEUS" },
   { key: "medusa-lair", route: "/medusa/lair", pos: "MEDUSA_POS", section: "THERAPY", constellation: "MEDUSA" },
   { key: "anti-life", route: "/anti-life", pos: "MEDUSA_POS", section: "THERAPY", constellation: "MEDUSA" },
