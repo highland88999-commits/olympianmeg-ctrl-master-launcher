@@ -36,7 +36,7 @@ const CSS = `
 .mc-navbtn:hover, .mc-navbtn.active { background: #00f3ff; color: #020813; box-shadow: 0 0 15px #00f3ff; }
 .mc-viewport { flex: 1; overflow: hidden; position: relative; border: 1px solid rgba(0,243,255,0.2); border-radius: 4px; min-height: 0; }
 .mc-carousel { display: flex; height: 100%; width: 500%; transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1); }
-.mc-page { width: 20%; height: 100%; overflow-y: auto; padding: 30px; padding-bottom: max(30px, env(safe-area-inset-bottom)); box-sizing: border-box; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); background: rgba(2,16,32,0.45); scrollbar-width: thin; scrollbar-color: #00f3ff transparent; }
+.mc-page { width: 20%; height: 100%; overflow-y: auto; padding: 30px; padding-bottom: max(5rem, env(safe-area-inset-bottom)); box-sizing: border-box; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); background: rgba(2,16,32,0.45); scrollbar-width: thin; scrollbar-color: #00f3ff transparent; }
 .mc-page::-webkit-scrollbar { width: 6px; }
 .mc-page::-webkit-scrollbar-thumb { background: #00f3ff; border-radius: 3px; }
 .mc-page h2 { font-family: system-ui, 'Segoe UI', sans-serif; color: #00f3ff; margin: 0 0 20px; text-transform: uppercase; letter-spacing: 2px; border-left: 4px solid #ff0055; padding-left: 10px; }
@@ -63,7 +63,7 @@ const CSS = `
 .mc-ghostbtn:hover { background: rgba(0,243,255,0.12); }
 @keyframes mcPulse { 0%,100% { opacity: 0.6; } 50% { opacity: 1; text-shadow: 0 0 8px #00ff66; } }
 @keyframes mcFlicker { 0%,100% { opacity: 1; } 45% { opacity: 0.8; } 50% { opacity: 0.3; } 55% { opacity: 1; } }
-@media (max-width: 768px) { .mc-shell { padding: 10px; } .mc-header h1 { font-size: 1.3rem; } .mc-page { padding: 15px; padding-bottom: max(15px, env(safe-area-inset-bottom)); } .mc-card .v { font-size: 1.5rem; } }
+@media (max-width: 768px) { .mc-shell { padding: 10px; } .mc-header h1 { font-size: 1.3rem; } .mc-page { padding: 15px; padding-bottom: max(5rem, env(safe-area-inset-bottom)); } .mc-card .v { font-size: 1.5rem; } }
 `;
 
 const HOME_CARDS = [

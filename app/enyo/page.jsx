@@ -1493,7 +1493,7 @@ export default function EnyoPage() {
       {/* ================= MENU ================= */}
       {phase === 'menu' && (
         <div className="absolute inset-0 overflow-y-auto bg-gradient-to-b from-[#0b0e1a] via-[#101424] to-black/95">
-          <div className="max-w-3xl mx-auto px-5 pt-10 pb-[max(4rem,env(safe-area-inset-bottom))]">
+          <div className="max-w-3xl mx-auto px-5 pt-10 pb-[max(5rem,env(safe-area-inset-bottom))]">
             <div className="text-[11px] tracking-[0.4em] uppercase text-red-400/90">Goddess of war</div>
             <h1 className="text-5xl font-black tracking-widest mt-1">ENYO</h1>
             <p className="text-neutral-400 mt-2 text-sm max-w-xl">
