@@ -20,6 +20,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { TRON_BIKES, bikeByKey } from '@/components/nova/TronBikes';
+import TronRider from '@/components/nova/TronRider';
 import { Starfield, SpiralReachField, Wormhole, TheGift, GiftInterior } from '@/components/nova/DeepSpace';
 import {
   SECTORS,
@@ -179,6 +180,7 @@ function BikeRig({ flightRef, inputRef, bikeKey, autopilotRef, reduced, onWormho
   return (
     <group ref={group}>
       <Bike color={bikeByKey(bikeKey).color} />
+      <TronRider bikeKey={bikeKey} reduced={reduced} />
     </group>
   );
 }
@@ -203,6 +205,8 @@ function GaragePreview({ bikeKey, reduced }) {
       </mesh>
       <group ref={group} position={[0, 0.4, 0]}>
         <Bike color={bikeByKey(bikeKey).color} />
+        {/* the rider sits the docked bike on the turntable too */}
+        <TronRider bikeKey={bikeKey} reduced={reduced} />
       </group>
     </group>
   );

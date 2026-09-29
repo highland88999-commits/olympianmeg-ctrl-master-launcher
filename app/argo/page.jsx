@@ -22,6 +22,7 @@ import * as THREE from 'three';
 import GoogleEarthTiles from '@/components/GoogleEarthTiles';
 import StylizedGlobe from '@/components/argo/StylizedGlobe';
 import { FLEET, fleetByKey } from '@/components/argo/VehicleArchetypes';
+import TronRider from '@/components/nova/TronRider';
 import {
   DESTINATIONS,
   HOME_KEY,
@@ -167,10 +168,15 @@ function FlightRig({
     }
   });
 
-  const Vehicle = fleetByKey(flightRef.current.vehicleKey || 'skiff').Cmp;
+  const vehicleKey = flightRef.current.vehicleKey || 'skiff';
+  const Vehicle = fleetByKey(vehicleKey).Cmp;
+  // Only the two tron bike ports get a mounted rider; the fleet skycraft
+  // have no open cockpits.
+  const isTronBike = vehicleKey === 'wisp' || vehicleKey === 'comet';
   return (
     <group ref={group} scale={VEHICLE_SCALE}>
-      <Vehicle color={fleetByKey(flightRef.current.vehicleKey || 'skiff').color} />
+      <Vehicle color={fleetByKey(vehicleKey).color} />
+      {isTronBike && <TronRider bikeKey={vehicleKey} reduced={reduced} />}
     </group>
   );
 }

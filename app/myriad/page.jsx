@@ -23,6 +23,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { TRON_BIKES, bikeByKey } from '@/components/nova/TronBikes';
+import TronRider from '@/components/nova/TronRider';
 import { SpiralGalaxy, Nebula, Wormhole } from '@/components/nova/DeepSpace';
 import {
   TRON_BIKE_TUNING,
@@ -419,6 +420,7 @@ function BikeRig({ flightRef, inputRef, bikeKey, autopilotRef, reduced, snapCamR
   return (
     <group ref={group}>
       <Bike color={bikeByKey(bikeKey).color} />
+      <TronRider bikeKey={bikeKey} reduced={reduced} />
     </group>
   );
 }
