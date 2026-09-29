@@ -30,7 +30,9 @@ import {
 } from 'lucide-react';
 import { useRadio } from './RadioProvider';
 import SpotifyEmbed from './SpotifyEmbed';
+import MySpotifyPanel from './MySpotifyPanel';
 import { sourceLabel, VAULT, vaultReady } from '@/lib/radio/station';
+import { SOURCES, SOURCE_LABELS } from '@/lib/radio/spotify-auth';
 
 const iconBtn =
   'rounded-full p-2 text-white/80 transition-colors motion-reduce:transition-none hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-300';
@@ -109,8 +111,35 @@ function TransportRow({ big = false }) {
   );
 }
 
+function SourceToggle() {
+  const { source, setSource } = useRadio();
+  const opt = (key) => (
+    <button
+      key={key}
+      type="button"
+      onClick={() => setSource(key)}
+      aria-pressed={source === key}
+      aria-label={`Switch radio source to ${SOURCE_LABELS[key]}`}
+      className={`flex-1 rounded-full px-3 py-1.5 text-xs font-medium transition-colors motion-reduce:transition-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-300 ${source === key ? 'bg-teal-300 text-black' : 'text-white/70 hover:text-white'}`}
+    >
+      {SOURCE_LABELS[key]}
+    </button>
+  );
+  return (
+    <div
+      className="flex rounded-full border border-white/12 bg-white/5 p-1"
+      role="group"
+      aria-label="Radio source"
+      title="Switch between the house station and your own Spotify account"
+    >
+      {opt(SOURCES.NEXUS)}
+      {opt(SOURCES.MY_SPOTIFY)}
+    </div>
+  );
+}
+
 function LibrarySheet() {
-  const { station, queue, index, playAt, contributions, setExpanded, setMinimized } = useRadio();
+  const { station, queue, index, playAt, contributions, setExpanded, setMinimized, source } = useRadio();
   // Library section: the radio library is two playlists — the station and the
   // Full Vault. 'everything' shows the playback queue in order; the other two
   // group by source, plain-English.
@@ -147,7 +176,7 @@ function LibrarySheet() {
 
       <div className="flex items-center justify-between px-3 pb-1">
         <h2 className="min-w-0 flex-1 truncate text-xs font-semibold uppercase tracking-wider text-white/70">
-          {station.name}
+          {source === SOURCES.MY_SPOTIFY ? SOURCE_LABELS[SOURCES.MY_SPOTIFY] : station.name}
         </h2>
         <button
           type="button"
@@ -169,6 +198,14 @@ function LibrarySheet() {
         </button>
       </div>
 
+      <div className="px-3 pb-1">
+        <SourceToggle />
+      </div>
+
+      {source === SOURCES.MY_SPOTIFY ? (
+        <MySpotifyPanel />
+      ) : (
+      <>
       <div className="px-3">
         <TransportRow big />
       </div>
@@ -238,6 +275,8 @@ function LibrarySheet() {
           Want to add tracks? The playlists accept collaborators — Merlin enables that in the Spotify app.
         </p>
       </div>
+      </>
+      )}
     </div>
   );
 }
@@ -246,8 +285,9 @@ export default function RadioBar() {
   const {
     station, current, playing, engineReady, shuffle,
     minimized, expanded, togglePlay, next, toggleShuffle,
-    setMinimized, setExpanded,
+    setMinimized, setExpanded, source, sourceLabel, spotify,
   } = useRadio();
+  const isMySpotify = source === SOURCES.MY_SPOTIFY;
 
   // MINIMIZED — interim dock chip (the shared dock registry already knows us).
   if (minimized) {
@@ -295,6 +335,31 @@ export default function RadioBar() {
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         <div className="flex h-14 items-center gap-1.5 px-2 sm:gap-2 sm:px-3">
+          {isMySpotify ? (
+            <>
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#1DB954]/20" aria-hidden="true">
+                <Music2 size={16} className="text-[#1DB954]" />
+              </span>
+              <button
+                type="button"
+                onClick={() => setExpanded(true)}
+                aria-expanded={false}
+                aria-label="Expand My Spotify panel"
+                title="Expand"
+                className="min-w-0 flex-1 rounded-lg px-2 py-1 text-left transition-colors motion-reduce:transition-none hover:bg-white/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-300"
+              >
+                <span className="block truncate text-sm font-medium text-white">
+                  {sourceLabel}
+                </span>
+                <span className="block truncate text-[11px] text-white/55">
+                  {spotify.status === 'connected'
+                    ? (spotify.displayName || 'Your Spotify account')
+                    : 'Tap to connect your Spotify'}
+                </span>
+              </button>
+            </>
+          ) : (
+          <>
           <button
             type="button"
             onClick={togglePlay}
@@ -350,6 +415,8 @@ export default function RadioBar() {
           >
             <Shuffle size={17} aria-hidden="true" />
           </button>
+          </>
+          )}
 
           <button
             type="button"
