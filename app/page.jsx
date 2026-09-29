@@ -8,7 +8,11 @@ import { useRouter } from 'next/navigation';
 import Auth from '@/components/Auth'; 
 import { supabase } from '@/lib/supabase';
 import { LanguageProvider, useI18n } from '@/lib/i18n';
-import { SATELLITES, SECTIONS } from '@/lib/i18n/satellites';
+import { SATELLITES } from '@/lib/i18n/satellites';
+import GodMenuPanel from '@/components/GodMenuPanel';
+import GodOrbitRings from '@/components/GodOrbitRings';
+import BikeRig, { BIKE_PARK_POS, RIDER_OFFSET, BIKE_LOOK_AHEAD } from '@/components/BikeRig';
+import { ORBIT_CENTER, orbitTime, orbitPositionFor } from '@/lib/god-orbits';
 import SettingsGear from '@/components/SettingsGear';
 import NexusEarth from '@/components/NexusEarth';
 import EarthFlightController from '@/components/EarthFlightController';
@@ -21,7 +25,6 @@ import Thoth from '@/components/Thoth';
 import Argus from '@/components/Argus';
 import Medusa from '@/components/Medusa';
 
-const ORBIT_CENTER = { x: 0, y: 35, z: -80 };
 const ORBIT_RADIUS = 40;
 
 const ZEUS_POS = [ORBIT_CENTER.x, ORBIT_CENTER.y, ORBIT_CENTER.z + ORBIT_RADIUS];
@@ -167,28 +170,31 @@ function SunBackground() {
   );
 }
 
-function SequenceController({ launchState, setLaunchState, portalTex, payloadTex, targetRoute, controls, flightAxis, dropTarget }) {
+function SequenceController({ launchState, setLaunchState, portalTex, payloadTex, targetRoute, controls, flightAxis, dropTarget, bikeRef }) {
   const { camera } = useThree();
   const router = useRouter(); 
   const bulletRef = useRef();
   const portalRef = useRef();
   const routed = useRef(false);
   const [bulletY, setBulletY] = useState(40);
+  // Drag-look offsets while mounted on the bike.
+  const lookYaw = useRef(0);
+  const lookPitch = useRef(0);
   
   const ATMOSPHERE_Y = 5;
   const PORTAL_POS = [dropTarget[0], ATMOSPHERE_Y, dropTarget[2]];
 
   useFrame((state, delta) => {
     if (launchState === 'hub_intro') {
+      // Spawn in the middle: the camera sits at the constellation's center,
+      // ringed by the 10 god bands, and slowly pans to take in the orbit
+      // rings. The parked TRON bike dead ahead (-Z) is the first thing seen.
       const time = state.clock.elapsedTime;
-      const midX = (ZEUS_POS[0] + ARES_POS[0] + THOTH_POS[0] + ARGUS_POS[0] + MEDUSA_POS[0]) / 5;
-      const midZ = (ZEUS_POS[2] + ARES_POS[2] + THOTH_POS[2] + ARGUS_POS[2] + MEDUSA_POS[2]) / 5;
-      
-      const targetPos = new THREE.Vector3(midX + Math.sin(time * 0.1) * 20, 75, 25 + Math.cos(time * 0.1) * 15);
-      camera.position.lerp(targetPos, delta * 2);
-      camera.lookAt(new THREE.Vector3(midX, 35, midZ));
+      camera.position.set(ORBIT_CENTER.x, ORBIT_CENTER.y, ORBIT_CENTER.z);
+      camera.rotation.order = 'YXZ';
+      camera.rotation.set(0, -time * 0.12, 0);
 
-      if (time > 6 || controls.current.moveX !== 0 || controls.current.moveY !== 0 || controls.current.lookDeltaX !== 0 || controls.current.keyW || controls.current.keyS || controls.current.keyA || controls.current.keyD) {
+      if (time > 14 || controls.current.moveX !== 0 || controls.current.moveY !== 0 || controls.current.lookDeltaX !== 0 || controls.current.keyW || controls.current.keyS || controls.current.keyA || controls.current.keyD) {
         setLaunchState('hub_freeroam');
       }
     } 
@@ -223,6 +229,38 @@ function SequenceController({ launchState, setLaunchState, portalTex, payloadTex
 
       camera.fov = THREE.MathUtils.lerp(camera.fov, controls.current.zoom, delta * 5);
       camera.updateProjectionMatrix();
+    }
+    else if (launchState === 'to_bike') {
+      // Fly the camera from wherever it is into the rider's seat on the bike.
+      lookYaw.current = 0;
+      lookPitch.current = 0;
+      const bp = bikeRef.current ? bikeRef.current.position : new THREE.Vector3(...BIKE_PARK_POS);
+      const rider = new THREE.Vector3(bp.x + RIDER_OFFSET.x, bp.y + RIDER_OFFSET.y, bp.z + RIDER_OFFSET.z);
+      camera.position.lerp(rider, Math.min(1, delta * 2.5));
+
+      const look = new THREE.Vector3(bp.x, bp.y + 1.0, bp.z + BIKE_LOOK_AHEAD);
+      const currentQuat = camera.quaternion.clone();
+      camera.lookAt(look);
+      const targetQuat = camera.quaternion.clone();
+      camera.quaternion.copy(currentQuat);
+      camera.quaternion.slerp(targetQuat, Math.min(1, delta * 3));
+
+      if (camera.position.distanceTo(rider) < 0.8) setLaunchState('on_bike');
+    }
+    else if (launchState === 'on_bike') {
+      // Mounted: the camera rides the bike's hover bob, facing the bike's
+      // nose (+Z, toward the constellation). Drag to look around.
+      const bp = bikeRef.current ? bikeRef.current.position : new THREE.Vector3(...BIKE_PARK_POS);
+      camera.position.set(bp.x + RIDER_OFFSET.x, bp.y + RIDER_OFFSET.y, bp.z + RIDER_OFFSET.z);
+
+      lookYaw.current -= controls.current.lookDeltaX * 0.003;
+      lookPitch.current -= controls.current.lookDeltaY * 0.003;
+      lookPitch.current = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, lookPitch.current));
+      controls.current.lookDeltaX = 0;
+      controls.current.lookDeltaY = 0;
+
+      camera.rotation.order = 'YXZ';
+      camera.rotation.set(lookPitch.current, Math.PI + lookYaw.current, 0);
     }
     else if (launchState === 'returning_to_satellite') {
       const viewPos = new THREE.Vector3(dropTarget[0], 65, dropTarget[2] + 35);
@@ -371,15 +409,6 @@ function TextureProvider({ onLaunchExternal }) {
 }
 
 
-const ACCENT = {
-  ZEUS:   { dot: 'bg-cyan-400 shadow-[0_0_5px_#00ffff]', name: 'text-cyan-400', btn: 'bg-black/60 border border-cyan-500/30 rounded hover:bg-cyan-500/20', title: 'text-white group-hover:text-cyan-400', sub: 'text-zinc-500' },
-  ARES:   { dot: 'bg-fuchsia-400 shadow-[0_0_5px_#ff00ff]', name: 'text-fuchsia-400', btn: 'bg-black/40 border border-fuchsia-500/30 rounded hover:bg-fuchsia-500/20', title: 'text-zinc-400 group-hover:text-white', sub: 'text-zinc-600' },
-  THOTH:  { dot: 'bg-emerald-400 shadow-[0_0_5px_#00ff88]', name: 'text-emerald-400', btn: 'bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20', title: 'text-emerald-400 group-hover:text-white', sub: 'text-zinc-600' },
-  ARGUS:  { dot: 'bg-amber-400 shadow-[0_0_5px_#ffaa00]', name: 'text-amber-400', btn: 'bg-black/40 border border-amber-500/30 rounded hover:bg-amber-500/20', title: 'text-amber-400 group-hover:text-white', sub: 'text-zinc-600' },
-  MEDUSA: { dot: 'bg-[#33ff66] shadow-[0_0_5px_#33ff66]', name: 'text-[#33ff66]', btn: 'bg-black/40 border border-[#33ff66]/30 rounded hover:bg-[#33ff66]/20', title: 'text-[#33ff66] group-hover:text-white', sub: 'text-zinc-600' },
-  ARTEMIS: { dot: 'bg-[#ffd34d] shadow-[0_0_5px_#ffd34d]', name: 'text-[#ffd34d]', btn: 'bg-black/60 border border-[#ffd34d]/30 rounded hover:bg-[#ffd34d]/20', title: 'text-white group-hover:text-[#ffd34d]', sub: 'text-zinc-500' },
-};
-
 function NexusHub() {
   const { t } = useI18n();
   const POS_MAP = { ZEUS_POS, ARES_POS, THOTH_POS, ARGUS_POS, BABEL_POS, MEDUSA_POS, ARTEMIS_POS };
@@ -428,6 +457,12 @@ function NexusHub() {
   const controlsRef = useRef({
     moveX: 0, moveY: 0, lookDeltaX: 0, lookDeltaY: 0, keyW: 0, keyS: 0, keyA: 0, keyD: 0, zoom: 52, lastPinchDist: null
   });
+
+  // Parked TRON bike rig (position read by the camera controller).
+  const bikeRef = useRef(null);
+
+  // Satellite index for the god menus — top-level hook (never conditional).
+  const satIndex = useMemo(() => new Map(SATELLITES.map((s) => [s.key, s])), []);
 
   const [joyBase, setJoyBase] = useState({ x: 0, y: 0 });
   const [joyStick, setJoyStick] = useState({ x: 0, y: 0 });
@@ -533,11 +568,33 @@ function NexusHub() {
     setUser(null);
   };
 
-  const launchPocketUniverse = (route, targetPos) => {
-    setActiveSatTarget(targetPos);
+  const launchPocketUniverse = (route, satKey, fallbackPos, directPos) => {
+    // The one menu-to-satellite function. Drop target resolution:
+    // 1. directPos — explicit 3D position (tower ad panels);
+    // 2. the satellite's live orbit-node position (god bands);
+    // 3. the constellation tower position the satellite lists.
+    let target = null;
+    if (directPos) {
+      target = directPos;
+    } else {
+      if (satKey) {
+        const p = orbitPositionFor(satKey, orbitTime());
+        if (p) target = [p.x, p.y, p.z];
+      }
+      if (!target) target = POS_MAP[fallbackPos] || ZEUS_POS;
+    }
+    setActiveSatTarget(target);
     targetRouteRef.current = route;
     setIsMenuExpanded(false);
     setAppState('returning_to_satellite');
+  };
+
+  const toggleBike = () => {
+    if (appState === 'on_bike' || appState === 'to_bike') {
+      setAppState('hub_freeroam');
+    } else if (appState === 'hub_intro' || appState === 'hub_freeroam') {
+      setAppState('to_bike');
+    }
   };
 
   const handlePointerDown = (e) => {
@@ -641,23 +698,14 @@ function NexusHub() {
                   </div>
                 </div>
                 
-                {SECTIONS.map((sec) => {
-                  const acc = ACCENT[sec.constellation];
-                  return (
-                  <div key={sec.key} className="flex flex-col gap-2">
-                    <div className="flex items-center gap-2 mb-1 border-b border-zinc-800 pb-1">
-                      <div className={`w-2 h-2 rounded-full ${acc.dot}`} />
-                      <span className="text-[10px] font-bold tracking-[0.2em] text-zinc-400 uppercase">{t(`sec.${sec.key}.name`)} <span className={acc.name}>/ {t(`const.${sec.constellation.toLowerCase()}`)}</span></span>
-                    </div>
-                    {SATELLITES.filter((s) => s.section === sec.name).map((sat) => (
-                      <button key={sat.key} onClick={() => launchPocketUniverse(sat.route, POS_MAP[sat.pos])} className={`flex flex-col text-left px-4 py-3 ${acc.btn} transition-all group`}>
-                        <span className={`text-sm font-black ${acc.title} tracking-widest uppercase`}>{t(`sat.${sat.key}.title`)}</span>
-                        <span className={`text-[10px] ${acc.sub} uppercase mt-1`}>{t(`sat.${sat.key}.subtitle`)}</span>
-                      </button>
-                    ))}
-                  </div>
-                  );
-                })}
+                {/* God menus: the 10 god-named navigation menus. Satellites launch
+                    ("drop") out of their parent menu through the one
+                    menu-to-satellite function, launchPocketUniverse. */}
+                <GodMenuPanel
+                  t={t}
+                  satIndex={satIndex}
+                  onLaunch={(route, key, pos) => launchPocketUniverse(route, key, pos)}
+                />
 
                 {/* DISCONNECT — signed-in users only; guests have nothing to disconnect */}
                 {user && (
@@ -701,6 +749,17 @@ function NexusHub() {
         </>
       )}
 
+      {/* Spawn to Bike — fixed bottom-right. Flies the camera into the
+          rider's seat on the parked TRON bike; tap again to dismount. */}
+      {(user || cloudOffline) && (appState === 'hub_intro' || appState === 'hub_freeroam' || appState === 'to_bike' || appState === 'on_bike') && (
+        <button
+          onClick={toggleBike}
+          className="absolute bottom-5 right-5 z-50 px-6 py-4 text-[10px] sm:text-xs font-bold tracking-widest text-teal-300 uppercase transition-all border border-teal-400/50 rounded-xl bg-zinc-950/90 shadow-[0_0_20px_rgba(45,212,191,0.15)] backdrop-blur-md hover:bg-teal-900/40 ui-element pointer-events-auto"
+        >
+          {(appState === 'on_bike' || appState === 'to_bike') ? 'LEAVE BIKE' : 'SPAWN TO BIKE'}
+        </button>
+      )}
+
       {(user || cloudOffline) && (appState === 'diving_to_earth' || appState === 'earth_surface' || appState === 'earth_travel') && (
         <EarthConsole
           focus={earthFocus}
@@ -719,7 +778,7 @@ function NexusHub() {
       )}
 
       <div className="absolute inset-0 pointer-events-none">
-        <Canvas shadows="soft" camera={{ position: [0, 75, 20], fov: 52, far: 2000 }} style={{ pointerEvents: 'auto' }}>
+        <Canvas shadows="soft" camera={{ position: [ORBIT_CENTER.x, ORBIT_CENTER.y, ORBIT_CENTER.z], fov: 52, far: 2000 }} style={{ pointerEvents: 'auto' }}>
           <color attach="background" args={['#050505']} />
           <fogExp2 attach="fog" args={['#050505', 0.015]} />
           <Stars radius={100} depth={50} count={7000} factor={4} saturation={0} fade speed={1} />
@@ -738,8 +797,14 @@ function NexusHub() {
             <MarsBackground />
             <TextureProvider onLaunchExternal={(url, id) => {
               adWindowRef.current = window.open('', '_blank');
-              launchPocketUniverse(url, id);
+              launchPocketUniverse(url, null, null, id);
             }} />
+            <GodOrbitRings
+              satIndex={satIndex}
+              canLaunch={appState === 'hub_intro' || appState === 'hub_freeroam'}
+              onLaunch={(route, key) => launchPocketUniverse(route, key, null)}
+            />
+            <BikeRig bikeRef={bikeRef} />
           </Suspense>
 
           <SequenceController 
@@ -752,6 +817,7 @@ function NexusHub() {
             flightAxis={flightAxis}
             adWindowRef={adWindowRef}
             dropTarget={activeSatTarget}
+            bikeRef={bikeRef}
           />
 
           <EarthFlightController
