@@ -8,6 +8,7 @@ import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { supabase } from '@/lib/supabase';
 import { LUGE_COURSES, LUGE_SLEDS, LUGE_PREMIUM_IDS, LUGE_PREMIUM_COUNT } from '@/lib/luge_data';
+import GoldCheckoutOption from '@/components/economy/GoldCheckoutOption';
 
 // ==========================================
 // 3D TRACK & PHYSICS ENGINE
@@ -201,6 +202,7 @@ export default function LugeEngine() {
   const [storeInfo, setStoreInfo] = useState({ priceUsd: null, premiumCount: LUGE_PREMIUM_COUNT });
   const [checkoutBusy, setCheckoutBusy] = useState(false);
   const [storeError, setStoreError] = useState('');
+  const [useGold, setUseGold] = useState(false);
 
   // Claim state
   const [claimBusy, setClaimBusy] = useState(false);
@@ -354,10 +356,20 @@ export default function LugeEngine() {
     setCheckoutBusy(true);
     setStoreError('');
     try {
-      const res = await fetch('/api/luge/checkout', { method: 'POST', headers: authHeaders() });
+      const res = await fetch('/api/luge/checkout', {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ useGold, idemKey: crypto.randomUUID() }),
+      });
       const data = await res.json();
       if (!res.ok || !data.ok) {
         setStoreError(data.error || 'Could not start checkout. Try again.');
+        return;
+      }
+      if (data.type === 'gold') {
+        setPurchaseNote(data.notice || 'Paid with gold.');
+        setUseGold(false);
+        await refreshInventory();
         return;
       }
       window.location.href = data.url;
@@ -531,6 +543,16 @@ export default function LugeEngine() {
             </p>
 
             {storeError && <p className="text-sm text-red-400 mb-4">{storeError}</p>}
+
+            {!ownsArsenal && storeInfo.priceUsd != null && (
+              <div className="mb-4">
+                <GoldCheckoutOption
+                  totalCents={Math.round(storeInfo.priceUsd * 100)}
+                  checked={useGold}
+                  onToggle={setUseGold}
+                />
+              </div>
+            )}
 
             <div className="flex flex-col sm:flex-row gap-4">
               {ownsArsenal ? (

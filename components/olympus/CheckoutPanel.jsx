@@ -7,8 +7,9 @@
 import { useState } from 'react';
 import { formatPrice } from '@/lib/olympus/products';
 import { validateOrderRequest } from '@/lib/olympus/orders';
+import GoldCheckoutOption from '@/components/economy/GoldCheckoutOption';
 
-export default function CheckoutPanel({ mode, totalCents, itemCount, busy, serverError, onSubmitRequest, onStartCard, onBack }) {
+export default function CheckoutPanel({ mode, totalCents, itemCount, busy, serverError, onSubmitRequest, onStartCard, onBack, goldChecked, onGoldToggle }) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [notes, setNotes] = useState('');
@@ -50,6 +51,14 @@ export default function CheckoutPanel({ mode, totalCents, itemCount, busy, serve
               You will be taken to a secure payment page to complete your purchase.
               Your cart is re-checked on our server before anything is charged.
             </p>
+            <div className="mt-4">
+              <GoldCheckoutOption
+                totalCents={totalCents}
+                checked={goldChecked}
+                onToggle={onGoldToggle}
+                style={{ borderColor: 'rgba(103,232,249,0.35)' }}
+              />
+            </div>
             {serverError && <p className="mt-3 text-sm text-red-400">{serverError}</p>}
             <button
               onClick={onStartCard}

@@ -5,6 +5,8 @@
 
 import React, { useState } from 'react';
 import { CATEGORIES, CATEGORY_SLUGS, LISTING_TERMS, normalizeUrl } from '@/lib/hermes/listings.js';
+import GoldCheckoutOption from '@/components/economy/GoldCheckoutOption';
+import { supabase } from '@/lib/supabase';
 
 export default function SubmitDrawer() {
   const [isOpen, setIsOpen] = useState(false);
@@ -13,9 +15,12 @@ export default function SubmitDrawer() {
   const [category, setCategory] = useState('home');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [done, setDone] = useState(null);
+  const [useGold, setUseGold] = useState(false);
 
   async function submit() {
     setError('');
+    setDone(null);
     if (!name.trim()) return setError('Give your listing a name.');
     const urlCheck = normalizeUrl(url);
     if (!urlCheck.ok) return setError(urlCheck.error);
@@ -23,14 +28,37 @@ export default function SubmitDrawer() {
 
     setBusy(true);
     try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (useGold) {
+        let session = null;
+        try {
+          ({ data: { session } } = await supabase.auth.getSession());
+        } catch {
+          session = null;
+        }
+        if (!session) {
+          setError('Sign in from the launcher to use your gold.');
+          return;
+        }
+        headers.Authorization = `Bearer ${session.access_token}`;
+      }
       const res = await fetch('/api/hermes/checkout', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), url: url.trim(), category }),
+        headers,
+        body: JSON.stringify({ name: name.trim(), url: url.trim(), category, useGold, idemKey: crypto.randomUUID() }),
       });
       const data = await res.json();
-      if (!res.ok || !data.url) {
+      if (!res.ok || !data.ok) {
         setError(data.error || 'Could not start checkout. Try again.');
+        return;
+      }
+      if (data.type === 'gold') {
+        setDone(data.notice || 'Paid with gold — your listing is live.');
+        setUseGold(false);
+        return;
+      }
+      if (!data.url) {
+        setError('Could not start checkout. Try again.');
         return;
       }
       window.location.href = data.url;
@@ -97,6 +125,15 @@ export default function SubmitDrawer() {
           </select>
 
           {error && <p className="text-sm text-red-400 mb-4">{error}</p>}
+          {done && <p className="text-sm text-emerald-300 mb-4">🪙 {done}</p>}
+
+          <div className="mb-4">
+            <GoldCheckoutOption
+              totalCents={200}
+              checked={useGold}
+              onToggle={setUseGold}
+            />
+          </div>
 
           <div className="flex gap-3">
             <button

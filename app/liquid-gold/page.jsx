@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { supabase } from "@/lib/supabase";
+import GoldBalance from "@/components/economy/GoldBalance";
 import {
   newState, pourTick, refineTick, barValue, sellBars, buyUpgrade,
   upgradeCost, vatCapacity, flowRate, canSurge, activateSurge,
@@ -9,16 +11,68 @@ import {
 
 /**
  * Liquid Gold Refinery — idle refinery game.
- * Pour crude, refine to purity, mint bars, sell, upgrade. Zero network.
+ * Pour crude, refine to purity, mint bars, sell, upgrade.
+ *
+ * Selling bars also earns real gold (in-house credit): every sell sends the
+ * append-only action log to /api/economy/mine/claim, which replays the game
+ * server-side and credits gold only for what the replay proves. The log is
+ * never cleared except on RESET, so retries and continued play stay safe.
  */
 export default function LiquidGoldPage() {
   const canvasRef = useRef(null);
   const [, force] = useState(0);
+  const [goldNotice, setGoldNotice] = useState(null);
+  const [claiming, setClaiming] = useState(false);
+  const goldBalanceRef = useRef(null);
   const stateRef = useRef(null);
   if (!stateRef.current) stateRef.current = newState();
+  const logRef = useRef([]);
   const reduced = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
   function rerender() { force((n) => n + 1); }
+
+  // Stamp an action with the number of completed game ticks — the server
+  // replays actions in exactly this order.
+  function logAction(entry) {
+    logRef.current.push({ t: Math.round(stateRef.current.now / TICK), ...entry });
+  }
+
+  async function claimGold() {
+    const log = logRef.current.slice();
+    const tickCount = Math.round(stateRef.current.now / TICK);
+    if (log.length === 0) return;
+    setClaiming(true);
+    setGoldNotice("Verifying your bars…");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        setGoldNotice("Bars sold locally. Sign in from the launcher to turn bars into real gold.");
+        return;
+      }
+      const res = await fetch("/api/economy/mine/claim", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ log, tickCount }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not verify your bars.");
+      setGoldNotice(data.notice || (data.creditedGold > 0 ? `+${data.creditedGold} gold.` : null));
+      goldBalanceRef.current?.refresh();
+    } catch (err) {
+      setGoldNotice(err.message || "Could not verify your bars.");
+    } finally {
+      setClaiming(false);
+    }
+  }
+
+  function handleSell() {
+    const st = stateRef.current;
+    if (st.bars === 0 || claiming) return;
+    logAction({ a: "sell" });
+    sellBars(st);
+    rerender();
+    claimGold();
+  }
 
   useEffect(() => {
     document.title = "Liquid Gold Refinery";
@@ -127,26 +181,36 @@ export default function LiquidGoldPage() {
         <p style={{ textAlign: "center", color: "#8a7648", fontSize: 12, marginTop: 0 }}>pour crude · refine to 98% purity · bar mints automatically · sell · upgrade</p>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
-          <div style={card}>CREDITS<div style={{ fontSize: 22, color: "#ffd34d" }}>{st.credits}</div></div>
+          <div style={card}>CREDITS<div style={{ fontSize: 22, color: "#ffd34d" }}>{st.credits}</div>
+            <div style={{ fontSize: 11, color: "#8a7648" }}>in-game only</div></div>
           <div style={card}>GOLD BARS<div style={{ fontSize: 22, color: "#ffd34d" }}>{st.bars}</div>
             <div style={{ fontSize: 11, color: "#8a7648" }}>each worth {barValue(st)}</div>
             {st.now - st.lastMintAt < 3 && <div style={{ fontSize: 12, color: "#fff3b0", marginTop: 4 }}>⚒ BAR MINTED</div>}</div>
         </div>
 
+        <div style={{ ...card, marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+          <div>
+            <div style={{ color: "#ffd34d", fontSize: 13 }}>REAL GOLD</div>
+            <div style={{ fontSize: 11, color: "#8a7648" }}>selling bars earns it · dollars off at checkout</div>
+          </div>
+          <GoldBalance ref={goldBalanceRef} label="" hideWhenZero={false} style={{ fontSize: 15, color: "#ffd34d", whiteSpace: "nowrap" }} />
+        </div>
+        {goldNotice && <div style={{ ...card, marginBottom: 12, color: "#fff3b0" }}>{goldNotice}</div>}
+
         <canvas ref={canvasRef} style={{ width: "100%", height: 340, border: "1px solid rgba(255,211,77,0.25)", borderRadius: 10, background: "#060502", display: "block" }} />
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, margin: "12px 0" }}>
           <button style={{ ...btn, background: pouring ? "rgba(120,80,10,0.9)" : btn.background }}
-            onClick={() => { togglePour(st); rerender(); }}>
+            onClick={() => { const on = togglePour(st); logAction({ a: "pour", on }); rerender(); }}>
             {pouring ? "⛽ POURING — TAP TO STOP" : "TAP TO POUR"}
           </button>
-          <button style={btn} disabled={st.bars === 0} onClick={() => { sellBars(st); rerender(); }}>
-            SELL {st.bars} BAR{st.bars === 1 ? "" : "S"}
+          <button style={btn} disabled={st.bars === 0 || claiming} onClick={handleSell}>
+            {claiming ? "VERIFYING…" : `SELL ${st.bars} BAR${st.bars === 1 ? "" : "S"}`}
           </button>
-          <button style={btn} disabled={!canSurge(st)} onClick={() => { activateSurge(st); rerender(); }}>
+          <button style={btn} disabled={!canSurge(st)} onClick={() => { if (activateSurge(st)) logAction({ a: "surge" }); rerender(); }}>
             {st.now < st.surgeUntil ? `SURGE ${surgeRemaining(st).toFixed(0)}s` : surgeCD > 0 ? `SURGE COOLDOWN ${surgeCD.toFixed(0)}s` : "ACTIVATE SURGE ×3"}
           </button>
-          <button style={btn} onClick={() => { stateRef.current = newState(); rerender(); }}>RESET</button>
+          <button style={btn} onClick={() => { stateRef.current = newState(); logRef.current = []; setGoldNotice(null); rerender(); }}>RESET</button>
         </div>
 
         <h2 style={{ fontSize: 13, letterSpacing: 2, color: "#c9a227" }}>UPGRADES</h2>
@@ -160,7 +224,7 @@ export default function LiquidGoldPage() {
                 <div><div style={{ color: "#ffd34d" }}>{def.name} <span style={{ color: "#8a7648" }}>lv {lvl}</span></div>
                   <div style={{ fontSize: 11, color: "#8a7648" }}>{def.desc}</div></div>
                 <button style={{ ...btn, width: "auto", padding: "10px 16px" }} disabled={st.credits < cost}
-                  onClick={() => { buyUpgrade(st, k); rerender(); }}>{cost} cr</button>
+                  onClick={() => { if (buyUpgrade(st, k)) logAction({ a: "buy", kind: k }); rerender(); }}>{cost} cr</button>
               </div>
             );
           })}

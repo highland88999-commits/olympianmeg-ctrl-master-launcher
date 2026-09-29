@@ -1,5 +1,6 @@
 import { Inter } from "next/font/google";
 import './globals.css';
+import EconomyHeartbeat from '@/components/economy/EconomyHeartbeat';
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -20,6 +21,7 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en" className="dark">
       <body className={`${inter.className} bg-[#050505] antialiased text-white`}>
+        <EconomyHeartbeat />
         {children}
       </body>
     </html>
