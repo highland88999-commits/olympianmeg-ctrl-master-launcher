@@ -16,6 +16,7 @@
     "@react-three/postprocessing": "^2.16.2",
     "@supabase/supabase-js": "^2.43.4",
     "@twilio/voice-sdk": "^2.10.4",
+    "3d-tiles-renderer": "^0.3.34",
     "framer-motion": "^11.2.10",
     "gsap": "^3.12.5",
     "jszip": "^3.10.1",
