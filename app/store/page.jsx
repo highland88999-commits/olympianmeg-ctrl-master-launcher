@@ -8,7 +8,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { supabase } from '@/lib/supabase/client';
+import { supabase } from '@/lib/supabase';
 
 const SIZES = ['S', 'M', 'L', 'XL', '2XL', '3XL'];
 
