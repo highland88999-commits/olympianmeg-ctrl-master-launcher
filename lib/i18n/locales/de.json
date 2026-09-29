@@ -177,6 +177,10 @@
   "sat.astra.subtitle": "Cockpit-Shooter",
   "sat.nova.title": "Nova",
   "sat.nova.subtitle": "Deep Space",
+  "sat.profile.title": "Profile",
+  "sat.profile.subtitle": "Your rider identity",
+  "sat.myriad.title": "Myriad",
+  "sat.myriad.subtitle": "100 Universes",
   "sat.atlantis.title": "Atlantis",
   "sat.atlantis.subtitle": "Versunkene Blaupause",
   "sat.bearth.title": "Bearth",
@@ -284,5 +288,7 @@
   "earth.traveling": "Bringe die Welt zu dir...",
   "earth.yourLocation": "Dein Standort",
   "sat.tools.title": "Werkzeuge",
-  "sat.tools.subtitle": "Kommandodeck"
+  "sat.tools.subtitle": "Kommandodeck",
+  "sat.enyo.title": "Enyo",
+  "sat.enyo.subtitle": "Tactical arena shooter"
 }

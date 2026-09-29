@@ -109,5 +109,30 @@ t('sql: three tables defined',
 t('sql: RLS enabled on all three',
   (sqlSrc.match(/enable row level security/g) || []).length === 3);
 
+// --- hull wrap assets resolve (match OG Luge-Refuge livery descriptions) ---
+import { existsSync, statSync } from 'fs';
+const RECREATED_FROM_DESCRIPTION = ['hull-g2.webp', 'hull-p3.webp', 'hull-p11.webp'];
+for (const sled of LUGE_SLEDS) {
+  const rel = `public${sled.hull}`; // sled.hull is '/textures/luge/<file>'
+  t(`wrap asset exists on disk: ${sled.id} -> ${rel}`, existsSync(rel));
+  if (existsSync(rel)) {
+    const buf = readFileSync(rel);
+    const isWebp = buf.length > 12 &&
+      buf.subarray(0, 4).toString() === 'RIFF' &&
+      buf.subarray(8, 12).toString() === 'WEBP';
+    t(`wrap is a valid webp: ${sled.id}`, isWebp);
+    t(`wrap is non-trivial size: ${sled.id}`, buf.length > 20_000);
+  }
+}
+const lugeDataSrc = readFileSync('lib/luge_data.js', 'utf8');
+t('luge_data: hull-wrap provenance block present',
+  /Hull-wrap provenance/.test(lugeDataSrc));
+for (const f of RECREATED_FROM_DESCRIPTION) {
+  t(`luge_data: labels ${f} as recreated-from-description`,
+    lugeDataSrc.includes(f) && /recreated/i.test(lugeDataSrc));
+}
+t('wrap generator script present (reproducible recreations)',
+  existsSync('scripts/gen-luge-wraps.py'));
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

@@ -177,6 +177,10 @@
   "sat.astra.subtitle": "Atirador de Cabine",
   "sat.nova.title": "Nova",
   "sat.nova.subtitle": "Deep Space",
+  "sat.profile.title": "Profile",
+  "sat.profile.subtitle": "Your rider identity",
+  "sat.myriad.title": "Myriad",
+  "sat.myriad.subtitle": "100 Universes",
   "sat.atlantis.title": "Atlantis",
   "sat.atlantis.subtitle": "Planta Submersa",
   "sat.bearth.title": "Bearth",
@@ -284,5 +288,7 @@
   "earth.traveling": "A trazer o mundo até ti...",
   "earth.yourLocation": "A tua localização",
   "sat.tools.title": "Ferramentas",
-  "sat.tools.subtitle": "Painel de Comando"
+  "sat.tools.subtitle": "Painel de Comando",
+  "sat.enyo.title": "Enyo",
+  "sat.enyo.subtitle": "Tactical arena shooter"
 }

@@ -176,11 +176,16 @@ export function createOrbitalRenderer(canvas, state, opts = {}) {
     drawBackground(t);
     drawCore(t, alignmentActive(state) && !reduced);
     drawOrbits(t);
+    if (typeof opts.overlay === 'function') opts.overlay(ctx, w, h, t);
   }
 
   function pushHud() {
     const progress = reduced ? STATIC_TIME / MONTH_SECONDS : monthProgress(state);
-    onHud({ progress, held: reduced });
+    onHud({
+      progress,
+      held: reduced,
+      game: typeof opts.getGameHud === 'function' ? opts.getGameHud() : null,
+    });
   }
 
   function loop(t) {
@@ -188,6 +193,7 @@ export function createOrbitalRenderer(canvas, state, opts = {}) {
     const dt = Math.min(0.1, (t - lastT) / 1000 || 0.016);
     lastT = t;
     stepMatrix(state, dt);
+    if (typeof opts.tick === 'function') opts.tick(dt, t);
     frame();
     hudT += dt;
     if (hudT > 0.25) {
@@ -216,6 +222,7 @@ export function createOrbitalRenderer(canvas, state, opts = {}) {
     const dy = e.clientY - prev.y;
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (reduced) return;
+    if (state.playing) return; // pilot mode: the pointer steers the spark, not the camera
     if (pointers.size === 2) {
       const [a, b] = [...pointers.values()];
       const d = Math.hypot(a.x - b.x, a.y - b.y);
