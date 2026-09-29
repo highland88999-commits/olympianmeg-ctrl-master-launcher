@@ -30,6 +30,12 @@ import { SATELLITES } from '@/lib/i18n/satellites';
 
 const GROUPS = [
   {
+    id: 'navigate',
+    name: 'Navigate',
+    blurb: 'Find your way around the universe.',
+    keys: ['prime'],
+  },
+  {
     id: 'build',
     name: 'Build',
     blurb: 'Code, shell, and machines.',
@@ -56,6 +62,7 @@ const GROUPS = [
 ];
 
 const DESCRIPTIONS = {
+  'prime': 'A zoomable star chart of every destination here — pan, dive in, tap a star, and travel.',
   'forge': 'Write and edit code in your browser, with tabs and syntax highlighting.',
   'terminal': 'A command shell on a virtual machine — files, folders, and themes.',
   'holoframe': 'Your shell spread across up to eight holographic monitors.',
