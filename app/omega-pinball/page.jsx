@@ -275,7 +275,6 @@ export default function OmegaPinballPage() {
     <div
       ref={wrapRef}
       className="fixed inset-0 flex flex-col items-center justify-center bg-black text-white overflow-hidden select-none"
-      style={{ touchAction: 'none' }}
     >
       {/* HUD */}
       <div className="absolute top-0 left-0 right-0 z-10 flex items-start justify-between px-4 pt-3 pointer-events-none">
@@ -296,7 +295,7 @@ export default function OmegaPinballPage() {
         </div>
       </div>
 
-      <canvas ref={canvasRef} className="h-full w-full max-w-[520px]" aria-label="Omega Pinball playfield" />
+      <canvas ref={canvasRef} className="h-full w-full max-w-[520px] touch-none" style={{ touchAction: 'none' }} aria-label="Omega Pinball playfield" />
 
       {/* Plunger + mute controls */}
       {phase === 'playing' && (
