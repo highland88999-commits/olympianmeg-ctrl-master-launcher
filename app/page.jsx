@@ -11,6 +11,7 @@ import { LanguageProvider, useI18n } from '@/lib/i18n';
 import { SATELLITES } from '@/lib/i18n/satellites';
 import SatelliteMenu from '@/components/SatelliteMenu';
 import GodOrbitRings from '@/components/GodOrbitRings';
+import SpacePortalGates from '@/components/SpacePortalGates';
 import BikeRig, { BIKE_PARK_POS, RIDER_OFFSET, BIKE_LOOK_AHEAD } from '@/components/BikeRig';
 import { ORBIT_CENTER, orbitTime, orbitPositionFor } from '@/lib/god-orbits';
 import SettingsGear from '@/components/SettingsGear';
@@ -892,6 +893,17 @@ function NexusHub() {
               satIndex={satIndex}
               canLaunch={appState === 'hub_intro' || appState === 'hub_freeroam'}
               onLaunch={(route, key) => launchPocketUniverse(route, key, null)}
+            />
+            {/* Vertical space-portal gates ringing the BABEL position: one
+                gate per pocket universe, labeled with its destination. Click,
+                tap, or fly through a gate to travel — routed through the one
+                menu-to-satellite function, launchPocketUniverse. */}
+            <SpacePortalGates
+              satellites={SATELLITES}
+              center={BABEL_POS}
+              canLaunch={appState === 'hub_intro' || appState === 'hub_freeroam'}
+              getTitle={(key) => t(`sat.${key}.title`)}
+              onTravel={(sat) => launchPocketUniverse(sat.route, sat.key, sat.pos)}
             />
             <BikeRig bikeRef={bikeRef} />
           </Suspense>
