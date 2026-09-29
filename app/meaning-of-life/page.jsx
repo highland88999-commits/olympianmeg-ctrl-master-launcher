@@ -11,6 +11,7 @@ import {
   lineAt,
 } from "./movements.js";
 import { ART } from "./art.js";
+import PassageLink from "@/components/styx/PassageLink";
 
 export default function MeaningOfLifePage() {
   const [movementIdx, setMovementIdx] = useState(0);
@@ -92,6 +93,7 @@ export default function MeaningOfLifePage() {
 
   return (
     <main className="mol">
+      <PassageLink />
       <canvas ref={canvasRef} className="mol-canvas" aria-hidden="true" />
 
       <div className="mol-overlay">

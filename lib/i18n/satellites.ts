@@ -91,6 +91,7 @@ export const SATELLITES: SatelliteEntry[] = [
   { key: "astra", route: "/astra", pos: "ZEUS_POS", section: "GAMES", constellation: "ZEUS" },
   { key: "atlantis", route: "/atlantis", pos: "ARGUS_POS", section: "OBSERVATORY", constellation: "ARGUS" },
   { key: "bearth", route: "/bearth", pos: "ARGUS_POS", section: "OBSERVATORY", constellation: "ARGUS" },
+  { key: "argo", route: "/argo", pos: "ARGUS_POS", section: "OBSERVATORY", constellation: "ARGUS" },
   { key: "beekeeper", route: "/beekeeper", pos: "ARGUS_POS", section: "OBSERVATORY", constellation: "ARGUS" },
   { key: "convergence", route: "/convergence", pos: "ARGUS_POS", section: "OBSERVATORY", constellation: "ARGUS" },
   { key: "hyperion-gravitas", route: "/hyperion-gravitas", pos: "ARGUS_POS", section: "OBSERVATORY", constellation: "ARGUS" },
@@ -127,6 +128,7 @@ export const SATELLITES: SatelliteEntry[] = [
   { key: "meaning-of-life", route: "/meaning-of-life", pos: "MEDUSA_POS", section: "THERAPY", constellation: "MEDUSA" },
   { key: "rem", route: "/rem", pos: "MEDUSA_POS", section: "THERAPY", constellation: "MEDUSA" },
   { key: "the-afterlife", route: "/the-afterlife", pos: "MEDUSA_POS", section: "THERAPY", constellation: "MEDUSA" },
+  { key: "styx", route: "/styx", pos: "MEDUSA_POS", section: "THERAPY", constellation: "MEDUSA" },
 ];
 
 export interface SectionDef { name: string; key: string; constellation: string; }

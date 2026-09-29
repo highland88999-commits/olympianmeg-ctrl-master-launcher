@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import PassageLink from '@/components/styx/PassageLink';
 import {
   createMatrix,
   monthProgress,
@@ -62,6 +63,7 @@ export default function LifePage() {
       role="application"
       aria-label="Life — an orbital matrix visualization"
     >
+      <PassageLink />
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full block" aria-hidden="true" />
 
       {/* HUD */}

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createState, formatDecay, stageLabel, zoneLabel, applyPan } from './decay';
 import { createAntiLifeRenderer } from './canvas';
+import PassageLink from '@/components/styx/PassageLink';
 
 const FONT = "ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, monospace";
 
@@ -78,6 +79,7 @@ export default function AntiLifePage() {
       role="application"
       aria-label="Anti-Life — an interactive study of impermanence"
     >
+      <PassageLink />
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full block" aria-hidden="true" />
 
       {/* HUD */}
