@@ -177,6 +177,10 @@
   "sat.astra.subtitle": "Sparatutto da Cabina",
   "sat.nova.title": "Nova",
   "sat.nova.subtitle": "Deep Space",
+  "sat.profile.title": "Profile",
+  "sat.profile.subtitle": "Your rider identity",
+  "sat.myriad.title": "Myriad",
+  "sat.myriad.subtitle": "100 Universes",
   "sat.atlantis.title": "Atlantis",
   "sat.atlantis.subtitle": "Progetto Sommerso",
   "sat.bearth.title": "Bearth",
@@ -284,5 +288,7 @@
   "earth.traveling": "Porto il mondo da te...",
   "earth.yourLocation": "La tua posizione",
   "sat.tools.title": "Strumenti",
-  "sat.tools.subtitle": "Pannello di Comando"
+  "sat.tools.subtitle": "Pannello di Comando",
+  "sat.enyo.title": "Enyo",
+  "sat.enyo.subtitle": "Tactical arena shooter"
 }

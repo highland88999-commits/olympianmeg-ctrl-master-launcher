@@ -177,6 +177,10 @@
   "sat.astra.subtitle": "Σκοπευτής Πιλοτηρίου",
   "sat.nova.title": "Nova",
   "sat.nova.subtitle": "Deep Space",
+  "sat.profile.title": "Profile",
+  "sat.profile.subtitle": "Your rider identity",
+  "sat.myriad.title": "Myriad",
+  "sat.myriad.subtitle": "100 Universes",
   "sat.atlantis.title": "Atlantis",
   "sat.atlantis.subtitle": "Βυθισμένο Σχέδιο",
   "sat.bearth.title": "Bearth",
@@ -284,5 +288,7 @@
   "earth.traveling": "Φέρνω τον κόσμο σε εσένα...",
   "earth.yourLocation": "Η τοποθεσία σου",
   "sat.tools.title": "Εργαλεία",
-  "sat.tools.subtitle": "Πίνακας Ελέγχου"
+  "sat.tools.subtitle": "Πίνακας Ελέγχου",
+  "sat.enyo.title": "Enyo",
+  "sat.enyo.subtitle": "Tactical arena shooter"
 }

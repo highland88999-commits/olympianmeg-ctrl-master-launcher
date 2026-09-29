@@ -78,6 +78,7 @@ function FlightRig({
   faceKey,
   followCam,
   reduced,
+  snapCamRef,
   onArrived,
   onProgress,
 }) {
@@ -153,8 +154,14 @@ function FlightRig({
 
     if (followCam && !reduced && f.phase !== 'docked-idle') {
       s.camGoal.copy(pos3).addScaledVector(vel3, -17).addScaledVector(s.up, 7.5);
-      const step = Math.min(1, Math.max(0, (dt || 0.016) * 2.2));
-      camera.position.lerp(s.camGoal, step);
+      if (snapCamRef && snapCamRef.current) {
+        // Bike/vehicle loads right in front of the user on launch.
+        camera.position.copy(s.camGoal);
+        snapCamRef.current = false;
+      } else {
+        const step = Math.min(1, Math.max(0, (dt || 0.016) * 2.2));
+        camera.position.lerp(s.camGoal, step);
+      }
       s.look.copy(pos3).addScaledVector(vel3, 14);
       camera.lookAt(s.look);
     }
@@ -202,6 +209,7 @@ function ArgoScene({
         faceKey={faceKey}
         followCam={followCam && phase !== 'dock'}
         reduced={reduced}
+        snapCamRef={snapCamRef}
         onArrived={onArrived}
         onProgress={onProgress}
       />
@@ -230,6 +238,8 @@ export default function ArgoPage() {
   const [phase, setPhase] = useState('dock'); // dock | flying | arrived
   const [followCam, setFollowCam] = useState(true);
   const [progress, setProgress] = useState(0);
+  // Snap the follow camera on launch so the vehicle loads right in front.
+  const snapCamRef = useRef(false);
 
   const flightRef = useRef({
     phase: 'docked-idle',
@@ -282,6 +292,7 @@ export default function ArgoPage() {
         done: false,
       };
       setProgress(0);
+      snapCamRef.current = true; // vehicle loads right in front of the user
       setPhase('flying');
     },
     [atKey, reduced]

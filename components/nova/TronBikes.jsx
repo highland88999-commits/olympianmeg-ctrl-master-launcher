@@ -1,4 +1,4 @@
-// components/nova/TrimBikes.jsx — NOVA trim bikes.
+// components/nova/TronBikes.jsx — NOVA tron bikes.
 //
 // Merlin's signature single-rider space bikes. Shared design language:
 // nose points +Z, narrow elongated frame, glass rider canopy, two side
@@ -38,7 +38,7 @@ function PodShell() {
 }
 
 // Side trim-thruster pods: horizontal cylinders, glow disc on each end.
-// This is the trim bike's signature silhouette.
+// This is the tron bike's signature silhouette.
 function TrimThrusterPods({ color = '#00ffcc', xOffset = 0.85, scale = 1 }) {
   return (
     <group>
@@ -177,12 +177,12 @@ export function AtlasBike({ color = '#f59e0b' }) {
 }
 
 // Garage registry. Description is one plain-English line.
-export const TRIM_BIKES = [
+export const TRON_BIKES = [
   { key: 'wisp', name: 'Wisp', desc: 'Agile scout — fastest off the line, twitchy.', color: '#00ffcc', Cmp: WispBike },
   { key: 'comet', name: 'Comet', desc: 'Balanced all-rounder — steady and sharp.', color: '#38bdf8', Cmp: CometBike },
   { key: 'atlas', name: 'Atlas', desc: 'Heavy hauler — slow, planted, unstoppable.', color: '#f59e0b', Cmp: AtlasBike },
 ];
 
 export function bikeByKey(key) {
-  return TRIM_BIKES.find((b) => b.key === key) || TRIM_BIKES[0];
+  return TRON_BIKES.find((b) => b.key === key) || TRON_BIKES[0];
 }

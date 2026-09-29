@@ -4,8 +4,8 @@
 // source-level checks (menu registration, locale keys, no telemetry).
 import { readFileSync } from 'fs';
 import {
-  TRIM_BIKE_TUNING,
-  TRIM_BIKE_KEYS,
+  TRON_BIKE_TUNING,
+  TRON_BIKE_KEYS,
   tuningFor,
   SECTORS,
   SECTOR_KEYS,
@@ -44,20 +44,20 @@ function stripComments(src) {
 
 // --- bike tuning ---
 {
-  t('3 trim bikes', TRIM_BIKE_KEYS.length === 3);
+  t('3 tron bikes', TRON_BIKE_KEYS.length === 3);
   const keys = ['wisp', 'comet', 'atlas'];
-  t('wisp/comet/atlas present', keys.every((k) => TRIM_BIKE_KEYS.includes(k)));
+  t('wisp/comet/atlas present', keys.every((k) => TRON_BIKE_KEYS.includes(k)));
   for (const k of keys) {
-    const b = TRIM_BIKE_TUNING[k];
+    const b = TRON_BIKE_TUNING[k];
     t(`${k}: all tuning fields positive numbers`,
       ['maxSpeed', 'accel', 'turnRate', 'boostMult', 'brakeRate'].every(
         (f) => typeof b[f] === 'number' && b[f] > 0));
     t(`${k}: has name + desc`, !!b.name && !!b.desc);
   }
-  const { wisp, comet, atlas } = TRIM_BIKE_TUNING;
+  const { wisp, comet, atlas } = TRON_BIKE_TUNING;
   t('wisp fastest', wisp.maxSpeed > comet.maxSpeed && comet.maxSpeed > atlas.maxSpeed);
   t('wisp twitchiest turn', wisp.turnRate > comet.turnRate && comet.turnRate > atlas.turnRate);
-  t('boost mult > 1 for all', keys.every((k) => TRIM_BIKE_TUNING[k].boostMult > 1));
+  t('boost mult > 1 for all', keys.every((k) => TRON_BIKE_TUNING[k].boostMult > 1));
   t('tuningFor unknown -> comet', tuningFor('nope').key === 'comet');
 }
 
@@ -145,42 +145,42 @@ function stripComments(src) {
 {
   const mk = () => ({ pos: { x: 0, y: 0, z: 0 }, yaw: 0, pitch: 0, speed: 0 });
   const idle = { thrust: 0, turn: 0, pitch: 0, boost: false, brake: false };
-  const s1 = stepFlight(mk(), idle, 1, TRIM_BIKE_TUNING.wisp);
+  const s1 = stepFlight(mk(), idle, 1, TRON_BIKE_TUNING.wisp);
   t('no input: stays put', s1.speed === 0 && s1.pos.x === 0 && s1.pos.z === 0);
 
   const fwd = { thrust: 1, turn: 0, pitch: 0, boost: false, brake: false };
-  const s2 = stepFlight(mk(), fwd, 1, TRIM_BIKE_TUNING.wisp);
-  t('thrust accelerates', s2.speed > 0 && s2.speed <= TRIM_BIKE_TUNING.wisp.maxSpeed);
+  const s2 = stepFlight(mk(), fwd, 1, TRON_BIKE_TUNING.wisp);
+  t('thrust accelerates', s2.speed > 0 && s2.speed <= TRON_BIKE_TUNING.wisp.maxSpeed);
   t('moves along +Z at yaw 0', s2.pos.z > 0 && approx(s2.pos.x, 0));
 
-  const s3 = stepFlight({ ...mk(), speed: 60 }, { ...fwd, brake: true }, 1, TRIM_BIKE_TUNING.wisp);
+  const s3 = stepFlight({ ...mk(), speed: 60 }, { ...fwd, brake: true }, 1, TRON_BIKE_TUNING.wisp);
   t('brake kills speed', s3.speed < 60);
 
   const turn = { thrust: 0.5, turn: 1, pitch: 0, boost: false, brake: false };
-  const s4 = stepFlight(mk(), turn, 1, TRIM_BIKE_TUNING.wisp);
+  const s4 = stepFlight(mk(), turn, 1, TRON_BIKE_TUNING.wisp);
   t('turn changes yaw', s4.yaw > 0);
-  t('turn rate respects tuning', approx(s4.yaw, TRIM_BIKE_TUNING.wisp.turnRate, 1e-9));
+  t('turn rate respects tuning', approx(s4.yaw, TRON_BIKE_TUNING.wisp.turnRate, 1e-9));
 
   const boost = { thrust: 1, turn: 0, pitch: 0, boost: true, brake: false };
   let sb = mk();
-  for (let i = 0; i < 20; i++) sb = stepFlight(sb, boost, 0.25, TRIM_BIKE_TUNING.comet);
-  t('boost exceeds normal max', sb.speed > TRIM_BIKE_TUNING.comet.maxSpeed);
+  for (let i = 0; i < 20; i++) sb = stepFlight(sb, boost, 0.25, TRON_BIKE_TUNING.comet);
+  t('boost exceeds normal max', sb.speed > TRON_BIKE_TUNING.comet.maxSpeed);
   t('boost capped at boostMult × max',
-    sb.speed <= TRIM_BIKE_TUNING.comet.maxSpeed * TRIM_BIKE_TUNING.comet.boostMult + 1e-9);
+    sb.speed <= TRON_BIKE_TUNING.comet.maxSpeed * TRON_BIKE_TUNING.comet.boostMult + 1e-9);
 
-  const s5 = stepFlight(mk(), { thrust: 0, turn: 0, pitch: 10, boost: false, brake: false }, 5, TRIM_BIKE_TUNING.atlas);
+  const s5 = stepFlight(mk(), { thrust: 0, turn: 0, pitch: 10, boost: false, brake: false }, 5, TRON_BIKE_TUNING.atlas);
   t('pitch clamps', Math.abs(s5.pitch) <= 1.1 + 1e-9);
 
-  const s6 = stepFlight(mk(), { thrust: -1, turn: 0, pitch: 0, boost: false, brake: false }, 1, TRIM_BIKE_TUNING.wisp);
+  const s6 = stepFlight(mk(), { thrust: -1, turn: 0, pitch: 0, boost: false, brake: false }, 1, TRON_BIKE_TUNING.wisp);
   t('reverse thrust', s6.pos.z < 0);
 
   const vals = [s2, s3, s4, sb, s5, s6].flatMap((s) => [s.pos.x, s.pos.y, s.pos.z, s.yaw, s.pitch, s.speed]);
   t('no NaN anywhere', vals.every((v) => Number.isFinite(v)));
 
-  const st = steerToward(mk(), { x: 100, y: 0, z: 0 }, TRIM_BIKE_TUNING.wisp);
+  const st = steerToward(mk(), { x: 100, y: 0, z: 0 }, TRON_BIKE_TUNING.wisp);
   t('steerToward gives bounded inputs',
     Math.abs(st.turn) <= 1 && Math.abs(st.pitch) <= 1 && st.dist > 0);
-  const stAhead = steerToward(mk(), { x: 0, y: 0, z: 100 }, TRIM_BIKE_TUNING.wisp);
+  const stAhead = steerToward(mk(), { x: 0, y: 0, z: 100 }, TRON_BIKE_TUNING.wisp);
   t('steerToward aligned when target straight ahead',
     stAhead.aligned && approx(stAhead.turn, 0, 1e-9));
 }
@@ -216,11 +216,11 @@ function stripComments(src) {
   t('page: autopilot tour present', /Autopilot tour/.test(page));
   t('page: board-the-gift present', /Board the Gift/.test(page));
 
-  const bikes = readFileSync('components/nova/TrimBikes.jsx', 'utf8');
+  const bikes = readFileSync('components/nova/TronBikes.jsx', 'utf8');
   const bcode = stripComments(bikes);
   t('bikes: no telemetry/fetch', !/central_telemetry|phone.?home|fetch\(|supabase|https?:\/\//i.test(bcode));
   t('3 bike components', /WispBike/.test(bikes) && /CometBike/.test(bikes) && /AtlasBike/.test(bikes));
-  t('bike registry + lookup', /TRIM_BIKES/.test(bikes) && /bikeByKey/.test(bikes));
+  t('bike registry + lookup', /TRON_BIKES/.test(bikes) && /bikeByKey/.test(bikes));
 
   const deep = readFileSync('components/nova/DeepSpace.jsx', 'utf8');
   const dcode = stripComments(deep);

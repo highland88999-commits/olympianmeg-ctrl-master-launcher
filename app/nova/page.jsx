@@ -1,6 +1,6 @@
 // app/nova/page.jsx — NOVA: Deep Space.
 //
-// Merlin's deep-space expansion. Pick a trim bike from the garage, then
+// Merlin's deep-space expansion. Pick a tron bike from the garage, then
 // free-fly three sectors connected by wormholes: The Shallows (garage
 // dock), The Gift Drift (THE GIFT — boardable), Spiral Reach (three named
 // galaxies + two nebulae).
@@ -19,7 +19,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
-import { TRIM_BIKES, bikeByKey } from '@/components/nova/TrimBikes';
+import { TRON_BIKES, bikeByKey } from '@/components/nova/TronBikes';
 import { Starfield, SpiralReachField, Wormhole, TheGift, GiftInterior } from '@/components/nova/DeepSpace';
 import {
   SECTORS,
@@ -33,7 +33,7 @@ import {
   GIFT_BOARD_RADIUS,
   canBoard,
   GALAXIES,
-  TRIM_BIKE_TUNING,
+  TRON_BIKE_TUNING,
   tuningFor,
   dist3,
   headingOf,
@@ -155,10 +155,16 @@ function BikeRig({ flightRef, inputRef, bikeKey, autopilotRef, reduced, onWormho
     g.position.set(f.pos.x, f.pos.y, f.pos.z);
     g.quaternion.setFromRotationMatrix(s.m);
 
-    // Chase camera with smoothing.
+    // Chase camera with smoothing — but snap instantly on launch / sector
+    // jump / disembark so the bike loads right in front of the user.
     s.camGoal.set(f.pos.x, f.pos.y, f.pos.z).addScaledVector(s.h, -15).addScaledVector(s.up, 5.5);
-    const step = Math.min(1, Math.max(0, dt * 3.2));
-    camera.position.lerp(s.camGoal, step);
+    if (snapCamRef.current) {
+      camera.position.copy(s.camGoal);
+      snapCamRef.current = false;
+    } else {
+      const step = Math.min(1, Math.max(0, dt * 3.2));
+      camera.position.lerp(s.camGoal, step);
+    }
     s.look.set(f.pos.x, f.pos.y, f.pos.z).addScaledVector(s.h, 22);
     camera.lookAt(s.look);
 
@@ -425,6 +431,9 @@ export default function NovaPage() {
   const inputRef = useRef({ thrust: 0, turn: 0, pitch: 0, boost: false, brake: false });
   const autopilotRef = useRef({ active: false, wpIndex: 0, dwellUntil: 0, hudTick: 0 });
   const keysRef = useRef(new Set());
+  // When true, the chase camera snaps to behind the bike on the next frame
+  // instead of lerping — the bike loads right in front of the user.
+  const snapCamRef = useRef(false);
 
   useEffect(() => {
     document.title = TITLE;
@@ -465,6 +474,7 @@ export default function NovaPage() {
         flightRef.current.speed = 0;
         autopilotRef.current.wpIndex = 0;
         autopilotRef.current.dwellUntil = 0;
+        snapCamRef.current = true; // bike loads right in front of the user
       };
       if (reduced) {
         // Reduced motion: instant fade cut.
@@ -532,6 +542,7 @@ export default function NovaPage() {
       boosting: false,
     };
     setSectorKey('shallows');
+    snapCamRef.current = true; // bike loads right in front of the user
     setPhase('flying');
   }, []);
 
@@ -555,6 +566,7 @@ export default function NovaPage() {
     flightRef.current.yaw = 0;
     flightRef.current.pitch = 0;
     flightRef.current.speed = 0;
+    snapCamRef.current = true; // bike loads right in front of the user
     const swap = () => setPhase('flying');
     if (reduced) {
       swap();
@@ -581,7 +593,7 @@ export default function NovaPage() {
     <div
       className="fixed inset-0 overflow-hidden bg-black text-white select-none"
       role="application"
-      aria-label="NOVA — Deep Space on trim bikes"
+      aria-label="NOVA — Deep Space on tron bikes"
     >
       <Canvas
         className="absolute inset-0"
@@ -653,13 +665,13 @@ export default function NovaPage() {
         <div className="absolute bottom-0 left-0 right-0 md:left-6 md:right-auto md:top-1/2 md:-translate-y-1/2 md:bottom-auto md:w-[24rem] pointer-events-auto">
           <div className="bg-zinc-950/90 border border-zinc-800 md:rounded-xl backdrop-blur-md p-4 max-h-[58vh] md:max-h-[82vh] overflow-y-auto pb-[max(1.25rem,env(safe-area-inset-bottom))]">
             <div className="text-[10px] tracking-[0.3em] uppercase text-cyan-300/80 mb-1">
-              Trim bike garage
+              Tron bike garage
             </div>
             <p className="text-[11px] text-zinc-400 mb-3 tracking-wide">
               Three sectors, three wormholes, one very large gift. Pick your ride.
             </p>
-            <div className="grid grid-cols-1 gap-1.5 mb-4" role="radiogroup" aria-label="Choose trim bike">
-              {TRIM_BIKES.map((b) => (
+            <div className="grid grid-cols-1 gap-1.5 mb-4" role="radiogroup" aria-label="Choose tron bike">
+              {TRON_BIKES.map((b) => (
                 <button
                   key={b.key}
                   role="radio"

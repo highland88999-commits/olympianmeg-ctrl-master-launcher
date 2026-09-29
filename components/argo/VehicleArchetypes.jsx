@@ -195,7 +195,7 @@ export function DartArchetype({ color = '#00ff88' }) {
   );
 }
 
-// --- Trim bikes: Merlin's signature single-rider space bikes. Narrow
+// --- Tron bikes: Merlin's signature single-rider space bikes. Narrow
 // elongated frame, glass rider canopy, two side trim-thruster pods with glow
 // discs, engine glow at the stern. Nose +Z like the rest of the fleet.
 function TrimThrusterPods({ color = '#00ffcc', xOffset = 0.85 }) {
@@ -280,8 +280,8 @@ export const FLEET = [
   { key: 'hauler', name: 'Hauler', desc: 'Heavy lifter for the big loads.', color: '#f59e0b', Cmp: HaulerArchetype },
   { key: 'titan', name: 'Titan', desc: 'The workhorse of the fleet.', color: '#a78bfa', Cmp: TitanArchetype },
   { key: 'dart', name: 'Dart', desc: 'Interceptor — fastest thing in the sky.', color: '#00ff88', Cmp: DartArchetype },
-  { key: 'wisp', name: 'Trim Bike · Wisp', desc: "Merlin's agile scout bike — fastest off the line.", color: '#00ffcc', Cmp: WispArchetype },
-  { key: 'comet', name: 'Trim Bike · Comet', desc: "Merlin's balanced bike — steady and sharp.", color: '#38bdf8', Cmp: CometArchetype },
+  { key: 'wisp', name: 'Tron bike · Wisp', desc: "Merlin's agile scout bike — fastest off the line.", color: '#00ffcc', Cmp: WispArchetype },
+  { key: 'comet', name: 'Tron bike · Comet', desc: "Merlin's balanced bike — steady and sharp.", color: '#38bdf8', Cmp: CometArchetype },
 ];
 
 export function fleetByKey(key) {
