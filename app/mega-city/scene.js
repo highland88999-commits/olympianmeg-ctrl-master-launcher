@@ -89,6 +89,19 @@ export function defaultCamera() {
   return { x: WORLD_W / 2, y: WORLD_H / 2, z: 1 };
 }
 
+// ---------------- entry / exit cameras ----------------
+// Entry: the visitor is brought down to ground level like a spacecraft —
+// from a high wide shot descending to the street. Exit: a simple zoom-out
+// back up to stationing.
+export const DESCENT_START_CAM = { x: WORLD_W / 2, y: 150, z: 0.45 };
+export const GROUND_CAM = { x: WORLD_W / 2, y: 690, z: 1.15 };
+export const STATION_CAM = { x: WORLD_W / 2, y: 150, z: 0.45 };
+
+export function easeInOutCubic(k) {
+  k = clamp(k, 0, 1);
+  return k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+}
+
 export function clampCamera(cam) {
   const z = clamp(cam.z, 0.6, 3);
   const hx = 700 / z;
@@ -274,6 +287,7 @@ export function createScene(canvas, opts) {
   const sub = createSubwayState();
   // Reduced motion: freeze a readable tableau — train dwelling with doors open.
   if (reduced) { sub.x = 800; sub.v = 0; sub.mode = "dwell"; sub.station = 1; sub.dwellT = 1.2; sub.door = 1; }
+  let camTween = null; // { from, to, t, dur, onDone } — cancelled the moment the user grabs the camera
 
   function resize() {
     dpr = clamp(window.devicePixelRatio || 1, 1, 2);
@@ -340,6 +354,19 @@ export function createScene(canvas, opts) {
     const dt = Math.min(0.05, (now - (draw.last || now)) / 1000);
     draw.last = now;
     if (!reduced) state.t += dt;
+    // camera tween (entry descent / exit zoom-out); user input cancels it
+    if (camTween && !reduced) {
+      camTween.t += dt;
+      const k = easeInOutCubic(camTween.t / camTween.dur);
+      state.cam.x = lerp(camTween.from.x, camTween.to.x, k);
+      state.cam.y = lerp(camTween.from.y, camTween.to.y, k);
+      state.cam.z = lerp(camTween.from.z, camTween.to.z, k);
+      if (camTween.t >= camTween.dur) {
+        const cb = camTween.onDone;
+        camTween = null;
+        if (cb) cb();
+      }
+    }
     if (state.fly && !reduced) {
       state.cam.x = WORLD_W / 2 + Math.sin(state.t * 0.1) * 420;
       state.cam = clampCamera(state.cam);
@@ -623,7 +650,7 @@ export function createScene(canvas, opts) {
     return hotspotAt(HOTSPOTS, w.x, w.y, 46 / state.cam.z);
   }
 
-  canvas.addEventListener("pointerdown", (e) => { canvas.setPointerCapture(e.pointerId); dragging = true; moved = false; lx = e.clientX; ly = e.clientY; });
+  canvas.addEventListener("pointerdown", (e) => { canvas.setPointerCapture(e.pointerId); dragging = true; moved = false; lx = e.clientX; ly = e.clientY; camTween = null; });
   canvas.addEventListener("pointermove", (e) => {
     if (!dragging) return;
     const dx = e.clientX - lx, dy = e.clientY - ly;
@@ -659,8 +686,31 @@ export function createScene(canvas, opts) {
   const api = {
     setTime(t) { state.time = t; if (reduced) draw(performance.now()); },
     setTraffic(v) { state.traffic = !!v; if (reduced) draw(performance.now()); },
-    setFly(v) { state.fly = !!v && !reduced; },
+    setFly(v) { if (v) camTween = null; state.fly = !!v && !reduced; },
+    snapCamera(cam) {
+      state.cam = clampCamera({ x: cam.x, y: cam.y, z: cam.z });
+      camTween = null;
+      if (reduced) draw(performance.now());
+    },
+    // Eased camera flight (entry descent / exit zoom-out). Reduced motion
+    // jumps straight to the target. Any user grab cancels the flight.
+    tweenCamera(target, durMs, onDone) {
+      const to = clampCamera({ x: target.x, y: target.y, z: target.z });
+      if (reduced) {
+        state.cam = to;
+        camTween = null;
+        draw(performance.now());
+        if (onDone) onDone();
+        return;
+      }
+      camTween = {
+        from: { x: state.cam.x, y: state.cam.y, z: state.cam.z },
+        to, t: 0, dur: Math.max(0.01, durMs / 1000), onDone: onDone || null,
+      };
+    },
+    tweenProgress() { return camTween ? clamp(camTween.t / camTween.dur, 0, 1) : null; },
     focus(h) {
+      camTween = null;
       state.cam.x = h.x; state.cam.y = h.y - 60;
       state.cam.z = Math.max(state.cam.z, 1.5);
       state.cam = clampCamera(state.cam);
