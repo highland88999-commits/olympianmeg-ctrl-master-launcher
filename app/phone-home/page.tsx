@@ -4,7 +4,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { Device } from '@twilio/voice-sdk';
-import { Phone, PhoneOff, MessageSquare, Radio, Video, Delete } from 'lucide-react';
+import { Phone, PhoneOff, MessageSquare, Radio, Video, Delete, Footprints } from 'lucide-react';
+import {
+  todayKey, clampSteps, totalSteps, findTodayEntry,
+  mergeQueueEntry, readQueue, writeQueue,
+  type StepRow, type QueuedStepEntry,
+} from '@/lib/phone-home/steps';
+import TravelAdvisoryBanner from './advisory-banner';
 
 export default function GlassCommsApp() {
   const router = useRouter();
@@ -42,6 +48,16 @@ export default function GlassCommsApp() {
   const [meshStatus, setMeshStatus] = useState<string>('CONNECTING');
   const [textPeer, setTextPeer] = useState('');
   const [draft, setDraft] = useState('');
+
+  // Steps counter: manual entry for now; phone health sync lands in the mobile phase.
+  const [stepInput, setStepInput] = useState('');
+  const [todaySteps, setTodaySteps] = useState<number | null>(null);
+  const [yourTotal, setYourTotal] = useState<number | null>(null);
+  const [globalTotal, setGlobalTotal] = useState<number | null>(null);
+  const [globalWalkers, setGlobalWalkers] = useState<number | null>(null);
+  const [stepsQueued, setStepsQueued] = useState(0);
+  const [stepsBusy, setStepsBusy] = useState(false);
+  const [stepsNote, setStepsNote] = useState('');
 
   const touchStartX = useRef<number | null>(null);
   const touchEndX = useRef<number | null>(null);
@@ -167,7 +183,7 @@ export default function GlassCommsApp() {
   const handleTouchEnd = () => {
     if (!touchStartX.current || !touchEndX.current) return;
     const diff = touchStartX.current - touchEndX.current;
-    if (diff > 60 && currentPage < 3) setCurrentPage((prev) => prev + 1); 
+    if (diff > 60 && currentPage < 4) setCurrentPage((prev) => prev + 1); 
     if (diff < -60 && currentPage > 0) setCurrentPage((prev) => prev - 1); 
     touchStartX.current = null;
     touchEndX.current = null;
@@ -233,6 +249,107 @@ export default function GlassCommsApp() {
       console.error('Text send failed:', e);
     }
   };
+
+  // --- Step counter -------------------------------------------------------
+  // Supabase-first; when the database is unreachable, entries queue in
+  // localStorage and sync on the next successful load. The global total
+  // comes from the global_step_totals view — sums only, universal by design.
+
+  const refreshSteps = async (userId: string) => {
+    // 1. Drain any entries saved on this device while offline.
+    let queue = readQueue(localStorage);
+    if (queue.length > 0) {
+      try {
+        for (const q of queue) {
+          await supabase.from('user_steps').upsert(
+            { user_id: q.user_id, step_date: q.step_date, steps: q.steps, updated_at: new Date().toISOString() },
+            { onConflict: 'user_id,step_date' }
+          );
+        }
+        writeQueue(localStorage, []);
+        queue = [];
+      } catch {
+        // Still offline — keep the queue; the honest "saved on this device"
+        // state below covers it.
+      }
+    }
+    setStepsQueued(queue.length);
+
+    // 2. Load totals.
+    try {
+      const { data: rows, error } = await supabase
+        .from('user_steps')
+        .select('user_id,step_date,steps')
+        .eq('user_id', userId);
+      if (error) throw error;
+      const list = (rows ?? []) as StepRow[];
+      const today = findTodayEntry(list, todayKey());
+      setTodaySteps(today ? today.steps : null);
+      setYourTotal(totalSteps(list));
+
+      const { data: g, error: gerr } = await supabase
+        .from('global_step_totals')
+        .select('total_steps,walkers')
+        .single();
+      if (gerr) throw gerr;
+      setGlobalTotal(Number(g?.total_steps) || 0);
+      setGlobalWalkers(Number(g?.walkers) || 0);
+      setStepsNote(
+        queue.length > 0
+          ? `Saved on this device — ${queue.length} ${queue.length === 1 ? 'entry' : 'entries'} will sync when the connection returns.`
+          : ''
+      );
+    } catch {
+      setStepsNote(
+        queue.length > 0
+          ? `Saved on this device — ${queue.length} ${queue.length === 1 ? 'entry' : 'entries'} will sync when the connection returns.`
+          : 'Step totals are offline right now — check your connection.'
+      );
+    }
+  };
+
+  const logSteps = async () => {
+    if (!session || stepsBusy) return;
+    const steps = clampSteps(stepInput);
+    if (steps === null) {
+      setStepsNote('Enter a whole number of steps (0 or more).');
+      return;
+    }
+    const entry: QueuedStepEntry = {
+      user_id: session.user.id,
+      step_date: todayKey(),
+      steps,
+      queuedAt: new Date().toISOString(),
+    };
+    setStepsBusy(true);
+    try {
+      const { error } = await supabase.from('user_steps').upsert(
+        { user_id: entry.user_id, step_date: entry.step_date, steps: entry.steps, updated_at: new Date().toISOString() },
+        { onConflict: 'user_id,step_date' }
+      );
+      if (error) throw error;
+      setStepInput('');
+      setTodaySteps(steps);
+      setStepsNote('');
+      await refreshSteps(session.user.id);
+    } catch {
+      // Offline — queue honestly on this device, sync later.
+      const queue = mergeQueueEntry(readQueue(localStorage), entry);
+      writeQueue(localStorage, queue);
+      setStepsQueued(queue.length);
+      setStepInput('');
+      setTodaySteps(steps);
+      setStepsNote('Saved on this device — will sync when the connection returns.');
+    }
+    setStepsBusy(false);
+  };
+
+  useEffect(() => {
+    if (session?.user?.id) {
+      refreshSteps(session.user.id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session]);
 
   const toggleVideoCall = async () => {
     if (!inVideoCall) {
@@ -328,13 +445,15 @@ export default function GlassCommsApp() {
         </div>
       </header>
 
+      <TravelAdvisoryBanner />
+
       <div className="w-full max-w-md flex-1 relative overflow-hidden flex z-10">
         <div 
-          className="w-[400%] h-full flex transition-transform duration-300 ease-out"
-          style={{ transform: `translateX(-${currentPage * (100 / 4)}%)` }}
+          className="w-[500%] h-full flex transition-transform duration-300 ease-out"
+          style={{ transform: `translateX(-${currentPage * (100 / 5)}%)` }}
         >
           {/* PAGE 0: WebRTC Audio */}
-          <section className="w-1/4 h-full flex flex-col items-center justify-center px-6 gap-6">
+          <section className="w-1/5 h-full flex flex-col items-center justify-center px-6 gap-6">
             <div className="w-full rounded-3xl border border-white/15 bg-black/40 backdrop-blur-3xl p-6 flex flex-col items-center gap-6 shadow-2xl">
               <Radio className="w-12 h-12 text-slate-300 stroke-1 animate-pulse" />
               <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
@@ -361,7 +480,7 @@ export default function GlassCommsApp() {
           </section>
 
           {/* PAGE 1: WebRTC Video */}
-          <section className="w-1/4 h-full flex flex-col items-center justify-center px-6 gap-6">
+          <section className="w-1/5 h-full flex flex-col items-center justify-center px-6 gap-6">
             <div className="w-full rounded-3xl border border-white/15 bg-black/40 backdrop-blur-3xl p-4 flex flex-col items-center gap-4 shadow-2xl">
               <div className="relative w-full aspect-video bg-black/80 rounded-xl border border-white/10 overflow-hidden flex items-center justify-center">
                  {!inVideoCall && <Video className="w-8 h-8 text-slate-500 animate-pulse" />}
@@ -387,7 +506,7 @@ export default function GlassCommsApp() {
           </section>
 
           {/* PAGE 2: Twilio PSTN Dialer */}
-          <section className="w-1/4 h-full flex flex-col items-center justify-between px-6 py-4">
+          <section className="w-1/5 h-full flex flex-col items-center justify-between px-6 py-4">
             <div className="w-full flex flex-col items-center mt-2 rounded-2xl bg-black/20 backdrop-blur-md border border-white/10 p-4">
               <span className="text-[10px] uppercase tracking-widest text-slate-400 mb-2">PSTN Trunk Gateway</span>
               <div className="h-12 flex items-center justify-center">
@@ -441,7 +560,7 @@ export default function GlassCommsApp() {
           </section>
 
           {/* PAGE 3: Text */}
-          <section className="w-1/4 h-full flex flex-col px-6 py-4">
+          <section className="w-1/5 h-full flex flex-col px-6 py-4">
             <div className="w-full flex-1 min-h-0 rounded-3xl border border-white/15 bg-black/40 backdrop-blur-3xl p-4 flex flex-col gap-3 shadow-2xl">
               <div className="text-center">
                 <h2 className="text-sm font-light tracking-widest uppercase text-slate-100">Text Mesh</h2>
@@ -484,6 +603,73 @@ export default function GlassCommsApp() {
               </div>
             </div>
           </section>
+
+          {/* PAGE 4: Steps */}
+          <section className="w-1/5 h-full flex flex-col items-center justify-center px-6 gap-6 overflow-y-auto py-4">
+            <div className="w-full rounded-3xl border border-white/15 bg-black/40 backdrop-blur-3xl p-6 flex flex-col items-center gap-5 shadow-2xl">
+              <Footprints className="w-10 h-10 text-slate-300 stroke-1" />
+              <div className="text-center">
+                <h2 className="text-sm font-light tracking-widest uppercase text-slate-100">Steps</h2>
+                <p className="text-[11px] text-slate-400 font-light mt-1">Manual entry for now — phone sync arrives with the mobile phase.</p>
+              </div>
+
+              <div className="w-full grid grid-cols-3 gap-2 text-center">
+                <div className="rounded-xl border border-white/10 bg-black/30 px-2 py-3">
+                  <p className="text-lg font-light text-slate-100 tabular-nums">
+                    {todaySteps === null ? '—' : todaySteps.toLocaleString()}
+                  </p>
+                  <p className="text-[9px] uppercase tracking-widest text-slate-500 mt-1">Today</p>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-black/30 px-2 py-3">
+                  <p className="text-lg font-light text-slate-100 tabular-nums">
+                    {yourTotal === null ? '—' : yourTotal.toLocaleString()}
+                  </p>
+                  <p className="text-[9px] uppercase tracking-widest text-slate-500 mt-1">Your total</p>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-black/30 px-2 py-3">
+                  <p className="text-lg font-light text-slate-100 tabular-nums">
+                    {globalTotal === null ? '—' : globalTotal.toLocaleString()}
+                  </p>
+                  <p className="text-[9px] uppercase tracking-widest text-slate-500 mt-1">Everyone&apos;s total — universal</p>
+                </div>
+              </div>
+              {globalWalkers !== null && globalWalkers > 0 && (
+                <p className="text-[10px] text-slate-500 font-light -mt-3">
+                  {globalWalkers.toLocaleString()} {globalWalkers === 1 ? 'person' : 'people'} walking
+                </p>
+              )}
+
+              <div className="w-full flex gap-2">
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  inputMode="numeric"
+                  placeholder="Today's steps"
+                  value={stepInput}
+                  onChange={(e) => setStepInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') logSteps(); }}
+                  className="flex-1 min-w-0 bg-black/40 border border-white/15 rounded-xl px-4 py-2.5 text-xs text-center text-slate-200 placeholder-slate-500 focus:outline-none focus:border-slate-300 transition tabular-nums"
+                />
+                <button
+                  onClick={logSteps}
+                  disabled={stepsBusy}
+                  className="px-5 py-2.5 rounded-xl border border-white/20 bg-black/30 text-xs tracking-widest uppercase text-slate-200 hover:border-slate-300 transition disabled:opacity-50"
+                >
+                  {stepsBusy ? 'Saving' : 'Log steps'}
+                </button>
+              </div>
+
+              {stepsQueued > 0 && (
+                <p className="text-[10px] text-amber-200/80 font-light text-center">
+                  {stepsQueued} {stepsQueued === 1 ? 'entry' : 'entries'} saved on this device — will sync when the connection returns.
+                </p>
+              )}
+              {stepsNote && (
+                <p className="text-[10px] text-slate-500 font-light text-center px-2">{stepsNote}</p>
+              )}
+            </div>
+          </section>
         </div>
       </div>
 
@@ -503,6 +689,10 @@ export default function GlassCommsApp() {
         <button onClick={() => setCurrentPage(3)} className={`flex flex-col items-center gap-1.5 transition duration-300 ${currentPage === 3 ? 'text-slate-100 scale-110' : 'text-slate-500'}`}>
           <MessageSquare className="w-5 h-5 stroke-1" />
           <span className="text-[9px] uppercase tracking-widest">Text</span>
+        </button>
+        <button onClick={() => setCurrentPage(4)} className={`flex flex-col items-center gap-1.5 transition duration-300 ${currentPage === 4 ? 'text-slate-100 scale-110' : 'text-slate-500'}`}>
+          <Footprints className="w-5 h-5 stroke-1" />
+          <span className="text-[9px] uppercase tracking-widest">Steps</span>
         </button>
       </footer>
     </main>
