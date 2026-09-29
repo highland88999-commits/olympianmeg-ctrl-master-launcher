@@ -17,6 +17,8 @@ import ProductCard from '@/components/olympus/ProductCard';
 import ProductModal from '@/components/olympus/ProductModal';
 import CartDrawer from '@/components/olympus/CartDrawer';
 import CheckoutPanel from '@/components/olympus/CheckoutPanel';
+import GoldCheckoutOption from '@/components/economy/GoldCheckoutOption';
+import { supabase } from '@/lib/supabase';
 
 const SolarSystem = dynamic(() => import('@/components/olympus/SolarSystem'), {
   ssr: false,
@@ -55,6 +57,8 @@ export default function OlympusPage() {
   const [activeProduct, setActiveProduct] = useState(null);
   const [cartOpen, setCartOpen] = useState(false);
   const [checkoutMode, setCheckoutMode] = useState(null); // null | 'card' | 'request'
+  const [useGold, setUseGold] = useState(false);
+  const [goldNotice, setGoldNotice] = useState(null);
   const [cardAvailable, setCardAvailable] = useState(false);
   const [busy, setBusy] = useState(false);
   const [serverError, setServerError] = useState('');
@@ -112,18 +116,41 @@ export default function OlympusPage() {
     setBusy(true);
     setServerError('');
     try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (useGold) {
+        let session = null;
+        try {
+          ({ data: { session } } = await supabase.auth.getSession());
+        } catch {
+          session = null;
+        }
+        if (!session) {
+          throw new Error('Sign in from the launcher to use your gold.');
+        }
+        headers.Authorization = `Bearer ${session.access_token}`;
+      }
       const res = await fetch('/api/olympus/checkout', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           mode: 'card',
           items: cart.map((l) => ({ id: l.productId, size: l.size, qty: l.qty })),
+          useGold,
+          idemKey: crypto.randomUUID(),
         }),
       });
       const data = await res.json();
-      if (!res.ok || !data.url) {
+      if (!res.ok) {
         throw new Error(data.error || 'Could not start card checkout.');
       }
+      if (data.type === 'gold') {
+        setCart([]);
+        setCheckoutMode(null);
+        setUseGold(false);
+        setGoldNotice(data.notice || 'Paid with gold.');
+        return;
+      }
+      if (!data.url) throw new Error('Could not start card checkout.');
       window.location.href = data.url;
     } catch (err) {
       setServerError(err.message || 'Could not start card checkout.');
@@ -227,6 +254,13 @@ export default function OlympusPage() {
             </div>
           )}
 
+          {goldNotice && (
+            <div className="mx-auto mb-6 max-w-2xl rounded-xl border border-yellow-400/50 bg-yellow-400/10 px-4 py-4 text-sm text-yellow-200">
+              <p className="font-semibold">🪙 {goldNotice}</p>
+              <button onClick={() => setGoldNotice(null)} className="mt-2 underline">Dismiss</button>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 sm:gap-4">
             {PRODUCTS.map((p) => (
               <ProductCard key={p.id} product={p} onOpen={setActiveProduct} />
@@ -265,6 +299,8 @@ export default function OlympusPage() {
           onSubmitRequest={submitOrderRequest}
           onStartCard={startCardCheckout}
           onBack={() => { setCheckoutMode(null); setServerError(''); }}
+          goldChecked={useGold}
+          onGoldToggle={setUseGold}
         />
       )}
     </div>

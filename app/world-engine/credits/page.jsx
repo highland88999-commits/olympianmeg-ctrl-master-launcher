@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { CREDIT_TIERS, formatBalance } from '@/lib/world-engine/economy';
+import GoldCheckoutOption from '@/components/economy/GoldCheckoutOption';
 
 export default function CreditsPage() {
   return (
@@ -23,6 +24,7 @@ function CreditsInner() {
   const [buying, setBuying] = useState(null);
   const [notice, setNotice] = useState(null);
   const [cloudOffline, setCloudOffline] = useState(false);
+  const [goldFor, setGoldFor] = useState({}); // tierId -> boolean
 
   const checkoutState = searchParams.get('checkout');
 
@@ -76,10 +78,15 @@ function CreditsInner() {
       const res = await fetch('/api/world-engine/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.access_token}` },
-        body: JSON.stringify({ tier: tierId }),
+        body: JSON.stringify({ tier: tierId, useGold: !!goldFor[tierId], idemKey: crypto.randomUUID() }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Checkout failed.');
+      if (data.type === 'gold') {
+        setNotice(data.notice || 'Paid with gold.');
+        fetchCredits(s.access_token);
+        return;
+      }
       window.location.href = data.url;
     } catch (err) {
       setNotice(err.message);
@@ -141,6 +148,11 @@ function CreditsInner() {
               <div key={tier.id} className="border border-gray-700 p-5 flex flex-col gap-3">
                 <p className="text-xl font-bold text-white">{tier.label}</p>
                 <p className="text-2xl text-[#00ffcc] font-bold">{tier.price}</p>
+                <GoldCheckoutOption
+                  totalCents={tier.cents}
+                  checked={!!goldFor[tier.id]}
+                  onToggle={(v) => setGoldFor((g) => ({ ...g, [tier.id]: v }))}
+                />
                 <button
                   onClick={() => buy(tier.id)}
                   disabled={buying !== null || cardPayments === false || cloudOffline}
