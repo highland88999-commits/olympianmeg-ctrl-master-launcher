@@ -19,7 +19,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Line } from '@react-three/drei';
 import * as THREE from 'three';
-import GoogleEarthTiles from '@/components/GoogleEarthTiles';
+import StreetEarth from '@/components/argo/StreetEarth';
+import StreetScene from '@/components/argo/StreetScene';
+import { getLiquidGold } from '@/lib/argo-street';
 import StylizedGlobe from '@/components/argo/StylizedGlobe';
 import { FLEET, fleetByKey } from '@/components/argo/VehicleArchetypes';
 import TronRider from '@/components/nova/TronRider';
@@ -225,43 +227,349 @@ function ArgoScene({
   snapCamRef,
   onTilesActive,
   onTilesInactive,
+  onTilesRenderer,
   onArrived,
   onProgress,
   onMount,
+  streetActive,
+  streetLat,
+  streetLon,
+  streetSceneProps,
 }) {
   return (
     <>
-      <ambientLight intensity={0.5} />
-      <directionalLight position={[90, 45, 70]} intensity={1.6} />
+      <ambientLight intensity={streetActive ? 0.4 : 0.5} />
+      {!streetActive && <directionalLight position={[90, 45, 70]} intensity={1.6} />}
       {/* Photorealistic tiles when Google delivers; honest stylized globe otherwise.
           The stylized globe sits at 54.85 (inside the 55-unit tile globe) so the
-          two never z-fight during handoff. */}
-      <GoogleEarthTiles onActive={onTilesActive} onInactive={onTilesInactive} />
-      {layer !== 'photorealistic' && <StylizedGlobe />}
-      <RouteArc fromKey={routeFrom} toKey={routeTo} visible={showRoute} />
-      <SurfaceMarker destKey={atKey} color="#34d399" />
-      {routeTo && routeTo !== atKey && <SurfaceMarker destKey={routeTo} color="#22d3ee" />}
-      <FlightRig
-        flightRef={flightRef}
-        atKey={atKey}
-        faceKey={faceKey}
-        followCam={followCam && phase !== 'dock'}
-        reduced={reduced}
-        snapCamRef={snapCamRef}
-        onArrived={onArrived}
-        onProgress={onProgress}
-        phase={phase}
-        onMount={onMount}
+          two never z-fight during handoff. In street mode the SAME tileset is
+          re-rooted to a local meter frame (x = east, y = up, z = south). */}
+      <StreetEarth
+        mode={streetActive ? 'street' : 'globe'}
+        lat={streetLat}
+        lon={streetLon}
+        onActive={onTilesActive}
+        onInactive={onTilesInactive}
+        onRenderer={onTilesRenderer}
       />
-      {!(followCam && phase !== 'dock') && (
-        <OrbitControls
-          enablePan={false}
-          minDistance={70}
-          maxDistance={320}
-          enableDamping={false}
-        />
+      {!streetActive && (
+        <>
+          {layer !== 'photorealistic' && <StylizedGlobe />}
+          <RouteArc fromKey={routeFrom} toKey={routeTo} visible={showRoute} />
+          <SurfaceMarker destKey={atKey} color="#34d399" />
+          {routeTo && routeTo !== atKey && <SurfaceMarker destKey={routeTo} color="#22d3ee" />}
+          <FlightRig
+            flightRef={flightRef}
+            atKey={atKey}
+            faceKey={faceKey}
+            followCam={followCam && phase !== 'dock'}
+            reduced={reduced}
+            snapCamRef={snapCamRef}
+            onArrived={onArrived}
+            onProgress={onProgress}
+            phase={phase}
+            onMount={onMount}
+          />
+          {!(followCam && phase !== 'dock') && (
+            <OrbitControls
+              enablePan={false}
+              minDistance={70}
+              maxDistance={320}
+              enableDamping={false}
+            />
+          )}
+        </>
       )}
+      {streetActive && streetSceneProps && <StreetScene {...streetSceneProps} />}
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Street-level: descent rig, HUD, joystick
+// ---------------------------------------------------------------------------
+
+const DESCENT_MS = 14000;
+
+// Cinematic orbit-to-street dive. Skippable via the haze overlay; reduced
+// motion jumps straight to the street (handled by the caller).
+function DescentRig({ lat, lon, onDone }) {
+  const { camera } = useThree();
+  const start = useRef(null);
+  const t0 = useRef(0);
+  const done = useRef(false);
+  const target = useMemo(() => {
+    const p = latLonToHub(lat, lon, 2600);
+    return new THREE.Vector3(p.x, p.y, p.z);
+  }, [lat, lon]);
+  const goal = useMemo(() => new THREE.Vector3(), []);
+  const look = useMemo(() => new THREE.Vector3(), []);
+  const cb = useRef(onDone);
+  cb.current = onDone;
+
+  useFrame(() => {
+    if (done.current) return;
+    if (!start.current) {
+      start.current = { pos: camera.position.clone() };
+      t0.current = performance.now();
+    }
+    const t = Math.min(1, (performance.now() - t0.current) / DESCENT_MS);
+    // Dive profile: slow majestic start, accelerating plunge, soft settle.
+    const eased = t < 0.45 ? 2.2 * t * t : 1 - Math.pow(-2 * t + 2, 2.4) / 2.4;
+    const dive = Math.pow(eased, 2.6);
+    goal.copy(start.current.pos).lerp(target, dive);
+    // Gentle barrel roll on the way down — cinema, not nausea.
+    const roll = Math.sin(t * Math.PI) * 0.35;
+    camera.position.copy(goal);
+    look.set(0, 0, 0);
+    camera.lookAt(look);
+    camera.rotateZ(roll);
+    if (t >= 1) {
+      done.current = true;
+      cb.current();
+    }
+  });
+  return null;
+}
+
+const hudBtn = {
+  padding: '10px 14px',
+  borderRadius: 12,
+  background: 'rgba(5,8,16,0.55)',
+  border: '1px solid rgba(255,255,255,0.25)',
+  backdropFilter: 'blur(8px)',
+  color: '#f5f2ea',
+  fontSize: 13,
+  fontWeight: 700,
+  letterSpacing: '0.1em',
+  cursor: 'pointer',
+};
+
+function DescentHaze({ onSkip }) {
+  const [t, setT] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setT((v) => v + 100), 100);
+    return () => clearInterval(id);
+  }, []);
+  const p = Math.min(1, t / DESCENT_MS);
+  const haze = Math.sin(p * Math.PI); // peaks mid-dive
+  return (
+    <>
+      <div
+        style={{
+          position: 'absolute', inset: 0, zIndex: 30, pointerEvents: 'none',
+          background: `radial-gradient(ellipse at center, rgba(140,190,255,${0.25 + haze * 0.55}) 0%, rgba(255,240,200,${haze * 0.35}) 55%, rgba(10,20,40,${haze * 0.5}) 100%)`,
+        }}
+      />
+      <div style={{ position: 'absolute', bottom: 90, left: '50%', transform: 'translateX(-50%)', zIndex: 31, textAlign: 'center' }}>
+        <div style={{ color: '#ffd700', letterSpacing: '0.3em', fontSize: 13, marginBottom: 10 }}>
+          ENTERING ATMOSPHERE
+        </div>
+        <div style={{ width: 220, height: 3, background: 'rgba(255,255,255,0.15)', borderRadius: 2, margin: '0 auto' }}>
+          <div style={{ width: `${p * 100}%`, height: '100%', background: '#ffd700', borderRadius: 2 }} />
+        </div>
+        <button onClick={onSkip} style={{ ...hudBtn, marginTop: 16 }}>
+          SKIP DESCENT ↓
+        </button>
+      </div>
+    </>
+  );
+}
+
+function Joystick({ controlsRef, disabled }) {
+  const pad = useRef(null);
+  const knob = useRef(null);
+  const active = useRef(false);
+
+  const setKnob = (dx, dy) => {
+    if (knob.current) knob.current.style.transform = `translate(${dx * 34}px, ${dy * 34}px)`;
+  };
+
+  const handle = (e) => {
+    if (disabled || !pad.current) return;
+    const r = pad.current.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    let dx = (e.clientX - cx) / (r.width / 2);
+    let dy = (e.clientY - cy) / (r.height / 2);
+    const m = Math.hypot(dx, dy);
+    if (m > 1) {
+      dx /= m;
+      dy /= m;
+    }
+    controlsRef.current.strafe = dx;
+    controlsRef.current.thrust = -dy;
+    setKnob(dx, dy);
+  };
+
+  const release = () => {
+    active.current = false;
+    controlsRef.current.strafe = 0;
+    controlsRef.current.thrust = 0;
+    setKnob(0, 0);
+  };
+
+  return (
+    <div
+      ref={pad}
+      onPointerDown={(e) => {
+        active.current = true;
+        e.currentTarget.setPointerCapture(e.pointerId);
+        handle(e);
+      }}
+      onPointerMove={(e) => active.current && handle(e)}
+      onPointerUp={release}
+      onPointerCancel={release}
+      style={{
+        width: 128,
+        height: 128,
+        borderRadius: '50%',
+        border: '1px solid rgba(255,215,0,0.35)',
+        background: 'rgba(5,8,16,0.45)',
+        backdropFilter: 'blur(6px)',
+        position: 'relative',
+        touchAction: 'none',
+        opacity: disabled ? 0.4 : 1,
+      }}
+      aria-label="Drive joystick"
+    >
+      <div
+        ref={knob}
+        style={{
+          width: 52,
+          height: 52,
+          borderRadius: '50%',
+          background: 'radial-gradient(circle at 35% 30%, #ffe9a8, #c9a227)',
+          position: 'absolute',
+          left: 38,
+          top: 38,
+          boxShadow: '0 0 18px rgba(255,215,0,0.5)',
+        }}
+      />
+    </div>
+  );
+}
+
+function StreetHud({
+  destName,
+  gold,
+  sessionFinds,
+  mode,
+  onMode,
+  autopilot,
+  onAutopilot,
+  reduced,
+  controlsRef,
+  onExit,
+}) {
+  return (
+    <>
+      <div
+        style={{
+          position: 'absolute', top: 14, left: 14, zIndex: 10,
+          display: 'flex', flexDirection: 'column', gap: 8,
+        }}
+      >
+        <div
+          style={{
+            padding: '8px 14px', borderRadius: 12,
+            background: 'rgba(5,8,16,0.55)', border: '1px solid rgba(255,215,0,0.3)',
+            backdropFilter: 'blur(8px)', color: '#f5f2ea', fontSize: 13, letterSpacing: '0.14em',
+          }}
+        >
+          {destName.toUpperCase()}
+        </div>
+        <div
+          style={{
+            padding: '8px 14px', borderRadius: 12,
+            background: 'rgba(5,8,16,0.55)', border: '1px solid rgba(255,215,0,0.3)',
+            backdropFilter: 'blur(8px)', color: '#ffd700', fontSize: 14, fontWeight: 700,
+          }}
+          title="Liquid gold — 1,000 per bar"
+        >
+          ◆ {gold.toLocaleString()}
+          {sessionFinds > 0 && (
+            <span style={{ color: '#f5f2ea', fontWeight: 400, fontSize: 12 }}>
+              {' '}· +{sessionFinds} bar{sessionFinds === 1 ? '' : 's'} this visit
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div style={{ position: 'absolute', top: 14, right: 14, display: 'flex', gap: 8, zIndex: 10 }}>
+        <button onClick={onMode} style={hudBtn} aria-label="Switch drive mode">
+          {mode === 'ride' ? '🏍 RIDE' : mode === 'fly' ? '🕊 FLY' : '🚶 WALK'}
+        </button>
+        {!reduced && (
+          <button
+            onClick={onAutopilot}
+            style={{ ...hudBtn, borderColor: autopilot ? '#ffd700' : 'rgba(255,255,255,0.25)', color: autopilot ? '#ffd700' : '#f5f2ea' }}
+            aria-label="Toggle autopilot tour"
+          >
+            {autopilot ? '⏸ TOUR' : '▶ TOUR'}
+          </button>
+        )}
+        <button onClick={onExit} style={hudBtn} aria-label="Back to orbit">
+          ↑ ORBIT
+        </button>
+      </div>
+
+      <div style={{ position: 'absolute', left: 18, bottom: 96, zIndex: 10 }}>
+        <Joystick controlsRef={controlsRef} disabled={autopilot} />
+      </div>
+
+      {mode === 'fly' && (
+        <div style={{ position: 'absolute', right: 18, bottom: 96, display: 'flex', flexDirection: 'column', gap: 10, zIndex: 10 }}>
+          {[
+            { label: '▲', v: 1 },
+            { label: '▼', v: -1 },
+          ].map((b) => (
+            <button
+              key={b.label}
+              onPointerDown={() => { controlsRef.current.vertical = b.v; }}
+              onPointerUp={() => { controlsRef.current.vertical = 0; }}
+              onPointerLeave={() => { controlsRef.current.vertical = 0; }}
+              style={{ ...hudBtn, width: 56, height: 56, fontSize: 20, borderRadius: '50%' }}
+              aria-label={b.v > 0 ? 'Ascend' : 'Descend'}
+            >
+              {b.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div
+        style={{
+          position: 'absolute', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+          color: 'rgba(245,242,234,0.55)', fontSize: 12, letterSpacing: '0.08em',
+          zIndex: 10, textAlign: 'center', pointerEvents: 'none', whiteSpace: 'nowrap',
+        }}
+      >
+        WASD / arrows to move · drag right side to look · ride the gold ring portals to travel
+      </div>
+    </>
+  );
+}
+
+function TilesFailedPanel({ onBack }) {
+  return (
+    <div
+      style={{
+        position: 'absolute', inset: 0, zIndex: 40, display: 'flex',
+        alignItems: 'center', justifyContent: 'center', background: 'rgba(1,2,4,0.85)', padding: 24,
+      }}
+    >
+      <div style={{ textAlign: 'center', maxWidth: 420 }}>
+        <div style={{ color: '#ffd700', fontSize: 20, letterSpacing: '0.2em', marginBottom: 12 }}>
+          STREET VIEW UNAVAILABLE
+        </div>
+        <div style={{ color: 'rgba(245,242,234,0.7)', fontSize: 14, lineHeight: 1.6, marginBottom: 20 }}>
+          The photorealistic street tiles couldn't be reached right now — check
+          your connection and try again. Nothing was faked in their place.
+        </div>
+        <button onClick={onBack} style={hudBtn}>↑ BACK TO ORBIT</button>
+      </div>
+    </div>
   );
 }
 
@@ -275,9 +583,17 @@ export default function ArgoPage() {
   const [vehicleKey, setVehicleKey] = useState('skiff');
   const [atKey, setAtKey] = useState(HOME_KEY); // where the vehicle is parked
   const [targetKey, setTargetKey] = useState('paris'); // selected destination
-  const [phase, setPhase] = useState('dock'); // dock | flying | arrived
+  const [phase, setPhase] = useState('dock'); // dock | flying | arrived | descent | street
   const [followCam, setFollowCam] = useState(true);
   const [progress, setProgress] = useState(0);
+  // Street-level state.
+  const [tilesRenderer, setTilesRenderer] = useState(null);
+  const [streetMode, setStreetMode] = useState('ride'); // ride | fly | walk
+  const [autopilot, setAutopilot] = useState(false);
+  const [gold, setGold] = useState(0);
+  const [sessionFinds, setSessionFinds] = useState(0);
+  const controlsRef = useRef({ thrust: 0, strafe: 0, vertical: 0, lookDX: 0, lookDY: 0 });
+  const lookDrag = useRef(null);
   // Snap the follow camera on launch so the vehicle loads right in front.
   const snapCamRef = useRef(false);
 
@@ -352,7 +668,62 @@ export default function ArgoPage() {
     startFlight(HOME_KEY);
   }, [startFlight]);
 
+  // --- street-level -------------------------------------------------------
+  const streetActive = phase === 'street';
   const at = destinationByKey(atKey);
+  const bikeKeyForStreet = vehicleKey === 'comet' ? 'comet' : 'wisp';
+
+  useEffect(() => {
+    if (phase === 'street') setGold(getLiquidGold());
+  }, [phase ]);
+
+  // M cycles street drive mode.
+  useEffect(() => {
+    if (phase !== 'street') return;
+    const h = (e) => {
+      if (e.code === 'KeyM') {
+        setStreetMode((m) => (m === 'ride' ? 'fly' : m === 'fly' ? 'walk' : 'ride'));
+        try { fx.menuMove(); } catch { /* audio unavailable */ }
+      }
+    };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [phase]);
+
+  const beginDescent = useCallback(() => {
+    try { fx.satelliteDrop(); } catch { /* audio unavailable */ }
+    if (reduced) {
+      setPhase('street'); // reduced motion: no cinematic dive
+    } else {
+      setPhase('descent');
+    }
+  }, [reduced]);
+
+  const exitStreet = useCallback(() => {
+    try { fx.menuBack(); } catch { /* audio unavailable */ }
+    setAutopilot(false);
+    setSessionFinds(0);
+    controlsRef.current = { thrust: 0, strafe: 0, vertical: 0, lookDX: 0, lookDY: 0 };
+    setPhase('dock');
+  }, []);
+
+  const streetSceneProps = streetActive
+    ? {
+        destKey: atKey,
+        bikeKey: bikeKeyForStreet,
+        tilesRenderer,
+        reduced,
+        controlsRef,
+        mode: streetMode,
+        autopilot,
+        onAutopilotEnd: () => setAutopilot(false),
+        onGold: (total, finds) => {
+          setGold(total);
+          setSessionFinds(finds);
+        },
+      }
+    : null;
+
   const target = destinationByKey(targetKey);
   const faceKey =
     phase === 'arrived' ? HOME_KEY : targetKey !== atKey ? targetKey : 'paris';
@@ -379,7 +750,7 @@ export default function ArgoPage() {
         gl={{ antialias: true, powerPreference: 'high-performance' }}
         dpr={[1, 2]}
       >
-        <color attach="background" args={['#010204']} />
+        <color attach="background" args={[streetActive ? '#87aed6' : '#010204']} />
         <ArgoScene
           flightRef={flightRef}
           atKey={atKey}
@@ -394,13 +765,75 @@ export default function ArgoPage() {
           snapCamRef={snapCamRef}
           onTilesActive={() => setLayer('photorealistic')}
           onTilesInactive={() => setLayer('stylized')}
+          onTilesRenderer={setTilesRenderer}
           onArrived={handleArrived}
           onProgress={handleProgress}
           onMount={() => startFlight(targetKey)}
+          streetActive={streetActive}
+          streetLat={at ? at.lat : 0}
+          streetLon={at ? at.lon : 0}
+          streetSceneProps={streetSceneProps}
         />
+        {phase === 'descent' && at && (
+          <DescentRig lat={at.lat} lon={at.lon} onDone={() => setPhase('street')} />
+        )}
       </Canvas>
 
-      {/* Header */}
+      {/* Descent haze + skip */}
+      {phase === 'descent' && <DescentHaze onSkip={() => setPhase('street')} />}
+
+      {/* Street HUD */}
+      {streetActive && layer === 'photorealistic' && at && (
+        <StreetHud
+          destName={at.name}
+          gold={gold}
+          sessionFinds={sessionFinds}
+          mode={streetMode}
+          onMode={() => {
+            setStreetMode((m) => (m === 'ride' ? 'fly' : m === 'fly' ? 'walk' : 'ride'));
+            try { fx.menuMove(); } catch { /* audio unavailable */ }
+          }}
+          autopilot={autopilot}
+          onAutopilot={() => {
+            setAutopilot((a) => !a);
+            try { fx.menuMove(); } catch { /* audio unavailable */ }
+          }}
+          reduced={reduced}
+          controlsRef={controlsRef}
+          onExit={exitStreet}
+        />
+      )}
+
+      {/* Right-side drag-to-look (street, touch + mouse) */}
+      {streetActive && (
+        <div
+          onPointerDown={(e) => {
+            lookDrag.current = { x: e.clientX, y: e.clientY, id: e.pointerId };
+            e.currentTarget.setPointerCapture(e.pointerId);
+          }}
+          onPointerMove={(e) => {
+            const d = lookDrag.current;
+            if (!d || d.id !== e.pointerId) return;
+            controlsRef.current.lookDX = Math.max(-40, Math.min(40, controlsRef.current.lookDX + (e.clientX - d.x) * 0.4));
+            controlsRef.current.lookDY = Math.max(-24, Math.min(24, controlsRef.current.lookDY + (e.clientY - d.y) * 0.4));
+            d.x = e.clientX;
+            d.y = e.clientY;
+          }}
+          onPointerUp={() => {
+            lookDrag.current = null;
+          }}
+          style={{
+            position: 'absolute', right: 0, top: 0, bottom: 0, width: '42%', zIndex: 5, touchAction: 'none',
+          }}
+          aria-hidden
+        />
+      )}
+
+      {/* Street fallback: tiles failed */}
+      {streetActive && layer === 'stylized' && <TilesFailedPanel onBack={exitStreet} />}
+
+      {/* Header — hidden at street level (the street HUD takes over) */}
+      {!streetActive && (
       <div className="absolute top-0 left-0 right-0 flex items-start justify-between p-4 sm:p-5 pointer-events-none">
         <div className="bg-black/60 backdrop-blur-sm px-4 py-3 border-l-2 border-amber-400/80 max-w-[78vw]">
           <div className="text-[10px] sm:text-[11px] tracking-[0.3em] uppercase text-amber-300/90">
@@ -426,6 +859,7 @@ export default function ArgoPage() {
           )}
         </div>
       </div>
+      )}
 
       {/* Staging dock */}
       {phase === 'dock' && (
@@ -499,7 +933,7 @@ export default function ArgoPage() {
       )}
 
       {/* In-flight / on-station bar */}
-      {phase !== 'dock' && (
+      {(phase === 'flying' || phase === 'arrived') && (
         <div className="absolute bottom-0 left-0 right-0 flex justify-center pointer-events-none px-4">
           <div className="pointer-events-auto bg-zinc-950/90 border border-zinc-800 rounded-t-xl md:rounded-xl backdrop-blur-md px-4 pt-3 pb-[calc(4.5rem+env(safe-area-inset-bottom))] w-full max-w-xl">
             {phase === 'flying' && (
@@ -545,6 +979,14 @@ export default function ArgoPage() {
                   className="min-h-[44px] px-4 rounded-lg border border-amber-400/50 text-amber-300 text-xs font-bold tracking-widest uppercase disabled:opacity-40 hover:bg-amber-400/10 transition-colors"
                 >
                   Recall to Edmonton
+                </button>
+              )}
+              {phase === 'arrived' && layer === 'photorealistic' && (
+                <button
+                  onClick={beginDescent}
+                  className="min-h-[44px] px-4 rounded-lg bg-amber-400 text-black text-xs font-black tracking-widest uppercase hover:bg-amber-300 transition-colors"
+                >
+                  ↓ Street level
                 </button>
               )}
               <button
