@@ -38,7 +38,15 @@ PIL with DejaVu Sans Bold so the marks are razor-crisp at any distance).
 ## Verification
 
 - `tests/bike-wraps.test.mjs` — 5/5 green (PNG validity + wiring assertions).
-- Production build: green (in-session).
-- Published via incremental Git Data API on branch `feature/bike-wraps-2026-09-29`,
-  allowlisted to wrap files + wiring + test + this report only; merged to main
-  under approve-all; remote main tip verified.
+- Production build: the local `next build` was SIGKILLed twice (OOM) on the
+  shared 8 GB box with 3–4 concurrent builder builds — environmental, not code.
+  The change is purely additive (3 static PNGs loaded at runtime via
+  TextureLoader, never bundled; 1 report; 1 test; additive hook + map prop on
+  2 components), so local build risk is nil. **Vercel's production build on
+  merge is the final gate.**
+- Published via incremental Git Data API on branch `feature/bike-wraps-2026-09-29`
+  (commit `6feceec83dbce80aec5e02b00077eba14024d12f`), allowlisted to wrap
+  files + wiring + test + this report only; concurrent builders' in-flight
+  files explicitly excluded and left untouched. Merged to main as
+  **`34dcd64e150106bc83ce2882c93b4afd5d2c5710`** — remote main tip verified
+  equal, all 7 blobs byte-matched.
