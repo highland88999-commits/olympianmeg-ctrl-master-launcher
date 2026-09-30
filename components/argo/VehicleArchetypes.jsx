@@ -11,12 +11,43 @@
 
 'use client';
 
+import { useEffect, useState } from 'react';
 import * as THREE from 'three';
 
-function Paint() {
+// Brand livery wraps shared with the NOVA tron bikes — Merlin's Nexus Vortex
+// graphics (public/textures/nova/TronBikes/). Loaded imperatively (no
+// Suspense): hulls fall back to plain paint until the wrap arrives.
+const WRAPS = {
+  wisp: '/textures/nova/TronBikes/wisp-wrap.png',
+  comet: '/textures/nova/TronBikes/comet-wrap.png',
+};
+
+function useWrapTexture(path) {
+  const [tex, setTex] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    new THREE.TextureLoader().load(
+      path,
+      (t) => {
+        t.colorSpace = THREE.SRGBColorSpace;
+        t.anisotropy = 4;
+        if (alive) setTex(t);
+      },
+      undefined,
+      () => {}
+    );
+    return () => {
+      alive = false;
+    };
+  }, [path]);
+  return tex;
+}
+
+function Paint({ wrap = null }) {
   return (
     <meshPhysicalMaterial
-      color="#0f172a"
+      color={wrap ? '#ffffff' : '#0f172a'}
+      map={wrap || undefined}
       metalness={0.7}
       roughness={0.3}
       clearcoat={1.0}
@@ -222,11 +253,12 @@ function TrimThrusterPods({ color = '#00ffcc', xOffset = 0.85 }) {
 }
 
 export function WispArchetype({ color = '#00ffcc' }) {
+  const wrap = useWrapTexture(WRAPS.wisp);
   return (
     <group>
       <mesh position={[0, 0.62, 0.1]} rotation={[0.06, 0, 0]}>
         <boxGeometry args={[0.42, 0.34, 2.6]} />
-        <Paint />
+        <Paint wrap={wrap} />
       </mesh>
       <mesh position={[0, 0.95, 0.35]}>
         <sphereGeometry args={[0.3, 20, 16, 0, Math.PI * 2, 0, Math.PI / 2]} />
@@ -246,11 +278,12 @@ export function WispArchetype({ color = '#00ffcc' }) {
 }
 
 export function CometArchetype({ color = '#38bdf8' }) {
+  const wrap = useWrapTexture(WRAPS.comet);
   return (
     <group>
       <mesh position={[0, 0.62, 0]}>
         <boxGeometry args={[0.55, 0.42, 2.9]} />
-        <Paint />
+        <Paint wrap={wrap} />
       </mesh>
       <mesh position={[0, 0.98, 0.3]}>
         <sphereGeometry args={[0.36, 20, 16, 0, Math.PI * 2, 0, Math.PI / 2]} />
