@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { supabase } from '@/lib/battleship/supabase'
 import { useGameStore } from '@/store/battleship/useGameStore'
+import OasisLinkedHost from '@/components/battleship/OasisLinkedHost'
 import Link from 'next/link'
 
 export default function Lobby() {
@@ -85,6 +86,9 @@ export default function Lobby() {
           <div className="flex items-center gap-4 my-2 opacity-50"><div className="flex-1 h-px bg-gradient-to-r from-transparent via-white to-transparent" /><span className="font-mono text-xs text-white">OR</span><div className="flex-1 h-px bg-gradient-to-r from-transparent via-white to-transparent" /></div>
 
           <button onClick={handleCreatePvP} disabled={loading} className="w-full px-6 py-4 text-sm font-bold tracking-widest text-fuchsia-400 uppercase transition-all border border-fuchsia-500/50 bg-fuchsia-950/20 hover:bg-fuchsia-900/40 hover:shadow-[0_0_20px_rgba(255,0,255,0.3)] disabled:opacity-50">Host Multiplayer Game</button>
+
+          {/* OASIS adapter: same battle, shareable 6-char code + deep link. */}
+          <OasisLinkedHost />
 
           <div className="flex gap-2">
             <input type="text" placeholder="ENTER 6-DIGIT CODE" maxLength={6} value={roomInput} onChange={(e) => setRoomInput(e.target.value.toUpperCase())} disabled={loading} className="w-full px-4 py-3 font-mono text-center text-white uppercase transition-all bg-black border outline-none border-zinc-700 focus:border-cyan-500 focus:shadow-[0_0_15px_rgba(0,255,255,0.2)] placeholder:text-zinc-600 disabled:opacity-50" />

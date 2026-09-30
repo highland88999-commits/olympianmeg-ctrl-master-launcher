@@ -12,6 +12,7 @@ import TargetingGrid from '@/components/battleship/TargetingGrid'
 import Markers from '@/components/battleship/Markers'
 import HUD from '@/components/battleship/HUD'
 import Lobby from '@/components/battleship/Lobby'
+import OasisDeepLinkJoiner from '@/components/battleship/OasisDeepLinkJoiner'
 import { useGameSync } from '@/hooks/battleship/useGameSync'
 import { useGameStore } from '@/store/battleship/useGameStore'
 
@@ -87,6 +88,8 @@ export default function Game() {
       </button>
 
       {!roomId && <Lobby />}
+      {/* OASIS adapter: /battleship?code=XXXXXX auto-joins a linked lobby. */}
+      {!roomId && session && <OasisDeepLinkJoiner userId={session.user.id} />}
       {roomId && <GameNetworkManager />}
       
       {roomId && (
