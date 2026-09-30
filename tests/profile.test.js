@@ -151,7 +151,10 @@ t('media DB/store names stable',
   t('page: no supabase', !/supabase/i.test(code));
   t('page: no external URLs', !/https?:\/\//.test(code));
   t('page: reduced-motion respected', /prefers-reduced-motion/.test(page));
-  t('page: safari bottom clearance', /safe-area-inset-bottom/.test(page));
+  t('page: safari bottom clearance',
+    // Phase 2b: pages use the canonical .player-clear spacer
+    // (calc(5.5rem + env(safe-area-inset-bottom))) instead of inline env().
+    /safe-area-inset-bottom/.test(page) || /player-clear/.test(page));
   t('page: touch targets >= 44px', /min-h-\[44px\]/.test(page));
   t('page: honest on-device copy', /Nothing is uploaded/.test(page) && /on this device/.test(page));
   t('page: character customization present',

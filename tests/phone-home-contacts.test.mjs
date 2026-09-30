@@ -1,9 +1,7 @@
 // tests/phone-home-contacts.test.mjs — Headless tests for the /phone-home contacts tab.
-// Run (from the repo root):
-//   npx tsc lib/phone-home/contacts.ts --outDir /tmp/contacts-out \
-//     --module esnext --target es2022 --moduleResolution node --strict \
-//     --skipLibCheck --declaration false --sourceMap false
-//   node tests/phone-home-contacts.test.mjs
+// Run (from the repo root): node tests/phone-home-contacts.test.mjs
+// No browser, no network. The TS sources are imported directly — Node 24
+// strips types natively, so no pre-compile step is needed.
 // Covers: normalization/validation logic, missing-table detection, SQL sanity
 // (RLS, owner-only policies, queued-not-run header), page wiring (6-page
 // carousel, contacts footer tab, tap-to-call through the Twilio flow), and
@@ -26,7 +24,6 @@ function eq(name, actual, expected) {
     JSON.stringify(actual) === JSON.stringify(expected));
 }
 
-const compiled = '/tmp/contacts-out';
 const {
   CONTACTS_TABLE,
   CONTACTS_MISSING_MESSAGE,
@@ -38,7 +35,7 @@ const {
   validateContact,
   isMissingTableError,
   buildContactRow,
-} = await import(`${compiled}/contacts.js`);
+} = await import('../lib/phone-home/contacts.ts');
 
 eq('table name', CONTACTS_TABLE, 'phone_home_contacts');
 

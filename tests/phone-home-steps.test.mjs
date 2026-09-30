@@ -1,9 +1,7 @@
 // tests/phone-home-steps.test.mjs — Headless tests for the /phone-home step counter.
-// Run (from the repo root):
-//   npx tsc lib/phone-home/steps.ts lib/health/sync.ts --outDir /tmp/steps-out \
-//     --module esnext --target es2022 --moduleResolution node --strict \
-//     --skipLibCheck --declaration false --sourceMap false
-//   node tests/phone-home-steps.test.mjs
+// Run (from the repo root): node tests/phone-home-steps.test.mjs
+// No browser, no network. The TS sources are imported directly — Node 24
+// strips types natively, so no pre-compile step is needed.
 // Covers: totals math, upsert semantics, offline queue behavior, the health-sync
 // stub contract, SQL sanity (string checks), and page source checks. No
 // browser, no network, no fake data.
@@ -25,12 +23,11 @@ function eq(name, actual, expected) {
     JSON.stringify(actual) === JSON.stringify(expected));
 }
 
-const compiled = '/tmp/steps-out';
 const {
   todayKey, clampSteps, totalSteps, findTodayEntry, upsertLocal,
   mergeQueueEntry, readQueue, writeQueue, STEPS_QUEUE_KEY, STEPS_QUEUE_MAX,
-} = await import(`${compiled}/phone-home/steps.js`);
-const { mobilePhaseHealthSync } = await import(`${compiled}/health/sync.js`);
+} = await import('../lib/phone-home/steps.ts');
+const { mobilePhaseHealthSync } = await import('../lib/health/sync.ts');
 
 // --- todayKey ---------------------------------------------------------------
 t('todayKey matches YYYY-MM-DD', /^\d{4}-\d{2}-\d{2}$/.test(todayKey()));

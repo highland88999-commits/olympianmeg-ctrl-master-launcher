@@ -204,7 +204,8 @@ test('storm ash falls faster and reddens during the storm', () => {
 // ---------- Axiom palette ----------
 
 test('axiom lightning colors match the source', () => {
-  assert.deepEqual(AXIOM_COLORS, ['#ff0044', '#00ffff', '#aa00ff', '#ffffff']);
+  // Phase 2b canonical palette: danger #ff003c, cyan #00f2ff.
+  assert.deepEqual(AXIOM_COLORS, ['#ff003c', '#00f2ff', '#aa00ff', '#ffffff']);
 });
 
 // ---------- Static audits ----------

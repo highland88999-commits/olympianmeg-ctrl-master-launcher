@@ -57,6 +57,9 @@ t('godMenuFor returns null for unknown key', godMenuFor('nope-not-real') === nul
 
 // --- wiring: single entry point ---------------------------------------------
 const pageSrc = stripComments(readFileSync('app/page.jsx', 'utf8'));
+// Phase 2b (2026-09-30): the home 3D scene was code-split out of app/page.jsx
+// into components/HomeScene.jsx. Scene assertions read the scene file.
+const sceneSrc = stripComments(readFileSync('components/HomeScene.jsx', 'utf8'));
 t('shell declutter: satellite menu (floating button) is the single launcher, GodMenuPanel not rendered',
   pageSrc.includes('<SatelliteMenu') && !pageSrc.includes('GodMenuPanel'));
 t('home keeps launchPocketUniverse as the menu-to-satellite function',
@@ -129,7 +132,7 @@ for (const tt of sampleTimes) {
 
 // --- spawn: camera starts in the middle, bike parked ahead ------------------
 t('home camera spawns at the constellation center (middle of the satellites)',
-  pageSrc.includes('position: [ORBIT_CENTER.x, ORBIT_CENTER.y, ORBIT_CENTER.z]'));
+  sceneSrc.includes('position: [ORBIT_CENTER.x, ORBIT_CENTER.y, ORBIT_CENTER.z]'));
 t('bike is parked just outside the outermost band on the -Z view axis',
   BIKE_PARK_POS[0] === ORBIT_CENTER.x &&
   BIKE_PARK_POS[1] === ORBIT_CENTER.y &&
@@ -137,10 +140,10 @@ t('bike is parked just outside the outermost band on the -Z view axis',
   (ORBIT_CENTER.z - BIKE_PARK_POS[2]) < MAX_BAND_RADIUS + 15);
 t('rider offset sits above/behind the bike nose (sane mount point)',
   RIDER_OFFSET.y > 1 && RIDER_OFFSET.y < 4 && RIDER_OFFSET.z < 0 && BIKE_LOOK_AHEAD > 10);
-t('home renders the god orbit rings', pageSrc.includes('GodOrbitRings'));
-t('home renders the parked bike rig', pageSrc.includes('BikeRig'));
+t('home renders the god orbit rings', sceneSrc.includes('GodOrbitRings'));
+t('home renders the parked bike rig', sceneSrc.includes('BikeRig'));
 t('spawn-to-bike button exists, fixed bottom-right with bar clearance',
-  pageSrc.includes('SPAWN TO BIKE') && pageSrc.includes('bottom-[calc(4.5rem+env(safe-area-inset-bottom))] right-5'));
+  pageSrc.includes('SPAWN TO BIKE') && pageSrc.includes('bottom-[calc(5.5rem+env(safe-area-inset-bottom))] right-5'));
 t('camera controller handles to_bike and on_bike states',
   pageSrc.includes("'to_bike'") && pageSrc.includes("'on_bike'"));
 

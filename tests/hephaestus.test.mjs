@@ -106,7 +106,10 @@ t('page imports the satellite registry', page.includes('@/lib/i18n/satellites'))
 t('page has zero http(s) URLs', !/https?:\/\//.test(page));
 t('page states the mission', page.includes('multiply to as many people as possible'));
 t('page states the prime directive', page.includes('POVERTY NEEDS TO END'));
-t('page has back-to-launcher link', page.includes('href="/"'));
+t('page has back-to-launcher link',
+  // Phase 2b: pages use the shared BackButton (router.back, launcher fallback)
+  // instead of a raw href="/".
+  page.includes('href="/"') || /<BackButton/.test(page));
 t('page has 44px touch targets', page.includes('minHeight: 44') || page.includes('minHeight:44'));
 t('page honors reduced motion', page.includes('prefers-reduced-motion'));
 

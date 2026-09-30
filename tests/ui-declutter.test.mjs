@@ -18,6 +18,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const page = readFileSync('app/page.jsx', 'utf8');
+// Phase 2b (2026-09-30): the home 3D scene was code-split out of app/page.jsx
+// into components/HomeScene.jsx. Scene assertions read the scene file.
+const scene = readFileSync('components/HomeScene.jsx', 'utf8');
 const radioBar = readFileSync('components/radio/RadioBar.jsx', 'utf8');
 const rings = readFileSync('components/GodOrbitRings.jsx', 'utf8');
 const waste = readFileSync('app/waste-extraction/page.jsx', 'utf8');
@@ -52,12 +55,12 @@ test('2/4. portal gate field is gone from the interface', () => {
 });
 
 test('2/4. launch-travel portals (the original portals) are preserved', () => {
-  assert.ok(page.includes('portalTex={kingHoleTex}'), 'travel portal texture still wired');
-  assert.ok(page.includes('payloadTex={payloadTex}'), 'travel payload portal still wired');
+  assert.ok(scene.includes('portalTex={kingHoleTex}'), 'travel portal texture still wired');
+  assert.ok(scene.includes('payloadTex={payloadTex}'), 'travel payload portal still wired');
 });
 
 test('2. orbit rings are visual-only: no launcher passed from the shell', () => {
-  assert.ok(page.includes('<GodOrbitRings satIndex={satIndex} />'),
+  assert.ok(scene.includes('<GodOrbitRings satIndex={satIndex} />'),
     'rings render without canLaunch/onLaunch');
 });
 

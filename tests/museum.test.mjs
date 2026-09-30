@@ -98,7 +98,9 @@ t('page has concepts wing', /concepts/i.test(page));
 t('page clears radio/Safari bar (safe-area)', /safe-area-inset-bottom/.test(page));
 t('page uses fx (no custom audio)', /from '@\/lib\/fx'/.test(page));
 t('page has no external URLs', !/https?:\/\/(?!www\.w3\.org)[a-z]/i.test(page.replace(/aria-label="Close"/g, '')));
-t('page has no telemetry', !/central_telemetry|cerberus_telemetry|analytics\.track|gtag\(|fetch\(/.test(page));
+t('page has no telemetry', !/central_telemetry|cerberus_telemetry|analytics\.track|gtag\(/.test(page));
+t('page fetch() calls are same-origin app APIs only (gallery commerce)',
+  [...page.matchAll(/fetch\(\s*['"`]([^'"`]+)['"`]/g)].every((m) => m[1].startsWith('/api/')));
 
 console.log(`\nmuseum: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
