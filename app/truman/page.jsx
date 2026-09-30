@@ -32,9 +32,9 @@ import {
 import { createRenderer, drawApartment, AXIOM_COLORS } from './render.js';
 
 const CHARACTERS = [
-  { id: 'henry', name: 'HENRY CAHILL', role: 'MULTIVERSE ARCHITECT', status: 'DEPLOYING…', color: '#00ffff' },
+  { id: 'henry', name: 'HENRY CAHILL', role: 'MULTIVERSE ARCHITECT', status: 'DEPLOYING…', color: '#00f2ff' },
   { id: 'valkyrie', name: 'VALKYRIE', role: 'NETWORK OPERATOR', status: 'ROUTING TRAFFIC…', color: '#ff00ff' },
-  { id: 'rasputin', name: 'RASPUTIN', role: 'LOGIC OVERSEER', status: 'OBSERVING MATRIX…', color: '#ffcc00' },
+  { id: 'rasputin', name: 'RASPUTIN', role: 'LOGIC OVERSEER', status: 'OBSERVING MATRIX…', color: '#ffd700' },
 ];
 
 const SPEEDS = [1, 16, 120];
@@ -68,8 +68,8 @@ export default function TrumanPage() {
     const S = {
       world: { globalTime: 0, simulatedMinutes: 0, isStormActive: false },
       playing: true, speed: 1, calm: false, t: 0,
-      flash: 0, flashColor: '#ff0044', flashX: 0, flashZ: 0, shake: 0,
-      henryColor: '#00ffff',
+      flash: 0, flashColor: '#ff003c', flashX: 0, flashZ: 0, shake: 0,
+      henryColor: '#00f2ff',
       cam: { x: 0, z: 0, yaw: Math.PI / 4, zoom: 0.55, cx: 0, cy: 0 },
       camMode: 'city',
       buildings: buildCity(1337),
@@ -211,7 +211,7 @@ export default function TrumanPage() {
 
   const btn = {
     minWidth: 44, minHeight: 44, padding: '10px 16px', background: 'rgba(0,20,30,0.7)',
-    border: '1px solid rgba(0,255,255,0.4)', color: '#bff', fontSize: 13,
+    border: '1px solid rgba(0,242,255,0.4)', color: '#bff', fontSize: 13,
     letterSpacing: 1, cursor: 'pointer', borderRadius: 6,
   };
 
@@ -223,7 +223,7 @@ export default function TrumanPage() {
       {/* START OVERLAY */}
       {!ready && (
         <div style={{ position: 'absolute', inset: 0, zIndex: 500, display: 'flex', flexDirection: 'column', gap: 18, justifyContent: 'center', alignItems: 'center', background: '#010204', padding: 24, textAlign: 'center' }}>
-          <div style={{ color: '#0ff', letterSpacing: 6, fontSize: 15 }}>TRUMAN</div>
+          <div style={{ color: '#00f2ff', letterSpacing: 6, fontSize: 15 }}>TRUMAN</div>
           <div style={{ color: '#889', maxWidth: 440, fontSize: 14, lineHeight: 1.7 }}>
             A simulated city watched over by a local Matrix Brain. Henry lives here —
             apartment, car, commute, and the monthly axiom storm. Everything runs in
@@ -239,20 +239,20 @@ export default function TrumanPage() {
       {ready && (
         <>
           {/* HUD */}
-          <div style={{ position: 'absolute', top: 16, left: 16, zIndex: 100, background: 'rgba(2,5,10,0.72)', padding: '14px 18px', borderLeft: '3px solid #0ff', color: '#0ff', fontSize: 13, letterSpacing: 2, pointerEvents: 'none', backdropFilter: 'blur(6px)' }}>
+          <div style={{ position: 'absolute', top: 16, left: 16, zIndex: 100, background: 'rgba(2,5,10,0.72)', padding: '14px 18px', borderLeft: '3px solid #00f2ff', color: '#00f2ff', fontSize: 13, letterSpacing: 2, pointerEvents: 'none', backdropFilter: 'blur(6px)' }}>
             <div style={{ fontSize: 15, fontWeight: 'bold', color: '#fff', marginBottom: 6 }}>TRUMAN // LOCAL BRAIN</div>
             <div>ZONE: <span style={{ color: '#f0f', fontWeight: 'bold' }}>CITYSCAPE</span></div>
-            <div>SYS: <span style={{ color: hud.isStormActive ? '#ff0044' : '#00ff00', fontWeight: 'bold' }}>{hud.isStormActive ? 'CRITICAL BREACH' : 'CLEAR'}</span></div>
-            <div>LINK: <span style={{ color: '#fc0', fontWeight: 'bold' }}>LOCAL SIM</span></div>
+            <div>SYS: <span style={{ color: hud.isStormActive ? '#ff003c' : '#00ff00', fontWeight: 'bold' }}>{hud.isStormActive ? 'CRITICAL BREACH' : 'CLEAR'}</span></div>
+            <div>LINK: <span style={{ color: '#ffd700', fontWeight: 'bold' }}>LOCAL SIM</span></div>
             <div style={{ color: '#0f6', fontSize: 11, marginTop: 8 }}>MONTH CYCLE: {monthProgress}%</div>
-            <div style={{ color: hud.isStormActive ? '#f0f' : '#ff0044', fontSize: 11, marginTop: 3 }}>
+            <div style={{ color: hud.isStormActive ? '#f0f' : '#ff003c', fontSize: 11, marginTop: 3 }}>
               {hud.isStormActive ? 'AXIOM EVENT IN PROGRESS' : `NEXT AXIOM EVENT: T-MINUS ${Math.round(tMinus)} MIN`}
             </div>
             <div style={{ color: '#fff', fontSize: 13, marginTop: 8, letterSpacing: 3 }}>{clock.label}</div>
           </div>
 
           {/* STORM WARNING */}
-          <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 100, color: '#ff0044', fontSize: 14, fontWeight: 'bold', letterSpacing: 4, textAlign: 'right', pointerEvents: 'none', opacity: hud.isStormActive ? 1 : 0, transition: 'opacity 0.3s' }}>
+          <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 100, color: '#ff003c', fontSize: 14, fontWeight: 'bold', letterSpacing: 4, textAlign: 'right', pointerEvents: 'none', opacity: hud.isStormActive ? 1 : 0, transition: 'opacity 0.3s' }}>
             !!! AXIOM BREACH !!!<br />
             <span style={{ fontSize: 10, color: '#fff' }}>SHELTER IN PLACE</span>
           </div>
@@ -289,16 +289,16 @@ export default function TrumanPage() {
               {playing ? '❚❚ PAUSE' : '▶ RUN'}
             </button>
             {SPEEDS.map((s) => (
-              <button key={s} style={{ ...btn, borderColor: speed === s ? '#0ff' : 'rgba(0,255,255,0.4)', color: speed === s ? '#fff' : '#bff' }} onClick={() => setSpeed(s)}>
+              <button key={s} style={{ ...btn, borderColor: speed === s ? '#00f2ff' : 'rgba(0,242,255,0.4)', color: speed === s ? '#fff' : '#bff' }} onClick={() => setSpeed(s)}>
                 {s}×
               </button>
             ))}
             <button style={btn} onClick={jumpToStorm}>⚡ JUMP TO STORM</button>
-            <button style={{ ...btn, borderColor: calm ? '#ffcc00' : 'rgba(0,255,255,0.4)', color: calm ? '#ffcc00' : '#bff' }} onClick={() => setCalm((c) => !c)} aria-pressed={calm}>
+            <button style={{ ...btn, borderColor: calm ? '#ffd700' : 'rgba(0,242,255,0.4)', color: calm ? '#ffd700' : '#bff' }} onClick={() => setCalm((c) => !c)} aria-pressed={calm}>
               {calm ? '☁ CALM MODE ON' : 'CALM MODE OFF'}
             </button>
             {['city', 'follow', 'apartment'].map((m) => (
-              <button key={m} style={{ ...btn, borderColor: camMode === m ? '#0ff' : 'rgba(0,255,255,0.4)', color: camMode === m ? '#fff' : '#bff' }} onClick={() => setCamMode(m)}>
+              <button key={m} style={{ ...btn, borderColor: camMode === m ? '#00f2ff' : 'rgba(0,242,255,0.4)', color: camMode === m ? '#fff' : '#bff' }} onClick={() => setCamMode(m)}>
                 {m === 'city' ? 'CITY' : m === 'follow' ? "FOLLOW HENRY'S CAR" : "HENRY'S APARTMENT"}
               </button>
             ))}
@@ -312,7 +312,7 @@ export default function TrumanPage() {
       )}
     </div>
     {/* Safari bottom-bar clearance: blank space under the fixed sim viewport */}
-    <div aria-hidden="true" style={{ height: 'calc(4.5rem + env(safe-area-inset-bottom))' }} />
+    <div aria-hidden="true" className="player-clear" />
     </>
   );
 }

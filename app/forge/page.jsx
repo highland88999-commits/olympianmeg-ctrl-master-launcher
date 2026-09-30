@@ -299,14 +299,14 @@ export default function ForgePage() {
 
   if (!ready) {
     return (
-      <main className="min-h-screen bg-[#050508] text-zinc-200 flex items-center justify-center">
+      <main className="min-h-dvh bg-[#050508] text-zinc-200 flex items-center justify-center">
         <p className="text-sm tracking-widest uppercase text-zinc-500">Opening Forge…</p>
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen bg-[#050508] text-zinc-200 flex flex-col">
+    <main className="min-h-dvh bg-[#050508] text-zinc-200 flex flex-col">
       <style>{CSS}</style>
 
       {/* Header */}
@@ -561,7 +561,7 @@ export default function ForgePage() {
           {toast}
         </div>
       )}
-      <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+      <div aria-hidden="true" className="player-clear" />
     </main>
   );
 }

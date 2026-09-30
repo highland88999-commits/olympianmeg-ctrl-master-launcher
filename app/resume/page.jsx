@@ -46,7 +46,7 @@ const ACCENTS = [
 ];
 
 const CSS = `
-.rz-root { min-height: 100vh; background: #05050a; color: #f0f0f0;
+.rz-root { min-height: 100dvh; background: #05050a; color: #f0f0f0;
   font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; position: relative; }
 .rz-bg { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
 .rz-wrap { position: relative; z-index: 1; max-width: 960px; margin: 0 auto; padding: 24px 16px 60px; }
@@ -329,7 +329,7 @@ export default function ResumePage() {
             <textarea id="rz-skills" value={data.skills} onChange={(e) => set({ skills: e.target.value })} />
           </div>
         )}
-      <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+      <div aria-hidden="true" className="player-clear" />
       </div>
     </main>
   );

@@ -90,7 +90,7 @@ export default function ForgeSector({ config }) {
   const getNested = (obj, path) => path.split('.').reduce((o, k) => (o ? o[k] : undefined), obj);
 
   return (
-    <main className="min-h-screen bg-black text-white p-6 md:p-8 font-mono">
+    <main className="min-h-dvh bg-black text-white p-6 md:p-8 font-mono">
       <div className="max-w-6xl mx-auto flex flex-col gap-8">
         <header className="border-b pb-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4" style={{ borderColor: accent }}>
           <div>

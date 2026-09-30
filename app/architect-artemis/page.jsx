@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { BackButton } from '@/components/ui';
 import {
   MODE_LABEL,
   PERSONA,
@@ -225,7 +226,7 @@ export default function ArchitectArtemisPage() {
       `}</style>
 
       <header style={styles.header}>
-        <a href="/" style={styles.backLink}>← Launcher</a>
+        <BackButton label="Launcher" />
         <div style={styles.titleBlock}>
           <h1 style={styles.title}>Architect Artemis</h1>
           <p style={styles.subtitle}>{PERSONA.tagline}</p>

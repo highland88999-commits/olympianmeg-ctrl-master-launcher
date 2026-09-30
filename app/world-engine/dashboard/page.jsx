@@ -75,7 +75,7 @@ export default function WorldEngineDashboard() {
           Aether credits (or one of your 20 free monthly generations). Everything you
           generate is saved to your personal library.
         </p>
-      <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+      <div aria-hidden="true" className="player-clear" />
       </div>
     </main>
   );

@@ -348,7 +348,7 @@ function TouchControls({ inputRef, autopilotRef, visible }) {
       {/* left half: steer stick */}
       <div
         ref={leftRef}
-        className="absolute left-0 bottom-0 w-1/2 h-[46%] touch-none"
+        className="absolute left-0 bottom-0 w-1/2 h-[46%] touch-none z-30"
         style={{ touchAction: 'none' }}
         onPointerDown={(e) => {
           stopAuto();
@@ -379,7 +379,7 @@ function TouchControls({ inputRef, autopilotRef, visible }) {
         }}
         aria-label="Steer stick"
       >
-        <div className="absolute left-8 bottom-10 w-28 h-28 rounded-full border-2 border-white/25 bg-white/5">
+        <div className="absolute left-8 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] w-28 h-28 rounded-full border-2 border-white/25 bg-white/5">
           <div
             className="absolute w-14 h-14 rounded-full bg-cyan-300/70 border border-cyan-100/60"
             style={{
@@ -388,14 +388,14 @@ function TouchControls({ inputRef, autopilotRef, visible }) {
             }}
           />
         </div>
-        <div className="absolute left-8 bottom-40 text-[10px] uppercase tracking-[0.25em] text-white/50">
+        <div className="absolute left-8 bottom-[calc(13rem+env(safe-area-inset-bottom))] text-[10px] uppercase tracking-[0.25em] text-white/50">
           Steer
         </div>
       </div>
       {/* right half: thrust slider */}
       <div
         ref={rightRef}
-        className="absolute right-0 bottom-0 w-1/2 h-[46%] touch-none"
+        className="absolute right-0 bottom-0 w-1/2 h-[46%] touch-none z-30"
         style={{ touchAction: 'none' }}
         onPointerDown={(e) => {
           stopAuto();
@@ -422,7 +422,7 @@ function TouchControls({ inputRef, autopilotRef, visible }) {
         }}
         aria-label="Thrust slider"
       >
-        <div className="absolute right-10 bottom-10 w-16 h-40 rounded-full border-2 border-white/25 bg-white/5 overflow-hidden">
+        <div className="absolute right-10 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] w-16 h-40 rounded-full border-2 border-white/25 bg-white/5 overflow-hidden">
           <div
             className="absolute bottom-0 left-0 right-0 bg-amber-300/60"
             style={{ height: `${Math.max(0, slide) * 100}%` }}
@@ -432,7 +432,7 @@ function TouchControls({ inputRef, autopilotRef, visible }) {
             style={{ height: `${Math.max(0, -slide) * 100}%` }}
           />
         </div>
-        <div className="absolute right-10 bottom-52 text-[10px] uppercase tracking-[0.25em] text-white/50">
+        <div className="absolute right-10 bottom-[calc(16rem+env(safe-area-inset-bottom))] text-[10px] uppercase tracking-[0.25em] text-white/50">
           Thrust
         </div>
       </div>
@@ -706,7 +706,7 @@ export default function NovaPage() {
 
       {/* garage */}
       {phase === 'garage' && (
-        <div className="absolute bottom-0 left-0 right-0 md:left-6 md:right-auto md:top-1/2 md:-translate-y-1/2 md:bottom-auto md:w-[24rem] pointer-events-auto">
+        <div className="absolute bottom-[calc(5.5rem+env(safe-area-inset-bottom))] left-0 right-0 md:left-6 md:right-auto md:top-1/2 md:-translate-y-1/2 md:bottom-auto md:w-[24rem] pointer-events-auto">
           <div className="bg-zinc-950/90 border border-zinc-800 md:rounded-xl backdrop-blur-md p-4 max-h-[58vh] md:max-h-[82vh] overflow-y-auto pb-[max(1.25rem,env(safe-area-inset-bottom))]">
             <div className="text-[10px] tracking-[0.3em] uppercase text-cyan-300/80 mb-1">
               Tron bike garage
@@ -757,7 +757,7 @@ export default function NovaPage() {
 
       {/* board-the-gift button */}
       {nearGift && (
-        <div className="absolute bottom-0 left-0 right-0 flex justify-center pointer-events-none px-4 pb-[calc(4.5rem+env(safe-area-inset-bottom))]">
+        <div className="absolute bottom-0 left-0 right-0 flex justify-center pointer-events-none px-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] z-40">
           <button
             onClick={boardGift}
             className="pointer-events-auto min-h-[56px] px-8 rounded-2xl bg-amber-300 text-black text-base font-black tracking-[0.15em] uppercase shadow-[0_0_30px_rgba(252,211,77,0.45)] hover:bg-amber-200 transition-colors"
@@ -770,7 +770,7 @@ export default function NovaPage() {
       {/* gift interior plaque */}
       {phase === 'interior' && (
         <div className="absolute inset-0 flex items-end sm:items-center justify-center pointer-events-none p-4">
-          <div className="pointer-events-auto w-full max-w-md bg-zinc-950/92 border border-amber-200/30 rounded-2xl backdrop-blur-md p-6 max-h-[62vh] overflow-y-auto pb-[calc(4.5rem+env(safe-area-inset-bottom))]">
+          <div className="pointer-events-auto w-full max-w-md bg-zinc-950/92 border border-amber-200/30 rounded-2xl backdrop-blur-md p-6 max-h-[62vh] overflow-y-auto pb-[calc(5.5rem+env(safe-area-inset-bottom))]">
             <div className="text-[10px] tracking-[0.35em] uppercase text-amber-200/80 mb-3">
               Inside the gift
             </div>

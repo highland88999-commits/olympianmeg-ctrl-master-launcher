@@ -7,7 +7,7 @@
 // as the match progresses, high score wins.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { BackButton } from '@/components/ui';
 import {
   createGame,
   startGame,
@@ -35,7 +35,6 @@ const BEST_KEY = 'raptor_rush_best';
 const NAME_KEY = 'raptor_rush_name';
 
 export default function RaptorRushPage() {
-  const router = useRouter();
   const canvasRef = useRef(null);
   const gameRef = useRef(null);
   const rafRef = useRef(0);
@@ -413,10 +412,8 @@ export default function RaptorRushPage() {
             </div>
           </div>
 
-          <button onClick={() => router.push('/')} className="mt-8 text-zinc-600 text-xs tracking-[0.3em] uppercase hover:text-zinc-300 min-h-[44px]">
-            ← Back to the launcher
-          </button>
-          <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+          <BackButton label="Back to the launcher" />
+          <div aria-hidden="true" className="player-clear" />
         </div>
 
         {/* OASIS lobby (host/join need sign-in; guests get the disabled buttons) */}
@@ -452,7 +449,7 @@ export default function RaptorRushPage() {
       {/* HUD */}
       <div className="absolute top-0 left-0 right-0 flex items-start justify-between px-5 pt-4 pointer-events-none">
         <div className="text-left">
-          <div className="text-cyan-300 font-bold text-xl tracking-widest" style={{ textShadow: '0 0 12px #22d3ee' }}>
+          <div className="text-cyan-300 font-bold text-xl tracking-widest" style={{ textShadow: '0 0 12px #00f2ff' }}>
             SCORE {score}
           </div>
           <div className="text-emerald-300 text-sm tracking-widest mt-1">RABBITS {prey}</div>
@@ -469,14 +466,14 @@ export default function RaptorRushPage() {
           {isParty ? (
             <>
               <div className={`font-bold text-xl tracking-widest ${clock != null && clock <= 10 ? 'text-red-400 animate-pulse' : 'text-amber-300'}`}
-                style={{ textShadow: '0 0 12px #fbbf24' }}>
+                style={{ textShadow: '0 0 12px #ffd700' }}>
                 {clock != null ? `${Math.floor(clock / 60)}:${String(clock % 60).padStart(2, '0')}` : '—'}
               </div>
               <div className="text-zinc-400 text-sm tracking-widest mt-1">BEST {best}</div>
             </>
           ) : (
             <>
-              <div className="text-amber-300 font-bold text-xl tracking-widest" style={{ textShadow: '0 0 12px #fbbf24' }}>
+              <div className="text-amber-300 font-bold text-xl tracking-widest" style={{ textShadow: '0 0 12px #ffd700' }}>
                 {meters} m
               </div>
               <div className="text-zinc-400 text-sm tracking-widest mt-1">BEST {best}</div>

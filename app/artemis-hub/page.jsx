@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { BackButton } from '@/components/ui';
 import { HUB_TITLE, HUB_TAGLINE, SIMULATED_NOTE, MODULE_CARDS, STATUS_READOUTS } from './data';
 
 const ACCENT = '#00f2ff';
@@ -113,7 +114,7 @@ export default function ArtemisHubPage() {
   return (
     <main style={styles.page}>
       <header style={styles.top}>
-        <a href="/" style={styles.backLink}>← Launcher</a>
+        <BackButton label="Launcher" />
       </header>
 
       <section style={styles.hero}>

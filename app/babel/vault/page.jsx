@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import { supabase } from '@/lib/supabase';
 import {
   validateItem,
@@ -151,7 +152,7 @@ export default function MilesVaultPage() {
 
   if (!authChecked) {
     return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
+      <div className="min-h-dvh bg-black flex items-center justify-center">
         <p className="text-amber-200/60 tracking-[0.3em] uppercase text-xs animate-pulse">Opening the vault…</p>
       </div>
     );
@@ -159,7 +160,7 @@ export default function MilesVaultPage() {
 
   if (cloudOffline) {
     return (
-      <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-6 text-center">
+      <div className="min-h-dvh bg-black text-white flex flex-col items-center justify-center p-6 text-center">
         <h1 className="text-xl font-black tracking-[0.25em] text-amber-200 uppercase">Miles&apos; Vault</h1>
         <p className="text-zinc-400 mt-3 max-w-sm">
           Cloud features are offline — the vault needs the database connection. Nothing can be listed,
@@ -177,7 +178,7 @@ export default function MilesVaultPage() {
 
   if (!userId) {
     return (
-      <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-6 text-center">
+      <div className="min-h-dvh bg-black text-white flex flex-col items-center justify-center p-6 text-center">
         <h1 className="text-xl font-black tracking-[0.25em] text-amber-200 uppercase">Miles&apos; Vault</h1>
         <p className="text-zinc-400 mt-3 max-w-sm">Please sign in at the Master Hub first — the vault only opens for its keeper.</p>
         <button
@@ -191,7 +192,7 @@ export default function MilesVaultPage() {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white">
+    <div className="min-h-dvh bg-black text-white">
       <div className="max-w-2xl mx-auto px-4 py-6 sm:py-10">
         <div className="flex items-center justify-between">
           <div>
@@ -397,7 +398,7 @@ export default function MilesVaultPage() {
                   {openResult.kind === 'text' ? (
                     <pre className="whitespace-pre-wrap text-zinc-200 text-sm font-sans">{openResult.text}</pre>
                   ) : (
-                    <img src={openResult.url} alt={openItem.name} className="w-full rounded" />
+                    <Image src={openResult.url} alt={openItem.name} width={800} height={600} className="w-full h-auto rounded" />
                   )}
                 </div>
                 <button
@@ -411,7 +412,7 @@ export default function MilesVaultPage() {
           </div>
         </div>
       )}
-      <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+      <div aria-hidden="true" className="player-clear" />
     </div>
   );
 }

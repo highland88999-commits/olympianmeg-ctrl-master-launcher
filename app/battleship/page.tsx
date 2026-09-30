@@ -4,6 +4,7 @@ import { OrbitControls, Environment } from '@react-three/drei'
 import { EffectComposer, Bloom } from '@react-three/postprocessing'
 import { useEffect, useState, Suspense } from 'react'
 import { useRouter } from 'next/navigation'
+import { BackButton } from '@/components/ui'
 import { supabase } from '@/lib/supabase'
 
 import GameBoard from '@/components/battleship/GameBoard'
@@ -60,32 +61,22 @@ export default function Game() {
   }, [router])
 
   if (cloudOffline) return (
-    <div className="w-screen h-screen bg-black flex items-center justify-center p-8">
+    <div className="w-screen h-dvh bg-black flex items-center justify-center p-8">
       <div className="max-w-md text-center">
         <p className="text-zinc-300 tracking-widest uppercase text-sm mb-3">Cloud features are offline</p>
         <p className="text-zinc-500 text-sm mb-6">
           This page needs the database connection. Check back once the cloud is connected.
         </p>
-        <button
-          onClick={() => router.push('/')}
-          className="px-6 py-3 text-xs font-bold tracking-widest text-zinc-400 uppercase border rounded bg-black/80 border-zinc-700 hover:text-fuchsia-400 hover:border-fuchsia-400"
-        >
-          ← Back to the launcher
-        </button>
+        <BackButton label="Back to the launcher" />
       </div>
     </div>
   )
 
-  if (!mounted || !session) return <div className="w-screen h-screen bg-black" />
+  if (!mounted || !session) return <div className="w-screen h-dvh bg-black" />
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-black">
-      <button 
-        onClick={() => router.push('/')}
-        className="absolute z-50 px-4 py-2 text-xs font-bold tracking-widest text-zinc-400 uppercase transition-colors border rounded top-5 right-5 bg-black/80 border-zinc-700 hover:text-fuchsia-400 hover:border-fuchsia-400"
-      >
-        EXIT MATRIX
-      </button>
+    <div className="relative w-screen h-dvh overflow-hidden bg-black">
+      <BackButton label="EXIT MATRIX" />
 
       {!roomId && <Lobby />}
       {/* OASIS adapter: /battleship?code=XXXXXX auto-joins a linked lobby. */}
@@ -99,7 +90,7 @@ export default function Game() {
             <color attach="background" args={['#050505']} />
             
             <ambientLight intensity={0.2} />
-            <directionalLight position={[10, 10, 5]} intensity={2} color="#00ffff" castShadow />
+            <directionalLight position={[10, 10, 5]} intensity={2} color="#00f2ff" castShadow />
             <directionalLight position={[-10, 10, -5]} intensity={1} color="#ff00ff" />
             
             <Suspense fallback={null}>
@@ -135,7 +126,7 @@ export default function Game() {
         </>
       )}
       {/* Safari bottom-bar clearance */}
-      <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
+      <div aria-hidden="true" className="player-clear" />
     </div>
   )
 }

@@ -6,7 +6,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { BackButton } from '@/components/ui';
 import { createTour, STATES, PLANETS, SUN, pickQualityTier, logFor } from './tour.js';
 import { createSolarScene } from './solarSystem.js';
 
@@ -17,7 +17,6 @@ function colorStyle(hex) {
 }
 
 export default function HerculesPage() {
-  const router = useRouter();
   const canvasRef = useRef(null);
   const sceneRef = useRef(null);
   const tourRef = useRef(null);
@@ -142,13 +141,7 @@ export default function HerculesPage() {
       />
 
       {/* Back */}
-      <button
-        onClick={() => router.back()}
-        className="absolute top-4 left-4 z-30 min-w-[44px] min-h-[44px] px-4 flex items-center justify-center rounded-full bg-black/60 border border-amber-400/30 text-amber-200 text-sm tracking-widest uppercase hover:bg-amber-400/20"
-        aria-label="Back to all worlds"
-      >
-        ‹ Worlds
-      </button>
+      <BackButton label="Worlds" />
 
       {reducedMotion && (
         <div className="absolute bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 z-20 text-[10px] tracking-widest uppercase text-zinc-500 pointer-events-none">

@@ -18,17 +18,17 @@ const MAIL_COUNT = 160;
 const CSS = `
 .op-wrap { position: fixed; inset: 0; background: #010103; overflow: hidden; font-family: ui-monospace, Menlo, Consolas, monospace; }
 .op-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-.op-ui { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; text-align: center; color: #00ffff; }
+.op-ui { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; text-align: center; color: #00f2ff; }
 .op-landing { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: opacity 1.2s ease-out; cursor: pointer; }
-.op-title { font-size: clamp(1.5rem, 5vw, 3rem); letter-spacing: 6px; padding: 0 20px; text-shadow: 0 0 25px #00ffff, 0 0 60px #ff00ff; z-index: 2; color: #ffffff; animation: opFloat 4.5s ease-in-out infinite; }
+.op-title { font-size: clamp(1.5rem, 5vw, 3rem); letter-spacing: 6px; padding: 0 20px; text-shadow: 0 0 25px #00f2ff, 0 0 60px #ff00ff; z-index: 2; color: #ffffff; animation: opFloat 4.5s ease-in-out infinite; }
 .op-ticker { font-size: clamp(0.85rem, 2.5vw, 1.15rem); letter-spacing: 4px; color: #ff00ff; margin-top: 18px; z-index: 2; animation: opTicker 1.6s linear infinite; }
-.op-hint { position: absolute; bottom: 12%; font-size: clamp(1rem, 3vw, 1.5rem); letter-spacing: 5px; text-shadow: 0 0 15px #00ffff; opacity: 0; transition: opacity 1.5s ease-in; z-index: 3; pointer-events: none; }
-.op-hud { position: absolute; left: 12px; bottom: 12px; z-index: 30; background: rgba(1,1,8,0.8); border: 1px solid rgba(0,255,255,0.4); border-radius: 6px; padding: 12px 14px; color: #9ff; font-size: 0.8rem; line-height: 1.7; max-width: min(320px, 80vw); }
+.op-hint { position: absolute; bottom: 12%; font-size: clamp(1rem, 3vw, 1.5rem); letter-spacing: 5px; text-shadow: 0 0 15px #00f2ff; opacity: 0; transition: opacity 1.5s ease-in; z-index: 3; pointer-events: none; }
+.op-hud { position: absolute; left: 12px; bottom: 12px; z-index: 30; background: rgba(1,1,8,0.8); border: 1px solid rgba(0,242,255,0.4); border-radius: 6px; padding: 12px 14px; color: #9ff; font-size: 0.8rem; line-height: 1.7; max-width: min(320px, 80vw); }
 .op-hud b { color: #fff; }
 .op-controls { position: absolute; right: 12px; bottom: 12px; z-index: 30; display: flex; flex-direction: column; gap: 8px; }
-.op-btn { background: rgba(1,1,8,0.8); border: 1px solid #00ffff; color: #00ffff; font-family: inherit; font-size: 0.8rem; letter-spacing: 2px; padding: 12px 16px; cursor: pointer; border-radius: 4px; min-height: 44px; }
-.op-btn:hover { background: rgba(0,255,255,0.15); }
-.op-slider { display: flex; align-items: center; gap: 8px; color: #9ff; font-size: 0.75rem; background: rgba(1,1,8,0.8); border: 1px solid rgba(0,255,255,0.4); border-radius: 4px; padding: 10px 12px; }
+.op-btn { background: rgba(1,1,8,0.8); border: 1px solid #00f2ff; color: #00f2ff; font-family: inherit; font-size: 0.8rem; letter-spacing: 2px; padding: 12px 16px; cursor: pointer; border-radius: 4px; min-height: 44px; }
+.op-btn:hover { background: rgba(0,242,255,0.15); }
+.op-slider { display: flex; align-items: center; gap: 8px; color: #9ff; font-size: 0.75rem; background: rgba(1,1,8,0.8); border: 1px solid rgba(0,242,255,0.4); border-radius: 4px; padding: 10px 12px; }
 @keyframes opTicker { 0%,100% { opacity: 0.35; } 50% { opacity: 1; } }
 @keyframes opFloat { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-12px); } }
 `;
@@ -66,7 +66,7 @@ export default function OmegaPostalPage() {
         speedA: 0.01 + Math.random() * 0.02,
         state: 'SORTING',
         dirX: 0, dirZ: 0,
-        color: r < 0.4 ? '#00ffff' : r < 0.8 ? '#ff00ff' : '#ffd700',
+        color: r < 0.4 ? '#00f2ff' : r < 0.8 ? '#ff00ff' : '#ffd700',
         burst: false,
       });
     }
@@ -82,9 +82,9 @@ export default function OmegaPostalPage() {
     };
 
     const rings = [
-      { radius: 180, y: 150, color: '#00ffff', speed: 0.5 },
+      { radius: 180, y: 150, color: '#00f2ff', speed: 0.5 },
       { radius: 150, y: 300, color: '#ff00ff', speed: -0.5 },
-      { radius: 120, y: 450, color: '#00ffff', speed: 0.5 },
+      { radius: 120, y: 450, color: '#00f2ff', speed: 0.5 },
       { radius: 100, y: 600, color: '#ffd700', speed: -0.5 },
     ];
 
@@ -159,7 +159,7 @@ export default function OmegaPostalPage() {
       }
 
       // Floor grid.
-      ctx.strokeStyle = 'rgba(0,255,255,0.18)';
+      ctx.strokeStyle = 'rgba(0,242,255,0.18)';
       ctx.lineWidth = 1;
       for (let gx = -2000; gx <= 2000; gx += 200) {
         const a = project(gx, 0, -2000, cam, w, h);
@@ -187,7 +187,7 @@ export default function OmegaPostalPage() {
         grad.addColorStop(1, '#0a0a12');
         ctx.fillStyle = grad;
         ctx.fillRect(base.x - tw, top.y, tw * 2, base.y - top.y);
-        ctx.strokeStyle = 'rgba(0,255,255,0.5)';
+        ctx.strokeStyle = 'rgba(0,242,255,0.5)';
         ctx.strokeRect(base.x - tw, top.y, tw * 2, base.y - top.y);
       }
 
@@ -339,7 +339,7 @@ export default function OmegaPostalPage() {
       )}
     </div>
     {/* Safari bottom-bar clearance: blank space under the fixed game viewport */}
-    <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+    <div aria-hidden="true" className="player-clear" />
     </>
   );
 }

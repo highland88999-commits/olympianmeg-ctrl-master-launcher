@@ -3,6 +3,7 @@
 'use client';
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import { supabase } from '@/lib/supabase';
 
 // Chambers of the lair — the MEDUSA section hub docks every MEDUSA-wave module here.
@@ -53,7 +54,7 @@ export default function MedusasLair() {
       }
       if (!session) {
         if (window.top === window.self) router.push('/');
-        else document.body.innerHTML = '<div style="color:#00f3ff; text-align:center; padding:50px;">UNAUTHORIZED. PLEASE LOG IN AT MASTER HUB.</div>';
+        else document.body.innerHTML = '<div style="color:#00f2ff; text-align:center; padding:50px;">UNAUTHORIZED. PLEASE LOG IN AT MASTER HUB.</div>';
         return;
       }
       setMounted(true);
@@ -263,13 +264,13 @@ export default function MedusasLair() {
       }
   };
 
-  if (!mounted) return <div className="bg-[#030305] w-screen h-screen"></div>;
+  if (!mounted) return <div className="bg-[#030305] w-screen h-dvh"></div>;
 
   return (
     <>
       <button 
         onClick={() => router.push('/')} 
-        className="absolute z-[9999] px-4 py-2 text-[10px] font-bold tracking-widest text-[#00f3ff] uppercase transition-colors border rounded top-5 right-5 bg-black/80 border-[#00f3ff] hover:text-black hover:bg-[#00f3ff]"
+        className="absolute z-[9999] px-4 py-2 text-[10px] font-bold tracking-widest text-[#00f2ff] uppercase transition-colors border rounded top-5 right-5 bg-black/80 border-[#00f2ff] hover:text-black hover:bg-[#00f2ff]"
       >
         EXIT LAIR
       </button>
@@ -289,8 +290,8 @@ export default function MedusasLair() {
       {/* UI Overlay */}
       <div className="absolute inset-0 z-[10] flex flex-col items-center overflow-y-auto pb-20 custom-scrollbar">
         
-        <header className="w-full p-4 bg-gradient-to-r from-black to-[#030305] border-b-2 border-[#00f3ff] flex justify-between items-center shadow-[0_0_15px_rgba(0,243,255,0.2)]">
-            <div className="text-2xl font-bold text-white drop-shadow-[0_0_8px_#00f3ff] tracking-widest">MEDUSA'S ⚡ LAIR</div>
+        <header className="w-full p-4 bg-gradient-to-r from-black to-[#030305] border-b-2 border-[#00f2ff] flex justify-between items-center shadow-[0_0_15px_rgba(0,243,255,0.2)]">
+            <div className="text-2xl font-bold text-white drop-shadow-[0_0_8px_#00f2ff] tracking-widest">MEDUSA'S ⚡ LAIR</div>
             <div className="text-sm text-[#bc00ff] drop-shadow-[0_0_5px_#bc00ff] hidden sm:block">[ AUTH: ARTEMIS ] // SYSTEM: ONLINE</div>
         </header>
 
@@ -314,12 +315,12 @@ export default function MedusasLair() {
                         <button
                             key={c.route}
                             onClick={() => router.push(c.route)}
-                            className="text-left border border-[#00f3ff]/40 bg-black/50 p-4 flex flex-col gap-2 hover:border-[#00f3ff] hover:bg-[#00f3ff]/10 transition-all group min-h-[44px]"
+                            className="text-left border border-[#00f2ff]/40 bg-black/50 p-4 flex flex-col gap-2 hover:border-[#00f2ff] hover:bg-[#00f2ff]/10 transition-all group min-h-[44px]"
                         >
-                            <div className="text-[#00f3ff] font-bold tracking-widest text-sm group-hover:text-white">{c.name}</div>
+                            <div className="text-[#00f2ff] font-bold tracking-widest text-sm group-hover:text-white">{c.name}</div>
                             <div className="text-[10px] text-[#bc00ff] tracking-widest uppercase">{c.epithet}</div>
                             <div className="text-xs text-zinc-400 leading-relaxed">{c.desc}</div>
-                            <div className="text-[10px] text-[#00f3ff] tracking-widest uppercase mt-auto pt-2">Enter →</div>
+                            <div className="text-[10px] text-[#00f2ff] tracking-widest uppercase mt-auto pt-2">Enter →</div>
                         </button>
                     ))}
                 </div>
@@ -328,20 +329,20 @@ export default function MedusasLair() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             
                 {/* Control Panel */}
-                <div className="bg-[rgba(10,10,15,0.85)] border border-[#00f3ff] p-5 flex flex-col gap-4 backdrop-blur-md">
-                    <div className="text-lg text-[#00f3ff] border-b border-[#00f3ff] pb-1">UPLINK COMMAND</div>
+                <div className="bg-[rgba(10,10,15,0.85)] border border-[#00f2ff] p-5 flex flex-col gap-4 backdrop-blur-md">
+                    <div className="text-lg text-[#00f2ff] border-b border-[#00f2ff] pb-1">UPLINK COMMAND</div>
                     <textarea 
                         value={promptText}
                         onChange={(e) => setPromptText(e.target.value)}
                         rows={4} 
                         placeholder="Command Medusa... (e.g., 'Turn to stone a cyberpunk warrior')"
-                        className="bg-black/50 border border-[#00f3ff] text-[#00f3ff] p-3 resize-y outline-none focus:shadow-[0_0_8px_rgba(0,243,255,0.5)]"
+                        className="bg-black/50 border border-[#00f2ff] text-[#00f2ff] p-3 resize-y outline-none focus:shadow-[0_0_8px_rgba(0,243,255,0.5)]"
                     />
                     <input 
                         type="file" 
                         onChange={(e) => setFile(e.target.files[0])}
                         accept="image/*" 
-                        className="bg-black/50 border border-[#00f3ff] text-[#00f3ff] p-2"
+                        className="bg-black/50 border border-[#00f2ff] text-[#00f2ff] p-2"
                     />
                     <button 
                         onClick={triggerGeminiUplink}
@@ -353,30 +354,30 @@ export default function MedusasLair() {
                 </div>
 
                 {/* Session Logs */}
-                <div className="bg-[rgba(10,10,15,0.85)] border border-[#00f3ff] p-5 flex flex-col gap-4 backdrop-blur-md max-h-[400px]">
-                    <div className="text-lg text-[#00f3ff] border-b border-[#00f3ff] pb-1">SESSION LOGS</div>
+                <div className="bg-[rgba(10,10,15,0.85)] border border-[#00f2ff] p-5 flex flex-col gap-4 backdrop-blur-md max-h-[400px]">
+                    <div className="text-lg text-[#00f2ff] border-b border-[#00f2ff] pb-1">SESSION LOGS</div>
                     <div className="flex flex-col gap-2 overflow-y-auto custom-scrollbar pr-2">
                         {logs.map((log, idx) => (
                             <div key={idx} className={`p-3 text-sm ${log[1].includes('CRITICAL ERROR') ? 'bg-red-900/20 border-l-4 border-red-500 text-white' : 'bg-[#bc00ff]/10 border-l-4 border-[#bc00ff] text-white'}`}>
-                                <div className="text-[#00f3ff] mb-1">Q: {log[0]}</div>
+                                <div className="text-[#00f2ff] mb-1">Q: {log[0]}</div>
                                 {log[1] === "ARCHIVED_IMAGE" ? <span className="text-[#bc00ff]">[ IMAGE PETRIFIED AND ARCHIVED ]</span> : <div>{log[1]}</div>}
                             </div>
                         ))}
                         {logs.length === 0 && <div className="text-zinc-500 italic">No comms established in this session.</div>}
                         {/* Safari bottom-bar clearance */}
-                        <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))] shrink-0" />
+                        <div aria-hidden="true" className="player-clear shrink-0" />
                     </div>
                 </div>
 
             </div>
 
             {/* Artifact Gallery */}
-            <div className="bg-[rgba(10,10,15,0.85)] border border-[#00f3ff] p-5 flex flex-col gap-4 backdrop-blur-md mb-10">
-                <div className="text-lg text-[#00f3ff] border-b border-[#00f3ff] pb-1">LAIR ARTIFACTS // CLOUD ARCHIVE</div>
+            <div className="bg-[rgba(10,10,15,0.85)] border border-[#00f2ff] p-5 flex flex-col gap-4 backdrop-blur-md mb-10">
+                <div className="text-lg text-[#00f2ff] border-b border-[#00f2ff] pb-1">LAIR ARTIFACTS // CLOUD ARCHIVE</div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
                     {gallery.map((item, idx) => (
-                        <div key={idx} className="border border-[#bc00ff] bg-black p-1 transition-transform hover:scale-105 hover:border-[#00f3ff] cursor-pointer" onClick={() => window.open(item.url, '_blank')}>
-                            <img src={item.url} alt="Artifact" className="w-full aspect-square object-cover" />
+                        <div key={idx} className="border border-[#bc00ff] bg-black p-1 transition-transform hover:scale-105 hover:border-[#00f2ff] cursor-pointer" onClick={() => window.open(item.url, '_blank')}>
+                            <Image src={item.url} alt="Artifact" width={600} height={600} unoptimized className="w-full aspect-square object-cover" />
                         </div>
                     ))}
                     {gallery.length === 0 && (
@@ -389,7 +390,7 @@ export default function MedusasLair() {
 
         </div>
         {/* Safari bottom-bar clearance */}
-        <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))] shrink-0" />
+        <div aria-hidden="true" className="player-clear shrink-0" />
       </div>
     </>
   );

@@ -79,7 +79,7 @@ export default function AgoraFeed() {
   };
 
   return (
-    <main className="relative min-h-screen bg-black text-white">
+    <main className="relative min-h-dvh bg-black text-white">
       <Starfield />
       <div className="relative z-10 mx-auto max-w-3xl px-4 pb-24 pt-10">
         <header className="mb-6">
@@ -151,7 +151,7 @@ export default function AgoraFeed() {
         </footer>
 
         {/* Safari bottom-bar clearance: keeps last content above the browser bar */}
-        <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+        <div aria-hidden="true" className="player-clear" />
       </div>
     </main>
   );

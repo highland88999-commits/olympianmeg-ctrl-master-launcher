@@ -10,6 +10,7 @@ import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPa
 import gsap from "gsap";
 import JSZip from "jszip";
 import { useRouter } from 'next/navigation';
+import { BackButton } from '@/components/ui';
 import { supabase } from '@/lib/supabase';
 
 import HoloframeViewer from "@/components/fortress/HoloframeViewer";
@@ -57,7 +58,7 @@ export default function FortressApp() {
             loadedMatrix = Array.from({length: 12}).map((_, i) => ({
                 id: `node_${Date.now()}_${i}`,
                 name: `Crystal ${i + 1}`,
-                color: '#00ffff',
+                color: '#00f2ff',
                 fileStorageKey: "",
                 rawSize: 0,
                 height: 4 + Math.random() * 1.5
@@ -81,7 +82,11 @@ export default function FortressApp() {
       setCloudOffline(true)
     }
 
-    return () => subscription?.unsubscribe()
+    return () => {
+      subscription?.unsubscribe();
+      // Stop the three.js engine loop + resize listener on unmount (Phase 2b).
+      try { (engineRef.current as any)?.dispose?.(); } catch { /* noop */ }
+    }
   }, [router]);
 
   const syncDatabase = async (newMatrix: any[]) => {
@@ -164,20 +169,28 @@ export default function FortressApp() {
 
     engineRef.current = { scene, camera, renderer, composer, controls, carouselGroup, outerDome, floorMesh };
 
+    let rafId = 0;
     const animate = () => {
-      requestAnimationFrame(animate);
+      rafId = requestAnimationFrame(animate);
       controls.update();
       carouselGroup.rotation.y += 0.0015;
       composer.render();
     };
     animate();
 
-    window.addEventListener('resize', () => {
+    const handleEngineResize = () => {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
       composer.setSize(window.innerWidth, window.innerHeight);
-    });
+    };
+    window.addEventListener('resize', handleEngineResize);
+
+    // Cleanup handle so unmount stops the loop + listener (Phase 2b).
+    engineRef.current.dispose = () => {
+      cancelAnimationFrame(rafId);
+      window.removeEventListener('resize', handleEngineResize);
+    };
   };
 
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -443,7 +456,7 @@ export default function FortressApp() {
       const newNodeData = {
           id: `node_${Date.now()}_new`,
           name: `Crystal ${matrixData.length + 1}`,
-          color: '#00ffff',
+          color: '#00f2ff',
           fileStorageKey: "",
           rawSize: 0,
           height: newHeight
@@ -461,7 +474,7 @@ export default function FortressApp() {
           new THREE.CylinderGeometry(0.5, 0.4, newHeight, 6), 
           new THREE.MeshStandardMaterial({ 
             map: new THREE.TextureLoader().load('/IMG_2876.png'), 
-            color: '#00ffff', emissive: '#00ffff', emissiveIntensity: 0.4, 
+            color: '#00f2ff', emissive: '#00f2ff', emissiveIntensity: 0.4, 
             metalness: 0.9, roughness: 0.1, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending 
           })
       );
@@ -473,32 +486,22 @@ export default function FortressApp() {
   }
 
   if (cloudOffline) return (
-    <div className="w-screen h-screen bg-black flex items-center justify-center p-8">
+    <div className="w-screen h-dvh bg-black flex items-center justify-center p-8">
       <div className="max-w-md text-center">
         <p className="text-zinc-300 tracking-widest uppercase text-sm mb-3">Cloud features are offline</p>
         <p className="text-zinc-500 text-sm mb-6">
           This page needs the database connection. Check back once the cloud is connected.
         </p>
-        <button
-          onClick={() => router.push('/')}
-          className="px-4 py-2 text-[10px] font-bold tracking-widest text-zinc-400 uppercase transition-colors border rounded bg-black/80 border-zinc-700 hover:text-fuchsia-400 hover:border-fuchsia-400"
-        >
-          Exit matrix
-        </button>
+        <BackButton label="Exit matrix" />
       </div>
     </div>
   )
 
-  if (!mounted || !user) return <div className="w-screen h-screen bg-black" />
+  if (!mounted || !user) return <div className="w-screen h-dvh bg-black" />
 
   return (
     <div className="w-full h-full relative">
-      <button 
-        onClick={() => router.push('/')} 
-        className="absolute z-[9999] px-4 py-2 text-[10px] font-bold tracking-widest text-zinc-400 uppercase transition-colors border rounded top-5 right-5 bg-black/80 border-zinc-700 hover:text-fuchsia-400 hover:border-fuchsia-400"
-      >
-        EXIT MATRIX
-      </button>
+      <BackButton label="EXIT MATRIX" />
 
       <div 
         ref={canvasContainerRef} 
@@ -520,13 +523,13 @@ export default function FortressApp() {
         />
       </div>
 
-      <button onClick={handleRecenter} className="fixed top-20 right-6 z-10 w-12 h-12 rounded-full glass-panel flex items-center justify-center text-cyan-400 text-xl hover:bg-cyan-400 hover:text-black transition-all pointer-events-auto shadow-[0_0_15px_rgba(0,255,255,0.3)]">⌖</button>
+      <button onClick={handleRecenter} className="fixed top-20 right-6 z-10 w-12 h-12 rounded-full glass-panel flex items-center justify-center text-cyan-400 text-xl hover:bg-cyan-400 hover:text-black transition-all pointer-events-auto shadow-[0_0_15px_rgba(0,242,255,0.3)]">⌖</button>
 
       {longPressedNode && (
         <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none bg-black/40 backdrop-blur-sm">
-          <div className="glass-panel p-8 rounded-2xl flex flex-col items-center justify-center border-cyan-400 shadow-[0_0_50px_rgba(0,255,255,0.4)] animate-pulse min-w-[280px]">
+          <div className="glass-panel p-8 rounded-2xl flex flex-col items-center justify-center border-cyan-400 shadow-[0_0_50px_rgba(0,242,255,0.4)] animate-pulse min-w-[280px]">
              <span className="text-cyan-400 tracking-widest text-xs mb-2">TARGET LOCKED</span>
-             <h2 className="text-3xl text-white font-bold tracking-widest drop-shadow-[0_0_10px_#00ffff] mb-4">
+             <h2 className="text-3xl text-white font-bold tracking-widest drop-shadow-[0_0_10px_#00f2ff] mb-4">
                 {longPressedNode.name}
              </h2>
              {longPressedNode.fileStorageKey ? (
@@ -539,7 +542,7 @@ export default function FortressApp() {
       )}
 
       {selectedNodeData && !longPressedNode && (
-         <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 glass-panel p-6 rounded-2xl flex flex-col gap-5 w-11/12 max-w-[320px] shadow-[0_0_50px_rgba(0,255,255,0.15)] pointer-events-auto">
+         <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 glass-panel p-6 rounded-2xl flex flex-col gap-5 w-11/12 max-w-[320px] shadow-[0_0_50px_rgba(0,242,255,0.15)] pointer-events-auto">
             <input 
               type="text" 
               value={selectedNodeData.name} 
@@ -567,7 +570,7 @@ export default function FortressApp() {
       <div className="fixed bottom-[max(1.5rem,env(safe-area-inset-bottom))] left-6 z-20 flex flex-col-reverse items-start gap-4 pointer-events-auto">
         <button 
             onClick={() => setIsMenuOpen(!isMenuOpen)}
-            className={`w-14 h-14 rounded-full glass-panel flex items-center justify-center text-cyan-400 transition-all duration-300 ${isMenuOpen ? 'rotate-45 shadow-[0_0_20px_#00ffff]' : 'shadow-[0_0_15px_rgba(0,255,255,0.2)]'}`}
+            className={`w-14 h-14 rounded-full glass-panel flex items-center justify-center text-cyan-400 transition-all duration-300 ${isMenuOpen ? 'rotate-45 shadow-[0_0_20px_#00f2ff]' : 'shadow-[0_0_15px_rgba(0,242,255,0.2)]'}`}
         >
             <Plus size={28} />
         </button>
@@ -587,14 +590,14 @@ export default function FortressApp() {
                    <span>{(storageUsed / (1024*1024)).toFixed(2)} / 2000 MB</span>
                 </div>
                 <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
-                    <div className="h-full bg-cyan-400 shadow-[0_0_10px_#00ffff]" style={{ width: `${Math.min((storageUsed / (2000 * 1024 * 1024)) * 100, 100)}%` }} />
+                    <div className="h-full bg-cyan-400 shadow-[0_0_10px_#00f2ff]" style={{ width: `${Math.min((storageUsed / (2000 * 1024 * 1024)) * 100, 100)}%` }} />
                 </div>
             </div>
         </div>
       </div>
 
       {statusMsg && (
-          <div className="fixed top-[10%] left-1/2 -translate-x-1/2 z-50 glass-panel px-6 py-3 rounded-xl text-cyan-400 font-bold tracking-wider text-sm pointer-events-none shadow-[0_0_20px_rgba(0,255,255,0.3)] backdrop-blur-xl">
+          <div className="fixed top-[10%] left-1/2 -translate-x-1/2 z-50 glass-panel px-6 py-3 rounded-xl text-cyan-400 font-bold tracking-wider text-sm pointer-events-none shadow-[0_0_20px_rgba(0,242,255,0.3)] backdrop-blur-xl">
               {statusMsg}
           </div>
       )}

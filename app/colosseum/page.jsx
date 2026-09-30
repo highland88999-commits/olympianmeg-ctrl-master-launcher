@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { BackButton } from '@/components/ui';
 import { Pit } from '@/components/colosseum/Pit';
 import { ColosseumGame, ROUND_SECONDS, INJECTOR_MAX } from '@/lib/colosseum/game';
 import { SoundFX } from '@/lib/colosseum/audio';
@@ -18,7 +18,6 @@ function simulateNpcGlory(difficulty) {
 const fmtTime = (s) => `${Math.ceil(s)}s`;
 
 export default function ColosseumPage() {
-  const router = useRouter();
   const [screen, setScreen] = useState('menu'); // menu | game
   const [mode, setMode] = useState('arena'); // arena | boss
   const [match, setMatch] = useState(null); // OASIS launch payload
@@ -179,12 +178,7 @@ export default function ColosseumPage() {
     <div className="min-h-dvh bg-[#0a0a10] text-white flex flex-col" style={{ fontFamily: 'system-ui, sans-serif' }}>
       {screen === 'menu' && (
         <main className="flex-1 flex flex-col items-center px-5 py-8 max-w-xl mx-auto w-full">
-          <button
-            onClick={() => router.push('/')}
-            className="self-start text-sm text-white/50 hover:text-white/80 mb-6 min-h-[44px]"
-          >
-            ← Launcher
-          </button>
+          <BackButton label="Launcher" />
           <div className="text-5xl mb-2" aria-hidden>⚔️</div>
           <h1 className="text-4xl font-black tracking-widest text-center">COLOSSEUM</h1>
           <p className="text-white/60 text-center mt-2 mb-8">
@@ -501,7 +495,7 @@ export default function ColosseumPage() {
           )}
         </div>
       )}
-      <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+      <div aria-hidden="true" className="player-clear" />
     </div>
   );
 }

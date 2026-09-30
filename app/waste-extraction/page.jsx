@@ -10,16 +10,16 @@ const CSS = `
   position: relative; border-radius: 16px; overflow: hidden;
   background: rgba(15, 15, 25, 0.45); backdrop-filter: blur(12px);
   border: 1px solid rgba(0, 255, 255, 0.4);
-  box-shadow: 0 0 20px rgba(0,255,255,0.25), inset 0 0 20px rgba(255,0,255,0.12), 0 0 50px rgba(0,255,255,0.08);
+  box-shadow: 0 0 20px rgba(0,242,255,0.25), inset 0 0 20px rgba(255,0,255,0.12), 0 0 50px rgba(0,242,255,0.08);
   transition: box-shadow 0.3s ease-in-out;
 }
 .wx-frame:hover {
-  box-shadow: 0 0 28px rgba(0,255,255,0.38), inset 0 0 26px rgba(255,0,255,0.22), 0 0 70px rgba(0,255,255,0.14);
+  box-shadow: 0 0 28px rgba(0,242,255,0.38), inset 0 0 26px rgba(255,0,255,0.22), 0 0 70px rgba(0,242,255,0.14);
 }
 .wx-frame::before, .wx-frame::after {
   content: ''; position: absolute; width: 40px; height: 40px; pointer-events: none; z-index: 3;
 }
-.wx-frame::before { top: -1px; left: -1px; border-top: 2px solid #00ffff; border-left: 2px solid #00ffff; border-top-left-radius: 16px; }
+.wx-frame::before { top: -1px; left: -1px; border-top: 2px solid #00f2ff; border-left: 2px solid #00f2ff; border-top-left-radius: 16px; }
 .wx-frame::after { bottom: -1px; right: -1px; border-bottom: 2px solid #ff00ff; border-right: 2px solid #ff00ff; border-bottom-right-radius: 16px; }
 .wx-scan { position: relative; }
 .wx-scan::after {
@@ -206,7 +206,7 @@ export default function WasteExtractionPage() {
       <Backdrop />
 
       <header className="px-4 sm:px-6 py-4 text-center">
-        <div className="text-xl sm:text-2xl font-bold tracking-[0.3em]" style={{ textShadow: '0 0 12px rgba(0,255,255,0.55)' }}>
+        <div className="text-xl sm:text-2xl font-bold tracking-[0.3em]" style={{ textShadow: '0 0 12px rgba(0,242,255,0.55)' }}>
           HOLOFRAME NEXUS
         </div>
         <div className="text-[10px] tracking-[0.35em] text-cyan-300/60 mt-1">WASTE EXTRACTION // SIGNAL VIEWPORT</div>
@@ -262,7 +262,7 @@ export default function WasteExtractionPage() {
         <p className="mt-5 text-[11px] text-white/30 text-center max-w-lg">
           An ambient viewport. Every frame is drawn on this device in real time — no video files, no streams, nothing leaves the browser.
         </p>
-        <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+        <div aria-hidden="true" className="player-clear" />
       </main>
     </div>
   );

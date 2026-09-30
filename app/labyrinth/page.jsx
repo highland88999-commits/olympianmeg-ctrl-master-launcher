@@ -187,7 +187,7 @@ export default function LabyrinthPage() {
 
       {/* D-pad */}
       {phase === 'playing' && (
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10">
+        <div className="absolute bottom-[calc(5.5rem+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-10">
           <div className="grid grid-cols-3 gap-2">
             <div />
             <button aria-label="Move up" className={dpadBtn} onPointerDown={() => doMove(0, -1)}>▲</button>
@@ -238,7 +238,7 @@ export default function LabyrinthPage() {
         </Overlay>
       )}
       {/* Safari bottom-bar clearance */}
-      <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+      <div aria-hidden="true" className="player-clear" />
     </div>
   );
 }

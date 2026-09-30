@@ -299,7 +299,7 @@ export default function OmegaPinballPage() {
 
       {/* Plunger + mute controls */}
       {phase === 'playing' && (
-        <div className="absolute bottom-5 left-0 right-0 z-10 flex items-end justify-between px-5">
+        <div className="absolute bottom-[calc(5.5rem+env(safe-area-inset-bottom))] left-0 right-0 z-10 flex items-end justify-between px-5">
           <button
             onClick={() => setMuted((m) => !m)}
             aria-label={muted ? 'Unmute sounds' : 'Mute sounds'}
@@ -379,7 +379,7 @@ export default function OmegaPinballPage() {
       )}
     </div>
     {/* Safari bottom-bar clearance: blank space under the fixed game viewport */}
-    <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+    <div aria-hidden="true" className="player-clear" />
   </>
   );
 }

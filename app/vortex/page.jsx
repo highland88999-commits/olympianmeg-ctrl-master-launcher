@@ -334,7 +334,7 @@ function Forge({ onPreview }) {
           <svg className="vtx-sigil" width="110" height="110" viewBox="0 0 100 100">
             <polygon points="50,15 15,90 85,90" fill="#1a1405" stroke="#cca300" strokeWidth="1.5" />
             <path d="M 32,62 Q 50,44 68,62 Q 50,80 32,62 Z" fill="#0b0e14" stroke="#ffd700" strokeWidth="1.2" />
-            <circle cx="50" cy="62" r="7.5" fill="#00ffff" stroke="#ffffff" strokeWidth="0.8" />
+            <circle cx="50" cy="62" r="7.5" fill="#00f2ff" stroke="#ffffff" strokeWidth="0.8" />
             <circle cx="50" cy="62" r="3.2" fill="#020306" />
             <path d="M 51,42 L 42,59 L 49,59 L 45,76 L 59,55 L 50,55 Z" fill="#ffd700" />
           </svg>
@@ -496,7 +496,7 @@ function Forge({ onPreview }) {
       </div>
 
       <footer className="vtx-foot">⚡ VORTEX ⚡ PORTAL FORGE ⚡ SYNTHESIZED ON-DEVICE ⚡</footer>
-      <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+      <div aria-hidden="true" className="player-clear" />
     </div>
   );
 }
@@ -580,7 +580,7 @@ export default function VortexPage() {
           background: rgba(2,6,8,0.6); border: 1px solid #33414f; color: #9fb2c5;
           font: 700 0.7rem ui-monospace, Menlo, monospace; letter-spacing: 2px;
           padding: 10px 16px; border-radius: 999px; cursor: pointer; }
-        .vtx-skip:hover { border-color: #00ffff; color: #00ffff; }
+        .vtx-skip:hover { border-color: #00f2ff; color: #00f2ff; }
         .vtx-portal-title { position: absolute; inset: 0; z-index: 5; display: flex;
           flex-direction: column; align-items: center; justify-content: center; text-align: center;
           padding: 24px; opacity: 0; pointer-events: none; transition: opacity 1.2s ease;
@@ -601,7 +601,7 @@ export default function VortexPage() {
         .vtx-btn-primary:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
         .vtx-btn-ghost { background: rgba(255,255,255,0.04); border: 1px solid #33414f; color: #c8d6e2;
           padding: 12px 24px; font-size: 0.75rem; }
-        .vtx-btn-ghost:hover { border-color: #00ffff; color: #00ffff; }
+        .vtx-btn-ghost:hover { border-color: #00f2ff; color: #00f2ff; }
         .vtx-forge { display: flex; flex-direction: column; align-items: center; padding: 28px 18px 40px;
           max-width: 640px; margin: 0 auto; }
         .vtx-forge-head { text-align: center; margin-bottom: 8px; }
@@ -622,7 +622,7 @@ export default function VortexPage() {
         .vtx-input { width: 100%; padding: 16px 22px; background: rgba(255,255,255,0.03);
           border: 1px solid #2c3e50; border-radius: 999px; color: #fff; font-size: 1rem;
           font-family: inherit; text-align: center; outline: none; transition: border-color 0.2s, box-shadow 0.2s; }
-        .vtx-input:focus { border-color: #00ffff; box-shadow: 0 0 14px rgba(0,255,255,0.18); }
+        .vtx-input:focus { border-color: #00f2ff; box-shadow: 0 0 14px rgba(0,242,255,0.18); }
         .vtx-input-small { padding: 12px 18px; font-size: 0.9rem; }
         .vtx-error { margin-top: 14px; color: #ff6b81; font-size: 0.8rem; letter-spacing: 1px; text-align: center; }
         .vtx-terminal { width: 100%; max-width: 520px; margin-top: 22px; }
@@ -644,21 +644,21 @@ export default function VortexPage() {
         .vtx-share { text-align: center; }
         .vtx-code-row { display: flex; gap: 10px; align-items: center; justify-content: center; margin-top: 10px;
           flex-wrap: wrap; }
-        .vtx-code { font-size: 1.7rem; letter-spacing: 8px; color: #00ffff;
-          text-shadow: 0 0 14px rgba(0,255,255,0.5); padding: 8px 8px 8px 16px; }
+        .vtx-code { font-size: 1.7rem; letter-spacing: 8px; color: #00f2ff;
+          text-shadow: 0 0 14px rgba(0,242,255,0.5); padding: 8px 8px 8px 16px; }
         .vtx-note { font-size: 0.72rem; color: #6b7f92; line-height: 1.7; max-width: 440px; margin: 12px auto 0; }
         .vtx-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
         .vtx-actions-center { margin-top: 8px; }
         .vtx-again { background: none; border: none; color: #6b7f92; font: inherit; font-size: 0.78rem;
           letter-spacing: 2px; cursor: pointer; margin-top: 4px; }
-        .vtx-again:hover { color: #00ffff; }
+        .vtx-again:hover { color: #00f2ff; }
         .vtx-vault { width: 100%; max-width: 520px; margin-top: 30px; text-align: center; }
         .vtx-vault-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 12px; }
         .vtx-vault-item { display: flex; flex-direction: column; gap: 2px; align-items: center;
           background: rgba(255,255,255,0.02); border: 1px solid #1f3044; border-radius: 10px;
           padding: 10px; cursor: pointer; color: #c8d6e2; font: inherit; }
-        .vtx-vault-item:hover { border-color: #00ffff; }
-        .vtx-vault-code { color: #00ffff; letter-spacing: 3px; font-size: 0.85rem; }
+        .vtx-vault-item:hover { border-color: #00f2ff; }
+        .vtx-vault-code { color: #00f2ff; letter-spacing: 3px; font-size: 0.85rem; }
         .vtx-vault-name { font-size: 0.68rem; letter-spacing: 1px; color: #8fa3b8; }
         .vtx-foot { margin-top: 34px; font-size: 0.68rem; letter-spacing: 3px; color: #3d4f61; text-align: center; }
         @media (prefers-reduced-motion: reduce) {

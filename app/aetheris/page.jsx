@@ -9,7 +9,7 @@ export default function AetherisPage() {
   const [tab, setTab] = useState('plan');
 
   return (
-    <main className="min-h-screen bg-black text-white">
+    <main className="min-h-dvh bg-black text-white">
       <div className="max-w-6xl mx-auto px-4 py-8">
         <header className="mb-6">
           <div className="text-[11px] font-mono text-cyan-500/70 tracking-widest">ARGUS // OBSERVATORY</div>
@@ -48,7 +48,7 @@ export default function AetherisPage() {
         <footer className="mt-8 text-[11px] text-zinc-600 font-mono">
           All data local. No telemetry, no external requests.
         </footer>
-        <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+        <div aria-hidden="true" className="player-clear" />
       </div>
     </main>
   );

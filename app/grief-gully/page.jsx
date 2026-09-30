@@ -515,7 +515,7 @@ export default function GriefGullyPage() {
 
       {stage === "present" && (
         <div className="content">
-          <header className="page-header">
+          <header className="gg-page-header">
             <h1>Grief Gully</h1>
             <p className="tagline">Healing Matrix — take your time. There is no hurry here.</p>
           </header>
@@ -671,7 +671,7 @@ export default function GriefGullyPage() {
           font-weight: 400;
         }
         .intro-sub {
-          color: #d4af37;
+          color: #ffd700;
           letter-spacing: 0.28em;
           font-size: 0.85rem;
           margin: 0 0 28px;
@@ -711,11 +711,11 @@ export default function GriefGullyPage() {
           from { opacity: 0; transform: translateY(14px); }
           to { opacity: 1; transform: none; }
         }
-        .page-header {
+        .gg-page-header {
           text-align: center;
           margin-bottom: 34px;
         }
-        .page-header h1 {
+        .gg-page-header h1 {
           font-weight: 400;
           letter-spacing: 0.3em;
           color: #cfe3e8;
@@ -739,7 +739,7 @@ export default function GriefGullyPage() {
           font-size: 0.78rem;
           letter-spacing: 0.34em;
           text-transform: uppercase;
-          color: #d4af37;
+          color: #ffd700;
           margin: 0 0 8px;
           font-weight: 400;
           border-left: 3px solid rgba(0, 200, 210, 0.6);
@@ -787,7 +787,7 @@ export default function GriefGullyPage() {
           min-height: 44px;
           background: transparent;
           border: 1px solid rgba(212, 175, 55, 0.6);
-          color: #d4af37;
+          color: #ffd700;
           border-radius: 999px;
           font-size: 0.9rem;
           cursor: pointer;
@@ -819,7 +819,7 @@ export default function GriefGullyPage() {
           transition: border-color 0.3s ease, background 0.3s ease;
         }
         .resource-link:hover {
-          border-left-color: #d4af37;
+          border-left-color: #ffd700;
           background: rgba(0, 200, 210, 0.06);
         }
         .resource-name {
@@ -834,7 +834,7 @@ export default function GriefGullyPage() {
           font-size: 0.86rem;
         }
         .resource-ext {
-          color: #d4af37;
+          color: #ffd700;
           font-size: 0.8rem;
         }
         .honest-note {
@@ -874,7 +874,7 @@ export default function GriefGullyPage() {
           min-height: 44px;
           background: transparent;
           border: 1px solid rgba(212, 175, 55, 0.6);
-          color: #d4af37;
+          color: #ffd700;
           border-radius: 8px;
           padding: 8px 18px;
           cursor: pointer;
@@ -923,7 +923,7 @@ export default function GriefGullyPage() {
           min-height: 44px;
         }
         .link-btn:hover {
-          color: #d4af37;
+          color: #ffd700;
         }
         .ink-canvas {
           width: 100%;
@@ -947,7 +947,7 @@ export default function GriefGullyPage() {
           }
         }
       `}</style>
-      <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+      <div aria-hidden="true" className="player-clear" />
     </main>
   );
 }

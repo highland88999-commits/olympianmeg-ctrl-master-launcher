@@ -9,20 +9,20 @@ const CSS = `
 .vw-scan { position: absolute; inset: 0; z-index: 60; pointer-events: none;
   background: linear-gradient(rgba(18,16,16,0) 50%, rgba(0,0,0,0.25) 50%);
   background-size: 100% 2px; }
-.vw-head { background: #0d0d1a; border-bottom: 2px solid #00f3ff; padding: 10px 15px;
+.vw-head { background: #0d0d1a; border-bottom: 2px solid #00f2ff; padding: 10px 15px;
   display: flex; justify-content: space-between; align-items: center; z-index: 61;
   box-shadow: 0 0 15px rgba(0,243,255,0.35); }
-.vw-head h1 { margin: 0; font-size: 1rem; color: #00f3ff; text-shadow: 0 0 8px rgba(0,243,255,0.7);
+.vw-head h1 { margin: 0; font-size: 1rem; color: #00f2ff; text-shadow: 0 0 8px rgba(0,243,255,0.7);
   letter-spacing: 1px; }
 .vw-status { color: #39ff14; font-size: 0.8rem; letter-spacing: 1px; }
 .vw-dash { display: flex; flex-direction: column; gap: 10px; padding: 14px; background: #121225;
   border-bottom: 1px solid #2a2a4a; z-index: 61; }
 .vw-search { display: flex; gap: 8px; }
-.vw-search input { flex: 1; background: #07070f; border: 1px solid #00f3ff; color: #fff; padding: 12px;
+.vw-search input { flex: 1; background: #07070f; border: 1px solid #00f2ff; color: #fff; padding: 12px;
   font-family: inherit; outline: none; box-shadow: inset 0 0 5px rgba(0,243,255,0.4); font-size: 1rem;
   border-radius: 0; min-width: 0; }
 .vw-search input:focus { box-shadow: inset 0 0 5px rgba(0,243,255,0.4), 0 0 12px rgba(0,243,255,0.3); }
-.vw-btn { background: transparent; border: 1px solid #00f3ff; color: #00f3ff; padding: 10px 14px;
+.vw-btn { background: transparent; border: 1px solid #00f2ff; color: #00f2ff; padding: 10px 14px;
   cursor: pointer; font-family: inherit; text-transform: uppercase; font-weight: 700; font-size: 0.9rem;
   min-height: 48px; min-width: 48px; }
 .vw-btn:hover { background: rgba(0,243,255,0.12); }
@@ -32,15 +32,15 @@ const CSS = `
 .vw-mapwrap { position: relative; flex: 1; min-height: 0; background: #050510; }
 .vw-mapwrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 .vw-readout { position: absolute; left: 10px; bottom: calc(5rem + 10px + env(safe-area-inset-bottom)); z-index: 62; background: rgba(7,7,15,0.85);
-  border: 1px solid rgba(0,243,255,0.5); padding: 10px 12px; font-size: 0.78rem; color: #00f3ff;
+  border: 1px solid rgba(0,243,255,0.5); padding: 10px 12px; font-size: 0.78rem; color: #00f2ff;
   line-height: 1.7; max-width: 72vw; }
 .vw-vault { position: absolute; right: 10px; top: 10px; z-index: 62; width: min(260px, 70vw);
   max-height: 60%; overflow-y: auto; background: rgba(7,7,15,0.9); border: 1px solid rgba(0,243,255,0.5);
   padding: 10px; }
-.vw-vault h3 { margin: 0 0 8px; font-size: 0.75rem; letter-spacing: 2px; color: #00f3ff; }
+.vw-vault h3 { margin: 0 0 8px; font-size: 0.75rem; letter-spacing: 2px; color: #00f2ff; }
 .vw-wp { display: flex; justify-content: space-between; align-items: center; gap: 6px;
   border: 1px solid rgba(0,243,255,0.25); padding: 8px; margin-bottom: 6px; font-size: 0.75rem; }
-.vw-wp button { background: none; border: 1px solid #00f3ff; color: #00f3ff; font-family: inherit;
+.vw-wp button { background: none; border: 1px solid #00f2ff; color: #00f2ff; font-family: inherit;
   font-size: 0.7rem; padding: 6px 8px; cursor: pointer; min-height: 36px; }
 .vw-wp button:hover { background: rgba(0,243,255,0.15); }
 .vw-wp .vw-del { border-color: #ff0055; color: #ff0055; }
@@ -204,7 +204,7 @@ export default function VenusWifiPage() {
       // route
       if (r && p) {
         const [x2, y2] = project(r.to, center, scale);
-        ctx.strokeStyle = '#00f3ff';
+        ctx.strokeStyle = '#00f2ff';
         ctx.lineWidth = 3;
         ctx.setLineDash([10, 6]);
         ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(x2, y2); ctx.stroke();
@@ -394,7 +394,7 @@ export default function VenusWifiPage() {
       {toast && <div className="vw-toast" role="status">{toast}</div>}
     </main>
     {/* Safari bottom-bar clearance: blank space under the fixed console viewport */}
-    <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+    <div aria-hidden="true" className="player-clear" />
     </>
   );
 }

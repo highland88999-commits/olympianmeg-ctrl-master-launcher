@@ -305,16 +305,16 @@ export default function ManuscriptForgePage() {
             aria-label={`Editing ${active.title}`}
           />
           <style>{`
-            .prose-styles h2 { color: #fbbf24; font-size: 1.5rem; margin: 1em 0 0.5em; font-weight: bold; }
-            .prose-styles h3 { color: #fbbf24; font-size: 1.2rem; margin: 1em 0 0.5em; font-weight: bold; }
+            .prose-styles h2 { color: #ffd700; font-size: 1.5rem; margin: 1em 0 0.5em; font-weight: bold; }
+            .prose-styles h3 { color: #ffd700; font-size: 1.2rem; margin: 1em 0 0.5em; font-weight: bold; }
             .prose-styles p { margin: 0 0 1em; }
-            .prose-styles blockquote { border-left: 3px solid #22d3ee; padding-left: 1em; color: #a1a1aa; margin: 1em 0; }
+            .prose-styles blockquote { border-left: 3px solid #00f2ff; padding-left: 1em; color: #a1a1aa; margin: 1em 0; }
             .prose-styles ul, .prose-styles ol { margin: 0 0 1em 1.5em; }
           `}</style>
         </main>
 
         {/* Safari bottom-bar clearance */}
-        <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+        <div aria-hidden="true" className="player-clear" />
       </div>
     </div>
   );

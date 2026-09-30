@@ -13,7 +13,7 @@ function Block({ block }) {
   switch (block.type) {
     case "author":
       return (
-        <div className="sp-author" style={{ textAlign: "center", color: "#00F3FF", letterSpacing: 3, textTransform: "uppercase", fontSize: "1.05em" }}>
+        <div className="sp-author" style={{ textAlign: "center", color: "#00f2ff", letterSpacing: 3, textTransform: "uppercase", fontSize: "1.05em" }}>
           {block.text}
         </div>
       );
@@ -148,12 +148,12 @@ export default function SurvivorsPlaybook() {
           letter-spacing: 3px; font-size: 12px; text-transform: uppercase; }
         .sp-tools { display: flex; gap: 8px; }
         .sp-btn { font-family: ui-monospace, Menlo, monospace; font-size: 12px;
-          letter-spacing: 1px; color: #00F3FF; background: transparent;
+          letter-spacing: 1px; color: #00f2ff; background: transparent;
           border: 1px solid rgba(0,243,255,0.4); border-radius: 6px;
           padding: 8px 12px; cursor: pointer; min-height: 40px; }
         .sp-btn:active { background: rgba(0,243,255,0.15); }
         .sp-progress { position: absolute; top: 0; left: 0; height: 3px; z-index: 11;
-          background: linear-gradient(90deg, #FFD700, #00F3FF);
+          background: linear-gradient(90deg, #FFD700, #00f2ff);
           transition: width 0.25s ease; }
         .sp-track { position: absolute; inset: 0; padding-top: 56px; z-index: 1;
           display: flex; overflow-x: auto; overflow-y: hidden;
@@ -165,19 +165,19 @@ export default function SurvivorsPlaybook() {
         .sp-card { width: 100%; max-width: 760px; background: rgba(18,18,21,0.9);
           border: 1px solid rgba(0,243,255,0.2); border-radius: 6px;
           padding: clamp(22px, 4vw, 52px); height: fit-content; }
-        .sp-kicker { font-family: ui-monospace, Menlo, monospace; color: #00F3FF;
+        .sp-kicker { font-family: ui-monospace, Menlo, monospace; color: #00f2ff;
           letter-spacing: 4px; font-size: 0.8em; text-transform: uppercase;
           margin-bottom: 10px; text-align: center; }
         .sp-h1 { font-family: ui-monospace, Menlo, monospace; color: #FFD700;
           text-transform: uppercase; letter-spacing: 2px; text-align: center;
           font-size: 1.9em; margin: 0 0 18px; line-height: 1.35;
           text-shadow: 0 0 12px rgba(255,215,0,0.35); }
-        .sp-h2 { font-family: ui-monospace, Menlo, monospace; color: #00F3FF;
+        .sp-h2 { font-family: ui-monospace, Menlo, monospace; color: #00f2ff;
           text-transform: uppercase; letter-spacing: 2px; text-align: center;
           font-size: 1.35em; margin: 0 0 22px; line-height: 1.4;
           border-bottom: 1px solid rgba(0,243,255,0.3); padding-bottom: 16px; }
         .sp-h3 { font-family: ui-monospace, Menlo, monospace; color: #FFD700;
-          font-size: 1.02em; margin: 26px 0 10px; border-left: 3px solid #00F3FF;
+          font-size: 1.02em; margin: 26px 0 10px; border-left: 3px solid #00f2ff;
           padding-left: 12px; text-transform: uppercase; letter-spacing: 1px; }
         .sp-p { line-height: 1.85; font-size: 1.06em; margin: 0 0 18px; color: #D4D4D9; }
         .sp-quote { border-left: 2px solid #FFD700; margin: 18px 0; padding: 10px 20px;
@@ -199,7 +199,7 @@ export default function SurvivorsPlaybook() {
           background: rgba(5,5,7,0.9); border-top: 1px solid rgba(0,243,255,0.18); }
         .sp-dots { display: flex; gap: 10px; }
         .sp-dot { width: 12px; height: 12px; border-radius: 50%;
-          border: 1px solid #00F3FF; background: transparent; cursor: pointer; padding: 0; }
+          border: 1px solid #00f2ff; background: transparent; cursor: pointer; padding: 0; }
         .sp-dot.on { background: #FFD700; border-color: #FFD700; }
         .sp-count { font-family: ui-monospace, Menlo, monospace; color: #8f9bb3;
           font-size: 12px; letter-spacing: 2px; }
@@ -290,7 +290,7 @@ export default function SurvivorsPlaybook() {
       </div>
     </div>
     {/* Safari bottom-bar clearance: blank space under the fixed reader viewport */}
-    <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+    <div aria-hidden="true" className="player-clear" />
     </>
   );
 }

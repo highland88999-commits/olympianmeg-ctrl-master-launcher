@@ -6,7 +6,7 @@ import { responsiveScale, layoutMonitors, statusLabel, MODES } from './array.js'
 
 const { createState, runCommand, promptFor, resolvePath } = shellEngine;
 
-const ACCENTS = ['#00ffff', '#ff00aa', '#39ff14', '#ffaa00', '#9d00ff', '#00f9ff', '#ff5555', '#7dcfff'];
+const ACCENTS = ['#00f2ff', '#ff00aa', '#39ff14', '#ffaa00', '#9d00ff', '#00f2ff', '#ff5555', '#7dcfff'];
 const MAX_MONITORS = 8;
 
 const CSS = `
@@ -14,12 +14,12 @@ const CSS = `
 .hf-stage { perspective: 1600px; perspective-origin: 50% 45%; }
 .hf-monitor { position: absolute; left: 50%; top: 46%; transform-style: preserve-3d; will-change: transform; }
 .hf-frame {
-  border: 2px solid #00ffff; border-radius: 18px; overflow: hidden;
+  border: 2px solid #00f2ff; border-radius: 18px; overflow: hidden;
   background: rgba(0, 12, 24, 0.72); backdrop-filter: blur(6px);
   animation: hf-cycle 18s infinite ease-in-out;
 }
 @keyframes hf-cycle {
-  0%, 100% { border-color: #00ffff; box-shadow: 0 0 22px rgba(0,255,255,0.30), inset 0 0 14px rgba(0,255,255,0.12); }
+  0%, 100% { border-color: #00f2ff; box-shadow: 0 0 22px rgba(0,242,255,0.30), inset 0 0 14px rgba(0,242,255,0.12); }
   25% { border-color: #9d00ff; box-shadow: 0 0 22px rgba(157,0,255,0.30), inset 0 0 14px rgba(157,0,255,0.12); }
   50% { border-color: #ff007f; box-shadow: 0 0 22px rgba(255,0,127,0.30), inset 0 0 14px rgba(255,0,127,0.12); }
   75% { border-color: #39ff14; box-shadow: 0 0 22px rgba(57,255,20,0.30), inset 0 0 14px rgba(57,255,20,0.12); }
@@ -289,7 +289,7 @@ export default function HoloframePage() {
       {/* header */}
       <header className="px-4 sm:px-6 py-3.5 flex items-center justify-between border-b border-cyan-400/20 bg-black/60 backdrop-blur z-20">
         <div>
-          <div className="text-lg sm:text-xl font-bold tracking-tight text-white" style={{ textShadow: '0 0 10px rgba(0,255,255,0.5)' }}>
+          <div className="text-lg sm:text-xl font-bold tracking-tight text-white" style={{ textShadow: '0 0 10px rgba(0,242,255,0.5)' }}>
             HOLOFRAME
           </div>
           <div className="text-[10px] tracking-[3px] text-cyan-300/60">HOLOGRAPHIC MONITOR ARRAY</div>
@@ -342,7 +342,7 @@ export default function HoloframePage() {
             </div>
           ))}
           {/* Safari bottom-bar clearance */}
-          <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))] shrink-0" />
+          <div aria-hidden="true" className="player-clear shrink-0" />
         </div>
       )}
 
@@ -373,7 +373,7 @@ export default function HoloframePage() {
       </footer>
 
       {/* Safari bottom-bar clearance */}
-      <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))] shrink-0" />
+      <div aria-hidden="true" className="player-clear shrink-0" />
     </div>
   );
 }

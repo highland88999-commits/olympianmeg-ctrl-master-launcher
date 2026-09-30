@@ -233,7 +233,7 @@ export default function AuctionHousePage() {
   const watchedCount = watchlist.length;
 
   return (
-    <main className="min-h-screen bg-[#0a0805] text-zinc-200 px-4 py-8 md:px-8">
+    <main className="min-h-dvh bg-[#0a0805] text-zinc-200 px-4 py-8 md:px-8">
       <div className="max-w-6xl mx-auto">
         <header className="text-center">
           <div className="text-[11px] uppercase tracking-[0.3em] text-amber-500/80">The Gavel Room</div>
@@ -291,7 +291,7 @@ export default function AuctionHousePage() {
           onClose={() => setOpenId(null)}
         />
       )}
-      <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+      <div aria-hidden="true" className="player-clear" />
     </main>
   );
 }

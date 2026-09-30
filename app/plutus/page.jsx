@@ -119,10 +119,10 @@ export default function PlutusPage() {
     reader.readAsText(file);
   };
 
-  if (!loaded) return <main className="min-h-screen bg-black text-white flex items-center justify-center"><p className="text-zinc-500 text-sm">Loading Plutus…</p></main>;
+  if (!loaded) return <main className="min-h-dvh bg-black text-white flex items-center justify-center"><p className="text-zinc-500 text-sm">Loading Plutus…</p></main>;
 
   return (
-    <main className="min-h-screen w-full bg-black text-white">
+    <main className="min-h-dvh w-full bg-black text-white">
       {/* subtle emerald starfield backdrop */}
       <div className="fixed inset-0 pointer-events-none" aria-hidden
         style={{ background: 'radial-gradient(ellipse 80% 50% at 50% -10%, rgba(80,255,176,0.07), transparent)' }} />
@@ -362,7 +362,7 @@ export default function PlutusPage() {
             </Card>
           </div>
         )}
-      <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+      <div aria-hidden="true" className="player-clear" />
       </div>
     </main>
   );

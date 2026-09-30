@@ -15,6 +15,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import Image from 'next/image';
 import {
   AVATAR_STYLES,
   deleteMediaItem,
@@ -31,7 +32,7 @@ import {
 } from '@/lib/user-content/bridges';
 
 const SUIT_COLORS = [
-  '#08f7fe', '#ff2fd6', '#ffd166', '#06d6a0', '#8b5cf6',
+  '#00f2ff', '#ff2fd6', '#ffd166', '#06d6a0', '#8b5cf6',
   '#f8f9fa', '#ff4d4d', '#3a86ff', '#5c677d', '#0b0b10',
 ];
 const HELMET_COLORS = [
@@ -39,7 +40,7 @@ const HELMET_COLORS = [
   '#5b3a8c', '#0e4d5c', '#7a1f2b', '#2f5d34', '#b8860b',
 ];
 const GLOW_COLORS = [
-  '#08f7fe', '#ff2fd6', '#ffd166', '#06d6a0', '#8b5cf6',
+  '#00f2ff', '#ff2fd6', '#ffd166', '#06d6a0', '#8b5cf6',
   '#ff4d4d', '#3a86ff', '#7dff5e', '#ff8c42', '#f8f9fa',
 ];
 
@@ -289,7 +290,7 @@ export default function ProfilePage() {
 
   if (!profile) {
     return (
-      <div className="min-h-screen bg-[#050508] text-neutral-200 flex items-center justify-center">
+      <div className="min-h-dvh bg-[#050508] text-neutral-200 flex items-center justify-center">
         <p className="tracking-[0.3em] uppercase text-xs text-neutral-500">Loading profile…</p>
       </div>
     );
@@ -299,7 +300,7 @@ export default function ProfilePage() {
   const initial = (profile.displayName || profile.callsign || '?').trim().charAt(0).toUpperCase();
 
   return (
-    <div className="min-h-screen bg-[#050508] text-neutral-200">
+    <div className="min-h-dvh bg-[#050508] text-neutral-200">
       <style>{`
         .rider-glow { animation: riderPulse 3.2s ease-in-out infinite; }
         @keyframes riderPulse { 0%,100% { opacity: 0.55; } 50% { opacity: 1; } }
@@ -325,7 +326,7 @@ export default function ProfilePage() {
         <section aria-label="Identity" className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 flex items-center gap-4">
           <AvatarFrame frame={profile.avatarStyle} glow={profile.bikeGlow} size={84} label="Profile avatar">
             {photoUrl ? (
-              <img src={photoUrl} alt="Profile" className="w-full h-full object-cover" />
+              <Image src={photoUrl} alt="Profile" width={168} height={168} unoptimized className="w-full h-full object-cover" />
             ) : (
               <RiderPortrait suit={profile.suitColor} helmet={profile.helmetColor} glow={profile.bikeGlow} label="Rider preview" />
             )}
@@ -440,7 +441,7 @@ export default function ProfilePage() {
                         <span className="text-neutral-600 text-xs">video…</span>
                       )
                     ) : urls[m.id] ? (
-                      <img src={urls[m.id]} alt={m.name} className="w-full h-full object-cover" />
+                      <Image src={urls[m.id]} alt={m.name} fill sizes="(max-width: 768px) 50vw, 33vw" unoptimized className="object-cover" />
                     ) : (
                       <span className="text-neutral-600 text-xs">photo…</span>
                     )}
@@ -482,7 +483,7 @@ export default function ProfilePage() {
                   <p className="text-neutral-500 text-sm p-8">Loading video…</p>
                 )
               ) : urls[viewer.id] ? (
-                <img src={urls[viewer.id]} alt={viewer.name} className="w-full max-h-[60vh] object-contain" />
+                <Image src={urls[viewer.id]} alt={viewer.name} width={1200} height={900} unoptimized className="w-full h-auto max-h-[60vh] object-contain" />
               ) : (
                 <p className="text-neutral-500 text-sm p-8">Loading photo…</p>
               )}
@@ -518,7 +519,7 @@ export default function ProfilePage() {
       )}
 
       {/* Safari bottom-bar clearance */}
-      <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+      <div aria-hidden="true" className="player-clear" />
     </div>
   );
 }

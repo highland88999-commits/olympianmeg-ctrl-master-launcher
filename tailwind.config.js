@@ -6,15 +6,8 @@ module.exports = {
   ],
   theme: {
     extend: {
-      colors: {
-        jet: "#030303",
-        cerberus: {
-          toxic: "#39ff14",
-          blood: "#ff003c",
-          ocean: "#00f2ff",
-          void: "#b026ff",
-        },
-      },
+      // NOTE (Phase 2b): dead tokens `jet` and `cerberus.*` removed — zero
+      // usages repo-wide. Canonical palette lives in lib/design-tokens.js.
     },
   },
   plugins: [],

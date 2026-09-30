@@ -4,7 +4,13 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Script from 'next/script';
+import { Orbitron, Rajdhani } from 'next/font/google';
 import { supabase } from '@/lib/supabase';
+
+// next/font replaces the render-blocking Google Fonts @import (was Orbitron
+// 400;700 + Rajdhani 400;600). Variables cascade from .forge-wrapper.
+const orbitron = Orbitron({ subsets: ['latin'], weight: ['400', '700'], variable: '--font-orbitron' });
+const rajdhani = Rajdhani({ subsets: ['latin'], weight: ['400', '600'], variable: '--font-rajdhani' });
 
 export default function PublisherStudio() {
   const router = useRouter();
@@ -147,7 +153,7 @@ export default function PublisherStudio() {
     };
   }
 
-  if (!mounted) return <div style={{background: '#050508', width: '100vw', height: '100vh'}}></div>;
+  if (!mounted) return <div style={{background: '#050508', width: '100vw', height: '100dvh'}}></div>;
 
   return (
     <>
@@ -156,30 +162,29 @@ export default function PublisherStudio() {
       <Script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.21/mammoth.browser.min.js" strategy="afterInteractive" />
 
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Rajdhani:wght@400;600&display=swap');
-        .forge-wrapper { --bg-obsidian: #050508; --panel-bg: rgba(12, 12, 18, 0.95); --neon-cyan: #08f7fe; --neon-magenta: #fe53bb; --neon-gold: #FFD700; background-color: var(--bg-obsidian); color: #fff; display: flex; flex-direction: column; height: 100vh; overflow: hidden; font-family: 'Rajdhani', sans-serif; }
+        .forge-wrapper { --bg-obsidian: #050508; --panel-bg: rgba(12, 12, 18, 0.95); --neon-cyan: #00f2ff; --neon-magenta: #fe53bb; --neon-gold: #FFD700; background-color: var(--bg-obsidian); color: #fff; display: flex; flex-direction: column; min-height: 100dvh; overflow-y: auto; font-family: var(--font-rajdhani), sans-serif; }
         .forge-wrapper::before { content: ""; position: fixed; inset: 0; background-image: linear-gradient(rgba(8, 247, 254, 0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(8, 247, 254, 0.03) 1px, transparent 1px); background-size: 40px 40px; z-index: -1; pointer-events: none; }
         header { background: rgba(5, 5, 8, 0.95); border-bottom: 1px solid rgba(8, 247, 254, 0.3); padding: 15px 25px; display: flex; justify-content: space-between; align-items: center; z-index: 100; }
-        .logo { font-family: 'Orbitron', sans-serif; font-size: 1.5rem; color: var(--neon-cyan); text-transform: uppercase; letter-spacing: 2px; }
-        .doc-title-input { background: transparent; border: none; border-bottom: 1px dashed #444; color: #fff; font-family: 'Orbitron', sans-serif; font-size: 1.2rem; text-align: center; width: 300px; outline:none; }
+        .logo { font-family: var(--font-orbitron), sans-serif; font-size: 1.5rem; color: var(--neon-cyan); text-transform: uppercase; letter-spacing: 2px; }
+        .doc-title-input { background: transparent; border: none; border-bottom: 1px dashed #444; color: #fff; font-family: var(--font-orbitron), sans-serif; font-size: 1.2rem; text-align: center; width: 300px; outline:none; }
         .status-indicator { font-family: monospace; font-size: 0.8rem; color: #888; }
         .video-hero { position: relative; width: 100%; height: 15vh; min-height: 120px; display: flex; justify-content: center; align-items: center; border-bottom: 1px solid rgba(255, 215, 0, 0.3); overflow: hidden; flex-shrink: 0; }
         .hero-video { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 100%; height: 100%; object-fit: cover; opacity: 0.6; z-index: 2; }
         .workspace { display: flex; flex-grow: 1; overflow: hidden; position: relative; z-index: 10; }
         .sidebar { width: 380px; padding: 1.5rem; background: rgba(12, 12, 18, 0.8); height: 100%; overflow-y: auto; border-right: 1px solid rgba(8, 247, 254, 0.2); }
         .forge-section { background: rgba(5, 5, 8, 0.6); border: 1px solid rgba(8, 247, 254, 0.15); border-radius: 6px; padding: 1.2rem; margin-bottom: 1.5rem; box-shadow: inset 0 0 15px rgba(0,0,0,0.5); }
-        .section-title { font-family: 'Orbitron', sans-serif; font-size: 0.9rem; color: var(--neon-cyan); margin-bottom: 1rem; border-bottom: 1px solid rgba(8,247,254,0.2); padding-bottom: 5px; }
+        .section-title { font-family: var(--font-orbitron), sans-serif; font-size: 0.9rem; color: var(--neon-cyan); margin-bottom: 1rem; border-bottom: 1px solid rgba(8,247,254,0.2); padding-bottom: 5px; }
         .form-group { margin-bottom: 1rem; }
         .form-group label { display: block; font-size: 0.7rem; text-transform: uppercase; color: #888; margin-bottom: 0.4rem; font-family: monospace; }
         .form-group input, .form-group select, .form-group textarea { width: 100%; background: #000; border: 1px solid #333; padding: 0.7rem; color: #fff; border-radius: 4px; font-size: 0.9rem; font-family: inherit; }
         .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; }
         .parser-box { border: 1px dashed var(--neon-cyan); padding: 1.5rem; text-align: center; border-radius: 4px; cursor: pointer; background: rgba(8,247,254,0.05); }
         .cover-preview-box { width: 100%; aspect-ratio: 2/3; border: 1px dashed #444; border-radius: 4px; display: flex; justify-content: center; align-items: center; text-align: center; color: #555; background-size: cover; background-position: center; font-family: monospace; cursor: pointer; }
-        .action-btn { background: transparent; border: 1px solid var(--neon-gold); color: var(--neon-gold); padding: 1rem; width: 100%; font-size: 1rem; font-weight: bold; cursor: pointer; font-family: 'Orbitron', sans-serif; letter-spacing: 2px; }
+        .action-btn { background: transparent; border: 1px solid var(--neon-gold); color: var(--neon-gold); padding: 1rem; width: 100%; font-size: 1rem; font-weight: bold; cursor: pointer; font-family: var(--font-orbitron), sans-serif; letter-spacing: 2px; }
         .editor-container { flex-grow: 1; display: flex; flex-direction: column; padding: 1.5rem; }
         .editor-wrapper { background: #0a0a0c; border: 1px solid rgba(8, 247, 254, 0.2); border-radius: 6px; flex-grow: 1; display: flex; flex-direction: column; overflow: hidden; }
         .ql-toolbar.ql-snow { background: #111; border: none !important; border-bottom: 1px solid rgba(8, 247, 254, 0.2) !important; padding: 12px !important; }
-        .ql-container.ql-snow { border: none !important; flex-grow: 1; font-family: 'Rajdhani', sans-serif; font-size: 1.15rem; color: #fff; background: rgba(0,0,0,0.4); }
+        .ql-container.ql-snow { border: none !important; flex-grow: 1; font-family: var(--font-rajdhani), sans-serif; font-size: 1.15rem; color: #fff; background: rgba(0,0,0,0.4); }
         .ql-snow .ql-stroke { stroke: var(--neon-cyan) !important; }
         .ql-snow .ql-fill { fill: var(--neon-cyan) !important; }
         .ql-snow .ql-picker { color: var(--neon-cyan) !important; }
@@ -190,7 +195,7 @@ export default function PublisherStudio() {
         #terminal-overlay { position: fixed; inset:0; background: rgba(0,0,0,0.95); z-index: 15000; display: none; flex-direction: column; justify-content: center; align-items: center; color: var(--neon-gold); font-family: monospace; }
       `}</style>
 
-      <div className="forge-wrapper">
+      <div className={`forge-wrapper ${orbitron.variable} ${rajdhani.variable}`}>
         <header>
             <div className="logo">Forge</div>
             <input type="text" id="doc-title" className="doc-title-input" placeholder="UNTITLED DRAFT" />
@@ -255,7 +260,7 @@ export default function PublisherStudio() {
                   </div>
                   <div className="form-group">
                       <label>Geometry Hex</label>
-                      <input type="color" id="input-hex" defaultValue="#08f7fe" style={{height:'40px', padding:'0.2rem'}} />
+                      <input type="color" id="input-hex" defaultValue="#00f2ff" style={{height:'40px', padding:'0.2rem'}} />
                   </div>
               </div>
 
@@ -278,7 +283,7 @@ export default function PublisherStudio() {
         <button className="floating-action-btn" onClick={() => document.getElementById('app-modal').classList.remove('hidden')}>💠</button>
 
         <div id="app-modal" className="app-modal hidden">
-          <div style={{display:'flex', justifyContent:'space-between', padding:'12px 20px', background:'#111', color:'var(--neon-cyan)', fontFamily:'Orbitron', fontWeight:'bold', borderBottom:'1px solid rgba(8,247,254,0.3)'}}>
+          <div style={{display:'flex', justifyContent:'space-between', padding:'12px 20px', background:'#111', color:'var(--neon-cyan)', fontFamily:'var(--font-orbitron), sans-serif', fontWeight:'bold', borderBottom:'1px solid rgba(8,247,254,0.3)'}}>
             <span>OMNI-GEOMETRIC ENGINE</span>
             <button onClick={() => document.getElementById('app-modal').classList.add('hidden')} style={{background:'none', border:'none', color:'#fe53bb', fontSize:'1.5rem', cursor:'pointer'}}>✖</button>
           </div>
@@ -286,8 +291,8 @@ export default function PublisherStudio() {
         </div>
 
         <div id="terminal-overlay"><div id="term-text" style={{maxWidth:'600px', textAlign:'left', lineHeight:'1.6'}}></div></div>
-        {/* Safari bottom-bar clearance: blank space under the fixed-height editor shell */}
-        <div aria-hidden="true" style={{ height: 'max(5rem, env(safe-area-inset-bottom))' }} />
+        {/* Safari bottom-bar clearance: blank space under the editor shell */}
+        <div aria-hidden="true" className="player-clear" />
       </div>
     </>
   );

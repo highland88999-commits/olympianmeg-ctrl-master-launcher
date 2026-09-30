@@ -11,7 +11,7 @@ export default function CerberusLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <div className="w-screen h-screen overflow-hidden bg-[#050505] text-white antialiased overscroll-none font-bitcount">
+    <div className="w-screen h-dvh overflow-hidden bg-[#050505] text-white antialiased overscroll-none font-bitcount">
       {children}
     </div>
   );

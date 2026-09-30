@@ -1,7 +1,7 @@
 // Streetball — main route component: menu, HUD, game over, input wiring.
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { BackButton } from '@/components/ui';
 import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
 import { GameCanvas } from '@/components/basketball/GameCanvas';
@@ -96,7 +96,6 @@ function InputLayer({ game }) {
 let popupId = 0;
 
 export default function BasketballPage() {
-  const router = useRouter();
   const [screen, setScreen] = useState('menu'); // menu | game
   const [mode, setMode] = useState('shootout');
   const [game, setGame] = useState(null);
@@ -300,7 +299,7 @@ export default function BasketballPage() {
   }, []);
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-[#04060c] text-white select-none">
+    <div className="relative w-screen h-dvh overflow-hidden bg-[#04060c] text-white select-none">
       {screen === 'menu' && (
         <MenuScreen
           onPlay={startGame}
@@ -308,7 +307,6 @@ export default function BasketballPage() {
           scoresNote={scoresNote}
           showHelp={showHelp}
           setShowHelp={setShowHelp}
-          onExit={() => router.push('/')}
           onOasis={() => setOasisOpen(true)}
         />
       )}
@@ -562,7 +560,7 @@ function Popups({ popups }) {
   );
 }
 
-function MenuScreen({ onPlay, scores, scoresNote, showHelp, setShowHelp, onExit, onOasis }) {
+function MenuScreen({ onPlay, scores, scoresNote, showHelp, setShowHelp, onOasis }) {
   return (
     <div className="absolute inset-0 z-10 overflow-y-auto bg-gradient-to-b from-[#04060c] via-[#071120] to-[#04060c]">
       <div className="min-h-full flex flex-col items-center justify-center px-6 py-10 text-center max-w-md mx-auto">
@@ -633,12 +631,10 @@ function MenuScreen({ onPlay, scores, scoresNote, showHelp, setShowHelp, onExit,
           </div>
         </div>
 
-        <button onClick={onExit} className="mt-8 text-zinc-600 text-xs tracking-[0.3em] uppercase hover:text-zinc-300">
-          ← Back to the launcher
-        </button>
+        <BackButton label="Back to the launcher" />
 
         {/* Safari bottom-bar clearance: lets the menu content rest above the browser bar */}
-        <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))] shrink-0" />
+        <div aria-hidden="true" className="player-clear shrink-0" />
       </div>
     </div>
   );

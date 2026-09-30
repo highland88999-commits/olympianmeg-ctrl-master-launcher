@@ -5,6 +5,10 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import * as THREE from 'three';
+import { Orbitron, Rajdhani } from 'next/font/google';
+
+const orbitron = Orbitron({ subsets: ['latin'], weight: ['400', '700'] });
+const rajdhani = Rajdhani({ subsets: ['latin'], weight: ['400', '600'] });
 
 /** Escape user-controlled strings before injecting into HTML. */
 function escapeHtml(value) {
@@ -40,7 +44,7 @@ export default function Alexandria() {
     sessionPromise.then(({ data: { session } }) => {
       if (!session) {
         if (window.top === window.self) router.push('/');
-        else document.body.innerHTML = '<div style="color:#08f7fe; text-align:center; padding:50px; font-family:monospace;">Please log in at the Master Hub to continue.</div>';
+        else document.body.innerHTML = '<div style="color:#00f2ff; text-align:center; padding:50px; font-family:monospace;">Please log in at the Master Hub to continue.</div>';
         return;
       }
       setMounted(true);
@@ -182,7 +186,7 @@ export default function Alexandria() {
       disposeLibrary();
       gridRef.current.innerHTML = '';
       if (books.length === 0) {
-        gridRef.current.innerHTML = '<div class="no-results">No books found. Try a different search.</div>';
+        gridRef.current.innerHTML = `<div class="no-results ${orbitron.className}">No books found. Try a different search.</div>`;
         return;
       }
 
@@ -191,7 +195,7 @@ export default function Alexandria() {
         const coverId = `cover-${safeId}`;
         const title = escapeHtml(book.title || 'Untitled');
         const author = escapeHtml(book.author || 'Unknown author');
-        const hex = safeHex(book.hex_color, '#08f7fe');
+        const hex = safeHex(book.hex_color, '#00f2ff');
         const glowClass = escapeHtml(/^[a-z0-9-]+$/i.test(book.glow_class || '') ? book.glow_class : 'glow-blue');
         const priceRaw = String(book.price_btc ?? '');
         const isFree = !priceRaw || priceRaw === '0' || priceRaw.toLowerCase().includes('free');
@@ -203,11 +207,11 @@ export default function Alexandria() {
         article.innerHTML = `
           <div class="book-cover ${glowClass}" id="${coverId}" data-url="${targetUrl}" role="button" tabindex="0" aria-label="Open ${title} by ${author}"></div>
           <div class="book-body">
-            <h2 class="book-title">${title}</h2>
+            <h2 class="book-title ${orbitron.className}">${title}</h2>
             <div class="book-author">${author}</div>
             <div class="book-foot">
               <span class="book-price">${displayPrice}</span>
-              <button class="book-btn" data-url="${targetUrl}" style="border-color:${hex};color:${hex};">${isFree ? 'Read' : 'Buy'}</button>
+              <button class="book-btn ${orbitron.className}" data-url="${targetUrl}" style="border-color:${hex};color:${hex};">${isFree ? 'Read' : 'Buy'}</button>
             </div>
           </div>
         `;
@@ -289,23 +293,20 @@ export default function Alexandria() {
   if (!mounted) {
     if (cloudOffline) {
       return (
-        <div style={{ background: '#050508', width: '100vw', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem', textAlign: 'center' }}>
-          <p style={{ color: '#08f7fe', fontFamily: 'monospace', lineHeight: 1.8 }}>
+        <div style={{ background: '#050508', width: '100vw', height: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem', textAlign: 'center' }}>
+          <p style={{ color: '#00f2ff', fontFamily: 'monospace', lineHeight: 1.8 }}>
             Cloud features are offline — the library needs the database connection.
           </p>
         </div>
       );
     }
-    return <div style={{ background: '#050508', width: '100vw', height: '100vh' }}></div>;
+    return <div style={{ background: '#050508', width: '100vw', height: '100dvh' }}></div>;
   }
 
   return (
     <>
-      <link rel="preconnect" href="https://fonts.googleapis.com" />
-      <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-      <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Rajdhani:wght@400;600&display=swap" rel="stylesheet" />
       <style>{`
-        .alexandria-wrapper { --bg-obsidian: #050508; --neon-cyan: #08f7fe; --neon-magenta: #fe53bb; --neon-gold: #FFD700; background-color: var(--bg-obsidian); color: #f2f2f2; width: 100vw; height: 100vh; height: 100dvh; overflow: hidden; font-family: 'Rajdhani', sans-serif; }
+        .alexandria-wrapper { --bg-obsidian: #050508; --neon-cyan: #00f2ff; --neon-magenta: #fe53bb; --neon-gold: #FFD700; background-color: var(--bg-obsidian); color: #f2f2f2; width: 100vw; height: 100vh; height: 100dvh; overflow: hidden; }
         .alexandria-wrapper::before { content: ""; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-image: linear-gradient(rgba(8, 247, 254, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(8, 247, 254, 0.05) 1px, transparent 1px); background-size: 30px 30px; z-index: 0; pointer-events: none; }
         #webgl-canvas { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; height: 100dvh; z-index: 1; pointer-events: none; }
 
@@ -316,29 +317,29 @@ export default function Alexandria() {
         #page-vault { background: rgba(5, 5, 8, 0.95); border-left: 2px solid var(--neon-cyan); }
 
         .hologram-wrapper { width: 100%; height: 100%; min-height: 0; display: flex; flex-direction: column; position: relative; background: var(--bg-obsidian); }
-        .hologram-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 15px 5%; padding-top: calc(15px + env(safe-area-inset-top)); background: rgba(12, 12, 18, 0.9); border-bottom: 1px solid rgba(8, 247, 254, 0.2); font-family: 'Orbitron', sans-serif; font-size: clamp(0.7rem, 2vw, 0.9rem); letter-spacing: 2px; z-index: 20; }
+        .hologram-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 15px 5%; padding-top: calc(15px + env(safe-area-inset-top)); background: rgba(12, 12, 18, 0.9); border-bottom: 1px solid rgba(8, 247, 254, 0.2); font-size: clamp(0.7rem, 2vw, 0.9rem); letter-spacing: 2px; z-index: 20; }
         .hologram-frame { flex: 1 1 auto; min-height: 0; width: 100%; border: none; background: var(--bg-obsidian); position: relative; z-index: 2; }
 
         header { position: sticky; top: 0; z-index: 100; width: 100%; background: rgba(5, 5, 8, 0.85); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-bottom: 1px solid rgba(8, 247, 254, 0.1); padding: 1rem 5%; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 5px 25px rgba(8, 247, 254, 0.05); gap: 12px; flex-wrap: wrap; row-gap: 12px; }
-        .logo { font-family: 'Orbitron', sans-serif; font-size: clamp(1.4rem, 4vw, 1.8rem); font-weight: bold; letter-spacing: 0.1em; color: var(--neon-cyan); text-transform: uppercase; text-shadow: 0 0 10px rgba(8, 247, 254, 0.4); }
+        .logo { font-size: clamp(1.4rem, 4vw, 1.8rem); font-weight: bold; letter-spacing: 0.1em; color: var(--neon-cyan); text-transform: uppercase; text-shadow: 0 0 10px rgba(8, 247, 254, 0.4); }
         .search-wrap { display: flex; gap: 10px; flex: 1 1 280px; max-width: 700px; flex-wrap: wrap; }
         .search-input { flex: 1 1 180px; min-width: 0; min-height: 44px; padding: 0.65rem 1rem; background: #0a0a0c; border: 1px solid #333; border-radius: 6px; color: var(--neon-cyan); font-family: monospace; font-size: 16px; }
         .search-input::placeholder { color: #5a6a70; }
-        .sort-select { min-height: 44px; background: #0a0a0c; border: 1px solid #333; color: var(--neon-cyan); padding: 0.65rem 0.75rem; border-radius: 6px; font-family: 'Orbitron', sans-serif; font-size: 0.8rem; }
+        .sort-select { min-height: 44px; background: #0a0a0c; border: 1px solid #333; color: var(--neon-cyan); padding: 0.65rem 0.75rem; border-radius: 6px; font-size: 0.8rem; }
         .nav-group { display: flex; gap: 10px; flex-wrap: wrap; }
-        .nav-btn { background: transparent; border: 1px solid var(--neon-cyan); color: var(--neon-cyan); min-height: 44px; padding: 0.65rem 1.1rem; border-radius: 6px; font-family: 'Orbitron', sans-serif; font-weight: bold; cursor: pointer; transition: background 0.25s, color 0.25s, box-shadow 0.25s; font-size: 0.8rem; letter-spacing: 1px; }
+        .nav-btn { background: transparent; border: 1px solid var(--neon-cyan); color: var(--neon-cyan); min-height: 44px; padding: 0.65rem 1.1rem; border-radius: 6px; font-weight: bold; cursor: pointer; transition: background 0.25s, color 0.25s, box-shadow 0.25s; font-size: 0.8rem; letter-spacing: 1px; }
         .nav-btn:hover { background: var(--neon-cyan); color: #000; box-shadow: 0 0 15px rgba(8, 247, 254, 0.4); }
         .nav-btn:focus-visible, .page-btn:focus-visible, .book-btn:focus-visible, .search-input:focus-visible, .sort-select:focus-visible, .book-cover:focus-visible { outline: 2px solid var(--neon-cyan); outline-offset: 2px; }
 
         .video-hero-section { position: relative; width: 100%; padding: clamp(1.5rem, 5vw, 3rem) 5% 1rem 5%; display: flex; justify-content: center; align-items: center; z-index: 10; }
         .hero-video { position: relative; z-index: 2; width: 100%; max-width: 700px; aspect-ratio: 16/9; border: 1px solid rgba(255, 140, 0, 0.3); border-radius: 10px; box-shadow: 0 0 40px rgba(255, 69, 0, 0.25); background: #000; object-fit: cover; }
         .hero-text-section { text-align: center; padding: clamp(1.25rem, 4vw, 2rem) 6% clamp(1.5rem, 5vw, 3rem) 6%; z-index: 10; position: relative; max-width: 800px; }
-        .hero-text-section h1 { font-family: 'Orbitron', sans-serif; font-size: clamp(1.8rem, 6vw, 3.2rem); color: var(--neon-gold); text-shadow: 0 0 15px rgba(255, 215, 0, 0.4); text-transform: uppercase; margin: 0 0 1rem 0; letter-spacing: 2px; line-height: 1.15; }
+        .hero-text-section h1 { font-size: clamp(1.8rem, 6vw, 3.2rem); color: var(--neon-gold); text-shadow: 0 0 15px rgba(255, 215, 0, 0.4); text-transform: uppercase; margin: 0 0 1rem 0; letter-spacing: 2px; line-height: 1.15; }
         .hero-text-section p { font-family: monospace; color: #ccc; font-size: clamp(0.9rem, 2.5vw, 1rem); line-height: 1.7; margin: 0; }
 
         .library-container { position: relative; z-index: 10; padding: clamp(1.5rem, 4vw, 2.5rem) 5% 8rem 5%; max-width: 1400px; width: 100%; flex-grow: 1; display: flex; flex-direction: column; align-items: center; border-top: 1px solid rgba(8, 247, 254, 0.2); background: rgba(5,5,8,0.6); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); }
         .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 2rem; width: 100%; padding-top: 1.5rem; }
-        .no-results { grid-column: 1 / -1; text-align: center; padding: 4rem 1rem; color: var(--neon-magenta); font-family: 'Orbitron', sans-serif; letter-spacing: 2px; font-size: 1rem; line-height: 1.8; }
+        .no-results { grid-column: 1 / -1; text-align: center; padding: 4rem 1rem; color: var(--neon-magenta); letter-spacing: 2px; font-size: 1rem; line-height: 1.8; }
 
         .book-card { background: rgba(12,12,18,0.85); border: 1px solid rgba(8,247,254,0.15); border-radius: 10px; padding: 1.25rem; display: flex; flex-direction: column; backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); transition: border-color 0.3s, transform 0.3s; }
         .book-card:hover { border-color: rgba(8,247,254,0.45); transform: translateY(-3px); }
@@ -347,18 +348,18 @@ export default function Alexandria() {
         .book-cover.glow-pink { box-shadow: 0 0 24px rgba(254, 83, 187, 0.25); }
         .book-cover.glow-gold { box-shadow: 0 0 24px rgba(255, 215, 0, 0.25); }
         .book-body { flex: 1; display: flex; flex-direction: column; text-align: center; }
-        .book-title { font-family: 'Orbitron', sans-serif; font-size: 1.05rem; color: #f2f2f2; text-transform: uppercase; letter-spacing: 1px; margin: 0 0 0.5rem 0; line-height: 1.4; }
+        .book-title { font-size: 1.05rem; color: #f2f2f2; text-transform: uppercase; letter-spacing: 1px; margin: 0 0 0.5rem 0; line-height: 1.4; }
         .book-author { font-family: monospace; font-size: 0.95rem; color: #999; margin-bottom: 1.25rem; line-height: 1.5; }
         .book-foot { margin-top: auto; display: flex; justify-content: space-between; align-items: center; gap: 10px; border-top: 1px solid #333; padding-top: 1rem; }
         .book-price { font-family: monospace; color: #f7931a; font-weight: bold; font-size: 0.95rem; }
-        .book-btn { background: transparent; border: 1px solid; min-height: 44px; padding: 0.6rem 1.25rem; border-radius: 6px; cursor: pointer; font-family: 'Orbitron', sans-serif; font-weight: bold; font-size: 0.8rem; letter-spacing: 1px; transition: transform 0.2s; }
+        .book-btn { background: transparent; border: 1px solid; min-height: 44px; padding: 0.6rem 1.25rem; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 0.8rem; letter-spacing: 1px; transition: transform 0.2s; }
         .book-btn:hover { transform: scale(1.05); }
 
         .global-footer { position: fixed; bottom: 0; left: 0; width: 100vw; background: rgba(5, 5, 8, 0.95); border-top: 1px solid rgba(8, 247, 254, 0.2); padding: 12px 5% calc(12px + env(safe-area-inset-bottom)) 5%; display: flex; justify-content: center; align-items: center; gap: 20px; font-size: 0.8rem; color: #888; z-index: 40000; font-family: monospace; text-align: center; }
         .swipe-hint { position: fixed; bottom: calc(70px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); font-family: monospace; font-size: 0.75rem; color: #aaa; pointer-events: none; z-index: 30000; background: rgba(0,0,0,0.85); padding: 8px 20px; border-radius: 20px; border: 1px solid #333; white-space: nowrap; transition: opacity 0.5s; }
         .swipe-hint.dismissed { opacity: 0; }
         .pagination { display: flex; gap: 15px; padding: 2.5rem 0 1rem 0; align-items: center; flex-wrap: wrap; justify-content: center; }
-        .page-btn { background: transparent; border: 1px solid var(--neon-cyan); color: var(--neon-cyan); min-height: 44px; padding: 0.65rem 1.4rem; border-radius: 6px; cursor: pointer; font-family: 'Orbitron', sans-serif; font-weight: bold; font-size: 0.85rem; letter-spacing: 1px; }
+        .page-btn { background: transparent; border: 1px solid var(--neon-cyan); color: var(--neon-cyan); min-height: 44px; padding: 0.65rem 1.4rem; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 0.85rem; letter-spacing: 1px; }
         .page-btn:hover:not(:disabled) { background: var(--neon-cyan); color: #000; }
         .page-btn:disabled { border-color: #333; color: #555; cursor: not-allowed; }
 
@@ -378,15 +379,15 @@ export default function Alexandria() {
         }
       `}</style>
 
-      <div className="alexandria-wrapper">
+      <div className={`alexandria-wrapper ${rajdhani.className}`}>
         <canvas id="webgl-canvas" ref={canvasRef} aria-hidden="true"></canvas>
         <div className="carousel-container" id="mainCarousel">
 
           <div className="carousel-page" id="page-studio" aria-label="Publisher studio">
             <div className="hologram-wrapper">
-              <div className="hologram-header" style={{ color: 'var(--neon-magenta)' }}>
+              <div className={`hologram-header ${orbitron.className}`} style={{ color: 'var(--neon-magenta)' }}>
                 <span>Publisher Studio</span>
-                <button className="nav-btn" onClick={() => window.scrollToPage('library')} style={{ borderColor: 'var(--neon-magenta)', color: 'var(--neon-magenta)' }}>Back to Library →</button>
+                <button className={`nav-btn ${orbitron.className}`} onClick={() => window.scrollToPage('library')} style={{ borderColor: 'var(--neon-magenta)', color: 'var(--neon-magenta)' }}>Back to Library →</button>
               </div>
               <iframe id="iframe-studio" className="hologram-frame" src="/publisher-studio" title="Publisher Studio"></iframe>
             </div>
@@ -394,10 +395,10 @@ export default function Alexandria() {
 
           <div className="carousel-page" id="page-library" aria-label="Library">
             <header>
-              <div className="logo">Alexandria</div>
+              <div className={`logo ${orbitron.className}`}>Alexandria</div>
               <div className="search-wrap">
                 <input type="search" id="searchInput" className="search-input" placeholder="Search by title or author…" aria-label="Search books" />
-                <select id="sortDropdown" className="sort-select" aria-label="Sort books">
+                <select id="sortDropdown" className={`sort-select ${orbitron.className}`} aria-label="Sort books">
                   <option value="newest">Newest first</option>
                   <option value="oldest">Oldest first</option>
                   <option value="alpha">Title A–Z</option>
@@ -405,9 +406,9 @@ export default function Alexandria() {
                 </select>
               </div>
               <nav className="nav-group" aria-label="Alexandria sections">
-                <button className="nav-btn" style={{ borderColor: 'var(--neon-magenta)', color: 'var(--neon-magenta)' }} onClick={() => window.scrollToPage('studio')}>← Studio</button>
-                <button className="nav-btn" onClick={() => window.scrollToPage('vault')}>Vault →</button>
-                <button className="nav-btn" onClick={() => router.push('/')} style={{ borderColor: '#ff3366', color: '#ff3366' }}>Home</button>
+                <button className={`nav-btn ${orbitron.className}`} style={{ borderColor: 'var(--neon-magenta)', color: 'var(--neon-magenta)' }} onClick={() => window.scrollToPage('studio')}>← Studio</button>
+                <button className={`nav-btn ${orbitron.className}`} onClick={() => window.scrollToPage('vault')}>Vault →</button>
+                <button className={`nav-btn ${orbitron.className}`} onClick={() => router.push('/')} style={{ borderColor: '#ff3366', color: '#ff3366' }}>Home</button>
               </nav>
             </header>
 
@@ -418,24 +419,24 @@ export default function Alexandria() {
             </div>
 
             <section className="hero-text-section">
-              <h1>The Indestructible<br />Archive</h1>
+              <h1 className={orbitron.className}>The Indestructible<br />Archive</h1>
               <p>Bound geometries generated from the Nexus Codex. Direct, decentralized distribution — every book a world of its own.</p>
             </section>
 
             <main className="library-container">
               <div className="grid" id="libraryGrid" ref={gridRef}></div>
               <div className="pagination" id="pagination-controls" style={{ display: 'none' }}>
-                <button id="prevPage" className="page-btn">← Previous</button>
+                <button id="prevPage" className={`page-btn ${orbitron.className}`}>← Previous</button>
                 <span id="pageInfo" style={{ fontFamily: 'monospace', color: 'var(--neon-gold)' }}>Page 1 of 1</span>
-                <button id="nextPage" className="page-btn">Next →</button>
+                <button id="nextPage" className={`page-btn ${orbitron.className}`}>Next →</button>
               </div>
             </main>
           </div>
 
           <div className="carousel-page" id="page-vault" aria-label="Reader vault">
             <div className="hologram-wrapper">
-              <div className="hologram-header" style={{ color: 'var(--neon-cyan)' }}>
-                <button className="nav-btn" onClick={() => window.scrollToPage('library')}>← Back to Library</button>
+              <div className={`hologram-header ${orbitron.className}`} style={{ color: 'var(--neon-cyan)' }}>
+                <button className={`nav-btn ${orbitron.className}`} onClick={() => window.scrollToPage('library')}>← Back to Library</button>
                 <span>Reader Vault</span>
               </div>
               <iframe id="iframe-vault" className="hologram-frame" src="/vault" title="Reader Vault"></iframe>

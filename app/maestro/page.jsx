@@ -68,10 +68,10 @@ export default function MaestroPage() {
       for (const k of keys) {
         if (!k.black) continue;
         const active = activeRef.current.has(k.midi);
-        ctx.fillStyle = active ? '#22d3ee' : '#11151b';
+        ctx.fillStyle = active ? '#00f2ff' : '#11151b';
         ctx.fillRect(k.x, 0, k.w, blackH);
         if (active && !reducedMotion) {
-          ctx.shadowColor = '#22d3ee';
+          ctx.shadowColor = '#00f2ff';
           ctx.shadowBlur = 12;
           ctx.fillRect(k.x, 0, k.w, blackH);
           ctx.shadowBlur = 0;
@@ -291,7 +291,7 @@ export default function MaestroPage() {
       </footer>
 
       {/* Safari bottom-bar clearance */}
-      <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+      <div aria-hidden="true" className="player-clear" />
     </div>
   );
 }

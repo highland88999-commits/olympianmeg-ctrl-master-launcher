@@ -1,7 +1,10 @@
-:root { 
-  --cyan: #00ffff; 
+// Scoped: these vars live on .fortress-scope (applied by the fortress layout),
+// NOT on :root — Next hoists nested-layout CSS globally, and the old :root
+// block leaked --cyan/--god-gold/etc. onto 5 unrelated pages. (Phase 2b)
+.fortress-scope {
+  --cyan: #00f2ff; 
   --bg: rgba(0, 5, 10, 0.98); 
-  --neon-cyan: #00ffff;
+  --neon-cyan: #00f2ff;
   --panel-dark: rgba(2, 6, 14, 0.97);
   --god-gold: #ffd700;
   --elder-purple: #b026ff;
@@ -12,7 +15,7 @@
   background: rgba(0, 5, 10, 0.85);
   border: 1px solid var(--cyan);
   backdrop-filter: blur(10px);
-  box-shadow: 0 0 15px rgba(0,255,255,0.2);
+  box-shadow: 0 0 15px rgba(0,242,255,0.2);
 }
 
 .btn {
@@ -32,7 +35,7 @@
 
 .btn:hover { 
   box-shadow: 0 0 20px var(--cyan); 
-  background: rgba(0,255,255,0.2); 
+  background: rgba(0,242,255,0.2); 
 }
 
 

@@ -3,6 +3,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { BackButton } from '@/components/ui';
 import { supabase } from '@/lib/supabase';
 
 export default function ArtifactReader() {
@@ -23,7 +24,7 @@ export default function ArtifactReader() {
     sessionPromise.then(({ data: { session } }) => {
       if (!session) {
         if (window.top === window.self) router.push('/');
-        else document.body.innerHTML = '<div style="color:#08f7fe; text-align:center; padding:50px; font-family:monospace;">Please log in at the Master Hub to continue.</div>';
+        else document.body.innerHTML = '<div style="color:#00f2ff; text-align:center; padding:50px; font-family:monospace;">Please log in at the Master Hub to continue.</div>';
         return;
       }
 
@@ -51,19 +52,17 @@ export default function ArtifactReader() {
     });
   }, [router]);
 
-  const goBack = () => router.push('/alexandria');
-
   return (
     <>
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Rajdhani:wght@400;600&display=swap" rel="stylesheet" />
       <style>{`
-        .artifact-wrapper { --obsidian: #050507; --neon-gold: #FFD700; --neon-cyan: #00F3FF; background-color: var(--obsidian); color: #E0E0E0; font-family: 'Rajdhani', sans-serif; width: 100vw; height: 100vh; height: 100dvh; overflow: hidden; margin: 0; }
+        .artifact-wrapper { --obsidian: #050507; --neon-gold: #FFD700; --neon-cyan: #00f2ff; background-color: var(--obsidian); color: #E0E0E0; font-family: 'Rajdhani', sans-serif; width: 100vw; height: 100dvh; overflow: hidden; margin: 0; }
         .artifact-wrapper::before { content: ""; position: fixed; inset: 0; background-image: linear-gradient(rgba(0, 243, 255, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 243, 255, 0.05) 1px, transparent 1px); background-size: 30px 30px; z-index: 0; pointer-events: none; }
-        .carousel { display: flex; width: 100vw; height: 100vh; height: 100dvh; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; scroll-behavior: smooth; scrollbar-width: none; position: relative; z-index: 10; overscroll-behavior-x: contain; touch-action: pan-x pan-y; }
+        .carousel { display: flex; width: 100vw; height: 100dvh; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; scroll-behavior: smooth; scrollbar-width: none; position: relative; z-index: 10; overscroll-behavior-x: contain; touch-action: pan-x pan-y; }
         .carousel::-webkit-scrollbar { display: none; }
-        .page { min-width: 100vw; width: 100vw; height: 100vh; height: 100dvh; scroll-snap-align: start; scroll-snap-stop: always; display: flex; justify-content: center; overflow-y: auto; overflow-x: hidden; padding: clamp(1rem, 4vw, 60px) clamp(0.75rem, 4vw, 20px); padding-top: calc(clamp(1rem, 4vw, 60px) + env(safe-area-inset-top)); padding-bottom: calc(clamp(1rem, 4vw, 60px) + env(safe-area-inset-bottom)); box-sizing: border-box; -webkit-overflow-scrolling: touch; }
+        .page { min-width: 100vw; width: 100vw; height: 100dvh; scroll-snap-align: start; scroll-snap-stop: always; display: flex; justify-content: center; overflow-y: auto; overflow-x: hidden; padding: clamp(1rem, 4vw, 60px) clamp(0.75rem, 4vw, 20px); padding-top: calc(clamp(1rem, 4vw, 60px) + env(safe-area-inset-top)); padding-bottom: calc(clamp(1rem, 4vw, 60px) + env(safe-area-inset-bottom)); box-sizing: border-box; -webkit-overflow-scrolling: touch; }
         .content { max-width: 900px; width: 100%; background: rgba(18, 18, 21, 0.85); border: 1px solid rgba(0, 243, 255, 0.2); border-radius: 8px; padding: clamp(1.25rem, 5vw, 50px); box-shadow: 0 0 20px rgba(0, 243, 255, 0.03); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); display: flex; flex-direction: column; margin: auto; position: relative; z-index: 2; }
         h1, h2 { font-family: 'Orbitron', sans-serif; text-transform: uppercase; text-align: center; letter-spacing: 2px; }
         h1 { color: var(--neon-gold); text-shadow: 0 0 12px rgba(255, 215, 0, 0.5); font-size: clamp(1.9rem, 7vw, 3.5rem); line-height: 1.2; margin: 0 0 1rem 0; }
@@ -84,7 +83,7 @@ export default function ArtifactReader() {
       `}</style>
 
       <div className="artifact-wrapper">
-        <button className="back-btn" onClick={goBack} aria-label="Back to the Alexandria library">← Library</button>
+        <BackButton label="Library" href="/alexandria" />
         {loadingMsg && <div className="loading-screen" role="status">{loadingMsg}</div>}
 
         <div className="carousel" id="book-carousel">

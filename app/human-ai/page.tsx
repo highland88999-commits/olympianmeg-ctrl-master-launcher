@@ -3,6 +3,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { BackButton } from '@/components/ui';
 import { supabase } from '@/lib/supabase';
 import MarkdownRenderer from '@/components/human-ai/MarkdownRenderer';
 
@@ -136,35 +137,25 @@ export default function HumanAI() {
   };
 
   if (cloudOffline) return (
-    <div className="w-screen h-screen bg-black flex items-center justify-center p-8">
+    <div className="w-screen h-dvh bg-black flex items-center justify-center p-8">
       <div className="max-w-md text-center">
         <p className="text-zinc-300 tracking-widest uppercase text-sm mb-3">Cloud features are offline</p>
         <p className="text-zinc-500 text-sm mb-6">
           This page needs the database connection. Check back once the cloud is connected.
         </p>
-        <button
-          onClick={() => router.push('/')}
-          className="px-4 py-2 text-[10px] font-bold tracking-widest text-zinc-400 uppercase transition-colors border rounded bg-black/80 border-zinc-700 hover:text-emerald-400 hover:border-emerald-400"
-        >
-          Exit matrix
-        </button>
+        <BackButton label="Exit matrix" />
       </div>
     </div>
   );
 
-  if (!mounted) return <div className="w-screen h-screen bg-black" />;
+  if (!mounted) return <div className="w-screen h-dvh bg-black" />;
 
   return (
     <>
-      <button 
-        onClick={() => router.push('/')} 
-        className="absolute z-[9999] px-4 py-2 text-[10px] font-bold tracking-widest text-zinc-400 uppercase transition-colors border rounded top-5 right-5 bg-black/80 border-zinc-700 hover:text-emerald-400 hover:border-emerald-400"
-      >
-        EXIT MATRIX
-      </button>
+      <BackButton label="EXIT MATRIX" />
 
       <video autoPlay loop muted playsInline className="deep-background-video">
-        <source src="/assets/human-ai/deep-background.mov" type="video/mp4" />
+        <source src="/assets/human-ai/deep-background.mp4" type="video/mp4" />
       </video>
 
       <div className="app-layout">
@@ -198,7 +189,7 @@ export default function HumanAI() {
 
           <div className="chat-window-wrapper">
             <video autoPlay loop muted playsInline className="logo-background-video">
-              <source src="/assets/human-ai/logo-background.mov" type="video/mp4" />
+              <source src="/assets/human-ai/logo-background.mp4" type="video/mp4" />
             </video>
 
             <div className="chat-window">
@@ -235,7 +226,7 @@ export default function HumanAI() {
               ))}
               {loading && <div className="loading-pulse">{mode === 'council' ? 'Convening the Council...' : 'Synthesizing...'}</div>}
               {/* Safari bottom-bar clearance */}
-              <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))] shrink-0" />
+              <div aria-hidden="true" className="player-clear shrink-0" />
             </div>
           </div>
 

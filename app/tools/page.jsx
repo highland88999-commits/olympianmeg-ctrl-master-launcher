@@ -20,6 +20,7 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { BackButton } from '@/components/ui';
 import { SATELLITES } from '@/lib/i18n/satellites';
 
 /* ------------------------------------------------------------------ */
@@ -80,7 +81,7 @@ const DESCRIPTIONS = {
 };
 
 const CSS = `
-.tools-root { min-height: 100vh; background: #050507; color: #f4f4f5;
+.tools-root { min-height: 100dvh; background: #050507; color: #f4f4f5;
   font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
 .tools-bg { position: fixed; inset: 0; z-index: 0; pointer-events: none;
   background:
@@ -184,9 +185,7 @@ export default function ToolsPage() {
       <div className="tools-bg" aria-hidden="true" />
       <div className="tools-wrap">
         <div className="tools-top">
-          <button className="tools-back" onClick={() => router.push('/')} aria-label="Back to the launcher">
-            ← Launcher
-          </button>
+          <BackButton label="Launcher" />
           <span className="tools-count">{visibleCount} instruments</span>
         </div>
 
@@ -243,7 +242,7 @@ export default function ToolsPage() {
           The deck is an index — each instrument opens on its own page,
           exactly as it works from the launcher.
         </footer>
-        <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+        <div aria-hidden="true" className="player-clear" />
       </div>
     </div>
   );

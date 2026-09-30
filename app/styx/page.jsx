@@ -42,12 +42,12 @@ export default function StyxPage() {
   const current = LEGS[leg];
 
   return (
-    <main className="min-h-screen w-full bg-[#060809] text-[#e8e4da] flex flex-col items-center px-6 pt-16"
+    <main className="min-h-dvh w-full bg-[#060809] text-[#e8e4da] flex flex-col items-center px-6 pt-16"
       style={{ paddingBottom: 'max(4rem, env(safe-area-inset-bottom))' }}>
       <div className="w-full max-w-xl flex flex-col items-center text-center">
         <p className="text-xs tracking-[0.4em] uppercase text-[#8a8f98]">A passage in four stations</p>
-        <h1 className="mt-3 text-5xl font-light tracking-[0.25em] text-[#d4af37]">STYX</h1>
-        <div className="mt-6 h-px w-24 bg-gradient-to-r from-transparent via-[#d4af37]/50 to-transparent" />
+        <h1 className="mt-3 text-5xl font-light tracking-[0.25em] text-[#ffd700]">STYX</h1>
+        <div className="mt-6 h-px w-24 bg-gradient-to-r from-transparent via-[#ffd700]/50 to-transparent" />
         <p className="mt-6 text-[#a9adb5] leading-relaxed">
           Four stations. One river. Walk them in order, or wander —
           the water doesn&apos;t mind.
@@ -62,14 +62,14 @@ export default function StyxPage() {
               <div key={s.numeral} className="flex items-center gap-3">
                 <div
                   className={`w-11 h-11 rounded-full border flex items-center justify-center text-sm tracking-widest
-                    ${done ? 'border-[#d4af37]/70 text-[#d4af37]/80'
-                      : here ? 'border-[#d4af37] text-[#d4af37] shadow-[0_0_18px_rgba(212,175,55,0.35)]'
+                    ${done ? 'border-[#ffd700]/70 text-[#ffd700]/80'
+                      : here ? 'border-[#ffd700] text-[#ffd700] shadow-[0_0_18px_rgba(212,175,55,0.35)]'
                       : 'border-[#3a3f47] text-[#5a5f68]'}`}
                   aria-label={`Station ${s.numeral}: ${s.title}${done ? ' (visited)' : here ? ' (current)' : ''}`}
                 >
                   {done ? '✓' : s.numeral}
                 </div>
-                {i < LEGS.length - 1 && <div className={`w-8 h-px ${done ? 'bg-[#d4af37]/60' : 'bg-[#2a2e34]'}`} />}
+                {i < LEGS.length - 1 && <div className={`w-8 h-px ${done ? 'bg-[#ffd700]/60' : 'bg-[#2a2e34]'}`} />}
               </div>
             );
           })}
@@ -82,7 +82,7 @@ export default function StyxPage() {
             <p className="mt-4 text-[#a9adb5] leading-relaxed">{current.text}</p>
             <button
               onClick={enter}
-              className="mt-8 w-full sm:w-auto px-10 py-4 rounded-full bg-[#d4af37] text-black
+              className="mt-8 w-full sm:w-auto px-10 py-4 rounded-full bg-[#ffd700] text-black
                          text-sm tracking-[0.25em] uppercase font-medium hover:bg-[#e5c65a] transition-colors"
             >
               Enter the station →
@@ -91,15 +91,15 @@ export default function StyxPage() {
         )}
 
         {ready && complete && (
-          <section className="mt-10 w-full rounded-2xl border border-[#d4af37]/40 bg-[#0b0e11]/80 p-8">
-            <h2 className="text-3xl font-light text-[#d4af37]">The Far Shore</h2>
+          <section className="mt-10 w-full rounded-2xl border border-[#ffd700]/40 bg-[#0b0e11]/80 p-8">
+            <h2 className="text-3xl font-light text-[#ffd700]">The Far Shore</h2>
             <p className="mt-4 text-[#a9adb5] leading-relaxed">
               The passage is complete. The river keeps the rest.
             </p>
             <button
               onClick={reset}
-              className="mt-8 px-10 py-4 rounded-full border border-[#d4af37]/60 text-[#d4af37]
-                         text-sm tracking-[0.25em] uppercase hover:bg-[#d4af37]/10 transition-colors"
+              className="mt-8 px-10 py-4 rounded-full border border-[#ffd700]/60 text-[#ffd700]
+                         text-sm tracking-[0.25em] uppercase hover:bg-[#ffd700]/10 transition-colors"
             >
               Walk it again
             </button>
@@ -115,7 +115,7 @@ export default function StyxPage() {
                 key={s.route}
                 href={s.route}
                 className="rounded-xl border border-[#2a2e34] bg-[#0b0e11]/60 px-4 py-4
-                           hover:border-[#d4af37]/50 transition-colors text-left"
+                           hover:border-[#ffd700]/50 transition-colors text-left"
               >
                 <p className="text-xs tracking-[0.3em] text-[#8a8f98]">{s.numeral}</p>
                 <p className="mt-1 text-[#e8e4da]">{s.title}</p>

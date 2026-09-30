@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { BackButton } from '@/components/ui';
 import { supabase } from '@/lib/supabase';
 import { summarize } from '@/lib/ares/intel';
 import ThreatGauge from '@/components/ares/ThreatGauge';
@@ -82,20 +83,20 @@ export default function AresConsole() {
   if (!token) {
     if (cloudOffline) {
       return (
-        <div className="flex h-screen w-screen items-center justify-center bg-black p-8 text-center">
+        <div className="flex h-dvh w-screen items-center justify-center bg-black p-8 text-center">
           <p className="max-w-md text-sm text-zinc-400">
             Cloud features are offline — Ares needs the database connection. The watchtower will come back online once it&apos;s connected.
           </p>
         </div>
       );
     }
-    return <div className="h-screen w-screen bg-black" />;
+    return <div className="h-dvh w-screen bg-black" />;
   }
 
   const summary = summarize(events);
 
   return (
-    <main className="min-h-screen w-full bg-[#050505] px-4 py-6 text-zinc-200 sm:px-8">
+    <main className="min-h-dvh w-full bg-[#050505] px-4 py-6 text-zinc-200 sm:px-8">
       <div className="mx-auto flex max-w-5xl flex-col gap-4">
         <header className="flex items-center justify-between gap-4">
           <div>
@@ -111,10 +112,7 @@ export default function AresConsole() {
               className="rounded-lg border border-zinc-700 px-4 py-2 text-xs font-bold uppercase tracking-widest text-zinc-400 transition-colors hover:border-fuchsia-400 hover:text-fuchsia-300">
               Refresh
             </button>
-            <button onClick={() => router.push('/')}
-              className="rounded-lg border border-zinc-700 bg-black/80 px-4 py-2 text-xs font-bold uppercase tracking-widest text-zinc-400 transition-colors hover:border-fuchsia-400 hover:text-fuchsia-300">
-              Exit
-            </button>
+            <BackButton label="Exit" />
           </div>
         </header>
 
@@ -137,7 +135,7 @@ export default function AresConsole() {
             <footer className="pb-8 pt-2 text-center text-[11px] text-zinc-600">
               Defensive only. Ares logs and blocks; it never retaliates. Evidence older than 90 days is purged.
             </footer>
-            <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+            <div aria-hidden="true" className="player-clear" />
           </>
         )}
       </div>

@@ -26,40 +26,40 @@ const CSS = `
 .mc-wrap { box-sizing: border-box; margin: 0; padding: 0; font-family: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace; background: #020813; color: #e0f7fc; overflow: hidden; height: 100dvh; width: 100vw; user-select: none; }
 .mc-wave { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; opacity: 0.7; }
 .mc-holo { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; background: linear-gradient(rgba(18,16,16,0) 50%, rgba(0,0,0,0.25) 50%), linear-gradient(90deg, rgba(255,0,0,0.06), rgba(0,255,0,0.02), rgba(0,0,255,0.06)); background-size: 100% 4px, 6px 100%; }
-.mc-shell { position: relative; z-index: 3; display: flex; flex-direction: column; height: 100vh; width: 100vw; padding: 20px; box-sizing: border-box; }
-.mc-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #00f3ff; padding-bottom: 10px; margin-bottom: 16px; }
-.mc-header h1 { font-family: system-ui, 'Segoe UI', sans-serif; font-weight: 900; letter-spacing: 3px; color: #00f3ff; font-size: 1.8rem; margin: 0; }
+.mc-shell { position: relative; z-index: 3; display: flex; flex-direction: column; height: 100dvh; width: 100vw; padding: 20px; box-sizing: border-box; }
+.mc-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #00f2ff; padding-bottom: 10px; margin-bottom: 16px; }
+.mc-header h1 { font-family: system-ui, 'Segoe UI', sans-serif; font-weight: 900; letter-spacing: 3px; color: #00f2ff; font-size: 1.8rem; margin: 0; }
 .mc-status { font-size: 0.9rem; color: #ffaa00; text-align: right; }
 .mc-status span { color: #00ff66; animation: mcPulse 1.5s infinite; }
 .mc-nav { display: flex; justify-content: center; gap: 10px; margin-bottom: 16px; overflow-x: auto; padding-bottom: 5px; }
-.mc-navbtn { background: rgba(0,243,255,0.05); border: 1px solid #00f3ff; color: #00f3ff; padding: 10px 16px; font-family: system-ui, 'Segoe UI', sans-serif; font-weight: 700; cursor: pointer; transition: all 0.3s ease; clip-path: polygon(0 0, 90% 0, 100% 100%, 10% 100%); min-height: 44px; white-space: nowrap; }
-.mc-navbtn:hover, .mc-navbtn.active { background: #00f3ff; color: #020813; box-shadow: 0 0 15px #00f3ff; }
+.mc-navbtn { background: rgba(0,243,255,0.05); border: 1px solid #00f2ff; color: #00f2ff; padding: 10px 16px; font-family: system-ui, 'Segoe UI', sans-serif; font-weight: 700; cursor: pointer; transition: all 0.3s ease; clip-path: polygon(0 0, 90% 0, 100% 100%, 10% 100%); min-height: 44px; white-space: nowrap; }
+.mc-navbtn:hover, .mc-navbtn.active { background: #00f2ff; color: #020813; box-shadow: 0 0 15px #00f2ff; }
 .mc-viewport { flex: 1; overflow: hidden; position: relative; border: 1px solid rgba(0,243,255,0.2); border-radius: 4px; min-height: 0; }
 .mc-carousel { display: flex; height: 100%; width: 500%; transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1); }
-.mc-page { width: 20%; height: 100%; overflow-y: auto; padding: 30px; padding-bottom: calc(4.5rem + env(safe-area-inset-bottom)); box-sizing: border-box; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); background: rgba(2,16,32,0.45); scrollbar-width: thin; scrollbar-color: #00f3ff transparent; }
+.mc-page { width: 20%; height: 100%; overflow-y: auto; padding: 30px; padding-bottom: calc(4.5rem + env(safe-area-inset-bottom)); box-sizing: border-box; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); background: rgba(2,16,32,0.45); scrollbar-width: thin; scrollbar-color: #00f2ff transparent; }
 .mc-page::-webkit-scrollbar { width: 6px; }
-.mc-page::-webkit-scrollbar-thumb { background: #00f3ff; border-radius: 3px; }
-.mc-page h2 { font-family: system-ui, 'Segoe UI', sans-serif; color: #00f3ff; margin: 0 0 20px; text-transform: uppercase; letter-spacing: 2px; border-left: 4px solid #ff0055; padding-left: 10px; }
-.mc-page h3 { font-family: system-ui, 'Segoe UI', sans-serif; color: #00f3ff; margin: 24px 0 12px; }
+.mc-page::-webkit-scrollbar-thumb { background: #00f2ff; border-radius: 3px; }
+.mc-page h2 { font-family: system-ui, 'Segoe UI', sans-serif; color: #00f2ff; margin: 0 0 20px; text-transform: uppercase; letter-spacing: 2px; border-left: 4px solid #ff0055; padding-left: 10px; }
+.mc-page h3 { font-family: system-ui, 'Segoe UI', sans-serif; color: #00f2ff; margin: 24px 0 12px; }
 .mc-page p { font-size: 1.05rem; line-height: 1.6; margin: 0 0 20px; text-align: justify; }
 .mc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; margin-bottom: 25px; }
 .mc-card { border: 1px solid rgba(0,243,255,0.15); background: rgba(2,12,24,0.4); padding: 20px; position: relative; border-radius: 2px; }
-.mc-card::before { content: ''; position: absolute; top: 0; left: 0; width: 10px; height: 10px; border-top: 2px solid #00f3ff; border-left: 2px solid #00f3ff; }
+.mc-card::before { content: ''; position: absolute; top: 0; left: 0; width: 10px; height: 10px; border-top: 2px solid #00f2ff; border-left: 2px solid #00f2ff; }
 .mc-card .t { font-size: 0.85rem; color: rgba(0,243,255,0.7); text-transform: uppercase; margin-bottom: 5px; }
 .mc-card .v { font-size: 2rem; font-weight: bold; font-family: system-ui, 'Segoe UI', sans-serif; color: #ff0055; text-shadow: 0 0 10px rgba(255,0,85,0.3); }
 .mc-card .s { font-size: 0.85rem; color: #ffaa00; margin-top: 5px; }
 .mc-tablewrap { width: 100%; overflow-x: auto; margin: 20px 0; border: 1px solid rgba(0,243,255,0.2); background: rgba(1,10,20,0.6); scrollbar-width: thin; }
 .mc-table { width: 100%; border-collapse: collapse; min-width: 600px; text-align: left; }
 .mc-th, .mc-td { padding: 12px 15px; border-bottom: 1px solid rgba(0,243,255,0.1); }
-.mc-th { background: rgba(0,243,255,0.1); color: #00f3ff; text-transform: uppercase; font-family: system-ui, 'Segoe UI', sans-serif; font-size: 0.9rem; }
+.mc-th { background: rgba(0,243,255,0.1); color: #00f2ff; text-transform: uppercase; font-family: system-ui, 'Segoe UI', sans-serif; font-size: 0.9rem; }
 .mc-tr:hover { background: rgba(255,0,85,0.05); }
 .mc-nodes { display: grid; grid-template-columns: repeat(20, 1fr); gap: 4px; margin: 15px 0; background: rgba(0,0,0,0.3); padding: 10px; border-radius: 4px; }
 .mc-dot { aspect-ratio: 1; background-color: #00ff66; border-radius: 2px; box-shadow: 0 0 4px #00ff66; animation: mcFlicker 3s infinite ease-in-out; border: 0; padding: 0; cursor: pointer; }
 .mc-dot.warn { background-color: #ffaa00; box-shadow: 0 0 4px #ffaa00; animation: none; }
 .mc-dot.fault { background-color: #ff2255; box-shadow: 0 0 8px #ff2255; animation: none; }
-.mc-legend { font-size: 0.9rem; color: #00f3ff; margin-bottom: 20px; }
+.mc-legend { font-size: 0.9rem; color: #00f2ff; margin-bottom: 20px; }
 .mc-rowbtns { display: flex; gap: 10px; flex-wrap: wrap; margin: 10px 0 20px; }
-.mc-ghostbtn { background: transparent; border: 1px solid #00f3ff; color: #00f3ff; font-family: inherit; font-size: 0.85rem; padding: 10px 16px; cursor: pointer; border-radius: 3px; min-height: 44px; }
+.mc-ghostbtn { background: transparent; border: 1px solid #00f2ff; color: #00f2ff; font-family: inherit; font-size: 0.85rem; padding: 10px 16px; cursor: pointer; border-radius: 3px; min-height: 44px; }
 .mc-ghostbtn:hover { background: rgba(0,243,255,0.12); }
 @keyframes mcPulse { 0%,100% { opacity: 0.6; } 50% { opacity: 1; text-shadow: 0 0 8px #00ff66; } }
 @keyframes mcFlicker { 0%,100% { opacity: 1; } 45% { opacity: 0.8; } 50% { opacity: 0.3; } 55% { opacity: 1; } }
@@ -233,7 +233,7 @@ export default function MissionControlPage() {
         <header className="mc-header">
           <div>
             <h1>PROJECT OLYMPUS</h1>
-            <div style={{ fontSize: '0.8rem', color: '#00f3ff' }}>HOLOGRAPHIC DIAGNOSTIC DECK v4.26</div>
+            <div style={{ fontSize: '0.8rem', color: '#00f2ff' }}>HOLOGRAPHIC DIAGNOSTIC DECK v4.26</div>
           </div>
           <div className="mc-status">
             AUTONOMY STATE: <span>ACTIVE // NET-ZERO</span><br />

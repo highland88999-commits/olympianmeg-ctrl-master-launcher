@@ -1039,7 +1039,7 @@ export default function ErebusPage() {
   // ============================ ATLAS ======================================
   if (view === 'atlas') {
     return (
-      <div className="min-h-screen bg-black text-white select-none">
+      <div className="min-h-dvh bg-black text-white select-none">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-6 sm:pt-10 pb-[calc(4.5rem+env(safe-area-inset-bottom))]">
           <div className="border-l-2 border-indigo-400/80 pl-4 mb-2">
             <div className="text-[10px] sm:text-[11px] tracking-[0.3em] uppercase text-indigo-300/90">

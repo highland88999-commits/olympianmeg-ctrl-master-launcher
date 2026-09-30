@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { BackButton } from '@/components/ui'
 import { supabase } from '@/lib/battleship/supabase'
-import Link from 'next/link'
 
 export default function ProfilePage() {
   const [user, setUser] = useState<any>(null)
@@ -96,17 +96,17 @@ export default function ProfilePage() {
     loadFriends(user.id)
   }
 
-  if (!user) return <div className="w-screen h-screen bg-black"></div>
+  if (!user) return <div className="w-screen h-dvh bg-black"></div>
 
   return (
-    <div className="relative flex min-h-screen w-full flex-col items-center overflow-y-auto bg-black text-white">
+    <div className="relative flex min-h-dvh w-full flex-col items-center overflow-y-auto bg-black text-white">
       <video autoPlay loop muted playsInline className="fixed inset-0 z-0 object-cover w-full h-full opacity-30" src="/assets/battleship/profile-bg.mp4" />
       
-      <div className="relative z-10 my-10 flex w-full max-w-lg flex-col gap-8 p-10 bg-zinc-950/80 backdrop-blur-md border border-cyan-500/40 rounded-xl shadow-[0_0_40px_rgba(0,255,255,0.1)]">
+      <div className="relative z-10 my-10 flex w-full max-w-lg flex-col gap-8 p-10 bg-zinc-950/80 backdrop-blur-md border border-cyan-500/40 rounded-xl shadow-[0_0_40px_rgba(0,242,255,0.1)]">
         
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-black text-transparent uppercase bg-clip-text bg-gradient-to-r from-cyan-400 to-fuchsia-500 tracking-widest">Command Profile</h1>
-          <Link href="/battleship" className="text-xs font-bold tracking-widest text-zinc-400 hover:text-white uppercase transition-all">← Back to Grid</Link>
+          <BackButton label="Back to Grid" href="/battleship" />
         </div>
 
         <form onSubmit={handleSaveProfile} className="flex flex-col gap-2 p-5 border rounded-lg bg-black/40 border-zinc-800">
@@ -152,7 +152,7 @@ export default function ProfilePage() {
         )}
 
         {msg && <p className="text-sm text-center text-cyan-400 animate-pulse">{msg}</p>}
-        <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
+        <div aria-hidden="true" className="player-clear" />
       </div>
     </div>
   )

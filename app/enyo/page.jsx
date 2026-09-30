@@ -373,7 +373,7 @@ function paintHealthBar(mesh, frac) {
   g.clearRect(0, 0, 64, 10);
   g.fillStyle = 'rgba(0,0,0,0.55)';
   g.fillRect(0, 0, 64, 10);
-  g.fillStyle = frac > 0.5 ? '#4ade80' : frac > 0.25 ? '#fbbf24' : '#f87171';
+  g.fillStyle = frac > 0.5 ? '#4ade80' : frac > 0.25 ? '#ffd700' : '#f87171';
   g.fillRect(2, 2, 60 * Math.max(0, frac), 6);
   tex.needsUpdate = true;
 }
@@ -1341,8 +1341,8 @@ function StatBar({ label, value }) {
   return (
     <div className="flex items-center gap-2">
       <span className="w-16 text-[10px] uppercase tracking-widest text-neutral-400">{label}</span>
-      <div className="flex-1 h-1.5 bg-white/10 rounded overflow-hidden">
-        <div className="h-full bg-amber-400 rounded" style={{ width: `${Math.round(value * 100)}%` }} />
+      <div className="flex-1 h-1.5 bg-white/10 rounded-lg overflow-hidden">
+        <div className="h-full bg-amber-400 rounded-lg" style={{ width: `${Math.round(value * 100)}%` }} />
       </div>
     </div>
   );
@@ -1493,7 +1493,7 @@ export default function EnyoPage() {
       {/* ================= MENU ================= */}
       {phase === 'menu' && (
         <div className="absolute inset-0 overflow-y-auto bg-gradient-to-b from-[#0b0e1a] via-[#101424] to-black/95">
-          <div className="max-w-3xl mx-auto px-5 pt-10 pb-[calc(4.5rem+env(safe-area-inset-bottom))]">
+          <div className="max-w-3xl mx-auto px-5 pt-10">
             <div className="text-[11px] tracking-[0.4em] uppercase text-red-400/90">Goddess of war</div>
             <h1 className="text-5xl font-black tracking-widest mt-1">ENYO</h1>
             <p className="text-neutral-400 mt-2 text-sm max-w-xl">
@@ -1507,12 +1507,12 @@ export default function EnyoPage() {
                 <button
                   key={m.key}
                   onClick={() => setMapKey(m.key)}
-                  className={`text-left p-4 rounded-xl border transition-colors ${
+                  className={`text-left p-4 rounded-[10px] border transition-colors ${
                     mapKey === m.key ? 'border-amber-400/80 bg-amber-400/10' : 'border-white/15 bg-white/5 hover:bg-white/10'
                   }`}
                 >
                   <div
-                    className="h-14 rounded-md mb-3"
+                    className="h-14 rounded-lg mb-3"
                     style={{ background: `linear-gradient(135deg, #${m.sky.toString(16).padStart(6, '0')}, #${m.fog.toString(16).padStart(6, '0')})` }}
                   />
                   <div className="font-bold">{m.name}</div>
@@ -1525,7 +1525,7 @@ export default function EnyoPage() {
             <div className="grid grid-cols-2 gap-3">
               <button
                 onClick={() => setMode('tdm')}
-                className={`p-4 rounded-xl border text-left transition-colors ${
+                className={`p-4 rounded-[10px] border text-left transition-colors ${
                   mode === 'tdm' ? 'border-amber-400/80 bg-amber-400/10' : 'border-white/15 bg-white/5 hover:bg-white/10'
                 }`}
               >
@@ -1534,7 +1534,7 @@ export default function EnyoPage() {
               </button>
               <button
                 onClick={() => setMode('ffa')}
-                className={`p-4 rounded-xl border text-left transition-colors ${
+                className={`p-4 rounded-[10px] border text-left transition-colors ${
                   mode === 'ffa' ? 'border-amber-400/80 bg-amber-400/10' : 'border-white/15 bg-white/5 hover:bg-white/10'
                 }`}
               >
@@ -1551,7 +1551,7 @@ export default function EnyoPage() {
                   <button
                     key={k}
                     onClick={() => setDiffKey(k)}
-                    className={`text-left p-4 rounded-xl border transition-colors ${
+                    className={`text-left p-4 rounded-[10px] border transition-colors ${
                       diffKey === k ? 'border-amber-400/80 bg-amber-400/10' : 'border-white/15 bg-white/5 hover:bg-white/10'
                     }`}
                   >
@@ -1583,13 +1583,14 @@ export default function EnyoPage() {
 
             <button
               onClick={deploy}
-              className="mt-10 w-full py-4 rounded-xl bg-red-600 hover:bg-red-500 text-white font-black tracking-[0.35em] text-lg transition-colors"
+              className="mt-10 w-full py-4 rounded-[10px] bg-red-600 hover:bg-red-500 text-white font-black tracking-[0.35em] text-lg transition-colors"
             >
               DEPLOY
             </button>
             <p className="text-center text-[11px] text-neutral-600 mt-3 tracking-wider">
               Bots are procedural combatants — armored figures, not people.
             </p>
+            <div aria-hidden="true" className="player-clear" />
           </div>
         </div>
       )}
@@ -1659,7 +1660,7 @@ export default function EnyoPage() {
           {/* kill feed */}
           <div className="absolute top-3 right-3 flex flex-col items-end gap-1 pointer-events-none max-w-[46vw]">
             {feed.map((f) => (
-              <div key={f.id} className="text-[11px] px-2.5 py-1 rounded bg-black/55 border border-white/10 text-neutral-300">
+              <div key={f.id} className="text-[11px] px-2.5 py-1 rounded-lg bg-black/55 border border-white/10 text-neutral-300">
                 {f.msg}
               </div>
             ))}
@@ -1668,9 +1669,9 @@ export default function EnyoPage() {
           {/* health */}
           <div className="absolute left-4 bottom-[max(1.25rem,env(safe-area-inset-bottom))] pointer-events-none">
             <div className="text-[10px] tracking-[0.3em] uppercase text-neutral-400 mb-1">Health</div>
-            <div className="w-44 sm:w-56 h-3 rounded bg-white/10 overflow-hidden">
+            <div className="w-44 sm:w-56 h-3 rounded-lg bg-white/10 overflow-hidden">
               <div
-                className={`h-full rounded transition-all ${hud.hp > 50 ? 'bg-emerald-400' : hud.hp > 25 ? 'bg-amber-400' : 'bg-red-500'}`}
+                className={`h-full rounded-lg transition-all ${hud.hp > 50 ? 'bg-emerald-400' : hud.hp > 25 ? 'bg-amber-400' : 'bg-red-500'}`}
                 style={{ width: `${Math.max(0, hud.hp)}%` }}
               />
             </div>
@@ -1694,7 +1695,7 @@ export default function EnyoPage() {
               {WEAPON_KEYS.map((k, i) => (
                 <div
                   key={k}
-                  className={`px-2 py-1 rounded text-[10px] font-bold border ${
+                  className={`px-2 py-1 rounded-lg text-[10px] font-bold border ${
                     hud.weaponKey === k ? 'border-amber-400/80 text-amber-300 bg-amber-400/10' : 'border-white/15 text-neutral-500'
                   }`}
                 >
@@ -1817,13 +1818,13 @@ export default function EnyoPage() {
             </div>
             <button
               onClick={deploy}
-              className="mt-8 w-full py-3.5 rounded-xl bg-red-600 hover:bg-red-500 font-black tracking-[0.3em] transition-colors"
+              className="mt-8 w-full py-3.5 rounded-[10px] bg-red-600 hover:bg-red-500 font-black tracking-[0.3em] transition-colors"
             >
               PLAY AGAIN
             </button>
             <button
               onClick={exitToMenu}
-              className="mt-3 w-full py-3 rounded-xl border border-white/20 text-neutral-300 tracking-[0.25em] text-sm hover:bg-white/10 transition-colors"
+              className="mt-3 w-full py-3 rounded-[10px] border border-white/20 text-neutral-300 tracking-[0.25em] text-sm hover:bg-white/10 transition-colors"
             >
               CHANGE ARENA
             </button>

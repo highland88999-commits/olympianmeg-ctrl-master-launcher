@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
 
 /**
  * Browser's Castle — concept showcase.
@@ -190,7 +191,7 @@ function VaultPanel() {
               alignItems: "center",
               gap: 8,
               padding: "10px 4px",
-              borderBottom: "1px solid rgba(0,255,255,0.12)",
+              borderBottom: "1px solid rgba(0,242,255,0.12)",
             }}
           >
             <a
@@ -217,7 +218,7 @@ function VaultPanel() {
 
 const panelStyle = {
   background: "rgba(8,8,20,0.78)",
-  border: "1px solid rgba(0,255,255,0.25)",
+  border: "1px solid rgba(0,242,255,0.25)",
   borderRadius: 12,
   padding: 20,
   backdropFilter: "blur(10px)",
@@ -228,7 +229,7 @@ const panelStyle = {
 };
 
 const panelTitleStyle = {
-  color: "#00ffff",
+  color: "#00f2ff",
   fontSize: 16,
   letterSpacing: 3,
   textTransform: "uppercase",
@@ -244,7 +245,7 @@ const panelTextStyle = {
 
 const inputStyle = {
   background: "rgba(0,0,0,0.6)",
-  border: "1px solid rgba(0,255,255,0.35)",
+  border: "1px solid rgba(0,242,255,0.35)",
   borderRadius: 8,
   color: "#fff",
   padding: "12px 14px",
@@ -255,10 +256,10 @@ const inputStyle = {
 };
 
 const buttonStyle = {
-  background: "rgba(0,255,255,0.12)",
-  border: "1px solid rgba(0,255,255,0.5)",
+  background: "rgba(0,242,255,0.12)",
+  border: "1px solid rgba(0,242,255,0.5)",
   borderRadius: 8,
-  color: "#00ffff",
+  color: "#00f2ff",
   padding: "12px 20px",
   fontSize: 15,
   fontWeight: 700,
@@ -338,9 +339,9 @@ export default function BrowsersCastlePage() {
       >
         {/* Castle header */}
         <header style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 28, width: "100%" }}>
-          <img src={LOGO_SRC} alt="Browser's Castle logo" width={48} height={48} style={{ borderRadius: 10 }} />
+          <Image src={LOGO_SRC} alt="Browser's Castle logo" width={48} height={48} style={{ borderRadius: 10 }} />
           <div>
-            <div style={{ color: "#00ffff", fontWeight: 800, letterSpacing: 3, fontSize: 15, textTransform: "uppercase" }}>
+            <div style={{ color: "#00f2ff", fontWeight: 800, letterSpacing: 3, fontSize: 15, textTransform: "uppercase" }}>
               Browser&apos;s Castle
             </div>
             <div
@@ -365,12 +366,12 @@ export default function BrowsersCastlePage() {
         <section style={{ textAlign: "center", marginBottom: 32 }}>
           <h1
             style={{
-              color: "#00ffff",
+              color: "#00f2ff",
               letterSpacing: 5,
               textTransform: "uppercase",
               fontSize: "clamp(1.8rem, 7vw, 2.8rem)",
               margin: "0 0 12px",
-              textShadow: "0 0 14px rgba(0,255,255,0.45)",
+              textShadow: "0 0 14px rgba(0,242,255,0.45)",
             }}
           >
             Browser&apos;s Castle
@@ -387,7 +388,7 @@ export default function BrowsersCastlePage() {
           style={{
             width: "100%",
             background: "rgba(8,8,20,0.72)",
-            border: "1px solid rgba(0,255,255,0.25)",
+            border: "1px solid rgba(0,242,255,0.25)",
             borderRadius: 14,
             padding: 16,
             backdropFilter: "blur(10px)",
@@ -421,7 +422,7 @@ export default function BrowsersCastlePage() {
             <button
               onClick={() => togglePanel("about")}
               aria-expanded={panel === "about"}
-              style={{ ...buttonStyle, flex: "1 1 140px", ...(panel === "about" ? { background: "rgba(0,255,255,0.22)" } : {}) }}
+              style={{ ...buttonStyle, flex: "1 1 140px", ...(panel === "about" ? { background: "rgba(0,242,255,0.22)" } : {}) }}
             >
               ⓘ About
             </button>

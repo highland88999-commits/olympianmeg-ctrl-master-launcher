@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 const CSS = `
-.rs-root { min-height: 100vh; background: #030305; color: #fff; overflow: hidden; position: relative;
+.rs-root { min-height: 100dvh; background: #030305; color: #fff; overflow: hidden; position: relative;
   font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
 .rs-bg { position: fixed; inset: 0; z-index: 1; pointer-events: none; }
 .rs-scan { position: fixed; inset: 0; z-index: 2; pointer-events: none; opacity: 0.35;
@@ -19,21 +19,21 @@ const CSS = `
   display: flex; flex-direction: column; gap: 22px;
   box-shadow: 0 0 30px rgba(0,243,255,0.1), inset 0 0 20px rgba(0,243,255,0.05); }
 .rs-panel::-webkit-scrollbar { display: none; }
-.rs-h1 { font-size: 2.2rem; margin: 0; color: #00f3ff; text-shadow: 0 0 15px rgba(0,243,255,0.6);
+.rs-h1 { font-size: 2.2rem; margin: 0; color: #00f2ff; text-shadow: 0 0 15px rgba(0,243,255,0.6);
   text-transform: uppercase; letter-spacing: 3px; font-weight: 900; }
 .rs-h2 { font-size: 1.5rem; color: #FFD700; margin: 0; text-transform: uppercase; letter-spacing: 2px;
   text-shadow: 0 0 10px rgba(255,215,0,0.4); font-weight: 700; }
 .rs-sub { font-size: 1rem; line-height: 1.6; color: #cceeff; margin: 0 auto; max-width: 560px; }
-.rs-pillar { background: rgba(0,0,0,0.4); border-left: 3px solid #00f3ff; padding: 15px; text-align: left; border-radius: 0 8px 8px 0; }
-.rs-pillar h3 { margin: 0 0 5px 0; font-size: 1.05rem; color: #00f3ff; letter-spacing: 1px; }
+.rs-pillar { background: rgba(0,0,0,0.4); border-left: 3px solid #00f2ff; padding: 15px; text-align: left; border-radius: 0 8px 8px 0; }
+.rs-pillar h3 { margin: 0 0 5px 0; font-size: 1.05rem; color: #00f2ff; letter-spacing: 1px; }
 .rs-pillar p { margin: 0; font-size: 0.9rem; color: #ddd; line-height: 1.5; }
 .rs-price { font-size: 3rem; font-weight: 900; color: #fff;
   text-shadow: 0 0 20px rgba(0,243,255,0.7), 0 0 40px rgba(10,68,255,0.5); letter-spacing: 2px; margin: 6px 0; }
 .rs-price small { font-size: 1.1rem; color: #FFD700; font-weight: 700; }
-.rs-btn { background: rgba(0,15,30,0.6); border: 1px solid #00f3ff; color: #00f3ff; padding: 14px 18px;
+.rs-btn { background: rgba(0,15,30,0.6); border: 1px solid #00f2ff; color: #00f2ff; padding: 14px 18px;
   font-size: 0.9rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; border-radius: 6px;
   cursor: pointer; transition: all 0.25s ease; min-height: 48px; width: 100%; }
-.rs-btn:hover { background: #00f3ff; color: #000; box-shadow: 0 0 20px rgba(0,243,255,0.5); }
+.rs-btn:hover { background: #00f2ff; color: #000; box-shadow: 0 0 20px rgba(0,243,255,0.5); }
 .rs-btn.gold { border-color: #FFD700; color: #FFD700; background: rgba(30,22,0,0.5); }
 .rs-btn.gold:hover { background: #FFD700; color: #000; box-shadow: 0 0 20px rgba(255,215,0,0.5); }
 .rs-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -41,19 +41,19 @@ const CSS = `
   letter-spacing: 1px; color: #9fd8e8; margin-bottom: 6px; }
 .rs-field input { width: 100%; box-sizing: border-box; background: #050a12; border: 1px solid rgba(0,243,255,0.35);
   color: #fff; padding: 12px; border-radius: 6px; font-size: 1rem; outline: none; }
-.rs-field input:focus { border-color: #00f3ff; box-shadow: 0 0 12px rgba(0,243,255,0.25); }
+.rs-field input:focus { border-color: #00f2ff; box-shadow: 0 0 12px rgba(0,243,255,0.25); }
 .rs-kpi { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .rs-kpi div { background: rgba(0,0,0,0.45); border: 1px solid rgba(255,215,0,0.35); border-radius: 8px; padding: 12px 6px; }
 .rs-kpi b { display: block; color: #FFD700; font-size: 1.25rem; }
 .rs-kpi span { font-size: 0.68rem; color: #9fb3c8; text-transform: uppercase; letter-spacing: 1px; }
 .rs-dots { position: absolute; bottom: calc(26px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); z-index: 10;
   display: flex; flex-direction: column; align-items: center; gap: 10px; pointer-events: none; }
-.rs-hint { color: #00f3ff; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 2px;
+.rs-hint { color: #00f2ff; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 2px;
   animation: rs-pulse 2s infinite; }
 @keyframes rs-pulse { 0%,100% { opacity: 0.4; } 50% { opacity: 1; } }
 .rs-dotrow { display: flex; gap: 14px; }
-.rs-dot { width: 12px; height: 12px; border: 1px solid #00f3ff; border-radius: 50%; transition: 0.3s; }
-.rs-dot.active { background: #00f3ff; box-shadow: 0 0 10px #00f3ff; }
+.rs-dot { width: 12px; height: 12px; border: 1px solid #00f2ff; border-radius: 50%; transition: 0.3s; }
+.rs-dot.active { background: #00f2ff; box-shadow: 0 0 10px #00f2ff; }
 .rs-note { font-size: 0.75rem; color: #8aa0b4; line-height: 1.5; }
 .rs-toast { position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); z-index: 20;
   background: rgba(0,243,255,0.92); color: #000; font-weight: 700; padding: 10px 18px; border-radius: 8px; font-size: 0.85rem; }
@@ -244,7 +244,7 @@ export default function ReferralSystemPage() {
                 Payout automation is not built; this page runs the numbers, it does not pay anyone.
               </p>
               <div style={{ borderTop: '1px dashed rgba(0,243,255,0.3)', paddingTop: 20 }}>
-                <h2 className="rs-h2" style={{ color: '#00f3ff', fontSize: '1.2rem' }}>Total Autonomy (planned)</h2>
+                <h2 className="rs-h2" style={{ color: '#00f2ff', fontSize: '1.2rem' }}>Total Autonomy (planned)</h2>
                 <p className="rs-sub" style={{ fontSize: '0.9rem' }}>
                   In the planned build, the goal would be zero administrative overhead: you set
                   the rewards, and automated payouts would route to referrers on verification,
@@ -340,7 +340,7 @@ export default function ReferralSystemPage() {
       {toast && <div className="rs-toast" role="status">{toast}</div>}
     </main>
     {/* Safari bottom-bar clearance: blank space under the fixed carousel viewport */}
-    <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+    <div aria-hidden="true" className="player-clear" />
     </>
   );
 }

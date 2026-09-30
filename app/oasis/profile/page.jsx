@@ -89,7 +89,7 @@ export default function OasisProfilePage() {
   const avatar = getAvatar(avatarId);
 
   return (
-    <main className="min-h-screen bg-black text-white px-4 py-8 sm:py-12">
+    <main className="min-h-dvh bg-black text-white px-4 py-8 sm:py-12">
       <div className="max-w-xl mx-auto flex flex-col gap-8">
         <div className="text-center">
           <h1 className="text-3xl font-black tracking-[0.2em] uppercase text-transparent bg-clip-text bg-gradient-to-br from-cyan-400 to-fuchsia-500">
@@ -189,7 +189,7 @@ export default function OasisProfilePage() {
         </Link>
 
         {/* Safari bottom-bar clearance */}
-        <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+        <div aria-hidden="true" className="player-clear" />
       </div>
     </main>
   );

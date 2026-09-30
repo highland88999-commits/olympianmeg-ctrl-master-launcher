@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo, memo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Text, Billboard } from '@react-three/drei';
 import * as THREE from 'three';
@@ -27,7 +27,7 @@ function MedusaAdPanel({ onLaunchExternal, adTex }) {
     <group>
       <mesh position={[0, 0, 0]} receiveShadow>
         <boxGeometry args={[4.2, 7.2, 0.2]} />
-        <meshStandardMaterial color="#222222" metalness={0.8} roughness={0.4} emissive="#111111" emissiveIntensity={0.5} />
+        <meshStandardMaterial color="#222222" metalness={0.8} roughness={0.4} emissive="#121214" emissiveIntensity={0.5} />
       </mesh>
       
       <mesh 
@@ -74,7 +74,7 @@ function MedusaAdPanel({ onLaunchExternal, adTex }) {
   );
 }
 
-export default function Medusa({ position, onLaunchExternal, textures }) {
+function Medusa({ position, onLaunchExternal, textures }) {
   const satelliteRef = useRef();
   useFrame((state, delta) => {
     if (satelliteRef.current) {
@@ -84,7 +84,7 @@ export default function Medusa({ position, onLaunchExternal, textures }) {
   });
 
   const { propTex, bodyTex, hullTex, tailTex, adTex } = textures;
-  const darkMetal = new THREE.MeshStandardMaterial({ color: '#222222', metalness: 0.9, roughness: 0.2, emissive: '#111111', emissiveIntensity: 0.5 });
+  const darkMetal = useMemo(() => new THREE.MeshStandardMaterial({ color: '#222222', metalness: 0.9, roughness: 0.2, emissive: '#121214', emissiveIntensity: 0.5 }), []);
 
   return (
     <group position={position}>
@@ -107,12 +107,12 @@ export default function Medusa({ position, onLaunchExternal, textures }) {
 
         <mesh position={[0, -2, 0]} receiveShadow>
           <cylinderGeometry args={[4.5, 3.5, 8, 8, 1, true]} />
-          <meshStandardMaterial map={hullTex} metalness={0.9} roughness={0.1} side={THREE.DoubleSide} color="#ffffff" transparent={true} opacity={0.35} depthWrite={false} emissive="#111111" emissiveIntensity={0.5} />
+          <meshStandardMaterial map={hullTex} metalness={0.9} roughness={0.1} side={THREE.DoubleSide} color="#ffffff" transparent={true} opacity={0.35} depthWrite={false} emissive="#121214" emissiveIntensity={0.5} />
         </mesh>
 
         <mesh position={[0, -12, 0]} receiveShadow>
           <cylinderGeometry args={[3.5, 4.5, 2, 8, 1, true]} />
-          <meshStandardMaterial map={tailTex} metalness={0.8} roughness={0.3} side={THREE.DoubleSide} color="#ffffff" emissive="#111111" emissiveIntensity={0.5} />
+          <meshStandardMaterial map={tailTex} metalness={0.8} roughness={0.3} side={THREE.DoubleSide} color="#ffffff" emissive="#121214" emissiveIntensity={0.5} />
         </mesh>
 
         {[0, Math.PI / 2, Math.PI, -Math.PI / 2].map((angle, i) => (
@@ -138,3 +138,6 @@ export default function Medusa({ position, onLaunchExternal, textures }) {
 }
 
 
+
+// Memoized around the ad inventory (stake.com panels inside) — internals untouched.
+export default memo(Medusa);

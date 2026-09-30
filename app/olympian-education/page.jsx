@@ -335,14 +335,14 @@ export default function OlympianEducationPage() {
       <style>{`
         .oe-root { position:fixed; inset:0; background:#00050a; overflow:hidden; font-family:'Courier New',monospace; color:#fff; }
         .oe-bg { position:absolute; inset:0; width:100%; height:100%; }
-        .oe-oracle { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); border-radius:50%; border:4px solid #d4af37; box-shadow:0 0 50px rgba(212,175,55,.3); z-index:10; cursor:pointer; background:radial-gradient(circle, rgba(212,175,55,.12), transparent 70%); display:flex; align-items:center; justify-content:center; font-size:.65rem; letter-spacing:3px; color:#d4af37; text-align:center; padding:1rem; font-family:inherit; }
+        .oe-oracle { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); border-radius:50%; border:4px solid #ffd700; box-shadow:0 0 50px rgba(212,175,55,.3); z-index:10; cursor:pointer; background:radial-gradient(circle, rgba(212,175,55,.12), transparent 70%); display:flex; align-items:center; justify-content:center; font-size:.65rem; letter-spacing:3px; color:#ffd700; text-align:center; padding:1rem; font-family:inherit; }
         .oe-oracle:hover { box-shadow:0 0 70px rgba(212,175,55,.5); }
         .oe-container { position:absolute; inset:0; z-index:20; pointer-events:none; overflow:hidden; }
         .oe-school-orb { position:absolute; top:0; left:0; border:2px dashed color-mix(in srgb, var(--m-color) 55%, transparent); border-radius:50%; background:radial-gradient(circle, rgba(255,255,255,.05), transparent 80%); will-change:transform; display:flex; align-items:center; justify-content:center; }
         .oe-school-label { font-size:.6rem; letter-spacing:3px; color:var(--m-color); opacity:.85; text-align:center; padding:0 1rem; pointer-events:none; }
         .oe-lesson-orb { position:absolute; top:0; left:0; width:68px; height:68px; background:radial-gradient(circle at 30% 30%, rgba(255,255,255,.22), rgba(0,0,0,.95)); border:1px solid var(--m-color); border-radius:50%; display:flex; align-items:center; justify-content:center; color:#fff; font-size:.42rem; font-weight:bold; cursor:pointer; pointer-events:auto; box-shadow:0 0 15px var(--m-color); text-align:center; padding:6px; will-change:transform; font-family:inherit; line-height:1.3; }
         .oe-lesson-orb:active { transform:scale(.9); }
-        .oe-spark { position:absolute; top:0; left:0; background:#fff; width:2px; height:20px; box-shadow:0 0 10px var(--spark-color,#d4af37); pointer-events:none; animation:oe-spark-fade .45s ease-out forwards; }
+        .oe-spark { position:absolute; top:0; left:0; background:#fff; width:2px; height:20px; box-shadow:0 0 10px var(--spark-color,#ffd700); pointer-events:none; animation:oe-spark-fade .45s ease-out forwards; }
         @keyframes oe-spark-fade { 0%{opacity:1} 100%{opacity:0} }
         .oe-holo { position:fixed; inset:15px; z-index:100; background:rgba(8,8,25,.96); border:2px solid #00f2ff; border-radius:20px; display:flex; flex-direction:column; overflow:hidden; max-width:640px; margin:0 auto; }
         .oe-holo-head { padding:14px 16px; display:flex; justify-content:space-between; align-items:center; font-size:.75rem; color:#00f2ff; letter-spacing:2px; border-bottom:1px solid rgba(0,242,255,.2); background:rgba(0,0,0,.5); gap:.8rem; }
@@ -351,11 +351,11 @@ export default function OlympianEducationPage() {
         .oe-holo-body .oe-min { color:#9a9a9a; font-size:.72rem; letter-spacing:2px; margin-bottom:.8rem; }
         .oe-holo-body ul { padding-left:1.1rem; margin:.4rem 0 1rem; }
         .oe-holo-body li { margin-bottom:.5rem; }
-        .oe-try { border-left:3px solid #d4af37; padding:.4rem .8rem; background:rgba(212,175,55,.07); border-radius:0 8px 8px 0; margin-bottom:1rem; }
+        .oe-try { border-left:3px solid #ffd700; padding:.4rem .8rem; background:rgba(212,175,55,.07); border-radius:0 8px 8px 0; margin-bottom:1rem; }
         .oe-btn { cursor:pointer; font-family:inherit; border-radius:10px; padding:.75rem 1.2rem; font-size:.8rem; letter-spacing:2px; min-height:44px; }
-        .oe-btn-gold { background:transparent; border:1px solid #d4af37; color:#d4af37; }
-        .oe-btn-gold.done { background:#d4af37; color:#000; font-weight:bold; }
-        .oe-btn-quiet { background:none; border:none; color:#d4af37; letter-spacing:2px; }
+        .oe-btn-gold { background:transparent; border:1px solid #ffd700; color:#ffd700; }
+        .oe-btn-gold.done { background:#ffd700; color:#000; font-weight:bold; }
+        .oe-btn-quiet { background:none; border:none; color:#ffd700; letter-spacing:2px; }
         .oe-progress-row { margin:.9rem 0; }
         .oe-progress-row .oe-row-head { display:flex; justify-content:space-between; font-size:.75rem; letter-spacing:1px; margin-bottom:.35rem; }
         .oe-bar { height:10px; background:#1a1a1a; border-radius:999px; overflow:hidden; border:1px solid #333; }
@@ -453,7 +453,7 @@ export default function OlympianEducationPage() {
         </div>
       )}
       {/* Safari bottom-bar clearance */}
-      <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+      <div aria-hidden="true" className="player-clear" />
     </div>
   );
 }

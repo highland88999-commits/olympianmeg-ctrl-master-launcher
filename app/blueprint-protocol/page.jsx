@@ -70,8 +70,8 @@ const EPOCHS = [
 ];
 
 const CSS = `
-.bp-wrap { min-height: 100vh; background: #000; color: #fff; font-family: 'Courier New', Courier, monospace; overflow-x: hidden; }
-.bp-canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 1; pointer-events: none; }
+.bp-wrap { min-height: 100dvh; background: #000; color: #fff; font-family: 'Courier New', Courier, monospace; overflow-x: hidden; }
+.bp-canvas { position: fixed; inset: 0; width: 100vw; height: 100dvh; z-index: 1; pointer-events: none; }
 .bp-content { position: relative; z-index: 2; max-width: 1000px; margin: 0 auto; padding: 4rem 10%; background: transparent; }
 .bp-progress { position: fixed; top: 0; left: 0; height: 3px; width: 0%; z-index: 10; background: linear-gradient(90deg, #00ffcc, #ff00ff); transition: width 0.1s linear; }
 .bp-nav { position: sticky; top: 0; z-index: 5; display: flex; gap: 8px; flex-wrap: wrap; padding: 12px 0; background: rgba(0,0,0,0.85); border-bottom: 1px solid rgba(0,255,204,0.3); }
@@ -319,7 +319,7 @@ export default function BlueprintProtocolPage() {
       <button type="button" className="bp-top" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
         ↑ Top
       </button>
-      <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+      <div aria-hidden="true" className="player-clear" />
     </div>
   );
 }

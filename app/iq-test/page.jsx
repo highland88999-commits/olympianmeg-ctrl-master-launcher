@@ -5,7 +5,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { BackButton } from '@/components/ui';
 import {
   createGame,
   rotateTile,
@@ -22,7 +22,6 @@ const BTN =
   'min-h-[44px] px-5 py-2 rounded-lg font-bold tracking-wide transition-colors';
 
 export default function IqTestPage() {
-  const router = useRouter();
   const canvasRef = useRef(null);
   const gameRef = useRef(null);
   const sceneRef = useRef(null);
@@ -145,13 +144,7 @@ export default function IqTestPage() {
       </div>
 
       {/* Back */}
-      <button
-        aria-label="Back to launcher"
-        onClick={() => router.push('/')}
-        className={`${BTN} absolute top-4 right-4 z-10 bg-white/10 border border-cyan-400/40 text-cyan-200 hover:bg-cyan-400/20`}
-      >
-        ← Back
-      </button>
+      <BackButton label="Back" />
 
       {screen === 'playing' && (
         <>
@@ -184,7 +177,7 @@ export default function IqTestPage() {
       {/* Difficulty select */}
       {screen === 'select' && (
         <div className="absolute inset-0 z-20 flex items-center justify-center p-6 bg-black/60">
-          <div className="w-full max-w-sm rounded-2xl border border-cyan-400/30 bg-[#0a0618]/95 p-6 shadow-[0_0_40px_rgba(0,255,255,0.15)]">
+          <div className="w-full max-w-sm rounded-2xl border border-cyan-400/30 bg-[#0a0618]/95 p-6 shadow-[0_0_40px_rgba(0,242,255,0.15)]">
             <h2 className="text-2xl font-black tracking-[0.15em] text-cyan-300 uppercase text-center">
               Axiom Scramble
             </h2>
@@ -244,7 +237,7 @@ export default function IqTestPage() {
         </div>
       )}
       {/* Safari bottom-bar clearance */}
-      <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+      <div aria-hidden="true" className="player-clear" />
     </div>
   );
 }

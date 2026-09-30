@@ -12,6 +12,7 @@ import {
 } from '@/lib/phone-home/steps';
 import TravelAdvisoryBanner from './advisory-banner';
 import ContactsTab from './contacts-tab';
+import { BackButton } from '@/components/ui';
 
 export default function GlassCommsApp() {
   const router = useRouter();
@@ -432,36 +433,28 @@ export default function GlassCommsApp() {
 
   if (cloudOffline) {
     return (
-      <main className="min-h-screen w-full flex flex-col items-center justify-center bg-black text-slate-300 px-6 text-center gap-4 select-none">
+      <main className="min-h-dvh w-full flex flex-col items-center justify-center bg-black text-slate-300 px-6 text-center gap-4 select-none">
         <p className="text-sm tracking-[0.4em] uppercase text-slate-100">Phone Home</p>
         <p className="text-xs leading-relaxed max-w-sm text-slate-400">
           Cloud features are offline — this page needs the database connection.
           Audio, video, and text calling all run through the mesh, which can't
           connect until the database is set up.
         </p>
-        <button
-          onClick={() => router.push('/')}
-          className="mt-2 px-6 py-2.5 text-[10px] font-bold tracking-widest uppercase border border-zinc-700 rounded bg-black/80 text-zinc-400 hover:text-fuchsia-400 hover:border-fuchsia-400 transition-colors"
-        >
-          EXIT MATRIX
-        </button>
+        <BackButton label="EXIT MATRIX" href="/" />
       </main>
     );
   }
 
-  if (!mounted || !session) return <div className="w-screen h-screen bg-black" />;
+  if (!mounted || !session) return <div className="w-screen h-dvh bg-black" />;
 
   return (
     <main 
-      className="min-h-screen w-full flex flex-col items-center justify-between relative text-slate-300 select-none overflow-hidden bg-black [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+      className="min-h-dvh w-full flex flex-col items-center justify-between relative text-slate-300 select-none overflow-hidden bg-black [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
       onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}
     >
-      <button 
-        onClick={() => router.push('/')}
-        className="absolute z-50 px-4 py-2 text-[10px] font-bold tracking-widest text-zinc-400 uppercase transition-colors border rounded top-5 right-5 bg-black/80 border-zinc-700 hover:text-fuchsia-400 hover:border-fuchsia-400"
-      >
-        EXIT MATRIX
-      </button>
+      <div className="absolute z-50 top-5 right-5">
+        <BackButton label="EXIT MATRIX" href="/" />
+      </div>
 
       <BackgroundVideo />
 
@@ -704,31 +697,33 @@ export default function GlassCommsApp() {
       </div>
 
       <footer className="w-full max-w-md pt-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] px-8 flex justify-around border-t border-white/15 z-10 bg-gradient-to-t from-black/90 to-black/20 backdrop-blur-sm">
-        <button onClick={() => setCurrentPage(0)} className={`flex flex-col items-center gap-1.5 transition duration-300 ${currentPage === 0 ? 'text-slate-100 scale-110' : 'text-slate-500'}`}>
+        <button onClick={() => setCurrentPage(0)} className={`flex min-h-[44px] flex-col items-center gap-1.5 transition duration-300 ${currentPage === 0 ? 'text-slate-100 scale-110' : 'text-slate-500'}`}>
           <Radio className="w-5 h-5 stroke-1" />
           <span className="text-[9px] uppercase tracking-widest">Audio</span>
         </button>
-        <button onClick={() => setCurrentPage(1)} className={`flex flex-col items-center gap-1.5 transition duration-300 ${currentPage === 1 ? 'text-slate-100 scale-110' : 'text-slate-500'}`}>
+        <button onClick={() => setCurrentPage(1)} className={`flex min-h-[44px] flex-col items-center gap-1.5 transition duration-300 ${currentPage === 1 ? 'text-slate-100 scale-110' : 'text-slate-500'}`}>
           <Video className="w-5 h-5 stroke-1" />
           <span className="text-[9px] uppercase tracking-widest">Video</span>
         </button>
-        <button onClick={() => setCurrentPage(2)} className={`flex flex-col items-center gap-1.5 transition duration-300 ${currentPage === 2 ? 'text-slate-100 scale-110' : 'text-slate-500'}`}>
+        <button onClick={() => setCurrentPage(2)} className={`flex min-h-[44px] flex-col items-center gap-1.5 transition duration-300 ${currentPage === 2 ? 'text-slate-100 scale-110' : 'text-slate-500'}`}>
           <Phone className="w-5 h-5 stroke-1" />
           <span className="text-[9px] uppercase tracking-widest">Dialer</span>
         </button>
-        <button onClick={() => setCurrentPage(3)} className={`flex flex-col items-center gap-1.5 transition duration-300 ${currentPage === 3 ? 'text-slate-100 scale-110' : 'text-slate-500'}`}>
+        <button onClick={() => setCurrentPage(3)} className={`flex min-h-[44px] flex-col items-center gap-1.5 transition duration-300 ${currentPage === 3 ? 'text-slate-100 scale-110' : 'text-slate-500'}`}>
           <MessageSquare className="w-5 h-5 stroke-1" />
           <span className="text-[9px] uppercase tracking-widest">Text</span>
         </button>
-        <button onClick={() => setCurrentPage(4)} className={`flex flex-col items-center gap-1.5 transition duration-300 ${currentPage === 4 ? 'text-slate-100 scale-110' : 'text-slate-500'}`}>
+        <button onClick={() => setCurrentPage(4)} className={`flex min-h-[44px] flex-col items-center gap-1.5 transition duration-300 ${currentPage === 4 ? 'text-slate-100 scale-110' : 'text-slate-500'}`}>
           <Footprints className="w-5 h-5 stroke-1" />
           <span className="text-[9px] uppercase tracking-widest">Steps</span>
         </button>
-        <button onClick={() => setCurrentPage(5)} className={`flex flex-col items-center gap-1.5 transition duration-300 ${currentPage === 5 ? 'text-slate-100 scale-110' : 'text-slate-500'}`}>
+        <button onClick={() => setCurrentPage(5)} className={`flex min-h-[44px] flex-col items-center gap-1.5 transition duration-300 ${currentPage === 5 ? 'text-slate-100 scale-110' : 'text-slate-500'}`}>
           <Users className="w-5 h-5 stroke-1" />
           <span className="text-[9px] uppercase tracking-widest">Contacts</span>
         </button>
       </footer>
+      {/* Radio-bar clearance: lifts the tab nav above the fixed radio bar + transport strip */}
+      <div aria-hidden="true" className="player-clear" />
     </main>
   );
 }

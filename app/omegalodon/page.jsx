@@ -53,7 +53,7 @@ function Backdrop() {
       }
 
       // tech grid overlay, faint
-      ctx.strokeStyle = 'rgba(0,255,255,0.05)';
+      ctx.strokeStyle = 'rgba(0,242,255,0.05)';
       ctx.lineWidth = 1;
       const gs = 64;
       for (let x = 0; x < w; x += gs) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
@@ -71,7 +71,7 @@ function Backdrop() {
     raf = requestAnimationFrame(frame);
     return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', resize); };
   }, [reducedMotion]);
-  return <canvas ref={ref} style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 0, pointerEvents: 'none', opacity: 0.9 }} aria-hidden="true" />;
+  return <canvas ref={ref} style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100dvh', zIndex: 0, pointerEvents: 'none', opacity: 0.9 }} aria-hidden="true" />;
 }
 
 export default function EcosystemGateway() {
@@ -197,7 +197,7 @@ export default function EcosystemGateway() {
 
         <div style={{ textAlign: 'center', marginBottom: '40px', marginTop: '5vh', padding: '0 20px' }}>
           <h1 style={{
-            fontSize: '2.5rem', color: '#0ff',
+            fontSize: '2.5rem', color: '#00f2ff',
             textShadow: '0 0 15px rgba(0, 255, 255, 0.8), 0 0 30px rgba(0, 255, 255, 0.4)',
             letterSpacing: '2px', marginBottom: '10px',
           }}>

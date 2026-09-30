@@ -238,7 +238,7 @@ export default function ZeusProtocolPage() {
         G.lasers.push({ x: px, y: py, vx: -1.6, color: '#ff00ff' });
         G.lasers.push({ x: px, y: py, vx: 1.6, color: '#ff00ff' });
       } else {
-        G.lasers.push({ x: px, y: py, vx: 0, color: '#00ffff' });
+        G.lasers.push({ x: px, y: py, vx: 0, color: '#00f2ff' });
       }
     };
 
@@ -264,7 +264,7 @@ export default function ZeusProtocolPage() {
       if (res === 'immune') return;
       if (res === 'absorbed') {
         absorbHit(G.state);
-        explode(sx, sy, '#00ffff', 26);
+        explode(sx, sy, '#00f2ff', 26);
         pushHud();
         return;
       }
@@ -886,8 +886,8 @@ export default function ZeusProtocolPage() {
           justify-content: space-between; align-items: flex-start; padding: 14px 16px;
           pointer-events: none; z-index: 5; }
         .zs-hud-right { display: flex; align-items: center; gap: 10px; pointer-events: auto; }
-        .zs-score { font-size: 1.05rem; letter-spacing: 2px; color: #00ffff;
-          text-shadow: 0 0 10px rgba(0,255,255,0.6); }
+        .zs-score { font-size: 1.05rem; letter-spacing: 2px; color: #00f2ff;
+          text-shadow: 0 0 10px rgba(0,242,255,0.6); }
         .zs-level { font-size: 0.85rem; letter-spacing: 2px; color: #ffaa00; margin-top: 4px;
           text-shadow: 0 0 10px rgba(255,170,0,0.6); }
         .zs-powerup { font-size: 0.8rem; letter-spacing: 2px; color: #ff00ff; align-self: center;
@@ -896,7 +896,7 @@ export default function ZeusProtocolPage() {
         .zs-heart { color: #ff2d55; text-shadow: 0 0 8px rgba(255,45,85,0.7); }
         .zs-icon-btn { background: rgba(10,16,24,0.7); border: 1px solid #33414f; color: #c8d6e2;
           width: 44px; height: 44px; border-radius: 10px; font-size: 1rem; cursor: pointer; }
-        .zs-icon-btn:hover { border-color: #00ffff; color: #00ffff; }
+        .zs-icon-btn:hover { border-color: #00f2ff; color: #00f2ff; }
         .zs-overlay { position: absolute; inset: 0; z-index: 10; display: flex; flex-direction: column;
           align-items: center; justify-content: center; text-align: center; padding: 24px;
           background: rgba(2,4,8,0.55); }
@@ -920,7 +920,7 @@ export default function ZeusProtocolPage() {
       `}</style>
     </main>
     {/* Safari bottom-bar clearance: blank space under the fixed game viewport */}
-    <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+    <div aria-hidden="true" className="player-clear" />
     </>
   );
 }

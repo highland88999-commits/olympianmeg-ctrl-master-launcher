@@ -63,6 +63,7 @@ export default function GoogleEarthTiles({ onSelect, onActive, onInactive }) {
 
     const fail = () => {
       if (st.tiles) {
+        try { st.tiles.removeEventListener?.('load-tile-set', st.onTileSet); } catch { /* noop */ }
         try { st.tiles.dispose(); } catch { /* already gone */ }
         st.tiles = null;
       }
@@ -118,6 +119,7 @@ export default function GoogleEarthTiles({ onSelect, onActive, onInactive }) {
 
         const onTileSet = () => settleActive();
         renderer.addEventListener('load-tile-set', onTileSet);
+        st.onTileSet = onTileSet;
 
         // Align ECEF (meters, Z-up) with the hub globe (units, Y-up).
         const s = HUB_EARTH_RADIUS / ECEF_EARTH_RADIUS_M;
@@ -146,6 +148,7 @@ export default function GoogleEarthTiles({ onSelect, onActive, onInactive }) {
       st.timers.forEach(clearTimeout);
       st.timers = [];
       if (st.tiles) {
+        try { st.tiles.removeEventListener?.('load-tile-set', st.onTileSet); } catch { /* noop */ }
         try { st.tiles.dispose(); } catch { /* already gone */ }
         st.tiles = null;
       }

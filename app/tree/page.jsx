@@ -64,8 +64,8 @@ export default function TreePage() {
       const r = canvas.getBoundingClientRect();
       return { x: ((e.clientX - r.left) / r.width) * W, y: ((e.clientY - r.top) / r.height) * H };
     };
-    canvas.addEventListener("pointerdown", (e) => { downPos = toLocal(e); lastPtr = downPos; dragging = false; });
-    canvas.addEventListener("pointermove", (e) => {
+    const onDown = (e) => { downPos = toLocal(e); lastPtr = downPos; dragging = false; };
+    const onMove = (e) => {
       if (!downPos) return;
       const p = toLocal(e);
       if (Math.hypot(p.x - downPos.x, p.y - downPos.y) > 8) dragging = true;
@@ -75,7 +75,7 @@ export default function TreePage() {
         cam.targetAngle += dx * 0.004;
         cam.targetFocusY = Math.max(-420, Math.min(0, cam.targetFocusY + dy * 0.6));
       }
-    });
+    };
     const onUp = (e) => {
       if (downPos && !dragging) {
         // tap: toggle between wide and canopy close-up
@@ -85,11 +85,14 @@ export default function TreePage() {
       }
       downPos = null; dragging = false;
     };
+    canvas.addEventListener("pointerdown", onDown);
+    canvas.addEventListener("pointermove", onMove);
     canvas.addEventListener("pointerup", onUp);
-    canvas.addEventListener("wheel", (e) => {
+    const onWheel = (e) => {
       e.preventDefault();
       cam.targetZoom = Math.max(0.7, Math.min(3, cam.targetZoom - e.deltaY * 0.002));
-    }, { passive: false });
+    };
+    canvas.addEventListener("wheel", onWheel, { passive: false });
 
     // world -> screen with orbit "turn" (x compressed by cos angle) and zoom
     function project(x, y) {
@@ -223,7 +226,13 @@ export default function TreePage() {
     }
     let hudAcc = 0;
     raf = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      canvas.removeEventListener("pointerdown", onDown);
+      canvas.removeEventListener("pointermove", onMove);
+      canvas.removeEventListener("pointerup", onUp);
+      canvas.removeEventListener("wheel", onWheel);
+    };
   }, [reduced]);
 
   return (
@@ -237,7 +246,7 @@ export default function TreePage() {
           <canvas ref={canvasRef} style={styles.canvas} aria-label="The Cycle Tree seasons simulation" />
           <div style={styles.hud}>
             <span style={styles.phase}>PHASE: {phase}</span>
-            <div style={styles.bar}><div style={{ ...styles.fill, width: `${progress * 100}%`, background: progress < 0.5 ? "#00ffff" : "#ff00ff", boxShadow: progress < 0.5 ? "0 0 10px #00ffff" : "0 0 10px #ff00ff" }} /></div>
+            <div style={styles.bar}><div style={{ ...styles.fill, width: `${progress * 100}%`, background: progress < 0.5 ? "#00f2ff" : "#ff00ff", boxShadow: progress < 0.5 ? "0 0 10px #00f2ff" : "0 0 10px #ff00ff" }} /></div>
           </div>
         </div>
         <div style={styles.controls}>
@@ -254,15 +263,15 @@ const styles = {
   page: { minHeight: "100dvh", background: "#010103", display: "flex", justifyContent: "center", padding: "20px 12px", fontFamily: "ui-monospace, Menlo, monospace" },
   shell: { width: "min(560px, 100%)" },
   head: { textAlign: "center", marginBottom: 12 },
-  title: { margin: 0, color: "#00ffff", letterSpacing: 8, fontSize: "clamp(1.6rem,7vw,2.4rem)", textShadow: "0 0 25px #00ffff, 0 0 60px #0088ff" },
+  title: { margin: 0, color: "#00f2ff", letterSpacing: 8, fontSize: "clamp(1.6rem,7vw,2.4rem)", textShadow: "0 0 25px #00f2ff, 0 0 60px #0088ff" },
   sub: { color: "#ff00ff", letterSpacing: 4, fontSize: "0.75rem", margin: "6px 0 0" },
-  canvasWrap: { position: "relative", border: "1px solid rgba(0,255,255,0.2)", borderRadius: 12, overflow: "hidden" },
+  canvasWrap: { position: "relative", border: "1px solid rgba(0,242,255,0.2)", borderRadius: 12, overflow: "hidden" },
   canvas: { display: "block", width: "100%", height: "auto", aspectRatio: "760 / 900", touchAction: "none", cursor: "grab" },
   hud: { position: "absolute", top: 14, left: 14, right: 14, pointerEvents: "none" },
-  phase: { color: "#fff", fontSize: "0.85rem", letterSpacing: 3, textShadow: "0 0 10px #00ffff" },
+  phase: { color: "#fff", fontSize: "0.85rem", letterSpacing: 3, textShadow: "0 0 10px #00f2ff" },
   bar: { width: 200, height: 4, background: "rgba(255,255,255,0.2)", marginTop: 8, borderRadius: 2 },
   fill: { height: "100%", borderRadius: 2, transition: "width 0.25s linear" },
   controls: { display: "flex", alignItems: "center", gap: 12, marginTop: 12, flexWrap: "wrap" },
-  btn: { padding: "10px 16px", fontSize: "0.75rem", cursor: "pointer", background: "transparent", color: "#00ffff", border: "1px solid rgba(0,255,255,0.5)", letterSpacing: 2, borderRadius: 6, fontFamily: "inherit", fontWeight: "bold" },
-  hint: { color: "rgba(0,255,255,0.55)", fontSize: "0.75rem", letterSpacing: 1 },
+  btn: { padding: "10px 16px", fontSize: "0.75rem", cursor: "pointer", background: "transparent", color: "#00f2ff", border: "1px solid rgba(0,242,255,0.5)", letterSpacing: 2, borderRadius: 6, fontFamily: "inherit", fontWeight: "bold" },
+  hint: { color: "rgba(0,242,255,0.55)", fontSize: "0.75rem", letterSpacing: 1 },
 };

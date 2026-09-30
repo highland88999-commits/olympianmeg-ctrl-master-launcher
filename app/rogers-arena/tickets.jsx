@@ -7,6 +7,7 @@
 // Ticketmaster's official checkout page, clearly labeled as leaving the app.
 
 import { useCallback, useState } from 'react';
+import Image from 'next/image';
 import {
   POPULAR_VENUES,
   CATEGORY_LABELS,
@@ -367,8 +368,7 @@ function EventDetail({ event, venueName, onBack }) {
           <summary className="min-h-[44px] cursor-pointer font-bold text-sm flex items-center">
             View seat map
           </summary>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={ev.seatmap} alt="Seat map for this event" className="mt-2 w-full rounded-lg" />
+          <Image src={ev.seatmap} alt="Seat map for this event" width={800} height={600} unoptimized className="mt-2 w-full h-auto rounded-lg" />
         </details>
       )}
 

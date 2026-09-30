@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 
 export default function FortressLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="w-screen h-[100dvh] overflow-hidden bg-black text-white touch-none overscroll-none antialiased">
+    <div className="fortress-scope w-screen h-[100dvh] overflow-hidden bg-black text-white touch-none overscroll-none antialiased">
       {children}
     </div>
   );

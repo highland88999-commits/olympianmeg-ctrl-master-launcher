@@ -358,7 +358,7 @@ export default function MagicMirrorPage() {
       )}
 
       {/* Safari bottom-bar clearance */}
-      <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+      <div aria-hidden="true" className="player-clear" />
     </main>
   );
 }

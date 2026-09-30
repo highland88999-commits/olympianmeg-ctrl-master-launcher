@@ -178,7 +178,7 @@ export default function AirHockeyPage() {
   const winner = hud.winner;
 
     return (
-    <main className="min-h-screen bg-[#050b12] text-white flex flex-col items-center px-3 py-4 select-none">
+    <main className="min-h-dvh bg-[#050b12] text-white flex flex-col items-center px-3 py-4 select-none">
       <header className="w-full max-w-[560px] flex items-center justify-between mb-2">
         <h1 className="text-xl font-black tracking-widest uppercase">
           Air <span className="text-cyan-400">Hockey</span>
@@ -280,7 +280,7 @@ export default function AirHockeyPage() {
           </div>
         </div>
       )}
-      <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+      <div aria-hidden="true" className="player-clear" />
     </main>
   );
 }

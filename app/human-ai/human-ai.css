@@ -1,8 +1,8 @@
 .human-ai-wrapper {
   --bg-core: #0b0c10;
   --panel-bg: #1f2833;
-  --olympus-gold: #d4af37;
-  --omega-cyan: #45f3ff;
+  --olympus-gold: #ffd700;
+  --omega-cyan: #00f2ff;
   --text-primary: #c5c6c7;
   --error-red: #ff3366;
   --glass-bg: rgba(10, 12, 16, 0.6);
@@ -14,13 +14,13 @@
   font-family: 'Courier New', monospace;
   background-color: #000; 
   color: var(--text-primary); 
-  height: 100vh; 
+  height: 100dvh; 
   width: 100vw;
   overflow: hidden;
 }
 
 .human-ai-wrapper .deep-background-video { 
-  position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; z-index: -2; opacity: 0.7; pointer-events: none; 
+  position: fixed; top: 0; left: 0; width: 100vw; height: 100dvh; object-fit: cover; z-index: -2; opacity: 0.7; pointer-events: none; 
 }
 
 .human-ai-wrapper .app-layout { display: flex; height: 100dvh; width: 100vw; }

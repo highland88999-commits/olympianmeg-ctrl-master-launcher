@@ -34,7 +34,7 @@ export default async function HermesPage({ searchParams }) {
   const cancelled = searchParams?.cancelled === 'true';
 
   return (
-    <main className="relative min-h-screen w-full bg-black text-white overflow-x-hidden">
+    <main className="relative min-h-dvh w-full bg-black text-white overflow-x-hidden">
       <GalaxyCanvas />
 
       <div className="relative z-10 max-w-6xl mx-auto px-5 pt-14 sm:pt-20 pb-16">
@@ -76,7 +76,7 @@ export default async function HermesPage({ searchParams }) {
         </footer>
 
         {/* Safari bottom-bar clearance */}
-        <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+        <div aria-hidden="true" className="player-clear" />
       </div>
     </main>
   );

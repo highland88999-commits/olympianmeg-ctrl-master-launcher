@@ -83,12 +83,12 @@ export default function ProfilePage() {
   };
 
   if (loading) {
-    return <main className="min-h-screen bg-black p-10 text-center text-zinc-500">Loading…</main>;
+    return <main className="min-h-dvh bg-black p-10 text-center text-zinc-500">Loading…</main>;
   }
 
   if (cloudOffline) {
     return (
-      <main className="min-h-screen bg-black p-10 text-center text-white">
+      <main className="min-h-dvh bg-black p-10 text-center text-white">
         <p className="text-zinc-400">Cloud features are offline — this page needs the database connection.</p>
         <Link href="/agora" className="mt-4 inline-block text-amber-300 underline">Back to the feed</Link>
       </main>
@@ -96,7 +96,7 @@ export default function ProfilePage() {
   }
 
   return (
-    <main className="relative min-h-screen bg-black text-white">
+    <main className="relative min-h-dvh bg-black text-white">
       <Starfield />
       <div className="relative z-10 mx-auto max-w-3xl px-4 pb-24 pt-10">
         <Link href="/agora" className="text-sm text-zinc-500 underline hover:text-zinc-300">
@@ -186,7 +186,7 @@ export default function ProfilePage() {
         )}
 
         {/* Safari bottom-bar clearance */}
-        <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+        <div aria-hidden="true" className="player-clear" />
       </div>
     </main>
   );

@@ -16,6 +16,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Badge, BackButton } from '@/components/ui';
 import { SATELLITES } from '@/lib/i18n/satellites';
 import {
   FORGE_STAGES, IDEA_STAGES, IDEA_STAGE_IDS, SEED_IDEAS,
@@ -29,7 +30,7 @@ const COMMISSIONS_KEY = 'hephaestus.commissions.v1';
 const IDEAS_KEY = 'hephaestus.ideas.v1';
 
 const EMBER = '#f97316';
-const GOLD = '#fbbf24';
+const GOLD = '#ffd700';
 
 /* ---------------- Ember canvas: the forge fire (localized glow) ---------------- */
 function EmberCanvas() {
@@ -70,7 +71,7 @@ function EmberCanvas() {
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, w, h);
       // Dark anvil silhouette along the bottom.
-      ctx.fillStyle = '#050302';
+      ctx.fillStyle = '#030303';
       ctx.beginPath();
       ctx.moveTo(0, h);
       ctx.lineTo(0, h - 26);
@@ -173,11 +174,11 @@ const btn = {
 const btnPrimary = { ...btn, background: 'linear-gradient(180deg,#f97316,#c2410c)', color: '#fff7ed', border: '1px solid #f97316' };
 const input = {
   width: '100%', minHeight: 44, padding: '10px 12px', borderRadius: 10, fontSize: 15,
-  background: '#14100b', border: '1px solid #3a2a18', color: '#f5f5f4',
+  background: '#121214', border: '1px solid #3a2a18', color: '#f5f5f4',
 };
 const card = {
   background: 'rgba(20,14,8,0.85)', border: '1px solid rgba(249,115,22,0.22)',
-  borderRadius: 14, padding: 18,
+  borderRadius: 16, padding: 18,
 };
 
 function ShareButtons({ kind, title, detail }) {
@@ -259,7 +260,7 @@ function ForgeChamber() {
       </p>
 
       <div style={{ ...card, marginTop: 18 }}>
-        <div style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: 2, color: GOLD }}>The live fleet</div>
+        <Badge tone="gold" className="block">The live fleet</Badge>
         <div style={{ fontSize: 40, fontWeight: 800, color: '#fff7ed', margin: '6px 0' }}>
           {SATELLITES.length} <span style={{ fontSize: 18, fontWeight: 400, color: '#a8a29e' }}>pocket universes</span>
         </div>
@@ -267,7 +268,7 @@ function ForgeChamber() {
           aria-label="Search the fleet" style={{ ...input, maxWidth: 340, marginBottom: 12 }} />
         <div style={{ maxHeight: 220, overflowY: 'auto', display: 'grid', gap: 6 }}>
           {fleet.map((s) => (
-            <div key={s.key} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, padding: '8px 10px', background: '#0d0a06', borderRadius: 8 }}>
+            <div key={s.key} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, padding: '8px 10px', background: '#0b0b0d', borderRadius: 8 }}>
               <span style={{ color: '#e7e5e4' }}>{s.key}</span>
               <span style={{ color: '#78716c' }}>{s.route} · {s.constellation}</span>
             </div>
@@ -277,7 +278,7 @@ function ForgeChamber() {
       </div>
 
       <div style={{ ...card, marginTop: 18 }}>
-        <div style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: 2, color: GOLD }}>Commission a universe</div>
+        <Badge tone="gold" className="block">Commission a universe</Badge>
         <p style={{ color: '#a8a29e', fontSize: 14, lineHeight: 1.6 }}>
           Name it, describe it, give it a mythic heart. Your commission is saved to your
           private planning board below — on this device only, it isn&apos;t sent anywhere.
@@ -319,8 +320,8 @@ function ForgeChamber() {
                 const done = i < cur, isCur = i === cur;
                 return (
                   <span key={s.id} title={s.blurb}
-                    style={{ fontSize: 11, padding: '6px 10px', borderRadius: 20, minHeight: 28, display: 'inline-flex', alignItems: 'center',
-                      background: done ? 'rgba(249,115,22,0.25)' : isCur ? 'rgba(249,115,22,0.12)' : '#14100b',
+                    style={{ fontSize: 11, padding: '6px 10px', borderRadius: 24, minHeight: 28, display: 'inline-flex', alignItems: 'center',
+                      background: done ? 'rgba(249,115,22,0.25)' : isCur ? 'rgba(249,115,22,0.12)' : '#121214',
                       border: isCur ? '1px solid #f97316' : '1px solid #3a2a18',
                       color: done || isCur ? '#fed7aa' : '#78716c' }}>
                     {done ? '✓ ' : ''}{s.label}
@@ -367,7 +368,7 @@ function FactoryChamber() {
       </div>
 
       <div style={{ ...card, marginTop: 18 }}>
-        <div style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: 2, color: GOLD }}>Olympus Grand Multiverse Store</div>
+        <Badge tone="gold" className="block">Olympus Grand Multiverse Store</Badge>
         <div style={{ fontSize: 26, fontWeight: 800, color: '#fff7ed', margin: '6px 0' }}>
           {OLYMPUS_FACTS.count} designs <span style={{ fontSize: 15, fontWeight: 400, color: '#a8a29e' }}>· CAD ${OLYMPUS_FACTS.priceCad.toFixed(2)} each</span>
         </div>
@@ -376,7 +377,7 @@ function FactoryChamber() {
         </p>
         <div style={{ maxHeight: 240, overflowY: 'auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(160px,1fr))', gap: 8, marginTop: 12 }}>
           {OLYMPUS_PRODUCTS.map((p) => (
-            <div key={p.name} style={{ background: '#0d0a06', borderRadius: 8, padding: '10px 12px' }}>
+            <div key={p.name} style={{ background: '#0b0b0d', borderRadius: 8, padding: '10px 12px' }}>
               <div style={{ color: '#e7e5e4', fontSize: 14, fontWeight: 600 }}>{p.name}</div>
               <div style={{ color: '#78716c', fontSize: 12 }}>{p.tag}</div>
             </div>
@@ -389,7 +390,7 @@ function FactoryChamber() {
       </div>
 
       <div style={{ ...card, marginTop: 18 }}>
-        <div style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: 2, color: GOLD }}>Luge · {LUGE_ARSENAL_FACTS.name}</div>
+        <Badge tone="gold" className="block">Luge · {LUGE_ARSENAL_FACTS.name}</Badge>
         <div style={{ fontSize: 26, fontWeight: 800, color: '#fff7ed', margin: '6px 0' }}>
           ${LUGE_ARSENAL_FACTS.priceUsd} USD <span style={{ fontSize: 15, fontWeight: 400, color: '#a8a29e' }}>· {LUGE_ARSENAL_FACTS.premiumHulls} premium hulls</span>
         </div>
@@ -404,7 +405,7 @@ function FactoryChamber() {
       </div>
 
       <div style={{ ...card, marginTop: 18, border: '1px solid rgba(251,191,36,0.4)' }}>
-        <div style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: 2, color: GOLD }}>Why the factory exists</div>
+        <Badge tone="gold" className="block">Why the factory exists</Badge>
         <p style={{ color: '#d6d3d1', fontSize: 15, lineHeight: 1.7, marginBottom: 0 }}>
           The factory arm exists for missions like <strong style={{ color: '#fff7ed' }}>ending homelessness</strong> —
           tensegrity housing that rides the wind like a spider web, raised above the flood line.
@@ -448,7 +449,7 @@ function FoundryChamber() {
       </p>
 
       <div style={{ ...card, marginTop: 18 }}>
-        <div style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: 2, color: GOLD }}>Cast an idea</div>
+        <Badge tone="gold" className="block">Cast an idea</Badge>
         <form onSubmit={add} style={{ display: 'grid', gap: 12, marginTop: 12 }}>
           <input value={text} onChange={(e) => setText(e.target.value)} placeholder="The idea, in one line…" aria-label="Idea" style={input} maxLength={140} />
           <textarea value={detail} onChange={(e) => setDetail(e.target.value)} placeholder="Shape it a little more (optional)…" aria-label="Idea detail" rows={2} style={{ ...input, minHeight: 60, resize: 'vertical' }} />
@@ -459,12 +460,12 @@ function FoundryChamber() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 12, marginTop: 18, alignItems: 'start' }}>
         {IDEA_STAGES.map((stage) => (
           <div key={stage.id} style={{ ...card, minHeight: 200 }}>
-            <div style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: 2, color: GOLD }}>{stage.label}</div>
+            <Badge tone="gold" className="block">{stage.label}</Badge>
             <div style={{ fontSize: 12, color: '#78716c', marginBottom: 10 }}>{stage.blurb}</div>
             <div style={{ display: 'grid', gap: 10 }}>
               {(ideas || []).filter((i) => i.stage === stage.id).map((i) => (
                 <div key={i.id} style={{
-                  background: i.prime ? 'rgba(249,115,22,0.10)' : '#0d0a06',
+                  background: i.prime ? 'rgba(249,115,22,0.10)' : '#0b0b0d',
                   border: i.prime ? '1px solid rgba(249,115,22,0.55)' : '1px solid #2a2118',
                   borderRadius: 10, padding: 12,
                 }}>
@@ -560,22 +561,20 @@ const CHAMBERS = [
 export default function HephaestusPage() {
   const [chamber, setChamber] = useState('forge');
   return (
-    <main style={{ minHeight: '100dvh', background: '#0a0806', color: '#f5f5f4', fontFamily: 'system-ui, sans-serif' }}>
-      <a href="/" style={{ display: 'inline-flex', alignItems: 'center', minHeight: 44, padding: '0 16px', color: '#a8a29e', fontSize: 14, textDecoration: 'none' }}>
-        ← Launcher
-      </a>
+    <main style={{ minHeight: '100dvh', background: '#050505', color: '#f5f5f4', fontFamily: 'system-ui, sans-serif' }}>
+      <BackButton label="Launcher" />
 
       <header style={{ position: 'relative', overflow: 'hidden', padding: '56px 20px 64px', textAlign: 'center' }}>
         <EmberCanvas />
         <div style={{ position: 'relative', zIndex: 1 }}>
-          <div style={{ fontSize: 12, letterSpacing: 4, textTransform: 'uppercase', color: GOLD }}>The forge of the empire</div>
+          <Badge tone="gold" className="block">The forge of the empire</Badge>
           <h1 style={{ fontFamily: 'Georgia, serif', fontSize: 'clamp(40px, 8vw, 72px)', margin: '10px 0', color: '#fff7ed', letterSpacing: 2 }}>
             HEPHAESTUS
           </h1>
           <p style={{ fontSize: 17, color: '#fed7aa', maxWidth: 620, margin: '0 auto', lineHeight: 1.6, fontStyle: 'italic' }}>
             &ldquo;Take my logic and make it multiply to as many people as possible.&rdquo;
           </p>
-          <div style={{ display: 'inline-block', marginTop: 16, padding: '10px 20px', borderRadius: 999,
+          <div style={{ display: 'inline-block', marginTop: 16, padding: '10px 20px', borderRadius: 9999,
             border: '1px solid rgba(249,115,22,0.6)', background: 'rgba(249,115,22,0.10)',
             color: '#fdba74', fontWeight: 700, letterSpacing: 1, fontSize: 14 }}>
             PRIME DIRECTIVE: POVERTY NEEDS TO END
@@ -606,7 +605,7 @@ export default function HephaestusPage() {
       <footer style={{ textAlign: 'center', padding: '0 16px 40px', color: '#57534e', fontSize: 13 }}>
         Forged by Artemis&rsquo;s forge · nothing leaves your device · the loop is the point
       </footer>
-      <div aria-hidden="true" style={{ height: 'calc(4.5rem + env(safe-area-inset-bottom))' }} />
+      <div aria-hidden="true" className="player-clear" />
     </main>
   );
 }

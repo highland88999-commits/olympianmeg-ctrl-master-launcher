@@ -1,8 +1,9 @@
 'use client';
 
-// One product tile in the Olympus store grid. Plain <img> (remote CDN) with a
-// local fallback if the image fails to load.
+// One product tile in the Olympus store grid. next/image (remote CDN,
+// unoptimized) with a local fallback if the image fails to load.
 
+import Image from 'next/image';
 import { formatPrice, PRICE_CENTS } from '@/lib/olympus/products';
 
 export default function ProductCard({ product, onOpen }) {
@@ -13,11 +14,12 @@ export default function ProductCard({ product, onOpen }) {
       aria-label={`View ${product.name}`}
     >
       <div className="aspect-square bg-black/60 flex items-center justify-center overflow-hidden">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
+        <Image
           src={product.image}
           alt={product.name}
-          loading="lazy"
+          width={600}
+          height={600}
+          unoptimized
           className="h-full w-full object-contain mix-blend-screen transition group-hover:scale-[1.03]"
           onError={(e) => { e.currentTarget.style.display = 'none'; }}
         />

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import {
   CATALOG,
   CATEGORIES,
@@ -190,7 +191,7 @@ export default function Nv2VideoLibraryPage() {
         .nv2-tag { color:#ffd700; border:1px solid rgba(255,215,0,.35); border-radius:6px; padding:.1rem .45rem; font-size:.68rem; letter-spacing:.5px; }
         .nv2-empty { text-align:center; color:#888; padding:3rem 1rem; grid-column:1/-1; }
         .nv2-overlay { position:fixed; inset:0; z-index:50; background:rgba(0,0,0,.85); display:flex; align-items:center; justify-content:center; padding:1rem; }
-        .nv2-detail { background:#0a0a0a; border:2px solid #ffd700; border-radius:16px; max-width:640px; width:100%; max-height:92dvh; overflow:auto; box-shadow:0 0 60px rgba(212,175,55,.25); }
+        .nv2-detail { background:#0b0b0d; border:2px solid #ffd700; border-radius:16px; max-width:640px; width:100%; max-height:92dvh; overflow:auto; box-shadow:0 0 60px rgba(212,175,55,.25); }
         .nv2-detail .nv2-poster { border-radius:14px 14px 0 0; }
         .nv2-detail-body { padding:1.2rem 1.3rem 1.5rem; }
         .nv2-detail-body h2 { margin:0 0 .4rem; color:#fff; font-size:1.3rem; }
@@ -262,7 +263,7 @@ export default function Nv2VideoLibraryPage() {
             aria-label={`Open ${entry.title}`}
           >
             {entry.thumbUrl ? (
-              <img className="nv2-thumb-img" src={entry.thumbUrl} alt="" />
+              <Image className="nv2-thumb-img" src={entry.thumbUrl} alt="" width={640} height={360} unoptimized />
             ) : (
               <PosterCanvas entry={entry} animated={false} />
             )}
@@ -279,7 +280,7 @@ export default function Nv2VideoLibraryPage() {
       </main>
 
       {/* Safari bottom-bar clearance */}
-      <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+      <div aria-hidden="true" className="player-clear" />
 
       {selected && (
         <div
@@ -291,7 +292,7 @@ export default function Nv2VideoLibraryPage() {
         >
           <div className="nv2-detail" onClick={(e) => e.stopPropagation()}>
             {selected.thumbUrl ? (
-              <img className="nv2-thumb-img" src={selected.thumbUrl} alt="" />
+              <Image className="nv2-thumb-img" src={selected.thumbUrl} alt="" width={640} height={360} unoptimized />
             ) : (
               <PosterCanvas entry={selected} animated={true} />
             )}

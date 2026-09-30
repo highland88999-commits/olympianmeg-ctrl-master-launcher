@@ -3,6 +3,7 @@
 'use client';
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { BackButton } from '@/components/ui';
 import { supabase } from '@/lib/supabase';
 
 const defaultNodes = [
@@ -233,14 +234,14 @@ export default function AquariumConsole() {
   if (!mounted) {
     if (cloudOffline) {
       return (
-        <div style={{ width: '100vw', height: '100vh', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem', textAlign: 'center' }}>
+        <div style={{ width: '100vw', height: '100dvh', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem', textAlign: 'center' }}>
           <p style={{ color: '#00f2ff', fontFamily: 'Courier New, monospace', fontSize: '0.8rem', letterSpacing: '2px', lineHeight: 2 }}>
             CLOUD FEATURES OFFLINE — THIS CONSOLE NEEDS THE DATABASE CONNECTION.
           </p>
         </div>
       );
     }
-    return <div style={{width: '100vw', height: '100vh', background: '#000'}}></div>;
+    return <div style={{width: '100vw', height: '100dvh', background: '#000'}}></div>;
   }
 
   const currentNode = nodes[currentIndex] || { id: '', name: 'INITIALIZING' };
@@ -250,7 +251,7 @@ export default function AquariumConsole() {
       <style>{`
         .aquarium-wrapper {
             --glow: #00f2ff;
-            --gold: #d4af37;
+            --gold: #ffd700;
             --danger: #ff3366;
             --ui-bg: rgba(0, 10, 20, 0.85);
             margin: 0; padding: 0;
@@ -343,12 +344,7 @@ export default function AquariumConsole() {
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
       >
-        <button 
-          onClick={(e) => { e.stopPropagation(); router.push('/'); }}
-          className="absolute z-[9999] px-4 py-2 text-[10px] font-bold tracking-widest text-zinc-400 uppercase transition-colors border rounded top-5 left-5 bg-black/80 border-zinc-700 hover:text-amber-400 hover:border-amber-400"
-        >
-          EXIT MATRIX
-        </button>
+        <BackButton label="EXIT MATRIX" />
 
         <div className={`video-engine ${isFading ? 'fade-out' : ''} ${mirrored ? 'mirrored' : ''}`} onClick={() => setUiOpen(true)}>
             {currentNode.id && (
@@ -393,7 +389,7 @@ export default function AquariumConsole() {
             <span className="chevron left">‹‹</span> SWIPE NEXUS <span className="chevron right">››</span>
         </div>
         {/* Safari bottom-bar clearance */}
-        <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
+        <div aria-hidden="true" className="player-clear" />
       </div>
     </>
   );

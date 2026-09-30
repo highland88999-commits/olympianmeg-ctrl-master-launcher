@@ -13,7 +13,7 @@ export const viewport = {
 
 export default function BasketballLayout({ children }) {
   return (
-    <div className="w-screen h-screen overflow-hidden bg-[#04060c] text-white antialiased">
+    <div className="w-screen h-dvh overflow-hidden bg-[#04060c] text-white antialiased">
       {children}
     </div>
   );

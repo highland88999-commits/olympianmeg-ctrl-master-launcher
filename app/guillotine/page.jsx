@@ -6,7 +6,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { BackButton } from '@/components/ui';
 import { createMachine, STATES } from './stateMachine.js';
 import { createGuillotineScene, PART_LABELS } from './scene.js';
 
@@ -27,7 +27,6 @@ const COPY = {
 };
 
 export default function GuillotinePage() {
-  const router = useRouter();
   const canvasRef = useRef(null);
   const sceneRef = useRef(null);
   const machineRef = useRef(null);
@@ -251,13 +250,7 @@ export default function GuillotinePage() {
       />
 
       {/* Back */}
-      <button
-        onClick={() => router.back()}
-        className="absolute top-4 left-4 z-30 min-w-[44px] min-h-[44px] px-4 flex items-center justify-center rounded-full bg-black/60 border border-amber-400/30 text-amber-200 text-sm tracking-widest uppercase hover:bg-amber-400/20"
-        aria-label="Back to all worlds"
-      >
-        ‹ Worlds
-      </button>
+      <BackButton label="Worlds" />
 
       {/* Intro overlay */}
       {showOverlay && (
@@ -305,10 +298,10 @@ export default function GuillotinePage() {
               <circle
                 ref={ringFgRef}
                 cx="60" cy="60" r="52" fill="none"
-                stroke="#fbbf24" strokeWidth="8" strokeLinecap="round"
+                stroke="#ffd700" strokeWidth="8" strokeLinecap="round"
                 strokeDasharray={RING_C}
                 strokeDashoffset={RING_C}
-                style={{ filter: 'drop-shadow(0 0 6px #fbbf24)', transition: 'stroke-dashoffset 80ms linear' }}
+                style={{ filter: 'drop-shadow(0 0 6px #ffd700)', transition: 'stroke-dashoffset 80ms linear' }}
               />
             </svg>
             <span className="absolute inset-0 flex items-center justify-center text-amber-100 text-xs tracking-[0.25em] uppercase">

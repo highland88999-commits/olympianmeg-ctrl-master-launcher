@@ -64,7 +64,7 @@ export default function NewPost() {
 
   if (cloudOffline) {
     return (
-      <main className="relative min-h-screen bg-black text-white">
+      <main className="relative min-h-dvh bg-black text-white">
         <Starfield />
         <div className="relative z-10 mx-auto max-w-md px-4 pb-24 pt-16 text-center">
           <h1 className="mb-2 text-2xl font-black">New post</h1>
@@ -75,7 +75,7 @@ export default function NewPost() {
           <Link href="/agora" className="text-sm text-zinc-500 underline">
             Back to the feed
           </Link>
-          <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+          <div aria-hidden="true" className="player-clear" />
         </div>
       </main>
     );
@@ -83,13 +83,13 @@ export default function NewPost() {
 
   if (checking) {
     return (
-      <main className="min-h-screen bg-black p-10 text-center text-zinc-500">Loading…</main>
+      <main className="min-h-dvh bg-black p-10 text-center text-zinc-500">Loading…</main>
     );
   }
 
   if (!user) {
     return (
-      <main className="relative min-h-screen bg-black text-white">
+      <main className="relative min-h-dvh bg-black text-white">
         <Starfield />
         <div className="relative z-10 mx-auto max-w-md px-4 pb-24 pt-16">
           <h1 className="mb-2 text-2xl font-black">Sign in to post</h1>
@@ -100,14 +100,14 @@ export default function NewPost() {
           <Link href="/agora" className="mt-6 inline-block text-sm text-zinc-500 underline">
             Back to the feed
           </Link>
-          <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+          <div aria-hidden="true" className="player-clear" />
         </div>
       </main>
     );
   }
 
   return (
-    <main className="relative min-h-screen bg-black text-white">
+    <main className="relative min-h-dvh bg-black text-white">
       <Starfield />
       <div className="relative z-10 mx-auto max-w-2xl px-4 pb-24 pt-10">
         <h1 className="mb-6 text-2xl font-black">New post</h1>
@@ -172,7 +172,7 @@ export default function NewPost() {
             </Link>
           </div>
         </form>
-        <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+        <div aria-hidden="true" className="player-clear" />
       </div>
     </main>
   );

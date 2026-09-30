@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import Image from 'next/image';
 
 const CSS = `
-.uv-root { min-height: 100vh; background: #050508; color: #f2f2f2;
+.uv-root { min-height: 100dvh; background: #050508; color: #f2f2f2;
   font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   display: flex; flex-direction: column; align-items: center; position: relative; }
 .uv-grid { position: fixed; inset: 0; z-index: 0; pointer-events: none;
@@ -14,7 +15,7 @@ const CSS = `
 .uv-head { width: 100%; z-index: 10; background: rgba(5,5,8,0.9); backdrop-filter: blur(12px);
   border-bottom: 1px solid rgba(8,247,254,0.3); padding: 1rem 5%; display: flex;
   justify-content: space-between; align-items: center; }
-.uv-logo { font-size: 1.3rem; font-weight: 800; color: #08f7fe; text-transform: uppercase;
+.uv-logo { font-size: 1.3rem; font-weight: 800; color: #00f2ff; text-transform: uppercase;
   letter-spacing: 2px; text-shadow: 0 0 10px rgba(8,247,254,0.4); }
 .uv-note { font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 1px; }
 .uv-hero { position: relative; width: 100%; height: 32vh; min-height: 220px; overflow: hidden;
@@ -29,15 +30,15 @@ const CSS = `
   box-shadow: 0 20px 40px rgba(0,0,0,0.7); display: flex; flex-wrap: wrap; gap: 2rem; }
 .uv-avatar { display: flex; flex-direction: column; align-items: center; gap: 12px; }
 .uv-ring { position: relative; width: 140px; height: 140px; border-radius: 50%;
-  border: 3px solid #08f7fe; background: #000; display: flex; justify-content: center; align-items: center;
+  border: 3px solid #00f2ff; background: #000; display: flex; justify-content: center; align-items: center;
   font-size: 3.2rem; overflow: hidden; box-shadow: 0 0 30px rgba(8,247,254,0.2); }
 .uv-ring img { width: 100%; height: 100%; object-fit: cover; }
 .uv-cam { position: absolute; bottom: 4px; right: 4px; width: 36px; height: 36px; border-radius: 50%;
-  background: #050508; border: 1px solid #08f7fe; color: #08f7fe; font-size: 1rem; cursor: pointer;
+  background: #050508; border: 1px solid #00f2ff; color: #00f2ff; font-size: 1rem; cursor: pointer;
   display: flex; align-items: center; justify-content: center; }
-.uv-cam:hover { background: #08f7fe; color: #000; }
+.uv-cam:hover { background: #00f2ff; color: #000; }
 .uv-info { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 14px; }
-.uv-alias { font-size: 2rem; font-weight: 800; color: #08f7fe; margin: 0;
+.uv-alias { font-size: 2rem; font-weight: 800; color: #00f2ff; margin: 0;
   text-shadow: 0 0 10px rgba(8,247,254,0.4); letter-spacing: 1px; }
 .uv-bio { color: #aaa; margin: 0; line-height: 1.55; font-size: 0.95rem; }
 .uv-form { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -45,25 +46,25 @@ const CSS = `
   color: #888; margin-bottom: 6px; }
 .uv-form input, .uv-form textarea, .uv-add input, .uv-add select {
   width: 100%; box-sizing: border-box; background: #0a0a0c; border: 1px solid #333; padding: 0.9rem;
-  color: #08f7fe; border-radius: 4px; font-size: 0.95rem; font-family: inherit; }
+  color: #00f2ff; border-radius: 4px; font-size: 0.95rem; font-family: inherit; }
 .uv-form textarea { resize: vertical; min-height: 84px; grid-column: 1 / -1; }
 .uv-form input:focus, .uv-form textarea:focus, .uv-add input:focus, .uv-add select:focus {
-  outline: none; border-color: #08f7fe; box-shadow: 0 0 12px rgba(8,247,254,0.2); }
-.uv-btn { background: transparent; border: 1px solid #08f7fe; color: #08f7fe; padding: 0.9rem 1.6rem;
+  outline: none; border-color: #00f2ff; box-shadow: 0 0 12px rgba(8,247,254,0.2); }
+.uv-btn { background: transparent; border: 1px solid #00f2ff; color: #00f2ff; padding: 0.9rem 1.6rem;
   border-radius: 4px; font-weight: 800; letter-spacing: 2px; cursor: pointer; transition: 0.25s;
   text-transform: uppercase; font-size: 0.85rem; min-height: 48px; align-self: flex-start; }
-.uv-btn:hover { background: #08f7fe; color: #000; box-shadow: 0 0 18px rgba(8,247,254,0.5); }
+.uv-btn:hover { background: #00f2ff; color: #000; box-shadow: 0 0 18px rgba(8,247,254,0.5); }
 .uv-btn.danger { border-color: #fe53bb; color: #fe53bb; }
 .uv-btn.danger:hover { background: #fe53bb; color: #000; box-shadow: 0 0 18px rgba(254,83,187,0.5); }
 .uv-tabs { display: flex; gap: 8px; border-bottom: 1px solid rgba(8,247,254,0.3); padding-bottom: 10px;
   overflow-x: auto; }
 .uv-tab { background: none; border: none; color: #888; font-size: 1rem; font-weight: 700; padding: 10px 18px;
   cursor: pointer; letter-spacing: 1px; white-space: nowrap; min-height: 44px; }
-.uv-tab.on { color: #08f7fe; text-shadow: 0 0 10px rgba(8,247,254,0.4); border-bottom: 2px solid #08f7fe; }
+.uv-tab.on { color: #00f2ff; text-shadow: 0 0 10px rgba(8,247,254,0.4); border-bottom: 2px solid #00f2ff; }
 .uv-grid2 { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1.25rem; }
 .uv-art { background: rgba(18,18,24,0.85); border: 1px solid rgba(8,247,254,0.2); border-radius: 6px;
   padding: 1.25rem; display: flex; flex-direction: column; gap: 10px; transition: 0.25s; }
-.uv-art:hover { border-color: #08f7fe; transform: translateY(-3px); }
+.uv-art:hover { border-color: #00f2ff; transform: translateY(-3px); }
 .uv-tag { align-self: flex-start; font-size: 0.68rem; color: #fe53bb; border: 1px solid #fe53bb;
   padding: 3px 10px; border-radius: 12px; text-transform: uppercase; letter-spacing: 1px; }
 .uv-title { font-size: 1.15rem; font-weight: 700; margin: 0; }
@@ -254,7 +255,7 @@ export default function UserProfilePage() {
         <section className="uv-card" aria-label="Reader profile">
           <div className="uv-avatar">
             <div className="uv-ring">
-              {avatar ? <img src={avatar} alt="Reader avatar" /> : <span aria-hidden="true">📖</span>}
+              {avatar ? <Image src={avatar} alt="Reader avatar" width={140} height={140} /> : <span aria-hidden="true">📖</span>}
               <button className="uv-cam" onClick={() => fileRef.current && fileRef.current.click()}
                 aria-label="Upload profile picture" title="Upload profile picture">📷</button>
               <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={onAvatarFile} />
@@ -342,7 +343,7 @@ export default function UserProfilePage() {
       {toast && <div className="uv-toast" role="status">{toast}</div>}
     </main>
     {/* Safari bottom-bar clearance: lets the final content rest above the browser bar */}
-    <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+    <div aria-hidden="true" className="player-clear" />
     </>
   );
 }

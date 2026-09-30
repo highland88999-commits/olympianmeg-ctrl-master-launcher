@@ -13,6 +13,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import Image from 'next/image';
 import {
   Play, Pause, SkipBack, SkipForward, ExternalLink, LogOut,
   Heart, Star, Loader2, AlertTriangle, User,
@@ -316,8 +317,7 @@ export default function MySpotifyPanel() {
           {/* Now playing (real SDK state only) */}
           <div className="flex items-center gap-3 px-4 py-2">
             {nowPlaying?.image ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={nowPlaying.image} alt="" className="h-11 w-11 shrink-0 rounded-lg" aria-hidden="true" />
+              <Image src={nowPlaying.image} alt="" width={44} height={44} unoptimized className="h-11 w-11 shrink-0 rounded-lg" aria-hidden="true" />
             ) : (
               <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-white/10">
                 <Play size={16} className="text-white/50" aria-hidden="true" />

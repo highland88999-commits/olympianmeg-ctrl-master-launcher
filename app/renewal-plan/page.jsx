@@ -167,7 +167,7 @@ export default function RenewalPlanPage() {
   }, []);
 
   return (
-    <div className="rp-page min-h-screen text-white">
+    <div className="rp-page min-h-dvh text-white">
       <style>{CSS}</style>
       <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-10 pb-[calc(8rem+env(safe-area-inset-bottom))]">
         <header className="text-center mb-10">

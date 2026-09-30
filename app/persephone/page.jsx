@@ -35,14 +35,14 @@ export default function PersephonePage() {
 
   return (
     <main
-      className="min-h-screen w-full bg-[#070305] text-[#e8d9b0]"
+      className="min-h-dvh w-full bg-[#070305] text-[#e8d9b0]"
       style={{ paddingBottom: 'calc(4.5rem + env(safe-area-inset-bottom))' }}
     >
       {/* header */}
       <header className="px-6 pt-10 pb-6 text-center max-w-3xl mx-auto">
         <p className="text-[11px] tracking-[0.45em] uppercase text-[#8a7f66]">Queen of the underworld presents</p>
-        <h1 className="mt-3 text-5xl sm:text-6xl font-light tracking-[0.3em] text-[#d4af37]">PERSEPHONE</h1>
-        <div className="mt-5 h-px w-28 mx-auto bg-gradient-to-r from-transparent via-[#d4af37]/60 to-transparent" />
+        <h1 className="mt-3 text-5xl sm:text-6xl font-light tracking-[0.3em] text-[#ffd700]">PERSEPHONE</h1>
+        <div className="mt-5 h-px w-28 mx-auto bg-gradient-to-r from-transparent via-[#ffd700]/60 to-transparent" />
         <p className="mt-5 text-[#a89a78] leading-relaxed">
           A concert hall in the dark below — gold on black, embers in the air,
           and the decks on the underworld stage. Come down, take a ticket, stay for the set.
@@ -54,7 +54,7 @@ export default function PersephonePage() {
         <div className="relative w-full overflow-hidden rounded-2xl border border-[#3a2f1a]" style={{ height: '62vh', minHeight: 380 }}>
           <HallScene peers={peers} />
           <div className="pointer-events-none absolute top-0 left-0 right-0 p-4">
-            <p className="inline-block bg-black/60 backdrop-blur-sm px-3 py-2 text-[10px] tracking-[0.3em] uppercase text-[#d4af37]/90 border-l-2 border-[#d4af37]/70">
+            <p className="inline-block bg-black/60 backdrop-blur-sm px-3 py-2 text-[10px] tracking-[0.3em] uppercase text-[#ffd700]/90 border-l-2 border-[#ffd700]/70">
               The hall — walk around with your eyes
             </p>
           </div>

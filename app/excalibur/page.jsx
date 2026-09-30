@@ -5,7 +5,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { BackButton } from '@/components/ui';
 import { createMachine, STATES } from './stateMachine.js';
 import { createExcaliburScene } from './scene.js';
 
@@ -21,7 +21,6 @@ const COPY = {
 };
 
 export default function ExcaliburPage() {
-  const router = useRouter();
   const canvasRef = useRef(null);
   const mountRef = useRef(null);
   const sceneRef = useRef(null);
@@ -145,13 +144,7 @@ export default function ExcaliburPage() {
       />
 
       {/* Back */}
-      <button
-        onClick={() => router.back()}
-        className="absolute top-4 left-4 z-30 min-w-[44px] min-h-[44px] px-4 flex items-center justify-center rounded-full bg-black/60 border border-cyan-400/30 text-cyan-200 text-sm tracking-widest uppercase hover:bg-cyan-400/20"
-        aria-label="Back to all worlds"
-      >
-        ‹ Worlds
-      </button>
+      <BackButton label="Worlds" />
 
       {/* Intro overlay */}
       {showOverlay && (
@@ -178,14 +171,14 @@ export default function ExcaliburPage() {
         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center pointer-events-none">
           <div className="relative w-[132px] h-[132px]">
             <svg viewBox="0 0 120 120" className="w-full h-full -rotate-90">
-              <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(0,255,255,0.15)" strokeWidth="8" />
+              <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(0,242,255,0.15)" strokeWidth="8" />
               <circle
                 ref={ringFgRef}
                 cx="60" cy="60" r="52" fill="none"
-                stroke="#00ffff" strokeWidth="8" strokeLinecap="round"
+                stroke="#00f2ff" strokeWidth="8" strokeLinecap="round"
                 strokeDasharray={RING_C}
                 strokeDashoffset={RING_C}
-                style={{ filter: 'drop-shadow(0 0 6px #00ffff)', transition: 'stroke-dashoffset 80ms linear' }}
+                style={{ filter: 'drop-shadow(0 0 6px #00f2ff)', transition: 'stroke-dashoffset 80ms linear' }}
               />
             </svg>
             <span className="absolute inset-0 flex items-center justify-center text-cyan-100 text-xs tracking-[0.25em] uppercase">
@@ -220,7 +213,7 @@ export default function ExcaliburPage() {
       <style>{`
         .excalibur-landing {
           background:
-            radial-gradient(ellipse 60% 45% at 50% 38%, rgba(0,255,255,0.10), transparent 70%),
+            radial-gradient(ellipse 60% 45% at 50% 38%, rgba(0,242,255,0.10), transparent 70%),
             radial-gradient(ellipse 45% 35% at 72% 70%, rgba(255,0,255,0.08), transparent 70%),
             radial-gradient(ellipse 50% 40% at 28% 72%, rgba(90,40,255,0.10), transparent 70%),
             linear-gradient(rgba(1,1,3,0.55), rgba(1,1,3,0.92));
@@ -229,7 +222,7 @@ export default function ExcaliburPage() {
           font-size: clamp(2rem, 9vw, 4rem);
           letter-spacing: 0.35em;
           text-indent: 0.35em;
-          text-shadow: 0 0 18px rgba(0,255,255,0.8), 0 0 46px rgba(255,0,255,0.5);
+          text-shadow: 0 0 18px rgba(0,242,255,0.8), 0 0 46px rgba(255,0,255,0.5);
           animation: excalibur-float 4.5s ease-in-out infinite;
         }
         .excalibur-ticker {
@@ -245,7 +238,7 @@ export default function ExcaliburPage() {
           letter-spacing: 0.25em;
           text-indent: 0.25em;
           color: #aef6ff;
-          text-shadow: 0 0 12px rgba(0,255,255,0.8);
+          text-shadow: 0 0 12px rgba(0,242,255,0.8);
           animation: excalibur-hintfade 9s forwards;
         }
         .excalibur-banner {
@@ -253,7 +246,7 @@ export default function ExcaliburPage() {
           letter-spacing: 0.3em;
           text-indent: 0.3em;
           color: #eaffff;
-          text-shadow: 0 0 16px rgba(0,255,255,0.9), 0 0 44px rgba(255,255,255,0.5);
+          text-shadow: 0 0 16px rgba(0,242,255,0.9), 0 0 44px rgba(255,255,255,0.5);
         }
         @keyframes excalibur-float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
         @keyframes excalibur-pulse { 0%,100% { opacity: 0.45; } 50% { opacity: 1; } }

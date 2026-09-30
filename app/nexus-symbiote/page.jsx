@@ -61,7 +61,7 @@ export default function NexusSymbiotePage() {
     window.addEventListener("resize", resize);
     const cols = Math.floor(canvas.width / 18);
     const drops = Array.from({ length: cols }, () => Math.random() * -60);
-    const glyphColors = ["#00ffcc", "#ff4dff", "#ffe14d", "#00ffff", "#ffffff"];
+    const glyphColors = ["#00ffcc", "#ff4dff", "#ffe14d", "#00f2ff", "#ffffff"];
     let raf = 0;
     const draw = () => {
       ctx.fillStyle = "rgba(0,0,0,0.12)";
@@ -322,8 +322,8 @@ export default function NexusSymbiotePage() {
         .nx-row { display:flex; gap:6px; }
         .nx-btn { flex:1; background:rgba(5,5,5,.95); border:1px solid #333; color:#00ffcc; padding:11px 2px; border-radius:8px; font-size:10px; font-weight:700; cursor:pointer; text-transform:uppercase; letter-spacing:1px; font-family:inherit; min-height:44px; display:flex; align-items:center; justify-content:center; text-align:center; }
         .nx-btn.active { background:#00ffcc; color:#000; box-shadow:0 0 10px rgba(0,255,204,.7); }
-        .nx-btn.gold { border-color:#d4af37; color:#d4af37; width:100%; padding:12px; }
-        .nx-btn.gold.active { background:#d4af37; color:#000; }
+        .nx-btn.gold { border-color:#ffd700; color:#ffd700; width:100%; padding:12px; }
+        .nx-btn.gold.active { background:#ffd700; color:#000; }
         .nx-btn:disabled { opacity:.45; cursor:default; }
         .nx-about { position:absolute; inset:0; z-index:10; background:rgba(2,4,6,.96); border-radius:40px; padding:26px 22px; overflow:auto; font-size:.78rem; line-height:1.55; }
         .nx-about h2 { color:#00ffcc; font-size:1rem; letter-spacing:3px; margin:0 0 .8rem; }
@@ -438,7 +438,7 @@ export default function NexusSymbiotePage() {
                 Back to the symbiote
               </button>
               {/* Safari bottom-bar clearance */}
-              <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))] shrink-0" />
+              <div aria-hidden="true" className="player-clear shrink-0" />
             </div>
           )}
         </div>

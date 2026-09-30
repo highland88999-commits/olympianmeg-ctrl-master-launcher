@@ -26,7 +26,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="antialiased w-screen h-screen overflow-hidden bg-black text-slate-200">
+    <div className="antialiased w-screen h-dvh overflow-hidden bg-black text-slate-200">
       {children}
     </div>
   );

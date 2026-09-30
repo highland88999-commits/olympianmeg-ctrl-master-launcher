@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 
 // UI Components
+import { BackButton } from '@/components/ui';
 import Modes from '@/components/chess/Modes';
 import Board from '@/components/chess/Board';
 import HUD from '@/components/chess/HUD';
@@ -154,8 +155,8 @@ export default function QuantumChess() {
       tex.repeat.set(1.5, 0.9); tex.offset.set(0, 0.05); 
       return tex;
     };
-    setCyanSkinTex(loadSkinTexture("/assets/chess/cyan-skin.mov")); 
-    setPinkSkinTex(loadSkinTexture("/assets/chess/pink-skin.mov")); 
+    setCyanSkinTex(loadSkinTexture("/assets/chess/cyan-skin.mp4")); 
+    setPinkSkinTex(loadSkinTexture("/assets/chess/pink-skin.mp4")); 
 
     const loadBoardTexture = (src: string) => {
       const vid = document.createElement("video");
@@ -165,7 +166,7 @@ export default function QuantumChess() {
       tex.colorSpace = THREE.SRGBColorSpace; tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
       return tex;
     };
-    setBoardTex(loadBoardTexture("/chess/gemini_generated_video_789958CD.mov")); 
+    setBoardTex(loadBoardTexture("/chess/gemini_generated_video_789958CD.mp4")); 
 
     const textureLoader = new THREE.TextureLoader();
     textureLoader.load('/chess/assets/effects/640461e59c5fb5c122b6325b2a575b42.jpeg', (tex) => {
@@ -186,9 +187,9 @@ export default function QuantumChess() {
       tex.colorSpace = THREE.SRGBColorSpace; tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
       return tex;
     };
-    setRookWallTex(loadEffectVideo('/chess/assets/effects/gemini_generated_video_8A9D1A5A.mov'));
-    setKingHoleTex(loadEffectVideo('/chess/assets/effects/gemini_generated_video_758D2655.mov'));
-    setBishopBookTex(loadEffectVideo('/chess/assets/effects/gemini_generated_video_40DA2773.mov'));
+    setRookWallTex(loadEffectVideo('/chess/assets/effects/gemini_generated_video_8A9D1A5A.mp4'));
+    setKingHoleTex(loadEffectVideo('/chess/assets/effects/gemini_generated_video_758D2655.mp4'));
+    setBishopBookTex(loadEffectVideo('/chess/assets/effects/gemini_generated_video_40DA2773.mp4'));
   }, []);
 
   useEffect(() => {
@@ -319,33 +320,25 @@ export default function QuantumChess() {
   };
 
   if (cloudOffline) return (
-    <main className="relative w-screen h-screen overflow-hidden bg-[#050505] flex items-center justify-center p-8">
+    <main className="relative w-screen h-dvh overflow-hidden bg-[#050505] flex items-center justify-center p-8">
       <div className="max-w-md text-center">
         <p className="text-zinc-300 tracking-widest uppercase text-sm mb-3">Cloud features are offline</p>
         <p className="text-zinc-500 text-sm mb-6">
           This page needs the database connection. Check back once the cloud is connected.
         </p>
-        <button
-          onClick={() => router.push('/')}
-          className="px-4 py-2 text-xs font-bold tracking-widest text-zinc-400 uppercase transition-colors border rounded bg-black/80 border-zinc-700 hover:text-cyan-400 hover:border-cyan-400"
-        >
-          Exit matrix
-        </button>
+        <BackButton label="Exit matrix" href="/" />
       </div>
     </main>
   )
 
-  if (!user) return <div className="w-screen h-screen bg-black" />
+  if (!user) return <div className="w-screen h-dvh bg-black" />
 
   return (
-    <main className="relative w-screen h-screen overflow-hidden bg-[#050505]">
+    <main className="relative w-screen h-dvh overflow-hidden bg-[#050505]">
       
-      <button 
-        onClick={() => router.push('/')}
-        className="absolute z-50 px-4 py-2 text-xs font-bold tracking-widest text-zinc-400 uppercase transition-colors border rounded top-5 right-5 bg-black/80 border-zinc-700 hover:text-cyan-400 hover:border-cyan-400"
-      >
-        EXIT MATRIX
-      </button>
+      <div className="absolute z-50 top-5 right-5">
+        <BackButton label="EXIT MATRIX" href="/" />
+      </div>
 
       {!mode && !oasisOpen && <Modes onSelectMode={handleModeSelect} />}
 
@@ -377,6 +370,7 @@ export default function QuantumChess() {
 
       {isGameOver && <GameOver winner={winner} onRestart={() => window.location.reload()} />}
 
+      <div className="absolute inset-0 overflow-y-auto">
       <Canvas camera={{ position: [0, 14, playerColor === 'pink' ? -25 : 25], fov: 52 }}>
         <color attach="background" args={['#050505']} />
         <fogExp2 attach="fog" args={['#050505', 0.015]} />
@@ -430,8 +424,9 @@ export default function QuantumChess() {
           <Bloom luminanceThreshold={0.4} luminanceSmoothing={0.2} intensity={1.5} />
         </EffectComposer>
       </Canvas>
+      </div>
       {/* Safari bottom-bar clearance */}
-      <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
+      <div aria-hidden="true" className="player-clear" />
     </main>
   );
 }

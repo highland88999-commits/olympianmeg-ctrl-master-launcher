@@ -10,8 +10,8 @@ const SERVICE_OPTIONS = ['Web Builds', '3D Experiences', 'Automation & Tooling',
 function Seal() {
   return (
     <svg viewBox="0 0 100 100" fill="none" aria-hidden="true" className="w-16 h-16 md:w-24 md:h-24 mb-5">
-      <circle cx="50" cy="50" r="48" stroke="#22d3ee" strokeWidth="2" />
-      <path d="M55 20L35 50H50L45 80L65 50H50L55 20Z" fill="#22d3ee" />
+      <circle cx="50" cy="50" r="48" stroke="#00f2ff" strokeWidth="2" />
+      <path d="M55 20L35 50H50L45 80L65 50H50L55 20Z" fill="#00f2ff" />
     </svg>
   );
 }
@@ -109,7 +109,7 @@ export default function OlympusB2BPage() {
     `w-full bg-black border rounded-lg px-4 py-3 text-white placeholder-zinc-600 focus:outline-none focus:border-cyan-400 ${bad ? 'border-red-500' : 'border-zinc-800'}`;
 
   return (
-    <main className="relative min-h-screen bg-[#050507] text-white overflow-x-hidden">
+    <main className="relative min-h-dvh bg-[#050507] text-white overflow-x-hidden">
       <canvas ref={canvasRef} aria-hidden="true" className="fixed inset-0 -z-10" />
 
       <div className="relative z-10 w-[90%] max-w-5xl mx-auto py-12 md:py-20">
@@ -246,7 +246,7 @@ export default function OlympusB2BPage() {
         </footer>
 
         {/* Safari bottom-bar clearance */}
-        <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+        <div aria-hidden="true" className="player-clear" />
       </div>
     </main>
   );

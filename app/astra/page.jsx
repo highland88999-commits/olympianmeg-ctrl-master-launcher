@@ -405,7 +405,7 @@ export default function Astra() {
       ctx.beginPath();
       ctx.arc(rx + rw / 2, ry + rh / 2, rw / 2, 0, TAU);
       ctx.fill();
-      ctx.strokeStyle = "rgba(0,255,255,0.6)";
+      ctx.strokeStyle = "rgba(0,242,255,0.6)";
       ctx.lineWidth = 2;
       ctx.stroke();
       // sweep
@@ -415,7 +415,7 @@ export default function Astra() {
         ctx.beginPath();
         ctx.arc(rx + rw / 2, ry + rh / 2, rw / 2, 0, TAU);
         ctx.clip();
-        ctx.strokeStyle = "rgba(0,255,255,0.35)";
+        ctx.strokeStyle = "rgba(0,242,255,0.35)";
         ctx.beginPath();
         ctx.moveTo(rx + rw / 2, ry + rh / 2);
         ctx.lineTo(
@@ -742,7 +742,7 @@ export default function Astra() {
       )}
 
       {/* Safari bottom-bar clearance */}
-      <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+      <div aria-hidden="true" className="player-clear" />
     </div>
   );
 }

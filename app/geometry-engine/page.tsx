@@ -6,6 +6,11 @@ import { useRouter } from 'next/navigation';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { supabase } from '@/lib/supabase';
+import { BackButton } from '@/components/ui';
+import { Orbitron, Rajdhani } from 'next/font/google';
+
+const orbitron = Orbitron({ subsets: ['latin'], weight: ['400', '700'] });
+const rajdhani = Rajdhani({ subsets: ['latin'], weight: ['400', '600'] });
 
 export default function GeometryEngine() {
   const router = useRouter();
@@ -21,7 +26,7 @@ export default function GeometryEngine() {
       supabase.auth.getSession().then(({ data: { session } }) => {
         if (!session) {
           if (window.top === window.self) router.push('/');
-          else document.body.innerHTML = '<div style="color:#08f7fe; text-align:center; padding:50px; font-family:monospace;">UNAUTHORIZED. PLEASE LOG IN AT MASTER HUB.</div>';
+          else document.body.innerHTML = '<div style="color:#00f2ff; text-align:center; padding:50px; font-family:monospace;">UNAUTHORIZED. PLEASE LOG IN AT MASTER HUB.</div>';
           return;
         }
         setMounted(true);
@@ -119,35 +124,29 @@ export default function GeometryEngine() {
   }, [router]);
 
   if (cloudOffline) return (
-    <div style={{ background: '#050508', width: '100vw', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32 }}>
+    <div style={{ background: '#050508', width: '100vw', height: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32 }}>
       <div style={{ maxWidth: 420, textAlign: 'center', fontFamily: 'monospace' }}>
-        <p style={{ color: '#08f7fe', letterSpacing: 3, fontSize: 13, textTransform: 'uppercase', marginBottom: 12 }}>
+        <p style={{ color: '#00f2ff', letterSpacing: 3, fontSize: 13, textTransform: 'uppercase', marginBottom: 12 }}>
           Cloud features are offline
         </p>
         <p style={{ color: '#888', fontSize: 13, marginBottom: 24 }}>
           This page needs the database connection. Check back once the cloud is connected.
         </p>
-        <button
-          onClick={() => router.push('/')}
-          style={{ background: 'rgba(8,247,254,0.1)', border: '1px solid #08f7fe', color: '#08f7fe', padding: '0.65rem 1.8rem', borderRadius: 4, fontWeight: 'bold', fontSize: '0.88rem', cursor: 'pointer', letterSpacing: 1 }}
-        >
-          BACK TO HUB
-        </button>
+        <BackButton label="Back to Hub" />
       </div>
     </div>
   );
 
-  if (!mounted) return <div style={{background: '#050508', width: '100vw', height: '100vh'}}></div>;
+  if (!mounted) return <div style={{background: '#050508', width: '100vw', height: '100dvh'}}></div>;
 
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Rajdhani:wght@400;600&display=swap');
-        .engine-wrapper { --bg-obsidian: #050508; --neon-cyan: #08f7fe; --neon-magenta: #fe53bb; --neon-gold: #FFD700; --panel-bg: rgba(12, 12, 18, 0.94); margin: 0; overflow: hidden; background-color: var(--bg-obsidian); color: #fff; font-family: 'Rajdhani', sans-serif; display: flex; flex-direction: column; height: 100dvh; width: 100vw; }
+        .engine-wrapper { --bg-obsidian: #050508; --neon-cyan: #00f2ff; --neon-magenta: #fe53bb; --neon-gold: #FFD700; --panel-bg: rgba(12, 12, 18, 0.94); margin: 0; overflow: hidden; background-color: var(--bg-obsidian); color: #fff; display: flex; flex-direction: column; height: 100dvh; width: 100vw; }
         .engine-wrapper::before { content: ""; position: fixed; inset: 0; background-image: linear-gradient(rgba(8, 247, 254, 0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(8, 247, 254, 0.03) 1px, transparent 1px); background-size: 40px 40px; z-index: 0; pointer-events: none; }
         header { width: 100%; background: rgba(5, 5, 8, 0.95); backdrop-filter: blur(12px); border-bottom: 1px solid rgba(8, 247, 254, 0.3); padding: 12px 5%; display: flex; justify-content: space-between; align-items: center; z-index: 100; flex-shrink: 0; }
-        .logo { font-family: 'Orbitron', sans-serif; font-size: 1.45rem; font-weight: bold; color: var(--neon-cyan); text-transform: uppercase; letter-spacing: 2px; text-shadow: 0 0 12px rgba(8, 247, 254, 0.5); }
-        .export-btn { background: rgba(8, 247, 254, 0.1); border: 1px solid var(--neon-cyan); color: var(--neon-cyan); padding: 0.65rem 1.8rem; border-radius: 4px; font-family: 'Orbitron', sans-serif; font-weight: bold; font-size: 0.88rem; cursor: pointer; transition: all 0.3s; letter-spacing: 1px; }
+        .logo { font-size: 1.45rem; font-weight: bold; color: var(--neon-cyan); text-transform: uppercase; letter-spacing: 2px; text-shadow: 0 0 12px rgba(8, 247, 254, 0.5); }
+        .export-btn { background: rgba(8, 247, 254, 0.1); border: 1px solid var(--neon-cyan); color: var(--neon-cyan); padding: 0.65rem 1.8rem; border-radius: 4px; font-weight: bold; font-size: 0.88rem; cursor: pointer; transition: all 0.3s; letter-spacing: 1px; }
         .export-btn:hover { background: var(--neon-cyan); color: #000; box-shadow: 0 0 20px rgba(8, 247, 254, 0.7); }
         .video-hero { position: relative; width: 100%; height: 18vh; min-height: 120px; max-height: 200px; flex-shrink: 0; overflow: hidden; background: #000; border-bottom: 1px solid rgba(8, 247, 254, 0.2); z-index: 50; }
         .hero-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.8; mix-blend-mode: screen; }
@@ -161,14 +160,14 @@ export default function GeometryEngine() {
         .dock-icon:hover, .dock-icon.active { border-color: var(--neon-cyan); color: var(--neon-cyan); box-shadow: 0 0 20px rgba(8, 247, 254, 0.5); transform: scale(1.12); background: rgba(8, 247, 254, 0.15); }
         .ui-panel { position: absolute; bottom: 95px; left: 25px; background: var(--panel-bg); border: 1px solid rgba(8, 247, 254, 0.25); border-left: 4px solid var(--neon-magenta); padding: 24px; width: 320px; max-height: calc(100% - 110px); overflow-y: auto; display: flex; flex-direction: column; gap: 18px; border-radius: 10px; backdrop-filter: blur(20px); z-index: 1000; opacity: 0; transform: translateY(25px) scale(0.94); pointer-events: none; transition: all 0.32s; }
         .ui-panel.active { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
-        h2 { font-family: 'Orbitron', sans-serif; font-size: 0.98rem; color: var(--neon-magenta); text-transform: uppercase; letter-spacing: 2px; border-bottom: 1px solid rgba(254,83,187,0.3); padding-bottom: 8px; margin: 0; }
+        h2 { font-size: 0.98rem; color: var(--neon-magenta); text-transform: uppercase; letter-spacing: 2px; border-bottom: 1px solid rgba(254,83,187,0.3); padding-bottom: 8px; margin: 0; }
         .shape-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
-        .shape-btn { background: rgba(0,0,0,0.6); border: 1px solid #333; color: #ccc; padding: 16px 8px; cursor: pointer; text-align: center; font-size: 0.86rem; font-family: 'Orbitron', sans-serif; border-radius: 6px; }
+        .shape-btn { background: rgba(0,0,0,0.6); border: 1px solid #333; color: #ccc; padding: 16px 8px; cursor: pointer; text-align: center; font-size: 0.86rem; border-radius: 6px; }
       `}</style>
-      <div className="engine-wrapper">
+      <div className={`engine-wrapper ${rajdhani.className}`}>
         <header>
-            <div className="logo">NEXUS ENGINE</div>
-            <button className="export-btn" id="btn-export" onClick={() => window.exportGeometry()}>Download PNG</button>
+            <div className={`logo ${orbitron.className}`}>NEXUS ENGINE</div>
+            <button className={`export-btn ${orbitron.className}`} id="btn-export" onClick={() => window.exportGeometry()}>Download PNG</button>
         </header>
 
         <div className="video-hero">
@@ -186,12 +185,12 @@ export default function GeometryEngine() {
             </div>
 
             <div id="panel-shapes" className="ui-panel active">
-                <h2>Geometry Library</h2>
+                <h2 className={orbitron.className}>Geometry Library</h2>
                 <div className="shape-grid">
-                    <button className="shape-btn" onClick={() => window.createNewGeometry('sphere')}>Sphere</button>
-                    <button className="shape-btn" onClick={() => window.createNewGeometry('torus')}>Torus</button>
-                    <button className="shape-btn" onClick={() => window.createNewGeometry('cylinder')}>Cylinder</button>
-                    <button className="shape-btn" onClick={() => window.createNewGeometry('cube')}>Cube</button>
+                    <button className={`shape-btn ${orbitron.className}`} onClick={() => window.createNewGeometry('sphere')}>Sphere</button>
+                    <button className={`shape-btn ${orbitron.className}`} onClick={() => window.createNewGeometry('torus')}>Torus</button>
+                    <button className={`shape-btn ${orbitron.className}`} onClick={() => window.createNewGeometry('cylinder')}>Cylinder</button>
+                    <button className={`shape-btn ${orbitron.className}`} onClick={() => window.createNewGeometry('cube')}>Cube</button>
                 </div>
             </div>
         </div>

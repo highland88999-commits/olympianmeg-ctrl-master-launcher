@@ -6,7 +6,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { BackButton } from '@/components/ui';
 import { createMachine, STATES } from './stateMachine.js';
 import { createIceMonsterScene } from './scene.js';
 
@@ -22,7 +22,6 @@ const COPY = {
 };
 
 export default function IceMonsterPage() {
-  const router = useRouter();
   const canvasRef = useRef(null);
   const machineRef = useRef(null);
   const sceneRef = useRef(null);
@@ -189,13 +188,7 @@ export default function IceMonsterPage() {
       />
 
       {/* Back */}
-      <button
-        onClick={() => router.back()}
-        className="absolute top-4 left-4 z-30 min-w-[44px] min-h-[44px] px-4 flex items-center justify-center rounded-full bg-black/60 border border-cyan-400/30 text-cyan-200 text-sm tracking-widest uppercase hover:bg-cyan-400/20"
-        aria-label="Back to all worlds"
-      >
-        ‹ Worlds
-      </button>
+      <BackButton label="Worlds" />
 
       {/* Intro overlay */}
       {showOverlay && (
@@ -222,7 +215,7 @@ export default function IceMonsterPage() {
         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center pointer-events-none">
           <div className="relative w-[132px] h-[132px]">
             <svg viewBox="0 0 120 120" className="w-full h-full -rotate-90">
-              <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(0,255,255,0.15)" strokeWidth="8" />
+              <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(0,242,255,0.15)" strokeWidth="8" />
               <circle
                 ref={ringFgRef}
                 cx="60" cy="60" r="52" fill="none"
@@ -325,7 +318,7 @@ export default function IceMonsterPage() {
         }
       `}</style>
       {/* Safari bottom-bar clearance */}
-      <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+      <div aria-hidden="true" className="player-clear" />
     </div>
   );
 }

@@ -72,7 +72,7 @@ function ParticleField() {
         const walk = reduced ? p.x : ((t * 0.25 + p.x) % 1);
         const steppedX = Math.floor(walk * 40) / 40;
         const y = (p.tier / 8) * h + Math.sin(t * 2 + p.tier) * 2;
-        ctx.fillStyle = 'rgba(0,255,255,0.55)';
+        ctx.fillStyle = 'rgba(0,242,255,0.55)';
         ctx.fillRect(steppedX * w, y, 2.5, 2.5);
       }
     }
@@ -280,7 +280,7 @@ export default function MerlinMandatesPage() {
       </main>
 
       {/* Safari bottom-bar clearance */}
-      <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+      <div aria-hidden="true" className="player-clear" />
     </div>
   );
 }

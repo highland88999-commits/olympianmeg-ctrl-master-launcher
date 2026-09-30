@@ -2,7 +2,7 @@
 /* eslint-disable */
 'use client';
 import { useEffect, useState, useRef, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { BackButton } from '@/components/ui';
 import Link from 'next/link';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
@@ -43,7 +43,7 @@ function LugeTrack({ course, sled, tiltData, onFinish }) {
       canvas.width = 512; canvas.height = 512;
       const ctx = canvas.getContext('2d');
       ctx.fillStyle = '#0a0a14'; ctx.fillRect(0, 0, 512, 512);
-      ctx.strokeStyle = '#00f3ff'; ctx.lineWidth = 4; ctx.strokeRect(0, 0, 512, 512);
+      ctx.strokeStyle = '#00f2ff'; ctx.lineWidth = 4; ctx.strokeRect(0, 0, 512, 512);
       const blank = new THREE.CanvasTexture(canvas);
       blank.wrapS = THREE.MirroredRepeatWrapping;
       blank.wrapT = THREE.MirroredRepeatWrapping;
@@ -184,7 +184,6 @@ function LugeTrack({ course, sled, tiltData, onFinish }) {
 const FINAL_COURSE_ID = 20;
 
 export default function LugeEngine() {
-  const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [authed, setAuthed] = useState(false);
   const [cloudOffline, setCloudOffline] = useState(false);
@@ -303,7 +302,7 @@ export default function LugeEngine() {
     } catch {
       setCloudOffline(true);
     }
-  }, [router]);
+  }, []);
 
   // Request iOS Gyroscope Permissions & Start Listener
   const requestTiltAccessAndStart = async () => {
@@ -452,16 +451,9 @@ export default function LugeEngine() {
       <p className="max-w-md mb-8 text-sm text-zinc-400">
         This page needs the database connection. Check back once the cloud is connected.
       </p>
-      <button
-        onClick={() => router.push('/')}
-        className="px-10 py-4 text-sm font-bold tracking-widest text-black uppercase bg-cyan-400 rounded-full hover:bg-white"
-      >
-        Go to the hub
-      </button>
+      <BackButton label="Go to the hub" />
     </div>
   );
-
-  if (!mounted) return <div className="bg-black w-screen h-screen"></div>;
 
   if (!authed) {
     return (
@@ -472,28 +464,18 @@ export default function LugeEngine() {
           Your garage, your hulls, and your hoodie claim all live on your account.
           Sign in at the master hub, then come back here.
         </p>
-        <button
-          onClick={() => router.push('/')}
-          className="px-10 py-4 text-sm font-bold tracking-widest text-black uppercase bg-cyan-400 rounded-full hover:bg-white"
-        >
-          Go to the hub
-        </button>
+      <BackButton label="Go to the hub" />
       </div>
     );
   }
 
   return (
     <>
-      <button
-        onClick={() => router.push('/')}
-        className="absolute z-[9999] px-4 py-2 text-[10px] font-bold tracking-widest text-cyan-400 uppercase transition-colors border rounded top-5 right-5 bg-black/80 border-zinc-700 hover:text-white hover:border-cyan-400"
-      >
-        EXIT MATRIX
-      </button>
+      <BackButton label="EXIT MATRIX" />
 
       {gameState === 'menu' && (
         <div className="flex flex-col items-center justify-center w-full h-full p-8 text-center text-white bg-zinc-950">
-          <h1 className="mb-2 text-4xl text-cyan-400 drop-shadow-[0_0_15px_rgba(0,255,255,0.5)] uppercase tracking-widest">Cyberpunk Luge</h1>
+          <h1 className="mb-2 text-4xl text-cyan-400 drop-shadow-[0_0_15px_rgba(0,242,255,0.5)] uppercase tracking-widest">Cyberpunk Luge</h1>
           <p className="mb-2 text-sm tracking-widest text-zinc-500 uppercase">Neon Descent Engine</p>
           {ownsArsenal && (
             <p className="mb-2 text-[11px] font-bold tracking-widest text-amber-400 uppercase">Complete Arsenal owned</p>
@@ -529,7 +511,7 @@ export default function LugeEngine() {
                 </div>
               ))}
               {/* Safari bottom-bar clearance */}
-              <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))] shrink-0" />
+              <div aria-hidden="true" className="player-clear shrink-0" />
             </div>
 
             <div className="flex flex-col flex-1 p-4 overflow-y-auto border rounded border-fuchsia-500/30 bg-black/50 custom-scrollbar">
@@ -562,13 +544,13 @@ export default function LugeEngine() {
                 OPEN PREMIUM STORE
               </button>
               {/* Safari bottom-bar clearance */}
-              <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))] shrink-0" />
+              <div aria-hidden="true" className="player-clear shrink-0" />
             </div>
           </div>
 
           <button
             onClick={() => setGameState('pre_race_calibrate')}
-            className="px-12 py-4 mt-8 text-lg font-bold text-black uppercase transition-all bg-cyan-400 rounded-full hover:bg-white hover:shadow-[0_0_30px_rgba(0,255,255,0.6)] tracking-widest"
+            className="px-12 py-4 mt-8 text-lg font-bold text-black uppercase transition-all bg-cyan-400 rounded-full hover:bg-white hover:shadow-[0_0_30px_rgba(0,242,255,0.6)] tracking-widest"
           >
             INITIATE DESCENT
           </button>
@@ -629,7 +611,7 @@ export default function LugeEngine() {
                 Back to garage
               </button>
               {/* Safari bottom-bar clearance */}
-              <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))] shrink-0" />
+              <div aria-hidden="true" className="player-clear shrink-0" />
             </div>
           </div>
         </div>
@@ -637,7 +619,7 @@ export default function LugeEngine() {
 
       {gameState === 'pre_race_calibrate' && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
-          <div className="flex flex-col items-center p-8 bg-zinc-950 border border-cyan-500/40 rounded-xl shadow-[0_0_40px_rgba(0,255,255,0.15)] max-w-md text-center">
+          <div className="flex flex-col items-center p-8 bg-zinc-950 border border-cyan-500/40 rounded-xl shadow-[0_0_40px_rgba(0,242,255,0.15)] max-w-md text-center">
             <h2 className="text-2xl font-black text-transparent uppercase bg-clip-text bg-gradient-to-r from-cyan-400 to-fuchsia-500 tracking-widest mb-4">GYRO CALIBRATION</h2>
             <p className="text-sm text-zinc-300 mb-6 leading-relaxed">
               Hold your device in a comfortable playing position.
@@ -652,7 +634,7 @@ export default function LugeEngine() {
             </p>
             <button
               onClick={requestTiltAccessAndStart}
-              className="w-full px-8 py-4 text-sm font-bold tracking-widest text-black uppercase transition-all bg-cyan-400 rounded hover:bg-white hover:shadow-[0_0_20px_rgba(0,255,255,0.6)]"
+              className="w-full px-8 py-4 text-sm font-bold tracking-widest text-black uppercase transition-all bg-cyan-400 rounded hover:bg-white hover:shadow-[0_0_20px_rgba(0,242,255,0.6)]"
             >
               CALIBRATE &amp; IGNITE ENGINE
             </button>
@@ -775,7 +757,7 @@ export default function LugeEngine() {
               RETURN TO MENU
             </button>
             {/* Safari bottom-bar clearance */}
-            <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))] shrink-0" />
+            <div aria-hidden="true" className="player-clear shrink-0" />
           </div>
         </div>
         );

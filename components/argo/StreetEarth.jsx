@@ -89,6 +89,7 @@ export default function StreetEarth({
 
     const fail = () => {
       if (st.renderer) {
+        try { st.renderer.removeEventListener?.('load-tile-set', st.onTileSettled); } catch { /* noop */ }
         try { st.renderer.dispose(); } catch { /* gone */ }
         st.renderer = null;
       }
@@ -126,12 +127,14 @@ export default function StreetEarth({
         renderer.group.matrix.copy(m === 'street' ? streetMatrix(la, lo) : globeMatrix());
         renderer.group.matrixWorldNeedsUpdate = true;
 
-        renderer.addEventListener('load-tile-set', () => {
+        const onTileSettled = () => {
           if (settled || !st.alive) return;
           settled = true;
           st.activeNotified = true;
           cbRef.current.onActive?.();
-        });
+        };
+        renderer.addEventListener('load-tile-set', onTileSettled);
+        st.onTileSettled = onTileSettled;
 
         renderer.setCamera(camera);
         renderer.setResolutionFromRenderer(camera, gl);
@@ -152,6 +155,7 @@ export default function StreetEarth({
       st.timers.forEach(clearTimeout);
       st.timers = [];
       if (st.renderer) {
+        try { st.renderer.removeEventListener?.('load-tile-set', st.onTileSettled); } catch { /* noop */ }
         try { st.renderer.dispose(); } catch { /* gone */ }
         st.renderer = null;
       }

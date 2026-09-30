@@ -18,6 +18,7 @@
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { BackButton } from '@/components/ui';
 import { SATELLITES } from '@/lib/i18n/satellites';
 import { fx } from '@/lib/fx';
 import {
@@ -555,9 +556,7 @@ export default function PrimePage() {
       <main className="prime-main">
         {/* top bar: back, title, search — everything else lives on the map */}
         <div className="prime-topbar">
-          <button type="button" className="prime-back" onClick={() => router.push('/')}>
-            ← Hub
-          </button>
+          <BackButton label="Hub" />
           <div className="prime-title">
             <h1>PRIME</h1>
             <p>Star chart</p>
@@ -685,7 +684,7 @@ export default function PrimePage() {
         </div>
 
         <div className="prime-foot">
-          <a href="/">← Back to the hub</a>
+          <BackButton label="Back to the hub" />
         </div>
       </main>
 

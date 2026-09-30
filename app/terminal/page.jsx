@@ -6,7 +6,7 @@ import engine from './engine.js';
 const { createState, runCommand, promptFor, serialize, deserialize } = engine;
 
 const THEMES = {
-  neon: { fg: '#39ff14', accent: '#00f9ff', prompt: '#00f9ff', name: 'neon' },
+  neon: { fg: '#39ff14', accent: '#00f2ff', prompt: '#00f2ff', name: 'neon' },
   amber: { fg: '#ffb000', accent: '#ff7b00', prompt: '#ffd23f', name: 'amber' },
   ghost: { fg: '#c9d6e8', accent: '#8fa3c7', prompt: '#e8eefc', name: 'ghost' },
 };
@@ -261,7 +261,7 @@ export default function TerminalPage() {
         <p className="mt-4 text-[11px] text-white/35">
           Files persist in this browser only. Nothing is sent anywhere — this console has no network code at all.
         </p>
-        <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))]" />
+        <div aria-hidden="true" className="player-clear" />
       </main>
 
       {/* Editor overlay */}

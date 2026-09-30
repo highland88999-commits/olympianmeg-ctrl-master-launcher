@@ -4,6 +4,7 @@ import { Canvas } from '@react-three/fiber'
 import { OrbitControls, Environment } from '@react-three/drei'
 import { EffectComposer, Bloom } from '@react-three/postprocessing'
 import { useRouter } from 'next/navigation'
+import { BackButton } from '@/components/ui'
 import { supabase } from '@/lib/supabase'
 import { useCerberusStore } from '@/store/cerberus/useCerberusStore'
 import NodeMap from '@/components/cerberus/NodeMap'
@@ -65,12 +66,7 @@ export default function CerberusApp() {
         <p style={{ color: '#666', fontSize: 14, marginBottom: 24 }}>
           This page needs the database connection. Check back once the cloud is connected.
         </p>
-        <button
-          onClick={() => router.push('/')}
-          className="px-4 py-2 text-[10px] font-bold tracking-widest text-[#c0c0c0] uppercase transition-colors border rounded bg-black/80 border-[#333] hover:text-[#00f2ff] hover:border-[#00f2ff]"
-        >
-          [ DISCONNECT NODE ]
-        </button>
+        <BackButton label="[ DISCONNECT NODE ]" />
       </div>
     </div>
   )
@@ -78,15 +74,10 @@ export default function CerberusApp() {
   if (isLoading || !localSession) return <div style={{ position: 'fixed', inset: 0, backgroundColor: '#000' }} />
 
   return (
-    <main style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: '#000000', overflow: 'hidden', userSelect: 'none' }}>
+    <main style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100dvh', backgroundColor: '#000000', overflow: 'hidden', userSelect: 'none' }}>
       
       {/* THE EXIT BUTTON */}
-      <button 
-        onClick={() => router.push('/')}
-        className="absolute z-50 px-4 py-2 text-[10px] font-bold tracking-widest text-[#c0c0c0] uppercase transition-colors border rounded top-5 left-5 bg-black/80 border-[#333] hover:text-[#00f2ff] hover:border-[#00f2ff] font-bitcount"
-      >
-        [ DISCONNECT NODE ]
-      </button>
+      <BackButton label="[ DISCONNECT NODE ]" />
 
       {/* BACKGROUND VIDEO LAYER */}
       <video 
@@ -96,7 +87,7 @@ export default function CerberusApp() {
         playsInline 
         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 0, opacity: 0.6 }}
       >
-        <source src="/assets/cerberus/background.mov" type="video/mp4" />
+        <source src="/assets/cerberus/background.mp4" type="video/mp4" />
       </video>
 
       {/* FULLSCREEN 3D WEB (Transparent Background) */}
@@ -142,7 +133,7 @@ export default function CerberusApp() {
       <CyberHUD />
 
       {/* Safari bottom-bar clearance */}
-      <div aria-hidden="true" className="h-[max(5rem,env(safe-area-inset-bottom))]" />
+      <div aria-hidden="true" className="player-clear" />
 
     </main>
   )

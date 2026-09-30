@@ -23,40 +23,30 @@ body {
   min-height: 100dvh;
   overflow-x: hidden;
   overflow-y: auto;
-  user-select: none;
   -webkit-font-smoothing: antialiased;
 }
 
-/* Scroll repair (2026-09-29): every page must scroll when content overflows.
-   .scroll-page = scrollable page wrapper. .scroll-clear = bottom padding that
-   clears the fixed radio bar + Safari browser bar so content rests above it.
-   Canonical value: --player-clear (bar height + air + safe area) + 1.5rem. */
-.scroll-page {
-  min-height: 100vh;
-  min-height: 100dvh;
-  overflow-y: auto;
-  overflow-x: hidden;
-  -webkit-overflow-scrolling: touch;
-}
-.scroll-clear {
-  padding-bottom: calc(var(--player-clear) + 1.5rem);
+/* Text selection stays available app-wide (reading/manuscript pages).
+   Only canvas and game roots opt out — see .no-select. */
+canvas, .no-select {
+  user-select: none;
+  -webkit-user-select: none;
 }
 
-/* Shared placement helpers (2026-09-29): the placement language every page
-   should speak — content column, sticky header, back button, section rhythm.
-   Opt-in; pages keep their own visual identity. */
-.page-shell {
-  min-height: 100dvh;
-  padding-bottom: var(--player-clear);
+/* Canonical radio-bar clearance spacer (Phase 2b): the fixed radio bar +
+   transport strip obstruct ~5.5rem + safe-area. Every scrollable page ends
+   with <div className="player-clear" /> instead of a hand-rolled spacer. */
+.player-clear {
+  height: calc(5.5rem + env(safe-area-inset-bottom, 0px));
+  flex: none;
 }
-.page-col {
-  margin-left: auto;
-  margin-right: auto;
-  width: 100%;
-  max-width: 72rem;
-  padding-left: 1rem;
-  padding-right: 1rem;
-}
+
+/* Scroll repair (2026-09-29): every page must scroll when content overflows.
+   Canonical value: --player-clear (bar height + air + safe area) + 1.5rem.
+   NOTE (Phase 2b 2026-09-30): .scroll-page/.scroll-clear/.page-shell/.page-col
+   were deleted — zero adopters repo-wide. Pages use .player-clear spacers or
+   the components/ui primitives instead. .page-header/.page-back remain: they
+   back the shared BackButton (PageBack). */
 .page-header {
   position: sticky;
   top: 0;

@@ -116,13 +116,13 @@ function IntroScreen({ onEnter }) {
       <div style={{ position: 'relative', textAlign: 'center', padding: '0 24px' }}>
         <div style={{
           fontSize: 'clamp(3rem, 10vw, 6rem)', fontWeight: 900, letterSpacing: '10px',
-          color: '#f0f', textShadow: '0 0 30px #f0f, 0 0 70px #0ff',
+          color: '#f0f', textShadow: '0 0 30px #f0f, 0 0 70px #00f2ff',
           animation: 'remPulse 3s ease-in-out infinite alternate',
         }}>ENTER R.E.M.</div>
         <div style={{ marginTop: 24, color: '#9fd', fontSize: 'clamp(1rem, 3.5vw, 1.4rem)', letterSpacing: '4px' }}>
           A JOURNEY ACROSS THE PROVINCES
         </div>
-        <div style={{ marginTop: 32, fontSize: '3rem', color: '#0ff', animation: 'remBounce 2s ease-in-out infinite' }}
+        <div style={{ marginTop: 32, fontSize: '3rem', color: '#00f2ff', animation: 'remBounce 2s ease-in-out infinite' }}
           aria-hidden="true">▾</div>
       </div>
       <style>{`
@@ -140,12 +140,12 @@ function IntroScreen({ onEnter }) {
 // ---------- province selector ----------
 function Selector({ onSelect }) {
   return (
-    <div style={{ position: 'relative', minHeight: '100vh', background: '#030310', color: '#fff',
+    <div style={{ position: 'relative', minHeight: '100dvh', background: '#030310', color: '#fff',
       fontFamily: "'Segoe UI', system-ui, -apple-system, sans-serif", overflowX: 'hidden' }}>
       <Starfield density={120} speed={0.15} calm />
       <div style={{ position: 'relative', maxWidth: 1000, margin: '0 auto', padding: '56px 20px 80px' }}>
         <div style={{ textAlign: 'center', marginBottom: 40 }}>
-          <div style={{ fontSize: '0.85rem', letterSpacing: 8, color: '#0ff' }}>NEXUS VORTEX</div>
+          <div style={{ fontSize: '0.85rem', letterSpacing: 8, color: '#00f2ff' }}>NEXUS VORTEX</div>
           <h1 style={{ fontSize: 'clamp(2rem, 6vw, 3.2rem)', letterSpacing: 6, margin: '10px 0',
             color: '#f0f', textShadow: '0 0 24px #f0f' }}>R.E.M.</h1>
           <p style={{ color: '#9fc', letterSpacing: 2 }}>CHOOSE A PROVINCE OR TERRITORY</p>
@@ -188,7 +188,7 @@ function ProvinceView({ province, onBack }) {
   const renderList = useCallback(() => shown.slice(0, 400), [shown]);
 
   return (
-    <div style={{ position: 'relative', minHeight: '100vh', background: '#03030f', color: '#fff',
+    <div style={{ position: 'relative', minHeight: '100dvh', background: '#03030f', color: '#fff',
       fontFamily: "'Segoe UI', system-ui, -apple-system, sans-serif" }}>
       <Starfield density={110} speed={0.15} calm />
       <div style={{ position: 'relative', maxWidth: 760, margin: '0 auto', padding: '28px 18px 90px' }}>
@@ -259,9 +259,9 @@ export default function RemExplorer() {
           onBack={() => dispatch({ type: 'BACK' })} />
       )}
       {state.view === 'province' && !province && (
-        <div style={{ padding: 60, color: '#fff', background: '#000', minHeight: '100vh' }}>
+        <div style={{ padding: 60, color: '#fff', background: '#000', minHeight: '100dvh' }}>
           <p>Unknown province.</p>
-          <button onClick={() => dispatch({ type: 'RESET' })} style={{ color: '#0ff' }}>Start over</button>
+          <button onClick={() => dispatch({ type: 'RESET' })} style={{ color: '#00f2ff' }}>Start over</button>
         </div>
       )}
     </>
