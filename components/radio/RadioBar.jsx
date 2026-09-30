@@ -31,6 +31,7 @@ import {
 import { useRadio } from './RadioProvider';
 import SpotifyEmbed from './SpotifyEmbed';
 import MySpotifyPanel from './MySpotifyPanel';
+import CollabInviteCard from './CollabInviteCard';
 import { sourceLabel, VAULT, vaultReady } from '@/lib/radio/station';
 import { SOURCES, SOURCE_LABELS } from '@/lib/radio/spotify-auth';
 
@@ -220,6 +221,10 @@ function LibrarySheet() {
           app — full playback needs Spotify Premium.
         </p>
       </div>
+
+      {/* One-time invite to collaborate on the station playlist (first-load
+          session only, dismissible — see CollabInviteCard). */}
+      <CollabInviteCard />
 
       <div className="mt-2 flex items-center justify-between px-3">
         <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-white/70">
