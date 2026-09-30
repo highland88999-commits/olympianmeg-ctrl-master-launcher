@@ -27,6 +27,14 @@ for (const p of PARTNERS) {
   t(`${p.key}: terms mention 30-day window`, p.terms.includes('30-day window'));
 }
 
+// --- video creatives resolve to a deploy copy ---
+for (const p of PARTNERS) {
+  if (p.kind === 'video') {
+    t(`${p.key}: videoSrc is a /media/ deploy copy`, typeof p.videoSrc === 'string' && p.videoSrc.startsWith('/media/') && p.videoSrc.endsWith('.mp4'));
+    t(`${p.key}: videoUploadPath traces the original upload`, typeof p.videoUploadPath === 'string' && p.videoUploadPath.length > 0);
+  }
+}
+
 // --- Stake inventory preserved ---
 t('stake: tracking URL intact', STAKE_SLOT.trackingUrl === 'https://stake.com/?c=1FofAXWx');
 t('stake: tagline is Merlin\'s table', STAKE_SLOT.tagline === "Merlin's table");
