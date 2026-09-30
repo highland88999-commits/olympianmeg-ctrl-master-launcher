@@ -6,9 +6,14 @@
 // `webDir` is required by the CLI but unused at runtime in server-url mode.
 // The ios/ and android/ platform folders are CI-generated (Mac CI for iOS) and are
 // NOT committed by hand.
-import type { CapacitorConfig } from '@capacitor/cli';
+//
+// NOTE: no `import type { CapacitorConfig } from '@capacitor/cli'` here on purpose —
+// the @capacitor/* packages are installed only when the native shell is assembled
+// (CI / Merlin's ship prep), and an unresolvable type import breaks `next build`
+// type-checking on Vercel. The CLI accepts this plain-object config as-is.
 
-const config: CapacitorConfig = {
+// Plain-object config (CapacitorConfig shape); typed automatically once @capacitor/cli is installed.
+const config = {
   // Provisional bundle id — Merlin registers the final id in App Store Connect /
   // Play Console at enrollment; update here to match before the first native build.
   appId: 'com.olympusverse.nexus',
