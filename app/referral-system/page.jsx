@@ -1,6 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { supabase } from '@/lib/supabase';
+import {
+  validateInquiry, buildInquiryRow, queueInquiry, queuedInquiryCount,
+  buildInquiryMailto, INQUIRY_EMAIL,
+} from './inquiry';
 
 const CSS = `
 .rs-root { min-height: 100dvh; background: #030305; color: #fff; overflow: hidden; position: relative;
@@ -55,6 +60,16 @@ const CSS = `
 .rs-dot { width: 12px; height: 12px; border: 1px solid #00f2ff; border-radius: 50%; transition: 0.3s; }
 .rs-dot.active { background: #00f2ff; box-shadow: 0 0 10px #00f2ff; }
 .rs-note { font-size: 0.75rem; color: #8aa0b4; line-height: 1.5; }
+.rs-divider { border-top: 1px dashed rgba(0,243,255,0.3); padding-top: 20px; margin-top: 4px; }
+.rs-field textarea { width: 100%; box-sizing: border-box; background: #050a12; border: 1px solid rgba(0,243,255,0.35);
+  color: #fff; padding: 12px; border-radius: 6px; font-size: 1rem; outline: none; min-height: 96px; resize: vertical;
+  font-family: inherit; }
+.rs-field textarea:focus { border-color: #00f2ff; box-shadow: 0 0 12px rgba(0,243,255,0.25); }
+.rs-field .rs-err { color: #ff8a8a; font-size: 0.72rem; text-align: left; margin-top: 4px; }
+.rs-status { font-size: 0.82rem; line-height: 1.6; border-radius: 8px; padding: 12px 14px; text-align: left; }
+.rs-status.sent { background: rgba(0,243,255,0.1); border: 1px solid rgba(0,243,255,0.5); color: #c8fbff; }
+.rs-status.queued { background: rgba(255,215,0,0.07); border: 1px solid rgba(255,215,0,0.45); color: #ffe9a8; }
+.rs-status a { color: #00f2ff; }
 .rs-toast { position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); z-index: 20;
   background: rgba(0,243,255,0.92); color: #000; font-weight: 700; padding: 10px 18px; border-radius: 8px; font-size: 0.85rem; }
 @media (max-width: 600px) {
@@ -142,6 +157,23 @@ export default function ReferralSystemPage() {
   const [conv, setConv] = useState(25);
   const trackRef = useRef(null);
 
+  // --- Inquiry form ("Request this build") ---------------------------------
+  // Tries the cloud table first (supabase/referral-inquiries.sql, queued —
+  // not yet run). Missing table or no network -> the entry is saved on this
+  // device and the UI says exactly that, with a mailto fallback. It never
+  // claims an inquiry was sent when it was only stored locally.
+  const [iqName, setIqName] = useState('');
+  const [iqEmail, setIqEmail] = useState('');
+  const [iqCompany, setIqCompany] = useState('');
+  const [iqMessage, setIqMessage] = useState('');
+  const [iqErrors, setIqErrors] = useState([]);
+  const [iqState, setIqState] = useState('idle'); // idle | sending | sent | queued
+  const [iqQueued, setIqQueued] = useState(0);
+
+  useEffect(() => {
+    try { setIqQueued(queuedInquiryCount(window.localStorage)); } catch { /* ignore */ }
+  }, []);
+
   useNodeField(canvasRef, slide);
 
   useEffect(() => {
@@ -207,6 +239,35 @@ export default function ReferralSystemPage() {
       setToast('Copy blocked by the browser — long-press to copy manually.');
     }
   };
+
+  const sendInquiry = async (e) => {
+    e.preventDefault();
+    if (iqState === 'sending') return;
+    const { valid, errors } = validateInquiry({
+      name: iqName, email: iqEmail, company: iqCompany, message: iqMessage,
+    });
+    setIqErrors(errors);
+    if (!valid) return;
+    setIqState('sending');
+    const row = buildInquiryRow({ name: iqName, email: iqEmail, company: iqCompany, message: iqMessage });
+    try {
+      const { error } = await supabase.from('referral_inquiries').insert([row]);
+      if (error) throw error;
+      setIqState('sent');
+      setIqName(''); setIqEmail(''); setIqCompany(''); setIqMessage('');
+    } catch {
+      // Cloud insert failed (table not live yet, or offline) — keep the
+      // inquiry on this device instead of dropping it, and say so plainly.
+      try {
+        setIqQueued(queueInquiry(window.localStorage, row));
+      } catch { /* storage unavailable */ }
+      setIqState('queued');
+    }
+  };
+
+  const inquiryMailto = buildInquiryMailto({
+    name: iqName || '—', email: iqEmail || '—', company: iqCompany, message: iqMessage || '—',
+  });
 
   return (
     <>
@@ -323,6 +384,62 @@ export default function ReferralSystemPage() {
                 this device; nothing is uploaded anywhere. Payout automation is not built —
                 this page is an ROI estimator, not a payment system.
               </p>
+
+              <div className="rs-divider">
+                <h2 className="rs-h2" style={{ fontSize: '1.15rem' }}>Request this build</h2>
+                <p className="rs-sub" style={{ fontSize: '0.85rem' }}>
+                  The $3,500 CAD figure above is an example sketch, not a checkout. Tell us
+                  about your project and we&apos;ll come back with a real quote.
+                </p>
+                {iqState === 'sent' ? (
+                  <div className="rs-status sent" role="status">
+                    Inquiry received. We&apos;ll reply to the email you gave us — usually
+                    within a couple of days.
+                  </div>
+                ) : (
+                  <form onSubmit={sendInquiry} noValidate style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    <div className="rs-grid2">
+                      <div className="rs-field">
+                        <label htmlFor="rs-iq-name">Your name</label>
+                        <input id="rs-iq-name" type="text" value={iqName}
+                          onChange={(e) => setIqName(e.target.value)} autoComplete="name" />
+                        {iqErrors.includes('name') && <p className="rs-err">Please add your name.</p>}
+                      </div>
+                      <div className="rs-field">
+                        <label htmlFor="rs-iq-email">Email</label>
+                        <input id="rs-iq-email" type="email" value={iqEmail}
+                          onChange={(e) => setIqEmail(e.target.value)} autoComplete="email" />
+                        {iqErrors.includes('email') && <p className="rs-err">That email doesn&apos;t look right.</p>}
+                      </div>
+                    </div>
+                    <div className="rs-field">
+                      <label htmlFor="rs-iq-company">Company <span style={{ opacity: 0.6 }}>(optional)</span></label>
+                      <input id="rs-iq-company" type="text" value={iqCompany}
+                        onChange={(e) => setIqCompany(e.target.value)} autoComplete="organization" />
+                    </div>
+                    <div className="rs-field">
+                      <label htmlFor="rs-iq-message">What are you building?</label>
+                      <textarea id="rs-iq-message" value={iqMessage}
+                        onChange={(e) => setIqMessage(e.target.value)}
+                        placeholder="A few lines about your audience, your product, and what you want the referral program to do." />
+                      {iqErrors.includes('message') && <p className="rs-err">Add a line or two so we know what to quote.</p>}
+                    </div>
+                    <button type="submit" className="rs-btn" disabled={iqState === 'sending'}>
+                      {iqState === 'sending' ? 'Sending…' : 'Send inquiry'}
+                    </button>
+                    {iqState === 'queued' && (
+                      <div className="rs-status queued" role="status">
+                        Saved on this device — the inquiry database isn&apos;t live yet, so it
+                        hasn&apos;t reached us. {iqQueued > 0 && `(${iqQueued} saved.) `}
+                        <a href={inquiryMailto}>Open it in your email app</a> to send it to {INQUIRY_EMAIL} instead.
+                      </div>
+                    )}
+                    <p className="rs-note">
+                      Only your inquiry is stored — the calculator numbers above never leave this device.
+                    </p>
+                  </form>
+                )}
+              </div>
             </div>
           </div>
         </div>

@@ -52,7 +52,7 @@ export default function OasisLinkedHost() {
         <button
           onClick={handleHost}
           disabled={loading}
-          className="w-full px-6 py-4 text-sm font-bold tracking-widest text-cyan-400 uppercase transition-all border border-cyan-500/50 bg-cyan-950/20 hover:bg-cyan-900/40 hover:shadow-[0_0_20px_rgba(0,255,255,0.3)] disabled:opacity-50"
+          className="w-full px-6 py-4 text-sm font-bold tracking-widest text-cyan-400 uppercase transition-all border border-cyan-500/50 bg-cyan-950/20 hover:bg-cyan-900/40 hover:shadow-[0_0_20px_rgba(0,242,255,0.3)] disabled:opacity-50"
         >
           {loading ? 'OPENING ROOM…' : 'Host with Share Code'}
         </button>

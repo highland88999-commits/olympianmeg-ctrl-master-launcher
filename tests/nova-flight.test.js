@@ -189,7 +189,7 @@ function stripComments(src) {
 {
   const registry = readFileSync('lib/i18n/satellites.ts', 'utf8');
   t('registry has nova entry (exact format)',
-    registry.includes('{ key: "nova", route: "/nova", pos: "ZEUS_POS", section: "GAMES", constellation: "ZEUS" }'));
+    registry.includes('{ key: "nova", route: "/nova", pos: "HERMES", section: "GAMES", constellation: "ZEUS" }'));
 
   const en = readFileSync('lib/i18n/locales/en.json', 'utf8');
   t('en locale has sat.nova.title', en.includes('"sat.nova.title": "Nova"'));

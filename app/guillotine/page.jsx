@@ -7,6 +7,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { BackButton } from '@/components/ui';
+import { fx, unlockFx } from '@/lib/fx';
 import { createMachine, STATES } from './stateMachine.js';
 import { createGuillotineScene, PART_LABELS } from './scene.js';
 
@@ -84,6 +85,10 @@ export default function GuillotinePage() {
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
     setReducedMotion(mq.matches);
+    // unlock FX on first gesture (deep links may land here without the hub)
+    const unlock = () => unlockFx();
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
     const machine = createMachine();
     machineRef.current = machine;
     const scene = createGuillotineScene(canvasRef.current, {
@@ -91,13 +96,19 @@ export default function GuillotinePage() {
       onZoomComplete: () => {
         machine.zoomComplete();
         setPhase(machine.getState());
+        fx.checkpoint(); // at the machine: soft chime
       },
       onSplit: () => {
         playThunk();
+        // Haptic-only: playThunk already makes the chop sound — this layers
+        // the matching heavy thud underneath without doubling the audio.
+        fx.pulse([70, 60, 160]);
       },
     });
     sceneRef.current = scene;
     return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
       cancelAnimationFrame(animRafRef.current);
       scene.dispose();
       sceneRef.current = null;
@@ -139,6 +150,7 @@ export default function GuillotinePage() {
 
       if (next !== before) {
         if (next === STATES.INSIDE || next === STATES.READY) scene.setRaising(false);
+        if (next === STATES.READY && before !== STATES.READY) fx.confirm(); // blade raised: medium confirmation
         setPhase(next);
       }
 
@@ -159,6 +171,7 @@ export default function GuillotinePage() {
     const after = machine.getState();
     if (after !== before) {
       if (after === STATES.ENTERING) scene.beginZoom();
+      fx.tap(); // cinematic advance: tiny tick
       setPhase(after);
     }
   };
@@ -180,6 +193,7 @@ export default function GuillotinePage() {
       lastPctRef.current = -1;
       setPartId(null);
       setPhase(STATES.RAISING);
+      fx.tap(); // grabbed the winch: tiny tick
       startLoop();
     }
   };
@@ -206,6 +220,7 @@ export default function GuillotinePage() {
       scene.beginDrop();
       setPartId(null);
       setPhase(STATES.DROPPING);
+      fx.tap(); // released the blade: tiny tick
       startLoop();
     } else if (state === STATES.INSIDE) {
       const id = scene.hitPart(x, y);
@@ -221,6 +236,7 @@ export default function GuillotinePage() {
     scene.beginDrop();
     setPartId(null);
     setPhase(STATES.DROPPING);
+    fx.tap(); // released the blade: tiny tick
     startLoop();
   };
 

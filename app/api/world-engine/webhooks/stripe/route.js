@@ -17,6 +17,8 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { tierById } from '@/lib/world-engine/economy';
 import { getAdminClient } from '@/lib/world-engine/server';
+import { billableSessionOrNull } from '@/lib/stripe-webhook';
+import { apiGuard } from '@/lib/api-guard';
 
 async function loadStripe() {
   const mod = await import('stripe');
@@ -24,14 +26,14 @@ async function loadStripe() {
   return new Stripe(process.env.STRIPE_SECRET_KEY);
 }
 
-export async function POST(request) {
+export const POST = apiGuard(async function POST(request) {
   const webhookSecret = process.env.STRIPE_WE_WEBHOOK_SECRET || process.env.STRIPE_WEBHOOK_SECRET;
   if (!webhookSecret) {
-    console.error('World Engine webhook: STRIPE_WEBHOOK_SECRET is not set; rejecting event.');
-    return NextResponse.json({ error: 'Webhook is not configured.' }, { status: 500 });
+    console.error('World Engine webhook: STRIPE_WE_WEBHOOK_SECRET / STRIPE_WEBHOOK_SECRET is not set; rejecting event.');
+    return NextResponse.json({ error: 'Webhook is not configured.' }, { status: 503 });
   }
   if (!process.env.STRIPE_SECRET_KEY) {
-    return NextResponse.json({ error: 'Payments are not configured.' }, { status: 500 });
+    return NextResponse.json({ error: 'Card payments are not connected yet.' }, { status: 503 });
   }
 
   const signature = request.headers.get('stripe-signature');
@@ -46,11 +48,16 @@ export async function POST(request) {
     return NextResponse.json({ error: 'Invalid signature.' }, { status: 400 });
   }
 
-  if (event.type !== 'checkout.session.completed') {
-    return NextResponse.json({ received: true }, { status: 200 });
+  // Only act when the money has actually arrived (shared webhook gate).
+  const billable = billableSessionOrNull(event);
+  if (billable.ignore) {
+    return NextResponse.json(
+      { received: true, ...(billable.reason === 'unpaid' ? { pending_payment: true } : {}) },
+      { status: 200 }
+    );
   }
+  const session = billable.session;
 
-  const session = event.data.object;
   const userId = session.metadata?.supabase_user_id || session.client_reference_id;
   const tier = tierById(session.metadata?.world_engine_tier);
 
@@ -75,12 +82,25 @@ export async function POST(request) {
     return NextResponse.json({ error: 'Fulfillment error.' }, { status: 500 });
   }
 
+  // If the credit fails after the claim, release the claim so a Stripe retry
+  // re-attempts the grant instead of being mistaken for a duplicate.
+  async function releaseClaim() {
+    try {
+      await admin.from('world_engine_events').delete().eq('id', event.id);
+    } catch { /* best-effort; the claim row is evidence for support */ }
+  }
+
   // Credit the exact tier amount.
-  const { data: ledger } = await admin
+  const { data: ledger, error: readError } = await admin
     .from('world_engine_credits')
     .select('tokens')
     .eq('user_id', userId)
     .single();
+  if (readError && readError.code !== 'PGRST116') {
+    console.error('World Engine webhook: balance read failed:', readError.message);
+    await releaseClaim();
+    return NextResponse.json({ error: 'Fulfillment error.' }, { status: 500 });
+  }
   const newBalance = (ledger?.tokens || 0) + tier.tokens;
 
   const { error: updateError } = await admin
@@ -89,9 +109,10 @@ export async function POST(request) {
 
   if (updateError) {
     console.error('World Engine webhook: credit update failed:', updateError.message);
+    await releaseClaim();
     return NextResponse.json({ error: 'Fulfillment error.' }, { status: 500 });
   }
 
   console.log(`World Engine: credited ${tier.tokens} Aether to ${userId} (event ${event.id}).`);
   return NextResponse.json({ received: true }, { status: 200 });
-}
+});

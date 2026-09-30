@@ -52,7 +52,7 @@ export default function TargetingGrid() {
       {status === 'setup' && hover && currentShip && (
         <mesh position={[hover[0] + cx, 0.4, hover[1] + cz]}>
           <boxGeometry args={[isHoriz ? length * 2 - 0.4 : 1.2, 0.6, isHoriz ? 1.2 : length * 2 - 0.4]} />
-          <meshBasicMaterial color="#00ffff" opacity={0.5} transparent wireframe />
+          <meshBasicMaterial color="#00f2ff" opacity={0.5} transparent wireframe />
         </mesh>
       )}
 

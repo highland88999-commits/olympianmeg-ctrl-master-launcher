@@ -138,7 +138,7 @@ const HEX = /^#[0-9a-fA-F]{6}$/;
 {
   const registry = readFileSync('lib/i18n/satellites.ts', 'utf8');
   t('registry has myriad entry (exact format)',
-    registry.includes('{ key: "myriad", route: "/myriad", pos: "ZEUS_POS", section: "GAMES", constellation: "ZEUS" }'));
+    registry.includes('{ key: "myriad", route: "/myriad", pos: "HERMES", section: "GAMES", constellation: "ZEUS" }'));
 
   const langs = ['de', 'el', 'en', 'es', 'fr', 'it', 'pt'];
   for (const lang of langs) {

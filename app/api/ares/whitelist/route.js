@@ -7,8 +7,9 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { requireUser, serviceClient, hashVisitorIp } from '@/lib/ares/server';
 import { whitelistFromEnv } from '@/lib/ares/ip';
+import { apiGuard } from '@/lib/api-guard';
 
-export async function GET(request) {
+export const GET = apiGuard(async function GET(request) {
   const user = await requireUser(request);
   if (!user) return NextResponse.json({ error: 'sign in required' }, { status: 401 });
   const { data, error } = await serviceClient()
@@ -25,9 +26,9 @@ export async function GET(request) {
     static: true,
   }));
   return NextResponse.json({ whitelist: [...envEntries, ...(data || [])] });
-}
+});
 
-export async function POST(request) {
+export const POST = apiGuard(async function POST(request) {
   const user = await requireUser(request);
   if (!user) return NextResponse.json({ error: 'sign in required' }, { status: 401 });
   let body;
@@ -36,17 +37,19 @@ export async function POST(request) {
   } catch {
     return NextResponse.json({ error: 'bad json' }, { status: 400 });
   }
-  const ip = String(body?.ip || '').trim();
-  const label = String(body?.label || '').trim().slice(0, 60);
-  if (!ip || !label) return NextResponse.json({ error: 'ip and label are required' }, { status: 400 });
+  const ip = typeof body?.ip === 'string' ? body.ip.trim() : '';
+  const label = typeof body?.label === 'string' ? body.label.trim().slice(0, 60) : '';
+  if (!ip || ip.length > 64 || !label) {
+    return NextResponse.json({ error: 'ip and label are required' }, { status: 400 });
+  }
   const { error } = await serviceClient()
     .from('ares_whitelist')
     .upsert([{ ip_hash: hashVisitorIp(ip), label }], { onConflict: 'ip_hash' });
   if (error) return NextResponse.json({ error: 'could not save' }, { status: 500 });
   return NextResponse.json({ ok: true });
-}
+});
 
-export async function DELETE(request) {
+export const DELETE = apiGuard(async function DELETE(request) {
   const user = await requireUser(request);
   if (!user) return NextResponse.json({ error: 'sign in required' }, { status: 401 });
   let body;
@@ -55,8 +58,11 @@ export async function DELETE(request) {
   } catch {
     return NextResponse.json({ error: 'bad json' }, { status: 400 });
   }
-  if (!body?.ipHash) return NextResponse.json({ error: 'ipHash is required' }, { status: 400 });
-  const { error } = await serviceClient().from('ares_whitelist').delete().eq('ip_hash', body.ipHash);
+  const ipHash = typeof body?.ipHash === 'string' ? body.ipHash.trim() : '';
+  if (!/^[0-9a-f]{64}$/i.test(ipHash)) {
+    return NextResponse.json({ error: 'a valid allowlist hash is required' }, { status: 400 });
+  }
+  const { error } = await serviceClient().from('ares_whitelist').delete().eq('ip_hash', ipHash);
   if (error) return NextResponse.json({ error: 'could not remove' }, { status: 500 });
   return NextResponse.json({ ok: true });
-}
+});

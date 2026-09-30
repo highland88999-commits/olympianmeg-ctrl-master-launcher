@@ -14,14 +14,17 @@ import { useRouter } from 'next/navigation';
 import GodOrbitRings from './GodOrbitRings';
 import BikeRig, { BIKE_PARK_POS, RIDER_OFFSET, BIKE_LOOK_AHEAD } from './BikeRig';
 import NexusEarth from './NexusEarth';
+import HubMoon from './HubMoon';
+import AsteroidField from './AsteroidField';
+import NavBeacons from './NavBeacons';
 import EarthFlightController from './EarthFlightController';
-import { ORBIT_CENTER, orbitTime, orbitPositionFor } from '../lib/god-orbits';
-import { ORBIT_RADIUS, ZEUS_POS, ARES_POS, THOTH_POS, ARGUS_POS, MEDUSA_POS } from '../lib/home-positions';
-import Zeus from './Zeus';
-import Ares from './Ares';
-import Thoth from './Thoth';
-import Argus from './Argus';
-import Medusa from './Medusa';
+import { ORBIT_CENTER, EARTH_CENTER, EARTH_RADIUS, GOD_BANDS } from '../lib/god-orbits';
+import { FREE_FLY_SPEED, BIKE_TUNING } from '../lib/hub-layout';
+import { registerCollider, unregisterCollider, resolveFlightCollision } from '../lib/hub-collision';
+import { createBikeFlightState, stepBikeFlight, rotateOffsetByYaw, bikeForward } from '../lib/bike-flight';
+import { applyCoverFit } from '../lib/texture-fit';
+import { GOD_TOWER_SPOTS } from '../lib/home-positions';
+import GodTower from './GodTower';
 
 function MarsBackground() {
   const marsRef = useRef();
@@ -167,6 +170,9 @@ function SequenceController({ launchState, setLaunchState, portalTex, payloadTex
   // Drag-look offsets while mounted on the bike.
   const lookYaw = useRef(0);
   const lookPitch = useRef(0);
+  // Mounted bike-flight state (lib/bike-flight.js) — created on mount,
+  // cleared on dismount. This is what makes the bike actually FLY.
+  const bikeFlight = useRef(null);
   
   const ATMOSPHERE_Y = 5;
   const PORTAL_POS = [dropTarget[0], ATMOSPHERE_Y, dropTarget[2]];
@@ -174,18 +180,27 @@ function SequenceController({ launchState, setLaunchState, portalTex, payloadTex
   useFrame((state, delta) => {
     if (launchState === 'hub_intro') {
       // Spawn in the middle: the camera sits at the constellation's center,
-      // ringed by the 10 god bands, and slowly pans to take in the orbit
-      // rings. The parked TRON bike dead ahead (-Z) is the first thing seen.
+      // ringed by the 10 god bands, and makes one full slow revolution —
+      // every satellite and the ad-tower field get their moment — ending
+      // dead-ahead on the parked TRON bike (-Z) for a clean freeroam handoff.
       const time = state.clock.elapsedTime;
       camera.position.set(ORBIT_CENTER.x, ORBIT_CENTER.y, ORBIT_CENTER.z);
       camera.rotation.order = 'YXZ';
-      camera.rotation.set(0, -time * 0.12, 0);
+      camera.rotation.set(0, -time * ((Math.PI * 2) / 14), 0);
 
       if (time > 14 || controls.current.moveX !== 0 || controls.current.moveY !== 0 || controls.current.lookDeltaX !== 0 || controls.current.keyW || controls.current.keyS || controls.current.keyA || controls.current.keyD) {
         setLaunchState('hub_freeroam');
       }
     } 
     else if (launchState === 'hub_freeroam') {
+      // Leaving the bike: hand flight control back to the rig's parked hover
+      // around wherever the bike was left.
+      if (bikeRef.current && bikeRef.current.userData.flying) {
+        bikeRef.current.userData.flying = false;
+        bikeRef.current.userData.baseY = bikeRef.current.position.y;
+      }
+      bikeFlight.current = null;
+
       if (controls.current.lookDeltaX !== 0 || controls.current.lookDeltaY !== 0) {
         camera.rotation.order = 'YXZ'; 
         camera.rotation.y -= controls.current.lookDeltaX * 0.003;
@@ -200,10 +215,16 @@ function SequenceController({ launchState, setLaunchState, portalTex, payloadTex
       const moveY = controls.current.moveY + (controls.current.keyS - controls.current.keyW);
       
       if (moveX !== 0 || moveY !== 0) {
-        const speed = delta * 40; 
+        const speed = delta * FREE_FLY_SPEED;
         const yawQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), camera.rotation.y);
         const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(yawQuat);
         const right = new THREE.Vector3(1, 0, 0).applyQuaternion(yawQuat);
+
+        // Solid hub: sweep the move against every collider and slide/deflect
+        // instead of passing through geometry.
+        const prevX = camera.position.x;
+        const prevY = camera.position.y;
+        const prevZ = camera.position.z;
 
         if (flightAxis === 'horizontal') {
           camera.position.addScaledVector(forward, -moveY * speed);
@@ -212,6 +233,12 @@ function SequenceController({ launchState, setLaunchState, portalTex, payloadTex
           camera.position.y += -moveY * speed;
           camera.position.addScaledVector(right, moveX * speed);
         }
+
+        resolveFlightCollision(
+          { x: prevX, y: prevY, z: prevZ },
+          camera.position,
+          1.2
+        );
       }
 
       camera.fov = THREE.MathUtils.lerp(camera.fov, controls.current.zoom, delta * 5);
@@ -219,37 +246,107 @@ function SequenceController({ launchState, setLaunchState, portalTex, payloadTex
     }
     else if (launchState === 'to_bike') {
       // Fly the camera from wherever it is into the rider's seat on the bike.
+      // Yaw-aware: the bike may have been left pointing anywhere after a ride.
       lookYaw.current = 0;
       lookPitch.current = 0;
-      const bp = bikeRef.current ? bikeRef.current.position : new THREE.Vector3(...BIKE_PARK_POS);
-      const rider = new THREE.Vector3(bp.x + RIDER_OFFSET.x, bp.y + RIDER_OFFSET.y, bp.z + RIDER_OFFSET.z);
+      const bikeObj = bikeRef.current;
+      const bp = bikeObj ? bikeObj.position : new THREE.Vector3(...BIKE_PARK_POS);
+      const yaw = bikeObj ? bikeObj.rotation.y : 0;
+      const off = rotateOffsetByYaw(RIDER_OFFSET, yaw);
+      const rider = new THREE.Vector3(bp.x + off.x, bp.y + off.y, bp.z + off.z);
       camera.position.lerp(rider, Math.min(1, delta * 2.5));
 
-      const look = new THREE.Vector3(bp.x, bp.y + 1.0, bp.z + BIKE_LOOK_AHEAD);
+      const fwd = bikeForward(yaw);
+      const look = new THREE.Vector3(
+        bp.x + fwd.x * BIKE_LOOK_AHEAD,
+        bp.y + 1.0,
+        bp.z + fwd.z * BIKE_LOOK_AHEAD
+      );
       const currentQuat = camera.quaternion.clone();
       camera.lookAt(look);
       const targetQuat = camera.quaternion.clone();
       camera.quaternion.copy(currentQuat);
       camera.quaternion.slerp(targetQuat, Math.min(1, delta * 3));
 
-      if (camera.position.distanceTo(rider) < 0.8) setLaunchState('on_bike');
+      if (camera.position.distanceTo(rider) < 0.8) {
+        // Clean handoff: seed the flight model from the bike's real pose and
+        // hand the rig to the controller until dismount.
+        const p = bikeObj ? bikeObj.position : new THREE.Vector3(...BIKE_PARK_POS);
+        bikeFlight.current = createBikeFlightState([p.x, p.y, p.z], yaw);
+        if (bikeObj) {
+          bikeObj.userData.flying = true;
+          // Park the hover bob at the mount point so there's no pop.
+          bikeObj.userData.baseY = p.y;
+        }
+        setLaunchState('on_bike');
+      }
     }
     else if (launchState === 'on_bike') {
-      // Mounted: the camera rides the bike's hover bob, facing the bike's
-      // nose (+Z, toward the constellation). Drag to look around.
-      const bp = bikeRef.current ? bikeRef.current.position : new THREE.Vector3(...BIKE_PARK_POS);
-      camera.position.set(bp.x + RIDER_OFFSET.x, bp.y + RIDER_OFFSET.y, bp.z + RIDER_OFFSET.z);
+      // Mounted flight: W/S (or joystick) throttles, A/D steers, FLIGHT AXIS
+      // switches W/S between forward/reverse and climb/descend. The camera
+      // rides in the rider's seat, facing the bike's nose; drag looks around.
+      const c = controls.current;
+      if (!bikeFlight.current) {
+        const p0 = bikeRef.current ? bikeRef.current.position : new THREE.Vector3(...BIKE_PARK_POS);
+        const y0 = bikeRef.current ? bikeRef.current.rotation.y : 0;
+        bikeFlight.current = createBikeFlightState([p0.x, p0.y, p0.z], y0);
+        if (bikeRef.current) bikeRef.current.userData.flying = true;
+      }
+      const st = bikeFlight.current;
+      const input = {
+        throttle: THREE.MathUtils.clamp((c.keyW - c.keyS) - c.moveY, -1, 1),
+        steer: THREE.MathUtils.clamp((c.keyD - c.keyA) + c.moveX, -1, 1),
+        vertical: flightAxis === 'vertical',
+      };
 
-      lookYaw.current -= controls.current.lookDeltaX * 0.003;
-      lookPitch.current -= controls.current.lookDeltaY * 0.003;
+      const step = Math.min(delta, 0.05);
+      const prevPos = { x: st.pos.x, y: st.pos.y, z: st.pos.z };
+      stepBikeFlight(st, input, step, BIKE_TUNING);
+
+      // Solid hub: a bump deflects and scrubs speed — never kills the ride.
+      if (resolveFlightCollision(prevPos, st.pos, 3)) {
+        st.speed *= 0.3;
+        st.vertSpeed *= 0.3;
+      }
+
+      const t = state.clock.elapsedTime;
+      if (bikeRef.current) {
+        // Controller owns the bike while mounted: pose + gentle hover bob +
+        // bank into turns. (BikeRig stands down via userData.flying.)
+        bikeRef.current.position.set(
+          st.pos.x,
+          st.pos.y + Math.sin(t * 2.2) * 0.25,
+          st.pos.z
+        );
+        bikeRef.current.rotation.y = st.yaw;
+        bikeRef.current.rotation.z = THREE.MathUtils.lerp(
+          bikeRef.current.rotation.z,
+          -input.steer * 0.38,
+          Math.min(1, step * 6)
+        );
+      }
+
+      const off = rotateOffsetByYaw(RIDER_OFFSET, st.yaw);
+      camera.position.set(st.pos.x + off.x, st.pos.y + off.y, st.pos.z + off.z);
+
+      lookYaw.current -= c.lookDeltaX * 0.003;
+      lookPitch.current -= c.lookDeltaY * 0.003;
       lookPitch.current = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, lookPitch.current));
-      controls.current.lookDeltaX = 0;
-      controls.current.lookDeltaY = 0;
+      c.lookDeltaX = 0;
+      c.lookDeltaY = 0;
 
       camera.rotation.order = 'YXZ';
-      camera.rotation.set(lookPitch.current, Math.PI + lookYaw.current, 0);
+      camera.rotation.set(lookPitch.current, Math.PI + st.yaw + lookYaw.current, 0);
     }
     else if (launchState === 'returning_to_satellite') {
+      // Launching (possibly from the bike): stand the flight model down so
+      // the rig resumes its parked hover wherever it was left.
+      if (bikeRef.current && bikeRef.current.userData.flying) {
+        bikeRef.current.userData.flying = false;
+        bikeRef.current.userData.baseY = bikeRef.current.position.y;
+      }
+      bikeFlight.current = null;
+
       const viewPos = new THREE.Vector3(dropTarget[0], 65, dropTarget[2] + 35);
       camera.position.lerp(viewPos, delta * 4);
 
@@ -361,6 +458,16 @@ function TextureProvider({ onLaunchExternal }) {
             t.colorSpace = THREE.SRGBColorSpace;
           }
         });
+        // The ad creative maps onto portrait 3.8×4.5 panel faces: cover-fit
+        // it (center-crop, no stretch) instead of warping the source art.
+        // The body/hull/prop/tail textures are cylinder wraps — tiling is
+        // correct for those, so they keep plain repeat wrapping.
+        try {
+          const ad = loadedTextures.adTex;
+          if (ad && ad.isTexture && ad.image && ad.image.width > 1) {
+            applyCoverFit(ad, ad.image.width, ad.image.height, 3.8, 4.5);
+          }
+        } catch { /* honest fallback: uncorrected mapping, never a crash */ }
         setTextures(loadedTextures);
       }
     };
@@ -384,15 +491,43 @@ function TextureProvider({ onLaunchExternal }) {
 
   if (!textures) return null;
 
+  // One tower satellite per god-menu category (Merlin, 2026-09-30) —
+  // the Zeus pattern with the name and color changed per category.
+  // Colors come from the god bands so towers match their ring satellites.
   return (
     <>
-      <Zeus position={ZEUS_POS} onLaunchExternal={(url) => onLaunchExternal(url, ZEUS_POS)} textures={textures} />
-      <Ares position={ARES_POS} onLaunchExternal={(url) => onLaunchExternal(url, ARES_POS)} textures={textures} />
-      <Thoth position={THOTH_POS} onLaunchExternal={(url) => onLaunchExternal(url, THOTH_POS)} textures={textures} />
-      <Argus position={ARGUS_POS} onLaunchExternal={(url) => onLaunchExternal(url, ARGUS_POS)} textures={textures} />
-      <Medusa position={MEDUSA_POS} onLaunchExternal={(url) => onLaunchExternal(url, MEDUSA_POS)} textures={textures} />
+      {GOD_TOWER_SPOTS.map((spot, i) => (
+        <GodTower
+          key={spot.god}
+          god={spot.god}
+          color={GOD_BANDS[i].color}
+          position={spot.pos}
+          onLaunchExternal={(url) => onLaunchExternal(url, spot.pos)}
+          textures={textures}
+        />
+      ))}
     </>
   );
+}
+
+
+// ---------------------------------------------------------------------------
+// StaticColliders — solid-geometry registration for the hub's big bodies.
+// Satellites, Moon, asteroids, and the god towers register their own (live)
+// colliders; Earth, Sun, and Mars are static and live here.
+// Everything solid: bounce/deflect, never kill. Portals stay the sole
+// pass-through exception (they're launch effects, not colliders).
+// ---------------------------------------------------------------------------
+function StaticColliders() {
+  useEffect(() => {
+    registerCollider('earth', () => ({ ...EARTH_CENTER }), EARTH_RADIUS + 1);
+    registerCollider('sun', () => ({ x: 0, y: 90, z: 250 }), 46);
+    registerCollider('mars', () => ({ x: -70, y: 45, z: -100 }), 32);
+    return () => {
+      ['earth', 'sun', 'mars'].forEach(unregisterCollider);
+    };
+  }, []);
+  return null;
 }
 
 
@@ -446,7 +581,9 @@ export default function HomeScene({
     <div className="absolute inset-0 pointer-events-none">
       <Canvas shadows="soft" gl={{ alpha: true }} camera={{ position: [ORBIT_CENTER.x, ORBIT_CENTER.y, ORBIT_CENTER.z], fov: 52, far: 2000 }} style={{ pointerEvents: 'auto' }}>
         {!bgVideoOk && <color attach="background" args={['#050505']} />}
-        <fogExp2 attach="fog" args={['#050505', 0.015]} />
+        {/* Thin fog: the tower field (~180 out) must read clearly from
+            spawn, not vanish into haze. */}
+        <fogExp2 attach="fog" args={['#050505', 0.0016]} />
         <Stars radius={100} depth={50} count={7000} factor={4} saturation={0} fade speed={1} />
 
         <ambientLight intensity={0.4} color="#222233" />
@@ -462,10 +599,15 @@ export default function HomeScene({
           />
           <MarsBackground />
           <TextureProvider onLaunchExternal={onLaunchExternal} />
-          {/* God orbit bands — VISUAL ONLY. The floating video button's
-              satellite menu is the single way into programs; the rings no
-              longer launch anything (declutter, 2026-09-29). */}
-          <GodOrbitRings satIndex={satIndex} />
+          {/* Hub satellite constellation — 10 physical textured satellites.
+              The floating video button's satellite menu is the single way
+              into programs; the rings no longer launch anything. */}
+          <GodOrbitRings />
+          {/* The Moon, the asteroid belt, and the waypoint beacons */}
+          <HubMoon />
+          <AsteroidField />
+          <NavBeacons />
+          <StaticColliders />
           {/* NOTE (declutter, 2026-09-29): the persistent space-portal gate
               field was removed from the interface — too cluttered. The
               launch-travel portal effects (portalTex/payloadTex in

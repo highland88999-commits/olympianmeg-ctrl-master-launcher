@@ -62,7 +62,7 @@ const EPOCHS = [
     lede: 'Starting from our anchor ground in Alberta, the network will branch across the country, establishing secure housing nodes province by province, before eventually expanding across borders to launch planetary-scale environmental operations.',
     items: [
       'Execute the annual 25% "Super Burn" from the Treasury Forge to create a supply shock, rewarding early adopters and increasing resident purchasing power.',
-      'Leverage the Pilot House physical asset to secure traditional financing for real estate expansion.',
+      'Use the Pilot House physical asset to secure traditional financing for real estate expansion.',
       'Activate the Aetheris allocation: shift the R&D engine toward manufacturing and deploying the Aetheris air filtration network.',
       'Integrate Aetheris maintenance into the tokenized labor pool, creating a global workforce dedicated to atmospheric purification.',
     ],

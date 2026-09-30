@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import * as THREE from 'three';
 
-export default function Board({ onTileClick, boardTex }) {
+export default function Board({ onTileClick, boardTex, highlights = [] }) {
   const tiles = useMemo(() => {
     const grid = [];
     for (let x = 0; x < 8; x++) {
@@ -12,6 +12,12 @@ export default function Board({ onTileClick, boardTex }) {
     }
     return grid;
   }, []);
+
+  const highlightSet = useMemo(() => {
+    const s = new Set();
+    for (const h of highlights) s.add(`${h.x},${h.z}`);
+    return s;
+  }, [highlights]);
 
   return (
     <group>
@@ -30,10 +36,14 @@ export default function Board({ onTileClick, boardTex }) {
         <mesh key={`${x}-${z}`} position={[x - 3.5, 0, z - 3.5]} onClick={(e) => { e.stopPropagation(); onTileClick(x, z); }}>
           <boxGeometry args={[0.98, 0.08, 0.98]} />
           <meshStandardMaterial color="#000000" transparent={isLight} opacity={isLight ? 0 : 1} roughness={0.8} metalness={0.1} />
+          {highlightSet.has(`${x},${z}`) && (
+            <mesh position={[0, 0.06, 0]}>
+              <cylinderGeometry args={[0.14, 0.14, 0.02, 24]} />
+              <meshBasicMaterial color="#00f2ff" transparent opacity={0.85} toneMapped={false} />
+            </mesh>
+          )}
         </mesh>
       ))}
     </group>
   );
 }
-
-

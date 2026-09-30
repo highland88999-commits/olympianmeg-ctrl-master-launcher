@@ -17,9 +17,10 @@ t('renders the Reader Vault header', /Reader Vault/.test(src));
 t('has reader alias editing', /Reader alias/.test(src));
 t('has reader bio editing', /Reader bio/.test(src));
 t('has avatar upload', /Upload profile picture/.test(src));
-t('has all three vault tabs', /Permanent Library/.test(src) && /Active Rentals/.test(src) && /Saved Artifacts/.test(src));
+t('has all three vault tabs with honest labels', /label: 'Library'/.test(src) && /label: 'Borrowed'/.test(src) && /label: 'Saved'/.test(src));
 t('can add artifacts', /\+ Add/.test(src));
-t('rentals track days remaining', /left on rental/.test(src) && /due/.test(src));
+t('borrowed tab tracks due dates, not rentals', /Due back in/.test(src) && /Due in \(days\)/.test(src));
+t('no fake ownership or rental claims', !/Permanent Asset/.test(src) && !/Time-Locked Rental/.test(src) && !/Active Rentals/.test(src) && !/left on rental/.test(src));
 t('profile and vault persist locally', /reader-vault/.test(src));
 t('hero is a local canvas starfield', /getContext\('2d'\)/.test(src));
 

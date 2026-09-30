@@ -6,6 +6,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { BackButton } from '@/components/ui';
+import { fx, unlockFx } from '@/lib/fx';
 import {
   createGame,
   rotateTile,
@@ -39,6 +40,14 @@ export default function IqTestPage() {
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
     setReducedMotion(mq.matches);
+    // unlock FX on first gesture (deep links may land here without the hub)
+    const unlock = () => unlockFx();
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
   }, []);
 
   function startGame(diffKey) {
@@ -72,6 +81,7 @@ export default function IqTestPage() {
       setScore(computeScore(difficulty, game.moves, elapsed));
       setScreen('won');
       sceneRef.current?.celebrate();
+      fx.gameWin(); // puzzle solved: full fanfare
     }
   }
 
@@ -92,6 +102,7 @@ export default function IqTestPage() {
       markStarted();
       rotateTile(game, tileId);
       scene.tapRotate(tileId);
+      fx.tap(); // tile rotated: tiny tick
       afterMove();
     });
 
@@ -106,6 +117,7 @@ export default function IqTestPage() {
       swapTiles(game, from, slotIndex);
       scene.moveTileToSlot(tileId, slotIndex);
       scene.moveTileToSlot(otherId, from);
+      fx.tap(); // tiles swapped: tiny tick
       afterMove();
     });
 

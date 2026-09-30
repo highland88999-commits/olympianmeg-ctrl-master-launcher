@@ -8,19 +8,20 @@ import Stripe from 'stripe';
 import { getAdminClient, getUserFromRequest, jsonError } from '../_server.js';
 import { LUGE_PREMIUM_COUNT, LUGE_ARSENAL_PRICE_USD, LUGE_ARSENAL_PRODUCT_NAME, arsenalGrantRows } from '@/lib/luge/logic.js';
 import { applyGoldCheckout } from '@/lib/economy/checkout';
+import { apiGuard } from '@/lib/api-guard';
 
 // GET -> { ok, priceUsd, premiumCount, productName } (display info; the
 // price that matters is the one the POST charges server-side).
-export async function GET() {
+export const GET = apiGuard(async function GET() {
   return Response.json({
     ok: true,
     priceUsd: LUGE_ARSENAL_PRICE_USD,
     premiumCount: LUGE_PREMIUM_COUNT,
     productName: LUGE_ARSENAL_PRODUCT_NAME,
   });
-}
+});
 
-export async function POST(req) {
+export const POST = apiGuard(async function POST(req) {
   const auth = await getUserFromRequest(req);
   if (auth.error) return jsonError(auth.error, auth.status);
   const { user } = auth;
@@ -107,7 +108,7 @@ export async function POST(req) {
           .from('luge_inventory')
           .upsert(rows, { onConflict: 'user_id,sled_id', ignoreDuplicates: true });
         if (grantError) {
-          const e = new Error('Could not unlock the arsenal. Your gold was not spent.');
+          const e = new Error('Could not unlock the arsenal. Your gold has been refunded — please try again.');
           e.status = 502; throw e;
         }
         return {
@@ -139,4 +140,4 @@ export async function POST(req) {
     console.error('Luge checkout error:', err?.message || err);
     return jsonError(err.message || 'Could not start checkout. Try again.', err.status || 500);
   }
-}
+});

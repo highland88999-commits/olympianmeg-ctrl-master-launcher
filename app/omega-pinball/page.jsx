@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { fx, unlockFx, throttle } from '@/lib/fx';
 import {
   createGame,
   startGame,
@@ -93,8 +94,15 @@ export default function OmegaPinballPage() {
     setBalls(g.ballsLeft);
     setServing(g.mode === 'serve');
     setCharge(g.plunger.charge);
-    if (g.mode === 'gameover') setPhase('gameover');
-    else if (g.mode === 'victory') setPhase('victory');
+    // One-shot end-of-game FX: only fire on the transition into the phase,
+    // not on every HUD sync while the screen sits there.
+    if (g.mode === 'gameover' && phaseRef.current !== 'gameover') {
+      setPhase('gameover');
+      fx.menuClose(); // defeat: soft settle, no buzz-shame
+    } else if (g.mode === 'victory' && phaseRef.current !== 'victory') {
+      setPhase('victory');
+      fx.gameWin(); // table conquered: full fanfare
+    }
   }, []);
 
   const begin = useCallback(() => {
@@ -110,6 +118,10 @@ export default function OmegaPinballPage() {
   useEffect(() => {
     gameRef.current = createGame();
     audioRef.current = makeAudio();
+    // unlock FX on first gesture (deep links may land here without the hub)
+    const unlock = () => unlockFx();
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
     reducedMotionRef.current =
       typeof window !== 'undefined' &&
       window.matchMedia &&
@@ -137,6 +149,20 @@ export default function OmegaPinballPage() {
           else if (e.type === 'drain') audio.drain();
           else if (e.type === 'ballsave') audio.ballsave();
         }
+        // Haptic layer: pulse() is haptic-only (no sound) so it never
+        // doubles the local audio above — caller's sound + this vibration
+        // form the matched pair. fx carries its own on/off toggle.
+        // Hot events (bumper, flip) throttle internally.
+        if (e.type === 'bumper') { if (throttle('pinball:bumper', 120)) fx.pulse([12]); }
+        else if (e.type === 'sling') fx.pulse([15]);
+        else if (e.type === 'target') fx.pulse([18]);
+        else if (e.type === 'levelup') fx.pulse([15, 40, 25]);
+        else if (e.type === 'flip') { if (throttle('pinball:flip', 90)) fx.pulse([8]); }
+        else if (e.type === 'launch') fx.pulse([40, 40, 80]);
+        else if (e.type === 'serve') fx.pulse([20]);
+        else if (e.type === 'nudge') fx.pulse([25]);
+        else if (e.type === 'drain') fx.pulse([60, 60, 140]);
+        else if (e.type === 'ballsave') fx.pulse([20, 60, 20]);
         if (e.value != null && e.x != null) {
           const label =
             e.type === 'levelup'
@@ -256,6 +282,8 @@ export default function OmegaPinballPage() {
       window.removeEventListener('keydown', keyDown);
       window.removeEventListener('keyup', keyUp);
       window.removeEventListener('resize', onResize);
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
       canvas.removeEventListener('touchstart', onTouchStart);
       canvas.removeEventListener('touchend', onTouchEnd);
       canvas.removeEventListener('touchcancel', onTouchEnd);

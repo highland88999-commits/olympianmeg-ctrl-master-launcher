@@ -18,7 +18,7 @@ import { useFrame } from '@react-three/fiber';
 import { peerKey } from '@/lib/presence';
 
 const GHOST_OPACITY = 0.5;
-const FALLBACK_COLOR = '#22d3ee';
+const FALLBACK_COLOR = '#00f2ff';
 
 function safeColor(raw) {
   return typeof raw === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw) ? raw : FALLBACK_COLOR;

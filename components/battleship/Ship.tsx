@@ -12,7 +12,7 @@ export default function Ship({ data }: { data: ShipData }) {
       const newParticles = Array.from({ length: data.length * 15 }).map(() => ({
         position: new THREE.Vector3(data.position![0], data.position![1] + 0.5, data.position![2]),
         velocity: new THREE.Vector3((Math.random() - 0.5), Math.random(), (Math.random() - 0.5)),
-        color: Math.random() > 0.5 ? '#00ffff' : '#ff00ff'
+        color: Math.random() > 0.5 ? '#00f2ff' : '#ff00ff'
       }))
       setParticles(newParticles)
     }
@@ -57,7 +57,7 @@ export default function Ship({ data }: { data: ShipData }) {
       </mesh>
       <mesh position={[0, 0.35, 0]}>
         <boxGeometry args={[isHoriz ? width - 0.4 : 0.4, 0.2, isHoriz ? 0.4 : depth - 0.4]} />
-        <meshStandardMaterial color="#00ffff" emissive="#00ffff" emissiveIntensity={2} toneMapped={false} />
+        <meshStandardMaterial color="#00f2ff" emissive="#00f2ff" emissiveIntensity={2} toneMapped={false} />
       </mesh>
     </group>
   )

@@ -35,13 +35,13 @@ export default function King({ team, gridX, gridZ, isAlive, isSelected, cyanSkin
   });
 
   const activeTex = team === 'cyan' ? cyanSkinTex : pinkSkinTex;
-  const wireColor = team === 'cyan' ? '#00f3ff' : '#ff2a85';
+  const wireColor = team === 'cyan' ? '#00f2ff' : '#ff2a85';
 
   return (
     <group ref={meshRef} onClick={onClick}>
       <mesh>
         <latheGeometry args={[points, 32]} />
-        <meshStandardMaterial color="#111111" emissive="#ffffff" emissiveMap={activeTex || null} map={activeTex || null} emissiveIntensity={isSelected ? 2.5 : 1.2} roughness={0.4} metalness={0.1} />
+        <meshStandardMaterial color="#121214" emissive="#ffffff" emissiveMap={activeTex || null} map={activeTex || null} emissiveIntensity={isSelected ? 2.5 : 1.2} roughness={0.4} metalness={0.1} />
       </mesh>
       <mesh scale={[1.02, 1.02, 1.02]}>
          <latheGeometry args={[points, 32]} />
@@ -49,7 +49,7 @@ export default function King({ team, gridX, gridZ, isAlive, isSelected, cyanSkin
       </mesh>
       <mesh ref={asteroidRef} position={[0, 5, 0]}>
         <sphereGeometry args={[0.4, 16, 16]} />
-        <meshBasicMaterial color={kingAsteroidTex ? "#ffffff" : "#ffcc00"} map={kingAsteroidTex || null} />
+        <meshBasicMaterial color={kingAsteroidTex ? "#ffffff" : "#ffd700"} map={kingAsteroidTex || null} />
       </mesh>
       <mesh ref={blackHoleRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.2, 0]} scale={0}>
         <circleGeometry args={[0.5, 32]} />

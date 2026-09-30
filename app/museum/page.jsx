@@ -13,6 +13,7 @@
 // signed, expiring download tokens after a credit is redeemed.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import {
   SERIES, ITEMS, VIDEOS, CONCEPTS, STATUSES, STATUS_LABELS,
   seriesById, itemsInSeries, searchItems,
@@ -336,9 +337,10 @@ export default function MuseumPage() {
               </div>
               <div className="concept-cat">{c.category}</div>
               <p className="concept-blurb">{c.blurb}</p>
+              {/* next/link: client-side nav keeps the radio playing. */}
               {c.route && (
-                <a className="concept-link" href={c.route} onClick={() => { try { fx.tap(); } catch {} }}>
-                  Visit →</a>
+                <Link className="concept-link" href={c.route} onClick={() => { try { fx.tap(); } catch {} }}>
+                  Visit →</Link>
               )}
             </article>
           ))}

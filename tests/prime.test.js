@@ -59,10 +59,10 @@ t('hashString: different strings differ', hashString('prime') !== hashString('no
 
 // --- chart construction -------------------------------------------------------
 const fakeSats = [
-  { key: 'chess', route: '/chess', pos: 'ZEUS_POS', section: 'GAMES', constellation: 'ZEUS' },
-  { key: 'prime', route: '/prime', pos: 'ARES_POS', section: 'TOOLS', constellation: 'ARES' },
-  { key: 'forge', route: '/forge', pos: 'ARES_POS', section: 'TOOLS', constellation: 'ARES' },
-  { key: 'babel', route: '/babel', pos: 'BABEL_POS', section: 'OBSERVATORY', constellation: 'ARGUS' },
+  { key: 'chess', route: '/chess', pos: 'ARES', section: 'GAMES', constellation: 'ZEUS' },
+  { key: 'prime', route: '/prime', pos: 'HEPHAESTUS', section: 'TOOLS', constellation: 'ARES' },
+  { key: 'forge', route: '/forge', pos: 'HEPHAESTUS', section: 'TOOLS', constellation: 'ARES' },
+  { key: 'babel', route: '/babel', pos: 'APHRODITE', section: 'OBSERVATORY', constellation: 'ARGUS' },
 ];
 const chartA = buildChart(fakeSats);
 const chartB = buildChart(fakeSats);
@@ -235,7 +235,7 @@ t('stateKey: accounts never collide', stateKey('A') !== stateKey('B'));
   const reg = readFileSync('lib/i18n/satellites.ts', 'utf8');
   t(
     'registry: prime entry exact shape',
-    reg.includes('{ key: "prime", route: "/prime", pos: "ARES_POS", section: "TOOLS", constellation: "ARES" }')
+    reg.includes('{ key: "prime", route: "/prime", pos: "HEPHAESTUS", section: "TOOLS", constellation: "ARES" }')
   );
 
   const tools = readFileSync('app/tools/page.jsx', 'utf8');

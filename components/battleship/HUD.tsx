@@ -17,7 +17,7 @@ export default function HUD() {
     <div className="absolute top-0 left-0 z-10 flex flex-col justify-between w-full h-full p-4 sm:p-8 pointer-events-none">
       
       <div className="flex flex-col items-start justify-between gap-4 sm:flex-row">
-        <div className="w-full sm:w-auto bg-zinc-950/90 border border-cyan-500/30 p-4 sm:p-5 rounded-lg backdrop-blur-md shadow-[0_0_20px_rgba(0,255,255,0.1)] min-w-[280px]">
+        <div className="w-full sm:w-auto bg-zinc-950/90 border border-cyan-500/30 p-4 sm:p-5 rounded-lg backdrop-blur-md shadow-[0_0_20px_rgba(0,242,255,0.1)] min-w-[280px]">
           
           {status === 'setup' && (
             <>
@@ -79,7 +79,7 @@ export default function HUD() {
         <div className="flex gap-2 pb-4 pointer-events-auto sm:pb-0 sm:self-start">
           <button 
             onClick={() => setViewMode('target')}
-            className={`flex-1 sm:flex-none px-4 sm:px-6 py-4 sm:py-3 font-bold tracking-widest text-[10px] sm:text-xs rounded border transition-all ${viewMode === 'target' ? 'bg-cyan-500/20 border-cyan-400 text-cyan-400 shadow-[0_0_15px_rgba(0,255,255,0.3)]' : 'bg-black/80 border-zinc-700 text-zinc-500 hover:text-white'}`}
+            className={`flex-1 sm:flex-none px-4 sm:px-6 py-4 sm:py-3 font-bold tracking-widest text-[10px] sm:text-xs rounded border transition-all ${viewMode === 'target' ? 'bg-cyan-500/20 border-cyan-400 text-cyan-400 shadow-[0_0_15px_rgba(0,242,255,0.3)]' : 'bg-black/80 border-zinc-700 text-zinc-500 hover:text-white'}`}
           >
             TARGET GRID
           </button>

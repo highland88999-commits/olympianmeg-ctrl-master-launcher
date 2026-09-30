@@ -189,7 +189,7 @@ export function Nebula({ nebula, seed = 500 }) {
 // Wormholes — swirling ring portals
 // ---------------------------------------------------------------------------
 
-const WORMHOLE_COLORS = ['#22d3ee', '#a78bfa', '#fbbf24'];
+const WORMHOLE_COLORS = ['#00f2ff', '#a78bfa', '#ffd700'];
 
 function discPoints(radius, count, seed) {
   const rand = mulberry32(seed);

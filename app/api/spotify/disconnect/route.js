@@ -8,8 +8,9 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { getAdminClient, getUserFromRequest, jsonError } from '../_server';
+import { apiGuard } from '@/lib/api-guard';
 
-export async function POST(req) {
+export const POST = apiGuard(async function POST(req) {
   const { user, error, status } = await getUserFromRequest(req);
   if (error) return jsonError(error, status);
 
@@ -34,4 +35,4 @@ export async function POST(req) {
     connected: false,
     note: 'Disconnected here. To fully revoke access, remove "Nexus Radio" in your Spotify account settings.',
   });
-}
+});

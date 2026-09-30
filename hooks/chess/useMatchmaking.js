@@ -74,7 +74,7 @@ export function useMatchmaking(username) {
       const lm = room.last_move;
       if (lm && typeof lm.seq === 'number' && lm.seq > lastMoveSeqRef.current && lm.senderColor !== myColor) {
         lastMoveSeqRef.current = lm.seq;
-        setOpponentMove({ pieceId: lm.pieceId, to: lm.to, nextTurn: lm.nextTurn });
+        setOpponentMove({ pieceId: lm.pieceId, to: lm.to, nextTurn: lm.nextTurn, promotion: lm.promotion || 'queen' });
       }
 
       // Opponent resigned
@@ -174,11 +174,11 @@ export function useMatchmaking(username) {
       .eq('room_code', sectorId);
   };
 
-  const broadcastMove = async (pieceId, tx, tz, nextTurn) => {
+  const broadcastMove = async (pieceId, tx, tz, nextTurn, promotion = 'queen') => {
     const seq = lastMoveSeqRef.current + 1;
     lastMoveSeqRef.current = seq;
     await updateRoom({
-      last_move: { seq, pieceId, to: { x: tx, z: tz }, nextTurn, senderColor: playerColor },
+      last_move: { seq, pieceId, to: { x: tx, z: tz }, nextTurn, senderColor: playerColor, promotion },
       current_turn: nextTurn,
     });
   };

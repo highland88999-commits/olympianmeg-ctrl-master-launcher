@@ -39,6 +39,7 @@ import {
   randomString,
   redirectUriFor,
 } from '@/lib/radio/spotify-auth';
+import { loadPlaybackState, savePlaybackState } from '@/lib/radio/playback-state';
 
 const RadioContext = createContext(null);
 
@@ -93,18 +94,30 @@ export function RadioProvider({ children }) {
   const [shuffle, setShuffle] = useState(() => (typeof window === 'undefined' ? true : readLS(LS_SHUFFLE, true)));
   const [minimized, setMinimized] = useState(() => (typeof window === 'undefined' ? false : readLS(LS_MINIMIZED, false)));
   const [expanded, setExpanded] = useState(false);
-  // First load: ENCOM Part I → ENCOM Part II → shuffle. Everyone gets the
-  // ritual once; afterwards the queue is the normal shuffle.
+  // Initial queue: resume the tab's session first (an unavoidable full-page
+  // reload — Spotify OAuth round-trip, external return — lands back on the
+  // same track instead of rebuilding the station from scratch). Otherwise
+  // the first-load ritual, otherwise a fresh shuffle. Restore never
+  // autoplays: the embed loads the track paused and the bar stays honest.
+  const [initialPlayback] = useState(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const restored = loadPlaybackState(window.sessionStorage);
+      if (restored) return restored;
+    } catch {}
+    return null;
+  });
   const [queue, setQueue] = useState(() => {
     if (typeof window === 'undefined') return buildQueue({ shuffle: true });
+    if (initialPlayback) return initialPlayback.tracks;
     return readLS(LS_FIRST_LOAD, false)
       ? buildQueue({ shuffle: true })
       : buildFirstLoadQueue();
   });
   const [isFirstLoad, setIsFirstLoad] = useState(
-    () => typeof window !== 'undefined' && !readLS(LS_FIRST_LOAD, false)
+    () => typeof window !== 'undefined' && !initialPlayback && !readLS(LS_FIRST_LOAD, false)
   );
-  const [index, setIndex] = useState(0);
+  const [index, setIndex] = useState(() => (initialPlayback ? initialPlayback.index : 0));
   const [playing, setPlaying] = useState(false); // real state, from Spotify events only
   const [engineReady, setEngineReady] = useState(false);
   const [engineError, setEngineError] = useState(null);
@@ -193,6 +206,18 @@ export function RadioProvider({ children }) {
   useEffect(() => {
     try { window.localStorage.setItem(LS_MINIMIZED, minimized ? '1' : '0'); } catch {}
   }, [minimized]);
+
+  // Remember this tab's playback context so an unavoidable full-page reload
+  // (Spotify OAuth, external return) resumes at the same track. Never
+  // autoplays on restore — the load path above only restores position.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    savePlaybackState(window.sessionStorage, {
+      queue: queueRef.current,
+      index: indexRef.current,
+      wasPlaying: wasPlayingRef.current,
+    });
+  }, [queue, index, playing]);
 
   // First-load flags: mark the device immediately; mirror per-user when
   // signed in. A signed-in user who never got the ritual on this device

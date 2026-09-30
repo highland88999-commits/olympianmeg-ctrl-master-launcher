@@ -62,7 +62,7 @@ export default function PayoutMethodPanel() {
 
   return (
     <section aria-label="Payout method" className="w-full">
-      <h2 className="text-2xl font-light tracking-[0.2em] text-[#d4af37]">GET PAID</h2>
+      <h2 className="text-2xl font-light tracking-[0.2em] text-[#ffd700]">GET PAID</h2>
       <p className="mt-2 text-sm text-[#a89a78] leading-relaxed">
         Tell us how you want your cut. This stays <span className="text-[#e8d9b0]">on this device only</span> —
         it is never sent to a server and never logged. Actual payouts are a future build; this just records your preference.
@@ -76,7 +76,7 @@ export default function PayoutMethodPanel() {
             {saved.fields.map((f) => (
               <div key={f.name} className="flex items-baseline justify-between gap-4">
                 <dt className="text-sm text-[#8a7f66]">
-                  {f.label}{f.sensitive && <span className="ml-2 text-[#d4af37]" title="Sensitive field — masked everywhere">🔒</span>}
+                  {f.label}{f.sensitive && <span className="ml-2 text-[#ffd700]" title="Sensitive field — masked everywhere">🔒</span>}
                 </dt>
                 <dd className="text-sm text-[#e8d9b0] tabular-nums">{f.display}</dd>
               </div>
@@ -84,7 +84,7 @@ export default function PayoutMethodPanel() {
           </dl>
           <div className="mt-4 flex gap-3">
             <button type="button" onClick={() => setSaved(null)}
-              className="rounded-xl border border-[#d4af37]/60 px-4 py-2 text-xs tracking-widest uppercase text-[#d4af37] hover:bg-[#d4af37]/10 transition">
+              className="rounded-xl border border-[#ffd700]/60 px-4 py-2 text-xs tracking-widest uppercase text-[#ffd700] hover:bg-[#ffd700]/10 transition">
               Change
             </button>
             <button type="button" onClick={forget}
@@ -111,7 +111,7 @@ export default function PayoutMethodPanel() {
                 <span className="text-xs tracking-[0.25em] uppercase text-[#8a7f66]">
                   {f.label}
                   {f.sensitive && (
-                    <span className="ml-2 normal-case tracking-normal text-[#d4af37]">🔒 sensitive — masked everywhere, stays on this device</span>
+                    <span className="ml-2 normal-case tracking-normal text-[#ffd700]">🔒 sensitive — masked everywhere, stays on this device</span>
                   )}
                 </span>
                 <input
@@ -134,7 +134,7 @@ export default function PayoutMethodPanel() {
           )}
 
           <button type="button" onClick={save}
-            className="mt-5 w-full rounded-xl bg-[#d4af37] px-4 py-3 text-sm font-bold tracking-widest text-black uppercase hover:brightness-110 transition">
+            className="mt-5 w-full rounded-xl bg-[#ffd700] px-4 py-3 text-sm font-bold tracking-widest text-black uppercase hover:brightness-110 transition">
             Save payout method
           </button>
           <p className="mt-3 text-xs text-[#6a6050] leading-relaxed">

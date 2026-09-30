@@ -6,6 +6,10 @@ import {
   DIFFICULTY_ORDER, DIFFICULTIES,
 } from './physics.js';
 import { drawScene } from './render.js';
+import {
+  VISUAL_MODES, DEFAULT_VISUAL, sanitizeVisual,
+  loadVisualChoice, saveVisualChoice, createKaleidoscope,
+} from './kaleidoscope.js';
 import { fx, unlockFx, setFxEnabled, isFxEnabled } from '@/lib/fx';
 
 // Air-hockey feedback routes through the central FX library (lib/fx.js):
@@ -26,6 +30,8 @@ function createSound() {
 
 export default function AirHockeyPage() {
   const canvasRef = useRef(null);
+  const bgCanvasRef = useRef(null); // Merlin's kaleidoscope, behind the table
+  const kaleidoApiRef = useRef(null);
   const gameRef = useRef(null);
   const soundRef = useRef(null);
   const keysRef = useRef({});
@@ -33,7 +39,20 @@ export default function AirHockeyPage() {
   const [started, setStarted] = useState(false);
   const [hud, setHud] = useState({ player: 0, ai: 0, winner: null });
   const [muted, setMuted] = useState(false);
+  // Table look: the launcher's default table, or Merlin's kaleidoscope from
+  // his version. Default = current state; his choice persists in localStorage.
+  const [visual, setVisual] = useState(DEFAULT_VISUAL);
+  const visualRef = useRef(DEFAULT_VISUAL);
+  visualRef.current = visual;
   const reducedMotion = useRef(false);
+
+  // Load the saved table look after mount (avoids a hydration mismatch —
+  // the server always renders the default).
+  useEffect(() => {
+    const saved = loadVisualChoice();
+    visualRef.current = saved;
+    setVisual(saved);
+  }, []);
 
   if (!gameRef.current) gameRef.current = new Game(difficulty);
   if (!soundRef.current && typeof window !== 'undefined') soundRef.current = createSound();
@@ -63,6 +82,7 @@ export default function AirHockeyPage() {
 
     let raf = 0;
     let last = performance.now();
+    const tStart = last; // kaleidoscope clock (his build advances time by delta)
 
     // Fit canvas to viewport while keeping table aspect.
     const fit = () => {
@@ -75,6 +95,15 @@ export default function AirHockeyPage() {
       canvas.style.width = `${Math.floor(TABLE_W * scale)}px`;
       canvas.style.height = `${Math.floor(TABLE_H * scale)}px`;
       ctx.setTransform((canvas.width / TABLE_W), 0, 0, (canvas.height / TABLE_H), 0, 0);
+      // Merlin's kaleidoscope canvas sits directly behind the table.
+      const bg = bgCanvasRef.current;
+      if (bg) {
+        bg.style.width = canvas.style.width;
+        bg.style.height = canvas.style.height;
+        kaleidoApiRef.current?.resize(
+          Math.floor(TABLE_W * scale), Math.floor(TABLE_H * scale), dpr
+        );
+      }
     };
     fit();
     window.addEventListener('resize', fit);
@@ -154,7 +183,14 @@ export default function AirHockeyPage() {
         else if (ev === 'lose') { s.lose(); syncHud(); }
       }
 
-      drawScene(ctx, game);
+      drawScene(ctx, game, visualRef.current);
+
+      // Merlin's kaleidoscope: his shader, animated by wall-clock time.
+      // Frozen at t=0 when reduced motion is requested.
+      const kapi = kaleidoApiRef.current;
+      if (kapi && visualRef.current === 'kaleidoscope') {
+        kapi.render(reducedMotion.current ? 0 : (now - tStart) / 1000);
+      }
       raf = requestAnimationFrame(frame);
     };
     raf = requestAnimationFrame(frame);
@@ -169,6 +205,43 @@ export default function AirHockeyPage() {
       window.removeEventListener('keyup', onKeyUp);
     };
   }, [syncHud]);
+
+  // Merlin's kaleidoscope lives on its own canvas behind the table. It is
+  // created only when his look is selected and torn down when leaving it,
+  // so the default table never pays for WebGL it doesn't use.
+  useEffect(() => {
+    const bg = bgCanvasRef.current;
+    const gc = canvasRef.current;
+    if (!bg || !gc) return;
+    if (visual !== 'kaleidoscope') {
+      kaleidoApiRef.current?.dispose();
+      kaleidoApiRef.current = null;
+      return;
+    }
+    const api = createKaleidoscope(bg); // null when WebGL is unavailable
+    kaleidoApiRef.current = api;
+    if (api) {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const w = parseFloat(gc.style.width) || gc.clientWidth || 300;
+      const h = parseFloat(gc.style.height) || gc.clientHeight || 500;
+      bg.style.width = gc.style.width;
+      bg.style.height = gc.style.height;
+      api.resize(w, h, dpr);
+      api.render(0); // first frame immediately, even before the loop ticks
+    }
+    return () => {
+      api?.dispose();
+      if (kaleidoApiRef.current === api) kaleidoApiRef.current = null;
+    };
+  }, [visual]);
+
+  const changeVisual = (v) => {
+    const next = sanitizeVisual(v);
+    fx.tap();
+    visualRef.current = next;
+    setVisual(next);
+    saveVisualChoice(next);
+  };
 
   const toggleMute = () => {
     const m = soundRef.current.toggleMute();
@@ -208,12 +281,20 @@ export default function AirHockeyPage() {
         </div>
       </div>
 
-      <canvas
-        ref={canvasRef}
-        className="rounded-lg border border-cyan-500/20 shadow-[0_0_40px_rgba(0,229,255,0.12)]"
-        style={{ touchAction: 'none', cursor: 'crosshair' }}
-        aria-label="Air hockey table. Drag your mallet on your half of the table."
-      />
+      <div className="relative">
+        {/* Merlin's kaleidoscope — his shader from his version, behind the table */}
+        <canvas
+          ref={bgCanvasRef}
+          className={`absolute inset-0 rounded-lg ${visual === 'kaleidoscope' ? '' : 'hidden'}`}
+          aria-hidden="true"
+        />
+        <canvas
+          ref={canvasRef}
+          className="relative rounded-lg border border-cyan-500/20 shadow-[0_0_40px_rgba(0,229,255,0.12)]"
+          style={{ touchAction: 'none', cursor: 'crosshair' }}
+          aria-label="Air hockey table. Drag your mallet on your half of the table."
+        />
+      </div>
 
       <p className="mt-2 text-xs text-zinc-500 text-center max-w-[560px]">
         Drag your blue mallet with a finger or mouse. Arrow keys or WASD work too.
@@ -228,7 +309,7 @@ export default function AirHockeyPage() {
               Air <span className="text-cyan-400">Hockey</span>
             </h2>
             <p className="text-sm text-zinc-400 mb-4">Pick a rival, then defend your goal. First to {WIN_SCORE} takes the match.</p>
-            <div className="flex gap-2 justify-center mb-5" role="radiogroup" aria-label="Difficulty">
+            <div className="flex gap-2 justify-center mb-4" role="radiogroup" aria-label="Difficulty">
               {DIFFICULTY_ORDER.map((d) => (
                 <button
                   key={d}
@@ -242,6 +323,24 @@ export default function AirHockeyPage() {
                   }`}
                 >
                   {DIFFICULTIES[d].label}
+                </button>
+              ))}
+            </div>
+            {/* Table look — the default table, or Merlin's kaleidoscope from his version */}
+            <div className="flex gap-2 justify-center mb-5" role="radiogroup" aria-label="Table look">
+              {VISUAL_MODES.map((v) => (
+                <button
+                  key={v}
+                  role="radio"
+                  aria-checked={visual === v}
+                  onClick={() => changeVisual(v)}
+                  className={`px-4 py-2 rounded font-bold uppercase text-sm tracking-wider border transition-all ${
+                    visual === v
+                      ? 'bg-fuchsia-500/30 border-fuchsia-400 text-white'
+                      : 'bg-black/40 border-zinc-700 text-zinc-400 hover:border-fuchsia-500/50'
+                  }`}
+                >
+                  {v === 'kaleidoscope' ? '🌈 Kaleidoscope' : 'Classic table'}
                 </button>
               ))}
             </div>

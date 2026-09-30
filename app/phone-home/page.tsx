@@ -86,8 +86,11 @@ export default function GlassCommsApp() {
       setMounted(true);
 
       try {
-        const res = await fetch('/api/token');
+        const res = await fetch('/api/token', {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
         const data = await res.json();
+        if (!data.token) throw new Error('no calling token');
         const device = new Device(data.token, { codecPreferences: ['opus', 'pcmu'] as any[] });
         await device.register();
         setTwilioDevice(device);

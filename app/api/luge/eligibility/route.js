@@ -11,6 +11,7 @@
 // route says so honestly instead of inventing progress.
 import { getAdminClient, getUserFromRequest, jsonError } from '../_server.js';
 import { courseCompletionStatus, ownsArsenal, LUGE_PREMIUM_COUNT } from '@/lib/luge/logic.js';
+import { apiGuard } from '@/lib/api-guard';
 
 function tableMissing(err) {
   const code = String(err?.code || '');
@@ -32,7 +33,7 @@ const NOT_PROVISIONED = {
   notice: 'Reward tracking is not connected yet. Your runs will count once it is — nothing is lost.',
 };
 
-export async function GET(req) {
+export const GET = apiGuard(async function GET(req) {
   const auth = await getUserFromRequest(req);
   if (auth.error) return jsonError(auth.error, auth.status);
   const { user } = auth;
@@ -92,4 +93,4 @@ export async function GET(req) {
     arsenalComplete,
     alreadyRedeemed,
   });
-}
+});

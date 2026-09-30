@@ -181,7 +181,7 @@ t('SQL grants no anon writes', !/\bto anon\b/i.test(sql));
 // --- registration: satellites.ts + god-menus + locales ----------------------------------
 const regSrc = readFileSync('lib/i18n/satellites.ts', 'utf8');
 t('satellites.ts registers hygieia',
-  regSrc.includes('{ key: "hygieia", route: "/hygieia", pos: "MEDUSA_POS", section: "THERAPY", constellation: "MEDUSA" }'));
+  regSrc.includes('{ key: "hygieia", route: "/hygieia", pos: "HESTIA", section: "THERAPY", constellation: "MEDUSA" }'));
 const godSrc = readFileSync('lib/god-menus.js', 'utf8');
 t('hygieia lives in the HESTIA god menu', /god: 'HESTIA'[\s\S]*?'hygieia'/.test(godSrc));
 for (const code of ['en', 'el', 'es', 'fr', 'de', 'pt', 'it']) {

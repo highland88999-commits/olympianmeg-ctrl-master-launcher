@@ -17,6 +17,7 @@ const ACCENTS = {
   purple: { ring: 'border-purple-500/30 hover:border-purple-400/60', name: 'text-purple-400', glow: 'shadow-[0_0_18px_rgba(192,132,252,0.15)]' },
   green:  { ring: 'border-green-500/30 hover:border-green-400/60', name: 'text-green-400',  glow: 'shadow-[0_0_18px_rgba(74,222,128,0.15)]' },
   pink:   { ring: 'border-pink-500/30 hover:border-pink-400/60',   name: 'text-pink-400',   glow: 'shadow-[0_0_18px_rgba(244,114,182,0.15)]' },
+  gold:   { ring: 'border-yellow-600/30 hover:border-yellow-500/60', name: 'text-yellow-500', glow: 'shadow-[0_0_18px_rgba(234,179,8,0.2)]' },
 };
 
 function MenuBanner({ menu }) {

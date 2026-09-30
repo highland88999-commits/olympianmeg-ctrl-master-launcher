@@ -39,7 +39,7 @@ export default function AttendanceBar({ onPeers }) {
       client = createPresenceClient(supabase, {
         sector: 'persephone:hall',
         label: 'Guest',
-        color: '#d4af37',
+        color: '#ffd700',
         onPeers: (peers) => {
           if (cancelled) return;
           setCount(peers.length);
@@ -83,7 +83,7 @@ export default function AttendanceBar({ onPeers }) {
       )}
       {status === 'live' && (
         <p className="text-sm text-[#e8d9b0]">
-          <span className="font-bold text-[#d4af37]">{count}</span>{' '}
+          <span className="font-bold text-[#ffd700]">{count}</span>{' '}
           {count === 1 ? 'person is' : 'people are'} in the hall right now — a live count, not a guess.
         </p>
       )}

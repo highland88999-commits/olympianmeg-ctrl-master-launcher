@@ -17,14 +17,15 @@ import { getServiceClient } from '@/lib/economy/supabase';
 import { ITEMS } from '@/lib/museum';
 import {
   isValidItemId, CREDITS_PER_DOWNLOAD, DOWNLOAD_TOKEN_TTL_MS,
-  signDownloadToken,
+  signDownloadToken, redeemIdempotencyKey,
 } from '@/lib/gallery';
+import { apiGuard } from '@/lib/api-guard';
 
 function downloadSecret() {
   return process.env.GALLERY_DOWNLOAD_SECRET || process.env.STRIPE_SECRET_KEY || '';
 }
 
-export async function POST(req) {
+export const POST = apiGuard(async function POST(req) {
   const auth = await getUserFromRequest(req);
   if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
@@ -50,10 +51,11 @@ export async function POST(req) {
   }
 
   // Client-supplied idempotency key (per download attempt) so a retried
-  // request — or a double-tap — can never charge two credits.
-  const idemKey = typeof body?.idemKey === 'string' && body.idemKey.length > 0 && body.idemKey.length <= 80
-    ? `redeem:${body.idemKey}`
-    : `redeem:${auth.user.id}:${itemId}:${Date.now()}`;
+  // request — or a double-tap — can never charge two credits. When the
+  // client sends none, the key is deterministic per user and item: a repeat
+  // redemption of an already-licensed item returns a fresh download link
+  // without spending another credit.
+  const idemKey = redeemIdempotencyKey(auth.user.id, itemId, body?.idemKey);
 
   try {
     const { data, error } = await admin.rpc('gallery_credit_apply', {
@@ -101,4 +103,4 @@ export async function POST(req) {
     console.error('Gallery redeem error:', msg);
     return NextResponse.json({ error: 'Could not redeem your download. Please try again.' }, { status: 500 });
   }
-}
+});

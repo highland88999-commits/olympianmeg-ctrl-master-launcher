@@ -15,6 +15,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
+import { apiGuard } from '@/lib/api-guard';
 
 function appOrigin(req) {
   // Trust the request's own origin (same host the user is on).
@@ -22,7 +23,7 @@ function appOrigin(req) {
   return `${url.protocol}//${url.host}`;
 }
 
-export async function GET(req) {
+export const GET = apiGuard(async function GET(req) {
   const origin = appOrigin(req);
   const params = new URL(req.url).searchParams;
   const error = params.get('error');
@@ -44,4 +45,4 @@ export async function GET(req) {
   back.searchParams.set('spotify_code', code);
   if (state) back.searchParams.set('spotify_state', state);
   return NextResponse.redirect(back);
-}
+});

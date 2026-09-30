@@ -12,6 +12,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
+import Link from 'next/link';
 import { useCallback, useState } from 'react';
 import AttendanceBar from '@/components/persephone/AttendanceBar';
 import TicketsPanel from '@/components/persephone/TicketsPanel';
@@ -88,9 +89,11 @@ export default function PersephonePage() {
       </div>
 
       <footer className="mt-14 text-center">
-        <a href="/" className="text-sm text-[#5a5f68] hover:text-[#8a8f98] tracking-widest uppercase">
+        {/* Client-side nav: a plain anchor would full-reload the page and kill
+            the radio embed. Link keeps the root layout (and the music) alive. */}
+        <Link href="/" className="text-sm text-[#5a5f68] hover:text-[#8a8f98] tracking-widest uppercase">
           ← Back to the hub
-        </a>
+        </Link>
       </footer>
     </main>
   );

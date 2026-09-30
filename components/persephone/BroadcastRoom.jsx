@@ -104,12 +104,12 @@ export default function BroadcastRoom() {
 
   return (
     <section aria-label="Broadcast room" className="w-full">
-      <h2 className="text-2xl font-light tracking-[0.2em] text-[#d4af37]">BROADCAST ROOM</h2>
+      <h2 className="text-2xl font-light tracking-[0.2em] text-[#ffd700]">BROADCAST ROOM</h2>
 
       {/* the honesty banner — never remove while streaming is unwired */}
       <div className="mt-3 rounded-xl border border-[#5a4a1a] bg-[#141007] px-4 py-3" role="note">
         <p className="text-sm text-[#e8d9b0] leading-relaxed">
-          <span className="font-bold text-[#d4af37]">Not streaming yet.</span>{' '}
+          <span className="font-bold text-[#ffd700]">Not streaming yet.</span>{' '}
           This room holds the running order and the rehearsal checklist. There is no broadcast
           pipeline behind it — nothing here goes out to an audience, and nothing is marked live.
           Streaming is a future build (WebRTC ingest + viewer delivery).
@@ -151,7 +151,7 @@ export default function BroadcastRoom() {
         <button
           type="button"
           onClick={addSlot}
-          className="rounded-xl border border-[#d4af37]/60 px-5 py-3 text-sm tracking-widest uppercase text-[#d4af37] hover:bg-[#d4af37]/10 transition"
+          className="rounded-xl border border-[#ffd700]/60 px-5 py-3 text-sm tracking-widest uppercase text-[#ffd700] hover:bg-[#ffd700]/10 transition"
         >
           Queue set
         </button>
@@ -186,7 +186,7 @@ export default function BroadcastRoom() {
                 href={ambienceWebUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="min-h-[44px] inline-flex items-center rounded-xl border border-[#3a2f1a] px-4 text-xs uppercase tracking-widest text-[#d4af37] hover:bg-[#d4af37]/10"
+                className="min-h-[44px] inline-flex items-center rounded-xl border border-[#3a2f1a] px-4 text-xs uppercase tracking-widest text-[#ffd700] hover:bg-[#ffd700]/10"
               >
                 Open
               </a>
@@ -211,7 +211,7 @@ export default function BroadcastRoom() {
           <button
             type="button"
             onClick={() => setPickerOpen(true)}
-            className="w-full min-h-[48px] rounded-xl border border-[#d4af37]/60 px-5 text-sm tracking-widest uppercase text-[#d4af37] hover:bg-[#d4af37]/10"
+            className="w-full min-h-[48px] rounded-xl border border-[#ffd700]/60 px-5 text-sm tracking-widest uppercase text-[#ffd700] hover:bg-[#ffd700]/10"
           >
             Choose from your uploads
           </button>

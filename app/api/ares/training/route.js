@@ -9,12 +9,13 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { requireUser, serviceClient } from '@/lib/ares/server';
-import { toJsonl, labeledRows } from '@/lib/ares/training';
+import { labeledRows } from '@/lib/ares/training';
 import { FEATURE_VERSION } from '@/lib/ares/features';
+import { apiGuard } from '@/lib/api-guard';
 
 const EXPORT_LIMIT = 5000;
 
-export async function GET(request) {
+export const GET = apiGuard(async function GET(request) {
   const user = await requireUser(request);
   if (!user) return NextResponse.json({ error: 'sign in required' }, { status: 401 });
 
@@ -31,7 +32,7 @@ export async function GET(request) {
   if (error) return NextResponse.json({ error: 'could not load training data' }, { status: 500 });
 
   const rows = labeledRows(data || []);
-  const jsonl = toJsonl(data || []);
+  const jsonl = rows.map((row) => JSON.stringify(row)).join('\n');
 
   // ?format=summary returns counts for the dashboard without the download.
   if (searchParams.get('format') === 'summary') {
@@ -51,4 +52,4 @@ export async function GET(request) {
       'x-ares-training-rows': String(rows.length),
     },
   });
-}
+});

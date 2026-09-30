@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { PLATFORMS, makeGuestTag, FIELD_KIT } from './gateway';
 
 // Rebuilt from the Omegalodon repo: "ECOSYSTEM GATEWAY", a central portal
@@ -252,7 +253,7 @@ export default function EcosystemGateway() {
               opacity: online ? 1 : 0.75,
             };
             return online ? (
-              <a key={app.id} href={app.route} style={{ ...style, cursor: 'pointer' }}>{card}</a>
+              <Link key={app.id} href={app.route} style={{ ...style, cursor: 'pointer' }}>{card}</Link>
             ) : (
               <div key={app.id} style={{ ...style, cursor: 'default' }} aria-disabled="true">{card}</div>
             );

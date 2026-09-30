@@ -4,7 +4,8 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { handleTrap } from '@/lib/ares/honeypot';
+import { apiGuard } from '@/lib/api-guard';
 
-export async function GET(request) {
+export const GET = apiGuard(async function GET(request) {
   return handleTrap(request, '/api/honeypot/env');
-}
+});

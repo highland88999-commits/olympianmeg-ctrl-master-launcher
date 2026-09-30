@@ -57,7 +57,7 @@ function RouteArc({ fromKey, toKey, visible }) {
     return pts;
   }, [fromKey, toKey]);
   if (!visible || points.length < 2) return null;
-  return <Line points={points} color="#22d3ee" lineWidth={1} transparent opacity={0.45} />;
+  return <Line points={points} color="#00f2ff" lineWidth={1} transparent opacity={0.45} />;
 }
 
 function SurfaceMarker({ destKey, color }) {
@@ -257,7 +257,7 @@ function ArgoScene({
           {layer !== 'photorealistic' && <StylizedGlobe />}
           <RouteArc fromKey={routeFrom} toKey={routeTo} visible={showRoute} />
           <SurfaceMarker destKey={atKey} color="#34d399" />
-          {routeTo && routeTo !== atKey && <SurfaceMarker destKey={routeTo} color="#22d3ee" />}
+          {routeTo && routeTo !== atKey && <SurfaceMarker destKey={routeTo} color="#00f2ff" />}
           <FlightRig
             flightRef={flightRef}
             atKey={atKey}

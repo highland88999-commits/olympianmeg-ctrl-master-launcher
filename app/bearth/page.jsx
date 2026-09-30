@@ -240,7 +240,7 @@ export default function BearthPage() {
         drawPlanet(now);
         // crosshair hint
         if (cam.mode === "orbit" && cam.fly === 0) {
-          ctx.fillStyle = "rgba(0,255,255,0.55)";
+          ctx.fillStyle = "rgba(0,242,255,0.55)";
           ctx.font = "500 13px ui-monospace, Menlo, monospace";
           ctx.textAlign = "center";
           ctx.fillText("TAP PLANET TO ENTER", cx, cy + cam.radius + 30);
@@ -253,11 +253,11 @@ export default function BearthPage() {
         ctx.beginPath(); ctx.arc(cx, cy, 300, 0, Math.PI * 2); ctx.clip();
         ctx.drawImage(surf, cx - 300, cy - 300, 600, 600);
         // reticle + grid
-        ctx.strokeStyle = "rgba(0,255,255,0.5)";
+        ctx.strokeStyle = "rgba(0,242,255,0.5)";
         ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(cx - 18, cy); ctx.lineTo(cx + 18, cy); ctx.stroke();
         ctx.beginPath(); ctx.moveTo(cx, cy - 18); ctx.lineTo(cx, cy + 18); ctx.stroke();
-        ctx.strokeStyle = "rgba(0,255,255,0.14)";
+        ctx.strokeStyle = "rgba(0,242,255,0.14)";
         for (let gx = -300; gx <= 300; gx += 60) {
           ctx.beginPath(); ctx.moveTo(cx + gx, cy - 300); ctx.lineTo(cx + gx, cy + 300); ctx.stroke();
         }
@@ -265,7 +265,7 @@ export default function BearthPage() {
           ctx.beginPath(); ctx.moveTo(cx - 300, cy + gy); ctx.lineTo(cx + 300, cy + gy); ctx.stroke();
         }
         ctx.restore();
-        ctx.strokeStyle = "rgba(0,255,255,0.4)";
+        ctx.strokeStyle = "rgba(0,242,255,0.4)";
         ctx.lineWidth = 2;
         ctx.beginPath(); ctx.arc(cx, cy, 300, 0, Math.PI * 2); ctx.stroke();
         // elevation readout at center
@@ -346,15 +346,15 @@ const styles = {
   page: { minHeight: "100dvh", background: "#010103", display: "flex", justifyContent: "center", padding: "20px 12px", fontFamily: "'Courier New', monospace" },
   shell: { width: "min(620px, 100%)" },
   head: { textAlign: "center", marginBottom: 12 },
-  title: { margin: 0, color: "#00ffff", letterSpacing: 10, fontSize: "clamp(1.8rem,7vw,2.6rem)", textShadow: "0 0 20px #00ffff, 0 0 60px #ff00ff" },
+  title: { margin: 0, color: "#00f2ff", letterSpacing: 10, fontSize: "clamp(1.8rem,7vw,2.6rem)", textShadow: "0 0 20px #00f2ff, 0 0 60px #ff00ff" },
   sub: { color: "#ffd700", letterSpacing: 4, fontSize: "0.8rem", margin: "6px 0 0", animation: "none" },
-  canvasWrap: { border: "1px solid rgba(0,255,255,0.2)", borderRadius: 12, overflow: "hidden" },
+  canvasWrap: { border: "1px solid rgba(0,242,255,0.2)", borderRadius: 12, overflow: "hidden" },
   canvas: { display: "block", width: "100%", height: "auto", aspectRatio: "1 / 1", touchAction: "none", cursor: "grab" },
-  bar: { marginTop: 10, padding: "10px 14px", borderLeft: "3px solid #00ffff", background: "rgba(0,20,30,0.7)" },
-  readout: { color: "#00ffff", fontSize: "0.85rem", letterSpacing: 2 },
+  bar: { marginTop: 10, padding: "10px 14px", borderLeft: "3px solid #00f2ff", background: "rgba(0,20,30,0.7)" },
+  readout: { color: "#00f2ff", fontSize: "0.85rem", letterSpacing: 2 },
   controls: { display: "flex", alignItems: "center", gap: 12, marginTop: 12, flexWrap: "wrap" },
-  btn: { padding: "10px 16px", fontSize: "0.75rem", cursor: "pointer", background: "transparent", color: "#00ffff", border: "1px solid rgba(0,255,255,0.5)", letterSpacing: 2, borderRadius: 6, fontFamily: "inherit", fontWeight: "bold" },
-  btnOn: { background: "rgba(0,255,255,0.15)" },
-  btnPrimary: { background: "#00ffff", color: "#001318", border: "1px solid #00ffff" },
-  hint: { color: "rgba(0,255,255,0.55)", fontSize: "0.75rem", letterSpacing: 1 },
+  btn: { padding: "10px 16px", fontSize: "0.75rem", cursor: "pointer", background: "transparent", color: "#00f2ff", border: "1px solid rgba(0,242,255,0.5)", letterSpacing: 2, borderRadius: 6, fontFamily: "inherit", fontWeight: "bold" },
+  btnOn: { background: "rgba(0,242,255,0.15)" },
+  btnPrimary: { background: "#00f2ff", color: "#001318", border: "1px solid #00f2ff" },
+  hint: { color: "rgba(0,242,255,0.55)", fontSize: "0.75rem", letterSpacing: 1 },
 };

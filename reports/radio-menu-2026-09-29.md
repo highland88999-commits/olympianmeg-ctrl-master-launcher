@@ -101,3 +101,14 @@ declutter files were not touched:
    (final full pass blocked only by app/argo/page.jsx's missing
    @/hooks/useEntrance import — another agent's unpublished work)
 ```
+
+## Publish record
+
+- Branch: `feature/radio-menu-2026-09-29` (commit `696e2a82b25112fd7bc25ae0348962a6fd8d255e`)
+- First merge attempt parented on `35f43526`; main had moved (bike-wraps
+  merge `7a7fefbc`) so the non-fast-forward ref update was correctly rejected.
+- Re-merged onto the new tip: merge commit
+  `a1eb9ccf0d191934bcda3ea4a66bdbe50723cb05`
+  ("Merge feature/radio-menu-2026-09-29: ENCOM first-load + Hermes two-axis menu")
+- Remote `main` verified at `a1eb9ccf0d191934bcda3ea4a66bdbe50723cb05`;
+  all 7 published file blobs match the worktree.

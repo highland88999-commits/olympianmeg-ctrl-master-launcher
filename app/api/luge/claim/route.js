@@ -14,6 +14,7 @@
 // historical completions are ever backfilled.
 import { getAdminClient, getUserFromRequest, jsonError } from '../_server.js';
 import { decideRewardEligibility, LUGE_PREMIUM_COUNT } from '@/lib/luge/logic.js';
+import { apiGuard } from '@/lib/api-guard';
 
 const SIZES = ['S', 'M', 'L', 'XL', '2XL', '3XL'];
 const HOODIE_PRODUCT_NAME = 'Axiom Repository - Premium Unisex Hoodie';
@@ -24,7 +25,7 @@ function tableMissing(err) {
   return code === '42P01' || code === 'PGRST205' || /relation .* does not exist/i.test(msg);
 }
 
-export async function POST(req) {
+export const POST = apiGuard(async function POST(req) {
   const auth = await getUserFromRequest(req);
   if (auth.error) return jsonError(auth.error, auth.status);
   const { user } = auth;
@@ -165,4 +166,4 @@ export async function POST(req) {
   }
 
   return Response.json({ ok: true, orderId, size, email: email || null, instructions });
-}
+});

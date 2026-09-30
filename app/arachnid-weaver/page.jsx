@@ -6,6 +6,7 @@
 // All art is procedural canvas 2D. Zero network calls.
 
 import { useEffect, useRef, useState } from "react";
+import { fx, unlockFx, throttle } from "@/lib/fx";
 import {
   ARENA,
   PLAYER,
@@ -46,6 +47,14 @@ export default function ArachnidWeaver() {
       typeof window !== "undefined" &&
       window.matchMedia &&
       window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    // unlock FX on first gesture (deep links may land here without the hub)
+    const unlock = () => unlockFx();
+    window.addEventListener("pointerdown", unlock, { once: true });
+    window.addEventListener("keydown", unlock, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
   }, []);
 
   useEffect(() => {
@@ -363,9 +372,16 @@ export default function ArachnidWeaver() {
         pollKeys();
         const events = updateGame(g, inputRef.current, dt);
         for (const e of events) {
-          if (e.type === "nearMiss") shake = Math.max(shake, 6);
-          if (e.type === "caught") shake = Math.max(shake, 10);
+          if (e.type === "nearMiss") {
+            shake = Math.max(shake, 6);
+            if (throttle("arachnid:nearMiss", 900)) fx.tap(); // startle tick
+          }
+          if (e.type === "caught") {
+            shake = Math.max(shake, 10);
+            fx.hit(); // the weaver has you: dull thud
+          }
           if (e.type === "dead") {
+            fx.death(); // rolled up and eaten: long rumble
             const sc = scoreOf(g);
             setDeadStats({
               time: g.time,

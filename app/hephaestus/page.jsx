@@ -16,6 +16,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import { Badge, BackButton } from '@/components/ui';
 import { SATELLITES } from '@/lib/i18n/satellites';
 import {
@@ -384,7 +385,7 @@ function FactoryChamber() {
           ))}
         </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
-          <a href={OLYMPUS_FACTS.route} style={{ ...btnPrimary, textDecoration: 'none' }}>Open the store</a>
+          <Link href={OLYMPUS_FACTS.route} style={{ ...btnPrimary, textDecoration: 'none' }}>Open the store</Link>
         </div>
         <ShareButtons kind="product" title="Olympus store" detail={`${OLYMPUS_FACTS.count} designs, CAD $${OLYMPUS_FACTS.priceCad.toFixed(2)} each, made to order.`} />
       </div>
@@ -399,7 +400,7 @@ function FactoryChamber() {
           one per person, no screenshots. The price is set on the server at checkout.
         </p>
         <div style={{ display: 'flex', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
-          <a href={LUGE_ARSENAL_FACTS.route} style={{ ...btnPrimary, textDecoration: 'none' }}>Open Luge</a>
+          <Link href={LUGE_ARSENAL_FACTS.route} style={{ ...btnPrimary, textDecoration: 'none' }}>Open Luge</Link>
         </div>
         <ShareButtons kind="product" title={`Luge ${LUGE_ARSENAL_FACTS.name}`} detail={`$${LUGE_ARSENAL_FACTS.priceUsd} USD — ${LUGE_ARSENAL_FACTS.premiumHulls} premium hulls and a hoodie claim.`} />
       </div>

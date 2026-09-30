@@ -16,8 +16,9 @@ import {
   listingExpiryIso,
   LISTING_TERMS,
 } from '@/lib/hermes/listings.js';
+import { apiGuard } from '@/lib/api-guard';
 
-export async function POST(req) {
+export const POST = apiGuard(async function POST(req) {
   let body;
   try {
     body = await req.json();
@@ -53,10 +54,13 @@ export async function POST(req) {
   }
 
   // One listing per domain (checks pending + approved).
-  const { data: existing } = await supabase
+  const { data: existing, error: existingError } = await supabase
     .from('hermes_links')
     .select('root_domain')
     .in('payment_status', ['pending', 'approved']);
+  if (existingError) {
+    return jsonError('Could not check the directory. Try again.', 500);
+  }
   if (isDuplicateDomain(rootDomain, (existing || []).map((r) => r.root_domain))) {
     return jsonError('That domain already has a listing in the directory.', 409);
   }
@@ -132,7 +136,7 @@ export async function POST(req) {
           .eq('submission_id', submissionId)
           .eq('payment_status', 'pending');
         if (error) {
-          const e = new Error('Could not publish your listing. Your gold was not spent.');
+          const e = new Error('Could not publish your listing. Your gold has been refunded — please try again.');
           e.status = 502; throw e;
         }
         return {
@@ -171,4 +175,4 @@ export async function POST(req) {
     console.error('Hermes checkout error:', err?.message || err);
     return jsonError(err.message || 'Could not start checkout. Try again.', err.status || 500);
   }
-}
+});

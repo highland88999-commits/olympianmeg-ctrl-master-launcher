@@ -605,7 +605,7 @@ export default function ProjectKhaos() {
             </button>
           </div>
           <div style={{ fontSize: 11, letterSpacing: 1.5, color: "#8f9bb3", marginBottom: 12 }}>
-            SIMULATED AUCTION · DEMO CREDITS · NO REAL MONEY · RIVAL BIDDERS LIVE
+            SIMULATED AUCTION · DEMO CREDITS · NO REAL MONEY · SIMULATED RIVALS
           </div>
           {flash && (
             <div

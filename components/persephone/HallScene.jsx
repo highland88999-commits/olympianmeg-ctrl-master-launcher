@@ -117,16 +117,16 @@ function AvatarFigure({ position, color, label, you = false }) {
     <group position={position}>
       <mesh position={[0, 0.85, 0]}>
         <coneGeometry args={[0.42, 1.7, 8]} />
-        <meshStandardMaterial color={you ? '#d4af37' : color} roughness={0.85} metalness={0.1} />
+        <meshStandardMaterial color={you ? '#ffd700' : color} roughness={0.85} metalness={0.1} />
       </mesh>
       <mesh position={[0, 1.95, 0]}>
         <sphereGeometry args={[0.26, 12, 12]} />
         <meshStandardMaterial color={you ? '#f5e6bd' : '#2a2118'} roughness={0.7} />
       </mesh>
       {you && (
-        <pointLight position={[0, 2.4, 0]} color="#d4af37" intensity={6} distance={6} decay={2} />
+        <pointLight position={[0, 2.4, 0]} color="#ffd700" intensity={6} distance={6} decay={2} />
       )}
-      <NameTag position={[0, 2.55, 0]} color={you ? '#d4af37' : undefined}>
+      <NameTag position={[0, 2.55, 0]} color={you ? '#ffd700' : undefined}>
         {label}
       </NameTag>
     </group>
@@ -223,7 +223,7 @@ function Hall({ peers, reduced }) {
         {/* gold stage edge */}
         <mesh position={[0, 1.82, 4.02]}>
           <boxGeometry args={[20, 0.08, 0.08]} />
-          <meshStandardMaterial color="#d4af37" emissive="#7a5a1a" emissiveIntensity={0.7} roughness={0.4} metalness={0.7} />
+          <meshStandardMaterial color="#ffd700" emissive="#7a5a1a" emissiveIntensity={0.7} roughness={0.4} metalness={0.7} />
         </mesh>
         {/* DJ booth */}
         <mesh position={[0, 2.6, -1]}>
@@ -232,13 +232,13 @@ function Hall({ peers, reduced }) {
         </mesh>
         <mesh position={[0, 3.1, 0.12]}>
           <boxGeometry args={[5.6, 0.5, 0.1]} />
-          <meshStandardMaterial color="#d4af37" emissive="#8a6a1f" emissiveIntensity={0.9} roughness={0.3} metalness={0.8} />
+          <meshStandardMaterial color="#ffd700" emissive="#8a6a1f" emissiveIntensity={0.9} roughness={0.3} metalness={0.8} />
         </mesh>
         {/* decks: two glowing platters */}
         {[-1.5, 1.5].map((x) => (
           <mesh key={x} position={[x, 3.5, -1]} rotation={[-Math.PI / 2.3, 0, 0]}>
             <cylinderGeometry args={[0.75, 0.75, 0.12, 24]} />
-            <meshStandardMaterial color="#0a0a0a" emissive="#ff7a2f" emissiveIntensity={0.55} roughness={0.35} />
+            <meshStandardMaterial color="#0b0b0d" emissive="#ff7a2f" emissiveIntensity={0.55} roughness={0.35} />
           </mesh>
         ))}
         {/* speaker stacks */}
@@ -253,7 +253,7 @@ function Hall({ peers, reduced }) {
             <pointLight position={[0, 4, 2.5]} color="#ff9a3c" intensity={5} distance={7} decay={2} />
           </group>
         ))}
-        <NameTag position={[0, 6.4, 0]} color="#d4af37">
+        <NameTag position={[0, 6.4, 0]} color="#ffd700">
           The Underworld Stage
         </NameTag>
       </group>
@@ -267,7 +267,7 @@ function Hall({ peers, reduced }) {
       <Embers reduced={reduced} />
 
       {/* the visitor */}
-      <AvatarFigure position={[2.6, 0, 6.5]} color="#d4af37" label="You" you />
+      <AvatarFigure position={[2.6, 0, 6.5]} color="#ffd700" label="You" you />
 
       {/* REAL peers only — nothing faked */}
       {peers.map((p, i) => (

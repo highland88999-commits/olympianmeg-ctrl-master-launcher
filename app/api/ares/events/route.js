@@ -4,8 +4,9 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { requireUser, serviceClient } from '@/lib/ares/server';
+import { apiGuard } from '@/lib/api-guard';
 
-export async function GET(request) {
+export const GET = apiGuard(async function GET(request) {
   const user = await requireUser(request);
   if (!user) return NextResponse.json({ error: 'sign in required' }, { status: 401 });
 
@@ -23,4 +24,4 @@ export async function GET(request) {
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: 'could not load events' }, { status: 500 });
   return NextResponse.json({ events: data });
-}
+});

@@ -14,7 +14,7 @@ export const SCHOOLS = [
   {
     id: "athens",
     name: "Wisdom of Athens",
-    color: "#d4af37",
+    color: "#ffd700",
     tagline: "Philosophy, history, and the examined life.",
   },
   {

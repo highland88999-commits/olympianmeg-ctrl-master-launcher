@@ -1,6 +1,6 @@
 export const metadata = {
   title: 'Wizards Chess',
-  description: 'Next-Generation WebGL Wizards Chess Platform',
+  description: 'WebGL Wizards Chess — play in your browser',
 };
 
 export default function ChessLayout({ children }) {

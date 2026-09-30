@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import Link from 'next/link';
 import { BackButton } from '@/components/ui';
 import { HUB_TITLE, HUB_TAGLINE, SIMULATED_NOTE, MODULE_CARDS, STATUS_READOUTS } from './data';
 
@@ -130,9 +131,10 @@ export default function ArtemisHubPage() {
 
       <section aria-label="Artemis modules">
         <h2 style={styles.sectionTitle}>Pocket universes</h2>
+        {/* Module cards use next/link: client-side nav keeps the radio playing. */}
         <div style={styles.grid}>
           {MODULE_CARDS.map((c) => (
-            <a key={c.id} href={c.route} style={styles.card}>
+            <Link key={c.id} href={c.route} style={styles.card}>
               <div style={styles.cardKind}>{c.kind}</div>
               <div style={styles.cardName}>{c.name}</div>
               <p style={styles.cardBlurb}>{c.blurb}</p>
@@ -140,7 +142,7 @@ export default function ArtemisHubPage() {
                 <span style={styles.cardRoute}>{c.route}</span>
                 <span style={styles.cardGo} aria-hidden="true">→</span>
               </div>
-            </a>
+            </Link>
           ))}
         </div>
       </section>

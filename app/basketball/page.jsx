@@ -383,6 +383,9 @@ export default function BasketballPage() {
                   <div className="text-[10px] tracking-[0.35em] uppercase text-fuchsia-300/80 mb-2">
                     Party room {oasisMatch.roomCode}
                   </div>
+                  <p className="text-[10px] text-zinc-600 tracking-widest uppercase mb-2">
+                    CPU rivals are badged CPU once the leaderboard update is live.
+                  </p>
                   <div className="flex flex-col gap-1.5">
                     {roomScores.map((s, i) => (
                       <div key={s.id} className="flex items-center justify-between px-3 py-1.5 bg-black/40 border border-zinc-800 rounded text-sm">

@@ -23,6 +23,7 @@ import { CURRENCY } from '@/lib/olympus/products';
 import { getUserFromRequest as getGoldUser } from '@/lib/economy/auth';
 import { getServiceClient } from '@/lib/economy/supabase';
 import { applyGoldCheckout } from '@/lib/economy/checkout';
+import { apiGuard } from '@/lib/api-guard';
 
 function stripeConfigured() {
   return !!process.env.STRIPE_SECRET_KEY;
@@ -52,12 +53,12 @@ function goldNote(gold) {
   return `Gold applied: ${gold.goldAppliedGold.toLocaleString('en-US')} gold (-$${(gold.goldAppliedCents / 100).toFixed(2)}).`;
 }
 
-export async function GET() {
+export const GET = apiGuard(async function GET() {
   const stripe = stripeConfigured() ? await loadStripe() : null;
   return NextResponse.json({ cardPayments: !!stripe });
-}
+});
 
-export async function POST(req) {
+export const POST = apiGuard(async function POST(req) {
   let body;
   try {
     body = await req.json();
@@ -149,7 +150,7 @@ export async function POST(req) {
       fulfillPaidByGold: async ({ goldSpentGold, idemKey: key }) => {
         const admin = await getServiceClient();
         if (!admin) {
-          const e = new Error('The store is not available right now. Your gold was not spent.');
+          const e = new Error('The store is not available right now. Your gold has been refunded — please try again.');
           e.status = 503; throw e;
         }
         const sessionRef = `gold:${key}`;
@@ -174,7 +175,7 @@ export async function POST(req) {
             .select('id')
             .single();
           if (insertError || !inserted) {
-            const e = new Error('Could not record your order. Your gold was not spent.');
+            const e = new Error('Could not record your order. Your gold has been refunded — please try again.');
             e.status = 502; throw e;
           }
           orderId = inserted.id;
@@ -231,4 +232,4 @@ export async function POST(req) {
       { status: err.status || 502 }
     );
   }
-}
+});

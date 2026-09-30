@@ -179,9 +179,9 @@ export default function Auth({ onLogin }) {
         )}
         <div className="absolute inset-0 bg-black/55" />
       </div>
-      <div className="bg-[#0c0c12]/90 p-10 border border-[#08f7fe] rounded-xl w-[90%] max-w-[420px] shadow-[0_0_40px_rgba(8,247,254,0.15)] flex flex-col relative">
+      <div className="bg-[#0c0c12]/90 p-10 border border-[#00f2ff] rounded-xl w-[90%] max-w-[420px] shadow-[0_0_40px_rgba(8,247,254,0.15)] flex flex-col relative">
         
-        <h2 className="font-['Orbitron'] text-[#08f7fe] text-xl text-center tracking-[0.15em] mb-2 uppercase">
+        <h2 className="font-['Orbitron'] text-[#00f2ff] text-xl text-center tracking-[0.15em] mb-2 uppercase">
           {mode === 'login' && 'IDENTITY VERIFICATION'}
           {mode === 'signup' && 'REGISTER NEW NODE'}
           {mode === 'reset' && 'NETWORK RECOVERY'}
@@ -204,7 +204,7 @@ export default function Auth({ onLogin }) {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              className="w-full p-3 bg-black border border-zinc-800 text-[#08f7fe] rounded outline-none font-mono text-center focus:border-[#08f7fe] focus:shadow-[0_0_15px_rgba(8,247,254,0.2)] transition-all"
+              className="w-full p-3 bg-black border border-zinc-800 text-[#00f2ff] rounded outline-none font-mono text-center focus:border-[#00f2ff] focus:shadow-[0_0_15px_rgba(8,247,254,0.2)] transition-all"
             />
           )}
 
@@ -216,7 +216,7 @@ export default function Auth({ onLogin }) {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              className="w-full p-3 bg-black border border-zinc-800 text-[#08f7fe] rounded outline-none font-mono text-center focus:border-[#08f7fe] focus:shadow-[0_0_15px_rgba(8,247,254,0.2)] transition-all"
+              className="w-full p-3 bg-black border border-zinc-800 text-[#00f2ff] rounded outline-none font-mono text-center focus:border-[#00f2ff] focus:shadow-[0_0_15px_rgba(8,247,254,0.2)] transition-all"
             />
           )}
 
@@ -239,7 +239,7 @@ export default function Auth({ onLogin }) {
           <button 
             type="submit" 
             disabled={loading}
-            className="w-full p-3 mt-2 bg-transparent border border-[#08f7fe] text-[#08f7fe] font-['Orbitron'] font-bold tracking-widest uppercase rounded hover:bg-[#08f7fe] hover:text-black hover:shadow-[0_0_20px_rgba(8,247,254,0.4)] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full p-3 mt-2 bg-transparent border border-[#00f2ff] text-[#00f2ff] font-['Orbitron'] font-bold tracking-widest uppercase rounded hover:bg-[#00f2ff] hover:text-black hover:shadow-[0_0_20px_rgba(8,247,254,0.4)] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? 'PROCESSING...' : (
               mode === 'login' ? 'INITIALIZE LOGIN' :
@@ -262,7 +262,7 @@ export default function Auth({ onLogin }) {
               type="button"
               onClick={handleGoogleSignIn}
               disabled={googleLoading || loading}
-              className="w-full p-3 bg-transparent border border-zinc-500 text-zinc-200 font-['Orbitron'] font-bold text-sm tracking-widest uppercase rounded hover:border-[#08f7fe] hover:text-[#08f7fe] hover:shadow-[0_0_20px_rgba(8,247,254,0.25)] transition-all motion-reduce:transition-none disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3"
+              className="w-full p-3 bg-transparent border border-zinc-500 text-zinc-200 font-['Orbitron'] font-bold text-sm tracking-widest uppercase rounded hover:border-[#00f2ff] hover:text-[#00f2ff] hover:shadow-[0_0_20px_rgba(8,247,254,0.25)] transition-all motion-reduce:transition-none disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                 <path d="M12.48 10.92v3.28h7.84c-.24 1.84-.853 3.187-1.787 4.133-1.147 1.147-2.933 2.4-6.053 2.4-4.827 0-8.6-3.893-8.6-8.72s3.773-8.72 8.6-8.72c2.6 0 4.507 1.027 5.907 2.347l2.307-2.307C18.747 1.44 16.133 0 12.48 0 5.867 0 .307 5.387.307 12s5.56 12 12.173 12c3.573 0 6.267-1.173 8.373-3.36 2.16-2.16 2.84-5.213 2.84-7.667 0-.76-.053-1.467-.173-2.053H12.48z" />
@@ -297,7 +297,7 @@ export default function Auth({ onLogin }) {
           {(mode === 'signup' || mode === 'reset') && (
             <button 
               onClick={() => { setMode('login'); setError(''); setMessage(''); setShowResend(false); }}
-              className="w-full p-2 mt-2 bg-transparent border border-zinc-600 text-zinc-400 font-['Orbitron'] text-[10px] tracking-widest uppercase rounded hover:border-[#08f7fe] hover:text-[#08f7fe] transition-all"
+              className="w-full p-2 mt-2 bg-transparent border border-zinc-600 text-zinc-400 font-['Orbitron'] text-[10px] tracking-widest uppercase rounded hover:border-[#00f2ff] hover:text-[#00f2ff] transition-all"
             >
               RETURN TO LOGIN
             </button>

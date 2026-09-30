@@ -51,6 +51,7 @@ const page = readFileSync('app/page.jsx', 'utf8');
 // into components/HomeScene.jsx. Scene-wiring assertions read the scene file.
 const homeScene = readFileSync('components/HomeScene.jsx', 'utf8');
 const nexus = readFileSync('components/NexusEarth.jsx', 'utf8');
+const terrainGlobe = readFileSync('components/ProceduralEarthGlobe.jsx', 'utf8');
 const flight = readFileSync('components/EarthFlightController.jsx', 'utf8');
 const console_ = readFileSync('components/EarthConsole.jsx', 'utf8');
 
@@ -64,7 +65,9 @@ t('page has tap hint', /earth\.tapHint/.test(page));
 t('dive/travel/return handlers defined', /beginEarthDive/.test(page) && /travelToEarth/.test(page) && /returnToOrbit/.test(page));
 t('geolocation with fallback', /getUserPosition/.test(page) && /FALLBACK_POSITION/.test(page));
 
-t('earth is clickable', /onClick=/.test(nexus) && /onSelect/.test(nexus));
+// Clickability lives in the terrain globe (the always-3D fallback); NexusEarth
+// passes onSelect through to it.
+t('earth is clickable', /onSelect/.test(nexus) && /onClick=/.test(terrainGlobe) && /onSelect/.test(terrainGlobe));
 t('earth uses shared quaternion (treadmill)', /quatRef/.test(nexus));
 t('earth builds real-imagery lens', /tileGrid/.test(nexus) && /CanvasTexture/.test(nexus));
 t('earth lens positioned by lat/lon', /latLonToVec3/.test(nexus));

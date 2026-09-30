@@ -3,6 +3,21 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { Storage } from '@google-cloud/storage';
 
+// nexus carries NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET; accept either name.
+function bucketName(): string | undefined {
+  return process.env.FIREBASE_STORAGE_BUCKET || process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET;
+}
+
+function storageConfigError(): string | null {
+  if (!process.env.GCP_PROJECT_ID || !process.env.GCP_SERVICE_ACCOUNT_KEY) {
+    return 'Cloud storage is not connected yet (missing GCP_PROJECT_ID / GCP_SERVICE_ACCOUNT_KEY).';
+  }
+  if (!bucketName()) {
+    return 'Cloud storage bucket is not configured.';
+  }
+  return null;
+}
+
 export async function POST(req: Request) {
   try {
     const authHeader = req.headers.get('Authorization');
@@ -24,12 +39,22 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Permission denied. Security signature mismatch.' }, { status: 403 });
     }
 
+    const configError = storageConfigError();
+    if (configError) return NextResponse.json({ error: configError }, { status: 500 });
+
+    let serviceAccount: Record<string, unknown>;
+    try {
+      serviceAccount = JSON.parse(process.env.GCP_SERVICE_ACCOUNT_KEY as string);
+    } catch {
+      return NextResponse.json({ error: 'Cloud storage credential is invalid.' }, { status: 500 });
+    }
+
     const storage = new Storage({
       projectId: process.env.GCP_PROJECT_ID,
-      credentials: JSON.parse(process.env.GCP_SERVICE_ACCOUNT_KEY || '{}'),
+      credentials: serviceAccount,
     });
 
-    const bucket = storage.bucket(process.env.FIREBASE_STORAGE_BUCKET!);
+    const bucket = storage.bucket(bucketName()!);
     const file = bucket.file(fileStorageKey);
 
     const [downloadUrl] = await file.getSignedUrl({
@@ -43,5 +68,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
-
-

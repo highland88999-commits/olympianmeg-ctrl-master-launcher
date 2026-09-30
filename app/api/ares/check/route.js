@@ -4,9 +4,10 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
+import { apiGuard } from '@/lib/api-guard';
 import { checkInternal, isBlocked } from '@/lib/ares/server';
 
-export async function POST(request) {
+export const POST = apiGuard(async function POST(request) {
   if (!checkInternal(request)) {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 });
   }
@@ -16,6 +17,7 @@ export async function POST(request) {
   } catch {
     return NextResponse.json({ error: 'bad json' }, { status: 400 });
   }
-  if (!body?.ip) return NextResponse.json({ error: 'ip is required' }, { status: 400 });
-  return NextResponse.json(await isBlocked(body.ip));
-}
+  const ip = typeof body?.ip === 'string' ? body.ip.trim() : '';
+  if (!ip || ip.length > 64) return NextResponse.json({ error: 'ip is required' }, { status: 400 });
+  return NextResponse.json(await isBlocked(ip));
+});

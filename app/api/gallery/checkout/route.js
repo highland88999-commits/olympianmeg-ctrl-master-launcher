@@ -16,6 +16,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getUserFromRequest } from '@/lib/economy/auth';
 import { STRIPE_PRODUCT_NAME, PACK_PRICE_CENTS } from '@/lib/gallery';
+import { apiGuard } from '@/lib/api-guard';
 
 function stripeConfigured() {
   return !!process.env.STRIPE_SECRET_KEY;
@@ -52,7 +53,7 @@ async function findProductByName(stripe, name) {
   return null;
 }
 
-export async function POST(req) {
+export const POST = apiGuard(async function POST(req) {
   // Credits live on the account: no account, no purchase.
   const auth = await getUserFromRequest(req);
   if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -95,4 +96,4 @@ export async function POST(req) {
   } catch (err) {
     return NextResponse.json({ error: 'Could not start checkout. Please try again.' }, { status: 502 });
   }
-}
+});

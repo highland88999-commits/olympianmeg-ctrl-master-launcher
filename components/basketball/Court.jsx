@@ -152,7 +152,7 @@ function HoopAssembly({ side }) {
             {frame.map((f, i) => (
               <mesh key={i} position={f.p}>
                 <boxGeometry args={f.s} />
-                <meshStandardMaterial color="#22d3ee" emissive="#22d3ee" emissiveIntensity={1.2} />
+                <meshStandardMaterial color="#00f2ff" emissive="#00f2ff" emissiveIntensity={1.2} />
               </mesh>
             ))}
           </group>
@@ -176,7 +176,7 @@ function HoopAssembly({ side }) {
             {sq.map((f, i) => (
               <mesh key={i} position={f.p}>
                 <boxGeometry args={f.s} />
-                <meshStandardMaterial color="#a5f3fc" emissive="#22d3ee" emissiveIntensity={1.5} />
+                <meshStandardMaterial color="#a5f3fc" emissive="#00f2ff" emissiveIntensity={1.5} />
               </mesh>
             ))}
           </group>
@@ -219,7 +219,7 @@ function Arena() {
           </mesh>
           <mesh position={[b.p[0], b.p[1] + b.s[1] / 2 + 0.05, b.p[2]]}>
             <boxGeometry args={[b.s[0], 0.1, b.s[2]]} />
-            <meshStandardMaterial color="#22d3ee" emissive="#22d3ee" emissiveIntensity={0.7} />
+            <meshStandardMaterial color="#00f2ff" emissive="#00f2ff" emissiveIntensity={0.7} />
           </mesh>
         </group>
       ))}
@@ -230,7 +230,7 @@ function Arena() {
       </mesh>
       <mesh position={[0, 10.5, 0]}>
         <boxGeometry args={[4.5, 0.12, 4.5]} />
-        <meshStandardMaterial color="#22d3ee" emissive="#22d3ee" emissiveIntensity={1.6} />
+        <meshStandardMaterial color="#00f2ff" emissive="#00f2ff" emissiveIntensity={1.6} />
       </mesh>
     </group>
   );
@@ -253,7 +253,7 @@ function SpotMarkers({ spots, activeIndex, visible }) {
         <mesh key={i} position={[s.x, 0.035, s.z]} rotation={[-Math.PI / 2, 0, 0]}>
           <circleGeometry args={[i === activeIndex ? 0.5 : 0.34, 32]} />
           <meshBasicMaterial
-            color={i === activeIndex ? '#22d3ee' : '#0e7490'}
+            color={i === activeIndex ? '#00f2ff' : '#0e7490'}
             transparent
             opacity={i === activeIndex ? 0.95 : 0.55}
           />

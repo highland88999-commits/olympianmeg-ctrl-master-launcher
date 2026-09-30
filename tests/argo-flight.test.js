@@ -140,7 +140,7 @@ const D2R = Math.PI / 180;
 {
   const registry = readFileSync('lib/i18n/satellites.ts', 'utf8');
   t('registry has argo entry (exact format)',
-    registry.includes('{ key: "argo", route: "/argo", pos: "ARGUS_POS", section: "OBSERVATORY", constellation: "ARGUS" }'));
+    registry.includes('{ key: "argo", route: "/argo", pos: "HERMES", section: "OBSERVATORY", constellation: "ARGUS" }'));
   const en = readFileSync('lib/i18n/locales/en.json', 'utf8');
   t('en locale has sat.argo.title', en.includes('"sat.argo.title": "Argo"'));
   t('en locale has sat.argo.subtitle', en.includes('"sat.argo.subtitle"'));

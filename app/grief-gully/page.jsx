@@ -9,6 +9,7 @@ import {
   STORAGE_KEYS,
   initialMediaState,
   mediaReducer,
+  youtubeEmbedUrl,
   addEntry,
   removeEntry,
 } from "./journey.js";
@@ -336,6 +337,7 @@ export default function GriefGullyPage() {
   const [media, dispatchMedia] = useReducer(mediaReducer, initialMediaState);
   const [entries, setEntries] = useState([]);
   const [draft, setDraft] = useState("");
+  const [openClips, setOpenClips] = useState({});
   const [reducedMotion, setReducedMotion] = useState(false);
   const bgRef = useRef(null);
   const engineRef = useRef(null);
@@ -454,15 +456,20 @@ export default function GriefGullyPage() {
     };
   }, []);
 
-  const toggleTrack = (track) => {
-    const willPlay =
-      !(media.activeTrackId === track.id && media.playing);
+  const stopGenerative = () => {
     if (engineRef.current) {
       engineRef.current.stop();
       engineRef.current = null;
     }
-    dispatchMedia({ type: "TOGGLE", id: track.id });
+    dispatchMedia({ type: "STOP" });
+  };
+
+  const toggleTrack = (track) => {
+    const willPlay =
+      !(media.activeTrackId === track.id && media.playing);
+    stopGenerative();
     if (willPlay) {
+      dispatchMedia({ type: "TOGGLE", id: track.id });
       try {
         engineRef.current = createAudioEngine(track.character);
       } catch (e) {
@@ -524,10 +531,12 @@ export default function GriefGullyPage() {
             <h2 className="section-label">Media Archive</h2>
             <p className="section-note">
               Gentle generative pieces, made here in your browser — no recordings,
-              no streaming. Headphones help.
+              no streaming. Each one grew from an original FernGully film clip;
+              unfold "Watch the film clip" under any piece to see where it came from.
             </p>
             {TRACKS.map((track) => {
               const active = media.activeTrackId === track.id && media.playing;
+              const clipUrl = youtubeEmbedUrl(track.youtubeId);
               return (
                 <article key={track.id} className={`track ${active ? "active" : ""}`}>
                   <div className="track-head">
@@ -546,6 +555,30 @@ export default function GriefGullyPage() {
                     </button>
                   </div>
                   <TrackVisual character={track.character} active={active} reducedMotion={reducedMotion} />
+                  {clipUrl && (
+                    <details
+                      className="film-clip"
+                      onToggle={(e) => {
+                        const open = e.currentTarget.open;
+                        setOpenClips((prev) => ({ ...prev, [track.id]: open }));
+                        if (open) stopGenerative();
+                      }}
+                    >
+                      <summary>Watch the film clip</summary>
+                      {openClips[track.id] && (
+                        <div className="film-frame">
+                          <iframe
+                            src={clipUrl}
+                            title={track.videoTitle}
+                            loading="lazy"
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                            allowFullScreen
+                          />
+                        </div>
+                      )}
+                      <p className="film-credit">{track.videoTitle}</p>
+                    </details>
+                  )}
                 </article>
               );
             })}
@@ -800,6 +833,50 @@ export default function GriefGullyPage() {
           width: 100%;
           height: 84px;
           display: block;
+        }
+        .film-clip {
+          margin-top: 10px;
+          border-top: 1px solid rgba(255, 255, 255, 0.06);
+          padding-top: 6px;
+        }
+        .film-clip summary {
+          cursor: pointer;
+          color: #8ba0a6;
+          font-size: 0.88rem;
+          font-style: italic;
+          min-height: 44px;
+          display: flex;
+          align-items: center;
+          padding-left: 2px;
+        }
+        .film-clip summary:hover {
+          color: #ffd700;
+        }
+        .film-clip summary::marker {
+          color: rgba(212, 175, 55, 0.6);
+        }
+        .film-frame {
+          position: relative;
+          width: 100%;
+          aspect-ratio: 16 / 9;
+          margin: 10px 0 6px;
+          border: 1px solid rgba(212, 175, 55, 0.35);
+          border-radius: 8px;
+          overflow: hidden;
+          background: #000;
+        }
+        .film-frame iframe {
+          position: absolute;
+          inset: 0;
+          width: 100%;
+          height: 100%;
+          border: 0;
+        }
+        .film-credit {
+          margin: 0;
+          color: #5f767c;
+          font-size: 0.78rem;
+          font-style: italic;
         }
         .resource-list {
           list-style: none;

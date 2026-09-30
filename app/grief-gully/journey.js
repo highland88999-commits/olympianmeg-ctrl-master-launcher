@@ -15,23 +15,37 @@ export const TRACKS = [
     title: "The Batty Rap",
     note: "A slow pulse underneath quiet words. Take what you need from it.",
     character: "pulse",
+    youtubeId: "PiOVFkbHaeI",
+    videoTitle: "Batty Rap from Ferngully | HoneyFyre",
   },
   {
     id: "toxic-love",
     title: "Toxic Love",
     note: "Warm, drifting tones for the heavy hours.",
     character: "drift",
+    youtubeId: "hr4knvNNgtU",
+    videoTitle: "Hexxus (Tim Curry) - Toxic Love (FernGully) | SlickStretch",
   },
   {
     id: "end-of-hexxus",
     title: "End of Hexxus",
     note: "A descending line that resolves — nothing stays at the bottom.",
     character: "resolve",
+    youtubeId: "91Rvj0Ftp6s",
+    videoTitle: 'FERNGULLY: THE LAST RAINFOREST Clip - "Hexxus Dies" (1992) | JoBlo Animation 4K',
   },
 ];
 
 export function getTrack(id) {
   return TRACKS.find((t) => t.id === id) || null;
+}
+
+// Build the privacy-sane YouTube embed URL for a track's film clip.
+// Returns null for anything that is not a valid 11-char video id.
+export function youtubeEmbedUrl(videoId) {
+  const id = String(videoId || "");
+  if (!/^[\w-]{11}$/.test(id)) return null;
+  return `https://www.youtube.com/embed/${id}?rel=0`;
 }
 
 // Media archive state machine: { activeTrackId, playing }

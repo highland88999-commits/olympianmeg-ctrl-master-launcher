@@ -90,9 +90,9 @@ const CSS = `
 `;
 
 const TABS = [
-  { id: 'library', label: 'Permanent Library', tag: 'Permanent Asset' },
-  { id: 'rentals', label: 'Active Rentals', tag: 'Time-Locked Rental' },
-  { id: 'saved', label: 'Saved Artifacts', tag: 'Bookmarked' },
+  { id: 'library', label: 'Library', tag: 'On the shelf' },
+  { id: 'rentals', label: 'Borrowed', tag: 'Due back' },
+  { id: 'saved', label: 'Saved', tag: 'Saved for later' },
 ];
 
 const SEED = {
@@ -308,7 +308,7 @@ export default function UserProfilePage() {
             </div>
             {tab === 'rentals' ? (
               <div>
-                <label htmlFor="uv-d">Rental days</label>
+                <label htmlFor="uv-d">Due in (days)</label>
                 <input id="uv-d" type="number" min="1" max="365" value={tDays}
                   onChange={(e) => setTDays(Math.max(1, Math.min(365, Number(e.target.value) || 14)))} />
               </div>
@@ -325,7 +325,7 @@ export default function UserProfilePage() {
                 <span className="uv-tag">{currentTab.tag}</span>
                 <h3 className="uv-title">{a.title}</h3>
                 <p className="uv-author">By {a.author}</p>
-                {a.due && <p className="uv-exp">⏳ {daysLeft(a.due)} day{daysLeft(a.due) === 1 ? '' : 's'} left on rental</p>}
+                {a.due && <p className="uv-exp">⏳ Due back in {daysLeft(a.due)} day{daysLeft(a.due) === 1 ? '' : 's'}</p>}
                 <div className="uv-actions">
                   <button className="uv-btn" onClick={() => shareArtifact(a)}>Share</button>
                   <button className="uv-btn danger" onClick={() => removeArtifact(a.id)}>Remove</button>

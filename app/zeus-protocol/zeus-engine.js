@@ -93,7 +93,7 @@ export function powerupDurationFrames(rng) {
 // ---------------------------------------------------------------------------
 
 export const POWERUPS = [
-  { type: 'shield', color: '#00ffff', label: 'SHIELD' },
+  { type: 'shield', color: '#00f2ff', label: 'SHIELD' },
   { type: 'missile', color: '#ff4444', label: 'HOMING MISSILES' },
   { type: 'burst', color: '#ff00ff', label: 'TRI-BURST' },
   { type: 'mine', color: '#ffff00', label: 'MINE LAYER' },

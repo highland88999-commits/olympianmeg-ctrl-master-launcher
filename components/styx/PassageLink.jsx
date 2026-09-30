@@ -26,8 +26,8 @@ export default function PassageLink() {
     <a
       href="/styx?advanced=1"
       className="fixed z-50 right-4 px-5 py-3 rounded-full text-sm tracking-widest uppercase
-                 bg-black/70 border border-[#d4af37]/60 text-[#d4af37]
-                 backdrop-blur-sm hover:bg-[#d4af37]/15 transition-colors"
+                 bg-black/70 border border-[#ffd700]/60 text-[#ffd700]
+                 backdrop-blur-sm hover:bg-[#ffd700]/15 transition-colors"
       style={{ bottom: 'calc(4.5rem + env(safe-area-inset-bottom))' }}
     >
       Continue the Passage →

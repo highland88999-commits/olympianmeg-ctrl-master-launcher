@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { apiGuard } from '@/lib/api-guard';
 
 // Created lazily inside the handler: creating it at module level crashes
 // `next build` when env vars aren't set (page data collection imports this
@@ -15,7 +16,7 @@ function getClient() {
   return createClient(url, key);
 }
 
-export async function GET() {
+export const GET = apiGuard(async function GET() {
   try {
     const supabase = getClient();
     const { data, error } = await supabase.storage.from('artifacts').list();
@@ -31,6 +32,10 @@ export async function GET() {
 
     return NextResponse.json(files, { status: 200 });
   } catch (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const notConfigured = /not configured/i.test(error?.message || '');
+    return NextResponse.json(
+      { error: notConfigured ? 'The artifact gallery is not connected yet.' : 'Could not load the gallery.' },
+      { status: notConfigured ? 503 : 500 }
+    );
   }
-}
+});

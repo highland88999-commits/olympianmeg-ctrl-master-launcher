@@ -14,7 +14,7 @@ export const INCOME_CATEGORIES = ['Salary', 'Freelance', 'Investments', 'Other']
 export const CATEGORY_COLORS = {
   Housing: '#f59e0b', Food: '#50ffb0', Transport: '#38bdf8', Utilities: '#a78bfa',
   Entertainment: '#f472b6', Health: '#fb7185', Shopping: '#facc15', Savings: '#34d399',
-  Other: '#9ca3af', Salary: '#4ade80', Freelance: '#22d3ee', Investments: '#e879f9',
+  Other: '#9ca3af', Salary: '#4ade80', Freelance: '#00f2ff', Investments: '#e879f9',
 };
 
 export const CURRENCIES = {

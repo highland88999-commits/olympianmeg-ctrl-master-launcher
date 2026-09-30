@@ -1,12 +1,15 @@
 'use client';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { latLonToVec3, tileGrid } from '@/lib/geo';
 import GoogleEarthTiles from '@/components/GoogleEarthTiles';
+import ProceduralEarthGlobe from '@/components/ProceduralEarthGlobe';
 
-// The hub Earth, fused with real satellite imagery.
+// The hub Earth: Google's photorealistic 3D tiles when they stream, a real
+// procedural 3D terrain globe as the fallback — Earth is always 3D, never a
+// flat picture.
 // - Clickable: onSelect fires (gated by parent to hub_freeroam).
 // - Orientation is driven through the shared quatRef so the flight
 //   controller can rotate the world (the treadmill: the traveler stands
@@ -14,57 +17,19 @@ import GoogleEarthTiles from '@/components/GoogleEarthTiles';
 // - A detail "lens" patch shows real ESRI World Imagery tiles at the
 //   current focus point.
 // - When Google's photorealistic 3D tiles are available (session minted
-//   server-side from GOOGLE_MAP_TILES_API_KEY), the stylized globe swaps
-//   for the real photorealistic globe. The ESRI lens is the honest fallback:
-//   it stays until the tiles actually render, and returns if they fail.
+//   server-side from GOOGLE_MAP_TILES_API_KEY), the terrain globe swaps
+//   for the real photorealistic globe. The procedural terrain globe is the
+//   honest fallback: it renders until the tiles actually load, and returns
+//   if they fail. All textures are self-hosted under public/textures/earth.
 // - A small badge names the active layer in plain English.
 export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnabled }) {
   const spinRef = useRef();
   const patchRef = useRef();
   const patchMatRef = useRef();
-  const [textures, setTextures] = useState(null);
   const [patchTex, setPatchTex] = useState(null);
-  // 'satellite' = stylized globe + ESRI lens (default, always honest).
+  // 'terrain' = procedural 3D globe + ESRI lens (default, always 3D).
   // 'photorealistic' = Google 3D tiles, only after they really render.
-  const [layer, setLayer] = useState('satellite');
-
-  useEffect(() => {
-    let isMounted = true;
-    const loader = new THREE.TextureLoader();
-    const dayUrl = 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_atmos_2048.jpg';
-    const nightUrl = 'https://unpkg.com/three-globe/example/img/earth-night.jpg';
-
-    loader.load(dayUrl, (dayTex) => {
-      dayTex.colorSpace = THREE.SRGBColorSpace;
-      loader.load(nightUrl, (nightTex) => {
-        nightTex.colorSpace = THREE.SRGBColorSpace;
-        if (isMounted) setTextures({ day: dayTex, night: nightTex });
-      }, undefined, () => {
-        const blank = new THREE.DataTexture(new Uint8Array([5, 5, 15, 255]), 1, 1, THREE.RGBAFormat);
-        blank.needsUpdate = true;
-        if (isMounted) setTextures({ day: dayTex, night: blank });
-      });
-    }, undefined, () => {
-      const blankDay = new THREE.DataTexture(new Uint8Array([50, 100, 200, 255]), 1, 1, THREE.RGBAFormat);
-      blankDay.needsUpdate = true;
-      if (isMounted) setTextures({ day: blankDay, night: blankDay });
-    });
-
-    return () => { isMounted = false; };
-  }, []);
-
-  const earthUniforms = useMemo(() => {
-    if (!textures) return null;
-    const sunPos = new THREE.Vector3(0, 90, 250);
-    const earthPos = new THREE.Vector3(0, -60, -120);
-    const sunDir = new THREE.Vector3().subVectors(sunPos, earthPos).normalize();
-
-    return {
-      dayTexture: { value: textures.day },
-      nightTexture: { value: textures.night },
-      sunDirection: { value: sunDir }
-    };
-  }, [textures]);
+  const [layer, setLayer] = useState('terrain');
 
   // Shared-orientation spin + patch fade.
   useFrame((state, delta) => {
@@ -133,61 +98,17 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
     }
   }, [focus?.lat, focus?.lon, patchTex]);
 
-  // The stylized globe only renders once its textures exist; the
-  // photorealistic tiles render as soon as Google's tileset loads.
-  if (layer === 'satellite' && !textures) return null;
-  const showStylized = layer === 'satellite' && textures && earthUniforms;
-
   return (
     <group position={[0, -60, -120]}>
       <group ref={spinRef}>
         <GoogleEarthTiles
           onSelect={onSelect}
           onActive={() => setLayer('photorealistic')}
-          onInactive={() => setLayer('satellite')}
+          onInactive={() => setLayer('terrain')}
         />
-        {showStylized && (
-        <mesh
-          receiveShadow
-          castShadow
-          onClick={(e) => { e.stopPropagation(); if (onSelect) onSelect(); }}
-          onPointerOver={(e) => { e.stopPropagation(); if (onSelect) document.body.style.cursor = 'pointer'; }}
-          onPointerOut={() => { document.body.style.cursor = ''; }}
-        >
-          <sphereGeometry args={[55, 64, 64]} />
-          <shaderMaterial
-            uniforms={earthUniforms}
-            vertexShader={`
-              varying vec2 vUv;
-              varying vec3 vNormalWorld;
-              void main() {
-                vUv = uv;
-                vNormalWorld = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
-                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-              }
-            `}
-            fragmentShader={`
-              uniform sampler2D dayTexture;
-              uniform sampler2D nightTexture;
-              uniform vec3 sunDirection;
-              varying vec2 vUv;
-              varying vec3 vNormalWorld;
-              void main() {
-                vec3 n = normalize(vNormalWorld);
-                float sunOrientation = dot(n, sunDirection);
-                float dayMix = smoothstep(-0.2, 0.2, sunOrientation);
-                vec3 dayColor = texture2D(dayTexture, vUv).rgb;
-                vec3 nightColor = texture2D(nightTexture, vUv).rgb;
-                vec3 sunset = vec3(0.8, 0.4, 0.1) * (1.0 - abs(sunOrientation * 5.0));
-                sunset = clamp(sunset, 0.0, 1.0) * 0.4;
-                gl_FragColor = vec4(mix(nightColor, dayColor, dayMix) + sunset, 1.0);
-              }
-            `}
-          />
-        </mesh>
-        )}
+        {layer === 'terrain' && <ProceduralEarthGlobe onSelect={onSelect} />}
 
-        {layer === 'satellite' && patchTex && (
+        {layer === 'terrain' && patchTex && (
           <mesh ref={patchRef}>
             <circleGeometry args={[5.2, 48]} />
             <meshBasicMaterial
@@ -230,7 +151,7 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
       {/* Honest layer badge: names what is actually rendering, in plain English. */}
       <Html position={[0, 64, 0]} center zIndexRange={[30, 0]} style={{ pointerEvents: 'none' }}>
         <div className="pointer-events-none select-none whitespace-nowrap rounded-full bg-black/55 px-2.5 py-1 text-[10px] font-medium tracking-wide text-white/90 backdrop-blur-sm">
-          {layer === 'photorealistic' ? 'Photorealistic · Google' : 'Satellite · ESRI'}
+          {layer === 'photorealistic' ? 'Photorealistic · Google' : 'Terrain · 3D'}
         </div>
       </Html>
     </group>

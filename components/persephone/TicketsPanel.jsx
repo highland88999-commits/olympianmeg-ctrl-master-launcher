@@ -86,7 +86,7 @@ export default function TicketsPanel() {
 
   return (
     <section aria-label="Tickets" className="w-full">
-      <h2 className="text-2xl font-light tracking-[0.2em] text-[#d4af37]">TICKETS</h2>
+      <h2 className="text-2xl font-light tracking-[0.2em] text-[#ffd700]">TICKETS</h2>
       <p className="mt-2 text-sm text-[#a89a78] leading-relaxed">
         Real tickets, real card checkout through Stripe. Prices are set on the server — what you see is what the register charges.
       </p>
@@ -107,12 +107,12 @@ export default function TicketsPanel() {
           <div key={t.id} className="rounded-2xl border border-[#3a2f1a] bg-[#100c08] p-5 flex flex-col">
             <h3 className="text-lg text-[#e8d9b0]">{t.name}</h3>
             <p className="mt-1 text-sm text-[#8a7f66] leading-relaxed flex-1">{t.blurb}</p>
-            <p className="mt-3 text-2xl text-[#d4af37]">{formatCents(t.priceCents)}</p>
+            <p className="mt-3 text-2xl text-[#ffd700]">{formatCents(t.priceCents)}</p>
             <button
               type="button"
               disabled={cardPayments === false || buying !== null}
               onClick={() => buy(t)}
-              className="mt-4 rounded-xl bg-[#d4af37] px-4 py-3 text-sm font-bold tracking-widest text-black uppercase
+              className="mt-4 rounded-xl bg-[#ffd700] px-4 py-3 text-sm font-bold tracking-widest text-black uppercase
                 disabled:opacity-40 disabled:cursor-not-allowed hover:brightness-110 transition"
             >
               {buying === t.id ? 'Opening checkout…' : `Buy — ${formatCents(t.priceCents)}`}

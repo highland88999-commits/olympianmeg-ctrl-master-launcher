@@ -26,7 +26,7 @@ export default function HoloframeViewer({ url, meta, onClose }: HoloframeProps) 
         </div>
 
         <div className="flex-1 overflow-auto p-6 flex justify-center items-center">
-          {isImage && <Image src={url} alt="Decrypted file" width={1600} height={1200} unoptimized className="max-w-full max-h-full w-auto h-auto object-contain rounded-lg shadow-lg" />}
+          {isImage && <Image src={url} alt={meta.originName} width={1600} height={1200} unoptimized className="max-w-full max-h-full w-auto h-auto object-contain rounded-lg shadow-lg" />}
           {isVideo && <video src={url} controls autoPlay className="max-w-full max-h-full rounded-lg shadow-lg" />}
           {isAudio && <audio src={url} controls autoPlay className="w-full max-w-md" />}
           {isText && (

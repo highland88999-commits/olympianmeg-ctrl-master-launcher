@@ -26,10 +26,10 @@ for (const code of LOCALES) {
   t(`${code}: no empty strings (${empty.length})`, empty.length === 0);
 }
 
-// --- key coverage: all 133 satellites + sections + chrome ---
+// --- key coverage: all 134 satellites + sections + chrome ---
 const satKeys = enKeys.filter((k) => k.startsWith('sat.'));
-t('133 satellites x title+subtitle = 266 sat keys', satKeys.length === 266);
-t('section names present', ['games', 'utilities', 'tools', 'ai-programs', 'observatory', 'therapy', 'sanctum'].every((s) => en[`sec.${s}.name`]));
+t('134 satellites x title+subtitle = 268 sat keys', satKeys.length === 268);
+t('section names present', ['games', 'utilities', 'tools', 'ai-programs', 'observatory', 'therapy', 'sanctum', 'shopping'].every((s) => en[`sec.${s}.name`]));
 t('constellation names present', ['zeus', 'ares', 'thoth', 'argus', 'medusa', 'artemis'].every((c) => en[`const.${c}`]));
 t('ui chrome keys present', ['ui.nexusHub', 'ui.operator', 'ui.collapse', 'ui.language', 'ui.disconnect'].every((k) => en[k]));
 
@@ -37,10 +37,10 @@ t('ui chrome keys present', ['ui.nexusHub', 'ui.operator', 'ui.collapse', 'ui.la
 const regSrc = readFileSync('lib/i18n/satellites.ts', 'utf8');
 const satBlock = regSrc.slice(regSrc.indexOf('export const SATELLITES'), regSrc.indexOf('\n];', regSrc.indexOf('export const SATELLITES')));
 const routes = [...satBlock.matchAll(/route: "([^"]+)"/g)].map((m) => m[1]);
-t('registry has 133 entries', routes.length === 133);
-t('registry routes unique', new Set(routes).size === 133);
+t('registry has 134 entries', routes.length === 134);
+t('registry routes unique', new Set(routes).size === 134);
 const keys = [...satBlock.matchAll(/key: "([^"]+)"/g)].map((m) => m[1]);
-t('registry keys unique', new Set(keys).size === 133);
+t('registry keys unique', new Set(keys).size === 134);
 // every registry key has title+subtitle in en
 const missingKeys = keys.filter((k) => !en[`sat.${k}.title`] || !en[`sat.${k}.subtitle`]);
 t(`every registry key has en title+subtitle (missing: ${missingKeys.length})`, missingKeys.length === 0);
@@ -51,6 +51,16 @@ const orphaned = satKeys.filter((k) => {
 });
 t(`no orphaned dictionary keys (orphaned: ${orphaned.length})`, orphaned.length === 0);
 
+// --- SHOPPING section: the HERMES merchant row (2026-09-30) -------------------
+const sectionsBlock = regSrc.slice(regSrc.indexOf('export const SECTIONS'));
+t('SHOPPING section registered', /name: "SHOPPING", key: "shopping"/.test(sectionsBlock));
+t('store satellite wired to /store under SHOPPING',
+  /\{ key: "store", route: "\/store", pos: "HERMES", section: "SHOPPING", constellation: "ARGUS" \}/.test(satBlock));
+for (const code of LOCALES) {
+  t(`${code}: shopping section + store labels present`,
+    dicts[code]['sec.shopping.name'] && dicts[code]['sat.store.title'] && dicts[code]['sat.store.subtitle']);
+}
+
 // --- launcher wiring ---
 const launcher = readFileSync('app/page.jsx', 'utf8');
 t('no hardcoded menu buttons remain', !/launchPocketUniverse\('\/[a-z]/.test(launcher));
@@ -59,7 +69,8 @@ const godMenuPanel = readFileSync('components/GodMenuPanel.jsx', 'utf8');
 t('menu uses t() for labels', /t\(`sat\.\$\{key\}\.title`\)/.test(godMenuPanel));
 t('LanguageProvider wraps hub', /<LanguageProvider>/.test(launcher));
 t('SettingsGear in menu header', /<SettingsGear \/>/.test(launcher));
-t('POS_MAP covers all six targets', /ZEUS_POS, ARES_POS, THOTH_POS, ARGUS_POS, BABEL_POS, MEDUSA_POS/.test(launcher));
+t('POS_MAP covers the ten god-tower targets plus legacy points',
+  /GOD_TOWER_POS, BABEL_POS, ARTEMIS_POS/.test(launcher));
 
 // --- core module: fallback + language list ---
 const core = readFileSync('lib/i18n/index.tsx', 'utf8');

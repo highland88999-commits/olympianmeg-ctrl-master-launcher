@@ -16,6 +16,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import {
   AVATAR_STYLES,
   deleteMediaItem,
@@ -310,10 +311,11 @@ export default function ProfilePage() {
       {/* Top bar */}
       <div className="sticky top-0 z-20 bg-[#050508]/90 backdrop-blur border-b border-white/10">
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
-          <a href="/"
+          {/* Client-side nav keeps the root layout — and the radio — alive. */}
+          <Link href="/"
             className="min-h-[44px] inline-flex items-center px-3 rounded-lg border border-white/15 text-sm text-neutral-300 hover:bg-white/10">
             ← All satellites
-          </a>
+          </Link>
           <div className="text-right">
             <div className="text-[10px] tracking-[0.3em] uppercase text-cyan-300/80">Universal</div>
             <h1 className="text-lg font-bold tracking-widest">PROFILE</h1>

@@ -10,6 +10,7 @@
 // ever backfilled.
 import { getAdminClient, getUserFromRequest, jsonError } from '../_server.js';
 import { validateRun, courseCompletionStatus } from '@/lib/luge/logic.js';
+import { apiGuard } from '@/lib/api-guard';
 
 function tableMissing(err) {
   const code = String(err?.code || '');
@@ -17,7 +18,7 @@ function tableMissing(err) {
   return code === '42P01' || code === 'PGRST205' || /relation .* does not exist/i.test(msg);
 }
 
-export async function POST(req) {
+export const POST = apiGuard(async function POST(req) {
   const auth = await getUserFromRequest(req);
   if (auth.error) return jsonError(auth.error, auth.status);
   const { user } = auth;
@@ -90,4 +91,4 @@ export async function POST(req) {
     completed: status.completed,
     total: status.total,
   });
-}
+});
