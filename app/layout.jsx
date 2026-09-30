@@ -3,6 +3,7 @@ import './globals.css';
 import EconomyHeartbeat from '@/components/economy/EconomyHeartbeat';
 import { RadioProvider } from '@/components/radio/RadioProvider';
 import RadioBar from '@/components/radio/RadioBar';
+import NativeBridge from '@/components/NativeBridge';
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -39,6 +40,7 @@ export default function RootLayout({ children }) {
     <html lang="en" className="dark">
       <body className={`${inter.className} bg-[#050505] antialiased text-white`}>
         <RadioProvider>
+          <NativeBridge />
           <EconomyHeartbeat />
           {children}
           <RadioBar />

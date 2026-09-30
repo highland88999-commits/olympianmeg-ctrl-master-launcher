@@ -7,13 +7,14 @@
 // The ios/ and android/ platform folders are CI-generated (Mac CI for iOS) and are
 // NOT committed by hand.
 //
-// NOTE: no `import type { CapacitorConfig } from '@capacitor/cli'` here on purpose —
-// the @capacitor/* packages are installed only when the native shell is assembled
-// (CI / Merlin's ship prep), and an unresolvable type import breaks `next build`
-// type-checking on Vercel. The CLI accepts this plain-object config as-is.
+// Capacitor v8: @capacitor/cli is an installed dependency, so the typed
+// config is safe (tsc --noEmit verified 2026-09-30). If the import ever goes
+// unresolvable again, `next build` type-checking on Vercel breaks — drop back
+// to the plain object before touching anything else.
+import type { CapacitorConfig } from '@capacitor/cli';
 
 // Plain-object config (CapacitorConfig shape); typed automatically once @capacitor/cli is installed.
-const config = {
+const config: CapacitorConfig = {
   // Provisional bundle id — Merlin registers the final id in App Store Connect /
   // Play Console at enrollment; update here to match before the first native build.
   appId: 'com.olympusverse.nexus',
