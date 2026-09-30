@@ -281,7 +281,7 @@ export default function MedusasLair() {
       {/* Medusa Video Layer (Fades in/out) */}
       <video 
         ref={videoRef} 
-        src="https://files.catbox.moe/medusa.mp4" 
+        src="/medusa.mp4" 
         muted 
         playsInline 
         className={`absolute inset-0 z-[2] w-full h-full object-cover pointer-events-none transition-opacity duration-[1200ms] ease-in-out ${isVideoActive ? 'opacity-100' : 'opacity-0'}`}
