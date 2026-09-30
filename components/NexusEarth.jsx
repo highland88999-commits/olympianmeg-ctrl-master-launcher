@@ -88,7 +88,9 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
   useEffect(() => {
     if (!focus) { setPatchTex(null); return; }
     let alive = true;
-    const Z = 8, N = 6, S = 256;
+    // Detail lens: zoom 12 gives street-level sharpness at the dive
+    // distance (zoom 8 rendered as brown/green blur up close).
+    const Z = 12, N = 6, S = 256;
     const tiles = tileGrid(focus.lat, focus.lon, Z, N);
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = S * N;

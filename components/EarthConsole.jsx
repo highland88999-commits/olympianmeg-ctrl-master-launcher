@@ -32,8 +32,12 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn }) {
   const busy = phase === 'diving_to_earth' || phase === 'earth_travel';
 
   return (
-    <div className="absolute bottom-5 right-5 z-50 w-72 ui-element pointer-events-auto">
-      <div className="bg-zinc-950/90 border border-cyan-500/30 rounded-xl p-4 shadow-[0_0_30px_rgba(0,255,255,0.12)] backdrop-blur-md flex flex-col gap-3">
+    <>
+    {/* Earth console — parked clear of the persistent radio bar (z-70,
+        ~8rem tall incl. transport strip + safe-area) so its destination
+        list is never buried under the now-playing bar. */}
+    <div className="absolute bottom-[calc(8.75rem+env(safe-area-inset-bottom))] right-5 z-[80] w-72 ui-element pointer-events-auto">
+      <div className="bg-zinc-950/90 border border-cyan-500/30 rounded-xl p-4 shadow-[0_0_30px_rgba(0,242,255,0.12)] backdrop-blur-md flex flex-col gap-3">
         <div className="border-b border-zinc-800 pb-2">
           <div className="text-xs font-black tracking-[0.25em] uppercase text-cyan-300">
             {t('earth.consoleTitle')}
@@ -104,5 +108,6 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn }) {
         </button>
       </div>
     </div>
+    </>
   );
 }
