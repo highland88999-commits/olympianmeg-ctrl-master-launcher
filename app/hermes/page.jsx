@@ -39,11 +39,10 @@ export default async function HermesPage({ searchParams }) {
 
       <div className="relative z-10 max-w-6xl mx-auto px-5 pt-14 sm:pt-20 pb-16">
         <header className="text-center mb-10">
-          <p className="text-xs uppercase tracking-[0.3em] text-amber-500/80 mb-3">Argus Observatory</p>
+          <p className="text-xs tracking-[0.3em] text-amber-500/80 mb-3">Argus Observatory</p>
           <h1 className="text-3xl sm:text-4xl font-black tracking-wide">HERMES</h1>
           <p className="text-zinc-400 mt-3 max-w-xl mx-auto">
-            A curated directory of sites across the multiverse. Every listing is paid for —
-            no ads, no tracking, no sponsored rankings.
+            A curated directory of sites across the multiverse.
           </p>
         </header>
 
@@ -72,7 +71,7 @@ export default async function HermesPage({ searchParams }) {
         </div>
 
         <footer className="mt-16 pt-6 border-t border-zinc-800 text-center text-xs text-zinc-600">
-          Listings cost $2.00 USD for 12 months, one per domain. External links open in a new tab.
+          $2.00 USD / 12 months / one per domain. External links open in a new tab.
         </footer>
 
         {/* Safari bottom-bar clearance */}
