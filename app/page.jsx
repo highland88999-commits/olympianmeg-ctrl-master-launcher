@@ -454,11 +454,11 @@ function NexusHub() {
         </div>
       )}
 
-      {/* Merlin's entrance video — SHADOWED iteration in the distance behind
-          the main home-scene frame. Same file as the auth background, but
-          dimmed, desaturated, and veiled so the live Earth, orbit rings,
-          satellites, and parked TRON bike sit in front of it. Looping,
-          muted, playsinline. Gated on the hub being visible so it never
+      {/* Merlin's entrance video — full normal brightness and clarity
+          (Merlin 2026-09-30: video brightness universally normal and clear).
+          A light veil keeps the live Earth, orbit rings, satellites, and
+          parked TRON bike reading in front of it. Looping, muted,
+          playsinline. Gated on the hub being visible so it never
           double-plays under the Auth overlay. */}
       {(user || cloudOffline) && bgVideoOk && (
         <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
@@ -470,9 +470,8 @@ function NexusHub() {
             playsInline
             onError={() => setBgVideoOk(false)}
             className="absolute inset-0 w-full h-full object-cover"
-            style={{ filter: 'brightness(0.30) saturate(0.55) contrast(0.95)' }}
           />
-          <div className="absolute inset-0 bg-black/50" />
+          <div className="absolute inset-0 bg-black/20" />
         </div>
       )}
 

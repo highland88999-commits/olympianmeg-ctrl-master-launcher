@@ -42,6 +42,29 @@ import {
 const TITLE = 'ARGO — Fleet Command';
 const VEHICLE_SCALE = 2.2;
 
+// Deep-link: /argo?lat=53.55&lon=-113.49&mode=walk&label=Edmonton drops
+// straight into the street world at those coordinates (used by the hub
+// Earth's "street level" button). Client-only read: safe under SSR.
+function readDeepLink() {
+  if (typeof window === 'undefined') return null;
+  try {
+    const q = new URLSearchParams(window.location.search);
+    const lat = Number(q.get('lat'));
+    const lon = Number(q.get('lon'));
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+    const mode = q.get('mode');
+    return {
+      lat,
+      lon,
+      label: (q.get('label') || '').slice(0, 60) || 'Dropped pin',
+      mode: mode === 'walk' || mode === 'fly' || mode === 'ride' ? mode : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // 3D pieces (inside the Canvas)
 // ---------------------------------------------------------------------------

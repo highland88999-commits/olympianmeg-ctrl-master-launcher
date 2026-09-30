@@ -180,13 +180,14 @@ ok('partners: 7 partners + stake + betty + YOUR AD HERE', () => {
   assert.ok(src.includes('YOUR AD HERE'));
 });
 
-ok('billboard monuments: tower-panel design at 1.5x', () => {
+ok('billboard monuments: tower-panel design at 1.5x of 1.5x (Merlin 2026-09-30)', () => {
   const src = SRC('../components/argo/BillboardMonument.jsx');
-  // Tower-panel dims x1.5: frame [6.3,10.8,0.3], face [5.7,6.75],
-  // magenta [6.0,7.05], CTA [5.7,1.2,0.15], email strip [5.7,0.9].
-  for (const d of ['FRAME_W = 6.3', 'FRAME_H = 10.8', 'FRAME_D = 0.3',
-    'FACE_W = 5.7', 'FACE_H = 6.75', 'MAG_W = 6.0', 'MAG_H = 7.05',
-    'CTA_W = 5.7', 'CTA_H = 1.2', 'CTA_D = 0.15', 'MAIL_W = 5.7', 'MAIL_H = 0.9']) {
+  // Monument dims = tower-panel x1.5 x1.5: frame [9.45,16.2,0.45],
+  // face [8.55,10.125], magenta [9.0,10.575], CTA [8.55,1.8,0.225],
+  // email strip [8.55,1.35].
+  for (const d of ['FRAME_W = 9.45', 'FRAME_H = 16.2', 'FRAME_D = 0.45',
+    'FACE_W = 8.55', 'FACE_H = 10.125', 'MAG_W = 9.0', 'MAG_H = 10.575',
+    'CTA_W = 8.55', 'CTA_H = 1.8', 'CTA_D = 0.225', 'MAIL_W = 8.55', 'MAIL_H = 1.35']) {
     assert.ok(src.includes(d), `missing ${d}`);
   }
   // Old obelisk + gold-edge monument look is gone.
@@ -194,7 +195,7 @@ ok('billboard monuments: tower-panel design at 1.5x', () => {
   assert.ok(!src.match(/name="edge"|gold edge/i), 'old gold-edge look remains');
   // Portrait canvas matched to the face aspect; creatives drawn cover-fit
   // (aspect preserved) so partner logos never stretch.
-  assert.ok(src.includes('CANVAS_W = 1140') && src.includes('CANVAS_H = 1350'), 'portrait canvas');
+  assert.ok(src.includes('CANVAS_W = 1710') && src.includes('CANVAS_H = 2025'), 'portrait canvas');
   assert.ok(src.includes('drawCover'), 'cover-fit creative draw missing');
   // Tower ad panels themselves are untouched (still original size).
   const ares = SRC('../components/Ares.jsx');

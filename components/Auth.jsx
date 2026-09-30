@@ -177,7 +177,7 @@ export default function Auth({ onLogin }) {
             className="absolute inset-0 w-full h-full object-cover"
           />
         )}
-        <div className="absolute inset-0 bg-black/55" />
+        <div className="absolute inset-0 bg-black/30" />{/* light veil only — video stays normal and clear (Merlin 2026-09-30) */}
       </div>
       <div className="bg-[#0c0c12]/90 p-10 border border-[#00f2ff] rounded-xl w-[90%] max-w-[420px] shadow-[0_0_40px_rgba(8,247,254,0.15)] flex flex-col relative">
         

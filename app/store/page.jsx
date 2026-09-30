@@ -1,10 +1,13 @@
 'use client';
 // /store — the launcher merch store.
-// Products come live from Stripe (GET /api/store/products); nothing is
-// hardcoded. Apparel (hoodies etc.) is grouped first, everything else
-// follows, unclassified items land under "More". Checkout goes through
-// POST /api/store/checkout, which re-prices server-side and applies the
-// gold Mint the same way the other launchers do.
+// Products come live from Printful (GET /api/store/products) — Merlin's
+// real "Omega Store" catalog; nothing is hardcoded. Apparel (hoodies etc.)
+// is grouped first, everything else follows, unclassified items land under
+// "More". Printful checkout is NOT wired yet, so every Printful card keeps
+// its buy CTA honestly disabled ("Checkout coming soon") — no order is
+// ever faked or placed. The Luge free-hoodie reward (/store?reward=luge)
+// is separate: it claims through POST /api/luge/claim and never touches
+// checkout, so it is unaffected.
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
@@ -15,6 +18,10 @@ const SIZES = ['S', 'M', 'L', 'XL', '2XL', '3XL'];
 function ProductCard({ product, onBuy, buying, gold, setGold, rewardMode, onRedeem }) {
   const [size, setSize] = useState('L');
   const isApparel = product.kind === 'apparel';
+  // Printful cards are listed read-only until Merlin approves wiring
+  // checkout: the buy CTA stays honestly disabled. Reward redemption
+  // (Luge) bypasses checkout entirely and is unaffected.
+  const checkoutOpen = product.checkoutReady !== false;
 
   return (
     <div className="flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/5">
@@ -42,7 +49,7 @@ function ProductCard({ product, onBuy, buying, gold, setGold, rewardMode, onRede
         ) : (
           <div className="text-lg font-bold text-amber-300">{product.priceLabel}</div>
         )}
-        {isApparel && (
+        {isApparel && (rewardMode || checkoutOpen) && (
           <label className="text-sm text-slate-300">
             Size
             <select
@@ -56,7 +63,7 @@ function ProductCard({ product, onBuy, buying, gold, setGold, rewardMode, onRede
             </select>
           </label>
         )}
-        {!rewardMode && (
+        {!rewardMode && checkoutOpen && (
           <label className="flex items-center gap-2 text-sm text-slate-300">
             <input
               type="checkbox"
@@ -69,11 +76,15 @@ function ProductCard({ product, onBuy, buying, gold, setGold, rewardMode, onRede
         )}
         <button
           type="button"
-          disabled={buying}
+          disabled={buying || (!rewardMode && !checkoutOpen)}
           onClick={() => (rewardMode ? onRedeem(product, isApparel ? size : '') : onBuy(product, isApparel ? size : ''))}
           className="w-full rounded-xl bg-amber-300 px-4 py-3 font-semibold text-black transition hover:bg-amber-200 disabled:opacity-50"
         >
-          {rewardMode ? (buying ? 'Redeeming…' : 'Redeem free hoodie') : (buying ? 'Starting checkout…' : 'Buy now')}
+          {rewardMode
+            ? (buying ? 'Redeeming…' : 'Redeem free hoodie')
+            : !checkoutOpen
+              ? 'Checkout coming soon'
+              : (buying ? 'Starting checkout…' : 'Buy now')}
         </button>
       </div>
     </div>
