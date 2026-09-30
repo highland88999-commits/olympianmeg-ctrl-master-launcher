@@ -7,6 +7,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { BackButton } from '@/components/ui';
+import { fx, unlockFx } from '@/lib/fx';
 import { createTour, STATES, PLANETS, SUN, pickQualityTier, logFor } from './tour.js';
 import { createSolarScene } from './solarSystem.js';
 
@@ -34,6 +35,10 @@ export default function HerculesPage() {
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
     setReducedMotion(mq.matches);
+    // unlock FX on first gesture (deep links may land here without the hub)
+    const unlock = () => unlockFx();
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
     const isMobile = window.matchMedia('(pointer: coarse)').matches;
     const tier = pickQualityTier({ isMobile, devicePixelRatio: window.devicePixelRatio || 1, reducedMotion: mq.matches });
     setQualityLabel(tier);
@@ -50,10 +55,13 @@ export default function HerculesPage() {
         setLegsLeft(tour.legsRemaining());
         pushLog(logFor(STATES.ARRIVED, dest));
         setPhase(STATES.ARRIVED);
+        fx.landing(); // touchdown on a new world: controlled-burn rumble
       },
     });
     sceneRef.current = scene;
     return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
       scene.dispose();
       sceneRef.current = null;
     };
@@ -65,6 +73,7 @@ export default function HerculesPage() {
     const scene = sceneRef.current;
     if (!tour || !scene) return;
     if (!tour.begin(ids)) return;
+    fx.tap(); // destination locked in: tiny tick
     const dest = tour.currentDestination();
     pushLog(logFor(STATES.COUNTDOWN, dest));
     setPhase(STATES.COUNTDOWN);
@@ -75,6 +84,7 @@ export default function HerculesPage() {
       const step = (n) => {
         if (n <= 0) { finishCountdown(); return; }
         setCount(n);
+        fx.countdownBeep(n === 1); // 3-2-1, final beep higher
         setTimeout(() => step(n - 1), 800);
       };
       step(3);
@@ -99,6 +109,7 @@ export default function HerculesPage() {
     if (next === STATES.COMPLETE) {
       pushLog(logFor(STATES.COMPLETE));
       setPhase(STATES.COMPLETE);
+      fx.gameWin(); // voyage complete: full fanfare
     } else {
       const dest = tour.currentDestination();
       pushLog(logFor(STATES.COUNTDOWN, dest));
@@ -108,6 +119,7 @@ export default function HerculesPage() {
         const step = (n) => {
           if (n <= 0) { finishCountdown(); return; }
           setCount(n);
+          fx.countdownBeep(n === 1); // 3-2-1, final beep higher
           setTimeout(() => step(n - 1), 800);
         };
         step(3);

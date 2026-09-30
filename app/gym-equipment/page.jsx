@@ -13,6 +13,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { fx, unlockFx } from '@/lib/fx';
 
 const TITLE = 'INNODIGYM | QUANTUM ARCADE';
 const PREFS_KEY = 'quantum-arcade.prefs.v1';
@@ -28,24 +29,24 @@ const CSS = `
 .qa-wrap { position: fixed; inset: 0; background: #000; overflow: hidden; font-family: system-ui, 'Segoe UI', Arial, sans-serif; cursor: pointer; }
 .qa-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .qa-header { position: absolute; top: 20px; width: 100%; text-align: center; z-index: 20; pointer-events: none; }
-.qa-brand { color: #0ff; font-size: clamp(1.8rem, 6vw, 2.5rem); font-weight: 900; letter-spacing: 6px; text-shadow: 0 0 15px #0ff; margin-bottom: 5px; }
+.qa-brand { color: #00f2ff; font-size: clamp(1.8rem, 6vw, 2.5rem); font-weight: 900; letter-spacing: 6px; text-shadow: 0 0 15px #00f2ff; margin-bottom: 5px; }
 .qa-sub { color: #f0f; font-size: clamp(0.75rem, 3vw, 1rem); letter-spacing: 5px; opacity: 0.8; }
 .qa-footer { position: absolute; bottom: max(30px, env(safe-area-inset-bottom)); width: 100%; text-align: center; z-index: 20; pointer-events: none; }
 .qa-prompt { color: #fff; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: clamp(0.65rem, 2.5vw, 0.8rem); letter-spacing: 2px; animation: qaPulse 1s infinite alternate; }
 .qa-impact { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 30; pointer-events: none; }
-.qa-impact span { display: none; color: #fff; font-size: clamp(2.5rem, 10vw, 5rem); font-weight: 900; text-transform: uppercase; text-shadow: 0 0 20px #0ff, 0 0 40px #f0f; animation: qaShake 0.15s infinite; }
+.qa-impact span { display: none; color: #fff; font-size: clamp(2.5rem, 10vw, 5rem); font-weight: 900; text-transform: uppercase; text-shadow: 0 0 20px #00f2ff, 0 0 40px #f0f; animation: qaShake 0.15s infinite; }
 .qa-impact span.show { display: block; }
 .qa-impact span.kapow { color: #ffff00; text-shadow: 0 0 30px #f00; }
-.qa-panel { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 40; background: rgba(2,8,16,0.94); border: 1px solid #0ff; border-radius: 8px; padding: 24px; padding-bottom: max(24px, env(safe-area-inset-bottom)); width: min(420px, 90vw); max-height: 80vh; overflow-y: auto; color: #e8fdff; }
-.qa-panel h2 { color: #0ff; letter-spacing: 3px; margin: 0 0 16px; font-size: 1.2rem; }
+.qa-panel { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 40; background: rgba(2,8,16,0.94); border: 1px solid #00f2ff; border-radius: 8px; padding: 24px; padding-bottom: max(24px, env(safe-area-inset-bottom)); width: min(420px, 90vw); max-height: 80vh; overflow-y: auto; color: #e8fdff; }
+.qa-panel h2 { color: #00f2ff; letter-spacing: 3px; margin: 0 0 16px; font-size: 1.2rem; }
 .qa-disclaimer { background: rgba(255,170,0,0.08); border: 1px solid rgba(255,170,0,0.5); color: #ffd9a0;
   font-size: 0.75rem; letter-spacing: 1px; padding: 10px 12px; border-radius: 4px; margin: 0 0 12px; line-height: 1.5; }
 .qa-panel dl { margin: 0; }
 .qa-panel dt { color: #f0f; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 2px; margin-top: 12px; }
 .qa-panel dd { margin: 4px 0 0; font-size: 1rem; }
-.qa-btn { background: transparent; border: 1px solid #0ff; color: #0ff; font-family: inherit; font-size: 0.85rem; letter-spacing: 2px; padding: 12px 20px; margin-top: 20px; margin-right: 10px; cursor: pointer; border-radius: 4px; min-height: 44px; }
-.qa-btn:hover { background: rgba(0,255,255,0.12); }
-.qa-toggle { position: absolute; top: 12px; right: 12px; z-index: 40; background: rgba(0,0,0,0.6); border: 1px solid rgba(0,255,255,0.5); color: #0ff; font-family: inherit; font-size: 0.75rem; padding: 10px 12px; cursor: pointer; border-radius: 4px; min-height: 44px; }
+.qa-btn { background: transparent; border: 1px solid #00f2ff; color: #00f2ff; font-family: inherit; font-size: 0.85rem; letter-spacing: 2px; padding: 12px 20px; margin-top: 20px; margin-right: 10px; cursor: pointer; border-radius: 4px; min-height: 44px; }
+.qa-btn:hover { background: rgba(0,242,255,0.12); }
+.qa-toggle { position: absolute; top: 12px; right: 12px; z-index: 40; background: rgba(0,0,0,0.6); border: 1px solid rgba(0,242,255,0.5); color: #00f2ff; font-family: inherit; font-size: 0.75rem; padding: 10px 12px; cursor: pointer; border-radius: 4px; min-height: 44px; }
 @keyframes qaPulse { from { opacity: 0.3; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
 @keyframes qaShake { 0% { transform: translate(2px, -2px); } 50% { transform: translate(-2px, 2px); } 100% { transform: translate(0, 0); } }
 `;
@@ -59,6 +60,10 @@ export default function GymEquipmentPage() {
 
   useEffect(() => {
     document.title = TITLE;
+    // unlock FX on first gesture (deep links may land here without the hub)
+    const unlock = () => unlockFx();
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
     try {
       const prefs = JSON.parse(window.localStorage.getItem(PREFS_KEY) || '{}');
       if (prefs.reduced) setReduced(true);
@@ -128,7 +133,7 @@ export default function GymEquipmentPage() {
       const cy = h / 2;
       const scale = Math.min(w, h) / 14;
 
-      ctx.fillStyle = '#00ffff';
+      ctx.fillStyle = '#00f2ff';
       ctx.globalAlpha = 0.7;
       for (let i = 0; i < parts.length; i++) {
         const p = parts[i];
@@ -156,15 +161,15 @@ export default function GymEquipmentPage() {
       grad.addColorStop(1, '#0a1a2a');
       ctx.fillStyle = grad;
       ctx.fillRect(px, py, pw, ph);
-      ctx.strokeStyle = '#00ffff';
+      ctx.strokeStyle = '#00f2ff';
       ctx.lineWidth = 2;
       ctx.strokeRect(px, py, pw, ph);
       // Scanline sweep.
       const sweep = (time * 0.4) % 1;
-      ctx.fillStyle = 'rgba(0,255,255,0.18)';
+      ctx.fillStyle = 'rgba(0,242,255,0.18)';
       ctx.fillRect(px, py + sweep * ph, pw, 3);
       // Equipment silhouette: bench + uprights.
-      ctx.strokeStyle = '#00ffff';
+      ctx.strokeStyle = '#00f2ff';
       ctx.lineWidth = 3;
       ctx.beginPath();
       ctx.moveTo(px + pw * 0.15, py + ph * 0.75);
@@ -190,12 +195,15 @@ export default function GymEquipmentPage() {
       cancelAnimationFrame(raf);
       clearTimeout(seqTimer);
       window.removeEventListener('resize', resize);
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
     };
   }, []);
 
   const onTap = (e) => {
     if (e.target.closest('.qa-panel') || e.target.closest('.qa-toggle')) return;
     if (burstRef.current) burstRef.current();
+    fx.tap(); // particle burst: tiny tick
   };
 
   const toggleMotion = () => {
@@ -232,7 +240,7 @@ export default function GymEquipmentPage() {
         type="button"
         className="qa-toggle"
         style={{ top: 68 }}
-        onClick={() => setPanelOpen(true)}
+        onClick={() => { setPanelOpen(true); fx.menuOpen(); }}
       >
         View Specs
       </button>
@@ -249,7 +257,7 @@ export default function GymEquipmentPage() {
               </div>
             ))}
           </dl>
-          <button type="button" className="qa-btn" onClick={() => setPanelOpen(false)}>Close</button>
+          <button type="button" className="qa-btn" onClick={() => { setPanelOpen(false); fx.menuClose(); }}>Close</button>
         </div>
       )}
     </div>

@@ -255,7 +255,7 @@ export function stepGame(g, dt, opts = {}) {
         p.shieldT = 0;
         p.invulnT = 1;
         g.score += 40;
-        if (!reduced) burst(g, b.x, b.y, '#22d3ee', 18, 220);
+        if (!reduced) burst(g, b.x, b.y, '#00f2ff', 18, 220);
         g.events.push('shatter');
       } else {
         g.blockers.splice(i, 1);
@@ -284,7 +284,7 @@ export function stepGame(g, dt, opts = {}) {
       g.boosts.splice(i, 1);
       g.score += 25;
       p.surgeT = 4;
-      if (!reduced) burst(g, b.x, b.y, '#fbbf24', 10, 140);
+      if (!reduced) burst(g, b.x, b.y, '#ffd700', 10, 140);
       g.events.push('boost');
     }
   }
@@ -295,7 +295,7 @@ export function stepGame(g, dt, opts = {}) {
     if (dist(p.x, p.y, s.x, s.y) < PLAYER_R + s.r + 4) {
       g.shieldPickups.splice(i, 1);
       p.shieldT = SHIELD_SECONDS;
-      if (!reduced) burst(g, s.x, s.y, '#22d3ee', 12, 150);
+      if (!reduced) burst(g, s.x, s.y, '#00f2ff', 12, 150);
       g.events.push('shieldup');
     }
   }

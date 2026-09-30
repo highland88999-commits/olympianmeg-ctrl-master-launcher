@@ -11,14 +11,14 @@ export const CYCLE_MS = 700; // how long each tier stays locked while cycling
 // The launch ladder, smallest to largest. Port of the source's objectTiers
 // (Marble -> Star), plus the Data Slab that accepts an uploaded image.
 export const TIERS = [
-  { name: 'Marble', radius: 6, color: '#00ffff', glyph: 'M' },
+  { name: 'Marble', radius: 6, color: '#00f2ff', glyph: 'M' },
   { name: 'Dice', radius: 8, color: '#ffffff', glyph: 'D' },
   { name: 'Tesseract', radius: 10, color: '#aa00ff', glyph: 'T' },
   { name: 'Meteor', radius: 12, color: '#888888', glyph: 'M' },
   { name: 'Satellite', radius: 14, color: '#00aaff', glyph: 'S' },
   { name: 'Truck', radius: 16, color: '#ff0000', glyph: 'T' },
   { name: 'UFO', radius: 18, color: '#00ff88', glyph: 'U' },
-  { name: 'Pyramid', radius: 20, color: '#ffcc00', glyph: 'P' },
+  { name: 'Pyramid', radius: 20, color: '#ffd700', glyph: 'P' },
   { name: 'House', radius: 22, color: '#00ff00', glyph: 'H' },
   { name: 'Skyscraper', radius: 24, color: '#00bbff', glyph: 'S' },
   { name: 'Moon', radius: 28, color: '#bbbbbb', glyph: 'M' },

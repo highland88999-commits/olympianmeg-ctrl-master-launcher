@@ -71,7 +71,7 @@ export const GODS = [
     domains: ['Sun', 'Music', 'Prophecy'],
     epithets: ['Far-Shooter', 'Lord of Delphi'],
     symbols: ['Lyre', 'Laurel', 'Bow'],
-    color: '#fbbf24',
+    color: '#ffd700',
     summary:
       'God of the sun, music, and prophecy. He drives the sun across the sky, leads the Muses, and speaks through the oracle at Delphi. Twin brother of Artemis.',
   },

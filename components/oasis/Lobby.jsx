@@ -23,6 +23,7 @@ import {
 import { fillParty, needsBackfill } from '@/lib/oasis/party';
 import { getNpc, pickBackfill } from '@/lib/oasis/npcs';
 import { bossesForGame, bossEligible } from '@/lib/oasis/bosses';
+import { fx } from '@/lib/fx';
 import ShareRoomCode from '@/components/oasis/ShareRoomCode';
 import NpcPicker from '@/components/oasis/NpcPicker';
 import RosterPanel from '@/components/oasis/RosterPanel';
@@ -85,6 +86,7 @@ export default function OasisLobby({ gameSlug, supabase, userId, callsign = 'PLA
 
   const handleBossFight = async (boss) => {
     if (!bossEligible(boss.id, stats)) return;
+    fx.unlock(); // boss unlocked and launched: bright chime + shimmer
     const { roster } = fillParty({
       humans: [userId], npcs: [], minPlayers: 2, maxPlayers: 2,
       npcPool: [getNpc(boss.npcId)].filter(Boolean),

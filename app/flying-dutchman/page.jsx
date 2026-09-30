@@ -317,7 +317,7 @@ export default function DutchmanPage() {
             </div>
           </div>
           <div style={{ position: 'absolute', top: 18, right: 18, display: 'flex', gap: 10, zIndex: 10 }}>
-            <button onClick={() => setCalm((c) => !c)} aria-pressed={calm} style={{ minHeight: 44, padding: '10px 16px', background: 'rgba(0,10,15,0.5)', border: '1px solid rgba(0,212,255,0.5)', color: calm ? '#ffcc00' : '#bff', borderRadius: 8, fontSize: 12, letterSpacing: 1, cursor: 'pointer' }}>
+            <button onClick={() => setCalm((c) => !c)} aria-pressed={calm} style={{ minHeight: 44, padding: '10px 16px', background: 'rgba(0,10,15,0.5)', border: '1px solid rgba(0,212,255,0.5)', color: calm ? '#ffd700' : '#bff', borderRadius: 8, fontSize: 12, letterSpacing: 1, cursor: 'pointer' }}>
               {calm ? '☁ CALM ON' : 'CALM OFF'}
             </button>
             <button onClick={() => setStage('log')} style={{ minHeight: 44, padding: '10px 18px', background: 'rgba(0,212,255,0.12)', border: '1px solid #00d4ff', color: '#00d4ff', borderRadius: 8, fontSize: 12, letterSpacing: 2, cursor: 'pointer' }}>
@@ -384,7 +384,7 @@ export default function DutchmanPage() {
             <button onClick={() => setStage('voyage')} style={{ minHeight: 44, padding: '10px 22px', background: 'transparent', border: '1px solid #00d4ff', color: '#00d4ff', borderRadius: 8, letterSpacing: 2, fontSize: 12, cursor: 'pointer' }}>
               ← RETURN TO THE SEA
             </button>
-            <button onClick={() => setCalm((c) => !c)} aria-pressed={calm} style={{ minHeight: 44, padding: '10px 22px', background: 'transparent', border: '1px solid rgba(0,212,255,0.5)', color: calm ? '#ffcc00' : '#bff', borderRadius: 8, letterSpacing: 2, fontSize: 12, cursor: 'pointer' }}>
+            <button onClick={() => setCalm((c) => !c)} aria-pressed={calm} style={{ minHeight: 44, padding: '10px 22px', background: 'transparent', border: '1px solid rgba(0,212,255,0.5)', color: calm ? '#ffd700' : '#bff', borderRadius: 8, letterSpacing: 2, fontSize: 12, cursor: 'pointer' }}>
               {calm ? '☁ CALM ON' : 'CALM OFF'}
             </button>
           </div>

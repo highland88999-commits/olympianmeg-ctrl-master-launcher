@@ -80,7 +80,7 @@ export const SATELLITES: SatelliteEntry[] = [
   { key: "aquarium", route: "/aquarium", pos: "ARGUS_POS", section: "OBSERVATORY", constellation: "ARGUS" },
   { key: "olympus", route: "/olympus", pos: "ARGUS_POS", section: "OBSERVATORY", constellation: "ARGUS" },
   { key: "babel", route: "/babel", pos: "BABEL_POS", section: "OBSERVATORY", constellation: "ARGUS" },
-  { key: "hermes", route: "/hermes", pos: "ARGUS_POS", section: "OBSERVATORY", constellation: "ARGUS" },
+  { key: "hermes", route: "/hermes", pos: "ARGUS_POS", section: "SHOPPING", constellation: "ARGUS" },
   { key: "agora", route: "/agora", pos: "ARGUS_POS", section: "OBSERVATORY", constellation: "ARGUS" },
   { key: "auction-house", route: "/auction-house", pos: "ARGUS_POS", section: "OBSERVATORY", constellation: "ARGUS" },
   { key: "aetheris", route: "/aetheris", pos: "ARGUS_POS", section: "OBSERVATORY", constellation: "ARGUS" },
@@ -144,6 +144,9 @@ export const SATELLITES: SatelliteEntry[] = [
   // HYGIEIA (health reminders + step history) sits with the other
   // healing-world satellites under the HESTIA god menu: MEDUSA/THERAPY.
   { key: "hygieia", route: "/hygieia", pos: "MEDUSA_POS", section: "THERAPY", constellation: "MEDUSA" },
+  // OMEGA STORE (Merlin's Printful hoodie store, the HERMES shopping
+  // satellite) sits with the merchant row: ARGUS/SHOPPING.
+  { key: "store", route: "/store", pos: "ARGUS_POS", section: "SHOPPING", constellation: "ARGUS" },
 ];
 
 export interface SectionDef { name: string; key: string; constellation: string; }
@@ -156,4 +159,5 @@ export const SECTIONS: SectionDef[] = [
   { name: "AI PROGRAMS", key: "ai-programs", constellation: "THOTH" },
   { name: "OBSERVATORY", key: "observatory", constellation: "ARGUS" },
   { name: "THERAPY", key: "therapy", constellation: "MEDUSA" },
+  { name: "SHOPPING", key: "shopping", constellation: "ARGUS" },
 ];

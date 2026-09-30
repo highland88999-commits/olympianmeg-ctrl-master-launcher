@@ -78,7 +78,7 @@ export default function NexusVortexPage() {
       g.addColorStop(1, 'rgba(255,215,0,0)');
       ctx.fillStyle = g;
       ctx.fillRect(-R * 2.2, -R * 2.2, R * 4.4, R * 4.4);
-      ctx.fillStyle = '#0a0a0a';
+      ctx.fillStyle = '#0b0b0d';
       ctx.strokeStyle = '#ffd700';
       ctx.lineWidth = 2;
       ctx.beginPath();

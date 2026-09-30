@@ -49,6 +49,22 @@ if (unknown.length) console.error('  phantom:', unknown.join(', '));
 
 t('god-menu satellite count matches satellites.ts', claimed.length === satKeys.length);
 
+// --- HERMES: the shopping god (2026-09-30, Merlin's direction) ---------------
+import { GOD_HEX } from '../lib/god-orbits.js';
+const hermesMenu = GOD_MENUS.find((m) => m.god === 'HERMES');
+t('HERMES is the Shopping category', hermesMenu && hermesMenu.category === 'Shopping');
+// Merlin's correction 2026-09-30: Hermes' landing as HE made it — the paid
+// directory (/hermes) leads the menu; the Omega Store is the shopping program
+// under it, not the landing.
+t('HERMES leads with Hermes\' landing as Merlin made it (the paid directory)',
+  hermesMenu && hermesMenu.satellites[0] === 'hermes');
+t('HERMES keeps the Omega Store in its shopping row',
+  hermesMenu && hermesMenu.satellites.includes('store'));
+t('HERMES wears the merchant gold accent', hermesMenu && hermesMenu.accent === 'gold');
+t('merchant gold resolves to a real hex for the 3D ring',
+  typeof GOD_HEX.gold === 'string' && /^#[0-9a-fA-F]{6}$/.test(GOD_HEX.gold));
+t('godMenuFor routes the store to HERMES', godMenuFor('store')?.god === 'HERMES');
+
 // --- helpers ----------------------------------------------------------------
 t('godMenuFor finds the right menu', godMenuFor('chess')?.god === 'ARES');
 t('godMenuFor finds plutus menu', godMenuFor('liquid-gold')?.god === 'PLUTUS');
@@ -89,23 +105,50 @@ import {
   EARTH_CENTER,
   EARTH_RADIUS,
   MAX_BAND_RADIUS,
+  RING_SPIN,
   BIKE_PARK_POS,
   RIDER_OFFSET,
   BIKE_LOOK_AHEAD,
   bandAngle,
   orbitTime,
   orbitPositionFor,
+  menuSatellitePosition,
   dist3,
 } from '../lib/god-orbits.js';
 
 t('exactly 10 orbit bands, one per god menu, in order',
   GOD_BANDS.length === 10 && GOD_BANDS.every((b, i) => b.god === GOD_MENUS[i].god));
-t('band radii grow outward and clear the constellation towers (r~40)',
+t('band radii grow outward and clear the old tower ring (r~40)',
   GOD_BANDS.every((b, i) => b.radius >= 46 && (i === 0 || b.radius > GOD_BANDS[i - 1].radius)));
-t('band node counts match their god menu sizes',
-  GOD_BANDS.every((b, i) => b.count === GOD_MENUS[i].satellites.length));
+t('exactly ONE physical satellite per band (10 total, not every program)',
+  GOD_BANDS.every((b) => b.count === 1));
 t('bandAngle advances with time (bands actually orbit)',
   GOD_BANDS.every((b) => bandAngle(b, 10) > bandAngle(b, 0)));
+t('the 10 satellites are evenly spaced: phases exactly 36° apart',
+  GOD_BANDS.every((b, i) => Math.abs(b.phase - (i * Math.PI * 2) / 10) < 1e-12));
+t('world-space satellite spacing reads even (tilt perturbs < 1°)',
+  [0, 30, 300, 1000].every((tt) => {
+    const angs = GOD_BANDS.map((_, i) => {
+      const p = menuSatellitePosition(i, tt);
+      return Math.atan2(p.z - ORBIT_CENTER.z, p.x - ORBIT_CENTER.x);
+    });
+    return angs.every((a, i) => {
+      const b = angs[(i + 1) % angs.length];
+      let d = (b - a) % (Math.PI * 2);
+      if (d < 0) d += Math.PI * 2;
+      return Math.abs(d - (Math.PI * 2) / 10) < 0.02; // < ~1.15°
+    });
+  }));
+t('ring spin is counter-rotation against Earth (negative Y application)',
+  RING_SPIN > 0 &&
+  stripComments(readFileSync('components/GodOrbitRings.jsx', 'utf8'))
+    .includes('-RING_SPIN * orbitTime()'));
+t('orbitPositionFor resolves through the program menu to its one satellite',
+  (() => {
+    const p = orbitPositionFor('chess', 42);
+    const q = menuSatellitePosition(0, 42); // chess → ARES → band 0
+    return p && q && Math.abs(p.x - q.x) < 1e-9 && Math.abs(p.y - q.y) < 1e-9 && Math.abs(p.z - q.z) < 1e-9;
+  })());
 
 const finite = (p) => p && Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z);
 const sampleTimes = [0, 7.5, 123.456];
@@ -148,10 +191,10 @@ t('camera controller handles to_bike and on_bike states',
   pageSrc.includes("'to_bike'") && pageSrc.includes("'on_bike'"));
 
 const ringsSrc = stripComments(readFileSync('components/GodOrbitRings.jsx', 'utf8'));
-t('orbit nodes launch only through onLaunch (no direct router)',
-  ringsSrc.includes('onLaunch(sat.route, satKey)') && !ringsSrc.includes('router.push'));
+t('orbit rings carry no launch wiring at all (menu-only navigation)',
+  !ringsSrc.includes('router.push') && !ringsSrc.includes('onLaunch'));
 t('orbit rings share the analytic clock (no render-clock drift)',
-  ringsSrc.includes('orbitTime()') && ringsSrc.includes('bandAngle('));
+  ringsSrc.includes('orbitTime()') && ringsSrc.includes('-RING_SPIN * orbitTime()'));
 t('orbit nodes stay crisp (fog off on the orbit layer)',
   ringsSrc.includes('fog={false}'));
 

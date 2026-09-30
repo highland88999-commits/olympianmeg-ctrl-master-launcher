@@ -32,6 +32,7 @@ export const SECTION_DESCRIPTIONS = {
   'AI PROGRAMS': 'AI-assisted programs.',
   OBSERVATORY: 'Worlds and gathering places.',
   THERAPY: 'Quiet spaces.',
+  SHOPPING: 'Marketplaces and merchants.',
 };
 
 // Look up a registry entry by key. Returns null when absent (never throws,

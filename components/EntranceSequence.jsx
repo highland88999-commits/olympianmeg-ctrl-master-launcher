@@ -82,7 +82,7 @@ function CommanderFigure() {
       <ellipse cx="110" cy="72" rx="26" ry="30" fill="#000" />
       {/* visor slit */}
       <g className="visor-flicker">
-        <rect x="88" y="64" width="44" height="9" rx="4.5" fill="#22d3ee" filter="url(#visorGlow)" />
+        <rect x="88" y="64" width="44" height="9" rx="4.5" fill="#00f2ff" filter="url(#visorGlow)" />
       </g>
       {/* hood rim light */}
       <path d="M84 44 C92 32 104 28 114 30" stroke="#f87171" strokeWidth="2" fill="none" opacity="0.55" />
@@ -271,7 +271,7 @@ export default function EntranceSequence({ onDone }) {
         ctx.stroke();
 
         ctx.fillStyle = '#a5f3fc';
-        ctx.shadowColor = '#22d3ee';
+        ctx.shadowColor = '#00f2ff';
         ctx.shadowBlur = 10;
         ctx.beginPath(); ctx.arc(px, py, 4, 0, Math.PI * 2); ctx.fill();
         ctx.shadowBlur = 0;

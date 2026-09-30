@@ -5,14 +5,25 @@ import {
 
 const CX = TABLE_W / 2;
 
-export function drawTable(ctx, game) {
-  // Felt
-  const g = ctx.createLinearGradient(0, 0, 0, TABLE_H);
-  g.addColorStop(0, '#0d2436');
-  g.addColorStop(0.5, '#0a1a29');
-  g.addColorStop(1, '#0d2436');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, TABLE_W, TABLE_H);
+// visual: 'classic' (default launcher table) or 'kaleidoscope' (Merlin's
+// shader background from his version — the table surface goes
+// semi-transparent so his kaleidoscope shows through, exactly like his build).
+export function drawTable(ctx, game, visual = 'classic') {
+  const kaleido = visual === 'kaleidoscope';
+
+  // Felt — or Merlin's translucent surface over his kaleidoscope
+  // (his build: black, transparent, opacity 0.75).
+  if (kaleido) {
+    ctx.fillStyle = 'rgba(2, 6, 12, 0.72)';
+    ctx.fillRect(0, 0, TABLE_W, TABLE_H);
+  } else {
+    const g = ctx.createLinearGradient(0, 0, 0, TABLE_H);
+    g.addColorStop(0, '#0d2436');
+    g.addColorStop(0.5, '#0a1a29');
+    g.addColorStop(1, '#0d2436');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, TABLE_W, TABLE_H);
+  }
 
   // Air holes: subtle dotted grid
   ctx.fillStyle = 'rgba(140, 200, 255, 0.10)';
@@ -60,11 +71,12 @@ export function drawTable(ctx, game) {
     ctx.stroke();
   }
 
-  // Rails (skip the goal mouths)
-  ctx.strokeStyle = '#1e3a52';
+  // Rails (skip the goal mouths). Kaleidoscope mode wears Merlin's deep blue
+  // frame from his version (0x1e40af); classic keeps the launcher's rails.
+  ctx.strokeStyle = kaleido ? '#1e40af' : '#1e3a52';
   ctx.lineWidth = 10;
   ctx.strokeRect(0, 0, TABLE_W, TABLE_H);
-  ctx.strokeStyle = '#00e5ff';
+  ctx.strokeStyle = kaleido ? '#00ffcc' : '#00e5ff';
   ctx.lineWidth = 2;
   ctx.strokeRect(0, 0, TABLE_W, TABLE_H);
 }
@@ -109,9 +121,9 @@ export function drawPuck(ctx, puck) {
   ctx.restore();
 }
 
-export function drawScene(ctx, game) {
+export function drawScene(ctx, game, visual = 'classic') {
   ctx.clearRect(0, 0, TABLE_W, TABLE_H);
-  drawTable(ctx, game);
+  drawTable(ctx, game, visual);
   drawMallet(ctx, game.ai, '#c62f3d', '#ff5a5a');
   drawMallet(ctx, game.player, '#0f9db8', '#00e5ff');
   if (game.state !== 'menu') drawPuck(ctx, game.puck);

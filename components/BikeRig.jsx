@@ -59,9 +59,19 @@ export default function BikeRig({ bikeRef }) {
   useFrame((state) => {
     const t = state.clock.elapsedTime;
     if (bikeRef.current) {
-      // Gentle parked hover — position.x/z stay pinned at the park spot.
-      bikeRef.current.position.y = BIKE_PARK_POS[1] + Math.sin(t * 1.1) * 0.35;
-      bikeRef.current.rotation.z = Math.sin(t * 0.7) * 0.03;
+      if (bikeRef.current.userData.flying) {
+        // Mounted flight: SequenceController owns position/heading. The rig
+        // only keeps the beacon/label alive — never fight the flight model.
+      } else {
+        // Gentle parked hover around wherever the bike was left (baseY is
+        // set on dismount; initially the park spot). x/z stay pinned.
+        const baseY =
+          bikeRef.current.userData.baseY !== undefined
+            ? bikeRef.current.userData.baseY
+            : BIKE_PARK_POS[1];
+        bikeRef.current.position.y = baseY + Math.sin(t * 1.1) * 0.35;
+        bikeRef.current.rotation.z = Math.sin(t * 0.7) * 0.03;
+      }
     }
     if (beaconRef.current) {
       const s = 1 + Math.sin(t * 2.4) * 0.16;

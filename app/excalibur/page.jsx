@@ -6,6 +6,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { BackButton } from '@/components/ui';
+import { fx, unlockFx } from '@/lib/fx';
 import { createMachine, STATES } from './stateMachine.js';
 import { createExcaliburScene } from './scene.js';
 
@@ -37,6 +38,10 @@ export default function ExcaliburPage() {
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
     setReducedMotion(mq.matches);
+    // unlock FX on first gesture (deep links may land here without the hub)
+    const unlock = () => unlockFx();
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
     const machine = createMachine();
     machineRef.current = machine;
     const scene = createExcaliburScene(canvasRef.current, {
@@ -44,10 +49,13 @@ export default function ExcaliburPage() {
       onZoomComplete: () => {
         machine.zoomComplete();
         setPhase(machine.getState());
+        fx.checkpoint(); // arrived at the stone: soft chime
       },
     });
     sceneRef.current = scene;
     return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
       cancelAnimationFrame(pullRafRef.current);
       scene.dispose();
       sceneRef.current = null;
@@ -79,11 +87,13 @@ export default function ExcaliburPage() {
         scene.triggerChampion();
         scene.setPulling(false);
         setPhase(STATES.CHAMPION);
+        fx.gameWin(); // the sword is yours: full fanfare
         return; // loop ends
       }
       if (next !== STATES.PULLING) {
         scene.setPulling(false);
         setPhase(next);
+        fx.menuClose(); // worthiness faded: soft settle back to the stone
         return; // worthiness decayed to zero -> back inside
       }
       pullRafRef.current = requestAnimationFrame(tick);
@@ -100,6 +110,7 @@ export default function ExcaliburPage() {
     const after = machine.getState();
     if (after !== before) {
       if (after === STATES.ENTERING) scene.beginZoom();
+      fx.tap(); // intro advance: tiny tick
       setPhase(after);
     }
   };
@@ -117,6 +128,7 @@ export default function ExcaliburPage() {
       holdingRef.current = true;
       lastPctRef.current = -1;
       setPhase(STATES.PULLING);
+      fx.tap(); // gripped the sword: tiny tick
       startPullLoop();
     }
   };

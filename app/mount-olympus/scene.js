@@ -127,7 +127,7 @@ export const HOTSPOTS = [
   { id: "spring", x: 420, y: 668, title: "Muses' Spring", body: "Cold water rising from the rock. Travellers drink here before the long ascent." },
 ];
 
-export const ACCENT = "#d4af37";
+export const ACCENT = "#ffd700";
 
 // ---------------- scene ----------------
 const rng = mulberry32(0x0114);

@@ -132,7 +132,7 @@ function drawJumbotron(ctx, W, H, modeId, match, timeSec) {
     for (let i = 0; i < bars; i++) {
       const h =
         H * 0.3 * (0.25 + 0.75 * Math.abs(Math.sin(timeSec * 3 + i * 0.9)));
-      ctx.fillStyle = i % 2 ? '#22d3ee' : '#ff2fd6';
+      ctx.fillStyle = i % 2 ? '#00f2ff' : '#ff2fd6';
       ctx.fillRect(W * 0.07 + i * bw + 1, H * 0.88 - h, bw - 2, h);
     }
   } else if (modeId === 'game') {

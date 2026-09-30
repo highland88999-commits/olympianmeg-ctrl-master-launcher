@@ -1,4 +1,23 @@
 import { create } from 'zustand'
+import { fx } from '@/lib/fx'
+
+// Which ship (if any) was NEWLY destroyed by this shot: destroyed now but
+// not before. One id — a single shot can only sink one ship.
+function newlySunkId(before: ShipData[], after: ShipData[]): string | null {
+  const s = after.find((a) => a.destroyed && !before.find((b) => b.id === a.id)?.destroyed);
+  return s ? s.id : null;
+}
+
+/** Fire the matched FX for a resolved shot. win/lose handled by caller. */
+function shotFx(isHit: boolean, sunkId: string | null) {
+  try {
+    if (sunkId) fx.shipSunk(); // same explosion both directions — one function
+    else if (isHit) fx.shipHit(); // medium double-pulse
+    else fx.shipMiss(); // light single tick
+  } catch {
+    /* fx never breaks the game */
+  }
+}
 
 export type Orientation = 'horizontal' | 'vertical';
 export type CellState = 'hit' | 'miss';
@@ -180,6 +199,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
     const isHit = !!hitShipId;
     const allDestroyed = newOpponentShips.every(s => s.destroyed);
+    const sunkId = newlySunkId(opponentShips, newOpponentShips);
 
     set((state) => ({
       playerShots: { ...state.playerShots, [key]: isHit ? 'hit' : 'miss' },
@@ -188,6 +208,14 @@ export const useGameStore = create<GameState>((set, get) => ({
       winner: allDestroyed ? 'player' : state.winner,
       status: allDestroyed ? 'game_over' : state.status
     }));
+
+    if (allDestroyed) {
+      // Final shot: the last ship still gets its explosion (identical to every
+      // other sink), then the win fanfare follows after a beat so the two
+      // effects don't stack on top of each other.
+      shotFx(isHit, sunkId);
+      setTimeout(() => { try { fx.gameWin(); } catch { /* noop */ } }, 500);
+    } else shotFx(isHit, sunkId);
 
     if (mode === 'pve' && !allDestroyed) setTimeout(() => get().aiTurn(), 1000);
   },
@@ -212,6 +240,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
     const isHit = !!hitShipId;
     const allDestroyed = newPlayerShips.every(s => s.destroyed);
+    const sunkId = newlySunkId(playerShips, newPlayerShips);
 
     set((state) => ({
       opponentShots: { ...state.opponentShots, [`${x},${z}`]: isHit ? 'hit' : 'miss' },
@@ -220,6 +249,13 @@ export const useGameStore = create<GameState>((set, get) => ({
       winner: allDestroyed ? 'opponent' : state.winner,
       status: allDestroyed ? 'game_over' : state.status
     }));
+
+    if (allDestroyed) {
+      // Final shot: the last ship still gets its explosion (identical to every
+      // other sink), then the defeat rumble follows after a beat.
+      shotFx(isHit, sunkId);
+      setTimeout(() => { try { fx.death(); } catch { /* noop */ } }, 500);
+    } else shotFx(isHit, sunkId);
   },
 
   broadcastShot: (x, z) => get().fireShot(x, z),

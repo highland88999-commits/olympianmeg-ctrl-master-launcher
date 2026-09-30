@@ -93,7 +93,7 @@ t('twinkle stays subtle (0.5..1)', (() => {
 t('realm name is Artemis', REALM_NAME === 'Artemis');
 t('reduced-motion query is correct', REDUCED_MOTION_QUERY === '(prefers-reduced-motion: reduce)');
 t('formatRealmDate returns a readable date', /2026|September/.test(formatRealmDate(new Date('2026-09-28'))));
-t('section descriptions cover 7 sections', Object.keys(SECTION_DESCRIPTIONS).length === 7);
+t('section descriptions cover 8 sections', Object.keys(SECTION_DESCRIPTIONS).length === 8);
 
 // --- realm renders: page source wiring ---
 const page = readFileSync('app/artemis/page.jsx', 'utf8');

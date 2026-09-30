@@ -25,7 +25,7 @@ export default function HUD({ user, sectorId, gameMode, gameStatus, currentTurn,
   return (
     <div className="absolute top-0 left-0 z-10 flex flex-col justify-between w-full h-full p-4 pointer-events-none sm:p-8">
       <div className="flex flex-col items-start justify-between gap-4 sm:flex-row">
-        <div className="w-full sm:w-auto bg-zinc-950/90 border border-cyan-500/30 p-4 sm:p-5 rounded-lg backdrop-blur-md shadow-[0_0_20px_rgba(0,255,255,0.1)] min-w-[280px]">
+        <div className="w-full sm:w-auto bg-zinc-950/90 border border-cyan-500/30 p-4 sm:p-5 rounded-lg backdrop-blur-md shadow-[0_0_20px_rgba(0,242,255,0.1)] min-w-[280px]">
           <div className="flex flex-col gap-2 sm:gap-3">
             <h2 className="text-xs tracking-widest text-cyan-400 uppercase sm:text-sm">Quantum Combat Grid</h2>
             <div className="flex items-center gap-3">

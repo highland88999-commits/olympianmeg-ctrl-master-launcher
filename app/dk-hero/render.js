@@ -114,7 +114,7 @@ export function drawGirders(ctx, state) {
 
 export function drawLadders(ctx, state) {
   const { S } = state;
-  ctx.strokeStyle = '#22d3ee';
+  ctx.strokeStyle = '#00f2ff';
   ctx.lineWidth = Math.max(3, 4 * S);
   for (const lad of state.ladders) {
     const off = 7 * S;
@@ -148,9 +148,9 @@ export function drawShip(ctx, state, t) {
 
   // Engine glow (localized)
   ctx.save();
-  ctx.shadowColor = '#00ffff';
+  ctx.shadowColor = '#00f2ff';
   ctx.shadowBlur = 14 * S;
-  ctx.fillStyle = '#00ffff';
+  ctx.fillStyle = '#00f2ff';
   ctx.beginPath();
   ctx.ellipse(cx - 34 * S, cy + 8 * S, 20 * S, 6 * S, 0, 0, Math.PI * 2);
   ctx.fill();
@@ -168,7 +168,7 @@ export function drawShip(ctx, state, t) {
 
   // Cockpit dome
   const dome = ctx.createLinearGradient(cx - 25 * S, cy - 35 * S, cx + 25 * S, cy);
-  dome.addColorStop(0, '#00ffff');
+  dome.addColorStop(0, '#00f2ff');
   dome.addColorStop(1, '#004444');
   ctx.fillStyle = dome;
   ctx.beginPath();

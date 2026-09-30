@@ -92,7 +92,7 @@ function MindCanvas({ net, pulsesRef, reducedMotion }) {
         const nx = X(n.x), ny = Y(n.y);
         const breathe = reducedMotion ? 0 : Math.sin(t * 2 + n.x * 9 + n.y * 7) * 1.5;
         const active = pulsesRef.current.some((p) => p.delay <= 0 && p.path.includes(n.id));
-        ctx.fillStyle = active ? '#aef7ff' : n.layer === 0 ? '#00f3ff' : n.layer === net.layers.length - 1 ? '#ff7ae0' : '#8a2be2';
+        ctx.fillStyle = active ? '#aef7ff' : n.layer === 0 ? '#00f2ff' : n.layer === net.layers.length - 1 ? '#ff7ae0' : '#8a2be2';
         ctx.shadowColor = ctx.fillStyle;
         ctx.shadowBlur = active ? 16 : 7; // localized glow
         ctx.beginPath(); ctx.arc(nx, ny, 5 + breathe * 0.4, 0, 6.29); ctx.fill();
@@ -147,7 +147,7 @@ export default function MindPage() {
     <main style={{ ...mono, minHeight: '100dvh', background: '#050011', color: '#e8f6ff', padding: '18px 16px 60px' }}>
       <div style={{ maxWidth: '920px', margin: '0 auto' }}>
         <header style={{ marginBottom: '14px' }}>
-          <h1 style={{ margin: 0, fontSize: '1.5rem', letterSpacing: '5px', color: '#00f3ff', textShadow: '0 0 16px rgba(0,243,255,0.55)' }}>
+          <h1 style={{ margin: 0, fontSize: '1.5rem', letterSpacing: '5px', color: '#00f2ff', textShadow: '0 0 16px rgba(0,243,255,0.55)' }}>
             OMEGA MIND
           </h1>
           <div style={{ fontSize: '0.75rem', color: 'rgba(232,246,255,0.55)', letterSpacing: '1px', marginTop: '4px' }}>
@@ -174,7 +174,7 @@ export default function MindPage() {
           />
           <button
             type="submit"
-            style={{ ...mono, minHeight: '48px', padding: '12px 22px', background: 'rgba(0,243,255,0.12)', border: '1px solid #00f3ff', color: '#00f3ff', borderRadius: '8px', cursor: 'pointer', letterSpacing: '2px' }}
+            style={{ ...mono, minHeight: '48px', padding: '12px 22px', background: 'rgba(0,243,255,0.12)', border: '1px solid #00f2ff', color: '#00f2ff', borderRadius: '8px', cursor: 'pointer', letterSpacing: '2px' }}
           >
             THINK
           </button>
@@ -189,7 +189,7 @@ export default function MindPage() {
           </div>
         )}
 
-        <h2 style={{ fontSize: '1rem', letterSpacing: '3px', color: '#00f3ff', marginTop: '26px' }}>
+        <h2 style={{ fontSize: '1rem', letterSpacing: '3px', color: '#00f2ff', marginTop: '26px' }}>
           THOUGHT JOURNAL <span style={{ color: 'rgba(232,246,255,0.45)', fontSize: '0.75rem' }}>({thoughts.length} · this device only)</span>
         </h2>
         {thoughts.length === 0 ? (

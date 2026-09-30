@@ -60,13 +60,18 @@ test('2/4. launch-travel portals (the original portals) are preserved', () => {
 });
 
 test('2. orbit rings are visual-only: no launcher passed from the shell', () => {
-  assert.ok(scene.includes('<GodOrbitRings satIndex={satIndex} />'),
+  // Hub rework (2026-09-30): rings render with no props at all — the shell
+  // passes no launcher, not even satIndex. Launching lives in the satellite menu.
+  assert.ok(scene.includes('<GodOrbitRings />'),
     'rings render without canLaunch/onLaunch');
+  assert.ok(!scene.includes('<GodOrbitRings') || !/GodOrbitRings[^>]*onLaunch/.test(scene),
+    'no onLaunch prop on the rings');
 });
 
 test('2. orbit nodes never launch without an explicit launcher', () => {
-  assert.ok(rings.includes('if (canLaunch && onLaunch) onLaunch(sat.route, satKey);'),
-    'node launch guarded by canLaunch && onLaunch');
+  // Hub rework (2026-09-30): the rings file carries no launch wiring at all —
+  // there is no onLaunch to guard; nodes cannot launch, period.
+  assert.ok(!rings.includes('onLaunch'), 'no onLaunch wiring in the rings');
 });
 
 test('2. floating video button menu is the single program launcher', () => {

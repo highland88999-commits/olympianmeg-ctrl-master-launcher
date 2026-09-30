@@ -27,13 +27,13 @@ export default function Knight({ team, gridX, gridZ, isAlive, isSelected, cyanSk
   });
 
   const activeTex = team === 'cyan' ? cyanSkinTex : pinkSkinTex;
-  const wireColor = team === 'cyan' ? '#00f3ff' : '#ff2a85';
+  const wireColor = team === 'cyan' ? '#00f2ff' : '#ff2a85';
 
   return (
     <group ref={meshRef} onClick={onClick}>
       <mesh>
         <latheGeometry args={[points, 32]} />
-        <meshStandardMaterial color="#111111" emissive="#ffffff" emissiveMap={activeTex || null} map={activeTex || null} emissiveIntensity={isSelected ? 2.5 : 1.2} roughness={0.4} metalness={0.1} />
+        <meshStandardMaterial color="#121214" emissive="#ffffff" emissiveMap={activeTex || null} map={activeTex || null} emissiveIntensity={isSelected ? 2.5 : 1.2} roughness={0.4} metalness={0.1} />
       </mesh>
       <mesh scale={[1.02, 1.02, 1.02]}>
          <latheGeometry args={[points, 32]} />

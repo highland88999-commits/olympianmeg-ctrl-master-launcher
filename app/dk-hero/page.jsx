@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { fx, unlockFx } from '@/lib/fx';
 import { createLevel, step, resizeLevel } from './game';
 import { makeStars, drawScene } from './render';
 
@@ -82,6 +83,10 @@ export default function DKHeroPage() {
     setReducedMotion(mq.matches);
     const onChange = (e) => setReducedMotion(e.matches);
     if (mq.addEventListener) mq.addEventListener('change', onChange);
+    // unlock FX on first gesture (deep links may land here without the hub)
+    const unlock = () => unlockFx();
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
 
     fitCanvas();
     let raf = 0;
@@ -119,6 +124,14 @@ export default function DKHeroPage() {
               });
               break;
             }
+            // Game feel, routed through the central FX library.
+            if (ev === 'jump') fx.jump(); // soft spring blip
+            else if (ev === 'jumped-over') fx.coin(); // barrel dodged: bright chirp
+            else if (ev === 'died') fx.death(); // long rumble
+            else if (ev === 'level-clear') fx.levelUp(); // rising arpeggio
+            else if (ev === 'respawn') fx.checkpoint(); // soft chime
+            // 'land' and 'barrel-spawned' are ambient — no FX. 'game-over'
+            // follows 'died'; the death rumble already covered the moment.
           }
           if (stateRef.current !== state) break; // level advanced; use fresh state
         }
@@ -162,6 +175,8 @@ export default function DKHeroPage() {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('resize', fitCanvas);
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
       if (mq.removeEventListener) mq.removeEventListener('change', onChange);
     };
   }, [fitCanvas, syncHud]);

@@ -256,7 +256,7 @@ const styles = {
   },
   inner: { maxWidth: '900px', margin: '0 auto' },
   header: { textAlign: 'center', marginBottom: '18px' },
-  kicker: { letterSpacing: '6px', textTransform: 'uppercase', color: '#00F3FF', fontSize: '12px', margin: '0 0 8px' },
+  kicker: { letterSpacing: '6px', textTransform: 'uppercase', color: '#00f2ff', fontSize: '12px', margin: '0 0 8px' },
   h1: { fontSize: 'clamp(1.8rem, 5vw, 2.8rem)', margin: '0 0 10px', letterSpacing: '3px', color: '#fff' },
   sub: { color: '#9aa', fontSize: '0.95rem', maxWidth: '600px', margin: '0 auto 10px', lineHeight: 1.6 },
   local: {
@@ -268,15 +268,15 @@ const styles = {
   label: { display: 'block', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '1px', color: '#888', marginBottom: '6px' },
   row: { display: 'flex', gap: '10px', flexWrap: 'wrap' },
   input: {
-    flex: '1 1 240px', minHeight: '48px', background: '#000', border: '1px solid #333', color: '#00F3FF',
+    flex: '1 1 240px', minHeight: '48px', background: '#000', border: '1px solid #333', color: '#00f2ff',
     borderRadius: '8px', padding: '12px 14px', fontSize: '1rem', boxSizing: 'border-box', fontFamily: 'inherit',
   },
   generate: {
-    minHeight: '48px', padding: '0 28px', background: 'transparent', border: '1px solid #00F3FF', color: '#00F3FF',
+    minHeight: '48px', padding: '0 28px', background: 'transparent', border: '1px solid #00f2ff', color: '#00f2ff',
     borderRadius: '8px', cursor: 'pointer', fontSize: '1rem', letterSpacing: '1px', textTransform: 'uppercase',
   },
   barWrap: { height: '6px', background: '#111', borderRadius: '3px', marginTop: '12px', overflow: 'hidden' },
-  bar: { height: '100%', background: '#00F3FF', transition: 'width 120ms linear' },
+  bar: { height: '100%', background: '#00f2ff', transition: 'width 120ms linear' },
   simNote: { color: '#777', fontSize: '0.82rem', marginTop: '8px' },
   canvasWrap: {
     position: 'relative', height: 'min(62vh, 520px)', border: '1px solid rgba(0,243,255,0.25)',
@@ -284,7 +284,7 @@ const styles = {
   },
   canvas: { position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block' },
   meta: { textAlign: 'center', marginTop: '16px' },
-  badge: { color: '#00F3FF', fontSize: '0.82rem', letterSpacing: '1px', margin: '0 0 6px' },
+  badge: { color: '#00f2ff', fontSize: '0.82rem', letterSpacing: '1px', margin: '0 0 6px' },
   note: { color: '#777', fontSize: '0.82rem', margin: '0 0 12px' },
   download: {
     minHeight: '48px', padding: '0 28px', background: 'transparent', border: '1px solid #fe53bb', color: '#fe53bb',

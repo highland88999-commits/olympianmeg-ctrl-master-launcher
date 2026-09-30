@@ -60,9 +60,9 @@ export function paintEnergy(ctx, w, h) {
     const bright = rand() > 0.5;
     const g = ctx.createLinearGradient(x, 0, x + bw, 0);
     if (bright) {
-      g.addColorStop(0, 'rgba(0,255,255,0)');
+      g.addColorStop(0, 'rgba(0,242,255,0)');
       g.addColorStop(0.5, 'rgba(220,255,255,0.85)');
-      g.addColorStop(1, 'rgba(0,255,255,0)');
+      g.addColorStop(1, 'rgba(0,242,255,0)');
     } else {
       g.addColorStop(0, 'rgba(0,180,180,0)');
       g.addColorStop(0.5, 'rgba(0,220,220,0.4)');

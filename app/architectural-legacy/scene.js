@@ -48,7 +48,7 @@ export const ERAS = [
   {
     id: "classical", name: "CLASSICAL", span: "800 BC – 400 AD",
     fact: "Post-and-lintel temples in marble. Proportion was law: the column orders — Doric, Ionic, Corinthian — set the grammar of Western building for two millennia.",
-    accent: "#d4af37",
+    accent: "#ffd700",
   },
   {
     id: "gothic", name: "GOTHIC", span: "1150 – 1500",
@@ -115,7 +115,7 @@ export const SLABS = [
   },
 ];
 
-export const ACCENT = "#d4af37";
+export const ACCENT = "#ffd700";
 
 // ---------------- scene ----------------
 const rng = mulberry32(0xae9);

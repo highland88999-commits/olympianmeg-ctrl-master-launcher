@@ -73,7 +73,7 @@ export const ARCHETYPES = [
     name: 'Nebula Drift',
     tagline: 'A slow, sprawling cosmic mist. Weightless and wide.',
     palettes: [
-      ['#00ffaa', '#00ffff', '#c8fff4'],
+      ['#00ffaa', '#00f2ff', '#c8fff4'],
       ['#ff7edb', '#7b2ff7', '#ffe3f7'],
       ['#12c2e9', '#c471ed', '#f64f59'],
     ],
@@ -91,7 +91,7 @@ export const ARCHETYPES = [
     palettes: [
       ['#ff0055', '#00ffaa', '#ffff00'],
       ['#ff2d95', '#00e5ff', '#ffffff'],
-      ['#ccff00', '#ff00ff', '#00ffff'],
+      ['#ccff00', '#ff00ff', '#00f2ff'],
     ],
     particleCount: [16000, 22000],
     rotationSpeed: [-0.03, -0.012],
@@ -354,8 +354,8 @@ export function compileStandaloneExport(blueprint) {
     '  html,body{margin:0;padding:0;width:100%;height:100%;background:#020306;overflow:hidden;font-family:ui-monospace,Menlo,Consolas,monospace;}\n' +
     '  #vortex-canvas{position:fixed;top:0;left:0;display:block;}\n' +
     '  #hud{position:fixed;left:0;right:0;bottom:28px;display:flex;gap:12px;justify-content:center;z-index:5;}\n' +
-    '  #hud button{display:none;padding:14px 34px;font:700 0.85rem ui-monospace,Menlo,Consolas,monospace;letter-spacing:3px;cursor:pointer;border-radius:999px;border:1px solid #00ffff;background:rgba(2,6,8,0.8);color:#00ffff;}\n' +
-    '  #hud button:hover{background:#00ffff;color:#001114;}\n' +
+    '  #hud button{display:none;padding:14px 34px;font:700 0.85rem ui-monospace,Menlo,Consolas,monospace;letter-spacing:3px;cursor:pointer;border-radius:999px;border:1px solid #00f2ff;background:rgba(2,6,8,0.8);color:#00f2ff;}\n' +
+    '  #hud button:hover{background:#00f2ff;color:#001114;}\n' +
     '  #replay-btn{display:inline-block !important;border-color:#5a6b7d !important;color:#9fb2c5 !important;background:rgba(2,6,8,0.6) !important;}\n' +
     '  #tag{position:fixed;top:18px;left:0;right:0;text-align:center;color:#8fa3b8;font-size:0.7rem;letter-spacing:4px;z-index:5;pointer-events:none;}\n' +
     '</style>\n' +

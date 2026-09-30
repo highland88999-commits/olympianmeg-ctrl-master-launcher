@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { LEGS, STORAGE_KEY, sanitizeLeg, advanceLeg, isComplete, stationUrl } from '@/lib/styx/journey';
 
 export default function StyxPage() {
@@ -111,7 +112,7 @@ export default function StyxPage() {
           <p className="text-xs tracking-[0.35em] uppercase text-[#5a5f68]">Or wander freely</p>
           <div className="mt-4 grid grid-cols-2 gap-3">
             {LEGS.map((s) => (
-              <a
+              <Link
                 key={s.route}
                 href={s.route}
                 className="rounded-xl border border-[#2a2e34] bg-[#0b0e11]/60 px-4 py-4
@@ -119,14 +120,15 @@ export default function StyxPage() {
               >
                 <p className="text-xs tracking-[0.3em] text-[#8a8f98]">{s.numeral}</p>
                 <p className="mt-1 text-[#e8e4da]">{s.title}</p>
-              </a>
+              </Link>
             ))}
           </div>
         </div>
 
-        <a href="/" className="mt-12 text-sm text-[#5a5f68] hover:text-[#8a8f98] tracking-widest uppercase">
+        {/* Client-side nav: keeps the root layout — and the radio — alive. */}
+        <Link href="/" className="mt-12 text-sm text-[#5a5f68] hover:text-[#8a8f98] tracking-widest uppercase">
           ← Return to the hub
-        </a>
+        </Link>
       </div>
     </main>
   );

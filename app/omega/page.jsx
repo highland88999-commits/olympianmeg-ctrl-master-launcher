@@ -196,7 +196,7 @@ export default function OmegaPage() {
           <>
             <div style={{
               fontSize: 'clamp(1.8rem, 6vw, 3.2rem)', letterSpacing: '8px', color: '#00f0ff',
-              textShadow: '0 0 25px #00ffff, 0 0 60px #0088ff', padding: '0 16px',
+              textShadow: '0 0 25px #00f2ff, 0 0 60px #0088ff', padding: '0 16px',
             }}>
               THE OMEGA ARCH
             </div>
@@ -213,7 +213,7 @@ export default function OmegaPage() {
         <div style={{
           position: 'absolute', bottom: '8%', width: '100%', textAlign: 'center',
           fontSize: 'clamp(1rem, 3vw, 1.4rem)', letterSpacing: '5px', color: '#00f0ff',
-          textShadow: '0 0 15px #00ffff', pointerEvents: 'none',
+          textShadow: '0 0 15px #00f2ff', pointerEvents: 'none',
         }}>
           {STATE_HINT[scene]}
         </div>

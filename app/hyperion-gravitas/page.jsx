@@ -42,7 +42,7 @@ export default function HyperionPage() {
     speed: 0.5,
     squash: 0.8,
     mode: "tint",
-    tint: "#00f3ff",
+    tint: "#00f2ff",
     playing: true,
     sonic: "off", // off | file | mic
   });
@@ -367,7 +367,7 @@ const styles = {
   sonicLabel: { fontSize: 12, fontWeight: 700, letterSpacing: 2, color: "#7fd8ec", textTransform: "uppercase" },
   sonicNote: { fontSize: 11, opacity: 0.55 },
   row: { display: "flex", alignItems: "center", gap: 8, fontSize: 13 },
-  range: { width: 90, accentColor: "#00f3ff" },
+  range: { width: 90, accentColor: "#00f2ff" },
   select: { background: "#0a0f1e", color: "#fff", border: "1px solid rgba(255,255,255,.25)", borderRadius: 6, padding: "6px 8px", fontSize: 13 },
   color: { width: 40, height: 30, border: "1px solid rgba(255,255,255,.3)", borderRadius: 6, background: "none", padding: 2, cursor: "pointer" },
   btn: { background: "rgba(255,255,255,.08)", color: "#fff", border: "1px solid rgba(255,255,255,.25)", borderRadius: 8, padding: "8px 12px", fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" },

@@ -81,7 +81,7 @@ export default function Lobby() {
         </div>
 
         <div className="flex flex-col w-full gap-4">
-          <button onClick={handleStartPvE} disabled={loading} className="w-full px-6 py-4 text-sm font-bold tracking-widest text-cyan-400 uppercase transition-all border border-cyan-500/50 bg-cyan-950/20 hover:bg-cyan-900/40 hover:shadow-[0_0_20px_rgba(0,255,255,0.3)] disabled:opacity-50">Play vs Computer</button>
+          <button onClick={handleStartPvE} disabled={loading} className="w-full px-6 py-4 text-sm font-bold tracking-widest text-cyan-400 uppercase transition-all border border-cyan-500/50 bg-cyan-950/20 hover:bg-cyan-900/40 hover:shadow-[0_0_20px_rgba(0,242,255,0.3)] disabled:opacity-50">Play vs Computer</button>
           
           <div className="flex items-center gap-4 my-2 opacity-50"><div className="flex-1 h-px bg-gradient-to-r from-transparent via-white to-transparent" /><span className="font-mono text-xs text-white">OR</span><div className="flex-1 h-px bg-gradient-to-r from-transparent via-white to-transparent" /></div>
 
@@ -91,7 +91,7 @@ export default function Lobby() {
           <OasisLinkedHost />
 
           <div className="flex gap-2">
-            <input type="text" placeholder="ENTER 6-DIGIT CODE" maxLength={6} value={roomInput} onChange={(e) => setRoomInput(e.target.value.toUpperCase())} disabled={loading} className="w-full px-4 py-3 font-mono text-center text-white uppercase transition-all bg-black border outline-none border-zinc-700 focus:border-cyan-500 focus:shadow-[0_0_15px_rgba(0,255,255,0.2)] placeholder:text-zinc-600 disabled:opacity-50" />
+            <input type="text" placeholder="ENTER 6-DIGIT CODE" maxLength={6} value={roomInput} onChange={(e) => setRoomInput(e.target.value.toUpperCase())} disabled={loading} className="w-full px-4 py-3 font-mono text-center text-white uppercase transition-all bg-black border outline-none border-zinc-700 focus:border-cyan-500 focus:shadow-[0_0_15px_rgba(0,242,255,0.2)] placeholder:text-zinc-600 disabled:opacity-50" />
             <button onClick={handleJoinPvP} disabled={roomInput.length !== 6 || loading} className="px-6 font-bold tracking-widest text-white transition-all border disabled:opacity-50 disabled:cursor-not-allowed border-zinc-500 hover:bg-white hover:text-black">JOIN</button>
           </div>
           {errorMsg && <p className="mt-2 text-xs text-center text-red-500 animate-pulse">{errorMsg}</p>}

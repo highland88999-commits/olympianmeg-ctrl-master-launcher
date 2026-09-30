@@ -51,7 +51,7 @@ export default function LedgerPanel() {
 
   return (
     <section aria-label="The house cut" className="w-full">
-      <h2 className="text-2xl font-light tracking-[0.2em] text-[#d4af37]">THE HOUSE CUT</h2>
+      <h2 className="text-2xl font-light tracking-[0.2em] text-[#ffd700]">THE HOUSE CUT</h2>
       <p className="mt-2 text-sm text-[#a89a78] leading-relaxed">
         Merlin&apos;s rule, plain and simple: the house takes <span className="text-[#e8d9b0] font-bold">10% of net profit</span> —
         what&apos;s left after card fees and costs. Not 10% of the total. If a night loses money, the house takes nothing.
@@ -82,7 +82,7 @@ export default function LedgerPanel() {
       <button
         type="button"
         onClick={() => setUseEstimate(true)}
-        className="mt-2 text-xs text-[#8a7f66] hover:text-[#d4af37] uppercase tracking-widest"
+        className="mt-2 text-xs text-[#8a7f66] hover:text-[#ffd700] uppercase tracking-widest"
       >
         Use Stripe fee estimate instead
       </button>
@@ -98,7 +98,7 @@ export default function LedgerPanel() {
               <span className={`text-sm ${highlight ? 'text-[#e8d9b0] font-bold' : 'text-[#a89a78]'}`}>
                 {op && <span className="text-[#5a5348] mr-2">{op}</span>}{label}
               </span>
-              <span className={`tabular-nums ${i === 5 ? 'text-[#d4af37] text-lg font-bold' : highlight ? 'text-[#e8d9b0]' : 'text-[#8a7f66]'}`}>
+              <span className={`tabular-nums ${i === 5 ? 'text-[#ffd700] text-lg font-bold' : highlight ? 'text-[#e8d9b0]' : 'text-[#8a7f66]'}`}>
                 {formatCents(cents)}
               </span>
             </div>

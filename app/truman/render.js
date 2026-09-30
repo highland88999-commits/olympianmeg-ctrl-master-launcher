@@ -12,7 +12,7 @@
 
 import { BLOCK_SIZE } from './world.js';
 
-const AXIOM_COLORS = ['#ff0044', '#00ffff', '#aa00ff', '#ffffff'];
+const AXIOM_COLORS = ['#ff003c', '#00f2ff', '#aa00ff', '#ffffff'];
 
 function lerp(a, b, t) { return a + (b - a) * t; }
 function hexLerp(h1, h2, t) {
@@ -77,7 +77,7 @@ function drawGridFloor(ctx, W, H, cam, storm, dayBright) {
   ctx.fill();
 
   // Cyan grid lines every block (source: grid floor with cyan strokes)
-  ctx.strokeStyle = storm ? 'rgba(255,0,68,0.28)' : 'rgba(0,255,255,0.22)';
+  ctx.strokeStyle = storm ? 'rgba(255,0,68,0.28)' : 'rgba(0,242,255,0.22)';
   ctx.lineWidth = 1;
   for (let i = -R; i <= R; i += BLOCK_SIZE) {
     let a = project(i, 0, -R, cam), b = project(i, 0, R, cam);
@@ -86,7 +86,7 @@ function drawGridFloor(ctx, W, H, cam, storm, dayBright) {
     ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
   }
   // City edge marker
-  ctx.strokeStyle = storm ? 'rgba(255,0,68,0.5)' : 'rgba(0,255,255,0.45)';
+  ctx.strokeStyle = storm ? 'rgba(255,0,68,0.5)' : 'rgba(0,242,255,0.45)';
   ctx.lineWidth = 2;
   ctx.beginPath(); ctx.moveTo(c[0].x, c[0].y);
   for (let i = 1; i < 4; i++) ctx.lineTo(c[i].x, c[i].y);
@@ -95,7 +95,7 @@ function drawGridFloor(ctx, W, H, cam, storm, dayBright) {
 
 /* Procedural stylized figure for Henry (the 9.3MB henry.glb is not shipped). */
 export function drawFigure(ctx, x, y, z, cam, opts = {}) {
-  const { color = '#00ffff', scale = 1, bob = 0, walking = false } = opts;
+  const { color = '#00f2ff', scale = 1, bob = 0, walking = false } = opts;
   const p = project(x, y, z, cam);
   const s = cam.zoom * scale;
   const legSwing = walking ? Math.sin(bob * 10) * 3 * s : 0;
@@ -171,11 +171,11 @@ export function createRenderer() {
           const base = storm ? '#1c0d12' : '#0d1622';
           drawPrism(ctx, b.x, 0, b.z, b.w, b.h, b.w, camS,
             storm ? '#33202a' : '#1a2a3d', base, storm ? '#140a0e' : '#0a1220',
-            storm ? 'rgba(255,0,68,0.25)' : 'rgba(0,255,255,0.18)');
+            storm ? 'rgba(255,0,68,0.25)' : 'rgba(0,242,255,0.18)');
           // window sparkle
           if (Math.abs(b.x - cam.x) < 700 && Math.abs(b.z - cam.z) < 700) {
             const p = project(b.x, b.h * 0.7, b.z, camS);
-            ctx.fillStyle = storm ? 'rgba(255,0,68,0.5)' : 'rgba(0,255,255,0.35)';
+            ctx.fillStyle = storm ? 'rgba(255,0,68,0.5)' : 'rgba(0,242,255,0.35)';
             ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
           }
         } else if (e.k === 't') {
@@ -194,7 +194,7 @@ export function createRenderer() {
         } else {
           const car = e.car;
           const p = project(car.x, 0.6, car.z, camS);
-          const col = car.cyan ? '#00ffff' : '#ff00ff';
+          const col = car.cyan ? '#00f2ff' : '#ff00ff';
           const ang = (car.dir * Math.PI) / 2 + cam.yaw;
           ctx.save();
           ctx.translate(p.x, p.y); ctx.rotate(-ang * 0 + (car.dir === 0 || car.dir === 2 ? 0 : Math.PI / 2) * 0);
@@ -207,7 +207,7 @@ export function createRenderer() {
           ctx.globalAlpha = 1; ctx.shadowBlur = 0;
           // body
           const wdt = 3.4 * camS.zoom, len = 7.4 * camS.zoom;
-          ctx.fillStyle = '#0a0a0a';
+          ctx.fillStyle = '#0b0b0d';
           if (car.dir === 0 || car.dir === 2) ctx.fillRect(-wdt / 2, -len / 2, wdt, len);
           else ctx.fillRect(-len / 2, -wdt / 2, len, wdt);
           ctx.strokeStyle = col; ctx.lineWidth = 1.2; ctx.strokeRect(
@@ -242,13 +242,13 @@ export function createRenderer() {
         const ap = project(0, 200, 0, camS);
         const pw = 46 * camS.zoom, ph = 46 * camS.zoom;
         ctx.save();
-        ctx.strokeStyle = storm ? 'rgba(255,0,68,0.7)' : 'rgba(0,255,255,0.55)';
-        ctx.lineWidth = 2; ctx.shadowColor = storm ? '#ff0044' : '#00ffff'; ctx.shadowBlur = calm ? 0 : 16;
+        ctx.strokeStyle = storm ? 'rgba(255,0,68,0.7)' : 'rgba(0,242,255,0.55)';
+        ctx.lineWidth = 2; ctx.shadowColor = storm ? '#ff003c' : '#00f2ff'; ctx.shadowBlur = calm ? 0 : 16;
         ctx.strokeRect(ap.x - pw / 2, ap.y - ph / 2, pw, ph);
         ctx.fillStyle = 'rgba(0,20,30,0.55)';
         ctx.fillRect(ap.x - pw / 2, ap.y - ph / 2, pw, ph);
         ctx.shadowBlur = 0;
-        ctx.fillStyle = storm ? '#ff0044' : '#00ffff';
+        ctx.fillStyle = storm ? '#ff003c' : '#00f2ff';
         ctx.font = `${Math.max(10, 11 * camS.zoom)}px system-ui, sans-serif`;
         ctx.textAlign = 'center';
         ctx.fillText("HENRY'S APARTMENT", ap.x, ap.y - ph / 2 - 8);
@@ -279,7 +279,7 @@ export function createRenderer() {
       for (const pt of ash.parts) {
         const p = project(pt.x, pt.y, pt.z, camS);
         if (p.x < 0 || p.x > W || p.y < 0 || p.y > H) continue;
-        ctx.fillStyle = storm ? 'rgba(255,0,68,0.7)' : 'rgba(0,255,255,0.28)';
+        ctx.fillStyle = storm ? 'rgba(255,0,68,0.7)' : 'rgba(0,242,255,0.28)';
         const sz = storm ? 2.4 : 1.4;
         ctx.fillRect(p.x, p.y, sz, sz);
       }
@@ -302,8 +302,8 @@ export function createRenderer() {
         const mx = cam.cx + Math.cos(ang) * W * 0.32, my = H * 0.12 + Math.sin(ang) * H * 0.05;
         ctx.save();
         ctx.globalAlpha = storm ? 0.25 : 0.85;
-        ctx.fillStyle = storm ? '#ff0044' : (dayBright > 0.3 ? '#fff7d6' : '#dfe9ff');
-        ctx.shadowColor = storm ? '#ff0044' : '#cfe0ff'; ctx.shadowBlur = calm ? 0 : 30;
+        ctx.fillStyle = storm ? '#ff003c' : (dayBright > 0.3 ? '#fff7d6' : '#dfe9ff');
+        ctx.shadowColor = storm ? '#ff003c' : '#cfe0ff'; ctx.shadowBlur = calm ? 0 : 30;
         ctx.beginPath(); ctx.arc(mx, my, 26, 0, 7); ctx.fill();
         ctx.restore();
       }
@@ -339,37 +339,37 @@ export function drawApartment(ctx, W, H, S) {
   // Glass wall sheen
   ctx.fillStyle = 'rgba(0,180,255,0.05)';
   ctx.fillRect(0, 0, W, floorY);
-  ctx.strokeStyle = 'rgba(0,255,255,0.25)';
+  ctx.strokeStyle = 'rgba(0,242,255,0.25)';
   ctx.beginPath(); ctx.moveTo(0, floorY); ctx.lineTo(W, floorY); ctx.stroke();
 
   // Floor — dark polished concrete
-  ctx.fillStyle = '#0a0a0a';
+  ctx.fillStyle = '#0b0b0d';
   ctx.fillRect(0, floorY, W, H - floorY);
-  ctx.fillStyle = 'rgba(0,255,255,0.08)';
+  ctx.fillStyle = 'rgba(0,242,255,0.08)';
   ctx.fillRect(0, floorY, W, 2);
 
   const cx = W / 2;
   // Desk (workstation)
-  ctx.fillStyle = '#111111';
+  ctx.fillStyle = '#121214';
   ctx.fillRect(cx - 130, floorY - 70, 260, 14);
   ctx.fillRect(cx - 120, floorY - 56, 10, 56);
   ctx.fillRect(cx + 110, floorY - 56, 10, 56);
   // Laptop — glowing cyan terminal
   ctx.save();
-  ctx.shadowColor = '#00ffff'; ctx.shadowBlur = calm ? 0 : 24;
+  ctx.shadowColor = '#00f2ff'; ctx.shadowBlur = calm ? 0 : 24;
   ctx.fillStyle = '#000';
   ctx.fillRect(cx - 45, floorY - 108, 90, 42);
-  ctx.strokeStyle = '#00ffff'; ctx.lineWidth = 2;
+  ctx.strokeStyle = '#00f2ff'; ctx.lineWidth = 2;
   ctx.strokeRect(cx - 45, floorY - 108, 90, 42);
   ctx.shadowBlur = 0;
-  ctx.fillStyle = '#00ffff';
+  ctx.fillStyle = '#00f2ff';
   ctx.font = '11px monospace'; ctx.textAlign = 'left';
   const lines = ['> vercel --prod', '> deploying…', '> matrix: SYNCED'];
   lines.forEach((l, i) => ctx.fillText(l, cx - 38, floorY - 92 + i * 13));
   ctx.restore();
   // Cyan desk lamp glow
   const lg = ctx.createRadialGradient(cx, floorY - 90, 0, cx, floorY - 90, 130);
-  lg.addColorStop(0, 'rgba(0,255,255,0.14)'); lg.addColorStop(1, 'rgba(0,255,255,0)');
+  lg.addColorStop(0, 'rgba(0,242,255,0.14)'); lg.addColorStop(1, 'rgba(0,242,255,0)');
   ctx.fillStyle = lg; ctx.fillRect(cx - 130, floorY - 220, 260, 220);
 
   // Dog bed
@@ -395,7 +395,7 @@ export function drawApartment(ctx, W, H, S) {
   ctx.restore();
 
   // Label
-  ctx.fillStyle = storm ? '#ff0044' : '#00ffff';
+  ctx.fillStyle = storm ? '#ff003c' : '#00f2ff';
   ctx.font = '13px system-ui, sans-serif'; ctx.textAlign = 'left';
   ctx.fillText("HENRY'S APARTMENT — 200M ABOVE THE GRID", 18, 30);
   ctx.fillStyle = 'rgba(255,255,255,0.55)';

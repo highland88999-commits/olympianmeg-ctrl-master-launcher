@@ -128,7 +128,7 @@ function AimArc({ game }) {
 
   return (
     <line ref={lineRef} geometry={geo}>
-      <lineBasicMaterial color="#22d3ee" transparent opacity={0.95} linewidth={2} />
+      <lineBasicMaterial color="#00f2ff" transparent opacity={0.95} linewidth={2} />
     </line>
   );
 }
@@ -172,9 +172,9 @@ export function GameCanvas({ game, snap, children }) {
       <color attach="background" args={['#04060c']} />
       <fog attach="fog" args={['#04060c', 34, 95]} />
       <ambientLight intensity={0.55} />
-      <hemisphereLight args={['#3b82f6', '#0a0a0a', 0.35]} />
+      <hemisphereLight args={['#3b82f6', '#0b0b0d', 0.35]} />
       <directionalLight position={[12, 18, 8]} intensity={1.6} color="#e8f4ff" />
-      <directionalLight position={[-10, 12, -10]} intensity={0.5} color="#22d3ee" />
+      <directionalLight position={[-10, 12, -10]} intensity={0.5} color="#00f2ff" />
       <SimLoop game={game} />
       <CameraRig game={game} />
       <CourtScene spots={game.spots} activeIndex={snap.spotIndex} showSpots={snap.phase === 'idle'} />

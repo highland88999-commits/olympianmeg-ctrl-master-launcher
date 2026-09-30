@@ -16,6 +16,7 @@ import Lobby from '@/components/battleship/Lobby'
 import OasisDeepLinkJoiner from '@/components/battleship/OasisDeepLinkJoiner'
 import { useGameSync } from '@/hooks/battleship/useGameSync'
 import { useGameStore } from '@/store/battleship/useGameStore'
+import { unlockFx } from '@/lib/fx'
 
 function GameNetworkManager() {
   useGameSync()
@@ -35,6 +36,17 @@ export default function Game() {
   const opponentShips = useGameStore(state => state.opponentShips)
   const playerShots = useGameStore(state => state.playerShots)
   const opponentShots = useGameStore(state => state.opponentShots)
+
+  useEffect(() => {
+    // unlock on first gesture (deep links may land here without the hub)
+    const unlock = () => unlockFx();
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
+  }, []);
 
   useEffect(() => {
     // The shared supabase client throws when the database connection isn't
