@@ -55,7 +55,7 @@ t(`no orphaned dictionary keys (orphaned: ${orphaned.length})`, orphaned.length 
 const sectionsBlock = regSrc.slice(regSrc.indexOf('export const SECTIONS'));
 t('SHOPPING section registered', /name: "SHOPPING", key: "shopping"/.test(sectionsBlock));
 t('store satellite wired to /store under SHOPPING',
-  /\{ key: "store", route: "\/store", pos: "ARGUS_POS", section: "SHOPPING", constellation: "ARGUS" \}/.test(satBlock));
+  /\{ key: "store", route: "\/store", pos: "HERMES", section: "SHOPPING", constellation: "ARGUS" \}/.test(satBlock));
 for (const code of LOCALES) {
   t(`${code}: shopping section + store labels present`,
     dicts[code]['sec.shopping.name'] && dicts[code]['sat.store.title'] && dicts[code]['sat.store.subtitle']);
@@ -69,7 +69,8 @@ const godMenuPanel = readFileSync('components/GodMenuPanel.jsx', 'utf8');
 t('menu uses t() for labels', /t\(`sat\.\$\{key\}\.title`\)/.test(godMenuPanel));
 t('LanguageProvider wraps hub', /<LanguageProvider>/.test(launcher));
 t('SettingsGear in menu header', /<SettingsGear \/>/.test(launcher));
-t('POS_MAP covers all six targets', /ZEUS_POS, ARES_POS, THOTH_POS, ARGUS_POS, BABEL_POS, MEDUSA_POS/.test(launcher));
+t('POS_MAP covers the ten god-tower targets plus legacy points',
+  /GOD_TOWER_POS, BABEL_POS, ARTEMIS_POS/.test(launcher));
 
 // --- core module: fallback + language list ---
 const core = readFileSync('lib/i18n/index.tsx', 'utf8');

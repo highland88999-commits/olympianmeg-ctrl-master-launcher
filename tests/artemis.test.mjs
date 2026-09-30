@@ -48,7 +48,8 @@ t('resolveTarget: non-array -> null', resolveTarget(null, 'chess') === null);
 const resolved = resolveQuickLaunch(SATELLITES);
 t('resolveQuickLaunch resolves all 8', resolved.length === 8);
 t('resolveQuickLaunch carries registry route', resolved.every((q) => q.route && q.route.startsWith('/')));
-t('resolveQuickLaunch carries registry pos', resolved.every((q) => typeof q.pos === 'string' && q.pos.endsWith('_POS')));
+t('resolveQuickLaunch carries registry pos (god-tower key)',
+  resolved.every((q) => typeof q.pos === 'string' && /^[A-Z]+$/.test(q.pos)));
 const chess = resolved.find((q) => q.key === 'chess');
 t('chess -> /chess', chess && chess.route === '/chess');
 const dropped = resolveQuickLaunch(SATELLITES.filter((s) => s.key !== 'ares'));

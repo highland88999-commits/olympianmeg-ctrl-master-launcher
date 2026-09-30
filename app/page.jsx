@@ -8,7 +8,7 @@ import { LanguageProvider, useI18n } from '@/lib/i18n';
 import { SATELLITES } from '@/lib/i18n/satellites';
 import SatelliteMenu from '@/components/SatelliteMenu';
 import { orbitTime, orbitPositionFor } from '@/lib/god-orbits';
-import { ZEUS_POS, ARES_POS, THOTH_POS, ARGUS_POS, BABEL_POS, MEDUSA_POS, ARTEMIS_POS } from '@/lib/home-positions';
+import { GOD_TOWER_SPOTS, GOD_TOWER_POS, BABEL_POS, ARTEMIS_POS } from '@/lib/home-positions';
 import SettingsGear from '@/components/SettingsGear';
 import EntranceSequence from '@/components/EntranceSequence';
 import { createEntranceMachine } from '@/lib/entrance-sequence';
@@ -27,7 +27,10 @@ const HomeScene = dynamic(() => import('@/components/HomeScene'), {
 
 function NexusHub() {
   const { t } = useI18n();
-  const POS_MAP = { ZEUS_POS, ARES_POS, THOTH_POS, ARGUS_POS, BABEL_POS, MEDUSA_POS, ARTEMIS_POS };
+  // Drop-target fallbacks: the 10 god-tower spots by god name, plus the
+  // legacy reference points. (Nothing currently passes fallbackPos, but the
+  // map stays honest for any caller that does.)
+  const POS_MAP = { ...GOD_TOWER_POS, BABEL_POS, ARTEMIS_POS };
 
   const [appState, setAppState] = useState('hub_intro');
   const [isMenuExpanded, setIsMenuExpanded] = useState(true);
@@ -65,7 +68,7 @@ function NexusHub() {
   const targetRouteRef = useRef('');
   const adWindowRef = useRef(null);
   
-  const [activeSatTarget, setActiveSatTarget] = useState(ZEUS_POS);
+  const [activeSatTarget, setActiveSatTarget] = useState(GOD_TOWER_SPOTS[0].pos);
   
 
   const [flightAxis, setFlightAxis] = useState('horizontal'); 
@@ -224,7 +227,7 @@ function NexusHub() {
         const p = orbitPositionFor(satKey, orbitTime());
         if (p) target = [p.x, p.y, p.z];
       }
-      if (!target) target = POS_MAP[fallbackPos] || ZEUS_POS;
+      if (!target) target = POS_MAP[fallbackPos] || GOD_TOWER_SPOTS[0].pos;
     }
     setActiveSatTarget(target);
     targetRouteRef.current = route;

@@ -52,7 +52,8 @@ t('all 15 true tools moved into TOOLS',
   EXPECTED_TOOLS.every((k) => TOOLS.some((s) => s.key === k && s.route === '/' + k)));
 t('no true tool left in UTILITIES', !sats.some((s) => s.section === 'UTILITIES' && EXPECTED_TOOLS.includes(s.key)));
 t('no true tool left in AI PROGRAMS', !sats.some((s) => s.section === 'AI PROGRAMS' && EXPECTED_TOOLS.includes(s.key)));
-t('all TOOLS entries share ARES_POS', TOOLS.every((s) => s.pos === 'ARES_POS'));
+t('every TOOLS entry dives to its own god tower (pos is a god name)',
+  TOOLS.every((s) => /^[A-Z]+$/.test(s.pos)));
 t('all TOOLS entries carry the ARES constellation', TOOLS.every((s) => s.constellation === 'ARES'));
 t('no duplicate satellite keys', new Set(sats.map((s) => s.key)).size === sats.length);
 
@@ -68,9 +69,14 @@ const menuAccents = [...godMenusSrc.matchAll(/accent:\s*'(\w+)'/g)].map((m) => m
 const godHexKeys = [...godOrbitsSrc.matchAll(/^\s{2}(\w+):\s*'#[0-9a-fA-F]{6}'/gm)].map((m) => m[1]);
 t('every god menu accent resolves in GOD_HEX (no nav crash)',
   menuAccents.length > 0 && menuAccents.every((a) => godHexKeys.includes(a)));
-const posNames = (launcher.match(/const POS_MAP = \{([^}]+)\}/) || ['', ''])[1].split(',').map((s) => s.trim()).filter(Boolean);
+// POS_MAP in app/page.jsx spreads the ten god-tower spots (keyed by god
+// name) plus the legacy points: every satellite pos must be one of those.
+const godNames = [...godMenusSrc.matchAll(/god:\s*'(\w+)'/g)].map((m) => m[1]);
+const validPosKeys = new Set([...godNames, 'BABEL_POS', 'ARTEMIS_POS']);
+t('POS_MAP spreads the ten god-tower spots plus legacy points',
+  /const POS_MAP = \{ \.\.\.GOD_TOWER_POS, BABEL_POS, ARTEMIS_POS \}/.test(launcher));
 t('every satellite pos is a valid POS_MAP key (no undefined dive target)',
-  sats.every((s) => posNames.includes(s.pos)));
+  godNames.length === 10 && sats.every((s) => validPosKeys.has(s.pos)));
 
 // ---- routes resolve ----
 t('all TOOLS routes have a page file',

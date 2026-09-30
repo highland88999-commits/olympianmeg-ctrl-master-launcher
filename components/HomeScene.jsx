@@ -18,17 +18,13 @@ import HubMoon from './HubMoon';
 import AsteroidField from './AsteroidField';
 import NavBeacons from './NavBeacons';
 import EarthFlightController from './EarthFlightController';
-import { ORBIT_CENTER, EARTH_CENTER, EARTH_RADIUS } from '../lib/god-orbits';
+import { ORBIT_CENTER, EARTH_CENTER, EARTH_RADIUS, GOD_BANDS } from '../lib/god-orbits';
 import { FREE_FLY_SPEED, BIKE_TUNING } from '../lib/hub-layout';
 import { registerCollider, unregisterCollider, resolveFlightCollision } from '../lib/hub-collision';
 import { createBikeFlightState, stepBikeFlight, rotateOffsetByYaw, bikeForward } from '../lib/bike-flight';
 import { applyCoverFit } from '../lib/texture-fit';
-import { ZEUS_POS, ARES_POS, THOTH_POS, ARGUS_POS, MEDUSA_POS } from '../lib/home-positions';
-import Zeus from './Zeus';
-import Ares from './Ares';
-import Thoth from './Thoth';
-import Argus from './Argus';
-import Medusa from './Medusa';
+import { GOD_TOWER_SPOTS } from '../lib/home-positions';
+import GodTower from './GodTower';
 
 function MarsBackground() {
   const marsRef = useRef();
@@ -184,12 +180,13 @@ function SequenceController({ launchState, setLaunchState, portalTex, payloadTex
   useFrame((state, delta) => {
     if (launchState === 'hub_intro') {
       // Spawn in the middle: the camera sits at the constellation's center,
-      // ringed by the 10 god bands, and slowly pans to take in the orbit
-      // rings. The parked TRON bike dead ahead (-Z) is the first thing seen.
+      // ringed by the 10 god bands, and makes one full slow revolution —
+      // every satellite and the ad-tower field get their moment — ending
+      // dead-ahead on the parked TRON bike (-Z) for a clean freeroam handoff.
       const time = state.clock.elapsedTime;
       camera.position.set(ORBIT_CENTER.x, ORBIT_CENTER.y, ORBIT_CENTER.z);
       camera.rotation.order = 'YXZ';
-      camera.rotation.set(0, -time * 0.12, 0);
+      camera.rotation.set(0, -time * ((Math.PI * 2) / 14), 0);
 
       if (time > 14 || controls.current.moveX !== 0 || controls.current.moveY !== 0 || controls.current.lookDeltaX !== 0 || controls.current.keyW || controls.current.keyS || controls.current.keyA || controls.current.keyD) {
         setLaunchState('hub_freeroam');
@@ -494,13 +491,21 @@ function TextureProvider({ onLaunchExternal }) {
 
   if (!textures) return null;
 
+  // One tower satellite per god-menu category (Merlin, 2026-09-30) —
+  // the Zeus pattern with the name and color changed per category.
+  // Colors come from the god bands so towers match their ring satellites.
   return (
     <>
-      <Zeus position={ZEUS_POS} onLaunchExternal={(url) => onLaunchExternal(url, ZEUS_POS)} textures={textures} />
-      <Ares position={ARES_POS} onLaunchExternal={(url) => onLaunchExternal(url, ARES_POS)} textures={textures} />
-      <Thoth position={THOTH_POS} onLaunchExternal={(url) => onLaunchExternal(url, THOTH_POS)} textures={textures} />
-      <Argus position={ARGUS_POS} onLaunchExternal={(url) => onLaunchExternal(url, ARGUS_POS)} textures={textures} />
-      <Medusa position={MEDUSA_POS} onLaunchExternal={(url) => onLaunchExternal(url, MEDUSA_POS)} textures={textures} />
+      {GOD_TOWER_SPOTS.map((spot, i) => (
+        <GodTower
+          key={spot.god}
+          god={spot.god}
+          color={GOD_BANDS[i].color}
+          position={spot.pos}
+          onLaunchExternal={(url) => onLaunchExternal(url, spot.pos)}
+          textures={textures}
+        />
+      ))}
     </>
   );
 }
@@ -508,8 +513,8 @@ function TextureProvider({ onLaunchExternal }) {
 
 // ---------------------------------------------------------------------------
 // StaticColliders — solid-geometry registration for the hub's big bodies.
-// Satellites, Moon, and asteroids register their own (live) colliders;
-// Earth, Sun, Mars, and the distant towers are static and live here.
+// Satellites, Moon, asteroids, and the god towers register their own (live)
+// colliders; Earth, Sun, and Mars are static and live here.
 // Everything solid: bounce/deflect, never kill. Portals stay the sole
 // pass-through exception (they're launch effects, not colliders).
 // ---------------------------------------------------------------------------
@@ -518,14 +523,8 @@ function StaticColliders() {
     registerCollider('earth', () => ({ ...EARTH_CENTER }), EARTH_RADIUS + 1);
     registerCollider('sun', () => ({ x: 0, y: 90, z: 250 }), 46);
     registerCollider('mars', () => ({ x: -70, y: 45, z: -100 }), 32);
-    // Distant tower field: generous spheres covering bodies + ad panels.
-    const towers = { ZEUS_POS, ARES_POS, THOTH_POS, ARGUS_POS, MEDUSA_POS };
-    Object.entries(towers).forEach(([name, p]) => {
-      registerCollider(`tower-${name}`, () => ({ x: p[0], y: p[1], z: p[2] }), 11);
-    });
     return () => {
       ['earth', 'sun', 'mars'].forEach(unregisterCollider);
-      Object.keys(towers).forEach((name) => unregisterCollider(`tower-${name}`));
     };
   }, []);
   return null;
@@ -582,8 +581,8 @@ export default function HomeScene({
     <div className="absolute inset-0 pointer-events-none">
       <Canvas shadows="soft" gl={{ alpha: true }} camera={{ position: [ORBIT_CENTER.x, ORBIT_CENTER.y, ORBIT_CENTER.z], fov: 52, far: 2000 }} style={{ pointerEvents: 'auto' }}>
         {!bgVideoOk && <color attach="background" args={['#050505']} />}
-        {/* Thin fog: the distant constellation (~655 out) must read small on
-            the horizon, not vanish into haze. */}
+        {/* Thin fog: the tower field (~180 out) must read clearly from
+            spawn, not vanish into haze. */}
         <fogExp2 attach="fog" args={['#050505', 0.0016]} />
         <Stars radius={100} depth={50} count={7000} factor={4} saturation={0} fade speed={1} />
 

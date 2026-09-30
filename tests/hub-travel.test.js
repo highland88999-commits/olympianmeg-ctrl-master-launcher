@@ -29,13 +29,10 @@ import {
   BEACONS,
 } from '../lib/hub-layout.js';
 import {
-  ZEUS_POS,
-  ARES_POS,
-  THOTH_POS,
-  ARGUS_POS,
-  MEDUSA_POS,
+  GOD_TOWER_SPOTS,
   ARTEMIS_POS,
 } from '../lib/home-positions.js';
+import { GOD_MENUS } from '../lib/god-menus.js';
 import { coverFitUV, applyCoverFit } from '../lib/texture-fit.js';
 import {
   registerCollider,
@@ -66,25 +63,33 @@ function stripComments(src) {
 }
 const P = (arr) => ({ x: arr[0], y: arr[1], z: arr[2] });
 
-// --- distant constellation ---------------------------------------------------
-const towerPositions = [ZEUS_POS, ARES_POS, THOTH_POS, ARGUS_POS, MEDUSA_POS, ARTEMIS_POS];
+// --- god-tower constellation --------------------------------------------------
+// One tower per menu category in its own field: close enough that the ad
+// panels read from spawn (Merlin, 2026-09-30: spawn must be in view of the
+// ads), far enough that the hub doesn't crowd.
+const towerPositions = GOD_TOWER_SPOTS.map((s) => s.pos).concat([ARTEMIS_POS]);
 t(
-  'constellation is dramatically far from spawn (400..2000 units)',
+  'tower field is near spawn — ads in view, not a distant speck (100..400 units)',
   (() => {
     const d = dist3(CONSTELLATION_CENTER, ORBIT_CENTER);
-    return d > 400 && d < 2000;
+    return d > 100 && d < 400;
   })()
 );
 t(
-  'all towers sit in the distant field (within 90 of its center)',
+  'exactly one tower per god menu (10), in GOD_MENUS order',
+  GOD_TOWER_SPOTS.length === 10 &&
+    GOD_TOWER_SPOTS.every((s, i) => s.god === GOD_MENUS[i].god)
+);
+t(
+  'all towers sit in the field (within 90 of its center)',
   towerPositions.every((p) => dist3(P(p), CONSTELLATION_CENTER) < 90)
 );
 t(
-  'all towers are far from the hub (no crowding of spawn/satellites/bike)',
-  towerPositions.every((p) => dist3(P(p), ORBIT_CENTER) > 400)
+  'all towers clear the hub (no crowding of spawn/satellites/bike)',
+  towerPositions.every((p) => dist3(P(p), ORBIT_CENTER) > 100)
 );
 t(
-  'Artemis keeps a high sanctum above the distant field',
+  'Artemis keeps a high sanctum above the field',
   ARTEMIS_POS[0] === CONSTELLATION_CENTER.x &&
     ARTEMIS_POS[2] === CONSTELLATION_CENTER.z &&
     ARTEMIS_POS[1] > CONSTELLATION_CENTER.y + 40
@@ -160,11 +165,11 @@ t(
 // --- travel tuning: a satisfying ride, not a crawl ----------------------------------
 t('free-fly is fast now (was a 40 u/s crawl)', FREE_FLY_SPEED >= 90 && FREE_FLY_SPEED <= 160);
 t(
-  'bike cruise makes the constellation a 3..9 s ride (meaningful, not tedious)',
+  'bike cruise makes the tower field a quick hop (0.5..3 s — near, not tedious)',
   (() => {
     const d = dist3(CONSTELLATION_CENTER, { x: BIKE_PARK_POS[0], y: BIKE_PARK_POS[1], z: BIKE_PARK_POS[2] });
     const secs = d / BIKE_TUNING.maxSpeed;
-    return secs >= 3 && secs <= 9;
+    return secs >= 0.5 && secs <= 3;
   })()
 );
 
@@ -346,6 +351,30 @@ t(
     );
   })()
 );
+
+// --- GodTower: one tower satellite per menu category (Merlin, 2026-09-30) ----
+const gtSrc = stripComments(readFileSync('components/GodTower.jsx', 'utf8'));
+t('GodTower carries the stake.com affiliate inventory (slash-free match: the URL contains //)',
+  gtSrc.includes('stakeUrl') && gtSrc.includes('onLaunchExternal(stakeUrl)'));
+t('GodTower keeps the Advertise Here slot',
+  gtSrc.includes('Advertise Here: Email Us'));
+t('GodTower mounts four ad panels around the hull',
+  gtSrc.includes('[0, Math.PI / 2, Math.PI, -Math.PI / 2]'));
+t('GodTower labels itself with the god name (billboard + hull)',
+  gtSrc.includes('{god}'));
+t('GodTower takes the god color for name, panel backing, and buttons',
+  gtSrc.includes('color={color}') && gtSrc.includes('btnHovered ? "#ffffff" : color'));
+t('GodTower registers its own solid collider',
+  gtSrc.includes('registerCollider(`tower-${god}`'));
+t('GodTower is memoized around the ad inventory',
+  gtSrc.includes('export default memo(GodTower)'));
+const hsSrc2 = stripComments(readFileSync('components/HomeScene.jsx', 'utf8'));
+t('HomeScene mounts 10 GodTowers from GOD_TOWER_SPOTS (one per menu)',
+  hsSrc2.includes('GOD_TOWER_SPOTS.map') && hsSrc2.includes('<GodTower'));
+t('HomeScene no longer mounts the five legacy towers',
+  !hsSrc2.includes("from './Zeus'") && !hsSrc2.includes("from './Ares'") &&
+  !hsSrc2.includes("from './Thoth'") && !hsSrc2.includes("from './Argus'") &&
+  !hsSrc2.includes("from './Medusa'"));
 t(
   'HERMES ring satellite wears merchant gold (beacon, rings, marker)',
   GOD_BANDS.find((b) => b.god === 'HERMES').color === GOD_HEX.gold
