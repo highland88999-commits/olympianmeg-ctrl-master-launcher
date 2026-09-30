@@ -9,10 +9,15 @@
 // level). Touch joystick + WASD/arrows + right-side drag look. Autopilot
 // cinematic tour. Reduced motion: no idle animation, no autopilot.
 //
-// Collision (Merlin's solid-state rule): the real world is SOLID. A
-// throttled dual-raycast keeps the bike on the terrain and predicts walls
-// ahead — riding into a building deflects/bounces, never kills, never
-// clips through. The ONLY pass-through is a portal, by design.
+// Collision: the real world is SOLID — a throttled dual-raycast keeps the
+// rig on the terrain and predicts walls ahead. Walk and fly bounce/deflect
+// off walls, never kill, never clip through.
+//
+// Merlin 2026-09-30 explicit override, scoped to BIKE RIDE MODE ONLY: the
+// bike passes THROUGH buildings and solid objects with the rider still
+// mounted — no deflect, no bounce, no dismount. Terrain following stays
+// (the bike still rides the streets). See isWallDeflectionEnabled() in
+// lib/argo-street.js. The ONLY other pass-through is a portal, by design.
 
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -31,6 +36,8 @@ import {
   addLiquidGold,
   markBarCollected,
   collectedBarIds,
+  updateRideSteering,
+  angleDiff,
 } from '@/lib/argo-street';
 import BillboardMonument from './BillboardMonument';
 
@@ -226,6 +233,11 @@ export default function StreetScene({
   const rig = useRef({
     pos: new THREE.Vector3(0, STREET_HOVER_M + 2, -14),
     yaw: 0,
+    // camYaw: the camera's facing yaw — the ONLY steering master in ride
+    // mode (see the ride branch below). Driven purely by look input, never
+    // by the bike's own heading, which breaks the chase-cam circularity.
+    camYaw: 0,
+    bankTarget: 0,
     groundY: 0,
     groundYSmooth: 0,
     lastSample: 0,
@@ -246,6 +258,17 @@ export default function StreetScene({
     []
   );
   const autoAngle = useRef(0.6);
+
+  // Keep the steering master aligned whenever ride mode is (re)entered,
+  // so the bike never swings toward a stale camera yaw after fly/walk.
+  const prevMode = useRef(mode);
+  useEffect(() => {
+    if (mode === 'ride' && prevMode.current !== 'ride') {
+      rig.current.camYaw = rig.current.yaw;
+      rig.current.bankTarget = 0;
+    }
+    prevMode.current = mode;
+  }, [mode]);
 
   // Fog + lights for the street world.
   useEffect(() => {
@@ -370,6 +393,7 @@ export default function StreetScene({
       r.pos.x = nx;
       r.pos.z = nz;
       r.pos.y += (r.groundYSmooth + 55 - r.pos.y) * Math.min(1, dt * 2);
+      r.camYaw = r.yaw; // keep the steering master aligned for handoff
     } else if (mode === 'fly') {
       const sp = FLY_SPEED * (0.35 + 0.65 * Math.abs(thrust)) * Math.sign(thrust || 1);
       r.yaw -= strafe * 1.6 * dt;
@@ -394,21 +418,35 @@ export default function StreetScene({
       }
       r.pos.y += (r.groundYSmooth + STREET_WALK_EYE_M - r.pos.y) * Math.min(1, dt * 6);
     } else {
-      // ride: terrain-following bike
-      const sp = RIDE_SPEED * thrust;
-      r.yaw -= strafe * 1.7 * dt * (0.4 + 0.6 * Math.abs(thrust));
+      // ride: terrain-following bike — camera-relative steering.
+      //
+      // Steering scheme (Merlin 2026-09-30: "make sure bike goes in the
+      // direction the camera is pointed at"). The old chase camera DERIVED
+      // from the bike's heading, which makes "steer by camera" circular.
+      // Resolved by splitting the two: camYaw is the camera's facing yaw
+      // and the ONLY steering master — driven purely by look input
+      // (right-side drag lookDX, A/D keys, joystick strafe), never by the
+      // bike. The bike's heading chases camYaw at a capped rate and the
+      // bike always travels along its own heading, so it swings onto the
+      // camera's line with a natural turn lag + banking instead of
+      // snapping. Drag right -> camera turns right -> bike follows right.
+      //
+      // Pass-through (Merlin 2026-09-30 explicit override of the
+      // solid-state rule, ride mode ONLY): isWallDeflectionEnabled('ride')
+      // is false, so the wall-predict deflect is gone — the bike ghosts
+      // through buildings and solid objects with the rider still mounted
+      // (no bounce, no deflect, no dismount). Terrain following STAYS: the
+      // bike still rides the streets, it just doesn't hit walls.
+      const steer = updateRideSteering(r, { strafe, thrust, lookDX: ctl.lookDX || 0 }, dt);
+      r.yaw = steer.yaw;
+      r.camYaw = steer.camYaw;
+      ctl.lookDX = 0; // drained every frame: drag deltas are per-frame, so a
+      // released drag leaves nothing behind and the ±40 clamp never sticks
       s.fwd.set(Math.sin(r.yaw), 0, Math.cos(r.yaw));
-      if (r.wallAhead && thrust > 0) {
-        r.pos.addScaledVector(s.fwd, -8 * dt);
-        r.yaw += 1.8 * dt;
-        if (!r.bumpFx || now - r.bumpFx > 1.2) {
-          r.bumpFx = now;
-          try { fx.tap(); } catch { /* audio unavailable */ }
-        }
-      } else {
-        r.pos.addScaledVector(s.fwd, sp * dt);
-      }
+      r.pos.addScaledVector(s.fwd, RIDE_SPEED * thrust * dt);
       r.pos.y += (r.groundYSmooth + STREET_HOVER_M - r.pos.y) * Math.min(1, dt * 5);
+      // Banking follows the turn: lean into the heading chase.
+      r.bankTarget = Math.max(-0.35, Math.min(0.35, angleDiff(r.yaw, r.camYaw) * 0.6));
     }
 
     // --- portals: the ONLY pass-through ---
@@ -459,11 +497,13 @@ export default function StreetScene({
     if (bikeGroup.current && mode !== 'walk') {
       bikeGroup.current.position.copy(r.pos);
       bikeGroup.current.rotation.set(0, r.yaw, 0);
-      // Banking into the turn.
+      // Banking into the turn: ride mode leans with the heading chase,
+      // fly keeps the old strafe lean.
       const strafe = Math.max(-1, Math.min(1, ctl.strafe));
+      const bankTarget = mode === 'ride' ? r.bankTarget || 0 : -strafe * 0.28;
       bikeGroup.current.rotation.z = THREE.MathUtils.lerp(
         bikeGroup.current.rotation.z,
-        -strafe * 0.28,
+        bankTarget,
         Math.min(1, dt * 6)
       );
     }
@@ -476,7 +516,14 @@ export default function StreetScene({
       const back = mode === 'fly' ? 13 : 10;
       const up = mode === 'fly' ? 5.5 : 4.2;
       const oy = (ctl.lookDY || 0) * 0.02;
-      const ox = (ctl.lookDX || 0) * 0.02;
+      // Ride mode: the camera sits behind the CAMERA yaw (the steering
+      // master) and looks along it — the bike visibly swings onto the view
+      // line. lookDX is steering input in ride mode now, not a dolly
+      // offset, so the old back-distance nudge is dropped there. Fly keeps
+      // the previous yaw-chase framing untouched.
+      const viewYaw = mode === 'ride' ? r.camYaw : r.yaw;
+      s.fwd.set(Math.sin(viewYaw), 0, Math.cos(viewYaw));
+      const ox = mode === 'ride' ? 0 : (ctl.lookDX || 0) * 0.02;
       s.camGoal
         .copy(r.pos)
         .addScaledVector(s.fwd, -(back + ox * 20))
