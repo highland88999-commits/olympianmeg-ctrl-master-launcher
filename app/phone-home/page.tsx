@@ -4,13 +4,14 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { Device } from '@twilio/voice-sdk';
-import { Phone, PhoneOff, MessageSquare, Radio, Video, Delete, Footprints } from 'lucide-react';
+import { Phone, PhoneOff, MessageSquare, Radio, Video, Delete, Footprints, Users } from 'lucide-react';
 import {
   todayKey, clampSteps, totalSteps, findTodayEntry,
   mergeQueueEntry, readQueue, writeQueue,
   type StepRow, type QueuedStepEntry,
 } from '@/lib/phone-home/steps';
 import TravelAdvisoryBanner from './advisory-banner';
+import ContactsTab from './contacts-tab';
 
 export default function GlassCommsApp() {
   const router = useRouter();
@@ -183,7 +184,7 @@ export default function GlassCommsApp() {
   const handleTouchEnd = () => {
     if (!touchStartX.current || !touchEndX.current) return;
     const diff = touchStartX.current - touchEndX.current;
-    if (diff > 60 && currentPage < 4) setCurrentPage((prev) => prev + 1); 
+    if (diff > 60 && currentPage < 5) setCurrentPage((prev) => prev + 1); 
     if (diff < -60 && currentPage > 0) setCurrentPage((prev) => prev - 1); 
     touchStartX.current = null;
     touchEndX.current = null;
@@ -351,6 +352,32 @@ export default function GlassCommsApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
 
+  // --- Twilio PSTN call starter (shared by the dialer and contacts) -----------
+  // Fills the dial string, jumps to the dialer page, and connects through
+  // the existing device flow. If the device isn't registered yet, the number
+  // stays in the dialer honestly — no fake call state.
+  const startTwilioCall = async (to: string) => {
+    const target = String(to ?? '').trim();
+    if (!target) return;
+    if (twilioCall) {
+      // A call is already live — show it instead of dialing over it.
+      setDialString(target);
+      setCurrentPage(2);
+      return;
+    }
+    setDialString(target);
+    setCurrentPage(2);
+    if (twilioDevice) {
+      try {
+        const call = await twilioDevice.connect({ params: { To: target } });
+        setTwilioCall(call);
+        call.on('disconnect', () => setTwilioCall(null));
+      } catch (e) {
+        console.error('Twilio call failed:', e);
+      }
+    }
+  };
+
   const toggleVideoCall = async () => {
     if (!inVideoCall) {
       if (!videoRoomCode) {
@@ -449,11 +476,11 @@ export default function GlassCommsApp() {
 
       <div className="w-full max-w-md flex-1 relative overflow-hidden flex z-10">
         <div 
-          className="w-[500%] h-full flex transition-transform duration-300 ease-out"
-          style={{ transform: `translateX(-${currentPage * (100 / 5)}%)` }}
+          className="w-[600%] h-full flex transition-transform duration-300 ease-out"
+          style={{ transform: `translateX(-${currentPage * (100 / 6)}%)` }}
         >
           {/* PAGE 0: WebRTC Audio */}
-          <section className="w-1/5 h-full flex flex-col items-center justify-center px-6 gap-6">
+          <section className="w-1/6 h-full flex flex-col items-center justify-center px-6 gap-6">
             <div className="w-full rounded-3xl border border-white/15 bg-black/40 backdrop-blur-3xl p-6 flex flex-col items-center gap-6 shadow-2xl">
               <Radio className="w-12 h-12 text-slate-300 stroke-1 animate-pulse" />
               <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
@@ -480,7 +507,7 @@ export default function GlassCommsApp() {
           </section>
 
           {/* PAGE 1: WebRTC Video */}
-          <section className="w-1/5 h-full flex flex-col items-center justify-center px-6 gap-6">
+          <section className="w-1/6 h-full flex flex-col items-center justify-center px-6 gap-6">
             <div className="w-full rounded-3xl border border-white/15 bg-black/40 backdrop-blur-3xl p-4 flex flex-col items-center gap-4 shadow-2xl">
               <div className="relative w-full aspect-video bg-black/80 rounded-xl border border-white/10 overflow-hidden flex items-center justify-center">
                  {!inVideoCall && <Video className="w-8 h-8 text-slate-500 animate-pulse" />}
@@ -506,7 +533,7 @@ export default function GlassCommsApp() {
           </section>
 
           {/* PAGE 2: Twilio PSTN Dialer */}
-          <section className="w-1/5 h-full flex flex-col items-center justify-between px-6 py-4">
+          <section className="w-1/6 h-full flex flex-col items-center justify-between px-6 py-4">
             <div className="w-full flex flex-col items-center mt-2 rounded-2xl bg-black/20 backdrop-blur-md border border-white/10 p-4">
               <span className="text-[10px] uppercase tracking-widest text-slate-400 mb-2">PSTN Trunk Gateway</span>
               <div className="h-12 flex items-center justify-center">
@@ -536,10 +563,8 @@ export default function GlassCommsApp() {
                   if (twilioCall) {
                     twilioCall.disconnect();
                     setTwilioCall(null);
-                  } else if (twilioDevice && dialString) {
-                    const call = await twilioDevice.connect({ params: { To: dialString } });
-                    setTwilioCall(call);
-                    call.on('disconnect', () => setTwilioCall(null));
+                  } else {
+                    await startTwilioCall(dialString);
                   }
                 }}
                 className={`w-16 h-16 rounded-full border bg-black/40 backdrop-blur-xl flex items-center justify-center transition active:scale-95 shadow-lg ${
@@ -560,7 +585,7 @@ export default function GlassCommsApp() {
           </section>
 
           {/* PAGE 3: Text */}
-          <section className="w-1/5 h-full flex flex-col px-6 py-4">
+          <section className="w-1/6 h-full flex flex-col px-6 py-4">
             <div className="w-full flex-1 min-h-0 rounded-3xl border border-white/15 bg-black/40 backdrop-blur-3xl p-4 flex flex-col gap-3 shadow-2xl">
               <div className="text-center">
                 <h2 className="text-sm font-light tracking-widest uppercase text-slate-100">Text Mesh</h2>
@@ -605,7 +630,7 @@ export default function GlassCommsApp() {
           </section>
 
           {/* PAGE 4: Steps */}
-          <section className="w-1/5 h-full flex flex-col items-center justify-center px-6 gap-6 overflow-y-auto py-4">
+          <section className="w-1/6 h-full flex flex-col items-center justify-center px-6 gap-6 overflow-y-auto py-4">
             <div className="w-full rounded-3xl border border-white/15 bg-black/40 backdrop-blur-3xl p-6 flex flex-col items-center gap-5 shadow-2xl">
               <Footprints className="w-10 h-10 text-slate-300 stroke-1" />
               <div className="text-center">
@@ -670,6 +695,11 @@ export default function GlassCommsApp() {
               )}
             </div>
           </section>
+
+          {/* PAGE 5: Contacts */}
+          <section className="w-1/6 h-full flex flex-col items-center justify-center px-6 gap-6 overflow-y-auto py-4">
+            <ContactsTab userId={session.user.id} onCall={startTwilioCall} />
+          </section>
         </div>
       </div>
 
@@ -693,6 +723,10 @@ export default function GlassCommsApp() {
         <button onClick={() => setCurrentPage(4)} className={`flex flex-col items-center gap-1.5 transition duration-300 ${currentPage === 4 ? 'text-slate-100 scale-110' : 'text-slate-500'}`}>
           <Footprints className="w-5 h-5 stroke-1" />
           <span className="text-[9px] uppercase tracking-widest">Steps</span>
+        </button>
+        <button onClick={() => setCurrentPage(5)} className={`flex flex-col items-center gap-1.5 transition duration-300 ${currentPage === 5 ? 'text-slate-100 scale-110' : 'text-slate-500'}`}>
+          <Users className="w-5 h-5 stroke-1" />
+          <span className="text-[9px] uppercase tracking-widest">Contacts</span>
         </button>
       </footer>
     </main>
