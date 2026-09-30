@@ -30,8 +30,8 @@ export const viewport = {
   themeColor: '#050505',
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  // NOTE (mobile program 2026-09-29): maximumScale/userScalable deliberately
+  // absent — pinch zoom must stay available (WCAG). Do not re-add.
 };
 
 export default function RootLayout({ children }) {
