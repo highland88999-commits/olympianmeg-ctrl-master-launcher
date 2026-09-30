@@ -1,6 +1,7 @@
 // tests/hub-travel.test.js — Headless tests for the hub scene rework
-// (2026-09-30): distant tower constellation, Moon, asteroid field, travel
-// tuning, nav beacons, cover-fit texture mapping, collision, bike flight.
+// (2026-09-30): ten god towers RINGING SPAWN (Merlin: spawn must be IN THE
+// MIDDLE of the ten towers, ads visible from spawn), Moon, asteroid field,
+// travel tuning, nav beacons, cover-fit texture mapping, collision, bike flight.
 // Run: node tests/hub-travel.test.js (from the repo root).
 
 import { readFileSync } from 'fs';
@@ -15,7 +16,6 @@ import {
   dist3,
 } from '../lib/god-orbits.js';
 import {
-  CONSTELLATION_CENTER,
   MOON_RADIUS,
   MOON_ORBIT_RADIUS,
   MOON_ORBIT_SPEED,
@@ -30,6 +30,7 @@ import {
 } from '../lib/hub-layout.js';
 import {
   GOD_TOWER_SPOTS,
+  TOWER_ORBIT_RADIUS,
   ARTEMIS_POS,
 } from '../lib/home-positions.js';
 import { GOD_MENUS } from '../lib/god-menus.js';
@@ -63,16 +64,19 @@ function stripComments(src) {
 }
 const P = (arr) => ({ x: arr[0], y: arr[1], z: arr[2] });
 
-// --- god-tower constellation --------------------------------------------------
-// One tower per menu category in its own field: close enough that the ad
-// panels read from spawn (Merlin, 2026-09-30: spawn must be in view of the
-// ads), far enough that the hub doesn't crowd.
-const towerPositions = GOD_TOWER_SPOTS.map((s) => s.pos).concat([ARTEMIS_POS]);
+// --- god towers ring spawn --------------------------------------------------------
+// Merlin, 2026-09-30: spawn must be IN THE MIDDLE of the ten Zeus-style
+// category towers, with the ads visible from spawn. One tower per menu
+// category, ringed around ORBIT_CENTER itself — no separate field.
+const towerPositions = GOD_TOWER_SPOTS.map((s) => s.pos);
 t(
-  'tower field is near spawn — ads in view, not a distant speck (100..400 units)',
+  'spawn is in the middle of the ten towers (mean tower position ≈ spawn)',
   (() => {
-    const d = dist3(CONSTELLATION_CENTER, ORBIT_CENTER);
-    return d > 100 && d < 400;
+    const mean = towerPositions.reduce(
+      (acc, p) => [acc[0] + p[0] / 10, acc[1] + p[1] / 10, acc[2] + p[2] / 10],
+      [0, 0, 0]
+    );
+    return dist3(P(mean), ORBIT_CENTER) < 0.01;
   })()
 );
 t(
@@ -81,18 +85,28 @@ t(
     GOD_TOWER_SPOTS.every((s, i) => s.god === GOD_MENUS[i].god)
 );
 t(
-  'all towers sit in the field (within 90 of its center)',
-  towerPositions.every((p) => dist3(P(p), CONSTELLATION_CENTER) < 90)
+  'all ten towers ring spawn at the tower orbit radius',
+  towerPositions.every(
+    (p) => Math.abs(dist3(P(p), ORBIT_CENTER) - TOWER_ORBIT_RADIUS) < 0.01
+  )
 );
 t(
-  'all towers clear the hub (no crowding of spawn/satellites/bike)',
-  towerPositions.every((p) => dist3(P(p), ORBIT_CENTER) > 100)
+  'towers crown the hub outside the satellite rings (no crowding)',
+  TOWER_ORBIT_RADIUS > MAX_BAND_RADIUS
 );
 t(
-  'Artemis keeps a high sanctum above the field',
-  ARTEMIS_POS[0] === CONSTELLATION_CENTER.x &&
-    ARTEMIS_POS[2] === CONSTELLATION_CENTER.z &&
-    ARTEMIS_POS[1] > CONSTELLATION_CENTER.y + 40
+  'no tower sits on the bike axis — the parked bike stays clear of tower colliders',
+  (() => {
+    const bike = { x: BIKE_PARK_POS[0], y: BIKE_PARK_POS[1], z: BIKE_PARK_POS[2] };
+    // GodTower registers a solid sphere collider of radius 11.
+    return towerPositions.every((p) => dist3(P(p), bike) > 15);
+  })()
+);
+t(
+  'Artemis keeps a high sanctum above the tower ring',
+  ARTEMIS_POS[0] === ORBIT_CENTER.x &&
+    ARTEMIS_POS[2] === ORBIT_CENTER.z &&
+    ARTEMIS_POS[1] > ORBIT_CENTER.y + 40
 );
 
 // --- spawn / bike stay central ------------------------------------------------
@@ -144,43 +158,25 @@ t(
   dist3(ASTEROID_CENTER, ORBIT_CENTER) - ASTEROID_FIELD_RADIUS > MAX_BAND_RADIUS + 20
 );
 t('asteroid belt has real substance (60..160 rocks)', ASTEROID_COUNT >= 60 && ASTEROID_COUNT <= 160);
-t(
-  'asteroid field is off the direct spawn→constellation lane (does not block travel)',
-  (() => {
-    // Distance from ASTEROID_CENTER to the segment ORBIT_CENTER→CONSTELLATION_CENTER, in XZ.
-    const ax = ORBIT_CENTER.x;
-    const az = ORBIT_CENTER.z;
-    const bx = CONSTELLATION_CENTER.x - ax;
-    const bz = CONSTELLATION_CENTER.z - az;
-    const px = ASTEROID_CENTER.x - ax;
-    const pz = ASTEROID_CENTER.z - az;
-    const tt = Math.max(0, Math.min(1, (px * bx + pz * bz) / (bx * bx + bz * bz)));
-    const cx = ax + bx * tt;
-    const cz = az + bz * tt;
-    const d = Math.hypot(ASTEROID_CENTER.x - cx, ASTEROID_CENTER.z - cz);
-    return d > ASTEROID_FIELD_RADIUS + 40;
-  })()
-);
 
 // --- travel tuning: a satisfying ride, not a crawl ----------------------------------
 t('free-fly is fast now (was a 40 u/s crawl)', FREE_FLY_SPEED >= 90 && FREE_FLY_SPEED <= 160);
 t(
-  'bike cruise makes the tower field a quick hop (0.5..3 s — near, not tedious)',
+  'bike cruise crosses the hub in a couple of seconds (near, not tedious)',
   (() => {
-    const d = dist3(CONSTELLATION_CENTER, { x: BIKE_PARK_POS[0], y: BIKE_PARK_POS[1], z: BIKE_PARK_POS[2] });
+    const d = TOWER_ORBIT_RADIUS; // spawn → tower ring
     const secs = d / BIKE_TUNING.maxSpeed;
-    return secs >= 0.5 && secs <= 3;
+    return secs >= 0.2 && secs <= 3;
   })()
 );
 
 // --- nav beacons -------------------------------------------------------------------------
-t('beacons mark the constellation, the belt, and Earth', BEACONS.length === 3);
+t('beacons mark the belt and Earth (the tower beacon retired — you stand in the ring)', BEACONS.length === 2);
 t(
   'beacon positions match their destinations',
   (() => {
     const byId = Object.fromEntries(BEACONS.map((b) => [b.id, b]));
     return (
-      dist3(byId.constellation.position, CONSTELLATION_CENTER) < 1e-9 &&
       dist3(byId.asteroids.position, ASTEROID_CENTER) < 1e-9 &&
       Math.abs(byId.earth.position.y - (EARTH_CENTER.y + EARTH_RADIUS)) < 1e-9
     );
