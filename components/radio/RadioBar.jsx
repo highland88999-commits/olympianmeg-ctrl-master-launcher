@@ -284,7 +284,7 @@ function LibrarySheet() {
 export default function RadioBar() {
   const {
     station, current, playing, engineReady, shuffle,
-    minimized, expanded, togglePlay, next, toggleShuffle,
+    minimized, expanded, togglePlay, next, prev, toggleShuffle,
     setMinimized, setExpanded, source, sourceLabel, spotify,
   } = useRadio();
   const isMySpotify = source === SOURCES.MY_SPOTIFY;
@@ -328,6 +328,36 @@ export default function RadioBar() {
       >
         <LibrarySheet />
       </div>
+
+      {/* Slim transport strip directly ABOVE the collapsed bar: previous /
+          next track. Only in the collapsed state — when the library sheet is
+          open, the full TransportRow already lives inside it. The bar below
+          carries the safe-area padding, so this strip always clears the
+          Safari chrome. */}
+      {!sheetOpen && (
+        <div className="pointer-events-none flex justify-center pb-1.5" role="group" aria-label="Track transport">
+          <div className="pointer-events-auto flex items-center gap-6 rounded-full border border-white/10 bg-black/70 px-5 py-1 shadow-lg backdrop-blur-md">
+            <button
+              type="button"
+              onClick={prev}
+              aria-label="Previous track"
+              title="Previous track"
+              className={iconBtn}
+            >
+              <SkipBack size={15} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              onClick={next}
+              aria-label="Next track"
+              title="Next track"
+              className={iconBtn}
+            >
+              <SkipForward size={15} aria-hidden="true" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* COLLAPSED — slim bar: track + play/pause + next. Tap the track to expand. */}
       <div

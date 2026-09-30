@@ -11,7 +11,6 @@ import { LanguageProvider, useI18n } from '@/lib/i18n';
 import { SATELLITES } from '@/lib/i18n/satellites';
 import SatelliteMenu from '@/components/SatelliteMenu';
 import GodOrbitRings from '@/components/GodOrbitRings';
-import SpacePortalGates from '@/components/SpacePortalGates';
 import BikeRig, { BIKE_PARK_POS, RIDER_OFFSET, BIKE_LOOK_AHEAD } from '@/components/BikeRig';
 import { ORBIT_CENTER, orbitTime, orbitPositionFor } from '@/lib/god-orbits';
 import SettingsGear from '@/components/SettingsGear';
@@ -899,22 +898,16 @@ function NexusHub() {
               adWindowRef.current = window.open('', '_blank');
               launchPocketUniverse(url, null, null, id);
             }} />
-            <GodOrbitRings
-              satIndex={satIndex}
-              canLaunch={appState === 'hub_intro' || appState === 'hub_freeroam'}
-              onLaunch={(route, key) => launchPocketUniverse(route, key, null)}
-            />
-            {/* Vertical space-portal gates ringing the BABEL position: one
-                gate per pocket universe, labeled with its destination. Click,
-                tap, or fly through a gate to travel — routed through the one
-                menu-to-satellite function, launchPocketUniverse. */}
-            <SpacePortalGates
-              satellites={SATELLITES}
-              center={BABEL_POS}
-              canLaunch={appState === 'hub_intro' || appState === 'hub_freeroam'}
-              getTitle={(key) => t(`sat.${key}.title`)}
-              onTravel={(sat) => launchPocketUniverse(sat.route, sat.key, sat.pos)}
-            />
+            {/* God orbit bands — VISUAL ONLY. The floating video button's
+                satellite menu is the single way into programs; the rings no
+                longer launch anything (declutter, 2026-09-29). */}
+            <GodOrbitRings satIndex={satIndex} />
+            {/* NOTE (declutter, 2026-09-29): the persistent space-portal gate
+                field was removed from the interface — too cluttered. The
+                launch-travel portal effects (portalTex/payloadTex in
+                SequenceController) are the original portals and stay. Every
+                program remains reachable through the floating button's
+                satellite menu. */}
             <BikeRig bikeRef={bikeRef} />
           </Suspense>
 

@@ -4,9 +4,11 @@
 // Each god menu owns one tilted orbital band around the constellation
 // center (hovering over the Earth). Every satellite rides its god's band as
 // a small glowing node, so the 10 god-menu groupings stay visible in 3D.
-// Tapping a node launches that satellite through the single
-// menu-to-satellite function (launchPocketUniverse), exactly like the
-// 2D god-menu panel.
+//
+// VISUAL ONLY (declutter, 2026-09-29): the nodes no longer launch programs.
+// The floating video button's satellite menu is the single way into
+// programs. canLaunch/onLaunch are kept optional so the component degrades
+// to pure decoration when no launcher is passed.
 //
 // Band rotation is driven by the shared orbitTime() clock from
 // lib/god-orbits.js — never the render clock — so the analytic
@@ -72,13 +74,15 @@ function SatelliteNode({ band, idx, satKey, sat, canLaunch, onLaunch }) {
       position={[local.x, local.y, local.z]}
       onClick={(e) => {
         e.stopPropagation();
-        if (canLaunch) onLaunch(sat.route, satKey);
+        if (canLaunch && onLaunch) onLaunch(sat.route, satKey);
       }}
       onPointerOver={(e) => {
+        if (!canLaunch) return;
         document.body.style.cursor = 'pointer';
         e.object.scale.setScalar(1.5);
       }}
       onPointerOut={(e) => {
+        if (!canLaunch) return;
         document.body.style.cursor = '';
         e.object.scale.setScalar(1);
       }}
