@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { searchPlaces, formatCoords } from '@/lib/geo';
 
@@ -11,11 +11,21 @@ const QUICK = [
   { label: 'Mount Olympus, Greece', lat: 40.082, lon: 22.358 },
 ];
 
+const MIN_KEY = 'earth-console-minimized';
+
 export default function EarthConsole({ focus, phase, onTravel, onReturn }) {
   const { t } = useI18n();
   const [input, setInput] = useState('');
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
+  const [minimized, setMinimized] = useState(() => {
+    try { return localStorage.getItem(MIN_KEY) === '1'; } catch { return false; }
+  });
+
+  const setMin = (v) => {
+    setMinimized(v);
+    try { localStorage.setItem(MIN_KEY, v ? '1' : '0'); } catch {}
+  };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -31,16 +41,47 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn }) {
 
   const busy = phase === 'diving_to_earth' || phase === 'earth_travel';
 
+  // If a dive/travel starts while minimized, pop the console back open so the
+  // traveling indicator is visible instead of failing silently.
+  useEffect(() => {
+    if (busy) setMin(false);
+  }, [busy]);
+
+  // Minimized: a floating globe icon docked on the right edge. Tap to open
+  // the console in the middle of the screen.
+  if (minimized) {
+    return (
+      <button
+        onClick={() => setMin(false)}
+        aria-label="Open Earth console"
+        title={t('earth.consoleTitle')}
+        className="absolute right-4 top-[32%] z-[80] w-14 h-14 rounded-full bg-zinc-950/90 border border-cyan-500/50 shadow-[0_0_25px_rgba(0,242,255,0.25)] backdrop-blur-md flex items-center justify-center text-2xl hover:scale-105 active:scale-95 transition-all ui-element pointer-events-auto"
+      >
+        <span aria-hidden="true">🌍</span>
+      </button>
+    );
+  }
+
   return (
     <>
-    {/* Earth console — parked clear of the persistent radio bar (z-70,
-        ~8rem tall incl. transport strip + safe-area) so its destination
-        list is never buried under the now-playing bar. */}
-    <div className="absolute bottom-[calc(8.75rem+env(safe-area-inset-bottom))] right-5 z-[80] w-72 ui-element pointer-events-auto">
-      <div className="bg-zinc-950/90 border border-cyan-500/30 rounded-xl p-4 shadow-[0_0_30px_rgba(0,242,255,0.12)] backdrop-blur-md flex flex-col gap-3">
+    {/* Earth console — opens centered; the minimize control collapses it to a
+        floating globe icon on the right edge. Kept clear of the persistent
+        radio bar (z-80) so its destination list is never buried. */}
+    <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[80] w-[min(92vw,20rem)] ui-element pointer-events-auto">
+      <div className="bg-zinc-950/90 border border-cyan-500/30 rounded-xl p-4 shadow-[0_0_30px_rgba(0,242,255,0.12)] backdrop-blur-md flex flex-col gap-3 max-h-[70dvh] overflow-y-auto custom-scrollbar">
         <div className="border-b border-zinc-800 pb-2">
-          <div className="text-xs font-black tracking-[0.25em] uppercase text-cyan-300">
-            {t('earth.consoleTitle')}
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-xs font-black tracking-[0.25em] uppercase text-cyan-300">
+              {t('earth.consoleTitle')}
+            </div>
+            <button
+              onClick={() => setMin(true)}
+              aria-label="Minimize Earth console"
+              title="Minimize"
+              className="w-7 h-7 shrink-0 rounded-full border border-zinc-700 text-zinc-400 hover:text-white hover:border-cyan-500/60 flex items-center justify-center text-sm leading-none transition-all"
+            >
+              <span aria-hidden="true">—</span>
+            </button>
           </div>
           {focus && (
             <div className="text-[10px] text-zinc-400 mt-1 truncate">
