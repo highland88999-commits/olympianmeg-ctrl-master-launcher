@@ -82,7 +82,7 @@ menu. The portal gate field was only ever in for a day (added `33aff2ef`).
   on branch `feature/ui-declutter-2026-09-29`, merged to main under the
   standing approve-all directive.
 - Merge commit: 211f9a4702d066c3a1a4caf6c2583cd44af0c53c
-- Report amend commit (this file): pending
+- Report amend commit (this file): 2bf6a1214e176d1630ab5b1167eadc9130ee671d
 - Remote main tip verified: 2026-09-29 19:15 MDT
 
 No new Supabase tables. No payments. No settings touched.
