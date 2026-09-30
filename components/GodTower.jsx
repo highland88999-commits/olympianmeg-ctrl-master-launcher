@@ -15,10 +15,53 @@ import { Text, Billboard } from '@react-three/drei';
 import * as THREE from 'three';
 import { registerCollider, unregisterCollider } from '@/lib/hub-collision';
 
+// Glitch-stabilized ad border (Merlin, 2026-09-30): the old flat
+// meshBasicMaterial border plane sat coplanar with the backing box face
+// (z=0.1) and only 0.01 under the ad face — on phone GPUs that strobes.
+// Fix: a real canvas-generated brushed texture in the god color (Merlin's
+// call: "add a texture to the border"), plus honest depth separation and
+// polygonOffset so the stacked faces can never z-fight again.
+function makeBorderTexture(color) {
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 160;
+  const g = c.getContext('2d');
+  const base = new THREE.Color(color);
+  const dark = base.clone().multiplyScalar(0.35);
+  const mid = base.clone().multiplyScalar(0.6);
+  const grad = g.createLinearGradient(0, 0, 128, 160);
+  grad.addColorStop(0, `#${dark.getHexString()}`);
+  grad.addColorStop(0.5, `#${mid.getHexString()}`);
+  grad.addColorStop(1, `#${dark.getHexString()}`);
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 128, 160);
+  // Brushed streaks — break up flat-color banding/shimmer on mobile GPUs.
+  for (let i = 0; i < 220; i++) {
+    const x = Math.random() * 128;
+    g.strokeStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.08)';
+    g.lineWidth = 1;
+    g.beginPath();
+    g.moveTo(x, 0);
+    g.lineTo(x + (Math.random() * 8 - 4), 160);
+    g.stroke();
+  }
+  // Inner edge highlight so the rim reads as a frame around the creative.
+  g.strokeStyle = 'rgba(255,255,255,0.28)';
+  g.lineWidth = 3;
+  g.strokeRect(2, 2, 124, 156);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
 function GodAdPanel({ onLaunchExternal, adTex, color }) {
   const [hovered, setHovered] = useState(false);
   const [btnHovered, setBtnHovered] = useState(false);
   const [emailHovered, setEmailHovered] = useState(false);
+
+  // One border texture per god color — memoized, generated once.
+  const borderTex = useMemo(() => makeBorderTexture(color), [color]);
 
   const stakeUrl = 'https://stake.com/?c=1FofAXWx';
   const inquiriesEmail = 'olympianmeg@gmail.com';
@@ -43,7 +86,7 @@ function GodAdPanel({ onLaunchExternal, adTex, color }) {
       </mesh>
 
       <mesh
-        position={[0, 1, 0.11]}
+        position={[0, 1, 0.24]}
         onClick={handleStakeClick}
         onPointerOver={() => { setHovered(true); document.body.style.cursor = 'pointer'; }}
         onPointerOut={() => { setHovered(false); document.body.style.cursor = 'default'; }}
@@ -52,9 +95,19 @@ function GodAdPanel({ onLaunchExternal, adTex, color }) {
         <meshStandardMaterial map={adTex} color={hovered ? "#dddddd" : "#ffffff"} metalness={0.2} roughness={0.8} />
       </mesh>
 
-      <mesh position={[0, 1, 0.1]}>
+      {/* Textured border: 0.08 above the backing box face (was coplanar at
+          0.1), 0.08 below the ad face (was 0.01), polygonOffset as a belt
+          on top so the rim never fights the creative on any GPU. */}
+      <mesh position={[0, 1, 0.16]}>
         <planeGeometry args={[4.0, 4.7]} />
-        <meshBasicMaterial color={color} />
+        <meshStandardMaterial
+          map={borderTex}
+          metalness={0.6}
+          roughness={0.35}
+          polygonOffset
+          polygonOffsetFactor={2}
+          polygonOffsetUnits={2}
+        />
       </mesh>
 
       <group
@@ -71,14 +124,14 @@ function GodAdPanel({ onLaunchExternal, adTex, color }) {
       </group>
 
       <group
-        position={[0, -2.8, 0.11]}
+        position={[0, -2.8, 0.16]}
         onClick={handleEmailClick}
         onPointerOver={() => { setEmailHovered(true); document.body.style.cursor = 'pointer'; }}
         onPointerOut={() => { setEmailHovered(false); document.body.style.cursor = 'default'; }}
       >
         <mesh>
           <planeGeometry args={[3.8, 0.6]} />
-          <meshBasicMaterial color="#000000" transparent opacity={0.6} />
+          <meshBasicMaterial color="#000000" transparent opacity={0.6} polygonOffset polygonOffsetFactor={1} polygonOffsetUnits={1} />
         </mesh>
         <Text position={[0, 0, 0.01]} fontSize={0.25} color={emailHovered ? "#ffffff" : "#aaaaaa"}>Advertise Here: Email Us</Text>
       </group>
