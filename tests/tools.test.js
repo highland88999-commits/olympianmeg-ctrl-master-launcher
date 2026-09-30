@@ -57,10 +57,18 @@ t('all TOOLS entries carry the ARES constellation', TOOLS.every((s) => s.constel
 t('no duplicate satellite keys', new Set(sats.map((s) => s.key)).size === sats.length);
 
 // ---- registry: nav-render safety against app/page.jsx ----
-const accentNames = [...launcher.matchAll(/^\s{2}(\w+):\s*\{ dot:/gm)].map((m) => m[1]);
+// ---- registry: nav-render safety ----
+// Phase 2b: the old constellation-keyed ACCENTS map in app/page.jsx is gone.
+// Orbit band colors now resolve from each god menu's `accent` through GOD_HEX
+// in lib/god-orbits.js, so the no-nav-crash invariant is: every god menu
+// accent is a valid GOD_HEX key (no silent fallback).
+const godMenusSrc = readFileSync('lib/god-menus.js', 'utf8');
+const godOrbitsSrc = readFileSync('lib/god-orbits.js', 'utf8');
+const menuAccents = [...godMenusSrc.matchAll(/accent:\s*'(\w+)'/g)].map((m) => m[1]);
+const godHexKeys = [...godOrbitsSrc.matchAll(/^\s{2}(\w+):\s*'#[0-9a-fA-F]{6}'/gm)].map((m) => m[1]);
+t('every god menu accent resolves in GOD_HEX (no nav crash)',
+  menuAccents.length > 0 && menuAccents.every((a) => godHexKeys.includes(a)));
 const posNames = (launcher.match(/const POS_MAP = \{([^}]+)\}/) || ['', ''])[1].split(',').map((s) => s.trim()).filter(Boolean);
-t('every section constellation has an ACCENT entry (no nav crash)',
-  secs.every((s) => accentNames.includes(s.constellation)));
 t('every satellite pos is a valid POS_MAP key (no undefined dive target)',
   sats.every((s) => posNames.includes(s.pos)));
 
@@ -84,7 +92,10 @@ t('hub cards resolve routes from the registry', /SATELLITES\.find\(\(s\) => s\.k
 t('hub has a plain-English description per tool',
   EXPECTED_TOOLS.every((k) => new RegExp("'" + k + "': '[^']{20,}'").test(hub)));
 t('hub has a filter input', /type="search"/.test(hub) && /Filter tools/.test(hub));
-t('hub links back to the launcher', /router\.push\('\/'\)/.test(hub));
+t('hub links back to the launcher',
+  // Phase 2b: pages use the shared BackButton (router.back, launcher fallback)
+  // instead of a raw router.push('/').
+  /router\.push\('\/'\)/.test(hub) || /<BackButton/.test(hub));
 t('hub groups cards (Build/Write/Organize/Connect)', /'Build'/.test(hub) && /'Connect & Guard'/.test(hub));
 
 // ---- hub: quality bar ----

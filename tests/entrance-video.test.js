@@ -9,6 +9,9 @@ import { dirname, join } from 'node:path';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const authSrc = readFileSync(join(root, 'components/Auth.jsx'), 'utf8');
 const homeSrc = readFileSync(join(root, 'app/page.jsx'), 'utf8');
+// Phase 2b (2026-09-30): the home 3D Canvas was code-split out of app/page.jsx
+// into components/HomeScene.jsx. Canvas assertions read the scene file.
+const sceneSrc = readFileSync(join(root, 'components/HomeScene.jsx'), 'utf8');
 const videoPath = join(root, 'public/media/entrance.mp4');
 
 let passed = 0;
@@ -40,8 +43,8 @@ t('home video is desaturated so it stays distant', homeSrc.includes('saturate(0.
 t('home video has a dark veil overlay', homeSrc.includes('bg-black/50'));
 t('home video never double-plays under the Auth overlay', homeSrc.includes('(user || cloudOffline) && bgVideoOk'));
 t('home video has an honest missing-file fallback', homeSrc.includes('setBgVideoOk(false)'));
-t('home Canvas is transparent so the video shows through behind the scene', homeSrc.includes('gl={{ alpha: true }}'));
-t('home keeps the opaque #050505 backdrop when the video is missing', homeSrc.includes("{!bgVideoOk && <color attach=\"background\" args={['#050505']} />}"));
+t('home Canvas is transparent so the video shows through behind the scene', sceneSrc.includes('gl={{ alpha: true }}'));
+t('home keeps the opaque #050505 backdrop when the video is missing', sceneSrc.includes("{!bgVideoOk && <color attach=\"background\" args={['#050505']} />}"));
 t('background video layer is pointer-events-none (never blocks the scene)', homeSrc.includes('absolute inset-0 overflow-hidden pointer-events-none'));
 
 console.log(`\nentrance-video: ${passed} passed, ${failed} failed`);

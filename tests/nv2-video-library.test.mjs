@@ -73,8 +73,10 @@ test("no third-party imports", () => {
   for (const [name, src] of [["page.jsx", pageSrc], ["library.js", libSrc]]) {
     const imports = [...src.matchAll(/from\s+["']([^"']+)["']/g)].map((m) => m[1]);
     for (const imp of imports) {
+      // next/image is a first-party Next.js framework import (Phase 2b
+      // <img> migration), not a third-party dependency.
       assert.ok(
-        imp === "react" || imp.startsWith("./") || imp.startsWith("../"),
+        imp === "react" || imp === "next/image" || imp.startsWith("./") || imp.startsWith("../"),
         `${name}: unexpected external import: ${imp}`
       );
     }

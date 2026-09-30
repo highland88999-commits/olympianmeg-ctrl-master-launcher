@@ -47,15 +47,18 @@ t('fallback position is Edmonton', FALLBACK_POSITION.lat === 53.5462);
 
 // --- wiring: components exist and are connected ---
 const page = readFileSync('app/page.jsx', 'utf8');
+// Phase 2b (2026-09-30): the home 3D scene was code-split out of app/page.jsx
+// into components/HomeScene.jsx. Scene-wiring assertions read the scene file.
+const homeScene = readFileSync('components/HomeScene.jsx', 'utf8');
 const nexus = readFileSync('components/NexusEarth.jsx', 'utf8');
 const flight = readFileSync('components/EarthFlightController.jsx', 'utf8');
 const console_ = readFileSync('components/EarthConsole.jsx', 'utf8');
 
-t('page imports NexusEarth', /import NexusEarth/.test(page));
-t('page imports EarthFlightController', /import EarthFlightController/.test(page));
+t('page imports NexusEarth', /import NexusEarth/.test(homeScene));
+t('page imports EarthFlightController', /import EarthFlightController/.test(homeScene));
 t('page imports EarthConsole', /import EarthConsole/.test(page));
-t('page renders NexusEarth with onSelect', /<NexusEarth[\s\S]*?onSelect/.test(page));
-t('page renders flight controller', /<EarthFlightController/.test(page));
+t('page renders NexusEarth with onSelect', /<NexusEarth[\s\S]*?onSelect/.test(homeScene));
+t('page renders flight controller', /<EarthFlightController/.test(homeScene));
 t('page renders console in earth states', /diving_to_earth.*earth_surface.*earth_travel/.test(page));
 t('page has tap hint', /earth\.tapHint/.test(page));
 t('dive/travel/return handlers defined', /beginEarthDive/.test(page) && /travelToEarth/.test(page) && /returnToOrbit/.test(page));
