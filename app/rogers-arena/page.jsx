@@ -9,6 +9,7 @@ import {
 } from './arena';
 import { createArenaScene } from './scene';
 import Tickets from './tickets';
+import Live from './live';
 
 export default function RogersArenaPage() {
   const mountRef = useRef(null);
@@ -17,7 +18,7 @@ export default function RogersArenaPage() {
   const dragRef = useRef(null);
   const reducedMotionRef = useRef(false);
 
-  const [tab, setTab] = useState('arena'); // arena | tickets
+  const [tab, setTab] = useState('arena'); // arena | live | tickets
   const [modeId, setModeId] = useState('concert');
   const mode = MODES.find((m) => m.id === modeId);
 
@@ -93,7 +94,7 @@ export default function RogersArenaPage() {
   return (
     <>
     <main className="fixed inset-0 bg-[#05070d] text-white overflow-hidden select-none">
-      {/* Section tabs: arena vignette | real ticket booking */}
+      {/* Section tabs: arena vignette | live game center | real ticket booking */}
       <div className="absolute top-0 left-0 right-0 z-20 flex justify-center pt-3 pointer-events-none">
         <div
           className="pointer-events-auto flex gap-1 p-1 rounded-full bg-black/70 border border-white/15"
@@ -102,6 +103,7 @@ export default function RogersArenaPage() {
         >
           {[
             { id: 'arena', label: 'Arena' },
+            { id: 'live', label: 'Live' },
             { id: 'tickets', label: 'Tickets' },
           ].map((t) => (
             <button
@@ -122,6 +124,10 @@ export default function RogersArenaPage() {
       {tab === 'tickets' ? (
         <div className="absolute inset-0 overflow-y-auto select-text">
           <Tickets />
+        </div>
+      ) : tab === 'live' ? (
+        <div className="absolute inset-0 overflow-y-auto select-text">
+          <Live />
         </div>
       ) : (
         <>
