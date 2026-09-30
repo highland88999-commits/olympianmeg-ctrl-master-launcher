@@ -26,6 +26,8 @@ import King from '@/components/chess/pieces/King';
 // Hooks
 import { useChessEngine } from '@/hooks/chess/useChessEngine';
 import { useMatchmaking } from '@/hooks/chess/useMatchmaking';
+import { chooseAiMove } from '@/lib/chess/ai';
+import { PROMOTION_CHOICES } from '@/lib/chess/rules';
 
 // OASIS — universal multiplayer lobby (min-max participation, NPC backfill, bosses)
 import OasisLobby from '@/components/oasis/Lobby';
@@ -78,6 +80,8 @@ export default function QuantumChess() {
   const [oasisOpen, setOasisOpen] = useState(false);
   const [npcName, setNpcName] = useState<string | null>(null);
   const [selectedPieceId, setSelectedPieceId] = useState<number | null>(null);
+  const [legalTargets, setLegalTargets] = useState<Array<{ x: number; z: number }>>([]);
+  const [pendingPromotion, setPendingPromotion] = useState<{ pieceId: number; x: number; z: number } | null>(null);
   
   const [cyanSkinTex, setCyanSkinTex] = useState<THREE.VideoTexture | null>(null);
   const [pinkSkinTex, setPinkSkinTex] = useState<THREE.VideoTexture | null>(null);
@@ -118,8 +122,8 @@ export default function QuantumChess() {
   } = useMatchmaking(user);
   
   const { 
-    pieces, currentTurn, isGameOver, winner, isCheck, 
-    initGame, isValidMove, executeMove, setGameState, resignGame
+    pieces, currentTurn, isGameOver, winner, isCheck, lastMove,
+    initGame, isValidMove, getLegalMoves, executeMove, setGameState, resignGame
   } = useChessEngine(mode, playerColor || 'cyan', broadcastMove);
 
   const gameStateRef = useRef({ pieces, currentTurn });
@@ -209,28 +213,30 @@ export default function QuantumChess() {
 
   useEffect(() => {
     if (opponentMove && !isGameOver) {
-      executeMove(opponentMove.pieceId, opponentMove.to.x, opponentMove.to.z, true);
+      executeMove(opponentMove.pieceId, opponentMove.to.x, opponentMove.to.z, true, opponentMove.promotion || 'queen');
     }
   }, [opponentMove, isGameOver]); 
 
+  // Quantum AI: real minimax search (alpha-beta, piece-square tables) —
+  // it evaluates the position and plays the strongest move it finds.
   useEffect(() => {
     if (mode === 'ai' && currentTurn === 'pink' && !isGameOver) {
       const timer = setTimeout(() => {
-        const aiPieces = pieces.filter(p => p.team === 'pink' && p.alive);
-        for (let p of aiPieces) {
-          for (let z = 0; z < 8; z++) {
-            for (let x = 0; x < 8; x++) {
-              if (isValidMove(p, x, z)) {
-                executeMove(p.id, x, z);
-                return;
-              }
-            }
-          }
-        }
+        const mv = chooseAiMove(pieces, 'pink', lastMove, 3);
+        if (mv) executeMove(mv.pieceId, mv.x, mv.z);
       }, 750);
       return () => clearTimeout(timer);
     }
-  }, [currentTurn, mode, isGameOver, pieces, isValidMove, executeMove]);
+  }, [currentTurn, mode, isGameOver, pieces, lastMove, executeMove]);
+
+  // Legal-move highlights for the selected piece.
+  useEffect(() => {
+    if (selectedPieceId == null) {
+      setLegalTargets([]);
+      return;
+    }
+    setLegalTargets(getLegalMoves(selectedPieceId));
+  }, [selectedPieceId, pieces, getLegalMoves]);
 
   // --- game-feel FX ----------------------------------------------------------
   // unlock on first gesture (deep links may land here without the hub)
@@ -302,7 +308,7 @@ export default function QuantumChess() {
   };
 
   const handleTileClick = (x: number, z: number) => {
-    if (isGameOver) return;
+    if (isGameOver || pendingPromotion) return;
     if (mode === 'ai' && currentTurn === 'pink') return;
     
     if (mode === 'global') {
@@ -313,10 +319,23 @@ export default function QuantumChess() {
     if (selectedPieceId) {
       const piece = pieces.find(p => p.id === selectedPieceId);
       if (piece && isValidMove(piece, x, z)) {
-        executeMove(piece.id, x, z);
+        // A pawn reaching the far rank promotes — the player picks the piece.
+        const lastRank = piece.team === 'cyan' ? 7 : 0;
+        if (piece.type === 'pawn' && z === lastRank) {
+          setPendingPromotion({ pieceId: piece.id, x, z });
+        } else {
+          executeMove(piece.id, x, z);
+        }
       }
       setSelectedPieceId(null);
     }
+  };
+
+  const confirmPromotion = (choice: string) => {
+    if (!pendingPromotion) return;
+    executeMove(pendingPromotion.pieceId, pendingPromotion.x, pendingPromotion.z, false, choice);
+    setPendingPromotion(null);
+    setSelectedPieceId(null);
   };
 
   if (cloudOffline) return (
@@ -356,7 +375,7 @@ export default function QuantumChess() {
       {mode && (
         <>
           <HUD 
-            user={user} sectorId={sectorId} gameMode={mode} gameStatus={gameStatus}
+            user={user} sectorId={sectorId} gameMode={mode} gameStatus={mode === 'global' ? gameStatus : 'active'}
             currentTurn={currentTurn} playerColor={playerColor || 'cyan'} 
             isCheck={isCheck} opponentName={mode === 'ai' ? npcName : null}
             onResign={() => {
@@ -366,6 +385,26 @@ export default function QuantumChess() {
           />
           <RulesOverlay />
         </>
+      )}
+
+      {pendingPromotion && !isGameOver && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-5 p-8 bg-zinc-950 border border-cyan-500/40 rounded-xl shadow-[0_0_40px_rgba(0,242,255,0.15)]">
+            <h2 className="text-sm font-bold tracking-[0.25em] uppercase text-cyan-300">Promote pawn to</h2>
+            <div className="flex gap-3">
+              {PROMOTION_CHOICES.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => confirmPromotion(c)}
+                  className="min-h-[56px] px-5 py-3 text-xs font-bold tracking-widest uppercase border rounded border-zinc-600 text-zinc-100 hover:border-cyan-400 hover:bg-cyan-500/20 active:bg-cyan-500/40"
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
 
       {isGameOver && <GameOver winner={winner} onRestart={() => window.location.reload()} />}
@@ -386,7 +425,7 @@ export default function QuantumChess() {
           <MarsBackground />
         </Suspense>
 
-        <Board onTileClick={handleTileClick} boardTex={boardTex} />
+        <Board onTileClick={handleTileClick} boardTex={boardTex} highlights={legalTargets} />
         
         {pieces.map(p => {
           const PieceComponent = PIECE_COMPONENTS[p.type] || Pawn;
@@ -409,7 +448,9 @@ export default function QuantumChess() {
               kingAsteroidTex={kingAsteroidTex}
               onClick={(e: any) => {
                 e.stopPropagation();
-                if (p.team === currentTurn) {
+                if (pendingPromotion) return;
+                const selectableTeam = mode === 'global' ? playerColor : currentTurn;
+                if (p.team === currentTurn && p.team === selectableTeam) {
                   fx.tap(); // piece selected
                   setSelectedPieceId(p.id);
                 }
