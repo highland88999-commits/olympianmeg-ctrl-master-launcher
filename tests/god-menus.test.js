@@ -57,7 +57,8 @@ t('godMenuFor returns null for unknown key', godMenuFor('nope-not-real') === nul
 
 // --- wiring: single entry point ---------------------------------------------
 const pageSrc = stripComments(readFileSync('app/page.jsx', 'utf8'));
-t('home renders GodMenuPanel', pageSrc.includes('GodMenuPanel'));
+t('shell declutter: satellite menu (floating button) is the single launcher, GodMenuPanel not rendered',
+  pageSrc.includes('<SatelliteMenu') && !pageSrc.includes('GodMenuPanel'));
 t('home keeps launchPocketUniverse as the menu-to-satellite function',
   pageSrc.includes('const launchPocketUniverse'));
 t('home passes launchPocketUniverse into the god menu panel',
@@ -138,8 +139,8 @@ t('rider offset sits above/behind the bike nose (sane mount point)',
   RIDER_OFFSET.y > 1 && RIDER_OFFSET.y < 4 && RIDER_OFFSET.z < 0 && BIKE_LOOK_AHEAD > 10);
 t('home renders the god orbit rings', pageSrc.includes('GodOrbitRings'));
 t('home renders the parked bike rig', pageSrc.includes('BikeRig'));
-t('spawn-to-bike button exists, fixed bottom-right',
-  pageSrc.includes('SPAWN TO BIKE') && pageSrc.includes('bottom-5 right-5'));
+t('spawn-to-bike button exists, fixed bottom-right with bar clearance',
+  pageSrc.includes('SPAWN TO BIKE') && pageSrc.includes('bottom-[calc(4.5rem+env(safe-area-inset-bottom))] right-5'));
 t('camera controller handles to_bike and on_bike states',
   pageSrc.includes("'to_bike'") && pageSrc.includes("'on_bike'"));
 

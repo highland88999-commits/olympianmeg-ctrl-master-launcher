@@ -216,11 +216,15 @@ export default function WasteExtractionPage() {
       <main className="flex-1 flex flex-col items-center px-4 pb-10 w-full max-w-5xl mx-auto">
         <div className="wx-frame wx-scan w-full" style={{ aspectRatio: '16 / 9' }}>
           <canvas ref={canvasRef} className="w-full h-full block" aria-label={feed.name + ' feed'} />
-          <div className="absolute top-3 left-4 z-[3] text-[10px] tracking-[0.25em] text-cyan-200/90 bg-black/50 px-2 py-1 rounded">
-            FEED: {feed.name}
-          </div>
-          <div className="absolute top-3 right-4 z-[3] text-[10px] tracking-[0.25em] text-emerald-200/90 bg-black/50 px-2 py-1 rounded">
-            SIM SIGNAL {signal}% {paused ? '• HELD' : '• LOOPING'}
+          {/* Feed + signal labels share one top row: the feed name truncates
+              so it can never collide with the signal pill on narrow screens. */}
+          <div className="absolute top-3 left-4 right-4 z-[3] flex items-start justify-between gap-2">
+            <div className="min-w-0 truncate text-[10px] tracking-[0.25em] text-cyan-200/90 bg-black/50 px-2 py-1 rounded">
+              FEED: {feed.name}
+            </div>
+            <div className="shrink-0 text-[10px] tracking-[0.25em] text-emerald-200/90 bg-black/50 px-2 py-1 rounded">
+              SIM SIGNAL {signal}% {paused ? '• HELD' : '• LOOPING'}
+            </div>
           </div>
         </div>
 
