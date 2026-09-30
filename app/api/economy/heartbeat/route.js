@@ -17,8 +17,9 @@ import { ECONOMY } from '@/lib/economy/config';
 import { getUserFromRequest } from '@/lib/economy/auth';
 import { heartbeatIdemKey } from '@/lib/economy/heartbeat';
 import { creditGold, getBalance, EconomyUnavailableError, CapReachedError } from '@/lib/economy/ledger';
+import { apiGuard } from '@/lib/api-guard';
 
-export async function POST(req) {
+export const POST = apiGuard(async function POST(req) {
   const auth = await getUserFromRequest(req);
   if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
@@ -45,4 +46,4 @@ export async function POST(req) {
     }
     return NextResponse.json({ error: 'Could not record your visit.' }, { status: err.status || 502 });
   }
-}
+});

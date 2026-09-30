@@ -9,8 +9,9 @@ import { NextResponse } from 'next/server';
 import { getUserFromRequest } from '@/lib/economy/auth';
 import { getServiceClient } from '@/lib/economy/supabase';
 import { CREDITS_PER_PACK, PACK_PRICE_CENTS } from '@/lib/gallery';
+import { apiGuard } from '@/lib/api-guard';
 
-export async function GET(req) {
+export const GET = apiGuard(async function GET(req) {
   const auth = await getUserFromRequest(req);
   if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
@@ -38,4 +39,4 @@ export async function GET(req) {
     }
     return NextResponse.json({ error: 'Could not load your credit balance.' }, { status: 500 });
   }
-}
+});

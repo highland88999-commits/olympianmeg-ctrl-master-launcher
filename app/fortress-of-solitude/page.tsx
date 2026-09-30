@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useRef } from "react";
-import { Plus, Share2, Download, Eye, Upload, Palette, MonitorPlay, Grid } from "lucide-react";
+import { Plus, Download, Eye, Upload, Palette, MonitorPlay, Grid, ArrowUpCircle, Trash2, Link2, Copy, XCircle } from "lucide-react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
@@ -12,8 +12,12 @@ import JSZip from "jszip";
 import { useRouter } from 'next/navigation';
 import { BackButton } from '@/components/ui';
 import { supabase } from '@/lib/supabase';
+import { lockBlob, unlockBlob, isLockedNode } from '@/lib/fortress/vault-crypto';
+import { formatBytes, FREE_QUOTA_BYTES } from '@/lib/fortress/tiers';
+import { SHARE_PASSPHRASE_NOTE } from '@/lib/fortress/shares';
 
 import HoloframeViewer from "@/components/fortress/HoloframeViewer";
+import StorageTiers from "@/components/fortress/StorageTiers";
 
 export default function FortressApp() {
   const router = useRouter();
@@ -35,6 +39,58 @@ export default function FortressApp() {
   const [activeFileData, setActiveFileData] = useState<{url: string, meta: any} | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [longPressedNode, setLongPressedNode] = useState<any>(null);
+  // Passphrase flow for real client-side encryption (never stored, never sent).
+  const [passphrase, setPassphrase] = useState("");
+  const [lockStep, setLockStep] = useState<null | 'store' | 'extract'>(null);
+  const [pendingAction, setPendingAction] = useState<null | 'view' | 'download'>(null);
+
+  // Storage tiers: the signed-in user's position in their vault allowance.
+  const [quota, setQuota] = useState<{ tier: string, tierLabel: string, quotaBytes: number, usedBytes: number } | null>(null);
+  const [tiersOpen, setTiersOpen] = useState(false);
+  const [ascending, setAscending] = useState(false);
+
+  // Real share links for the selected crystal's file.
+  const [share, setShare] = useState<{ url: string, expiresAt: string, token: string } | null>(null);
+  const [shareBusy, setShareBusy] = useState(false);
+
+  // Removing a stored file for good.
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [removeBusy, setRemoveBusy] = useState(false);
+
+  const authHeaders = async () => {
+    const session = await supabase.auth.getSession();
+    const token = session.data.session?.access_token;
+    return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
+  };
+
+  const resetLockState = () => {
+    setPassphrase("");
+    setLockStep(null);
+    setPendingAction(null);
+    setShare(null);
+    setConfirmRemove(false);
+  };
+
+  // Start a real Stripe checkout for a storage tier (subscription, CAD/month).
+  const handleAscend = async (tierId: string) => {
+    setAscending(true);
+    try {
+      const res = await fetch('/api/fortress/checkout', {
+        method: 'POST',
+        headers: await authHeaders(),
+        body: JSON.stringify({ tier: tierId })
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      if (data.url) window.location.href = data.url;
+    } catch (err: any) {
+      setTiersOpen(false);
+      setStatusMsg(err.message);
+      setTimeout(() => setStatusMsg(""), 6000);
+    } finally {
+      setAscending(false);
+    }
+  };
   
   const engineRef = useRef<any>({}); 
   const selectedMeshRef = useRef<THREE.Mesh | null>(null);
@@ -70,6 +126,33 @@ export default function FortressApp() {
         const used = loadedMatrix.reduce((acc: number, curr: any) => acc + (curr.rawSize || 0), 0);
         setStorageUsed(used);
         setMounted(true);
+
+        // The user's real storage position: tier, allowance, and used bytes.
+        try {
+          const qres = await fetch('/api/fortress/quota', { headers: await authHeaders() });
+          const q = await qres.json();
+          if (!q.error) setQuota({ tier: q.tier, tierLabel: q.tierLabel, quotaBytes: q.quotaBytes, usedBytes: q.usedBytes });
+        } catch { /* the storage widget falls back to the crystal matrix */ }
+
+        // Return from Stripe: settle on the webhook's word, then refresh.
+        try {
+          const params = new URLSearchParams(window.location.search);
+          if (params.get('checkout') === 'success') {
+            setStatusMsg("Your vault has ascended — the new tier is active.");
+            try {
+              const qres = await fetch('/api/fortress/quota', { headers: await authHeaders() });
+              const q = await qres.json();
+              if (!q.error) setQuota({ tier: q.tier, tierLabel: q.tierLabel, quotaBytes: q.quotaBytes, usedBytes: q.usedBytes });
+            } catch { /* keep the earlier reading */ }
+            setTimeout(() => setStatusMsg(""), 5000);
+            window.history.replaceState({}, '', window.location.pathname);
+          } else if (params.get('checkout') === 'cancelled') {
+            setStatusMsg("Checkout cancelled — nothing was charged.");
+            setTimeout(() => setStatusMsg(""), 5000);
+            window.history.replaceState({}, '', window.location.pathname);
+          }
+        } catch { /* URL params are best-effort */ }
+
         setTimeout(() => initThreeJSEngine(loadedMatrix), 100);
       }).catch(() => setCloudOffline(true))
 
@@ -246,6 +329,7 @@ export default function FortressApp() {
        
        selectedMeshRef.current = hit;
        setSelectedNodeData(hit.userData);
+       resetLockState();
        gsap.to(hit.position, { y: 3.5, duration: 0.4, ease: "back.out" }); 
     } else {
        if(selectedMeshRef.current) {
@@ -254,6 +338,7 @@ export default function FortressApp() {
        }
        setSelectedNodeData(null);
        selectedMeshRef.current = null;
+       resetLockState();
     }
   };
 
@@ -262,14 +347,26 @@ export default function FortressApp() {
     if (!file || !uploadTarget) return;
 
     if (uploadTarget === 'crystal' && selectedNodeData) {
-      setStatusMsg("Preparing your file...");
+      const phrase = passphrase.trim();
+      if (!phrase) {
+        setStatusMsg("Enter a passphrase to lock this file first.");
+        setTimeout(() => setStatusMsg(""), 3000);
+        setUploadTarget(null);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        return;
+      }
+      setStatusMsg("Locking your file...");
       try {
         const zip = new JSZip();
-        const manifest = { originName: file.name, mimeType: file.type, rawSizeBytes: file.size, timestamp: Date.now(), nodeId: selectedNodeData.id };
+        const manifest = { originName: file.name, mimeType: file.type, rawSizeBytes: file.size, timestamp: Date.now(), nodeId: selectedNodeData.id, encrypted: true };
         
         zip.file("manifest.json", JSON.stringify(manifest));
         zip.file("payload.dat", await file.arrayBuffer(), { binary: true });
-        const compressedBlob = await zip.generateAsync({ type: "blob" });
+        const zipBytes = new Uint8Array(await zip.generateAsync({ type: "uint8array" }));
+        // Genuine client-side AES-GCM-256 (PBKDF2-SHA256 600k, per-file salt/IV).
+        // The server only ever receives ciphertext — never the file, never the passphrase.
+        const lockedBytes = await lockBlob(zipBytes, phrase);
+        const lockedBlob = new Blob([lockedBytes as unknown as BlobPart], { type: 'application/octet-stream' });
 
         setStatusMsg("Getting your upload link...");
         const session = await supabase.auth.getSession();
@@ -278,19 +375,31 @@ export default function FortressApp() {
         const response = await fetch('/api/request-upload-link', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({ nodeId: manifest.nodeId })
+          body: JSON.stringify({ nodeId: manifest.nodeId, encrypted: true, fileSize: lockedBlob.size })
         });
         const { uploadUrl, fileStorageKey, error } = await response.json();
         if(error) throw new Error(error);
         
         setStatusMsg("Saving to your vault...");
-        const putRes = await fetch(uploadUrl, { method: 'PUT', body: compressedBlob, headers: { 'Content-Type': 'application/zip' }});
+        const putRes = await fetch(uploadUrl, { method: 'PUT', body: lockedBlob, headers: { 'Content-Type': 'application/octet-stream' }});
         if (!putRes.ok) throw new Error(`Server rejected file: ${putRes.status} ${putRes.statusText}. Please verify CORS rules.`);
+
+        // The bytes landed — report them so the vault's used bytes stay true.
+        try {
+          const ures = await fetch('/api/fortress/usage', {
+            method: 'POST',
+            headers: await authHeaders(),
+            body: JSON.stringify({ op: 'add', bytes: lockedBlob.size })
+          });
+          const u = await ures.json();
+          if (!u.error) setQuota({ tier: u.tier, tierLabel: u.tierLabel, quotaBytes: u.quotaBytes, usedBytes: u.usedBytes });
+        } catch { /* accounting refreshes on the next visit; the file itself is stored */ }
         
         if(selectedMeshRef.current) {
            selectedMeshRef.current.userData.fileStorageKey = fileStorageKey;
            selectedMeshRef.current.userData.name = manifest.originName;
            selectedMeshRef.current.userData.rawSize = manifest.rawSizeBytes;
+           selectedMeshRef.current.userData.encrypted = true;
            
            const updatedNode = selectedMeshRef.current.userData;
            setSelectedNodeData({...updatedNode});
@@ -300,7 +409,8 @@ export default function FortressApp() {
         }
         
         setStatusMsg("");
-        alert("File saved!");
+        resetLockState();
+        alert("File encrypted and saved to your vault. Keep your passphrase — without it the file cannot be opened.");
       } catch(err: any) {
         setStatusMsg("Issue saving file: " + err.message);
         setTimeout(() => setStatusMsg(""), 4000);
@@ -340,8 +450,25 @@ export default function FortressApp() {
     setUploadTarget(null);
   };
 
+  // Locked files need the passphrase step; legacy (pre-encryption) files open directly.
+  const beginExtract = (action: 'view' | 'download') => {
+    if (isLockedNode(selectedNodeData)) {
+      setPendingAction(action);
+      setLockStep('extract');
+    } else {
+      handleExtract(action);
+    }
+  };
+
   const handleExtract = async (action: 'view' | 'download') => {
     if(!selectedNodeData?.fileStorageKey) return;
+    const locked = isLockedNode(selectedNodeData);
+    const phrase = passphrase.trim();
+    if (locked && !phrase) {
+      setStatusMsg("Enter the passphrase for this file to unlock it.");
+      setTimeout(() => setStatusMsg(""), 3000);
+      return;
+    }
     setStatusMsg("Getting your download link...");
     
     try {
@@ -356,11 +483,23 @@ export default function FortressApp() {
       const { downloadUrl, error } = await res.json();
       if(error) throw new Error(error);
 
-      setStatusMsg("Opening your file...");
+      setStatusMsg(locked ? "Unlocking your file..." : "Opening your file...");
       const cloudStream = await fetch(downloadUrl);
       if (!cloudStream.ok) throw new Error(`Access Denied (${cloudStream.status}). Please check CORS configuration.`);
-      
-      const unzipped = await JSZip.loadAsync(await cloudStream.blob());
+
+      let zipBytes: Uint8Array;
+      if (locked) {
+        try {
+          zipBytes = await unlockBlob(new Uint8Array(await cloudStream.arrayBuffer()), phrase);
+        } catch {
+          throw new Error("Wrong passphrase — the file could not be unlocked.");
+        }
+      } else {
+        // Legacy files stored before encryption existed: plain zip.
+        zipBytes = new Uint8Array(await cloudStream.arrayBuffer());
+      }
+
+      const unzipped = await JSZip.loadAsync(zipBytes);
       const manifestStr = await unzipped.file("manifest.json")?.async("string");
       if(!manifestStr) throw new Error("File could not be read. Payload corrupted.");
       const manifest = JSON.parse(manifestStr);
@@ -370,6 +509,7 @@ export default function FortressApp() {
       const localUrl = URL.createObjectURL(reconstructedBlob);
       
       setStatusMsg("");
+      resetLockState();
       if(action === 'view') setActiveFileData({ url: localUrl, meta: manifest });
       else {
         const a = document.createElement('a'); a.href = localUrl; a.download = manifest.originName; a.click();
@@ -380,24 +520,104 @@ export default function FortressApp() {
     }
   }
 
-  const handleShareLink = async () => {
-      const url = window.location.href;
-      if (navigator.share) {
-         try {
-            await navigator.share({ url, title: 'My Olympus Vault' });
-            return;
-         } catch (err: any) {
-            if (err?.name === 'AbortError') return;
-         }
-      }
-      // Web Share isn't available on this device/browser — copy the link instead.
-      try {
-         await navigator.clipboard.writeText(url);
-         setStatusMsg("Share is not supported here — the page link was copied to your clipboard instead.");
-      } catch {
-         setStatusMsg("Share is not supported here — copy this page's address from the browser bar.");
-      }
-      setTimeout(() => setStatusMsg(""), 5000);
+  // Real share links: a time-limited bearer token into the selected crystal's
+  // file. Encrypted files stay locked — the passphrase travels separately.
+  const handleCreateShare = async () => {
+    if (!selectedNodeData?.fileStorageKey) {
+      setStatusMsg("Select a crystal holding a file to share it.");
+      setTimeout(() => setStatusMsg(""), 4000);
+      return;
+    }
+    setShareBusy(true);
+    try {
+      const res = await fetch('/api/fortress/shares', {
+        method: 'POST',
+        headers: await authHeaders(),
+        body: JSON.stringify({ fileStorageKey: selectedNodeData.fileStorageKey, expiresInHours: 24 })
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setShare({ url: data.url, expiresAt: data.expiresAt, token: data.token });
+    } catch (err: any) {
+      setStatusMsg("Could not create the share link: " + err.message);
+      setTimeout(() => setStatusMsg(""), 4000);
+    } finally {
+      setShareBusy(false);
+    }
+  };
+
+  const handleRevokeShare = async () => {
+    if (!share) return;
+    setShareBusy(true);
+    try {
+      const res = await fetch('/api/fortress/shares', {
+        method: 'DELETE',
+        headers: await authHeaders(),
+        body: JSON.stringify({ token: share.token })
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setShare(null);
+      setStatusMsg("Share link revoked.");
+      setTimeout(() => setStatusMsg(""), 3000);
+    } catch (err: any) {
+      setStatusMsg("Could not revoke the share link: " + err.message);
+      setTimeout(() => setStatusMsg(""), 4000);
+    } finally {
+      setShareBusy(false);
+    }
+  };
+
+  const handleCopyShare = async () => {
+    if (!share) return;
+    try {
+      await navigator.clipboard.writeText(share.url);
+      setStatusMsg("Share link copied to your clipboard.");
+    } catch {
+      setStatusMsg("Copy this link from the field above.");
+    }
+    setTimeout(() => setStatusMsg(""), 4000);
+  };
+
+  // Remove the stored file for good: cloud object deleted, bytes released.
+  const handleRemoveFile = async () => {
+    if (!selectedNodeData?.fileStorageKey || !selectedMeshRef.current) return;
+    setRemoveBusy(true);
+    try {
+      const res = await fetch('/api/fortress/delete-file', {
+        method: 'POST',
+        headers: await authHeaders(),
+        body: JSON.stringify({
+          fileStorageKey: selectedNodeData.fileStorageKey,
+          bytes: selectedNodeData.rawSize || 0,
+        })
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+
+      const updatedNode: any = {
+        ...selectedMeshRef.current.userData,
+        fileStorageKey: "",
+        name: `Crystal ${matrixData.findIndex((c: any) => c.id === selectedNodeData.id) + 1}`,
+        rawSize: 0,
+      };
+      delete updatedNode.encrypted;
+      setSelectedNodeData({ ...updatedNode });
+      const newMatrix = matrixData.map((c: any) => c.id === updatedNode.id ? updatedNode : c);
+      await syncDatabase(newMatrix);
+      setQuota({ tier: data.tier, tierLabel: data.tierLabel, quotaBytes: data.quotaBytes, usedBytes: data.usedBytes });
+
+      setConfirmRemove(false);
+      resetLockState();
+      setShare(null);
+      setStatusMsg("File removed from your vault.");
+      setTimeout(() => setStatusMsg(""), 3000);
+    } catch (err: any) {
+      setStatusMsg("Could not remove the file: " + err.message);
+      setTimeout(() => setStatusMsg(""), 4000);
+    } finally {
+      setRemoveBusy(false);
+    }
   };
   
   const searchCrystals = (query: string) => {
@@ -415,6 +635,7 @@ export default function FortressApp() {
       }
       selectedMeshRef.current = hit;
       setSelectedNodeData({ ...hit.userData });
+      resetLockState();
       gsap.to(hit.position, { y: 3.5, duration: 0.4, ease: "back.out" });
   };
 
@@ -552,12 +773,101 @@ export default function FortressApp() {
             />
             
             {!selectedNodeData.fileStorageKey ? (
-               <button className="btn w-full flex items-center justify-center gap-2 py-4" onClick={() => { setUploadTarget('crystal'); fileInputRef.current?.click(); }}><Upload size={18}/> Store File Inside</button>
+               lockStep === 'store' ? (
+                 <div className="flex flex-col gap-3">
+                   <p className="text-[11px] tracking-widest text-cyan-300/80 text-center leading-relaxed">
+                     LOCK IT WITH A PASSPHRASE —<br/>only you know it. It is never stored or sent anywhere.
+                   </p>
+                   <input
+                     type="password"
+                     value={passphrase}
+                     onChange={(e) => setPassphrase(e.target.value)}
+                     onKeyDown={(e) => { if (e.key === 'Enter') { setUploadTarget('crystal'); fileInputRef.current?.click(); } }}
+                     placeholder="Your passphrase..."
+                     className="w-full bg-black/60 border border-cyan-400/50 rounded-xl py-3 px-4 text-center text-sm text-white outline-none focus:border-cyan-400"
+                   />
+                   <div className="flex gap-2">
+                     <button className="btn flex-1 flex items-center justify-center gap-2 py-3" onClick={() => { setUploadTarget('crystal'); fileInputRef.current?.click(); }}><Upload size={16}/> Choose file</button>
+                     <button className="btn flex-1 py-3 border-gray-400 text-gray-400 hover:bg-white/10" onClick={resetLockState}>Cancel</button>
+                   </div>
+                 </div>
+               ) : (
+                 <button className="btn w-full flex items-center justify-center gap-2 py-4" onClick={() => setLockStep('store')}><Upload size={18}/> Store File Inside</button>
+               )
             ) : (
-               <div className="flex gap-3">
-                 <button className="btn flex-1 flex items-center justify-center gap-2" onClick={() => handleExtract('view')}><Eye size={16}/> Inspect</button>
-                 <button className="btn flex-1 flex items-center justify-center gap-2 border-fuchsia-500 text-fuchsia-500 hover:bg-fuchsia-500/10 hover:shadow-[0_0_15px_#d946ef]" onClick={() => handleExtract('download')}><Download size={16}/> Extract</button>
-               </div>
+               lockStep === 'extract' ? (
+                 <div className="flex flex-col gap-3">
+                   <p className="text-[11px] tracking-widest text-cyan-300/80 text-center leading-relaxed">
+                     ENTER THE PASSPHRASE<br/>YOU LOCKED THIS FILE WITH.
+                   </p>
+                   <input
+                     type="password"
+                     value={passphrase}
+                     onChange={(e) => setPassphrase(e.target.value)}
+                     onKeyDown={(e) => { if (e.key === 'Enter' && pendingAction) handleExtract(pendingAction); }}
+                     placeholder="Your passphrase..."
+                     className="w-full bg-black/60 border border-cyan-400/50 rounded-xl py-3 px-4 text-center text-sm text-white outline-none focus:border-cyan-400"
+                   />
+                   <div className="flex gap-2">
+                     <button className="btn flex-1 py-3" onClick={() => pendingAction && handleExtract(pendingAction)}>Unlock</button>
+                     <button className="btn flex-1 py-3 border-gray-400 text-gray-400 hover:bg-white/10" onClick={resetLockState}>Cancel</button>
+                   </div>
+                 </div>
+               ) : (
+                 <div className="flex gap-3">
+                   <button className="btn flex-1 flex items-center justify-center gap-2" onClick={() => beginExtract('view')}><Eye size={16}/> Inspect</button>
+                   <button className="btn flex-1 flex items-center justify-center gap-2 border-fuchsia-500 text-fuchsia-500 hover:bg-fuchsia-500/10 hover:shadow-[0_0_15px_#d946ef]" onClick={() => beginExtract('download')}><Download size={16}/> Extract</button>
+                 </div>
+               )
+            )}
+
+            {selectedNodeData.fileStorageKey && (
+              <div className="flex flex-col gap-3 mt-1 p-3 bg-black/40 rounded-xl border border-white/10">
+                <span className="text-[10px] tracking-widest text-white/50 flex items-center gap-2"><Link2 size={12}/> SHARE THIS FILE</span>
+                {share ? (
+                  <div className="flex flex-col gap-2">
+                    <input
+                      type="text" readOnly value={share.url}
+                      onFocus={(e) => e.target.select()}
+                      className="w-full bg-black/60 border border-cyan-400/30 rounded-lg py-2 px-3 text-[11px] text-cyan-200 outline-none"
+                    />
+                    <div className="text-[10px] text-white/50 tracking-wider text-center">
+                      Expires {new Date(share.expiresAt).toLocaleString()}
+                    </div>
+                    <div className="text-[10px] text-amber-300/80 tracking-wider text-center leading-relaxed">
+                      {SHARE_PASSPHRASE_NOTE}
+                    </div>
+                    <div className="flex gap-2">
+                      <button className="btn flex-1 py-2 flex items-center justify-center gap-2" onClick={handleCopyShare}><Copy size={14}/> Copy</button>
+                      <button className="btn flex-1 py-2 border-red-400 text-red-400 hover:bg-red-500/10" disabled={shareBusy} onClick={handleRevokeShare}><XCircle size={14}/> Revoke</button>
+                    </div>
+                  </div>
+                ) : (
+                  <button className="btn w-full py-3 flex items-center justify-center gap-2" disabled={shareBusy} onClick={handleCreateShare}>
+                    <Link2 size={16}/> {shareBusy ? "Creating…" : "Create share link"}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {selectedNodeData.fileStorageKey && (
+              confirmRemove ? (
+                <div className="flex flex-col gap-2 p-3 bg-red-950/40 rounded-xl border border-red-500/40">
+                  <p className="text-[11px] tracking-widest text-red-300 text-center leading-relaxed">
+                    REMOVE THIS FILE FOR GOOD?<br/>It cannot be recovered.
+                  </p>
+                  <div className="flex gap-2">
+                    <button className="btn flex-1 py-2 border-red-400 text-red-400 hover:bg-red-500/20" disabled={removeBusy} onClick={handleRemoveFile}>
+                      <Trash2 size={14}/> {removeBusy ? "Removing…" : "Remove"}
+                    </button>
+                    <button className="btn flex-1 py-2 border-gray-400 text-gray-400 hover:bg-white/10" onClick={() => setConfirmRemove(false)}>Keep</button>
+                  </div>
+                </div>
+              ) : (
+                <button className="btn w-full py-2 border-red-400/60 text-red-400/80 hover:bg-red-500/10 text-[10px] flex items-center justify-center gap-2" onClick={() => setConfirmRemove(true)}>
+                  <Trash2 size={14}/> Remove stored file
+                </button>
+              )
             )}
             
             <div className="flex flex-col items-center mt-2 p-3 bg-black/40 rounded-xl border border-white/10">
@@ -577,21 +887,22 @@ export default function FortressApp() {
 
         <div className={`flex flex-col gap-3 transition-all duration-300 origin-bottom-left ${isMenuOpen ? 'scale-100 opacity-100' : 'scale-0 opacity-0 pointer-events-none'}`}>
             <button className="btn flex items-center gap-2 py-3 px-5" onClick={handleAddCrystal}><Plus size={16}/> Generate Crystal</button>
-            <button className="btn flex items-center gap-2 py-3 px-5 border-green-500 text-green-500 hover:shadow-[0_0_20px_#00ff66] hover:bg-green-500/10" onClick={handleShareLink}><Share2 size={16}/> Share Link</button>
-            
+            <button className="btn flex items-center gap-2 py-3 px-5" onClick={() => setTiersOpen(true)}><ArrowUpCircle size={16}/> Vault storage{quota ? ` — ${quota.tierLabel}` : ""}</button>
+
             <div className="flex gap-2">
               <button className="btn flex-1 flex justify-center py-3 border-gray-400 text-gray-400 hover:bg-white/10" onClick={() => { setUploadTarget('floor'); fileInputRef.current?.click(); }}><Grid size={16} className="mr-2"/> Set Floor</button>
               <button className="btn flex-1 flex justify-center py-3 border-gray-400 text-gray-400 hover:bg-white/10" onClick={() => { setUploadTarget('wall'); fileInputRef.current?.click(); }}><MonitorPlay size={16} className="mr-2"/> Set Walls</button>
             </div>
-            
+
             <div className="glass-panel p-4 rounded-xl mt-2 w-full max-w-[280px]">
                 <div className="text-[10px] text-cyan-400 tracking-wider mb-3 flex justify-between">
-                   <span>STORAGE</span>
-                   <span>{(storageUsed / (1024*1024)).toFixed(2)} / 2000 MB</span>
+                   <span>{quota ? quota.tierLabel.toUpperCase() : "STORAGE"}</span>
+                   <span>{quota ? `${formatBytes(quota.usedBytes)} of ${formatBytes(quota.quotaBytes)}` : `${(storageUsed / (1024*1024)).toFixed(2)} MB`}</span>
                 </div>
                 <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
-                    <div className="h-full bg-cyan-400 shadow-[0_0_10px_#00f2ff]" style={{ width: `${Math.min((storageUsed / (2000 * 1024 * 1024)) * 100, 100)}%` }} />
+                    <div className="h-full bg-cyan-400 shadow-[0_0_10px_#00f2ff]" style={{ width: `${quota ? Math.min((quota.usedBytes / Math.max(quota.quotaBytes, 1)) * 100, 100) : Math.min((storageUsed / (2000 * 1024 * 1024)) * 100, 100)}%` }} />
                 </div>
+                {!quota && <div className="text-[10px] text-white/40 tracking-wider mt-2 text-center">Connecting to your vault…</div>}
             </div>
         </div>
       </div>
@@ -611,6 +922,16 @@ export default function FortressApp() {
                 setActiveFileData(null);
              }} 
           />
+      )}
+
+      {tiersOpen && (
+        <StorageTiers
+          currentTier={quota?.tier || 'free'}
+          usedBytes={quota?.usedBytes ?? storageUsed}
+          quotaBytes={quota?.quotaBytes ?? FREE_QUOTA_BYTES}
+          onAscend={handleAscend}
+          onClose={() => setTiersOpen(false)}
+        />
       )}
 
     </div>

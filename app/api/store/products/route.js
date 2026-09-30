@@ -15,6 +15,7 @@
 // store page groups apparel first and puts anything unclassified under
 // "More" — nothing is hidden.
 import { NextResponse } from 'next/server';
+import { apiGuard } from '@/lib/api-guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,7 +39,7 @@ function formatMoney(cents, currency) {
   }
 }
 
-export async function GET() {
+export const GET = apiGuard(async function GET() {
   if (!process.env.STRIPE_SECRET_KEY) {
     return NextResponse.json({
       configured: false,
@@ -61,13 +62,23 @@ export async function GET() {
   }
 
   try {
-    const list = await stripe.products.list({
-      active: true,
-      limit: 100,
-      expand: ['data.default_price'],
-    });
+    // The catalog is large (hundreds of products), so page through the whole
+    // active list instead of stopping at Stripe's single-page limit.
+    const all = [];
+    let startingAfter;
+    for (let page = 0; page < 10; page++) {
+      const list = await stripe.products.list({
+        active: true,
+        limit: 100,
+        expand: ['data.default_price'],
+        ...(startingAfter ? { starting_after: startingAfter } : {}),
+      });
+      all.push(...(list.data || []));
+      if (!list.has_more || !list.data?.length) break;
+      startingAfter = list.data[list.data.length - 1].id;
+    }
 
-    const products = (list.data || [])
+    const products = all
       .map((p) => {
         const price = p.default_price && typeof p.default_price === 'object' ? p.default_price : null;
         const unit = typeof price?.unit_amount === 'number' ? price.unit_amount : null;
@@ -94,4 +105,4 @@ export async function GET() {
       { status: 502 }
     );
   }
-}
+});

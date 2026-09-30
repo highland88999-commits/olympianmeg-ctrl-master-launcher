@@ -20,7 +20,7 @@
 // inquiry email instead.
 
 'use client';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Text } from '@react-three/drei';
 import * as THREE from 'three';
 import { applyCoverFit } from '../../lib/texture-fit';

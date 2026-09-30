@@ -11,6 +11,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ITEMS } from '@/lib/museum';
 import { verifyDownloadToken } from '@/lib/gallery';
+import { apiGuard } from '@/lib/api-guard';
 
 const MIME = {
   '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
@@ -21,7 +22,7 @@ function downloadSecret() {
   return process.env.GALLERY_DOWNLOAD_SECRET || process.env.STRIPE_SECRET_KEY || '';
 }
 
-export async function GET(req, { params }) {
+export const GET = apiGuard(async function GET(req, { params }) {
   const secret = downloadSecret();
   if (!secret) return new Response('Downloads are not configured yet.', { status: 503 });
 
@@ -63,4 +64,4 @@ export async function GET(req, { params }) {
       'Content-Length': String(bytes.length),
     },
   });
-}
+});

@@ -77,7 +77,7 @@ export default function SettingsGear() {
             </button>
           ))}
           <div className="px-2.5 py-1.5 text-[9px] font-bold uppercase tracking-[0.2em] text-zinc-500 mt-1 border-t border-zinc-800/70 pt-2">
-            Sound &amp; vibration
+            {t('ui.soundVibration')}
           </div>
           <button
             onClick={toggleFx}
@@ -85,7 +85,7 @@ export default function SettingsGear() {
             className="flex w-full items-center justify-between rounded px-2.5 py-1.5 text-left text-xs transition-colors hover:bg-zinc-800/70"
           >
             <span className={fxOn ? 'text-white font-semibold' : 'text-zinc-400'}>
-              {fxOn ? 'On' : 'Off'}
+              {fxOn ? t('ui.on') : t('ui.off')}
             </span>
             <span
               aria-hidden="true"

@@ -27,10 +27,11 @@ import { NextResponse } from 'next/server';
 import { getUserFromRequest as getGoldUser } from '@/lib/economy/auth';
 import { getServiceClient } from '@/lib/economy/supabase';
 import { applyGoldCheckout } from '@/lib/economy/checkout';
+import { apiGuard } from '@/lib/api-guard';
 
-export async function GET() {
+export const GET = apiGuard(async function GET() {
   return NextResponse.json({ cardPayments: !!process.env.STRIPE_SECRET_KEY });
-}
+});
 
 function stripeConfigured() {
   return !!process.env.STRIPE_SECRET_KEY;
@@ -109,7 +110,7 @@ function priceFrom(product) {
   return { price, unitCents: price.unit_amount, currency: price.currency };
 }
 
-export async function POST(req) {
+export const POST = apiGuard(async function POST(req) {
   let body;
   try {
     body = await req.json();
@@ -234,7 +235,7 @@ export async function POST(req) {
       fulfillPaidByGold: async ({ goldSpentGold, idemKey: key }) => {
         const admin = await getServiceClient();
         if (!admin) {
-          const e = new Error('The store is not available right now. Your gold was not spent.');
+          const e = new Error('The store is not available right now. Your gold has been refunded — please try again.');
           e.status = 503; throw e;
         }
         const sessionRef = `gold:${key}`;
@@ -267,7 +268,7 @@ export async function POST(req) {
             orderId = inserted.id;
           }
         } catch {
-          const e = new Error('Could not record your order. Your gold was not spent.');
+          const e = new Error('Could not record your order. Your gold has been refunded — please try again.');
           e.status = 502; throw e;
         }
         return {
@@ -321,4 +322,4 @@ export async function POST(req) {
       { status: err.status || 502 }
     );
   }
-}
+});

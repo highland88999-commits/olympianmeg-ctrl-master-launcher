@@ -3,8 +3,10 @@
 import Stripe from 'stripe';
 import { getAdminClient } from '../_server.js';
 import { listingExpiryIso, LISTING_TERM_MONTHS } from '@/lib/hermes/listings.js';
+import { billableSessionOrNull } from '@/lib/stripe-webhook.js';
+import { apiGuard } from '@/lib/api-guard';
 
-export async function POST(req) {
+export const POST = apiGuard(async function POST(req) {
   const stripeKey = process.env.STRIPE_SECRET_KEY;
   const webhookSecret = process.env.STRIPE_HERMES_WEBHOOK_SECRET || process.env.STRIPE_WEBHOOK_SECRET;
   if (!stripeKey || !webhookSecret) {
@@ -23,8 +25,17 @@ export async function POST(req) {
     return new Response('Invalid signature.', { status: 400 });
   }
 
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object;
+  // Only act when the money has actually arrived (shared webhook gate).
+  const billable = billableSessionOrNull(event);
+  if (billable.ignore) {
+    return Response.json({
+      ok: true, received: true,
+      ...(billable.reason === 'unpaid' ? { pending_payment: true } : {}),
+    });
+  }
+
+  {
+    const session = billable.session;
     const submissionId = session?.metadata?.submission_id;
 
     if (!submissionId) {
@@ -60,6 +71,4 @@ export async function POST(req) {
       return Response.json({ ok: false, error: 'Database update failed.' }, { status: 500 });
     }
   }
-
-  return Response.json({ ok: true, received: true });
-}
+});

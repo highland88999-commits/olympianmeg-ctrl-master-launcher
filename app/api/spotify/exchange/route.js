@@ -17,8 +17,9 @@ import {
   fetchSpotifyProfile,
   jsonError,
 } from '../_server';
+import { apiGuard } from '@/lib/api-guard';
 
-export async function POST(req) {
+export const POST = apiGuard(async function POST(req) {
   if (!getSpotifyClientId()) {
     return jsonError('Spotify sign-in is not configured yet.', 503);
   }
@@ -33,6 +34,20 @@ export async function POST(req) {
   const redirectUri = typeof body?.redirect_uri === 'string' ? body.redirect_uri : '';
   if (!code || !verifier || !redirectUri) {
     return jsonError('Missing code, verifier, or redirect URI.', 400);
+  }
+  // Shape check: a real Spotify authorization code is a few hundred
+  // characters, the PKCE verifier is 43–128 chars (RFC 7636), and the
+  // redirect must be a plain http(s) URL. Anything else never reaches Spotify.
+  const redirectOk = (() => {
+    try {
+      const u = new URL(redirectUri);
+      return u.protocol === 'http:' || u.protocol === 'https:';
+    } catch {
+      return false;
+    }
+  })();
+  if (code.length > 2000 || verifier.length < 43 || verifier.length > 128 || redirectUri.length > 2000 || !redirectOk) {
+    return jsonError('That sign-in request was malformed.', 400);
   }
 
   let tokens;
@@ -85,4 +100,4 @@ export async function POST(req) {
     product,
     premium: product === 'premium',
   });
-}
+});

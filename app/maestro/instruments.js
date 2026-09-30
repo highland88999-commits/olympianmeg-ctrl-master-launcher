@@ -13,6 +13,11 @@ export const INSTRUMENTS = [
     name: 'Piano',
     icon: '🎹',
     oscType: 'triangle',
+    // Multisamples: Salamander Grand Piano V3 (CC BY 3.0, Alexander Holm).
+    // Roots every 3 semitones, MIDI 21-108; files piano-<n><oct>.mp3 ('s'=sharp).
+    sampleDir: 'piano',
+    sampleKind: 'piano',
+    sampleRoots: [21,24,27,30,33,36,39,42,45,48,51,54,57,60,63,66,69,72,75,78,81,84,87,90,93,96,99,102,105,108],
     filterType: 'lowpass',
     filterFreq: 4200,
     attack: 0.015,
@@ -26,6 +31,10 @@ export const INSTRUMENTS = [
     name: 'Trumpet',
     icon: '🎺',
     oscType: 'sawtooth',
+    // Multisamples: FluidR3 GM (MIT, Frank Wen & contributors), preset 56.
+    // Files: trumpet_root<midi>.mp3
+    sampleDir: 'trumpet',
+    sampleRoots: [52,55,60,67,76,84],
     filterType: 'lowpass',
     filterFreq: 3000,
     attack: 0.05,
@@ -39,6 +48,10 @@ export const INSTRUMENTS = [
     name: 'Violin',
     icon: '🎻',
     oscType: 'sawtooth',
+    // Multisamples: FluidR3 GM (MIT), preset 40; stereo (L)/(R) pairs mixed to mono.
+    // Files: violin_root<midi>.mp3
+    sampleDir: 'violin',
+    sampleRoots: [68,71,74,77,80,86,89,92,95,98,101,104,107,110],
     filterType: 'lowpass',
     filterFreq: 2400,
     attack: 0.18,
@@ -52,6 +65,10 @@ export const INSTRUMENTS = [
     name: 'Guitar',
     icon: '🎸',
     oscType: 'square',
+    // Multisamples: FluidR3 GM (MIT), preset 24 (nylon string).
+    // Files: guitar_root<midi>.mp3
+    sampleDir: 'guitar',
+    sampleRoots: [40,45,50,55,59,64,69,71,72,76],
     filterType: 'lowpass',
     filterFreq: 1800,
     attack: 0.005,
@@ -65,6 +82,10 @@ export const INSTRUMENTS = [
     name: 'Electric guitar',
     icon: '⚡',
     oscType: 'sawtooth',
+    // Multisamples: FluidR3 GM (MIT), preset 30 (distortion guitar).
+    // Files: electric-guitar_root<midi>.mp3
+    sampleDir: 'electric-guitar',
+    sampleRoots: [40,45,50,55,59,60,65,67,76,79],
     filterType: 'lowpass',
     filterFreq: 3600,
     attack: 0.01,

@@ -20,6 +20,7 @@ import { NextResponse } from 'next/server';
 import { tierById } from '@/lib/world-engine/economy';
 import { getUserFromRequest, getAdminClient } from '@/lib/world-engine/server';
 import { applyGoldCheckout } from '@/lib/economy/checkout';
+import { apiGuard } from '@/lib/api-guard';
 
 const CURRENCY = 'usd';
 
@@ -46,7 +47,7 @@ async function grantAetherForGold(userId, tier, idemKey) {
     .from('world_engine_events')
     .insert({ id: `gold_${idemKey}`, type: 'gold_redemption', user_id: userId, tier_id: tier.id });
   if (claimError && claimError.code !== '23505') {
-    const e = new Error('Could not complete your gold purchase. Your gold was not spent.');
+    const e = new Error('Could not complete your gold purchase. Your gold has been refunded — please try again.');
     e.status = 502; throw e;
   }
   const { data: ledger } = await admin
@@ -59,17 +60,17 @@ async function grantAetherForGold(userId, tier, idemKey) {
     .from('world_engine_credits')
     .upsert({ user_id: userId, tokens: newBalance, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
   if (updateError) {
-    const e = new Error('Could not complete your gold purchase. Your gold was not spent.');
+    const e = new Error('Could not complete your gold purchase. Your gold has been refunded — please try again.');
     e.status = 502; throw e;
   }
   return tier.tokens;
 }
 
-export async function GET() {
+export const GET = apiGuard(async function GET() {
   return NextResponse.json({ cardPayments: !!process.env.STRIPE_SECRET_KEY });
-}
+});
 
-export async function POST(req) {
+export const POST = apiGuard(async function POST(req) {
   const auth = await getUserFromRequest(req);
   if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
@@ -94,7 +95,7 @@ export async function POST(req) {
   const stripe = await loadStripe();
   if (!stripe && !useGold) {
     return NextResponse.json(
-      { error: 'Card payments are not connected yet. Ask the site owner to add the Stripe keys.' },
+      { error: 'Card payments are not connected yet. Please try again later.' },
       { status: 503 }
     );
   }
@@ -168,4 +169,4 @@ export async function POST(req) {
       { status: err.status || 502 }
     );
   }
-}
+});

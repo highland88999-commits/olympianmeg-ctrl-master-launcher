@@ -22,6 +22,10 @@ import {
   advanceSongPos,
   noteAudioTime,
 } from './instruments.js';
+import {
+  primeInstrumentSamples,
+  playSampledNote,
+} from './samples.js';
 
 const BTN =
   'min-h-[44px] px-5 py-2 rounded font-bold tracking-widest text-xs uppercase transition-colors';
@@ -168,6 +172,9 @@ export default function MaestroPage() {
       lfo.connect(lfoDepth);
       lfo.start();
       audioRef.current = { ctx, master, filter, shaper, lfo, lfoDepth, nodes: [], timer: 0, raf: 0 };
+      // Prime the default instrument's samples (decodes off the realtime
+      // context; silent fallback to oscillators if anything fails).
+      try { primeInstrumentSamples(instrumentRef.current); } catch (e) { /* ignore */ }
     }
     return audioRef.current;
   }
@@ -184,6 +191,7 @@ export default function MaestroPage() {
     a.lfo.frequency.value = voice.vibratoRate || 5;
     a.lfoDepth.gain.setTargetAtTime(voice.vibratoDepth || 0, t, 0.05);
     for (const n of a.nodes) {
+      if (n.sampled) continue; // sampled notes have no osc type to retune
       try {
         n.osc.type = voice.oscType;
       } catch (e) {
@@ -201,6 +209,8 @@ export default function MaestroPage() {
     } catch (e) {
       /* ignore */
     }
+    // Start loading the new voice's samples; the synth fallback covers the gap.
+    try { primeInstrumentSamples(next); } catch (e) { /* ignore */ }
     if (audioRef.current) applyInstrumentToChain(audioRef.current, next);
   }
 
@@ -221,7 +231,8 @@ export default function MaestroPage() {
     const t = a.ctx.currentTime;
     for (const n of a.nodes) {
       try {
-        n.osc.frequency.setValueAtTime(midiToFreq(n.baseMidi, next), t);
+        if (typeof n.retune === 'function') n.retune(next, t);
+        else n.osc.frequency.setValueAtTime(midiToFreq(n.baseMidi, next), t);
       } catch (e) {
         /* node already finished */
       }
@@ -290,6 +301,15 @@ export default function MaestroPage() {
     const scheduleNote = (n, when) => {
       const tp = transposeRef.current; // live tune at schedule time
       const v = getInstrument(instrumentRef.current); // live voice at schedule time
+      // Sampled voice when its multisamples are ready; silent synth fallback otherwise.
+      const sampled = playSampledNote({
+        a, voice: v, midi: n.midi, transpose: tp,
+        velocity: n.velocity, when, duration: n.duration,
+      });
+      if (sampled) {
+        a.nodes.push(sampled);
+        return;
+      }
       const osc = ctx.createOscillator();
       osc.type = v.oscType;
       osc.frequency.value = midiToFreq(n.midi, tp);
@@ -380,11 +400,22 @@ export default function MaestroPage() {
     const { ctx, filter } = a;
     if (ctx.state === 'suspended') ctx.resume();
     const voice = getInstrument(instrumentRef.current);
+    const t = ctx.currentTime;
+    // Sampled voice when ready; manual taps fall back to the synth silently.
+    const tapped = playSampledNote({
+      a, voice, midi, transpose: transposeRef.current,
+      velocity: 1, when: t, duration: 0.7,
+    });
+    if (tapped) {
+      a.nodes.push(tapped);
+      activeRef.current.set(midi, 1);
+      setTimeout(() => activeRef.current.delete(midi), reducedMotion ? 60 : 250);
+      return;
+    }
     const osc = ctx.createOscillator();
     osc.type = voice.oscType;
     osc.frequency.value = midiToFreq(midi, transposeRef.current);
     const gain = ctx.createGain();
-    const t = ctx.currentTime;
     gain.gain.setValueAtTime(0.0001, t);
     gain.gain.exponentialRampToValueAtTime(0.3 * voice.peakScale, t + Math.max(voice.attack, 0.01));
     gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);

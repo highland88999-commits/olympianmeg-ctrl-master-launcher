@@ -15,8 +15,9 @@ import { ECONOMY } from '@/lib/economy/config';
 import { getUserFromRequest } from '@/lib/economy/auth';
 import { creditGold, EconomyUnavailableError, CapReachedError } from '@/lib/economy/ledger';
 import { validateMineClaim, mineSellKey } from '@/lib/economy/mining';
+import { apiGuard } from '@/lib/api-guard';
 
-export async function POST(req) {
+export const POST = apiGuard(async function POST(req) {
   const auth = await getUserFromRequest(req);
   if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
@@ -72,4 +73,4 @@ export async function POST(req) {
       ? `+${creditedGold} gold for your bars.`
       : 'Those bars were already credited — no double-dipping.',
   });
-}
+});

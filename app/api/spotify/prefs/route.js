@@ -13,8 +13,9 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { SOURCES, isValidSource } from '@/lib/radio/spotify-auth';
 import { getAdminClient, getUserFromRequest, jsonError } from '../_server';
+import { apiGuard } from '@/lib/api-guard';
 
-export async function GET(req) {
+export const GET = apiGuard(async function GET(req) {
   const { user, error, status } = await getUserFromRequest(req);
   if (error) return jsonError(error, status);
 
@@ -33,9 +34,9 @@ export async function GET(req) {
 
   const source = row && isValidSource(row.source) ? row.source : SOURCES.NEXUS;
   return NextResponse.json({ source });
-}
+});
 
-export async function PUT(req) {
+export const PUT = apiGuard(async function PUT(req) {
   const { user, error, status } = await getUserFromRequest(req);
   if (error) return jsonError(error, status);
 
@@ -63,4 +64,4 @@ export async function PUT(req) {
     return jsonError("Couldn't save your radio source. Please try again.", 500);
   }
   return NextResponse.json({ ok: true, source });
-}
+});

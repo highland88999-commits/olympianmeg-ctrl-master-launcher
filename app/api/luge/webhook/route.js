@@ -3,9 +3,11 @@
 // Signature-verified, idempotent (stripe_event_id is stored and checked first).
 import Stripe from 'stripe';
 import { getAdminClient } from '../_server.js';
-import { LUGE_PREMIUM_IDS, arsenalGrantRows, decideWebhookEvent } from '@/lib/luge/logic.js';
+import { LUGE_PREMIUM_IDS, arsenalGrantRows } from '@/lib/luge/logic.js';
+import { billableSessionOrNull } from '@/lib/stripe-webhook.js';
+import { apiGuard } from '@/lib/api-guard';
 
-export async function POST(req) {
+export const POST = apiGuard(async function POST(req) {
   const stripeKey = process.env.STRIPE_SECRET_KEY;
   const webhookSecret = process.env.STRIPE_LUGE_WEBHOOK_SECRET || process.env.STRIPE_WEBHOOK_SECRET;
   if (!stripeKey || !webhookSecret) {
@@ -24,8 +26,17 @@ export async function POST(req) {
     return new Response('Invalid signature.', { status: 400 });
   }
 
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object;
+  // Only act when the money has actually arrived (shared webhook gate).
+  const billable = billableSessionOrNull(event);
+  if (billable.ignore) {
+    return Response.json({
+      ok: true, received: true,
+      ...(billable.reason === 'unpaid' ? { pending_payment: true } : {}),
+    });
+  }
+
+  {
+    const session = billable.session;
     const userId = session?.metadata?.user_id;
 
     if (session?.metadata?.product !== 'luge_arsenal' || !userId) {
@@ -58,10 +69,13 @@ export async function POST(req) {
       console.log(`Luge webhook: granted arsenal (${LUGE_PREMIUM_IDS.length} sleds) to ${userId}.`);
       return Response.json({ ok: true, granted: LUGE_PREMIUM_IDS.length });
     } catch (err) {
+      // If the grant failed after the claim, release the claim so a Stripe
+      // retry re-attempts the grant instead of being mistaken for a duplicate.
+      try {
+        await getAdminClient().from('luge_stripe_events').delete().eq('stripe_event_id', event.id);
+      } catch { /* best-effort; the claim row is evidence for support */ }
       console.error('Luge webhook DB error:', err?.message || err);
       return Response.json({ ok: false, error: 'Database update failed.' }, { status: 500 });
     }
   }
-
-  return Response.json({ ok: true, received: true });
-}
+});

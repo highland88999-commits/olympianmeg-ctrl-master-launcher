@@ -26,6 +26,7 @@ import { applyAestheticEngine } from '@/lib/world-engine/aesthetic';
 import { costFor, computeBilling, FREE_GENERATIONS_PER_MONTH } from '@/lib/world-engine/economy';
 import { validateSynthesizeInput, synthesizeWithGemini } from '@/lib/world-engine/gemini';
 import { getAdminClient, getUserFromRequest } from '@/lib/world-engine/server';
+import { apiGuard } from '@/lib/api-guard';
 
 async function getLedger(admin, userId) {
   const { data, error } = await admin
@@ -37,7 +38,7 @@ async function getLedger(admin, userId) {
   return data || null;
 }
 
-export async function POST(request) {
+export const POST = apiGuard(async function POST(request) {
   const auth = await getUserFromRequest(request);
   if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
   const { user } = auth;
@@ -80,6 +81,9 @@ export async function POST(request) {
   }
 
   // 2. Run the generation (this is the only step that spends real API money).
+  if (!process.env.GEMINI_API_KEY) {
+    return NextResponse.json({ error: 'The synthesis service is not connected yet.' }, { status: 503 });
+  }
   let rawParams;
   try {
     rawParams = await synthesizeWithGemini({
@@ -115,4 +119,4 @@ export async function POST(request) {
       freeGenerationsPerMonth: FREE_GENERATIONS_PER_MONTH,
     },
   });
-}
+});

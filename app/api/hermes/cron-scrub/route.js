@@ -4,6 +4,7 @@
 //   { "crons": [{ "path": "/api/hermes/cron-scrub", "schedule": "0 4 * * *" }] }
 import { getAdminClient, jsonError } from '../_server.js';
 import { scrubCutoffIso, PENDING_TTL_HOURS } from '@/lib/hermes/listings.js';
+import { apiGuard } from '@/lib/api-guard';
 
 function authorized(req) {
   const secret = process.env.CRON_SECRET;
@@ -12,7 +13,7 @@ function authorized(req) {
   return header === `Bearer ${secret}`;
 }
 
-export async function POST(req) {
+export const POST = apiGuard(async function POST(req) {
   if (!authorized(req)) {
     return jsonError('Not authorized.', 401);
   }
@@ -38,9 +39,9 @@ export async function POST(req) {
   }
 
   return Response.json({ ok: true, removed: (data || []).length, ttlHours: PENDING_TTL_HOURS });
-}
+});
 
 // Vercel Cron sends GET by default; accept it too.
-export async function GET(req) {
+export const GET = apiGuard(async function GET(req) {
   return POST(req);
-}
+});

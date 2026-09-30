@@ -4,15 +4,17 @@
 //
 // Setup (Merlin): in the Stripe dashboard, add a webhook endpoint for
 //   https://<app>/api/gallery/webhook
-// listening to `checkout.session.completed`, and set
+// listening to `checkout.session.completed` + `checkout.session.async_payment_succeeded`, and set
 // STRIPE_GALLERY_WEBHOOK_SECRET (or the shared STRIPE_WEBHOOK_SECRET)
 // in Vercel env vars. Nothing is registered in Stripe by this code —
 // scaffold only, per the rollout plan.
 import Stripe from 'stripe';
 import { getServiceClient } from '@/lib/economy/supabase';
 import { CREDITS_PER_PACK } from '@/lib/gallery';
+import { billableSessionOrNull } from '@/lib/stripe-webhook';
+import { apiGuard } from '@/lib/api-guard';
 
-export async function POST(req) {
+export const POST = apiGuard(async function POST(req) {
   const stripeKey = process.env.STRIPE_SECRET_KEY;
   const webhookSecret = process.env.STRIPE_GALLERY_WEBHOOK_SECRET || process.env.STRIPE_WEBHOOK_SECRET;
   if (!stripeKey || !webhookSecret) {
@@ -31,8 +33,17 @@ export async function POST(req) {
     return new Response('Invalid signature.', { status: 400 });
   }
 
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object;
+  // Only act when the money has actually arrived (shared webhook gate).
+  const billable = billableSessionOrNull(event);
+  if (billable.ignore) {
+    return Response.json({
+      ok: true, received: true,
+      ...(billable.reason === 'unpaid' ? { pending_payment: true } : {}),
+    });
+  }
+
+  {
+    const session = billable.session;
     const meta = session?.metadata || {};
     if (meta.surface !== 'gallery') {
       // Not ours — acknowledge so Stripe stops retrying.
@@ -65,19 +76,18 @@ export async function POST(req) {
       }
       return Response.json({ ok: true, balance_after: row?.balance_after ?? null });
     } catch (err) {
-      // The gallery_* tables land in the final consolidated SQL; until they
-      // exist this degrades honestly (acknowledge so Stripe stops retrying)
-      // instead of crashing the webhook.
+      // Missing gallery tables (or any other DB failure) must NOT be
+      // acknowledged: a 200 tells Stripe to stop retrying and the paid
+      // credits would be lost forever. Return 500 so Stripe retries until
+      // the tables exist and the credit lands.
       const msg = String(err?.message || '');
       const code = err?.code || '';
       if (code === 'PGRST205' || /gallery_(ledger|balances|downloads)/i.test(msg)) {
-        console.log('Gallery webhook: gallery tables not provisioned yet; acknowledging.', msg);
-        return Response.json({ ok: true, received: true, pending_table: true });
+        console.error('Gallery webhook: gallery tables not provisioned yet; will retry.', msg);
+      } else {
+        console.error('Gallery webhook DB error:', msg);
       }
-      console.error('Gallery webhook DB error:', msg);
       return Response.json({ ok: false, error: 'Database update failed.' }, { status: 500 });
     }
   }
-
-  return Response.json({ ok: true, received: true });
-}
+});

@@ -4,7 +4,7 @@ import { useMemo, useRef } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { CourtScene } from './Court';
-import { BALL_R, SHOT } from '@/lib/basketball/constants';
+import { BALL_R } from '@/lib/basketball/constants';
 import { simulateArc } from '@/lib/basketball/physics';
 
 function makeBallTexture() {

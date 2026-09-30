@@ -174,7 +174,7 @@ export default function ForgeSector({ config }) {
             )}
 
             <p className="text-[11px] text-gray-500">
-              AI generation costs {costFor(category)} Aether (or one free monthly generation). Manual slider
+              AI generation costs {costFor(category)} Aether (or one of your 20 free monthly generations). Manual slider
               changes are free and never leave your browser.
             </p>
 

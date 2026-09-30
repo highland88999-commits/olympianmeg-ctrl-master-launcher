@@ -22,8 +22,9 @@ import {
   refreshTokens,
   jsonError,
 } from '../_server';
+import { apiGuard } from '@/lib/api-guard';
 
-export async function GET(req) {
+export const GET = apiGuard(async function GET(req) {
   if (!getSpotifyClientId()) {
     return NextResponse.json({ connected: false, unconfigured: true });
   }
@@ -83,4 +84,4 @@ export async function GET(req) {
     product: row.product || 'unknown',
     premium: row.product === 'premium',
   });
-}
+});
