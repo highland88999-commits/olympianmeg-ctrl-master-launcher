@@ -8,12 +8,45 @@
 
 'use client';
 
+import { useEffect, useState } from 'react';
 import * as THREE from 'three';
 
-function Paint() {
+// Brand livery wraps — Merlin's Nexus Vortex graphics, generated per the
+// BABEL texture convention into public/textures/nova/TronBikes/.
+// Loaded imperatively (no Suspense): the hull falls back to plain paint
+// until the wrap arrives, so pages never block on it.
+const WRAPS = {
+  wisp: '/textures/nova/TronBikes/wisp-wrap.png',
+  comet: '/textures/nova/TronBikes/comet-wrap.png',
+  atlas: '/textures/nova/TronBikes/atlas-wrap.png',
+};
+
+function useWrapTexture(path) {
+  const [tex, setTex] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    new THREE.TextureLoader().load(
+      path,
+      (t) => {
+        t.colorSpace = THREE.SRGBColorSpace;
+        t.anisotropy = 4;
+        if (alive) setTex(t);
+      },
+      undefined,
+      () => {}
+    );
+    return () => {
+      alive = false;
+    };
+  }, [path]);
+  return tex;
+}
+
+function Paint({ wrap = null }) {
   return (
     <meshPhysicalMaterial
-      color="#0b1220"
+      color={wrap ? '#ffffff' : '#0b1220'}
+      map={wrap || undefined}
       metalness={0.75}
       roughness={0.28}
       clearcoat={1.0}
@@ -86,17 +119,18 @@ function EngineGlow({ color = '#00ffcc', y = 0.5, r = 0.14, z = -1.35 }) {
 
 // WISP — agile scout. Slim swept frame, small canopy, tight pods.
 export function WispBike({ color = '#00ffcc' }) {
+  const wrap = useWrapTexture(WRAPS.wisp);
   return (
     <group>
       <mesh position={[0, 0.62, 0.1]} rotation={[0.06, 0, 0]}>
         <boxGeometry args={[0.42, 0.34, 2.6]} />
-        <Paint />
+        <Paint wrap={wrap} />
       </mesh>
       {/* swept nose fins */}
       {[-1, 1].map((s, i) => (
         <mesh key={i} position={[s * 0.3, 0.55, 0.95]} rotation={[0, s * 0.35, 0]}>
           <boxGeometry args={[0.08, 0.3, 0.7]} />
-          <Paint />
+          <Paint wrap={wrap} />
         </mesh>
       ))}
       {/* glass rider canopy */}
@@ -113,11 +147,12 @@ export function WispBike({ color = '#00ffcc' }) {
 
 // COMET — balanced all-rounder. A touch longer, chin intake, mid pods.
 export function CometBike({ color = '#38bdf8' }) {
+  const wrap = useWrapTexture(WRAPS.comet);
   return (
     <group>
       <mesh position={[0, 0.62, 0]}>
         <boxGeometry args={[0.55, 0.42, 2.9]} />
-        <Paint />
+        <Paint wrap={wrap} />
       </mesh>
       {/* chin intake */}
       <mesh position={[0, 0.35, 0.9]} rotation={[-0.25, 0, 0]}>
@@ -139,18 +174,19 @@ export function CometBike({ color = '#38bdf8' }) {
 // ATLAS — heavy hauler. Broad armored frame, big canopy, oversized pods,
 // twin stern thrusters. Slow, planted, unstoppable.
 export function AtlasBike({ color = '#f59e0b' }) {
+  const wrap = useWrapTexture(WRAPS.atlas);
   return (
     <group>
       {/* broad armored hull */}
       <mesh position={[0, 0.66, 0]}>
         <boxGeometry args={[0.95, 0.6, 3.1]} />
-        <Paint />
+        <Paint wrap={wrap} />
       </mesh>
       {/* armor shoulders */}
       {[-1, 1].map((s, i) => (
         <mesh key={i} position={[s * 0.62, 0.75, 0.2]}>
           <boxGeometry args={[0.28, 0.5, 1.6]} />
-          <Paint />
+          <Paint wrap={wrap} />
         </mesh>
       ))}
       {/* big glass rider canopy */}
