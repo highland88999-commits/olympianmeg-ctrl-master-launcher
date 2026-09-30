@@ -54,7 +54,15 @@ route existence/shape, page wiring, honest-label copy, CSS presence.
 
 ## Build
 
-`npm run build` → green (see build log tail in this report's verification notes).
+`npm run build` → **blocked by environment, not by code** (verified 2026-09-30
+post-merge). The 8 GB build machine OOM-kills `next build` during webpack compile
+of this 1000+-route repo (multiple attempts, heap-capped and uncapped, warm and
+cold cache — all SIGKILLed at ~7 GB). This is unrelated to the Council diff:
+`tsc --noEmit -p tsconfig.json` on the full project is **clean (exit 0)**,
+webpack printed `✓ Compiled successfully` twice with the Council changes included,
+`node tests/human-ai-council.test.mjs` is **30/30 green**, and the Council surface
+(API route is `force-dynamic`, page is a client component, lib is pure functions)
+carries negligible prerender risk. Vercel runs the real production build on merge.
 
 ## Supabase
 
