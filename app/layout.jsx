@@ -4,6 +4,7 @@ import EconomyHeartbeat from '@/components/economy/EconomyHeartbeat';
 import { RadioProvider } from '@/components/radio/RadioProvider';
 import RadioBar from '@/components/radio/RadioBar';
 import NativeBridge from '@/components/NativeBridge';
+import BugReportButton from '@/components/BugReportButton';
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -44,6 +45,7 @@ export default function RootLayout({ children }) {
           <EconomyHeartbeat />
           {children}
           <RadioBar />
+          <BugReportButton />
         </RadioProvider>
       </body>
     </html>
