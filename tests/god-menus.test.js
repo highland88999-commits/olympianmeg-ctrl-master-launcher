@@ -27,7 +27,9 @@ for (const m of GOD_MENUS) {
   t(`${m.god}: plain-English category label`, typeof m.category === 'string' && m.category.length >= 4 && m.category.length <= 40);
   t(`${m.god}: tagline explains the contents`, typeof m.tagline === 'string' && m.tagline.length >= 20);
   t(`${m.god}: satellites is a non-empty array`, Array.isArray(m.satellites) && m.satellites.length > 0);
-  t(`${m.god}: menu size is sane (~14, within 8..16)`, m.satellites.length >= 8 && m.satellites.length <= 16);
+  // 2026-10-01 framework (Merlin + Gemini): ARTEMIS holds 23 after the deep-space
+  // moves. Menus scroll vertically, so the bound is headroom, not a target.
+  t(`${m.god}: menu size is sane (within 8..24)`, m.satellites.length >= 8 && m.satellites.length <= 24);
   t(`${m.god}: texture is null or an honest menus texture path`,
     m.texture === null || (typeof m.texture === 'string' && m.texture.startsWith('/textures/menus/')));
   t(`${m.god}: gradient fallback is two hex colors`,
@@ -49,10 +51,10 @@ if (unknown.length) console.error('  phantom:', unknown.join(', '));
 
 t('god-menu satellite count matches satellites.ts', claimed.length === satKeys.length);
 
-// --- HERMES: the shopping god (2026-09-30, Merlin's direction) ---------------
+// --- HERMES: transit, comms & shopping (2026-09-30, Merlin's direction) ------
 import { GOD_HEX } from '../lib/god-orbits.js';
 const hermesMenu = GOD_MENUS.find((m) => m.god === 'HERMES');
-t('HERMES is the Shopping category', hermesMenu && hermesMenu.category === 'Shopping');
+t('HERMES is the Transit, Comms & Shopping category', hermesMenu && hermesMenu.category === 'Transit, Comms & Shopping');
 // Merlin's correction 2026-09-30: Hermes' landing as HE made it — the paid
 // directory (/hermes) leads the menu; the Omega Store is the shopping program
 // under it, not the landing.
@@ -66,7 +68,7 @@ t('merchant gold resolves to a real hex for the 3D ring',
 t('godMenuFor routes the store to HERMES', godMenuFor('store')?.god === 'HERMES');
 
 // --- helpers ----------------------------------------------------------------
-t('godMenuFor finds the right menu', godMenuFor('chess')?.god === 'ARES');
+t('godMenuFor finds the right menu', godMenuFor('chess')?.god === 'ATHENA'); // 2026-10-01 framework: chess moved ARES -> ATHENA
 t('godMenuFor finds plutus menu', godMenuFor('liquid-gold')?.god === 'PLUTUS');
 t('godMenuFor finds therapy menu', godMenuFor('grief-gully')?.god === 'HESTIA');
 t('godMenuFor returns null for unknown key', godMenuFor('nope-not-real') === null);
@@ -146,7 +148,8 @@ t('ring spin is counter-rotation against Earth (negative Y application)',
 t('orbitPositionFor resolves through the program menu to its one satellite',
   (() => {
     const p = orbitPositionFor('chess', 42);
-    const q = menuSatellitePosition(0, 42); // chess → ARES → band 0
+    const bandIdx = GOD_MENUS.findIndex((m) => m.god === godMenuFor('chess').god);
+    const q = menuSatellitePosition(bandIdx, 42); // chess → its god's band
     return p && q && Math.abs(p.x - q.x) < 1e-9 && Math.abs(p.y - q.y) < 1e-9 && Math.abs(p.z - q.z) < 1e-9;
   })());
 
