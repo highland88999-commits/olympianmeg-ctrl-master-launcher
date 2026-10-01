@@ -115,9 +115,12 @@ let sawStoreId = false;
 globalThis.fetch = async (url) => {
   if (String(url).includes('/store/products?')) {
     sawStoreId = String(url).includes('store_id=17419146');
+    const m = String(url).match(/offset=(\d+)/);
+    const offset = m ? parseInt(m[1], 10) : 0;
+    const items = offset === 0 ? [LIST_ITEM] : [];
     return {
       ok: true, status: 200,
-      json: async () => ({ code: 200, result: [LIST_ITEM], paging: { total: 1, offset: 0, limit: 100 } }),
+      json: async () => ({ code: 200, result: items, paging: { total: 1, offset, limit: 100 } }),
     };
   }
   throw new Error('no detail calls in the Artemis port: ' + url);
@@ -140,6 +143,8 @@ t('10-min cache serves without network', calls === 0 && cached.length === 1 && c
 let listCalls = 0;
 globalThis.fetch = async (url) => {
   const headers = { get: () => null };
+  const m = String(url).match(/offset=(\d+)/);
+  const offset = m ? parseInt(m[1], 10) : 0;
   listCalls++;
   if (listCalls === 1) {
     return {
@@ -147,19 +152,22 @@ globalThis.fetch = async (url) => {
       json: async () => ({ code: 429, result: 'Rate limit exceeded' }),
     };
   }
+  // harvest pages until empty: only offset=0 has the product
+  const items = offset === 0 ? [LIST_ITEM] : [];
   return {
     ok: true, status: 200, headers,
-    json: async () => ({ code: 200, result: [LIST_ITEM], paging: { total: 1, offset: 0, limit: 100 } }),
+    json: async () => ({ code: 200, result: items, paging: { total: 1, offset, limit: 100 } }),
   };
 };
 __resetCache();
 const catalog429 = await getCatalog();
 t('429: retried and the product survives', catalog429.length === 1 && catalog429[0].id === 'pf_123456');
-t('429: list was attempted twice (one retry)', listCalls === 2);
+t('429: one 429 retry, then the empty-page check', listCalls === 3);
 
 // Short page mid-list: Printful sometimes returns fewer items than the
-// limit even though paging.total says more remain. The harvest must keep
-// going (this once truncated production to 218/368) — total is the truth.
+// limit even though more remain. The harvest must keep going until a page
+// comes back EMPTY (this once truncated production to 218/368) — exactly
+// like the Artemis harvest, which never trusted short pages.
 const TOTAL = 250;
 const pageItems = (from, n) =>
   Array.from({ length: n }, (_, i) => ({
@@ -172,9 +180,9 @@ const pageItems = (from, n) =>
 globalThis.fetch = async (url) => {
   const m = String(url).match(/offset=(\d+)/);
   const offset = m ? parseInt(m[1], 10) : 0;
-  // pages: 100, 100, then a transient short page of 18, then the rest (32)
-  const sizes = [100, 100, 18, 32];
-  const pageIdx = offset === 0 ? 0 : offset === 100 ? 1 : offset === 200 ? 2 : 3;
+  // pages: 100, 100, then a transient short page of 18, then 32, then empty
+  const sizes = [100, 100, 18, 32, 0];
+  const pageIdx = Math.min(offset / 100, 4);
   const n = sizes[pageIdx];
   return {
     ok: true, status: 200, headers: { get: () => null },
@@ -187,7 +195,7 @@ globalThis.fetch = async (url) => {
 };
 __resetCache();
 const full = await getCatalog();
-t('short page mid-list: harvest continues to paging.total', full.length === TOTAL);
+t('short page mid-list: harvest continues to an empty page', full.length === TOTAL);
 t('short page mid-list: no unknowns', full.every((c) => c.id !== 'pf_unknown'));
 
 // Auth failure: 401 -> throws with status, route maps it to an honest notice.
