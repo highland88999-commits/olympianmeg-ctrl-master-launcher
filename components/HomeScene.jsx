@@ -491,15 +491,21 @@ function TextureProvider({ onLaunchExternal }) {
     return () => { isMounted = false; };
   }, []);
 
-  if (!textures) return null;
-
   // Deterministic ad panels per tower (panel 0 = Merlin's native stake.com
   // slot on every tower; panels 1–3 rotate the real billboard inventory).
   // Memoized so the memoized GodTower never sees a fresh array identity.
+  // NOTE: this hook MUST stay above the early return below — React requires
+  // every hook to run on every render in the same order. When it sat below
+  // `if (!textures) return null`, the first render ran 2 hooks and the
+  // post-load render ran 3, throwing React error #310 and white-screening
+  // the homepage (2026-10-01). panelsForTower is deterministic and does not
+  // depend on `textures`, so hoisting is behavior-preserving.
   const towerPanels = useMemo(
     () => GOD_TOWER_SPOTS.map((_, i) => panelsForTower(i)),
     []
   );
+
+  if (!textures) return null;
 
   // One tower satellite per god-menu category (Merlin, 2026-09-30) —
   // the Zeus pattern with the name and color changed per category.
