@@ -13,13 +13,46 @@ import {
   generateZones,
   zoneAt,
   steerAngle,
+  zoneSpeedDelta,
   TUBE_RADIUS,
   RIDE_RADIUS,
-  BOOST_ACCEL,
-  SAND_DRAG,
 } from '@/lib/luge/track';
 import GoldCheckoutOption from '@/components/economy/GoldCheckoutOption';
 import { fx, unlockFx } from '@/lib/fx';
+import {
+  createRoom,
+  joinRoom,
+  getRoom,
+  subscribeToRoom,
+  normalizeCode,
+  isValidRoomCode,
+  ROOM_STATUS,
+} from '@/lib/oasis/rooms';
+import {
+  LUGE_PVP_SLUG,
+  LUGE_MAX_RACERS,
+  LUGE_MIN_RACERS,
+  PVP_COUNTDOWN_MS,
+  PVP_POLL_MS,
+  BEACON_INTERVAL_MS,
+  buildRaceState,
+  raceStateFromRoom,
+  canStartRace,
+  decidePvpJoin,
+  pvpRoomIsFull,
+  beaconRow,
+  sortStandings,
+  raceIsOver,
+  pvpResults,
+  ghostColorFor,
+  formatRaceTime,
+} from '@/lib/luge/pvp';
+import {
+  buildJoinUrl,
+  codeFromSearch,
+  copyTextToClipboard,
+  shareRoomInvite,
+} from '@/lib/oasis/share';
 
 // The tube's banked frame rolls around the world Z axis in turns.
 const Z_AXIS = new THREE.Vector3(0, 0, 1);
@@ -51,7 +84,33 @@ function ZoneBand({ curve, zone, kind }) {
 // ==========================================
 // 3D TRACK & PHYSICS ENGINE
 // ==========================================
-function LugeTrack({ course, sled, tiltData, onFinish }) {
+
+// Ghost markers for PvP rivals: small glowing orbs riding the tube at each
+// rival's beaconed progress. Cosmetic only — positions come from ~1/sec
+// beacons, never trusted for timing.
+function RivalGhosts({ curve, rivals }) {
+  const items = useMemo(
+    () =>
+      (rivals || []).map((r) => {
+        const p = Math.min(0.999, Math.max(0, r.progress || 0));
+        const pos = curve.getPointAt(p);
+        return { ...r, pos };
+      }),
+    [curve, rivals]
+  );
+  return (
+    <group>
+      {items.map((r) => (
+        <mesh key={r.userId} position={[r.pos.x, r.pos.y + 2.5, r.pos.z]}>
+          <sphereGeometry args={[0.9, 12, 12]} />
+          <meshBasicMaterial color={r.color} toneMapped={false} transparent opacity={0.85} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+function LugeTrack({ course, sled, tiltData, onFinish, pvp }) {
   const { camera } = useThree();
   const sledRef = useRef(null);
 
@@ -147,10 +206,13 @@ function LugeTrack({ course, sled, tiltData, onFinish }) {
     // Auto-accelerate slightly if neutral
     if (speed.current < baseMaxSpeed && tiltAccel <= 0) speed.current += delta * 40;
 
-    // SPEED-UP ZONES & SAND PATCHES: deterministic per course. They feed the
-    // same clamp below, so top speed never changes and the server anti-cheat
-    // floor (lib/luge/logic.js) stays valid — boosts just reach top speed
-    // dramatically faster (a real launch out of sand and braking zones).
+    // SPEED-UP ZONES & SAND PATCHES: deterministic per course. Premium
+    // hulls earn their price here — sand resist shrugs off drag, boost gain
+    // pulls harder out of speed-up bands (lib/luge/track.js zoneSpeedDelta).
+    // They feed the same clamp below, so top speed never changes and the
+    // server anti-cheat floor (lib/luge/logic.js) stays valid — boosts just
+    // reach top speed dramatically faster (a real launch out of sand and
+    // braking zones).
     const zoneProg = Math.min(progress.current, 0.999);
     const zone = zoneAt(zones, zoneProg);
     if (zone !== activeZone.current) {
@@ -159,12 +221,14 @@ function LugeTrack({ course, sled, tiltData, onFinish }) {
       if (zone === 'boost') fx.boost();
       else if (zone === 'sand') fx.sandDrag();
     }
-    if (zone === 'boost') speed.current += BOOST_ACCEL * delta;
-    else if (zone === 'sand') speed.current -= SAND_DRAG * delta;
+    speed.current += zoneSpeedDelta(zone, sled, delta);
 
     speed.current = THREE.MathUtils.clamp(speed.current, 20, baseMaxSpeed * 1.5);
 
     progress.current += (speed.current * delta) / course.length;
+
+    // PvP progress beacon hook (solo runs pass no pvp prop — untouched).
+    if (pvp && pvp.onProgress) pvp.onProgress(progress.current);
 
     if (progress.current >= 0.999) {
       onFinish();
@@ -236,6 +300,9 @@ function LugeTrack({ course, sled, tiltData, onFinish }) {
         <ZoneBand key={`sand-${i}`} curve={curve} zone={z} kind="sand" />
       ))}
 
+      {/* PvP rival ghosts (absent in solo runs) */}
+      {pvp && pvp.rivals && <RivalGhosts curve={curve} rivals={pvp.rivals} />}
+
       <group ref={sledRef}>
         <mesh castShadow>
           <boxGeometry args={[3, 1, 6]} />
@@ -287,6 +354,50 @@ export default function LugeEngine() {
   const [eligibility, setEligibility] = useState(null);
   const [purchaseNote, setPurchaseNote] = useState('');
 
+  // ---------- PvP race state ----------
+  // Solo flow ('menu' -> 'pre_race_calibrate' -> 'racing' -> 'podium') is
+  // untouched: every PvP field below is null/inactive unless a race room
+  // is entered. PvP screens: 'pvp_lobby', 'pvp_waiting', 'pvp_countdown',
+  // 'pvp_spectate', 'pvp_results'.
+  const [pvpCodeInput, setPvpCodeInput] = useState('');
+  const [pvpMsg, setPvpMsg] = useState('');
+  const [pvpBusy, setPvpBusy] = useState(false);
+  const [pvpShareNote, setPvpShareNote] = useState('');
+  const [pvpRoom, setPvpRoom] = useState(null);
+  const [pvpMode, setPvpMode] = useState('race'); // 'race' | 'spectate'
+  const [pvpCallsign, setPvpCallsign] = useState(() => {
+    try { return localStorage.getItem('luge_callsign') || ''; } catch { return ''; }
+  });
+  const [pvpStartsAt, setPvpStartsAt] = useState(0);
+  const [pvpCountdown, setPvpCountdown] = useState(0);
+  const [pvpStandings, setPvpStandings] = useState([]);
+  const [pvpRivals, setPvpRivals] = useState([]); // ghost markers
+  const [pvpOutcome, setPvpOutcome] = useState(null); // { results, dnfs }
+  const [pvpBoard, setPvpBoard] = useState([]); // global leaderboard entries
+  const [pvpBoardNotice, setPvpBoardNotice] = useState('');
+
+  const userIdRef = useRef('');
+  const gameStateRef = useRef('menu');
+  const pvpRoomRef = useRef(null);
+  const pvpModeRef = useRef('race');
+  const pvpCallsignRef = useRef('');
+  const pvpUnsubRef = useRef(null);
+  const pvpBeaconTimerRef = useRef(null);
+  const pvpPollTimerRef = useRef(null);
+  const pvpProgressRef = useRef(0);
+  const pvpBeaconAtRef = useRef(0);
+  const pvpFinishedRef = useRef(false);
+  const pvpStartsAtRef = useRef(0);
+  const pvpCodeRef = useRef('');
+  const pvpSledIdRef = useRef('g1');
+  const pvpCourseSetRef = useRef(false);
+  const pvpOverRef = useRef(false);
+  const controlsAttachedRef = useRef(false);
+  const pvpSeatPendingRef = useRef(false);
+  const countdownBeepRef = useRef(-1);
+
+  const setGameStateBoth = (s) => { gameStateRef.current = s; setGameState(s); };
+
   // Hardware Tilt Refs
   const tiltData = useRef({ x: 0, y: 0 }); // Normalized -1 to 1
   const baselineBeta = useRef(40); // Standard holding angle
@@ -334,6 +445,305 @@ export default function LugeEngine() {
     }
   };
 
+  // ---------- PvP helpers ----------
+  // Every helper below is a no-op until a race room is entered; solo play
+  // never touches them.
+
+  const stopPvpTimers = () => {
+    if (pvpUnsubRef.current) { try { pvpUnsubRef.current(); } catch { /* noop */ } pvpUnsubRef.current = null; }
+    if (pvpBeaconTimerRef.current) { clearInterval(pvpBeaconTimerRef.current); pvpBeaconTimerRef.current = null; }
+    if (pvpPollTimerRef.current) { clearInterval(pvpPollTimerRef.current); pvpPollTimerRef.current = null; }
+  };
+
+  // One beacon upsert: my progress / finish for this room. Best-effort —
+  // a failed beacon degrades the live board, never the race itself.
+  const sendBeacon = async (finished, finishMs) => {
+    try {
+      await supabase.from('luge_race_beacons').upsert(
+        beaconRow({
+          roomCode: pvpCodeRef.current,
+          userId: userIdRef.current,
+          callsign: pvpCallsignRef.current || 'Rider',
+          sledId: pvpSledIdRef.current,
+          progress: pvpProgressRef.current,
+          finished,
+          finishMs,
+        }),
+        { onConflict: 'room_code,user_id' }
+      );
+    } catch {
+      // Tables may not exist yet (SQL not run) — standings degrade, race continues.
+    }
+  };
+
+  // Called by LugeTrack's frame loop; throttled to ~1/sec at the call site.
+  const handlePvpProgress = (progress) => {
+    pvpProgressRef.current = progress;
+    const now = Date.now();
+    if (!pvpFinishedRef.current && now - pvpBeaconAtRef.current >= BEACON_INTERVAL_MS) {
+      pvpBeaconAtRef.current = now;
+      void sendBeacon(false);
+    }
+  };
+
+  // Poll the beacon board -> live standings + ghost markers. When the race
+  // is over (everyone finished or the timeout hit), settle the results.
+  const pollPvpBoard = async () => {
+    const code = pvpCodeRef.current;
+    if (!code) return;
+    let beacons = [];
+    try {
+      const { data, error } = await supabase.from('luge_race_beacons').select('*').eq('room_code', code);
+      if (error) throw error;
+      beacons = data || [];
+    } catch {
+      return; // degraded: keep the last board, the race continues
+    }
+    const now = Date.now();
+    const standings = sortStandings(beacons, now);
+    setPvpStandings(standings);
+    setPvpRivals(
+      beacons
+        .filter((b) => !b.spectating && b.user_id !== userIdRef.current)
+        .map((b) => ({ userId: b.user_id, progress: Number(b.progress) || 0, color: ghostColorFor(b.user_id) }))
+    );
+    if (!pvpOverRef.current && pvpStartsAtRef.current && raceIsOver(beacons, pvpStartsAtRef.current, now)) {
+      pvpOverRef.current = true;
+      setPvpOutcome(pvpResults(beacons, now));
+      // Any seated racer may close the room — hostless by design.
+      try {
+        await supabase.from('oasis_rooms').update({ status: ROOM_STATUS.FINISHED }).eq('room_code', code);
+      } catch { /* best-effort */ }
+      if (pvpBeaconTimerRef.current) { clearInterval(pvpBeaconTimerRef.current); pvpBeaconTimerRef.current = null; }
+      detachRaceControls();
+      setGameStateBoth('pvp_results');
+    }
+  };
+
+  const startPvpLoops = () => {
+    if (pvpPollTimerRef.current) clearInterval(pvpPollTimerRef.current);
+    pvpPollTimerRef.current = setInterval(() => { void pollPvpBoard(); }, PVP_POLL_MS);
+    void pollPvpBoard();
+  };
+
+  // Room-row watcher: drives waiting -> countdown -> racing -> results.
+  const handleRoomUpdate = (room) => {
+    pvpRoomRef.current = room;
+    setPvpRoom(room);
+    if (!room) return;
+    const rs = raceStateFromRoom(room);
+    const gs = gameStateRef.current;
+    if (room.status === ROOM_STATUS.PLAYING && rs) {
+      // Everyone rides the host's course — set it once, before the countdown.
+      if (!pvpCourseSetRef.current) {
+        pvpCourseSetRef.current = true;
+        const rc = LUGE_COURSES.find((c) => c.id === rs.courseId);
+        if (rc) setSelectedCourse(rc);
+      }
+      pvpStartsAtRef.current = rs.startsAt;
+      setPvpStartsAt(rs.startsAt);
+      if (gs !== 'racing' && gs !== 'pvp_spectate' && gs !== 'pvp_results') {
+        setGameStateBoth('pvp_countdown');
+      }
+    } else if (room.status === ROOM_STATUS.FINISHED) {
+      if ((gs === 'racing' || gs === 'pvp_spectate') && !pvpOverRef.current) {
+        pvpOverRef.current = true;
+        void pollPvpBoard().then(() => {
+          // If the board was unreachable, still show what we have.
+          setGameStateBoth('pvp_results');
+        });
+      }
+    } else if (room.status === ROOM_STATUS.WAITING) {
+      // Finished-room joiners land in the lobby unseated (joinRoom only
+      // seats waiting rooms): seat them now that the room is open again.
+      const ids = Array.isArray(room.player_ids) ? room.player_ids : [];
+      if (userIdRef.current && !ids.includes(userIdRef.current) && !pvpRoomIsFull(room) && pvpCodeRef.current && !pvpSeatPendingRef.current) {
+        pvpSeatPendingRef.current = true;
+        void joinRoom(supabase, { code: pvpCodeRef.current, playerId: userIdRef.current })
+          .finally(() => { pvpSeatPendingRef.current = false; });
+      }
+      if (gs === 'pvp_results' || gs === 'pvp_spectate') {
+        // A new race is forming — back to the lobby view. Spectators
+        // graduate to racers for the next heat (auto-seated above).
+        pvpOverRef.current = false;
+        setPvpOutcome(null);
+        if (gs === 'pvp_spectate') {
+          pvpModeRef.current = 'race';
+          setPvpMode('race');
+        }
+        setGameStateBoth('pvp_waiting');
+      }
+    }
+  };
+
+  const enterPvpRoom = (room, mode) => {
+    stopPvpTimers();
+    pvpCodeRef.current = room.room_code;
+    pvpModeRef.current = mode;
+    pvpCourseSetRef.current = false;
+    pvpOverRef.current = false;
+    pvpProgressRef.current = 0;
+    pvpFinishedRef.current = false;
+    pvpStartsAtRef.current = 0;
+    pvpSledIdRef.current = selectedSled.id;
+    setPvpCodeInput(room.room_code);
+    setPvpMode(mode);
+    setPvpRoom(room);
+    pvpRoomRef.current = room;
+    setPvpOutcome(null);
+    setPvpStandings([]);
+    setPvpRivals([]);
+    setPvpMsg('');
+    setPvpShareNote('');
+    pvpUnsubRef.current = subscribeToRoom(supabase, room.room_code, handleRoomUpdate, PVP_POLL_MS);
+    // Already racing? Go straight to spectate; otherwise wait in the lobby.
+    const rs = raceStateFromRoom(room);
+    if (room.status === ROOM_STATUS.PLAYING && rs && mode === 'spectate') {
+      pvpStartsAtRef.current = rs.startsAt;
+      setPvpStartsAt(rs.startsAt);
+      const rc = LUGE_COURSES.find((c) => c.id === rs.courseId);
+      if (rc) { setSelectedCourse(rc); pvpCourseSetRef.current = true; }
+      setGameStateBoth('pvp_spectate');
+      startPvpLoops();
+    } else {
+      setGameStateBoth('pvp_waiting');
+    }
+  };
+
+  const createPvpRace = async () => {
+    if (!userIdRef.current) { setPvpMsg('Sign in to host a race.'); return; }
+    setPvpBusy(true);
+    setPvpMsg('');
+    try {
+      const room = await createRoom(supabase, {
+        game: LUGE_PVP_SLUG,
+        hostId: userIdRef.current,
+        minPlayers: LUGE_MIN_RACERS,
+        maxPlayers: LUGE_MAX_RACERS,
+      });
+      fx.unlock();
+      enterPvpRoom(room, 'race');
+    } catch {
+      setPvpMsg('Race rooms unlock with the next database update — solo descents still work.');
+    } finally {
+      setPvpBusy(false);
+    }
+  };
+
+  const joinPvpRace = async (rawCode) => {
+    const clean = normalizeCode(rawCode);
+    if (!isValidRoomCode(clean)) { setPvpMsg('Enter a valid 6-character race code.'); return; }
+    if (!userIdRef.current) { setPvpMsg('Sign in to join a race.'); return; }
+    setPvpBusy(true);
+    setPvpMsg('');
+    try {
+      const room = await getRoom(supabase, clean);
+      const decision = decidePvpJoin(room);
+      if (decision.error || !decision.ok) { setPvpMsg(decision.error || 'Race not found.'); return; }
+      if (decision.mode === 'race') {
+        if (pvpRoomIsFull(room)) { setPvpMsg(`That race is full (${LUGE_MAX_RACERS} racers).`); return; }
+        const res = await joinRoom(supabase, { code: clean, playerId: userIdRef.current });
+        if (res.error) { setPvpMsg(res.error); return; }
+        const fresh = await getRoom(supabase, clean);
+        enterPvpRoom(fresh || room, 'race');
+      } else if (decision.mode === 'spectate') {
+        enterPvpRoom(room, 'spectate');
+        setPvpMsg('That race is already running — spectating until the next countdown.');
+      } else {
+        enterPvpRoom(room, 'race');
+        setPvpMsg('That race just finished — you are in for the next countdown.');
+      }
+    } catch {
+      setPvpMsg('Could not reach the race room. Check your connection.');
+    } finally {
+      setPvpBusy(false);
+    }
+  };
+
+  // Any seated rider may start the countdown (hostless by design).
+  const startPvpCountdown = async () => {
+    const room = pvpRoomRef.current;
+    if (!canStartRace(room, userIdRef.current)) return;
+    setPvpBusy(true);
+    setPvpMsg('');
+    try {
+      const startsAt = Date.now() + PVP_COUNTDOWN_MS;
+      const { error } = await supabase
+        .from('oasis_rooms')
+        .update({ status: ROOM_STATUS.PLAYING, full_state: buildRaceState({ startsAt, courseId: selectedCourse.id }) })
+        .eq('room_code', pvpCodeRef.current);
+      if (error) throw error;
+      fx.go();
+    } catch {
+      setPvpMsg('Could not start the race. Try again.');
+    } finally {
+      setPvpBusy(false);
+    }
+  };
+
+  const sharePvpRace = async () => {
+    const code = pvpCodeRef.current;
+    if (!code) return;
+    const res = await shareRoomInvite({
+      gameSlug: 'luge',
+      code,
+      title: 'Join my Luge PvP race',
+      text: `Race me on the Neon Descent! Code: ${code}`,
+    });
+    setPvpShareNote(
+      res === 'shared' ? 'Invite sent.' :
+      res === 'copied' ? `Race link copied: ${buildJoinUrl(typeof window !== 'undefined' ? window.location.origin : '', 'luge', code)}` :
+      'Could not share — the code is shown above.'
+    );
+  };
+
+  const copyPvpCode = async () => {
+    const ok = await copyTextToClipboard(pvpCodeRef.current);
+    setPvpShareNote(ok ? 'Code copied.' : 'Copy failed — long-press the code.');
+  };
+
+  const leavePvp = async () => {
+    const code = pvpCodeRef.current;
+    stopPvpTimers();
+    // Best-effort: pull my beacon so I stop haunting the board.
+    try {
+      if (code && userIdRef.current) {
+        await supabase.from('luge_race_beacons').delete().eq('room_code', code).eq('user_id', userIdRef.current);
+      }
+    } catch { /* noop */ }
+    pvpCodeRef.current = '';
+    pvpRoomRef.current = null;
+    setPvpRoom(null);
+    setPvpOutcome(null);
+    setPvpStandings([]);
+    setPvpRivals([]);
+    setPvpMsg('');
+    setGameStateBoth('menu');
+  };
+
+  // Back to the waiting lobby for another heat. Any seated rider may reopen.
+  const raceAgain = async () => {
+    const code = pvpCodeRef.current;
+    stopPvpTimers();
+    pvpOverRef.current = false;
+    pvpCourseSetRef.current = false;
+    pvpProgressRef.current = 0;
+    pvpFinishedRef.current = false;
+    pvpStartsAtRef.current = 0;
+    setPvpOutcome(null);
+    setPvpStandings([]);
+    setPvpRivals([]);
+    try {
+      if (code) {
+        await supabase.from('oasis_rooms')
+          .update({ status: ROOM_STATUS.WAITING, full_state: null })
+          .eq('room_code', code);
+      }
+    } catch { /* best-effort: the watcher will pick up whatever the room says */ }
+    if (code) pvpUnsubRef.current = subscribeToRoom(supabase, code, handleRoomUpdate, PVP_POLL_MS);
+    setGameStateBoth('pvp_waiting');
+  };
+
   useEffect(() => {
     // The shared supabase client throws when the database connection isn't
     // configured. Catch that (and any auth failure) and say so honestly
@@ -346,10 +756,29 @@ export default function LugeEngine() {
         return;
       }
       tokenRef.current = session.access_token;
+      userIdRef.current = session.user.id;
+      // Rider callsign for PvP + the global board: saved preference wins,
+      // otherwise the email prefix. Editable in the race lobby.
+      if (!pvpCallsignRef.current) {
+        const prefix = String(session.user.email || '').split('@')[0].slice(0, 24);
+        const cs = pvpCallsign || prefix || 'Rider';
+        setPvpCallsign(cs);
+        pvpCallsignRef.current = cs;
+      }
       setAuthed(true);
       setMounted(true);
       await refreshInventory();
       await refreshEligibility();
+
+      // Deep link: /luge?code=XXXXXX auto-opens the race lobby and joins.
+      try {
+        const deepCode = codeFromSearch(window.location.search);
+        if (deepCode && isValidRoomCode(deepCode)) {
+          setPvpCodeInput(deepCode);
+          setGameStateBoth('pvp_lobby');
+          void joinPvpRace(deepCode);
+        }
+      } catch { /* deep link is a convenience, never a blocker */ }
 
       // Store display info (server-set price).
       try {
@@ -382,13 +811,93 @@ export default function LugeEngine() {
     }
   }, []);
 
+  // Keep the ref mirror of gameState in sync for the room watcher.
+  useEffect(() => { gameStateRef.current = gameState; }, [gameState]);
+
+  // Stop PvP timers on unmount.
+  useEffect(() => () => stopPvpTimers(), []);
+
+  // Global leaderboard board for the selected course (public, global).
+  // Degrades honestly when the table isn't provisioned yet.
+  useEffect(() => {
+    let on = true;
+    setPvpBoard([]);
+    setPvpBoardNotice('');
+    fetch(`/api/luge/leaderboard?course=${selectedCourse.id}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (!on || !d || !d.ok) return;
+        setPvpBoard(Array.isArray(d.entries) ? d.entries : []);
+        if (d.notice) setPvpBoardNotice(d.notice);
+      })
+      .catch(() => { /* offline: the board simply stays empty */ });
+    return () => { on = false; };
+  }, [selectedCourse.id]);
+
+  const onCallsignChange = (v) => {
+    const clean = String(v || '').slice(0, 24);
+    setPvpCallsign(clean);
+    pvpCallsignRef.current = clean;
+    try { localStorage.setItem('luge_callsign', clean); } catch { /* noop */ }
+  };
+
+  // Countdown driver: synced to the room's startsAt, not the local clock.
+  useEffect(() => {
+    if (gameState !== 'pvp_countdown') return undefined;
+    countdownBeepRef.current = -1;
+    const timer = setInterval(() => {
+      const left = Math.max(0, pvpStartsAtRef.current - Date.now());
+      setPvpCountdown(left);
+      const sec = Math.ceil(left / 1000);
+      if (sec !== countdownBeepRef.current && sec <= 5 && sec >= 1) {
+        countdownBeepRef.current = sec;
+        fx.countdownBeep(sec === 1);
+      }
+      if (left <= 0) {
+        clearInterval(timer);
+        fx.go();
+        // Unseated riders (a full room, a failed seat) watch this heat —
+        // never race without a seat.
+        const seated = (pvpRoomRef.current?.player_ids || []).includes(userIdRef.current);
+        if (pvpModeRef.current === 'spectate' || !seated) {
+          setGameStateBoth('pvp_spectate');
+          startPvpLoops();
+        } else {
+          // Green light: the synced timestamp is the race clock, so every
+          // racer's finish time is comparable.
+          attachRaceControls();
+          raceStartRef.current = pvpStartsAtRef.current;
+          pvpProgressRef.current = 0;
+          pvpFinishedRef.current = false;
+          pvpBeaconAtRef.current = 0;
+          setGameStateBoth('racing');
+          startPvpLoops();
+          void sendBeacon(false);
+        }
+      }
+    }, 200);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameState]);
+
   // Request iOS Gyroscope Permissions & Start Listener
+  const attachRaceControls = () => {
+    if (controlsAttachedRef.current) return;
+    controlsAttachedRef.current = true;
+    window.addEventListener('deviceorientation', handleOrientation);
+    window.addEventListener('keydown', handleKeys);
+  };
+  const detachRaceControls = () => {
+    controlsAttachedRef.current = false;
+    window.removeEventListener('deviceorientation', handleOrientation);
+    window.removeEventListener('keydown', handleKeys);
+    tiltData.current = { x: 0, y: 0 };
+  };
   const requestTiltAccessAndStart = async () => {
     unlockFx(); // starting is a gesture: make sure FX is live
     fx.tap(); // ignition confirmed
     const start = () => {
-      window.addEventListener('deviceorientation', handleOrientation);
-      window.addEventListener('keydown', handleKeys);
+      attachRaceControls();
       raceStartRef.current = Date.now();
       setGameState('racing');
     };
@@ -454,22 +963,51 @@ export default function LugeEngine() {
 
   const handleFinish = async () => {
     fx.gameWin(); // crossed the finish line: full fanfare
-    window.removeEventListener('deviceorientation', handleOrientation);
-    window.removeEventListener('keydown', handleKeys);
-    tiltData.current = { x: 0, y: 0 };
+    detachRaceControls();
+
+    const isPvp = !!pvpCodeRef.current && pvpModeRef.current === 'race' && gameStateRef.current === 'racing';
+    // PvP finish times use the synced race clock (startsAt from the room),
+    // so every racer's time is comparable. Solo runs use the local clock.
+    const runMs = isPvp
+      ? Math.max(1, Date.now() - pvpStartsAtRef.current)
+      : Math.max(1, Date.now() - (raceStartRef.current || Date.now()));
+    const finishSledId = isPvp ? pvpSledIdRef.current : selectedSled.id;
+
+    if (isPvp) {
+      pvpFinishedRef.current = true;
+      if (pvpBeaconTimerRef.current) { clearInterval(pvpBeaconTimerRef.current); pvpBeaconTimerRef.current = null; }
+      await sendBeacon(true, runMs);
+    }
+
+    // Global leaderboard: every validated run — PvP or solo — can post a
+    // time. Server-validated against the physics floor; a failed submit
+    // never blocks the game.
+    const submitGlobalTime = async () => {
+      try {
+        await fetch('/api/luge/leaderboard', {
+          method: 'POST',
+          headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            courseId: selectedCourse.id,
+            runMs,
+            sledId: finishSledId,
+            player: pvpCallsignRef.current || 'Rider',
+          }),
+        });
+      } catch { /* best-effort */ }
+    };
 
     // Record the run server-side (anti-cheat validated there). A failed
     // recording never blocks the game — the run still happened.
     let freshEligibility = eligibility;
     try {
-      const runMs = Math.max(1, Date.now() - (raceStartRef.current || Date.now()));
       await fetch('/api/luge/complete', {
         method: 'POST',
         headers: { ...authHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({
           courseId: selectedCourse.id,
           runMs,
-          sledId: selectedSled.id,
+          sledId: finishSledId,
         }),
       });
       const res = await fetch('/api/luge/eligibility', { headers: authHeaders() });
@@ -480,6 +1018,14 @@ export default function LugeEngine() {
       }
     } catch {
       // Offline or unprovisioned — the podium still works off this finish.
+    }
+    void submitGlobalTime();
+
+    if (isPvp) {
+      // The beacon poll keeps running: the results board fills in live as
+      // the rest of the field finishes (or the timeout lands).
+      setGameStateBoth('pvp_results');
+      return;
     }
 
     // The reward podium appears when the rider is fully eligible (every
@@ -609,6 +1155,9 @@ export default function LugeEngine() {
                       </span>
                     </div>
                     <div className="text-[10px] text-amber-400 mt-1">{sled.desc}</div>
+                    <div className="text-[10px] text-zinc-500 mt-1 tracking-wider">
+                      SAND RESIST {Math.round((sled.sandResist || 0) * 100)}% · BOOST ×{sled.boostGain || 1}
+                    </div>
                     {locked && (
                       <div className="text-[10px] text-zinc-500 mt-1">Part of the Complete Arsenal — tap to view the store.</div>
                     )}
@@ -626,12 +1175,266 @@ export default function LugeEngine() {
             </div>
           </div>
 
+          <div className="w-full max-w-5xl p-4 mt-2 text-left border rounded border-zinc-800 bg-black/50 shrink-0">
+            <h2 className="mb-2 text-xs font-bold tracking-widest text-amber-300 uppercase">
+              Global top times — {selectedCourse.name}
+            </h2>
+            {pvpBoardNotice && (
+              <p className="mb-2 text-[10px] text-zinc-500">{pvpBoardNotice}</p>
+            )}
+            {pvpBoard.length === 0 && !pvpBoardNotice && (
+              <p className="text-[10px] text-zinc-600">No times yet on this course — be the first.</p>
+            )}
+            {pvpBoard.slice(0, 10).map((e, i) => (
+              <div key={`${e.player}-${e.timeMs}-${i}`} className="flex items-center justify-between py-1 text-[11px] border-b border-zinc-900 last:border-0">
+                <span className="text-zinc-400">
+                  <span className="inline-block w-6 text-zinc-600">{i + 1}.</span>
+                  <span className="text-zinc-200 font-bold">{e.player}</span>
+                </span>
+                <span className="font-mono text-cyan-300">{formatRaceTime(e.timeMs)}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center gap-4 mt-6 mb-12 shrink-0">
+            <button
+              onClick={() => setGameState('pre_race_calibrate')}
+              className="px-12 py-4 text-lg font-bold text-black uppercase transition-all bg-cyan-400 rounded-full hover:bg-white hover:shadow-[0_0_30px_rgba(0,242,255,0.6)] tracking-widest"
+            >
+              START DESCENT
+            </button>
+            <button
+              onClick={() => { setPvpMsg(''); setPvpShareNote(''); setGameStateBoth('pvp_lobby'); }}
+              className="px-12 py-4 text-lg font-bold uppercase transition-all rounded-full tracking-widest text-fuchsia-300 border border-fuchsia-500/60 hover:bg-fuchsia-500/20 hover:shadow-[0_0_30px_rgba(255,0,255,0.35)]"
+            >
+              PVP RACE
+            </button>
+          </div>
+        </div>
+      )}
+
+      {gameState === 'pvp_lobby' && (
+        <div className="flex flex-col items-center justify-center w-full h-full p-8 text-center text-white bg-zinc-950 overflow-y-auto">
+          <h1 className="mb-2 text-3xl text-fuchsia-400 drop-shadow-[0_0_15px_rgba(255,0,255,0.5)] uppercase tracking-widest">PvP Race</h1>
+          <p className="mb-6 text-xs tracking-widest text-zinc-400 uppercase">Up to {LUGE_MAX_RACERS} riders · one course · synced start</p>
+
+          <div className="w-full max-w-md p-6 border rounded border-fuchsia-500/30 bg-black/50 text-left">
+            <label className="block mb-1 text-[10px] tracking-widest text-zinc-500 uppercase">Rider callsign</label>
+            <input
+              value={pvpCallsign}
+              onChange={(e) => onCallsignChange(e.target.value)}
+              maxLength={24}
+              placeholder="Rider"
+              className="w-full px-3 py-2 mb-5 text-sm text-white bg-zinc-900 border border-zinc-700 rounded focus:border-fuchsia-400 focus:outline-none"
+            />
+
+            <button
+              onClick={createPvpRace}
+              disabled={pvpBusy}
+              className="w-full px-8 py-3 mb-3 font-bold tracking-widest text-black uppercase bg-fuchsia-400 rounded hover:bg-white disabled:opacity-50"
+            >
+              {pvpBusy ? 'Creating…' : 'HOST A RACE'}
+            </button>
+
+            <div className="flex items-center gap-3 my-4">
+              <div className="flex-1 h-px bg-zinc-800" />
+              <span className="text-[10px] text-zinc-600 tracking-widest">OR JOIN</span>
+              <div className="flex-1 h-px bg-zinc-800" />
+            </div>
+
+            <div className="flex gap-2">
+              <input
+                value={pvpCodeInput}
+                onChange={(e) => setPvpCodeInput(e.target.value.toUpperCase())}
+                maxLength={6}
+                placeholder="CODE"
+                className="flex-1 px-3 py-2 text-sm text-center tracking-[0.4em] text-white uppercase bg-zinc-900 border border-zinc-700 rounded focus:border-fuchsia-400 focus:outline-none"
+              />
+              <button
+                onClick={() => joinPvpRace(pvpCodeInput)}
+                disabled={pvpBusy}
+                className="px-6 py-2 text-xs font-bold tracking-widest text-fuchsia-300 uppercase border border-fuchsia-500/60 rounded hover:bg-fuchsia-500/20 disabled:opacity-50"
+              >
+                JOIN
+              </button>
+            </div>
+
+            {pvpMsg && <p className="mt-4 text-xs text-amber-300">{pvpMsg}</p>}
+            <p className="mt-4 text-[10px] text-zinc-600 leading-relaxed">
+              Racing as <span className="text-zinc-300">{selectedSled.name}</span> on{' '}
+              <span className="text-zinc-300">{selectedCourse.name}</span> — change them in the garage before hosting.
+            </p>
+          </div>
+
           <button
-            onClick={() => setGameState('pre_race_calibrate')}
-            className="shrink-0 px-12 py-4 mt-6 mb-12 text-lg font-bold text-black uppercase transition-all bg-cyan-400 rounded-full hover:bg-white hover:shadow-[0_0_30px_rgba(0,242,255,0.6)] tracking-widest"
+            onClick={() => setGameStateBoth('menu')}
+            className="px-8 py-3 mt-6 text-xs font-bold tracking-widest text-zinc-300 uppercase border border-zinc-700 rounded hover:border-zinc-400"
           >
-            START DESCENT
+            Back to garage
           </button>
+          <div aria-hidden="true" className="player-clear shrink-0" />
+        </div>
+      )}
+
+      {gameState === 'pvp_waiting' && pvpRoom && (
+        <div className="flex flex-col items-center justify-center w-full h-full p-8 text-center text-white bg-zinc-950 overflow-y-auto">
+          <h1 className="mb-1 text-3xl text-fuchsia-400 uppercase tracking-widest">Race Lobby</h1>
+          <p className="mb-4 text-xs tracking-widest text-zinc-400 uppercase">
+            {(pvpRoom.player_ids || []).length} / {LUGE_MAX_RACERS} riders · {selectedCourse.name}
+          </p>
+
+          <button onClick={copyPvpCode} title="Tap to copy" className="mb-2 px-6 py-3 border border-fuchsia-500/60 rounded bg-black/60 hover:bg-fuchsia-500/20">
+            <span className="block text-[10px] tracking-widest text-zinc-500 uppercase mb-1">Race code — tap to copy</span>
+            <span className="text-3xl font-black tracking-[0.5em] text-white">{pvpCodeInput}</span>
+          </button>
+          <div className="flex gap-2 mb-4">
+            <button onClick={sharePvpRace} className="px-4 py-2 text-[11px] font-bold tracking-widest uppercase border border-zinc-700 rounded hover:border-fuchsia-400 text-zinc-300">
+              SHARE INVITE
+            </button>
+            <button onClick={copyPvpCode} className="px-4 py-2 text-[11px] font-bold tracking-widest uppercase border border-zinc-700 rounded hover:border-fuchsia-400 text-zinc-300">
+              COPY CODE
+            </button>
+          </div>
+          {pvpShareNote && <p className="mb-4 text-[11px] text-cyan-300 break-all max-w-md">{pvpShareNote}</p>}
+
+          <div className="w-full max-w-md p-4 mb-4 border rounded border-zinc-800 bg-black/50 text-left">
+            <label className="block mb-1 text-[10px] tracking-widest text-zinc-500 uppercase">Rider callsign</label>
+            <input
+              value={pvpCallsign}
+              onChange={(e) => onCallsignChange(e.target.value)}
+              maxLength={24}
+              className="w-full px-3 py-2 text-sm text-white bg-zinc-900 border border-zinc-700 rounded focus:border-fuchsia-400 focus:outline-none"
+            />
+            <p className="mt-3 text-[10px] text-zinc-600">
+              Racing as <span className="text-zinc-300">{selectedSled.name}</span> ·
+              SAND RESIST {Math.round((selectedSled.sandResist || 0) * 100)}% · BOOST ×{selectedSled.boostGain || 1}
+            </p>
+          </div>
+
+          {pvpMsg && <p className="mb-4 text-xs text-amber-300 max-w-md">{pvpMsg}</p>}
+
+          {canStartRace(pvpRoom, userIdRef.current) ? (
+            <button
+              onClick={startPvpCountdown}
+              disabled={pvpBusy}
+              className="px-12 py-4 mb-3 text-lg font-bold text-black uppercase transition-all bg-fuchsia-400 rounded-full hover:bg-white tracking-widest disabled:opacity-50"
+            >
+              {pvpBusy ? 'Starting…' : 'START RACE'}
+            </button>
+          ) : (
+            <p className="mb-3 text-xs text-zinc-500 tracking-widest uppercase">
+              Waiting for the countdown — need at least {LUGE_MIN_RACERS} riders. Anyone seated can start it.
+            </p>
+          )}
+
+          <button
+            onClick={leavePvp}
+            className="px-8 py-2 text-xs font-bold tracking-widest text-zinc-400 uppercase border border-zinc-800 rounded hover:border-zinc-500"
+          >
+            LEAVE RACE
+          </button>
+          <div aria-hidden="true" className="player-clear shrink-0" />
+        </div>
+      )}
+
+      {gameState === 'pvp_countdown' && (
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/90 backdrop-blur-md p-4">
+          <p className="mb-2 text-xs tracking-[0.4em] text-fuchsia-400 uppercase">Riders ready</p>
+          <div className="text-8xl font-black text-white tabular-nums">
+            {Math.ceil(pvpCountdown / 1000)}
+          </div>
+          <p className="mt-4 text-xs tracking-widest text-zinc-500 uppercase">{selectedCourse.name}</p>
+        </div>
+      )}
+
+      {gameState === 'pvp_spectate' && (
+        <div className="flex flex-col items-center justify-center w-full h-full p-8 text-center text-white bg-zinc-950 overflow-y-auto">
+          <h1 className="mb-1 text-2xl text-fuchsia-400 uppercase tracking-widest">Spectating</h1>
+          <p className="mb-6 text-xs tracking-widest text-zinc-500 uppercase">
+            {selectedCourse.name} · live from the beacon board
+          </p>
+          <div className="w-full max-w-md p-4 border rounded border-zinc-800 bg-black/60 text-left">
+            {pvpStandings.length === 0 && (
+              <p className="text-xs text-zinc-600">Waiting for rider beacons…</p>
+            )}
+            {pvpStandings.map((s) => (
+              <div key={s.userId} className="flex items-center justify-between py-1.5 text-xs border-b border-zinc-900 last:border-0">
+                <span className="text-zinc-400">
+                  <span className="inline-block w-6 text-zinc-600">{s.rank}.</span>
+                  <span className="text-zinc-200 font-bold">{s.callsign}</span>
+                  {s.stale && <span className="ml-2 text-[9px] text-red-400 uppercase">dropped</span>}
+                </span>
+                <span className="font-mono text-cyan-300">
+                  {s.finished ? formatRaceTime(s.finishMs) : `${Math.round(s.progress * 100)}%`}
+                </span>
+              </div>
+            ))}
+          </div>
+          {pvpMsg && <p className="mt-4 text-xs text-amber-300 max-w-md">{pvpMsg}</p>}
+          <p className="mt-4 text-[11px] text-zinc-600">You race in the next heat.</p>
+          <button
+            onClick={leavePvp}
+            className="px-8 py-2 mt-4 text-xs font-bold tracking-widest text-zinc-400 uppercase border border-zinc-800 rounded hover:border-zinc-500"
+          >
+            LEAVE
+          </button>
+          <div aria-hidden="true" className="player-clear shrink-0" />
+        </div>
+      )}
+
+      {gameState === 'pvp_results' && (
+        <div className="flex flex-col items-center justify-center w-full h-full p-8 text-center text-white bg-zinc-950 overflow-y-auto">
+          <h1 className="mb-1 text-3xl text-amber-400 drop-shadow-[0_0_20px_rgba(255,215,0,0.5)] uppercase tracking-widest">
+            Race Results
+          </h1>
+          <p className="mb-6 text-xs tracking-widest text-zinc-500 uppercase">
+            {selectedCourse.name} · {pvpCodeInput}
+          </p>
+
+          <div className="w-full max-w-md p-4 mb-2 border rounded border-amber-500/30 bg-black/60 text-left">
+            {!pvpOutcome && (
+              <p className="text-xs text-zinc-500">Waiting for the field to finish…</p>
+            )}
+            {pvpOutcome && pvpOutcome.results.map((s) => (
+              <div
+                key={s.userId}
+                className={`flex items-center justify-between py-1.5 text-xs border-b border-zinc-900 last:border-0 ${s.userId === userIdRef.current ? 'bg-amber-400/10 -mx-2 px-2 rounded' : ''}`}
+              >
+                <span className="text-zinc-400">
+                  <span className="inline-block w-6 text-amber-300 font-bold">{s.rank}.</span>
+                  <span className="text-zinc-100 font-bold">{s.callsign}{s.userId === userIdRef.current ? ' (you)' : ''}</span>
+                </span>
+                <span className="font-mono text-cyan-300">{formatRaceTime(s.finishMs)}</span>
+              </div>
+            ))}
+            {pvpOutcome && pvpOutcome.dnfs.length > 0 && (
+              <>
+                <p className="mt-3 mb-1 text-[10px] tracking-widest text-zinc-600 uppercase">Did not finish</p>
+                {pvpOutcome.dnfs.map((s) => (
+                  <div key={s.userId} className="flex items-center justify-between py-1 text-[11px] text-zinc-600">
+                    <span>{s.callsign}{s.userId === userIdRef.current ? ' (you)' : ''}{s.stale ? ' — dropped' : ''}</span>
+                    <span className="font-mono">{Math.round(s.progress * 100)}%</span>
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-3 mt-4">
+            <button
+              onClick={raceAgain}
+              className="px-8 py-3 text-xs font-bold tracking-widest text-black uppercase bg-fuchsia-400 rounded hover:bg-white"
+            >
+              RACE AGAIN
+            </button>
+            <button
+              onClick={leavePvp}
+              className="px-8 py-3 text-xs font-bold tracking-widest text-zinc-300 uppercase border border-zinc-700 rounded hover:border-zinc-400"
+            >
+              LEAVE RACE
+            </button>
+          </div>
+          <div aria-hidden="true" className="player-clear shrink-0" />
         </div>
       )}
 
@@ -737,6 +1540,11 @@ export default function LugeEngine() {
               sled={selectedSled}
               tiltData={tiltData}
               onFinish={handleFinish}
+              pvp={
+                gameState === 'racing' && pvpCodeInput && pvpMode === 'race'
+                  ? { onProgress: handlePvpProgress, rivals: pvpRivals }
+                  : null
+              }
             />
 
             {/* Restrained bloom: glow stays local, textures stay readable. */}
@@ -751,6 +1559,27 @@ export default function LugeEngine() {
             <div className="text-white text-xs font-mono">LENGTH: {selectedCourse.length}M</div>
             <div className="text-white text-xs font-mono">TURNS: {selectedCourse.turns}</div>
           </div>
+
+          {/* Live standings during a PvP race (absent in solo runs) */}
+          {pvpCodeInput && pvpMode === 'race' && pvpStandings.length > 0 && (
+            <div className="absolute top-24 right-5 z-10 w-40 p-2 rounded bg-black/60 border border-fuchsia-500/30 backdrop-blur-sm pointer-events-none">
+              <p className="text-[9px] tracking-widest text-fuchsia-300 uppercase mb-1">Standings</p>
+              {pvpStandings.slice(0, 8).map((s) => (
+                <div
+                  key={s.userId}
+                  className={`flex items-center justify-between py-0.5 text-[10px] ${s.userId === userIdRef.current ? 'text-white font-bold' : 'text-zinc-400'}`}
+                >
+                  <span>
+                    <span className="inline-block w-4 text-zinc-600">{s.rank}.</span>
+                    {(s.callsign || '').slice(0, 10)}{s.userId === userIdRef.current ? ' ★' : ''}
+                  </span>
+                  <span className="font-mono">
+                    {s.finished ? formatRaceTime(s.finishMs) : `${Math.round(s.progress * 100)}%`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
 
           {zoneFx === 'boost' && (
             <div className="absolute top-5 right-5 z-10 pointer-events-none px-4 py-2 rounded border border-cyan-300 bg-cyan-500/20 backdrop-blur">

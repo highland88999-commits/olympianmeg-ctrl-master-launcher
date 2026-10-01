@@ -350,8 +350,9 @@ t(
 
 // --- GodTower: one tower satellite per menu category (Merlin, 2026-09-30) ----
 const gtSrc = stripComments(readFileSync('components/GodTower.jsx', 'utf8'));
-t('GodTower carries the stake.com affiliate inventory (slash-free match: the URL contains //)',
-  gtSrc.includes('stakeUrl') && gtSrc.includes('onLaunchExternal(stakeUrl)'));
+t('GodTower carries the stake.com affiliate inventory (panel 0 = native stake slot, tap launches its tracking URL)',
+  gtSrc.includes('STAKE_SLOT') && gtSrc.includes('panelsForTower') &&
+  gtSrc.includes('onLaunchExternal(slot.trackingUrl)'));
 t('GodTower keeps the Advertise Here slot',
   gtSrc.includes('Advertise Here: Email Us'));
 t('GodTower mounts four ad panels around the hull',

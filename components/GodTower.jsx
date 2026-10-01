@@ -3,10 +3,14 @@
 // parameterized the way Merlin described it: copy Zeus, change the name
 // and the color, one for each of the categories in the menu (2026-09-30).
 //
-// Each tower carries the full native ad inventory (four stake.com panels +
-// "Advertise Here" slots) — Merlin's own placements, never removed.
-// Towers are solid: each registers its own sphere collider (bounce/deflect,
-// never kill). They bob gently and rotate slowly, Zeus-style.
+// Each tower carries four ad panels reading the real billboard inventory
+// (lib/partners.js, assigned deterministically by lib/tower-panels.js).
+// Panel 0 is ALWAYS Merlin's native stake.com placement — his own
+// inventory, never removed, never rotated out. Panels 1–3 rotate the
+// affiliate partners, Betty, and YOUR AD HERE fillers so the forty panels
+// are no longer forty identical stake placeholders. Towers are solid: each
+// registers its own sphere collider (bounce/deflect, never kill). They bob
+// gently and rotate slowly, Zeus-style.
 
 'use client';
 import { useState, useRef, useMemo, useEffect, memo } from 'react';
@@ -14,6 +18,21 @@ import { useFrame } from '@react-three/fiber';
 import { Text, Billboard } from '@react-three/drei';
 import * as THREE from 'three';
 import { registerCollider, unregisterCollider } from '@/lib/hub-collision';
+import {
+  createBillboardFaceCanvas,
+  drawCoverFit,
+} from '@/lib/billboard-face';
+import { STAKE_SLOT } from '@/lib/partners';
+import { panelsForTower } from '@/lib/tower-panels';
+
+// Tower panel faces are static canvas textures (380×450 ≈ 100px per world
+// unit on the 3.8×4.5 face) — forty autoplaying videos would melt phone
+// GPUs. When a slot later ships a real image creative, it paints cover-fit.
+const FACE_PX_W = 380;
+const FACE_PX_H = 450;
+
+// Same advertise-inquiry address as the street monuments.
+const INQUIRIES_EMAIL = 'olympianmeg@gmail.com';
 
 // Glitch-stabilized ad border (Merlin, 2026-09-30): the old flat
 // meshBasicMaterial border plane sat coplanar with the backing box face
@@ -55,27 +74,86 @@ function makeBorderTexture(color) {
   return tex;
 }
 
-function GodAdPanel({ onLaunchExternal, adTex, color }) {
+// Static face texture for one panel's slot: the shared honest branded face,
+// or the slot's real image creative cover-fit when one has shipped. The
+// stake slot reuses the shared gold stake creative (never removed).
+function usePanelFaceTexture(slot, stakeTex) {
+  const [tex, setTex] = useState(null);
+  useEffect(() => {
+    if (slot.key === STAKE_SLOT.key) {
+      setTex(stakeTex || null);
+      return;
+    }
+    let cancelled = false;
+    let owned = null;
+    const toTexture = (canvas) => {
+      if (cancelled) return;
+      const t = new THREE.CanvasTexture(canvas);
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.anisotropy = 4;
+      owned = t;
+      setTex(t);
+    };
+    const paintPlaceholder = () =>
+      toTexture(createBillboardFaceCanvas(slot, FACE_PX_W, FACE_PX_H));
+    const creative = slot.creatives && slot.creatives[0];
+    if (creative && creative.imageUrl) {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        if (cancelled) return;
+        const canvas = document.createElement('canvas');
+        canvas.width = FACE_PX_W;
+        canvas.height = FACE_PX_H;
+        drawCoverFit(canvas.getContext('2d'), img, FACE_PX_W, FACE_PX_H);
+        toTexture(canvas);
+      };
+      img.onerror = paintPlaceholder;
+      img.src = creative.imageUrl;
+    } else {
+      paintPlaceholder();
+    }
+    return () => {
+      cancelled = true;
+      if (owned) owned.dispose();
+      setTex(null);
+    };
+  }, [slot.key, stakeTex]);
+  return tex;
+}
+
+function TowerAdPanel({ slot, stakeTex, color, onLaunchExternal }) {
   const [hovered, setHovered] = useState(false);
   const [btnHovered, setBtnHovered] = useState(false);
   const [emailHovered, setEmailHovered] = useState(false);
 
   // One border texture per god color — memoized, generated once.
   const borderTex = useMemo(() => makeBorderTexture(color), [color]);
+  const faceTex = usePanelFaceTexture(slot, stakeTex);
 
-  const stakeUrl = 'https://stake.com/?c=1FofAXWx';
-  const inquiriesEmail = 'olympianmeg@gmail.com';
+  const isStake = slot.key === STAKE_SLOT.key;
+  // Merlin's native slot keeps its ENTER NOW call-to-action; everyone else
+  // is honest about what a tap does.
+  const ctaLabel = isStake
+    ? 'ENTER NOW'
+    : slot.trackingUrl
+      ? 'VISIT SITE'
+      : 'ADVERTISE';
 
-  const handleStakeClick = (e) => {
+  const handleFaceClick = (e) => {
     e.stopPropagation();
     if (e.nativeEvent) e.nativeEvent.stopPropagation();
-    onLaunchExternal(stakeUrl);
+    if (slot.trackingUrl) {
+      onLaunchExternal(slot.trackingUrl);
+    } else {
+      window.location.href = `mailto:${INQUIRIES_EMAIL}`;
+    }
   };
 
   const handleEmailClick = (e) => {
     e.stopPropagation();
     if (e.nativeEvent) e.nativeEvent.stopPropagation();
-    window.location.href = `mailto:${inquiriesEmail}`;
+    window.location.href = `mailto:${INQUIRIES_EMAIL}`;
   };
 
   return (
@@ -87,12 +165,17 @@ function GodAdPanel({ onLaunchExternal, adTex, color }) {
 
       <mesh
         position={[0, 1, 0.24]}
-        onClick={handleStakeClick}
+        onClick={handleFaceClick}
         onPointerOver={() => { setHovered(true); document.body.style.cursor = 'pointer'; }}
         onPointerOut={() => { setHovered(false); document.body.style.cursor = 'default'; }}
       >
         <planeGeometry args={[3.8, 4.5]} />
-        <meshStandardMaterial map={adTex} color={hovered ? "#dddddd" : "#ffffff"} metalness={0.2} roughness={0.8} />
+        <meshStandardMaterial
+          map={faceTex || undefined}
+          color={faceTex ? (hovered ? '#dddddd' : '#ffffff') : '#0a0f1e'}
+          metalness={0.2}
+          roughness={0.8}
+        />
       </mesh>
 
       {/* Textured border: 0.08 above the backing box face (was coplanar at
@@ -112,7 +195,7 @@ function GodAdPanel({ onLaunchExternal, adTex, color }) {
 
       <group
         position={[0, -1.8, 0.11]}
-        onClick={handleStakeClick}
+        onClick={handleFaceClick}
         onPointerOver={() => { setBtnHovered(true); document.body.style.cursor = 'pointer'; }}
         onPointerOut={() => { setBtnHovered(false); document.body.style.cursor = 'default'; }}
       >
@@ -120,7 +203,7 @@ function GodAdPanel({ onLaunchExternal, adTex, color }) {
           <boxGeometry args={[3.8, 0.8, 0.1]} />
           <meshStandardMaterial color={btnHovered ? "#ffffff" : color} emissive={color} emissiveIntensity={btnHovered ? 0.8 : 0.4} />
         </mesh>
-        <Text position={[0, 0, 0.06]} fontSize={0.35} color="#000000" fontWeight="bold">ENTER NOW</Text>
+        <Text position={[0, 0, 0.06]} fontSize={0.35} color="#000000" fontWeight="bold">{ctaLabel}</Text>
       </group>
 
       <group
@@ -139,7 +222,7 @@ function GodAdPanel({ onLaunchExternal, adTex, color }) {
   );
 }
 
-function GodTower({ god, color, position, onLaunchExternal, textures }) {
+function GodTower({ god, color, position, onLaunchExternal, textures, panels = panelsForTower(0) }) {
   const satelliteRef = useRef();
   useFrame((state, delta) => {
     if (satelliteRef.current) {
@@ -191,7 +274,12 @@ function GodTower({ god, color, position, onLaunchExternal, textures }) {
         {[0, Math.PI / 2, Math.PI, -Math.PI / 2].map((angle, i) => (
           <group key={`ad-${i}`} rotation={[0, angle, 0]}>
             <group position={[0, -1, 5.0]}>
-              <GodAdPanel onLaunchExternal={onLaunchExternal} adTex={adTex} color={color} />
+              <TowerAdPanel
+                slot={panels[i]}
+                stakeTex={adTex}
+                color={color}
+                onLaunchExternal={onLaunchExternal}
+              />
             </group>
           </group>
         ))}
@@ -210,5 +298,6 @@ function GodTower({ god, color, position, onLaunchExternal, textures }) {
   );
 }
 
-// Memoized around the ad inventory (stake.com panels inside) — internals untouched.
+// Memoized around the ad inventory (stake.com native panel inside) —
+// internals untouched.
 export default memo(GodTower);
