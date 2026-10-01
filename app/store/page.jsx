@@ -22,11 +22,14 @@ function ProductCard({ product, onBuy, buying, gold, setGold, rewardMode, onRede
   // redemption (Luge) bypasses checkout entirely and is unaffected.
   const checkoutOpen = product.checkoutReady !== false;
   // Honest size picker: offer exactly the sizes Printful reports as active
-  // for this design. Falls back to the default list if the lookup fails —
-  // checkout re-validates the size server-side regardless.
+  // for this design. Size-driven by the live variants, not by the product's
+  // name (e.g. "Glitch" is a sized hoodie): any product with more than one
+  // active variant gets the picker. Falls back to the default list if the
+  // lookup fails — checkout re-validates the size server-side regardless.
   const [sizes, setSizes] = useState(null);
+  const needsSize = sizes ? sizes.length > 1 : isApparel;
   useEffect(() => {
-    if (!isApparel || !checkoutOpen) return;
+    if (!checkoutOpen) return;
     let alive = true;
     fetch(`/api/store/variants?productId=${encodeURIComponent(product.id)}`)
       .then((r) => r.json())
@@ -40,7 +43,7 @@ function ProductCard({ product, onBuy, buying, gold, setGold, rewardMode, onRede
       })
       .catch(() => {});
     return () => { alive = false; };
-  }, [product.id, isApparel, checkoutOpen]);
+  }, [product.id, checkoutOpen]);
   const sizeOptions = sizes || SIZES;
 
   return (
@@ -69,7 +72,7 @@ function ProductCard({ product, onBuy, buying, gold, setGold, rewardMode, onRede
         ) : (
           <div className="text-lg font-bold text-amber-300">{product.priceLabel}</div>
         )}
-        {isApparel && (rewardMode || checkoutOpen) && (
+        {needsSize && (rewardMode || checkoutOpen) && (
           <label className="text-sm text-slate-300">
             Size
             <select
@@ -97,7 +100,7 @@ function ProductCard({ product, onBuy, buying, gold, setGold, rewardMode, onRede
         <button
           type="button"
           disabled={buying || (!rewardMode && !checkoutOpen)}
-          onClick={() => (rewardMode ? onRedeem(product, isApparel ? size : '') : onBuy(product, isApparel ? size : ''))}
+          onClick={() => (rewardMode ? onRedeem(product, needsSize ? size : '') : onBuy(product, needsSize ? size : ''))}
           className="w-full rounded-xl bg-amber-300 px-4 py-3 font-semibold text-black transition hover:bg-amber-200 disabled:opacity-50"
         >
           {rewardMode

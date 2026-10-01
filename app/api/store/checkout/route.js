@@ -99,9 +99,12 @@ async function resolveLine(productId, productName, size) {
     throw e;
   }
 
+  // Size-driven by the live variants, not by the product's name: any
+  // product with more than one active variant gets an honest size choice.
+  const needsSize = live.length > 1;
   let variant = null;
   const wantSize = String(size || '').trim();
-  if (card.kind === 'apparel') {
+  if (needsSize) {
     if (!wantSize) {
       const e = new Error('Please choose a size.');
       e.status = 400;
@@ -116,11 +119,11 @@ async function resolveLine(productId, productName, size) {
       throw e;
     }
   } else {
-    // Non-apparel has no size picker: fulfill the first active variant.
+    // Single-variant product: no choice to make, fulfill that variant.
     variant = live[0];
   }
 
-  return { card, syncId, variant };
+  return { card, syncId, variant, needsSize };
 }
 
 export const POST = apiGuard(async function POST(req) {
@@ -163,9 +166,9 @@ export const POST = apiGuard(async function POST(req) {
 
   // Server-priced from the Printful catalog: nothing about the bill comes
   // from the client.
-  let card, syncId, variant;
+  let card, syncId, variant, needsSize;
   try {
-    ({ card, syncId, variant } = await resolveLine(productId, productName, size));
+    ({ card, syncId, variant, needsSize } = await resolveLine(productId, productName, size));
   } catch (err) {
     return NextResponse.json(
       { error: err.message || 'That product is not available right now.' },
@@ -174,7 +177,7 @@ export const POST = apiGuard(async function POST(req) {
   }
   const unitCents = card.priceCents;
   const currency = card.currency || 'cad';
-  const lineName = card.kind === 'apparel' && size ? `${card.name} (${variant.size})` : card.name;
+  const lineName = needsSize ? `${card.name} (${variant.size})` : card.name;
 
   const stripe = await loadStripe();
 
@@ -225,7 +228,7 @@ export const POST = apiGuard(async function POST(req) {
             printful_product_id: syncId,
             printful_variant_id: String(variant.variantId),
             product_name: card.name,
-            size: card.kind === 'apparel' ? variant.size : '',
+            size: needsSize ? variant.size : '',
             gold_applied_gold: String(gold.goldAppliedGold),
             gold_applied_cents: String(gold.goldAppliedCents),
           },
@@ -265,7 +268,7 @@ export const POST = apiGuard(async function POST(req) {
                   price_id: null,
                   amount_cents: unitCents,
                   currency,
-                  size: card.kind === 'apparel' ? variant.size : null,
+                  size: needsSize ? variant.size : null,
                   printful_product_id: syncId,
                   printful_variant_id: String(variant.variantId),
                   status: 'paid',
@@ -312,7 +315,7 @@ export const POST = apiGuard(async function POST(req) {
             price_id: null,
             amount_cents: unitCents,
             currency,
-            size: card.kind === 'apparel' ? variant.size : null,
+            size: needsSize ? variant.size : null,
             printful_product_id: syncId,
             printful_variant_id: String(variant.variantId),
             status: 'pending_payment',
