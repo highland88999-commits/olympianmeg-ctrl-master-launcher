@@ -1,25 +1,25 @@
 // app/api/store/checkout/route.js
-// POST /api/store/checkout { productId, size?, useGold?, idemKey? }
+// POST /api/store/checkout { productId: 'pf_<printfulSyncId>', size?, useGold?, idemKey? }
 //   -> { type:'stripe', url, goldAppliedGold, goldAppliedCents, chargeCents }
 //   -> { type:'gold', orderId, notice }  (gold covered the whole bill — no card)
 //
-// Follows the repo's existing checkout pattern (app/api/olympus/checkout):
-// - Every price is re-derived server-side from Stripe by product id; the
-//   client never dictates an amount.
-// - Gold redemption (100 gold = $1) uses the shared applyGoldCheckout flow:
-//   partial cover debits gold then charges the remainder via a one-time
-//   Stripe coupon; full cover skips Stripe entirely.
-// - Stripe Checkout collects the shipping address (Printful needs it later
-//   for fulfillment).
-// - Metadata carries surface:'store', the product name, and the size.
+// Pricing is re-derived server-side from the Printful catalog (the store's
+// source of truth): the product id is validated against the cached catalog
+// and the size against Printful's live variant list. The client never
+// dictates an amount, a product, or a variant id.
+//
+// Gold redemption (100 gold = $1) uses the shared applyGoldCheckout flow:
+// partial cover debits gold then charges the remainder via a one-time
+// Stripe coupon; full cover skips Stripe entirely (the order is recorded
+// paid and flagged for a shipping address — there is no Stripe session to
+// collect one from).
+//
+// Stripe Checkout collects the shipping address (Printful needs it for
+// fulfillment) and the buyer's email. Free shipping is baked into the
+// C$95 price; the session charges the product price only.
 //
 // Shipping addresses: US + CA for now (the neighborhood Merlin ships from);
 // widen allowed_countries once fulfillment is confirmed beyond that.
-//
-// Size note for the future Printful wiring: the chosen size travels in
-// session metadata (`size`) and on the store_orders row. The size →
-// Printful variant mapping gets wired once the Printful API is connected —
-// no variant IDs are invented here.
 
 export const dynamic = 'force-dynamic';
 
@@ -27,6 +27,7 @@ import { NextResponse } from 'next/server';
 import { getUserFromRequest as getGoldUser } from '@/lib/economy/auth';
 import { getServiceClient } from '@/lib/economy/supabase';
 import { applyGoldCheckout } from '@/lib/economy/checkout';
+import { getCatalog, getProductVariants } from '@/lib/store-printful';
 import { apiGuard } from '@/lib/api-guard';
 
 export const GET = apiGuard(async function GET() {
@@ -64,50 +65,62 @@ function goldNote(gold) {
   return `Gold applied: ${gold.goldAppliedGold.toLocaleString('en-US')} gold (-$${(gold.goldAppliedCents / 100).toFixed(2)}).`;
 }
 
-// Exact-name product lookup: resolves a product by its Stripe name at
-// runtime, so no product id is ever hardcoded. Used for the hoodie
-// ("Omega Store - Premium Unisex Hoodie") and anything else the
-// client names instead of ids.
-async function findProductByName(stripe, name) {
-  const want = String(name || '').trim();
-  if (!want) return null;
-  // 1) Stripe search API (exact-name query).
-  try {
-    const res = await stripe.products.search({
-      query: `name:'${want.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`,
-      expand: ['data.default_price'],
-      limit: 10,
-    });
-    const hit = (res.data || []).find((p) => p.active && p.name === want);
-    if (hit) return hit;
-  } catch {
-    // Search may be disabled on the account; fall through to list+match.
+// Resolve + validate the product and size against Printful, server-side.
+// Returns { card, syncId, variant } or throws a user-facing error.
+async function resolveLine(productId, productName, size) {
+  const m = /^pf_(\d+)$/.exec(String(productId || '').trim());
+  if (!m) {
+    const e = new Error('Invalid product.');
+    e.status = 400;
+    throw e;
   }
-  // 2) Fallback: page active products and match the name exactly.
-  let startingAfter;
-  for (let page = 0; page < 5; page++) {
-    const res = await stripe.products.list({
-      active: true,
-      limit: 100,
-      ...(startingAfter ? { starting_after: startingAfter } : {}),
-      expand: ['data.default_price'],
-    });
-    const hit = (res.data || []).find((p) => p.name === want);
-    if (hit) return hit;
-    if (!res.has_more || !res.data?.length) break;
-    startingAfter = res.data[res.data.length - 1].id;
-  }
-  return null;
-}
+  const syncId = m[1];
 
-function priceFrom(product) {
-  const price = product?.default_price && typeof product.default_price === 'object'
-    ? product.default_price
-    : null;
-  if (!product?.active || !price?.active || typeof price.unit_amount !== 'number' || price.recurring) {
-    return null;
+  const cards = await getCatalog();
+  const card = (cards || []).find((c) => c && c.id === `pf_${syncId}`);
+  if (!card) {
+    const e = new Error('That product is not available right now.');
+    e.status = 400;
+    throw e;
   }
-  return { price, unitCents: price.unit_amount, currency: price.currency };
+  // When the client also names the product, the name must agree with the
+  // catalog — a mismatched pair is rejected rather than trusted.
+  if (productName && productName !== card.name) {
+    const e = new Error('That product is not available right now.');
+    e.status = 400;
+    throw e;
+  }
+
+  const variants = await getProductVariants(syncId);
+  const live = (variants || []).filter((v) => v.available);
+  if (!live.length) {
+    const e = new Error('That product is not available right now.');
+    e.status = 400;
+    throw e;
+  }
+
+  let variant = null;
+  const wantSize = String(size || '').trim();
+  if (card.kind === 'apparel') {
+    if (!wantSize) {
+      const e = new Error('Please choose a size.');
+      e.status = 400;
+      throw e;
+    }
+    variant = live.find((v) => v.size.toLowerCase() === wantSize.toLowerCase());
+    if (!variant) {
+      const e = new Error(
+        `Size ${wantSize} isn't available for this design right now.`
+      );
+      e.status = 400;
+      throw e;
+    }
+  } else {
+    // Non-apparel has no size picker: fulfill the first active variant.
+    variant = live[0];
+  }
+
+  return { card, syncId, variant };
 }
 
 export const POST = apiGuard(async function POST(req) {
@@ -119,16 +132,15 @@ export const POST = apiGuard(async function POST(req) {
   }
 
   const productId = typeof body?.productId === 'string' ? body.productId.trim() : '';
-  const productName = typeof body?.productName === 'string' ? body.productName.trim().slice(0, 120) : '';
+  const productName =
+    typeof body?.productName === 'string' ? body.productName.trim().slice(0, 120) : '';
   const size = typeof body?.size === 'string' ? body.size.trim().slice(0, 12) : '';
-  if ((!productId || !/^prod_[A-Za-z0-9]+$/.test(productId)) && !productName) {
-    return NextResponse.json({ error: 'Invalid product.' }, { status: 400 });
-  }
 
   const useGold = body?.useGold === true;
-  const idemKey = typeof body?.idemKey === 'string' && body.idemKey.length > 0 && body.idemKey.length <= 80
-    ? body.idemKey
-    : null;
+  const idemKey =
+    typeof body?.idemKey === 'string' && body.idemKey.length > 0 && body.idemKey.length <= 80
+      ? body.idemKey
+      : null;
   if (useGold && !idemKey) {
     return NextResponse.json({ error: 'Checkout key missing. Please try again.' }, { status: 400 });
   }
@@ -149,36 +161,22 @@ export const POST = apiGuard(async function POST(req) {
     );
   }
 
-  const stripe = await loadStripe();
-
-  // Re-price from Stripe server-side: the product must be active and have
-  // a default one-time price. Nothing about the bill comes from the client.
-  // Products resolve by EXACT NAME at runtime when productName is given
-  // (no product ids hardcoded anywhere); productId is the fallback. When
-  // both are given they must agree, or the request is rejected.
-  let product, unitCents, currency;
+  // Server-priced from the Printful catalog: nothing about the bill comes
+  // from the client.
+  let card, syncId, variant;
   try {
-    if (productName) {
-      product = await findProductByName(stripe, productName);
-      if (!product) throw new Error('That product is not available right now.');
-      if (productId && product.id !== productId) {
-        throw new Error('That product is not available right now.');
-      }
-    } else {
-      product = await stripe.products.retrieve(productId, { expand: ['default_price'] });
-    }
-    const priced = priceFrom(product);
-    if (!priced) throw new Error('That product is not available right now.');
-    unitCents = priced.unitCents;
-    currency = priced.currency;
+    ({ card, syncId, variant } = await resolveLine(productId, productName, size));
   } catch (err) {
     return NextResponse.json(
       { error: err.message || 'That product is not available right now.' },
-      { status: 400 }
+      { status: err.status || 400 }
     );
   }
+  const unitCents = card.priceCents;
+  const currency = card.currency || 'cad';
+  const lineName = card.kind === 'apparel' && size ? `${card.name} (${variant.size})` : card.name;
 
-  const lineName = size ? `${product.name} (${size})` : product.name;
+  const stripe = await loadStripe();
 
   try {
     const origin = req.nextUrl.origin;
@@ -195,33 +193,39 @@ export const POST = apiGuard(async function POST(req) {
         // "Gold applied: -$X.XX" instead of a mangled line item.
         let discounts;
         if (gold.goldAppliedCents > 0) {
-          const coupon = await stripeClient.coupons.create({
-            amount_off: gold.goldAppliedCents,
-            currency,
-            duration: 'once',
-            name: `Gold applied (${gold.goldAppliedGold.toLocaleString('en-US')} gold)`,
-          }, { idempotencyKey: `goldcoupon_store_${effectiveIdemKey}` });
+          const coupon = await stripeClient.coupons.create(
+            {
+              amount_off: gold.goldAppliedCents,
+              currency,
+              duration: 'once',
+              name: `Gold applied (${gold.goldAppliedGold.toLocaleString('en-US')} gold)`,
+            },
+            { idempotencyKey: `goldcoupon_store_${effectiveIdemKey}` }
+          );
           discounts = [{ coupon: coupon.id }];
         }
         return {
           mode: 'payment',
           currency,
-          line_items: [{
-            price_data: {
-              currency,
-              unit_amount: unitCents,
-              product_data: { name: lineName, description: product.description || undefined },
+          line_items: [
+            {
+              price_data: {
+                currency,
+                unit_amount: unitCents,
+                product_data: { name: lineName },
+              },
+              quantity: 1,
             },
-            quantity: 1,
-          }],
+          ],
           ...(discounts ? { discounts } : {}),
           // The shipping address Printful will need for fulfillment.
           shipping_address_collection: { allowed_countries: ['US', 'CA'] },
           metadata: {
             surface: 'store',
-            product_id: product.id,
-            product_name: product.name,
-            size: size || '',
+            printful_product_id: syncId,
+            printful_variant_id: String(variant.variantId),
+            product_name: card.name,
+            size: card.kind === 'apparel' ? variant.size : '',
             gold_applied_gold: String(gold.goldAppliedGold),
             gold_applied_cents: String(gold.goldAppliedCents),
           },
@@ -231,7 +235,10 @@ export const POST = apiGuard(async function POST(req) {
       },
       // Paid-by-gold: record the order as paid (service role — the public
       // RLS policy only allows pending_payment rows). Idempotent on the
-      // idemKey so a retried request never records two orders.
+      // idemKey so a retried request never records two orders. There is no
+      // Stripe session here, so no shipping address was collected: the
+      // order is flagged and Merlin follows up for the address before
+      // Printful fulfillment.
       fulfillPaidByGold: async ({ goldSpentGold, idemKey: key }) => {
         const admin = await getServiceClient();
         if (!admin) {
@@ -250,18 +257,22 @@ export const POST = apiGuard(async function POST(req) {
           if (!orderId) {
             const { data: inserted, error: insertError } = await admin
               .from('store_orders')
-              .insert([{
-                user_id: goldUserId,
-                stripe_session_id: sessionRef,
-                product_name: product.name,
-                price_id: product.default_price?.id || null,
-                amount_cents: unitCents,
-                currency,
-                size: size || null,
-                status: 'paid',
-                paid_at: new Date().toISOString(),
-                customer_notes: `Paid fully with gold: ${goldSpentGold.toLocaleString('en-US')} gold (-$${(unitCents / 100).toFixed(2)}).`,
-              }])
+              .insert([
+                {
+                  user_id: goldUserId,
+                  stripe_session_id: sessionRef,
+                  product_name: card.name,
+                  price_id: null,
+                  amount_cents: unitCents,
+                  currency,
+                  size: card.kind === 'apparel' ? variant.size : null,
+                  printful_product_id: syncId,
+                  printful_variant_id: String(variant.variantId),
+                  status: 'paid',
+                  paid_at: new Date().toISOString(),
+                  customer_notes: `Paid fully with gold: ${goldSpentGold.toLocaleString('en-US')} gold (-$${(unitCents / 100).toFixed(2)}). No shipping address collected — contact the buyer before Printful fulfillment.`,
+                },
+              ])
               .select('id')
               .single();
             if (insertError || !inserted) throw insertError || new Error('insert failed');
@@ -273,7 +284,7 @@ export const POST = apiGuard(async function POST(req) {
         }
         return {
           orderId,
-          notice: `Paid with ${goldSpentGold.toLocaleString('en-US')} gold — your order is recorded. No card charged.`,
+          notice: `Paid with ${goldSpentGold.toLocaleString('en-US')} gold — your order is recorded. No card charged. We'll be in touch for your shipping address.`,
         };
       },
     });
@@ -293,17 +304,21 @@ export const POST = apiGuard(async function POST(req) {
     try {
       const supabase = await serverSupabase();
       if (supabase) {
-        await supabase.from('store_orders').insert([{
-          user_id: goldUserId,
-          stripe_session_id: result.sessionId,
-          product_name: product.name,
-          price_id: product.default_price?.id || null,
-          amount_cents: unitCents,
-          currency,
-          size: size || null,
-          status: 'pending_payment',
-          customer_notes: goldNote(result),
-        }]);
+        await supabase.from('store_orders').insert([
+          {
+            user_id: goldUserId,
+            stripe_session_id: result.sessionId,
+            product_name: card.name,
+            price_id: null,
+            amount_cents: unitCents,
+            currency,
+            size: card.kind === 'apparel' ? variant.size : null,
+            printful_product_id: syncId,
+            printful_variant_id: String(variant.variantId),
+            status: 'pending_payment',
+            customer_notes: goldNote(result),
+          },
+        ]);
       }
     } catch {
       // Bookkeeping only.

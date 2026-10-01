@@ -24,6 +24,8 @@ create table if not exists public.store_orders (
   amount_cents int,
   currency text not null default 'cad',
   size text,
+  printful_product_id text,
+  printful_variant_id text,
   shipping jsonb,
   status text not null default 'pending_payment'
     check (status in ('pending_payment', 'paid', 'fulfilled', 'refunded', 'cancelled')),

@@ -3,9 +3,9 @@
 // Products come live from Printful (GET /api/store/products) — Merlin's
 // real "Omega Store" catalog; nothing is hardcoded. Apparel (hoodies etc.)
 // is grouped first, everything else follows, unclassified items land under
-// "More". Printful checkout is NOT wired yet, so every Printful card keeps
-// its buy CTA honestly disabled ("Checkout coming soon") — no order is
-// ever faked or placed. The Luge free-hoodie reward (/store?reward=luge)
+// "More". Printful checkout is wired: Buy now opens a Stripe Checkout
+// session (card or gold), and a paid order is fulfilled automatically
+// through Printful. No order is ever faked or placed. The Luge free-hoodie reward (/store?reward=luge)
 // is separate: it claims through POST /api/luge/claim and never touches
 // checkout, so it is unaffected.
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
@@ -18,10 +18,30 @@ const SIZES = ['S', 'M', 'L', 'XL', '2XL', '3XL'];
 function ProductCard({ product, onBuy, buying, gold, setGold, rewardMode, onRedeem }) {
   const [size, setSize] = useState('L');
   const isApparel = product.kind === 'apparel';
-  // Printful cards are listed read-only until Merlin approves wiring
-  // checkout: the buy CTA stays honestly disabled. Reward redemption
-  // (Luge) bypasses checkout entirely and is unaffected.
+  // Checkout is wired (Stripe Checkout -> Printful fulfillment). Reward
+  // redemption (Luge) bypasses checkout entirely and is unaffected.
   const checkoutOpen = product.checkoutReady !== false;
+  // Honest size picker: offer exactly the sizes Printful reports as active
+  // for this design. Falls back to the default list if the lookup fails —
+  // checkout re-validates the size server-side regardless.
+  const [sizes, setSizes] = useState(null);
+  useEffect(() => {
+    if (!isApparel || !checkoutOpen) return;
+    let alive = true;
+    fetch(`/api/store/variants?productId=${encodeURIComponent(product.id)}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (!alive) return;
+        const list = d && Array.isArray(d.sizes) ? d.sizes : [];
+        if (list.length) {
+          setSizes(list);
+          setSize((s) => (list.includes(s) ? s : list.includes('L') ? 'L' : list[0]));
+        }
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [product.id, isApparel, checkoutOpen]);
+  const sizeOptions = sizes || SIZES;
 
   return (
     <div className="flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/5">
@@ -57,7 +77,7 @@ function ProductCard({ product, onBuy, buying, gold, setGold, rewardMode, onRede
               onChange={(e) => setSize(e.target.value)}
               className="mt-1 block w-full rounded-lg border border-white/15 bg-black/50 px-3 py-2 text-white"
             >
-              {SIZES.map((s) => (
+              {sizeOptions.map((s) => (
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>
@@ -361,3 +381,4 @@ export default function StorePage() {
     </Suspense>
   );
 }
+
