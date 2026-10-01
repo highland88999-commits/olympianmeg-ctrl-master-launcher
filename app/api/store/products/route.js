@@ -28,11 +28,10 @@ import {
 } from '@/lib/store-printful';
 
 export const dynamic = 'force-dynamic';
-// A cold catalog fetch makes ~370 Printful API calls (paginated list +
-// per-product detail for variant prices) inside Printful's ~120 req/min
-// rate limit, so the first fetch after a deploy can take minutes. Pro
-// project: allow the full window; the 10-min cache + warming cron keep
-// every later request instant.
+// A cold catalog fetch paginates the Printful store list (4-5 list calls
+// for 368 products) inside Printful's ~120 req/min rate limit, with 429
+// retries. Pro project: allow the full window; the 10-min cache + warming
+// cron keep every later request instant.
 export const maxDuration = 300;
 
 export const GET = apiGuard(async function GET() {
