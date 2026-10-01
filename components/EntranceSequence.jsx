@@ -163,6 +163,10 @@ export default function EntranceSequence({ onDone }) {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
+    // iPhone hardening (2026-10-01): iOS Safari returns null for 2D
+    // contexts under canvas memory pressure — skip the cinematic's canvas
+    // layer honestly instead of throwing into the error boundary.
+    if (!ctx) return;
     let raf = 0;
     let noiseTick = 0;
 
@@ -170,7 +174,9 @@ export default function EntranceSequence({ onDone }) {
     noiseTile.width = 160;
     noiseTile.height = 90;
     const nctx = noiseTile.getContext('2d');
-    const noiseImg = nctx.createImageData(160, 90);
+    // iPhone hardening (2026-10-01): the noise tile is a nicety — if iOS
+    // reclaimed its 2D context, drawNoise falls back to a flat dark fill.
+    const noiseImg = nctx ? nctx.createImageData(160, 90) : null;
 
     // deterministic starfield for the drop phase
     const stars = Array.from({ length: 90 }, (_, i) => ({
@@ -189,6 +195,11 @@ export default function EntranceSequence({ onDone }) {
     window.addEventListener('resize', resize);
 
     const drawNoise = (w, h, alpha) => {
+      if (!nctx || !noiseImg) {
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, w, h);
+        return;
+      }
       const d = noiseImg.data;
       for (let i = 0; i < d.length; i += 4) {
         const v = (Math.random() * 255) | 0;

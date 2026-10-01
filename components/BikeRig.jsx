@@ -30,6 +30,9 @@ function makeRideLabelTexture() {
   c.width = 512;
   c.height = 96;
   const ctx = c.getContext('2d');
+  // iPhone hardening (2026-10-01): iOS Safari returns null for 2D contexts
+  // under canvas memory pressure — null texture is fine, a throw is not.
+  if (!ctx) return null;
   ctx.clearRect(0, 0, 512, 96);
   ctx.font = '800 40px system-ui, -apple-system, sans-serif';
   ctx.textAlign = 'center';
@@ -53,7 +56,7 @@ export default function BikeRig({ bikeRef }) {
   useEffect(() => {
     const t = makeRideLabelTexture();
     setLabelTex(t);
-    return () => t.dispose();
+    return () => { if (t) t.dispose(); };
   }, []);
 
   useFrame((state) => {

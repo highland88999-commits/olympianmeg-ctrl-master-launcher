@@ -57,6 +57,10 @@ function makeRockTexture() {
   c.width = 256;
   c.height = 256;
   const ctx = c.getContext('2d');
+  // iPhone hardening (2026-10-01): iOS Safari returns null for 2D contexts
+  // under canvas memory pressure. Return null and let the caller fall back
+  // to an untextured material — never throw into the React error boundary.
+  if (!ctx) return null;
   const rnd = makeRng(4242);
   ctx.fillStyle = '#6f665c';
   ctx.fillRect(0, 0, 256, 256);

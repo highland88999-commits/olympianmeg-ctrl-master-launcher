@@ -60,6 +60,10 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = S * N;
     const ctx = canvas.getContext('2d');
+    // iPhone hardening (2026-10-01): iOS Safari returns null for 2D
+    // contexts under canvas memory pressure — skip the tile paint honestly
+    // instead of throwing into the React error boundary.
+    if (!ctx) return () => { alive = false; };
     let done = 0;
     tiles.forEach((tl, idx) => {
       const img = new Image();

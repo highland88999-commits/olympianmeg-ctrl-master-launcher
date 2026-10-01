@@ -25,6 +25,9 @@ function makeMoonTexture() {
   c.width = 512;
   c.height = 256;
   const ctx = c.getContext('2d');
+  // iPhone hardening (2026-10-01): iOS Safari returns null for 2D contexts
+  // under canvas memory pressure — null texture is fine, a throw is not.
+  if (!ctx) return null;
   let seed = 20260930;
   const rnd = () => {
     seed = (seed * 1103515245 + 12345) & 0x7fffffff;
