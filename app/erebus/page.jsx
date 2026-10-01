@@ -259,7 +259,7 @@ function Moons({ scene, reduced }) {
 }
 
 function Asteroids({ scene }) {
-  const { mesh, count } = useMemo(() => {
+  const { rocks: mesh, count } = useMemo(() => {
     const rocks = [];
     for (const fl of scene.fields) {
       for (const rk of fl.rocks) {
