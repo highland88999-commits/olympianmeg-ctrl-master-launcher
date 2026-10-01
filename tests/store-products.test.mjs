@@ -3,12 +3,17 @@
 // (from the repo root). No browser, no real network — fixtures plus a mocked
 // fetch for the integration paths.
 //
+// ARTEMIS PORT (from highland88999-commits/Olympus): the catalog is built
+// from the Printful store LIST endpoint only (store_id=17419146, Bearer
+// auth) — id/name/thumbnail_url/variants map straight to cards, the way
+// Merlin's harvest wrote its manifest. No per-product detail calls.
+//
 // The store must NEVER invent products, fake a checkout, or leak the
 // Printful key: mapping is 1:1 from Printful payloads, every card carries
 // checkoutReady:false until Merlin approves wiring checkout, and failures
 // surface as honest notices, never crashes or fake listings.
 import {
-  mapDetailToCard,
+  mapListItemToCard,
   dedupeByName,
   buildCards,
   noticeForError,
@@ -23,71 +28,65 @@ function t(name, cond) {
   else { failed++; console.error(`FAIL: ${name}`); }
 }
 
-// --- fixtures: Printful API payload shapes ---------------------------------
-const HOODIE_DETAIL = {
+// --- fixtures: Printful LIST payload shapes (Artemis harvest shape) ------------
+const HOODIE_ITEM = {
   id: 123456,
   name: 'Hocus Locusts Hoodie',
-  thumbnail_url: 'https://files.printful.com/o/thumb/hoodie.jpg',
-  variants: [
-    { id: 1, name: 'Hocus Locusts Hoodie - 2XS', retail_price: '95.00', currency: 'CAD', is_ignored: false },
-    { id: 2, name: 'Hocus Locusts Hoodie - M', retail_price: '95.00', currency: 'CAD', is_ignored: false },
-    { id: 3, name: 'Hocus Locusts Hoodie - 6XL', retail_price: '99.00', currency: 'CAD', is_ignored: true },
-  ],
+  thumbnail_url: 'https://files.cdn.printful.com/files/0c0/0c0ae57c5b6a7822f2ed3229c23b338a_preview.png',
+  variants: 11,
+  synced: 11,
 };
-const MULTI_PRICE_DETAIL = {
+const SECOND_ITEM = {
   id: 7,
-  name: 'Sticker Pack',
-  thumbnail_url: 'https://files.printful.com/o/thumb/stickers.jpg',
-  variants: [
-    { id: 11, name: 'Sticker Pack - 3x3', retail_price: '4.50', currency: 'CAD', is_ignored: false },
-    { id: 12, name: 'Sticker Pack - 5x5', retail_price: '6.00', currency: 'CAD', is_ignored: false },
-  ],
+  name: 'Glitch',
+  thumbnail_url: 'https://files.cdn.printful.com/files/abc/preview.png',
+  variants: 8,
+  synced: 8,
 };
-const NO_PRICE_DETAIL = {
+const NO_THUMB_ITEM = {
   id: 9,
-  name: 'Mystery Tee',
+  name: 'Mystery Hoodie',
   thumbnail_url: null,
-  variants: [
-    { id: 21, name: 'Mystery Tee - M', retail_price: '', currency: 'CAD', is_ignored: false },
-  ],
+  variants: 0,
+  synced: 0,
 };
 
-// --- mapping: Printful detail -> store card --------------------------------
-const hoodie = mapDetailToCard(HOODIE_DETAIL);
+// --- mapping: Printful list item -> store card --------------------------------
+const hoodie = mapListItemToCard(HOODIE_ITEM);
 t('hoodie: id prefixed pf_', hoodie.id === 'pf_123456');
 t('hoodie: name preserved verbatim', hoodie.name === 'Hocus Locusts Hoodie');
-t('hoodie: image from thumbnail_url', hoodie.image === 'https://files.printful.com/o/thumb/hoodie.jpg');
-t('hoodie: priceCents from retail_price', hoodie.priceCents === 9500);
-t('hoodie: currency lowercased', hoodie.currency === 'cad');
-t('hoodie: priceLabel formatted', hoodie.priceLabel === '$95.00');
+t('hoodie: image from thumbnail_url', hoodie.image === 'https://files.cdn.printful.com/files/0c0/0c0ae57c5b6a7822f2ed3229c23b338a_preview.png');
+t('hoodie: priceCents is the catalog C$95', hoodie.priceCents === 9500);
+t('hoodie: currency cad', hoodie.currency === 'cad');
+t('hoodie: priceLabel formatted', typeof hoodie.priceLabel === 'string' && hoodie.priceLabel.includes('95'));
+t('hoodie: variantCount from list', hoodie.variantCount === 11);
 t('hoodie: kind apparel', hoodie.kind === 'apparel');
-t('hoodie: ignored variant excluded from count', hoodie.variantCount === 2);
-t('hoodie: no Stripe price id', hoodie.priceId === null);
-t('hoodie: checkout NOT ready (honest disabled CTA)', hoodie.checkoutReady === false);
+t('hoodie: checkout not ready', hoodie.checkoutReady === false);
+t('hoodie: priceId null', hoodie.priceId === null);
 
-const multi = mapDetailToCard(MULTI_PRICE_DETAIL);
-t('multi-price: takes the minimum', multi.priceCents === 450);
-t('multi-price: label says From', multi.priceLabel.startsWith('From ') && multi.priceLabel.includes('4.50'));
-t('multi-price: kind other', multi.kind === 'other');
+const second = mapListItemToCard(SECOND_ITEM);
+t('second: id mapped', second.id === 'pf_7');
+t('second: same catalog price', second.priceCents === 9500);
 
-const noprice = mapDetailToCard(NO_PRICE_DETAIL);
-t('no-price: priceCents null', noprice.priceCents === null);
-t('no-price: honest label', noprice.priceLabel === 'Price on request');
-t('no-price: missing thumbnail -> null image (page shows fallback)', noprice.image === null);
+const nothumb = mapListItemToCard(NO_THUMB_ITEM);
+t('no-thumb: image null, not a crash', nothumb.image === null && nothumb.id === 'pf_9');
 
-// --- dedupe: Merlin's rule, each product listed exactly once ---------------
-const dupes = dedupeByName([
-  mapDetailToCard(HOODIE_DETAIL),
-  mapDetailToCard({ ...HOODIE_DETAIL, id: 999, name: 'hocus   locusts hoodie' }),
-  mapDetailToCard(MULTI_PRICE_DETAIL),
+const nameless = mapListItemToCard({ id: 5 });
+t('nameless: honest Untitled product', nameless.name === 'Untitled product' && nameless.id === 'pf_5');
+
+// --- dedupe: each hoodie listed exactly once ----------------------------------
+const deduped = dedupeByName([
+  mapListItemToCard(HOODIE_ITEM),
+  mapListItemToCard({ ...HOODIE_ITEM, id: 999, name: 'hocus   locusts hoodie' }),
+  mapListItemToCard(SECOND_ITEM),
 ]);
-t('dedupe: case/whitespace dupes collapse', dupes.length === 2);
-t('dedupe: keeps the first occurrence', dupes[0].id === 'pf_123456');
+t('dedupe: case/space-insensitive duplicates collapse', deduped.length === 2);
+t('dedupe: keeps first occurrence', deduped[0].id === 'pf_123456');
 
 // --- buildCards: empty + nulls ----------------------------------------------
 t('buildCards([]) is honestly empty', buildCards([]).length === 0);
-t('buildCards drops nulls', buildCards([null, HOODIE_DETAIL, undefined]).length === 1);
-t('buildCards never marks checkout ready', buildCards([HOODIE_DETAIL, MULTI_PRICE_DETAIL]).every((c) => c.checkoutReady === false));
+t('buildCards drops nulls', buildCards([null, HOODIE_ITEM, undefined]).length === 1);
+t('buildCards never marks checkout ready', buildCards([HOODIE_ITEM, SECOND_ITEM]).every((c) => c.checkoutReady === false));
 
 // --- error notices: honest, generic, no credential leaks ---------------------
 for (const status of [401, 403, 500, 0, undefined]) {
@@ -107,26 +106,28 @@ if (savedKey === undefined) delete process.env.PRINTFUL_API_KEY;
 else process.env.PRINTFUL_API_KEY = savedKey;
 
 // --- integration with mocked fetch (no real network) --------------------------
+// Artemis shape: the list endpoint carries everything the card needs —
+// the mock asserts the store_id scope param is present, like the harvest.
 const realFetch = globalThis.fetch;
-const LIST_ITEM = { id: 123456, name: 'Hocus Locusts Hoodie', variants: 11, synced: 11 };
+const LIST_ITEM = { id: 123456, name: 'Hocus Locusts Hoodie', thumbnail_url: 'https://files.cdn.printful.com/x.png', variants: 11, synced: 11 };
+let sawStoreId = false;
 
 globalThis.fetch = async (url) => {
   if (String(url).includes('/store/products?')) {
+    sawStoreId = String(url).includes('store_id=17419146');
     return {
       ok: true, status: 200,
       json: async () => ({ code: 200, result: [LIST_ITEM], paging: { total: 1, offset: 0, limit: 100 } }),
     };
   }
-  return {
-    ok: true, status: 200,
-    json: async () => ({ code: 200, result: HOODIE_DETAIL }),
-  };
+  throw new Error('no detail calls in the Artemis port: ' + url);
 };
 process.env.PRINTFUL_API_KEY = 'test-key-never-real';
 __resetCache();
 const catalog = await getCatalog();
 t('mocked fetch: catalog has the one product', catalog.length === 1);
 t('mocked fetch: card mapped end to end', catalog[0].id === 'pf_123456' && catalog[0].priceCents === 9500);
+t('mocked fetch: store_id scope param sent', sawStoreId === true);
 
 // Cache: a second call must not touch the network again.
 let calls = 0;
@@ -134,19 +135,13 @@ globalThis.fetch = async () => { calls++; throw new Error('network should not be
 const cached = await getCatalog();
 t('10-min cache serves without network', calls === 0 && cached.length === 1 && cached[0].id === 'pf_123456');
 
-// Rate limit: a 429 on a detail call is retried (backoff) and the product
-// survives — a cold catalog fetch must complete, not cache a partial list.
-let detailCalls = 0;
+// Rate limit: a 429 on the list call is retried (backoff) and the catalog
+// still completes — a cold fetch must not cache a partial list.
+let listCalls = 0;
 globalThis.fetch = async (url) => {
   const headers = { get: () => null };
-  if (String(url).includes('/store/products?')) {
-    return {
-      ok: true, status: 200, headers,
-      json: async () => ({ code: 200, result: [LIST_ITEM], paging: { total: 1, offset: 0, limit: 100 } }),
-    };
-  }
-  detailCalls++;
-  if (detailCalls === 1) {
+  listCalls++;
+  if (listCalls === 1) {
     return {
       ok: false, status: 429, headers,
       json: async () => ({ code: 429, result: 'Rate limit exceeded' }),
@@ -154,13 +149,13 @@ globalThis.fetch = async (url) => {
   }
   return {
     ok: true, status: 200, headers,
-    json: async () => ({ code: 200, result: HOODIE_DETAIL }),
+    json: async () => ({ code: 200, result: [LIST_ITEM], paging: { total: 1, offset: 0, limit: 100 } }),
   };
 };
 __resetCache();
 const catalog429 = await getCatalog();
 t('429: retried and the product survives', catalog429.length === 1 && catalog429[0].id === 'pf_123456');
-t('429: detail was attempted twice (one retry)', detailCalls === 2);
+t('429: list was attempted twice (one retry)', listCalls === 2);
 
 // Auth failure: 401 -> throws with status, route maps it to an honest notice.
 globalThis.fetch = async () => ({
