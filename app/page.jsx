@@ -10,6 +10,7 @@ import SatelliteMenu from '@/components/SatelliteMenu';
 import { orbitTime, orbitPositionFor } from '@/lib/god-orbits';
 import { GOD_TOWER_SPOTS, GOD_TOWER_POS, BABEL_POS, ARTEMIS_POS } from '@/lib/home-positions';
 import SettingsGear from '@/components/SettingsGear';
+import StoreFloatButton from '@/components/StoreFloatButton';
 import EntranceSequence from '@/components/EntranceSequence';
 import { createEntranceMachine } from '@/lib/entrance-sequence';
 import EarthConsole from '@/components/EarthConsole';
@@ -410,6 +411,11 @@ function NexusHub() {
           >
             FLIGHT AXIS: <span className="text-white">{flightAxis}</span>
           </button>
+
+          {/* Floating store shortcut — right edge, vertically centered, clear of
+              the satellite menu toggle (bottom-left), FLIGHT AXIS (top-right),
+              SPAWN TO BIKE (bottom-right), and the bottom radio bar. */}
+          <StoreFloatButton />
 
           {joyActive && Math.hypot(joyStick.x - joyBase.x, joyStick.y - joyBase.y) > 5 && (
             <div
