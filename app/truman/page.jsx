@@ -31,6 +31,9 @@ import {
 } from './world.js';
 import { createRenderer, drawApartment, AXIOM_COLORS } from './render.js';
 import {
+  buildColliders, stepBody, stepDebris, separateCars,
+} from './physics.js';
+import {
   initialMinimized, toggleMinimized,
   visibleCharacters, minimizedCharacters, toggleMenu,
 } from './ui.js';
@@ -71,6 +74,7 @@ export default function TrumanPage() {
     const renderer = createRenderer();
 
     // World state (all mutable sim state lives here, outside React)
+    const _buildings = buildCity(1337);
     const S = {
       world: { globalTime: 0, simulatedMinutes: 0, isStormActive: false },
       playing: true, speed: 1, calm: false, t: 0,
@@ -78,7 +82,12 @@ export default function TrumanPage() {
       henryColor: '#00f2ff',
       cam: { x: 0, z: 0, yaw: Math.PI / 4, zoom: 0.55, cx: 0, cy: 0 },
       camMode: 'city',
-      buildings: buildCity(1337),
+      // Physics: precomputed building colliders + camera as a colliding body
+      buildings: _buildings,
+      colliders: buildColliders(_buildings),
+      camTargetX: 0, camTargetZ: 0,
+      camBody: { x: 0, z: 0, vx: 0, vz: 0, radius: 12, restitution: 0, friction: 0.5 },
+      debris: [],
       ads: buildAds(),
       trees: buildTrees(4242),
       traffic: new TrafficSim(777),
@@ -101,14 +110,16 @@ export default function TrumanPage() {
     resize();
     window.addEventListener('resize', resize);
 
-    // Pan / zoom
+    // Pan / zoom — drag sets a camera TARGET; the loop chases it with
+    // critically-damped-style smoothing, then collides the camera as a
+    // physics body so it can never be dragged inside a tower.
     let drag = null;
-    const onDown = (e) => { drag = { x: e.clientX, y: e.clientY, cx: S.cam.x, cz: S.cam.z }; };
+    const onDown = (e) => { drag = { x: e.clientX, y: e.clientY, cx: S.camTargetX, cz: S.camTargetZ }; };
     const onMove = (e) => {
       if (!drag) return;
       const s = S.cam.zoom;
-      S.cam.x = drag.cx - (e.clientX - drag.x) / (0.866 * s);
-      S.cam.z = drag.cz - (e.clientY - drag.y) / (0.5 * s);
+      S.camTargetX = drag.cx - (e.clientX - drag.x) / (0.866 * s);
+      S.camTargetZ = drag.cz - (e.clientY - drag.y) / (0.5 * s);
       S.camMode = 'city';
     };
     const onUp = () => { drag = null; };
@@ -133,19 +144,52 @@ export default function TrumanPage() {
         for (let i = 0; i < S.speed; i++) S.world = tickWorld(S.world.globalTime);
       }
 
-      // Follow camera
+      // Follow / city camera with physics: the camera is a body (radius 12)
+      // that slides/deflects around buildings instead of clipping through.
+      const cb = S.camBody;
       if (S.camMode === 'follow') {
         const hx = S.henryCar.x, hz = S.henryCar.z;
         S.cam.x += (hx - S.cam.x) * 0.06;
         S.cam.z += (hz - S.cam.z) * 0.06;
+        // Push-out only: keep the follow cam out of solid geometry
+        cb.x = S.cam.x; cb.z = S.cam.z; cb.vx = 0; cb.vz = 0;
+        stepBody(cb, S.colliders, dt);
+        S.cam.x = cb.x; S.cam.z = cb.z;
       } else if (S.camMode === 'city') {
-        S.cam.x += (0 - S.cam.x) * 0.03;
-        S.cam.z += (0 - S.cam.z) * 0.03;
+        // City mode still drifts back to origin; the drag target chases
+        // with smoothing (velocity = (target - pos) * 8, decayed each frame)
+        S.camTargetX += (0 - S.camTargetX) * 0.03;
+        S.camTargetZ += (0 - S.camTargetZ) * 0.03;
+        cb.vx = (S.camTargetX - S.cam.x) * 8;
+        cb.vz = (S.camTargetZ - S.cam.z) * 8;
+        cb.x = S.cam.x; cb.z = S.cam.z;
+        stepBody(cb, S.colliders, dt);
+        S.cam.x = cb.x; S.cam.z = cb.z;
       }
 
       // Agents
       S.traffic.step(S.cam.x, S.cam.z);
+      separateCars(S.traffic.cars, 50); // uniform-grid soft separation, radius 4
+      // Henry's car: run at half speed this frame if it was blocked last frame
+      const hBase = S.henryCar.speed;
+      if (S.henryCar._blocked) S.henryCar.speed = hBase * 0.5;
       const carActive = S.henryCar.step(S.world.simulatedMinutes);
+      S.henryCar.speed = hBase;
+      // Henry vs traffic: positional deflect so he nudges instead of overlapping
+      let hBlocked = false;
+      if (carActive) {
+        const hc = S.henryCar, HR = 12;
+        for (const c of S.traffic.cars) {
+          const dx = hc.x - c.x, dz = hc.z - c.z;
+          const d2 = dx * dx + dz * dz;
+          if (d2 < HR * HR && d2 > 1e-6) {
+            const d = Math.sqrt(d2), shove = HR - d;
+            hc.x += (dx / d) * shove; hc.z += (dz / d) * shove;
+            hBlocked = true;
+          }
+        }
+      }
+      S.henryCar._blocked = hBlocked;
       S.ash.step(S.world.isStormActive, S.t);
 
       // Storm mechanics (source: StormMechanics in app.jsx)
@@ -159,6 +203,35 @@ export default function TrumanPage() {
       if (S.shake > 0) S.shake *= 0.85;
       if (S.flash > 0) { S.flash *= 0.85; if (S.flash < 0.01) S.flash = 0; }
 
+      // Storm debris (physics): spawn chunks near the camera while storming,
+      // step with gravity + wind, despawn once they settle on the ground.
+      // Calm mode: half the chunks, no wind, gentle bounces.
+      if (storm) {
+        const target = S.calm ? 20 : 40;
+        while (S.debris.length < target) {
+          S.debris.push({
+            x: S.cam.x + (Math.random() - 0.5) * 800,
+            y: 100 + Math.random() * 200,
+            z: S.cam.z + (Math.random() - 0.5) * 800,
+            vx: (Math.random() - 0.5) * 20,
+            vy: -(10 + Math.random() * 20),
+            vz: (Math.random() - 0.5) * 20,
+            bounces: 0, settled: false,
+          });
+        }
+        const wAmp = S.calm ? 0 : 1;
+        const windX = Math.sin(S.t * 1.3) * 9 * wAmp;
+        const windZ = Math.cos(S.t * 0.9) * 9 * wAmp;
+        const rest = S.calm ? 0.15 : 0.35;
+        for (let i = S.debris.length - 1; i >= 0; i--) {
+          const p = S.debris[i];
+          stepDebris(p, dt, windX, windZ, rest);
+          if (p.settled) { S.debris[i] = S.debris[S.debris.length - 1]; S.debris.pop(); }
+        }
+      } else if (S.debris.length) {
+        S.debris.length = 0;
+      }
+
       // Render
       const RS = {
         cam: S.cam, buildings: S.buildings, ads: S.ads, trees: S.trees,
@@ -166,6 +239,7 @@ export default function TrumanPage() {
         shake: S.shake, flash: S.flash, flashColor: S.flashColor,
         flashX: S.flashX, flashZ: S.flashZ, henryColor: S.henryColor,
         henryCar: { visible: carActive, x: S.henryCar.x, z: S.henryCar.z, dir: S.henryCar.dir },
+        debris: S.debris,
       };
       if (S.camMode === 'apartment') drawApartment(ctx, S.W, S.H, RS);
       else renderer.draw(ctx, S.W, S.H, RS);

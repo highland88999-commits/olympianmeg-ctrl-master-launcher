@@ -282,3 +282,172 @@ export class AshSim {
     }
   }
 }
+
+/* ============================================================================
+ * OPEN-WORLD EXPANSION — seeded district builders.
+ * Pure data only (no DOM, no canvas): safe for headless unit tests.
+ * The city core spans roughly ±400 world units (spread 8 × BLOCK_SIZE 50).
+ * Districts extend the explorable map:
+ *   harbor      EAST  (x ≈ 460–860)  — docks, water, piers, boats, cranes
+ *   market      CORE  (near origin)  — neon market plaza on a road block
+ *   observatory NORTH (z ≈ -620)     — hill with a domed observatory
+ *   park        SOUTHWEST            — greenbelt with pond, paths, trees
+ *   pois        named points of interest with labels (rendered by districts.js)
+ * All builders are seeded with fixed seeds: identical across sessions.
+ * ========================================================================== */
+
+/** Fixed seeds so every district is identical across sessions. */
+export const DISTRICT_SEEDS = { harbor: 6001, market: 6002, observatory: 6003, park: 6004, pois: 6005 };
+
+/**
+ * Docks / water district EAST of the city (x ≈ 460–860, z ≈ 180–620).
+ * Water plane region, 4 piers, 3 warehouses, 5 moored boats, 2 pier cranes.
+ */
+export function buildHarbor(seed = DISTRICT_SEEDS.harbor) {
+  const rand = mulberry32(seed);
+  const water = { x0: 460, x1: 860, z0: 180, z1: 620 };
+  const piers = [];
+  for (let i = 0; i < 4; i++) {
+    const z = 230 + i * 110;
+    piers.push({ x: 550, z, w: 180, h: 4, d: 12 }); // deck spans x 460→640
+  }
+  const warehouses = [];
+  const whDefs = [
+    { x: 420, z: 250, w: 64, d: 44 },
+    { x: 420, z: 410, w: 56, d: 40 },
+    { x: 430, z: 560, w: 60, d: 42 },
+  ];
+  for (const def of whDefs) {
+    warehouses.push({ ...def, h: 26 + rand() * 10, hue: 200 + rand() * 40 });
+  }
+  const boats = [];
+  const boatHues = [190, 210, 160, 200, 180];
+  for (let i = 0; i < 5; i++) {
+    const pier = piers[i % piers.length];
+    boats.push({
+      x: 500 + rand() * 120,
+      z: pier.z + 20 + rand() * 10,
+      w: 24 + rand() * 6, h: 7, d: 10 + rand() * 3,
+      phase: rand() * Math.PI * 2,
+      hue: boatHues[i % boatHues.length],
+    });
+  }
+  // cranes stand on pier decks (pier 0 and pier 3)
+  const cranes = [
+    { x: 620, z: 230, h: 64 },
+    { x: 620, z: 560, h: 72 },
+  ];
+  return { water, piers, warehouses, boats, cranes };
+}
+
+/**
+ * Neon market plaza at the CORE — a dedicated paved plaza near the origin
+ * (plaza rect 85–215 on both axes, a both-odd road block with no towers).
+ * 8 stalls with striped awnings + corner poles with sagging string lights.
+ */
+export function buildMarket(seed = DISTRICT_SEEDS.market) {
+  const rand = mulberry32(seed);
+  const plaza = { x0: 85, x1: 215, z0: 85, z1: 215 };
+  const hues = ['#ff2d78', '#00f2ff', '#ffb300', '#aa00ff'];
+  const stalls = [];
+  const cols = [101, 133, 165, 197];
+  const rows = [121, 179];
+  let i = 0;
+  for (const z of rows) {
+    for (const x of cols) {
+      stalls.push({
+        x, z, w: 22, h: 9, d: 14,
+        hue: hues[i % hues.length],
+        goods: [hues[(i + 1) % hues.length], hues[(i + 2) % hues.length], hues[(i + 3) % hues.length]],
+        phase: rand() * Math.PI * 2,
+      });
+      i++;
+    }
+  }
+  // string lights: poles at the plaza corners, bulbs sagging along the perimeter
+  const poles = [
+    { x: 95, z: 95, h: 30 }, { x: 205, z: 95, h: 30 },
+    { x: 205, z: 205, h: 30 }, { x: 95, z: 205, h: 30 },
+  ];
+  const spans = [[0, 1], [1, 2], [2, 3], [3, 0]];
+  const bulbs = [];
+  for (const [a, b] of spans) {
+    const A = poles[a], B = poles[b];
+    for (let k = 1; k < 7; k++) {
+      const f = k / 7;
+      bulbs.push({
+        x: A.x + (B.x - A.x) * f,
+        z: A.z + (B.z - A.z) * f,
+        y: 30 - 6 * Math.sin(Math.PI * f),
+        phase: rand() * Math.PI * 2,
+      });
+    }
+  }
+  return { plaza, stalls, poles, spans, bulbs };
+}
+
+/**
+ * Observatory NORTH (z ≈ -620): a terraced hill with a domed observatory
+ * on top. baseY of the dome = 42 (top of the third terrace).
+ */
+export function buildObservatory(seed = DISTRICT_SEEDS.observatory) {
+  const rand = mulberry32(seed);
+  const x = 0, z = -620;
+  const terraces = [
+    { w: 240, d: 240, y: 0, h: 14 },
+    { w: 170, d: 170, y: 14, h: 14 },
+    { w: 110, d: 110, y: 28, h: 14 },
+  ];
+  const dome = { x, z, w: 46, d: 46, h: 26, baseY: 42, slit: rand() * 0.6 - 0.3 };
+  return { x, z, terraces, dome };
+}
+
+/**
+ * Greenbelt park SOUTHWEST: pond, two crossing paths, 12 extra trees
+ * (kept clear of the pond), 3 benches.
+ */
+export function buildPark(seed = DISTRICT_SEEDS.park) {
+  const rand = mulberry32(seed);
+  const pond = { x: -430, z: 470, w: 120, d: 84 };
+  const paths = [
+    { x0: -560, x1: -260, z0: 380, z1: 392 }, // east-west promenade
+    { x0: -436, x1: -424, z0: 300, z1: 600 }, // north-south trail
+  ];
+  const trees = [];
+  let guard = 0;
+  while (trees.length < 12 && guard++ < 200) {
+    const x = -540 + rand() * 260;
+    const z = 320 + rand() * 260;
+    if (Math.abs(x - pond.x) < pond.w / 2 + 18 && Math.abs(z - pond.z) < pond.d / 2 + 18) continue;
+    trees.push({ x, z, s: 0.8 + rand() * 0.7 });
+  }
+  const benches = [
+    { x: -380, z: 372, w: 8, d: 3 },
+    { x: -480, z: 400, w: 8, d: 3 },
+    { x: -416, z: 520, w: 3, d: 8 },
+  ];
+  return { pond, paths, trees, benches };
+}
+
+/**
+ * Named points of interest. Includes the two workplaces referenced in
+ * page.jsx ("HENRY'S WOK & GRILL" east near the harbor, "SYNTHWAVE BAR"
+ * at the core) plus discoverable landmarks. Layout is hand-placed so
+ * labels stay readable; the seed drives per-POI animation phase.
+ * Each POI: { id, name, sub, x, z, y, kind }.
+ */
+export function buildPOIs(seed = DISTRICT_SEEDS.pois) {
+  const rand = mulberry32(seed);
+  const pois = [
+    { id: 'wok', name: "HENRY'S WOK & GRILL", sub: 'East docks · shift kitchen', x: 445, z: 305, y: 0, kind: 'restaurant' },
+    { id: 'synthwave', name: 'SYNTHWAVE BAR', sub: 'Core · free will, nightly', x: 62, z: 200, y: 0, kind: 'bar' },
+    { id: 'axiom-spire', name: 'AXIOM RELAY SPIRE', sub: 'Network hub · sector 7', x: -520, z: -140, y: 0, kind: 'spire' },
+    { id: 'memorial', name: 'MEMORIAL GARDEN', sub: 'For the ones who woke up', x: -340, z: 430, y: 0, kind: 'garden' },
+    { id: 'market-gate', name: 'NIGHT MARKET GATE', sub: 'Enter the neon market', x: 150, z: 52, y: 0, kind: 'gate' },
+    { id: 'observatory', name: 'STELLAR OBSERVATORY', sub: 'Star charts on the hill', x: 64, z: -600, y: 42, kind: 'observatory' },
+    { id: 'harbor', name: 'HARBOR DOCKS', sub: 'East water district', x: 660, z: 400, y: 1, kind: 'harbor' },
+    { id: 'park', name: 'GREENBELT PARK', sub: 'Pond · paths · quiet', x: -410, z: 380, y: 0, kind: 'park' },
+  ];
+  for (const p of pois) p.phase = rand() * Math.PI * 2;
+  return pois;
+}

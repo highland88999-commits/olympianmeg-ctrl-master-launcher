@@ -11,6 +11,8 @@
  */
 
 import { BLOCK_SIZE } from './world.js';
+import { getDistricts, drawDistricts } from './districts.js';
+import { makeTrumanTextures, pickFacade } from './textures.js';
 
 const AXIOM_COLORS = ['#ff003c', '#00f2ff', '#aa00ff', '#ffffff'];
 
@@ -34,7 +36,8 @@ export function project(x, y, z, cam) {
   };
 }
 
-function drawPrism(ctx, x, y, z, w, h, d, cam, topColor, leftColor, rightColor, edge) {
+function drawPrism(ctx, x, y, z, w, h, d, cam, topColor, leftColor, rightColor, edge, tex) {
+  // === TEXTURE PASS === tex is optional; old 11-arg calls behave exactly as before.
   const p000 = project(x - w / 2, y, z - d / 2, cam);
   const p100 = project(x + w / 2, y, z - d / 2, cam);
   const p110 = project(x + w / 2, y, z + d / 2, cam);
@@ -43,6 +46,25 @@ function drawPrism(ctx, x, y, z, w, h, d, cam, topColor, leftColor, rightColor, 
   const p101 = project(x + w / 2, y + h, z - d / 2, cam);
   const p111 = project(x + w / 2, y + h, z + d / 2, cam);
   const p011 = project(x - w / 2, y + h, z + d / 2, cam);
+  const stroke = (pts) => {
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.closePath(); ctx.strokeStyle = edge; ctx.lineWidth = 1; ctx.stroke();
+  };
+  if (tex && tex.side && tex.roof) {
+    // Textured faces: clip each polygon, stretch the sprite to the face bbox,
+    // then wash with the mood tint so storm/day overlays keep working.
+    texPoly(ctx, [p010, p110, p111, p011], tex.side, tex.tintLeft);
+    texPoly(ctx, [p110, p100, p101, p111], tex.side, tex.tintRight);
+    texPoly(ctx, [p001, p101, p111, p011], tex.roof, tex.tintTop);
+    if (edge) {
+      stroke([p010, p110, p111, p011]);
+      stroke([p110, p100, p101, p111]);
+      stroke([p001, p101, p111, p011]);
+    }
+    return;
+  }
   const poly = (pts, fill) => {
     ctx.beginPath();
     ctx.moveTo(pts[0].x, pts[0].y);
@@ -55,7 +77,57 @@ function drawPrism(ctx, x, y, z, w, h, d, cam, topColor, leftColor, rightColor, 
   poly([p001, p101, p111, p011], topColor);    // roof
 }
 
-function drawGridFloor(ctx, W, H, cam, storm, dayBright) {
+/* === TEXTURE PASS === clip a quad, stretch a sprite across its bbox, apply tint. */
+function texPoly(ctx, pts, canvas, tint) {
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const p of pts) {
+    if (p.x < x0) x0 = p.x; if (p.x > x1) x1 = p.x;
+    if (p.y < y0) y0 = p.y; if (p.y > y1) y1 = p.y;
+  }
+  if (!(x1 - x0 > 0.5 && y1 - y0 > 0.5)) return;
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.closePath(); ctx.clip();
+  ctx.drawImage(canvas, x0, y0, x1 - x0, y1 - y0);
+  if (tint) { ctx.fillStyle = tint; ctx.fillRect(x0, y0, x1 - x0, y1 - y0); }
+  ctx.restore();
+}
+
+/* === TEXTURE PASS === hex -> rgba string for mood tint washes. */
+function withAlpha(hex, a) {
+  const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+
+/* === TEXTURE PASS === stamp a ground tile: clip the block quad, stretch sprite to bbox. */
+function stampTile(ctx, cam, wx, wz, half, canvas, inset) {
+  if (!canvas) return;
+  const s = half * (inset == null ? 1 : 1 - inset);
+  const p0 = project(wx - s, 0, wz - s, cam);
+  const p1 = project(wx + s, 0, wz - s, cam);
+  const p2 = project(wx + s, 0, wz + s, cam);
+  const p3 = project(wx - s, 0, wz + s, cam);
+  let x0 = p0.x, x1 = p0.x, y0 = p0.y, y1 = p0.y;
+  if (p1.x < x0) x0 = p1.x; if (p1.x > x1) x1 = p1.x;
+  if (p2.x < x0) x0 = p2.x; if (p2.x > x1) x1 = p2.x;
+  if (p3.x < x0) x0 = p3.x; if (p3.x > x1) x1 = p3.x;
+  if (p1.y < y0) y0 = p1.y; if (p1.y > y1) y1 = p1.y;
+  if (p2.y < y0) y0 = p2.y; if (p2.y > y1) y1 = p2.y;
+  if (p3.y < y0) y0 = p3.y; if (p3.y > y1) y1 = p3.y;
+  if (!(x1 - x0 > 1 && y1 - y0 > 1)) return;
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(p0.x, p0.y);
+  ctx.lineTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.lineTo(p3.x, p3.y);
+  ctx.closePath(); ctx.clip();
+  ctx.drawImage(canvas, x0, y0, x1 - x0, y1 - y0);
+  ctx.restore();
+}
+
+function drawGridFloor(ctx, W, H, cam, storm, dayBright, tex) {
+  // === TEXTURE PASS === tex is optional; omitted keeps the old flat-ground look.
   // Sky
   const night = '#030507', day = '#0a1322';
   let sky = hexLerp(night, day, dayBright);
@@ -75,6 +147,26 @@ function drawGridFloor(ctx, W, H, cam, storm, dayBright) {
   ctx.closePath();
   ctx.fillStyle = storm ? '#0c0507' : '#05070a';
   ctx.fill();
+
+  // === TEXTURE PASS === textured blocks: asphalt roads on road blocks
+  // (BOTH |x|,|z| odd — same rule as world.js), crosswalks on alternating
+  // road blocks, noise-speckled ground + sidewalk strips on building blocks.
+  if (tex) {
+    const half = BLOCK_SIZE / 2;
+    for (let i = -8; i <= 8; i++) {
+      for (let j = -8; j <= 8; j++) {
+        const wx = i * BLOCK_SIZE, wz = j * BLOCK_SIZE;
+        const road = (Math.abs(i) % 2 === 1) && (Math.abs(j) % 2 === 1);
+        if (road) {
+          stampTile(ctx, cam, wx, wz, half, ((i + j) % 2 === 0) ? tex.roadNS : tex.roadEW);
+          if ((i + j) % 2 === 0) stampTile(ctx, cam, wx, wz, half, tex.crosswalk);
+        } else {
+          stampTile(ctx, cam, wx, wz, half, tex.ground);
+          stampTile(ctx, cam, wx, wz, half, tex.sidewalk, 0.16);
+        }
+      }
+    }
+  }
 
   // Cyan grid lines every block (source: grid floor with cyan strokes)
   ctx.strokeStyle = storm ? 'rgba(255,0,68,0.28)' : 'rgba(0,242,255,0.22)';
@@ -143,6 +235,7 @@ function makeAdSprite(ad) {
 
 export function createRenderer() {
   let adSprites = null;
+  let textures = null; // === TEXTURE PASS === built once, reused every frame
   return {
     draw(ctx, W, H, S) {
       const { cam, buildings, ads, trees, traffic, ash, henryCar, world, calm, t } = S;
@@ -150,13 +243,15 @@ export function createRenderer() {
       const hour = (world.simulatedMinutes % 1440) / 60;
       const dayBright = Math.max(0, Math.sin(((hour - 6) / 12) * Math.PI));
       if (!adSprites) adSprites = ads.map(makeAdSprite);
+      // === TEXTURE PASS === lazy init like adSprites; null 2D ctx -> textures stays null -> flat fallback
+      if (!textures) textures = makeTrumanTextures();
 
       // Camera shake (disabled in calm mode)
       const shx = !calm && S.shake > 0.3 ? (Math.random() - 0.5) * S.shake : 0;
       const shy = !calm && S.shake > 0.3 ? (Math.random() - 0.5) * S.shake : 0;
       const camS = { ...cam, cx: cam.cx + shx, cy: cam.cy + shy };
 
-      drawGridFloor(ctx, W, H, camS, storm, dayBright);
+      drawGridFloor(ctx, W, H, camS, storm, dayBright, textures);
 
       // Painter-sorted entities
       const ents = [];
@@ -169,9 +264,21 @@ export function createRenderer() {
         if (e.k === 'b') {
           const b = e.b;
           const base = storm ? '#1c0d12' : '#0d1622';
+          // === TEXTURE PASS === facade by height class (seeded stable per building),
+          // roof detail sprite, mood tint washes so storm/day overlays keep working.
+          let bTex = null;
+          if (textures) {
+            bTex = {
+              side: pickFacade(textures, b),
+              roof: textures.roof,
+              tintLeft: withAlpha(base, 0.55),
+              tintRight: withAlpha(storm ? '#140a0e' : '#0a1220', 0.55),
+              tintTop: withAlpha(storm ? '#33202a' : '#1a2a3d', 0.45),
+            };
+          }
           drawPrism(ctx, b.x, 0, b.z, b.w, b.h, b.w, camS,
             storm ? '#33202a' : '#1a2a3d', base, storm ? '#140a0e' : '#0a1220',
-            storm ? 'rgba(255,0,68,0.25)' : 'rgba(0,242,255,0.18)');
+            storm ? 'rgba(255,0,68,0.25)' : 'rgba(0,242,255,0.18)', bTex);
           // window sparkle
           if (Math.abs(b.x - cam.x) < 700 && Math.abs(b.z - cam.z) < 700) {
             const p = project(b.x, b.h * 0.7, b.z, camS);
@@ -183,12 +290,19 @@ export function createRenderer() {
           const sway = storm ? Math.sin(t * 5 + tr.x * 0.05) * 0.15 : Math.sin(t + tr.x * 0.05) * 0.02;
           const p = project(tr.x, 0, tr.z, camS);
           const s = camS.zoom * tr.s * 22;
-          ctx.fillStyle = storm ? '#33101a' : '#0a2a18';
-          ctx.beginPath();
-          ctx.moveTo(p.x - s * 0.5 + sway * s, p.y);
-          ctx.lineTo(p.x + s * 0.5 + sway * s, p.y);
-          ctx.lineTo(p.x + sway * s * 1.5, p.y - s);
-          ctx.closePath(); ctx.fill();
+          // === TEXTURE PASS === layered two-tone foliage: three stacked tiers, cheap
+          const tones = storm ? ['#33101a', '#421624', '#521b2e'] : ['#0a2a18', '#0e3a20', '#124428'];
+          const tiers = [[0.5, 0], [0.38, -0.30], [0.26, -0.55]];
+          for (let ti = 0; ti < tiers.length; ti++) {
+            const [ws, yo] = tiers[ti];
+            const bx = p.x + sway * s * (1.5 - ti * 0.4);
+            ctx.fillStyle = tones[ti];
+            ctx.beginPath();
+            ctx.moveTo(bx - s * ws, p.y + yo * s);
+            ctx.lineTo(bx + s * ws, p.y + yo * s);
+            ctx.lineTo(bx, p.y + yo * s - s * 0.9);
+            ctx.closePath(); ctx.fill();
+          }
           ctx.fillStyle = '#1a100a';
           ctx.fillRect(p.x - s * 0.06, p.y - s * 0.25, s * 0.12, s * 0.25);
         } else {
@@ -205,16 +319,28 @@ export function createRenderer() {
           const ty = car.dir === 0 ? 26 : car.dir === 1 ? 0 : car.dir === 2 ? -26 : 0;
           ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(tx * camS.zoom, ty * camS.zoom); ctx.stroke();
           ctx.globalAlpha = 1; ctx.shadowBlur = 0;
-          // body
+          // === TEXTURE PASS === body: pre-rendered detail sprite (neon outline,
+          // windshield, roof panel baked in); falls back to flat rects if 2D unavailable.
           const wdt = 3.4 * camS.zoom, len = 7.4 * camS.zoom;
-          ctx.fillStyle = '#0b0b0d';
-          if (car.dir === 0 || car.dir === 2) ctx.fillRect(-wdt / 2, -len / 2, wdt, len);
-          else ctx.fillRect(-len / 2, -wdt / 2, len, wdt);
-          ctx.strokeStyle = col; ctx.lineWidth = 1.2; ctx.strokeRect(
-            car.dir === 0 || car.dir === 2 ? -wdt / 2 : -len / 2,
-            car.dir === 0 || car.dir === 2 ? -len / 2 : -wdt / 2,
-            car.dir === 0 || car.dir === 2 ? wdt : len,
-            car.dir === 0 || car.dir === 2 ? len : wdt);
+          const vert = car.dir === 0 || car.dir === 2;
+          const spr = textures && textures.cars
+            ? (car.cyan
+              ? (vert ? textures.cars.cyanV : textures.cars.cyanH)
+              : (vert ? textures.cars.magV : textures.cars.magH))
+            : null;
+          if (spr) {
+            const dw = vert ? wdt : len, dh = vert ? len : wdt;
+            ctx.drawImage(spr, p.x - dw / 2, p.y - dh / 2, dw, dh);
+          } else {
+            ctx.fillStyle = '#0b0b0d';
+            if (vert) ctx.fillRect(-wdt / 2, -len / 2, wdt, len);
+            else ctx.fillRect(-len / 2, -wdt / 2, len, wdt);
+            ctx.strokeStyle = col; ctx.lineWidth = 1.2; ctx.strokeRect(
+              vert ? -wdt / 2 : -len / 2,
+              vert ? -len / 2 : -wdt / 2,
+              vert ? wdt : len,
+              vert ? len : wdt);
+          }
           ctx.restore();
         }
       }
@@ -282,6 +408,29 @@ export function createRenderer() {
         ctx.fillStyle = storm ? 'rgba(255,0,68,0.7)' : 'rgba(0,242,255,0.28)';
         const sz = storm ? 2.4 : 1.4;
         ctx.fillRect(p.x, p.y, sz, sz);
+      }
+
+      // === PHYSICS DEBRIS ===
+      // Storm chunks (page.jsx maintains S.debris with stepDebris). Small
+      // dark/red squares, ash-loop style. One delimited block only.
+      if (S.debris && S.debris.length) {
+        ctx.fillStyle = storm ? 'rgba(255,70,40,0.6)' : 'rgba(120,40,30,0.5)';
+        const dsz = calm ? 1.8 : 2.8;
+        for (const d of S.debris) {
+          const dp = project(d.x, d.y, d.z, camS);
+          if (dp.x < 0 || dp.x > W || dp.y < 0 || dp.y > H) continue;
+          ctx.fillRect(dp.x, dp.y, dsz, dsz);
+        }
+      }
+
+      // === DISTRICTS (open-world expansion) ===
+      // Seeded harbor / market / observatory / park / POIs, drawn in the same
+      // 2.5D prism language. Geometry is built once (getDistricts) and cached;
+      // per frame only projection + fills happen here. Districts self-cull
+      // when far off-screen.
+      {
+        const D = getDistricts();
+        if (D) drawDistricts(ctx, camS, D, S);
       }
 
       // Lightning: LOCALIZED radial burst + faint tint (lighting rule honored)
