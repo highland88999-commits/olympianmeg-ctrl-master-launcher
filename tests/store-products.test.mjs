@@ -157,6 +157,39 @@ const catalog429 = await getCatalog();
 t('429: retried and the product survives', catalog429.length === 1 && catalog429[0].id === 'pf_123456');
 t('429: list was attempted twice (one retry)', listCalls === 2);
 
+// Short page mid-list: Printful sometimes returns fewer items than the
+// limit even though paging.total says more remain. The harvest must keep
+// going (this once truncated production to 218/368) — total is the truth.
+const TOTAL = 250;
+const pageItems = (from, n) =>
+  Array.from({ length: n }, (_, i) => ({
+    id: 5000 + from + i,
+    name: 'Hoodie ' + (from + i),
+    thumbnail_url: 'https://files.cdn.printful.com/x.png',
+    variants: 8,
+    synced: 8,
+  }));
+globalThis.fetch = async (url) => {
+  const m = String(url).match(/offset=(\d+)/);
+  const offset = m ? parseInt(m[1], 10) : 0;
+  // pages: 100, 100, then a transient short page of 18, then the rest (32)
+  const sizes = [100, 100, 18, 32];
+  const pageIdx = offset === 0 ? 0 : offset === 100 ? 1 : offset === 200 ? 2 : 3;
+  const n = sizes[pageIdx];
+  return {
+    ok: true, status: 200, headers: { get: () => null },
+    json: async () => ({
+      code: 200,
+      result: pageItems(offset, n),
+      paging: { total: TOTAL, offset, limit: 100 },
+    }),
+  };
+};
+__resetCache();
+const full = await getCatalog();
+t('short page mid-list: harvest continues to paging.total', full.length === TOTAL);
+t('short page mid-list: no unknowns', full.every((c) => c.id !== 'pf_unknown'));
+
 // Auth failure: 401 -> throws with status, route maps it to an honest notice.
 globalThis.fetch = async () => ({
   ok: false, status: 401,
