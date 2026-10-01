@@ -5,7 +5,7 @@ import { useFrame } from '@react-three/fiber';
 import { useVideoTexture } from '@react-three/drei';
 import { AdaptivePOM } from './POMMaterial';
 
-const VIDEO_MAPS = { 1: '/media/skyscraper/0qdcn7.mp4', 2: '/media/skyscraper/awr0ry.mp4', 0: '/media/skyscraper/lugn8p.mp4' };
+const VIDEO_MAPS = { 1: '/media/skyscraper/0qdcn7.mp4', 2: 'https://files.catbox.moe/awr0ry.mp4', 0: '/media/skyscraper/lugn8p.mp4' };
 const CORRECT_SEQUENCE = [1, 2, 0];
 
 const VideoMaterial = ({ url }) => {

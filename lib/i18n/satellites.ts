@@ -80,6 +80,7 @@ export const SATELLITES: SatelliteEntry[] = [
   { key: "aquarium", route: "/aquarium", pos: "ARTEMIS", section: "OBSERVATORY", constellation: "ARGUS" },
   { key: "olympus", route: "/olympus", pos: "PLUTUS", section: "OBSERVATORY", constellation: "ARGUS" },
   { key: "babel", route: "/babel", pos: "APHRODITE", section: "OBSERVATORY", constellation: "ARGUS" },
+  { key: "skyscraper", route: "/skyscraper", pos: "APHRODITE", section: "OBSERVATORY", constellation: "ARGUS" },
   { key: "hermes", route: "/hermes", pos: "HERMES", section: "SHOPPING", constellation: "ARGUS" },
   { key: "agora", route: "/agora", pos: "APHRODITE", section: "OBSERVATORY", constellation: "ARGUS" },
   { key: "auction-house", route: "/auction-house", pos: "PLUTUS", section: "OBSERVATORY", constellation: "ARGUS" },

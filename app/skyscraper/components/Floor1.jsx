@@ -129,7 +129,7 @@ export default function Floor1({ elevation, isMobile, setCurrentFloor }) {
             </mesh>
             <mesh rotation-x={Math.PI / 2} position-y={60}>
                 <planeGeometry args={[60, 60]} />
-                <AdaptivePOM isMobile={isMobile} imgUrl="/media/skyscraper/oxe2do.png" videoUrl="/media/skyscraper/h7317z.mp4" scale={0.03} />
+                <AdaptivePOM isMobile={isMobile} imgUrl="/media/skyscraper/oxe2do.png" videoUrl="https://files.catbox.moe/h7317z.mp4" scale={0.03} />
             </mesh>
 
             <HoloPortal 
