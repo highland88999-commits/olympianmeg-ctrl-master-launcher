@@ -128,7 +128,10 @@ export function createEngine(canvas) {
     canvas.height = Math.round(h * dpr);
     gl.viewport(0, 0, canvas.width, canvas.height);
     const aspect = canvas.width / canvas.height;
-    gl.uniform2f(locScale, 1 / 12, aspect / 12);
+    // projectPixel emits x in ±0.933 / y in ±0.7 (4:3 feed units). Scale so the
+    // cloud fills the viewport width while keeping the feed's aspect ratio.
+    const fit = 1 / ((SAMPLE_W / 2) * 0.14 / 12);
+    gl.uniform2f(locScale, fit, fit * aspect);
   }
   resize();
 
