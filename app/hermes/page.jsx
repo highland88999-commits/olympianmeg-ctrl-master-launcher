@@ -5,6 +5,7 @@ import nextDynamic from 'next/dynamic';
 import { supabase } from '@/lib/supabase';
 import DirectoryGrid from '@/components/hermes/DirectoryGrid';
 import SubmitDrawer from '@/components/hermes/SubmitDrawer';
+import OnlineMall from '@/components/hermes/OnlineMall';
 
 export const dynamic = 'force-dynamic';
 
@@ -69,6 +70,10 @@ export default async function HermesPage({ searchParams }) {
         <div className="text-center">
           <SubmitDrawer />
         </div>
+
+        {/* Merlin's Online Mall — his original mall build, a distinct section
+            below the paid directory. Same paid listings, his mall presentation. */}
+        <OnlineMall links={listings.map((l) => ({ ...l, title: l.name }))} />
 
         <footer className="mt-16 pt-6 border-t border-zinc-800 text-center text-xs text-zinc-600">
           $2.00 USD / 12 months / one per domain. External links open in a new tab.

@@ -30,6 +30,10 @@ import {
   TrafficSim, HenryCarSim, AshSim,
 } from './world.js';
 import { createRenderer, drawApartment, AXIOM_COLORS } from './render.js';
+import {
+  initialMinimized, toggleMinimized,
+  visibleCharacters, minimizedCharacters, toggleMenu,
+} from './ui.js';
 
 const CHARACTERS = [
   { id: 'henry', name: 'HENRY CAHILL', role: 'MULTIVERSE ARCHITECT', status: 'DEPLOYING…', color: '#00f2ff' },
@@ -48,6 +52,8 @@ export default function TrumanPage() {
   const [calm, setCalm] = useState(false);
   const [camMode, setCamMode] = useState('city'); // city | apartment | follow
   const [selected, setSelected] = useState('henry');
+  const [minimized, setMinimized] = useState(initialMinimized);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [hud, setHud] = useState({ simulatedMinutes: 0, isStormActive: false, globalTime: 0 });
   const sim = useRef(null);
 
@@ -257,52 +263,122 @@ export default function TrumanPage() {
             <span style={{ fontSize: 10, color: '#fff' }}>SHELTER IN PLACE</span>
           </div>
 
-          {/* CHARACTER SELECTOR */}
-          <div style={{ position: 'absolute', top: 0, right: 8, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 18, zIndex: 100 }}>
-            {CHARACTERS.map((c) => {
-              const isSel = selected === c.id;
-              return (
-                <button key={c.id} onClick={() => setSelected(c.id)} style={{
-                  width: 210, textAlign: 'left', background: isSel ? 'rgba(0,15,30,0.55)' : 'rgba(2,5,10,0.35)',
-                  backdropFilter: 'blur(8px)', border: `1px solid ${isSel ? c.color : 'rgba(255,255,255,0.12)'}`,
-                  borderRight: `4px solid ${c.color}`, padding: 16, cursor: 'pointer', color: '#fff',
-                  transform: isSel ? 'translateX(-10px)' : 'none', transition: 'all 0.3s', minHeight: 44,
-                }}>
-                  <div style={{ fontSize: 15, letterSpacing: 2, textShadow: `0 0 10px ${c.color}`, marginBottom: 6 }}>{c.name}</div>
-                  <div style={{ color: c.color, fontSize: 11, letterSpacing: 1, marginBottom: 4 }}>ROLE: {c.role}</div>
-                  <div style={{ color: '#aaa', fontSize: 10 }}>STAT: <span style={{ color: '#fff' }}>{c.status}</span></div>
-                  {isSel && (
-                    <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px dashed ${c.color}66`, fontSize: 10, color: '#00ffaa', lineHeight: 1.6 }}>
-                      &gt; LINKING OBSERVER…<br />
-                      &gt; FOCUS: {c.name}<br />
-                      <span style={{ color: '#fff' }}>[ WATCHING ]</span>
-                    </div>
-                  )}
-                </button>
-              );
-            })}
-          </div>
+          {/* CHARACTER PANELS — each card minimizes into a floating icon */}
+          {visibleCharacters(CHARACTERS, minimized).length > 0 && (
+            <div style={{ position: 'absolute', top: 0, right: 8, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 18, zIndex: 100 }}>
+              {visibleCharacters(CHARACTERS, minimized).map((c) => {
+                const isSel = selected === c.id;
+                return (
+                  <div key={c.id} role="button" tabIndex={0} onClick={() => setSelected(c.id)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelected(c.id); }} style={{
+                    position: 'relative', width: 210, textAlign: 'left', background: isSel ? 'rgba(0,15,30,0.55)' : 'rgba(2,5,10,0.35)',
+                    backdropFilter: 'blur(8px)', border: `1px solid ${isSel ? c.color : 'rgba(255,255,255,0.12)'}`,
+                    borderRight: `4px solid ${c.color}`, padding: 16, paddingRight: 52, cursor: 'pointer', color: '#fff',
+                    transform: isSel ? 'translateX(-10px)' : 'none', transition: 'all 0.3s', minHeight: 44,
+                  }}>
+                    <button aria-label={`Minimize ${c.name} panel`} onClick={(e) => { e.stopPropagation(); setMinimized((m) => toggleMinimized(m, c.id)); }} style={{
+                      position: 'absolute', top: 4, right: 4, width: 44, height: 44, background: 'transparent',
+                      border: 'none', color: 'rgba(255,255,255,0.65)', fontSize: 22, lineHeight: 1, cursor: 'pointer',
+                    }}>
+                      –
+                    </button>
+                    <div style={{ fontSize: 15, letterSpacing: 2, textShadow: `0 0 10px ${c.color}`, marginBottom: 6 }}>{c.name}</div>
+                    <div style={{ color: c.color, fontSize: 11, letterSpacing: 1, marginBottom: 4 }}>ROLE: {c.role}</div>
+                    <div style={{ color: '#aaa', fontSize: 10 }}>STAT: <span style={{ color: '#fff' }}>{c.status}</span></div>
+                    {isSel && (
+                      <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px dashed ${c.color}66`, fontSize: 10, color: '#00ffaa', lineHeight: 1.6 }}>
+                        &gt; LINKING OBSERVER…<br />
+                        &gt; FOCUS: {c.name}<br />
+                        <span style={{ color: '#fff' }}>[ WATCHING ]</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
-          {/* TIME CONTROLS — raised above the persistent bottom radio bar */}
-          <div style={{ position: 'absolute', bottom: 'calc(5rem + env(safe-area-inset-bottom))', left: 16, right: 16, zIndex: 100, display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', justifyContent: 'center' }}>
-            <button style={btn} onClick={() => setPlaying((p) => !p)} aria-label={playing ? 'Pause time' : 'Resume time'}>
-              {playing ? '❚❚ PAUSE' : '▶ RUN'}
-            </button>
-            {SPEEDS.map((s) => (
-              <button key={s} style={{ ...btn, borderColor: speed === s ? '#00f2ff' : 'rgba(0,242,255,0.4)', color: speed === s ? '#fff' : '#bff' }} onClick={() => setSpeed(s)}>
-                {s}×
-              </button>
-            ))}
-            <button style={btn} onClick={jumpToStorm}>⚡ JUMP TO STORM</button>
-            <button style={{ ...btn, borderColor: calm ? '#ffd700' : 'rgba(0,242,255,0.4)', color: calm ? '#ffd700' : '#bff' }} onClick={() => setCalm((c) => !c)} aria-pressed={calm}>
-              {calm ? '☁ CALM MODE ON' : 'CALM MODE OFF'}
-            </button>
-            {['city', 'follow', 'apartment'].map((m) => (
-              <button key={m} style={{ ...btn, borderColor: camMode === m ? '#00f2ff' : 'rgba(0,242,255,0.4)', color: camMode === m ? '#fff' : '#bff' }} onClick={() => setCamMode(m)}>
-                {m === 'city' ? 'CITY' : m === 'follow' ? "FOLLOW HENRY'S CAR" : "HENRY'S APARTMENT"}
-              </button>
-            ))}
-          </div>
+          {/* MINIMIZED CHARACTER ICONS — floating stack, top-right below the storm banner */}
+          {minimizedCharacters(CHARACTERS, minimized).length > 0 && (
+            <div style={{ position: 'absolute', top: 120, right: 16, zIndex: 100, display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
+              {minimizedCharacters(CHARACTERS, minimized).map((c) => (
+                <button key={c.id} aria-label={`Restore ${c.name} panel`} onClick={() => setMinimized((m) => toggleMinimized(m, c.id))} style={{
+                  width: 44, height: 44, borderRadius: '50%', background: 'rgba(2,5,10,0.75)',
+                  border: `2px solid ${c.color}`, color: c.color, fontSize: 16, fontWeight: 'bold',
+                  cursor: 'pointer', boxShadow: `0 0 12px ${c.color}55`, backdropFilter: 'blur(6px)',
+                }}>
+                  {c.name.charAt(0)}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* CONTROL MENU — collapses into a single floating action icon (bottom-right) */}
+          <button
+            aria-label={menuOpen ? 'Close controls' : 'Open controls'}
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((o) => toggleMenu(o))}
+            style={{
+              position: 'absolute', zIndex: 120, right: 16,
+              bottom: 'calc(5rem + env(safe-area-inset-bottom) + 12px)',
+              width: 56, height: 56, borderRadius: '50%',
+              background: 'rgba(2,10,18,0.85)', border: '2px solid #00f2ff',
+              color: '#00f2ff', fontSize: 22, cursor: 'pointer',
+              boxShadow: '0 0 16px rgba(0,242,255,0.35)', backdropFilter: 'blur(6px)',
+            }}
+          >
+            {menuOpen ? '✕' : '⚙'}
+          </button>
+
+          {/* CONTROL SHEET — all controls, grouped as before; compact panel so the canvas stays interactive around it */}
+          {menuOpen && (
+            <div style={{
+              position: 'absolute', zIndex: 120, right: 16, left: 16,
+              bottom: 'calc(5rem + env(safe-area-inset-bottom) + 80px)',
+              maxWidth: 340, marginLeft: 'auto',
+              maxHeight: 'calc(100dvh - 240px)', overflowY: 'auto',
+              background: 'rgba(2,8,14,0.94)', border: '1px solid rgba(0,242,255,0.35)',
+              borderRadius: 12, padding: 14, backdropFilter: 'blur(8px)',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <span style={{ color: '#00f2ff', fontSize: 12, letterSpacing: 3 }}>CONTROLS</span>
+                <button aria-label="Close controls" onClick={() => setMenuOpen(false)} style={{
+                  width: 44, height: 44, background: 'transparent', border: '1px solid rgba(0,242,255,0.4)',
+                  borderRadius: 6, color: '#bff', fontSize: 16, cursor: 'pointer',
+                }}>
+                  ✕
+                </button>
+              </div>
+
+              <div style={{ color: 'rgba(0,242,255,0.6)', fontSize: 10, letterSpacing: 2, marginBottom: 6 }}>TIME</div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                <button style={btn} onClick={() => setPlaying((p) => !p)} aria-label={playing ? 'Pause time' : 'Resume time'}>
+                  {playing ? '❚❚ PAUSE' : '▶ RUN'}
+                </button>
+                {SPEEDS.map((s) => (
+                  <button key={s} style={{ ...btn, borderColor: speed === s ? '#00f2ff' : 'rgba(0,242,255,0.4)', color: speed === s ? '#fff' : '#bff' }} onClick={() => setSpeed(s)}>
+                    {s}×
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ color: 'rgba(0,242,255,0.6)', fontSize: 10, letterSpacing: 2, marginBottom: 6 }}>EVENT</div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                <button style={btn} onClick={jumpToStorm}>⚡ JUMP TO STORM</button>
+                <button style={{ ...btn, borderColor: calm ? '#ffd700' : 'rgba(0,242,255,0.4)', color: calm ? '#ffd700' : '#bff' }} onClick={() => setCalm((c) => !c)} aria-pressed={calm}>
+                  {calm ? '☁ CALM MODE ON' : 'CALM MODE OFF'}
+                </button>
+              </div>
+
+              <div style={{ color: 'rgba(0,242,255,0.6)', fontSize: 10, letterSpacing: 2, marginBottom: 6 }}>CAMERA</div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {['city', 'follow', 'apartment'].map((m) => (
+                  <button key={m} style={{ ...btn, borderColor: camMode === m ? '#00f2ff' : 'rgba(0,242,255,0.4)', color: camMode === m ? '#fff' : '#bff' }} onClick={() => setCamMode(m)}>
+                    {m === 'city' ? 'CITY' : m === 'follow' ? "FOLLOW HENRY'S CAR" : "HENRY'S APARTMENT"}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* LOCAL-SIM BADGE */}
           <div style={{ position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 100, color: 'rgba(255,255,255,0.5)', fontSize: 11, letterSpacing: 2, pointerEvents: 'none', background: 'rgba(0,0,0,0.4)', padding: '6px 14px', borderRadius: 20 }}>
