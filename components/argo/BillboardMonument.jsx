@@ -29,6 +29,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { Text } from '@react-three/drei';
 import * as THREE from 'three';
 import { applyCoverFit } from '../../lib/texture-fit';
+import {
+  paintBillboardFace,
+  drawCoverFit,
+} from '../../lib/billboard-face';
 
 // Monument dims: tower-panel × 1.5 × 1.5 (tower panel: frame [4.2,7.2,0.2],
 // face [3.8,4.5], magenta [4.0,4.7], CTA [3.8,0.8,0.1], email strip [3.8,0.6]).
@@ -55,81 +59,8 @@ const DRAW_H = 1350;
 // Same advertise-inquiry address as the tower panels.
 const INQUIRIES_EMAIL = 'olympianmeg@gmail.com';
 
-function drawCover(ctx, img, w, h) {
-  // Cover-fit: preserve the creative's aspect, center-crop the overflow.
-  // Partner assets come in every banner size; stretching would warp logos.
-  const iw = img.naturalWidth || img.width;
-  const ih = img.naturalHeight || img.height;
-  const s = Math.max(w / iw, h / ih);
-  const dw = iw * s;
-  const dh = ih * s;
-  ctx.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh);
-}
-
-function drawPlaceholder(ctx, w, h, slot) {
-  // Deep-space brand backdrop.
-  const g = ctx.createLinearGradient(0, 0, 0, h);
-  g.addColorStop(0, '#0a0f1e');
-  g.addColorStop(0.55, '#0d1428');
-  g.addColorStop(1, '#070b16');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, w, h);
-  // Starfield dust.
-  ctx.fillStyle = 'rgba(255,255,255,0.5)';
-  let seed = slot.key.length * 7919;
-  const rnd = () => {
-    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-    return seed / 0x7fffffff;
-  };
-  for (let i = 0; i < 120; i++) {
-    ctx.globalAlpha = 0.12 + rnd() * 0.4;
-    ctx.fillRect(rnd() * w, rnd() * h, 2, 2);
-  }
-  ctx.globalAlpha = 1;
-  // Honest label, top-left.
-  ctx.fillStyle = 'rgba(255,255,255,0.55)';
-  ctx.font = '600 34px system-ui, sans-serif';
-  ctx.textAlign = 'left';
-  const label =
-    slot.kind === 'partner'
-      ? 'PARTNER'
-      : slot.kind === 'native'
-        ? "MERLIN'S"
-        : slot.kind === 'video'
-          ? 'VIDEO · 19+'
-          : 'AD SPACE';
-  ctx.fillText(label, 56, 92);
-  // Brand name.
-  ctx.fillStyle = '#f5f2ea';
-  ctx.font = '800 120px system-ui, sans-serif';
-  ctx.textAlign = 'center';
-  fitText(ctx, slot.name.toUpperCase(), w - 140, 120);
-  ctx.fillText(slot.name.toUpperCase(), w / 2, h * 0.4, w - 140);
-  // Tagline.
-  ctx.fillStyle = 'rgba(245,242,234,0.75)';
-  ctx.font = '400 52px system-ui, sans-serif';
-  ctx.fillText(slot.tagline || '', w / 2, h * 0.4 + 110, w - 160);
-  // Accent bar.
-  ctx.fillStyle = slot.accent || '#ffd700';
-  ctx.fillRect(0, h - 18, w, 18);
-  // CTA hint.
-  ctx.fillStyle = 'rgba(255,255,255,0.85)';
-  ctx.font = '700 44px system-ui, sans-serif';
-  ctx.fillText(
-    slot.trackingUrl ? 'TAP TO VISIT  →' : 'YOUR BRAND COULD BE HERE',
-    w / 2,
-    h - 70
-  );
-}
-
-function fitText(ctx, text, maxWidth, startSize) {
-  let size = startSize;
-  ctx.font = `800 ${size}px system-ui, sans-serif`;
-  while (ctx.measureText(text).width > maxWidth && size > 28) {
-    size -= 6;
-    ctx.font = `800 ${size}px system-ui, sans-serif`;
-  }
-}
+// (drawCover / drawPlaceholder / fitText now live in lib/billboard-face.js —
+// the hub god-tower panels share the same honest painter.)
 
 export default function BillboardMonument({ slot, position, faceAngle, reduced }) {
   const [texture, setTexture] = useState(null);
@@ -154,7 +85,7 @@ export default function BillboardMonument({ slot, position, faceAngle, reduced }
       else if (tex) tex.dispose();
     };
     const finishPlaceholder = () => {
-      drawPlaceholder(ctx, DRAW_W, DRAW_H, slot);
+      paintBillboardFace(ctx, DRAW_W, DRAW_H, slot);
       const tex = new THREE.CanvasTexture(canvas);
       tex.colorSpace = THREE.SRGBColorSpace;
       tex.anisotropy = 4;
@@ -216,7 +147,7 @@ export default function BillboardMonument({ slot, position, faceAngle, reduced }
       const img = new Image();
       img.crossOrigin = 'anonymous';
       img.onload = () => {
-        drawCover(ctx, img, DRAW_W, DRAW_H);
+        drawCoverFit(ctx, img, DRAW_W, DRAW_H);
         finishImage();
       };
       img.onerror = () => finishPlaceholder();

@@ -1,333 +1,626 @@
-"use client";
+// app/starblood/page.jsx
+// STARBLOOD — the 20-card rune memory-match game, ported from Merlin's
+// highland88999-commits/Starblood repo into the launcher's ZEUS games
+// constellation (ARES god menu).
+//
+// Faithful to the original: 10 unique card faces x2, 3D flip, deck-deploy
+// animation, win screen, and the rune-codex easter egg (triple-click the
+// leaderboard title).
+//
+// Deliberately NOT ported:
+// - the "OMEGA MIND TELEMETRY UPLINK" (posted IPs/user-agents/clicks to a
+//   foreign central_telemetry table — phone-home, never ships)
+// - the "MULTIVERSE TRACKER" (track_ping/global_stats on a foreign Supabase
+//   project — also phone-home; the footer counter is gone with it)
+// - the external HERMES MALL link (now the launcher's internal /hermes route)
+//
+// The leaderboard is GLOBAL (Merlin's standing rule): wins post to
+// /api/starblood/leaderboard and every rider reads the same world board.
+// If the board is unreachable the page says so honestly — scores are never
+// faked and a local list is never passed off as the world board.
+'use client';
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
+import { BackButton } from '@/components/ui';
 import {
-  RUNES,
-  LANES,
-  MANA_PER_ROUND,
-  createMatch,
-  deployCard,
-  battleRound,
-  nextRound,
-  elementColor,
-} from "./game";
+  buildDeck,
+  shuffleDeck,
+  CARD_FACES,
+  BOARD_SLOTS,
+  topEntries,
+} from '@/lib/starblood/board';
 
-/**
- * Starblood — a rune-card battle game, rebuilt from the concept shell.
- * The original page had a board, a deck button, an empty rune codex and a
- * phony score table — but no game. This is the game: twelve original runes,
- * three lanes, blind deployment, best of five rounds. Wins and losses are
- * kept only on this device.
- */
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+};
 
-function Glyph({ strokes, color, size = 64 }) {
-  const ref = useRef(null);
-  useEffect(() => {
-    const c = ref.current;
-    if (!c) return;
-    const ctx = c.getContext("2d");
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    c.width = size * dpr;
-    c.height = size * dpr;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, size, size);
-    ctx.strokeStyle = color;
-    ctx.lineWidth = Math.max(2, size / 20);
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.beginPath();
-    for (const [x1, y1, x2, y2] of strokes) {
-      ctx.moveTo((x1 / 100) * size, (y1 / 100) * size);
-      ctx.lineTo((x2 / 100) * size, (y2 / 100) * size);
-    }
-    ctx.stroke();
-  }, [strokes, color, size]);
-  return <canvas ref={ref} style={{ width: size, height: size, display: "block" }} aria-hidden="true" />;
-}
+const CARD_BACK_VIDEO = '/media/starblood-cardback.mp4';
+const BG_VIDEO = '/media/starblood-bg.webm';
 
-function CardFace({ card, small }) {
-  const color = elementColor(card.element);
-  return (
-    <div style={{ ...styles.card, ...(small ? styles.cardSmall : {}), borderColor: color }}>
-      <Glyph strokes={card.glyph} color={color} size={small ? 40 : 56} />
-      <div style={{ ...styles.cardName, color }}>{card.name}</div>
-      <div style={styles.cardMeta}>
-        <span style={styles.pow}>⚔ {card.power}</span>
-        <span style={styles.cost}>🩸 {card.cost}</span>
-      </div>
-      {!small && <div style={styles.cardEffect}>{card.effectText}</div>}
-    </div>
-  );
-}
+const RUNES = [
+  { rune: 'ᚠ', name: 'Fehu', meaning: 'Wealth, abundance, success, prosperity, new beginnings' },
+  { rune: 'ᚢ', name: 'Uruz', meaning: 'Strength, vitality, health, endurance, raw power' },
+  { rune: 'ᚦ', name: 'Thurisaz', meaning: 'Protection, defense, conflict, breakthrough, giant force' },
+  { rune: 'ᚨ', name: 'Ansuz', meaning: 'Communication, wisdom, inspiration, divine breath, signals' },
+  { rune: 'ᚱ', name: 'Raido', meaning: 'Journey, travel, rhythm, progress, wagon path' },
+  { rune: 'ᚲ', name: 'Kenaz', meaning: 'Torch, knowledge, creativity, illumination, craft' },
+  { rune: 'ᚷ', name: 'Gebo', meaning: 'Gift, partnership, exchange, balance, generosity' },
+  { rune: 'ᚹ', name: 'Wunjo', meaning: 'Joy, harmony, bliss, fellowship, achievement' },
+  { rune: 'ᚺ', name: 'Hagalaz', meaning: 'Hail, disruption, transformation, natural forces, crisis' },
+  { rune: 'ᚾ', name: 'Naudiz', meaning: 'Need, constraint, endurance, resistance, self-reliance' },
+];
 
-function loadRecord() {
+function fmtDate(iso) {
   try {
-    const raw = window.localStorage.getItem("starblood-record");
-    if (raw) {
-      const r = JSON.parse(raw);
-      if (typeof r.w === "number" && typeof r.l === "number") return r;
-    }
-  } catch (_) {}
-  return { w: 0, l: 0 };
+    return new Date(iso).toLocaleDateString();
+  } catch {
+    return '';
+  }
 }
 
 export default function StarbloodPage() {
-  const [match, setMatch] = useState(() => createMatch((Date.now() % 100000) | 0));
-  const [selected, setSelected] = useState(null);
-  const [showCodex, setShowCodex] = useState(false);
-  const [record, setRecord] = useState({ w: 0, l: 0 });
-  const recordedRef = useRef(false);
+  const rootRef = useRef(null);
+  const deckFrameRef = useRef(null);
+  const slotRefs = useRef([]);
+  // Imperative card engine (mirrors the original's DOM approach): the deck
+  // lives outside React so the deploy animation never re-renders.
+  const engine = useRef({ cards: [], selected: [], matches: 0, flips: 0, busy: false });
 
+  const [phase, setPhase] = useState('ready'); // ready | dealing | playing | won
+  const [flips, setFlips] = useState(0);
+  const [matches, setMatches] = useState(0);
+
+  const [boardOpen, setBoardOpen] = useState(false);
+  const [boardState, setBoardState] = useState('idle'); // idle | loading | ready | offline
+  const [boardMsg, setBoardMsg] = useState('');
+  const [entries, setEntries] = useState([]);
+
+  const [username, setUsername] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [saveMsg, setSaveMsg] = useState('');
+
+  const [codexOpen, setCodexOpen] = useState(false);
+  const titleClicks = useRef(0);
+  const titleTimer = useRef(null);
+
+  // Restore the rider's last used name — a convenience, nothing more.
   useEffect(() => {
-    document.title = "Starblood";
-    setRecord(loadRecord());
+    try {
+      const n = localStorage.getItem('starblood_name');
+      if (n) setUsername(n);
+    } catch { /* private mode: fine without it */ }
   }, []);
 
+  // Unmount: sweep any deployed card nodes.
   useEffect(() => {
-    if (match.phase === "over" && !recordedRef.current) {
-      recordedRef.current = true;
-      if (match.winner === "player" || match.winner === "enemy") {
-        setRecord((prev) => {
-          const next = {
-            w: prev.w + (match.winner === "player" ? 1 : 0),
-            l: prev.l + (match.winner === "enemy" ? 1 : 0),
-          };
-          try {
-            window.localStorage.setItem("starblood-record", JSON.stringify(next));
-          } catch (_) {}
-          return next;
-        });
+    const eng = engine.current;
+    return () => {
+      eng.cards.forEach((c) => c.remove());
+      eng.cards = [];
+      if (titleTimer.current) clearTimeout(titleTimer.current);
+    };
+  }, []);
+
+  function clearCards() {
+    const eng = engine.current;
+    eng.cards.forEach((c) => c.remove());
+    eng.cards = [];
+    eng.selected = [];
+    eng.matches = 0;
+    eng.flips = 0;
+    eng.busy = false;
+  }
+
+  async function fetchBoard() {
+    setBoardState('loading');
+    setBoardMsg('');
+    try {
+      const res = await fetch('/api/starblood/leaderboard', { cache: 'no-store' });
+      const data = await res.json().catch(() => ({}));
+      if (data && data.ok) {
+        setEntries(topEntries(data.entries || []));
+        setBoardState('ready');
+      } else {
+        setBoardMsg(data && data.error ? data.error : 'The global leaderboard is not connected yet.');
+        setBoardState('offline');
       }
+    } catch {
+      setBoardMsg('The global leaderboard is not connected yet.');
+      setBoardState('offline');
     }
-  }, [match.phase, match.winner]);
-
-  function touch(m) {
-    setMatch({ ...m });
   }
 
-  function onHandClick(i) {
-    if (match.phase !== "deploy") return;
-    setSelected(selected === i ? null : i);
+  function openBoard() {
+    setBoardOpen(true);
+    fetchBoard();
   }
 
-  function onLaneClick(lane) {
-    if (match.phase !== "deploy") return;
-    const m = { ...match };
-    if (m.playerLanes[lane] && selected === null) {
-      // recall a deployed rune
-      const card = m.playerLanes[lane];
-      m.playerLanes[lane] = null;
-      m.playerHand.push(card);
-      m.mana += card.cost;
-      touch(m);
+  function deploy() {
+    const eng = engine.current;
+    const root = rootRef.current;
+    const deckFrame = deckFrameRef.current;
+    if (!root || !deckFrame || eng.busy) return;
+    // A deck is already on the table.
+    if (eng.cards.length > 0) return;
+
+    eng.busy = true;
+    eng.selected = [];
+    eng.matches = 0;
+    eng.flips = 0;
+    setFlips(0);
+    setMatches(0);
+    setSaved(false);
+    setSaveMsg('');
+    setPhase('dealing');
+
+    const deck = shuffleDeck(buildDeck(CARD_FACES));
+    const deckRect = deckFrame.getBoundingClientRect();
+
+    deck.forEach((card, i) => {
+      const el = document.createElement('div');
+      el.className = 'card-entity';
+      el.dataset.val = card.face;
+      el.innerHTML =
+        '<div class="card-inner">' +
+        '<div class="back"><video autoplay muted loop playsinline src="' + CARD_BACK_VIDEO + '"></video></div>' +
+        '<div class="front" style="background-image:url(\'' + card.face + '\')"></div>' +
+        '</div>';
+      el.style.left = deckRect.left + 'px';
+      el.style.top = deckRect.top + 'px';
+      el.style.transform = 'scale(0.3)';
+      root.appendChild(el);
+      eng.cards.push(el);
+
+      const slot = slotRefs.current[i];
+      const slotRect = slot ? slot.getBoundingClientRect() : deckRect;
+
+      setTimeout(() => {
+        el.style.transition = 'all 0.7s cubic-bezier(0.25, 1, 0.5, 1)';
+        el.style.left = slotRect.left + 'px';
+        el.style.top = slotRect.top + 'px';
+        el.style.transform = 'scale(1)';
+        setTimeout(() => {
+          el.style.position = 'relative';
+          el.style.left = '0';
+          el.style.top = '0';
+          if (slot) slot.appendChild(el);
+          el.onclick = () => flip(el);
+          if (i === deck.length - 1) {
+            eng.busy = false;
+            setPhase('playing');
+          }
+        }, 700);
+      }, i * 40);
+    });
+  }
+
+  function flip(card) {
+    const eng = engine.current;
+    if (eng.busy) return;
+    if (
+      eng.selected.length >= 2 ||
+      card.classList.contains('active') ||
+      card.classList.contains('matched')
+    ) {
       return;
     }
-    if (selected === null) return;
-    if (deployCard(m, selected, lane)) {
-      setSelected(null);
-      touch(m);
+    card.classList.add('active');
+    eng.selected.push(card);
+    eng.flips += 1;
+    setFlips(eng.flips);
+    if (eng.selected.length === 2) {
+      eng.busy = true;
+      setTimeout(checkMatch, 1000);
     }
   }
 
-  function onBattle() {
-    const m = { ...match };
-    const res = battleRound(m);
-    if (res) touch(m);
+  function checkMatch() {
+    const eng = engine.current;
+    const [a, b] = eng.selected;
+    if (a && b && a.dataset.val === b.dataset.val) {
+      a.classList.add('matched');
+      b.classList.add('matched');
+      eng.matches += 1;
+      setMatches(eng.matches);
+      setTimeout(() => {
+        a.style.display = 'none';
+        b.style.display = 'none';
+      }, 800);
+      if (eng.matches === 10) {
+        setTimeout(win, 1000);
+      }
+    } else {
+      if (a) a.classList.remove('active');
+      if (b) b.classList.remove('active');
+    }
+    eng.selected = [];
+    eng.busy = false;
   }
 
-  function onNext() {
-    const m = { ...match };
-    if (nextRound(m)) {
-      recordedRef.current = false;
-      touch(m);
+  function win() {
+    setPhase('won');
+    setBoardOpen(true);
+    fetchBoard();
+  }
+
+  async function saveScore() {
+    const eng = engine.current;
+    const name = username.trim();
+    if (!name || saving || saved) return;
+    setSaving(true);
+    setSaveMsg('');
+    try {
+      const res = await fetch('/api/starblood/leaderboard', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: name, flips: eng.flips }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data && data.ok) {
+        setSaved(true);
+        try { localStorage.setItem('starblood_name', name); } catch { /* optional */ }
+        fetchBoard();
+      } else if (data && data.offline) {
+        // Honest: the world board is down. The win still counts on screen,
+        // but this score is NOT recorded anywhere.
+        setSaveMsg('The global board is offline — this score could not be recorded.');
+      } else {
+        setSaveMsg(data && data.error ? data.error : 'Could not record the score.');
+      }
+    } catch {
+      setSaveMsg('The global board is offline — this score could not be recorded.');
+    } finally {
+      setSaving(false);
     }
   }
 
-  function onRematch() {
-    recordedRef.current = false;
-    setSelected(null);
-    setMatch(createMatch((Date.now() % 100000) | 0));
+  function restart() {
+    setBoardOpen(false);
+    clearCards();
+    setPhase('ready');
+    // Let the slots clear before redeploying.
+    requestAnimationFrame(() => deploy());
   }
 
-  const result = match.lastRound;
+  function onTitleClick() {
+    titleClicks.current += 1;
+    if (titleTimer.current) clearTimeout(titleTimer.current);
+    titleTimer.current = setTimeout(() => { titleClicks.current = 0; }, 800);
+    if (titleClicks.current === 3) {
+      setCodexOpen(true);
+      titleClicks.current = 0;
+    }
+  }
 
   return (
-    <div style={styles.page}>
-      <style>{`
-        .sb-lane { transition: transform .18s ease, box-shadow .18s ease; }
-        .sb-card-btn { transition: transform .15s ease; }
-        .sb-card-btn:active { transform: scale(.96); }
-        @media (prefers-reduced-motion: reduce) {
-          .sb-lane, .sb-card-btn { transition: none; }
-        }
-      `}</style>
+    <div id="starblood-root" ref={rootRef}>
+      <style>{STARBLOOD_CSS}</style>
 
-      <header style={styles.header}>
-        <h1 style={styles.title}>Starblood</h1>
-        <div style={styles.scoreLine}>
-          <span>You {match.playerScore}</span>
-          <span style={styles.round}>Round {match.round} of 5</span>
-          <span>{match.enemyScore} Foe</span>
-        </div>
-        <div style={styles.record}>
-          {record.w}W · {record.l}L — kept on this device
-        </div>
-      </header>
+      <div className="sb-bg" aria-hidden="true">
+        <video autoPlay muted loop playsInline src={BG_VIDEO} />
+      </div>
 
-      {/* enemy lanes */}
-      <div style={styles.lanes}>
-        {[0, 1, 2].map((lane) => {
-          const card = match.enemyLanes[lane];
-          const revealed = match.phase === "result" || match.phase === "over";
-          const w = result && result.lanes[lane].winner;
-          return (
-            <div key={lane} className="sb-lane" style={{
-              ...styles.lane,
-              boxShadow: w === "enemy" ? "0 0 14px rgba(255,46,99,.55)" : w === "player" ? "0 0 14px rgba(0,255,204,.4)" : "none",
-            }}>
-              {card ? (
-                revealed ? <CardFace card={card} small /> : <div style={styles.cardBack}>?</div>
-              ) : (
-                <div style={styles.emptySlot}>empty</div>
+      <div className="sb-shell">
+        <header className="sb-topbar">
+          <BackButton />
+          <h1 className="sb-title">STARBLOOD</h1>
+          <div className="sb-hud" aria-live="polite">
+            {phase === 'playing' || phase === 'won' ? (
+              <span>FLIPS {flips} · MATCHED {matches}/10</span>
+            ) : (
+              <span className="sb-hint">Tap the deck to deal</span>
+            )}
+          </div>
+        </header>
+
+        <div className="sb-board">
+          {Array.from({ length: BOARD_SLOTS }).map((_, i) => (
+            <div
+              key={i}
+              className="card-placeholder"
+              ref={(el) => { slotRefs.current[i] = el; }}
+            />
+          ))}
+        </div>
+
+        <div className="sb-controls">
+          <Link href="/hermes" className="holo-blue-btn">HERMES MALL</Link>
+          <div
+            id="deck-frame"
+            ref={deckFrameRef}
+            onClick={deploy}
+            role="button"
+            tabIndex={0}
+            aria-label="Deal the cards"
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') deploy(); }}
+          />
+          <button type="button" className="holo-blue-btn" onClick={openBoard}>
+            BOARD
+          </button>
+        </div>
+      </div>
+
+      {boardOpen && (
+        <div className="sb-overlay" role="dialog" aria-modal="true" aria-label="Leaderboard">
+          <div className="holoframe">
+            <h1 id="leaderboard-title" onClick={onTitleClick}>SYNC COMPLETE</h1>
+            <p className="sb-sub">NEURAL LINK TERMINATED</p>
+
+            {phase === 'won' && !saved && (
+              <div className="sb-save">
+                <p className="sb-save-line">
+                  Cleared in <strong>{flips} flips</strong>. Name yourself on the world board:
+                </p>
+                <div className="sb-save-row">
+                  <input
+                    className="sb-name"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value.slice(0, 24))}
+                    placeholder="Your name"
+                    maxLength={24}
+                    aria-label="Your name for the leaderboard"
+                  />
+                  <button
+                    type="button"
+                    className="restart-btn"
+                    onClick={saveScore}
+                    disabled={saving || !username.trim()}
+                  >
+                    {saving ? 'SAVING…' : 'SAVE SCORE'}
+                  </button>
+                </div>
+                {saveMsg && <p className="sb-warn">{saveMsg}</p>}
+              </div>
+            )}
+            {phase === 'won' && saved && (
+              <p className="sb-ok">Score recorded on the world board.</p>
+            )}
+
+            <div className="scroll-area">
+              {boardState === 'loading' && <p className="sb-muted">Reading the world board…</p>}
+              {boardState === 'offline' && (
+                <p className="sb-warn">GLOBAL BOARD OFFLINE — {boardMsg}</p>
               )}
-              {revealed && w && w !== "draw" && (
-                <div style={styles.laneBadge}>{w === "enemy" ? "−" : "+"}{Math.abs(result.lanes[lane].enemyPower - result.lanes[lane].playerPower)}</div>
+              {boardState === 'ready' && entries.length === 0 && (
+                <p className="sb-muted">No scores yet. Be the first blood.</p>
+              )}
+              {boardState === 'ready' && entries.length > 0 && (
+                <table className="leaderboard-table">
+                  <thead>
+                    <tr><th>#</th><th>Username</th><th>Flips</th><th>Date</th></tr>
+                  </thead>
+                  <tbody>
+                    {entries.map((e, i) => (
+                      <tr key={`${e.created_at}-${i}`}>
+                        <td>{i + 1}</td>
+                        <td>{e.username}</td>
+                        <td>{e.flips}</td>
+                        <td>{fmtDate(e.created_at)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               )}
             </div>
-          );
-        })}
-      </div>
 
-      <div style={styles.mid}>
-        <div style={styles.mana}>
-          {Array.from({ length: MANA_PER_ROUND }).map((_, i) => (
-            <span key={i} style={{ ...styles.pip, opacity: i < match.mana ? 1 : 0.2 }}>●</span>
-          ))}
-          <span style={styles.manaLabel}>blood</span>
-        </div>
-        {match.phase === "deploy" && (
-          <button style={styles.horn} onClick={onBattle}>Sound the horn</button>
-        )}
-        {match.phase === "result" && (
-          <button style={styles.horn} onClick={onNext}>
-            {match.round >= 5 ? "See the outcome" : `Begin round ${match.round + 1}`}
-          </button>
-        )}
-      </div>
-
-      {/* player lanes */}
-      <div style={styles.lanes}>
-        {[0, 1, 2].map((lane) => {
-          const card = match.playerLanes[lane];
-          return (
-            <button key={lane} className="sb-lane" style={styles.laneBtn} onClick={() => onLaneClick(lane)}
-              aria-label={`Lane ${lane + 1}${card ? `, ${card.name} (tap to recall)` : ", empty"}`}>
-              {card ? <CardFace card={card} small /> : <div style={styles.emptySlot}>deploy here</div>}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* player hand */}
-      <div style={styles.hand}>
-        {match.playerHand.map((card, i) => (
-          <button
-            key={card.id}
-            className="sb-card-btn"
-            onClick={() => onHandClick(i)}
-            disabled={match.phase !== "deploy" || card.cost > match.mana}
-            style={{
-              ...styles.handCard,
-              borderColor: elementColor(card.element),
-              opacity: card.cost > match.mana ? 0.35 : 1,
-              transform: selected === i ? "translateY(-10px)" : "none",
-              boxShadow: selected === i ? `0 0 16px ${elementColor(card.element)}` : "none",
-            }}
-            aria-label={`${card.name}, power ${card.power}, cost ${card.cost}`}
-          >
-            <CardFace card={card} small />
-          </button>
-        ))}
-      </div>
-
-      <div style={styles.footer}>
-        <button style={styles.btn} onClick={() => setShowCodex(true)}>Rune codex</button>
-        <span style={styles.tip}>
-          {match.phase === "deploy"
-            ? "Pick a rune, then a lane. Tap a deployed rune to take it back. Fire beats Frost beats Storm beats Stone beats Blood beats Fire."
-            : result
-              ? `Round ${match.round}: ${result.roundWinner === "draw" ? "a draw" : result.roundWinner === "player" ? "you take it" : "the foe takes it"} (${result.playerWins}–${result.enemyWins} lanes)`
-              : ""}
-        </span>
-      </div>
-      <div aria-hidden="true" style={{ height: 'calc(4.5rem + env(safe-area-inset-bottom))' }} />
-
-      {match.phase === "over" && (
-        <div style={styles.overlay}>
-          <h2 style={styles.overTitle}>
-            {match.winner === "player" ? "The field is yours" : match.winner === "enemy" ? "The foe prevails" : "A blood-stained draw"}
-          </h2>
-          <p style={styles.overSub}>Final: you {match.playerScore} — {match.enemyScore} foe</p>
-          <button style={styles.horn} onClick={onRematch}>Fight again</button>
+            <div className="restart-strip">
+              <button type="button" className="restart-btn" onClick={restart}>RESTART</button>
+              <button
+                type="button"
+                className="restart-btn sb-ghost"
+                onClick={() => setBoardOpen(false)}
+              >
+                CLOSE
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
-      {showCodex && (
-        <div style={styles.overlay} role="dialog" aria-label="Rune codex">
-          <h2 style={styles.overTitle}>Rune Codex</h2>
-          <div style={styles.codexGrid}>
+      {codexOpen && (
+        <div className="sb-codex show" role="dialog" aria-modal="true" aria-label="Rune codex">
+          <button
+            type="button"
+            id="codex-close"
+            aria-label="Close rune codex"
+            onClick={() => setCodexOpen(false)}
+          >
+            ×
+          </button>
+          <h1 className="sb-codex-title">RUNE CODEX</h1>
+          <div>
             {RUNES.map((r) => (
-              <div key={r.id} style={{ ...styles.codexCard, borderColor: elementColor(r.element) }}>
-                <Glyph strokes={r.glyph} color={elementColor(r.element)} size={48} />
-                <div style={styles.codexName}>{r.name}</div>
-                <div style={styles.codexMeta}>{r.element} · ⚔ {r.power} · 🩸 {r.cost}</div>
-                <div style={styles.codexEffect}>{r.effectText}</div>
+              <div className="rune-entry" key={r.name}>
+                <div className="rune-symbol">{r.rune}</div>
+                <div className="rune-info">
+                  <div className="rune-name">{r.name}</div>
+                  <div className="rune-desc">{r.meaning}</div>
+                </div>
               </div>
             ))}
           </div>
-          <button style={styles.horn} onClick={() => setShowCodex(false)}>Back to battle</button>
         </div>
       )}
     </div>
   );
 }
 
-const styles = {
-  page: { minHeight: "100dvh", background: "radial-gradient(1200px 800px at 50% -10%, #2a0f1e 0%, #0d060d 55%, #060308 100%)", color: "#f5e9e2", fontFamily: "system-ui, -apple-system, sans-serif", display: "flex", flexDirection: "column", alignItems: "center", padding: "12px 10px 18px", userSelect: "none" },
-  header: { textAlign: "center", marginBottom: 8 },
-  title: { margin: 0, fontSize: 30, fontWeight: 800, letterSpacing: 6, color: "#ff2e63", textTransform: "uppercase", textShadow: "0 0 18px rgba(255,46,99,.45)" },
-  scoreLine: { display: "flex", gap: 18, justifyContent: "center", fontSize: 15, fontWeight: 700, marginTop: 4 },
-  round: { opacity: 0.7, fontWeight: 400 },
-  record: { fontSize: 12, opacity: 0.55, marginTop: 2 },
-  lanes: { display: "flex", gap: 10, justifyContent: "center", width: "100%", maxWidth: 560 },
-  lane: { flex: 1, minHeight: 118, borderRadius: 12, border: "1px solid rgba(255,255,255,.14)", background: "rgba(255,255,255,.04)", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", padding: 6 },
-  laneBtn: { flex: 1, minHeight: 118, borderRadius: 12, border: "1px dashed rgba(255,46,99,.4)", background: "rgba(255,46,99,.05)", display: "flex", alignItems: "center", justifyContent: "center", padding: 6, cursor: "pointer", color: "inherit", font: "inherit" },
-  emptySlot: { fontSize: 12, opacity: 0.4, textAlign: "center" },
-  cardBack: { width: 56, height: 76, borderRadius: 8, background: "linear-gradient(135deg,#3a1024,#180a14)", border: "1px solid #ff2e63", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, color: "#ff2e63" },
-  laneBadge: { position: "absolute", top: 4, right: 6, fontSize: 12, fontWeight: 700, color: "#ffd76e" },
-  mid: { display: "flex", alignItems: "center", gap: 16, margin: "10px 0" },
-  mana: { display: "flex", alignItems: "center", gap: 4, fontSize: 18, color: "#ff2e63" },
-  pip: { textShadow: "0 0 8px rgba(255,46,99,.8)" },
-  manaLabel: { fontSize: 12, opacity: 0.6, marginLeft: 4 },
-  horn: { background: "#ff2e63", color: "#fff", border: "none", borderRadius: 10, padding: "10px 22px", fontSize: 15, fontWeight: 800, letterSpacing: 1, cursor: "pointer", textTransform: "uppercase" },
-  hand: { display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap", width: "100%", maxWidth: 620, marginTop: 4 },
-  handCard: { background: "rgba(20,10,16,.85)", borderRadius: 12, border: "2px solid", padding: 4, cursor: "pointer", color: "inherit", font: "inherit" },
-  card: { display: "flex", flexDirection: "column", alignItems: "center", gap: 2, padding: 4, minWidth: 76 },
-  cardSmall: { minWidth: 64 },
-  cardName: { fontSize: 13, fontWeight: 800, letterSpacing: 1 },
-  cardMeta: { display: "flex", gap: 8, fontSize: 12 },
-  pow: { color: "#ffd76e" },
-  cost: { color: "#ff2e63" },
-  cardEffect: { fontSize: 10, opacity: 0.65, textAlign: "center", maxWidth: 110, lineHeight: 1.3 },
-  footer: { display: "flex", alignItems: "center", gap: 12, marginTop: 12, maxWidth: 620, flexWrap: "wrap", justifyContent: "center" },
-  btn: { background: "rgba(255,255,255,.08)", color: "#fff", border: "1px solid rgba(255,255,255,.25)", borderRadius: 8, padding: "8px 14px", fontSize: 13, cursor: "pointer" },
-  tip: { fontSize: 12, opacity: 0.6, maxWidth: 420, textAlign: "center", lineHeight: 1.5 },
-  overlay: { position: "fixed", inset: 0, zIndex: 20, background: "rgba(6,3,8,.92)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 20, textAlign: "center", overflowY: "auto" },
-  overTitle: { fontSize: 32, color: "#ff2e63", letterSpacing: 3, textTransform: "uppercase", margin: "0 0 8px" },
-  overSub: { fontSize: 15, opacity: 0.8, margin: "0 0 20px" },
-  codexGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 10, width: "100%", maxWidth: 680, maxHeight: "62dvh", overflowY: "auto", marginBottom: 18 },
-  codexCard: { border: "1px solid", borderRadius: 12, padding: 10, background: "rgba(255,255,255,.04)", display: "flex", flexDirection: "column", alignItems: "center", gap: 4 },
-  codexName: { fontSize: 14, fontWeight: 800, letterSpacing: 1 },
-  codexMeta: { fontSize: 11, opacity: 0.7 },
-  codexEffect: { fontSize: 11, opacity: 0.6, textAlign: "center", lineHeight: 1.4 },
-};
+// Ported from the original Starblood stylesheet, scoped under #starblood-root
+// so the game page can never leak styles into the launcher. Telemetry and
+// tracker styles are gone with their scripts.
+const STARBLOOD_CSS = `
+#starblood-root {
+  --blood-glow: #ff3333;
+  --blood-dark: #8a0000;
+  --card-h: clamp(60px, 12dvh, 110px);
+  --card-w: calc(var(--card-h) * 0.72);
+  position: fixed; inset: 0;
+  background: #000; color: #fff;
+  font-family: 'Courier New', monospace;
+  overflow: hidden;
+  -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none;
+  z-index: 1;
+}
+#starblood-root .sb-bg { position: absolute; inset: 0; opacity: 0.4; pointer-events: none; }
+#starblood-root .sb-bg video { width: 100%; height: 100%; object-fit: cover; }
+#starblood-root .sb-shell {
+  position: relative; height: 100dvh;
+  display: flex; flex-direction: column;
+}
+#starblood-root .sb-topbar {
+  display: flex; align-items: center; gap: 12px;
+  padding: calc(env(safe-area-inset-top, 0px) + 10px) 14px 4px 14px;
+}
+#starblood-root .sb-title {
+  flex: 1; text-align: center; margin: 0;
+  color: var(--blood-glow); font-size: 1.6rem;
+  letter-spacing: 12px; text-shadow: 0 0 20px var(--blood-dark);
+  font-weight: bold;
+}
+#starblood-root .sb-hud { font-size: 0.7rem; letter-spacing: 2px; color: #ffcccc; white-space: nowrap; }
+#starblood-root .sb-hint { opacity: 0.7; }
+#starblood-root .sb-board {
+  flex: 1; display: grid; grid-template-columns: repeat(4, 1fr);
+  gap: 8px; padding: 10px 15px; justify-items: center; align-content: center;
+  perspective: 1200px; min-height: 0;
+}
+#starblood-root .card-placeholder {
+  width: var(--card-w); height: var(--card-h);
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,51,51,0.1);
+  border-radius: 6px; position: relative;
+}
+#starblood-root .card-entity {
+  position: absolute; width: var(--card-w); height: var(--card-h);
+  transform-style: preserve-3d; z-index: 10; cursor: pointer;
+}
+#starblood-root .card-inner {
+  width: 100%; height: 100%; transform-style: preserve-3d;
+  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 6px; border: 1px solid rgba(138,0,0,0.6);
+  background: #050505; box-shadow: 0 0 15px rgba(0,0,0,0.8);
+}
+#starblood-root .card-entity.active .card-inner { transform: rotateY(180deg); }
+#starblood-root .back, #starblood-root .front {
+  position: absolute; width: 100%; height: 100%;
+  backface-visibility: hidden; -webkit-backface-visibility: hidden;
+  border-radius: 6px; overflow: hidden; background-color: #000;
+}
+#starblood-root .back { transform: rotateY(0deg); }
+#starblood-root .front {
+  transform: rotateY(180deg);
+  background-size: contain; background-position: center; background-repeat: no-repeat;
+}
+#starblood-root .front::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(rgba(18,16,16,0) 50%, rgba(0,0,0,0.25) 50%),
+    linear-gradient(90deg, rgba(255,0,0,0.06), rgba(0,255,0,0.02), rgba(0,255,0,0.06));
+  background-size: 100% 2px, 3px 100%; pointer-events: none;
+}
+#starblood-root .back video { width: 100%; height: 100%; object-fit: cover; opacity: 0.6; }
+#starblood-root .matched { animation: sbFadeBack 0.8s forwards; pointer-events: none; }
+@keyframes sbFadeBack { to { opacity: 0; transform: scale(0.5) translateZ(-500px); } }
+#starblood-root .sb-controls {
+  display: flex; justify-content: space-between; align-items: center;
+  width: 100%; box-sizing: border-box;
+  padding: 10px 30px calc(env(safe-area-inset-bottom, 0px) + 65px) 30px;
+  z-index: 20;
+}
+#starblood-root .holo-blue-btn {
+  background: rgba(0,242,255,0.15); border: 1px solid #00f2ff; color: #00f2ff;
+  padding: 12px 24px; text-decoration: none; font-weight: bold; letter-spacing: 2px;
+  border-radius: 8px; box-shadow: 0 0 15px rgba(0,242,255,0.3);
+  transition: all 0.3s; text-align: center; font-size: 0.8rem; text-transform: uppercase;
+  font-family: inherit; cursor: pointer;
+}
+#starblood-root .holo-blue-btn:hover { background: #00f2ff; color: #000; box-shadow: 0 0 25px #00f2ff; }
+#starblood-root #deck-frame {
+  width: 55px; height: 75px; flex-shrink: 0;
+  border: 2px solid var(--blood-glow); border-radius: 4px;
+  background: rgba(138,0,0,0.2); cursor: pointer;
+  box-shadow: 0 0 15px var(--blood-dark); transition: all 0.3s;
+}
+#starblood-root #deck-frame:hover { box-shadow: 0 0 25px var(--blood-glow); transform: scale(1.08); }
+#starblood-root .sb-overlay {
+  position: absolute; inset: 0; background: rgba(0,0,0,0.9);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  z-index: 50; padding: 16px; overflow-y: auto;
+}
+#starblood-root .holoframe {
+  width: 100%; max-width: 600px; background: rgba(40,0,0,0.2);
+  backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px);
+  border: 1px solid var(--blood-glow); border-radius: 20px; padding: 20px;
+  box-shadow: 0 0 30px rgba(255,0,0,0.2), inset 0 0 15px rgba(255,0,0,0.3);
+  position: relative; overflow: hidden;
+}
+#starblood-root #leaderboard-title {
+  color: var(--blood-glow); text-align: center; letter-spacing: 10px;
+  margin: 0 0 5px 0; cursor: pointer; font-size: 1.4rem;
+}
+#starblood-root .sb-sub {
+  text-align: center; letter-spacing: 5px; color: #fff;
+  margin: 0 0 16px 0; font-size: 0.8rem;
+}
+#starblood-root .sb-save { margin-bottom: 14px; }
+#starblood-root .sb-save-line { text-align: center; color: #ffcccc; font-size: 0.85rem; margin: 0 0 10px 0; }
+#starblood-root .sb-save-row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+#starblood-root .sb-name {
+  background: rgba(0,0,0,0.5); border: 1px solid var(--blood-dark);
+  color: #fff; padding: 10px 14px; border-radius: 6px;
+  font-family: inherit; font-size: 1rem; letter-spacing: 1px; width: 220px;
+}
+#starblood-root .sb-name:focus { outline: none; border-color: var(--blood-glow); box-shadow: 0 0 12px rgba(255,51,51,0.4); }
+#starblood-root .sb-ok { text-align: center; color: #7CFC98; font-size: 0.85rem; letter-spacing: 2px; margin: 0 0 14px 0; }
+#starblood-root .sb-warn { text-align: center; color: #ffb3b3; font-size: 0.8rem; letter-spacing: 1px; margin: 10px 0 0 0; }
+#starblood-root .sb-muted { text-align: center; color: rgba(255,204,204,0.6); font-size: 0.85rem; letter-spacing: 2px; }
+#starblood-root .scroll-area { max-height: 40dvh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+#starblood-root .leaderboard-table { width: 100%; border-collapse: collapse; color: #ffcccc; text-align: left; }
+#starblood-root .leaderboard-table th {
+  border-bottom: 1px solid var(--blood-dark); padding: 10px;
+  font-size: 0.8rem; letter-spacing: 2px; color: var(--blood-glow);
+}
+#starblood-root .leaderboard-table td { padding: 10px; border-bottom: 1px solid rgba(138,0,0,0.2); font-size: 0.9rem; }
+#starblood-root .restart-strip {
+  margin-top: 16px; width: 100%; text-align: center;
+  border-top: 1px solid var(--blood-dark); padding-top: 14px;
+  display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;
+}
+#starblood-root .restart-btn {
+  background: transparent; color: #fff; border: 1px solid var(--blood-glow);
+  padding: 10px 30px; cursor: pointer; letter-spacing: 5px; transition: 0.3s;
+  font-family: inherit; font-size: 0.85rem; border-radius: 4px;
+}
+#starblood-root .restart-btn:hover:not(:disabled) { background: var(--blood-glow); box-shadow: 0 0 20px var(--blood-glow); }
+#starblood-root .restart-btn:disabled { opacity: 0.4; cursor: default; }
+#starblood-root .sb-ghost { border-color: rgba(255,51,51,0.4); }
+#starblood-root .sb-codex {
+  position: absolute; inset: 0; z-index: 60; background: rgba(0,0,0,0.92);
+  display: none; flex-direction: column; align-items: center;
+  color: var(--blood-glow); padding: 20px; overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+#starblood-root .sb-codex.show { display: flex; }
+#starblood-root .sb-codex-title { letter-spacing: 8px; margin: 30px 0 10px 0; text-align: center; }
+#starblood-root .rune-entry {
+  display: flex; align-items: center; margin: 12px 0; width: 100%; max-width: 700px;
+  padding: 14px; border: 1px solid rgba(255,51,51,0.3); border-radius: 8px;
+  background: rgba(138,0,0,0.08);
+}
+#starblood-root .rune-symbol {
+  font-size: 3.2rem; margin-right: 18px; min-width: 70px; text-align: center;
+  text-shadow: 0 0 20px var(--blood-glow);
+}
+#starblood-root .rune-info { flex: 1; }
+#starblood-root .rune-name { font-size: 1.2rem; margin-bottom: 4px; color: #fff; }
+#starblood-root .rune-desc { font-size: 0.9rem; opacity: 0.9; color: #ffcccc; }
+#starblood-root #codex-close {
+  position: absolute; top: calc(env(safe-area-inset-top, 0px) + 12px); right: 24px;
+  font-size: 2rem; cursor: pointer; color: var(--blood-glow);
+  background: transparent; border: none; padding: 8px; line-height: 1;
+}
+`;

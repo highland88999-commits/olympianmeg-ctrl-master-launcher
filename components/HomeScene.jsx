@@ -3,9 +3,10 @@
 // HomeScene: the hub's 3D orbit scene, code-split out of app/page.jsx via
 // next/dynamic (ssr:false) so the heavy three.js stack (fiber, drei,
 // postprocessing, three) and every god panel only load for the 3D hub.
-// Scene, markup, ad inventory (stake.com tower panels), and camera logic are
+// Scene, markup, ad inventory (tower panels: Merlin's native stake.com slot
+// plus the rotating billboard partner inventory), and camera logic are
 // byte-identical to the inline version — this is a pure code-split.
-import { useState, useEffect, useRef, Suspense } from 'react';
+import { useState, useEffect, useRef, useMemo, Suspense } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Stars } from '@react-three/drei';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
@@ -24,6 +25,7 @@ import { registerCollider, unregisterCollider, resolveFlightCollision } from '..
 import { createBikeFlightState, stepBikeFlight, rotateOffsetByYaw, bikeForward } from '../lib/bike-flight';
 import { applyCoverFit } from '../lib/texture-fit';
 import { GOD_TOWER_SPOTS } from '../lib/home-positions';
+import { panelsForTower } from '../lib/tower-panels';
 import GodTower from './GodTower';
 
 function MarsBackground() {
@@ -491,6 +493,14 @@ function TextureProvider({ onLaunchExternal }) {
 
   if (!textures) return null;
 
+  // Deterministic ad panels per tower (panel 0 = Merlin's native stake.com
+  // slot on every tower; panels 1–3 rotate the real billboard inventory).
+  // Memoized so the memoized GodTower never sees a fresh array identity.
+  const towerPanels = useMemo(
+    () => GOD_TOWER_SPOTS.map((_, i) => panelsForTower(i)),
+    []
+  );
+
   // One tower satellite per god-menu category (Merlin, 2026-09-30) —
   // the Zeus pattern with the name and color changed per category.
   // Colors come from the god bands so towers match their ring satellites.
@@ -504,6 +514,7 @@ function TextureProvider({ onLaunchExternal }) {
           position={spot.pos}
           onLaunchExternal={(url) => onLaunchExternal(url, spot.pos)}
           textures={textures}
+          panels={towerPanels[i]}
         />
       ))}
     </>
