@@ -40,11 +40,26 @@ const INQUIRIES_EMAIL = 'olympianmeg@gmail.com';
 // Fix: a real canvas-generated brushed texture in the god color (Merlin's
 // call: "add a texture to the border"), plus honest depth separation and
 // polygonOffset so the stacked faces can never z-fight again.
+//
+// iPhone hardening (2026-10-01): one shared texture per god color, cached
+// at module level — 10 canvases for the whole ring instead of 40 (one per
+// panel). iOS aggressively reclaims 2D canvas contexts under memory
+// pressure; getContext('2d') can return null, so every canvas here has an
+// honest no-texture fallback instead of throwing.
+const borderTextureCache = new Map();
+function getBorderTexture(color) {
+  if (!borderTextureCache.has(color)) {
+    borderTextureCache.set(color, makeBorderTexture(color));
+  }
+  return borderTextureCache.get(color);
+}
+
 function makeBorderTexture(color) {
   const c = document.createElement('canvas');
   c.width = 128;
   c.height = 160;
   const g = c.getContext('2d');
+  if (!g) return null; // iOS canvas exhaustion: caller falls back to flat color
   const base = new THREE.Color(color);
   const dark = base.clone().multiplyScalar(0.35);
   const mid = base.clone().multiplyScalar(0.6);
@@ -88,6 +103,10 @@ function usePanelFaceTexture(slot, stakeTex) {
     let owned = null;
     const toTexture = (canvas) => {
       if (cancelled) return;
+      if (!canvas) {
+        setTex(null); // honest fallback: flat face color, never a crash
+        return;
+      }
       const t = new THREE.CanvasTexture(canvas);
       t.colorSpace = THREE.SRGBColorSpace;
       t.anisotropy = 4;
@@ -127,8 +146,10 @@ function TowerAdPanel({ slot, stakeTex, color, onLaunchExternal }) {
   const [btnHovered, setBtnHovered] = useState(false);
   const [emailHovered, setEmailHovered] = useState(false);
 
-  // One border texture per god color — memoized, generated once.
-  const borderTex = useMemo(() => makeBorderTexture(color), [color]);
+  // One shared border texture per god color (module cache) — 10 canvases
+  // for the whole ring, not 40. Null when iOS reclaims the 2D context;
+  // the material below falls back to the flat god color.
+  const borderTex = getBorderTexture(color);
   const faceTex = usePanelFaceTexture(slot, stakeTex);
 
   const isStake = slot.key === STAKE_SLOT.key;
@@ -184,7 +205,8 @@ function TowerAdPanel({ slot, stakeTex, color, onLaunchExternal }) {
       <mesh position={[0, 1, 0.16]}>
         <planeGeometry args={[4.0, 4.7]} />
         <meshStandardMaterial
-          map={borderTex}
+          map={borderTex || undefined}
+          color={borderTex ? '#ffffff' : color}
           metalness={0.6}
           roughness={0.35}
           polygonOffset

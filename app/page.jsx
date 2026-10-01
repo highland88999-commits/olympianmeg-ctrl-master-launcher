@@ -26,6 +26,7 @@ const HomeScene = dynamic(() => import('@/components/HomeScene'), {
 
 
 function NexusHub() {
+  const router = useRouter();
   const { t } = useI18n();
   // Drop-target fallbacks: the 10 god-tower spots by god name, plus the
   // legacy reference points. (Nothing currently passes fallbackPos, but the
