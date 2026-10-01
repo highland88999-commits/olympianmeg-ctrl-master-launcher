@@ -66,7 +66,7 @@ function goldNote(gold) {
 
 // Exact-name product lookup: resolves a product by its Stripe name at
 // runtime, so no product id is ever hardcoded. Used for the hoodie
-// ("Axiom Repository - Premium Unisex Hoodie") and anything else the
+// ("Omega Store - Premium Unisex Hoodie") and anything else the
 // client names instead of ids.
 async function findProductByName(stripe, name) {
   const want = String(name || '').trim();

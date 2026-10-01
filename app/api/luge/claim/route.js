@@ -17,7 +17,7 @@ import { decideRewardEligibility, LUGE_PREMIUM_COUNT } from '@/lib/luge/logic.js
 import { apiGuard } from '@/lib/api-guard';
 
 const SIZES = ['S', 'M', 'L', 'XL', '2XL', '3XL'];
-const HOODIE_PRODUCT_NAME = 'Axiom Repository - Premium Unisex Hoodie';
+const HOODIE_PRODUCT_NAME = 'Omega Store - Premium Unisex Hoodie';
 
 function tableMissing(err) {
   const code = String(err?.code || '');

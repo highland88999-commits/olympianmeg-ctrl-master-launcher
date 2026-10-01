@@ -104,10 +104,11 @@ export const POST = apiGuard(async function POST(req) {
 //
 // submitPrintfulOrder() is a STUB and is never called — no real Printful
 // order can be submitted from this code. Wiring it requires ALL of:
-//   (1) Printful access (Merlin confirmed 2026-09-29 there is no API key —
-//       "I didn't give you an API". Fulfillment is manual via the Printful
-//       dashboard, Google sign-in as R.hightechindustries@gmail.com,
-//       until/unless an API path is established);
+//   (1) a Printful token with order-write scope — PRINTFUL_API_KEY is set on
+//       Vercel (nexus, production + preview) and catalog READS work today,
+//       but order submission (POST /orders) needs the token's permission to
+//       cover order creation. Until that scope is confirmed, fulfillment
+//       stays manual via the Printful dashboard (R.hightechindustries@gmail.com);
 //   (2) Merlin's explicit go-ahead (the no-charges / no-surprise-fulfillment
 //       rule: Printful costs real money per order);
 //   (3) the size -> Printful variant mapping (e.g. hoodie size "L" maps to

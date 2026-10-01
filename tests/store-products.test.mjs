@@ -14,7 +14,8 @@
 // surface as honest notices, never crashes or fake listings.
 import {
   mapListItemToCard,
-  dedupeByName,
+  dedupeById,
+  findNameCollisions,
   buildCards,
   noticeForError,
   isPrintfulConfigured,
@@ -74,14 +75,32 @@ t('no-thumb: image null, not a crash', nothumb.image === null && nothumb.id === 
 const nameless = mapListItemToCard({ id: 5 });
 t('nameless: honest Untitled product', nameless.name === 'Untitled product' && nameless.id === 'pf_5');
 
-// --- dedupe: each hoodie listed exactly once ----------------------------------
-const deduped = dedupeByName([
+// --- dedupe: ID-based — each Printful product listed exactly once ---------
+// Same name on DIFFERENT product ids is KEPT: the old name-dedupe silently
+// ate these, a candidate contributor to the 218-vs-368 catalog gap.
+const deduped = dedupeById([
   mapListItemToCard(HOODIE_ITEM),
-  mapListItemToCard({ ...HOODIE_ITEM, id: 999, name: 'hocus   locusts hoodie' }),
+  mapListItemToCard({ ...HOODIE_ITEM }), // identical product id: duplicate payload, collapses
+  mapListItemToCard({ ...HOODIE_ITEM, id: 999, name: 'hocus   locusts hoodie' }), // same name, different id: kept
   mapListItemToCard(SECOND_ITEM),
 ]);
-t('dedupe: case/space-insensitive duplicates collapse', deduped.length === 2);
+t('dedupe: same product id collapses', deduped.length === 3);
 t('dedupe: keeps first occurrence', deduped[0].id === 'pf_123456');
+t('dedupe: same name, different id is kept', deduped.some((c) => c.id === 'pf_999'));
+
+// Name-collapse survives only as a logged signal — it never drops products.
+const collisions = findNameCollisions(deduped);
+t('name collisions: reported as a signal, not a drop',
+  collisions.length === 1
+  && collisions[0].ids.includes('pf_123456')
+  && collisions[0].ids.includes('pf_999'));
+t('name collisions: clean input reports none',
+  findNameCollisions([mapListItemToCard(HOODIE_ITEM), mapListItemToCard(SECOND_ITEM)]).length === 0);
+
+// Cards with no Printful id carry no key — they are never collapsed.
+const unknowns = dedupeById([mapListItemToCard({ name: 'A' }), mapListItemToCard({ name: 'B' })]);
+t('dedupe: id-less cards are never collapsed',
+  unknowns.length === 2 && unknowns.every((c) => c.id === 'pf_unknown'));
 
 // --- buildCards: empty + nulls ----------------------------------------------
 t('buildCards([]) is honestly empty', buildCards([]).length === 0);

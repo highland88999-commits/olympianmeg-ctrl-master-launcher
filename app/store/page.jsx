@@ -149,10 +149,12 @@ function StoreInner() {
 
   const groups = useMemo(() => {
     const list = products || [];
+    // `kind` is only ever 'apparel' or 'other' (see kindOf in
+    // lib/store-printful.js) — there is no third group, so the old `rest`
+    // bucket could never be non-empty. Removed, not hidden.
     const apparel = list.filter((p) => p.kind === 'apparel');
-    const rest = list.filter((p) => p.kind !== 'apparel' && p.kind !== 'other');
     const more = list.filter((p) => p.kind === 'other');
-    return { apparel, rest, more };
+    return { apparel, more };
   }, [products]);
 
   const onBuy = useCallback(async (product, size) => {
@@ -338,7 +340,6 @@ function StoreInner() {
         ) : (
           <>
             <Section title="Apparel" items={groups.apparel} />
-            <Section title="More from the universe" items={groups.rest} />
             <Section title="More" items={groups.more} />
           </>
         )}
