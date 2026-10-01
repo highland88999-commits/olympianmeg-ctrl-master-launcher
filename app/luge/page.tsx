@@ -9,8 +9,44 @@ import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { supabase } from '@/lib/supabase';
 import { LUGE_COURSES, LUGE_SLEDS, LUGE_PREMIUM_IDS, LUGE_PREMIUM_COUNT } from '@/lib/luge_data';
+import {
+  generateZones,
+  zoneAt,
+  steerAngle,
+  TUBE_RADIUS,
+  RIDE_RADIUS,
+  BOOST_ACCEL,
+  SAND_DRAG,
+} from '@/lib/luge/track';
 import GoldCheckoutOption from '@/components/economy/GoldCheckoutOption';
 import { fx, unlockFx } from '@/lib/fx';
+
+// The tube's banked frame rolls around the world Z axis in turns.
+const Z_AXIS = new THREE.Vector3(0, 0, 1);
+
+// A glowing band laid on the tube interior marking a speed-up zone (cyan)
+// or a sand patch (sandy amber). Radius sits just inside the main tube so it
+// reads as paint on the wall, not new geometry to collide with.
+function ZoneBand({ curve, zone, kind }) {
+  const subCurve = useMemo(() => {
+    const pts = [];
+    const N = 24;
+    for (let i = 0; i <= N; i++) {
+      pts.push(curve.getPointAt(THREE.MathUtils.lerp(zone.start, zone.end, i / N)));
+    }
+    return new THREE.CatmullRomCurve3(pts, false);
+  }, [curve, zone]);
+  return (
+    <mesh>
+      <tubeGeometry args={[subCurve, 24, TUBE_RADIUS - 0.35, 16, false]} />
+      {kind === 'boost' ? (
+        <meshBasicMaterial color="#00f2ff" transparent opacity={0.22} side={THREE.BackSide} toneMapped={false} />
+      ) : (
+        <meshBasicMaterial color="#d9b36a" transparent opacity={0.5} side={THREE.BackSide} />
+      )}
+    </mesh>
+  );
+}
 
 // ==========================================
 // 3D TRACK & PHYSICS ENGINE
@@ -21,11 +57,20 @@ function LugeTrack({ course, sled, tiltData, onFinish }) {
 
   const [trackTex, setTrackTex] = useState(null);
   const [hullTex, setHullTex] = useState(null);
+  // HUD label for the zone the sled is currently in ('boost' | 'sand' | null).
+  // Set only on change — never at frame rate.
+  const [zoneFx, setZoneFx] = useState(null);
   const progress = useRef(0);
   const speed = useRef(0);
-  const playerX = useRef(0); // Horizontal track offset
+  // Angular position around the tube interior: 0 = floor, PI/2 = right wall,
+  // PI = ceiling. Steering rolls the full 360° — the whole tube is track.
+  const tubeAngle = useRef(0);
+  const activeZone = useRef(null);
 
   const baseMaxSpeed = 150 + (course.turns * 8);
+
+  // Deterministic per-course speed-up / sand layout (same every run).
+  const zones = useMemo(() => generateZones(course), [course]);
 
   // 1. Dynamic Texture Loader & UV Wrapper (course walls)
   useEffect(() => {
@@ -99,8 +144,24 @@ function LugeTrack({ course, sled, tiltData, onFinish }) {
       speed.current -= tiltAccel * delta * 200; // Lean back to brake hard
     }
 
-    // Auto-accelerate slightly if neutral, clamp limits
+    // Auto-accelerate slightly if neutral
     if (speed.current < baseMaxSpeed && tiltAccel <= 0) speed.current += delta * 40;
+
+    // SPEED-UP ZONES & SAND PATCHES: deterministic per course. They feed the
+    // same clamp below, so top speed never changes and the server anti-cheat
+    // floor (lib/luge/logic.js) stays valid — boosts just reach top speed
+    // dramatically faster (a real launch out of sand and braking zones).
+    const zoneProg = Math.min(progress.current, 0.999);
+    const zone = zoneAt(zones, zoneProg);
+    if (zone !== activeZone.current) {
+      activeZone.current = zone;
+      setZoneFx(zone);
+      if (zone === 'boost') fx.boost();
+      else if (zone === 'sand') fx.sandDrag();
+    }
+    if (zone === 'boost') speed.current += BOOST_ACCEL * delta;
+    else if (zone === 'sand') speed.current -= SAND_DRAG * delta;
+
     speed.current = THREE.MathUtils.clamp(speed.current, 20, baseMaxSpeed * 1.5);
 
     progress.current += (speed.current * delta) / course.length;
@@ -111,32 +172,41 @@ function LugeTrack({ course, sled, tiltData, onFinish }) {
     }
 
     const safeProgress = Math.min(progress.current, 0.999);
+
     const pos = curve.getPointAt(safeProgress);
     const tangent = curve.getTangentAt(safeProgress);
-    const lookAtPos = curve.getPointAt(Math.min(safeProgress + 0.02, 1.0));
 
     const roll = tangent.x * Math.PI * 1.2;
-    const up = new THREE.Vector3(0, 1, 0).applyAxisAngle(new THREE.Vector3(0, 0, 1), roll);
-    const down = up.clone().negate();
+    const up = new THREE.Vector3(0, 1, 0).applyAxisAngle(Z_AXIS, roll);
     const right = new THREE.Vector3().crossVectors(tangent, up).normalize();
 
-    // TILT PHYSICS: Steering (Gamma)
-    // tilt.x is -1 (left) to 1 (right)
-    const targetX = tiltData.current.x * 14; // Max drift is 14 units left/right
-    playerX.current = THREE.MathUtils.lerp(playerX.current, targetX, delta * 5);
+    // TILT PHYSICS: Steering (Gamma) rolls the sled around the tube's full
+    // 360° interior. tilt.x is -1 (left) to 1 (right).
+    tubeAngle.current = steerAngle(tubeAngle.current, tiltData.current.x, delta);
+    const sinT = Math.sin(tubeAngle.current);
+    const cosT = Math.cos(tubeAngle.current);
+    // Outward radial from the tube axis to the sled: theta=0 rides the floor,
+    // PI/2 the right wall, PI the ceiling. RIDE_RADIUS < TUBE_RADIUS, so the
+    // side-wall barriers are solid from the inside by construction — the sled
+    // can never pass through them.
+    const radial = right.clone().multiplyScalar(sinT).addScaledVector(up, -cosT);
+    // The rider's head points back at the tube axis (wall-of-death stance).
+    const sledUp = radial.clone().negate();
 
     if (sledRef.current) {
-      // Apply pos, tangent, down, AND horizontal steering (right * playerX)
-      sledRef.current.position.copy(pos).addScaledVector(tangent, 15).addScaledVector(down, 8.5).addScaledVector(right, playerX.current);
-      const sledMatrix = new THREE.Matrix4().lookAt(sledRef.current.position, sledRef.current.position.clone().add(tangent), up);
+      sledRef.current.position.copy(pos).addScaledVector(tangent, 15).addScaledVector(radial, RIDE_RADIUS);
+      const sledMatrix = new THREE.Matrix4().lookAt(sledRef.current.position, sledRef.current.position.clone().add(tangent), sledUp);
       sledRef.current.quaternion.setFromRotationMatrix(sledMatrix);
     }
 
-    // Camera physically tracks the sled's horizontal drift
-    const camPos = pos.clone().addScaledVector(up, -2).addScaledVector(right, playerX.current * 0.5);
+    // Chase camera on a gimbal: it follows the sled around the tube but its
+    // up vector stays on the track's banked frame, so the horizon never
+    // flips — even riding the ceiling, the bottom never flips the rider.
+    const sledPos = sledRef.current ? sledRef.current.position : pos;
+    const camPos = sledPos.clone().addScaledVector(sledUp, 3.4).addScaledVector(tangent, -7.5);
     camera.position.copy(camPos);
     camera.up.copy(up);
-    camera.lookAt(lookAtPos.addScaledVector(right, playerX.current * 0.5));
+    camera.lookAt(sledPos.clone().addScaledVector(tangent, 16));
 
     camera.fov = THREE.MathUtils.lerp(camera.fov, 60 + (speed.current * 0.15), delta * 2);
     camera.updateProjectionMatrix();
@@ -157,6 +227,14 @@ function LugeTrack({ course, sled, tiltData, onFinish }) {
           color={course.bg === '#0a0a14' ? '#ffffff' : course.bg}
         />
       </mesh>
+
+      {/* Speed-up zones (cyan) and sand patches (amber) painted on the walls */}
+      {zones.boosts.map((z, i) => (
+        <ZoneBand key={`boost-${i}`} curve={curve} zone={z} kind="boost" />
+      ))}
+      {zones.sands.map((z, i) => (
+        <ZoneBand key={`sand-${i}`} curve={curve} zone={z} kind="sand" />
+      ))}
 
       <group ref={sledRef}>
         <mesh castShadow>
@@ -474,9 +552,9 @@ export default function LugeEngine() {
       <BackButton label="EXIT MATRIX" />
 
       {gameState === 'menu' && (
-        <div className="flex flex-col items-center justify-center w-full h-full p-8 text-center text-white bg-zinc-950">
-          <h1 className="mb-2 text-4xl text-cyan-400 drop-shadow-[0_0_15px_rgba(0,242,255,0.5)] uppercase tracking-widest">Cyberpunk Luge</h1>
-          <p className="mb-2 text-sm tracking-widest text-zinc-500 uppercase">Neon Descent Engine</p>
+        <div className="flex flex-col items-center w-full h-full p-6 sm:p-8 text-center text-white bg-zinc-950 overflow-y-auto">
+          <h1 className="mb-2 text-4xl text-cyan-400 drop-shadow-[0_0_15px_rgba(0,242,255,0.5)] uppercase tracking-widest shrink-0">Cyberpunk Luge</h1>
+          <p className="mb-2 text-sm tracking-widest text-zinc-500 uppercase shrink-0">Neon Descent Engine</p>
           {ownsArsenal && (
             <p className="mb-2 text-[11px] font-bold tracking-widest text-amber-400 uppercase">Complete Arsenal owned</p>
           )}
@@ -494,8 +572,8 @@ export default function LugeEngine() {
             <p className="max-w-xl mb-4 text-xs text-emerald-300">{purchaseNote}</p>
           )}
 
-          <div className="flex w-full max-w-5xl gap-8 h-[60vh]">
-            <div className="flex flex-col flex-1 p-4 overflow-y-auto border rounded border-cyan-500/30 bg-black/50 custom-scrollbar">
+          <div className="flex flex-col sm:flex-row w-full max-w-5xl gap-6 sm:gap-8 sm:h-[60vh] shrink-0">
+            <div className="flex flex-col flex-1 min-h-[38vh] sm:min-h-0 p-4 overflow-y-auto border rounded border-cyan-500/30 bg-black/50 custom-scrollbar">
               <h2 className="mb-4 font-bold text-fuchsia-400">SELECT COURSE</h2>
               {LUGE_COURSES.map(course => (
                 <div
@@ -514,7 +592,7 @@ export default function LugeEngine() {
               <div aria-hidden="true" className="player-clear shrink-0" />
             </div>
 
-            <div className="flex flex-col flex-1 p-4 overflow-y-auto border rounded border-fuchsia-500/30 bg-black/50 custom-scrollbar">
+            <div className="flex flex-col flex-1 min-h-[38vh] sm:min-h-0 p-4 overflow-y-auto border rounded border-fuchsia-500/30 bg-black/50 custom-scrollbar">
               <h2 className="mb-4 font-bold text-cyan-400">SELECT SLED</h2>
               {LUGE_SLEDS.map(sled => {
                 const locked = isSledLocked(sled);
@@ -550,9 +628,9 @@ export default function LugeEngine() {
 
           <button
             onClick={() => setGameState('pre_race_calibrate')}
-            className="px-12 py-4 mt-8 text-lg font-bold text-black uppercase transition-all bg-cyan-400 rounded-full hover:bg-white hover:shadow-[0_0_30px_rgba(0,242,255,0.6)] tracking-widest"
+            className="shrink-0 px-12 py-4 mt-6 mb-12 text-lg font-bold text-black uppercase transition-all bg-cyan-400 rounded-full hover:bg-white hover:shadow-[0_0_30px_rgba(0,242,255,0.6)] tracking-widest"
           >
-            INITIATE DESCENT
+            START DESCENT
           </button>
         </div>
       )}
@@ -624,12 +702,12 @@ export default function LugeEngine() {
             <p className="text-sm text-zinc-300 mb-6 leading-relaxed">
               Hold your device in a comfortable playing position.
               <br /><br />
-              <span className="text-cyan-400 font-bold">TILT LEFT/RIGHT</span> to steer. <br />
+              <span className="text-cyan-400 font-bold">TILT LEFT/RIGHT</span> to roll around the tube — floor, walls, ceiling, the whole 360°. <br />
               <span className="text-cyan-400 font-bold">TILT FORWARD</span> to accelerate. <br />
               <span className="text-fuchsia-500 font-bold">TILT BACKWARD</span> to brake.
             </p>
             <p className="text-xs text-zinc-500 mb-6">
-              No gyroscope? Tap the left or right half of the screen to steer.
+              No gyroscope? Tap the left or right half of the screen to roll.
               On desktop, use the arrow keys.
             </p>
             <button
@@ -674,8 +752,19 @@ export default function LugeEngine() {
             <div className="text-white text-xs font-mono">TURNS: {selectedCourse.turns}</div>
           </div>
 
+          {zoneFx === 'boost' && (
+            <div className="absolute top-5 right-5 z-10 pointer-events-none px-4 py-2 rounded border border-cyan-300 bg-cyan-500/20 backdrop-blur">
+              <span className="text-cyan-300 text-sm font-black tracking-[0.3em] uppercase">Boost</span>
+            </div>
+          )}
+          {zoneFx === 'sand' && (
+            <div className="absolute top-5 right-5 z-10 pointer-events-none px-4 py-2 rounded border border-amber-500 bg-amber-600/20 backdrop-blur">
+              <span className="text-amber-400 text-sm font-black tracking-[0.3em] uppercase">Sand — drag</span>
+            </div>
+          )}
+
           <div className="absolute bottom-10 w-full text-center text-zinc-500 text-[10px] tracking-[0.3em] pointer-events-none z-10">
-            TILT TO STEER — OR TAP LEFT / RIGHT SIDE OF THE SCREEN.
+            TILT TO ROLL AROUND THE TUBE — OR TAP LEFT / RIGHT SIDE OF THE SCREEN.
           </div>
         </div>
       )}
