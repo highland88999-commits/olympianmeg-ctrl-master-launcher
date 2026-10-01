@@ -6,6 +6,11 @@ import { supabase } from '@/lib/supabase';
 import DirectoryGrid from '@/components/hermes/DirectoryGrid';
 import SubmitDrawer from '@/components/hermes/SubmitDrawer';
 import OnlineMall from '@/components/hermes/OnlineMall';
+import { programMetadata } from '@/lib/seo';
+
+export async function generateMetadata() {
+  return programMetadata('hermes');
+}
 
 export const dynamic = 'force-dynamic';
 

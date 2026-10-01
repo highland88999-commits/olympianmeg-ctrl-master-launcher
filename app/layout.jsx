@@ -5,12 +5,32 @@ import { RadioProvider } from '@/components/radio/RadioProvider';
 import RadioBar from '@/components/radio/RadioBar';
 import NativeBridge from '@/components/NativeBridge';
 import BugReportButton from '@/components/BugReportButton';
+import JsonLd from '@/components/JsonLd';
 
 const inter = Inter({ subsets: ["latin"] });
 
+const SITE_URL = 'https://olympusverse.com';
+const SITE_DESCRIPTION = 'NEXUS VORTEX is the master hub for 135 pocket universes — explorable 3D worlds spanning battle arenas, music stages, shopping districts, forges, wisdom archives, deep-space expeditions, sanctuaries, arcades, markets, and living cities, all launching from one orbital menu.';
+
 export const metadata = {
-  title: 'NEXUS VORTEX | Master Hub',
-  description: 'Orbital Launcher for Pocket Universes',
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: 'NEXUS VORTEX | Master Hub',
+    template: '%s | NEXUS VORTEX',
+  },
+  description: SITE_DESCRIPTION,
+  keywords: [
+    'NEXUS VORTEX',
+    'pocket universes',
+    '3D worlds',
+    'metaverse',
+    'browser games',
+    'virtual worlds',
+    'Olympus',
+    'online games',
+    'virtual shopping',
+    'digital art',
+  ],
   manifest: '/manifest.webmanifest',
   icons: {
     icon: [
@@ -26,6 +46,35 @@ export const metadata = {
     statusBarStyle: 'black-translucent',
     title: 'NEXUS VORTEX',
   },
+  openGraph: {
+    title: 'NEXUS VORTEX | Master Hub',
+    description: SITE_DESCRIPTION,
+    url: SITE_URL,
+    siteName: 'NEXUS VORTEX',
+    type: 'website',
+    locale: 'en_US',
+    images: [
+      {
+        url: '/og-image.png',
+        width: 1200,
+        height: 600,
+        alt: 'NEXUS VORTEX — master hub for 135 pocket universes',
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'NEXUS VORTEX | Master Hub',
+    description: SITE_DESCRIPTION,
+    images: ['/og-image.png'],
+  },
+  alternates: {
+    canonical: SITE_URL,
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
 };
 
 export const viewport = {
@@ -40,6 +89,7 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en" className="dark">
       <body className={`${inter.className} bg-[#050505] antialiased text-white`}>
+        <JsonLd />
         <RadioProvider>
           <NativeBridge />
           <EconomyHeartbeat />
@@ -51,5 +101,6 @@ export default function RootLayout({ children }) {
     </html>
   );
 }
+
 
 
