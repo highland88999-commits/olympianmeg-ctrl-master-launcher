@@ -57,7 +57,7 @@ const DRAW_W = 1140;
 const DRAW_H = 1350;
 
 // Same advertise-inquiry address as the tower panels.
-const INQUIRIES_EMAIL = 'olympianmeg@gmail.com';
+const INQUIRIES_EMAIL = 'olympiannexus@gmail.com';
 
 // (drawCover / drawPlaceholder / fitText now live in lib/billboard-face.js —
 // the hub god-tower panels share the same honest painter.)

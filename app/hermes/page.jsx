@@ -7,6 +7,7 @@ import DirectoryGrid from '@/components/hermes/DirectoryGrid';
 import SubmitDrawer from '@/components/hermes/SubmitDrawer';
 import OnlineMall from '@/components/hermes/OnlineMall';
 import { programMetadata } from '@/lib/seo';
+import { approvePaidSession } from '@/app/api/hermes/_approve';
 
 export async function generateMetadata() {
   return programMetadata('hermes');
@@ -39,6 +40,22 @@ export default async function HermesPage({ searchParams }) {
   const success = searchParams?.success === 'true';
   const cancelled = searchParams?.cancelled === 'true';
 
+  // Verify-on-return: the checkout success_url carries
+  // session_id={CHECKOUT_SESSION_ID}. Confirm the session is paid
+  // server-side and flip the listing live, so a paid listing doesn't sit
+  // in "pending" when the Stripe webhook secret isn't configured. The
+  // webhook remains the primary path; both are idempotent.
+  // The banner only claims "now live" when the listing is actually live.
+  let verifiedLive = false;
+  if (success && searchParams?.session_id) {
+    try {
+      const result = await approvePaidSession(searchParams.session_id);
+      verifiedLive = result.ok === true;
+    } catch {
+      verifiedLive = false;
+    }
+  }
+
   return (
     <main className="relative min-h-dvh w-full bg-black text-white overflow-x-hidden">
       <GalaxyCanvas />
@@ -52,9 +69,16 @@ export default async function HermesPage({ searchParams }) {
           </p>
         </header>
 
-        {success && (
+        {success && verifiedLive && (
           <div className="mb-8 p-4 rounded-lg bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 text-sm text-center">
             Payment received — your listing is now live in the directory.
+          </div>
+        )}
+        {success && !verifiedLive && (
+          <div className="mb-8 p-4 rounded-lg bg-amber-950/60 border border-amber-500/40 text-amber-300 text-sm text-center">
+            Payment received — your listing will appear in the directory as
+            soon as payment confirms. If it doesn&apos;t show within a few
+            minutes, reply to your receipt email.
           </div>
         )}
         {cancelled && (

@@ -32,7 +32,7 @@ const FACE_PX_W = 380;
 const FACE_PX_H = 450;
 
 // Same advertise-inquiry address as the street monuments.
-const INQUIRIES_EMAIL = 'olympianmeg@gmail.com';
+const INQUIRIES_EMAIL = 'olympiannexus@gmail.com';
 
 // Glitch-stabilized ad border (Merlin, 2026-09-30): the old flat
 // meshBasicMaterial border plane sat coplanar with the backing box face

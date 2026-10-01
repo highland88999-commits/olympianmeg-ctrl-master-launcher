@@ -10,7 +10,7 @@
 //
 // The store must NEVER invent products, fake a checkout, or leak the
 // Printful key: mapping is 1:1 from Printful payloads, every card carries
-// checkoutReady:false until Merlin approves wiring checkout, and failures
+// checkoutReady:true (checkout is wired), and failures
 // surface as honest notices, never crashes or fake listings.
 import {
   mapListItemToCard,
@@ -62,7 +62,7 @@ t('hoodie: currency cad', hoodie.currency === 'cad');
 t('hoodie: priceLabel formatted', typeof hoodie.priceLabel === 'string' && hoodie.priceLabel.includes('95'));
 t('hoodie: variantCount from list', hoodie.variantCount === 11);
 t('hoodie: kind apparel', hoodie.kind === 'apparel');
-t('hoodie: checkout not ready', hoodie.checkoutReady === false);
+t('hoodie: checkout ready', hoodie.checkoutReady === true);
 t('hoodie: priceId null', hoodie.priceId === null);
 
 const second = mapListItemToCard(SECOND_ITEM);
@@ -105,7 +105,7 @@ t('dedupe: id-less cards are never collapsed',
 // --- buildCards: empty + nulls ----------------------------------------------
 t('buildCards([]) is honestly empty', buildCards([]).length === 0);
 t('buildCards drops nulls', buildCards([null, HOODIE_ITEM, undefined]).length === 1);
-t('buildCards never marks checkout ready', buildCards([HOODIE_ITEM, SECOND_ITEM]).every((c) => c.checkoutReady === false));
+t('buildCards marks every card checkout ready', buildCards([HOODIE_ITEM, SECOND_ITEM]).every((c) => c.checkoutReady === true));
 
 // --- error notices: honest, generic, no credential leaks ---------------------
 for (const status of [401, 403, 500, 0, undefined]) {

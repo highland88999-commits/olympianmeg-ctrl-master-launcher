@@ -114,7 +114,10 @@ export const POST = apiGuard(async function POST(req) {
           },
         ],
         mode: 'payment',
-        success_url: `${origin}/hermes?success=true`,
+        // {CHECKOUT_SESSION_ID} is filled in by Stripe: the /hermes page
+        // verifies the paid session on return (see _approve.js), so a paid
+        // listing goes live even when the webhook secret isn't configured.
+        success_url: `${origin}/hermes?success=true&session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${origin}/hermes?cancelled=true`,
         metadata: {
           submission_id: submissionId,
