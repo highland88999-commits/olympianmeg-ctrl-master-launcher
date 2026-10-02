@@ -137,6 +137,8 @@ t('ICE servers configured (public STUN, documented)', Array.isArray(ICE_SERVERS)
   t('throne room uses a hologram ShaderMaterial', throne.includes('ShaderMaterial'));
   t('throne room has the reveal wipe', throne.includes('uReveal'));
   t('throne room has the light cone', throne.includes('ConeGeometry'));
+  t('throne room uses the real BufferGeometry rotation API (regression: v.rotate crash)',
+    !/\.rotate\s*\(/.test(throne) && throne.includes('coneGeo.rotateX(Math.PI)'));
   t('throne room loads backdrops with webp->jpg->void fallback', throne.includes('backdropFileCandidates'));
   t('throne room makes no network calls of its own', !throne.includes('fetch(') && !throne.includes('XMLHttpRequest'));
 

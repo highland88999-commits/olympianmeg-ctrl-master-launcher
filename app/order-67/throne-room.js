@@ -201,7 +201,7 @@ export function createThroneRoom(canvas, options = {}) {
 
   // --- volumetric light cone (apex at the projector, widening upward) ---
   const coneGeo = track(new THREE.ConeGeometry(1.95, 4.8, 48, 1, true));
-  coneGeo.rotate(Math.PI, 0, 0); // apex down
+  coneGeo.rotateX(Math.PI); // apex down (BufferGeometry rotation API: rotateX/Y/Z)
   const coneMat = track(new THREE.MeshBasicMaterial({
     color: 0x2fb9e8, transparent: true, opacity: 0.075,
     side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
