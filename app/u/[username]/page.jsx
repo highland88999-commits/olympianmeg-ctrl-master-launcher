@@ -20,7 +20,7 @@ async function loadProfile(username, type) {
   }
   try {
     const { data: profile, error } = await db
-      .from('profiles')
+      .from('user_profiles')
       .select('*')
       .eq('username', username)
       .eq('type', type)

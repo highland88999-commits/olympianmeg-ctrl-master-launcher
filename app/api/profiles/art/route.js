@@ -13,7 +13,7 @@ import { apiGuard } from '@/lib/api-guard';
 // Confirm the profile row belongs to this user. Returns the profile or null.
 async function ownProfile(admin, userId, profileId) {
   const { data, error } = await admin
-    .from('profiles')
+    .from('user_profiles')
     .select('id, type, username')
     .eq('id', profileId)
     .eq('user_id', userId)

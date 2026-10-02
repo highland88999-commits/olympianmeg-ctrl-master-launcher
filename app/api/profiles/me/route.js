@@ -17,7 +17,7 @@ export const GET = apiGuard(async function GET(req) {
   const profiles = await ensureProfiles(auth.user);
   const admin = await getServiceClient();
   const { data, error } = await admin
-    .from('profiles')
+    .from('user_profiles')
     .select('*')
     .eq('user_id', auth.user.id);
   if (error) throw error;
@@ -45,7 +45,7 @@ export const PATCH = apiGuard(async function PATCH(req) {
   // Username changes must stay unique across all users.
   if (v.value.username) {
     const { data: clash } = await admin
-      .from('profiles')
+      .from('user_profiles')
       .select('id, user_id')
       .eq('username', v.value.username)
       .maybeSingle();
@@ -55,14 +55,14 @@ export const PATCH = apiGuard(async function PATCH(req) {
     // Keep both of the user's profiles on the same username so /u/<name>
     // always resolves to them.
     await admin
-      .from('profiles')
+      .from('user_profiles')
       .update({ username: v.value.username })
       .eq('user_id', auth.user.id);
     delete v.value.username;
   }
 
   const { data, error } = await admin
-    .from('profiles')
+    .from('user_profiles')
     .update(v.value)
     .eq('user_id', auth.user.id)
     .eq('type', type)

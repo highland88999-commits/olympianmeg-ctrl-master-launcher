@@ -21,7 +21,7 @@ export const POST = apiGuard(async function POST(req) {
   const type = PROFILE_TYPES.includes(body?.type) ? body.type : 'personal';
 
   const { data: profile, error } = await admin
-    .from('profiles')
+    .from('user_profiles')
     .select('id, type, username, display_name, bio')
     .eq('user_id', auth.user.id)
     .eq('type', type)

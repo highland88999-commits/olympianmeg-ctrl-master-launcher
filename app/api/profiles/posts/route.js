@@ -12,7 +12,7 @@ import { apiGuard } from '@/lib/api-guard';
 
 async function ownProfile(admin, userId, profileId) {
   const { data, error } = await admin
-    .from('profiles')
+    .from('user_profiles')
     .select('id')
     .eq('id', profileId)
     .eq('user_id', userId)
