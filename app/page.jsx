@@ -11,6 +11,8 @@ import { orbitTime, orbitPositionFor } from '@/lib/god-orbits';
 import { GOD_TOWER_SPOTS, GOD_TOWER_POS, BABEL_POS, ARTEMIS_POS } from '@/lib/home-positions';
 import SettingsGear from '@/components/SettingsGear';
 import StoreFloatButton from '@/components/StoreFloatButton';
+import ProfileIcon from '@/components/ProfileIcon';
+import NotificationsWindow from '@/components/NotificationsWindow';
 import EntranceSequence from '@/components/EntranceSequence';
 import { createEntranceMachine } from '@/lib/entrance-sequence';
 import EarthConsole from '@/components/EarthConsole';
@@ -416,6 +418,15 @@ function NexusHub() {
               the satellite menu toggle (bottom-left), FLIGHT AXIS (top-right),
               SPAWN TO BIKE (bottom-right), and the bottom radio bar. */}
           <StoreFloatButton />
+
+          {/* Profile icon + notifications — top-right below FLIGHT AXIS, clear of
+              the store float button (right edge, vertically centered), the
+              satellite menu toggle (bottom-left), SPAWN TO BIKE (bottom-right),
+              and the bottom radio bar. */}
+          <div className="absolute top-[5.75rem] right-5 z-50 flex items-center gap-3 ui-element pointer-events-auto">
+            <NotificationsWindow />
+            <ProfileIcon />
+          </div>
 
           {joyActive && Math.hypot(joyStick.x - joyBase.x, joyStick.y - joyBase.y) > 5 && (
             <div
