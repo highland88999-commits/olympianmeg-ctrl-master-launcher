@@ -8,8 +8,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { BackButton } from '@/components/ui';
 import { fx, unlockFx } from '@/lib/fx';
+import { supabase } from '@/lib/supabase';
 import { createMachine, STATES } from './stateMachine.js';
 import { createGuillotineScene, PART_LABELS } from './scene.js';
+import {
+  GOLD_PIECE_SOURCE_ID,
+  monthKey,
+  storageKeyFor,
+  collectedThisMonth,
+  interpretCollectResponse,
+} from './goldPiece.js';
 
 const RING_C = 2 * Math.PI * 52; // progress ring circumference (r=52)
 
@@ -19,7 +27,7 @@ const COPY = {
   [STATES.ENTERING]: { title: '', sub: '' },
   [STATES.INSIDE]: {
     title: '',
-    sub: 'A 300-year-old machine, rebuilt in 3D. Drag to look around — tap a part to learn what it is. Hold the winch wheel to raise the blade.',
+    sub: 'A 300-year-old machine, rebuilt in 3D. Drag to look around — tap a part to learn what it is. Hold the winch wheel to raise the blade. A gold piece hides in the room — tap it.',
   },
   [STATES.RAISING]: { title: '', sub: 'Winching the blade up…' },
   [STATES.READY]: { title: '', sub: 'The blade is raised. Tap the blade to let it drop.' },
@@ -42,6 +50,9 @@ export default function GuillotinePage() {
   const [reducedMotion, setReducedMotion] = useState(false);
   const [partId, setPartId] = useState(null);
   const [bannerDismissed, setBannerDismissed] = useState(false);
+  const [toast, setToast] = useState(null);
+  const collectingRef = useRef(false);
+  const toastTimerRef = useRef(0);
 
   // Wooden thunk: low thump + filtered noise crack. Created lazily on the
   // first user gesture so mobile autoplay policies are satisfied.
@@ -82,6 +93,57 @@ export default function GuillotinePage() {
     }
   };
 
+  // Small centered toast; auto-dismisses after 5s.
+  const showToast = (msg) => {
+    setToast(msg);
+    window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => setToast(null), 5000);
+  };
+
+  // Collect the gold piece. The SERVER is the authority: POST
+  // /api/gold/collect { source_id } and let its response decide the outcome.
+  // This client never credits gold itself (payment-bypass ban). The piece
+  // hides after a collection until the next calendar month; the memory is
+  // account-scoped (per-user localStorage key).
+  const collectGoldPiece = async () => {
+    const scene = sceneRef.current;
+    if (collectingRef.current) return;
+    collectingRef.current = true;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userId = session?.user?.id || 'anon';
+      const res = await fetch('/api/gold/collect', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ source_id: GOLD_PIECE_SOURCE_ID }),
+      });
+      let data = null;
+      try { data = await res.json(); } catch { /* non-JSON: treated as error */ }
+      const verdict = interpretCollectResponse(data);
+      if (verdict.action === 'collected') {
+        try { localStorage.setItem(storageKeyFor(userId), monthKey()); } catch { /* storage is a nicety */ }
+        scene?.setGoldPieceVisible(false);
+        fx.confirm();
+        showToast(verdict.credited > 0 ? `+${verdict.credited} gold collected.` : 'Gold collected.');
+      } else if (verdict.action === 'already_collected') {
+        try { localStorage.setItem(storageKeyFor(userId), monthKey()); } catch { /* storage is a nicety */ }
+        scene?.setGoldPieceVisible(false);
+        showToast('This piece returns next month.');
+      } else if (verdict.action === 'not_signed_in') {
+        showToast('Sign in from the launcher to collect gold.');
+      } else {
+        showToast('The vault did not answer. Try again.');
+      }
+    } catch (e) {
+      showToast('The vault did not answer. Try again.');
+    } finally {
+      collectingRef.current = false;
+    }
+  };
+
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
     setReducedMotion(mq.matches);
@@ -106,10 +168,26 @@ export default function GuillotinePage() {
       },
     });
     sceneRef.current = scene;
+    // If this account already collected the piece this calendar month,
+    // keep it hidden until the month rolls over (server is still the
+    // authority at tap time — this is just the local memory).
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const userId = session?.user?.id || 'anon';
+        const stored = localStorage.getItem(storageKeyFor(userId));
+        if (collectedThisMonth(stored)) {
+          scene.setGoldPieceVisible(false);
+        }
+      } catch {
+        /* storage/session failures: the piece stays visible, harmless */
+      }
+    })();
     return () => {
       window.removeEventListener('pointerdown', unlock);
       window.removeEventListener('keydown', unlock);
       cancelAnimationFrame(animRafRef.current);
+      window.clearTimeout(toastTimerRef.current);
       scene.dispose();
       sceneRef.current = null;
       if (audioRef.current) audioRef.current.close().catch(() => {});
@@ -223,6 +301,12 @@ export default function GuillotinePage() {
       fx.tap(); // released the blade: tiny tick
       startLoop();
     } else if (state === STATES.INSIDE) {
+      // The gold piece takes priority over examine taps.
+      if (scene.hitGoldPiece(x, y)) {
+        setPartId(null);
+        collectGoldPiece();
+        return;
+      }
       const id = scene.hitPart(x, y);
       setPartId(id);
     }
@@ -360,6 +444,15 @@ export default function GuillotinePage() {
       {reducedMotion && (
         <div className="absolute bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 z-20 text-[10px] tracking-widest uppercase text-zinc-500 pointer-events-none">
           Calm mode
+        </div>
+      )}
+
+      {/* Gold toast (collection feedback) */}
+      {toast && (
+        <div className="absolute bottom-[20%] left-1/2 -translate-x-1/2 z-30 pointer-events-none px-4">
+          <div className="bg-black/75 border border-amber-400/50 rounded-full px-6 py-3">
+            <span className="guillotine-hint whitespace-nowrap">{toast}</span>
+          </div>
         </div>
       )}
 

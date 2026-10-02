@@ -23,6 +23,7 @@ import { ORBIT_CENTER, EARTH_CENTER, EARTH_RADIUS, GOD_BANDS } from '../lib/god-
 import { FREE_FLY_SPEED, BIKE_TUNING } from '../lib/hub-layout';
 import { registerCollider, unregisterCollider, resolveFlightCollision } from '../lib/hub-collision';
 import { createBikeFlightState, stepBikeFlight, rotateOffsetByYaw, bikeForward } from '../lib/bike-flight';
+import { dismountPosition } from '../lib/rider-state';
 import { applyCoverFit } from '../lib/texture-fit';
 import { GOD_TOWER_SPOTS } from '../lib/home-positions';
 import { panelsForTower } from '../lib/tower-panels';
@@ -162,7 +163,7 @@ function SunBackground() {
   );
 }
 
-function SequenceController({ launchState, setLaunchState, portalTex, payloadTex, targetRoute, controls, flightAxis, dropTarget, bikeRef }) {
+function SequenceController({ launchState, setLaunchState, portalTex, payloadTex, targetRoute, controls, flightAxis, dropTarget, bikeRef, onBikeDismount }) {
   const { camera } = useThree();
   const router = useRouter(); 
   const bulletRef = useRef();
@@ -172,6 +173,9 @@ function SequenceController({ launchState, setLaunchState, portalTex, payloadTex
   // Drag-look offsets while mounted on the bike.
   const lookYaw = useRef(0);
   const lookPitch = useRef(0);
+  // Previous launch state: detects the on_bike/to_bike -> hub_freeroam edge
+  // so the dismount spot is placed exactly once per dismount.
+  const prevLaunchRef = useRef(launchState);
   // Mounted bike-flight state (lib/bike-flight.js) — created on mount,
   // cleared on dismount. This is what makes the bike actually FLY.
   const bikeFlight = useRef(null);
@@ -195,6 +199,31 @@ function SequenceController({ launchState, setLaunchState, portalTex, payloadTex
       }
     } 
     else if (launchState === 'hub_freeroam') {
+      // Dismount edge: coming off the bike — place the rider right BESIDE
+      // the bike (offset from the bike's CURRENT position/yaw, never a
+      // default spawn point), facing the bike. The page persists the spot
+      // per account via onBikeDismount.
+      const wasRiding =
+        prevLaunchRef.current === 'on_bike' || prevLaunchRef.current === 'to_bike';
+      if (wasRiding && bikeRef.current) {
+        const bp = bikeRef.current.position;
+        const spot = dismountPosition(bp, bikeRef.current.rotation.y);
+        // Solid hub: keep the dismount spot out of geometry (slide/deflect).
+        resolveFlightCollision(
+          { x: camera.position.x, y: camera.position.y, z: camera.position.z },
+          spot,
+          1.2
+        );
+        camera.position.set(spot.x, spot.y, spot.z);
+        camera.lookAt(bp.x, bp.y + 1.2, bp.z);
+        if (typeof onBikeDismount === 'function') {
+          try {
+            onBikeDismount(spot);
+          } catch {
+            // Persistence must never break the frame.
+          }
+        }
+      }
       // Leaving the bike: hand flight control back to the rig's parked hover
       // around wherever the bike was left.
       if (bikeRef.current && bikeRef.current.userData.flying) {
@@ -413,6 +442,7 @@ function SequenceController({ launchState, setLaunchState, portalTex, payloadTex
         }
       }
     }
+    prevLaunchRef.current = launchState;
   });
 
   return (
@@ -571,6 +601,7 @@ export default function HomeScene({
   arriveEarth,
   beginEarthDive,
   onLaunchExternal,
+  onBikeDismount,
 }) {
   // Keep the quaternion ref initialized without the page needing three.js.
   if (!earthQuatRef.current) earthQuatRef.current = new THREE.Quaternion();
@@ -645,6 +676,7 @@ export default function HomeScene({
           adWindowRef={adWindowRef}
           dropTarget={activeSatTarget}
           bikeRef={bikeRef}
+          onBikeDismount={onBikeDismount}
         />
 
         <EarthFlightController
