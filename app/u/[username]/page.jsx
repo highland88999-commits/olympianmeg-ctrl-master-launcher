@@ -51,8 +51,16 @@ export async function generateMetadata({ params, searchParams }) {
 
 const CSS = `
 .pf-root { min-height: 100dvh; background: #050508; color: #f2f2f2;
-  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
-.pf-cover { position: relative; width: 100%; height: 30vh; min-height: 200px; max-height: 340px;
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  position: relative; z-index: 2; }
+.pf-bgvideo { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+.pf-bgvideo video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pf-bgvideo-scrim { position: fixed; inset: 0; z-index: 1; pointer-events: none;
+  background: linear-gradient(to bottom, rgba(5,5,8,0.55), rgba(5,5,8,0.84)); }
+@media (prefers-reduced-motion: reduce) {
+  .pf-bgvideo, .pf-bgvideo-scrim { display: none; }
+}
+.pf-cover { position: relative; z-index: 2; width: 100%; height: 30vh; min-height: 200px; max-height: 340px;
   overflow: hidden; background: radial-gradient(120% 120% at 70% 20%, #141422 0%, #050508 70%); }
 .pf-cover img, .pf-cover video { width: 100%; height: 100%; object-fit: cover; display: block; }
 .pf-cover-fade { position: absolute; inset: 0;
@@ -134,6 +142,15 @@ export default async function UserProfilePage({ params, searchParams }) {
   return (
     <main className="pf-root">
       <style>{CSS}</style>
+
+      {p.background_video ? (
+        <>
+          <div className="pf-bgvideo" aria-hidden="true">
+            <video src={p.background_video} autoPlay muted loop playsInline preload="metadata" />
+          </div>
+          <div className="pf-bgvideo-scrim" aria-hidden="true" />
+        </>
+      ) : null}
 
       <div className="pf-cover">
         {p.cover_url ? (

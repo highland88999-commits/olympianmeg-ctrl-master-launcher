@@ -56,10 +56,10 @@ const CSS = `
 @media (prefers-reduced-motion: reduce) { .o67-waiting { animation: none; } }
 `;
 
-const MEDIA_CONSTRAINTS = {
+const mediaConstraints = (facing = 'user') => ({
   audio: true,
-  video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
-};
+  video: { facingMode: facing, width: { ideal: 640 }, height: { ideal: 480 } },
+});
 
 const REALM_LABEL = {
   ares: 'ARES', apollo: 'APOLLO', hermes: 'HERMES', hephaestus: 'HEPHAESTUS',
@@ -86,6 +86,7 @@ export default function Order67Page() {
   const [roomCode, setRoomCodeState] = useState('');
   const [joinCode, setJoinCode] = useState('');
   const [muted, setMuted] = useState(false);
+  const [facingMode, setFacingMode] = useState('user'); // 'user' | 'environment'
   const [backdrop, setBackdropState] = useState(BACKDROP_NONE);
   const [cloudError, setCloudError] = useState(null); // null | 'no-session' | 'no-db' | 'no-migration' | 'no-camera'
   const [friendsOpen, setFriendsOpen] = useState(false);
@@ -152,9 +153,9 @@ export default function Order67Page() {
     return session.user.id;
   };
 
-  const getLocalStream = async () => {
+  const getLocalStream = async (facing = 'user') => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia(MEDIA_CONSTRAINTS);
+      const stream = await navigator.mediaDevices.getUserMedia(mediaConstraints(facing));
       return stream;
     } catch (e) {
       const name = e && e.name;
@@ -297,7 +298,7 @@ export default function Order67Page() {
       const userId = await getUserId();
       if (!userId) return;
       setStatus('Waking your camera…');
-      const stream = await getLocalStream();
+      const stream = await getLocalStream(facingMode);
       if (!stream) return;
       localStreamRef.current = stream;
       if (localVideoRef.current) {
@@ -384,7 +385,7 @@ export default function Order67Page() {
       const userId = await getUserId();
       if (!userId) return;
       setStatus('Waking your camera…');
-      const stream = await getLocalStream();
+      const stream = await getLocalStream(facingMode);
       if (!stream) return;
       localStreamRef.current = stream;
       if (localVideoRef.current) {
@@ -428,14 +429,14 @@ export default function Order67Page() {
     setCloudError(null);
     try {
       setStatus('Waking your camera…');
-      const stream = await getLocalStream();
+      const stream = await getLocalStream(facingMode);
       if (!stream) return;
       localStreamRef.current = stream;
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
         localVideoRef.current.play().catch(() => {});
       }
-      sceneRef.current?.setStream(localVideoRef.current, { mirror: true });
+      sceneRef.current?.setStream(localVideoRef.current, { mirror: facingMode === 'user' });
       sceneRef.current?.setProjecting(true);
       sceneRef.current?.showHologram();
       setPhase('solo');
@@ -462,6 +463,51 @@ export default function Order67Page() {
     const next = !muted;
     stream.getAudioTracks().forEach((t) => { t.enabled = !next; });
     setMuted(next);
+  };
+
+  // ---------- camera flip: front <-> back, live, no renegotiation ----------
+  // The hologram source stays the device camera in every mode: solo demo,
+  // P2P calls, and under the realm dome. The old stream is only stopped
+  // after the new one is live, so a failed flip never kills the call.
+  const switchCamera = async () => {
+    if (busy || !(phase === 'solo' || inCall)) return;
+    const next = facingMode === 'user' ? 'environment' : 'user';
+    setBusy(true);
+    try {
+      let stream = null;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(mediaConstraints(next));
+      } catch {
+        stream = null;
+      }
+      if (!stream || !mountedRef.current) {
+        setStatus('Could not switch camera — keeping the current one.');
+        return;
+      }
+      stopStream(localStreamRef.current);
+      localStreamRef.current = stream;
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = stream;
+        localVideoRef.current.play().catch(() => {});
+      }
+      // swap the outbound video track without renegotiating the call
+      const pc = pcRef.current;
+      const videoTrack = stream.getVideoTracks()[0];
+      if (pc && videoTrack) {
+        const sender = pc.getSenders().find((s) => s.track && s.track.kind === 'video');
+        if (sender && typeof sender.replaceTrack === 'function') {
+          try { await sender.replaceTrack(videoTrack); } catch { /* keep the old track */ }
+        }
+      }
+      // re-feed the hologram texture (mirror only the front camera)
+      if (phase === 'solo') {
+        sceneRef.current?.setStream(localVideoRef.current, { mirror: next === 'user' });
+      }
+      setFacingMode(next);
+      setStatus(next === 'user' ? 'Front camera.' : 'Back camera.');
+    } finally {
+      if (mountedRef.current) setBusy(false);
+    }
   };
 
   const inCall = phase === 'in-call';
@@ -627,7 +673,7 @@ export default function Order67Page() {
             ref={localVideoRef}
             playsInline autoPlay muted
             className="absolute bottom-40 right-4 z-20 aspect-[4/3] w-28 rounded-xl border border-cyan-300/40 bg-black object-cover"
-            style={{ transform: 'scaleX(-1)' }}
+            style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
             aria-label="Your camera preview"
           />
           <div className="absolute inset-x-0 bottom-40 z-20 flex items-center justify-center gap-3 px-6">
@@ -640,6 +686,14 @@ export default function Order67Page() {
               }`}
             >
               {muted ? 'UNMUTE' : 'MUTE'}
+            </button>
+            <button
+              onClick={switchCamera}
+              disabled={busy}
+              aria-label="Switch camera"
+              className="min-h-[44px] rounded-xl border border-white/20 bg-black/50 px-6 text-xs font-bold tracking-[0.2em] text-cyan-200 backdrop-blur-md transition hover:border-cyan-300/60 disabled:opacity-50"
+            >
+              FLIP
             </button>
             <button
               onClick={() => (phase === 'solo' ? endSolo() : hangUp())}
@@ -811,19 +865,39 @@ export default function Order67Page() {
             BACKDROP_REALMS.map((r) => ({ key: r, label: REALM_LABEL[r] }))
           ).map((opt) => {
             const active = backdrop === opt.key;
+            const thumb = opt.key === BACKDROP_NONE
+              ? null
+              : `/images/menu/banners/banner-${opt.key}.webp`;
             return (
               <button
                 key={opt.key}
                 role="radio"
                 aria-checked={active}
+                aria-label={`Realm backdrop: ${opt.label}`}
                 onClick={() => chooseBackdrop(opt.key)}
-                className={`min-h-[44px] shrink-0 rounded-full border px-4 text-[11px] font-bold tracking-[0.18em] transition ${
+                className={`min-h-[64px] w-[92px] shrink-0 overflow-hidden rounded-xl border text-left transition ${
                   active
-                    ? 'border-cyan-300/80 bg-cyan-400/20 text-white'
-                    : 'border-white/15 bg-black/40 text-zinc-400 hover:border-cyan-300/40 hover:text-cyan-200'
+                    ? 'border-cyan-300/80 bg-cyan-400/15'
+                    : 'border-white/15 bg-black/40 hover:border-cyan-300/40'
                 }`}
               >
-                {opt.label}
+                {thumb ? (
+                  <img
+                    src={thumb}
+                    alt=""
+                    aria-hidden="true"
+                    loading="lazy"
+                    className="h-9 w-full object-cover"
+                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                  />
+                ) : (
+                  <div className="h-9 w-full bg-gradient-to-b from-zinc-800/80 to-black" aria-hidden="true" />
+                )}
+                <span className={`block px-2 py-1.5 text-center text-[10px] font-bold tracking-[0.18em] ${
+                  active ? 'text-white' : 'text-zinc-400'
+                }`}>
+                  {opt.label}
+                </span>
               </button>
             );
           })}

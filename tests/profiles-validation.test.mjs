@@ -11,6 +11,8 @@ import {
   validateProfilePost,
   validateUploadRequest,
   profileUrl,
+  BACKGROUND_VIDEO_PRESETS,
+  isValidBackgroundVideo,
 } from '../lib/profiles/validation.js';
 
 let passed = 0;
@@ -76,11 +78,43 @@ t('slugify fallback', slugifyUsername('!') === 'user');
   t('rejects exe masquerade', validateUploadRequest({ kind: 'art', contentType: 'application/x-msdownload', sizeBytes: 10 }).ok === false);
 }
 
+// --- background video presets ---
+{
+  t('presets include none + nebula', BACKGROUND_VIDEO_PRESETS.length >= 2
+    && BACKGROUND_VIDEO_PRESETS[0].id === 'none'
+    && BACKGROUND_VIDEO_PRESETS.some((p) => p.src === '/videos/menu-background.mp4'));
+  t('empty/null means none', isValidBackgroundVideo('') && isValidBackgroundVideo(null));
+  t('preset src accepted', isValidBackgroundVideo('/videos/menu-background.mp4'));
+  t('arbitrary URL rejected', !isValidBackgroundVideo('https://evil.example/x.mp4'));
+  const ok = validateProfileUpdate({ background_video: '/videos/menu-background.mp4' });
+  t('whitelisted background video kept', ok.ok === true && ok.value.background_video === '/videos/menu-background.mp4');
+  const cleared = validateProfileUpdate({ background_video: '' });
+  t('empty clears to null', cleared.ok === true && cleared.value.background_video === null);
+  const bad = validateProfileUpdate({ background_video: 'https://evil.example/x.mp4' });
+  t('non-preset background video rejected', bad.ok === false);
+}
+
 // --- urls ---
 t('profileUrl personal', profileUrl('nova', 'personal') === '/u/nova');
 t('profileUrl business', profileUrl('nova', 'business') === '/u/nova?v=business');
 t('sanitizeText trims', sanitizeText('  hi  ', 10) === 'hi');
 t('sanitizeWebsites dedupes', sanitizeWebsites(['a.com', 'https://a.com/']).length === 1);
+
+// --- source-level wiring checks ---
+{
+  const { readFileSync } = await import('fs');
+  const src = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  const edit = src('../app/u/[username]/edit/page.jsx');
+  t('edit page has the background video preset picker', edit.includes('Background video (preset)')
+    && edit.includes('BACKGROUND_VIDEO_PRESETS') && edit.includes('saveBackgroundVideo'));
+  t('edit picker previews presets as playable video', edit.includes('onMouseOver'));
+  const pub = src('../app/u/[username]/page.jsx');
+  t('public profile renders the background video', pub.includes('pf-bgvideo')
+    && pub.includes('p.background_video'));
+  t('background video is muted/looping/playsinline', pub.includes('autoPlay muted loop playsInline'));
+  t('background video hides under reduced motion', pub.includes('prefers-reduced-motion'));
+  t('background video has a dark legibility scrim', pub.includes('pf-bgvideo-scrim'));
+}
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

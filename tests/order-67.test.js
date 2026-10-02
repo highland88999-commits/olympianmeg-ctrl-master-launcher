@@ -9,7 +9,8 @@ import {
   ICE_SERVERS,
   BACKDROP_REALMS,
   BACKDROP_NONE,
-  backdropFileCandidates,
+  backdropVideoUrl,
+  backdropImageUrl,
   normalizeBackdropSelection,
   isBackdropRealm,
   newSignalState,
@@ -106,16 +107,18 @@ t('ICE servers configured (public STUN, documented)', Array.isArray(ICE_SERVERS)
   t('flicker stays subtle [0.89, 1.0]', flRange);
 }
 
-// --- realm backdrops ---
+// --- realm backdrops: the dome ("like a horse shelter") ---
+// Priority per realm: video -> banner image -> void.
 {
   t('ten realm backdrops', BACKDROP_REALMS.length === 10);
   t('all expected realms present',
     ['ares', 'apollo', 'hermes', 'hephaestus', 'athena', 'artemis', 'hestia', 'dionysus', 'plutus', 'aphrodite']
       .every((r) => BACKDROP_REALMS.includes(r)));
-  const c = backdropFileCandidates('ares');
-  t('webp preferred, jpg fallback', c.length === 2 && c[0].endsWith('.webp') && c[1].endsWith('.jpg')
-    && c[0].includes('backdrop-ares'));
-  t('unknown realm -> no candidates (graceful void)', backdropFileCandidates('bogus').length === 0);
+  t('video URL per realm', backdropVideoUrl('ares') === '/videos/order-67/backdrop-ares.mp4');
+  t('banner image fallback per realm',
+    backdropImageUrl('apollo') === '/images/menu/banners/banner-apollo.webp');
+  t('unknown realm -> nulls (graceful void)',
+    backdropVideoUrl('bogus') === null && backdropImageUrl('bogus') === null);
   t('isBackdropRealm case-insensitive', isBackdropRealm('ARES') && !isBackdropRealm('x'));
   t('normalize keeps known realms', normalizeBackdropSelection('Hestia') === 'hestia');
   t('normalize falls back to none', normalizeBackdropSelection('nope') === BACKDROP_NONE
@@ -128,6 +131,11 @@ t('ICE servers configured (public STUN, documented)', Array.isArray(ICE_SERVERS)
   t('page has the Execute Order 67 brand button', page.includes('EXECUTE ORDER 67'));
   t('page has solo demo mode', page.includes('SUMMON TEST HOLOGRAM'));
   t('page has the backdrop picker', page.includes('PROJECTED REALM BACKDROP'));
+  t('realm picker buttons wear banner thumbnails', page.includes('/images/menu/banners/banner-'));
+  t('page has a camera flip control', page.includes('switchCamera') && page.includes('FLIP'));
+  t('camera flip swaps the peer track without renegotiation', page.includes('replaceTrack'));
+  t('camera flip keeps the old stream until the new one is live',
+    page.includes('Could not switch camera'));
   t('page states the honest P2P privacy note', page.includes('only sees room codes'));
   t('page handles camera denial honestly', page.includes('no-camera'));
   t('page handles the missing DB migration honestly', page.includes('supabase/order-67.sql'));
@@ -139,7 +147,14 @@ t('ICE servers configured (public STUN, documented)', Array.isArray(ICE_SERVERS)
   t('throne room has the light cone', throne.includes('ConeGeometry'));
   t('throne room uses the real BufferGeometry rotation API (regression: v.rotate crash)',
     !/\.rotate\s*\(/.test(throne) && throne.includes('coneGeo.rotateX(Math.PI)'));
-  t('throne room loads backdrops with webp->jpg->void fallback', throne.includes('backdropFileCandidates'));
+  t('throne room drops a BackSide dome, not a flat plane',
+    throne.includes('SphereGeometry') && throne.includes('THREE.BackSide')
+    && !throne.includes('CylinderGeometry(13.5'));
+  t('throne room tries realm video first, banner image fallback, void last',
+    throne.includes('backdropVideoUrl') && throne.includes('backdropImageUrl')
+    && throne.includes('probeBackdropVideo'));
+  t('dome fades in and stays phone-cheap (one sphere, one texture)',
+    throne.includes('domeFadeTarget') && throne.includes('DOME_RADIUS'));
   t('throne room makes no network calls of its own', !throne.includes('fetch(') && !throne.includes('XMLHttpRequest'));
 
   const sig = src('../app/order-67/signaling.js');

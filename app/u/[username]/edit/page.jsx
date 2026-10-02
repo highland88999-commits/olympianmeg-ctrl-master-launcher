@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { BACKGROUND_VIDEO_PRESETS } from '@/lib/profiles/validation';
 import Auth from '@/components/Auth';
 
 const CSS = `
@@ -208,8 +209,27 @@ export default function EditProfilePage({ params }) {
     }
   }
 
-  async function handleMedia(kind, field) {
-    const file = fileRefs.current[kind]?.files?.[0];
+  async function saveBackgroundVideo(src) {
+    setBusy(true);
+    say('', '');
+    try {
+      const headers = { 'Content-Type': 'application/json', ...(await authHeader()) };
+      const res = await fetch('/api/profiles/me', {
+        method: 'PATCH', headers,
+        body: JSON.stringify({ type, background_video: src || '' }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Save failed.');
+      say('ok', src ? 'Background video set.' : 'Background video removed.');
+      await loadAll();
+    } catch (err) {
+      say('err', err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleMedia(kind, field) {    const file = fileRefs.current[kind]?.files?.[0];
     if (!file) return;
     setBusy(true);
     say('', '');
@@ -389,6 +409,54 @@ export default function EditProfilePage({ params }) {
               <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime" ref={(el) => (fileRefs.current.cover = el)} aria-label="Cover" />
               <button type="button" className="pe-btn ghost" disabled={busy} onClick={() => handleMedia('cover', 'cover')}>Upload cover</button>
             </div>
+          </div>
+          <div>
+            <span className="pe-label" id="pe-bgv-label">Background video (preset)</span>
+            <div className="pe-row" role="radiogroup" aria-labelledby="pe-bgv-label">
+              {BACKGROUND_VIDEO_PRESETS.map((p) => {
+                const selected = (cur?.background_video || '') === p.src;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    aria-label={`Background video: ${p.label}`}
+                    disabled={busy}
+                    onClick={() => saveBackgroundVideo(p.src)}
+                    className="pe-btn ghost"
+                    style={{
+                      padding: '0.5rem',
+                      borderColor: selected ? '#ffd166' : undefined,
+                      boxShadow: selected ? '0 0 12px rgba(255,209,102,0.35)' : 'none',
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.35rem',
+                      minWidth: '120px',
+                    }}
+                  >
+                    {p.src ? (
+                      <video
+                        src={p.src} muted loop playsInline preload="metadata"
+                        onMouseOver={(e) => { e.currentTarget.play().catch(() => {}); }}
+                        onMouseOut={(e) => { e.currentTarget.pause(); }}
+                        style={{ width: '112px', height: '63px', objectFit: 'cover', borderRadius: '6px', background: '#000' }}
+                      />
+                    ) : (
+                      <span style={{
+                        width: '112px', height: '63px', borderRadius: '6px', background: '#0a0a12',
+                        border: '1px dashed #333', display: 'flex', alignItems: 'center',
+                        justifyContent: 'center', fontSize: '0.7rem', color: '#666',
+                      }}>
+                        OFF
+                      </span>
+                    )}
+                    <span style={{ fontSize: '0.75rem' }}>{p.label}{selected ? ' ✓' : ''}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="pe-hint" style={{ marginTop: '0.4rem' }}>
+              Plays behind your whole public profile page. More presets later.
+            </p>
           </div>
         </div>
 

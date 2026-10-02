@@ -4,9 +4,9 @@
 // plane where the peer's video materializes through a Palpatine-style
 // shader (cyan monochrome, scanlines, flicker, reveal wipe).
 //
-// Optional realm backdrops: a large curved plane behind the dais showing
-// /images/order-67/backdrops/backdrop-<realm>.webp (fallback .jpg).
-// Missing files fall back to the procedural void — never a broken image.
+// Optional realm dome: a 360° environment dropped OVER the throne room like
+// a shelter (Merlin's call) — one inverted sphere, one texture, fading in on
+// selection. Priority per realm: video -> banner image -> void.
 //
 // API: createThroneRoom(canvas, { reducedMotion }) ->
 //   { setStream(videoEl, {mirror}), clearStream(), showHologram(), hideHologram(),
@@ -14,7 +14,7 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { backdropFileCandidates } from '@/lib/order-67';
+import { backdropVideoUrl, backdropImageUrl, isBackdropRealm } from '@/lib/order-67';
 
 const HOLO_VERTEX = `
 varying vec2 vUv;
@@ -259,47 +259,88 @@ export function createThroneRoom(canvas, options = {}) {
 
   let videoTexture = null;
 
-  // --- realm backdrop: curved plane behind the dais (graceful void fallback) ---
-  let backdropMesh = null;
+  // --- realm dome: a 360° environment dropped OVER the throne room ---
+  // "like a horse shelter" (Merlin): the realm envelops the scene instead of
+  // hanging as a flat plane behind the dais. One sphere, one texture —
+  // phone-cheap. Fades in on selection; void on 'none' or missing files.
+  let domeMesh = null;
+  let domeVideoEl = null;
+  let domeToken = 0;
+  let domeFade = 0;       // 0..1, animated toward domeFadeTarget in tick()
+  let domeFadeTarget = 0;
+  const DOME_RADIUS = 42;
   const texLoader = new THREE.TextureLoader();
-  let backdropToken = 0;
 
-  function clearBackdrop() {
-    if (backdropMesh) {
-      scene.remove(backdropMesh);
-      if (backdropMesh.material.map) backdropMesh.material.map.dispose();
-      backdropMesh.material.dispose();
-      backdropMesh.geometry.dispose();
-      backdropMesh = null;
+  function clearDome() {
+    domeFade = 0;
+    domeFadeTarget = 0;
+    if (domeMesh) {
+      scene.remove(domeMesh);
+      if (domeMesh.material.map) domeMesh.material.map.dispose();
+      domeMesh.material.dispose();
+      domeMesh.geometry.dispose();
+      domeMesh = null;
+    }
+    if (domeVideoEl) {
+      try {
+        domeVideoEl.pause();
+        domeVideoEl.removeAttribute('src');
+        domeVideoEl.load();
+      } catch { /* noop */ }
+      domeVideoEl = null;
     }
   }
 
-  function tryLoad(urls, idx, token) {
-    if (token !== backdropToken || idx >= urls.length) {
-      // exhausted: stay in the void
-      if (token === backdropToken) clearBackdrop();
+  function showDomeTexture(tex, token) {
+    if (token !== domeToken) {
+      if (tex && typeof tex.dispose === 'function') tex.dispose();
       return;
     }
-    texLoader.load(
-      urls[idx],
-      (tex) => {
-        if (token !== backdropToken) { tex.dispose(); return; }
-        tex.colorSpace = THREE.SRGBColorSpace;
-        clearBackdrop();
-        const arc = Math.PI * 1.05;
-        const geo = new THREE.CylinderGeometry(13.5, 13.5, 10, 48, 1, true, -arc / 2, arc);
-        const mat = new THREE.MeshBasicMaterial({
-          map: tex, side: THREE.BackSide, fog: true,
-        });
-        // dim the projection so the hologram stays the focus (lighting rule)
-        mat.color.setScalar(0.5);
-        backdropMesh = new THREE.Mesh(geo, mat);
-        backdropMesh.position.y = 5.0;
-        scene.add(backdropMesh);
-      },
-      undefined,
-      () => tryLoad(urls, idx + 1, token) // webp missing -> try jpg -> void
-    );
+    tex.colorSpace = THREE.SRGBColorSpace;
+    clearDome();
+    const geo = new THREE.SphereGeometry(DOME_RADIUS, 48, 32);
+    const mat = new THREE.MeshBasicMaterial({
+      map: tex,
+      side: THREE.BackSide,   // camera sits inside the shelter
+      fog: false,             // the void fog must not wash out the realm
+      transparent: true,
+      opacity: 0,             // fades in via domeFade in tick()
+      depthWrite: false,
+    });
+    mat.color.setScalar(0.55); // dim: the hologram stays the focus (lighting rule)
+    domeMesh = new THREE.Mesh(geo, mat);
+    domeMesh.renderOrder = -10; // paint first, behind everything
+    scene.add(domeMesh);
+    domeFadeTarget = 1;
+  }
+
+  // Probe a backdrop video: resolves with the element on canplay, rejects on
+  // error/timeout so the chain falls through to the banner image.
+  function probeBackdropVideo(url, timeoutMs = 7000) {
+    return new Promise((resolve, reject) => {
+      const v = document.createElement('video');
+      v.muted = true;
+      v.loop = true;
+      v.playsInline = true;
+      v.preload = 'auto';
+      let done = false;
+      const timer = setTimeout(() => finish(false), timeoutMs);
+      function finish(ok) {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        if (ok) {
+          v.play().catch(() => {});
+          resolve(v);
+        } else {
+          try { v.removeAttribute('src'); v.load(); } catch { /* noop */ }
+          reject(new Error('backdrop video unavailable'));
+        }
+      }
+      v.oncanplay = () => finish(true);
+      v.onerror = () => finish(false);
+      v.src = url;
+    });
   }
 
   // --- reveal animation state ---
@@ -347,6 +388,20 @@ export function createThroneRoom(canvas, options = {}) {
       lens.scale.set(s, s, s);
       camera.position.x = Math.sin(driftT + t * 0.07) * 0.55;
       camera.position.y = 3.6 + Math.sin(driftT * 1.3 + t * 0.05) * 0.25;
+    }
+
+    // realm dome: fade toward target, whisper-drift for life
+    if (domeMesh) {
+      const dd = domeFadeTarget - domeFade;
+      if (Math.abs(dd) > 0.003) {
+        domeFade += Math.sign(dd) * dt * (reducedMotion ? 5 : 1.5);
+        domeFade = Math.min(1, Math.max(0, domeFade));
+        domeMesh.material.opacity = domeFade;
+      } else if (domeMesh.material.opacity !== domeFadeTarget) {
+        domeFade = domeFadeTarget;
+        domeMesh.material.opacity = domeFadeTarget;
+      }
+      if (!reducedMotion) domeMesh.rotation.y += dt * 0.004;
     }
 
     // dust rises through the cone
@@ -400,18 +455,36 @@ export function createThroneRoom(canvas, options = {}) {
       return revealShown;
     },
     /**
-     * Project a realm backdrop behind the dais. 'none'/unknown -> void.
-     * Tries .webp then .jpg; missing files fall back to the void silently.
+     * Drop a realm over the throne room. 'none'/unknown -> void.
+     * Chain: realm video -> banner image -> void. Never a broken texture.
      */
     setBackdrop(realm) {
-      backdropToken += 1;
-      const token = backdropToken;
-      const urls = backdropFileCandidates(realm);
-      if (urls.length === 0) {
-        clearBackdrop();
+      domeToken += 1;
+      const token = domeToken;
+      const r = String(realm || '').toLowerCase();
+      if (!isBackdropRealm(r)) {
+        clearDome();
         return;
       }
-      tryLoad(urls, 0, token);
+      probeBackdropVideo(backdropVideoUrl(r)).then(
+        (v) => {
+          if (token !== domeToken) {
+            try { v.pause(); } catch { /* noop */ }
+            return;
+          }
+          domeVideoEl = v;
+          showDomeTexture(new THREE.VideoTexture(v), token);
+        },
+        () => {
+          if (token !== domeToken) return;
+          texLoader.load(
+            backdropImageUrl(r),
+            (tex) => showDomeTexture(tex, token),
+            undefined,
+            () => { if (token === domeToken) clearDome(); }
+          );
+        }
+      );
     },
     /** Brighter cone while a call is live, calmer while idle. */
     setProjecting(on) {
@@ -421,7 +494,7 @@ export function createThroneRoom(canvas, options = {}) {
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', resize);
       controls.dispose();
-      clearBackdrop();
+      clearDome();
       for (const d of disposables) {
         if (d && typeof d.dispose === 'function') d.dispose();
       }
