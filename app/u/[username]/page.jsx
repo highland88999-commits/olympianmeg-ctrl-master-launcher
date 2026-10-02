@@ -112,6 +112,26 @@ const CSS = `
 .pf-btn.gold { border-color: #ffd166; color: #ffd166; }
 .pf-btn:disabled { opacity: 0.55; cursor: wait; }
 .pf-note { font-size: 0.82rem; color: #8a8a99; margin-top: 0.7rem; }
+.pf-blockbtn { border-color: rgba(255,90,90,.55) !important; color: #ff9a9a; }
+.pf-blockbtn.armed { background: rgba(255,70,70,.22) !important; color: #ffd7d7; }
+.pf-fab { position: fixed; right: calc(1rem + env(safe-area-inset-right)); bottom: calc(5.5rem + env(safe-area-inset-bottom)); z-index: 60;
+  width: 56px; height: 56px; border-radius: 9999px; font-size: 1.4rem; line-height: 1;
+  background: rgba(20,16,28,.92); border: 1px solid rgba(255,120,120,.5); color: #fff;
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  box-shadow: 0 6px 24px rgba(0,0,0,.5); }
+.pf-fab-count { position: absolute; top: -6px; right: -6px; min-width: 22px; height: 22px; padding: 0 6px;
+  border-radius: 9999px; background: #f43f5e; color: #fff; font-size: .7rem; font-weight: 800;
+  display: flex; align-items: center; justify-content: center; }
+.pf-blocked-sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 70; max-height: 70vh; overflow-y: auto;
+  background: rgba(12,10,18,.97); border-top: 1px solid rgba(255,255,255,.14);
+  padding: calc(1rem + env(safe-area-inset-top)) 1rem calc(1.25rem + env(safe-area-inset-bottom));
+  border-radius: 1.25rem 1.25rem 0 0; box-shadow: 0 -12px 40px rgba(0,0,0,.6); }
+.pf-blocked-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: .5rem; }
+.pf-blocked-head .pf-h { margin: 0; }
+.pf-blocked-row { display: flex; align-items: center; justify-content: space-between; gap: .75rem;
+  padding: .6rem 0; border-top: 1px solid rgba(255,255,255,.08); }
+.pf-blocked-name { font-weight: 600; }
+.pf-username-sm { color: rgba(255,255,255,.55); font-weight: 400; font-size: .85em; }
 .pf-toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(5rem + env(safe-area-inset-bottom));
   background: rgba(255,209,102,0.95); color: #0a0a0c; font-weight: 700; font-size: 0.85rem;
   padding: 0.7rem 1.2rem; border-radius: 10px; z-index: 60; max-width: 90vw; text-align: center; }
@@ -204,7 +224,7 @@ export default async function UserProfilePage({ params, searchParams }) {
           </Link>
         </nav>
 
-        <ProfileClient username={p.username} type={type} art={art} posts={posts} />
+        <ProfileClient username={p.username} type={type} art={art} posts={posts} userId={p.user_id} />
 
         <div className="pf-foot">
           <Link href="/agora">Back to the Agora</Link>

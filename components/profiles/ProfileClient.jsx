@@ -19,12 +19,18 @@ async function authHeader() {
   return {};
 }
 
-export function ProfileClient({ username, type, art, posts }) {
+export function ProfileClient({ username, type, art, posts, userId }) {
   const [isOwner, setIsOwner] = useState(false);
   const [buying, setBuying] = useState(null);
   const [sharing, setSharing] = useState(false);
   const [toast, setToast] = useState('');
   const toastTimer = useRef(null);
+  // Blocking: silent both ways — the blocked user is never notified.
+  const [blockedList, setBlockedList] = useState([]);
+  const [blockedOpen, setBlockedOpen] = useState(false);
+  const [confirmBlock, setConfirmBlock] = useState(false);
+  const [blockBusy, setBlockBusy] = useState(false);
+  const confirmTimer = useRef(null);
 
   const showToast = useCallback((msg) => {
     setToast(msg);
@@ -49,6 +55,7 @@ export function ProfileClient({ username, type, art, posts }) {
     } catch { /* ignore */ }
 
     // Owner bar: does the signed-in user own this profile?
+    // Blocked list: who I have blocked (drives the BLOCK button + owner panel).
     (async () => {
       const headers = await authHeader();
       if (!headers.Authorization) return;
@@ -58,6 +65,12 @@ export function ProfileClient({ username, type, art, posts }) {
         const data = await res.json();
         const mine = [data?.profiles?.personal?.username, data?.profiles?.business?.username];
         if (mine.includes(username)) setIsOwner(true);
+      } catch { /* offline */ }
+      try {
+        const bres = await fetch('/api/friends/blocked', { headers });
+        if (!bres.ok) return;
+        const bdata = await bres.json();
+        setBlockedList(bdata.blocked || []);
       } catch { /* offline */ }
     })();
   }, [username, showToast]);
@@ -110,6 +123,68 @@ export function ProfileClient({ username, type, art, posts }) {
     }
   }, [username, type, showToast]);
 
+  const isBlocked = userId ? blockedList.some((b) => b.user_id === userId) : false;
+
+  const doBlockToggle = useCallback(async () => {
+    if (blockBusy || !userId) return;
+    if (!isBlocked && !confirmBlock) {
+      // first tap: arm the confirm; second tap within 3s executes
+      setConfirmBlock(true);
+      if (confirmTimer.current) clearTimeout(confirmTimer.current);
+      confirmTimer.current = setTimeout(() => setConfirmBlock(false), 3000);
+      return;
+    }
+    setBlockBusy(true);
+    try {
+      const headers = { 'Content-Type': 'application/json', ...(await authHeader()) };
+      if (!headers.Authorization) {
+        showToast('Sign in to block users.');
+        return;
+      }
+      const path = isBlocked ? '/api/friends/unblock' : '/api/friends/block';
+      const res = await fetch(path, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ friend_id: userId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || 'Could not update the block.');
+        return;
+      }
+      setConfirmBlock(false);
+      if (isBlocked) {
+        setBlockedList((l) => l.filter((b) => b.user_id !== userId));
+        showToast('Unblocked.');
+      } else {
+        showToast('Blocked. They cannot contact you here, and they will not be told.');
+        try {
+          const bres = await fetch('/api/friends/blocked', { headers });
+          const bdata = await bres.json().catch(() => ({}));
+          setBlockedList(bdata.blocked || []);
+        } catch { /* keep last */ }
+      }
+    } catch {
+      showToast('Could not update the block.');
+    } finally {
+      setBlockBusy(false);
+    }
+  }, [blockBusy, userId, isBlocked, confirmBlock, showToast]);
+
+  const unblockFromList = useCallback(async (blockedId) => {
+    try {
+      const headers = { 'Content-Type': 'application/json', ...(await authHeader()) };
+      if (!headers.Authorization) return;
+      const res = await fetch('/api/friends/unblock', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ friend_id: blockedId }),
+      });
+      if (!res.ok) return;
+      setBlockedList((l) => l.filter((b) => b.user_id !== blockedId));
+    } catch { /* offline */ }
+  }, []);
+
   const shareExternal = useCallback(async () => {
     const url = `${window.location.origin}/u/${encodeURIComponent(username)}${type === 'business' ? '?v=business' : ''}`;
     const shareData = { title: `${username} on Olympus`, url };
@@ -142,6 +217,19 @@ export function ProfileClient({ username, type, art, posts }) {
           </>
         ) : null}
       </div>
+      {!isOwner && userId ? (
+        <div className="pf-actions" style={{ paddingTop: 0 }}>
+          <button
+            type="button"
+            className={`pf-btn pf-blockbtn${confirmBlock ? ' armed' : ''}`}
+            onClick={doBlockToggle}
+            disabled={blockBusy}
+            aria-live="polite"
+          >
+            {blockBusy ? 'Working…' : isBlocked ? 'Unblock' : confirmBlock ? 'Tap again to confirm block' : 'Block'}
+          </button>
+        </div>
+      ) : null}
 
       <section className="pf-section" aria-label="Art gallery">
         <h2 className="pf-h">Gallery</h2>
@@ -204,6 +292,51 @@ export function ProfileClient({ username, type, art, posts }) {
       </section>
 
       {toast ? <div className="pf-toast" role="status">{toast}</div> : null}
+
+      {isOwner ? (
+        <>
+          <button
+            type="button"
+            className="pf-fab"
+            onClick={() => setBlockedOpen((v) => !v)}
+            aria-label={blockedOpen ? 'Close blocked list' : 'Open blocked list'}
+            title="Blocked users"
+          >
+            &#128683;
+            {blockedList.length > 0 ? <span className="pf-fab-count">{blockedList.length}</span> : null}
+          </button>
+          {blockedOpen ? (
+            <div className="pf-blocked-sheet" role="dialog" aria-label="Blocked users">
+              <div className="pf-blocked-head">
+                <h2 className="pf-h">Blocked</h2>
+                <button type="button" className="pf-btn" onClick={() => setBlockedOpen(false)}>
+                  Close
+                </button>
+              </div>
+              <p className="pf-note">Blocked users stay silent — they are never told, and they cannot reach you here.</p>
+              {blockedList.length === 0 ? (
+                <p className="pf-empty">Nobody blocked.</p>
+              ) : (
+                blockedList.map((b) => (
+                  <div key={b.user_id} className="pf-blocked-row">
+                    <span className="pf-blocked-name">
+                      {b.display_name || b.username || 'Unknown'}
+                      {b.username ? <span className="pf-username-sm"> @{b.username}</span> : null}
+                    </span>
+                    <button
+                      type="button"
+                      className="pf-btn"
+                      onClick={() => unblockFromList(b.user_id)}
+                    >
+                      Unblock
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          ) : null}
+        </>
+      ) : null}
     </>
   );
 }

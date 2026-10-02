@@ -20,6 +20,11 @@ import {
   scanlineFactor,
   revealVisibility,
   flickerFactor,
+  MAX_GUEST_PROJECTORS,
+  PROJECTOR_ARC_RADIUS,
+  projectorSlotPositions,
+  throneCameraFrame,
+  isCompactPhase,
 } from '../lib/order-67.js';
 import {
   generateRoomCode,
@@ -184,6 +189,99 @@ t('ICE servers configured (public STUN, documented)', Array.isArray(ICE_SERVERS)
   t('featured button launches /order-67 through onLaunch', menu.includes("onLaunch('/order-67', 'order-67'"));
   t('featured button uses menuArtFor with error fallback', menu.includes("menuArtFor('order-67')") && menu.includes('FeaturedArt'));
   t('featured button meets 44px touch target', menu.includes('min-h-[64px]'));
+}
+
+// --- call-UX overhaul: compact phases, multi-projector framing ---
+t('guest cap is 4 (mesh ceiling, documented)', MAX_GUEST_PROJECTORS === 4);
+t('projector arc has a sane radius', PROJECTOR_ARC_RADIUS > 0 && PROJECTOR_ARC_RADIUS < 20);
+{
+  t('0 guests -> no slots', projectorSlotPositions(0).length === 0);
+  const one = projectorSlotPositions(1);
+  t('1 guest centers behind the main dais', one.length === 1 && approx(one[0].x, 0) && one[0].z < 0);
+  const four = projectorSlotPositions(4);
+  t('4 guests -> 4 slots', four.length === 4);
+  const R = PROJECTOR_ARC_RADIUS;
+  t('slots sit on the (squashed) arc ellipse',
+    four.every((s) => approx((s.x / R) ** 2 + (s.z / (0.85 * R)) ** 2, 1, 0.01)));
+  t('slots fan outward (x spread grows)', Math.max(...four.map((s) => Math.abs(s.x))) > Math.abs(one[0].x) + 0.5);
+  const xs = four.map((s) => s.x).sort((a, b) => a - b);
+  t('slots are symmetric left/right', approx(xs[0], -xs[3]) && approx(xs[1], -xs[2]));
+  t('clamps beyond the cap', projectorSlotPositions(9).length === MAX_GUEST_PROJECTORS);
+  t('negative count -> no slots', projectorSlotPositions(-2).length === 0);
+}
+{
+  const idle = throneCameraFrame('idle', 0);
+  const call0 = throneCameraFrame('call', 0);
+  const call4 = throneCameraFrame('call', 4);
+  t('call frame pulls back vs idle', call0.z > idle.z && call0.y < idle.y);
+  t('call frame widens as guests arrive', call4.z > call0.z && call4.y > call0.y);
+  t('call frame clamps at the cap', approx(throneCameraFrame('call', 9).z, call4.z));
+  t('unknown mode falls back to idle', approxArr(Object.values(throneCameraFrame('party', 0)), Object.values(idle)));
+}
+t('idle is not a compact phase', !isCompactPhase('idle'));
+for (const ph of ['hosting', 'joining', 'in-call', 'solo']) {
+  t(`${ph} collapses the header`, isCompactPhase(ph));
+}
+t('junk phase is not compact', !isCompactPhase('party') && !isCompactPhase(null));
+
+{ // --- source-level checks for the overhaul ---
+  const page = src('../app/order-67/page.jsx');
+  t('compact header collapses on call phases', page.includes('isCompactPhase(phase)'));
+  t('slim bar keeps status visible with an expand affordance', page.includes('aria-label="Expand header"'));
+  t('floating vortex icon plays the nebula fallback video', page.includes('/videos/menu-background.mp4') && page.includes('o67-vortex-video'));
+  t('vortex respects reduced motion (static gradient)', page.includes('reducedMotion') && page.includes('from-cyan-500/70'));
+  t('expanded drawer holds the realm chips mid-call', page.includes('Collapse header') && page.includes('renderRealmChips'));
+  t('realm chips hidden from the bottom panel mid-call', page.includes('{!compact && (') && page.includes('PROJECTED REALM BACKDROP'));
+  t('camera reframes on phase change', page.includes("setFraming(compact ? 'call' : 'idle')"));
+  t('control cluster has mute', page.includes('toggleMute') && page.includes('UNMUTE'));
+  t('control cluster has speaker toggle', page.includes('toggleSpeaker') && page.includes('SPEAKER'));
+  t('control cluster has camera on/off', page.includes('toggleCamera') && page.includes('CAM OFF'));
+  t('control cluster keeps FLIP prominent', page.includes('switchCamera') && page.includes('FLIP'));
+  t('control cluster has ADD PROJECTOR', page.includes('ADD PROJECTOR'));
+  t('control cluster has ADD FRIEND (in-call invite)', page.includes('ADD FRIEND') && page.includes('inviteToCall'));
+  t('control cluster has SHARE', page.includes('SHARE INVITE') && page.includes('shareGuestInvite'));
+  t('control cluster has HANG UP', page.includes('HANG UP'));
+  t('mute/camera states persist across fresh streams', page.includes('applyLocalTrackStates'));
+  t('mute state applied to new streams', page.includes('t.enabled = !mutedRef.current'));
+  t('local preview is always mounted (no null-ref bug)', (page.match(/ref={localVideoRef}/g) || []).length === 1 && page.includes('always mounted'));
+  t('share invite uses the native sheet with clipboard fallback',
+    page.includes('navigator.share') && page.includes('navigator.clipboard.writeText'));
+  t('share link is the olympusverse deep link', page.includes('https://olympusverse.com/order-67?code='));
+  t('share dismiss is silent (AbortError)', page.includes("e.name === 'AbortError'"));
+  t('?code= deep link prefills the join field', page.includes("q.get('code')") && page.includes('setJoinCode(c)'));
+  t('deep link is honest about sign-in', page.includes('sign in, then tap JOIN'));
+  t('guest cap message is honest about the SFU ceiling', page.includes('needs a media server'));
+  t('guests get their own 1:1 rooms (mesh)', page.includes('hostCall(userId)') && page.includes('addProjector'));
+  t('guest audio rides a Web Audio mixer', page.includes('createMediaStreamSource'));
+  t('guest strip shows live state + remove + share', page.includes('removeGuest') && page.includes('Guests'));
+  t('hang up closes every projector room', page.includes('endCall(g.code)'));
+  t('in-call friend invite reuses the projector path', page.includes('inviteToCall') && page.includes('addProjector(friend)'));
+  t('sheet has BLOCK next to friends', page.includes('doBlockUser') && page.includes("'SURE?'"));
+  t('block is two-tap, no pop-ups', page.includes('confirmBlockId') && !page.includes('confirm('));
+  t('sheet invite mode hides search/requests', page.includes("friendsMode === 'summon'"));
+  t('no alert() pop-ups', !page.includes('alert('));
+
+  const throne = src('../app/order-67/throne-room.js');
+  t('throne exposes the projector API',
+    throne.includes('addProjector(id)') && throne.includes('removeProjector(id)')
+    && throne.includes('setProjectorStream') && throne.includes('showProjector')
+    && throne.includes('hideProjector') && throne.includes('projectorCount'));
+  t('each guest gets its own hologram shader instance', throne.includes('makeProjectorParts') && throne.includes('holoUniforms'));
+  t('dome brightened past the muddy 0.55', throne.includes('setScalar(0.95)') && !throne.includes('setScalar(0.55)'));
+  t('realm drop fades the black wall toward transparent', throne.includes('wallFadeTarget = 0.02'));
+  t('void restores the wall', throne.includes('wallFadeTarget = 1'));
+  t('framing API exists (idle/call)', throne.includes("setFraming(mode)"));
+  t('guest daises are laid out in an arc', throne.includes('layoutProjectors'));
+
+  const bell = src('../components/NotificationsWindow.jsx');
+  t('bell JOINs call invites via the deep link', bell.includes('order67-invite') && bell.includes('/order-67?code='));
+
+  const prof = src('../components/profiles/ProfileClient.jsx');
+  t('profile has a BLOCK button under the header', prof.includes('doBlockToggle') && prof.includes('Block'));
+  t('profile block is two-tap', prof.includes('Tap again to confirm block'));
+  t('own profile has a floating blocked-list icon', prof.includes('pf-fab') && prof.includes('Open blocked list'));
+  t('blocked panel lists users with UNBLOCK', prof.includes('pf-blocked-sheet') && prof.includes('Unblock'));
+  t('block copy is honest about silence', prof.includes('never told'));
 }
 
 console.log(`\norder-67: ${passed} passed, ${failed} failed`);

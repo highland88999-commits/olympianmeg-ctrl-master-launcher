@@ -316,6 +316,15 @@ export default function NotificationsWindow() {
                             {n.body && (
                               <p className="text-[13px] text-zinc-400 leading-relaxed mt-1">{n.body}</p>
                             )}
+                            {n.type === 'system' && n.meta?.kind === 'order67-invite' && n.meta?.room_code && !n.meta?.handled ? (
+                              <a
+                                href={`/order-67?code=${n.meta.room_code}`}
+                                data-ui="notif-join-call"
+                                className="mt-2 inline-flex min-h-[44px] items-center rounded-lg bg-cyan-400/90 px-5 text-xs font-bold uppercase tracking-widest text-cyan-950 transition-all hover:bg-cyan-300"
+                              >
+                                Join call
+                              </a>
+                            ) : null}
                             {actionable ? (
                               <ActionButtons id={n.id} busy={busyId === n.id} onRespond={onRespond} />
                             ) : n.meta?.handled ? (

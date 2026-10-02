@@ -1,7 +1,15 @@
 // app/order-67/page.jsx — ORDER 67: holographic peer-to-peer calls.
+//
 // Each caller gets their own throne room; the peer materializes on the dais
 // as a Palpatine-style hologram. Signaling rides the OASIS room pattern
 // (6-char codes, ~2s polling); media is peer-to-peer WebRTC.
+//
+// UX: when a call (or solo test) starts, the header collapses into a slim bar
+// (TikTok-live style) so the call owns the screen; a floating portal-vortex
+// icon expands it back. Multi-guest calls fan up to 4 projector daises in an
+// arc — mesh WebRTC, one 1:1 room per guest. Four is the ceiling on purpose:
+// each extra guest is another full encode/decode pipeline on the phone, and
+// beyond that the call needs an SFU media server (out of scope).
 //
 // "Summon test hologram" loops your own camera through the hologram shader
 // so the effect works with no peer at all.
@@ -36,6 +44,8 @@ import {
   BACKDROP_REALMS,
   BACKDROP_NONE,
   BACKDROP_STORAGE_KEY,
+  MAX_GUEST_PROJECTORS,
+  isCompactPhase,
   normalizeBackdropSelection,
 } from '@/lib/order-67';
 import {
@@ -45,6 +55,7 @@ import {
   sendFriendRequest,
   respondToFriendshipClient,
   sendCallInvite,
+  blockUserClient,
 } from '@/lib/friends';
 
 const CSS = `
@@ -54,6 +65,9 @@ const CSS = `
 @keyframes o67-pulse-code { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
 .o67-waiting { animation: o67-pulse-code 2.2s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .o67-waiting { animation: none; } }
+@keyframes o67-vortex-spin { to { transform: rotate(360deg); } }
+.o67-vortex-video { animation: o67-vortex-spin 14s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .o67-vortex-video { animation: none; } }
 `;
 
 const mediaConstraints = (facing = 'user') => ({
@@ -62,10 +76,14 @@ const mediaConstraints = (facing = 'user') => ({
 });
 
 const REALM_LABEL = {
-  ares: 'ARES', apollo: 'APOLLO', hermes: 'HERMES', hephaestus: 'HEPHAESTUS',
-  athena: 'ATHENA', artemis: 'ARTEMIS', hestia: 'HESTIA', dionysus: 'DIONYSUS',
-  plutus: 'PLUTUS', aphrodite: 'APHRODITE',
+  tartarus: 'TARTARUS',
+  elysium: 'ELYSIUM',
+  olympus: 'OLYMPUS',
+  styx: 'STYX',
+  aether: 'AETHER',
 };
+
+const JOIN_URL = (code) => `https://olympusverse.com/order-67?code=${code}`;
 
 export default function Order67Page() {
   const canvasRef = useRef(null);
@@ -79,6 +97,11 @@ export default function Order67Page() {
   const offeredRef = useRef(false);
   const roomCodeRef = useRef('');
   const mountedRef = useRef(true);
+  const searchTimerRef = useRef(null);
+  const confirmBlockTimerRef = useRef(null);
+  // multi-projector guests: id -> { id, name, code, pc, unwatch, videoEl, audioNodes, live, answered }
+  const guestsRef = useRef(new Map());
+  const audioCtxRef = useRef(null);
 
   const [phase, setPhase] = useState('idle'); // idle | hosting | joining | in-call | solo
   const [status, setStatus] = useState('Your throne room awaits.');
@@ -86,10 +109,13 @@ export default function Order67Page() {
   const [roomCode, setRoomCodeState] = useState('');
   const [joinCode, setJoinCode] = useState('');
   const [muted, setMuted] = useState(false);
+  const [speakerOn, setSpeakerOn] = useState(true);
+  const [cameraOn, setCameraOn] = useState(true);
   const [facingMode, setFacingMode] = useState('user'); // 'user' | 'environment'
   const [backdrop, setBackdropState] = useState(BACKDROP_NONE);
   const [cloudError, setCloudError] = useState(null); // null | 'no-session' | 'no-db' | 'no-migration' | 'no-camera'
   const [friendsOpen, setFriendsOpen] = useState(false);
+  const [friendsMode, setFriendsMode] = useState('summon'); // summon (idle) | invite (mid-call)
   const [friends, setFriends] = useState([]);
   const [pendingRequests, setPendingRequests] = useState([]);
   const [playerQuery, setPlayerQuery] = useState('');
@@ -97,11 +123,38 @@ export default function Order67Page() {
   const [searchingPlayers, setSearchingPlayers] = useState(false);
   const [sentRequests, setSentRequests] = useState([]);
   const [summoningName, setSummoningName] = useState('');
-  const searchTimerRef = useRef(null);
+  const [confirmBlockId, setConfirmBlockId] = useState(null);
+  const [guests, setGuests] = useState([]); // [{ id, name, code, live }]
+  // compact-on-join: slim header while a call owns the screen
+  const [headerExpanded, setHeaderExpanded] = useState(false);
+  const [reducedMotion] = useState(() => (
+    typeof window !== 'undefined'
+    && !!window.matchMedia
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  ));
+
+  // refs that mirror state for use inside async callbacks
+  const mutedRef = useRef(muted);
+  const speakerOnRef = useRef(speakerOn);
+  const cameraOnRef = useRef(cameraOn);
+  const setMutedBoth = (v) => { mutedRef.current = v; setMuted(v); };
+  const setSpeakerBoth = (v) => { speakerOnRef.current = v; setSpeakerOn(v); };
+  const setCameraBoth = (v) => { cameraOnRef.current = v; setCameraOn(v); };
+
+  const inCall = phase === 'in-call';
+  const inSolo = phase === 'solo';
+  const compact = isCompactPhase(phase);
 
   const setRoomCode = (c) => {
     roomCodeRef.current = c;
     setRoomCodeState(c);
+  };
+
+  const syncGuestList = () => {
+    if (!mountedRef.current) return;
+    setGuests([...guestsRef.current.values()].map((g) => ({
+      id: g.id, name: g.name, code: g.code, live: !!g.live,
+    })));
   };
 
   // ---------- throne room lifecycle ----------
@@ -117,16 +170,44 @@ export default function Order67Page() {
       setBackdropState(saved);
       scene.setBackdrop(saved);
     } catch { /* private mode — void it is */ }
+    // deep link: /order-67?code=XXXXXX (share invites, bell join buttons).
+    // The code is pre-filled; joining still needs a tap + a signed-in session.
+    try {
+      const q = new URLSearchParams(window.location.search);
+      const c = normalizeCode(q.get('code') || '');
+      if (isValidRoomCode(c)) {
+        setJoinCode(c);
+        setStatus(`Code ${c} is loaded — sign in, then tap JOIN.`);
+      }
+    } catch { /* ignore */ }
 
     return () => {
       mountedRef.current = false;
       if (unwatchRef.current) unwatchRef.current();
+      for (const g of guestsRef.current.values()) {
+        try { if (g.unwatch) g.unwatch(); } catch { /* noop */ }
+        closePeerConnection(g.pc);
+        if (g.videoEl) g.videoEl.srcObject = null;
+        try { g.audioNodes?.src?.disconnect(); g.audioNodes?.gain?.disconnect(); } catch { /* noop */ }
+      }
+      guestsRef.current.clear();
+      if (audioCtxRef.current) {
+        try { audioCtxRef.current.close(); } catch { /* noop */ }
+        audioCtxRef.current = null;
+      }
       closePeerConnection(pcRef.current);
       stopStream(localStreamRef.current);
+      if (confirmBlockTimerRef.current) clearTimeout(confirmBlockTimerRef.current);
       scene.dispose();
       sceneRef.current = null;
     };
   }, []);
+
+  // projection fit: the camera reframes whenever the phase changes —
+  // 'call' pulls back so dais + hologram sit in the phone-portrait band.
+  useEffect(() => {
+    sceneRef.current?.setFraming(compact ? 'call' : 'idle');
+  }, [phase, compact]);
 
   const chooseBackdrop = (realm) => {
     const clean = normalizeBackdropSelection(realm);
@@ -168,6 +249,21 @@ export default function Order67Page() {
     }
   };
 
+  // mute / camera-off states persist across every fresh stream (flips, rejoins)
+  const applyLocalTrackStates = (stream) => {
+    if (!stream) return;
+    stream.getAudioTracks().forEach((t) => { t.enabled = !mutedRef.current; });
+    stream.getVideoTracks().forEach((t) => { t.enabled = cameraOnRef.current; });
+  };
+
+  const attachLocalPreview = (stream) => {
+    const el = localVideoRef.current;
+    if (el && stream) {
+      el.srcObject = stream;
+      el.play().catch(() => {});
+    }
+  };
+
   const handleCallError = (e) => {
     if (isMissingMigrationError(e)) {
       setCloudError('no-migration');
@@ -178,11 +274,29 @@ export default function Order67Page() {
     setPhase('idle');
   };
 
+  // guest audio mixer: each guest's audio rides the Web Audio graph so every
+  // hologram is heard even though their <video> elements stay muted for
+  // autoplay. Created/resumed inside the tap that opens the projector.
+  const ensureAudioMixer = () => {
+    try {
+      if (!audioCtxRef.current) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return null;
+        audioCtxRef.current = new AC();
+      }
+      if (audioCtxRef.current.state === 'suspended') {
+        audioCtxRef.current.resume().catch(() => {});
+      }
+      return audioCtxRef.current;
+    } catch { return null; }
+  };
+
   const onRemoteStream = (stream) => {
     if (!mountedRef.current) return;
     const el = remoteVideoRef.current;
     if (el) {
       el.srcObject = stream;
+      el.muted = !speakerOnRef.current;
       el.play().catch(() => {});
     }
     sceneRef.current?.setStream(el);
@@ -197,9 +311,22 @@ export default function Order67Page() {
       unwatchRef.current();
       unwatchRef.current = null;
     }
-    if (roomCodeRef.current) endCall(roomCodeRef.current);
+    if (roomCodeRef.current) endCall(roomCodeRef.current).catch(() => {});
     closePeerConnection(pcRef.current);
     pcRef.current = null;
+    // guests leave with the call — every projector room is closed
+    for (const g of guestsRef.current.values()) {
+      try { if (g.unwatch) g.unwatch(); } catch { /* noop */ }
+      if (g.code) endCall(g.code).catch(() => {});
+      closePeerConnection(g.pc);
+      if (g.videoEl) g.videoEl.srcObject = null;
+      try { g.audioNodes?.src?.disconnect(); g.audioNodes?.gain?.disconnect(); } catch { /* noop */ }
+      sceneRef.current?.clearProjectorStream(g.id);
+      sceneRef.current?.hideProjector(g.id);
+      sceneRef.current?.removeProjector(g.id);
+    }
+    guestsRef.current.clear();
+    syncGuestList();
     stopStream(localStreamRef.current);
     localStreamRef.current = null;
     if (localVideoRef.current) localVideoRef.current.srcObject = null;
@@ -209,10 +336,12 @@ export default function Order67Page() {
     sceneRef.current?.setProjecting(false);
     answeredRef.current = false;
     offeredRef.current = false;
-    setMuted(false);
+    setMutedBoth(false);
+    setCameraBoth(true);
     setRoomCode('');
     setJoinCode('');
     setSummoningName('');
+    setHeaderExpanded(false);
     setPhase('idle');
     setStatus(msg || 'The channel closes.');
   };
@@ -237,6 +366,15 @@ export default function Order67Page() {
   };
 
   const openFriends = () => {
+    setFriendsMode('summon');
+    setFriendsOpen(true);
+    refreshFriends();
+  };
+
+  // in-call: open the friends list in invite mode — inviting adds a projector
+  // room and never touches the existing connection
+  const openInviteFriends = () => {
+    setFriendsMode('invite');
     setFriendsOpen(true);
     refreshFriends();
   };
@@ -289,6 +427,31 @@ export default function Order67Page() {
     }
   };
 
+  // two-tap block, no pop-ups: first tap arms, second tap within 3s executes.
+  // Silent — the blocked user is never notified.
+  const doBlockUser = async (userId) => {
+    if (confirmBlockId !== userId) {
+      setConfirmBlockId(userId);
+      if (confirmBlockTimerRef.current) clearTimeout(confirmBlockTimerRef.current);
+      confirmBlockTimerRef.current = setTimeout(() => {
+        if (mountedRef.current) setConfirmBlockId(null);
+      }, 3000);
+      return;
+    }
+    if (confirmBlockTimerRef.current) clearTimeout(confirmBlockTimerRef.current);
+    setConfirmBlockId(null);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      await blockUserClient(token, userId);
+      await refreshFriends();
+      setPlayerResults((r) => r.filter((p) => p.user_id !== userId));
+      setStatus('Blocked. They cannot reach you here, and they will not be told.');
+    } catch (e) {
+      setStatus(e?.message ? String(e.message) : 'Could not block this player.');
+    }
+  };
+
   // ---------- host flow: EXECUTE ORDER 67 ----------
   const executeOrder67 = async (inviteFriend) => {
     if (busy || phase !== 'idle') return;
@@ -300,11 +463,9 @@ export default function Order67Page() {
       setStatus('Waking your camera…');
       const stream = await getLocalStream(facingMode);
       if (!stream) return;
+      applyLocalTrackStates(stream);
       localStreamRef.current = stream;
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
-        localVideoRef.current.play().catch(() => {});
-      }
+      attachLocalPreview(stream);
       setStatus('Opening your channel…');
       const room = await hostCall(userId);
       setRoomCode(room.room_code);
@@ -376,7 +537,7 @@ export default function Order67Page() {
     if (busy || phase !== 'idle') return;
     const clean = normalizeCode(joinCode);
     if (!isValidRoomCode(clean)) {
-      setStatus('That code does not look right — six characters, no spaces.');
+      setStatus('That code does not look right — six letters or numbers.');
       return;
     }
     setBusy(true);
@@ -387,13 +548,11 @@ export default function Order67Page() {
       setStatus('Waking your camera…');
       const stream = await getLocalStream(facingMode);
       if (!stream) return;
+      applyLocalTrackStates(stream);
       localStreamRef.current = stream;
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
-        localVideoRef.current.play().catch(() => {});
-      }
-      setPhase('joining');
-      setStatus('Entering the channel…');
+      attachLocalPreview(stream);
+
+      setStatus('Finding the channel…');
       const room = await joinCall(clean, userId);
       setRoomCode(clean);
 
@@ -401,6 +560,7 @@ export default function Order67Page() {
       pcRef.current = pc;
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
 
+      setPhase('joining');
       unwatchRef.current = watchCall(clean, (r) => {
         if (!mountedRef.current) return;
         if (r.status === 'finished') {
@@ -431,16 +591,16 @@ export default function Order67Page() {
       setStatus('Waking your camera…');
       const stream = await getLocalStream(facingMode);
       if (!stream) return;
+      applyLocalTrackStates(stream);
       localStreamRef.current = stream;
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
-        localVideoRef.current.play().catch(() => {});
+      attachLocalPreview(stream);
+      if (cameraOnRef.current) {
+        sceneRef.current?.setStream(localVideoRef.current, { mirror: facingMode === 'user' });
+        sceneRef.current?.setProjecting(true);
+        sceneRef.current?.showHologram();
       }
-      sceneRef.current?.setStream(localVideoRef.current, { mirror: facingMode === 'user' });
-      sceneRef.current?.setProjecting(true);
-      sceneRef.current?.showHologram();
       setPhase('solo');
-      setStatus('Behold — you, as a hologram.');
+      setStatus(cameraOnRef.current ? 'Behold — you, as a hologram.' : 'Solo test — camera is off, tap CAM to appear.');
     } finally {
       if (mountedRef.current) setBusy(false);
     }
@@ -453,16 +613,51 @@ export default function Order67Page() {
     sceneRef.current?.clearStream();
     sceneRef.current?.hideHologram();
     sceneRef.current?.setProjecting(false);
+    setMutedBoth(false);
+    setCameraBoth(true);
+    setHeaderExpanded(false);
     setPhase('idle');
     setStatus('The test hologram fades.');
   };
 
+  // ---------- call controls ----------
   const toggleMute = () => {
     const stream = localStreamRef.current;
     if (!stream) return;
-    const next = !muted;
+    const next = !mutedRef.current;
     stream.getAudioTracks().forEach((t) => { t.enabled = !next; });
-    setMuted(next);
+    setMutedBoth(next);
+    setStatus(next ? 'You are muted.' : 'You are unmuted.');
+  };
+
+  const toggleSpeaker = () => {
+    const next = !speakerOnRef.current;
+    setSpeakerBoth(next);
+    const el = remoteVideoRef.current;
+    if (el) el.muted = !next;
+    for (const g of guestsRef.current.values()) {
+      try { if (g.audioNodes?.gain) g.audioNodes.gain.gain.value = next ? 1 : 0; } catch { /* noop */ }
+    }
+    setStatus(next ? 'Speaker on.' : 'Call audio muted.');
+  };
+
+  const toggleCamera = () => {
+    const stream = localStreamRef.current;
+    if (!stream) return;
+    const next = !cameraOnRef.current;
+    stream.getVideoTracks().forEach((t) => { t.enabled = next; });
+    setCameraBoth(next);
+    // solo: the hologram IS your camera — hide it when the camera is off
+    if (inSolo) {
+      if (next) {
+        sceneRef.current?.setStream(localVideoRef.current, { mirror: facingMode === 'user' });
+        sceneRef.current?.showHologram();
+      } else {
+        sceneRef.current?.clearStream();
+        sceneRef.current?.hideHologram();
+      }
+    }
+    setStatus(next ? 'Camera on.' : 'Camera off — your peer hears you but cannot see you.');
   };
 
   // ---------- camera flip: front <-> back, live, no renegotiation ----------
@@ -470,7 +665,7 @@ export default function Order67Page() {
   // P2P calls, and under the realm dome. The old stream is only stopped
   // after the new one is live, so a failed flip never kills the call.
   const switchCamera = async () => {
-    if (busy || !(phase === 'solo' || inCall)) return;
+    if (busy || !(inSolo || inCall || phase === 'hosting')) return;
     const next = facingMode === 'user' ? 'environment' : 'user';
     setBusy(true);
     try {
@@ -484,23 +679,23 @@ export default function Order67Page() {
         setStatus('Could not switch camera — keeping the current one.');
         return;
       }
+      applyLocalTrackStates(stream);
       stopStream(localStreamRef.current);
       localStreamRef.current = stream;
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
-        localVideoRef.current.play().catch(() => {});
-      }
+      attachLocalPreview(stream);
       // swap the outbound video track without renegotiating the call
-      const pc = pcRef.current;
       const videoTrack = stream.getVideoTracks()[0];
-      if (pc && videoTrack) {
+      const swapOn = (pc) => {
+        if (!pc || !videoTrack) return;
         const sender = pc.getSenders().find((s) => s.track && s.track.kind === 'video');
         if (sender && typeof sender.replaceTrack === 'function') {
-          try { await sender.replaceTrack(videoTrack); } catch { /* keep the old track */ }
+          sender.replaceTrack(videoTrack).catch(() => { /* keep the old track */ });
         }
-      }
+      };
+      swapOn(pcRef.current);
+      for (const g of guestsRef.current.values()) swapOn(g.pc);
       // re-feed the hologram texture (mirror only the front camera)
-      if (phase === 'solo') {
+      if (inSolo && cameraOnRef.current) {
         sceneRef.current?.setStream(localVideoRef.current, { mirror: next === 'user' });
       }
       setFacingMode(next);
@@ -510,7 +705,311 @@ export default function Order67Page() {
     }
   };
 
-  const inCall = phase === 'in-call';
+  // ---------- external share invite ----------
+  // Native share sheet with a ?code= deep link; clipboard fallback.
+  // A signed-out visitor lands on Order 67 with the code pre-filled and an
+  // honest prompt to sign in first (calls need a session).
+  const shareInvite = async (code) => {
+    const clean = normalizeCode(code || '');
+    if (!isValidRoomCode(clean)) {
+      setStatus('No channel code to share yet.');
+      return;
+    }
+    const url = JOIN_URL(clean);
+    const text = `Join my Order 67 hologram call — code ${clean}. Open the link, sign in, and tap JOIN.`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: 'Order 67 call', text, url });
+        return;
+      }
+      throw new Error('no-share');
+    } catch (e) {
+      if (e && e.name === 'AbortError') return; // dismissed — not an error
+      try {
+        await navigator.clipboard.writeText(`${text} ${url}`);
+        setStatus('Invite link copied — send it to your peer.');
+      } catch {
+        setStatus(`Share this code: ${clean}`);
+      }
+    }
+  };
+
+  // ---------- multi-projector guests ----------
+  // Each guest is a fresh 1:1 room (their own offer/answer pair) — the
+  // existing main connection is never touched. Returns the guest room code.
+  const addProjector = async (friend = null) => {
+    if (busy) return null;
+    if (guestsRef.current.size >= MAX_GUEST_PROJECTORS) {
+      setStatus(
+        `Four holograms is the ceiling — a phone cannot mesh more than ${MAX_GUEST_PROJECTORS} guests. ` +
+        'Beyond that the call needs a media server.'
+      );
+      return null;
+    }
+    setBusy(true);
+    try {
+      const userId = await getUserId();
+      if (!userId) return null;
+      let stream = localStreamRef.current;
+      if (!stream) {
+        stream = await getLocalStream(facingMode);
+        if (!stream) return null;
+        applyLocalTrackStates(stream);
+        localStreamRef.current = stream;
+        attachLocalPreview(stream);
+      }
+      const room = await hostCall(userId);
+      const code = room.room_code;
+      const name = friend
+        ? (friend.display_name || friend.username || 'Friend')
+        : 'Guest';
+      const id = `g${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`;
+      const pc = createPeerConnection((s) => onGuestStream(id, s));
+      stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+      const sdp = await makeOffer(pc);
+      if (!sdp) throw new Error('Could not prepare the projector — try again.');
+      await publishSignalPart(code, 'offer', sdp);
+
+      const videoEl = document.createElement('video');
+      videoEl.playsInline = true;
+      videoEl.autoplay = true;
+      videoEl.muted = true; // video only — audio rides the mixer
+      videoEl.setAttribute('aria-hidden', 'true');
+      sceneRef.current?.addProjector(id);
+      const rec = { id, name, code, pc, videoEl, audioNodes: null, live: false, answered: false, unwatch: null };
+      rec.unwatch = watchCall(code, (r) => onGuestSignal(rec, r));
+      guestsRef.current.set(id, rec);
+      ensureAudioMixer();
+      syncGuestList();
+
+      if (friend) {
+        setStatus(`Inviting ${name} — they join as a hologram alongside the call.`);
+        try {
+          const token = await getToken();
+          if (token) await sendCallInvite(token, friend.user_id, code);
+        } catch (e) {
+          // the projector room is still open — the invite just did not send
+          setStatus(e?.message ? String(e.message) : 'Projector open, but the invite did not send.');
+        }
+      } else {
+        setStatus(`Projector ${code} is open — share the code or the link.`);
+      }
+      return code;
+    } catch (e) {
+      handleCallError(e);
+      return null;
+    } finally {
+      if (mountedRef.current) setBusy(false);
+    }
+  };
+
+  const onGuestStream = (id, stream) => {
+    const rec = guestsRef.current.get(id);
+    if (!rec || !mountedRef.current) return;
+    rec.videoEl.srcObject = stream;
+    rec.videoEl.play().catch(() => {});
+    sceneRef.current?.setProjectorStream(id, rec.videoEl, { mirror: false });
+    sceneRef.current?.showProjector(id);
+    // guest audio through the mixer (their video element stays muted)
+    try {
+      const ctx = ensureAudioMixer();
+      const audioTracks = stream.getAudioTracks();
+      if (ctx && audioTracks.length > 0) {
+        const src = ctx.createMediaStreamSource(stream);
+        const gain = ctx.createGain();
+        gain.gain.value = speakerOnRef.current ? 1 : 0;
+        src.connect(gain);
+        gain.connect(ctx.destination);
+        rec.audioNodes = { src, gain };
+      }
+    } catch { /* video-only hologram then */ }
+    rec.live = true;
+    syncGuestList();
+    setStatus(`${rec.name} materializes.`);
+  };
+
+  const onGuestSignal = async (rec, room) => {
+    if (!mountedRef.current || !guestsRef.current.has(rec.id)) return;
+    if (room.status === 'finished') {
+      removeGuest(rec.id, `${rec.name} left the call.`);
+      return;
+    }
+    if (!rec.answered) {
+      const answer = readSignalPart(room, 'answer');
+      if (answer) {
+        rec.answered = true;
+        try {
+          await acceptAnswer(rec.pc, answer);
+        } catch {
+          rec.answered = false; // retry on the next poll
+        }
+      }
+    }
+  };
+
+  const removeGuest = (id, msg) => {
+    const rec = guestsRef.current.get(id);
+    if (!rec) return;
+    try { if (rec.unwatch) rec.unwatch(); } catch { /* noop */ }
+    if (rec.code) endCall(rec.code).catch(() => {});
+    closePeerConnection(rec.pc);
+    if (rec.videoEl) rec.videoEl.srcObject = null;
+    try { rec.audioNodes?.src?.disconnect(); rec.audioNodes?.gain?.disconnect(); } catch { /* noop */ }
+    sceneRef.current?.clearProjectorStream(id);
+    sceneRef.current?.hideProjector(id);
+    sceneRef.current?.removeProjector(id);
+    guestsRef.current.delete(id);
+    syncGuestList();
+    if (msg && mountedRef.current) setStatus(msg);
+  };
+
+  // in-call "add friend": the friend gets a fresh projector room via the
+  // normal multi-projector path — the existing connection never drops.
+  const inviteToCall = async (friend) => {
+    const code = await addProjector(friend);
+    if (code) setFriendsOpen(false);
+  };
+
+  // in-call share: open a projector room for a link-invite, then share it.
+  const shareGuestInvite = async () => {
+    const code = await addProjector(null);
+    if (code) shareInvite(code);
+  };
+
+  // ---------- render helpers ----------
+  const renderRealmChips = () => (
+    <div className="o67-chip-scroll flex gap-2 overflow-x-auto px-1 pb-1" role="radiogroup" aria-label="Realm backdrop">
+      {[{ key: BACKDROP_NONE, label: 'VOID' }].concat(
+        BACKDROP_REALMS.map((r) => ({ key: r, label: REALM_LABEL[r] }))
+      ).map((opt) => {
+        const active = backdrop === opt.key;
+        const thumb = opt.key === BACKDROP_NONE
+          ? null
+          : `/images/menu/banners/banner-${opt.key}.webp`;
+        return (
+          <button
+            key={opt.key}
+            role="radio"
+            aria-checked={active}
+            aria-label={`Realm backdrop: ${opt.label}`}
+            onClick={() => chooseBackdrop(opt.key)}
+            className={`min-h-[64px] w-[92px] shrink-0 overflow-hidden rounded-xl border text-left transition ${
+              active
+                ? 'border-cyan-300/80 bg-cyan-400/15'
+                : 'border-white/15 bg-black/40 hover:border-cyan-300/40'
+            }`}
+          >
+            {thumb ? (
+              <img
+                src={thumb}
+                alt=""
+                aria-hidden="true"
+                loading="lazy"
+                className="h-9 w-full object-cover"
+                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+              />
+            ) : (
+              <div className="h-9 w-full bg-gradient-to-b from-zinc-800/80 to-black" aria-hidden="true" />
+            )}
+            <span className={`block px-2 py-1.5 text-center text-[10px] font-bold tracking-[0.18em] ${
+              active ? 'text-white' : 'text-zinc-400'
+            }`}>
+              {opt.label}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  const ctrlBtn = 'min-h-[48px] flex-1 rounded-xl border px-2 text-[10px] font-bold tracking-[0.12em] backdrop-blur-md transition active:scale-[0.97]';
+
+  const renderControlCluster = () => (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-2">
+        <button
+          onClick={toggleMute}
+          className={`${ctrlBtn} ${
+            muted
+              ? 'border-amber-300/60 bg-amber-400/15 text-amber-200'
+              : 'border-white/20 bg-black/50 text-cyan-200 hover:border-cyan-300/60'
+          }`}
+        >
+          {muted ? 'UNMUTE' : 'MUTE'}
+        </button>
+        <button
+          onClick={toggleSpeaker}
+          className={`${ctrlBtn} ${
+            speakerOn
+              ? 'border-white/20 bg-black/50 text-cyan-200 hover:border-cyan-300/60'
+              : 'border-zinc-600/60 bg-zinc-800/40 text-zinc-400'
+          }`}
+        >
+          SPEAKER
+        </button>
+        <button
+          onClick={toggleCamera}
+          className={`${ctrlBtn} ${
+            cameraOn
+              ? 'border-white/20 bg-black/50 text-cyan-200 hover:border-cyan-300/60'
+              : 'border-amber-300/60 bg-amber-400/15 text-amber-200'
+          }`}
+        >
+          CAM
+        </button>
+        <button
+          onClick={switchCamera}
+          disabled={busy}
+          aria-label="Switch camera"
+          className={`${ctrlBtn} border-cyan-300/50 bg-cyan-400/10 text-cyan-100 hover:border-cyan-300/80 disabled:opacity-50`}
+        >
+          FLIP
+        </button>
+      </div>
+      {inCall ? (
+        <>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => addProjector(null)}
+              disabled={busy}
+              className={`${ctrlBtn} border-cyan-300/50 bg-cyan-400/10 text-cyan-100 hover:border-cyan-300/80 disabled:opacity-50`}
+            >
+              ADD PROJECTOR
+            </button>
+            <button
+              onClick={openInviteFriends}
+              disabled={busy}
+              className={`${ctrlBtn} border-white/20 bg-black/50 text-cyan-200 hover:border-cyan-300/60 disabled:opacity-50`}
+            >
+              ADD FRIEND
+            </button>
+            <button
+              onClick={shareGuestInvite}
+              disabled={busy}
+              className={`${ctrlBtn} border-white/20 bg-black/50 text-cyan-200 hover:border-cyan-300/60 disabled:opacity-50`}
+            >
+              SHARE
+            </button>
+          </div>
+          <button
+            onClick={() => hangUp()}
+            className="min-h-[48px] rounded-xl border border-red-400/50 bg-red-500/15 px-8 text-xs font-black tracking-[0.25em] text-red-200 backdrop-blur-md transition hover:bg-red-500/25 active:scale-[0.98]"
+          >
+            HANG UP
+          </button>
+        </>
+      ) : (
+        <button
+          onClick={endSolo}
+          className="min-h-[48px] rounded-xl border border-red-400/50 bg-red-500/15 px-8 text-xs font-black tracking-[0.25em] text-red-200 backdrop-blur-md transition hover:bg-red-500/25 active:scale-[0.98]"
+        >
+          END DEMO
+        </button>
+      )}
+    </div>
+  );
+
+  const previewVisible = inCall || inSolo || phase === 'hosting';
 
   return (
     <main className="o67-mono relative h-dvh w-full overflow-hidden bg-black text-cyan-100 select-none">
@@ -522,23 +1021,105 @@ export default function Order67Page() {
       {/* hidden remote video: feeds the hologram texture (audio still plays) */}
       <video ref={remoteVideoRef} playsInline autoPlay className="pointer-events-none absolute h-px w-px opacity-0" aria-hidden="true" />
 
-      {/* header */}
-      <header className="absolute inset-x-0 top-0 z-20 flex items-start justify-between px-4 pt-[max(1rem,env(safe-area-inset-top))]">
-        <BackButton label="EXIT" href="/" />
-        <div className="text-right">
-          <h1 className="text-lg font-black tracking-[0.3em] text-white" style={{ textShadow: '0 0 14px rgba(70,200,255,0.6)' }}>
-            ORDER 67
-          </h1>
-          <p className="mt-0.5 text-[10px] tracking-[0.25em] text-cyan-300/70">HOLOGRAPHIC P2P CALLS</p>
-        </div>
-      </header>
-
-      {/* status line */}
-      <div className="pointer-events-none absolute inset-x-0 top-24 z-20 flex justify-center px-6">
-        <p className={`text-center text-xs tracking-[0.2em] text-cyan-200/90 ${phase === 'hosting' || phase === 'joining' ? 'o67-waiting' : ''}`}>
-          {status}
+      {/* local preview: always mounted so no stream assignment ever hits a null ref */}
+      <video
+        ref={localVideoRef}
+        playsInline autoPlay muted
+        aria-label="Your camera preview"
+        style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
+        className={`absolute bottom-56 right-4 z-20 aspect-[4/3] w-28 rounded-xl border bg-black object-cover transition-opacity ${
+          previewVisible ? 'border-cyan-300/40 opacity-100' : 'pointer-events-none border-transparent opacity-0'
+        } ${previewVisible && !cameraOn ? 'opacity-40' : ''}`}
+      />
+      {previewVisible && !cameraOn && (
+        <p className="absolute bottom-52 right-4 z-20 rounded-md bg-black/70 px-2 py-1 text-[9px] font-bold tracking-[0.2em] text-amber-200">
+          CAM OFF
         </p>
-      </div>
+      )}
+
+      {/* header: full on idle, slim bar once the call owns the screen */}
+      {!compact && (
+        <header className="absolute inset-x-0 top-0 z-20 flex items-start justify-between px-4 pt-[max(1rem,env(safe-area-inset-top))]">
+          <BackButton label="EXIT" href="/" />
+          <div className="text-right">
+            <h1 className="text-lg font-black tracking-[0.3em] text-white" style={{ textShadow: '0 0 14px rgba(70,200,255,0.6)' }}>
+              ORDER 67
+            </h1>
+            <p className="mt-0.5 text-[10px] tracking-[0.25em] text-cyan-300/70">HOLOGRAPHIC P2P CALLS</p>
+            <p className="ml-auto mt-1 max-w-[230px] text-[10px] leading-relaxed text-zinc-400">
+              Step onto the dais — your peer materializes as a hologram.
+            </p>
+          </div>
+        </header>
+      )}
+      {compact && !headerExpanded && (
+        <header className="absolute inset-x-0 top-0 z-20 flex items-center gap-3 bg-black/60 px-3 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] backdrop-blur-md">
+          <BackButton label="EXIT" href="/" />
+          <p className="flex-none text-xs font-black tracking-[0.3em] text-white">ORDER 67</p>
+          <p className="min-w-0 flex-1 truncate text-[10px] tracking-[0.15em] text-cyan-200/80">{status}</p>
+        </header>
+      )}
+
+      {/* floating portal-vortex icon: expands the collapsed header */}
+      {compact && !headerExpanded && !friendsOpen && (
+        <button
+          onClick={() => setHeaderExpanded(true)}
+          aria-label="Expand header"
+          title="Show header"
+          className="absolute right-3 top-[4.25rem] z-30 flex h-14 w-14 items-center justify-center overflow-hidden rounded-full border border-cyan-300/60"
+          style={{ boxShadow: '0 0 24px rgba(70,200,255,0.45)' }}
+        >
+          {reducedMotion ? (
+            <span aria-hidden="true" className="block h-full w-full bg-gradient-to-br from-cyan-500/70 via-violet-600/70 to-black" />
+          ) : (
+            <video
+              src="/videos/menu-background.mp4"
+              autoPlay muted loop playsInline
+              aria-hidden="true"
+              className="o67-vortex-video h-full w-full object-cover"
+            />
+          )}
+        </button>
+      )}
+
+      {/* expanded header drawer: the collapsed chrome, one tap away */}
+      {compact && headerExpanded && (
+        <div className="absolute inset-x-0 top-0 z-30 border-b border-cyan-300/15 bg-black/90 px-4 pb-4 pt-[max(1rem,env(safe-area-inset-top))] backdrop-blur-md">
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div>
+              <h1 className="text-lg font-black tracking-[0.3em] text-white" style={{ textShadow: '0 0 14px rgba(70,200,255,0.6)' }}>
+                ORDER 67
+              </h1>
+              <p className="mt-0.5 text-[10px] tracking-[0.25em] text-cyan-300/70">HOLOGRAPHIC P2P CALLS</p>
+              <p className="mt-1 max-w-[260px] text-[10px] leading-relaxed text-zinc-400">
+                Step onto the dais — your peer materializes as a hologram.
+              </p>
+            </div>
+            <button
+              onClick={() => setHeaderExpanded(false)}
+              aria-label="Collapse header"
+              className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-white/20 text-zinc-300 hover:text-white"
+            >
+              ✕
+            </button>
+          </div>
+          <p className="mb-2 text-[9px] tracking-[0.35em] text-cyan-300/60">PROJECTED REALM BACKDROP</p>
+          {renderRealmChips()}
+          <p className="mt-2 text-[9px] leading-relaxed text-zinc-500">
+            Peer-to-peer: video and audio travel directly between the two phones.
+            The signal server only sees room codes — never your media.
+          </p>
+        </div>
+      )}
+
+      {/* status line (idle only — compact mode folds it into the slim bar) */}
+      {!compact && (
+        <div className="pointer-events-none absolute inset-x-0 top-32 z-20 flex justify-center px-6">
+          <p className="text-center text-xs tracking-[0.2em] text-cyan-200/90">
+            {status}
+          </p>
+        </div>
+      )}
 
       {/* idle: the summons */}
       {phase === 'idle' && !cloudError && (
@@ -645,6 +1226,12 @@ export default function Order67Page() {
             </p>
           )}
           <button
+            onClick={() => shareInvite(roomCode)}
+            className="min-h-[48px] rounded-xl border border-cyan-300/60 bg-cyan-400/15 px-8 text-xs font-bold tracking-[0.25em] text-white backdrop-blur-md transition hover:bg-cyan-400/25 active:scale-[0.98]"
+          >
+            SHARE INVITE
+          </button>
+          <button
             onClick={() => hangUp('The channel closes.')}
             className="min-h-[44px] rounded-xl border border-red-400/40 bg-black/50 px-8 text-xs font-bold tracking-[0.25em] text-red-300 backdrop-blur-md transition hover:bg-red-400/10"
           >
@@ -666,50 +1253,51 @@ export default function Order67Page() {
         </div>
       )}
 
-      {/* in call / solo: local preview + controls */}
-      {(inCall || phase === 'solo') && (
-        <>
-          <video
-            ref={localVideoRef}
-            playsInline autoPlay muted
-            className="absolute bottom-40 right-4 z-20 aspect-[4/3] w-28 rounded-xl border border-cyan-300/40 bg-black object-cover"
-            style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
-            aria-label="Your camera preview"
-          />
-          <div className="absolute inset-x-0 bottom-40 z-20 flex items-center justify-center gap-3 px-6">
-            <button
-              onClick={toggleMute}
-              className={`min-h-[44px] rounded-xl border px-6 text-xs font-bold tracking-[0.2em] backdrop-blur-md transition ${
-                muted
-                  ? 'border-amber-300/60 bg-amber-400/15 text-amber-200'
-                  : 'border-white/20 bg-black/50 text-cyan-200 hover:border-cyan-300/60'
-              }`}
-            >
-              {muted ? 'UNMUTE' : 'MUTE'}
-            </button>
-            <button
-              onClick={switchCamera}
-              disabled={busy}
-              aria-label="Switch camera"
-              className="min-h-[44px] rounded-xl border border-white/20 bg-black/50 px-6 text-xs font-bold tracking-[0.2em] text-cyan-200 backdrop-blur-md transition hover:border-cyan-300/60 disabled:opacity-50"
-            >
-              FLIP
-            </button>
-            <button
-              onClick={() => (phase === 'solo' ? endSolo() : hangUp())}
-              className="min-h-[44px] rounded-xl border border-red-400/50 bg-red-500/15 px-8 text-xs font-black tracking-[0.25em] text-red-200 backdrop-blur-md transition hover:bg-red-500/25"
-            >
-              {phase === 'solo' ? 'END DEMO' : 'HANG UP'}
-            </button>
-          </div>
-        </>
+      {/* in call / solo: guest strip + control cluster */}
+      {(inCall || inSolo) && (
+        <div className="absolute inset-x-0 bottom-0 z-20 px-4 pb-[max(0.9rem,env(safe-area-inset-bottom))] pt-2">
+          {inCall && guests.length > 0 && (
+            <div className="o67-chip-scroll mb-2 flex gap-2 overflow-x-auto" aria-label="Guests">
+              {guests.map((g) => (
+                <div
+                  key={g.id}
+                  className="flex min-h-[44px] flex-none items-center gap-2 rounded-xl border border-cyan-300/30 bg-black/60 py-1 pl-3 pr-1 backdrop-blur-md"
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`h-2 w-2 flex-none rounded-full ${g.live ? 'bg-emerald-400' : 'bg-amber-300 o67-waiting'}`}
+                  />
+                  <span className="max-w-[90px] truncate text-[11px] font-bold text-white">{g.name}</span>
+                  <span className="text-[10px] tracking-[0.2em] text-cyan-300/70">{g.code}</span>
+                  <button
+                    onClick={() => shareInvite(g.code)}
+                    aria-label={`Share invite for ${g.name}`}
+                    className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg text-cyan-200 transition hover:bg-white/10"
+                  >
+                    ↗
+                  </button>
+                  <button
+                    onClick={() => removeGuest(g.id, `${g.name} removed.`)}
+                    aria-label={`Remove ${g.name}`}
+                    className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg text-red-300 transition hover:bg-white/10"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {renderControlCluster()}
+        </div>
       )}
 
-      {/* friends sheet: choose a friend, search players, answer requests */}
-      {friendsOpen && phase === 'idle' && (
+      {/* friends sheet: summon (idle) or invite (mid-call) */}
+      {friendsOpen && (friendsMode === 'summon' ? phase === 'idle' : (inCall || inSolo)) && (
         <div role="dialog" aria-label="Friends" className="absolute inset-0 z-30 flex flex-col bg-black/90 backdrop-blur-md">
           <div className="flex items-center justify-between px-5 pt-[max(1.25rem,env(safe-area-inset-top))]">
-            <h2 className="text-sm font-black tracking-[0.3em] text-white">CHOOSE YOUR COMPANY</h2>
+            <h2 className="text-sm font-black tracking-[0.3em] text-white">
+              {friendsMode === 'invite' ? 'ADD TO THIS CALL' : 'CHOOSE YOUR COMPANY'}
+            </h2>
             <button
               onClick={() => setFriendsOpen(false)}
               aria-label="Close friends"
@@ -718,7 +1306,12 @@ export default function Order67Page() {
               ✕
             </button>
           </div>
-          <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-6">
+          {friendsMode === 'invite' && (
+            <p className="px-5 pt-2 text-[11px] leading-relaxed text-zinc-400">
+              They join as another hologram — your current call keeps going.
+            </p>
+          )}
+          <div className="flex flex-1 flex-col gap-6 overflow-y-auto px-5 py-4">
             {/* your friends */}
             <section aria-label="Your friends">
               <h3 className="mb-2 text-[10px] font-bold tracking-[0.3em] text-cyan-300/70">YOUR FRIENDS</h3>
@@ -743,170 +1336,171 @@ export default function Order67Page() {
                         <span className="block truncate text-sm font-bold text-white">{f.display_name}</span>
                         <span className="block truncate text-[11px] text-zinc-500">@{f.username}</span>
                       </span>
-                      <button
-                        onClick={() => executeOrder67(f)}
-                        disabled={busy}
-                        className="min-h-[44px] flex-none rounded-xl border border-cyan-300/60 bg-cyan-400/15 px-5 text-[11px] font-black tracking-[0.2em] text-white transition hover:bg-cyan-400/25 disabled:opacity-50"
-                      >
-                        SUMMON
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-            {/* search players */}
-            <section aria-label="Search players">
-              <h3 className="mb-2 text-[10px] font-bold tracking-[0.3em] text-cyan-300/70">SEARCH PLAYERS</h3>
-              <input
-                value={playerQuery}
-                onChange={(e) => onPlayerQueryChange(e.target.value)}
-                placeholder="username or name"
-                aria-label="Search players"
-                autoComplete="off"
-                autoCapitalize="none"
-                spellCheck={false}
-                className="min-h-[44px] w-full rounded-xl border border-white/15 bg-black/50 px-4 text-base text-white placeholder:text-zinc-600 focus:border-cyan-300/60 focus:outline-none select-text"
-              />
-              {searchingPlayers && (
-                <p className="mt-2 text-xs text-zinc-500">Searching…</p>
-              )}
-              {!searchingPlayers && playerQuery.trim().length >= 2 && playerResults.length === 0 && (
-                <p className="mt-2 text-xs text-zinc-500">No players match that name.</p>
-              )}
-              {playerResults.length > 0 && (
-                <ul className="mt-2 flex flex-col gap-2">
-                  {playerResults.map((pl) => (
-                    <li
-                      key={pl.user_id}
-                      className="flex items-center gap-3 rounded-xl border border-white/10 bg-black/50 px-4 py-2.5"
-                    >
-                      <span
-                        aria-hidden="true"
-                        className="flex h-10 w-10 flex-none items-center justify-center rounded-full border border-white/20 bg-white/5 text-sm font-black text-zinc-300"
-                      >
-                        {(pl.display_name || pl.username || '?').charAt(0).toUpperCase()}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-bold text-white">{pl.display_name}</span>
-                        <span className="block truncate text-[11px] text-zinc-500">@{pl.username}</span>
-                      </span>
-                      {sentRequests.includes(pl.user_id) ? (
-                        <span className="flex-none text-[11px] font-bold tracking-[0.2em] text-emerald-300/80">
-                          REQUEST SENT
-                        </span>
-                      ) : (
+                      {friendsMode === 'invite' ? (
                         <button
-                          onClick={() => addPlayer(pl)}
-                          className="min-h-[44px] flex-none rounded-xl border border-white/20 px-5 text-[11px] font-bold tracking-[0.2em] text-cyan-200 transition hover:border-cyan-300/60"
+                          onClick={() => inviteToCall(f)}
+                          disabled={busy}
+                          className="min-h-[44px] flex-none rounded-xl border border-cyan-300/60 bg-cyan-400/15 px-5 text-[11px] font-black tracking-[0.2em] text-white transition hover:bg-cyan-400/25 disabled:opacity-50"
                         >
-                          ADD
+                          INVITE
                         </button>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => executeOrder67(f)}
+                            disabled={busy}
+                            className="min-h-[44px] flex-none rounded-xl border border-cyan-300/60 bg-cyan-400/15 px-5 text-[11px] font-black tracking-[0.2em] text-white transition hover:bg-cyan-400/25 disabled:opacity-50"
+                          >
+                            SUMMON
+                          </button>
+                          <button
+                            onClick={() => doBlockUser(f.user_id)}
+                            aria-label={`Block ${f.display_name || f.username}`}
+                            className={`min-h-[44px] flex-none rounded-xl border px-4 text-[11px] font-bold tracking-[0.15em] transition ${
+                              confirmBlockId === f.user_id
+                                ? 'border-red-400/70 bg-red-500/20 text-red-200'
+                                : 'border-white/10 text-zinc-500 hover:border-red-400/50 hover:text-red-300'
+                            }`}
+                          >
+                            {confirmBlockId === f.user_id ? 'SURE?' : 'BLOCK'}
+                          </button>
+                        </>
                       )}
                     </li>
                   ))}
                 </ul>
               )}
             </section>
-            {/* incoming requests */}
-            <section aria-label="Friend requests">
-              <h3 className="mb-2 text-[10px] font-bold tracking-[0.3em] text-cyan-300/70">
-                REQUESTS{pendingRequests.length > 0 ? ` (${pendingRequests.length})` : ''}
-              </h3>
-              {pendingRequests.length === 0 ? (
-                <p className="text-xs text-zinc-500">No pending requests.</p>
-              ) : (
-                <ul className="flex flex-col gap-2">
-                  {pendingRequests.map((r) => (
-                    <li
-                      key={r.friendship_id}
-                      className="flex items-center gap-3 rounded-xl border border-amber-200/20 bg-amber-100/[0.04] px-4 py-2.5"
-                    >
-                      <span
-                        aria-hidden="true"
-                        className="flex h-10 w-10 flex-none items-center justify-center rounded-full border border-amber-200/40 bg-amber-100/10 text-sm font-black text-amber-200"
-                      >
-                        {(r.requester.display_name || r.requester.username || '?').charAt(0).toUpperCase()}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-bold text-white">{r.requester.display_name}</span>
-                        <span className="block truncate text-[11px] text-zinc-500">@{r.requester.username} wants to be friends</span>
-                      </span>
-                      <span className="flex flex-none gap-2">
-                        <button
-                          onClick={() => answerRequest(r.friendship_id, 'accept')}
-                          className="min-h-[44px] rounded-xl bg-emerald-400/90 px-4 text-[11px] font-black tracking-[0.15em] text-emerald-950 transition hover:bg-emerald-300"
+            {friendsMode === 'summon' && (
+              <>
+                {/* search players */}
+                <section aria-label="Search players">
+                  <h3 className="mb-2 text-[10px] font-bold tracking-[0.3em] text-cyan-300/70">SEARCH PLAYERS</h3>
+                  <input
+                    value={playerQuery}
+                    onChange={(e) => onPlayerQueryChange(e.target.value)}
+                    placeholder="username or name"
+                    aria-label="Search players"
+                    autoComplete="off"
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    className="select-text min-h-[44px] w-full rounded-xl border border-white/15 bg-black/50 px-4 text-base text-white placeholder:text-zinc-600 focus:border-cyan-300/60 focus:outline-none"
+                  />
+                  {searchingPlayers && (
+                    <p className="mt-2 text-xs text-zinc-500">Searching…</p>
+                  )}
+                  {!searchingPlayers && playerQuery.trim().length >= 2 && playerResults.length === 0 && (
+                    <p className="mt-2 text-xs text-zinc-500">No players match that name.</p>
+                  )}
+                  {playerResults.length > 0 && (
+                    <ul className="mt-2 flex flex-col gap-2">
+                      {playerResults.map((pl) => (
+                        <li
+                          key={pl.user_id}
+                          className="flex items-center gap-3 rounded-xl border border-white/10 bg-black/50 px-4 py-2.5"
                         >
-                          ACCEPT
-                        </button>
-                        <button
-                          onClick={() => answerRequest(r.friendship_id, 'decline')}
-                          className="min-h-[44px] rounded-xl border border-zinc-600 px-4 text-[11px] font-bold tracking-[0.15em] text-zinc-300 transition hover:border-zinc-400 hover:text-white"
+                          <span
+                            aria-hidden="true"
+                            className="flex h-10 w-10 flex-none items-center justify-center rounded-full border border-white/20 bg-white/5 text-sm font-black text-zinc-300"
+                          >
+                            {(pl.display_name || pl.username || '?').charAt(0).toUpperCase()}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-bold text-white">{pl.display_name}</span>
+                            <span className="block truncate text-[11px] text-zinc-500">@{pl.username}</span>
+                          </span>
+                          {sentRequests.includes(pl.user_id) ? (
+                            <span className="flex-none text-[11px] font-bold tracking-[0.2em] text-emerald-300/80">
+                              REQUEST SENT
+                            </span>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => addPlayer(pl)}
+                                className="min-h-[44px] flex-none rounded-xl border border-white/20 px-5 text-[11px] font-bold tracking-[0.2em] text-cyan-200 transition hover:border-cyan-300/60"
+                              >
+                                ADD
+                              </button>
+                              <button
+                                onClick={() => doBlockUser(pl.user_id)}
+                                aria-label={`Block ${pl.display_name || pl.username}`}
+                                className={`min-h-[44px] flex-none rounded-xl border px-4 text-[11px] font-bold tracking-[0.15em] transition ${
+                                  confirmBlockId === pl.user_id
+                                    ? 'border-red-400/70 bg-red-500/20 text-red-200'
+                                    : 'border-white/10 text-zinc-500 hover:border-red-400/50 hover:text-red-300'
+                                }`}
+                              >
+                                {confirmBlockId === pl.user_id ? 'SURE?' : 'BLOCK'}
+                              </button>
+                            </>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
+                {/* incoming requests */}
+                <section aria-label="Friend requests">
+                  <h3 className="mb-2 text-[10px] font-bold tracking-[0.3em] text-cyan-300/70">
+                    REQUESTS{pendingRequests.length > 0 ? ` (${pendingRequests.length})` : ''}
+                  </h3>
+                  {pendingRequests.length === 0 ? (
+                    <p className="text-xs text-zinc-500">No pending requests.</p>
+                  ) : (
+                    <ul className="flex flex-col gap-2">
+                      {pendingRequests.map((r) => (
+                        <li
+                          key={r.friendship_id}
+                          className="flex items-center gap-3 rounded-xl border border-amber-200/20 bg-amber-100/[0.04] px-4 py-2.5"
                         >
-                          DECLINE
-                        </button>
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
+                          <span
+                            aria-hidden="true"
+                            className="flex h-10 w-10 flex-none items-center justify-center rounded-full border border-amber-200/40 bg-amber-100/10 text-sm font-black text-amber-200"
+                          >
+                            {(r.requester.display_name || r.requester.username || '?').charAt(0).toUpperCase()}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-bold text-white">{r.requester.display_name}</span>
+                            <span className="block truncate text-[11px] text-zinc-500">@{r.requester.username} wants to be friends</span>
+                          </span>
+                          <span className="flex flex-none gap-2">
+                            <button
+                              onClick={() => answerRequest(r.friendship_id, 'accept')}
+                              className="min-h-[44px] rounded-xl bg-emerald-400/90 px-4 text-[11px] font-black tracking-[0.15em] text-emerald-950 transition hover:bg-emerald-300"
+                            >
+                              ACCEPT
+                            </button>
+                            <button
+                              onClick={() => answerRequest(r.friendship_id, 'decline')}
+                              className="min-h-[44px] rounded-xl border border-zinc-600 px-4 text-[11px] font-bold tracking-[0.15em] text-zinc-300 transition hover:border-zinc-400 hover:text-white"
+                            >
+                              DECLINE
+                            </button>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
+              </>
+            )}
           </div>
         </div>
       )}
 
-      {/* bottom control panel: realm backdrop picker */}
-      <div className="absolute inset-x-0 bottom-0 z-20 border-t border-cyan-300/15 bg-black/70 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur-md">
-        <p className="mb-2 text-center text-[9px] tracking-[0.35em] text-cyan-300/60">
-          PROJECTED REALM BACKDROP
-        </p>
-        <div className="o67-chip-scroll flex gap-2 overflow-x-auto px-1 pb-1" role="radiogroup" aria-label="Realm backdrop">
-          {[{ key: BACKDROP_NONE, label: 'VOID' }].concat(
-            BACKDROP_REALMS.map((r) => ({ key: r, label: REALM_LABEL[r] }))
-          ).map((opt) => {
-            const active = backdrop === opt.key;
-            const thumb = opt.key === BACKDROP_NONE
-              ? null
-              : `/images/menu/banners/banner-${opt.key}.webp`;
-            return (
-              <button
-                key={opt.key}
-                role="radio"
-                aria-checked={active}
-                aria-label={`Realm backdrop: ${opt.label}`}
-                onClick={() => chooseBackdrop(opt.key)}
-                className={`min-h-[64px] w-[92px] shrink-0 overflow-hidden rounded-xl border text-left transition ${
-                  active
-                    ? 'border-cyan-300/80 bg-cyan-400/15'
-                    : 'border-white/15 bg-black/40 hover:border-cyan-300/40'
-                }`}
-              >
-                {thumb ? (
-                  <img
-                    src={thumb}
-                    alt=""
-                    aria-hidden="true"
-                    loading="lazy"
-                    className="h-9 w-full object-cover"
-                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                  />
-                ) : (
-                  <div className="h-9 w-full bg-gradient-to-b from-zinc-800/80 to-black" aria-hidden="true" />
-                )}
-                <span className={`block px-2 py-1.5 text-center text-[10px] font-bold tracking-[0.18em] ${
-                  active ? 'text-white' : 'text-zinc-400'
-                }`}>
-                  {opt.label}
-                </span>
-              </button>
-            );
-          })}
+      {/* bottom control panel: realm backdrop picker (idle only — the drawer holds it mid-call) */}
+      {!compact && (
+        <div className="absolute inset-x-0 bottom-0 z-20 border-t border-cyan-300/15 bg-black/70 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur-md">
+          <p className="mb-2 text-center text-[9px] tracking-[0.35em] text-cyan-300/60">
+            PROJECTED REALM BACKDROP
+          </p>
+          {renderRealmChips()}
+          <p className="mt-2 text-center text-[9px] leading-relaxed text-zinc-500">
+            Peer-to-peer: video and audio travel directly between the two phones.
+            The signal server only sees room codes — never your media.
+          </p>
         </div>
-        <p className="mt-2 text-center text-[9px] leading-relaxed text-zinc-500">
-          Peer-to-peer: video and audio travel directly between the two phones.
-          The signal server only sees room codes — never your media.
-        </p>
-      </div>
+      )}
 
       {/* Safari bottom-bar clearance */}
       <div aria-hidden="true" className="player-clear shrink-0" />

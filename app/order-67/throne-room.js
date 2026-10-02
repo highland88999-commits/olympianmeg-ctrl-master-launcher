@@ -14,7 +14,7 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { backdropVideoUrl, backdropImageUrl, isBackdropRealm } from '@/lib/order-67';
+import { backdropVideoUrl, backdropImageUrl, isBackdropRealm, throneCameraFrame, projectorSlotPositions } from '@/lib/order-67';
 
 const HOLO_VERTEX = `
 varying vec2 vUv;
@@ -115,6 +115,16 @@ export function createThroneRoom(canvas, options = {}) {
 
   const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 120);
   camera.position.set(0, 3.6, 9.4);
+  // Camera base: recomputed from framing mode + guest count, eased toward in
+  // tick(). 'idle' frames the throne room; 'call' pulls back so the dais and
+  // hologram sit in the visible band on a phone portrait.
+  let framingMode = 'idle';
+  const camBase = new THREE.Vector3(0, 3.6, 9.4);
+  function updateCameraBase() {
+    const f = throneCameraFrame(framingMode, projectors.size);
+    camBase.set(0, f.y, f.z);
+    controls.target.set(0, f.targetY, 0);
+  }
 
   const controls = new OrbitControls(camera, canvas);
   controls.target.set(0, 2.1, 0);
@@ -154,11 +164,17 @@ export function createThroneRoom(canvas, options = {}) {
     track(new THREE.CylinderGeometry(18, 18, 13, 64, 1, true)),
     track(new THREE.MeshStandardMaterial({
       map: makeWallTexture(), color: 0xffffff, roughness: 1, metalness: 0,
-      side: THREE.BackSide,
+      side: THREE.BackSide, transparent: true,
     }))
   );
   wall.position.y = 6.5;
   scene.add(wall);
+  const wallMat = wall.material;
+  // Realm drop: the black chamber wall fades to ~98% transparent so the realm
+  // dome art dominates (Merlin: "make black space 98% transparent upon realm
+  // drop"). The floor stays — it grounds the dais.
+  let wallFade = 1;
+  let wallFadeTarget = 1;
 
   const ceilingRing = new THREE.Mesh(
     track(new THREE.TorusGeometry(6.5, 0.07, 10, 72)),
@@ -307,7 +323,8 @@ export function createThroneRoom(canvas, options = {}) {
       opacity: 0,             // fades in via domeFade in tick()
       depthWrite: false,
     });
-    mat.color.setScalar(0.55); // dim: the hologram stays the focus (lighting rule)
+    mat.color.setScalar(0.95); // bright: the dome IS the wrap here — the lighting rule
+    // means not washing it out with bloom, not dimming the art itself
     domeMesh = new THREE.Mesh(geo, mat);
     domeMesh.renderOrder = -10; // paint first, behind everything
     scene.add(domeMesh);
@@ -340,6 +357,99 @@ export function createThroneRoom(canvas, options = {}) {
       v.oncanplay = () => finish(true);
       v.onerror = () => finish(false);
       v.src = url;
+    });
+  }
+
+  // --- guest projectors: extra daises for multi-guest calls ---
+  // Each guest is an independent 1:1 WebRTC call in its own room; here each
+  // gets a scaled-down dais + cone + its own hologram shader instance
+  // (Eidolon effect per guest). Guests fan behind the main dais; the camera
+  // pulls back as they arrive (see layoutProjectors).
+  const projectors = new Map(); // id -> record
+  const GUEST_SCALE = 0.78;
+
+  function makeProjectorParts(scale) {
+    const group = new THREE.Group();
+    const rec = { group, videoTexture: null, revealTarget: 0, revealShown: false };
+    const d = new THREE.Mesh(
+      track(new THREE.CylinderGeometry(2.4 * scale, 2.8 * scale, 0.55 * scale, 40)),
+      track(new THREE.MeshStandardMaterial({ color: 0x14161d, roughness: 0.4, metalness: 0.8 }))
+    );
+    d.position.y = 0.275 * scale;
+    group.add(d);
+    const ring = new THREE.Mesh(
+      track(new THREE.TorusGeometry(2.38 * scale, 0.045 * scale, 10, 60)),
+      track(new THREE.MeshBasicMaterial({ color: 0x35e0ff }))
+    );
+    ring.rotation.x = Math.PI / 2;
+    ring.position.y = 0.56 * scale;
+    group.add(ring);
+    const proj = new THREE.Mesh(
+      track(new THREE.CylinderGeometry(0.26 * scale, 0.34 * scale, 0.34 * scale, 20)),
+      track(new THREE.MeshStandardMaterial({ color: 0x1a1d24, roughness: 0.35, metalness: 0.9 }))
+    );
+    proj.position.y = 0.72 * scale;
+    group.add(proj);
+    const cg = track(new THREE.ConeGeometry(1.95 * scale, 4.8 * scale, 40, 1, true));
+    cg.rotateX(Math.PI); // apex down (BufferGeometry rotation API)
+    const cm = track(new THREE.MeshBasicMaterial({
+      color: 0x2fb9e8, transparent: true, opacity: 0.075,
+      side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
+      depthWrite: false, fog: false,
+    }));
+    const cone = new THREE.Mesh(cg, cm);
+    cone.position.y = (0.95 + 2.4) * scale;
+    group.add(cone);
+    rec.coneMat = cm;
+    const uniforms = {
+      uMap: { value: null },
+      uTime: { value: 0 },
+      uReveal: { value: 0 },
+      uFlicker: { value: reducedMotion ? 0 : 1 },
+    };
+    const hm = track(new THREE.ShaderMaterial({
+      vertexShader: HOLO_VERTEX,
+      fragmentShader: HOLO_FRAGMENT,
+      uniforms,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    }));
+    const hp = new THREE.Mesh(track(new THREE.PlaneGeometry(1.7 * scale, 2.55 * scale)), hm);
+    hp.position.y = 2.05 * scale;
+    hp.visible = false;
+    group.add(hp);
+    rec.holoUniforms = uniforms;
+    rec.holoPlane = hp;
+    rec.baseHoloY = 2.05 * scale;
+    return rec;
+  }
+
+  function layoutProjectors() {
+    const slots = projectorSlotPositions(projectors.size);
+    let i = 0;
+    for (const rec of projectors.values()) {
+      const sl = slots[i++] || { x: 0, z: -5 };
+      rec.group.position.set(sl.x, 0, sl.z);
+    }
+    updateCameraBase();
+  }
+
+  function disposeProjectorParts(rec) {
+    rec.group.traverse((o) => {
+      if (o.geometry && typeof o.geometry.dispose === 'function') o.geometry.dispose();
+      if (o.material) {
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        for (const m of mats) {
+          if (m.map && typeof m.map.dispose === 'function' && m.map !== rec.videoTexture) {
+            try { m.map.dispose(); } catch { /* noop */ }
+          }
+          if (typeof m.dispose === 'function') {
+            try { m.dispose(); } catch { /* noop */ }
+          }
+        }
+      }
     });
   }
 
@@ -381,13 +491,21 @@ export function createThroneRoom(canvas, options = {}) {
     }
 
     // gentle life: cone breathing, hologram bob, lens pulse
+    // ease toward the framing base every frame (also under reduced motion —
+    // only the whisper drift and breathing are motion-gated)
+    {
+      const k = Math.min(1, dt * 3);
+      const px = reducedMotion ? 0 : Math.sin(driftT + t * 0.07) * 0.55;
+      const py = reducedMotion ? camBase.y : camBase.y + Math.sin(driftT * 1.3 + t * 0.05) * 0.25;
+      camera.position.x += (px - camera.position.x) * k;
+      camera.position.y += (py - camera.position.y) * k;
+      camera.position.z += (camBase.z - camera.position.z) * k;
+    }
     if (!reducedMotion) {
       coneMat.opacity = 0.065 + 0.02 * (0.5 + 0.5 * Math.sin(t * 1.7));
       holoPlane.position.y = 2.05 + Math.sin(t * 1.1) * 0.045;
       const s = 1 + 0.06 * Math.sin(t * 3.2);
       lens.scale.set(s, s, s);
-      camera.position.x = Math.sin(driftT + t * 0.07) * 0.55;
-      camera.position.y = 3.6 + Math.sin(driftT * 1.3 + t * 0.05) * 0.25;
     }
 
     // realm dome: fade toward target, whisper-drift for life
@@ -402,6 +520,31 @@ export function createThroneRoom(canvas, options = {}) {
         domeMesh.material.opacity = domeFadeTarget;
       }
       if (!reducedMotion) domeMesh.rotation.y += dt * 0.004;
+    }
+
+    // realm drop: black wall toward 98% transparent (or back to solid)
+    if (Math.abs(wallFade - wallFadeTarget) > 0.004) {
+      wallFade += Math.sign(wallFadeTarget - wallFade) * dt * 1.6;
+      wallFade = Math.min(1, Math.max(0.02, wallFade));
+      wallMat.opacity = wallFade;
+    }
+
+    // guest projectors: reveal tween + idle life per hologram
+    for (const rec of projectors.values()) {
+      rec.holoUniforms.uTime.value = t;
+      const cur = rec.holoUniforms.uReveal.value;
+      if (Math.abs(cur - rec.revealTarget) > 0.001) {
+        const next = cur + Math.sign(rec.revealTarget - cur) * dt * (reducedMotion ? 4 : 0.9);
+        rec.holoUniforms.uReveal.value = Math.min(1, Math.max(0, next));
+        if (rec.revealTarget === 0 && rec.holoUniforms.uReveal.value === 0 && rec.revealShown) {
+          rec.holoPlane.visible = false;
+          rec.revealShown = false;
+        }
+      }
+      if (!reducedMotion) {
+        rec.coneMat.opacity = 0.065 + 0.02 * (0.5 + 0.5 * Math.sin(t * 1.7 + rec.baseHoloY));
+        rec.holoPlane.position.y = rec.baseHoloY + Math.sin(t * 1.1 + rec.baseHoloY) * 0.045;
+      }
     }
 
     // dust rises through the cone
@@ -464,8 +607,10 @@ export function createThroneRoom(canvas, options = {}) {
       const r = String(realm || '').toLowerCase();
       if (!isBackdropRealm(r)) {
         clearDome();
+        wallFadeTarget = 1; // void: the chamber wall returns
         return;
       }
+      wallFadeTarget = 0.02; // realm drop: black space to ~98% transparent
       probeBackdropVideo(backdropVideoUrl(r)).then(
         (v) => {
           if (token !== domeToken) {
@@ -489,6 +634,76 @@ export function createThroneRoom(canvas, options = {}) {
     /** Brighter cone while a call is live, calmer while idle. */
     setProjecting(on) {
       coneMat.opacity = on ? 0.11 : 0.075;
+    },
+    /**
+     * Camera framing: 'idle' frames the throne room; 'call' pulls back so the
+     * dais + hologram sit in the visible band on a phone portrait.
+     */
+    setFraming(mode) {
+      framingMode = mode === 'call' ? 'call' : 'idle';
+      updateCameraBase();
+    },
+    /** Add a guest projector dais (multi-guest). Returns nothing; id-keyed. */
+    addProjector(id) {
+      if (!id || projectors.has(id)) return;
+      const rec = makeProjectorParts(GUEST_SCALE);
+      projectors.set(id, rec);
+      scene.add(rec.group);
+      layoutProjectors();
+    },
+    /** Remove a guest projector and free its GPU resources. */
+    removeProjector(id) {
+      const rec = projectors.get(id);
+      if (!rec) return;
+      if (rec.videoTexture) {
+        rec.holoUniforms.uMap.value = null;
+        rec.videoTexture.dispose();
+        rec.videoTexture = null;
+      }
+      scene.remove(rec.group);
+      disposeProjectorParts(rec);
+      projectors.delete(id);
+      layoutProjectors();
+    },
+    /** Attach a video element as a guest's hologram source. */
+    setProjectorStream(id, videoEl, { mirror = false } = {}) {
+      const rec = projectors.get(id);
+      if (!rec) return;
+      if (rec.videoTexture) {
+        rec.videoTexture.dispose();
+        rec.videoTexture = null;
+      }
+      if (!videoEl) return;
+      rec.videoTexture = new THREE.VideoTexture(videoEl);
+      rec.videoTexture.colorSpace = THREE.SRGBColorSpace;
+      if (mirror) {
+        rec.videoTexture.wrapS = THREE.RepeatWrapping;
+        rec.videoTexture.repeat.x = -1;
+      }
+      rec.holoUniforms.uMap.value = rec.videoTexture;
+    },
+    clearProjectorStream(id) {
+      const rec = projectors.get(id);
+      if (!rec || !rec.videoTexture) return;
+      rec.holoUniforms.uMap.value = null;
+      rec.videoTexture.dispose();
+      rec.videoTexture = null;
+    },
+    /** Materialize / dematerialize a guest hologram. */
+    showProjector(id) {
+      const rec = projectors.get(id);
+      if (!rec) return;
+      rec.holoPlane.visible = true;
+      rec.revealShown = true;
+      rec.revealTarget = 1;
+    },
+    hideProjector(id) {
+      const rec = projectors.get(id);
+      if (!rec) return;
+      rec.revealTarget = 0;
+    },
+    get projectorCount() {
+      return projectors.size;
     },
     dispose() {
       cancelAnimationFrame(raf);
