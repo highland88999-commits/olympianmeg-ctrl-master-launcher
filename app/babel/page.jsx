@@ -12,6 +12,11 @@ import WalkMode from '@/components/babel/WalkMode';
 import AquariumViewport from '@/components/babel/AquariumViewport';
 import { FLOORS, getFloor } from '@/lib/babel/floors';
 import { GOLD_FOUND_EVENT } from '@/components/babel/SylvaGold';
+import { DuatArenaProvider, DuatHUD, DuatToasts } from '@/components/babel/DuatArena';
+import { DuatFireControls } from '@/components/babel/DuatCombat';
+import ElevatorPanel from '@/components/babel/ElevatorPanel';
+import TowerGoldBar from '@/components/babel/TowerGoldBar';
+import { GOLDBAR_FOUND_EVENT } from '@/lib/babel/monthlyGold';
 import { toggleCameraMode, prefersReducedMotion, isTouchDevice } from '@/lib/babel/walk';
 
 const SCENES = {
@@ -162,6 +167,17 @@ export default function BabelPage() {
     };
   }, []);
 
+  // Monthly gold-bar toast (tower plaza).
+  useEffect(() => {
+    const onBar = () => {
+      setGoldToast('✦ You found the monthly gold bar!');
+      if (goldToastTimer.current) clearTimeout(goldToastTimer.current);
+      goldToastTimer.current = setTimeout(() => setGoldToast(null), 3500);
+    };
+    window.addEventListener(GOLDBAR_FOUND_EVENT, onBar);
+    return () => window.removeEventListener(GOLDBAR_FOUND_EVENT, onBar);
+  }, []);
+
   // Deep link from the satellite menu: /babel?floor=<id> opens that floor's
   // programming directly. Scene floors set the view; the aquarium floor opens
   // the viewport. ('route' floors link straight to their route instead.)
@@ -304,6 +320,11 @@ export default function BabelPage() {
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
     >
+      {/* Single DuatArenaProvider for the whole page: the in-Canvas arena
+          stage (FloorDuat) and the DOM overlays below share one gameRef.
+          DOM overlays must live OUTSIDE <Canvas> — R3F throws
+          "not part of the THREE namespace" on divs inside it. */}
+      <DuatArenaProvider inputRef={inputRef}>
       <Canvas
         shadows
         dpr={[1, 2]}
@@ -314,6 +335,7 @@ export default function BabelPage() {
           {view === 'tower' ? (
             <>
               <Tower onSelectFloor={rideElevator} />
+              <TowerGoldBar inputRef={inputRef} walkMode={mode === 'walk'} />
               {mode === 'walk' ? (
                 <WalkMode view={view} inputRef={inputRef} orbitCamera={orbitCam} />
               ) : (
@@ -356,6 +378,16 @@ export default function BabelPage() {
           )}
         </Suspense>
       </Canvas>
+
+      {/* duat arena DOM overlays — walk mode only; the in-Canvas director
+          gates the match on walkMode, and orbit stays chrome-free */}
+      {view === 'duat' && mode === 'walk' && (
+        <>
+          <DuatHUD />
+          <DuatToasts />
+          <DuatFireControls walkMode={mode === 'walk'} />
+        </>
+      )}
 
       {/* fade veil for elevator rides and camera-mode switches */}
       <div
@@ -410,30 +442,9 @@ export default function BabelPage() {
       {/* touch joystick (walk mode, touch devices) */}
       {mode === 'walk' && touch && <Joystick inputRef={inputRef} />}
 
-      {/* elevator panel — orbit view only, so the mobile layout stays clean in walk mode */}
+      {/* elevator panel — collapsible; orbit view only so walk mode stays clean */}
       {view === 'tower' && mode === 'orbit' && (
-        <div className="absolute bottom-0 left-0 right-0 p-3 sm:p-5 pb-[calc(4.5rem+env(safe-area-inset-bottom))]">
-          <div className="max-w-2xl mx-auto rounded-xl border border-amber-500/25 bg-black/60 backdrop-blur-md p-3 sm:p-4">
-            <p className="text-[10px] font-bold tracking-[0.3em] text-zinc-500 uppercase mb-2 text-center">
-              Elevator — choose a floor
-            </p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {FLOORS.map((f) => (
-                <button
-                  key={f.id}
-                  onClick={() => rideElevator(f.id)}
-                  className="min-h-[52px] px-3 py-2 rounded-lg border text-left transition-all hover:scale-[1.02]"
-                  style={{ borderColor: `${f.accent}55`, background: `${f.accent}14` }}
-                >
-                  <span className="block text-sm font-black tracking-widest uppercase" style={{ color: f.accent }}>
-                    {f.name}
-                  </span>
-                  <span className="block text-[10px] text-zinc-400 mt-0.5">{f.subtitle}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
+        <ElevatorPanel floors={FLOORS} onSelect={rideElevator} reduced={reduced} />
       )}
 
       {/* floor hint — lifted above the fixed radio bar; stays tucked behind the
@@ -458,6 +469,7 @@ export default function BabelPage() {
       )}
 
       {showAquarium && <AquariumViewport onClose={() => setShowAquarium(false)} />}
+      </DuatArenaProvider>
     </div>
   );
 }
