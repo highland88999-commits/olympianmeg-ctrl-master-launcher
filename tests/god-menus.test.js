@@ -220,6 +220,27 @@ t('menuBannerFor returns the transfer banner path for all 10 gods',
 t('rail banner art matches each menu\u2019s own menuArt field',
   GOD_MENUS.every((m) => menuBannerFor(m.god) === m.menuArt));
 
+// --- menu background video: behind the menu and buttons ---------------------
+const satMenuSrc = stripComments(readFileSync('components/SatelliteMenu.jsx', 'utf8'));
+t('menu renders the background video element behind the menu and buttons',
+  satMenuSrc.includes('<video') && satMenuSrc.includes('/videos/menu-background.mp4'));
+t('background video is decorative, muted, looping, inline',
+  satMenuSrc.includes('menu-bg-video') && satMenuSrc.includes('muted') &&
+  satMenuSrc.includes('autoPlay') && satMenuSrc.includes('loop') &&
+  satMenuSrc.includes('playsInline') && satMenuSrc.includes('aria-hidden'));
+t('background video hides under prefers-reduced-motion',
+  satMenuSrc.includes('.menu-bg-video { display: none; }'));
+t('background video sits behind content with a dark legibility scrim',
+  satMenuSrc.includes('absolute inset-0') && satMenuSrc.includes('from-black/80'));
+
+// --- order-67: pinned first in the menu, art resolves to the transfer webp ---
+t("menuArtFor('order-67') returns the transfer webp path",
+  menuArtFor('order-67') === '/images/menu/programs/order-67.webp');
+t('order-67 is claimed by the HERMES menu',
+  hermesMenu && hermesMenu.satellites.includes('order-67'));
+t('pinned order-67 button uses the transfer art with an onError fallback',
+  satMenuSrc.includes("menuArtFor('order-67')") && satMenuSrc.includes('onError'));
+
 // --- menu search: filterMenuIndex over all 10 god menus ----------------------
 const SEARCH_TITLES = {
   'sat.chess.title': 'Chess',

@@ -171,7 +171,7 @@ export default function SatelliteMenu({ t, satIndex, onLaunch }) {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-zinc-950">
       <style>{`
         @keyframes satmenu-enter {
           from { opacity: 0; transform: translateY(10px); }
@@ -180,8 +180,28 @@ export default function SatelliteMenu({ t, satIndex, onLaunch }) {
         .satmenu-enter { animation: satmenu-enter 0.45s ${HERMES_EASE}; }
         @media (prefers-reduced-motion: reduce) {
           .satmenu-enter { animation: none; }
+          .menu-bg-video { display: none; }
         }
       `}</style>
+
+      {/* Menu background video — behind the menu and buttons. Decorative:
+          muted, looping, inline; hidden under prefers-reduced-motion. */}
+      <video
+        className="menu-bg-video pointer-events-none absolute inset-0 h-full w-full object-cover"
+        src="/videos/menu-background.mp4"
+        muted
+        autoPlay
+        loop
+        playsInline
+        preload="metadata"
+        aria-hidden="true"
+        disablePictureInPicture
+      />
+      {/* Dark scrim above the video — every button and text stays legible. */}
+      <div
+        className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/80 via-black/70 to-black/90"
+        aria-hidden="true"
+      />
 
       {/* Category rail + search — pinned together at the top of the menu
           window while the items slide vertically beneath. */}
@@ -295,7 +315,7 @@ export default function SatelliteMenu({ t, satIndex, onLaunch }) {
         key={searching ? 'search' : menu.god}
         role="tabpanel"
         aria-label={searching ? `Search results for ${query.trim()}` : `${menu.god} programs`}
-        className="custom-scrollbar satmenu-enter min-h-0 flex-1 overflow-y-auto px-1 pb-10"
+        className="custom-scrollbar satmenu-enter relative min-h-0 flex-1 overflow-y-auto px-1 pb-10"
       >
         {searching ? (
           searchGroups.length > 0 ? (
