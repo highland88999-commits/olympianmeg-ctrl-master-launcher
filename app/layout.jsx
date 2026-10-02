@@ -5,6 +5,7 @@ import { RadioProvider } from '@/components/radio/RadioProvider';
 import RadioBar from '@/components/radio/RadioBar';
 import NativeBridge from '@/components/NativeBridge';
 import BugReportButton from '@/components/BugReportButton';
+import MusePortal from '@/components/MusePortal';
 import JsonLd from '@/components/JsonLd';
 
 const inter = Inter({ subsets: ["latin"] });
@@ -96,6 +97,7 @@ export default function RootLayout({ children }) {
           {children}
           <RadioBar />
           <BugReportButton />
+          <MusePortal />
         </RadioProvider>
       </body>
     </html>
