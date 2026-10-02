@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase';
 import DirectoryGrid from '@/components/hermes/DirectoryGrid';
 import SubmitDrawer from '@/components/hermes/SubmitDrawer';
 import OnlineMall from '@/components/hermes/OnlineMall';
+import StoreSpaceBackground from '@/components/store/StoreSpaceBackground';
 import { programMetadata } from '@/lib/seo';
 import { approvePaidSession } from '@/app/api/hermes/_approve';
 
@@ -57,7 +58,13 @@ export default async function HermesPage({ searchParams }) {
   }
 
   return (
-    <main className="relative min-h-dvh w-full bg-black text-white overflow-x-hidden">
+    // Deep-space video behind the whole mall: the fixed background sits at
+    // z-0 behind the header, category chips, listing cards and submit drawer.
+    // The root stays transparent (no opaque bg-black) so the video shows
+    // through; the background's own legibility veil keeps text crisp, and
+    // prefers-reduced-motion gets the static poster instead of the video.
+    <main className="relative min-h-dvh w-full text-white overflow-x-hidden">
+      <StoreSpaceBackground />
       <GalaxyCanvas />
 
       <div className="relative z-10 max-w-6xl mx-auto px-5 pt-14 sm:pt-20 pb-16">

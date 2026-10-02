@@ -42,7 +42,9 @@ export default function DirectoryGrid({ links }) {
               href={link.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex flex-col p-5 bg-zinc-950/80 border border-zinc-800 rounded-xl hover:border-amber-500/60 transition-colors group"
+              // Translucent + blurred so the deep-space video ghosts behind the
+              // cards while names stay crisp white (same treatment as the store).
+              className="flex flex-col p-5 bg-black/45 backdrop-blur-md border border-zinc-800 rounded-xl hover:border-amber-500/60 transition-colors group"
             >
               <span className="text-[10px] uppercase tracking-widest text-amber-500/80 mb-2">
                 {CATEGORIES[link.category] || link.category}
