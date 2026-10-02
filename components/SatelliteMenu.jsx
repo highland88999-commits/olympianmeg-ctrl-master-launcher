@@ -72,6 +72,24 @@ function RailArt({ god }) {
   );
 }
 
+// Featured Order 67 art for the pinned top button. Same contract as
+// RailArt: hides itself on error so the button falls back to its dark
+// gradient style — intentional-looking before Merlin's art lands.
+function FeaturedArt() {
+  const [imgOk, setImgOk] = useState(true);
+  if (!imgOk) return null;
+  return (
+    <img
+      src={menuArtFor('order-67')}
+      alt=""
+      aria-hidden="true"
+      className="absolute inset-0 h-full w-full object-cover"
+      loading="lazy"
+      onError={() => setImgOk(false)}
+    />
+  );
+}
+
 function programsFor(key, sat, t) {
   const title = t(`sat.${key}.title`);
   const subtitle = t(`sat.${key}.subtitle`);
@@ -144,6 +162,14 @@ export default function SatelliteMenu({ t, satIndex, onLaunch }) {
     searchRef.current?.focus();
   };
 
+  // Featured Order 67 launch — the pinned top button. Goes through the
+  // same onLaunch path as every other satellite.
+  const launchOrder67 = () => {
+    fx.menuOpen();
+    const sat = satIndex.get('order-67');
+    onLaunch('/order-67', 'order-67', sat ? sat.pos : 'HERMES');
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <style>{`
@@ -160,6 +186,29 @@ export default function SatelliteMenu({ t, satIndex, onLaunch }) {
       {/* Category rail + search — pinned together at the top of the menu
           window while the items slide vertically beneath. */}
       <div className="sticky top-0 z-10 -mx-1 shrink-0 bg-zinc-950/95 px-1 pb-2 backdrop-blur-md">
+        {/* Featured: ORDER 67 — the first thing visible when the menu opens. */}
+        <button
+          onClick={launchOrder67}
+          aria-label={`${tt('sat.order-67.title', 'Order 67')} — ${tt('sat.order-67.subtitle', 'Holographic calls')}`}
+          className="relative mb-2 flex min-h-[64px] w-full items-center overflow-hidden rounded-xl border border-cyan-400/30 text-left transition-all motion-reduce:transition-none hover:border-cyan-300/60"
+        >
+          <FeaturedArt />
+          <div
+            className="pointer-events-none absolute inset-0 bg-gradient-to-r from-black/90 via-black/60 to-black/30"
+            aria-hidden="true"
+          />
+          <div className="relative flex flex-col justify-center px-4 py-2">
+            <span className="text-sm font-black uppercase tracking-[0.25em] text-white">
+              {tt('sat.order-67.title', 'ORDER 67')}
+            </span>
+            <span className="mt-0.5 text-[10px] uppercase tracking-[0.18em] text-cyan-300/80">
+              {tt('sat.order-67.subtitle', 'Holographic calls')}
+            </span>
+          </div>
+          <span aria-hidden="true" className="relative ml-auto pr-4 text-lg text-cyan-300/70">
+            ▸
+          </span>
+        </button>
         <div
           role="tablist"
           aria-label="Program categories"

@@ -161,6 +161,12 @@ t('ICE servers configured (public STUN, documented)', Array.isArray(ICE_SERVERS)
 
   const sats = src('../lib/i18n/satellites.ts');
   t('satellites registry has order-67 -> /order-67', sats.includes('key: "order-67"') && sats.includes('route: "/order-67"'));
+
+  const menu = src('../components/SatelliteMenu.jsx');
+  t('menu pins a featured Order 67 button above the rail', menu.includes('launchOrder67') && menu.includes('Featured: ORDER 67'));
+  t('featured button launches /order-67 through onLaunch', menu.includes("onLaunch('/order-67', 'order-67'"));
+  t('featured button uses menuArtFor with error fallback', menu.includes("menuArtFor('order-67')") && menu.includes('FeaturedArt'));
+  t('featured button meets 44px touch target', menu.includes('min-h-[64px]'));
 }
 
 console.log(`\norder-67: ${passed} passed, ${failed} failed`);
