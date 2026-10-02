@@ -1,14 +1,15 @@
-// ARES dashboard API: module toggles (authenticated).
+// ARES dashboard API: module toggles (owner-locked: Merlin only).
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
-import { requireUser, serviceClient, getSettings, invalidateSettingsCache } from '@/lib/ares/server';
+import { requireUser, isOwnerEmail, serviceClient, getSettings, invalidateSettingsCache } from '@/lib/ares/server';
 import { apiGuard } from '@/lib/api-guard';
 
 export const GET = apiGuard(async function GET(request) {
   const user = await requireUser(request);
   if (!user) return NextResponse.json({ error: 'sign in required' }, { status: 401 });
+  if (!isOwnerEmail(user)) return NextResponse.json({ error: 'restricted to the throne' }, { status: 403 });
   const s = await getSettings();
   return NextResponse.json({
     settings: { sentinelEnabled: s.sentinelEnabled, phalanxEnabled: s.phalanxEnabled },
@@ -18,6 +19,7 @@ export const GET = apiGuard(async function GET(request) {
 export const POST = apiGuard(async function POST(request) {
   const user = await requireUser(request);
   if (!user) return NextResponse.json({ error: 'sign in required' }, { status: 401 });
+  if (!isOwnerEmail(user)) return NextResponse.json({ error: 'restricted to the throne' }, { status: 403 });
   let body;
   try {
     body = await request.json();

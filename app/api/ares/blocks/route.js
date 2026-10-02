@@ -1,15 +1,16 @@
-// ARES dashboard API: blocklist manager (authenticated).
+// ARES dashboard API: blocklist manager (owner-locked: Merlin only).
 // GET lists active bans. DELETE with { ipHash } lifts one early.
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
-import { requireUser, serviceClient, getSettings } from '@/lib/ares/server';
+import { requireUser, isOwnerEmail, serviceClient, getSettings } from '@/lib/ares/server';
 import { apiGuard } from '@/lib/api-guard';
 
 export const GET = apiGuard(async function GET(request) {
   const user = await requireUser(request);
   if (!user) return NextResponse.json({ error: 'sign in required' }, { status: 401 });
+  if (!isOwnerEmail(user)) return NextResponse.json({ error: 'restricted to the throne' }, { status: 403 });
   const settings = await getSettings();
   const { data, error } = await serviceClient()
     .from('ares_blocks')
@@ -25,6 +26,7 @@ export const GET = apiGuard(async function GET(request) {
 export const DELETE = apiGuard(async function DELETE(request) {
   const user = await requireUser(request);
   if (!user) return NextResponse.json({ error: 'sign in required' }, { status: 401 });
+  if (!isOwnerEmail(user)) return NextResponse.json({ error: 'restricted to the throne' }, { status: 403 });
   let body;
   try {
     body = await request.json();

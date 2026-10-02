@@ -1,14 +1,15 @@
-// ARES dashboard API: recent evidence events (authenticated).
+// ARES dashboard API: recent evidence events (owner-locked: Merlin only).
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
-import { requireUser, serviceClient } from '@/lib/ares/server';
+import { requireUser, isOwnerEmail, serviceClient } from '@/lib/ares/server';
 import { apiGuard } from '@/lib/api-guard';
 
 export const GET = apiGuard(async function GET(request) {
   const user = await requireUser(request);
   if (!user) return NextResponse.json({ error: 'sign in required' }, { status: 401 });
+  if (!isOwnerEmail(user)) return NextResponse.json({ error: 'restricted to the throne' }, { status: 403 });
 
   const { searchParams } = new URL(request.url);
   const limit = Math.min(200, Math.max(1, Number(searchParams.get('limit')) || 50));

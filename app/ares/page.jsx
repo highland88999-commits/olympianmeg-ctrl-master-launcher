@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
 import { BackButton } from '@/components/ui';
 import { supabase } from '@/lib/supabase';
 import { summarize } from '@/lib/ares/intel';
@@ -12,9 +11,49 @@ import ListsManager from '@/components/ares/ListsManager';
 import ModuleToggles from '@/components/ares/ModuleToggles';
 import LearningPanel from '@/components/ares/LearningPanel';
 
+// Locked screen: what anyone who is not the keeper sees. ARES aesthetic,
+// honest, on-brand — no pop-ups, no redirect tricks. The data routes
+// enforce the same lock server-side, so this is the veil, not the vault.
+function LockedScreen({ reason }) {
+  const signedOut = reason === 'signed-out';
+  return (
+    <main className="flex min-h-dvh w-full items-center justify-center bg-[#050505] px-6 py-10 text-center">
+      <div className="flex w-full max-w-sm flex-col items-center gap-5">
+        <div>
+          <h1 className="bg-gradient-to-br from-fuchsia-400 to-red-500 bg-clip-text text-4xl font-black uppercase tracking-[0.2em] text-transparent">
+            Ares
+          </h1>
+          <p className="mt-2 text-[11px] uppercase tracking-[0.25em] text-zinc-500">
+            Autonomous Response and Evidence System
+          </p>
+        </div>
+        <div className="w-full rounded-2xl border border-fuchsia-500/25 bg-fuchsia-500/[0.04] px-6 py-6">
+          <p className="text-xs font-bold uppercase tracking-[0.3em] text-fuchsia-300">
+            Restricted to the throne
+          </p>
+          <p className="mt-3 text-sm leading-relaxed text-zinc-400">
+            {signedOut
+              ? 'The watchtower answers only to its keeper. Sign in to approach the console.'
+              : 'This console is sealed. Only the keeper\u2019s credentials open it \u2014 there is nothing to see here.'}
+          </p>
+        </div>
+        {signedOut ? (
+          <BackButton label="Go sign in" href="/" />
+        ) : (
+          <BackButton label="Exit" />
+        )}
+      </div>
+    </main>
+  );
+}
+
 export default function AresConsole() {
-  const router = useRouter();
   const [token, setToken] = useState(null);
+  // Owner gate: 'checking' = verifying, 'locked' = sealed shut,
+  // 'open' = the keeper is verified. Fail closed — anything unverified
+  // sees only the locked screen, never the console.
+  const [gate, setGate] = useState('checking');
+  const [lockedReason, setLockedReason] = useState('signed-out'); // 'signed-out' | 'sealed'
   const [events, setEvents] = useState([]);
   const [blocks, setBlocks] = useState([]);
   const [whitelist, setWhitelist] = useState([]);
@@ -33,11 +72,37 @@ export default function AresConsole() {
         return;
       }
       const { data: { session } } = await auth.getSession();
-      if (!session) { router.push('/'); return; }
-      setToken(session.access_token);
+      if (!session) {
+        // No session at all — show the locked screen with a sign-in prompt
+        // instead of silently bouncing away.
+        setLockedReason('signed-out');
+        setGate('locked');
+        return;
+      }
+      // Keeper-style gate: the server validates this session's token
+      // against the Supabase Auth API and checks it belongs to the
+      // console owner. Fail closed — if the gate can't verify, the
+      // console stays shut.
+      try {
+        const res = await fetch('/api/ares/gate', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ access_token: session.access_token }),
+        });
+        if (res.ok) {
+          setToken(session.access_token);
+          setGate('open');
+        } else {
+          setLockedReason('sealed');
+          setGate('locked');
+        }
+      } catch {
+        setLockedReason('sealed');
+        setGate('locked');
+      }
     };
     init();
-  }, [router]);
+  }, []);
 
   const authedFetch = useCallback(async (url, opts = {}) => {
     const res = await fetch(url, {
@@ -80,7 +145,7 @@ export default function AresConsole() {
     setSaving(false);
   };
 
-  if (!token) {
+  if (gate !== 'open') {
     if (cloudOffline) {
       return (
         <div className="flex h-dvh w-screen items-center justify-center bg-black p-8 text-center">
@@ -89,6 +154,9 @@ export default function AresConsole() {
           </p>
         </div>
       );
+    }
+    if (gate === 'locked') {
+      return <LockedScreen reason={lockedReason} />;
     }
     return <div className="h-dvh w-screen bg-black" />;
   }

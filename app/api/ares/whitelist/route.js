@@ -1,17 +1,18 @@
-// ARES dashboard API: allowlist manager (authenticated).
+// ARES dashboard API: allowlist manager (owner-locked: Merlin only).
 // Only hashes are stored. POST takes { ip, label }; the raw IP is hashed
 // server-side and never persisted.
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
-import { requireUser, serviceClient, hashVisitorIp } from '@/lib/ares/server';
+import { requireUser, isOwnerEmail, serviceClient, hashVisitorIp } from '@/lib/ares/server';
 import { whitelistFromEnv } from '@/lib/ares/ip';
 import { apiGuard } from '@/lib/api-guard';
 
 export const GET = apiGuard(async function GET(request) {
   const user = await requireUser(request);
   if (!user) return NextResponse.json({ error: 'sign in required' }, { status: 401 });
+  if (!isOwnerEmail(user)) return NextResponse.json({ error: 'restricted to the throne' }, { status: 403 });
   const { data, error } = await serviceClient()
     .from('ares_whitelist')
     .select('ip_hash, label, created_at')
@@ -31,6 +32,7 @@ export const GET = apiGuard(async function GET(request) {
 export const POST = apiGuard(async function POST(request) {
   const user = await requireUser(request);
   if (!user) return NextResponse.json({ error: 'sign in required' }, { status: 401 });
+  if (!isOwnerEmail(user)) return NextResponse.json({ error: 'restricted to the throne' }, { status: 403 });
   let body;
   try {
     body = await request.json();
@@ -52,6 +54,7 @@ export const POST = apiGuard(async function POST(request) {
 export const DELETE = apiGuard(async function DELETE(request) {
   const user = await requireUser(request);
   if (!user) return NextResponse.json({ error: 'sign in required' }, { status: 401 });
+  if (!isOwnerEmail(user)) return NextResponse.json({ error: 'restricted to the throne' }, { status: 403 });
   let body;
   try {
     body = await request.json();
