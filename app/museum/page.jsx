@@ -1,10 +1,10 @@
 'use client';
 
 // MUSEUM — the gallery of Merlin's creative output.
-// Gallery wing (searchable, series-filtered grid + lightbox), Films wing
-// (concept videos), and Concepts wing (curated highlights from the
-// 131-concept catalog, with status labels). Kept pieces persist in
-// localStorage only. No telemetry.
+// Two wings: Photos and Videos — ONLY Gemini-made pieces. No screenshots,
+// ever. New pieces arrive via the Menu Art Transfer app; the wings show an
+// honest empty state until the curator hangs them.
+// Kept pieces persist in localStorage only. No telemetry.
 //
 // Gallery images are pay-per-download: C$1.00 = 10 credits, 1 credit =
 // 1 download with a reuse license. Purchases and redemptions flow through
@@ -12,31 +12,20 @@
 // UI offers no direct file URLs; full files are served only through
 // signed, expiring download tokens after a credit is redeemed.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import Link from 'next/link';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  SERIES, ITEMS, VIDEOS, CONCEPTS, STATUSES, STATUS_LABELS,
+  SERIES, ITEMS, VIDEOS,
   seriesById, itemsInSeries, searchItems,
-  conceptsByStatus, searchConcepts,
   loadKept, saveKept, toggleKept,
 } from '@/lib/museum';
 import { LICENSE_TEXT, creditsLabel } from '@/lib/gallery';
 import { supabase } from '@/lib/supabase';
 import { fx, unlockFx } from '@/lib/fx';
 
-const STATUS_COLORS = {
-  shipped: '#7fd08a',
-  prototype: '#8fb8ff',
-  idea: '#e8c56a',
-  spec: '#c9a0ff',
-  'not-approved': '#ff8a8a',
-};
-
 export default function MuseumPage() {
-  const [tab, setTab] = useState('gallery');
+  const [tab, setTab] = useState('photos');
   const [query, setQuery] = useState('');
   const [series, setSeries] = useState('all');
-  const [status, setStatus] = useState('all');
   const [kept, setKept] = useState(() => loadKept());
   const [lightbox, setLightbox] = useState(null); // index into visibleItems
 
@@ -56,12 +45,6 @@ export default function MuseumPage() {
     else if (series !== 'all') list = list.filter((i) => i.series === series);
     return list;
   }, [query, series, kept]);
-
-  const visibleConcepts = useMemo(() => {
-    let list = query.trim() ? searchConcepts(query) : CONCEPTS;
-    if (status !== 'all') list = list.filter((c) => c.status === status);
-    return list;
-  }, [query, status]);
 
   const openLightbox = useCallback((idx) => {
     try { fx.menuOpen(); } catch {}
@@ -210,14 +193,13 @@ export default function MuseumPage() {
         <div className="museum-kicker">Olympus Gallery</div>
         <h1 className="museum-title">Museum</h1>
         <p className="museum-sub">
-          The collected works of Merlin Ambros — art, films, and concepts.
-          Kept for Miles.
+          Only what Merlin made with Gemini — photos in one wing, films in
+          another. Nothing else lives here. Kept for Miles.
         </p>
         <nav className="museum-tabs" role="tablist" aria-label="Museum wings">
           {[
-            ['gallery', `Gallery · ${ITEMS.length}`],
-            ['films', `Films · ${VIDEOS.length}`],
-            ['concepts', `Concepts · ${CONCEPTS.length}`],
+            ['photos', `Photos · ${ITEMS.length}`],
+            ['videos', `Videos · ${VIDEOS.length}`],
           ].map(([id, label]) => (
             <button
               key={id} role="tab" aria-selected={tab === id}
@@ -236,10 +218,10 @@ export default function MuseumPage() {
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder={tab === 'concepts' ? 'Search concepts…' : 'Search the collection…'}
+          placeholder={tab === 'videos' ? 'Search films…' : 'Search the collection…'}
           aria-label="Search"
         />
-        {tab === 'gallery' && (
+        {tab === 'photos' && (
           <div className="credit-bar" aria-label="Download credits">
             <span className="credit-chip" title="Your download credits">
               ⚡ {credits == null ? '—' : creditsLabel(credits)}
@@ -253,10 +235,10 @@ export default function MuseumPage() {
             </button>
           </div>
         )}
-        {tab === 'gallery' && creditMsg && (
+        {tab === 'photos' && creditMsg && (
           <p className="credit-msg" role="status">{creditMsg}</p>
         )}
-        {tab === 'gallery' && (
+        {tab === 'photos' && (
           <div className="chip-row" role="group" aria-label="Filter by series">
             <button className={series === 'all' ? 'chip active' : 'chip'} onClick={() => setSeries('all')}>All</button>
             <button className={series === 'kept' ? 'chip active' : 'chip'} onClick={() => setSeries('kept')}>Kept ♥</button>
@@ -267,22 +249,18 @@ export default function MuseumPage() {
             ))}
           </div>
         )}
-        {tab === 'concepts' && (
-          <div className="chip-row" role="group" aria-label="Filter by status">
-            <button className={status === 'all' ? 'chip active' : 'chip'} onClick={() => setStatus('all')}>All</button>
-            {STATUSES.map((st) => (
-              <button key={st} className={status === st ? 'chip active' : 'chip'} onClick={() => setStatus(st)}>
-                {STATUS_LABELS[st]}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
 
-      {tab === 'gallery' && (
-        <main className="museum-grid" aria-label="Gallery">
+      {tab === 'photos' && (
+        <main className="museum-grid" aria-label="Photos">
           {visibleItems.length === 0 && (
-            <p className="empty">Nothing in this wing yet. Try another search.</p>
+            <div className="empty-wing" role="status">
+              <p className="empty-title">The curator is hanging new pieces.</p>
+              <p className="empty-sub">
+                This wing holds only what Merlin made with Gemini — no
+                screenshots, nothing borrowed. Fresh pieces are on their way.
+              </p>
+            </div>
           )}
           {visibleItems.map((it, idx) => {
             const s = seriesById(it.series);
@@ -305,8 +283,17 @@ export default function MuseumPage() {
         </main>
       )}
 
-      {tab === 'films' && (
-        <main className="films" aria-label="Concept films">
+      {tab === 'videos' && (
+        <main className="films" aria-label="Films">
+          {VIDEOS.length === 0 && (
+            <div className="empty-wing" role="status">
+              <p className="empty-title">The curator is hanging new pieces.</p>
+              <p className="empty-sub">
+                This wing holds only films Merlin made with Gemini — no
+                screenshots, nothing borrowed. Fresh pieces are on their way.
+              </p>
+            </div>
+          )}
           {VIDEOS.map((v) => (
             <article key={v.id} className="film-card">
               <div className="film-head">
@@ -316,32 +303,6 @@ export default function MuseumPage() {
               <video className="film-video" src={v.src} controls preload="metadata" playsInline>
                 Sorry — your browser can’t play this film.
               </video>
-            </article>
-          ))}
-          <p className="films-note">Concept films from the archive. AI-generated studies, kept as history.</p>
-        </main>
-      )}
-
-      {tab === 'concepts' && (
-        <main className="concepts" aria-label="Concept highlights">
-          {visibleConcepts.length === 0 && (
-            <p className="empty">No concepts match. Try another search.</p>
-          )}
-          {visibleConcepts.map((c) => (
-            <article key={c.id} className="concept-card">
-              <div className="concept-top">
-                <h2 className="concept-name">{c.name}</h2>
-                <span className="status-badge" style={{ borderColor: STATUS_COLORS[c.status], color: STATUS_COLORS[c.status] }}>
-                  {STATUS_LABELS[c.status]}
-                </span>
-              </div>
-              <div className="concept-cat">{c.category}</div>
-              <p className="concept-blurb">{c.blurb}</p>
-              {/* next/link: client-side nav keeps the radio playing. */}
-              {c.route && (
-                <Link className="concept-link" href={c.route} onClick={() => { try { fx.tap(); } catch {} }}>
-                  Visit →</Link>
-              )}
             </article>
           ))}
         </main>
@@ -571,48 +532,30 @@ export default function MuseumPage() {
         }
         .film-blurb { color: #a9a294; margin: 0; line-height: 1.6; font-size: 0.95rem; }
         .film-video { width: 100%; display: block; background: #000; max-height: 70vh; }
-        .films-note { text-align: center; color: #6f6a5e; font-size: 0.85rem; font-style: italic; }
-        .concepts {
-          max-width: 56rem;
-          margin: 0 auto;
-          padding: 1.5rem 1.25rem;
-          display: flex;
-          flex-direction: column;
-          gap: 1rem;
+        .empty-wing {
+          grid-column: 1 / -1;
+          text-align: center;
+          padding: 4rem 1.5rem;
+          border: 1px dashed rgba(201, 168, 106, 0.35);
+          border-radius: 0.8rem;
+          background: rgba(201, 168, 106, 0.03);
+          margin: 1rem 0;
         }
-        .concept-card {
-          border: 1px solid #222;
-          border-radius: 0.6rem;
-          padding: 1.1rem 1.25rem;
-          background: #101012;
-        }
-        .concept-top { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; }
-        .concept-name {
+        .films .empty-wing { width: 100%; }
+        .empty-title {
           font-family: Georgia, 'Times New Roman', serif;
-          font-size: 1.15rem;
-          margin: 0;
+          font-size: 1.4rem;
           color: #f4efe3;
+          margin: 0 0 0.75rem;
           font-weight: 400;
         }
-        .status-badge {
-          font-size: 0.7rem;
-          letter-spacing: 0.08em;
-          text-transform: uppercase;
-          border: 1px solid;
-          border-radius: 999px;
-          padding: 0.25rem 0.7rem;
-          white-space: nowrap;
+        .empty-sub {
+          color: #a9a294;
+          line-height: 1.7;
+          max-width: 26rem;
+          margin: 0 auto;
+          font-size: 0.95rem;
         }
-        .concept-cat { font-size: 0.75rem; color: #8a8474; margin-top: 0.3rem; letter-spacing: 0.05em; }
-        .concept-blurb { color: #b9b2a1; line-height: 1.6; margin: 0.6rem 0 0; font-size: 0.95rem; }
-        .concept-link {
-          display: inline-block;
-          margin-top: 0.8rem;
-          color: #c9a86a;
-          text-decoration: none;
-          font-size: 0.9rem;
-        }
-        .concept-link:hover { text-decoration: underline; }
         .lightbox {
           position: fixed;
           inset: 0;
