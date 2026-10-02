@@ -11,8 +11,12 @@
 //    log — timber, nothing else. The scene is a craftsman's demonstration.
 //  - Pixel ratio capped at 1.5 for battery life.
 //  - Exposes an API for the React page: beginZoom, hitLever, hitBlade,
-//    hitPart, setLift, setRaising, beginDrop, setDropProgress, triggerSplit,
-//    resetLog, dispose.
+//    hitPart, hitGoldPiece, setGoldPieceVisible, setLift, setRaising,
+//    beginDrop, setDropProgress, triggerSplit, resetLog, dispose.
+//  - Three flickering wall torches (cheap point lights, no shadows) light
+//    the room; intensity stays restrained per the lighting rule.
+//  - Camera controls are eased: pan enabled, softer damping, wider pull-back,
+//    and the orbit target is clamped near the machine (see cameraRig.js).
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -20,6 +24,8 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { paintSky, paintEnergy, paintFloor, paintWood } from './painters.js';
+import { torchFlicker, TORCH_BASE_INTENSITY, TORCH_POSITIONS } from './torches.js';
+import { CAMERA_LIMITS, clampTarget } from './cameraRig.js';
 
 // Plain-English labels for the examine mode.
 export const PART_LABELS = {
@@ -71,12 +77,18 @@ export function createGuillotineScene(canvas, options = {}) {
   const controls = new OrbitControls(camera, canvas);
   controls.enabled = false;
   controls.enableDamping = true;
-  controls.dampingFactor = 0.05;
-  controls.enablePan = false;
+  // Eased camera limits (see cameraRig.js): pan allowed, softer damping,
+  // wider pull-back, and the target is clamped to the scene each frame so
+  // a wild swipe can't strand the camera in empty fog.
+  controls.dampingFactor = CAMERA_LIMITS.dampingFactor;
+  controls.enablePan = CAMERA_LIMITS.enablePan;
+  controls.panSpeed = CAMERA_LIMITS.panSpeed;
+  controls.screenSpacePanning = CAMERA_LIMITS.screenSpacePanning;
   controls.target.set(0, 300, 0);
-  controls.maxPolarAngle = Math.PI / 2 + 0.05;
-  controls.minDistance = 1;
-  controls.maxDistance = 1500;
+  controls.minPolarAngle = CAMERA_LIMITS.minPolarAngle;
+  controls.maxPolarAngle = CAMERA_LIMITS.maxPolarAngle;
+  controls.minDistance = CAMERA_LIMITS.minDistance;
+  controls.maxDistance = CAMERA_LIMITS.maxDistance;
 
   // ── Procedural textures (zero network) ──────────────────────────────
   const skyTex = canvasTexture(paintSky, 1024, 512);
@@ -263,6 +275,49 @@ export function createGuillotineScene(canvas, options = {}) {
   bladeGlow.position.set(0, 100, 0);
   bladeGroup.add(bladeGlow);
 
+  // ── Wall torches (3 flickering point lights, no shadow maps — iPhone-cheap)
+  // The scene has no wall meshes, so these are free-standing braziers on the
+  // floor around the machine. Warm and dim enough to never drown out the
+  // texture wraps; each light flickers via torchFlicker() in the frame loop.
+  const torchLights = [];
+  const torchFlames = [];
+  const torchGroup = new THREE.Group();
+  const standMat = new THREE.MeshStandardMaterial({ color: 0x151217, roughness: 0.7, metalness: 0.8 });
+  const flameMat = new THREE.MeshBasicMaterial({ color: 0xffa63f });
+  for (const [tx, tz] of TORCH_POSITIONS) {
+    const stand = new THREE.Group();
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(6, 9, 250, 10), standMat);
+    pole.position.y = 125;
+    const bowl = new THREE.Mesh(new THREE.CylinderGeometry(28, 16, 24, 12), standMat);
+    bowl.position.y = 258;
+    const flame = new THREE.Mesh(new THREE.SphereGeometry(13, 12, 10), flameMat);
+    flame.position.y = 282;
+    const light = new THREE.PointLight(0xff8c3a, TORCH_BASE_INTENSITY, 900, 2);
+    light.position.y = 290;
+    stand.add(pole, bowl, flame, light);
+    stand.position.set(tx, 0, tz);
+    torchGroup.add(stand);
+    torchLights.push(light);
+    torchFlames.push(flame);
+  }
+  scene.add(torchGroup);
+
+  // ── The collectible gold piece (one per calendar month) ─────────────
+  // Floats beside the deck; tap it and the page posts to /api/gold/collect.
+  // The server is the authority on crediting — the scene only shows/hides it.
+  const goldGroup = new THREE.Group();
+  const goldMesh = new THREE.Mesh(
+    new THREE.IcosahedronGeometry(22, 0),
+    new THREE.MeshStandardMaterial({
+      color: 0xffd700, metalness: 1.0, roughness: 0.25,
+      emissive: 0xaa7700, emissiveIntensity: 0.8,
+    })
+  );
+  const goldBaseY = 74;
+  goldGroup.add(goldMesh);
+  goldGroup.position.set(250, goldBaseY, 110);
+  scene.add(goldGroup);
+
   // ── Interaction state ────────────────────────────────────────────────
   let raising = false;
   let lift = 0;
@@ -355,6 +410,21 @@ export function createGuillotineScene(canvas, options = {}) {
     // Impact flash fades fast (restrained: peak 500, no white-out).
     impactLight.intensity = THREE.MathUtils.lerp(impactLight.intensity, 0, reducedMotion ? 1 : 0.15);
 
+    // Torch flicker: cheap sin-based intensity wobble (frozen in calm mode).
+    if (!reducedMotion) {
+      for (let i = 0; i < torchLights.length; i++) {
+        const f = torchFlicker(i, t);
+        torchLights[i].intensity = TORCH_BASE_INTENSITY * f;
+        torchFlames[i].scale.setScalar(1 + (f - 1) * 0.9);
+      }
+    }
+
+    // Gold piece: slow spin and gentle bob (frozen in calm mode).
+    if (goldGroup.visible && !reducedMotion) {
+      goldMesh.rotation.y += dt * 0.9;
+      goldGroup.position.y = goldBaseY + Math.sin(t * 2) * 9;
+    }
+
     if (engineState === 'ORBITING') {
       if (!reducedMotion) {
         orbitAngle += 0.002;
@@ -387,6 +457,9 @@ export function createGuillotineScene(canvas, options = {}) {
       }
     } else if (engineState === 'INSIDE') {
       controls.update();
+      // Keep the pan target near the machine so the camera can't be lost.
+      const clamped = clampTarget(controls.target);
+      controls.target.set(clamped.x, clamped.y, clamped.z);
     }
 
     composer.render();
@@ -409,6 +482,18 @@ export function createGuillotineScene(canvas, options = {}) {
         if (castAt(clientX, clientY, part.objects)) return part.id;
       }
       return null;
+    },
+    // True when the pointer lands on the visible gold piece. Hidden pieces
+    // (collected until next month) never hit — raycast could still find an
+    // invisible group, so the visibility guard is explicit.
+    hitGoldPiece(clientX, clientY) {
+      if (!goldGroup.visible) return false;
+      return castAt(clientX, clientY, [goldGroup]);
+    },
+    // Hide (after collection) or restore the gold piece. The server decides
+    // whether a collection credits; the page decides when to hide.
+    setGoldPieceVisible(v) {
+      goldGroup.visible = !!v;
     },
     setLift(v) {
       lift = Math.max(0, Math.min(1, v));

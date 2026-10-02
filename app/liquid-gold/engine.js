@@ -85,12 +85,52 @@ export function barValue(state) {
 }
 
 /**
- * Toggle the pour latch (the UI pour button is a simple toggle so "tap to
- * stop" actually stops). Returns the new pouring state.
+ * Set the pour latch explicitly (hold-to-pour UI: press starts the pour,
+ * release stops it). Returns the new pouring state. Mutates ONLY
+ * state.pouring — flow rate, tick size, and all economy numbers are
+ * untouched; the game loop keeps calling pourTick(state) whenever pouring
+ * is true, so the poured amount per second is identical to before.
+ */
+export function setPouring(state, on) {
+  state.pouring = on === true;
+  return state.pouring;
+}
+
+/**
+ * Toggle the pour latch (legacy tap interaction; kept for compatibility).
+ * The UI now uses setPouring via press-and-hold instead. Returns the new
+ * pouring state.
  */
 export function togglePour(state) {
   state.pouring = !state.pouring;
   return state.pouring;
+}
+
+/**
+ * Hold-to-pour interaction helper. press() starts the pour, release() and
+ * cancel() stop it (pointercancel / lost-capture fire on iPhone when the OS
+ * takes the gesture or the finger slides off). Idempotent: repeat presses
+ * don't re-trigger, and release/cancel while idle are no-ops — so a stray
+ * pointerup can never leave the pour stuck on or double-log an action.
+ */
+export function createHoldPour() {
+  let pouring = false;
+  return {
+    isPouring: () => pouring,
+    press() {
+      pouring = true;
+      return true;
+    },
+    release() {
+      if (!pouring) return false;
+      pouring = false;
+      return true;
+    },
+    cancel() {
+      pouring = false;
+      return false;
+    },
+  };
 }
 
 export function sellBars(state) {

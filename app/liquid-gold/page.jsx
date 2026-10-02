@@ -7,7 +7,7 @@ import GoldBalance from "@/components/economy/GoldBalance";
 import {
   newState, pourTick, refineTick, barValue, sellBars, buyUpgrade,
   upgradeCost, vatCapacity, flowRate, canSurge, activateSurge,
-  surgeRemaining, surgeCooldownRemaining, togglePour, UPGRADE_DEFS, TICK,
+  surgeRemaining, surgeCooldownRemaining, setPouring, createHoldPour, UPGRADE_DEFS, TICK,
 } from "./engine.js";
 
 /**
@@ -28,6 +28,8 @@ export default function LiquidGoldPage() {
   const stateRef = useRef(null);
   if (!stateRef.current) stateRef.current = newState();
   const logRef = useRef([]);
+  const holdRef = useRef(null);
+  if (!holdRef.current) holdRef.current = createHoldPour();
   const reduced = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
   function rerender() { force((n) => n + 1); }
@@ -66,6 +68,23 @@ export default function LiquidGoldPage() {
     } finally {
       setClaiming(false);
     }
+  }
+
+  // Hold-to-pour: press starts the pour, release stops it. The helper is
+  // idempotent, so repeat/overlapping pointer events can't double-log or
+  // leave the pour stuck on. Actions are logged {a:"pour",on} so the
+  // server-side replay sees exactly the same event stream as before.
+  function pressStart() {
+    if (!holdRef.current.press()) return;
+    setPouring(stateRef.current, true);
+    logAction({ a: "pour", on: true });
+    rerender();
+  }
+  function pressEnd() {
+    if (!holdRef.current.release()) return;
+    setPouring(stateRef.current, false);
+    logAction({ a: "pour", on: false });
+    rerender();
   }
 
   function handleSell() {
@@ -182,7 +201,7 @@ export default function LiquidGoldPage() {
     <div style={{ minHeight: "100dvh", background: "#060502", color: "#e8cf8a", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", padding: 16, paddingBottom: 40 }}>
       <div style={{ maxWidth: 720, margin: "0 auto" }}>
         <h1 style={{ ...gold, fontSize: 20, letterSpacing: 3, textAlign: "center", margin: "8px 0 2px" }}>LIQUID GOLD REFINERY</h1>
-        <p style={{ textAlign: "center", color: "#8a7648", fontSize: 12, marginTop: 0 }}>pour crude · refine to 98% purity · bar mints automatically · sell · upgrade</p>
+        <p style={{ textAlign: "center", color: "#8a7648", fontSize: 12, marginTop: 0 }}>hold to pour crude · refine to 98% purity · bar mints automatically · sell · upgrade</p>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
           <div style={card}>CREDITS<div style={{ fontSize: 22, color: "#ffd34d" }}>{st.credits}</div>
@@ -204,9 +223,27 @@ export default function LiquidGoldPage() {
         <canvas ref={canvasRef} style={{ width: "100%", height: 340, border: "1px solid rgba(255,211,77,0.25)", borderRadius: 10, background: "#060502", display: "block" }} />
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, margin: "12px 0" }}>
-          <button style={{ ...btn, background: pouring ? "rgba(120,80,10,0.9)" : btn.background }}
-            onClick={() => { const on = togglePour(st); logAction({ a: "pour", on }); rerender(); }}>
-            {pouring ? "⛽ POURING — TAP TO STOP" : "TAP TO POUR"}
+          {/* Hold-to-pour: press-and-hold pours, release stops. Pointer capture
+              keeps the release registered even if the finger slides off the
+              button; context menu + callout suppression kills the iPhone
+              long-press popup. */}
+          <button style={{
+            ...btn,
+            background: pouring ? "rgba(120,80,10,0.9)" : btn.background,
+            touchAction: "none", userSelect: "none",
+            WebkitUserSelect: "none", WebkitTouchCallout: "none",
+          }}
+            aria-pressed={pouring}
+            aria-label={pouring ? "Pouring — release to stop" : "Press and hold to pour"}
+            onPointerDown={(e) => { e.preventDefault(); e.currentTarget.setPointerCapture?.(e.pointerId); pressStart(); }}
+            onPointerUp={pressEnd}
+            onPointerCancel={pressEnd}
+            onLostPointerCapture={pressEnd}
+            onContextMenu={(e) => e.preventDefault()}
+            onKeyDown={(e) => { if ((e.key === " " || e.key === "Enter") && !e.repeat) pressStart(); }}
+            onKeyUp={(e) => { if (e.key === " " || e.key === "Enter") pressEnd(); }}
+          >
+            {pouring ? "⛽ POURING — HOLDING" : "HOLD TO POUR"}
           </button>
           <button style={btn} disabled={st.bars === 0 || claiming} onClick={handleSell}>
             {claiming ? "VERIFYING…" : `SELL ${st.bars} BAR${st.bars === 1 ? "" : "S"}`}

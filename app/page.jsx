@@ -11,6 +11,9 @@ import { orbitTime, orbitPositionFor } from '@/lib/god-orbits';
 import { GOD_TOWER_SPOTS, GOD_TOWER_POS, BABEL_POS, ARTEMIS_POS } from '@/lib/home-positions';
 import SettingsGear from '@/components/SettingsGear';
 import StoreFloatButton from '@/components/StoreFloatButton';
+import BikeFloatButton from '@/components/BikeFloatButton';
+import FlightAxisStreaks from '@/components/FlightAxisStreaks';
+import { fetchRiderState, saveRiderState, DISMOUNT_EYE } from '@/lib/rider-state';
 import ProfileIcon from '@/components/ProfileIcon';
 import NotificationsWindow from '@/components/NotificationsWindow';
 import EntranceSequence from '@/components/EntranceSequence';
@@ -76,6 +79,13 @@ function NexusHub() {
   
 
   const [flightAxis, setFlightAxis] = useState('horizontal'); 
+
+  // Per-account rider persistence: where the rider last dismounted (beside
+  // the bike — never a default spawn point). Loaded from /api/rider/state on
+  // sign-in; spawn-to-bike resumes there. Null = no saved row yet, so the
+  // bike keeps its existing position. A ref (not state): toggleBike reads it
+  // from event handlers, never from render.
+  const savedSpawnRef = useRef(null);
 
   // --- Explorable Earth: the traveler stands still, the world moves. ---
   // Initialized inside HomeScene (it owns the three.js import now).
@@ -202,6 +212,29 @@ function NexusHub() {
     return () => { window.removeEventListener('keydown', handleKeyDown); window.removeEventListener('keyup', handleKeyUp); };
   }, [appState]);
 
+  // The Supabase access token for the rider-state API. The server derives
+  // user_id from this token (requireUser) — the client never asserts identity.
+  const getAccessToken = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      return session?.access_token || null;
+    } catch {
+      return null;
+    }
+  };
+
+  // Load the account's saved dismount spot once signed in. Cloud-offline
+  // guests have no backend to read from — they keep the default spot.
+  useEffect(() => {
+    if (!user || cloudOffline) return;
+    let alive = true;
+    fetchRiderState(getAccessToken).then((s) => {
+      if (!alive || !s) return;
+      savedSpawnRef.current = [s.x, s.y, s.z];
+    });
+    return () => { alive = false; };
+  }, [user, cloudOffline]);
+
   const handleLogin = (callsign) => setUser(callsign);
 
   const handleSignOut = async () => {
@@ -245,7 +278,29 @@ function NexusHub() {
       setAppState('hub_freeroam');
     } else if (appState === 'hub_intro' || appState === 'hub_freeroam') {
       fx.bikeMount();
+      // Spawn at the account's saved spot when one exists: the bike is moved
+      // there first, then the camera flies into the rider's seat. The saved
+      // spot is the rider's dismount position (eye height beside the bike),
+      // so the bike is seated DISMOUNT_EYE below it — otherwise each
+      // mount/dismount cycle would ratchet the bike upward. No saved row →
+      // the bike keeps its existing (parked) position.
+      const saved = savedSpawnRef.current;
+      if (bikeRef.current && saved) {
+        bikeRef.current.position.set(saved[0], saved[1] - DISMOUNT_EYE, saved[2]);
+        bikeRef.current.userData.baseY = saved[1] - DISMOUNT_EYE;
+        bikeRef.current.userData.flying = false;
+      }
       setAppState('to_bike');
+    }
+  };
+
+  // The 3D scene calls this the moment a dismount lands: the rider has been
+  // placed beside the bike (computed in HomeScene), the spot becomes this
+  // session's spawn point, and it is persisted per account server-side.
+  const handleBikeDismount = (pos) => {
+    savedSpawnRef.current = [pos.x, pos.y, pos.z];
+    if (user && !cloudOffline) {
+      saveRiderState(pos, getAccessToken, 'hub');
     }
   };
 
@@ -409,9 +464,12 @@ function NexusHub() {
 
           <button 
             onClick={() => { fx.tap(); setFlightAxis(m => m === 'horizontal' ? 'vertical' : 'horizontal'); }}
-            className="absolute top-5 right-5 z-50 px-6 py-4 text-[10px] sm:text-xs font-bold tracking-widest text-cyan-400 uppercase transition-all border border-cyan-500/50 rounded-xl bg-zinc-950/90 shadow-[0_0_20px_rgba(0,242,255,0.15)] backdrop-blur-md hover:bg-cyan-900/40 ui-element pointer-events-auto"
+            aria-label={`Flight axis: ${flightAxis}. Activate to switch axis.`}
+            className="absolute top-5 right-5 z-50 px-4 py-3 sm:px-6 sm:py-4 text-[10px] sm:text-xs font-bold tracking-widest text-cyan-400 uppercase transition-all border border-cyan-500/50 rounded-xl bg-zinc-950/90 shadow-[0_0_20px_rgba(0,242,255,0.15)] backdrop-blur-md hover:bg-cyan-900/40 ui-element pointer-events-auto flex items-center gap-3"
           >
-            FLIGHT AXIS: <span className="text-white">{flightAxis}</span>
+            {/* Live axis readout: the streaks always stream along the current axis. */}
+            <FlightAxisStreaks axis={flightAxis} />
+            <span>FLIGHT AXIS: <span className="text-white">{flightAxis.toUpperCase()}</span></span>
           </button>
 
           {/* Floating store shortcut — right edge, vertically centered, clear of
@@ -453,6 +511,15 @@ function NexusHub() {
         >
           {(appState === 'on_bike' || appState === 'to_bike') ? 'LEAVE BIKE' : 'SPAWN TO BIKE'}
         </button>
+      )}
+
+      {/* Circular TRON-bike shortcut — same onClick as SPAWN TO BIKE, stacked
+          on the right edge directly below the floating STORE button. */}
+      {(user || cloudOffline) && (appState === 'hub_intro' || appState === 'hub_freeroam' || appState === 'to_bike' || appState === 'on_bike') && (
+        <BikeFloatButton
+          onToggleBike={toggleBike}
+          riding={appState === 'on_bike' || appState === 'to_bike'}
+        />
       )}
 
       {(user || cloudOffline) && (appState === 'diving_to_earth' || appState === 'earth_surface' || appState === 'earth_travel') && (
@@ -509,6 +576,7 @@ function NexusHub() {
         pendingDest={pendingDest}
         arriveEarth={arriveEarth}
         beginEarthDive={beginEarthDive}
+        onBikeDismount={handleBikeDismount}
         onLaunchExternal={(url, id) => {
           adWindowRef.current = window.open('', '_blank');
           launchPocketUniverse(url, null, null, id);

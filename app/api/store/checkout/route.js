@@ -1,18 +1,25 @@
 // app/api/store/checkout/route.js
 // POST /api/store/checkout { productId: 'pf_<printfulSyncId>', size?, useGold?, idemKey? }
+//   or multi-line { items: [{ productId?, productName?, size?, qty? }], useGold?, idemKey? }
 //   -> { type:'stripe', url, goldAppliedGold, goldAppliedCents, chargeCents }
 //   -> { type:'gold', orderId, notice }  (gold covered the whole bill — no card)
 //
 // Pricing is re-derived server-side from the Printful catalog (the store's
 // source of truth): the product id is validated against the cached catalog
 // and the size against Printful's live variant list. The client never
-// dictates an amount, a product, or a variant id.
+// dictates an amount, a product, or a variant id. Multi-line carts re-price
+// EVERY line server-side; qty is validated server-side (1..MAX_QTY_PER_LINE).
 //
 // Gold redemption (100 gold = $1) uses the shared applyGoldCheckout flow:
 // partial cover debits gold then charges the remainder via a one-time
 // Stripe coupon; full cover skips Stripe entirely (the order is recorded
 // paid and flagged for a shipping address — there is no Stripe session to
-// collect one from).
+// collect one from). HOODIE-CAP: when gold is used, the server computes a
+// discount ceiling of $15 per hoodie line (min($15 x units, line total)) via
+// lib/gold/store-discount.js and passes it to applyGoldCheckout as
+// maxDiscountCents. Non-hoodie lines keep the existing uncapped behavior.
+// The ceiling is priced from server data, never client input
+// (payment-bypass ban is standing law).
 //
 // Stripe Checkout collects the shipping address (Printful needs it for
 // fulfillment) and the buyer's email. Free shipping is baked into the
@@ -28,6 +35,7 @@ import { getUserFromRequest as getGoldUser } from '@/lib/economy/auth';
 import { getServiceClient } from '@/lib/economy/supabase';
 import { applyGoldCheckout } from '@/lib/economy/checkout';
 import { getCatalog, getProductVariants } from '@/lib/store-printful';
+import { hoodieDiscountCapForOrder, MAX_QTY_PER_LINE } from '@/lib/gold/store-discount';
 import { apiGuard } from '@/lib/api-guard';
 
 export const GET = apiGuard(async function GET() {
@@ -134,10 +142,20 @@ export const POST = apiGuard(async function POST(req) {
     return NextResponse.json({ error: 'Invalid request.' }, { status: 400 });
   }
 
-  const productId = typeof body?.productId === 'string' ? body.productId.trim() : '';
-  const productName =
-    typeof body?.productName === 'string' ? body.productName.trim().slice(0, 120) : '';
-  const size = typeof body?.size === 'string' ? body.size.trim().slice(0, 12) : '';
+  // HOODIE-CAP multi-line cart: each entry is a client line reference
+  // (productId/productName/size/qty) — amounts are NEVER taken from it.
+  // Legacy single-product body { productId, productName, size } still works.
+  const rawItems =
+    Array.isArray(body?.items) && body.items.length > 0
+      ? body.items.slice(0, 25)
+      : [
+          {
+            productId: body?.productId,
+            productName: body?.productName,
+            size: body?.size,
+            qty: 1,
+          },
+        ];
 
   const useGold = body?.useGold === true;
   const idemKey =
@@ -165,19 +183,54 @@ export const POST = apiGuard(async function POST(req) {
   }
 
   // Server-priced from the Printful catalog: nothing about the bill comes
-  // from the client.
-  let card, syncId, variant, needsSize;
+  // from the client. Every line is resolved + validated; qty is clamped
+  // server-side. All lines in one order must share a currency.
+  let lines;
   try {
-    ({ card, syncId, variant, needsSize } = await resolveLine(productId, productName, size));
+    lines = [];
+    for (const raw of rawItems) {
+      const qtyRaw = Number.isInteger(raw?.qty) ? raw.qty : 1;
+      const qty = Math.min(Math.max(qtyRaw, 1), MAX_QTY_PER_LINE);
+      const { card, syncId, variant, needsSize } = await resolveLine(
+        raw?.productId,
+        raw?.productName,
+        raw?.size
+      );
+      const unitCents = card.priceCents;
+      const currency = card.currency || 'cad';
+      lines.push({
+        name: needsSize ? `${card.name} (${variant.size})` : card.name,
+        cardName: card.name,
+        unitCents,
+        currency,
+        qty,
+        syncId,
+        variantId: String(variant.variantId),
+        size: needsSize ? variant.size : '',
+      });
+    }
+    const currencies = new Set(lines.map((l) => l.currency));
+    if (currencies.size > 1) {
+      const e = new Error('Mixed currencies are not supported in one order.');
+      e.status = 400;
+      throw e;
+    }
   } catch (err) {
     return NextResponse.json(
       { error: err.message || 'That product is not available right now.' },
       { status: err.status || 400 }
     );
   }
-  const unitCents = card.priceCents;
-  const currency = card.currency || 'cad';
-  const lineName = needsSize ? `${card.name} (${variant.size})` : card.name;
+  const currency = lines[0].currency;
+
+  // HOODIE-CAP: the discount ceiling is computed server-side from the
+  // priced lines — $15 per hoodie line (min($15 x units, line total)).
+  // Non-hoodie lines keep existing uncapped behavior. The ceiling can never
+  // exceed the order total (structural no-loss guarantee).
+  const { hoodieUnits, maxDiscountCents, totalCents } = hoodieDiscountCapForOrder(
+    lines.map((l) => ({ name: l.name, unitCents: l.unitCents, qty: l.qty }))
+  );
+  const capForCheckout = useGold && hoodieUnits > 0 ? maxDiscountCents : undefined;
 
   const stripe = await loadStripe();
 
@@ -187,9 +240,10 @@ export const POST = apiGuard(async function POST(req) {
     const result = await applyGoldCheckout({
       surface: 'store',
       userId: goldUserId,
-      totalCents: unitCents,
+      totalCents,
       useGold,
       idemKey: effectiveIdemKey,
+      maxDiscountCents: capForCheckout, // HOODIE-CAP: server-side ceiling
       stripe,
       buildSessionParams: async ({ gold, stripe: stripeClient }) => {
         // Itemize gold as a one-time Stripe coupon so the receipt shows
@@ -210,25 +264,24 @@ export const POST = apiGuard(async function POST(req) {
         return {
           mode: 'payment',
           currency,
-          line_items: [
-            {
-              price_data: {
-                currency,
-                unit_amount: unitCents,
-                product_data: { name: lineName },
-              },
-              quantity: 1,
+          line_items: lines.map((l) => ({
+            price_data: {
+              currency,
+              unit_amount: l.unitCents,
+              product_data: { name: l.name },
             },
-          ],
+            quantity: l.qty,
+          })),
           ...(discounts ? { discounts } : {}),
           // The shipping address Printful will need for fulfillment.
           shipping_address_collection: { allowed_countries: ['US', 'CA'] },
           metadata: {
             surface: 'store',
-            printful_product_id: syncId,
-            printful_variant_id: String(variant.variantId),
-            product_name: card.name,
-            size: needsSize ? variant.size : '',
+            product_name: lines.length === 1 ? lines[0].cardName : `${lines.length} items`,
+            printful_product_id: lines.map((l) => l.syncId).join(','),
+            printful_variant_id: lines.map((l) => l.variantId).join(','),
+            size: lines.length === 1 ? lines[0].size : '',
+            hoodie_units: String(hoodieUnits),
             gold_applied_gold: String(gold.goldAppliedGold),
             gold_applied_cents: String(gold.goldAppliedCents),
           },
@@ -258,22 +311,23 @@ export const POST = apiGuard(async function POST(req) {
             .maybeSingle();
           orderId = existing?.id || null;
           if (!orderId) {
+            const itemDesc = lines.map((l) => `${l.qty}x ${l.name}`).join(', ');
             const { data: inserted, error: insertError } = await admin
               .from('store_orders')
               .insert([
                 {
                   user_id: goldUserId,
                   stripe_session_id: sessionRef,
-                  product_name: card.name,
+                  product_name: itemDesc.slice(0, 200),
                   price_id: null,
-                  amount_cents: unitCents,
+                  amount_cents: totalCents,
                   currency,
-                  size: needsSize ? variant.size : null,
-                  printful_product_id: syncId,
-                  printful_variant_id: String(variant.variantId),
+                  size: lines.length === 1 ? lines[0].size : null,
+                  printful_product_id: lines.map((l) => l.syncId).join(','),
+                  printful_variant_id: lines.map((l) => l.variantId).join(','),
                   status: 'paid',
                   paid_at: new Date().toISOString(),
-                  customer_notes: `Paid fully with gold: ${goldSpentGold.toLocaleString('en-US')} gold (-$${(unitCents / 100).toFixed(2)}). No shipping address collected — contact the buyer before Printful fulfillment.`,
+                  customer_notes: `Paid fully with gold: ${goldSpentGold.toLocaleString('en-US')} gold (-$${(totalCents / 100).toFixed(2)}). No shipping address collected — contact the buyer before Printful fulfillment.`,
                 },
               ])
               .select('id')
@@ -311,13 +365,13 @@ export const POST = apiGuard(async function POST(req) {
           {
             user_id: goldUserId,
             stripe_session_id: result.sessionId,
-            product_name: card.name,
+            product_name: lines.map((l) => `${l.qty}x ${l.name}`).join(', ').slice(0, 200),
             price_id: null,
-            amount_cents: unitCents,
+            amount_cents: totalCents,
             currency,
-            size: needsSize ? variant.size : null,
-            printful_product_id: syncId,
-            printful_variant_id: String(variant.variantId),
+            size: lines.length === 1 ? lines[0].size : null,
+            printful_product_id: lines.map((l) => l.syncId).join(','),
+            printful_variant_id: lines.map((l) => l.variantId).join(','),
             status: 'pending_payment',
             customer_notes: goldNote(result),
           },
