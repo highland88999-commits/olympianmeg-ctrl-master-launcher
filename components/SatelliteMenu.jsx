@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { GOD_MENUS } from '@/lib/god-menus';
+import { GOD_MENUS, menuArtFor } from '@/lib/god-menus';
 import { FLOORS } from '@/lib/babel/floors';
 import { fx } from '@/lib/fx';
 
@@ -18,6 +18,9 @@ import { fx } from '@/lib/fx';
  *   takeover or a detached edge drawer.
  * - Launching still goes through the single menu-to-satellite function
  *   passed in as onLaunch (the parent's launchPocketUniverse).
+ * - Each satellite row carries Merlin's 2026-10-01 transfer art as its
+ *   background (menuArtFor), with a dark legibility overlay; a missing
+ *   image falls back to the plain row style.
  *
  * BABEL appears like any other satellite — its programs list the tower's
  * floors (pocket universes) from lib/babel/floors.
@@ -25,6 +28,24 @@ import { fx } from '@/lib/fx';
 
 // Hermes expo-out — the exact curve from Merlin's Hermes landing drawer.
 const HERMES_EASE = 'cubic-bezier(0.19, 1, 0.22, 1)';
+
+// Merlin's 2026-10-01 transfer art as a menu-row background. Hides itself
+// on error so the row falls back to its plain style — a missing image
+// never breaks the menu.
+function MenuRowArt({ satKey }) {
+  const [imgOk, setImgOk] = useState(true);
+  if (!imgOk) return null;
+  return (
+    <img
+      src={menuArtFor(satKey)}
+      alt=""
+      aria-hidden="true"
+      className="absolute inset-0 h-full w-full object-cover"
+      loading="lazy"
+      onError={() => setImgOk(false)}
+    />
+  );
+}
 
 function programsFor(key, sat, t) {
   const title = t(`sat.${key}.title`);
@@ -151,10 +172,12 @@ export default function SatelliteMenu({ t, satIndex, onLaunch }) {
                 <button
                   onClick={() => toggle(key)}
                   aria-expanded={open}
-                  className="flex min-h-[44px] w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors motion-reduce:transition-none hover:bg-zinc-900/60"
+                  className="relative flex min-h-[44px] w-full items-center justify-between gap-3 overflow-hidden px-4 py-3 text-left transition-colors motion-reduce:transition-none hover:bg-zinc-900/60"
                 >
-                  <span className="flex min-w-0 flex-col">
-                    <span className="truncate text-sm font-black uppercase tracking-widest text-white">
+                  <MenuRowArt satKey={key} />
+                  <div className="absolute inset-0 bg-gradient-to-r from-black/90 via-black/60 to-black/30 pointer-events-none" aria-hidden="true" />
+                  <span className="relative flex min-w-0 flex-col">
+                    <span className="line-clamp-2 text-sm font-black uppercase tracking-widest text-white">
                       {title}
                     </span>
                     <span className="mt-0.5 truncate text-[10px] uppercase text-zinc-500">
@@ -162,7 +185,7 @@ export default function SatelliteMenu({ t, satIndex, onLaunch }) {
                     </span>
                   </span>
                   <span
-                    className="flex shrink-0 items-center gap-1.5 text-[10px] font-bold tracking-[0.18em] text-zinc-400 uppercase"
+                    className="relative flex shrink-0 items-center gap-1.5 text-[10px] font-bold tracking-[0.18em] text-zinc-400 uppercase"
                     aria-hidden="true"
                   >
                     Deploy {open ? '▾' : '▸'}

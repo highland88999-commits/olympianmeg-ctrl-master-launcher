@@ -1,7 +1,7 @@
 // tests/god-menus.test.js — Headless tests for the 10 god-menu navigation.
 // Run: node tests/god-menus.test.js (from the repo root). No browser, no network.
 import { readFileSync } from 'fs';
-import { GOD_MENUS, godMenuFor, allGodMenuSatellites } from '../lib/god-menus.js';
+import { GOD_MENUS, godMenuFor, allGodMenuSatellites, menuBannerFor, menuArtFor } from '../lib/god-menus.js';
 
 let passed = 0;
 let failed = 0;
@@ -34,6 +34,9 @@ for (const m of GOD_MENUS) {
     m.texture === null || (typeof m.texture === 'string' && m.texture.startsWith('/textures/menus/')));
   t(`${m.god}: gradient fallback is two hex colors`,
     Array.isArray(m.gradient) && m.gradient.length === 2 && m.gradient.every((c) => /^#[0-9a-fA-F]{6}$/.test(c)));
+  t(`${m.god}: menuArt points at the 2026-10-01 transfer banner`,
+    m.menuArt === `/images/menu/banners/banner-${m.god.toLowerCase()}.webp`);
+  t(`${m.god}: menuBannerFor matches menuArt`, menuBannerFor(m.god) === m.menuArt);
 }
 
 // --- coverage: every satellite in exactly one god menu ----------------------
@@ -50,6 +53,11 @@ t(`no phantom keys in god menus (${unknown.length})`, unknown.length === 0);
 if (unknown.length) console.error('  phantom:', unknown.join(', '));
 
 t('god-menu satellite count matches satellites.ts', claimed.length === satKeys.length);
+
+// --- menu art: every program button resolves to its transfer image -----------
+for (const k of claimed) {
+  t(`menu art path for ${k}`, menuArtFor(k) === `/images/menu/programs/${k}.webp`);
+}
 
 // --- HERMES: transit, comms & shopping (2026-09-30, Merlin's direction) ------
 import { GOD_HEX } from '../lib/god-orbits.js';
