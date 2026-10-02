@@ -11,6 +11,7 @@ import FloorHermes from '@/components/babel/FloorHermes';
 import WalkMode from '@/components/babel/WalkMode';
 import AquariumViewport from '@/components/babel/AquariumViewport';
 import { FLOORS, getFloor } from '@/lib/babel/floors';
+import { GOLD_FOUND_EVENT } from '@/components/babel/SylvaGold';
 import { toggleCameraMode, prefersReducedMotion, isTouchDevice } from '@/lib/babel/walk';
 
 const SCENES = {
@@ -94,6 +95,10 @@ export default function BabelPage() {
   const [fading, setFading] = useState(false);
   const [reduced, setReduced] = useState(false);
   const [touch, setTouch] = useState(false);
+  // Sylva (endless forest) extras: carried lantern on/off + gold-find toasts.
+  const [lantern, setLantern] = useState(true);
+  const [goldToast, setGoldToast] = useState(null);
+  const goldToastTimer = useRef(null);
 
   // Shared walker state: the page shell writes input, WalkMode consumes it.
   const inputRef = useRef({
@@ -108,6 +113,53 @@ export default function BabelPage() {
   useEffect(() => {
     setReduced(prefersReducedMotion());
     setTouch(isTouchDevice());
+  }, []);
+
+  // Lantern preference persists across visits; default on.
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem('babel-sylva-lantern') === 'off') setLantern(false);
+    } catch {
+      // private mode — lantern just defaults on
+    }
+  }, []);
+
+  const toggleLantern = () => {
+    setLantern((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem('babel-sylva-lantern', next ? 'on' : 'off');
+      } catch {
+        // private mode — session-only toggle
+      }
+      return next;
+    });
+  };
+
+  // L key toggles the lantern while walking the endless forest.
+  useEffect(() => {
+    if (mode !== 'walk' || view !== 'sylva') return;
+    const onKey = (e) => {
+      if (e.code === 'KeyL' && !e.repeat) toggleLantern();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, view]);
+
+  // Gold-find toasts dispatched by the forest scene.
+  useEffect(() => {
+    const onFound = (e) => {
+      const d = e.detail || {};
+      setGoldToast(`✦ You found a gold piece (${d.found || 1}/${d.total || 2})`);
+      if (goldToastTimer.current) clearTimeout(goldToastTimer.current);
+      goldToastTimer.current = setTimeout(() => setGoldToast(null), 3500);
+    };
+    window.addEventListener(GOLD_FOUND_EVENT, onFound);
+    return () => {
+      window.removeEventListener(GOLD_FOUND_EVENT, onFound);
+      if (goldToastTimer.current) clearTimeout(goldToastTimer.current);
+    };
   }, []);
 
   // Deep link from the satellite menu: /babel?floor=<id> opens that floor's
@@ -279,7 +331,7 @@ export default function BabelPage() {
           ) : (
             Scene && (
               <>
-                <Scene />
+                <Scene inputRef={inputRef} walkMode={mode === 'walk'} lanternOn={lantern} />
                 {mode === 'walk' ? (
                   <WalkMode view={view} inputRef={inputRef} orbitCamera={orbitCam} />
                 ) : (
@@ -335,6 +387,18 @@ export default function BabelPage() {
         {mode === 'walk' ? 'Orbit view' : 'Walk mode'}
       </button>
 
+      {/* lantern toggle — endless forest walk mode only */}
+      {view === 'sylva' && mode === 'walk' && (
+        <button
+          data-ui
+          onClick={toggleLantern}
+          aria-label={lantern ? 'Turn lantern off' : 'Turn lantern on'}
+          className="absolute bottom-[calc(8rem+env(safe-area-inset-bottom))] right-4 sm:right-6 z-10 min-h-[44px] px-5 rounded border border-amber-500/40 text-amber-200 text-sm font-bold tracking-widest uppercase hover:bg-amber-500/20 transition-all bg-black/60"
+        >
+          {lantern ? 'Lantern on' : 'Lantern off'}
+        </button>
+      )}
+
       {/* touch joystick (walk mode, touch devices) */}
       {mode === 'walk' && touch && <Joystick inputRef={inputRef} />}
 
@@ -375,6 +439,15 @@ export default function BabelPage() {
               : 'Drag to look around'}
         </p>
       </div>
+
+      {/* gold-find toast */}
+      {goldToast && (
+        <div className="absolute bottom-[calc(11.5rem+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+          <p className="px-5 py-2.5 rounded-full border border-amber-300/50 bg-black/70 text-amber-200 text-sm font-bold tracking-widest whitespace-nowrap shadow-[0_0_24px_rgba(212,162,78,0.35)]">
+            {goldToast}
+          </p>
+        </div>
+      )}
 
       {showAquarium && <AquariumViewport onClose={() => setShowAquarium(false)} />}
     </div>

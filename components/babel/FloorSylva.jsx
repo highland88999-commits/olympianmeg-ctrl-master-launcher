@@ -4,9 +4,15 @@ import { useFrame } from '@react-three/fiber';
 import { useTexture } from '@react-three/drei';
 import * as THREE from 'three';
 import { mulberry32 } from '@/lib/babel/rand';
+import SylvaLantern from '@/components/babel/SylvaLantern';
+import SylvaGold from '@/components/babel/SylvaGold';
 
 // SYLVA — the endless forest. Instanced pines, drifting fireflies, dusk fog.
-export default function FloorSylva() {
+// The page shell passes the shared walker state (`inputRef`), whether walk
+// mode is active (`walkMode`), and the lantern on/off preference
+// (`lanternOn`). The carried lantern and the two hidden gold pieces live here
+// and follow the walker.
+export default function FloorSylva({ inputRef, walkMode, lanternOn }) {
   const ground = useTexture('/textures/babel/FloorSylva/forest-floor.jpg');
   const fireflies = useRef();
   const moon = useRef();
@@ -95,6 +101,16 @@ export default function FloorSylva() {
 
       <ambientLight intensity={0.35} color="#8fb8d8" />
       <directionalLight position={[-20, 30, 10]} intensity={0.5} color="#7fa8c9" />
+
+      {/* carried lantern + two hidden gold pieces — walk mode only needs
+          inputRef; in orbit mode they render parked (lantern dark, gold
+          waiting) so the forest reads the same from above */}
+      {inputRef && (
+        <>
+          <SylvaLantern inputRef={inputRef} active={!!walkMode} on={lanternOn !== false} />
+          <SylvaGold inputRef={inputRef} active={!!walkMode} />
+        </>
+      )}
     </group>
   );
 }
