@@ -335,8 +335,16 @@ export default function BabelPage() {
                 {mode === 'walk' ? (
                   <WalkMode view={view} inputRef={inputRef} orbitCamera={orbitCam} />
                 ) : (
+                  // NOTE (crash fix 2026-10-01): React reuses this OrbitControls
+                  // fiber across the tower<->scene swap (same Fragment position),
+                  // so R3F updates the drei <primitive> in place. R3F restores a
+                  // REMOVED prop by calling `new OrbitControls()` with no camera,
+                  // which throws on `this.object.position`. Keep the prop SHAPE
+                  // identical to the tower branch — never let a prop disappear.
                   <OrbitControls
                     target={[0, 6, 0]}
+                    autoRotate={false}
+                    autoRotateSpeed={0.5}
                     minDistance={10}
                     maxDistance={80}
                     maxPolarAngle={Math.PI / 2.05}
