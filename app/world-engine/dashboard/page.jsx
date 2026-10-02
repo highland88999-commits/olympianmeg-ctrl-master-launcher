@@ -7,6 +7,7 @@
 
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import StoreSpaceBackground from '@/components/store/StoreSpaceBackground';
 
 const MODULES = [
   { title: 'World Builder', route: '/world-engine/architect', desc: 'Generate full 3D worlds from a description', accent: '#00f0ff' },
@@ -25,7 +26,10 @@ export default function WorldEngineDashboard() {
 
   return (
     <main className="min-h-dvh bg-black text-white font-mono p-6 md:p-10">
-      <div className="max-w-6xl mx-auto flex flex-col gap-8">
+      {/* deep-space video behind the builder menu (store pattern) */}
+      <StoreSpaceBackground />
+      {/* relative z-10: paints above the fixed z-0 space background */}
+      <div className="relative z-10 max-w-6xl mx-auto flex flex-col gap-8">
         <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-gray-800 pb-6">
           <div>
             <p className="text-[#00f0ff] text-[10px] tracking-[0.4em] uppercase mb-2">World Engine</p>

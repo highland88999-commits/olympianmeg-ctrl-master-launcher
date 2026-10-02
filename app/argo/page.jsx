@@ -26,6 +26,7 @@ import StylizedGlobe from '@/components/argo/StylizedGlobe';
 import { FLEET, fleetByKey } from '@/components/argo/VehicleArchetypes';
 import TronRider from '@/components/nova/TronRider';
 import { fx } from '@/lib/fx';
+import StoreSpaceBackground from '@/components/store/StoreSpaceBackground';
 import {
   DESTINATIONS,
   HOME_KEY,
@@ -767,6 +768,9 @@ export default function ArgoPage() {
       role="application"
       aria-label="ARGO — Fleet Command over the real Earth"
     >
+      {/* Deep-space video behind the 3D scene: hidden while WebGL renders,
+          visible as a graceful backdrop if the canvas fails to paint. */}
+      <StoreSpaceBackground />
       <Canvas
         className="absolute inset-0"
         camera={{ position: [0, 62, 148], fov: 45, near: 0.5, far: 3000 }}
