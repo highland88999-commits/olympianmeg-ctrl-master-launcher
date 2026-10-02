@@ -19,6 +19,9 @@ export default function MilesVaultPage() {
   const router = useRouter();
   const [userId, setUserId] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
+  // Keeper seal: null = still verifying, true = sealed shut, false = keeper verified.
+  // Verified server-side via /api/babel/vault/gate — never decided in the browser alone.
+  const [sealed, setSealed] = useState(null);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -51,11 +54,28 @@ export default function MilesVaultPage() {
       setCloudOffline(true);
       return;
     }
-    auth.getSession().then(({ data: { session } }) => {
+    auth.getSession().then(async ({ data: { session } }) => {
       setAuthChecked(true);
       if (!session) return;
       setUserId(session.user.id);
-      refresh(session.user.id);
+      // Keeper gate: the server validates this session's token against the
+      // Supabase Auth API and checks it belongs to the vault owner.
+      // Fail closed — if the gate can't verify, the vault stays shut.
+      try {
+        const res = await fetch('/api/babel/vault/gate', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ access_token: session.access_token }),
+        });
+        if (res.ok) {
+          setSealed(false);
+          refresh(session.user.id);
+        } else {
+          setSealed(true);
+        }
+      } catch {
+        setSealed(true);
+      }
     });
   }, []);
 
@@ -187,6 +207,34 @@ export default function MilesVaultPage() {
         >
           Back to the Hub
         </button>
+      </div>
+    );
+  }
+
+  // Keeper seal: anyone whose session is not the vault owner's sees only this.
+  // No item names, no counts, no metadata — nothing about the vault leaks.
+  if (sealed === true) {
+    return (
+      <div className="min-h-dvh bg-black text-white flex flex-col items-center justify-center p-6 text-center">
+        <h1 className="text-xl font-black tracking-[0.25em] text-amber-200 uppercase">Miles&apos; Vault</h1>
+        <p className="text-zinc-400 mt-3 max-w-sm">
+          This vault is sealed. Only the keeper&apos;s credentials open it — there is nothing to see here.
+        </p>
+        <button
+          onClick={() => router.push('/babel')}
+          className="mt-6 min-h-[44px] px-6 rounded border border-amber-500/40 text-amber-200 font-bold tracking-widest uppercase text-sm hover:bg-amber-500/20"
+        >
+          Back to the Tower
+        </button>
+      </div>
+    );
+  }
+
+  // Still verifying the keeper — hold the loading veil until the gate answers.
+  if (sealed !== false) {
+    return (
+      <div className="min-h-dvh bg-black flex items-center justify-center">
+        <p className="text-amber-200/60 tracking-[0.3em] uppercase text-xs animate-pulse">Opening the vault…</p>
       </div>
     );
   }
