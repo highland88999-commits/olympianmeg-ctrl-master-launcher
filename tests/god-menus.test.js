@@ -2,6 +2,7 @@
 // Run: node tests/god-menus.test.js (from the repo root). No browser, no network.
 import { readFileSync } from 'fs';
 import { GOD_MENUS, godMenuFor, allGodMenuSatellites, menuBannerFor, menuArtFor } from '../lib/god-menus.js';
+import { buildMenuIndex, filterMenuIndex } from '../lib/menu-search.js';
 
 let passed = 0;
 let failed = 0;
@@ -212,6 +213,69 @@ t('orbit nodes stay crisp (fog off on the orbit layer)',
 const bikeSrc = stripComments(readFileSync('components/BikeRig.jsx', 'utf8'));
 t('bike rig reuses the existing TRON bike model (no duplicate model)',
   bikeSrc.includes('WispBike') && bikeSrc.includes("from './nova/TronBikes'"));
+
+// --- category rail: every god banner resolves through menuBannerFor ----------
+t('menuBannerFor returns the transfer banner path for all 10 gods',
+  GOD_MENUS.every((m) => menuBannerFor(m.god) === `/images/menu/banners/banner-${m.god.toLowerCase()}.webp`));
+t('rail banner art matches each menu\u2019s own menuArt field',
+  GOD_MENUS.every((m) => menuBannerFor(m.god) === m.menuArt));
+
+// --- menu search: filterMenuIndex over all 10 god menus ----------------------
+const SEARCH_TITLES = {
+  'sat.chess.title': 'Chess',
+  'sat.chess.subtitle': 'The ancient game of kings',
+  'sat.babel.title': 'Babel',
+  'sat.babel.subtitle': 'Tower of pocket universes',
+  'sat.maestro.title': 'Maestro',
+  'sat.maestro.subtitle': 'Universal MIDI library',
+};
+const tSearch = (k) => (k in SEARCH_TITLES ? SEARCH_TITLES[k] : k);
+const satIndexSearch = new Map([
+  ['chess', { key: 'chess', route: '/chess', pos: '0,0,0', section: 'x', constellation: 'ZEUS' }],
+  ['babel', { key: 'babel', route: '/babel', pos: '1,1,1', section: 'x', constellation: 'ZEUS' }],
+  ['maestro', { key: 'maestro', route: '/maestro', pos: '2,2,2', section: 'x', constellation: 'ZEUS' }],
+]);
+const searchCtx = { t: tSearch, satIndex: satIndexSearch };
+
+t('search: empty query returns no groups', filterMenuIndex('', searchCtx).length === 0);
+t('search: blank query returns no groups', filterMenuIndex('   ', searchCtx).length === 0);
+t('search: null query returns no groups', filterMenuIndex(null, searchCtx).length === 0);
+
+const chessRes = filterMenuIndex('chess', searchCtx);
+t('search: title match finds the satellite in its own god group',
+  chessRes.length === 1 && chessRes[0].god === 'ATHENA' &&
+  chessRes[0].results.length === 1 && chessRes[0].results[0].name === 'Chess');
+t('search: result carries the launch contract (route, satKey, pos)',
+  chessRes[0].results[0].route === '/chess' &&
+  chessRes[0].results[0].satKey === 'chess' &&
+  chessRes[0].results[0].pos === '0,0,0');
+t('search: match is case-insensitive',
+  filterMenuIndex('CHESS', searchCtx)[0]?.results[0]?.name === 'Chess');
+t('search: subtitle match works',
+  filterMenuIndex('ancient game', searchCtx)[0]?.results[0]?.name === 'Chess');
+
+const duatRes = filterMenuIndex('duat', searchCtx);
+t('search: babel floor name matches (kind=floor)',
+  duatRes.length === 1 && duatRes[0].god === 'APHRODITE' &&
+  duatRes[0].results.some((r) => r.kind === 'floor' && r.name === 'Duat' && r.route === '/babel?floor=duat'));
+t('search: babel floor subtitle matches',
+  filterMenuIndex('desert of the dead', searchCtx).some((g) =>
+    g.results.some((r) => r.name === 'Duat')));
+t('search: the vault floor keeps its own route',
+  filterMenuIndex('vault', searchCtx).some((g) =>
+    g.results.some((r) => r.kind === 'floor' && r.route === '/babel/vault')));
+
+const eGroups = filterMenuIndex('e', searchCtx).map((g) => g.god).join(',');
+t('search: groups follow GOD_MENUS order (APOLLO, ATHENA, APHRODITE)',
+  eGroups === 'APOLLO,ATHENA,APHRODITE');
+
+t('search: no match returns no groups', filterMenuIndex('zzz-no-such-world', searchCtx).length === 0);
+t('search: every result has a launchable route + satKey + pos',
+  filterMenuIndex('a', searchCtx).every((g) =>
+    g.results.every((r) => typeof r.route === 'string' && r.route.length > 0 &&
+      typeof r.satKey === 'string' && r.pos !== undefined)));
+t('search: index carries one satellite entry per satellite in satIndex',
+  buildMenuIndex(searchCtx).filter((e) => e.kind === 'satellite').length === 3);
 
 console.log(`\ngod-menus: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
