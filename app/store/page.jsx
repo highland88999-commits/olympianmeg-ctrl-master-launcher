@@ -12,6 +12,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
+import StoreSpaceBackground from '@/components/store/StoreSpaceBackground';
 
 const SIZES = ['S', 'M', 'L', 'XL', '2XL', '3XL'];
 
@@ -46,8 +47,10 @@ function ProductCard({ product, onBuy, buying, gold, setGold, rewardMode, onRede
   }, [product.id, checkoutOpen]);
   const sizeOptions = sizes || SIZES;
 
+  // Translucent dark + blur: the deep-space video ghosts through behind the
+  // card while the name/price stay crisp white.
   return (
-    <div className="flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/5">
+    <div className="flex flex-col overflow-hidden rounded-2xl border border-white/15 bg-black/45 shadow-[0_8px_32px_rgba(0,0,0,0.45)] backdrop-blur-md">
       {product.image ? (
         <img
           src={product.image}
@@ -276,18 +279,23 @@ function StoreInner() {
 
   return (
     <div
-      className="min-h-dvh bg-[#06070d] text-white"
+      className="relative min-h-dvh text-white"
       style={{ paddingBottom: 'max(5.5rem, calc(env(safe-area-inset-bottom) + 4.5rem))' }}
     >
+      {/* deep-space video behind the whole store flow: listing, reward mode,
+          and the checkout success/cancelled states all render on this page,
+          so the background never reloads or flashes between them */}
+      <StoreSpaceBackground />
       {/* Header */}
-      <header className="sticky top-0 z-50 border-b border-white/10 bg-[#06070d]/90 backdrop-blur">
+      <header className="sticky top-0 z-50 border-b border-white/10 bg-black/35 backdrop-blur-md">
         <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3">
           <Link href="/" className="text-sm text-slate-300 hover:text-white">← Hub</Link>
           <h1 className="text-lg font-bold tracking-wide">Store</h1>
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 py-8">
+      {/* relative z-10: paints above the fixed z-0 space background */}
+      <main className="relative z-10 mx-auto max-w-6xl px-4 py-8">
         {checkoutState === 'success' && (
           <div className="mb-6 rounded-xl border border-emerald-400/50 bg-emerald-400/10 px-4 py-4 text-sm text-emerald-200">
             Payment received — your order is confirmed. Watch for a shipping update soon.
