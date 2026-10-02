@@ -16,6 +16,7 @@ import {
   validateNotificationCreate,
   validateNotificationPatch,
 } from '@/lib/notifications';
+import { answerFriendRequest } from '@/lib/friends';
 
 export const GET = apiGuard(async function GET(req) {
   const auth = await getUserFromRequest(req);
@@ -102,15 +103,28 @@ export const PATCH = apiGuard(async function PATCH(req) {
   }
 
   // accept / decline: mark read, stamp the decision in meta.handled.
-  // When friends/groups tables exist, this is where the real rows get written.
+  // Friend requests carrying meta.friendship_id write the real friendship
+  // row here (via the same answer flow as POST /api/friends/respond);
+  // legacy metadata-only rows keep the stamp below.
   const { data: rows, error: readErr } = await admin
     .from('notifications')
-    .select('id, meta')
+    .select('id, type, meta')
     .eq('recipient_id', auth.user.id)
     .in('id', ids);
   if (readErr) throw readErr;
 
   for (const row of rows || []) {
+    if (row.type === 'friend_request' && row.meta && row.meta.friendship_id) {
+      try {
+        await answerFriendRequest(admin, {
+          userId: auth.user.id,
+          friendshipId: row.meta.friendship_id,
+          action,
+        });
+      } catch {
+        // fall through to the metadata stamp (already handled / gone)
+      }
+    }
     const meta = { ...(row.meta || {}), handled: true, decision: action };
     const { error } = await admin
       .from('notifications')
@@ -121,3 +135,4 @@ export const PATCH = apiGuard(async function PATCH(req) {
   }
   return NextResponse.json({ ok: true, handled: (rows || []).map((r) => r.id) });
 });
+

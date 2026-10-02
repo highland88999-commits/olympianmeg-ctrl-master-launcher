@@ -18,6 +18,7 @@ import {
   markNotificationsRead,
   respondToNotification,
 } from '@/lib/notifications';
+import { respondToFriendshipClient } from '@/lib/friends';
 
 const HEADER_ART = '/images/ui/notifications-header.png';
 const BELL_ART = '/images/ui/icon-notifications.png';
@@ -146,7 +147,15 @@ export default function NotificationsWindow() {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token || '';
       if (!token) return;
-      await respondToNotification(token, id, decision);
+      // Friend requests carrying a real friendship answer it for real —
+      // everything else keeps the legacy metadata-only path.
+      const item = items.find((n) => n.id === id);
+      const friendshipId = item && item.type === 'friend_request' ? item.meta?.friendship_id : null;
+      if (friendshipId) {
+        await respondToFriendshipClient(token, friendshipId, decision);
+      } else {
+        await respondToNotification(token, id, decision);
+      }
       setItems((prev) => prev.map((n) =>
         n.id === id ? { ...n, read: true, meta: { ...(n.meta || {}), handled: true, decision } } : n
       ));

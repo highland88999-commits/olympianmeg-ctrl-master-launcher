@@ -38,6 +38,14 @@ import {
   BACKDROP_STORAGE_KEY,
   normalizeBackdropSelection,
 } from '@/lib/order-67';
+import {
+  fetchFriends,
+  fetchPendingRequests,
+  searchPlayersClient,
+  sendFriendRequest,
+  respondToFriendshipClient,
+  sendCallInvite,
+} from '@/lib/friends';
 
 const CSS = `
 .o67-mono { font-family: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace; }
@@ -80,6 +88,15 @@ export default function Order67Page() {
   const [muted, setMuted] = useState(false);
   const [backdrop, setBackdropState] = useState(BACKDROP_NONE);
   const [cloudError, setCloudError] = useState(null); // null | 'no-session' | 'no-db' | 'no-migration' | 'no-camera'
+  const [friendsOpen, setFriendsOpen] = useState(false);
+  const [friends, setFriends] = useState([]);
+  const [pendingRequests, setPendingRequests] = useState([]);
+  const [playerQuery, setPlayerQuery] = useState('');
+  const [playerResults, setPlayerResults] = useState([]);
+  const [searchingPlayers, setSearchingPlayers] = useState(false);
+  const [sentRequests, setSentRequests] = useState([]);
+  const [summoningName, setSummoningName] = useState('');
+  const searchTimerRef = useRef(null);
 
   const setRoomCode = (c) => {
     roomCodeRef.current = c;
@@ -194,12 +211,85 @@ export default function Order67Page() {
     setMuted(false);
     setRoomCode('');
     setJoinCode('');
+    setSummoningName('');
     setPhase('idle');
     setStatus(msg || 'The channel closes.');
   };
 
+  // ---------- friends ----------
+  const getToken = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      return session?.access_token || '';
+    } catch { return ''; }
+  };
+
+  const refreshFriends = async () => {
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const [f, p] = await Promise.all([fetchFriends(token), fetchPendingRequests(token)]);
+      if (!mountedRef.current) return;
+      setFriends(f.friends || []);
+      setPendingRequests(p.requests || []);
+    } catch { /* offline — keep last state */ }
+  };
+
+  const openFriends = () => {
+    setFriendsOpen(true);
+    refreshFriends();
+  };
+
+  const doPlayerSearch = async (q) => {
+    const token = await getToken();
+    if (!token) return;
+    setSearchingPlayers(true);
+    try {
+      const data = await searchPlayersClient(token, q);
+      if (!mountedRef.current) return;
+      setPlayerResults(data.players || []);
+    } catch {
+      if (mountedRef.current) setPlayerResults([]);
+    } finally {
+      if (mountedRef.current) setSearchingPlayers(false);
+    }
+  };
+
+  const onPlayerQueryChange = (v) => {
+    setPlayerQuery(v);
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    if (v.trim().length < 2) {
+      setPlayerResults([]);
+      setSearchingPlayers(false);
+      return;
+    }
+    searchTimerRef.current = setTimeout(() => { doPlayerSearch(v); }, 450);
+  };
+
+  const addPlayer = async (player) => {
+    try {
+      const token = await getToken();
+      if (!token) return;
+      await sendFriendRequest(token, player.user_id);
+      setSentRequests((s) => (s.includes(player.user_id) ? s : [...s, player.user_id]));
+    } catch (e) {
+      setStatus(e?.message ? String(e.message) : 'Could not send the request.');
+    }
+  };
+
+  const answerRequest = async (friendshipId, action) => {
+    try {
+      const token = await getToken();
+      if (!token) return;
+      await respondToFriendshipClient(token, friendshipId, action);
+      await refreshFriends();
+    } catch (e) {
+      setStatus(e?.message ? String(e.message) : 'Could not answer the request.');
+    }
+  };
+
   // ---------- host flow: EXECUTE ORDER 67 ----------
-  const executeOrder67 = async () => {
+  const executeOrder67 = async (inviteFriend) => {
     if (busy || phase !== 'idle') return;
     setBusy(true);
     setCloudError(null);
@@ -247,6 +337,17 @@ export default function Order67Page() {
           }
         }
       });
+
+      if (inviteFriend && mountedRef.current) {
+        const name = inviteFriend.display_name || inviteFriend.username || 'your friend';
+        setFriendsOpen(false);
+        setSummoningName(name);
+        setStatus(`Summoning ${name}…`);
+        try {
+          const token = await getToken();
+          if (token) await sendCallInvite(token, inviteFriend.user_id, room.room_code);
+        } catch { /* invite failed — the code is still shareable */ }
+      }
     } catch (e) {
       handleCallError(e);
     } finally {
@@ -397,7 +498,7 @@ export default function Order67Page() {
       {phase === 'idle' && !cloudError && (
         <div className="absolute inset-x-0 bottom-44 z-20 flex flex-col items-center gap-3 px-6">
           <button
-            onClick={executeOrder67}
+            onClick={() => executeOrder67()}
             disabled={busy}
             className="min-h-[56px] rounded-2xl border border-cyan-300/70 bg-cyan-400/15 px-10 text-base font-black tracking-[0.3em] text-white backdrop-blur-md transition hover:bg-cyan-400/25 active:scale-[0.98] disabled:opacity-50"
             style={{ boxShadow: '0 0 28px rgba(70,200,255,0.25)' }}
@@ -423,6 +524,13 @@ export default function Order67Page() {
               JOIN
             </button>
           </div>
+          <button
+            onClick={openFriends}
+            disabled={busy}
+            className="min-h-[44px] rounded-xl border border-white/20 bg-black/50 px-6 text-xs font-bold tracking-[0.25em] text-cyan-200 backdrop-blur-md transition hover:border-cyan-300/60 disabled:opacity-50"
+          >
+            CHOOSE FRIEND
+          </button>
           <button
             onClick={summonTestHologram}
             disabled={busy}
@@ -481,9 +589,15 @@ export default function Order67Page() {
           <p className="o67-waiting text-5xl font-black tracking-[0.35em] text-white" style={{ textShadow: '0 0 24px rgba(70,200,255,0.7)' }}>
             {roomCode}
           </p>
-          <p className="max-w-[240px] text-center text-[11px] leading-relaxed text-zinc-400">
-            Share it with your peer — they enter it on their own throne room screen.
-          </p>
+          {summoningName ? (
+            <p className="max-w-[240px] text-center text-[11px] leading-relaxed text-zinc-400">
+              Summoning {summoningName} — the code is on its way to them.
+            </p>
+          ) : (
+            <p className="max-w-[240px] text-center text-[11px] leading-relaxed text-zinc-400">
+              Share it with your peer — they enter it on their own throne room screen.
+            </p>
+          )}
           <button
             onClick={() => hangUp('The channel closes.')}
             className="min-h-[44px] rounded-xl border border-red-400/40 bg-black/50 px-8 text-xs font-bold tracking-[0.25em] text-red-300 backdrop-blur-md transition hover:bg-red-400/10"
@@ -535,6 +649,156 @@ export default function Order67Page() {
             </button>
           </div>
         </>
+      )}
+
+      {/* friends sheet: choose a friend, search players, answer requests */}
+      {friendsOpen && phase === 'idle' && (
+        <div role="dialog" aria-label="Friends" className="absolute inset-0 z-30 flex flex-col bg-black/90 backdrop-blur-md">
+          <div className="flex items-center justify-between px-5 pt-[max(1.25rem,env(safe-area-inset-top))]">
+            <h2 className="text-sm font-black tracking-[0.3em] text-white">CHOOSE YOUR COMPANY</h2>
+            <button
+              onClick={() => setFriendsOpen(false)}
+              aria-label="Close friends"
+              className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-white/20 text-zinc-300 hover:text-white"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-6">
+            {/* your friends */}
+            <section aria-label="Your friends">
+              <h3 className="mb-2 text-[10px] font-bold tracking-[0.3em] text-cyan-300/70">YOUR FRIENDS</h3>
+              {friends.length === 0 ? (
+                <p className="text-xs leading-relaxed text-zinc-500">
+                  No friends yet — search players below to add some.
+                </p>
+              ) : (
+                <ul className="flex flex-col gap-2">
+                  {friends.map((f) => (
+                    <li
+                      key={f.user_id}
+                      className="flex items-center gap-3 rounded-xl border border-white/10 bg-black/50 px-4 py-2.5"
+                    >
+                      <span
+                        aria-hidden="true"
+                        className="flex h-10 w-10 flex-none items-center justify-center rounded-full border border-cyan-300/40 bg-cyan-400/10 text-sm font-black text-cyan-200"
+                      >
+                        {(f.display_name || f.username || '?').charAt(0).toUpperCase()}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-bold text-white">{f.display_name}</span>
+                        <span className="block truncate text-[11px] text-zinc-500">@{f.username}</span>
+                      </span>
+                      <button
+                        onClick={() => executeOrder67(f)}
+                        disabled={busy}
+                        className="min-h-[44px] flex-none rounded-xl border border-cyan-300/60 bg-cyan-400/15 px-5 text-[11px] font-black tracking-[0.2em] text-white transition hover:bg-cyan-400/25 disabled:opacity-50"
+                      >
+                        SUMMON
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+            {/* search players */}
+            <section aria-label="Search players">
+              <h3 className="mb-2 text-[10px] font-bold tracking-[0.3em] text-cyan-300/70">SEARCH PLAYERS</h3>
+              <input
+                value={playerQuery}
+                onChange={(e) => onPlayerQueryChange(e.target.value)}
+                placeholder="username or name"
+                aria-label="Search players"
+                autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                className="min-h-[44px] w-full rounded-xl border border-white/15 bg-black/50 px-4 text-base text-white placeholder:text-zinc-600 focus:border-cyan-300/60 focus:outline-none select-text"
+              />
+              {searchingPlayers && (
+                <p className="mt-2 text-xs text-zinc-500">Searching…</p>
+              )}
+              {!searchingPlayers && playerQuery.trim().length >= 2 && playerResults.length === 0 && (
+                <p className="mt-2 text-xs text-zinc-500">No players match that name.</p>
+              )}
+              {playerResults.length > 0 && (
+                <ul className="mt-2 flex flex-col gap-2">
+                  {playerResults.map((pl) => (
+                    <li
+                      key={pl.user_id}
+                      className="flex items-center gap-3 rounded-xl border border-white/10 bg-black/50 px-4 py-2.5"
+                    >
+                      <span
+                        aria-hidden="true"
+                        className="flex h-10 w-10 flex-none items-center justify-center rounded-full border border-white/20 bg-white/5 text-sm font-black text-zinc-300"
+                      >
+                        {(pl.display_name || pl.username || '?').charAt(0).toUpperCase()}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-bold text-white">{pl.display_name}</span>
+                        <span className="block truncate text-[11px] text-zinc-500">@{pl.username}</span>
+                      </span>
+                      {sentRequests.includes(pl.user_id) ? (
+                        <span className="flex-none text-[11px] font-bold tracking-[0.2em] text-emerald-300/80">
+                          REQUEST SENT
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => addPlayer(pl)}
+                          className="min-h-[44px] flex-none rounded-xl border border-white/20 px-5 text-[11px] font-bold tracking-[0.2em] text-cyan-200 transition hover:border-cyan-300/60"
+                        >
+                          ADD
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+            {/* incoming requests */}
+            <section aria-label="Friend requests">
+              <h3 className="mb-2 text-[10px] font-bold tracking-[0.3em] text-cyan-300/70">
+                REQUESTS{pendingRequests.length > 0 ? ` (${pendingRequests.length})` : ''}
+              </h3>
+              {pendingRequests.length === 0 ? (
+                <p className="text-xs text-zinc-500">No pending requests.</p>
+              ) : (
+                <ul className="flex flex-col gap-2">
+                  {pendingRequests.map((r) => (
+                    <li
+                      key={r.friendship_id}
+                      className="flex items-center gap-3 rounded-xl border border-amber-200/20 bg-amber-100/[0.04] px-4 py-2.5"
+                    >
+                      <span
+                        aria-hidden="true"
+                        className="flex h-10 w-10 flex-none items-center justify-center rounded-full border border-amber-200/40 bg-amber-100/10 text-sm font-black text-amber-200"
+                      >
+                        {(r.requester.display_name || r.requester.username || '?').charAt(0).toUpperCase()}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-bold text-white">{r.requester.display_name}</span>
+                        <span className="block truncate text-[11px] text-zinc-500">@{r.requester.username} wants to be friends</span>
+                      </span>
+                      <span className="flex flex-none gap-2">
+                        <button
+                          onClick={() => answerRequest(r.friendship_id, 'accept')}
+                          className="min-h-[44px] rounded-xl bg-emerald-400/90 px-4 text-[11px] font-black tracking-[0.15em] text-emerald-950 transition hover:bg-emerald-300"
+                        >
+                          ACCEPT
+                        </button>
+                        <button
+                          onClick={() => answerRequest(r.friendship_id, 'decline')}
+                          className="min-h-[44px] rounded-xl border border-zinc-600 px-4 text-[11px] font-bold tracking-[0.15em] text-zinc-300 transition hover:border-zinc-400 hover:text-white"
+                        >
+                          DECLINE
+                        </button>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </div>
+        </div>
       )}
 
       {/* bottom control panel: realm backdrop picker */}
