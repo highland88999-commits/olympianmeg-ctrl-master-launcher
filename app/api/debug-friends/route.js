@@ -9,22 +9,26 @@ import { listMyFriendships } from '@/lib/friends';
 export async function GET(req) {
   const auth = await getUserFromRequest(req);
   if (auth.error) return NextResponse.json({ error: auth.error, step: 'auth' }, { status: auth.status });
-
   const admin = await getServiceClient();
-  if (!admin) return NextResponse.json({ error: 'no admin client', step: 'client' }, { status: 503 });
+  if (!admin) return NextResponse.json({ error: 'no admin client' }, { status: 503 });
 
   const userId = auth.user.id;
+  const hardcoded = '16bf804e-b718-4a78-b8a0-875d8ea68996';
   
-  let mine = [], mineError = null;
-  try {
-    mine = await listMyFriendships(admin, userId);
-  } catch (e) { mineError = String(e && e.message || e); }
+  const viaVariable = await listMyFriendships(admin, userId);
+  const viaHardcoded = await listMyFriendships(admin, hardcoded);
+  
+  // Also test with explicit string construction
+  const manual = await admin.from('friendships').select('*')
+    .or(`requester_id.eq.${userId},addressee_id.eq.${userId}`);
 
   return NextResponse.json({
     user_id: userId,
-    listMyFriendships_count: mine.length,
-    listMyFriendships_error: mineError,
-    // Show the ACTUAL deployed function code!
-    function_code: listMyFriendships.toString().slice(0, 800),
+    userId_type: typeof userId,
+    userId_length: userId.length,
+    hardcoded_matches: userId === hardcoded,
+    via_variable_count: viaVariable.length,
+    via_hardcoded_count: viaHardcoded.length,
+    manual_count: (manual.data || []).length,
   });
 }
