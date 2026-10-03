@@ -181,8 +181,8 @@ export default function NotificationsWindow() {
         aria-label={unread > 0 ? `Notifications, ${unread} unread` : 'Notifications'}
         aria-expanded={open}
         onClick={toggle}
-        className="w-12 h-12 min-w-[48px] min-h-[48px] rounded-full flex items-center justify-center relative overflow-hidden border border-gold-500/40 text-amber-200 bg-zinc-950/85 backdrop-blur-md shadow-[0_0_18px_rgba(255,209,102,0.18)] hover:scale-105 transition-transform"
-        style={{ borderColor: 'rgba(255,209,102,0.4)' }}
+        className="w-12 h-12 min-w-[48px] min-h-[48px] rounded-full flex items-center justify-center relative overflow-hidden border text-[#9dbfff] bg-zinc-950/85 backdrop-blur-md shadow-[0_0_18px_rgba(58,134,255,0.25)] hover:scale-105 transition-transform"
+        style={{ borderColor: 'rgba(58,134,255,0.45)' }}
       >
         {bellArt ? (
           <img
@@ -222,7 +222,7 @@ export default function NotificationsWindow() {
             aria-label="Notifications"
             className="fixed z-[89] right-4 top-24 w-[min(22rem,calc(100vw-2rem))] max-h-[70dvh] flex flex-col rounded-2xl overflow-hidden border bg-zinc-950/95 backdrop-blur-xl shadow-[0_20px_60px_rgba(0,0,0,0.7)]"
             style={{
-              borderColor: 'rgba(255,209,102,0.25)',
+              borderColor: 'rgba(58,134,255,0.3)',
               paddingBottom: 'env(safe-area-inset-bottom)',
             }}
           >
@@ -232,7 +232,7 @@ export default function NotificationsWindow() {
                 className="absolute inset-0"
                 style={{
                   background:
-                    'linear-gradient(135deg, rgba(60,40,8,0.9) 0%, rgba(10,10,18,0.95) 55%, rgba(4,40,44,0.9) 100%)',
+                    'linear-gradient(135deg, rgba(23,48,110,0.9) 0%, rgba(10,10,18,0.95) 55%, rgba(4,40,44,0.9) 100%)',
                 }}
               />
               <ParticleRain density={36} />
@@ -246,7 +246,7 @@ export default function NotificationsWindow() {
                 />
               )}
               <div className="relative h-full flex items-center justify-between px-4">
-                <h2 className="text-sm font-extrabold tracking-[0.25em] uppercase text-amber-100">
+                <h2 className="text-sm font-extrabold tracking-[0.25em] uppercase text-[#dce7ff]">
                   Notifications
                 </h2>
                 <button
@@ -278,15 +278,15 @@ export default function NotificationsWindow() {
               )}
               {sections.map(({ type, rows }) => (
                 <section key={type} aria-label={SECTION_LABELS[type]}>
-                  <h3 className="text-[11px] font-bold tracking-[0.2em] uppercase text-amber-200/70 mb-2">
+                  <h3 className="text-[11px] font-bold tracking-[0.2em] uppercase text-[#9dbfff]/70 mb-2">
                     {SECTION_LABELS[type]}
                     {type !== 'achievement' && rows.length > 0 && (
                       <span className="ml-2 text-zinc-500">{rows.length}</span>
                     )}
                   </h3>
                   {type === 'achievement' ? (
-                    <div className="rounded-xl border border-dashed border-amber-200/25 px-4 py-5 text-center">
-                      <p className="text-sm text-amber-100/80 font-semibold">Achievements land here soon</p>
+                    <div className="rounded-xl border border-dashed border-[#3a86ff]/30 px-4 py-5 text-center">
+                      <p className="text-sm text-[#dce7ff]/80 font-semibold">Achievements land here soon</p>
                       <p className="text-xs text-zinc-500 mt-1 leading-relaxed">
                         Your victories across the launcher will be honored here.
                       </p>
@@ -304,7 +304,7 @@ export default function NotificationsWindow() {
                             className={`rounded-xl border px-3.5 py-3 ${
                               n.read
                                 ? 'border-zinc-800 bg-zinc-900/40'
-                                : 'border-amber-200/25 bg-amber-100/[0.04]'
+                                : 'border-[#3a86ff]/30 bg-[#3a86ff]/[0.07]'
                             }`}
                           >
                             <div className="flex items-start justify-between gap-2">
@@ -321,7 +321,7 @@ export default function NotificationsWindow() {
                                 <a
                                   href={`/u/${encodeURIComponent(n.actor_username)}${n.actor_profile_type === 'business' ? '?v=business' : ''}`}
                                   data-ui="notif-view-profile"
-                                  className="inline-flex min-h-[44px] items-center rounded-lg border border-amber-200/40 px-5 text-xs font-bold uppercase tracking-widest text-amber-200 transition-all hover:border-amber-200/80 hover:text-amber-100"
+                                  className="inline-flex min-h-[44px] items-center rounded-lg border border-[#3a86ff]/40 px-5 text-xs font-bold uppercase tracking-widest text-[#9dbfff] transition-all hover:border-[#3a86ff]/80 hover:text-[#dce7ff]"
                                 >
                                   View profile
                                 </a>

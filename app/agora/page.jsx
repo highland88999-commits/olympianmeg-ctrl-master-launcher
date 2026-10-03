@@ -79,11 +79,11 @@ export default function AgoraFeed() {
   };
 
   return (
-    <main className="relative min-h-dvh bg-black text-white">
+    <main className="relative min-h-dvh bg-[#070d1d] text-white">
       <Starfield />
       <div className="relative z-10 mx-auto max-w-3xl px-4 pb-24 pt-10">
         <header className="mb-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-amber-400">Agora</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[#3a86ff]">Agora</p>
           <h1 className="mt-1 text-3xl font-black">The Town Square</h1>
           <p className="mt-2 text-sm text-zinc-400">
             Conversations from across the multiverse. Read everything — sign in to join in.
@@ -97,7 +97,7 @@ export default function AgoraFeed() {
           {user ? (
             <Link
               href="/agora/new"
-              className="min-h-[44px] shrink-0 rounded-full bg-amber-400 px-5 py-2.5 text-sm font-semibold text-black hover:bg-amber-300"
+              className="min-h-[44px] shrink-0 rounded-full bg-[#3a86ff] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#2f6fe0]"
             >
               New post
             </Link>
@@ -112,15 +112,15 @@ export default function AgoraFeed() {
         </div>
 
         {cloudOffline ? (
-          <div className="rounded-xl border border-white/10 bg-black/50 p-10 text-center">
+          <div className="rounded-xl border border-white/10 bg-[#0a1230]/60 p-10 text-center">
             <p className="text-zinc-400">Cloud features are offline — this page needs the database connection.</p>
             <p className="mt-2 text-sm text-zinc-600">The feed will load once the database is connected.</p>
           </div>
         ) : posts.length === 0 && !loading ? (
-          <div className="rounded-xl border border-white/10 bg-black/50 p-10 text-center">
+          <div className="rounded-xl border border-white/10 bg-[#0a1230]/60 p-10 text-center">
             <p className="text-zinc-400">Nothing here yet. Be the first to start a conversation.</p>
             {user && (
-              <Link href="/agora/new" className="mt-4 inline-block text-amber-300 underline">
+              <Link href="/agora/new" className="mt-4 inline-block text-cyan-300 underline">
                 Write the first post
               </Link>
             )}
