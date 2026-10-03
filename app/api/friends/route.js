@@ -26,7 +26,7 @@ export const GET = noCache(apiGuard(async function GET(req) {
     .from('friendships')
     .select('*')
     .or(`requester_id.eq.${userId},addressee_id.eq.${userId}`)
-    .order('created_at', { ascending: false });
+    ;
   if (qErr) throw qErr;
 
   const ids = [
