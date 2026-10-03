@@ -5,12 +5,31 @@
 // PUBLIC: no sign-in required — anonymous visitors can open it and send.
 // Sensitive data is protected by the no-leak rule server-side, never by a
 // lock on this UI.
+//
+// The spark is draggable anywhere on screen (Pointer Events, ~8px tap-vs-drag
+// threshold so taps still open the chat). Its position persists per account:
+// viewport fractions (0..1) in account_state.preferences.muse_fab, mirrored
+// to localStorage for instant paint. DB wins over the local cache on load;
+// the cache is only ever written back on an explicit drag (write-through),
+// never blindly.
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import {
+  FAB_SIZE,
+  fractionsToPixels,
+  pixelsToFractions,
+  clampPixels,
+  defaultFractions,
+  sanitizeFractions,
+  isDrag,
+  resolveFractions,
+} from '@/lib/muse-fab';
 
 const THREAD_KEY = 'muse_thread_id';
+const FAB_POS_KEY = 'muse_fab_pos';
 const POLL_MS = 5000;
+const SAVE_DEBOUNCE_MS = 500;
 
 const GREETING = {
   id: 'greeting',
@@ -29,6 +48,44 @@ function fmtTime(iso) {
   }
 }
 
+/** Read CSS safe-area insets via a probe element (env() isn't readable in JS). */
+function readSafeInsets() {
+  try {
+    const el = document.createElement('div');
+    el.style.cssText =
+      'position:fixed;top:0;left:0;visibility:hidden;pointer-events:none;' +
+      'padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);';
+    document.body.appendChild(el);
+    const cs = getComputedStyle(el);
+    const insets = {
+      top: parseFloat(cs.paddingTop) || 0,
+      right: parseFloat(cs.paddingRight) || 0,
+      bottom: parseFloat(cs.paddingBottom) || 0,
+      left: parseFloat(cs.paddingLeft) || 0,
+    };
+    el.remove();
+    return insets;
+  } catch {
+    return { top: 0, right: 0, bottom: 0, left: 0 };
+  }
+}
+
+function readLocalPos() {
+  try {
+    return sanitizeFractions(JSON.parse(window.localStorage.getItem(FAB_POS_KEY)));
+  } catch {
+    return null;
+  }
+}
+
+function writeLocalPos(fx, fy) {
+  try {
+    window.localStorage.setItem(FAB_POS_KEY, JSON.stringify({ x: fx, y: fy }));
+  } catch {
+    // private mode — position just won't survive the session
+  }
+}
+
 export default function MusePortal() {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([GREETING]);
@@ -37,10 +94,18 @@ export default function MusePortal() {
   const [sending, setSending] = useState(false);
   const [typing, setTyping] = useState(false);
   const [error, setError] = useState('');
+  // FAB position as viewport fractions {x, y}; null until resolved on mount.
+  const [pos, setPos] = useState(null);
   const panelRef = useRef(null);
   const scrollRef = useRef(null);
   const openRef = useRef(false);
   openRef.current = open;
+  const btnRef = useRef(null);
+  const posRef = useRef(null); // last committed fractions
+  const insetsRef = useRef({ top: 0, right: 0, bottom: 0, left: 0 });
+  const dragRef = useRef({ active: false, pointerId: null, startX: 0, startY: 0, origX: 0, origY: 0, moved: false, fx: 0, fy: 0 });
+  const suppressClickRef = useRef(false);
+  const saveTimerRef = useRef(null);
 
   // Restore the visitor's thread.
   useEffect(() => {
@@ -61,6 +126,87 @@ export default function MusePortal() {
       return null;
     }
   };
+
+  // Resolve + persist the FAB position.
+  const applyPos = (stored) => {
+    insetsRef.current = readSafeInsets();
+    const r = resolveFractions(
+      stored,
+      window.innerWidth,
+      window.innerHeight,
+      FAB_SIZE,
+      insetsRef.current
+    );
+    posRef.current = r;
+    setPos(r);
+    return r;
+  };
+
+  const persistPos = (fx, fy) => {
+    const clean = { x: Math.min(1, Math.max(0, fx)), y: Math.min(1, Math.max(0, fy)) };
+    posRef.current = clean;
+    writeLocalPos(clean.x, clean.y);
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(async () => {
+      const token = await getToken();
+      if (!token) return; // anonymous: localStorage only
+      try {
+        await fetch('/api/ui-state', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ preferences: { muse_fab: clean } }),
+        });
+      } catch {
+        // offline — localStorage already has it; next drag will retry
+      }
+    }, SAVE_DEBOUNCE_MS);
+  };
+
+  // Position load order: localStorage (instant) -> DB (wins when signed in).
+  // The local cache is never written back except on an explicit drag.
+  useEffect(() => {
+    const r = applyPos(readLocalPos());
+    writeLocalPos(r.x, r.y);
+    let cancelled = false;
+    (async () => {
+      const token = await getToken();
+      if (!token || cancelled) return;
+      try {
+        const res = await fetch('/api/ui-state', {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: 'no-store',
+        });
+        const data = await res.json().catch(() => null);
+        const dbVal = sanitizeFractions(data && data.preferences && data.preferences.muse_fab);
+        if (dbVal && !cancelled) {
+          const rr = applyPos(dbVal);
+          writeLocalPos(rr.x, rr.y);
+        }
+      } catch {
+        // keep the local value
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Re-clamp on resize / orientation change (fractions adapt; no DB write).
+  useEffect(() => {
+    const onResize = () => {
+      if (!posRef.current) return;
+      applyPos(posRef.current);
+    };
+    window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('orientationchange', onResize);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const loadThread = async (id) => {
     try {
@@ -127,6 +273,68 @@ export default function MusePortal() {
     setOpen((v) => !v);
   };
 
+  // ---- drag the spark ----
+  const onPointerDown = (e) => {
+    if (e.isPrimary === false) return;
+    const btn = btnRef.current;
+    if (!btn) return;
+    try {
+      btn.setPointerCapture(e.pointerId);
+    } catch {
+      // ignore
+    }
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const p = posRef.current || defaultFractions(vw, vh, FAB_SIZE, 0, 0);
+    const px = fractionsToPixels(p.x, p.y, vw, vh, FAB_SIZE);
+    dragRef.current = {
+      active: true,
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      origX: px.x,
+      origY: px.y,
+      moved: false,
+      fx: p.x,
+      fy: p.y,
+    };
+  };
+
+  const onPointerMove = (e) => {
+    const d = dragRef.current;
+    if (!d.active || e.pointerId !== d.pointerId) return;
+    const dx = e.clientX - d.startX;
+    const dy = e.clientY - d.startY;
+    if (!d.moved && !isDrag(dx, dy)) return;
+    d.moved = true;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const c = clampPixels(d.origX + dx, d.origY + dy, vw, vh, FAB_SIZE, insetsRef.current);
+    const f = pixelsToFractions(c.x, c.y, vw, vh, FAB_SIZE);
+    d.fx = f.x;
+    d.fy = f.y;
+    setPos(f);
+  };
+
+  const endDrag = (e) => {
+    const d = dragRef.current;
+    if (!d.active || (e && e.pointerId !== d.pointerId)) return;
+    d.active = false;
+    try {
+      btnRef.current?.releasePointerCapture(d.pointerId);
+    } catch {
+      // ignore
+    }
+    if (d.moved) {
+      // A real drag: swallow the click that follows, persist the spot.
+      suppressClickRef.current = true;
+      setTimeout(() => {
+        suppressClickRef.current = false;
+      }, 0);
+      persistPos(d.fx, d.fy);
+    }
+  };
+
   const send = async () => {
     const text = input.trim();
     if (!text || sending) return;
@@ -172,15 +380,36 @@ export default function MusePortal() {
     }
   };
 
+  // Pixel position for paint (null until resolved -> legacy classes hold the spot).
+  const px =
+    pos && typeof window !== 'undefined'
+      ? fractionsToPixels(pos.x, pos.y, window.innerWidth, window.innerHeight, FAB_SIZE)
+      : null;
+
   return (
     <>
-      {/* the floating spark */}
+      {/* the floating spark — draggable; tap still opens the chat */}
       <button
+        ref={btnRef}
         type="button"
         onClick={toggle}
+        onClickCapture={(e) => {
+          if (suppressClickRef.current) {
+            e.stopPropagation();
+            e.preventDefault();
+            suppressClickRef.current = false;
+          }
+        }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endDrag}
+        onPointerCancel={(e) => endDrag(e)}
         aria-label={open ? 'Close Muse chat' : 'Chat with Muse'}
-        title="Chat with Muse"
-        className="fixed right-3 bottom-[calc(7rem+env(safe-area-inset-bottom))] z-[65] flex h-12 w-12 items-center justify-center rounded-full border border-violet-300/40 bg-violet-950/90 text-violet-200 shadow-[0_0_24px_rgba(167,139,250,0.35)] backdrop-blur-md transition-transform motion-reduce:transition-none hover:scale-105 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet-300"
+        title="Chat with Muse — drag me anywhere"
+        style={px ? { left: `${px.x}px`, top: `${px.y}px`, touchAction: 'none' } : { touchAction: 'none' }}
+        className={`fixed z-[65] flex h-12 w-12 touch-none select-none items-center justify-center rounded-full border border-violet-300/40 bg-violet-950/90 text-violet-200 shadow-[0_0_24px_rgba(167,139,250,0.35)] backdrop-blur-md transition-transform motion-reduce:transition-none hover:scale-105 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet-300 cursor-grab active:cursor-grabbing ${
+          px ? '' : 'right-3 bottom-[calc(7rem+env(safe-area-inset-bottom))]'
+        }`}
       >
         {open ? (
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
