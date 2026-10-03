@@ -2,11 +2,11 @@
 
 // PerSymphony Tickets — post-purchase. Polls until the webhook issues the
 // ticket numbers, then shows them big (mobile-first: screenshot this page).
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 
-export default function TicketSuccessPage() {
+function SuccessInner() {
   const params = useSearchParams();
   const sessionId = params.get('session_id') || '';
   const [state, setState] = useState({ phase: 'waiting', tickets: [], show_id: null, show_title: '' });
@@ -87,5 +87,19 @@ export default function TicketSuccessPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function TicketSuccessPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-[#070d1d] text-[#f4f6ff] px-4 pt-10">
+          <p className="text-zinc-500 text-sm max-w-md mx-auto">Loading…</p>
+        </div>
+      }
+    >
+      <SuccessInner />
+    </Suspense>
   );
 }
