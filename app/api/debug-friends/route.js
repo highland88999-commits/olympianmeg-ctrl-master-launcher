@@ -1,5 +1,4 @@
 // TEMPORARY DIAGNOSTIC ROUTE - will be removed after debugging.
-// Tests the friendships query path with detailed output.
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
@@ -16,37 +15,16 @@ export async function GET(req) {
 
   const userId = auth.user.id;
   
-  // Test 1: raw count of friendships table
-  let rawCount = -1, rawError = null;
-  try {
-    const { count, error } = await admin.from('friendships').select('*', { count: 'exact', head: true });
-    rawCount = count;
-    rawError = error ? error.message : null;
-  } catch (e) { rawError = String(e && e.message || e); }
-
-  // Test 2: listMyFriendships
   let mine = [], mineError = null;
   try {
     mine = await listMyFriendships(admin, userId);
   } catch (e) { mineError = String(e && e.message || e); }
 
-  // Test 3: direct or-filter query (same as listMyFriendships)
-  let direct = [], directError = null;
-  try {
-    const { data, error } = await admin.from('friendships').select('*')
-      .or(`requester_id.eq.${userId},addressee_id.eq.${userId}`);
-    direct = data || [];
-    directError = error ? error.message : null;
-  } catch (e) { directError = String(e && e.message || e); }
-
   return NextResponse.json({
     user_id: userId,
-    raw_table_count: rawCount,
-    raw_error: rawError,
     listMyFriendships_count: mine.length,
     listMyFriendships_error: mineError,
-    direct_or_query_count: direct.length,
-    direct_error: directError,
-    sample: mine.slice(0, 2).map(r => ({ id: r.id.slice(0,8), status: r.status })),
+    // Show the ACTUAL deployed function code!
+    function_code: listMyFriendships.toString().slice(0, 800),
   });
 }
