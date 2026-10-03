@@ -29,6 +29,41 @@ import { loadPrefs, savePrefs, accountIdFromWindow } from './prefs';
 import { fx } from '@/lib/fx';
 import { useBikeMotion } from '@/lib/use-bike-motion';
 import { useFullscreen } from '@/lib/use-fullscreen';
+import { supabase } from '@/lib/supabase';
+// Drop-2 netcode: PvP track matches + open-world presence.
+import {
+  RACE_BEACON_MS,
+  ROAM_BEACON_MS,
+  REMOTE_CAP,
+  GRID_ROOM_CODE,
+  beaconRow,
+  isBeaconStale,
+  sortStandings,
+  nearestN,
+} from '@/lib/shadow-realm/net';
+import {
+  PVP_SIZES,
+  hashRoomCode,
+  createPvpRoom,
+  shouldLaunch,
+  launchRoom,
+  aiAutofillCount,
+  shouldClaimHost,
+  claimHost,
+  leavePvpRoom,
+  decidePvpJoin,
+  joinOrCreateGridRoom,
+  queueRemainingMs,
+} from '@/lib/shadow-realm/pvp';
+import {
+  getRoom,
+  joinRoom,
+  subscribeToRoom,
+  humansInRoom,
+  normalizeCode,
+  isValidRoomCode,
+} from '@/lib/oasis/rooms';
+import { ghostColorFor } from '@/lib/luge/pvp';
 
 const css = {
   screen: {
@@ -109,6 +144,25 @@ function StatBar({ label, value }) {
   );
 }
 
+// Shared track picker card list (solo track select + PvP setup reuse it).
+function TrackCards({ trackKey, onPick }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {TRACKS.map((t) => (
+        <div
+          key={t.key}
+          style={{ ...css.card, ...(t.key === trackKey ? css.cardSel : {}) }}
+          onClick={() => onPick(t.key)}
+        >
+          <div style={css.cardName}>{t.name}</div>
+          <div style={css.cardMeta}>{t.layout.toUpperCase()} · {Math.round(t.width)} WIDE</div>
+          <div style={css.cardDesc}>{t.desc}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ShadowRealmInner() {
   const router = useRouter();
   const sp = useSearchParams();
@@ -130,6 +184,35 @@ function ShadowRealmInner() {
   const [hud, setHud] = useState({ speed: 0, lap: 1, lapsTotal: 3, time: 0, progress: 0 });
   const [lastLap, setLastLap] = useState(null);
   const [result, setResult] = useState(null);
+
+  // ---- Drop-2 netcode: PvP track matches + open-world presence ----
+  // Stages gained: 'pvp-setup' (field size / track / laps / join-by-code),
+  // 'pvp-lobby' (room code, queue countdown, rider list). The 'ride' stage
+  // is reused for PvP; roam gains silent presence on the grid room.
+  const [pvpMax, setPvpMax] = useState(4);
+  const [pvpJoinCode, setPvpJoinCode] = useState('');
+  const [pvpCode, setPvpCode] = useState('');
+  const [pvpRoom, setPvpRoom] = useState(null);
+  const [pvpCallsigns, setPvpCallsigns] = useState({});
+  const [pvpMsg, setPvpMsg] = useState('');
+  const [remotes, setRemotes] = useState([]);
+  const [nowTick, setNowTick] = useState(Date.now());
+  const [shared, setShared] = useState(false);
+  // Bumped whenever the net session activates/deactivates so the beacon
+  // loops (which only run on stage changes otherwise) pick it up even when
+  // presence joins async after the ride already started.
+  const [netTick, setNetTick] = useState(0);
+  const pvpUnsubRef = useRef(null);
+  const launchedRef = useRef(false);
+  const pvpSyncRef = useRef(null); // synced startsAt for the PvP countdown
+  const pvpStartsAtRef = useRef(0);
+  const netActiveRef = useRef(null); // null | 'pvp' | 'roam'
+  const netRoomRef = useRef('');
+  const netNowRef = useRef(Date.now());
+  const remotesRef = useRef([]);
+  const myUserIdRef = useRef('');
+  const myCallsignRef = useRef('Rider');
+  const deepLinkedRef = useRef(false);
 
   const inputRef = useRef({ steer: 0, boost: false, lookYaw: 0, lookPitch: 0, throttle: 0, brake: 0, regen: 0, motionDrive: false });
   const hudRef = useRef(null);
@@ -206,9 +289,267 @@ function ShadowRealmInner() {
     });
   };
 
+  // ---------------- drop-2 netcode helpers ----------------
+  // Identity for beacons: the signed-in user id + their OASIS callsign
+  // (public read; falls back to 'Rider'). Cached for the session.
+  const ensureIdentity = async () => {
+    if (myUserIdRef.current) return myUserIdRef.current;
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || !user.id) return '';
+      myUserIdRef.current = user.id;
+      try {
+        const { data: prof } = await supabase
+          .from('oasis_profiles')
+          .select('callsign')
+          .eq('id', user.id)
+          .single();
+        if (prof && prof.callsign) myCallsignRef.current = String(prof.callsign).slice(0, 24);
+      } catch { /* signed in, no profile row — 'Rider' stands */ }
+      return user.id;
+    } catch {
+      return '';
+    }
+  };
+
+  // Leave whatever net session is active: drop from player_ids + delete the
+  // own beacon row. Safe to call when nothing is active.
+  const stopNet = async () => {
+    const code = netRoomRef.current;
+    const kind = netActiveRef.current;
+    const myId = myUserIdRef.current;
+    netActiveRef.current = null;
+    netRoomRef.current = '';
+    remotesRef.current = [];
+    setRemotes([]);
+    setNetTick((t) => t + 1);
+    if (!code || !kind || !myId) return;
+    try {
+      await leavePvpRoom(supabase, { code, playerId: myId });
+    } catch { /* leave proceeds regardless */ }
+  };
+
+  // One beacon for this rider: live transform from the scene's hudRef.
+  const buildMyBeacon = (finished, finishMs) => {
+    const h = hudRef.current || {};
+    const overall = laps > 0
+      ? Math.min(1, Math.max(0, (Math.max(1, h.lap || 1) - 1 + (h.progress || 0)) / laps))
+      : 0;
+    return beaconRow({
+      roomCode: netRoomRef.current,
+      userId: myUserIdRef.current,
+      callsign: myCallsignRef.current,
+      x: h.x || 0,
+      z: h.z || 0,
+      heading: h.heading || 0,
+      speed: h.speedRaw || 0,
+      boosting: !!inputRef.current.boost,
+      progress: netActiveRef.current === 'pvp' ? overall : 0,
+      finished,
+      finishMs,
+    });
+  };
+
+  const sendBeaconNow = async (finished, finishMs) => {
+    if (!netActiveRef.current || !netRoomRef.current || !myUserIdRef.current) return;
+    try {
+      await supabase
+        .from('shadow_realm_beacons')
+        .upsert(buildMyBeacon(finished, finishMs), { onConflict: 'room_code,user_id' });
+    } catch {
+      // Best-effort: a failed beacon degrades the live board, never the ride.
+    }
+  };
+
+  // Enter the lobby with a fresh room row: adopt the host's track/laps so
+  // joiners ride the same config, and arm the net session.
+  const enterPvpLobby = (room) => {
+    const fs = room.full_state || {};
+    if (fs.trackKey && trackByKey(fs.trackKey)) {
+      setTrackKey(fs.trackKey);
+      persist({ trackKey: fs.trackKey });
+    }
+    if (fs.laps) {
+      setLaps(fs.laps);
+      persist({ laps: fs.laps });
+    }
+    launchedRef.current = false;
+    pvpSyncRef.current = null;
+    setPvpRoom(room);
+    setPvpCode(room.room_code);
+    setPvpCallsigns({});
+    netActiveRef.current = 'pvp';
+    netRoomRef.current = room.room_code;
+    setNetTick((t) => t + 1);
+    setStage('pvp-lobby');
+  };
+
+  const createPvp = async () => {
+    setPvpMsg('Creating room…');
+    const myId = await ensureIdentity();
+    if (!myId) { setPvpMsg('Sign in to race real riders.'); return; }
+    try {
+      const room = await createPvpRoom(supabase, {
+        hostId: myId, maxPlayers: pvpMax, trackKey, laps,
+      });
+      setPvpMsg('');
+      enterPvpLobby(room);
+    } catch {
+      setPvpMsg('Could not create the room — try again.');
+    }
+  };
+
+  const joinPvp = async (raw) => {
+    const code = normalizeCode(raw || pvpJoinCode);
+    if (!isValidRoomCode(code)) { setPvpMsg('Enter the 6-character room code.'); return; }
+    setPvpMsg('Joining…');
+    const myId = await ensureIdentity();
+    if (!myId) { setPvpMsg('Sign in to join the race.'); return; }
+    try {
+      const room = await getRoom(supabase, code);
+      const d = decidePvpJoin(room);
+      if (d.error) { setPvpMsg(d.error); return; }
+      if (d.mode === 'spectate') { setPvpMsg('That race already started — ask the host for the next one.'); return; }
+      const res = await joinRoom(supabase, { code, playerId: myId });
+      if (res.error) { setPvpMsg(res.error); return; }
+      setPvpMsg('');
+      enterPvpLobby(res.room);
+    } catch {
+      setPvpMsg('Could not join — try again.');
+    }
+  };
+
+  // The room launched (by us or a rival's poll): build the deterministic
+  // AI backfill locally — every client seeds from the room code, so the
+  // rival roster matches on all devices with zero coordination — then run
+  // the synced countdown off the shared startsAt.
+  const startPvpRace = (room) => {
+    if (launchedRef.current) return;
+    launchedRef.current = true;
+    try { if (pvpUnsubRef.current) pvpUnsubRef.current(); } catch { /* noop */ }
+    pvpUnsubRef.current = null;
+    const fs = room.full_state || {};
+    const trk = trackByKey(fs.trackKey || trackKey) || track;
+    if (trk.key !== trackKey) setTrackKey(trk.key);
+    const raceLaps = fs.laps || laps;
+    if (raceLaps !== laps) setLaps(raceLaps);
+    botsRef.current = makeBots({
+      count: aiAutofillCount(room),
+      track: trk,
+      seed: hashRoomCode(room.room_code),
+    });
+    pvpStartsAtRef.current = fs.startsAt || Date.now();
+    pvpSyncRef.current = pvpStartsAtRef.current;
+    setPaused(false);
+    setResult(null);
+    setLastLap(null);
+    setStage('countdown');
+  };
+
+  const leaveLobby = async () => {
+    try { if (pvpUnsubRef.current) pvpUnsubRef.current(); } catch { /* noop */ }
+    pvpUnsubRef.current = null;
+    await stopNet();
+    setPvpRoom(null);
+    setPvpCode('');
+    setPvpCallsigns({});
+    setPvpMsg('');
+    launchedRef.current = false;
+    pvpSyncRef.current = null;
+    setStage('mode');
+  };
+
+  const backToPvpSetup = async () => {
+    await stopNet();
+    launchedRef.current = false;
+    pvpSyncRef.current = null;
+    setStage('pvp-setup');
+  };
+
+  const shareRoom = async () => {
+    if (!pvpCode) return;
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/shadow-realm?code=${pvpCode}`);
+      setShared(true);
+      setTimeout(() => setShared(false), 2000);
+    } catch { /* clipboard unavailable — the code is on screen */ }
+  };
+
+  // Open-world presence: join-or-create the persistent grid room. Runs
+  // async after the roam ride starts; everything it touches is best-effort,
+  // so a DB hiccup just means solo roaming.
+  const joinGridPresence = async () => {
+    const myId = await ensureIdentity();
+    if (!myId) return; // signed-out riders roam solo — no presence
+    netActiveRef.current = 'roam';
+    netRoomRef.current = GRID_ROOM_CODE;
+    setNetTick((t) => t + 1);
+    try {
+      await joinOrCreateGridRoom(supabase, myId);
+    } catch { /* presence degrades, the roam continues */ }
+  };
+
+  // PvP results: human beacon standings (synced finish_ms) merged with the
+  // local AI roster, finished-first by time then by progress.
+  const pvpStandings = (finishMs) => {
+    const mine = {
+      user_id: myUserIdRef.current,
+      callsign: `${myCallsignRef.current} ★`,
+      progress: 1,
+      finished: true,
+      finish_ms: finishMs,
+      updated_at: new Date().toISOString(),
+    };
+    const humans = sortStandings([...remotesRef.current, mine]);
+    const rows = [
+      ...humans.map((h) => ({
+        name: h.callsign,
+        color: h.userId === myUserIdRef.current ? scheme.primary : ghostColorFor(h.userId),
+        isPlayer: h.userId === myUserIdRef.current,
+        finishTime: h.finished && h.finishMs != null ? h.finishMs / 1000 : null,
+        progress: h.progress,
+      })),
+      ...(botsRef.current || []).map((b) => ({
+        name: b.name,
+        color: b.color,
+        isPlayer: false,
+        finishTime: b.finished ? b.finishTime : null,
+        progress: b.progress || 0,
+      })),
+    ];
+    rows.sort((a, b) => {
+      const af = a.finishTime != null;
+      const bf = b.finishTime != null;
+      if (af && bf) return a.finishTime - b.finishTime;
+      if (af) return -1;
+      if (bf) return 1;
+      return b.progress - a.progress;
+    });
+    return rows.map((r, i) => ({ ...r, rank: i + 1 }));
+  };
+
   // countdown beeps
   useEffect(() => {
     if (stage !== 'countdown') return;
+    // PvP launch: the countdown is synced — every rider ticks off the same
+    // startsAt the room row carries, so the green light lands together.
+    if (pvpSyncRef.current) {
+      const startsAt = pvpSyncRef.current;
+      let timer = null;
+      const tick = () => {
+        const remain = Math.max(0, startsAt - Date.now());
+        setCount(Math.max(1, Math.ceil(remain / 1000)));
+        if (remain <= 0) {
+          try { fx.go(); } catch { /* best-effort */ }
+          pvpSyncRef.current = null;
+          setStage('ride');
+        } else {
+          timer = setTimeout(tick, 120);
+        }
+      };
+      tick();
+      return () => { if (timer) clearTimeout(timer); };
+    }
     setCount(3);
     const timers = [3, 2, 1].map((n, i) =>
       setTimeout(() => {
@@ -262,10 +603,133 @@ function ShadowRealmInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage]);
 
+  // ---------------- drop-2 netcode effects ----------------
+  // PvP lobby: poll the room (2s, the OASIS pattern — no Realtime). Every
+  // poll runs the lobby housekeeping: launch when the queue expires or the
+  // room fills, migrate the host seat when it's orphaned, and start the
+  // synced race the moment the room flips to playing.
+  useEffect(() => {
+    if (stage !== 'pvp-lobby' || !pvpCode) return;
+    let alive = true;
+    const code = pvpCode;
+    const onRoom = async (room) => {
+      if (!alive) return;
+      setPvpRoom(room);
+      const now = Date.now();
+      try {
+        if (room.status === 'waiting') {
+          if (shouldLaunch(room, now)) {
+            // Idempotent: the first writer wins; the rest read its startsAt.
+            const res = await launchRoom(supabase, room, now);
+            if (res.won && res.room && alive) { startPvpRace(res.room); return; }
+          } else if (shouldClaimHost(room, myUserIdRef.current)) {
+            await claimHost(supabase, room, myUserIdRef.current);
+          }
+        } else if (room.status === 'playing') {
+          startPvpRace(room);
+        }
+      } catch { /* transient — the next poll retries */ }
+    };
+    const unsub = subscribeToRoom(supabase, code, onRoom, 2000);
+    pvpUnsubRef.current = unsub;
+    // Rider list: poll the beacon board for callsigns where known.
+    const pollBeacons = async () => {
+      try {
+        const { data } = await supabase
+          .from('shadow_realm_beacons')
+          .select('user_id,callsign')
+          .eq('room_code', code);
+        if (!alive) return;
+        const map = {};
+        for (const b of data || []) {
+          if (b && b.user_id) map[b.user_id] = b.callsign || 'Rider';
+        }
+        setPvpCallsigns(map);
+      } catch { /* callsigns degrade to seats */ }
+    };
+    void pollBeacons();
+    const bTimer = setInterval(pollBeacons, 4000);
+    const tick = setInterval(() => { if (alive) setNowTick(Date.now()); }, 1000);
+    return () => {
+      alive = false;
+      try { unsub(); } catch { /* noop */ }
+      pvpUnsubRef.current = null;
+      clearInterval(bTimer);
+      clearInterval(tick);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage, pvpCode]);
+
+  // Beacon up: own transform ~3Hz in PvP races, 1Hz while roaming.
+  useEffect(() => {
+    if (stage !== 'ride' || !netActiveRef.current) return;
+    const cadence = netActiveRef.current === 'pvp' ? RACE_BEACON_MS : ROAM_BEACON_MS;
+    void sendBeaconNow(false, null);
+    const id = setInterval(() => { void sendBeaconNow(false, null); }, cadence);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage, laps, netTick]);
+
+  // Beacon board: poll ~1s, hide stale, cap for iPhone perf. Roam renders
+  // the nearest 12; PvP renders the capped field.
+  useEffect(() => {
+    if (stage !== 'ride' || !netActiveRef.current) return;
+    let alive = true;
+    const poll = async () => {
+      try {
+        const { data } = await supabase
+          .from('shadow_realm_beacons')
+          .select('*')
+          .eq('room_code', netRoomRef.current);
+        if (!alive) return;
+        const now = Date.now();
+        const mine = myUserIdRef.current;
+        const live = (data || []).filter(
+          (b) => b && b.user_id !== mine && !isBeaconStale(b, now)
+        );
+        const h = hudRef.current || {};
+        const capped = netActiveRef.current === 'roam'
+          ? nearestN(live, { x: h.x || 0, z: h.z || 0 }, REMOTE_CAP)
+          : live.slice(0, REMOTE_CAP);
+        remotesRef.current = capped;
+        setRemotes(capped);
+      } catch { /* board degrades, the ride continues */ }
+    };
+    void poll();
+    const id = setInterval(poll, 1000);
+    return () => { alive = false; clearInterval(id); };
+  }, [stage, netTick]);
+
+  // ?code=CODE deep link: straight into the lobby (join by code).
+  useEffect(() => {
+    if (deepLinkedRef.current) return;
+    deepLinkedRef.current = true;
+    const dc = sp.get('code');
+    if (dc && isValidRoomCode(dc)) {
+      setMode('race');
+      setStage('pvp-setup');
+      void joinPvp(dc);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const mount = () => {
     try { fx.bikeMount(); } catch { /* best-effort */ }
     persist({});
-    botsRef.current = makeBots({ count: mode === 'race' ? aiCount : 0, track, seed: Date.now() });
+    // Fresh run, fresh net session — no stale presence survives RIDE AGAIN.
+    void stopNet();
+    pvpSyncRef.current = null;
+    if (mode === 'roam') {
+      botsRef.current = [];
+      setPaused(false);
+      setResult(null);
+      setLastLap(null);
+      setStage('countdown');
+      // Open-world presence joins async; the roam never waits on it.
+      void joinGridPresence();
+      return;
+    }
+    botsRef.current = makeBots({ count: aiCount, track, seed: Date.now() });
     setPaused(false);
     setResult(null);
     setLastLap(null);
@@ -274,8 +738,12 @@ function ShadowRealmInner() {
 
   const leave = () => {
     try { fx.bikeDismount(); } catch { /* best-effort */ }
+    void stopNet();
     router.push('/');
   };
+
+  // Leaving the page entirely — never leak a beacon or a seat.
+  useEffect(() => () => { void stopNet(); }, []);
 
   const handleLap = (lapNum, lapTime) => {
     try { fx.checkpoint(); } catch { /* best-effort */ }
@@ -284,6 +752,15 @@ function ShadowRealmInner() {
 
   const handleFinish = (res) => {
     try { fx.victory(); } catch { /* best-effort */ }
+    // PvP: stamp the finish on the beacon (synced finish_ms off the room's
+    // startsAt) and build results from the live human board + the AI roster.
+    if (netActiveRef.current === 'pvp') {
+      const finishMs = Math.max(1, Date.now() - (pvpStartsAtRef.current || Date.now()));
+      void sendBeaconNow(true, finishMs);
+      setResult({ ...res, standings: pvpStandings(finishMs) });
+      setStage('finished');
+      return;
+    }
     const standings = placements(
       { name: 'YOU', color: scheme.primary, finishTime: res?.total, progress: laps },
       botsRef.current
@@ -299,7 +776,7 @@ function ShadowRealmInner() {
   // tilt starts driving.
 
   // ---------------- menus ----------------
-  if (stage === 'mode' || stage === 'track' || stage === 'garage') {
+  if (stage === 'mode' || stage === 'track' || stage === 'garage' || stage === 'pvp-setup' || stage === 'pvp-lobby') {
     return (
       <div style={css.screen} onContextMenu={(e) => e.preventDefault()}>
         <div style={css.center}>
@@ -327,6 +804,15 @@ function ShadowRealmInner() {
               <div style={{ fontSize: 13, color: '#64748b', textAlign: 'center' }}>
                 No laps, no clock. Cruise the grid under the moon.
               </div>
+              <button
+                style={css.ghostBtn}
+                onClick={() => { setMode('race'); setPvpMsg(''); try { fx.menuOpen(); } catch {} setStage('pvp-setup'); }}
+              >
+                PVP RACE
+              </button>
+              <div style={{ fontSize: 13, color: '#64748b', textAlign: 'center' }}>
+                Race real riders — 2 to 20 bikes. Empty seats fill with AI rivals.
+              </div>
               {mode === 'race' && (
                 <div>
                   <div style={css.sectionLabel}>LAPS</div>
@@ -349,19 +835,10 @@ function ShadowRealmInner() {
           {stage === 'track' && (
             <>
               <div style={css.sectionLabel}>{mode === 'race' ? 'PICK YOUR TRACK' : 'PICK YOUR GROUND'} · {TRACKS.length} TRACKS</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {TRACKS.map((t) => (
-                  <div
-                    key={t.key}
-                    style={{ ...css.card, ...(t.key === trackKey ? css.cardSel : {}) }}
-                    onClick={() => { setTrackKey(t.key); persist({ trackKey: t.key }); try { fx.tap(); } catch {} }}
-                  >
-                    <div style={css.cardName}>{t.name}</div>
-                    <div style={css.cardMeta}>{t.layout.toUpperCase()} · {Math.round(t.width)} WIDE</div>
-                    <div style={css.cardDesc}>{t.desc}</div>
-                  </div>
-                ))}
-              </div>
+              <TrackCards
+                trackKey={trackKey}
+                onPick={(k) => { setTrackKey(k); persist({ trackKey: k }); try { fx.tap(); } catch {} }}
+              />
               <div style={css.row}>
                 <button style={{ ...css.ghostBtn, flex: 1 }} onClick={() => setStage('mode')}>BACK</button>
                 <button style={{ ...css.bigBtn, flex: 2 }} onClick={() => setStage('garage')}>PICK BIKE</button>
@@ -426,6 +903,113 @@ function ShadowRealmInner() {
               </div>
             </>
           )}
+
+          {stage === 'pvp-setup' && (
+            <>
+              <div style={css.sectionLabel}>PVP RACE · FIELD SIZE</div>
+              <div style={{ ...css.row, marginTop: 4 }}>
+                {PVP_SIZES.map((n) => (
+                  <button
+                    key={n}
+                    style={{ ...css.chip, ...(pvpMax === n ? { background: '#0d2a4d', borderColor: '#38bdf8' } : {}) }}
+                    onClick={() => { setPvpMax(n); try { fx.tap(); } catch {} }}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+              <div style={css.sectionLabel}>TRACK</div>
+              <TrackCards
+                trackKey={trackKey}
+                onPick={(k) => { setTrackKey(k); persist({ trackKey: k }); try { fx.tap(); } catch {} }}
+              />
+              <div style={css.sectionLabel}>LAPS</div>
+              <div style={{ ...css.row, marginTop: 4 }}>
+                {[1, 3, 5, 8].map((n) => (
+                  <button
+                    key={n}
+                    style={{ ...css.chip, ...(laps === n ? { background: '#0d2a4d', borderColor: '#38bdf8' } : {}) }}
+                    onClick={() => { setLaps(n); persist({ laps: n }); try { fx.tap(); } catch {} }}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+              <button style={css.bigBtn} onClick={createPvp}>CREATE ROOM</button>
+              <div style={css.sectionLabel}>JOIN WITH CODE</div>
+              <div style={css.row}>
+                <input
+                  value={pvpJoinCode}
+                  onChange={(e) => setPvpJoinCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6))}
+                  placeholder="6-CHAR CODE"
+                  maxLength={6}
+                  autoCapitalize="characters"
+                  autoCorrect="off"
+                  style={{
+                    flex: 2, padding: '14px 12px', fontSize: 18, fontWeight: 700, letterSpacing: 4,
+                    textAlign: 'center', color: '#e0f2fe', background: '#0a1226',
+                    border: '1px solid #1e3a5f', borderRadius: 12, outline: 'none',
+                    fontFamily: 'inherit',
+                  }}
+                />
+                <button style={{ ...css.ghostBtn, flex: 1 }} onClick={() => joinPvp()}>JOIN</button>
+              </div>
+              {pvpMsg ? (
+                <div style={{ fontSize: 13, color: '#fbbf24', textAlign: 'center', letterSpacing: 1 }}>{pvpMsg}</div>
+              ) : null}
+              <button style={css.ghostBtn} onClick={() => setStage('mode')}>BACK</button>
+            </>
+          )}
+
+          {stage === 'pvp-lobby' && pvpRoom && (
+            <>
+              <div style={css.sectionLabel}>ROOM CODE · SHARE IT</div>
+              <div style={{ fontSize: 44, fontWeight: 900, letterSpacing: 10, color: '#7dd3fc', textAlign: 'center', textShadow: '0 0 24px rgba(56,189,248,.5)' }}>
+                {pvpRoom.room_code}
+              </div>
+              <div style={{ textAlign: 'center', fontSize: 15, color: '#94a3b8', letterSpacing: 2 }}>
+                {(() => {
+                  const left = queueRemainingMs(pvpRoom, nowTick);
+                  if (left == null) return 'WAITING FOR RIDERS';
+                  const m = Math.floor(left / 60000);
+                  const s = Math.floor((left % 60000) / 1000);
+                  return `LAUNCH IN ${m}:${String(s).padStart(2, '0')}`;
+                })()}
+              </div>
+              <div style={{ textAlign: 'center', fontSize: 13, color: '#38bdf8', letterSpacing: 2 }}>
+                {(() => {
+                  const n = humansInRoom(pvpRoom);
+                  const max = pvpRoom.max_players || pvpMax;
+                  return `RIDERS ${n}/${max} · ${Math.max(0, max - n)} SLOTS LEFT`;
+                })()}
+              </div>
+              <div style={css.sectionLabel}>ON THE GRID</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {(pvpRoom.player_ids || []).map((id, i) => {
+                  const c = ghostColorFor(id);
+                  return (
+                    <div key={id} style={{ ...css.card, cursor: 'default', display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <div style={{ width: 12, height: 12, borderRadius: '50%', background: c, boxShadow: `0 0 8px ${c}` }} />
+                      <div style={{ ...css.cardName, flex: 1 }}>
+                        {pvpCallsigns[id] || `RIDER ${i + 1}`}
+                        {id === myUserIdRef.current ? ' ★' : ''}
+                      </div>
+                      {id === pvpRoom.host_id ? (
+                        <div style={{ fontSize: 11, color: '#64748b', letterSpacing: 2 }}>HOST</div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+              <button style={css.ghostBtn} onClick={shareRoom}>
+                {shared ? 'LINK COPIED ✓' : 'SHARE INVITE LINK'}
+              </button>
+              <div style={{ fontSize: 12, color: '#475569', textAlign: 'center' }}>
+                Launches when the timer ends or the room fills. Empty seats fill with AI rivals.
+              </div>
+              <button style={css.ghostBtn} onClick={leaveLobby}>LEAVE</button>
+            </>
+          )}
         </div>
       </div>
     );
@@ -453,6 +1037,9 @@ function ShadowRealmInner() {
           onLap={handleLap}
           onFinish={handleFinish}
           botsRef={botsRef}
+          remoteBeacons={remotes}
+          netUserId={myUserIdRef.current}
+          netNowRef={netNowRef}
         />
       </div>
 
@@ -626,9 +1213,18 @@ function ShadowRealmInner() {
                 ))}
               </div>
             )}
-            <button style={css.bigBtn} onClick={mount}>RIDE AGAIN</button>
-            <button style={css.ghostBtn} onClick={() => setStage('track')}>CHANGE TRACK</button>
-            <button style={css.ghostBtn} onClick={leave}>LEAVE REALM</button>
+            {netActiveRef.current === 'pvp' ? (
+              <>
+                <button style={css.bigBtn} onClick={backToPvpSetup}>BACK TO LOBBY</button>
+                <button style={css.ghostBtn} onClick={leave}>LEAVE REALM</button>
+              </>
+            ) : (
+              <>
+                <button style={css.bigBtn} onClick={mount}>RIDE AGAIN</button>
+                <button style={css.ghostBtn} onClick={() => setStage('track')}>CHANGE TRACK</button>
+                <button style={css.ghostBtn} onClick={leave}>LEAVE REALM</button>
+              </>
+            )}
           </div>
         </div>
       )}

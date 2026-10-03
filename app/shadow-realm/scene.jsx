@@ -20,6 +20,7 @@ import { roamSpawn, isRoam } from './roam';
 import { LapTracker, resolveBarrier } from './race';
 import { schemeByKey, vehicleByKey } from './schemes';
 import Bots from './Bots';
+import RemoteBikes from './RemoteBikes';
 import { fx } from '@/lib/fx';
 import { REGEN_CHARGE_RATE, SURGE_SECS } from '@/lib/bike-motion';
 import { createOrbit, resetOrbit, applyDrag, applyPinch, applyWheel, orbitCamera } from './orbit';
@@ -664,6 +665,12 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, 
         progress: mode === 'race' ? s.tracker.progress({ x: s.x, z: s.z }) : 0,
         boostCharge: s.boostCharge || 0,
         surging: !!surging,
+        // Live transform for the PvP/presence beacon (drop 2 netcode reads
+        // these; the physics above is untouched).
+        x: s.x,
+        z: s.z,
+        heading: s.heading,
+        speedRaw: s.speed,
       };
     }
   });
@@ -687,6 +694,11 @@ export default function RealmScene({
   onFinish,
   hudRef,
   botsRef,
+  // Drop-2 netcode: already-capped remote beacons + the identity/clock the
+  // ghost renderer needs. Optional — solo rides pass nothing.
+  remoteBeacons,
+  netUserId,
+  netNowRef,
 }) {
   const scheme = schemeByKey(schemeKey);
   const vehicle = vehicleByKey(vehicleKey);
@@ -737,6 +749,11 @@ export default function RealmScene({
         maxSpeed={vehicle.maxSpeed}
         raceLaps={laps}
       />
+      {/* Drop-2 netcode: remote-rider ghosts (PvP races + open-world
+          presence). Ghost by design — no collision, cosmetic only. */}
+      {!!(remoteBeacons && remoteBeacons.length && netNowRef) && (
+        <RemoteBikes beacons={remoteBeacons} myUserId={netUserId} nowRef={netNowRef} />
+      )}
     </Canvas>
   );
 }
