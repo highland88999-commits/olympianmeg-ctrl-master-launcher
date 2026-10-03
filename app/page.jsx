@@ -21,6 +21,8 @@ import { createEntranceMachine } from '@/lib/entrance-sequence';
 import EarthConsole from '@/components/EarthConsole';
 import { getUserPosition, FALLBACK_POSITION } from '@/lib/geo';
 import { fx, unlockFx } from '@/lib/fx';
+import { shadowRealmUrl } from '@/app/shadow-realm/launch';
+import { useTilt } from '@/lib/use-tilt';
 
 // The 3D hub scene (three.js + god panels) is code-split: it loads only on
 // the client, after the page shell, so the heavy 3D stack never blocks the
@@ -122,6 +124,19 @@ function NexusHub() {
   const [joyActive, setJoyActive] = useState(false);
   const lastLook = useRef({ x: 0, y: 0 });
   const isLooking = useRef(false);
+
+  // Phone-tilt vertical control: writes to controlsRef.current.moveY (the
+  // joystick's channel) only when flightAxis is 'vertical'; the joystick
+  // always wins while active. See lib/use-tilt.js.
+  const { tiltOn, tiltArmed, tiltMsg, toggleTilt } = useTilt({
+    controlsRef,
+    flightAxis,
+    appState,
+    joyActive,
+  });
+
+  // Riding the TRON bike (drives the spawn circle's glow state).
+  const riding = appState === 'on_bike' || appState === 'to_bike';
 
   useEffect(() => {
     // No backend configured yet: enter honest guest mode instead of crashing.
@@ -396,21 +411,23 @@ function NexusHub() {
         <EntranceSequence onDone={() => setShowIntro(false)} />
       )}
       {(user || cloudOffline) && !showIntro && (appState === 'hub_intro' || appState === 'hub_freeroam') && (
-        <div className="absolute top-5 left-5 z-50 flex flex-col gap-2 ui-element pointer-events-auto">
+        <div className="absolute top-5 left-5 z-50 flex flex-col gap-3 ui-element pointer-events-auto">
           <button
             onClick={() => { fx.tap(); setShowIntro(true); }}
             aria-label="Replay intro"
-            className="px-4 py-2 text-[10px] font-bold tracking-[0.2em] uppercase text-zinc-400 border border-zinc-800 rounded-full bg-zinc-950/80 backdrop-blur-md hover:text-white hover:border-zinc-500 transition-all"
+            title="Replay intro"
+            className="w-12 h-12 rounded-full flex items-center justify-center text-xl text-zinc-400 border-2 border-zinc-800 bg-zinc-950/80 backdrop-blur-md hover:text-white hover:border-zinc-500 hover:scale-105 active:scale-95 transition-all"
           >
-            ↺ INTRO
+            <span aria-hidden="true">↺</span>
           </button>
           {/* Merlin's written product roadmap — the 8-node Renewal Plan timeline. */}
           <button
             onClick={() => { fx.tap(); router.push('/renewal-plan'); }}
             aria-label="Open the Renewal Plan timeline"
-            className="px-4 py-2 text-[10px] font-bold tracking-[0.2em] uppercase text-teal-300/80 border border-teal-500/30 rounded-full bg-zinc-950/80 backdrop-blur-md hover:text-teal-100 hover:border-teal-400/60 transition-all"
+            title="Renewal Plan"
+            className="w-12 h-12 rounded-full flex items-center justify-center text-xl text-teal-300/80 border-2 border-teal-500/30 bg-zinc-950/80 backdrop-blur-md hover:text-teal-100 hover:border-teal-400/60 hover:scale-105 active:scale-95 transition-all"
           >
-            ◈ RENEWAL PLAN
+            <span aria-hidden="true">◈</span>
           </button>
         </div>
       )}
@@ -462,15 +479,43 @@ function NexusHub() {
             )}
           </div>
 
-          <button 
+          {/* FLIGHT AXIS — 56px circle. The live streak canvas IS the state
+              readout: streaks stream along the current axis. Same toggle. */}
+          <button
             onClick={() => { fx.tap(); setFlightAxis(m => m === 'horizontal' ? 'vertical' : 'horizontal'); }}
             aria-label={`Flight axis: ${flightAxis}. Activate to switch axis.`}
-            className="absolute top-5 right-5 z-50 px-4 py-3 sm:px-6 sm:py-4 text-[10px] sm:text-xs font-bold tracking-widest text-cyan-400 uppercase transition-all border border-cyan-500/50 rounded-xl bg-zinc-950/90 shadow-[0_0_20px_rgba(0,242,255,0.15)] backdrop-blur-md hover:bg-cyan-900/40 ui-element pointer-events-auto flex items-center gap-3"
+            title={`Flight axis: ${flightAxis}`}
+            className="absolute top-5 right-5 z-50 w-14 h-14 rounded-full flex items-center justify-center overflow-hidden border-2 border-cyan-500/50 bg-zinc-950/90 shadow-[0_0_20px_rgba(0,242,255,0.15)] backdrop-blur-md hover:bg-cyan-900/40 hover:scale-105 active:scale-95 transition-all ui-element pointer-events-auto"
           >
-            {/* Live axis readout: the streaks always stream along the current axis. */}
             <FlightAxisStreaks axis={flightAxis} />
-            <span>FLIGHT AXIS: <span className="text-white">{flightAxis.toUpperCase()}</span></span>
           </button>
+
+          {/* Phone-tilt vertical control — 48px circle beside FLIGHT AXIS.
+              When the axis is vertical, tilting the phone flies the vertical
+              level (same moveY channel as the joystick). Tap: on iOS the
+              motion permission is requested from this gesture. */}
+          <button
+            onClick={toggleTilt}
+            aria-label={tiltOn ? 'Tilt control on — tap to disable' : 'Tilt control off — tap to enable'}
+            title="Tilt to fly vertical"
+            className={`absolute top-6 right-[5.5rem] z-50 w-12 h-12 rounded-full flex items-center justify-center border-2 backdrop-blur-md hover:scale-105 active:scale-95 transition-all ui-element pointer-events-auto ${
+              tiltOn
+                ? 'border-cyan-300 bg-cyan-950/80 shadow-[0_0_24px_rgba(0,242,255,0.5)]'
+                : tiltArmed
+                  ? 'border-cyan-500/50 bg-zinc-950/90 shadow-[0_0_16px_rgba(0,242,255,0.25)]'
+                  : 'border-zinc-700 bg-zinc-950/90 shadow-[0_0_12px_rgba(0,0,0,0.4)]'
+            }`}
+          >
+            <span aria-hidden="true" className="text-2xl text-cyan-300">◐</span>
+          </button>
+          {/* Transient tilt messages — auto-dismiss, never a pop-up. */}
+          {tiltMsg && (
+            <div className="absolute top-5 left-1/2 -translate-x-1/2 z-[60] pointer-events-none" role="status" aria-live="polite">
+              <div className="text-[11px] text-zinc-200 bg-zinc-950/95 border border-cyan-500/40 rounded-full px-4 py-1.5 shadow-lg whitespace-nowrap">
+                {tiltMsg}
+              </div>
+            </div>
+          )}
 
           {/* Floating store shortcut — right edge, vertically centered, clear of
               the satellite menu toggle (bottom-left), FLIGHT AXIS (top-right),
@@ -500,17 +545,55 @@ function NexusHub() {
         </>
       )}
 
-      {/* Spawn to Bike — fixed bottom-right, CLEAR of the persistent radio
-          bar (z-70, ~8rem tall incl. transport strip + safe-area). Flies the
-          camera into the rider's seat on the parked TRON bike; tap again to
-          dismount. */}
+      {/* Spawn to Bike — 64px circle, fixed bottom-right, CLEAR of the
+          persistent radio bar (z-70, ~8rem tall incl. transport strip +
+          safe-area). Flies the camera into the rider's seat on the parked
+          TRON bike; tap again to dismount. Glow intensifies while riding. */}
       {(user || cloudOffline) && (appState === 'hub_intro' || appState === 'hub_freeroam' || appState === 'to_bike' || appState === 'on_bike') && (
         <button
           onClick={toggleBike}
-          className="absolute bottom-[calc(8.75rem+env(safe-area-inset-bottom))] right-5 z-[80] px-6 py-4 text-[10px] sm:text-xs font-bold tracking-widest text-teal-300 uppercase transition-all border border-teal-400/50 rounded-xl bg-zinc-950/90 shadow-[0_0_20px_rgba(45,212,191,0.15)] backdrop-blur-md hover:bg-teal-900/40 ui-element pointer-events-auto"
+          aria-label={riding ? 'Leave the TRON bike' : 'Spawn to the TRON bike'}
+          title={riding ? 'Leave bike' : 'Spawn to bike'}
+          className={`absolute bottom-[calc(8.75rem+env(safe-area-inset-bottom))] right-5 z-[80] w-16 h-16 rounded-full flex items-center justify-center border-2 backdrop-blur-md hover:scale-105 active:scale-95 transition-all ui-element pointer-events-auto ${
+            riding
+              ? 'border-teal-300 bg-teal-950/70 shadow-[0_0_32px_rgba(45,212,191,0.5)]'
+              : 'border-teal-400/50 bg-zinc-950/90 shadow-[0_0_20px_rgba(45,212,191,0.15)] hover:bg-teal-900/40'
+          }`}
         >
-          {(appState === 'on_bike' || appState === 'to_bike') ? 'LEAVE BIKE' : 'SPAWN TO BIKE'}
+          <span aria-hidden="true" className="text-3xl">🏍️</span>
         </button>
+      )}
+
+      {/* NIGHT GRID — 64px circle entry to the Shadow Realm (the built
+          Tron-bike race/free-roam scene: tracks, Wisp/Comet/Atlas trim
+          bikes, Tron light schemes). Stacked in the right-edge control
+          column directly ABOVE the STORE float button, aligned to its x
+          (right 12px + safe-area) so the column reads NIGHT GRID → STORE →
+          RIDE. Same pocket-universe launch path as the satellite menu:
+          fx.bikeMount() + launchPocketUniverse (the orbit animation),
+          landing on /shadow-realm?mode=race — the realm page itself handles
+          mode/track/vehicle selection. */}
+      {(user || cloudOffline) && (appState === 'hub_intro' || appState === 'hub_freeroam' || appState === 'to_bike' || appState === 'on_bike') && (
+        <div
+          className="fixed z-40 flex flex-col items-center ui-element pointer-events-auto"
+          style={{
+            right: 'calc(env(safe-area-inset-right, 0px) + 14px)',
+            top: 'calc(50% - 106px)',
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              fx.bikeMount();
+              launchPocketUniverse(shadowRealmUrl('race'), 'shadow-realm', null, null);
+            }}
+            aria-label="NIGHT GRID — enter the Shadow Realm"
+            title="NIGHT GRID"
+            className="w-16 h-16 rounded-full flex items-center justify-center border-2 border-violet-400/70 bg-zinc-950/90 shadow-[0_0_24px_rgba(167,139,250,0.35)] backdrop-blur-md hover:border-violet-300 hover:shadow-[0_0_32px_rgba(167,139,250,0.55)] hover:scale-105 active:scale-95 transition-all"
+          >
+            <span aria-hidden="true" className="text-3xl">🌑</span>
+          </button>
+        </div>
       )}
 
       {/* Circular TRON-bike shortcut — same onClick as SPAWN TO BIKE, stacked
