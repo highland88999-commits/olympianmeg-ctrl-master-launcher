@@ -155,7 +155,46 @@ export default async function UserProfilePage({ params, searchParams }) {
       </main>
     );
   }
-  if (data.missing) notFound();
+  if (data.missing) {
+    // A missing BUSINESS profile is an honest empty state, not a 404 — the
+    // user exists (personal profile live) but never created the business one.
+    // Only a truly unknown username 404s.
+    if (type === 'business') {
+      const personal = await loadProfile(username, 'personal');
+      if (!personal.missing && !personal.offline && personal.profile) {
+        const ownerName = personal.profile.display_name || username;
+        return (
+          <main className="pf-root">
+            <style>{CSS}</style>
+            <div className="pf-wrap" style={{ paddingTop: '5rem', textAlign: 'center' }}>
+              <div className="pf-type">Business profile</div>
+              <h1 className="pf-name">{ownerName}</h1>
+              <p className="pf-bio" style={{ marginLeft: 'auto', marginRight: 'auto' }}>
+                No business profile yet — create one to list your work, shop, or services.
+              </p>
+              <nav className="pf-switch" aria-label="Profile type" style={{ marginTop: '1.5rem' }}>
+                <Link href={`/u/${encodeURIComponent(username)}`}>
+                  Personal
+                </Link>
+                <Link href={`/u/${encodeURIComponent(username)}?v=business`} className="on" aria-current="page">
+                  Business
+                </Link>
+              </nav>
+              <div style={{ marginTop: '1.5rem' }}>
+                <Link className="pf-btn gold" href={`/u/${encodeURIComponent(username)}/edit`}>
+                  Create business profile
+                </Link>
+              </div>
+              <p className="pf-note" style={{ marginTop: '1rem' }}>
+                Only the profile owner can create it — visitors just see this note.
+              </p>
+            </div>
+          </main>
+        );
+      }
+    }
+    notFound();
+  }
 
   const { profile: p, art, posts } = data;
 

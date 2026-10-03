@@ -39,6 +39,7 @@ import {
   acceptAnswer,
   closePeerConnection,
   stopStream,
+  monitorPeerConnection,
 } from './webrtc';
 import {
   BACKDROP_REALMS,
@@ -99,6 +100,9 @@ export default function Order67Page() {
   const mountedRef = useRef(true);
   const searchTimerRef = useRef(null);
   const confirmBlockTimerRef = useRef(null);
+  // link-health: unmonitor fns + watchdog timers, all cleared on hangup/unmount
+  const linkMonitorRef = useRef(null);
+  const linkWatchdogRef = useRef(null);
   // multi-projector guests: id -> { id, name, code, pc, unwatch, videoEl, audioNodes, live, answered }
   const guestsRef = useRef(new Map());
   const audioCtxRef = useRef(null);
@@ -184,8 +188,10 @@ export default function Order67Page() {
     return () => {
       mountedRef.current = false;
       if (unwatchRef.current) unwatchRef.current();
+      clearLinkHealth();
       for (const g of guestsRef.current.values()) {
         try { if (g.unwatch) g.unwatch(); } catch { /* noop */ }
+        try { if (g.unmonitor) g.unmonitor(); } catch { /* noop */ }
         closePeerConnection(g.pc);
         if (g.videoEl) g.videoEl.srcObject = null;
         try { g.audioNodes?.src?.disconnect(); g.audioNodes?.gain?.disconnect(); } catch { /* noop */ }
@@ -274,6 +280,75 @@ export default function Order67Page() {
     setPhase('idle');
   };
 
+  // ---------- link health: never leave the user staring at "Connecting…" ---
+  // WebRTC only calls ontrack on success. Without this, a dead P2P link
+  // (strict NAT, carrier firewall, no TURN) parks the UI on a pulsing
+  // "Connecting…" forever. Every branch below ends in an honest message.
+  const LINK_FAILED_MSG =
+    'The peer-to-peer link failed — a strict network may be blocking it. ' +
+    'Try Wi-Fi instead of cellular, then summon again.';
+  const LINK_LOST_MSG =
+    'The peer-to-peer link dropped and did not recover. Hang up and summon again.';
+
+  const clearLinkHealth = () => {
+    if (linkMonitorRef.current) {
+      try {
+        linkMonitorRef.current();
+      } catch {
+        /* noop */
+      }
+      linkMonitorRef.current = null;
+    }
+    if (linkWatchdogRef.current) {
+      clearTimeout(linkWatchdogRef.current);
+      linkWatchdogRef.current = null;
+    }
+  };
+
+  // Wire connection-state monitoring onto a live RTCPeerConnection.
+  // onLinkDead runs when the link is terminally failed; the caller decides
+  // whether to hang up (1:1 call) or just flag the guest (projector).
+  const watchLinkHealth = (pc, onLinkDead) => {
+    clearLinkHealth();
+    if (!pc) return;
+    linkMonitorRef.current = monitorPeerConnection(pc, {
+      onFailed: () => {
+        if (!mountedRef.current) return;
+        onLinkDead(LINK_FAILED_MSG);
+      },
+      onDisconnected: () => {
+        if (!mountedRef.current) return;
+        onLinkDead(LINK_LOST_MSG);
+      },
+      onConnected: () => {
+        if (!mountedRef.current) return;
+        if (linkWatchdogRef.current) {
+          clearTimeout(linkWatchdogRef.current);
+          linkWatchdogRef.current = null;
+        }
+        setStatus('Peer link established.');
+      },
+    });
+  };
+
+  // After the SDP handshake, the link should establish within ~25s. If it
+  // does not, say so honestly instead of pulsing forever.
+  const armLinkWatchdog = (pc, giveUp) => {
+    if (linkWatchdogRef.current) clearTimeout(linkWatchdogRef.current);
+    linkWatchdogRef.current = setTimeout(() => {
+      linkWatchdogRef.current = null;
+      if (!mountedRef.current || !pc) return;
+      const s = pc.connectionState;
+      if (s !== 'connected' && s !== 'completed' && s !== 'closed') {
+        setStatus(
+          'Still connecting — your network may be blocking peer-to-peer. ' +
+            'Hang up and try again on Wi-Fi.'
+        );
+        if (giveUp) giveUp();
+      }
+    }, 25000);
+  };
+
   // guest audio mixer: each guest's audio rides the Web Audio graph so every
   // hologram is heard even though their <video> elements stay muted for
   // autoplay. Created/resumed inside the tap that opens the projector.
@@ -311,12 +386,14 @@ export default function Order67Page() {
       unwatchRef.current();
       unwatchRef.current = null;
     }
+    clearLinkHealth();
     if (roomCodeRef.current) endCall(roomCodeRef.current).catch(() => {});
     closePeerConnection(pcRef.current);
     pcRef.current = null;
     // guests leave with the call — every projector room is closed
     for (const g of guestsRef.current.values()) {
       try { if (g.unwatch) g.unwatch(); } catch { /* noop */ }
+      try { if (g.unmonitor) g.unmonitor(); } catch { /* noop */ }
       if (g.code) endCall(g.code).catch(() => {});
       closePeerConnection(g.pc);
       if (g.videoEl) g.videoEl.srcObject = null;
@@ -473,6 +550,8 @@ export default function Order67Page() {
       const pc = createPeerConnection(onRemoteStream);
       pcRef.current = pc;
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+      // a dead P2P link must say so — never pulse "Connecting…" forever
+      watchLinkHealth(pc, (msg) => hangUp(msg));
 
       setPhase('hosting');
       setStatus('Broadcasting your summons…');
@@ -493,9 +572,13 @@ export default function Order67Page() {
           if (answer) {
             answeredRef.current = true;
             setStatus('Your peer answers…');
-            acceptAnswer(pc, answer).catch(() => {
-              setStatus('The answer would not land — hang up and try again.');
-            });
+            acceptAnswer(pc, answer)
+              .then(() => {
+                if (mountedRef.current) armLinkWatchdog(pc);
+              })
+              .catch(() => {
+                setStatus('The answer would not land — hang up and try again.');
+              });
           }
         }
       });
@@ -527,7 +610,10 @@ export default function Order67Page() {
       const sdp = await makeAnswer(pc, offer);
       if (!sdp) throw new Error('Could not prepare the answer — try again.');
       await publishSignalPart(code, 'answer', sdp);
-      if (mountedRef.current) setStatus('Connecting…');
+      if (mountedRef.current) {
+        setStatus('Connecting…');
+        armLinkWatchdog(pc);
+      }
     } catch (e) {
       handleCallError(e);
     }
@@ -559,6 +645,8 @@ export default function Order67Page() {
       const pc = createPeerConnection(onRemoteStream);
       pcRef.current = pc;
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+      // a dead P2P link must say so — never pulse "Connecting…" forever
+      watchLinkHealth(pc, (msg) => hangUp(msg));
 
       setPhase('joining');
       unwatchRef.current = watchCall(clean, (r) => {
@@ -766,6 +854,16 @@ export default function Order67Page() {
       const id = `g${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`;
       const pc = createPeerConnection((s) => onGuestStream(id, s));
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+      // guests get their own link monitor — a dead guest projector is
+      // removed with an honest message, never left pulsing
+      const guestUnmonitor = monitorPeerConnection(pc, {
+        onFailed: () => {
+          if (mountedRef.current) removeGuest(id, `${name}'s projector link failed — invite them again.`);
+        },
+        onDisconnected: () => {
+          if (mountedRef.current) removeGuest(id, `${name}'s projector link dropped.`);
+        },
+      });
       const sdp = await makeOffer(pc);
       if (!sdp) throw new Error('Could not prepare the projector — try again.');
       await publishSignalPart(code, 'offer', sdp);
@@ -776,7 +874,7 @@ export default function Order67Page() {
       videoEl.muted = true; // video only — audio rides the mixer
       videoEl.setAttribute('aria-hidden', 'true');
       sceneRef.current?.addProjector(id);
-      const rec = { id, name, code, pc, videoEl, audioNodes: null, live: false, answered: false, unwatch: null };
+      const rec = { id, name, code, pc, videoEl, audioNodes: null, live: false, answered: false, unwatch: null, unmonitor: guestUnmonitor };
       rec.unwatch = watchCall(code, (r) => onGuestSignal(rec, r));
       guestsRef.current.set(id, rec);
       ensureAudioMixer();
@@ -851,6 +949,7 @@ export default function Order67Page() {
     const rec = guestsRef.current.get(id);
     if (!rec) return;
     try { if (rec.unwatch) rec.unwatch(); } catch { /* noop */ }
+    try { if (rec.unmonitor) rec.unmonitor(); } catch { /* noop */ }
     if (rec.code) endCall(rec.code).catch(() => {});
     closePeerConnection(rec.pc);
     if (rec.videoEl) rec.videoEl.srcObject = null;
@@ -1009,7 +1108,7 @@ export default function Order67Page() {
     </div>
   );
 
-  const previewVisible = inCall || inSolo || phase === 'hosting';
+  const previewVisible = inCall || inSolo;
 
   return (
     <main className="o67-mono relative h-dvh w-full overflow-hidden bg-black text-cyan-100 select-none">
@@ -1021,18 +1120,29 @@ export default function Order67Page() {
       {/* hidden remote video: feeds the hologram texture (audio still plays) */}
       <video ref={remoteVideoRef} playsInline autoPlay className="pointer-events-none absolute h-px w-px opacity-0" aria-hidden="true" />
 
-      {/* local preview: always mounted so no stream assignment ever hits a null ref */}
+      {/* local preview: always mounted so no stream assignment ever hits a null ref.
+          Pinned bottom-center, above the control cluster and the Safari bar —
+          the hologram owns the dais/stage above, this never overlaps it. */}
       <video
         ref={localVideoRef}
         playsInline autoPlay muted
         aria-label="Your camera preview"
-        style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
-        className={`absolute bottom-56 right-4 z-20 aspect-[4/3] w-28 rounded-xl border bg-black object-cover transition-opacity ${
+        style={{
+          transform: facingMode === 'user' ? 'translateX(-50%) scaleX(-1)' : 'translateX(-50%)',
+          bottom: 'calc(max(0.9rem, env(safe-area-inset-bottom)) + 12.5rem)',
+        }}
+        className={`absolute left-1/2 z-20 aspect-[4/3] w-24 rounded-xl border bg-black object-cover transition-opacity ${
           previewVisible ? 'border-cyan-300/40 opacity-100' : 'pointer-events-none border-transparent opacity-0'
         } ${previewVisible && !cameraOn ? 'opacity-40' : ''}`}
       />
       {previewVisible && !cameraOn && (
-        <p className="absolute bottom-52 right-4 z-20 rounded-md bg-black/70 px-2 py-1 text-[9px] font-bold tracking-[0.2em] text-amber-200">
+        <p
+          className="absolute left-1/2 z-20 rounded-md bg-black/70 px-2 py-1 text-[9px] font-bold tracking-[0.2em] text-amber-200"
+          style={{
+            transform: 'translateX(-50%)',
+            bottom: 'calc(max(0.9rem, env(safe-area-inset-bottom)) + 16.75rem)',
+          }}
+        >
           CAM OFF
         </p>
       )}
@@ -1394,7 +1504,11 @@ export default function Order67Page() {
                   )}
                   {playerResults.length > 0 && (
                     <ul className="mt-2 flex flex-col gap-2">
-                      {playerResults.map((pl) => (
+                      {playerResults.map((pl) => {
+                        // already a friend? Offer SUMMON, not ADD — tapping ADD
+                        // just 409s with "You are already friends."
+                        const alreadyFriend = friends.some((f) => f.user_id === pl.user_id);
+                        return (
                         <li
                           key={pl.user_id}
                           className="flex items-center gap-3 rounded-xl border border-white/10 bg-black/50 px-4 py-2.5"
@@ -1409,7 +1523,15 @@ export default function Order67Page() {
                             <span className="block truncate text-sm font-bold text-white">{pl.display_name}</span>
                             <span className="block truncate text-[11px] text-zinc-500">@{pl.username}</span>
                           </span>
-                          {sentRequests.includes(pl.user_id) ? (
+                          {alreadyFriend ? (
+                            <button
+                              onClick={() => executeOrder67({ user_id: pl.user_id, display_name: pl.display_name, username: pl.username })}
+                              disabled={busy}
+                              className="min-h-[44px] flex-none rounded-xl border border-cyan-300/60 bg-cyan-400/15 px-5 text-[11px] font-black tracking-[0.2em] text-white transition hover:bg-cyan-400/25 disabled:opacity-50"
+                            >
+                              SUMMON
+                            </button>
+                          ) : sentRequests.includes(pl.user_id) ? (
                             <span className="flex-none text-[11px] font-bold tracking-[0.2em] text-emerald-300/80">
                               REQUEST SENT
                             </span>
@@ -1435,7 +1557,8 @@ export default function Order67Page() {
                             </>
                           )}
                         </li>
-                      ))}
+                        );
+                      })}
                     </ul>
                   )}
                 </section>
