@@ -18,12 +18,15 @@ import { TRAIL_SCHEMES, VEHICLES, schemeByKey, vehicleByKey } from './schemes';
 import { parseShadowMode } from './launch';
 import { loadPrefs, savePrefs, accountIdFromWindow } from './prefs';
 import { fx } from '@/lib/fx';
+import { useBikeMotion } from '@/lib/use-bike-motion';
+import { useFullscreen } from '@/lib/use-fullscreen';
 
 const css = {
   screen: {
     position: 'fixed', inset: 0, background: '#030612', color: '#dbeafe',
     fontFamily: 'system-ui, -apple-system, sans-serif', overflow: 'hidden',
     display: 'flex', flexDirection: 'column', alignItems: 'center',
+    touchAction: 'manipulation', // no double-tap zoom delay (double-tap = recenter)
   },
   center: { flex: 1, width: '100%', maxWidth: 560, padding: 20, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 },
   title: { fontSize: 30, fontWeight: 800, letterSpacing: 6, color: '#7dd3fc', textAlign: 'center', margin: '18px 0 2px' },
@@ -56,6 +59,20 @@ const css = {
   hudChip: {
     background: 'rgba(4,10,22,.72)', border: '1px solid #1e3a5f', borderRadius: 10,
     padding: '8px 14px', fontSize: 14, color: '#bae6fd', letterSpacing: 1, minWidth: 86, textAlign: 'center',
+  },
+  // circular ride-control buttons (hub circle language: 48px, cyan on dark)
+  circleBtn: (active) => ({
+    width: 48, height: 48, borderRadius: '50%', border: '1px solid #1e3a5f',
+    background: active ? 'rgba(14,42,77,.88)' : 'rgba(4,10,22,.72)',
+    color: '#7dd3fc', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontSize: 19, cursor: 'pointer', pointerEvents: 'auto', flexShrink: 0,
+    boxShadow: active ? '0 0 14px rgba(56,189,248,.45)' : 'none',
+  }),
+  toast: {
+    position: 'absolute', bottom: 132, left: '50%', transform: 'translateX(-50%)',
+    zIndex: 9, background: 'rgba(4,10,22,.88)', border: '1px solid #1e3a5f',
+    borderRadius: 10, padding: '10px 16px', fontSize: 13, color: '#bae6fd',
+    pointerEvents: 'none', textAlign: 'center', maxWidth: '82%', letterSpacing: 0.5,
   },
 };
 
@@ -98,10 +115,34 @@ function ShadowRealmInner() {
   const [lastLap, setLastLap] = useState(null);
   const [result, setResult] = useState(null);
 
-  const inputRef = useRef({ steer: 0, boost: false });
+  const inputRef = useRef({ steer: 0, boost: false, lookYaw: 0, lookPitch: 0 });
   const hudRef = useRef(null);
+  const containerRef = useRef(null);
+  // Manual-steer tracking: tilt steering never fights an active pad or key.
+  const manualSteer = useRef({ pads: 0, keys: false });
+  const touchSteerRef = useRef(false);
+  const setManualSteer = () => {
+    touchSteerRef.current = manualSteer.current.pads > 0 || manualSteer.current.keys;
+  };
   const track = useMemo(() => trackByKey(trackKey), [trackKey]);
+  const vehicle = useMemo(() => vehicleByKey(vehicleKey), [vehicleKey]);
   const scheme = useMemo(() => schemeByKey(schemeKey), [schemeKey]);
+
+  // Phone motion: tilt steering + gyro look-around (per-device preference).
+  const motion = useBikeMotion({ inputRef, hudRef, vehicle, stage, touchSteerRef });
+  // Immersion: true fullscreen where available, honest focus mode on iPhone.
+  const fsx = useFullscreen(containerRef);
+
+  // Calibrate the motion neutral the moment a run starts — the rider's
+  // current hold becomes zero, so the first tilt is intentional, not a jump.
+  // Also resume the listener if motion stayed armed across runs (RIDE AGAIN).
+  useEffect(() => {
+    if (stage === 'ride') {
+      motion.recalibrate();
+      motion.resumeIfArmed();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage]);
 
   const persist = (patch) => {
     if (typeof window === 'undefined') return;
@@ -136,18 +177,25 @@ function ShadowRealmInner() {
     return () => clearInterval(id);
   }, [stage]);
 
-  // keyboard (desktop)
+  // keyboard (desktop) — keys count as manual steering so tilt never fights them
   useEffect(() => {
     if (stage !== 'ride') return;
     const down = (e) => {
-      if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') inputRef.current.steer = -1;
-      if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') inputRef.current.steer = 1;
+      if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') {
+        manualSteer.current.keys = true; setManualSteer(); inputRef.current.steer = -1;
+      }
+      if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') {
+        manualSteer.current.keys = true; setManualSteer(); inputRef.current.steer = 1;
+      }
       if (e.key === 'Shift' || e.key === ' ') inputRef.current.boost = true;
       if (e.key === 'p' || e.key === 'P') setPaused((p) => !p);
       if (e.key === 'Escape') leave();
     };
     const up = (e) => {
-      if (['ArrowLeft', 'ArrowRight', 'a', 'A', 'd', 'D'].includes(e.key)) inputRef.current.steer = 0;
+      if (['ArrowLeft', 'ArrowRight', 'a', 'A', 'd', 'D'].includes(e.key)) {
+        manualSteer.current.keys = false; setManualSteer();
+        if (!touchSteerRef.current) inputRef.current.steer = 0;
+      }
       if (e.key === 'Shift' || e.key === ' ') inputRef.current.boost = false;
     };
     window.addEventListener('keydown', down);
@@ -186,6 +234,18 @@ function ShadowRealmInner() {
 
   const steerTo = (v) => {
     inputRef.current.steer = v;
+  };
+
+  // Steer-pad press tracking: tilt steering yields while any pad is held.
+  const padDown = (v) => {
+    manualSteer.current.pads += 1;
+    setManualSteer();
+    steerTo(v);
+  };
+  const padUp = () => {
+    manualSteer.current.pads = Math.max(0, manualSteer.current.pads - 1);
+    setManualSteer();
+    if (!touchSteerRef.current) steerTo(0);
   };
 
   // ---------------- menus ----------------
@@ -307,20 +367,27 @@ function ShadowRealmInner() {
 
   // ---------------- countdown / ride / finished ----------------
   const riding = stage === 'ride' || stage === 'finished';
+  const immersed = fsx.focusMode; // chrome hidden: true fullscreen or iPhone focus mode
   return (
-    <div style={css.screen}>
-      <RealmScene
-        track={track}
-        vehicleKey={vehicleKey}
-        schemeKey={schemeKey}
-        mode={mode}
-        laps={laps}
-        running={stage === 'ride' && !paused}
-        inputRef={inputRef}
-        hudRef={hudRef}
-        onLap={handleLap}
-        onFinish={handleFinish}
-      />
+    <div style={css.screen} ref={containerRef}>
+      <div
+        style={{ position: 'absolute', inset: 0 }}
+        onDoubleClick={() => { if (motion.motionOn) motion.recenter(); }}
+        title={motion.motionOn ? 'Double-tap to recenter view' : undefined}
+      >
+        <RealmScene
+          track={track}
+          vehicleKey={vehicleKey}
+          schemeKey={schemeKey}
+          mode={mode}
+          laps={laps}
+          running={stage === 'ride' && !paused}
+          inputRef={inputRef}
+          hudRef={hudRef}
+          onLap={handleLap}
+          onFinish={handleFinish}
+        />
+      </div>
 
       {stage === 'countdown' && (
         <div style={{
@@ -335,14 +402,16 @@ function ShadowRealmInner() {
 
       {riding && (
         <>
-          <div style={css.hud}>
-            {mode === 'race' && (
-              <div style={css.hudChip}>LAP {hud.lap}/{hud.lapsTotal}</div>
-            )}
-            <div style={css.hudChip}>{fmtTime(hud.time)}</div>
-            <div style={css.hudChip}>{hud.speed} MPH</div>
-          </div>
-          {lastLap && mode === 'race' && (
+          {!immersed && (
+            <div style={css.hud}>
+              {mode === 'race' && (
+                <div style={css.hudChip}>LAP {hud.lap}/{hud.lapsTotal}</div>
+              )}
+              <div style={css.hudChip}>{fmtTime(hud.time)}</div>
+              <div style={css.hudChip}>{hud.speed} MPH</div>
+            </div>
+          )}
+          {lastLap && mode === 'race' && !immersed && (
             <div style={{ position: 'absolute', top: 64, width: '100%', textAlign: 'center', zIndex: 5, pointerEvents: 'none', color: '#7dd3fc', fontSize: 13, letterSpacing: 2 }}>
               LAP {lastLap.lapNum} · {fmtTime(lastLap.lapTime)}
             </div>
@@ -351,17 +420,17 @@ function ShadowRealmInner() {
           <div style={{ position: 'absolute', inset: 0, zIndex: 6, pointerEvents: 'none' }}>
             <div
               style={{ position: 'absolute', left: 0, bottom: 0, width: '38%', height: '42%', pointerEvents: 'auto', touchAction: 'none', display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-start', padding: 18 }}
-              onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); steerTo(-1); }}
-              onPointerUp={() => steerTo(0)}
-              onPointerCancel={() => steerTo(0)}
+              onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); padDown(-1); }}
+              onPointerUp={padUp}
+              onPointerCancel={padUp}
             >
               <div style={{ width: 84, height: 84, borderRadius: '50%', border: '1px solid #1e3a5f', background: 'rgba(10,20,40,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30, color: '#38bdf8' }}>◀</div>
             </div>
             <div
               style={{ position: 'absolute', right: 0, bottom: 0, width: '38%', height: '42%', pointerEvents: 'auto', touchAction: 'none', display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end', padding: 18 }}
-              onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); steerTo(1); }}
-              onPointerUp={() => steerTo(0)}
-              onPointerCancel={() => steerTo(0)}
+              onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); padDown(1); }}
+              onPointerUp={padUp}
+              onPointerCancel={padUp}
             >
               <div style={{ width: 84, height: 84, borderRadius: '50%', border: '1px solid #1e3a5f', background: 'rgba(10,20,40,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30, color: '#38bdf8' }}>▶</div>
             </div>
@@ -373,18 +442,57 @@ function ShadowRealmInner() {
             >
               <div style={{ width: 76, height: 76, borderRadius: '50%', border: `2px solid ${scheme.primary}`, background: 'rgba(10,20,40,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: scheme.primary, letterSpacing: 1 }}>BOOST</div>
             </div>
-            <div style={{ position: 'absolute', top: 12, right: 12, display: 'flex', gap: 8, pointerEvents: 'auto' }}>
+            {/* ride controls: motion + immersion circles; pause/leave adapt to immersion */}
+            <div style={{ position: 'absolute', top: 12, right: 12, display: 'flex', gap: 8, pointerEvents: 'auto', zIndex: 7 }}>
               <button
-                style={{ ...css.chip, background: 'rgba(4,10,22,.72)' }}
-                onClick={() => setPaused((p) => !p)}
+                aria-label={motion.motionOn ? 'Turn off tilt steering and gyro look' : 'Turn on tilt steering and gyro look'}
+                title="Tilt steering + gyro look"
+                onClick={motion.toggleMotion}
+                style={css.circleBtn(motion.motionArmed)}
               >
-                {paused ? 'GO' : 'HOLD'}
+                ◐
               </button>
-              <button style={{ ...css.chip, background: 'rgba(4,10,22,.72)' }} onClick={leave}>
-                LEAVE
+              <button
+                aria-label={immersed ? 'Exit fullscreen ride' : 'Fullscreen ride'}
+                title={immersed ? 'Exit fullscreen' : 'Fullscreen'}
+                onClick={fsx.toggleFullscreen}
+                style={css.circleBtn(immersed)}
+              >
+                ⛶
               </button>
+              {motion.motionOn && (
+                <button
+                  aria-label="Recenter view and steering neutral"
+                  title="Recenter (or double-tap the track)"
+                  onClick={motion.recenter}
+                  style={css.circleBtn(false)}
+                >
+                  ⟳
+                </button>
+              )}
+              <button
+                aria-label={paused ? 'Resume ride' : 'Pause ride'}
+                title={paused ? 'Ride' : 'Hold'}
+                onClick={() => setPaused((p) => !p)}
+                style={css.circleBtn(paused)}
+              >
+                {paused ? '▶' : '❚❚'}
+              </button>
+              {!immersed && (
+                <button
+                  aria-label="Leave the realm"
+                  title="Leave"
+                  onClick={leave}
+                  style={css.circleBtn(false)}
+                >
+                  ✕
+                </button>
+              )}
             </div>
           </div>
+          {(motion.motionMsg || fsx.fsMsg) && (
+            <div style={css.toast}>{motion.motionMsg || fsx.fsMsg}</div>
+          )}
           {paused && (
             <div style={{ position: 'absolute', inset: 0, zIndex: 8, background: 'rgba(3,6,18,.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12 }}>
               <div style={{ fontSize: 22, letterSpacing: 4, color: '#7dd3fc' }}>HELD</div>
