@@ -16,6 +16,14 @@ import RealmScene from './scene';
 import { TRACKS, trackByKey } from './tracks';
 import { TRAIL_SCHEMES, VEHICLES, schemeByKey, vehicleByKey } from './schemes';
 import { parseShadowMode } from './launch';
+import {
+  STEER_LEFT,
+  STEER_RIGHT,
+  pressPad,
+  releasePad,
+  padSteer,
+  shouldShowTouchSteer,
+} from './steer-pads';
 import { loadPrefs, savePrefs, accountIdFromWindow } from './prefs';
 import { fx } from '@/lib/fx';
 import { useBikeMotion } from '@/lib/use-bike-motion';
@@ -130,6 +138,29 @@ function ShadowRealmInner() {
   const setManualSteer = () => {
     touchSteerRef.current = manualSteer.current.pads > 0 || manualSteer.current.keys;
   };
+  // Fallback steer pads: rendered ONLY while tilt is not driving (motion
+  // permission denied, no gyro). They feed the same manual-steer plumbing
+  // as the keyboard, so touch always wins over tilt — and the moment tilt
+  // starts driving, the pads unmount. heldPads keeps press order so the
+  // most-recently-pressed held direction wins under multi-touch.
+  const heldPads = useRef([]);
+  const syncPadSteer = () => {
+    manualSteer.current.pads = heldPads.current.length;
+    setManualSteer();
+    // Don't clobber a held key's steer when the last pad lifts.
+    if (heldPads.current.length > 0 || !manualSteer.current.keys) {
+      inputRef.current.steer = padSteer(heldPads.current);
+    }
+  };
+  const pressSteerPad = (dir) => (e) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    heldPads.current = pressPad(heldPads.current, dir);
+    syncPadSteer();
+  };
+  const releaseSteerPad = (dir) => () => {
+    heldPads.current = releasePad(heldPads.current, dir);
+    syncPadSteer();
+  };
   const track = useMemo(() => trackByKey(trackKey), [trackKey]);
   const vehicle = useMemo(() => vehicleByKey(vehicleKey), [vehicleKey]);
   const scheme = useMemo(() => schemeByKey(schemeKey), [schemeKey]);
@@ -146,9 +177,23 @@ function ShadowRealmInner() {
     if (stage === 'ride') {
       motion.recalibrate();
       motion.resumeIfArmed();
+      // Fresh run: no stale pad presses survive into the ride.
+      heldPads.current = [];
+      manualSteer.current.pads = 0;
+      setManualSteer();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage]);
+
+  // Tilt took over mid-press (or the pads unmounted for any reason): drop
+  // any in-flight pad presses so a stale held pad can never mute tilt.
+  useEffect(() => {
+    if (motion.motionOn && heldPads.current.length > 0) {
+      heldPads.current = [];
+      syncPadSteer();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [motion.motionOn]);
 
   const persist = (patch) => {
     if (typeof window === 'undefined') return;
@@ -238,8 +283,11 @@ function ShadowRealmInner() {
     setStage('finished');
   };
 
-  // Manual-steer tracking: tilt steering never fights an active key.
-  // (The old touch steer pads are gone — tilt is the steering now.)
+  // Manual-steer tracking: tilt steering never fights an active pad or key.
+  // The always-on pads are gone — tilt is the steering — but a fallback
+  // pad pair renders while tilt is not driving (see steer-pads.js), feeding
+  // this same plumbing so touch always wins and the pads vanish the moment
+  // tilt starts driving.
 
   // ---------------- menus ----------------
   if (stage === 'mode' || stage === 'track' || stage === 'garage') {
@@ -421,8 +469,37 @@ function ShadowRealmInner() {
               LAP {lastLap.lapNum} · {fmtTime(lastLap.lapTime)}
             </div>
           )}
-          {/* touch controls: boost only — steering is tilt now, camera is drag-to-orbit */}
+          {/* touch controls: BOOST + fallback steer pads (pads render only
+              while tilt is NOT driving — tilt riders never see them);
+              camera stays drag-to-orbit */}
           <div style={{ position: 'absolute', inset: 0, zIndex: 6, pointerEvents: 'none' }}>
+            {shouldShowTouchSteer(stage, motion.motionOn) && (
+              <div
+                style={{
+                  position: 'absolute', left: 18, bottom: 128, display: 'flex', gap: 12,
+                  pointerEvents: 'auto', touchAction: 'none',
+                }}
+              >
+                <div
+                  role="button"
+                  aria-label="Steer left (fallback — tilt steering is off)"
+                  onPointerDown={pressSteerPad(STEER_LEFT)}
+                  onPointerUp={releaseSteerPad(STEER_LEFT)}
+                  onPointerCancel={releaseSteerPad(STEER_LEFT)}
+                >
+                  <div style={{ width: 76, height: 76, borderRadius: '50%', border: `2px solid ${scheme.primary}`, background: 'rgba(10,20,40,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30, fontWeight: 700, color: scheme.primary }}>‹</div>
+                </div>
+                <div
+                  role="button"
+                  aria-label="Steer right (fallback — tilt steering is off)"
+                  onPointerDown={pressSteerPad(STEER_RIGHT)}
+                  onPointerUp={releaseSteerPad(STEER_RIGHT)}
+                  onPointerCancel={releaseSteerPad(STEER_RIGHT)}
+                >
+                  <div style={{ width: 76, height: 76, borderRadius: '50%', border: `2px solid ${scheme.primary}`, background: 'rgba(10,20,40,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30, fontWeight: 700, color: scheme.primary }}>›</div>
+                </div>
+              </div>
+            )}
             <div
               style={{ position: 'absolute', right: 18, bottom: 128, pointerEvents: 'auto', touchAction: 'none' }}
               onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); inputRef.current.boost = true; try { fx.boost(); } catch {} }}
