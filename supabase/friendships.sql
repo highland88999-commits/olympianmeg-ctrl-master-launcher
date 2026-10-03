@@ -66,3 +66,12 @@ drop policy if exists "friendships party delete" on public.friendships;
 create policy "friendships party delete"
   on public.friendships for delete
   using (auth.uid() = requester_id or auth.uid() = addressee_id);
+
+-- UNIFICATION NOTE (2026-10-02): `friendships` is the single canonical friend
+-- graph for the whole platform — Order 67, the hub notification bell, profile
+-- pages, and battleship all read/write here via lib/friends.js + /api/friends/*.
+-- The legacy `olympus_battleship_friends` table (0 live rows) is RETIRED: no
+-- code references it anymore. It may be dropped once the unified code is live:
+--   drop table if exists public.olympus_battleship_friends;
+-- `ares_blocks` is unrelated (IP-based ARES security blocks, not user blocks)
+-- and stays as-is.
