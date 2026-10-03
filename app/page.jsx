@@ -125,14 +125,18 @@ function NexusHub() {
   const lastLook = useRef({ x: 0, y: 0 });
   const isLooking = useRef(false);
 
-  // Phone-tilt vertical control: writes to controlsRef.current.moveY (the
-  // joystick's channel) only when flightAxis is 'vertical'; the joystick
-  // always wins while active. See lib/use-tilt.js.
-  const { tiltOn, tiltArmed, tiltMsg, toggleTilt } = useTilt({
+  // Phone-tilt vertical control with AUTOMATIC flight axis (Merlin: no
+  // buttons — "tilt instead of a button"). The axis follows the phone: tilt
+  // beyond the ±8° dead-zone and vertical control engages automatically;
+  // hold the phone level and flight returns to horizontal. Writes to
+  // controlsRef.current.moveY (the joystick's channel); the joystick always
+  // wins while active. See lib/use-tilt.js.
+  const { tiltMsg } = useTilt({
     controlsRef,
     flightAxis,
     appState,
     joyActive,
+    onAutoAxis: setFlightAxis,
   });
 
   // Riding the TRON bike (drives the spawn circle's glow state).
@@ -479,35 +483,18 @@ function NexusHub() {
             )}
           </div>
 
-          {/* FLIGHT AXIS — 56px circle. The live streak canvas IS the state
-              readout: streaks stream along the current axis. Same toggle. */}
-          <button
-            onClick={() => { fx.tap(); setFlightAxis(m => m === 'horizontal' ? 'vertical' : 'horizontal'); }}
-            aria-label={`Flight axis: ${flightAxis}. Activate to switch axis.`}
-            title={`Flight axis: ${flightAxis}`}
-            className="absolute top-5 right-5 z-50 w-14 h-14 rounded-full flex items-center justify-center overflow-hidden border-2 border-cyan-500/50 bg-zinc-950/90 shadow-[0_0_20px_rgba(0,242,255,0.15)] backdrop-blur-md hover:bg-cyan-900/40 hover:scale-105 active:scale-95 transition-all ui-element pointer-events-auto"
+          {/* FLIGHT AXIS — passive state readout (no button: the axis is
+              automatic now — tilt the phone beyond the dead-zone for
+              vertical, hold it level for horizontal). The live streak
+              canvas still shows the current axis. */}
+          <div
+            role="status"
+            aria-label={`Flight axis: ${flightAxis}`}
+            className="absolute top-5 right-5 z-50 w-14 h-14 rounded-full flex items-center justify-center overflow-hidden border-2 border-cyan-500/50 bg-zinc-950/90 shadow-[0_0_20px_rgba(0,242,255,0.15)] backdrop-blur-md ui-element pointer-events-none"
           >
             <FlightAxisStreaks axis={flightAxis} />
-          </button>
+          </div>
 
-          {/* Phone-tilt vertical control — 48px circle beside FLIGHT AXIS.
-              When the axis is vertical, tilting the phone flies the vertical
-              level (same moveY channel as the joystick). Tap: on iOS the
-              motion permission is requested from this gesture. */}
-          <button
-            onClick={toggleTilt}
-            aria-label={tiltOn ? 'Tilt control on — tap to disable' : 'Tilt control off — tap to enable'}
-            title="Tilt to fly vertical"
-            className={`absolute top-6 right-[5.5rem] z-50 w-12 h-12 rounded-full flex items-center justify-center border-2 backdrop-blur-md hover:scale-105 active:scale-95 transition-all ui-element pointer-events-auto ${
-              tiltOn
-                ? 'border-cyan-300 bg-cyan-950/80 shadow-[0_0_24px_rgba(0,242,255,0.5)]'
-                : tiltArmed
-                  ? 'border-cyan-500/50 bg-zinc-950/90 shadow-[0_0_16px_rgba(0,242,255,0.25)]'
-                  : 'border-zinc-700 bg-zinc-950/90 shadow-[0_0_12px_rgba(0,0,0,0.4)]'
-            }`}
-          >
-            <span aria-hidden="true" className="text-2xl text-cyan-300">◐</span>
-          </button>
           {/* Transient tilt messages — auto-dismiss, never a pop-up. */}
           {tiltMsg && (
             <div className="absolute top-5 left-1/2 -translate-x-1/2 z-[60] pointer-events-none" role="status" aria-live="polite">
