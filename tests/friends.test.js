@@ -16,10 +16,13 @@ import {
   validateBlockBody,
   isBlockedRow,
   isBlockedPair,
+  profileUrl,
+  validateRemoveFriendBody,
   createFriendRequest,
   respondToFriendship,
   blockUser,
   unblockUser,
+  removeFriend,
   listFriends,
   listBlockedUsers,
   listPendingRequests,
@@ -96,10 +99,18 @@ t('null for null', pickProfile(null) === null);
 
 // --- toFriendView ---
 t('view from profile', JSON.stringify(toFriendView(UUID_A, per)) === JSON.stringify({
-  user_id: UUID_A, username: 'merlin', display_name: 'merlin', avatar_url: null,
+  user_id: UUID_A, username: 'merlin', display_name: 'merlin', avatar_url: null, type: 'personal',
 }));
 t('view falls back to display_name', toFriendView(UUID_A, { username: 'u', display_name: 'Merlin!' }).display_name === 'Merlin!');
 t('view survives null profile', toFriendView(UUID_A, null).username === 'player');
+t('view carries the business type', toFriendView(UUID_A, biz).type === 'business');
+t('view type null when no profile', toFriendView(UUID_A, null).type === null);
+
+// --- profileUrl (public profile link, always resolves) ---
+t('profileUrl personal has no query', profileUrl(toFriendView(UUID_A, per)) === '/u/merlin');
+t('profileUrl business uses ?v=business', profileUrl(toFriendView(UUID_A, biz)) === '/u/merlin-biz?v=business');
+t('profileUrl encodes the username', profileUrl({ username: 'a b&c', type: null }) === '/u/a%20b%26c');
+t('profileUrl survives null view', profileUrl(null) === '/u/player');
 
 // --- blocking: pure predicates ---
 t('block body ok', validateBlockBody({ friend_id: UUID_B }).ok === true);
@@ -359,6 +370,32 @@ async function expectCoded(promise, status, label) {
   const reAdd = await createFriendRequest(admin, { requesterId: UUID_C, addresseeId: UUID_A });
   t('unblock does not auto re-friend (re-add works fresh)', reAdd.created === true && reAdd.friendship.status === 'pending');
 
+  // --- removeFriend (unfriend) ---
+  t('remove body ok', validateRemoveFriendBody({ friend_id: UUID_D }).ok === true);
+  t('remove body rejects bad uuid', validateRemoveFriendBody({ friend_id: 'x' }).ok === false);
+  t('remove body rejects missing', validateRemoveFriendBody(null).ok === false);
+  const r4 = await createFriendRequest(admin, { requesterId: UUID_A, addresseeId: UUID_D });
+  await respondToFriendship(admin, { userId: UUID_D, friendshipId: r4.friendship.id, action: 'accept' });
+  const rem = await removeFriend(admin, { userId: UUID_A, friendId: UUID_D });
+  t('remove deletes the accepted row', rem.ok === true && rem.friend_id === UUID_D);
+  const goneMine = await listFriends(admin, { userId: UUID_A });
+  t('removed friend leaves my friends list', goneMine.every((f) => f.user_id !== UUID_D));
+  const goneOther = await listFriends(admin, { userId: UUID_D });
+  t('removed friend leaves the other side too', goneOther.every((f) => f.user_id !== UUID_A));
+  await expectCoded(
+    removeFriend(admin, { userId: UUID_A, friendId: UUID_D }), 404, 'removing a non-friend 404s'
+  );
+  const r5 = await createFriendRequest(admin, { requesterId: UUID_A, addresseeId: UUID_D });
+  await expectCoded(
+    removeFriend(admin, { userId: UUID_A, friendId: UUID_D }), 404, 'remove only touches accepted rows (pending 404s)'
+  );
+  await respondToFriendship(admin, { userId: UUID_D, friendshipId: r5.friendship.id, action: 'accept' });
+  const rem2 = await removeFriend(admin, { userId: UUID_D, friendId: UUID_A });
+  t('remove works from the addressee side', rem2.ok === true);
+  await expectCoded(
+    removeFriend(admin, { userId: UUID_A, friendId: UUID_A }), 400, 'cannot remove yourself'
+  );
+
   // --- block silences notifications, never notifies the blocked user ---
   const admin2 = makeFakeAdmin({
     user_profiles: profiles([UUID_A, UUID_B]),
@@ -372,6 +409,120 @@ async function expectCoded(promise, status, label) {
   t('blocking writes no notification for the blocked user', notifCountAfter === notifCountBefore);
   const silenced = admin2._tables.notifications.find((n) => n.id === 'n1');
   t('blocking quietly dismisses pending request notifications', silenced.read === true && silenced.meta.handled === true);
+}
+
+// Worker A test additions — append to tests/friends.test.js (before the final
+// console.log / process.exit lines) and add the import at the top.
+// These cover: (a) the no-cache helper, (b) VIEW button placement,
+// (c) user_id in the self-diagnosing GET responses.
+
+import {
+  NO_CACHE_HEADERS,
+  noCacheHeaders,
+  noCache,
+} from '../lib/no-cache.js';
+
+// --- (a) no-cache helper sets the right headers ---
+t('no-cache policy is the full no-store directive set',
+  NO_CACHE_HEADERS['Cache-Control'] === 'no-store, no-cache, must-revalidate, proxy-revalidate'
+  && NO_CACHE_HEADERS['Pragma'] === 'no-cache'
+  && NO_CACHE_HEADERS['Expires'] === '0');
+
+{
+  const h = noCacheHeaders();
+  t('noCacheHeaders() yields the Cache-Control no-store policy',
+    h.get('Cache-Control') === 'no-store, no-cache, must-revalidate, proxy-revalidate'
+    && h.get('Pragma') === 'no-cache'
+    && h.get('Expires') === '0');
+  const h2 = noCacheHeaders({ 'X-Keep': 'yes' });
+  t('noCacheHeaders() preserves caller headers while forcing the policy',
+    h2.get('X-Keep') === 'yes' && h2.get('Cache-Control').includes('no-store'));
+}
+
+{
+  // every route response — success or error — gets stamped, nothing else touched
+  const inner = new Response(JSON.stringify({ ok: true }));
+  const out = await noCache(async () => inner)({}, {});
+  t('noCache() stamps no-store onto a real Response',
+    out === inner
+    && out.headers.get('Cache-Control') === 'no-store, no-cache, must-revalidate, proxy-revalidate'
+    && out.headers.get('Pragma') === 'no-cache');
+  const passthrough = await noCache(async () => ({ status: 500, body: {} }))({}, {});
+  t('noCache() passes non-Response shapes through untouched', passthrough.status === 500);
+}
+
+// --- (a, source-level) every friends + notifications route is composed with noCache ---
+{
+  const ROUTE_FILES = [
+    '../app/api/friends/route.js',
+    '../app/api/friends/search/route.js',
+    '../app/api/friends/pending/route.js',
+    '../app/api/friends/request/route.js',
+    '../app/api/friends/respond/route.js',
+    '../app/api/friends/block/route.js',
+    '../app/api/friends/unblock/route.js',
+    '../app/api/friends/blocked/route.js',
+    '../app/api/friends/invite/route.js',
+    '../app/api/notifications/route.js',
+  ];
+  let allOk = true;
+  for (const p of ROUTE_FILES) {
+    const s = readFileSync(new URL(p, import.meta.url), 'utf8');
+    const importsHelper = s.includes("from '@/lib/no-cache'") && s.includes('noCache(');
+    const wrapsEveryHandler =
+      (s.match(/export const (GET|POST|PATCH) = noCache\(apiGuard\(/g) || []).length ===
+      (s.match(/export const (GET|POST|PATCH) = /g) || []).length;
+    if (!importsHelper || !wrapsEveryHandler) {
+      console.error(`  route missing noCache(apiGuard(...)) wrap: ${p}`);
+      allOk = false;
+    }
+  }
+  t('all 10 friends/notifications route files wrap every handler in noCache', allOk);
+}
+
+// --- (a, source-level) client fetch helpers bypass the HTTP cache ---
+for (const p of ['../lib/friends.js', '../lib/notifications.js']) {
+  const s = readFileSync(new URL(p, import.meta.url), 'utf8');
+  t(`${p} authed() fetches with cache: 'no-store'`, s.includes("cache: 'no-store'"));
+}
+
+// --- (c) self-diagnosing API: the three GET routes include the server-resolved user_id ---
+for (const [p, label] of [
+  ['../app/api/friends/route.js', 'GET /api/friends'],
+  ['../app/api/friends/search/route.js', 'GET /api/friends/search'],
+  ['../app/api/friends/pending/route.js', 'GET /api/friends/pending'],
+]) {
+  const s = readFileSync(new URL(p, import.meta.url), 'utf8');
+  t(`${label} response includes the server-resolved user_id`, s.includes('user_id: auth.user.id'));
+}
+
+// --- (b) VIEW button placement in the Order 67 friends sheet ---
+{
+  const page = readFileSync(new URL('../app/order-67/page.jsx', import.meta.url), 'utf8');
+  t('VIEW buttons navigate to the public profile route',
+    page.includes('/u/${encodeURIComponent('));
+  const flat = (s) => s.replace(/\s+/g, '');
+  const inOrder = (section, labels) => {
+    const f = flat(section);
+    let prev = -1;
+    for (const label of labels) {
+      const i = f.indexOf(label, prev + 1);
+      if (i === -1 || i <= prev) return false;
+      prev = i;
+    }
+    return true;
+  };
+  const friendsSection = page.split('<section aria-label="Your friends">')[1].split('<section aria-label="Search players">')[0];
+  const searchSection = page.split('<section aria-label="Search players">')[1].split('<section aria-label="Friend requests">')[0];
+  // document order within each section: primary action, then VIEW, then BLOCK
+  t('YOUR FRIENDS rows: SUMMON, then VIEW, then BLOCK',
+    inOrder(friendsSection, ['SUMMON', 'VIEW', 'BLOCK']));
+  t('SEARCH already-friend rows: SUMMON, then VIEW, then BLOCK',
+    inOrder(searchSection, ['SUMMON', 'VIEW', 'BLOCK']));
+  t('SEARCH new-player rows: ADD, then VIEW, then BLOCK',
+    inOrder(searchSection, ['>ADD<', '>VIEW<', 'BLOCK']));
+  t('BLOCK keeps the two-tap SURE? confirm on both row types',
+    (friendsSection.match(/SURE\?/g) || []).length >= 1 && (searchSection.match(/SURE\?/g) || []).length >= 1);
 }
 
 console.log(`\nfriends: ${passed} passed, ${failed} failed`);

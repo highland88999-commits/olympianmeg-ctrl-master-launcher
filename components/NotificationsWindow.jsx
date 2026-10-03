@@ -316,6 +316,17 @@ export default function NotificationsWindow() {
                             {n.body && (
                               <p className="text-[13px] text-zinc-400 leading-relaxed mt-1">{n.body}</p>
                             )}
+                            {(n.meta?.kind === 'friend-request' || n.meta?.kind === 'friend-accepted') && n.actor_username ? (
+                              <div className="mt-2">
+                                <a
+                                  href={`/u/${encodeURIComponent(n.actor_username)}${n.actor_profile_type === 'business' ? '?v=business' : ''}`}
+                                  data-ui="notif-view-profile"
+                                  className="inline-flex min-h-[44px] items-center rounded-lg border border-amber-200/40 px-5 text-xs font-bold uppercase tracking-widest text-amber-200 transition-all hover:border-amber-200/80 hover:text-amber-100"
+                                >
+                                  View profile
+                                </a>
+                              </div>
+                            ) : null}
                             {n.type === 'system' && n.meta?.kind === 'order67-invite' && n.meta?.room_code && !n.meta?.handled ? (
                               <a
                                 href={`/order-67?code=${n.meta.room_code}`}

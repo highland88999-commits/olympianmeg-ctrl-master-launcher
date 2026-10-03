@@ -6,9 +6,10 @@ import { NextResponse } from 'next/server';
 import { getUserFromRequest } from '@/lib/economy/auth';
 import { getServiceClient } from '@/lib/economy/supabase';
 import { apiGuard } from '@/lib/api-guard';
+import { noCache } from '@/lib/no-cache';
 import { listPendingRequests } from '@/lib/friends';
 
-export const GET = apiGuard(async function GET(req) {
+export const GET = noCache(apiGuard(async function GET(req) {
   const auth = await getUserFromRequest(req);
   if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
@@ -16,5 +17,5 @@ export const GET = apiGuard(async function GET(req) {
   if (!admin) return NextResponse.json({ error: 'Friends are not connected yet.', status: 503 });
 
   const requests = await listPendingRequests(admin, { userId: auth.user.id });
-  return NextResponse.json({ ok: true, requests });
-});
+  return NextResponse.json({ ok: true, requests, user_id: auth.user.id });
+}));

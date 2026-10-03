@@ -8,9 +8,10 @@ import { NextResponse } from 'next/server';
 import { getUserFromRequest } from '@/lib/economy/auth';
 import { getServiceClient } from '@/lib/economy/supabase';
 import { apiGuard } from '@/lib/api-guard';
+import { noCache } from '@/lib/no-cache';
 import { validateBlockBody, unblockUser } from '@/lib/friends';
 
-export const POST = apiGuard(async function POST(req) {
+export const POST = noCache(apiGuard(async function POST(req) {
   const auth = await getUserFromRequest(req);
   if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
@@ -26,4 +27,4 @@ export const POST = apiGuard(async function POST(req) {
   } catch (e) {
     return NextResponse.json({ error: e.message || 'Could not unblock this player.' }, { status: e.status || 500 });
   }
-});
+}));

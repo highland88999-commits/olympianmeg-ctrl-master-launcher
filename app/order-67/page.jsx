@@ -17,6 +17,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { BackButton } from '@/components/ui';
 import { supabase } from '@/lib/supabase';
 import { createThroneRoom } from './throne-room';
@@ -128,7 +129,12 @@ export default function Order67Page() {
   const [searchingPlayers, setSearchingPlayers] = useState(false);
   const [sentRequests, setSentRequests] = useState([]);
   const [summoningName, setSummoningName] = useState('');
+  const router = useRouter();
   const [confirmBlockId, setConfirmBlockId] = useState(null);
+  // VIEW button: jump to the player's public profile (/u/[username]).
+  const viewPlayer = (username) => {
+    if (username) router.push(`/u/${encodeURIComponent(username)}`);
+  };
   const [guests, setGuests] = useState([]); // [{ id, name, code, live }]
   // compact-on-join: slim header while a call owns the screen
   const [headerExpanded, setHeaderExpanded] = useState(false);
@@ -1483,6 +1489,13 @@ export default function Order67Page() {
                             SUMMON
                           </button>
                           <button
+                            onClick={() => viewPlayer(f.username)}
+                            aria-label={`View profile of ${f.display_name || f.username}`}
+                            className="min-h-[44px] flex-none rounded-xl border border-white/20 px-4 text-[11px] font-bold tracking-[0.15em] text-zinc-300 transition hover:border-cyan-300/60 hover:text-white"
+                          >
+                            VIEW
+                          </button>
+                          <button
                             onClick={() => doBlockUser(f.user_id)}
                             aria-label={`Block ${f.display_name || f.username}`}
                             className={`min-h-[44px] flex-none rounded-xl border px-4 text-[11px] font-bold tracking-[0.15em] transition ${
@@ -1543,6 +1556,7 @@ export default function Order67Page() {
                             <span className="block truncate text-[11px] text-zinc-500">@{pl.username}</span>
                           </span>
                           {alreadyFriend ? (
+                            <>
                             <button
                               onClick={() => executeOrder67({ user_id: pl.user_id, display_name: pl.display_name, username: pl.username })}
                               disabled={busy}
@@ -1550,6 +1564,25 @@ export default function Order67Page() {
                             >
                               SUMMON
                             </button>
+                            <button
+                              onClick={() => viewPlayer(pl.username)}
+                              aria-label={`View profile of ${pl.display_name || pl.username}`}
+                              className="min-h-[44px] flex-none rounded-xl border border-white/20 px-4 text-[11px] font-bold tracking-[0.15em] text-zinc-300 transition hover:border-cyan-300/60 hover:text-white"
+                            >
+                              VIEW
+                            </button>
+                            <button
+                              onClick={() => doBlockUser(pl.user_id)}
+                              aria-label={`Block ${pl.display_name || pl.username}`}
+                              className={`min-h-[44px] flex-none rounded-xl border px-4 text-[11px] font-bold tracking-[0.15em] transition ${
+                                confirmBlockId === pl.user_id
+                                  ? 'border-red-400/70 bg-red-500/20 text-red-200'
+                                  : 'border-white/10 text-zinc-500 hover:border-red-400/50 hover:text-red-300'
+                              }}`}
+                            >
+                              {confirmBlockId === pl.user_id ? 'SURE?' : 'BLOCK'}
+                            </button>
+                            </>
                           ) : sentRequests.includes(pl.user_id) ? (
                             <span className="flex-none text-[11px] font-bold tracking-[0.2em] text-emerald-300/80">
                               REQUEST SENT
@@ -1561,6 +1594,13 @@ export default function Order67Page() {
                                 className="min-h-[44px] flex-none rounded-xl border border-white/20 px-5 text-[11px] font-bold tracking-[0.2em] text-cyan-200 transition hover:border-cyan-300/60"
                               >
                                 ADD
+                              </button>
+                              <button
+                                onClick={() => viewPlayer(pl.username)}
+                                aria-label={`View profile of ${pl.display_name || pl.username}`}
+                                className="min-h-[44px] flex-none rounded-xl border border-white/20 px-4 text-[11px] font-bold tracking-[0.15em] text-zinc-300 transition hover:border-cyan-300/60 hover:text-white"
+                              >
+                                VIEW
                               </button>
                               <button
                                 onClick={() => doBlockUser(pl.user_id)}

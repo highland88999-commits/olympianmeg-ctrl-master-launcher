@@ -12,13 +12,14 @@ import { NextResponse } from 'next/server';
 import { getUserFromRequest } from '@/lib/economy/auth';
 import { getServiceClient } from '@/lib/economy/supabase';
 import { apiGuard } from '@/lib/api-guard';
+import { noCache } from '@/lib/no-cache';
 import {
   validateNotificationCreate,
   validateNotificationPatch,
 } from '@/lib/notifications';
-import { answerFriendRequest } from '@/lib/friends';
+import { answerFriendRequest, pickProfile } from '@/lib/friends';
 
-export const GET = apiGuard(async function GET(req) {
+export const GET = noCache(apiGuard(async function GET(req) {
   const auth = await getUserFromRequest(req);
   if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
@@ -34,14 +35,35 @@ export const GET = apiGuard(async function GET(req) {
   if (error) throw error;
 
   const items = data || [];
+
+  // Profile-link enrichment: give every notification the actor's public
+  // username (personal profile preferred — that's what /u/[username]
+  // resolves; actor_profile_type covers business-only actors so links never
+  // 404). One batched query for the whole page.
+  const actorIds = [...new Set(items.map((n) => n.actor_id).filter(Boolean))];
+  const byActor = {};
+  if (actorIds.length) {
+    const { data: profs, error: pErr } = await admin
+      .from('user_profiles')
+      .select('user_id, username, type')
+      .in('user_id', actorIds);
+    if (pErr) throw pErr;
+    for (const p of profs || []) (byActor[p.user_id] = byActor[p.user_id] || []).push(p);
+  }
+  for (const n of items) {
+    const picked = pickProfile(byActor[n.actor_id] || []);
+    n.actor_username = (picked && picked.username) || null;
+    n.actor_profile_type = (picked && picked.type) || null;
+  }
+
   return NextResponse.json({
     ok: true,
     items,
     unread: items.filter((n) => !n.read).length,
   });
-});
+}));
 
-export const POST = apiGuard(async function POST(req) {
+export const POST = noCache(apiGuard(async function POST(req) {
   const auth = await getUserFromRequest(req);
   if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
@@ -68,9 +90,9 @@ export const POST = apiGuard(async function POST(req) {
     .single();
   if (error) throw error;
   return NextResponse.json({ ok: true, notification: data });
-});
+}));
 
-export const PATCH = apiGuard(async function PATCH(req) {
+export const PATCH = noCache(apiGuard(async function PATCH(req) {
   const auth = await getUserFromRequest(req);
   if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
@@ -134,5 +156,5 @@ export const PATCH = apiGuard(async function PATCH(req) {
     if (error) throw error;
   }
   return NextResponse.json({ ok: true, handled: (rows || []).map((r) => r.id) });
-});
+}));
 
