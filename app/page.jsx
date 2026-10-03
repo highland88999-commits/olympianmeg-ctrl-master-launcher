@@ -438,10 +438,28 @@ function NexusHub() {
       
       {(user || cloudOffline) && (appState === 'hub_intro' || appState === 'hub_freeroam') && (
         <>
-          <div className="absolute bottom-[calc(8.75rem+env(safe-area-inset-bottom))] left-5 z-[80] flex flex-col items-start gap-4 ui-element pointer-events-auto">
-            {isMenuExpanded ? (
-              <div className="bg-zinc-950/90 border border-zinc-800 rounded-xl p-4 shadow-[0_0_30px_rgba(0,0,0,0.5)] backdrop-blur-md w-[min(16rem,calc(100vw-2.5rem))] max-h-[70dvh] overflow-y-auto custom-scrollbar flex flex-col gap-5">
-                <div className="flex justify-between items-center border-b border-zinc-800 pb-2">
+          {isMenuExpanded ? (
+            /* Program menu — fullscreen corner-to-corner overlay above all hub
+               UI (Merlin 2026-10-03: resolves visibility/CSS overlap issues).
+               Minimize ([_]) collapses it back into the portal button and the
+               hub UI reappears untouched beneath. */
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="Program menu"
+              className="fixed inset-0 z-[40000] ui-element"
+            >
+              <div className="absolute inset-0 bg-zinc-950/[0.98]" aria-hidden="true" />
+              <div
+                className="relative h-full flex flex-col gap-5 p-4 sm:p-6"
+                style={{
+                  paddingTop: 'max(1rem, env(safe-area-inset-top))',
+                  paddingBottom: 'max(1rem, env(safe-area-inset-bottom))',
+                  paddingLeft: 'max(1rem, env(safe-area-inset-left))',
+                  paddingRight: 'max(1rem, env(safe-area-inset-right))',
+                }}
+              >
+                <div className="flex justify-between items-center border-b border-zinc-800 pb-2 shrink-0">
                   <div className="flex flex-col">
                     <span className="text-xs font-bold tracking-widest text-white uppercase">Select your satellites</span>
                     <span className="text-[9px] font-mono text-cyan-400 tracking-wider uppercase">{t('ui.operator')}: {user || 'GUEST'}</span>
@@ -451,37 +469,41 @@ function NexusHub() {
                     <button onClick={() => { fx.menuClose(); setIsMenuExpanded(false); }} title={t('ui.collapse')} className="text-zinc-500 hover:text-white text-xs px-1">[_]</button>
                   </div>
                 </div>
-                
+
                 {/* Satellite menu: select your satellites. Each satellite row opens
                     a dropdown of the programming inside it; tapping a program
                     launches it through the one menu-to-satellite function,
                     launchPocketUniverse. */}
-                <SatelliteMenu
-                  t={t}
-                  satIndex={satIndex}
-                  onLaunch={(route, key, pos) => launchPocketUniverse(route, key, pos)}
-                />
+                <div className="flex-1 min-h-0">
+                  <SatelliteMenu
+                    t={t}
+                    satIndex={satIndex}
+                    onLaunch={(route, key, pos) => launchPocketUniverse(route, key, pos)}
+                  />
+                </div>
 
                 {/* DISCONNECT — signed-in users only; guests have nothing to disconnect */}
                 {user && (
-                <button 
+                <button
                   onClick={handleSignOut}
-                  className="w-full py-2.5 text-[10px] font-bold tracking-widest text-red-400 uppercase transition-all border border-red-500/30 rounded bg-red-950/20 hover:bg-red-900/40 hover:border-red-500/60 mt-1"
+                  className="w-full py-2.5 text-[10px] font-bold tracking-widest text-red-400 uppercase transition-all border border-red-500/30 rounded bg-red-950/20 hover:bg-red-900/40 hover:border-red-500/60 mt-1 shrink-0"
                 >
                   {t('ui.disconnect')}
                 </button>
                 )}
               </div>
-            ) : (
-              <button 
+            </div>
+          ) : (
+            <div className="absolute bottom-[calc(8.75rem+env(safe-area-inset-bottom))] left-5 z-[80] flex flex-col items-start gap-4 ui-element pointer-events-auto">
+              <button
                 onClick={() => { fx.menuOpen(); setIsMenuExpanded(true); }}
                 aria-label="Open menu"
                 className="w-16 h-16 rounded-full flex items-center justify-center shadow-[0_0_25px_rgba(0,242,255,0.4)] hover:scale-105 transition-all overflow-hidden border-2 border-cyan-500 relative bg-cyan-950/60"
               >
                 <video src="/chess/assets/effects/gemini_generated_video_758D2655.mp4" autoPlay loop muted playsInline className="absolute inset-0 w-full h-full object-cover scale-110" />
               </button>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* FLIGHT AXIS — passive state readout (no button: the axis is
               automatic now — tilt the phone beyond the dead-zone for

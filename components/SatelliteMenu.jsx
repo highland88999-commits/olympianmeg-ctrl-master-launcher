@@ -21,8 +21,10 @@ import { fx } from '@/lib/fx';
  *   motion: max-height 0 → open on an expo-out curve
  *   (cubic-bezier(0.19, 1, 0.22, 1), 0.6s), padding easing with it.
  * - The whole thing lives INSIDE the menu window opened by the floating
- *   button — the slider is anchored to that frame, never a full-screen
- *   takeover or a detached edge drawer.
+ *   button. Since 2026-10-03 the menu window is a fullscreen corner-to-corner
+ *   overlay above all hub UI (Merlin: resolves visibility/CSS overlap); the
+ *   slider rail stays anchored to the top of that overlay and the items list
+ *   scrolls beneath it.
  * - Launching still goes through the single menu-to-satellite function
  *   passed in as onLaunch (the parent's launchPocketUniverse).
  * - Each satellite row carries Merlin's 2026-10-01 transfer art as its
