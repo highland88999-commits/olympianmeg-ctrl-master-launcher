@@ -11,6 +11,7 @@ import { apiGuard } from '@/lib/api-guard';
 import {
   validateCallInvite,
   listMyFriendships,
+  isBlockedPair,
   counterpartId,
   getDisplayProfile,
   notifyCallInvite,
@@ -27,6 +28,10 @@ export const POST = apiGuard(async function POST(req) {
   if (!admin) return NextResponse.json({ error: 'Friends are not connected yet.', status: 503 });
 
   const mine = await listMyFriendships(admin, auth.user.id);
+  // Blocked pairs are severed both ways — say so plainly, never an infinite spinner.
+  if (isBlockedPair(mine, auth.user.id, v.value.friend_id)) {
+    return NextResponse.json({ error: 'This player is unavailable.' }, { status: 403 });
+  }
   const isFriend = mine.some(
     (r) => r.status === 'accepted' && counterpartId(r, auth.user.id) === v.value.friend_id
   );

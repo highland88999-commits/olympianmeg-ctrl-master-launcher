@@ -121,6 +121,7 @@ export default function Order67Page() {
   const [friendsOpen, setFriendsOpen] = useState(false);
   const [friendsMode, setFriendsMode] = useState('summon'); // summon (idle) | invite (mid-call)
   const [friends, setFriends] = useState([]);
+  const [friendsError, setFriendsError] = useState('');
   const [pendingRequests, setPendingRequests] = useState([]);
   const [playerQuery, setPlayerQuery] = useState('');
   const [playerResults, setPlayerResults] = useState([]);
@@ -434,12 +435,20 @@ export default function Order67Page() {
   const refreshFriends = async () => {
     try {
       const token = await getToken();
-      if (!token) return;
+      if (!token) {
+        // No session: say so plainly instead of faking an empty friends list.
+        if (mountedRef.current) setFriendsError('Sign in to see your friends.');
+        return;
+      }
       const [f, p] = await Promise.all([fetchFriends(token), fetchPendingRequests(token)]);
       if (!mountedRef.current) return;
       setFriends(f.friends || []);
       setPendingRequests(p.requests || []);
-    } catch { /* offline — keep last state */ }
+      setFriendsError('');
+    } catch (e) {
+      // Honest failure, never a fake "No friends yet".
+      if (mountedRef.current) setFriendsError(e?.message ? String(e.message) : 'Could not load friends.');
+    }
   };
 
   const openFriends = () => {
@@ -1425,7 +1434,17 @@ export default function Order67Page() {
             {/* your friends */}
             <section aria-label="Your friends">
               <h3 className="mb-2 text-[10px] font-bold tracking-[0.3em] text-cyan-300/70">YOUR FRIENDS</h3>
-              {friends.length === 0 ? (
+              {friendsError ? (
+                <div className="flex flex-col gap-2">
+                  <p className="text-xs leading-relaxed text-amber-200/80">{friendsError}</p>
+                  <button
+                    onClick={refreshFriends}
+                    className="min-h-[44px] self-start rounded-xl border border-amber-200/40 px-5 text-[11px] font-black tracking-[0.2em] text-amber-100 transition hover:bg-amber-100/10"
+                  >
+                    RETRY
+                  </button>
+                </div>
+              ) : friends.length === 0 ? (
                 <p className="text-xs leading-relaxed text-zinc-500">
                   No friends yet — search players below to add some.
                 </p>
