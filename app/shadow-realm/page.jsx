@@ -115,7 +115,7 @@ function ShadowRealmInner() {
   const [lastLap, setLastLap] = useState(null);
   const [result, setResult] = useState(null);
 
-  const inputRef = useRef({ steer: 0, boost: false, lookYaw: 0, lookPitch: 0 });
+  const inputRef = useRef({ steer: 0, boost: false, lookYaw: 0, lookPitch: 0, throttle: 0, brake: 0, regen: 0, motionDrive: false });
   const hudRef = useRef(null);
   const containerRef = useRef(null);
   // Manual-steer tracking: tilt steering never fights an active pad or key.
@@ -409,6 +409,18 @@ function ShadowRealmInner() {
               )}
               <div style={css.hudChip}>{fmtTime(hud.time)}</div>
               <div style={css.hudChip}>{hud.speed} MPH</div>
+              {motion.motionArmed && (
+                <div
+                  style={{
+                    ...css.hudChip,
+                    color: hud.surging ? '#0a0a0a' : '#fbbf24',
+                    background: hud.surging ? '#fbbf24' : undefined,
+                    borderColor: '#fbbf24',
+                  }}
+                >
+                  {hud.surging ? '⚡ SURGE' : `⚡ ${Math.round((hud.boostCharge || 0) * 100)}%`}
+                </div>
+              )}
             </div>
           )}
           {lastLap && mode === 'race' && !immersed && (

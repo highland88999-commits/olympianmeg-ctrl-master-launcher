@@ -19,6 +19,7 @@ import { barrierLoops, startPose } from './tracks';
 import { LapTracker, resolveBarrier } from './race';
 import { schemeByKey, vehicleByKey } from './schemes';
 import { fx } from '@/lib/fx';
+import { REGEN_CHARGE_RATE, SURGE_SECS } from '@/lib/bike-motion';
 
 // ---------------------------------------------------------------------------
 // geometry builders (plain three.js, built once per track)
@@ -419,10 +420,47 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, 
     const input = inputRef.current || {};
     const steer = input.steer || 0;
     const boost = !!input.boost;
+    // motion controls (Merlin's tilt driving map): analog pedals + regen.
+    const motionDrive = !!input.motionDrive;
+    const clamp01 = (v) => (Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0);
+    const throttle = clamp01(input.throttle);
+    const brakePedal = clamp01(input.brake);
+    const regen = clamp01(input.regen);
 
-    // speed: ease toward target (auto-throttle; boost multiplies)
-    const target = vehicle.maxSpeed * (boost ? vehicle.boostMult : 1);
-    const rate = (target > s.speed ? vehicle.accel : vehicle.brakeRate * 1.6) * dt;
+    // regen boost meter (the grid gives energy back, everywhere — no zones)
+    if (s.boostCharge == null) s.boostCharge = 0;
+    if (s.surgeT == null) s.surgeT = 0;
+    if (s.surgeT > 0) s.surgeT -= dt;
+    const surging = s.surgeT > 0;
+
+    // speed: motion riders drive the pedals; everyone else keeps auto-throttle
+    let target;
+    let rate;
+    if (motionDrive) {
+      const boosting = boost || surging;
+      target = vehicle.maxSpeed * throttle * (boosting ? vehicle.boostMult : 1);
+      let decel = vehicle.brakeRate * 1.6;
+      if (regen > 0) {
+        // regenerative braking: hard carve scrubs speed AND charges the meter
+        target = 0;
+        decel = vehicle.brakeRate * (1.6 + 6 * regen);
+        if (s.speed > 1) {
+          s.boostCharge = Math.min(1, s.boostCharge + regen * REGEN_CHARGE_RATE * dt);
+          if (s.boostCharge >= 1) {
+            s.boostCharge = 0;
+            s.surgeT = SURGE_SECS;
+          }
+        }
+      } else if (brakePedal > 0) {
+        target = 0;
+        decel = vehicle.brakeRate * (1.6 + 4 * brakePedal);
+      }
+      rate = (target > s.speed ? vehicle.accel : decel) * dt;
+    } else {
+      // auto-throttle; boost multiplies
+      target = vehicle.maxSpeed * (boost ? vehicle.boostMult : 1);
+      rate = (target > s.speed ? vehicle.accel : vehicle.brakeRate * 1.6) * dt;
+    }
     s.speed += Math.max(-rate, Math.min(rate, target - s.speed));
 
     // steering: full lock only bites at speed
@@ -520,6 +558,8 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, 
         lapsTotal: laps,
         time: s.time,
         progress: mode === 'race' ? s.tracker.progress({ x: s.x, z: s.z }) : 0,
+        boostCharge: s.boostCharge || 0,
+        surging: !!surging,
       };
     }
   });
