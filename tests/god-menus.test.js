@@ -1,8 +1,7 @@
 // tests/god-menus.test.js — Headless tests for the 10 god-menu navigation.
 // Run: node tests/god-menus.test.js (from the repo root). No browser, no network.
 import { readFileSync } from 'fs';
-import { GOD_MENUS, godMenuFor, allGodMenuSatellites, menuBannerFor, menuArtFor } from '../lib/god-menus.js';
-import { buildMenuIndex, filterMenuIndex } from '../lib/menu-search.js';
+import { GOD_MENUS, godMenuFor, allGodMenuSatellites, menuArtFor, menuBannerFor } from '../lib/god-menus.js';
 
 let passed = 0;
 let failed = 0;
@@ -28,16 +27,11 @@ for (const m of GOD_MENUS) {
   t(`${m.god}: plain-English category label`, typeof m.category === 'string' && m.category.length >= 4 && m.category.length <= 40);
   t(`${m.god}: tagline explains the contents`, typeof m.tagline === 'string' && m.tagline.length >= 20);
   t(`${m.god}: satellites is a non-empty array`, Array.isArray(m.satellites) && m.satellites.length > 0);
-  // 2026-10-01 framework (Merlin + Gemini): ARTEMIS holds 23 after the deep-space
-  // moves. Menus scroll vertically, so the bound is headroom, not a target.
-  t(`${m.god}: menu size is sane (within 8..24)`, m.satellites.length >= 8 && m.satellites.length <= 24);
+  t(`${m.god}: menu size is sane (~14, within 8..16)`, m.satellites.length >= 8 && m.satellites.length <= 16);
   t(`${m.god}: texture is null or an honest menus texture path`,
     m.texture === null || (typeof m.texture === 'string' && m.texture.startsWith('/textures/menus/')));
   t(`${m.god}: gradient fallback is two hex colors`,
     Array.isArray(m.gradient) && m.gradient.length === 2 && m.gradient.every((c) => /^#[0-9a-fA-F]{6}$/.test(c)));
-  t(`${m.god}: menuArt points at the 2026-10-01 transfer banner`,
-    m.menuArt === `/images/menu/banners/banner-${m.god.toLowerCase()}.webp`);
-  t(`${m.god}: menuBannerFor matches menuArt`, menuBannerFor(m.god) === m.menuArt);
 }
 
 // --- coverage: every satellite in exactly one god menu ----------------------
@@ -55,15 +49,10 @@ if (unknown.length) console.error('  phantom:', unknown.join(', '));
 
 t('god-menu satellite count matches satellites.ts', claimed.length === satKeys.length);
 
-// --- menu art: every program button resolves to its transfer image -----------
-for (const k of claimed) {
-  t(`menu art path for ${k}`, menuArtFor(k) === `/images/menu/programs/${k}.webp`);
-}
-
-// --- HERMES: transit, comms & shopping (2026-09-30, Merlin's direction) ------
+// --- HERMES: the shopping god (2026-09-30, Merlin's direction) ---------------
 import { GOD_HEX } from '../lib/god-orbits.js';
 const hermesMenu = GOD_MENUS.find((m) => m.god === 'HERMES');
-t('HERMES is the Transit, Comms & Shopping category', hermesMenu && hermesMenu.category === 'Transit, Comms & Shopping');
+t('HERMES is the Shopping category', hermesMenu && hermesMenu.category === 'Shopping');
 // Merlin's correction 2026-09-30: Hermes' landing as HE made it — the paid
 // directory (/hermes) leads the menu; the Omega Store is the shopping program
 // under it, not the landing.
@@ -77,7 +66,7 @@ t('merchant gold resolves to a real hex for the 3D ring',
 t('godMenuFor routes the store to HERMES', godMenuFor('store')?.god === 'HERMES');
 
 // --- helpers ----------------------------------------------------------------
-t('godMenuFor finds the right menu', godMenuFor('chess')?.god === 'ATHENA'); // 2026-10-01 framework: chess moved ARES -> ATHENA
+t('godMenuFor finds the right menu', godMenuFor('chess')?.god === 'ARES');
 t('godMenuFor finds plutus menu', godMenuFor('liquid-gold')?.god === 'PLUTUS');
 t('godMenuFor finds therapy menu', godMenuFor('grief-gully')?.god === 'HESTIA');
 t('godMenuFor returns null for unknown key', godMenuFor('nope-not-real') === null);
@@ -157,8 +146,7 @@ t('ring spin is counter-rotation against Earth (negative Y application)',
 t('orbitPositionFor resolves through the program menu to its one satellite',
   (() => {
     const p = orbitPositionFor('chess', 42);
-    const bandIdx = GOD_MENUS.findIndex((m) => m.god === godMenuFor('chess').god);
-    const q = menuSatellitePosition(bandIdx, 42); // chess → its god's band
+    const q = menuSatellitePosition(0, 42); // chess → ARES → band 0
     return p && q && Math.abs(p.x - q.x) < 1e-9 && Math.abs(p.y - q.y) < 1e-9 && Math.abs(p.z - q.z) < 1e-9;
   })());
 
@@ -214,89 +202,23 @@ const bikeSrc = stripComments(readFileSync('components/BikeRig.jsx', 'utf8'));
 t('bike rig reuses the existing TRON bike model (no duplicate model)',
   bikeSrc.includes('WispBike') && bikeSrc.includes("from './nova/TronBikes'"));
 
-// --- category rail: every god banner resolves through menuBannerFor ----------
-t('menuBannerFor returns the transfer banner path for all 10 gods',
-  GOD_MENUS.every((m) => menuBannerFor(m.god) === `/images/menu/banners/banner-${m.god.toLowerCase()}.webp`));
-t('rail banner art matches each menu\u2019s own menuArt field',
-  GOD_MENUS.every((m) => menuBannerFor(m.god) === m.menuArt));
-
-// --- menu background video: behind the menu and buttons ---------------------
-const satMenuSrc = stripComments(readFileSync('components/SatelliteMenu.jsx', 'utf8'));
-t('menu renders the background video element behind the menu and buttons',
-  satMenuSrc.includes('<video') && satMenuSrc.includes('/videos/menu-background.mp4'));
-t('background video is decorative, muted, looping, inline',
-  satMenuSrc.includes('menu-bg-video') && satMenuSrc.includes('muted') &&
-  satMenuSrc.includes('autoPlay') && satMenuSrc.includes('loop') &&
-  satMenuSrc.includes('playsInline') && satMenuSrc.includes('aria-hidden'));
-t('background video hides under prefers-reduced-motion',
-  satMenuSrc.includes('.menu-bg-video { display: none; }'));
-t('background video sits behind content with a dark legibility scrim',
-  satMenuSrc.includes('absolute inset-0') && satMenuSrc.includes('from-black/80'));
-
-// --- order-67: pinned first in the menu, art resolves to the transfer webp ---
-t("menuArtFor('order-67') returns the transfer webp path",
-  menuArtFor('order-67') === '/images/menu/programs/order-67.webp');
-t('order-67 is claimed by the HERMES menu',
-  hermesMenu && hermesMenu.satellites.includes('order-67'));
-t('pinned order-67 button uses the transfer art with an onError fallback',
-  satMenuSrc.includes("menuArtFor('order-67')") && satMenuSrc.includes('onError'));
-
-// --- menu search: filterMenuIndex over all 10 god menus ----------------------
-const SEARCH_TITLES = {
-  'sat.chess.title': 'Chess',
-  'sat.chess.subtitle': 'The ancient game of kings',
-  'sat.babel.title': 'Babel',
-  'sat.babel.subtitle': 'Tower of pocket universes',
-  'sat.maestro.title': 'Maestro',
-  'sat.maestro.subtitle': 'Universal MIDI library',
-};
-const tSearch = (k) => (k in SEARCH_TITLES ? SEARCH_TITLES[k] : k);
-const satIndexSearch = new Map([
-  ['chess', { key: 'chess', route: '/chess', pos: '0,0,0', section: 'x', constellation: 'ZEUS' }],
-  ['babel', { key: 'babel', route: '/babel', pos: '1,1,1', section: 'x', constellation: 'ZEUS' }],
-  ['maestro', { key: 'maestro', route: '/maestro', pos: '2,2,2', section: 'x', constellation: 'ZEUS' }],
-]);
-const searchCtx = { t: tSearch, satIndex: satIndexSearch };
-
-t('search: empty query returns no groups', filterMenuIndex('', searchCtx).length === 0);
-t('search: blank query returns no groups', filterMenuIndex('   ', searchCtx).length === 0);
-t('search: null query returns no groups', filterMenuIndex(null, searchCtx).length === 0);
-
-const chessRes = filterMenuIndex('chess', searchCtx);
-t('search: title match finds the satellite in its own god group',
-  chessRes.length === 1 && chessRes[0].god === 'ATHENA' &&
-  chessRes[0].results.length === 1 && chessRes[0].results[0].name === 'Chess');
-t('search: result carries the launch contract (route, satKey, pos)',
-  chessRes[0].results[0].route === '/chess' &&
-  chessRes[0].results[0].satKey === 'chess' &&
-  chessRes[0].results[0].pos === '0,0,0');
-t('search: match is case-insensitive',
-  filterMenuIndex('CHESS', searchCtx)[0]?.results[0]?.name === 'Chess');
-t('search: subtitle match works',
-  filterMenuIndex('ancient game', searchCtx)[0]?.results[0]?.name === 'Chess');
-
-const duatRes = filterMenuIndex('duat', searchCtx);
-t('search: babel floor name matches (kind=floor)',
-  duatRes.length === 1 && duatRes[0].god === 'APHRODITE' &&
-  duatRes[0].results.some((r) => r.kind === 'floor' && r.name === 'Duat' && r.route === '/babel?floor=duat'));
-t('search: babel floor subtitle matches',
-  filterMenuIndex('desert of the dead', searchCtx).some((g) =>
-    g.results.some((r) => r.name === 'Duat')));
-t('search: the vault floor keeps its own route',
-  filterMenuIndex('vault', searchCtx).some((g) =>
-    g.results.some((r) => r.kind === 'floor' && r.route === '/babel/vault')));
-
-const eGroups = filterMenuIndex('e', searchCtx).map((g) => g.god).join(',');
-t('search: groups follow GOD_MENUS order (APOLLO, ATHENA, APHRODITE)',
-  eGroups === 'APOLLO,ATHENA,APHRODITE');
-
-t('search: no match returns no groups', filterMenuIndex('zzz-no-such-world', searchCtx).length === 0);
-t('search: every result has a launchable route + satKey + pos',
-  filterMenuIndex('a', searchCtx).every((g) =>
-    g.results.every((r) => typeof r.route === 'string' && r.route.length > 0 &&
-      typeof r.satKey === 'string' && r.pos !== undefined)));
-t('search: index carries one satellite entry per satellite in satIndex',
-  buildMenuIndex(searchCtx).filter((e) => e.kind === 'satellite').length === 3);
+// --- menuArtFor / menuBannerFor (SatelliteMenu.jsx imports) -----------------
+t('menuBannerFor returns a texture path for every god menu',
+  GOD_MENUS.every((m) => typeof menuBannerFor(m.god) === 'string' && menuBannerFor(m.god).length > 0));
+t('menuBannerFor(HERMES) points at the hermes banner',
+  menuBannerFor('HERMES') === '/textures/menus/hermes/banner.jpeg');
+t('menuBannerFor(ARES) honors the .jpg texture (not .jpeg)',
+  menuBannerFor('ARES') === '/textures/menus/ares/banner.jpg');
+t('menuBannerFor(unknown god) returns empty string (graceful fallback)',
+  menuBannerFor('ZEUS') === '');
+t('menuBannerFor(non-string) returns empty string',
+  menuBannerFor(null) === '' && menuBannerFor(42) === '');
+t('menuArtFor returns the satellite art convention path',
+  menuArtFor('order-67') === '/textures/menus/satellites/order-67.jpeg');
+t('menuArtFor(empty/non-string) returns empty string',
+  menuArtFor('') === '' && menuArtFor(null) === '');
+t('menuArtFor never throws on junk input',
+  (() => { try { menuArtFor(undefined); menuArtFor({}); return true; } catch { return false; } })());
 
 console.log(`\ngod-menus: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
