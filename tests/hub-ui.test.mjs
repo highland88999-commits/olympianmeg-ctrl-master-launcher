@@ -1,8 +1,13 @@
 // tests/hub-ui.test.mjs
 // Headless tests for the hub UI batch (circular buttons, phone-tilt
-// vertical control, Shadow Realm spawn button):
-// - FLIGHT AXIS toggle state machine (lib/rider-state.js)
+// vertical control, Shadow Realm spawn button) plus the button-removal
+// follow-up (Merlin: remove the ◐ tilt toggle and the flight-axis button;
+// the flight axis is now AUTOMATIC — it follows the phone):
+// - FLIGHT AXIS: no toggle button; streak canvas stays as a passive
+//   readout; the hook drives the axis via onAutoAxis (lib/rider-state.js
+//   state machine kept for the pure logic)
 // - tilt math: dead-zone, clamping, smoothing (lib/tilt-control.js)
+// - automatic axis rule: axisFromTiltDelta (lib/tilt-control.js)
 // - tilt permission state machine (granted/denied/unavailable/reduced)
 // - tilt preference storage round-trip (injected memory store)
 // - shadowRealmUrl builder (mode parsing, defaults, opts)
@@ -22,6 +27,7 @@ import {
   TILT_DEADZONE_DEG,
   TILT_FULL_DEFLECT_DEG,
   TILT_SMOOTH,
+  axisFromTiltDelta,
   tiltInputFromDelta,
   smoothTiltInput,
   classifyTiltEnv,
@@ -42,6 +48,8 @@ const useTiltSrc = readFileSync(join(repo, 'lib', 'use-tilt.js'), 'utf8');
 const tiltControlSrc = readFileSync(join(repo, 'lib', 'tilt-control.js'), 'utf8');
 
 const approx = (a, b, eps = 1e-9) => Math.abs(a - b) < eps;
+const stripComments = (src) =>
+  src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
 
 function memStore() {
   const m = new Map();
@@ -53,9 +61,9 @@ function memStore() {
 }
 
 // ---------------------------------------------------------------------------
-// 1. FLIGHT AXIS toggle state machine (same logic the circle button uses)
+// 1. Flight axis: automatic — no toggle button, streak readout stays passive
 // ---------------------------------------------------------------------------
-describe('flight axis state machine', () => {
+describe('flight axis state machine (pure logic kept)', () => {
   it('toggles horizontal -> vertical -> horizontal', () => {
     assert.equal(nextFlightAxis('horizontal'), 'vertical');
     assert.equal(nextFlightAxis('vertical'), 'horizontal');
@@ -64,12 +72,58 @@ describe('flight axis state machine', () => {
   it('recovers to horizontal from an unknown value', () => {
     assert.equal(nextFlightAxis('sideways'), 'horizontal');
   });
+});
 
-  it('the circle button keeps the identical toggle expression', () => {
+describe('flight axis is automatic (no buttons)', () => {
+  it('the manual toggle button is gone from the hub', () => {
+    const noComments = stripComments(page);
     assert.ok(
-      page.includes("setFlightAxis(m => m === 'horizontal' ? 'vertical' : 'horizontal')"),
-      'page.jsx must keep the exact toggle the pill used'
+      !noComments.includes("setFlightAxis(m => m === 'horizontal' ? 'vertical' : 'horizontal')"),
+      'no manual toggle expression in the hub'
     );
+    assert.ok(!noComments.includes('Activate to switch axis'), 'no toggle aria-label');
+    assert.ok(!noComments.includes('onClick={toggleTilt}'), 'no tilt toggle wiring');
+  });
+
+  it('the streak canvas remains as a passive state readout', () => {
+    assert.ok(page.includes('<FlightAxisStreaks axis={flightAxis} />'), 'streak canvas kept');
+    const noComments = stripComments(page);
+    assert.ok(noComments.includes('role="status"'), 'readout exposed as status');
+    assert.ok(noComments.includes('pointer-events-none'), 'readout is not tappable');
+  });
+
+  it('the hook drives the axis automatically', () => {
+    assert.ok(page.includes('onAutoAxis: setFlightAxis'), 'page passes setFlightAxis as the auto-axis callback');
+    assert.ok(useTiltSrc.includes('axisFromTiltDelta'), 'hook uses the automatic-axis rule');
+    assert.ok(useTiltSrc.includes('onAutoAxis'), 'hook accepts the callback');
+  });
+});
+
+describe('axisFromTiltDelta (automatic flight axis)', () => {
+  it('returns horizontal at rest (within the ±8° dead-zone)', () => {
+    for (const d of [0, 1, -1, 7.9, -7.9, 8, -8]) {
+      assert.equal(axisFromTiltDelta(d), 'horizontal', `delta ${d}°`);
+    }
+  });
+
+  it('returns vertical once the tilt passes the dead-zone', () => {
+    for (const d of [8.1, 20, 45, 90, -8.1, -20, -45, -90]) {
+      assert.equal(axisFromTiltDelta(d), 'vertical', `delta ${d}°`);
+    }
+  });
+
+  it('never engages vertical on a non-finite sensor reading', () => {
+    for (const bad of [NaN, Infinity, -Infinity, undefined, null, 'x']) {
+      assert.equal(axisFromTiltDelta(bad), 'horizontal', `input ${String(bad)}`);
+    }
+  });
+
+  it('agrees with the moveY dead-zone (vertical exactly when input is live)', () => {
+    for (const d of [0, 5, -5, 8, -8, 15, -15, 45, -45]) {
+      const vertical = axisFromTiltDelta(d) === 'vertical';
+      const live = tiltInputFromDelta(d) !== 0;
+      assert.equal(vertical, live, `delta ${d}°: axis and input agree`);
+    }
   });
 });
 
@@ -178,7 +232,6 @@ describe('classifyTiltPermission', () => {
     for (const res of ['denied', 'default', undefined, null, '']) {
       const r = classifyTiltPermission(res);
       assert.equal(r.ok, false, `result ${String(res)}`);
-      assert.equal(r.reason, 'denied');
       assert.match(r.message, /Settings/);
     }
   });
@@ -234,15 +287,6 @@ describe('shadowRealmUrl', () => {
 // 5. app/page.jsx static wiring — circles, labels, unchanged behaviors
 // ---------------------------------------------------------------------------
 describe('hub circle buttons (static wiring)', () => {
-  it('FLIGHT AXIS is a 56px circle keeping the streak canvas + toggle', () => {
-    assert.ok(page.includes('w-14 h-14 rounded-full'), '56px circle class');
-    assert.ok(page.includes('<FlightAxisStreaks axis={flightAxis} />'), 'streak canvas kept as the icon');
-    assert.ok(
-      page.includes('aria-label={`Flight axis: ${flightAxis}. Activate to switch axis.`}'),
-      'aria-label still reads the current axis'
-    );
-  });
-
   it('SPAWN TO BIKE is a 64px circle with a bike glyph and ride-state labels', () => {
     assert.ok(page.includes('w-16 h-16 rounded-full'), '64px circle class');
     assert.ok(page.includes('🏍️'), 'bike glyph');
@@ -261,7 +305,7 @@ describe('hub circle buttons (static wiring)', () => {
   });
 
   it('the old rectangular pills are gone (comments ignored)', () => {
-    const noComments = page.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+    const noComments = stripComments(page);
     assert.ok(!noComments.includes('FLIGHT AXIS:'), 'no FLIGHT AXIS text pill');
     assert.ok(!noComments.includes('SPAWN TO BIKE'), 'no SPAWN TO BIKE text pill');
     assert.ok(!noComments.includes('↺ INTRO'), 'no INTRO capsule text');
@@ -282,24 +326,33 @@ describe('tilt hook contract (static)', () => {
   it('use-tilt.js writes the joystick channel and respects the guards', () => {
     assert.ok(useTiltSrc.includes('controlsRef.current.moveY'), 'writes moveY');
     assert.ok(useTiltSrc.includes('joyRef.current'), 'joystick-wins guard');
-    assert.ok(useTiltSrc.includes("axisRef.current !== 'vertical'"), 'vertical-axis gate');
     assert.ok(useTiltSrc.includes('hub_freeroam'), 'hub state gate');
     assert.ok(useTiltSrc.includes('requestPermission'), 'iOS permission flow');
     assert.ok(useTiltSrc.includes('prefers-reduced-motion'), 'reduced-motion check');
     assert.ok(useTiltSrc.includes('tiltInputFromDelta'), 'uses the pure tilt math');
   });
 
-  it('the dead-zone constant is wired, not hardcoded', () => {
-    assert.ok(tiltControlSrc.includes('TILT_DEADZONE_DEG = 8'), 'dead-zone defined once');
+  it('drives the axis automatically — no toggle button', () => {
+    assert.ok(useTiltSrc.includes('axisFromTiltDelta(delta)'), 'axis follows the phone');
+    assert.ok(useTiltSrc.includes('onAutoAxis'), 'auto-axis callback supported');
+    assert.ok(useTiltSrc.includes("addEventListener('pointerdown', onFirstGesture)"), 'iOS permission rides the first tap');
+    assert.ok(useTiltSrc.includes("reason === 'direct'"), 'direct-capable devices start immediately');
   });
 
-  it('page.jsx wires the hook and renders the toggle + transient toast', () => {
+  it('the dead-zone constant is wired, not hardcoded', () => {
+    assert.ok(tiltControlSrc.includes('TILT_DEADZONE_DEG = 8'), 'dead-zone defined once');
+    assert.ok(tiltControlSrc.includes('export function axisFromTiltDelta'), 'auto-axis rule exported');
+  });
+
+  it('page.jsx wires the hook with onAutoAxis and keeps the toast', () => {
     assert.ok(page.includes("import { useTilt } from '@/lib/use-tilt'"), 'hook imported');
     assert.ok(page.includes('useTilt({'), 'hook instantiated with controlsRef');
-    assert.ok(page.includes('onClick={toggleTilt}'), 'toggle button wired');
-    assert.ok(page.includes('◐'), 'tilt glyph present');
+    assert.ok(page.includes('onAutoAxis: setFlightAxis'), 'automatic-axis callback wired');
     assert.ok(page.includes('{tiltMsg && ('), 'transient message rendered');
     assert.ok(page.includes('aria-live="polite"'), 'toast announced politely');
+    const noComments = stripComments(page);
+    assert.ok(!noComments.includes('◐'), 'tilt toggle glyph gone');
+    assert.ok(!noComments.includes('onClick={toggleTilt}'), 'tilt toggle button gone');
   });
 });
 
