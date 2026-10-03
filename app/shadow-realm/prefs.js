@@ -41,6 +41,7 @@ export const DEFAULT_PREFS = Object.freeze({
   trackKey: 'gridiron-oval',
   mode: 'race', // 'race' | 'roam'
   laps: 3,
+  aiCount: 0, // VS AI rivals: 0 | 1 | 3 | 7 (race mode only)
   reducedMotion: false,
 });
 

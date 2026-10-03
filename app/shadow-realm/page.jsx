@@ -13,6 +13,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import RealmScene from './scene';
+import { makeBots, placements } from './ai';
 import { TRACKS, trackByKey } from './tracks';
 import { TRAIL_SCHEMES, VEHICLES, schemeByKey, vehicleByKey } from './schemes';
 import { parseShadowMode } from './launch';
@@ -123,6 +124,7 @@ function ShadowRealmInner() {
   const [vehicleKey, setVehicleKey] = useState(sp.get('vehicle') || prefs?.vehicleKey || 'comet');
   const [schemeKey, setSchemeKey] = useState(prefs?.schemeKey || 'grid-blue');
   const [laps, setLaps] = useState(prefs?.laps || 3);
+  const [aiCount, setAiCount] = useState(prefs?.aiCount || 0);
   const [count, setCount] = useState(3);
   const [paused, setPaused] = useState(false);
   const [hud, setHud] = useState({ speed: 0, lap: 1, lapsTotal: 3, time: 0, progress: 0 });
@@ -131,6 +133,8 @@ function ShadowRealmInner() {
 
   const inputRef = useRef({ steer: 0, boost: false, lookYaw: 0, lookPitch: 0, throttle: 0, brake: 0, regen: 0, motionDrive: false });
   const hudRef = useRef(null);
+  // VS AI roster for the run (built in mount(), advanced by Bots in the scene).
+  const botsRef = useRef([]);
   const containerRef = useRef(null);
   // Manual-steer tracking: tilt steering never fights an active pad or key.
   const manualSteer = useRef({ pads: 0, keys: false });
@@ -198,7 +202,7 @@ function ShadowRealmInner() {
   const persist = (patch) => {
     if (typeof window === 'undefined') return;
     savePrefs(window.localStorage, accountIdFromWindow(), {
-      vehicleKey, schemeKey, trackKey, mode, laps, ...patch,
+      vehicleKey, schemeKey, trackKey, mode, laps, aiCount, ...patch,
     });
   };
 
@@ -261,6 +265,7 @@ function ShadowRealmInner() {
   const mount = () => {
     try { fx.bikeMount(); } catch { /* best-effort */ }
     persist({});
+    botsRef.current = makeBots({ count: mode === 'race' ? aiCount : 0, track, seed: Date.now() });
     setPaused(false);
     setResult(null);
     setLastLap(null);
@@ -279,7 +284,11 @@ function ShadowRealmInner() {
 
   const handleFinish = (res) => {
     try { fx.victory(); } catch { /* best-effort */ }
-    setResult(res);
+    const standings = placements(
+      { name: 'YOU', color: scheme.primary, finishTime: res?.total, progress: laps },
+      botsRef.current
+    );
+    setResult({ ...res, standings });
     setStage('finished');
   };
 
@@ -311,7 +320,7 @@ function ShadowRealmInner() {
               </div>
               <button
                 style={css.ghostBtn}
-                onClick={() => { setMode('roam'); try { fx.menuOpen(); } catch {} setStage('track'); }}
+                onClick={() => { setMode('roam'); try { fx.menuOpen(); } catch {} setStage('garage'); }}
               >
                 FREE ROAM
               </button>
@@ -393,8 +402,24 @@ function ShadowRealmInner() {
                   </div>
                 ))}
               </div>
+              {mode === 'race' && (
+                <>
+                  <div style={css.sectionLabel}>AI RIVALS</div>
+                  <div style={{ ...css.row, marginTop: 8 }}>
+                    {[0, 1, 3, 7].map((n) => (
+                      <button
+                        key={n}
+                        style={{ ...css.chip, ...(aiCount === n ? { background: '#0d2a4d', borderColor: '#38bdf8' } : {}) }}
+                        onClick={() => { setAiCount(n); persist({ aiCount: n }); try { fx.tap(); } catch {} }}
+                      >
+                        {n === 0 ? 'SOLO' : n}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
               <div style={css.row}>
-                <button style={{ ...css.ghostBtn, flex: 1 }} onClick={() => setStage('track')}>BACK</button>
+                <button style={{ ...css.ghostBtn, flex: 1 }} onClick={() => setStage(mode === 'roam' ? 'mode' : 'track')}>BACK</button>
                 <button style={{ ...css.bigBtn, flex: 2 }} onClick={mount}>
                   {mode === 'race' ? 'MOUNT & RACE' : 'MOUNT & RIDE'}
                 </button>
@@ -427,6 +452,7 @@ function ShadowRealmInner() {
           hudRef={hudRef}
           onLap={handleLap}
           onFinish={handleFinish}
+          botsRef={botsRef}
         />
       </div>
 
@@ -445,6 +471,9 @@ function ShadowRealmInner() {
         <>
           {!immersed && (
             <div style={css.hud}>
+              {mode === 'roam' && (
+                <div style={css.hudChip}>GRID · FREE ROAM</div>
+              )}
               {mode === 'race' && (
                 <div style={css.hudChip}>LAP {hud.lap}/{hud.lapsTotal}</div>
               )}
@@ -577,6 +606,26 @@ function ShadowRealmInner() {
               {track.name} · {result?.laps} laps
             </div>
             <div style={{ fontSize: 44, fontWeight: 800, color: '#e0f2fe' }}>{fmtTime(result?.total)}</div>
+            {result?.standings && result.standings.length > 1 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 2 }}>
+                {result.standings.map((s) => (
+                  <div
+                    key={s.rank}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
+                      borderRadius: 10, background: s.isPlayer ? '#0d1a33' : '#0a1226',
+                      border: s.isPlayer ? '1px solid #38bdf8' : '1px solid #16294a',
+                    }}
+                  >
+                    <div style={{ width: 30, fontWeight: 800, color: '#64748b' }}>{s.rank}</div>
+                    <div style={{ flex: 1, textAlign: 'left', fontWeight: 700, color: s.color }}>{s.name}</div>
+                    <div style={{ fontSize: 13, color: '#94a3b8' }}>
+                      {s.finishTime != null ? fmtTime(s.finishTime) : `${Math.round((s.progress / laps) * 100)}%`}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
             <button style={css.bigBtn} onClick={mount}>RIDE AGAIN</button>
             <button style={css.ghostBtn} onClick={() => setStage('track')}>CHANGE TRACK</button>
             <button style={css.ghostBtn} onClick={leave}>LEAVE REALM</button>

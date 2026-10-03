@@ -16,8 +16,10 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Stars } from '@react-three/drei';
 import * as THREE from 'three';
 import { barrierLoops, startPose } from './tracks';
+import { roamSpawn, isRoam } from './roam';
 import { LapTracker, resolveBarrier } from './race';
 import { schemeByKey, vehicleByKey } from './schemes';
+import Bots from './Bots';
 import { fx } from '@/lib/fx';
 import { REGEN_CHARGE_RATE, SURGE_SECS } from '@/lib/bike-motion';
 import { createOrbit, resetOrbit, applyDrag, applyPinch, applyWheel, orbitCamera } from './orbit';
@@ -254,7 +256,7 @@ function TrackMesh({ track, scheme }) {
 // rider's chosen scheme color.
 // ---------------------------------------------------------------------------
 
-function LightCycle({ scheme, bikeRef }) {
+export function LightCycle({ scheme, bikeRef }) {
   const neon = scheme.primary;
   const dark = '#0a0e1a';
   return (
@@ -482,11 +484,14 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, 
   const camTarget = useRef(new THREE.Vector3());
   const sim = useRef(null);
 
-  const loops = useMemo(() => barrierLoops(track, 220), [track]);
+  // Roam mode: no track exists — loops stay null, never touched.
+  const loops = useMemo(() => (isRoam(mode) ? null : barrierLoops(track, 220)), [track, mode]);
 
-  // (Re)spawn when track/vehicle change or a new run starts.
+  // (Re)spawn when track/vehicle change or a new run starts. Roam mode
+  // spawns on the open grid — no track pose, no lap tracker.
   useEffect(() => {
-    const pose = startPose(track, 220);
+    const roam = isRoam(mode);
+    const pose = roam ? roamSpawn() : startPose(track, 220);
     sim.current = {
       x: pose.x,
       z: pose.z,
@@ -494,13 +499,13 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, 
       speed: 0,
       time: 0,
       finished: false,
-      tracker: new LapTracker(loops.center),
+      tracker: roam ? null : new LapTracker(loops.center),
       lastHud: 0,
     };
     if (trailApi.current) trailApi.current.clear();
     // Fresh run, fresh camera: orbit offsets reset to the chase baseline.
     if (orbitRef.current) resetOrbit(orbitRef.current);
-  }, [track, loops, running, trailApi]);
+  }, [track, mode, loops, running, trailApi]);
 
   useFrame((state, rawDt) => {
     const s = sim.current;
@@ -565,7 +570,10 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, 
     // integrate, then bounce off the solid barriers (never die)
     let px = s.x + vx * dt;
     let pz = s.z + vz * dt;
-    const res = resolveBarrier({ x: px, z: pz }, { x: vx, z: vz }, loops.center, loops.halfW);
+    // Roam: open grid, no barriers — ride anywhere, nothing to bounce off.
+    const res = isRoam(mode)
+      ? { pos: { x: px, z: pz }, vel: { x: vx, z: vz }, bounced: false }
+      : resolveBarrier({ x: px, z: pz }, { x: vx, z: vz }, loops.center, loops.halfW);
     px = res.pos.x;
     pz = res.pos.z;
     vx = res.vel.x;
@@ -583,8 +591,8 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, 
 
     s.time += dt;
 
-    // laps (race mode only)
-    if (mode === 'race') {
+    // laps (race mode only — roam never counts laps, never fires onFinish)
+    if (mode === 'race' && !isRoam(mode)) {
       const ev = s.tracker.update({ x: s.x, z: s.z }, { x: vx, z: vz }, s.time);
       if (ev === 'lap') {
         onLap && onLap(s.tracker.laps, s.tracker.lastLapTime);
@@ -678,6 +686,7 @@ export default function RealmScene({
   onLap,
   onFinish,
   hudRef,
+  botsRef,
 }) {
   const scheme = schemeByKey(schemeKey);
   const vehicle = vehicleByKey(vehicleKey);
@@ -702,7 +711,8 @@ export default function RealmScene({
       <NightSky />
       <GridGround />
       <PylonRing />
-      <TrackMesh track={track} scheme={scheme} />
+      {/* Roam: no track mesh — the open grid is the whole world */}
+      {!isRoam(mode) && <TrackMesh track={track} scheme={scheme} />}
       <TrailRibbon scheme={scheme} apiRef={trailApi} />
       <Rig
         track={track}
@@ -717,6 +727,15 @@ export default function RealmScene({
         onFinish={onFinish}
         hudRef={hudRef}
         orbitRef={orbitRef}
+      />
+      {/* VS AI: parametric ghost racers (race mode only) */}
+      <Bots
+        track={track}
+        botsRef={botsRef}
+        running={running && mode === 'race'}
+        hudRef={hudRef}
+        maxSpeed={vehicle.maxSpeed}
+        raceLaps={laps}
       />
     </Canvas>
   );
