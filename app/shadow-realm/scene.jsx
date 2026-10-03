@@ -12,7 +12,7 @@
 'use client';
 
 import { useRef, useMemo, useEffect, useCallback } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Stars } from '@react-three/drei';
 import * as THREE from 'three';
 import { barrierLoops, startPose } from './tracks';
@@ -20,6 +20,7 @@ import { LapTracker, resolveBarrier } from './race';
 import { schemeByKey, vehicleByKey } from './schemes';
 import { fx } from '@/lib/fx';
 import { REGEN_CHARGE_RATE, SURGE_SECS } from '@/lib/bike-motion';
+import { createOrbit, resetOrbit, applyDrag, applyPinch, applyWheel, orbitCamera } from './orbit';
 
 // ---------------------------------------------------------------------------
 // geometry builders (plain three.js, built once per track)
@@ -386,10 +387,97 @@ function TrailRibbon({ scheme, apiRef }) {
 }
 
 // ---------------------------------------------------------------------------
-// Rig: physics, barrier bounce, lap counting, chase camera, trail feed.
+// OrbitDriver: OrbitControls-style camera gestures for the Shadow Realm.
+// One-finger drag orbits the camera around the rider; two-finger pinch
+// dollies in/out; wheel does the same on desktop. This is CAMERA control
+// only — it never steers (tilt owns steering) and never pans the gyro view
+// (device rotation owns look). Touching the canvas is a fresh gesture space:
+// the old DOM steer pads are gone, BOOST and the ride circles sit above the
+// canvas as separate elements, and the iOS first-tap motion-permission
+// listener fires on window pointerdown regardless of what orbits here.
 // ---------------------------------------------------------------------------
 
-function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, onLap, onFinish, hudRef }) {
+function OrbitDriver({ orbitRef }) {
+  const gl = useThree((s) => s.gl);
+
+  useEffect(() => {
+    const el = gl.domElement;
+    // No browser gestures or scroll chaining on the 3D surface.
+    el.style.touchAction = 'none';
+
+    const pointers = new Map(); // pointerId -> {x, y}
+    let pinchPrev = 0;
+
+    const onDown = (e) => {
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size === 2) {
+        const [a, b] = [...pointers.values()];
+        pinchPrev = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+      }
+      try {
+        el.setPointerCapture(e.pointerId);
+      } catch {
+        /* best-effort */
+      }
+    };
+
+    const onMove = (e) => {
+      const p = pointers.get(e.pointerId);
+      if (!p) return;
+      const dx = e.clientX - p.x;
+      const dy = e.clientY - p.y;
+      p.x = e.clientX;
+      p.y = e.clientY;
+      const o = orbitRef.current;
+      if (!o) return;
+      if (pointers.size === 1) {
+        applyDrag(o, dx, dy);
+      } else if (pointers.size === 2) {
+        const [a, b] = [...pointers.values()];
+        const d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+        if (pinchPrev > 0) applyPinch(o, d / pinchPrev - 1);
+        pinchPrev = d;
+      }
+    };
+
+    const onUp = (e) => {
+      pointers.delete(e.pointerId);
+      pinchPrev = 0;
+      try {
+        el.releasePointerCapture(e.pointerId);
+      } catch {
+        /* best-effort */
+      }
+    };
+
+    const onWheel = (e) => {
+      e.preventDefault();
+      const o = orbitRef.current;
+      if (o) applyWheel(o, e.deltaY);
+    };
+
+    el.addEventListener('pointerdown', onDown);
+    el.addEventListener('pointermove', onMove);
+    el.addEventListener('pointerup', onUp);
+    el.addEventListener('pointercancel', onUp);
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      el.removeEventListener('pointerdown', onDown);
+      el.removeEventListener('pointermove', onMove);
+      el.removeEventListener('pointerup', onUp);
+      el.removeEventListener('pointercancel', onUp);
+      el.removeEventListener('wheel', onWheel);
+    };
+  }, [gl, orbitRef]);
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Rig: physics, barrier bounce, lap counting, chase+orbit camera, trail feed.
+// ---------------------------------------------------------------------------
+
+function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, onLap, onFinish, hudRef, orbitRef }) {
   const bikeRef = useRef();
   const camTarget = useRef(new THREE.Vector3());
   const sim = useRef(null);
@@ -410,6 +498,8 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, 
       lastHud: 0,
     };
     if (trailApi.current) trailApi.current.clear();
+    // Fresh run, fresh camera: orbit offsets reset to the chase baseline.
+    if (orbitRef.current) resetOrbit(orbitRef.current);
   }, [track, loops, running, trailApi]);
 
   useFrame((state, rawDt) => {
@@ -521,13 +611,19 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, 
       trailApi.current.push(s.x, s.z, dx, dz);
     }
 
-    // chase camera (+ gyro look-around: input.lookYaw / lookPitch, radians)
+    // chase camera baseline (+ orbit: touch-drag orbits around the rider,
+    // pinch dollies; zeroed orbit state reproduces the legacy chase exactly)
     const cam = state.camera;
     const back = 13 + s.speed * 0.05;
-    const cx = s.x - dx * back;
-    const cz = s.z - dz * back;
-    const cy = 5.6 + s.speed * 0.012;
-    camTarget.current.set(cx, cy, cz);
+    const chaseX = s.x - dx * back;
+    const chaseZ = s.z - dz * back;
+    const chaseY = 5.6 + s.speed * 0.012;
+    const oc = orbitCamera(
+      { x: s.x, z: s.z },
+      { x: chaseX, y: chaseY, z: chaseZ },
+      orbitRef.current
+    );
+    camTarget.current.set(oc.x, oc.y, oc.z);
     cam.position.lerp(camTarget.current, 1 - Math.exp(-4.5 * dt));
     // Gyro look: pan the view without moving the camera. Yaw rotates the
     // look-at point about world-up around the bike (horizon never tilts —
@@ -586,6 +682,11 @@ export default function RealmScene({
   const scheme = schemeByKey(schemeKey);
   const vehicle = vehicleByKey(vehicleKey);
   const trailApi = useRef(null);
+  // One orbit state for the mounted realm; the Rig resets it per run.
+  // Track-agnostic: every track in TRACKS renders through this same scene,
+  // so orbit lands on ALL of them.
+  const orbitRef = useRef(null);
+  if (!orbitRef.current) orbitRef.current = createOrbit();
 
   return (
     <Canvas
@@ -597,6 +698,7 @@ export default function RealmScene({
       <fog attach="fog" args={['#04060d', 140, 950]} />
       <ambientLight intensity={0.5} color="#8fb8ff" />
       <directionalLight intensity={0.7} color="#6ea8ff" position={[-0.4, 1, 0.35]} />
+      <OrbitDriver orbitRef={orbitRef} />
       <NightSky />
       <GridGround />
       <PylonRing />
@@ -614,6 +716,7 @@ export default function RealmScene({
         onLap={onLap}
         onFinish={onFinish}
         hudRef={hudRef}
+        orbitRef={orbitRef}
       />
     </Canvas>
   );

@@ -89,3 +89,17 @@ canvas, .no-select {
 }
 
 
+/* ---- Realm/game-view no-select treatment (Merlin 2026-10-03) ----
+   Applied automatically by <RealmCalloutGuard> (mounted once in
+   app/layout.jsx) when the current view is an immersive realm
+   (full-viewport game canvas), or manually via className="realm-surface".
+   Kills the iOS long-press callout (Copy | Look Up) and text selection
+   inside game views. Scoped: inputs, textareas, selects, contenteditable
+   regions, and [data-selectable] elements ALWAYS keep native selection,
+   so chat, forms, and text entry keep working everywhere. */
+.realm-surface,
+.realm-surface *:not(input):not(textarea):not(select):not([contenteditable]):not([data-selectable]) {
+  -webkit-user-select: none !important;
+  user-select: none !important;
+  -webkit-touch-callout: none !important;
+}
