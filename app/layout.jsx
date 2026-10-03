@@ -5,6 +5,7 @@ import { RadioProvider } from '@/components/radio/RadioProvider';
 import RadioBar from '@/components/radio/RadioBar';
 import NativeBridge from '@/components/NativeBridge';
 import BugReportButton from '@/components/BugReportButton';
+import RealmCalloutGuard from '@/components/RealmCalloutGuard';
 import MusePortal from '@/components/MusePortal';
 import JsonLd from '@/components/JsonLd';
 
@@ -91,6 +92,10 @@ export default function RootLayout({ children }) {
     <html lang="en" className="dark">
       <body className={`${inter.className} bg-[#050505] antialiased text-white`}>
         <JsonLd />
+        {/* iOS long-press callout + selection kill for realm/game views
+            (auto-detects full-viewport game canvases; chat/forms/inputs
+            keep working). Mounted once — every realm inherits it. */}
+        <RealmCalloutGuard />
         <RadioProvider>
           <NativeBridge />
           <EconomyHeartbeat />

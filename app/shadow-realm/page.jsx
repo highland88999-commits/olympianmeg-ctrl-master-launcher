@@ -27,6 +27,12 @@ const css = {
     fontFamily: 'system-ui, -apple-system, sans-serif', overflow: 'hidden',
     display: 'flex', flexDirection: 'column', alignItems: 'center',
     touchAction: 'manipulation', // no double-tap zoom delay (double-tap = recenter)
+    // iOS "hold to select" callout: no selectable text anywhere in the game
+    // UI — kills the long-press Copy/Look Up menu over the realm. Pointer,
+    // tilt, gyro, and the first-tap motion-permission gesture are unaffected.
+    userSelect: 'none',
+    WebkitUserSelect: 'none',
+    WebkitTouchCallout: 'none',
   },
   center: { flex: 1, width: '100%', maxWidth: 560, padding: 20, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 },
   title: { fontSize: 30, fontWeight: 800, letterSpacing: 6, color: '#7dd3fc', textAlign: 'center', margin: '18px 0 2px' },
@@ -232,26 +238,13 @@ function ShadowRealmInner() {
     setStage('finished');
   };
 
-  const steerTo = (v) => {
-    inputRef.current.steer = v;
-  };
-
-  // Steer-pad press tracking: tilt steering yields while any pad is held.
-  const padDown = (v) => {
-    manualSteer.current.pads += 1;
-    setManualSteer();
-    steerTo(v);
-  };
-  const padUp = () => {
-    manualSteer.current.pads = Math.max(0, manualSteer.current.pads - 1);
-    setManualSteer();
-    if (!touchSteerRef.current) steerTo(0);
-  };
+  // Manual-steer tracking: tilt steering never fights an active key.
+  // (The old touch steer pads are gone — tilt is the steering now.)
 
   // ---------------- menus ----------------
   if (stage === 'mode' || stage === 'track' || stage === 'garage') {
     return (
-      <div style={css.screen}>
+      <div style={css.screen} onContextMenu={(e) => e.preventDefault()}>
         <div style={css.center}>
           <div style={css.title}>SHADOW REALM</div>
           <div style={css.sub}>NIGHT-CYCLE GRID · TRON LIGHT BIKES</div>
@@ -369,7 +362,7 @@ function ShadowRealmInner() {
   const riding = stage === 'ride' || stage === 'finished';
   const immersed = fsx.focusMode; // chrome hidden: true fullscreen or iPhone focus mode
   return (
-    <div style={css.screen} ref={containerRef}>
+    <div style={css.screen} ref={containerRef} onContextMenu={(e) => e.preventDefault()}>
       <div
         style={{ position: 'absolute', inset: 0 }}
         onDoubleClick={() => { if (motion.motionOn) motion.recenter(); }}
@@ -428,24 +421,8 @@ function ShadowRealmInner() {
               LAP {lastLap.lapNum} · {fmtTime(lastLap.lapTime)}
             </div>
           )}
-          {/* touch controls: steer pads + boost */}
+          {/* touch controls: boost only — steering is tilt now, camera is drag-to-orbit */}
           <div style={{ position: 'absolute', inset: 0, zIndex: 6, pointerEvents: 'none' }}>
-            <div
-              style={{ position: 'absolute', left: 0, bottom: 0, width: '38%', height: '42%', pointerEvents: 'auto', touchAction: 'none', display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-start', padding: 18 }}
-              onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); padDown(-1); }}
-              onPointerUp={padUp}
-              onPointerCancel={padUp}
-            >
-              <div style={{ width: 84, height: 84, borderRadius: '50%', border: '1px solid #1e3a5f', background: 'rgba(10,20,40,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30, color: '#38bdf8' }}>◀</div>
-            </div>
-            <div
-              style={{ position: 'absolute', right: 0, bottom: 0, width: '38%', height: '42%', pointerEvents: 'auto', touchAction: 'none', display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end', padding: 18 }}
-              onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); padDown(1); }}
-              onPointerUp={padUp}
-              onPointerCancel={padUp}
-            >
-              <div style={{ width: 84, height: 84, borderRadius: '50%', border: '1px solid #1e3a5f', background: 'rgba(10,20,40,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30, color: '#38bdf8' }}>▶</div>
-            </div>
             <div
               style={{ position: 'absolute', right: 18, bottom: 128, pointerEvents: 'auto', touchAction: 'none' }}
               onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); inputRef.current.boost = true; try { fx.boost(); } catch {} }}
