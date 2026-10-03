@@ -483,7 +483,7 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, 
       trailApi.current.push(s.x, s.z, dx, dz);
     }
 
-    // chase camera
+    // chase camera (+ gyro look-around: input.lookYaw / lookPitch, radians)
     const cam = state.camera;
     const back = 13 + s.speed * 0.05;
     const cx = s.x - dx * back;
@@ -491,7 +491,25 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, 
     const cy = 5.6 + s.speed * 0.012;
     camTarget.current.set(cx, cy, cz);
     cam.position.lerp(camTarget.current, 1 - Math.exp(-4.5 * dt));
-    cam.lookAt(s.x + dx * 12, 1.4, s.z + dz * 12);
+    // Gyro look: pan the view without moving the camera. Yaw rotates the
+    // look-at point about world-up around the bike (horizon never tilts —
+    // no roll is ever applied); pitch shifts its height. lookYaw > 0 looks
+    // right, lookPitch > 0 looks up. Both default to 0 (straight ahead).
+    const lookYaw = input.lookYaw || 0;
+    const lookPitch = input.lookPitch || 0;
+    let lx = s.x + dx * 12;
+    let ly = 1.4;
+    let lz = s.z + dz * 12;
+    if (lookYaw) {
+      const ox = lx - s.x;
+      const oz = lz - s.z;
+      const c = Math.cos(lookYaw);
+      const n = Math.sin(lookYaw);
+      lx = s.x + ox * c + oz * n;
+      lz = s.z - ox * n + oz * c;
+    }
+    if (lookPitch) ly += lookPitch * 26;
+    cam.lookAt(lx, ly, lz);
 
     // HUD @ ~7Hz (no per-frame React state)
     if (hudRef && s.time - s.lastHud > 0.14) {
