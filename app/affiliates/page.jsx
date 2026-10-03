@@ -3,7 +3,8 @@
 // In-house affiliate program — the house's own referral engine.
 // Any signed-in user becomes an affiliate, shares their link, and earns
 // 10% of whatever the house earns on every purchase their referrals make.
-// Ledger only in v1: balances accrue here; payouts come in a later phase.
+// Balances accrue in the wallet; payouts move only when Merlin runs them,
+// straight to the affiliate's bank via Stripe Connect.
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
@@ -23,6 +24,8 @@ export default function AffiliatesPage() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [connect, setConnect] = useState(null);
+  const [payoutBusy, setPayoutBusy] = useState(false);
 
   const load = () => {
     setError('');
@@ -33,6 +36,12 @@ export default function AffiliatesPage() {
         setData(d);
       })
       .catch((e) => setError(e.message));
+    authedFetch('/api/connect/status')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.ok) setConnect(d);
+      })
+      .catch(() => {});
   };
 
   useEffect(load, []);
@@ -66,6 +75,33 @@ export default function AffiliatesPage() {
     }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const setupPayouts = async () => {
+    setPayoutBusy(true);
+    setError('');
+    try {
+      const r = await authedFetch('/api/connect/onboard', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: 'affiliate', next: '/affiliates' }),
+      });
+      const d = await r.json();
+      if (!d.ok) throw new Error(d.error || 'Could not start payout setup.');
+      if (d.ready) {
+        load();
+        return;
+      }
+      if (d.url) {
+        window.location.href = d.url;
+        return;
+      }
+      throw new Error('No onboarding link returned.');
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setPayoutBusy(false);
+    }
   };
 
   return (
@@ -106,7 +142,7 @@ export default function AffiliatesPage() {
               <p className="mt-2 text-5xl font-black text-emerald-300">{data.balance_display}</p>
               <p className="mt-2 text-xs text-zinc-500">
                 {data.threshold.reached
-                  ? 'Payout threshold reached — payouts open in a later phase.'
+                  ? 'Threshold reached — set up payouts below to receive your balance.'
                   : `${data.threshold.threshold_display} minimum payout`}
               </p>
               <div className="mt-4 flex items-center justify-center gap-6 text-sm">
@@ -146,9 +182,66 @@ export default function AffiliatesPage() {
               </div>
               <p className="mt-2 text-[11px] text-zinc-500">
                 Balances accrue as your referrals buy. True net = sale minus
-                Stripe fees minus real product costs. Payouts open in a later
-                phase — nothing moves until then.
+                Stripe fees minus real product costs. Payouts are sent manually
+                once your balance reaches the threshold and your payout account
+                is ready — nothing moves on its own.
               </p>
+            </div>
+
+            {/* Payouts */}
+            <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Payouts</p>
+              {!connect && (
+                <p className="mt-2 text-sm text-zinc-500">Checking payout status…</p>
+              )}
+              {connect && connect.connect_status === 'none' && (
+                <>
+                  <p className="mt-2 text-sm text-zinc-400">
+                    Connect a payout account to receive your balance. Payouts go
+                    straight to your bank via Stripe.
+                  </p>
+                  <button
+                    onClick={setupPayouts}
+                    disabled={payoutBusy}
+                    className="mt-3 min-h-[44px] px-5 rounded-lg bg-[#3a86ff] text-white text-sm font-semibold disabled:opacity-50"
+                  >
+                    {payoutBusy ? 'Opening Stripe…' : 'Set up payouts'}
+                  </button>
+                </>
+              )}
+              {connect && connect.connect_status === 'pending' && (
+                <p className="mt-2 text-sm text-amber-300">
+                  Payout setup is in progress — finish the remaining steps in Stripe.{' '}
+                  <button onClick={setupPayouts} disabled={payoutBusy} className="underline disabled:opacity-50">
+                    {payoutBusy ? 'Opening…' : 'Resume setup'}
+                  </button>
+                </p>
+              )}
+              {connect && connect.connect_status === 'ready' && (
+                <p className="mt-2 text-sm text-emerald-300">
+                  Payouts ready ✓ — your balance will be sent when payouts run.
+                </p>
+              )}
+              {connect && connect.payouts && connect.payouts.length > 0 && (
+                <>
+                  <h3 className="mt-4 text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-500">
+                    Payout history
+                  </h3>
+                  <ul className="mt-2 space-y-2">
+                    {connect.payouts.map((p, i) => (
+                      <li
+                        key={i}
+                        className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2"
+                      >
+                        <p className="text-xs text-zinc-400">
+                          {new Date(p.created_at).toLocaleDateString()} · {p.kind}
+                        </p>
+                        <p className="text-xs font-bold text-emerald-300">{p.amount_display}</p>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
             </div>
 
             <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
