@@ -70,8 +70,9 @@ export const POST = apiGuard(async function POST(req) {
       console.log(`Luge webhook: granted arsenal (${LUGE_PREMIUM_IDS.length} sleds) to ${userId}.`);
 
       // In-house affiliate hook: 10% of the house's net (revenue - fees).
-      // Flagged: the arsenal's hoodie COGS isn't subtracted until that
-      // fulfillment is wired — same treatment as the store's Printful COGS.
+      // The arsenal is digital goods: zero COGS. The free-hoodie reward for
+      // completing all maps is a separate promotional fulfillment, not a
+      // per-order cost, so it never enters this math.
       try {
         await accrueAffiliateCommission(supabase, {
           source: 'luge',

@@ -17,6 +17,7 @@ import {
   purchaseNet,
   shouldAccrueCommission,
   payoutProgress,
+  walletSummary,
   AFFILIATE_RATE,
   HOUSE_MARGIN_RATE,
   AFF_MIN_PAYOUT_CENTS,
@@ -175,5 +176,58 @@ describe('payout threshold', () => {
     const q = payoutProgress({ balance_cents: 2000 });
     assert.equal(q.percent, 100);
     assert.equal(q.reached, true);
+  });
+});
+
+describe('true net with COGS', () => {
+  it('subtracts Stripe fees and Printful COGS from gross', () => {
+    // C$95 hoodie: 9500 - 306 fee - 6450 Printful base = 2744 net
+    assert.equal(purchaseNet({ gross_cents: 9500, stripe_fee_cents: 306, cogs_cents: 6450 }), 2744);
+  });
+
+  it('store commission is 10% of the true net', () => {
+    const net = purchaseNet({ gross_cents: 9500, stripe_fee_cents: 306, cogs_cents: 6450 });
+    const s = computeAffiliateCommission({ net_cents: net, surface: 'store' });
+    assert.equal(s.commission_cents, Math.round(2744 * 0.1));
+    assert.equal(s.house_margin_cents, 2744);
+    assert.equal(s.house_keeps_cents, 2744 - s.commission_cents);
+  });
+
+  it('ticket commission is 1% of net (10% of the house 10%)', () => {
+    const net = purchaseNet({ gross_cents: 10000, stripe_fee_cents: 320, cogs_cents: 0 });
+    const s = computeAffiliateCommission({ net_cents: net, surface: 'tickets' });
+    assert.equal(s.house_margin_cents, 968);
+    assert.equal(s.commission_cents, 97); // 10% of 968 = 96.8 -> 97
+  });
+
+  it('never goes negative', () => {
+    assert.equal(purchaseNet({ gross_cents: 100, stripe_fee_cents: 50, cogs_cents: 200 }), 0);
+  });
+
+  it('digital surfaces carry zero COGS', () => {
+    for (const surface of ['tickets', 'hermes', 'luge', 'gallery', 'fortress', 'world-engine', 'persephone']) {
+      const net = purchaseNet({ gross_cents: 5000, stripe_fee_cents: 175, cogs_cents: 0 });
+      assert.equal(net, 4825, surface);
+    }
+  });
+});
+
+describe('wallet summary', () => {
+  it('balance = accrued only; pending never inflates it', () => {
+    const w = walletSummary([
+      { commission_cents: 100, status: 'accrued' },
+      { commission_cents: 50, status: 'paid' },
+      { commission_cents: 0, status: 'pending_cost' },
+      { commission_cents: 25, status: 'accrued' },
+    ]);
+    assert.equal(w.balance_cents, 125);
+    assert.equal(w.lifetime_cents, 175);
+    assert.equal(w.paid_cents, 50);
+    assert.equal(w.pending_count, 1);
+  });
+
+  it('empty wallet is all zeros', () => {
+    const w = walletSummary([]);
+    assert.deepEqual(w, { balance_cents: 0, lifetime_cents: 0, paid_cents: 0, pending_count: 0 });
   });
 });

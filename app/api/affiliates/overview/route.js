@@ -7,7 +7,8 @@ export const dynamic = 'force-dynamic';
 import { apiGuard } from '@/lib/api-guard';
 import { getServiceClient } from '@/lib/economy/supabase';
 import { getUserFromRequest } from '@/lib/economy/auth';
-import { AFF_MIN_PAYOUT_CENTS, payoutProgress, formatCents } from '@/lib/affiliates';
+import { isAffiliateOwner } from '@/lib/affiliates/server';
+import { AFF_MIN_PAYOUT_CENTS, payoutProgress, formatCents, walletSummary } from '@/lib/affiliates';
 
 const SOURCE_LABELS = {
   tickets: 'PerSymphony tickets',
@@ -64,20 +65,26 @@ export const GET = apiGuard(async function GET(req) {
     }));
   }
 
-  const balance_cents = commissions
-    .filter((c) => c.status === 'accrued')
-    .reduce((s, c) => s + c.commission_cents, 0);
+  // Wallet view over the ledger (pure helper — balance = accrued only;
+  // pending_cost rows never inflate it).
+  const { balance_cents, lifetime_cents, paid_cents, pending_count } = walletSummary(commissions);
   const progress = payoutProgress({ balance_cents });
   const origin = new URL(req.url).origin;
 
   return Response.json({
     ok: true,
     is_affiliate: !!codeRow?.code,
+    is_owner: isAffiliateOwner(auth.user),
     code: codeRow?.code || null,
     link: codeRow?.code ? `${origin}/?ref=${encodeURIComponent(codeRow.code)}` : null,
     referred_count: referredCount,
     balance_cents,
     balance_display: formatCents(balance_cents),
+    lifetime_cents,
+    lifetime_display: formatCents(lifetime_cents),
+    paid_cents,
+    paid_display: formatCents(paid_cents),
+    pending_count,
     threshold: { ...progress, threshold_display: formatCents(AFF_MIN_PAYOUT_CENTS) },
     commissions,
   });

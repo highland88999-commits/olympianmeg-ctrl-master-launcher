@@ -38,16 +38,36 @@ create table if not exists public.aff_referrals (
 create index if not exists aff_referrals_affiliate_idx on public.aff_referrals (affiliate_user_id);
 create index if not exists aff_referrals_email_idx on public.aff_referrals (referred_email);
 
+-- ============================================================ product costs (true COGS)
+-- Deterministic per-variant fulfillment costs, in the surface's currency.
+-- Store: Printful v2 catalog prices (currency=CAD) — item base cost only;
+-- order-level shipping is NOT included (flagged, varies per order).
+-- A cost row is the single source of truth at webhook time. If a purchase
+-- arrives for a product_key with no cost row, its commission goes to
+-- 'pending_cost' (never silently accrued on the inflated base) and is
+-- finalized by POST /api/affiliates/finalize-costs once the cost lands.
+create table if not exists public.aff_product_costs (
+  surface text not null,
+  product_key text not null,
+  cost_cents int not null check (cost_cents >= 0),
+  currency text not null default 'CAD',
+  source text not null default '',
+  updated_at timestamptz not null default now(),
+  primary key (surface, product_key)
+);
+
 -- ============================================================ commission ledger (surface-agnostic)
 create table if not exists public.aff_commissions (
   id uuid primary key default gen_random_uuid(),
   affiliate_user_id uuid not null references auth.users(id) on delete cascade,
   source text not null,
   source_id text not null,
+  product_key text,
   purchase_net_cents int not null check (purchase_net_cents >= 0),
   house_margin_cents int not null check (house_margin_cents >= 0),
   commission_cents int not null check (commission_cents >= 0),
-  status text not null default 'accrued' check (status in ('accrued', 'paid')),
+  status text not null default 'accrued'
+    check (status in ('accrued', 'pending_cost', 'paid')),
   created_at timestamptz not null default now(),
   -- Idempotency: one commission per purchase per surface, forever.
   unique (source, source_id)
@@ -76,3 +96,7 @@ create policy "aff_referrals own read"
 -- Commissions: NO public policies. Service-role API routes only.
 -- The affiliate dashboard reads through /api/affiliates/overview, scoped
 -- to the logged-in user server-side.
+
+alter table public.aff_product_costs enable row level security;
+-- Product costs: NO public policies. Service-role only (webhook lookups
+-- and the Merlin-gated cost sync route).

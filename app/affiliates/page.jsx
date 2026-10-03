@@ -100,36 +100,43 @@ export default function AffiliatesPage() {
 
         {data && data.is_affiliate && (
           <>
-            <div className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Your referral link</p>
-              <p className="mt-2 text-sm break-all text-[#f4f6ff] font-mono">{data.link}</p>
-              <button
-                onClick={copyLink}
-                className="mt-3 min-h-[44px] px-5 rounded-lg bg-[#3a86ff] text-white text-sm font-semibold"
-              >
-                {copied ? 'Copied ✓' : 'Copy link'}
-              </button>
-            </div>
-
-            <div className="mt-4 grid grid-cols-3 gap-3">
-              <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 text-center">
-                <p className="text-2xl font-black">{data.referred_count}</p>
-                <p className="text-[11px] uppercase tracking-wider text-zinc-500 mt-1">Referred</p>
+            {/* Wallet — the balance is the hero */}
+            <div className="mt-6 rounded-2xl border border-emerald-400/30 bg-gradient-to-b from-emerald-400/10 to-transparent p-6 text-center">
+              <p className="text-[11px] uppercase tracking-[0.25em] text-zinc-400">Wallet balance</p>
+              <p className="mt-2 text-5xl font-black text-emerald-300">{data.balance_display}</p>
+              <p className="mt-2 text-xs text-zinc-500">
+                {data.threshold.reached
+                  ? 'Payout threshold reached — payouts open in a later phase.'
+                  : `${data.threshold.threshold_display} minimum payout`}
+              </p>
+              <div className="mt-4 flex items-center justify-center gap-6 text-sm">
+                <div>
+                  <p className="font-bold text-[#f4f6ff]">{data.lifetime_display}</p>
+                  <p className="text-[10px] uppercase tracking-wider text-zinc-500">Lifetime earned</p>
+                </div>
+                <div className="w-px h-8 bg-zinc-800" aria-hidden="true" />
+                <div>
+                  <p className="font-bold text-[#f4f6ff]">{data.paid_display}</p>
+                  <p className="text-[10px] uppercase tracking-wider text-zinc-500">Paid out</p>
+                </div>
+                <div className="w-px h-8 bg-zinc-800" aria-hidden="true" />
+                <div>
+                  <p className="font-bold text-[#f4f6ff]">{data.referred_count}</p>
+                  <p className="text-[10px] uppercase tracking-wider text-zinc-500">Referred</p>
+                </div>
               </div>
-              <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 text-center">
-                <p className="text-2xl font-black text-emerald-300">{data.balance_display}</p>
-                <p className="text-[11px] uppercase tracking-wider text-zinc-500 mt-1">Accrued</p>
-              </div>
-              <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 text-center">
-                <p className="text-2xl font-black">{data.threshold.percent}%</p>
-                <p className="text-[11px] uppercase tracking-wider text-zinc-500 mt-1">To payout</p>
-              </div>
+              {data.pending_count > 0 && (
+                <p className="mt-3 text-[11px] text-amber-300/90">
+                  {data.pending_count} commission{data.pending_count === 1 ? '' : 's'} awaiting
+                  cost finalization — not counted in your balance yet.
+                </p>
+              )}
             </div>
 
             <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
               <div className="flex justify-between text-xs text-zinc-400">
-                <span>Payout threshold: {data.threshold.threshold_display}</span>
-                <span>{data.threshold.reached ? 'Reached — payouts coming soon' : `${data.threshold.threshold_display} minimum`}</span>
+                <span>To payout threshold</span>
+                <span>{data.threshold.percent}%</span>
               </div>
               <div className="mt-2 h-2 rounded-full bg-zinc-800 overflow-hidden">
                 <div
@@ -138,8 +145,21 @@ export default function AffiliatesPage() {
                 />
               </div>
               <p className="mt-2 text-[11px] text-zinc-500">
-                Balances accrue as your referrals buy. Payouts open in a later phase — nothing moves until then.
+                Balances accrue as your referrals buy. True net = sale minus
+                Stripe fees minus real product costs. Payouts open in a later
+                phase — nothing moves until then.
               </p>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Your referral link</p>
+              <p className="mt-2 text-sm break-all text-[#f4f6ff] font-mono">{data.link}</p>
+              <button
+                onClick={copyLink}
+                className="mt-3 min-h-[44px] px-5 rounded-lg bg-[#3a86ff] text-white text-sm font-semibold"
+              >
+                {copied ? 'Copied ✓' : 'Copy link'}
+              </button>
             </div>
 
             <h2 className="mt-8 text-sm font-bold uppercase tracking-[0.18em] text-zinc-400">Commission history</h2>
@@ -155,10 +175,17 @@ export default function AffiliatesPage() {
                     <div>
                       <p className="text-sm font-semibold">{c.source_label}</p>
                       <p className="text-[11px] text-zinc-500">
-                        {new Date(c.created_at).toLocaleDateString()} · {c.status}
+                        {new Date(c.created_at).toLocaleDateString()} ·{' '}
+                        {c.status === 'pending_cost' ? (
+                          <span className="text-amber-300">awaiting cost finalization</span>
+                        ) : (
+                          c.status
+                        )}
                       </p>
                     </div>
-                    <p className="text-sm font-bold text-emerald-300">+{c.commission_display}</p>
+                    <p className={`text-sm font-bold ${c.status === 'pending_cost' ? 'text-zinc-500' : 'text-emerald-300'}`}>
+                      {c.status === 'pending_cost' ? 'pending' : `+${c.commission_display}`}
+                    </p>
                   </li>
                 ))}
               </ul>
@@ -168,6 +195,12 @@ export default function AffiliatesPage() {
 
         <p className="mt-10 text-center text-xs text-zinc-600">
           <Link href="/" className="underline">Back to the hub</Link>
+          {data?.is_owner && (
+            <>
+              {' · '}
+              <Link href="/affiliates/admin" className="underline">Owner liability view</Link>
+            </>
+          )}
         </p>
       </div>
     </div>
