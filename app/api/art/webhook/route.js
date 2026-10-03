@@ -12,6 +12,7 @@ import Stripe from 'stripe';
 import { getServiceClient } from '@/lib/economy/supabase';
 import { billableSessionOrNull } from '@/lib/stripe-webhook';
 import { apiGuard } from '@/lib/api-guard';
+import { accrueAffiliateCommission, stripeFeeCents } from '@/lib/affiliates/server';
 
 export const POST = apiGuard(async function POST(req) {
   const stripeKey = process.env.STRIPE_SECRET_KEY;
@@ -97,6 +98,23 @@ export const POST = apiGuard(async function POST(req) {
     }
 
     console.log(`Art webhook: recorded sale ${session.id} — ${amountCents}c to seller ${sellerUserId}.`);
+
+    // In-house affiliate hook. The full sale goes to the seller today —
+    // the house takes no cut, so no commission accrues (the helper
+    // computes 0 and skips). If Merlin ever adds a house commission on
+    // art sales, this hook starts accruing with no code change.
+    try {
+      await accrueAffiliateCommission(admin, {
+        source: 'art',
+        source_id: session.id,
+        buyer_user_id: buyerUserId,
+        buyer_email: session.customer_details?.email || '',
+        gross_cents: amountCents,
+        stripe_fee_cents: await stripeFeeCents(stripe, session),
+      });
+    } catch (affErr) {
+      console.error('Art webhook: affiliate accrual failed (non-fatal):', affErr?.message || affErr);
+    }
     return Response.json({ ok: true, recorded: true });
   } catch (err) {
     // A DB failure must NOT be acknowledged: a 200 tells Stripe to stop

@@ -6,6 +6,7 @@ import { getAdminClient } from '../_server.js';
 import { LUGE_PREMIUM_IDS, arsenalGrantRows } from '@/lib/luge/logic.js';
 import { billableSessionOrNull } from '@/lib/stripe-webhook.js';
 import { apiGuard } from '@/lib/api-guard';
+import { accrueAffiliateCommission, stripeFeeCents } from '@/lib/affiliates/server';
 
 export const POST = apiGuard(async function POST(req) {
   const stripeKey = process.env.STRIPE_SECRET_KEY;
@@ -67,6 +68,22 @@ export const POST = apiGuard(async function POST(req) {
       if (grantError) throw grantError;
 
       console.log(`Luge webhook: granted arsenal (${LUGE_PREMIUM_IDS.length} sleds) to ${userId}.`);
+
+      // In-house affiliate hook: 10% of the house's net (revenue - fees).
+      // Flagged: the arsenal's hoodie COGS isn't subtracted until that
+      // fulfillment is wired — same treatment as the store's Printful COGS.
+      try {
+        await accrueAffiliateCommission(supabase, {
+          source: 'luge',
+          source_id: event.id,
+          buyer_user_id: userId,
+          buyer_email: session.customer_details?.email || '',
+          gross_cents: typeof session.amount_total === 'number' ? session.amount_total : 0,
+          stripe_fee_cents: await stripeFeeCents(stripe, session),
+        });
+      } catch (affErr) {
+        console.error('Luge webhook: affiliate accrual failed (non-fatal):', affErr?.message || affErr);
+      }
       return Response.json({ ok: true, granted: LUGE_PREMIUM_IDS.length });
     } catch (err) {
       // If the grant failed after the claim, release the claim so a Stripe

@@ -15,6 +15,7 @@ import Stripe from 'stripe';
 import { getTier, isPurchasableTier } from '@/lib/fortress/tiers';
 import { getFortressAdmin } from '@/lib/fortress/server';
 import { applyPurchase, applyCancellation } from '@/lib/fortress/quota-store';
+import { accrueAffiliateCommission, stripeFeeCents } from '@/lib/affiliates/server';
 
 export async function POST(req) {
   const stripeKey = process.env.STRIPE_SECRET_KEY;
@@ -71,6 +72,21 @@ export async function POST(req) {
         stripeSubscriptionId: subId,
       });
       console.log(`Fortress webhook: ${userId} ascended to ${tier.id} (${tier.label}), session ${session.id}.`);
+      // In-house affiliate hook: 10% of the house's net (revenue - fees).
+      // Initial purchase only — subscription renewals don't emit
+      // checkout.session.completed, so they don't accrue (flagged).
+      try {
+        await accrueAffiliateCommission(admin, {
+          source: 'fortress',
+          source_id: session.id,
+          buyer_user_id: userId,
+          buyer_email: session.customer_details?.email || '',
+          gross_cents: typeof session.amount_total === 'number' ? session.amount_total : 0,
+          stripe_fee_cents: await stripeFeeCents(stripe, session),
+        });
+      } catch (affErr) {
+        console.error('Fortress webhook: affiliate accrual failed (non-fatal):', affErr?.message || affErr);
+      }
       return Response.json({ ok: true });
     } catch (err) {
       console.error('Fortress webhook DB error:', err?.message || err);

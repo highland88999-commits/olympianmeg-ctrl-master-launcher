@@ -19,6 +19,7 @@ import { tierById } from '@/lib/world-engine/economy';
 import { getAdminClient } from '@/lib/world-engine/server';
 import { billableSessionOrNull } from '@/lib/stripe-webhook';
 import { apiGuard } from '@/lib/api-guard';
+import { accrueAffiliateCommission, stripeFeeCents } from '@/lib/affiliates/server';
 
 async function loadStripe() {
   const mod = await import('stripe');
@@ -114,5 +115,21 @@ export const POST = apiGuard(async function POST(request) {
   }
 
   console.log(`World Engine: credited ${tier.tokens} Aether to ${userId} (event ${event.id}).`);
+
+  // In-house affiliate hook: 10% of the house's net (revenue - fees).
+  // Tier price is server-defined; never trust amount_total alone.
+  try {
+    const stripe = await loadStripe();
+    await accrueAffiliateCommission(admin, {
+      source: 'world-engine',
+      source_id: event.id,
+      buyer_user_id: userId,
+      buyer_email: session.customer_details?.email || '',
+      gross_cents: typeof tier.cents === 'number' ? tier.cents : 0,
+      stripe_fee_cents: await stripeFeeCents(stripe, session),
+    });
+  } catch (affErr) {
+    console.error('World Engine webhook: affiliate accrual failed (non-fatal):', affErr?.message || affErr);
+  }
   return NextResponse.json({ received: true }, { status: 200 });
 });

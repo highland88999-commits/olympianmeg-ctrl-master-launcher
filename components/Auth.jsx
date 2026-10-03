@@ -2,13 +2,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { GOOGLE_PROVIDER, mapGoogleSignInError } from '@/lib/auth/google-errors';
-import {
-  RESEND_COOLDOWN_S,
-  RESET_REQUEST_MESSAGE,
-  EXPIRED_LINK_MESSAGE,
-  cooldownLabel,
-  detectRecoveryLink,
-} from '@/lib/auth/recovery-ux';
 
 export default function Auth({ onLogin }) {
   const [email, setEmail] = useState('');
@@ -26,44 +19,49 @@ export default function Auth({ onLogin }) {
   // Modes: 'login', 'signup', 'reset', 'update'
   const [mode, setMode] = useState('login');
   // Resend-verification affordance: shown after a fresh signup, or when a
-  // login fails because the email was never confirmed. Resends go through
-  // the same Resend-backed mailer as everything else; a 60s cooldown keeps
-  // users from hammering the provider throttle.
+  // login fails because the email was never confirmed. Supabase's built-in
+  // mailer is throttled to a few sends per hour and lands in spam often, so
+  // users need a way to trigger a fresh send without re-registering.
   const [resending, setResending] = useState(false);
   const [showResend, setShowResend] = useState(false);
-  // Reset-link resend: shown after a reset is requested. Same 60s cooldown.
-  const [showResendReset, setShowResendReset] = useState(false);
-  // Seconds left before another resend is allowed. Shared by the signup
-  // verification resend and the reset-link resend — one mailer, one limit.
-  const [resendCooldown, setResendCooldown] = useState(0);
-  const cooling = resendCooldown > 0;
 
-  // Cooldown ticker: ticks down once a second while a resend is cooling.
-  useEffect(() => {
-    if (!cooling) return undefined;
-    const t = setInterval(() => setResendCooldown((s) => Math.max(0, s - 1)), 1000);
-    return () => clearInterval(t);
-  }, [cooling]);
-
-  useEffect(() => {
-    // Dead recovery link: Supabase lands back with error_code=otp_expired
-    // (hash or query) when the link expired or was already used. Show a
-    // clear "request a new one" state instead of silently sitting on login.
-    // The dead link is scrubbed from the URL so a reload doesn't re-trigger.
-    // A VALID link is left alone — its PASSWORD_RECOVERY event arrives below.
+  // Sends a stashed ?ref=CODE to the server for binding. The server
+  // validates the code, resolves the affiliate, and writes the referral —
+  // first binding wins, self-referral rejected. Safe to call repeatedly.
+  const bindPendingReferral = async (accessToken) => {
+    let code = '';
     try {
-      const { attempt, expired } = detectRecoveryLink(window.location.hash, window.location.search);
-      if (attempt && expired) {
-        setMode('reset');
-        setMessage(EXPIRED_LINK_MESSAGE);
-        setError('');
-        setShowResend(false);
-        setShowResendReset(true);
-        window.history.replaceState(null, '', window.location.pathname);
+      code = localStorage.getItem('pending_aff_ref') || '';
+    } catch { return; }
+    if (!code || !accessToken) return;
+    try {
+      const r = await fetch('/api/affiliates/bind', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ code }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (d && (d.ok || d.already)) {
+        try { localStorage.removeItem('pending_aff_ref'); } catch { /* ignore */ }
       }
-    } catch (e) {
-      // A URL parse quirk must never break the auth panel.
+    } catch {
+      // Network failure: keep the stash; the next sign-in retries.
     }
+  };
+
+  useEffect(() => {
+    // In-house affiliate attribution: capture ?ref=CODE from the URL and
+    // stash it. It is bound server-side once the user has a session
+    // (below) — the client never asserts the binding itself.
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const ref = (params.get('ref') || '').trim();
+      if (ref) localStorage.setItem('pending_aff_ref', ref);
+    } catch { /* ignore */ }
+
     // Listens for the user returning from a password reset email link.
     // Guarded: lib/supabase throws synchronously when env vars are absent.
     // The launcher's offline gate keeps this panel unmounted while the cloud
@@ -74,6 +72,11 @@ export default function Auth({ onLogin }) {
           setMode('update');
           setMessage('SECURE LINK VERIFIED. ENTER NEW ENCRYPTION KEY.');
           setError('');
+        }
+        // Affiliate bind: a fresh SIGNED_IN session picks up any stashed
+        // referral code — covers email signup/login and Google OAuth return.
+        if (event === 'SIGNED_IN' && session?.access_token) {
+          bindPendingReferral(session.access_token);
         }
       });
       return () => subscription.unsubscribe();
@@ -88,7 +91,6 @@ export default function Auth({ onLogin }) {
     setError('');
     setMessage('');
     setShowResend(false);
-    setShowResendReset(false);
 
     try {
       if (mode === 'signup') {
@@ -109,16 +111,12 @@ export default function Auth({ onLogin }) {
         }
       } 
       else if (mode === 'reset') {
-        // Triggers the Supabase Reset Password Email. GoTrue answers success
-        // even when the address has no account (anti-enumeration, by design),
-        // so the message must never claim a link was definitely sent.
+        // Triggers the Supabase Reset Password Email
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
           redirectTo: window.location.origin, 
         });
         if (error) throw error;
-        setMessage(RESET_REQUEST_MESSAGE);
-        setShowResendReset(true);
-        setResendCooldown(RESEND_COOLDOWN_S);
+        setMessage('RESET PROTOCOL INITIATED. CHECK COMMS FOR LINK.');
       } 
       else if (mode === 'update') {
         // Updates the user's password using the active recovery session
@@ -137,14 +135,15 @@ export default function Auth({ onLogin }) {
     }
   };
 
-  // Re-sends the signup confirmation email. Same 60s cooldown as the reset
-  // resend — one shared mailer, one shared limit.
+  // Re-sends the signup confirmation email. Counts against the same
+  // provider throttle as the original send, so the UI copy tells the user
+  // to check the spam folder too — that's where the shared Supabase sender
+  // lands most often.
   const handleResendVerification = async () => {
     if (!email) {
       setError('ENTER YOUR SECURE EMAIL FIRST.');
       return;
     }
-    if (resending || cooling) return;
     setResending(true);
     setError('');
     setMessage('');
@@ -152,32 +151,6 @@ export default function Auth({ onLogin }) {
       const { error } = await supabase.auth.resend({ type: 'signup', email });
       if (error) throw error;
       setMessage('VERIFICATION MATRIX RE-SENT. CHECK INBOX AND SPAM FOLDER.');
-      setResendCooldown(RESEND_COOLDOWN_S);
-    } catch (err) {
-      setError(((err && err.message) || 'RESEND FAILED').toUpperCase());
-    } finally {
-      setResending(false);
-    }
-  };
-
-  // Re-sends the password-reset email. Each new request invalidates the
-  // previous link, so the copy reminds the user to use the newest one.
-  const handleResendReset = async () => {
-    if (!email) {
-      setError('ENTER YOUR SECURE EMAIL FIRST.');
-      return;
-    }
-    if (resending || cooling) return;
-    setResending(true);
-    setError('');
-    setMessage('');
-    try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: window.location.origin,
-      });
-      if (error) throw error;
-      setMessage(RESET_REQUEST_MESSAGE + ' USE THE NEWEST LINK.');
-      setResendCooldown(RESEND_COOLDOWN_S);
     } catch (err) {
       setError(((err && err.message) || 'RESEND FAILED').toUpperCase());
     } finally {
@@ -297,23 +270,10 @@ export default function Auth({ onLogin }) {
             <button
               type="button"
               onClick={handleResendVerification}
-              disabled={resending || cooling}
+              disabled={resending}
               className="w-full p-2 bg-transparent border border-[#00ff88] text-[#00ff88] font-['Orbitron'] text-[10px] tracking-widest uppercase rounded hover:bg-[#00ff88] hover:text-black transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {resending ? 'RETRANSMITTING...' : (cooldownLabel(resendCooldown) || "DIDN'T GET IT? RESEND VERIFICATION")}
-            </button>
-          )}
-
-          {/* Reset-link resend: appears after a reset is requested, or when
-              landing on a dead (expired/used) recovery link. 60s cooldown. */}
-          {showResendReset && mode === 'reset' && (
-            <button
-              type="button"
-              onClick={handleResendReset}
-              disabled={resending || cooling}
-              className="w-full p-2 bg-transparent border border-amber-400 text-amber-400 font-['Orbitron'] text-[10px] tracking-widest uppercase rounded hover:bg-amber-400 hover:text-black transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {resending ? 'RETRANSMITTING...' : (cooldownLabel(resendCooldown) || 'RESEND RESET LINK')}
+              {resending ? 'RETRANSMITTING...' : "DIDN'T GET IT? RESEND VERIFICATION"}
             </button>
           )}
 
@@ -361,13 +321,13 @@ export default function Auth({ onLogin }) {
           {mode === 'login' && (
             <>
               <button 
-                onClick={() => { setMode('reset'); setError(''); setMessage(''); setShowResend(false); setShowResendReset(false); }}
+                onClick={() => { setMode('reset'); setError(''); setMessage(''); setShowResend(false); }}
                 className="w-full p-2 bg-transparent border border-zinc-600 text-zinc-400 font-['Orbitron'] text-[10px] tracking-widest uppercase rounded hover:border-amber-400 hover:text-amber-400 transition-all"
               >
                 FORGOT ENCRYPTION KEY?
               </button>
               <button 
-                onClick={() => { setMode('signup'); setError(''); setMessage(''); setShowResend(false); setShowResendReset(false); }}
+                onClick={() => { setMode('signup'); setError(''); setMessage(''); setShowResend(false); }}
                 className="w-full p-2 bg-transparent border border-zinc-600 text-zinc-400 font-['Orbitron'] text-[10px] tracking-widest uppercase rounded hover:border-[#fe53bb] hover:text-[#fe53bb] transition-all"
               >
                 REGISTER NEW NODE
@@ -377,7 +337,7 @@ export default function Auth({ onLogin }) {
 
           {(mode === 'signup' || mode === 'reset') && (
             <button 
-              onClick={() => { setMode('login'); setError(''); setMessage(''); setShowResend(false); setShowResendReset(false); }}
+              onClick={() => { setMode('login'); setError(''); setMessage(''); setShowResend(false); }}
               className="w-full p-2 mt-2 bg-transparent border border-zinc-600 text-zinc-400 font-['Orbitron'] text-[10px] tracking-widest uppercase rounded hover:border-[#00f2ff] hover:text-[#00f2ff] transition-all"
             >
               RETURN TO LOGIN

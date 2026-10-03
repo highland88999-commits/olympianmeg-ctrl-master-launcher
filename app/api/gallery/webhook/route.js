@@ -13,6 +13,7 @@ import { getServiceClient } from '@/lib/economy/supabase';
 import { CREDITS_PER_PACK } from '@/lib/gallery';
 import { billableSessionOrNull } from '@/lib/stripe-webhook';
 import { apiGuard } from '@/lib/api-guard';
+import { accrueAffiliateCommission, stripeFeeCents } from '@/lib/affiliates/server';
 
 export const POST = apiGuard(async function POST(req) {
   const stripeKey = process.env.STRIPE_SECRET_KEY;
@@ -73,6 +74,19 @@ export const POST = apiGuard(async function POST(req) {
         console.log(`Gallery webhook: session ${session.id} already credited.`);
       } else {
         console.log(`Gallery webhook: credited ${CREDITS_PER_PACK} download credits to ${userId} (session ${session.id}).`);
+        // In-house affiliate hook: 10% of the house's net (revenue - fees).
+        try {
+          await accrueAffiliateCommission(admin, {
+            source: 'gallery',
+            source_id: session.id,
+            buyer_user_id: userId,
+            buyer_email: session.customer_details?.email || '',
+            gross_cents: typeof session.amount_total === 'number' ? session.amount_total : 0,
+            stripe_fee_cents: await stripeFeeCents(stripe, session),
+          });
+        } catch (affErr) {
+          console.error('Gallery webhook: affiliate accrual failed (non-fatal):', affErr?.message || affErr);
+        }
       }
       return Response.json({ ok: true, balance_after: row?.balance_after ?? null });
     } catch (err) {

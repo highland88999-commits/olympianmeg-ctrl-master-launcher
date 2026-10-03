@@ -5,6 +5,8 @@ import { getAdminClient } from '../_server.js';
 import { listingExpiryIso, LISTING_TERM_MONTHS } from '@/lib/hermes/listings.js';
 import { billableSessionOrNull } from '@/lib/stripe-webhook.js';
 import { apiGuard } from '@/lib/api-guard';
+import { accrueAffiliateCommission, stripeFeeCents } from '@/lib/affiliates/server';
+import { LISTING_FEE_CENTS } from '@/lib/hermes/listings.js';
 
 export const POST = apiGuard(async function POST(req) {
   const stripeKey = process.env.STRIPE_SECRET_KEY;
@@ -64,6 +66,21 @@ export const POST = apiGuard(async function POST(req) {
         console.log(`Hermes webhook: submission ${submissionId} already handled.`);
       } else {
         console.log(`Hermes webhook: approved listing for ${LISTING_TERM_MONTHS} months (${submissionId}).`);
+        // In-house affiliate hook: 10% of the house's net (revenue - fees;
+        // no COGS on a directory listing). Buyer is email-identified —
+        // hermes_links carries no user column, so the email fallback applies.
+        try {
+          await accrueAffiliateCommission(supabase, {
+            source: 'hermes',
+            source_id: submissionId,
+            buyer_user_id: null,
+            buyer_email: session.customer_details?.email || '',
+            gross_cents: typeof session.amount_total === 'number' ? session.amount_total : LISTING_FEE_CENTS,
+            stripe_fee_cents: await stripeFeeCents(stripe, session),
+          });
+        } catch (affErr) {
+          console.error('Hermes webhook: affiliate accrual failed (non-fatal):', affErr?.message || affErr);
+        }
       }
       return Response.json({ ok: true });
     } catch (err) {

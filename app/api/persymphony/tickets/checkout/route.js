@@ -78,6 +78,21 @@ export const POST = apiGuard(async function POST(req) {
   }
 
   const origin = new URL(req.url).origin;
+  // Optional buyer identity for the in-house affiliate program: when the
+  // buyer is signed in, their user id rides along in metadata so the
+  // webhook can attribute the purchase. Logged-out buys still work —
+  // attribution falls back to the buyer email.
+  let buyerUserId = '';
+  const authHeader = req.headers.get('authorization') || '';
+  if (authHeader.startsWith('Bearer ')) {
+    try {
+      const { getUserFromRequest } = await import('@/lib/economy/auth');
+      const authRes = await getUserFromRequest(req);
+      if (!authRes.error && authRes.user) buyerUserId = authRes.user.id;
+    } catch {
+      /* logged-out purchase — email fallback applies */
+    }
+  }
   const session = await stripe.checkout.sessions.create({
     mode: 'payment',
     line_items: [
@@ -97,6 +112,7 @@ export const POST = apiGuard(async function POST(req) {
       tier_id: tierId,
       quantity: String(quantity),
       buyer_name: buyerName,
+      buyer_user_id: buyerUserId,
     },
     success_url: `${origin}/persymphony/tickets/success?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${origin}/persymphony/tickets/${showId}`,

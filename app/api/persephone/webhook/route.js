@@ -11,6 +11,7 @@ import Stripe from 'stripe';
 import { getServiceClient } from '@/lib/economy/supabase';
 import { billableSessionOrNull } from '@/lib/stripe-webhook';
 import { apiGuard } from '@/lib/api-guard';
+import { accrueAffiliateCommission, stripeFeeCents } from '@/lib/affiliates/server';
 
 export const POST = apiGuard(async function POST(req) {
   const stripeKey = process.env.STRIPE_SECRET_KEY;
@@ -69,6 +70,20 @@ export const POST = apiGuard(async function POST(req) {
         console.log(`Persephone webhook: session ${session.id} already handled.`);
       } else {
         console.log(`Persephone webhook: order paid (${meta.qty}× ${meta.ticket_id}, session ${session.id}).`);
+        // In-house affiliate hook: 10% of the house's net (revenue - fees).
+        // persephone_orders carries no buyer column — email fallback applies.
+        try {
+          await accrueAffiliateCommission(admin, {
+            source: 'persephone',
+            source_id: session.id,
+            buyer_user_id: null,
+            buyer_email: session.customer_details?.email || '',
+            gross_cents: typeof session.amount_total === 'number' ? session.amount_total : 0,
+            stripe_fee_cents: await stripeFeeCents(stripe, session),
+          });
+        } catch (affErr) {
+          console.error('Persephone webhook: affiliate accrual failed (non-fatal):', affErr?.message || affErr);
+        }
       }
       return Response.json({ ok: true });
     } catch (err) {

@@ -1,0 +1,175 @@
+'use client';
+
+// In-house affiliate program — the house's own referral engine.
+// Any signed-in user becomes an affiliate, shares their link, and earns
+// 10% of whatever the house earns on every purchase their referrals make.
+// Ledger only in v1: balances accrue here; payouts come in a later phase.
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { supabase } from '@/lib/supabase';
+
+function authedFetch(path, opts = {}) {
+  return supabase.auth.getSession().then(({ data: { session } }) => {
+    if (!session?.access_token) throw new Error('Sign in to use the affiliate program.');
+    return fetch(path, {
+      ...opts,
+      headers: { ...(opts.headers || {}), Authorization: `Bearer ${session.access_token}` },
+    });
+  });
+}
+
+export default function AffiliatesPage() {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const load = () => {
+    setError('');
+    authedFetch('/api/affiliates/overview')
+      .then((r) => r.json())
+      .then((d) => {
+        if (!d.ok) throw new Error(d.error || 'Could not load your dashboard.');
+        setData(d);
+      })
+      .catch((e) => setError(e.message));
+  };
+
+  useEffect(load, []);
+
+  const become = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const r = await authedFetch('/api/affiliates/code', { method: 'POST' });
+      const d = await r.json();
+      if (!d.ok) throw new Error(d.error || 'Could not create your affiliate link.');
+      load();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copyLink = async () => {
+    if (!data?.link) return;
+    try {
+      await navigator.clipboard.writeText(data.link);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = data.link;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="min-h-screen bg-[#070d1d] text-[#f4f6ff]">
+      <div className="max-w-3xl mx-auto px-4 pt-6 pb-24">
+        <p className="text-xs tracking-[0.2em] uppercase text-[#3a86ff]">Plutus · Wealth &amp; Trade</p>
+        <h1 className="text-2xl font-black mt-1">Affiliates</h1>
+        <p className="text-sm text-zinc-400 mt-1 max-w-xl">
+          Share your link. Anyone who signs up with it is yours — every in-house
+          purchase they ever make earns you 10% of the house&apos;s cut.
+          No fees, no middlemen, tracked on your account forever.
+        </p>
+
+        {error && (
+          <p className="mt-6 text-sm text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg p-3">{error}</p>
+        )}
+
+        {!data && !error && <p className="mt-8 text-sm text-zinc-500">Loading your dashboard…</p>}
+
+        {data && !data.is_affiliate && (
+          <div className="mt-8 rounded-xl border border-[#3a86ff]/30 bg-[#3a86ff]/5 p-6 text-center">
+            <p className="text-sm text-zinc-300">You don&apos;t have an affiliate link yet.</p>
+            <button
+              onClick={become}
+              disabled={busy}
+              className="mt-4 min-h-[48px] px-6 rounded-lg bg-[#3a86ff] text-white text-sm font-bold disabled:opacity-50"
+            >
+              {busy ? 'Creating…' : 'Become an affiliate'}
+            </button>
+          </div>
+        )}
+
+        {data && data.is_affiliate && (
+          <>
+            <div className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Your referral link</p>
+              <p className="mt-2 text-sm break-all text-[#f4f6ff] font-mono">{data.link}</p>
+              <button
+                onClick={copyLink}
+                className="mt-3 min-h-[44px] px-5 rounded-lg bg-[#3a86ff] text-white text-sm font-semibold"
+              >
+                {copied ? 'Copied ✓' : 'Copy link'}
+              </button>
+            </div>
+
+            <div className="mt-4 grid grid-cols-3 gap-3">
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 text-center">
+                <p className="text-2xl font-black">{data.referred_count}</p>
+                <p className="text-[11px] uppercase tracking-wider text-zinc-500 mt-1">Referred</p>
+              </div>
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 text-center">
+                <p className="text-2xl font-black text-emerald-300">{data.balance_display}</p>
+                <p className="text-[11px] uppercase tracking-wider text-zinc-500 mt-1">Accrued</p>
+              </div>
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 text-center">
+                <p className="text-2xl font-black">{data.threshold.percent}%</p>
+                <p className="text-[11px] uppercase tracking-wider text-zinc-500 mt-1">To payout</p>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+              <div className="flex justify-between text-xs text-zinc-400">
+                <span>Payout threshold: {data.threshold.threshold_display}</span>
+                <span>{data.threshold.reached ? 'Reached — payouts coming soon' : `${data.threshold.threshold_display} minimum`}</span>
+              </div>
+              <div className="mt-2 h-2 rounded-full bg-zinc-800 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-emerald-400 transition-all"
+                  style={{ width: `${data.threshold.percent}%` }}
+                />
+              </div>
+              <p className="mt-2 text-[11px] text-zinc-500">
+                Balances accrue as your referrals buy. Payouts open in a later phase — nothing moves until then.
+              </p>
+            </div>
+
+            <h2 className="mt-8 text-sm font-bold uppercase tracking-[0.18em] text-zinc-400">Commission history</h2>
+            {data.commissions.length === 0 ? (
+              <p className="mt-3 text-sm text-zinc-500">No commissions yet. Share your link to start earning.</p>
+            ) : (
+              <ul className="mt-3 space-y-2">
+                {data.commissions.map((c) => (
+                  <li
+                    key={c.source + ':' + c.source_id}
+                    className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/60 px-4 py-3"
+                  >
+                    <div>
+                      <p className="text-sm font-semibold">{c.source_label}</p>
+                      <p className="text-[11px] text-zinc-500">
+                        {new Date(c.created_at).toLocaleDateString()} · {c.status}
+                      </p>
+                    </div>
+                    <p className="text-sm font-bold text-emerald-300">+{c.commission_display}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
+
+        <p className="mt-10 text-center text-xs text-zinc-600">
+          <Link href="/" className="underline">Back to the hub</Link>
+        </p>
+      </div>
+    </div>
+  );
+}

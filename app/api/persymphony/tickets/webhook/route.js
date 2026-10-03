@@ -24,6 +24,7 @@ import {
   splitCents,
   MAX_TICKETS_PER_ORDER,
 } from '@/lib/persymphony/tickets';
+import { accrueAffiliateCommission } from '@/lib/affiliates/server';
 
 async function stripeFeeCents(stripe, session) {
   // Real processing fee from the charge's balance transaction.
@@ -116,6 +117,7 @@ export const POST = apiGuard(async function POST(req) {
   );
   const buyerName = String(meta.buyer_name || '').slice(0, 120);
   const buyerEmail = String(session.customer_details?.email || '').slice(0, 160);
+  const buyerUserId = String(meta.buyer_user_id || '') || null;
 
   // Re-validate against the database (never trust metadata alone).
   const { data: tier, error: tErr } = await admin
@@ -144,17 +146,38 @@ export const POST = apiGuard(async function POST(req) {
       ticket_number: await mintUniqueTicketNumber(admin),
       buyer_name: buyerName,
       buyer_email: buyerEmail,
+      buyer_user_id: buyerUserId,
       stripe_session_id: session.id,
       amount_cents: perTicketAmounts[i],
       stripe_fee_cents: perTicketFees[i],
       status: 'valid',
     });
   }
-  const { error: insErr } = await admin.from('ps_tickets').insert(rows);
+  const { data: minted, error: insErr } = await admin
+    .from('ps_tickets')
+    .insert(rows)
+    .select('id, amount_cents, stripe_fee_cents');
   if (insErr) {
     // Unique-violation on stripe_session_id can't happen (no such constraint),
     // but a ticket_number race is retried per ticket above; anything else is real.
     throw insErr;
+  }
+
+  // In-house affiliate hook: one commission per ticket, idempotent on the
+  // ticket id. Never fails the fulfillment — logged and skipped on error.
+  try {
+    for (const t of minted || []) {
+      await accrueAffiliateCommission(admin, {
+        source: 'tickets',
+        source_id: t.id,
+        buyer_user_id: buyerUserId,
+        buyer_email: buyerEmail,
+        gross_cents: t.amount_cents,
+        stripe_fee_cents: t.stripe_fee_cents,
+      });
+    }
+  } catch (affErr) {
+    console.error('Tickets webhook: affiliate accrual failed (non-fatal):', affErr?.message || affErr);
   }
 
   // Bump sold count. The ps_tier_no_oversell CHECK blocks overselling.
