@@ -23,6 +23,7 @@ import {
   TILT_DEADZONE_DEG,
   TILT_FULL_DEFLECT_DEG,
   TILT_SMOOTH,
+  axisFromTiltDelta,
   tiltInputFromDelta,
   smoothTiltInput,
   classifyTiltEnv,
@@ -146,6 +147,53 @@ describe('smoothTiltInput (lerp)', () => {
 
   it('is a no-op when already at target', () => {
     assert.ok(approx(smoothTiltInput(0.7, 0.7), 0.7));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 2b. Auto flight-axis rule (Merlin: the phone's pitch IS the selector —
+//     no toggle button). Past the ±8° dead-zone → vertical; held level →
+//     horizontal. Pure and deterministic: same delta, same axis, no flicker.
+// ---------------------------------------------------------------------------
+describe('axisFromTiltDelta (auto flight-axis rule)', () => {
+  it('switches to vertical past the +8° dead-zone', () => {
+    assert.equal(axisFromTiltDelta(8.1), 'vertical');
+    assert.equal(axisFromTiltDelta(20), 'vertical');
+    assert.equal(axisFromTiltDelta(45), 'vertical');
+  });
+
+  it('switches to vertical past the −8° dead-zone (either direction)', () => {
+    assert.equal(axisFromTiltDelta(-8.1), 'vertical');
+    assert.equal(axisFromTiltDelta(-20), 'vertical');
+  });
+
+  it('stays horizontal exactly at the ±8° boundary ("beyond" is strict)', () => {
+    assert.equal(axisFromTiltDelta(8), 'horizontal');
+    assert.equal(axisFromTiltDelta(-8), 'horizontal');
+  });
+
+  it('holds horizontal inside the dead-zone (phone held level)', () => {
+    for (const d of [0, 1, -1, 5, -5, 7.9, -7.9]) {
+      assert.equal(axisFromTiltDelta(d), 'horizontal', `delta ${d}°`);
+    }
+  });
+
+  it('a lying sensor never engages vertical control', () => {
+    for (const bad of [NaN, Infinity, -Infinity, undefined, null, 'x']) {
+      assert.equal(axisFromTiltDelta(bad), 'horizontal', `input ${String(bad)}`);
+    }
+  });
+
+  it('is deterministic — no internal state, no flicker at the boundary', () => {
+    for (let i = 0; i < 5; i++) {
+      assert.equal(axisFromTiltDelta(8.1), 'vertical');
+      assert.equal(axisFromTiltDelta(7.9), 'horizontal');
+    }
+  });
+
+  it('shares the single ±8° dead-zone constant with the tilt input', () => {
+    assert.equal(TILT_DEADZONE_DEG, 8);
+    assert.ok(tiltControlSrc.includes('TILT_DEADZONE_DEG ?'), 'rule references the constant');
   });
 });
 
@@ -300,6 +348,27 @@ describe('tilt hook contract (static)', () => {
     assert.ok(useTiltSrc.includes('requestPermission'), 'iOS permission flow');
     assert.ok(useTiltSrc.includes('prefers-reduced-motion'), 'reduced-motion check');
     assert.ok(useTiltSrc.includes('tiltInputFromDelta'), 'uses the pure tilt math');
+  });
+
+  it('the hook honors onAutoAxis and drives the axis from the tilt delta', () => {
+    assert.ok(useTiltSrc.includes('onAutoAxis'), 'accepts the onAutoAxis callback');
+    assert.ok(useTiltSrc.includes('axisFromTiltDelta'), 'uses the auto-axis rule');
+    assert.ok(useTiltSrc.includes('autoAxisRef'), 'callback read via ref (never stale)');
+    // Change detection: notify only when the axis actually flips, otherwise
+    // the axis holds its value and no redundant state update fires.
+    assert.ok(useTiltSrc.includes('nextAxis !== axisRef.current'), 'notifies only on change');
+  });
+
+  it('iOS permission fires on the first tap — invisible infrastructure, no button', () => {
+    assert.ok(useTiltSrc.includes("addEventListener('pointerdown'"), 'first-tap listener');
+    assert.ok(useTiltSrc.includes('once: true'), 'one-shot gesture');
+    // Guarded: non-iOS browsers and already-granted states skip the prompt.
+    assert.ok(useTiltSrc.includes("typeof DOE.requestPermission !== 'function'"), 'gate check');
+    assert.ok(useTiltSrc.includes('if (activeRef.current) return'), 'no double-enable');
+  });
+
+  it('the removed toggle button stays gone', () => {
+    assert.ok(!useTiltSrc.includes('toggleTilt()'), 'toggle never invoked internally');
   });
 
   it('the dead-zone constant is wired, not hardcoded', () => {
