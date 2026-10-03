@@ -83,27 +83,27 @@ export default function ProfilePage() {
   };
 
   if (loading) {
-    return <main className="min-h-dvh bg-black p-10 text-center text-zinc-500">Loading…</main>;
+    return <main className="min-h-dvh bg-[#070d1d] p-10 text-center text-zinc-500">Loading…</main>;
   }
 
   if (cloudOffline) {
     return (
-      <main className="min-h-dvh bg-black p-10 text-center text-white">
+      <main className="min-h-dvh bg-[#070d1d] p-10 text-center text-white">
         <p className="text-zinc-400">Cloud features are offline — this page needs the database connection.</p>
-        <Link href="/agora" className="mt-4 inline-block text-amber-300 underline">Back to the feed</Link>
+        <Link href="/agora" className="mt-4 inline-block text-cyan-300 underline">Back to the feed</Link>
       </main>
     );
   }
 
   return (
-    <main className="relative min-h-dvh bg-black text-white">
+    <main className="relative min-h-dvh bg-[#070d1d] text-white">
       <Starfield />
       <div className="relative z-10 mx-auto max-w-3xl px-4 pb-24 pt-10">
         <Link href="/agora" className="text-sm text-zinc-500 underline hover:text-zinc-300">
           ← Back to the feed
         </Link>
 
-        <section className="mt-4 rounded-xl border border-white/10 bg-black/50 p-6">
+        <section className="mt-4 rounded-xl border border-white/10 bg-[#0a1230]/60 p-6">
           {!editing ? (
             <>
               <h1 className="text-2xl font-black">{displayNameOf(profile, 'Unnamed traveler')}</h1>
@@ -134,7 +134,7 @@ export default function ProfilePage() {
                   onChange={(e) => setName(e.target.value)}
                   maxLength={LIMITS.nameMax}
                   placeholder="What should people call you?"
-                  className="min-h-[44px] w-full rounded-lg border border-white/10 bg-black/60 p-3 text-white placeholder:text-zinc-600 focus:border-amber-400/50 focus:outline-none"
+                  className="min-h-[44px] w-full rounded-lg border border-white/10 bg-[#0a1230]/70 p-3 text-white placeholder:text-zinc-600 focus:border-[#3a86ff]/60 focus:outline-none"
                 />
               </div>
               <div>
@@ -148,7 +148,7 @@ export default function ProfilePage() {
                   rows={4}
                   maxLength={LIMITS.bioMax}
                   placeholder="A line or two about you."
-                  className="w-full rounded-lg border border-white/10 bg-black/60 p-3 text-white placeholder:text-zinc-600 focus:border-amber-400/50 focus:outline-none"
+                  className="w-full rounded-lg border border-white/10 bg-[#0a1230]/70 p-3 text-white placeholder:text-zinc-600 focus:border-[#3a86ff]/60 focus:outline-none"
                 />
               </div>
               {error && <p className="text-sm text-red-400">{error}</p>}
@@ -156,7 +156,7 @@ export default function ProfilePage() {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="min-h-[44px] rounded-full bg-amber-400 px-6 text-sm font-semibold text-black hover:bg-amber-300 disabled:opacity-50"
+                  className="min-h-[44px] rounded-full bg-[#3a86ff] px-6 text-sm font-semibold text-white hover:bg-[#2f6fe0] disabled:opacity-50"
                 >
                   {saving ? 'Saving…' : 'Save'}
                 </button>

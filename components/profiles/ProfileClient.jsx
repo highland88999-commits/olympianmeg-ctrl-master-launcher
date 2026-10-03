@@ -278,7 +278,7 @@ export function ProfileClient({ username, type, art, posts, userId }) {
         <button type="button" className="pf-btn" onClick={shareExternal}>Share profile</button>
         {isOwner ? (
           <>
-            <button type="button" className="pf-btn gold" onClick={shareToAgora} disabled={sharing}>
+            <button type="button" className="pf-btn accent" onClick={shareToAgora} disabled={sharing}>
               {sharing ? 'Sharing…' : 'Share to Agora'}
             </button>
             <Link className="pf-btn" href={`/u/${encodeURIComponent(username)}/edit`}>Edit profile</Link>

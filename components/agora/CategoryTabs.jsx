@@ -17,7 +17,7 @@ export default function CategoryTabs({ active, onChange }) {
             onClick={() => onChange(t.id)}
             className={`min-h-[44px] shrink-0 rounded-full px-4 text-sm font-medium transition-colors ${
               isActive
-                ? 'bg-amber-400 text-black'
+                ? 'bg-[#3a86ff] text-white'
                 : 'bg-white/5 text-zinc-300 hover:bg-white/10'
             }`}
           >

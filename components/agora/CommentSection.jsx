@@ -101,7 +101,7 @@ export default function CommentSection({ postId, initialLikeCount, initialLiked 
         onClick={toggleLike}
         aria-pressed={liked}
         className={`min-h-[44px] rounded-full px-5 text-sm font-semibold transition-colors ${
-          liked ? 'bg-amber-400 text-black' : 'bg-white/5 text-zinc-200 hover:bg-white/10'
+          liked ? 'bg-[#3a86ff] text-white' : 'bg-white/5 text-zinc-200 hover:bg-white/10'
         }`}
       >
         {liked ? '♥ Liked' : '♡ Like'} · {likeCount}
@@ -118,7 +118,7 @@ export default function CommentSection({ postId, initialLikeCount, initialLiked 
       ) : (
         <ul className="space-y-3">
           {comments.map((c) => (
-            <li key={c.id} className="rounded-lg border border-white/10 bg-black/40 p-4">
+            <li key={c.id} className="rounded-lg border border-white/10 bg-[#0a1230]/50 p-4">
               <div className="mb-1 flex items-center justify-between text-xs text-zinc-500">
                 <span>{displayNameOf(c.agora_profiles)} · {timeAgo(c.created_at)}</span>
                 {user && user.id === c.user_id && (
@@ -147,12 +147,12 @@ export default function CommentSection({ postId, initialLikeCount, initialLiked 
           rows={3}
           maxLength={LIMITS.commentMax}
           placeholder={user ? 'Share your thoughts…' : 'Sign in to join the conversation.'}
-          className="w-full rounded-lg border border-white/10 bg-black/60 p-3 text-sm text-white placeholder:text-zinc-600 focus:border-amber-400/50 focus:outline-none"
+          className="w-full rounded-lg border border-white/10 bg-[#0a1230]/70 p-3 text-sm text-white placeholder:text-zinc-600 focus:border-[#3a86ff]/60 focus:outline-none"
         />
         {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
         <button
           type="submit"
-          className="mt-2 min-h-[44px] rounded-full bg-amber-400 px-5 text-sm font-semibold text-black hover:bg-amber-300"
+          className="mt-2 min-h-[44px] rounded-full bg-[#3a86ff] px-5 text-sm font-semibold text-white hover:bg-[#2f6fe0]"
         >
           Post comment
         </button>

@@ -64,7 +64,7 @@ export default function NewPost() {
 
   if (cloudOffline) {
     return (
-      <main className="relative min-h-dvh bg-black text-white">
+      <main className="relative min-h-dvh bg-[#070d1d] text-white">
         <Starfield />
         <div className="relative z-10 mx-auto max-w-md px-4 pb-24 pt-16 text-center">
           <h1 className="mb-2 text-2xl font-black">New post</h1>
@@ -83,13 +83,13 @@ export default function NewPost() {
 
   if (checking) {
     return (
-      <main className="min-h-dvh bg-black p-10 text-center text-zinc-500">Loading…</main>
+      <main className="min-h-dvh bg-[#070d1d] p-10 text-center text-zinc-500">Loading…</main>
     );
   }
 
   if (!user) {
     return (
-      <main className="relative min-h-dvh bg-black text-white">
+      <main className="relative min-h-dvh bg-[#070d1d] text-white">
         <Starfield />
         <div className="relative z-10 mx-auto max-w-md px-4 pb-24 pt-16">
           <h1 className="mb-2 text-2xl font-black">Sign in to post</h1>
@@ -107,7 +107,7 @@ export default function NewPost() {
   }
 
   return (
-    <main className="relative min-h-dvh bg-black text-white">
+    <main className="relative min-h-dvh bg-[#070d1d] text-white">
       <Starfield />
       <div className="relative z-10 mx-auto max-w-2xl px-4 pb-24 pt-10">
         <h1 className="mb-6 text-2xl font-black">New post</h1>
@@ -122,7 +122,7 @@ export default function NewPost() {
               onChange={(e) => setTitle(e.target.value)}
               maxLength={LIMITS.titleMax}
               placeholder="Give it a clear title"
-              className="min-h-[44px] w-full rounded-lg border border-white/10 bg-black/60 p-3 text-white placeholder:text-zinc-600 focus:border-amber-400/50 focus:outline-none"
+              className="min-h-[44px] w-full rounded-lg border border-white/10 bg-[#0a1230]/70 p-3 text-white placeholder:text-zinc-600 focus:border-[#3a86ff]/60 focus:outline-none"
             />
           </div>
           <div>
@@ -133,7 +133,7 @@ export default function NewPost() {
               id="post-category"
               value={category}
               onChange={(e) => setCategory(e.target.value)}
-              className="min-h-[44px] w-full rounded-lg border border-white/10 bg-black/60 p-3 text-white focus:border-amber-400/50 focus:outline-none"
+              className="min-h-[44px] w-full rounded-lg border border-white/10 bg-[#0a1230]/70 p-3 text-white focus:border-[#3a86ff]/60 focus:outline-none"
             >
               {CATEGORIES.map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
@@ -151,7 +151,7 @@ export default function NewPost() {
               rows={8}
               maxLength={LIMITS.bodyMax}
               placeholder="Write your post…"
-              className="w-full rounded-lg border border-white/10 bg-black/60 p-3 text-white placeholder:text-zinc-600 focus:border-amber-400/50 focus:outline-none"
+              className="w-full rounded-lg border border-white/10 bg-[#0a1230]/70 p-3 text-white placeholder:text-zinc-600 focus:border-[#3a86ff]/60 focus:outline-none"
             />
             <p className="mt-1 text-right text-xs text-zinc-600">{body.trim().length}/{LIMITS.bodyMax}</p>
           </div>
@@ -160,7 +160,7 @@ export default function NewPost() {
             <button
               type="submit"
               disabled={saving}
-              className="min-h-[44px] rounded-full bg-amber-400 px-6 text-sm font-semibold text-black hover:bg-amber-300 disabled:opacity-50"
+              className="min-h-[44px] rounded-full bg-[#3a86ff] px-6 text-sm font-semibold text-white hover:bg-[#2f6fe0] disabled:opacity-50"
             >
               {saving ? 'Publishing…' : 'Publish'}
             </button>

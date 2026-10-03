@@ -70,23 +70,23 @@ export default function PostDetail() {
   };
 
   if (loading) {
-    return <main className="min-h-dvh bg-black p-10 text-center text-zinc-500">Loading…</main>;
+    return <main className="min-h-dvh bg-[#070d1d] p-10 text-center text-zinc-500">Loading…</main>;
   }
 
   if (cloudOffline) {
     return (
-      <main className="min-h-dvh bg-black p-10 text-center text-white">
+      <main className="min-h-dvh bg-[#070d1d] p-10 text-center text-white">
         <p className="text-zinc-400">Cloud features are offline — this page needs the database connection.</p>
-        <Link href="/agora" className="mt-4 inline-block text-amber-300 underline">Back to the feed</Link>
+        <Link href="/agora" className="mt-4 inline-block text-cyan-300 underline">Back to the feed</Link>
       </main>
     );
   }
 
   if (notFound || !post) {
     return (
-      <main className="min-h-dvh bg-black p-10 text-center text-white">
+      <main className="min-h-dvh bg-[#070d1d] p-10 text-center text-white">
         <p className="text-zinc-400">That post doesn&apos;t exist or was deleted.</p>
-        <Link href="/agora" className="mt-4 inline-block text-amber-300 underline">Back to the feed</Link>
+        <Link href="/agora" className="mt-4 inline-block text-cyan-300 underline">Back to the feed</Link>
       </main>
     );
   }
@@ -94,16 +94,16 @@ export default function PostDetail() {
   const isOwner = user && user.id === post.user_id;
 
   return (
-    <main className="relative min-h-dvh bg-black text-white">
+    <main className="relative min-h-dvh bg-[#070d1d] text-white">
       <Starfield />
       <div className="relative z-10 mx-auto max-w-3xl px-4 pb-24 pt-10">
         <Link href="/agora" className="text-sm text-zinc-500 underline hover:text-zinc-300">
           ← Back to the feed
         </Link>
 
-        <article className="mt-4 rounded-xl border border-white/10 bg-black/50 p-6">
+        <article className="mt-4 rounded-xl border border-white/10 bg-[#0a1230]/60 p-6">
           <div className="mb-3 flex items-center gap-2 text-xs">
-            <span className="rounded-full bg-amber-400/15 px-2.5 py-1 font-medium text-amber-300">
+            <span className="rounded-full bg-[#3a86ff]/15 px-2.5 py-1 font-medium text-[#9dbfff]">
               {categoryName(post.category)}
             </span>
             <span className="text-zinc-500">{timeAgo(post.created_at)}</span>
@@ -111,7 +111,7 @@ export default function PostDetail() {
           <h1 className="mb-3 text-2xl font-black">{post.title}</h1>
           <p className="mb-4 text-sm text-zinc-500">
             by{' '}
-            <Link href={`/agora/profile/${post.user_id}`} className="text-amber-300 underline">
+            <Link href={`/agora/profile/${post.user_id}`} className="text-cyan-300 underline">
               {displayNameOf(author)}
             </Link>
           </p>

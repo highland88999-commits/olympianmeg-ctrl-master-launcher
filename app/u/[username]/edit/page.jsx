@@ -9,39 +9,40 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { BACKGROUND_VIDEO_PRESETS } from '@/lib/profiles/validation';
+import { profileThemeVars } from '@/lib/profiles/theme';
 import Auth from '@/components/Auth';
 
 const CSS = `
-.pe-root { min-height: 100dvh; background: #050508; color: #f2f2f2;
+.pe-root { min-height: 100dvh; background: #070d1d; color: #f2f2f2;
   font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   padding: 1.2rem 1.1rem calc(6rem + env(safe-area-inset-bottom)); }
 .pe-wrap { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 1.6rem; }
 .pe-h1 { font-size: 1.5rem; font-weight: 800; margin: 0; }
 .pe-back { color: #00f2ff; font-size: 0.85rem; text-decoration: none; }
-.pe-tabs { display: inline-flex; border: 1px solid rgba(255,209,102,0.4); border-radius: 999px; overflow: hidden; align-self: flex-start; }
+.pe-tabs { display: inline-flex; border: 1px solid rgba(var(--pf-accent-rgb),0.4); border-radius: 999px; overflow: hidden; align-self: flex-start; }
 .pe-tabs button { padding: 0.6rem 1.3rem; font-size: 0.8rem; font-weight: 700; letter-spacing: 1.5px;
   text-transform: uppercase; background: none; border: none; color: #8a8a99; cursor: pointer; min-height: 44px; }
-.pe-tabs button.on { background: #ffd166; color: #0a0a0c; }
-.pe-card { background: rgba(14,14,20,0.92); border: 1px solid rgba(255,209,102,0.25);
+.pe-tabs button.on { background: var(--pf-accent); color: var(--pf-on-accent); }
+.pe-card { background: rgba(11,19,41,0.92); border: 1px solid rgba(var(--pf-accent-rgb),0.25);
   border-radius: 12px; padding: 1.3rem; display: flex; flex-direction: column; gap: 0.9rem; }
 .pe-card h2 { font-size: 1rem; font-weight: 800; letter-spacing: 2px; text-transform: uppercase;
-  color: #ffd166; margin: 0; }
+  color: var(--pf-accent); margin: 0; }
 .pe-label { display: block; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1px;
   color: #888; margin-bottom: 0.35rem; }
-.pe-input, .pe-area { width: 100%; box-sizing: border-box; background: #0a0a0c; border: 1px solid #333;
+.pe-input, .pe-area { width: 100%; box-sizing: border-box; background: #0a1226; border: 1px solid #333;
   padding: 0.85rem; color: #f2f2f2; border-radius: 8px; font-size: 0.95rem; font-family: inherit; }
 .pe-area { resize: vertical; min-height: 90px; }
-.pe-input:focus, .pe-area:focus { outline: none; border-color: #ffd166; }
+.pe-input:focus, .pe-area:focus { outline: none; border-color: var(--pf-accent); }
 .pe-row { display: flex; gap: 0.7rem; flex-wrap: wrap; align-items: center; }
-.pe-btn { background: #ffd166; color: #0a0a0c; border: none; border-radius: 8px; font-weight: 800;
+.pe-btn { background: var(--pf-accent); color: var(--pf-on-accent); border: none; border-radius: 8px; font-weight: 800;
   font-size: 0.85rem; letter-spacing: 1px; padding: 0.8rem 1.2rem; cursor: pointer; min-height: 44px; }
 .pe-btn.ghost { background: transparent; border: 1px solid #00f2ff; color: #00f2ff; }
 .pe-btn.danger { background: transparent; border: 1px solid #fe53bb; color: #fe53bb; }
 .pe-btn:disabled { opacity: 0.55; cursor: wait; }
-.pe-thumb { width: 84px; height: 84px; border-radius: 10px; object-fit: cover; background: #0a0a12;
+.pe-thumb { width: 84px; height: 84px; border-radius: 10px; object-fit: cover; background: #0b1329;
   border: 1px solid #333; }
 .pe-thumb.round { border-radius: 50%; }
-.pe-item { display: flex; gap: 0.8rem; align-items: center; background: rgba(10,10,14,0.8);
+.pe-item { display: flex; gap: 0.8rem; align-items: center; background: rgba(10,14,30,0.8);
   border: 1px solid #2a2a35; border-radius: 10px; padding: 0.7rem; }
 .pe-item .pe-meta { flex: 1; min-width: 0; }
 .pe-item .pe-title { font-weight: 700; font-size: 0.9rem; margin: 0 0 0.2rem; }
@@ -159,10 +160,10 @@ export default function EditProfilePage({ params }) {
     })();
   }, [user, type, loadAll, loadArtPosts, say]);
 
-  if (checking) return <main className="pe-root"><style>{CSS}</style><p>Loading…</p></main>;
+  if (checking) return <main className="pe-root" style={profileThemeVars('personal')}><style>{CSS}</style><p>Loading…</p></main>;
   if (!user) {
     return (
-      <main className="pe-root"><style>{CSS}</style>
+      <main className="pe-root" style={profileThemeVars('personal')}><style>{CSS}</style>
         <div className="pe-wrap">
           <h1 className="pe-h1">Edit profile</h1>
           <p className="pe-hint">Sign in to edit your profile.</p>
@@ -173,7 +174,7 @@ export default function EditProfilePage({ params }) {
   }
 
   const cur = profiles?.[type];
-  if (profiles && !cur) return <main className="pe-root"><style>{CSS}</style><p>Profile not found.</p></main>;
+  if (profiles && !cur) return <main className="pe-root" style={profileThemeVars(type)}><style>{CSS}</style><p>Profile not found.</p></main>;
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
@@ -358,7 +359,7 @@ export default function EditProfilePage({ params }) {
   }
 
   return (
-    <main className="pe-root">
+    <main className="pe-root" style={profileThemeVars(type)}>
       <style>{CSS}</style>
       <div className="pe-wrap">
         <Link className="pe-back" href={`/u/${encodeURIComponent(slug)}${type === 'business' ? '?v=business' : ''}`}>← View profile</Link>
@@ -437,8 +438,8 @@ export default function EditProfilePage({ params }) {
                     className="pe-btn ghost"
                     style={{
                       padding: '0.5rem',
-                      borderColor: selected ? '#ffd166' : undefined,
-                      boxShadow: selected ? '0 0 12px rgba(255,209,102,0.35)' : 'none',
+                      borderColor: selected ? 'var(--pf-accent)' : undefined,
+                      boxShadow: selected ? '0 0 12px rgba(var(--pf-accent-rgb),0.35)' : 'none',
                       display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.35rem',
                       minWidth: '120px',
                     }}

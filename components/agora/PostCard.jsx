@@ -10,10 +10,10 @@ export default function PostCard({ post }) {
   return (
     <Link
       href={`/agora/post/${post.id}`}
-      className="block rounded-xl border border-white/10 bg-black/50 p-5 transition-colors hover:border-amber-400/40 hover:bg-black/70"
+      className="block rounded-xl border border-white/10 bg-[#0a1230]/60 p-5 transition-colors hover:border-[#3a86ff]/40 hover:bg-black/70"
     >
       <div className="mb-2 flex items-center gap-2 text-xs">
-        <span className="rounded-full bg-amber-400/15 px-2.5 py-1 font-medium text-amber-300">
+        <span className="rounded-full bg-[#3a86ff]/15 px-2.5 py-1 font-medium text-[#9dbfff]">
           {categoryName(post.category)}
         </span>
         <span className="text-zinc-500">{timeAgo(post.created_at)}</span>
