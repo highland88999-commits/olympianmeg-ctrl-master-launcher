@@ -183,6 +183,12 @@ export default function EditProfilePage({ params }) {
     say('', '');
     try {
       const headers = { 'Content-Type': 'application/json', ...(await authHeader()) };
+      // NOTE: cover_kind is intentionally NOT sent here. It is managed
+      // exclusively by the media upload path (handleMedia), which always
+      // writes cover_url and cover_kind together. Echoing this tab's possibly
+      // stale coverKind state on every details save could clobber a cover
+      // kind set from another tab. The server applies sparse updates, so
+      // omitted fields are left untouched.
       const res = await fetch('/api/profiles/me', {
         method: 'PATCH', headers,
         body: JSON.stringify({
@@ -191,7 +197,6 @@ export default function EditProfilePage({ params }) {
           username: form.username,
           bio: form.bio,
           website_urls: form.websites.split('\n').map((s) => s.trim()).filter(Boolean),
-          cover_kind: coverKind,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -237,16 +242,21 @@ export default function EditProfilePage({ params }) {
       const { publicUrl } = await uploadFile(kind, file);
       const headers = { 'Content-Type': 'application/json', ...(await authHeader()) };
       const patch = { type };
+      // coverKind local state is only updated AFTER the PATCH confirms, so a
+      // failed save can never leave the UI disagreeing with the server (which
+      // would then clobber the real cover_kind on the next "Save details").
+      let nextCoverKind = null;
       if (field === 'cover') {
         patch.cover_url = publicUrl;
-        patch.cover_kind = file.type.startsWith('video') ? 'video' : 'image';
-        setCoverKind(patch.cover_kind);
+        nextCoverKind = file.type.startsWith('video') ? 'video' : 'image';
+        patch.cover_kind = nextCoverKind;
       } else {
         patch[field] = publicUrl;
       }
       const res = await fetch('/api/profiles/me', { method: 'PATCH', headers, body: JSON.stringify(patch) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Save failed.');
+      if (nextCoverKind) setCoverKind(nextCoverKind);
       say('ok', 'Media updated.');
       await loadAll();
     } catch (err) {

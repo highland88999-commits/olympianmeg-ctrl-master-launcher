@@ -137,6 +137,22 @@ const CSS = `
   padding: 0.7rem 1.2rem; border-radius: 10px; z-index: 60; max-width: 90vw; text-align: center; }
 .pf-foot { margin-top: 3rem; text-align: center; }
 .pf-foot a { color: #555; font-size: 0.8rem; }
+.pf-friends summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 0.6rem; min-height: 44px; }
+.pf-friends summary::-webkit-details-marker { display: none; }
+.pf-friends summary::before { content: '▸'; color: #ffd166; font-size: 0.9rem; transition: transform 0.15s; }
+.pf-friends[open] summary::before { transform: rotate(90deg); }
+.pf-friends-count { font-size: 0.75rem; color: #8a8a99; letter-spacing: 1px; }
+.pf-friends-list { list-style: none; margin: 0; padding: 0; }
+.pf-friend-row { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+  padding: 0.55rem 0; border-top: 1px solid rgba(255,255,255,0.08); }
+.pf-friend-link { display: flex; align-items: center; gap: 0.7rem; text-decoration: none; color: inherit;
+  min-height: 44px; flex: 1; min-width: 0; }
+.pf-friend-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; flex: none; display: block; }
+.pf-friend-fallback { display: inline-flex; align-items: center; justify-content: center;
+  background: #101018; color: #ffd166; font-weight: 800; border: 1px solid rgba(255,209,102,0.35); }
+.pf-friend-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pf-unfriend { border-color: rgba(255,255,255,0.25) !important; color: #b9b9c7; flex: none; }
+.pf-unfriend.armed { border-color: rgba(255,90,90,0.6) !important; color: #ff9a9a; background: rgba(255,70,70,0.12); }
 `;
 
 export default async function UserProfilePage({ params, searchParams }) {

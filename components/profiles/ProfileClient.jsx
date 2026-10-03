@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
+import { profileUrl, fetchFriendsOf } from '@/lib/friends';
 
 function money(cents) {
   return `$${(cents / 100).toFixed(2)}`;
@@ -31,6 +32,14 @@ export function ProfileClient({ username, type, art, posts, userId }) {
   const [confirmBlock, setConfirmBlock] = useState(false);
   const [blockBusy, setBlockBusy] = useState(false);
   const confirmTimer = useRef(null);
+  // Friends section: canonical friendships source via /api/friends/of.
+  // friends === null -> not loaded or signed out (section hidden).
+  const [friends, setFriends] = useState(null);
+  const [friendsLoading, setFriendsLoading] = useState(false);
+  const [friendsBlocked, setFriendsBlocked] = useState(false);
+  const [removeArmed, setRemoveArmed] = useState(null);
+  const [removeBusy, setRemoveBusy] = useState(null);
+  const removeTimer = useRef(null);
 
   const showToast = useCallback((msg) => {
     setToast(msg);
@@ -72,8 +81,24 @@ export function ProfileClient({ username, type, art, posts, userId }) {
         const bdata = await bres.json();
         setBlockedList(bdata.blocked || []);
       } catch { /* offline */ }
+      // Friends section: canonical source. Signed out -> hidden (no leak,
+      // and blocks can only be enforced for a known viewer).
+      try {
+        if (!userId) return;
+        setFriendsLoading(true);
+        const token = String(headers.Authorization || '').replace(/^Bearer\s+/, '');
+        const fdata = await fetchFriendsOf(token, userId);
+        if (fdata.blocked) {
+          setFriendsBlocked(true);
+          setFriends([]);
+        } else {
+          setFriends(fdata.friends || []);
+        }
+      } catch { /* offline or unauthorized */ } finally {
+        setFriendsLoading(false);
+      }
     })();
-  }, [username, showToast]);
+  }, [username, userId, showToast]);
 
   const buy = useCallback(async (artId) => {
     setBuying(artId);
@@ -192,6 +217,42 @@ export function ProfileClient({ username, type, art, posts, userId }) {
     } catch { /* offline */ }
   }, []);
 
+  // Unfriend: two-tap confirm (first tap arms "Sure?", second removes).
+  const doRemove = useCallback(async (friendId) => {
+    if (removeBusy || !friendId) return;
+    if (removeArmed !== friendId) {
+      setRemoveArmed(friendId);
+      if (removeTimer.current) clearTimeout(removeTimer.current);
+      removeTimer.current = setTimeout(() => setRemoveArmed(null), 3000);
+      return;
+    }
+    setRemoveBusy(friendId);
+    try {
+      const headers = { 'Content-Type': 'application/json', ...(await authHeader()) };
+      if (!headers.Authorization) {
+        showToast('Sign in to manage friends.');
+        return;
+      }
+      const res = await fetch('/api/friends/remove', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ friend_id: friendId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || 'Could not remove friend.');
+        return;
+      }
+      setFriends((f) => (f || []).filter((x) => x.user_id !== friendId));
+      showToast('Removed from friends.');
+    } catch {
+      showToast('Could not remove friend.');
+    } finally {
+      setRemoveArmed(null);
+      setRemoveBusy(null);
+    }
+  }, [removeBusy, removeArmed, showToast]);
+
   const shareExternal = useCallback(async () => {
     const url = `${window.location.origin}/u/${encodeURIComponent(username)}${type === 'business' ? '?v=business' : ''}`;
     const shareData = { title: `${username} on Olympus`, url };
@@ -299,6 +360,58 @@ export function ProfileClient({ username, type, art, posts, userId }) {
       </section>
 
       {toast ? <div className="pf-toast" role="status">{toast}</div> : null}
+
+      {/* Friends: canonical friendships source, collapsible. Hidden when
+          signed out or when the pair is blocked (silent — no leak). */}
+      {friends !== null && !friendsBlocked ? (
+        <section className="pf-section" aria-label="Friends" data-ui="profile-friends">
+          <details className="pf-friends">
+            <summary className="pf-h pf-friends-summary">
+              Friends
+              <span className="pf-friends-count">{friends.length}</span>
+            </summary>
+            {friendsLoading ? (
+              <p className="pf-empty">Loading…</p>
+            ) : friends.length === 0 ? (
+              <p className="pf-empty">
+                {isOwner ? 'No friends yet — meet players in Order 67.' : 'No friends to show.'}
+              </p>
+            ) : (
+              <ul className="pf-friends-list">
+                {friends.map((f) => (
+                  <li key={f.user_id} className="pf-friend-row">
+                    <Link href={profileUrl(f)} className="pf-friend-link">
+                      {f.avatar_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={f.avatar_url} alt="" className="pf-friend-avatar" loading="lazy" />
+                      ) : (
+                        <span className="pf-friend-avatar pf-friend-fallback" aria-hidden="true">
+                          {(f.display_name || f.username || '?').slice(0, 1).toUpperCase()}
+                        </span>
+                      )}
+                      <span className="pf-friend-name">
+                        {f.display_name || f.username}
+                        {f.username ? <span className="pf-username-sm"> @{f.username}</span> : null}
+                      </span>
+                    </Link>
+                    {isOwner ? (
+                      <button
+                        type="button"
+                        data-ui="profile-friend-remove"
+                        className={`pf-btn pf-unfriend${removeArmed === f.user_id ? ' armed' : ''}`}
+                        onClick={() => doRemove(f.user_id)}
+                        disabled={removeBusy === f.user_id}
+                      >
+                        {removeBusy === f.user_id ? 'Working…' : removeArmed === f.user_id ? 'Sure?' : 'Remove'}
+                      </button>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </details>
+        </section>
+      ) : null}
 
       {isOwner ? (
         <>
