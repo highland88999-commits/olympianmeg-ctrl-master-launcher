@@ -58,6 +58,65 @@ export async function acceptAnswer(pc, answerSdp) {
   await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
 }
 
+/**
+ * Watch the peer connection's link state and report honest transitions.
+ * RTCPeerConnection only fires `ontrack` on success — without this, a dead
+ * link (strict NAT, no TURN) leaves the UI stuck on "Connecting…" forever.
+ *
+ * - 'failed' -> onFailed() immediately (the link cannot recover on its own).
+ * - 'disconnected' -> onDisconnected() after LINK_DISCONNECT_GRACE_MS
+ *   without recovery (covers flaky cellular handoffs).
+ * - 'connected' -> onConnected() (clears any pending disconnect timer).
+ * Returns an unmonitor() that detaches the listener and clears timers.
+ */
+export const LINK_DISCONNECT_GRACE_MS = 12000;
+
+export function monitorPeerConnection(pc, hooks = {}) {
+  const { onFailed, onDisconnected, onConnected } = hooks;
+  if (!pc || typeof pc.addEventListener !== 'function') return () => {};
+  let graceTimer = null;
+  const clearGrace = () => {
+    if (graceTimer !== null) {
+      clearTimeout(graceTimer);
+      graceTimer = null;
+    }
+  };
+  const onChange = () => {
+    const state = pc.connectionState;
+    if (state === 'failed') {
+      clearGrace();
+      if (onFailed) onFailed();
+    } else if (state === 'disconnected') {
+      clearGrace();
+      graceTimer = setTimeout(() => {
+        graceTimer = null;
+        if (pc.connectionState === 'disconnected' && onDisconnected) onDisconnected();
+      }, LINK_DISCONNECT_GRACE_MS);
+    } else if (state === 'connected') {
+      clearGrace();
+      if (onConnected) onConnected();
+    } else if (state !== 'disconnected') {
+      // 'new' | 'connecting' | 'closed' — nothing to report; drop stale timers
+      clearGrace();
+    }
+  };
+  pc.addEventListener('connectionstatechange', onChange);
+  // report the current state in case we attached after it already changed
+  try {
+    onChange();
+  } catch {
+    /* a throwing hook must not break the monitor */
+  }
+  return () => {
+    clearGrace();
+    try {
+      pc.removeEventListener('connectionstatechange', onChange);
+    } catch {
+      /* already gone */
+    }
+  };
+}
+
 export function closePeerConnection(pc) {
   try {
     if (pc) pc.close();

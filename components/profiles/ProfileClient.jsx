@@ -115,7 +115,14 @@ export function ProfileClient({ username, type, art, posts, userId }) {
         showToast(data.error || 'Could not share to the Agora.');
         return;
       }
+      // Honest landing: take them to the post that was just created in the
+      // Agora — the proof it worked. The URL is validated before use so this
+      // can never send anyone to a dead 404.
       showToast('Shared to the Agora!');
+      const agoraUrl = typeof data.agora_url === 'string' ? data.agora_url : '';
+      if (/^\/agora\/post\/[A-Za-z0-9-]+$/.test(agoraUrl)) {
+        setTimeout(() => { window.location.href = agoraUrl; }, 900);
+      }
     } catch {
       showToast('Could not share to the Agora.');
     } finally {

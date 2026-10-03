@@ -282,6 +282,170 @@ t('junk phase is not compact', !isCompactPhase('party') && !isCompactPhase(null)
   t('own profile has a floating blocked-list icon', prof.includes('pf-fab') && prof.includes('Open blocked list'));
   t('blocked panel lists users with UNBLOCK', prof.includes('pf-blocked-sheet') && prof.includes('Unblock'));
   t('block copy is honest about silence', prof.includes('never told'));
+  // Share to Agora: lands on the created post, never a dead 404
+  t('share-to-agora navigates to the created post', prof.includes('data.agora_url'));
+  t('share-to-agora validates the post URL before navigating',
+    prof.includes('/^\\/agora\\/post\\/[A-Za-z0-9-]+$/'));
+  t('share-to-agora keeps the honest toast', prof.includes("showToast('Shared to the Agora!')"));
+  t('share-to-agora failure stays a toast (no navigation)', prof.includes("showToast(data.error || 'Could not share to the Agora.')"));
+}
+
+// --- profile 404s: business toggle + share-to-agora -------------------------
+{
+  const upage = src('../app/u/[username]/page.jsx');
+  t('business toggle uses a query param, not a separate route',
+    upage.includes("?v=business"));
+  t('missing business profile is an honest empty state, not a 404',
+    upage.includes('No business profile yet'));
+  t('empty state keeps the Personal/Business switch',
+    upage.includes('aria-label="Profile type"'));
+  t('empty state links to the editor to create it',
+    upage.includes('Create business profile') && upage.includes('/edit'));
+  t('empty state is honest about owner-only creation',
+    upage.includes('Only the profile owner can create it'));
+  t('truly unknown usernames still 404', upage.includes('notFound()'));
+  t('business empty state checks the personal profile first',
+    upage.includes("loadProfile(username, 'personal')"));
+}
+
+// --- link health: a dead P2P link must say so, never pulse forever --------
+{
+  const page = src('../app/order-67/page.jsx');
+  const webrtc = src('../app/order-67/webrtc.js');
+  t('webrtc exports monitorPeerConnection', webrtc.includes('export function monitorPeerConnection'));
+  t('webrtc exports the disconnect grace constant', webrtc.includes('export const LINK_DISCONNECT_GRACE_MS'));
+  t('monitor listens for connectionstatechange', webrtc.includes("addEventListener('connectionstatechange'"));
+  t('monitor reports failed immediately', webrtc.includes("state === 'failed'"));
+  t('monitor reports disconnected after a grace period', webrtc.includes("state === 'disconnected'"));
+  t('monitor clears the grace timer on connected', webrtc.includes("state === 'connected'"));
+  t('monitor returns an unmonitor cleanup', webrtc.includes('removeEventListener'));
+
+  t('page imports monitorPeerConnection', page.includes('monitorPeerConnection'));
+  t('host wires link health', page.includes('watchLinkHealth(pc, (msg) => hangUp(msg))'));
+  t('host arms the post-handshake watchdog', page.includes('armLinkWatchdog(pc)'));
+  t('guest arms the post-handshake watchdog', page.includes("armLinkWatchdog(pc);"));
+  t('link failure copy is honest about strict networks',
+    page.includes('a strict network may be blocking it'));
+  t('watchdog copy is honest about still connecting',
+    page.includes('Still connecting'));
+  t('hangup clears link health', page.includes('clearLinkHealth();'));
+  t('guests get their own link monitor', page.includes('monitorPeerConnection(pc, {')
+    && page.includes("removeGuest(id, `${name}'s projector link failed"));
+
+  // self-view: bottom-center, above the cluster + Safari bar, never over the hologram
+  t('self-view is horizontally centered', page.includes('left-1/2'));
+  t('self-view centers with translateX', page.includes('translateX(-50%)'));
+  t('self-view clears the control cluster', page.includes('12.5rem'));
+  t('self-view respects the Safari safe area', page.includes('env(safe-area-inset-bottom)'));
+  t('self-view no longer sits bottom-right', !page.includes('bottom-56 right-4'));
+
+  // friends search: existing friends get SUMMON, not a 409-ing ADD
+  t('search dedups existing friends', page.includes('alreadyFriend'));
+  t('search offers SUMMON to existing friends',
+    page.includes('alreadyFriend ? (') && page.includes('executeOrder67({ user_id: pl.user_id'));
+}
+
+// --- monitorPeerConnection: functional test with a fake peer connection ---
+// webrtc.js uses the @/ alias; rewrite to a temp file with a relative import
+// so the real function runs headless (no browser, no network).
+{
+  const { writeFileSync, unlinkSync } = await import('fs');
+  const { tmpdir } = await import('os');
+  const { join } = await import('path');
+  const libUrl = new URL('../lib/order-67.js', import.meta.url).href;
+  const webrtcSrc = src('../app/order-67/webrtc.js').replace(
+    "from '@/lib/order-67'",
+    `from '${libUrl}'`
+  );
+  const tmpFile = join(tmpdir(), `webrtc-link-test-${Date.now()}.mjs`);
+  writeFileSync(tmpFile, webrtcSrc);
+  let monitorPeerConnection;
+  let LINK_DISCONNECT_GRACE_MS;
+  try {
+    const mod = await import(tmpFile);
+    monitorPeerConnection = mod.monitorPeerConnection;
+    LINK_DISCONNECT_GRACE_MS = mod.LINK_DISCONNECT_GRACE_MS;
+  } finally {
+    try { unlinkSync(tmpFile); } catch { /* noop */ }
+  }
+
+  t('monitorPeerConnection is a function', typeof monitorPeerConnection === 'function');
+  t('disconnect grace is 12s', LINK_DISCONNECT_GRACE_MS === 12000);
+
+  const fakePc = (initialState = 'new') => {
+    const listeners = {};
+    return {
+      connectionState: initialState,
+      addEventListener(type, fn) { (listeners[type] = listeners[type] || []).push(fn); },
+      removeEventListener(type, fn) { listeners[type] = (listeners[type] || []).filter((f) => f !== fn); },
+      _fire(type) { (listeners[type] || []).forEach((fn) => fn()); },
+      _set(s) { this.connectionState = s; this._fire('connectionstatechange'); },
+      _listenerCount(type) { return (listeners[type] || []).length; },
+    };
+  };
+
+  // 'failed' -> onFailed immediately
+  {
+    const pc = fakePc('connecting');
+    let failed = 0;
+    const un = monitorPeerConnection(pc, { onFailed: () => { failed++; } });
+    pc._set('failed');
+    t("monitor calls onFailed on 'failed'", failed === 1);
+    un();
+    t('unmonitor detaches the listener', pc._listenerCount('connectionstatechange') === 0);
+  }
+
+  // 'connected' -> onConnected, no failure
+  {
+    const pc = fakePc('connecting');
+    let connected = 0;
+    let failed = 0;
+    monitorPeerConnection(pc, { onConnected: () => { connected++; }, onFailed: () => { failed++; } });
+    pc._set('connected');
+    t("monitor calls onConnected on 'connected'", connected === 1);
+    t("monitor does not call onFailed on 'connected'", failed === 0);
+  }
+
+  // 'disconnected' -> grace period: fake timers fire it manually
+  {
+    const realSetTimeout = globalThis.setTimeout;
+    const realClearTimeout = globalThis.clearTimeout;
+    const pending = [];
+    globalThis.setTimeout = (fn) => { pending.push(fn); return pending.length - 1; };
+    globalThis.clearTimeout = (id) => { pending[id] = null; };
+    try {
+      const pc = fakePc('new');
+      let lost = 0;
+      let back = 0;
+      monitorPeerConnection(pc, {
+        onDisconnected: () => { lost++; },
+        onConnected: () => { back++; },
+      });
+      pc._set('disconnected');
+      t("monitor does not report 'disconnected' immediately", lost === 0);
+      // recovers before the grace timer fires -> no report
+      pc._set('connected');
+      pending.forEach((fn) => { if (fn) fn(); });
+      t('recovery inside the grace period stays silent', lost === 0 && back === 1);
+      // drops again and the timer fires -> reported
+      pc._set('disconnected');
+      pending.forEach((fn) => { if (fn) fn(); });
+      t("monitor reports 'disconnected' after the grace period", lost === 1);
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+      globalThis.clearTimeout = realClearTimeout;
+    }
+  }
+
+  // null pc -> no-op unmonitor, never throws
+  {
+    let threw = false;
+    try {
+      const un = monitorPeerConnection(null, { onFailed: () => { throw new Error('nope'); } });
+      un();
+    } catch { threw = true; }
+    t('monitor tolerates a null peer connection', !threw);
+  }
 }
 
 console.log(`\norder-67: ${passed} passed, ${failed} failed`);
