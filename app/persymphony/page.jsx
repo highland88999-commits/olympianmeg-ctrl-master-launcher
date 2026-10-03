@@ -245,6 +245,14 @@ export default function PersymphonyPage() {
             {arena.tagline}
           </p>
         </div>
+        <div className="pointer-events-auto flex items-center gap-2">
+          <a
+            href="/persymphony/tickets"
+            className="min-h-[44px] px-4 py-2 rounded-lg border border-cyan-500/40 text-cyan-200 text-sm font-semibold bg-black/50"
+          >
+            Tickets
+          </a>
+        </div>
       </div>
 
       {/* Arena picker overlay */}
