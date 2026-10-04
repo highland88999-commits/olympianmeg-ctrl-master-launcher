@@ -179,7 +179,7 @@ function ShadowRealmInner() {
   const [trackKey, setTrackKey] = useState(sp.get('track') || prefs?.trackKey || 'gridiron-oval');
   const [vehicleKey, setVehicleKey] = useState(sp.get('vehicle') || prefs?.vehicleKey || 'comet');
   const [schemeKey, setSchemeKey] = useState(prefs?.schemeKey || 'grid-blue');
-  const [laps, setLaps] = useState(prefs?.laps || 3);
+  const [laps, setLaps] = useState([3, 5, 8].includes(prefs?.laps) ? prefs.laps : 3);
   const [aiCount, setAiCount] = useState(prefs?.aiCount || 0);
   const [count, setCount] = useState(3);
   const [paused, setPaused] = useState(false);
@@ -192,6 +192,9 @@ function ShadowRealmInner() {
   // BUMP RACE (PvP): highest alive-count seen this race — the race only
   // ends at <=1 alive once it has genuinely started (>= 2 seen).
   const bumpSeenRef = useRef(0);
+  // Finish rollout: delayed setStage('finished') so the coast is visible.
+  const finishTimerRef = useRef(null);
+  useEffect(() => () => { if (finishTimerRef.current) clearTimeout(finishTimerRef.current); }, []);
 
   // ---- Drop-2 netcode: PvP track matches + open-world presence ----
   // Stages gained: 'pvp-setup' (field size / track / laps / join-by-code),
@@ -801,6 +804,13 @@ function ShadowRealmInner() {
 
   const handleFinish = (res) => {
     try { fx.victory(); } catch { /* best-effort */ }
+    // Finish rollout (Merlin 2026-10-03): the Rig coasts the bike to a stop
+    // (s.finished, no input) — hold the ride stage ~2s so the coast is
+    // visible behind the results, then show the finish screen.
+    if (finishTimerRef.current) clearTimeout(finishTimerRef.current);
+    const showFinish = () => {
+      finishTimerRef.current = setTimeout(() => setStage('finished'), 2000);
+    };
     // BUMP RACE: last bike standing, or laps done with riders alive — rank
     // by alive → laps → lives → time. Bots' battle state is right on the
     // bot objects; PvP humans fold in from the beacon board.
@@ -845,7 +855,7 @@ function ShadowRealmInner() {
         }
       }
       setResult({ ...res, standings: sortBumpStandings(entries), mode: 'bump', bumpWin: !!res?.bumpWin });
-      setStage('finished');
+      showFinish();
       return;
     }
     // PvP: stamp the finish on the beacon (synced finish_ms off the room's
@@ -854,7 +864,7 @@ function ShadowRealmInner() {
       const finishMs = Math.max(1, Date.now() - (pvpStartsAtRef.current || Date.now()));
       void sendBeaconNow(true, finishMs);
       setResult({ ...res, standings: pvpStandings(finishMs) });
-      setStage('finished');
+      showFinish();
       return;
     }
     const standings = placements(
@@ -862,7 +872,7 @@ function ShadowRealmInner() {
       botsRef.current
     );
     setResult({ ...res, standings });
-    setStage('finished');
+    showFinish();
   };
 
   // Manual-steer tracking: tilt steering never fights an active pad or key.
@@ -922,7 +932,7 @@ function ShadowRealmInner() {
                 <div>
                   <div style={css.sectionLabel}>LAPS</div>
                   <div style={{ ...css.row, marginTop: 8 }}>
-                    {[1, 3, 5, 8].map((n) => (
+                    {[3, 5, 8].map((n) => (
                       <button
                         key={n}
                         style={{ ...css.chip, ...(laps === n ? { background: '#0d2a4d', borderColor: '#38bdf8' } : {}) }}
@@ -1030,7 +1040,7 @@ function ShadowRealmInner() {
               />
               <div style={css.sectionLabel}>LAPS</div>
               <div style={{ ...css.row, marginTop: 4 }}>
-                {[1, 3, 5, 8].map((n) => (
+                {[3, 5, 8].map((n) => (
                   <button
                     key={n}
                     style={{ ...css.chip, ...(laps === n ? { background: '#0d2a4d', borderColor: '#38bdf8' } : {}) }}

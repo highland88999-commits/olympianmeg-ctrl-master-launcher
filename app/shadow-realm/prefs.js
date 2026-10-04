@@ -45,12 +45,23 @@ export const DEFAULT_PREFS = Object.freeze({
   reducedMotion: false,
 });
 
+// Valid lap counts (Merlin 2026-10-03: the 1-lap option is gone).
+export const VALID_LAPS = Object.freeze([3, 5, 8]);
+
+/** Coerce any stored laps value to a valid option (default 3). */
+export function sanitizeLaps(laps) {
+  return VALID_LAPS.includes(laps) ? laps : 3;
+}
+
 export function loadPrefs(storage, accountId) {
   const raw = storage.getItem(shadowKey(accountId));
   if (!raw) return { ...DEFAULT_PREFS };
   try {
     const parsed = JSON.parse(raw);
-    return { ...DEFAULT_PREFS, ...(parsed && typeof parsed === 'object' ? parsed : {}) };
+    const merged = { ...DEFAULT_PREFS, ...(parsed && typeof parsed === 'object' ? parsed : {}) };
+    // Migrate stale 1-lap saves (option removed 2026-10-03).
+    merged.laps = sanitizeLaps(merged.laps);
+    return merged;
   } catch {
     return { ...DEFAULT_PREFS };
   }

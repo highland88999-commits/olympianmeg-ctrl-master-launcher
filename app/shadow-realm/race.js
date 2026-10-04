@@ -98,7 +98,13 @@ export class LapTracker {
 
   reset() {
     this.laps = 0;
-    this.armed = true; // spawn happens before the line: first crossing counts
+    // Spawn happens just behind the line: the first forward crossing STARTS
+    // the race (starts the clock) but does NOT count a lap. A lap only
+    // counts after the rider has gone around (midway checkpoint arms it).
+    // (Merlin 2026-10-03: the old armed=true counted the start crossing as
+    // a full lap — a 1-lap race "finished" 0.8s after spawn.)
+    this.armed = false;
+    this.started = false;
     this.prevSide = null;
     this.lastLapTime = null;
     this.lapStart = null;
@@ -131,7 +137,11 @@ export class LapTracker {
       const s = this.side(pos);
       if (this.prevSide !== null && s !== 0 && s !== this.prevSide) {
         const forward = dot2(vel, { x: this.tx, z: this.tz }) > 0;
-        if (forward && this.armed) {
+        if (forward && !this.started) {
+          // Race start: the gun lap. Clock starts, no lap counted.
+          this.started = true;
+          this.lapStart = now;
+        } else if (forward && this.armed) {
           this.laps += 1;
           if (this.lapStart !== null) this.lastLapTime = now - this.lapStart;
           this.lapStart = now;

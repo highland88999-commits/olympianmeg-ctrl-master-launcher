@@ -23,7 +23,7 @@ import Bots from './Bots';
 import RemoteBikes from './RemoteBikes';
 import EternalFlame from './flame';
 import { fx } from '@/lib/fx';
-import { REGEN_CHARGE_RATE, SURGE_SECS } from '@/lib/bike-motion';
+import { REGEN_CHARGE_RATE, SURGE_SECS, BASELINE_THROTTLE, blendThrottle } from '@/lib/bike-motion';
 import { createOrbit, resetOrbit, applyDrag, applyPinch, applyWheel, orbitCamera } from './orbit';
 import {
   BUMP_LIVES,
@@ -566,14 +566,16 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, 
 
   useFrame((state, rawDt) => {
     const s = sim.current;
-    if (!s || !running || s.finished) return;
+    if (!s || !running) return;
     const dt = Math.min(rawDt, 0.05);
 
     const input = inputRef.current || {};
-    const steer = s.eliminated ? 0 : input.steer || 0;
-    const boost = !s.eliminated && !!input.boost;
+    // Finished: coasting to a stop — no steering, no pedals, no boost.
+    // (The FINISH overlay lands ~2s later; this is the visible rollout.)
+    const steer = (s.eliminated || s.finished) ? 0 : input.steer || 0;
+    const boost = !s.eliminated && !s.finished && !!input.boost;
     // motion controls (Merlin's tilt driving map): analog pedals + regen.
-    const motionDrive = !!input.motionDrive;
+    const motionDrive = !!input.motionDrive && !s.finished;
     const clamp01 = (v) => (Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0);
     const throttle = clamp01(input.throttle);
     const brakePedal = clamp01(input.brake);
@@ -585,12 +587,19 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, 
     if (s.surgeT > 0) s.surgeT -= dt;
     const surging = s.surgeT > 0;
 
-    // speed: motion riders drive the pedals; everyone else keeps auto-throttle
+    // speed: baseline auto-gas is the floor on every track and grid
+    // (Merlin 2026-10-03). Tilt forward adds above baseline, tilt back
+    // brakes below it; neutral hold = steady cruise. No motion / pads
+    // only = steady cruise.
     let target;
     let rate;
-    if (motionDrive) {
+    if (s.finished) {
+      target = 0; // rollout after the line
+      rate = vehicle.brakeRate * 1.6 * dt;
+    } else if (motionDrive) {
       const boosting = boost || surging;
-      target = vehicle.maxSpeed * throttle * (boosting ? vehicle.boostMult : 1);
+      const eff = blendThrottle(throttle, brakePedal);
+      target = vehicle.maxSpeed * eff * (boosting ? vehicle.boostMult : 1);
       let decel = vehicle.brakeRate * 1.6;
       if (regen > 0) {
         // regenerative braking: hard carve scrubs speed AND charges the meter
@@ -604,13 +613,13 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, 
           }
         }
       } else if (brakePedal > 0) {
-        target = 0;
+        // proportional braking is already folded into eff — brake harder
         decel = vehicle.brakeRate * (1.6 + 4 * brakePedal);
       }
       rate = (target > s.speed ? vehicle.accel : decel) * dt;
     } else {
-      // auto-throttle; boost multiplies
-      target = vehicle.maxSpeed * (boost ? vehicle.boostMult : 1);
+      // steady baseline cruise; boost multiplies
+      target = vehicle.maxSpeed * BASELINE_THROTTLE * (boost ? vehicle.boostMult : 1);
       rate = (target > s.speed ? vehicle.accel : vehicle.brakeRate * 1.6) * dt;
     }
     if (s.eliminated) {
@@ -621,9 +630,13 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, 
       s.speed += Math.max(-rate, Math.min(rate, target - s.speed));
     }
 
-    // steering: full lock only bites at speed
+    // steering: full lock only bites at speed.
+    // Sign (Merlin 2026-10-03, verified end-to-end): positive steer must turn
+    // screen-RIGHT. The chase cam looks along +Z, so screen-right is -X;
+    // the nose (sin h, cos h) moves toward -X when h DECREASES — hence -=.
+    // (The old += turned screen-left for right tilt: inverted.)
     const grip = 0.55 + 0.45 * Math.min(1, s.speed / vehicle.maxSpeed);
-    s.heading += steer * vehicle.turnRate * grip * dt;
+    s.heading -= steer * vehicle.turnRate * grip * dt;
 
     const dx = Math.sin(s.heading);
     const dz = Math.cos(s.heading);
@@ -693,6 +706,8 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, 
           s.kvz = 0;
           s.invulnT = RESPAWN_INVULN_S;
           s.bumpImmuneT = Math.max(s.bumpImmuneT, RESPAWN_INVULN_S);
+          // Disarm the lap: a respawn must never grant a cheap line crossing.
+          if (s.tracker) s.tracker.armed = false;
           if (trailApi.current) trailApi.current.clear();
           camHeading.current = rp.heading;
         }
@@ -788,8 +803,9 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, 
     if (bikeRef.current) {
       bikeRef.current.position.set(s.x, 0, s.z);
       bikeRef.current.rotation.y = s.heading;
-      // lean into the turn
-      bikeRef.current.rotation.z = -steer * 0.28 * Math.min(1, s.speed / 30);
+      // lean into the turn: positive steer = right turn = right side dips.
+      // (Screen-right is -X for the chase cam; rotation.z = +θ dips -X.)
+      bikeRef.current.rotation.z = steer * 0.28 * Math.min(1, s.speed / 30);
       // hover bob
       bikeRef.current.position.y = 0.06 + Math.sin(state.clock.elapsedTime * 9) * 0.03;
       // eliminated: bike fades out. respawn grace: blink.
