@@ -22,12 +22,43 @@ import { paintFeed, SCENES, FEED_W, FEED_H } from "./demo-feed";
 
 const MATRIX_GLYPHS = "アカサタナハマヤラワ0123456789$#*+=<>/\\|";
 
+const TILE = "/images/apollo-shared/apollo-panel-tile.webp";
+const BG = "/images/nexus-symbiote/nexus-symbiote-bg.webp";
+
+// Inline SVG glyph system (zero image weight) — APOLLO amber/gold treatment.
+const Ic = ({ children, gold }) => (
+  <svg viewBox="0 0 24 24" width="15" height="15" fill="none"
+    stroke={gold ? "#ffd97a" : "currentColor"} strokeWidth="2" strokeLinecap="round"
+    strokeLinejoin="round" aria-hidden="true" style={{ flex: "none" }}>
+    {children}
+  </svg>
+);
+const IconUpload = () => (<Ic><path d="M12 16V4M7 9l5-5 5 5" /><path d="M4 20h16" /></Ic>);
+const IconCam = () => (<Ic><rect x="3" y="7" width="13" height="11" rx="2" /><path d="M16 10l5-3v9l-5-3z" /></Ic>);
+const IconFlip = () => (<Ic><path d="M4 9a8 8 0 0 1 14-3l2 2M20 15a8 8 0 0 1-14 3l-2-2" /><path d="M20 4v4h-4M4 20v-4h4" /></Ic>);
+const IconMic = () => (<Ic><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></Ic>);
+const IconVortex = () => (<Ic><path d="M12 3a9 9 0 1 0 9 9" /><path d="M12 7a5 5 0 1 0 5 5" /><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none" /></Ic>);
+const IconPulse = () => (<Ic><path d="M3 12h3l2-6 4 12 3-9 2 3h4" /></Ic>);
+const IconRipple = () => (<Ic><circle cx="12" cy="12" r="2.5" /><circle cx="12" cy="12" r="6" opacity="0.6" /><circle cx="12" cy="12" r="9.5" opacity="0.3" /></Ic>);
+const IconPlay = () => (<Ic><path d="M8 5v14l11-7z" fill="currentColor" stroke="none" /></Ic>);
+const IconRec = () => (<Ic><circle cx="12" cy="12" r="6" fill="#ff5f5f" stroke="none" /></Ic>);
+const IconDownload = () => (<Ic><path d="M12 4v12M7 11l5 5 5-5" /><path d="M4 20h16" /></Ic>);
+const IconInfo = () => (<Ic gold><circle cx="12" cy="12" r="9" /><path d="M12 11v5" /><circle cx="12" cy="8" r="1.2" fill="#ffd97a" stroke="none" /></Ic>);
+const IconBack = () => (<Ic gold><path d="M15 5l-7 7 7 7" /></Ic>);
+const IconSpin = () => (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#e8b93c" strokeWidth="3"
+    strokeLinecap="round" aria-hidden="true" style={{ animation: "nxspin 0.9s linear infinite" }}>
+    <path d="M12 3a9 9 0 1 0 9 9" />
+  </svg>
+);
+
 export default function NexusSymbiotePage() {
   const [entered, setEntered] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
   const [recState, setRecState] = useState("idle"); // idle | recording | ready
   const [camOn, setCamOn] = useState(false);
   const [micOn, setMicOn] = useState(false);
+  const [camLoading, setCamLoading] = useState(false); // styled loading state while the camera wakes
   const [facing, setFacing] = useState("user");
   const [fx, setFx] = useState({ vortex: false, pulse: false, ripple: false });
   const [sceneName, setSceneName] = useState(SCENES[0].name);
@@ -207,6 +238,7 @@ export default function NexusSymbiotePage() {
     const video = videoRef.current;
     if (!video || !navigator.mediaDevices?.getUserMedia) return;
     stopCamera();
+    setCamLoading(true);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: facing },
@@ -218,6 +250,8 @@ export default function NexusSymbiotePage() {
       setCamOn(true);
     } catch {
       // camera unavailable — stay on the demo feed
+    } finally {
+      setCamLoading(false);
     }
   };
 
@@ -305,6 +339,9 @@ export default function NexusSymbiotePage() {
     <div className="nx-root">
       <style>{`
         .nx-root { background:#000; color:#fff; min-height:100dvh; font-family:'Courier New',monospace; display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative; }
+        .nx-root::before { content:""; position:fixed; inset:0; background:url(${BG}) center/cover; opacity:0.26; pointer-events:none; }
+        .nx-handheld { position:relative; z-index:1; }
+        @keyframes nxspin { to { transform: rotate(360deg); } }
         .nx-landing { position:fixed; inset:0; z-index:50; background:#000; display:flex; flex-direction:column; align-items:center; justify-content:center; cursor:pointer; transition:opacity .5s; }
         .nx-landing.hidden { opacity:0; pointer-events:none; }
         .nx-landing canvas { position:absolute; inset:0; width:100%; height:100%; }
@@ -313,19 +350,21 @@ export default function NexusSymbiotePage() {
         .nx-brand p { font-size:.7rem; letter-spacing:5px; opacity:.7; margin:0 0 1.4rem; }
         .nx-brand .tap { font-size:.8rem; letter-spacing:3px; color:#fff; opacity:.85; animation:nx-blink 1.6s infinite; }
         @keyframes nx-blink { 0%,100%{opacity:.85} 50%{opacity:.3} }
-        .nx-handheld { position:relative; width:min(360px,94vw); background:#080808; border-radius:40px; border:1px solid rgba(0,255,204,.25); padding:14px; display:flex; flex-direction:column; box-shadow:0 0 40px rgba(0,0,0,.9); overflow:hidden; }
+        .nx-handheld { position:relative; width:min(360px,94vw); background-color:#080808; background-image:url(${TILE}); background-size:200px; border-radius:40px; border:1px solid rgba(232,185,60,.35); padding:14px; display:flex; flex-direction:column; box-shadow:0 0 40px rgba(0,0,0,.9), 0 0 60px rgba(232,185,60,.07); overflow:hidden; z-index:1; }
         .nx-rain { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; opacity:.5; z-index:1; }
         .nx-screen { width:100%; aspect-ratio:3/4; background:#000; border-radius:20px; position:relative; overflow:hidden; margin-bottom:12px; border:1px solid #1a1a1a; z-index:2; }
         .nx-screen canvas { width:100%; height:100%; display:block; }
         .nx-scene { position:absolute; left:8px; bottom:6px; font-size:.6rem; letter-spacing:2px; color:#00ffcc; opacity:.8; z-index:3; background:rgba(0,0,0,.55); padding:2px 8px; border-radius:6px; }
         .nx-panel { position:relative; z-index:3; display:flex; flex-direction:column; gap:6px; }
         .nx-row { display:flex; gap:6px; }
-        .nx-btn { flex:1; background:rgba(5,5,5,.95); border:1px solid #333; color:#00ffcc; padding:11px 2px; border-radius:8px; font-size:10px; font-weight:700; cursor:pointer; text-transform:uppercase; letter-spacing:1px; font-family:inherit; min-height:44px; display:flex; align-items:center; justify-content:center; text-align:center; }
+        .nx-btn { flex:1; background:rgba(5,5,5,.95); border:1px solid #333; color:#00ffcc; padding:11px 2px; border-radius:8px; font-size:10px; font-weight:700; cursor:pointer; text-transform:uppercase; letter-spacing:1px; font-family:inherit; min-height:44px; display:flex; align-items:center; justify-content:center; gap:6px; text-align:center; }
+        .nx-btn:hover { border-color:rgba(232,185,60,.55); }
+        .nx-waking { position:absolute; inset:0; z-index:4; display:flex; flex-direction:column; gap:10px; align-items:center; justify-content:center; background:linear-gradient(rgba(4,3,1,.78), rgba(4,3,1,.82)), url(${BG}); background-size:cover; background-position:center; color:#e8b93c; font-size:.68rem; letter-spacing:3px; }
         .nx-btn.active { background:#00ffcc; color:#000; box-shadow:0 0 10px rgba(0,255,204,.7); }
         .nx-btn.gold { border-color:#ffd700; color:#ffd700; width:100%; padding:12px; }
         .nx-btn.gold.active { background:#ffd700; color:#000; }
         .nx-btn:disabled { opacity:.45; cursor:default; }
-        .nx-about { position:absolute; inset:0; z-index:10; background:rgba(2,4,6,.96); border-radius:40px; padding:26px 22px; overflow:auto; font-size:.78rem; line-height:1.55; }
+        .nx-about { position:absolute; inset:0; z-index:10; background-color:rgba(6,4,2,.97); background-image:url(${TILE}); background-size:200px; border-radius:40px; padding:26px 22px; overflow:auto; font-size:.78rem; line-height:1.55; }
         .nx-about h2 { color:#00ffcc; font-size:1rem; letter-spacing:3px; margin:0 0 .8rem; }
         .nx-about p { margin:0 0 .7rem; opacity:.9; }
         .nx-about .close { margin-top:1rem; }
@@ -353,6 +392,12 @@ export default function NexusSymbiotePage() {
           <canvas ref={rainRef} className="nx-rain" aria-hidden="true" />
           <div className="nx-screen">
             <canvas ref={mainRef} aria-label="Symbiote particle cloud" />
+            {camLoading && (
+              <div className="nx-waking" role="status">
+                <IconSpin />
+                WAKING CAMERA…
+              </div>
+            )}
             <div className="nx-scene">
               {sourceRef.current.kind === "demo" ? `DEMO · ${sceneName}` : sourceRef.current.kind === "camera" ? "LIVE CAMERA" : "YOUR CLIP"}
             </div>
@@ -360,16 +405,16 @@ export default function NexusSymbiotePage() {
           <div className="nx-panel">
             <div className="nx-row">
               <label htmlFor="nx-upload" className={btn(false)}>
-                Upload
+                <IconUpload />Upload
               </label>
               <button className={btn(camOn)} onClick={toggleCamera}>
-                Cam
+                <IconCam />Cam
               </button>
               <button className={btn(false)} onClick={flipCamera} aria-label="Flip camera">
-                Flip
+                <IconFlip />Flip
               </button>
               <button className={btn(micOn)} onClick={toggleMic}>
-                Mic
+                <IconMic />Mic
               </button>
             </div>
             <div className="nx-row">
@@ -377,33 +422,33 @@ export default function NexusSymbiotePage() {
                 className={btn(fx.vortex)}
                 onClick={() => toggleFx("vortex")}
               >
-                Vortex
+                <IconVortex />Vortex
               </button>
               <button
                 className={btn(fx.pulse)}
                 onClick={() => toggleFx("pulse")}
               >
-                Pulse
+                <IconPulse />Pulse
               </button>
               <button
                 className={btn(fx.ripple)}
                 onClick={() => toggleFx("ripple")}
               >
-                Ripple
+                <IconRipple />Ripple
               </button>
             </div>
             <div className="nx-row">
               <button className={btn(false)} onClick={useDemo}>
-                Demo feed
+                <IconPlay />Demo feed
               </button>
               <button className={btn(recState === "recording")} onClick={toggleRecord}>
-                {recState === "idle" && "Record"}
-                {recState === "recording" && "Stop"}
-                {recState === "ready" && "Download"}
+                {recState === "idle" && (<><IconRec />Record</>)}
+                {recState === "recording" && (<><IconRec />Stop</>)}
+                {recState === "ready" && (<><IconDownload />Download</>)}
               </button>
             </div>
             <button className="nx-btn gold" onClick={() => setShowAbout(true)}>
-              What is this?
+              <IconInfo />What is this?
             </button>
           </div>
 
@@ -435,7 +480,7 @@ export default function NexusSymbiotePage() {
                 className="nx-btn gold close"
                 onClick={() => setShowAbout(false)}
               >
-                Back to the symbiote
+                <IconBack />Back to the symbiote
               </button>
               {/* Safari bottom-bar clearance */}
               <div aria-hidden="true" className="player-clear shrink-0" />

@@ -24,11 +24,37 @@ function compile(gl, type, src) {
   return sh;
 }
 
+const TILE = '/images/apollo-shared/apollo-panel-tile.webp';
+const BG = '/images/t-1000/t-1000-bg.webp';
+
+// Inline SVG glyph system (zero image weight) — liquid-metal gold treatment.
+const G = (props) => (
+  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props} />
+);
+const MODE_ICONS = {
+  calm: <G><path d="M12 3s6 6.2 6 11a6 6 0 0 1-12 0c0-4.8 6-11 6-11z" /></G>,
+  storm: <G><path d="M13 2 4 14h6l-1 8 9-12h-6z" /></G>,
+  magnetic: <G><path d="M6 4v7a6 6 0 0 0 12 0V4" /><path d="M6 4h4v5H6zM14 4h4v5h-4z" fill="currentColor" stroke="none" opacity="0.85" /></G>,
+};
+const IconSpin = () => (
+  <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#e8b93c" strokeWidth="3"
+    strokeLinecap="round" aria-hidden="true" style={{ animation: 'tspin 0.9s linear infinite' }}>
+    <path d="M12 3a9 9 0 1 0 9 9" />
+  </svg>
+);
+
 export default function T1000Page() {
   const canvasRef = useRef(null);
   const stateRef = useRef(null); // shared with the render loop
   const drawRef = useRef(null); // set by the effect (for reduced-motion redraws)
   const [modeKey, setModeKey] = useState('calm');
+  const [liquefying, setLiquefying] = useState(true); // styled loading veil while the metal warms up
+
+  useEffect(() => {
+    const t = setTimeout(() => setLiquefying(false), 600);
+    return () => clearTimeout(t);
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -178,10 +204,35 @@ export default function T1000Page() {
   return (
     <>
     <main className="fixed inset-0 bg-black overflow-hidden select-none">
+      {/* Page background art: bed behind the liquid-metal shader, visible while it compiles. */}
+      <div
+        aria-hidden="true"
+        className="absolute inset-0"
+        style={{ backgroundImage: `url(${BG})`, backgroundSize: 'cover', backgroundPosition: 'center', opacity: 0.6 }}
+      />
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full touch-none" />
 
+      {/* Styled loading veil — the "liquefying" beat while the shader compiles. */}
+      {liquefying && (
+        <div
+          className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4"
+          role="status"
+          aria-label="Liquefying"
+          style={{
+            backgroundImage: `linear-gradient(rgba(4,3,1,0.78), rgba(4,3,1,0.86)), url(${BG})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          }}
+        >
+          <IconSpin />
+          <div className="text-amber-200/90 text-sm tracking-[0.35em] uppercase font-semibold">
+            Liquefying…
+          </div>
+        </div>
+      )}
+
       <div className="absolute top-0 left-0 right-0 p-5 pointer-events-none">
-        <h1 className="text-white text-2xl font-black tracking-widest uppercase">T-1000</h1>
+        <h1 className="text-white text-2xl font-black tracking-widest uppercase" style={{ textShadow: '0 0 22px rgba(232,185,60,0.35)' }}>T-1000</h1>
         <p className="text-zinc-400 text-sm mt-1">
           Liquid metal holo-dome. Drag to stir the metal, tap to send a pulse.
         </p>
@@ -192,17 +243,24 @@ export default function T1000Page() {
           <button
             key={k}
             onClick={() => pick(k)}
-            className={`px-4 py-2 rounded-full text-sm font-bold uppercase tracking-wider border transition-colors ${
+            className={`px-4 py-2 rounded-full text-sm font-bold uppercase tracking-wider border transition-colors inline-flex items-center gap-2 ${
               modeKey === k
-                ? 'bg-cyan-400/20 border-cyan-300/60 text-cyan-200'
-                : 'bg-black/50 border-white/20 text-zinc-300 hover:border-white/50'
+                ? 'bg-amber-400/20 border-amber-300/60 text-amber-200'
+                : 'bg-black/50 border-white/20 text-zinc-300 hover:border-amber-300/50'
             }`}
+            style={modeKey === k ? {} : {
+              backgroundImage: `url(${TILE})`,
+              backgroundSize: '200px',
+              backgroundColor: 'rgba(5,4,2,0.55)',
+            }}
           >
+            {MODE_ICONS[k] || null}
             {MODES[k].label}
           </button>
         ))}
       </div>
     </main>
+    <style>{`@keyframes tspin { to { transform: rotate(360deg); } }`}</style>
     {/* Safari bottom-bar clearance: blank space under the fixed holo-dome viewport */}
     <div aria-hidden="true" className="player-clear" />
     </>

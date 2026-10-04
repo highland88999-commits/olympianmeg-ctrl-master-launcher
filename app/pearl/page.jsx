@@ -8,8 +8,32 @@ import { drawTelescopeView, clampZoom, MIN_ZOOM, MAX_ZOOM } from './telescope';
 import { createAmbience } from './audio';
 
 const BTN =
-  'px-4 py-2 border border-slate-400/40 bg-black/60 text-slate-200 text-xs tracking-[2px] uppercase font-mono hover:bg-slate-200/20 hover:border-white transition-all cursor-pointer';
-const BTN_ACTIVE = 'px-4 py-2 border border-white bg-slate-200/80 text-black text-xs tracking-[2px] uppercase font-mono font-bold transition-all cursor-pointer';
+  'px-4 py-2 border border-amber-300/40 bg-black/60 text-amber-100/90 text-xs tracking-[2px] uppercase font-mono hover:bg-amber-200/10 hover:border-amber-200 transition-all cursor-pointer inline-flex items-center gap-2';
+const BTN_ACTIVE = 'px-4 py-2 border border-amber-200 bg-amber-200/80 text-black text-xs tracking-[2px] uppercase font-mono font-bold transition-all cursor-pointer inline-flex items-center gap-2';
+
+const TILE = '/images/apollo-shared/apollo-panel-tile.webp';
+const BG = '/images/pearl/pearl-bg.webp';
+
+// Inline SVG glyph system (zero image weight) — APOLLO amber/gold treatment.
+const G = (props) => (
+  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+    style={{ flex: 'none' }} {...props} />
+);
+const IconPrev = () => (<G><path d="M15 5l-7 7 7 7" /></G>);
+const IconNext = () => (<G><path d="M9 5l7 7-7 7" /></G>);
+const IconScope = () => (<G><path d="M3 8l14-4 4 3-14 4z" /><path d="M7 10v6M17 7v6" /><circle cx="19" cy="17" r="2.5" /></G>);
+const IconRotate = () => (<G><path d="M20 12a8 8 0 1 1-2.3-5.6" /><path d="M20 3v5h-5" /></G>);
+const IconFull = () => (<G><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></G>);
+const IconVolume = () => (<G><path d="M11 5 6.5 9H3v6h3.5L11 19z" fill="currentColor" stroke="none" /><path d="M15.5 8.5a5 5 0 0 1 0 7" /></G>);
+const IconMute = () => (<G><path d="M11 5 6.5 9H3v6h3.5L11 19z" fill="currentColor" stroke="none" /><path d="m16 9 5 6M21 9l-5 6" /></G>);
+const IconClose = () => (<G><path d="M6 6l12 12M18 6 6 18" /></G>);
+const IconSpin = () => (
+  <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#e8b93c" strokeWidth="3"
+    strokeLinecap="round" aria-hidden="true" style={{ animation: 'pearlspin 0.9s linear infinite' }}>
+    <path d="M12 3a9 9 0 1 0 9 9" />
+  </svg>
+);
 
 export default function PearlPage() {
   const mountRef = useRef(null);
@@ -25,6 +49,7 @@ export default function PearlPage() {
   const [muted, setMuted] = useState(false);
   const [fullOn, setFullOn] = useState(false);
   const [webglOk, setWebglOk] = useState(true);
+  const [domeWarming, setDomeWarming] = useState(false); // styled loading veil while the dome charges
   const [reduced] = useState(
     () => typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches
   );
@@ -258,6 +283,8 @@ export default function PearlPage() {
 
   const enter = useCallback(() => {
     setEntered(true);
+    setDomeWarming(true);
+    setTimeout(() => setDomeWarming(false), 900);
     if (!ambienceRef.current) ambienceRef.current = createAmbience();
     ambienceRef.current.start(getTarget(0).baseFreq);
     ambienceRef.current.setMuted(muted);
@@ -291,21 +318,57 @@ export default function PearlPage() {
       {!entered && (
         <button
           onClick={enter}
-          className="absolute inset-0 z-50 flex flex-col items-center justify-center cursor-pointer bg-[radial-gradient(circle,#0a0f1e_0%,#000_70%)]"
+          className="absolute inset-0 z-50 flex flex-col items-center justify-center cursor-pointer"
+          style={{
+            backgroundImage: `linear-gradient(rgba(3,2,1,0.55), rgba(0,0,0,0.78)), url(${BG})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          }}
           aria-label="Enter the observatory"
         >
-          <h1 className="text-5xl md:text-6xl tracking-[14px] text-slate-100 animate-pulse">THE PEARL</h1>
-          <p className="mt-3 text-xs tracking-[6px] text-slate-400">SEQUENTIAL OBSERVATORY · V23.5</p>
-          <p className="mt-8 text-[11px] tracking-[4px] text-slate-500">( CLICK TO ENTER )</p>
+          <h1 className="text-5xl md:text-6xl tracking-[14px] text-amber-100 animate-pulse" style={{ textShadow: '0 0 34px rgba(232,185,60,0.45)' }}>THE PEARL</h1>
+          <p className="mt-3 text-xs tracking-[6px] text-amber-200/70">SEQUENTIAL OBSERVATORY · V23.5</p>
+          <p className="mt-8 text-[11px] tracking-[4px] text-amber-100/60 inline-flex items-center gap-3">
+            <IconScope />( CLICK TO ENTER )
+          </p>
         </button>
       )}
 
       {entered && (
         <>
           <div ref={mountRef} className="absolute inset-0" aria-hidden="true" />
+          {domeWarming && (
+            <div
+              className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-4"
+              role="status"
+              aria-label="Charging the dome"
+              style={{
+                backgroundImage: `linear-gradient(rgba(3,2,1,0.8), rgba(3,2,1,0.88)), url(${BG})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+              }}
+            >
+              <IconSpin />
+              <div className="text-amber-200/90 text-xs tracking-[0.35em] uppercase font-semibold">
+                Charging the dome…
+              </div>
+            </div>
+          )}
           {!webglOk && (
-            <div className="absolute inset-0 flex items-center justify-center text-sm tracking-widest text-slate-400">
-              WEBGL UNAVAILABLE ON THIS DEVICE
+            <div
+              className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-sm tracking-widest text-amber-100/80 p-8 text-center"
+              style={{
+                backgroundImage: `linear-gradient(rgba(3,2,1,0.82), rgba(3,2,1,0.9)), url(${BG})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+              }}
+              role="status"
+            >
+              <IconScope />
+              <div>WEBGL UNAVAILABLE ON THIS DEVICE</div>
+              <div className="text-xs text-amber-100/50 tracking-normal normal-case max-w-sm">
+                The observatory needs WebGL to raise its dome. Try a browser with hardware acceleration enabled.
+              </div>
             </div>
           )}
 
@@ -315,16 +378,24 @@ export default function PearlPage() {
           </div>
 
           {/* target fact card */}
-          <div className="absolute top-14 left-4 max-w-xs z-10 bg-black/60 border border-slate-400/30 backdrop-blur-sm p-4">
-            <div className="text-[10px] tracking-[3px] text-slate-500">
+          <div
+            className="absolute top-14 left-4 max-w-xs z-10 border border-amber-300/30 backdrop-blur-sm p-4"
+            style={{
+              backgroundImage: `url(${TILE})`,
+              backgroundSize: '220px',
+              backgroundColor: 'rgba(8,5,2,0.72)',
+              boxShadow: '0 0 28px rgba(232,185,60,0.08)',
+            }}
+          >
+            <div className="text-[10px] tracking-[3px] text-amber-200/60">
               TARGET {String(targetIdx + 1).padStart(2, '0')} / {String(TARGETS.length).padStart(2, '0')} · {target.catalog}
             </div>
-            <h2 className="text-xl tracking-[3px] text-slate-100 mt-1">{target.name.toUpperCase()}</h2>
-            <div className="text-[11px] text-slate-400 mt-1">{target.type} — {target.distance}</div>
-            <p className="text-xs text-slate-300/90 mt-3 leading-relaxed">{target.fact}</p>
+            <h2 className="text-xl tracking-[3px] text-amber-100 mt-1">{target.name.toUpperCase()}</h2>
+            <div className="text-[11px] text-amber-100/60 mt-1">{target.type} — {target.distance}</div>
+            <p className="text-xs text-amber-50/80 mt-3 leading-relaxed">{target.fact}</p>
             <div className="flex gap-2 mt-4">
-              <button className={BTN} onClick={() => setTargetIdx(prevIndex(targetIdx))} aria-label="Previous target">[ ◀ Prev ]</button>
-              <button className={BTN} onClick={() => setTargetIdx(nextIndex(targetIdx))} aria-label="Next target">[ Next ▶ ]</button>
+              <button className={BTN} onClick={() => setTargetIdx(prevIndex(targetIdx))} aria-label="Previous target"><IconPrev />Prev</button>
+              <button className={BTN} onClick={() => setTargetIdx(nextIndex(targetIdx))} aria-label="Next target">Next<IconNext /></button>
             </div>
           </div>
 
@@ -345,22 +416,31 @@ export default function PearlPage() {
                   className="w-48 accent-slate-300"
                 />
                 <span className="text-xs text-slate-300 w-12">×{clampZoom(zoom).toFixed(1)}</span>
-                <button className={BTN} onClick={() => setScopeMode(false)}>[ Close ]</button>
+                <button className={BTN} onClick={() => setScopeMode(false)}><IconClose />Close</button>
               </div>
             </div>
           )}
 
           {/* control bar */}
-          <div className="absolute bottom-[max(1.5rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-10 flex flex-wrap justify-center gap-2 px-4">
+          <div
+            className="absolute bottom-[max(1.5rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-10 flex flex-wrap justify-center gap-2 px-4 py-2 rounded-xl border border-amber-300/25"
+            style={{
+              backgroundImage: `url(${TILE})`,
+              backgroundSize: '220px',
+              backgroundColor: 'rgba(8,5,2,0.72)',
+              backdropFilter: 'blur(6px)',
+            }}
+          >
             <button className={scopeMode ? BTN_ACTIVE : BTN} onClick={() => setScopeMode((s) => !s)}>
-              [ Telescope{scopeMode ? ': ON' : ''} ]
+              <IconScope />Telescope{scopeMode ? ': ON' : ''}
             </button>
             <button className={autoRotate ? BTN_ACTIVE : BTN} onClick={() => setAutoRotate((a) => !a)}>
-              [ Auto-Rotate: {autoRotate ? 'ON' : 'OFF'} ]
+              <IconRotate />Auto-Rotate: {autoRotate ? 'ON' : 'OFF'}
             </button>
-            <button className={fullOn ? BTN_ACTIVE : BTN} onClick={toggleFullscreen}>[ Full Screen ]</button>
-            <button className={BTN} onClick={toggleMute}>[ {muted ? 'Unmute' : 'Mute'} ]</button>
+            <button className={fullOn ? BTN_ACTIVE : BTN} onClick={toggleFullscreen}><IconFull />Full Screen</button>
+            <button className={BTN} onClick={toggleMute}>{muted ? <IconMute /> : <IconVolume />}{muted ? 'Unmute' : 'Mute'}</button>
           </div>
+          <style>{`@keyframes pearlspin { to { transform: rotate(360deg); } }`}</style>
         </>
       )}
     </main>

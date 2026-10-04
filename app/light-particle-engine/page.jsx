@@ -8,6 +8,29 @@ import {
   particleColor,
 } from "./engine.js";
 
+const TILE = "/images/apollo-shared/apollo-panel-tile.webp";
+const BG = "/images/light-particle-engine/light-particle-engine-bg.webp";
+
+// Inline SVG glyph system (zero image weight) — APOLLO amber/gold treatment.
+const Ic = ({ children }) => (
+  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+    style={{ flex: "none" }}>
+    {children}
+  </svg>
+);
+const IconPause = () => (<Ic><path d="M9 5v14M15 5v14" /></Ic>);
+const IconPlay = () => (<Ic><path d="M8 5v14l11-7z" fill="currentColor" stroke="none" /></Ic>);
+const IconStep = () => (<Ic><path d="M7 5v14l8-7z" fill="currentColor" stroke="none" /><path d="M17 5v14" /></Ic>);
+const IconBurst = () => (<Ic><path d="M12 3l1.9 5.6L19.5 10l-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.4z" /><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z" /></Ic>);
+const IconClear = () => (<Ic><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13" /></Ic>);
+const IconSpin = () => (
+  <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#e8b93c" strokeWidth="3"
+    strokeLinecap="round" aria-hidden="true" style={{ animation: "lpespin 0.9s linear infinite" }}>
+    <path d="M12 3a9 9 0 1 0 9 9" />
+  </svg>
+);
+
 /**
  * Light Particle Engine — interactive 2D particle laboratory.
  * Emitters, force fields, color modes, pause/step. Zero network.
@@ -24,6 +47,12 @@ export default function LightParticleEnginePage() {
   const [paused, setPaused] = useState(false);
   const [stats, setStats] = useState({ count: 0, fps: 0 });
   const [seed, setSeed] = useState(1337);
+  const [booted, setBooted] = useState(false); // styled loading veil while the lab warms up
+
+  useEffect(() => {
+    const t = setTimeout(() => setBooted(true), 700);
+    return () => clearTimeout(t);
+  }, []);
 
   const paramsRef = useRef({ emitterType, fieldKind, colorMode, rate, speed, life, paused, seed });
   useEffect(() => {
@@ -207,23 +236,53 @@ export default function LightParticleEnginePage() {
   }, []);
 
   const btn = {
-    background: "rgba(10,18,32,0.9)", color: "#7fd8ff", border: "1px solid rgba(127,216,255,0.4)",
+    backgroundColor: "rgba(8,6,2,0.9)", backgroundImage: `url(${TILE})`, backgroundSize: "256px",
+    color: "#f3d98b", border: "1px solid rgba(232,185,60,0.4)",
     borderRadius: 8, padding: "10px 12px", fontSize: 13, cursor: "pointer", fontFamily: "inherit",
+    display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7,
   };
   const sel = { ...btn, width: "100%" };
-  const lbl = { fontSize: 11, letterSpacing: 1.5, color: "#5f7fa6", textTransform: "uppercase" };
+  const lbl = { fontSize: 11, letterSpacing: 1.5, color: "#8a7a4e", textTransform: "uppercase" };
+  const hudPanel = {
+    position: "absolute", top: 12, left: 12, zIndex: 2,
+    backgroundColor: "rgba(8,6,2,0.85)", backgroundImage: `url(${TILE})`, backgroundSize: "256px",
+    border: "1px solid rgba(232,185,60,0.3)", borderRadius: 10, padding: 12, fontSize: 12,
+  };
+  const sidePanel = {
+    position: "absolute", right: 12, bottom: 12, zIndex: 2,
+    backgroundColor: "rgba(8,6,2,0.85)", backgroundImage: `url(${TILE})`, backgroundSize: "256px",
+    border: "1px solid rgba(232,185,60,0.3)", borderRadius: 10, padding: 14, width: 230,
+    display: "grid", gap: 10, maxHeight: "70vh", overflowY: "auto",
+  };
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "#020409", color: "#cfeaff", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", overflow: "hidden" }}>
+      {/* Page background art: bed behind the particle canvas, visible while it boots. */}
+      <div aria-hidden="true" style={{ position: "absolute", inset: 0, backgroundImage: `url(${BG})`, backgroundSize: "cover", backgroundPosition: "center", opacity: 0.45 }} />
       <canvas ref={canvasRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", touchAction: "none", cursor: "crosshair" }} />
-      <div style={{ position: "absolute", top: 12, left: 12, zIndex: 2, background: "rgba(3,8,18,0.82)", border: "1px solid rgba(127,216,255,0.25)", borderRadius: 10, padding: 12, fontSize: 12 }}>
-        <div style={{ fontSize: 13, letterSpacing: 2, color: "#7fd8ff", marginBottom: 4 }}>LIGHT PARTICLE ENGINE</div>
-        <div style={{ color: "#5f7fa6", fontSize: 11 }}>tap: burst · shift+tap: move field · double-tap: clear</div>
-        <div style={{ color: "#5f7fa6", fontSize: 11, marginTop: 4 }}>
+      <style>{`@keyframes lpespin { to { transform: rotate(360deg); } }`}</style>
+      {!booted && (
+        <div
+          role="status" aria-label="Igniting emitters"
+          style={{
+            position: "absolute", inset: 0, zIndex: 5, display: "flex", flexDirection: "column",
+            alignItems: "center", justifyContent: "center", gap: 14,
+            backgroundImage: `linear-gradient(rgba(4,3,1,0.8), rgba(4,3,1,0.86)), url(${BG})`,
+            backgroundSize: "cover", backgroundPosition: "center",
+          }}
+        >
+          <IconSpin />
+          <div style={{ color: "#e8b93c", fontSize: 12, letterSpacing: 4 }}>IGNITING EMITTERS…</div>
+        </div>
+      )}
+      <div style={hudPanel}>
+        <div style={{ fontSize: 13, letterSpacing: 2, color: "#f3d98b", marginBottom: 4 }}>LIGHT PARTICLE ENGINE</div>
+        <div style={{ color: "#8a7a4e", fontSize: 11 }}>tap: burst · shift+tap: move field · double-tap: clear</div>
+        <div style={{ color: "#8a7a4e", fontSize: 11, marginTop: 4 }}>
           particles {stats.count} · {stats.fps} fps
         </div>
       </div>
-      <div style={{ position: "absolute", right: 12, bottom: 12, zIndex: 2, background: "rgba(3,8,18,0.82)", border: "1px solid rgba(127,216,255,0.25)", borderRadius: 10, padding: 14, width: 230, display: "grid", gap: 10, maxHeight: "70vh", overflowY: "auto" }}>
+      <div style={sidePanel}>
         <div><div style={lbl}>Emitter</div>
           <select style={sel} value={emitterType} onChange={(e) => setEmitterType(e.target.value)}>
             <option value="point">Point</option><option value="fountain">Fountain</option>
@@ -256,10 +315,10 @@ export default function LightParticleEnginePage() {
         <div><div style={lbl}>Seed</div>
           <input type="number" value={seed} style={{ ...sel }} onChange={(e) => { const s = Number(e.target.value) || 0; setSeed(s); simRef.current?.reseed(s); }} /></div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-          <button style={btn} onClick={() => setPaused(!paused)}>{paused ? "Resume" : "Pause"}</button>
-          <button style={btn} onClick={() => simRef.current?.step()}>Step</button>
-          <button style={btn} onClick={() => simRef.current?.burst(300)}>Burst</button>
-          <button style={btn} onClick={() => simRef.current?.clear()}>Clear</button>
+          <button style={btn} onClick={() => setPaused(!paused)}>{paused ? <IconPlay /> : <IconPause />}{paused ? "Resume" : "Pause"}</button>
+          <button style={btn} onClick={() => simRef.current?.step()}><IconStep />Step</button>
+          <button style={btn} onClick={() => simRef.current?.burst(300)}><IconBurst />Burst</button>
+          <button style={btn} onClick={() => simRef.current?.clear()}><IconClear />Clear</button>
         </div>
       </div>
       {/* Safari bottom-bar clearance */}

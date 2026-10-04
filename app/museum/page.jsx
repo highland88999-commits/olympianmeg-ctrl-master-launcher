@@ -1,10 +1,10 @@
 'use client';
 
 // MUSEUM — the gallery of Merlin's creative output.
-// Two wings: Photos and Videos — ONLY Gemini-made pieces. No screenshots,
-// ever. New pieces arrive via the Menu Art Transfer app; the wings show an
-// honest empty state until the curator hangs them.
-// Kept pieces persist in localStorage only. No telemetry.
+// Gallery wing (searchable, series-filtered grid + lightbox), Films wing
+// (concept videos), and Concepts wing (curated highlights from the
+// 131-concept catalog, with status labels). Kept pieces persist in
+// localStorage only. No telemetry.
 //
 // Gallery images are pay-per-download: C$1.00 = 10 credits, 1 credit =
 // 1 download with a reuse license. Purchases and redemptions flow through
@@ -12,22 +12,73 @@
 // UI offers no direct file URLs; full files are served only through
 // signed, expiring download tokens after a credit is redeemed.
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import {
-  SERIES, ITEMS, VIDEOS,
+  SERIES, ITEMS, VIDEOS, CONCEPTS, STATUSES, STATUS_LABELS,
   seriesById, itemsInSeries, searchItems,
+  conceptsByStatus, searchConcepts,
   loadKept, saveKept, toggleKept,
 } from '@/lib/museum';
 import { LICENSE_TEXT, creditsLabel } from '@/lib/gallery';
 import { supabase } from '@/lib/supabase';
 import { fx, unlockFx } from '@/lib/fx';
 
+const STATUS_COLORS = {
+  shipped: '#7fd08a',
+  prototype: '#8fb8ff',
+  idea: '#e8c56a',
+  spec: '#c9a0ff',
+  'not-approved': '#ff8a8a',
+};
+
+const TILE = '/images/apollo-shared/apollo-panel-tile.webp';
+const MUSEUM_BG = '/images/museum/museum-bg.webp';
+const BG_VIDEO = '/images/museum/bg-loop.mp4';
+const BG_STILL = '/images/museum/bg-still.jpg';
+const BG_KEY = 'museum-bg'; // localStorage: ambience toggle Video → Still → Off
+
+// Inline SVG glyph system (zero image weight) — APOLLO amber/gold treatment.
+const G = (props) => (
+  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+    style={{ flex: 'none' }} {...props} />
+);
+const IconImage = () => (<G><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="9" cy="10" r="1.8" /><path d="M4 18l5-5 3 3 4-4 4 4" /></G>);
+const IconFilm = () => (<G><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M7 5v14M17 5v14M3 9h4M3 15h4M17 9h4M17 15h4" /></G>);
+const IconBulb = () => (<G><path d="M9 18h6M10 21h4" /><path d="M12 3a6 6 0 0 0-3.5 10.9c.8.6 1.5 1.4 1.5 2.1h4c0-.7.7-1.5 1.5-2.1A6 6 0 0 0 12 3z" /></G>);
+const IconBolt = () => (<G><path d="M13 2 4 14h6l-1 8 9-12h-6z" /></G>);
+const IconClose = () => (<G><path d="M6 6l12 12M18 6 6 18" /></G>);
+const IconPrev = () => (<G><path d="M15 5l-7 7 7 7" /></G>);
+const IconNext = () => (<G><path d="M9 5l7 7-7 7" /></G>);
+const IconHeart = () => (<G><path d="M12 20.5S3.5 15.4 3.5 9.6A4.6 4.6 0 0 1 8.2 5c1.6 0 3 .9 3.8 2.2A4.6 4.6 0 0 1 15.8 5a4.6 4.6 0 0 1 4.7 4.6c0 5.8-8.5 10.9-8.5 10.9z" /></G>);
+const IconDownload = () => (<G><path d="M12 4v12M7 11l5 5 5-5" /><path d="M4 20h16" /></G>);
+const IconFrame = () => (<G width="26" height="26"><rect x="4" y="4" width="16" height="16" rx="1" /><rect x="7" y="7" width="10" height="10" /></G>);
+
 export default function MuseumPage() {
-  const [tab, setTab] = useState('photos');
+  const [tab, setTab] = useState('gallery');
   const [query, setQuery] = useState('');
   const [series, setSeries] = useState('all');
+  const [status, setStatus] = useState('all');
   const [kept, setKept] = useState(() => loadKept());
   const [lightbox, setLightbox] = useState(null); // index into visibleItems
+  const [bgMode, setBgMode] = useState(() => {
+    // Header ambience: Video → Still → Off, persisted. Reduced-motion users start on Still.
+    if (typeof window === 'undefined') return 'video';
+    try {
+      const saved = window.localStorage.getItem(BG_KEY);
+      if (saved === 'video' || saved === 'still' || saved === 'off') return saved;
+    } catch {}
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'still' : 'video';
+  });
+  const cycleBg = () => {
+    setBgMode((m) => {
+      const n = m === 'video' ? 'still' : m === 'still' ? 'off' : 'video';
+      try { window.localStorage.setItem(BG_KEY, n); } catch {}
+      return n;
+    });
+    try { fx.tap(); } catch {}
+  };
 
   useEffect(() => {
     saveKept(kept);
@@ -45,6 +96,12 @@ export default function MuseumPage() {
     else if (series !== 'all') list = list.filter((i) => i.series === series);
     return list;
   }, [query, series, kept]);
+
+  const visibleConcepts = useMemo(() => {
+    let list = query.trim() ? searchConcepts(query) : CONCEPTS;
+    if (status !== 'all') list = list.filter((c) => c.status === status);
+    return list;
+  }, [query, status]);
 
   const openLightbox = useCallback((idx) => {
     try { fx.menuOpen(); } catch {}
@@ -86,6 +143,7 @@ export default function MuseumPage() {
 
   // --- Pay-per-download: credit balance + purchase/redeem flows ---
   const [credits, setCredits] = useState(null); // null = unknown (signed out or unconfigured)
+  const [creditsLoading, setCreditsLoading] = useState(true); // styled loading shimmer on the chip
   const [creditBusy, setCreditBusy] = useState(null); // 'buying' | 'redeeming' | null
   const [creditMsg, setCreditMsg] = useState('');
 
@@ -100,6 +158,7 @@ export default function MuseumPage() {
       const d = await res.json();
       setCredits(typeof d.balance === 'number' ? d.balance : 0);
     } catch { setCredits(null); }
+    finally { setCreditsLoading(false); }
   }, []);
 
   useEffect(() => {
@@ -190,26 +249,49 @@ export default function MuseumPage() {
   return (
     <div className="museum-page">
       <header className="museum-head">
+        {/* Header ambience: cinematic video loop with still + off fallbacks. */}
+        <div className="museum-bg-layer" aria-hidden="true">
+          {bgMode === 'video' && (
+            <video className="museum-bg-media" src={BG_VIDEO} poster={BG_STILL}
+              autoPlay muted loop playsInline preload="metadata" />
+          )}
+          {bgMode === 'still' && (
+            <img className="museum-bg-media" src={BG_STILL} alt="" />
+          )}
+          <div className="museum-bg-scrim" />
+        </div>
+        <button
+          type="button"
+          className="museum-bg-toggle"
+          onClick={cycleBg}
+          aria-label={`Header ambience: ${bgMode}. Activate to change.`}
+          title="Toggle header ambience"
+        >
+          {bgMode === 'video' ? '◉ Video' : bgMode === 'still' ? '◐ Still' : '○ Off'}
+        </button>
+        <div className="museum-head-inner">
         <div className="museum-kicker">Olympus Gallery</div>
         <h1 className="museum-title">Museum</h1>
         <p className="museum-sub">
-          Only what Merlin made with Gemini — photos in one wing, films in
-          another. Nothing else lives here. Kept for Miles.
+          The collected works of Merlin Ambros — art, films, and concepts.
+          Kept for Miles.
         </p>
         <nav className="museum-tabs" role="tablist" aria-label="Museum wings">
           {[
-            ['photos', `Photos · ${ITEMS.length}`],
-            ['videos', `Videos · ${VIDEOS.length}`],
-          ].map(([id, label]) => (
+            ['gallery', `Gallery · ${ITEMS.length}`, <IconImage key="i" />],
+            ['films', `Films · ${VIDEOS.length}`, <IconFilm key="i" />],
+            ['concepts', `Concepts · ${CONCEPTS.length}`, <IconBulb key="i" />],
+          ].map(([id, label, icon]) => (
             <button
               key={id} role="tab" aria-selected={tab === id}
               className={tab === id ? 'tab active' : 'tab'}
               onClick={() => { setTab(id); setQuery(''); try { fx.tap(); } catch {} }}
             >
-              {label}
+              {icon}{label}
             </button>
           ))}
         </nav>
+        </div>
       </header>
 
       <div className="museum-controls">
@@ -218,27 +300,27 @@ export default function MuseumPage() {
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder={tab === 'videos' ? 'Search films…' : 'Search the collection…'}
+          placeholder={tab === 'concepts' ? 'Search concepts…' : 'Search the collection…'}
           aria-label="Search"
         />
-        {tab === 'photos' && (
+        {tab === 'gallery' && (
           <div className="credit-bar" aria-label="Download credits">
-            <span className="credit-chip" title="Your download credits">
-              ⚡ {credits == null ? '—' : creditsLabel(credits)}
+            <span className={`credit-chip${creditsLoading ? ' loading' : ''}`} title="Your download credits">
+              <IconBolt /> {creditsLoading ? '···' : credits == null ? '—' : creditsLabel(credits)}
             </span>
             <button
               className="credit-buy"
               onClick={buyCredits}
               disabled={creditBusy === 'buying'}
             >
-              {creditBusy === 'buying' ? 'Opening checkout…' : 'Get credits · $1 = 10 downloads'}
+              <IconBolt />{creditBusy === 'buying' ? 'Opening checkout…' : 'Get credits · $1 = 10 downloads'}
             </button>
           </div>
         )}
-        {tab === 'photos' && creditMsg && (
+        {tab === 'gallery' && creditMsg && (
           <p className="credit-msg" role="status">{creditMsg}</p>
         )}
-        {tab === 'photos' && (
+        {tab === 'gallery' && (
           <div className="chip-row" role="group" aria-label="Filter by series">
             <button className={series === 'all' ? 'chip active' : 'chip'} onClick={() => setSeries('all')}>All</button>
             <button className={series === 'kept' ? 'chip active' : 'chip'} onClick={() => setSeries('kept')}>Kept ♥</button>
@@ -249,17 +331,25 @@ export default function MuseumPage() {
             ))}
           </div>
         )}
+        {tab === 'concepts' && (
+          <div className="chip-row" role="group" aria-label="Filter by status">
+            <button className={status === 'all' ? 'chip active' : 'chip'} onClick={() => setStatus('all')}>All</button>
+            {STATUSES.map((st) => (
+              <button key={st} className={status === st ? 'chip active' : 'chip'} onClick={() => setStatus(st)}>
+                {STATUS_LABELS[st]}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
-      {tab === 'photos' && (
-        <main className="museum-grid" aria-label="Photos">
+      {tab === 'gallery' && (
+        <main className="museum-grid" aria-label="Gallery">
           {visibleItems.length === 0 && (
-            <div className="empty-wing" role="status">
-              <p className="empty-title">The curator is hanging new pieces.</p>
-              <p className="empty-sub">
-                This wing holds only what Merlin made with Gemini — no
-                screenshots, nothing borrowed. Fresh pieces are on their way.
-              </p>
+            <div className="empty empty-art" role="status">
+              <IconFrame />
+              <div className="empty-title">This wing is quiet</div>
+              <p>Nothing in this wing yet. Try another search.</p>
             </div>
           )}
           {visibleItems.map((it, idx) => {
@@ -283,17 +373,8 @@ export default function MuseumPage() {
         </main>
       )}
 
-      {tab === 'videos' && (
-        <main className="films" aria-label="Films">
-          {VIDEOS.length === 0 && (
-            <div className="empty-wing" role="status">
-              <p className="empty-title">The curator is hanging new pieces.</p>
-              <p className="empty-sub">
-                This wing holds only films Merlin made with Gemini — no
-                screenshots, nothing borrowed. Fresh pieces are on their way.
-              </p>
-            </div>
-          )}
+      {tab === 'films' && (
+        <main className="films" aria-label="Concept films">
           {VIDEOS.map((v) => (
             <article key={v.id} className="film-card">
               <div className="film-head">
@@ -305,14 +386,44 @@ export default function MuseumPage() {
               </video>
             </article>
           ))}
+          <p className="films-note">Concept films from the archive. AI-generated studies, kept as history.</p>
+        </main>
+      )}
+
+      {tab === 'concepts' && (
+        <main className="concepts" aria-label="Concept highlights">
+          {visibleConcepts.length === 0 && (
+            <div className="empty empty-art" role="status">
+              <IconFrame />
+              <div className="empty-title">No concepts match</div>
+              <p>Try another search.</p>
+            </div>
+          )}
+          {visibleConcepts.map((c) => (
+            <article key={c.id} className="concept-card">
+              <div className="concept-top">
+                <h2 className="concept-name">{c.name}</h2>
+                <span className="status-badge" style={{ borderColor: STATUS_COLORS[c.status], color: STATUS_COLORS[c.status] }}>
+                  {STATUS_LABELS[c.status]}
+                </span>
+              </div>
+              <div className="concept-cat">{c.category}</div>
+              <p className="concept-blurb">{c.blurb}</p>
+              {/* next/link: client-side nav keeps the radio playing. */}
+              {c.route && (
+                <Link className="concept-link" href={c.route} onClick={() => { try { fx.tap(); } catch {} }}>
+                  Visit →</Link>
+              )}
+            </article>
+          ))}
         </main>
       )}
 
       {item && (
         <div className="lightbox" role="dialog" aria-modal="true" aria-label={item.title} onClick={closeLightbox}>
-          <button className="lb-close" aria-label="Close" onClick={closeLightbox}>✕</button>
-          <button className="lb-nav lb-prev" aria-label="Previous" onClick={(e) => { e.stopPropagation(); stepLightbox(-1); }}>‹</button>
-          <button className="lb-nav lb-next" aria-label="Next" onClick={(e) => { e.stopPropagation(); stepLightbox(1); }}>›</button>
+          <button className="lb-close" aria-label="Close" onClick={closeLightbox}><IconClose /></button>
+          <button className="lb-nav lb-prev" aria-label="Previous" onClick={(e) => { e.stopPropagation(); stepLightbox(-1); }}><IconPrev /></button>
+          <button className="lb-nav lb-next" aria-label="Next" onClick={(e) => { e.stopPropagation(); stepLightbox(1); }}><IconNext /></button>
           <figure className="lb-figure" onClick={(e) => e.stopPropagation()}>
             <div className="lb-img-wrap wm-wrap">
               <img src={item.src} alt={item.title} {...protectProps} />
@@ -332,7 +443,7 @@ export default function MuseumPage() {
                     aria-label={kept.includes(item.id) ? 'Remove from kept' : 'Keep this piece'}
                     onClick={() => toggle(item.id)}
                   >
-                    ♥ Keep
+                    <IconHeart />Keep
                   </button>
                   <button
                     className="dl-btn"
@@ -340,7 +451,7 @@ export default function MuseumPage() {
                     disabled={creditBusy === 'redeeming'}
                     title="Redeem 1 download credit ($0.10)"
                   >
-                    {creditBusy === 'redeeming' ? 'Preparing…' : '⬇ Download · 1 credit'}
+                    <IconDownload />{creditBusy === 'redeeming' ? 'Preparing…' : 'Download · 1 credit'}
                   </button>
                 </div>
               </div>
@@ -361,10 +472,24 @@ export default function MuseumPage() {
           font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
         }
         .museum-head {
+          position: relative;
+          overflow: hidden;
           text-align: center;
           padding: 3.5rem 1.25rem 1.25rem;
           border-bottom: 1px solid rgba(201, 168, 106, 0.25);
         }
+        .museum-bg-layer { position: absolute; inset: 0; z-index: 0; }
+        .museum-bg-media { width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0.55; }
+        .museum-bg-scrim { position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(11,11,13,0.45), rgba(11,11,13,0.94)); }
+        .museum-head-inner { position: relative; z-index: 1; }
+        .museum-bg-toggle {
+          position: absolute; top: 12px; right: 12px; z-index: 2;
+          background: rgba(11,11,13,0.6); border: 1px solid rgba(201,168,106,0.4);
+          color: #c9a86a; border-radius: 999px; padding: 0.4rem 0.8rem;
+          font-size: 0.7rem; letter-spacing: 0.12em; cursor: pointer;
+          display: inline-flex; align-items: center; gap: 6px;
+        }
+        .museum-bg-toggle:hover { border-color: #c9a86a; }
         .museum-kicker {
           font-size: 0.7rem;
           letter-spacing: 0.35em;
@@ -404,6 +529,9 @@ export default function MuseumPage() {
           padding: 0.55rem 1.1rem;
           font-size: 0.85rem;
           cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
         }
         .tab.active {
           background: #c9a86a;
@@ -513,6 +641,22 @@ export default function MuseumPage() {
           color: #8a8474;
           padding: 3rem 1rem;
         }
+        .empty-art {
+          border: 1px dashed rgba(201, 168, 106, 0.4);
+          border-radius: 0.8rem;
+          padding: 3rem 1.5rem;
+          background-image: linear-gradient(rgba(11,11,13,0.78), rgba(11,11,13,0.88)), url(${MUSEUM_BG});
+          background-size: cover;
+          background-position: center;
+          color: #b9b2a1;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 10px;
+        }
+        .empty-art svg { color: #c9a86a; }
+        .empty-title { font-size: 1.05rem; letter-spacing: 0.1em; color: #e9d9b8; text-transform: uppercase; }
+        .empty-art p { margin: 0; font-size: 0.9rem; line-height: 1.6; }
         .films {
           max-width: 56rem;
           margin: 0 auto;
@@ -521,7 +665,7 @@ export default function MuseumPage() {
           flex-direction: column;
           gap: 2rem;
         }
-        .film-card { border: 1px solid #222; border-radius: 0.6rem; overflow: hidden; background: #101012; }
+        .film-card { border: 1px solid #2a2a2e; border-radius: 0.6rem; overflow: hidden; background-color: #101012; background-image: url(${TILE}); background-size: 220px; }
         .film-head { padding: 1.25rem 1.25rem 0.75rem; }
         .film-title {
           font-family: Georgia, 'Times New Roman', serif;
@@ -532,30 +676,50 @@ export default function MuseumPage() {
         }
         .film-blurb { color: #a9a294; margin: 0; line-height: 1.6; font-size: 0.95rem; }
         .film-video { width: 100%; display: block; background: #000; max-height: 70vh; }
-        .empty-wing {
-          grid-column: 1 / -1;
-          text-align: center;
-          padding: 4rem 1.5rem;
-          border: 1px dashed rgba(201, 168, 106, 0.35);
-          border-radius: 0.8rem;
-          background: rgba(201, 168, 106, 0.03);
-          margin: 1rem 0;
+        .films-note { text-align: center; color: #6f6a5e; font-size: 0.85rem; font-style: italic; }
+        .concepts {
+          max-width: 56rem;
+          margin: 0 auto;
+          padding: 1.5rem 1.25rem;
+          display: flex;
+          flex-direction: column;
+          gap: 1rem;
         }
-        .films .empty-wing { width: 100%; }
-        .empty-title {
+        .concept-card {
+          border: 1px solid #2a2a2e;
+          border-radius: 0.6rem;
+          padding: 1.1rem 1.25rem;
+          background-color: #101012;
+          background-image: url(${TILE});
+          background-size: 220px;
+        }
+        .concept-top { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; }
+        .concept-name {
           font-family: Georgia, 'Times New Roman', serif;
-          font-size: 1.4rem;
+          font-size: 1.15rem;
+          margin: 0;
           color: #f4efe3;
-          margin: 0 0 0.75rem;
           font-weight: 400;
         }
-        .empty-sub {
-          color: #a9a294;
-          line-height: 1.7;
-          max-width: 26rem;
-          margin: 0 auto;
-          font-size: 0.95rem;
+        .status-badge {
+          font-size: 0.7rem;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          border: 1px solid;
+          border-radius: 999px;
+          padding: 0.25rem 0.7rem;
+          white-space: nowrap;
         }
+        .concept-cat { font-size: 0.75rem; color: #8a8474; margin-top: 0.3rem; letter-spacing: 0.05em; }
+        .concept-blurb { color: #b9b2a1; line-height: 1.6; margin: 0.6rem 0 0; font-size: 0.95rem; }
+        .concept-link {
+          display: inline-block;
+          margin-top: 0.8rem;
+          color: #c9a86a;
+          text-decoration: none;
+          font-size: 0.9rem;
+        }
+        .concept-link:hover { text-decoration: underline; }
         .lightbox {
           position: fixed;
           inset: 0;
@@ -600,6 +764,9 @@ export default function MuseumPage() {
           cursor: pointer;
           font-size: 0.85rem;
           white-space: nowrap;
+          display: inline-flex;
+          align-items: center;
+          gap: 7px;
         }
         .keep.active { border-color: #e8837a; color: #e8837a; }
         .lb-close, .lb-nav {
@@ -621,6 +788,7 @@ export default function MuseumPage() {
         .lb-next { right: 0.75rem; top: 50%; transform: translateY(-50%); }
         @media (prefers-reduced-motion: reduce) {
           .tile-frame img { transition: none; }
+          .credit-chip.loading { animation: none; }
         }
         /* --- Pay-per-download commerce --- */
         .wm-wrap {
@@ -656,7 +824,16 @@ export default function MuseumPage() {
           border-radius: 999px;
           padding: 0.5rem 1rem;
           font-size: 0.85rem;
+          display: inline-flex;
+          align-items: center;
+          gap: 7px;
         }
+        .credit-chip.loading {
+          background: linear-gradient(90deg, rgba(201,168,106,0.06) 25%, rgba(201,168,106,0.18) 50%, rgba(201,168,106,0.06) 75%);
+          background-size: 200% 100%;
+          animation: creditshimmer 1.4s linear infinite;
+        }
+        @keyframes creditshimmer { to { background-position: -200% 0; } }
         .credit-buy {
           background: #c9a86a;
           border: none;
@@ -666,6 +843,9 @@ export default function MuseumPage() {
           padding: 0.55rem 1.15rem;
           font-size: 0.85rem;
           cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          gap: 7px;
         }
         .credit-buy:disabled { opacity: 0.6; cursor: wait; }
         .credit-msg {
@@ -685,6 +865,9 @@ export default function MuseumPage() {
           font-size: 0.85rem;
           cursor: pointer;
           white-space: nowrap;
+          display: inline-flex;
+          align-items: center;
+          gap: 7px;
         }
         .dl-btn:disabled { opacity: 0.6; cursor: wait; }
         .dl-license {

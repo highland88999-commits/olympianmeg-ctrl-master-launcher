@@ -1,29 +1,32 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { submenuArtFor } from '@/lib/god-menus';
 import { ARENAS, getArena } from './arenas';
 import { createComposer } from './music';
 
+const TILE = '/images/apollo-shared/apollo-panel-tile.webp';
+const BG = '/images/persymphony/persymphony-bg.webp';
 
-// Menu Art Transfer batch 2 — submenu art. Background image + dark legibility
-// scrim; a missing image hides itself via onError so the card falls back to
-// its plain style. Never breaks the UI.
-function SubmenuArt({ slot }) {
-  return (
-    <>
-      <img
-        src={submenuArtFor(slot)}
-        alt=""
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-        loading="lazy"
-        onError={(e) => { e.currentTarget.style.display = 'none'; }}
-      />
-      <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-black/55" />
-    </>
-  );
-}
+// Inline SVG glyph system (zero image weight) — APOLLO amber/gold treatment.
+const G = (props) => (
+  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props} />
+);
+const IconPlay = () => (<G><path d="M8 5v14l11-7z" fill="currentColor" stroke="none" /></G>);
+const IconStop = () => (<G><rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor" stroke="none" /></G>);
+const IconGrid = () => (<G><rect x="3.5" y="3.5" width="7" height="7" rx="1.5" /><rect x="13.5" y="3.5" width="7" height="7" rx="1.5" /><rect x="3.5" y="13.5" width="7" height="7" rx="1.5" /><rect x="13.5" y="13.5" width="7" height="7" rx="1.5" /></G>);
+const IconVolume = () => (<G><path d="M11 5 6.5 9H3v6h3.5L11 19z" fill="currentColor" stroke="none" /><path d="M15.5 8.5a5 5 0 0 1 0 7M18 6a8.5 8.5 0 0 1 0 12" /></G>);
+const IconMute = () => (<G><path d="M11 5 6.5 9H3v6h3.5L11 19z" fill="currentColor" stroke="none" /><path d="m16 9 5 6M21 9l-5 6" /></G>);
+const IconTicket = () => (<G><path d="M4 8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4z" /><path d="M13 6v2M13 11v2M13 16v2" strokeDasharray="1.5 2" /></G>);
+const IconClose = () => (<G><path d="M6 6l12 12M18 6 6 18" /></G>);
+const IconMetro = () => (<G><path d="M12 3 5 21h14z" /><path d="M12 3v0" /><circle cx="12" cy="8" r="1.4" fill="currentColor" stroke="none" /><path d="M12 8l5 6" /></G>);
+const IconSpark = () => (<G><path d="M12 3l1.9 5.6L19.5 10l-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.4z" /><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z" /></G>);
+const IconSpin = () => (
+  <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#e8b93c" strokeWidth="3"
+    strokeLinecap="round" aria-hidden="true" style={{ animation: 'perspin 0.9s linear infinite' }}>
+    <path d="M12 3a9 9 0 1 0 9 9" />
+  </svg>
+);
 
 function idleLevels(t) {
   return {
@@ -45,6 +48,7 @@ export default function PersymphonyPage() {
   const [mood, setMood] = useState(0.6);
   const [muted, setMuted] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
+  const [starting, setStarting] = useState(false); // styled loading veil while the audio engine wakes
   const [reduced] = useState(
     () =>
       typeof window !== 'undefined' &&
@@ -191,17 +195,25 @@ export default function PersymphonyPage() {
   };
 
   const start = async () => {
-    const eng = ensureEngine();
-    await eng.actx.resume();
-    const ui = uiRef.current;
-    eng.composer = createComposer(getArena(ui.arenaId).motif, {
-      tempo: ui.tempo,
-      mood: ui.mood,
-    });
-    eng.nextTime = eng.actx.currentTime + 0.08;
-    if (eng.timer) clearInterval(eng.timer);
-    eng.timer = setInterval(schedule, 25);
-    setPlaying(true);
+    setStarting(true);
+    const t0 = performance.now();
+    try {
+      const eng = ensureEngine();
+      await eng.actx.resume();
+      const ui = uiRef.current;
+      eng.composer = createComposer(getArena(ui.arenaId).motif, {
+        tempo: ui.tempo,
+        mood: ui.mood,
+      });
+      eng.nextTime = eng.actx.currentTime + 0.08;
+      if (eng.timer) clearInterval(eng.timer);
+      eng.timer = setInterval(schedule, 25);
+      setPlaying(true);
+    } finally {
+      // Keep the veil up just long enough to read — it doubles as the "tuning" beat.
+      const wait = Math.max(0, 650 - (performance.now() - t0));
+      setTimeout(() => setStarting(false), wait);
+    }
   };
 
   const stop = () => {
@@ -252,7 +264,33 @@ export default function PersymphonyPage() {
   return (
     <>
     <div className="fixed inset-0 bg-black overflow-hidden select-none">
+      {/* Page background art: sits behind the generative canvas, visible while it
+          boots and as a bed if the canvas ever fails to paint. */}
+      <div
+        aria-hidden="true"
+        className="absolute inset-0"
+        style={{ backgroundImage: `url(${BG})`, backgroundSize: 'cover', backgroundPosition: 'center' }}
+      />
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full block" />
+
+      {/* Styled loading veil — the "tuning the hall" beat while the audio engine wakes. */}
+      {starting && (
+        <div
+          className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-4"
+          role="status"
+          aria-label="Tuning the hall"
+          style={{
+            backgroundImage: `linear-gradient(rgba(5,3,1,0.82), rgba(5,3,1,0.88)), url(${BG})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          }}
+        >
+          <IconSpin />
+          <div className="text-amber-200/90 text-sm tracking-[0.35em] uppercase font-semibold">
+            Tuning the hall…
+          </div>
+        </div>
+      )}
 
       {/* Header */}
       <div className="absolute top-0 left-0 right-0 p-4 sm:p-6 flex items-start justify-between pointer-events-none">
@@ -261,7 +299,7 @@ export default function PersymphonyPage() {
             Persymphony
           </h1>
           <p className="text-zinc-400 text-sm mt-1">
-            <span className="text-cyan-300 font-semibold">{arena.name}</span>
+            <span className="text-amber-300 font-semibold">{arena.name}</span>
             {' — '}
             {arena.tagline}
           </p>
@@ -269,8 +307,9 @@ export default function PersymphonyPage() {
         <div className="pointer-events-auto flex items-center gap-2">
           <a
             href="/persymphony/tickets"
-            className="min-h-[44px] px-4 py-2 rounded-lg border border-cyan-500/40 text-cyan-200 text-sm font-semibold bg-black/50"
+            className="min-h-[44px] px-4 py-2 rounded-lg border border-amber-400/50 text-amber-200 text-sm font-semibold bg-black/50 inline-flex items-center gap-2 hover:border-amber-300 hover:text-amber-100 transition-colors"
           >
+            <IconTicket />
             Tickets
           </a>
         </div>
@@ -279,7 +318,14 @@ export default function PersymphonyPage() {
       {/* Arena picker overlay */}
       {showPicker && (
         <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-20">
-          <div className="bg-zinc-950 border border-cyan-500/30 rounded-xl p-5 max-w-lg w-full max-h-[80vh] overflow-y-auto">
+          <div
+            className="border border-amber-400/30 rounded-xl p-5 max-w-lg w-full max-h-[80vh] overflow-y-auto"
+            style={{
+              backgroundImage: `url(${TILE})`,
+              backgroundSize: '256px',
+              backgroundColor: 'rgba(8,5,2,0.96)',
+            }}
+          >
             <h2 className="text-white font-bold text-lg mb-1">Choose an arena</h2>
             <p className="text-zinc-500 text-sm mb-4">
               Each arena has its own visuals and its own generative music.
@@ -289,22 +335,22 @@ export default function PersymphonyPage() {
                 <button
                   key={a.id}
                   onClick={() => selectArena(a.id)}
-                  className={`relative min-h-[44px] text-left px-4 py-3 rounded-lg border transition-all overflow-hidden ${
+                  className={`min-h-[44px] text-left px-4 py-3 rounded-lg border transition-all ${
                     a.id === arenaId
-                      ? 'border-cyan-400 bg-cyan-500/20'
-                      : 'border-zinc-700 bg-zinc-900 hover:border-cyan-500/50'
+                      ? 'border-amber-400 bg-amber-500/20'
+                      : 'border-zinc-700 bg-zinc-900 hover:border-amber-400/50'
                   }`}
                 >
-                  <SubmenuArt slot={`submenu-prog-persymphony-${a.id}`} />
-                  <span className="relative text-white font-semibold block">{a.name}</span>
-                  <span className="relative text-zinc-500 text-xs block">{a.tagline}</span>
+                  <span className="text-white font-semibold block">{a.name}</span>
+                  <span className="text-zinc-500 text-xs block">{a.tagline}</span>
                 </button>
               ))}
             </div>
             <button
               onClick={() => setShowPicker(false)}
-              className="mt-4 w-full min-h-[44px] rounded-lg border border-zinc-700 text-zinc-300 hover:border-zinc-500"
+              className="mt-4 w-full min-h-[44px] rounded-lg border border-zinc-700 text-zinc-300 hover:border-amber-400/60 inline-flex items-center justify-center gap-2"
             >
+              <IconClose />
               Close
             </button>
           </div>
@@ -313,41 +359,51 @@ export default function PersymphonyPage() {
 
       {/* Controls */}
       <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-6 z-10">
-        <div className="mx-auto max-w-3xl bg-black/60 backdrop-blur border border-zinc-800 rounded-xl px-4 py-3 flex flex-wrap items-center gap-x-5 gap-y-3">
+        <div
+          className="mx-auto max-w-3xl backdrop-blur border border-amber-400/25 rounded-xl px-4 py-3 flex flex-wrap items-center gap-x-5 gap-y-3"
+          style={{
+            backgroundImage: `url(${TILE})`,
+            backgroundSize: '256px',
+            backgroundColor: 'rgba(8,5,2,0.72)',
+            boxShadow: '0 0 32px rgba(232,185,60,0.08)',
+          }}
+        >
           <button
             onClick={playing ? stop : start}
-            className={`min-h-[44px] min-w-[44px] px-6 rounded-lg font-bold text-sm tracking-widest uppercase transition-all ${
+            className={`min-h-[44px] min-w-[44px] px-6 rounded-lg font-bold text-sm tracking-widest uppercase transition-all inline-flex items-center gap-2 ${
               playing
                 ? 'bg-red-500/80 hover:bg-red-500 text-white'
-                : 'bg-cyan-500 hover:bg-cyan-400 text-black'
+                : 'bg-amber-400 hover:bg-amber-300 text-black'
             }`}
           >
+            {playing ? <IconStop /> : <IconPlay />}
             {playing ? 'Stop' : 'Play'}
           </button>
 
           <button
             onClick={() => setShowPicker(true)}
-            className="min-h-[44px] px-4 rounded-lg border border-zinc-700 text-zinc-200 text-sm hover:border-cyan-500/60"
+            className="min-h-[44px] px-4 rounded-lg border border-zinc-700 text-zinc-200 text-sm hover:border-amber-400/60 inline-flex items-center gap-2"
           >
+            <IconGrid />
             Arenas
           </button>
 
           <label className="flex items-center gap-2 text-zinc-300 text-sm min-h-[44px]">
-            <span className="w-14">Tempo</span>
+            <span className="w-16 inline-flex items-center gap-1.5"><IconMetro />Tempo</span>
             <input
               type="range"
               min="60"
               max="160"
               value={tempo}
               onChange={(e) => setTempo(Number(e.target.value))}
-              className="w-28 sm:w-36 accent-cyan-400"
+              className="w-28 sm:w-36 accent-amber-400"
               aria-label="Tempo"
             />
             <span className="text-zinc-500 w-10 text-right">{tempo}</span>
           </label>
 
           <label className="flex items-center gap-2 text-zinc-300 text-sm min-h-[44px]">
-            <span className="w-14">Mood</span>
+            <span className="w-16 inline-flex items-center gap-1.5"><IconSpark />Mood</span>
             <input
               type="range"
               min="0"
@@ -364,9 +420,10 @@ export default function PersymphonyPage() {
 
           <button
             onClick={() => setMuted((m) => !m)}
-            className="min-h-[44px] px-4 rounded-lg border border-zinc-700 text-zinc-200 text-sm hover:border-cyan-500/60"
+            className="min-h-[44px] px-4 rounded-lg border border-zinc-700 text-zinc-200 text-sm hover:border-amber-400/60 inline-flex items-center gap-2"
             aria-pressed={muted}
           >
+            {muted ? <IconMute /> : <IconVolume />}
             {muted ? 'Unmute' : 'Mute'}
           </button>
         </div>
@@ -379,7 +436,7 @@ export default function PersymphonyPage() {
     </div>
     {/* Safari bottom-bar clearance: blank space under the fixed stage viewport */}
     <div aria-hidden="true" className="player-clear" />
+    <style>{`@keyframes perspin { to { transform: rotate(360deg); } }`}</style>
     </>
   );
 }
-

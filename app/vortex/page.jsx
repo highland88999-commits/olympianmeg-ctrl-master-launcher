@@ -9,6 +9,26 @@ import {
   normalizeTargetUrl,
 } from './vortex-engine';
 
+const TILE = '/images/apollo-shared/apollo-panel-tile.webp';
+const BG = '/images/vortex/vortex-bg.webp';
+
+// Inline SVG glyph system (zero image weight) — APOLLO amber/gold treatment.
+const G = (props) => (
+  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+    style={{ flex: 'none' }} {...props} />
+);
+const IconSkip = () => (<G><path d="M6 5v14l8-7z" fill="currentColor" stroke="none" /><path d="M16 5v14" /><path d="M19 5v14" opacity="0.4" /></G>);
+const IconEnter = () => (<G><path d="M14 4h6v16h-6" /><path d="M10 8l4 4-4 4M14 12H3" /></G>);
+const IconSpark = () => (<G><path d="M12 3l1.9 5.6L19.5 10l-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.4z" /></G>);
+const IconCopy = () => (<G><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></G>);
+const IconPlay = () => (<G><path d="M8 5v14l11-7z" fill="currentColor" stroke="none" /></G>);
+const IconDownload = () => (<G><path d="M12 4v12M7 11l5 5 5-5" /><path d="M4 20h16" /></G>);
+const IconRefresh = () => (<G><path d="M20 12a8 8 0 1 1-2.3-5.6" /><path d="M20 3v5h-5" /></G>);
+const IconBack = () => (<G><path d="M15 5l-7 7 7 7" /></G>);
+const IconKey = () => (<G><circle cx="8" cy="12" r="4.5" /><path d="M12.5 12H21M17 12v4M21 12v3" /></G>);
+const IconExternal = () => (<G><path d="M14 4h6v6" /><path d="M20 4 11 13" /><path d="M20 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h5" /></G>);
+
 // ---------------------------------------------------------------------------
 // Canvas-2D vortex flight. Same projection math as the standalone exporter:
 // particles live in a tunnel of `depth`, the camera eases from z=50 toward
@@ -141,14 +161,14 @@ function PortalIntro({ onEnter }) {
     <div className="vtx-screen vtx-portal">
       <VortexFlight blueprint={CINEMATIC_BLUEPRINT} duration={7} onDone={() => setArrived(true)} />
       <button type="button" className="vtx-skip" onClick={onEnter}>
-        SKIP INTRO
+        <IconSkip />SKIP INTRO
       </button>
       <div className={'vtx-portal-title' + (arrived ? ' vtx-visible' : '')}>
         <div className="vtx-kicker">ARGUS · OBSERVATORY</div>
         <h1>VORTEX</h1>
         <p className="vtx-sub">THE PORTAL FORGE — CINEMATIC GATEWAYS, SYNTHESIZED LOCALLY</p>
         <button type="button" className="vtx-btn vtx-btn-primary" onClick={onEnter}>
-          ENTER THE FORGE
+          <IconEnter />ENTER THE FORGE
         </button>
       </div>
     </div>
@@ -375,7 +395,7 @@ function Forge({ onPreview }) {
             onClick={handleGenerate}
             disabled={phase === 'streaming' || !url.trim()}
           >
-            {phase === 'streaming' ? 'SYNTHESIZING…' : 'SYNTHESIZE VORTEX'}
+            <IconSpark />{phase === 'streaming' ? 'SYNTHESIZING…' : 'SYNTHESIZE VORTEX'}
           </button>
         </div>
       )}
@@ -417,7 +437,7 @@ function Forge({ onPreview }) {
                 className="vtx-btn vtx-btn-ghost"
                 onClick={() => handleCopy('code', blueprint.id)}
               >
-                {copied === 'code' ? 'COPIED ✓' : 'COPY CODE'}
+                <IconCopy />{copied === 'code' ? 'COPIED ✓' : 'COPY CODE'}
               </button>
             </div>
             <p className="vtx-note">
@@ -428,20 +448,20 @@ function Forge({ onPreview }) {
 
           <div className="vtx-actions">
             <button type="button" className="vtx-btn vtx-btn-primary" onClick={() => onPreview(blueprint)}>
-              PREVIEW FLIGHT ➔
+              <IconPlay />PREVIEW FLIGHT
             </button>
             <button type="button" className="vtx-btn vtx-btn-ghost" onClick={() => downloadExport(blueprint)}>
-              DOWNLOAD HTML
+              <IconDownload />DOWNLOAD HTML
             </button>
             <button
               type="button"
               className="vtx-btn vtx-btn-ghost"
               onClick={() => handleCopy('export', compileStandaloneExport(blueprint))}
             >
-              {copied === 'export' ? 'COPIED ✓' : copied === 'failed' ? 'COPY FAILED' : 'COPY HTML'}
+              <IconCopy />{copied === 'export' ? 'COPIED ✓' : copied === 'failed' ? 'COPY FAILED' : 'COPY HTML'}
             </button>
             <button type="button" className="vtx-btn vtx-btn-ghost" onClick={handleResynthesize}>
-              RESYNTHESIZE
+              <IconRefresh />RESYNTHESIZE
             </button>
           </div>
 
@@ -455,7 +475,7 @@ function Forge({ onPreview }) {
               setUrl('');
             }}
           >
-            ← forge another
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><IconBack />forge another</span>
           </button>
         </div>
       )}
@@ -474,7 +494,7 @@ function Forge({ onPreview }) {
             }}
           />
           <button type="button" className="vtx-btn vtx-btn-ghost" onClick={handleRedeem}>
-            REDEEM
+            <IconKey />REDEEM
           </button>
         </div>
         {vault.length > 0 && (
@@ -529,7 +549,7 @@ function PreviewFlight({ blueprint, onBack }) {
         onDone={() => setArrived(true)}
       />
       <button type="button" className="vtx-skip" onClick={onBack}>
-        ← BACK TO FORGE
+        <IconBack />BACK TO FORGE
       </button>
       {arrived && (
         <div className="vtx-portal-title vtx-visible">
@@ -538,10 +558,10 @@ function PreviewFlight({ blueprint, onBack }) {
           <p className="vtx-sub">DESTINATION ACQUIRED — {host.toUpperCase()}</p>
           <div className="vtx-actions vtx-actions-center">
             <button type="button" className="vtx-btn vtx-btn-primary" onClick={openDestination}>
-              OPEN DESTINATION ➔
+              <IconExternal />OPEN DESTINATION
             </button>
             <button type="button" className="vtx-btn vtx-btn-ghost" onClick={onBack}>
-              RETURN TO FORGE
+              <IconBack />RETURN TO FORGE
             </button>
           </div>
         </div>
@@ -571,15 +591,16 @@ export default function VortexPage() {
         <PreviewFlight blueprint={blueprint} onBack={() => setScreen('forge')} />
       )}
       <style>{`
-        .vtx-root { min-height: 100dvh; background: #020306; color: #e8f1f8;
+        .vtx-root { min-height: 100dvh; background-color: #020306; background-image: url(${BG}); background-size: cover; background-position: center; background-attachment: fixed; color: #e8f1f8;
           font-family: ui-monospace, Menlo, Consolas, monospace; }
         .vtx-screen { min-height: 100dvh; position: relative; }
-        .vtx-portal { overflow: hidden; }
+        .vtx-portal { overflow: hidden; background-color: #020306; }
         .vtx-flight-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
         .vtx-skip { position: absolute; top: 16px; right: 16px; z-index: 10;
           background: rgba(2,6,8,0.6); border: 1px solid #33414f; color: #9fb2c5;
           font: 700 0.7rem ui-monospace, Menlo, monospace; letter-spacing: 2px;
-          padding: 10px 16px; border-radius: 999px; cursor: pointer; }
+          padding: 10px 16px; border-radius: 999px; cursor: pointer;
+          display: inline-flex; align-items: center; gap: 8px; }
         .vtx-skip:hover { border-color: #00f2ff; color: #00f2ff; }
         .vtx-portal-title { position: absolute; inset: 0; z-index: 5; display: flex;
           flex-direction: column; align-items: center; justify-content: center; text-align: center;
@@ -594,6 +615,7 @@ export default function VortexPage() {
           max-width: 560px; margin: 0 0 26px; line-height: 1.7; }
         .vtx-btn { font: 700 0.85rem ui-monospace, Menlo, monospace; letter-spacing: 2px;
           padding: 15px 34px; border-radius: 999px; border: none; cursor: pointer;
+          display: inline-flex; align-items: center; justify-content: center; gap: 10px;
           transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease; }
         .vtx-btn-primary { background: linear-gradient(90deg, #ffd700, #fffbbf); color: #111;
           box-shadow: 0 0 22px rgba(255,215,0,0.28); }
@@ -626,15 +648,16 @@ export default function VortexPage() {
         .vtx-input-small { padding: 12px 18px; font-size: 0.9rem; }
         .vtx-error { margin-top: 14px; color: #ff6b81; font-size: 0.8rem; letter-spacing: 1px; text-align: center; }
         .vtx-terminal { width: 100%; max-width: 520px; margin-top: 22px; }
-        .vtx-terminal-label { color: #00ffaa; font-size: 0.75rem; letter-spacing: 3px; text-align: center; margin-bottom: 10px; }
-        .vtx-console { background: #010305; border: 1px solid #1f3044; border-radius: 12px; padding: 18px;
-          min-height: 220px; color: #a3c1ad; font-size: 0.82rem; line-height: 1.65; white-space: pre-wrap;
+        .vtx-terminal-label { color: #e8b93c; font-size: 0.75rem; letter-spacing: 3px; text-align: center; margin-bottom: 10px; animation: vtxPulse 1.6s ease-in-out infinite; }
+        @keyframes vtxPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
+        .vtx-console { background-color: #010305; background-image: url(${TILE}); background-size: 220px; border: 1px solid rgba(232,185,60,.35); border-radius: 12px; padding: 18px;
+          min-height: 220px; color: #e6d6a8; font-size: 0.82rem; line-height: 1.65; white-space: pre-wrap;
           word-break: break-word; margin: 0; box-shadow: inset 0 0 25px #000; }
         .vtx-cursor { animation: vtxBlink 0.9s steps(1) infinite; color: #00ffaa; }
         @keyframes vtxBlink { 50% { opacity: 0; } }
         .vtx-ready { width: 100%; max-width: 520px; margin-top: 8px; display: flex; flex-direction: column; gap: 18px; }
-        .vtx-archetype { text-align: center; border: 1px solid #1f3044; border-radius: 14px; padding: 20px;
-          background: rgba(255,255,255,0.02); }
+        .vtx-archetype { text-align: center; border: 1px solid rgba(232,185,60,.35); border-radius: 14px; padding: 20px;
+          background-color: rgba(6,4,2,0.7); background-image: url(${TILE}); background-size: 220px; }
         .vtx-archetype-name { font-size: 1.3rem; letter-spacing: 4px; color: #ffd700;
           text-shadow: 0 0 14px rgba(255,215,0,0.4); }
         .vtx-archetype-tag { color: #9fb2c5; font-size: 0.78rem; margin-top: 6px; letter-spacing: 1px; }
@@ -665,6 +688,7 @@ export default function VortexPage() {
           .vtx-spiral { animation: none; }
           .vtx-cursor { animation: none; }
           .vtx-portal-title { transition: none; }
+          .vtx-terminal-label { animation: none; }
         }
       `}</style>
     </main>

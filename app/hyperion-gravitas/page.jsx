@@ -31,6 +31,29 @@ const MODES = [
   { id: "pulse", label: "Pulse" },
 ];
 
+const TILE = "/images/apollo-shared/apollo-panel-tile.webp";
+const BG = "/images/hyperion-gravitas/hyperion-gravitas-bg.webp";
+
+// Inline SVG glyph system (zero image weight) — APOLLO amber/gold treatment.
+const Ic = ({ children }) => (
+  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+    style={{ flex: "none" }}>
+    {children}
+  </svg>
+);
+const IconPause = () => (<Ic><path d="M9 5v14M15 5v14" /></Ic>);
+const IconPlay = () => (<Ic><path d="M8 5v14l11-7z" fill="currentColor" stroke="none" /></Ic>);
+const IconFolder = () => (<Ic><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><path d="M12 11v5M9.5 13.5 12 11l2.5 2.5" /></Ic>);
+const IconMic = () => (<Ic><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></Ic>);
+const IconStop = () => (<Ic><rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor" stroke="none" /></Ic>);
+const IconSpin = () => (
+  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#e8b93c" strokeWidth="3"
+    strokeLinecap="round" aria-hidden="true" style={{ animation: "hypspin 0.9s linear infinite", flex: "none" }}>
+    <path d="M12 3a9 9 0 1 0 9 9" />
+  </svg>
+);
+
 export default function HyperionPage() {
   const canvasRef = useRef(null);
   const statusRef = useRef(null);
@@ -46,8 +69,19 @@ export default function HyperionPage() {
     playing: true,
     sonic: "off", // off | file | mic
   });
+  const [sonicBusy, setSonicBusy] = useState(false); // styled loading state while the sonic core wakes
   const uiRef = useRef(ui);
   uiRef.current = ui;
+
+  // Clear the "tuning" beat once the sonic core reports in (or after a timeout).
+  useEffect(() => {
+    if (ui.sonic !== "off") setSonicBusy(false);
+  }, [ui.sonic]);
+  useEffect(() => {
+    if (!sonicBusy) return;
+    const t = setTimeout(() => setSonicBusy(false), 4000);
+    return () => clearTimeout(t);
+  }, [sonicBusy]);
 
   useEffect(() => {
     document.title = "Hyperion Gravitas";
@@ -288,6 +322,8 @@ export default function HyperionPage() {
 
   return (
     <div style={styles.page}>
+      {/* Page background art: bed behind the point-cloud canvas, visible while it boots. */}
+      <div aria-hidden="true" style={{ position: "absolute", inset: 0, backgroundImage: `url(${BG})`, backgroundSize: "cover", backgroundPosition: "center", opacity: 0.5 }} />
       <canvas ref={canvasRef} style={styles.canvas} />
       <div style={styles.top}>
         <h1 style={styles.title}>Hyperion Gravitas</h1>
@@ -330,25 +366,31 @@ export default function HyperionPage() {
             style={styles.color} aria-label="Core tint" />
         )}
         <button style={styles.btn} onClick={() => set("playing", !ui.playing)}>
-          {ui.playing ? "Pause" : "Play"}
+          {ui.playing ? <IconPause /> : <IconPlay />}{ui.playing ? "Pause" : "Play"}
         </button>
       </div>
 
       <div style={styles.sonic}>
         <span style={styles.sonicLabel}>Sonic core</span>
-        <button style={styles.btn} onClick={() => fileRef.current && fileRef.current.click()}>Load audio file</button>
+        <button style={styles.btn} onClick={() => { setSonicBusy(true); fileRef.current && fileRef.current.click(); }}><IconFolder />Load audio file</button>
         <input ref={fileRef} type="file" accept="audio/*" style={{ display: "none" }}
           onChange={(e) => {
             const f = e.target.files && e.target.files[0];
             if (f && window.hyperion) window.hyperion.sonicFile(f);
             e.target.value = "";
           }} />
-        <button style={styles.btn} onClick={() => window.hyperion && window.hyperion.sonicMic()}>Use mic</button>
+        <button style={styles.btn} onClick={() => { setSonicBusy(true); window.hyperion && window.hyperion.sonicMic(); }}><IconMic />Use mic</button>
         {ui.sonic !== "off" && (
-          <button style={styles.btn} onClick={() => window.hyperion && window.hyperion.sonicOff()}>Stop</button>
+          <button style={styles.btn} onClick={() => window.hyperion && window.hyperion.sonicOff()}><IconStop />Stop</button>
+        )}
+        {sonicBusy && (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 11, letterSpacing: 2, color: "#e8b93c" }} role="status">
+            <IconSpin />TUNING SONIC CORE…
+          </span>
         )}
         <span style={styles.sonicNote}>drives the visuals only — nothing is recorded or sent</span>
       </div>
+      <style>{`@keyframes hypspin { to { transform: rotate(360deg); } }`}</style>
       {/* Safari bottom-bar clearance */}
       <div aria-hidden="true" style={{ height: 'calc(4.5rem + env(safe-area-inset-bottom))' }} />
     </div>
@@ -359,16 +401,16 @@ const styles = {
   page: { position: "fixed", inset: 0, background: "#030309", color: "#fff", overflow: "hidden", fontFamily: "system-ui, -apple-system, sans-serif", userSelect: "none" },
   canvas: { position: "absolute", inset: 0, width: "100%", height: "100%", display: "block", touchAction: "none", cursor: "grab" },
   top: { position: "absolute", top: 0, left: 0, right: 0, zIndex: 5, padding: "16px 20px", pointerEvents: "none", background: "linear-gradient(to bottom, rgba(0,0,0,.6), transparent)" },
-  title: { margin: 0, fontSize: 21, fontWeight: 800, letterSpacing: 3, textTransform: "uppercase", color: "#aef4ff" },
-  status: { marginTop: 6, fontSize: 13, fontWeight: 600, letterSpacing: 1, color: "#7fd8ec", fontFamily: "ui-monospace, monospace" },
+  title: { margin: 0, fontSize: 21, fontWeight: 800, letterSpacing: 3, textTransform: "uppercase", color: "#f3d98b" },
+  status: { marginTop: 6, fontSize: 13, fontWeight: 600, letterSpacing: 1, color: "#c9a86a", fontFamily: "ui-monospace, monospace" },
   hint: { marginTop: 4, fontSize: 12, opacity: 0.65 },
-  dock: { position: "absolute", left: 12, right: 12, bottom: 64, zIndex: 5, display: "flex", gap: 10, alignItems: "center", justifyContent: "center", flexWrap: "wrap", background: "rgba(6,8,18,.72)", border: "1px solid rgba(0,243,255,.22)", borderRadius: 14, padding: "10px 14px", backdropFilter: "blur(8px)" },
-  sonic: { position: "absolute", left: 12, right: 12, bottom: 12, zIndex: 5, display: "flex", gap: 10, alignItems: "center", justifyContent: "center", flexWrap: "wrap" },
-  sonicLabel: { fontSize: 12, fontWeight: 700, letterSpacing: 2, color: "#7fd8ec", textTransform: "uppercase" },
+  dock: { position: "absolute", left: 12, right: 12, bottom: 64, zIndex: 5, display: "flex", gap: 10, alignItems: "center", justifyContent: "center", flexWrap: "wrap", backgroundColor: "rgba(8,6,2,.78)", backgroundImage: `url(${TILE})`, backgroundSize: "256px", border: "1px solid rgba(232,185,60,.3)", borderRadius: 14, padding: "10px 14px", backdropFilter: "blur(8px)", boxShadow: "0 0 28px rgba(232,185,60,.07)" },
+  sonic: { position: "absolute", left: 12, right: 12, bottom: 12, zIndex: 5, display: "flex", gap: 10, alignItems: "center", justifyContent: "center", flexWrap: "wrap", backgroundColor: "rgba(8,6,2,.6)", backgroundImage: `url(${TILE})`, backgroundSize: "256px", border: "1px solid rgba(232,185,60,.18)", borderRadius: 12, padding: "8px 14px" },
+  sonicLabel: { fontSize: 12, fontWeight: 700, letterSpacing: 2, color: "#e8b93c", textTransform: "uppercase" },
   sonicNote: { fontSize: 11, opacity: 0.55 },
   row: { display: "flex", alignItems: "center", gap: 8, fontSize: 13 },
   range: { width: 90, accentColor: "#00f2ff" },
   select: { background: "#0a0f1e", color: "#fff", border: "1px solid rgba(255,255,255,.25)", borderRadius: 6, padding: "6px 8px", fontSize: 13 },
   color: { width: 40, height: 30, border: "1px solid rgba(255,255,255,.3)", borderRadius: 6, background: "none", padding: 2, cursor: "pointer" },
-  btn: { background: "rgba(255,255,255,.08)", color: "#fff", border: "1px solid rgba(255,255,255,.25)", borderRadius: 8, padding: "8px 12px", fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" },
+  btn: { background: "rgba(255,255,255,.06)", color: "#f3d98b", border: "1px solid rgba(232,185,60,.35)", borderRadius: 8, padding: "8px 12px", fontSize: 13, cursor: "pointer", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 7 },
 };
