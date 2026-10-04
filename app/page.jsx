@@ -23,6 +23,16 @@ import { getUserPosition, FALLBACK_POSITION } from '@/lib/geo';
 import { fx, unlockFx } from '@/lib/fx';
 import { shadowRealmUrl } from '@/app/shadow-realm/launch';
 import { useTilt } from '@/lib/use-tilt';
+// Hub tutorial (Merlin 2026-10-03): 30-day standard rollout, then new
+// registrations only. Rollout rule lives in lib/hub-tutorial.js.
+import HubTutorial from '@/components/HubTutorial';
+import {
+  shouldShowHubTutorial,
+  isHubTutorialSeen,
+  markHubTutorialSeen,
+  stashHubRegisteredAt,
+  resolveHubRegisteredAt,
+} from '@/lib/hub-tutorial';
 
 // The 3D hub scene (three.js + god panels) is code-split: it loads only on
 // the client, after the page shell, so the heavy 3D stack never blocks the
@@ -73,6 +83,19 @@ function NexusHub() {
       }
     }
   }, [user, cloudOffline]);
+
+  // Hub tutorial (Merlin 2026-10-03): standard for 30 days from 2026-10-03,
+  // then new registrations only (see lib/hub-tutorial.js). Shows once per
+  // browser; Skip counts as seen. Waits out the entrance cinematic.
+  const [showHubTutorial, setShowHubTutorial] = useState(false);
+  useEffect(() => {
+    if (!(user || cloudOffline)) return;
+    if (showIntro) return;
+    if (isHubTutorialSeen()) return;
+    if (shouldShowHubTutorial({ seen: false, now: new Date(), registeredAt: resolveHubRegisteredAt() })) {
+      setShowHubTutorial(true);
+    }
+  }, [user, cloudOffline, showIntro]);
   
   const targetRouteRef = useRef('');
   const adWindowRef = useRef(null);
@@ -158,6 +181,7 @@ function NexusHub() {
           const callsign = session.user.user_metadata?.username || session.user.user_metadata?.callsign || localStorage.getItem('nexus_user') || session.user.email?.split('@')[0].toUpperCase();
           localStorage.setItem('nexus_user', callsign);
           setUser(callsign);
+          stashHubRegisteredAt(session.user.created_at);
         } else {
           const cached = localStorage.getItem('nexus_user');
           if (cached) setUser(cached);
@@ -169,6 +193,7 @@ function NexusHub() {
           const callsign = session.user.user_metadata?.username || session.user.user_metadata?.callsign || session.user.email?.split('@')[0].toUpperCase();
           localStorage.setItem('nexus_user', callsign);
           setUser(callsign);
+          stashHubRegisteredAt(session.user.created_at);
         } else {
           localStorage.removeItem('nexus_user');
           setUser(null);
@@ -414,6 +439,11 @@ function NexusHub() {
       {(user || cloudOffline) && showIntro && (
         <EntranceSequence onDone={() => setShowIntro(false)} />
       )}
+      {/* Hub tutorial (Merlin 2026-10-03): 30-day standard rollout, then new
+          registrations only. Skip dismisses permanently, same as completing. */}
+      {(user || cloudOffline) && showHubTutorial && !showIntro && (
+        <HubTutorial onDone={() => { markHubTutorialSeen(); setShowHubTutorial(false); }} />
+      )}
       {(user || cloudOffline) && !showIntro && (appState === 'hub_intro' || appState === 'hub_freeroam') && (
         <div className="absolute top-5 left-5 z-50 flex flex-col gap-3 ui-element pointer-events-auto">
           <button
@@ -432,6 +462,15 @@ function NexusHub() {
             className="w-12 h-12 rounded-full flex items-center justify-center text-xl text-teal-300/80 border-2 border-teal-500/30 bg-zinc-950/80 backdrop-blur-md hover:text-teal-100 hover:border-teal-400/60 hover:scale-105 active:scale-95 transition-all"
           >
             <span aria-hidden="true">◈</span>
+          </button>
+          {/* Hub tutorial replay — same overlay as the first-visit orientation. */}
+          <button
+            onClick={() => { fx.tap(); setShowHubTutorial(true); }}
+            aria-label="Replay the hub tutorial"
+            title="Tutorial"
+            className="w-12 h-12 rounded-full flex items-center justify-center text-xl text-zinc-400 border-2 border-zinc-800 bg-zinc-950/80 backdrop-blur-md hover:text-white hover:border-zinc-500 hover:scale-105 active:scale-95 transition-all"
+          >
+            <span aria-hidden="true">?</span>
           </button>
         </div>
       )}
