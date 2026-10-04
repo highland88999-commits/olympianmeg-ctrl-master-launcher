@@ -4,7 +4,6 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { submenuArtFor } from '@/lib/god-menus';
 import {
   STORAGE_KEY, EXPENSE_CATEGORIES, INCOME_CATEGORIES, CATEGORY_COLORS, CURRENCIES,
   blankData, demoData, loadData, saveData, clearData, newId,
@@ -12,24 +11,45 @@ import {
   netForMonth, budgetStatus, goalProgress, formatMoney, validateEntry, validateGoal,
 } from './finance';
 import { DonutChart, MonthBars } from './Charts';
+import { StillBackdrop } from '@/components/ambience/AmbienceBackdrop';
 
+// Inline SVG glyph system (zero image weight) — PLUTUS batch.
+const PATHS = {
+  overview: 'M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z',
+  budget:
+    'M21 7H5a1 1 0 0 1 0-2h16V3H5a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3h16a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1zm-4 7a1.5 1.5 0 1 1 3 0 1.5 1.5 0 0 1-3 0z',
+  goals: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm0-6a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 16a6 6 0 1 1 0-12 6 6 0 0 1 0 12z',
+  data: 'M12 3C7.58 3 4 4.79 4 7c0 2.21 3.58 4 8 4s8-1.79 8-4c0-2.21-3.58-4-8-4zm0 16c-4.42 0-8-1.79-8-4v3c0 2.21 3.58 4 8 4s8-1.79 8-4v-3c0 2.21-3.58 4-8 4zm0-8c-4.42 0-8-1.79-8-4 0-.34.09-.67.26-.98C5.4 6.79 8.42 8 12 8s6.6-1.21 7.74-1.98c.17.31.26.64.26.98 0 2.21-3.58 4-8 4z',
+  plus: 'M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z',
+  flag: 'M14.4 6 14 4H5v17h2v-7h5.6l.4 2h7V6z',
+  coins:
+    'M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z',
+  download: 'M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z',
+  upload: 'M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z',
+  trash: 'M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z',
+};
 
-// Menu Art Transfer batch 2 — submenu art. Background image + dark legibility
-// scrim; a missing image hides itself via onError so the chip falls back to
-// its plain style. Never breaks the UI.
-function SubmenuArt({ slot }) {
+function Glyph({ d, className }) {
   return (
-    <>
-      <img
-        src={submenuArtFor(slot)}
-        alt=""
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-        loading="lazy"
-        onError={(e) => { e.currentTarget.style.display = 'none'; }}
-      />
-      <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-black/55" />
-    </>
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={className || 'w-4 h-4 shrink-0'}>
+      <path d={d} />
+    </svg>
+  );
+}
+
+// Shared obsidian panel texture under a near-black wash.
+const cardTile = {
+  backgroundImage:
+    'linear-gradient(rgba(9,9,11,0.88), rgba(9,9,11,0.88)), url(/images/plutus-shared/panel-tile.webp)',
+  backgroundSize: 'auto, 200px',
+};
+
+function Empty({ icon, children }) {
+  return (
+    <div className="rounded-xl border border-dashed border-zinc-700/80 p-6 text-center" style={cardTile}>
+      <Glyph d={icon} className="w-6 h-6 mx-auto text-emerald-500/50" />
+      <p className="text-zinc-500 text-sm mt-2">{children}</p>
+    </div>
   );
 }
 
@@ -37,7 +57,7 @@ const TABS = ['Overview', 'Budget', 'Goals', 'Data'];
 
 function Card({ title, children, right }) {
   return (
-    <section className="bg-zinc-950/80 border border-zinc-800 rounded-xl p-5">
+    <section className="border border-zinc-800 rounded-xl p-5" style={cardTile}>
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-sm font-black uppercase tracking-widest text-zinc-300">{title}</h2>
         {right}
@@ -48,8 +68,10 @@ function Card({ title, children, right }) {
 }
 
 const inputCls = 'w-full bg-black/60 border border-zinc-700 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500';
-const btnCls = 'px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-500 text-black text-sm font-bold transition-colors';
-const ghostCls = 'px-4 py-2 rounded border border-zinc-700 hover:border-zinc-500 text-zinc-300 text-sm transition-colors';
+const btnCls = 'px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-500 text-black text-sm font-bold transition-colors inline-flex items-center justify-center gap-2';
+const ghostCls = 'px-4 py-2 rounded border border-zinc-700 hover:border-zinc-500 text-zinc-300 text-sm transition-colors inline-flex items-center justify-center gap-2';
+
+const TAB_ICONS = { Overview: 'overview', Budget: 'budget', Goals: 'goals', Data: 'data' };
 
 export default function PlutusPage() {
   const [data, setData] = useState(blankData);
@@ -140,10 +162,18 @@ export default function PlutusPage() {
     reader.readAsText(file);
   };
 
-  if (!loaded) return <main className="min-h-dvh bg-black text-white flex items-center justify-center"><p className="text-zinc-500 text-sm">Loading Plutus…</p></main>;
+  if (!loaded) return (
+    <main className="min-h-dvh bg-black text-white flex items-center justify-center">
+      <div className="text-center" role="status" aria-label="Loading Plutus">
+        <div className="mx-auto w-10 h-10 rounded-full border-2 border-emerald-500/25 border-t-emerald-400 animate-spin" />
+        <p className="text-zinc-500 text-xs mt-4 tracking-[0.25em] uppercase">Opening Plutus…</p>
+      </div>
+    </main>
+  );
 
   return (
     <main className="min-h-dvh w-full bg-black text-white">
+      <StillBackdrop src="/images/plutus/bg.webp" opacity={0.32} scrim="from-black/75 via-black/60 to-black/90" />
       {/* subtle emerald starfield backdrop */}
       <div className="fixed inset-0 pointer-events-none" aria-hidden
         style={{ background: 'radial-gradient(ellipse 80% 50% at 50% -10%, rgba(80,255,176,0.07), transparent)' }} />
@@ -159,15 +189,21 @@ export default function PlutusPage() {
             <span aria-hidden>🔒</span>
             Your data never leaves this device — no accounts, no bank connections, no tracking.
           </div>
+          <img
+            src="/images/plutus/header.webp"
+            alt=""
+            aria-hidden="true"
+            className="mt-6 h-32 sm:h-40 w-full object-cover rounded-2xl border border-emerald-500/25 shadow-[0_0_50px_rgba(16,185,129,0.15)]"
+          />
         </header>
 
         {/* tabs */}
         <nav className="flex justify-center gap-2 mb-8 flex-wrap" aria-label="Plutus sections">
           {TABS.map((t) => (
             <button key={t} onClick={() => setTab(t)}
-              className={`relative min-h-[44px] inline-flex items-center justify-center overflow-hidden px-5 py-2 rounded-full text-sm font-bold uppercase tracking-wider transition-colors ${tab === t ? 'bg-emerald-600 text-black' : 'border border-zinc-700 text-zinc-400 hover:border-emerald-500 hover:text-white'}`}>
-              {tab !== t && <SubmenuArt slot={`submenu-prog-plutus-tab-${t.toLowerCase()}`} />}
-              <span className="relative">{t}</span>
+              className={`px-5 py-2 rounded-full text-sm font-bold uppercase tracking-wider transition-colors inline-flex items-center gap-2 ${tab === t ? 'bg-emerald-600 text-black' : 'border border-zinc-700 text-zinc-400 hover:border-emerald-500 hover:text-white'}`}>
+              <Glyph d={PATHS[TAB_ICONS[t]]} />
+              {t}
             </button>
           ))}
         </nav>
@@ -197,7 +233,7 @@ export default function PlutusPage() {
               <DonutChart data={catSpend} currency={cur} />
             </Card>
             <Card title="Savings goals at a glance">
-              {data.goals.length === 0 && <p className="text-zinc-500 text-sm">No goals yet — add one in the Goals tab.</p>}
+              {data.goals.length === 0 && <Empty icon={PATHS.goals}>No goals yet — add one in the Goals tab.</Empty>}
               <div className="space-y-3">
                 {data.goals.map((g) => {
                   const p = goalProgress(g);
@@ -216,7 +252,7 @@ export default function PlutusPage() {
               </div>
             </Card>
             <Card title="Recent activity">
-              {data.entries.length === 0 && <p className="text-zinc-500 text-sm">Nothing recorded yet — add your first entry in the Budget tab.</p>}
+              {data.entries.length === 0 && <Empty icon={PATHS.budget}>Nothing recorded yet — add your first entry in the Budget tab.</Empty>}
               <ul className="space-y-2 max-h-64 overflow-y-auto">
                 {data.entries.slice(0, 12).map((e) => (
                   <li key={e.id} className="flex items-center gap-3 text-sm">
@@ -259,7 +295,7 @@ export default function PlutusPage() {
                 <input className={inputCls + ' mb-3'} type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
                 <label className="block text-xs text-zinc-500 uppercase mb-1">Note (optional)</label>
                 <input className={inputCls + ' mb-4'} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="What was this?" maxLength={140} />
-                <button className={btnCls + ' w-full'} onClick={addEntry}>Add entry</button>
+                <button className={btnCls + ' w-full'} onClick={addEntry}><Glyph d={PATHS.plus} />Add entry</button>
               </Card>
               <div className="mt-5">
                 <Card title="Monthly budgets">
@@ -278,7 +314,7 @@ export default function PlutusPage() {
             </div>
             <div className="lg:col-span-3 space-y-5">
               <Card title={`Budget progress — ${mKey}`}>
-                {Object.keys(budgets).length === 0 && <p className="text-zinc-500 text-sm">Set a monthly limit on the left to track it here.</p>}
+                {Object.keys(budgets).length === 0 && <Empty icon={PATHS.budget}>Set a monthly limit on the left to track it here.</Empty>}
                 <div className="space-y-3">
                   {Object.entries(budgets).map(([cat, b]) => (
                     <div key={cat}>
@@ -295,7 +331,7 @@ export default function PlutusPage() {
                 </div>
               </Card>
               <Card title="All entries">
-                {data.entries.length === 0 && <p className="text-zinc-500 text-sm">No entries yet.</p>}
+                {data.entries.length === 0 && <Empty icon={PATHS.data}>No entries yet.</Empty>}
                 <ul className="space-y-2 max-h-96 overflow-y-auto">
                   {data.entries.map((e) => (
                     <li key={e.id} className="flex items-center gap-3 text-sm bg-black/40 border border-zinc-800 rounded px-3 py-2">
@@ -326,11 +362,11 @@ export default function PlutusPage() {
               <input className={inputCls + ' mb-3'} value={gForm.name} onChange={(e) => setGForm({ ...gForm, name: e.target.value })} placeholder="Emergency fund" maxLength={60} />
               <label className="block text-xs text-zinc-500 uppercase mb-1">Target amount</label>
               <input className={inputCls + ' mb-4'} type="number" min="0" step="0.01" value={gForm.target} onChange={(e) => setGForm({ ...gForm, target: e.target.value })} placeholder="10000" inputMode="decimal" />
-              <button className={btnCls + ' w-full'} onClick={addGoal}>Create goal</button>
+              <button className={btnCls + ' w-full'} onClick={addGoal}><Glyph d={PATHS.flag} />Create goal</button>
             </Card>
             <div className="lg:col-span-2 grid gap-5 sm:grid-cols-2">
               {data.goals.length === 0 && (
-                <p className="text-zinc-500 text-sm sm:col-span-2">No goals yet — create your first one.</p>
+                <div className="sm:col-span-2"><Empty icon={PATHS.goals}>No goals yet — create your first one.</Empty></div>
               )}
               {data.goals.map((g) => {
                 const p = goalProgress(g);
@@ -346,7 +382,7 @@ export default function PlutusPage() {
                     <div className="flex gap-2">
                       <input className={inputCls + ' !py-1.5'} type="number" min="0" step="0.01" placeholder="Add funds"
                         value={fundAmt[g.id] || ''} onChange={(e) => setFundAmt({ ...fundAmt, [g.id]: e.target.value })} aria-label={`Add funds to ${g.name}`} />
-                      <button className={ghostCls} onClick={() => fundGoal(g.id)}>Add</button>
+                      <button className={ghostCls} onClick={() => fundGoal(g.id)}><Glyph d={PATHS.coins} />Add</button>
                     </div>
                   </Card>
                 );
@@ -369,15 +405,17 @@ export default function PlutusPage() {
             </Card>
             <Card title="Backup & reset">
               <div className="flex flex-wrap gap-3 mb-4">
-                <button className={ghostCls} onClick={exportJson}>Export backup (JSON)</button>
+                <button className={ghostCls} onClick={exportJson}><Glyph d={PATHS.download} />Export backup (JSON)</button>
                 <label className={ghostCls + ' cursor-pointer'}>
+                  <Glyph d={PATHS.upload} />
                   Import backup
                   <input type="file" accept="application/json" className="hidden" onChange={(e) => e.target.files[0] && importJson(e.target.files[0])} />
                 </label>
               </div>
               <div className="flex flex-wrap gap-3">
                 {!data.demo && <button className={ghostCls} onClick={seedDemo}>Load demo data</button>}
-                <button className="px-4 py-2 rounded border border-rose-700 text-rose-400 hover:bg-rose-950 text-sm transition-colors" onClick={wipeAll}>
+                <button className="px-4 py-2 rounded border border-rose-700 text-rose-400 hover:bg-rose-950 text-sm transition-colors inline-flex items-center justify-center gap-2" onClick={wipeAll}>
+                  <Glyph d={PATHS.trash} />
                   Wipe all data
                 </button>
               </div>
@@ -389,4 +427,3 @@ export default function PlutusPage() {
     </main>
   );
 }
-

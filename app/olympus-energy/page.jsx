@@ -2,6 +2,38 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { simulateDay, fmtHour } from "./engine.js";
+import AmbienceBackdrop, { useAmbience, bgModeLabel } from "@/components/ambience/AmbienceBackdrop";
+
+// Inline SVG glyph system (zero image weight) — PLUTUS batch.
+const PATHS = {
+  sun: "M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.79 1.42-1.41zM4 10.5H1v2h3v-2zm9-9.95h-2V3.5h2V.55zm7.45 3.91l-1.41-1.41-1.79 1.79 1.41 1.41 1.79-1.79zm-3.21 13.7l1.79 1.8 1.41-1.41-1.8-1.79-1.4 1.4zM20 10.5v2h3v-2h-3zm-8-5c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6-2.69-6-6-6zm-1 16.95h2V19.5h-2v2.95zm-7.45-3.91l1.41 1.41 1.79-1.8-1.41-1.41-1.79 1.8z",
+  plug: "M13 3h-2v10h2V3zm4.83 2.17l-1.42 1.42C17.99 7.86 19 9.81 19 12c0 3.87-3.13 7-7 7s-7-3.13-7-7c0-2.19 1.01-4.14 2.58-5.42L6.17 5.17C4.23 6.82 3 9.26 3 12c0 4.97 4.03 9 9 9s9-4.03 9-9c0-2.74-1.23-5.18-3.17-6.83z",
+  leaf: "M20 4C10.5 4 4.5 10 4.5 19.5 14 19.5 20 13.5 20 4zM7.5 16.5c.8-4.2 3.3-7.5 7.5-9-1 4.2-3.3 7.5-7.5 9z",
+  spark: "M12 2l2.4 7.6L22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4L12 2z",
+};
+
+function Glyph({ d, size = 22, color }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill={color || "currentColor"} aria-hidden="true" style={{ flexShrink: 0 }}>
+      <path d={d} />
+    </svg>
+  );
+}
+
+function WindGlyph({ size = 22, color }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={color || "currentColor"} strokeWidth={2} strokeLinecap="round" aria-hidden="true" style={{ flexShrink: 0 }}>
+      <path d="M3 8h8.5a2.5 2.5 0 1 0-2.4-3.2M3 12h13.5a2.5 2.5 0 1 1-2.4 3.2M3 16h6a2 2 0 1 1-1.9 2.6" />
+    </svg>
+  );
+}
+
+// Shared obsidian HUD texture under a dark steel wash.
+const hudTile = {
+  backgroundImage:
+    "linear-gradient(rgba(6,12,22,0.9), rgba(6,12,22,0.9)), url(/images/plutus-shared/panel-tile.webp)",
+  backgroundSize: "auto, 200px",
+};
 
 /**
  * Olympus Energy — simulated microgrid console.
@@ -16,6 +48,9 @@ export default function OlympusEnergyPage() {
   const [demandKW, setDemandKW] = useState(18);
   const [batteryKWh, setBatteryKWh] = useState(40);
   const [scrub, setScrub] = useState(12);
+  const [ready, setReady] = useState(false); // first chart frame painted
+  const paintedRef = useRef(false);
+  const [bgMode, cycleBg] = useAmbience("olympus-energy-bg");
 
   const sim = useMemo(
     () => simulateDay({ solarKW, turbines, turbineKW: 5, windSpeed, cloud, demandKW, batteryKWh, seed: 42 }),
@@ -30,13 +65,16 @@ export default function OlympusEnergyPage() {
     if (!ctx) return;
 
     function draw() {
+      if (!paintedRef.current) { paintedRef.current = true; setReady(true); }
       const r = canvas.getBoundingClientRect();
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       canvas.width = Math.max(1, Math.floor(r.width * dpr));
       canvas.height = Math.max(1, Math.floor(r.height * dpr));
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       const w = r.width, h = r.height;
-      ctx.fillStyle = "#04070c";
+      // Transparent bed: the energy art behind the canvas glows through.
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = "rgba(4,7,12,0.82)";
       ctx.fillRect(0, 0, w, h);
 
       const pad = { l: 44, r: 12, t: 14, b: 26 };
@@ -107,35 +145,65 @@ export default function OlympusEnergyPage() {
   );
 
   const card = {
-    background: "rgba(6,12,22,0.9)", border: "1px solid rgba(142,243,255,0.2)",
+    ...hudTile,
+    backgroundColor: "rgba(6,12,22,0.9)", border: "1px solid rgba(142,243,255,0.2)",
     borderRadius: 10, padding: 12, fontSize: 12, color: "#9db8d6",
   };
-  const kpi = (label, value, color) => (
+  const kpi = (label, value, color, icon) => (
     <div style={card}>
-      <div style={{ fontSize: 11, letterSpacing: 1.5, color: "#5f7fa6", textTransform: "uppercase" }}>{label}</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, letterSpacing: 1.5, color: "#5f7fa6", textTransform: "uppercase" }}>
+        {icon === "wind" ? <WindGlyph size={20} color={color} /> : <Glyph d={PATHS[icon]} size={20} color={color} />}
+        {label}
+      </div>
       <div style={{ fontSize: 22, color, marginTop: 4 }}>{value}</div>
     </div>
   );
 
   return (
-    <div style={{ minHeight: "100dvh", background: "#04070c", color: "#cfeaff", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", padding: 16, paddingBottom: 48 }}>
-      <div style={{ maxWidth: 860, margin: "0 auto" }}>
+    <div style={{ position: "relative", minHeight: "100dvh", background: "#04070c", color: "#cfeaff", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", padding: 16, paddingBottom: 48 }}>
+      <AmbienceBackdrop basePath="/images/olympus-energy" bgMode={bgMode} />
+      <div style={{ position: "relative", maxWidth: 860, margin: "0 auto" }}>
         <h1 style={{ fontSize: 20, letterSpacing: 3, textAlign: "center", color: "#8ef3ff", margin: "8px 0 2px" }}>OLYMPUS ENERGY</h1>
         <p style={{ textAlign: "center", color: "#5f7fa6", fontSize: 12, marginTop: 0 }}>simulated microgrid console · deterministic · all local</p>
-
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, marginBottom: 12 }}>
-          {kpi("Generated / day", `${T.generated.toFixed(1)} kWh`, "#ffd34d")}
-          {kpi("Grid import", `${T.gridImport.toFixed(1)} kWh`, "#ff7a7a")}
-          {kpi("Self-sufficient", `${Math.round(T.selfSufficiency * 100)}%`, "#8ef3ff")}
-          {kpi("Curtailed", `${T.curtailed.toFixed(1)} kWh`, "#c99aff")}
+        <div style={{ display: "flex", justifyContent: "center", margin: "8px 0 12px" }}>
+          <button
+            type="button"
+            onClick={cycleBg}
+            aria-label={`Ambient background is ${bgMode}. Activate to change.`}
+            title="Ambient background: video, still, or off"
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 7,
+              minHeight: 40, padding: "0 16px", borderRadius: 999,
+              border: "1px solid rgba(142,243,255,0.4)", color: "#8ef3ff",
+              background: "rgba(142,243,255,0.06)", fontSize: 11, fontWeight: 700,
+              letterSpacing: 2, textTransform: "uppercase", cursor: "pointer", fontFamily: "inherit",
+            }}
+          >
+            <Glyph d={PATHS.spark} size={15} />
+            Ambience: {bgModeLabel(bgMode)}
+          </button>
         </div>
 
-        <div style={{ ...card, marginBottom: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, marginBottom: 12 }}>
+          {kpi("Generated / day", `${T.generated.toFixed(1)} kWh`, "#ffd34d", "sun")}
+          {kpi("Grid import", `${T.gridImport.toFixed(1)} kWh`, "#ff7a7a", "plug")}
+          {kpi("Self-sufficient", `${Math.round(T.selfSufficiency * 100)}%`, "#8ef3ff", "leaf")}
+          {kpi("Curtailed", `${T.curtailed.toFixed(1)} kWh`, "#c99aff", "wind")}
+        </div>
+
+        <div style={{ ...card, marginBottom: 12, position: "relative" }}>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 6 }}>
             <span style={{ color: "#5f7fa6" }}>24H GENERATION VS DEMAND</span>
             <span><span style={{ color: "#ffd34d" }}>— gen</span> <span style={{ color: "#ffb066" }}>— solar</span> <span style={{ color: "#8ef3ff" }}>— wind</span> <span style={{ color: "#ff7a7a" }}>- - demand</span></span>
           </div>
-          <canvas ref={chartRef} style={{ width: "100%", height: 240, display: "block" }} />
+          <div style={{ position: "relative" }}>
+            <canvas ref={chartRef} style={{ width: "100%", height: 240, display: "block", background: "#04070c url(/images/olympus-energy/bg.webp) center/cover" }} />
+            {!ready && (
+              <div role="status" aria-label="Loading chart" style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(4,7,12,0.85)" }}>
+                <div style={{ color: "#5f7fa6", fontSize: 11, letterSpacing: 3 }} className="animate-pulse">CHARTING THE GRID…</div>
+              </div>
+            )}
+          </div>
           <div style={{ marginTop: 8 }}>
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#5f7fa6" }}>
               <span>TIME SCRUB</span><span style={{ color: "#cfeaff" }}>{fmtHour(scrub)}</span>

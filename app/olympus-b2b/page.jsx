@@ -7,6 +7,31 @@ import { createParticles, stepParticles, particleCountForWidth } from './particl
 
 const SERVICE_OPTIONS = ['Web Builds', '3D Experiences', 'Automation & Tooling', 'Commerce & Checkout', 'Security Hardening', 'Technical Consulting', 'Something Else'];
 
+// Inline SVG glyph system (zero image weight) — PLUTUS batch.
+const PATHS = {
+  mail: 'M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z',
+  send: 'M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z',
+  copy: 'M16 1H4a2 2 0 0 0-2 2v14h2V3h12V1zm3 4H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H8V7h11v14z',
+  check: 'M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z',
+  chevronDown: 'M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z',
+  chevronRight: 'M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z',
+};
+
+function Glyph({ d, className }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={className || 'w-4 h-4 shrink-0'}>
+      <path d={d} />
+    </svg>
+  );
+}
+
+// Shared obsidian panel texture under a dark teal wash.
+const cardTile = {
+  backgroundImage:
+    'linear-gradient(rgba(4,10,13,0.9), rgba(4,10,13,0.9)), url(/images/plutus-shared/panel-tile.webp)',
+  backgroundSize: 'auto, 200px',
+};
+
 function Seal() {
   return (
     <svg viewBox="0 0 100 100" fill="none" aria-hidden="true" className="w-16 h-16 md:w-24 md:h-24 mb-5">
@@ -23,6 +48,8 @@ export default function OlympusB2BPage() {
   const [formErrors, setFormErrors] = useState([]);
   const [inquiry, setInquiry] = useState('');
   const [copied, setCopied] = useState(false);
+  const [ready, setReady] = useState(false); // first canvas frame painted
+  const paintedRef = useRef(false);
 
   // Particle background.
   useEffect(() => {
@@ -48,8 +75,9 @@ export default function OlympusB2BPage() {
     const tm = (e) => { if (e.touches[0]) onMove(e.touches[0].clientX, e.touches[0].clientY); };
 
     const draw = () => {
-      ctx.fillStyle = '#050507';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      if (!paintedRef.current) { paintedRef.current = true; setReady(true); }
+      // Transparent bed: the B2B art behind the canvas glows through.
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
       for (const p of pts) {
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
@@ -110,7 +138,22 @@ export default function OlympusB2BPage() {
 
   return (
     <main className="relative min-h-dvh bg-[#050507] text-white overflow-x-hidden">
-      <canvas ref={canvasRef} aria-hidden="true" className="fixed inset-0 -z-10" />
+      <canvas
+        ref={canvasRef}
+        aria-hidden="true"
+        className="fixed inset-0 -z-10"
+        style={{ background: '#050507 url(/images/olympus-b2b/bg.webp) center/cover' }}
+      />
+      {!ready && (
+        <div
+          role="status"
+          aria-label="Loading background"
+          className="fixed inset-0 z-0 flex items-center justify-center pointer-events-none"
+          style={{ background: '#050507 url(/images/olympus-b2b/bg.webp) center/cover' }}
+        >
+          <div className="text-cyan-300/80 text-xs font-bold tracking-[0.35em] uppercase">Scoping the foundry…</div>
+        </div>
+      )}
 
       <div className="relative z-10 w-[90%] max-w-5xl mx-auto py-12 md:py-20">
         {/* Header */}
@@ -132,7 +175,7 @@ export default function OlympusB2BPage() {
           <h2 className="text-center text-xl md:text-2xl font-black tracking-[0.25em] uppercase text-cyan-300 mb-8">What I build</h2>
           <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
             {SERVICES.map((s) => (
-              <article key={s.id} className="bg-black/60 border border-cyan-500/20 rounded-2xl p-6 backdrop-blur-sm">
+              <article key={s.id} className="border border-cyan-500/20 rounded-2xl p-6 backdrop-blur-sm" style={cardTile}>
                 <p className="font-mono text-xs text-fuchsia-400 mb-2">{s.label.toUpperCase()}</p>
                 <h3 className="text-lg font-bold mb-2">{s.title}</h3>
                 <p className="text-zinc-400 text-sm leading-relaxed">{s.body}</p>
@@ -163,14 +206,14 @@ export default function OlympusB2BPage() {
             {FAQS.map((f, i) => {
               const open = openFaq === i;
               return (
-                <div key={i} className="bg-black/60 border border-zinc-800 rounded-xl overflow-hidden">
+                <div key={i} className="border border-zinc-800 rounded-xl overflow-hidden" style={cardTile}>
                   <button
                     onClick={() => setOpenFaq(open ? -1 : i)}
                     aria-expanded={open}
                     className="w-full text-left px-5 py-4 flex items-center justify-between gap-4 min-h-[56px]"
                   >
                     <span className="font-bold">{f.q}</span>
-                    <span aria-hidden="true" className="text-cyan-300 text-xl shrink-0">{open ? '−' : '+'}</span>
+                    <Glyph d={open ? PATHS.chevronDown : PATHS.chevronRight} className="w-5 h-5 shrink-0 text-cyan-300" />
                   </button>
                   {open && <p className="px-5 pb-5 text-zinc-400 text-sm leading-relaxed">{f.a}</p>}
                 </div>
@@ -185,7 +228,7 @@ export default function OlympusB2BPage() {
           <p className="text-center text-zinc-500 text-sm mb-8">
             This form composes your inquiry on your device. Nothing is sent anywhere until you decide to send it.
           </p>
-          <form onSubmit={compose} className="bg-black/60 border border-fuchsia-500/20 rounded-2xl p-6 md:p-8 space-y-4">
+          <form onSubmit={compose} className="border border-fuchsia-500/20 rounded-2xl p-6 md:p-8 space-y-4" style={cardTile}>
             <div className="grid gap-4 md:grid-cols-2">
               <div>
                 <label htmlFor="b2b-name" className="block text-xs font-bold tracking-widest text-zinc-400 mb-2">YOUR NAME / COMPANY</label>
@@ -212,7 +255,8 @@ export default function OlympusB2BPage() {
             {formErrors.length > 0 && (
               <p role="alert" className="text-red-400 text-sm">Please fill in every field before composing your inquiry.</p>
             )}
-            <button type="submit" className="w-full bg-gradient-to-r from-cyan-400 to-fuchsia-500 text-black font-black tracking-widest uppercase py-4 rounded-lg hover:brightness-110 transition min-h-[56px]">
+            <button type="submit" className="w-full bg-gradient-to-r from-cyan-400 to-fuchsia-500 text-black font-black tracking-widest uppercase py-4 rounded-lg hover:brightness-110 transition min-h-[56px] inline-flex items-center justify-center gap-2.5">
+              <Glyph d={PATHS.mail} className="w-5 h-5 shrink-0" />
               Compose my inquiry
             </button>
           </form>
@@ -222,8 +266,9 @@ export default function OlympusB2BPage() {
               <h3 className="font-bold mb-2">Your inquiry — ready when you are</h3>
               <p className="text-zinc-500 text-sm mb-4">Copy it and send it however you like. Nothing has been transmitted.</p>
               <pre className="whitespace-pre-wrap font-mono text-xs md:text-sm text-zinc-300 bg-black border border-zinc-800 rounded-lg p-4 max-h-72 overflow-y-auto">{inquiry}</pre>
-              <button onClick={copyInquiry} className="mt-4 w-full md:w-auto px-8 py-3 border border-cyan-400 text-cyan-300 font-bold tracking-widest uppercase rounded-lg hover:bg-cyan-400 hover:text-black transition min-h-[52px]">
-                {copied ? 'Copied ✓' : 'Copy to clipboard'}
+              <button onClick={copyInquiry} className="mt-4 w-full md:w-auto px-8 py-3 border border-cyan-400 text-cyan-300 font-bold tracking-widest uppercase rounded-lg hover:bg-cyan-400 hover:text-black transition min-h-[52px] inline-flex items-center justify-center gap-2">
+                <Glyph d={copied ? PATHS.check : PATHS.copy} />
+                {copied ? 'Copied' : 'Copy to clipboard'}
               </button>
             </div>
           )}

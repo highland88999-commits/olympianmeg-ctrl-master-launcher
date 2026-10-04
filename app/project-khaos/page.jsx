@@ -87,6 +87,8 @@ export default function ProjectKhaos() {
   const [tierId, setTierId] = useState("bronze");
   const [showCompare, setShowCompare] = useState(false);
   const [showAuction, setShowAuction] = useState(false);
+  const [ready, setReady] = useState(false); // first sim frame painted
+  const paintedRef = useRef(false);
   const [lots, setLots] = useState(() => createLots("bronze", 7));
   const [flash, setFlash] = useState(null);
   const reducedRef = useRef(false);
@@ -294,6 +296,7 @@ export default function ProjectKhaos() {
 
     const frame = (now) => {
       raf = requestAnimationFrame(frame);
+      if (!paintedRef.current) { paintedRef.current = true; setReady(true); }
       let dt = (now - last) / 1000;
       last = now;
       if (dt > 0.1) dt = 0.1;
@@ -415,6 +418,26 @@ export default function ProjectKhaos() {
       <div ref={wrapRef} style={{ position: "absolute", inset: 0 }}>
         <canvas ref={canvasRef} style={{ display: "block" }} />
       </div>
+      {!ready && (
+        <div
+          role="status"
+          aria-label="Loading simulation"
+          style={{
+            position: "absolute",
+            inset: 0,
+            zIndex: 4,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "#000",
+            pointerEvents: "none",
+          }}
+        >
+          <div style={{ color: "#8f9bb3", fontSize: 12, letterSpacing: 5 }}>
+            ENTERING THE SANCTUM…
+          </div>
+        </div>
+      )}
 
       {/* tier nav */}
       <div
@@ -453,8 +476,12 @@ export default function ProjectKhaos() {
                 color: tr.color,
                 boxShadow: tr.id === tierId ? `0 0 14px ${tr.color}66` : "none",
                 fontWeight: tr.id === tierId ? "bold" : "normal",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
               }}
             >
+              <Glyph d={PATHS[TIER_SIGILS[tr.id]]} size={14} />
               {tr.name}
             </button>
           ))}
@@ -479,7 +506,8 @@ export default function ProjectKhaos() {
             pointerEvents: "auto",
             width: "100%",
             maxWidth: 560,
-            background: "rgba(4,4,8,0.82)",
+            ...hudTile,
+            backgroundColor: "rgba(4,4,8,0.82)",
             border: `1px solid ${tier.color}`,
             borderRadius: 12,
             padding: "18px 20px",
@@ -487,7 +515,8 @@ export default function ProjectKhaos() {
           }}
         >
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-            <div style={{ color: tier.color, letterSpacing: 3, fontSize: 16, fontWeight: "bold" }}>
+            <div style={{ color: tier.color, letterSpacing: 3, fontSize: 16, fontWeight: "bold", display: "flex", alignItems: "center", gap: 10 }}>
+              <Glyph d={PATHS[TIER_SIGILS[tierId]]} size={20} />
               {tier.name}
             </div>
             <div style={{ color: "#8f9bb3", fontSize: 11, letterSpacing: 2 }}>
@@ -511,15 +540,18 @@ export default function ProjectKhaos() {
               style={navBtn(tier.color)}
               disabled={tierId === TIERS[0].id}
             >
-              ← PREV
+              <Glyph d={PATHS.prev} />
+              PREV
             </button>
             <button onClick={() => setShowCompare((s) => !s)} style={navBtn(tier.color)}>
+              <Glyph d={PATHS.compare} />
               {showCompare ? "HIDE" : "COMPARE"}
             </button>
             <button
               onClick={() => setShowAuction((s) => !s)}
               style={navBtn(tier.color)}
             >
+              <Glyph d={PATHS.gavel} />
               {showAuction ? "CLOSE" : "AUCTION"}
             </button>
             <button
@@ -527,7 +559,8 @@ export default function ProjectKhaos() {
               style={navBtn(tier.color)}
               disabled={tierId === TIERS[TIERS.length - 1].id}
             >
-              NEXT →
+              <Glyph d={PATHS.next} />
+              NEXT
             </button>
           </div>
 
@@ -586,7 +619,8 @@ export default function ProjectKhaos() {
             zIndex: 8,
             maxHeight: "62vh",
             overflowY: "auto",
-            background: "rgba(4,4,8,0.94)",
+            ...hudTile,
+            backgroundColor: "rgba(4,4,8,0.94)",
             border: `1px solid ${tier.color}`,
             borderRadius: 12,
             padding: "16px 18px",
@@ -709,6 +743,50 @@ export default function ProjectKhaos() {
   );
 }
 
+// Inline SVG glyph system (zero image weight) — PLUTUS batch.
+const PATHS = {
+  flame:
+    "M13.5.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8C20 8.61 17.41 3.8 13.5.67zM11.71 19c-1.78 0-3.22-1.4-3.22-3.14 0-1.62 1.05-2.76 2.81-3.12 1.77-.36 3.6-1.21 4.62-2.58.39 1.29.59 2.65.59 4.04 0 2.65-2.15 4.8-4.8 4.8z",
+  snowflake:
+    "M22 11h-4.17l3.24-3.24-1.42-1.41L15 11H9L4.34 6.34 3.41 8l3.24 3H2v2h4.17l-3.24 3.24 1.41 1.41L9 13h6l4.66 4.66 1.41-1.41L17.83 13H22v-2z",
+  sun: "M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.79 1.42-1.41zM4 10.5H1v2h3v-2zm9-9.95h-2V3.5h2V.55zm7.45 3.91l-1.41-1.41-1.79 1.79 1.41 1.41 1.79-1.79zm-3.21 13.7l1.79 1.8 1.41-1.41-1.8-1.79-1.4 1.4zM20 10.5v2h3v-2h-3zm-8-5c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6-2.69-6-6-6zm-1 16.95h2V19.5h-2v2.95zm-7.45-3.91l1.41 1.41 1.79-1.8-1.41-1.41-1.79 1.8z",
+  gem: "M12 2 3 9l9 13 9-13-9-7zm0 3.4L18.2 9 12 19 5.8 9 12 5.4z",
+  prev: "M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z",
+  next: "M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z",
+  compare: "M9.01 14H2v2h7.01v3L13 15l-3.99-4v3zm5.98-1v-3H22V8h-7.01V5L11 9l3.99 4z",
+  gavel:
+    "M13.8 3.1l7.1 7.1-2.1 2.1-7.1-7.1 2.1-2.1zM11.7 7.2l7.1 7.1-1.4 1.4-7.1-7.1 1.4-1.4zM4.3 20.1l3.9-3.9 1.4 1.4-3.9 3.9-2.8 1.4 1.4-2.8z",
+};
+
+const TIER_SIGILS = {
+  bronze: "flame",
+  platinum: "snowflake",
+  gold: "sun",
+  diamond: "gem",
+};
+
+function Glyph({ d, size = 15 }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="currentColor"
+      aria-hidden="true"
+      style={{ flexShrink: 0 }}
+    >
+      <path d={d} />
+    </svg>
+  );
+}
+
+// Shared obsidian HUD texture under a dark veil.
+const hudTile = {
+  backgroundImage:
+    "linear-gradient(rgba(4,4,10,0.9), rgba(4,4,10,0.9)), url(/images/plutus-shared/panel-tile.webp)",
+  backgroundSize: "auto, 200px",
+};
+
 const navBtn = (color) => ({
   flex: 1,
   fontFamily: "inherit",
@@ -721,6 +799,10 @@ const navBtn = (color) => ({
   background: "transparent",
   color,
   cursor: "pointer",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 7,
 });
 
 const thStyle = {

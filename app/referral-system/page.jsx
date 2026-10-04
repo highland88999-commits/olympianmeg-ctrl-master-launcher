@@ -8,9 +8,11 @@ import {
 } from './inquiry';
 
 const CSS = `
-.rs-root { min-height: 100dvh; background: #030305; color: #fff; overflow: hidden; position: relative;
+.rs-root { min-height: 100dvh; background: #030305 url(/images/referral-system/bg.webp) center/cover; color: #fff; overflow: hidden; position: relative;
   font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
 .rs-bg { position: fixed; inset: 0; z-index: 1; pointer-events: none; }
+.rs-veil { position: fixed; inset: 0; z-index: 4; display: flex; align-items: center; justify-content: center;
+  background: #030305 url(/images/referral-system/bg.webp) center/cover; pointer-events: none; }
 .rs-scan { position: fixed; inset: 0; z-index: 2; pointer-events: none; opacity: 0.35;
   background: linear-gradient(rgba(18,16,16,0) 50%, rgba(0,0,0,0.25) 50%),
              linear-gradient(90deg, rgba(255,0,0,0.06), rgba(0,255,0,0.02), rgba(0,0,255,0.06));
@@ -19,7 +21,10 @@ const CSS = `
 .rs-track { display: flex; width: 300vw; height: 100%; transition: transform 0.6s cubic-bezier(0.25,1,0.5,1); }
 .rs-slide { width: 100vw; height: 100%; display: flex; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; }
 .rs-panel { width: 100%; max-width: 700px; max-height: 85dvh; overflow-y: auto; scrollbar-width: none;
-  background: rgba(5,10,20,0.55); border: 1px solid rgba(0,243,255,0.3); border-radius: 15px;
+  background-color: rgba(5,10,20,0.55);
+  background-image: linear-gradient(rgba(5,10,20,0.4), rgba(5,10,20,0.4)), url(/images/plutus-shared/panel-tile.webp);
+  background-size: auto, 200px;
+  border: 1px solid rgba(0,243,255,0.3); border-radius: 15px;
   padding: 40px; backdrop-filter: blur(12px); text-align: center;
   display: flex; flex-direction: column; gap: 22px;
   box-shadow: 0 0 30px rgba(0,243,255,0.1), inset 0 0 20px rgba(0,243,255,0.05); }
@@ -37,7 +42,8 @@ const CSS = `
 .rs-price small { font-size: 1.1rem; color: #FFD700; font-weight: 700; }
 .rs-btn { background: rgba(0,15,30,0.6); border: 1px solid #00f2ff; color: #00f2ff; padding: 14px 18px;
   font-size: 0.9rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; border-radius: 6px;
-  cursor: pointer; transition: all 0.25s ease; min-height: 48px; width: 100%; }
+  cursor: pointer; transition: all 0.25s ease; min-height: 48px; width: 100%;
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px; }
 .rs-btn:hover { background: #00f2ff; color: #000; box-shadow: 0 0 20px rgba(0,243,255,0.5); }
 .rs-btn.gold { border-color: #FFD700; color: #FFD700; background: rgba(30,22,0,0.5); }
 .rs-btn.gold:hover { background: #FFD700; color: #000; box-shadow: 0 0 20px rgba(255,215,0,0.5); }
@@ -82,7 +88,21 @@ const CSS = `
 
 const NODES = 110;
 
-function useNodeField(canvasRef, slide) {
+// Inline SVG glyph system (zero image weight) — PLUTUS batch.
+const PATHS = {
+  copy: 'M16 1H4a2 2 0 0 0-2 2v14h2V3h12V1zm3 4H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H8V7h11v14z',
+  send: 'M2.01 21 23 12 2.01 3 2 10l15 2-15 2z',
+};
+
+function Glyph({ d }) {
+  return (
+    <svg viewBox="0 0 24 24" width={17} height={17} fill="currentColor" aria-hidden="true" style={{ flexShrink: 0 }}>
+      <path d={d} />
+    </svg>
+  );
+}
+
+function useNodeField(canvasRef, slide, onReady) {
   const slideRef = useRef(slide);
   slideRef.current = slide;
   useEffect(() => {
@@ -106,7 +126,9 @@ function useNodeField(canvasRef, slide) {
       r: 1 + Math.random() * 2.2, tw: Math.random() * Math.PI * 2,
     }));
     let t = 0;
+    let painted = false;
     const draw = () => {
+      if (!painted) { painted = true; if (onReady) onReady(); }
       t += 0.016;
       ctx.clearRect(0, 0, w, h);
       const shift = slideRef.current * w * 0.35;
@@ -169,12 +191,13 @@ export default function ReferralSystemPage() {
   const [iqErrors, setIqErrors] = useState([]);
   const [iqState, setIqState] = useState('idle'); // idle | sending | sent | queued
   const [iqQueued, setIqQueued] = useState(0);
+  const [ready, setReady] = useState(false); // first canvas frame painted
 
   useEffect(() => {
     try { setIqQueued(queuedInquiryCount(window.localStorage)); } catch { /* ignore */ }
   }, []);
 
-  useNodeField(canvasRef, slide);
+  useNodeField(canvasRef, slide, () => setReady(true));
 
   useEffect(() => {
     try {
@@ -274,6 +297,11 @@ export default function ReferralSystemPage() {
     <main className="rs-root">
       <style>{CSS}</style>
       <canvas ref={canvasRef} className="rs-bg" aria-hidden="true" />
+      {!ready && (
+        <div className="rs-veil" role="status" aria-label="Loading background">
+          <div className="rs-hint">Reading the network…</div>
+        </div>
+      )}
       <div className="rs-scan" aria-hidden="true" />
 
       <div
@@ -378,7 +406,7 @@ export default function ReferralSystemPage() {
                 <div><b>{money(revenue)}</b><span>Referred revenue / mo</span></div>
                 <div><b>{money(margin)}</b><span>Margin after payouts</span></div>
               </div>
-              <button className="rs-btn gold" onClick={copyBrief}>Copy program brief</button>
+              <button className="rs-btn gold" onClick={copyBrief}><Glyph d={PATHS.copy} />Copy program brief</button>
               <p className="rs-note">
                 Estimates only — run your own margin math before launch. Your numbers stay on
                 this device; nothing is uploaded anywhere. Payout automation is not built —
@@ -424,8 +452,8 @@ export default function ReferralSystemPage() {
                         placeholder="A few lines about your audience, your product, and what you want the referral program to do." />
                       {iqErrors.includes('message') && <p className="rs-err">Add a line or two so we know what to quote.</p>}
                     </div>
-                    <button type="submit" className="rs-btn" disabled={iqState === 'sending'}>
-                      {iqState === 'sending' ? 'Sending…' : 'Send inquiry'}
+                    <button type="submit" className="rs-btn gold" disabled={iqState === 'sending'}>
+                      {iqState === 'sending' ? 'Sending…' : (<><Glyph d={PATHS.send} />Send inquiry</>)}
                     </button>
                     {iqState === 'queued' && (
                       <div className="rs-status queued" role="status">

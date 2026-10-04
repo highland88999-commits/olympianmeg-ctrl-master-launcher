@@ -1,7 +1,51 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { submenuArtFor } from '@/lib/god-menus';
+import AmbienceBackdrop, { useAmbience, bgModeLabel } from '@/components/ambience/AmbienceBackdrop';
+
+// Inline SVG glyph system (zero image weight) — PLUTUS batch.
+const PATHS = {
+  gavel: 'M13.8 3.1l7.1 7.1-2.1 2.1-7.1-7.1 2.1-2.1zM11.7 7.2l7.1 7.1-1.4 1.4-7.1-7.1 1.4-1.4zM4.3 20.1l3.9-3.9 1.4 1.4-3.9 3.9-2.8 1.4 1.4-2.8z',
+  eye: 'M12 4.5C7 4.5 2.7 7.6 1 12c1.7 4.4 6 7.5 11 7.5s9.3-3.1 11-7.5c-1.7-4.4-6-7.5-11-7.5zM12 17a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z',
+  star: 'M12 17.3l-6.2 3.7 1.6-7L2 9.2l7.1-.6 3-6.6 3 6.6 7.1.6-5.4 4.8 1.6 7z',
+  close: 'M19 6.4 17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12z',
+  spark: 'M12 2l2.4 7.6L22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4L12 2z',
+  relics: 'M6 2h12v3H6V2zm2 5h8v11H8V7zM4 20h16v2H4v-2z',
+  charts: 'M12 2l2.9 6.6 7.1.6-5.4 4.7 1.6 7-6.2-3.7-6.2 3.7 1.6-7L2 9.2l7.1-.6z',
+  instruments: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm4.3 5.5-2.7 5.3-5.3 2.7 2.7-5.3 5.3-2.7z',
+  manuscripts: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z',
+  curiosities: 'M12 2 3 9l9 13 9-13-9-7zm0 3.4L18.2 9 12 19 5.8 9 12 5.4z',
+};
+
+const CATEGORY_ICONS = {
+  Relics: 'relics',
+  'Star Charts': 'charts',
+  Instruments: 'instruments',
+  Manuscripts: 'manuscripts',
+  Curiosities: 'curiosities',
+};
+
+function Glyph({ d, className, outline }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      className={className || 'w-4 h-4 shrink-0'}
+      fill={outline ? 'none' : 'currentColor'}
+      stroke={outline ? 'currentColor' : 'none'}
+      strokeWidth={outline ? 1.8 : 0}
+    >
+      <path d={d} />
+    </svg>
+  );
+}
+
+// Shared obsidian panel texture under a dark amber wash.
+const cardTile = {
+  backgroundImage:
+    'linear-gradient(rgba(14,10,4,0.88), rgba(14,10,4,0.88)), url(/images/plutus-shared/panel-tile.webp)',
+  backgroundSize: 'auto, 220px',
+};
 import {
   CATEGORIES,
   getLot,
@@ -74,7 +118,7 @@ function LotCard({ lot, nowMs, watched, onOpen, onWatch }) {
   const status = lotStatus(lot, nowMs);
   const bid = currentBid(lot);
   return (
-    <div className="bg-black/60 border border-amber-500/25 rounded-lg p-4 flex flex-col gap-3 hover:border-amber-400/60 transition-colors">
+    <div className="border border-amber-500/25 rounded-lg p-4 flex flex-col gap-3 hover:border-amber-400/60 transition-colors" style={cardTile}>
       <div className="flex items-start justify-between">
         <Medallion lotId={lot.id} size={72} />
         <div className="flex flex-col items-end gap-2">
@@ -82,9 +126,9 @@ function LotCard({ lot, nowMs, watched, onOpen, onWatch }) {
           <button
             onClick={() => onWatch(lot.id)}
             aria-label={watched ? 'Remove from watchlist' : 'Add to watchlist'}
-            className={`text-xl leading-none ${watched ? 'text-amber-400' : 'text-zinc-600 hover:text-amber-300'}`}
+            className={`p-1 ${watched ? 'text-amber-400' : 'text-zinc-600 hover:text-amber-300'}`}
           >
-            {watched ? '★' : '☆'}
+            <Glyph d={PATHS.star} outline={!watched} className="w-6 h-6" />
           </button>
         </div>
       </div>
@@ -104,8 +148,9 @@ function LotCard({ lot, nowMs, watched, onOpen, onWatch }) {
       </div>
       <button
         onClick={() => onOpen(lot.id)}
-        className="mt-1 w-full py-2 rounded bg-amber-500/15 border border-amber-500/40 text-amber-200 text-sm font-bold uppercase tracking-widest hover:bg-amber-500/30 transition-colors"
+        className="mt-1 w-full py-2 rounded bg-amber-500/15 border border-amber-500/40 text-amber-200 text-sm font-bold uppercase tracking-widest hover:bg-amber-500/30 transition-colors inline-flex items-center justify-center gap-2"
       >
+        <Glyph d={PATHS.eye} />
         View lot
       </button>
     </div>
@@ -139,8 +184,8 @@ function LotDetail({ lot, nowMs, watched, onWatch, onClose }) {
               <h2 className="text-white text-xl font-black mt-1">{lot.title}</h2>
             </div>
           </div>
-          <button onClick={onClose} aria-label="Close" className="text-zinc-500 hover:text-white text-2xl leading-none">
-            ×
+          <button onClick={onClose} aria-label="Close" className="text-zinc-500 hover:text-white p-1 leading-none">
+            <Glyph d={PATHS.close} className="w-6 h-6" />
           </button>
         </div>
 
@@ -149,13 +194,14 @@ function LotDetail({ lot, nowMs, watched, onWatch, onClose }) {
           <span className="text-zinc-400 font-mono text-sm">{formatCountdown(msUntilClose(lot, nowMs))}</span>
           <button
             onClick={() => onWatch(lot.id)}
-            className={`ml-auto text-sm font-bold uppercase tracking-widest px-3 py-1.5 rounded border ${
+            className={`ml-auto text-sm font-bold uppercase tracking-widest px-3 py-1.5 rounded border inline-flex items-center gap-2 ${
               watched
                 ? 'border-amber-400/60 text-amber-300 bg-amber-500/10'
                 : 'border-zinc-700 text-zinc-400 hover:border-amber-500/50 hover:text-amber-200'
             }`}
           >
-            {watched ? '★ Watching' : '☆ Watch'}
+            <Glyph d={PATHS.star} outline={!watched} className="w-4 h-4" />
+            {watched ? 'Watching' : 'Watch'}
           </button>
         </div>
 
@@ -203,40 +249,18 @@ function LotDetail({ lot, nowMs, watched, onWatch, onClose }) {
   );
 }
 
-
-// Menu Art Transfer batch 2 — submenu art. Background image + dark legibility
-// scrim; a missing image hides itself via onError so the chip falls back to
-// its plain style. Never breaks the UI.
-function SubmenuArt({ slot }) {
-  return (
-    <>
-      <img
-        src={submenuArtFor(slot)}
-        alt=""
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-        loading="lazy"
-        onError={(e) => { e.currentTarget.style.display = 'none'; }}
-      />
-      <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-black/55" />
-    </>
-  );
-}
-
-// Category label -> submenu art slot suffix.
-function categoryArtSlug(c) {
-  return c.toLowerCase().replace(/ /g, '-');
-}
-
 export default function AuctionHousePage() {
   const [category, setCategory] = useState('All');
   const [watchlist, setWatchlist] = useState([]);
   const [openId, setOpenId] = useState(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [lots] = useState(() => anchorLots(Date.now()));
+  const [ready, setReady] = useState(false);
+  const [bgMode, cycleBg] = useAmbience('auction-house-bg');
 
   useEffect(() => {
     setWatchlist(loadWatchlist());
+    setReady(true);
     const t = setInterval(() => setNowMs(Date.now()), 1000);
     const onKey = (e) => e.key === 'Escape' && setOpenId(null);
     window.addEventListener('keydown', onKey);
@@ -259,8 +283,9 @@ export default function AuctionHousePage() {
   const watchedCount = watchlist.length;
 
   return (
-    <main className="min-h-dvh bg-[#0a0805] text-zinc-200 px-4 py-8 md:px-8">
-      <div className="max-w-6xl mx-auto">
+    <main className="min-h-dvh bg-[#0a0805] text-zinc-200 px-4 py-8 md:px-8 relative">
+      <AmbienceBackdrop basePath="/images/auction-house" bgMode={bgMode} />
+      <div className="max-w-6xl mx-auto relative">
         <header className="text-center">
           <div className="text-[11px] uppercase tracking-[0.3em] text-amber-500/80">The Gavel Room</div>
           <h1 className="text-3xl md:text-4xl font-black text-amber-100 mt-2 tracking-wide">AUCTION HOUSE</h1>
@@ -268,6 +293,24 @@ export default function AuctionHousePage() {
             A curated showcase of fictional lots. Browse the catalog, follow the demo bidding,
             keep a watchlist — everything here is imaginary.
           </p>
+          <img
+            src="/images/auction-house/header.webp"
+            alt=""
+            aria-hidden="true"
+            className="mt-6 h-32 md:h-44 w-full object-cover rounded-2xl border border-amber-500/30 shadow-[0_0_50px_rgba(245,158,11,0.12)]"
+          />
+          <div className="mt-4 flex justify-center">
+            <button
+              type="button"
+              onClick={cycleBg}
+              aria-label={`Ambient background is ${bgMode}. Activate to change.`}
+              title="Ambient background: video, still, or off"
+              className="min-h-[44px] px-4 rounded-full border border-amber-200/40 text-amber-200/90 bg-amber-400/5 hover:bg-amber-300/15 text-xs font-bold uppercase tracking-widest inline-flex items-center gap-2 transition-colors"
+            >
+              <Glyph d={PATHS.spark} />
+              Ambience: {bgModeLabel(bgMode)}
+            </button>
+          </div>
         </header>
 
         <nav className="mt-8 flex flex-wrap justify-center gap-2" aria-label="Categories">
@@ -275,14 +318,14 @@ export default function AuctionHousePage() {
             <button
               key={c}
               onClick={() => setCategory(c)}
-              className={`relative min-h-[44px] inline-flex items-center justify-center overflow-hidden px-4 py-2 rounded-full text-xs font-bold uppercase tracking-widest border transition-colors ${
+              className={`px-4 py-2 rounded-full text-xs font-bold uppercase tracking-widest border transition-colors inline-flex items-center gap-2 ${
                 category === c
                   ? 'bg-amber-500/25 border-amber-400/70 text-amber-100'
                   : 'border-zinc-800 text-zinc-400 hover:border-amber-500/40 hover:text-amber-200'
               }`}
             >
-              {category !== c && <SubmenuArt slot={`submenu-prog-auction-house-${categoryArtSlug(c)}`} />}
-              <span className="relative">{c}</span>
+              {CATEGORY_ICONS[c] && <Glyph d={PATHS[CATEGORY_ICONS[c]]} className="w-3.5 h-3.5 shrink-0" />}
+              {c}
             </button>
           ))}
           <span className="ml-2 self-center text-xs text-zinc-500">
@@ -290,18 +333,38 @@ export default function AuctionHousePage() {
           </span>
         </nav>
 
-        <section className="mt-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" aria-label="Lots">
-          {visible.map((lot) => (
-            <LotCard
-              key={lot.id}
-              lot={lot}
-              nowMs={nowMs}
-              watched={isWatched(watchlist, lot.id)}
-              onOpen={setOpenId}
-              onWatch={handleWatch}
-            />
-          ))}
-        </section>
+        {!ready ? (
+          <section className="mt-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" aria-label="Loading lots">
+            {[0, 1, 2, 3, 4, 5].map((i) => (
+              <div key={i} className="rounded-lg border border-amber-500/15 p-4 animate-pulse" style={cardTile}>
+                <div className="h-16 w-16 rounded-full bg-amber-500/10" />
+                <div className="mt-3 h-4 w-3/4 rounded bg-zinc-800/80" />
+                <div className="mt-2 h-4 w-1/2 rounded bg-zinc-800/80" />
+                <div className="mt-3 h-9 rounded bg-zinc-800/60" />
+              </div>
+            ))}
+            <span className="sr-only">Loading the catalog…</span>
+          </section>
+        ) : visible.length === 0 ? (
+          <div className="mt-8 rounded-2xl border border-dashed border-amber-500/30 p-10 text-center" style={cardTile} role="status">
+            <Glyph d={PATHS.gavel} className="w-8 h-8 mx-auto text-amber-500/50" />
+            <p className="mt-3 text-amber-100/80 font-bold tracking-[0.2em] uppercase text-sm">The floor is quiet</p>
+            <p className="mt-1 text-zinc-500 text-sm">No lots in this category right now — try another room.</p>
+          </div>
+        ) : (
+          <section className="mt-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" aria-label="Lots">
+            {visible.map((lot) => (
+              <LotCard
+                key={lot.id}
+                lot={lot}
+                nowMs={nowMs}
+                watched={isWatched(watchlist, lot.id)}
+                onOpen={setOpenId}
+                onWatch={handleWatch}
+              />
+            ))}
+          </section>
+        )}
 
         <footer className="mt-10 text-center text-xs text-zinc-600">
           All lots, bidders, estimates, and bid activity are fictional and simulated locally.
@@ -322,4 +385,3 @@ export default function AuctionHousePage() {
     </main>
   );
 }
-

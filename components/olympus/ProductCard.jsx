@@ -10,7 +10,12 @@ export default function ProductCard({ product, onOpen }) {
   return (
     <button
       onClick={() => onOpen(product)}
-      className="group text-left rounded-xl border border-cyan-400/20 bg-cyan-400/5 overflow-hidden transition hover:border-cyan-300/60 hover:shadow-[0_0_18px_rgba(0,242,255,0.25)] focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 min-h-[44px]"
+      className="group text-left rounded-xl border border-cyan-400/20 overflow-hidden transition hover:border-cyan-300/60 hover:shadow-[0_0_18px_rgba(0,242,255,0.25)] focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 min-h-[44px]"
+      style={{
+        backgroundImage:
+          'linear-gradient(rgba(4,10,16,0.92), rgba(4,10,16,0.92)), url(/images/plutus-shared/panel-tile.webp)',
+        backgroundSize: 'auto, 200px',
+      }}
       aria-label={`View ${product.name}`}
     >
       <div className="aspect-square bg-black/60 flex items-center justify-center overflow-hidden">

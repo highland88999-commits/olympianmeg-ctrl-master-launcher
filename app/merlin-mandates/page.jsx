@@ -26,7 +26,34 @@ import {
 } from './mandates.js';
 
 const BTN =
-  'min-h-[44px] px-4 py-2 rounded font-bold tracking-widest text-xs uppercase transition-colors';
+  'min-h-[44px] px-4 py-2 rounded font-bold tracking-widest text-xs uppercase transition-colors inline-flex items-center justify-center gap-2';
+
+// Inline SVG glyph system (zero image weight) — PLUTUS batch.
+const PATHS = {
+  add: 'M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z',
+  check: 'M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z',
+  close: 'M19 6.4 17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12z',
+  edit: 'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z',
+  up: 'M7.41 15.41 12 10.83l4.59 4.58L18 14l-6-6-6 6z',
+  down: 'M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z',
+  trash: 'M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z',
+  download: 'M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z',
+};
+
+function Glyph({ d, className }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={className || 'w-4 h-4 shrink-0'}>
+      <path d={d} />
+    </svg>
+  );
+}
+
+// Shared obsidian panel texture under a dark teal wash.
+const cardTile = {
+  backgroundImage:
+    'linear-gradient(rgba(3,8,12,0.9), rgba(3,8,12,0.9)), url(/images/plutus-shared/panel-tile.webp)',
+  backgroundSize: 'auto, 200px',
+};
 
 // Stepped particle field, echoing the source's arcade "tier" particles.
 function ParticleField() {
@@ -64,8 +91,8 @@ function ParticleField() {
       raf = requestAnimationFrame(frame);
       const w = canvas.clientWidth;
       const h = canvas.clientHeight;
-      ctx.fillStyle = '#000';
-      ctx.fillRect(0, 0, w, h);
+      // Transparent bed: the mandates art behind the canvas glows through.
+      ctx.clearRect(0, 0, w, h);
       const t = now / 1000;
       for (const p of parts) {
         // Stepped arcade walk: x advances in discrete steps, like the source.
@@ -83,7 +110,14 @@ function ParticleField() {
     };
   }, []);
 
-  return <canvas ref={canvasRef} className="fixed inset-0 w-full h-full -z-10 opacity-40" aria-hidden="true" />;
+  return (
+    <canvas
+      ref={canvasRef}
+      className="fixed inset-0 w-full h-full -z-10 opacity-40"
+      style={{ background: '#000 url(/images/merlin-mandates/bg.webp) center/cover' }}
+      aria-hidden="true"
+    />
+  );
 }
 
 export default function MerlinMandatesPage() {
@@ -153,8 +187,14 @@ export default function MerlinMandatesPage() {
 
   if (!list) {
     return (
-      <div className="min-h-[100dvh] bg-black text-zinc-200 flex items-center justify-center">
-        <p className="font-mono text-sm">Opening the mandates…</p>
+      <div
+        className="min-h-[100dvh] text-zinc-200 flex flex-col gap-4 items-center justify-center"
+        style={{ background: '#000 url(/images/merlin-mandates/bg.webp) center/cover' }}
+        role="status"
+        aria-label="Loading mandates"
+      >
+        <div className="w-8 h-8 rounded-full border-2 border-cyan-400/25 border-t-cyan-300 animate-spin" aria-hidden="true" />
+        <p className="font-mono text-sm tracking-[0.25em]">OPENING THE MANDATES…</p>
       </div>
     );
   }
@@ -172,10 +212,16 @@ export default function MerlinMandatesPage() {
         <p className="text-xs tracking-[0.3em] uppercase text-zinc-400 mt-2">
           {s.active} active &middot; {s.fulfilled} fulfilled &middot; stored on this device
         </p>
+        <img
+          src="/images/merlin-mandates/header.webp"
+          alt=""
+          aria-hidden="true"
+          className="mt-6 mx-auto h-32 md:h-40 w-full max-w-2xl object-cover rounded-2xl border border-cyan-500/30 shadow-[0_0_50px_rgba(0,242,255,0.1)]"
+        />
       </header>
 
       <main className="px-5 max-w-2xl mx-auto pb-16 relative">
-        <form onSubmit={onAdd} className="rounded-xl border border-cyan-900/70 bg-black/60 p-4 flex flex-col gap-3">
+        <form onSubmit={onAdd} className="rounded-xl border border-cyan-900/70 p-4 flex flex-col gap-3" style={cardTile}>
           <input
             className="min-h-[44px] bg-black/60 border border-zinc-700 rounded px-4 text-zinc-100 outline-none focus:border-cyan-500"
             placeholder="New mandate — e.g. Ship the build before midnight"
@@ -191,6 +237,7 @@ export default function MerlinMandatesPage() {
             aria-label="Mandate detail"
           />
           <button type="submit" className={`${BTN} border border-cyan-500 text-cyan-300 hover:bg-cyan-500 hover:text-black`}>
+            <Glyph d={PATHS.add} />
             Add mandate
           </button>
         </form>
@@ -199,9 +246,10 @@ export default function MerlinMandatesPage() {
           {list.map((m) => (
             <li
               key={m.id}
-              className={`rounded-xl border p-4 bg-black/60 ${
+              className={`rounded-xl border p-4 ${
                 m.fulfilled ? 'border-zinc-700 opacity-70' : 'border-cyan-900/70'
               }`}
+              style={cardTile}
             >
               {editingId === m.id ? (
                 <div className="flex flex-col gap-2">
@@ -219,9 +267,11 @@ export default function MerlinMandatesPage() {
                   />
                   <div className="flex gap-2">
                     <button type="button" className={`${BTN} border border-cyan-500 text-cyan-300 hover:bg-cyan-500 hover:text-black`} onClick={saveEdit}>
+                      <Glyph d={PATHS.check} />
                       Save
                     </button>
                     <button type="button" className={`${BTN} border border-zinc-600 text-zinc-300`} onClick={() => setEditingId(null)}>
+                      <Glyph d={PATHS.close} />
                       Cancel
                     </button>
                   </div>
@@ -236,7 +286,7 @@ export default function MerlinMandatesPage() {
                     }`}
                     aria-label={m.fulfilled ? `Reopen ${m.title}` : `Mark fulfilled: ${m.title}`}
                   >
-                    ✓
+                    <Glyph d={PATHS.check} />
                   </button>
                   <div className="flex-1 min-w-0">
                     <h2 className={`font-bold ${m.fulfilled ? 'line-through text-zinc-400' : 'text-zinc-100'}`}>
@@ -245,23 +295,24 @@ export default function MerlinMandatesPage() {
                     {m.detail && <p className="text-sm text-zinc-400 mt-1">{m.detail}</p>}
                   </div>
                   <div className="flex flex-col gap-1 shrink-0">
-                    <button type="button" className="min-h-[36px] min-w-[40px] px-2 rounded border border-zinc-700 text-xs hover:border-cyan-500" onClick={() => startEdit(m)}>
-                      Edit
+                    <button type="button" className="min-h-[36px] min-w-[40px] px-2 rounded border border-zinc-700 text-xs hover:border-cyan-500 inline-flex items-center justify-center" onClick={() => startEdit(m)} aria-label={`Edit mandate: ${m.title}`}>
+                      <Glyph d={PATHS.edit} className="w-3.5 h-3.5" />
                     </button>
-                    <button type="button" className="min-h-[36px] min-w-[40px] px-2 rounded border border-zinc-700 text-xs hover:border-zinc-400" onClick={() => setList((l) => moveMandate(l, m.id, -1))} title="Move up">
-                      ↑
+                    <button type="button" className="min-h-[36px] min-w-[40px] px-2 rounded border border-zinc-700 text-xs hover:border-zinc-400 inline-flex items-center justify-center" onClick={() => setList((l) => moveMandate(l, m.id, -1))} title="Move up" aria-label={`Move up: ${m.title}`}>
+                      <Glyph d={PATHS.up} className="w-3.5 h-3.5" />
                     </button>
-                    <button type="button" className="min-h-[36px] min-w-[40px] px-2 rounded border border-zinc-700 text-xs hover:border-zinc-400" onClick={() => setList((l) => moveMandate(l, m.id, 1))} title="Move down">
-                      ↓
+                    <button type="button" className="min-h-[36px] min-w-[40px] px-2 rounded border border-zinc-700 text-xs hover:border-zinc-400 inline-flex items-center justify-center" onClick={() => setList((l) => moveMandate(l, m.id, 1))} title="Move down" aria-label={`Move down: ${m.title}`}>
+                      <Glyph d={PATHS.down} className="w-3.5 h-3.5" />
                     </button>
                     <button
                       type="button"
-                      className="min-h-[36px] min-w-[40px] px-2 rounded border border-zinc-700 text-xs hover:border-rose-500 hover:text-rose-400"
+                      className="min-h-[36px] min-w-[40px] px-2 rounded border border-zinc-700 text-xs hover:border-rose-500 hover:text-rose-400 inline-flex items-center justify-center"
+                      aria-label={`Delete mandate: ${m.title}`}
                       onClick={() => {
                         if (window.confirm(`Delete "${m.title}"?`)) setList((l) => deleteMandate(l, m.id));
                       }}
                     >
-                      ✕
+                      <Glyph d={PATHS.trash} className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>
@@ -270,9 +321,18 @@ export default function MerlinMandatesPage() {
           ))}
         </ul>
 
+        {list.length === 0 && (
+          <div className="mt-6 rounded-2xl border border-dashed border-cyan-500/30 p-10 text-center" style={cardTile} role="status">
+            <Glyph d={PATHS.check} className="w-8 h-8 mx-auto text-cyan-400/50" />
+            <p className="mt-3 text-cyan-100/80 font-bold tracking-[0.2em] uppercase text-sm">A clear ledger</p>
+            <p className="mt-1 text-zinc-500 text-sm">No mandates yet — write the first one above.</p>
+          </div>
+        )}
+
         {list.length > 0 && (
           <div className="mt-6 text-center">
             <button type="button" className={`${BTN} border border-zinc-600 text-zinc-300 hover:border-zinc-400`} onClick={onExport}>
+              <Glyph d={PATHS.download} />
               Export as text
             </button>
           </div>
