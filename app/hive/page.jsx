@@ -4,6 +4,19 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { HiveCore, MODE_KEYS, MODES } from './hive';
 import { createHiveRenderer } from './render';
 
+// --- DIONYSUS interior treatment ---
+const HIVE_BG = '/images/hive/bg.webp';
+const HIVE_TILE = '/images/shared/honeycomb-tile.webp';
+function HexGlyph({ size = 14 }) {
+  // Hex cell glyph: no text, inline SVG, zero image weight.
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true" className="shrink-0">
+      <path d="M12 2 21 7v10l-9 5-9-5V7z" stroke="currentColor" strokeWidth="2" fill="none" />
+      <circle cx="12" cy="12" r="2.6" fill="currentColor" />
+    </svg>
+  );
+}
+
 export default function HivePage() {
   const canvasRef = useRef(null);
   const coreRef = useRef(null);
@@ -69,6 +82,9 @@ export default function HivePage() {
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-[#020608] text-white select-none">
+      {/* Ambient backdrop behind the hive canvas (shows while the renderer boots) */}
+      <div aria-hidden="true" className="absolute inset-0 bg-cover bg-center opacity-50" style={{ backgroundImage: `url(${HIVE_BG})` }} />
+      <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-b from-[#020608]/70 via-[#020608]/50 to-[#020608]/85" />
       <canvas
         ref={canvasRef}
         className="absolute inset-0 w-full h-full touch-none"
@@ -106,7 +122,10 @@ export default function HivePage() {
         </div>
 
         {awakened && (
-          <div className="mt-3 inline-block px-4 py-2 rounded border border-orange-400/60 bg-orange-500/10 text-orange-200 text-sm font-bold tracking-wide">
+          <div
+            className="mt-3 inline-block px-4 py-2 rounded border border-orange-400/60 bg-orange-500/10 text-orange-200 text-sm font-bold tracking-wide"
+            style={{ backgroundImage: `url(${HIVE_TILE})`, backgroundSize: '96px 96px', backgroundBlendMode: 'overlay' }}
+          >
             HIVE MIND AWAKENED
           </div>
         )}
@@ -123,12 +142,13 @@ export default function HivePage() {
               key={key}
               onClick={() => changeMode(key)}
               aria-pressed={mode === key}
-              className={`min-h-[44px] px-5 rounded-full border text-sm font-bold uppercase tracking-widest transition-colors ${
+              className={`min-h-[44px] px-5 rounded-full border text-sm font-bold uppercase tracking-widest transition-colors inline-flex items-center gap-2 ${
                 mode === key
                   ? 'bg-cyan-400/20 border-cyan-300 text-cyan-200'
                   : 'bg-black/50 border-cyan-500/30 text-cyan-100/60 hover:border-cyan-300/60'
               }`}
             >
+              <HexGlyph size={14} />
               {MODES[key].label}
             </button>
           ))}

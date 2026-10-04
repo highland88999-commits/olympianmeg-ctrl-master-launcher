@@ -22,6 +22,26 @@ export default function AtlantisPage() {
   const [showFish, setShowFish] = useState(true);
   const [reduced, setReduced] = useState(false);
 
+  // --- DIONYSUS interior treatment ---
+  const AT_BG = "/images/atlantis/bg.webp";
+  const AT_TILE = "/images/shared/ice-crystal-tile.webp";
+  const AT_GLYPHS = {
+    play: "M8 5v14l11-7z",
+    pause: "M6 5h4v14H6zM14 5h4v14h-4z",
+    rays: "M12 2v4M12 18v4M2 12h4M18 12h4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8",
+    fish: "M3 12c3-4.2 7.5-6 11.5-6 2.8 0 5 1.2 6.5 2.5L23 6l-1 6 1 6-2-2.5C19.5 16.8 17.3 18 14.5 18 10.5 18 6 16.2 3 12zm11.5-3.5a1.8 1.8 0 1 0 0 3.6 1.8 1.8 0 0 0 0-3.6z",
+  };
+  const AtIcon = ({ name, size = 15 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={name === "rays" ? "none" : "currentColor"} stroke={name === "rays" ? "currentColor" : "none"} strokeWidth="2" strokeLinecap="round" aria-hidden="true" style={{ flexShrink: 0 }}>
+      <path d={AT_GLYPHS[name]} />
+    </svg>
+  );
+  const atCardTile = {
+    backgroundImage: `url(${AT_TILE})`,
+    backgroundSize: "128px 128px",
+    backgroundBlendMode: "overlay",
+  };
+
   useEffect(() => {
     document.title = "Atlantis";
     setReduced(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
@@ -249,7 +269,10 @@ export default function AtlantisPage() {
 
   return (
     <div style={styles.page}>
-      <div style={styles.wrap}>
+      {/* Ambient backdrop: fixed behind the scrolling page */}
+      <div aria-hidden="true" style={{ position: "fixed", inset: 0, backgroundImage: `url(${AT_BG})`, backgroundSize: "cover", backgroundPosition: "center", opacity: 0.35, pointerEvents: "none", zIndex: 0 }} />
+      <div aria-hidden="true" style={{ position: "fixed", inset: 0, background: "linear-gradient(rgba(2,8,19,0.55), rgba(2,8,19,0.75))", pointerEvents: "none", zIndex: 0 }} />
+      <div style={{ ...styles.wrap, position: "relative", zIndex: 1 }}>
         <header style={styles.head}>
           <h1 style={styles.title}>ATLANTIS</h1>
           <p style={styles.tag}>Olympus Anchor · 5-Kilometer Macro-Engineering Prospectus</p>
@@ -272,10 +295,19 @@ export default function AtlantisPage() {
           </div>
         </div>
 
-        <div style={styles.controls}>
-          <button onClick={() => setPlaying(!playing)} style={styles.btn}>{playing ? "PAUSE FEED" : "RESUME FEED"}</button>
-          <button onClick={() => setShowRays(!showRays)} style={{ ...styles.btn, ...(showRays ? styles.btnOn : {}) }}>LIGHT RAYS</button>
-          <button onClick={() => setShowFish(!showFish)} style={{ ...styles.btn, ...(showFish ? styles.btnOn : {}) }}>FISH SCHOOL</button>
+        <div style={{ ...styles.controls, display: "flex" }}>
+          <button onClick={() => setPlaying(!playing)} style={{ ...styles.btn, display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <AtIcon name={playing ? "pause" : "play"} />
+            {playing ? "PAUSE FEED" : "RESUME FEED"}
+          </button>
+          <button onClick={() => setShowRays(!showRays)} style={{ ...styles.btn, ...(showRays ? styles.btnOn : {}), display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <AtIcon name="rays" />
+            LIGHT RAYS
+          </button>
+          <button onClick={() => setShowFish(!showFish)} style={{ ...styles.btn, ...(showFish ? styles.btnOn : {}), display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <AtIcon name="fish" size={17} />
+            FISH SCHOOL
+          </button>
         </div>
 
         <p style={styles.lede}>
@@ -287,7 +319,7 @@ export default function AtlantisPage() {
 
         <div style={styles.grid}>
           {SPECS.map((s) => (
-            <section key={s.id} style={styles.card}>
+            <section key={s.id} style={{ ...styles.card, ...atCardTile }}>
               <h3 style={styles.cardTitle}><span style={styles.cardNo}>{s.no}</span>{s.title}</h3>
               {s.rows && (
                 <table style={styles.table}>

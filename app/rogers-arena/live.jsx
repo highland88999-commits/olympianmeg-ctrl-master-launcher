@@ -9,6 +9,31 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 const REFRESH_MS = 30 * 1000;
 
+// --- DIONYSUS interior treatment: SVG glyphs + styled loading state ---
+const RA_TILE = '/images/shared/magenta-marble-tile.webp';
+const RA_LIVE_GLYPHS = {
+  back: 'M15.5 4.5 8 12l7.5 7.5 1.8-1.8L11.6 12l5.7-5.7z',
+  refresh: 'M12 5V1L7 6l5 5V7c3.3 0 6 2.7 6 6s-2.7 6-6 6-6-2.7-6-6H4c0 4.4 3.6 8 8 8s8-3.6 8-8-3.6-8-8-8z',
+};
+function LiveIcon({ name, size = 16 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className="shrink-0">
+      <path d={RA_LIVE_GLYPHS[name]} />
+    </svg>
+  );
+}
+function LiveLoader({ text }) {
+  return (
+    <div className="py-10 text-center" role="status" aria-label={text}>
+      <svg width="34" height="34" viewBox="0 0 24 24" fill="none" aria-hidden="true" className="mx-auto animate-spin">
+        <circle cx="12" cy="12" r="9" stroke="rgba(0,229,255,0.2)" strokeWidth="2.5" />
+        <path d="M21 12a9 9 0 0 0-9-9" stroke="#00e5ff" strokeWidth="2.5" strokeLinecap="round" />
+      </svg>
+      <p className="text-cyan-200/80 text-sm mt-3 tracking-widest uppercase">{text}</p>
+    </div>
+  );
+}
+
 async function apiJson(path) {
   const res = await fetch(path);
   const data = await res.json().catch(() => ({}));
@@ -103,12 +128,16 @@ function GameDetail({ game, onBack }) {
     <div>
       <button
         onClick={onBack}
-        className="min-h-[44px] px-4 rounded-full text-xs font-bold uppercase tracking-widest border border-white/20 text-zinc-300 hover:border-cyan-400/60"
+        className="min-h-[44px] px-4 rounded-full text-xs font-bold uppercase tracking-widest border border-white/20 text-zinc-300 hover:border-cyan-400/60 flex items-center gap-2"
       >
-        ← All games
+        <LiveIcon name="back" />
+        All games
       </button>
 
-      <div className="mt-4 rounded-2xl bg-white/[0.04] border border-white/10 p-4 sm:p-6 text-center">
+      <div
+        className="mt-4 rounded-2xl bg-white/[0.04] border border-white/10 p-4 sm:p-6 text-center"
+        style={{ backgroundImage: `url(${RA_TILE})`, backgroundSize: '128px 128px', backgroundBlendMode: 'overlay' }}
+      >
         <StatusBadge game={game} />
         <div className="mt-2 flex items-center justify-center gap-4 sm:gap-8">
           <div>
@@ -265,31 +294,33 @@ export default function Live() {
 
       {selectedId != null ? (
         detailStatus === 'loading' && !detail ? (
-          <p className="text-zinc-400 text-sm py-8 text-center">Loading game…</p>
+          <LiveLoader text="Loading game…" />
         ) : detailStatus === 'error' && !detail ? (
           <div className="text-center py-8">
             <p className="text-zinc-300 text-sm">Couldn&apos;t reach live scores.</p>
             <p className="text-zinc-500 text-xs mt-1">Check your connection and try again — no scores are shown rather than guessed ones.</p>
             <button
               onClick={backToList}
-              className="mt-4 min-h-[44px] px-6 rounded-full text-xs font-bold uppercase tracking-widest border border-white/20 text-zinc-200 hover:border-cyan-400/60"
+              className="mt-4 min-h-[44px] px-6 rounded-full text-xs font-bold uppercase tracking-widest border border-white/20 text-zinc-200 hover:border-cyan-400/60 inline-flex items-center gap-2"
             >
-              ← Back to games
+              <LiveIcon name="back" />
+              Back to games
             </button>
           </div>
         ) : detail ? (
           <GameDetail game={detail} onBack={backToList} />
         ) : null
       ) : status === 'loading' && games.length === 0 ? (
-        <p className="text-zinc-400 text-sm py-8 text-center">Loading today&apos;s games…</p>
+        <LiveLoader text="Loading today&apos;s games…" />
       ) : status === 'error' ? (
         <div className="text-center py-8">
           <p className="text-zinc-300 text-sm">Couldn&apos;t reach live scores.</p>
           <p className="text-zinc-500 text-xs mt-1">Check your connection and try again — no scores are shown rather than guessed ones.</p>
           <button
             onClick={loadBoard}
-            className="mt-4 min-h-[44px] px-6 rounded-full text-xs font-bold uppercase tracking-widest bg-cyan-400/90 text-black"
+            className="mt-4 min-h-[44px] px-6 rounded-full text-xs font-bold uppercase tracking-widest bg-cyan-400/90 text-black inline-flex items-center gap-2"
           >
+            <LiveIcon name="refresh" />
             Try again
           </button>
         </div>
@@ -310,8 +341,9 @@ export default function Live() {
           </div>
           <button
             onClick={loadBoard}
-            className="mt-6 min-h-[44px] px-6 rounded-full text-xs font-bold uppercase tracking-widest border border-white/20 text-zinc-300 hover:border-cyan-400/60"
+            className="mt-6 min-h-[44px] px-6 rounded-full text-xs font-bold uppercase tracking-widest border border-white/20 text-zinc-300 hover:border-cyan-400/60 inline-flex items-center gap-2"
           >
+            <LiveIcon name="refresh" />
             Refresh scores
           </button>
         </>

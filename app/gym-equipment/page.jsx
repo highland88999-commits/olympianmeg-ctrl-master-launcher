@@ -18,6 +18,27 @@ import { fx, unlockFx } from '@/lib/fx';
 const TITLE = 'INNODIGYM | QUANTUM ARCADE';
 const PREFS_KEY = 'quantum-arcade.prefs.v1';
 
+// --- DIONYSUS interior treatment ---
+const QA_BG = '/images/gym-equipment/bg.webp';
+const QA_TILE = '/images/shared/magenta-marble-tile.webp';
+const QA_GLYPHS = {
+  motion: 'M2 12h4l3-8 4 16 3-8h6',
+  list: 'M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z',
+  x: 'M6 6l12 12M18 6 6 18',
+};
+function QaIcon({ name, size = 15 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
+      <path d={QA_GLYPHS[name]} />
+    </svg>
+  );
+}
+const qaPanelTile = {
+  backgroundImage: `url(${QA_TILE})`,
+  backgroundSize: '128px 128px',
+  backgroundBlendMode: 'overlay',
+};
+
 const SPECS = [
   { label: 'Digital Strength', value: 'Up to 75 lbs per side' },
   { label: 'Form Factor', value: 'Adjustable bench + folding rack' },
@@ -217,6 +238,8 @@ export default function GymEquipmentPage() {
   return (
     <div className="qa-wrap" onClick={onTap}>
       <style>{CSS}</style>
+      {/* Ambient backdrop behind the canvas (shows at boot, before first frame) */}
+      <div aria-hidden="true" className="qa-canvas" style={{ backgroundImage: `url(${QA_BG})`, backgroundSize: 'cover', backgroundPosition: 'center', opacity: 0.5 }} />
       <canvas ref={canvasRef} className="qa-canvas" aria-hidden="true" />
 
       <div className="qa-header">
@@ -233,20 +256,22 @@ export default function GymEquipmentPage() {
         <div className="qa-prompt">/// TAP ANYWHERE FOR A BURST ///</div>
       </div>
 
-      <button type="button" className="qa-toggle" onClick={toggleMotion}>
+      <button type="button" className="qa-toggle" onClick={toggleMotion} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+        <QaIcon name="motion" />
         {reduced ? 'Motion: Calm' : 'Motion: Full'}
       </button>
       <button
         type="button"
         className="qa-toggle"
-        style={{ top: 68 }}
+        style={{ top: 68, display: 'inline-flex', alignItems: 'center', gap: 8 }}
         onClick={() => { setPanelOpen(true); fx.menuOpen(); }}
       >
+        <QaIcon name="list" />
         View Specs
       </button>
 
       {panelOpen && (
-        <div className="qa-panel" role="dialog" aria-label="INNODIGYM P1 Plus specifications">
+        <div className="qa-panel" role="dialog" aria-label="INNODIGYM P1 Plus specifications" style={qaPanelTile}>
           <h2>P1 PLUS // SPEC SHEET</h2>
           <p className="qa-disclaimer">CONCEPT SHOWCASE — not a real product. The specs below are illustrative; nothing on this page is for sale and no sync with any device occurs.</p>
           <dl>
@@ -257,7 +282,10 @@ export default function GymEquipmentPage() {
               </div>
             ))}
           </dl>
-          <button type="button" className="qa-btn" onClick={() => { setPanelOpen(false); fx.menuClose(); }}>Close</button>
+          <button type="button" className="qa-btn" onClick={() => { setPanelOpen(false); fx.menuClose(); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <QaIcon name="x" />
+            Close
+          </button>
         </div>
       )}
     </div>

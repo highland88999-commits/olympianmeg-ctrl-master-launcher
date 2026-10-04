@@ -7,6 +7,27 @@ import { makeStars, drawScene } from './render';
 
 const STEP = 1 / 60;
 
+// --- DIONYSUS interior treatment: SVG glyph system (zero image weight) ---
+const GLYPHS = {
+  play: 'M8 5v14l11-7z',
+  pause: 'M6 5h4v14H6zM14 5h4v14h-4z',
+  replay: 'M12 5V1L7 6l5 5V7c3.3 0 6 2.7 6 6s-2.7 6-6 6-6-2.7-6-6H4c0 4.4 3.6 8 8 8s8-3.6 8-8-3.6-8-8-8z',
+  left: 'M15.5 4.5 8 12l7.5 7.5 1.8-1.8L11.6 12l5.7-5.7z',
+  right: 'M8.5 4.5 16 12l-7.5 7.5-1.8-1.8L12.4 12 6.7 6.3z',
+  up: 'M12 8.5 4.5 16l1.8 1.8L12 12.1l5.7 5.7 1.8-1.8z',
+  down: 'M12 15.5l7.5-7.5-1.8-1.8L12 11.9 6.3 6.2 4.5 8z',
+  jump: 'M12 3l8 8h-5v10h-6V11H4z',
+};
+function Icon({ name, size = 22, className = '' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={className}>
+      <path d={GLYPHS[name]} />
+    </svg>
+  );
+}
+
+const DK_BG = '/images/dk-hero/bg.webp';
+
 export default function DKHeroPage() {
   const canvasRef = useRef(null);
   const wrapRef = useRef(null);
@@ -205,6 +226,9 @@ export default function DKHeroPage() {
 
   return (
     <div ref={wrapRef} className="fixed inset-0 bg-black overflow-hidden" style={{ touchAction: 'none' }}>
+      {/* Ambient backdrop: dark-cinematic girder art behind the canvas (shows through translucent overlays + at load) */}
+      <div aria-hidden="true" className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${DK_BG})` }} />
+      <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/70 to-black/90" />
       <canvas ref={canvasRef} className="absolute inset-0" aria-label="DK Hero game canvas" />
 
       {/* HUD */}
@@ -217,9 +241,11 @@ export default function DKHeroPage() {
         {screen === 'playing' && (
           <button
             onClick={() => setPaused((p) => !p)}
-            className="pointer-events-auto min-w-[44px] min-h-[44px] px-3 rounded-lg bg-zinc-800/80 border border-zinc-600 text-zinc-200 text-sm font-bold uppercase tracking-wider"
+            aria-label={paused ? 'Resume game' : 'Pause game'}
+            className="pointer-events-auto min-w-[44px] min-h-[44px] px-3 rounded-lg bg-zinc-800/80 border border-zinc-600 text-zinc-200 flex items-center gap-2"
           >
-            {paused ? 'Resume' : 'Pause'}
+            <Icon name={paused ? 'play' : 'pause'} size={18} />
+            <span className="text-sm font-bold uppercase tracking-wider">{paused ? 'Resume' : 'Pause'}</span>
           </button>
         )}
       </div>
@@ -239,8 +265,9 @@ export default function DKHeroPage() {
           </p>
           <button
             onClick={startGame}
-            className="mt-6 min-w-[44px] min-h-[44px] px-8 py-3 rounded-xl bg-amber-400 text-black text-lg font-black uppercase tracking-widest hover:bg-amber-300"
+            className="mt-6 min-w-[44px] min-h-[44px] px-8 py-3 rounded-xl bg-amber-400 text-black text-lg font-black uppercase tracking-widest hover:bg-amber-300 flex items-center gap-3"
           >
+            <Icon name="play" size={22} />
             {reducedMotion ? 'Tap to play' : 'Play'}
           </button>
         </div>
@@ -252,8 +279,9 @@ export default function DKHeroPage() {
           <p className="text-2xl font-black text-white uppercase tracking-widest">Paused</p>
           <button
             onClick={() => setPaused(false)}
-            className="mt-4 min-w-[44px] min-h-[44px] px-8 py-3 rounded-xl bg-cyan-400 text-black text-lg font-black uppercase tracking-widest"
+            className="mt-4 min-w-[44px] min-h-[44px] px-8 py-3 rounded-xl bg-cyan-400 text-black text-lg font-black uppercase tracking-widest flex items-center gap-3"
           >
+            <Icon name="play" size={22} />
             Resume
           </button>
         </div>
@@ -266,8 +294,9 @@ export default function DKHeroPage() {
           <p className="mt-3 text-zinc-300">Final score: <span className="text-white font-bold">{hud.score}</span></p>
           <button
             onClick={startGame}
-            className="mt-6 min-w-[44px] min-h-[44px] px-8 py-3 rounded-xl bg-amber-400 text-black text-lg font-black uppercase tracking-widest hover:bg-amber-300"
+            className="mt-6 min-w-[44px] min-h-[44px] px-8 py-3 rounded-xl bg-amber-400 text-black text-lg font-black uppercase tracking-widest hover:bg-amber-300 flex items-center gap-3"
           >
+            <Icon name="replay" size={22} />
             Play again
           </button>
         </div>
@@ -277,18 +306,19 @@ export default function DKHeroPage() {
       {screen === 'playing' && !paused && (
         <div className="absolute bottom-0 left-0 right-0 flex items-end justify-between px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-2">
           <div className="flex gap-3">
-            <button aria-label="Move left" className={btn} {...bindHold('left')}>◀</button>
-            <button aria-label="Move right" className={btn} {...bindHold('right')}>▶</button>
+            <button aria-label="Move left" className={btn} {...bindHold('left')}><Icon name="left" size={26} /></button>
+            <button aria-label="Move right" className={btn} {...bindHold('right')}><Icon name="right" size={26} /></button>
           </div>
           <div className="flex gap-3">
-            <button aria-label="Climb up" className={btn} {...bindHold('up')}>▲</button>
-            <button aria-label="Climb down" className={btn} {...bindHold('down')}>▼</button>
+            <button aria-label="Climb up" className={btn} {...bindHold('up')}><Icon name="up" size={26} /></button>
+            <button aria-label="Climb down" className={btn} {...bindHold('down')}><Icon name="down" size={26} /></button>
           </div>
           <button
             aria-label="Jump"
-            className="select-none touch-none flex items-center justify-center min-w-[72px] min-h-[72px] rounded-full bg-amber-400/25 border-2 border-amber-300/60 text-amber-200 text-lg font-black uppercase active:bg-amber-300/50"
+            className="select-none touch-none flex flex-col items-center justify-center min-w-[72px] min-h-[72px] rounded-full bg-amber-400/25 border-2 border-amber-300/60 text-amber-200 text-lg font-black uppercase active:bg-amber-300/50"
             {...bindHold('jump')}
           >
+            <Icon name="jump" size={22} />
             Jump
           </button>
         </div>

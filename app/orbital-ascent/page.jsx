@@ -25,6 +25,21 @@ export default function OrbitalAscentPage() {
   const [overlay, setOverlay] = useState({ kind: "menu", text: "" });
   const gameRef = useRef(null);
 
+  // --- DIONYSUS interior treatment ---
+  const OA_BG = "/images/orbital-ascent/bg.webp";
+  const OA_TILE = "/images/shared/magenta-marble-tile.webp";
+  const OA_GLYPHS = {
+    left: "M15.5 4.5 8 12l7.5 7.5 1.8-1.8L11.6 12l5.7-5.7z",
+    right: "M8.5 4.5 16 12l-7.5 7.5-1.8-1.8L12.4 12 6.7 6.3z",
+    jump: "M12 3l8 8h-5v10h-6V11H4z",
+    rocket: "M12 2c3 2 5 6 5 10l3 4-4 1c-1 2-2.5 3-4 3s-3-1-4-3l-4-1 3-4c0-4 2-8 5-10zm0 4c-1.5 1.5-2.5 3.8-2.5 6h5c0-2.2-1-4.5-2.5-6zM9 20h6v2H9z",
+  };
+  const OaIcon = ({ name, size = 26 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style={{ flexShrink: 0 }}>
+      <path d={OA_GLYPHS[name]} />
+    </svg>
+  );
+
   useEffect(() => {
     document.title = "Orbital Ascent";
     const canvas = canvasRef.current;
@@ -261,6 +276,8 @@ export default function OrbitalAscentPage() {
   return (
     <>
     <div style={styles.page}>
+      {/* Ambient backdrop behind the canvas (shows at boot, before first frame) */}
+      <div aria-hidden="true" style={{ position: "absolute", inset: 0, backgroundImage: `url(${OA_BG})`, backgroundSize: "cover", backgroundPosition: "center", opacity: 0.45 }} />
       <div ref={levelLabelRef} style={styles.hud}>Level 1 / 99</div>
       <div style={styles.hint}>Steer with ← → or the pad. Press JUMP as the ring closes.</div>
       <canvas ref={canvasRef} style={styles.canvas} />
@@ -270,17 +287,17 @@ export default function OrbitalAscentPage() {
           <button
             style={styles.padBtn} aria-label="Steer left"
             onPointerDown={() => press(-1)} onPointerUp={() => press(0)} onPointerLeave={() => press(0)}
-          >◀</button>
+          ><OaIcon name="left" /></button>
           <button
             style={styles.padBtn} aria-label="Steer right"
             onPointerDown={() => press(1)} onPointerUp={() => press(0)} onPointerLeave={() => press(0)}
-          >▶</button>
+          ><OaIcon name="right" /></button>
         </div>
-        <button style={styles.jumpBtn} onPointerDown={jump} aria-label="Jump">JUMP</button>
+        <button style={styles.jumpBtn} onPointerDown={jump} aria-label="Jump"><OaIcon name="jump" size={30} /></button>
       </div>
 
       {overlay.kind !== "none" && (
-        <div style={styles.overlay}>
+        <div style={{ ...styles.overlay, backgroundImage: `url(${OA_TILE})`, backgroundSize: "128px 128px", backgroundBlendMode: "overlay" }}>
           <h1 style={styles.title}>Orbital Ascent</h1>
           <p style={styles.sub}>
             {overlay.kind === "menu" &&
@@ -288,7 +305,8 @@ export default function OrbitalAscentPage() {
             {overlay.kind === "lost" && overlay.text}
             {overlay.kind === "won" && overlay.text}
           </p>
-          <button style={styles.startBtn} onClick={() => window.startAscent && window.startAscent()}>
+          <button style={{ ...styles.startBtn, display: "inline-flex", alignItems: "center", gap: 10 }} onClick={() => window.startAscent && window.startAscent()}>
+            <OaIcon name="rocket" size={22} />
             {overlay.kind === "menu" ? "Begin Ascent" : "Climb Again"}
           </button>
           <p style={styles.keys}>Keys: ← → or A D to steer · Space to jump</p>

@@ -19,6 +19,32 @@ import {
 
 const CATEGORIES = ['all', 'hockey', 'concerts', 'sports', 'arts', 'other'];
 
+// --- DIONYSUS interior treatment: SVG glyphs + styled loading state ---
+const RA_T_GLYPHS = {
+  back: 'M15.5 4.5 8 12l7.5 7.5 1.8-1.8L11.6 12l5.7-5.7z',
+  next: 'M8.5 4.5 16 12l-7.5 7.5-1.8-1.8L12.4 12 6.7 6.3z',
+  search: 'M10 2a8 8 0 1 0 4.9 14.3l5 5 1.4-1.4-5-5A8 8 0 0 0 10 2zm0 2a6 6 0 1 1 0 12 6 6 0 0 1 0-12z',
+  refresh: 'M12 5V1L7 6l5 5V7c3.3 0 6 2.7 6 6s-2.7 6-6 6-6-2.7-6-6H4c0 4.4 3.6 8 8 8s8-3.6 8-8-3.6-8-8-8z',
+};
+function TicketIcon({ name, size = 16 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className="shrink-0">
+      <path d={RA_T_GLYPHS[name]} />
+    </svg>
+  );
+}
+function TicketLoader({ text }) {
+  return (
+    <div className="py-8 text-center" role="status" aria-label={text}>
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" aria-hidden="true" className="mx-auto animate-spin">
+        <circle cx="12" cy="12" r="9" stroke="rgba(0,229,255,0.2)" strokeWidth="2.5" />
+        <path d="M21 12a9 9 0 0 0-9-9" stroke="#00e5ff" strokeWidth="2.5" strokeLinecap="round" />
+      </svg>
+      <p className="text-cyan-200/80 text-sm mt-3 tracking-widest uppercase">{text}</p>
+    </div>
+  );
+}
+
 async function apiJson(path) {
   const res = await fetch(path);
   const data = await res.json().catch(() => ({}));
@@ -138,8 +164,9 @@ export default function Tickets() {
               setStatus('idle');
               setView('search');
             }}
-            className="mt-4 min-h-[44px] px-5 rounded-xl border border-amber-300/50 text-amber-100 text-sm font-bold uppercase tracking-widest"
+            className="mt-4 min-h-[44px] px-5 rounded-xl border border-amber-300/50 text-amber-100 text-sm font-bold uppercase tracking-widest inline-flex items-center gap-2"
           >
+            <TicketIcon name="refresh" />
             Try again
           </button>
         </section>
@@ -172,8 +199,9 @@ export default function Tickets() {
             />
             <button
               type="submit"
-              className="min-h-[48px] px-5 rounded-xl bg-cyan-400/90 text-black text-sm font-bold uppercase tracking-widest"
+              className="min-h-[48px] px-5 rounded-xl bg-cyan-400/90 text-black text-sm font-bold uppercase tracking-widest flex items-center gap-2"
             >
+              <TicketIcon name="search" />
               Search
             </button>
           </form>
@@ -197,9 +225,7 @@ export default function Tickets() {
           </div>
 
           {status === 'loading' && (
-            <p className="text-sm text-zinc-400 mt-6" role="status">
-              Searching stadiums…
-            </p>
+            <TicketLoader text="Searching stadiums…" />
           )}
 
           {status === 'idle' && venues.length > 0 && (
@@ -219,7 +245,7 @@ export default function Tickets() {
                           : ''}
                       </span>
                     </span>
-                    <span className="text-cyan-300 text-lg" aria-hidden="true">→</span>
+                    <span className="text-cyan-300" aria-hidden="true"><TicketIcon name="next" size={20} /></span>
                   </button>
                 </li>
               ))}
@@ -238,9 +264,10 @@ export default function Tickets() {
         <section aria-label={`Events at ${venue.name}`}>
           <button
             onClick={backToSearch}
-            className="min-h-[44px] text-sm text-cyan-300 underline underline-offset-4 mb-2"
+            className="min-h-[44px] text-sm text-cyan-300 underline underline-offset-4 mb-2 inline-flex items-center gap-1"
           >
-            ← Back to stadium search
+            <TicketIcon name="back" size={14} />
+            Back to stadium search
           </button>
           <h2 className="text-lg sm:text-xl font-black">{venue.name}</h2>
           <p className="text-xs text-zinc-400 mt-1">
@@ -265,9 +292,7 @@ export default function Tickets() {
           </div>
 
           {status === 'loading' && (
-            <p className="text-sm text-zinc-400 mt-6" role="status">
-              Loading events…
-            </p>
+            <TicketLoader text="Loading events…" />
           )}
 
           {status === 'idle' && shown.length === 0 && (
@@ -319,7 +344,7 @@ export default function Tickets() {
       )}
 
       {status === 'loading' && view === 'detail' && !detail && (
-        <p className="text-sm text-zinc-400 mt-6" role="status">Loading event…</p>
+        <TicketLoader text="Loading event…" />
       )}
     </div>
   );
@@ -331,9 +356,10 @@ function EventDetail({ event, venueName, onBack }) {
     <article aria-label={ev.name}>
       <button
         onClick={onBack}
-        className="min-h-[44px] text-sm text-cyan-300 underline underline-offset-4 mb-3"
+        className="min-h-[44px] text-sm text-cyan-300 underline underline-offset-4 mb-3 inline-flex items-center gap-1"
       >
-        ← Back to events
+        <TicketIcon name="back" size={14} />
+        Back to events
       </button>
 
       {ev.image && (

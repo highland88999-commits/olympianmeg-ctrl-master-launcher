@@ -1,25 +1,5 @@
 'use client';
 
-
-// Menu Art Transfer batch 2 — submenu art. Background image + dark legibility
-// scrim; a missing image hides itself via onError so the card falls back to
-// its plain style. Never breaks the UI.
-function SubmenuArt({ slot }) {
-  return (
-    <>
-      <img
-        src={submenuArtFor(slot)}
-        alt=""
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-        loading="lazy"
-        onError={(e) => { e.currentTarget.style.display = 'none'; }}
-      />
-      <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-black/55" />
-    </>
-  );
-}
-
 // Raptor Rush — vertical dead-ahead canyon runner. Steer left/right to eat
 // rabbits and dodge rock. Solo hunt: 3 hits ends the run, best saved on this
 // device. OASIS party: timed PvP matches in real rooms — everyone runs their
@@ -27,7 +7,6 @@ function SubmenuArt({ slot }) {
 // as the match progresses, high score wins.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { submenuArtFor } from '@/lib/god-menus';
 import { BackButton } from '@/components/ui';
 import {
   createGame,
@@ -54,6 +33,30 @@ import { fx, unlockFx } from '@/lib/fx';
 
 const BEST_KEY = 'raptor_rush_best';
 const NAME_KEY = 'raptor_rush_name';
+
+// --- DIONYSUS interior treatment: SVG glyph system + ambient backdrop ---
+const RR_BG = '/images/raptor-rush/bg.webp';
+const RR_TILE = '/images/shared/magenta-marble-tile.webp';
+const RR_GLYPHS = {
+  play: 'M8 5v14l11-7z',
+  replay: 'M12 5V1L7 6l5 5V7c3.3 0 6 2.7 6 6s-2.7 6-6 6-6-2.7-6-6H4c0 4.4 3.6 8 8 8s8-3.6 8-8-3.6-8-8-8z',
+  users: 'M16 11a4 4 0 1 0-4-4 4 4 0 0 0 4 4zm-8 0a4 4 0 1 0-.6-7.95A5.5 5.5 0 0 1 8 11zm8 2c-2.7 0-8 1.3-8 4v3h16v-3c0-2.7-5.3-4-8-4zM2 16v-2c0-1.9 3.1-3 5-3.4A6.6 6.6 0 0 0 6 13c0 1.5.6 2.9 1.6 4H4v-1z',
+  home: 'M12 3l9 8h-3v9h-4v-6H10v6H6v-9H3z',
+  check: 'M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z',
+  claw: 'M12 2c-1 4-1 6 0 9-2-1-4-1-6 0 3 1 5 3 6 5-1 2-1 4 0 6 1-2 1-4 0-6 1-2 3-4 6-5-2-1-4-1-6 0 1-3 1-5 0-9z',
+};
+function RrIcon({ name, size = 20 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className="shrink-0">
+      <path d={RR_GLYPHS[name]} />
+    </svg>
+  );
+}
+const rrPanelTile = {
+  backgroundImage: `url(${RR_TILE})`,
+  backgroundSize: '128px 128px',
+  backgroundBlendMode: 'overlay',
+};
 
 export default function RaptorRushPage() {
   const canvasRef = useRef(null);
@@ -379,7 +382,10 @@ export default function RaptorRushPage() {
   if (screen === 'menu') {
     return (
       <main className="fixed inset-0 w-screen h-[100dvh] bg-black overflow-y-auto select-none">
-        <div className="min-h-full flex flex-col items-center justify-center px-6 py-10 text-center max-w-md mx-auto">
+        {/* Ambient backdrop: canyon-night art behind the menus */}
+        <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-cover bg-center opacity-45" style={{ backgroundImage: `url(${RR_BG})` }} />
+        <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/60 via-black/50 to-black/85" />
+        <div className="relative min-h-full flex flex-col items-center justify-center px-6 py-10 text-center max-w-md mx-auto">
           <div className="text-[10px] tracking-[0.5em] text-emerald-500 uppercase mb-2">The canyon runs dead ahead</div>
           <h1 className="text-5xl font-black tracking-[0.12em] uppercase text-white">
             Raptor<span className="text-emerald-400">Rush</span>
@@ -392,23 +398,21 @@ export default function RaptorRushPage() {
           <div className="w-full flex flex-col gap-3 mt-8">
             <button
               onClick={() => startRun('solo', null)}
-              className="relative overflow-hidden px-6 py-5 rounded border border-emerald-400/60 bg-emerald-500/15 hover:bg-emerald-500/30 transition-all text-left min-h-[44px]"
+              className="px-6 py-5 rounded border border-emerald-400/60 bg-emerald-500/15 hover:bg-emerald-500/30 transition-all text-left min-h-[44px]"
             >
-              <SubmenuArt slot="submenu-prog-raptor-rush-solo-hunt" />
-              <div className="relative text-lg font-black tracking-[0.2em] uppercase text-emerald-100">Solo hunt</div>
-              <div className="relative text-xs text-zinc-400 tracking-widest uppercase mt-1">Endless canyon · 3 hits and the hunt is over</div>
+              <div className="text-lg font-black tracking-[0.2em] uppercase text-emerald-100 flex items-center gap-3"><RrIcon name="claw" size={22} />Solo hunt</div>
+              <div className="text-xs text-zinc-400 tracking-widest uppercase mt-1">Endless canyon · 3 hits and the hunt is over</div>
             </button>
             <button
               onClick={() => setOasisOpen(true)}
-              className="relative overflow-hidden px-6 py-5 rounded border border-amber-400/60 bg-amber-500/15 hover:bg-amber-500/30 transition-all text-left min-h-[44px]"
+              className="px-6 py-5 rounded border border-amber-400/60 bg-amber-500/15 hover:bg-amber-500/30 transition-all text-left min-h-[44px]"
             >
-              <SubmenuArt slot="submenu-prog-raptor-rush-pvp-party-hunt" />
-              <div className="relative text-lg font-black tracking-[0.2em] uppercase text-amber-100">PvP party hunt</div>
-              <div className="relative text-xs text-zinc-400 tracking-widest uppercase mt-1">Timed match · Real rooms · Rabbits keep coming · High score wins</div>
+              <div className="text-lg font-black tracking-[0.2em] uppercase text-amber-100 flex items-center gap-3"><RrIcon name="users" size={22} />PvP party hunt</div>
+              <div className="text-xs text-zinc-400 tracking-widest uppercase mt-1">Timed match · Real rooms · Rabbits keep coming · High score wins</div>
             </button>
           </div>
 
-          <div className="w-full mt-8 text-left text-sm text-zinc-300 bg-black/40 border border-zinc-800 rounded p-4 space-y-2">
+          <div className="w-full mt-8 text-left text-sm text-zinc-300 bg-black/40 border border-zinc-800 rounded p-4 space-y-2" style={rrPanelTile}>
             <p><span className="text-emerald-300 font-bold">Steer.</span> Drag left and right — the raptor follows your finger. On desktop: ←/→ or A/D.</p>
             <p><span className="text-emerald-300 font-bold">Eat.</span> Run into rabbits to gobble them — each one is worth 25 points.</p>
             <p><span className="text-emerald-300 font-bold">Dodge.</span> Rock spires, boulders, and drifting rockfall cost you a heart. Three hits ends the hunt.</p>
@@ -550,8 +554,9 @@ export default function RaptorRushPage() {
           </p>
           <button
             onClick={begin}
-            className="mt-8 px-10 py-4 min-h-[44px] text-xl font-bold rounded-lg bg-emerald-400 text-black hover:bg-emerald-300 transition-colors"
+            className="mt-8 px-10 py-4 min-h-[44px] text-xl font-bold rounded-lg bg-emerald-400 text-black hover:bg-emerald-300 transition-colors flex items-center gap-3"
           >
+            <RrIcon name="play" size={22} />
             {isParty ? 'Start the party hunt' : 'Start the hunt'}
           </button>
         </div>
@@ -620,8 +625,9 @@ export default function RaptorRushPage() {
                   <button
                     onClick={handleSave}
                     disabled={saving}
-                    className="px-4 py-3 min-h-[44px] bg-emerald-500/20 border border-emerald-400/60 rounded text-emerald-200 text-sm font-bold tracking-widest uppercase hover:bg-emerald-500/40 disabled:opacity-50"
+                    className="px-4 py-3 min-h-[44px] bg-emerald-500/20 border border-emerald-400/60 rounded text-emerald-200 text-sm font-bold tracking-widest uppercase hover:bg-emerald-500/40 disabled:opacity-50 flex items-center gap-2"
                   >
+                    <RrIcon name="check" size={16} />
                     {saving ? 'Saving…' : 'Save'}
                   </button>
                 </div>
@@ -633,14 +639,16 @@ export default function RaptorRushPage() {
             <div className="mt-4 flex flex-col gap-2 w-full max-w-xs">
               <button
                 onClick={begin}
-                className="w-full px-6 py-4 min-h-[44px] rounded border text-sm font-black tracking-[0.25em] uppercase bg-emerald-500/15 border-emerald-400/60 text-emerald-100 hover:bg-emerald-500/35 transition-all"
+                className="w-full px-6 py-4 min-h-[44px] rounded border text-sm font-black tracking-[0.25em] uppercase bg-emerald-500/15 border-emerald-400/60 text-emerald-100 hover:bg-emerald-500/35 transition-all flex items-center justify-center gap-3"
               >
+                <RrIcon name="replay" size={18} />
                 {isParty ? 'Run it back' : 'Hunt again'}
               </button>
               <button
                 onClick={quitToMenu}
-                className="w-full px-6 py-4 min-h-[44px] rounded border text-sm font-black tracking-[0.25em] uppercase bg-black/40 border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-400 transition-all"
+                className="w-full px-6 py-4 min-h-[44px] rounded border text-sm font-black tracking-[0.25em] uppercase bg-black/40 border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-400 transition-all flex items-center justify-center gap-3"
               >
+                <RrIcon name="home" size={18} />
                 Main menu
               </button>
             </div>
@@ -650,4 +658,3 @@ export default function RaptorRushPage() {
     </main>
   );
 }
-

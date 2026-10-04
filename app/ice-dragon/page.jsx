@@ -12,6 +12,19 @@ import { createIceDragonScene } from './scene.js';
 
 const RING_C = 2 * Math.PI * 52; // progress ring circumference (r=52)
 
+// --- DIONYSUS interior treatment ---
+const ID_BG = '/images/ice-dragon/bg.webp';
+const ICE_TILE = '/images/shared/ice-crystal-tile.webp';
+function IceGlyph({ size = 40, className = '' }) {
+  // Abstract glacial-dragon spark: no text, inline SVG, zero image weight.
+  return (
+    <svg width={size} height={size} viewBox="0 0 48 48" fill="none" aria-hidden="true" className={className}>
+      <path d="M24 3 29 19 45 24 29 29 24 45 19 29 3 24 19 19Z" fill="rgba(0,229,255,0.25)" stroke="#aef6ff" strokeWidth="1.6" />
+      <path d="M24 12 26.5 21.5 36 24 26.5 26.5 24 36 21.5 26.5 12 24 21.5 21.5Z" fill="#aef6ff" opacity="0.9" />
+    </svg>
+  );
+}
+
 const COPY = {
   [STATES.IDLE]: { title: 'THE GLACIAL DRAGON', sub: 'Tap to awaken' },
   [STATES.APPROACH]: { title: 'THE GLACIAL DRAGON', sub: 'Tap to descend to the ice floor' },
@@ -170,6 +183,9 @@ export default function IceDragonPage() {
 
   return (
     <div className="fixed inset-0 bg-[#01050a] overflow-hidden select-none" style={{ touchAction: 'none' }}>
+      {/* Ambient backdrop behind the 3D canvas (shows while the scene boots + through translucent overlays) */}
+      <div aria-hidden="true" className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${ID_BG})` }} />
+      <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-b from-[#01050a]/70 via-[#01050a]/55 to-[#01050a]/85" />
       <canvas
         ref={canvasRef}
         className="absolute inset-0 w-full h-full block outline-none"
@@ -191,6 +207,7 @@ export default function IceDragonPage() {
           style={{ touchAction: 'manipulation' }}
           aria-label={copy.sub}
         >
+          <IceGlyph className="mb-2 opacity-90" />
           <span className="icedragon-title text-white px-5">{copy.title}</span>
           <span className="icedragon-ticker mt-6">{copy.sub}</span>
         </button>
@@ -241,9 +258,10 @@ export default function IceDragonPage() {
           <div className="icedragon-hint mt-3">Hold it again to send it flying.</div>
           <button
             onClick={() => setAwakeBanner(false)}
-            className="pointer-events-auto mt-5 min-h-[44px] px-6 rounded-full bg-black/60 border border-cyan-400/40 text-cyan-100 text-sm tracking-widest uppercase hover:bg-cyan-400/20"
+            className="pointer-events-auto mt-5 min-h-[44px] px-6 rounded-full bg-black/60 border border-cyan-400/40 text-cyan-100 text-sm tracking-widest uppercase hover:bg-cyan-400/20 inline-flex items-center gap-2"
             style={{ touchAction: 'manipulation' }}
           >
+            <IceGlyph size={16} />
             Keep watching
           </button>
         </div>
@@ -251,7 +269,10 @@ export default function IceDragonPage() {
 
       {/* Altitude slider */}
       {showPanel && (
-        <div className="absolute bottom-6 right-4 z-20 bg-black/60 border border-cyan-400/30 rounded-lg px-4 py-3 backdrop-blur-sm">
+        <div
+          className="absolute bottom-6 right-4 z-20 bg-black/60 border border-cyan-400/30 rounded-lg px-4 py-3 backdrop-blur-sm"
+          style={{ backgroundImage: `url(${ICE_TILE})`, backgroundSize: '128px 128px', backgroundBlendMode: 'overlay' }}
+        >
           <label htmlFor="alt-slider" className="block text-[11px] tracking-[0.25em] uppercase text-cyan-200 mb-2">
             Flight height
           </label>

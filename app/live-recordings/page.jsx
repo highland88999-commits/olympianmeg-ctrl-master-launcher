@@ -33,6 +33,32 @@ import {
 const ACCEPT = ['video/mp4', 'video/quicktime', 'video/webm'];
 const MAX_BYTES = 100 * 1024 * 1024;
 
+// --- DIONYSUS interior treatment: SVG glyph system + styled loading ---
+const LR_BG = '/images/live-recordings/bg.webp';
+const LR_TILE = '/images/shared/magenta-marble-tile.webp';
+function LrIcon({ name, size = 15, filled = true }) {
+  const paths = {
+    upload: 'M12 3l6 6h-4v8h-4V9H6zM4 19h16v2H4z',
+    heart: 'M12 21C7 16.5 3 13.3 3 9.3 3 6.4 5.2 4.5 7.7 4.5c1.7 0 3.3.9 4.3 2.4 1-1.5 2.6-2.4 4.3-2.4 2.5 0 4.7 1.9 4.7 4.8 0 4-4 7.2-9 11.7z',
+  };
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={filled ? 0 : 2} aria-hidden="true" className="lr-icon">
+      <path d={paths[name]} />
+    </svg>
+  );
+}
+function LrLoader({ text }) {
+  return (
+    <div className="lr-loader" role="status" aria-label={text}>
+      <svg width="34" height="34" viewBox="0 0 24 24" fill="none" aria-hidden="true" className="lr-spin">
+        <circle cx="12" cy="12" r="9" stroke="rgba(124,58,237,0.25)" strokeWidth="2.5" />
+        <path d="M21 12a9 9 0 0 0-9-9" stroke="#a78bfa" strokeWidth="2.5" strokeLinecap="round" />
+      </svg>
+      <p className="lr-sub" style={{ margin: '0.75rem 0 0' }}>{text}</p>
+    </div>
+  );
+}
+
 // Table-doesn't-exist (migration not run yet).
 function isMissingTable(err) {
   if (!err) return false;
@@ -306,6 +332,10 @@ export default function LiveRecordingsPage() {
   return (
     <main className="lr-wrap">
       <style>{CSS}</style>
+      {/* Ambient backdrop: fixed behind the scrolling feed */}
+      <div aria-hidden="true" className="lr-ambient" style={{ backgroundImage: `url(${LR_BG})` }} />
+      <div aria-hidden="true" className="lr-scrim" />
+      <div className="lr-content">
       <header className="lr-head">
         <h1>Live Recordings</h1>
         <p className="lr-sub">Community clips from the Olympusverse — newest first.</p>
@@ -337,7 +367,8 @@ export default function LiveRecordingsPage() {
                 onChange={(e) => setTitle(e.target.value)}
               />
               {file && <p className="lr-hint">{file.name} — {(file.size / 1048576).toFixed(1)} MB</p>}
-              <button className="lr-btn" onClick={upload} disabled={uploading || !file}>
+              <button className="lr-btn lr-post" onClick={upload} disabled={uploading || !file}>
+                <LrIcon name="upload" size={16} />
                 {uploading ? `Uploading… ${progress}%` : 'Post recording'}
               </button>
               {uploading && (
@@ -348,7 +379,7 @@ export default function LiveRecordingsPage() {
             </section>
           )}
 
-          {loading && <p className="lr-sub">Loading recordings…</p>}
+          {loading && <LrLoader text="Loading recordings…" />}
           {error && <p className="lr-err">{error}</p>}
           {!loading && !error && rows.length === 0 && (
             <div className="lr-panel">
@@ -401,7 +432,8 @@ export default function LiveRecordingsPage() {
                         aria-pressed={liked}
                         aria-label={liked ? 'Unlike' : 'Like'}
                       >
-                        {liked ? '♥' : '♡'} {r.likes_count || 0}
+                        <LrIcon name="heart" size={14} filled={liked} />
+                        {r.likes_count || 0}
                       </button>
                       <ShareRecording recording={{ id: r.id, title: r.title, tiktok_handle: handle }} />
                     </div>
@@ -412,17 +444,27 @@ export default function LiveRecordingsPage() {
           </section>
         </>
       )}
+      </div>
     </main>
   );
 }
 
 const CSS = `
-.lr-wrap { max-width: 1100px; margin: 0 auto; padding: 1.5rem 1rem 4rem; color: #e8e8ee; }
+.lr-wrap { max-width: 1100px; margin: 0 auto; padding: 1.5rem 1rem 4rem; color: #e8e8ee; position: relative; }
+.lr-ambient { position: fixed; inset: 0; background-size: cover; background-position: center; opacity: 0.32; pointer-events: none; z-index: 0; }
+.lr-scrim { position: fixed; inset: 0; background: linear-gradient(rgba(5,5,12,0.62), rgba(5,5,12,0.78)); pointer-events: none; z-index: 0; }
+.lr-content { position: relative; z-index: 1; }
+.lr-loader { padding: 2.5rem 0; text-align: center; }
+.lr-spin { animation: lr-spin 1s linear infinite; margin: 0 auto; }
+@keyframes lr-spin { to { transform: rotate(360deg); } }
+.lr-icon { flex-shrink: 0; vertical-align: -2px; }
+.lr-post { display: inline-flex; align-items: center; gap: 0.5rem; }
+.lr-like { display: inline-flex; align-items: center; gap: 0.4rem; }
 .lr-head h1 { font-size: 1.6rem; margin: 0 0 0.25rem; font-weight: 800; letter-spacing: 0.01em; }
 .lr-sub { color: #9a9aa8; font-size: 0.9rem; margin: 0 0 1rem; }
 .lr-big { font-size: 1.1rem; font-weight: 700; margin: 0 0 0.5rem; }
 .lr-panel { background: rgba(255,255,255,0.03); border: 1px solid #26262f; border-radius: 12px; padding: 1.5rem; margin: 1rem 0; }
-.lr-upload { background: rgba(255,255,255,0.03); border: 1px solid #26262f; border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: 1.5rem; }
+.lr-upload { background: rgba(255,255,255,0.03) url(${LR_TILE}); background-size: 128px 128px; background-blend-mode: overlay; border: 1px solid #26262f; border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: 1.5rem; }
 .lr-upload h2 { font-size: 1rem; margin: 0 0 0.75rem; }
 .lr-upload input[type="text"] { width: 100%; margin: 0.6rem 0; padding: 0.6rem 0.75rem; border-radius: 8px; border: 1px solid #33333e; background: #0d0d14; color: #eee; font-size: 0.95rem; }
 .lr-upload input[type="file"] { color: #bbb; font-size: 0.85rem; }
@@ -434,7 +476,7 @@ const CSS = `
 .lr-err { color: #fe53bb; font-size: 0.85rem; }
 .lr-ok { color: #06d6a0; font-size: 0.85rem; }
 .lr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; }
-.lr-card { background: rgba(255,255,255,0.03); border: 1px solid #26262f; border-radius: 12px; overflow: hidden; transition: border-color 0.3s; }
+.lr-card { background: rgba(255,255,255,0.03) url(${LR_TILE}); background-size: 128px 128px; background-blend-mode: overlay; border: 1px solid #26262f; border-radius: 12px; overflow: hidden; transition: border-color 0.3s; }
 .lr-card.lr-focus { border-color: #7c3aed; }
 .lr-video { width: 100%; aspect-ratio: 9/16; max-height: 480px; background: #000; display: block; }
 .lr-card-body { padding: 0.75rem 0.9rem 1rem; }

@@ -41,6 +41,40 @@ export default function NeonRacerPage() {
   const [finalScore, setFinalScore] = useState(0);
   const [muted, setMuted] = useState(false);
 
+  // --- DIONYSUS interior treatment: ambient menu backdrop (video only off-gameplay) ---
+  const NR_BG = '/images/neon-racer/bg.webp';
+  const NR_VIDEO = '/images/neon-racer/bg-loop.mp4';
+  const NR_STILL = '/images/neon-racer/bg-still.jpg';
+  const [ambience, setAmbience] = useState('video');
+  const reducedMotionInit = useRef(false);
+  useEffect(() => {
+    try {
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { setAmbience('still'); reducedMotionInit.current = true; return; }
+      const saved = window.localStorage.getItem('neon-racer-bg');
+      if (saved === 'still' || saved === 'off' || saved === 'video') setAmbience(saved);
+    } catch { /* storage unavailable */ }
+  }, []);
+  const cycleAmbience = () => {
+    setAmbience((a) => {
+      const next = a === 'video' ? 'still' : a === 'still' ? 'off' : 'video';
+      try { window.localStorage.setItem('neon-racer-bg', next); } catch { /* noop */ }
+      return next;
+    });
+  };
+
+  // Inline SVG glyphs (zero image weight).
+  const GLYPHS = {
+    play: 'M8 5v14l11-7z',
+    replay: 'M12 5V1L7 6l5 5V7c3.3 0 6 2.7 6 6s-2.7 6-6 6-6-2.7-6-6H4c0 4.4 3.6 8 8 8s8-3.6 8-8-3.6-8-8-8z',
+    soundOn: 'M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z',
+    soundOff: 'M3 9v6h4l5 5V4L7 9H3zm13.6 3 2.5-2.5-1.4-1.4-2.5 2.5-2.5-2.5-1.4 1.4L13.8 12l-2.5 2.5 1.4 1.4 2.5-2.5 2.5 2.5 1.4-1.4z',
+  };
+  const NrIcon = ({ name, size = 20 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className="shrink-0">
+      <path d={GLYPHS[name]} />
+    </svg>
+  );
+
   // --- game loop -----------------------------------------------------------
   useEffect(() => {
     const container = containerRef.current;
@@ -227,15 +261,42 @@ export default function NeonRacerPage() {
           <button
             onClick={toggleMute}
             aria-label={muted ? 'Unmute sound' : 'Mute sound'}
-            className="absolute bottom-[calc(4.5rem+env(safe-area-inset-bottom))] right-4 z-20 w-11 h-11 rounded-full border border-cyan-400/40 bg-black/60 text-cyan-300 text-lg"
+            className="absolute bottom-[calc(4.5rem+env(safe-area-inset-bottom))] right-4 z-20 w-11 h-11 rounded-full border border-cyan-400/40 bg-black/60 text-cyan-300 flex items-center justify-center"
           >
-            {muted ? '🔇' : '🔊'}
+            <NrIcon name={muted ? 'soundOff' : 'soundOn'} size={20} />
           </button>
         )}
 
         {/* Intro overlay */}
         {phase === 'ready' && (
-          <div className="absolute inset-0 z-30 bg-black/90 flex flex-col items-center justify-center text-center px-6">
+          <div className="absolute inset-0 z-30 bg-black/80 flex flex-col items-center justify-center text-center px-6 overflow-hidden">
+            {/* Ambient menu backdrop: deep-space drift. Video → Still → Off. Never over gameplay. */}
+            <div aria-hidden="true" className="absolute inset-0 pointer-events-none">
+              {ambience === 'video' && (
+                <video
+                  src={NR_VIDEO}
+                  autoPlay loop muted playsInline preload="metadata" poster={NR_STILL}
+                  className="absolute inset-0 w-full h-full object-cover opacity-60"
+                  aria-hidden="true"
+                />
+              )}
+              {ambience === 'still' && (
+                <div className="absolute inset-0 bg-cover bg-center opacity-60" style={{ backgroundImage: `url(${NR_STILL})` }} />
+              )}
+              {ambience === 'off' && (
+                <div className="absolute inset-0 bg-cover bg-center opacity-45" style={{ backgroundImage: `url(${NR_BG})` }} />
+              )}
+              <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-transparent to-black/70" />
+            </div>
+            <button
+              onClick={cycleAmbience}
+              aria-label={`Ambience: ${ambience}. Activate to change.`}
+              title={`Ambience: ${ambience} (Video → Still → Off)`}
+              className="absolute top-4 right-4 z-20 min-h-[44px] px-3 rounded-full bg-black/60 border border-white/20 text-[10px] font-bold tracking-widest uppercase text-zinc-300 hover:border-fuchsia-400/60"
+            >
+              {ambience === 'video' ? 'Video' : ambience === 'still' ? 'Still' : 'Off'}
+            </button>
+            <div className="relative z-10 flex flex-col items-center">
             <div className="text-xs tracking-[0.4em] text-fuchsia-400 uppercase mb-3">Deep Space Survival</div>
             <h1 className="text-5xl font-black tracking-widest text-cyan-300 mb-4" style={{ textShadow: '0 0 24px rgba(0,229,255,.7)' }}>NEON RACER</h1>
             <p className="text-zinc-300 max-w-sm text-sm leading-6 mb-2">
@@ -245,44 +306,64 @@ export default function NeonRacerPage() {
             <p className="text-zinc-400 text-sm mb-6">Survive {MISSION_SECONDS} seconds. You have 3 shields.</p>
             <button
               onClick={begin}
-              className="px-10 py-4 border-2 border-fuchsia-500 text-fuchsia-400 text-xl font-bold tracking-widest hover:bg-fuchsia-500/20 transition-colors"
+              className="px-10 py-4 border-2 border-fuchsia-500 text-fuchsia-400 text-xl font-bold tracking-widest hover:bg-fuchsia-500/20 transition-colors flex items-center gap-3"
               style={{ boxShadow: '0 0 18px rgba(255,61,240,.5)' }}
             >
+              <NrIcon name="play" size={22} />
               ENGINE START
             </button>
             <p className="text-zinc-600 text-xs mt-4">Keyboard: arrows or WASD to steer, space to shoot</p>
+            </div>
           </div>
         )}
 
         {/* Win overlay */}
         {phase === 'won' && (
-          <div className="absolute inset-0 z-30 bg-black/85 flex flex-col items-center justify-center text-center px-6">
+          <div className="absolute inset-0 z-30 bg-black/85 flex flex-col items-center justify-center text-center px-6 overflow-hidden">
+            {ambience !== 'off' && (
+              <div aria-hidden="true" className="absolute inset-0 pointer-events-none">
+                <div className="absolute inset-0 bg-cover bg-center opacity-40" style={{ backgroundImage: `url(${ambience === 'video' ? NR_STILL : NR_BG})` }} />
+                <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/75" />
+              </div>
+            )}
+            <div className="relative z-10 flex flex-col items-center">
             <h1 className="text-4xl font-black tracking-widest text-cyan-300 mb-2" style={{ textShadow: '0 0 24px rgba(0,229,255,.7)' }}>MISSION COMPLETE</h1>
             <p className="text-zinc-300 mb-1">You survived the run.</p>
             <p className="text-5xl font-black text-amber-300 my-4 tabular-nums">{finalScore}</p>
             <button
               onClick={begin}
-              className="px-10 py-4 border-2 border-cyan-400 text-cyan-300 text-xl font-bold tracking-widest hover:bg-cyan-400/20 transition-colors"
+              className="px-10 py-4 border-2 border-cyan-400 text-cyan-300 text-xl font-bold tracking-widest hover:bg-cyan-400/20 transition-colors flex items-center gap-3"
               style={{ boxShadow: '0 0 18px rgba(0,229,255,.5)' }}
             >
+              <NrIcon name="replay" size={22} />
               FLY AGAIN
             </button>
+            </div>
           </div>
         )}
 
         {/* Lose overlay */}
         {phase === 'lost' && (
-          <div className="absolute inset-0 z-30 bg-black/85 flex flex-col items-center justify-center text-center px-6">
+          <div className="absolute inset-0 z-30 bg-black/85 flex flex-col items-center justify-center text-center px-6 overflow-hidden">
+            {ambience !== 'off' && (
+              <div aria-hidden="true" className="absolute inset-0 pointer-events-none">
+                <div className="absolute inset-0 bg-cover bg-center opacity-40" style={{ backgroundImage: `url(${ambience === 'video' ? NR_STILL : NR_BG})` }} />
+                <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/75" />
+              </div>
+            )}
+            <div className="relative z-10 flex flex-col items-center">
             <h1 className="text-4xl font-black tracking-widest text-red-400 mb-2" style={{ textShadow: '0 0 24px rgba(255,49,49,.7)' }}>SHIELDS DEPLETED</h1>
             <p className="text-zinc-300 mb-1">The void claims another racer.</p>
             <p className="text-5xl font-black text-amber-300 my-4 tabular-nums">{finalScore}</p>
             <button
               onClick={begin}
-              className="px-10 py-4 border-2 border-red-400 text-red-300 text-xl font-bold tracking-widest hover:bg-red-400/20 transition-colors"
+              className="px-10 py-4 border-2 border-red-400 text-red-300 text-xl font-bold tracking-widest hover:bg-red-400/20 transition-colors flex items-center gap-3"
               style={{ boxShadow: '0 0 18px rgba(255,49,49,.5)' }}
             >
+              <NrIcon name="replay" size={22} />
               TRY AGAIN
             </button>
+            </div>
           </div>
         )}
       </div>

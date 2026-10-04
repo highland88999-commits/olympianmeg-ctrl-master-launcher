@@ -28,6 +28,80 @@ import {
   isValidRoomCode,
   ROOM_STATUS,
 } from '@/lib/oasis/rooms';
+
+// --- DIONYSUS interior treatment: SVG glyph system + ambient menu backdrop ---
+const LUGE_BG = '/images/luge/bg.webp';
+const LUGE_VIDEO = '/images/luge/bg-loop.mp4';
+const LUGE_STILL = '/images/luge/bg-still.jpg';
+const LUGE_ICE_TILE = '/images/shared/ice-crystal-tile.webp';
+
+const LUGE_GLYPHS = {
+  flag: 'M6 3h2v18H6zM10 4h11l-3 4 3 4H10z',
+  users: 'M16 11a4 4 0 1 0-4-4 4 4 0 0 0 4 4zm-8 0a4 4 0 1 0-.6-7.95A5.5 5.5 0 0 1 8 11zm8 2c-2.7 0-8 1.3-8 4v3h16v-3c0-2.7-5.3-4-8-4zM2 16v-2c0-1.9 3.1-3 5-3.4A6.6 6.6 0 0 0 6 13c0 1.5.6 2.9 1.6 4H4v-1z',
+  bag: 'M8 8V6a4 4 0 0 1 8 0v2h3l-1 13H6L5 8zm2 0h4V6a2 2 0 0 0-4 0z',
+  plus: 'M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z',
+  arrowRight: 'M5 11h11V7l5 5-5 5v-4H5z',
+  copy: 'M8 3h11v14h-2V5H8zm-4 4h11v14H4zm2 2v10h7V9z',
+  share: 'M18 8a3 3 0 1 0-2.8-4H15a3 3 0 0 0 .1.8L8.9 8.1a3 3 0 0 0 0 3.8l6.2 3.3a3 3 0 1 0 .9-1.6L9.8 10.3a3.4 3.4 0 0 0 0-1.4l6.2-3.3c.5.6 1.2 1 2 1z',
+  replay: 'M12 5V1L7 6l5 5V7c3.3 0 6 2.7 6 6s-2.7 6-6 6-6-2.7-6-6H4c0 4.4 3.6 8 8 8s8-3.6 8-8-3.6-8-8-8z',
+  zap: 'M13 2 4 14h6l-1 8 9-12h-6z',
+  x: 'M6 6l12 12M18 6 6 18',
+  home: 'M12 3l9 8h-3v9h-4v-6H10v6H6v-9H3z',
+  play: 'M8 5v14l11-7z',
+};
+function LIcon({ name, size = 18 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className="shrink-0">
+      <path d={LUGE_GLYPHS[name]} />
+    </svg>
+  );
+}
+
+// Ambient backdrop for luge menus (video ONLY on menus — never over gameplay).
+// Cycles Video → Still → Off, persisted in localStorage ('luge-bg').
+function LugeBackdrop({ video, toggle, mode }) {
+  return (
+    <>
+      <div aria-hidden="true" className="absolute inset-0 overflow-hidden pointer-events-none">
+        {video && mode === 'video' && (
+          <video
+            src={LUGE_VIDEO}
+            autoPlay
+            loop
+            muted
+            playsInline
+            preload="metadata"
+            poster={LUGE_STILL}
+            className="absolute inset-0 w-full h-full object-cover opacity-55"
+            aria-hidden="true"
+          />
+        )}
+        {(!video || mode === 'still') && mode !== 'off' && (
+          <div
+            className="absolute inset-0 bg-cover bg-center opacity-55"
+            style={{ backgroundImage: `url(${video ? LUGE_STILL : LUGE_BG})` }}
+          />
+        )}
+        <div className="absolute inset-0 bg-gradient-to-b from-black/70 via-black/55 to-black/85" />
+      </div>
+      {toggle && (
+        <button
+          onClick={toggle}
+          aria-label={`Ambience: ${mode}. Activate to change.`}
+          title={`Ambience: ${mode} (Video → Still → Off)`}
+          className="absolute top-4 right-4 z-20 min-h-[44px] px-3 rounded-full bg-black/60 border border-white/20 text-[10px] font-bold tracking-widest uppercase text-zinc-300 hover:border-cyan-400/60"
+        >
+          {mode === 'video' ? 'Video' : mode === 'still' ? 'Still' : 'Off'}
+        </button>
+      )}
+    </>
+  );
+}
+const lugePanelTile = {
+  backgroundImage: `url(${LUGE_ICE_TILE})`,
+  backgroundSize: '128px 128px',
+  backgroundBlendMode: 'overlay',
+};
 import {
   LUGE_PVP_SLUG,
   LUGE_MAX_RACERS,
@@ -335,6 +409,23 @@ export default function LugeEngine() {
 
   // States: 'menu', 'store', 'pre_race_calibrate', 'racing', 'podium'
   const [gameState, setGameState] = useState('menu');
+
+  // Ambient menu backdrop: Video → Still → Off (persisted). Reduced-motion users get Still.
+  const [ambience, setAmbience] = useState('video');
+  useEffect(() => {
+    try {
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { setAmbience('still'); return; }
+      const saved = window.localStorage.getItem('luge-bg');
+      if (saved === 'still' || saved === 'off' || saved === 'video') setAmbience(saved);
+    } catch { /* storage unavailable */ }
+  }, []);
+  const cycleAmbience = () => {
+    setAmbience((a) => {
+      const next = a === 'video' ? 'still' : a === 'still' ? 'off' : 'video';
+      try { window.localStorage.setItem('luge-bg', next); } catch { /* noop */ }
+      return next;
+    });
+  };
 
   const [selectedCourse, setSelectedCourse] = useState(LUGE_COURSES[0]);
   const [selectedSled, setSelectedSled] = useState(LUGE_SLEDS[0]);
@@ -1069,19 +1160,24 @@ export default function LugeEngine() {
   const isSledLocked = (sled) => sled.type === 'premium' && !ownedIds.has(sled.id);
 
   if (cloudOffline) return (
-    <div className="flex flex-col items-center justify-center w-full h-full p-8 text-center text-white bg-zinc-950">
+    <div className="relative flex flex-col items-center justify-center w-full h-full p-8 text-center text-white bg-black overflow-hidden">
+      <LugeBackdrop mode={ambience} />
+      <div className="relative z-10 flex flex-col items-center">
       <h1 className="mb-2 text-4xl text-cyan-400 uppercase tracking-widest">Cyberpunk Luge</h1>
       <p className="mb-4 text-sm font-bold tracking-widest text-amber-400 uppercase">Cloud features are offline</p>
       <p className="max-w-md mb-8 text-sm text-zinc-400">
         This page needs the database connection. Check back once the cloud is connected.
       </p>
       <BackButton label="Go to the hub" />
+      </div>
     </div>
   );
 
   if (!authed) {
     return (
-      <div className="flex flex-col items-center justify-center w-full h-full p-8 text-center text-white bg-zinc-950">
+      <div className="relative flex flex-col items-center justify-center w-full h-full p-8 text-center text-white bg-black overflow-hidden">
+        <LugeBackdrop mode={ambience} />
+        <div className="relative z-10 flex flex-col items-center">
         <h1 className="mb-2 text-4xl text-cyan-400 uppercase tracking-widest">Cyberpunk Luge</h1>
         <p className="mb-8 text-sm tracking-widest text-zinc-400 uppercase">Sign in to ride</p>
         <p className="max-w-md mb-8 text-sm text-zinc-400">
@@ -1089,6 +1185,7 @@ export default function LugeEngine() {
           Sign in at the master hub, then come back here.
         </p>
       <BackButton label="Go to the hub" />
+        </div>
       </div>
     );
   }
@@ -1098,8 +1195,10 @@ export default function LugeEngine() {
       <BackButton label="EXIT MATRIX" />
 
       {gameState === 'menu' && (
-        <div className="flex flex-col items-center w-full h-full p-6 sm:p-8 text-center text-white bg-zinc-950 overflow-y-auto">
-          <h1 className="mb-2 text-4xl text-cyan-400 drop-shadow-[0_0_15px_rgba(0,242,255,0.5)] uppercase tracking-widest shrink-0">Cyberpunk Luge</h1>
+        <div className="relative flex flex-col items-center w-full h-full p-6 sm:p-8 text-center text-white bg-black overflow-y-auto">
+          <LugeBackdrop video toggle={cycleAmbience} mode={ambience} />
+          <div className="relative z-10 flex flex-col items-center w-full shrink-0">
+          <h1 className="relative mb-2 text-4xl text-cyan-400 drop-shadow-[0_0_15px_rgba(0,242,255,0.5)] uppercase tracking-widest shrink-0">Cyberpunk Luge</h1>
           <p className="mb-2 text-sm tracking-widest text-zinc-500 uppercase shrink-0">Neon Descent Engine</p>
           {ownsArsenal && (
             <p className="mb-2 text-[11px] font-bold tracking-widest text-amber-400 uppercase">Complete Arsenal owned</p>
@@ -1119,7 +1218,7 @@ export default function LugeEngine() {
           )}
 
           <div className="flex flex-col sm:flex-row w-full max-w-5xl gap-6 sm:gap-8 sm:h-[60vh] shrink-0">
-            <div className="flex flex-col flex-1 min-h-[38vh] sm:min-h-0 p-4 overflow-y-auto border rounded border-cyan-500/30 bg-black/50 custom-scrollbar">
+            <div className="flex flex-col flex-1 min-h-[38vh] sm:min-h-0 p-4 overflow-y-auto border rounded border-cyan-500/30 bg-black/50 custom-scrollbar" style={lugePanelTile}>
               <h2 className="mb-4 font-bold text-fuchsia-400">SELECT COURSE</h2>
               {LUGE_COURSES.map(course => (
                 <div
@@ -1138,7 +1237,7 @@ export default function LugeEngine() {
               <div aria-hidden="true" className="player-clear shrink-0" />
             </div>
 
-            <div className="flex flex-col flex-1 min-h-[38vh] sm:min-h-0 p-4 overflow-y-auto border rounded border-fuchsia-500/30 bg-black/50 custom-scrollbar">
+            <div className="flex flex-col flex-1 min-h-[38vh] sm:min-h-0 p-4 overflow-y-auto border rounded border-fuchsia-500/30 bg-black/50 custom-scrollbar" style={lugePanelTile}>
               <h2 className="mb-4 font-bold text-cyan-400">SELECT SLED</h2>
               {LUGE_SLEDS.map(sled => {
                 const locked = isSledLocked(sled);
@@ -1166,8 +1265,9 @@ export default function LugeEngine() {
               })}
               <button
                 onClick={() => setGameState('store')}
-                className="w-full py-3 mt-4 text-xs font-bold tracking-widest text-black uppercase transition-all bg-amber-400 rounded hover:bg-white"
+                className="flex items-center justify-center gap-3 w-full py-3 mt-4 text-xs font-bold tracking-widest text-black uppercase transition-all bg-amber-400 rounded hover:bg-white"
               >
+                <LIcon name="bag" size={18} />
                 OPEN PREMIUM STORE
               </button>
               {/* Safari bottom-bar clearance */}
@@ -1199,16 +1299,19 @@ export default function LugeEngine() {
           <div className="flex flex-col sm:flex-row items-center gap-4 mt-6 mb-12 shrink-0">
             <button
               onClick={() => setGameState('pre_race_calibrate')}
-              className="px-12 py-4 text-lg font-bold text-black uppercase transition-all bg-cyan-400 rounded-full hover:bg-white hover:shadow-[0_0_30px_rgba(0,242,255,0.6)] tracking-widest"
+              className="flex items-center justify-center gap-3 px-12 py-4 text-lg font-bold text-black uppercase transition-all bg-cyan-400 rounded-full hover:bg-white hover:shadow-[0_0_30px_rgba(0,242,255,0.6)] tracking-widest"
             >
+              <LIcon name="flag" size={22} />
               START DESCENT
             </button>
             <button
               onClick={() => { setPvpMsg(''); setPvpShareNote(''); setGameStateBoth('pvp_lobby'); }}
-              className="px-12 py-4 text-lg font-bold uppercase transition-all rounded-full tracking-widest text-fuchsia-300 border border-fuchsia-500/60 hover:bg-fuchsia-500/20 hover:shadow-[0_0_30px_rgba(255,0,255,0.35)]"
+              className="flex items-center justify-center gap-3 px-12 py-4 text-lg font-bold uppercase transition-all rounded-full tracking-widest text-fuchsia-300 border border-fuchsia-500/60 hover:bg-fuchsia-500/20 hover:shadow-[0_0_30px_rgba(255,0,255,0.35)]"
             >
+              <LIcon name="users" size={22} />
               PVP RACE
             </button>
+          </div>
           </div>
         </div>
       )}
@@ -1218,7 +1321,7 @@ export default function LugeEngine() {
           <h1 className="mb-2 text-3xl text-fuchsia-400 drop-shadow-[0_0_15px_rgba(255,0,255,0.5)] uppercase tracking-widest">PvP Race</h1>
           <p className="mb-6 text-xs tracking-widest text-zinc-400 uppercase">Up to {LUGE_MAX_RACERS} riders · one course · synced start</p>
 
-          <div className="w-full max-w-md p-6 border rounded border-fuchsia-500/30 bg-black/50 text-left">
+          <div className="w-full max-w-md p-6 border rounded border-fuchsia-500/30 bg-black/50 text-left" style={lugePanelTile}>
             <label className="block mb-1 text-[10px] tracking-widest text-zinc-500 uppercase">Rider callsign</label>
             <input
               value={pvpCallsign}
@@ -1231,8 +1334,9 @@ export default function LugeEngine() {
             <button
               onClick={createPvpRace}
               disabled={pvpBusy}
-              className="w-full px-8 py-3 mb-3 font-bold tracking-widest text-black uppercase bg-fuchsia-400 rounded hover:bg-white disabled:opacity-50"
+              className="flex items-center justify-center gap-3 w-full px-8 py-3 mb-3 font-bold tracking-widest text-black uppercase bg-fuchsia-400 rounded hover:bg-white disabled:opacity-50"
             >
+              <LIcon name="plus" size={18} />
               {pvpBusy ? 'Creating…' : 'HOST A RACE'}
             </button>
 
@@ -1253,8 +1357,9 @@ export default function LugeEngine() {
               <button
                 onClick={() => joinPvpRace(pvpCodeInput)}
                 disabled={pvpBusy}
-                className="px-6 py-2 text-xs font-bold tracking-widest text-fuchsia-300 uppercase border border-fuchsia-500/60 rounded hover:bg-fuchsia-500/20 disabled:opacity-50"
+                className="flex items-center justify-center gap-2 px-6 py-2 text-xs font-bold tracking-widest text-fuchsia-300 uppercase border border-fuchsia-500/60 rounded hover:bg-fuchsia-500/20 disabled:opacity-50"
               >
+                <LIcon name="arrowRight" size={16} />
                 JOIN
               </button>
             </div>
@@ -1268,8 +1373,9 @@ export default function LugeEngine() {
 
           <button
             onClick={() => setGameStateBoth('menu')}
-            className="px-8 py-3 mt-6 text-xs font-bold tracking-widest text-zinc-300 uppercase border border-zinc-700 rounded hover:border-zinc-400"
+            className="flex items-center justify-center gap-2 px-8 py-3 mt-6 text-xs font-bold tracking-widest text-zinc-300 uppercase border border-zinc-700 rounded hover:border-zinc-400"
           >
+            <LIcon name="home" size={16} />
             Back to garage
           </button>
           <div aria-hidden="true" className="player-clear shrink-0" />
@@ -1288,16 +1394,18 @@ export default function LugeEngine() {
             <span className="text-3xl font-black tracking-[0.5em] text-white">{pvpCodeInput}</span>
           </button>
           <div className="flex gap-2 mb-4">
-            <button onClick={sharePvpRace} className="px-4 py-2 text-[11px] font-bold tracking-widest uppercase border border-zinc-700 rounded hover:border-fuchsia-400 text-zinc-300">
+            <button onClick={sharePvpRace} className="flex items-center justify-center gap-2 px-4 py-2 text-[11px] font-bold tracking-widest uppercase border border-zinc-700 rounded hover:border-fuchsia-400 text-zinc-300">
+              <LIcon name="share" size={14} />
               SHARE INVITE
             </button>
-            <button onClick={copyPvpCode} className="px-4 py-2 text-[11px] font-bold tracking-widest uppercase border border-zinc-700 rounded hover:border-fuchsia-400 text-zinc-300">
+            <button onClick={copyPvpCode} className="flex items-center justify-center gap-2 px-4 py-2 text-[11px] font-bold tracking-widest uppercase border border-zinc-700 rounded hover:border-fuchsia-400 text-zinc-300">
+              <LIcon name="copy" size={14} />
               COPY CODE
             </button>
           </div>
           {pvpShareNote && <p className="mb-4 text-[11px] text-cyan-300 break-all max-w-md">{pvpShareNote}</p>}
 
-          <div className="w-full max-w-md p-4 mb-4 border rounded border-zinc-800 bg-black/50 text-left">
+          <div className="w-full max-w-md p-4 mb-4 border rounded border-zinc-800 bg-black/50 text-left" style={lugePanelTile}>
             <label className="block mb-1 text-[10px] tracking-widest text-zinc-500 uppercase">Rider callsign</label>
             <input
               value={pvpCallsign}
@@ -1317,8 +1425,9 @@ export default function LugeEngine() {
             <button
               onClick={startPvpCountdown}
               disabled={pvpBusy}
-              className="px-12 py-4 mb-3 text-lg font-bold text-black uppercase transition-all bg-fuchsia-400 rounded-full hover:bg-white tracking-widest disabled:opacity-50"
+              className="flex items-center justify-center gap-3 px-12 py-4 mb-3 text-lg font-bold text-black uppercase transition-all bg-fuchsia-400 rounded-full hover:bg-white tracking-widest disabled:opacity-50"
             >
+              <LIcon name="flag" size={20} />
               {pvpBusy ? 'Starting…' : 'START RACE'}
             </button>
           ) : (
@@ -1329,8 +1438,9 @@ export default function LugeEngine() {
 
           <button
             onClick={leavePvp}
-            className="px-8 py-2 text-xs font-bold tracking-widest text-zinc-400 uppercase border border-zinc-800 rounded hover:border-zinc-500"
+            className="flex items-center justify-center gap-2 px-8 py-2 text-xs font-bold tracking-widest text-zinc-400 uppercase border border-zinc-800 rounded hover:border-zinc-500"
           >
+            <LIcon name="x" size={14} />
             LEAVE RACE
           </button>
           <div aria-hidden="true" className="player-clear shrink-0" />
@@ -1374,8 +1484,9 @@ export default function LugeEngine() {
           <p className="mt-4 text-[11px] text-zinc-600">You race in the next heat.</p>
           <button
             onClick={leavePvp}
-            className="px-8 py-2 mt-4 text-xs font-bold tracking-widest text-zinc-400 uppercase border border-zinc-800 rounded hover:border-zinc-500"
+            className="flex items-center justify-center gap-2 px-8 py-2 mt-4 text-xs font-bold tracking-widest text-zinc-400 uppercase border border-zinc-800 rounded hover:border-zinc-500"
           >
+            <LIcon name="x" size={14} />
             LEAVE
           </button>
           <div aria-hidden="true" className="player-clear shrink-0" />
@@ -1391,7 +1502,7 @@ export default function LugeEngine() {
             {selectedCourse.name} · {pvpCodeInput}
           </p>
 
-          <div className="w-full max-w-md p-4 mb-2 border rounded border-amber-500/30 bg-black/60 text-left">
+          <div className="w-full max-w-md p-4 mb-2 border rounded border-amber-500/30 bg-black/60 text-left" style={lugePanelTile}>
             {!pvpOutcome && (
               <p className="text-xs text-zinc-500">Waiting for the field to finish…</p>
             )}
@@ -1423,14 +1534,16 @@ export default function LugeEngine() {
           <div className="flex flex-col sm:flex-row gap-3 mt-4">
             <button
               onClick={raceAgain}
-              className="px-8 py-3 text-xs font-bold tracking-widest text-black uppercase bg-fuchsia-400 rounded hover:bg-white"
+              className="flex items-center justify-center gap-2 px-8 py-3 text-xs font-bold tracking-widest text-black uppercase bg-fuchsia-400 rounded hover:bg-white"
             >
+              <LIcon name="replay" size={16} />
               RACE AGAIN
             </button>
             <button
               onClick={leavePvp}
-              className="px-8 py-3 text-xs font-bold tracking-widest text-zinc-300 uppercase border border-zinc-700 rounded hover:border-zinc-400"
+              className="flex items-center justify-center gap-2 px-8 py-3 text-xs font-bold tracking-widest text-zinc-300 uppercase border border-zinc-700 rounded hover:border-zinc-400"
             >
+              <LIcon name="x" size={16} />
               LEAVE RACE
             </button>
           </div>
@@ -1443,7 +1556,7 @@ export default function LugeEngine() {
           <h1 className="mb-2 text-3xl text-amber-400 drop-shadow-[0_0_15px_rgba(255,215,0,0.5)] uppercase tracking-widest">Premium Sled Store</h1>
           <p className="mb-8 text-sm tracking-widest text-zinc-400 uppercase">One pack. Everything in it. Yours forever.</p>
 
-          <div className="w-full max-w-2xl p-8 border rounded border-amber-500/30 bg-black/50 text-left">
+          <div className="w-full max-w-2xl p-8 border rounded border-amber-500/30 bg-black/50 text-left" style={lugePanelTile}>
             <div className="text-xl font-bold text-white uppercase tracking-widest mb-1">Complete Arsenal</div>
             <div className="text-3xl font-black text-amber-400 mb-6">
               {storeInfo.priceUsd != null ? `$${storeInfo.priceUsd}` : '…'}
@@ -1480,15 +1593,17 @@ export default function LugeEngine() {
                 <button
                   onClick={startCheckout}
                   disabled={checkoutBusy || storeInfo.priceUsd == null}
-                  className="px-8 py-3 font-bold tracking-widest text-black uppercase bg-amber-400 rounded hover:bg-white disabled:opacity-50"
+                  className="flex items-center justify-center gap-2 px-8 py-3 font-bold tracking-widest text-black uppercase bg-amber-400 rounded hover:bg-white disabled:opacity-50"
                 >
+                  <LIcon name="bag" size={18} />
                   {checkoutBusy ? 'Starting checkout…' : `Buy the arsenal — $${storeInfo.priceUsd ?? '…'}`}
                 </button>
               )}
               <button
                 onClick={() => setGameState('menu')}
-                className="px-8 py-3 font-bold tracking-widest text-zinc-300 uppercase border border-zinc-700 rounded hover:border-zinc-400"
+                className="flex items-center justify-center gap-2 px-8 py-3 font-bold tracking-widest text-zinc-300 uppercase border border-zinc-700 rounded hover:border-zinc-400"
               >
+                <LIcon name="home" size={18} />
                 Back to garage
               </button>
               {/* Safari bottom-bar clearance */}
@@ -1515,8 +1630,9 @@ export default function LugeEngine() {
             </p>
             <button
               onClick={requestTiltAccessAndStart}
-              className="w-full px-8 py-4 text-sm font-bold tracking-widest text-black uppercase transition-all bg-cyan-400 rounded hover:bg-white hover:shadow-[0_0_20px_rgba(0,242,255,0.6)]"
+              className="flex items-center justify-center gap-3 w-full px-8 py-4 text-sm font-bold tracking-widest text-black uppercase transition-all bg-cyan-400 rounded hover:bg-white hover:shadow-[0_0_20px_rgba(0,242,255,0.6)]"
             >
+              <LIcon name="zap" size={20} />
               CALIBRATE &amp; IGNITE ENGINE
             </button>
           </div>
@@ -1660,8 +1776,9 @@ export default function LugeEngine() {
                 {!ownsArsenal && (
                   <button
                     onClick={() => setGameState('store')}
-                    className="px-6 py-2 mb-6 text-xs font-bold tracking-widest text-amber-400 uppercase border border-amber-400 rounded hover:bg-amber-400/20"
+                    className="flex items-center justify-center gap-2 px-6 py-2 mb-6 text-xs font-bold tracking-widest text-amber-400 uppercase border border-amber-400 rounded hover:bg-amber-400/20"
                   >
+                    <LIcon name="bag" size={16} />
                     OPEN THE STORE
                   </button>
                 )}
@@ -1670,8 +1787,9 @@ export default function LugeEngine() {
 
             <button
               onClick={() => setGameState('menu')}
-              className="w-full px-8 py-3 font-bold tracking-widest text-black uppercase bg-cyan-400 rounded hover:bg-white"
+              className="flex items-center justify-center gap-3 w-full px-8 py-3 font-bold tracking-widest text-black uppercase bg-cyan-400 rounded hover:bg-white"
             >
+              <LIcon name="home" size={18} />
               RETURN TO MENU
             </button>
             {/* Safari bottom-bar clearance */}

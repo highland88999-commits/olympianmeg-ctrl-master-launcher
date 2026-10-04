@@ -3,6 +3,18 @@
 import { useEffect, useRef } from "react";
 import { VERTEX_SHADER, FRAGMENT_SHADER } from "./shaders";
 
+// --- DIONYSUS interior treatment: icon set (no text buttons on this page) ---
+const BH_BG = "/images/beehive/bg.webp";
+function HiveGlyph({ size = 22, className = "" }) {
+  // Hex-cell glyph: no text, inline SVG, zero image weight.
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true" className={className}>
+      <path d="M12 2 21 7v10l-9 5-9-5V7z" stroke="rgba(255,210,120,0.95)" strokeWidth="2" />
+      <path d="M12 7.5 16 10v5l-4 2.5L8 15v-5z" fill="rgba(255,210,120,0.55)" />
+    </svg>
+  );
+}
+
 /**
  * Beehive — a room-sized interactive beehive rendered as a single
  * raymarched WebGL fragment shader. Shaders are preserved verbatim from the
@@ -205,6 +217,18 @@ export default function BeehivePage() {
       }}
       aria-label="Interactive beehive"
     >
+      {/* Ambient backdrop behind the WebGL canvas (shows at boot, before first frame) */}
+      <div
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          inset: 0,
+          backgroundImage: `url(${BH_BG})`,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+          opacity: 0.45,
+        }}
+      />
       <canvas
         ref={canvasRef}
         style={{
@@ -230,8 +254,12 @@ export default function BeehivePage() {
           pointerEvents: "none",
           textAlign: "center",
           paddingLeft: "0.35em",
+          display: "flex",
+          alignItems: "center",
+          gap: "0.6rem",
         }}
       >
+        <HiveGlyph size={26} />
         Beehive
       </div>
       <div
@@ -251,9 +279,19 @@ export default function BeehivePage() {
           pointerEvents: "none",
           animation: "beehive-hint-fade 6s forwards 5s",
           padding: "0 1rem",
+          display: "flex",
+          alignItems: "center",
+          gap: "0.7rem",
         }}
       >
-        Drag to look around · scroll or pinch to zoom into the walls
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(255,210,120,0.9)" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+          <path d="M9 11V5a1.5 1.5 0 0 1 3 0v6m0-2a1.5 1.5 0 0 1 3 0v2m0-1a1.5 1.5 0 0 1 3 0v4c0 3.5-2.5 6-6 6s-5-1.6-7-5l-1.6-2.8c-.5-.9.1-2 1.2-2.1.7 0 1.3.3 1.7.9L9 14" />
+        </svg>
+        <span>Drag to look around · scroll or pinch to zoom into the walls</span>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(255,210,120,0.9)" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="7" />
+          <path d="M21 21l-4.3-4.3M11 8v6M8 11h6" />
+        </svg>
       </div>
       <style>{`@keyframes beehive-hint-fade { to { opacity: 0; visibility: hidden; } }`}</style>
     </main>

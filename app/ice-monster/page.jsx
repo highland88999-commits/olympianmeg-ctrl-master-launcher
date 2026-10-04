@@ -12,6 +12,20 @@ import { createIceMonsterScene } from './scene.js';
 
 const RING_C = 2 * Math.PI * 52; // progress ring circumference (r=52)
 
+// --- DIONYSUS interior treatment ---
+const IM_BG = '/images/ice-monster/bg.webp';
+const ICE_TILE = '/images/shared/ice-crystal-tile.webp';
+function BehemothGlyph({ size = 40, className = '' }) {
+  // Abstract frost-behemoth eye: no text, inline SVG, zero image weight.
+  return (
+    <svg width={size} height={size} viewBox="0 0 48 48" fill="none" aria-hidden="true" className={className}>
+      <path d="M4 24 24 8l20 16-20 16Z" fill="rgba(0,213,255,0.18)" stroke="#aef6ff" strokeWidth="1.6" />
+      <circle cx="24" cy="24" r="5.5" fill="#aef6ff" opacity="0.9" />
+      <circle cx="24" cy="24" r="9.5" stroke="#aef6ff" strokeWidth="1" opacity="0.5" />
+    </svg>
+  );
+}
+
 const COPY = {
   [STATES.IDLE]: { title: 'THE FROST BEHEMOTH', sub: 'Tap to awaken' },
   [STATES.APPROACH]: { title: 'THE FROST BEHEMOTH', sub: 'Tap to descend to the ice floor' },
@@ -177,6 +191,9 @@ export default function IceMonsterPage() {
 
   return (
     <div className="fixed inset-0 bg-[#01050a] overflow-hidden select-none" style={{ touchAction: 'none' }}>
+      {/* Ambient backdrop behind the 3D canvas (shows while the scene boots + through translucent overlays) */}
+      <div aria-hidden="true" className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${IM_BG})` }} />
+      <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-b from-[#01050a]/70 via-[#01050a]/55 to-[#01050a]/85" />
       <canvas
         ref={canvasRef}
         className="absolute inset-0 w-full h-full block outline-none"
@@ -198,6 +215,7 @@ export default function IceMonsterPage() {
           style={{ touchAction: 'manipulation' }}
           aria-label={copy.sub}
         >
+          <BehemothGlyph className="mb-2 opacity-90" />
           <span className="icemonster-title text-white px-5">{copy.title}</span>
           <span className="icemonster-ticker mt-6">{copy.sub}</span>
         </button>
@@ -240,9 +258,10 @@ export default function IceMonsterPage() {
           <div className="icemonster-hint mt-3">It kneels. The ground is still.</div>
           <button
             onClick={() => setTrustBanner(false)}
-            className="pointer-events-auto mt-5 min-h-[44px] px-6 rounded-full bg-black/60 border border-cyan-400/40 text-cyan-100 text-sm tracking-widest uppercase hover:bg-cyan-400/20"
+            className="pointer-events-auto mt-5 min-h-[44px] px-6 rounded-full bg-black/60 border border-cyan-400/40 text-cyan-100 text-sm tracking-widest uppercase hover:bg-cyan-400/20 inline-flex items-center gap-2"
             style={{ touchAction: 'manipulation' }}
           >
+            <BehemothGlyph size={16} />
             Keep watching
           </button>
         </div>
@@ -250,7 +269,10 @@ export default function IceMonsterPage() {
 
       {/* Tremor + trust panel */}
       {showPanel && (
-        <div className="absolute bottom-6 right-4 z-20 bg-black/60 border border-cyan-400/30 rounded-lg px-4 py-3 backdrop-blur-sm w-[210px]">
+        <div
+          className="absolute bottom-6 right-4 z-20 bg-black/60 border border-cyan-400/30 rounded-lg px-4 py-3 backdrop-blur-sm w-[210px]"
+          style={{ backgroundImage: `url(${ICE_TILE})`, backgroundSize: '128px 128px', backgroundBlendMode: 'overlay' }}
+        >
           <label className="block text-[11px] tracking-[0.25em] uppercase text-cyan-200 mb-1">
             Ground tremor
           </label>

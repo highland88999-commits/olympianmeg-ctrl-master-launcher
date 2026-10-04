@@ -15,6 +15,28 @@ const VIDEO_SRC = "/videos/browsers-castle/courtyard.mp4";
 const LOGO_SRC = "/videos/browsers-castle/logo.webp";
 const VAULT_KEY = "browsers-castle-vault";
 
+// --- DIONYSUS interior treatment: SVG glyph system + panel tile (existing video/ember art untouched) ---
+const BC_TILE = "/images/shared/magenta-marble-tile.webp";
+const BC_GLYPHS = {
+  bookmark: "M6 3h12v18l-6-4.5L6 21z",
+  x: "M6 6l12 12M18 6 6 18",
+  go: "M5 11h11V7l5 5-5 5v-4H5z",
+  vault: "M4 10h16v10H4zm0-6h16v4H4zM8 14h8v2H8z",
+  info: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 5h2v2h-2zm0 4h2v6h-2z",
+};
+function BcIcon({ name, size = 16 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style={{ flexShrink: 0 }}>
+      <path d={BC_GLYPHS[name]} />
+    </svg>
+  );
+}
+const bcPanelTile = {
+  backgroundImage: `url(${BC_TILE})`,
+  backgroundSize: "128px 128px",
+  backgroundBlendMode: "overlay",
+};
+
 function normalizeTarget(raw) {
   const q = raw.trim();
   if (!q) return null;
@@ -173,7 +195,8 @@ function VaultPanel() {
           aria-label="Link address"
           style={{ ...inputStyle, flex: 1 }}
         />
-        <button onClick={addItem} style={buttonStyle} aria-label="Save link">
+        <button onClick={addItem} style={{ ...buttonStyle, display: "inline-flex", alignItems: "center", gap: 8 }} aria-label="Save link">
+          <BcIcon name="bookmark" />
           Save
         </button>
       </div>
@@ -204,9 +227,10 @@ function VaultPanel() {
             </a>
             <button
               onClick={() => persist(items.filter((x) => x.id !== it.id))}
-              style={{ ...buttonStyle, padding: "8px 12px", fontSize: 12 }}
+              style={{ ...buttonStyle, padding: "8px 12px", fontSize: 12, display: "inline-flex", alignItems: "center", gap: 6 }}
               aria-label={`Remove ${it.label}`}
             >
+              <BcIcon name="x" size={13} />
               Remove
             </button>
           </li>
@@ -226,6 +250,7 @@ const panelStyle = {
   width: "100%",
   maxWidth: 560,
   marginTop: 16,
+  ...bcPanelTile,
 };
 
 const panelTitleStyle = {
@@ -393,6 +418,7 @@ export default function BrowsersCastlePage() {
             padding: 16,
             backdropFilter: "blur(10px)",
             WebkitBackdropFilter: "blur(10px)",
+            ...bcPanelTile,
           }}
         >
           <div style={{ display: "flex", gap: 8 }}>
@@ -404,7 +430,8 @@ export default function BrowsersCastlePage() {
               aria-label="Web address or search"
               style={{ ...inputStyle, flex: 1 }}
             />
-            <button onClick={go} style={buttonStyle} aria-label="Open address in a new tab">
+            <button onClick={go} style={{ ...buttonStyle, display: "inline-flex", alignItems: "center", gap: 8 }} aria-label="Open address in a new tab">
+              <BcIcon name="go" />
               Go
             </button>
           </div>
@@ -415,16 +442,18 @@ export default function BrowsersCastlePage() {
             <button
               onClick={() => togglePanel("vault")}
               aria-expanded={panel === "vault"}
-              style={{ ...buttonStyle, flex: "1 1 140px", ...(panel === "vault" ? { background: "rgba(255,215,0,0.15)", borderColor: "#ffd700", color: "#ffd700" } : {}) }}
+              style={{ ...buttonStyle, flex: "1 1 140px", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, ...(panel === "vault" ? { background: "rgba(255,215,0,0.15)", borderColor: "#ffd700", color: "#ffd700" } : {}) }}
             >
-              ★ Link vault
+              <BcIcon name="vault" />
+              Link vault
             </button>
             <button
               onClick={() => togglePanel("about")}
               aria-expanded={panel === "about"}
-              style={{ ...buttonStyle, flex: "1 1 140px", ...(panel === "about" ? { background: "rgba(0,242,255,0.22)" } : {}) }}
+              style={{ ...buttonStyle, flex: "1 1 140px", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, ...(panel === "about" ? { background: "rgba(0,242,255,0.22)" } : {}) }}
             >
-              ⓘ About
+              <BcIcon name="info" />
+              About
             </button>
           </div>
         </section>
