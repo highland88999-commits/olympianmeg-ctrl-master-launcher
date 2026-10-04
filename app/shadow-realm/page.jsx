@@ -15,6 +15,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import RealmScene from './scene';
 import { makeBots, placements } from './ai';
 import { TRACKS, trackByKey, isBumpTrack } from './tracks';
+import { isRoam } from './roam';
 import { TRAIL_SCHEMES, VEHICLES, schemeByKey, vehicleByKey } from './schemes';
 import { parseShadowMode } from './launch';
 // BUMP RACE (Merlin 2026-10-03): bumper bikes around the eternal flame.
@@ -189,6 +190,9 @@ function ShadowRealmInner() {
   // BUMP RACE: heat-flash screen feedback on flame hits.
   const [heatFlash, setHeatFlash] = useState(false);
   const heatFlashTimer = useRef(null);
+  // BOOST button pressed visual (instant local feedback — the HUD's
+  // BOOSTING pill follows at 7Hz from the physics rig).
+  const [boostHeld, setBoostHeld] = useState(false);
   // BUMP RACE (PvP): highest alive-count seen this race — the race only
   // ends at <=1 alive once it has genuinely started (>= 2 seen).
   const bumpSeenRef = useRef(0);
@@ -262,6 +266,20 @@ function ShadowRealmInner() {
   const track = useMemo(() => trackByKey(trackKey), [trackKey]);
   const vehicle = useMemo(() => vehicleByKey(vehicleKey), [vehicleKey]);
   const scheme = useMemo(() => schemeByKey(schemeKey), [schemeKey]);
+
+  // Mode/track consistency (Merlin 2026-10-03, video bug hunt): FREE ROAM on
+  // a bump track is an impossible state — no track mesh renders, no flame
+  // renders, the HUD mixes roam + bump chips, and roam spawns at the origin
+  // (inside the flame). The bump arena only exists for BUMP RACE. Normalize
+  // by construction: roam mode always rides a normal track. This covers the
+  // FREE ROAM button (which doesn't set trackKey), ?mode=roam deep links,
+  // and stale persisted prefs — no silent broken state, ever.
+  useEffect(() => {
+    if (isRoam(mode) && isBumpTrack(track)) {
+      const safe = TRACKS.find((t) => !isBumpTrack(t));
+      if (safe && safe.key !== trackKey) setTrackKey(safe.key);
+    }
+  }, [mode, track, trackKey]);
 
   // Phone motion: tilt steering + gyro look-around (per-device preference).
   const motion = useBikeMotion({ inputRef, hudRef, vehicle, stage, touchSteerRef });
@@ -919,7 +937,18 @@ function ShadowRealmInner() {
               </div>
               <button
                 style={css.ghostBtn}
-                onClick={() => { setMode('roam'); try { fx.menuOpen(); } catch {} setStage('garage'); }}
+                onClick={() => {
+                  setMode('roam');
+                  // Never roam on the bump arena (impossible state: no track
+                  // mesh, no flame, mixed HUD). The normalization effect below
+                  // is the backstop; this avoids even a one-frame flash.
+                  if (isBumpTrack(track)) {
+                    const safe = TRACKS.find((t) => !isBumpTrack(t));
+                    if (safe) { setTrackKey(safe.key); persist({ trackKey: safe.key }); }
+                  }
+                  try { fx.menuOpen(); } catch {}
+                  setStage('garage');
+                }}
               >
                 FREE ROAM
               </button>
@@ -1226,6 +1255,21 @@ function ShadowRealmInner() {
                   {hud.surging ? '⚡ SURGE' : `⚡ ${Math.round((hud.boostCharge || 0) * 100)}%`}
                 </div>
               )}
+              {/* Manual BOOST: unmistakable while the button is held. */}
+              {hud.boosting && (
+                <div
+                  style={{
+                    ...css.hudChip,
+                    color: '#0a0a0a',
+                    background: '#fbbf24',
+                    borderColor: '#fbbf24',
+                    fontWeight: 800,
+                  }}
+                  aria-label="boosting"
+                >
+                  ⚡ BOOSTING
+                </div>
+              )}
             </div>
           )}
           {lastLap && mode === 'race' && !immersed && (
@@ -1304,11 +1348,19 @@ function ShadowRealmInner() {
             )}
             <div
               style={{ position: 'absolute', right: 18, bottom: 128, pointerEvents: 'auto', touchAction: 'none' }}
-              onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); inputRef.current.boost = true; try { fx.boost(); } catch {} }}
-              onPointerUp={() => { inputRef.current.boost = false; }}
-              onPointerCancel={() => { inputRef.current.boost = false; }}
+              onPointerDown={(e) => {
+                // Set the boost flag FIRST — setPointerCapture can throw on
+                // some iOS WebKit paths, and it must never swallow the input.
+                inputRef.current.boost = true;
+                setBoostHeld(true);
+                try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* best-effort */ }
+                try { fx.boost(); } catch { /* best-effort */ }
+              }}
+              onPointerUp={() => { inputRef.current.boost = false; setBoostHeld(false); }}
+              onPointerCancel={() => { inputRef.current.boost = false; setBoostHeld(false); }}
+              onLostPointerCapture={() => { inputRef.current.boost = false; setBoostHeld(false); }}
             >
-              <div style={{ width: 76, height: 76, borderRadius: '50%', border: `2px solid ${scheme.primary}`, background: 'rgba(10,20,40,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: scheme.primary, letterSpacing: 1 }}>BOOST</div>
+              <div style={{ width: 76, height: 76, borderRadius: '50%', border: `2px solid ${scheme.primary}`, background: boostHeld ? scheme.primary : 'rgba(10,20,40,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: boostHeld ? '#0a0a0a' : scheme.primary, letterSpacing: 1, transform: boostHeld ? 'scale(1.12)' : 'scale(1)', transition: 'transform 80ms, background 80ms' }}>BOOST</div>
             </div>
             {/* ride controls: motion + immersion circles; pause/leave adapt to immersion */}
             <div style={{ position: 'absolute', top: 12, right: 12, display: 'flex', gap: 8, pointerEvents: 'auto', zIndex: 7 }}>

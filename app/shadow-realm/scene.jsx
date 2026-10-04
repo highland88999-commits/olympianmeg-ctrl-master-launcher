@@ -794,6 +794,7 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, playerTrai
   const shieldRef = useRef(); // trail-immunity shield ring
   const burstRef = useRef(); // death particle burst api
   const camTarget = useRef(new THREE.Vector3());
+  const camera = useThree((s) => s.camera); // snap on spawn (countdown framing)
   // Smoothed camera heading — the chase cam yaw follows the bike with a
   // slight lag (no snapping on sharp turns). Reset to the spawn heading
   // on every (re)spawn so the camera never swings wildly on mount.
@@ -861,9 +862,23 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, playerTrai
     if (playerTrailRef) playerTrailRef.current = sim.current.trail;
     // Fresh run, fresh camera: orbit offsets reset to the chase baseline and
     // the smoothed camera heading snaps to the spawn heading (no swing).
+    // The camera itself snaps to the chase position immediately — during the
+    // countdown the Rig's useFrame doesn't run (running=false), so without
+    // this the camera sits at the R3F default (0,0,5)... which is INSIDE the
+    // eternal flame on the bump track (Merlin 2026-10-03 video bug hunt).
     if (orbitRef.current) resetOrbit(orbitRef.current);
     camHeading.current = pose.heading;
-  }, [track, mode, loops, running, playerTrailRef]);
+    try {
+      const cam = camera;
+      if (cam) {
+        const ct = chaseCamTarget(pose.x, pose.z, pose.heading, 0);
+        cam.position.set(ct.x, ct.y, ct.z);
+        const la = chaseLookAt(pose.x, pose.z, pose.heading);
+        cam.lookAt(la.x, la.y, la.z);
+        camTarget.current.set(ct.x, ct.y, ct.z);
+      }
+    } catch { /* camera snap is best-effort */ }
+  }, [track, mode, loops, playerTrailRef]);
 
   useFrame((state, rawDt) => {
     const s = sim.current;
@@ -917,11 +932,14 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, playerTrai
         // proportional braking is already folded into eff — brake harder
         decel = vehicle.brakeRate * (1.6 + 4 * brakePedal);
       }
-      rate = (target > s.speed ? vehicle.accel : decel) * dt;
+      // Boosting punches harder: even a quick tap is felt immediately.
+      const accelRate = boosting ? vehicle.accel * 2.2 : vehicle.accel;
+      rate = (target > s.speed ? accelRate : decel) * dt;
     } else {
-      // steady baseline cruise; boost multiplies
+      // steady baseline cruise; boost multiplies and punches harder
       target = vehicle.maxSpeed * BASELINE_THROTTLE * (boost ? vehicle.boostMult : 1);
-      rate = (target > s.speed ? vehicle.accel : vehicle.brakeRate * 1.6) * dt;
+      const accelRate = boost ? vehicle.accel * 2.2 : vehicle.accel;
+      rate = (target > s.speed ? accelRate : vehicle.brakeRate * 1.6) * dt;
     }
     if (s.eliminated) {
       // Eliminated: the bike burned out — coast to a stop (the rider
@@ -1252,6 +1270,10 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, playerTrai
         progress: (mode === 'race' || bumpMode) ? s.tracker.progress({ x: s.x, z: s.z }) : 0,
         boostCharge: s.boostCharge || 0,
         surging: !!surging,
+        // Manual BOOST button state — the HUD shows an unmistakable
+        // BOOSTING indicator while the button is held (Merlin 2026-10-03:
+        // "the boost button should work" — make it obvious that it does).
+        boosting: !!input.boost && !s.eliminated && !s.finished,
         // Live transform for the PvP/presence beacon (drop 2 netcode reads
         // these; the physics above is untouched).
         x: s.x,

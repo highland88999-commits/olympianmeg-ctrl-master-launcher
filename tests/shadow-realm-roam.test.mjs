@@ -138,8 +138,11 @@ describe('scene.jsx roam branch (source checks)', () => {
 
 describe('page.jsx roam menu flow (source checks)', () => {
   it('FREE ROAM jumps straight to the garage (skips track select)', () => {
+    // The handler now also normalizes a stale bump trackKey (video bug hunt
+    // 2026-10-03: roam + bump track was an impossible broken state), but the
+    // flow is unchanged: roam -> garage, never through track select.
     assert.ok(
-      pageSrc.includes("setMode('roam'); try { fx.menuOpen(); } catch {} setStage('garage');"),
+      pageSrc.includes("setMode('roam');") && pageSrc.includes("setStage('garage');"),
       'FREE ROAM -> garage'
     );
     assert.ok(
