@@ -1,5 +1,7 @@
 "use client";
 
+import { IcWave, IcDive, IcPlay, IcPause, IcRefresh } from "@/app/artemis-ui/icons";
+
 import { useEffect, useRef, useState, useCallback } from "react";
 import { createGame, stepGame, resetGame, DIFFICULTY, depthZone, WORLD } from "./engine";
 import { createDiveScene } from "./dive3d";
@@ -131,6 +133,7 @@ export default function AbyssalVoyagePage() {
 
   return (
     <div style={styles.page}>
+      <div aria-hidden="true" style={styles.bgLayer} />
       <div style={styles.shell}>
         <div style={styles.canvasWrap}>
           <canvas ref={canvasRef} style={styles.canvas} aria-label="Abyssal Voyage 3D dive" />
@@ -166,31 +169,31 @@ export default function AbyssalVoyagePage() {
               <p style={styles.sub}>Descend the trench. Thread the rock gates.<br />Gather pearls to patch your hull.</p>
               <div style={styles.row}>
                 {Object.keys(DIFFICULTY).map((k) => (
-                  <button key={k} onClick={() => pickDifficulty(k)} style={{ ...styles.btn, ...(difficulty === k ? styles.btnActive : {}) }}>
-                    {DIFFICULTY[k].label}
+                  <button key={k} onClick={() => pickDifficulty(k)} style={{ ...styles.btn, ...(difficulty === k ? styles.btnActive : {}) }} aria-pressed={difficulty === k}>
+                    <IcWave /><span>{DIFFICULTY[k].label}</span>
                   </button>
                 ))}
               </div>
-              <button onClick={() => startGame()} style={{ ...styles.btn, ...styles.btnPrimary }}>DIVE</button>
+              <button onClick={() => startGame()} style={{ ...styles.btn, ...styles.btnPrimary }}><IcDive /><span>DIVE</span></button>
               <p style={styles.hint}>Drag / arrow keys to steer · Space to pause</p>
             </div>
           )}
           {screen === "paused" && (
             <div style={styles.overlay}>
               <h2 style={styles.title2}>PAUSED</h2>
-              <button onClick={pauseGame} style={{ ...styles.btn, ...styles.btnPrimary }}>RESUME</button>
-              <button onClick={() => startGame()} style={styles.btn}>RESTART</button>
+              <button onClick={pauseGame} style={{ ...styles.btn, ...styles.btnPrimary }}><IcPlay /><span>RESUME</span></button>
+              <button onClick={() => startGame()} style={styles.btn}><IcRefresh /><span>RESTART</span></button>
             </div>
           )}
           {screen === "over" && (
             <div style={styles.overlay}>
               <h2 style={styles.title2}>{hud.cause || "LOST"}</h2>
               <p style={styles.stats}>DEPTH {Math.floor(hud.depth)}m · {hud.zone}<br />SCORE {Math.floor(hud.score)} · PEARLS {hud.pearls}</p>
-              <button onClick={() => startGame()} style={{ ...styles.btn, ...styles.btnPrimary }}>DIVE AGAIN</button>
+              <button onClick={() => startGame()} style={{ ...styles.btn, ...styles.btnPrimary }}><IcDive /><span>DIVE AGAIN</span></button>
               <div style={styles.row}>
                 {Object.keys(DIFFICULTY).map((k) => (
-                  <button key={k} onClick={() => pickDifficulty(k)} style={{ ...styles.btn, ...(difficulty === k ? styles.btnActive : {}) }}>
-                    {DIFFICULTY[k].label}
+                  <button key={k} onClick={() => pickDifficulty(k)} style={{ ...styles.btn, ...(difficulty === k ? styles.btnActive : {}) }} aria-pressed={difficulty === k}>
+                    <IcWave /><span>{DIFFICULTY[k].label}</span>
                   </button>
                 ))}
               </div>
@@ -199,8 +202,8 @@ export default function AbyssalVoyagePage() {
         </div>
         <div style={styles.bar}>
           <span style={styles.barText}>{DIFFICULTY[difficulty].label} · {reduced ? "REDUCED MOTION" : "LIVE"}</span>
-          {screen === "playing" && <button onClick={pauseGame} style={styles.smallBtn}>PAUSE</button>}
-          {screen === "playing" && <button onClick={() => startGame()} style={styles.smallBtn}>RESTART</button>}
+          {screen === "playing" && <button onClick={pauseGame} style={styles.smallBtn}><IcPause /><span>PAUSE</span></button>}
+          {screen === "playing" && <button onClick={() => startGame()} style={styles.smallBtn}><IcRefresh /><span>RESTART</span></button>}
         </div>
         <div aria-hidden="true" style={{ height: "calc(4.5rem + env(safe-area-inset-bottom))" }} />
       </div>
@@ -209,8 +212,11 @@ export default function AbyssalVoyagePage() {
 }
 
 const styles = {
-  page: { minHeight: "100dvh", background: "#00040a", display: "flex", alignItems: "center", justifyContent: "center", padding: 12, overflowY: "auto", fontFamily: "ui-monospace, Menlo, monospace" },
-  shell: { width: "min(480px, 100%)" },
+  page: { minHeight: "100dvh", background: "#00040a", display: "flex", alignItems: "center", justifyContent: "center", padding: 12, overflowY: "auto", fontFamily: "ui-monospace, Menlo, monospace", position: "relative" },
+  bgLayer: { position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none", opacity: 0.4,
+    backgroundImage: "linear-gradient(to bottom, rgba(0,4,10,0.55), rgba(0,4,10,0.2) 45%, rgba(0,4,10,0.75)), url(/images/abyssal-voyage/bg.webp)",
+    backgroundSize: "cover", backgroundPosition: "center" },
+  shell: { width: "min(480px, 100%)", position: "relative", zIndex: 1 },
   canvasWrap: { position: "relative", width: "100%", aspectRatio: "720 / 960", borderRadius: 12, overflow: "hidden", border: "1px solid rgba(0,242,255,0.25)" },
   canvas: { display: "block", width: "100%", height: "100%", touchAction: "none", cursor: "crosshair" },
   hud: { position: "absolute", inset: 0, pointerEvents: "none", display: "flex", flexDirection: "column", justifyContent: "space-between", padding: 14 },
@@ -223,17 +229,21 @@ const styles = {
   hullText: { color: "rgba(255,255,255,0.75)", fontWeight: 600, fontSize: 13, marginTop: 4 },
   hudBottom: { display: "flex", justifyContent: "space-between", color: "rgba(255,255,255,0.85)", fontWeight: 600, fontSize: 18 },
   pearls: { color: "rgba(255,215,130,0.9)" },
-  overlay: { position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, background: "rgba(0,6,14,0.72)", backdropFilter: "blur(6px)", textAlign: "center", padding: 20 },
+  overlay: { position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14,
+    backgroundImage: "linear-gradient(rgba(0,6,14,0.7), rgba(0,6,14,0.7)), url(/images/abyssal-voyage/tile.webp)", backgroundSize: "auto, 170px",
+    backdropFilter: "blur(6px)", textAlign: "center", padding: 20 },
   title: { margin: 0, color: "#00f2ff", letterSpacing: 8, fontSize: "clamp(1.6rem, 8vw, 2.6rem)", textShadow: "0 0 24px rgba(0,242,255,0.6)" },
   title2: { margin: 0, color: "#00f2ff", letterSpacing: 6, fontSize: "1.6rem" },
   sub: { color: "#bfe9ff", lineHeight: 1.6, fontSize: "0.95rem", margin: 0 },
   stats: { color: "#bfe9ff", lineHeight: 1.8, fontSize: "0.95rem", margin: 0 },
   hint: { color: "rgba(191,233,255,0.6)", fontSize: "0.8rem", margin: 0 },
   row: { display: "flex", gap: 8 },
-  btn: { padding: "12px 18px", fontSize: "0.8rem", cursor: "pointer", background: "transparent", color: "#00f2ff", border: "1px solid rgba(0,242,255,0.6)", fontWeight: "bold", letterSpacing: 2, borderRadius: 6, fontFamily: "inherit" },
+  btn: { display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "12px 18px", fontSize: "0.8rem", cursor: "pointer", background: "transparent", color: "#00f2ff", border: "1px solid rgba(0,242,255,0.6)", fontWeight: "bold", letterSpacing: 2, borderRadius: 6, fontFamily: "inherit" },
   btnActive: { background: "rgba(0,242,255,0.18)" },
   btnPrimary: { background: "#00f2ff", color: "#001318", border: "1px solid #00f2ff" },
-  smallBtn: { padding: "6px 12px", fontSize: "0.7rem", cursor: "pointer", background: "transparent", color: "#00f2ff", border: "1px solid rgba(0,242,255,0.4)", letterSpacing: 1, borderRadius: 4, fontFamily: "inherit" },
-  bar: { display: "flex", alignItems: "center", gap: 8, marginTop: 10 },
+  smallBtn: { display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 12px", fontSize: "0.7rem", cursor: "pointer", background: "transparent", color: "#00f2ff", border: "1px solid rgba(0,242,255,0.4)", letterSpacing: 1, borderRadius: 4, fontFamily: "inherit" },
+  bar: { display: "flex", alignItems: "center", gap: 8, marginTop: 10, padding: "8px 10px", borderRadius: 8,
+    backgroundImage: "linear-gradient(rgba(0,10,16,0.8), rgba(0,10,16,0.8)), url(/images/abyssal-voyage/tile.webp)", backgroundSize: "auto, 150px",
+    border: "1px solid rgba(0,242,255,0.15)" },
   barText: { color: "rgba(0,242,255,0.6)", fontSize: "0.75rem", letterSpacing: 2, flex: 1 },
 };

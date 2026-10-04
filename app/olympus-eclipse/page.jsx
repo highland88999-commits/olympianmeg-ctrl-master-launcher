@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import { IcPlay, IcPause, IcSkip, IcMeteor, IcGauge } from "@/app/artemis-ui/icons";
 import {
   CYCLE,
   EVENT_WINDOWS,
@@ -286,12 +287,15 @@ export default function OlympusEclipsePage() {
           font-weight:bold;letter-spacing:3px;font-size:.8rem;text-align:center;max-width:88vw}
         .ecl-alert.blood{border-color:#ff0033;color:#ff0033;background:rgba(255,0,51,.08)}
         .ecl-alert.meteor{border-color:#00ffaa;color:#00ffaa;background:rgba(0,255,170,.08)}
-        .ecl-bar{position:absolute;bottom:0;left:0;right:0;z-index:10;background:rgba(2,6,14,.92);
+        .ecl-bar{position:absolute;bottom:0;left:0;right:0;z-index:10;
+          background-image:linear-gradient(rgba(2,6,14,.9), rgba(2,6,14,.9)), url(/images/olympus-eclipse/tile.webp);
+          background-size:auto,170px;
           border-top:1px solid rgba(0,242,255,.3);padding:12px 16px;display:flex;flex-wrap:wrap;
           padding-bottom:calc(4.5rem+env(safe-area-inset-bottom));
           gap:10px;align-items:center;justify-content:center}
         .ecl-btn{background:rgba(0,0,0,.5);border:1px solid #00f2ff;color:#00f2ff;padding:10px 16px;
-          cursor:pointer;font-size:.7rem;letter-spacing:2px;font-family:inherit;min-height:44px;border-radius:4px}
+          cursor:pointer;font-size:.7rem;letter-spacing:2px;font-family:inherit;min-height:44px;border-radius:4px;
+          display:inline-flex;align-items:center;gap:7px}
         .ecl-btn:hover{background:#00f2ff;color:#000}
         .ecl-btn.on{background:#00f2ff;color:#000}
         .ecl-track{flex:1 1 220px;min-width:180px;height:10px;background:#06121f;border:1px solid rgba(0,242,255,.3);
@@ -301,6 +305,9 @@ export default function OlympusEclipsePage() {
         .ecl-count{font-size:.72rem;opacity:.75;min-width:170px;text-align:center}
       `}</style>
 
+      <div aria-hidden="true" style={{ position: "absolute", inset: 0, zIndex: 0, pointerEvents: "none", opacity: 0.32,
+        backgroundImage: "linear-gradient(to bottom, rgba(2,3,10,0.6), rgba(2,3,10,0.2) 50%, rgba(2,3,10,0.7)), url(/images/olympus-eclipse/bg.webp)",
+        backgroundSize: "cover", backgroundPosition: "center" }} />
       <canvas ref={canvasRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", touchAction: "none", cursor: "grab" }} aria-label="Eclipse cycle diorama" />
 
       <div className="ecl-hud"><h1>OLYMPIAN · ORBITAL EVENTS</h1></div>
@@ -313,10 +320,10 @@ export default function OlympusEclipsePage() {
       )}
 
       <div className="ecl-bar">
-        <button className="ecl-btn" onClick={() => setPlaying((p) => !p)}>{playing ? "PAUSE" : "PLAY"}</button>
-        <button className="ecl-btn" onClick={() => setSpeedIdx((i) => (i + 1) % SPEEDS.length)}>×{SPEEDS[speedIdx]}</button>
-        <button className="ecl-btn" onClick={jumpToNext}>NEXT EVENT</button>
-        <button className={`ecl-btn ${meteorsOn ? "on" : ""}`} onClick={() => setMeteorsOn((m) => !m)}>METEORS</button>
+        <button className="ecl-btn" onClick={() => setPlaying((p) => !p)} aria-label={playing ? "Pause the cycle" : "Play the cycle"}>{playing ? <IcPause /> : <IcPlay />}<span>{playing ? "PAUSE" : "PLAY"}</span></button>
+        <button className="ecl-btn" onClick={() => setSpeedIdx((i) => (i + 1) % SPEEDS.length)} aria-label={`Time speed ${SPEEDS[speedIdx]} times`}><IcGauge /><span>×{SPEEDS[speedIdx]}</span></button>
+        <button className="ecl-btn" onClick={jumpToNext}><IcSkip /><span>NEXT EVENT</span></button>
+        <button className={`ecl-btn ${meteorsOn ? "on" : ""}`} onClick={() => setMeteorsOn((m) => !m)} aria-pressed={meteorsOn}><IcMeteor /><span>METEORS</span></button>
         <div
           className="ecl-track"
           role="slider"

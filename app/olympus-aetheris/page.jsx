@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import RenewalPlanBadge from "@/components/RenewalPlanBadge";
+import { IcClose, IcTower, IcCharge } from "@/app/artemis-ui/icons";
 import {
   CITIES,
   latLonToVec,
@@ -366,16 +367,20 @@ export default function OlympusAetherisPage() {
         overflow: "hidden",
       }}
     >
+      <div aria-hidden="true" style={{ position: "absolute", inset: 0, zIndex: 0, pointerEvents: "none", opacity: 0.3,
+        backgroundImage: "linear-gradient(to bottom, rgba(4,6,10,0.62), rgba(4,6,10,0.25) 50%, rgba(4,6,10,0.7)), url(/images/olympus-aetheris/bg.webp)",
+        backgroundSize: "cover", backgroundPosition: "center" }} />
       <style>{`
         .aeth-hud { position:absolute; top:18px; left:18px; z-index:10; pointer-events:none; }
         .aeth-hud h1 { margin:0; font-weight:300; letter-spacing:3px; color:#00d4ff; font-size:1.3rem; }
         .aeth-hud p { margin:4px 0 0; font-size:0.8rem; opacity:0.65; }
         .aeth-panel { position:absolute; top:18px; right:18px; z-index:10; width:min(320px, 86vw);
-          background:rgba(4,12,20,0.88); border:1px solid rgba(0,212,255,0.35); border-radius:10px;
+          background-image:linear-gradient(rgba(4,12,20,0.88), rgba(4,12,20,0.88)), url(/images/olympus-aetheris/tile.webp);
+          background-size:auto,160px; border:1px solid rgba(0,212,255,0.35); border-radius:10px;
           padding:16px; backdrop-filter: blur(8px); }
         .aeth-panel h2 { margin:0 0 6px; font-size:1.05rem; letter-spacing:1px; color:#00d4ff; }
         .aeth-row { display:flex; justify-content:space-between; font-size:0.82rem; padding:3px 0; opacity:0.9; }
-        .aeth-btn { display:block; width:100%; margin-top:12px; padding:12px; min-height:44px;
+        .aeth-btn { display:inline-flex; align-items:center; justify-content:center; gap:8px; width:100%; margin-top:12px; padding:12px; min-height:44px;
           background:rgba(0,212,255,0.12); border:1px solid #00d4ff; color:#fff; cursor:pointer;
           letter-spacing:2px; font-size:0.8rem; border-radius:6px; }
         .aeth-btn:hover { background:#00d4ff; color:#001318; }
@@ -406,7 +411,7 @@ export default function OlympusAetherisPage() {
 
       {selected && weather && (
         <div className="aeth-panel" role="dialog" aria-label={`${selected.name} deployment panel`}>
-          <button className="aeth-close" onClick={() => { setSelected(null); setGame(null); setGameMsg(""); }} aria-label="Close panel">×</button>
+          <button className="aeth-close" onClick={() => { setSelected(null); setGame(null); setGameMsg(""); }} aria-label="Close panel"><IcClose /></button>
           <h2>{selected.name.toUpperCase()}</h2>
           <div className="aeth-row"><span>Condition</span><span>{weather.name}</span></div>
           <div className="aeth-row"><span>Temperature</span><span>{weather.tempC} °C</span></div>
@@ -417,7 +422,7 @@ export default function OlympusAetherisPage() {
           </span></div>
 
           {!built.has(selected.name) && !game && (
-            <button className="aeth-btn" onClick={startDeploy}>DEPLOY AETHER UNIT</button>
+            <button className="aeth-btn" onClick={startDeploy}><IcTower /><span>DEPLOY AETHER UNIT</span></button>
           )}
           {game && (
             <>
@@ -431,7 +436,7 @@ export default function OlympusAetherisPage() {
                 onPointerUp={releaseDeploy}
                 onPointerLeave={() => setGame((g) => g && { ...g, holding: false })}
               >
-                HOLD TO CHARGE — RELEASE IN BAND
+                <IcCharge /><span>HOLD TO CHARGE — RELEASE IN BAND</span>
               </button>
             </>
           )}

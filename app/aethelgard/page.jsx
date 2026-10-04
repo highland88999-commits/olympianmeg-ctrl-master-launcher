@@ -2,6 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createScene, HOTSPOTS, SEASONS, ACCENT, timeLabel, timeString } from "./scene";
+import { IcSunrise, IcSun, IcSunset, IcMoon, IcWings, IcClose, IcMarker, IcSprout, IcSnowflake } from "@/app/artemis-ui/icons";
+
+const PRESET_ICONS = [IcSunrise, IcSun, IcSunset, IcMoon];
+const SEASON_ICONS = [IcSprout, IcSun, IcSunset, IcSnowflake];
 
 export default function AethelgardPage() {
   const canvasRef = useRef(null);
@@ -32,8 +36,13 @@ export default function AethelgardPage() {
 
   return (
     <main className="argus">
+      <div className="argus-bg" aria-hidden="true" />
       <style>{`
-        .argus { min-height: 100dvh; background: #060a08; color: #eef2e6; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; display: flex; flex-direction: column; }
+        .argus { min-height: 100dvh; background: #060a08; color: #eef2e6; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; display: flex; flex-direction: column; position: relative; }
+        .argus-bg { position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: 0.38;
+          background-image: linear-gradient(to bottom, rgba(6,10,8,0.6), rgba(6,10,8,0.2) 45%, rgba(6,10,8,0.8)), url(/images/aethelgard/bg.webp);
+          background-size: cover; background-position: center; }
+        .argus > *:not(.argus-bg) { position: relative; z-index: 1; }
         .argus header { padding: 18px 20px 10px; }
         .argus .kicker { font-size: 11px; letter-spacing: 4px; color: ${ACCENT}; text-transform: uppercase; }
         .argus h1 { margin: 4px 0 2px; font-size: clamp(1.6rem, 5vw, 2.6rem); letter-spacing: 6px; font-weight: 800; }
@@ -41,13 +50,15 @@ export default function AethelgardPage() {
         .argus .stage { position: relative; margin: 10px 16px 0; border: 1px solid #3a4432; border-radius: 14px; overflow: hidden; height: min(62dvh, 560px); min-height: 320px; background: #000; }
         .argus canvas { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
         .argus canvas:active { cursor: grabbing; }
-        .argus .panel { position: absolute; left: 12px; bottom: 12px; right: 12px; max-width: 430px; background: rgba(8,10,6,0.93); border: 1px solid ${ACCENT}; border-radius: 10px; padding: 14px 16px; }
+        .argus .panel { position: absolute; left: 12px; bottom: 12px; right: 12px; max-width: 430px;
+          background-image: linear-gradient(rgba(8,10,6,0.92), rgba(8,10,6,0.92)), url(/images/aethelgard/tile.webp);
+          background-size: auto, 160px; border: 1px solid ${ACCENT}; border-radius: 10px; padding: 14px 16px; }
         .argus .panel h2 { margin: 0 0 6px; font-size: 1.05rem; letter-spacing: 2px; color: ${ACCENT}; }
         .argus .panel p { margin: 0 0 10px; font-size: 0.88rem; line-height: 1.5; color: #e2e8d4; }
         .argus .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 14px 20px; }
         .argus .ctl { display: flex; align-items: center; gap: 10px; font-size: 0.8rem; letter-spacing: 1px; color: #a8b89a; }
         .argus input[type="range"] { width: 150px; accent-color: ${ACCENT}; }
-        .argus button { min-height: 44px; min-width: 44px; padding: 10px 16px; border-radius: 8px; border: 1px solid #3a4432; background: #0c100a; color: #eef2e6; font-size: 0.8rem; letter-spacing: 1px; cursor: pointer; }
+        .argus button { min-height: 44px; min-width: 44px; padding: 10px 16px; border-radius: 8px; border: 1px solid #3a4432; background: #0c100a; color: #eef2e6; font-size: 0.8rem; letter-spacing: 1px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
         .argus button.on { background: ${ACCENT}; border-color: ${ACCENT}; color: #0d0a04; font-weight: 700; }
         .argus .clock { font-variant-numeric: tabular-nums; color: #fff; font-weight: 700; }
         .argus .sites { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 20px 20px; }
@@ -67,7 +78,7 @@ export default function AethelgardPage() {
           <div className="panel" role="dialog" aria-label={hotspot.title}>
             <h2>{hotspot.title}</h2>
             <p>{hotspot.body}</p>
-            <button onClick={() => select(null)}>Close</button>
+            <button onClick={() => select(null)} aria-label="Close site panel"><IcClose /><span>Close</span></button>
           </div>
         )}
       </div>
@@ -79,22 +90,30 @@ export default function AethelgardPage() {
             onChange={(e) => setTime(Number(e.target.value) / 1000)} aria-label="Time of day" />
           <span className="clock">{timeString(time)} · {timeLabel(time)}</span>
         </div>
-        {presets.map(([label, t]) => (
-          <button key={label} onClick={() => setTime(t)}>{label}</button>
-        ))}
-        {SEASONS.map((s, i) => (
-          <button key={s.id} className={season === i ? "on" : ""} onClick={() => setSeason(i)} aria-pressed={season === i}>
-            {s.name}
-          </button>
-        ))}
+        {presets.map(([label, t], i) => {
+          const Icon = PRESET_ICONS[i % PRESET_ICONS.length];
+          return (
+            <button key={label} onClick={() => setTime(t)} aria-label={`Set time to ${label}`}>
+              <Icon /><span>{label}</span>
+            </button>
+          );
+        })}
+        {SEASONS.map((s, i) => {
+          const SIcon = SEASON_ICONS[i % SEASON_ICONS.length];
+          return (
+            <button key={s.id} className={season === i ? "on" : ""} onClick={() => setSeason(i)} aria-pressed={season === i} aria-label={`Set season to ${s.name}`}>
+              <SIcon /><span>{s.name}</span>
+            </button>
+          );
+        })}
         <button className={fly ? "on" : ""} onClick={() => setFly(!fly)} aria-pressed={fly}>
-          {fly ? "FLYTHROUGH ON" : "FLYTHROUGH"}
+          <IcWings /><span>{fly ? "FLYTHROUGH ON" : "FLYTHROUGH"}</span>
         </button>
       </div>
 
       <div className="sites" aria-label="Sites of interest">
         {HOTSPOTS.map((h) => (
-          <button key={h.id} onClick={() => select(h)}>◆ {h.title}</button>
+          <button key={h.id} onClick={() => select(h)} aria-label={`View ${h.title}`}><IcMarker /><span>{h.title}</span></button>
         ))}
       </div>
       <div className="season-note" aria-live="polite">{SEASONS[season].desc}</div>

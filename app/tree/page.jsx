@@ -5,6 +5,7 @@ import {
   mulberry32, buildTree, makeLeaves, stepLeaf, seasonPhase,
   skyFor, leafRGB, monthProgress, CYCLE,
 } from "./engine";
+import { IcPause, IcPlay } from "@/app/artemis-ui/icons";
 
 /**
  * Tree — The Cycle Tree. A procedurally grown tree living through a
@@ -237,6 +238,8 @@ export default function TreePage() {
 
   return (
     <div style={styles.page}>
+      {/* page background: still wilds art behind the simulation chrome */}
+      <div aria-hidden="true" style={styles.bgLayer} />
       <div style={styles.shell}>
         <header style={styles.head}>
           <h1 style={styles.title}>THE CYCLE TREE</h1>
@@ -250,7 +253,10 @@ export default function TreePage() {
           </div>
         </div>
         <div style={styles.controls}>
-          <button onClick={() => setPaused(!paused)} style={styles.btn}>{paused ? "RESUME CYCLE" : "PAUSE CYCLE"}</button>
+          <button onClick={() => setPaused(!paused)} style={styles.btn} aria-label={paused ? "Resume the seasonal cycle" : "Pause the seasonal cycle"}>
+            {paused ? <IcPlay /> : <IcPause />}
+            <span style={styles.btnLabel}>{paused ? "RESUME CYCLE" : "PAUSE CYCLE"}</span>
+          </button>
           <span style={styles.hint}>Drag to orbit · Tap to draw closer · Scroll to zoom</span>
         </div>
         <div aria-hidden="true" style={{ height: 'calc(4.5rem + env(safe-area-inset-bottom))' }} />
@@ -260,8 +266,11 @@ export default function TreePage() {
 }
 
 const styles = {
-  page: { minHeight: "100dvh", background: "#010103", display: "flex", justifyContent: "center", padding: "20px 12px", fontFamily: "ui-monospace, Menlo, monospace" },
-  shell: { width: "min(560px, 100%)" },
+  page: { minHeight: "100dvh", background: "#010103", display: "flex", justifyContent: "center", padding: "20px 12px", fontFamily: "ui-monospace, Menlo, monospace", position: "relative" },
+  bgLayer: { position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none", opacity: 0.42,
+    backgroundImage: "linear-gradient(to bottom, rgba(1,1,3,0.55), rgba(1,1,3,0.15) 45%, rgba(1,1,3,0.75)), url(/images/tree/bg.webp)",
+    backgroundSize: "cover", backgroundPosition: "center" },
+  shell: { width: "min(560px, 100%)", position: "relative", zIndex: 1 },
   head: { textAlign: "center", marginBottom: 12 },
   title: { margin: 0, color: "#00f2ff", letterSpacing: 8, fontSize: "clamp(1.6rem,7vw,2.4rem)", textShadow: "0 0 25px #00f2ff, 0 0 60px #0088ff" },
   sub: { color: "#ff00ff", letterSpacing: 4, fontSize: "0.75rem", margin: "6px 0 0" },
@@ -271,7 +280,10 @@ const styles = {
   phase: { color: "#fff", fontSize: "0.85rem", letterSpacing: 3, textShadow: "0 0 10px #00f2ff" },
   bar: { width: 200, height: 4, background: "rgba(255,255,255,0.2)", marginTop: 8, borderRadius: 2 },
   fill: { height: "100%", borderRadius: 2, transition: "width 0.25s linear" },
-  controls: { display: "flex", alignItems: "center", gap: 12, marginTop: 12, flexWrap: "wrap" },
-  btn: { padding: "10px 16px", fontSize: "0.75rem", cursor: "pointer", background: "transparent", color: "#00f2ff", border: "1px solid rgba(0,242,255,0.5)", letterSpacing: 2, borderRadius: 6, fontFamily: "inherit", fontWeight: "bold" },
+  controls: { display: "flex", alignItems: "center", gap: 12, marginTop: 12, flexWrap: "wrap",
+    backgroundImage: "linear-gradient(rgba(1,8,6,0.82), rgba(1,8,6,0.82)), url(/images/tree/tile.webp)",
+    backgroundSize: "auto, 180px", border: "1px solid rgba(0,242,255,0.18)", borderRadius: 10, padding: "10px 12px" },
+  btn: { display: "inline-flex", alignItems: "center", gap: 8, padding: "10px 16px", fontSize: "0.75rem", cursor: "pointer", background: "transparent", color: "#00f2ff", border: "1px solid rgba(0,242,255,0.5)", letterSpacing: 2, borderRadius: 6, fontFamily: "inherit", fontWeight: "bold" },
+  btnLabel: { letterSpacing: 2 },
   hint: { color: "rgba(0,242,255,0.55)", fontSize: "0.75rem", letterSpacing: 1 },
 };

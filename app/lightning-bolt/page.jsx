@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { IcBolt, IcCloudRain, IcPause, IcPlay } from "@/app/artemis-ui/icons";
 import {
   mulberry32,
   buildBolt,
@@ -227,25 +228,31 @@ export default function LightningBoltPage() {
   const btn = {
     background: "rgba(8,14,28,0.9)", color: "#9adcff", border: "1px solid rgba(154,220,255,0.4)",
     borderRadius: 8, padding: "12px 14px", fontSize: 14, cursor: "pointer", fontFamily: "inherit",
+    display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
   };
   const lbl = { fontSize: 11, letterSpacing: 1.5, color: "#5f7fa6", textTransform: "uppercase" };
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "#04060f", color: "#cfeaff", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", overflow: "hidden" }}>
-      <canvas ref={canvasRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", touchAction: "none", cursor: "crosshair" }} />
-      <div style={{ position: "absolute", top: 12, left: 12, zIndex: 2, background: "rgba(4,8,18,0.8)", border: "1px solid rgba(154,220,255,0.25)", borderRadius: 10, padding: 12 }}>
-        <div style={{ fontSize: 13, letterSpacing: 2, color: "#9adcff" }}>STORM BOLT</div>
+      <div aria-hidden="true" style={{ position: "absolute", inset: 0, zIndex: 0, pointerEvents: "none", opacity: 0.35,
+        backgroundImage: "linear-gradient(to bottom, rgba(4,6,15,0.6), rgba(4,6,15,0.25) 50%, rgba(4,6,15,0.7)), url(/images/lightning-bolt/bg.webp)",
+        backgroundSize: "cover", backgroundPosition: "center" }} />
+      <canvas ref={canvasRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", touchAction: "none", cursor: "crosshair", zIndex: 1 }} />
+      <div style={{ position: "absolute", top: 12, left: 12, zIndex: 2, backgroundImage: "linear-gradient(rgba(4,8,18,0.82), rgba(4,8,18,0.82)), url(/images/lightning-bolt/tile.webp)", backgroundSize: "auto, 160px", border: "1px solid rgba(154,220,255,0.25)", borderRadius: 10, padding: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, letterSpacing: 2, color: "#9adcff" }}><IcBolt /> STORM BOLT</div>
         <div style={{ color: "#5f7fa6", fontSize: 11, marginTop: 2 }}>tap the sky to call lightning</div>
         <div style={{ color: "#5f7fa6", fontSize: 11, marginTop: 4 }}>strikes {strikes}{storm ? " · storm live" : ""}</div>
       </div>
       <div style={{ position: "absolute", left: 12, right: 12, bottom: 12, zIndex: 2, display: "flex", gap: 10, alignItems: "stretch", flexWrap: "wrap" }}>
-        <button style={{ ...btn, flex: 1, minWidth: 130 }} onClick={() => setStorm(!storm)}>
-          {storm ? "CALM THE STORM" : "SUMMON STORM"}
+        <button style={{ ...btn, flex: 1, minWidth: 130 }} onClick={() => setStorm(!storm)} aria-pressed={storm}>
+          <IcBolt /><span>{storm ? "CALM THE STORM" : "SUMMON STORM"}</span>
         </button>
-        <button style={{ ...btn, flex: 1, minWidth: 130 }} onClick={() => setRainOn(!rainOn)}>
-          RAIN {rainOn ? "ON" : "OFF"}
+        <button style={{ ...btn, flex: 1, minWidth: 130 }} onClick={() => setRainOn(!rainOn)} aria-pressed={rainOn}>
+          <IcCloudRain /><span>RAIN {rainOn ? "ON" : "OFF"}</span>
         </button>
-        <button style={btn} onClick={() => setPaused(!paused)}>{paused ? "Resume" : "Pause"}</button>
+        <button style={btn} onClick={() => setPaused(!paused)} aria-label={paused ? "Resume" : "Pause"}>
+          {paused ? <IcPlay /> : <IcPause />}<span>{paused ? "Resume" : "Pause"}</span>
+        </button>
         <div style={{ ...btn, display: "flex", alignItems: "center", gap: 10, flex: 2, minWidth: 200 }}>
           <span style={lbl}>Fury</span>
           <input type="range" min={0.1} max={1} step={0.01} value={intensity}

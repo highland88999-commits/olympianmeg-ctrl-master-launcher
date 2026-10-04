@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { IcPause, IcPlay, IcCloudRain } from "@/app/artemis-ui/icons";
 import {
   mulberry32, createVortex, stepVortex, vortexScreenPos,
   createLava, stepLava, lavaScreenPos,
@@ -243,6 +244,7 @@ export default function TornadoPage() {
 
   return (
     <div style={styles.page}>
+      <div aria-hidden="true" style={styles.bgLayer} />
       <div style={styles.shell}>
         <header style={styles.head}>
           <h1 style={styles.title}>TORNADO</h1>
@@ -265,8 +267,12 @@ export default function TornadoPage() {
             <input type="range" min={0} max={1} step={0.01} value={lightning} onChange={(e) => setLightning(parseFloat(e.target.value))} style={styles.slider} />
           </label>
           <div style={styles.btnRow}>
-            <button onClick={() => setRainOn(!rainOn)} style={{ ...styles.btn, ...(rainOn ? styles.btnOn : {}) }}>RAIN</button>
-            <button onClick={() => setPaused(!paused)} style={styles.btn}>{paused ? "RESUME" : "PAUSE"}</button>
+            <button onClick={() => setRainOn(!rainOn)} style={{ ...styles.btn, ...(rainOn ? styles.btnOn : {}) }} aria-pressed={rainOn}>
+              <IcCloudRain /><span>RAIN</span>
+            </button>
+            <button onClick={() => setPaused(!paused)} style={styles.btn} aria-label={paused ? "Resume simulation" : "Pause simulation"}>
+              {paused ? <IcPlay /> : <IcPause />}<span>{paused ? "RESUME" : "PAUSE"}</span>
+            </button>
           </div>
         </div>
         <div aria-hidden="true" style={{ height: 'calc(4.5rem + env(safe-area-inset-bottom))' }} />
@@ -276,18 +282,21 @@ export default function TornadoPage() {
 }
 
 const styles = {
-  page: { minHeight: "100dvh", background: "#000", display: "flex", justifyContent: "center", padding: "20px 12px", fontFamily: "ui-monospace, Menlo, monospace" },
-  shell: { width: "min(640px, 100%)" },
+  page: { minHeight: "100dvh", background: "#000", display: "flex", justifyContent: "center", padding: "20px 12px", fontFamily: "ui-monospace, Menlo, monospace", position: "relative" },
+  bgLayer: { position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none", opacity: 0.4,
+    backgroundImage: "linear-gradient(to bottom, rgba(0,0,0,0.55), rgba(0,0,0,0.2) 45%, rgba(0,0,0,0.75)), url(/images/tornado/bg.webp)",
+    backgroundSize: "cover", backgroundPosition: "center" },
+  shell: { width: "min(640px, 100%)", position: "relative", zIndex: 1 },
   head: { textAlign: "center", marginBottom: 12 },
   title: { margin: 0, color: "#ff5522", letterSpacing: 10, fontSize: "clamp(1.8rem,7vw,2.6rem)", textShadow: "0 0 24px rgba(255,60,20,0.6)" },
   sub: { color: "#8a93a8", letterSpacing: 4, fontSize: "0.75rem", margin: "6px 0 0", textTransform: "uppercase" },
   canvasWrap: { border: "1px solid rgba(255,80,20,0.25)", borderRadius: 12, overflow: "hidden" },
   canvas: { display: "block", width: "100%", height: "auto", aspectRatio: "800 / 600" },
-  panel: { marginTop: 14, background: "rgba(12,10,14,0.9)", border: "1px solid rgba(255,80,20,0.2)", borderRadius: 12, padding: 16, display: "grid", gap: 12 },
+  panel: { marginTop: 14, backgroundImage: "linear-gradient(rgba(12,8,10,0.86), rgba(12,8,10,0.86)), url(/images/tornado/tile.webp)", backgroundSize: "auto, 180px", border: "1px solid rgba(255,80,20,0.2)", borderRadius: 12, padding: 16, display: "grid", gap: 12 },
   field: { display: "grid", gap: 6 },
   label: { color: "#ffb08a", fontSize: "0.72rem", letterSpacing: 2 },
   slider: { width: "100%", accentColor: "#ff5522" },
   btnRow: { display: "flex", gap: 10 },
-  btn: { padding: "10px 18px", fontSize: "0.75rem", cursor: "pointer", background: "transparent", color: "#ffb08a", border: "1px solid rgba(255,80,20,0.4)", letterSpacing: 2, borderRadius: 6, fontFamily: "inherit", fontWeight: "bold" },
+  btn: { display: "inline-flex", alignItems: "center", gap: 8, padding: "10px 18px", fontSize: "0.75rem", cursor: "pointer", background: "transparent", color: "#ffb08a", border: "1px solid rgba(255,80,20,0.4)", letterSpacing: 2, borderRadius: 6, fontFamily: "inherit", fontWeight: "bold" },
   btnOn: { background: "rgba(255,80,20,0.18)", color: "#ff8855", borderColor: "#ff5522" },
 };

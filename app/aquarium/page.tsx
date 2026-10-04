@@ -5,6 +5,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { BackButton } from '@/components/ui';
 import { supabase } from '@/lib/supabase';
+import { IcPlus, IcMinus, AquariumCrest } from '@/app/artemis-ui/icons';
 
 const defaultNodes = [
     { id: "DHUnz4dyb54", name: "AQUARIUM" }, // Renamed from GEORGIA AQUARIUM
@@ -295,13 +296,16 @@ export default function AquariumConsole() {
         }
 
         .holo-frame {
-            width: min(420px, 85vw); padding: 40px; background: var(--ui-bg);
+            width: min(420px, 85vw); padding: 40px;
+            background-image: linear-gradient(var(--ui-bg), var(--ui-bg)), url(/images/aquarium/tile.webp);
+            background-size: auto, 170px;
             border: 2.5px solid var(--glow); border-radius: 30px; text-align: center;
             color: #fff; pointer-events: auto; box-shadow: 0 0 30px rgba(0, 242, 255, 0.1); cursor: default;
         }
+        .holo-crest { display: flex; justify-content: center; margin-bottom: 14px; }
 
         .btn {
-            display: block; margin-top: 15px; padding: 12px; text-decoration: none;
+            display: inline-flex; align-items: center; justify-content: center; gap: 8px; margin-top: 15px; padding: 12px; text-decoration: none;
             border-radius: 50px; font-weight: bold; font-size: 0.7rem; text-transform: uppercase;
             letter-spacing: 2px; border: 1px solid var(--glow); color: var(--glow);
             background: rgba(0, 242, 255, 0.05); transition: 0.3s; cursor: pointer; width: 100%; box-sizing: border-box;
@@ -335,6 +339,18 @@ export default function AquariumConsole() {
         .hidden { opacity: 0 !important; visibility: hidden !important; transition: opacity 0.3s ease, visibility 0.3s; pointer-events: none; }
         .loading-text { color: var(--gold); animation: pulse 1.5s infinite; }
         @keyframes pulse { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
+        .aqua-spinner { display: inline-flex; align-items: center; gap: 10px; }
+        .aqua-ring { width: 18px; height: 18px; border-radius: 50%;
+            border: 2px solid rgba(0,242,255,0.2); border-top-color: var(--glow);
+            animation: aqua-spin 1s linear infinite; }
+        @keyframes aqua-spin { to { transform: rotate(360deg); } }
+        .aqua-shimmer { background: linear-gradient(90deg, var(--glow) 25%, #fff 50%, var(--glow) 75%);
+            background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
+            animation: aqua-shimmer 2.2s linear infinite; }
+        @keyframes aqua-shimmer { to { background-position: -200% 0; } }
+        .aqua-bg { position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: 0.55;
+            background-image: linear-gradient(to bottom, rgba(0,8,12,0.55), rgba(0,8,12,0.25) 50%, rgba(0,8,12,0.7)), url(/images/aquarium/bg.webp);
+            background-size: cover; background-position: center; }
       `}</style>
       
       <div 
@@ -344,6 +360,7 @@ export default function AquariumConsole() {
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
       >
+        <div className="aqua-bg" aria-hidden="true" />
         <BackButton label="EXIT MATRIX" />
 
         <div className={`video-engine ${isFading ? 'fade-out' : ''} ${mirrored ? 'mirrored' : ''}`} onClick={() => setUiOpen(true)}>
@@ -363,14 +380,17 @@ export default function AquariumConsole() {
 
         <div className={`nexus-overlay ${!uiOpen ? 'hidden' : ''}`} onClick={() => setUiOpen(false)}>
             <div className="holo-frame" onClick={(e) => e.stopPropagation()}>
+                <div className="holo-crest"><AquariumCrest size={34} /></div>
                 <h1 style={{margin:0, fontSize: '1.1rem', letterSpacing: '4px', color: 'var(--glow)'}}>{currentNode.name}</h1>
                 <p style={{fontSize: '0.6rem', opacity: 0.6, marginTop: '10px'}}>
-                  {isFading ? statusText : `ACTIVE FEED: NODE_${String(currentIndex + 1).padStart(2, '0')}`}
+                  {isFading ? (
+                    <span className="aqua-spinner"><span className="aqua-ring" aria-hidden="true" /><span className="aqua-shimmer">{statusText}</span></span>
+                  ) : `ACTIVE FEED: NODE_${String(currentIndex + 1).padStart(2, '0')}`}
                 </p>
                 
                 <div className="btn-row">
-                    <button className="btn" onClick={promptAddNode}>+ Add Feed</button>
-                    <button className="btn btn-danger" onClick={removeCurrentNode}>- Remove Feed</button>
+                    <button className="btn" onClick={promptAddNode}><IcPlus /><span>Add Feed</span></button>
+                    <button className="btn btn-danger" onClick={removeCurrentNode}><IcMinus /><span>Remove Feed</span></button>
                 </div>
                 
                 <a href="mailto:stakeme10000@gmail.com" className="btn">Request Console</a>
@@ -379,7 +399,7 @@ export default function AquariumConsole() {
 
         <div className={`hud ${uiOpen ? 'hidden' : ''}`} style={{left: '30px'}}>
             {isFading ? (
-              <>[ <span className="loading-text">ESTABLISHING CONNECTION...</span> ]</>
+              <span className="aqua-spinner"><span className="aqua-ring" aria-hidden="true" /><span className="aqua-shimmer">ESTABLISHING CONNECTION...</span></span>
             ) : (
               `NODE: ${String(currentIndex + 1).padStart(2, '0')}/${nodes.length}`
             )}

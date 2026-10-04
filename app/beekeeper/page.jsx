@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import { IcEye, IcTarget, IcRefresh, IcFlame, IcFan } from "@/app/artemis-ui/icons";
 import {
   waggleEncode,
   waggleDecode,
@@ -430,6 +431,9 @@ export default function BeekeeperPage() {
 
   return (
     <div style={{ position: "relative", color: "#e8f6ff", fontFamily: "'Courier New', monospace" }}>
+      <div aria-hidden="true" style={{ position: "fixed", inset: 0, zIndex: -2, pointerEvents: "none", opacity: 0.5,
+        backgroundImage: "linear-gradient(to bottom, rgba(0,0,0,0.55), rgba(0,0,0,0.25) 50%, rgba(0,0,0,0.7)), url(/images/beekeeper/bg.webp)",
+        backgroundSize: "cover", backgroundPosition: "center" }} />
       <canvas ref={bgRef} style={{ position: "fixed", inset: 0, width: "100%", height: "100%", zIndex: -1, pointerEvents: "none" }} aria-hidden="true" />
       <style>{`
         .bk-wrap{max-width:1060px;margin:0 auto;padding:0 20px 80px;position:relative;z-index:1}
@@ -445,17 +449,18 @@ export default function BeekeeperPage() {
         .bk-sechead p{margin:4px 0 0;font-size:.7rem;letter-spacing:2px;color:#00f0ff}
         .bk-sechead.pink p{color:#ff007f}
         .bk-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px}
-        .bk-card{background:rgba(5,5,10,.72);border:1px solid rgba(255,0,127,.25);padding:26px;backdrop-filter:blur(10px);display:flex;flex-direction:column}
+        .bk-card{background-image:linear-gradient(rgba(5,5,10,.72), rgba(5,5,10,.72)), url(/images/beekeeper/tile.webp);background-size:auto,170px;border:1px solid rgba(255,0,127,.25);padding:26px;backdrop-filter:blur(10px);display:flex;flex-direction:column}
         .bk-card:hover{border-color:rgba(0,240,255,.6)}
         .bk-card .tag{color:#ff007f;font-weight:bold;font-size:.68rem;letter-spacing:2px;margin-bottom:12px}
         .bk-card h3{margin:0 0 10px;color:#fff;font-size:1.02rem}
         .bk-card p{color:#9fb3c8;font-size:.82rem;line-height:1.65;flex:1}
         .bk-card .st{margin-top:16px;padding-top:12px;border-top:1px solid #1c2733;font-size:.65rem;color:rgba(0,240,255,.6);letter-spacing:1px}
-        .bk-lab{background:rgba(3,6,12,.85);border:1px solid rgba(0,240,255,.3);border-radius:10px;padding:20px}
+        .bk-lab{background-image:linear-gradient(rgba(3,6,12,.85), rgba(3,6,12,.85)), url(/images/beekeeper/tile.webp);background-size:auto,170px;border:1px solid rgba(0,240,255,.3);border-radius:10px;padding:20px}
         .bk-lab canvas{width:100%;height:380px;display:block;border-radius:6px;cursor:pointer;touch-action:manipulation}
         .bk-tabs{display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap}
         .bk-btn{background:transparent;border:1px solid #00f0ff;color:#00f0ff;padding:12px 20px;cursor:pointer;
-          font-family:inherit;font-size:.72rem;letter-spacing:2px;min-height:44px;border-radius:6px}
+          font-family:inherit;font-size:.72rem;letter-spacing:2px;min-height:44px;border-radius:6px;
+          display:inline-flex;align-items:center;justify-content:center;gap:8px}
         .bk-btn:hover{background:#00f0ff;color:#000}
         .bk-btn.on{background:#00f0ff;color:#000}
         .bk-btn.pink{border-color:#ff007f;color:#ff007f}
@@ -468,7 +473,7 @@ export default function BeekeeperPage() {
         .bk-band{position:absolute;left:0;right:0;background:rgba(0,255,136,.18);border-top:1px solid #00ff88;border-bottom:1px solid #00ff88}
         .bk-merc{position:absolute;left:0;right:0;bottom:0;background:linear-gradient(180deg,#ff9f43,#ff007f);transition:height .25s}
         .bk-tlabel{position:absolute;left:8px;font-size:.62rem;color:#9fd8ff}
-        .bk-ctl{background:rgba(3,6,12,.85);border:1px solid rgba(255,0,127,.3);border-radius:10px;padding:20px}
+        .bk-ctl{background-image:linear-gradient(rgba(3,6,12,.85), rgba(3,6,12,.85)), url(/images/beekeeper/tile.webp);background-size:auto,170px;border:1px solid rgba(255,0,127,.3);border-radius:10px;padding:20px}
         .bk-wx{font-size:.8rem;letter-spacing:2px;color:#ffd94d;margin-bottom:6px}
         .bk-wxd{font-size:.75rem;color:#9fb3c8;margin-bottom:16px}
         .bk-toggles{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px}
@@ -508,9 +513,9 @@ export default function BeekeeperPage() {
           </div>
           <div className="bk-lab">
             <div className="bk-tabs" role="tablist" aria-label="Lab mode">
-              <button className={`bk-btn ${labMode === "demo" ? "on" : ""}`} onClick={() => { setLabMode("demo"); lab.current.target = null; lab.current.dance = null; setDanceInfo(null); }}>DEMONSTRATE</button>
-              <button className={`bk-btn ${labMode === "decode" ? "on" : ""}`} onClick={() => { setLabMode("decode"); setScore({ rounds: 0, points: 0, last: null }); startChallenge(); }}>DECODE CHALLENGE</button>
-              {labMode === "decode" && <button className="bk-btn pink" onClick={startChallenge}>NEW DANCE</button>}
+              <button className={`bk-btn ${labMode === "demo" ? "on" : ""}`} onClick={() => { setLabMode("demo"); lab.current.target = null; lab.current.dance = null; setDanceInfo(null); }}><IcEye /><span>DEMONSTRATE</span></button>
+              <button className={`bk-btn ${labMode === "decode" ? "on" : ""}`} onClick={() => { setLabMode("decode"); setScore({ rounds: 0, points: 0, last: null }); startChallenge(); }}><IcTarget /><span>DECODE CHALLENGE</span></button>
+              {labMode === "decode" && <button className="bk-btn pink" onClick={startChallenge}><IcRefresh /><span>NEW DANCE</span></button>}
             </div>
             <canvas ref={labRef} aria-label="Waggle dance laboratory" />
             <div className="bk-readout" aria-live="polite">
@@ -550,12 +555,12 @@ export default function BeekeeperPage() {
               <div className="bk-wxd">{wx.desc} · ambient {wx.ambient}°C</div>
               <div className="bk-toggles">
                 <button className={`bk-btn pink ${heater ? "on" : ""}`} onClick={() => setHeater((h) => !h)} aria-pressed={heater}>
-                  {heater ? "HEATER ON" : "HEATER OFF"} · +3.2°/s
+                  <IcFlame /><span>{heater ? "HEATER ON" : "HEATER OFF"} · +3.2°/s</span>
                 </button>
                 <button className={`bk-btn ${fan ? "on" : ""}`} onClick={() => setFan((f) => !f)} aria-pressed={fan}>
-                  {fan ? "FAN ON" : "FAN OFF"} · −3.8°/s
+                  <IcFan /><span>{fan ? "FAN ON" : "FAN OFF"} · −3.8°/s</span>
                 </button>
-                <button className="bk-btn" onClick={resetThermo}>RESET SHIFT</button>
+                <button className="bk-btn" onClick={resetThermo}><IcRefresh /><span>RESET SHIFT</span></button>
               </div>
               <div className="bk-readout">
                 Time in band: <b>{stats.inBand.toFixed(0)}s</b> / {stats.total.toFixed(0)}s

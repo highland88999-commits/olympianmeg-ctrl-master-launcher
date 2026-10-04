@@ -8,6 +8,7 @@ import {
   expansionFactor,
 } from "./cosmos";
 import { createUniverseScene } from "./universe3d";
+import { IcPlay, IcPause, IcReplay, IcGauge, IcSpeaker } from "@/app/artemis-ui/icons";
 
 /**
  * The Big Bang — a scrubbable history of the universe, rebuilt.
@@ -181,6 +182,7 @@ export default function BigBangPage() {
   return (
     <>
     <div style={styles.page}>
+      <div aria-hidden="true" style={styles.bgLayer} />
       <canvas ref={canvasRef} style={styles.canvas} />
       <div style={styles.top}>
         <h1 style={styles.title}>The Big Bang</h1>
@@ -191,11 +193,11 @@ export default function BigBangPage() {
       <div style={styles.dock}>
         <button style={styles.btn} onClick={togglePlay} aria-label={ui.playing ? "Pause" : "Play"}
           disabled={reduced} title={reduced ? "Scrub the timeline instead — motion is reduced" : undefined}>
-          {ui.playing ? "Pause" : "Play"}
+          {ui.playing ? <IcPause /> : <IcPlay />}<span>{ui.playing ? "Pause" : "Play"}</span>
         </button>
         <button style={styles.btn} onClick={() => window.bigbang && window.bigbang.replay()}
-          disabled={reduced} title={reduced ? "Scrub the timeline instead — motion is reduced" : undefined}>
-          Replay the bang
+          disabled={reduced} title={reduced ? "Scrub the timeline instead — motion is reduced" : "Replay the universe"}>
+          <IcReplay /><span>Replay the bang</span>
         </button>
         <input
           ref={scrubRef}
@@ -204,11 +206,11 @@ export default function BigBangPage() {
           style={styles.scrub}
           aria-label="Scrub through cosmic time"
         />
-        <button style={styles.btn} onClick={() => setUi({ ...ui, speedIdx: (ui.speedIdx + 1) % SPEEDS.length })}>
-          {SPEEDS[ui.speedIdx]}×
+        <button style={styles.btn} onClick={() => setUi({ ...ui, speedIdx: (ui.speedIdx + 1) % SPEEDS.length })} aria-label={`Time speed ${SPEEDS[ui.speedIdx]} times`}>
+          <IcGauge /><span>{SPEEDS[ui.speedIdx]}×</span>
         </button>
-        <button style={styles.btn} onClick={() => setUi({ ...ui, sound: !ui.sound })}>
-          Drone: {ui.sound ? "on" : "off"}
+        <button style={styles.btn} onClick={() => setUi({ ...ui, sound: !ui.sound })} aria-pressed={ui.sound}>
+          <IcSpeaker /><span>Drone: {ui.sound ? "on" : "off"}</span>
         </button>
       </div>
     </div>
@@ -220,13 +222,16 @@ export default function BigBangPage() {
 
 const styles = {
   page: { position: "fixed", inset: 0, background: "#010102", color: "#fff", overflow: "hidden", fontFamily: "system-ui, -apple-system, sans-serif", userSelect: "none" },
-  canvas: { position: "absolute", inset: 0, width: "100%", height: "100%", display: "block" },
+  bgLayer: { position: "absolute", inset: 0, zIndex: 0, pointerEvents: "none", opacity: 0.32,
+    backgroundImage: "linear-gradient(to bottom, rgba(1,1,2,0.65), rgba(1,1,2,0.2) 50%, rgba(1,1,2,0.7)), url(/images/the-big-bang/bg.webp)",
+    backgroundSize: "cover", backgroundPosition: "center" },
+  canvas: { position: "absolute", inset: 0, width: "100%", height: "100%", display: "block", zIndex: 1 },
   top: { position: "absolute", top: 0, left: 0, right: 0, zIndex: 5, padding: "18px 22px", pointerEvents: "none", background: "linear-gradient(to bottom, rgba(0,0,0,.55), transparent)" },
   title: { margin: 0, fontSize: 22, fontWeight: 800, letterSpacing: 4, textTransform: "uppercase", color: "#ffe9c4" },
   stage: { marginTop: 6, fontSize: 17, fontWeight: 700, color: "#ffd76e" },
   years: { fontSize: 13, opacity: 0.75, marginTop: 2 },
   blurb: { fontSize: 14, opacity: 0.85, maxWidth: 620, lineHeight: 1.5, margin: "8px 0 0" },
-  dock: { position: "absolute", left: 12, right: 12, bottom: "max(12px, env(safe-area-inset-bottom))", zIndex: 5, display: "flex", gap: 10, alignItems: "center", background: "rgba(10,8,4,.72)", border: "1px solid rgba(255,215,110,.25)", borderRadius: 14, padding: "10px 14px", backdropFilter: "blur(8px)", flexWrap: "wrap" },
-  btn: { background: "rgba(255,255,255,.08)", color: "#fff", border: "1px solid rgba(255,255,255,.25)", borderRadius: 8, padding: "8px 12px", fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" },
+  dock: { position: "absolute", left: 12, right: 12, bottom: "max(12px, env(safe-area-inset-bottom))", zIndex: 5, display: "flex", gap: 10, alignItems: "center", backgroundImage: "linear-gradient(rgba(10,8,4,0.78), rgba(10,8,4,0.78)), url(/images/the-big-bang/tile.webp)", backgroundSize: "auto, 170px", border: "1px solid rgba(255,215,110,0.25)", borderRadius: 14, padding: "10px 14px", backdropFilter: "blur(8px)", flexWrap: "wrap" },
+  btn: { display: "inline-flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,.08)", color: "#fff", border: "1px solid rgba(255,255,255,.25)", borderRadius: 8, padding: "8px 12px", fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" },
   scrub: { flex: 1, minWidth: 140, accentColor: "#ffd76e" },
 };

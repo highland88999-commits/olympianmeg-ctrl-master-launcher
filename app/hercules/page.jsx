@@ -7,6 +7,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { BackButton } from '@/components/ui';
+import { IcRoute, IcArrow, IcCheck, IcCompass, IcMap } from "@/app/artemis-ui/icons";
 import { fx, unlockFx } from '@/lib/fx';
 import { createTour, STATES, PLANETS, SUN, pickQualityTier, logFor } from './tour.js';
 import { createSolarScene } from './solarSystem.js';
@@ -146,6 +147,9 @@ export default function HerculesPage() {
 
   return (
     <div className="fixed inset-0 bg-black overflow-hidden select-none" style={{ touchAction: 'none' }}>
+      {/* page background: deep-space still art behind the voyage canvas */}
+      <div aria-hidden="true" className="absolute inset-0 z-0 pointer-events-none opacity-30"
+        style={{ backgroundImage: "linear-gradient(to bottom, rgba(0,0,0,0.6), rgba(0,0,0,0.25) 50%, rgba(0,0,0,0.65)), url(/images/hercules/bg.webp)", backgroundSize: "cover", backgroundPosition: "center" }} />
       <canvas
         ref={canvasRef}
         className="absolute inset-0 w-full h-full block outline-none"
@@ -164,7 +168,7 @@ export default function HerculesPage() {
       {/* Mission briefing */}
       {showBriefing && (
         <div className="absolute inset-0 z-20 flex items-center justify-center p-4 pb-[max(1rem,env(safe-area-inset-bottom))] overflow-y-auto bg-black/55" style={{ touchAction: 'pan-y' }}>
-          <div className="w-full max-w-lg rounded-2xl border border-amber-400/30 bg-[#0a0805]/95 p-6 my-8">
+          <div className="herc-card w-full max-w-lg rounded-2xl border border-amber-400/30 bg-[#0a0805]/95 p-6 my-8">
             <h1 className="text-2xl font-bold tracking-[0.25em] text-amber-300">HERCULES</h1>
             <p className="mt-1 text-sm text-zinc-300">A voyage across the solar system.</p>
             <p className="mt-3 text-xs leading-relaxed text-zinc-400">
@@ -193,9 +197,9 @@ export default function HerculesPage() {
               </button>
               <button
                 onClick={() => startVoyage(['grand-tour'])}
-                className="min-h-[52px] col-span-2 rounded-xl border border-amber-400/50 bg-amber-400/10 px-3 text-center text-sm font-bold tracking-[0.2em] text-amber-200 uppercase hover:bg-amber-400/25"
+                className="herc-act min-h-[52px] col-span-2 rounded-xl border border-amber-400/50 bg-amber-400/10 px-3 text-center text-sm font-bold tracking-[0.2em] text-amber-200 uppercase hover:bg-amber-400/25"
               >
-                Grand tour — visit all 8 planets
+                <IcRoute /><span>Grand tour — visit all 8 planets</span>
               </button>
             </div>
           </div>
@@ -214,7 +218,7 @@ export default function HerculesPage() {
       {/* Cruising */}
       {showCruise && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 w-[86%] max-w-md pointer-events-none">
-          <div className="rounded-xl border border-amber-400/30 bg-black/60 px-4 py-3">
+          <div className="herc-card rounded-xl border border-amber-400/30 bg-black/60 px-4 py-3">
             <p className="text-xs tracking-[0.25em] uppercase text-amber-200">Cruising…</p>
             <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-amber-400/15">
               {!reducedMotion && (
@@ -231,7 +235,7 @@ export default function HerculesPage() {
       {/* Mission log */}
       {(showCruise || showArrived || showComplete) && log.length > 0 && (
         <div className="absolute bottom-[max(1rem,env(safe-area-inset-bottom))] left-4 z-20 max-w-[300px] pointer-events-none">
-          <div className="rounded-xl border border-amber-400/25 bg-black/60 p-3">
+          <div className="herc-card rounded-xl border border-amber-400/25 bg-black/60 p-3">
             <p className="text-[10px] tracking-[0.3em] uppercase text-amber-300/80 mb-1">Mission log</p>
             {log.slice(-3).map((line, i) => (
               <p key={i} className="text-xs leading-relaxed text-zinc-300">{line}</p>
@@ -243,7 +247,7 @@ export default function HerculesPage() {
       {/* Arrival card */}
       {showArrived && arrivedAt && (
         <div className="absolute bottom-[max(1rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-20 w-[92%] max-w-md">
-          <div className="rounded-2xl border border-amber-400/40 bg-[#0a0805]/95 p-5">
+          <div className="herc-card rounded-2xl border border-amber-400/40 bg-[#0a0805]/95 p-5">
             <div className="flex items-center gap-3">
               <span className="h-6 w-6 rounded-full shrink-0" style={colorStyle(arrivedAt.color)} aria-hidden />
               <h2 className="text-xl font-bold text-amber-200">{arrivedAt.name}</h2>
@@ -258,23 +262,23 @@ export default function HerculesPage() {
               {legsLeft > 0 ? (
                 <button
                   onClick={nextLeg}
-                  className="min-h-[48px] flex-1 rounded-xl bg-amber-300 text-sm font-bold text-black"
+                  className="herc-act min-h-[48px] flex-1 rounded-xl bg-amber-300 text-sm font-bold text-black"
                 >
-                  Next stop ({legsLeft} left) →
+                  <IcArrow /><span>Next stop ({legsLeft} left)</span>
                 </button>
               ) : (
                 <button
                   onClick={nextLeg}
-                  className="min-h-[48px] flex-1 rounded-xl bg-amber-300 text-sm font-bold text-black"
+                  className="herc-act min-h-[48px] flex-1 rounded-xl bg-amber-300 text-sm font-bold text-black"
                 >
-                  Finish voyage
+                  <IcCheck /><span>Finish voyage</span>
                 </button>
               )}
               <button
                 onClick={endVoyage}
-                className="min-h-[48px] px-4 rounded-xl border border-amber-400/40 text-sm text-amber-200"
+                className="herc-act min-h-[48px] px-4 rounded-xl border border-amber-400/40 text-sm text-amber-200"
               >
-                New voyage
+                <IcCompass /><span>New voyage</span>
               </button>
             </div>
           </div>
@@ -284,14 +288,14 @@ export default function HerculesPage() {
       {/* Complete */}
       {showComplete && (
         <div className="absolute inset-0 z-20 flex items-center justify-center p-4 bg-black/55">
-          <div className="w-full max-w-md rounded-2xl border border-amber-400/30 bg-[#0a0805]/95 p-6 text-center">
+          <div className="herc-card w-full max-w-md rounded-2xl border border-amber-400/30 bg-[#0a0805]/95 p-6 text-center">
             <h2 className="text-xl font-bold tracking-[0.2em] text-amber-200">VOYAGE COMPLETE</h2>
             <p className="mt-2 text-sm text-zinc-300">The crew thanks you for flying Hercules.</p>
             <button
               onClick={endVoyage}
-              className="mt-5 min-h-[48px] w-full rounded-xl bg-amber-300 text-sm font-bold text-black"
+              className="herc-act mt-5 min-h-[48px] w-full rounded-xl bg-amber-300 text-sm font-bold text-black"
             >
-              Plan another voyage
+              <IcMap /><span>Plan another voyage</span>
             </button>
           </div>
         </div>
@@ -302,6 +306,11 @@ export default function HerculesPage() {
         @media (prefers-reduced-motion: reduce) {
           @keyframes hercules-cruise { from { transform: scaleX(1); } to { transform: scaleX(1); } }
         }
+        .herc-card {
+          background-image: linear-gradient(rgba(10,8,5,0.93), rgba(10,8,5,0.93)), url(/images/hercules/tile.webp);
+          background-size: auto, 170px;
+        }
+        .herc-act { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
       `}</style>
     </div>
   );
