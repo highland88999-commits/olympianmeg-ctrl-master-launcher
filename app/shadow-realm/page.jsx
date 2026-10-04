@@ -716,6 +716,11 @@ function ShadowRealmInner() {
   const mount = () => {
     try { fx.bikeMount(); } catch { /* best-effort */ }
     persist({});
+    // Merlin 2026-10-03: the MOUNT & RIDE tap is a user gesture, so iOS
+    // grants motion permission from it — tilt drives the bike from the very
+    // first ride (steer/gas/brake/regen), no separate ◐ tap needed. Denial
+    // degrades honestly: toast + auto-throttle + touch steer pads.
+    try { motion.enableMotionFromGesture(); } catch { /* motion is best-effort */ }
     // Fresh run, fresh net session — no stale presence survives RIDE AGAIN.
     void stopNet();
     pvpSyncRef.current = null;
@@ -1086,8 +1091,9 @@ function ShadowRealmInner() {
             </div>
           )}
           {/* touch controls: BOOST + fallback steer pads (pads render only
-              while tilt is NOT driving — tilt riders never see them);
-              camera stays drag-to-orbit */}
+              while tilt is NOT driving — tilt riders never see them).
+              Ride camera is a locked chase cam (Merlin 2026-10-03): no
+              drag-orbit, no gyro-pan while riding. */}
           <div style={{ position: 'absolute', inset: 0, zIndex: 6, pointerEvents: 'none' }}>
             {shouldShowTouchSteer(stage, motion.motionOn) && (
               <div

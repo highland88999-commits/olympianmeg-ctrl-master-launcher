@@ -24,6 +24,14 @@ import RemoteBikes from './RemoteBikes';
 import { fx } from '@/lib/fx';
 import { REGEN_CHARGE_RATE, SURGE_SECS } from '@/lib/bike-motion';
 import { createOrbit, resetOrbit, applyDrag, applyPinch, applyWheel, orbitCamera } from './orbit';
+import {
+  RIDE_CAMERA_LOCK,
+  chaseCamTarget,
+  chaseLookAt,
+  chaseLerpFactor,
+  dampAngle,
+  CHASE_HEADING_LAMBDA,
+} from './chase';
 
 // ---------------------------------------------------------------------------
 // geometry builders (plain three.js, built once per track)
@@ -483,6 +491,10 @@ function OrbitDriver({ orbitRef }) {
 function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, onLap, onFinish, hudRef, orbitRef }) {
   const bikeRef = useRef();
   const camTarget = useRef(new THREE.Vector3());
+  // Smoothed camera heading — the chase cam yaw follows the bike with a
+  // slight lag (no snapping on sharp turns). Reset to the spawn heading
+  // on every (re)spawn so the camera never swings wildly on mount.
+  const camHeading = useRef(0);
   const sim = useRef(null);
 
   // Roam mode: no track exists — loops stay null, never touched.
@@ -504,8 +516,10 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, 
       lastHud: 0,
     };
     if (trailApi.current) trailApi.current.clear();
-    // Fresh run, fresh camera: orbit offsets reset to the chase baseline.
+    // Fresh run, fresh camera: orbit offsets reset to the chase baseline and
+    // the smoothed camera heading snaps to the spawn heading (no swing).
     if (orbitRef.current) resetOrbit(orbitRef.current);
+    camHeading.current = pose.heading;
   }, [track, mode, loops, running, trailApi]);
 
   useFrame((state, rawDt) => {
@@ -620,29 +634,36 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, 
       trailApi.current.push(s.x, s.z, dx, dz);
     }
 
-    // chase camera baseline (+ orbit: touch-drag orbits around the rider,
-    // pinch dollies; zeroed orbit state reproduces the legacy chase exactly)
+    // Chase camera — Merlin 2026-10-03: LOCKED behind the bike during the
+    // ride. The camera yaw follows the smoothed bike heading (no snapping);
+    // drag-orbit and gyro-pan are gated off while RIDE_CAMERA_LOCK is true.
+    // One-line re-enable: set RIDE_CAMERA_LOCK = false in ./chase.js.
+    camHeading.current = dampAngle(camHeading.current, s.heading, CHASE_HEADING_LAMBDA, dt);
+    const ch = camHeading.current;
     const cam = state.camera;
-    const back = 13 + s.speed * 0.05;
-    const chaseX = s.x - dx * back;
-    const chaseZ = s.z - dz * back;
-    const chaseY = 5.6 + s.speed * 0.012;
-    const oc = orbitCamera(
-      { x: s.x, z: s.z },
-      { x: chaseX, y: chaseY, z: chaseZ },
-      orbitRef.current
-    );
-    camTarget.current.set(oc.x, oc.y, oc.z);
-    cam.position.lerp(camTarget.current, 1 - Math.exp(-4.5 * dt));
-    // Gyro look: pan the view without moving the camera. Yaw rotates the
-    // look-at point about world-up around the bike (horizon never tilts —
-    // no roll is ever applied); pitch shifts its height. lookYaw > 0 looks
-    // right, lookPitch > 0 looks up. Both default to 0 (straight ahead).
-    const lookYaw = input.lookYaw || 0;
-    const lookPitch = input.lookPitch || 0;
-    let lx = s.x + dx * 12;
-    let ly = 1.4;
-    let lz = s.z + dz * 12;
+    const ct = chaseCamTarget(s.x, s.z, ch, s.speed);
+    let camX = ct.x;
+    let camY = ct.y;
+    let camZ = ct.z;
+    if (!RIDE_CAMERA_LOCK) {
+      // Legacy: drag-orbit offsets on top of the chase baseline.
+      const oc = orbitCamera({ x: s.x, z: s.z }, ct, orbitRef.current);
+      camX = oc.x;
+      camY = oc.y;
+      camZ = oc.z;
+    }
+    camTarget.current.set(camX, camY, camZ);
+    cam.position.lerp(camTarget.current, chaseLerpFactor(dt));
+    // Look-at: straight ahead along the (smoothed) heading. Gyro-look pan
+    // is gated off while the lock holds — the sensors drive the BIKE, not
+    // the camera. The hook still writes lookYaw/lookPitch (code path kept);
+    // set RIDE_CAMERA_LOCK = false to read them again.
+    const lookYaw = RIDE_CAMERA_LOCK ? 0 : input.lookYaw || 0;
+    const lookPitch = RIDE_CAMERA_LOCK ? 0 : input.lookPitch || 0;
+    const la = chaseLookAt(s.x, s.z, ch);
+    let lx = la.x;
+    let ly = la.y;
+    let lz = la.z;
     if (lookYaw) {
       const ox = lx - s.x;
       const oz = lz - s.z;
@@ -719,7 +740,10 @@ export default function RealmScene({
       <fog attach="fog" args={['#04060d', 140, 950]} />
       <ambientLight intensity={0.5} color="#8fb8ff" />
       <directionalLight intensity={0.7} color="#6ea8ff" position={[-0.4, 1, 0.35]} />
-      <OrbitDriver orbitRef={orbitRef} />
+      {/* Drag-orbit is gated off while the chase cam is locked (Merlin
+          2026-10-03) — the camera stays behind the bike during the ride.
+          One-line re-enable: RIDE_CAMERA_LOCK = false in ./chase.js. */}
+      {!RIDE_CAMERA_LOCK && <OrbitDriver orbitRef={orbitRef} />}
       <NightSky />
       <GridGround />
       <PylonRing />
