@@ -8,41 +8,40 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { BACKGROUND_VIDEO_PRESETS } from '@/lib/profiles/validation';
-import { profileThemeVars } from '@/lib/profiles/theme';
 import Auth from '@/components/Auth';
+import { normalizeTikTokHandle } from '@/lib/tiktok-attribution';
 
 const CSS = `
-.pe-root { min-height: 100dvh; background: #070d1d; color: #f2f2f2;
+.pe-root { min-height: 100dvh; background: #050508; color: #f2f2f2;
   font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   padding: 1.2rem 1.1rem calc(6rem + env(safe-area-inset-bottom)); }
 .pe-wrap { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 1.6rem; }
 .pe-h1 { font-size: 1.5rem; font-weight: 800; margin: 0; }
 .pe-back { color: #00f2ff; font-size: 0.85rem; text-decoration: none; }
-.pe-tabs { display: inline-flex; border: 1px solid rgba(var(--pf-accent-rgb),0.4); border-radius: 999px; overflow: hidden; align-self: flex-start; }
+.pe-tabs { display: inline-flex; border: 1px solid rgba(255,209,102,0.4); border-radius: 999px; overflow: hidden; align-self: flex-start; }
 .pe-tabs button { padding: 0.6rem 1.3rem; font-size: 0.8rem; font-weight: 700; letter-spacing: 1.5px;
   text-transform: uppercase; background: none; border: none; color: #8a8a99; cursor: pointer; min-height: 44px; }
-.pe-tabs button.on { background: var(--pf-accent); color: var(--pf-on-accent); }
-.pe-card { background: rgba(11,19,41,0.92); border: 1px solid rgba(var(--pf-accent-rgb),0.25);
+.pe-tabs button.on { background: #ffd166; color: #0a0a0c; }
+.pe-card { background: rgba(14,14,20,0.92); border: 1px solid rgba(255,209,102,0.25);
   border-radius: 12px; padding: 1.3rem; display: flex; flex-direction: column; gap: 0.9rem; }
 .pe-card h2 { font-size: 1rem; font-weight: 800; letter-spacing: 2px; text-transform: uppercase;
-  color: var(--pf-accent); margin: 0; }
+  color: #ffd166; margin: 0; }
 .pe-label { display: block; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1px;
   color: #888; margin-bottom: 0.35rem; }
-.pe-input, .pe-area { width: 100%; box-sizing: border-box; background: #0a1226; border: 1px solid #333;
+.pe-input, .pe-area { width: 100%; box-sizing: border-box; background: #0a0a0c; border: 1px solid #333;
   padding: 0.85rem; color: #f2f2f2; border-radius: 8px; font-size: 0.95rem; font-family: inherit; }
 .pe-area { resize: vertical; min-height: 90px; }
-.pe-input:focus, .pe-area:focus { outline: none; border-color: var(--pf-accent); }
+.pe-input:focus, .pe-area:focus { outline: none; border-color: #ffd166; }
 .pe-row { display: flex; gap: 0.7rem; flex-wrap: wrap; align-items: center; }
-.pe-btn { background: var(--pf-accent); color: var(--pf-on-accent); border: none; border-radius: 8px; font-weight: 800;
+.pe-btn { background: #ffd166; color: #0a0a0c; border: none; border-radius: 8px; font-weight: 800;
   font-size: 0.85rem; letter-spacing: 1px; padding: 0.8rem 1.2rem; cursor: pointer; min-height: 44px; }
 .pe-btn.ghost { background: transparent; border: 1px solid #00f2ff; color: #00f2ff; }
 .pe-btn.danger { background: transparent; border: 1px solid #fe53bb; color: #fe53bb; }
 .pe-btn:disabled { opacity: 0.55; cursor: wait; }
-.pe-thumb { width: 84px; height: 84px; border-radius: 10px; object-fit: cover; background: #0b1329;
+.pe-thumb { width: 84px; height: 84px; border-radius: 10px; object-fit: cover; background: #0a0a12;
   border: 1px solid #333; }
 .pe-thumb.round { border-radius: 50%; }
-.pe-item { display: flex; gap: 0.8rem; align-items: center; background: rgba(10,14,30,0.8);
+.pe-item { display: flex; gap: 0.8rem; align-items: center; background: rgba(10,10,14,0.8);
   border: 1px solid #2a2a35; border-radius: 10px; padding: 0.7rem; }
 .pe-item .pe-meta { flex: 1; min-width: 0; }
 .pe-item .pe-title { font-weight: 700; font-size: 0.9rem; margin: 0 0 0.2rem; }
@@ -84,7 +83,8 @@ export default function EditProfilePage({ params }) {
   const [checking, setChecking] = useState(true);
   const [profiles, setProfiles] = useState(null);
   const [type, setType] = useState('personal');
-  const [form, setForm] = useState({ display_name: '', username: '', bio: '', websites: '' });
+  const [form, setForm] = useState({ display_name: '', username: '', bio: '', websites: '', tiktok: '' });
+  const [tiktokErr, setTiktokErr] = useState('');
   const [coverKind, setCoverKind] = useState('image');
   const [art, setArt] = useState([]);
   const [posts, setPosts] = useState([]);
@@ -150,7 +150,11 @@ export default function EditProfilePage({ params }) {
             username: cur.username || '',
             bio: cur.bio || '',
             websites: (cur.website_urls || []).join('\n'),
+            // Defensive read: the tiktok_handle migration may not have run
+            // yet, in which case the column is simply absent from the row.
+            tiktok: cur.tiktok_handle || '',
           });
+          setTiktokErr('');
           setCoverKind(cur.cover_kind || 'image');
           await loadArtPosts(cur.id);
         }
@@ -160,10 +164,10 @@ export default function EditProfilePage({ params }) {
     })();
   }, [user, type, loadAll, loadArtPosts, say]);
 
-  if (checking) return <main className="pe-root" style={profileThemeVars('personal')}><style>{CSS}</style><p>Loading…</p></main>;
+  if (checking) return <main className="pe-root"><style>{CSS}</style><p>Loading…</p></main>;
   if (!user) {
     return (
-      <main className="pe-root" style={profileThemeVars('personal')}><style>{CSS}</style>
+      <main className="pe-root"><style>{CSS}</style>
         <div className="pe-wrap">
           <h1 className="pe-h1">Edit profile</h1>
           <p className="pe-hint">Sign in to edit your profile.</p>
@@ -174,22 +178,38 @@ export default function EditProfilePage({ params }) {
   }
 
   const cur = profiles?.[type];
-  if (profiles && !cur) return <main className="pe-root" style={profileThemeVars(type)}><style>{CSS}</style><p>Profile not found.</p></main>;
+  if (profiles && !cur) return <main className="pe-root"><style>{CSS}</style><p>Profile not found.</p></main>;
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
+  // TikTok handle: strip a leading @ as they type; validate on save.
+  const setTiktok = (e) => {
+    let v = e.target.value.replace(/^@/, '');
+    setForm((f) => ({ ...f, tiktok: v }));
+    const trimmed = v.trim();
+    if (!trimmed) { setTiktokErr(''); return; }
+    setTiktokErr(normalizeTikTokHandle(v) ? '' : 'Letters, numbers, _ and . only (max 24).');
+  };
+
   async function saveProfile(e) {
     e?.preventDefault();
+    // TikTok handle is personal-only. Invalid handle blocks this save with
+    // an inline error — nothing is sent until it validates or is cleared.
+    let tiktok = null;
+    if (type === 'personal') {
+      const raw = form.tiktok.trim();
+      if (raw) {
+        tiktok = normalizeTikTokHandle(raw);
+        if (!tiktok) {
+          setTiktokErr('Letters, numbers, _ and . only (max 24).');
+          return;
+        }
+      }
+    }
     setBusy(true);
     say('', '');
     try {
       const headers = { 'Content-Type': 'application/json', ...(await authHeader()) };
-      // NOTE: cover_kind is intentionally NOT sent here. It is managed
-      // exclusively by the media upload path (handleMedia), which always
-      // writes cover_url and cover_kind together. Echoing this tab's possibly
-      // stale coverKind state on every details save could clobber a cover
-      // kind set from another tab. The server applies sparse updates, so
-      // omitted fields are left untouched.
       const res = await fetch('/api/profiles/me', {
         method: 'PATCH', headers,
         body: JSON.stringify({
@@ -198,6 +218,9 @@ export default function EditProfilePage({ params }) {
           username: form.username,
           bio: form.bio,
           website_urls: form.websites.split('\n').map((s) => s.trim()).filter(Boolean),
+          cover_kind: coverKind,
+          // Bare handle, no @; null clears. Sent for personal only.
+          tiktok_handle: tiktok,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -215,27 +238,8 @@ export default function EditProfilePage({ params }) {
     }
   }
 
-  async function saveBackgroundVideo(src) {
-    setBusy(true);
-    say('', '');
-    try {
-      const headers = { 'Content-Type': 'application/json', ...(await authHeader()) };
-      const res = await fetch('/api/profiles/me', {
-        method: 'PATCH', headers,
-        body: JSON.stringify({ type, background_video: src || '' }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Save failed.');
-      say('ok', src ? 'Background video set.' : 'Background video removed.');
-      await loadAll();
-    } catch (err) {
-      say('err', err.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleMedia(kind, field) {    const file = fileRefs.current[kind]?.files?.[0];
+  async function handleMedia(kind, field) {
+    const file = fileRefs.current[kind]?.files?.[0];
     if (!file) return;
     setBusy(true);
     say('', '');
@@ -243,21 +247,16 @@ export default function EditProfilePage({ params }) {
       const { publicUrl } = await uploadFile(kind, file);
       const headers = { 'Content-Type': 'application/json', ...(await authHeader()) };
       const patch = { type };
-      // coverKind local state is only updated AFTER the PATCH confirms, so a
-      // failed save can never leave the UI disagreeing with the server (which
-      // would then clobber the real cover_kind on the next "Save details").
-      let nextCoverKind = null;
       if (field === 'cover') {
         patch.cover_url = publicUrl;
-        nextCoverKind = file.type.startsWith('video') ? 'video' : 'image';
-        patch.cover_kind = nextCoverKind;
+        patch.cover_kind = file.type.startsWith('video') ? 'video' : 'image';
+        setCoverKind(patch.cover_kind);
       } else {
         patch[field] = publicUrl;
       }
       const res = await fetch('/api/profiles/me', { method: 'PATCH', headers, body: JSON.stringify(patch) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Save failed.');
-      if (nextCoverKind) setCoverKind(nextCoverKind);
       say('ok', 'Media updated.');
       await loadAll();
     } catch (err) {
@@ -359,7 +358,7 @@ export default function EditProfilePage({ params }) {
   }
 
   return (
-    <main className="pe-root" style={profileThemeVars(type)}>
+    <main className="pe-root">
       <style>{CSS}</style>
       <div className="pe-wrap">
         <Link className="pe-back" href={`/u/${encodeURIComponent(slug)}${type === 'business' ? '?v=business' : ''}`}>← View profile</Link>
@@ -386,6 +385,22 @@ export default function EditProfilePage({ params }) {
             <label className="pe-label" htmlFor="pe-bio">Bio</label>
             <textarea id="pe-bio" className="pe-area" value={form.bio} onChange={set('bio')} maxLength={500} />
           </div>
+          {type === 'personal' ? (
+            <div>
+              <label className="pe-label" htmlFor="pe-tt">TikTok handle (optional)</label>
+              <div className="pe-row" style={{ flexWrap: 'nowrap' }}>
+                <span aria-hidden="true" style={{ color: '#888', fontWeight: 700 }}>@</span>
+                <input
+                  id="pe-tt" className="pe-input" value={form.tiktok} onChange={setTiktok}
+                  maxLength={25} placeholder="yourhandle" autoComplete="off" spellCheck={false}
+                  aria-describedby="pe-tt-hint" />
+              </div>
+              {tiktokErr ? <p className="pe-err" role="alert" style={{ margin: '0.35rem 0 0' }}>{tiktokErr}</p> : null}
+              <p className="pe-hint" id="pe-tt-hint" style={{ margin: '0.35rem 0 0' }}>
+                Used to credit you when your live recordings are shared. Leave blank to skip.
+              </p>
+            </div>
+          ) : null}
           <div>
             <label className="pe-label" htmlFor="pe-web">Websites (one per line)</label>
             <textarea id="pe-web" className="pe-area" value={form.websites} onChange={set('websites')} placeholder="https://your-site.com" />
@@ -420,54 +435,6 @@ export default function EditProfilePage({ params }) {
               <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime" ref={(el) => (fileRefs.current.cover = el)} aria-label="Cover" />
               <button type="button" className="pe-btn ghost" disabled={busy} onClick={() => handleMedia('cover', 'cover')}>Upload cover</button>
             </div>
-          </div>
-          <div>
-            <span className="pe-label" id="pe-bgv-label">Background video (preset)</span>
-            <div className="pe-row" role="radiogroup" aria-labelledby="pe-bgv-label">
-              {BACKGROUND_VIDEO_PRESETS.map((p) => {
-                const selected = (cur?.background_video || '') === p.src;
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    role="radio"
-                    aria-checked={selected}
-                    aria-label={`Background video: ${p.label}`}
-                    disabled={busy}
-                    onClick={() => saveBackgroundVideo(p.src)}
-                    className="pe-btn ghost"
-                    style={{
-                      padding: '0.5rem',
-                      borderColor: selected ? 'var(--pf-accent)' : undefined,
-                      boxShadow: selected ? '0 0 12px rgba(var(--pf-accent-rgb),0.35)' : 'none',
-                      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.35rem',
-                      minWidth: '120px',
-                    }}
-                  >
-                    {p.src ? (
-                      <video
-                        src={p.src} muted loop playsInline preload="metadata"
-                        onMouseOver={(e) => { e.currentTarget.play().catch(() => {}); }}
-                        onMouseOut={(e) => { e.currentTarget.pause(); }}
-                        style={{ width: '112px', height: '63px', objectFit: 'cover', borderRadius: '6px', background: '#000' }}
-                      />
-                    ) : (
-                      <span style={{
-                        width: '112px', height: '63px', borderRadius: '6px', background: '#0a0a12',
-                        border: '1px dashed #333', display: 'flex', alignItems: 'center',
-                        justifyContent: 'center', fontSize: '0.7rem', color: '#666',
-                      }}>
-                        OFF
-                      </span>
-                    )}
-                    <span style={{ fontSize: '0.75rem' }}>{p.label}{selected ? ' ✓' : ''}</span>
-                  </button>
-                );
-              })}
-            </div>
-            <p className="pe-hint" style={{ marginTop: '0.4rem' }}>
-              Plays behind your whole public profile page. More presets later.
-            </p>
           </div>
         </div>
 

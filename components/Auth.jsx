@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { GOOGLE_PROVIDER, mapGoogleSignInError } from '@/lib/auth/google-errors';
+import { normalizeTikTokHandle } from '@/lib/tiktok-attribution';
 
 export default function Auth({ onLogin }) {
   const [email, setEmail] = useState('');
@@ -24,6 +25,38 @@ export default function Auth({ onLogin }) {
   // users need a way to trigger a fresh send without re-registering.
   const [resending, setResending] = useState(false);
   const [showResend, setShowResend] = useState(false);
+
+  // TikTok handle prompt (Live Recordings identity, Part 1): optional,
+  // skippable, asked once per device after email signup. Never blocks or
+  // degrades auth — every write path below is wrapped in try/catch.
+  const [tiktokAsk, setTiktokAsk] = useState(false);
+  const [tiktokHandle, setTiktokHandle] = useState('');
+  const [tiktokErr, setTiktokErr] = useState('');
+
+  // If the user typed a handle before they had a session (email signup
+  // needs verification first), flush it once they sign in.
+  const flushPendingTikTok = async (accessToken) => {
+    let pending = '';
+    try {
+      pending = localStorage.getItem('nexus_tiktok_pending') || '';
+    } catch { return; }
+    if (!pending || !accessToken) return;
+    try {
+      const r = await fetch('/api/profiles/me', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ type: 'personal', tiktok_handle: pending }),
+      });
+      if (r.ok) {
+        try { localStorage.removeItem('nexus_tiktok_pending'); } catch { /* ignore */ }
+      }
+    } catch {
+      // Network failure: keep the stash; the next sign-in retries.
+    }
+  };
 
   // Sends a stashed ?ref=CODE to the server for binding. The server
   // validates the code, resolves the affiliate, and writes the referral —
@@ -77,6 +110,7 @@ export default function Auth({ onLogin }) {
         // referral code — covers email signup/login and Google OAuth return.
         if (event === 'SIGNED_IN' && session?.access_token) {
           bindPendingReferral(session.access_token);
+          flushPendingTikTok(session.access_token);
         }
       });
       return () => subscription.unsubscribe();
@@ -98,6 +132,14 @@ export default function Auth({ onLogin }) {
         if (error) throw error;
         setMessage('VERIFICATION MATRIX SENT. CHECK INBOX AND SPAM FOLDER.');
         setShowResend(true);
+        // Ask-once TikTok prompt: optional, skippable, never blocks auth.
+        let asked = true;
+        try { asked = localStorage.getItem('nexus_tiktok_asked') === '1'; } catch { /* ignore */ }
+        if (!asked) {
+          setTiktokHandle('');
+          setTiktokErr('');
+          setTiktokAsk(true);
+        }
       } 
       else if (mode === 'login') {
         const { data, error } = await supabase.auth.signInWithPassword({ email, password });
@@ -135,6 +177,44 @@ export default function Auth({ onLogin }) {
     }
   };
 
+  // TikTok prompt actions: skip is one tap; save is best-effort and can
+  // never fail the auth flow — errors are swallowed on purpose.
+  const closeTikTokAsk = () => {
+    try { localStorage.setItem('nexus_tiktok_asked', '1'); } catch { /* ignore */ }
+    setTiktokAsk(false);
+    setTiktokHandle('');
+    setTiktokErr('');
+  };
+
+  const saveTikTokHandle = async () => {
+    const raw = tiktokHandle.trim();
+    const h = normalizeTikTokHandle(raw);
+    if (raw && !h) {
+      setTiktokErr('LETTERS, NUMBERS, _ AND . ONLY (MAX 24).');
+      return;
+    }
+    closeTikTokAsk();
+    if (!h) return; // blank = skip
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.access_token) {
+        // Best-effort: profile row may not exist yet (email unverified);
+        // failures stay silent so auth is never degraded.
+        await fetch('/api/profiles/me', {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ type: 'personal', tiktok_handle: h }),
+        }).catch(() => {});
+      } else {
+        // No session yet (verification pending) — stash for the SIGNED_IN
+        // flush above.
+        try { localStorage.setItem('nexus_tiktok_pending', h); } catch { /* ignore */ }
+      }
+    } catch { /* silent by design */ }
+  };
   // Re-sends the signup confirmation email. Counts against the same
   // provider throttle as the original send, so the UI copy tells the user
   // to check the spam folder too — that's where the shared Supabase sender
@@ -223,18 +303,60 @@ export default function Auth({ onLogin }) {
       <div className="bg-[#0c0c12]/90 p-10 border border-[#00f2ff] rounded-xl w-[90%] max-w-[420px] shadow-[0_0_40px_rgba(8,247,254,0.15)] flex flex-col relative">
         
         <h2 className="font-['Orbitron'] text-[#00f2ff] text-xl text-center tracking-[0.15em] mb-2 uppercase">
-          {mode === 'login' && 'IDENTITY VERIFICATION'}
-          {mode === 'signup' && 'REGISTER NEW NODE'}
-          {mode === 'reset' && 'NETWORK RECOVERY'}
-          {mode === 'update' && 'SECURE NEW KEY'}
+          {tiktokAsk ? "WHAT'S YOUR TIKTOK?" : (
+            <>
+              {mode === 'login' && 'IDENTITY VERIFICATION'}
+              {mode === 'signup' && 'REGISTER NEW NODE'}
+              {mode === 'reset' && 'NETWORK RECOVERY'}
+              {mode === 'update' && 'SECURE NEW KEY'}
+            </>
+          )}
         </h2>
         {/* One Supabase Auth session spans every pocket universe on this
             origin (single shared client in lib/supabase.ts) — say so plainly
             so nobody thinks each universe needs its own account. */}
         <p className="text-zinc-500 text-[10px] text-center font-mono tracking-[0.2em] uppercase mb-6">
-          One account for every universe
+          {tiktokAsk ? 'OPTIONAL — SHARE YOUR CLIPS WITH CREDIT' : 'One account for every universe'}
         </p>
 
+        {/* Post-signup TikTok prompt: one optional screen, one-tap skip,
+            asked once per device. Dismissing never touches auth state. */}
+        {tiktokAsk ? (
+          <div className="flex flex-col gap-4">
+            <p className="text-zinc-400 text-xs text-center font-mono leading-relaxed">
+              SO YOUR LIVE RECORDINGS CAN BE CREDITED TO YOU ON OLYMPUS.
+              SKIP IT IF YOU LIKE — YOU CAN ADD IT LATER IN YOUR PROFILE.
+            </p>
+            <input
+              type="text"
+              placeholder="@yourhandle"
+              value={tiktokHandle}
+              onChange={(e) => {
+                setTiktokHandle(e.target.value.replace(/^@/, ''));
+                setTiktokErr('');
+              }}
+              maxLength={25}
+              autoComplete="off"
+              spellCheck={false}
+              className="w-full p-3 bg-black border border-zinc-800 text-[#00f2ff] rounded outline-none font-mono text-center focus:border-[#00f2ff] focus:shadow-[0_0_15px_rgba(8,247,254,0.2)] transition-all"
+            />
+            {tiktokErr && <div className="text-[#ff3366] text-xs text-center font-mono min-h-[20px]">{tiktokErr}</div>}
+            <button
+              type="button"
+              onClick={saveTikTokHandle}
+              className="w-full p-3 mt-2 bg-transparent border border-[#00f2ff] text-[#00f2ff] font-['Orbitron'] font-bold tracking-widest uppercase rounded hover:bg-[#00f2ff] hover:text-black hover:shadow-[0_0_20px_rgba(8,247,254,0.4)] transition-all"
+            >
+              SAVE HANDLE
+            </button>
+            <button
+              type="button"
+              onClick={closeTikTokAsk}
+              className="w-full p-2 bg-transparent border border-zinc-600 text-zinc-400 font-['Orbitron'] text-[10px] tracking-widest uppercase rounded hover:border-zinc-300 hover:text-zinc-200 transition-all"
+            >
+              SKIP
+            </button>
+          </div>
+        ) : (
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           
           {/* Email field hidden only during 'update' mode */}
@@ -289,10 +411,11 @@ export default function Auth({ onLogin }) {
             )}
           </button>
         </form>
+        )}
 
         {/* Google sign-in: shown on the login/signup screens only. Same
             identity system as email (Supabase session) — see handleGoogleSignIn. */}
-        {(mode === 'login' || mode === 'signup') && (
+        {!tiktokAsk && (mode === 'login' || mode === 'signup') && (
           <div className="flex flex-col gap-2 mt-4">
             <div className="flex items-center gap-3" aria-hidden="true">
               <div className="h-px flex-1 bg-zinc-800" />
@@ -317,6 +440,7 @@ export default function Auth({ onLogin }) {
         )}
 
         {/* Dynamic State Toggles */}
+        {!tiktokAsk && (
         <div className="flex flex-col gap-2 mt-4">
           {mode === 'login' && (
             <>
@@ -344,6 +468,7 @@ export default function Auth({ onLogin }) {
             </button>
           )}
         </div>
+        )}
 
       </div>
     </div>
