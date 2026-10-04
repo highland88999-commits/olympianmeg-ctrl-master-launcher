@@ -28,7 +28,7 @@ import {
   padSteer,
   shouldShowTouchSteer,
 } from './steer-pads';
-import { loadPrefs, savePrefs, accountIdFromWindow } from './prefs';
+import { loadPrefs, savePrefs, accountIdFromWindow, hasSeenTutorial, markTutorialSeen } from './prefs';
 import { fx } from '@/lib/fx';
 import { useBikeMotion } from '@/lib/use-bike-motion';
 import { useFullscreen } from '@/lib/use-fullscreen';
@@ -68,6 +68,36 @@ import {
 } from '@/lib/oasis/rooms';
 import { ghostColorFor } from '@/lib/luge/pvp';
 
+// HOW TO RIDE tutorial cards (Merlin 2026-10-03): 5 clean, minimal cards —
+// one at a time, dots + Next/Skip. Dark UI, matches the realm aesthetic.
+const TUTORIAL_CARDS = [
+  {
+    emoji: '🏍️',
+    title: 'STEER',
+    body: 'Tilt your phone left to go left, right to go right. It is never inverted — right is always right.',
+  },
+  {
+    emoji: '💨',
+    title: 'SPEED',
+    body: 'Your bike cruises on its own. Tilt forward for more speed, tilt back to brake.',
+  },
+  {
+    emoji: '⚡',
+    title: 'BOOST',
+    body: 'Bump rivals — or tilt hard left to regen-charge your meter. Then tap BOOST for a surge.',
+  },
+  {
+    emoji: '🔥',
+    title: 'SURVIVE',
+    body: 'Rival light trails are lethal in races. In Bump Race, don\'t get knocked into the flame — 3 lives each.',
+  },
+  {
+    emoji: '🎯',
+    title: 'RECENTER',
+    body: 'Double-tap anytime to reset your neutral hold. Your current grip becomes straight-and-level.',
+  },
+];
+
 const css = {
   screen: {
     position: 'fixed', inset: 0, background: '#030612', color: '#dbeafe',
@@ -105,6 +135,28 @@ const css = {
   row: { display: 'flex', gap: 10, alignItems: 'center' },
   chip: { fontSize: 12, padding: '6px 12px', borderRadius: 999, border: '1px solid #1e3a5f', color: '#7dd3fc', background: 'transparent', cursor: 'pointer' },
   sectionLabel: { fontSize: 12, letterSpacing: 3, color: '#475569', marginTop: 6 },
+  // HOW TO RIDE tutorial (menu layer only — never during the ride).
+  helpBtn: {
+    position: 'absolute', top: 14, right: 14, width: 40, height: 40,
+    borderRadius: '50%', border: '1px solid #1e3a5f', background: 'rgba(10,18,38,.85)',
+    color: '#7dd3fc', fontSize: 20, fontWeight: 700, cursor: 'pointer', zIndex: 10,
+  },
+  tutOverlay: {
+    position: 'absolute', inset: 0, zIndex: 50, display: 'flex',
+    alignItems: 'center', justifyContent: 'center', padding: 24,
+    background: 'rgba(2,5,14,.82)',
+  },
+  tutCard: {
+    width: '100%', maxWidth: 340, padding: '28px 24px 20px', borderRadius: 18,
+    background: '#0a1226', border: '1px solid #1e3a5f',
+    boxShadow: '0 0 40px rgba(56,189,248,.18)', textAlign: 'center',
+  },
+  tutEmoji: { fontSize: 44, marginBottom: 10 },
+  tutTitle: { fontSize: 16, fontWeight: 800, letterSpacing: 4, color: '#7dd3fc', marginBottom: 10 },
+  tutBody: { fontSize: 15, lineHeight: 1.55, color: '#cbd5e1', marginBottom: 20, minHeight: 70 },
+  tutDots: { display: 'flex', gap: 8, justifyContent: 'center', marginBottom: 18 },
+  tutDot: { width: 8, height: 8, borderRadius: '50%', background: '#1e3a5f' },
+  tutDotOn: { background: '#38bdf8', boxShadow: '0 0 8px rgba(56,189,248,.8)' },
   hud: {
     position: 'absolute', top: 12, left: 12, right: 12, display: 'flex', gap: 8,
     justifyContent: 'center', pointerEvents: 'none', zIndex: 5,
@@ -198,6 +250,11 @@ function ShadowRealmInner() {
   const bumpSeenRef = useRef(0);
   // Finish rollout: delayed setStage('finished') so the coast is visible.
   const finishTimerRef = useRef(null);
+  // HOW TO RIDE tutorial (Merlin 2026-10-03): 5 cards, menu layer only.
+  // Auto-shows on first visit (localStorage flag), one-tap skip, "?"
+  // reopens it anytime. Never touches the ride itself.
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [tutStep, setTutStep] = useState(0);
   useEffect(() => () => { if (finishTimerRef.current) clearTimeout(finishTimerRef.current); }, []);
 
   // ---- Drop-2 netcode: PvP track matches + open-world presence ----
@@ -280,6 +337,35 @@ function ShadowRealmInner() {
       if (safe && safe.key !== trackKey) setTrackKey(safe.key);
     }
   }, [mode, track, trackKey]);
+
+  // HOW TO RIDE tutorial: first visit only. The flag is device-scoped
+  // (it's about the rider's hands, not their login); a private-mode
+  // failure just means it shows again — harmless, never blocking.
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined' && !hasSeenTutorial(window.localStorage)) {
+        setShowTutorial(true);
+      }
+    } catch { /* tutorial is optional chrome, never fatal */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const skipTutorial = () => {
+    try {
+      if (typeof window !== 'undefined') markTutorialSeen(window.localStorage);
+    } catch { /* noop */ }
+    setShowTutorial(false);
+  };
+  const nextTutorial = () => {
+    try { fx.tap(); } catch { /* noop */ }
+    if (tutStep >= TUTORIAL_CARDS.length - 1) skipTutorial();
+    else setTutStep(tutStep + 1);
+  };
+  const openTutorial = () => {
+    try { fx.tap(); } catch { /* noop */ }
+    setTutStep(0);
+    setShowTutorial(true);
+  };
 
   // Phone motion: tilt steering + gyro look-around (per-device preference).
   const motion = useBikeMotion({ inputRef, hudRef, vehicle, stage, touchSteerRef });
@@ -922,6 +1008,33 @@ function ShadowRealmInner() {
         <div style={css.center}>
           <div style={css.title}>SHADOW REALM</div>
           <div style={css.sub}>NIGHT-CYCLE GRID · TRON LIGHT BIKES</div>
+          {stage === 'mode' && (
+            <button style={css.helpBtn} onClick={openTutorial} aria-label="How to ride">
+              ?
+            </button>
+          )}
+          {stage === 'mode' && showTutorial && (
+            <div style={css.tutOverlay} onClick={skipTutorial}>
+              <div style={css.tutCard} onClick={(e) => e.stopPropagation()}>
+                <div style={css.tutEmoji}>{TUTORIAL_CARDS[tutStep].emoji}</div>
+                <div style={css.tutTitle}>{TUTORIAL_CARDS[tutStep].title}</div>
+                <div style={css.tutBody}>{TUTORIAL_CARDS[tutStep].body}</div>
+                <div style={css.tutDots}>
+                  {TUTORIAL_CARDS.map((_, i) => (
+                    <div key={i} style={{ ...css.tutDot, ...(i === tutStep ? css.tutDotOn : {}) }} />
+                  ))}
+                </div>
+                <div style={css.row}>
+                  <button style={{ ...css.ghostBtn, flex: 1 }} onClick={skipTutorial}>
+                    SKIP
+                  </button>
+                  <button style={{ ...css.bigBtn, flex: 2 }} onClick={nextTutorial}>
+                    {tutStep >= TUTORIAL_CARDS.length - 1 ? 'RIDE' : 'NEXT'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {stage === 'mode' && (
             <>

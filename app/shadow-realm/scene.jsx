@@ -23,7 +23,7 @@ import Bots from './Bots';
 import RemoteBikes from './RemoteBikes';
 import EternalFlame from './flame';
 import { fx } from '@/lib/fx';
-import { REGEN_CHARGE_RATE, SURGE_SECS, BASELINE_THROTTLE, blendThrottle } from '@/lib/bike-motion';
+import { REGEN_CHARGE_RATE, SURGE_SECS, BASELINE_THROTTLE, blendThrottle, slewLimit, STEER_SLEW_MAX } from '@/lib/bike-motion';
 import {
   Trail,
   TRAIL_KILL_RADIUS,
@@ -535,6 +535,7 @@ function killPlayer(s, ownerName, ctx) {
   s.speed = 0;
   s.kvx = 0;
   s.kvz = 0;
+  s.steerSm = 0; // stabilized steering: never respawn mid-turn
   try { fx.hit(); } catch { /* audio is best-effort */ }
   try {
     ctx.onBumpEvent &&
@@ -588,6 +589,7 @@ function respawnPlayer(s, ctx) {
   s.speed = 0;
   s.kvx = 0;
   s.kvz = 0;
+  s.steerSm = 0; // stabilized steering: never respawn mid-turn
   s.immuneT = TRAIL_IMMUNITY_S; // 10s: trail death AND flame hits
   s.invulnT = Math.max(s.invulnT || 0, 2); // blink
   s.bumpImmuneT = Math.max(s.bumpImmuneT || 0, 2);
@@ -843,6 +845,9 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, playerTrai
       bumpImmuneT: 0, // post-hit grace (no stunlock)
       kvx: 0,
       kvz: 0, // knock velocity — decays, control returns
+      steerSm: 0, // slew-limited steer (Merlin 2026-10-03 "stabilize"): the
+      // per-frame steer command can only change at STEER_SLEW_MAX u/s, so
+      // sensor spikes and pad snaps can't yank the bike. Reset per run.
       eliminated: false,
       bumpWon: false,
       // LETHAL TRAILS (Merlin 2026-10-03, the classic Tron rule): the
@@ -888,7 +893,15 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, playerTrai
     const input = inputRef.current || {};
     // Finished: coasting to a stop — no steering, no pedals, no boost.
     // (The FINISH overlay lands ~2s later; this is the visible rollout.)
-    const steer = (s.eliminated || s.finished) ? 0 : input.steer || 0;
+    // Stabilized steering (Merlin 2026-10-03 "stabilize"): the raw steer
+    // channel is slew-rate limited per frame BEFORE it touches the heading.
+    // Sensor spikes, deviceorientation bursts, and pad snaps can't yank the
+    // bike — intentional corrections below STEER_SLEW_MAX pass through with
+    // zero added lag.
+    const steerTarget = (s.eliminated || s.finished) ? 0 : input.steer || 0;
+    if (s.steerSm == null || !Number.isFinite(s.steerSm)) s.steerSm = 0;
+    s.steerSm = slewLimit(s.steerSm, steerTarget, STEER_SLEW_MAX, dt);
+    const steer = s.steerSm;
     const boost = !s.eliminated && !s.finished && !!input.boost;
     // motion controls (Merlin's tilt driving map): analog pedals + regen.
     const motionDrive = !!input.motionDrive && !s.finished;

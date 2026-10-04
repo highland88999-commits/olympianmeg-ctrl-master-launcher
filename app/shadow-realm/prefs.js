@@ -72,3 +72,31 @@ export function savePrefs(storage, accountId, prefs) {
   storage.setItem(shadowKey(accountId), JSON.stringify(merged));
   return merged;
 }
+
+// ---------------------------------------------------------------------------
+// HOW TO RIDE tutorial (Merlin 2026-10-03): shown once on first visit to the
+// Shadow Realm menu, skippable with one tap, reopenable via the "?" button.
+// Device-scoped (not per-account): it's about the rider's hands, not their
+// login. Pure over injected storage so it's headless-testable.
+// ---------------------------------------------------------------------------
+/** localStorage key: the HOW TO RIDE tutorial has been seen/dismissed. */
+export const TUTORIAL_SEEN_KEY = 'nexus_shadow_tutorial_seen';
+
+/** True once the rider has seen or skipped the tutorial. */
+export function hasSeenTutorial(storage) {
+  try {
+    return !!storage && storage.getItem(TUTORIAL_SEEN_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+/** Persist the seen/skipped state. Private-mode failures are swallowed: the
+ * tutorial simply shows again next visit — harmless, never blocking. */
+export function markTutorialSeen(storage) {
+  try {
+    if (storage) storage.setItem(TUTORIAL_SEEN_KEY, '1');
+  } catch {
+    /* private mode etc: show again next visit */
+  }
+}
