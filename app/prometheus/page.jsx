@@ -9,12 +9,30 @@ import {
  * Prometheus' Forge — fire stolen for mortals.
  * Drag to fan the flames, tap STRIKE for a spark shower. Procedural canvas. Zero network.
  */
+
+const NOISE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 0.72 0 0 0 0 0.42 0 0 0 0.06 0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E";
+
+function Glyph({ size = 15, children }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+      style={{ flexShrink: 0 }}>{children}</svg>
+  );
+}
+
+const IC = {
+  hammer: <><path d="M11 7l7 7" /><path d="M9 5l6 6-2.5 2.5-6-6z" /><path d="M4 20l4.5-4.5" /></>,
+  pause: <path d="M9 5v14M15 5v14" />,
+  play: <path d="M7 4l13 8-13 8z" />,
+  flame: <path d="M12 2c1 4-4 6-4 11a4 4 0 0 0 8 0c0-2-1-3-1-3s3 1 3 5a6 6 0 0 1-12 0C6 8 12 6 12 2z" />,
+};
 export default function PrometheusPage() {
   const canvasRef = useRef(null);
   const simRef = useRef(null);
   const [heat, setHeat] = useState(0.6);
   const [paused, setPaused] = useState(false);
   const [strikes, setStrikes] = useState(0);
+  const [ready, setReady] = useState(false);
 
   const paramsRef = useRef({ heat, paused });
   useEffect(() => { paramsRef.current = { heat, paused }; }, [heat, paused]);
@@ -171,6 +189,7 @@ export default function PrometheusPage() {
     } else {
       requestAnimationFrame(frame);
     }
+    setReady(true);
 
     return () => {
       sim.running = false;
@@ -183,17 +202,36 @@ export default function PrometheusPage() {
   }, []);
 
   const btn = {
-    background: "rgba(24,10,6,0.9)", color: "#ffb066", border: "1px solid rgba(255,176,102,0.45)",
+    background: "rgba(24,10,6,0.9)", backgroundImage: `url("${NOISE}")`, backgroundSize: "140px 140px",
+    color: "#ffb066", border: "1px solid rgba(255,176,102,0.45)",
     borderRadius: 8, padding: "12px 14px", fontSize: 14, cursor: "pointer", fontFamily: "inherit",
+    display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 10,
   };
   const lbl = { fontSize: 11, letterSpacing: 1.5, color: "#a0724f", textTransform: "uppercase" };
 
   return (
     <>
     <div style={{ position: "fixed", inset: 0, background: "#050308", color: "#ffd9b0", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", overflow: "hidden" }}>
+      {!ready && (
+        <div style={{ position: "absolute", inset: 0, zIndex: 3 }}>
+          <img src="/images/prometheus/prometheus-bg.webp" alt="" style={{ width: "100%", height: "100%", objectFit: "cover", opacity: 0.65 }} />
+          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center",
+            background: "rgba(5,3,8,0.45)", color: "#ffb066", fontSize: 13, letterSpacing: 3, textTransform: "uppercase" }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+              <Glyph size={18}>{IC.flame}</Glyph>Kindling the stolen fire…
+            </span>
+          </div>
+        </div>
+      )}
       <canvas ref={canvasRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", touchAction: "none", cursor: "grab" }} />
-      <div style={{ position: "absolute", top: 12, left: 12, zIndex: 2, background: "rgba(16,8,5,0.82)", border: "1px solid rgba(255,176,102,0.3)", borderRadius: 10, padding: 12 }}>
-        <div style={{ fontSize: 13, letterSpacing: 2, color: "#ffb066" }}>PROMETHEUS&apos; FORGE</div>
+      <div aria-hidden="true" style={{ position: "absolute", inset: 0, zIndex: 1, pointerEvents: "none",
+        backgroundImage: `url("${NOISE}")`, backgroundSize: "140px 140px", opacity: 0.55 }} />
+      <div aria-hidden="true" style={{ position: "absolute", inset: 0, zIndex: 1, pointerEvents: "none",
+        background: "radial-gradient(ellipse at center, transparent 52%, rgba(0,0,0,0.42) 100%)" }} />
+      <div style={{ position: "absolute", top: 12, left: 12, zIndex: 2, backgroundColor: "rgba(16,8,5,0.82)", backgroundImage: `url("${NOISE}")`, backgroundSize: "140px 140px", border: "1px solid rgba(255,176,102,0.3)", borderRadius: 10, padding: 12 }}>
+        <div style={{ fontSize: 13, letterSpacing: 2, color: "#ffb066", display: "flex", alignItems: "center", gap: 8 }}>
+          <Glyph size={15}>{IC.flame}</Glyph>PROMETHEUS&apos; FORGE
+        </div>
         <div style={{ color: "#a0724f", fontSize: 11, marginTop: 2 }}>drag to fan the flames · strike the anvil</div>
         <div style={{ color: "#a0724f", fontSize: 11, marginTop: 4 }}>hammer strikes {strikes}</div>
       </div>
@@ -203,9 +241,11 @@ export default function PrometheusPage() {
             const r = canvasRef.current.getBoundingClientRect();
             simRef.current?.strike(r.width / 2, r.height * 0.8);
           }}>
-          ⚒ STRIKE THE ANVIL
+          <Glyph size={17}>{IC.hammer}</Glyph>STRIKE THE ANVIL
         </button>
-        <button style={btn} onClick={() => setPaused(!paused)}>{paused ? "Resume" : "Pause"}</button>
+        <button style={btn} onClick={() => setPaused(!paused)}>
+          <Glyph size={15}>{paused ? IC.play : IC.pause}</Glyph>{paused ? "Resume" : "Pause"}
+        </button>
         <div style={{ ...btn, display: "flex", alignItems: "center", gap: 10, flex: 2, minWidth: 220 }}>
           <span style={lbl}>Heat</span>
           <input type="range" min={0.05} max={1} step={0.01} value={heat} style={{ flex: 1 }} aria-label="Heat"

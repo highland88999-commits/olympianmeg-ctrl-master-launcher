@@ -47,8 +47,13 @@ const ACCENTS = [
 
 const CSS = `
 .rz-root { min-height: 100dvh; background: #05050a; color: #f0f0f0;
-  font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; position: relative; }
+  font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; position: relative;
+  --rz-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 0.72 0 0 0 0 0.42 0 0 0 0.035 0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E"); }
 .rz-bg { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+.rz-still { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+.rz-still img { width: 100%; height: 100%; object-fit: cover; opacity: 0.22; }
+.rz-scrim { position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background: linear-gradient(180deg, rgba(5,5,10,0.55) 0%, rgba(5,5,10,0.25) 40%, rgba(5,5,10,0.7) 100%); }
 .rz-wrap { position: relative; z-index: 1; max-width: 960px; margin: 0 auto; padding: 24px 16px 60px; }
 .rz-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between;
   margin-bottom: 18px; }
@@ -56,12 +61,13 @@ const CSS = `
 .rz-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .rz-btn { border: 1px solid rgba(255,255,255,0.2); background: rgba(15,15,20,0.6); color: #fff;
   padding: 10px 16px; border-radius: 30px; font-size: 0.85rem; font-weight: 700; cursor: pointer;
-  letter-spacing: 0.5px; min-height: 44px; }
+  letter-spacing: 0.5px; min-height: 44px; display: inline-flex; align-items: center; gap: 8px; }
 .rz-btn:hover { border-color: var(--rz-accent); box-shadow: 0 0 14px rgba(0,229,255,0.25); }
 .rz-btn.primary { background: var(--rz-accent); color: #05050a; border-color: var(--rz-accent); text-shadow: none; }
 .rz-swatch { width: 40px; height: 40px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; padding: 0; }
 .rz-swatch.on { border-color: #fff; box-shadow: 0 0 10px currentColor; }
-.rz-card { background: rgba(15,15,20,0.35); border: 1px solid rgba(255,255,255,0.12); border-radius: 16px;
+.rz-card { background-color: rgba(15,15,20,0.42); background-image: var(--rz-noise);
+  background-size: 140px 140px; border: 1px solid rgba(255,255,255,0.12); border-radius: 16px;
   padding: 40px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); backdrop-filter: blur(6px);
   text-shadow: 0 1px 3px rgba(0,0,0,0.8); }
 .rz-card h2 { font-size: 1.25rem; color: var(--rz-accent); border-bottom: 1px solid rgba(255,255,255,0.14);
@@ -92,9 +98,12 @@ const CSS = `
 .rz-jobedit { border: 1px dashed rgba(255,255,255,0.2); border-radius: 8px; padding: 14px; margin-top: 14px; }
 .rz-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .rz-small { font-size: 0.78rem; color: #9fb3c8; }
+.rz-pulse { animation: rz-pulse 1.6s ease-in-out infinite; }
+@keyframes rz-pulse { 0%,100% { opacity: 0.55; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .rz-pulse { animation: none; } }
 @media (max-width: 700px) { .rz-card { padding: 24px 18px; } .rz-grid { grid-template-columns: 1fr; } .rz-name { font-size: 1.7rem; } }
 @media print {
-  .rz-bar, .rz-editor, .rz-bg { display: none !important; }
+  .rz-bar, .rz-editor, .rz-bg, .rz-still, .rz-scrim { display: none !important; }
   .rz-root { background: #fff; color: #111; }
   .rz-card { background: #fff; border: 1px solid #ccc; box-shadow: none; backdrop-filter: none; text-shadow: none; color: #111; }
   .rz-card li, .rz-contact, .rz-co { color: #333; }
@@ -106,6 +115,23 @@ const CSS = `
 function uid() {
   return 'j' + Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36);
 }
+
+function Glyph({ size = 15, children }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+      style={{ flexShrink: 0 }}>{children}</svg>
+  );
+}
+
+const IC = {
+  sliders: <><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" /><circle cx="16" cy="6" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="18" cy="18" r="2" /></>,
+  printer: <><path d="M6 9V3h12v6" /><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" /><rect x="6" y="14" width="12" height="7" /></>,
+  plus: <path d="M12 5v14M5 12h14" />,
+  trash: <><path d="M4 7h16" /><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /><path d="M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13" /></>,
+  reset: <><path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 4v5h5" /></>,
+  flame: <path d="M12 2c1 4-4 6-4 11a4 4 0 0 0 8 0c0-2-1-3-1-3s3 1 3 5a6 6 0 0 1-12 0C6 8 12 6 12 2z" />,
+};
 
 export default function ResumePage() {
   const canvasRef = useRef(null);
@@ -205,7 +231,11 @@ export default function ResumePage() {
   if (!ready) {
     return (
       <main className="rz-root" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <p style={{ color: '#888', letterSpacing: 2, textTransform: 'uppercase', fontSize: '0.85rem' }}>Loading template…</p>
+        <style>{CSS}</style>
+        <div className="rz-still" aria-hidden="true"><img src="/images/resume/resume-bg.webp" alt="" /></div>
+        <p className="rz-pulse" style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#c8a06a', letterSpacing: 2, textTransform: 'uppercase', fontSize: '0.85rem' }}>
+          <Glyph size={18}>{IC.flame}</Glyph>Loading template…
+        </p>
       </main>
     );
   }
@@ -213,11 +243,16 @@ export default function ResumePage() {
   return (
     <main className="rz-root" style={{ '--rz-accent': accentHex }}>
       <style>{CSS}</style>
+      <div className="rz-still" aria-hidden="true"><img src="/images/resume/resume-bg.webp" alt="" /></div>
+      <div className="rz-scrim" aria-hidden="true" />
       <canvas ref={canvasRef} className="rz-bg" aria-hidden="true" />
 
       <div className="rz-wrap">
         <div className="rz-bar">
-          <h1>Resume Studio</h1>
+          <h1 style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ color: 'var(--rz-accent)', display: 'inline-flex' }}><Glyph size={22}>{IC.flame}</Glyph></span>
+            Resume Studio
+          </h1>
           <div className="rz-controls">
             {ACCENTS.map((a) => (
               <button
@@ -230,9 +265,11 @@ export default function ResumePage() {
               />
             ))}
             <button className="rz-btn" onClick={() => setEditing((e) => !e)} aria-pressed={editing}>
-              {editing ? 'Hide editor' : 'Customize'}
+              <Glyph>{IC.sliders}</Glyph>{editing ? 'Hide editor' : 'Customize'}
             </button>
-            <button className="rz-btn primary" onClick={() => window.print()}>Print / Save PDF</button>
+            <button className="rz-btn primary" onClick={() => window.print()}>
+              <Glyph>{IC.printer}</Glyph>Print / Save PDF
+            </button>
           </div>
         </div>
 
@@ -301,13 +338,15 @@ export default function ResumePage() {
                 <label>Achievements (one per line)</label>
                 <textarea value={bulletsText(j)} onChange={(e) => setBullets(i, e.target.value)} />
                 <div className="rz-row">
-                  <button className="rz-btn" onClick={() => removeJob(i)}>Remove position</button>
+                  <button className="rz-btn" onClick={() => removeJob(i)}>
+                    <Glyph>{IC.trash}</Glyph>Remove position
+                  </button>
                 </div>
               </div>
             ))}
             <div className="rz-row">
-              <button className="rz-btn" onClick={addJob}>+ Add position</button>
-              <button className="rz-btn" onClick={resetTemplate}>Reset template</button>
+              <button className="rz-btn" onClick={addJob}><Glyph>{IC.plus}</Glyph>Add position</button>
+              <button className="rz-btn" onClick={resetTemplate}><Glyph>{IC.reset}</Glyph>Reset template</button>
             </div>
 
             <h3 style={{ marginTop: 22 }}>Education</h3>

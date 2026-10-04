@@ -44,10 +44,30 @@ const PrimeChart = dynamic(() => import('@/components/prime/PrimeChart'), {
   ssr: false,
   loading: () => (
     <div className="prime-loading" aria-label="Chart loading">
+      <span className="prime-loading-ic"><Glyph size={24}>{IC.compass}</Glyph></span>
       Charting the universe…
     </div>
   ),
 });
+
+function Glyph({ size = 15, children }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+      style={{ flexShrink: 0 }}>{children}</svg>
+  );
+}
+
+const IC = {
+  compass: <><circle cx="12" cy="12" r="9" /><path d="M15.5 8.5l-2 5-5 2 2-5z" /></>,
+  plus: <path d="M12 5v14M5 12h14" />,
+  minus: <path d="M5 12h14" />,
+  reset: <><circle cx="12" cy="12" r="7" /><path d="M12 2v4M12 18v4M2 12h4M18 12h4" /></>,
+  arrow: <path d="M5 12h14m0 0l-6-6m6 6l-6 6" />,
+  star: <path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z" />,
+  x: <path d="M6 6l12 12M18 6L6 18" />,
+  video: <><rect x="3" y="6" width="13" height="12" rx="2" /><path d="M16 10l5-3v10l-5-3" /></>,
+};
 
 const CSS = `
 .prime-root {
@@ -380,6 +400,28 @@ const CSS = `
 }
 .prime-member-row:hover { background: rgba(255, 255, 255, 0.05); }
 .prime-member-row:focus-visible { outline: 2px solid #7dd3fc; outline-offset: -2px; }
+/* Prime ambience: starfield video -> still -> off, persisted */
+.prime-root { position: relative; }
+.prime-main { position: relative; z-index: 1; }
+.prime-amb { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+.prime-amb img, .prime-amb video { width: 100%; height: 100%; object-fit: cover; opacity: 0.35; }
+.prime-scrim { position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background: linear-gradient(180deg, rgba(4,4,8,0.78) 0%, rgba(4,4,8,0.5) 35%, rgba(4,4,8,0.9) 100%); }
+.prime-tex { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 0.84 0 0 0 0 0 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E"); background-size: 140px 140px; }
+.prime-sheet { background-color: rgba(10, 10, 15, 0.97); background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 0.84 0 0 0 0 0 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E"); background-size: 140px 140px; }
+.prime-results { background-color: rgba(10, 10, 14, 0.98); background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 0.84 0 0 0 0 0 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E"); background-size: 140px 140px; }
+.prime-title h1 { display: flex; align-items: center; gap: 10px; }
+.prime-emblem { color: #ffd700; display: inline-flex; filter: drop-shadow(0 0 8px rgba(255,215,0,0.5)); }
+.prime-icobtn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.prime-ambbtn { min-width: 44px; min-height: 44px; padding: 8px 10px; border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 10px; background: transparent; color: #a1a1aa; font-size: 0.68rem; font-weight: 600;
+  letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: 0 0 auto; }
+.prime-ambbtn:hover { color: #fff; border-color: rgba(255,215,0,0.4); }
+.prime-loading { flex-direction: column; gap: 14px; }
+.prime-loading-ic { color: #ffd700; display: inline-flex; animation: prime-pulse 1.6s ease-in-out infinite; }
+@keyframes prime-pulse { 0%,100% { opacity: 0.55; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .prime-loading-ic { animation: none; } }
 `;
 
 export default function PrimePage() {
@@ -401,7 +443,24 @@ export default function PrimePage() {
   const [status, setStatus] = useState('');
   const [pins, setPins] = useState([]);
   const [recents, setRecents] = useState([]);
+  const [amb, setAmb] = useState('video');
   const statusTimer = useRef(null);
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem('prime-amb');
+      const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (saved === 'video' || saved === 'still' || saved === 'off') setAmb(saved);
+      else if (reduce) setAmb('still');
+    } catch { /* default video */ }
+  }, []);
+
+  const cycleAmb = () => {
+    const order = ['video', 'still', 'off'];
+    const next = order[(order.indexOf(amb) + 1) % order.length];
+    setAmb(next);
+    try { window.localStorage.setItem('prime-amb', next); } catch { /* ignore */ }
+  };
 
   const persist = useCallback((next) => {
     stateRef.current = next;
@@ -553,12 +612,23 @@ export default function PrimePage() {
   return (
     <div className="prime-root">
       <style>{CSS}</style>
+      {amb !== 'off' && (
+        <div className="prime-amb" aria-hidden="true">
+          {amb === 'video' ? (
+            <video autoPlay muted loop playsInline preload="metadata"
+              poster="/images/prime/prime-bg.webp" src="/images/prime/prime-bg-loop.mp4" />
+          ) : (
+            <img src="/images/prime/prime-bg.webp" alt="" />
+          )}
+        </div>
+      )}
+      {amb !== 'off' && <div className="prime-scrim" aria-hidden="true" />}
       <main className="prime-main">
         {/* top bar: back, title, search — everything else lives on the map */}
         <div className="prime-topbar">
           <BackButton label="Hub" />
           <div className="prime-title">
-            <h1>PRIME</h1>
+            <h1><span className="prime-emblem"><Glyph size={18}>{IC.compass}</Glyph></span>PRIME</h1>
             <p>Star chart</p>
           </div>
           <div className="prime-search-wrap">
@@ -646,6 +716,10 @@ export default function PrimePage() {
               </div>
             )}
           </div>
+          <button type="button" onClick={cycleAmb} className="prime-ambbtn"
+            aria-label="Cycle background ambience: video, still, off" title="Background ambience">
+            <Glyph size={15}>{IC.video}</Glyph>{amb === 'video' ? 'Video' : amb === 'still' ? 'Still' : 'Off'}
+          </button>
         </div>
 
         {/* the map */}
@@ -668,9 +742,9 @@ export default function PrimePage() {
             {status || ' '}
           </div>
           <div className="prime-zoom">
-            <button type="button" aria-label="Zoom in" onClick={() => chartRef.current && chartRef.current.zoomBy(1.35)}>+</button>
-            <button type="button" aria-label="Zoom out" onClick={() => chartRef.current && chartRef.current.zoomBy(1 / 1.35)}>−</button>
-            <button type="button" className="prime-zoom-reset" aria-label="Reset view" onClick={resetView}>◎</button>
+            <button type="button" aria-label="Zoom in" onClick={() => chartRef.current && chartRef.current.zoomBy(1.35)}><Glyph size={18}>{IC.plus}</Glyph></button>
+            <button type="button" aria-label="Zoom out" onClick={() => chartRef.current && chartRef.current.zoomBy(1 / 1.35)}><Glyph size={18}>{IC.minus}</Glyph></button>
+            <button type="button" className="prime-zoom-reset" aria-label="Reset view" onClick={resetView}><Glyph size={18}>{IC.reset}</Glyph></button>
           </div>
         </section>
 
@@ -699,24 +773,28 @@ export default function PrimePage() {
                 {selectedNode.cluster.constellation} · {selectedNode.node.section.toLowerCase()} · {selectedNode.node.route}
               </p>
             </div>
-            <button type="button" className="prime-sheet-close" aria-label="Close" onClick={() => setSelection(null)}>
-              ×
+            <button type="button" className="prime-sheet-close prime-icobtn" aria-label="Close" onClick={() => setSelection(null)}>
+              <Glyph size={18}>{IC.x}</Glyph>
             </button>
           </div>
           <p className="prime-sheet-blurb">{selectedNode.node.blurb}</p>
           <div className="prime-sheet-actions">
-            <button type="button" className="prime-travel" onClick={() => travel(selectedNode.node)}>
-              Travel
+            <button type="button" className="prime-travel prime-icobtn" onClick={() => travel(selectedNode.node)}>
+              <Glyph size={16}>{IC.arrow}</Glyph>Travel
             </button>
             <button
               type="button"
-              className="prime-pin"
+              className="prime-pin prime-icobtn"
               data-on={pins.includes(selectedNode.node.key) ? 'true' : 'false'}
               aria-label={pins.includes(selectedNode.node.key) ? 'Unpin destination' : 'Pin destination'}
               aria-pressed={pins.includes(selectedNode.node.key)}
               onClick={() => togglePinFor(selectedNode.node.key)}
             >
-              ★
+              {pins.includes(selectedNode.node.key) ? (
+                <svg width={18} height={18} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z" /></svg>
+              ) : (
+                <Glyph size={18}>{IC.star}</Glyph>
+              )}
             </button>
           </div>
         </div>
@@ -730,8 +808,8 @@ export default function PrimePage() {
               <h2>{selectedCluster.constellation}</h2>
               <p>{selectedCluster.label} · {selectedCluster.count} destinations</p>
             </div>
-            <button type="button" className="prime-sheet-close" aria-label="Close" onClick={() => setSelection(null)}>
-              ×
+            <button type="button" className="prime-sheet-close prime-icobtn" aria-label="Close" onClick={() => setSelection(null)}>
+              <Glyph size={18}>{IC.x}</Glyph>
             </button>
           </div>
           <ul className="prime-members">

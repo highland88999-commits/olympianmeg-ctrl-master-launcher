@@ -11,40 +11,23 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { submenuArtFor } from '@/lib/god-menus';
-
-
-// Menu Art Transfer batch 2 — submenu art. Background image + dark legibility
-// scrim; a missing image hides itself via onError so the nav chip falls back
-// to its plain style. Never breaks the UI.
-function SubmenuArt({ slot }) {
-  return (
-    <>
-      <img
-        src={submenuArtFor(slot)}
-        alt=""
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-        loading="lazy"
-        onError={(e) => { e.currentTarget.style.display = 'none'; }}
-      />
-      <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-black/55" />
-    </>
-  );
-}
-
-// Blueprint section id -> submenu art slot suffix.
-const SECTION_ART = {
-  economics: 'economics',
-  coop: 'cooperative',
-  matrix: 'allocation-matrix',
-  legal: 'foundation',
-  roadmap: 'roadmap',
-  midas: 'midas',
-};
 
 const TITLE = 'Olympus | Blueprint Protocol';
 const STORAGE_KEY = 'blueprint-protocol.progress.v1';
+
+function Glyph({ size = 13, children }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+      style={{ flexShrink: 0 }}>{children}</svg>
+  );
+}
+
+const IC = {
+  doc: <><path d="M6 2h9l5 5v15a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z" /><path d="M14 2v6h6" /></>,
+  layers: <><path d="M12 2l10 5-10 5L2 7z" /><path d="M2 12l10 5 10-5" /><path d="M2 17l10 5 10-5" /></>,
+  up: <path d="M12 19V5m0 0l-6 6m6-6l6 6" />,
+};
 
 const SECTIONS = [
   { id: 'economics', num: '01', label: 'Economics of Transformation' },
@@ -101,31 +84,34 @@ const EPOCHS = [
 ];
 
 const CSS = `
-.bp-wrap { min-height: 100dvh; background: #000; color: #fff; font-family: 'Courier New', Courier, monospace; overflow-x: hidden; }
+.bp-wrap { min-height: 100dvh; background: #000; color: #fff; font-family: 'Courier New', Courier, monospace; overflow-x: hidden;
+  --bp-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 0.72 0 0 0 0 0.42 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E"); }
+.bp-still { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+.bp-still img { width: 100%; height: 100%; object-fit: cover; opacity: 0.3; }
 .bp-canvas { position: fixed; inset: 0; width: 100vw; height: 100dvh; z-index: 1; pointer-events: none; }
 .bp-content { position: relative; z-index: 2; max-width: 1000px; margin: 0 auto; padding: 4rem 10%; background: transparent; }
-.bp-progress { position: fixed; top: 0; left: 0; height: 3px; width: 0%; z-index: 10; background: linear-gradient(90deg, #00ffcc, #ff00ff); transition: width 0.1s linear; }
-.bp-nav { position: sticky; top: 0; z-index: 5; display: flex; gap: 8px; flex-wrap: wrap; padding: 12px 0; background: rgba(0,0,0,0.85); border-bottom: 1px solid rgba(0,255,204,0.3); }
-.bp-nav button { background: transparent; border: 1px solid rgba(0,255,204,0.4); color: #00ffcc; font-family: inherit; font-size: 0.75rem; padding: 8px 12px; cursor: pointer; border-radius: 3px; min-height: 44px; }
+.bp-progress { position: fixed; top: 0; left: 0; height: 3px; width: 0%; z-index: 10; background: linear-gradient(90deg, #00ffcc, #f97316); transition: width 0.1s linear; }
+.bp-nav { position: sticky; top: 0; z-index: 5; display: flex; gap: 8px; flex-wrap: wrap; padding: 12px 14px; background-color: rgba(0,0,0,0.88); background-image: var(--bp-noise); background-size: 140px 140px; border-bottom: 1px solid rgba(0,255,204,0.3); border-radius: 6px; }
+.bp-nav button { background: transparent; border: 1px solid rgba(0,255,204,0.4); color: #00ffcc; font-family: inherit; font-size: 0.75rem; padding: 8px 12px; cursor: pointer; border-radius: 3px; min-height: 44px; display: inline-flex; align-items: center; gap: 8px; }
 .bp-nav button.active { background: #00ffcc; color: #000; font-weight: bold; }
 .bp-h1 { font-size: 3.5rem; color: #00ffcc; text-shadow: 2px 2px 0 #000, 0 0 10px #000; margin-bottom: 1rem; text-transform: uppercase; border-bottom: 1px solid rgba(0,255,204,0.5); padding-bottom: 10px; line-height: 1.1; }
 .bp-docheader { text-align: right; font-size: 0.9rem; color: #00ffcc; margin-bottom: 3rem; text-transform: uppercase; border-bottom: 1px solid rgba(0,255,204,0.3); padding-bottom: 5px; }
-.bp-h2 { font-size: 2rem; color: #ff00ff; border-left: 4px solid #ff00ff; padding-left: 15px; margin-top: 4rem; text-shadow: 2px 2px 0 #000; scroll-margin-top: 90px; }
+.bp-h2 { font-size: 2rem; color: #fb923c; border-left: 4px solid #f97316; padding-left: 15px; margin-top: 4rem; text-shadow: 2px 2px 0 #000; scroll-margin-top: 90px; }
 .bp-h3 { font-size: 1.5rem; color: #fff; margin-top: 2.5rem; text-shadow: 1px 1px 0 #000; }
 .bp-p { font-size: 1.15rem; margin-bottom: 1.2rem; text-shadow: 1.5px 1.5px 0 #000, 0 0 8px #000; line-height: 1.6; }
 .bp-ul { padding-left: 25px; }
 .bp-li { font-size: 1.15rem; margin-bottom: 1.2rem; text-shadow: 1.5px 1.5px 0 #000; line-height: 1.6; }
 .bp-hl { color: #00ffcc; font-weight: bold; }
-.bp-callout { border-left: 4px solid #00ffcc; border-right: 1px solid rgba(0,255,204,0.3); border-top: 1px solid rgba(0,255,204,0.3); border-bottom: 1px solid rgba(0,255,204,0.3); padding: 20px; margin: 30px 0; border-radius: 4px; background: rgba(0,255,204,0.04); }
+.bp-callout { border-left: 4px solid #00ffcc; border-right: 1px solid rgba(0,255,204,0.3); border-top: 1px solid rgba(0,255,204,0.3); border-bottom: 1px solid rgba(0,255,204,0.3); padding: 20px; margin: 30px 0; border-radius: 4px; background-color: rgba(0,255,204,0.04); background-image: var(--bp-noise); background-size: 140px 140px; }
 .bp-callout-title { color: #00ffcc; font-weight: bold; margin-bottom: 10px; display: block; text-transform: uppercase; font-size: 1.2rem; }
-.bp-tablewrap { overflow-x: auto; margin: 30px 0; border: 1px solid rgba(0,255,204,0.3); border-radius: 4px; }
+.bp-tablewrap { overflow-x: auto; margin: 30px 0; border: 1px solid rgba(0,255,204,0.3); border-radius: 4px; background-color: rgba(0,0,0,0.5); background-image: var(--bp-noise); background-size: 140px 140px; }
 .bp-table { width: 100%; border-collapse: collapse; min-width: 600px; }
 .bp-th, .bp-td { border: 1px solid rgba(0,255,204,0.2); padding: 15px; text-align: left; text-shadow: 1px 1px 0 #000; }
 .bp-th { color: #00ffcc; font-weight: bold; font-size: 1.1rem; }
 .bp-epoch-tabs { display: flex; gap: 10px; flex-wrap: wrap; margin: 24px 0; }
-.bp-epoch-tab { background: transparent; border: 1px solid #ff00ff; color: #ff00ff; font-family: inherit; padding: 10px 16px; cursor: pointer; border-radius: 3px; min-height: 44px; font-size: 0.9rem; }
-.bp-epoch-tab.active { background: #ff00ff; color: #000; font-weight: bold; }
-.bp-top { position: fixed; bottom: 20px; right: 20px; z-index: 10; background: rgba(0,255,204,0.12); border: 1px solid #00ffcc; color: #00ffcc; font-family: inherit; font-size: 0.85rem; padding: 10px 14px; cursor: pointer; border-radius: 4px; }
+.bp-epoch-tab { background: transparent; border: 1px solid #f97316; color: #fb923c; font-family: inherit; padding: 10px 16px; cursor: pointer; border-radius: 3px; min-height: 44px; font-size: 0.9rem; display: inline-flex; align-items: center; gap: 8px; }
+.bp-epoch-tab.active { background: #f97316; color: #000; font-weight: bold; }
+.bp-top { position: fixed; bottom: 20px; right: 20px; z-index: 10; background: rgba(0,255,204,0.12); border: 1px solid #00ffcc; color: #00ffcc; font-family: inherit; font-size: 0.85rem; padding: 10px 14px; cursor: pointer; border-radius: 4px; display: inline-flex; align-items: center; gap: 8px; }
 @media (max-width: 700px) { .bp-h1 { font-size: 2.2rem; } .bp-content { padding: 2rem 6%; } }
 `;
 
@@ -157,7 +143,7 @@ export default function BlueprintProtocolPage() {
     };
     document.addEventListener('mousemove', onMove);
 
-    const palette = ['#00ffcc', '#ff00ff', '#0044ff', '#b000ff'];
+    const palette = ['#00ffcc', '#f97316', '#ffd700', '#2dd4bf'];
     const COUNT = 700;
     const parts = [];
     for (let i = 0; i < COUNT; i++) {
@@ -242,6 +228,7 @@ export default function BlueprintProtocolPage() {
   return (
     <div className="bp-wrap">
       <style>{CSS}</style>
+      <div className="bp-still" aria-hidden="true"><img src="/images/blueprint-protocol/blueprint-bg.webp" alt="" /></div>
       <canvas ref={canvasRef} className="bp-canvas" aria-hidden="true" />
       <div className="bp-progress" style={{ width: progress + '%' }} />
 
@@ -255,11 +242,10 @@ export default function BlueprintProtocolPage() {
             <button
               key={s.id}
               type="button"
-              className={(activeSection === s.id ? 'active ' : '') + 'relative overflow-hidden'}
+              className={activeSection === s.id ? 'active' : ''}
               onClick={() => jump(s.id)}
             >
-              {activeSection !== s.id && <SubmenuArt slot={`submenu-prog-blueprint-protocol-${SECTION_ART[s.id]}`} />}
-              <span className="relative">{s.num} // {s.label}</span>
+              <Glyph>{IC.doc}</Glyph>{s.num} // {s.label}
             </button>
           ))}
         </nav>
@@ -329,7 +315,7 @@ export default function BlueprintProtocolPage() {
                 className={'bp-epoch-tab' + (activeEpoch === i ? ' active' : '')}
                 onClick={() => setActiveEpoch(i)}
               >
-                Epoch {e.id}
+                <Glyph>{IC.layers}</Glyph>Epoch {e.id}
               </button>
             ))}
           </div>
@@ -349,10 +335,9 @@ export default function BlueprintProtocolPage() {
       </div>
 
       <button type="button" className="bp-top" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
-        ↑ Top
+        <Glyph>{IC.up}</Glyph>Top
       </button>
       <div aria-hidden="true" className="player-clear" />
     </div>
   );
 }
-

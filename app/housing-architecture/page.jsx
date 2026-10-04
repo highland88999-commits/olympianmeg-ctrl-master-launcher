@@ -2,11 +2,33 @@
 
 import { useEffect, useRef, useState } from 'react';
 
+function Glyph({ size = 15, children }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+      style={{ flexShrink: 0 }}>{children}</svg>
+  );
+}
+
+const IC = {
+  up: <path d="M6 15l6-6 6 6" />,
+  down: <path d="M6 9l6 6 6-6" />,
+  ruler: <><path d="M3 17L17 3l4 4L7 21z" /><path d="M8 12l1.5 1.5M11 9l1.5 1.5M14 6l1.5 1.5" /></>,
+  layers: <><path d="M12 2l10 5-10 5L2 7z" /><path d="M2 12l10 5 10-5" /><path d="M2 17l10 5 10-5" /></>,
+  truck: <><path d="M1 8h13v8H1zM14 11h4l4 4v1h-8z" /><circle cx="6" cy="18" r="2" /><circle cx="17" cy="18" r="2" /></>,
+  wrench: <path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.5-2.5z" />,
+  checklist: <><path d="M9 6h12M9 12h12M9 18h12" /><path d="M4 5l1 1 2-2M4 11l1 1 2-2M4 17l1 1 2-2" /></>,
+};
+
 const CSS = `
 .ha-root { min-height: 100dvh; background: #010604; color: #e0f2fe; overflow-x: hidden;
   font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
 .ha-bg { position: fixed; inset: 0; z-index: 0; pointer-events: none;
   background: radial-gradient(circle at 50% 0%, #032415 0%, #010a08 50%, #010604 100%); }
+.ha-still { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+.ha-still img { width: 100%; height: 100%; object-fit: cover; opacity: 0.2; }
+.ha-scrim { position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background: linear-gradient(180deg, rgba(1,6,4,0.6) 0%, rgba(1,6,4,0.3) 40%, rgba(1,6,4,0.75) 100%); }
 .ha-scan { position: fixed; inset: 0; z-index: 999; pointer-events: none; opacity: 0.6;
   background: linear-gradient(to bottom, transparent 50%, rgba(0,255,159,0.015) 50%);
   background-size: 100% 4px; }
@@ -32,13 +54,18 @@ const CSS = `
 .ha-intro { max-width: 800px; text-align: center; font-size: clamp(1.05rem, 3vw, 1.4rem);
   line-height: 1.7; color: #d1fae5; font-weight: 300; margin: 0 0 48px; }
 .ha-intro strong { color: #ffaa00; }
-.ha-card { width: 100%; background: linear-gradient(180deg, rgba(10,25,15,0.75), rgba(5,15,10,0.85));
+.ha-card { width: 100%; background-color: rgba(8,20,12,0.8);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 1 0 0 0 0 0.62 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E"),
+    linear-gradient(180deg, rgba(10,25,15,0.75), rgba(5,15,10,0.85));
+  background-size: 140px 140px, cover;
   border: 1px solid rgba(0,255,159,0.2); border-top: 3px solid #ffaa00; border-radius: 12px;
   padding: 28px; margin-bottom: 28px; transition: border-color 0.3s, box-shadow 0.3s, transform 0.3s; }
 .ha-card:hover { border-color: rgba(0,255,159,0.55); box-shadow: 0 10px 30px rgba(0,255,159,0.12);
   transform: translateY(-3px); }
 .ha-card h3 { margin: 0 0 20px; font-size: 1.5rem; color: #ffaa00; letter-spacing: 0.06em;
-  border-bottom: 1px solid rgba(0,255,159,0.25); padding-bottom: 10px; text-transform: uppercase; }
+  border-bottom: 1px solid rgba(0,255,159,0.25); padding-bottom: 10px; text-transform: uppercase;
+  display: flex; align-items: center; gap: 10px; }
+.ha-h3ic { color: #00ff9f; display: inline-flex; }
 .ha-table { width: 100%; border-collapse: collapse; min-width: 560px; }
 .ha-scroll { overflow-x: auto; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.4); }
 .ha-table th { background: rgba(0,0,0,0.5); color: #00ff9f; text-transform: uppercase; letter-spacing: 0.12em;
@@ -62,6 +89,12 @@ const CSS = `
   font-family: inherit; min-height: 48px; }
 .ha-step > button:hover { background: rgba(0,255,159,0.06); }
 .ha-letter { color: #ffaa00; font-weight: 800; }
+.ha-chev { margin-left: auto; color: #00ff9f; display: inline-flex; }
+.ha-boot { position: absolute; inset: 0; z-index: 3; display: flex; align-items: center; justify-content: center; gap: 10px;
+  background: rgba(1,6,4,0.9); color: #a7f3d0; font-size: 0.75rem; letter-spacing: 0.25em; text-transform: uppercase;
+  animation: ha-pulse 1.6s ease-in-out infinite; }
+@keyframes ha-pulse { 0%,100% { opacity: 0.6; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .ha-boot { animation: none; } }
 .ha-step p { margin: 0; padding: 0 18px 18px 48px; color: #a1a1aa; font-size: 0.93rem; line-height: 1.6; }
 .ha-check { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border-radius: 8px;
   border: 1px solid rgba(255,255,255,0.08); background: rgba(0,0,0,0.35); cursor: pointer; }
@@ -163,6 +196,7 @@ export default function HousingArchitecturePage() {
   const canvasRef = useRef(null);
   const [openStep, setOpenStep] = useState(null);
   const [checked, setChecked] = useState([]);
+  const [heroReady, setHeroReady] = useState(false);
   const netRef = useRef(null);
 
   // Animated tensegrity net — fully procedural, no external assets
@@ -217,6 +251,7 @@ export default function HousingArchitecturePage() {
       raf = requestAnimationFrame(draw);
     };
     raf = requestAnimationFrame(draw);
+    setHeroReady(true);
     return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', resize); };
   }, []);
 
@@ -239,6 +274,8 @@ export default function HousingArchitecturePage() {
     <main className="ha-root">
       <style>{CSS}</style>
       <div className="ha-bg" aria-hidden="true" />
+      <div className="ha-still" aria-hidden="true"><img src="/images/housing-architecture/housing-bg.webp" alt="" /></div>
+      <div className="ha-scrim" aria-hidden="true" />
       <div className="ha-scan" aria-hidden="true" />
 
       <nav className="ha-nav">
@@ -249,6 +286,11 @@ export default function HousingArchitecturePage() {
       <div className="ha-main">
         <div className="ha-hero">
           <canvas ref={canvasRef} aria-label="Animated tensegrity structural model" />
+          {!heroReady && (
+            <div className="ha-boot" role="status">
+              <Glyph size={16}>{IC.layers}</Glyph>Calibrating nodes…
+            </div>
+          )}
           <div className="ha-live"><span className="ha-dot" /> Node Simulation // Active</div>
           <div className="ha-fade" />
         </div>
@@ -261,7 +303,7 @@ export default function HousingArchitecturePage() {
         </p>
 
         <div className="ha-card">
-          <h3 className="ha-mono">1. Structural Dimensions &amp; Tolerances</h3>
+          <h3 className="ha-mono"><span className="ha-h3ic"><Glyph size={18}>{IC.ruler}</Glyph></span>1. Structural Dimensions &amp; Tolerances</h3>
           <p className="ha-warning">
             ⚠ Concept design only — not engineered, not stamped, and not safe to build.
             These specs are illustrative; do not use as construction documentation.
@@ -284,7 +326,7 @@ export default function HousingArchitecturePage() {
         </div>
 
         <div className="ha-card">
-          <h3 className="ha-mono">2. Material Specifications</h3>
+          <h3 className="ha-mono"><span className="ha-h3ic"><Glyph size={18}>{IC.layers}</Glyph></span>2. Material Specifications</h3>
           <ul className="ha-list">
             {MATERIALS.map(([name, desc]) => (
               <li key={name}><strong>{name}</strong>{desc}</li>
@@ -293,7 +335,7 @@ export default function HousingArchitecturePage() {
         </div>
 
         <div className="ha-card">
-          <h3 className="ha-mono">3. Supplier Categories</h3>
+          <h3 className="ha-mono"><span className="ha-h3ic"><Glyph size={18}>{IC.truck}</Glyph></span>3. Supplier Categories</h3>
           <ul className="ha-list">
             {SUPPLIERS.map(([name, desc]) => (
               <li key={name}><strong className="ha-sup">{name}</strong>{desc}</li>
@@ -302,12 +344,12 @@ export default function HousingArchitecturePage() {
         </div>
 
         <div className="ha-card">
-          <h3 className="ha-mono">4. Sequential Installation Methodology</h3>
+          <h3 className="ha-mono"><span className="ha-h3ic"><Glyph size={18}>{IC.wrench}</Glyph></span>4. Sequential Installation Methodology</h3>
           {STEPS.map(([letter, title, body], i) => (
             <div className="ha-step" key={letter}>
               <button onClick={() => setOpenStep(openStep === i ? null : i)} aria-expanded={openStep === i}>
                 <span className="ha-letter">{letter}.</span> {title}
-                <span style={{ marginLeft: 'auto', color: '#00ff9f' }}>{openStep === i ? '−' : '+'}</span>
+                <span className="ha-chev"><Glyph size={16}>{openStep === i ? IC.up : IC.down}</Glyph></span>
               </button>
               {openStep === i && <p>{body}</p>}
             </div>
@@ -315,7 +357,7 @@ export default function HousingArchitecturePage() {
         </div>
 
         <div className="ha-card">
-          <h3 className="ha-mono">5. Build Checklist</h3>
+          <h3 className="ha-mono"><span className="ha-h3ic"><Glyph size={18}>{IC.checklist}</Glyph></span>5. Build Checklist</h3>
           <div className="ha-progress" role="progressbar" aria-valuenow={pct} aria-valuemin="0" aria-valuemax="100">
             <i style={{ width: pct + '%' }} />
           </div>

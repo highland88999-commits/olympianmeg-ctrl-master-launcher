@@ -33,6 +33,40 @@ const IDEAS_KEY = 'hephaestus.ideas.v1';
 const EMBER = '#f97316';
 const GOLD = '#ffd700';
 
+const NOISE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 0.72 0 0 0 0 0.42 0 0 0 0.07 0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E";
+
+function Glyph({ size = 15, children }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+      style={{ flexShrink: 0 }}>{children}</svg>
+  );
+}
+
+const IC = {
+  flame: <path d="M12 2c1 4-4 6-4 11a4 4 0 0 0 8 0c0-2-1-3-1-3s3 1 3 5a6 6 0 0 1-12 0C6 8 12 6 12 2z" />,
+  share: <><circle cx="6" cy="12" r="2.5" /><circle cx="18" cy="6" r="2.5" /><circle cx="18" cy="18" r="2.5" /><path d="M8.2 10.8l7.6-3.6M8.2 13.2l7.6 3.6" /></>,
+  copy: <><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></>,
+  spark: <path d="M12 3l1.9 5.6 5.6 1.4-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.4z" />,
+  plus: <path d="M12 5v14M5 12h14" />,
+  arrow: <path d="M5 12h14m0 0l-6-6m6 6l-6 6" />,
+  minus: <path d="M5 12h14" />,
+  trash: <><path d="M4 7h16" /><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /><path d="M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13" /></>,
+  box: <><path d="M21 8l-9-5-9 5v8l9 5 9-5z" /><path d="M3 8l9 5 9-5M12 13v8" /></>,
+  bulb: <><path d="M9 18h6M10 21h4" /><path d="M12 3a6 6 0 0 0-4 10.5c.8.7 1 1.5 1 2.5h6c0-1 .2-1.8 1-2.5A6 6 0 0 0 12 3z" /></>,
+  ext: <><path d="M14 4h6v6" /><path d="M20 4L10 14" /><path d="M20 14v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h6" /></>,
+  check: <path d="M4 12l5 5L20 6" />,
+};
+
+function LoadingLine({ text }) {
+  return (
+    <p style={{ color: '#a8a29e', fontSize: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
+      <span className="heph-pulse" style={{ display: 'inline-flex', color: EMBER }}><Glyph>{IC.flame}</Glyph></span>
+      {text}
+    </p>
+  );
+}
+
 /* ---------------- Ember canvas: the forge fire (localized glow) ---------------- */
 function EmberCanvas() {
   const ref = useRef(null);
@@ -167,7 +201,7 @@ function ReachCanvas({ sparkCount }) {
 
 /* ---------------- small UI atoms ---------------- */
 const btn = {
-  minHeight: 44, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  minHeight: 44, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
   padding: '0 18px', borderRadius: 10, border: '1px solid rgba(249,115,22,0.45)',
   background: 'rgba(249,115,22,0.12)', color: '#fed7aa', fontWeight: 600, cursor: 'pointer',
   fontSize: 15,
@@ -178,7 +212,10 @@ const input = {
   background: '#121214', border: '1px solid #3a2a18', color: '#f5f5f4',
 };
 const card = {
-  background: 'rgba(20,14,8,0.85)', border: '1px solid rgba(249,115,22,0.22)',
+  backgroundColor: 'rgba(20,14,8,0.88)',
+  backgroundImage: `url("${NOISE}")`,
+  backgroundSize: '140px 140px',
+  border: '1px solid rgba(249,115,22,0.22)',
   borderRadius: 16, padding: 18,
 };
 
@@ -209,8 +246,8 @@ function ShareButtons({ kind, title, detail }) {
   };
   return (
     <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginTop: 12 }}>
-      <button type="button" onClick={share} style={btn}>Multiply it ↗</button>
-      <button type="button" onClick={copy} style={btn}>Copy the words</button>
+      <button type="button" onClick={share} style={btn}><Glyph>{IC.share}</Glyph>Multiply it</button>
+      <button type="button" onClick={copy} style={btn}><Glyph>{IC.copy}</Glyph>Copy the words</button>
       {msg && <span style={{ fontSize: 13, color: GOLD }}>{msg}</span>}
     </div>
   );
@@ -290,7 +327,7 @@ function ForgeChamber() {
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             <input value={mythic} onChange={(e) => setMythic(e.target.value)} placeholder="Mythic name (optional)" aria-label="Mythic name" style={{ ...input, flex: '1 1 200px' }} maxLength={40} />
             <button type="button" style={btn} onClick={() => setMythic(suggestMythicName(concept || name || 'forge'))}>
-              Suggest one
+              <Glyph>{IC.spark}</Glyph>Suggest one
             </button>
           </div>
           {errors.length > 0 && (
@@ -298,7 +335,7 @@ function ForgeChamber() {
               {errors.map((er, i) => <li key={i}>{er}</li>)}
             </ul>
           )}
-          <button type="submit" style={btnPrimary}>Save it to my planning board</button>
+          <button type="submit" style={btnPrimary}><Glyph>{IC.check}</Glyph>Save it to my planning board</button>
         </form>
       </div>
 
@@ -331,15 +368,19 @@ function ForgeChamber() {
               })}
             </div>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-              {c.stage !== 'publish' && <button type="button" style={btn} onClick={() => advance(c.id)}>Advance a stage</button>}
-              <button type="button" style={{ ...btn, border: '1px solid #44403c', background: 'transparent', color: '#a8a29e' }} onClick={() => remove(c.id)}>Withdraw</button>
+              {c.stage !== 'publish' && <button type="button" style={btn} onClick={() => advance(c.id)}><Glyph>{IC.arrow}</Glyph>Advance a stage</button>}
+              <button type="button" style={{ ...btn, border: '1px solid #44403c', background: 'transparent', color: '#a8a29e' }} onClick={() => remove(c.id)}><Glyph>{IC.minus}</Glyph>Withdraw</button>
             </div>
             <ShareButtons kind="commission" title={c.name} detail={c.concept} />
           </div>
         ))}
         {commissions && commissions.length === 0 && (
-          <p style={{ color: '#78716c', fontSize: 14 }}>No commissions yet. The forge is listening.</p>
+          <p style={{ color: '#78716c', fontSize: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ display: 'inline-flex', color: EMBER }}><Glyph>{IC.flame}</Glyph></span>
+            No commissions yet. The forge is listening.
+          </p>
         )}
+        {commissions === null && <LoadingLine text="Stoking the forge…" />}
       </div>
     </div>
   );
@@ -385,7 +426,7 @@ function FactoryChamber() {
           ))}
         </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
-          <Link href={OLYMPUS_FACTS.route} style={{ ...btnPrimary, textDecoration: 'none' }}>Open the store</Link>
+          <Link href={OLYMPUS_FACTS.route} style={{ ...btnPrimary, textDecoration: 'none' }}><Glyph>{IC.ext}</Glyph>Open the store</Link>
         </div>
         <ShareButtons kind="product" title="Olympus store" detail={`${OLYMPUS_FACTS.count} designs, CAD $${OLYMPUS_FACTS.priceCad.toFixed(2)} each, made to order.`} />
       </div>
@@ -400,7 +441,7 @@ function FactoryChamber() {
           one per person, no screenshots. The price is set on the server at checkout.
         </p>
         <div style={{ display: 'flex', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
-          <Link href={LUGE_ARSENAL_FACTS.route} style={{ ...btnPrimary, textDecoration: 'none' }}>Open Luge</Link>
+          <Link href={LUGE_ARSENAL_FACTS.route} style={{ ...btnPrimary, textDecoration: 'none' }}><Glyph>{IC.ext}</Glyph>Open Luge</Link>
         </div>
         <ShareButtons kind="product" title={`Luge ${LUGE_ARSENAL_FACTS.name}`} detail={`$${LUGE_ARSENAL_FACTS.priceUsd} USD — ${LUGE_ARSENAL_FACTS.premiumHulls} premium hulls and a hoodie claim.`} />
       </div>
@@ -454,7 +495,7 @@ function FoundryChamber() {
         <form onSubmit={add} style={{ display: 'grid', gap: 12, marginTop: 12 }}>
           <input value={text} onChange={(e) => setText(e.target.value)} placeholder="The idea, in one line…" aria-label="Idea" style={input} maxLength={140} />
           <textarea value={detail} onChange={(e) => setDetail(e.target.value)} placeholder="Shape it a little more (optional)…" aria-label="Idea detail" rows={2} style={{ ...input, minHeight: 60, resize: 'vertical' }} />
-          <button type="submit" style={btnPrimary}>Throw it in the fire</button>
+          <button type="submit" style={btnPrimary}><Glyph>{IC.flame}</Glyph>Throw it in the fire</button>
         </form>
       </div>
 
@@ -477,12 +518,12 @@ function FoundryChamber() {
                   <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
                     {i.stage !== 'forged' && (
                       <button type="button" onClick={() => advance(i.id)} style={{ ...btn, minHeight: 40, fontSize: 13, padding: '0 12px' }}>
-                        → {IDEA_STAGES[IDEA_STAGE_IDS.indexOf(i.stage) + 1].label}
+                        <Glyph size={13}>{IC.arrow}</Glyph>{IDEA_STAGES[IDEA_STAGE_IDS.indexOf(i.stage) + 1].label}
                       </button>
                     )}
                     {i.origin !== 'artemis' && (
                       <button type="button" onClick={() => remove(i.id)} style={{ ...btn, minHeight: 40, fontSize: 13, padding: '0 12px', border: '1px solid #44403c', background: 'transparent', color: '#a8a29e' }}>
-                        Remove
+                        <Glyph size={13}>{IC.trash}</Glyph>Remove
                       </button>
                     )}
                   </div>
@@ -492,6 +533,7 @@ function FoundryChamber() {
               {(ideas || []).filter((i) => i.stage === stage.id).length === 0 && (
                 <div style={{ color: '#57534e', fontSize: 13 }}>Nothing here yet.</div>
               )}
+              {ideas === null && <LoadingLine text="Reading the foundry…" />}
             </div>
           </div>
         ))}
@@ -553,19 +595,31 @@ function MultiplierChamber() {
 
 /* ---------------- page ---------------- */
 const CHAMBERS = [
-  { id: 'forge', label: 'The Forge', blurb: 'Digital — where pocket universes are built' },
-  { id: 'factory', label: 'The Factory', blurb: 'Physical — the digital pays for physical' },
-  { id: 'foundry', label: 'The Foundry', blurb: 'Ideas — sparks, embers, forged intent' },
-  { id: 'multiplier', label: 'The Multiplier', blurb: 'Reach — take the logic to the people' },
+  { id: 'forge', label: 'The Forge', blurb: 'Digital — where pocket universes are built', icon: IC.flame },
+  { id: 'factory', label: 'The Factory', blurb: 'Physical — the digital pays for physical', icon: IC.box },
+  { id: 'foundry', label: 'The Foundry', blurb: 'Ideas — sparks, embers, forged intent', icon: IC.bulb },
+  { id: 'multiplier', label: 'The Multiplier', blurb: 'Reach — take the logic to the people', icon: IC.share },
 ];
 
 export default function HephaestusPage() {
   const [chamber, setChamber] = useState('forge');
   return (
-    <main style={{ minHeight: '100dvh', background: '#050505', color: '#f5f5f4', fontFamily: 'system-ui, sans-serif' }}>
+    <main style={{ minHeight: '100dvh', background: '#050505', color: '#f5f5f4', fontFamily: 'system-ui, sans-serif', position: 'relative' }}>
+      <style>{`.heph-pulse { animation: heph-pulse 1.6s ease-in-out infinite; }
+@keyframes heph-pulse { 0%,100% { opacity: 0.55; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .heph-pulse { animation: none; } }`}</style>
+      <div aria-hidden="true" style={{ position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none',
+        backgroundImage: 'url(/images/hephaestus/hephaestus-bg.webp)', backgroundSize: 'cover',
+        backgroundPosition: 'center', opacity: 0.28 }} />
+      <div aria-hidden="true" style={{ position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none',
+        background: 'linear-gradient(180deg, rgba(5,3,2,0.72) 0%, rgba(5,3,2,0.35) 35%, rgba(5,3,2,0.88) 100%)' }} />
+      <div style={{ position: 'relative', zIndex: 1 }}>
       <BackButton label="Launcher" />
 
       <header style={{ position: 'relative', overflow: 'hidden', padding: '56px 20px 64px', textAlign: 'center' }}>
+        <div aria-hidden="true" style={{ position: 'absolute', inset: 0,
+          backgroundImage: 'url(/images/hephaestus/hephaestus-bg.webp)', backgroundSize: 'cover',
+          backgroundPosition: 'center 72%', opacity: 0.5 }} />
         <EmberCanvas />
         <div style={{ position: 'relative', zIndex: 1 }}>
           <Badge tone="gold" className="block">The forge of the empire</Badge>
@@ -590,7 +644,9 @@ export default function HephaestusPage() {
             style={{ ...btn, flexDirection: 'column', gap: 2, padding: '10px 8px', minHeight: 60,
               background: chamber === c.id ? 'rgba(249,115,22,0.20)' : 'rgba(249,115,22,0.06)',
               border: chamber === c.id ? '1px solid #f97316' : '1px solid rgba(249,115,22,0.25)' }}>
-            <span style={{ fontWeight: 700 }}>{c.label}</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontWeight: 700 }}>
+              <Glyph size={17}>{c.icon}</Glyph>{c.label}
+            </span>
             <span style={{ fontSize: 11, color: '#a8a29e', fontWeight: 400 }}>{c.blurb}</span>
           </button>
         ))}
@@ -607,6 +663,7 @@ export default function HephaestusPage() {
         Forged by Artemis&rsquo;s forge · nothing leaves your device · the loop is the point
       </footer>
       <div aria-hidden="true" className="player-clear" />
+      </div>
     </main>
   );
 }

@@ -75,7 +75,79 @@ const CSS = `
 .tok-link { color: #00d2ff; text-decoration: underline; }
 .tok-quote { color: #5c6773; font-style: italic; }
 .tok-list { color: #ff9e64; }
+.forge-theme { --forge-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 0.72 0 0 0 0 0.42 0 0 0 0.07 0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E"); }
+.forge-amb { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+.forge-amb img, .forge-amb video { width: 100%; height: 100%; object-fit: cover; opacity: 0.38; }
+.forge-scrim { position: fixed; inset: 0; z-index: 1; pointer-events: none;
+  background: linear-gradient(180deg, rgba(5,3,2,0.84) 0%, rgba(5,3,2,0.55) 30%, rgba(5,3,2,0.9) 100%); }
+.forge-panel { background-image: var(--forge-noise), linear-gradient(180deg, rgba(34,20,9,0.5), rgba(10,6,3,0.6)); background-size: 140px 140px, cover; }
+.forge-btn { display: inline-flex; align-items: center; gap: 7px; }
+.forge-bed { background: rgba(5,5,8,0.94); }
+.forge-pulse { animation: forge-pulse 1.6s ease-in-out infinite; }
+@keyframes forge-pulse { 0%,100% { opacity: 0.55; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .forge-pulse { animation: none; } }
+.forge-ta { caret-color: #ffb066; }
+.forge-ta::selection { background: rgba(249,115,22,0.28); }
 `;
+
+/* ---------- forge ambience: video -> still -> off, persisted ---------- */
+const AMB_KEY = 'forge-ambience';
+function useAmbience() {
+  const [amb, setAmb] = useState('video');
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(AMB_KEY);
+      const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (saved === 'video' || saved === 'still' || saved === 'off') setAmb(saved);
+      else if (reduce) setAmb('still');
+    } catch { /* keep default */ }
+  }, []);
+  const cycle = () => {
+    const order = ['video', 'still', 'off'];
+    const next = order[(order.indexOf(amb) + 1) % order.length];
+    setAmb(next);
+    try { window.localStorage.setItem(AMB_KEY, next); } catch { /* ignore */ }
+  };
+  return [amb, cycle];
+}
+
+function Glyph({ size = 15, children }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{children}</svg>
+  );
+}
+
+const IC = {
+  plus: <path d="M12 5v14M5 12h14" />,
+  search: <><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></>,
+  download: <><path d="M12 3v12m0 0l-4-4m4 4l4-4" /><path d="M4 21h16" /></>,
+  wrap: <><path d="M4 6h11a4 4 0 0 1 4 4v2" /><path d="M4 12h11a4 4 0 0 1 4 4v2" /></>,
+  up: <path d="M6 15l6-6 6 6" />,
+  down: <path d="M6 9l6 6 6-6" />,
+  swap: <><path d="M4 7h13m0 0l-3-3m3 3l-3 3" /><path d="M20 17H7m0 0l3-3m-3 3l3 3" /></>,
+  swapAll: <><path d="M4 5h11m0 0l-2.5-2.5M15 5l-2.5 2.5" /><path d="M20 12H9m0 0l2.5-2.5M9 12l2.5 2.5" /><path d="M4 19h11m0 0l-2.5-2.5M15 19l-2.5 2.5" /></>,
+  close: <path d="M6 6l12 12M18 6L6 18" />,
+  flame: <path d="M12 2c1 4-4 6-4 11a4 4 0 0 0 8 0c0-2-1-3-1-3s3 1 3 5a6 6 0 0 1-12 0C6 8 12 6 12 2z" />,
+  video: <><rect x="3" y="6" width="13" height="12" rx="2" /><path d="M16 10l5-3v10l-5-3" /></>,
+};
+
+function ForgeBackdrop({ amb }) {
+  if (amb === 'off') return null;
+  return (
+    <>
+      <div className="forge-amb" aria-hidden="true">
+        {amb === 'video' ? (
+          <video autoPlay muted loop playsInline preload="metadata"
+            poster="/images/forge/forge-bg.webp" src="/images/forge/forge-bg-loop.mp4" />
+        ) : (
+          <img src="/images/forge/forge-bg.webp" alt="" />
+        )}
+      </div>
+      <div className="forge-scrim" aria-hidden="true" />
+    </>
+  );
+}
 
 export default function ForgePage() {
   const [tabs, setTabs] = useState([]);
@@ -91,6 +163,7 @@ export default function ForgePage() {
   const [renamingId, setRenamingId] = useState(null);
   const [renameValue, setRenameValue] = useState('');
   const [toast, setToast] = useState(null);
+  const [amb, cycleAmb] = useAmbience();
   const [selTick, setSelTick] = useState(0);
   const taRef = useRef(null);
   const saveTimer = useRef(null);
@@ -299,20 +372,28 @@ export default function ForgePage() {
 
   if (!ready) {
     return (
-      <main className="min-h-dvh bg-[#050508] text-zinc-200 flex items-center justify-center">
-        <p className="text-sm tracking-widest uppercase text-zinc-500">Opening Forge…</p>
+      <main className="forge-theme relative min-h-dvh bg-[#050508] text-zinc-200 flex items-center justify-center overflow-hidden">
+        <style>{CSS}</style>
+        <div className="forge-amb" aria-hidden="true"><img src="/images/forge/forge-bg.webp" alt="" /></div>
+        <div className="forge-scrim" aria-hidden="true" />
+        <p className="relative z-10 flex items-center gap-3 text-sm tracking-[0.3em] uppercase text-orange-200/80 forge-pulse">
+          <Glyph size={18}>{IC.flame}</Glyph> Stoking the forge…
+        </p>
       </main>
     );
   }
 
   return (
-    <main className="min-h-dvh bg-[#050508] text-zinc-200 flex flex-col">
+    <main className="forge-theme relative min-h-dvh bg-[#050508] text-zinc-200">
       <style>{CSS}</style>
+      <ForgeBackdrop amb={amb} />
 
+      <div className="relative z-10 flex flex-col min-h-dvh">
       {/* Header */}
       <header className="px-4 sm:px-6 pt-5 pb-3">
-        <h1 className="text-2xl font-black tracking-widest uppercase bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
-          Forge
+        <h1 className="flex items-center gap-3 text-2xl font-black tracking-widest uppercase bg-gradient-to-r from-amber-200 via-orange-400 to-amber-600 bg-clip-text text-transparent">
+          <span style={{ color: '#fb923c' }} className="shrink-0"><Glyph size={26}>{IC.flame}</Glyph></span>
+          <span>Forge</span>
         </h1>
         <p className="text-xs text-zinc-500 mt-1">
           A pocket code editor. Everything you type is saved on this device only — nothing
@@ -331,7 +412,7 @@ export default function ForgePage() {
               className={
                 'flex items-center gap-2 px-3 py-2 rounded-t-lg border border-b-0 text-sm whitespace-nowrap cursor-pointer ' +
                 (t.id === activeId
-                  ? 'bg-[#0a0a10] border-cyan-500/40 text-white'
+                  ? 'bg-[#0a0a10] border-orange-500/40 text-white'
                   : 'bg-black/40 border-white/10 text-zinc-400 hover:text-zinc-200')
               }
               onClick={() => setActiveId(t.id)}
@@ -350,7 +431,7 @@ export default function ForgePage() {
                     e.stopPropagation();
                   }}
                   onClick={(e) => e.stopPropagation()}
-                  className="bg-black/60 border border-cyan-500/40 rounded px-1 py-0.5 text-sm w-32 outline-none"
+                  className="bg-black/60 border border-orange-500/40 rounded px-1 py-0.5 text-sm w-32 outline-none"
                   aria-label="Rename file"
                 />
               ) : (
@@ -370,16 +451,16 @@ export default function ForgePage() {
           ))}
           <button
             onClick={newTab}
-            className="ml-1 mb-1 px-3 py-1.5 rounded-lg border border-white/10 text-zinc-400 hover:text-white hover:border-cyan-500/40 text-sm"
+            className="forge-btn ml-1 mb-1 px-3 py-1.5 rounded-lg border border-white/10 text-zinc-400 hover:text-white hover:border-orange-500/40 text-sm"
             aria-label="New file"
           >
-            + New
+            <Glyph size={14}>{IC.plus}</Glyph> New
           </button>
         </div>
       </div>
 
       {/* Toolbar */}
-      <div className="px-4 sm:px-6 py-2 flex flex-wrap items-center gap-2 border-y border-white/10 bg-black/40">
+      <div className="forge-panel px-4 sm:px-6 py-2 flex flex-wrap items-center gap-2 border-y border-orange-500/20">
         <label className="text-xs text-zinc-500 uppercase tracking-widest" htmlFor="forge-lang">
           Language
         </label>
@@ -387,7 +468,7 @@ export default function ForgePage() {
           id="forge-lang"
           value={activeTab ? activeTab.lang : 'text'}
           onChange={(e) => changeLanguage(e.target.value)}
-          className="bg-black/60 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-cyan-500/50"
+          className="bg-black/60 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-orange-500/50"
         >
           {LANGUAGES.map((l) => (
             <option key={l.id} value={l.id}>
@@ -398,39 +479,51 @@ export default function ForgePage() {
         <button
           onClick={() => setWrap((w) => !w)}
           className={
-            'px-3 py-2 rounded-lg border text-sm ' +
+            'forge-btn px-3 py-2 rounded-lg border text-sm ' +
             (wrap
-              ? 'border-cyan-500/50 text-cyan-300'
+              ? 'border-orange-500/50 text-orange-300'
               : 'border-white/10 text-zinc-400 hover:text-white')
           }
           aria-pressed={wrap}
         >
+          <Glyph>{IC.wrap}</Glyph>
           Wrap: {wrap ? 'on' : 'off'}
         </button>
         <button
           onClick={() => setFindOpen((o) => !o)}
           className={
-            'px-3 py-2 rounded-lg border text-sm ' +
+            'forge-btn px-3 py-2 rounded-lg border text-sm ' +
             (findOpen
-              ? 'border-cyan-500/50 text-cyan-300'
+              ? 'border-orange-500/50 text-orange-300'
               : 'border-white/10 text-zinc-400 hover:text-white')
           }
           aria-pressed={findOpen}
         >
+          <Glyph>{IC.search}</Glyph>
           Find &amp; replace
         </button>
         <div className="flex-1" />
         <button
-          onClick={saveToDevice}
-          className="px-4 py-2 rounded-lg bg-gradient-to-r from-cyan-400 to-blue-500 text-black font-semibold text-sm hover:shadow-[0_0_15px_rgba(58,134,255,0.4)]"
+          onClick={cycleAmb}
+          className="forge-btn px-3 py-2 rounded-lg border border-white/10 text-zinc-400 hover:text-white text-sm"
+          aria-label="Cycle background ambience: video, still, off"
+          title="Background ambience"
         >
+          <Glyph>{IC.video}</Glyph>
+          {amb === 'video' ? 'Video' : amb === 'still' ? 'Still' : 'Off'}
+        </button>
+        <button
+          onClick={saveToDevice}
+          className="forge-btn px-4 py-2 rounded-lg bg-gradient-to-r from-amber-400 via-orange-500 to-amber-600 text-black font-semibold text-sm hover:shadow-[0_0_15px_rgba(249,115,22,0.45)]"
+        >
+          <Glyph>{IC.download}</Glyph>
           Save to device
         </button>
       </div>
 
       {/* Find & replace panel */}
       {findOpen && (
-        <div className="px-4 sm:px-6 py-3 border-b border-white/10 bg-black/60 flex flex-wrap items-center gap-2">
+        <div className="forge-panel px-4 sm:px-6 py-3 border-b border-orange-500/20 flex flex-wrap items-center gap-2">
           <input
             autoFocus
             value={findQuery}
@@ -442,14 +535,14 @@ export default function ForgePage() {
               if (e.key === 'Enter') gotoMatch(matchIndex + 1);
             }}
             placeholder="Find"
-            className="bg-black/60 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-cyan-500/50 w-48"
+            className="bg-black/60 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-orange-500/50 w-48"
             aria-label="Find text"
           />
           <input
             value={replaceQuery}
             onChange={(e) => setReplaceQuery(e.target.value)}
             placeholder="Replace with"
-            className="bg-black/60 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-cyan-500/50 w-48"
+            className="bg-black/60 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-orange-500/50 w-48"
             aria-label="Replace with"
           />
           <span className="text-xs text-zinc-500 tabular-nums" aria-live="polite">
@@ -457,28 +550,30 @@ export default function ForgePage() {
           </span>
           <button
             onClick={() => gotoMatch(matchIndex - 1)}
-            className="px-3 py-2 rounded-lg border border-white/10 text-sm hover:border-cyan-500/40"
+            className="forge-btn px-3 py-2 rounded-lg border border-white/10 text-sm hover:border-orange-500/40"
             aria-label="Previous match"
           >
-            ↑
+            <Glyph>{IC.up}</Glyph>
           </button>
           <button
             onClick={() => gotoMatch(matchIndex + 1)}
-            className="px-3 py-2 rounded-lg border border-white/10 text-sm hover:border-cyan-500/40"
+            className="forge-btn px-3 py-2 rounded-lg border border-white/10 text-sm hover:border-orange-500/40"
             aria-label="Next match"
           >
-            ↓
+            <Glyph>{IC.down}</Glyph>
           </button>
           <button
             onClick={doReplace}
-            className="px-3 py-2 rounded-lg border border-white/10 text-sm hover:border-cyan-500/40"
+            className="forge-btn px-3 py-2 rounded-lg border border-white/10 text-sm hover:border-orange-500/40"
           >
+            <Glyph>{IC.swap}</Glyph>
             Replace
           </button>
           <button
             onClick={doReplaceAll}
-            className="px-3 py-2 rounded-lg border border-white/10 text-sm hover:border-cyan-500/40"
+            className="forge-btn px-3 py-2 rounded-lg border border-white/10 text-sm hover:border-orange-500/40"
           >
+            <Glyph>{IC.swapAll}</Glyph>
             Replace all
           </button>
           <label className="flex items-center gap-1 text-xs text-zinc-400">
@@ -499,16 +594,17 @@ export default function ForgePage() {
           </label>
           <button
             onClick={() => setFindOpen(false)}
-            className="px-3 py-2 rounded-lg border border-white/10 text-sm text-zinc-500 hover:text-white"
+            className="forge-btn px-3 py-2 rounded-lg border border-white/10 text-sm text-zinc-500 hover:text-white"
             aria-label="Close find and replace"
           >
+            <Glyph>{IC.close}</Glyph>
             Close
           </button>
         </div>
       )}
 
       {/* Editor */}
-      <div className={'flex-1 min-h-[50vh] forge-scroll ' + (wrap ? 'forge-wrap-on' : '')}>
+      <div className={'forge-bed flex-1 min-h-[50vh] forge-scroll ' + (wrap ? 'forge-wrap-on' : '')}>
         <div className="forge-code-row">
           <div className="forge-gutter forge-mono" aria-hidden="true">
             {Array.from({ length: lineCount }, (_, i) => (
@@ -539,7 +635,7 @@ export default function ForgePage() {
       </div>
 
       {/* Status bar */}
-      <footer className="px-4 sm:px-6 py-2 border-t border-white/10 bg-black/60 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-500">
+      <footer className="forge-panel px-4 sm:px-6 py-2 border-t border-orange-500/20 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-500">
         <span className="tabular-nums">
           {stats.lines} {stats.lines === 1 ? 'line' : 'lines'} · {stats.words}{' '}
           {stats.words === 1 ? 'word' : 'words'} · {stats.chars} characters
@@ -555,13 +651,14 @@ export default function ForgePage() {
       {/* Toast */}
       {toast && (
         <div
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-lg bg-cyan-500/90 text-black text-sm font-semibold shadow-lg"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-lg bg-orange-500/90 text-black text-sm font-semibold shadow-lg"
           role="status"
         >
           {toast}
         </div>
       )}
       <div aria-hidden="true" className="player-clear" />
+      </div>
     </main>
   );
 }

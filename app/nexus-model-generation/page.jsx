@@ -13,6 +13,22 @@ import {
 
 const SIMULATED_MS = 1600;
 
+const NOISE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 0.72 0 0 0 0 0.42 0 0 0 0.06 0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E";
+
+function Glyph({ size = 15, children }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+      style={{ flexShrink: 0 }}>{children}</svg>
+  );
+}
+
+const IC = {
+  spark: <path d="M12 3l1.9 5.6 5.6 1.4-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.4z" />,
+  download: <><path d="M12 4v12m0 0l-5-5m5 5l5-5" /><path d="M4 20h16" /></>,
+  flame: <path d="M12 2c1 4-4 6-4 11a4 4 0 0 0 8 0c0-2-1-3-1-3s3 1 3 5a6 6 0 0 1-12 0C6 8 12 6 12 2z" />,
+};
+
 export default function NexusModelGenerationPage() {
   const [prompt, setPrompt] = useState('crystal spire');
   const [plan, setPlan] = useState(null);       // plan committed for render
@@ -81,7 +97,7 @@ export default function NexusModelGenerationPage() {
         a: Math.random() * Math.PI * 2,
         speed: 0.002 + Math.random() * 0.008,
         y: Math.random(),
-        hue: 190 + Math.random() * 60,
+        hue: 18 + Math.random() * 38,
       });
     }
 
@@ -112,10 +128,10 @@ export default function NexusModelGenerationPage() {
         bctx.fillStyle = `hsla(${p.hue}, 90%, 60%, ${alpha.toFixed(3)})`;
         bctx.fillRect(x, y, 1.6, 1.6);
       }
-      // Center glow (localized).
+      // Center glow (localized forge ember).
       const g = bctx.createRadialGradient(cx, cy, 0, cx, cy, 90);
-      g.addColorStop(0, 'rgba(0,243,255,0.18)');
-      g.addColorStop(1, 'rgba(0,243,255,0)');
+      g.addColorStop(0, 'rgba(249,115,22,0.20)');
+      g.addColorStop(1, 'rgba(249,115,22,0)');
       bctx.fillStyle = g;
       bctx.fillRect(cx - 90, cy - 90, 180, 180);
     };
@@ -185,9 +201,21 @@ export default function NexusModelGenerationPage() {
 
   return (
     <main style={styles.page}>
-      <div style={styles.inner}>
-        <header style={styles.header}>
-          <p style={styles.kicker}>Nexus Model Generation</p>
+      <div aria-hidden="true" style={{ position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none',
+        backgroundImage: 'url(/images/nexus-model-generation/modelgen-bg.webp)', backgroundSize: 'cover',
+        backgroundPosition: 'center', opacity: 0.28 }} />
+      <div aria-hidden="true" style={{ position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none',
+        background: 'linear-gradient(180deg, rgba(4,3,2,0.78) 0%, rgba(4,3,2,0.45) 40%, rgba(4,3,2,0.9) 100%)' }} />
+      <div style={{ ...styles.inner, position: 'relative', zIndex: 1 }}>
+        <header style={{ ...styles.header, position: 'relative', overflow: 'hidden', borderRadius: 12,
+          padding: '28px 16px', border: '1px solid rgba(249,115,22,0.25)' }}>
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0,
+            backgroundImage: 'url(/images/nexus-model-generation/modelgen-bg.webp)', backgroundSize: 'cover',
+            backgroundPosition: 'center 35%', opacity: 0.45 }} />
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0,
+            background: 'linear-gradient(180deg, rgba(4,3,2,0.55) 0%, rgba(4,3,2,0.9) 100%)' }} />
+          <div style={{ position: 'relative' }}>
+          <p style={styles.kicker}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}><Glyph size={16}>{IC.flame}</Glyph>Nexus Model Generation</span></p>
           <h1 style={styles.h1}>Procedural Forge</h1>
           <p style={styles.sub}>
             Type a prompt. A local engine turns it into a parametric wireframe you can spin and download as an OBJ file.
@@ -195,6 +223,7 @@ export default function NexusModelGenerationPage() {
           <p style={styles.local}>
             <span style={styles.dot} aria-hidden="true" /> LOCAL SIMULATION — no cloud, no API keys, nothing leaves this device.
           </p>
+          </div>
         </header>
 
         <form
@@ -210,7 +239,7 @@ export default function NexusModelGenerationPage() {
               disabled={simulating}
             />
             <button type="submit" style={styles.generate} disabled={simulating || !prompt.trim()}>
-              {simulating ? 'Forging…' : 'Generate'}
+              <Glyph>{simulating ? IC.flame : IC.spark}</Glyph>{simulating ? 'Forging…' : 'Generate'}
             </button>
           </div>
           {simulating && (
@@ -237,7 +266,7 @@ export default function NexusModelGenerationPage() {
               Same prompt, same model — every time. Deterministic, on-device math.
             </p>
             <button type="button" style={styles.download} onClick={downloadObj}>
-              Download OBJ
+              <Glyph>{IC.download}</Glyph>Download OBJ
             </button>
           </div>
         )}
@@ -256,7 +285,7 @@ const styles = {
   },
   inner: { maxWidth: '900px', margin: '0 auto' },
   header: { textAlign: 'center', marginBottom: '18px' },
-  kicker: { letterSpacing: '6px', textTransform: 'uppercase', color: '#00f2ff', fontSize: '12px', margin: '0 0 8px' },
+  kicker: { letterSpacing: '6px', textTransform: 'uppercase', color: '#ffd700', fontSize: '12px', margin: '0 0 8px' },
   h1: { fontSize: 'clamp(1.8rem, 5vw, 2.8rem)', margin: '0 0 10px', letterSpacing: '3px', color: '#fff' },
   sub: { color: '#9aa', fontSize: '0.95rem', maxWidth: '600px', margin: '0 auto 10px', lineHeight: 1.6 },
   local: {
@@ -272,22 +301,27 @@ const styles = {
     borderRadius: '8px', padding: '12px 14px', fontSize: '1rem', boxSizing: 'border-box', fontFamily: 'inherit',
   },
   generate: {
-    minHeight: '48px', padding: '0 28px', background: 'transparent', border: '1px solid #00f2ff', color: '#00f2ff',
+    minHeight: '48px', padding: '0 28px', background: 'linear-gradient(180deg, rgba(249,115,22,0.22), rgba(249,115,22,0.08))',
+    border: '1px solid #f97316', color: '#fdba74',
     borderRadius: '8px', cursor: 'pointer', fontSize: '1rem', letterSpacing: '1px', textTransform: 'uppercase',
+    display: 'inline-flex', alignItems: 'center', gap: '10px', justifyContent: 'center',
   },
   barWrap: { height: '6px', background: '#111', borderRadius: '3px', marginTop: '12px', overflow: 'hidden' },
-  bar: { height: '100%', background: '#00f2ff', transition: 'width 120ms linear' },
+  bar: { height: '100%', background: 'linear-gradient(90deg, #f97316, #ffd700)', transition: 'width 120ms linear' },
   simNote: { color: '#777', fontSize: '0.82rem', marginTop: '8px' },
   canvasWrap: {
-    position: 'relative', height: 'min(62vh, 520px)', border: '1px solid rgba(0,243,255,0.25)',
+    position: 'relative', height: 'min(62vh, 520px)', border: '1px solid rgba(249,115,22,0.3)',
     borderRadius: '12px', overflow: 'hidden', background: '#040408',
   },
   canvas: { position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block' },
-  meta: { textAlign: 'center', marginTop: '16px' },
-  badge: { color: '#00f2ff', fontSize: '0.82rem', letterSpacing: '1px', margin: '0 0 6px' },
+  meta: { textAlign: 'center', marginTop: '16px', backgroundColor: 'rgba(16,12,8,0.85)',
+    backgroundImage: `url("${NOISE}")`, backgroundSize: '140px 140px',
+    border: '1px solid rgba(249,115,22,0.25)', borderRadius: '12px', padding: '18px' },
+  badge: { color: '#ffd700', fontSize: '0.82rem', letterSpacing: '1px', margin: '0 0 6px' },
   note: { color: '#777', fontSize: '0.82rem', margin: '0 0 12px' },
   download: {
-    minHeight: '48px', padding: '0 28px', background: 'transparent', border: '1px solid #fe53bb', color: '#fe53bb',
+    minHeight: '48px', padding: '0 28px', background: 'transparent', border: '1px solid #ffd700', color: '#ffd700',
     borderRadius: '8px', cursor: 'pointer', fontSize: '0.95rem', letterSpacing: '1px', textTransform: 'uppercase',
+    display: 'inline-flex', alignItems: 'center', gap: '10px', justifyContent: 'center',
   },
 };
