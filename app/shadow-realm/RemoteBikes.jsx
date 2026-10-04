@@ -23,9 +23,10 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { LightCycle } from './scene';
+import { LightCycle, TrailMesh } from './scene';
 import { interpBeacon, isBeaconStale } from '../../lib/shadow-realm/net';
 import { ghostColorFor } from '../../lib/luge/pvp';
+import { deserializeTrail } from '../../lib/shadow-realm/trails';
 
 // One canvas-texture callsign plate per rider — drawn once, never per frame.
 function CallsignSprite({ name, color }) {
@@ -58,6 +59,9 @@ function CallsignSprite({ name, color }) {
 function RemoteRig({ beacon, register }) {
   const group = useRef();
   const pose = useRef(null); // last rendered pose { x, z, heading, at }
+  // LETHAL TRAILS: the rider's trail, rebuilt when the beacon updates.
+  const trailRef = useRef(null);
+  const lastSig = useRef('');
   const color = ghostColorFor(beacon.user_id);
   const scheme = useMemo(
     () => ({ primary: color, secondary: color, trail: color }),
@@ -67,7 +71,7 @@ function RemoteRig({ beacon, register }) {
   // Register with the shared frame loop (posed there, not here — one
   // useFrame total for all ghosts, same as Bots.jsx's advancement loop).
   useEffect(() => {
-    const entry = { group: group.current, beacon, pose };
+    const entry = { group: group.current, beacon, pose, trailRef, lastSig };
     register(entry);
     return () => register(null);
   }, [beacon, register]);
@@ -76,6 +80,9 @@ function RemoteRig({ beacon, register }) {
     <group ref={group}>
       <LightCycle scheme={scheme} bikeRef={undefined} />
       <CallsignSprite name={beacon.callsign} color={color} />
+      {/* LETHAL TRAILS: the remote rider's light trail (lethal to the
+          player — symmetric local resolution). */}
+      <TrailMesh trailGetter={() => trailRef.current} color={color} />
     </group>
   );
 }
@@ -102,10 +109,13 @@ export default function RemoteBikes({ beacons, myUserId, nowRef }) {
 
   // THE shared frame loop: tick the shared clock, then pose every ghost
   // from its latest beacon. Stale beacons hide the ghost (rider dropped).
+  // LETHAL TRAILS: each ghost's beacon trail is deserialized (cached by a
+  // signature) so the local player can collide with it — symmetric local
+  // resolution, deaths self-reported via the beacon.
   useFrame(() => {
     const now = Date.now();
     if (nowRef) nowRef.current = now;
-    rigs.current.forEach(({ group, beacon, pose }) => {
+    rigs.current.forEach(({ group, beacon, pose, trailRef, lastSig }) => {
       if (!group) return;
       if (isBeaconStale(beacon, now)) {
         group.visible = false;
@@ -116,6 +126,16 @@ export default function RemoteBikes({ beacons, myUserId, nowRef }) {
       pose.current = p;
       group.position.set(p.x, 0.06, p.z);
       group.rotation.y = p.heading;
+      // Rebuild the trail when the beacon payload changes.
+      if (trailRef && Array.isArray(beacon.trail) && beacon.trail.length >= 4) {
+        const sig = beacon.trail.length + ':' + beacon.trail[0] + ':' + beacon.trail[beacon.trail.length - 1];
+        if (lastSig.current !== sig) {
+          lastSig.current = sig;
+          trailRef.current = deserializeTrail(beacon.trail, now / 1000);
+        }
+      } else if (trailRef) {
+        trailRef.current = null;
+      }
     });
   });
 

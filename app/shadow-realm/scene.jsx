@@ -24,6 +24,17 @@ import RemoteBikes from './RemoteBikes';
 import EternalFlame from './flame';
 import { fx } from '@/lib/fx';
 import { REGEN_CHARGE_RATE, SURGE_SECS, BASELINE_THROTTLE, blendThrottle } from '@/lib/bike-motion';
+import {
+  Trail,
+  TRAIL_KILL_RADIUS,
+  TRAIL_IMMUNITY_S,
+  TRAIL_MAX_POINTS,
+  TRAIL_LIFETIME_S,
+  checkRivalTrails,
+  findSafeSpot,
+  serializeTrail,
+  deserializeTrail,
+} from '@/lib/shadow-realm/trails';
 import { createOrbit, resetOrbit, applyDrag, applyPinch, applyWheel, orbitCamera } from './orbit';
 import {
   BUMP_LIVES,
@@ -505,11 +516,283 @@ function OrbitDriver({ orbitRef }) {
 }
 
 // ---------------------------------------------------------------------------
+// LETHAL TRAILS: player death + respawn (the classic Tron rule).
+// ---------------------------------------------------------------------------
+
+/**
+ * killPlayer(s, ownerName, ctx): the bike rode through a rival's trail.
+ * Starts the pixelated-death animation (s.dying); the actual respawn
+ * happens when the timer burns down in useFrame. Bump mode: a trail death
+ * costs 1 life, like a flame hit; 0 lives = eliminated (no respawn).
+ */
+function killPlayer(s, ownerName, ctx) {
+  if (!s || s.dying > 0 || s.eliminated || s.finished) return;
+  s.dying = 0.7; // seconds of pixelated dissolve
+  s.deaths = (s.deaths || 0) + 1;
+  s.diedAt = s.time;
+  s.diedAtWall = Date.now(); // wall-clock for the PvP beacon
+  s.deathOwner = ownerName || 'RIVAL';
+  s.speed = 0;
+  s.kvx = 0;
+  s.kvz = 0;
+  try { fx.hit(); } catch { /* audio is best-effort */ }
+  try {
+    ctx.onBumpEvent &&
+      ctx.onBumpEvent({ type: 'trail-death', owner: s.deathOwner, deaths: s.deaths });
+  } catch { /* noop */ }
+  if (ctx.bumpMode) {
+    s.lives = applyLifeLoss(s.lives);
+    if (isEliminated(s.lives)) {
+      s.eliminated = true;
+      try { ctx.onBumpEvent && ctx.onBumpEvent({ type: 'eliminated' }); } catch { /* noop */ }
+    }
+  }
+}
+
+/**
+ * respawnPlayer(s, ctx): after the death animation, drop the bike at the
+ * nearest track point clear of rival trails, with 10s immunity (covers
+ * trail death AND flame hits), a cleared trail, and a disarmed lap tracker.
+ */
+function respawnPlayer(s, ctx) {
+  const { loops, mode, camHeading, clockNow, botsRef, bumpRemotes, remoteTrails } = ctx;
+  const rivals = [];
+  for (const b of (botsRef && botsRef.current) || []) {
+    if (!b || b.eliminated || !b.trail || b.trail.length < 2) continue;
+    rivals.push({ trail: b.trail, name: b.name || 'RIVAL' });
+  }
+  for (const bc of bumpRemotes || []) {
+    const rt = remoteTrails && remoteTrails.current.get(bc?.user_id);
+    if (rt && rt.trail.length >= 2) rivals.push({ trail: rt.trail, name: bc.callsign || 'RIVAL' });
+  }
+  const center = !isRoam(mode) && loops ? loops.center : null;
+  let spot = null;
+  if (center) {
+    spot = findSafeSpot({ x: s.x, z: s.z, centerline: center, rivalTrails: rivals, now: clockNow });
+  }
+  if (spot) {
+    s.x = spot.x;
+    s.z = spot.z;
+    // Face along the track: direction to the next centerline point.
+    let bi = 0;
+    let bd2 = Infinity;
+    for (let i = 0; i < center.length; i++) {
+      const dx = spot.x - center[i].x;
+      const dz = spot.z - center[i].z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 < bd2) { bd2 = d2; bi = i; }
+    }
+    const nxt = center[(bi + 1) % center.length];
+    s.heading = Math.atan2(nxt.x - spot.x, nxt.z - spot.z);
+  }
+  s.speed = 0;
+  s.kvx = 0;
+  s.kvz = 0;
+  s.immuneT = TRAIL_IMMUNITY_S; // 10s: trail death AND flame hits
+  s.invulnT = Math.max(s.invulnT || 0, 2); // blink
+  s.bumpImmuneT = Math.max(s.bumpImmuneT || 0, 2);
+  s.trail.clear();
+  if (s.tracker) s.tracker.armed = false; // never a cheap lap off respawn
+  if (camHeading) camHeading.current = s.heading;
+}
+
+// ---------------------------------------------------------------------------
+// TrailMesh: renders a lethal Trail (lib/shadow-realm/trails.js) as an
+// additive ribbon. The FULL collision trail is drawn (up to 600 points) —
+// the visual must match the lethal geometry, or riders die to invisible
+// walls. Old segments dissolve by age (alpha fades over TRAIL_LIFETIME_S).
+// Updated imperatively in useFrame — no React state per frame.
+// ---------------------------------------------------------------------------
+
+const TRAIL_MESH_MAX = TRAIL_MAX_POINTS;
+
+export function TrailMesh({ trailGetter, color }) {
+  const geo = useMemo(() => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(TRAIL_MESH_MAX * 2 * 3), 3));
+    g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(TRAIL_MESH_MAX * 2 * 4), 4));
+    const idx = [];
+    for (let i = 0; i < TRAIL_MESH_MAX - 1; i++) {
+      const a = i * 2;
+      const b = i * 2 + 1;
+      const c = i * 2 + 2;
+      const d = i * 2 + 3;
+      idx.push(a, c, b, b, c, d);
+    }
+    g.setIndex(idx);
+    return g;
+  }, []);
+
+  const col = useMemo(() => new THREE.Color(color || '#ffffff'), [color]);
+
+  useFrame((state) => {
+    const trail = trailGetter ? trailGetter() : null;
+    const pts = trail ? trail.points : null;
+    const pos = geo.attributes.position;
+    const colAttr = geo.attributes.color;
+    const now = state.clock.elapsedTime;
+    const n = pts ? Math.min(pts.length, TRAIL_MESH_MAX) : 0;
+    // Oldest first for the ribbon (index 0 = oldest).
+    for (let i = 0; i < TRAIL_MESH_MAX; i++) {
+      const p = i < n ? pts[pts.length - n + i] : null;
+      let x, z, dx, dz, alpha;
+      if (p) {
+        x = p.x;
+        z = p.z;
+        // Direction from neighbors (for ribbon width).
+        const pn = pts[Math.min(pts.length - 1, pts.length - n + i + 1)];
+        const pp = pts[Math.max(0, pts.length - n + i - 1)];
+        dx = pn.x - pp.x;
+        dz = pn.z - pp.z;
+        const l = Math.hypot(dx, dz) || 1;
+        dx /= l;
+        dz /= l;
+        // Age dissolve: fade over the lifetime; also taper the tail.
+        const age = Math.max(0, now - p.t);
+        const ageFade = Math.max(0, 1 - age / TRAIL_LIFETIME_S);
+        const tailFade = 0.15 + 0.85 * (i / Math.max(1, n - 1));
+        alpha = ageFade * tailFade * 0.8;
+      } else {
+        x = 0; z = 0; dx = 0; dz = 1; alpha = 0;
+      }
+      const w = 0.85;
+      const px = -dz * w;
+      const pz = dx * w;
+      const o = i * 6;
+      pos.array[o] = x - px;
+      pos.array[o + 1] = 0.32;
+      pos.array[o + 2] = z - pz;
+      pos.array[o + 3] = x + px;
+      pos.array[o + 4] = 0.32;
+      pos.array[o + 5] = z + pz;
+      const co = i * 8;
+      for (let k = 0; k < 2; k++) {
+        colAttr.array[co + k * 4] = col.r;
+        colAttr.array[co + k * 4 + 1] = col.g;
+        colAttr.array[co + k * 4 + 2] = col.b;
+        colAttr.array[co + k * 4 + 3] = alpha;
+      }
+    }
+    pos.needsUpdate = true;
+    colAttr.needsUpdate = true;
+    geo.computeBoundingSphere();
+  });
+
+  useEffect(() => () => geo.dispose(), [geo]);
+
+  return (
+    <mesh geometry={geo} frustumCulled={false}>
+      <meshBasicMaterial
+        vertexColors
+        transparent
+        blending={THREE.AdditiveBlending}
+        depthWrite={false}
+        side={THREE.DoubleSide}
+      />
+    </mesh>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// DeathBurst: pixelated-death particle burst. One InstancedMesh (single draw
+// call, phone-cheap): 28 small emissive cubes that fly outward and fade.
+// Fired imperatively via apiRef.current.burst(x, z, color).
+// ---------------------------------------------------------------------------
+
+const BURST_N = 28;
+
+function DeathBurst({ apiRef }) {
+  const mesh = useRef();
+  const state = useRef({ t: 1e9, x: 0, z: 0 }); // t = seconds since burst
+  const geo = useMemo(() => new THREE.BoxGeometry(0.35, 0.35, 0.35), []);
+  const mat = useMemo(
+    () =>
+      new THREE.MeshBasicMaterial({
+        color: '#ffffff',
+        transparent: true,
+        opacity: 0.9,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    []
+  );
+  // Per-particle velocity (randomized per burst).
+  const vel = useMemo(() => new Float32Array(BURST_N * 3), []);
+
+  useEffect(() => {
+    const burst = (x, z, color) => {
+      const st = state.current;
+      st.t = 0;
+      st.x = x;
+      st.z = z;
+      try {
+        mat.color.set(color || '#ffffff');
+      } catch { /* keep white */ }
+      for (let i = 0; i < BURST_N; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const sp = 6 + Math.random() * 14;
+        vel[i * 3] = Math.cos(a) * sp;
+        vel[i * 3 + 1] = 4 + Math.random() * 10;
+        vel[i * 3 + 2] = Math.sin(a) * sp;
+      }
+      if (mesh.current) mesh.current.visible = true;
+    };
+    if (apiRef) apiRef.current = { burst };
+    return () => {
+      if (apiRef) apiRef.current = null;
+    };
+  }, [apiRef, mat, vel]);
+
+  useFrame((_, rawDt) => {
+    const m = mesh.current;
+    if (!m) return;
+    const st = state.current;
+    const dt = Math.min(rawDt, 0.05);
+    st.t += dt;
+    if (st.t > 1.2) {
+      m.visible = false;
+      return;
+    }
+    m.visible = true;
+    const dummy = DeathBurst._dummy || (DeathBurst._dummy = new THREE.Object3D());
+    const fade = 1 - st.t / 1.2;
+    mat.opacity = 0.9 * fade;
+    for (let i = 0; i < BURST_N; i++) {
+      const t = st.t;
+      dummy.position.set(
+        st.x + vel[i * 3] * t,
+        0.6 + vel[i * 3 + 1] * t - 9 * t * t,
+        st.z + vel[i * 3 + 2] * t
+      );
+      const sc = Math.max(0.05, fade);
+      dummy.scale.setScalar(sc);
+      dummy.updateMatrix();
+      m.setMatrixAt(i, dummy.matrix);
+    }
+    m.instanceMatrix.needsUpdate = true;
+  });
+
+  useEffect(
+    () => () => {
+      geo.dispose();
+      mat.dispose();
+    },
+    [geo, mat]
+  );
+
+  return (
+    <instancedMesh ref={mesh} args={[geo, mat, BURST_N]} visible={false} frustumCulled={false} />
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Rig: physics, barrier bounce, lap counting, chase+orbit camera, trail feed.
 // ---------------------------------------------------------------------------
 
-function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, onLap, onFinish, hudRef, orbitRef, bump, onBumpEvent, bumpRemotes, botsRef }) {
+function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, playerTrailRef, onLap, onFinish, hudRef, orbitRef, bump, onBumpEvent, bumpRemotes, botsRef }) {
   const bikeRef = useRef();
+  const shieldRef = useRef(); // trail-immunity shield ring
+  const burstRef = useRef(); // death particle burst api
   const camTarget = useRef(new THREE.Vector3());
   // Smoothed camera heading — the chase cam yaw follows the bike with a
   // slight lag (no snapping on sharp turns). Reset to the spawn heading
@@ -519,9 +802,15 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, 
   // Bump-mode remote-bike interpolation poses (user_id -> pose), so the
   // symmetric local bump resolution rides the same smoothing as the ghosts.
   const remotePoses = useRef(new Map());
+  // LETHAL TRAILS: deserialized PvP remote trails, cached per rider
+  // (user_id -> { trail, sig }) so beacons don't rebuild every frame.
+  const remoteTrails = useRef(new Map());
 
   const bumpMode = !!bump && !!track?.flame;
   const flame = bumpMode ? track.flame : null;
+  // LETHAL TRAILS: live in race modes (solo vs AI, PvP) and bump mode.
+  // FREE ROAM stays chill — trails render but never kill.
+  const trailsLethal = !isRoam(mode);
 
   // Roam mode: no track exists — loops stay null, never touched.
   // Bump mode needs the loops (outer wall + centerline for respawn).
@@ -555,14 +844,26 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, 
       kvz: 0, // knock velocity — decays, control returns
       eliminated: false,
       bumpWon: false,
+      // LETHAL TRAILS (Merlin 2026-10-03, the classic Tron rule): the
+      // bike's own light trail (never lethal to self — only rivals'
+      // trails kill). immuneT covers trail death AND flame hits.
+      trail: new Trail(),
+      immuneT: 0, // 10s post-respawn immunity (blinking + shield ring)
+      dying: 0, // death-animation timer (pixelated dissolve)
+      deaths: 0, // self-reported trail-death count (PvP beacon)
+      diedAt: 0, // last death timestamp (seconds, sim clock)
+      deathOwner: null, // callsign of the trail owner, for the toast
+      spawnImmuneT: 3, // brief launch forgiveness (staggered grid)
     };
     remotePoses.current.clear();
-    if (trailApi.current) trailApi.current.clear();
+    remoteTrails.current.clear();
+    // The TrailMesh renders this Trail directly — fresh run, fresh trail.
+    if (playerTrailRef) playerTrailRef.current = sim.current.trail;
     // Fresh run, fresh camera: orbit offsets reset to the chase baseline and
     // the smoothed camera heading snaps to the spawn heading (no swing).
     if (orbitRef.current) resetOrbit(orbitRef.current);
     camHeading.current = pose.heading;
-  }, [track, mode, loops, running, trailApi]);
+  }, [track, mode, loops, running, playerTrailRef]);
 
   useFrame((state, rawDt) => {
     const s = sim.current;
@@ -681,10 +982,61 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, 
     s.time += dt;
     if (s.invulnT > 0) s.invulnT = Math.max(0, s.invulnT - dt);
     if (s.bumpImmuneT > 0) s.bumpImmuneT = Math.max(0, s.bumpImmuneT - dt);
+    // LETHAL TRAILS: immunity + spawn-forgiveness timers.
+    if (s.immuneT > 0) s.immuneT = Math.max(0, s.immuneT - dt);
+    if (s.spawnImmuneT > 0) s.spawnImmuneT = Math.max(0, s.spawnImmuneT - dt);
+    const clockNow = state.clock.elapsedTime;
+
+    // Record the bike's own trail (never lethal to self — the rival check
+    // below only tests OTHER bikes' trails). Prune on a ~1s cadence.
+    if (!s.eliminated && s.dying <= 0 && s.speed > 1) {
+      s.trail.record(s.x, s.z, clockNow);
+    }
+    if ((s._pruneT || 0) + 1 < clockNow) {
+      s._pruneT = clockNow;
+      s.trail.prune(clockNow);
+    }
+
+    // ---- LETHAL TRAILS collision ------------------------------------
+    // trailsLethal: race modes + bump. Roam stays chill (no check at all).
+    if (trailsLethal && !s.eliminated && !s.finished && s.dying <= 0) {
+      const immune = s.immuneT > 0 || s.spawnImmuneT > 0;
+      if (!immune) {
+        const rivals = [];
+        // VS AI bots.
+        for (const b of botsRef.current || []) {
+          if (!b || b.eliminated || !b.trail || b.trail.length < 2) continue;
+          rivals.push({ trail: b.trail, name: b.name || 'RIVAL' });
+        }
+        // PvP remotes: deserialize beacon trails (cached per rider).
+        for (const bc of bumpRemotes || []) {
+          if (!bc || !bc.user_id || !Array.isArray(bc.trail) || bc.trail.length < 4) continue;
+          let rt = remoteTrails.current.get(bc.user_id);
+          const sig = bc.trail.length + ':' + bc.trail[0] + ':' + bc.trail[bc.trail.length - 1];
+          if (!rt || rt.sig !== sig) {
+            rt = { trail: deserializeTrail(bc.trail, clockNow), sig };
+            remoteTrails.current.set(bc.user_id, rt);
+          }
+          if (rt.trail.length >= 2) rivals.push({ trail: rt.trail, name: bc.callsign || 'RIVAL' });
+        }
+        const hit = checkRivalTrails(rivals, s.x, s.z, clockNow, { radius: TRAIL_KILL_RADIUS });
+        if (hit) killPlayer(s, hit.owner, { bumpMode, onBumpEvent, camHeading, loops, mode, clockNow });
+      }
+    }
+
+    // Death animation: pixelated dissolve, then respawn (unless eliminated
+    // in bump mode — then the bike stays burned out).
+    if (s.dying > 0) {
+      s.dying = Math.max(0, s.dying - dt);
+      if (s.dying <= 0 && !s.eliminated) {
+        respawnPlayer(s, { loops, mode, camHeading, clockNow, botsRef, bumpRemotes, remoteTrails });
+      }
+    }
 
     // ---- BUMP MODE battle logic -------------------------------------
     if (bumpMode && !s.eliminated && !s.finished) {
-      const canHit = s.invulnT <= 0;
+      // Trail immunity (10s post-respawn) covers flame hits too.
+      const canHit = s.invulnT <= 0 && s.immuneT <= 0;
 
       // Flame: -1 life, respawn at the nearest track point, 2s grace.
       // 0 lives = eliminated (bike fades, rider spectates).
@@ -708,7 +1060,8 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, 
           s.bumpImmuneT = Math.max(s.bumpImmuneT, RESPAWN_INVULN_S);
           // Disarm the lap: a respawn must never grant a cheap line crossing.
           if (s.tracker) s.tracker.armed = false;
-          if (trailApi.current) trailApi.current.clear();
+          // Fresh trail after a flame respawn (the mesh reads s.trail).
+          s.trail.clear();
           camHeading.current = rp.heading;
         }
       }
@@ -808,20 +1161,44 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, 
       bikeRef.current.rotation.z = steer * 0.28 * Math.min(1, s.speed / 30);
       // hover bob
       bikeRef.current.position.y = 0.06 + Math.sin(state.clock.elapsedTime * 9) * 0.03;
-      // eliminated: bike fades out. respawn grace: blink.
+      // eliminated: bike fades out. dying: pixelated dissolve (rapid
+      // flicker + shrink). respawn grace / trail immunity: blink.
       if (s.eliminated) {
         bikeRef.current.visible = false;
-      } else if (s.invulnT > 0) {
-        bikeRef.current.visible = Math.floor(state.clock.elapsedTime * 8) % 2 === 0;
+      } else if (s.dying > 0) {
+        // Pixelation: the bike strobes and collapses as it digitizes.
+        const k = s.dying / 0.7; // 1 -> 0 over the death anim
+        bikeRef.current.visible = Math.floor(state.clock.elapsedTime * 30) % 2 === 0;
+        bikeRef.current.scale.setScalar(Math.max(0.15, k));
       } else {
-        bikeRef.current.visible = true;
+        bikeRef.current.scale.setScalar(1);
+        if (s.invulnT > 0 || s.immuneT > 0) {
+          bikeRef.current.visible = Math.floor(state.clock.elapsedTime * 8) % 2 === 0;
+        } else {
+          bikeRef.current.visible = true;
+        }
       }
+      // shield ring: visible during the 10s trail immunity, pulsing.
+      if (shieldRef.current) {
+        const on = s.immuneT > 0 && !s.eliminated && s.dying <= 0;
+        shieldRef.current.visible = on;
+        if (on) {
+          shieldRef.current.position.set(s.x, 0.5, s.z);
+          const pulse = 0.55 + 0.45 * Math.sin(state.clock.elapsedTime * 6);
+          shieldRef.current.material.opacity = 0.35 * pulse + 0.15;
+          const sc = 1 + 0.08 * Math.sin(state.clock.elapsedTime * 6);
+          shieldRef.current.scale.set(sc, 1, sc);
+        }
+      }
+      // death burst: fire the pixel particles once when dying starts.
+      if (s.dying > 0 && !s._burstFired && burstRef.current) {
+        s._burstFired = true;
+        burstRef.current.burst(s.x, s.z, scheme.trail);
+      }
+      if (s.dying <= 0) s._burstFired = false;
     }
 
-    // feed the light trail
-    if (trailApi.current && s.speed > 2 && !s.eliminated) {
-      trailApi.current.push(s.x, s.z, dx, dz);
-    }
+    // (The TrailMesh renders s.trail directly — no separate feed needed.)
 
     // Chase camera — Merlin 2026-10-03: LOCKED behind the bike during the
     // ride. The camera yaw follows the smoothed bike heading (no snapping);
@@ -885,11 +1262,42 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, 
         lives: s.lives,
         eliminated: s.eliminated,
         invuln: s.invulnT > 0,
+        // LETHAL TRAILS: immunity countdown + death count for the HUD pill
+        // and the PvP beacon. The serialized trail rides the beacon at ~2Hz
+        // (throttled — 120 points is plenty for remote collision).
+        immuneT: Math.ceil(s.immuneT || 0),
+        immune: (s.immuneT || 0) > 0,
+        deaths: s.deaths || 0,
+        dying: s.dying > 0,
       };
+      // Throttled trail serialization for the PvP beacon (~2Hz).
+      if (!s._trailBeaconT || s.time - s._trailBeaconT > 0.5) {
+        s._trailBeaconT = s.time;
+        if (hudRef && hudRef.current) {
+          hudRef.current.trail = serializeTrail(s.trail);
+          hudRef.current.diedAtWall = s.diedAtWall || null;
+        }
+      }
     }
   });
 
-  return <LightCycle scheme={scheme} bikeRef={bikeRef} />;
+  return (
+    <>
+      <LightCycle scheme={scheme} bikeRef={bikeRef} />
+      {/* Trail-immunity shield ring: follows the bike, visible while immune. */}
+      <mesh ref={shieldRef} position={[0, 0.5, 0]} visible={false}>
+        <torusGeometry args={[2.6, 0.12, 8, 40]} />
+        <meshBasicMaterial
+          color="#7df9ff"
+          transparent
+          opacity={0.4}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+        />
+      </mesh>
+      <DeathBurst apiRef={burstRef} />
+    </>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -919,7 +1327,8 @@ export default function RealmScene({
 }) {
   const scheme = schemeByKey(schemeKey);
   const vehicle = vehicleByKey(vehicleKey);
-  const trailApi = useRef(null);
+  // LETHAL TRAILS: the Rig owns the player's Trail; the mesh renders it.
+  const playerTrailRef = useRef(null);
   // One orbit state for the mounted realm; the Rig resets it per run.
   // Track-agnostic: every track in TRACKS renders through this same scene,
   // so orbit lands on ALL of them.
@@ -950,7 +1359,8 @@ export default function RealmScene({
       {!isRoam(mode) && <TrackMesh track={track} scheme={scheme} />}
       {/* BUMP RACE: the eternal flame — the arena's burning heart */}
       {bump && track.flame && <EternalFlame flame={track.flame} />}
-      <TrailRibbon scheme={scheme} apiRef={trailApi} />
+      {/* LETHAL TRAILS: the player's full collision trail, age-dissolving. */}
+      <TrailMesh trailGetter={() => playerTrailRef.current} color={scheme.trail} />
       <Rig
         track={track}
         vehicle={vehicle}
@@ -959,7 +1369,7 @@ export default function RealmScene({
         laps={laps}
         running={running}
         inputRef={inputRef}
-        trailApi={trailApi}
+        playerTrailRef={playerTrailRef}
         onLap={onLap}
         onFinish={onFinish}
         hudRef={hudRef}
@@ -978,6 +1388,8 @@ export default function RealmScene({
         maxSpeed={vehicle.maxSpeed}
         raceLaps={laps}
         bump={bump}
+        playerTrailRef={playerTrailRef}
+        trailsLethal={trailsLethal}
       />
       {/* Drop-2 netcode: remote-rider ghosts (PvP races + open-world
           presence). Ghost by design — no collision, cosmetic only. */}

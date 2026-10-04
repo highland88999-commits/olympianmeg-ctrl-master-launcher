@@ -14,7 +14,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { LightCycle } from './scene';
+import { LightCycle, TrailMesh } from './scene';
 import { buildTrackData, advanceBot, botPose } from './ai';
 import { lateralOffset, arclengthAt } from '../../lib/shadow-realm/bump';
 
@@ -56,6 +56,7 @@ function BotRig({ bot, trackData }) {
   // advances the state; posing here keeps the per-bot work in one place.
   // Bump mode: the rendered pose adds the decaying shove impulse, and an
   // eliminated bot hides (it burned in the flame).
+  // LETHAL TRAILS: a dissolving bot (deadT > 0) flickers like the player.
   useFrame(() => {
     const g = group.current;
     if (!g) return;
@@ -67,8 +68,10 @@ function BotRig({ bot, trackData }) {
     const pose = botPose(bot, trackData);
     g.position.set(pose.x + (bot.shoveX || 0), 0.06, pose.z + (bot.shoveZ || 0));
     g.rotation.y = pose.heading;
-    // respawn grace blink
-    if (bot.invulnT > 0) {
+    // respawn grace blink; trail-death dissolve: rapid strobe.
+    if (bot.deadT > 0) {
+      g.visible = Math.floor(performance.now() / 33) % 2 === 0;
+    } else if (bot.invulnT > 0 || (bot.trailImmuneT || 0) > 0) {
       g.visible = Math.floor(performance.now() / 125) % 2 === 0;
     }
   });
@@ -80,21 +83,33 @@ function BotRig({ bot, trackData }) {
   );
 }
 
-export default function Bots({ track, botsRef, running, hudRef, maxSpeed, raceLaps, bump }) {
+function BotTrail({ bot }) {
+  // The bot's lethal trail, rendered at full length with age dissolve.
+  return <TrailMesh trailGetter={() => bot.trail} color={bot.color} />;
+}
+
+export default function Bots({ track, botsRef, running, hudRef, maxSpeed, raceLaps, bump, playerTrailRef, trailsLethal }) {
   const trackData = useMemo(
     () => buildTrackData(track, { maxSpeed, raceLaps, flame: bump ? track?.flame : undefined }),
     [track, maxSpeed, raceLaps, bump]
   );
   const bots = botsRef.current || [];
+  // Sim clock for trail timestamps (seconds). Advanced in the frame loop.
+  const clock = useRef(0);
 
   // Advance all bots in one frame callback (one useFrame total, not per
   // bot) — ~a handful of trig ops per bot per frame. Player progress in
   // lap units comes from the scene's hudRef; defaults to 0 before the HUD
   // writes. In bump mode the bots also get the player's track position so
   // aggressive ones can steer to shove.
+  // LETHAL TRAILS: each bot records its trail; rival trails (player +
+  // other bots) drive avoidance + the death check when trailsLethal.
   useFrame((state, rawDt) => {
     const list = botsRef.current || [];
     if (!list.length) return;
+    const dt = Math.min(rawDt, 0.05);
+    clock.current += dt;
+    const now = clock.current;
     const hud = hudRef && hudRef.current;
     const playerProgress =
       hud && hud.lapsTotal > 0
@@ -109,9 +124,37 @@ export default function Bots({ track, botsRef, running, hudRef, maxSpeed, raceLa
         flame: trackData.flame,
       };
     }
+    // Player trail for the bots' rival list (lethal to them, never to self).
+    const playerTrail = playerTrailRef && playerTrailRef.current;
     if (running) {
-      const dt = Math.min(rawDt, 0.05);
-      for (const bot of list) advanceBot(bot, dt, trackData, playerProgress, bumpCtx);
+      for (const bot of list) {
+        // Record this bot's trail from its current pose (before advancing,
+        // so the point matches the rendered position).
+        if (!bot.eliminated && bot.deadT <= 0 && (bot.speed || 0) > 1 && bot.trail) {
+          const pose = botPose(bot, trackData);
+          bot.trail.record(pose.x, pose.z, now);
+        }
+        // Build the rival list: player + every OTHER bot.
+        let rivalTrails = null;
+        if (trailsLethal) {
+          rivalTrails = [];
+          if (playerTrail && playerTrail.length >= 2) {
+            rivalTrails.push({ trail: playerTrail, name: 'YOU' });
+          }
+          for (const other of list) {
+            if (other === bot || other.eliminated || !other.trail || other.trail.length < 2) continue;
+            rivalTrails.push({ trail: other.trail, name: other.name || 'RIVAL' });
+          }
+        }
+        advanceBot(bot, dt, trackData, playerProgress, bumpCtx, rivalTrails, now);
+      }
+      // Prune bot trails on a ~1s cadence (cheap).
+      if (!Bots._pruneT || now - Bots._pruneT > 1) {
+        Bots._pruneT = now;
+        for (const bot of list) {
+          if (bot.trail) bot.trail.prune(now);
+        }
+      }
     }
   });
 
@@ -119,6 +162,10 @@ export default function Bots({ track, botsRef, running, hudRef, maxSpeed, raceLa
     <group>
       {bots.map((bot) => (
         <BotRig key={bot.name} bot={bot} trackData={trackData} />
+      ))}
+      {/* Lethal-trail ribbons, one per bot. */}
+      {bots.map((bot) => (
+        <BotTrail key={'trail-' + bot.name} bot={bot} />
       ))}
     </group>
   );

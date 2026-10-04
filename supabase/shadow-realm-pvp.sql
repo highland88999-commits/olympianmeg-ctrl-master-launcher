@@ -55,6 +55,14 @@ create table if not exists public.shadow_realm_beacons (
   -- BUMP RACE battle state (Merlin 2026-10-03): 3 lives per rider, self-
   -- reported like finish times. lives 0 = eliminated (ghost hides).
   lives integer not null default 3 check (lives >= 0 and lives <= 3),
+  -- LETHAL TRAILS (Merlin 2026-10-03): the rider's recent light trail as a
+  -- flat int array [x0,z0,x1,z1,...] for remote collision (symmetric local
+  -- resolution); deaths = self-reported trail-death count; died_at stamps
+  -- the latest death. Same trust model as lives/finish times.
+  -- NOTE: needs Merlin's green light before execution (like the lives col).
+  trail jsonb,
+  deaths integer not null default 0 check (deaths >= 0),
+  died_at timestamptz,
   updated_at timestamptz not null default now(),
   primary key (room_code, user_id)
 );

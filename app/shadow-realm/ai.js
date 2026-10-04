@@ -22,6 +22,23 @@ import {
   applyLifeLoss,
   isEliminated,
 } from '../../lib/shadow-realm/bump.js';
+import {
+  Trail,
+  TRAIL_KILL_RADIUS,
+  checkRivalTrails,
+  nearestTrailDist,
+  findSafeSpot,
+} from '../../lib/shadow-realm/trails.js';
+
+/** Bot post-trail-death immunity (shorter than the player's 10s — bots stay
+ *  trappable, they just don't insta-die on respawn). */
+export const BOT_TRAIL_IMMUNITY_S = 5;
+/** Bot trail-death pause before respawn (the pixelated dissolve). */
+export const BOT_DEATH_PAUSE_S = 1.2;
+/** AI lookahead for trail avoidance (seconds of travel). */
+export const BOT_TRAIL_LOOKAHEAD_S = 1.5;
+/** AI trail-avoidance sensor radius. */
+export const BOT_TRAIL_SENSE_R = 14;
 
 export const WOBBLE_K = (Math.PI * 2) / 100; // ~100 world-unit wobble wavelength
 export const RUBBER_GAIN = 0.5;
@@ -100,6 +117,12 @@ export function makeBots({ count, track, seed, aggression = 0 }) {
       shoveZ: 0,
       invulnT: 0, // post-flame-respawn grace
       eliminated: false,
+      // LETHAL TRAILS (Merlin 2026-10-03): each bot lays its own trail;
+      // riding a rival's trail destroys the bot (fair and square).
+      trail: new Trail(),
+      trailImmuneT: 0, // post-trail-death immunity
+      deadT: 0, // trail-death dissolve timer (bot is paused)
+      deaths: 0,
     });
   }
   return bots;
@@ -225,17 +248,110 @@ export function rubberBandFactor(progressDelta) {
   return 1 + clamp(progressDelta * RUBBER_GAIN, RUBBER_MIN - 1, RUBBER_MAX - 1);
 }
 
-// advanceBot(bot, dt, trackData, playerProgress, bump) — pure parametric step.
-// Mutates and returns the bot. bump is null in race mode, or
-// { playerS, playerOffset, flame } in bump mode: the bot steers to shove
-// the player flame-ward when alongside (aggression), takes decaying shove
-// impulses from player bumps, and loses lives in the flame like the player.
-export function advanceBot(bot, dt, trackData, playerProgress, bump = null) {
+// trailAvoidance(bot, trackData, rivalTrails, now) -> offset adjustment.
+// The bot looks ahead along its line; when a rival trail segment is close
+// to the lookahead point, it steers the lateral offset AWAY from the trail.
+// Returns 0 when clear. Moderate skill: the sense radius and lookahead are
+// tuned so bots dodge the obvious traps but can still be herded into a
+// wall of light — they die fair and square.
+export function trailAvoidance(bot, trackData, rivalTrails, now) {
+  if (!rivalTrails || rivalTrails.length === 0) return 0;
+  const lookS = bot.s + Math.max(10, (bot.speed || 0) * BOT_TRAIL_LOOKAHEAD_S);
+  const look = sampleTrack(trackData, lookS);
+  // Lateral offset of the lookahead point (same convention as botPose).
+  const lx = look.x + look.tz * bot.offset;
+  const lz = look.z - look.tx * bot.offset;
+  const near = nearestTrailDist(rivalTrails, lx, lz, now, BOT_TRAIL_SENSE_R);
+  if (!near) return 0;
+  // Which side is the trail on? Right normal of the tangent is (-tz, tx).
+  const rx = -look.tz;
+  const rz = look.tx;
+  let side = (near.nx - lx) * rx + (near.nz - lz) * rz;
+  // Dead ahead (|side| ~ 0): the bot is about to ride straight into it —
+  // swerve left by default (positive offset = left).
+  if (Math.abs(side) < 0.5) side = 1;
+  // Steer away: a trail on the right (side > 0) means steer left, and
+  // positive offset IS left (botPose: +offset shifts toward -right).
+  const urgency = 1 - near.dist / BOT_TRAIL_SENSE_R; // 0..1
+  const maxOff = trackData.halfW * 0.7;
+  return Math.sign(side) * urgency * maxOff * 0.8;
+}
+
+// respawnBot(bot, trackData, rivalTrails, now): after the dissolve pause,
+// drop the bot at the nearest arclength clear of rival trails, with brief
+// immunity and a cleared trail.
+export function respawnBot(bot, trackData, rivalTrails, now) {
+  const pts = trackData.pts;
+  // Search arclengths near the death spot for a safe one.
+  const step = trackData.lapLen / 64;
+  let bestS = bot.s;
+  let bestD = Infinity;
+  for (let k = 0; k < 64; k++) {
+    const s = bot.s + k * step;
+    const p = sampleTrack(trackData, s);
+    let safe = true;
+    for (const r of rivalTrails || []) {
+      if (!r || !r.trail) continue;
+      if (checkRivalTrails([r], p.x, p.z, now, { radius: TRAIL_KILL_RADIUS * 2 })) {
+        safe = false;
+        break;
+      }
+    }
+    const d = Math.abs(k * step);
+    if (safe && d < bestD) {
+      bestD = d;
+      bestS = s;
+    }
+  }
+  bot.s = bestS;
+  bot.offset = 0;
+  bot.speed = 0;
+  bot.shoveX = 0;
+  bot.shoveZ = 0;
+  bot.trailImmuneT = BOT_TRAIL_IMMUNITY_S;
+  if (bot.trail) bot.trail.clear();
+  return bot;
+}
+
+// advanceBot(bot, dt, trackData, playerProgress, bump, rivalTrails, now) —
+// pure parametric step. Mutates and returns the bot. bump is null in race
+// mode, or { playerS, playerOffset, flame } in bump mode: the bot steers to
+// shove the player flame-ward when alongside (aggression), takes decaying
+// shove impulses from player bumps, and loses lives in the flame like the
+// player.
+// LETHAL TRAILS: pass rivalTrails [{ trail, name }] (player + other bots)
+// and now (seconds). The bot avoids trails (moderate skill) and dies when
+// it touches one — respawning at a safe arclength after a dissolve pause.
+export function advanceBot(bot, dt, trackData, playerProgress, bump = null, rivalTrails = null, now = 0) {
   if (bot.finished || bot.eliminated) return bot;
   const { maxSpeed, raceLaps, lapLen, halfW } = trackData;
   const skill = bot.skill;
 
   if (bot.invulnT > 0) bot.invulnT = Math.max(0, bot.invulnT - dt);
+  if (bot.trailImmuneT > 0) bot.trailImmuneT = Math.max(0, bot.trailImmuneT - dt);
+
+  // Trail-death dissolve: the bot is paused, then respawns safe.
+  if (bot.deadT > 0) {
+    bot.deadT = Math.max(0, bot.deadT - dt);
+    bot.speed = 0;
+    if (bot.deadT <= 0) {
+      respawnBot(bot, trackData, rivalTrails, now);
+    }
+    return bot;
+  }
+
+  // LETHAL TRAILS collision (not while immune; never in roam — the caller
+  // only passes rivalTrails when trails are lethal).
+  if (rivalTrails && rivalTrails.length > 0 && (bot.trailImmuneT || 0) <= 0) {
+    const pose = botPose(bot, trackData);
+    const hit = checkRivalTrails(rivalTrails, pose.x, pose.z, now, { radius: TRAIL_KILL_RADIUS });
+    if (hit) {
+      bot.deadT = BOT_DEATH_PAUSE_S;
+      bot.deaths = (bot.deaths || 0) + 1;
+      bot.speed = 0;
+      return bot;
+    }
+  }
 
   // Target speed: skill top speed, bled off through corners, rubber-banded
   // against the player.
@@ -295,6 +411,15 @@ export function advanceBot(bot, dt, trackData, playerProgress, bump = null) {
         -maxOff,
         maxOff
       );
+    }
+  }
+  // LETHAL TRAILS avoidance: bias the line away from nearby rival trails.
+  // Moderate skill — the bias is capped so a well-laid trap still catches
+  // them (they die fair and square).
+  if (rivalTrails && rivalTrails.length > 0) {
+    const avoid = trailAvoidance(bot, trackData, rivalTrails, now);
+    if (avoid !== 0) {
+      steerTarget = clamp(steerTarget + avoid * 0.6, -maxOff, maxOff);
     }
   }
   // Ease toward the target (bots don't teleport sideways).

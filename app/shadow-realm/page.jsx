@@ -343,6 +343,9 @@ function ShadowRealmInner() {
   // One beacon for this rider: live transform from the scene's hudRef.
   // BUMP RACE battle events from the scene: flame hits flash the screen red
   // (the Rig already plays fx.hit() on bumps itself — no double audio here).
+  // LETHAL TRAILS: a trail death raises a "SHREDDED BY <name>'s TRAIL" toast.
+  const [deathToast, setDeathToast] = useState(null);
+  const deathToastTimer = useRef(null);
   const handleBumpEvent = (evt) => {
     if (!evt) return;
     if (evt.type === 'flame-hit') {
@@ -350,8 +353,16 @@ function ShadowRealmInner() {
       if (heatFlashTimer.current) clearTimeout(heatFlashTimer.current);
       heatFlashTimer.current = setTimeout(() => setHeatFlash(false), 750);
       try { fx.hit(); } catch { /* best-effort */ }
+    } else if (evt.type === 'trail-death') {
+      const owner = String(evt.owner || 'RIVAL').slice(0, 24);
+      setDeathToast(`SHREDDED BY ${owner}'s TRAIL`);
+      if (deathToastTimer.current) clearTimeout(deathToastTimer.current);
+      deathToastTimer.current = setTimeout(() => setDeathToast(null), 3000);
     }
   };
+  useEffect(() => () => {
+    if (deathToastTimer.current) clearTimeout(deathToastTimer.current);
+  }, []);
 
   const buildMyBeacon = (finished, finishMs) => {
     const h = hudRef.current || {};
@@ -372,6 +383,11 @@ function ShadowRealmInner() {
       finishMs,
       // BUMP RACE battle state — self-reported like finish times.
       lives: h.lives == null ? BUMP_LIVES : h.lives,
+      // LETHAL TRAILS — self-reported like lives: the recent trail for
+      // remote collision, the death count, and the last death timestamp.
+      trail: h.trail || null,
+      deaths: h.deaths || 0,
+      diedAt: h.diedAtWall ? new Date(h.diedAtWall).toISOString() : null,
     });
   };
 
@@ -1190,6 +1206,12 @@ function ShadowRealmInner() {
                   ))}
                 </div>
               )}
+              {/* LETHAL TRAILS: immunity countdown pill */}
+              {hud.immune && stage === 'ride' && (
+                <div style={{ ...css.hudChip, borderColor: '#7df9ff', color: '#7df9ff' }} aria-label="trail immunity">
+                  🛡️ IMMUNE {hud.immuneT}s
+                </div>
+              )}
               <div style={css.hudChip}>{fmtTime(hud.time)}</div>
               <div style={css.hudChip}>{hud.speed} MPH</div>
               {motion.motionArmed && (
@@ -1217,6 +1239,21 @@ function ShadowRealmInner() {
               position: 'absolute', inset: 0, zIndex: 8, pointerEvents: 'none',
               background: 'radial-gradient(ellipse at center, rgba(255,90,0,0) 40%, rgba(255,90,0,0.55) 100%)',
             }} />
+          )}
+          {/* LETHAL TRAILS: death toast naming the trail owner */}
+          {deathToast && stage === 'ride' && (
+            <div style={{
+              position: 'absolute', top: '38%', width: '100%', textAlign: 'center',
+              zIndex: 9, pointerEvents: 'none',
+            }}>
+              <div style={{
+                display: 'inline-block', padding: '12px 22px', borderRadius: 12,
+                background: 'rgba(3,6,18,.78)', border: '1px solid #ff2fb3',
+                color: '#ff2fb3', fontSize: 17, fontWeight: 800, letterSpacing: 2,
+              }}>
+                {deathToast}
+              </div>
+            </div>
           )}
           {/* BUMP RACE: eliminated — bike burned out, rider spectates */}
           {isBumpTrack(track) && hud.eliminated && stage === 'ride' && (
