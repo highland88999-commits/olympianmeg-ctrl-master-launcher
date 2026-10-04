@@ -29,6 +29,27 @@ import {
 
 const BTN =
   'min-h-[44px] px-5 py-2 rounded font-bold tracking-widest text-xs uppercase transition-colors';
+const BTN_ICON = 'inline-flex items-center gap-2';
+
+// Inline SVG glyphs for the transport/library buttons — gold/cyan icon
+// treatment in Merlin's mythic style. No image weight, crisp at any size.
+const PATHS = {
+  play: 'M8 5v14l11-7z',
+  stop: 'M6 6h12v12H6z',
+  upload: 'M9 16h6v-6h4l-7-7-7 7h4v6z',
+  search: 'M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z',
+  plus: 'M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z',
+  note: 'M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z',
+  spark: 'M12 2l2.4 7.6L22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4L12 2z',
+};
+
+function Glyph({ d, className }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={className || 'w-4 h-4 shrink-0'}>
+      <path d={d} />
+    </svg>
+  );
+}
 
 export default function MaestroPage() {
   const canvasRef = useRef(null);
@@ -41,6 +62,54 @@ export default function MaestroPage() {
   const [error, setError] = useState('');
   const [reducedMotion, setReducedMotion] = useState(false);
   const activeRef = useRef(new Map()); // midi -> count of sounding notes
+
+  // Ambient background: video loop, still frame, or off. Persisted.
+  const [bgMode, setBgMode] = useState('video');
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('maestro-bg');
+      if (saved === 'video' || saved === 'still' || saved === 'off') {
+        setBgMode(saved);
+      } else if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        setBgMode('still');
+      }
+    } catch {
+      /* defaults stand */
+    }
+  }, []);
+  function cycleBgMode() {
+    const next = bgMode === 'video' ? 'still' : bgMode === 'still' ? 'off' : 'video';
+    setBgMode(next);
+    try {
+      localStorage.setItem('maestro-bg', next);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // Key textures: obsidian + gold veining for black keys, ivory alabaster
+  // for white keys. Loaded once; flat colors until ready (or if offline).
+  const texRef = useRef({ white: null, black: null, ready: false });
+  const patRef = useRef({});
+  useEffect(() => {
+    let alive = true;
+    const load = (src) =>
+      new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => resolve(null);
+        img.src = src;
+      });
+    Promise.all([
+      load('/images/maestro/white-key-texture.webp'),
+      load('/images/maestro/black-key-texture.webp'),
+    ]).then(([white, black]) => {
+      if (alive) texRef.current = { white, black, ready: true };
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // Universal MIDI library: every song used here joins one shared shelf.
   const [libEntries, setLibEntries] = useState([]);
@@ -122,24 +191,52 @@ export default function MaestroPage() {
       ctx.fillStyle = '#05070a';
       ctx.fillRect(0, 0, cssW, cssH);
 
+      // Build canvas patterns from the key textures once they're loaded.
+      const tex = texRef.current;
+      if (tex.ready && !patRef.current.done) {
+        try {
+          if (tex.white) patRef.current.white = ctx.createPattern(tex.white, 'repeat');
+          if (tex.black) patRef.current.black = ctx.createPattern(tex.black, 'repeat');
+        } catch {
+          /* flat-color fallback stands */
+        }
+        patRef.current.done = true;
+      }
+      const whiteFill = patRef.current.white || '#f4f7f7';
+      const blackFill = patRef.current.black || '#11151b';
+
       for (const k of keys) {
         if (k.black) continue;
         const active = activeRef.current.has(k.midi);
-        ctx.fillStyle = active ? '#bffcff' : '#f4f7f7';
+        ctx.fillStyle = whiteFill;
         ctx.fillRect(k.x + 0.5, 0, k.w - 1, whiteH);
+        if (active) {
+          // Cyan wash over the ivory — the note still reads instantly.
+          ctx.fillStyle = 'rgba(0,242,255,0.45)';
+          ctx.fillRect(k.x + 0.5, 0, k.w - 1, whiteH);
+        }
         ctx.strokeStyle = '#0a0d12';
         ctx.strokeRect(k.x + 0.5, 0, k.w - 1, whiteH);
       }
       for (const k of keys) {
         if (!k.black) continue;
         const active = activeRef.current.has(k.midi);
-        ctx.fillStyle = active ? '#00f2ff' : '#11151b';
+        ctx.fillStyle = blackFill;
         ctx.fillRect(k.x, 0, k.w, blackH);
-        if (active && !reducedMotion) {
-          ctx.shadowColor = '#00f2ff';
-          ctx.shadowBlur = 12;
+        // Faint gold edge so the obsidian keys keep their definition.
+        ctx.strokeStyle = 'rgba(212,175,55,0.22)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(k.x + 0.5, 0.5, k.w - 1, blackH - 1);
+        if (active) {
+          ctx.fillStyle = 'rgba(0,242,255,0.55)';
           ctx.fillRect(k.x, 0, k.w, blackH);
-          ctx.shadowBlur = 0;
+          if (!reducedMotion) {
+            ctx.shadowColor = '#00f2ff';
+            ctx.shadowBlur = 12;
+            ctx.strokeStyle = '#00f2ff';
+            ctx.strokeRect(k.x + 0.5, 0.5, k.w - 1, blackH - 1);
+            ctx.shadowBlur = 0;
+          }
         }
       }
     }
@@ -581,7 +678,31 @@ export default function MaestroPage() {
   const pct = song && song.duration > 0 ? Math.min(100, (progress / song.duration) * 100) : 0;
 
   return (
-    <div className="min-h-[100dvh] bg-[#05070a] text-cyan-100 flex flex-col">
+    <div className="relative min-h-[100dvh] text-cyan-100">
+      {/* Ambient background: video loop, still frame, or off (toggle below). */}
+      <div className="fixed inset-0 z-0 bg-[#05070a]" aria-hidden="true">
+        {bgMode === 'video' ? (
+          <video
+            className="w-full h-full object-cover opacity-45"
+            src="/images/maestro/bg-loop.mp4"
+            poster="/images/maestro/bg-still.jpg"
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="metadata"
+          />
+        ) : bgMode === 'still' ? (
+          <img
+            className="w-full h-full object-cover opacity-45"
+            src="/images/maestro/bg-still.jpg"
+            alt=""
+          />
+        ) : null}
+        {/* Readability scrim: keeps text and keys legible over the motion. */}
+        <div className="absolute inset-0 bg-gradient-to-b from-[#05070a]/75 via-[#05070a]/60 to-[#05070a]/90" />
+      </div>
+      <div className="relative z-10 flex flex-col min-h-[100dvh]">
       <header className="px-5 pt-8 pb-4 text-center">
         <h1 className="text-2xl font-bold tracking-[0.3em] uppercase text-white">Maestro</h1>
         <p className="text-xs tracking-widest uppercase text-cyan-500 mt-2">
@@ -590,25 +711,38 @@ export default function MaestroPage() {
       </header>
 
       <div className="px-5 flex flex-wrap items-center justify-center gap-3">
-        <label className={`${BTN} border border-cyan-500 text-cyan-300 bg-cyan-500/10 cursor-pointer hover:bg-cyan-500 hover:text-black`}>
+        <label className={`${BTN} ${BTN_ICON} border border-cyan-500 text-cyan-300 bg-cyan-500/10 cursor-pointer hover:bg-cyan-500 hover:text-black`}>
+          <Glyph d={PATHS.upload} />
           1. Load MIDI file
           <input ref={fileRef} type="file" accept=".mid,.midi,audio/midi" className="hidden" onChange={onPickFile} />
         </label>
         <button
           type="button"
-          className={`${BTN} border border-cyan-500 text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500 hover:text-black disabled:opacity-40`}
+          className={`${BTN} ${BTN_ICON} border border-amber-300/70 text-amber-200 bg-amber-400/10 hover:bg-amber-300 hover:text-black disabled:opacity-40`}
           disabled={!song || playing}
           onClick={play}
         >
+          <Glyph d={PATHS.play} />
           2. Play
         </button>
         <button
           type="button"
-          className={`${BTN} border border-zinc-600 text-zinc-300 bg-zinc-800/40 hover:bg-zinc-600 disabled:opacity-40`}
+          className={`${BTN} ${BTN_ICON} border border-zinc-600 text-zinc-300 bg-zinc-800/40 hover:bg-zinc-600 disabled:opacity-40`}
           disabled={!playing}
           onClick={stopPlayback}
         >
+          <Glyph d={PATHS.stop} />
           Stop
+        </button>
+        <button
+          type="button"
+          onClick={cycleBgMode}
+          aria-label={`Ambient background is ${bgMode}. Activate to change.`}
+          title="Ambient background: video, still, or off"
+          className={`${BTN} ${BTN_ICON} border border-amber-200/40 text-amber-200/90 bg-amber-400/5 hover:bg-amber-300/15`}
+        >
+          <Glyph d={PATHS.spark} />
+          Ambience: {bgMode === 'video' ? 'Video' : bgMode === 'still' ? 'Still' : 'Off'}
         </button>
       </div>
 
@@ -733,8 +867,9 @@ export default function MaestroPage() {
             <button
               type="button"
               onClick={() => refreshLibrary(libQuery)}
-              className={`${BTN} border border-cyan-500 text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500 hover:text-black shrink-0`}
+              className={`${BTN} ${BTN_ICON} border border-cyan-500 text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500 hover:text-black shrink-0`}
             >
+              <Glyph d={PATHS.search} />
               Search
             </button>
           </div>
@@ -754,8 +889,9 @@ export default function MaestroPage() {
               type="button"
               onClick={addFromLink}
               disabled={adding || !addUrl.trim()}
-              className={`${BTN} border border-cyan-500 text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500 hover:text-black disabled:opacity-40 shrink-0`}
+              className={`${BTN} ${BTN_ICON} border border-cyan-500 text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500 hover:text-black disabled:opacity-40 shrink-0`}
             >
+              <Glyph d={PATHS.plus} />
               {adding ? 'Adding…' : 'Add'}
             </button>
           </div>
@@ -765,8 +901,9 @@ export default function MaestroPage() {
               type="button"
               onClick={searchBitmidi}
               disabled={bitLoading || !libQuery.trim()}
-              className={`${BTN} w-full border border-violet-500 text-violet-300 bg-violet-500/10 hover:bg-violet-500 hover:text-black disabled:opacity-40`}
+              className={`${BTN} ${BTN_ICON} w-full border border-violet-500 text-violet-300 bg-violet-500/10 hover:bg-violet-500 hover:text-black disabled:opacity-40`}
             >
+              <Glyph d={PATHS.note} />
               {bitLoading ? 'Searching BitMidi…' : `Search BitMidi for \u201c${libQuery.trim() || '…'}\u201d`}
             </button>
             {bitDone && bitResults.length === 0 ? (
@@ -863,7 +1000,7 @@ export default function MaestroPage() {
       <main className="flex-1 px-2 md:px-6 py-4 min-h-[280px]">
         <canvas
           ref={canvasRef}
-          className="w-full h-[46dvh] min-h-[280px] rounded border border-cyan-900 cursor-pointer touch-none"
+          className="w-full h-[46dvh] min-h-[280px] rounded border border-amber-100/25 cursor-pointer touch-none shadow-[0_0_60px_-18px_rgba(212,175,55,0.45)]"
           onPointerDown={onCanvasTap}
           aria-label="88-key piano. Tap a key to hear it."
         />
@@ -875,6 +1012,7 @@ export default function MaestroPage() {
 
       {/* Safari bottom-bar clearance */}
       <div aria-hidden="true" className="player-clear" />
+      </div>
     </div>
   );
 }
