@@ -20,7 +20,7 @@ import {
   useAmbience,
   AmbienceToggle,
 } from '@/components/hermes-ui/HermesUi';
-import { PhoneIcon, VideoIcon, SendIcon, StepsIcon } from '@/lib/hermes-icons';
+import { PhoneIcon, VideoIcon, SendIcon, StepsIcon, ChatIcon } from '@/lib/hermes-icons';
 
 export default function GlassCommsApp() {
   const router = useRouter();
