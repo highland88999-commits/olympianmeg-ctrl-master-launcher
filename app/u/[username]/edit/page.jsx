@@ -10,6 +10,19 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import Auth from '@/components/Auth';
 import { normalizeTikTokHandle } from '@/lib/tiktok-attribution';
+import { BUNDLED_LANGUAGES, EXTENDED_LANGUAGES, isValidLanguageCode, targetDefault } from '@/lib/translate';
+
+// Guest-convention read for the language picker default: the profile
+// column wins when present, otherwise localStorage `nexus-language`,
+// otherwise English. Never throws (private mode etc.).
+function pickInitialLang(profileLang) {
+  if (isValidLanguageCode(profileLang)) return profileLang.trim();
+  try {
+    const s = window.localStorage.getItem('nexus-language');
+    if (isValidLanguageCode(s)) return s.trim();
+  } catch { /* ignore */ }
+  return targetDefault();
+}
 
 const CSS = `
 .pe-root { min-height: 100dvh; background: #050508; color: #f2f2f2;
@@ -83,7 +96,7 @@ export default function EditProfilePage({ params }) {
   const [checking, setChecking] = useState(true);
   const [profiles, setProfiles] = useState(null);
   const [type, setType] = useState('personal');
-  const [form, setForm] = useState({ display_name: '', username: '', bio: '', websites: '', tiktok: '' });
+  const [form, setForm] = useState({ display_name: '', username: '', bio: '', websites: '', tiktok: '', lang: 'en' });
   const [tiktokErr, setTiktokErr] = useState('');
   const [coverKind, setCoverKind] = useState('image');
   const [art, setArt] = useState([]);
@@ -153,6 +166,10 @@ export default function EditProfilePage({ params }) {
             // Defensive read: the tiktok_handle migration may not have run
             // yet, in which case the column is simply absent from the row.
             tiktok: cur.tiktok_handle || '',
+            // Preferred language: profile column wins; falls back to the
+            // guest convention (localStorage nexus-language), then English.
+            // The preferred_language migration may not have run yet either.
+            lang: pickInitialLang(cur.preferred_language),
           });
           setTiktokErr('');
           setCoverKind(cur.cover_kind || 'image');
@@ -206,6 +223,12 @@ export default function EditProfilePage({ params }) {
         }
       }
     }
+    // Preferred language is personal-only, like the TikTok handle.
+    // Invalid values fall back to English; the PATCH route writes it
+    // defensively (42703-tolerant) until the migration runs.
+    const preferredLanguage = type === 'personal' && isValidLanguageCode(form.lang)
+      ? form.lang.trim()
+      : targetDefault();
     setBusy(true);
     say('', '');
     try {
@@ -221,11 +244,16 @@ export default function EditProfilePage({ params }) {
           cover_kind: coverKind,
           // Bare handle, no @; null clears. Sent for personal only.
           tiktok_handle: tiktok,
+          // Preferred content language, personal row only.
+          preferred_language: preferredLanguage,
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Save failed.');
       say('ok', 'Profile saved.');
+      // Keep the guest convention in sync: the profile column is the
+      // source of truth for signed-in users, localStorage for guests.
+      try { window.localStorage.setItem('nexus-language', preferredLanguage); } catch { /* ignore */ }
       if (data.profile?.username && data.profile.username !== slug) {
         router.replace(`/u/${encodeURIComponent(data.profile.username)}/edit`);
       } else {
@@ -386,6 +414,7 @@ export default function EditProfilePage({ params }) {
             <textarea id="pe-bio" className="pe-area" value={form.bio} onChange={set('bio')} maxLength={500} />
           </div>
           {type === 'personal' ? (
+            <>
             <div>
               <label className="pe-label" htmlFor="pe-tt">TikTok handle (optional)</label>
               <div className="pe-row" style={{ flexWrap: 'nowrap' }}>
@@ -400,6 +429,31 @@ export default function EditProfilePage({ params }) {
                 Used to credit you when your live recordings are shared. Leave blank to skip.
               </p>
             </div>
+            <div>
+              <label className="pe-label" htmlFor="pe-lang">Preferred language</label>
+              <select
+                id="pe-lang" className="pe-input" value={form.lang}
+                onChange={(e) => setForm((f) => ({ ...f, lang: e.target.value }))}
+                aria-describedby="pe-lang-hint"
+              >
+                <optgroup label="Instant — built in">
+                  {BUNDLED_LANGUAGES.map((l) => (
+                    <option key={l.code} value={l.code}>{l.native} ({l.english})</option>
+                  ))}
+                </optgroup>
+                <optgroup label="Live translation">
+                  {EXTENDED_LANGUAGES.map((l) => (
+                    <option key={l.code} value={l.code}>{l.native} ({l.english})</option>
+                  ))}
+                </optgroup>
+              </select>
+              <p className="pe-hint" id="pe-lang-hint" style={{ margin: '0.35rem 0 0' }}>
+                The language your content is translated into. English is the default.
+                Built-in languages translate instantly; the rest use live translation,
+                and menus stay in English.
+              </p>
+            </div>
+            </>
           ) : null}
           <div>
             <label className="pe-label" htmlFor="pe-web">Websites (one per line)</label>

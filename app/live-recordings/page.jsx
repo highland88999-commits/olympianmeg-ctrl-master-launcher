@@ -21,6 +21,8 @@ import {
   tiktokProfileUrl,
 } from '@/lib/tiktok-attribution';
 import ShareRecording from '@/components/live-recordings/ShareRecording';
+import TranslatedText from '@/components/TranslatedText';
+import { resolvePreferredLanguage } from '@/lib/translate';
 import {
   snapshotHandle,
   resolveRecordingHandle,
@@ -54,7 +56,7 @@ async function fetchMyPersonalProfile(userId) {
   if (!data) return null;
   try {
     const { data: withHandle } = await supabase
-      .from('user_profiles').select('id,display_name,username,tiktok_handle')
+      .from('user_profiles').select('id,display_name,username,tiktok_handle,preferred_language')
       .eq('user_id', userId).eq('type', 'personal').maybeSingle();
     return withHandle || data;
   } catch {
@@ -98,6 +100,17 @@ export default function LiveRecordingsPage() {
   const fileInputRef = useRef(null);
   const cardRefs = useRef({});
   const bumpedRef = useRef(new Set());
+  // The VIEWER's preferred content language (default English). Signed-in
+  // users: profile column wins. Guests: localStorage `nexus-language`.
+  const [viewerLang, setViewerLang] = useState('en');
+
+  useEffect(() => {
+    let lang = 'en';
+    try {
+      lang = resolvePreferredLanguage({ storedLang: window.localStorage.getItem('nexus-language') });
+    } catch { /* private mode etc. */ }
+    setViewerLang(lang);
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -105,6 +118,20 @@ export default function LiveRecordingsPage() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       setUser(session?.user || null);
+
+      // Viewer language: the signed-in user's profile column wins over
+      // the guest localStorage value (already set as the initial state).
+      if (session?.user?.id) {
+        try {
+          const mine = await fetchMyPersonalProfile(session.user.id);
+          if (mine && mine.preferred_language) {
+            setViewerLang(resolvePreferredLanguage({
+              profileLang: mine.preferred_language,
+              storedLang: window.localStorage.getItem('nexus-language'),
+            }));
+          }
+        } catch { /* keep the guest/local default */ }
+      }
 
       const { data, error: qerr } = await supabase
         .from('live_recordings')
@@ -352,7 +379,7 @@ export default function LiveRecordingsPage() {
                     onPlay={() => bumpViewOnPlay(r.id)}
                   />
                   <div className="lr-card-body">
-                    <h3 className="lr-title">{r.title}</h3>
+                    <TranslatedText as="h3" className="lr-title" text={r.title} target={viewerLang} />
                     <p className="lr-meta">
                       <span className="lr-name">{prof?.display_name || prof?.username || 'Olympian'}</span>
                       {handle && profileUrl && (

@@ -52,6 +52,17 @@ export const PATCH = apiGuard(async function PATCH(req) {
   }
   delete v.value.tiktok_handle;
 
+  // Preferred language belongs on the PERSONAL row only, same as the
+  // TikTok handle — never store it on the business row, and never let
+  // a business-tab save clear it.
+  let preferredLanguage = null;
+  let langSent = false;
+  if (type === 'personal' && 'preferred_language' in v.value) {
+    preferredLanguage = v.value.preferred_language;
+    langSent = true;
+  }
+  delete v.value.preferred_language;
+
   // Username changes must stay unique across all users.
   if (v.value.username) {
     const { data: clash } = await admin
@@ -92,6 +103,19 @@ export const PATCH = apiGuard(async function PATCH(req) {
       .eq('type', 'personal');
     if (tErr && tErr.code !== '42703') throw tErr;
     // 42703 = column missing: skip the handle, keep the saved profile.
+  }
+
+  // Preferred language, written defensively: the 20261004_preferred_language
+  // migration has NOT run yet, so the column may not exist. Same 42703
+  // tolerance as the TikTok handle — the language lands once Merlin
+  // green-lights the migration. localStorage stays the fallback meanwhile.
+  if (langSent) {
+    const { error: lErr } = await admin
+      .from('user_profiles')
+      .update({ preferred_language: preferredLanguage })
+      .eq('user_id', auth.user.id)
+      .eq('type', 'personal');
+    if (lErr && lErr.code !== '42703') throw lErr;
   }
   return NextResponse.json({ ok: true, profile: data });
 });

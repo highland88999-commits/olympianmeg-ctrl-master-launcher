@@ -37,6 +37,13 @@ const DICTS: Record<string, Dict> = { en, el, es, fr, de, pt, it };
 const STORAGE_KEY = 'nexus-language';
 const DEFAULT_LANG = 'en';
 
+// Any well-formed language code is acceptable as the *preferred* language:
+// bundled codes get offline chrome, everything else keeps English chrome
+// (honest fallback) while content translates via the live API.
+function isLangCode(code) {
+  return typeof code === 'string' && /^[a-z]{2,3}(-[a-z]{2})?$/i.test(code.trim());
+}
+
 interface I18nCtx {
   lang: string;
   setLang: (code: string) => void;
@@ -55,7 +62,9 @@ function initialLang(): string {
   if (typeof window === 'undefined') return DEFAULT_LANG;
   try {
     const saved = window.localStorage.getItem(STORAGE_KEY);
-    if (saved && DICTS[saved]) return saved;
+    // Accept any well-formed code (not just bundled): non-bundled codes
+    // keep English chrome via the t() fallback while content translates.
+    if (saved && isLangCode(saved)) return saved.trim().toLowerCase();
     const nav = (window.navigator.language || 'en').slice(0, 2).toLowerCase();
     if (DICTS[nav]) return nav;
   } catch { /* private mode etc. — fall through */ }
@@ -72,10 +81,11 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const setLang = useCallback((code: string) => {
-    if (!DICTS[code]) return;
-    setLangState(code);
-    try { window.localStorage.setItem(STORAGE_KEY, code); } catch { /* ignore */ }
-    try { document.documentElement.lang = code; } catch { /* ignore */ }
+    if (!isLangCode(code)) return;
+    const c = code.trim().toLowerCase();
+    setLangState(c);
+    try { window.localStorage.setItem(STORAGE_KEY, c); } catch { /* ignore */ }
+    try { document.documentElement.lang = c; } catch { /* ignore */ }
   }, []);
 
   const t = useCallback(
