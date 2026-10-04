@@ -34,6 +34,7 @@ import {
   findSafeSpot,
   serializeTrail,
   deserializeTrail,
+  trailAheadWarning,
 } from '@/lib/shadow-realm/trails';
 import { createOrbit, resetOrbit, applyDrag, applyPinch, applyWheel, orbitCamera } from './orbit';
 import {
@@ -125,8 +126,54 @@ function wallGeometry(loop, height) {
 // environment: night sky, stars, moon, grid ground, distant pylons
 // ---------------------------------------------------------------------------
 
+/**
+ * moonTexture(): a single shaded moon disc — bright limb fading into a soft
+ * terminator, with faint craters. One intentional moon, never two
+ * overlapping discs (which read as a rendering bug). Lazy singleton, built
+ * once in the browser.
+ */
+function moonTexture() {
+  if (typeof document === 'undefined') return null;
+  if (moonTexture._t) return moonTexture._t;
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const g = c.getContext('2d');
+  // Base sphere shading: bright upper-left limb -> dimmer lower-right.
+  const base = g.createRadialGradient(96, 92, 20, 128, 128, 130);
+  base.addColorStop(0, '#ffffff');
+  base.addColorStop(0.45, '#e9f1ff');
+  base.addColorStop(0.8, '#b7c9e8');
+  base.addColorStop(1, '#8ba2c9');
+  g.fillStyle = base;
+  g.beginPath();
+  g.arc(128, 128, 124, 0, Math.PI * 2);
+  g.fill();
+  // Terminator: soft shadow sweeping in from the lower-right.
+  const term = g.createRadialGradient(215, 220, 30, 128, 128, 195);
+  term.addColorStop(0, 'rgba(8,14,30,0.6)');
+  term.addColorStop(0.6, 'rgba(8,14,30,0.28)');
+  term.addColorStop(1, 'rgba(8,14,30,0)');
+  g.fillStyle = term;
+  g.beginPath();
+  g.arc(128, 128, 124, 0, Math.PI * 2);
+  g.fill();
+  // Faint craters — the "yes, this is a moon" detail.
+  g.fillStyle = 'rgba(110,132,175,0.28)';
+  for (const [cx, cy, r] of [[100, 110, 14], [140, 90, 9], [120, 150, 11], [90, 140, 7], [155, 135, 8]]) {
+    g.beginPath();
+    g.arc(cx, cy, r, 0, Math.PI * 2);
+    g.fill();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  moonTexture._t = tex;
+  return tex;
+}
+
 function NightSky() {
   const moonPos = useMemo(() => new THREE.Vector3(-320, 210, -520), []);
+  const tex = useMemo(() => moonTexture(), []);
+  const haloPos = useMemo(() => moonPos.clone().add(new THREE.Vector3(0, 0, -1.5)), [moonPos]);
   return (
     <group>
       <mesh>
@@ -134,14 +181,27 @@ function NightSky() {
         <meshBasicMaterial color="#030612" side={THREE.BackSide} fog={false} />
       </mesh>
       <Stars radius={900} depth={80} count={2200} factor={5} saturation={0} fade speed={0.4} />
-      {/* moon: bright disc + soft halo sprite (no bloom pass needed) */}
+      {/* The moon: ONE shaded disc + a whisper of atmosphere rim. Deliberate,
+          singular, unmistakable — never ambiguous overlapping discs. */}
       <mesh position={moonPos}>
-        <circleGeometry args={[46, 40]} />
-        <meshBasicMaterial color="#e8efff" fog={false} />
+        <circleGeometry args={[46, 48]} />
+        {tex ? (
+          <meshBasicMaterial map={tex} transparent fog={false} />
+        ) : (
+          <meshBasicMaterial color="#dfe9ff" fog={false} />
+        )}
       </mesh>
-      <mesh position={moonPos.clone().add(new THREE.Vector3(0, 0, -4))}>
-        <circleGeometry args={[78, 40]} />
-        <meshBasicMaterial color="#8fb4ff" transparent opacity={0.16} fog={false} />
+      <mesh position={haloPos}>
+        <ringGeometry args={[47, 53, 48]} />
+        <meshBasicMaterial
+          color="#9db9e8"
+          transparent
+          opacity={0.3}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+          fog={false}
+          side={THREE.DoubleSide}
+        />
       </mesh>
     </group>
   );
@@ -231,7 +291,12 @@ function TrackMesh({ track, scheme }) {
     ]);
     g.setAttribute('position', new THREE.BufferAttribute(v, 3));
     g.setIndex([0, 2, 1, 1, 2, 3]);
-    return { geo: g, ax: a.x, az: a.z, bx: b.x, bz: b.z };
+    // Gantry layout (derived once): center, span, and yaw for the arch group.
+    const cx = (a.x + b.x) / 2;
+    const cz = (a.z + b.z) / 2;
+    const span = Math.hypot(dx, dz);
+    const yaw = Math.atan2(dx, dz) + Math.PI / 2;
+    return { geo: g, ax: a.x, az: a.z, bx: b.x, bz: b.z, cx, cz, span, yaw };
   }, [loops]);
 
   return (
@@ -267,23 +332,70 @@ function TrackMesh({ track, scheme }) {
       <mesh geometry={start.geo}>
         <meshBasicMaterial color="#f2f6ff" transparent opacity={0.9} side={THREE.DoubleSide} />
       </mesh>
-      {/* start gantry arch */}
+      {/* start gantry arch — a proper gate, not a flat blob. Dark posts
+          with neon power bands, a dark beam with neon trim strips and a
+          chevron plate. Depth comes from layered unlit materials (dark /
+          mid / bright), never from lights or bloom — phone-cheap and it
+          can't drown anything out. */}
       <group>
-        <mesh position={[start.ax, 3.4, start.az]}>
-          <cylinderGeometry args={[0.35, 0.35, 6.8, 8]} />
-          <meshBasicMaterial color="#0a1226" />
-        </mesh>
-        <mesh position={[start.bx, 3.4, start.bz]}>
-          <cylinderGeometry args={[0.35, 0.35, 6.8, 8]} />
-          <meshBasicMaterial color="#0a1226" />
-        </mesh>
-        <mesh
-          position={[(start.ax + start.bx) / 2, 6.9, (start.az + start.bz) / 2]}
-          rotation={[0, Math.atan2(start.bx - start.ax, start.bz - start.az) + Math.PI / 2, 0]}
-        >
-          <boxGeometry args={[Math.hypot(start.bx - start.ax, start.bz - start.az) + 1.4, 0.5, 0.5]} />
-          <meshBasicMaterial color={scheme.secondary} />
-        </mesh>
+        {[
+          [start.ax, start.az],
+          [start.bx, start.bz],
+        ].map(([px, pz], i) => (
+          <group key={i} position={[px, 0, pz]}>
+            {/* base plate */}
+            <mesh position={[0, 0.15, 0]}>
+              <cylinderGeometry args={[0.62, 0.72, 0.3, 10]} />
+              <meshBasicMaterial color="#101a30" />
+            </mesh>
+            {/* post */}
+            <mesh position={[0, 3.55, 0]}>
+              <cylinderGeometry args={[0.32, 0.38, 6.8, 10]} />
+              <meshBasicMaterial color="#0d1628" />
+            </mesh>
+            {/* neon power bands */}
+            {[1.9, 3.55, 5.2].map((h) => (
+              <mesh key={h} position={[0, h, 0]}>
+                <cylinderGeometry args={[0.4, 0.4, 0.22, 10]} />
+                <meshBasicMaterial
+                  color={scheme.primary}
+                  blending={THREE.AdditiveBlending}
+                  transparent
+                  opacity={0.85}
+                  depthWrite={false}
+                />
+              </mesh>
+            ))}
+            {/* cap light */}
+            <mesh position={[0, 7.08, 0]}>
+              <sphereGeometry args={[0.42, 10, 8]} />
+              <meshBasicMaterial color={scheme.primary} />
+            </mesh>
+          </group>
+        ))}
+        {/* beam: dark body, neon edge trim, chevron plate */}
+        <group position={[start.cx, 6.9, start.cz]} rotation={[0, start.yaw, 0]}>
+          <mesh>
+            <boxGeometry args={[start.span + 1.6, 0.62, 0.62]} />
+            <meshBasicMaterial color="#0d1628" />
+          </mesh>
+          {[0.34, -0.34].map((y) => (
+            <mesh key={y} position={[0, y, 0.33]}>
+              <boxGeometry args={[start.span + 1.6, 0.1, 0.06]} />
+              <meshBasicMaterial
+                color={scheme.primary}
+                blending={THREE.AdditiveBlending}
+                transparent
+                opacity={0.9}
+                depthWrite={false}
+              />
+            </mesh>
+          ))}
+          <mesh position={[0, 0, 0.34]}>
+            <boxGeometry args={[2.4, 0.4, 0.06]} />
+            <meshBasicMaterial color={scheme.secondary} />
+          </mesh>
+        </group>
       </group>
     </group>
   );
@@ -1030,29 +1142,41 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, playerTrai
 
     // ---- LETHAL TRAILS collision ------------------------------------
     // trailsLethal: race modes + bump. Roam stays chill (no check at all).
+    // The rival list is built once and shared by the kill check AND the
+    // trail-ahead fairness warning below.
     if (trailsLethal && !s.eliminated && !s.finished && s.dying <= 0) {
       const immune = s.immuneT > 0 || s.spawnImmuneT > 0;
+      const rivals = [];
+      // VS AI bots.
+      for (const b of botsRef.current || []) {
+        if (!b || b.eliminated || !b.trail || b.trail.length < 2) continue;
+        rivals.push({ trail: b.trail, name: b.name || 'RIVAL' });
+      }
+      // PvP remotes: deserialize beacon trails (cached per rider).
+      for (const bc of bumpRemotes || []) {
+        if (!bc || !bc.user_id || !Array.isArray(bc.trail) || bc.trail.length < 4) continue;
+        let rt = remoteTrails.current.get(bc.user_id);
+        const sig = bc.trail.length + ':' + bc.trail[0] + ':' + bc.trail[bc.trail.length - 1];
+        if (!rt || rt.sig !== sig) {
+          rt = { trail: deserializeTrail(bc.trail, clockNow), sig };
+          remoteTrails.current.set(bc.user_id, rt);
+        }
+        if (rt.trail.length >= 2) rivals.push({ trail: rt.trail, name: bc.callsign || 'RIVAL' });
+      }
       if (!immune) {
-        const rivals = [];
-        // VS AI bots.
-        for (const b of botsRef.current || []) {
-          if (!b || b.eliminated || !b.trail || b.trail.length < 2) continue;
-          rivals.push({ trail: b.trail, name: b.name || 'RIVAL' });
-        }
-        // PvP remotes: deserialize beacon trails (cached per rider).
-        for (const bc of bumpRemotes || []) {
-          if (!bc || !bc.user_id || !Array.isArray(bc.trail) || bc.trail.length < 4) continue;
-          let rt = remoteTrails.current.get(bc.user_id);
-          const sig = bc.trail.length + ':' + bc.trail[0] + ':' + bc.trail[bc.trail.length - 1];
-          if (!rt || rt.sig !== sig) {
-            rt = { trail: deserializeTrail(bc.trail, clockNow), sig };
-            remoteTrails.current.set(bc.user_id, rt);
-          }
-          if (rt.trail.length >= 2) rivals.push({ trail: rt.trail, name: bc.callsign || 'RIVAL' });
-        }
         const hit = checkRivalTrails(rivals, s.x, s.z, clockNow, { radius: TRAIL_KILL_RADIUS });
         if (hit) killPlayer(s, hit.owner, { bumpMode, onBumpEvent, camHeading, loops, mode, clockNow });
       }
+      // TRAIL-AHEAD warning (fairness — Merlin 2026-10-03): a rival trail
+      // sitting in the forward path cone earns a HUD warning BEFORE it
+      // earns a shred. Same gate as the kill check: lethal modes only,
+      // never while immune (free roam never reaches this branch at all).
+      // The rider's own trail is excluded by identity — never warn on self.
+      s.trailWarn = !immune
+        ? trailAheadWarning({ x: s.x, z: s.z, heading: s.heading }, rivals, clockNow, { skip: s.trail })
+        : null;
+    } else {
+      s.trailWarn = null;
     }
 
     // Death animation: pixelated dissolve, then respawn (unless eliminated
@@ -1304,6 +1428,11 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, playerTrai
         immune: (s.immuneT || 0) > 0,
         deaths: s.deaths || 0,
         dying: s.dying > 0,
+        // TRAIL-AHEAD fairness warning: { side: -1|1, dist, owner } | null.
+        // The page renders the edge glow + "⚠ TRAIL AHEAD" flash from this.
+        trailWarn: s.trailWarn
+          ? { side: s.trailWarn.side, dist: Math.round(s.trailWarn.dist), owner: s.trailWarn.owner }
+          : null,
       };
       // Throttled trail serialization for the PvP beacon (~2Hz).
       if (!s._trailBeaconT || s.time - s._trailBeaconT > 0.5) {

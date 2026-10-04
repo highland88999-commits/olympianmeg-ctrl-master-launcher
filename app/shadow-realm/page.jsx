@@ -10,7 +10,7 @@
 
 'use client';
 
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import RealmScene from './scene';
 import { makeBots, placements } from './ai';
@@ -29,6 +29,13 @@ import {
   shouldShowTouchSteer,
 } from './steer-pads';
 import { loadPrefs, savePrefs, accountIdFromWindow, hasSeenTutorial, markTutorialSeen } from './prefs';
+import {
+  createTapState,
+  tapDown,
+  tapUp,
+  markControlUse,
+} from '@/lib/shadow-realm/recenter';
+import { boostMeter } from '@/lib/shadow-realm/boost-meter';
 import { fx } from '@/lib/fx';
 import { useBikeMotion } from '@/lib/use-bike-motion';
 import { useFullscreen } from '@/lib/use-fullscreen';
@@ -158,12 +165,20 @@ const css = {
   tutDot: { width: 8, height: 8, borderRadius: '50%', background: '#1e3a5f' },
   tutDotOn: { background: '#38bdf8', boxShadow: '0 0 8px rgba(56,189,248,.8)' },
   hud: {
-    position: 'absolute', top: 12, left: 12, right: 12, display: 'flex', gap: 8,
-    justifyContent: 'center', pointerEvents: 'none', zIndex: 5,
+    position: 'absolute',
+    // Safe-area aware: iPhone notches and the Safari chrome must never clip
+    // the pills (Merlin 2026-10-03: "IMMU…" / "LAP…" were cut off).
+    top: 'calc(10px + env(safe-area-inset-top, 0px))',
+    left: 'calc(10px + env(safe-area-inset-left, 0px))',
+    right: 'calc(10px + env(safe-area-inset-right, 0px))',
+    display: 'flex', gap: 6, justifyContent: 'center', alignItems: 'center',
+    flexWrap: 'wrap', // narrow screens wrap instead of clipping
+    pointerEvents: 'none', zIndex: 5,
   },
   hudChip: {
     background: 'rgba(4,10,22,.72)', border: '1px solid #1e3a5f', borderRadius: 10,
-    padding: '8px 14px', fontSize: 14, color: '#bae6fd', letterSpacing: 1, minWidth: 86, textAlign: 'center',
+    padding: '7px 11px', fontSize: 13, color: '#bae6fd', letterSpacing: 1,
+    textAlign: 'center', whiteSpace: 'nowrap',
   },
   // circular ride-control buttons (hub circle language: 48px, cyan on dark)
   circleBtn: (active) => ({
@@ -245,6 +260,16 @@ function ShadowRealmInner() {
   // BOOST button pressed visual (instant local feedback — the HUD's
   // BOOSTING pill follows at 7Hz from the physics rig).
   const [boostHeld, setBoostHeld] = useState(false);
+  // Hardened double-tap-to-recenter (Merlin 2026-10-03): the bare
+  // onDoubleClick fired on any two quick taps, so grip adjustments kept
+  // recentering the neutral hold. tapState requires two taps on the same
+  // spot within a tight window, rejects drags, and ignores taps that land
+  // right after a control press (see lib/shadow-realm/recenter.js).
+  const tapStateRef = useRef(null);
+  if (!tapStateRef.current) tapStateRef.current = createTapState();
+  const noteControlUse = useCallback(() => {
+    markControlUse(tapStateRef.current, typeof performance !== 'undefined' ? performance.now() : Date.now());
+  }, []);
   // BUMP RACE (PvP): highest alive-count seen this race — the race only
   // ends at <=1 alive once it has genuinely started (>= 2 seen).
   const bumpSeenRef = useRef(0);
@@ -712,10 +737,21 @@ function ShadowRealmInner() {
   }, [stage]);
 
   // HUD polling (scene writes into hudRef, React reads at 7Hz)
+  // TRAIL-AHEAD warning: the audio blip fires on the warning's rising edge
+  // only (the overlay itself is driven by hud.trailWarn below).
+  const trailWarnWasRef = useRef(false);
   useEffect(() => {
     if (stage !== 'ride') return;
     const id = setInterval(() => {
-      if (hudRef.current) setHud({ ...hudRef.current });
+      if (hudRef.current) {
+        const h = { ...hudRef.current };
+        setHud(h);
+        const warning = !!h.trailWarn;
+        if (warning && !trailWarnWasRef.current) {
+          try { fx.warn(); } catch { /* best-effort */ }
+        }
+        trailWarnWasRef.current = warning;
+      }
     }, 140);
     return () => clearInterval(id);
   }, [stage]);
@@ -1295,7 +1331,23 @@ function ShadowRealmInner() {
     <div style={css.screen} ref={containerRef} onContextMenu={(e) => e.preventDefault()}>
       <div
         style={{ position: 'absolute', inset: 0 }}
-        onDoubleClick={() => { if (motion.motionOn) motion.recenter(); }}
+        onPointerDown={(e) => { tapDown(tapStateRef.current, e.clientX, e.clientY); }}
+        onPointerUp={(e) => {
+          const r = tapUp(
+            tapStateRef.current,
+            e.clientX,
+            e.clientY,
+            typeof performance !== 'undefined' ? performance.now() : Date.now()
+          );
+          if (r.fire) {
+            // Deliberate double-tap on the same spot — recenter.
+            if (motion.motionOn) motion.recenter('double-tap');
+          } else {
+            // Diagnosability: rejected patterns are whisper-quiet, but they
+            // explain "it keeps recentering" without guessing.
+            try { console.debug('[shadow-realm] recenter tap rejected:', r.reason); } catch { /* noop */ }
+          }
+        }}
         title={motion.motionOn ? 'Double-tap to recenter view' : undefined}
       >
         <RealmScene
@@ -1330,6 +1382,7 @@ function ShadowRealmInner() {
 
       {riding && (
         <>
+          <style>{`@keyframes trailWarnPulse { 0%,100% { opacity: .55; } 50% { opacity: 1; } }`}</style>
           {!immersed && (
             <div style={css.hud}>
               {mode === 'roam' && (
@@ -1386,7 +1439,7 @@ function ShadowRealmInner() {
             </div>
           )}
           {lastLap && mode === 'race' && !immersed && (
-            <div style={{ position: 'absolute', top: 64, width: '100%', textAlign: 'center', zIndex: 5, pointerEvents: 'none', color: '#7dd3fc', fontSize: 13, letterSpacing: 2 }}>
+            <div style={{ position: 'absolute', top: 'calc(66px + env(safe-area-inset-top, 0px))', width: '100%', textAlign: 'center', zIndex: 5, pointerEvents: 'none', color: '#7dd3fc', fontSize: 13, letterSpacing: 2 }}>
               LAP {lastLap.lapNum} · {fmtTime(lastLap.lapTime)}
             </div>
           )}
@@ -1396,6 +1449,36 @@ function ShadowRealmInner() {
               position: 'absolute', inset: 0, zIndex: 8, pointerEvents: 'none',
               background: 'radial-gradient(ellipse at center, rgba(255,90,0,0) 40%, rgba(255,90,0,0.55) 100%)',
             }} />
+          )}
+          {/* TRAIL-AHEAD fairness warning: a rival trail sits in the forward
+              path cone. Screen-edge glow on the threat's side (+ a flash pill
+              when chrome is visible) BEFORE it becomes a shred. */}
+          {hud.trailWarn && stage === 'ride' && (
+            <div
+              style={{
+                position: 'absolute', inset: 0, zIndex: 8, pointerEvents: 'none',
+                background: hud.trailWarn.side >= 0
+                  ? 'linear-gradient(to left, rgba(255,47,179,0.42) 0%, rgba(255,47,179,0) 26%)'
+                  : 'linear-gradient(to right, rgba(255,47,179,0.42) 0%, rgba(255,47,179,0) 26%)',
+                animation: 'trailWarnPulse 0.7s ease-in-out infinite',
+              }}
+              aria-label="trail ahead warning"
+            />
+          )}
+          {!immersed && hud.trailWarn && stage === 'ride' && (
+            <div style={{
+              position: 'absolute', top: 'calc(64px + env(safe-area-inset-top, 0px))', width: '100%',
+              textAlign: 'center', zIndex: 8, pointerEvents: 'none',
+            }}>
+              <div style={{
+                display: 'inline-block', padding: '8px 18px', borderRadius: 999,
+                background: 'rgba(3,6,18,.82)', border: '1px solid #ff2fb3',
+                color: '#ff8fd4', fontSize: 14, fontWeight: 800, letterSpacing: 3,
+                animation: 'trailWarnPulse 0.7s ease-in-out infinite',
+              }}>
+                ⚠ TRAIL AHEAD
+              </div>
+            </div>
           )}
           {/* LETHAL TRAILS: death toast naming the trail owner */}
           {deathToast && stage === 'ride' && (
@@ -1435,14 +1518,14 @@ function ShadowRealmInner() {
             {shouldShowTouchSteer(stage, motion.motionOn) && (
               <div
                 style={{
-                  position: 'absolute', left: 18, bottom: 128, display: 'flex', gap: 12,
+                  position: 'absolute', left: 18, bottom: 'calc(128px + env(safe-area-inset-bottom, 0px))', display: 'flex', gap: 12,
                   pointerEvents: 'auto', touchAction: 'none',
                 }}
               >
                 <div
                   role="button"
                   aria-label="Steer left (fallback — tilt steering is off)"
-                  onPointerDown={pressSteerPad(STEER_LEFT)}
+                  onPointerDown={(e) => { noteControlUse(); pressSteerPad(STEER_LEFT)(e); }}
                   onPointerUp={releaseSteerPad(STEER_LEFT)}
                   onPointerCancel={releaseSteerPad(STEER_LEFT)}
                 >
@@ -1451,7 +1534,7 @@ function ShadowRealmInner() {
                 <div
                   role="button"
                   aria-label="Steer right (fallback — tilt steering is off)"
-                  onPointerDown={pressSteerPad(STEER_RIGHT)}
+                  onPointerDown={(e) => { noteControlUse(); pressSteerPad(STEER_RIGHT)(e); }}
                   onPointerUp={releaseSteerPad(STEER_RIGHT)}
                   onPointerCancel={releaseSteerPad(STEER_RIGHT)}
                 >
@@ -1460,12 +1543,13 @@ function ShadowRealmInner() {
               </div>
             )}
             <div
-              style={{ position: 'absolute', right: 18, bottom: 128, pointerEvents: 'auto', touchAction: 'none' }}
+              style={{ position: 'absolute', right: 18, bottom: 'calc(128px + env(safe-area-inset-bottom, 0px))', pointerEvents: 'auto', touchAction: 'none' }}
               onPointerDown={(e) => {
                 // Set the boost flag FIRST — setPointerCapture can throw on
                 // some iOS WebKit paths, and it must never swallow the input.
                 inputRef.current.boost = true;
                 setBoostHeld(true);
+                noteControlUse();
                 try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* best-effort */ }
                 try { fx.boost(); } catch { /* best-effort */ }
               }}
@@ -1473,14 +1557,37 @@ function ShadowRealmInner() {
               onPointerCancel={() => { inputRef.current.boost = false; setBoostHeld(false); }}
               onLostPointerCapture={() => { inputRef.current.boost = false; setBoostHeld(false); }}
             >
-              <div style={{ width: 76, height: 76, borderRadius: '50%', border: `2px solid ${scheme.primary}`, background: boostHeld ? scheme.primary : 'rgba(10,20,40,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: boostHeld ? '#0a0a0a' : scheme.primary, letterSpacing: 1, transform: boostHeld ? 'scale(1.12)' : 'scale(1)', transition: 'transform 80ms, background 80ms' }}>BOOST</div>
+              {/* Boost charge ring (Merlin 2026-10-03): the meter was
+                  unreadable, so the charge now wraps the button as an amber
+                  ring — glanceable at speed. Fills with regen/bump charge,
+                  drains on boost, glows while surging. */}
+              {(() => {
+                const m = boostMeter(hud.boostCharge);
+                return (
+                  <div style={{ position: 'relative', width: 88, height: 88 }} role="meter"
+                    aria-label={`Boost charge ${m.pct} percent`} aria-valuenow={m.pct} aria-valuemin={0} aria-valuemax={100}>
+                    <svg width="88" height="88" viewBox="0 0 88 88"
+                      style={{ position: 'absolute', inset: 0, transform: 'rotate(-90deg)', pointerEvents: 'none' }}>
+                      <circle cx="44" cy="44" r="40" fill="none" stroke="rgba(251,191,36,0.16)" strokeWidth="5" />
+                      <circle cx="44" cy="44" r="40" fill="none"
+                        stroke={hud.surging ? '#fde68a' : '#fbbf24'} strokeWidth="5" strokeLinecap="round"
+                        strokeDasharray={m.circumference} strokeDashoffset={m.dashoffset}
+                        style={{
+                          transition: 'stroke-dashoffset 140ms linear',
+                          filter: hud.surging ? 'drop-shadow(0 0 6px #fbbf24)' : 'none',
+                        }} />
+                    </svg>
+                    <div style={{ position: 'absolute', left: 6, top: 6, width: 76, height: 76, borderRadius: '50%', border: `2px solid ${scheme.primary}`, background: boostHeld ? scheme.primary : 'rgba(10,20,40,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: boostHeld ? '#0a0a0a' : scheme.primary, letterSpacing: 1, transform: boostHeld ? 'scale(1.12)' : 'scale(1)', transition: 'transform 80ms, background 80ms' }}>BOOST</div>
+                  </div>
+                );
+              })()}
             </div>
             {/* ride controls: motion + immersion circles; pause/leave adapt to immersion */}
-            <div style={{ position: 'absolute', top: 12, right: 12, display: 'flex', gap: 8, pointerEvents: 'auto', zIndex: 7 }}>
+            <div style={{ position: 'absolute', top: 'calc(12px + env(safe-area-inset-top, 0px))', right: 'calc(12px + env(safe-area-inset-right, 0px))', display: 'flex', gap: 8, pointerEvents: 'auto', zIndex: 7 }}>
               <button
                 aria-label={motion.motionOn ? 'Turn off tilt steering and gyro look' : 'Turn on tilt steering and gyro look'}
                 title="Tilt steering + gyro look"
-                onClick={motion.toggleMotion}
+                onClick={() => { noteControlUse(); motion.toggleMotion(); }}
                 style={css.circleBtn(motion.motionArmed)}
               >
                 ◐
@@ -1488,7 +1595,7 @@ function ShadowRealmInner() {
               <button
                 aria-label={immersed ? 'Exit fullscreen ride' : 'Fullscreen ride'}
                 title={immersed ? 'Exit fullscreen' : 'Fullscreen'}
-                onClick={fsx.toggleFullscreen}
+                onClick={() => { noteControlUse(); fsx.toggleFullscreen(); }}
                 style={css.circleBtn(immersed)}
               >
                 ⛶
@@ -1497,7 +1604,7 @@ function ShadowRealmInner() {
                 <button
                   aria-label="Recenter view and steering neutral"
                   title="Recenter (or double-tap the track)"
-                  onClick={motion.recenter}
+                  onClick={() => { noteControlUse(); motion.recenter('button'); }}
                   style={css.circleBtn(false)}
                 >
                   ⟳
@@ -1506,7 +1613,7 @@ function ShadowRealmInner() {
               <button
                 aria-label={paused ? 'Resume ride' : 'Pause ride'}
                 title={paused ? 'Ride' : 'Hold'}
-                onClick={() => setPaused((p) => !p)}
+                onClick={() => { noteControlUse(); setPaused((p) => !p); }}
                 style={css.circleBtn(paused)}
               >
                 {paused ? '▶' : '❚❚'}
