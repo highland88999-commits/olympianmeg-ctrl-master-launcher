@@ -1,6 +1,5 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
-import { submenuArtFor } from '@/lib/god-menus';
 import { BackButton } from '@/components/ui';
 import { Pit } from '@/components/colosseum/Pit';
 import { ColosseumGame, ROUND_SECONDS, INJECTOR_MAX } from '@/lib/colosseum/game';
@@ -9,26 +8,7 @@ import { fetchTopScores, fetchRoomScores, submitScore } from '@/lib/colosseum/st
 import { fx, unlockFx } from '@/lib/fx';
 import OasisLobby from '@/components/oasis/Lobby';
 import { supabase } from '@/lib/supabase';
-
-
-// Menu Art Transfer batch 2 — submenu art. Background image + dark legibility
-// scrim; a missing image hides itself via onError so the card falls back to
-// its plain style. Never breaks the UI.
-function SubmenuArt({ slot }) {
-  return (
-    <>
-      <img
-        src={submenuArtFor(slot)}
-        alt=""
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-        loading="lazy"
-        onError={(e) => { e.currentTarget.style.display = 'none'; }}
-      />
-      <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-black/55" />
-    </>
-  );
-}
+import { AresBackdrop, AresButton, AresIcon, AresHeader, AresLoader, AresEmpty, AresPanel, ARES } from '@/components/ares/ares-chrome';
 
 function simulateNpcGlory(difficulty) {
   const d = Math.max(1, Math.min(10, Number(difficulty) || 3));
@@ -46,6 +26,7 @@ export default function ColosseumPage() {
   const [result, setResult] = useState(null);
   const [popups, setPopups] = useState([]);
   const [hall, setHall] = useState([]);
+  const [hallLoading, setHallLoading] = useState(true);
   const [roomBoard, setRoomBoard] = useState([]);
   const [playerName, setPlayerName] = useState('GLADIATOR');
   const [saved, setSaved] = useState(false);
@@ -90,7 +71,7 @@ export default function ColosseumPage() {
     } catch {
       setCloudOffline(true);
     }
-    fetchTopScores(10).then(({ scores }) => setHall(scores));
+    fetchTopScores(10).then(({ scores }) => { setHall(scores); setHallLoading(false); });
   }, []);
 
   function popup(text, color) {
@@ -170,7 +151,8 @@ export default function ColosseumPage() {
     setMatch(null);
     setResult(null);
     setScreen('menu');
-    fetchTopScores(10).then(({ scores }) => setHall(scores));
+    setHallLoading(true);
+    fetchTopScores(10).then(({ scores }) => { setHall(scores); setHallLoading(false); });
   }
 
   async function handleSave() {
@@ -196,12 +178,20 @@ export default function ColosseumPage() {
   const championSnap = snap?.enemies?.find((e) => e.type === 'champion');
 
   return (
-    <div className="min-h-dvh bg-[#0a0a10] text-white flex flex-col" style={{ fontFamily: 'system-ui, sans-serif' }}>
+    <div className="relative min-h-dvh bg-[#0a0a10] text-white flex flex-col" style={{ fontFamily: 'system-ui, sans-serif' }}>
+      {/* ARES interior art: page backdrop behind menus (never over gameplay) */}
+      <AresBackdrop src="/images/colosseum/colosseum-bg.webp" strength={0.38} />
       {screen === 'menu' && (
-        <main className="flex-1 flex flex-col items-center px-5 py-8 max-w-xl mx-auto w-full">
-          <BackButton label="Launcher" />
-          <div className="text-5xl mb-2" aria-hidden>⚔️</div>
-          <h1 className="text-4xl font-black tracking-widest text-center">COLOSSEUM</h1>
+        <main className="relative flex-1 flex flex-col items-center px-5 py-8 max-w-xl mx-auto w-full">
+          <div className="w-full flex justify-start mb-4"><BackButton label="Launcher" /></div>
+          <div className="w-full">
+            <AresHeader
+              src="/images/colosseum/colosseum-bg.webp"
+              title="COLOSSEUM"
+              subtitle="Battle · Competition · Defense"
+              icon="sword"
+            />
+          </div>
           <p className="text-white/60 text-center mt-2 mb-8">
             Sixty seconds in the pit. Tap gladiators to strike them down.
             Chain kills for combos, finish the wounded for double glory.
@@ -215,26 +205,28 @@ export default function ColosseumPage() {
           )}
 
           <div className="w-full space-y-3">
-            <button
+            <AresButton
+              icon="sword"
+              tone="gold"
               onClick={() => startGame('arena')}
-              className="relative w-full min-h-[60px] overflow-hidden rounded-2xl bg-gradient-to-r from-teal-500 to-emerald-600 font-bold text-lg tracking-wide active:scale-[0.98]"
+              className="w-full min-h-[60px] text-base"
             >
-              <SubmenuArt slot="submenu-prog-colosseum-enter-the-pit" />
-              <span className="relative block">
-                ⚔️ ENTER THE PIT
-                <span className="block text-xs font-normal opacity-80">60 seconds · endless waves</span>
+              <span className="flex flex-col items-center leading-tight">
+                <span>ENTER THE PIT</span>
+                <span className="block text-[11px] font-normal normal-case tracking-normal opacity-80">60 seconds · endless waves</span>
               </span>
-            </button>
-            <button
+            </AresButton>
+            <AresButton
+              icon="crown"
+              tone="crimson"
               onClick={() => startGame('boss')}
-              className="relative w-full min-h-[60px] overflow-hidden rounded-2xl bg-gradient-to-r from-red-600 to-orange-600 font-bold text-lg tracking-wide active:scale-[0.98]"
+              className="w-full min-h-[60px] text-base"
             >
-              <SubmenuArt slot="submenu-prog-colosseum-challenge-the-champion" />
-              <span className="relative block">
-                👑 CHALLENGE THE CHAMPION
-                <span className="block text-xs font-normal opacity-80">Face the Undying Champion herself</span>
+              <span className="flex flex-col items-center leading-tight">
+                <span>CHALLENGE THE CHAMPION</span>
+                <span className="block text-[11px] font-normal normal-case tracking-normal opacity-80">Face the Undying Champion herself</span>
               </span>
-            </button>
+            </AresButton>
           </div>
 
           <div className="w-full mt-8">
@@ -257,36 +249,47 @@ export default function ColosseumPage() {
           </div>
 
           <div className="w-full mt-8">
-            <h2 className="text-sm font-bold tracking-widest text-white/50 mb-3">🏛️ HALL OF CHAMPIONS</h2>
-            {hall.length === 0 ? (
-              <p className="text-white/40 text-sm">No legends yet. Be the first.</p>
+            <h2 className="text-sm font-bold tracking-widest text-white/50 mb-3">HALL OF CHAMPIONS</h2>
+            {hallLoading ? (
+              <AresLoader label="SUMMONING CHAMPIONS" />
+            ) : hall.length === 0 ? (
+              <AresEmpty title="NO LEGENDS YET" hint="Be the first to carve your name into the stone." />
             ) : (
-              <ol className="space-y-1">
-                {hall.map((s, i) => (
-                  <li key={s.id} className="flex justify-between text-sm bg-white/5 rounded-lg px-3 py-2">
-                    <span className="text-white/70">{i + 1}. {s.player_name}</span>
-                    <span className="font-bold text-amber-300">{s.score.toLocaleString()}</span>
-                  </li>
-                ))}
-              </ol>
+              <AresPanel className="p-2">
+                <ol className="space-y-1">
+                  {hall.map((s, i) => (
+                    <li key={s.id} className="flex justify-between items-center text-sm rounded-lg px-3 py-2">
+                      <span className="text-white/70 flex items-center gap-2">
+                        {i === 0 && <AresIcon name="crown" className="h-4 w-4" style={{ color: ARES.gold }} />}
+                        {i + 1}. {s.player_name}
+                      </span>
+                      <span className="font-bold" style={{ color: ARES.goldSoft }}>{s.score.toLocaleString()}</span>
+                    </li>
+                  ))}
+                </ol>
+              </AresPanel>
             )}
           </div>
 
-          <button
+          <AresButton
+            icon="help"
+            tone="ghost"
             onClick={() => setShowHow((v) => !v)}
-            className="mt-8 text-sm text-teal-300 underline min-h-[44px]"
+            className="mt-8"
           >
             {showHow ? 'Hide the rules' : 'How to play'}
-          </button>
+          </AresButton>
           {showHow && (
-            <div className="w-full text-sm text-white/70 space-y-2 bg-white/5 rounded-2xl p-4 mt-2">
+            <AresPanel className="w-full mt-2 p-4">
+              <div className="text-sm text-white/70 space-y-2">
               <p>👆 <b>Tap a gladiator</b> to strike. Shade takes 2 hits, Swift 1 (but fast), Brute 4.</p>
               <p>💛 A gladiator flashing gold is <b>staggered</b> — strike now for a <b>finishing move: double glory</b>.</p>
               <p>🔥 Kills within 3 seconds chain a <b>combo</b>, up to 8× glory.</p>
               <p>⚡ Every kill charges your <b>Injector</b>. When full, unleash a shockwave that wounds everything.</p>
               <p>🛡️ Gladiators that reach the center cost you a heart. You have 3.</p>
               <p>👑 The Undying Champion has huge health and <b>enrages below 25%</b> — her breakthroughs cost 2 hearts.</p>
-            </div>
+              </div>
+            </AresPanel>
           )}
 
           <a href="/colosseum/accord" className="mt-6 text-xs text-white/40 underline min-h-[44px] flex items-center">
@@ -318,17 +321,17 @@ export default function ColosseumPage() {
               <div className="flex gap-2 pointer-events-auto">
                 <button
                   onClick={() => setMuted((m) => !m)}
-                  className="w-11 h-11 rounded-full bg-black/50 backdrop-blur text-lg"
+                  className="w-11 h-11 rounded-full bg-black/50 backdrop-blur text-zinc-200 flex items-center justify-center border border-zinc-700"
                   aria-label={muted ? 'Unmute' : 'Mute'}
                 >
-                  {muted ? '🔇' : '🔊'}
+                  <AresIcon name={muted ? 'mute' : 'sound'} className="h-5 w-5" />
                 </button>
                 <button
                   onClick={() => g.togglePause()}
-                  className="w-11 h-11 rounded-full bg-black/50 backdrop-blur text-lg"
+                  className="w-11 h-11 rounded-full bg-black/50 backdrop-blur text-zinc-200 flex items-center justify-center border border-zinc-700"
                   aria-label="Pause"
                 >
-                  ⏸️
+                  <AresIcon name="pause" className="h-5 w-5" />
                 </button>
               </div>
             </div>
@@ -363,14 +366,14 @@ export default function ColosseumPage() {
             <button
               onClick={() => g.inject()}
               disabled={!(snap?.injectorReady)}
-              className={`w-20 h-20 rounded-full font-black text-xs tracking-wide border-2 ${
+              className={`w-20 h-20 rounded-full font-black text-xs tracking-wide border-2 flex flex-col items-center justify-center gap-0.5 ${
                 snap?.injectorReady
                   ? 'bg-teal-500 border-teal-200 text-black animate-pulse active:scale-95'
                   : 'bg-black/50 border-white/20 text-white/50'
               }`}
             >
-              ⚡
-              <span className="block">{snap?.injector ?? 0}/{INJECTOR_MAX}</span>
+              <AresIcon name="zap" className="h-5 w-5" />
+              <span>{snap?.injector ?? 0}/{INJECTOR_MAX}</span>
             </button>
           </div>
 
@@ -388,19 +391,22 @@ export default function ColosseumPage() {
           {/* pause overlay */}
           {snap?.paused && !result && (
             <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center gap-4 z-10">
-              <h2 className="text-3xl font-black tracking-widest">PAUSED</h2>
-              <button
-                onClick={() => g.togglePause()}
-                className="min-h-[52px] px-8 rounded-2xl bg-teal-500 font-bold text-black"
-              >
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0"
+                style={{
+                  backgroundImage: `url('${ARES.panelTile}')`,
+                  backgroundSize: '512px 512px',
+                  opacity: 0.18,
+                }}
+              />
+              <h2 className="relative text-3xl font-black tracking-widest">PAUSED</h2>
+              <AresButton icon="play" tone="gold" onClick={() => g.togglePause()} className="relative">
                 RESUME
-              </button>
-              <button
-                onClick={quitToMenu}
-                className="min-h-[52px] px-8 rounded-2xl bg-white/10 font-bold"
-              >
+              </AresButton>
+              <AresButton icon="home" tone="ghost" onClick={quitToMenu} className="relative">
                 QUIT TO MENU
-              </button>
+              </AresButton>
             </div>
           )}
 
@@ -428,18 +434,18 @@ export default function ColosseumPage() {
                 <div className="text-xs tracking-widest text-white/50 mb-6">GLORY</div>
 
                 <div className="grid grid-cols-3 gap-2 w-full mb-6">
-                  <div className="bg-white/5 rounded-xl p-3 text-center">
+                  <AresPanel className="p-3 text-center">
                     <div className="text-xl font-bold">{result.kills}</div>
                     <div className="text-[10px] text-white/50 tracking-widest">KILLS</div>
-                  </div>
-                  <div className="bg-white/5 rounded-xl p-3 text-center">
+                  </AresPanel>
+                  <AresPanel className="p-3 text-center">
                     <div className="text-xl font-bold text-yellow-300">{result.finishes}</div>
                     <div className="text-[10px] text-white/50 tracking-widest">FINISHES</div>
-                  </div>
-                  <div className="bg-white/5 rounded-xl p-3 text-center">
+                  </AresPanel>
+                  <AresPanel className="p-3 text-center">
                     <div className="text-xl font-bold text-teal-300">x{Math.min(result.bestCombo, 8)}</div>
                     <div className="text-[10px] text-white/50 tracking-widest">BEST COMBO</div>
-                  </div>
+                  </AresPanel>
                 </div>
 
                 {/* NPC head-to-head */}
@@ -467,16 +473,18 @@ export default function ColosseumPage() {
                       PARTY ROOM {result.room.room_code} — shared leaderboard
                     </div>
                     {roomBoard.length === 0 ? (
-                      <p className="text-white/40 text-sm">No saved scores in this room yet.</p>
+                      <AresEmpty title="NO ROOM SCORES YET" hint="Save your glory to start this room's board." />
                     ) : (
-                      <ol className="space-y-1">
-                        {roomBoard.map((s, i) => (
-                          <li key={s.id} className="flex justify-between text-sm bg-white/5 rounded-lg px-3 py-2">
-                            <span className="text-white/70">{i + 1}. {s.player_name}</span>
-                            <span className="font-bold text-amber-300">{s.score.toLocaleString()}</span>
-                          </li>
-                        ))}
-                      </ol>
+                      <AresPanel className="p-2">
+                        <ol className="space-y-1">
+                          {roomBoard.map((s, i) => (
+                            <li key={s.id} className="flex justify-between text-sm rounded-lg px-3 py-2">
+                              <span className="text-white/70">{i + 1}. {s.player_name}</span>
+                              <span className="font-bold" style={{ color: ARES.goldSoft }}>{s.score.toLocaleString()}</span>
+                            </li>
+                          ))}
+                        </ol>
+                      </AresPanel>
                     )}
                   </div>
                 )}
@@ -491,31 +499,27 @@ export default function ColosseumPage() {
                       maxLength={24}
                       className="flex-1 min-h-[52px] rounded-2xl bg-white/10 px-4 text-white placeholder:text-white/30 outline-none"
                     />
-                    <button
+                    <AresButton
+                      icon="save"
+                      tone="gold"
                       onClick={handleSave}
                       disabled={saving}
-                      className="min-h-[52px] px-6 rounded-2xl bg-amber-400 text-black font-bold disabled:opacity-50"
+                      className="shrink-0"
                     >
-                      {saving ? '…' : 'SAVE'}
-                    </button>
+                      {saving ? 'SAVING…' : 'SAVE'}
+                    </AresButton>
                   </div>
                 ) : (
                   <p className="text-teal-300 text-sm mb-4">✓ Glory recorded in the Hall of Champions</p>
                 )}
 
                 <div className="w-full space-y-2">
-                  <button
-                    onClick={() => startGame(mode, match)}
-                    className="w-full min-h-[52px] rounded-2xl bg-teal-500 text-black font-bold"
-                  >
+                  <AresButton icon="sword" tone="gold" onClick={() => startGame(mode, match)} className="w-full">
                     FIGHT AGAIN
-                  </button>
-                  <button
-                    onClick={quitToMenu}
-                    className="w-full min-h-[52px] rounded-2xl bg-white/10 font-bold"
-                  >
+                  </AresButton>
+                  <AresButton icon="home" tone="ghost" onClick={quitToMenu} className="w-full">
                     MAIN MENU
-                  </button>
+                  </AresButton>
                 </div>
               </div>
             </div>
@@ -526,4 +530,3 @@ export default function ColosseumPage() {
     </div>
   );
 }
-

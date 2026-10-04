@@ -23,6 +23,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { BackButton } from '@/components/ui';
+import { AresIcon, AresLoader, AresEmpty } from '@/components/ares/ares-chrome';
 import {
   buildDeck,
   shuffleDeck,
@@ -301,13 +302,20 @@ export default function StarbloodPage() {
       <style>{STARBLOOD_CSS}</style>
 
       <div className="sb-bg" aria-hidden="true">
+        {/* ARES still art behind the ambient video — shows if the video stalls */}
+        <img src="/images/starblood/starblood-bg.webp" alt="" aria-hidden="true" draggable={false} className="sb-still" />
         <video autoPlay muted loop playsInline src={BG_VIDEO} />
       </div>
 
       <div className="sb-shell">
         <header className="sb-topbar">
           <BackButton />
-          <h1 className="sb-title">STARBLOOD</h1>
+          <h1 className="sb-title">
+            <span style={{ display: 'inline-flex', verticalAlign: '-2px', marginRight: 10, color: '#d4af37' }}>
+              <AresIcon name="star" className="h-6 w-6" />
+            </span>
+            STARBLOOD
+          </h1>
           <div className="sb-hud" aria-live="polite">
             {phase === 'playing' || phase === 'won' ? (
               <span>FLIPS {flips} · MATCHED {matches}/10</span>
@@ -328,7 +336,10 @@ export default function StarbloodPage() {
         </div>
 
         <div className="sb-controls">
-          <Link href="/hermes" className="holo-blue-btn">HERMES MALL</Link>
+          <Link href="/hermes" className="holo-blue-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <AresIcon name="rocket" className="h-4 w-4" />
+            HERMES MALL
+          </Link>
           <div
             id="deck-frame"
             ref={deckFrameRef}
@@ -338,7 +349,8 @@ export default function StarbloodPage() {
             aria-label="Deal the cards"
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') deploy(); }}
           />
-          <button type="button" className="holo-blue-btn" onClick={openBoard}>
+          <button type="button" className="holo-blue-btn" onClick={openBoard} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <AresIcon name="trophy" className="h-4 w-4" />
             BOARD
           </button>
         </div>
@@ -369,7 +381,9 @@ export default function StarbloodPage() {
                     className="restart-btn"
                     onClick={saveScore}
                     disabled={saving || !username.trim()}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
                   >
+                    <AresIcon name="save" className="h-4 w-4" />
                     {saving ? 'SAVING…' : 'SAVE SCORE'}
                   </button>
                 </div>
@@ -381,12 +395,12 @@ export default function StarbloodPage() {
             )}
 
             <div className="scroll-area">
-              {boardState === 'loading' && <p className="sb-muted">Reading the world board…</p>}
+              {boardState === 'loading' && <AresLoader label="READING THE WORLD BOARD" />}
               {boardState === 'offline' && (
                 <p className="sb-warn">GLOBAL BOARD OFFLINE — {boardMsg}</p>
               )}
               {boardState === 'ready' && entries.length === 0 && (
-                <p className="sb-muted">No scores yet. Be the first blood.</p>
+                <AresEmpty title="NO SCORES YET" hint="Be the first blood on the world board." />
               )}
               {boardState === 'ready' && entries.length > 0 && (
                 <table className="leaderboard-table">
@@ -408,12 +422,17 @@ export default function StarbloodPage() {
             </div>
 
             <div className="restart-strip">
-              <button type="button" className="restart-btn" onClick={restart}>RESTART</button>
+              <button type="button" className="restart-btn" onClick={restart} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <AresIcon name="rotate" className="h-4 w-4" />
+                RESTART
+              </button>
               <button
                 type="button"
                 className="restart-btn sb-ghost"
                 onClick={() => setBoardOpen(false)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
               >
+                <AresIcon name="close" className="h-4 w-4" />
                 CLOSE
               </button>
             </div>
@@ -429,7 +448,7 @@ export default function StarbloodPage() {
             aria-label="Close rune codex"
             onClick={() => setCodexOpen(false)}
           >
-            ×
+            <AresIcon name="close" className="h-5 w-5" />
           </button>
           <h1 className="sb-codex-title">RUNE CODEX</h1>
           <div>
@@ -467,7 +486,8 @@ const STARBLOOD_CSS = `
   z-index: 1;
 }
 #starblood-root .sb-bg { position: absolute; inset: 0; opacity: 0.4; pointer-events: none; }
-#starblood-root .sb-bg video { width: 100%; height: 100%; object-fit: cover; }
+#starblood-root .sb-bg video { width: 100%; height: 100%; object-fit: cover; position: relative; }
+#starblood-root .sb-still { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 #starblood-root .sb-shell {
   position: relative; height: 100dvh;
   display: flex; flex-direction: column;
@@ -558,6 +578,13 @@ const STARBLOOD_CSS = `
   box-shadow: 0 0 30px rgba(255,0,0,0.2), inset 0 0 15px rgba(255,0,0,0.3);
   position: relative; overflow: hidden;
 }
+/* ARES panel texture behind the leaderboard card content */
+#starblood-root .holoframe::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background-image: url('/images/ares/ares-panel.webp');
+  background-size: 512px 512px; opacity: 0.18;
+}
+#starblood-root .holoframe > * { position: relative; }
 #starblood-root #leaderboard-title {
   color: var(--blood-glow); text-align: center; letter-spacing: 10px;
   margin: 0 0 5px 0; cursor: pointer; font-size: 1.4rem;

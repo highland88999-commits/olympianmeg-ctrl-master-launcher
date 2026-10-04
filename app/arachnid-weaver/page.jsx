@@ -7,6 +7,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { fx, unlockFx, throttle } from "@/lib/fx";
+import { AresBackdrop, AresButton, AresIcon, ARES } from "@/components/ares/ares-chrome";
 import {
   ARENA,
   PLAYER,
@@ -549,6 +550,8 @@ export default function ArachnidWeaver() {
         WebkitUserSelect: "none",
       }}
     >
+      {/* ARES interior art: page backdrop behind menus/HUD (never over gameplay) */}
+      <AresBackdrop src="/images/arachnid-weaver/arachnid-weaver-bg.webp" strength={0.35} />
       <div ref={wrapRef} style={{ position: "absolute", inset: 0, touchAction: "none" }}>
         <canvas ref={canvasRef} style={{ display: "block" }} />
       </div>
@@ -669,8 +672,29 @@ export default function ArachnidWeaver() {
             background:
               "radial-gradient(ellipse at center, rgba(10,6,18,0.55) 0%, rgba(4,2,8,0.92) 100%)",
             padding: 24,
+            zIndex: 5,
           }}
         >
+          {/* ARES interior art behind the title */}
+          <img
+            src="/images/arachnid-weaver/arachnid-weaver-bg.webp"
+            alt=""
+            aria-hidden="true"
+            draggable={false}
+            style={{
+              position: "absolute",
+              inset: 0,
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              opacity: 0.45,
+              pointerEvents: "none",
+            }}
+          />
+          <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center" }}>
+          <div style={{ color: ARES.goldSoft, marginBottom: 6 }}>
+            <AresIcon name="eye" className="h-10 w-10" />
+          </div>
           <div
             style={{
               fontSize: "clamp(28px, 6vw, 54px)",
@@ -709,29 +733,15 @@ export default function ArachnidWeaver() {
             <br />
             SPRINT — hold SHIFT, SPACE, or the SPRINT button
           </div>
-          <button
-            onClick={startGame}
-            style={{
-              marginTop: 30,
-              padding: "14px 42px",
-              fontSize: 15,
-              letterSpacing: 4,
-              fontFamily: "inherit",
-              background: "rgba(120,60,200,0.16)",
-              border: "2px solid #b07fff",
-              color: "#e8dcff",
-              borderRadius: 8,
-              cursor: "pointer",
-              boxShadow: "0 0 18px rgba(150,90,255,0.35)",
-            }}
-          >
+          <AresButton icon="flame" tone="gold" onClick={startGame} style={{ marginTop: 30 }}>
             ENTER THE NEST
-          </button>
+          </AresButton>
           {best > 0 && (
             <div style={{ marginTop: 16, color: "#8f9bb3", fontSize: 12, letterSpacing: 2 }}>
               BEST SCORE {best}
             </div>
           )}
+          </div>
         </div>
       )}
 
@@ -749,8 +759,29 @@ export default function ArachnidWeaver() {
             overflowY: "auto",
             background: "rgba(8,3,10,0.88)",
             padding: 24,
+            zIndex: 5,
           }}
         >
+          {/* ARES interior art behind the death screen */}
+          <img
+            src="/images/arachnid-weaver/arachnid-weaver-bg.webp"
+            alt=""
+            aria-hidden="true"
+            draggable={false}
+            style={{
+              position: "absolute",
+              inset: 0,
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              opacity: 0.3,
+              pointerEvents: "none",
+            }}
+          />
+          <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center" }}>
+          <div style={{ color: "#ff8d8d", marginBottom: 6 }}>
+            <AresIcon name="skull" className="h-10 w-10" />
+          </div>
           <div
             style={{
               fontSize: "clamp(26px, 5vw, 44px)",
@@ -772,23 +803,10 @@ export default function ArachnidWeaver() {
               Best {Math.max(best, deadStats.score)}
             </span>
           </div>
-          <button
-            onClick={startGame}
-            style={{
-              marginTop: 28,
-              padding: "14px 42px",
-              fontSize: 15,
-              letterSpacing: 4,
-              fontFamily: "inherit",
-              background: "rgba(120,60,200,0.16)",
-              border: "2px solid #b07fff",
-              color: "#e8dcff",
-              borderRadius: 8,
-              cursor: "pointer",
-            }}
-          >
+          <AresButton icon="rotate" tone="crimson" onClick={startGame} style={{ marginTop: 28 }}>
             RUN AGAIN
-          </button>
+          </AresButton>
+          </div>
         </div>
       )}
 

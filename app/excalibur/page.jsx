@@ -6,6 +6,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { BackButton } from '@/components/ui';
+import { AresButton } from '@/components/ares/ares-chrome';
 import { fx, unlockFx } from '@/lib/fx';
 import { createMachine, STATES } from './stateMachine.js';
 import { createExcaliburScene } from './scene.js';
@@ -166,8 +167,21 @@ export default function ExcaliburPage() {
           style={{ touchAction: 'manipulation' }}
           aria-label={copy.sub}
         >
-          <span className="excalibur-title text-white px-5">{copy.title}</span>
-          <span className="excalibur-ticker mt-6">{copy.sub}</span>
+          {/* ARES interior art: mythic backdrop behind the intro menu */}
+          <span aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
+            <img
+              src="/images/excalibur/excalibur-bg.webp"
+              alt=""
+              draggable={false}
+              className="h-full w-full object-cover opacity-55"
+            />
+            <span
+              className="absolute inset-0"
+              style={{ background: 'linear-gradient(180deg, rgba(1,1,3,0.25) 0%, rgba(1,1,3,0.88) 100%)' }}
+            />
+          </span>
+          <span className="excalibur-title relative text-white px-5">{copy.title}</span>
+          <span className="excalibur-ticker relative mt-6">{copy.sub}</span>
         </button>
       )}
 
@@ -206,13 +220,15 @@ export default function ExcaliburPage() {
         <div className="absolute top-[10%] left-0 right-0 z-20 text-center px-6 pointer-events-none">
           <div className="excalibur-banner">{copy.title}</div>
           <div className="excalibur-hint mt-3">{copy.sub}</div>
-          <button
+          <AresButton
+            icon="sword"
+            tone="gold"
             onClick={() => setBannerDismissed(true)}
-            className="pointer-events-auto mt-5 min-h-[44px] px-6 rounded-full bg-black/60 border border-cyan-400/40 text-cyan-100 text-sm tracking-widest uppercase hover:bg-cyan-400/20"
+            className="pointer-events-auto mt-5"
             style={{ touchAction: 'manipulation' }}
           >
             Admire the blade
-          </button>
+          </AresButton>
         </div>
       )}
 

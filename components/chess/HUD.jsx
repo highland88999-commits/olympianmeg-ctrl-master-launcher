@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { AresButton, AresIcon, ARES } from '@/components/ares/ares-chrome';
 
 export default function HUD({ user, sectorId, gameMode, gameStatus, currentTurn, playerColor, isCheck, onResign, opponentName }) {
   const isYourTurn = currentTurn === playerColor;
@@ -25,8 +26,18 @@ export default function HUD({ user, sectorId, gameMode, gameStatus, currentTurn,
   return (
     <div className="absolute top-0 left-0 z-10 flex flex-col justify-between w-full h-full p-4 pointer-events-none sm:p-8">
       <div className="flex flex-col items-start justify-between gap-4 sm:flex-row">
-        <div className="w-full sm:w-auto bg-zinc-950/90 border border-cyan-500/30 p-4 sm:p-5 rounded-lg backdrop-blur-md shadow-[0_0_20px_rgba(0,242,255,0.1)] min-w-[280px]">
-          <div className="flex flex-col gap-2 sm:gap-3">
+        <div className="relative w-full sm:w-auto bg-zinc-950/90 border border-cyan-500/30 p-4 sm:p-5 rounded-lg backdrop-blur-md shadow-[0_0_20px_rgba(0,242,255,0.1)] min-w-[280px] overflow-hidden">
+          {/* ARES HUD panel texture */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0"
+            style={{
+              backgroundImage: `url('${ARES.panelTile}')`,
+              backgroundSize: '512px 512px',
+              opacity: 0.22,
+            }}
+          />
+          <div className="relative flex flex-col gap-2 sm:gap-3">
             <h2 className="text-xs tracking-widest text-cyan-400 uppercase sm:text-sm">Quantum Combat Grid</h2>
             <div className="flex items-center gap-3">
               <div className={`w-3 h-3 rounded-full shadow-[0_0_10px] ${isYourTurn && gameStatus !== 'waiting' ? 'bg-cyan-400 shadow-cyan-400' : 'bg-fuchsia-500 shadow-fuchsia-500'} animate-pulse`} />
@@ -40,20 +51,20 @@ export default function HUD({ user, sectorId, gameMode, gameStatus, currentTurn,
           <div className="flex flex-col pointer-events-auto">
             {isNetworkOpen ? (
               <div className="flex flex-col gap-3 p-4 border rounded-lg sm:p-5 bg-zinc-950/90 border-fuchsia-500/30 backdrop-blur-md shadow-[0_0_20px_rgba(255,0,255,0.1)] transition-all">
-                <div className="flex items-center justify-between"><h2 className="text-xs tracking-widest uppercase text-fuchsia-400 sm:text-sm">Sector Uplink Code</h2><button onClick={() => setIsNetworkOpen(false)} className="text-xs font-bold text-zinc-500 hover:text-white">[ HIDE ]</button></div>
+                <div className="flex items-center justify-between"><h2 className="text-xs tracking-widest uppercase text-fuchsia-400 sm:text-sm">Sector Uplink Code</h2><button onClick={() => setIsNetworkOpen(false)} className="inline-flex items-center gap-1.5 text-xs font-bold text-zinc-500 hover:text-white" aria-label="Hide uplink code"><AresIcon name="eye" className="h-3.5 w-3.5" />HIDE</button></div>
                 <div className="flex items-center gap-2">
                   <div className="px-4 py-2 font-mono text-xl font-bold tracking-[0.2em] text-white bg-black/50 border border-fuchsia-500/50 rounded">{sectorId}</div>
-                  <button onClick={handleCopy} className="px-3 py-2 text-xs font-bold tracking-widest text-fuchsia-400 uppercase transition-colors border rounded border-fuchsia-500/50 hover:bg-fuchsia-500/20 active:bg-fuchsia-500/40">{copied ? 'COPIED' : 'COPY'}</button>
-                  <button onClick={handleShare} className="px-3 py-2 text-xs font-bold tracking-widest text-cyan-400 uppercase transition-colors border rounded border-cyan-500/50 hover:bg-cyan-500/20 active:bg-cyan-500/40">SHARE</button>
+                  <button onClick={handleCopy} className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold tracking-widest text-fuchsia-400 uppercase transition-colors border rounded border-fuchsia-500/50 hover:bg-fuchsia-500/20 active:bg-fuchsia-500/40"><AresIcon name="copy" className="h-3.5 w-3.5" />{copied ? 'COPIED' : 'COPY'}</button>
+                  <button onClick={handleShare} className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold tracking-widest text-cyan-400 uppercase transition-colors border rounded border-cyan-500/50 hover:bg-cyan-500/20 active:bg-cyan-500/40"><AresIcon name="share" className="h-3.5 w-3.5" />SHARE</button>
                 </div>
               </div>
-            ) : <button onClick={() => setIsNetworkOpen(true)} className="px-4 py-2 text-xs font-bold tracking-widest text-fuchsia-400 uppercase transition-colors border rounded bg-zinc-950/90 border-fuchsia-500/50 hover:bg-fuchsia-500/20 shadow-[0_0_15px_rgba(255,0,255,0.15)]">+ VIEW UPLINK CODE</button>}
+            ) : <button onClick={() => setIsNetworkOpen(true)} className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold tracking-widest text-fuchsia-400 uppercase transition-colors border rounded bg-zinc-950/90 border-fuchsia-500/50 hover:bg-fuchsia-500/20 shadow-[0_0_15px_rgba(255,0,255,0.15)]"><AresIcon name="plus" className="h-3.5 w-3.5" />VIEW UPLINK CODE</button>}
           </div>
         )}
       </div>
       <div className="flex items-center justify-between pb-4 pointer-events-auto sm:pb-0 sm:self-start w-full sm:w-auto sm:gap-4">
          <div className="px-6 py-3 text-xs font-bold tracking-widest uppercase border rounded text-zinc-400 bg-black/80 border-zinc-700">OPERATOR: <span className="text-cyan-400">{user}</span></div>
-         {gameStatus === 'active' && <button onClick={confirmResign} className="px-6 py-3 text-xs font-bold tracking-widest uppercase border rounded text-red-500 border-red-500/50 bg-red-950/40 hover:bg-red-500/20 transition-all">RESIGN</button>}
+         {gameStatus === 'active' && <AresButton icon="flag" tone="crimson" onClick={confirmResign} className="min-h-[44px] px-6 py-3">RESIGN</AresButton>}
       </div>
     </div>
   );

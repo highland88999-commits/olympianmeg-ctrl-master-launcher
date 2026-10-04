@@ -1,7 +1,6 @@
 // Streetball — main route component: menu, HUD, game over, input wiring.
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { submenuArtFor } from '@/lib/god-menus';
 import { BackButton } from '@/components/ui';
 import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
@@ -12,6 +11,7 @@ import { fetchTopScores, fetchRoomScores, submitScore, sanitizeName } from '@/li
 import { fx, unlockFx } from '@/lib/fx';
 import OasisLobby from '@/components/oasis/Lobby';
 import { supabase } from '@/lib/supabase';
+import { AresBackdrop, AresButton, AresIcon, AresLoader, AresEmpty, AresPanel, ARES } from '@/components/ares/ares-chrome';
 
 /** Simulate an NPC rival's shootout score from its OASIS difficulty (1-10). */
 function simulateNpcScore(difficulty) {
@@ -104,6 +104,7 @@ export default function BasketballPage() {
   const [popups, setPopups] = useState([]);
   const [scores, setScores] = useState([]);
   const [scoresNote, setScoresNote] = useState('');
+  const [scoresLoading, setScoresLoading] = useState(true);
   const [showHelp, setShowHelp] = useState(false);
   const [muted, setMuted] = useState(false);
   const [playerName, setPlayerName] = useState('');
@@ -151,6 +152,7 @@ export default function BasketballPage() {
     if (screen !== 'menu') return;
     fetchTopScores(10).then(({ scores, error }) => {
       setScores(scores);
+      setScoresLoading(false);
       if (error) setScoresNote('Scores are unavailable right now.');
     });
   }, [screen]);
@@ -301,11 +303,14 @@ export default function BasketballPage() {
 
   return (
     <div className="relative w-screen h-dvh overflow-hidden bg-[#04060c] text-white select-none">
+      {/* ARES interior art: page backdrop behind menus/HUD (never over gameplay) */}
+      <AresBackdrop src="/images/basketball/basketball-bg.webp" strength={0.35} />
       {screen === 'menu' && (
         <MenuScreen
           onPlay={startGame}
           scores={scores}
           scoresNote={scoresNote}
+          scoresLoading={scoresLoading}
           showHelp={showHelp}
           setShowHelp={setShowHelp}
           onOasis={() => setOasisOpen(true)}
@@ -380,7 +385,7 @@ export default function BasketballPage() {
                 </div>
               )}
               {oasisMatch?.kind === 'party' && (
-                <div className="mt-4 w-full max-w-xs bg-black/50 border border-fuchsia-400/40 rounded p-4">
+                <AresPanel className="mt-4 w-full max-w-xs p-4">
                   <div className="text-[10px] tracking-[0.35em] uppercase text-fuchsia-300/80 mb-2">
                     Party room {oasisMatch.roomCode}
                   </div>
@@ -401,10 +406,10 @@ export default function BasketballPage() {
                       </div>
                     ))}
                     {roomScores.length === 0 && (
-                      <p className="text-zinc-500 text-xs tracking-widest uppercase">Waiting for party scores…</p>
+                      <AresEmpty title="WAITING FOR PARTY SCORES" hint="Scores land here once rivals finish." />
                     )}
                   </div>
-                </div>
+                </AresPanel>
               )}
               {snap.score > 0 && !saved && (
                 <div className="flex gap-2 mt-4 w-full max-w-xs">
@@ -415,19 +420,20 @@ export default function BasketballPage() {
                     maxLength={24}
                     className="flex-1 px-4 py-3 bg-black/60 border border-cyan-500/40 rounded text-white placeholder-zinc-500 tracking-widest uppercase text-sm focus:outline-none focus:border-cyan-300"
                   />
-                  <button
+                  <AresButton
+                    icon="save"
+                    tone="gold"
                     onClick={handleSave}
                     disabled={saving}
-                    className="px-4 py-3 bg-cyan-500/20 border border-cyan-400/60 rounded text-cyan-200 text-sm font-bold tracking-widest uppercase hover:bg-cyan-500/40 disabled:opacity-50"
                   >
                     {saving ? 'Saving…' : 'Save'}
-                  </button>
+                  </AresButton>
                 </div>
               )}
               {saved && <p className="text-emerald-300 tracking-widest uppercase text-sm mt-4">Saved to the leaderboard</p>}
               <div className="mt-4 flex flex-col gap-2 w-full max-w-xs">
-                <MenuButton onClick={() => { sfx.current?.stopCrowd(); startGame(mode); }}>Play again</MenuButton>
-                <MenuButton onClick={quitToMenu} dim>Main menu</MenuButton>
+                <MenuButton icon="rotate" onClick={() => { sfx.current?.stopCrowd(); startGame(mode); }}>Play again</MenuButton>
+                <MenuButton icon="home" onClick={quitToMenu} dim>Main menu</MenuButton>
               </div>
             </Overlay>
           )}
@@ -441,25 +447,33 @@ function gameId(g) {
   return g._id || (g._id = Math.random().toString(36).slice(2));
 }
 
-function MenuButton({ children, onClick, dim }) {
+function MenuButton({ children, onClick, dim, icon }) {
   return (
-    <button
+    <AresButton
+      icon={icon}
+      tone={dim ? 'ghost' : 'gold'}
       onClick={onClick}
-      className={`w-full px-6 py-4 rounded border text-sm font-black tracking-[0.25em] uppercase transition-all ${
-        dim
-          ? 'bg-black/40 border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-400'
-          : 'bg-cyan-500/15 border-cyan-400/60 text-cyan-100 hover:bg-cyan-500/35 hover:border-cyan-300'
-      }`}
+      className="w-full"
     >
       {children}
-    </button>
+    </AresButton>
   );
 }
 
 function Overlay({ children }) {
   return (
-    <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-black/70 backdrop-blur-sm px-6 text-center">
-      {children}
+    <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-black/70 backdrop-blur-sm px-6 text-center overflow-hidden">
+      {/* ARES panel texture behind overlay content */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0"
+        style={{
+          backgroundImage: `url('${ARES.panelTile}')`,
+          backgroundSize: '512px 512px',
+          opacity: 0.15,
+        }}
+      />
+      <div className="relative flex flex-col items-center gap-3 w-full">{children}</div>
     </div>
   );
 }
@@ -503,14 +517,15 @@ function Hud({ snap, muted, onMute, onPause, onQuit }) {
           )}
         </div>
         <div className="flex gap-2 pointer-events-auto">
-          <button onClick={onMute} className="w-11 h-11 rounded border border-zinc-700 bg-black/60 text-zinc-300 text-sm font-bold hover:border-cyan-400 hover:text-cyan-300" aria-label="Sound on or off">
-            {muted ? '🔇' : '🔊'}
+          <button onClick={onMute} className="w-11 h-11 rounded border border-zinc-700 bg-black/60 text-zinc-300 hover:border-cyan-400 hover:text-cyan-300 flex items-center justify-center" aria-label={muted ? 'Unmute sound' : 'Mute sound'}>
+            <AresIcon name={muted ? 'mute' : 'sound'} className="h-5 w-5" />
           </button>
-          <button onClick={onPause} className="h-11 px-4 rounded border border-zinc-700 bg-black/60 text-zinc-300 text-xs font-bold tracking-widest uppercase hover:border-cyan-400 hover:text-cyan-300">
+          <button onClick={onPause} className="h-11 px-4 rounded border border-zinc-700 bg-black/60 text-zinc-300 hover:border-cyan-400 hover:text-cyan-300 flex items-center gap-2 text-xs font-bold tracking-widest uppercase">
+            <AresIcon name={snap.paused ? 'play' : 'pause'} className="h-4 w-4" />
             {snap.paused ? 'Go' : 'Pause'}
           </button>
-          <button onClick={onQuit} className="w-11 h-11 rounded border border-zinc-700 bg-black/60 text-zinc-300 text-sm font-bold hover:border-red-400 hover:text-red-300" aria-label="Quit to menu">
-            ✕
+          <button onClick={onQuit} className="w-11 h-11 rounded border border-zinc-700 bg-black/60 text-zinc-300 hover:border-red-400 hover:text-red-300 flex items-center justify-center" aria-label="Quit to menu">
+            <AresIcon name="close" className="h-4 w-4" />
           </button>
         </div>
       </div>
@@ -564,30 +579,23 @@ function Popups({ popups }) {
   );
 }
 
-
-// Menu Art Transfer batch 2 — submenu art. Background image + dark legibility
-// scrim; a missing image hides itself via onError so the card falls back to
-// its plain style. Never breaks the UI.
-function SubmenuArt({ slot }) {
+function MenuScreen({ onPlay, scores, scoresNote, scoresLoading, showHelp, setShowHelp, onOasis }) {
   return (
-    <>
+    <div className="absolute inset-0 z-10 overflow-y-auto overflow-hidden bg-gradient-to-b from-[#04060c] via-[#071120] to-[#04060c]">
+      {/* ARES interior art behind the menu */}
       <img
-        src={submenuArtFor(slot)}
+        src="/images/basketball/basketball-bg.webp"
         alt=""
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-        loading="lazy"
-        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+        draggable={false}
+        className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-40"
       />
-      <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-black/55" />
-    </>
-  );
-}
-
-function MenuScreen({ onPlay, scores, scoresNote, showHelp, setShowHelp, onOasis }) {
-  return (
-    <div className="absolute inset-0 z-10 overflow-y-auto bg-gradient-to-b from-[#04060c] via-[#071120] to-[#04060c]">
-      <div className="min-h-full flex flex-col items-center justify-center px-6 py-10 text-center max-w-md mx-auto">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0"
+        style={{ background: 'linear-gradient(180deg, rgba(4,6,12,0.45) 0%, rgba(4,6,12,0.88) 100%)' }}
+      />
+      <div className="relative min-h-full flex flex-col items-center justify-center px-6 py-10 text-center max-w-md mx-auto">
         <div className="text-[10px] tracking-[0.5em] text-cyan-500 uppercase mb-2">Zeus presents</div>
         <h1 className="text-5xl font-black tracking-[0.12em] uppercase text-white">
           Street<span className="text-cyan-400">ball</span>
@@ -595,67 +603,65 @@ function MenuScreen({ onPlay, scores, scoresNote, showHelp, setShowHelp, onOasis
         <p className="text-zinc-400 tracking-[0.25em] uppercase text-xs mt-2">Full-court shootout</p>
 
         <div className="w-full flex flex-col gap-3 mt-8">
-          <button
-            onClick={() => onPlay('shootout')}
-            className="relative overflow-hidden px-6 py-5 rounded border border-cyan-400/60 bg-cyan-500/15 hover:bg-cyan-500/30 transition-all text-left"
-          >
-            <SubmenuArt slot="submenu-prog-basketball-timed-shootout" />
-            <div className="relative text-lg font-black tracking-[0.2em] uppercase text-cyan-100">Timed shootout</div>
-            <div className="relative text-xs text-zinc-400 tracking-widest uppercase mt-1">60 seconds • Streaks earn bonus points</div>
-          </button>
-          <button
-            onClick={() => onPlay('freeplay')}
-            className="relative overflow-hidden px-6 py-5 rounded border border-zinc-700 bg-black/40 hover:border-zinc-400 transition-all text-left"
-          >
-            <SubmenuArt slot="submenu-prog-basketball-free-play" />
-            <div className="relative text-lg font-black tracking-[0.2em] uppercase text-zinc-100">Free play</div>
-            <div className="relative text-xs text-zinc-500 tracking-widest uppercase mt-1">No clock • Just shoot around</div>
-          </button>
-          <button
-            onClick={onOasis}
-            className="relative overflow-hidden px-6 py-5 rounded border border-fuchsia-400/60 bg-fuchsia-500/15 hover:bg-fuchsia-500/30 transition-all text-left"
-          >
-            <SubmenuArt slot="submenu-prog-basketball-oasis-multiplayer" />
-            <div className="relative text-lg font-black tracking-[0.2em] uppercase text-fuchsia-100">OASIS multiplayer</div>
-            <div className="relative text-xs text-zinc-400 tracking-widest uppercase mt-1">Party rooms • Rival matches • Boss battles</div>
-          </button>
-          <button
-            onClick={() => setShowHelp((v) => !v)}
-            className="text-zinc-500 text-xs tracking-[0.3em] uppercase hover:text-zinc-300 mt-1"
-          >
-            {showHelp ? 'Hide how to play ▲' : 'How to play ▼'}
-          </button>
+          <AresButton icon="timer" tone="gold" onClick={() => onPlay('shootout')} className="w-full text-left">
+            <span className="flex flex-col text-left leading-tight">
+              <span className="text-base font-black tracking-[0.2em] uppercase">Timed shootout</span>
+              <span className="text-[11px] font-normal normal-case tracking-wider opacity-75">60 seconds • Streaks earn bonus points</span>
+            </span>
+          </AresButton>
+          <AresButton icon="spark" tone="ghost" onClick={() => onPlay('freeplay')} className="w-full text-left">
+            <span className="flex flex-col text-left leading-tight">
+              <span className="text-base font-black tracking-[0.2em] uppercase">Free play</span>
+              <span className="text-[11px] font-normal normal-case tracking-wider opacity-75">No clock • Just shoot around</span>
+            </span>
+          </AresButton>
+          <AresButton icon="users" tone="crimson" onClick={onOasis} className="w-full text-left">
+            <span className="flex flex-col text-left leading-tight">
+              <span className="text-base font-black tracking-[0.2em] uppercase">OASIS multiplayer</span>
+              <span className="text-[11px] font-normal normal-case tracking-wider opacity-75">Party rooms • Rival matches • Boss battles</span>
+            </span>
+          </AresButton>
+          <AresButton icon="help" tone="ghost" onClick={() => setShowHelp((v) => !v)} className="self-center">
+            {showHelp ? 'Hide how to play' : 'How to play'}
+          </AresButton>
           {showHelp && (
-            <div className="text-left text-sm text-zinc-300 bg-black/40 border border-zinc-800 rounded p-4 space-y-2">
+            <AresPanel className="p-4">
+              <div className="text-left text-sm text-zinc-300 space-y-2">
               <p><span className="text-cyan-300 font-bold">1.</span> Press and drag anywhere to aim — the glowing arc shows your shot.</p>
               <p><span className="text-cyan-300 font-bold">2.</span> Drag <em>down</em> for more power, <em>up</em> for less. Drag sideways to steer.</p>
               <p><span className="text-cyan-300 font-bold">3.</span> Let go to shoot. Nothing but net = <em>Swish!</em> bonus.</p>
               <p><span className="text-cyan-300 font-bold">4.</span> Tap a glowing spot on the court to move there.</p>
               <p><span className="text-cyan-300 font-bold">5.</span> In a shootout, every basket switches ends. Make shots in a row for streak bonuses.</p>
-            </div>
+              </div>
+            </AresPanel>
           )}
         </div>
 
         <div className="w-full mt-8">
           <div className="text-[10px] tracking-[0.4em] text-zinc-500 uppercase mb-3">Top scores</div>
           {scoresNote && <p className="text-zinc-600 text-xs">{scoresNote}</p>}
-          {!scoresNote && scores.length === 0 && (
-            <p className="text-zinc-600 text-sm">No scores yet — be the first!</p>
+          {scoresLoading && !scoresNote ? (
+            <AresLoader label="FETCHING SCORES" />
+          ) : !scoresNote && scores.length === 0 ? (
+            <AresEmpty title="NO SCORES YET" hint="Be the first to light up the board." />
+          ) : (
+          <AresPanel className="p-2">
+            <div className="flex flex-col gap-1.5">
+              {scores.map((s, i) => (
+                <div key={s.id} className="flex items-center justify-between px-4 py-2 rounded text-sm">
+                  <span className="text-zinc-500 font-bold w-8">#{i + 1}</span>
+                  <span className="flex-1 text-left text-zinc-200 tracking-widest uppercase truncate">
+                    {s.player_name}
+                    {s.is_npc && (
+                      <span className="ml-2 inline-block px-1.5 py-0.5 text-[10px] font-black tracking-widest uppercase bg-zinc-700 text-zinc-200 rounded align-middle">CPU</span>
+                    )}
+                  </span>
+                  <span className="font-black" style={{ color: ARES.goldSoft }}>{s.score}</span>
+                </div>
+              ))}
+            </div>
+          </AresPanel>
           )}
-          <div className="flex flex-col gap-1.5">
-            {scores.map((s, i) => (
-              <div key={s.id} className="flex items-center justify-between px-4 py-2 bg-black/40 border border-zinc-800 rounded text-sm">
-                <span className="text-zinc-500 font-bold w-8">#{i + 1}</span>
-                <span className="flex-1 text-left text-zinc-200 tracking-widest uppercase truncate">
-                  {s.player_name}
-                  {s.is_npc && (
-                    <span className="ml-2 inline-block px-1.5 py-0.5 text-[10px] font-black tracking-widest uppercase bg-zinc-700 text-zinc-200 rounded align-middle">CPU</span>
-                  )}
-                </span>
-                <span className="text-cyan-300 font-black">{s.score}</span>
-              </div>
-            ))}
-          </div>
         </div>
 
         <BackButton label="Back to the launcher" />
@@ -666,4 +672,3 @@ function MenuScreen({ onPlay, scores, scoresNote, showHelp, setShowHelp, onOasis
     </div>
   );
 }
-

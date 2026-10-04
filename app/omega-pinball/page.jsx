@@ -13,6 +13,7 @@ import {
   MAX_LEVEL,
 } from './physics';
 import { createRenderer } from './render';
+import { AresBackdrop, AresButton, AresIcon, AresPanel, ARES } from '@/components/ares/ares-chrome';
 
 const FX_COLORS = {
   bumper: '#00ffcc',
@@ -304,6 +305,8 @@ export default function OmegaPinballPage() {
       ref={wrapRef}
       className="fixed inset-0 flex flex-col items-center justify-center bg-black text-white overflow-hidden select-none"
     >
+      {/* ARES interior art: page backdrop behind menus/HUD (never over gameplay) */}
+      <AresBackdrop src="/images/omega-pinball/omega-pinball-bg.webp" strength={0.4} />
       {/* HUD */}
       <div className="absolute top-0 left-0 right-0 z-10 flex items-start justify-between px-4 pt-3 pointer-events-none">
         <div>
@@ -331,9 +334,9 @@ export default function OmegaPinballPage() {
           <button
             onClick={() => setMuted((m) => !m)}
             aria-label={muted ? 'Unmute sounds' : 'Mute sounds'}
-            className="pointer-events-auto min-h-[44px] min-w-[44px] rounded-full border border-cyan-400/40 bg-black/60 px-3 text-cyan-200"
+            className="pointer-events-auto min-h-[44px] min-w-[44px] rounded-full border border-cyan-400/40 bg-black/60 px-3 text-cyan-200 flex items-center justify-center"
           >
-            {muted ? '🔇' : '🔊'}
+            <AresIcon name={muted ? 'mute' : 'sound'} className="h-5 w-5" />
           </button>
           {serving && (
             <button
@@ -343,8 +346,9 @@ export default function OmegaPinballPage() {
               onPointerCancel={() => holdPlunger(false)}
               onContextMenu={(e) => e.preventDefault()}
               aria-label="Hold to charge plunger, release to launch"
-              className="pointer-events-auto min-h-[64px] rounded-xl border-2 border-rose-400 bg-rose-500/20 px-6 font-black uppercase tracking-widest text-rose-200 active:bg-rose-500/50"
+              className="pointer-events-auto min-h-[64px] rounded-xl border-2 border-rose-400 bg-rose-500/20 px-6 font-black uppercase tracking-widest text-rose-200 active:bg-rose-500/50 inline-flex items-center gap-2"
             >
+              <AresIcon name="rocket" className="h-5 w-5" />
               Hold to launch
               {charge > 0 && (
                 <span className="ml-2 inline-block h-3 w-24 overflow-hidden rounded bg-white/10 align-middle">
@@ -361,10 +365,24 @@ export default function OmegaPinballPage() {
 
       {/* Intro overlay */}
       {phase === 'intro' && (
-        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/85 px-6 text-center">
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/85 px-6 text-center overflow-hidden">
+          <img
+            src="/images/omega-pinball/omega-pinball-bg.webp"
+            alt=""
+            aria-hidden="true"
+            draggable={false}
+            className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-40"
+          />
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0"
+            style={{ background: 'linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.9) 100%)' }}
+          />
+          <div className="relative">
           <h1 className="text-4xl font-black uppercase tracking-widest text-cyan-300">Omega Pinball</h1>
           <p className="mt-2 text-sm uppercase tracking-widest text-fuchsia-300">The 99-Level Ascent</p>
-          <div className="mt-6 max-w-sm space-y-2 text-sm text-zinc-300">
+          <AresPanel className="mt-6 max-w-sm p-4">
+            <div className="space-y-2 text-sm text-zinc-300">
             <p>Light all 3 star targets to climb to the next level. 99 levels to the top.</p>
             <p>
               <strong className="text-white">Desktop:</strong> ←/→ or Z/M for flippers, hold Space to charge the
@@ -375,19 +393,34 @@ export default function OmegaPinballPage() {
               Launch button.
             </p>
             <p className="text-zinc-500">Bumpers build a combo multiplier up to 8×. First 8 seconds of each ball are safe.</p>
-          </div>
-          <button
-            onClick={begin}
-            className="mt-8 min-h-[56px] rounded-lg border-2 border-cyan-300 bg-cyan-400/10 px-10 text-xl font-black uppercase tracking-widest text-cyan-200 active:bg-cyan-400/30"
-          >
+            </div>
+          </AresPanel>
+          <AresButton icon="play" tone="gold" onClick={begin} className="mt-8 text-xl">
             Start
-          </button>
+          </AresButton>
+          </div>
         </div>
       )}
 
       {/* Game over / victory */}
       {(phase === 'gameover' || phase === 'victory') && (
-        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/85 px-6 text-center">
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/85 px-6 text-center overflow-hidden">
+          <img
+            src="/images/omega-pinball/omega-pinball-bg.webp"
+            alt=""
+            aria-hidden="true"
+            draggable={false}
+            className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-35"
+          />
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0"
+            style={{ background: 'linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.9) 100%)' }}
+          />
+          <div className="relative">
+          <div className="mx-auto mb-4 flex justify-center" style={{ color: phase === 'victory' ? ARES.goldSoft : '#f87171' }}>
+            <AresIcon name={phase === 'victory' ? 'trophy' : 'skull'} className="h-12 w-12" />
+          </div>
           <h2 className="text-4xl font-black uppercase tracking-widest text-fuchsia-300">
             {phase === 'victory' ? 'Ascended!' : 'Game Over'}
           </h2>
@@ -397,12 +430,10 @@ export default function OmegaPinballPage() {
               : `You reached level ${level} of ${MAX_LEVEL}.`}
           </p>
           <p className="mt-2 text-3xl font-black text-white">{formatScore(score)}</p>
-          <button
-            onClick={begin}
-            className="mt-8 min-h-[56px] rounded-lg border-2 border-cyan-300 bg-cyan-400/10 px-10 text-xl font-black uppercase tracking-widest text-cyan-200 active:bg-cyan-400/30"
-          >
+          <AresButton icon="rotate" tone="gold" onClick={begin} className="mt-8 text-xl">
             Play again
-          </button>
+          </AresButton>
+          </div>
         </div>
       )}
     </div>

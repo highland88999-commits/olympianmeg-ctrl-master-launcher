@@ -6,6 +6,7 @@
 // Zero network calls.
 
 import { useEffect, useRef, useState } from "react";
+import { AresBackdrop, AresButton, AresIcon, ARES } from "@/components/ares/ares-chrome";
 import {
   FIELD,
   PLAYER_CFG,
@@ -505,6 +506,8 @@ export default function Astra() {
         WebkitUserSelect: "none",
       }}
     >
+      {/* ARES interior art: page backdrop behind menus/HUD (never over gameplay) */}
+      <AresBackdrop src="/images/astra/astra-bg.webp" strength={0.35} />
       <div ref={wrapRef} style={{ position: "absolute", inset: 0, touchAction: "none" }}>
         <canvas ref={canvasRef} style={{ display: "block" }} />
       </div>
@@ -628,8 +631,29 @@ export default function Astra() {
             background:
               "radial-gradient(ellipse at center, rgba(2,8,16,0.5) 0%, rgba(1,2,6,0.93) 100%)",
             padding: 24,
+            zIndex: 5,
           }}
         >
+          {/* ARES interior art behind the title */}
+          <img
+            src="/images/astra/astra-bg.webp"
+            alt=""
+            aria-hidden="true"
+            draggable={false}
+            style={{
+              position: "absolute",
+              inset: 0,
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              opacity: 0.45,
+              pointerEvents: "none",
+            }}
+          />
+          <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center" }}>
+          <div style={{ color: ARES.goldSoft, marginBottom: 4 }}>
+            <AresIcon name="rocket" className="h-10 w-10" />
+          </div>
           <div
             style={{
               fontSize: "clamp(40px, 9vw, 76px)",
@@ -645,46 +669,55 @@ export default function Astra() {
           </div>
           <div
             style={{
+              position: "relative",
               marginTop: 24,
               maxWidth: 480,
-              color: "#a9c3d8",
-              fontSize: 14,
-              lineHeight: 1.9,
+              padding: 16,
+              background: "rgba(2,8,16,0.55)",
+              border: "1px solid rgba(212,175,55,0.4)",
+              borderRadius: 10,
+              overflow: "hidden",
             }}
           >
-            Hold the lane against the drone swarm. Cannon for steady fire,
-            Seeker missiles lock the nearest hostile, Hyper bursts you clear
-            and shields you for a breath. Every third level, a capital drone
-            arrives. Your shield regenerates — if you stop getting hit.
+            <div
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                inset: 0,
+                backgroundImage: `url('${ARES.panelTile}')`,
+                backgroundSize: "512px 512px",
+                opacity: 0.2,
+                pointerEvents: "none",
+              }}
+            />
+            <div
+              style={{
+                position: "relative",
+                color: "#a9c3d8",
+                fontSize: 14,
+                lineHeight: 1.9,
+              }}
+            >
+              Hold the lane against the drone swarm. Cannon for steady fire,
+              Seeker missiles lock the nearest hostile, Hyper bursts you clear
+              and shields you for a breath. Every third level, a capital drone
+              arrives. Your shield regenerates — if you stop getting hit.
+            </div>
           </div>
           <div style={{ marginTop: 16, color: "#6f8299", fontSize: 12, lineHeight: 2 }}>
             STEER — WASD / arrows / drag
             <br />
             CANNON — hold SPACE &nbsp;·&nbsp; SEEKER — J &nbsp;·&nbsp; HYPER — K
           </div>
-          <button
-            onClick={start}
-            style={{
-              marginTop: 28,
-              padding: "14px 44px",
-              fontSize: 15,
-              letterSpacing: 5,
-              fontFamily: "inherit",
-              background: "rgba(0,180,255,0.12)",
-              border: "2px solid #35e0ff",
-              color: "#d8f6ff",
-              borderRadius: 8,
-              cursor: "pointer",
-              boxShadow: "0 0 18px rgba(53,224,255,0.35)",
-            }}
-          >
+          <AresButton icon="rocket" tone="gold" onClick={start} style={{ marginTop: 28 }}>
             LAUNCH
-          </button>
+          </AresButton>
           {best > 0 && (
             <div style={{ marginTop: 14, color: "#6f8299", fontSize: 12, letterSpacing: 2 }}>
               BEST {best} KILLS
             </div>
           )}
+          </div>
         </div>
       )}
 
@@ -701,8 +734,29 @@ export default function Astra() {
             overflowY: "auto",
             background: "rgba(2,4,10,0.9)",
             padding: 24,
+            zIndex: 5,
           }}
         >
+          {/* ARES interior art behind the result screen */}
+          <img
+            src="/images/astra/astra-bg.webp"
+            alt=""
+            aria-hidden="true"
+            draggable={false}
+            style={{
+              position: "absolute",
+              inset: 0,
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              opacity: 0.3,
+              pointerEvents: "none",
+            }}
+          />
+          <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center" }}>
+          <div style={{ marginTop: 8, color: "#ff9d9d", letterSpacing: 8 }}>
+            <AresIcon name="skull" className="h-10 w-10 inline-block" />
+          </div>
           <div
             style={{
               fontSize: "clamp(26px, 5vw, 44px)",
@@ -721,23 +775,10 @@ export default function Astra() {
               Best {Math.max(best, endStats.kills)} kills
             </span>
           </div>
-          <button
-            onClick={start}
-            style={{
-              marginTop: 26,
-              padding: "14px 44px",
-              fontSize: 15,
-              letterSpacing: 5,
-              fontFamily: "inherit",
-              background: "rgba(0,180,255,0.12)",
-              border: "2px solid #35e0ff",
-              color: "#d8f6ff",
-              borderRadius: 8,
-              cursor: "pointer",
-            }}
-          >
+          <AresButton icon="rotate" tone="gold" onClick={start} style={{ marginTop: 26 }}>
             FLY AGAIN
-          </button>
+          </AresButton>
+          </div>
         </div>
       )}
 

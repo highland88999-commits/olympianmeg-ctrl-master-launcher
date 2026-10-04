@@ -6,6 +6,7 @@ import { useEffect, useState, Suspense } from 'react'
 import { useRouter } from 'next/navigation'
 import { BackButton } from '@/components/ui'
 import { supabase } from '@/lib/supabase'
+import { AresBackdrop, AresLoader } from '@/components/ares/ares-chrome'
 
 import GameBoard from '@/components/battleship/GameBoard'
 import Ship from '@/components/battleship/Ship'
@@ -84,10 +85,12 @@ export default function Game() {
     </div>
   )
 
-  if (!mounted || !session) return <div className="w-screen h-dvh bg-black" />
+  if (!mounted || !session) return <AresLoader label="ESTABLISHING UPLINK" />
 
   return (
     <div className="relative w-screen h-dvh overflow-hidden bg-black">
+      {/* ARES interior art: page backdrop behind menus/HUD (never over gameplay) */}
+      <AresBackdrop src="/images/battleship/battleship-bg.webp" strength={0.35} />
       <BackButton label="EXIT MATRIX" />
 
       {!roomId && <Lobby />}

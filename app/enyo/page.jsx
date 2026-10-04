@@ -5,7 +5,6 @@
 // fire. Mobile: left stick moves, right side drags to look, FIRE button.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { submenuArtFor } from '@/lib/god-menus';
 import * as THREE from 'three';
 import {
   WEAPONS,
@@ -26,31 +25,7 @@ import {
   hasLineOfSight,
 } from '@/lib/enyo-bots';
 import { fx, unlockFx, setFxEnabled, isFxEnabled } from '@/lib/fx';
-
-
-// Menu Art Transfer batch 2 — submenu art. Background image + dark legibility
-// scrim; a missing image hides itself via onError so the card falls back to
-// its plain style. Never breaks the UI.
-function SubmenuArt({ slot }) {
-  return (
-    <>
-      <img
-        src={submenuArtFor(slot)}
-        alt=""
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-        loading="lazy"
-        onError={(e) => { e.currentTarget.style.display = 'none'; }}
-      />
-      <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-black/55" />
-    </>
-  );
-}
-
-// Arena map key -> submenu art slot suffix.
-const MAP_ART = { plaza: 'ruined-plaza', depot: 'neon-depot', hollow: 'dust-hollow' };
-// Battle mode -> submenu art slot suffix.
-const MODE_ART = { tdm: 'team-battle', ffa: 'free-for-all' };
+import { AresBackdrop, AresButton, AresIcon, AresPanel, ARES } from '@/components/ares/ares-chrome';
 
 const TITLE = 'ENYO — Arena Shooter';
 const EYE = 1.65;
@@ -1382,7 +1357,10 @@ function WeaponCard({ w, selected, onPick }) {
         selected ? 'border-amber-400/80 bg-amber-400/10' : 'border-white/15 bg-white/5 hover:bg-white/10'
       }`}
     >
-      <div className="text-sm font-bold text-neutral-100">{w.name}</div>
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-sm font-bold text-neutral-100">{w.name}</div>
+        {selected && <AresIcon name="check" className="h-4 w-4 shrink-0" style={{ color: ARES.goldSoft }} />}
+      </div>
       <div className="text-[11px] text-neutral-400 mt-0.5 mb-2">{w.desc}</div>
       <div className="space-y-1">
         <StatBar label="Damage" value={w.damage / 90} />
@@ -1514,12 +1492,27 @@ export default function EnyoPage() {
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-black select-none text-neutral-100">
+      {/* ARES interior art: page backdrop behind menus/HUD (never over gameplay) */}
+      <AresBackdrop src="/images/enyo/enyo-bg.webp" strength={0.35} />
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full block" style={{ touchAction: 'none' }} />
 
       {/* ================= MENU ================= */}
       {phase === 'menu' && (
         <div className="absolute inset-0 overflow-y-auto bg-gradient-to-b from-[#0b0e1a] via-[#101424] to-black/95">
-          <div className="max-w-3xl mx-auto px-5 pt-10">
+          {/* ARES interior art behind the menu */}
+          <img
+            src="/images/enyo/enyo-bg.webp"
+            alt=""
+            aria-hidden="true"
+            draggable={false}
+            className="pointer-events-none absolute inset-0 h-full min-h-[100dvh] w-full object-cover opacity-40"
+          />
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 min-h-[100dvh]"
+            style={{ background: 'linear-gradient(180deg, rgba(4,6,12,0.45) 0%, rgba(4,6,12,0.9) 100%)' }}
+          />
+          <div className="relative max-w-3xl mx-auto px-5 pt-10">
             <div className="text-[11px] tracking-[0.4em] uppercase text-red-400/90">Goddess of war</div>
             <h1 className="text-5xl font-black tracking-widest mt-1">ENYO</h1>
             <p className="text-neutral-400 mt-2 text-sm max-w-xl">
@@ -1533,17 +1526,22 @@ export default function EnyoPage() {
                 <button
                   key={m.key}
                   onClick={() => setMapKey(m.key)}
-                  className={`relative text-left p-4 rounded-[10px] border transition-colors overflow-hidden ${
+                  className={`text-left p-4 rounded-[10px] border transition-colors ${
                     mapKey === m.key ? 'border-amber-400/80 bg-amber-400/10' : 'border-white/15 bg-white/5 hover:bg-white/10'
                   }`}
                 >
-                  <SubmenuArt slot={`submenu-prog-enyo-${MAP_ART[m.key]}`} />
                   <div
-                    className="h-14 rounded-lg mb-3"
+                    className="h-14 rounded-lg mb-3 relative"
                     style={{ background: `linear-gradient(135deg, #${m.sky.toString(16).padStart(6, '0')}, #${m.fog.toString(16).padStart(6, '0')})` }}
-                  />
-                  <div className="relative font-bold">{m.name}</div>
-                  <div className="relative text-[11px] text-neutral-400 mt-1">{m.desc}</div>
+                  >
+                    {mapKey === m.key && (
+                      <span className="absolute top-1.5 right-1.5 rounded-full bg-black/60 p-1" style={{ color: ARES.goldSoft }}>
+                        <AresIcon name="check" className="h-3.5 w-3.5" />
+                      </span>
+                    )}
+                  </div>
+                  <div className="font-bold">{m.name}</div>
+                  <div className="text-[11px] text-neutral-400 mt-1">{m.desc}</div>
                 </button>
               ))}
             </div>
@@ -1552,23 +1550,33 @@ export default function EnyoPage() {
             <div className="grid grid-cols-2 gap-3">
               <button
                 onClick={() => setMode('tdm')}
-                className={`relative p-4 rounded-[10px] border text-left transition-colors overflow-hidden ${
+                className={`p-4 rounded-[10px] border text-left transition-colors ${
                   mode === 'tdm' ? 'border-amber-400/80 bg-amber-400/10' : 'border-white/15 bg-white/5 hover:bg-white/10'
                 }`}
               >
-                <SubmenuArt slot={`submenu-prog-enyo-${MODE_ART.tdm}`} />
-                <div className="relative font-bold">Team battle</div>
-                <div className="relative text-[11px] text-neutral-400 mt-1">You + 2 allies vs 3 enemies. First team to 30 wins.</div>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-bold flex items-center gap-2">
+                    <AresIcon name="users" className="h-4 w-4" style={{ color: ARES.goldSoft }} />
+                    Team battle
+                  </div>
+                  {mode === 'tdm' && <AresIcon name="check" className="h-4 w-4 shrink-0" style={{ color: ARES.goldSoft }} />}
+                </div>
+                <div className="text-[11px] text-neutral-400 mt-1">You + 2 allies vs 3 enemies. First team to 30 wins.</div>
               </button>
               <button
                 onClick={() => setMode('ffa')}
-                className={`relative p-4 rounded-[10px] border text-left transition-colors overflow-hidden ${
+                className={`p-4 rounded-[10px] border text-left transition-colors ${
                   mode === 'ffa' ? 'border-amber-400/80 bg-amber-400/10' : 'border-white/15 bg-white/5 hover:bg-white/10'
                 }`}
               >
-                <SubmenuArt slot={`submenu-prog-enyo-${MODE_ART.ffa}`} />
-                <div className="relative font-bold">Free for all</div>
-                <div className="relative text-[11px] text-neutral-400 mt-1">You vs 5 rivals. First to 20 kills wins.</div>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-bold flex items-center gap-2">
+                    <AresIcon name="crosshair" className="h-4 w-4" style={{ color: ARES.goldSoft }} />
+                    Free for all
+                  </div>
+                  {mode === 'ffa' && <AresIcon name="check" className="h-4 w-4 shrink-0" style={{ color: ARES.goldSoft }} />}
+                </div>
+                <div className="text-[11px] text-neutral-400 mt-1">You vs 5 rivals. First to 20 kills wins.</div>
               </button>
             </div>
 
@@ -1580,13 +1588,18 @@ export default function EnyoPage() {
                   <button
                     key={k}
                     onClick={() => setDiffKey(k)}
-                    className={`relative text-left p-4 rounded-[10px] border transition-colors overflow-hidden ${
+                    className={`text-left p-4 rounded-[10px] border transition-colors ${
                       diffKey === k ? 'border-amber-400/80 bg-amber-400/10' : 'border-white/15 bg-white/5 hover:bg-white/10'
                     }`}
                   >
-                    <SubmenuArt slot={`submenu-prog-enyo-${k}`} />
-                    <div className="relative font-bold">{sk.name}</div>
-                    <div className="relative text-[11px] text-neutral-400 mt-1">{sk.desc}</div>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="font-bold flex items-center gap-2">
+                        <AresIcon name="flame" className="h-4 w-4" style={{ color: ARES.goldSoft }} />
+                        {sk.name}
+                      </div>
+                      {diffKey === k && <AresIcon name="check" className="h-4 w-4 shrink-0" style={{ color: ARES.goldSoft }} />}
+                    </div>
+                    <div className="text-[11px] text-neutral-400 mt-1">{sk.desc}</div>
                   </button>
                 );
               })}
@@ -1611,12 +1624,9 @@ export default function EnyoPage() {
               <div className="sm:col-span-2"><span className="text-neutral-200 font-bold">Touch</span> — left stick moves, drag right side to look, FIRE button shoots</div>
             </div>
 
-            <button
-              onClick={deploy}
-              className="mt-10 w-full py-4 rounded-[10px] bg-red-600 hover:bg-red-500 text-white font-black tracking-[0.35em] text-lg transition-colors"
-            >
+            <AresButton icon="rocket" tone="crimson" onClick={deploy} className="mt-10 w-full text-lg">
               DEPLOY
-            </button>
+            </AresButton>
             <p className="text-center text-[11px] text-neutral-600 mt-3 tracking-wider">
               Bots are procedural combatants — armored figures, not people.
             </p>
@@ -1738,9 +1748,10 @@ export default function EnyoPage() {
           {/* mute */}
           <button
             onClick={toggleMute}
-            className="absolute top-3 left-3 px-3 py-2 rounded-lg bg-black/55 border border-white/10 text-[11px] tracking-widest uppercase text-neutral-300"
+            className="absolute top-3 left-3 px-3 py-2 rounded-lg bg-black/55 border border-white/10 text-[11px] tracking-widest uppercase text-neutral-300 inline-flex items-center gap-2"
             aria-label={muted ? 'Unmute sound' : 'Mute sound'}
           >
+            <AresIcon name={muted ? 'mute' : 'sound'} className="h-3.5 w-3.5" />
             {muted ? 'Muted' : 'Sound on'}
           </button>
 
@@ -1811,6 +1822,9 @@ export default function EnyoPage() {
           className="absolute inset-0 bg-black/70 flex items-center justify-center"
         >
           <div className="text-center">
+            <div className="mx-auto mb-3 flex justify-center" style={{ color: ARES.goldSoft }}>
+              <AresIcon name="play" className="h-10 w-10" />
+            </div>
             <div className="text-2xl font-black tracking-widest">PAUSED</div>
             <div className="text-neutral-400 mt-2 text-sm">Click to jump back in</div>
           </div>
@@ -1819,8 +1833,23 @@ export default function EnyoPage() {
 
       {/* ================= GAME OVER ================= */}
       {phase === 'over' && result && (
-        <div className="absolute inset-0 bg-black/80 flex items-center justify-center p-5 overflow-y-auto">
-          <div className="max-w-md w-full text-center py-8">
+        <div className="absolute inset-0 bg-black/80 flex items-center justify-center p-5 overflow-y-auto overflow-hidden">
+          <img
+            src="/images/enyo/enyo-bg.webp"
+            alt=""
+            aria-hidden="true"
+            draggable={false}
+            className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-35"
+          />
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0"
+            style={{ background: 'linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.9) 100%)' }}
+          />
+          <AresPanel className="relative max-w-md w-full p-8 text-center my-8">
+            <div className="mx-auto mb-4 flex justify-center" style={{ color: result.won ? ARES.goldSoft : '#f87171' }}>
+              <AresIcon name={result.won ? 'trophy' : 'skull'} className="h-12 w-12" />
+            </div>
             <div className={`text-5xl font-black tracking-widest ${result.won ? 'text-amber-400' : 'text-red-500'}`}>
               {result.won ? 'VICTORY' : 'DEFEAT'}
             </div>
@@ -1846,22 +1875,15 @@ export default function EnyoPage() {
                 <div className="text-[10px] tracking-widest uppercase text-neutral-500">Accuracy</div>
               </div>
             </div>
-            <button
-              onClick={deploy}
-              className="mt-8 w-full py-3.5 rounded-[10px] bg-red-600 hover:bg-red-500 font-black tracking-[0.3em] transition-colors"
-            >
+            <AresButton icon="rotate" tone="gold" onClick={deploy} className="mt-8 w-full">
               PLAY AGAIN
-            </button>
-            <button
-              onClick={exitToMenu}
-              className="mt-3 w-full py-3 rounded-[10px] border border-white/20 text-neutral-300 tracking-[0.25em] text-sm hover:bg-white/10 transition-colors"
-            >
+            </AresButton>
+            <AresButton icon="grid" tone="ghost" onClick={exitToMenu} className="mt-3 w-full">
               CHANGE ARENA
-            </button>
-          </div>
+            </AresButton>
+          </AresPanel>
         </div>
       )}
     </div>
   );
 }
-

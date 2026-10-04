@@ -11,7 +11,7 @@ import {
   loadVisualChoice, saveVisualChoice, createKaleidoscope,
 } from './kaleidoscope.js';
 import { fx, unlockFx, setFxEnabled, isFxEnabled } from '@/lib/fx';
-import { submenuArtFor } from '@/lib/god-menus';
+import { AresBackdrop, AresButton, AresIcon, ARES } from '@/components/ares/ares-chrome';
 
 // Air-hockey feedback routes through the central FX library (lib/fx.js):
 // matched sound+haptic pairs, one launcher-wide "Sound & vibration" setting.
@@ -27,26 +27,6 @@ function createSound() {
     win() { fx.gameWin(); }, // match win: full fanfare
     lose() { fx.menuClose(); }, // defeat: soft settle, no buzz-shame
   };
-}
-
-
-// Menu Art Transfer batch 2 — submenu art. Background image + dark legibility
-// scrim; a missing image hides itself via onError so the option falls back to
-// its plain styled chip. Never breaks the UI.
-function SubmenuArt({ slot }) {
-  return (
-    <>
-      <img
-        src={submenuArtFor(slot)}
-        alt=""
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-        loading="lazy"
-        onError={(e) => { e.currentTarget.style.display = 'none'; }}
-      />
-      <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-black/55" />
-    </>
-  );
 }
 
 export default function AirHockeyPage() {
@@ -272,22 +252,26 @@ export default function AirHockeyPage() {
   const winner = hud.winner;
 
     return (
-    <main className="min-h-dvh bg-[#050b12] text-white flex flex-col items-center px-3 py-4 select-none">
-      <header className="w-full max-w-[560px] flex items-center justify-between mb-2">
-        <h1 className="text-xl font-black tracking-widest uppercase">
+    <main className="relative min-h-dvh bg-[#050b12] text-white flex flex-col items-center px-3 py-4 select-none">
+      {/* ARES interior art: page backdrop behind menus/HUD (never over gameplay) */}
+      <AresBackdrop src="/images/air-hockey/air-hockey-bg.webp" strength={0.35} />
+      <header className="relative w-full max-w-[560px] flex items-center justify-between mb-2">
+        <h1 className="text-xl font-black tracking-widest uppercase flex items-center gap-2">
+          <AresIcon name="target" className="h-5 w-5" style={{ color: ARES.goldSoft }} />
           Air <span className="text-cyan-400">Hockey</span>
         </h1>
         <button
           onClick={toggleMute}
-          className="px-3 py-2 text-sm rounded border border-cyan-500/40 bg-black/50 hover:bg-cyan-500/20"
+          className="px-3 py-2 text-sm rounded border border-cyan-500/40 bg-black/50 hover:bg-cyan-500/20 flex items-center gap-2"
           aria-label={muted ? 'Unmute sound' : 'Mute sound'}
         >
-          {muted ? '🔇 Muted' : '🔊 Sound'}
+          <AresIcon name={muted ? 'mute' : 'sound'} className="h-4 w-4" />
+          {muted ? 'Muted' : 'Sound'}
         </button>
       </header>
 
       {/* Scoreboard — plain English */}
-      <div className="w-full max-w-[560px] flex items-stretch justify-between mb-2 text-center">
+      <div className="relative w-full max-w-[560px] flex items-stretch justify-between mb-2 text-center">
         <div className="flex-1 rounded bg-cyan-500/10 border border-cyan-500/30 py-2">
           <div className="text-[11px] uppercase tracking-widest text-cyan-300">You</div>
           <div className="text-3xl font-black">{hud.player}</div>
@@ -317,15 +301,39 @@ export default function AirHockeyPage() {
         />
       </div>
 
-      <p className="mt-2 text-xs text-zinc-500 text-center max-w-[560px]">
+      <p className="relative mt-2 text-xs text-zinc-500 text-center max-w-[560px]">
         Drag your blue mallet with a finger or mouse. Arrow keys or WASD work too.
         Guard your goal at the bottom — first to {WIN_SCORE} wins.
       </p>
 
       {/* Start / difficulty overlay */}
       {!started && (
-        <div className="fixed inset-0 z-10 flex items-center justify-center bg-black/70 p-4">
-          <div className="w-full max-w-sm rounded-xl border border-cyan-500/30 bg-[#0a1622] p-6 text-center">
+        <div className="fixed inset-0 z-10 flex items-center justify-center bg-black/70 p-4 overflow-hidden">
+          {/* ARES interior art behind the start menu */}
+          <img
+            src="/images/air-hockey/air-hockey-bg.webp"
+            alt=""
+            aria-hidden="true"
+            draggable={false}
+            className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-40"
+          />
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0"
+            style={{ background: 'linear-gradient(180deg, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0.88) 100%)' }}
+          />
+          <div className="relative w-full max-w-sm rounded-xl border border-cyan-500/30 bg-[#0a1622]/90 p-6 text-center overflow-hidden">
+            {/* ARES panel texture */}
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0"
+              style={{
+                backgroundImage: `url('${ARES.panelTile}')`,
+                backgroundSize: '512px 512px',
+                opacity: 0.2,
+              }}
+            />
+            <div className="relative">
             <h2 className="text-2xl font-black uppercase tracking-widest mb-1">
               Air <span className="text-cyan-400">Hockey</span>
             </h2>
@@ -337,14 +345,14 @@ export default function AirHockeyPage() {
                   role="radio"
                   aria-checked={difficulty === d}
                   onClick={() => { fx.tap(); setDifficulty(d); }}
-                  className={`relative min-h-[44px] inline-flex items-center justify-center overflow-hidden px-4 py-2 rounded font-bold uppercase text-sm tracking-wider border transition-all ${
+                  className={`px-4 py-2 rounded font-bold uppercase text-sm tracking-wider border transition-all inline-flex items-center gap-1.5 ${
                     difficulty === d
                       ? 'bg-cyan-500/30 border-cyan-400 text-white'
                       : 'bg-black/40 border-zinc-700 text-zinc-400 hover:border-cyan-500/50'
                   }`}
                 >
-                  {difficulty !== d && <SubmenuArt slot={`submenu-prog-air-hockey-${d}`} />}
-                  <span className="relative">{DIFFICULTIES[d].label}</span>
+                  {difficulty === d && <AresIcon name="check" className="h-3.5 w-3.5" />}
+                  {DIFFICULTIES[d].label}
                 </button>
               ))}
             </div>
@@ -356,49 +364,68 @@ export default function AirHockeyPage() {
                   role="radio"
                   aria-checked={visual === v}
                   onClick={() => changeVisual(v)}
-                  className={`relative min-h-[44px] inline-flex items-center justify-center overflow-hidden px-4 py-2 rounded font-bold uppercase text-sm tracking-wider border transition-all ${
+                  className={`px-4 py-2 rounded font-bold uppercase text-sm tracking-wider border transition-all inline-flex items-center gap-1.5 ${
                     visual === v
                       ? 'bg-fuchsia-500/30 border-fuchsia-400 text-white'
                       : 'bg-black/40 border-zinc-700 text-zinc-400 hover:border-fuchsia-500/50'
                   }`}
                 >
-                  {visual !== v && <SubmenuArt slot={`submenu-prog-air-hockey-table-${v}`} />}
-                  <span className="relative">{v === 'kaleidoscope' ? '🌈 Kaleidoscope' : 'Classic table'}</span>
+                  <AresIcon name={v === 'kaleidoscope' ? 'spark' : 'grid'} className="h-4 w-4" />
+                  {v === 'kaleidoscope' ? 'Kaleidoscope' : 'Classic table'}
                 </button>
               ))}
             </div>
-            <button
-              onClick={() => startGame(difficulty)}
-              className="w-full py-3 rounded-lg bg-cyan-500 text-black font-black uppercase tracking-widest text-lg hover:bg-cyan-400 transition-colors"
-            >
+            <AresButton icon="play" tone="gold" onClick={() => startGame(difficulty)} className="w-full text-lg">
               Start match
-            </button>
+            </AresButton>
+            </div>
           </div>
         </div>
       )}
 
       {/* End overlay */}
       {winner && (
-        <div className="fixed inset-0 z-10 flex items-center justify-center bg-black/70 p-4">
-          <div className="w-full max-w-sm rounded-xl border border-cyan-500/30 bg-[#0a1622] p-6 text-center">
+        <div className="fixed inset-0 z-10 flex items-center justify-center bg-black/70 p-4 overflow-hidden">
+          {/* ARES interior art behind the result card */}
+          <img
+            src="/images/air-hockey/air-hockey-bg.webp"
+            alt=""
+            aria-hidden="true"
+            draggable={false}
+            className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-35"
+          />
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0"
+            style={{ background: 'linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.9) 100%)' }}
+          />
+          <div className="relative w-full max-w-sm rounded-xl border border-cyan-500/30 bg-[#0a1622]/90 p-6 text-center overflow-hidden">
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0"
+              style={{
+                backgroundImage: `url('${ARES.panelTile}')`,
+                backgroundSize: '512px 512px',
+                opacity: 0.2,
+              }}
+            />
+            <div className="relative">
+            <div className="mx-auto mb-3 flex justify-center" style={{ color: winner === 'player' ? ARES.goldSoft : '#f87171' }}>
+              <AresIcon name={winner === 'player' ? 'trophy' : 'skull'} className="h-10 w-10" />
+            </div>
             <h2 className={`text-3xl font-black uppercase tracking-widest mb-2 ${winner === 'player' ? 'text-cyan-400' : 'text-red-400'}`}>
               {winner === 'player' ? 'You win!' : 'Rival wins'}
             </h2>
             <p className="text-zinc-400 mb-5">
               Final score {hud.player} – {hud.ai} ({DIFFICULTIES[difficulty].label} rival)
             </p>
-            <button
-              onClick={() => { gameRef.current.start(); setHud({ player: 0, ai: 0, winner: null }); }}
-              className="w-full py-3 rounded-lg bg-cyan-500 text-black font-black uppercase tracking-widest text-lg hover:bg-cyan-400 transition-colors mb-2"
-            >
+            <AresButton icon="rotate" tone="gold" onClick={() => { gameRef.current.start(); setHud({ player: 0, ai: 0, winner: null }); }} className="w-full mb-2 text-lg">
               Play again
-            </button>
-            <button
-              onClick={() => { setStarted(false); setHud({ player: 0, ai: 0, winner: null }); gameRef.current.reset(); }}
-              className="w-full py-2 rounded-lg border border-zinc-700 text-zinc-300 uppercase tracking-widest text-sm hover:border-cyan-500/50"
-            >
+            </AresButton>
+            <AresButton icon="users" tone="ghost" onClick={() => { setStarted(false); setHud({ player: 0, ai: 0, winner: null }); gameRef.current.reset(); }} className="w-full">
               Change rival
-            </button>
+            </AresButton>
+            </div>
           </div>
         </div>
       )}
@@ -406,4 +433,3 @@ export default function AirHockeyPage() {
     </main>
   );
 }
-

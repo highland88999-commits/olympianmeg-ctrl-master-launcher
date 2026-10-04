@@ -32,6 +32,7 @@ import { PROMOTION_CHOICES } from '@/lib/chess/rules';
 // OASIS — universal multiplayer lobby (min-max participation, NPC backfill, bosses)
 import OasisLobby from '@/components/oasis/Lobby';
 import { fx, unlockFx } from '@/lib/fx';
+import { AresBackdrop, AresLoader } from '@/components/ares/ares-chrome';
 
 const PIECE_COMPONENTS = {
   pawn: Pawn,
@@ -350,11 +351,12 @@ export default function QuantumChess() {
     </main>
   )
 
-  if (!user) return <div className="w-screen h-dvh bg-black" />
+  if (!user) return <AresLoader label="ENTERING THE GRID" />
 
   return (
     <main className="relative w-screen h-dvh overflow-hidden bg-[#050505]">
-      
+      {/* ARES interior art: page backdrop behind menus/HUD (3D scene keeps its own sky) */}
+      <AresBackdrop src="/images/chess/chess-bg.webp" strength={0.3} />
       <div className="absolute z-50 top-5 right-5">
         <BackButton label="EXIT MATRIX" href="/" />
       </div>

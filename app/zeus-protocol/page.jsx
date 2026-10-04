@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { AresBackdrop, AresButton, AresIcon, AresPanel, ARES } from '@/components/ares/ares-chrome';
 import {
   circleHit,
   clamp,
@@ -817,6 +818,8 @@ export default function ZeusProtocolPage() {
   return (
     <>
     <main className="zs-root">
+      {/* ARES interior art: page backdrop behind menus/HUD (never over gameplay) */}
+      <AresBackdrop src="/images/zeus-protocol/zeus-protocol-bg.webp" strength={0.4} />
       <canvas ref={canvasRef} className="zs-canvas" />
 
       {(screen === 'playing' || screen === 'paused') && (
@@ -829,7 +832,7 @@ export default function ZeusProtocolPage() {
           <div className="zs-hud-right">
             <div className="zs-lives">{hearts}</div>
             <button type="button" className="zs-icon-btn" onClick={togglePause} aria-label="Pause">
-              {screen === 'paused' ? '▶' : '❚❚'}
+              <AresIcon name={screen === 'paused' ? 'play' : 'pause'} className="h-4 w-4" />
             </button>
           </div>
         </div>
@@ -840,15 +843,17 @@ export default function ZeusProtocolPage() {
           <div className="zs-kicker">ARGUS · OBSERVATORY</div>
           <h1 className="zs-title">ZEUS PROTOCOL</h1>
           <p className="zs-tag">DEEP-SPACE DEFENCE — HOLD THE LINE ABOVE EARTH</p>
+          <AresPanel className="px-6 py-4">
           <p className="zs-help">
             Auto-fire engaged. Drag, move the mouse, or use ← → to steer.
             <br />
             Intercept hostiles and asteroids. Grab powerups. Survive.
           </p>
+          </AresPanel>
           {hud.highScore > 0 && <p className="zs-best">BEST {hud.highScore.toLocaleString('en-US')}</p>}
-          <button type="button" className="zs-btn" onClick={start}>
+          <AresButton icon="rocket" tone="gold" onClick={start} className="mt-6">
             ENGAGE
-          </button>
+          </AresButton>
         </div>
       )}
 
@@ -856,9 +861,9 @@ export default function ZeusProtocolPage() {
         <div className="zs-overlay">
           <h1 className="zs-title zs-title-small">STANDBY</h1>
           <p className="zs-tag">DEFENCE GRID PAUSED</p>
-          <button type="button" className="zs-btn" onClick={togglePause}>
+          <AresButton icon="play" tone="gold" onClick={togglePause}>
             RESUME
-          </button>
+          </AresButton>
         </div>
       )}
 
@@ -870,9 +875,9 @@ export default function ZeusProtocolPage() {
             FINAL SCORE {hud.score.toLocaleString('en-US')} · LEVEL {hud.level}
           </p>
           {hud.score >= hud.highScore && hud.score > 0 && <p className="zs-best">NEW BEST</p>}
-          <button type="button" className="zs-btn" onClick={start}>
+          <AresButton icon="rotate" tone="crimson" onClick={start}>
             REBOOT
-          </button>
+          </AresButton>
         </div>
       )}
 

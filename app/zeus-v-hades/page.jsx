@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { submenuArtFor } from '@/lib/god-menus';
 import {
   DIFFICULTIES,
   RACE_DISTANCE,
@@ -15,32 +14,10 @@ import {
 } from './race';
 import { createRenderer } from './render';
 import { fx, unlockFx, setFxEnabled, isFxEnabled } from '@/lib/fx';
+import { AresBackdrop, AresButton, AresIcon } from '@/components/ares/ares-chrome';
 // Race feedback routes through the central FX library (lib/fx.js): matched
 // sound+haptic pairs, one launcher-wide "Sound & vibration" setting.
 // (The old bespoke ./audio.js sfx is retired — left in place, unused.)
-
-
-// Menu Art Transfer batch 2 — submenu art. Background image + dark legibility
-// scrim; a missing image hides itself via onError so the card falls back to
-// its plain style. Never breaks the UI.
-function SubmenuArt({ slot }) {
-  return (
-    <>
-      <img
-        src={submenuArtFor(slot)}
-        alt=""
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-        loading="lazy"
-        onError={(e) => { e.currentTarget.style.display = 'none'; }}
-      />
-      <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-black/55" />
-    </>
-  );
-}
-
-// Difficulty key -> submenu art slot suffix.
-const DIFF_ART = { gates: 'gates', styx: 'river-styx', tartarus: 'tartarus' };
 
 const DIFF_KEYS = Object.keys(DIFFICULTIES);
 
@@ -237,6 +214,8 @@ export default function ZeusVHadesPage() {
   return (
     <>
     <div className="fixed inset-0 bg-black text-cyan-100 overflow-hidden select-none" style={{ touchAction: 'none' }}>
+      {/* ARES interior art: mythic backdrop behind menus/HUD (never over gameplay) */}
+      <AresBackdrop src="/images/zeus-v-hades/zeus-v-hades-bg.webp" strength={0.32} />
       <canvas
         ref={canvasRef}
         className="absolute inset-0 w-full h-full"
@@ -282,20 +261,21 @@ export default function ZeusVHadesPage() {
         <>
           <button
             onClick={toggleMute}
-            className="absolute top-24 right-4 z-30 w-11 h-11 rounded-full bg-black/60 border border-zinc-600 text-lg"
+            className="absolute top-24 right-4 z-30 w-11 h-11 rounded-full bg-black/60 border border-zinc-600 text-zinc-200 flex items-center justify-center"
             aria-label={muted ? 'Unmute sound' : 'Mute sound'}
           >
-            {muted ? '🔇' : '🔊'}
+            <AresIcon name={muted ? 'mute' : 'sound'} className="h-5 w-5" />
           </button>
           <button
             onClick={doBoost}
             disabled={!meterReady}
-            className={`absolute bottom-[calc(5rem+env(safe-area-inset-bottom))] right-4 z-30 w-20 h-20 rounded-full font-black text-sm tracking-wider border-2 transition-all ${
+            className={`absolute bottom-[calc(5rem+env(safe-area-inset-bottom))] right-4 z-30 w-20 h-20 rounded-full font-black text-sm tracking-wider border-2 transition-all flex flex-col items-center justify-center gap-1 ${
               meterReady
                 ? 'bg-cyan-400/90 border-cyan-200 text-black'
                 : 'bg-black/60 border-zinc-700 text-zinc-500'
             }`}
           >
+            <AresIcon name="zap" className="h-5 w-5" />
             BOOST
           </button>
         </>
@@ -303,7 +283,21 @@ export default function ZeusVHadesPage() {
 
       {/* Title screen */}
       {phase === 'title' && (
-        <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-black/85 p-6 text-center">
+        <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-black/85 p-6 text-center overflow-hidden">
+          {/* ARES header art behind the title menu */}
+          <img
+            src="/images/zeus-v-hades/zeus-v-hades-bg.webp"
+            alt=""
+            aria-hidden="true"
+            draggable={false}
+            className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-40"
+          />
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0"
+            style={{ background: 'linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.85) 100%)' }}
+          />
+          <div className="relative flex flex-col items-center">
           <div className="text-xs uppercase tracking-[0.4em] text-pink-500 mb-3">Hades vs Zeus</div>
           <h1 className="text-5xl font-black tracking-widest text-cyan-300 mb-2">NEON SOUL RACE</h1>
           <p className="text-zinc-400 max-w-md mb-6 text-sm leading-relaxed">
@@ -316,26 +310,24 @@ export default function ZeusVHadesPage() {
               <button
                 key={k}
                 onClick={() => { fx.tap(); setDifficulty(k); }}
-                className={`relative min-h-[44px] inline-flex items-center justify-center overflow-hidden px-4 py-3 rounded-lg border-2 font-bold tracking-wider transition-all ${
+                className={`px-4 py-3 rounded-lg border-2 font-bold tracking-wider transition-all inline-flex items-center justify-center gap-2 ${
                   difficulty === k
-                    ? 'border-cyan-400 bg-cyan-400/15 text-cyan-200'
+                    ? 'border-[#d4af37] bg-[#d4af37]/15 text-[#f5d67b]'
                     : 'border-zinc-700 bg-black/50 text-zinc-400'
                 }`}
               >
-                {difficulty !== k && <SubmenuArt slot={`submenu-prog-zeus-v-hades-${DIFF_ART[k]}`} />}
-                <span className="relative">{DIFFICULTIES[k].label}</span>
+                <AresIcon name="flame" className="h-4 w-4" />
+                {DIFFICULTIES[k].label}
               </button>
             ))}
           </div>
-          <button
-            onClick={startRace}
-            className="px-10 py-4 rounded-xl bg-cyan-400 text-black font-black text-xl tracking-widest"
-          >
+          <AresButton icon="flag" tone="gold" onClick={startRace} className="text-base px-10 py-4">
             ENTER THE RACE
-          </button>
+          </AresButton>
           <p className="text-zinc-500 text-xs mt-5">
             ← → or swipe to change lanes · Space or tap for boost · M to mute
           </p>
+          </div>
         </div>
       )}
 
@@ -350,7 +342,21 @@ export default function ZeusVHadesPage() {
 
       {/* Result screen */}
       {phase === 'finished' && result && (
-        <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-black/85 p-6 text-center">
+        <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-black/85 p-6 text-center overflow-hidden">
+          {/* ARES art behind the result menu */}
+          <img
+            src="/images/zeus-v-hades/zeus-v-hades-bg.webp"
+            alt=""
+            aria-hidden="true"
+            draggable={false}
+            className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-35"
+          />
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0"
+            style={{ background: 'linear-gradient(180deg, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0.88) 100%)' }}
+          />
+          <div className="relative flex flex-col items-center">
           <h2
             className={`text-4xl font-black tracking-widest mb-2 ${
               result.won ? 'text-cyan-300' : 'text-pink-500'
@@ -377,18 +383,13 @@ export default function ZeusVHadesPage() {
             <div className="text-xs text-zinc-500 mb-6">Session best: {formatTime(result.best)}</div>
           )}
           <div className="flex gap-3 mt-2">
-            <button
-              onClick={startRace}
-              className="px-8 py-3 rounded-xl bg-cyan-400 text-black font-black tracking-widest"
-            >
+            <AresButton icon="rotate" tone="gold" onClick={startRace}>
               RACE AGAIN
-            </button>
-            <button
-              onClick={() => setPhase('title')}
-              className="px-8 py-3 rounded-xl border-2 border-zinc-600 text-zinc-300 font-bold tracking-widest"
-            >
+            </AresButton>
+            <AresButton icon="grid" tone="ghost" onClick={() => setPhase('title')}>
               CHANGE DESCENT
-            </button>
+            </AresButton>
+          </div>
           </div>
         </div>
       )}
@@ -398,4 +399,3 @@ export default function ZeusVHadesPage() {
     </>
   );
 }
-
