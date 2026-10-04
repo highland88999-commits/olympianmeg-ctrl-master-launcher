@@ -1,29 +1,30 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { submenuArtFor } from '@/lib/god-menus';
 import shellEngine from '../terminal/engine.js';
 import { responsiveScale, layoutMonitors, statusLabel, MODES } from './array.js';
 
-
-// Menu Art Transfer batch 2 — submenu art. Background image + dark legibility
-// scrim; a missing image hides itself via onError so the chip falls back to
-// its plain style. Never breaks the UI.
-function SubmenuArt({ slot }) {
+/* ATHENA interior treatment: inline SVG glyph set for the holoframe controls
+   (zero image weight). */
+function HfGlyph({ size = 13, children }) {
   return (
-    <>
-      <img
-        src={submenuArtFor(slot)}
-        alt=""
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-        loading="lazy"
-        onError={(e) => { e.currentTarget.style.display = 'none'; }}
-      />
-      <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-black/55" />
-    </>
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+      strokeLinejoin="round" aria-hidden="true" style={{ flex: 'none' }}>
+      {children}
+    </svg>
   );
 }
+const GlyphMinus = () => (<HfGlyph><path d="M5 12h14" /></HfGlyph>);
+const GlyphPlus = () => (<HfGlyph><path d="M12 5v14 M5 12h14" /></HfGlyph>);
+const GlyphChevL = () => (<HfGlyph><path d="M14.5 5.5 L8 12 L14.5 18.5" /></HfGlyph>);
+const GlyphChevR = () => (<HfGlyph><path d="M9.5 5.5 L16 12 L9.5 18.5" /></HfGlyph>);
+const GlyphSingle = () => (<HfGlyph><rect x="4" y="5" width="16" height="12" rx="2" /><path d="M9 20.5h6" /></HfGlyph>);
+const GlyphCarousel = () => (<HfGlyph><path d="M20 12 a8 8 0 1 1 -2.34 -5.66" /><path d="M20 3.5V8h-4.5" /></HfGlyph>);
+const GlyphStacked = () => (<HfGlyph><path d="M12 3 L21 8 L12 13 L3 8 Z" /><path d="M3 12.5 L12 17.5 L21 12.5" /></HfGlyph>);
+const GlyphX = () => (<HfGlyph size={10}><path d="M6 6l12 12 M18 6L6 18" /></HfGlyph>);
+const GlyphCheck = () => (<HfGlyph size={10}><path d="M4.5 12.5 L10 18 L19.5 6.5" /></HfGlyph>);
+const MODE_GLYPHS = { single: <GlyphSingle />, carousel: <GlyphCarousel />, stacked: <GlyphStacked /> };
 
 const { createState, runCommand, promptFor, resolvePath } = shellEngine;
 
@@ -78,6 +79,10 @@ function Starfield() {
     const canvas = ref.current;
     const ctx = canvas.getContext('2d');
     let w, h, stars, raf;
+    // ATHENA interior treatment: the generated obsidian/silver-blue depth field
+    // is painted under the twinkling stars; flat #030307 is the honest fallback.
+    const bgImg = new Image();
+    bgImg.src = '/images/holoframe/bg.webp';
     const resize = () => {
       w = canvas.width = window.innerWidth;
       h = canvas.height = window.innerHeight;
@@ -90,8 +95,17 @@ function Starfield() {
     resize();
     window.addEventListener('resize', resize);
     const tick = (ts) => {
-      ctx.fillStyle = '#030307';
-      ctx.fillRect(0, 0, w, h);
+      if (bgImg.complete && bgImg.naturalWidth) {
+        const ir = bgImg.naturalWidth / bgImg.naturalHeight, cr = w / h;
+        let dw, dh;
+        if (ir > cr) { dh = h; dw = h * ir; } else { dw = w; dh = w / ir; }
+        ctx.drawImage(bgImg, (w - dw) / 2, (h - dh) / 2, dw, dh);
+        ctx.fillStyle = 'rgba(3,3,7,0.62)';
+        ctx.fillRect(0, 0, w, h);
+      } else {
+        ctx.fillStyle = '#030307';
+        ctx.fillRect(0, 0, w, h);
+      }
       const t = ts / 1000;
       for (const st of stars) {
         st.y += st.s;
@@ -217,8 +231,8 @@ function MiniShell({ nodeIndex, accent }) {
           <div className="px-3 py-1.5 flex items-center justify-between border-b border-white/10">
             <span className="text-[10px] font-bold tracking-widest truncate" style={{ color: accent }}>NANO: {editor.path}</span>
             <div className="flex gap-1.5">
-              <button onClick={(e) => { e.stopPropagation(); setEditor(null); }} className="text-[10px] px-2 py-1 border border-white/25 rounded text-white/70">x</button>
-              <button onClick={(e) => { e.stopPropagation(); saveEditor(); }} className="text-[10px] px-2.5 py-1 rounded font-bold text-black" style={{ background: accent }}>save</button>
+              <button onClick={(e) => { e.stopPropagation(); setEditor(null); }} className="text-[10px] px-2 py-1 border border-white/25 rounded text-white/70 inline-flex items-center gap-1" aria-label="Cancel"><GlyphX /></button>
+              <button onClick={(e) => { e.stopPropagation(); saveEditor(); }} className="text-[10px] px-2.5 py-1 rounded font-bold text-black inline-flex items-center gap-1" style={{ background: accent }} aria-label="Save"><GlyphCheck /><span>save</span></button>
             </div>
           </div>
           <textarea value={editor.content} onChange={(e) => setEditor({ ...editor, content: e.target.value })}
@@ -317,9 +331,9 @@ export default function HoloframePage() {
         </div>
         <div className="flex items-center gap-2">
           <button onClick={removeMonitor} disabled={prefs.count <= 1}
-            className="px-3 py-1.5 text-xs border border-white/20 rounded disabled:opacity-30 hover:bg-white/5">− SCREEN</button>
+            className="px-3 py-1.5 text-xs border border-white/20 rounded disabled:opacity-30 hover:bg-white/5 inline-flex items-center gap-1.5"><GlyphMinus /><span>SCREEN</span></button>
           <button onClick={addMonitor} disabled={prefs.count >= MAX_MONITORS}
-            className="px-3 py-1.5 text-xs border border-emerald-400/60 text-emerald-300 rounded disabled:opacity-30 hover:bg-emerald-400/10">+ ADD MONITOR</button>
+            className="px-3 py-1.5 text-xs border border-emerald-400/60 text-emerald-300 rounded disabled:opacity-30 hover:bg-emerald-400/10 inline-flex items-center gap-1.5"><GlyphPlus /><span>ADD MONITOR</span></button>
         </div>
       </header>
 
@@ -376,17 +390,17 @@ export default function HoloframePage() {
             ['stacked', 'MODE 3: STACKED'],
           ].map(([m, label]) => (
             <button key={m} onClick={() => setMode(m)}
-              className={'relative min-h-[44px] inline-flex items-center justify-center overflow-hidden px-3 sm:px-4 py-2 text-[11px] sm:text-xs font-bold tracking-wider rounded border transition ' +
+              className={'px-3 sm:px-4 py-2 text-[11px] sm:text-xs font-bold tracking-wider rounded border transition inline-flex items-center gap-1.5 ' +
                 (prefs.mode === m ? 'bg-cyan-400 text-black border-cyan-400' : 'border-cyan-400/60 text-cyan-300 hover:bg-cyan-400/10')}>
-              {prefs.mode !== m && <SubmenuArt slot={`submenu-prog-holoframe-${m}`} />}
-              <span className="relative">{label}</span>
+              {MODE_GLYPHS[m]}
+              <span>{label}</span>
             </button>
           ))}
         </div>
         {prefs.mode === 'carousel' && (
           <div className="flex gap-2">
-            <button onClick={() => rotate(-1)} className="px-3 py-2 text-xs border border-cyan-400/60 text-cyan-300 rounded hover:bg-cyan-400/10">◀ ROTATE</button>
-            <button onClick={() => rotate(1)} className="px-3 py-2 text-xs border border-cyan-400/60 text-cyan-300 rounded hover:bg-cyan-400/10">ROTATE ▶</button>
+            <button onClick={() => rotate(-1)} className="px-3 py-2 text-xs border border-cyan-400/60 text-cyan-300 rounded hover:bg-cyan-400/10 inline-flex items-center gap-1.5"><GlyphChevL /><span>ROTATE</span></button>
+            <button onClick={() => rotate(1)} className="px-3 py-2 text-xs border border-cyan-400/60 text-cyan-300 rounded hover:bg-cyan-400/10 inline-flex items-center gap-1.5"><span>ROTATE</span><GlyphChevR /></button>
           </div>
         )}
         <div className="text-[10px] text-white/40 tracking-widest hidden sm:block">
@@ -399,4 +413,3 @@ export default function HoloframePage() {
     </div>
   );
 }
-

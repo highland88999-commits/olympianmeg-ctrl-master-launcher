@@ -30,7 +30,15 @@ export default function EventsFeed({ events = [] }) {
     <div className="rounded-xl border border-zinc-800 bg-zinc-950/90 p-5 backdrop-blur-md">
       <h2 className="text-xs font-bold uppercase tracking-[0.25em] text-zinc-400">Recent events</h2>
       {events.length === 0 ? (
-        <p className="mt-4 text-sm text-zinc-500">Quiet. Nothing logged yet.</p>
+        <div className="ares-empty" role="status">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+            style={{ flex: 'none' }}>
+            <path d="M12 3 L20 6 V11 C20 16 16.6 19.4 12 21 C7.4 19.4 4 16 4 11 V6 Z" />
+            <path d="M9 11.5 L11.4 14 L15.4 9.6" />
+          </svg>
+          <span>Quiet. Nothing logged yet — the watchtower is watching.</span>
+        </div>
       ) : (
         <ul className="mt-4 flex max-h-96 flex-col gap-2 overflow-y-auto pr-1">
           {events.map((e) => (

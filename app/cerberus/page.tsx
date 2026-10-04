@@ -8,6 +8,29 @@ import { BackButton } from '@/components/ui'
 import { supabase } from '@/lib/supabase'
 import { useCerberusStore } from '@/store/cerberus/useCerberusStore'
 import NodeMap from '@/components/cerberus/NodeMap'
+
+/* ATHENA interior treatment: the triple-sigil emblem — three interlocking
+   rings for Cerberus' three heads around a gold heart (zero image weight). */
+function CerberusSigil({ size = 46 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 48 48" fill="none"
+      stroke="#00f2ff" strokeWidth="2" strokeLinecap="round" aria-hidden="true"
+      style={{ flex: 'none' }}>
+      <circle cx="24" cy="16" r="9" />
+      <circle cx="16.5" cy="30" r="9" />
+      <circle cx="31.5" cy="30" r="9" />
+      <circle cx="24" cy="25" r="2.5" fill="#FFD700" stroke="none" />
+    </svg>
+  );
+}
+
+const CERBERUS_CSS = `
+.cerb-veil { animation: cerb-veil-breathe 1.8s ease-in-out infinite; }
+@keyframes cerb-veil-breathe { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+.cerb-veil-text { color: #00f2ff; font-size: 11px; letter-spacing: 5px;
+  text-transform: uppercase; font-family: ui-monospace, Menlo, monospace; }
+@media (prefers-reduced-motion: reduce) { .cerb-veil { animation: none; } }
+`;
 import CyberHUD from '@/components/cerberus/CyberHUD'
 import Holoframe from '@/components/cerberus/Holoframe'
 
@@ -71,7 +94,13 @@ export default function CerberusApp() {
     </div>
   )
 
-  if (isLoading || !localSession) return <div style={{ position: 'fixed', inset: 0, backgroundColor: '#000' }} />
+  if (isLoading || !localSession) return (
+    <div style={{ position: 'fixed', inset: 0, backgroundColor: '#000', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '18px' }} role="status" aria-label="Cerberus is waking">
+      <style>{CERBERUS_CSS}</style>
+      <span className="cerb-veil" style={{ display: 'inline-flex' }}><CerberusSigil /></span>
+      <div className="cerb-veil-text">Awakening Cerberus</div>
+    </div>
+  )
 
   return (
     <main style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100dvh', backgroundColor: '#000000', overflow: 'hidden', userSelect: 'none' }}>
@@ -84,7 +113,8 @@ export default function CerberusApp() {
         autoPlay 
         loop 
         muted 
-        playsInline 
+        playsInline
+        poster="/images/cerberus/bg.webp"
         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 0, opacity: 0.6 }}
       >
         <source src="/assets/cerberus/background.mp4" type="video/mp4" />

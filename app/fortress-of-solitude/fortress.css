@@ -12,11 +12,30 @@
 }
 
 .glass-panel {
-  background: rgba(0, 5, 10, 0.85);
+  /* ATHENA interior treatment: obsidian/silver-blue/gold tile under the glass. */
+  background: linear-gradient(rgba(0,5,10,0.88), rgba(0,5,10,0.93)), url('/images/fortress-of-solitude/panel-tile.webp');
   border: 1px solid var(--cyan);
   backdrop-filter: blur(10px);
   box-shadow: 0 0 15px rgba(0,242,255,0.2);
 }
+
+/* ATHENA interior treatment: calm depth-field behind the 3D canvas, plus an
+   auto-fading boot veil (the scene streams in behind it). */
+.fortress-bg {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background: linear-gradient(rgba(0,0,0,0.82), rgba(0,0,0,0.88)), url('/images/fortress-of-solitude/bg.webp') center / cover no-repeat, #000;
+}
+.fortress-veil {
+  position: fixed; inset: 0; z-index: 60; background: #000;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 16px; color: var(--cyan, #00f2ff); font-size: 11px; letter-spacing: 5px;
+  text-transform: uppercase; pointer-events: none;
+  animation: fortress-veil-out 0.7s ease 1.1s forwards;
+}
+.fortress-veil svg { animation: fortress-veil-breathe 1.6s ease-in-out infinite; }
+@keyframes fortress-veil-out { to { opacity: 0; visibility: hidden; } }
+@keyframes fortress-veil-breathe { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .fortress-veil { animation: fortress-veil-out 0.3s ease 0.2s forwards; } .fortress-veil svg { animation: none; } }
 
 .btn {
   background: rgba(0,0,0,0.6); 

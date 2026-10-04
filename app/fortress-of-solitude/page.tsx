@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useRef } from "react";
-import { Plus, Download, Eye, Upload, Palette, MonitorPlay, Grid, ArrowUpCircle, Trash2, Link2, Copy, XCircle } from "lucide-react";
+import { Plus, Download, Eye, Upload, Palette, MonitorPlay, Grid, ArrowUpCircle, Trash2, Link2, Copy, XCircle, Crosshair } from "lucide-react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
@@ -744,7 +744,7 @@ export default function FortressApp() {
         />
       </div>
 
-      <button onClick={handleRecenter} className="fixed top-20 right-6 z-10 w-12 h-12 rounded-full glass-panel flex items-center justify-center text-cyan-400 text-xl hover:bg-cyan-400 hover:text-black transition-all pointer-events-auto shadow-[0_0_15px_rgba(0,242,255,0.3)]">⌖</button>
+      <button onClick={handleRecenter} aria-label="Recenter view" className="fixed top-20 right-6 z-10 w-12 h-12 rounded-full glass-panel flex items-center justify-center text-cyan-400 hover:bg-cyan-400 hover:text-black transition-all pointer-events-auto shadow-[0_0_15px_rgba(0,242,255,0.3)]"><Crosshair size={20} /></button>
 
       {longPressedNode && (
         <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none bg-black/40 backdrop-blur-sm">

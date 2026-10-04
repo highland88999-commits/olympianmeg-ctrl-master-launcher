@@ -107,6 +107,30 @@ function MindCanvas({ net, pulsesRef, reducedMotion }) {
   return <canvas ref={ref} style={{ display: 'block', borderRadius: '10px', border: '1px solid rgba(0,243,255,0.3)' }} aria-label="Interactive neural network visualization" />;
 }
 
+/* ATHENA interior treatment: inline SVG glyph set for the THINK / FORGET
+   buttons (zero image weight). */
+function OmGlyph({ size = 15, children }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+      strokeLinejoin="round" aria-hidden="true" style={{ flex: "none" }}>
+      {children}
+    </svg>
+  );
+}
+const GlyphPulse = () => (<OmGlyph><path d="M3 12h4l2-5 4 10 2-5h6" /></OmGlyph>);
+const GlyphTrash = () => (
+  <OmGlyph size={13}>
+    <path d="M4 7h16 M9.5 7V5.2A1.2 1.2 0 0 1 10.7 4h2.6a1.2 1.2 0 0 1 1.2 1.2V7" />
+    <path d="M6.2 7l.9 12.2a1.5 1.5 0 0 0 1.5 1.3h6.8a1.5 1.5 0 0 0 1.5-1.3L17.8 7" />
+  </OmGlyph>
+);
+
+const OMEGA_CSS = `
+.om-bg { position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background: linear-gradient(rgba(5,0,17,0.88), rgba(5,0,17,0.93)), url('/images/omega-mind/bg.webp') center / cover no-repeat, #050011; }
+`;
+
 export default function MindPage() {
   const [net] = useState(() => buildNetwork());
   const pulsesRef = useRef([]);
@@ -145,7 +169,9 @@ export default function MindPage() {
 
   return (
     <main style={{ ...mono, minHeight: '100dvh', background: '#050011', color: '#e8f6ff', padding: '18px 16px 60px' }}>
-      <div style={{ maxWidth: '920px', margin: '0 auto' }}>
+      <style>{OMEGA_CSS}</style>
+      <div className="om-bg" aria-hidden="true" />
+      <div style={{ maxWidth: '920px', margin: '0 auto', position: 'relative', zIndex: 1 }}>
         <header style={{ marginBottom: '14px' }}>
           <h1 style={{ margin: 0, fontSize: '1.5rem', letterSpacing: '5px', color: '#00f2ff', textShadow: '0 0 16px rgba(0,243,255,0.55)' }}>
             OMEGA MIND
@@ -174,9 +200,10 @@ export default function MindPage() {
           />
           <button
             type="submit"
-            style={{ ...mono, minHeight: '48px', padding: '12px 22px', background: 'rgba(0,243,255,0.12)', border: '1px solid #00f2ff', color: '#00f2ff', borderRadius: '8px', cursor: 'pointer', letterSpacing: '2px' }}
+            style={{ ...mono, minHeight: '48px', padding: '12px 22px', background: 'rgba(0,243,255,0.12)', border: '1px solid #00f2ff', color: '#00f2ff', borderRadius: '8px', cursor: 'pointer', letterSpacing: '2px', display: 'inline-flex', alignItems: 'center', gap: '8px' }}
           >
-            THINK
+            <GlyphPulse />
+            <span>THINK</span>
           </button>
         </form>
 
@@ -209,10 +236,11 @@ export default function MindPage() {
                     </span>
                     <button
                       onClick={() => remove(th.id)}
-                      style={{ ...mono, background: 'transparent', border: '1px solid rgba(255,90,120,0.6)', color: '#ff8aa0', borderRadius: '4px', cursor: 'pointer', padding: '6px 10px', minHeight: '36px', fontSize: '0.72rem' }}
+                      style={{ ...mono, background: 'transparent', border: '1px solid rgba(255,90,120,0.6)', color: '#ff8aa0', borderRadius: '4px', cursor: 'pointer', padding: '6px 10px', minHeight: '36px', fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                       aria-label="Forget this thought"
                     >
-                      FORGET
+                      <GlyphTrash />
+                      <span>FORGET</span>
                     </button>
                   </div>
                 </li>

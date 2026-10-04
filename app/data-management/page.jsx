@@ -22,12 +22,42 @@ const DECKS = [
   '05 // SYNAPSE OS',
 ];
 
+/* ATHENA interior treatment: inline SVG glyph set for the deck buttons.
+   Stroke inherits the button color; zero image weight. */
+function McGlyph({ size = 15, children }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"
+      strokeLinejoin="round" aria-hidden="true">
+      {children}
+    </svg>
+  );
+}
+const DECK_GLYPHS = [
+  <McGlyph key="home"><path d="M4 11 L12 4 L20 11" /><path d="M6.5 9.5 V20 H17.5 V9.5" /></McGlyph>,
+  <McGlyph key="engine"><rect x="7.5" y="7.5" width="9" height="9" rx="2" /><path d="M10 2.5v3 M14 2.5v3 M10 18.5v3 M14 18.5v3 M2.5 10h3 M2.5 14h3 M18.5 10h3 M18.5 14h3" /></McGlyph>,
+  <McGlyph key="grid"><circle cx="12" cy="12" r="8.5" /><circle cx="12" cy="12" r="4.5" /><path d="M12 3.5v17 M3.5 12h17 M6 6l12 12 M18 6L6 18" /></McGlyph>,
+  <McGlyph key="hydro"><path d="M12 3.5 C12 3.5 6.5 11 6.5 14.8 a5.5 5.5 0 0 0 11 0 C17.5 11 12 3.5 12 3.5 Z" /></McGlyph>,
+  <McGlyph key="synapse"><circle cx="9" cy="12" r="5" /><circle cx="16.5" cy="7.5" r="2.8" /><circle cx="16.5" cy="16.5" r="2.8" /><path d="M12.5 10.2l1.8-1.4 M12.5 13.8l1.8 1.4" /></McGlyph>,
+];
+const GlyphFault = (
+  <McGlyph><path d="M12 3.5 L21.5 20 H2.5 Z" /><path d="M12 9.5v4.5 M12 17.2v.3" /></McGlyph>
+);
+const GlyphReset = (
+  <McGlyph><path d="M4.5 9.5 a7.5 7.5 0 1 1 -1.2 4.8" /><path d="M4.5 4v5.5h5.5" /></McGlyph>
+);
+const GlyphRadar = (
+  <McGlyph size={34}><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="4.5" /><path d="M12 12 L17.5 6.5" /><circle cx="12" cy="12" r="1" fill="currentColor" /></McGlyph>
+);
+
 const CSS = `
-.mc-wrap { box-sizing: border-box; margin: 0; padding: 0; font-family: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace; background: #020813; color: #e0f7fc; overflow: hidden; height: 100dvh; width: 100vw; user-select: none; }
+.mc-wrap { box-sizing: border-box; margin: 0; padding: 0; font-family: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace; color: #e0f7fc; overflow: hidden; height: 100dvh; width: 100vw; user-select: none;
+  background: linear-gradient(rgba(2,8,19,0.78), rgba(2,8,19,0.86)), url('/images/data-management/bg.webp') center / cover no-repeat, #020813; }
 .mc-wave { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; opacity: 0.7; }
 .mc-holo { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; background: linear-gradient(rgba(18,16,16,0) 50%, rgba(0,0,0,0.25) 50%), linear-gradient(90deg, rgba(255,0,0,0.06), rgba(0,255,0,0.02), rgba(0,0,255,0.06)); background-size: 100% 4px, 6px 100%; }
 .mc-shell { position: relative; z-index: 3; display: flex; flex-direction: column; height: 100dvh; width: 100vw; padding: 20px; box-sizing: border-box; }
-.mc-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #00f2ff; padding-bottom: 10px; margin-bottom: 16px; }
+.mc-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #00f2ff; padding-bottom: 10px; margin-bottom: 16px;
+  background: linear-gradient(rgba(2,8,19,0.55), rgba(2,8,19,0.75)), url('/images/data-management/header.webp') center / cover no-repeat; }
 .mc-header h1 { font-family: system-ui, 'Segoe UI', sans-serif; font-weight: 900; letter-spacing: 3px; color: #00f2ff; font-size: 1.8rem; margin: 0; }
 .mc-status { font-size: 0.9rem; color: #ffaa00; text-align: right; }
 .mc-status span { color: #00ff66; animation: mcPulse 1.5s infinite; }
@@ -43,7 +73,8 @@ const CSS = `
 .mc-page h3 { font-family: system-ui, 'Segoe UI', sans-serif; color: #00f2ff; margin: 24px 0 12px; }
 .mc-page p { font-size: 1.05rem; line-height: 1.6; margin: 0 0 20px; text-align: justify; }
 .mc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; margin-bottom: 25px; }
-.mc-card { border: 1px solid rgba(0,243,255,0.15); background: rgba(2,12,24,0.4); padding: 20px; position: relative; border-radius: 2px; }
+.mc-card { border: 1px solid rgba(0,243,255,0.15); padding: 20px; position: relative; border-radius: 2px;
+  background: linear-gradient(rgba(2,12,24,0.55), rgba(2,12,24,0.62)), url('/images/data-management/panel-tile.webp'); }
 .mc-card::before { content: ''; position: absolute; top: 0; left: 0; width: 10px; height: 10px; border-top: 2px solid #00f2ff; border-left: 2px solid #00f2ff; }
 .mc-card .t { font-size: 0.85rem; color: rgba(0,243,255,0.7); text-transform: uppercase; margin-bottom: 5px; }
 .mc-card .v { font-size: 2rem; font-weight: bold; font-family: system-ui, 'Segoe UI', sans-serif; color: #ff0055; text-shadow: 0 0 10px rgba(255,0,85,0.3); }
@@ -61,6 +92,19 @@ const CSS = `
 .mc-rowbtns { display: flex; gap: 10px; flex-wrap: wrap; margin: 10px 0 20px; }
 .mc-ghostbtn { background: transparent; border: 1px solid #00f2ff; color: #00f2ff; font-family: inherit; font-size: 0.85rem; padding: 10px 16px; cursor: pointer; border-radius: 3px; min-height: 44px; }
 .mc-ghostbtn:hover { background: rgba(0,243,255,0.12); }
+.mc-navbtn, .mc-ghostbtn { display: inline-flex; align-items: center; gap: 8px; }
+.mc-navbtn svg, .mc-ghostbtn svg { flex: none; }
+.mc-boot { position: fixed; inset: 0; z-index: 60; background: #020813; display: flex;
+  flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+  color: #00f2ff; font-size: 0.75rem; letter-spacing: 4px; text-transform: uppercase;
+  animation: mc-boot-out 0.6s ease 1s forwards; pointer-events: none; }
+.mc-boot svg { animation: mc-boot-breathe 1.6s ease-in-out infinite; }
+@keyframes mc-boot-out { to { opacity: 0; visibility: hidden; } }
+@keyframes mc-boot-breathe { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+.mc-nominal { display: flex; align-items: center; gap: 10px; border: 1px solid rgba(0,255,102,0.4);
+  background: linear-gradient(rgba(2,12,24,0.55), rgba(2,12,24,0.62)), url('/images/data-management/panel-tile.webp');
+  border-radius: 4px; padding: 12px 16px; margin-bottom: 20px; color: #00ff66;
+  font-size: 0.85rem; letter-spacing: 2px; text-transform: uppercase; }
 @keyframes mcPulse { 0%,100% { opacity: 0.6; } 50% { opacity: 1; text-shadow: 0 0 8px #00ff66; } }
 @keyframes mcFlicker { 0%,100% { opacity: 1; } 45% { opacity: 0.8; } 50% { opacity: 0.3; } 55% { opacity: 1; } }
 @media (max-width: 768px) { .mc-shell { padding: 10px; } .mc-header h1 { font-size: 1.3rem; } .mc-page { padding: 15px; padding-bottom: calc(4.5rem + env(safe-area-inset-bottom)); } .mc-card .v { font-size: 1.5rem; } }
@@ -137,10 +181,12 @@ export default function MissionControlPage() {
   const viewportRef = useRef(null);
   const [deck, setDeck] = useState(0);
   const [nodes, setNodes] = useState(() => Array.from({ length: NODE_COUNT }, () => 'ok'));
+  const [booted, setBooted] = useState(false); // loading veil: fades once first paint lands
   const startX = useRef(0);
 
   useEffect(() => {
     document.title = TITLE;
+    const bootTimer = setTimeout(() => setBooted(true), 700);
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY);
       if (raw) {
@@ -179,6 +225,7 @@ export default function MissionControlPage() {
     };
     if (ctx) loop();
     return () => {
+      clearTimeout(bootTimer);
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', resize);
     };
@@ -226,6 +273,12 @@ export default function MissionControlPage() {
   return (
     <div className="mc-wrap">
       <style>{CSS}</style>
+      {!booted && (
+        <div className="mc-boot" aria-hidden="true">
+          {GlyphRadar}
+          <span>Initializing diagnostic deck</span>
+        </div>
+      )}
       <canvas ref={waveRef} className="mc-wave" aria-hidden="true" />
       <div className="mc-holo" aria-hidden="true" />
 
@@ -244,7 +297,8 @@ export default function MissionControlPage() {
         <nav className="mc-nav" aria-label="Decks">
           {DECKS.map((label, i) => (
             <button key={label} type="button" className={'mc-navbtn' + (deck === i ? ' active' : '')} onClick={() => switchPage(i)}>
-              {label}
+              {DECK_GLYPHS[i]}
+              <span>{label}</span>
             </button>
           ))}
         </nav>
@@ -275,12 +329,19 @@ export default function MissionControlPage() {
               <h3>Micro-LED Interactive Node Simulation</h3>
               <p>The exterior of each cell is fitted with an IP68-rated, silicone-encapsulated LED indicator node. Tap any node to cycle its state, or run a fault drill to see how the deck reports.</p>
               <div className="mc-rowbtns">
-                <button type="button" className="mc-ghostbtn" onClick={injectFault}>Run fault drill</button>
-                <button type="button" className="mc-ghostbtn" onClick={clearFaults}>Reset all nodes</button>
+                <button type="button" className="mc-ghostbtn" onClick={injectFault}>{GlyphFault}<span>Run fault drill</span></button>
+                <button type="button" className="mc-ghostbtn" onClick={clearFaults}>{GlyphReset}<span>Reset all nodes</span></button>
               </div>
-              <div className="mc-legend">
-                🟢 GREEN = Operating Optimal ({NODE_COUNT - warnCount - faultCount}) &nbsp;|&nbsp; 🟡 AMBER = Transient Cache Throttle ({warnCount}) &nbsp;|&nbsp; 🔴 RED = Fault Identified ({faultCount})
-              </div>
+              {warnCount + faultCount === 0 ? (
+                <div className="mc-nominal" role="status">
+                  <McGlyph><path d="M4.5 12.5 L10 18 L19.5 6.5" /></McGlyph>
+                  <span>All systems nominal — no faults on the deck</span>
+                </div>
+              ) : (
+                <div className="mc-legend">
+                  🟢 GREEN = Operating Optimal ({NODE_COUNT - warnCount - faultCount}) &nbsp;|&nbsp; 🟡 AMBER = Transient Cache Throttle ({warnCount}) &nbsp;|&nbsp; 🔴 RED = Fault Identified ({faultCount})
+                </div>
+              )}
               <div className="mc-nodes" role="group" aria-label="Compute cell node indicators">
                 {nodes.map((state, i) => (
                   <button key={i} type="button" className={'mc-dot' + (state === 'ok' ? '' : ' ' + state)} aria-label={`Node ${i + 1}: ${state}`} onClick={() => cycleNode(i)} />

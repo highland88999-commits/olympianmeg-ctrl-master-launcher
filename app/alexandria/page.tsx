@@ -25,6 +25,40 @@ function safeHex(value, fallback) {
   return /^#[0-9a-fA-F]{6}$/.test(String(value || '')) ? String(value) : fallback;
 }
 
+/* ATHENA interior treatment: inline SVG glyph set for the nav/page/book
+   buttons (zero image weight). Calm silver-blue + gold, inherits button color. */
+function AxGlyph({ size = 14, children }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+      strokeLinejoin="round" aria-hidden="true" style={{ flex: 'none' }}>
+      {children}
+    </svg>
+  );
+}
+const GlyphBook = () => (
+  <AxGlyph><path d="M12 6c-2-1.5-5-2-8-2v14c3 0 6 .5 8 2 2-1.5 5-2 8-2V4c-3 0-6 .5-8 2Z" /><path d="M12 6v14" /></AxGlyph>
+);
+const GlyphStudio = () => (
+  <AxGlyph><path d="M4 8h9 M17 8h3 M4 16h3 M11 16h9" /><circle cx="15" cy="8" r="2" /><circle cx="9" cy="16" r="2" /></AxGlyph>
+);
+const GlyphVault = () => (
+  <AxGlyph><rect x="5" y="10.5" width="14" height="9.5" rx="2" /><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" /><circle cx="12" cy="15.2" r="1.4" /></AxGlyph>
+);
+const GlyphHome = () => (
+  <AxGlyph><path d="M4 11 L12 4 L20 11" /><path d="M6.5 9.5V20H17.5V9.5" /></AxGlyph>
+);
+const GlyphChevronL = () => (
+  <AxGlyph><path d="M14.5 5.5 L8 12 L14.5 18.5" /></AxGlyph>
+);
+const GlyphChevronR = () => (
+  <AxGlyph><path d="M9.5 5.5 L16 12 L9.5 18.5" /></AxGlyph>
+);
+// Same book glyph as a raw string for the innerHTML-rendered book buttons.
+const BOOK_GLYPH_HTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex:none"><path d="M12 6c-2-1.5-5-2-8-2v14c3 0 6 .5 8 2 2-1.5 5-2 8-2V4c-3 0-6 .5-8 2Z"/><path d="M12 6v14"/></svg>';
+const CHEVRON_L_HTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex:none"><path d="M14.5 5.5 L8 12 L14.5 18.5"/></svg>';
+const CHEVRON_R_HTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex:none"><path d="M9.5 5.5 L16 12 L9.5 18.5"/></svg>';
+
 export default function Alexandria() {
   const router = useRouter();
   const canvasRef = useRef(null);
@@ -211,7 +245,7 @@ export default function Alexandria() {
             <div class="book-author">${author}</div>
             <div class="book-foot">
               <span class="book-price">${displayPrice}</span>
-              <button class="book-btn ${orbitron.className}" data-url="${targetUrl}" style="border-color:${hex};color:${hex};">${isFree ? 'Read' : 'Buy'}</button>
+              <button class="book-btn ${orbitron.className}" data-url="${targetUrl}" style="border-color:${hex};color:${hex};">${BOOK_GLYPH_HTML}<span>${isFree ? 'Read' : 'Buy'}</span></button>
             </div>
           </div>
         `;
@@ -306,7 +340,7 @@ export default function Alexandria() {
   return (
     <>
       <style>{`
-        .alexandria-wrapper { --bg-obsidian: #050508; --neon-cyan: #00f2ff; --neon-magenta: #fe53bb; --neon-gold: #FFD700; background-color: var(--bg-obsidian); color: #f2f2f2; width: 100vw; height: 100vh; height: 100dvh; overflow: hidden; }
+        .alexandria-wrapper { --bg-obsidian: #050508; --neon-cyan: #00f2ff; --neon-magenta: #fe53bb; --neon-gold: #FFD700; background: linear-gradient(rgba(5,5,8,0.74), rgba(5,5,8,0.82)), url('/images/alexandria/bg.webp') center / cover no-repeat, var(--bg-obsidian); color: #f2f2f2; width: 100vw; height: 100vh; height: 100dvh; overflow: hidden; }
         .alexandria-wrapper::before { content: ""; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-image: linear-gradient(rgba(8, 247, 254, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(8, 247, 254, 0.05) 1px, transparent 1px); background-size: 30px 30px; z-index: 0; pointer-events: none; }
         #webgl-canvas { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; height: 100dvh; z-index: 1; pointer-events: none; }
 
@@ -327,7 +361,7 @@ export default function Alexandria() {
         .search-input::placeholder { color: #5a6a70; }
         .sort-select { min-height: 44px; background: #0a0a0c; border: 1px solid #333; color: var(--neon-cyan); padding: 0.65rem 0.75rem; border-radius: 6px; font-size: 0.8rem; }
         .nav-group { display: flex; gap: 10px; flex-wrap: wrap; }
-        .nav-btn { background: transparent; border: 1px solid var(--neon-cyan); color: var(--neon-cyan); min-height: 44px; padding: 0.65rem 1.1rem; border-radius: 6px; font-weight: bold; cursor: pointer; transition: background 0.25s, color 0.25s, box-shadow 0.25s; font-size: 0.8rem; letter-spacing: 1px; }
+        .nav-btn { background: transparent; border: 1px solid var(--neon-cyan); color: var(--neon-cyan); min-height: 44px; padding: 0.65rem 1.1rem; border-radius: 6px; font-weight: bold; cursor: pointer; transition: background 0.25s, color 0.25s, box-shadow 0.25s; font-size: 0.8rem; letter-spacing: 1px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
         .nav-btn:hover { background: var(--neon-cyan); color: #000; box-shadow: 0 0 15px rgba(8, 247, 254, 0.4); }
         .nav-btn:focus-visible, .page-btn:focus-visible, .book-btn:focus-visible, .search-input:focus-visible, .sort-select:focus-visible, .book-cover:focus-visible { outline: 2px solid var(--neon-cyan); outline-offset: 2px; }
 
@@ -352,14 +386,15 @@ export default function Alexandria() {
         .book-author { font-family: monospace; font-size: 0.95rem; color: #999; margin-bottom: 1.25rem; line-height: 1.5; }
         .book-foot { margin-top: auto; display: flex; justify-content: space-between; align-items: center; gap: 10px; border-top: 1px solid #333; padding-top: 1rem; }
         .book-price { font-family: monospace; color: #f7931a; font-weight: bold; font-size: 0.95rem; }
-        .book-btn { background: transparent; border: 1px solid; min-height: 44px; padding: 0.6rem 1.25rem; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 0.8rem; letter-spacing: 1px; transition: transform 0.2s; }
+        .book-btn { background: transparent; border: 1px solid; min-height: 44px; padding: 0.6rem 1.25rem; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 0.8rem; letter-spacing: 1px; transition: transform 0.2s; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
         .book-btn:hover { transform: scale(1.05); }
 
         .global-footer { position: fixed; bottom: 0; left: 0; width: 100vw; background: rgba(5, 5, 8, 0.95); border-top: 1px solid rgba(8, 247, 254, 0.2); padding: 12px 5% calc(12px + env(safe-area-inset-bottom)) 5%; display: flex; justify-content: center; align-items: center; gap: 20px; font-size: 0.8rem; color: #888; z-index: 40000; font-family: monospace; text-align: center; }
         .swipe-hint { position: fixed; bottom: calc(70px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); font-family: monospace; font-size: 0.75rem; color: #aaa; pointer-events: none; z-index: 30000; background: rgba(0,0,0,0.85); padding: 8px 20px; border-radius: 20px; border: 1px solid #333; white-space: nowrap; transition: opacity 0.5s; }
         .swipe-hint.dismissed { opacity: 0; }
         .pagination { display: flex; gap: 15px; padding: 2.5rem 0 1rem 0; align-items: center; flex-wrap: wrap; justify-content: center; }
-        .page-btn { background: transparent; border: 1px solid var(--neon-cyan); color: var(--neon-cyan); min-height: 44px; padding: 0.65rem 1.4rem; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 0.85rem; letter-spacing: 1px; }
+        .page-btn { background: transparent; border: 1px solid var(--neon-cyan); color: var(--neon-cyan); min-height: 44px; padding: 0.65rem 1.4rem; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 0.85rem; letter-spacing: 1px; display: inline-flex; align-items: center; gap: 8px; }
+        .nav-btn svg, .page-btn svg { flex: none; }
         .page-btn:hover:not(:disabled) { background: var(--neon-cyan); color: #000; }
         .page-btn:disabled { border-color: #333; color: #555; cursor: not-allowed; }
 
@@ -387,7 +422,7 @@ export default function Alexandria() {
             <div className="hologram-wrapper">
               <div className={`hologram-header ${orbitron.className}`} style={{ color: 'var(--neon-magenta)' }}>
                 <span>Publisher Studio</span>
-                <button className={`nav-btn ${orbitron.className}`} onClick={() => window.scrollToPage('library')} style={{ borderColor: 'var(--neon-magenta)', color: 'var(--neon-magenta)' }}>Back to Library →</button>
+                <button className={`nav-btn ${orbitron.className}`} onClick={() => window.scrollToPage('library')} style={{ borderColor: 'var(--neon-magenta)', color: 'var(--neon-magenta)' }}><GlyphBook />Back to Library</button>
               </div>
               <iframe id="iframe-studio" className="hologram-frame" src="/publisher-studio" title="Publisher Studio"></iframe>
             </div>
@@ -406,9 +441,9 @@ export default function Alexandria() {
                 </select>
               </div>
               <nav className="nav-group" aria-label="Alexandria sections">
-                <button className={`nav-btn ${orbitron.className}`} style={{ borderColor: 'var(--neon-magenta)', color: 'var(--neon-magenta)' }} onClick={() => window.scrollToPage('studio')}>← Studio</button>
-                <button className={`nav-btn ${orbitron.className}`} onClick={() => window.scrollToPage('vault')}>Vault →</button>
-                <button className={`nav-btn ${orbitron.className}`} onClick={() => router.push('/')} style={{ borderColor: '#ff3366', color: '#ff3366' }}>Home</button>
+                <button className={`nav-btn ${orbitron.className}`} style={{ borderColor: 'var(--neon-magenta)', color: 'var(--neon-magenta)' }} onClick={() => window.scrollToPage('studio')}><GlyphStudio />Studio</button>
+                <button className={`nav-btn ${orbitron.className}`} onClick={() => window.scrollToPage('vault')}><GlyphVault />Vault</button>
+                <button className={`nav-btn ${orbitron.className}`} onClick={() => router.push('/')} style={{ borderColor: '#ff3366', color: '#ff3366' }}><GlyphHome />Home</button>
               </nav>
             </header>
 
@@ -426,9 +461,9 @@ export default function Alexandria() {
             <main className="library-container">
               <div className="grid" id="libraryGrid" ref={gridRef}></div>
               <div className="pagination" id="pagination-controls" style={{ display: 'none' }}>
-                <button id="prevPage" className={`page-btn ${orbitron.className}`}>← Previous</button>
+                <button id="prevPage" className={`page-btn ${orbitron.className}`}><GlyphChevronL /> Previous</button>
                 <span id="pageInfo" style={{ fontFamily: 'monospace', color: 'var(--neon-gold)' }}>Page 1 of 1</span>
-                <button id="nextPage" className={`page-btn ${orbitron.className}`}>Next →</button>
+                <button id="nextPage" className={`page-btn ${orbitron.className}`}>Next <GlyphChevronR /></button>
               </div>
             </main>
           </div>
@@ -436,7 +471,7 @@ export default function Alexandria() {
           <div className="carousel-page" id="page-vault" aria-label="Reader vault">
             <div className="hologram-wrapper">
               <div className={`hologram-header ${orbitron.className}`} style={{ color: 'var(--neon-cyan)' }}>
-                <button className={`nav-btn ${orbitron.className}`} onClick={() => window.scrollToPage('library')}>← Back to Library</button>
+                <button className={`nav-btn ${orbitron.className}`} onClick={() => window.scrollToPage('library')}><GlyphBook />Back to Library</button>
                 <span>Reader Vault</span>
               </div>
               <iframe id="iframe-vault" className="hologram-frame" src="/vault" title="Reader Vault"></iframe>

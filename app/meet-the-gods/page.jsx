@@ -8,7 +8,25 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { GODS, ALL_DOMAINS, searchAndFilter } from './gods.js';
 
 const BTN =
-  'min-h-[44px] px-4 py-2 rounded font-bold tracking-widest text-xs uppercase transition-colors';
+  'min-h-[44px] px-4 py-2 rounded font-bold tracking-widest text-xs uppercase transition-colors inline-flex items-center justify-center gap-2';
+
+/* ATHENA interior treatment: inline SVG glyph set for the codex buttons
+   (zero image weight; the procedural pillars canvas IS the backdrop). */
+function MtGlyph({ size = 13, children }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+      strokeLinejoin="round" aria-hidden="true" style={{ flex: 'none' }}>
+      {children}
+    </svg>
+  );
+}
+const GlyphCodex = () => (
+  <MtGlyph><path d="M6 3.5h11a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H6Z" /><path d="M6 3.5v17" /><path d="M10 8h5 M10 11.5h5" /></MtGlyph>
+);
+const GlyphClose = () => (
+  <MtGlyph><path d="M6 6l12 12 M18 6L6 18" /></MtGlyph>
+);
 
 function PillarsBackdrop() {
   const canvasRef = useRef(null);
@@ -177,8 +195,9 @@ export default function MeetTheGodsPage() {
                   {g.domains.join(' · ')}
                 </p>
                 <p className="text-sm text-zinc-300 mt-3 leading-relaxed line-clamp-3">{g.summary}</p>
-                <span className="inline-block mt-4 text-xs font-bold uppercase tracking-widest text-cyan-400">
-                  Open codex entry →
+                <span className="inline-flex items-center gap-2 mt-4 text-xs font-bold uppercase tracking-widest text-cyan-400">
+                  <GlyphCodex />
+                  <span>Open codex entry</span>
                 </span>
               </button>
             ))}
@@ -214,7 +233,7 @@ export default function MeetTheGodsPage() {
                 onClick={() => setSelectedId(null)}
                 aria-label="Close"
               >
-                ✕
+                <GlyphClose />
               </button>
             </div>
 

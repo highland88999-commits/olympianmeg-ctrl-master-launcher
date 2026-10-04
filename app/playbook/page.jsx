@@ -9,6 +9,47 @@ import { BOOK, PAGES, pageCount, clampPage, progressOf } from "./book.js";
 
 const FONT_SCALES = [0.92, 1.05, 1.22];
 
+/* ATHENA interior treatment: inline SVG glyph set (zero image weight).
+   Calm silver-blue + gold, matching the program's existing palette. */
+function Glyph({ size = 14, children }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+      strokeLinejoin="round" aria-hidden="true" style={{ flex: "none" }}>
+      {children}
+    </svg>
+  );
+}
+const GlyphTextSize = () => (
+  <Glyph>
+    <path d="M4 19 L11 5 L18 19" />
+    <path d="M6.6 14.2 H15.4" />
+    <path d="M20 3.5 V8 M18.2 3.5 H21.8" />
+  </Glyph>
+);
+const GlyphStart = () => (
+  <Glyph>
+    <path d="M6 5 V19" />
+    <path d="M19 5 L10 12 L19 19" />
+  </Glyph>
+);
+const GlyphPrev = () => (
+  <Glyph>
+    <path d="M14.5 5.5 L8 12 L14.5 18.5" />
+  </Glyph>
+);
+const GlyphNext = () => (
+  <Glyph>
+    <path d="M9.5 5.5 L16 12 L9.5 18.5" />
+  </Glyph>
+);
+const GlyphBook = ({ size = 40 }) => (
+  <Glyph size={size}>
+    <path d="M12 5.5 C10 4 7 3.5 4 3.5 V19.5 C7 19.5 10 20 12 21.5 C14 20 17 19.5 20 19.5 V3.5 C17 3.5 14 4 12 5.5 Z" />
+    <path d="M12 5.5 V21.5" />
+  </Glyph>
+);
+
 function Block({ block }) {
   switch (block.type) {
     case "author":
@@ -45,7 +86,13 @@ export default function SurvivorsPlaybook() {
   const [page, setPage] = useState(0);
   const [fontIx, setFontIx] = useState(1);
   const [reduced, setReduced] = useState(false);
+  const [ready, setReady] = useState(false); // loading veil: fades once first paint lands
   const pageRef = useRef(0);
+
+  useEffect(() => {
+    const t = setTimeout(() => setReady(true), 650);
+    return () => clearTimeout(t);
+  }, []);
 
   useEffect(() => {
     setReduced(
@@ -132,9 +179,19 @@ export default function SurvivorsPlaybook() {
   return (
     <>
     <div className="sp-root" style={{ fontSize: 16 * FONT_SCALES[fontIx] + "px" }}>
+      {!ready && (
+        <div className="sp-veil" aria-hidden="true">
+          <GlyphBook />
+          <span>The Survivors Playbook</span>
+        </div>
+      )}
       <style>{`
-        .sp-root { position: fixed; inset: 0; background: #050507; color: #E0E0E0;
-          font-family: Georgia, 'Times New Roman', serif; overflow: hidden; }
+        .sp-root { position: fixed; inset: 0; color: #E0E0E0;
+          font-family: Georgia, 'Times New Roman', serif; overflow: hidden;
+          background:
+            linear-gradient(rgba(5,5,9,0.84), rgba(5,5,9,0.9)),
+            url('/images/playbook/bg.webp') center / cover no-repeat,
+            #050507; }
         .sp-root::before { content: ""; position: fixed; inset: 0;
           background-image:
             linear-gradient(rgba(0,243,255,0.05) 1px, transparent 1px),
@@ -142,7 +199,11 @@ export default function SurvivorsPlaybook() {
           background-size: 30px 30px; pointer-events: none; z-index: 0; }
         .sp-chrome { position: absolute; top: 0; left: 0; right: 0; z-index: 10;
           display: flex; align-items: center; justify-content: space-between;
-          padding: 10px 14px; background: rgba(5,5,7,0.88);
+          padding: 10px 14px;
+          background:
+            linear-gradient(rgba(5,5,9,0.62), rgba(5,5,9,0.78)),
+            url('/images/playbook/header.webp') center / cover no-repeat,
+            rgba(5,5,7,0.88);
           border-bottom: 1px solid rgba(0,243,255,0.18); }
         .sp-title { font-family: ui-monospace, Menlo, monospace; color: #FFD700;
           letter-spacing: 3px; font-size: 12px; text-transform: uppercase; }
@@ -150,8 +211,18 @@ export default function SurvivorsPlaybook() {
         .sp-btn { font-family: ui-monospace, Menlo, monospace; font-size: 12px;
           letter-spacing: 1px; color: #00f2ff; background: transparent;
           border: 1px solid rgba(0,243,255,0.4); border-radius: 6px;
-          padding: 8px 12px; cursor: pointer; min-height: 40px; }
+          padding: 8px 12px; cursor: pointer; min-height: 40px;
+          display: inline-flex; align-items: center; gap: 8px; }
         .sp-btn:active { background: rgba(0,243,255,0.15); }
+        .sp-veil { position: fixed; inset: 0; z-index: 60; background: #050507;
+          display: flex; flex-direction: column; align-items: center;
+          justify-content: center; gap: 18px; color: #FFD700;
+          font-family: ui-monospace, Menlo, monospace; font-size: 11px;
+          letter-spacing: 4px; text-transform: uppercase;
+          animation: sp-veil-out 0.6s ease 0.9s forwards; pointer-events: none; }
+        .sp-veil svg { animation: sp-veil-breathe 1.6s ease-in-out infinite; }
+        @keyframes sp-veil-out { to { opacity: 0; visibility: hidden; } }
+        @keyframes sp-veil-breathe { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
         .sp-progress { position: absolute; top: 0; left: 0; height: 3px; z-index: 11;
           background: linear-gradient(90deg, #FFD700, #00f2ff);
           transition: width 0.25s ease; }
@@ -162,7 +233,10 @@ export default function SurvivorsPlaybook() {
         .sp-page { min-width: 100%; height: 100%; scroll-snap-align: start;
           overflow-y: auto; padding: 24px 18px 90px; box-sizing: border-box;
           display: flex; justify-content: center; }
-        .sp-card { width: 100%; max-width: 760px; background: rgba(18,18,21,0.9);
+        .sp-card { width: 100%; max-width: 760px;
+          background:
+            linear-gradient(rgba(16,16,22,0.93), rgba(16,16,22,0.95)),
+            url('/images/playbook/panel-tile.webp');
           border: 1px solid rgba(0,243,255,0.2); border-radius: 6px;
           padding: clamp(22px, 4vw, 52px); height: fit-content; }
         .sp-kicker { font-family: ui-monospace, Menlo, monospace; color: #00f2ff;
@@ -211,10 +285,12 @@ export default function SurvivorsPlaybook() {
         <div className="sp-title">{BOOK.title}</div>
         <div className="sp-tools">
           <button className="sp-btn" onClick={cycleFont} aria-label="Change text size">
-            A{fontIx === 0 ? "−" : fontIx === 2 ? "+" : "±"}
+            <GlyphTextSize />
+            <span>A{fontIx === 0 ? "−" : fontIx === 2 ? "+" : "±"}</span>
           </button>
           <button className="sp-btn" onClick={() => goTo(0)}>
-            ⤺ START
+            <GlyphStart />
+            <span>START</span>
           </button>
         </div>
       </div>
@@ -261,7 +337,8 @@ export default function SurvivorsPlaybook() {
           disabled={page === 0}
           style={{ opacity: page === 0 ? 0.35 : 1 }}
         >
-          ← PREV
+          <GlyphPrev />
+          <span>PREV</span>
         </button>
         <div className="sp-dots" role="tablist" aria-label="Chapters">
           {PAGES.map((pg, i) => (
@@ -279,7 +356,8 @@ export default function SurvivorsPlaybook() {
           disabled={page === pageCount() - 1}
           style={{ opacity: page === pageCount() - 1 ? 0.35 : 1 }}
         >
-          NEXT →
+          <span>NEXT</span>
+          <GlyphNext />
         </button>
       </div>
       <div

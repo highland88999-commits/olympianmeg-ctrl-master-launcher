@@ -11,6 +11,28 @@ import {
 } from './maze';
 import { createLabyrinthScene } from './scene';
 
+/* ATHENA interior treatment: inline SVG chevrons for the d-pad + a portal
+   glyph for the stage buttons (zero image weight; the 3D maze IS the art). */
+function LbGlyph({ size = 20, children }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"
+      strokeLinejoin="round" aria-hidden="true" style={{ flex: 'none' }}>
+      {children}
+    </svg>
+  );
+}
+const ChevronUp = () => (<LbGlyph><path d="M6 14.5 L12 8.5 L18 14.5" /></LbGlyph>);
+const ChevronDown = () => (<LbGlyph><path d="M6 9.5 L12 15.5 L18 9.5" /></LbGlyph>);
+const ChevronLeft = () => (<LbGlyph><path d="M14.5 6 L8.5 12 L14.5 18" /></LbGlyph>);
+const ChevronRight = () => (<LbGlyph><path d="M9.5 6 L15.5 12 L9.5 18" /></LbGlyph>);
+const GlyphPortal = () => (
+  <LbGlyph size={16}>
+    <ellipse cx="12" cy="12" rx="6" ry="9" />
+    <ellipse cx="12" cy="12" rx="2.5" ry="4.5" />
+  </LbGlyph>
+);
+
 const DIRS = {
   up: [0, -1],
   down: [0, 1],
@@ -190,11 +212,11 @@ export default function LabyrinthPage() {
         <div className="absolute bottom-[calc(5.5rem+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-10">
           <div className="grid grid-cols-3 gap-2">
             <div />
-            <button aria-label="Move up" className={dpadBtn} onPointerDown={() => doMove(0, -1)}>▲</button>
+            <button aria-label="Move up" className={dpadBtn} onPointerDown={() => doMove(0, -1)}><ChevronUp /></button>
             <div />
-            <button aria-label="Move left" className={dpadBtn} onPointerDown={() => doMove(-1, 0)}>◀</button>
-            <button aria-label="Move down" className={dpadBtn} onPointerDown={() => doMove(0, 1)}>▼</button>
-            <button aria-label="Move right" className={dpadBtn} onPointerDown={() => doMove(1, 0)}>▶</button>
+            <button aria-label="Move left" className={dpadBtn} onPointerDown={() => doMove(-1, 0)}><ChevronLeft /></button>
+            <button aria-label="Move down" className={dpadBtn} onPointerDown={() => doMove(0, 1)}><ChevronDown /></button>
+            <button aria-label="Move right" className={dpadBtn} onPointerDown={() => doMove(1, 0)}><ChevronRight /></button>
           </div>
           <div className="text-center text-[11px] text-zinc-500 mt-2">Tap the pad, swipe, or use arrow keys</div>
         </div>
@@ -257,9 +279,10 @@ function BigButton({ children, onClick }) {
   return (
     <button
       onClick={onClick}
-      className="mt-6 min-h-[48px] px-8 rounded-full bg-violet-700 hover:bg-violet-600 text-white font-bold tracking-widest uppercase text-sm transition-colors"
+      className="mt-6 min-h-[48px] px-8 rounded-full bg-violet-700 hover:bg-violet-600 text-white font-bold tracking-widest uppercase text-sm transition-colors inline-flex items-center justify-center gap-2"
     >
-      {children}
+      <GlyphPortal />
+      <span>{children}</span>
     </button>
   );
 }

@@ -11,6 +11,50 @@ import ListsManager from '@/components/ares/ListsManager';
 import ModuleToggles from '@/components/ares/ModuleToggles';
 import LearningPanel from '@/components/ares/LearningPanel';
 
+// ATHENA interior treatment: inline SVG glyph set (zero image weight).
+function AresGlyph({ size = 14, children }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"
+      strokeLinejoin="round" aria-hidden="true" style={{ flex: 'none' }}>
+      {children}
+    </svg>
+  );
+}
+const GlyphShield = ({ size = 30 }) => (
+  <AresGlyph size={size}>
+    <path d="M12 3 L20 6 V11 C20 16 16.6 19.4 12 21 C7.4 19.4 4 16 4 11 V6 Z" />
+    <path d="M9 11.5 L11.4 14 L15.4 9.6" />
+  </AresGlyph>
+);
+const GlyphRefresh = () => (
+  <AresGlyph>
+    <path d="M20 12 a8 8 0 1 1 -2.34 -5.66" />
+    <path d="M20 3.5 V8 H15.5" />
+  </AresGlyph>
+);
+
+const ARES_CSS = `
+.ares-bg { position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background: linear-gradient(rgba(5,5,5,0.84), rgba(5,5,5,0.91)), url('/images/ares/bg.webp') center / cover no-repeat, #050505; }
+.ares-shell { position: relative; z-index: 1; }
+.ares-head { background: linear-gradient(rgba(5,5,5,0.55), rgba(5,5,5,0.78)), url('/images/ares/header.webp') center / cover no-repeat;
+  border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; padding: 14px 18px; }
+.ares-panel { border-radius: 14px; padding: 5px;
+  background: linear-gradient(rgba(9,9,14,0.5), rgba(9,9,14,0.58)), url('/images/ares/ares-panel.webp');
+  border: 1px solid rgba(255,255,255,0.06); }
+.ares-veil { display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; padding: 4rem 1rem; color: #f0abfc; font-size: 0.72rem; letter-spacing: 3px;
+  text-transform: uppercase; }
+.ares-veil svg { animation: ares-breathe 1.8s ease-in-out infinite; }
+@keyframes ares-breathe { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+.ares-empty { display: flex; align-items: center; gap: 10px; margin-top: 1rem;
+  border: 1px dashed rgba(240,171,252,0.35); border-radius: 10px; padding: 14px 16px;
+  color: #d4a5e8; font-size: 0.85rem; letter-spacing: 1px; }
+.ares-refresh { display: inline-flex; align-items: center; gap: 8px; }
+@media (prefers-reduced-motion: reduce) { .ares-veil svg { animation: none; } }
+`;
+
 // Locked screen: what anyone who is not the keeper sees. ARES aesthetic,
 // honest, on-brand — no pop-ups, no redirect tricks. The data routes
 // enforce the same lock server-side, so this is the veil, not the vault.
@@ -18,7 +62,9 @@ function LockedScreen({ reason }) {
   const signedOut = reason === 'signed-out';
   return (
     <main className="flex min-h-dvh w-full items-center justify-center bg-[#050505] px-6 py-10 text-center">
-      <div className="flex w-full max-w-sm flex-col items-center gap-5">
+      <style>{ARES_CSS}</style>
+      <div className="ares-bg" aria-hidden="true" />
+      <div className="ares-shell flex w-full max-w-sm flex-col items-center gap-5">
         <div>
           <h1 className="bg-gradient-to-br from-fuchsia-400 to-red-500 bg-clip-text text-4xl font-black uppercase tracking-[0.2em] text-transparent">
             Ares
@@ -149,7 +195,9 @@ export default function AresConsole() {
     if (cloudOffline) {
       return (
         <div className="flex h-dvh w-screen items-center justify-center bg-black p-8 text-center">
-          <p className="max-w-md text-sm text-zinc-400">
+          <style>{ARES_CSS}</style>
+          <div className="ares-bg" aria-hidden="true" />
+          <p className="ares-shell max-w-md text-sm text-zinc-400">
             Cloud features are offline — Ares needs the database connection. The watchtower will come back online once it&apos;s connected.
           </p>
         </div>
@@ -158,48 +206,65 @@ export default function AresConsole() {
     if (gate === 'locked') {
       return <LockedScreen reason={lockedReason} />;
     }
-    return <div className="h-dvh w-screen bg-black" />;
+    return (
+      <div className="h-dvh w-screen bg-black">
+        <style>{ARES_CSS}</style>
+        <div className="ares-veil h-full" role="status" aria-label="Verifying keeper credentials">
+          <GlyphShield size={38} />
+          <span>Approaching the watchtower…</span>
+        </div>
+      </div>
+    );
   }
 
   const summary = summarize(events);
 
   return (
     <main className="min-h-dvh w-full bg-[#050505] px-4 py-6 text-zinc-200 sm:px-8">
-      <div className="mx-auto flex max-w-5xl flex-col gap-4">
-        <header className="flex items-center justify-between gap-4">
-          <div>
-            <h1 className="bg-gradient-to-br from-fuchsia-400 to-red-500 bg-clip-text text-2xl font-black uppercase tracking-[0.2em] text-transparent sm:text-3xl">
-              Ares
-            </h1>
-            <p className="mt-1 text-[11px] uppercase tracking-[0.25em] text-zinc-500">
-              Autonomous Response and Evidence System
-            </p>
+      <style>{ARES_CSS}</style>
+      <div className="ares-bg" aria-hidden="true" />
+      <div className="ares-shell mx-auto flex max-w-5xl flex-col gap-4">
+        <header className="ares-head flex items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <span className="text-fuchsia-300/90"><GlyphShield /></span>
+            <div>
+              <h1 className="bg-gradient-to-br from-fuchsia-400 to-red-500 bg-clip-text text-2xl font-black uppercase tracking-[0.2em] text-transparent sm:text-3xl">
+                Ares
+              </h1>
+              <p className="mt-1 text-[11px] uppercase tracking-[0.25em] text-zinc-500">
+                Autonomous Response and Evidence System
+              </p>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <button onClick={load}
-              className="rounded-lg border border-zinc-700 px-4 py-2 text-xs font-bold uppercase tracking-widest text-zinc-400 transition-colors hover:border-fuchsia-400 hover:text-fuchsia-300">
-              Refresh
+              className="ares-refresh rounded-lg border border-zinc-700 px-4 py-2 text-xs font-bold uppercase tracking-widest text-zinc-400 transition-colors hover:border-fuchsia-400 hover:text-fuchsia-300">
+              <GlyphRefresh />
+              <span>Refresh</span>
             </button>
             <BackButton label="Exit" />
           </div>
         </header>
 
         {loading ? (
-          <p className="py-16 text-center text-sm uppercase tracking-widest text-zinc-600">Reading the watchtower...</p>
+          <div className="ares-veil" role="status" aria-label="Loading threat data">
+            <GlyphShield size={38} />
+            <span>Reading the watchtower…</span>
+          </div>
         ) : (
           <>
             <div className="grid gap-4 md:grid-cols-5">
-              <div className="md:col-span-3">
+              <div className="ares-panel md:col-span-3">
                 <ThreatGauge level={summary.level} label={summary.label} trend={summary.trend} />
               </div>
-              <div className="md:col-span-2">
+              <div className="ares-panel md:col-span-2">
                 <ModuleToggles settings={settings} onChange={saveSettings} disabled={saving} />
               </div>
             </div>
-            <TopLists events={events} />
-            <EventsFeed events={events} />
-            <LearningPanel events={events} authedFetch={authedFetch} />
-            <ListsManager authedFetch={authedFetch} whitelist={whitelist} blocks={blocks} onRefresh={load} />
+            <div className="ares-panel"><TopLists events={events} /></div>
+            <div className="ares-panel"><EventsFeed events={events} /></div>
+            <div className="ares-panel"><LearningPanel events={events} authedFetch={authedFetch} /></div>
+            <div className="ares-panel"><ListsManager authedFetch={authedFetch} whitelist={whitelist} blocks={blocks} onRefresh={load} /></div>
             <footer className="pb-8 pt-2 text-center text-[11px] text-zinc-600">
               Defensive only. Ares logs and blocks; it never retaliates. Evidence older than 90 days is purged.
             </footer>

@@ -17,7 +17,25 @@ import {
 import { createHoleScene } from './hole3d.js';
 
 const BTN =
-  'min-h-[44px] px-4 py-3 rounded font-bold tracking-widest text-xs uppercase transition-colors';
+  'min-h-[44px] px-4 py-3 rounded font-bold tracking-widest text-xs uppercase transition-colors inline-flex items-center justify-center gap-2';
+
+/* ATHENA interior treatment: inline SVG glyph set for the two text buttons
+   (the Tap/Hold interaction circle stays plain — it IS the instrument). */
+function HhGlyph({ size = 14, children }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+      strokeLinejoin="round" aria-hidden="true" style={{ flex: 'none' }}>
+      {children}
+    </svg>
+  );
+}
+const GlyphUpload = () => (
+  <HhGlyph><path d="M12 16V4 M6.5 9.5 L12 4 L17.5 9.5" /><path d="M4 16.5 V20 h16 v-3.5" /></HhGlyph>
+);
+const GlyphEraser = () => (
+  <HhGlyph><path d="M5 15.5 L12.5 8 l5 5 -7.5 7.5 H7.5 Z" /><path d="M13 19.5 h8" /></HhGlyph>
+);
 
 export default function HitchhikersGuidePage() {
   const canvasRef = useRef(null);
@@ -160,7 +178,8 @@ export default function HitchhikersGuidePage() {
 
         <div className="flex items-center justify-center gap-3 flex-wrap">
           <label className={`${BTN} border border-fuchsia-500 text-fuchsia-400 bg-fuchsia-500/10 cursor-pointer hover:bg-fuchsia-500 hover:text-black`}>
-            Inject media
+            <GlyphUpload />
+            <span>Inject media</span>
             <input type="file" accept="image/*" className="hidden" onChange={onPickMedia} />
           </label>
           <button
@@ -180,7 +199,8 @@ export default function HitchhikersGuidePage() {
             className={`${BTN} border border-cyan-500 text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500 hover:text-black`}
             onClick={clearField}
           >
-            Clear field
+            <GlyphEraser />
+            <span>Clear field</span>
           </button>
         </div>
 
