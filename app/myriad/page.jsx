@@ -26,6 +26,13 @@ import { TRON_BIKES, bikeByKey } from '@/components/nova/TronBikes';
 import TronRider from '@/components/nova/TronRider';
 import { SpiralGalaxy, Nebula, Wormhole } from '@/components/nova/DeepSpace';
 import { fx, unlockFx } from '@/lib/fx';
+import { HermesBackdrop, HermesPanelTexture } from '@/components/hermes-ui/HermesUi';
+import { RadarIcon, BikeIcon, GridIcon, EyeIcon } from '@/lib/hermes-icons';
+
+// HERMES treatment: inline-flex icon+label wrapper for HUD buttons.
+const HIcon = ({ children }) => (
+  <span className="inline-flex items-center gap-2">{children}</span>
+);
 import {
   TRON_BIKE_TUNING,
   tuningFor,
@@ -792,9 +799,11 @@ export default function MyriadPage() {
   // ============================ ATLAS ======================================
   if (view === 'atlas') {
     return (
-      <div className="min-h-dvh bg-black text-white select-none">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-6 sm:pt-10 pb-[calc(4.5rem+env(safe-area-inset-bottom))]">
-          <div className="border-l-2 border-cyan-400/80 pl-4 mb-2">
+      <div className="relative min-h-dvh bg-black text-white select-none">
+        <HermesBackdrop src="/images/myriad/bg.webp" imgOpacity={0.4} zIndex={0} />
+        <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 pt-6 sm:pt-10 pb-[calc(4.5rem+env(safe-area-inset-bottom))]">
+          <div className="relative overflow-hidden border-l-2 border-cyan-400/80 pl-4 mb-2 rounded-r-xl bg-black/40 backdrop-blur-sm py-3 pr-4">
+            <HermesPanelTexture opacity={0.1} />
             <div className="text-[10px] sm:text-[11px] tracking-[0.3em] uppercase text-cyan-300/90">
               100 procedurally generated universes
             </div>
@@ -806,7 +815,8 @@ export default function MyriadPage() {
           </div>
 
           {/* tron bike garage */}
-          <div className="mt-6 bg-zinc-950/90 border border-zinc-800 rounded-xl p-4">
+          <div className="relative mt-6 bg-zinc-950/90 border border-zinc-800 rounded-xl p-4">
+            <HermesPanelTexture opacity={0.06} />
             <div className="text-[10px] tracking-[0.3em] uppercase text-cyan-300/80 mb-2">
               Tron bike garage
             </div>
@@ -889,7 +899,7 @@ export default function MyriadPage() {
                 }}
                 className="mt-4 min-h-[44px] px-6 rounded-lg border border-zinc-700 bg-white/5 text-xs font-bold tracking-widest uppercase hover:bg-white/10"
               >
-                Show all 100
+                <span className="inline-flex items-center gap-2"><EyeIcon size={14} />Show all 100</span>
               </button>
             </div>
           )}
@@ -938,7 +948,8 @@ export default function MyriadPage() {
 
       {/* header / HUD */}
       <div className="absolute top-0 left-0 right-0 flex items-start justify-between gap-2 p-4 sm:p-5 pointer-events-none">
-        <div className="bg-black/60 backdrop-blur-sm px-4 py-3 border-l-2 border-cyan-400/80 max-w-[62vw]">
+        <div className="relative overflow-hidden bg-black/60 backdrop-blur-sm px-4 py-3 border-l-2 border-cyan-400/80 max-w-[62vw]">
+          <HermesPanelTexture opacity={0.12} />
           <div className="text-[10px] sm:text-[11px] tracking-[0.3em] uppercase text-cyan-300/90">
             Universe {universe.id} / 100
           </div>
@@ -979,20 +990,20 @@ export default function MyriadPage() {
                 : 'border-zinc-700 bg-black/60 text-zinc-300 hover:bg-white/10'
             }`}
           >
-            {autopilot ? 'Stop tour' : 'Autopilot tour'}
+            {autopilot ? (<HIcon><RadarIcon size={13} />Stop tour</HIcon>) : (<HIcon><RadarIcon size={13} />Autopilot tour</HIcon>)}
           </button>
           <button
             onClick={() => setShowBikes((s) => !s)}
             aria-expanded={showBikes}
             className="min-h-[44px] px-4 rounded-lg border border-zinc-700 bg-black/60 text-zinc-300 text-xs font-bold tracking-widest uppercase hover:bg-white/10"
           >
-            Tron bike
+            <HIcon><BikeIcon size={14} />Tron bike</HIcon>
           </button>
           <button
             onClick={returnToAtlas}
             className="min-h-[44px] px-4 rounded-lg border border-cyan-400/60 bg-cyan-400/10 text-cyan-200 text-xs font-bold tracking-widest uppercase hover:bg-cyan-400/20"
           >
-            Return to atlas
+            <HIcon><GridIcon size={13} />Return to atlas</HIcon>
           </button>
         </div>
       </div>

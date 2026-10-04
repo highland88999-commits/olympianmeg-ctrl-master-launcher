@@ -15,6 +15,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { ShipIcon, BookIcon, UsersIcon, CloudIcon, ArrowUpIcon } from "@/lib/hermes-icons";
 import {
   CHAPTERS, VOYAGE_LENGTH, chapterAt, waveY, shipScreenX, shipScale,
   lightningAt, FogSim, WispSim, LOG_WINDOWS,
@@ -281,20 +282,30 @@ export default function DutchmanPage() {
     minHeight: 44,
   };
 
+  const WIN_ICONS = { voyage: ShipIcon, manifest: BookIcon, crew: UsersIcon };
+  const calmLabel = (on) => (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+      <CloudIcon size={14} />{on ? 'CALM ON' : 'CALM OFF'}
+    </span>
+  );
+
   return (
     <div ref={wrapRef} style={{ position: 'fixed', inset: 0, background: '#000', overflow: 'hidden', fontFamily: 'system-ui, sans-serif', color: '#fff' }}>
       <style>{`@keyframes breathe { 0%,100% { opacity: 0.4; } 50% { opacity: 1; } }`}</style>
 
       {/* STAGE 1 — SIGNAL GATE */}
       {stage === 'gate' && (
-        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', gap: 22, justifyContent: 'center', alignItems: 'center', padding: 24, textAlign: 'center' }}>
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', gap: 22, justifyContent: 'center', alignItems: 'center', padding: 24, textAlign: 'center',
+          background: 'linear-gradient(rgba(0,0,0,.55), rgba(0,0,0,.35) 45%, rgba(0,0,0,.7)), url(/images/flying-dutchman/bg.webp)', backgroundSize: 'cover', backgroundPosition: 'center' }}>
           <div style={{ color: '#00d4ff', letterSpacing: 8, fontSize: 14 }}>🏴‍☠️ THE FLYING DUTCHMAN</div>
           <div style={{ color: '#8899aa', maxWidth: 460, fontSize: 14, lineHeight: 1.8 }}>
             A ghost story in four chapters, drawn live on this page.
             No video, no sound — just the sea, the moon, and the ship
             that never comes home.
           </div>
-          <button style={gateBtn} onClick={() => setStage('voyage')}>HAIL THE SHIP</button>
+          <button style={{ ...gateBtn, display: 'inline-flex', alignItems: 'center', gap: 12 }} onClick={() => setStage('voyage')}>
+            <ShipIcon size={18} />HAIL THE SHIP
+          </button>
           <div style={{ color: '#445566', fontSize: 12, fontStyle: 'italic' }}>“Part of the ship… part of the crew.”</div>
         </div>
       )}
@@ -318,10 +329,12 @@ export default function DutchmanPage() {
           </div>
           <div style={{ position: 'absolute', top: 18, right: 18, display: 'flex', gap: 10, zIndex: 10 }}>
             <button onClick={() => setCalm((c) => !c)} aria-pressed={calm} style={{ minHeight: 44, padding: '10px 16px', background: 'rgba(0,10,15,0.5)', border: '1px solid rgba(0,212,255,0.5)', color: calm ? '#ffd700' : '#bff', borderRadius: 8, fontSize: 12, letterSpacing: 1, cursor: 'pointer' }}>
-              {calm ? '☁ CALM ON' : 'CALM OFF'}
+              {calmLabel(calm)}
             </button>
             <button onClick={() => setStage('log')} style={{ minHeight: 44, padding: '10px 18px', background: 'rgba(0,212,255,0.12)', border: '1px solid #00d4ff', color: '#00d4ff', borderRadius: 8, fontSize: 12, letterSpacing: 2, cursor: 'pointer' }}>
-              CAPTAIN'S LOG →
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <BookIcon size={14} />CAPTAIN'S LOG
+              </span>
             </button>
           </div>
         </>
@@ -329,7 +342,9 @@ export default function DutchmanPage() {
 
       {/* STAGE 3 — CAPTAIN'S LOG */}
       {stage === 'log' && (
-        <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', background: 'radial-gradient(ellipse at 50% 120%, #06121f 0%, #000 70%)', padding: '28px 18px 40px' }}>
+        <div style={{ position: 'absolute', inset: 0, overflowY: 'auto',
+          background: 'radial-gradient(ellipse at 50% 120%, rgba(6,18,31,.92) 0%, rgba(0,0,0,.96) 70%), url(/images/flying-dutchman/bg.webp)',
+          backgroundSize: 'auto, cover', backgroundPosition: 'center top', padding: '28px 18px 40px' }}>
           <div style={{ textAlign: 'center', marginBottom: 8 }}>
             <div style={{ color: '#00ff88', letterSpacing: 5, fontSize: 18, textShadow: '0 0 14px rgba(0,255,136,0.6)' }}>CAPTAIN'S LOG</div>
             <div style={{ color: '#667788', fontSize: 12, fontStyle: 'italic', marginTop: 6 }}>recovered from a bottle, corked with wax, smelling of brine</div>
@@ -375,17 +390,19 @@ export default function DutchmanPage() {
                   background: 'rgba(0,212,255,0.08)',
                   boxShadow: openWin === w.id ? '0 0 15px rgba(0,255,136,0.5)' : 'none',
                 }}>
-                {w.icon}
+                {(() => { const I = WIN_ICONS[w.id] || ShipIcon; return <I size={26} />; })()}
               </button>
             ))}
           </div>
 
           <div style={{ display: 'flex', gap: 12, justifyContent: 'center', marginTop: 26, flexWrap: 'wrap' }}>
             <button onClick={() => setStage('voyage')} style={{ minHeight: 44, padding: '10px 22px', background: 'transparent', border: '1px solid #00d4ff', color: '#00d4ff', borderRadius: 8, letterSpacing: 2, fontSize: 12, cursor: 'pointer' }}>
-              ← RETURN TO THE SEA
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <ArrowUpIcon size={14} />RETURN TO THE SEA
+              </span>
             </button>
             <button onClick={() => setCalm((c) => !c)} aria-pressed={calm} style={{ minHeight: 44, padding: '10px 22px', background: 'transparent', border: '1px solid rgba(0,212,255,0.5)', color: calm ? '#ffd700' : '#bff', borderRadius: 8, letterSpacing: 2, fontSize: 12, cursor: 'pointer' }}>
-              {calm ? '☁ CALM ON' : 'CALM OFF'}
+              {calmLabel(calm)}
             </button>
           </div>
           <div style={{ textAlign: 'center', color: '#445566', fontSize: 12, fontStyle: 'italic', marginTop: 22 }}>

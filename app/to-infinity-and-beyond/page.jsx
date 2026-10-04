@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { PlayIcon, PauseIcon, BoltIcon } from "@/lib/hermes-icons";
 import {
   makeStars,
   makeNebulae,
@@ -188,7 +189,10 @@ export default function InfinityDrivePage() {
       </div>
       <div style={styles.dock}>
         <button style={styles.btn} onClick={() => setUi({ ...ui, playing: !ui.playing })}>
-          {ui.playing ? "Pause" : "Play"}
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            {ui.playing ? <PauseIcon size={13} /> : <PlayIcon size={13} />}
+            {ui.playing ? "Pause" : "Play"}
+          </span>
         </button>
         <label style={styles.row}>Warp
           <input
@@ -204,7 +208,9 @@ export default function InfinityDrivePage() {
           onPointerUp={() => setUi({ ...uiRef.current, overdrive: false })}
           onPointerLeave={() => setUi({ ...uiRef.current, overdrive: false })}
         >
-          PUNCH IT
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <BoltIcon size={15} />PUNCH IT
+          </span>
         </button>
       </div>
     </div>
@@ -221,11 +227,11 @@ const styles = {
   title: { margin: 0, fontSize: 22, fontWeight: 800, letterSpacing: 4, textTransform: "uppercase", color: "#bfe9ff" },
   hud: { marginTop: 6, fontSize: 14, fontWeight: 600, letterSpacing: 1, color: "#8fd8ff" },
   hint: { marginTop: 4, fontSize: 13, opacity: 0.7 },
-  dock: { position: "absolute", left: 12, right: 12, bottom: "calc(5rem + env(safe-area-inset-bottom))", zIndex: 5, display: "flex", gap: 12, alignItems: "center", justifyContent: "center", background: "rgba(6,10,20,.72)", border: "1px solid rgba(140,210,255,.25)", borderRadius: 14, padding: "10px 14px", backdropFilter: "blur(8px)", flexWrap: "wrap" },
+  dock: { position: "absolute", left: 12, right: 12, bottom: "calc(5rem + env(safe-area-inset-bottom))", zIndex: 5, display: "flex", gap: 12, alignItems: "center", justifyContent: "center", background: "linear-gradient(rgba(6,10,20,.84), rgba(6,10,20,.84)), url(/images/to-infinity-and-beyond/bg.webp)", backgroundSize: "cover", backgroundPosition: "center", border: "1px solid rgba(212,175,55,.35)", borderRadius: 14, padding: "10px 14px", backdropFilter: "blur(8px)", flexWrap: "wrap", boxShadow: "0 0 24px rgba(212,175,55,.12)" },
   btn: { background: "rgba(255,255,255,.08)", color: "#fff", border: "1px solid rgba(255,255,255,.25)", borderRadius: 8, padding: "8px 12px", fontSize: 13, cursor: "pointer" },
   row: { display: "flex", alignItems: "center", gap: 8, fontSize: 13 },
-  range: { width: 150, accentColor: "#6fd2ff" },
-  warpNum: { minWidth: 30, fontWeight: 700, color: "#8fd8ff" },
+  range: { width: 150, accentColor: "#d4af37" },
+  warpNum: { minWidth: 30, fontWeight: 700, color: "#ffd700" },
   punch: { background: "rgba(255,80,120,.15)", color: "#ffb3c4", border: "2px solid #ff5078", borderRadius: 10, padding: "10px 18px", fontSize: 14, fontWeight: 800, letterSpacing: 2, cursor: "pointer", touchAction: "none" },
   punchActive: { background: "#ff5078", color: "#fff", border: "2px solid #ff8ba3", borderRadius: 10, padding: "10px 18px", fontSize: 14, fontWeight: 800, letterSpacing: 2, cursor: "pointer", touchAction: "none", boxShadow: "0 0 18px rgba(255,80,120,.8)" },
 };

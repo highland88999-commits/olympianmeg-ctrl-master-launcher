@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { MicIcon, RadarIcon, SatelliteIcon, EraseIcon, RouteIcon, PinIcon } from '@/lib/hermes-icons';
 
 const CSS = `
 .vw-root { height: 100dvh; display: flex; flex-direction: column; background: #0a0a14; color: #fff;
@@ -9,9 +10,16 @@ const CSS = `
 .vw-scan { position: absolute; inset: 0; z-index: 60; pointer-events: none;
   background: linear-gradient(rgba(18,16,16,0) 50%, rgba(0,0,0,0.25) 50%);
   background-size: 100% 2px; }
-.vw-head { background: #0d0d1a; border-bottom: 2px solid #00f2ff; padding: 10px 15px;
+.vw-head { background: linear-gradient(rgba(13,13,26,.88), rgba(13,13,26,.88)), url(/images/venus-wifi/bg.webp);
+  background-size: cover; background-position: center 30%; border-bottom: 2px solid #00f2ff; padding: 10px 15px;
   display: flex; justify-content: space-between; align-items: center; z-index: 61;
   box-shadow: 0 0 15px rgba(0,243,255,0.35); }
+.vw-head h1 { text-shadow: 0 0 8px rgba(0,243,255,0.7), 0 0 22px rgba(212,175,55,0.25); }
+.vw-readout { background: linear-gradient(rgba(7,7,15,.9), rgba(7,7,15,.9)), url(/images/hermes/gold-tile.webp);
+  background-size: auto, 200px; }
+.vw-vault { background: linear-gradient(rgba(7,7,15,.93), rgba(7,7,15,.93)), url(/images/hermes/gold-tile.webp);
+  background-size: auto, 200px; }
+.vw-btn svg { vertical-align: -2px; }
 .vw-head h1 { margin: 0; font-size: 1rem; color: #00f2ff; text-shadow: 0 0 8px rgba(0,243,255,0.7);
   letter-spacing: 1px; }
 .vw-status { color: #39ff14; font-size: 0.8rem; letter-spacing: 1px; }
@@ -354,11 +362,11 @@ export default function VenusWifiPage() {
           <input id="vw-search" type="text" value={query} onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') scanVault(); }}
             placeholder="ENTER VECTOR…" aria-label="Search waypoints" />
-          <button className="vw-btn pink" onClick={startVoice} aria-label="Voice input" title="Voice input">🎤</button>
-          <button id="vw-scan-btn" className="vw-btn" onClick={scanVault}>Scan</button>
+          <button className="vw-btn pink" onClick={startVoice} aria-label="Voice input" title="Voice input"><MicIcon size={17} /></button>
+          <button id="vw-scan-btn" className="vw-btn" onClick={scanVault}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><RadarIcon size={15} />Scan</span></button>
         </div>
         <button className="vw-btn wide" onClick={startGPS}>
-          {gpsOn ? '🛰️ Disengage GPS' : '🛰️ Engage GPS / Position Lock'}
+          {gpsOn ? (<span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><SatelliteIcon size={16} />Disengage GPS</span>) : (<span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><SatelliteIcon size={16} />Engage GPS / Position Lock</span>)}
         </button>
       </div>
 
@@ -366,7 +374,7 @@ export default function VenusWifiPage() {
         <canvas ref={canvasRef} aria-label="Tactical radar display" />
         <div className="vw-readout" aria-live="polite">
           {readout().map((l, i) => <div key={i}>{l}</div>)}
-          {route && <button className="vw-btn pink" style={{ marginTop: 8 }} onClick={clearRoute}>Clear route</button>}
+          {route && <button className="vw-btn pink" style={{ marginTop: 8 }} onClick={clearRoute}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><EraseIcon size={14} />Clear route</span></button>}
         </div>
         <aside className="vw-vault" aria-label="Waypoint vault">
           <h3>WAYPOINT VAULT</h3>
@@ -375,7 +383,7 @@ export default function VenusWifiPage() {
             <div className="vw-wp" key={wp.id}>
               <span>{wp.name.toUpperCase().slice(0, 16)}</span>
               <span style={{ display: 'flex', gap: 4 }}>
-                <button onClick={() => lockRoute(wp)}>Route</button>
+                <button onClick={() => lockRoute(wp)}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><RouteIcon size={13} />Route</span></button>
                 <button className="vw-del" onClick={() => deleteWp(wp.id)} aria-label={'Delete ' + wp.name}>✕</button>
               </span>
             </div>
@@ -383,7 +391,7 @@ export default function VenusWifiPage() {
           <div className="vw-addbar">
             <input value={wpName} onChange={(e) => setWpName(e.target.value)}
               placeholder="Waypoint name…" aria-label="Waypoint name" maxLength={30} />
-            <button className="vw-btn" onClick={saveWaypoint}>Save</button>
+            <button className="vw-btn" onClick={saveWaypoint}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><PinIcon size={14} />Save</span></button>
           </div>
           <p className="vw-empty" style={{ marginTop: 8 }}>
             Offline console — waypoints live on this device only. No maps leave the browser.

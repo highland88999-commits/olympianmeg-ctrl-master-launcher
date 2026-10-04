@@ -13,6 +13,14 @@ import {
 import TravelAdvisoryBanner from './advisory-banner';
 import ContactsTab from './contacts-tab';
 import { BackButton } from '@/components/ui';
+import {
+  HermesBackdrop,
+  HermesPanelTexture,
+  HermesLoader,
+  useAmbience,
+  AmbienceToggle,
+} from '@/components/hermes-ui/HermesUi';
+import { PhoneIcon, VideoIcon, SendIcon, StepsIcon } from '@/lib/hermes-icons';
 
 export default function GlassCommsApp() {
   const router = useRouter();
@@ -48,6 +56,9 @@ export default function GlassCommsApp() {
 
   const [messages, setMessages] = useState<{ id?: string; sender: string; text: string }[]>([]);
   const [meshStatus, setMeshStatus] = useState<string>('CONNECTING');
+  // Merchant ambience: the existing background video, a still poster,
+  // or off. Persisted; reduced-motion users start on the still.
+  const [ambience, cycleAmbience] = useAmbience('phone-home-bg', 'video');
   const [textPeer, setTextPeer] = useState('');
   const [draft, setDraft] = useState('');
 
@@ -429,7 +440,11 @@ export default function GlassCommsApp() {
   };
 
   const BackgroundVideo = () => (
-    <video autoPlay loop muted playsInline className="absolute top-0 left-0 w-full h-full object-cover z-0 pointer-events-none opacity-90">
+    <video
+      autoPlay loop muted playsInline preload="metadata"
+      poster="/images/phone-home/bg-still.webp"
+      className="absolute top-0 left-0 w-full h-full object-cover z-0 pointer-events-none opacity-80"
+    >
       <source src="/assets/phone-home/background.mp4" type="video/mp4" />
     </video>
   );
@@ -448,7 +463,12 @@ export default function GlassCommsApp() {
     );
   }
 
-  if (!mounted || !session) return <div className="w-screen h-dvh bg-black" />;
+  if (!mounted || !session)
+    return (
+      <div className="w-screen h-dvh bg-black flex items-center justify-center">
+        <HermesLoader label="Opening the mesh" />
+      </div>
+    );
 
   return (
     <main 
@@ -459,13 +479,18 @@ export default function GlassCommsApp() {
         <BackButton label="EXIT MATRIX" href="/" />
       </div>
 
-      <BackgroundVideo />
+      {ambience === 'video' ? (
+        <BackgroundVideo />
+      ) : ambience === 'still' ? (
+        <HermesBackdrop src="/images/phone-home/bg-still.webp" imgOpacity={0.6} zIndex={0} />
+      ) : null}
 
       <header className="w-full max-w-md pt-8 px-6 flex justify-between items-center z-10 bg-gradient-to-b from-black/80 to-transparent pb-4">
         <div className="flex items-center gap-2">
-          <span className={`w-1.5 h-1.5 rounded-full ${meshStatus === 'SUBSCRIBED' ? 'bg-slate-300 animate-pulse' : 'bg-red-400'}`} />
-          <span className="text-[10px] tracking-widest uppercase text-slate-300 drop-shadow-md">{meshStatus === 'SUBSCRIBED' ? 'Mesh Active' : 'Mesh Offline'}</span>
+          <span className={`w-1.5 h-1.5 rounded-full ${meshStatus === 'SUBSCRIBED' ? 'bg-amber-300 animate-pulse shadow-[0_0_8px_rgba(252,211,77,0.9)]' : 'bg-red-400'}`} />
+          <span className="text-[10px] tracking-widest uppercase text-amber-100/90 drop-shadow-md">{meshStatus === 'SUBSCRIBED' ? 'Mesh Active' : 'Mesh Offline'}</span>
         </div>
+        <AmbienceToggle mode={ambience} onCycle={cycleAmbience} />
       </header>
 
       <TravelAdvisoryBanner />
@@ -477,7 +502,8 @@ export default function GlassCommsApp() {
         >
           {/* PAGE 0: WebRTC Audio */}
           <section className="w-1/6 h-full flex flex-col items-center justify-center px-6 gap-6">
-            <div className="w-full rounded-3xl border border-white/15 bg-black/40 backdrop-blur-3xl p-6 flex flex-col items-center gap-6 shadow-2xl">
+            <div className="relative w-full rounded-3xl border border-white/15 bg-black/40 backdrop-blur-3xl p-6 flex flex-col items-center gap-6 shadow-2xl">
+              <HermesPanelTexture opacity={0.05} />
               <Radio className="w-12 h-12 text-slate-300 stroke-1 animate-pulse" />
               <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
               <div className="text-center">
@@ -497,14 +523,15 @@ export default function GlassCommsApp() {
                   inCall ? 'border-red-500/50 text-red-300' : 'border-white/20 text-slate-200 hover:border-slate-300'
                 }`}
               >
-                {inCall ? 'Terminate' : 'Initialize Audio'}
+                {inCall ? 'Terminate' : (<><PhoneIcon size={13} className="mr-2 inline-block -mt-0.5 text-amber-300/90" />Initialize Audio</>)}
               </button>
             </div>
           </section>
 
           {/* PAGE 1: WebRTC Video */}
           <section className="w-1/6 h-full flex flex-col items-center justify-center px-6 gap-6">
-            <div className="w-full rounded-3xl border border-white/15 bg-black/40 backdrop-blur-3xl p-4 flex flex-col items-center gap-4 shadow-2xl">
+            <div className="relative w-full rounded-3xl border border-white/15 bg-black/40 backdrop-blur-3xl p-4 flex flex-col items-center gap-4 shadow-2xl">
+              <HermesPanelTexture opacity={0.05} />
               <div className="relative w-full aspect-video bg-black/80 rounded-xl border border-white/10 overflow-hidden flex items-center justify-center">
                  {!inVideoCall && <Video className="w-8 h-8 text-slate-500 animate-pulse" />}
                  <video ref={remoteVideoRef} autoPlay playsInline className="absolute inset-0 w-full h-full object-cover" />
@@ -523,7 +550,7 @@ export default function GlassCommsApp() {
                   inVideoCall ? 'border-red-500/50 text-red-300' : 'border-white/20 text-slate-200 hover:border-slate-300'
                 }`}
               >
-                {inVideoCall ? 'Terminate' : 'Initialize Video'}
+                {inVideoCall ? 'Terminate' : (<><VideoIcon size={13} className="mr-2 inline-block -mt-0.5 text-amber-300/90" />Initialize Video</>)}
               </button>
             </div>
           </section>
@@ -582,7 +609,8 @@ export default function GlassCommsApp() {
 
           {/* PAGE 3: Text */}
           <section className="w-1/6 h-full flex flex-col px-6 py-4">
-            <div className="w-full flex-1 min-h-0 rounded-3xl border border-white/15 bg-black/40 backdrop-blur-3xl p-4 flex flex-col gap-3 shadow-2xl">
+            <div className="relative w-full flex-1 min-h-0 rounded-3xl border border-white/15 bg-black/40 backdrop-blur-3xl p-4 flex flex-col gap-3 shadow-2xl">
+              <HermesPanelTexture opacity={0.05} />
               <div className="text-center">
                 <h2 className="text-sm font-light tracking-widest uppercase text-slate-100">Text Mesh</h2>
                 <p className="text-[11px] text-slate-400 font-light mt-1">Direct to a peer node</p>
@@ -596,7 +624,10 @@ export default function GlassCommsApp() {
               />
               <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2 pr-1">
                 {messages.length === 0 ? (
-                  <p className="text-[11px] text-slate-500 text-center mt-6 px-4">No messages yet — texts from peer nodes appear here.</p>
+                  <div className="text-center mt-8 px-4 flex flex-col items-center gap-3">
+                    <ChatIcon size={22} className="text-amber-300/50" />
+                    <p className="text-[11px] text-slate-500 leading-relaxed">No messages yet —<br />texts from peer nodes appear here.</p>
+                  </div>
                 ) : (
                   messages.map((m, i) => (
                     <div key={m.id ?? `local-${i}`} className="rounded-xl border border-white/10 bg-black/30 px-3 py-2">
@@ -617,8 +648,9 @@ export default function GlassCommsApp() {
                 />
                 <button
                   onClick={sendText}
-                  className="px-5 py-2.5 rounded-xl border border-white/20 bg-black/30 text-xs tracking-widest uppercase text-slate-200 hover:border-slate-300 transition"
+                  className="px-5 py-2.5 rounded-xl border border-white/20 bg-black/30 text-xs tracking-widest uppercase text-slate-200 hover:border-slate-300 transition inline-flex items-center gap-2"
                 >
+                  <SendIcon size={13} className="text-amber-300/90" />
                   Send
                 </button>
               </div>
@@ -627,7 +659,8 @@ export default function GlassCommsApp() {
 
           {/* PAGE 4: Steps */}
           <section className="w-1/6 h-full flex flex-col items-center justify-center px-6 gap-6 overflow-y-auto py-4">
-            <div className="w-full rounded-3xl border border-white/15 bg-black/40 backdrop-blur-3xl p-6 flex flex-col items-center gap-5 shadow-2xl">
+            <div className="relative w-full rounded-3xl border border-white/15 bg-black/40 backdrop-blur-3xl p-6 flex flex-col items-center gap-5 shadow-2xl">
+              <HermesPanelTexture opacity={0.05} />
               <Footprints className="w-10 h-10 text-slate-300 stroke-1" />
               <div className="text-center">
                 <h2 className="text-sm font-light tracking-widest uppercase text-slate-100">Steps</h2>
@@ -677,7 +710,7 @@ export default function GlassCommsApp() {
                   disabled={stepsBusy}
                   className="px-5 py-2.5 rounded-xl border border-white/20 bg-black/30 text-xs tracking-widest uppercase text-slate-200 hover:border-slate-300 transition disabled:opacity-50"
                 >
-                  {stepsBusy ? 'Saving' : 'Log steps'}
+                  {stepsBusy ? 'Saving' : (<><StepsIcon size={13} className="mr-2 inline-block -mt-0.5 text-amber-300/90" />Log steps</>)}
                 </button>
               </div>
 
@@ -700,27 +733,27 @@ export default function GlassCommsApp() {
       </div>
 
       <footer className="w-full max-w-md pt-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] px-8 flex justify-around border-t border-white/15 z-10 bg-gradient-to-t from-black/90 to-black/20 backdrop-blur-sm">
-        <button onClick={() => setCurrentPage(0)} className={`flex min-h-[44px] flex-col items-center gap-1.5 transition duration-300 ${currentPage === 0 ? 'text-slate-100 scale-110' : 'text-slate-500'}`}>
+        <button onClick={() => setCurrentPage(0)} className={`flex min-h-[44px] flex-col items-center gap-1.5 transition duration-300 ${currentPage === 0 ? 'text-amber-200 scale-110' : 'text-slate-500'}`}>
           <Radio className="w-5 h-5 stroke-1" />
           <span className="text-[9px] uppercase tracking-widest">Audio</span>
         </button>
-        <button onClick={() => setCurrentPage(1)} className={`flex min-h-[44px] flex-col items-center gap-1.5 transition duration-300 ${currentPage === 1 ? 'text-slate-100 scale-110' : 'text-slate-500'}`}>
+        <button onClick={() => setCurrentPage(1)} className={`flex min-h-[44px] flex-col items-center gap-1.5 transition duration-300 ${currentPage === 1 ? 'text-amber-200 scale-110' : 'text-slate-500'}`}>
           <Video className="w-5 h-5 stroke-1" />
           <span className="text-[9px] uppercase tracking-widest">Video</span>
         </button>
-        <button onClick={() => setCurrentPage(2)} className={`flex min-h-[44px] flex-col items-center gap-1.5 transition duration-300 ${currentPage === 2 ? 'text-slate-100 scale-110' : 'text-slate-500'}`}>
+        <button onClick={() => setCurrentPage(2)} className={`flex min-h-[44px] flex-col items-center gap-1.5 transition duration-300 ${currentPage === 2 ? 'text-amber-200 scale-110' : 'text-slate-500'}`}>
           <Phone className="w-5 h-5 stroke-1" />
           <span className="text-[9px] uppercase tracking-widest">Dialer</span>
         </button>
-        <button onClick={() => setCurrentPage(3)} className={`flex min-h-[44px] flex-col items-center gap-1.5 transition duration-300 ${currentPage === 3 ? 'text-slate-100 scale-110' : 'text-slate-500'}`}>
+        <button onClick={() => setCurrentPage(3)} className={`flex min-h-[44px] flex-col items-center gap-1.5 transition duration-300 ${currentPage === 3 ? 'text-amber-200 scale-110' : 'text-slate-500'}`}>
           <MessageSquare className="w-5 h-5 stroke-1" />
           <span className="text-[9px] uppercase tracking-widest">Text</span>
         </button>
-        <button onClick={() => setCurrentPage(4)} className={`flex min-h-[44px] flex-col items-center gap-1.5 transition duration-300 ${currentPage === 4 ? 'text-slate-100 scale-110' : 'text-slate-500'}`}>
+        <button onClick={() => setCurrentPage(4)} className={`flex min-h-[44px] flex-col items-center gap-1.5 transition duration-300 ${currentPage === 4 ? 'text-amber-200 scale-110' : 'text-slate-500'}`}>
           <Footprints className="w-5 h-5 stroke-1" />
           <span className="text-[9px] uppercase tracking-widest">Steps</span>
         </button>
-        <button onClick={() => setCurrentPage(5)} className={`flex min-h-[44px] flex-col items-center gap-1.5 transition duration-300 ${currentPage === 5 ? 'text-slate-100 scale-110' : 'text-slate-500'}`}>
+        <button onClick={() => setCurrentPage(5)} className={`flex min-h-[44px] flex-col items-center gap-1.5 transition duration-300 ${currentPage === 5 ? 'text-amber-200 scale-110' : 'text-slate-500'}`}>
           <Users className="w-5 h-5 stroke-1" />
           <span className="text-[9px] uppercase tracking-widest">Contacts</span>
         </button>

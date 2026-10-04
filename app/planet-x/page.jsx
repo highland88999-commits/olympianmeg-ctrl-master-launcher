@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { SnowIcon, PlayIcon, PauseIcon, ArrowDownIcon, OrbitIcon } from "@/lib/hermes-icons";
 import {
   buildHeightMap,
   heightAt,
@@ -349,16 +350,29 @@ export default function PlanetXPage() {
             onChange={(e) => set("spin", parseFloat(e.target.value))} style={styles.range} />
         </label>
         <button style={styles.btn} onClick={() => set("snow", !panel.snow)}>
-          Snow: {panel.snow ? "on" : "off"}
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <SnowIcon size={14} />Snow: {panel.snow ? "on" : "off"}
+          </span>
         </button>
         <button style={styles.btn} onClick={() => set("playing", !panel.playing)}>
-          {panel.playing ? "Pause" : "Play"}
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            {panel.playing ? <PauseIcon size={12} /> : <PlayIcon size={12} />}
+            {panel.playing ? "Pause" : "Play"}
+          </span>
         </button>
         {panel.mode === "orbit" && (
-          <button style={styles.cta} onClick={() => window.planetx && window.planetx.descend()}>Descend</button>
+          <button style={styles.cta} onClick={() => window.planetx && window.planetx.descend()}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+              <ArrowDownIcon size={14} />Descend
+            </span>
+          </button>
         )}
         {panel.mode === "surface" && (
-          <button style={styles.cta} onClick={() => window.planetx && window.planetx.ascend()}>Return to orbit</button>
+          <button style={styles.cta} onClick={() => window.planetx && window.planetx.ascend()}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+              <OrbitIcon size={14} />Return to orbit
+            </span>
+          </button>
         )}
       </div>
     </div>
@@ -374,9 +388,9 @@ const styles = {
   hud: { position: "absolute", top: 52, left: 20, zIndex: 5, fontSize: 15, fontWeight: 600, letterSpacing: 1, color: "#9fc0ff", textShadow: "0 0 10px rgba(120,160,255,.5)", pointerEvents: "none" },
   hint: { position: "absolute", top: 78, left: 20, zIndex: 5, fontSize: 13, opacity: 0.7, pointerEvents: "none" },
   title: { position: "absolute", top: 14, left: 20, zIndex: 5, fontSize: 22, fontWeight: 800, letterSpacing: 4, color: "#cfe0ff", textShadow: "0 0 14px rgba(120,160,255,.6)", pointerEvents: "none", textTransform: "uppercase" },
-  dock: { position: "absolute", left: 12, right: 12, bottom: "max(12px, env(safe-area-inset-bottom))", zIndex: 5, display: "flex", gap: 10, alignItems: "center", justifyContent: "center", flexWrap: "wrap", background: "rgba(8,10,24,.72)", border: "1px solid rgba(140,170,255,.25)", borderRadius: 14, padding: "10px 14px", backdropFilter: "blur(8px)" },
+  dock: { position: "absolute", left: 12, right: 12, bottom: "max(12px, env(safe-area-inset-bottom))", zIndex: 5, display: "flex", gap: 10, alignItems: "center", justifyContent: "center", flexWrap: "wrap", background: "linear-gradient(rgba(8,10,24,.84), rgba(8,10,24,.84)), url(/images/planet-x/bg.webp)", backgroundSize: "cover", backgroundPosition: "center", border: "1px solid rgba(212,175,55,.35)", borderRadius: 14, padding: "10px 14px", backdropFilter: "blur(8px)", boxShadow: "0 0 24px rgba(212,175,55,.12)" },
   row: { display: "flex", alignItems: "center", gap: 8, fontSize: 13, opacity: 0.9 },
-  range: { width: 110, accentColor: "#7ea2ff" },
+  range: { width: 110, accentColor: "#d4af37" },
   btn: { background: "rgba(255,255,255,.08)", color: "#fff", border: "1px solid rgba(255,255,255,.25)", borderRadius: 8, padding: "8px 12px", fontSize: 13, cursor: "pointer" },
   cta: { background: "#7ea2ff", color: "#060818", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer" },
 };

@@ -6,13 +6,7 @@ import { supabase } from '@/lib/supabase';
 import DirectoryGrid from '@/components/hermes/DirectoryGrid';
 import SubmitDrawer from '@/components/hermes/SubmitDrawer';
 import OnlineMall from '@/components/hermes/OnlineMall';
-import StoreSpaceBackground from '@/components/store/StoreSpaceBackground';
-import { programMetadata } from '@/lib/seo';
-import { approvePaidSession } from '@/app/api/hermes/_approve';
-
-export async function generateMetadata() {
-  return programMetadata('hermes');
-}
+import { HermesBackdrop } from '@/components/hermes-ui/HermesUi';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,30 +35,18 @@ export default async function HermesPage({ searchParams }) {
   const success = searchParams?.success === 'true';
   const cancelled = searchParams?.cancelled === 'true';
 
-  // Verify-on-return: the checkout success_url carries
-  // session_id={CHECKOUT_SESSION_ID}. Confirm the session is paid
-  // server-side and flip the listing live, so a paid listing doesn't sit
-  // in "pending" when the Stripe webhook secret isn't configured. The
-  // webhook remains the primary path; both are idempotent.
-  // The banner only claims "now live" when the listing is actually live.
-  let verifiedLive = false;
-  if (success && searchParams?.session_id) {
-    try {
-      const result = await approvePaidSession(searchParams.session_id);
-      verifiedLive = result.ok === true;
-    } catch {
-      verifiedLive = false;
-    }
-  }
-
   return (
-    // Deep-space video behind the whole mall: the fixed background sits at
-    // z-0 behind the header, category chips, listing cards and submit drawer.
-    // The root stays transparent (no opaque bg-black) so the video shows
-    // through; the background's own legibility veil keeps text crisp, and
-    // prefers-reduced-motion gets the static poster instead of the video.
-    <main className="relative min-h-dvh w-full text-white overflow-x-hidden">
-      <StoreSpaceBackground />
+    <main className="relative min-h-dvh w-full bg-black text-white overflow-x-hidden">
+      {/* Merchant-row ambience — sits BEHIND the galaxy canvas (z -20 vs -10).
+          The directory layout, copy, and structure are untouched. */}
+      <HermesBackdrop
+        src="/images/hermes/bg.webp"
+        imgOpacity={0.32}
+        scrimTop={0.72}
+        scrimBottom={0.9}
+        zIndex={-20}
+        alt=""
+      />
       <GalaxyCanvas />
 
       <div className="relative z-10 max-w-6xl mx-auto px-5 pt-14 sm:pt-20 pb-16">
@@ -76,16 +58,9 @@ export default async function HermesPage({ searchParams }) {
           </p>
         </header>
 
-        {success && verifiedLive && (
+        {success && (
           <div className="mb-8 p-4 rounded-lg bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 text-sm text-center">
             Payment received — your listing is now live in the directory.
-          </div>
-        )}
-        {success && !verifiedLive && (
-          <div className="mb-8 p-4 rounded-lg bg-amber-950/60 border border-amber-500/40 text-amber-300 text-sm text-center">
-            Payment received — your listing will appear in the directory as
-            soon as payment confirms. If it doesn&apos;t show within a few
-            minutes, reply to your receipt email.
           </div>
         )}
         {cancelled && (

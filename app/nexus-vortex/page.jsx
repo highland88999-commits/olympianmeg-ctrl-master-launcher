@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { RocketIcon, RotateIcon } from "@/lib/hermes-icons";
 import {
   makeTunnel, streamParticle, projectParticle, coreState, flightProgress,
 } from './lib/vortex.js';
@@ -158,7 +159,9 @@ export default function NexusVortexPage() {
           <h1 style={styles.h1}>The Panning Core</h1>
           <p style={styles.sub}>An 8-second flight through the vortex, toward the gold core.</p>
           <button type="button" style={styles.cta} onClick={beginFlight}>
-            Begin the flight
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+              <RocketIcon size={18} />Begin the flight
+            </span>
           </button>
           <p style={styles.hint}>Move your pointer to steer the camera slightly.</p>
         </div>
@@ -177,7 +180,9 @@ export default function NexusVortexPage() {
             This build ends here, on this device: nothing external was loaded.
           </p>
           <button type="button" style={styles.cta} onClick={beginFlight}>
-            Fly again
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+              <RotateIcon size={17} />Fly again
+            </span>
           </button>
         </div>
       )}
@@ -196,7 +201,8 @@ const styles = {
   intro: {
     position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
     alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '24px',
-    background: 'radial-gradient(ellipse at center, rgba(0,0,0,0.1) 40%, rgba(0,0,0,0.75) 100%)',
+    background: 'radial-gradient(ellipse at center, rgba(0,0,0,0.35) 30%, rgba(0,0,0,0.8) 100%), url(/images/nexus-vortex/bg.webp)',
+    backgroundSize: 'auto, cover', backgroundPosition: 'center',
   },
   kicker: { letterSpacing: '6px', textTransform: 'uppercase', color: '#ffd700', fontSize: '12px', margin: '0 0 10px' },
   h1: { fontSize: 'clamp(2rem, 6vw, 3.4rem)', margin: '0 0 12px', letterSpacing: '4px', color: '#fff' },
@@ -213,8 +219,11 @@ const styles = {
   },
   portal: {
     position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-    width: 'min(92vw, 480px)', background: 'rgba(4,4,8,0.92)', border: '2px solid #ffd700',
-    borderRadius: '10px', padding: '36px 28px', textAlign: 'center',
+    width: 'min(92vw, 480px)',
+    background: 'linear-gradient(rgba(4,4,8,0.94), rgba(4,4,8,0.94)), url(/images/nexus-vortex/bg.webp)',
+    backgroundSize: 'auto, cover', backgroundPosition: 'center',
+    border: '2px solid #ffd700', borderRadius: '10px', padding: '36px 28px', textAlign: 'center',
+    boxShadow: '0 0 40px rgba(212,175,55,.25)',
   },
   portalH: { color: '#fff', fontSize: '1.5rem', margin: '0 0 12px', letterSpacing: '2px' },
   portalP: { color: '#9aa', fontSize: '0.92rem', lineHeight: 1.7, margin: '0 0 24px' },

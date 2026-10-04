@@ -11,6 +11,8 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { useAmbience, AmbienceToggle } from '@/components/hermes-ui/HermesUi';
+import { SendIcon } from '@/lib/hermes-icons';
 
 const TITLE = 'Nexus Vortex – The Postal Hub';
 const MAIL_COUNT = 160;
@@ -30,6 +32,13 @@ const CSS = `
 .op-btn:hover { background: rgba(0,242,255,0.15); }
 .op-slider { display: flex; align-items: center; gap: 8px; color: #9ff; font-size: 0.75rem; background: rgba(1,1,8,0.8); border: 1px solid rgba(0,242,255,0.4); border-radius: 4px; padding: 10px 12px; }
 @keyframes opTicker { 0%,100% { opacity: 0.35; } 50% { opacity: 1; } }
+.op-ambience { position: absolute; inset: 0; z-index: 10; pointer-events: none; }
+.op-ambience video, .op-ambience img { width: 100%; height: 100%; object-fit: cover; opacity: 0.8; }
+.op-ambience-scrim { position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(1,1,8,.6), rgba(1,1,8,.25) 45%, rgba(1,1,8,.75)); }
+.op-toggle { position: absolute; top: 14px; right: 14px; z-index: 30; }
+.op-btn.burst { border-color: #d4af37; color: #ffd700; box-shadow: 0 0 18px rgba(212,175,55,.25); }
+.op-btn.burst:hover { background: rgba(212,175,55,.15); }
+.op-hud { background: linear-gradient(rgba(1,1,8,.88), rgba(1,1,8,.88)), url(/images/hermes/gold-tile.webp); background-size: auto, 256px; }
 @keyframes opFloat { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-12px); } }
 `;
 
@@ -40,6 +49,9 @@ export default function OmegaPostalPage() {
   const [phase, setPhase] = useState('LANDING');
   const [sorted, setSorted] = useState(0);
   const [volume, setVolume] = useState(160);
+  // Landing ambience: cinematic sorting-tower loop -> still -> off.
+  // Persisted; reduced-motion users start on the still.
+  const [ambience, cycleAmbience] = useAmbience('omega-postal-bg', 'video');
 
   useEffect(() => {
     document.title = TITLE;
@@ -287,9 +299,25 @@ export default function OmegaPostalPage() {
       <style>{CSS}</style>
       <canvas ref={canvasRef} className="op-canvas" aria-hidden="true" />
 
+      {phase === 'LANDING' && ambience !== 'off' && (
+        <div className="op-ambience" aria-hidden="true">
+          {ambience === 'video' ? (
+            <video autoPlay muted loop playsInline preload="metadata" poster="/images/omega-postal/bg.webp">
+              <source src="/images/omega-postal/bg-loop.mp4" type="video/mp4" />
+            </video>
+          ) : (
+            <img src="/images/omega-postal/bg.webp" alt="" draggable={false} />
+          )}
+          <div className="op-ambience-scrim" />
+        </div>
+      )}
+
       {phase === 'LANDING' && (
         <div className="op-ui">
           <div className="op-landing" onClick={advance}>
+            <div className="op-toggle" onClick={(e) => e.stopPropagation()}>
+              <AmbienceToggle mode={ambience} onCycle={cycleAmbience} />
+            </div>
             <div className="op-title">NEXUS POSTAL HUB</div>
             <div className="op-ticker">TAP TO INITIALIZE</div>
           </div>
@@ -324,8 +352,10 @@ export default function OmegaPostalPage() {
                 aria-label="Mail volume"
               />
             </label>
-            <button type="button" className="op-btn" onClick={() => burstRef.current && burstRef.current()}>
-              DISPATCH BURST
+            <button type="button" className="op-btn burst" onClick={() => burstRef.current && burstRef.current()}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <SendIcon size={14} />DISPATCH BURST
+              </span>
             </button>
           </div>
         </>

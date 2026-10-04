@@ -23,6 +23,13 @@ import * as THREE from 'three';
 import { TRON_BIKES, bikeByKey } from '@/components/nova/TronBikes';
 import TronRider from '@/components/nova/TronRider';
 import { fx, unlockFx } from '@/lib/fx';
+import { HermesBackdrop, HermesPanelTexture } from '@/components/hermes-ui/HermesUi';
+import { RadarIcon, GridIcon, EyeIcon, PortalIcon, PinIcon } from '@/lib/hermes-icons';
+
+// HERMES treatment: inline-flex icon+label wrapper for HUD buttons.
+const HIcon = ({ children }) => (
+  <span className="inline-flex items-center gap-2">{children}</span>
+);
 import {
   tuningFor,
   dist3,
@@ -259,7 +266,7 @@ function Moons({ scene, reduced }) {
 }
 
 function Asteroids({ scene }) {
-  const { rocks: mesh, count } = useMemo(() => {
+  const { mesh, count } = useMemo(() => {
     const rocks = [];
     for (const fl of scene.fields) {
       for (const rk of fl.rocks) {
@@ -1039,9 +1046,11 @@ export default function ErebusPage() {
   // ============================ ATLAS ======================================
   if (view === 'atlas') {
     return (
-      <div className="min-h-dvh bg-black text-white select-none">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-6 sm:pt-10 pb-[calc(4.5rem+env(safe-area-inset-bottom))]">
-          <div className="border-l-2 border-indigo-400/80 pl-4 mb-2">
+      <div className="relative min-h-dvh bg-black text-white select-none">
+        <HermesBackdrop src="/images/erebus/bg.webp" imgOpacity={0.45} zIndex={0} />
+        <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 pt-6 sm:pt-10 pb-[calc(4.5rem+env(safe-area-inset-bottom))]">
+          <div className="relative overflow-hidden border-l-2 border-indigo-400/80 pl-4 mb-2 rounded-r-xl bg-black/40 backdrop-blur-sm py-3 pr-4">
+            <HermesPanelTexture opacity={0.1} />
             <div className="text-[10px] sm:text-[11px] tracking-[0.3em] uppercase text-indigo-300/90">
               140 procedurally generated void universes
             </div>
@@ -1064,7 +1073,8 @@ export default function ErebusPage() {
             </div>
           </div>
 
-          <div className="mt-6 bg-zinc-950/90 border border-zinc-800 rounded-xl p-4">
+          <div className="relative mt-6 bg-zinc-950/90 border border-zinc-800 rounded-xl p-4">
+            <HermesPanelTexture opacity={0.06} />
             <div className="text-[10px] tracking-[0.3em] uppercase text-indigo-300/80 mb-2">
               Tron bike garage
             </div>
@@ -1143,7 +1153,7 @@ export default function ErebusPage() {
                 onClick={() => { setQuery(''); setFilter('all'); }}
                 className="mt-4 min-h-[44px] px-6 rounded-lg border border-zinc-700 bg-white/5 text-xs font-bold tracking-widest uppercase hover:bg-white/10"
               >
-                Show all 140
+                <span className="inline-flex items-center gap-2"><EyeIcon size={14} />Show all 140</span>
               </button>
             </div>
           )}
@@ -1227,13 +1237,13 @@ export default function ErebusPage() {
                 : 'border-zinc-700 bg-black/60 text-zinc-300 hover:bg-white/10'
             }`}
           >
-            Autopilot
+            <HIcon><RadarIcon size={13} />Autopilot</HIcon>
           </button>
           <button
             onClick={returnToAtlas}
             className="min-h-[44px] px-4 rounded-lg border border-zinc-700 bg-black/60 text-zinc-300 text-xs font-bold tracking-widest uppercase hover:bg-white/10"
           >
-            Atlas
+            <HIcon><GridIcon size={13} />Atlas</HIcon>
           </button>
         </div>
       </div>
@@ -1244,7 +1254,7 @@ export default function ErebusPage() {
           onClick={openJump}
           className="pointer-events-auto min-h-[56px] px-8 rounded-full border-2 border-cyan-300/70 bg-cyan-400/10 backdrop-blur-sm text-cyan-100 text-sm font-black tracking-[0.3em] uppercase hover:bg-cyan-400/25 transition-colors shadow-[0_0_30px_rgba(103,232,249,0.25)]"
         >
-          ◉ Portal
+          <HIcon><PortalIcon size={16} />Portal</HIcon>
         </button>
       </div>
 
@@ -1301,7 +1311,7 @@ export default function ErebusPage() {
               onClick={() => setShowJump(false)}
               className="mt-4 min-h-[48px] rounded-lg border border-zinc-700 bg-white/5 text-xs font-bold tracking-widest uppercase hover:bg-white/10"
             >
-              Stay here
+              <span className="inline-flex items-center gap-2"><PinIcon size={14} />Stay here</span>
             </button>
           </div>
         </div>

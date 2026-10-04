@@ -3,54 +3,36 @@
 // Products come live from Printful (GET /api/store/products) — Merlin's
 // real "Omega Store" catalog; nothing is hardcoded. Apparel (hoodies etc.)
 // is grouped first, everything else follows, unclassified items land under
-// "More". Printful checkout is wired: Buy now opens a Stripe Checkout
-// session (card or gold), and a paid order is fulfilled automatically
-// through Printful. No order is ever faked or placed. The Luge free-hoodie reward (/store?reward=luge)
+// "More". Printful checkout is NOT wired yet, so every Printful card keeps
+// its buy CTA honestly disabled ("Checkout coming soon") — no order is
+// ever faked or placed. The Luge free-hoodie reward (/store?reward=luge)
 // is separate: it claims through POST /api/luge/claim and never touches
 // checkout, so it is unaffected.
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
-import StoreSpaceBackground from '@/components/store/StoreSpaceBackground';
+import {
+  HermesBackdrop,
+  HermesPanelTexture,
+  HermesLoader,
+  useAmbience,
+  AmbienceToggle,
+} from '@/components/hermes-ui/HermesUi';
+import { CartIcon } from '@/lib/hermes-icons';
 
 const SIZES = ['S', 'M', 'L', 'XL', '2XL', '3XL'];
 
 function ProductCard({ product, onBuy, buying, gold, setGold, rewardMode, onRedeem }) {
   const [size, setSize] = useState('L');
   const isApparel = product.kind === 'apparel';
-  // Checkout is wired (Stripe Checkout -> Printful fulfillment). Reward
-  // redemption (Luge) bypasses checkout entirely and is unaffected.
+  // Printful cards are listed read-only until Merlin approves wiring
+  // checkout: the buy CTA stays honestly disabled. Reward redemption
+  // (Luge) bypasses checkout entirely and is unaffected.
   const checkoutOpen = product.checkoutReady !== false;
-  // Honest size picker: offer exactly the sizes Printful reports as active
-  // for this design. Size-driven by the live variants, not by the product's
-  // name (e.g. "Glitch" is a sized hoodie): any product with more than one
-  // active variant gets the picker. Falls back to the default list if the
-  // lookup fails — checkout re-validates the size server-side regardless.
-  const [sizes, setSizes] = useState(null);
-  const needsSize = sizes ? sizes.length > 1 : isApparel;
-  useEffect(() => {
-    if (!checkoutOpen) return;
-    let alive = true;
-    fetch(`/api/store/variants?productId=${encodeURIComponent(product.id)}`)
-      .then((r) => r.json())
-      .then((d) => {
-        if (!alive) return;
-        const list = d && Array.isArray(d.sizes) ? d.sizes : [];
-        if (list.length) {
-          setSizes(list);
-          setSize((s) => (list.includes(s) ? s : list.includes('L') ? 'L' : list[0]));
-        }
-      })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, [product.id, checkoutOpen]);
-  const sizeOptions = sizes || SIZES;
 
-  // Translucent dark + blur: the deep-space video ghosts through behind the
-  // card while the name/price stay crisp white.
   return (
-    <div className="flex flex-col overflow-hidden rounded-2xl border border-white/15 bg-black/45 shadow-[0_8px_32px_rgba(0,0,0,0.45)] backdrop-blur-md">
+    <div className="flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/5">
       {product.image ? (
         <img
           src={product.image}
@@ -63,8 +45,9 @@ function ProductCard({ product, onBuy, buying, gold, setGold, rewardMode, onRede
           🧥
         </div>
       )}
-      <div className="flex flex-1 flex-col gap-3 p-4">
-        <div>
+      <div className="relative flex flex-1 flex-col gap-3 p-4">
+        <HermesPanelTexture opacity={0.06} />
+        <div className="relative">
           <div className="font-semibold text-white">{product.name}</div>
           {product.description ? (
             <p className="mt-1 text-sm text-slate-400">{product.description}</p>
@@ -75,7 +58,7 @@ function ProductCard({ product, onBuy, buying, gold, setGold, rewardMode, onRede
         ) : (
           <div className="text-lg font-bold text-amber-300">{product.priceLabel}</div>
         )}
-        {needsSize && (rewardMode || checkoutOpen) && (
+        {isApparel && (rewardMode || checkoutOpen) && (
           <label className="text-sm text-slate-300">
             Size
             <select
@@ -83,7 +66,7 @@ function ProductCard({ product, onBuy, buying, gold, setGold, rewardMode, onRede
               onChange={(e) => setSize(e.target.value)}
               className="mt-1 block w-full rounded-lg border border-white/15 bg-black/50 px-3 py-2 text-white"
             >
-              {sizeOptions.map((s) => (
+              {SIZES.map((s) => (
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>
@@ -103,9 +86,10 @@ function ProductCard({ product, onBuy, buying, gold, setGold, rewardMode, onRede
         <button
           type="button"
           disabled={buying || (!rewardMode && !checkoutOpen)}
-          onClick={() => (rewardMode ? onRedeem(product, needsSize ? size : '') : onBuy(product, needsSize ? size : ''))}
-          className="w-full rounded-xl bg-amber-300 px-4 py-3 font-semibold text-black transition hover:bg-amber-200 disabled:opacity-50"
+          onClick={() => (rewardMode ? onRedeem(product, isApparel ? size : '') : onBuy(product, isApparel ? size : ''))}
+          className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-amber-300 px-4 py-3 font-semibold text-black transition hover:bg-amber-200 disabled:opacity-50"
         >
+          <CartIcon size={16} />
           {rewardMode
             ? (buying ? 'Redeeming…' : 'Redeem free hoodie')
             : !checkoutOpen
@@ -119,6 +103,7 @@ function ProductCard({ product, onBuy, buying, gold, setGold, rewardMode, onRede
 
 function StoreInner() {
   const params = useSearchParams();
+  const [ambience, cycleAmbience] = useAmbience('store-bg', 'video');
   const [products, setProducts] = useState(null);
   const [notice, setNotice] = useState('');
   const [buyingId, setBuyingId] = useState(null);
@@ -279,23 +264,68 @@ function StoreInner() {
 
   return (
     <div
-      className="relative min-h-dvh text-white"
+      className="min-h-dvh bg-[#06070d] text-white"
       style={{ paddingBottom: 'max(5.5rem, calc(env(safe-area-inset-bottom) + 4.5rem))' }}
     >
-      {/* deep-space video behind the whole store flow: listing, reward mode,
-          and the checkout success/cancelled states all render on this page,
-          so the background never reloads or flashes between them */}
-      <StoreSpaceBackground />
+      {/* Merchant-hall ambience: video loop → still → off (persisted, reduced-motion aware) */}
+      {ambience === 'video' ? (
+        <>
+          <video
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="metadata"
+            poster="/images/store/bg.webp"
+            aria-hidden="true"
+            className="pointer-events-none fixed inset-0 h-full w-full object-cover"
+            style={{ zIndex: -20, opacity: 0.5 }}
+          >
+            <source src="/images/store/bg-loop.mp4" type="video/mp4" />
+          </video>
+          <div
+            aria-hidden="true"
+            className="pointer-events-none fixed inset-0"
+            style={{
+              zIndex: -19,
+              background: 'linear-gradient(to bottom, rgba(3,5,10,0.72) 0%, rgba(3,5,10,0.35) 45%, rgba(3,5,10,0.88) 100%)',
+            }}
+          />
+        </>
+      ) : ambience === 'still' ? (
+        <HermesBackdrop src="/images/store/bg.webp" imgOpacity={0.42} zIndex={-20} />
+      ) : null}
+
       {/* Header */}
-      <header className="sticky top-0 z-50 border-b border-white/10 bg-black/35 backdrop-blur-md">
-        <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3">
+      <header className="sticky top-0 z-50 border-b border-amber-300/20 bg-[#06070d]/90 backdrop-blur">
+        {/* merchant banner art behind the header row */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 opacity-30"
+          style={{
+            backgroundImage: 'url(/images/store/bg.webp)',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center 32%',
+          }}
+        />
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/70"
+        />
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-amber-300/70 to-transparent"
+        />
+        <div className="relative mx-auto flex max-w-6xl items-center gap-3 px-4 py-3">
           <Link href="/" className="text-sm text-slate-300 hover:text-white">← Hub</Link>
           <h1 className="text-lg font-bold tracking-wide">Store</h1>
+          <div className="ml-auto">
+            <AmbienceToggle mode={ambience} onCycle={cycleAmbience} />
+          </div>
         </div>
       </header>
 
-      {/* relative z-10: paints above the fixed z-0 space background */}
-      <main className="relative z-10 mx-auto max-w-6xl px-4 py-8">
+      <main className="mx-auto max-w-6xl px-4 py-8">
         {checkoutState === 'success' && (
           <div className="mb-6 rounded-xl border border-emerald-400/50 bg-emerald-400/10 px-4 py-4 text-sm text-emerald-200">
             Payment received — your order is confirmed. Watch for a shipping update soon.
@@ -329,7 +359,7 @@ function StoreInner() {
 
         {rewardMode ? (
           rewardEligibility === null ? (
-            <p className="text-sm text-slate-400">Checking your progress…</p>
+            <HermesLoader label="Checking your progress" />
           ) : rewardEligibility.error === 'auth' ? (
             <div className="rounded-xl border border-white/15 bg-white/5 px-4 py-4 text-sm text-slate-300">
               Sign in to redeem your hoodie.{' '}
@@ -358,14 +388,14 @@ function StoreInner() {
               </p>
             </div>
           ) : products === null ? (
-            <p className="text-sm text-slate-400">Loading the hoodies…</p>
+            <HermesLoader label="Loading the hoodies" />
           ) : hoodies.length === 0 ? (
             <p className="text-sm text-slate-400">No hoodies are listed in the store right now — check back soon.</p>
           ) : (
             <Section title="Pick your free hoodie" items={hoodies} />
           )
         ) : products === null ? (
-          <p className="text-sm text-slate-400">Loading the store…</p>
+          <HermesLoader label="Loading the store" />
         ) : products.length === 0 && !notice ? (
           <p className="text-sm text-slate-400">Nothing listed yet — check back soon.</p>
         ) : (
@@ -387,9 +417,8 @@ function StoreInner() {
 
 export default function StorePage() {
   return (
-    <Suspense fallback={<div className="min-h-dvh bg-[#06070d] text-white p-8">Loading the store…</div>}>
+    <Suspense fallback={<div className="min-h-dvh bg-[#06070d] text-white"><HermesLoader label="Loading the store" className="min-h-dvh" /></div>}>
       <StoreInner />
     </Suspense>
   );
 }
-

@@ -26,8 +26,16 @@ import StylizedGlobe from '@/components/argo/StylizedGlobe';
 import { FLEET, fleetByKey } from '@/components/argo/VehicleArchetypes';
 import TronRider from '@/components/nova/TronRider';
 import { fx } from '@/lib/fx';
-import { submenuArtFor } from '@/lib/god-menus';
-import StoreSpaceBackground from '@/components/store/StoreSpaceBackground';
+import { HermesPanelTexture } from '@/components/hermes-ui/HermesUi';
+import {
+  FastForwardIcon, BikeIcon, WingIcon, StepsIcon, PlayIcon, PauseIcon,
+  OrbitIcon, ArrowUpIcon, ArrowDownIcon, RocketIcon, EyeIcon, AnchorIcon,
+} from '@/lib/hermes-icons';
+
+// HERMES treatment: inline-flex icon+label wrapper for HUD buttons.
+const HIcon = ({ children }) => (
+  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>{children}</span>
+);
 import {
   DESTINATIONS,
   HOME_KEY,
@@ -40,26 +48,6 @@ import {
   parkedPosition,
   latLonToHub,
 } from '@/lib/argo-flight';
-
-
-// Menu Art Transfer batch 2 — submenu art. Background image + dark legibility
-// scrim; a missing image hides itself via onError so the option falls back to
-// its plain styled card. Never breaks the UI.
-function SubmenuArt({ slot }) {
-  return (
-    <>
-      <img
-        src={submenuArtFor(slot)}
-        alt=""
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-        loading="lazy"
-        onError={(e) => { e.currentTarget.style.display = 'none'; }}
-      />
-      <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-black/55" />
-    </>
-  );
-}
 
 const TITLE = 'ARGO — Fleet Command';
 const VEHICLE_SCALE = 2.2;
@@ -400,6 +388,13 @@ function DescentHaze({ onSkip }) {
   const haze = Math.sin(p * Math.PI); // peaks mid-dive
   return (
     <>
+      <img
+        src="/images/argo/bg.webp"
+        alt=""
+        aria-hidden="true"
+        draggable={false}
+        style={{ position: 'absolute', inset: 0, zIndex: 29, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.55, pointerEvents: 'none' }}
+      />
       <div
         style={{
           position: 'absolute', inset: 0, zIndex: 30, pointerEvents: 'none',
@@ -414,7 +409,7 @@ function DescentHaze({ onSkip }) {
           <div style={{ width: `${p * 100}%`, height: '100%', background: '#ffd700', borderRadius: 2 }} />
         </div>
         <button onClick={onSkip} style={{ ...hudBtn, marginTop: 16 }}>
-          SKIP DESCENT ↓
+          <HIcon><FastForwardIcon size={13} />SKIP DESCENT</HIcon>
         </button>
       </div>
     </>
@@ -543,7 +538,7 @@ function StreetHud({
 
       <div style={{ position: 'absolute', top: 14, right: 14, display: 'flex', gap: 8, zIndex: 10 }}>
         <button onClick={onMode} style={hudBtn} aria-label="Switch drive mode">
-          {mode === 'ride' ? '🏍 RIDE' : mode === 'fly' ? '🕊 FLY' : '🚶 WALK'}
+          {mode === 'ride' ? (<HIcon><BikeIcon size={14} />RIDE</HIcon>) : mode === 'fly' ? (<HIcon><WingIcon size={14} />FLY</HIcon>) : (<HIcon><StepsIcon size={14} />WALK</HIcon>)}
         </button>
         {!reduced && (
           <button
@@ -551,11 +546,11 @@ function StreetHud({
             style={{ ...hudBtn, borderColor: autopilot ? '#ffd700' : 'rgba(255,255,255,0.25)', color: autopilot ? '#ffd700' : '#f5f2ea' }}
             aria-label="Toggle autopilot tour"
           >
-            {autopilot ? '⏸ TOUR' : '▶ TOUR'}
+            {autopilot ? (<HIcon><PauseIcon size={11} />TOUR</HIcon>) : (<HIcon><PlayIcon size={11} />TOUR</HIcon>)}
           </button>
         )}
         <button onClick={onExit} style={hudBtn} aria-label="Back to orbit">
-          ↑ ORBIT
+          <HIcon><OrbitIcon size={13} />ORBIT</HIcon>
         </button>
       </div>
 
@@ -566,8 +561,8 @@ function StreetHud({
       {mode === 'fly' && (
         <div style={{ position: 'absolute', right: 18, bottom: 96, display: 'flex', flexDirection: 'column', gap: 10, zIndex: 10 }}>
           {[
-            { label: '▲', v: 1 },
-            { label: '▼', v: -1 },
+            { label: '▲', v: 1, Icon: ArrowUpIcon },
+            { label: '▼', v: -1, Icon: ArrowDownIcon },
           ].map((b) => (
             <button
               key={b.label}
@@ -577,7 +572,7 @@ function StreetHud({
               style={{ ...hudBtn, width: 56, height: 56, fontSize: 20, borderRadius: '50%' }}
               aria-label={b.v > 0 ? 'Ascend' : 'Descend'}
             >
-              {b.label}
+              <b.Icon size={18} />
             </button>
           ))}
         </div>
@@ -612,7 +607,7 @@ function TilesFailedPanel({ onBack }) {
           The photorealistic street tiles couldn't be reached right now — check
           your connection and try again. Nothing was faked in their place.
         </div>
-        <button onClick={onBack} style={hudBtn}>↑ BACK TO ORBIT</button>
+        <button onClick={onBack} style={hudBtn}><HIcon><OrbitIcon size={13} />BACK TO ORBIT</HIcon></button>
       </div>
     </div>
   );
@@ -789,9 +784,6 @@ export default function ArgoPage() {
       role="application"
       aria-label="ARGO — Fleet Command over the real Earth"
     >
-      {/* Deep-space video behind the 3D scene: hidden while WebGL renders,
-          visible as a graceful backdrop if the canvas fails to paint. */}
-      <StoreSpaceBackground />
       <Canvas
         className="absolute inset-0"
         camera={{ position: [0, 62, 148], fov: 45, near: 0.5, far: 3000 }}
@@ -883,7 +875,8 @@ export default function ArgoPage() {
       {/* Header — hidden at street level (the street HUD takes over) */}
       {!streetActive && (
       <div className="absolute top-0 left-0 right-0 flex items-start justify-between p-4 sm:p-5 pointer-events-none">
-        <div className="bg-black/60 backdrop-blur-sm px-4 py-3 border-l-2 border-amber-400/80 max-w-[78vw]">
+        <div className="relative overflow-hidden bg-black/60 backdrop-blur-sm px-4 py-3 border-l-2 border-amber-400/80 max-w-[78vw]">
+          <HermesPanelTexture opacity={0.12} />
           <div className="text-[10px] sm:text-[11px] tracking-[0.3em] uppercase text-amber-300/90">
             Fleet Command
           </div>
@@ -912,7 +905,8 @@ export default function ArgoPage() {
       {/* Staging dock */}
       {phase === 'dock' && (
         <div className="absolute bottom-0 left-0 right-0 md:left-6 md:right-auto md:top-1/2 md:-translate-y-1/2 md:bottom-auto md:w-[24rem] pointer-events-auto">
-          <div className="bg-zinc-950/90 border border-zinc-800 md:rounded-xl backdrop-blur-md p-4 max-h-[58vh] md:max-h-[82vh] overflow-y-auto pb-[calc(4.5rem+env(safe-area-inset-bottom))]">
+          <div className="relative bg-zinc-950/90 border border-zinc-800 md:rounded-xl backdrop-blur-md p-4 max-h-[58vh] md:max-h-[82vh] overflow-y-auto pb-[calc(4.5rem+env(safe-area-inset-bottom))]">
+            <HermesPanelTexture opacity={0.06} />
             <div className="text-[10px] tracking-[0.3em] uppercase text-amber-300/80 mb-2">
               Staging dock — {at ? at.name : ''}
             </div>
@@ -925,19 +919,18 @@ export default function ArgoPage() {
                   role="radio"
                   aria-checked={vehicleKey === v.key}
                   onClick={() => setVehicleKey(v.key)}
-                  className={`relative min-h-[44px] flex items-center gap-3 px-3 py-2 rounded-lg border text-left transition-colors overflow-hidden ${
+                  className={`min-h-[44px] flex items-center gap-3 px-3 py-2 rounded-lg border text-left transition-colors ${
                     vehicleKey === v.key
                       ? 'border-amber-400/70 bg-amber-400/10'
                       : 'border-zinc-800 bg-white/5 hover:bg-white/10'
                   }`}
                 >
-                  <SubmenuArt slot={`submenu-argo-fleet-${v.key}`} />
                   <span
-                    className="relative w-3 h-3 rounded-full shrink-0"
+                    className="w-3 h-3 rounded-full shrink-0"
                     style={{ backgroundColor: v.color }}
                     aria-hidden="true"
                   />
-                  <span className="relative">
+                  <span>
                     <span className="block text-sm font-bold tracking-wider">{v.name}</span>
                     <span className="block text-[11px] text-zinc-400">{v.desc}</span>
                   </span>
@@ -953,15 +946,14 @@ export default function ArgoPage() {
                   role="radio"
                   aria-checked={targetKey === d.key}
                   onClick={() => setTargetKey(d.key)}
-                  className={`relative min-h-[44px] px-3 py-2 rounded-lg border text-left transition-colors overflow-hidden ${
+                  className={`min-h-[44px] px-3 py-2 rounded-lg border text-left transition-colors ${
                     targetKey === d.key
                       ? 'border-cyan-400/70 bg-cyan-400/10'
                       : 'border-zinc-800 bg-white/5 hover:bg-white/10'
                   }`}
                 >
-                  <SubmenuArt slot={`submenu-argo-dest-${d.key}`} />
-                  <span className="relative block text-sm font-bold">{d.name}</span>
-                  <span className="relative block text-[10px] text-zinc-500">{d.note}</span>
+                  <span className="block text-sm font-bold">{d.name}</span>
+                  <span className="block text-[10px] text-zinc-500">{d.note}</span>
                 </button>
               ))}
             </div>
@@ -971,7 +963,7 @@ export default function ArgoPage() {
               disabled={!target || targetKey === atKey}
               className="w-full min-h-[52px] rounded-xl bg-amber-400 text-black text-base font-black tracking-[0.2em] uppercase disabled:opacity-40 disabled:cursor-not-allowed hover:bg-amber-300 transition-colors"
             >
-              Launch — {target ? target.name : ''}
+              <HIcon><RocketIcon size={16} />Launch — {target ? target.name : ''}</HIcon>
             </button>
             {reduced && (
               <p className="text-[10px] text-zinc-500 mt-2 tracking-wider">
@@ -985,7 +977,8 @@ export default function ArgoPage() {
       {/* In-flight / on-station bar */}
       {(phase === 'flying' || phase === 'arrived') && (
         <div className="absolute bottom-0 left-0 right-0 flex justify-center pointer-events-none px-4">
-          <div className="pointer-events-auto bg-zinc-950/90 border border-zinc-800 rounded-t-xl md:rounded-xl backdrop-blur-md px-4 pt-3 pb-[calc(4.5rem+env(safe-area-inset-bottom))] w-full max-w-xl">
+          <div className="relative pointer-events-auto bg-zinc-950/90 border border-zinc-800 rounded-t-xl md:rounded-xl backdrop-blur-md px-4 pt-3 pb-[calc(4.5rem+env(safe-area-inset-bottom))] w-full max-w-xl">
+            <HermesPanelTexture opacity={0.06} />
             {phase === 'flying' && (
               <div
                 className="h-1.5 bg-white/10 rounded overflow-hidden mb-3"
@@ -1010,7 +1003,7 @@ export default function ArgoPage() {
                     followCam ? 'bg-cyan-400/20 text-cyan-300' : 'text-zinc-400 hover:bg-white/5'
                   }`}
                 >
-                  Follow
+                  <HIcon><EyeIcon size={13} />Follow</HIcon>
                 </button>
                 <button
                   onClick={() => setFollowCam(false)}
@@ -1019,7 +1012,7 @@ export default function ArgoPage() {
                     !followCam ? 'bg-cyan-400/20 text-cyan-300' : 'text-zinc-400 hover:bg-white/5'
                   }`}
                 >
-                  Free
+                  <HIcon><EyeIcon size={13} />Free</HIcon>
                 </button>
               </div>
               {atKey !== HOME_KEY && (
@@ -1028,7 +1021,7 @@ export default function ArgoPage() {
                   disabled={phase === 'flying'}
                   className="min-h-[44px] px-4 rounded-lg border border-amber-400/50 text-amber-300 text-xs font-bold tracking-widest uppercase disabled:opacity-40 hover:bg-amber-400/10 transition-colors"
                 >
-                  Recall to Edmonton
+                  <HIcon><AnchorIcon size={13} />Recall to Edmonton</HIcon>
                 </button>
               )}
               {phase === 'arrived' && layer === 'photorealistic' && (
@@ -1036,7 +1029,7 @@ export default function ArgoPage() {
                   onClick={beginDescent}
                   className="min-h-[44px] px-4 rounded-lg bg-amber-400 text-black text-xs font-black tracking-widest uppercase hover:bg-amber-300 transition-colors"
                 >
-                  ↓ Street level
+                  <HIcon><ArrowDownIcon size={13} />Street level</HIcon>
                 </button>
               )}
               <button
@@ -1044,7 +1037,7 @@ export default function ArgoPage() {
                 disabled={phase === 'flying'}
                 className="min-h-[44px] px-4 rounded-lg border border-zinc-700 text-zinc-300 text-xs font-bold tracking-widest uppercase disabled:opacity-40 hover:bg-white/5 transition-colors ml-auto"
               >
-                Dock
+                <HIcon><AnchorIcon size={13} />Dock</HIcon>
               </button>
             </div>
           </div>
@@ -1062,4 +1055,3 @@ function hubUnitOf(key) {
   if (!d) return { x: 1, y: 0, z: 0 };
   return hubUnit(d.lat, d.lon);
 }
-

@@ -43,6 +43,13 @@ import {
   steerToward,
 } from '@/lib/nova-flight';
 import { fx, unlockFx } from '@/lib/fx';
+import { HermesPanelTexture } from '@/components/hermes-ui/HermesUi';
+import { RadarIcon, RocketIcon, GiftIcon, DoorIcon } from '@/lib/hermes-icons';
+
+// HERMES treatment: inline-flex icon+label wrapper for HUD buttons.
+const HIcon = ({ children }) => (
+  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>{children}</span>
+);
 
 const TITLE = 'NOVA — Deep Space';
 const PLAQUE_WORDS = 'Poverty needs to end.';
@@ -668,7 +675,8 @@ export default function NovaPage() {
 
       {/* header */}
       <div className="absolute top-0 left-0 right-0 flex items-start justify-between p-4 sm:p-5 pointer-events-none">
-        <div className="bg-black/60 backdrop-blur-sm px-4 py-3 border-l-2 border-cyan-400/80 max-w-[70vw]">
+        <div className="relative overflow-hidden bg-black/60 backdrop-blur-sm px-4 py-3 border-l-2 border-cyan-400/80 max-w-[70vw]">
+          <HermesPanelTexture opacity={0.12} />
           <div className="text-[10px] sm:text-[11px] tracking-[0.3em] uppercase text-cyan-300/90">
             Deep Space
           </div>
@@ -699,7 +707,7 @@ export default function NovaPage() {
                 : 'border-zinc-700 bg-black/60 text-zinc-300 hover:bg-white/10'
             }`}
           >
-            {autopilot ? 'Stop tour' : 'Autopilot tour'}
+            {autopilot ? (<HIcon><RadarIcon size={13} />Stop tour</HIcon>) : (<HIcon><RadarIcon size={13} />Autopilot tour</HIcon>)}
           </button>
         )}
       </div>
@@ -707,7 +715,17 @@ export default function NovaPage() {
       {/* garage */}
       {phase === 'garage' && (
         <div className="absolute bottom-[calc(5.5rem+env(safe-area-inset-bottom))] left-0 right-0 md:left-6 md:right-auto md:top-1/2 md:-translate-y-1/2 md:bottom-auto md:w-[24rem] pointer-events-auto">
-          <div className="bg-zinc-950/90 border border-zinc-800 md:rounded-xl backdrop-blur-md p-4 max-h-[58vh] md:max-h-[82vh] overflow-y-auto pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+          <div className="relative bg-zinc-950/90 border border-zinc-800 md:rounded-xl backdrop-blur-md p-4 max-h-[58vh] md:max-h-[82vh] overflow-y-auto pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+            <HermesPanelTexture opacity={0.06} />
+            <div
+              aria-hidden="true"
+              className="-mx-4 -mt-4 mb-3 h-20 bg-cover bg-center opacity-50 md:rounded-t-xl"
+              style={{ backgroundImage: 'url(/images/nova/bg.webp)' }}
+            />
+            <div
+              aria-hidden="true"
+              className="-mx-4 mb-3 h-px bg-gradient-to-r from-transparent via-amber-300/60 to-transparent"
+            />
             <div className="text-[10px] tracking-[0.3em] uppercase text-cyan-300/80 mb-1">
               Tron bike garage
             </div>
@@ -737,9 +755,9 @@ export default function NovaPage() {
             </div>
             <button
               onClick={launch}
-              className="w-full min-h-[52px] rounded-xl bg-cyan-300 text-black text-base font-black tracking-[0.2em] uppercase hover:bg-cyan-200 transition-colors"
+              className="w-full min-h-[52px] rounded-xl bg-cyan-300 text-black text-base font-black tracking-[0.2em] uppercase hover:bg-cyan-200 transition-colors inline-flex items-center justify-center gap-2"
             >
-              Launch — The Shallows
+              <RocketIcon size={17} />Launch — The Shallows
             </button>
             <p className="text-[10px] text-zinc-500 mt-2 tracking-wider">
               {touchUI
@@ -760,9 +778,9 @@ export default function NovaPage() {
         <div className="absolute bottom-0 left-0 right-0 flex justify-center pointer-events-none px-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] z-40">
           <button
             onClick={boardGift}
-            className="pointer-events-auto min-h-[56px] px-8 rounded-2xl bg-amber-300 text-black text-base font-black tracking-[0.15em] uppercase shadow-[0_0_30px_rgba(252,211,77,0.45)] hover:bg-amber-200 transition-colors"
+            className="pointer-events-auto min-h-[56px] px-8 rounded-2xl bg-amber-300 text-black text-base font-black tracking-[0.15em] uppercase shadow-[0_0_30px_rgba(252,211,77,0.45)] hover:bg-amber-200 transition-colors inline-flex items-center gap-2"
           >
-            Board the Gift
+            <GiftIcon size={17} />Board the Gift
           </button>
         </div>
       )}
@@ -770,7 +788,8 @@ export default function NovaPage() {
       {/* gift interior plaque */}
       {phase === 'interior' && (
         <div className="absolute inset-0 flex items-end sm:items-center justify-center pointer-events-none p-4">
-          <div className="pointer-events-auto w-full max-w-md bg-zinc-950/92 border border-amber-200/30 rounded-2xl backdrop-blur-md p-6 max-h-[62vh] overflow-y-auto pb-[calc(5.5rem+env(safe-area-inset-bottom))]">
+          <div className="relative pointer-events-auto w-full max-w-md bg-zinc-950/92 border border-amber-200/30 rounded-2xl backdrop-blur-md p-6 max-h-[62vh] overflow-y-auto pb-[calc(5.5rem+env(safe-area-inset-bottom))]">
+            <HermesPanelTexture opacity={0.08} />
             <div className="text-[10px] tracking-[0.35em] uppercase text-amber-200/80 mb-3">
               Inside the gift
             </div>
@@ -785,7 +804,7 @@ export default function NovaPage() {
               onClick={disembark}
               className="mt-5 w-full min-h-[52px] rounded-xl bg-amber-300 text-black text-base font-black tracking-[0.2em] uppercase hover:bg-amber-200 transition-colors"
             >
-              Disembark
+              <span className="inline-flex items-center justify-center gap-2"><DoorIcon size={16} />Disembark</span>
             </button>
           </div>
         </div>

@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { HermesBackdrop } from "@/components/hermes-ui/HermesUi";
+import { RotateIcon, OrbitIcon } from "@/lib/hermes-icons";
 import {
   mulberry32, makeContinentField, heightColor, sampleField,
   chordHalfWidth, createCamera, panSurface, pointInPlanet, clampRadius,
@@ -310,10 +312,12 @@ export default function BearthPage() {
 
   return (
     <div style={styles.page}>
-      <div style={styles.shell}>
+      <HermesBackdrop src="/images/bearth/bg.webp" imgOpacity={0.4} zIndex={0} />
+      <div style={{ ...styles.shell, position: "relative", zIndex: 1 }}>
         <header style={styles.head}>
           <h1 style={styles.title}>BEARTH</h1>
           <p style={styles.sub}>EARTH_B · procedural world engine</p>
+          <div aria-hidden="true" style={{ height: 1, margin: "10px auto 0", maxWidth: 320, background: "linear-gradient(to right, transparent, rgba(212,175,55,.7), transparent)" }} />
         </header>
         <div style={styles.canvasWrap}>
           <canvas ref={canvasRef} style={styles.canvas} aria-label="Bearth planet explorer" />
@@ -325,13 +329,19 @@ export default function BearthPage() {
           {mode === "orbit" ? (
             <>
               <button onClick={() => setAutoRotate(!autoRotate)} style={{ ...styles.btn, ...(autoRotate ? styles.btnOn : {}) }}>
-                AUTO-ROTATE
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                  <RotateIcon size={14} />AUTO-ROTATE
+                </span>
               </button>
               <span style={styles.hint}>Drag to rotate · Scroll to zoom · Tap planet to land</span>
             </>
           ) : (
             <>
-              <button onClick={returnToOrbit} style={{ ...styles.btn, ...styles.btnPrimary }}>RETURN TO ORBIT</button>
+              <button onClick={returnToOrbit} style={{ ...styles.btn, ...styles.btnPrimary }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                  <OrbitIcon size={14} />RETURN TO ORBIT
+                </span>
+              </button>
               <span style={styles.hint}>Drag to walk · Scroll to zoom terrain</span>
             </>
           )}

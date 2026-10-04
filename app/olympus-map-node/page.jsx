@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import { MicIcon, PowerIcon, CompassIcon } from "@/lib/hermes-icons";
 import {
   GRID_N,
   HIGHWAYS,
@@ -338,7 +339,8 @@ export default function OlympusMapNodePage() {
     >
       <style>{`
         .nav-top{position:absolute;top:14px;left:50%;transform:translateX(-50%);z-index:10;width:min(430px,92vw)}
-        .nav-search{display:flex;background:rgba(0,26,51,.85);border:1px solid #00f2ff;border-radius:8px;overflow:hidden;box-shadow:0 0 15px rgba(0,242,255,.2)}
+        .nav-search{display:flex;background:linear-gradient(rgba(0,26,51,.88), rgba(0,26,51,.88)), url(/images/olympus-map-node/bg.webp);
+          background-size:auto, cover;background-position:center;border:1px solid #00f2ff;border-radius:8px;overflow:hidden;box-shadow:0 0 15px rgba(0,242,255,.2)}
         .nav-search select{flex:1;background:transparent;border:none;color:#fff;padding:14px;font-family:inherit;font-size:.85rem;outline:none;min-height:44px}
         .nav-search select option{background:#05101a}
         .nav-banner{position:absolute;top:76px;left:50%;transform:translateX(-50%);z-index:10;width:min(430px,92vw);
@@ -349,8 +351,11 @@ export default function OlympusMapNodePage() {
           display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:0 0 15px rgba(0,242,255,.5)}
         .nav-speed b{font-size:1.4rem} .nav-speed span{font-size:.6rem;color:#00f2ff}
         .nav-sim{font-size:.55rem!important;color:#9fd8ff!important;letter-spacing:2px;opacity:.75}
-        .nav-btn{background:rgba(0,26,51,.9);border:1px solid #00f2ff;color:#00f2ff;padding:12px 18px;border-radius:8px;
-          font-family:inherit;font-weight:bold;letter-spacing:1px;cursor:pointer;min-height:48px;font-size:.75rem}
+        .nav-btn{background:linear-gradient(rgba(0,26,51,.9), rgba(0,26,51,.9)), url(/images/hermes/gold-tile.webp);
+          background-size:auto, 200px;border:1px solid #00f2ff;color:#00f2ff;padding:12px 18px;border-radius:8px;
+          font-family:inherit;font-weight:bold;letter-spacing:1px;cursor:pointer;min-height:48px;font-size:.75rem;
+          display:inline-flex;align-items:center;gap:8px}
+        .nav-btn svg{flex:none}
         .nav-btn:hover{background:#00f2ff;color:#000}
         .nav-btn.danger{background:rgba(80,0,10,.9);border-color:#ff0033;color:#ff8095}
         .nav-btn.danger:hover{background:#ff0033;color:#fff}
@@ -398,13 +403,13 @@ export default function OlympusMapNodePage() {
           <>
             <div className="nav-speed" title="Drive simulation — speeds are illustrative, not real"><b>{speed}</b><span>KM/H</span><span className="nav-sim">SIM</span></div>
             <div className="nav-eta">{eta}</div>
-            <button className={`nav-btn ${voice ? "on" : ""}`} onClick={() => setVoice((v) => !v)}>VOICE {voice ? "ON" : "OFF"}</button>
-            <button className="nav-btn danger" onClick={stopDrive}>EXIT NAV</button>
+            <button className={`nav-btn ${voice ? "on" : ""}`} onClick={() => setVoice((v) => !v)}><MicIcon size={15} />VOICE {voice ? "ON" : "OFF"}</button>
+            <button className="nav-btn danger" onClick={stopDrive}><PowerIcon size={15} />EXIT NAV</button>
           </>
         ) : (
           <>
             {route && route.length > 1 && (
-              <button className="nav-btn" onClick={startDrive}>INITIATE DRIVING MODE</button>
+              <button className="nav-btn" onClick={startDrive}><CompassIcon size={15} />INITIATE DRIVING MODE</button>
             )}
             {dest && (
               <div className="nav-eta" style={{ color: "#9fd8ff" }}>
