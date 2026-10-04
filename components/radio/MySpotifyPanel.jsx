@@ -16,9 +16,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import {
   Play, Pause, SkipBack, SkipForward, ExternalLink, LogOut,
-  Heart, Star, Loader2, AlertTriangle, User,
+  Heart, Star, Loader2, AlertTriangle, User, Search, Plus, X, ListMusic,
 } from 'lucide-react';
 import { useRadio } from './RadioProvider';
+import { supabase } from '@/lib/supabase';
 import {
   MY_SPOTIFY_OPEN_URL,
   NO_CLIENT_ID_NOTICE,
@@ -26,6 +27,11 @@ import {
   NON_PREMIUM_NOTICE,
   SPOTIFY_API_BASE,
 } from '@/lib/radio/spotify-auth';
+import {
+  sanitizeQuery,
+  dedupeTracks,
+  trackOpenUrl,
+} from '@/lib/radio/spotify-search';
 
 const SDK_URL = 'https://sdk.scdn.co/spotify-player.js';
 
@@ -214,6 +220,208 @@ export default function MySpotifyPanel() {
     return run(kind, () => spotifyFetch(getSpotifyToken, paths[kind], { method: 'POST', deviceId }));
   }, [run, getSpotifyToken, deviceId, nowPlaying]);
 
+  // --- Search + per-user search playlist -----------------------------------
+  // Search runs through OUR server route (/api/spotify/search), which holds
+  // the Spotify access token server-side. The browser never calls Spotify's
+  // search API directly. Playlist storage is per Supabase account, so the
+  // list survives sessions (account-mapped, like everything else).
+
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState(null);
+  const [playlist, setPlaylist] = useState([]);
+  const [playlistLoading, setPlaylistLoading] = useState(false);
+  const [playlistBusy, setPlaylistBusy] = useState(null); // track id being saved/removed
+  const searchTimer = useRef(null);
+
+  const apiFetch = useCallback(async (path, { method = 'GET', body = null } = {}) => {
+    let bearer = null;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      bearer = session?.access_token || null;
+    } catch {}
+    if (!bearer) throw new Error('Sign in to use this feature.');
+    const res = await fetch(path, {
+      method,
+      headers: {
+        Authorization: `Bearer ${bearer}`,
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    let data = null;
+    try { data = await res.json(); } catch {}
+    if (!res.ok) throw new Error(data?.error || 'Something went wrong. Please try again.');
+    return data;
+  }, []);
+
+  // Load the user's saved search playlist when the panel connects.
+  useEffect(() => {
+    if (!connected) return;
+    let cancelled = false;
+    setPlaylistLoading(true);
+    apiFetch('/api/spotify/search-playlist')
+      .then((data) => { if (!cancelled) setPlaylist(dedupeTracks(data?.tracks || [])); })
+      .catch(() => { if (!cancelled) setPlaylist([]); })
+      .finally(() => { if (!cancelled) setPlaylistLoading(false); });
+    return () => { cancelled = true; };
+  }, [connected, apiFetch]);
+
+  // Debounced search (350ms) through the server route.
+  useEffect(() => {
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    const q = sanitizeQuery(query);
+    if (!q) { setResults([]); setSearching(false); setSearchError(null); return; }
+    setSearching(true);
+    searchTimer.current = setTimeout(() => {
+      let cancelled = false;
+      apiFetch(`/api/spotify/search?q=${encodeURIComponent(q)}`)
+        .then((data) => {
+          if (cancelled) return;
+          setResults(dedupeTracks(data?.items || []));
+          setSearchError(null);
+        })
+        .catch((e) => {
+          if (cancelled) return;
+          setResults([]);
+          setSearchError(e?.message || 'Search failed. Please try again.');
+        })
+        .finally(() => { if (!cancelled) setSearching(false); });
+      searchTimer.current = null;
+    }, 350);
+    return () => { if (searchTimer.current) { clearTimeout(searchTimer.current); searchTimer.current = null; } };
+  }, [query, apiFetch]);
+
+  const addToPlaylist = useCallback(async (track) => {
+    if (!track?.id || playlistBusy) return;
+    setPlaylistBusy(track.id);
+    try {
+      const data = await apiFetch('/api/spotify/search-playlist', {
+        method: 'POST',
+        body: {
+          spotify_track_id: track.id,
+          title: track.title,
+          artist: track.artist,
+          album_art: track.albumArt,
+        },
+      });
+      const saved = data?.track || track;
+      setPlaylist((prev) => dedupeTracks([{ ...track, ...saved }, ...prev]));
+    } catch (e) {
+      setActionError(e?.message || "Couldn't save that track. Please try again.");
+    } finally {
+      setPlaylistBusy(null);
+    }
+  }, [apiFetch, playlistBusy]);
+
+  const removeFromPlaylist = useCallback(async (trackId) => {
+    if (!trackId || playlistBusy) return;
+    setPlaylistBusy(trackId);
+    const prev = playlist;
+    setPlaylist((p) => p.filter((t) => t.id !== trackId));
+    try {
+      await apiFetch(`/api/spotify/search-playlist?spotify_track_id=${encodeURIComponent(trackId)}`, { method: 'DELETE' });
+    } catch (e) {
+      setPlaylist(prev); // put it back on failure
+      setActionError(e?.message || "Couldn't remove that track. Please try again.");
+    } finally {
+      setPlaylistBusy(null);
+    }
+  }, [apiFetch, playlist, playlistBusy]);
+
+  // Play a single track on the in-site player (Premium). Every played track
+  // is also saved to the user's search playlist (server dedupes repeats).
+  const playTrack = useCallback((track) => run(`play-${track.id}`, async () => {
+    if (!track?.uri) throw new Error("Couldn't play that track.");
+    if (!deviceId) throw new Error(NO_DEVICE_NOTICE);
+    await spotifyFetch(getSpotifyToken, '/me/player/play', {
+      method: 'PUT', body: { uris: [track.uri] }, deviceId,
+    });
+    // Fire-and-forget save: the playlist is a record of what you searched
+    // and played. Failures here must never break playback.
+    apiFetch('/api/spotify/search-playlist', {
+      method: 'POST',
+      body: {
+        spotify_track_id: track.id,
+        title: track.title,
+        artist: track.artist,
+        album_art: track.albumArt,
+      },
+    })
+      .then((data) => {
+        const saved = data?.track || track;
+        setPlaylist((prev) => dedupeTracks([{ ...track, ...saved }, ...prev]));
+      })
+      .catch(() => {});
+  }), [run, getSpotifyToken, deviceId, apiFetch]);
+
+  // Free accounts can't play in-site: every track opens in their Spotify app.
+  const openTrack = useCallback((track) => {
+    if (!track?.id) return;
+    window.open(trackOpenUrl(track.id), '_blank', 'noopener,noreferrer');
+  }, []);
+
+  const activateTrack = useCallback((track) => {
+    if (premium) playTrack(track);
+    else openTrack(track);
+  }, [premium, playTrack, openTrack]);
+
+  const trackRow = (track, { onRemove = null } = {}) => (
+    <div key={track.id} className="flex items-center gap-2.5 rounded-xl px-2 py-1.5 transition-colors motion-reduce:transition-none hover:bg-white/5">
+      <button
+        type="button"
+        onClick={() => activateTrack(track)}
+        disabled={premium && (!deviceId || !!busy)}
+        className="flex min-w-0 flex-1 items-center gap-2.5 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-300 disabled:opacity-50"
+        title={premium ? `Play ${track.title}` : `Open ${track.title} in Spotify`}
+        aria-label={premium ? `Play ${track.title}` : `Open ${track.title} in Spotify`}
+      >
+        {track.albumArt ? (
+          <Image src={track.albumArt} alt="" width={40} height={40} unoptimized className="h-10 w-10 shrink-0 rounded-lg" aria-hidden="true" />
+        ) : (
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white/10">
+            <Play size={14} className="text-white/50" aria-hidden="true" />
+          </div>
+        )}
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[13px] font-medium text-white">{track.title}</span>
+          <span className="block truncate text-[11px] text-white/55">
+            {track.artist || (premium ? 'Spotify' : 'Tap to open in Spotify')}
+          </span>
+        </span>
+      </button>
+      {!onRemove && (
+        <button
+          type="button"
+          onClick={() => addToPlaylist(track)}
+          disabled={playlistBusy === track.id || playlist.some((t) => t.id === track.id)}
+          aria-label={playlist.some((t) => t.id === track.id) ? 'In your search playlist' : `Add ${track.title} to your search playlist`}
+          title={playlist.some((t) => t.id === track.id) ? 'In your search playlist' : 'Add to your search playlist'}
+          className={iconBtn}
+        >
+          {playlistBusy === track.id
+            ? <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+            : <Plus size={16} className={playlist.some((t) => t.id === track.id) ? 'text-teal-300' : ''} aria-hidden="true" />}
+        </button>
+      )}
+      {onRemove && (
+        <button
+          type="button"
+          onClick={() => onRemove(track.id)}
+          disabled={playlistBusy === track.id}
+          aria-label={`Remove ${track.title} from your search playlist`}
+          title="Remove"
+          className={iconBtn}
+        >
+          {playlistBusy === track.id
+            ? <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+            : <X size={16} aria-hidden="true" />}
+        </button>
+      )}
+    </div>
+  );
+
   // --- Render ---------------------------------------------------------------
 
   // Not connected: the connect CTA.
@@ -303,6 +511,36 @@ export default function MySpotifyPanel() {
         </div>
       )}
 
+      {/* Search anything in Spotify */}
+      <div className="px-3 pb-2">
+        <div className="relative">
+          <Search size={15} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-white/40" aria-hidden="true" />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search any song on Spotify…"
+            aria-label="Search any song on Spotify"
+            autoComplete="off"
+            className="w-full rounded-xl border border-white/12 bg-white/5 py-2.5 pl-10 pr-9 text-[13px] text-white placeholder:text-white/35 focus:border-teal-300/50 focus:outline-none"
+          />
+          {searching && (
+            <Loader2 size={15} className="absolute right-3.5 top-1/2 -translate-y-1/2 animate-spin text-white/40" aria-hidden="true" />
+          )}
+        </div>
+        {searchError && (
+          <p className="px-1 pt-1.5 text-[12px] text-red-300/90">{searchError}</p>
+        )}
+        {sanitizeQuery(query) && !searching && results.length === 0 && !searchError && (
+          <p className="px-1 pt-1.5 text-[12px] text-white/45">No matches on Spotify for that.</p>
+        )}
+        {results.length > 0 && (
+          <div className="mt-1 max-h-56 overflow-y-auto" role="list" aria-label="Search results">
+            {results.map((t) => trackRow(t))}
+          </div>
+        )}
+      </div>
+
       {/* Premium playback */}
       {premium && (
         <>
@@ -380,6 +618,30 @@ export default function MySpotifyPanel() {
           )}
         </>
       )}
+
+      {/* Your Search Playlist — per-account, survives sessions */}
+      <div className="border-t border-white/8 px-3 pb-3 pt-2">
+        <div className="flex items-center gap-2 px-1 pb-1">
+          <ListMusic size={14} className="text-teal-300" aria-hidden="true" />
+          <h4 className="text-[12px] font-semibold uppercase tracking-wide text-white/70">Your Search Playlist</h4>
+          {playlist.length > 0 && (
+            <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-white/60">{playlist.length}</span>
+          )}
+        </div>
+        {playlistLoading ? (
+          <p className="flex items-center gap-2 px-1 py-2 text-[12px] text-white/45">
+            <Loader2 size={13} className="animate-spin" aria-hidden="true" /> Loading your playlist…
+          </p>
+        ) : playlist.length === 0 ? (
+          <p className="px-1 py-1 text-[12px] leading-relaxed text-white/45">
+            Songs you search and play — or tap + on — land here, kept on your account.
+          </p>
+        ) : (
+          <div className="max-h-64 overflow-y-auto" role="list" aria-label="Your search playlist">
+            {playlist.map((t) => trackRow(t, { onRemove: removeFromPlaylist }))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -921,7 +921,7 @@ function DeathBurst({ apiRef }) {
 // Rig: physics, barrier bounce, lap counting, chase+orbit camera, trail feed.
 // ---------------------------------------------------------------------------
 
-function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, playerTrailRef, onLap, onFinish, hudRef, orbitRef, bump, onBumpEvent, bumpRemotes, botsRef }) {
+function Rig({ track, vehicle, scheme, skinKey, mode, laps, running, inputRef, playerTrailRef, onLap, onFinish, hudRef, orbitRef, bump, onBumpEvent, bumpRemotes, botsRef }) {
   const bikeRef = useRef();
   const shieldRef = useRef(); // trail-immunity shield ring
   const burstRef = useRef(); // death particle burst api
@@ -1552,6 +1552,7 @@ export default function RealmScene({
         track={track}
         vehicle={vehicle}
         scheme={scheme}
+        skinKey={skinKey}
         mode={mode}
         laps={laps}
         running={running}
