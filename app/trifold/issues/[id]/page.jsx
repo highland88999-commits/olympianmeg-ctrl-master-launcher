@@ -53,7 +53,7 @@ function TrialPanel({ onDismiss, compact }) {
     <div style={{ border: '1px solid #7c3aed66', borderRadius: 14, padding: compact ? '1.2rem' : '2rem', background: 'linear-gradient(180deg, rgba(124,58,237,0.12), transparent), #0d1226', textAlign: 'center', margin: '1.5rem 0' }}>
       <h3 style={{ margin: '0 0 0.5rem' }}>Keep reading {TRIFOLD_NAME}</h3>
       <p style={{ color: '#9aa0b5', margin: '0 0 0.4rem', lineHeight: 1.6 }}>
-        Start your <strong style={{ color: '#e8e6df' }}>{TRIFOLD_TRIAL_LABEL} free trial</strong> — then {TRIFOLD_PRICE_LABEL}/month, cancel anytime.
+        Start your <strong style={{ color: '#e8e6df' }}>{TRIFOLD_TRIAL_LABEL} trial</strong> — then {TRIFOLD_PRICE_LABEL}/month, cancel anytime.
       </p>
       <p style={{ color: '#6b7190', fontSize: '0.82rem', margin: '0 0 1rem' }}>
         Plain terms: {TRIFOLD_TRIAL_DAYS} days free, no charge during the trial, one-click cancel.
@@ -163,7 +163,7 @@ export default function IssueViewer({ params }) {
       {locked ? (
         dismissed ? (
           <div style={{ border: '1px dashed #2a3352', borderRadius: 12, padding: '1.4rem', textAlign: 'center', color: '#8b91a8' }}>
-            <p style={{ margin: '0 0 0.8rem' }}>The preview has ended. Start your {TRIFOLD_TRIAL_LABEL} free trial to read the full issue.</p>
+            <p style={{ margin: '0 0 0.8rem' }}>The preview has ended. Start your {TRIFOLD_TRIAL_LABEL} trial to read the full issue.</p>
             <button onClick={() => setDismissed(false)} style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', color: '#fff', border: 'none', borderRadius: 10, padding: '0.7rem 1.4rem', fontWeight: 700, cursor: 'pointer' }}>
               Start free trial
             </button>

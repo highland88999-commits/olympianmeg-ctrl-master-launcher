@@ -11,7 +11,7 @@ export default function TrifoldWelcome() {
       <p style={{ fontSize: '3rem', margin: '0 0 1rem' }}>📰</p>
       <h1 style={{ margin: '0 0 0.8rem' }}>You're in!</h1>
       <p style={{ color: '#9aa0b5', lineHeight: 1.7, margin: '0 0 0.6rem' }}>
-        Your <strong style={{ color: '#e8e6df' }}>{TRIFOLD_TRIAL_LABEL} free trial</strong> of {TRIFOLD_NAME} has started.
+        Your <strong style={{ color: '#e8e6df' }}>{TRIFOLD_TRIAL_LABEL} trial</strong> of {TRIFOLD_NAME} has started.
         A new issue lands every week — real, ruin, radiant.
       </p>
       <p style={{ color: '#6b7190', fontSize: '0.88rem', margin: '0 0 2rem' }}>

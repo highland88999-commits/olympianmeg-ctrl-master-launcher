@@ -118,7 +118,7 @@ export default function TrifoldLanding() {
         <p style={{ fontSize: '1.2rem', color: '#9aa0b5', margin: '0 0 1.6rem' }}>{TRIFOLD_TAGLINE}</p>
         <TrialForm />
         <p style={{ color: '#6b7190', fontSize: '0.82rem', marginTop: '0.8rem' }}>
-          {TRIFOLD_TRIAL_LABEL} free, then {TRIFOLD_PRICE_LABEL}/month. Cancel anytime. No card charged during the trial.
+          {TRIFOLD_TRIAL_LABEL}, then {TRIFOLD_PRICE_LABEL}/month. Cancel anytime. No card charged during the trial.
         </p>
       </header>
 
@@ -150,7 +150,7 @@ export default function TrifoldLanding() {
       {/* PRICING */}
       <section id="pricing" style={{ marginBottom: '3rem', textAlign: 'center', border: '1px solid #2a3352', borderRadius: 16, padding: '2rem', background: 'linear-gradient(180deg, rgba(124,58,237,0.08), transparent)' }}>
         <h2 style={{ margin: '0 0 0.6rem' }}>Simple pricing</h2>
-        <p style={{ fontSize: '2.2rem', margin: '0.4rem 0' }}><strong>{TRIFOLD_TRIAL_LABEL}</strong> <span style={{ color: '#8b91a8', fontSize: '1.1rem' }}>free</span></p>
+        <p style={{ fontSize: '2.2rem', margin: '0.4rem 0' }}><strong>{TRIFOLD_TRIAL_LABEL}</strong></p>
         <p style={{ color: '#9aa0b5', margin: '0 0 1rem' }}>then <strong style={{ color: '#e8e6df' }}>{TRIFOLD_PRICE_LABEL}/month</strong> · cancel anytime</p>
         <p style={{ color: '#6b7190', fontSize: '0.85rem', maxWidth: 520, margin: '0 auto 1rem', lineHeight: 1.6 }}>
           Plain terms: your first {TRIFOLD_TRIAL_DAYS} days cost nothing. After that, {TRIFOLD_PRICE_LABEL} per month
