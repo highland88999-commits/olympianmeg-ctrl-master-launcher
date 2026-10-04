@@ -39,8 +39,63 @@ const SHORT_LABEL = {
   pixels: "LIGHT & PIXELS",
 };
 
-export default function OlympianEducationPage() {
-  const bgRef = useRef(null);
+/* ATHENA interior treatment: inline SVG glyph set (zero image weight).
+   Geometry only — no logos, no faces, no text inside the glyphs. */
+function OEGlyph({ size = 13, children }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+      strokeLinejoin="round" aria-hidden="true" className="oe-glyph"
+      style={{ flex: "none" }}>
+      {children}
+    </svg>
+  );
+}
+const GlyphOracle = ({ size = 13 }) => (
+  <OEGlyph size={size}>
+    <path d="M12 3 L20 6 V12 C20 17 16 20 12 21 C8 20 4 17 4 12 V6 Z" />
+    <circle cx="12" cy="11" r="3" />
+  </OEGlyph>
+);
+const GlyphBook = ({ size = 13 }) => (
+  <OEGlyph size={size}>
+    <path d="M12 5.5 C10 4 7 3.5 4 3.5 V19.5 C7 19.5 10 20 12 21.5 C14 20 17 19.5 20 19.5 V3.5 C17 3.5 14 4 12 5.5 Z" />
+    <path d="M12 5.5 V21.5" />
+  </OEGlyph>
+);
+const GlyphChart = ({ size = 13 }) => (
+  <OEGlyph size={size}>
+    <path d="M4 20 V10 M10 20 V4 M16 20 V13 M22 20 H2" />
+  </OEGlyph>
+);
+const GlyphClose = ({ size = 13 }) => (
+  <OEGlyph size={size}>
+    <path d="M6 6 L18 18 M18 6 L6 18" />
+  </OEGlyph>
+);
+const GlyphSpark = ({ size = 13 }) => (
+  <OEGlyph size={size}>
+    <path d="M12 2 L14 10 L22 12 L14 14 L12 22 L10 14 L2 12 L10 10 Z" />
+  </OEGlyph>
+);
+const GlyphCheck = ({ size = 13 }) => (
+  <OEGlyph size={size}>
+    <path d="M4 12 L10 18 L20 6" />
+  </OEGlyph>
+);
+const GlyphStar = ({ size = 13 }) => (
+  <OEGlyph size={size}>
+    <path d="M12 3 L14.5 9 L21 9.5 L16 13.5 L17.5 20 L12 16.5 L6.5 20 L8 13.5 L3 9.5 L9.5 9 Z" />
+  </OEGlyph>
+);
+const GlyphRestart = ({ size = 13 }) => (
+  <OEGlyph size={size}>
+    <path d="M20 11 A8 8 0 1 0 18 16" />
+    <path d="M20 5 V11 H14" />
+  </OEGlyph>
+);
+
+export default function OlympianEducationPage() {  const bgRef = useRef(null);
   const containerRef = useRef(null);
   const oracleRef = useRef(null);
   const [panel, setPanel] = useState(null); // {type:'lesson', lesson} | {type:'overview'}
@@ -98,7 +153,7 @@ export default function OlympianEducationPage() {
     const draw = () => {
       const w = canvas.width;
       const h = canvas.height;
-      ctx.fillStyle = "#00050a";
+      ctx.fillStyle = "rgba(0,5,10,0.55)"; // translucent so the webp backdrop shows through
       ctx.fillRect(0, 0, w, h);
       // grid tunnel lines drifting toward viewer
       ctx.strokeStyle = "rgba(0,242,255,0.05)";
@@ -332,9 +387,17 @@ export default function OlympianEducationPage() {
 
   return (
     <div className="oe-root">
+      <div aria-hidden="true" className="oe-webp-bg" />
       <style>{`
         .oe-root { position:fixed; inset:0; background:#00050a; overflow:hidden; font-family:'Courier New',monospace; color:#fff; }
-        .oe-bg { position:absolute; inset:0; width:100%; height:100%; }
+        /* ATHENA interior treatment — hero backdrop behind the starfield canvas
+           (the canvas fill is translucent so the webp shows through). */
+        .oe-webp-bg { position:fixed; inset:0; z-index:0; pointer-events:none; opacity:0.6;
+          background:
+            linear-gradient(rgba(0,5,10,0.5), rgba(0,5,10,0.7)),
+            url('/images/olympian-education/olympian-education-bg.webp') center / cover no-repeat,
+            #00050a; }
+        .oe-bg { position:absolute; inset:0; width:100%; height:100%; z-index:1; }
         .oe-oracle { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); border-radius:50%; border:4px solid #ffd700; box-shadow:0 0 50px rgba(212,175,55,.3); z-index:10; cursor:pointer; background:radial-gradient(circle, rgba(212,175,55,.12), transparent 70%); display:flex; align-items:center; justify-content:center; font-size:.65rem; letter-spacing:3px; color:#ffd700; text-align:center; padding:1rem; font-family:inherit; }
         .oe-oracle:hover { box-shadow:0 0 70px rgba(212,175,55,.5); }
         .oe-container { position:absolute; inset:0; z-index:20; pointer-events:none; overflow:hidden; }
@@ -362,6 +425,21 @@ export default function OlympianEducationPage() {
         .oe-bar > div { height:100%; border-radius:999px; transition:width .4s; }
         .oe-overall { text-align:center; font-size:1.6rem; color:#ffd700; margin:.4rem 0 1rem; letter-spacing:2px; }
         @media (prefers-reduced-motion: reduce) { .oe-spark { animation:none; opacity:0; } }
+        /* ATHENA: panel tile + header art treatment (webp texture under scrims). */
+        .oe-holo { background:
+          linear-gradient(rgba(8,8,25,0.88), rgba(8,8,25,0.95)),
+          url('/images/olympian-education/olympian-education-bg.webp') center / cover no-repeat,
+          rgba(8,8,25,.96); }
+        .oe-holo-head { background:
+          linear-gradient(rgba(0,0,0,0.55), rgba(0,0,0,0.75)),
+          url('/images/olympian-education/olympian-education-bg.webp') center / cover no-repeat,
+          rgba(0,0,0,.5); }
+        .oe-holo-head > span { display:inline-flex; align-items:center; gap:8px; }
+        .oe-btn-quiet { display:inline-flex; align-items:center; gap:6px; }
+        .oe-glyph { vertical-align:-2px; margin-right:6px; flex:none; }
+        .oe-btn .oe-glyph { vertical-align:-3px; }
+        .oe-oracle { flex-direction:column; gap:6px; }
+        .oe-row-head .oe-glyph { margin-right:0; }
       `}</style>
 
       <canvas ref={bgRef} className="oe-bg" aria-hidden="true" />
@@ -371,6 +449,7 @@ export default function OlympianEducationPage() {
         onClick={openOverview}
         aria-label="Open your learning progress"
       >
+        <GlyphOracle size={22} />
         <span>
           ORACLE
           <br />
@@ -383,12 +462,13 @@ export default function OlympianEducationPage() {
         <div className="oe-holo" role="dialog" aria-modal="true" aria-label={activeLesson ? activeLesson.title : "Your progress"}>
           <div className="oe-holo-head">
             <span>
+              {activeLesson ? <GlyphBook /> : <GlyphChart />}
               {activeLesson
                 ? `LESSON // ${activeSchool.name.toUpperCase()}`
                 : "ORACLE // YOUR PROGRESS"}
             </span>
             <button className="oe-btn-quiet" onClick={closePanel} aria-label="Close panel">
-              [ CLOSE ]
+              <GlyphClose />[ CLOSE ]
             </button>
           </div>
           <div className="oe-holo-body">
@@ -405,13 +485,14 @@ export default function OlympianEducationPage() {
                   ))}
                 </ul>
                 <div className="oe-try">
-                  <strong>Try it: </strong>
+                  <strong><GlyphSpark /> Try it: </strong>
                   {activeLesson.tryIt}
                 </div>
                 <button
                   className={`oe-btn oe-btn-gold${completed.includes(activeLesson.id) ? " done" : ""}`}
                   onClick={() => toggleDone(activeLesson.id)}
                 >
+                  <GlyphCheck />
                   {completed.includes(activeLesson.id)
                     ? "✓ COMPLETED — TAP TO UNDO"
                     : "MARK AS COMPLETE"}
@@ -427,7 +508,9 @@ export default function OlympianEducationPage() {
                   return (
                     <div className="oe-progress-row" key={s.id}>
                       <div className="oe-row-head">
-                        <span style={{ color: s.color }}>{s.name.toUpperCase()}</span>
+                        <span style={{ color: s.color, display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                          <GlyphStar />{s.name.toUpperCase()}
+                        </span>
                         <span>
                           {p.done}/{p.total} · {p.pct}%
                         </span>
@@ -445,7 +528,7 @@ export default function OlympianEducationPage() {
                   Progress is saved on this device only. Nothing is sent anywhere.
                 </p>
                 <button className="oe-btn oe-btn-gold" onClick={resetProgress}>
-                  START OVER
+                  <GlyphRestart /> START OVER
                 </button>
               </>
             )}
