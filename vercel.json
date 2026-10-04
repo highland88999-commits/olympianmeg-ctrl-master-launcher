@@ -1,1 +1,1 @@
-{"crons":[{"path":"/api/store/products","schedule":"*/9 * * * *"},{"path":"/api/trifold/cron/weekly","schedule":"0 9 * * 1"}]}
+{"crons":[{"path":"/api/store/products","schedule":"*/9 * * * *"},{"path":"/api/hermes/cron-scrub","schedule":"0 4 * * *"},{"path":"/api/trifold/cron/weekly","schedule":"0 9 * * 1"}]}
