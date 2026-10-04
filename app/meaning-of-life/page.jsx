@@ -18,6 +18,7 @@ export default function MeaningOfLifePage() {
   const [line, setLine] = useState(MOVEMENTS[0].lines[0]);
   const [reducedMotion, setReducedMotion] = useState(false);
   const [paused, setPaused] = useState(false);
+  const [ready, setReady] = useState(false); // first canvas frame painted
   const canvasRef = useRef(null);
   const advanceTimer = useRef(null);
   const lineTimer = useRef(null);
@@ -79,6 +80,7 @@ export default function MeaningOfLifePage() {
       if (!reducedMotion) raf = requestAnimationFrame(frame);
     }
     frame();
+    setReady(true);
 
     const onResize = () => {
       canvas.width = window.innerWidth;
@@ -95,6 +97,15 @@ export default function MeaningOfLifePage() {
     <main className="mol">
       <PassageLink />
       <canvas ref={canvasRef} className="mol-canvas" aria-hidden="true" />
+      {/* Warm hearth grade — atmosphere only, above the painted movements. */}
+      <div className="mol-grade" aria-hidden="true" />
+
+      {!ready && (
+        <div className="mol-loader" role="status" aria-label="Loading the visualizer">
+          <img src="/images/meaning-of-life/bg-genesis.webp" alt="" aria-hidden="true" />
+          <p>The universe is inhaling&hellip;</p>
+        </div>
+      )}
 
       <div className="mol-overlay">
         <p className="mol-kicker">
@@ -118,7 +129,9 @@ export default function MeaningOfLifePage() {
           onClick={() => goTo(prevIndex(movementIdx))}
           aria-label="Previous movement"
         >
-          &#8249;
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m15 18-6-6 6-6" />
+          </svg>
         </button>
         <div className="mol-dots" role="tablist" aria-label="Choose a movement">
           {MOVEMENTS.map((m, i) => (
@@ -139,7 +152,9 @@ export default function MeaningOfLifePage() {
           onClick={() => goTo(nextIndex(movementIdx))}
           aria-label="Next movement"
         >
-          &#8250;
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m9 18 6-6-6-6" />
+          </svg>
         </button>
         {!reducedMotion && (
           <button
@@ -149,7 +164,16 @@ export default function MeaningOfLifePage() {
             aria-pressed={paused}
             aria-label={paused ? "Resume the visualizer" : "Pause the visualizer"}
           >
-            {paused ? "Resume" : "Pause"}
+            {paused ? (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M7 4.5v15l13-7.5Z" />
+              </svg>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <rect x="6" y="4.5" width="4" height="15" rx="1" />
+                <rect x="14" y="4.5" width="4" height="15" rx="1" />
+              </svg>
+            )}
           </button>
         )}
       </nav>
@@ -228,6 +252,40 @@ export default function MeaningOfLifePage() {
           from { opacity: 0; }
           to { opacity: 1; }
         }
+        .mol-grade {
+          position: absolute;
+          inset: 0;
+          z-index: 1;
+          pointer-events: none;
+          background: radial-gradient(110% 80% at 50% 110%, rgba(255,180,90,0.10) 0%, rgba(120,53,15,0.05) 45%, transparent 70%);
+        }
+        .mol-loader {
+          position: absolute;
+          inset: 0;
+          z-index: 5;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: #000;
+          overflow: hidden;
+        }
+        .mol-loader img {
+          position: absolute;
+          inset: 0;
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          opacity: 0.35;
+        }
+        .mol-loader p {
+          position: relative;
+          margin: 0;
+          letter-spacing: 0.35em;
+          text-transform: uppercase;
+          font-size: 0.75rem;
+          color: rgba(255, 240, 200, 0.85);
+          animation: molfade 1.8s ease infinite alternate;
+        }
         .mol-nav {
           position: absolute;
           left: 50%;
@@ -237,6 +295,25 @@ export default function MeaningOfLifePage() {
           align-items: center;
           gap: 14px;
           z-index: 3;
+          background: rgba(8, 8, 10, 0.5);
+          backdrop-filter: blur(10px);
+          border: 1px solid rgba(255, 215, 120, 0.18);
+          border-radius: 999px;
+          padding: 6px 12px;
+          overflow: hidden;
+        }
+        .mol-nav::before {
+          content: "";
+          position: absolute;
+          inset: 0;
+          border-radius: 999px;
+          background-image: url(/images/hestia/panel-ember.webp);
+          background-size: 512px 512px;
+          opacity: 0.16;
+          pointer-events: none;
+        }
+        .mol-nav > * {
+          position: relative;
         }
         .mol-btn {
           width: 48px;
@@ -248,6 +325,9 @@ export default function MeaningOfLifePage() {
           font-size: 1.5rem;
           line-height: 1;
           cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
         }
         .mol-btn:hover {
           border-color: rgba(255, 215, 120, 0.7);
@@ -281,6 +361,7 @@ export default function MeaningOfLifePage() {
         }
         .mol-pause {
           min-height: 44px;
+          min-width: 44px;
           padding: 0 16px;
           border-radius: 999px;
           border: 1px solid rgba(255, 255, 255, 0.25);
@@ -290,6 +371,9 @@ export default function MeaningOfLifePage() {
           letter-spacing: 0.18em;
           text-transform: uppercase;
           cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
         }
         .mol-pause:hover {
           border-color: rgba(255, 215, 120, 0.7);

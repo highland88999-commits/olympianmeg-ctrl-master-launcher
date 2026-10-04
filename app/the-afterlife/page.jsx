@@ -183,7 +183,7 @@ function SceneCanvas({ scene }) {
     return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', resize); };
   }, [scene]);
   return <canvas ref={ref} aria-hidden="true"
-    style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }} />;
+    style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', zIndex: 1 }} />;
 }
 
 // ---------- gatekeeper ----------
@@ -199,7 +199,12 @@ function Gatekeeper({ onBegin }) {
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         fontFamily: "Georgia, 'Times New Roman', serif",
       }}>
-      <div style={{ textAlign: 'center', padding: '0 24px', maxWidth: 560 }}>
+      {/* Page background art — behind the gatekeeper only. Scenes are untouched. */}
+      <img src="/images/the-afterlife/bg-soft.webp" alt="" aria-hidden="true"
+        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.35 }} />
+      <div aria-hidden="true" style={{ position: 'absolute', inset: 0,
+        background: 'radial-gradient(ellipse at center, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.82) 100%)' }} />
+      <div style={{ position: 'relative', textAlign: 'center', padding: '0 24px', maxWidth: 560 }}>
         <div style={{
           color: '#c5a059', letterSpacing: 6, fontSize: 'clamp(1.6rem, 7vw, 3rem)',
           border: '1px solid #c5a059', padding: '28px 36px',
@@ -241,6 +246,9 @@ function Journey({ state, dispatch }) {
     <>
     <div style={{ position: 'fixed', inset: 0, background: '#000', overflow: 'hidden',
       fontFamily: "Georgia, 'Times New Roman', serif" }}>
+      {/* Page background art — strictly behind the scene canvas. Never above the art. */}
+      <img src="/images/the-afterlife/bg-soft.webp" alt="" aria-hidden="true"
+        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.16, zIndex: 0 }} />
       <SceneCanvas scene={scene} />
       <button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'PREV' }); }}
         aria-label="Go back"

@@ -13,6 +13,18 @@ import {
   addEntry,
   removeEntry,
 } from "./journey.js";
+import { useAmbience, AmbienceToggle, panelTileStyle } from "@/lib/hestia/ambience";
+
+/* Glyph — small inline SVG icon, calm line style. */
+function Glyph({ size = 14, children }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+      style={{ flexShrink: 0, display: "inline-block", verticalAlign: "-2px" }}>
+      {children}
+    </svg>
+  );
+}
 
 /* ---------- small seeded rng so the background tree is stable ---------- */
 function mulberry32(seed) {
@@ -323,7 +335,14 @@ function InkCanvas({ reducedMotion }) {
       <canvas ref={ref} className="ink-canvas" aria-label="A small canvas to draw on" />
       <div className="btn-row">
         <button type="button" onClick={clear}>
-          Clear drawing
+          <span className="gg-btn-inner">
+            <Glyph>
+              <path d="m7 21-4.3-4.3a2.4 2.4 0 0 1 0-3.4l9.6-9.6a2.4 2.4 0 0 1 3.4 0l5.6 5.6a2.4 2.4 0 0 1 0 3.4L13 21" />
+              <path d="M22 21H7" />
+              <path d="m5 11 8 8" />
+            </Glyph>
+            Clear drawing
+          </span>
         </button>
       </div>
     </div>
@@ -339,8 +358,11 @@ export default function GriefGullyPage() {
   const [draft, setDraft] = useState("");
   const [openClips, setOpenClips] = useState({});
   const [reducedMotion, setReducedMotion] = useState(false);
+  const [clipLoading, setClipLoading] = useState({}); // film-clip iframes
   const bgRef = useRef(null);
   const engineRef = useRef(null);
+  // Calm default: Still. Motion only when asked for (localStorage hestia-bg-grief-gully).
+  const amb = useAmbience("grief-gully", "still");
 
   useEffect(() => {
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -500,6 +522,21 @@ export default function GriefGullyPage() {
     <main className="grief-gully">
       <canvas ref={bgRef} className="bg-canvas" aria-hidden="true" />
 
+      {/* Ambient mist — a barely-there drift over the painted tree, calm by default. */}
+      {amb.hydrated && amb.mode !== "off" && (
+        <div className="gg-ambience" aria-hidden="true">
+          {amb.mode === "video" ? (
+            <video
+              autoPlay muted loop playsInline preload="metadata"
+              poster="/images/grief-gully/bg-mist.webp"
+              src="/images/grief-gully/bg-ambient.mp4"
+            />
+          ) : (
+            <img src="/images/grief-gully/bg-mist.webp" alt="" />
+          )}
+        </div>
+      )}
+
       {stage !== "present" && (
         <div
           className={`intro-overlay ${stage === "entering" ? "leaving" : ""}`}
@@ -523,6 +560,9 @@ export default function GriefGullyPage() {
       {stage === "present" && (
         <div className="content">
           <header className="gg-page-header">
+            <div className="gg-ambience-row">
+              <AmbienceToggle mode={amb.mode} onCycle={amb.cycle} tone="dark" />
+            </div>
             <h1>Grief Gully</h1>
             <p className="tagline">Healing Matrix — take your time. There is no hurry here.</p>
           </header>
@@ -551,7 +591,23 @@ export default function GriefGullyPage() {
                       aria-pressed={active}
                       aria-label={active ? `Stop ${track.title}` : `Play ${track.title}`}
                     >
-                      {active ? "Rest" : "Listen"}
+                      <span className="gg-btn-inner">
+                        {active ? (
+                          <>
+                            <Glyph>
+                              <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" />
+                            </Glyph>
+                            Rest
+                          </>
+                        ) : (
+                          <>
+                            <Glyph>
+                              <path d="M4 10v4" /><path d="M8 7v10" /><path d="M12 4v16" /><path d="M16 7v10" /><path d="M20 10v4" />
+                            </Glyph>
+                            Listen
+                          </>
+                        )}
+                      </span>
                     </button>
                   </div>
                   <TrackVisual character={track.character} active={active} reducedMotion={reducedMotion} />
@@ -561,16 +617,25 @@ export default function GriefGullyPage() {
                       onToggle={(e) => {
                         const open = e.currentTarget.open;
                         setOpenClips((prev) => ({ ...prev, [track.id]: open }));
-                        if (open) stopGenerative();
+                        if (open) {
+                          setClipLoading((prev) => ({ ...prev, [track.id]: true }));
+                          stopGenerative();
+                        }
                       }}
                     >
                       <summary>Watch the film clip</summary>
                       {openClips[track.id] && (
                         <div className="film-frame">
+                          {clipLoading[track.id] !== false && (
+                            <div className="film-loading" aria-hidden="true">
+                              <span>Opening the film clip…</span>
+                            </div>
+                          )}
                           <iframe
                             src={clipUrl}
                             title={track.videoTitle}
                             loading="lazy"
+                            onLoad={() => setClipLoading((prev) => ({ ...prev, [track.id]: false }))}
                             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                             allowFullScreen
                           />
@@ -623,7 +688,13 @@ export default function GriefGullyPage() {
             />
             <div className="btn-row">
               <button type="button" onClick={saveDraft} disabled={!draft.trim()}>
-                Set this down
+                <span className="gg-btn-inner">
+                  <Glyph>
+                    <path d="M20.5 3.5c-5.5 0-11 3.6-13 9.2L5 19l6.3-2.5c5.6-2 9.2-7.5 9.2-13Z" />
+                    <path d="M5 19c2.5-4.5 6-8 10.5-10.5" />
+                  </Glyph>
+                  Set this down
+                </span>
               </button>
             </div>
             {entries.length > 0 && (
@@ -645,7 +716,13 @@ export default function GriefGullyPage() {
                         onClick={() => setEntries(removeEntry(entries, e.id))}
                         aria-label="Remove this entry"
                       >
-                        let go
+                        <span className="gg-btn-inner">
+                          <Glyph>
+                            <path d="M5 21c0-8 5.5-13.5 14-14.5C18 15.5 12.5 20.5 5 21Z" />
+                            <path d="M5 21c3-5 6-8.5 10-11" />
+                          </Glyph>
+                          let go
+                        </span>
                       </button>
                     </div>
                   </li>
@@ -676,6 +753,45 @@ export default function GriefGullyPage() {
           height: 100%;
           z-index: 0;
           pointer-events: none;
+        }
+        /* Ambient layer: a whisper of mist over the painted tree. Kept faint on purpose. */
+        .gg-ambience {
+          position: fixed;
+          inset: 0;
+          z-index: 1;
+          pointer-events: none;
+          opacity: 0.22;
+        }
+        .gg-ambience video,
+        .gg-ambience img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          display: block;
+        }
+        .gg-ambience-row {
+          display: flex;
+          justify-content: flex-end;
+          margin-bottom: 10px;
+        }
+        .gg-btn-inner {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .film-loading {
+          position: absolute;
+          inset: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: rgba(4, 8, 10, 0.92);
+          color: #8ba0a6;
+          font-style: italic;
+          font-size: 0.85rem;
+        }
+        .film-loading span {
+          animation: breathe 2.4s ease-in-out infinite;
         }
         .intro-overlay {
           position: fixed;
@@ -761,12 +877,26 @@ export default function GriefGullyPage() {
           margin: 0;
         }
         .card {
+          position: relative;
           background: rgba(6, 12, 16, 0.72);
           border: 1px solid rgba(0, 200, 210, 0.16);
           border-radius: 14px;
           padding: 22px;
           margin-bottom: 26px;
           backdrop-filter: blur(8px);
+          overflow: hidden;
+        }
+        .card::before {
+          content: "";
+          position: absolute;
+          inset: 0;
+          background-image: url(/images/hestia/panel-ember.webp);
+          background-size: 512px 512px;
+          opacity: 0.18;
+          pointer-events: none;
+        }
+        .card > * {
+          position: relative;
         }
         .section-label {
           font-size: 0.78rem;

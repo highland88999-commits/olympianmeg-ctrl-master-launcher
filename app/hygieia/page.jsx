@@ -29,6 +29,27 @@ import {
   REMINDER_COLUMNS,
 } from '@/lib/hygieia/schedule';
 import { NOTIFICATION_NOTE } from '@/lib/hygieia/notify';
+import { panelTileStyle } from '@/lib/hestia/ambience';
+
+// Inline SVG glyph system — one icon per action, zero image weight.
+function HygIcon({ name, size = 14 }) {
+  const p = {
+    width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor',
+    strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true',
+    className: 'shrink-0',
+  };
+  switch (name) {
+    case 'plus': return (<svg {...p}><path d="M12 5v14M5 12h14" /></svg>);
+    case 'check': return (<svg {...p}><path d="M20 6 9 17l-5-5" /></svg>);
+    case 'x': return (<svg {...p}><path d="M18 6 6 18M6 6l12 12" /></svg>);
+    case 'pencil': return (<svg {...p}><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /></svg>);
+    case 'trash': return (<svg {...p}><path d="M3 6h18" /><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg>);
+    case 'power': return (<svg {...p}><path d="M12 2v10" /><path d="M18.4 6.6a9 9 0 1 1-12.8 0" /></svg>);
+    case 'bell': return (<svg {...p}><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /></svg>);
+    case 'steps': return (<svg {...p}><ellipse cx="9" cy="7.5" rx="3" ry="4" /><ellipse cx="15.5" cy="16.5" rx="3" ry="4" /></svg>);
+    default: return null;
+  }
+}
 
 const TITLE = 'Hygieia';
 const SUBTITLE = 'Your health corner — reminders you set, and your steps.';
@@ -71,16 +92,19 @@ function isMissingTable(err) {
 
 function SectionCard({ title, children }) {
   return (
-    <section className="rounded-xl border border-zinc-800 bg-black/60 p-4 sm:p-5">
-      <h2 className="text-sm font-black uppercase tracking-[0.18em] text-zinc-300">{title}</h2>
-      <div className="mt-3">{children}</div>
+    <section className="relative overflow-hidden rounded-xl border border-zinc-800 bg-black/60 p-4 sm:p-5">
+      <div aria-hidden="true" className="absolute inset-0 opacity-20 pointer-events-none" style={panelTileStyle()} />
+      <div className="relative">
+        <h2 className="text-sm font-black uppercase tracking-[0.18em] text-zinc-300">{title}</h2>
+        <div className="mt-3">{children}</div>
+      </div>
     </section>
   );
 }
 
 function EmptyNote({ children }) {
   return (
-    <p className="rounded-lg border border-dashed border-zinc-800 bg-white/[0.02] px-4 py-6 text-center text-sm text-zinc-500">
+    <p className="rounded-lg border border-dashed border-amber-200/25 bg-amber-100/[0.03] px-4 py-6 text-center text-sm text-zinc-400">
       {children}
     </p>
   );
@@ -94,13 +118,26 @@ function ErrorNote({ children }) {
   );
 }
 
+function LoadingNote({ children }) {
+  return (
+    <div className="relative overflow-hidden rounded-lg border border-zinc-800 bg-black/50 px-4 py-6" role="status">
+      <div aria-hidden="true" className="absolute inset-0 opacity-20 pointer-events-none" style={panelTileStyle()} />
+      <p className="relative text-center text-sm text-zinc-400 animate-pulse">{children}</p>
+      <div aria-hidden="true" className="relative mx-auto mt-4 h-1 w-36 overflow-hidden rounded bg-white/10">
+        <div className="h-full w-1/2 rounded bg-gradient-to-r from-amber-500 to-yellow-200 animate-[hyg-shimmer_1.4s_ease-in-out_infinite]" />
+      </div>
+      <style>{`@keyframes hyg-shimmer { 0% { transform: translateX(-100%);} 100% { transform: translateX(300%);} }`}</style>
+    </div>
+  );
+}
+
 const inputCls =
   'w-full min-h-[44px] rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 ' +
   'placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none';
 const btnPrimary =
-  'min-h-[44px] rounded-lg bg-zinc-100 px-5 py-2 text-sm font-bold text-black hover:bg-white disabled:opacity-40';
+  'inline-flex items-center justify-center gap-2 min-h-[44px] rounded-lg bg-zinc-100 px-5 py-2 text-sm font-bold text-black hover:bg-white disabled:opacity-40';
 const btnGhost =
-  'min-h-[44px] rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-900';
+  'inline-flex items-center justify-center gap-2 min-h-[44px] rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-900';
 
 // ---------------------------------------------------------------------------
 // Reminder form (add + edit)
@@ -230,9 +267,15 @@ function ReminderForm({ initial, onSave, onCancel, saving }) {
 
       <div className="flex gap-2">
         <button type="submit" className={btnPrimary} disabled={saving}>
-          {saving ? 'Saving…' : initial ? 'Save changes' : 'Add reminder'}
+          {saving ? 'Saving…' : (
+            <>
+              <HygIcon name="check" />
+              {initial ? 'Save changes' : 'Add reminder'}
+            </>
+          )}
         </button>
         <button type="button" className={btnGhost} onClick={onCancel} disabled={saving}>
+          <HygIcon name="x" />
           Cancel
         </button>
       </div>
@@ -440,8 +483,17 @@ export default function HygieiaPage() {
 
   return (
     <div className="min-h-dvh bg-black text-zinc-100">
-      <div className="mx-auto w-full max-w-2xl px-4 pt-6 pb-32" style={{ paddingBottom: 'calc(8rem + env(safe-area-inset-bottom))' }}>
+      {/* Warm temple sanctuary behind the page — still, low, calm. */}
+      <div aria-hidden="true" className="pointer-events-none fixed inset-0 z-0">
+        <img src="/images/hygieia/bg-temple.webp" alt="" className="h-full w-full object-cover opacity-25" />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/30 to-black/85" />
+      </div>
+      <div className="relative z-10 mx-auto w-full max-w-2xl px-4 pt-6 pb-32" style={{ paddingBottom: 'calc(8rem + env(safe-area-inset-bottom))' }}>
         <PageBack label="Hub" href="/" />
+
+        <div aria-hidden="true" className="mt-4 overflow-hidden rounded-xl border border-amber-200/15">
+          <img src="/images/hygieia/header-healing.webp" alt="" className="h-32 w-full object-cover opacity-85 sm:h-40" />
+        </div>
 
         <header className="mt-4">
           <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-zinc-500">Pocket universe</p>
@@ -450,7 +502,9 @@ export default function HygieiaPage() {
         </header>
 
         {!authChecked ? (
-          <p className="mt-8 text-sm text-zinc-500">Loading…</p>
+          <div className="mt-8">
+            <LoadingNote>Waking Hygieia…</LoadingNote>
+          </div>
         ) : cloudOffline ? (
           <ErrorNote>
             The database connection isn&apos;t configured right now, so reminders and steps can&apos;t be
@@ -467,20 +521,21 @@ export default function HygieiaPage() {
           <>
             <nav className="mt-6 flex gap-2" aria-label="Hygieia sections">
               {[
-                { key: 'reminders', label: 'Reminders' },
-                { key: 'steps', label: 'Steps' },
+                { key: 'reminders', label: 'Reminders', icon: 'bell' },
+                { key: 'steps', label: 'Steps', icon: 'steps' },
               ].map((t) => (
                 <button
                   key={t.key}
                   type="button"
                   onClick={() => setTab(t.key)}
                   aria-current={tab === t.key ? 'page' : undefined}
-                  className={`min-h-[44px] flex-1 rounded-lg border px-4 text-sm font-bold ${
+                  className={`inline-flex items-center justify-center gap-2 min-h-[44px] flex-1 rounded-lg border px-4 text-sm font-bold ${
                     tab === t.key
                       ? 'border-zinc-100 bg-zinc-100 text-black'
                       : 'border-zinc-700 text-zinc-400 hover:bg-zinc-900'
                   }`}
                 >
+                  <HygIcon name={t.icon} />
                   {t.label}
                 </button>
               ))}
@@ -517,7 +572,7 @@ export default function HygieiaPage() {
 
                 <SectionCard title="Your reminders">
                   {remLoading ? (
-                    <p className="text-sm text-zinc-500">Loading your reminders…</p>
+                    <LoadingNote>Loading your reminders…</LoadingNote>
                   ) : orderedReminders.length === 0 ? (
                     <EmptyNote>
                       No reminders yet. Add one below — a nudge to move, to drink water, to step outside.
@@ -541,26 +596,29 @@ export default function HygieiaPage() {
                               onClick={() => toggleEnabled(r)}
                               aria-pressed={!!r.enabled}
                               aria-label={r.enabled ? `Turn off ${r.title}` : `Turn on ${r.title}`}
-                              className={`min-h-[44px] shrink-0 rounded-lg border px-3 text-xs font-bold ${
+                              className={`inline-flex items-center gap-1.5 min-h-[44px] shrink-0 rounded-lg border px-3 text-xs font-bold ${
                                 r.enabled ? 'border-zinc-600 text-zinc-200' : 'border-zinc-800 text-zinc-500'
                               }`}
                             >
+                              <HygIcon name="power" size={12} />
                               {r.enabled ? 'On' : 'Off'}
                             </button>
                           </div>
                           <div className="mt-2 flex gap-2">
                             <button
                               type="button"
-                              className="min-h-[44px] rounded-lg border border-zinc-800 px-3 text-xs text-zinc-400 hover:bg-zinc-900"
+                              className="inline-flex items-center gap-1.5 min-h-[44px] rounded-lg border border-zinc-800 px-3 text-xs text-zinc-400 hover:bg-zinc-900"
                               onClick={() => { setEditing(r); setShowForm(true); }}
                             >
+                              <HygIcon name="pencil" size={12} />
                               Edit
                             </button>
                             <button
                               type="button"
-                              className="min-h-[44px] rounded-lg border border-zinc-800 px-3 text-xs text-zinc-500 hover:bg-zinc-900 hover:text-red-300"
+                              className="inline-flex items-center gap-1.5 min-h-[44px] rounded-lg border border-zinc-800 px-3 text-xs text-zinc-500 hover:bg-zinc-900 hover:text-red-300"
                               onClick={() => deleteReminder(r)}
                             >
+                              <HygIcon name="trash" size={12} />
                               Delete
                             </button>
                           </div>
@@ -577,7 +635,8 @@ export default function HygieiaPage() {
                         disabled={remMissing}
                         onClick={() => { setEditing(null); setShowForm(true); }}
                       >
-                        + Add a reminder
+                        <HygIcon name="plus" />
+                        Add a reminder
                       </button>
                     ) : (
                       <ReminderForm
@@ -604,7 +663,7 @@ export default function HygieiaPage() {
 
                 <SectionCard title="Your totals">
                   {stepsLoading ? (
-                    <p className="text-sm text-zinc-500">Loading your steps…</p>
+                    <LoadingNote>Loading your steps…</LoadingNote>
                   ) : steps.length === 0 ? (
                     <EmptyNote>
                       No steps logged yet. Your first entry starts the count — every step after that adds up.
@@ -647,7 +706,12 @@ export default function HygieiaPage() {
                       disabled={stepsSaving || stepsMissing}
                       onClick={saveTodaySteps}
                     >
-                      {stepsSaving ? 'Saving…' : 'Save'}
+                      {stepsSaving ? 'Saving…' : (
+                        <>
+                          <HygIcon name="check" />
+                          Save
+                        </>
+                      )}
                     </button>
                   </div>
                 </SectionCard>

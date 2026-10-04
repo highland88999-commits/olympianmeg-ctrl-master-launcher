@@ -15,8 +15,18 @@ import {
 import { createOrbitalRenderer } from './canvas';
 import { createPilot } from './game';
 import { fx, unlockFx } from '@/lib/fx';
+import { panelTileStyle } from '@/lib/hestia/ambience';
 
 const FONT = "ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, monospace";
+
+function Glyph({ size = 13, children }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
+      {children}
+    </svg>
+  );
+}
 
 export default function LifePage() {
   const canvasRef = useRef(null);
@@ -24,6 +34,8 @@ export default function LifePage() {
   const stateRef = useRef(null);
 
   const [reducedMotion, setReducedMotion] = useState(false);
+  const [ready, setReady] = useState(false); // first renderer tick — matrix is live
+  const [slowBoot, setSlowBoot] = useState(false); // only show the loader if boot drags
   const [hud, setHud] = useState({ progress: 0, held: false, game: null });
   const [zoomTick, setZoomTick] = useState(0);
   const pilotRef = useRef(null);
@@ -45,6 +57,7 @@ export default function LifePage() {
         reducedMotion: rm,
         onHud: (next) => {
           setHud(next);
+          setReady(true);
           setZoomTick((t) => t + 1);
         },
         tick: (dt) => pilot.tick(dt),
@@ -69,6 +82,13 @@ export default function LifePage() {
     if (rendererRef.current) rendererRef.current.resetView();
   }, []);
 
+  // The boot loader only appears if the renderer takes a while to warm up.
+  useEffect(() => {
+    if (ready) return;
+    const t = setTimeout(() => setSlowBoot(true), 350);
+    return () => clearTimeout(t);
+  }, [ready]);
+
   const startPilot = useCallback(() => {
     unlockFx(); // starting is a gesture: make sure FX is live
     fx.tap();
@@ -90,12 +110,18 @@ export default function LifePage() {
       <PassageLink />
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full block" aria-hidden="true" />
 
+      {/* Warm hearth grade over the matrix — atmosphere only, the art is untouched. */}
+      <div aria-hidden="true" className="absolute inset-0 pointer-events-none"
+        style={{ background: 'radial-gradient(120% 90% at 50% 100%, rgba(255,150,60,0.10) 0%, rgba(120,53,15,0.05) 42%, transparent 70%)' }} />
+
       {/* HUD */}
       <div className="absolute top-0 left-0 right-0 flex items-start justify-between p-4 sm:p-5 pointer-events-none">
         <div
           key={zoomTick}
-          className="bg-black/60 backdrop-blur-sm px-4 py-3 border-l-2 border-cyan-400/80 max-w-[78vw]"
+          className="relative overflow-hidden bg-black/60 backdrop-blur-sm px-4 py-3 border-l-2 border-cyan-400/80 max-w-[78vw]"
         >
+          <div aria-hidden="true" className="absolute inset-0 opacity-25 pointer-events-none" style={panelTileStyle()} />
+          <div className="relative">
           <div className="text-[10px] sm:text-[11px] tracking-[0.3em] uppercase text-cyan-300/90">
             Orbital Matrix
           </div>
@@ -139,6 +165,7 @@ export default function LifePage() {
               HELD STILL — REDUCED MOTION
             </div>
           )}
+          </div>
         </div>
         <div className="flex flex-col items-end gap-2">
           {aligning && (
@@ -176,17 +203,24 @@ export default function LifePage() {
           {game && !game.playing && !game.gameOver && (
             <button
               onClick={startPilot}
-              className="pointer-events-auto px-4 py-2 rounded border border-cyan-300/50 bg-cyan-400/15 text-cyan-100 text-[11px] sm:text-xs tracking-[0.25em] uppercase backdrop-blur-sm hover:bg-cyan-400/30 transition-colors"
+              className="pointer-events-auto inline-flex items-center gap-2 px-4 py-2 rounded border border-cyan-300/50 bg-cyan-400/15 text-cyan-100 text-[11px] sm:text-xs tracking-[0.25em] uppercase backdrop-blur-sm hover:bg-cyan-400/30 transition-colors"
               aria-label="Play: guide your spark through the matrix"
             >
+              <Glyph size={13}>
+                <path d="m3 11 19-9-9 19-2-8-8-2Z" />
+              </Glyph>
               Pilot the spark
             </button>
           )}
           <button
             onClick={resetView}
-            className="pointer-events-auto px-3 py-2 rounded border border-white/20 bg-white/5 text-neutral-300 text-[11px] sm:text-xs tracking-[0.2em] uppercase backdrop-blur-sm hover:bg-white/15 transition-colors"
+            className="pointer-events-auto inline-flex items-center gap-2 px-3 py-2 rounded border border-white/20 bg-white/5 text-neutral-300 text-[11px] sm:text-xs tracking-[0.2em] uppercase backdrop-blur-sm hover:bg-white/15 transition-colors"
             aria-label="Reset the orbital view"
           >
+            <Glyph size={13}>
+              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+              <path d="M3 3v5h5" />
+            </Glyph>
             Reset view
           </button>
         </div>
@@ -195,7 +229,10 @@ export default function LifePage() {
       {/* Game-over panel */}
       {game && game.gameOver && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none px-4">
-          <div className="pointer-events-auto bg-black/80 backdrop-blur-md border border-white/15 rounded-lg px-8 py-6 text-center max-w-sm">
+          <div className="pointer-events-auto relative overflow-hidden bg-black/80 backdrop-blur-md border border-white/15 rounded-lg px-8 py-6 text-center max-w-sm">
+            <img src="/images/life/bg-orbit.webp" alt="" aria-hidden="true"
+              className="absolute inset-0 w-full h-full object-cover opacity-25 pointer-events-none" />
+            <div className="relative">
             <div className="text-[10px] tracking-[0.3em] uppercase text-rose-300/90">
               Out of hull
             </div>
@@ -205,11 +242,16 @@ export default function LifePage() {
             </div>
             <button
               onClick={startPilot}
-              className="mt-5 px-5 py-2.5 rounded border border-cyan-300/50 bg-cyan-400/15 text-cyan-100 text-xs tracking-[0.25em] uppercase hover:bg-cyan-400/30 transition-colors"
+              className="mt-5 px-5 py-2.5 rounded border border-cyan-300/50 bg-cyan-400/15 text-cyan-100 text-xs tracking-[0.25em] uppercase hover:bg-cyan-400/30 transition-colors inline-flex items-center gap-2"
               aria-label="Fly again"
             >
+              <Glyph size={13}>
+                <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+                <path d="M21 3v5h-5" />
+              </Glyph>
               Fly again
             </button>
+            </div>
           </div>
         </div>
       )}
@@ -223,6 +265,16 @@ export default function LifePage() {
               : 'Drag to tilt the matrix · scroll or pinch to zoom'}
         </p>
       </div>
+      {/* Styled boot state — only appears if the matrix takes a moment to warm up. */}
+      {!ready && slowBoot && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/85" role="status">
+          <img src="/images/life/bg-orbit.webp" alt="" aria-hidden="true"
+            className="absolute inset-0 w-full h-full object-cover opacity-20 pointer-events-none" />
+          <p className="relative text-xs tracking-[0.3em] uppercase text-amber-200/80 animate-pulse">
+            Aligning the rings…
+          </p>
+        </div>
+      )}
       {/* Safari bottom-bar clearance */}
       <div aria-hidden="true" className="player-clear" />
     </div>

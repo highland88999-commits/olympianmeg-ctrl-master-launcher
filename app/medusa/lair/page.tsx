@@ -5,6 +5,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { supabase } from '@/lib/supabase';
+import { useAmbience, AmbienceToggle, panelTileStyle } from '@/lib/hestia/ambience';
 
 // Chambers of the lair — the MEDUSA section hub docks every MEDUSA-wave module here.
 const CHAMBERS = [
@@ -26,6 +27,43 @@ const CHAMBERS = [
     desc: "Merlin's complete survival doctrine — the expanded twenty-one-chapter edition." },
 ];
 
+// Inline SVG glyph system for the chambers — zero image weight, warm gold accents.
+function ChamberIcon({ name }) {
+  const p = {
+    width: 20, height: 20, viewBox: '0 0 24 24', fill: 'none',
+    stroke: 'currentColor', strokeWidth: 1.7, strokeLinecap: 'round', strokeLinejoin: 'round',
+    'aria-hidden': 'true',
+  };
+  switch (name) {
+    case 'ANTI-LIFE': // entropy cycle
+      return (<svg {...p}><path d="M3 12a9 9 0 1 0 9-9 9.7 9.7 0 0 0-6.7 2.7L3 8" /><path d="M3 3v5h5" /></svg>);
+    case 'GRIEF GULLY': // teardrop
+      return (<svg {...p}><path d="M12 3c3.2 4.2 6 7.2 6 10.2a6 6 0 0 1-12 0C6 10.2 8.8 7.2 12 3Z" /><path d="M9.5 13.5a2.6 2.6 0 0 0 2.4 2.7" /></svg>);
+    case 'LIFE': // orbit
+      return (<svg {...p}><circle cx="12" cy="12" r="3.4" /><ellipse cx="12" cy="12" rx="10" ry="4.2" transform="rotate(-18 12 12)" /></svg>);
+    case 'MAGIC MIRROR': // hand mirror
+      return (<svg {...p}><circle cx="12" cy="8.5" r="5" /><path d="M12 13.5V21" /><path d="M9.5 21h5" /></svg>);
+    case 'MEANING OF LIFE': // sun
+      return (<svg {...p}><circle cx="12" cy="12" r="4" /><path d="M12 2.5v2M12 19.5v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2.5 12h2M19.5 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>);
+    case 'R.E.M.': // crescent
+      return (<svg {...p}><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" /></svg>);
+    case 'THE AFTERLIFE': // gate arch
+      return (<svg {...p}><path d="M5 21V11a7 7 0 0 1 14 0v10" /><path d="M2.5 21h19" /><path d="M12 4v3" /></svg>);
+    default: // playbook — open book
+      return (<svg {...p}><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z" /></svg>);
+  }
+}
+
+function Glyph({ d, size = 13 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+      className="shrink-0">
+      {d}
+    </svg>
+  );
+}
+
 export default function MedusasLair() {
   const router = useRouter();
   const canvasRef = useRef(null);
@@ -36,8 +74,10 @@ export default function MedusasLair() {
   const [loading, setLoading] = useState(false);
   const [logs, setLogs] = useState([]);
   const [gallery, setGallery] = useState([]);
+  const [galleryLoading, setGalleryLoading] = useState(true);
   const [isVideoActive, setIsVideoActive] = useState(false);
   const [cloudOffline, setCloudOffline] = useState(false);
+  const amb = useAmbience('medusa-lair', 'video');
 
   // Universal Auth Check (telemetry phone-home removed 2026-09-28).
   // If the database connection is missing, the lair still opens with an
@@ -161,6 +201,7 @@ export default function MedusasLair() {
   }, [mounted]);
 
   async function fetchArtifacts() {
+    setGalleryLoading(true);
     try {
         const response = await fetch('/api/medusa/artifacts');
         if (response.ok) {
@@ -169,6 +210,8 @@ export default function MedusasLair() {
         }
     } catch (e) {
         console.error("Failed to load artifacts.");
+    } finally {
+        setGalleryLoading(false);
     }
   }
 
@@ -268,12 +311,33 @@ export default function MedusasLair() {
 
   return (
     <>
-      <button 
-        onClick={() => router.push('/')} 
-        className="absolute z-[9999] px-4 py-2 text-[10px] font-bold tracking-widest text-[#00f2ff] uppercase transition-colors border rounded top-5 right-5 bg-black/80 border-[#00f2ff] hover:text-black hover:bg-[#00f2ff]"
-      >
-        EXIT LAIR
-      </button>
+      {/* Ambient lair background — Video → Still → Off, persisted. Sits behind the vortex canvas. */}
+      {amb.hydrated && amb.mode !== 'off' && (
+        <div className="fixed inset-0 z-0 pointer-events-none" aria-hidden="true">
+          {amb.mode === 'video' ? (
+            <video
+              autoPlay muted loop playsInline preload="metadata"
+              poster="/images/medusa-lair/bg-ambient.webp"
+              src="/images/medusa-lair/bg-ambient.mp4"
+              className="w-full h-full object-cover opacity-50"
+            />
+          ) : (
+            <img src="/images/medusa-lair/bg-ambient.webp" alt="" className="w-full h-full object-cover opacity-50" />
+          )}
+          <div className="absolute inset-0 bg-gradient-to-b from-[#030305]/60 via-transparent to-[#030305]/80" />
+        </div>
+      )}
+
+      <div className="absolute z-[9999] top-5 right-5 flex items-center gap-2">
+        <AmbienceToggle mode={amb.mode} onCycle={amb.cycle} />
+        <button
+          onClick={() => router.push('/')}
+          className="px-4 py-2 text-[10px] font-bold tracking-widest text-[#00f2ff] uppercase transition-colors border rounded bg-black/80 border-[#00f2ff] hover:text-black hover:bg-[#00f2ff] inline-flex items-center gap-2"
+        >
+          <Glyph d={<><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="m16 17 5-5-5-5" /><path d="M21 12H9" /></>} />
+          EXIT LAIR
+        </button>
+      </div>
 
       {/* 2D Vortex Background (hand-rolled canvas — no three.js) */}
       <canvas ref={canvasRef} className="absolute inset-0 z-[1] w-full h-full pointer-events-none" />
@@ -290,9 +354,14 @@ export default function MedusasLair() {
       {/* UI Overlay */}
       <div className="absolute inset-0 z-[10] flex flex-col items-center overflow-y-auto pb-20 custom-scrollbar">
         
-        <header className="w-full p-4 bg-gradient-to-r from-black to-[#030305] border-b-2 border-[#00f2ff] flex justify-between items-center shadow-[0_0_15px_rgba(0,243,255,0.2)]">
-            <div className="text-2xl font-bold text-white drop-shadow-[0_0_8px_#00f2ff] tracking-widest">MEDUSA'S ⚡ LAIR</div>
-            <div className="text-sm text-[#bc00ff] drop-shadow-[0_0_5px_#bc00ff] hidden sm:block">[ AUTH: ARTEMIS ] // SYSTEM: ONLINE</div>
+        <header className="relative w-full p-4 bg-gradient-to-r from-black to-[#030305] border-b-2 border-[#00f2ff] overflow-hidden shadow-[0_0_15px_rgba(0,243,255,0.2)]">
+            <img src="/images/medusa-lair/header-serpent.webp" alt="" aria-hidden="true"
+              className="absolute inset-0 w-full h-full object-cover opacity-30 pointer-events-none" />
+            <div className="absolute inset-0 bg-gradient-to-r from-black via-black/60 to-[#030305]/90 pointer-events-none" aria-hidden="true" />
+            <div className="relative flex justify-between items-center">
+              <div className="text-2xl font-bold text-white drop-shadow-[0_0_8px_#00f2ff] tracking-widest">MEDUSA'S ⚡ LAIR</div>
+              <div className="text-sm text-[#bc00ff] drop-shadow-[0_0_5px_#bc00ff] hidden sm:block">[ AUTH: ARTEMIS ] // SYSTEM: ONLINE</div>
+            </div>
         </header>
 
         <div className="w-[95%] max-w-[1200px] mt-5 flex flex-col gap-5">
@@ -307,7 +376,9 @@ export default function MedusasLair() {
             )}
 
             {/* Chambers of the Lair — MEDUSA section hub */}
-            <div className="bg-[rgba(10,10,15,0.85)] border border-[#bc00ff] p-5 backdrop-blur-md">
+            <div className="relative bg-[rgba(10,10,15,0.85)] border border-[#bc00ff] p-5 backdrop-blur-md overflow-hidden">
+                <div aria-hidden="true" className="absolute inset-0 opacity-20 pointer-events-none" style={panelTileStyle()} />
+                <div className="relative">
                 <div className="text-lg text-[#bc00ff] border-b border-[#bc00ff] pb-1">CHAMBERS OF THE LAIR // MEDUSA SECTION HUB</div>
                 <p className="text-zinc-400 text-sm mt-2">Eight chambers orbit this lair — each a pocket universe of its own. Enter where you are called.</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
@@ -315,14 +386,19 @@ export default function MedusasLair() {
                         <button
                             key={c.route}
                             onClick={() => router.push(c.route)}
-                            className="text-left border border-[#00f2ff]/40 bg-black/50 p-4 flex flex-col gap-2 hover:border-[#00f2ff] hover:bg-[#00f2ff]/10 transition-all group min-h-[44px]"
+                            className="text-left border border-[#00f2ff]/40 bg-black/50 p-4 flex flex-col gap-2 hover:border-[#00f2ff] hover:bg-[#00f2ff]/10 transition-all group min-h-[44px] relative overflow-hidden"
                         >
-                            <div className="text-[#00f2ff] font-bold tracking-widest text-sm group-hover:text-white">{c.name}</div>
-                            <div className="text-[10px] text-[#bc00ff] tracking-widest uppercase">{c.epithet}</div>
-                            <div className="text-xs text-zinc-400 leading-relaxed">{c.desc}</div>
-                            <div className="text-[10px] text-[#00f2ff] tracking-widest uppercase mt-auto pt-2">Enter →</div>
+                            <div aria-hidden="true" className="absolute inset-0 opacity-25 pointer-events-none" style={panelTileStyle()} />
+                            <div className="relative text-amber-200/90"><ChamberIcon name={c.name} /></div>
+                            <div className="relative text-[#00f2ff] font-bold tracking-widest text-sm group-hover:text-white">{c.name}</div>
+                            <div className="relative text-[10px] text-[#bc00ff] tracking-widest uppercase">{c.epithet}</div>
+                            <div className="relative text-xs text-zinc-400 leading-relaxed">{c.desc}</div>
+                            <div className="relative text-[10px] text-[#00f2ff] tracking-widest uppercase mt-auto pt-2 inline-flex items-center gap-1.5">
+                              Enter <Glyph size={11} d={<><path d="M5 12h14" /><path d="m13 6 6 6-6 6" /></>} />
+                            </div>
                         </button>
                     ))}
+                </div>
                 </div>
             </div>
 
@@ -347,8 +423,9 @@ export default function MedusasLair() {
                     <button 
                         onClick={triggerGeminiUplink}
                         disabled={loading || cloudOffline}
-                        className="bg-transparent text-[#bc00ff] border-2 border-[#bc00ff] p-3 text-lg font-bold uppercase transition-all hover:bg-[#bc00ff] hover:text-black hover:shadow-[0_0_10px_rgba(188,0,255,0.4)] disabled:opacity-50"
+                        className="bg-transparent text-[#bc00ff] border-2 border-[#bc00ff] p-3 text-lg font-bold uppercase transition-all hover:bg-[#bc00ff] hover:text-black hover:shadow-[0_0_10px_rgba(188,0,255,0.4)] disabled:opacity-50 inline-flex items-center justify-center gap-3"
                     >
+                        <Glyph size={18} d={<><path d="m22 2-7 20-4-9-9-4Z" /><path d="M22 2 11 13" /></>} />
                         {cloudOffline ? 'CLOUD OFFLINE' : loading ? 'TRANSMITTING...' : 'TRANSMIT TO MEDUSA'}
                     </button>
                 </div>
@@ -372,19 +449,29 @@ export default function MedusasLair() {
             </div>
 
             {/* Artifact Gallery */}
-            <div className="bg-[rgba(10,10,15,0.85)] border border-[#00f2ff] p-5 flex flex-col gap-4 backdrop-blur-md mb-10">
+            <div className="relative bg-[rgba(10,10,15,0.85)] border border-[#00f2ff] p-5 flex flex-col gap-4 backdrop-blur-md mb-10 overflow-hidden">
+                <div aria-hidden="true" className="absolute inset-0 opacity-20 pointer-events-none" style={panelTileStyle()} />
+                <div className="relative flex flex-col gap-4">
                 <div className="text-lg text-[#00f2ff] border-b border-[#00f2ff] pb-1">LAIR ARTIFACTS // CLOUD ARCHIVE</div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                    {gallery.map((item, idx) => (
-                        <div key={idx} className="border border-[#bc00ff] bg-black p-1 transition-transform hover:scale-105 hover:border-[#00f2ff] cursor-pointer" onClick={() => window.open(item.url, '_blank')}>
-                            <Image src={item.url} alt="Artifact" width={600} height={600} unoptimized className="w-full aspect-square object-cover" />
-                        </div>
-                    ))}
-                    {gallery.length === 0 && (
+                    {galleryLoading ? (
+                        [0, 1, 2, 3, 4].map((i) => (
+                            <div key={i} aria-hidden="true"
+                              className="aspect-square border border-[#00f2ff]/20 bg-gradient-to-br from-[#00f2ff]/5 via-transparent to-[#bc00ff]/10 animate-pulse" />
+                        ))
+                    ) : (
+                        gallery.map((item, idx) => (
+                            <div key={idx} className="border border-[#bc00ff] bg-black p-1 transition-transform hover:scale-105 hover:border-[#00f2ff] cursor-pointer" onClick={() => window.open(item.url, '_blank')}>
+                                <Image src={item.url} alt="Artifact" width={600} height={600} unoptimized className="w-full aspect-square object-cover" />
+                            </div>
+                        ))
+                    )}
+                    {!galleryLoading && gallery.length === 0 && (
                         <div className="col-span-full text-zinc-500 italic">
                             {cloudOffline ? 'Archive unavailable — cloud features are offline.' : 'Archive is empty.'}
                         </div>
                     )}
+                </div>
                 </div>
             </div>
 

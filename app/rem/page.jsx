@@ -102,6 +102,29 @@ function ProvinceArt({ province }) {
     style={{ width: '100%', height: '100%', display: 'block' }} />;
 }
 
+// ---------- shared art: night-sky backdrop + moon glyph ----------
+function NightBackdrop() {
+  return (
+    <div aria-hidden="true" style={{
+      position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none', opacity: 0.22,
+    }}>
+      <img src="/images/rem/bg-night.webp" alt=""
+        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+      <div style={{ position: 'absolute', inset: 0,
+        background: 'linear-gradient(to bottom, rgba(3,3,16,0.55), rgba(3,3,16,0.85))' }} />
+    </div>
+  );
+}
+
+function MoonGlyph({ size = 22 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#e8c873"
+      strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" />
+    </svg>
+  );
+}
+
 // ---------- intro ----------
 function IntroScreen({ onEnter }) {
   return (
@@ -114,6 +137,9 @@ function IntroScreen({ onEnter }) {
       }}>
       <Starfield density={200} speed={0.3} />
       <div style={{ position: 'relative', textAlign: 'center', padding: '0 24px' }}>
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 18 }}>
+          <MoonGlyph size={30} />
+        </div>
         <div style={{
           fontSize: 'clamp(3rem, 10vw, 6rem)', fontWeight: 900, letterSpacing: '10px',
           color: '#f0f', textShadow: '0 0 30px #f0f, 0 0 70px #00f2ff',
@@ -142,6 +168,7 @@ function Selector({ onSelect }) {
   return (
     <div style={{ position: 'relative', minHeight: '100dvh', background: '#030310', color: '#fff',
       fontFamily: "'Segoe UI', system-ui, -apple-system, sans-serif", overflowX: 'hidden' }}>
+      <NightBackdrop />
       <Starfield density={120} speed={0.15} calm />
       <div style={{ position: 'relative', maxWidth: 1000, margin: '0 auto', padding: '56px 20px 80px' }}>
         <div style={{ textAlign: 'center', marginBottom: 40 }}>
@@ -154,7 +181,10 @@ function Selector({ onSelect }) {
           {PROVINCES.map((p) => (
             <button key={p.slug} onClick={() => onSelect(p.slug)}
               style={{
-                background: 'rgba(0,0,0,0.65)', border: `1px solid ${p.theme[1]}66`, borderRadius: 16,
+                backgroundColor: 'rgba(0,0,0,0.65)',
+                backgroundImage: 'url(/images/hestia/panel-ember.webp)',
+                backgroundSize: '512px 512px',
+                border: `1px solid ${p.theme[1]}66`, borderRadius: 16,
                 overflow: 'hidden', cursor: 'pointer', padding: 0, textAlign: 'left', color: '#fff',
                 transition: 'transform .3s ease, box-shadow .3s ease',
               }}
@@ -190,12 +220,17 @@ function ProvinceView({ province, onBack }) {
   return (
     <div style={{ position: 'relative', minHeight: '100dvh', background: '#03030f', color: '#fff',
       fontFamily: "'Segoe UI', system-ui, -apple-system, sans-serif" }}>
+      <NightBackdrop />
       <Starfield density={110} speed={0.15} calm />
       <div style={{ position: 'relative', maxWidth: 760, margin: '0 auto', padding: '28px 18px 90px' }}>
         <button onClick={onBack}
-          style={{ background: 'rgba(0,0,0,0.5)', color: c2, border: `1px solid ${c2}`,
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'rgba(0,0,0,0.5)', color: c2, border: `1px solid ${c2}`,
             padding: '10px 18px', borderRadius: 10, cursor: 'pointer', fontWeight: 700, marginBottom: 22 }}>
-          ← ALL PROVINCES
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m15 18-6-6 6-6" />
+          </svg>
+          ALL PROVINCES
         </button>
         <h1 style={{ textAlign: 'center', color: c2, textShadow: `0 0 16px ${c2}`,
           letterSpacing: 3, fontSize: 'clamp(1.5rem, 5vw, 2.2rem)', margin: '0 0 6px' }}>
@@ -246,13 +281,33 @@ function ProvinceView({ province, onBack }) {
 // ---------- root ----------
 export default function RemExplorer() {
   const [state, dispatch] = useReducer(remReducer, undefined, initialState);
+  const [drifting, setDrifting] = useState(null); // province name during the drift transition
   const province = state.view === 'province' ? provinceBySlug(state.slug) : null;
+
+  const selectProvince = (slug) => {
+    const p = provinceBySlug(slug);
+    setDrifting(p ? p.name : 'the provinces');
+    window.setTimeout(() => {
+      dispatch({ type: 'SELECT_PROVINCE', slug });
+      setDrifting(null);
+    }, 450);
+  };
 
   return (
     <>
+      {drifting && (
+        <div role="status" aria-label={`Drifting to ${drifting}`}
+          style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(2,2,10,0.88)',
+            display: 'flex', flexDirection: 'column', gap: 20, alignItems: 'center', justifyContent: 'center' }}>
+          <MoonGlyph size={34} />
+          <div style={{ color: '#e8c873', letterSpacing: 5, fontSize: '0.8rem' }}>
+            DRIFTING TO {drifting.toUpperCase()}&hellip;
+          </div>
+        </div>
+      )}
       {state.view === 'intro' && <IntroScreen onEnter={() => dispatch({ type: 'ENTER' })} />}
       {state.view === 'selector' && (
-        <Selector onSelect={(slug) => dispatch({ type: 'SELECT_PROVINCE', slug })} />
+        <Selector onSelect={selectProvince} />
       )}
       {state.view === 'province' && province && (
         <ProvinceView key={province.slug} province={province}
@@ -261,7 +316,17 @@ export default function RemExplorer() {
       {state.view === 'province' && !province && (
         <div style={{ padding: 60, color: '#fff', background: '#000', minHeight: '100dvh' }}>
           <p>Unknown province.</p>
-          <button onClick={() => dispatch({ type: 'RESET' })} style={{ color: '#00f2ff' }}>Start over</button>
+          <button onClick={() => dispatch({ type: 'RESET' })}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: '#00f2ff',
+              background: 'transparent', border: '1px solid #00f2ff', borderRadius: 8,
+              padding: '10px 18px', cursor: 'pointer', marginTop: 12 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+              <path d="M3 3v5h5" />
+            </svg>
+            Start over
+          </button>
         </div>
       )}
     </>

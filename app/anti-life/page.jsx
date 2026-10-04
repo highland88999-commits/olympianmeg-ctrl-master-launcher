@@ -4,8 +4,18 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createState, formatDecay, stageLabel, zoneLabel, applyPan } from './decay';
 import { createAntiLifeRenderer } from './canvas';
 import PassageLink from '@/components/styx/PassageLink';
+import { panelTileStyle } from '@/lib/hestia/ambience';
 
 const FONT = "ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, monospace";
+
+function Glyph({ size = 13, children }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
+      {children}
+    </svg>
+  );
+}
 
 export default function AntiLifePage() {
   const canvasRef = useRef(null);
@@ -14,6 +24,7 @@ export default function AntiLifePage() {
   const seedRef = useRef(20260927);
 
   const [started, setStarted] = useState(false);
+  const [ready, setReady] = useState(false); // renderer built — world is shaped
   const [reducedMotion, setReducedMotion] = useState(false);
   const [hud, setHud] = useState({ decay: 0, ashfall: false, held: false });
 
@@ -30,6 +41,7 @@ export default function AntiLifePage() {
         reducedMotion: rm,
         onHud: (next) => setHud(next),
       });
+      setReady(true);
     }
     return () => {
       if (rendererRef.current) rendererRef.current.dispose();
@@ -89,7 +101,9 @@ export default function AntiLifePage() {
 
       {/* HUD */}
       <div className="absolute top-0 left-0 right-0 flex items-start justify-between p-4 sm:p-5 pointer-events-none">
-        <div className="bg-black/60 backdrop-blur-sm px-4 py-3 border-l-2 border-red-500/80 max-w-[78vw]">
+        <div className="relative overflow-hidden bg-black/60 backdrop-blur-sm px-4 py-3 border-l-2 border-red-500/80 max-w-[78vw]">
+          <div aria-hidden="true" className="absolute inset-0 opacity-25 pointer-events-none" style={panelTileStyle()} />
+          <div className="relative">
           <div className="text-[10px] sm:text-[11px] tracking-[0.3em] uppercase text-red-400/90">
             Entropy Core
           </div>
@@ -110,6 +124,7 @@ export default function AntiLifePage() {
               HELD STILL — REDUCED MOTION
             </div>
           )}
+          </div>
         </div>
         <div className="flex flex-col items-end gap-2">
           {hud.ashfall && (
@@ -119,9 +134,13 @@ export default function AntiLifePage() {
           )}
           <button
             onClick={reset}
-            className="pointer-events-auto px-3 py-2 rounded border border-white/20 bg-white/5 text-neutral-300 text-[11px] sm:text-xs tracking-[0.2em] uppercase backdrop-blur-sm hover:bg-white/15 transition-colors"
+            className="pointer-events-auto inline-flex items-center gap-2 px-3 py-2 rounded border border-white/20 bg-white/5 text-neutral-300 text-[11px] sm:text-xs tracking-[0.2em] uppercase backdrop-blur-sm hover:bg-white/15 transition-colors"
             aria-label="Begin the world again with a new seed"
           >
+            <Glyph size={13}>
+              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+              <path d="M3 3v5h5" />
+            </Glyph>
             Begin again
           </button>
         </div>
@@ -140,20 +159,37 @@ export default function AntiLifePage() {
           className="absolute inset-0 flex flex-col items-center justify-center bg-black/70 backdrop-blur-[2px] cursor-pointer px-6 py-8 text-center overflow-y-auto"
           aria-label="Enter the Anti-Life art piece"
         >
-          <span className="text-[10px] tracking-[0.4em] uppercase text-red-400/80">Entropy Core</span>
+          <img src="/images/anti-life/bg-embers.webp" alt="" aria-hidden="true"
+            className="absolute inset-0 w-full h-full object-cover opacity-40 pointer-events-none" />
+          <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-b from-black/70 via-black/40 to-black/85 pointer-events-none" />
+          <span className="relative text-[10px] tracking-[0.4em] uppercase text-red-400/80">Entropy Core</span>
           <span
-            className="text-3xl sm:text-5xl font-bold text-neutral-100 tracking-[0.2em] mt-2"
+            className="relative text-3xl sm:text-5xl font-bold text-neutral-100 tracking-[0.2em] mt-2"
             style={{ textShadow: '0 0 24px rgba(255,0,68,0.45)' }}
           >
             ANTI-LIFE
           </span>
-          <span className="text-xs sm:text-sm text-neutral-400 mt-4 max-w-md leading-relaxed">
+          <span className="relative text-xs sm:text-sm text-neutral-400 mt-4 max-w-md leading-relaxed">
             An interactive study of impermanence. A living world of woods and towers —
             your passage moves time forward, and nothing that fades here is mourned.
             Everything passes, as everything does.
           </span>
-          <span className="mt-6 px-6 py-3 rounded-full border border-red-500/50 text-red-300 text-xs sm:text-sm tracking-[0.25em] uppercase">
-            {reducedMotion ? 'View the still frame' : 'Enter the world'}
+          <span className="relative mt-6 px-6 py-3 rounded-full border border-red-500/50 text-red-300 text-xs sm:text-sm tracking-[0.25em] uppercase inline-flex items-center gap-2.5">
+            {!ready ? (
+              <span className="inline-flex items-center gap-2.5 animate-pulse">
+                <Glyph size={14}>
+                  <circle cx="12" cy="12" r="9" strokeDasharray="42" strokeDashoffset="14" />
+                </Glyph>
+                Shaping the world…
+              </span>
+            ) : (
+              <>
+                <Glyph size={14}>
+                  <path d="M6 4.5v15l13-7.5Z" fill="currentColor" stroke="none" />
+                </Glyph>
+                {reducedMotion ? 'View the still frame' : 'Enter the world'}
+              </>
+            )}
           </span>
         </button>
       )}

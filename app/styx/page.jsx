@@ -4,6 +4,16 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { LEGS, STORAGE_KEY, sanitizeLeg, advanceLeg, isComplete, stationUrl } from '@/lib/styx/journey';
+import { panelTileStyle } from '@/lib/hestia/ambience';
+
+function Glyph({ size = 14, children }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
+      {children}
+    </svg>
+  );
+}
 
 export default function StyxPage() {
   const router = useRouter();
@@ -45,7 +55,15 @@ export default function StyxPage() {
   return (
     <main className="min-h-dvh w-full bg-[#060809] text-[#e8e4da] flex flex-col items-center px-6 pt-16"
       style={{ paddingBottom: 'max(4rem, env(safe-area-inset-bottom))' }}>
-      <div className="w-full max-w-xl flex flex-col items-center text-center">
+      {/* The river behind everything — still water, dark. */}
+      <div aria-hidden="true" className="pointer-events-none fixed inset-0 z-0">
+        <img src="/images/styx/bg-river.webp" alt="" className="h-full w-full object-cover opacity-30" />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#060809]/70 via-[#060809]/40 to-[#060809]/90" />
+      </div>
+      <div className="relative z-10 w-full max-w-xl flex flex-col items-center text-center">
+        <div aria-hidden="true" className="w-full overflow-hidden rounded-2xl border border-[#ffd700]/20 mb-2">
+          <img src="/images/styx/header-ferry.webp" alt="" className="h-36 w-full object-cover opacity-80 sm:h-44" />
+        </div>
         <p className="text-xs tracking-[0.4em] uppercase text-[#8a8f98]">A passage in four stations</p>
         <h1 className="mt-3 text-5xl font-light tracking-[0.25em] text-[#ffd700]">STYX</h1>
         <div className="mt-6 h-px w-24 bg-gradient-to-r from-transparent via-[#ffd700]/50 to-transparent" />
@@ -76,18 +94,34 @@ export default function StyxPage() {
           })}
         </div>
 
+        {!ready && (
+          <div className="mt-10 w-full rounded-2xl border border-[#2a2e34]/60 bg-[#0b0e11]/60 p-8 text-center" role="status">
+            <p className="text-xs tracking-[0.35em] uppercase text-[#8a8f98] animate-pulse">The river remembers…</p>
+          </div>
+        )}
+
         {ready && !complete && current && (
-          <section className="mt-10 w-full rounded-2xl border border-[#2a2e34] bg-[#0b0e11]/80 p-8">
+          <section className="relative mt-10 w-full rounded-2xl border border-[#2a2e34] bg-[#0b0e11]/80 p-8 overflow-hidden">
+            <div aria-hidden="true" className="absolute inset-0 opacity-20 pointer-events-none" style={panelTileStyle()} />
+            <div className="relative">
             <p className="text-xs tracking-[0.35em] uppercase text-[#8a8f98]">Station {current.numeral} of IV</p>
             <h2 className="mt-2 text-3xl font-light text-[#e8e4da]">{current.title}</h2>
             <p className="mt-4 text-[#a9adb5] leading-relaxed">{current.text}</p>
             <button
               onClick={enter}
               className="mt-8 w-full sm:w-auto px-10 py-4 rounded-full bg-[#ffd700] text-black
-                         text-sm tracking-[0.25em] uppercase font-medium hover:bg-[#e5c65a] transition-colors"
+                         text-sm tracking-[0.25em] uppercase font-medium hover:bg-[#e5c65a] transition-colors
+                         inline-flex items-center justify-center gap-3"
             >
-              Enter the station →
+              <Glyph size={15}>
+                <path d="M2 20c1.6 1 3.2 1 4.8 0s3.2-1 4.8 0 3.2 1 4.8 0 3.2-1 4.6 0" />
+                <path d="M4 17l1.8-7.5h12.4L20 17" />
+                <path d="M12 9.5V4" />
+                <path d="M12 4l3.5 3.5" />
+              </Glyph>
+              Enter the station
             </button>
+            </div>
           </section>
         )}
 
@@ -100,8 +134,13 @@ export default function StyxPage() {
             <button
               onClick={reset}
               className="mt-8 px-10 py-4 rounded-full border border-[#ffd700]/60 text-[#ffd700]
-                         text-sm tracking-[0.25em] uppercase hover:bg-[#ffd700]/10 transition-colors"
+                         text-sm tracking-[0.25em] uppercase hover:bg-[#ffd700]/10 transition-colors
+                         inline-flex items-center justify-center gap-3"
             >
+              <Glyph size={14}>
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                <path d="M3 3v5h5" />
+              </Glyph>
               Walk it again
             </button>
           </section>

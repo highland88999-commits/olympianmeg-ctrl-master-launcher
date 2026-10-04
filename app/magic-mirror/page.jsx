@@ -187,6 +187,11 @@ export default function MagicMirrorPage() {
 
   return (
     <main className="mm-root" onClick={phase === "landing" ? () => setPhase("stirring") : undefined}>
+      {/* Candlelit hall behind the mirror — still, low, never competing with the face. */}
+      <div className="mm-bg" aria-hidden="true">
+        <img src="/images/magic-mirror/bg-hall.webp" alt="" />
+        <div className="mm-bg-scrim" />
+      </div>
       <style>{`
         .mm-root {
           min-height: 100dvh; margin: 0; padding: 24px 16px 48px;
@@ -196,7 +201,21 @@ export default function MagicMirrorPage() {
           display: flex; flex-direction: column; align-items: center;
           cursor: ${phase === "landing" ? "pointer" : "default"};
           -webkit-tap-highlight-color: transparent;
+          position: relative;
         }
+        /* Candlelit hall art — a quiet fixed layer behind the mirror stage. */
+        .mm-bg {
+          position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: 0.3;
+        }
+        .mm-bg img {
+          width: 100%; height: 100%; object-fit: cover; display: block;
+        }
+        .mm-bg-scrim {
+          position: absolute; inset: 0;
+          background: radial-gradient(120% 90% at 50% 0%, rgba(11,14,29,0.5) 0%, rgba(5,6,12,0.82) 60%, rgba(2,3,7,0.94) 100%);
+        }
+        .mm-landing, .mm-stage { position: relative; z-index: 1; }
+        .mm-caption.mm-loading { animation: mm-pulse 1.6s ease-in-out infinite; }
         .mm-landing { text-align: center; margin: auto 0; padding: 0 12px; }
         .mm-title {
           font-size: clamp(1.6rem, 6vw, 3rem); letter-spacing: 0.35em; margin: 0 0 26px;
@@ -225,6 +244,9 @@ export default function MagicMirrorPage() {
         }
         @keyframes mm-breathe { 0%,100% { transform: scale(1); opacity: 0.8; } 50% { transform: scale(1.06); opacity: 1; } }
         .mm-caption { margin: 18px 0 0; font-size: 0.8rem; letter-spacing: 0.4em; color: #8fe3c8; text-transform: uppercase; }
+        .mm-speak-btn, .mm-ask-btn {
+          display: inline-flex; align-items: center; gap: 10px;
+        }
         .mm-speak-btn {
           margin-top: 22px; padding: 14px 34px; font-size: 0.95rem; letter-spacing: 0.3em; text-transform: uppercase;
           color: #0b0e1d; background: linear-gradient(135deg, #f4dfa8, #caa14f); border: none; border-radius: 999px;
@@ -249,10 +271,17 @@ export default function MagicMirrorPage() {
         }
         .mm-ask-btn:disabled { opacity: 0.4; cursor: default; }
         .mm-reply {
+          position: relative; overflow: hidden;
           width: 100%; margin-top: 22px; padding: 20px;
           background: rgba(8,12,22,0.72); border: 1px solid rgba(140,180,220,0.22); border-radius: 14px;
           font-size: 1.02rem; line-height: 1.75; color: #e6eef8;
         }
+        .mm-reply::before {
+          content: ""; position: absolute; inset: 0; pointer-events: none;
+          background-image: url(/images/hestia/panel-ember.webp);
+          background-size: 512px 512px; opacity: 0.14;
+        }
+        .mm-reply > * { position: relative; }
         .mm-reply .mm-q { color: #9fb4cc; font-style: italic; margin: 0 0 12px; font-size: 0.95rem; }
         .mm-log { width: 100%; margin-top: 14px; display: flex; flex-direction: column; gap: 10px; opacity: 0.75; }
         .mm-log details {
@@ -289,12 +318,15 @@ export default function MagicMirrorPage() {
             <MirrorFrame />
           </div>
 
-          {phase === "stirring" && <p className="mm-caption">The mirror stirs&hellip;</p>}
+          {phase === "stirring" && <p className="mm-caption mm-loading">The mirror stirs&hellip;</p>}
 
           {phase === "ready" && (
             <>
               <p className="mm-caption">The mirror holds your shape</p>
               <button className="mm-speak-btn" onClick={() => setPhase("awake")}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8Z" />
+                </svg>
                 Tap to speak
               </button>
             </>
@@ -322,6 +354,10 @@ export default function MagicMirrorPage() {
                     onClick={askMirror}
                     disabled={!sanitizePrompt(prompt)}
                   >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
                     Ask the mirror
                   </button>
                 </div>

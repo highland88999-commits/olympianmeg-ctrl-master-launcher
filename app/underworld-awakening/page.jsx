@@ -269,8 +269,15 @@ export default function UnderworldAwakening() {
             padding: 24,
             background:
               "radial-gradient(ellipse at center, rgba(8,4,18,0.45) 0%, rgba(3,1,9,0.9) 100%)",
+            overflow: "hidden",
           }}
         >
+          {/* Cavern art behind the title — the road that leads to the catalog. */}
+          <img src="/images/underworld/bg-cavern.webp" alt="" aria-hidden="true"
+            style={{ position: "absolute", inset: 0, width: "100%", height: "100%",
+              objectFit: "cover", opacity: 0.3, pointerEvents: "none" }} />
+          <div style={{ position: "relative", display: "flex", flexDirection: "column",
+            alignItems: "center", textAlign: "center", maxWidth: 560 }}>
           <div
             style={{
               fontSize: "clamp(30px, 7vw, 58px)",
@@ -310,10 +317,20 @@ export default function UnderworldAwakening() {
               borderRadius: 8,
               cursor: "pointer",
               boxShadow: "0 0 18px rgba(140,110,255,0.35)",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 12,
             }}
           >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 3v12" />
+              <path d="m7 10 5 5 5-5" />
+              <path d="M4 21c2 0 2-1.5 4-1.5s2 1.5 4 1.5 2-1.5 4-1.5 2 1.5 4 1.5" />
+            </svg>
             BEGIN THE DESCENT
           </button>
+          </div>
         </div>
       )}
 
@@ -333,6 +350,9 @@ export default function UnderworldAwakening() {
         >
           <div style={{ letterSpacing: 6, fontSize: 12, color: "#b6a8d8" }}>
             {phase === "warp" ? "RIDING THE SOUL-ROAD" : "THE GATES APPROACH"}
+            <span className="ua-dots" aria-hidden="true">
+              <span>.</span><span>.</span><span>.</span>
+            </span>
           </div>
           <div
             style={{
@@ -410,10 +430,17 @@ export default function UnderworldAwakening() {
                 color: "#b6a8d8",
                 borderRadius: 8,
                 cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
               }}
               aria-label="Replay the descent"
             >
-              ↻
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+                <path d="M21 3v5h-5" />
+              </svg>
             </button>
           </div>
         </div>
@@ -421,6 +448,12 @@ export default function UnderworldAwakening() {
     </div>
     {/* Safari bottom-bar clearance: blank space under the fixed descent viewport */}
     <div aria-hidden="true" style={{ height: 'calc(4.5rem + env(safe-area-inset-bottom))' }} />
+    <style>{`
+      .ua-dots span { animation: ua-blink 1.2s ease-in-out infinite; display: inline-block; }
+      .ua-dots span:nth-child(2) { animation-delay: 0.2s; }
+      .ua-dots span:nth-child(3) { animation-delay: 0.4s; }
+      @keyframes ua-blink { 0%, 100% { opacity: 0.15; } 50% { opacity: 1; } }
+    `}</style>
     </>
   );
 }

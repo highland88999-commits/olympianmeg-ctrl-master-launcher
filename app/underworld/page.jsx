@@ -5,6 +5,35 @@
 // official store. Nothing is sold here; nothing is tracked.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { PLATFORMS, getPlatform, searchTitles, paginate, monogram, PAGE_SIZE } from '@/lib/underworld/catalog';
+import { useAmbience, AmbienceToggle, panelTileStyle } from '@/lib/hestia/ambience';
+
+// Abstract platform glyphs — no trademarks, just shapes.
+function PlatformGlyph({ id }) {
+  const p = {
+    width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor',
+    strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true',
+    className: 'shrink-0',
+  };
+  switch (id) {
+    case 'playstation': // disc
+      return (<svg {...p}><circle cx="12" cy="12" r="8.5" /><circle cx="12" cy="12" r="2.4" /></svg>);
+    case 'xbox': // x in a rounded square
+      return (<svg {...p}><rect x="3.5" y="3.5" width="17" height="17" rx="4" /><path d="m9 9 6 6M15 9l-6 6" /></svg>);
+    case 'switch': // twin slabs
+      return (<svg {...p}><rect x="3" y="7" width="7" height="10" rx="3.5" /><rect x="14" y="7" width="7" height="10" rx="3.5" /></svg>);
+    default: // vr headset
+      return (<svg {...p}><path d="M3 8h18a1 1 0 0 1 1 1v6a3 3 0 0 1-3 3h-3l-1.6-2.4a1 1 0 0 0-.8-.6h-3.2a1 1 0 0 0-.8.6L8 18H5a3 3 0 0 1-3-3V9a1 1 0 0 1 1-1Z" /></svg>);
+  }
+}
+
+function Glyph({ size = 14, children }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
+      {children}
+    </svg>
+  );
+}
 
 // Floating embers — an original underworld motif. Restrained: few particles,
 // low alpha, no bloom. Pauses when the tab is hidden.
@@ -55,7 +84,7 @@ function Embers() {
     <canvas
       ref={ref}
       aria-hidden="true"
-      className="pointer-events-none fixed inset-0 -z-10"
+      className="pointer-events-none fixed inset-0 z-[1]"
     />
   );
 }
@@ -67,8 +96,10 @@ function GameCard({ game }) {
       href={game.url}
       target="_blank"
       rel="noopener noreferrer"
-      className="group flex flex-col overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/80 transition-colors hover:border-orange-500/50"
+      className="group relative flex flex-col overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/80 transition-colors hover:border-orange-500/50"
     >
+      <div aria-hidden="true" className="absolute inset-0 opacity-20 pointer-events-none" style={panelTileStyle()} />
+      <div className="relative flex flex-col flex-1">
       <div className="relative aspect-[3/4] w-full overflow-hidden bg-zinc-900">
         {imgOk && game.img ? (
           <img
@@ -97,6 +128,7 @@ function GameCard({ game }) {
           View at official store <span aria-hidden="true">↗</span>
         </span>
       </div>
+      </div>
     </a>
   );
 }
@@ -110,6 +142,7 @@ export default function UnderworldPage() {
   const [page, setPage] = useState(1);
   const [loadError, setLoadError] = useState('');
   const cache = useRef({});
+  const amb = useAmbience('underworld', 'video');
 
   const platform = getPlatform(platformId);
 
@@ -160,9 +193,28 @@ export default function UnderworldPage() {
 
   return (
     <main className="min-h-dvh bg-[#0a0705] text-white">
+      {/* Ember-cavern ambience — Video → Still → Off, persisted. Embers drift above it. */}
+      {amb.hydrated && amb.mode !== 'off' && (
+        <div className="pointer-events-none fixed inset-0 z-0" aria-hidden="true">
+          {amb.mode === 'video' ? (
+            <video
+              autoPlay muted loop playsInline preload="metadata"
+              poster="/images/underworld/bg-cavern.webp"
+              src="/images/underworld/bg-ambient.mp4"
+              className="h-full w-full object-cover opacity-40"
+            />
+          ) : (
+            <img src="/images/underworld/bg-cavern.webp" alt="" className="h-full w-full object-cover opacity-40" />
+          )}
+          <div className="absolute inset-0 bg-gradient-to-b from-[#0a0705]/75 via-[#0a0705]/35 to-[#0a0705]/90" />
+        </div>
+      )}
       <Embers />
-      <div className="mx-auto max-w-6xl px-4 py-8 sm:py-12">
+      <div className="relative z-10 mx-auto max-w-6xl px-4 py-8 sm:py-12">
         <div className="text-center">
+          <div className="mb-4 flex justify-center">
+            <AmbienceToggle mode={amb.mode} onCycle={amb.cycle} />
+          </div>
           <div className="mb-2 text-[10px] uppercase tracking-[0.5em] text-orange-500">
             The catalog below
           </div>
@@ -198,12 +250,13 @@ export default function UnderworldPage() {
                 type="button"
                 onClick={() => switchTab(p.id)}
                 aria-pressed={active}
-                className={`min-h-[48px] rounded-lg border px-3 py-2 text-sm font-bold uppercase tracking-widest transition-all ${
+                className={`min-h-[48px] rounded-lg border px-3 py-2 text-sm font-bold uppercase tracking-widest transition-all inline-flex items-center justify-center gap-2 ${
                   active
                     ? 'border-orange-500/70 bg-orange-500/15 text-orange-200'
                     : 'border-zinc-800 bg-black/40 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200'
                 }`}
               >
+                <PlatformGlyph id={p.id} />
                 {p.label}
               </button>
             );
@@ -216,17 +269,27 @@ export default function UnderworldPage() {
 
         <div className="mt-6" aria-live="polite">
           {loading ? (
-            <p className="py-16 text-center text-sm uppercase tracking-widest text-zinc-500">
-              Opening the gates…
-            </p>
+            <div className="relative overflow-hidden rounded-xl border border-orange-500/20 bg-black/50 py-16 text-center" role="status">
+              <div aria-hidden="true" className="absolute inset-0 opacity-20 pointer-events-none" style={panelTileStyle()} />
+              <p className="relative text-sm uppercase tracking-widest text-orange-300/90 animate-pulse">
+                Opening the gates…
+              </p>
+              <div aria-hidden="true" className="relative mx-auto mt-5 h-1 w-40 overflow-hidden rounded bg-white/10">
+                <div className="h-full w-1/2 rounded bg-gradient-to-r from-orange-500 to-amber-300 animate-[uw-shimmer_1.4s_ease-in-out_infinite]" />
+              </div>
+              <style>{`@keyframes uw-shimmer { 0% { transform: translateX(-100%);} 100% { transform: translateX(300%);} }`}</style>
+            </div>
           ) : loadError ? (
             <p className="py-16 text-center text-sm text-red-400">{loadError}</p>
           ) : filtered.length === 0 ? (
-            <p className="py-16 text-center text-sm uppercase tracking-widest text-zinc-500">
-              {debounced
-                ? `No games match "${debounced}" on ${platform?.label}.`
-                : `No games listed for ${platform?.label} yet.`}
-            </p>
+            <div className="relative overflow-hidden rounded-xl border border-zinc-800 bg-black/50 py-16 text-center">
+              <div aria-hidden="true" className="absolute inset-0 opacity-20 pointer-events-none" style={panelTileStyle()} />
+              <p className="relative text-sm uppercase tracking-widest text-zinc-500">
+                {debounced
+                  ? `No games match "${debounced}" on ${platform?.label}.`
+                  : `No games listed for ${platform?.label} yet.`}
+              </p>
+            </div>
           ) : (
             <>
               <p className="mb-4 text-xs uppercase tracking-widest text-zinc-500">
@@ -244,9 +307,12 @@ export default function UnderworldPage() {
                   <button
                     type="button"
                     onClick={() => setPage((p) => p + 1)}
-                    className="min-h-[48px] rounded-lg border border-orange-500/50 bg-orange-950/20 px-8 text-sm font-bold uppercase tracking-widest text-orange-300 transition-all hover:bg-orange-900/40"
+                    className="min-h-[48px] rounded-lg border border-orange-500/50 bg-orange-950/20 px-8 text-sm font-bold uppercase tracking-widest text-orange-300 transition-all hover:bg-orange-900/40 inline-flex items-center gap-2"
                   >
                     Show more ({filtered.length - view.items.length} left)
+                    <Glyph size={14}>
+                      <path d="m6 9 6 6 6-6" />
+                    </Glyph>
                   </button>
                 </div>
               )}
