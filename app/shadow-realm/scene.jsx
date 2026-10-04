@@ -15,15 +15,35 @@ import { useRef, useMemo, useEffect, useCallback } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Stars } from '@react-three/drei';
 import * as THREE from 'three';
-import { barrierLoops, startPose } from './tracks';
+import { barrierLoops, startPose, isBumpTrack } from './tracks';
 import { roamSpawn, isRoam } from './roam';
 import { LapTracker, resolveBarrier } from './race';
 import { schemeByKey, vehicleByKey } from './schemes';
 import Bots from './Bots';
 import RemoteBikes from './RemoteBikes';
+import EternalFlame from './flame';
 import { fx } from '@/lib/fx';
 import { REGEN_CHARGE_RATE, SURGE_SECS } from '@/lib/bike-motion';
 import { createOrbit, resetOrbit, applyDrag, applyPinch, applyWheel, orbitCamera } from './orbit';
+import {
+  BUMP_LIVES,
+  BUMP_RADIUS,
+  BUMP_BOOST_REWARD,
+  BUMP_IMMUNITY_S,
+  RESPAWN_INVULN_S,
+  KNOCK_DECAY,
+  PLAYER_MASS,
+  BOT_MASS,
+  resolveBump,
+  resolveOuterOnly,
+  inFlameZone,
+  lateralOffset,
+  respawnPose,
+  applyLifeLoss,
+  isEliminated,
+} from '@/lib/shadow-realm/bump';
+import { buildTrackData, botPose } from './ai';
+import { interpBeacon } from '@/lib/shadow-realm/net';
 import {
   RIDE_CAMERA_LOCK,
   chaseCamTarget,
@@ -488,7 +508,7 @@ function OrbitDriver({ orbitRef }) {
 // Rig: physics, barrier bounce, lap counting, chase+orbit camera, trail feed.
 // ---------------------------------------------------------------------------
 
-function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, onLap, onFinish, hudRef, orbitRef }) {
+function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, onLap, onFinish, hudRef, orbitRef, bump, onBumpEvent, bumpRemotes, botsRef }) {
   const bikeRef = useRef();
   const camTarget = useRef(new THREE.Vector3());
   // Smoothed camera heading — the chase cam yaw follows the bike with a
@@ -496,9 +516,21 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, 
   // on every (re)spawn so the camera never swings wildly on mount.
   const camHeading = useRef(0);
   const sim = useRef(null);
+  // Bump-mode remote-bike interpolation poses (user_id -> pose), so the
+  // symmetric local bump resolution rides the same smoothing as the ghosts.
+  const remotePoses = useRef(new Map());
+
+  const bumpMode = !!bump && !!track?.flame;
+  const flame = bumpMode ? track.flame : null;
 
   // Roam mode: no track exists — loops stay null, never touched.
+  // Bump mode needs the loops (outer wall + centerline for respawn).
   const loops = useMemo(() => (isRoam(mode) ? null : barrierLoops(track, 220)), [track, mode]);
+  // Bump-mode parametric track data for bot poses.
+  const bumpTrackData = useMemo(
+    () => (bumpMode ? buildTrackData(track, { flame, maxSpeed: vehicle.maxSpeed, raceLaps: laps }) : null),
+    [bumpMode, track, flame, vehicle, laps]
+  );
 
   // (Re)spawn when track/vehicle change or a new run starts. Roam mode
   // spawns on the open grid — no track pose, no lap tracker.
@@ -514,7 +546,17 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, 
       finished: false,
       tracker: roam ? null : new LapTracker(loops.center),
       lastHud: 0,
+      // Bump-mode battle state (Merlin 2026-10-03): 3 lives, knock
+      // velocity from bumper hits, immunity windows, elimination.
+      lives: BUMP_LIVES,
+      invulnT: 0, // post-respawn grace (blinking)
+      bumpImmuneT: 0, // post-hit grace (no stunlock)
+      kvx: 0,
+      kvz: 0, // knock velocity — decays, control returns
+      eliminated: false,
+      bumpWon: false,
     };
+    remotePoses.current.clear();
     if (trailApi.current) trailApi.current.clear();
     // Fresh run, fresh camera: orbit offsets reset to the chase baseline and
     // the smoothed camera heading snaps to the spawn heading (no swing).
@@ -528,8 +570,8 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, 
     const dt = Math.min(rawDt, 0.05);
 
     const input = inputRef.current || {};
-    const steer = input.steer || 0;
-    const boost = !!input.boost;
+    const steer = s.eliminated ? 0 : input.steer || 0;
+    const boost = !s.eliminated && !!input.boost;
     // motion controls (Merlin's tilt driving map): analog pedals + regen.
     const motionDrive = !!input.motionDrive;
     const clamp01 = (v) => (Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0);
@@ -571,7 +613,13 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, 
       target = vehicle.maxSpeed * (boost ? vehicle.boostMult : 1);
       rate = (target > s.speed ? vehicle.accel : vehicle.brakeRate * 1.6) * dt;
     }
-    s.speed += Math.max(-rate, Math.min(rate, target - s.speed));
+    if (s.eliminated) {
+      // Eliminated: the bike burned out — coast to a stop (the rider
+      // spectates from a settling chase cam).
+      s.speed = Math.max(0, s.speed - vehicle.brakeRate * 1.6 * dt);
+    } else {
+      s.speed += Math.max(-rate, Math.min(rate, target - s.speed));
+    }
 
     // steering: full lock only bites at speed
     const grip = 0.55 + 0.45 * Math.min(1, s.speed / vehicle.maxSpeed);
@@ -579,23 +627,36 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, 
 
     const dx = Math.sin(s.heading);
     const dz = Math.cos(s.heading);
-    let vx = dx * s.speed;
-    let vz = dz * s.speed;
+    // Knock velocity rides along: bumper shoves decay, control returns.
+    let vx = dx * s.speed + s.kvx;
+    let vz = dz * s.speed + s.kvz;
 
-    // integrate, then bounce off the solid barriers (never die)
+    // integrate, then bounce off the solid barriers (never die).
+    // BUMP MODE: the outer wall stays solid; the inner edge is OPEN — the
+    // flame is the hazard.
     let px = s.x + vx * dt;
     let pz = s.z + vz * dt;
-    // Roam: open grid, no barriers — ride anywhere, nothing to bounce off.
-    const res = isRoam(mode)
-      ? { pos: { x: px, z: pz }, vel: { x: vx, z: vz }, bounced: false }
-      : resolveBarrier({ x: px, z: pz }, { x: vx, z: vz }, loops.center, loops.halfW);
+    let res;
+    if (isRoam(mode)) {
+      // Roam: open grid, no barriers — ride anywhere, nothing to bounce off.
+      res = { pos: { x: px, z: pz }, vel: { x: vx, z: vz }, bounced: false };
+    } else if (bumpMode) {
+      res = resolveOuterOnly({ x: px, z: pz }, { x: vx, z: vz }, loops.center, loops.halfW, flame);
+    } else {
+      res = resolveBarrier({ x: px, z: pz }, { x: vx, z: vz }, loops.center, loops.halfW);
+    }
     px = res.pos.x;
     pz = res.pos.z;
     vx = res.vel.x;
     vz = res.vel.z;
     s.x = px;
     s.z = pz;
-    s.speed = Math.hypot(vx, vz);
+    // Re-split: forward speed along the nose, the rest stays knock (decaying).
+    const fwd = vx * dx + vz * dz;
+    s.speed = Math.max(0, fwd);
+    const kDecay = Math.exp(-KNOCK_DECAY * dt);
+    s.kvx = (vx - dx * s.speed) * kDecay;
+    s.kvz = (vz - dz * s.speed) * kDecay;
     if (res.bounced && s.speed > 8) {
       try {
         fx.hit();
@@ -605,9 +666,113 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, 
     }
 
     s.time += dt;
+    if (s.invulnT > 0) s.invulnT = Math.max(0, s.invulnT - dt);
+    if (s.bumpImmuneT > 0) s.bumpImmuneT = Math.max(0, s.bumpImmuneT - dt);
 
-    // laps (race mode only — roam never counts laps, never fires onFinish)
-    if (mode === 'race' && !isRoam(mode)) {
+    // ---- BUMP MODE battle logic -------------------------------------
+    if (bumpMode && !s.eliminated && !s.finished) {
+      const canHit = s.invulnT <= 0;
+
+      // Flame: -1 life, respawn at the nearest track point, 2s grace.
+      // 0 lives = eliminated (bike fades, rider spectates).
+      if (canHit && inFlameZone({ x: s.x, z: s.z }, flame)) {
+        s.lives = applyLifeLoss(s.lives);
+        try { onBumpEvent && onBumpEvent({ type: 'flame-hit', lives: s.lives }); } catch { /* noop */ }
+        if (isEliminated(s.lives)) {
+          s.eliminated = true;
+          s.kvx = 0;
+          s.kvz = 0;
+          try { onBumpEvent && onBumpEvent({ type: 'eliminated' }); } catch { /* noop */ }
+        } else {
+          const rp = respawnPose(loops.center, { x: s.x, z: s.z });
+          s.x = rp.x;
+          s.z = rp.z;
+          s.heading = rp.heading;
+          s.speed = 0;
+          s.kvx = 0;
+          s.kvz = 0;
+          s.invulnT = RESPAWN_INVULN_S;
+          s.bumpImmuneT = Math.max(s.bumpImmuneT, RESPAWN_INVULN_S);
+          if (trailApi.current) trailApi.current.clear();
+          camHeading.current = rp.heading;
+        }
+      }
+
+      // Bike-vs-bike: circle-circle impulse. Each client resolves ONLY its
+      // own bike (symmetric trick — no networked physics, feels right).
+      if (canHit && s.bumpImmuneT <= 0) {
+        const tryBump = (ox, oz, ovx, ovz, omass, onShove) => {
+          const ddx = s.x - ox;
+          const ddz = s.z - oz;
+          if (ddx * ddx + ddz * ddz >= (BUMP_RADIUS * 2) * (BUMP_RADIUS * 2)) return;
+          const r = resolveBump(
+            { x: s.x, z: s.z, vx: dx * s.speed + s.kvx, vz: dz * s.speed + s.kvz, mass: PLAYER_MASS },
+            { x: ox, z: oz, vx: ovx, vz: ovz, mass: omass }
+          );
+          if (!r.hit || r.impact <= 0.5) return;
+          // Own bike: positional correction + knock impulse.
+          s.x = r.ax;
+          s.z = r.az;
+          s.kvx += r.avx - (dx * s.speed + s.kvx);
+          s.kvz += r.avz - (dz * s.speed + s.kvz);
+          // Shove the other bike (bots take it as a decaying world impulse).
+          if (onShove) onShove(r.bvx - ovx, r.bvz - ovz, r.impact);
+          // Bumper's reward: boost meter + brief immunity (no stunlock).
+          s.boostCharge = Math.min(1, (s.boostCharge || 0) + BUMP_BOOST_REWARD);
+          s.bumpImmuneT = BUMP_IMMUNITY_S;
+          try { fx.hit(); } catch { /* best-effort */ }
+          try { onBumpEvent && onBumpEvent({ type: 'bump', impact: r.impact }); } catch { /* noop */ }
+        };
+
+        // vs AI bots (parametric — shove lands as a decaying world impulse).
+        const bots = (botsRef && botsRef.current) || [];
+        for (const bot of bots) {
+          if (!bot || bot.eliminated || bot.invulnT > 0 || !bumpTrackData) continue;
+          const pose = botPose(bot, bumpTrackData);
+          const bx = pose.x + (bot.shoveX || 0);
+          const bz = pose.z + (bot.shoveZ || 0);
+          const bvx = Math.sin(pose.heading) * (bot.speed || 0);
+          const bvz = Math.cos(pose.heading) * (bot.speed || 0);
+          tryBump(bx, bz, bvx, bvz, BOT_MASS, (sx, sz) => {
+            bot.shoveX = (bot.shoveX || 0) + sx * 0.9;
+            bot.shoveZ = (bot.shoveZ || 0) + sz * 0.9;
+          });
+          if (s.bumpImmuneT > 0) break; // one clean hit per immunity window
+        }
+
+        // vs remote riders (PvP): push ONLY our own bike.
+        const nowMs = Date.now();
+        const remotes = bumpRemotes || [];
+        for (const bcn of remotes) {
+          if (!bcn || bcn.user_id == null) continue;
+          const key = bcn.user_id;
+          const prev = remotePoses.current.get(key) || null;
+          const p = interpBeacon(bcn, prev, nowMs);
+          remotePoses.current.set(key, p);
+          const bvx = Math.sin(p.heading) * (Number(bcn.speed) || 0);
+          const bvz = Math.cos(p.heading) * (Number(bcn.speed) || 0);
+          tryBump(p.x, p.z, bvx, bvz, PLAYER_MASS, null);
+          if (s.bumpImmuneT > 0) break;
+        }
+      }
+
+      // Solo win: every AI rival eliminated (or finished out) — last bike
+      // standing takes it. PvP last-standing is decided page-side from the
+      // beacon board (bots are per-client there).
+      if (!s.finished && !s.eliminated && botsRef && botsRef.current && botsRef.current.length > 0) {
+        const anyRacing = botsRef.current.some((b) => b && !b.eliminated && !b.finished);
+        if (!anyRacing && !s.bumpWon) {
+          s.bumpWon = true;
+          s.finished = true;
+          try { onBumpEvent && onBumpEvent({ type: 'bump-win' }); } catch { /* noop */ }
+          onFinish && onFinish({ total: s.time, laps: s.tracker ? s.tracker.laps : 0, bumpWin: true });
+          return;
+        }
+      }
+    }
+
+    // laps (race + bump modes — roam never counts laps, never fires onFinish)
+    if ((mode === 'race' || bumpMode) && !isRoam(mode)) {
       const ev = s.tracker.update({ x: s.x, z: s.z }, { x: vx, z: vz }, s.time);
       if (ev === 'lap') {
         onLap && onLap(s.tracker.laps, s.tracker.lastLapTime);
@@ -627,10 +792,18 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, 
       bikeRef.current.rotation.z = -steer * 0.28 * Math.min(1, s.speed / 30);
       // hover bob
       bikeRef.current.position.y = 0.06 + Math.sin(state.clock.elapsedTime * 9) * 0.03;
+      // eliminated: bike fades out. respawn grace: blink.
+      if (s.eliminated) {
+        bikeRef.current.visible = false;
+      } else if (s.invulnT > 0) {
+        bikeRef.current.visible = Math.floor(state.clock.elapsedTime * 8) % 2 === 0;
+      } else {
+        bikeRef.current.visible = true;
+      }
     }
 
     // feed the light trail
-    if (trailApi.current && s.speed > 2) {
+    if (trailApi.current && s.speed > 2 && !s.eliminated) {
       trailApi.current.push(s.x, s.z, dx, dz);
     }
 
@@ -680,10 +853,10 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, 
       s.lastHud = s.time;
       hudRef.current = {
         speed: Math.round(s.speed * 2.2),
-        lap: mode === 'race' ? Math.min(s.tracker.laps + 1, laps) : 0,
+        lap: (mode === 'race' || bumpMode) ? Math.min(s.tracker.laps + 1, laps) : 0,
         lapsTotal: laps,
         time: s.time,
-        progress: mode === 'race' ? s.tracker.progress({ x: s.x, z: s.z }) : 0,
+        progress: (mode === 'race' || bumpMode) ? s.tracker.progress({ x: s.x, z: s.z }) : 0,
         boostCharge: s.boostCharge || 0,
         surging: !!surging,
         // Live transform for the PvP/presence beacon (drop 2 netcode reads
@@ -692,6 +865,10 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, trailApi, 
         z: s.z,
         heading: s.heading,
         speedRaw: s.speed,
+        // Bump-mode battle state for HUD pips + beacon lives.
+        lives: s.lives,
+        eliminated: s.eliminated,
+        invuln: s.invulnT > 0,
       };
     }
   });
@@ -720,6 +897,9 @@ export default function RealmScene({
   remoteBeacons,
   netUserId,
   netNowRef,
+  // BUMP RACE (Merlin 2026-10-03): onBumpEvent({type}) — 'flame-hit',
+  // 'bump', 'eliminated', 'bump-win'. The page owns HUD pips + heat flash.
+  onBumpEvent,
 }) {
   const scheme = schemeByKey(schemeKey);
   const vehicle = vehicleByKey(vehicleKey);
@@ -729,6 +909,9 @@ export default function RealmScene({
   // so orbit lands on ALL of them.
   const orbitRef = useRef(null);
   if (!orbitRef.current) orbitRef.current = createOrbit();
+  // Bump battle rules key off the track (the host picks eternal-flame for
+  // PvP bump) — but never in FREE ROAM, which stays a pure open world.
+  const bump = isBumpTrack(track) && !isRoam(mode);
 
   return (
     <Canvas
@@ -749,6 +932,8 @@ export default function RealmScene({
       <PylonRing />
       {/* Roam: no track mesh — the open grid is the whole world */}
       {!isRoam(mode) && <TrackMesh track={track} scheme={scheme} />}
+      {/* BUMP RACE: the eternal flame — the arena's burning heart */}
+      {bump && track.flame && <EternalFlame flame={track.flame} />}
       <TrailRibbon scheme={scheme} apiRef={trailApi} />
       <Rig
         track={track}
@@ -763,15 +948,20 @@ export default function RealmScene({
         onFinish={onFinish}
         hudRef={hudRef}
         orbitRef={orbitRef}
+        bump={bump}
+        onBumpEvent={onBumpEvent}
+        bumpRemotes={remoteBeacons}
+        botsRef={botsRef}
       />
-      {/* VS AI: parametric ghost racers (race mode only) */}
+      {/* VS AI: parametric ghost racers (race + bump modes) */}
       <Bots
         track={track}
         botsRef={botsRef}
-        running={running && mode === 'race'}
+        running={running && (mode === 'race' || mode === 'bump')}
         hudRef={hudRef}
         maxSpeed={vehicle.maxSpeed}
         raceLaps={laps}
+        bump={bump}
       />
       {/* Drop-2 netcode: remote-rider ghosts (PvP races + open-world
           presence). Ghost by design — no collision, cosmetic only. */}

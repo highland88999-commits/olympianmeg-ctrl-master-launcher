@@ -9,11 +9,12 @@
 // or, without the launcher's orbit animation:
 //   router.push(shadowRealmUrl('roam'));
 //
-// Modes: 'race' (default) and 'roam'. Unknown values fall back to 'race'.
+// Modes: 'race' (default), 'roam', and 'bump' (BUMP RACE — bumper bikes
+// around the eternal flame, 3 lives). Unknown values fall back to 'race'.
 
 export const SHADOW_REALM_ROUTE = '/shadow-realm';
 
-export const SHADOW_MODES = ['race', 'roam'];
+export const SHADOW_MODES = ['race', 'roam', 'bump'];
 
 export function parseShadowMode(value) {
   const v = String(value || '').toLowerCase().trim();

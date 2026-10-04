@@ -106,13 +106,20 @@ describe('scene.jsx roam branch (source checks)', () => {
     assert.ok(sceneSrc.includes('bounced: false }'), 'roam pass-through cannot bounce');
   });
   it('never fires onLap / onFinish in roam (no finish screen reachable)', () => {
+    // The lap block and the bump battle are both gated off roam: roam is
+    // the pure open world — no laps, no flame, no eliminations.
     assert.ok(
-      sceneSrc.includes("if (mode === 'race' && !isRoam(mode))"),
-      'lap block double-gated'
+      sceneSrc.includes('!isRoam(mode)'),
+      'lap + bump blocks gated off roam'
     );
-    // onFinish is only reachable through the lap block above.
+    assert.ok(
+      sceneSrc.includes('isBumpTrack(track) && !isRoam(mode)'),
+      'bump mode requires a bump track AND a non-roam mode'
+    );
+    // onFinish is reachable through the lap block and the bump last-
+    // standing block only — neither fires in roam.
     const finishCalls = [...sceneSrc.matchAll(/onFinish && onFinish\(/g)];
-    assert.equal(finishCalls.length, 1, 'exactly one onFinish call site');
+    assert.equal(finishCalls.length, 2, 'lap-complete + bump-win call sites');
   });
   it('the regen pipeline stays mode-independent (Merlin: regen everywhere)', () => {
     assert.ok(sceneSrc.includes('REGEN_CHARGE_RATE'), 'regen charge rate present');
@@ -140,10 +147,10 @@ describe('page.jsx roam menu flow (source checks)', () => {
       'no roam path still routes through track'
     );
   });
-  it('garage BACK returns to mode select in roam, track select in race', () => {
+  it('garage BACK returns to mode select in roam/bump, track select in race', () => {
     assert.ok(
-      pageSrc.includes("setStage(mode === 'roam' ? 'mode' : 'track')"),
-      'garage BACK is mode-aware'
+      pageSrc.includes("setStage(mode === 'roam' || mode === 'bump' ? 'mode' : 'track')"),
+      'garage BACK is mode-aware (roam + bump skip the track picker)'
     );
   });
   it('riding HUD shows a GRID · FREE ROAM chip in roam', () => {

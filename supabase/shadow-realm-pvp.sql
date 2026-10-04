@@ -52,6 +52,9 @@ create table if not exists public.shadow_realm_beacons (
   progress numeric not null default 0 check (progress >= 0 and progress <= 1),
   finished boolean not null default false,
   finish_ms integer check (finish_ms is null or finish_ms > 0),
+  -- BUMP RACE battle state (Merlin 2026-10-03): 3 lives per rider, self-
+  -- reported like finish times. lives 0 = eliminated (ghost hides).
+  lives integer not null default 3 check (lives >= 0 and lives <= 3),
   updated_at timestamptz not null default now(),
   primary key (room_code, user_id)
 );

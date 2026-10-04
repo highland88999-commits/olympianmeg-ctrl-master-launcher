@@ -16,6 +16,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { LightCycle } from './scene';
 import { buildTrackData, advanceBot, botPose } from './ai';
+import { lateralOffset, arclengthAt } from '../../lib/shadow-realm/bump';
 
 // One canvas-texture name plate per bot — drawn once, never per frame.
 function NameSprite({ name, color }) {
@@ -53,12 +54,23 @@ function BotRig({ bot, trackData }) {
   );
   // Pose this bot from its parametric state every frame. The parent Bots
   // advances the state; posing here keeps the per-bot work in one place.
+  // Bump mode: the rendered pose adds the decaying shove impulse, and an
+  // eliminated bot hides (it burned in the flame).
   useFrame(() => {
     const g = group.current;
     if (!g) return;
+    if (bot.eliminated) {
+      g.visible = false;
+      return;
+    }
+    g.visible = true;
     const pose = botPose(bot, trackData);
-    g.position.set(pose.x, 0.06, pose.z);
+    g.position.set(pose.x + (bot.shoveX || 0), 0.06, pose.z + (bot.shoveZ || 0));
     g.rotation.y = pose.heading;
+    // respawn grace blink
+    if (bot.invulnT > 0) {
+      g.visible = Math.floor(performance.now() / 125) % 2 === 0;
+    }
   });
   return (
     <group ref={group}>
@@ -68,17 +80,18 @@ function BotRig({ bot, trackData }) {
   );
 }
 
-export default function Bots({ track, botsRef, running, hudRef, maxSpeed, raceLaps }) {
+export default function Bots({ track, botsRef, running, hudRef, maxSpeed, raceLaps, bump }) {
   const trackData = useMemo(
-    () => buildTrackData(track, { maxSpeed, raceLaps }),
-    [track, maxSpeed, raceLaps]
+    () => buildTrackData(track, { maxSpeed, raceLaps, flame: bump ? track?.flame : undefined }),
+    [track, maxSpeed, raceLaps, bump]
   );
   const bots = botsRef.current || [];
 
   // Advance all bots in one frame callback (one useFrame total, not per
   // bot) — ~a handful of trig ops per bot per frame. Player progress in
   // lap units comes from the scene's hudRef; defaults to 0 before the HUD
-  // writes.
+  // writes. In bump mode the bots also get the player's track position so
+  // aggressive ones can steer to shove.
   useFrame((state, rawDt) => {
     const list = botsRef.current || [];
     if (!list.length) return;
@@ -87,9 +100,18 @@ export default function Bots({ track, botsRef, running, hudRef, maxSpeed, raceLa
       hud && hud.lapsTotal > 0
         ? Math.max(1, hud.lap || 1) - 1 + (hud.progress || 0)
         : 0;
+    let bumpCtx = null;
+    if (bump && trackData.flame && hud && Number.isFinite(hud.x)) {
+      const ppos = { x: hud.x, z: hud.z };
+      bumpCtx = {
+        playerS: arclengthAt(ppos, trackData),
+        playerOffset: lateralOffset(ppos, trackData.pts, trackData.flame),
+        flame: trackData.flame,
+      };
+    }
     if (running) {
       const dt = Math.min(rawDt, 0.05);
-      for (const bot of list) advanceBot(bot, dt, trackData, playerProgress);
+      for (const bot of list) advanceBot(bot, dt, trackData, playerProgress, bumpCtx);
     }
   });
 

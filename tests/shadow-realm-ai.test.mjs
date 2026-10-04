@@ -169,8 +169,8 @@ describe('advanceBot: laps, finish, and boundary respect', () => {
       `hairpin avg ${avg(hairpin)} vs straight avg ${avg(straight)}`);
   });
 
-  it('wobble stays within ±halfW*0.7 on ALL 20 tracks (boundary respect)', () => {
-    assert.equal(TRACKS.length, 20);
+  it('wobble stays within ±halfW*0.7 on ALL 21 tracks (boundary respect)', () => {
+    assert.equal(TRACKS.length, 21);
     for (const track of TRACKS) {
       const td = buildTrackData(track, { maxSpeed: 45, raceLaps: 2 });
       const bots = makeBots({ count: 3, track, seed: 4242 });

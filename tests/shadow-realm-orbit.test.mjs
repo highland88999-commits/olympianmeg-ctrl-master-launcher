@@ -188,9 +188,9 @@ ok('orbitCamera: drag actually moves the camera around the rider', () => {
 
 // --- all-tracks coverage ---
 
-ok('TRACKS: 20 tracks, all rendered through the one orbit-enabled RealmScene', () => {
-  assert.strictEqual(TRACK_COUNT, 20);
-  assert.strictEqual(TRACKS.length, 20);
+ok('TRACKS: 21 tracks, all rendered through the one orbit-enabled RealmScene', () => {
+  assert.strictEqual(TRACK_COUNT, 21);
+  assert.strictEqual(TRACKS.length, 21);
   // The scene never branches the camera per track key: one code path for all.
   // (Strip comments first — a stale doc line mentions trackKey in prose.)
   const sceneCode = sceneSrc

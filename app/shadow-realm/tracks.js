@@ -176,12 +176,28 @@ export const TRACKS = [
     squircle: 0.6,
     desc: 'The championship layout — stadium flow, grand-stand sweep.',
   },
+  {
+    key: 'eternal-flame',
+    name: 'Eternal Flame',
+    layout: 'ring',
+    R: 96, ax: 1.0, az: 1.0, width: 24,
+    desc: 'A long ring around the eternal flame. Bump rivals in — 3 lives, last bike standing wins.',
+    // BUMP RACE arena (Merlin 2026-10-03): the inner edge is OPEN — the
+    // flame is the hazard. resolveOuterOnly keeps the outer wall solid.
+    bump: true,
+    flame: { x: 0, z: 0, radius: 62, rimR: 56 },
+  },
 ];
 
 export const TRACK_COUNT = TRACKS.length;
 
 export function trackByKey(key) {
   return TRACKS.find((t) => t.key === key) || TRACKS[0];
+}
+
+/** True for bump-rules arenas (inner edge open, flame hazard live). */
+export function isBumpTrack(track) {
+  return !!(track && track.bump && track.flame);
 }
 
 // --- centerline sampling -------------------------------------------------

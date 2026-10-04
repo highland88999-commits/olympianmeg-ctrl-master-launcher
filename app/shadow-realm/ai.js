@@ -13,6 +13,15 @@
 // is a duel, not a demolition derby.
 
 import { centerline } from './tracks.js';
+import {
+  BUMP_LIVES,
+  KNOCK_DECAY,
+  inFlameZone,
+  inwardOffsetSign,
+  botBumpTargetOffset,
+  applyLifeLoss,
+  isEliminated,
+} from '../../lib/shadow-realm/bump.js';
 
 export const WOBBLE_K = (Math.PI * 2) / 100; // ~100 world-unit wobble wavelength
 export const RUBBER_GAIN = 0.5;
@@ -45,11 +54,19 @@ export function mulberry32(seed) {
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
-// makeBots({ count, track, seed }) -> bot roster. Each bot:
+// makeBots({ count, track, seed, aggression }) -> bot roster. Each bot:
 //   { name, color, skill: { topSpeedFrac 0.85-1.0, cornerFrac 0.55-0.85,
 //     wobbleAmp, wobblePhase }, s, speed, lap, time, finished, finishTime,
-//     progress, offset }
-export function makeBots({ count, track, seed }) {
+//     progress, offset, aggression, lives, shoveX, shoveZ, invulnT, eliminated }
+//
+// BUMP MODE (Merlin 2026-10-03): aggression 0..1 makes the bot steer to
+// shove the player toward the flame when alongside. Bots also carry 3
+// lives: a player bump can shove them (shoveX/shoveZ, decaying world-space
+// impulse) into the flame — they lose a life and reset. 0 lives =
+// eliminated. Their STEERING never suicides: the wobble/aggression target
+// stays clamped inside the corridor; only an external shove can push them
+// into the flame.
+export function makeBots({ count, track, seed, aggression = 0 }) {
   const rng = mulberry32(seed);
   // Deterministic shuffle of the neon palette, then take the first `count`.
   const colors = [...BOT_COLORS];
@@ -76,7 +93,13 @@ export function makeBots({ count, track, seed }) {
       finished: false,
       finishTime: null,
       progress: 0, // lap units: 2.5 = lap 3, halfway around
-      offset: 0, // lateral, clamped to ±halfW*0.7 at pose time
+      offset: 0, // lateral, steered inside ±halfW*0.7 (never self-flames)
+      aggression: Math.min(1, Math.max(0, Number(aggression) || 0)),
+      lives: BUMP_LIVES,
+      shoveX: 0, // world-space knock impulse from player bumps (decays)
+      shoveZ: 0,
+      invulnT: 0, // post-flame-respawn grace
+      eliminated: false,
     });
   }
   return bots;
@@ -93,8 +116,10 @@ function trackLengthOf(track) {
   return len;
 }
 
-// buildTrackData(track, { maxSpeed, raceLaps, accel, brake, n }) —
-// precomputed centerline samples for fast parametric queries.
+// buildTrackData(track, { maxSpeed, raceLaps, accel, brake, n, flame }) —
+// precomputed centerline samples for fast parametric queries. flame (when
+// present) anchors bump-mode geometry: inwardSign tells which offset sign
+// points at the flame.
 export function buildTrackData(track, opts = {}) {
   const n = opts.n || 256;
   const pts = centerline(track, n);
@@ -116,7 +141,7 @@ export function buildTrackData(track, opts = {}) {
     tx[i] = dx / l;
     tz[i] = dz / l;
   }
-  return {
+  const td = {
     pts,
     cum,
     tx,
@@ -129,6 +154,11 @@ export function buildTrackData(track, opts = {}) {
     accel: opts.accel || 30,
     brake: opts.brake || 60,
   };
+  if (opts.flame) {
+    td.flame = opts.flame;
+    td.inwardSign = inwardOffsetSign(td, opts.flame);
+  }
+  return td;
 }
 
 function wrapS(s, lapLen) {
@@ -195,12 +225,17 @@ export function rubberBandFactor(progressDelta) {
   return 1 + clamp(progressDelta * RUBBER_GAIN, RUBBER_MIN - 1, RUBBER_MAX - 1);
 }
 
-// advanceBot(bot, dt, trackData, playerProgress) — pure parametric step.
-// Mutates and returns the bot.
-export function advanceBot(bot, dt, trackData, playerProgress) {
-  if (bot.finished) return bot;
+// advanceBot(bot, dt, trackData, playerProgress, bump) — pure parametric step.
+// Mutates and returns the bot. bump is null in race mode, or
+// { playerS, playerOffset, flame } in bump mode: the bot steers to shove
+// the player flame-ward when alongside (aggression), takes decaying shove
+// impulses from player bumps, and loses lives in the flame like the player.
+export function advanceBot(bot, dt, trackData, playerProgress, bump = null) {
+  if (bot.finished || bot.eliminated) return bot;
   const { maxSpeed, raceLaps, lapLen, halfW } = trackData;
   const skill = bot.skill;
+
+  if (bot.invulnT > 0) bot.invulnT = Math.max(0, bot.invulnT - dt);
 
   // Target speed: skill top speed, bled off through corners, rubber-banded
   // against the player.
@@ -227,14 +262,65 @@ export function advanceBot(bot, dt, trackData, playerProgress) {
     bot.lap = raceLaps;
   }
 
-  // Lateral wobble — structurally clamped so bots respect boundaries by
-  // construction.
+  // Lateral steering: wobble baseline, structurally clamped so bots respect
+  // boundaries by construction. In bump mode an aggressive bot blends toward
+  // a shove line just inside the player's line when alongside — but the
+  // blend target is ALSO clamped, so the steering never suicides into the
+  // flame; only a player's shove impulse (unclamped, decaying) can.
   const maxOff = halfW * 0.7;
-  bot.offset = clamp(
+  const wobbleTarget = clamp(
     skill.wobbleAmp * Math.sin(bot.s * WOBBLE_K + skill.wobblePhase),
     -maxOff,
     maxOff
   );
+  let steerTarget = wobbleTarget;
+  if (bump && bump.flame && (bot.aggression || 0) > 0 && Number.isFinite(bump.playerS)) {
+    // Wrapped arclength delta (bot - player) along the loop.
+    let sDelta = (bot.s - bump.playerS) % lapLen;
+    if (sDelta > lapLen / 2) sDelta -= lapLen;
+    if (sDelta < -lapLen / 2) sDelta += lapLen;
+    const shoveTarget = botBumpTargetOffset({
+      botOffset: bot.offset,
+      playerOffset: bump.playerOffset,
+      sDelta,
+      aggression: bot.aggression,
+      inwardSign: trackData.inwardSign ?? -1,
+      halfW,
+    });
+    if (shoveTarget != null) {
+      // Blend: mostly the shove line, some wobble so it stays beatable.
+      const blend = 0.35 + 0.65 * bot.aggression;
+      steerTarget = clamp(
+        wobbleTarget * (1 - blend) + shoveTarget * blend,
+        -maxOff,
+        maxOff
+      );
+    }
+  }
+  // Ease toward the target (bots don't teleport sideways).
+  const latRate = halfW * 1.2;
+  bot.offset += clamp(steerTarget - bot.offset, -latRate * dt, latRate * dt);
+
+  // Shove impulses from player bumps decay back to the steered line.
+  const shoveDecay = Math.exp(-KNOCK_DECAY * dt);
+  bot.shoveX = (bot.shoveX || 0) * shoveDecay;
+  bot.shoveZ = (bot.shoveZ || 0) * shoveDecay;
+
+  // Flame check on the RENDERED pose (steered offset + shove): a hard
+  // player shove can dump a bot in the flame — life lost, shove cleared,
+  // brief grace. Steering alone can never get here (clamped above).
+  if (bump && bump.flame && bot.invulnT <= 0) {
+    const pose = botPose(bot, trackData);
+    const rx = pose.x + (bot.shoveX || 0);
+    const rz = pose.z + (bot.shoveZ || 0);
+    if (inFlameZone({ x: rx, z: rz }, bump.flame)) {
+      bot.lives = applyLifeLoss(bot.lives);
+      bot.shoveX = 0;
+      bot.shoveZ = 0;
+      bot.invulnT = 2.0;
+      if (isEliminated(bot.lives)) bot.eliminated = true;
+    }
+  }
   return bot;
 }
 

@@ -14,9 +14,11 @@ import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import RealmScene from './scene';
 import { makeBots, placements } from './ai';
-import { TRACKS, trackByKey } from './tracks';
+import { TRACKS, trackByKey, isBumpTrack } from './tracks';
 import { TRAIL_SCHEMES, VEHICLES, schemeByKey, vehicleByKey } from './schemes';
 import { parseShadowMode } from './launch';
+// BUMP RACE (Merlin 2026-10-03): bumper bikes around the eternal flame.
+import { BUMP_LIVES, BOT_AGGRESSION, sortBumpStandings } from '@/lib/shadow-realm/bump';
 import {
   STEER_LEFT,
   STEER_RIGHT,
@@ -154,8 +156,8 @@ function TrackCards({ trackKey, onPick }) {
           style={{ ...css.card, ...(t.key === trackKey ? css.cardSel : {}) }}
           onClick={() => onPick(t.key)}
         >
-          <div style={css.cardName}>{t.name}</div>
-          <div style={css.cardMeta}>{t.layout.toUpperCase()} · {Math.round(t.width)} WIDE</div>
+          <div style={css.cardName}>{t.name} {t.bump ? '🔥' : ''}</div>
+          <div style={css.cardMeta}>{t.layout.toUpperCase()} · {Math.round(t.width)} WIDE{t.bump ? ' · BUMP ARENA' : ''}</div>
           <div style={css.cardDesc}>{t.desc}</div>
         </div>
       ))}
@@ -184,6 +186,12 @@ function ShadowRealmInner() {
   const [hud, setHud] = useState({ speed: 0, lap: 1, lapsTotal: 3, time: 0, progress: 0 });
   const [lastLap, setLastLap] = useState(null);
   const [result, setResult] = useState(null);
+  // BUMP RACE: heat-flash screen feedback on flame hits.
+  const [heatFlash, setHeatFlash] = useState(false);
+  const heatFlashTimer = useRef(null);
+  // BUMP RACE (PvP): highest alive-count seen this race — the race only
+  // ends at <=1 alive once it has genuinely started (>= 2 seen).
+  const bumpSeenRef = useRef(0);
 
   // ---- Drop-2 netcode: PvP track matches + open-world presence ----
   // Stages gained: 'pvp-setup' (field size / track / laps / join-by-code),
@@ -330,6 +338,18 @@ function ShadowRealmInner() {
   };
 
   // One beacon for this rider: live transform from the scene's hudRef.
+  // BUMP RACE battle events from the scene: flame hits flash the screen red
+  // (the Rig already plays fx.hit() on bumps itself — no double audio here).
+  const handleBumpEvent = (evt) => {
+    if (!evt) return;
+    if (evt.type === 'flame-hit') {
+      setHeatFlash(true);
+      if (heatFlashTimer.current) clearTimeout(heatFlashTimer.current);
+      heatFlashTimer.current = setTimeout(() => setHeatFlash(false), 750);
+      try { fx.hit(); } catch { /* best-effort */ }
+    }
+  };
+
   const buildMyBeacon = (finished, finishMs) => {
     const h = hudRef.current || {};
     const overall = laps > 0
@@ -347,6 +367,8 @@ function ShadowRealmInner() {
       progress: netActiveRef.current === 'pvp' ? overall : 0,
       finished,
       finishMs,
+      // BUMP RACE battle state — self-reported like finish times.
+      lives: h.lives == null ? BUMP_LIVES : h.lives,
     });
   };
 
@@ -437,6 +459,8 @@ function ShadowRealmInner() {
       count: aiAutofillCount(room),
       track: trk,
       seed: hashRoomCode(room.room_code),
+      // Bump-arena PvP: autofilled rivals shove too.
+      aggression: trk.bump ? BOT_AGGRESSION : 0,
     });
     pvpStartsAtRef.current = fs.startsAt || Date.now();
     pvpSyncRef.current = pvpStartsAtRef.current;
@@ -685,7 +709,7 @@ function ShadowRealmInner() {
         const now = Date.now();
         const mine = myUserIdRef.current;
         const live = (data || []).filter(
-          (b) => b && b.user_id !== mine && !isBeaconStale(b, now)
+          (b) => b && b.user_id !== mine && !isBeaconStale(b, now) && b.lives !== 0
         );
         const h = hudRef.current || {};
         const capped = netActiveRef.current === 'roam'
@@ -693,6 +717,18 @@ function ShadowRealmInner() {
           : live.slice(0, REMOTE_CAP);
         remotesRef.current = capped;
         setRemotes(capped);
+        // BUMP RACE (PvP): last bike standing ends the race. Count self +
+        // live remote beacons + local AI rivals. Only ends once the race
+        // genuinely started (>= 2 alive seen) — early polls have no data.
+        if (isBumpTrack(track) && netActiveRef.current === 'pvp' && stage === 'ride') {
+          const myLives = h.lives == null ? BUMP_LIVES : h.lives;
+          const botsAlive = (botsRef.current || []).filter((b) => b && !b.eliminated).length;
+          const aliveCount = (myLives > 0 ? 1 : 0) + live.length + botsAlive;
+          if (aliveCount > bumpSeenRef.current) bumpSeenRef.current = aliveCount;
+          if (bumpSeenRef.current >= 2 && aliveCount <= 1 && myLives > 0) {
+            handleFinish({ total: h.time || 0, laps: Math.min(h.lap || 1, laps), bumpWin: true });
+          }
+        }
       } catch { /* board degrades, the ride continues */ }
     };
     void poll();
@@ -724,6 +760,8 @@ function ShadowRealmInner() {
     // Fresh run, fresh net session — no stale presence survives RIDE AGAIN.
     void stopNet();
     pvpSyncRef.current = null;
+    // Fresh run, fresh battle — the last-standing detector restarts.
+    bumpSeenRef.current = 0;
     if (mode === 'roam') {
       botsRef.current = [];
       setPaused(false);
@@ -734,7 +772,13 @@ function ShadowRealmInner() {
       void joinGridPresence();
       return;
     }
-    botsRef.current = makeBots({ count: aiCount, track, seed: Date.now() });
+    botsRef.current = makeBots({
+      count: aiCount,
+      track,
+      seed: Date.now(),
+      // BUMP RACE: rivals come to shove — tuned aggression, still beatable.
+      aggression: mode === 'bump' ? BOT_AGGRESSION : 0,
+    });
     setPaused(false);
     setResult(null);
     setLastLap(null);
@@ -757,6 +801,53 @@ function ShadowRealmInner() {
 
   const handleFinish = (res) => {
     try { fx.victory(); } catch { /* best-effort */ }
+    // BUMP RACE: last bike standing, or laps done with riders alive — rank
+    // by alive → laps → lives → time. Bots' battle state is right on the
+    // bot objects; PvP humans fold in from the beacon board.
+    if (isBumpTrack(track)) {
+      if (netActiveRef.current === 'pvp') {
+        const finishMs = Math.max(1, Date.now() - (pvpStartsAtRef.current || Date.now()));
+        void sendBeaconNow(true, finishMs);
+      }
+      const h = hudRef.current || {};
+      const myLives = h.lives == null ? BUMP_LIVES : h.lives;
+      const myLaps = res?.laps || 0;
+      const entries = (botsRef.current || []).map((b) => ({
+        name: b.name,
+        color: b.color,
+        isPlayer: false,
+        laps: Math.floor(b.progress || 0),
+        lives: b.lives ?? BUMP_LIVES,
+        progress: b.progress || 0,
+        finishTime: b.finishTime != null ? b.finishTime : null,
+      }));
+      entries.push({
+        name: callsign,
+        color: scheme.primary,
+        isPlayer: true,
+        laps: myLaps,
+        lives: myLives,
+        progress: myLaps + (h.progress || 0),
+        finishTime: res?.total != null ? res.total : null,
+      });
+      if (netActiveRef.current === 'pvp') {
+        for (const b of remotesRef.current || []) {
+          if (!b || b.user_id === myUserIdRef.current) continue;
+          entries.push({
+            name: b.callsign || 'Rider',
+            color: '#94a3b8',
+            isPlayer: false,
+            laps: Math.floor((b.progress || 0) * laps),
+            lives: b.lives ?? BUMP_LIVES,
+            progress: (b.progress || 0) * laps,
+            finishTime: b.finish_ms != null ? b.finish_ms / 1000 : null,
+          });
+        }
+      }
+      setResult({ ...res, standings: sortBumpStandings(entries), mode: 'bump', bumpWin: !!res?.bumpWin });
+      setStage('finished');
+      return;
+    }
     // PvP: stamp the finish on the beacon (synced finish_ms off the room's
     // startsAt) and build results from the live human board + the AI roster.
     if (netActiveRef.current === 'pvp') {
@@ -817,6 +908,15 @@ function ShadowRealmInner() {
               </button>
               <div style={{ fontSize: 13, color: '#64748b', textAlign: 'center' }}>
                 Race real riders — 2 to 20 bikes. Empty seats fill with AI rivals.
+              </div>
+              <button
+                style={css.ghostBtn}
+                onClick={() => { setMode('bump'); setTrackKey('eternal-flame'); persist({ mode: 'bump', trackKey: 'eternal-flame' }); try { fx.menuOpen(); } catch {} setStage('garage'); }}
+              >
+                🔥 BUMP RACE
+              </button>
+              <div style={{ fontSize: 13, color: '#64748b', textAlign: 'center' }}>
+                Bumper bikes around the eternal flame — 3 lives. Don't get dumped in.
               </div>
               {mode === 'race' && (
                 <div>
@@ -884,9 +984,9 @@ function ShadowRealmInner() {
                   </div>
                 ))}
               </div>
-              {mode === 'race' && (
+              {(mode === 'race' || mode === 'bump') && (
                 <>
-                  <div style={css.sectionLabel}>AI RIVALS</div>
+                  <div style={css.sectionLabel}>AI RIVALS{mode === 'bump' ? ' · MEAN ONES' : ''}</div>
                   <div style={{ ...css.row, marginTop: 8 }}>
                     {[0, 1, 3, 7].map((n) => (
                       <button
@@ -901,9 +1001,9 @@ function ShadowRealmInner() {
                 </>
               )}
               <div style={css.row}>
-                <button style={{ ...css.ghostBtn, flex: 1 }} onClick={() => setStage(mode === 'roam' ? 'mode' : 'track')}>BACK</button>
+                <button style={{ ...css.ghostBtn, flex: 1 }} onClick={() => setStage(mode === 'roam' || mode === 'bump' ? 'mode' : 'track')}>BACK</button>
                 <button style={{ ...css.bigBtn, flex: 2 }} onClick={mount}>
-                  {mode === 'race' ? 'MOUNT & RACE' : 'MOUNT & RIDE'}
+                  {mode === 'race' ? 'MOUNT & RACE' : mode === 'bump' ? '🔥 MOUNT & BUMP' : 'MOUNT & RIDE'}
                 </button>
               </div>
             </>
@@ -1041,6 +1141,7 @@ function ShadowRealmInner() {
           hudRef={hudRef}
           onLap={handleLap}
           onFinish={handleFinish}
+          onBumpEvent={handleBumpEvent}
           botsRef={botsRef}
           remoteBeacons={remotes}
           netUserId={myUserIdRef.current}
@@ -1069,6 +1170,16 @@ function ShadowRealmInner() {
               {mode === 'race' && (
                 <div style={css.hudChip}>LAP {hud.lap}/{hud.lapsTotal}</div>
               )}
+              {isBumpTrack(track) && (
+                <div style={{ ...css.hudChip, borderColor: '#f97316', color: '#fdba74' }}>🔥 BUMP RACE</div>
+              )}
+              {isBumpTrack(track) && (
+                <div style={{ ...css.hudChip, borderColor: '#f97316' }} aria-label="lives remaining">
+                  {[0, 1, 2].map((i) => (
+                    <span key={i} style={{ opacity: (hud.lives ?? BUMP_LIVES) > i ? 1 : 0.25 }}>🔥</span>
+                  ))}
+                </div>
+              )}
               <div style={css.hudChip}>{fmtTime(hud.time)}</div>
               <div style={css.hudChip}>{hud.speed} MPH</div>
               {motion.motionArmed && (
@@ -1088,6 +1199,28 @@ function ShadowRealmInner() {
           {lastLap && mode === 'race' && !immersed && (
             <div style={{ position: 'absolute', top: 64, width: '100%', textAlign: 'center', zIndex: 5, pointerEvents: 'none', color: '#7dd3fc', fontSize: 13, letterSpacing: 2 }}>
               LAP {lastLap.lapNum} · {fmtTime(lastLap.lapTime)}
+            </div>
+          )}
+          {/* BUMP RACE: heat flash on flame hits (screen-edge fire feedback) */}
+          {heatFlash && (
+            <div style={{
+              position: 'absolute', inset: 0, zIndex: 8, pointerEvents: 'none',
+              background: 'radial-gradient(ellipse at center, rgba(255,90,0,0) 40%, rgba(255,90,0,0.55) 100%)',
+            }} />
+          )}
+          {/* BUMP RACE: eliminated — bike burned out, rider spectates */}
+          {isBumpTrack(track) && hud.eliminated && stage === 'ride' && (
+            <div style={{ position: 'absolute', inset: 0, zIndex: 9, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+              <div style={{ textAlign: 'center', padding: 24, borderRadius: 16, background: 'rgba(3,6,18,.72)', border: '1px solid #f97316', pointerEvents: 'auto' }}>
+                <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: 3, color: '#fdba74' }}>🔥 ELIMINATED</div>
+                <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 6, letterSpacing: 1 }}>THE FLAME TOOK ALL 3 LIVES · SPECTATING</div>
+                <button
+                  style={{ ...css.ghostBtn, marginTop: 14 }}
+                  onClick={() => handleFinish({ total: hud.time || 0, laps: Math.min(hud.lap || 1, laps), bumpWin: false })}
+                >
+                  LEAVE ARENA
+                </button>
+              </div>
             </div>
           )}
           {/* touch controls: BOOST + fallback steer pads (pads render only
@@ -1194,9 +1327,11 @@ function ShadowRealmInner() {
       {stage === 'finished' && (
         <div style={{ position: 'absolute', inset: 0, zIndex: 9, background: 'rgba(3,6,18,.82)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ width: '100%', maxWidth: 420, padding: 24, display: 'flex', flexDirection: 'column', gap: 12, textAlign: 'center' }}>
-            <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: 4, color: scheme.primary }}>FINISH</div>
+            <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: 4, color: scheme.primary }}>
+              {result?.mode === 'bump' ? (result?.bumpWin ? '🔥 BUMP CHAMPION' : 'BUMP RACE') : 'FINISH'}
+            </div>
             <div style={{ fontSize: 15, color: '#94a3b8' }}>
-              {track.name} · {result?.laps} laps
+              {track.name} · {result?.mode === 'bump' ? 'last bike standing' : `${result?.laps} laps`}
             </div>
             <div style={{ fontSize: 44, fontWeight: 800, color: '#e0f2fe' }}>{fmtTime(result?.total)}</div>
             {result?.standings && result.standings.length > 1 && (
@@ -1213,7 +1348,13 @@ function ShadowRealmInner() {
                     <div style={{ width: 30, fontWeight: 800, color: '#64748b' }}>{s.rank}</div>
                     <div style={{ flex: 1, textAlign: 'left', fontWeight: 700, color: s.color }}>{s.name}</div>
                     <div style={{ fontSize: 13, color: '#94a3b8' }}>
-                      {s.finishTime != null ? fmtTime(s.finishTime) : `${Math.round((s.progress / laps) * 100)}%`}
+                      {result?.mode === 'bump' ? (
+                        <span aria-label={`${s.lives ?? 3} lives`}>
+                          {[0, 1, 2].map((i) => (
+                            <span key={i} style={{ opacity: (s.lives ?? 3) > i ? 1 : 0.25 }}>🔥</span>
+                          ))}
+                        </span>
+                      ) : s.finishTime != null ? fmtTime(s.finishTime) : `${Math.round((s.progress / laps) * 100)}%`}
                     </div>
                   </div>
                 ))}
@@ -1227,7 +1368,9 @@ function ShadowRealmInner() {
             ) : (
               <>
                 <button style={css.bigBtn} onClick={mount}>RIDE AGAIN</button>
-                <button style={css.ghostBtn} onClick={() => setStage('track')}>CHANGE TRACK</button>
+                <button style={css.ghostBtn} onClick={() => setStage(result?.mode === 'bump' ? 'mode' : 'track')}>
+                  {result?.mode === 'bump' ? 'CHANGE MODE' : 'CHANGE TRACK'}
+                </button>
                 <button style={css.ghostBtn} onClick={leave}>LEAVE REALM</button>
               </>
             )}
