@@ -1,31 +1,15 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { submenuArtFor } from '@/lib/god-menus';
 import Image from 'next/image';
-// Menu Art Transfer batch 2 — submenu art. Background image + dark legibility
-// scrim; a missing image hides itself via onError so the tab falls back to
-// its plain style. Never breaks the UI.
-function SubmenuArt({ slot }) {
-  return (
-    <>
-      <img
-        src={submenuArtFor(slot)}
-        alt=""
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-        loading="lazy"
-        onError={(e) => { e.currentTarget.style.display = 'none'; }}
-      />
-      <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-black/55" />
-    </>
-  );
-}
+import AphroIcon from '@/components/aphrodite/icons';
+import { AphroBg } from '@/components/aphrodite/ambience';
 
-// Vault tab id -> submenu art slot suffix.
-const TAB_ART = { library: 'tab-library', rentals: 'tab-borrowed', saved: 'tab-saved' };
+// APHRODITE treatment: vault-night art behind the grid overlay, SVG icon
+// buttons and tabs, shared panel texture on the cards.
+// (Renders synchronously from localStorage — no loading phase to style.)
 
-
+const TAB_ICONS = { library: 'book', rentals: 'clock', saved: 'bookmark' };
 
 const CSS = `
 .uv-root { min-height: 100dvh; background: #050508; color: #f2f2f2;
@@ -51,7 +35,9 @@ const CSS = `
   display: flex; flex-direction: column; gap: 2rem; }
 .uv-card { background: rgba(12,12,18,0.92); backdrop-filter: blur(10px);
   border: 1px solid rgba(8,247,254,0.3); border-radius: 8px; padding: 2rem;
-  box-shadow: 0 20px 40px rgba(0,0,0,0.7); display: flex; flex-wrap: wrap; gap: 2rem; }
+  box-shadow: 0 20px 40px rgba(0,0,0,0.7); display: flex; flex-wrap: wrap; gap: 2rem;
+  background-image: url(/images/aphrodite/panel-texture.webp); background-size: 512px 512px;
+  background-blend-mode: overlay; }
 .uv-avatar { display: flex; flex-direction: column; align-items: center; gap: 12px; }
 .uv-ring { position: relative; width: 140px; height: 140px; border-radius: 50%;
   border: 3px solid #00f2ff; background: #000; display: flex; justify-content: center; align-items: center;
@@ -76,7 +62,8 @@ const CSS = `
   outline: none; border-color: #00f2ff; box-shadow: 0 0 12px rgba(8,247,254,0.2); }
 .uv-btn { background: transparent; border: 1px solid #00f2ff; color: #00f2ff; padding: 0.9rem 1.6rem;
   border-radius: 4px; font-weight: 800; letter-spacing: 2px; cursor: pointer; transition: 0.25s;
-  text-transform: uppercase; font-size: 0.85rem; min-height: 48px; align-self: flex-start; }
+  text-transform: uppercase; font-size: 0.85rem; min-height: 48px; align-self: flex-start;
+  display: inline-flex; align-items: center; gap: 8px; }
 .uv-btn:hover { background: #00f2ff; color: #000; box-shadow: 0 0 18px rgba(8,247,254,0.5); }
 .uv-btn.danger { border-color: #fe53bb; color: #fe53bb; }
 .uv-btn.danger:hover { background: #fe53bb; color: #000; box-shadow: 0 0 18px rgba(254,83,187,0.5); }
@@ -263,6 +250,7 @@ export default function UserProfilePage() {
     <>
     <main className="uv-root">
       <style>{CSS}</style>
+      <AphroBg img="/images/aphrodite/userprofile-bg.webp" opacity={0.4} />
       <div className="uv-grid" aria-hidden="true" />
 
       <header className="uv-head">
@@ -281,7 +269,7 @@ export default function UserProfilePage() {
             <div className="uv-ring">
               {avatar ? <Image src={avatar} alt="Reader avatar" width={140} height={140} /> : <span aria-hidden="true">📖</span>}
               <button className="uv-cam" onClick={() => fileRef.current && fileRef.current.click()}
-                aria-label="Upload profile picture" title="Upload profile picture">📷</button>
+                aria-label="Upload profile picture" title="Upload profile picture"><AphroIcon name="camera" size={18} /></button>
               <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={onAvatarFile} />
             </div>
           </div>
@@ -305,7 +293,7 @@ export default function UserProfilePage() {
                   placeholder="What are you reading? What should the vault know?" maxLength={500} />
               </div>
             </div>
-            <button className="uv-btn" onClick={saveProfile}>Save profile</button>
+            <button className="uv-btn" onClick={saveProfile}><AphroIcon name="check" size={16} /> Save profile</button>
           </div>
         </section>
 
@@ -313,10 +301,10 @@ export default function UserProfilePage() {
           <div className="uv-tabs" role="tablist">
             {TABS.map((t) => (
               <button key={t.id} role="tab" aria-selected={tab === t.id}
-                className={'uv-tab' + (tab === t.id ? ' on' : '')} onClick={() => setTab(t.id)}
-                style={{ position: 'relative', overflow: 'hidden', borderRadius: '8px' }}>
-                {tab !== t.id && <SubmenuArt slot={`submenu-prog-user-profile-${TAB_ART[t.id]}`} />}
-                <span style={{ position: 'relative' }}>{t.label.toUpperCase()}</span>
+                className={'uv-tab' + (tab === t.id ? ' on' : '')} onClick={() => setTab(t.id)}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <AphroIcon name={TAB_ICONS[t.id]} size={14} /> {t.label.toUpperCase()}
+                </span>
               </button>
             ))}
           </div>
@@ -339,7 +327,7 @@ export default function UserProfilePage() {
                   onChange={(e) => setTDays(Math.max(1, Math.min(365, Number(e.target.value) || 14)))} />
               </div>
             ) : <div />}
-            <button className="uv-btn" onClick={addArtifact}>+ Add</button>
+            <button className="uv-btn" onClick={addArtifact}><AphroIcon name="plus" size={16} /> Add</button>
           </div>
 
           <div className="uv-grid2">
@@ -353,8 +341,8 @@ export default function UserProfilePage() {
                 <p className="uv-author">By {a.author}</p>
                 {a.due && <p className="uv-exp">⏳ Due back in {daysLeft(a.due)} day{daysLeft(a.due) === 1 ? '' : 's'}</p>}
                 <div className="uv-actions">
-                  <button className="uv-btn" onClick={() => shareArtifact(a)}>Share</button>
-                  <button className="uv-btn danger" onClick={() => removeArtifact(a.id)}>Remove</button>
+                  <button className="uv-btn" onClick={() => shareArtifact(a)}><AphroIcon name="share" size={15} /> Share</button>
+                  <button className="uv-btn danger" onClick={() => removeArtifact(a.id)}><AphroIcon name="trash" size={15} /> Remove</button>
                 </div>
               </div>
             ))}
@@ -373,4 +361,3 @@ export default function UserProfilePage() {
     </>
   );
 }
-

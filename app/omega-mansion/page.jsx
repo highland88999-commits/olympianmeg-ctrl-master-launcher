@@ -2,6 +2,12 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { ROOMS, getRoom, roomIndex, nextRoom } from './rooms';
+import AphroIcon from '@/components/aphrodite/icons';
+import { AphroBg, aphroPanel } from '@/components/aphrodite/ambience';
+
+// APHRODITE treatment: estate-hall art behind the page, icon room navigation,
+// panel texture on the room-name and counter chips. (Renders synchronously —
+// no loading phase to style.)
 
 // Rebuilt from the Omega-Mansion repo ("Nexus Vortex – The Obsidian Estate").
 // The source was a 3D interior skinned with remote video textures and
@@ -268,7 +274,8 @@ export default function MansionPage() {
 
   return (
     <main style={{ ...mono, minHeight: '100dvh', background: '#030309', color: '#e8e4ff', padding: '18px 16px 60px' }}>
-      <div style={{ maxWidth: '920px', margin: '0 auto' }}>
+      <AphroBg img="/images/aphrodite/omegamansion-bg.webp" opacity={0.32} />
+      <div style={{ maxWidth: '920px', margin: '0 auto', position: 'relative', zIndex: 1 }}>
         <header style={{ marginBottom: '14px' }}>
           <h1 style={{ margin: 0, fontSize: '1.5rem', letterSpacing: '5px', color: '#d9c8ff', textShadow: '0 0 16px rgba(177,140,255,0.5)' }}>
             THE OBSIDIAN ESTATE
@@ -287,15 +294,17 @@ export default function MansionPage() {
         >
           <canvas ref={canvasRef} style={{ display: 'block' }} aria-label={'Procedural view of ' + room.name} />
           <div style={{
-            position: 'absolute', top: '12px', left: '14px', background: 'rgba(0,0,0,0.6)',
+            position: 'absolute', top: '12px', left: '14px',
             border: '1px solid ' + room.palette.accent, borderRadius: '6px', padding: '8px 14px',
             color: room.palette.accent, letterSpacing: '3px', fontSize: '0.85rem', fontWeight: 'bold',
+            ...aphroPanel({ backgroundColor: 'rgba(5,2,8,0.62)' }),
           }}>
             {room.name.toUpperCase()}
           </div>
           <div style={{
-            position: 'absolute', top: '12px', right: '14px', background: 'rgba(0,0,0,0.6)',
+            position: 'absolute', top: '12px', right: '14px',
             borderRadius: '6px', padding: '8px 12px', color: 'rgba(232,228,255,0.7)', fontSize: '0.78rem',
+            ...aphroPanel({ backgroundColor: 'rgba(5,2,8,0.62)' }),
           }}>
             {idx + 1} / {ROOMS.length}
           </div>
@@ -306,8 +315,8 @@ export default function MansionPage() {
         </p>
 
         <div style={{ display: 'flex', gap: '10px', marginBottom: '16px' }}>
-          <button onClick={() => go(-1)} style={{ ...navBtn, flex: 1 }} aria-label="Previous room">← PREV ROOM</button>
-          <button onClick={() => go(1)} style={{ ...navBtn, flex: 1 }} aria-label="Next room">NEXT ROOM →</button>
+          <button onClick={() => go(-1)} style={{ ...navBtn, flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }} aria-label="Previous room"><AphroIcon name="arrow-left" size={16} /> PREV ROOM</button>
+          <button onClick={() => go(1)} style={{ ...navBtn, flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }} aria-label="Next room">NEXT ROOM <AphroIcon name="arrow-right" size={16} /></button>
         </div>
 
         <nav style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }} aria-label="Estate map">
@@ -324,7 +333,9 @@ export default function MansionPage() {
               }}
               aria-current={r.id === roomId ? 'true' : undefined}
             >
-              {i + 1}. {r.name.toUpperCase()}
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <AphroIcon name="pin" size={12} /> {i + 1}. {r.name.toUpperCase()}
+              </span>
             </button>
           ))}
         </nav>

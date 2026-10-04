@@ -37,6 +37,8 @@ import {
   initialMinimized, toggleMinimized,
   visibleCharacters, minimizedCharacters, toggleMenu,
 } from './ui.js';
+import AphroIcon from '@/components/aphrodite/icons';
+import { aphroPanel } from '@/components/aphrodite/ambience';
 
 const CHARACTERS = [
   { id: 'henry', name: 'HENRY CAHILL', role: 'MULTIVERSE ARCHITECT', status: 'DEPLOYING…', color: '#00f2ff' },
@@ -291,35 +293,48 @@ export default function TrumanPage() {
 
   const btn = {
     minWidth: 44, minHeight: 44, padding: '10px 16px', background: 'rgba(0,20,30,0.7)',
-    border: '1px solid rgba(0,242,255,0.4)', color: '#bff', fontSize: 13,
+    border: '1px solid rgba(244,114,182,0.45)', color: '#ffd9e8', fontSize: 13,
     letterSpacing: 1, cursor: 'pointer', borderRadius: 6,
+    display: 'inline-flex', alignItems: 'center', gap: 8,
   };
 
   return (
     <>
     <div ref={wrapRef} style={{ position: 'fixed', inset: 0, background: '#000', overflow: 'hidden', fontFamily: 'system-ui, sans-serif' }}>
+      {/* APHRODITE page art: sits behind the sim canvas and shows through the
+          translucent HUD panels + before the first frame paints. */}
+      <img src="/images/aphrodite/truman-bg.webp" alt="" aria-hidden="true"
+        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.5, pointerEvents: 'none' }} />
       <canvas ref={canvasRef} style={{ position: 'absolute', inset: 0, touchAction: 'none' }} />
 
       {/* START OVERLAY */}
       {!ready && (
-        <div style={{ position: 'absolute', inset: 0, zIndex: 500, display: 'flex', flexDirection: 'column', gap: 18, justifyContent: 'center', alignItems: 'center', background: '#010204', padding: 24, textAlign: 'center' }}>
-          <div style={{ color: '#00f2ff', letterSpacing: 6, fontSize: 15 }}>TRUMAN</div>
-          <div style={{ color: '#889', maxWidth: 440, fontSize: 14, lineHeight: 1.7 }}>
+        <div style={{ position: 'absolute', inset: 0, zIndex: 500, display: 'flex', flexDirection: 'column', gap: 18, justifyContent: 'center', alignItems: 'center', padding: 24, textAlign: 'center', overflow: 'hidden' }}>
+          <img src="/images/aphrodite/truman-bg.webp" alt="" aria-hidden="true"
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.55, pointerEvents: 'none' }} />
+          <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(2,0,6,0.55), rgba(2,0,6,0.88))', pointerEvents: 'none' }} />
+          <div style={{ position: 'relative', color: '#f9a8d4', letterSpacing: 6, fontSize: 15 }}>TRUMAN</div>
+          <div style={{ position: 'relative', color: '#c9b8c4', maxWidth: 440, fontSize: 14, lineHeight: 1.7 }}>
             A simulated city watched over by a local Matrix Brain. Henry lives here —
             apartment, car, commute, and the monthly axiom storm. Everything runs in
             your browser. Nothing leaves this page.
           </div>
-          <button onClick={() => setReady(true)} style={{ ...btn, padding: '15px 44px', fontSize: 15, letterSpacing: 4 }}>
-            ENTER THE SIMULATION
+          <button onClick={() => setReady(true)} style={{ ...btn, position: 'relative', padding: '15px 44px', fontSize: 15, letterSpacing: 4, borderColor: '#f9a8d4', color: '#ffe4ef' }}>
+            <AphroIcon name="play" size={18} /> ENTER THE SIMULATION
           </button>
-          <div style={{ color: '#556', fontSize: 12 }}>Calm mode is on by default if your system prefers reduced motion.</div>
+          <div style={{ position: 'relative', color: '#8a7584', fontSize: 12 }}>Calm mode is on by default if your system prefers reduced motion.</div>
         </div>
       )}
 
       {ready && (
         <>
           {/* HUD */}
-          <div style={{ position: 'absolute', top: 16, left: 16, zIndex: 100, background: 'rgba(2,5,10,0.72)', padding: '14px 18px', borderLeft: '3px solid #00f2ff', color: '#00f2ff', fontSize: 13, letterSpacing: 2, pointerEvents: 'none', backdropFilter: 'blur(6px)' }}>
+          <div style={{
+            position: 'absolute', top: 16, left: 16, zIndex: 100, padding: '14px 18px',
+            borderLeft: '3px solid #f472b6', color: '#ffd9e8', fontSize: 13, letterSpacing: 2,
+            pointerEvents: 'none', backdropFilter: 'blur(6px)',
+            ...aphroPanel({ backgroundColor: 'rgba(14,3,10,0.78)' }),
+          }}>
             <div style={{ fontSize: 15, fontWeight: 'bold', color: '#fff', marginBottom: 6 }}>TRUMAN // LOCAL BRAIN</div>
             <div>ZONE: <span style={{ color: '#f0f', fontWeight: 'bold' }}>CITYSCAPE</span></div>
             <div>SYS: <span style={{ color: hud.isStormActive ? '#ff003c' : '#00ff00', fontWeight: 'bold' }}>{hud.isStormActive ? 'CRITICAL BREACH' : 'CLEAR'}</span></div>
@@ -344,16 +359,18 @@ export default function TrumanPage() {
                 const isSel = selected === c.id;
                 return (
                   <div key={c.id} role="button" tabIndex={0} onClick={() => setSelected(c.id)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelected(c.id); }} style={{
-                    position: 'relative', width: 210, textAlign: 'left', background: isSel ? 'rgba(0,15,30,0.55)' : 'rgba(2,5,10,0.35)',
-                    backdropFilter: 'blur(8px)', border: `1px solid ${isSel ? c.color : 'rgba(255,255,255,0.12)'}`,
+                    position: 'relative', width: 210, textAlign: 'left',
+                    ...aphroPanel({ backgroundColor: isSel ? 'rgba(30,8,20,0.6)' : 'rgba(10,3,8,0.4)' }),
+                    backdropFilter: 'blur(8px)', border: `1px solid ${isSel ? c.color : 'rgba(244,114,182,0.18)'}`,
                     borderRight: `4px solid ${c.color}`, padding: 16, paddingRight: 52, cursor: 'pointer', color: '#fff',
                     transform: isSel ? 'translateX(-10px)' : 'none', transition: 'all 0.3s', minHeight: 44,
                   }}>
                     <button aria-label={`Minimize ${c.name} panel`} onClick={(e) => { e.stopPropagation(); setMinimized((m) => toggleMinimized(m, c.id)); }} style={{
                       position: 'absolute', top: 4, right: 4, width: 44, height: 44, background: 'transparent',
-                      border: 'none', color: 'rgba(255,255,255,0.65)', fontSize: 22, lineHeight: 1, cursor: 'pointer',
+                      border: 'none', color: 'rgba(255,255,255,0.65)', cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
                     }}>
-                      –
+                      <AphroIcon name="minus" size={20} />
                     </button>
                     <div style={{ fontSize: 15, letterSpacing: 2, textShadow: `0 0 10px ${c.color}`, marginBottom: 6 }}>{c.name}</div>
                     <div style={{ color: c.color, fontSize: 11, letterSpacing: 1, marginBottom: 4 }}>ROLE: {c.role}</div>
@@ -395,12 +412,13 @@ export default function TrumanPage() {
               position: 'absolute', zIndex: 120, right: 16,
               bottom: 'calc(5rem + env(safe-area-inset-bottom) + 12px)',
               width: 56, height: 56, borderRadius: '50%',
-              background: 'rgba(2,10,18,0.85)', border: '2px solid #00f2ff',
-              color: '#00f2ff', fontSize: 22, cursor: 'pointer',
-              boxShadow: '0 0 16px rgba(0,242,255,0.35)', backdropFilter: 'blur(6px)',
+              background: 'rgba(20,6,14,0.85)', border: '2px solid #f472b6',
+              color: '#f9a8d4', cursor: 'pointer',
+              boxShadow: '0 0 16px rgba(244,114,182,0.35)', backdropFilter: 'blur(6px)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}
           >
-            {menuOpen ? '✕' : '⚙'}
+            <AphroIcon name={menuOpen ? 'x' : 'gear'} size={24} />
           </button>
 
           {/* CONTROL SHEET — all controls, grouped as before; compact panel so the canvas stays interactive around it */}
@@ -410,44 +428,50 @@ export default function TrumanPage() {
               bottom: 'calc(5rem + env(safe-area-inset-bottom) + 80px)',
               maxWidth: 340, marginLeft: 'auto',
               maxHeight: 'calc(100dvh - 240px)', overflowY: 'auto',
-              background: 'rgba(2,8,14,0.94)', border: '1px solid rgba(0,242,255,0.35)',
+              border: '1px solid rgba(244,114,182,0.35)',
               borderRadius: 12, padding: 14, backdropFilter: 'blur(8px)',
+              ...aphroPanel({ backgroundColor: 'rgba(16,4,12,0.94)' }),
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                <span style={{ color: '#00f2ff', fontSize: 12, letterSpacing: 3 }}>CONTROLS</span>
+                <span style={{ color: '#f9a8d4', fontSize: 12, letterSpacing: 3 }}>CONTROLS</span>
                 <button aria-label="Close controls" onClick={() => setMenuOpen(false)} style={{
-                  width: 44, height: 44, background: 'transparent', border: '1px solid rgba(0,242,255,0.4)',
-                  borderRadius: 6, color: '#bff', fontSize: 16, cursor: 'pointer',
+                  width: 44, height: 44, background: 'transparent', border: '1px solid rgba(244,114,182,0.4)',
+                  borderRadius: 6, color: '#ffd9e8', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>
-                  ✕
+                  <AphroIcon name="x" size={18} />
                 </button>
               </div>
 
-              <div style={{ color: 'rgba(0,242,255,0.6)', fontSize: 10, letterSpacing: 2, marginBottom: 6 }}>TIME</div>
+              <div style={{ color: 'rgba(249,168,212,0.6)', fontSize: 10, letterSpacing: 2, marginBottom: 6 }}>TIME</div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
                 <button style={btn} onClick={() => setPlaying((p) => !p)} aria-label={playing ? 'Pause time' : 'Resume time'}>
-                  {playing ? '❚❚ PAUSE' : '▶ RUN'}
+                  <AphroIcon name={playing ? 'pause' : 'play'} size={15} /> {playing ? 'PAUSE' : 'RUN'}
                 </button>
                 {SPEEDS.map((s) => (
-                  <button key={s} style={{ ...btn, borderColor: speed === s ? '#00f2ff' : 'rgba(0,242,255,0.4)', color: speed === s ? '#fff' : '#bff' }} onClick={() => setSpeed(s)}>
+                  <button key={s} style={{ ...btn, borderColor: speed === s ? '#f472b6' : 'rgba(244,114,182,0.4)', color: speed === s ? '#fff' : '#ffd9e8' }} onClick={() => setSpeed(s)}>
                     {s}×
                   </button>
                 ))}
               </div>
 
-              <div style={{ color: 'rgba(0,242,255,0.6)', fontSize: 10, letterSpacing: 2, marginBottom: 6 }}>EVENT</div>
+              <div style={{ color: 'rgba(249,168,212,0.6)', fontSize: 10, letterSpacing: 2, marginBottom: 6 }}>EVENT</div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-                <button style={btn} onClick={jumpToStorm}>⚡ JUMP TO STORM</button>
-                <button style={{ ...btn, borderColor: calm ? '#ffd700' : 'rgba(0,242,255,0.4)', color: calm ? '#ffd700' : '#bff' }} onClick={() => setCalm((c) => !c)} aria-pressed={calm}>
-                  {calm ? '☁ CALM MODE ON' : 'CALM MODE OFF'}
+                <button style={btn} onClick={jumpToStorm}><AphroIcon name="bolt" size={15} /> JUMP TO STORM</button>
+                <button style={{ ...btn, borderColor: calm ? '#ffd700' : 'rgba(244,114,182,0.4)', color: calm ? '#ffd700' : '#ffd9e8' }} onClick={() => setCalm((c) => !c)} aria-pressed={calm}>
+                  <AphroIcon name="cloud" size={15} /> {calm ? 'CALM MODE ON' : 'CALM MODE OFF'}
                 </button>
               </div>
 
-              <div style={{ color: 'rgba(0,242,255,0.6)', fontSize: 10, letterSpacing: 2, marginBottom: 6 }}>CAMERA</div>
+              <div style={{ color: 'rgba(249,168,212,0.6)', fontSize: 10, letterSpacing: 2, marginBottom: 6 }}>CAMERA</div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {['city', 'follow', 'apartment'].map((m) => (
-                  <button key={m} style={{ ...btn, borderColor: camMode === m ? '#00f2ff' : 'rgba(0,242,255,0.4)', color: camMode === m ? '#fff' : '#bff' }} onClick={() => setCamMode(m)}>
-                    {m === 'city' ? 'CITY' : m === 'follow' ? "FOLLOW HENRY'S CAR" : "HENRY'S APARTMENT"}
+                {[
+                  { id: 'city', label: 'CITY', icon: 'city' },
+                  { id: 'follow', label: "FOLLOW HENRY'S CAR", icon: 'crosshair' },
+                  { id: 'apartment', label: "HENRY'S APARTMENT", icon: 'home' },
+                ].map((m) => (
+                  <button key={m.id} style={{ ...btn, borderColor: camMode === m.id ? '#f472b6' : 'rgba(244,114,182,0.4)', color: camMode === m.id ? '#fff' : '#ffd9e8' }} onClick={() => setCamMode(m.id)}>
+                    <AphroIcon name={m.icon} size={15} /> {m.label}
                   </button>
                 ))}
               </div>

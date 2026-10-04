@@ -1,30 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { submenuArtFor } from '@/lib/god-menus';
-
-// Menu Art Transfer batch 2 — submenu art. Background image + dark legibility
-// scrim; a missing image hides itself via onError so the floor button falls
-// back to its plain styled card. Never breaks the UI.
-function SubmenuArt({ slot }) {
-  return (
-    <>
-      <img
-        src={submenuArtFor(slot)}
-        alt=""
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-        loading="lazy"
-        onError={(e) => { e.currentTarget.style.display = 'none'; }}
-      />
-      <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-black/55" />
-    </>
-  );
-}
-
-// Floor id -> submenu art slot. The aquarium floor is "The Overlook".
-function floorArtSlot(id) {
-  return `submenu-babel-${id === 'aquarium' ? 'overlook' : id}`;
-}
+import AphroIcon from '@/components/aphrodite/icons';
+import { aphroPanel } from '@/components/aphrodite/ambience';
 
 // BABEL elevator menu — collapsible. Expanded: the full floor grid.
 // Collapsed: a single floating icon button, bottom-left, out of the way so
@@ -32,6 +9,16 @@ function floorArtSlot(id) {
 // The collapsed/expanded preference persists in localStorage.
 // `reduced` (prefers-reduced-motion) → instant toggle, no animation.
 const STORE_KEY = 'babel-elevator-collapsed';
+
+// APHRODITE icon per floor id.
+const FLOOR_ICONS = {
+  vault: 'layers',
+  sylva: 'orbit',
+  duat: 'flame',
+  avalon: 'globe',
+  hermes: 'bolt',
+  aquarium: 'eye',
+};
 
 export default function ElevatorPanel({ floors, onSelect, reduced }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -82,7 +69,8 @@ export default function ElevatorPanel({ floors, onSelect, reduced }) {
 
   return (
     <div className="absolute bottom-0 left-0 right-0 p-3 sm:p-5 pb-[calc(4.5rem+env(safe-area-inset-bottom))]">
-      <div className="max-w-2xl mx-auto rounded-xl border border-amber-500/25 bg-black/60 backdrop-blur-md p-3 sm:p-4 relative">
+      <div className="max-w-2xl mx-auto rounded-xl border border-amber-500/25 backdrop-blur-md p-3 sm:p-4 relative"
+        style={aphroPanel({ backgroundColor: 'rgba(10,4,8,0.66)' })}>
         <p className="text-[10px] font-bold tracking-[0.3em] text-zinc-500 uppercase mb-2 text-center pr-12">
           Elevator — choose a floor
         </p>
@@ -102,14 +90,14 @@ export default function ElevatorPanel({ floors, onSelect, reduced }) {
             <button
               key={f.id}
               onClick={() => onSelect(f.id)}
-              className="relative min-h-[52px] px-3 py-2 rounded-lg border text-left transition-all hover:scale-[1.02] overflow-hidden"
+              className="min-h-[52px] px-3 py-2 rounded-lg border text-left transition-all hover:scale-[1.02]"
               style={{ borderColor: `${f.accent}55`, background: `${f.accent}14` }}
             >
-              <SubmenuArt slot={floorArtSlot(f.id)} />
-              <span className="relative block text-sm font-black tracking-widest uppercase" style={{ color: f.accent }}>
+              <span className="flex items-center gap-2 text-sm font-black tracking-widest uppercase" style={{ color: f.accent }}>
+                <AphroIcon name={FLOOR_ICONS[f.id] || 'layers'} size={16} />
                 {f.name}
               </span>
-              <span className="relative block text-[10px] text-zinc-400 mt-0.5">{f.subtitle}</span>
+              <span className="block text-[10px] text-zinc-400 mt-0.5">{f.subtitle}</span>
             </button>
           ))}
         </div>

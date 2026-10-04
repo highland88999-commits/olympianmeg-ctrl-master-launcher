@@ -6,6 +6,13 @@ import {
   omegaLayout, nextArchState, STATE_HINT, stateZoom, orbitOffset,
   ARCH_SWEEP, ARCH_ROT,
 } from './engine';
+import AphroIcon from '@/components/aphrodite/icons';
+import { aphroPanel } from '@/components/aphrodite/ambience';
+
+// APHRODITE treatment: monument art behind the canvas (visible before the
+// first frame and at letterbox), icon-accented hint chips with panel
+// texture. Gesture-driven by design — no buttons to convert; the LANDING
+// screen is the entry point (no fake loader added).
 
 // Rebuilt from the OMEGA repo: "3Space – The OMEGA Arch".
 // A cinematic scene of a giant glowing Omega monument with a vortex portal.
@@ -187,6 +194,8 @@ export default function OmegaPage() {
       }}
       aria-label="The Omega Arch — tap to advance the scene"
     >
+      <img src="/images/aphrodite/omega-bg.webp" alt="" aria-hidden="true"
+        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.5, pointerEvents: 'none' }} />
       <canvas ref={canvasRef} style={{ position: 'absolute', inset: 0 }} />
       <div style={{
         position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
@@ -202,8 +211,12 @@ export default function OmegaPage() {
             </div>
             <div style={{
               marginTop: '22px', fontSize: 'clamp(0.85rem, 2.5vw, 1.1rem)',
-              letterSpacing: '4px', color: '#00ffcc',
+              letterSpacing: '4px', color: '#f9a8d4', display: 'inline-flex',
+              alignItems: 'center', gap: 10, padding: '10px 20px', borderRadius: 999,
+              border: '1px solid rgba(244,114,182,0.4)',
+              ...aphroPanel({ backgroundColor: 'rgba(10,3,8,0.6)' }),
             }}>
+              <AphroIcon name="play" size={16} />
               {STATE_HINT.LANDING}
             </div>
           </>
@@ -219,9 +232,11 @@ export default function OmegaPage() {
         </div>
       )}
       <div style={{
-        position: 'absolute', top: '14px', left: '16px', color: 'rgba(0,240,255,0.55)',
+        position: 'absolute', top: '14px', left: '16px', color: 'rgba(249,168,212,0.75)',
         fontSize: '0.72rem', letterSpacing: '2px', pointerEvents: 'none',
+        display: 'flex', alignItems: 'center', gap: 8,
       }}>
+        <AphroIcon name="orbit" size={14} />
         OMEGA // ARCH NODE — OFFLINE BUILD, NO UPLINK
       </div>
     </main>

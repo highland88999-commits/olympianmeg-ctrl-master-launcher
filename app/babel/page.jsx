@@ -18,6 +18,8 @@ import ElevatorPanel from '@/components/babel/ElevatorPanel';
 import TowerGoldBar from '@/components/babel/TowerGoldBar';
 import { GOLDBAR_FOUND_EVENT } from '@/lib/babel/monthlyGold';
 import { toggleCameraMode, prefersReducedMotion, isTouchDevice } from '@/lib/babel/walk';
+import AphroIcon from '@/components/aphrodite/icons';
+import { AphroVideoBg, aphroPanel } from '@/components/aphrodite/ambience';
 
 const SCENES = {
   sylva: FloorSylva,
@@ -320,6 +322,15 @@ export default function BabelPage() {
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
     >
+      {/* APHRODITE ambient tower art: behind the WebGL canvas, visible while
+          the scene mounts and through the transition veil. */}
+      <AphroVideoBg
+        video="/images/aphrodite/babel-loop.mp4"
+        still="/images/aphrodite/babel-still.jpg"
+        storageKey="babel-bg"
+        opacity={0.55}
+        toggleStyle={{ right: 16, left: 'auto', top: 76, bottom: 'auto' }}
+      />
       {/* Single DuatArenaProvider for the whole page: the in-Canvas arena
           stage (FloorDuat) and the DOM overlays below share one gameRef.
           DOM overlays must live OUTSIDE <Canvas> — R3F throws
@@ -389,10 +400,20 @@ export default function BabelPage() {
         </>
       )}
 
-      {/* fade veil for elevator rides and camera-mode switches */}
+      {/* fade veil for elevator rides and camera-mode switches — styled
+          transition state with tower art instead of a black flash */}
       <div
-        className={`absolute inset-0 bg-black pointer-events-none ${reduced ? '' : 'transition-opacity duration-300'} ${fading ? 'opacity-100' : 'opacity-0'}`}
-      />
+        className={`absolute inset-0 pointer-events-none ${reduced ? '' : 'transition-opacity duration-300'} ${fading ? 'opacity-100' : 'opacity-0'}`}
+      >
+        <img src="/images/aphrodite/babel-still.jpg" alt="" aria-hidden="true"
+          className="absolute inset-0 w-full h-full object-cover" />
+        <div className="absolute inset-0 bg-black/55" />
+        <div className="absolute inset-0 flex items-center justify-center">
+          <p className="text-rose-200/90 text-sm font-bold tracking-[0.4em] uppercase drop-shadow-[0_0_16px_rgba(244,114,182,0.5)]">
+            ✦ Travelling ✦
+          </p>
+        </div>
+      </div>
 
       {/* header */}
       <div className="absolute top-0 left-0 right-0 p-4 sm:p-6 pointer-events-none">
@@ -412,9 +433,9 @@ export default function BabelPage() {
         <button
           data-ui
           onClick={goToTower}
-          className="absolute top-4 right-4 sm:top-6 sm:right-6 min-h-[44px] px-5 rounded border border-amber-500/40 text-amber-200 text-sm font-bold tracking-widest uppercase hover:bg-amber-500/20 transition-all"
+          className="absolute top-4 right-4 sm:top-6 sm:right-6 min-h-[44px] px-5 rounded border border-amber-500/40 text-amber-200 text-sm font-bold tracking-widest uppercase hover:bg-amber-500/20 transition-all inline-flex items-center gap-2"
         >
-          Tower
+          <AphroIcon name="tower" size={16} /> Tower
         </button>
       )}
 
@@ -422,8 +443,9 @@ export default function BabelPage() {
       <button
         data-ui
         onClick={toggleMode}
-        className="absolute bottom-[calc(4.5rem+env(safe-area-inset-bottom))] right-4 sm:right-6 z-10 min-h-[44px] px-5 rounded border border-amber-500/40 text-amber-200 text-sm font-bold tracking-widest uppercase hover:bg-amber-500/20 transition-all bg-black/60"
+        className="absolute bottom-[calc(4.5rem+env(safe-area-inset-bottom))] right-4 sm:right-6 z-10 min-h-[44px] px-5 rounded border border-amber-500/40 text-amber-200 text-sm font-bold tracking-widest uppercase hover:bg-amber-500/20 transition-all bg-black/60 inline-flex items-center gap-2"
       >
+        <AphroIcon name={mode === 'walk' ? 'orbit' : 'walk'} size={16} />
         {mode === 'walk' ? 'Orbit view' : 'Walk mode'}
       </button>
 
@@ -433,9 +455,9 @@ export default function BabelPage() {
           data-ui
           onClick={toggleLantern}
           aria-label={lantern ? 'Turn lantern off' : 'Turn lantern on'}
-          className="absolute bottom-[calc(8rem+env(safe-area-inset-bottom))] right-4 sm:right-6 z-10 min-h-[44px] px-5 rounded border border-amber-500/40 text-amber-200 text-sm font-bold tracking-widest uppercase hover:bg-amber-500/20 transition-all bg-black/60"
+          className="absolute bottom-[calc(8rem+env(safe-area-inset-bottom))] right-4 sm:right-6 z-10 min-h-[44px] px-5 rounded border border-amber-500/40 text-amber-200 text-sm font-bold tracking-widest uppercase hover:bg-amber-500/20 transition-all bg-black/60 inline-flex items-center gap-2"
         >
-          {lantern ? 'Lantern on' : 'Lantern off'}
+          <AphroIcon name="flame" size={16} /> {lantern ? 'Lantern on' : 'Lantern off'}
         </button>
       )}
 

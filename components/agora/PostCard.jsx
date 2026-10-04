@@ -4,16 +4,18 @@
 import Link from 'next/link';
 import { categoryName } from '@/lib/agora/categories';
 import { timeAgo, displayNameOf } from '@/lib/agora/format';
+import { aphroPanel } from '@/components/aphrodite/ambience';
 
 export default function PostCard({ post }) {
   const profile = Array.isArray(post.agora_profiles) ? post.agora_profiles[0] : post.agora_profiles;
   return (
     <Link
       href={`/agora/post/${post.id}`}
-      className="block rounded-xl border border-white/10 bg-[#0a1230]/60 p-5 transition-colors hover:border-[#3a86ff]/40 hover:bg-black/70"
+      className="block rounded-xl border border-rose-500/20 p-5 transition-all hover:border-rose-400/50 hover:shadow-[0_0_28px_rgba(244,114,182,0.12)]"
+      style={aphroPanel({ backgroundColor: 'rgba(18,6,14,0.62)' })}
     >
       <div className="mb-2 flex items-center gap-2 text-xs">
-        <span className="rounded-full bg-[#3a86ff]/15 px-2.5 py-1 font-medium text-[#9dbfff]">
+        <span className="rounded-full bg-rose-400/15 px-2.5 py-1 font-medium text-rose-300">
           {categoryName(post.category)}
         </span>
         <span className="text-zinc-500">{timeAgo(post.created_at)}</span>

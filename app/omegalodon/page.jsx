@@ -3,6 +3,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { PLATFORMS, makeGuestTag, FIELD_KIT } from './gateway';
+import AphroIcon from '@/components/aphrodite/icons';
+import { aphroPanel } from '@/components/aphrodite/ambience';
+
+// APHRODITE treatment: deep-sea art layered under the procedural canvas
+// (the canvas paints at 0.9 opacity so the art breathes through), icon
+// buttons, panel texture on the kit drawer and platform cards.
 
 // Rebuilt from the Omegalodon repo: "ECOSYSTEM GATEWAY", a central portal
 // directory. The source played two looping remote videos behind everything,
@@ -118,6 +124,8 @@ export default function EcosystemGateway() {
       minHeight: '100dvh', width: '100vw', color: '#e0ffff', fontFamily: 'monospace',
       position: 'relative', backgroundColor: '#000',
     }}>
+      <img src="/images/aphrodite/omegalodon-bg.webp" alt="" aria-hidden="true"
+        style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100dvh', zIndex: 0, objectFit: 'cover', opacity: 0.55, pointerEvents: 'none' }} />
       <Backdrop />
 
       <div style={{ position: 'relative', zIndex: 2, width: '100%', minHeight: '100dvh', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -127,7 +135,7 @@ export default function EcosystemGateway() {
           padding: '15px 30px', gap: '15px', backgroundColor: 'transparent', boxSizing: 'border-box', flexWrap: 'wrap',
         }}>
           <button style={goldBtn} onClick={() => setKitOpen((o) => !o)} aria-expanded={kitOpen}>
-            <span aria-hidden="true">🎒</span> Backpack{kit.length > 0 ? ` (${kit.length})` : ''}
+            <AphroIcon name="backpack" size={16} /> Backpack{kit.length > 0 ? ` (${kit.length})` : ''}
           </button>
 
           {!guest ? (
@@ -139,9 +147,10 @@ export default function EcosystemGateway() {
                   backgroundColor: 'transparent', border: 'none', color: '#e0ffff',
                   padding: '8px 15px', cursor: 'pointer', fontFamily: 'monospace',
                   textDecoration: 'underline', minHeight: '44px',
+                  display: 'inline-flex', alignItems: 'center', gap: 8,
                 }}
               >
-                Guest Sign-In
+                <AphroIcon name="user" size={15} /> Guest Sign-In
               </button>
               <span style={{ fontSize: '0.7rem', color: 'rgba(224,255,255,0.5)' }}>(simulated · local only)</span>
             </div>
@@ -154,7 +163,7 @@ export default function EcosystemGateway() {
                 onClick={signOut}
                 style={{ ...goldBtn, borderColor: 'rgba(255,255,255,0.3)', color: '#e0ffff' }}
               >
-                Leave
+                <AphroIcon name="door-exit" size={15} /> Leave
               </button>
             </div>
           )}
@@ -166,7 +175,7 @@ export default function EcosystemGateway() {
           }}>
             <div style={{
               border: '1px solid rgba(255,215,0,0.5)', borderRadius: '8px', padding: '16px 20px',
-              backgroundColor: 'rgba(0,0,0,0.75)',
+              ...aphroPanel({ backgroundColor: 'rgba(8,4,2,0.78)' }),
             }}>
               <div style={{ color: '#ffd700', letterSpacing: '2px', marginBottom: '6px' }}>FIELD KIT — packed on this device</div>
               <div style={{ fontSize: '0.78rem', color: 'rgba(224,255,255,0.6)', marginBottom: '12px' }}>
@@ -247,10 +256,11 @@ export default function EcosystemGateway() {
               </>
             );
             const style = {
-              display: 'block', textDecoration: 'none', backgroundColor: 'transparent',
+              display: 'block', textDecoration: 'none',
               border: '1px solid rgba(255, 215, 0, 0.6)', borderRadius: '8px', padding: '20px 25px',
               boxShadow: '0 0 15px rgba(255, 215, 0, 0.15)', color: 'inherit',
               opacity: online ? 1 : 0.75,
+              ...aphroPanel({ backgroundColor: 'rgba(6,3,1,0.62)' }),
             };
             return online ? (
               <Link key={app.id} href={app.route} style={{ ...style, cursor: 'pointer' }}>{card}</Link>

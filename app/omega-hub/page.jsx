@@ -1,13 +1,20 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { submenuArtFor } from '@/lib/god-menus';
 import { SECTORS, getSector, HAZARD_LABEL } from './content';
 import { TERMINAL_BANNER, runCommand } from './terminal';
 import {
   CATALOG, createBackpack, addItem, removeItem, listItems, itemCount,
   summarizeBackpack, serializeBackpack, deserializeBackpack,
 } from './backpack';
+import AphroIcon from '@/components/aphrodite/icons';
+import { AphroBg, aphroPanel } from '@/components/aphrodite/ambience';
+
+// APHRODITE treatment: portal-gateway art behind the hub, SVG icon tabs,
+// panel texture on the terminal box, sector cards and catalog cards.
+// (This page renders synchronously — there is no loading phase to style.)
+
+const TAB_ICONS = { HUB: 'grid', WORLD: 'globe', TERMINAL: 'terminal', BACKPACK: 'backpack' };
 
 // Rebuilt from the Omega-Hub repo ("NEXUS • Sector Gateway").
 // The source was a 3D world browser with a cloud sign-in widget
@@ -15,31 +22,6 @@ import {
 // (neural-backpack.js). All backends are stripped: this is a local hub
 // portal with four tabs — hub overview, a procedural sector view, a
 // clearly-simulated terminal, and a local loadout panel.
-
-
-// Menu Art Transfer batch 2 — submenu art. Background image + dark legibility
-// scrim; a missing image hides itself via onError so the option falls back to
-// its plain style. Never breaks the UI.
-function SubmenuArt({ slot }) {
-  return (
-    <>
-      <img
-        src={submenuArtFor(slot)}
-        alt=""
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-        loading="lazy"
-        onError={(e) => { e.currentTarget.style.display = 'none'; }}
-      />
-      <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-black/55" />
-    </>
-  );
-}
-
-// Hub tab label -> submenu art slot suffix.
-function tabArtSlug(t) {
-  return `tab-${t.toLowerCase()}`;
-}
 
 const TABS = ['HUB', 'WORLD', 'TERMINAL', 'BACKPACK'];
 const mono = { fontFamily: 'monospace' };
@@ -194,17 +176,18 @@ export default function OmegaHubPage() {
 
   const tabBtn = (t) => ({
     ...mono,
-    position: 'relative', overflow: 'hidden',
     padding: '10px 14px', minHeight: '44px', cursor: 'pointer',
-    background: tab === t ? 'rgba(0,240,255,0.14)' : 'transparent',
-    border: '1px solid ' + (tab === t ? '#00f0ff' : 'rgba(0,240,255,0.3)'),
-    color: tab === t ? '#00f0ff' : 'rgba(224,255,255,0.7)',
+    background: tab === t ? 'rgba(244,114,182,0.14)' : 'transparent',
+    border: '1px solid ' + (tab === t ? '#f472b6' : 'rgba(244,114,182,0.3)'),
+    color: tab === t ? '#f9a8d4' : 'rgba(224,255,255,0.7)',
     borderRadius: '6px', letterSpacing: '2px', fontSize: '0.8rem', fontWeight: 'bold',
+    display: 'inline-flex', alignItems: 'center', gap: 8,
   });
 
   return (
     <main style={{ ...mono, minHeight: '100dvh', background: '#010409', color: '#e0ffff', padding: '18px 16px 60px' }}>
-      <div style={{ maxWidth: '860px', margin: '0 auto' }}>
+      <AphroBg img="/images/aphrodite/omegahub-bg.webp" opacity={0.4} />
+      <div style={{ maxWidth: '860px', margin: '0 auto', position: 'relative', zIndex: 1 }}>
         <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '18px' }}>
           <div>
             <h1 style={{ margin: 0, fontSize: '1.5rem', letterSpacing: '4px', color: '#00f0ff', textShadow: '0 0 14px rgba(0,240,255,0.6)' }}>
@@ -222,8 +205,7 @@ export default function OmegaHubPage() {
         <nav style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '20px' }} aria-label="Hub sections">
           {TABS.map((t) => (
             <button key={t} onClick={() => setTab(t)} style={tabBtn(t)} aria-pressed={tab === t}>
-              {tab !== t && <SubmenuArt slot={`submenu-prog-omega-hub-${tabArtSlug(t)}`} />}
-              <span style={{ position: 'relative' }}>{t}</span>
+              <AphroIcon name={TAB_ICONS[t]} size={15} /> {t}
             </button>
           ))}
         </nav>
@@ -240,16 +222,15 @@ export default function OmegaHubPage() {
                   onClick={() => { setSectorId(s.id); setTab('WORLD'); }}
                   style={{
                     ...mono, textAlign: 'left', cursor: 'pointer', padding: '16px',
-                    position: 'relative', overflow: 'hidden', minHeight: '44px',
-                    background: 'rgba(0,0,0,0.5)', border: '1px solid ' + s.palette.accent,
+                    border: '1px solid ' + s.palette.accent,
                     borderRadius: '8px', color: '#e0ffff',
+                    ...aphroPanel({ backgroundColor: 'rgba(6,2,4,0.55)' }),
                   }}
                 >
-                  <SubmenuArt slot={`submenu-prog-omega-hub-${s.id}`} />
-                  <div style={{ position: 'relative', color: s.palette.accent, fontSize: '0.7rem', letterSpacing: '3px' }}>{s.tag}</div>
-                  <div style={{ position: 'relative', fontSize: '1.05rem', fontWeight: 'bold', letterSpacing: '2px', margin: '6px 0' }}>{s.name}</div>
-                  <div style={{ position: 'relative', fontSize: '0.82rem', color: 'rgba(224,255,255,0.7)', lineHeight: 1.5 }}>{s.desc}</div>
-                  <div style={{ position: 'relative', marginTop: '10px', fontSize: '0.72rem', color: HAZARD_LABEL[s.hazard] === 'CALM' ? '#00ffaa' : '#ffaa00' }}>
+                  <div style={{ color: s.palette.accent, fontSize: '0.7rem', letterSpacing: '3px' }}>{s.tag}</div>
+                  <div style={{ fontSize: '1.05rem', fontWeight: 'bold', letterSpacing: '2px', margin: '6px 0' }}>{s.name}</div>
+                  <div style={{ fontSize: '0.82rem', color: 'rgba(224,255,255,0.7)', lineHeight: 1.5 }}>{s.desc}</div>
+                  <div style={{ marginTop: '10px', fontSize: '0.72rem', color: HAZARD_LABEL[s.hazard] === 'CALM' ? '#00ffaa' : '#ffaa00' }}>
                     [{HAZARD_LABEL[s.hazard]}]
                   </div>
                 </button>
@@ -285,8 +266,9 @@ export default function OmegaHubPage() {
         {tab === 'TERMINAL' && (
           <section>
             <div style={{
-              background: '#000', border: '1px solid rgba(0,240,255,0.4)', borderRadius: '8px',
+              border: '1px solid rgba(244,114,182,0.4)', borderRadius: '8px',
               padding: '14px', height: '340px', overflowY: 'auto', fontSize: '0.85rem', lineHeight: 1.6,
+              ...aphroPanel({ backgroundColor: 'rgba(8,2,6,0.92)' }),
             }} aria-label="Simulated terminal output">
               {lines.map((l, i) => (
                 <div key={i} style={{ color: l.startsWith('>') ? '#00ffaa' : 'rgba(224,255,255,0.85)', whiteSpace: 'pre-wrap' }}>{l}</div>
@@ -306,8 +288,8 @@ export default function OmegaHubPage() {
                   borderRadius: '6px', color: '#e0ffff', padding: '10px 12px', fontSize: '0.9rem', minHeight: '44px',
                 }}
               />
-              <button type="submit" style={{ ...mono, minHeight: '44px', padding: '10px 18px', background: 'rgba(0,240,255,0.12)', border: '1px solid #00f0ff', color: '#00f0ff', borderRadius: '6px', cursor: 'pointer' }}>
-                RUN
+              <button type="submit" style={{ ...mono, minHeight: '44px', padding: '10px 18px', background: 'rgba(244,114,182,0.12)', border: '1px solid #f472b6', color: '#f9a8d4', borderRadius: '6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <AphroIcon name="play" size={14} /> RUN
               </button>
             </form>
             <p style={{ fontSize: '0.75rem', color: 'rgba(224,255,255,0.5)' }}>
@@ -341,7 +323,7 @@ export default function OmegaHubPage() {
             <h3 style={{ fontSize: '0.9rem', letterSpacing: '2px', color: 'rgba(224,255,255,0.7)' }}>FIELD CATALOG</h3>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '12px' }}>
               {CATALOG.map((c) => (
-                <div key={c.id} style={{ border: '1px solid rgba(0,240,255,0.25)', borderRadius: '8px', padding: '14px', background: 'rgba(0,0,0,0.4)' }}>
+                <div key={c.id} style={{ border: '1px solid rgba(244,114,182,0.25)', borderRadius: '8px', padding: '14px', ...aphroPanel({ backgroundColor: 'rgba(8,2,6,0.45)' }) }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
                     <GearIcon hue={c.hue} kind={c.kind} />
                     <div style={{ fontWeight: 'bold', letterSpacing: '1px' }}>{c.name}</div>
@@ -368,4 +350,3 @@ export default function OmegaHubPage() {
     </main>
   );
 }
-

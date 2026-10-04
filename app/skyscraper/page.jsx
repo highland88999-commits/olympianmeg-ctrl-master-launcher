@@ -10,6 +10,11 @@ import RadialMenu from './components/RadialMenu';
 import FloorMenu from './components/FloorMenu';
 import Telemetry from './components/Telemetry';
 import { MapProvider } from './components/MapContext';
+import AphroIcon from '@/components/aphrodite/icons';
+import { aphroPanel } from '@/components/aphrodite/ambience';
+
+// APHRODITE light touch (per directive): icon glyphs on the page-level
+// buttons + shared panel texture on the two modal panels. Nothing structural.
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder';
@@ -159,7 +164,7 @@ export default function OmegaTower() {
                     <div style={{ position: 'relative', zIndex: 3, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
                         <h1 style={{ fontSize: 'clamp(2.5rem, 8vw, 5rem)', fontWeight: 900, color: '#ff0055', letterSpacing: '8px', margin: 0, textShadow: '0 0 20px rgba(255,0,85,0.8), 2px 2px 0px #00f0ff, -2px -2px 0px #ff00ff' }}>NEURAL LINK SEVERED</h1>
                         <div style={{ fontSize: 'clamp(0.8rem, 3vw, 1.2rem)', color: '#88a0b5', letterSpacing: '6px', marginTop: '10px', marginBottom: '40px' }}>CRITICAL BIOMETRIC FAILURE</div>
-                        <button onClick={handleRespawn} style={{ background: 'rgba(255, 0, 85, 0.1)', border: '2px solid #ff0055', color: '#ff0055', padding: '15px 40px', fontSize: '1.2rem', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '4px', borderRadius: '8px', cursor: 'pointer', boxShadow: '0 0 20px rgba(255,0,85,0.4)', transition: 'all 0.3s' }}>RE-ESTABLISH LINK</button>
+                        <button onClick={handleRespawn} style={{ background: 'rgba(255, 0, 85, 0.1)', border: '2px solid #ff0055', color: '#ff0055', padding: '15px 40px', fontSize: '1.2rem', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '4px', borderRadius: '8px', cursor: 'pointer', boxShadow: '0 0 20px rgba(255,0,85,0.4)', transition: 'all 0.3s', display: 'inline-flex', alignItems: 'center', gap: 10 }}><AphroIcon name="bolt" size={18} /> RE-ESTABLISH LINK</button>
                     </div>
                 </div>
             )}
@@ -171,10 +176,10 @@ export default function OmegaTower() {
             )}
 
             {isBackpackOpen && (
-                <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '85vw', maxWidth: '800px', height: '75vh', background: 'rgba(1, 4, 9, 0.95)', backdropFilter: 'blur(10px)', zIndex: 6000, borderRadius: '12px', border: '2px solid #00f0ff', boxShadow: '0 0 50px rgba(0,240,255,0.2)', display: 'flex', flexDirection: 'column', padding: '20px' }}>
+                <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '85vw', maxWidth: '800px', height: '75vh', backdropFilter: 'blur(10px)', zIndex: 6000, borderRadius: '12px', border: '2px solid #00f0ff', boxShadow: '0 0 50px rgba(0,240,255,0.2)', display: 'flex', flexDirection: 'column', padding: '20px', ...aphroPanel({ backgroundColor: 'rgba(8,3,10,0.95)' }) }}>
                     <div style={{ paddingBottom: '15px', borderBottom: '1px solid #00f0ff', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                        <h2 style={{ color: '#00f0ff', margin: 0, fontSize: '20px', letterSpacing: '4px', textShadow: '1px 1px 0 #000, -1px -1px 0 #000' }}>NEURAL BACKPACK</h2>
-                        <button onClick={() => setIsBackpackOpen(false)} style={{ background: 'transparent', border: 'none', color: '#ff00ff', fontSize: '28px', cursor: 'pointer' }}>×</button>
+                        <h2 style={{ color: '#00f0ff', margin: 0, fontSize: '20px', letterSpacing: '4px', textShadow: '1px 1px 0 #000, -1px -1px 0 #000', display: 'flex', alignItems: 'center', gap: 10 }}><AphroIcon name="backpack" size={22} /> NEURAL BACKPACK</h2>
+                        <button aria-label="Close backpack" onClick={() => setIsBackpackOpen(false)} style={{ background: 'transparent', border: 'none', color: '#ff00ff', cursor: 'pointer', display: 'flex', padding: 10 }}><AphroIcon name="x" size={26} /></button>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '20px', overflowY: 'auto', flex: 1, paddingRight: '10px' }}>
                         {inventoryData.length > 0 ? inventoryData.map((item) => (
@@ -191,11 +196,11 @@ export default function OmegaTower() {
             )}
 
             {!user && hasEntered && (
-                <button onClick={() => setShowAuthModal(true)} style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 8000, background: 'rgba(0, 255, 255, 0.15)', border: '1px solid #00ffff', color: '#00ffff', padding: '10px 20px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', letterSpacing: '2px', backdropFilter: 'blur(4px)' }}>SYSTEM LOGIN</button>
+                <button onClick={() => setShowAuthModal(true)} style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 8000, background: 'rgba(0, 255, 255, 0.15)', border: '1px solid #00ffff', color: '#00ffff', padding: '10px 20px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', letterSpacing: '2px', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', gap: 8 }}><AphroIcon name="user" size={16} /> SYSTEM LOGIN</button>
             )}
             
             {isGhostMode && (
-                <button onClick={() => setIsGhostMode(false)} style={{ position: 'absolute', top: '20px', left: '20px', zIndex: 8000, background: 'rgba(255, 0, 0, 0.15)', border: '1px solid #ff0000', color: '#ff0000', padding: '10px 20px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', letterSpacing: '2px', backdropFilter: 'blur(4px)' }}>EXIT GHOST PROTOCOL</button>
+                <button onClick={() => setIsGhostMode(false)} style={{ position: 'absolute', top: '20px', left: '20px', zIndex: 8000, background: 'rgba(255, 0, 0, 0.15)', border: '1px solid #ff0000', color: '#ff0000', padding: '10px 20px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', letterSpacing: '2px', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', gap: 8 }}><AphroIcon name="ghost" size={16} /> EXIT GHOST PROTOCOL</button>
             )}
 
             {hasEntered && !isDead && (
@@ -204,14 +209,14 @@ export default function OmegaTower() {
 
             {animState === 'DRIVING' && (
                 <div style={{ position: 'fixed', bottom: '120px', left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: '20px', zIndex: 6000 }}>
-                    <button onClick={() => setAnimState('FREE_ROAM')} style={{ padding: '12px 24px', background: 'rgba(255,0,0,0.15)', border: '2px solid #ff0044', color: '#ff0044', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer', letterSpacing: '2px' }}>DISMOUNT</button>
-                    <button onClick={() => setIsFreeRoam(!isFreeRoam)} style={{ padding: '12px 24px', background: isFreeRoam ? 'rgba(0,255,0,0.15)' : 'rgba(0,255,255,0.15)', border: `2px solid ${isFreeRoam ? '#00ff00' : '#00ffff'}`, color: isFreeRoam ? '#00ff00' : '#00ffff', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer', letterSpacing: '2px' }}>{isFreeRoam ? 'FREE ROAM: ON' : 'GRID LOCK: ON'}</button>
+                    <button onClick={() => setAnimState('FREE_ROAM')} style={{ padding: '12px 24px', background: 'rgba(255,0,0,0.15)', border: '2px solid #ff0044', color: '#ff0044', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer', letterSpacing: '2px', display: 'flex', alignItems: 'center', gap: 8 }}><AphroIcon name="door-exit" size={16} /> DISMOUNT</button>
+                    <button onClick={() => setIsFreeRoam(!isFreeRoam)} style={{ padding: '12px 24px', background: isFreeRoam ? 'rgba(0,255,0,0.15)' : 'rgba(0,255,255,0.15)', border: `2px solid ${isFreeRoam ? '#00ff00' : '#00ffff'}`, color: isFreeRoam ? '#00ff00' : '#00ffff', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer', letterSpacing: '2px', display: 'flex', alignItems: 'center', gap: 8 }}><AphroIcon name={isFreeRoam ? 'orbit' : 'grid'} size={16} />{isFreeRoam ? 'FREE ROAM: ON' : 'GRID LOCK: ON'}</button>
                 </div>
             )}
 
             {showRestrictedModal && (
                 <div style={{ position: 'absolute', inset: 0, zIndex: 7002, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(8px)', padding: '16px' }}>
-                    <div style={{ maxWidth: '400px', width: '100%', background: '#050508', border: '2px solid #ff0000', padding: '32px', boxShadow: '0 0 40px rgba(255, 0, 0, 0.4)', position: 'relative' }}>
+                    <div style={{ maxWidth: '400px', width: '100%', border: '2px solid #ff0000', padding: '32px', boxShadow: '0 0 40px rgba(255, 0, 0, 0.4)', position: 'relative', ...aphroPanel({ backgroundColor: 'rgba(10,2,4,0.97)' }) }}>
                         <button onClick={() => setShowRestrictedModal(false)} style={{ position: 'absolute', top: '16px', right: '16px', color: '#ff0000', background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px' }}>[X]</button>
                         <h1 style={{ fontSize: '20px', textAlign: 'center', letterSpacing: '4px', color: '#ff0000', textShadow: '0 0 15px #ff0000', marginBottom: '24px' }}>RESTRICTED SECTOR</h1>
                         <form onSubmit={(e) => { e.preventDefault(); if(restrictedPassword === "Redirection#94"){ setIsGhostMode(true); setShowRestrictedModal(false); } }} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -224,7 +229,7 @@ export default function OmegaTower() {
 
             {activePlot === 'BILLBOARDS' && (
                 <div style={{ position: 'fixed', inset: 0, zIndex: 7000, background: '#010103' }}>
-                    <button onClick={() => setActivePlot(null)} style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 7001, background: 'rgba(0,229,255,0.2)', border: '1px solid #00e5ff', color: '#00e5ff', padding: '10px 20px', cursor: 'pointer', fontWeight: 'bold' }}>RETURN TO CITY</button>
+                    <button onClick={() => setActivePlot(null)} style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 7001, background: 'rgba(0,229,255,0.2)', border: '1px solid #00e5ff', color: '#00e5ff', padding: '10px 20px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 8 }}><AphroIcon name="door-exit" size={16} /> RETURN TO CITY</button>
                     <Canvas dpr={[1, 1.5]} camera={{ position: [0, 0, 100], fov: 60 }}>
                         <Suspense fallback={null}><BillboardScene /></Suspense>
                     </Canvas>
@@ -233,7 +238,7 @@ export default function OmegaTower() {
 
             {activePlot === 'FOREST' && (
                 <div style={{ position: 'fixed', inset: 0, zIndex: 7000, background: '#010103' }}>
-                    <button onClick={() => setActivePlot(null)} style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 7001, background: 'rgba(57,255,20,0.2)', border: '1px solid #39ff14', color: '#39ff14', padding: '10px 20px', cursor: 'pointer', fontWeight: 'bold' }}>RETURN TO CITY</button>
+                    <button onClick={() => setActivePlot(null)} style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 7001, background: 'rgba(57,255,20,0.2)', border: '1px solid #39ff14', color: '#39ff14', padding: '10px 20px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 8 }}><AphroIcon name="door-exit" size={16} /> RETURN TO CITY</button>
                     <Canvas dpr={[1, 1.5]} camera={{ position: [0, 20, 80], fov: 60 }}>
                         <Suspense fallback={null}><ForestScene /></Suspense>
                     </Canvas>
@@ -242,7 +247,7 @@ export default function OmegaTower() {
 
             {activePlot === 'DRAGON' && (
                 <div style={{ position: 'fixed', inset: 0, zIndex: 7000, background: '#010103' }}>
-                    <button onClick={() => setActivePlot(null)} style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 7001, background: 'rgba(0,255,255,0.2)', border: '1px solid #00ffff', color: '#00ffff', padding: '10px 20px', cursor: 'pointer', fontWeight: 'bold' }}>FLEE THE DRAGON</button>
+                    <button onClick={() => setActivePlot(null)} style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 7001, background: 'rgba(0,255,255,0.2)', border: '1px solid #00ffff', color: '#00ffff', padding: '10px 20px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 8 }}><AphroIcon name="door-exit" size={16} /> FLEE THE DRAGON</button>
                     <Canvas dpr={[1, 1.5]} camera={{ position: [0, 1500, 3500], fov: 60, near: 0.1, far: 15000 }}>
                         <Suspense fallback={null}><DragonScene /></Suspense>
                     </Canvas>
@@ -251,7 +256,7 @@ export default function OmegaTower() {
 
             {activePlot === 'HAMUNAPTRA' && (
                 <div style={{ position: 'fixed', inset: 0, zIndex: 7000, background: '#010103' }}>
-                    <button onClick={() => setActivePlot(null)} style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 7001, background: 'rgba(212,175,55,0.2)', border: '1px solid #d4af37', color: '#d4af37', padding: '10px 20px', cursor: 'pointer', fontWeight: 'bold' }}>ESCAPE THE SANDS</button>
+                    <button onClick={() => setActivePlot(null)} style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 7001, background: 'rgba(212,175,55,0.2)', border: '1px solid #d4af37', color: '#d4af37', padding: '10px 20px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 8 }}><AphroIcon name="door-exit" size={16} /> ESCAPE THE SANDS</button>
                     <Canvas dpr={[1, 1.5]} camera={{ position: [0, 50, 1000], fov: 60, near: 1, far: 20000 }}>
                         <Suspense fallback={null}><HamunaptraScene /></Suspense>
                     </Canvas>
@@ -260,28 +265,28 @@ export default function OmegaTower() {
 
             {activePlot === 'COLOSSEUM' && (
                 <div style={{ position: 'fixed', inset: 0, zIndex: 7000, background: '#010103' }}>
-                    <button onClick={() => setActivePlot(null)} style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 7001, background: 'rgba(0,255,255,0.2)', border: '1px solid #00ffff', color: '#00ffff', padding: '10px 20px', cursor: 'pointer', fontWeight: 'bold' }}>RETURN TO CITY</button>
+                    <button onClick={() => setActivePlot(null)} style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 7001, background: 'rgba(0,255,255,0.2)', border: '1px solid #00ffff', color: '#00ffff', padding: '10px 20px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 8 }}><AphroIcon name="door-exit" size={16} /> RETURN TO CITY</button>
                     <ColosseumScene onOpenFullscreen={() => setPortalUrl("https://colossus-xi.vercel.app")} />
                 </div>
             )}
 
             {activePlot === 'APPAREL' && (
                 <div style={{ position: 'fixed', inset: 0, zIndex: 7000, background: '#010103' }}>
-                    <button onClick={() => setActivePlot(null)} style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 7001, background: 'rgba(255,215,0,0.2)', border: '1px solid #FFD700', color: '#FFD700', padding: '10px 20px', cursor: 'pointer', fontWeight: 'bold' }}>RETURN TO CITY</button>
+                    <button onClick={() => setActivePlot(null)} style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 7001, background: 'rgba(255,215,0,0.2)', border: '1px solid #FFD700', color: '#FFD700', padding: '10px 20px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 8 }}><AphroIcon name="door-exit" size={16} /> RETURN TO CITY</button>
                     <ApparelScene onOpenFullscreen={() => setPortalUrl("https://olympus-lac.vercel.app")} />
                 </div>
             )}
 
             {activePlot === 'SWA_SABERS' && (
                 <div style={{ position: 'fixed', inset: 0, zIndex: 7000, background: '#010103' }}>
-                    <button onClick={() => setActivePlot(null)} style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 7001, background: 'rgba(255,0,0,0.2)', border: '1px solid #ff0000', color: '#ff0000', padding: '10px 20px', cursor: 'pointer', fontWeight: 'bold' }}>RETURN TO CITY</button>
+                    <button onClick={() => setActivePlot(null)} style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 7001, background: 'rgba(255,0,0,0.2)', border: '1px solid #ff0000', color: '#ff0000', padding: '10px 20px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 8 }}><AphroIcon name="door-exit" size={16} /> RETURN TO CITY</button>
                     <SwaSabersScene onOpenFullscreen={() => setPortalUrl("https://swasabers.com?sca_ref=12183767.7E1Om8BE4jRk")} />
                 </div>
             )}
 
             {activePlot === 'EXCALIBUR' && (
                 <div style={{ position: 'fixed', inset: 0, zIndex: 7000, background: '#010103' }}>
-                    <button onClick={() => setActivePlot(null)} style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 7001, background: 'rgba(0,255,255,0.2)', border: '1px solid #00ffff', color: '#00ffff', padding: '10px 20px', cursor: 'pointer', fontWeight: 'bold' }}>RETURN TO CITY</button>
+                    <button onClick={() => setActivePlot(null)} style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 7001, background: 'rgba(0,255,255,0.2)', border: '1px solid #00ffff', color: '#00ffff', padding: '10px 20px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 8 }}><AphroIcon name="door-exit" size={16} /> RETURN TO CITY</button>
                     <ExcaliburScene onObjectClick={() => { if (!isExcaliburUnlocked) setShowExcaliburModal(true); }} isUnlocked={isExcaliburUnlocked} />
                 </div>
             )}
@@ -290,7 +295,7 @@ export default function OmegaTower() {
                 <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: '#000', zIndex: 9999, display: 'flex', flexDirection: 'column' }}>
                     <div style={{ padding: '10px 20px', background: '#050505', borderBottom: '2px solid #d4af37', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ color: '#d4af37', letterSpacing: '4px', fontWeight: 'bold', fontSize: '12px' }}>SECURE UPLINK ESTABLISHED</span>
-                        <button onClick={() => setPortalUrl(null)} style={{ background: 'rgba(255,0,0,0.2)', color: '#ff0044', border: '1px solid #ff0044', padding: '8px 16px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', letterSpacing: '2px', fontSize: '12px' }}>CLOSE CONNECTION</button>
+                        <button onClick={() => setPortalUrl(null)} style={{ background: 'rgba(255,0,0,0.2)', color: '#ff0044', border: '1px solid #ff0044', padding: '8px 16px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', letterSpacing: '2px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 8 }}><AphroIcon name="x" size={14} /> CLOSE CONNECTION</button>
                     </div>
                     <iframe src={portalUrl} style={{ flex: 1, width: '100%', border: 'none' }} />
                 </div>

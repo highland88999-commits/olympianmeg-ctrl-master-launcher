@@ -7,9 +7,24 @@ import {
   DESCENT_START_CAM, GROUND_CAM, STATION_CAM,
 } from "./scene";
 import { fx, unlockFx } from "@/lib/fx";
+import AphroIcon from "@/components/aphrodite/icons";
+import { AphroBg, aphroPanel } from "@/components/aphrodite/ambience";
 
 const DESCENT_MS = 3400;
 const START_ALT_M = 12400;
+
+// APHRODITE treatment: fixed city-night art behind menus/HUD, SVG icon
+// buttons, panel texture on chips/panels/districts, styled descent veil.
+function IconBtn({ icon, label, ...props }) {
+  return (
+    <button {...props}>
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+        <AphroIcon name={icon} size={15} />
+        <span>{label}</span>
+      </span>
+    </button>
+  );
+}
 
 export default function MegaCityPage() {
   const canvasRef = useRef(null);
@@ -98,12 +113,14 @@ export default function MegaCityPage() {
     s.tweenCamera(STATION_CAM, 1100, () => router.push("/"));
   }
 
-  const presets = [["Dawn", 0.26], ["Day", 0.5], ["Dusk", 0.72], ["Night", 0.95]];
+  const presets = [["Dawn", 0.26, "sunrise"], ["Day", 0.5, "sun"], ["Dusk", 0.72, "sunset"], ["Night", 0.95, "moon"]];
 
   return (
     <main className="argus">
+      <AphroBg img="/images/aphrodite/megacity-bg.webp" opacity={0.35} />
       <style>{`
         .argus { min-height: 100dvh; background: #03040c; color: #e6f4ff; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; display: flex; flex-direction: column; }
+        .argus header, .argus .stage, .argus .controls, .argus .sites, .argus .districts { position: relative; z-index: 1; }
         .argus header { padding: 18px 20px 10px; }
         .argus .kicker { font-size: 11px; letter-spacing: 4px; color: ${ACCENT}; text-transform: uppercase; }
         .argus h1 { margin: 4px 0 2px; font-size: clamp(1.6rem, 5vw, 2.6rem); letter-spacing: 6px; font-weight: 800; }
@@ -114,13 +131,13 @@ export default function MegaCityPage() {
         .argus .stage.descending canvas { animation: descendShake 0.4s linear infinite; }
         @keyframes descendShake { 0% { transform: translateY(0); } 50% { transform: translateY(2px); } 100% { transform: translateY(0); } }
         .argus .veil { position: absolute; inset: 0; display: flex; align-items: flex-start; justify-content: center; padding-top: 18px; background: transparent; border: 0; cursor: pointer; z-index: 5; }
-        .argus .chip { background: rgba(3,8,16,0.82); border: 1px solid ${ACCENT}; border-radius: 12px; padding: 12px 22px; text-align: center; box-shadow: 0 0 24px rgba(0,242,255,0.25); }
+        .argus .chip { background: rgba(3,8,16,0.82); border: 1px solid ${ACCENT}; border-radius: 12px; padding: 12px 22px; text-align: center; box-shadow: 0 0 24px rgba(0,242,255,0.25); background-image: url(/images/aphrodite/panel-texture.webp); background-size: 512px 512px; background-blend-mode: overlay; }
         .argus .chip .lbl { font-size: 0.72rem; letter-spacing: 4px; color: ${ACCENT}; font-weight: 700; }
         .argus .chip .alt { font-size: 1.5rem; font-weight: 800; letter-spacing: 2px; color: #fff; font-variant-numeric: tabular-nums; margin-top: 4px; }
         .argus .chip .skip { margin-top: 8px; font-size: 0.68rem; letter-spacing: 3px; color: #8fa8c8; }
         .argus .chip .skipBtn { margin-top: 6px; min-height: 44px; padding: 8px 18px; border-radius: 8px; border: 1px solid ${ACCENT}; background: transparent; color: ${ACCENT}; font-size: 0.75rem; letter-spacing: 2px; cursor: pointer; }
         .argus .exitVeil { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(2,4,10,0.45); z-index: 6; }
-        .argus .panel { position: absolute; left: 12px; bottom: 12px; right: 12px; max-width: 430px; background: rgba(4,8,18,0.93); border: 1px solid ${ACCENT}; border-radius: 10px; padding: 14px 16px; z-index: 4; }
+        .argus .panel { position: absolute; left: 12px; bottom: 12px; right: 12px; max-width: 430px; background: rgba(4,8,18,0.93); border: 1px solid ${ACCENT}; border-radius: 10px; padding: 14px 16px; z-index: 4; background-image: url(/images/aphrodite/panel-texture.webp); background-size: 512px 512px; background-blend-mode: overlay; }
         .argus .panel h2 { margin: 0 0 6px; font-size: 1.05rem; letter-spacing: 2px; color: ${ACCENT}; }
         .argus .panel p { margin: 0 0 10px; font-size: 0.88rem; line-height: 1.5; color: #d4e8fa; }
         .argus .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 14px 20px; }
@@ -133,7 +150,7 @@ export default function MegaCityPage() {
         .argus .sites { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 20px 8px; }
         .argus .sites button { border-color: #1e3a55; background: #060b16; }
         .argus .districts { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 20px 20px; }
-        .argus .dist { flex: 1 1 180px; border: 1px solid #1e3a55; border-left: 4px solid var(--dc); border-radius: 8px; padding: 10px 12px; background: #060b16; text-align: left; }
+        .argus .dist { flex: 1 1 180px; border: 1px solid #1e3a55; border-left: 4px solid var(--dc); border-radius: 8px; padding: 10px 12px; background: #060b16; text-align: left; background-image: url(/images/aphrodite/panel-texture.webp); background-size: 512px 512px; background-blend-mode: overlay; }
         .argus .dist h3 { margin: 0 0 4px; font-size: 0.8rem; letter-spacing: 2px; color: var(--dc); }
         .argus .dist p { margin: 0; font-size: 0.78rem; color: #9db4d2; line-height: 1.4; }
         @media (prefers-reduced-motion: reduce) { .argus .stage.descending canvas { animation: none; } }
@@ -172,33 +189,29 @@ export default function MegaCityPage() {
           <div className="panel" role="dialog" aria-label={hotspot.title}>
             <h2>{hotspot.title}</h2>
             <p>{hotspot.body}</p>
-            <button onClick={() => select(null)}>Close</button>
+            <IconBtn icon="x" label="Close" onClick={() => select(null)} />
           </div>
         )}
       </div>
 
       <div className="controls">
-        <button className="stationBtn" onClick={exitToStation} aria-label="Return to station">◀ STATION</button>
+        <IconBtn icon="antenna" label="STATION" className="stationBtn" onClick={exitToStation} aria-label="Return to station" />
         <div className="ctl">
           <span>TIME</span>
           <input type="range" min="0" max="1000" value={Math.round(time * 1000)}
             onChange={(e) => setTime(Number(e.target.value) / 1000)} aria-label="Time of day" />
           <span className="clock">{timeString(time)} · {timeLabel(time)}</span>
         </div>
-        {presets.map(([label, t]) => (
-          <button key={label} onClick={() => setTime(t)}>{label}</button>
+        {presets.map(([label, t, icon]) => (
+          <IconBtn key={label} icon={icon} label={label} onClick={() => setTime(t)} aria-label={`Set time to ${label}`} />
         ))}
-        <button className={traffic ? "on" : ""} onClick={() => setTraffic(!traffic)} aria-pressed={traffic}>
-          TRAFFIC {traffic ? "ON" : "OFF"}
-        </button>
-        <button className={fly ? "on" : ""} onClick={() => setFly(!fly)} aria-pressed={fly}>
-          {fly ? "FLYTHROUGH ON" : "FLYTHROUGH"}
-        </button>
+        <IconBtn icon="cars" label={`TRAFFIC ${traffic ? "ON" : "OFF"}`} className={traffic ? "on" : ""} onClick={() => setTraffic(!traffic)} aria-pressed={traffic} />
+        <IconBtn icon="rocket" label={fly ? "FLYTHROUGH ON" : "FLYTHROUGH"} className={fly ? "on" : ""} onClick={() => setFly(!fly)} aria-pressed={fly} />
       </div>
 
       <div className="sites" aria-label="Sites of interest">
         {HOTSPOTS.map((h) => (
-          <button key={h.id} onClick={() => select(h)}>◆ {h.title}</button>
+          <IconBtn key={h.id} icon="pin" label={h.title} onClick={() => select(h)} />
         ))}
       </div>
 

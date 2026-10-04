@@ -17,6 +17,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
+import AphroIcon from '@/components/aphrodite/icons';
+import { AphroVideoBg, aphroPanel } from '@/components/aphrodite/ambience';
+
+// APHRODITE treatment: ambient profile video behind the page, banner art on
+// the identity header, SVG icon buttons, panel texture on the section cards,
+// styled media empty state + loading skeleton.
+// (Privacy model unchanged: everything stays on this device.)
 import {
   AVATAR_STYLES,
   deleteMediaItem,
@@ -292,7 +299,23 @@ export default function ProfilePage() {
   if (!profile) {
     return (
       <div className="min-h-dvh bg-[#050508] text-neutral-200 flex items-center justify-center">
-        <p className="tracking-[0.3em] uppercase text-xs text-neutral-500">Loading profile…</p>
+        <AphroVideoBg
+          video="/images/aphrodite/profile-loop.mp4"
+          still="/images/aphrodite/profile-still.jpg"
+          storageKey="profile-bg"
+          opacity={0.45}
+        />
+        <div className="relative z-10 flex flex-col items-center gap-5 px-6 w-full max-w-sm">
+          <div className="w-20 h-20 rounded-full border border-rose-300/40 overflow-hidden animate-pulse"
+            style={{ boxShadow: '0 0 30px rgba(244,114,182,0.35)' }}>
+            <img src="/images/aphrodite/profile-still.jpg" alt="" aria-hidden="true"
+              className="w-full h-full object-cover" />
+          </div>
+          <div className="w-full h-4 rounded-full bg-white/10 overflow-hidden">
+            <div className="h-full w-1/2 rounded-full bg-gradient-to-r from-rose-400/70 via-amber-300/70 to-rose-400/70 animate-pulse" />
+          </div>
+          <p className="tracking-[0.3em] uppercase text-xs text-rose-200/80">Reading your rider file…</p>
+        </div>
       </div>
     );
   }
@@ -302,6 +325,12 @@ export default function ProfilePage() {
 
   return (
     <div className="min-h-dvh bg-[#050508] text-neutral-200">
+      <AphroVideoBg
+        video="/images/aphrodite/profile-loop.mp4"
+        still="/images/aphrodite/profile-still.jpg"
+        storageKey="profile-bg"
+        opacity={0.45}
+      />
       <style>{`
         .rider-glow { animation: riderPulse 3.2s ease-in-out infinite; }
         @keyframes riderPulse { 0%,100% { opacity: 0.55; } 50% { opacity: 1; } }
@@ -313,8 +342,8 @@ export default function ProfilePage() {
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
           {/* Client-side nav keeps the root layout — and the radio — alive. */}
           <Link href="/"
-            className="min-h-[44px] inline-flex items-center px-3 rounded-lg border border-white/15 text-sm text-neutral-300 hover:bg-white/10">
-            ← All satellites
+            className="min-h-[44px] inline-flex items-center gap-2 px-3 rounded-lg border border-white/15 text-sm text-neutral-300 hover:bg-white/10">
+            <AphroIcon name="arrow-left" size={15} /> All satellites
           </Link>
           <div className="text-right">
             <div className="text-[10px] tracking-[0.3em] uppercase text-cyan-300/80">Universal</div>
@@ -323,9 +352,16 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      <main className="max-w-3xl mx-auto px-4 pt-6 pb-10 flex flex-col gap-6">
+      <main className="max-w-3xl mx-auto px-4 pt-6 pb-10 flex flex-col gap-6 relative z-10">
         {/* Identity header */}
-        <section aria-label="Identity" className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 flex items-center gap-4">
+        <section aria-label="Identity" className="rounded-2xl border border-rose-300/25 overflow-hidden"
+          style={aphroPanel({ backgroundColor: 'rgba(10,4,8,0.72)' })}>
+          <div className="h-28 sm:h-36 relative border-b border-rose-300/20">
+            <img src="/images/aphrodite/profile-bg.webp" alt="" aria-hidden="true"
+              className="absolute inset-0 w-full h-full object-cover" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
+          </div>
+          <div className="p-5 flex items-center gap-4">
           <AvatarFrame frame={profile.avatarStyle} glow={profile.bikeGlow} size={84} label="Profile avatar">
             {photoUrl ? (
               <Image src={photoUrl} alt="Profile" width={168} height={168} unoptimized className="w-full h-full object-cover" />
@@ -343,10 +379,12 @@ export default function ProfilePage() {
               {saveState === 'saved' && <span className="text-emerald-300">Saved</span>}
             </div>
           </div>
+        </div>
         </section>
 
         {/* Character */}
-        <section aria-label="Character" className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+        <section aria-label="Character" className="rounded-2xl border border-white/10 p-5"
+          style={aphroPanel({ backgroundColor: 'rgba(255,255,255,0.03)' })}>
           <h2 className="text-sm font-bold tracking-[0.3em] uppercase text-neutral-100 mb-1">Character</h2>
           <p className="text-xs text-neutral-500 mb-4">Your rider, everywhere in the launcher. Changes save on their own.</p>
 
@@ -379,20 +417,21 @@ export default function ProfilePage() {
                   {AVATAR_STYLES.map((s) => (
                     <button key={s} type="button" role="radio" aria-checked={profile.avatarStyle === s}
                       onClick={() => patch({ avatarStyle: s })}
-                      className="min-h-[44px] px-4 rounded-lg border text-sm tracking-widest uppercase transition-colors"
+                      className="min-h-[44px] px-4 rounded-lg border text-sm tracking-widest uppercase transition-colors inline-flex items-center gap-2"
                       style={{
                         borderColor: profile.avatarStyle === s ? profile.bikeGlow : 'rgba(255,255,255,0.15)',
                         color: profile.avatarStyle === s ? '#fff' : '#a3a3a3',
                         background: profile.avatarStyle === s ? 'rgba(255,255,255,0.08)' : 'transparent',
                       }}>
+                      <AphroIcon name="frame" size={15} />
                       {FRAME_LABELS[s]}
                     </button>
                   ))}
                 </div>
               </div>
               <button type="button" onClick={randomize}
-                className="min-h-[44px] self-start px-4 rounded-lg border border-white/15 text-sm text-neutral-300 hover:bg-white/10">
-                Surprise me — random colors
+                className="min-h-[44px] self-start px-4 rounded-lg border border-white/15 text-sm text-neutral-300 hover:bg-white/10 inline-flex items-center gap-2">
+                <AphroIcon name="dice" size={16} /> Surprise me — random colors
               </button>
             </div>
           </div>
@@ -408,7 +447,8 @@ export default function ProfilePage() {
         </section>
 
         {/* Photos & videos */}
-        <section aria-label="Photos and videos" className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+        <section aria-label="Photos and videos" className="rounded-2xl border border-white/10 p-5"
+          style={aphroPanel({ backgroundColor: 'rgba(255,255,255,0.03)' })}>
           <h2 className="text-sm font-bold tracking-[0.3em] uppercase text-neutral-100 mb-1">Photos &amp; videos</h2>
           <p className="text-xs text-neutral-500 mb-4">
             Yours, kept on this device in private browser storage. Nothing is uploaded
@@ -419,12 +459,20 @@ export default function ProfilePage() {
             onChange={onFiles} aria-label="Choose photos or videos" />
           <button type="button" onClick={() => fileRef.current && fileRef.current.click()}
             disabled={uploading}
-            className="min-h-[44px] px-5 rounded-lg bg-cyan-300/90 text-black text-sm font-bold tracking-widest uppercase hover:bg-cyan-200 disabled:opacity-50">
+            className="min-h-[44px] px-5 rounded-lg bg-cyan-300/90 text-black text-sm font-bold tracking-widest uppercase hover:bg-cyan-200 disabled:opacity-50 inline-flex items-center gap-2">
+            <AphroIcon name="camera" size={16} />
             {uploading ? 'Adding…' : 'Add photos / videos'}
           </button>
 
           {media.length === 0 ? (
-            <p className="text-sm text-neutral-500 mt-4">Nothing here yet — add your first photo or video above.</p>
+            <div className="mt-4 rounded-xl border border-dashed border-rose-300/30 p-6 flex items-center gap-4"
+              style={aphroPanel({ backgroundColor: 'rgba(10,4,8,0.5)' })}>
+              <span className="text-rose-200/60"><AphroIcon name="camera" size={28} /></span>
+              <p className="text-sm text-neutral-400">
+                <span className="block text-rose-200/90 font-bold tracking-widest uppercase text-xs mb-1">Empty gallery</span>
+                Nothing here yet — add your first photo or video above.
+              </p>
+            </div>
           ) : (
             <>
               <p className="text-[11px] text-neutral-500 tracking-widest uppercase mt-4 mb-2">
@@ -475,7 +523,8 @@ export default function ProfilePage() {
         <div className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4"
           role="dialog" aria-modal="true" aria-label={`${viewer.kind} viewer`}
           onClick={() => { setViewerId(null); setConfirmDelete(false); }}>
-          <div className="w-full max-w-2xl rounded-2xl border border-white/15 bg-[#0a0a12] p-4"
+          <div className="w-full max-w-2xl rounded-2xl border border-white/15 p-4"
+            style={aphroPanel({ backgroundColor: 'rgba(10,4,8,0.94)' })}
             onClick={(e) => e.stopPropagation()}>
             <div className="rounded-xl overflow-hidden bg-black max-h-[60vh] flex items-center justify-center">
               {viewer.kind === 'video' ? (
@@ -495,8 +544,9 @@ export default function ProfilePage() {
               {viewer.kind === 'photo' && (
                 <button type="button"
                   onClick={() => { patch({ profilePhotoId: viewer.id }); setViewerId(null); }}
-                  className="min-h-[44px] px-4 rounded-lg bg-cyan-300/90 text-black text-sm font-bold hover:bg-cyan-200">
-                  {profile.profilePhotoId === viewer.id ? 'This is your profile photo ✓' : 'Use as profile photo'}
+                  className="min-h-[44px] px-4 rounded-lg bg-cyan-300/90 text-black text-sm font-bold hover:bg-cyan-200 inline-flex items-center gap-2">
+                  <AphroIcon name="check" size={15} />
+                  {profile.profilePhotoId === viewer.id ? 'This is your profile photo' : 'Use as profile photo'}
                 </button>
               )}
               <button type="button"
@@ -504,16 +554,17 @@ export default function ProfilePage() {
                   if (confirmDelete) removeMedia(viewer.id);
                   else setConfirmDelete(true);
                 }}
-                className={`min-h-[44px] px-4 rounded-lg border text-sm ${
+                className={`min-h-[44px] px-4 rounded-lg border text-sm inline-flex items-center gap-2 ${
                   confirmDelete
                     ? 'border-red-400 bg-red-500/20 text-red-200'
                     : 'border-white/15 text-neutral-300 hover:bg-white/10'
                 }`}>
+                <AphroIcon name="trash" size={15} />
                 {confirmDelete ? 'Tap again to confirm delete' : 'Delete'}
               </button>
               <button type="button" onClick={() => { setViewerId(null); setConfirmDelete(false); }}
-                className="min-h-[44px] px-4 rounded-lg border border-white/15 text-sm text-neutral-300 hover:bg-white/10 ml-auto">
-                Close
+                className="min-h-[44px] px-4 rounded-lg border border-white/15 text-sm text-neutral-300 hover:bg-white/10 ml-auto inline-flex items-center gap-2">
+                <AphroIcon name="x" size={15} /> Close
               </button>
             </div>
           </div>
