@@ -18,7 +18,7 @@ import * as THREE from 'three';
 import { barrierLoops, startPose, isBumpTrack } from './tracks';
 import { roamSpawn, isRoam } from './roam';
 import { LapTracker, resolveBarrier } from './race';
-import { schemeByKey, vehicleByKey } from './schemes';
+import { schemeByKey, vehicleByKey, skinArtFor } from './schemes';
 import Bots from './Bots';
 import RemoteBikes from './RemoteBikes';
 import EternalFlame from './flame';
@@ -408,15 +408,33 @@ function TrackMesh({ track, scheme }) {
 // rider's chosen scheme color.
 // ---------------------------------------------------------------------------
 
-export function LightCycle({ scheme, bikeRef }) {
+export function LightCycle({ scheme, bikeRef, skinKey }) {
   const neon = scheme.primary;
   const dark = '#0a0e1a';
+  // Bike skin — Merlin's transfer batch 2 wrap art. Loads async; the hull
+  // keeps its dark base color until the texture arrives (or if it 404s).
+  const skinTex = useMemo(() => {
+    if (!skinKey) return null;
+    try {
+      const tex = new THREE.TextureLoader().load(
+        skinArtFor(skinKey),
+        undefined,
+        undefined,
+        () => { /* keep dark hull on error */ }
+      );
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    } catch {
+      return null;
+    }
+  }, [skinKey]);
+  useEffect(() => () => { if (skinTex) skinTex.dispose(); }, [skinTex]);
   return (
     <group ref={bikeRef}>
       {/* hull */}
       <mesh position={[0, 0.55, 0.2]}>
         <boxGeometry args={[0.72, 0.42, 3.1]} />
-        <meshBasicMaterial color={dark} />
+        <meshBasicMaterial color={skinTex ? '#ffffff' : dark} map={skinTex || undefined} />
       </mesh>
       {/* nose wedge */}
       <mesh position={[0, 0.55, 2.15]} rotation={[Math.PI / 2, 0, 0]}>
@@ -1447,7 +1465,7 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, playerTrai
 
   return (
     <>
-      <LightCycle scheme={scheme} bikeRef={bikeRef} />
+      <LightCycle scheme={scheme} bikeRef={bikeRef} skinKey={skinKey} />
       {/* Trail-immunity shield ring: follows the bike, visible while immune. */}
       <mesh ref={shieldRef} position={[0, 0.5, 0]} visible={false}>
         <torusGeometry args={[2.6, 0.12, 8, 40]} />
@@ -1471,6 +1489,7 @@ function Rig({ track, vehicle, scheme, mode, laps, running, inputRef, playerTrai
 export default function RealmScene({
   track,
   vehicleKey,
+  skinKey,
   schemeKey,
   mode,
   laps,

@@ -5,6 +5,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from 'react';
+import { submenuArtFor } from '@/lib/god-menus';
 import { BackButton } from '@/components/ui';
 import { fx, unlockFx } from '@/lib/fx';
 import {
@@ -17,6 +18,26 @@ import {
   formatTime,
   DIFFICULTIES,
 } from './puzzle.js';
+
+// Menu Art Transfer batch 2 — submenu art. Background image + dark legibility
+// scrim; a missing image hides itself via onError so the card falls back to
+// its plain style. Never breaks the UI.
+function SubmenuArt({ slot }) {
+  return (
+    <>
+      <img
+        src={submenuArtFor(slot)}
+        alt=""
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+        loading="lazy"
+        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+      />
+      <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-black/55" />
+    </>
+  );
+}
+
 import { createIqScene } from './scene.js';
 
 const BTN =
@@ -205,11 +226,14 @@ export default function IqTestPage() {
                 <button
                   key={key}
                   onClick={() => startGame(key)}
-                  className="min-h-[56px] px-5 rounded-xl font-bold tracking-wide border border-fuchsia-400/40 bg-fuchsia-500/10 text-fuchsia-100 hover:bg-fuchsia-500/25 transition-colors"
+                  className="relative min-h-[56px] px-5 rounded-xl font-bold tracking-wide border border-fuchsia-400/40 bg-fuchsia-500/10 text-fuchsia-100 hover:bg-fuchsia-500/25 transition-colors overflow-hidden"
                 >
-                  {d.label}
-                  <span className="block text-xs font-normal text-white/50">
-                    {d.n * d.n} tiles
+                  <SubmenuArt slot={`submenu-prog-iq-test-${key}`} />
+                  <span className="relative block">
+                    {d.label}
+                    <span className="block text-xs font-normal text-white/50">
+                      {d.n * d.n} tiles
+                    </span>
                   </span>
                 </button>
               ))}
@@ -253,3 +277,4 @@ export default function IqTestPage() {
     </div>
   );
 }
+

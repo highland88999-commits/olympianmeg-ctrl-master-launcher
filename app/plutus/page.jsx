@@ -4,6 +4,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { submenuArtFor } from '@/lib/god-menus';
 import {
   STORAGE_KEY, EXPENSE_CATEGORIES, INCOME_CATEGORIES, CATEGORY_COLORS, CURRENCIES,
   blankData, demoData, loadData, saveData, clearData, newId,
@@ -11,6 +12,26 @@ import {
   netForMonth, budgetStatus, goalProgress, formatMoney, validateEntry, validateGoal,
 } from './finance';
 import { DonutChart, MonthBars } from './Charts';
+
+
+// Menu Art Transfer batch 2 — submenu art. Background image + dark legibility
+// scrim; a missing image hides itself via onError so the chip falls back to
+// its plain style. Never breaks the UI.
+function SubmenuArt({ slot }) {
+  return (
+    <>
+      <img
+        src={submenuArtFor(slot)}
+        alt=""
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+        loading="lazy"
+        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+      />
+      <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-black/55" />
+    </>
+  );
+}
 
 const TABS = ['Overview', 'Budget', 'Goals', 'Data'];
 
@@ -144,8 +165,9 @@ export default function PlutusPage() {
         <nav className="flex justify-center gap-2 mb-8 flex-wrap" aria-label="Plutus sections">
           {TABS.map((t) => (
             <button key={t} onClick={() => setTab(t)}
-              className={`px-5 py-2 rounded-full text-sm font-bold uppercase tracking-wider transition-colors ${tab === t ? 'bg-emerald-600 text-black' : 'border border-zinc-700 text-zinc-400 hover:border-emerald-500 hover:text-white'}`}>
-              {t}
+              className={`relative min-h-[44px] inline-flex items-center justify-center overflow-hidden px-5 py-2 rounded-full text-sm font-bold uppercase tracking-wider transition-colors ${tab === t ? 'bg-emerald-600 text-black' : 'border border-zinc-700 text-zinc-400 hover:border-emerald-500 hover:text-white'}`}>
+              {tab !== t && <SubmenuArt slot={`submenu-prog-plutus-tab-${t.toLowerCase()}`} />}
+              <span className="relative">{t}</span>
             </button>
           ))}
         </nav>
@@ -367,3 +389,4 @@ export default function PlutusPage() {
     </main>
   );
 }
+

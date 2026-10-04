@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
+import { submenuArtFor } from '@/lib/god-menus';
 import { BackButton } from '@/components/ui';
 import { Pit } from '@/components/colosseum/Pit';
 import { ColosseumGame, ROUND_SECONDS, INJECTOR_MAX } from '@/lib/colosseum/game';
@@ -8,6 +9,26 @@ import { fetchTopScores, fetchRoomScores, submitScore } from '@/lib/colosseum/st
 import { fx, unlockFx } from '@/lib/fx';
 import OasisLobby from '@/components/oasis/Lobby';
 import { supabase } from '@/lib/supabase';
+
+
+// Menu Art Transfer batch 2 — submenu art. Background image + dark legibility
+// scrim; a missing image hides itself via onError so the card falls back to
+// its plain style. Never breaks the UI.
+function SubmenuArt({ slot }) {
+  return (
+    <>
+      <img
+        src={submenuArtFor(slot)}
+        alt=""
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+        loading="lazy"
+        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+      />
+      <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-black/55" />
+    </>
+  );
+}
 
 function simulateNpcGlory(difficulty) {
   const d = Math.max(1, Math.min(10, Number(difficulty) || 3));
@@ -196,17 +217,23 @@ export default function ColosseumPage() {
           <div className="w-full space-y-3">
             <button
               onClick={() => startGame('arena')}
-              className="w-full min-h-[60px] rounded-2xl bg-gradient-to-r from-teal-500 to-emerald-600 font-bold text-lg tracking-wide active:scale-[0.98]"
+              className="relative w-full min-h-[60px] overflow-hidden rounded-2xl bg-gradient-to-r from-teal-500 to-emerald-600 font-bold text-lg tracking-wide active:scale-[0.98]"
             >
-              ⚔️ ENTER THE PIT
-              <span className="block text-xs font-normal opacity-80">60 seconds · endless waves</span>
+              <SubmenuArt slot="submenu-prog-colosseum-enter-the-pit" />
+              <span className="relative block">
+                ⚔️ ENTER THE PIT
+                <span className="block text-xs font-normal opacity-80">60 seconds · endless waves</span>
+              </span>
             </button>
             <button
               onClick={() => startGame('boss')}
-              className="w-full min-h-[60px] rounded-2xl bg-gradient-to-r from-red-600 to-orange-600 font-bold text-lg tracking-wide active:scale-[0.98]"
+              className="relative w-full min-h-[60px] overflow-hidden rounded-2xl bg-gradient-to-r from-red-600 to-orange-600 font-bold text-lg tracking-wide active:scale-[0.98]"
             >
-              👑 CHALLENGE THE CHAMPION
-              <span className="block text-xs font-normal opacity-80">Face the Undying Champion herself</span>
+              <SubmenuArt slot="submenu-prog-colosseum-challenge-the-champion" />
+              <span className="relative block">
+                👑 CHALLENGE THE CHAMPION
+                <span className="block text-xs font-normal opacity-80">Face the Undying Champion herself</span>
+              </span>
             </button>
           </div>
 
@@ -499,3 +526,4 @@ export default function ColosseumPage() {
     </div>
   );
 }
+

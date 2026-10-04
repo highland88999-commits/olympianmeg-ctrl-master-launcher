@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { submenuArtFor } from '@/lib/god-menus';
 import {
   MODES,
   createCamera,
@@ -10,6 +11,29 @@ import {
 import { createArenaScene } from './scene';
 import Tickets from './tickets';
 import Live from './live';
+// Menu Art Transfer batch 2 — submenu art. Background image + dark legibility
+// scrim; a missing image hides itself via onError so the chip falls back to
+// its plain style. Never breaks the UI.
+function SubmenuArt({ slot }) {
+  return (
+    <>
+      <img
+        src={submenuArtFor(slot)}
+        alt=""
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+        loading="lazy"
+        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+      />
+      <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-black/55" />
+    </>
+  );
+}
+
+// Arena mode id -> submenu art slot suffix.
+const MODE_ART = { concert: 'concert-night', game: 'game-night', quiet: 'empty-arena' };
+
+
 
 export default function RogersArenaPage() {
   const mountRef = useRef(null);
@@ -165,13 +189,14 @@ export default function RogersArenaPage() {
                   key={m.id}
                   onClick={() => pickMode(m.id)}
                   aria-pressed={modeId === m.id}
-                  className={`min-h-[44px] px-4 sm:px-6 rounded-full text-xs sm:text-sm font-bold uppercase tracking-widest border transition-all ${
+                  className={`relative min-h-[44px] inline-flex items-center justify-center overflow-hidden px-4 sm:px-6 rounded-full text-xs sm:text-sm font-bold uppercase tracking-widest border transition-all ${
                     modeId === m.id
                       ? 'bg-cyan-400/90 text-black border-cyan-300'
                       : 'bg-black/60 text-zinc-300 border-white/20 hover:border-cyan-400/60'
                   }`}
                 >
-                  {m.label}
+                  {modeId !== m.id && <SubmenuArt slot={`submenu-prog-rogers-arena-${MODE_ART[m.id]}`} />}
+                  <span className="relative">{m.label}</span>
                 </button>
               ))}
             </div>
@@ -184,3 +209,4 @@ export default function RogersArenaPage() {
     </>
   );
 }
+

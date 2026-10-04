@@ -1,5 +1,30 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { submenuArtFor } from '@/lib/god-menus';
+
+// Menu Art Transfer batch 2 — submenu art. Background image + dark legibility
+// scrim; a missing image hides itself via onError so the floor button falls
+// back to its plain styled card. Never breaks the UI.
+function SubmenuArt({ slot }) {
+  return (
+    <>
+      <img
+        src={submenuArtFor(slot)}
+        alt=""
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+        loading="lazy"
+        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+      />
+      <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-black/55" />
+    </>
+  );
+}
+
+// Floor id -> submenu art slot. The aquarium floor is "The Overlook".
+function floorArtSlot(id) {
+  return `submenu-babel-${id === 'aquarium' ? 'overlook' : id}`;
+}
 
 // BABEL elevator menu — collapsible. Expanded: the full floor grid.
 // Collapsed: a single floating icon button, bottom-left, out of the way so
@@ -77,13 +102,14 @@ export default function ElevatorPanel({ floors, onSelect, reduced }) {
             <button
               key={f.id}
               onClick={() => onSelect(f.id)}
-              className="min-h-[52px] px-3 py-2 rounded-lg border text-left transition-all hover:scale-[1.02]"
+              className="relative min-h-[52px] px-3 py-2 rounded-lg border text-left transition-all hover:scale-[1.02] overflow-hidden"
               style={{ borderColor: `${f.accent}55`, background: `${f.accent}14` }}
             >
-              <span className="block text-sm font-black tracking-widest uppercase" style={{ color: f.accent }}>
+              <SubmenuArt slot={floorArtSlot(f.id)} />
+              <span className="relative block text-sm font-black tracking-widest uppercase" style={{ color: f.accent }}>
                 {f.name}
               </span>
-              <span className="block text-[10px] text-zinc-400 mt-0.5">{f.subtitle}</span>
+              <span className="relative block text-[10px] text-zinc-400 mt-0.5">{f.subtitle}</span>
             </button>
           ))}
         </div>

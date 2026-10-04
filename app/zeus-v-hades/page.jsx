@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { submenuArtFor } from '@/lib/god-menus';
 import {
   DIFFICULTIES,
   RACE_DISTANCE,
@@ -17,6 +18,29 @@ import { fx, unlockFx, setFxEnabled, isFxEnabled } from '@/lib/fx';
 // Race feedback routes through the central FX library (lib/fx.js): matched
 // sound+haptic pairs, one launcher-wide "Sound & vibration" setting.
 // (The old bespoke ./audio.js sfx is retired — left in place, unused.)
+
+
+// Menu Art Transfer batch 2 — submenu art. Background image + dark legibility
+// scrim; a missing image hides itself via onError so the card falls back to
+// its plain style. Never breaks the UI.
+function SubmenuArt({ slot }) {
+  return (
+    <>
+      <img
+        src={submenuArtFor(slot)}
+        alt=""
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+        loading="lazy"
+        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+      />
+      <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-black/55" />
+    </>
+  );
+}
+
+// Difficulty key -> submenu art slot suffix.
+const DIFF_ART = { gates: 'gates', styx: 'river-styx', tartarus: 'tartarus' };
 
 const DIFF_KEYS = Object.keys(DIFFICULTIES);
 
@@ -292,13 +316,14 @@ export default function ZeusVHadesPage() {
               <button
                 key={k}
                 onClick={() => { fx.tap(); setDifficulty(k); }}
-                className={`px-4 py-3 rounded-lg border-2 font-bold tracking-wider transition-all ${
+                className={`relative min-h-[44px] inline-flex items-center justify-center overflow-hidden px-4 py-3 rounded-lg border-2 font-bold tracking-wider transition-all ${
                   difficulty === k
                     ? 'border-cyan-400 bg-cyan-400/15 text-cyan-200'
                     : 'border-zinc-700 bg-black/50 text-zinc-400'
                 }`}
               >
-                {DIFFICULTIES[k].label}
+                {difficulty !== k && <SubmenuArt slot={`submenu-prog-zeus-v-hades-${DIFF_ART[k]}`} />}
+                <span className="relative">{DIFFICULTIES[k].label}</span>
               </button>
             ))}
           </div>
@@ -373,3 +398,4 @@ export default function ZeusVHadesPage() {
     </>
   );
 }
+

@@ -5,6 +5,7 @@
 // fire. Mobile: left stick moves, right side drags to look, FIRE button.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { submenuArtFor } from '@/lib/god-menus';
 import * as THREE from 'three';
 import {
   WEAPONS,
@@ -25,6 +26,31 @@ import {
   hasLineOfSight,
 } from '@/lib/enyo-bots';
 import { fx, unlockFx, setFxEnabled, isFxEnabled } from '@/lib/fx';
+
+
+// Menu Art Transfer batch 2 — submenu art. Background image + dark legibility
+// scrim; a missing image hides itself via onError so the card falls back to
+// its plain style. Never breaks the UI.
+function SubmenuArt({ slot }) {
+  return (
+    <>
+      <img
+        src={submenuArtFor(slot)}
+        alt=""
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+        loading="lazy"
+        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+      />
+      <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-black/55" />
+    </>
+  );
+}
+
+// Arena map key -> submenu art slot suffix.
+const MAP_ART = { plaza: 'ruined-plaza', depot: 'neon-depot', hollow: 'dust-hollow' };
+// Battle mode -> submenu art slot suffix.
+const MODE_ART = { tdm: 'team-battle', ffa: 'free-for-all' };
 
 const TITLE = 'ENYO — Arena Shooter';
 const EYE = 1.65;
@@ -1507,16 +1533,17 @@ export default function EnyoPage() {
                 <button
                   key={m.key}
                   onClick={() => setMapKey(m.key)}
-                  className={`text-left p-4 rounded-[10px] border transition-colors ${
+                  className={`relative text-left p-4 rounded-[10px] border transition-colors overflow-hidden ${
                     mapKey === m.key ? 'border-amber-400/80 bg-amber-400/10' : 'border-white/15 bg-white/5 hover:bg-white/10'
                   }`}
                 >
+                  <SubmenuArt slot={`submenu-prog-enyo-${MAP_ART[m.key]}`} />
                   <div
                     className="h-14 rounded-lg mb-3"
                     style={{ background: `linear-gradient(135deg, #${m.sky.toString(16).padStart(6, '0')}, #${m.fog.toString(16).padStart(6, '0')})` }}
                   />
-                  <div className="font-bold">{m.name}</div>
-                  <div className="text-[11px] text-neutral-400 mt-1">{m.desc}</div>
+                  <div className="relative font-bold">{m.name}</div>
+                  <div className="relative text-[11px] text-neutral-400 mt-1">{m.desc}</div>
                 </button>
               ))}
             </div>
@@ -1525,21 +1552,23 @@ export default function EnyoPage() {
             <div className="grid grid-cols-2 gap-3">
               <button
                 onClick={() => setMode('tdm')}
-                className={`p-4 rounded-[10px] border text-left transition-colors ${
+                className={`relative p-4 rounded-[10px] border text-left transition-colors overflow-hidden ${
                   mode === 'tdm' ? 'border-amber-400/80 bg-amber-400/10' : 'border-white/15 bg-white/5 hover:bg-white/10'
                 }`}
               >
-                <div className="font-bold">Team battle</div>
-                <div className="text-[11px] text-neutral-400 mt-1">You + 2 allies vs 3 enemies. First team to 30 wins.</div>
+                <SubmenuArt slot={`submenu-prog-enyo-${MODE_ART.tdm}`} />
+                <div className="relative font-bold">Team battle</div>
+                <div className="relative text-[11px] text-neutral-400 mt-1">You + 2 allies vs 3 enemies. First team to 30 wins.</div>
               </button>
               <button
                 onClick={() => setMode('ffa')}
-                className={`p-4 rounded-[10px] border text-left transition-colors ${
+                className={`relative p-4 rounded-[10px] border text-left transition-colors overflow-hidden ${
                   mode === 'ffa' ? 'border-amber-400/80 bg-amber-400/10' : 'border-white/15 bg-white/5 hover:bg-white/10'
                 }`}
               >
-                <div className="font-bold">Free for all</div>
-                <div className="text-[11px] text-neutral-400 mt-1">You vs 5 rivals. First to 20 kills wins.</div>
+                <SubmenuArt slot={`submenu-prog-enyo-${MODE_ART.ffa}`} />
+                <div className="relative font-bold">Free for all</div>
+                <div className="relative text-[11px] text-neutral-400 mt-1">You vs 5 rivals. First to 20 kills wins.</div>
               </button>
             </div>
 
@@ -1551,12 +1580,13 @@ export default function EnyoPage() {
                   <button
                     key={k}
                     onClick={() => setDiffKey(k)}
-                    className={`text-left p-4 rounded-[10px] border transition-colors ${
+                    className={`relative text-left p-4 rounded-[10px] border transition-colors overflow-hidden ${
                       diffKey === k ? 'border-amber-400/80 bg-amber-400/10' : 'border-white/15 bg-white/5 hover:bg-white/10'
                     }`}
                   >
-                    <div className="font-bold">{sk.name}</div>
-                    <div className="text-[11px] text-neutral-400 mt-1">{sk.desc}</div>
+                    <SubmenuArt slot={`submenu-prog-enyo-${k}`} />
+                    <div className="relative font-bold">{sk.name}</div>
+                    <div className="relative text-[11px] text-neutral-400 mt-1">{sk.desc}</div>
                   </button>
                 );
               })}
@@ -1834,3 +1864,4 @@ export default function EnyoPage() {
     </div>
   );
 }
+

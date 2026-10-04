@@ -11,6 +11,37 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { submenuArtFor } from '@/lib/god-menus';
+
+
+// Menu Art Transfer batch 2 — submenu art. Background image + dark legibility
+// scrim; a missing image hides itself via onError so the nav chip falls back
+// to its plain style. Never breaks the UI.
+function SubmenuArt({ slot }) {
+  return (
+    <>
+      <img
+        src={submenuArtFor(slot)}
+        alt=""
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+        loading="lazy"
+        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+      />
+      <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-black/55" />
+    </>
+  );
+}
+
+// Blueprint section id -> submenu art slot suffix.
+const SECTION_ART = {
+  economics: 'economics',
+  coop: 'cooperative',
+  matrix: 'allocation-matrix',
+  legal: 'foundation',
+  roadmap: 'roadmap',
+  midas: 'midas',
+};
 
 const TITLE = 'Olympus | Blueprint Protocol';
 const STORAGE_KEY = 'blueprint-protocol.progress.v1';
@@ -224,10 +255,11 @@ export default function BlueprintProtocolPage() {
             <button
               key={s.id}
               type="button"
-              className={activeSection === s.id ? 'active' : ''}
+              className={(activeSection === s.id ? 'active ' : '') + 'relative overflow-hidden'}
               onClick={() => jump(s.id)}
             >
-              {s.num} // {s.label}
+              {activeSection !== s.id && <SubmenuArt slot={`submenu-prog-blueprint-protocol-${SECTION_ART[s.id]}`} />}
+              <span className="relative">{s.num} // {s.label}</span>
             </button>
           ))}
         </nav>
@@ -323,3 +355,4 @@ export default function BlueprintProtocolPage() {
     </div>
   );
 }
+

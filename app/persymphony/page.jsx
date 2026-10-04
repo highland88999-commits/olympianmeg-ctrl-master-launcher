@@ -1,8 +1,29 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { submenuArtFor } from '@/lib/god-menus';
 import { ARENAS, getArena } from './arenas';
 import { createComposer } from './music';
+
+
+// Menu Art Transfer batch 2 — submenu art. Background image + dark legibility
+// scrim; a missing image hides itself via onError so the card falls back to
+// its plain style. Never breaks the UI.
+function SubmenuArt({ slot }) {
+  return (
+    <>
+      <img
+        src={submenuArtFor(slot)}
+        alt=""
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+        loading="lazy"
+        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+      />
+      <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-black/55" />
+    </>
+  );
+}
 
 function idleLevels(t) {
   return {
@@ -268,14 +289,15 @@ export default function PersymphonyPage() {
                 <button
                   key={a.id}
                   onClick={() => selectArena(a.id)}
-                  className={`min-h-[44px] text-left px-4 py-3 rounded-lg border transition-all ${
+                  className={`relative min-h-[44px] text-left px-4 py-3 rounded-lg border transition-all overflow-hidden ${
                     a.id === arenaId
                       ? 'border-cyan-400 bg-cyan-500/20'
                       : 'border-zinc-700 bg-zinc-900 hover:border-cyan-500/50'
                   }`}
                 >
-                  <span className="text-white font-semibold block">{a.name}</span>
-                  <span className="text-zinc-500 text-xs block">{a.tagline}</span>
+                  <SubmenuArt slot={`submenu-prog-persymphony-${a.id}`} />
+                  <span className="relative text-white font-semibold block">{a.name}</span>
+                  <span className="relative text-zinc-500 text-xs block">{a.tagline}</span>
                 </button>
               ))}
             </div>
@@ -360,3 +382,4 @@ export default function PersymphonyPage() {
     </>
   );
 }
+

@@ -8,6 +8,26 @@
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import StoreSpaceBackground from '@/components/store/StoreSpaceBackground';
+import { submenuArtFor } from '@/lib/god-menus';
+
+// Menu Art Transfer batch 2 — submenu art. Background image + dark legibility
+// scrim; a missing image hides itself via onError so the tile falls back to
+// its plain gradient thumb. Never breaks the UI.
+function SubmenuArt({ slot }) {
+  return (
+    <>
+      <img
+        src={submenuArtFor(slot)}
+        alt=""
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+        loading="lazy"
+        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+      />
+      <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-black/45" />
+    </>
+  );
+}
 
 const MODULES = [
   { title: 'World Builder', route: '/world-engine/architect', desc: 'Generate full 3D worlds from a description', accent: '#00f0ff' },
@@ -53,17 +73,19 @@ export default function WorldEngineDashboard() {
             <button
               key={m.route}
               onClick={() => router.push(m.route)}
-              className="group text-left border border-gray-800 bg-gray-950/60 p-0 overflow-hidden transition-all hover:-translate-y-1"
+              className="group min-h-[44px] text-left border border-gray-800 bg-gray-950/60 p-0 overflow-hidden transition-all hover:-translate-y-1"
               style={{ '--accent': m.accent }}
               onMouseOver={(e) => (e.currentTarget.style.borderColor = m.accent)}
               onMouseOut={(e) => (e.currentTarget.style.borderColor = '')}
             >
               <div
-                className="h-28 w-full"
+                className="relative h-28 w-full overflow-hidden"
                 style={{
                   background: `linear-gradient(135deg, ${m.accent}26 0%, transparent 60%), radial-gradient(circle at 70% 30%, ${m.accent}33, transparent 55%), #050508`,
                 }}
-              />
+              >
+                <SubmenuArt slot={`submenu-worldengine-${m.route.split('/').pop()}`} />
+              </div>
               <div className="p-5">
                 <h2 className="text-lg font-bold tracking-widest mb-1 group-hover:text-white transition-colors" style={{ color: m.accent }}>
                   {m.title}

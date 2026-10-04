@@ -489,6 +489,16 @@ function NexusHub() {
               className="fixed inset-0 z-[40000] ui-element"
             >
               <div className="absolute inset-0 bg-zinc-950/[0.98]" aria-hidden="true" />
+              {/* Menu background video — Merlin's transfer batch 2. */}
+              <video
+                className="absolute inset-0 w-full h-full object-cover opacity-20 pointer-events-none"
+                src="/videos/menu-background.mp4"
+                autoPlay
+                muted
+                loop
+                playsInline
+                aria-hidden="true"
+              />
               <div
                 className="relative h-full flex flex-col gap-5 p-4 sm:p-6"
                 style={{

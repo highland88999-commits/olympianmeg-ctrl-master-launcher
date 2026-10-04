@@ -214,7 +214,7 @@ t('menuBannerFor(unknown god) returns empty string (graceful fallback)',
 t('menuBannerFor(non-string) returns empty string',
   menuBannerFor(null) === '' && menuBannerFor(42) === '');
 t('menuArtFor returns the satellite art convention path',
-  menuArtFor('order-67') === '/textures/menus/satellites/order-67.jpeg');
+  menuArtFor('order-67') === '/images/menu/programs/order-67.webp');
 t('menuArtFor(empty/non-string) returns empty string',
   menuArtFor('') === '' && menuArtFor(null) === '');
 t('menuArtFor never throws on junk input',

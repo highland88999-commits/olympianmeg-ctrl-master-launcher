@@ -1,7 +1,31 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { submenuArtFor } from '@/lib/god-menus';
 import Image from 'next/image';
+// Menu Art Transfer batch 2 — submenu art. Background image + dark legibility
+// scrim; a missing image hides itself via onError so the tab falls back to
+// its plain style. Never breaks the UI.
+function SubmenuArt({ slot }) {
+  return (
+    <>
+      <img
+        src={submenuArtFor(slot)}
+        alt=""
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+        loading="lazy"
+        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+      />
+      <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-black/55" />
+    </>
+  );
+}
+
+// Vault tab id -> submenu art slot suffix.
+const TAB_ART = { library: 'tab-library', rentals: 'tab-borrowed', saved: 'tab-saved' };
+
+
 
 const CSS = `
 .uv-root { min-height: 100dvh; background: #050508; color: #f2f2f2;
@@ -289,8 +313,10 @@ export default function UserProfilePage() {
           <div className="uv-tabs" role="tablist">
             {TABS.map((t) => (
               <button key={t.id} role="tab" aria-selected={tab === t.id}
-                className={'uv-tab' + (tab === t.id ? ' on' : '')} onClick={() => setTab(t.id)}>
-                {t.label.toUpperCase()}
+                className={'uv-tab' + (tab === t.id ? ' on' : '')} onClick={() => setTab(t.id)}
+                style={{ position: 'relative', overflow: 'hidden', borderRadius: '8px' }}>
+                {tab !== t.id && <SubmenuArt slot={`submenu-prog-user-profile-${TAB_ART[t.id]}`} />}
+                <span style={{ position: 'relative' }}>{t.label.toUpperCase()}</span>
               </button>
             ))}
           </div>
@@ -347,3 +373,4 @@ export default function UserProfilePage() {
     </>
   );
 }
+

@@ -26,6 +26,7 @@ import StylizedGlobe from '@/components/argo/StylizedGlobe';
 import { FLEET, fleetByKey } from '@/components/argo/VehicleArchetypes';
 import TronRider from '@/components/nova/TronRider';
 import { fx } from '@/lib/fx';
+import { submenuArtFor } from '@/lib/god-menus';
 import StoreSpaceBackground from '@/components/store/StoreSpaceBackground';
 import {
   DESTINATIONS,
@@ -39,6 +40,26 @@ import {
   parkedPosition,
   latLonToHub,
 } from '@/lib/argo-flight';
+
+
+// Menu Art Transfer batch 2 — submenu art. Background image + dark legibility
+// scrim; a missing image hides itself via onError so the option falls back to
+// its plain styled card. Never breaks the UI.
+function SubmenuArt({ slot }) {
+  return (
+    <>
+      <img
+        src={submenuArtFor(slot)}
+        alt=""
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+        loading="lazy"
+        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+      />
+      <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-black/55" />
+    </>
+  );
+}
 
 const TITLE = 'ARGO — Fleet Command';
 const VEHICLE_SCALE = 2.2;
@@ -904,18 +925,19 @@ export default function ArgoPage() {
                   role="radio"
                   aria-checked={vehicleKey === v.key}
                   onClick={() => setVehicleKey(v.key)}
-                  className={`min-h-[44px] flex items-center gap-3 px-3 py-2 rounded-lg border text-left transition-colors ${
+                  className={`relative min-h-[44px] flex items-center gap-3 px-3 py-2 rounded-lg border text-left transition-colors overflow-hidden ${
                     vehicleKey === v.key
                       ? 'border-amber-400/70 bg-amber-400/10'
                       : 'border-zinc-800 bg-white/5 hover:bg-white/10'
                   }`}
                 >
+                  <SubmenuArt slot={`submenu-argo-fleet-${v.key}`} />
                   <span
-                    className="w-3 h-3 rounded-full shrink-0"
+                    className="relative w-3 h-3 rounded-full shrink-0"
                     style={{ backgroundColor: v.color }}
                     aria-hidden="true"
                   />
-                  <span>
+                  <span className="relative">
                     <span className="block text-sm font-bold tracking-wider">{v.name}</span>
                     <span className="block text-[11px] text-zinc-400">{v.desc}</span>
                   </span>
@@ -931,14 +953,15 @@ export default function ArgoPage() {
                   role="radio"
                   aria-checked={targetKey === d.key}
                   onClick={() => setTargetKey(d.key)}
-                  className={`min-h-[44px] px-3 py-2 rounded-lg border text-left transition-colors ${
+                  className={`relative min-h-[44px] px-3 py-2 rounded-lg border text-left transition-colors overflow-hidden ${
                     targetKey === d.key
                       ? 'border-cyan-400/70 bg-cyan-400/10'
                       : 'border-zinc-800 bg-white/5 hover:bg-white/10'
                   }`}
                 >
-                  <span className="block text-sm font-bold">{d.name}</span>
-                  <span className="block text-[10px] text-zinc-500">{d.note}</span>
+                  <SubmenuArt slot={`submenu-argo-dest-${d.key}`} />
+                  <span className="relative block text-sm font-bold">{d.name}</span>
+                  <span className="relative block text-[10px] text-zinc-500">{d.note}</span>
                 </button>
               ))}
             </div>
@@ -1039,3 +1062,4 @@ function hubUnitOf(key) {
   if (!d) return { x: 1, y: 0, z: 0 };
   return hubUnit(d.lat, d.lon);
 }
+

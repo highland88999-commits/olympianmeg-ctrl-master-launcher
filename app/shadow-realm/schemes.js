@@ -124,3 +124,29 @@ export const VEHICLES = [
 export function vehicleByKey(key) {
   return VEHICLES.find((v) => v.key === key) || VEHICLES[1];
 }
+
+// --- bike skins ------------------------------------------------------------
+// Merlin's 2026-10-04 Menu Art Transfer vehicle-skin wraps (9). Pure data so
+// the headless suite can import it. art = transfer-app WebP; accent = the
+// skin's signature neon for UI tinting.
+
+export const BIKE_SKINS = [
+  { key: 'skin-bike-neon-cyber', name: 'Neon Cyber', desc: 'Cyan circuitry on black.', accent: '#00f0ff' },
+  { key: 'skin-bike-redline', name: 'Redline', desc: 'Red-hot speed lines.', accent: '#ff2a2a' },
+  { key: 'skin-bike-legacy-blue', name: 'Legacy Blue', desc: 'Classic grid blue.', accent: '#3fa9ff' },
+  { key: 'skin-bike-legacy-circuit', name: 'Legacy Circuit', desc: 'Vintage board traces.', accent: '#7deaff' },
+  { key: 'skin-bike-ares-crimson', name: 'Ares Crimson', desc: 'Blood-red Ares livery.', accent: '#ff2222' },
+  { key: 'skin-bike-olympus-gold', name: 'Olympus Gold', desc: 'Gold champion trim.', accent: '#fbbf24' },
+  { key: 'skin-bike-teal-pulse', name: 'Teal Pulse', desc: 'Teal heartbeat glow.', accent: '#2dd4bf' },
+  { key: 'skin-bike-obsidian-ghost', name: 'Obsidian Ghost', desc: 'Black glass phantom.', accent: '#9adfff' },
+  { key: 'skin-bike-rose-thorn', name: 'Rose Thorn', desc: 'Rose neon thorns.', accent: '#fb7185' },
+];
+
+export function skinByKey(key) {
+  return BIKE_SKINS.find((s) => s.key === key) || BIKE_SKINS[0];
+}
+
+export function skinArtFor(skinKey) {
+  if (typeof skinKey !== 'string' || !skinKey) return '';
+  return `/images/shadow-realm/skins/${skinKey}.webp`;
+}

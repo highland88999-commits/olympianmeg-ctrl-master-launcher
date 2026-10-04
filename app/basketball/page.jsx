@@ -1,6 +1,7 @@
 // Streetball — main route component: menu, HUD, game over, input wiring.
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { submenuArtFor } from '@/lib/god-menus';
 import { BackButton } from '@/components/ui';
 import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
@@ -563,6 +564,26 @@ function Popups({ popups }) {
   );
 }
 
+
+// Menu Art Transfer batch 2 — submenu art. Background image + dark legibility
+// scrim; a missing image hides itself via onError so the card falls back to
+// its plain style. Never breaks the UI.
+function SubmenuArt({ slot }) {
+  return (
+    <>
+      <img
+        src={submenuArtFor(slot)}
+        alt=""
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+        loading="lazy"
+        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+      />
+      <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-black/55" />
+    </>
+  );
+}
+
 function MenuScreen({ onPlay, scores, scoresNote, showHelp, setShowHelp, onOasis }) {
   return (
     <div className="absolute inset-0 z-10 overflow-y-auto bg-gradient-to-b from-[#04060c] via-[#071120] to-[#04060c]">
@@ -576,24 +597,27 @@ function MenuScreen({ onPlay, scores, scoresNote, showHelp, setShowHelp, onOasis
         <div className="w-full flex flex-col gap-3 mt-8">
           <button
             onClick={() => onPlay('shootout')}
-            className="px-6 py-5 rounded border border-cyan-400/60 bg-cyan-500/15 hover:bg-cyan-500/30 transition-all text-left"
+            className="relative overflow-hidden px-6 py-5 rounded border border-cyan-400/60 bg-cyan-500/15 hover:bg-cyan-500/30 transition-all text-left"
           >
-            <div className="text-lg font-black tracking-[0.2em] uppercase text-cyan-100">Timed shootout</div>
-            <div className="text-xs text-zinc-400 tracking-widest uppercase mt-1">60 seconds • Streaks earn bonus points</div>
+            <SubmenuArt slot="submenu-prog-basketball-timed-shootout" />
+            <div className="relative text-lg font-black tracking-[0.2em] uppercase text-cyan-100">Timed shootout</div>
+            <div className="relative text-xs text-zinc-400 tracking-widest uppercase mt-1">60 seconds • Streaks earn bonus points</div>
           </button>
           <button
             onClick={() => onPlay('freeplay')}
-            className="px-6 py-5 rounded border border-zinc-700 bg-black/40 hover:border-zinc-400 transition-all text-left"
+            className="relative overflow-hidden px-6 py-5 rounded border border-zinc-700 bg-black/40 hover:border-zinc-400 transition-all text-left"
           >
-            <div className="text-lg font-black tracking-[0.2em] uppercase text-zinc-100">Free play</div>
-            <div className="text-xs text-zinc-500 tracking-widest uppercase mt-1">No clock • Just shoot around</div>
+            <SubmenuArt slot="submenu-prog-basketball-free-play" />
+            <div className="relative text-lg font-black tracking-[0.2em] uppercase text-zinc-100">Free play</div>
+            <div className="relative text-xs text-zinc-500 tracking-widest uppercase mt-1">No clock • Just shoot around</div>
           </button>
           <button
             onClick={onOasis}
-            className="px-6 py-5 rounded border border-fuchsia-400/60 bg-fuchsia-500/15 hover:bg-fuchsia-500/30 transition-all text-left"
+            className="relative overflow-hidden px-6 py-5 rounded border border-fuchsia-400/60 bg-fuchsia-500/15 hover:bg-fuchsia-500/30 transition-all text-left"
           >
-            <div className="text-lg font-black tracking-[0.2em] uppercase text-fuchsia-100">OASIS multiplayer</div>
-            <div className="text-xs text-zinc-400 tracking-widest uppercase mt-1">Party rooms • Rival matches • Boss battles</div>
+            <SubmenuArt slot="submenu-prog-basketball-oasis-multiplayer" />
+            <div className="relative text-lg font-black tracking-[0.2em] uppercase text-fuchsia-100">OASIS multiplayer</div>
+            <div className="relative text-xs text-zinc-400 tracking-widest uppercase mt-1">Party rooms • Rival matches • Boss battles</div>
           </button>
           <button
             onClick={() => setShowHelp((v) => !v)}
@@ -642,3 +666,4 @@ function MenuScreen({ onPlay, scores, scoresNote, showHelp, setShowHelp, onOasis
     </div>
   );
 }
+

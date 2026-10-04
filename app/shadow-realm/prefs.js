@@ -38,6 +38,7 @@ export function accountIdFromWindow() {
 export const DEFAULT_PREFS = Object.freeze({
   vehicleKey: 'comet',
   schemeKey: 'grid-blue',
+  skinKey: 'skin-bike-neon-cyber',
   trackKey: 'gridiron-oval',
   mode: 'race', // 'race' | 'roam'
   laps: 3,

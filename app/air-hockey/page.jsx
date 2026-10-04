@@ -11,6 +11,7 @@ import {
   loadVisualChoice, saveVisualChoice, createKaleidoscope,
 } from './kaleidoscope.js';
 import { fx, unlockFx, setFxEnabled, isFxEnabled } from '@/lib/fx';
+import { submenuArtFor } from '@/lib/god-menus';
 
 // Air-hockey feedback routes through the central FX library (lib/fx.js):
 // matched sound+haptic pairs, one launcher-wide "Sound & vibration" setting.
@@ -26,6 +27,26 @@ function createSound() {
     win() { fx.gameWin(); }, // match win: full fanfare
     lose() { fx.menuClose(); }, // defeat: soft settle, no buzz-shame
   };
+}
+
+
+// Menu Art Transfer batch 2 — submenu art. Background image + dark legibility
+// scrim; a missing image hides itself via onError so the option falls back to
+// its plain styled chip. Never breaks the UI.
+function SubmenuArt({ slot }) {
+  return (
+    <>
+      <img
+        src={submenuArtFor(slot)}
+        alt=""
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+        loading="lazy"
+        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+      />
+      <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-black/55" />
+    </>
+  );
 }
 
 export default function AirHockeyPage() {
@@ -316,13 +337,14 @@ export default function AirHockeyPage() {
                   role="radio"
                   aria-checked={difficulty === d}
                   onClick={() => { fx.tap(); setDifficulty(d); }}
-                  className={`px-4 py-2 rounded font-bold uppercase text-sm tracking-wider border transition-all ${
+                  className={`relative min-h-[44px] inline-flex items-center justify-center overflow-hidden px-4 py-2 rounded font-bold uppercase text-sm tracking-wider border transition-all ${
                     difficulty === d
                       ? 'bg-cyan-500/30 border-cyan-400 text-white'
                       : 'bg-black/40 border-zinc-700 text-zinc-400 hover:border-cyan-500/50'
                   }`}
                 >
-                  {DIFFICULTIES[d].label}
+                  {difficulty !== d && <SubmenuArt slot={`submenu-prog-air-hockey-${d}`} />}
+                  <span className="relative">{DIFFICULTIES[d].label}</span>
                 </button>
               ))}
             </div>
@@ -334,13 +356,14 @@ export default function AirHockeyPage() {
                   role="radio"
                   aria-checked={visual === v}
                   onClick={() => changeVisual(v)}
-                  className={`px-4 py-2 rounded font-bold uppercase text-sm tracking-wider border transition-all ${
+                  className={`relative min-h-[44px] inline-flex items-center justify-center overflow-hidden px-4 py-2 rounded font-bold uppercase text-sm tracking-wider border transition-all ${
                     visual === v
                       ? 'bg-fuchsia-500/30 border-fuchsia-400 text-white'
                       : 'bg-black/40 border-zinc-700 text-zinc-400 hover:border-fuchsia-500/50'
                   }`}
                 >
-                  {v === 'kaleidoscope' ? '🌈 Kaleidoscope' : 'Classic table'}
+                  {visual !== v && <SubmenuArt slot={`submenu-prog-air-hockey-table-${v}`} />}
+                  <span className="relative">{v === 'kaleidoscope' ? '🌈 Kaleidoscope' : 'Classic table'}</span>
                 </button>
               ))}
             </div>
@@ -383,3 +406,4 @@ export default function AirHockeyPage() {
     </main>
   );
 }
+

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { submenuArtFor } from '@/lib/god-menus';
 import { SECTORS, getSector, HAZARD_LABEL } from './content';
 import { TERMINAL_BANNER, runCommand } from './terminal';
 import {
@@ -14,6 +15,31 @@ import {
 // (neural-backpack.js). All backends are stripped: this is a local hub
 // portal with four tabs — hub overview, a procedural sector view, a
 // clearly-simulated terminal, and a local loadout panel.
+
+
+// Menu Art Transfer batch 2 — submenu art. Background image + dark legibility
+// scrim; a missing image hides itself via onError so the option falls back to
+// its plain style. Never breaks the UI.
+function SubmenuArt({ slot }) {
+  return (
+    <>
+      <img
+        src={submenuArtFor(slot)}
+        alt=""
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+        loading="lazy"
+        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+      />
+      <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-black/55" />
+    </>
+  );
+}
+
+// Hub tab label -> submenu art slot suffix.
+function tabArtSlug(t) {
+  return `tab-${t.toLowerCase()}`;
+}
 
 const TABS = ['HUB', 'WORLD', 'TERMINAL', 'BACKPACK'];
 const mono = { fontFamily: 'monospace' };
@@ -168,6 +194,7 @@ export default function OmegaHubPage() {
 
   const tabBtn = (t) => ({
     ...mono,
+    position: 'relative', overflow: 'hidden',
     padding: '10px 14px', minHeight: '44px', cursor: 'pointer',
     background: tab === t ? 'rgba(0,240,255,0.14)' : 'transparent',
     border: '1px solid ' + (tab === t ? '#00f0ff' : 'rgba(0,240,255,0.3)'),
@@ -194,7 +221,10 @@ export default function OmegaHubPage() {
 
         <nav style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '20px' }} aria-label="Hub sections">
           {TABS.map((t) => (
-            <button key={t} onClick={() => setTab(t)} style={tabBtn(t)} aria-pressed={tab === t}>{t}</button>
+            <button key={t} onClick={() => setTab(t)} style={tabBtn(t)} aria-pressed={tab === t}>
+              {tab !== t && <SubmenuArt slot={`submenu-prog-omega-hub-${tabArtSlug(t)}`} />}
+              <span style={{ position: 'relative' }}>{t}</span>
+            </button>
           ))}
         </nav>
 
@@ -210,14 +240,16 @@ export default function OmegaHubPage() {
                   onClick={() => { setSectorId(s.id); setTab('WORLD'); }}
                   style={{
                     ...mono, textAlign: 'left', cursor: 'pointer', padding: '16px',
+                    position: 'relative', overflow: 'hidden', minHeight: '44px',
                     background: 'rgba(0,0,0,0.5)', border: '1px solid ' + s.palette.accent,
                     borderRadius: '8px', color: '#e0ffff',
                   }}
                 >
-                  <div style={{ color: s.palette.accent, fontSize: '0.7rem', letterSpacing: '3px' }}>{s.tag}</div>
-                  <div style={{ fontSize: '1.05rem', fontWeight: 'bold', letterSpacing: '2px', margin: '6px 0' }}>{s.name}</div>
-                  <div style={{ fontSize: '0.82rem', color: 'rgba(224,255,255,0.7)', lineHeight: 1.5 }}>{s.desc}</div>
-                  <div style={{ marginTop: '10px', fontSize: '0.72rem', color: HAZARD_LABEL[s.hazard] === 'CALM' ? '#00ffaa' : '#ffaa00' }}>
+                  <SubmenuArt slot={`submenu-prog-omega-hub-${s.id}`} />
+                  <div style={{ position: 'relative', color: s.palette.accent, fontSize: '0.7rem', letterSpacing: '3px' }}>{s.tag}</div>
+                  <div style={{ position: 'relative', fontSize: '1.05rem', fontWeight: 'bold', letterSpacing: '2px', margin: '6px 0' }}>{s.name}</div>
+                  <div style={{ position: 'relative', fontSize: '0.82rem', color: 'rgba(224,255,255,0.7)', lineHeight: 1.5 }}>{s.desc}</div>
+                  <div style={{ position: 'relative', marginTop: '10px', fontSize: '0.72rem', color: HAZARD_LABEL[s.hazard] === 'CALM' ? '#00ffaa' : '#ffaa00' }}>
                     [{HAZARD_LABEL[s.hazard]}]
                   </div>
                 </button>
@@ -336,3 +368,4 @@ export default function OmegaHubPage() {
     </main>
   );
 }
+

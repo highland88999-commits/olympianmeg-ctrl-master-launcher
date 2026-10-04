@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { submenuArtFor } from '@/lib/god-menus';
 import {
   CATEGORIES,
   getLot,
@@ -202,6 +203,31 @@ function LotDetail({ lot, nowMs, watched, onWatch, onClose }) {
   );
 }
 
+
+// Menu Art Transfer batch 2 — submenu art. Background image + dark legibility
+// scrim; a missing image hides itself via onError so the chip falls back to
+// its plain style. Never breaks the UI.
+function SubmenuArt({ slot }) {
+  return (
+    <>
+      <img
+        src={submenuArtFor(slot)}
+        alt=""
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+        loading="lazy"
+        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+      />
+      <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-black/55" />
+    </>
+  );
+}
+
+// Category label -> submenu art slot suffix.
+function categoryArtSlug(c) {
+  return c.toLowerCase().replace(/ /g, '-');
+}
+
 export default function AuctionHousePage() {
   const [category, setCategory] = useState('All');
   const [watchlist, setWatchlist] = useState([]);
@@ -249,13 +275,14 @@ export default function AuctionHousePage() {
             <button
               key={c}
               onClick={() => setCategory(c)}
-              className={`px-4 py-2 rounded-full text-xs font-bold uppercase tracking-widest border transition-colors ${
+              className={`relative min-h-[44px] inline-flex items-center justify-center overflow-hidden px-4 py-2 rounded-full text-xs font-bold uppercase tracking-widest border transition-colors ${
                 category === c
                   ? 'bg-amber-500/25 border-amber-400/70 text-amber-100'
                   : 'border-zinc-800 text-zinc-400 hover:border-amber-500/40 hover:text-amber-200'
               }`}
             >
-              {c}
+              {category !== c && <SubmenuArt slot={`submenu-prog-auction-house-${categoryArtSlug(c)}`} />}
+              <span className="relative">{c}</span>
             </button>
           ))}
           <span className="ml-2 self-center text-xs text-zinc-500">
@@ -295,3 +322,4 @@ export default function AuctionHousePage() {
     </main>
   );
 }
+

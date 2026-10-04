@@ -1,5 +1,25 @@
 'use client';
 
+
+// Menu Art Transfer batch 2 — submenu art. Background image + dark legibility
+// scrim; a missing image hides itself via onError so the card falls back to
+// its plain style. Never breaks the UI.
+function SubmenuArt({ slot }) {
+  return (
+    <>
+      <img
+        src={submenuArtFor(slot)}
+        alt=""
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+        loading="lazy"
+        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+      />
+      <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-black/55" />
+    </>
+  );
+}
+
 // Raptor Rush — vertical dead-ahead canyon runner. Steer left/right to eat
 // rabbits and dodge rock. Solo hunt: 3 hits ends the run, best saved on this
 // device. OASIS party: timed PvP matches in real rooms — everyone runs their
@@ -7,6 +27,7 @@
 // as the match progresses, high score wins.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { submenuArtFor } from '@/lib/god-menus';
 import { BackButton } from '@/components/ui';
 import {
   createGame,
@@ -371,17 +392,19 @@ export default function RaptorRushPage() {
           <div className="w-full flex flex-col gap-3 mt-8">
             <button
               onClick={() => startRun('solo', null)}
-              className="px-6 py-5 rounded border border-emerald-400/60 bg-emerald-500/15 hover:bg-emerald-500/30 transition-all text-left min-h-[44px]"
+              className="relative overflow-hidden px-6 py-5 rounded border border-emerald-400/60 bg-emerald-500/15 hover:bg-emerald-500/30 transition-all text-left min-h-[44px]"
             >
-              <div className="text-lg font-black tracking-[0.2em] uppercase text-emerald-100">Solo hunt</div>
-              <div className="text-xs text-zinc-400 tracking-widest uppercase mt-1">Endless canyon · 3 hits and the hunt is over</div>
+              <SubmenuArt slot="submenu-prog-raptor-rush-solo-hunt" />
+              <div className="relative text-lg font-black tracking-[0.2em] uppercase text-emerald-100">Solo hunt</div>
+              <div className="relative text-xs text-zinc-400 tracking-widest uppercase mt-1">Endless canyon · 3 hits and the hunt is over</div>
             </button>
             <button
               onClick={() => setOasisOpen(true)}
-              className="px-6 py-5 rounded border border-amber-400/60 bg-amber-500/15 hover:bg-amber-500/30 transition-all text-left min-h-[44px]"
+              className="relative overflow-hidden px-6 py-5 rounded border border-amber-400/60 bg-amber-500/15 hover:bg-amber-500/30 transition-all text-left min-h-[44px]"
             >
-              <div className="text-lg font-black tracking-[0.2em] uppercase text-amber-100">PvP party hunt</div>
-              <div className="text-xs text-zinc-400 tracking-widest uppercase mt-1">Timed match · Real rooms · Rabbits keep coming · High score wins</div>
+              <SubmenuArt slot="submenu-prog-raptor-rush-pvp-party-hunt" />
+              <div className="relative text-lg font-black tracking-[0.2em] uppercase text-amber-100">PvP party hunt</div>
+              <div className="relative text-xs text-zinc-400 tracking-widest uppercase mt-1">Timed match · Real rooms · Rabbits keep coming · High score wins</div>
             </button>
           </div>
 
@@ -627,3 +650,4 @@ export default function RaptorRushPage() {
     </main>
   );
 }
+

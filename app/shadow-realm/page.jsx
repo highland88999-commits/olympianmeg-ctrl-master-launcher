@@ -16,7 +16,8 @@ import RealmScene from './scene';
 import { makeBots, placements } from './ai';
 import { TRACKS, trackByKey, isBumpTrack } from './tracks';
 import { isRoam } from './roam';
-import { TRAIL_SCHEMES, VEHICLES, schemeByKey, vehicleByKey } from './schemes';
+import { TRAIL_SCHEMES, VEHICLES, schemeByKey, vehicleByKey, BIKE_SKINS, skinByKey, skinArtFor } from './schemes';
+import { tronUiArtFor } from '@/lib/god-menus';
 import { parseShadowMode } from './launch';
 // BUMP RACE (Merlin 2026-10-03): bumper bikes around the eternal flame.
 import { BUMP_LIVES, BOT_AGGRESSION, sortBumpStandings } from '@/lib/shadow-realm/bump';
@@ -247,6 +248,7 @@ function ShadowRealmInner() {
   const [trackKey, setTrackKey] = useState(sp.get('track') || prefs?.trackKey || 'gridiron-oval');
   const [vehicleKey, setVehicleKey] = useState(sp.get('vehicle') || prefs?.vehicleKey || 'comet');
   const [schemeKey, setSchemeKey] = useState(prefs?.schemeKey || 'grid-blue');
+  const [skinKey, setSkinKey] = useState(prefs?.skinKey || 'skin-bike-neon-cyber');
   const [laps, setLaps] = useState([3, 5, 8].includes(prefs?.laps) ? prefs.laps : 3);
   const [aiCount, setAiCount] = useState(prefs?.aiCount || 0);
   const [count, setCount] = useState(3);
@@ -1037,11 +1039,36 @@ function ShadowRealmInner() {
   // this same plumbing so touch always wins and the pads vanish the moment
   // tilt starts driving.
 
+  // Art-backed circular control glyph — Merlin's transfer batch 2 tron UI.
+  // The glyph art fills the button; the text label stays underneath as the
+  // fallback and shows through only if the art fails to load.
+  const glyphFace = (artKey, label) => (
+    <span style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%' }}>
+      <span aria-hidden="true">{label}</span>
+      <img
+        src={tronUiArtFor(artKey)}
+        alt=""
+        aria-hidden="true"
+        draggable={false}
+        style={{ position: 'absolute', inset: -1, width: 'calc(100% + 2px)', height: 'calc(100% + 2px)', objectFit: 'cover', borderRadius: '50%', pointerEvents: 'none' }}
+        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+      />
+    </span>
+  );
+
   // ---------------- menus ----------------
   if (stage === 'mode' || stage === 'track' || stage === 'garage' || stage === 'pvp-setup' || stage === 'pvp-lobby') {
     return (
-      <div style={css.screen} onContextMenu={(e) => e.preventDefault()}>
-        <div style={css.center}>
+      <div style={{ ...css.screen, position: 'relative', overflow: 'hidden' }} onContextMenu={(e) => e.preventDefault()}>
+        {/* Night-grid menu art — Merlin's transfer batch 2 (tron-menu-bg). */}
+        <img
+          src={tronUiArtFor('tron-menu-bg')}
+          alt=""
+          aria-hidden="true"
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.35, pointerEvents: 'none' }}
+          onError={(e) => { e.currentTarget.style.display = 'none'; }}
+        />
+        <div style={{ ...css.center, position: 'relative' }}>
           <div style={css.title}>SHADOW REALM</div>
           <div style={css.sub}>NIGHT-CYCLE GRID · TRON LIGHT BIKES</div>
           {stage === 'mode' && (
@@ -1188,6 +1215,30 @@ function ShadowRealmInner() {
                   </div>
                 ))}
               </div>
+              <div style={css.sectionLabel}>BIKE SKIN · MERLIN'S WRAPS</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                {BIKE_SKINS.map((sk) => (
+                  <div
+                    key={sk.key}
+                    style={{ ...css.card, ...(sk.key === skinKey ? css.cardSel : {}), position: 'relative', overflow: 'hidden', minHeight: 96 }}
+                    onClick={() => { setSkinKey(sk.key); persist({ skinKey: sk.key }); try { fx.tap(); } catch {} }}
+                  >
+                    <img
+                      src={skinArtFor(sk.key)}
+                      alt=""
+                      aria-hidden="true"
+                      loading="lazy"
+                      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                    />
+                    <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(2,6,16,.88) 0%, rgba(2,6,16,.25) 60%, rgba(2,6,16,.05) 100%)' }} />
+                    <div style={{ position: 'relative', marginTop: 'auto', paddingTop: 40 }}>
+                      <div style={{ ...css.cardName, color: sk.accent }}>{sk.name}</div>
+                      <div style={css.cardMeta}>{sk.desc.toUpperCase()}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
               {(mode === 'race' || mode === 'bump') && (
                 <>
                   <div style={css.sectionLabel}>AI RIVALS{mode === 'bump' ? ' · MEAN ONES' : ''}</div>
@@ -1204,6 +1255,33 @@ function ShadowRealmInner() {
                   </div>
                 </>
               )}
+              <div style={css.sectionLabel}>CONTROLS</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 4 }}>
+                {[
+                  ['tron-gas', 'GAS'],
+                  ['tron-brake', 'BRAKE'],
+                  ['tron-steer-left', 'STEER L'],
+                  ['tron-steer-right', 'STEER R'],
+                  ['tron-boost', 'BOOST'],
+                  ['tron-recenter', 'RECENTER'],
+                  ['tron-pause', 'HOLD'],
+                  ['tron-leave', 'LEAVE'],
+                ].map(([art, label]) => (
+                  <div key={art} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                    <div style={{ width: 52, height: 52, borderRadius: '50%', overflow: 'hidden', border: '1px solid #1e3a5f', background: '#040a16', position: 'relative' }}>
+                      <img
+                        src={tronUiArtFor(art)}
+                        alt={label}
+                        loading="lazy"
+                        draggable={false}
+                        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                      />
+                    </div>
+                    <div style={{ fontSize: 10, letterSpacing: 1, color: '#64748b' }}>{label}</div>
+                  </div>
+                ))}
+              </div>
               <div style={css.row}>
                 <button style={{ ...css.ghostBtn, flex: 1 }} onClick={() => setStage(mode === 'roam' || mode === 'bump' ? 'mode' : 'track')}>BACK</button>
                 <button style={{ ...css.bigBtn, flex: 2 }} onClick={mount}>
@@ -1354,6 +1432,7 @@ function ShadowRealmInner() {
           track={track}
           vehicleKey={vehicleKey}
           schemeKey={schemeKey}
+          skinKey={skinKey}
           mode={mode}
           laps={laps}
           running={stage === 'ride' && !paused}
@@ -1529,7 +1608,7 @@ function ShadowRealmInner() {
                   onPointerUp={releaseSteerPad(STEER_LEFT)}
                   onPointerCancel={releaseSteerPad(STEER_LEFT)}
                 >
-                  <div style={{ width: 76, height: 76, borderRadius: '50%', border: `2px solid ${scheme.primary}`, background: 'rgba(10,20,40,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30, fontWeight: 700, color: scheme.primary }}>‹</div>
+                  <div style={{ width: 76, height: 76, borderRadius: '50%', border: `2px solid ${scheme.primary}`, background: 'rgba(10,20,40,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30, fontWeight: 700, color: scheme.primary, overflow: 'hidden', position: 'relative' }}>{glyphFace('tron-steer-left', '‹')}</div>
                 </div>
                 <div
                   role="button"
@@ -1538,7 +1617,7 @@ function ShadowRealmInner() {
                   onPointerUp={releaseSteerPad(STEER_RIGHT)}
                   onPointerCancel={releaseSteerPad(STEER_RIGHT)}
                 >
-                  <div style={{ width: 76, height: 76, borderRadius: '50%', border: `2px solid ${scheme.primary}`, background: 'rgba(10,20,40,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30, fontWeight: 700, color: scheme.primary }}>›</div>
+                  <div style={{ width: 76, height: 76, borderRadius: '50%', border: `2px solid ${scheme.primary}`, background: 'rgba(10,20,40,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30, fontWeight: 700, color: scheme.primary, overflow: 'hidden', position: 'relative' }}>{glyphFace('tron-steer-right', '›')}</div>
                 </div>
               </div>
             )}
@@ -1577,7 +1656,17 @@ function ShadowRealmInner() {
                           filter: hud.surging ? 'drop-shadow(0 0 6px #fbbf24)' : 'none',
                         }} />
                     </svg>
-                    <div style={{ position: 'absolute', left: 6, top: 6, width: 76, height: 76, borderRadius: '50%', border: `2px solid ${scheme.primary}`, background: boostHeld ? scheme.primary : 'rgba(10,20,40,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: boostHeld ? '#0a0a0a' : scheme.primary, letterSpacing: 1, transform: boostHeld ? 'scale(1.12)' : 'scale(1)', transition: 'transform 80ms, background 80ms' }}>BOOST</div>
+                    <div style={{ position: 'absolute', left: 6, top: 6, width: 76, height: 76, borderRadius: '50%', border: `2px solid ${scheme.primary}`, background: boostHeld ? scheme.primary : 'rgba(10,20,40,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: boostHeld ? '#0a0a0a' : scheme.primary, letterSpacing: 1, transform: boostHeld ? 'scale(1.12)' : 'scale(1)', transition: 'transform 80ms, background 80ms', overflow: 'hidden' }}>
+                      <img
+                        src={tronUiArtFor('tron-boost')}
+                        alt=""
+                        aria-hidden="true"
+                        draggable={false}
+                        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%', opacity: boostHeld ? 0.25 : 0.85, pointerEvents: 'none' }}
+                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                      />
+                      <span style={{ position: 'relative', textShadow: '0 1px 4px rgba(0,0,0,.9)' }}>BOOST</span>
+                    </div>
                   </div>
                 );
               })()}
@@ -1605,27 +1694,27 @@ function ShadowRealmInner() {
                   aria-label="Recenter view and steering neutral"
                   title="Recenter (or double-tap the track)"
                   onClick={() => { noteControlUse(); motion.recenter('button'); }}
-                  style={css.circleBtn(false)}
+                  style={{ ...css.circleBtn(false), overflow: 'hidden', position: 'relative', padding: 0 }}
                 >
-                  ⟳
+                  {glyphFace('tron-recenter', '⟳')}
                 </button>
               )}
               <button
                 aria-label={paused ? 'Resume ride' : 'Pause ride'}
                 title={paused ? 'Ride' : 'Hold'}
                 onClick={() => { noteControlUse(); setPaused((p) => !p); }}
-                style={css.circleBtn(paused)}
+                style={{ ...css.circleBtn(paused), overflow: 'hidden', position: 'relative', padding: 0 }}
               >
-                {paused ? '▶' : '❚❚'}
+                {paused ? '▶' : glyphFace('tron-pause', '❚❚')}
               </button>
               {!immersed && (
                 <button
                   aria-label="Leave the realm"
                   title="Leave"
                   onClick={leave}
-                  style={css.circleBtn(false)}
+                  style={{ ...css.circleBtn(false), overflow: 'hidden', position: 'relative', padding: 0 }}
                 >
-                  ✕
+                  {glyphFace('tron-leave', '✕')}
                 </button>
               )}
             </div>

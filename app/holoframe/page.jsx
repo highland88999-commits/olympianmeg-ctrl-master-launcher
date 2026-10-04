@@ -1,8 +1,29 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { submenuArtFor } from '@/lib/god-menus';
 import shellEngine from '../terminal/engine.js';
 import { responsiveScale, layoutMonitors, statusLabel, MODES } from './array.js';
+
+
+// Menu Art Transfer batch 2 — submenu art. Background image + dark legibility
+// scrim; a missing image hides itself via onError so the chip falls back to
+// its plain style. Never breaks the UI.
+function SubmenuArt({ slot }) {
+  return (
+    <>
+      <img
+        src={submenuArtFor(slot)}
+        alt=""
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+        loading="lazy"
+        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+      />
+      <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-black/55" />
+    </>
+  );
+}
 
 const { createState, runCommand, promptFor, resolvePath } = shellEngine;
 
@@ -355,9 +376,10 @@ export default function HoloframePage() {
             ['stacked', 'MODE 3: STACKED'],
           ].map(([m, label]) => (
             <button key={m} onClick={() => setMode(m)}
-              className={'px-3 sm:px-4 py-2 text-[11px] sm:text-xs font-bold tracking-wider rounded border transition ' +
+              className={'relative min-h-[44px] inline-flex items-center justify-center overflow-hidden px-3 sm:px-4 py-2 text-[11px] sm:text-xs font-bold tracking-wider rounded border transition ' +
                 (prefs.mode === m ? 'bg-cyan-400 text-black border-cyan-400' : 'border-cyan-400/60 text-cyan-300 hover:bg-cyan-400/10')}>
-              {label}
+              {prefs.mode !== m && <SubmenuArt slot={`submenu-prog-holoframe-${m}`} />}
+              <span className="relative">{label}</span>
             </button>
           ))}
         </div>
@@ -377,3 +399,4 @@ export default function HoloframePage() {
     </div>
   );
 }
+
