@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { formatCents } from '@/lib/persymphony/tickets';
+import { buildShareText, displayTikTokHandle, tiktokProfileUrl } from '@/lib/tiktok-attribution';
 
 const VENUE_LABEL = {
   physical: 'In person',
@@ -22,6 +23,13 @@ export default function TicketShowPage({ params }) {
   const [buyError, setBuyError] = useState('');
   const [copied, setCopied] = useState(false);
   const [buyerName, setBuyerName] = useState('');
+  // One idempotency key per page render for free-ticket claims.
+  const [claimKey] = useState(
+    () =>
+      (typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`)
+  );
 
   useEffect(() => {
     fetch(`/api/persymphony/tickets/shows/${id}`)
@@ -38,6 +46,26 @@ export default function TicketShowPage({ params }) {
     setBuying(tier.id);
     try {
       const q = Math.max(1, Math.min(8, Number(qty[tier.id]) || 1));
+      if (tier.price_cents === 0) {
+        // Free tier — claim directly, no Stripe.
+        const res = await fetch('/api/persymphony/tickets/claim', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            show_id: id,
+            tier_id: tier.id,
+            quantity: q,
+            buyer_name: buyerName,
+            claim_key: claimKey,
+          }),
+        });
+        const d = await res.json();
+        if (!d.ok) throw new Error(d.error || 'Claim failed.');
+        window.location.href = `/persymphony/tickets/success?claimed=${encodeURIComponent(
+          (d.tickets || []).join(',')
+        )}&show_id=${encodeURIComponent(id)}`;
+        return;
+      }
       const res = await fetch('/api/persymphony/tickets/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -52,14 +80,26 @@ export default function TicketShowPage({ params }) {
     }
   }
 
-  function share() {
+  async function share() {
+    // Attribution travels with the link: the performer's TikTok handle.
+    const handle = show?.performer?.tiktok_handle || '';
+    const text = buildShareText({ title: show?.title, tiktokHandle: handle });
     const url = window.location.href;
-    (navigator.clipboard?.writeText(url) || Promise.reject())
-      .then(() => {
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: show?.title || 'PerSymphony show', text, url });
+        return;
+      }
+      throw new Error('no-share');
+    } catch {
+      try {
+        await (navigator.clipboard?.writeText(`${text}\n${url}`) || Promise.reject());
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
-      })
-      .catch(() => setCopied(false));
+      } catch {
+        setCopied(false);
+      }
+    }
   }
 
   if (error) {
@@ -99,6 +139,19 @@ export default function TicketShowPage({ params }) {
             'Performer'
           )}{' '}
           · {show.performance_type} · {VENUE_LABEL[show.venue_type] || show.venue_type}
+          {show.performer?.tiktok_handle && tiktokProfileUrl(show.performer.tiktok_handle) && (
+            <>
+              {' · '}
+              <a
+                href={tiktokProfileUrl(show.performer.tiktok_handle)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[#3a86ff]"
+              >
+                {displayTikTokHandle(show.performer.tiktok_handle)}
+              </a>
+            </>
+          )}
         </p>
         <p className="text-sm text-zinc-300 mt-1">
           {!Number.isNaN(dt.getTime()) &&
@@ -195,7 +248,7 @@ export default function TicketShowPage({ params }) {
                     disabled={buying === t.id}
                     className="flex-1 min-h-[44px] rounded-lg bg-[#3a86ff] text-white font-semibold text-sm disabled:opacity-50"
                   >
-                    {buying === t.id ? 'Starting checkout…' : 'Buy'}
+                    {buying === t.id ? (t.price_cents === 0 ? 'Claiming…' : 'Starting checkout…') : t.price_cents === 0 ? 'Claim free' : 'Buy'}
                   </button>
                 </div>
               </div>

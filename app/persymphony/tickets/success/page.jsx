@@ -9,9 +9,25 @@ import { useSearchParams } from 'next/navigation';
 function SuccessInner() {
   const params = useSearchParams();
   const sessionId = params.get('session_id') || '';
+  const claimedParam = params.get('claimed') || '';
+  const claimedShowId = params.get('show_id') || '';
   const [state, setState] = useState({ phase: 'waiting', tickets: [], show_id: null, show_title: '' });
 
   useEffect(() => {
+    // Free-ticket claims land here directly with the numbers in the URL —
+    // no Stripe session, no polling.
+    if (claimedParam) {
+      const numbers = claimedParam.split(',').map((s) => s.trim()).filter(Boolean);
+      if (numbers.length) {
+        setState({
+          phase: 'ready',
+          tickets: numbers.map((n) => ({ ticket_number: n })),
+          show_id: claimedShowId || null,
+          show_title: '',
+        });
+        return;
+      }
+    }
     if (!sessionId) {
       setState({ phase: 'error', error: 'Missing checkout session.' });
       return;

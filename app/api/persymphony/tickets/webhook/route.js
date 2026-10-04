@@ -1,18 +1,30 @@
 // app/api/persymphony/tickets/webhook/route.js
-// Stripe webhook: issues PerSymphony tickets after a ticket checkout is paid.
+// Stripe webhook: issues PerSymphony tickets after a ticket checkout is paid,
+// and revokes them when the payment is refunded.
 //
 // Signature-verified, idempotent. Follows app/api/store/webhook/route.js.
 //   - Idempotency key: stripe_session_id. Repeat deliveries find the existing
 //     tickets and stop — a double delivery never mints duplicate tickets.
+//   - Inventory is claimed FIRST with a conditional bump
+//     (sold_count + qty <= quantity in the WHERE clause). A lost race never
+//     mints tickets it can't honor — the payment is refunded instead.
+//   - The show is re-validated as on-sale at fulfillment time: a show
+//     cancelled between checkout creation and payment gets no tickets.
 //   - Ticket numbers: unique column + retry on 23505 collision.
 //   - Per-ticket financials (amount_cents, stripe_fee_cents) are stored at
-//     issuance; the ledger aggregates from them (no drift, self-healing).
+//     issuance; the ledger aggregates from them (no drift, self-healing)
+//     and excludes refunded tickets.
+//   - Refunds: `charge.refunded` / `refund.created` mark the session's
+//     tickets refunded and release the inventory. Any refund (even partial)
+//     invalidates the tickets — a partial refund on a ticket makes no sense.
 //   - v1: LEDGER ONLY. No payouts are created anywhere here.
 //
-// Setup (Merlin): in the Stripe dashboard, add a webhook endpoint for
+// Setup (Merlin): in the Stripe dashboard, the webhook endpoint for
 //   https://<app>/api/persymphony/tickets/webhook
-// listening to `checkout.session.completed` + `checkout.session.async_payment_succeeded`,
-// and set STRIPE_PERSYMPHONY_WEBHOOK_SECRET (or the shared STRIPE_WEBHOOK_SECRET)
+// must listen to `checkout.session.completed`,
+// `checkout.session.async_payment_succeeded`, AND `charge.refunded`
+// (refunds need that event to revoke tickets). Set
+// STRIPE_PERSYMPHONY_WEBHOOK_SECRET (or the shared STRIPE_WEBHOOK_SECRET)
 // in Vercel env vars.
 import Stripe from 'stripe';
 import { getServiceClient } from '@/lib/economy/supabase';
@@ -59,6 +71,82 @@ async function mintUniqueTicketNumber(admin, tries = 8) {
   throw new Error('Could not mint a unique ticket number.');
 }
 
+/**
+ * Handle a refund event: find the PerSymphony checkout session behind the
+ * refunded charge, mark its tickets refunded, and release the inventory.
+ * Returns { ok, handled } — handled=false means "not ours".
+ */
+async function handleRefund(stripe, admin, event) {
+  let chargeId = null;
+  if (event.type === 'charge.refunded') {
+    chargeId = event?.data?.object?.id || null;
+  } else if (event.type === 'refund.created') {
+    chargeId = event?.data?.object?.charge || null;
+  }
+  if (!chargeId) return { ok: true, handled: false };
+
+  let paymentIntentId = null;
+  try {
+    const charge = await stripe.charges.retrieve(chargeId);
+    paymentIntentId =
+      typeof charge?.payment_intent === 'string'
+        ? charge.payment_intent
+        : charge?.payment_intent?.id || null;
+  } catch (err) {
+    console.error('Tickets webhook: could not read refunded charge:', err?.message || err);
+    return { ok: true, handled: false };
+  }
+  if (!paymentIntentId) return { ok: true, handled: false };
+
+  let sessionId = null;
+  try {
+    const sessions = await stripe.checkout.sessions.list({ payment_intent: paymentIntentId, limit: 5 });
+    const ours = (sessions?.data || []).find((s) => s?.metadata?.surface === 'persymphony-tickets');
+    sessionId = ours?.id || null;
+  } catch (err) {
+    console.error('Tickets webhook: could not map refund to session:', err?.message || err);
+    return { ok: true, handled: false };
+  }
+  if (!sessionId) return { ok: true, handled: false };
+
+  const { data: tickets, error: tErr } = await admin
+    .from('ps_tickets')
+    .select('id, tier_id, status')
+    .eq('stripe_session_id', sessionId)
+    .neq('status', 'refunded');
+  if (tErr) throw tErr;
+  if (!tickets || tickets.length === 0) {
+    return { ok: true, handled: true, already: true };
+  }
+
+  const ids = tickets.map((t) => t.id);
+  const { error: uErr } = await admin
+    .from('ps_tickets')
+    .update({ status: 'refunded' })
+    .in('id', ids);
+  if (uErr) throw uErr;
+
+  // Release inventory per tier.
+  const byTier = {};
+  for (const t of tickets) byTier[t.tier_id] = (byTier[t.tier_id] || 0) + 1;
+  for (const [tierId, count] of Object.entries(byTier)) {
+    const { data: tier } = await admin
+      .from('ps_ticket_tiers')
+      .select('sold_count')
+      .eq('id', tierId)
+      .maybeSingle();
+    if (tier) {
+      await admin
+        .from('ps_ticket_tiers')
+        .update({ sold_count: Math.max(0, tier.sold_count - count) })
+        .eq('id', tierId);
+    }
+  }
+
+  console.log(`Tickets webhook: refunded ${ids.length} ticket(s) for session ${sessionId}.`);
+  return { ok: true, handled: true, refunded: ids.length };
+}
+
 export const POST = apiGuard(async function POST(req) {
   const stripeKey = process.env.STRIPE_SECRET_KEY;
   const webhookSecret =
@@ -79,6 +167,15 @@ export const POST = apiGuard(async function POST(req) {
     return new Response('Invalid signature.', { status: 400 });
   }
 
+  const admin = await getServiceClient();
+  if (!admin) throw new Error('The ticketing service is not connected yet.');
+
+  // Refunds revoke tickets — handled before the billable gate.
+  if (event.type === 'charge.refunded' || event.type === 'refund.created') {
+    const res = await handleRefund(stripe, admin, event);
+    return Response.json({ ok: true, received: true, refund: res });
+  }
+
   // Only act when the money has actually arrived (shared webhook gate).
   const billable = billableSessionOrNull(event);
   if (billable.ignore) {
@@ -91,9 +188,6 @@ export const POST = apiGuard(async function POST(req) {
     // Not ours — acknowledge so Stripe stops retrying.
     return Response.json({ ok: true, received: true, ignored: true });
   }
-
-  const admin = await getServiceClient();
-  if (!admin) throw new Error('The ticketing service is not connected yet.');
 
   // Idempotency: tickets already issued for this session? Stop here.
   const { data: existing, error: exErr } = await admin
@@ -130,6 +224,49 @@ export const POST = apiGuard(async function POST(req) {
   if (!tier) {
     console.error(`Tickets webhook: tier ${tierId} not found for session ${session.id}.`);
     return Response.json({ ok: true, received: true, ignored: true });
+  }
+
+  // The show must still be on sale — a show cancelled between checkout
+  // creation and payment gets no tickets. The buyer's payment is refunded.
+  const { data: show } = await admin
+    .from('ps_shows')
+    .select('id, status')
+    .eq('id', showId)
+    .maybeSingle();
+  if (!show || !['published', 'live'].includes(show.status)) {
+    console.error(`Tickets webhook: show ${showId} is not on sale (session ${session.id}) — refunding.`);
+    try {
+      const piId = typeof session.payment_intent === 'string'
+        ? session.payment_intent
+        : session.payment_intent?.id;
+      if (piId) await stripe.refunds.create({ payment_intent: piId });
+    } catch (rErr) {
+      console.error('Tickets webhook: automatic refund failed:', rErr?.message || rErr);
+    }
+    return Response.json({ ok: true, received: true, refunded: true, reason: 'show_not_on_sale' });
+  }
+
+  // Claim inventory FIRST, atomically: only proceed when the bump fits
+  // inside the tier quantity. A lost race never mints unhonorable tickets —
+  // the payment is refunded instead of leaving money without tickets.
+  const { data: claimed, error: cErr } = await admin
+    .from('ps_ticket_tiers')
+    .update({ sold_count: tier.sold_count + quantity })
+    .eq('id', tierId)
+    .lte('sold_count', tier.quantity - quantity)
+    .select('id');
+  if (cErr) throw cErr;
+  if (!claimed || claimed.length === 0) {
+    console.error(`Tickets webhook: lost inventory race for tier ${tierId} (session ${session.id}) — refunding.`);
+    try {
+      const piId = typeof session.payment_intent === 'string'
+        ? session.payment_intent
+        : session.payment_intent?.id;
+      if (piId) await stripe.refunds.create({ payment_intent: piId });
+    } catch (rErr) {
+      console.error('Tickets webhook: automatic refund failed:', rErr?.message || rErr);
+    }
+    return Response.json({ ok: true, received: true, refunded: true, reason: 'sold_out_race' });
   }
 
   const feeTotal = await stripeFeeCents(stripe, session);
@@ -179,13 +316,6 @@ export const POST = apiGuard(async function POST(req) {
   } catch (affErr) {
     console.error('Tickets webhook: affiliate accrual failed (non-fatal):', affErr?.message || affErr);
   }
-
-  // Bump sold count. The ps_tier_no_oversell CHECK blocks overselling.
-  const { error: upErr } = await admin
-    .from('ps_ticket_tiers')
-    .update({ sold_count: tier.sold_count + quantity })
-    .eq('id', tierId);
-  if (upErr) throw upErr;
 
   console.log(`Tickets webhook: issued ${quantity} ticket(s) for show ${showId} (session ${session.id}).`);
   return Response.json({ ok: true, issued: quantity });

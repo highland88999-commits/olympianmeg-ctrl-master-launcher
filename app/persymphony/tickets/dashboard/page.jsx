@@ -6,7 +6,52 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
-import { formatCents } from '@/lib/persymphony/tickets';
+import { formatCents, showStatusTransitions } from '@/lib/persymphony/tickets';
+
+const TRANSITION_LABEL = {
+  published: 'Publish',
+  live: 'Go live',
+  ended: 'End show',
+  cancelled: 'Cancel',
+};
+
+function ShowCard({ show: s, statusBusy, onTransition }) {
+  const transitions = showStatusTransitions(s.status);
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <Link href={`/persymphony/tickets/${s.id}`} className="font-semibold">
+            {s.title}
+          </Link>
+          <p className="text-xs text-zinc-500 mt-0.5">
+            {s.performance_type} · {s.venue_type} · {s.status}
+            {s.tickets_redeemed > 0 && ` · ${s.tickets_redeemed} entered`}
+          </p>
+        </div>
+      </div>
+      {transitions.length > 0 && (
+        <div className="flex flex-wrap gap-2 mt-3">
+          {transitions.map((next) => (
+            <button
+              key={next}
+              onClick={() => onTransition(s, next)}
+              disabled={statusBusy === s.id}
+              className={`min-h-[40px] px-4 rounded-lg text-sm font-semibold disabled:opacity-50 ${
+                next === 'cancelled'
+                  ? 'border border-red-500/40 text-red-300'
+                  : 'bg-[#3a86ff] text-white'
+              }`}
+            >
+              {statusBusy === s.id ? 'Updating…' : TRANSITION_LABEL[next] || next}
+            </button>
+          ))}
+        </div>
+      )}
+      <LedgerLine label="Your share" ledger={s.ledger} />
+    </div>
+  );
+}
 
 function LedgerLine({ label, ledger }) {
   if (!ledger) return null;
@@ -33,17 +78,23 @@ export default function PerformerDashboard() {
   const [error, setError] = useState('');
   const [connect, setConnect] = useState(null);
   const [payoutBusy, setPayoutBusy] = useState(false);
+  const [statusBusy, setStatusBusy] = useState('');
+
+  const loadData = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) throw new Error('Sign in to view your dashboard.');
+    const headers = { Authorization: `Bearer ${session.access_token}` };
+    const res = await fetch('/api/persymphony/tickets/performer/overview', { headers });
+    const d = await res.json();
+    if (!d.ok) throw new Error(d.error || 'Could not load your dashboard.');
+    setData(d);
+    return headers;
+  };
 
   useEffect(() => {
     (async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.access_token) throw new Error('Sign in to view your dashboard.');
-        const headers = { Authorization: `Bearer ${session.access_token}` };
-        const res = await fetch('/api/persymphony/tickets/performer/overview', { headers });
-        const d = await res.json();
-        if (!d.ok) throw new Error(d.error || 'Could not load your dashboard.');
-        setData(d);
+        const headers = await loadData();
         fetch('/api/connect/status', { headers })
           .then((r) => r.json())
           .then((c) => {
@@ -55,6 +106,30 @@ export default function PerformerDashboard() {
       }
     })();
   }, []);
+
+  const transitionShow = async (show, next) => {
+    if (next === 'cancelled' && !window.confirm(`Cancel "${show.title}"? This cannot be undone.`)) return;
+    setStatusBusy(show.id);
+    setError('');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const r = await fetch(`/api/persymphony/tickets/shows/${show.id}`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ status: next }),
+      });
+      const d = await r.json();
+      if (!d.ok) throw new Error(d.error || 'Could not update the show.');
+      await loadData();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setStatusBusy('');
+    }
+  };
 
   const setupPayouts = async () => {
     setPayoutBusy(true);
@@ -201,20 +276,7 @@ export default function PerformerDashboard() {
             <h2 className="font-bold mt-8 mb-3">Shows</h2>
             <div className="grid gap-3">
               {data.shows.map((s) => (
-                <div key={s.id} className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <Link href={`/persymphony/tickets/${s.id}`} className="font-semibold">
-                        {s.title}
-                      </Link>
-                      <p className="text-xs text-zinc-500 mt-0.5">
-                        {s.performance_type} · {s.venue_type} · {s.status}
-                        {s.tickets_redeemed > 0 && ` · ${s.tickets_redeemed} entered`}
-                      </p>
-                    </div>
-                  </div>
-                  <LedgerLine label="Your share" ledger={s.ledger} />
-                </div>
+                <ShowCard key={s.id} show={s} statusBusy={statusBusy} onTransition={transitionShow} />
               ))}
               {data.shows.length === 0 && (
                 <p className="text-sm text-zinc-500">No shows yet.</p>

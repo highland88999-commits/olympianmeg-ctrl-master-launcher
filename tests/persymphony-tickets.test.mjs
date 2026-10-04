@@ -21,6 +21,8 @@ import {
   validateShowInput,
   shouldFulfill,
   splitCents,
+  canTransitionShowStatus,
+  showStatusTransitions,
   VENUE_TYPES,
   PLATFORM_FEE_RATE,
 } from '../lib/persymphony/tickets.js';
@@ -102,6 +104,59 @@ describe('fee math (10% of net to the platform)', () => {
     assert.equal(l.net_cents, 3868);
     assert.equal(l.platform_fee_cents + l.performer_share_cents, 3868);
   });
+  it('excludes refunded tickets from the ledger (refunded money is not revenue)', () => {
+    const l = ledgerFromTickets([
+      { amount_cents: 2000, stripe_fee_cents: 66, status: 'valid' },
+      { amount_cents: 2000, stripe_fee_cents: 66, status: 'redeemed' },
+      { amount_cents: 2000, stripe_fee_cents: 66, status: 'refunded' },
+    ]);
+    assert.equal(l.tickets_sold, 2);
+    assert.equal(l.gross_cents, 4000);
+    assert.equal(l.net_cents, 3868);
+  });
+  it('all-refunded show ledgers to zero', () => {
+    const l = ledgerFromTickets([{ amount_cents: 2000, stripe_fee_cents: 66, status: 'refunded' }]);
+    assert.deepEqual([l.tickets_sold, l.gross_cents, l.net_cents], [0, 0, 0]);
+  });
+});
+
+describe('show lifecycle transitions', () => {
+  it('allows the documented transitions', () => {
+    for (const [from, tos] of [
+      ['draft', ['published', 'cancelled']],
+      ['published', ['live', 'cancelled']],
+      ['live', ['ended', 'cancelled']],
+    ]) {
+      for (const to of tos) {
+        assert.ok(canTransitionShowStatus(from, to).ok, `${from} -> ${to}`);
+      }
+    }
+  });
+  it('rejects illegal transitions', () => {
+    for (const [from, to] of [
+      ['draft', 'live'],
+      ['draft', 'ended'],
+      ['published', 'draft'],
+      ['published', 'ended'],
+      ['live', 'published'],
+      ['live', 'draft'],
+      ['ended', 'live'],
+      ['ended', 'cancelled'],
+      ['cancelled', 'published'],
+      ['draft', 'bogus'],
+    ]) {
+      const r = canTransitionShowStatus(from, to);
+      assert.ok(!r.ok && r.error, `${from} -> ${to} should fail`);
+    }
+  });
+  it('exposes the available next states', () => {
+    assert.deepEqual(showStatusTransitions('draft'), ['published', 'cancelled']);
+    assert.deepEqual(showStatusTransitions('published'), ['live', 'cancelled']);
+    assert.deepEqual(showStatusTransitions('live'), ['ended', 'cancelled']);
+    assert.deepEqual(showStatusTransitions('ended'), []);
+    assert.deepEqual(showStatusTransitions('cancelled'), []);
+    assert.deepEqual(showStatusTransitions('bogus'), []);
+  });
 });
 
 describe('entry gate decisions', () => {
@@ -123,9 +178,9 @@ describe('entry gate decisions', () => {
     const d = decideEntry({ ticket: { show_id: showId, status: 'redeemed' }, showId });
     assert.ok(!d.ok && d.code === 'already_redeemed');
   });
-  it('rejects refunded tickets', () => {
+  it('rejects refunded tickets with a dedicated code', () => {
     const d = decideEntry({ ticket: { show_id: showId, status: 'refunded' }, showId });
-    assert.ok(!d.ok && d.code === 'invalid');
+    assert.ok(!d.ok && d.code === 'refunded');
   });
 });
 

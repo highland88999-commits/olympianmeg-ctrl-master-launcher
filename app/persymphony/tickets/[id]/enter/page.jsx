@@ -72,6 +72,17 @@ export default function TicketEntryPage({ params }) {
             {result && !result.ok && (
               <p className="mt-4 text-sm text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg p-3">
                 {result.error}
+                {result.code === 'already_redeemed' && result.redeemed_at && (
+                  <span className="block mt-1 text-xs text-red-300/70">
+                    First scanned{' '}
+                    {new Date(result.redeemed_at).toLocaleString(undefined, {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: 'numeric',
+                      minute: '2-digit',
+                    })}
+                  </span>
+                )}
               </p>
             )}
           </div>
