@@ -1337,6 +1337,10 @@ export default function RealmScene({
   // Bump battle rules key off the track (the host picks eternal-flame for
   // PvP bump) — but never in FREE ROAM, which stays a pure open world.
   const bump = isBumpTrack(track) && !isRoam(mode);
+  // LETHAL TRAILS: live in race modes (solo vs AI, PvP) and bump mode.
+  // FREE ROAM stays chill — trails render but never kill. (Defined here for
+  // the Bots prop below; Rig defines its own copy for the player check.)
+  const trailsLethal = !isRoam(mode);
 
   return (
     <Canvas
