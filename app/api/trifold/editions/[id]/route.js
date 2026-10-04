@@ -33,7 +33,12 @@ export const GET = apiGuard(async function GET(req, ctx) {
   return Response.json({ ok: true, edition });
 });
 
-const EDITABLE = ['newspaper_name', 'newspaper_region', 'newspaper_url', 'og_stories', 'negative_fiction', 'positive_fiction', 'status', 'week_number'];
+const EDITABLE = ['newspaper_name', 'newspaper_region', 'newspaper_url', 'og_stories', 'negative_fiction', 'positive_fiction', 'status', 'week_number', 'page_count', 'pages', 'og_file_url', 'og_file_type'];
+
+// Full pipeline lifecycle. The buddy may submit his own version
+// ('devan_submitted'); the pipeline cron moves it through the rest
+// server-side via the service client — the route must not reject those.
+const ALLOWED_STATUSES = ['draft', 'review', 'devan_submitted', 'ai_generated', 'ready', 'published'];
 
 export const PATCH = apiGuard(async function PATCH(req, ctx) {
   const admin = await getServiceClient();
@@ -54,7 +59,14 @@ export const PATCH = apiGuard(async function PATCH(req, ctx) {
   if (Array.isArray(patch.og_stories)) patch.og_stories = patch.og_stories.slice(0, 20);
   if (typeof patch.negative_fiction === 'string') patch.negative_fiction = patch.negative_fiction.slice(0, 20000);
   if (typeof patch.positive_fiction === 'string') patch.positive_fiction = patch.positive_fiction.slice(0, 20000);
-  if (patch.status && !['draft', 'review', 'published'].includes(patch.status)) {
+  if (patch.page_count !== undefined) {
+    const n = parseInt(patch.page_count, 10);
+    patch.page_count = Number.isNaN(n) ? 3 : Math.min(40, Math.max(1, n));
+  }
+  if (patch.pages !== undefined && (typeof patch.pages !== 'object' || patch.pages === null)) delete patch.pages;
+  if (typeof patch.og_file_url === 'string') patch.og_file_url = patch.og_file_url.slice(0, 500);
+  if (typeof patch.og_file_type === 'string') patch.og_file_type = patch.og_file_type.slice(0, 60);
+  if (patch.status && !ALLOWED_STATUSES.includes(patch.status)) {
     return Response.json({ ok: false, error: 'Bad status.' }, { status: 400 });
   }
   if (patch.status === 'published') {

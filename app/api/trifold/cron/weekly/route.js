@@ -7,12 +7,13 @@
 //   3. Create a draft edition with the OG stories.
 // The buddy reviews in the studio, optionally generates the fiction takes
 // with HIS OWN AI key, edits, and publishes. Human approves — always.
+// (The draft factory lives in lib/trifold/pipeline.js so the fallback
+// pipeline cron can guarantee a week is NEVER empty with identical logic.)
 export const dynamic = 'force-dynamic';
 
 import { apiGuard } from '@/lib/api-guard';
 import { getServiceClient } from '@/lib/trifold/server';
-import { TRIFOLD_NEWSPAPERS, nextNewspaper } from '@/lib/trifold/constants';
-import { fetchTopStories } from '@/lib/trifold/fetch-news';
+import { createDraftEdition } from '@/lib/trifold/pipeline';
 
 function checkCron(req) {
   const secret = process.env.CRON_SECRET;
@@ -25,43 +26,12 @@ function checkCron(req) {
   }
 }
 
-function weekNumber(d = new Date()) {
-  const start = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  return Math.ceil(((d - start) / 86400000 + start.getUTCDay() + 1) / 7);
-}
-
 export const GET = apiGuard(async function GET(req) {
   checkCron(req);
   const admin = await getServiceClient();
   if (!admin) throw new Error('The newsletter service is not connected yet.');
 
-  const { data: settings } = await admin.from('trifold_settings').select('*').eq('id', 1).maybeSingle();
-  const rotationIndex = settings?.rotation_index || 0;
-  const { paper, nextIndex } = nextNewspaper(rotationIndex);
-
-  const stories = await fetchTopStories(paper.rss, 8);
-
-  const { data: edition, error } = await admin
-    .from('trifold_editions')
-    .insert({
-      week_number: weekNumber(),
-      newspaper_name: paper.name,
-      newspaper_region: paper.region,
-      newspaper_url: paper.url,
-      og_stories: stories,
-      status: 'draft',
-    })
-    .select()
-    .single();
-  if (error) throw new Error('Could not draft this week\u2019s issue.');
-
-  const log = Array.isArray(settings?.rotation_log) ? settings.rotation_log : [];
-  log.push({ at: new Date().toISOString(), newspaper: paper.name, region: paper.region, stories: stories.length });
-  await admin.from('trifold_settings').update({
-    rotation_index: nextIndex % TRIFOLD_NEWSPAPERS.length,
-    rotation_log: log.slice(-52),
-    updated_at: new Date().toISOString(),
-  }).eq('id', 1);
+  const { edition, paper, stories } = await createDraftEdition(admin);
 
   return Response.json({
     ok: true,

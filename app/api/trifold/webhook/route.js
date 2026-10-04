@@ -5,10 +5,12 @@
 //   customer.subscription.updated     -> sync status + trial end
 //   customer.subscription.deleted     -> canceled
 //   invoice.payment_failed            -> past_due
+//   invoice.payment_succeeded         -> log the revenue split to trifold_revenue_log
+//                                       (application fee = Merlin's $1, rest = Devan's $4.99)
 //
 // Setup (Merlin): in the Stripe dashboard, the webhook endpoint
 //   https://olympusverse.com/api/trifold/webhook
-// must listen to those four events. Set STRIPE_TRIFOLD_WEBHOOK_SECRET
+// must listen to those five events. Set STRIPE_TRIFOLD_WEBHOOK_SECRET
 // (or the shared STRIPE_WEBHOOK_SECRET) in Vercel env vars.
 export const dynamic = 'force-dynamic';
 
@@ -132,11 +134,61 @@ export const POST = apiGuard(async function POST(req) {
       if (row) await admin.from('trifold_subscriptions').update({ status: 'past_due' }).eq('id', row.id);
       break;
     }
+    case 'invoice.payment_succeeded': {
+      // Money moved: record who got what. Never fails the webhook —
+      // the revenue table arrives with the migration; pre-migration the
+      // log is skipped with an honest server-side note.
+      const invoice = event.data.object;
+      const subId = typeof invoice.subscription === 'string' ? invoice.subscription : invoice.subscription?.id;
+      if (!subId) break;
+      const ours = md(invoice).product === 'trifold' || (await isOurs(admin, subId));
+      if (!ours) break;
+      try {
+        await logTrifoldRevenue(admin, stripe, invoice);
+      } catch (e) {
+        console.error('TRIFOLD: revenue log skipped —', e && e.message ? e.message : e);
+      }
+      break;
+    }
     default:
       break;
   }
   return Response.json({ ok: true });
 });
+
+/**
+ * One row per paid invoice: the gross, the platform fee (Merlin's $1),
+ * and the editor's share ($4.99). Idempotent on stripe_invoice_id.
+ * Throws when the table doesn't exist yet — the caller swallows that so
+ * a pending migration never fails a live webhook.
+ */
+async function logTrifoldRevenue(admin, stripe, invoice) {
+  const { data: existing, error: findErr } = await admin
+    .from('trifold_revenue_log')
+    .select('id')
+    .eq('stripe_invoice_id', invoice.id)
+    .maybeSingle();
+  if (findErr) throw new Error(findErr.message);
+  if (existing) return; // webhook redelivery — already counted
+
+  const subId = typeof invoice.subscription === 'string' ? invoice.subscription : invoice.subscription?.id;
+  const chargeId = typeof invoice.charge === 'string' ? invoice.charge : invoice.charge?.id;
+  if (!chargeId) return; // nothing to split against (e.g. fully-discounted invoice)
+  const charge = await stripe.charges.retrieve(chargeId, { expand: ['application_fee'] });
+  const fee = charge.application_fee;
+  const amountCents = typeof invoice.amount_paid === 'number' ? invoice.amount_paid : (charge.amount || 0);
+  const feeCents = fee && typeof fee.amount === 'number' ? fee.amount : 0;
+
+  const { error } = await admin.from('trifold_revenue_log').insert({
+    stripe_invoice_id: invoice.id,
+    stripe_subscription_id: subId,
+    amount_cents: amountCents,
+    fee_cents: feeCents,
+    devan_cents: Math.max(0, amountCents - feeCents),
+    currency: String(invoice.currency || charge.currency || 'usd').toLowerCase(),
+  });
+  if (error) throw new Error(error.message);
+}
 
 async function isOurs(admin, subscriptionId) {
   if (!subscriptionId) return false;
