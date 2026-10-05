@@ -21,11 +21,16 @@ function LensCard({ lens }) {
     negative: { border: '#f43f5e', glow: 'rgba(244,63,94,0.12)', badge: 'FICTION' },
     positive: { border: '#34d399', glow: 'rgba(52,211,153,0.12)', badge: 'FICTION' },
   }[lens.key];
+  const art = {
+    og: '/images/trifold/lens-og.webp',
+    negative: '/images/trifold/lens-ruin.webp',
+    positive: '/images/trifold/lens-radiant.webp',
+  }[lens.key];
   return (
     <div
       style={{
         border: `1px solid ${colors.border}55`,
-        background: `linear-gradient(180deg, ${colors.glow}, transparent 70%), #0d1226`,
+        background: `linear-gradient(180deg, ${colors.glow}, rgba(13,18,38,0.88) 70%), url(${art}) center/cover, #0d1226`,
         borderRadius: 14,
         padding: '1.4rem',
       }}
@@ -110,7 +115,9 @@ export default function TrifoldLanding() {
   return (
     <main style={{ maxWidth: 880, margin: '0 auto', padding: '2.5rem 1.25rem 4rem', color: '#e8e6df' }}>
       {/* HERO */}
-      <header style={{ textAlign: 'center', marginBottom: '3rem' }}>
+      <header style={{ textAlign: 'center', marginBottom: '3rem', position: 'relative', borderRadius: 18, overflow: 'hidden', padding: '3rem 1.5rem', background: 'url(/images/trifold/hero.webp) center/cover' }}>
+        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(11,14,26,0.55), rgba(11,14,26,0.88))' }} aria-hidden="true" />
+        <div style={{ position: 'relative' }}>
         <p style={{ letterSpacing: '0.35em', color: '#a78bfa', fontSize: '0.8rem', margin: '0 0 0.8rem' }}>A WEEKLY NEWSLETTER</p>
         <h1 style={{ fontSize: '3.2rem', margin: '0 0 0.6rem', letterSpacing: '0.12em', background: 'linear-gradient(135deg,#e8e6df,#a78bfa)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
           {TRIFOLD_NAME}
@@ -120,6 +127,7 @@ export default function TrifoldLanding() {
         <p style={{ color: '#6b7190', fontSize: '0.82rem', marginTop: '0.8rem' }}>
           {TRIFOLD_TRIAL_LABEL}, then {TRIFOLD_PRICE_LABEL}/month. Cancel anytime. No card charged during the trial.
         </p>
+        </div>
       </header>
 
       {/* THE FORMAT */}
