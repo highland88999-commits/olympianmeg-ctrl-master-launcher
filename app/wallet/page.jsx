@@ -213,6 +213,11 @@ export default function WalletPage() {
                     <div style={{ color: '#8b91a8', fontSize: '0.82rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {t.reason || t.program}
                     </div>
+                    {t.kind === 'credit' && (
+                      <div style={{ color: '#5b6178', fontSize: '0.75rem', marginTop: '0.15rem' }}>
+                        gross {fmt(t.gross_cents)} − Stripe fee {fmt(t.stripe_fee_cents)} − platform fee {fmt(t.platform_fee_cents)} = {fmt(t.amount_cents)}
+                      </div>
+                    )}
                     <div style={{ color: '#5b6178', fontSize: '0.75rem' }}>{ts(t.created_at)}</div>
                   </div>
                   <div style={{ textAlign: 'right' }}>

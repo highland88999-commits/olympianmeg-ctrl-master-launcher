@@ -7,6 +7,7 @@ import {
   toCents,
   formatCents,
   availableCents,
+  netFromBreakdown,
   trifoldInvoiceReference,
   MIN_WITHDRAWAL_CENTS,
   getOrCreateWallet,
@@ -180,6 +181,57 @@ try {
 } catch { amtThrew = true; }
 t('credit requires positive amount', amtThrew);
 
+// --- Merlin's fee rule: credits are net of the real Stripe fee ---
+t('net math: 499 - 47 - 0 = 452', netFromBreakdown(499, 47, 0) === 452);
+t('net math: no fees = gross', netFromBreakdown(499, 0, 0) === 499);
+t('net math: platform fee carves too', netFromBreakdown(599, 47, 100) === 452);
+t('net math: fee larger than share floors at 0', netFromBreakdown(100, 500, 0) === 0);
+t('net math: junk coerces to 0 net', netFromBreakdown(-5, 'abc', NaN) === 0);
+
+const U3 = 'user-devan-3';
+const c3 = await creditWallet(admin, U3, {
+  program: 'trifold',
+  grossCents: 499, stripeFeeCents: 47, platformFeeCents: 0,
+  reason: 'TRIFOLD subscription revenue — invoice in_99 (net of $0.47 Stripe fee)',
+  reference: 'trifold:invoice:in_99', currency: 'usd',
+});
+t('breakdown credit nets 452', !c3.duplicate && c3.wallet.balance_cents === 452);
+t('breakdown persisted on the row',
+  c3.transaction.amount_cents === 452
+  && c3.transaction.gross_cents === 499
+  && c3.transaction.stripe_fee_cents === 47
+  && c3.transaction.platform_fee_cents === 0);
+t('breakdown sums: amount = gross - stripe - platform',
+  c3.transaction.amount_cents ===
+    Math.max(0, c3.transaction.gross_cents - c3.transaction.stripe_fee_cents - c3.transaction.platform_fee_cents));
+
+const c3dup = await creditWallet(admin, U3, {
+  program: 'trifold',
+  grossCents: 499, stripeFeeCents: 47, platformFeeCents: 0,
+  reason: 'redelivery', reference: 'trifold:invoice:in_99', currency: 'usd',
+});
+t('idempotency preserved with breakdown', c3dup.duplicate === true
+  && (await getOrCreateWallet(admin, U3)).balance_cents === 452);
+
+let mmThrew = false;
+try {
+  await creditWallet(admin, U3, {
+    program: 'trifold', amountCents: 499, // lies: breakdown says 452
+    grossCents: 499, stripeFeeCents: 47, platformFeeCents: 0,
+    reason: 'x', reference: 'mismatch-1',
+  });
+} catch { mmThrew = true; }
+t('amount/breakdown mismatch throws', mmThrew);
+
+const c4 = await creditWallet(admin, 'user-legacy', {
+  program: 'valkyrie', amountCents: 1500, reason: 'Valkyrie referral reward',
+  reference: 'valkyrie:referral:r9', currency: 'usd',
+});
+t('legacy credit backfills breakdown (gross = amount, fees 0)',
+  c4.transaction.gross_cents === 1500
+  && c4.transaction.stripe_fee_cents === 0
+  && c4.transaction.platform_fee_cents === 0);
+
 // every stored transaction row is timestamped — no exceptions
 t('every txn row timestamped',
   admin.db.wallet_transactions.every((r) => typeof r.created_at === 'string' && r.created_at.length > 0));
@@ -202,6 +254,11 @@ t('users read only their own rows', (mig.match(/using \(auth\.uid\(\) = user_id\
 const createdAts = (mig.match(/created_at timestamptz not null default now\(\)/g) || []).length;
 t(`every table timestamps rows (${createdAts} created_at defaults)`, createdAts >= 3);
 t('destination stores label only', mig.includes('destination_label'));
+t('migration adds fee breakdown columns',
+  mig.includes('gross_cents') && mig.includes('stripe_fee_cents') && mig.includes('platform_fee_cents'));
+t('migration guards the fee formula in the DB',
+  mig.includes('wallet_transactions_fee_math_check')
+  && mig.includes("greatest(0, gross_cents - stripe_fee_cents - platform_fee_cents)"));
 
 console.log(`\nwallet: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

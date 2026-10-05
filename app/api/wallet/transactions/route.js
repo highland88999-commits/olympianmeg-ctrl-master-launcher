@@ -22,7 +22,7 @@ export const GET = apiGuard(async function GET(req) {
 
   let q = admin
     .from('wallet_transactions')
-    .select('id, kind, amount_cents, program, reason, balance_after_cents, created_at')
+    .select('id, kind, amount_cents, gross_cents, stripe_fee_cents, platform_fee_cents, program, reason, balance_after_cents, created_at')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false })
     .limit(limit);

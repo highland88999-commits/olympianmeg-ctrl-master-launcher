@@ -9,6 +9,15 @@
 --   wallets              one row per user: balance_cents, held_cents, currency
 --   wallet_transactions  every movement, ALWAYS timestamped (created_at),
 --                        reference UNIQUE for idempotency (no double-credit)
+--                        Fee transparency (Merlin's rule, 2026-10-04): user
+--                        credits are NET of Stripe fees — the real fee is read
+--                        from the charge's balance_transaction, never
+--                        estimated. Merlin's platform fees stay whole.
+--                        gross_cents        the earner's contractual gross share
+--                        stripe_fee_cents   real Stripe fee deducted from it
+--                        platform_fee_cents platform fee carved from this credit
+--                        amount_cents (net) = max(0, gross - stripe - platform)
+--                        enforced by wallet_transactions_fee_math_check below.
 --   wallet_withdrawals   cash-out requests: requested -> processing ->
 --                        completed | failed | canceled. destination_label
 --                        carries last4/label ONLY — never full details.
@@ -65,6 +74,33 @@ create index if not exists wallet_transactions_user_time_idx
   on public.wallet_transactions (user_id, created_at desc);
 create index if not exists wallet_transactions_program_idx
   on public.wallet_transactions (program);
+
+-- Transparent fee breakdown on every credit (Merlin's rule: user credits
+-- are net of the REAL Stripe fee; platform fees to Merlin stay whole).
+alter table public.wallet_transactions
+  add column if not exists gross_cents int not null default 0;
+alter table public.wallet_transactions
+  add column if not exists stripe_fee_cents int not null default 0;
+alter table public.wallet_transactions
+  add column if not exists platform_fee_cents int not null default 0;
+
+-- DB-level guard of the formula for credits:
+--   amount_cents = max(0, gross_cents - stripe_fee_cents - platform_fee_cents)
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.wallet_transactions'::regclass
+      and conname = 'wallet_transactions_fee_math_check'
+  ) then
+    alter table public.wallet_transactions
+      add constraint wallet_transactions_fee_math_check
+      check (
+        kind <> 'credit'
+        or amount_cents = greatest(0, gross_cents - stripe_fee_cents - platform_fee_cents)
+      );
+  end if;
+end $$;
 
 -- ------------------------------------------------------- wallet_withdrawals
 create table if not exists public.wallet_withdrawals (
