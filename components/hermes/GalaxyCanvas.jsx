@@ -13,6 +13,10 @@ export default function GalaxyCanvas() {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    // Lighter particle field on phones — same look, less battery.
+    const PARTICLE_COUNT = window.innerWidth < 640 ? 2200 : 6000;
+
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 1, 10000);
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
@@ -24,7 +28,7 @@ export default function GalaxyCanvas() {
 
     const geometry = new THREE.BufferGeometry();
     const vertices = [];
-    for (let i = 0; i < 6000; i++) {
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
       vertices.push(
         THREE.MathUtils.randFloatSpread(6000),
         THREE.MathUtils.randFloatSpread(6000),
@@ -43,14 +47,19 @@ export default function GalaxyCanvas() {
     }, 12000);
 
     let animationFrameId;
-    function animate() {
-      animationFrameId = requestAnimationFrame(animate);
-      particlesMesh.rotation.y += 0.0006;
-      particlesMesh.rotation.x += 0.0003;
-      material.color.lerp(targetColor, 0.01);
+    if (reducedMotion) {
+      // One still frame, no motion — the starfield stays as a static backdrop.
       renderer.render(scene, camera);
+    } else {
+      const animate = () => {
+        animationFrameId = requestAnimationFrame(animate);
+        particlesMesh.rotation.y += 0.0006;
+        particlesMesh.rotation.x += 0.0003;
+        material.color.lerp(targetColor, 0.01);
+        renderer.render(scene, camera);
+      };
+      animate();
     }
-    animate();
 
     const handleResize = () => {
       camera.aspect = window.innerWidth / window.innerHeight;
@@ -69,5 +78,5 @@ export default function GalaxyCanvas() {
     };
   }, []);
 
-  return <canvas ref={canvasRef} aria-hidden="true" className="fixed inset-0 -z-10 h-full w-full" />;
+  return <canvas ref={canvasRef} aria-hidden="true" className="pointer-events-none fixed inset-0 z-0 h-full w-full" />;
 }

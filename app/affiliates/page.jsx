@@ -200,7 +200,7 @@ export default function AffiliatesPage() {
               <p className="mt-2 text-5xl font-black text-emerald-300">{data.balance_display}</p>
               <p className="mt-2 text-xs text-zinc-500">
                 {data.threshold.reached
-                  ? 'Threshold reached — set up payouts below to receive your balance.'
+                  ? 'Threshold reached — connect a payout account below so you’re ready for the Dec 11 unlock.'
                   : `${data.threshold.threshold_display} minimum payout`}
               </p>
               <div className="mt-4 flex items-center justify-center gap-6 text-sm">
@@ -240,9 +240,9 @@ export default function AffiliatesPage() {
               </div>
               <p className="mt-2 text-[11px] text-zinc-500">
                 Balances accrue as your referrals buy. True net = sale minus
-                Stripe fees minus real product costs. Payouts are sent manually
-                once your balance reaches the threshold and your payout account
-                is ready — nothing moves on its own.
+                Stripe fees minus real product costs. 🔒 All wallets accumulate
+                until the Dec 11 unlock — then balances pay out through the
+                Christmas queue. Nothing moves on its own before then.
               </p>
             </div>
 
@@ -255,8 +255,8 @@ export default function AffiliatesPage() {
               {connect && connect.connect_status === 'none' && (
                 <>
                   <p className="mt-2 text-sm text-zinc-400">
-                    Connect a payout account to receive your balance. Payouts go
-                    straight to your bank via Stripe.
+                    Connect a payout account now — on Dec 11 your accumulating
+                    balance pays out straight to your bank via Stripe.
                   </p>
                   <button
                     onClick={setupPayouts}

@@ -129,7 +129,7 @@ export default function SubmitDrawer() {
 
           <div className="mb-4">
             <GoldCheckoutOption
-              totalCents={200}
+              totalCents={LISTING_TERMS.feeCents}
               checked={useGold}
               onToggle={setUseGold}
             />

@@ -5,6 +5,14 @@
 import React, { useState } from 'react';
 import { CATEGORIES } from '@/lib/hermes/listings.js';
 
+/** "2031-01-01T00:00:00Z" -> "Jan 2031". Empty string when unparseable. */
+function formatExpiry(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+}
+
 export default function DirectoryGrid({ links }) {
   const [activeCategory, setActiveCategory] = useState('all');
 
@@ -19,7 +27,8 @@ export default function DirectoryGrid({ links }) {
           <button
             key={slug}
             onClick={() => setActiveCategory(slug)}
-            className={`whitespace-nowrap px-5 py-2 rounded-full text-sm font-semibold transition-colors ${
+            aria-pressed={activeCategory === slug}
+            className={`min-h-[44px] whitespace-nowrap px-5 py-2 rounded-full text-sm font-semibold transition-colors ${
               activeCategory === slug
                 ? 'bg-amber-500 text-black'
                 : 'bg-zinc-900 text-zinc-300 hover:bg-zinc-800'
@@ -42,9 +51,7 @@ export default function DirectoryGrid({ links }) {
               href={link.url}
               target="_blank"
               rel="noopener noreferrer"
-              // Translucent + blurred so the deep-space video ghosts behind the
-              // cards while names stay crisp white (same treatment as the store).
-              className="flex flex-col p-5 bg-black/45 backdrop-blur-md border border-zinc-800 rounded-xl hover:border-amber-500/60 transition-colors group"
+              className="flex flex-col p-5 bg-zinc-950/80 border border-zinc-800 rounded-xl hover:border-amber-500/60 transition-colors group"
             >
               <span className="text-[10px] uppercase tracking-widest text-amber-500/80 mb-2">
                 {CATEGORIES[link.category] || link.category}
@@ -53,6 +60,11 @@ export default function DirectoryGrid({ links }) {
                 {link.name}
               </h3>
               <p className="text-xs text-zinc-500 font-mono mt-1 truncate">{link.root_domain}</p>
+              {formatExpiry(link.expires_at) && (
+                <p className="text-[11px] text-zinc-600 mt-1">
+                  Paid through {formatExpiry(link.expires_at)}
+                </p>
+              )}
               <span className="mt-3 text-xs text-zinc-400 group-hover:text-zinc-200">
                 Visit site <span aria-hidden="true">↗</span>
                 <span className="sr-only">(opens in a new tab)</span>
