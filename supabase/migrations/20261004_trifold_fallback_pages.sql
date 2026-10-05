@@ -139,7 +139,7 @@ drop policy if exists trifold_uploads_write_deny on storage.objects;
 create policy trifold_uploads_write_deny
   on storage.objects for insert
   to anon, authenticated
-  using (false) with check (false);
+  with check (false);
 
 drop policy if exists trifold_uploads_update_deny on storage.objects;
 create policy trifold_uploads_update_deny
