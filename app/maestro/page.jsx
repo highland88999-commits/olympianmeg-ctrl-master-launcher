@@ -704,7 +704,7 @@ export default function MaestroPage() {
       </div>
       <div className="relative z-10 flex flex-col min-h-[100dvh]">
       <header className="px-5 pt-8 pb-4 text-center">
-        <h1 className="text-2xl font-bold tracking-[0.3em] uppercase text-white">Maestro</h1>
+        <h1 className="text-2xl font-bold tracking-[0.3em] uppercase text-white">Piano Player</h1>
         <p className="text-xs tracking-widest uppercase text-cyan-500 mt-2">
           MIDI piano &middot; load a file, watch the keys
         </p>

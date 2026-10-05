@@ -298,7 +298,7 @@ export default function OrbitalAscentPage() {
 
       {overlay.kind !== "none" && (
         <div style={{ ...styles.overlay, backgroundImage: `url(${OA_TILE})`, backgroundSize: "128px 128px", backgroundBlendMode: "overlay" }}>
-          <h1 style={styles.title}>Orbital Ascent</h1>
+          <h1 style={styles.title}>Tower Climb</h1>
           <p style={styles.sub}>
             {overlay.kind === "menu" &&
               "A ball, a tower, 99 platforms. It bounces on its own — you steer. Time your single JUMP exactly as the ring closes on landing to boost upward. Fall two levels below your best and the run ends."}

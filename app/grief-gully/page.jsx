@@ -548,7 +548,7 @@ export default function GriefGullyPage() {
           }}
           aria-label="Enter Grief Gully"
         >
-          <h1 className="intro-title">GRIEF GULLY</h1>
+          <h1 className="intro-title">HEALING SPACE</h1>
           <p className="intro-sub">A quiet place to rest</p>
           <p className="intro-line" key={introLine}>
             {INTRO_LINES[introLine]}
@@ -563,7 +563,7 @@ export default function GriefGullyPage() {
             <div className="gg-ambience-row">
               <AmbienceToggle mode={amb.mode} onCycle={amb.cycle} tone="dark" />
             </div>
-            <h1>Grief Gully</h1>
+            <h1>Healing Space</h1>
             <p className="tagline">Healing Matrix — take your time. There is no hurry here.</p>
           </header>
 

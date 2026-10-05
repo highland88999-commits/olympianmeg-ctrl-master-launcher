@@ -174,7 +174,7 @@ function Selector({ onSelect }) {
         <div style={{ textAlign: 'center', marginBottom: 40 }}>
           <div style={{ fontSize: '0.85rem', letterSpacing: 8, color: '#00f2ff' }}>NEXUS VORTEX</div>
           <h1 style={{ fontSize: 'clamp(2rem, 6vw, 3.2rem)', letterSpacing: 6, margin: '10px 0',
-            color: '#f0f', textShadow: '0 0 24px #f0f' }}>R.E.M.</h1>
+            color: '#f0f', textShadow: '0 0 24px #f0f' }}>Dream Journey</h1>
           <p style={{ color: '#9fc', letterSpacing: 2 }}>CHOOSE A PROVINCE OR TERRITORY</p>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 20 }}>

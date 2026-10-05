@@ -315,7 +315,7 @@ export default function BearthPage() {
       <HermesBackdrop src="/images/bearth/bg.webp" imgOpacity={0.4} zIndex={0} />
       <div style={{ ...styles.shell, position: "relative", zIndex: 1 }}>
         <header style={styles.head}>
-          <h1 style={styles.title}>BEARTH</h1>
+          <h1 style={styles.title}>PLANET EXPLORER</h1>
           <p style={styles.sub}>EARTH_B · procedural world engine</p>
           <div aria-hidden="true" style={{ height: 1, margin: "10px auto 0", maxWidth: 320, background: "linear-gradient(to right, transparent, rgba(212,175,55,.7), transparent)" }} />
         </header>

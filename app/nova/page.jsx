@@ -680,7 +680,7 @@ export default function NovaPage() {
           <div className="text-[10px] sm:text-[11px] tracking-[0.3em] uppercase text-cyan-300/90">
             Deep Space
           </div>
-          <h1 className="text-lg sm:text-2xl font-bold tracking-widest mt-0.5">NOVA</h1>
+          <h1 className="text-lg sm:text-2xl font-bold tracking-widest mt-0.5">DEEP SPACE FLIGHT</h1>
           {phase !== 'garage' && (
             <div className="text-[11px] sm:text-xs text-neutral-300 mt-1 tracking-wider">
               {sector ? sector.name : ''} · {bike.name} ·{' '}

@@ -393,7 +393,7 @@ export default function ForgePage() {
       <header className="px-4 sm:px-6 pt-5 pb-3">
         <h1 className="flex items-center gap-3 text-2xl font-black tracking-widest uppercase bg-gradient-to-r from-amber-200 via-orange-400 to-amber-600 bg-clip-text text-transparent">
           <span style={{ color: '#fb923c' }} className="shrink-0"><Glyph size={26}>{IC.flame}</Glyph></span>
-          <span>Forge</span>
+          <span>Code Editor</span>
         </h1>
         <p className="text-xs text-zinc-500 mt-1">
           A pocket code editor. Everything you type is saved on this device only — nothing

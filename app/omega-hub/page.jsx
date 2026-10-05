@@ -191,7 +191,7 @@ export default function OmegaHubPage() {
         <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '18px' }}>
           <div>
             <h1 style={{ margin: 0, fontSize: '1.5rem', letterSpacing: '4px', color: '#00f0ff', textShadow: '0 0 14px rgba(0,240,255,0.6)' }}>
-              OMEGA HUB
+              GATEWAY
             </h1>
             <div style={{ fontSize: '0.75rem', color: 'rgba(224,255,255,0.6)', letterSpacing: '1px', marginTop: '4px' }}>
               Sector gateway — local build, no login, no uplink

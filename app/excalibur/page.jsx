@@ -14,8 +14,8 @@ import { createExcaliburScene } from './scene.js';
 const RING_C = 2 * Math.PI * 52; // progress ring circumference (r=52)
 
 const COPY = {
-  [STATES.IDLE]: { title: 'EXCALIBUR', sub: 'Tap to begin' },
-  [STATES.APPROACH]: { title: 'EXCALIBUR', sub: 'Tap to approach the stone' },
+  [STATES.IDLE]: { title: 'SWORD IN THE STONE', sub: 'Tap to begin' },
+  [STATES.APPROACH]: { title: 'SWORD IN THE STONE', sub: 'Tap to approach the stone' },
   [STATES.ENTERING]: { title: '', sub: '' },
   [STATES.INSIDE]: { title: '', sub: 'Touch the sword and hold on to prove your worth' },
   [STATES.PULLING]: { title: '', sub: 'Hold on…' },

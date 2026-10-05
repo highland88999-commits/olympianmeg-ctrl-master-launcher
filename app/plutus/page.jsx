@@ -181,7 +181,7 @@ export default function PlutusPage() {
       <div className="relative max-w-6xl mx-auto px-5 pt-14 sm:pt-20 pb-16">
         <header className="text-center mb-8">
           <p className="text-xs uppercase tracking-[0.3em] text-emerald-500/80 mb-3">Utilities · Ares</p>
-          <h1 className="text-3xl sm:text-4xl font-black tracking-wide">PLUTUS</h1>
+          <h1 className="text-3xl sm:text-4xl font-black tracking-wide">FINANCE DASHBOARD</h1>
           <p className="text-zinc-400 mt-3 max-w-xl mx-auto text-sm">
             Your personal finance dashboard. Track spending, set budgets, grow savings goals.
           </p>

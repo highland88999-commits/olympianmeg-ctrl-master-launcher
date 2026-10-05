@@ -242,7 +242,7 @@ export default function TreePage() {
       <div aria-hidden="true" style={styles.bgLayer} />
       <div style={styles.shell}>
         <header style={styles.head}>
-          <h1 style={styles.title}>THE CYCLE TREE</h1>
+          <h1 style={styles.title}>SEASONS</h1>
           <p style={styles.sub}>one tree · one year · twelve seconds</p>
         </header>
         <div style={styles.canvasWrap}>

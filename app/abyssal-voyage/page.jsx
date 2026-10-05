@@ -165,7 +165,7 @@ export default function AbyssalVoyagePage() {
           )}
           {screen === "title" && (
             <div style={styles.overlay}>
-              <h1 style={styles.title}>ABYSSAL VOYAGE</h1>
+              <h1 style={styles.title}>DEEP-SEA DIVE</h1>
               <p style={styles.sub}>Descend the trench. Thread the rock gates.<br />Gather pearls to patch your hull.</p>
               <div style={styles.row}>
                 {Object.keys(DIFFICULTY).map((k) => (

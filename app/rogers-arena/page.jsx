@@ -207,7 +207,7 @@ export default function RogersArenaPage() {
           {/* Header */}
           <header className="absolute top-0 left-0 right-0 p-4 sm:p-6 pt-16 sm:pt-20 pointer-events-none">
             <h1 className="text-xl sm:text-2xl font-black tracking-widest uppercase drop-shadow">
-              Rogers Arena
+              Concert Arena
             </h1>
             <p className="text-xs sm:text-sm text-zinc-400 mt-1 max-w-md">
               {mode.description}

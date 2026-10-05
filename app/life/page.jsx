@@ -126,7 +126,7 @@ export default function LifePage() {
             Orbital Matrix
           </div>
           <h1 className="text-lg sm:text-2xl font-bold text-neutral-100 tracking-widest mt-0.5">
-            LIFE
+            SPARK FLIGHT
           </h1>
           <div className="text-[11px] sm:text-xs text-neutral-400 mt-1.5 tracking-wider">
             ZONE: <span className="text-cyan-300 font-bold">{s ? zoneForZoom(s.zoom) : '—'}</span>

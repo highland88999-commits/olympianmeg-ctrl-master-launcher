@@ -807,7 +807,7 @@ export default function MyriadPage() {
             <div className="text-[10px] sm:text-[11px] tracking-[0.3em] uppercase text-cyan-300/90">
               100 procedurally generated universes
             </div>
-            <h1 className="text-3xl sm:text-5xl font-bold tracking-widest mt-1">MYRIAD</h1>
+            <h1 className="text-3xl sm:text-5xl font-bold tracking-widest mt-1">100 UNIVERSES</h1>
             <p className="text-xs sm:text-sm text-zinc-400 mt-2 tracking-wide max-w-2xl">
               Every universe is generated from its own seed — the same seed always
               builds the same sky. Pick a tron bike, pick a universe, and fly it.

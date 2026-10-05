@@ -108,7 +108,7 @@ export default function AntiLifePage() {
             Entropy Core
           </div>
           <h1 className="text-lg sm:text-2xl font-bold text-neutral-200 tracking-widest mt-0.5">
-            ANTI-LIFE
+            ENTROPY SIMULATOR
           </h1>
           <div key={tick} className="text-[11px] sm:text-xs text-neutral-400 mt-1.5 tracking-wider">
             ZONE: <span className="text-neutral-200 font-bold">{zone}</span>

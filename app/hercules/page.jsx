@@ -169,7 +169,7 @@ export default function HerculesPage() {
       {showBriefing && (
         <div className="absolute inset-0 z-20 flex items-center justify-center p-4 pb-[max(1rem,env(safe-area-inset-bottom))] overflow-y-auto bg-black/55" style={{ touchAction: 'pan-y' }}>
           <div className="herc-card w-full max-w-lg rounded-2xl border border-amber-400/30 bg-[#0a0805]/95 p-6 my-8">
-            <h1 className="text-2xl font-bold tracking-[0.25em] text-amber-300">HERCULES</h1>
+            <h1 className="text-2xl font-bold tracking-[0.25em] text-amber-300">SOLAR SYSTEM TOUR</h1>
             <p className="mt-1 text-sm text-zinc-300">A voyage across the solar system.</p>
             <p className="mt-3 text-xs leading-relaxed text-zinc-400">
               Pick a destination and Hercules flies you there, logging the journey

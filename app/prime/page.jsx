@@ -628,7 +628,7 @@ export default function PrimePage() {
         <div className="prime-topbar">
           <BackButton label="Hub" />
           <div className="prime-title">
-            <h1><span className="prime-emblem"><Glyph size={18}>{IC.compass}</Glyph></span>PRIME</h1>
+            <h1><span className="prime-emblem"><Glyph size={18}>{IC.compass}</Glyph></span>STAR NAVIGATOR</h1>
             <p>Star chart</p>
           </div>
           <div className="prime-search-wrap">

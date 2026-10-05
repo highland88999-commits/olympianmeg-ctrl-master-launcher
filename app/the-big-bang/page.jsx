@@ -185,7 +185,7 @@ export default function BigBangPage() {
       <div aria-hidden="true" style={styles.bgLayer} />
       <canvas ref={canvasRef} style={styles.canvas} />
       <div style={styles.top}>
-        <h1 style={styles.title}>The Big Bang</h1>
+        <h1 style={styles.title}>The Cosmic Timeline</h1>
         <div ref={stageNameRef} style={styles.stage}>The First Flash</div>
         <div ref={yearsRef} style={styles.years}>0% of cosmic history</div>
         <p ref={blurbRef} style={styles.blurb}>Everything there is, smaller than an atom.</p>

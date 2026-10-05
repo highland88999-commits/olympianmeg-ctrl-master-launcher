@@ -183,7 +183,7 @@ export default function InfinityDrivePage() {
     <div style={styles.page}>
       <canvas ref={canvasRef} style={styles.canvas} />
       <div style={styles.top}>
-        <h1 style={styles.title}>Infinity Drive</h1>
+        <h1 style={styles.title}>Warp Flight</h1>
         <div ref={hudRef} style={styles.hud}>WARP 5.00</div>
         <div style={styles.hint}>Drag to steer · Throttle below to change warp</div>
       </div>

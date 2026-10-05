@@ -158,7 +158,7 @@ export default function MegaCityPage() {
 
       <header>
         <div className="kicker">ARGUS // Observatory</div>
-        <h1>MEGA CITY</h1>
+        <h1>CYBER METROPOLIS</h1>
         <div className="sub">Nine million lights and one long night. Drag to pan, scroll or pinch to zoom, tap a marker for intel.</div>
       </header>
 

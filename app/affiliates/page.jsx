@@ -137,7 +137,7 @@ export default function AffiliatesPage() {
       <StillBackdrop src="/images/affiliates/bg.webp" opacity={0.3} scrim="from-[#070d1d]/80 via-[#070d1d]/60 to-[#070d1d]/92" />
       <div className="max-w-3xl mx-auto px-4 pt-6 pb-24 relative">
         <p className="text-xs tracking-[0.2em] uppercase text-[#3a86ff]">Plutus · Wealth &amp; Trade</p>
-        <h1 className="text-2xl font-black mt-1">Affiliates</h1>
+        <h1 className="text-2xl font-black mt-1">Affiliate Program</h1>
         <p className="text-sm text-zinc-400 mt-1 max-w-xl">
           Share your link. Anyone who signs up with it is yours — every in-house
           purchase they ever make earns you 10% of the house&apos;s cut.

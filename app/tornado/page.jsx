@@ -247,7 +247,7 @@ export default function TornadoPage() {
       <div aria-hidden="true" style={styles.bgLayer} />
       <div style={styles.shell}>
         <header style={styles.head}>
-          <h1 style={styles.title}>TORNADO</h1>
+          <h1 style={styles.title}>STORM SIMULATOR</h1>
           <p style={styles.sub}>volcanic storm simulator</p>
         </header>
         <div style={styles.canvasWrap}>

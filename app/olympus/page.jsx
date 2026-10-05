@@ -196,7 +196,7 @@ export default function OlympusPage() {
       <header className="sticky top-0 z-50 border-b border-cyan-300/20 bg-[#01020a]/90 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3">
           <div className="min-w-0">
-            <h1 className="truncate text-base font-bold tracking-[0.25em] text-cyan-300">OLYMPUS</h1>
+            <h1 className="truncate text-base font-bold tracking-[0.25em] text-cyan-300">MULTIVERSE STORE</h1>
             <p className="text-[11px] uppercase tracking-widest text-slate-400">Grand Multiverse Store</p>
           </div>
           <div className="ml-auto flex items-center gap-2">

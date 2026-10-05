@@ -65,7 +65,7 @@ export default function StyxPage() {
           <img src="/images/styx/header-ferry.webp" alt="" className="h-36 w-full object-cover opacity-80 sm:h-44" />
         </div>
         <p className="text-xs tracking-[0.4em] uppercase text-[#8a8f98]">A passage in four stations</p>
-        <h1 className="mt-3 text-5xl font-light tracking-[0.25em] text-[#ffd700]">STYX</h1>
+        <h1 className="mt-3 text-5xl font-light tracking-[0.25em] text-[#ffd700]">THE PASSAGE</h1>
         <div className="mt-6 h-px w-24 bg-gradient-to-r from-transparent via-[#ffd700]/50 to-transparent" />
         <p className="mt-6 text-[#a9adb5] leading-relaxed">
           Four stations. One river. Walk them in order, or wander —

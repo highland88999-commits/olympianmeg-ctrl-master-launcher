@@ -251,7 +251,7 @@ export default function ResumePage() {
         <div className="rz-bar">
           <h1 style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ color: 'var(--rz-accent)', display: 'inline-flex' }}><Glyph size={22}>{IC.flame}</Glyph></span>
-            Resume Studio
+            Resume Builder
           </h1>
           <div className="rz-controls">
             {ACCENTS.map((a) => (

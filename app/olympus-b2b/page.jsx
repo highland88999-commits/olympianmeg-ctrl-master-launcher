@@ -161,7 +161,7 @@ export default function OlympusB2BPage() {
           <div className="flex justify-center">
             <Seal />
           </div>
-          <h1 className="text-4xl md:text-6xl font-black tracking-[0.15em] uppercase">Olympus B2B</h1>
+          <h1 className="text-4xl md:text-6xl font-black tracking-[0.15em] uppercase">Business Services</h1>
           <p className="mt-3 text-cyan-300 tracking-[0.35em] text-xs md:text-sm font-bold">WEB BUILDS · 3D · AUTOMATION</p>
           <p className="mt-6 text-zinc-400 max-w-2xl mx-auto leading-relaxed">
             Software built for businesses, by one developer, with no agency overhead. Hand-built websites,
