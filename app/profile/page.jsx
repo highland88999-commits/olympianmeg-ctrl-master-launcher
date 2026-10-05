@@ -382,6 +382,21 @@ export default function ProfilePage() {
         </div>
         </section>
 
+        {/* Wallet */}
+        <section aria-label="Wallet" className="rounded-2xl border border-emerald-300/25 p-5"
+          style={aphroPanel({ backgroundColor: 'rgba(6,20,14,0.55)' })}>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-bold tracking-[0.3em] uppercase text-neutral-100 mb-1">Wallet</h2>
+              <p className="text-xs text-neutral-500">Program earnings land here. Withdraw to your bank anytime.</p>
+            </div>
+            <Link href="/wallet"
+              className="min-h-[44px] inline-flex items-center px-4 rounded-lg bg-emerald-400/90 text-black text-sm font-bold hover:bg-emerald-300">
+              Open wallet
+            </Link>
+          </div>
+        </section>
+
         {/* Character */}
         <section aria-label="Character" className="rounded-2xl border border-white/10 p-5"
           style={aphroPanel({ backgroundColor: 'rgba(255,255,255,0.03)' })}>

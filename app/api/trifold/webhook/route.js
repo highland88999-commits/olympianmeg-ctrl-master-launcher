@@ -6,7 +6,12 @@
 //   customer.subscription.deleted     -> canceled
 //   invoice.payment_failed            -> past_due
 //   invoice.payment_succeeded         -> log the revenue split to trifold_revenue_log
-//                                       (application fee = Merlin's $1, rest = Devan's $4.99)
+//                                       AND credit Devan's in-house wallet $4.99
+//                                       (idempotent; Merlin's $1 stays on the platform)
+//
+// Money model: the full $5.99 lands on Merlin's platform. Per paid invoice:
+// $4.99 -> Devan's wallet (program 'trifold'), $1.00 -> platform.
+// Devan needs NO Stripe account to earn; Connect is the withdrawal rail only.
 //
 // Setup (Merlin): in the Stripe dashboard, the webhook endpoint
 //   https://olympusverse.com/api/trifold/webhook
@@ -17,6 +22,11 @@ export const dynamic = 'force-dynamic';
 import Stripe from 'stripe';
 import { apiGuard } from '@/lib/api-guard';
 import { getServiceClient } from '@/lib/economy/supabase';
+import { getEditorUserId } from '@/lib/trifold/server';
+import { creditWallet, trifoldInvoiceReference } from '@/lib/wallet/ledger';
+
+// Devan's cut per paid TRIFOLD invoice, in cents. Merlin's $1 stays on the platform.
+const DEVAN_CENTS_PER_INVOICE = 499;
 
 function webhookSecret() {
   return process.env.STRIPE_TRIFOLD_WEBHOOK_SECRET || process.env.STRIPE_WEBHOOK_SECRET || '';
@@ -135,18 +145,23 @@ export const POST = apiGuard(async function POST(req) {
       break;
     }
     case 'invoice.payment_succeeded': {
-      // Money moved: record who got what. Never fails the webhook —
-      // the revenue table arrives with the migration; pre-migration the
-      // log is skipped with an honest server-side note.
+      // Money moved: record it in the revenue log AND credit Devan's
+      // in-house wallet. Never fails the webhook — both writers degrade
+      // gracefully pre-migration with honest server-side notes.
       const invoice = event.data.object;
       const subId = typeof invoice.subscription === 'string' ? invoice.subscription : invoice.subscription?.id;
       if (!subId) break;
       const ours = md(invoice).product === 'trifold' || (await isOurs(admin, subId));
       if (!ours) break;
       try {
-        await logTrifoldRevenue(admin, stripe, invoice);
+        await logTrifoldRevenue(admin, invoice);
       } catch (e) {
         console.error('TRIFOLD: revenue log skipped —', e && e.message ? e.message : e);
+      }
+      try {
+        await creditDevanWallet(admin, invoice, subId);
+      } catch (e) {
+        console.error('TRIFOLD: wallet credit skipped —', e && e.message ? e.message : e);
       }
       break;
     }
@@ -157,12 +172,13 @@ export const POST = apiGuard(async function POST(req) {
 });
 
 /**
- * One row per paid invoice: the gross, the platform fee (Merlin's $1),
- * and the editor's share ($4.99). Idempotent on stripe_invoice_id.
- * Throws when the table doesn't exist yet — the caller swallows that so
- * a pending migration never fails a live webhook.
+ * One row per paid invoice: the gross, Devan's wallet credit ($4.99), and
+ * the platform's keep ($1.00 = gross - 499). Idempotent on stripe_invoice_id.
+ * This is the money-truth audit row; the wallet transaction is the spendable
+ * side. Throws when the table doesn't exist yet — the caller swallows that
+ * so a pending migration never fails a live webhook.
  */
-async function logTrifoldRevenue(admin, stripe, invoice) {
+async function logTrifoldRevenue(admin, invoice) {
   const { data: existing, error: findErr } = await admin
     .from('trifold_revenue_log')
     .select('id')
@@ -172,22 +188,43 @@ async function logTrifoldRevenue(admin, stripe, invoice) {
   if (existing) return; // webhook redelivery — already counted
 
   const subId = typeof invoice.subscription === 'string' ? invoice.subscription : invoice.subscription?.id;
-  const chargeId = typeof invoice.charge === 'string' ? invoice.charge : invoice.charge?.id;
-  if (!chargeId) return; // nothing to split against (e.g. fully-discounted invoice)
-  const charge = await stripe.charges.retrieve(chargeId, { expand: ['application_fee'] });
-  const fee = charge.application_fee;
-  const amountCents = typeof invoice.amount_paid === 'number' ? invoice.amount_paid : (charge.amount || 0);
-  const feeCents = fee && typeof fee.amount === 'number' ? fee.amount : 0;
+  const amountCents = typeof invoice.amount_paid === 'number' ? invoice.amount_paid : 0;
+  if (amountCents <= 0) return; // nothing to split (e.g. fully-discounted invoice)
+  const devanCents = Math.min(DEVAN_CENTS_PER_INVOICE, amountCents);
 
   const { error } = await admin.from('trifold_revenue_log').insert({
     stripe_invoice_id: invoice.id,
     stripe_subscription_id: subId,
     amount_cents: amountCents,
-    fee_cents: feeCents,
-    devan_cents: Math.max(0, amountCents - feeCents),
-    currency: String(invoice.currency || charge.currency || 'usd').toLowerCase(),
+    fee_cents: 0, // no Connect application fee anymore — the wallet is the split
+    devan_cents: devanCents,
+    currency: String(invoice.currency || 'usd').toLowerCase(),
   });
   if (error) throw new Error(error.message);
+}
+
+/**
+ * Credit Devan's in-house wallet $4.99 for this paid invoice.
+ * Idempotent: the reference (trifold:invoice:<id>) means a redelivered
+ * webhook can never pay twice. Skips with a warning when the editor's
+ * user id isn't configured yet — the money is still audited in
+ * trifold_revenue_log, and Merlin can set TRIFOLD_EDITOR_USER_ID later.
+ */
+async function creditDevanWallet(admin, invoice, subId) {
+  const devanId = await getEditorUserId(admin);
+  if (!devanId) {
+    console.warn('TRIFOLD: no editor user id configured — $4.99 stays on the platform until TRIFOLD_EDITOR_USER_ID is set.');
+    return;
+  }
+  const currency = String(invoice.currency || 'usd').toLowerCase();
+  const res = await creditWallet(admin, devanId, {
+    program: 'trifold',
+    amountCents: DEVAN_CENTS_PER_INVOICE,
+    reason: `TRIFOLD subscription revenue — invoice ${invoice.id}`,
+    reference: trifoldInvoiceReference(invoice.id),
+    currency,
+  });
+  if (res.duplicate) console.log('TRIFOLD: wallet credit already applied for', invoice.id);
 }
 
 async function isOurs(admin, subscriptionId) {

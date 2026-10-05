@@ -226,10 +226,12 @@ function StripeConnectSection() {
   const connected = !!(info && (info.connected || info.charges_enabled || info.payouts_enabled || info.onboarding_complete));
   return (
     <div style={card}>
-      <h3 style={{ margin: '0 0 0.5rem' }}>Stripe Connect — your $1 per subscriber</h3>
+      <h3 style={{ margin: '0 0 0.5rem' }}>Stripe Connect — cash withdrawals</h3>
       <p style={{ color: '#9aa0b5', fontSize: '0.9rem', margin: '0 0 0.8rem' }}>
-        Link your Stripe account so your share of every subscription lands with you directly.
-        You'll finish Stripe's identity verification on Stripe's site, then come back here.
+        Your $4.99 per subscriber lands in your in-house wallet automatically — no Stripe
+        account needed to earn. Connect Stripe only when you want to withdraw cash to
+        your bank. You'll finish Stripe's identity verification on Stripe's site, then
+        come back here.
       </p>
       {state === 'checking' && <p style={{ color: '#6b7190' }}>Checking status…</p>}
       {state === 'not-deployed' && (
