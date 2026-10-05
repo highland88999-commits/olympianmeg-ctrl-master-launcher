@@ -141,3 +141,84 @@ drop policy if exists wallet_withdrawals_read_own on public.wallet_withdrawals;
 create policy wallet_withdrawals_read_own
   on public.wallet_withdrawals for select to authenticated
   using (auth.uid() = user_id);
+
+-- ============================================================ Christmas
+-- unlock ("doomsday") additions (2026-10-04). Wallets stay in an
+-- ACCUMULATIVE state until Friday, December 11, 2026, 00:00
+-- America/Edmonton (two weeks before Christmas) — 07:00 UTC, since
+-- Edmonton is MST (UTC-7) in December. Then withdrawals unlock for all.
+--
+--   wallet_settings      global switches; withdrawals_locked_until seeds
+--                        the lock timestamp (code falls back to the
+--                        compiled constant if the row is missing — the
+--                        lock is NEVER silently open).
+--   payout_releases      Merlin's ONE explicit "release the Christmas
+--                        queue". The autonomous payout queue processes
+--                        itself only when at least one release row exists.
+--                        One named confirmation -> autonomous run.
+--   wallet_withdrawals   gains the 'paused-funds' status: the liquidity
+--                        gate paused the queue honestly (platform Stripe
+--                        balance short). The next run resumes automatically.
+--   wallets              gains payout_destination (the user's Stripe
+--                        Connect account id for autonomous payouts;
+--                        label-only in the UI, full value service-side).
+
+-- ------------------------------------------------------------- settings
+create table if not exists public.wallet_settings (
+  key text primary key,
+  value text not null default '',
+  updated_at timestamptz not null default now()
+);
+
+-- No RLS policies: service-role only (users never read/write settings
+-- directly; the public /api/wallet/lock route exposes the countdown).
+alter table public.wallet_settings enable row level security;
+
+insert into public.wallet_settings (key, value)
+values ('withdrawals_locked_until', '2026-12-11T07:00:00Z')
+on conflict (key) do nothing;
+
+-- ------------------------------------------------------ payout releases
+create table if not exists public.payout_releases (
+  id uuid primary key default gen_random_uuid(),
+  released_by_email text not null default '',
+  note text not null default '',
+  released_at timestamptz not null default now()
+);
+
+-- No RLS policies: service-role only (Merlin's release action + the cron).
+
+-- --------------------------------- paused-funds status on withdrawals
+-- The original migration used an inline check on status, so the
+-- constraint name is auto-generated — drop ANY check mentioning status,
+-- then re-add with the full lifecycle including 'paused-funds'.
+do $$
+declare c record;
+begin
+  for c in
+    select conname
+    from pg_constraint
+    where conrelid = 'public.wallet_withdrawals'::regclass
+      and contype = 'c'
+      and pg_get_constraintdef(oid) ilike '%status%'
+  loop
+    execute 'alter table public.wallet_withdrawals drop constraint ' || quote_ident(c.conname);
+  end loop;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.wallet_withdrawals'::regclass
+      and conname = 'wallet_withdrawals_status_check'
+  ) then
+    alter table public.wallet_withdrawals
+      add constraint wallet_withdrawals_status_check
+      check (status in ('requested', 'processing', 'completed', 'failed', 'canceled', 'paused-funds'));
+  end if;
+end $$;
+
+-- ------------------------------------------------- payout destination
+alter table public.wallets
+  add column if not exists payout_destination text not null default '';

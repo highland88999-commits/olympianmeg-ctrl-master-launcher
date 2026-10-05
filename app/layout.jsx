@@ -6,6 +6,7 @@ import RadioBar from '@/components/radio/RadioBar';
 import NativeBridge from '@/components/NativeBridge';
 import BugReportButton from '@/components/BugReportButton';
 import RealmCalloutGuard from '@/components/RealmCalloutGuard';
+import DoomsdayBanner from '@/components/DoomsdayBanner';
 import MusePortal from '@/components/MusePortal';
 import JsonLd from '@/components/JsonLd';
 
@@ -99,6 +100,10 @@ export default function RootLayout({ children }) {
         <RadioProvider>
           <NativeBridge />
           <EconomyHeartbeat />
+          {/* Doomsday banner: Christmas-unlock countdown. Shows on every
+              load while wallets are in accumulative lock; removes itself
+              on Dec 11. A banner, never a modal. */}
+          <DoomsdayBanner />
           {children}
           <RadioBar />
           <BugReportButton />

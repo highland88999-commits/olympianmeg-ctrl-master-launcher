@@ -53,6 +53,8 @@ export default function WalletAdminPage() {
   const [busyId, setBusyId] = useState('');
   const [connectId, setConnectId] = useState('');
   const [note, setNote] = useState('');
+  const [released, setReleased] = useState(null);
+  const [releasing, setReleasing] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -60,6 +62,7 @@ export default function WalletAdminPage() {
     try {
       const r = await authed('/api/wallet/admin/queue');
       setQueue(r.queue);
+      setReleased(r.christmas_released || null);
     } catch (e) {
       setError(e.message);
     }
@@ -67,6 +70,19 @@ export default function WalletAdminPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  async function releaseChristmasQueue() {
+    if (!window.confirm('Release the Christmas payout queue? The queue will then process itself — oldest earnings first, pausing honestly if platform funds run short. This is your one explicit confirmation.')) return;
+    setReleasing(true);
+    try {
+      const r = await authed('/api/wallet/admin/payout-release', { method: 'POST', body: JSON.stringify({}) });
+      setReleased(r.released_at);
+      setError('');
+    } catch (e) {
+      setError(e.message);
+    }
+    setReleasing(false);
+  }
 
   async function act(id, action) {
     setBusyId(id);
@@ -94,6 +110,25 @@ export default function WalletAdminPage() {
       <p style={{ color: '#8b91a8', margin: '0 0 1.4rem' }}>
         Approve releases money. <strong style={{ color: '#fbbf24' }}>Mark completed only after the payout really left.</strong>
       </p>
+
+      <div style={{
+        ...card, marginBottom: '1.2rem',
+        borderColor: released ? 'rgba(52,211,153,0.5)' : 'rgba(251,191,36,0.5)',
+        background: 'linear-gradient(180deg, rgba(251,191,36,0.06), transparent 60%), #0d1226',
+      }}>
+        <h3 style={{ margin: '0 0 0.4rem', color: '#fbbf24' }}>🔒 Christmas queue release</h3>
+        <p style={{ color: '#8b91a8', fontSize: '0.85rem', margin: '0 0 0.9rem' }}>
+          {released
+            ? `Released ${ts(released)} — the queue processes itself: oldest earnings first, pausing honestly if platform funds run short.`
+            : 'One explicit confirmation from you, then the queue runs itself. The lock must also have lifted (Dec 11) before anything processes.'}
+        </p>
+        {!released && (
+          <button onClick={releaseChristmasQueue} disabled={releasing}
+            style={{ padding: '0.8rem 1.8rem', borderRadius: 10, border: 'none', background: '#fbbf24', color: '#0b0e1a', fontWeight: 800, fontSize: '1rem', cursor: 'pointer' }}>
+            {releasing ? '…' : 'Release the Christmas queue'}
+          </button>
+        )}
+      </div>
 
       <div style={{ ...card, marginBottom: '1.2rem', display: 'flex', gap: '0.8rem', flexWrap: 'wrap', alignItems: 'end' }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', fontSize: '0.82rem', color: '#8b91a8' }}>

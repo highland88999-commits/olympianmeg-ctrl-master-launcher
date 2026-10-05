@@ -23,5 +23,13 @@ export const GET = apiGuard(async function GET(req) {
   for (const w of data || []) {
     items.push({ ...w, user_email: await emailForUserId(admin, w.user_id) });
   }
-  return Response.json({ ok: true, queue: items });
+
+  const { data: release } = await admin
+    .from('payout_releases')
+    .select('released_at')
+    .order('released_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return Response.json({ ok: true, queue: items, christmas_released: release?.released_at || null });
 });

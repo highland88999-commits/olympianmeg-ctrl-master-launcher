@@ -37,8 +37,21 @@ function ts(iso) {
 
 const STATUS_COLORS = {
   requested: '#fbbf24', processing: '#38bdf8', completed: '#34d399',
-  failed: '#f43f5e', canceled: '#8b91a8',
+  failed: '#f43f5e', canceled: '#8b91a8', 'paused-funds': '#fb923c',
 };
+
+function Countdown({ ms }) {
+  const m = Math.max(0, Math.round(Number(ms) || 0));
+  const d = Math.floor(m / 86400000);
+  const h = String(Math.floor((m % 86400000) / 3600000)).padStart(2, '0');
+  const mi = String(Math.floor((m % 3600000) / 60000)).padStart(2, '0');
+  const s = String(Math.floor((m % 60000) / 1000)).padStart(2, '0');
+  return (
+    <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 800, fontSize: '1.4rem', color: '#fbbf24' }}>
+      {d}d {h}:{mi}:{s}
+    </span>
+  );
+}
 
 const card = {
   border: '1px solid #2a3352', background: 'linear-gradient(180deg, rgba(56,189,248,0.06), transparent 60%), #0d1226',
@@ -59,6 +72,9 @@ export default function WalletPage() {
   const [destLabel, setDestLabel] = useState('');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
+  const [lock, setLock] = useState(null);
+  const [payoutDest, setPayoutDest] = useState('');
+  const [destSaved, setDestSaved] = useState(false);
 
   const load = useCallback(async (prog, kind) => {
     setLoading(true);
@@ -66,6 +82,7 @@ export default function WalletPage() {
     try {
       const s = await authed('/api/wallet');
       setSummary(s.wallet);
+      setLock(s.lock || null);
       const q = new URLSearchParams({ limit: '100' });
       if (prog) q.set('program', prog);
       if (kind) q.set('kind', kind);
@@ -81,6 +98,26 @@ export default function WalletPage() {
   }, []);
 
   useEffect(() => { load(programFilter, kindFilter); }, [load, programFilter, kindFilter]);
+
+  async function saveDestination(e) {
+    e.preventDefault();
+    setBusy(true);
+    setNotice('');
+    try {
+      const r = await authed('/api/wallet/destination', {
+        method: 'POST',
+        body: JSON.stringify({ payout_destination: payoutDest }),
+      });
+      setDestSaved(true);
+      setNotice(r.saved
+        ? `Payout destination saved (${r.masked}). You're in the automatic Christmas queue.`
+        : 'Payout destination cleared.');
+      load(programFilter, kindFilter);
+    } catch (e2) {
+      setNotice(e2.message);
+    }
+    setBusy(false);
+  }
 
   async function requestWithdraw(e) {
     e.preventDefault();
@@ -110,10 +147,29 @@ export default function WalletPage() {
       </p>
       <h1 style={{ fontSize: '2rem', margin: '0 0 0.4rem' }}>Wallet</h1>
       <p style={{ color: '#8b91a8', margin: '0 0 1.6rem' }}>
-        Every program pays your cut here. View everything, withdraw to your bank anytime.
+        Every program pays your cut here. Earnings accumulate until the vaults open — then withdraw to your bank.
       </p>
 
       {error && <p style={{ color: '#f43f5e' }}>{error}</p>}
+
+      {lock?.locked && (
+        <div style={{
+          ...card, marginBottom: '1.2rem', textAlign: 'center',
+          borderColor: 'rgba(251,191,36,0.5)',
+          background: 'linear-gradient(180deg, rgba(251,191,36,0.08), transparent 60%), #140b12',
+        }}>
+          <div style={{ fontWeight: 800, letterSpacing: '0.08em', color: '#fbbf24', fontSize: '0.9rem' }}>
+            🔒 DOOMSDAY — THE VAULTS OPEN IN
+          </div>
+          <div style={{ margin: '0.5rem 0' }}>
+            <Countdown ms={lock.countdown_ms} />
+          </div>
+          <p style={{ color: '#d6a35c', fontSize: '0.85rem', margin: 0 }}>
+            Accumulating until {lock.locked_until_label || 'Dec 11'} — then withdrawals unlock for everyone,
+            oldest earnings paid first.
+          </p>
+        </div>
+      )}
 
       {loading ? (
         <p style={{ color: '#8b91a8' }}>Loading…</p>
@@ -130,20 +186,47 @@ export default function WalletPage() {
             </div>
             <button
               onClick={() => setShowWithdraw(true)}
-              disabled={summary.available_cents < 500}
+              disabled={lock?.locked || summary.available_cents < 500}
+              title={lock?.locked ? `Withdrawals unlock ${lock?.locked_until_label || 'Dec 11'}` : undefined}
               style={{
                 marginTop: '1rem', padding: '0.8rem 2.2rem', borderRadius: 10, border: 'none',
-                background: summary.available_cents >= 500 ? '#34d399' : '#2a3352',
+                background: (!lock?.locked && summary.available_cents >= 500) ? '#34d399' : '#2a3352',
                 color: '#0b0e1a', fontWeight: 800, fontSize: '1rem',
-                cursor: summary.available_cents >= 500 ? 'pointer' : 'not-allowed',
+                cursor: (!lock?.locked && summary.available_cents >= 500) ? 'pointer' : 'not-allowed',
               }}
             >
-              Withdraw
+              {lock?.locked ? `Unlocks ${lock?.locked_until_label || 'Dec 11'}` : 'Withdraw'}
             </button>
-            {summary.available_cents < 500 && (
+            {lock?.locked ? (
+              <p style={{ color: '#d6a35c', fontSize: '0.8rem', margin: '0.6rem 0 0' }}>
+                🔒 Accumulating — withdrawals unlock {lock?.locked_until_label || 'Dec 11'}.
+              </p>
+            ) : summary.available_cents < 500 && (
               <p style={{ color: '#8b91a8', fontSize: '0.8rem', margin: '0.6rem 0 0' }}>Minimum withdrawal is $5.00.</p>
             )}
           </div>
+
+          {!lock?.locked && (
+            <form onSubmit={saveDestination} style={{ ...card, marginBottom: '1.2rem' }}>
+              <h3 style={{ margin: '0 0 0.4rem' }}>Payout destination</h3>
+              <p style={{ color: '#8b91a8', fontSize: '0.82rem', margin: '0 0 0.8rem' }}>
+                {summary.payout_destination_set || destSaved
+                  ? '✓ Saved — your withdrawals join the automatic Christmas queue.'
+                  : 'Where should automatic payouts go? Your Stripe Connect account id.'}
+              </p>
+              <div style={{ display: 'flex', gap: '0.8rem', flexWrap: 'wrap', alignItems: 'end' }}>
+                <input
+                  value={payoutDest} onChange={(e) => { setPayoutDest(e.target.value); setDestSaved(false); }}
+                  placeholder="acct_…"
+                  style={{ padding: '0.7rem', borderRadius: 8, border: '1px solid #2a3352', background: '#0b0e1a', color: '#e8e6df', fontSize: '1rem', width: 220 }}
+                />
+                <button type="submit" disabled={busy}
+                  style={{ padding: '0.7rem 1.4rem', borderRadius: 8, border: 'none', background: '#38bdf8', color: '#0b0e1a', fontWeight: 800, cursor: 'pointer' }}>
+                  {busy ? '…' : 'Save'}
+                </button>
+              </div>
+            </form>
+          )}
 
           {notice && <p style={{ color: '#38bdf8', ...card, marginBottom: '1.2rem' }}>{notice}</p>}
 

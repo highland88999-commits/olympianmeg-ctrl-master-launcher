@@ -14,11 +14,39 @@ import {
   toCents,
   MIN_WITHDRAWAL_CENTS,
 } from '@/lib/wallet/ledger';
+import {
+  getLockInfo,
+  wouldExceedDailyCap,
+  DAILY_WITHDRAWAL_CAP_CENTS,
+  WITHDRAWALS_LOCKED_UNTIL_LABEL,
+} from '@/lib/wallet/lock';
 
 export const POST = apiGuard(async function POST(req) {
   const admin = await getServiceClient();
   if (!admin) throw new Error('The wallet service is not connected yet.');
   const user = await requireUser(req, admin);
+
+  // Accumulative lock: no withdrawals until the Christmas unlock.
+  const lock = await getLockInfo(admin, new Date());
+  if (lock.locked) {
+    return Response.json(
+      {
+        ok: false,
+        locked: true,
+        locked_until: lock.locked_until_iso,
+        error: `Withdrawals are locked while wallets accumulate — they unlock ${WITHDRAWALS_LOCKED_UNTIL_LABEL}.`,
+      },
+      { status: 423 }
+    );
+  }
+
+  // Anti-fraud: only email-verified accounts may withdraw.
+  if (!user.email_confirmed_at) {
+    return Response.json(
+      { ok: false, error: 'Verify your email address before withdrawing.' },
+      { status: 403 }
+    );
+  }
 
   let body = {};
   try { body = await req.json(); } catch { /* validation below */ }
@@ -29,6 +57,27 @@ export const POST = apiGuard(async function POST(req) {
       { status: 400 }
     );
   }
+
+  // Anti-fraud: daily velocity cap per user (UTC day).
+  const dayStart = new Date();
+  dayStart.setUTCHours(0, 0, 0, 0);
+  const { data: todays } = await admin
+    .from('wallet_withdrawals')
+    .select('amount_cents')
+    .eq('user_id', user.id)
+    .in('status', ['requested', 'processing', 'completed', 'paused-funds'])
+    .gte('created_at', dayStart.toISOString());
+  const todayTotal = (todays || []).reduce((s, w) => s + Math.round(Number(w.amount_cents) || 0), 0);
+  if (wouldExceedDailyCap(todayTotal, amount, DAILY_WITHDRAWAL_CAP_CENTS)) {
+    return Response.json(
+      {
+        ok: false,
+        error: `Daily withdrawal limit is $${(DAILY_WITHDRAWAL_CAP_CENTS / 100).toFixed(2)}. Try a smaller amount tomorrow.`,
+      },
+      { status: 400 }
+    );
+  }
+
   const destinationLabel = String(body.destination_label || '').slice(0, 64);
 
   const wallet = await getOrCreateWallet(admin, user.id);
