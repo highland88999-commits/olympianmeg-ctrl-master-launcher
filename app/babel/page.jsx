@@ -418,7 +418,7 @@ export default function BabelPage() {
       {/* header */}
       <div className="absolute top-0 left-0 right-0 p-4 sm:p-6 pointer-events-none">
         <h1 className="text-2xl sm:text-3xl font-black tracking-[0.25em] text-amber-200 uppercase drop-shadow-[0_0_18px_rgba(212,162,78,0.45)]">
-          Babel
+          Pocket Universes
         </h1>
         <p className="text-zinc-400 text-xs sm:text-sm mt-1">
           {activeFloor ? `${activeFloor.name} — ${activeFloor.subtitle}` : 'Tower of pocket universes'}

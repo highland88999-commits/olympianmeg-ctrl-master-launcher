@@ -254,7 +254,7 @@ export default function DKHeroPage() {
       {screen === 'title' && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 px-6 text-center">
           <h1 className="text-4xl font-black tracking-widest text-amber-300 uppercase drop-shadow-[0_0_12px_rgba(251,191,36,0.5)]">
-            DK Hero
+            Arcade Climber
           </h1>
           <p className="mt-1 text-sm font-bold tracking-[0.3em] text-cyan-300 uppercase">Barrel Siege</p>
           <p className="mt-4 max-w-sm text-zinc-300">

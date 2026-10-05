@@ -542,7 +542,7 @@ export default function RaptorRushPage() {
       {phase === 'ready' && !oasisOpen && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 px-6 text-center">
           <h1 className="text-5xl font-black tracking-widest text-emerald-300" style={{ textShadow: '0 0 24px #34d399' }}>
-            RAPTOR RUSH
+            CANYON SPRINT
           </h1>
           <p className="text-zinc-300 mt-4 max-w-md leading-relaxed">
             {isParty

@@ -841,7 +841,7 @@ export default function ZeusProtocolPage() {
       {screen === 'menu' && (
         <div className="zs-overlay">
           <div className="zs-kicker">ARGUS · OBSERVATORY</div>
-          <h1 className="zs-title">ZEUS PROTOCOL</h1>
+          <h1 className="zs-title">SPACE SHOOTER</h1>
           <p className="zs-tag">DEEP-SPACE DEFENCE — HOLD THE LINE ABOVE EARTH</p>
           <AresPanel className="px-6 py-4">
           <p className="zs-help">

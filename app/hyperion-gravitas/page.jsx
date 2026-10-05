@@ -326,7 +326,7 @@ export default function HyperionPage() {
       <div aria-hidden="true" style={{ position: "absolute", inset: 0, backgroundImage: `url(${BG})`, backgroundSize: "cover", backgroundPosition: "center", opacity: 0.5 }} />
       <canvas ref={canvasRef} style={styles.canvas} />
       <div style={styles.top}>
-        <h1 style={styles.title}>Hyperion Gravitas</h1>
+        <h1 style={styles.title}>Projection Lab</h1>
         <div ref={statusRef} style={styles.status}>HYPERION</div>
         <div style={styles.hint}>Drag to orbit the camera · The shape truly rotates in {ui.dims} dimensions</div>
       </div>

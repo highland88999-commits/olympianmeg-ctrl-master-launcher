@@ -381,7 +381,7 @@ export default function NexusSymbiotePage() {
       >
         <canvas ref={matrixRef} aria-hidden="true" />
         <div className="nx-brand">
-          <h1>NEXUS SYMBIOTE</h1>
+          <h1>POINT-CLOUD ART</h1>
           <p>PARTICLE ORGANISM</p>
           <div className="tap">TAP TO WAKE IT</div>
         </div>
@@ -454,7 +454,7 @@ export default function NexusSymbiotePage() {
 
           {showAbout && (
             <div className="nx-about" role="dialog" aria-label="About Nexus Symbiote">
-              <h2>NEXUS SYMBIOTE</h2>
+              <h2>POINT-CLOUD ART</h2>
               <p>
                 The symbiote turns any moving image into a living cloud of
                 coloured points. Bright pixels push their points forward;

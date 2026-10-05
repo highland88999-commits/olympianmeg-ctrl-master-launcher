@@ -95,7 +95,7 @@ export default function HivePage() {
       {/* HUD */}
       <div className="absolute top-0 left-0 right-0 p-4 sm:p-6 pointer-events-none">
         <h1 className="text-xl sm:text-2xl font-black tracking-widest uppercase text-cyan-300">
-          The Hive
+          Cyber Hive
         </h1>
         <p className="text-xs sm:text-sm text-cyan-100/70 mt-1">
           {MODES[mode].description}

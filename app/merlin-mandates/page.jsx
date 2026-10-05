@@ -207,7 +207,7 @@ export default function MerlinMandatesPage() {
 
       <header className="px-5 pt-10 pb-4 text-center relative">
         <h1 className="text-3xl md:text-4xl font-bold tracking-[0.25em] uppercase text-cyan-300">
-          Merlin Mandates
+          Mandate Ledger
         </h1>
         <p className="text-xs tracking-[0.3em] uppercase text-zinc-400 mt-2">
           {s.active} active &middot; {s.fulfilled} fulfilled &middot; stored on this device

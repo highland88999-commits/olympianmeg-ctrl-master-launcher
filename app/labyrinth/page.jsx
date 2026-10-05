@@ -225,7 +225,7 @@ export default function LabyrinthPage() {
       {/* Intro overlay */}
       {phase === 'intro' && (
         <Overlay>
-          <h1 className="text-3xl font-black tracking-widest text-violet-200">LABYRINTH</h1>
+          <h1 className="text-3xl font-black tracking-widest text-violet-200">3D MAZE</h1>
           <p className="text-sm text-zinc-300 mt-3 max-w-xs">
             A dark maze, a watching eye. Collect the {stage.tokens} purple tokens,
             then escape through the green portal.

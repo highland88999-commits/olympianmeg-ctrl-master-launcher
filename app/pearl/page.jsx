@@ -326,7 +326,7 @@ export default function PearlPage() {
           }}
           aria-label="Enter the observatory"
         >
-          <h1 className="text-5xl md:text-6xl tracking-[14px] text-amber-100 animate-pulse" style={{ textShadow: '0 0 34px rgba(232,185,60,0.45)' }}>THE PEARL</h1>
+          <h1 className="text-5xl md:text-6xl tracking-[14px] text-amber-100 animate-pulse" style={{ textShadow: '0 0 34px rgba(232,185,60,0.45)' }}>THE OBSERVATORY</h1>
           <p className="mt-3 text-xs tracking-[6px] text-amber-200/70">SEQUENTIAL OBSERVATORY · V23.5</p>
           <p className="mt-8 text-[11px] tracking-[4px] text-amber-100/60 inline-flex items-center gap-3">
             <IconScope />( CLICK TO ENTER )

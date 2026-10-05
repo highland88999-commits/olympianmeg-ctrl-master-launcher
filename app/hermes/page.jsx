@@ -54,7 +54,7 @@ export default async function HermesPage({ searchParams }) {
       <div className="relative z-10 max-w-6xl mx-auto px-5 pt-14 sm:pt-20 pb-16">
         <header className="text-center mb-10">
           <p className="text-xs tracking-[0.3em] text-amber-500/80 mb-3">Argus Observatory</p>
-          <h1 className="text-3xl sm:text-4xl font-black tracking-wide">HERMES</h1>
+          <h1 className="text-3xl sm:text-4xl font-black tracking-wide">Mall</h1>
           <p className="text-zinc-400 mt-3 max-w-xl mx-auto">
             A curated directory of sites across the multiverse.
           </p>

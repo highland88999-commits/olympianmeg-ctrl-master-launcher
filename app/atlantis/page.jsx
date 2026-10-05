@@ -274,7 +274,7 @@ export default function AtlantisPage() {
       <div aria-hidden="true" style={{ position: "fixed", inset: 0, background: "linear-gradient(rgba(2,8,19,0.55), rgba(2,8,19,0.75))", pointerEvents: "none", zIndex: 0 }} />
       <div style={{ ...styles.wrap, position: "relative", zIndex: 1 }}>
         <header style={styles.head}>
-          <h1 style={styles.title}>ATLANTIS</h1>
+          <h1 style={styles.title}>SUNKEN CITY</h1>
           <p style={styles.tag}>Olympus Anchor · 5-Kilometer Macro-Engineering Prospectus</p>
           <div style={{ marginTop: 8 }}><RenewalPlanBadge nodeId="node-7" /></div>
         </header>

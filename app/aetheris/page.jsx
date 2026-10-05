@@ -19,7 +19,7 @@ export default function AetherisPage() {
             <AetherisCrest size={36} />
             <div>
               <div className="text-[11px] font-mono text-cyan-500/70 tracking-widest">ARGUS // OBSERVATORY</div>
-              <h1 className="text-3xl md:text-4xl font-black tracking-wide mt-1">Aetheris</h1>
+              <h1 className="text-3xl md:text-4xl font-black tracking-wide mt-1">Air Purifier</h1>
             </div>
           </div>
           <p className="text-zinc-400 mt-2 max-w-2xl text-[15px] leading-relaxed">

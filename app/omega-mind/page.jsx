@@ -174,7 +174,7 @@ export default function MindPage() {
       <div style={{ maxWidth: '920px', margin: '0 auto', position: 'relative', zIndex: 1 }}>
         <header style={{ marginBottom: '14px' }}>
           <h1 style={{ margin: 0, fontSize: '1.5rem', letterSpacing: '5px', color: '#00f2ff', textShadow: '0 0 16px rgba(0,243,255,0.55)' }}>
-            OMEGA MIND
+            JOURNAL
           </h1>
           <div style={{ fontSize: '0.75rem', color: 'rgba(232,246,255,0.55)', letterSpacing: '1px', marginTop: '4px' }}>
             A neural lattice you can talk to — local simulation, private journal

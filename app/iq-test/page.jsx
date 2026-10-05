@@ -223,7 +223,7 @@ export default function IqTestPage() {
       {/* Title */}
       <div className="absolute top-4 left-4 z-10 pointer-events-none">
         <h1 className="text-xl font-black tracking-[0.2em] text-cyan-300 uppercase">
-          Axiom Scramble
+          3D Puzzle
         </h1>
         <p className="text-xs text-fuchsia-300/80 tracking-wider mt-1">
           Unscramble the neon tiles — a puzzle score, not an IQ measure
@@ -266,7 +266,7 @@ export default function IqTestPage() {
         <div className="absolute inset-0 z-20 flex items-center justify-center p-6 bg-black/60">
           <div className="iqt-panel w-full max-w-sm rounded-2xl border border-cyan-400/30 bg-[#0a0618]/95 p-6 shadow-[0_0_40px_rgba(0,242,255,0.15)]">
             <h2 className="text-2xl font-black tracking-[0.15em] text-cyan-300 uppercase text-center">
-              Axiom Scramble
+              3D Puzzle
             </h2>
             <p className="text-sm text-white/70 text-center mt-2">
               The tiles are scrambled. Put every glowing edge back where it

@@ -268,7 +268,7 @@ export default function HumanAI() {
         <div className="matrix-container">
           <header className="header-bar">
             <div className="branding">
-              <h1>HUMAN AI</h1>
+              <h1>AI HELPER</h1>
               <span>BY OMEGA x OLYMPUS</span>
             </div>
             <div className="header-controls">

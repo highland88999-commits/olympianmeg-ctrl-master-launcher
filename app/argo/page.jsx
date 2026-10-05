@@ -880,7 +880,7 @@ export default function ArgoPage() {
           <div className="text-[10px] sm:text-[11px] tracking-[0.3em] uppercase text-amber-300/90">
             Fleet Command
           </div>
-          <h1 className="text-lg sm:text-2xl font-bold tracking-widest mt-0.5">ARGO</h1>
+          <h1 className="text-lg sm:text-2xl font-bold tracking-widest mt-0.5">FLEET COMMAND</h1>
           <div className="text-[11px] sm:text-xs text-neutral-400 mt-1 tracking-wider">
             {layerLabel}
           </div>

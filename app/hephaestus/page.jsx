@@ -624,7 +624,7 @@ export default function HephaestusPage() {
         <div style={{ position: 'relative', zIndex: 1 }}>
           <Badge tone="gold" className="block">The forge of the empire</Badge>
           <h1 style={{ fontFamily: 'Georgia, serif', fontSize: 'clamp(40px, 8vw, 72px)', margin: '10px 0', color: '#fff7ed', letterSpacing: 2 }}>
-            HEPHAESTUS
+            UNIVERSE BUILDER
           </h1>
           <p style={{ fontSize: 17, color: '#fed7aa', maxWidth: 620, margin: '0 auto', lineHeight: 1.6, fontStyle: 'italic' }}>
             &ldquo;Take my logic and make it multiply to as many people as possible.&rdquo;

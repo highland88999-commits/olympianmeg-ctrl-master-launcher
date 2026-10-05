@@ -84,7 +84,7 @@ export default function PersephonePage() {
         <p className="text-[11px] tracking-[0.45em] uppercase text-[#8a7f66]">Queen of the underworld presents</p>
         <h1 className="mt-3 text-5xl sm:text-6xl font-light tracking-[0.3em] text-[#ffd700] flex items-center justify-center gap-4">
           <PersephoneIcon name="crown" size={34} />
-          PERSEPHONE
+          CONCERT HALL
         </h1>
         <div className="mt-5 h-px w-28 mx-auto bg-gradient-to-r from-transparent via-[#ffd700]/60 to-transparent" />
         <p className="mt-5 text-[#a89a78] leading-relaxed">

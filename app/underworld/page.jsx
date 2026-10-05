@@ -219,7 +219,7 @@ export default function UnderworldPage() {
             The catalog below
           </div>
           <h1 className="text-3xl font-black uppercase tracking-[0.2em] text-transparent bg-clip-text bg-gradient-to-br from-orange-400 to-red-600 sm:text-4xl">
-            Underworld
+            Game Catalog
           </h1>
           <p className="mt-2 text-sm tracking-widest text-zinc-400 uppercase">
             Find your next game

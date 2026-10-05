@@ -379,7 +379,7 @@ export default function OmegaPinballPage() {
             style={{ background: 'linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.9) 100%)' }}
           />
           <div className="relative">
-          <h1 className="text-4xl font-black uppercase tracking-widest text-cyan-300">Omega Pinball</h1>
+          <h1 className="text-4xl font-black uppercase tracking-widest text-cyan-300">Pinball</h1>
           <p className="mt-2 text-sm uppercase tracking-widest text-fuchsia-300">The 99-Level Ascent</p>
           <AresPanel className="mt-6 max-w-sm p-4">
             <div className="space-y-2 text-sm text-zinc-300">

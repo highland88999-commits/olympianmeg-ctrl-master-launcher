@@ -1054,7 +1054,7 @@ export default function ErebusPage() {
             <div className="text-[10px] sm:text-[11px] tracking-[0.3em] uppercase text-indigo-300/90">
               140 procedurally generated void universes
             </div>
-            <h1 className="text-3xl sm:text-5xl font-bold tracking-widest mt-1">EREBUS</h1>
+            <h1 className="text-3xl sm:text-5xl font-bold tracking-widest mt-1">VOID UNIVERSES</h1>
             <p className="text-xs sm:text-sm text-zinc-400 mt-2 tracking-wide max-w-2xl">
               No programs. No noise. Just the void, a tron bike, and two gold
               bars hiding in every universe. Fly the portal ring — or the portal

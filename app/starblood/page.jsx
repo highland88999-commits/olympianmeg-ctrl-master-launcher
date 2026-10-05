@@ -314,7 +314,7 @@ export default function StarbloodPage() {
             <span style={{ display: 'inline-flex', verticalAlign: '-2px', marginRight: 10, color: '#d4af37' }}>
               <AresIcon name="star" className="h-6 w-6" />
             </span>
-            STARBLOOD
+            RUNE BATTLE
           </h1>
           <div className="sb-hud" aria-live="polite">
             {phase === 'playing' || phase === 'won' ? (

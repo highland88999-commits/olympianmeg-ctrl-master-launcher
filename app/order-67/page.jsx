@@ -381,7 +381,7 @@ export default function Order67Page() {
         <BackButton label="EXIT" href="/" />
         <div className="text-right">
           <h1 className="text-lg font-black tracking-[0.3em] text-white" style={{ textShadow: '0 0 14px rgba(70,200,255,0.6)' }}>
-            ORDER 67
+            HOLOGRAPHIC CALLS
           </h1>
           <p className="mt-0.5 text-[10px] tracking-[0.25em] text-cyan-300/70">HOLOGRAPHIC P2P CALLS</p>
         </div>

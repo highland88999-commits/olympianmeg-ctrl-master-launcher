@@ -165,7 +165,7 @@ function PortalIntro({ onEnter }) {
       </button>
       <div className={'vtx-portal-title' + (arrived ? ' vtx-visible' : '')}>
         <div className="vtx-kicker">ARGUS · OBSERVATORY</div>
-        <h1>VORTEX</h1>
+        <h1>VORTEX GENERATOR</h1>
         <p className="vtx-sub">THE PORTAL FORGE — CINEMATIC GATEWAYS, SYNTHESIZED LOCALLY</p>
         <button type="button" className="vtx-btn vtx-btn-primary" onClick={onEnter}>
           <IconEnter />ENTER THE FORGE

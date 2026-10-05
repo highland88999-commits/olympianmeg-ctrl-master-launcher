@@ -234,7 +234,7 @@ export default function BlueprintProtocolPage() {
 
       <div className="bp-content">
         <div className="bp-docheader">Olympus Blueprint Protocol // nexusvortex.ca</div>
-        <h1 className="bp-h1">Olympus Blueprint Protocol</h1>
+        <h1 className="bp-h1">Olympus Blueprint Reader</h1>
         <p className="bp-p">This document outlines the architectural blueprint for the Olympus decentralized ecosystem. It details the transition from purely digital frameworks into self-sustaining physical infrastructure, creating a cooperative economy that bypasses systemic reliance while funding planetary-scale initiatives.</p>
 
         <nav className="bp-nav" aria-label="Blueprint sections">

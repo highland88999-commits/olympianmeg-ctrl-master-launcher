@@ -296,7 +296,7 @@ export default function PersymphonyPage() {
       <div className="absolute top-0 left-0 right-0 p-4 sm:p-6 flex items-start justify-between pointer-events-none">
         <div>
           <h1 className="text-white text-xl sm:text-2xl font-black tracking-widest uppercase">
-            Persymphony
+            Music Arena
           </h1>
           <p className="text-zinc-400 text-sm mt-1">
             <span className="text-amber-300 font-semibold">{arena.name}</span>

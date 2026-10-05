@@ -106,7 +106,7 @@ export default function WorldEngineLanding() {
         </div>
         <p className="text-[#ffd700] text-xs tracking-[0.5em] uppercase mb-4">AI Programs · Thoth</p>
         <h1 className="text-5xl md:text-6xl font-bold text-white tracking-[0.2em] mb-4">
-          WORLD ENGINE
+          WORLD BUILDER
         </h1>
         <div className="flex items-center gap-3 mb-2 text-amber-200/70">
           <Glyph size={15}>{IC.flame}</Glyph>
