@@ -40,6 +40,14 @@ const STATUS_COLORS = {
   failed: '#f43f5e', canceled: '#8b91a8', 'paused-funds': '#fb923c',
 };
 
+// Honest pending-order labels: what each state actually means for the user.
+const PENDING_STATUS = {
+  requested: { label: 'Requested · held · awaits Dec 11', color: '#fbbf24' },
+  processing: { label: 'Processing', color: '#38bdf8' },
+  'paused-funds': { label: 'Paused · waiting on funds', color: '#fb923c' },
+};
+const PENDING_STATUSES = Object.keys(PENDING_STATUS);
+
 function Countdown({ ms }) {
   const m = Math.max(0, Math.round(Number(ms) || 0));
   const d = Math.floor(m / 86400000);
@@ -67,12 +75,14 @@ export default function WalletPage() {
   const [programFilter, setProgramFilter] = useState('');
   const [kindFilter, setKindFilter] = useState('');
   const [withdrawals, setWithdrawals] = useState([]);
+  const [affPending, setAffPending] = useState([]);
   const [showWithdraw, setShowWithdraw] = useState(false);
   const [amount, setAmount] = useState('');
   const [destLabel, setDestLabel] = useState('');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [lock, setLock] = useState(null);
+  const [release, setRelease] = useState(null);
   const [payoutDest, setPayoutDest] = useState('');
   const [destSaved, setDestSaved] = useState(false);
 
@@ -83,6 +93,7 @@ export default function WalletPage() {
       const s = await authed('/api/wallet');
       setSummary(s.wallet);
       setLock(s.lock || null);
+      setRelease(s.payout_release || null);
       const q = new URLSearchParams({ limit: '100' });
       if (prog) q.set('program', prog);
       if (kind) q.set('kind', kind);
@@ -91,6 +102,15 @@ export default function WalletPage() {
       setPrograms(t.programs);
       const w = await authed('/api/wallet/withdrawals');
       setWithdrawals(w.withdrawals);
+      // Pending affiliate commissions (awaiting cost finalization) are real
+      // money the user is waiting on. Best-effort: the affiliate service may
+      // not be connected — the wallet must load regardless.
+      try {
+        const a = await authed('/api/affiliates/overview');
+        setAffPending((a.commissions || []).filter((c) => c.status === 'pending_cost'));
+      } catch {
+        setAffPending([]);
+      }
     } catch (e) {
       setError(e.message);
     }
@@ -140,6 +160,33 @@ export default function WalletPage() {
     setBusy(false);
   }
 
+  // --- Pending orders (accumulative mode) --------------------------------
+  // Pending = money the user is waiting on: withdrawal requests not yet
+  // settled (requested / processing / paused-funds), plus the automatic
+  // Christmas queue slot every wallet holds while locked.
+  const pendingWithdrawals = (withdrawals || []).filter((w) => PENDING_STATUSES.includes(w.status));
+  const destinationReady = !!(summary?.payout_destination_set || destSaved);
+  const queueOrder = release?.released
+    ? {
+        chip: 'Released', chipColor: '#34d399',
+        text: `Automatic payout released ${ts(release.released_at)} — the queue is paying oldest earnings first.`,
+      }
+    : lock?.locked
+      ? destinationReady
+        ? {
+            chip: 'Queued', chipColor: '#fbbf24',
+            text: `Queued for the automatic Christmas payout — ${fmt(summary?.available_cents)} accumulating. Pays once Merlin releases the queue after ${lock?.locked_until_label || 'Dec 11'}, oldest earnings first.`,
+          }
+        : {
+            chip: 'Action needed', chipColor: '#fb923c',
+            text: 'Not queued yet — save a payout destination above to join the automatic Christmas payout.',
+          }
+      : {
+          chip: 'Standby', chipColor: '#8b91a8',
+          text: 'The automatic Christmas queue has not been released — request a withdrawal whenever you are ready.',
+        };
+  const hasPendingOrders = pendingWithdrawals.length > 0 || (affPending || []).length > 0 || queueOrder.chip !== 'Standby';
+
   return (
     <main style={{ maxWidth: 860, margin: '0 auto', padding: '2rem 1.2rem 5rem', color: '#e8e6df' }}>
       <p style={{ color: '#8b91a8', fontSize: '0.85rem', marginBottom: '0.4rem' }}>
@@ -176,7 +223,9 @@ export default function WalletPage() {
       ) : summary && (
         <>
           <div style={{ ...card, marginBottom: '1.2rem', textAlign: 'center' }}>
-            <div style={{ color: '#8b91a8', fontSize: '0.85rem', letterSpacing: '0.06em' }}>AVAILABLE BALANCE</div>
+            <div style={{ color: '#8b91a8', fontSize: '0.85rem', letterSpacing: '0.06em' }}>
+              {lock?.locked ? '🔒 ACCUMULATING BALANCE' : 'AVAILABLE BALANCE'}
+            </div>
             <div style={{ fontSize: '3rem', fontWeight: 800, color: '#34d399', margin: '0.3rem 0' }}>
               {fmt(summary.available_cents)}
             </div>
@@ -184,6 +233,11 @@ export default function WalletPage() {
               <span>Total {fmt(summary.balance_cents)}</span>
               {summary.held_cents > 0 && <span>Held {fmt(summary.held_cents)}</span>}
             </div>
+            {lock?.locked && (
+              <p style={{ color: '#d6a35c', fontSize: '0.8rem', margin: '0.6rem 0 0' }}>
+                Growing until {lock?.locked_until_label || 'Dec 11'} — nothing leaves this wallet before then.
+              </p>
+            )}
             <button
               onClick={() => setShowWithdraw(true)}
               disabled={lock?.locked || summary.available_cents < 500}
@@ -206,14 +260,17 @@ export default function WalletPage() {
             )}
           </div>
 
-          {!lock?.locked && (
-            <form onSubmit={saveDestination} style={{ ...card, marginBottom: '1.2rem' }}>
-              <h3 style={{ margin: '0 0 0.4rem' }}>Payout destination</h3>
-              <p style={{ color: '#8b91a8', fontSize: '0.82rem', margin: '0 0 0.8rem' }}>
-                {summary.payout_destination_set || destSaved
+          <form onSubmit={saveDestination} style={{ ...card, marginBottom: '1.2rem' }}>
+            <h3 style={{ margin: '0 0 0.4rem' }}>Payout destination</h3>
+            <p style={{ color: '#8b91a8', fontSize: '0.82rem', margin: '0 0 0.8rem' }}>
+              {lock?.locked
+                ? (destinationReady
+                    ? `✓ Saved — on ${lock?.locked_until_label || 'Dec 11'} the automatic Christmas queue pays your accumulating balance here, oldest earnings first.`
+                    : `Set it now — on ${lock?.locked_until_label || 'Dec 11'} the automatic Christmas queue pays every wallet with a saved destination. Your Stripe Connect account id.`)
+                : (summary.payout_destination_set || destSaved
                   ? '✓ Saved — your withdrawals join the automatic Christmas queue.'
-                  : 'Where should automatic payouts go? Your Stripe Connect account id.'}
-              </p>
+                  : 'Where should automatic payouts go? Your Stripe Connect account id.')}
+            </p>
               <div style={{ display: 'flex', gap: '0.8rem', flexWrap: 'wrap', alignItems: 'end' }}>
                 <input
                   value={payoutDest} onChange={(e) => { setPayoutDest(e.target.value); setDestSaved(false); }}
@@ -226,9 +283,81 @@ export default function WalletPage() {
                 </button>
               </div>
             </form>
-          )}
 
           {notice && <p style={{ color: '#38bdf8', ...card, marginBottom: '1.2rem' }}>{notice}</p>}
+
+          <h2 style={{ fontSize: '1.25rem', margin: '0 0 1rem' }}>Pending orders</h2>
+          {!hasPendingOrders ? (
+            <p style={{ ...card, color: '#8b91a8', marginBottom: '2rem' }}>
+              No pending orders — nothing held, nothing queued. Earnings keep accumulating until {lock?.locked_until_label || 'Dec 11'}.
+            </p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginBottom: '2rem' }}>
+              <div style={{ ...card, padding: '0.9rem 1.1rem', display: 'flex', gap: '1rem', alignItems: 'center', borderColor: 'rgba(251,191,36,0.35)' }}>
+                <span style={{ fontSize: '1.4rem' }} role="img" aria-label="Christmas queue">🎄</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: '0.92rem' }}>Automatic Christmas payout</div>
+                  <div style={{ color: '#8b91a8', fontSize: '0.82rem' }}>{queueOrder.text}</div>
+                </div>
+                <span style={{
+                  fontSize: '0.72rem', fontWeight: 800, letterSpacing: '0.06em', whiteSpace: 'nowrap',
+                  color: queueOrder.chipColor, border: `1px solid ${queueOrder.chipColor}66`,
+                  borderRadius: 20, padding: '0.3rem 0.8rem', textTransform: 'uppercase',
+                }}>
+                  {queueOrder.chip}
+                </span>
+              </div>
+              {(affPending || []).map((c, i) => (
+                <div key={`aff-${c.source}-${c.source_id || c.created_at}-${i}`} style={{ ...card, padding: '0.9rem 1.1rem', display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700 }}>{fmt(c.commission_cents)}</div>
+                    <div style={{ color: '#5b6178', fontSize: '0.75rem' }}>
+                      Affiliate commission earned {ts(c.created_at)} · not in your wallet balance yet
+                    </div>
+                    <div style={{ color: '#8b91a8', fontSize: '0.82rem' }}>
+                      Awaiting cost finalization — credits once the sale's true net is known.
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', gap: '0.4rem', alignItems: 'flex-end' }}>
+                    {c.source_label && (
+                      <span style={{ fontSize: '0.7rem', background: '#2a3352', borderRadius: 4, padding: '0.15rem 0.5rem', color: '#c9cede' }}>
+                        {c.source_label}
+                      </span>
+                    )}
+                    <span style={{
+                      fontSize: '0.72rem', fontWeight: 800, letterSpacing: '0.06em', textAlign: 'center',
+                      color: '#fbbf24', border: '1px solid #fbbf2466',
+                      borderRadius: 20, padding: '0.3rem 0.8rem', textTransform: 'uppercase',
+                    }}>
+                      Pending
+                    </span>
+                  </div>
+                </div>
+              ))}
+              {pendingWithdrawals.map((w) => {
+                const ps = PENDING_STATUS[w.status] || { label: w.status, color: '#8b91a8' };
+                return (
+                  <div key={w.id} style={{ ...card, padding: '0.9rem 1.1rem', display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 700 }}>{fmt(w.amount_cents)}</div>
+                      <div style={{ color: '#5b6178', fontSize: '0.75rem' }}>
+                        Withdrawal requested {ts(w.created_at)}
+                        {w.destination_label ? ` · ${w.destination_label}` : ''}
+                      </div>
+                      {w.note && <div style={{ color: '#8b91a8', fontSize: '0.82rem' }}>{w.note}</div>}
+                    </div>
+                    <span style={{
+                      fontSize: '0.72rem', fontWeight: 800, letterSpacing: '0.06em', textAlign: 'center',
+                      color: ps.color, border: `1px solid ${ps.color}66`,
+                      borderRadius: 20, padding: '0.3rem 0.8rem', textTransform: 'uppercase',
+                    }}>
+                      {ps.label}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           {showWithdraw && (
             <form onSubmit={requestWithdraw} style={{ ...card, marginBottom: '1.2rem', borderColor: '#34d39988' }}>

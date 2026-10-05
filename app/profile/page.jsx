@@ -388,7 +388,7 @@ export default function ProfilePage() {
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="text-sm font-bold tracking-[0.3em] uppercase text-neutral-100 mb-1">Wallet</h2>
-              <p className="text-xs text-neutral-500">Program earnings land here. Withdraw to your bank anytime.</p>
+              <p className="text-xs text-neutral-500">Program earnings land here. 🔒 Accumulating until the Dec 11 unlock — then withdraw to your bank.</p>
             </div>
             <Link href="/wallet"
               className="min-h-[44px] inline-flex items-center px-4 rounded-lg bg-emerald-400/90 text-black text-sm font-bold hover:bg-emerald-300">

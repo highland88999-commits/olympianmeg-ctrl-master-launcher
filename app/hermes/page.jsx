@@ -16,7 +16,7 @@ async function getListings() {
   try {
     const { data, error } = await supabase
       .from('hermes_links')
-      .select('id, name, url, root_domain, category')
+      .select('id, name, url, root_domain, category, expires_at')
       .eq('payment_status', 'approved')
       .or('expires_at.is.null,expires_at.gt.now()')
       .order('name', { ascending: true });
@@ -37,14 +37,16 @@ export default async function HermesPage({ searchParams }) {
 
   return (
     <main className="relative min-h-dvh w-full bg-black text-white overflow-x-hidden">
-      {/* Merchant-row ambience — sits BEHIND the galaxy canvas (z -20 vs -10).
-          The directory layout, copy, and structure are untouched. */}
+      {/* Merchant-row ambience — sits BEHIND the galaxy canvas (z 0 vs z 0
+          canvas, both under the z-10 content). Previously these used negative
+          z-indexes, which painted them UNDER the page's own black background —
+          the ambience never rendered. Non-negative keeps them visible. */}
       <HermesBackdrop
         src="/images/hermes/bg.webp"
         imgOpacity={0.32}
         scrimTop={0.72}
         scrimBottom={0.9}
-        zIndex={-20}
+        zIndex={0}
         alt=""
       />
       <GalaxyCanvas />
@@ -76,9 +78,24 @@ export default async function HermesPage({ searchParams }) {
           </div>
         )}
 
+        {/* Holiday hook — the seasonal affiliate push. Static, honest: the
+            price and terms below are the real ones from lib/hermes/listings.js. */}
+        <div className="mb-10 mx-auto max-w-2xl rounded-xl border border-amber-500/30 bg-gradient-to-b from-amber-950/50 to-zinc-950/80 px-6 py-5 text-center">
+          <p className="text-sm sm:text-base text-amber-100/95 font-semibold tracking-wide">
+            🎄 Load your bases for Christmas — list your site before the holiday rush.
+          </p>
+          <p className="mt-1.5 text-xs sm:text-sm text-zinc-400">
+            $2.00/year, one listing per domain. Affiliates: load up your links
+            before the holiday traffic.{' '}
+            <a href="#hermes-submit" className="text-amber-300 underline underline-offset-2 hover:text-amber-200">
+              List your site ↓
+            </a>
+          </p>
+        </div>
+
         <DirectoryGrid links={listings} />
 
-        <div className="text-center">
+        <div className="text-center" id="hermes-submit">
           <SubmitDrawer />
         </div>
 
