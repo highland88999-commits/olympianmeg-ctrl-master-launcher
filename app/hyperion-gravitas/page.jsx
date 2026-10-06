@@ -331,6 +331,9 @@ export default function HyperionPage() {
         <div style={styles.hint}>Drag to orbit the camera · The shape truly rotates in {ui.dims} dimensions</div>
       </div>
 
+      {/* Bottom stack: dock above sonic, never overlapping (was: two absolute
+          panels with fixed bottom offsets that collided on narrow screens). */}
+      <div style={styles.bottomStack}>
       <div style={styles.dock}>
         <label style={styles.row}>Dimensions
           <select value={ui.dims} onChange={(e) => set("dims", parseInt(e.target.value, 10))} style={styles.select}>
@@ -390,9 +393,8 @@ export default function HyperionPage() {
         )}
         <span style={styles.sonicNote}>drives the visuals only — nothing is recorded or sent</span>
       </div>
+      </div>
       <style>{`@keyframes hypspin { to { transform: rotate(360deg); } }`}</style>
-      {/* Safari bottom-bar clearance */}
-      <div aria-hidden="true" style={{ height: 'calc(4.5rem + env(safe-area-inset-bottom))' }} />
     </div>
   );
 }
@@ -400,12 +402,13 @@ export default function HyperionPage() {
 const styles = {
   page: { position: "fixed", inset: 0, background: "#030309", color: "#fff", overflow: "hidden", fontFamily: "system-ui, -apple-system, sans-serif", userSelect: "none" },
   canvas: { position: "absolute", inset: 0, width: "100%", height: "100%", display: "block", touchAction: "none", cursor: "grab" },
-  top: { position: "absolute", top: 0, left: 0, right: 0, zIndex: 5, padding: "16px 20px", pointerEvents: "none", background: "linear-gradient(to bottom, rgba(0,0,0,.6), transparent)" },
+  top: { position: "absolute", top: "calc(env(safe-area-inset-top, 0px) + 54px)", left: 0, right: 0, zIndex: 5, padding: "16px 20px", pointerEvents: "none", background: "linear-gradient(to bottom, rgba(0,0,0,.6), transparent)" },
   title: { margin: 0, fontSize: 21, fontWeight: 800, letterSpacing: 3, textTransform: "uppercase", color: "#f3d98b" },
   status: { marginTop: 6, fontSize: 13, fontWeight: 600, letterSpacing: 1, color: "#c9a86a", fontFamily: "ui-monospace, monospace" },
   hint: { marginTop: 4, fontSize: 12, opacity: 0.65 },
-  dock: { position: "absolute", left: 12, right: 12, bottom: 64, zIndex: 5, display: "flex", gap: 10, alignItems: "center", justifyContent: "center", flexWrap: "wrap", backgroundColor: "rgba(8,6,2,.78)", backgroundImage: `url(${TILE})`, backgroundSize: "256px", border: "1px solid rgba(232,185,60,.3)", borderRadius: 14, padding: "10px 14px", backdropFilter: "blur(8px)", boxShadow: "0 0 28px rgba(232,185,60,.07)" },
-  sonic: { position: "absolute", left: 12, right: 12, bottom: 12, zIndex: 5, display: "flex", gap: 10, alignItems: "center", justifyContent: "center", flexWrap: "wrap", backgroundColor: "rgba(8,6,2,.6)", backgroundImage: `url(${TILE})`, backgroundSize: "256px", border: "1px solid rgba(232,185,60,.18)", borderRadius: 12, padding: "8px 14px" },
+  bottomStack: { position: "absolute", left: 12, right: 12, bottom: "calc(12px + env(safe-area-inset-bottom, 0px))", zIndex: 5, display: "flex", flexDirection: "column", gap: 10 },
+  dock: { display: "flex", gap: 10, alignItems: "center", justifyContent: "center", flexWrap: "wrap", backgroundColor: "rgba(8,6,2,.78)", backgroundImage: `url(${TILE})`, backgroundSize: "256px", border: "1px solid rgba(232,185,60,.3)", borderRadius: 14, padding: "10px 14px", backdropFilter: "blur(8px)", boxShadow: "0 0 28px rgba(232,185,60,.07)" },
+  sonic: { display: "flex", gap: 10, alignItems: "center", justifyContent: "center", flexWrap: "wrap", backgroundColor: "rgba(8,6,2,.6)", backgroundImage: `url(${TILE})`, backgroundSize: "256px", border: "1px solid rgba(232,185,60,.18)", borderRadius: 12, padding: "8px 14px" },
   sonicLabel: { fontSize: 12, fontWeight: 700, letterSpacing: 2, color: "#e8b93c", textTransform: "uppercase" },
   sonicNote: { fontSize: 11, opacity: 0.55 },
   row: { display: "flex", alignItems: "center", gap: 8, fontSize: 13 },
