@@ -329,30 +329,84 @@ function rayHitBot(origin, dir, bx, bz, radius) {
   return t;
 }
 
+// Tactical soldier — plate carrier, combat helmet, pack, knee pads.
+// Procedural, team-colored trim preserved, health-bar hook unchanged.
 function makeBotMesh(team) {
   const g = new THREE.Group();
   const trim = team === 'blue' ? 0x3b82f6 : 0xef4444;
   const armor = new THREE.MeshStandardMaterial({ color: 0x2b303c, roughness: 0.55, metalness: 0.55 });
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.34, 0.8, 4, 12), armor);
-  body.position.y = 0.95;
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.26, 16, 12), armor);
-  head.position.y = 1.72;
+  const cloth = new THREE.MeshStandardMaterial({ color: 0x23262e, roughness: 0.9, metalness: 0.1 });
+  const skin = new THREE.MeshStandardMaterial({ color: 0x8a6f5c, roughness: 0.8, metalness: 0 });
+  const trimMat = new THREE.MeshStandardMaterial({ color: trim, emissive: trim, emissiveIntensity: 1.1, roughness: 0.4 });
+
+  // Legs: thighs, knee pads, shins, boots.
+  const thighGeo = new THREE.BoxGeometry(0.22, 0.42, 0.24);
+  const kneeGeo = new THREE.BoxGeometry(0.22, 0.16, 0.09);
+  const shinGeo = new THREE.BoxGeometry(0.18, 0.4, 0.2);
+  const bootGeo = new THREE.BoxGeometry(0.2, 0.14, 0.34);
+  for (const s of [-1, 1]) {
+    const thigh = new THREE.Mesh(thighGeo, cloth);
+    thigh.position.set(s * 0.16, 0.62, 0);
+    const knee = new THREE.Mesh(kneeGeo, armor);
+    knee.position.set(s * 0.16, 0.42, 0.1);
+    const shin = new THREE.Mesh(shinGeo, cloth);
+    shin.position.set(s * 0.16, 0.22, 0);
+    const boot = new THREE.Mesh(bootGeo, armor);
+    boot.position.set(s * 0.16, 0.07, 0.06);
+    g.add(thigh, knee, shin, boot);
+  }
+
+  // Torso: plate-carrier vest, front plate, trim belt, chest-rig pouches.
+  const vest = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.62, 0.4), armor);
+  vest.position.y = 1.05;
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.06), cloth);
+  plate.position.set(0, 1.08, 0.21);
+  const belt = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.12, 0.42), trimMat);
+  belt.position.y = 0.78;
+  g.add(vest, plate, belt);
+  for (const s of [-1, 0, 1]) {
+    const pouch = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.15, 0.08), cloth);
+    pouch.position.set(s * 0.15, 0.98, 0.24);
+    g.add(pouch);
+  }
+
+  // Backpack with trim stripe.
+  const pack = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.5, 0.22), cloth);
+  pack.position.set(0, 1.1, -0.3);
+  const packStripe = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.06, 0.24), trimMat);
+  packStripe.position.set(0, 1.28, -0.3);
+  g.add(pack, packStripe);
+
+  // Arms, shoulder pads with trim caps.
+  const armGeo = new THREE.BoxGeometry(0.16, 0.5, 0.18);
+  const padGeo = new THREE.SphereGeometry(0.17, 10, 8);
+  for (const s of [-1, 1]) {
+    const arm = new THREE.Mesh(armGeo, cloth);
+    arm.position.set(s * 0.38, 1.05, 0);
+    const pad = new THREE.Mesh(padGeo, armor);
+    pad.position.set(s * 0.38, 1.32, 0);
+    pad.scale.y = 0.8;
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.04, 0.2), trimMat);
+    cap.position.set(s * 0.38, 1.44, 0);
+    g.add(arm, pad, cap);
+  }
+
+  // Head: face, combat helmet, brim, visor goggles, NVG rail.
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 14, 10), skin);
+  head.position.y = 1.62;
+  const helmet = new THREE.Mesh(
+    new THREE.SphereGeometry(0.26, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.55), armor);
+  helmet.position.y = 1.66;
+  const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.29, 0.05, 14), armor);
+  brim.position.y = 1.66;
   const visor = new THREE.Mesh(
-    new THREE.BoxGeometry(0.36, 0.12, 0.12),
+    new THREE.BoxGeometry(0.3, 0.1, 0.1),
     new THREE.MeshStandardMaterial({ color: 0x050505, emissive: trim, emissiveIntensity: 1.4 })
   );
-  visor.position.set(0, 1.74, 0.2);
-  const belt = new THREE.Mesh(
-    new THREE.TorusGeometry(0.37, 0.05, 8, 20),
-    new THREE.MeshStandardMaterial({ color: trim, emissive: trim, emissiveIntensity: 0.9 })
-  );
-  belt.rotation.x = Math.PI / 2;
-  belt.position.y = 0.72;
-  const padL = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8), armor);
-  padL.position.set(-0.44, 1.35, 0);
-  const padR = padL.clone();
-  padR.position.x = 0.44;
-  g.add(body, head, visor, belt, padL, padR);
+  visor.position.set(0, 1.62, 0.18);
+  const nvg = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.06, 0.16), trimMat);
+  nvg.position.set(0, 1.8, 0.16);
+  g.add(head, helmet, brim, visor, nvg);
 
   // Floating health bar (sprite, always faces camera).
   const hc = document.createElement('canvas');
@@ -379,58 +433,202 @@ function paintHealthBar(mesh, frac) {
   tex.needsUpdate = true;
 }
 
-// First-person weapon viewmodel — chunky low-poly, per-weapon silhouette.
+// First-person weapon viewmodel — detailed military-grade procedural builds.
+// Gold Omega brand decal — canvas-drawn metallic gold Ω, engraved-medallion look.
+// Shared texture; strategic placement per weapon (receiver side, stock, scope).
+let _omegaTex = null;
+function omegaTexture() {
+  if (_omegaTex) return _omegaTex;
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 128;
+  const x = c.getContext('2d');
+  x.clearRect(0, 0, 128, 128);
+  const grad = x.createLinearGradient(0, 18, 0, 112);
+  grad.addColorStop(0, '#fff3c4');
+  grad.addColorStop(0.45, '#ffd700');
+  grad.addColorStop(0.75, '#c9962e');
+  grad.addColorStop(1, '#8a5a14');
+  x.fillStyle = grad;
+  x.font = '900 88px Georgia, "Times New Roman", serif';
+  x.textAlign = 'center';
+  x.textBaseline = 'middle';
+  x.shadowColor = 'rgba(255, 200, 60, 0.8)';
+  x.shadowBlur = 8;
+  x.fillText('Ω', 64, 68);
+  x.shadowBlur = 0;
+  x.strokeStyle = '#e8b93c';
+  x.lineWidth = 3;
+  x.beginPath();
+  x.arc(64, 64, 57, 0, Math.PI * 2);
+  x.stroke();
+  _omegaTex = new THREE.CanvasTexture(c);
+  _omegaTex.anisotropy = 4;
+  return _omegaTex;
+}
+function omegaDecal(size) {
+  const m = new THREE.Mesh(
+    new THREE.PlaneGeometry(size, size),
+    new THREE.MeshStandardMaterial({
+      map: omegaTexture(),
+      transparent: true,
+      opacity: 0.95,
+      metalness: 0.9,
+      roughness: 0.25,
+      emissive: 0x664400,
+      emissiveIntensity: 0.25,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+    })
+  );
+  // Faces -X (left side of the weapon, visible in first-person view).
+  m.rotation.y = -Math.PI / 2;
+  return m;
+}
+
+// First-person weapon viewmodel — detailed military-grade procedural builds.
+// Per-weapon silhouette with rails, grips, mags, sights. Same muzzleZ outputs
+// so ballistics/tracers are untouched.
 function makeViewmodel(weaponKey) {
   const g = new THREE.Group();
   const dark = new THREE.MeshStandardMaterial({ color: 0x1c1f26, roughness: 0.5, metalness: 0.6 });
-  const accent = new THREE.MeshStandardMaterial({
-    color: 0x00e5ff, emissive: 0x00e5ff, emissiveIntensity: 0.7, roughness: 0.4,
-  });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.13, 0.55), dark);
-  const grip = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.16, 0.09), dark);
-  grip.position.set(0, -0.13, 0.1);
-  grip.rotation.x = 0.3;
-  const sight = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.07, 0.12), dark);
-  sight.position.set(0, 0.1, -0.05);
-  const dot = new THREE.Mesh(
-    new THREE.BoxGeometry(0.015, 0.015, 0.015),
-    new THREE.MeshBasicMaterial({ color: 0xff4444 })
-  );
-  dot.position.set(0, 0.1, -0.05);
-  g.add(body, grip, sight, dot);
+  const poly = new THREE.MeshStandardMaterial({ color: 0x14161a, roughness: 0.7, metalness: 0.3 });
+  const steel = new THREE.MeshStandardMaterial({ color: 0x3a3f47, roughness: 0.35, metalness: 0.8 });
+  const gold = new THREE.MeshStandardMaterial({ color: 0xd4a017, roughness: 0.3, metalness: 0.9 });
+  const M = (geo, mat, x, y, z) => {
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(x, y, z);
+    return m;
+  };
+  const box = (w, h, d) => new THREE.BoxGeometry(w, h, d);
+  const cylZ = (r1, r2, len, seg) => {
+    const geo = new THREE.CylinderGeometry(r1, r2, len, seg || 12);
+    geo.rotateX(Math.PI / 2);
+    return geo;
+  };
 
   let muzzleZ = -0.5;
+
   if (weaponKey === 'rifle') {
-    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.35, 10), dark);
-    barrel.rotation.x = Math.PI / 2;
-    barrel.position.set(0, 0.02, -0.42);
-    const mag = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.18, 0.1), dark);
-    mag.position.set(0, -0.14, -0.08);
-    mag.rotation.x = 0.25;
-    const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.095, 0.02, 0.3), accent);
-    stripe.position.set(0, 0.02, 0.05);
-    g.add(barrel, mag, stripe);
+    // --- receiver ---
+    g.add(M(box(0.09, 0.14, 0.42), dark, 0, 0, 0.02));
+    // --- top Picatinny rail + ridges ---
+    g.add(M(box(0.045, 0.025, 0.5), steel, 0, 0.085, -0.02));
+    for (let i = 0; i < 9; i++) {
+      g.add(M(box(0.05, 0.015, 0.02), steel, 0, 0.1, -0.24 + i * 0.055));
+    }
+    // --- handguard (octagonal) ---
+    g.add(M(new THREE.CylinderGeometry(0.055, 0.055, 0.3, 8).rotateX(Math.PI / 2), poly, 0, 0.01, -0.32));
+    // --- barrel + muzzle brake ---
+    g.add(M(cylZ(0.022, 0.022, 0.16), steel, 0, 0.01, -0.52));
+    g.add(M(box(0.06, 0.06, 0.1), dark, 0, 0.01, -0.6));
+    g.add(M(box(0.07, 0.02, 0.06), poly, 0, 0.01, -0.6));
+    // --- front post + rear peep sights ---
+    g.add(M(box(0.015, 0.05, 0.015), dark, 0, 0.125, -0.42));
+    g.add(M(box(0.05, 0.05, 0.02), dark, 0, 0.12, 0.16));
+    // --- charging handle ---
+    g.add(M(box(0.07, 0.02, 0.04), steel, 0, 0.08, 0.22));
+    // --- ejection port (right side) ---
+    g.add(M(box(0.005, 0.05, 0.12), poly, 0.046, 0.01, 0.0));
+    // --- curved 30-round magazine (3 segments) ---
+    const mag1 = M(box(0.055, 0.1, 0.09), poly, 0, -0.11, -0.02); mag1.rotation.x = 0.15;
+    const mag2 = M(box(0.055, 0.1, 0.09), poly, 0, -0.19, 0.0); mag2.rotation.x = 0.3;
+    const mag3 = M(box(0.055, 0.09, 0.09), poly, 0, -0.26, 0.03); mag3.rotation.x = 0.45;
+    g.add(mag1, mag2, mag3);
+    // --- pistol grip + trigger guard + trigger ---
+    const grip = M(box(0.06, 0.16, 0.08), poly, 0, -0.13, 0.14); grip.rotation.x = 0.35;
+    g.add(grip);
+    g.add(M(box(0.02, 0.02, 0.12), dark, 0, -0.085, 0.06));
+    g.add(M(box(0.015, 0.05, 0.02), steel, 0, -0.07, 0.05));
+    // --- foregrip ---
+    const fg = M(box(0.05, 0.14, 0.06), poly, 0, -0.11, -0.3); fg.rotation.x = -0.1;
+    g.add(fg);
+    // --- telescoping stock: buffer tube, body, buttpad, gold buttplate pin ---
+    g.add(M(cylZ(0.025, 0.025, 0.18), steel, 0, 0.0, 0.3));
+    g.add(M(box(0.07, 0.12, 0.22), poly, 0, -0.01, 0.38));
+    g.add(M(box(0.075, 0.14, 0.03), dark, 0, -0.01, 0.49));
+    g.add(M(box(0.075, 0.02, 0.02), gold, 0, 0.045, 0.38));
+    // --- gold Omega: receiver left (manufacturer mark) + stock ---
+    const d1 = omegaDecal(0.085); d1.position.set(-0.0465, 0.0, 0.02); g.add(d1);
+    const d2 = omegaDecal(0.05); d2.position.set(-0.0365, -0.01, 0.38); g.add(d2);
     muzzleZ = -0.62;
   } else if (weaponKey === 'smg') {
-    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.2, 10), dark);
-    barrel.rotation.x = Math.PI / 2;
-    barrel.position.set(0, 0.02, -0.35);
-    const mag = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.22, 0.08), dark);
-    mag.position.set(0, -0.16, 0.02);
-    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.1, 0.22), dark);
-    stock.position.set(0, -0.02, 0.36);
-    g.add(barrel, mag, stock);
+    // --- receiver ---
+    g.add(M(box(0.08, 0.12, 0.34), dark, 0, 0, 0.05));
+    // --- top rail ---
+    g.add(M(box(0.04, 0.02, 0.36), steel, 0, 0.07, 0.03));
+    for (let i = 0; i < 7; i++) {
+      g.add(M(box(0.045, 0.012, 0.018), steel, 0, 0.082, -0.12 + i * 0.05));
+    }
+    // --- red-dot sight: tube + glowing lens ---
+    g.add(M(cylZ(0.03, 0.03, 0.1), dark, 0, 0.115, 0.02));
+    g.add(M(cylZ(0.024, 0.024, 0.005), new THREE.MeshBasicMaterial({ color: 0xff2222 }), 0, 0.115, 0.068));
+    g.add(M(box(0.02, 0.04, 0.06), dark, 0, 0.09, 0.02));
+    // --- suppressor ---
+    g.add(M(cylZ(0.035, 0.035, 0.22), dark, 0, 0.0, -0.28));
+    g.add(M(new THREE.TorusGeometry(0.035, 0.008, 8, 16), steel, 0, 0.0, -0.2));
+    g.add(M(new THREE.TorusGeometry(0.035, 0.008, 8, 16), steel, 0, 0.0, -0.34));
+    // --- extended stick magazine ---
+    const smag = M(box(0.05, 0.26, 0.07), poly, 0, -0.18, 0.02); smag.rotation.x = 0.12;
+    g.add(smag);
+    g.add(M(box(0.055, 0.03, 0.075), dark, 0, -0.305, 0.035));
+    // --- grip + trigger ---
+    const sgrip = M(box(0.055, 0.14, 0.07), poly, 0, -0.12, 0.16); sgrip.rotation.x = 0.3;
+    g.add(sgrip);
+    g.add(M(box(0.015, 0.02, 0.1), dark, 0, -0.07, 0.1));
+    // --- vertical foregrip ---
+    g.add(M(box(0.045, 0.12, 0.05), poly, 0, -0.1, -0.12));
+    // --- wire stock: two rods + buttplate ---
+    g.add(M(cylZ(0.012, 0.012, 0.2), steel, -0.025, 0.01, 0.3));
+    g.add(M(cylZ(0.012, 0.012, 0.2), steel, 0.025, 0.01, 0.3));
+    g.add(M(box(0.08, 0.13, 0.025), poly, 0, 0.0, 0.4));
+    g.add(M(box(0.02, 0.02, 0.02), gold, 0, 0.05, 0.4));
+    // --- gold Omega: receiver left + mag well ---
+    const d1 = omegaDecal(0.075); d1.position.set(-0.0415, 0.0, 0.05); g.add(d1);
+    const d2 = omegaDecal(0.045); d2.position.set(-0.0265, -0.14, 0.02); d2.rotation.y = -Math.PI / 2; g.add(d2);
     muzzleZ = -0.47;
   } else {
-    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.028, 0.7, 10), dark);
-    barrel.rotation.x = Math.PI / 2;
-    barrel.position.set(0, 0.03, -0.55);
-    const scope = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.22, 12), dark);
-    scope.rotation.x = Math.PI / 2;
-    scope.position.set(0, 0.14, -0.02);
-    const bipod = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.14, 0.05), dark);
-    bipod.position.set(0, -0.1, -0.5);
-    g.add(barrel, scope, bipod);
+    // --- sniper: receiver ---
+    g.add(M(box(0.09, 0.13, 0.4), dark, 0, 0, 0.1));
+    // --- heavy barrel + fluting rings + muzzle brake ---
+    g.add(M(cylZ(0.02, 0.02, 0.75), steel, 0, 0.01, -0.475));
+    for (const rz of [-0.3, -0.45, -0.6]) {
+      g.add(M(new THREE.TorusGeometry(0.021, 0.006, 8, 16), dark, 0, 0.01, rz));
+    }
+    g.add(M(cylZ(0.035, 0.035, 0.12), dark, 0, 0.01, -0.87));
+    g.add(M(box(0.075, 0.02, 0.08), poly, 0, 0.01, -0.87));
+    // --- scope: mounts, tube, objective bell, ocular, turrets, sunshade ---
+    g.add(M(box(0.03, 0.05, 0.04), steel, 0, 0.1, -0.05));
+    g.add(M(box(0.03, 0.05, 0.04), steel, 0, 0.1, 0.15));
+    g.add(M(cylZ(0.04, 0.04, 0.3), dark, 0, 0.145, 0.05));
+    g.add(M(cylZ(0.055, 0.045, 0.1), dark, 0, 0.145, -0.14));
+    g.add(M(cylZ(0.035, 0.04, 0.08), poly, 0, 0.145, 0.23));
+    g.add(M(cylZ(0.05, 0.05, 0.015), new THREE.MeshBasicMaterial({ color: 0x1a2a3a }), 0, 0.145, 0.272));
+    g.add(M(box(0.03, 0.04, 0.03), steel, 0, 0.2, 0.05)); // elevation turret
+    const wt = M(cylZ(0.02, 0.02, 0.03), steel, 0.055, 0.145, 0.05); wt.rotation.z = Math.PI / 2; g.add(wt); // windage
+    g.add(M(box(0.025, 0.02, 0.025), gold, 0, 0.222, 0.05)); // gold turret cap
+    // --- bolt handle (right side) ---
+    const bolt = M(cylZ(0.012, 0.012, 0.06), steel, 0.07, 0.03, 0.12); bolt.rotation.z = Math.PI / 2;
+    g.add(bolt);
+    g.add(M(new THREE.SphereGeometry(0.02, 10, 8), poly, 0.105, 0.03, 0.12));
+    // --- bipod: two angled legs + feet ---
+    for (const s of [-1, 1]) {
+      const leg = M(box(0.03, 0.22, 0.03), steel, s * 0.06, -0.14, -0.5);
+      leg.rotation.z = s * 0.35;
+      g.add(leg);
+      g.add(M(box(0.05, 0.03, 0.08), poly, s * 0.1, -0.245, -0.5));
+    }
+    // --- precision stock: body, cheek riser, buttpad ---
+    g.add(M(box(0.075, 0.11, 0.3), poly, 0, -0.02, 0.36));
+    g.add(M(box(0.06, 0.05, 0.16), dark, 0, 0.055, 0.36));
+    g.add(M(box(0.08, 0.13, 0.03), dark, 0, -0.02, 0.51));
+    // --- magazine ---
+    g.add(M(box(0.06, 0.1, 0.1), poly, 0, -0.11, 0.05));
+    // --- trigger ---
+    g.add(M(box(0.015, 0.05, 0.02), steel, 0, -0.075, 0.14));
+    // --- gold Omega: receiver left + scope tube left ---
+    const d1 = omegaDecal(0.085); d1.position.set(-0.0465, 0.0, 0.1); g.add(d1);
+    const d2 = omegaDecal(0.055); d2.position.set(-0.0415, 0.145, 0.05); g.add(d2);
     muzzleZ = -0.92;
   }
 
@@ -461,7 +659,6 @@ function makeViewmodel(weaponKey) {
   g.userData = { flash, flashLight, muzzleZ, flashT: 0 };
   return g;
 }
-
 function createEngine(canvas, cfg, cb) {
   const rng = mulberry32((Math.random() * 1e9) | 0);
   const map = mapByKey(cfg.mapKey);
