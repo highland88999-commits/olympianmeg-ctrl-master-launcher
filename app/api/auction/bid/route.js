@@ -100,18 +100,32 @@ export const POST = apiGuard(async function POST(req) {
     }
     await holdForWithdrawal(admin, user.id, amount_cents);
   } else {
+    // Card: the frontend confirms a PaymentIntent via Stripe Elements first,
+    // then passes its ID here. We verify it is authorized for this bid.
+    const payment_intent_id = String(body.payment_intent_id || '').trim();
+    if (!payment_intent_id) {
+      return NextResponse.json(
+        { error: 'Confirm your card first, then place the bid.' },
+        { status: 400 }
+      );
+    }
     const stripe = await getStripe();
     if (!stripe) {
       return NextResponse.json({ error: 'Card payments are not connected yet.' }, { status: 503 });
     }
     try {
-      const intent = await stripe.paymentIntents.create({
-        amount: amount_cents,
-        currency: 'usd',
-        capture_method: 'manual',
-        description: `Auction bid hold — ${listing.title || 'item'}`,
-        metadata: { listing_id: String(listing_id), bidder_id: String(user.id) },
-      });
+      const intent = await stripe.paymentIntents.retrieve(payment_intent_id);
+      const meta = intent.metadata || {};
+      const okAmount = intent.amount === amount_cents;
+      const okListing = String(meta.listing_id || '') === String(listing_id);
+      const okBidder = String(meta.bidder_id || '') === String(user.id);
+      const okState = intent.status === 'requires_capture';
+      if (!okAmount || !okListing || !okBidder || !okState) {
+        return NextResponse.json(
+          { error: 'That card authorization does not match this bid. Try again.' },
+          { status: 400 }
+        );
+      }
       stripeIntentId = intent.id;
     } catch (err) {
       console.error('Bid authorization failed:', err?.message || err);

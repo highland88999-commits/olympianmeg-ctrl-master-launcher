@@ -81,6 +81,7 @@ export default function Order67Page() {
   const [muted, setMuted] = useState(false);
   const [backdrop, setBackdropState] = useState(BACKDROP_NONE);
   const [cloudError, setCloudError] = useState(null); // null | 'no-session' | 'no-db' | 'no-migration' | 'no-camera'
+  const [copied, setCopied] = useState(null); // null | 'code' | 'link'
 
   const setRoomCode = (c) => {
     roomCodeRef.current = c;
@@ -366,6 +367,42 @@ export default function Order67Page() {
 
   const inCall = phase === 'in-call';
 
+  // ---------- share: copy code / copy link ----------
+  const shareUrlFor = (code) => {
+    if (typeof window === 'undefined' || !code) return '';
+    return `${window.location.origin}/order-67?code=${encodeURIComponent(code)}`;
+  };
+
+  const copyText = async (text, kind) => {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // fallback for older browsers: temp textarea
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      } catch { /* clipboard unavailable */ }
+    }
+    setCopied(kind);
+    setTimeout(() => setCopied((c) => (c === kind ? null : c)), 1800);
+  };
+
+  // ---------- deep link: ?code=ABC123 auto-fills the join field ----------
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const c = normalizeCode(params.get('code') || '');
+      if (isValidRoomCode(c)) setJoinCode(c);
+    } catch { /* ignore */ }
+  }, []);
+
   return (
     <main className="o67-mono relative h-dvh w-full overflow-hidden bg-black text-cyan-100 select-none">
       <style>{CSS}</style>
@@ -487,8 +524,23 @@ export default function Order67Page() {
           <p className="o67-waiting text-5xl font-black tracking-[0.35em] text-white" style={{ textShadow: '0 0 24px rgba(70,200,255,0.7)' }}>
             {roomCode}
           </p>
-          <p className="max-w-[240px] text-center text-[11px] leading-relaxed text-zinc-400">
-            Share it with your peer — they enter it on their own throne room screen.
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => copyText(roomCode, 'code')}
+              className="min-h-[44px] rounded-xl border border-cyan-300/50 bg-cyan-400/15 px-5 text-xs font-bold tracking-[0.2em] text-cyan-100 backdrop-blur-md transition hover:bg-cyan-400/25 active:scale-[0.98]"
+            >
+              {copied === 'code' ? 'COPIED ✓' : 'COPY CODE'}
+            </button>
+            <button
+              onClick={() => copyText(shareUrlFor(roomCode), 'link')}
+              className="min-h-[44px] rounded-xl border border-white/20 bg-black/50 px-5 text-xs font-bold tracking-[0.2em] text-cyan-200 backdrop-blur-md transition hover:border-cyan-300/60 active:scale-[0.98]"
+            >
+              {copied === 'link' ? 'COPIED ✓' : 'COPY LINK'}
+            </button>
+          </div>
+          <p className="max-w-[260px] text-center text-[11px] leading-relaxed text-zinc-400">
+            Anyone with the code or link can join — no friend list needed.
+            They enter it on their own throne room screen, or tap the link.
           </p>
           <button
             onClick={() => hangUp('The channel closes.')}

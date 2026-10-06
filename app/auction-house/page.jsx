@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import AmbienceBackdrop, { useAmbience, bgModeLabel } from '@/components/ambience/AmbienceBackdrop';
 import MiniViewport from '@/components/world-engine/MiniViewport';
+import CardBidForm from '@/components/auction/CardBidForm';
 import { supabase } from '@/lib/supabase';
 import {
   CATEGORIES,
@@ -243,6 +244,7 @@ function LotDetail({ listing, nowMs, session, watched, onWatch, onClose, onChang
   const [bidMethod, setBidMethod] = useState('wallet');
   const [bidBusy, setBidBusy] = useState(false);
   const [bidMsg, setBidMsg] = useState(null);
+  const [showCardForm, setShowCardForm] = useState(false);
   const [buyStep, setBuyStep] = useState('idle'); // idle | confirm | busy | done
   const [buyMethod, setBuyMethod] = useState('wallet');
   const [buyMsg, setBuyMsg] = useState(null);
@@ -278,12 +280,17 @@ function LotDetail({ listing, nowMs, session, watched, onWatch, onClose, onChang
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listing.id, listing.current_bid_cents]);
 
-  const placeBid = async (e) => {
-    e.preventDefault();
+  const placeBid = async (e, paymentIntentId = null) => {
+    if (e) e.preventDefault();
     setBidMsg(null);
     const cents = dollarsToCents(bidAmount);
     if (!Number.isFinite(cents) || cents < minNext) {
       setBidMsg({ kind: 'error', text: `Your bid must be at least ${formatUsdCents(minNext)}.` });
+      return;
+    }
+    // Card bids go through the Elements form first
+    if (bidMethod === 'stripe' && !paymentIntentId) {
+      setShowCardForm(true);
       return;
     }
     const { data: { session: s } } = await supabase.auth.getSession();
@@ -299,7 +306,12 @@ function LotDetail({ listing, nowMs, session, watched, onWatch, onClose, onChang
           'Content-Type': 'application/json',
           Authorization: `Bearer ${s.access_token}`,
         },
-        body: JSON.stringify({ listing_id: listing.id, amount_cents: cents, pay_method: bidMethod }),
+        body: JSON.stringify({
+          listing_id: listing.id,
+          amount_cents: cents,
+          pay_method: bidMethod,
+          ...(paymentIntentId ? { payment_intent_id: paymentIntentId } : {}),
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) {
@@ -519,7 +531,19 @@ function LotDetail({ listing, nowMs, session, watched, onWatch, onClose, onChang
             </div>
             <p className="mt-2 text-xs text-zinc-500">
               Wallet bids are held (not spent) until the auction settles. Outbid and the hold is released.
+              Card bids authorize the amount — captured only if you win.
             </p>
+            {bidMethod === 'stripe' && showCardForm && (
+              <CardBidForm
+                listingId={listing.id}
+                amountCents={dollarsToCents(bidAmount)}
+                onDone={(piId) => {
+                  setShowCardForm(false);
+                  placeBid(null, piId);
+                }}
+                onCancel={() => setShowCardForm(false)}
+              />
+            )}
             {bidMsg && (
               <p className={`mt-3 text-sm ${bidMsg.kind === 'ok' ? 'text-emerald-300' : 'text-red-300'}`}>
                 {bidMsg.text}

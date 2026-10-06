@@ -38,7 +38,9 @@
     "stripe": "^22.6.2",
     "three": "^0.164.0",
     "twilio": "^5.1.1",
-    "zustand": "^4.5.2"
+    "zustand": "^4.5.2",
+    "@stripe/stripe-js": "^4.0.0",
+    "@stripe/react-stripe-js": "^2.7.0"
   },
   "devDependencies": {
     "@types/node": "^20",
