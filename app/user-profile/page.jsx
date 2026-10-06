@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import AphroIcon from '@/components/aphrodite/icons';
 import { AphroBg } from '@/components/aphrodite/ambience';
+import DefaultAvatarPicker from '@/components/profile/DefaultAvatarPicker';
 
 // APHRODITE treatment: vault-night art behind the grid overlay, SVG icon
 // buttons and tabs, shared panel texture on the cards.
@@ -272,6 +273,10 @@ export default function UserProfilePage() {
                 aria-label="Upload profile picture" title="Upload profile picture"><AphroIcon name="camera" size={18} /></button>
               <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={onAvatarFile} />
             </div>
+
+          <div style={{ marginTop: 12, width: '100%', maxWidth: 320 }}>
+            <DefaultAvatarPicker value={avatar} onPick={(src) => { setAvatar(src); setToast('Avatar updated — save your profile.'); }} />
+          </div>
           </div>
           <div className="uv-info">
             <h1 className="uv-alias">{alias || 'Anonymous Reader'}</h1>

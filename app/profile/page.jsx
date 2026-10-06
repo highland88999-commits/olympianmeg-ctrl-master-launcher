@@ -34,6 +34,7 @@ import {
   saveProfile,
 } from '@/lib/profile';
 import {
+import DefaultAvatarPicker from '@/components/profile/DefaultAvatarPicker';
   registerAllProfileMedia,
   registerProfileMedia,
   unregisterProfileMedia,
@@ -441,6 +442,19 @@ export default function ProfilePage() {
                       <AphroIcon name="frame" size={15} />
                       {FRAME_LABELS[s]}
                     </button>
+
+
+          <div className="mt-5">
+            <DefaultAvatarPicker
+              value={profile.defaultAvatar || null}
+              onPick={(src) => patch({ defaultAvatar: profile.defaultAvatar === src ? null : src, profilePhotoId: null })}
+            />
+            <p className="text-[11px] text-neutral-500 mt-2">
+              {profile.defaultAvatar
+                ? 'Using a default avatar. Upload a photo above to use your own instead.'
+                : 'No photo yet — pick a default avatar or upload your own.'}
+            </p>
+          </div>
                   ))}
                 </div>
               </div>
