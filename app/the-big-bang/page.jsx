@@ -226,7 +226,7 @@ const styles = {
     backgroundImage: "linear-gradient(to bottom, rgba(1,1,2,0.65), rgba(1,1,2,0.2) 50%, rgba(1,1,2,0.7)), url(/images/the-big-bang/bg.webp)",
     backgroundSize: "cover", backgroundPosition: "center" },
   canvas: { position: "absolute", inset: 0, width: "100%", height: "100%", display: "block", zIndex: 1 },
-  top: { position: "absolute", top: 0, left: 0, right: 0, zIndex: 5, padding: "18px 22px", pointerEvents: "none", background: "linear-gradient(to bottom, rgba(0,0,0,.55), transparent)" },
+  top: { position: "absolute", top: "calc(env(safe-area-inset-top, 0px) + 54px)", left: 0, right: 0, zIndex: 5, padding: "18px 22px", pointerEvents: "none", background: "linear-gradient(to bottom, rgba(0,0,0,.55), transparent)" },
   title: { margin: 0, fontSize: 22, fontWeight: 800, letterSpacing: 4, textTransform: "uppercase", color: "#ffe9c4" },
   stage: { marginTop: 6, fontSize: 17, fontWeight: 700, color: "#ffd76e" },
   years: { fontSize: 13, opacity: 0.75, marginTop: 2 },

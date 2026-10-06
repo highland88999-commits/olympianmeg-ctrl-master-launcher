@@ -223,7 +223,7 @@ export default function InfinityDrivePage() {
 const styles = {
   page: { position: "fixed", inset: 0, background: "#020208", color: "#fff", overflow: "hidden", fontFamily: "system-ui, -apple-system, sans-serif", userSelect: "none" },
   canvas: { position: "absolute", inset: 0, width: "100%", height: "100%", display: "block", touchAction: "none", cursor: "crosshair" },
-  top: { position: "absolute", top: 0, left: 0, right: 0, zIndex: 5, padding: "18px 22px", pointerEvents: "none", background: "linear-gradient(to bottom, rgba(0,0,0,.55), transparent)" },
+  top: { position: "absolute", top: "calc(env(safe-area-inset-top, 0px) + 54px)", left: 0, right: 0, zIndex: 5, padding: "18px 22px", pointerEvents: "none", background: "linear-gradient(to bottom, rgba(0,0,0,.55), transparent)" },
   title: { margin: 0, fontSize: 22, fontWeight: 800, letterSpacing: 4, textTransform: "uppercase", color: "#bfe9ff" },
   hud: { marginTop: 6, fontSize: 14, fontWeight: 600, letterSpacing: 1, color: "#8fd8ff" },
   hint: { marginTop: 4, fontSize: 13, opacity: 0.7 },

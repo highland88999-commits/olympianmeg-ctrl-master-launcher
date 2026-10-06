@@ -1675,7 +1675,7 @@ export default function EnyoPage() {
           )}
 
           {/* top bar: score + timer */}
-          <div className="absolute top-0 left-0 right-0 flex justify-center pt-3 pointer-events-none">
+          <div className="absolute left-0 right-0 flex justify-center pt-3 pointer-events-none" style={{ top: 'calc(env(safe-area-inset-top, 0px) + 54px)' }}>
             <div className="flex items-center gap-4 px-5 py-2 rounded-full bg-black/55 backdrop-blur-sm border border-white/10">
               {hud.mode === 'tdm' ? (
                 <>
@@ -1698,7 +1698,7 @@ export default function EnyoPage() {
           </div>
 
           {/* kill feed */}
-          <div className="absolute top-3 right-3 flex flex-col items-end gap-1 pointer-events-none max-w-[46vw]">
+          <div className="absolute right-3 flex flex-col items-end gap-1 pointer-events-none max-w-[46vw]" style={{ top: 'calc(env(safe-area-inset-top, 0px) + 60px)' }}>
             {feed.map((f) => (
               <div key={f.id} className="text-[11px] px-2.5 py-1 rounded-lg bg-black/55 border border-white/10 text-neutral-300">
                 {f.msg}
