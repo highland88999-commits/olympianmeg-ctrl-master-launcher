@@ -7,7 +7,7 @@ const STEPS = [
   {
     n: '01',
     title: 'Earn',
-    body: 'Every program pays into your wallet. TRIFOLD subscriptions, ORACLE bounties, referrals, artist payouts — your cut lands here automatically, timestamped and viewable down to the cent.',
+    body: 'Every program pays into your wallet. News subscriptions, Program Requests bounties, referrals, artist payouts — your cut lands here automatically, timestamped and viewable down to the cent.',
   },
   {
     n: '02',
