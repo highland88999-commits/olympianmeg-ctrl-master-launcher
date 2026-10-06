@@ -90,6 +90,7 @@ export const POST = apiGuard(async function POST(request) {
       apiKey: process.env.GEMINI_API_KEY,
       prompt: input.prompt,
       targetUrl: input.targetUrl,
+      category,
     });
   } catch (e) {
     console.error('World Engine synthesis failed:', e.message);
@@ -106,7 +107,7 @@ export const POST = apiGuard(async function POST(request) {
   }
 
   // 4. Clamp and return.
-  const safeParams = applyAestheticEngine(rawParams);
+  const safeParams = applyAestheticEngine(rawParams, category);
 
   return NextResponse.json({
     success: true,

@@ -5,6 +5,7 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { buildWeapon } from '@/lib/world-engine/weapon-builder';
 
 const getThemeColor = (category) => {
   const colors = {
@@ -101,25 +102,37 @@ export default function MiniViewport({ category, params }) {
 
     if (meshRef.current) {
       scene.remove(meshRef.current);
-      if (meshRef.current.geometry) meshRef.current.geometry.dispose();
-      if (meshRef.current.material) meshRef.current.material.dispose();
+      // Deep-dispose: weapon builds are Groups of many meshes. The shared
+      // gold-Omega texture is cached on purpose, so maps are left alone.
+      meshRef.current.traverse((o) => {
+        if (o.geometry) o.geometry.dispose();
+        if (o.material) {
+          const mats = Array.isArray(o.material) ? o.material : [o.material];
+          mats.forEach((m) => m.dispose());
+        }
+      });
     }
 
     const themeHex = getThemeColor(category);
     let geometry, material, mesh;
 
-    material = new THREE.MeshStandardMaterial({
-      color: themeHex,
-      emissive: themeHex,
-      emissiveIntensity: 0.4,
-      wireframe: category === 'world',
-      transparent: true,
-      opacity: 0.9,
-    });
+    if (category !== 'weapon') {
+      material = new THREE.MeshStandardMaterial({
+        color: themeHex,
+        emissive: themeHex,
+        emissiveIntensity: 0.4,
+        wireframe: category === 'world',
+        transparent: true,
+        opacity: 0.9,
+      });
+    }
 
     switch (category) {
       case 'weapon':
-        geometry = new THREE.CylinderGeometry(0.05, 0.1, params?.length || 1, 8);
+        // CoD-level procedural build with gold Omega branding.
+        mesh = buildWeapon(THREE, params || {});
+        mesh.rotation.y = Math.PI / 2; // side profile to the camera
+        mesh.position.y = 0.85;
         break;
       case 'character':
         geometry = new THREE.CapsuleGeometry(0.5, params?.height || 1.8, 4, 16);
@@ -154,7 +167,6 @@ export default function MiniViewport({ category, params }) {
     if (!mesh) mesh = new THREE.Mesh(geometry, material);
 
     if (category === 'character') mesh.position.y = (params?.height || 1.8) / 2 + 0.25;
-    if (category === 'weapon') mesh.position.y = (params?.length || 1) / 2;
     if (category === 'object' || category === 'asset_link') mesh.position.y = (params?.scale?.y || 1) / 2;
     if (category === 'vehicle') mesh.position.y = 0.4;
 
