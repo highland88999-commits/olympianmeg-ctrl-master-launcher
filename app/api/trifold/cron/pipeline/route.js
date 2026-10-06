@@ -176,10 +176,20 @@ export const GET = apiGuard(async function GET(req) {
       .select('*')
       .neq('status', 'published')
       .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .limit(10);
     if (error) throw new Error(error.message);
-    edition = data;
+    // Prefer the newest edition WITH content (og_stories); orphans are empty.
+    // Falls back to the newest row so a week is never empty.
+    const rows = Array.isArray(data) ? data : [];
+    edition = rows.find((r) => Array.isArray(r.og_stories) && r.og_stories.length > 0) || rows[0] || null;
+    // Clean up orphans: delete empty drafts older than the chosen edition.
+    if (edition && rows.length > 1) {
+      const orphans = rows.filter((r) => r.id !== edition.id && (!Array.isArray(r.og_stories) || r.og_stories.length === 0));
+      if (orphans.length > 0) {
+        await admin.from('trifold_editions').delete().in('id', orphans.map((r) => r.id));
+        actions.push({ step: 'dedupe', ok: true, note: `Removed ${orphans.length} empty orphan draft(s).` });
+      }
+    }
   } catch (e) {
     return Response.json({ ok: false, actions, error: `Could not load the open edition: ${e.message}` });
   }
