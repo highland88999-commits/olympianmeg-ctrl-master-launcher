@@ -27,11 +27,11 @@ import {
   saveProfile,
 } from '@/lib/profile';
 import {
-import DefaultAvatarPicker from '@/components/profile/DefaultAvatarPicker';
   registerAllProfileMedia,
   registerProfileMedia,
   unregisterProfileMedia,
 } from '@/lib/user-content/bridges';
+import DefaultAvatarPicker from '@/components/profile/DefaultAvatarPicker';
 
 const SUIT_COLORS = [
   '#00f2ff', '#ff2fd6', '#ffd166', '#06d6a0', '#8b5cf6',
