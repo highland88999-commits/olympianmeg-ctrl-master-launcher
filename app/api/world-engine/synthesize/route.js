@@ -109,6 +109,21 @@ export const POST = apiGuard(async function POST(request) {
   // 4. Clamp and return.
   const safeParams = applyAestheticEngine(rawParams, category);
 
+  // 4b. Prompt-keyword safety net for weapons: if the user explicitly asked
+  // for an optic in plain words and the AI missed it, honor the words.
+  // (The system instruction also tells the AI to do this; this is the backstop.)
+  if ((category || '').toLowerCase() === 'weapon' && input.prompt) {
+    const words = input.prompt.toLowerCase();
+    const wantsScope = /\bscope[ds]?\b/.test(words);
+    const wantsRedDot = /red[\s-]?dot/.test(words);
+    if (wantsScope && safeParams.opticType !== 'scope') safeParams.opticType = 'scope';
+    else if (wantsRedDot && safeParams.opticType !== 'red-dot') safeParams.opticType = 'red-dot';
+    if (/long[\s-]?range|sniper/.test(words) && safeParams.weaponType === 'rifle') {
+      safeParams.weaponType = 'precision';
+      if (!wantsRedDot) safeParams.opticType = 'scope';
+    }
+  }
+
   return NextResponse.json({
     success: true,
     parameters: safeParams,
