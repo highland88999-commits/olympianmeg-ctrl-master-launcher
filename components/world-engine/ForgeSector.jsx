@@ -26,8 +26,10 @@ export default function ForgeSector({ config }) {
 
   const [prompt, setPrompt] = useState('');
   const [assetUrl, setAssetUrl] = useState('');
+  const [creationName, setCreationName] = useState('');
   const [isSynthesizing, setIsSynthesizing] = useState(false);
   const [notice, setNotice] = useState(null);
+  const [savedName, setSavedName] = useState(null);
 
   const applyParams = useEngineStore((s) => s.applySynthesizedParams);
   const params = useEngineStore((s) => s[config.storeKey]);
@@ -40,6 +42,7 @@ export default function ForgeSector({ config }) {
     }
     setIsSynthesizing(true);
     setNotice(null);
+    setSavedName(null);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
@@ -60,16 +63,21 @@ export default function ForgeSector({ config }) {
 
       applyParams(category, aiData.parameters);
 
+      const chosenName = creationName.trim().slice(0, 60);
+      const displayName = chosenName || `${sectorName} creation`;
       const { error } = await supabase.from('world_engine_assets').insert([
         {
           user_id: session.user.id,
-          name: `${sectorName} generation`,
+          name: chosenName || `${sectorName} generation`,
+          display_name: displayName,
           category,
           asset_url: assetUrl || 'procedural_generation',
           generation_params: aiData.parameters,
         },
       ]);
       if (error) throw error;
+
+      setSavedName(displayName);
 
       const billing = aiData.billing || {};
       setNotice(
@@ -79,6 +87,7 @@ export default function ForgeSector({ config }) {
       );
       setPrompt('');
       setAssetUrl('');
+      setCreationName('');
     } catch (err) {
       console.error(err);
       setNotice(err.message || 'Synthesis failed. Please try again.');
@@ -90,7 +99,7 @@ export default function ForgeSector({ config }) {
   const getNested = (obj, path) => path.split('.').reduce((o, k) => (o ? o[k] : undefined), obj);
 
   return (
-    <main className="min-h-dvh bg-black text-white p-6 md:p-8 font-mono">
+    <main className="min-h-dvh bg-black text-white p-6 md:p-8 pb-24 font-mono">
       <div className="max-w-6xl mx-auto flex flex-col gap-8">
         <header className="border-b pb-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4" style={{ borderColor: accent }}>
           <div>
@@ -116,11 +125,33 @@ export default function ForgeSector({ config }) {
           </div>
         )}
 
+        {savedName && (
+          <div className="border p-3 rounded text-sm flex items-center justify-between gap-3" style={{ borderColor: `${accent}55`, backgroundColor: `${accent}11`, color: '#e5e5e5' }}>
+            <span>&ldquo;{savedName}&rdquo; saved to your profile.</span>
+            <Link href="/profile" className="shrink-0 font-bold underline underline-offset-2 hover:opacity-80" style={{ color: accent }}>
+              View your creations
+            </Link>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <div className="flex flex-col gap-6 border border-gray-800 bg-black/80 p-6">
             <h2 className="text-sm font-bold tracking-widest border-b border-gray-800 pb-2" style={{ color: accent }}>
               Build settings
             </h2>
+
+            <div className="flex flex-col gap-2">
+              <label className="text-[10px] text-gray-500 uppercase tracking-widest">Name your creation</label>
+              <input
+                type="text"
+                value={creationName}
+                onChange={(e) => setCreationName(e.target.value.slice(0, 60))}
+                placeholder={`e.g. My ${sectorName.toLowerCase()} design`}
+                maxLength={60}
+                className="w-full bg-gray-950 border border-gray-800 p-3 text-sm text-gray-300 outline-none transition-colors"
+                style={{ caretColor: accent }}
+              />
+            </div>
 
             <div className="flex flex-col gap-2">
               <label className="text-[10px] text-gray-500 uppercase tracking-widest">{promptLabel}</label>

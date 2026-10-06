@@ -1,10 +1,9 @@
-// Auction House — pure logic: countdowns, bid increments, seeded demo
-// activity, watchlist helpers. No network, no storage access here except
-// through the guarded helpers at the bottom.
+// Auction House — pure logic: categories, countdowns, bid increments,
+// watchlist helpers. No network, no seeded demo data. Prices and minimum
+// bids mirror the server rules in lib/auction/helpers.js; the server is the
+// source of truth and its error messages are shown verbatim.
 
-import { LOTS } from './lots.js';
-
-// --- deterministic hash (stable seeded data, no Math.random in tests) -------
+// --- deterministic hash (stable medallion fallback per listing) ---------------
 
 export function hashString(s) {
   let h = 2166136261;
@@ -15,25 +14,47 @@ export function hashString(s) {
   return h >>> 0;
 }
 
-// mulberry32 — small seeded PRNG
-export function seededRandom(seed) {
-  let a = seed >>> 0;
-  return function () {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
+// --- categories (the forge's World Engine categories) ------------------------
+
+export const CATEGORIES = [
+  { value: 'all', label: 'All' },
+  { value: 'world', label: 'Worlds' },
+  { value: 'character', label: 'Characters' },
+  { value: 'weapon', label: 'Weapons' },
+  { value: 'vehicle', label: 'Vehicles' },
+  { value: 'weather', label: 'Weather' },
+  { value: 'object', label: 'Objects' },
+];
+
+export function categoryLabel(value) {
+  const found = CATEGORIES.find((c) => c.value === String(value || '').toLowerCase());
+  return found ? found.label : String(value || 'Item');
+}
+
+// --- money -------------------------------------------------------------------
+
+/** Plain-English USD formatting for integer cents: 1250 -> "$12.50". */
+export function formatUsdCents(cents) {
+  const c = Math.round(Number(cents) || 0);
+  return `$${(c / 100).toFixed(2)}`;
+}
+
+/** Parse a dollars string from a money input into whole cents. NaN if invalid. */
+export function dollarsToCents(input) {
+  const n = Number(String(input || '').trim().replace(/[$,]/g, ''));
+  if (!Number.isFinite(n) || n < 0) return NaN;
+  return Math.round(n * 100);
 }
 
 // --- countdown ----------------------------------------------------------------
 
-export function msUntilClose(lot, nowMs) {
-  return Math.max(0, lot.endsInSec * 1000 - (nowMs - lot.openedAtMs));
+export function msUntilClose(listing, nowMs) {
+  if (!listing || !listing.ends_at) return null;
+  return Math.max(0, new Date(listing.ends_at).getTime() - nowMs);
 }
 
 export function formatCountdown(ms) {
+  if (ms === null) return 'No end date';
   if (ms <= 0) return 'Closed';
   const totalSec = Math.floor(ms / 1000);
   const d = Math.floor(totalSec / 86400);
@@ -45,70 +66,42 @@ export function formatCountdown(ms) {
   return d > 0 ? `${d}d ${clock}` : clock;
 }
 
-export function lotStatus(lot, nowMs) {
-  const ms = msUntilClose(lot, nowMs);
+export function lotStatus(listing, nowMs) {
+  const ms = msUntilClose(listing, nowMs);
+  if (ms === null) return 'live';
   if (ms <= 0) return 'closed';
   if (ms <= 60 * 60 * 1000) return 'ending-soon';
   return 'live';
 }
 
-// --- bid increments ------------------------------------------------------------
+// --- bid increments (mirrors the server: max($1, 5% of current)) --------------
 
-export function nextMinBid(current) {
-  if (current < 100) return current + 10;
-  if (current < 500) return current + 25;
-  if (current < 1000) return current + 50;
-  if (current < 5000) return current + 100;
-  return current + 250;
+export function minBidIncrementCents(currentBidCents) {
+  const current = Math.max(0, Math.round(Number(currentBidCents) || 0));
+  return Math.max(100, Math.ceil(current * 0.05));
 }
 
-// --- seeded demo bid history ----------------------------------------------------
-// Deterministic per lot so the UI is stable and tests are repeatable.
-
-const BIDDER_NAMES = [
-  'Harborlight',
-  'Vellum & Co.',
-  'The Quiet Collector',
-  'Northwatch',
-  'Saltline',
-  'Meridian House',
-  'Candlekeep',
-  'Driftwood',
-];
-
-export function seedBids(lot, count = 7) {
-  const rand = seededRandom(hashString(lot.id));
-  const bids = [];
-  let price = lot.startBid;
-  const now = Date.now();
-  const spacing = Math.floor((6 * 3600 * 1000) / count); // ~51 min apart
-  for (let i = 0; i < count; i++) {
-    price = nextMinBid(price) + Math.floor(rand() * 3) * 10;
-    bids.push({
-      bidder: BIDDER_NAMES[Math.floor(rand() * BIDDER_NAMES.length)],
-      amount: price,
-      // newest last; jitter stays well under spacing so time order == bid order
-      atMs: now - (count - i) * spacing - Math.floor(rand() * 60000),
-    });
+/** Honest minimum next bid for a listing: the starting bid if no bids yet. */
+export function minNextBidCents(listing) {
+  const current = Math.round(Number(listing?.current_bid_cents) || 0);
+  if (!current || current <= 0) {
+    return Math.round(Number(listing?.starting_bid_cents) || 0);
   }
-  bids.sort((a, b) => a.atMs - b.atMs);
-  return bids;
+  return current + minBidIncrementCents(current);
 }
 
-export function currentBid(lot) {
-  const bids = seedBids(lot);
-  return bids.length ? bids[bids.length - 1].amount : lot.startBid;
+export function acceptsBids(listing) {
+  const lt = String(listing?.listing_type || '').toLowerCase();
+  return lt === 'auction' || lt === 'both';
 }
 
-export function bidCount(lot) {
-  return seedBids(lot).length;
+export function hasBuyNow(listing) {
+  const lt = String(listing?.listing_type || '').toLowerCase();
+  return (lt === 'fixed' || lt === 'both') && Math.round(Number(listing?.buy_now_price_cents) || 0) > 0;
 }
 
-// --- lot timing (openedAtMs anchored at module load on the client) ---------------
-
-export function anchorLots(nowMs) {
-  // Returns lots with openedAtMs set; pure given nowMs.
-  return LOTS.map((l) => ({ ...l, openedAtMs: nowMs }));
+export function listingTitle(listing) {
+  return (listing?.title || listing?.display_name || 'Untitled creation').trim();
 }
 
 // --- watchlist (pure list ops; storage guarded for SSR) --------------------------
@@ -146,7 +139,7 @@ export function saveWatchlist(list) {
   }
 }
 
-// --- procedural medallion palette (seeded per lot, no remote images) --------------
+// --- procedural medallion palette (fallback when no 3D params or image) ---------
 
 const PALETTES = [
   ['#f59e0b', '#78350f'],
@@ -158,5 +151,29 @@ const PALETTES = [
 ];
 
 export function medallionPalette(lotId) {
-  return PALETTES[hashString(lotId) % PALETTES.length];
+  return PALETTES[hashString(String(lotId)) % PALETTES.length];
+}
+
+// --- server error translation (plain English, no card-shaming) -----------------
+
+/**
+ * Map known server errors to the exact plain-English line the UI should show.
+ * Unknown errors pass through verbatim.
+ */
+export function friendlyAuctionError(message) {
+  const msg = String(message || '').trim();
+  if (!msg) return 'Something went wrong. Please try again.';
+  if (/extra verification/i.test(msg)) {
+    return 'Your card needs extra verification — wallet payment works right now.';
+  }
+  if (/card could not be authorized/i.test(msg)) {
+    return 'The card could not be authorized. Check the card or pay with your wallet instead.';
+  }
+  if (/card payments are not connected/i.test(msg)) {
+    return 'Card payments are not connected yet — wallet payment works right now.';
+  }
+  if (/insufficient available balance/i.test(msg)) {
+    return 'Your wallet does not have enough available balance for this.';
+  }
+  return msg;
 }

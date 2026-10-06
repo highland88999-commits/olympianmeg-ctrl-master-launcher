@@ -7,7 +7,9 @@
 // Honesty rules:
 // - Photos/videos are stored FOR REAL on this device in IndexedDB.
 //   Nothing is uploaded anywhere. The page says so in plain words.
-// - No telemetry, no phone-home, zero network calls. Everything local.
+// - No telemetry, no phone-home. Everything local — except "My Creations",
+//   which fetches your forged items from your signed-in account (the page
+//   says that too).
 // - Reduced motion: glow pulse is disabled under prefers-reduced-motion.
 // - Plain-English labels. Touch targets >= 44px. Page scrolls with
 //   Safari bottom-bar clearance.
@@ -32,6 +34,7 @@ import {
   unregisterProfileMedia,
 } from '@/lib/user-content/bridges';
 import DefaultAvatarPicker from '@/components/profile/DefaultAvatarPicker';
+import MyCreations from '@/components/profile/MyCreations';
 
 const SUIT_COLORS = [
   '#00f2ff', '#ff2fd6', '#ffd166', '#06d6a0', '#8b5cf6',
@@ -476,9 +479,14 @@ export default function ProfilePage() {
           )}
         </section>
 
+        {/* My Creations — server-backed forge items (the one section that
+            talks to the network: your creations live on your account). */}
+        <MyCreations />
+
         <p className="text-[11px] text-neutral-600 text-center px-6">
           This profile lives in your browser on this device. It travels with you
-          once your personal storage bucket is ready.
+          once your personal storage bucket is ready. Your creations are saved
+          to your signed-in account and show up wherever you sign in.
         </p>
       </main>
 
