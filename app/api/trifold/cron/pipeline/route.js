@@ -36,6 +36,7 @@ import {
   pipelineStepFor,
   normalizeFiction,
   createDraftEdition,
+  weekNumber,
 } from '@/lib/trifold/pipeline';
 
 function checkCron(req) {
@@ -168,6 +169,30 @@ export const GET = apiGuard(async function GET(req) {
   if (!admin) throw new Error('The newsletter service is not connected yet.');
   const actions = [];
   const now = edmontonParts();
+
+  // One publish per week: if this week's edition already shipped, stand down.
+  // (Prevents the hourly draft→ready→publish cascade after the Tuesday publish.
+  // The Monday fallback still works — no published edition yet means proceed.)
+  try {
+    const { data: shipped, error: shippedError } = await admin
+      .from('trifold_editions')
+      .select('id')
+      .eq('week_number', weekNumber())
+      .eq('status', 'published')
+      .limit(1);
+    if (shippedError) throw new Error(shippedError.message);
+    if (shipped && shipped.length > 0) {
+      return Response.json({
+        ok: true,
+        edmonton: now,
+        edition_id: shipped[0].id,
+        status_before: 'published',
+        actions: [{ step: 'none', ok: true, note: `Week ${weekNumber()} already published — standing down.` }],
+      });
+    }
+  } catch (e) {
+    return Response.json({ ok: false, actions, error: `Publish-gate check failed: ${e.message}` });
+  }
 
   let edition = null;
   try {
