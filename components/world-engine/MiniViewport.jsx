@@ -6,6 +6,7 @@ import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { buildWeapon } from '@/lib/world-engine/weapon-builder';
+import { makeOmegaBadge } from '@/lib/omega-brand';
 
 const getThemeColor = (category) => {
   const colors = {
@@ -165,6 +166,29 @@ export default function MiniViewport({ category, params }) {
     }
 
     if (!mesh) mesh = new THREE.Mesh(geometry, material);
+
+    // Golden Ω brand stamp on every forge preview (weapons brand inside buildWeapon).
+    // Each badge is placed for the category: chest emblem, front decal, hood mark, floating stamp.
+    if (category === 'character') {
+      const badge = makeOmegaBadge(THREE, 0.35);
+      badge.position.set(0, 0.55, 0.52); // chest, just off the capsule surface
+      mesh.add(badge);
+    } else if (category === 'object' || category === 'asset_link') {
+      const badge = makeOmegaBadge(THREE, 0.3);
+      const depth = params?.scale?.z || 1;
+      badge.position.set(0, 0, depth / 2 + 0.012); // front face
+      mesh.add(badge);
+    } else if (category === 'vehicle') {
+      const badge = makeOmegaBadge(THREE, 0.4);
+      badge.position.set(0, 0.1, 2.012); // hood/front mark
+      mesh.add(badge);
+    } else if (category === 'world') {
+      const radius = params?.terrainRoughness ? 2 + params.terrainRoughness : 2;
+      const badge = makeOmegaBadge(THREE, 0.7);
+      badge.position.set(0, radius + 0.75, 0); // floating brand stamp above the world
+      mesh.add(badge);
+    }
+    // weather is raw particles — no surface to brand; skipped deliberately.
 
     if (category === 'character') mesh.position.y = (params?.height || 1.8) / 2 + 0.25;
     if (category === 'object' || category === 'asset_link') mesh.position.y = (params?.scale?.y || 1) / 2;
