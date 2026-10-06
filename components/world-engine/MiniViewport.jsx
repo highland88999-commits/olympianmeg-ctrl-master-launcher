@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { buildWeapon } from '@/lib/world-engine/weapon-builder';
 import { buildWeatherSystem } from '@/lib/world-engine/weather-builder';
+import { buildWorld } from '@/lib/world-engine/world-builder';
 import { makeOmegaBadge } from '@/lib/omega-brand';
 
 const getThemeColor = (category) => {
@@ -146,7 +147,10 @@ export default function MiniViewport({ category, params }) {
         if (params?.speed) geometry.scale(1, 1, 1 + params.speed * 0.005);
         break;
       case 'world':
-        geometry = new THREE.SphereGeometry(params?.terrainRoughness ? 2 + params.terrainRoughness : 2, 32, 32);
+        // Textured procedural planet: displaced terrain, biome colors,
+        // atmosphere shell, slow spin, gold Ω stamp (inside buildWorld).
+        mesh = buildWorld(THREE, params || {});
+        mesh.position.y = 0.4;
         break;
       case 'weather': {
         // Full weather system: rain, snow, fog, storm, ash, clear — each with
@@ -176,13 +180,8 @@ export default function MiniViewport({ category, params }) {
       const badge = makeOmegaBadge(THREE, 0.4);
       badge.position.set(0, 0.1, 2.012); // hood/front mark
       mesh.add(badge);
-    } else if (category === 'world') {
-      const radius = params?.terrainRoughness ? 2 + params.terrainRoughness : 2;
-      const badge = makeOmegaBadge(THREE, 0.7);
-      badge.position.set(0, radius + 0.75, 0); // floating brand stamp above the world
-      mesh.add(badge);
     }
-    // weather is raw particles — no surface to brand; skipped deliberately.
+    // world carries its Ω stamp inside buildWorld; weather is raw particles.
 
     if (category === 'character') mesh.position.y = (params?.height || 1.8) / 2 + 0.25;
     if (category === 'object' || category === 'asset_link') mesh.position.y = (params?.scale?.y || 1) / 2;

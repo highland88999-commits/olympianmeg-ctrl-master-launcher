@@ -73,6 +73,7 @@ export default function ForgeSector({ config }) {
           category,
           asset_url: assetUrl || 'procedural_generation',
           generation_params: aiData.parameters,
+          prompt: prompt.trim().slice(0, 2000) || null,
         },
       ]);
       if (error) throw error;

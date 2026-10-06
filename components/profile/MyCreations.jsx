@@ -244,6 +244,7 @@ function CreationCard({ asset, listingId, busy, onRename, onList, onUnlist }) {
   const [confirmUnlist, setConfirmUnlist] = useState(false);
   const [formError, setFormError] = useState(null);
   const [renameError, setRenameError] = useState(null);
+  const [showPrompt, setShowPrompt] = useState(false);
 
   const listed = !!asset.is_listed;
 
@@ -333,6 +334,16 @@ function CreationCard({ asset, listingId, busy, onRename, onList, onUnlist }) {
             >
               Rename
             </button>
+            {asset.prompt && (
+              <button
+                type="button"
+                onClick={() => setShowPrompt((v) => !v)}
+                aria-expanded={showPrompt}
+                className="min-h-[44px] px-3 rounded-lg border border-white/15 text-xs text-neutral-300 hover:bg-white/10"
+              >
+                {showPrompt ? 'Hide prompt' : 'View prompt'}
+              </button>
+            )}
             {listed ? (
               <button
                 type="button"
@@ -361,6 +372,12 @@ function CreationCard({ asset, listingId, busy, onRename, onList, onUnlist }) {
           </div>
         )}
         {formError && !listing && <p className="text-xs text-red-300">{formError}</p>}
+        {showPrompt && asset.prompt && (
+          <div className="rounded-lg border border-white/10 bg-white/5 p-3">
+            <p className="text-[10px] tracking-[0.15em] uppercase text-neutral-500 mb-1">Original prompt</p>
+            <p className="text-xs text-neutral-300 whitespace-pre-wrap leading-relaxed">{asset.prompt}</p>
+          </div>
+        )}
       </div>
     </div>
   );

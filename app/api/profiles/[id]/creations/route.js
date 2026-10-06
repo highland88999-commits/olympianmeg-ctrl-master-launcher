@@ -28,7 +28,7 @@ export const GET = apiGuard(async function GET(req, ctx) {
   let q = admin
     .from('world_engine_assets')
     .select(
-      'id, display_name, category, asset_url, generation_params, created_at, is_listed, listing_type, starting_bid_cents, buy_now_price_cents'
+      'id, display_name, category, asset_url, generation_params, prompt, created_at, is_listed, listing_type, starting_bid_cents, buy_now_price_cents'
     )
     .eq('user_id', id)
     .order('created_at', { ascending: false })
