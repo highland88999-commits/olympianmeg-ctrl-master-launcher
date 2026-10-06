@@ -124,6 +124,22 @@ export const POST = apiGuard(async function POST(request) {
     }
   }
 
+  // Same safety net for weather: map plain words to the weather system.
+  if ((category || '').toLowerCase() === 'weather' && input.prompt) {
+    const words = input.prompt.toLowerCase();
+    const weatherMap = [
+      [/blizzard|snow/, 'snow'],
+      [/thunder|lightning|tempest/, 'storm'],
+      [/\brain\b|downpour|drizzle/, 'rain'],
+      [/\bfog\b|mist|haze/, 'fog'],
+      [/\bash\b|ember|wildfire/, 'ash'],
+      [/\bclear\b|sunny|blue sky/, 'clear'],
+    ];
+    for (const [re, wt] of weatherMap) {
+      if (re.test(words)) { safeParams.weatherType = wt; break; }
+    }
+  }
+
   return NextResponse.json({
     success: true,
     parameters: safeParams,

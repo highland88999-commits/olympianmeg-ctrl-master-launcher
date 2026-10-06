@@ -6,6 +6,7 @@ import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { buildWeapon } from '@/lib/world-engine/weapon-builder';
+import { buildWeatherSystem } from '@/lib/world-engine/weather-builder';
 import { makeOmegaBadge } from '@/lib/omega-brand';
 
 const getThemeColor = (category) => {
@@ -60,17 +61,15 @@ export default function MiniViewport({ category, params }) {
     grid.material.transparent = true;
     scene.add(grid);
 
+    const clock = new THREE.Clock();
     const animate = () => {
       requestRef.current = requestAnimationFrame(animate);
       controls.update();
 
-      if (category === 'weather' && meshRef.current) {
-        const positions = meshRef.current.geometry.attributes.position.array;
-        for (let i = 1; i < positions.length; i += 3) {
-          positions[i] -= (params?.windSpeed || 10) * 0.001;
-          if (positions[i] < -2) positions[i] = 5;
-        }
-        meshRef.current.geometry.attributes.position.needsUpdate = true;
+      const dt = Math.min(clock.getDelta(), 0.05);
+      const t = clock.elapsedTime;
+      if (meshRef.current && typeof meshRef.current.userData.update === 'function') {
+        meshRef.current.userData.update(dt, t);
       }
 
       renderer.render(scene, camera);
@@ -150,15 +149,10 @@ export default function MiniViewport({ category, params }) {
         geometry = new THREE.SphereGeometry(params?.terrainRoughness ? 2 + params.terrainRoughness : 2, 32, 32);
         break;
       case 'weather': {
-        geometry = new THREE.BufferGeometry();
-        const count = Math.floor(2000 * (params?.precipitationIntensity || 0.1));
-        const positions = new Float32Array(count * 3);
-        for (let i = 0; i < count * 3; i++) {
-          positions[i] = (Math.random() - 0.5) * 10;
-        }
-        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        material = new THREE.PointsMaterial({ color: themeHex, size: 0.05, transparent: true, opacity: 0.8 });
-        mesh = new THREE.Points(geometry, material);
+        // Full weather system: rain, snow, fog, storm, ash, clear — each with
+        // its own particles, palette, and per-frame behavior.
+        mesh = buildWeatherSystem(THREE, params || {});
+        mesh.position.y = 0.5;
         break;
       }
       default:
@@ -193,6 +187,13 @@ export default function MiniViewport({ category, params }) {
     if (category === 'character') mesh.position.y = (params?.height || 1.8) / 2 + 0.25;
     if (category === 'object' || category === 'asset_link') mesh.position.y = (params?.scale?.y || 1) / 2;
     if (category === 'vehicle') mesh.position.y = 0.4;
+
+    // Weather systems set their own sky.
+    if (category === 'weather' && typeof mesh.userData.skyColor === 'number') {
+      scene.background = new THREE.Color(mesh.userData.skyColor);
+    } else {
+      scene.background = null;
+    }
 
     scene.add(mesh);
     meshRef.current = mesh;
