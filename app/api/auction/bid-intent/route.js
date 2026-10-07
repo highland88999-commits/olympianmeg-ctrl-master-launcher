@@ -43,7 +43,7 @@ export const POST = apiGuard(async function POST(req) {
     return NextResponse.json({ error: 'This auction is not live.' }, { status: 400 });
   }
 
-  const bidCheck = await validateBidAmount(admin, listing_id, amount_cents);
+  const bidCheck = validateBidAmount(listing, amount_cents, user.id);
   if (!bidCheck.ok) return NextResponse.json({ error: bidCheck.error }, { status: 400 });
 
   const stripe = await getStripe();
