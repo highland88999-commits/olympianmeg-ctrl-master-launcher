@@ -9,11 +9,8 @@ import { useEffect, useRef, useState } from 'react';
 import { parseMidi, noteName } from './midi.js';
 import { layoutKeys, isBlackKey, keyAtX, whiteKeyCount } from './piano.js';
 import {
-  INSTRUMENTS,
-  DEFAULT_INSTRUMENT,
   getInstrument,
   midiToFreq,
-  makeDistortionCurve,
   groupByLetter,
   TRANSPOSE_MIN,
   TRANSPOSE_MAX,
@@ -120,10 +117,10 @@ export default function MaestroPage() {
   const [adding, setAdding] = useState(false);
   const [notice, setNotice] = useState('');
 
-  // Sound: instrument voice + live transpose. Piano is the landing voice.
-  const [instrument, setInstrument] = useState(DEFAULT_INSTRUMENT);
+  // Sound: one true grand piano voice + live transpose.
+  // PIANO is the only voice; the ref pattern stays so the scheduler reads
+  // the live tune without re-rendering.
   const [transpose, setTranspose] = useState(0);
-  const instrumentRef = useRef(DEFAULT_INSTRUMENT);
   const transposeRef = useRef(0);
   // Time: live playback tempo. 1 = the MIDI file's own tempo.
   const [tempo, setTempo] = useState(1);
@@ -136,11 +133,6 @@ export default function MaestroPage() {
 
   useEffect(() => {
     try {
-      const savedI = localStorage.getItem('maestro-instrument');
-      if (savedI && getInstrument(savedI).id === savedI) {
-        instrumentRef.current = savedI;
-        setInstrument(savedI);
-      }
       const savedT = parseInt(localStorage.getItem('maestro-transpose') || '0', 10);
       if (Number.isFinite(savedT)) {
         const clamped = Math.min(TRANSPOSE_MAX, Math.max(TRANSPOSE_MIN, savedT));
@@ -156,6 +148,13 @@ export default function MaestroPage() {
     } catch {
       /* private mode — defaults stand */
     }
+  }, []);
+
+  // Prime the grand piano multisamples on page load — fetching and decoding
+  // needs no user gesture, so the true piano sound is ready before the
+  // first tap instead of falling back to the synth on early notes.
+  useEffect(() => {
+    try { primeInstrumentSamples('piano'); } catch (e) { /* synth fallback covers it */ }
   }, []);
 
   useEffect(() => {
@@ -269,24 +268,25 @@ export default function MaestroPage() {
       lfo.connect(lfoDepth);
       lfo.start();
       audioRef.current = { ctx, master, filter, shaper, lfo, lfoDepth, nodes: [], timer: 0, raf: 0 };
-      // Prime the default instrument's samples (decodes off the realtime
+      // Prime the grand piano samples (decodes off the realtime
       // context; silent fallback to oscillators if anything fails).
-      try { primeInstrumentSamples(instrumentRef.current); } catch (e) { /* ignore */ }
+      try { primeInstrumentSamples('piano'); } catch (e) { /* ignore */ }
     }
     return audioRef.current;
   }
 
   // Retune the shared instrument bus AND every live oscillator.
-  // Safe to call mid-song: nothing is stopped or rescheduled.
+  // Tune the shared piano bus. Safe to call mid-song: nothing is stopped
+  // or rescheduled. The piano carries no distortion and no vibrato — a clean
+  // grand voice straight through the filter.
   function applyInstrumentToChain(a, id) {
     const voice = getInstrument(id);
     const t = a.ctx.currentTime;
     a.filter.type = voice.filterType;
     a.filter.frequency.setTargetAtTime(voice.filterFreq, t, 0.03);
-    a.shaper.curve =
-      voice.distortion > 0 ? makeDistortionCurve(voice.distortion) : new Float32Array([-1, 1]);
-    a.lfo.frequency.value = voice.vibratoRate || 5;
-    a.lfoDepth.gain.setTargetAtTime(voice.vibratoDepth || 0, t, 0.05);
+    a.shaper.curve = new Float32Array([-1, 1]); // linear = bypassed
+    a.lfo.frequency.value = 5;
+    a.lfoDepth.gain.setTargetAtTime(0, t, 0.05);
     for (const n of a.nodes) {
       if (n.sampled) continue; // sampled notes have no osc type to retune
       try {
@@ -295,20 +295,6 @@ export default function MaestroPage() {
         /* node already finished */
       }
     }
-  }
-
-  function changeInstrument(id) {
-    const next = getInstrument(id).id;
-    instrumentRef.current = next;
-    setInstrument(next);
-    try {
-      localStorage.setItem('maestro-instrument', next);
-    } catch (e) {
-      /* ignore */
-    }
-    // Start loading the new voice's samples; the synth fallback covers the gap.
-    try { primeInstrumentSamples(next); } catch (e) { /* ignore */ }
-    if (audioRef.current) applyInstrumentToChain(audioRef.current, next);
   }
 
   // Transpose ±12 semitones, applied to every live oscillator in place.
@@ -383,7 +369,7 @@ export default function MaestroPage() {
     const a = ensureAudio();
     const { ctx, filter, lfoDepth } = a;
     if (ctx.state === 'suspended') ctx.resume();
-    applyInstrumentToChain(a, instrumentRef.current);
+    applyInstrumentToChain(a, 'piano');
 
     // Lookahead scheduler: notes are scheduled ~0.6s of song-time ahead,
     // and song position advances by tempo on every tick. Turning the Time
@@ -397,7 +383,7 @@ export default function MaestroPage() {
 
     const scheduleNote = (n, when) => {
       const tp = transposeRef.current; // live tune at schedule time
-      const v = getInstrument(instrumentRef.current); // live voice at schedule time
+      const v = getInstrument('piano'); // the one true voice
       // Sampled voice when its multisamples are ready; silent synth fallback otherwise.
       const sampled = playSampledNote({
         a, voice: v, midi: n.midi, transpose: tp,
@@ -496,7 +482,7 @@ export default function MaestroPage() {
     const a = ensureAudio();
     const { ctx, filter } = a;
     if (ctx.state === 'suspended') ctx.resume();
-    const voice = getInstrument(instrumentRef.current);
+    const voice = getInstrument('piano');
     const t = ctx.currentTime;
     // Sampled voice when ready; manual taps fall back to the synth silently.
     const tapped = playSampledNote({
@@ -747,21 +733,9 @@ export default function MaestroPage() {
       </div>
 
       <div className="px-5 mt-3 flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
-        <label className="flex items-center gap-2 text-xs uppercase tracking-widest text-zinc-400">
-          Sound
-          <select
-            value={instrument}
-            onChange={(e) => changeInstrument(e.target.value)}
-            aria-label="Instrument"
-            className="min-h-[44px] px-3 rounded bg-black/50 border border-zinc-700 text-sm text-zinc-100 focus:border-cyan-500 outline-none"
-          >
-            {INSTRUMENTS.map((i) => (
-              <option key={i.id} value={i.id}>
-                {i.icon} {i.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        <span className="flex items-center gap-2 text-xs uppercase tracking-widest text-zinc-400" aria-label="Instrument: grand piano">
+          🎹 Grand Piano
+        </span>
         <div className="flex items-center gap-2 text-xs uppercase tracking-widest text-zinc-400" role="group" aria-label="Transpose">
           <span id="tune-label">Tune</span>
           <button
@@ -822,7 +796,7 @@ export default function MaestroPage() {
         </div>
       </div>
       <p className="px-5 mt-1 text-center text-[10px] tracking-widest uppercase text-zinc-600">
-        Sound, tune and time apply live — the song keeps playing
+        Tune and time apply live — the song keeps playing
       </p>
 
       <div className="px-5 mt-3 text-center text-xs font-mono text-zinc-400 min-h-[20px]">

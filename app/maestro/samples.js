@@ -129,14 +129,16 @@ export function playSampledNote({ a, voice, midi, transpose = 0, velocity = 1, w
   }
 
   const gain = ctx.createGain();
-  // Match the synth voice's peak/attack envelope shape.
+  // Match the piano's natural voice: fast attack, then the sample's own
+  // decay carries the tone; a gentle 120ms release when the note ends so
+  // cut notes don't click like a damper slamming down.
   const peak = Math.max((0.12 + velocity * 0.22) * (voice.peakScale || 1), 0.0011);
   const attack = Math.max(voice.attack || 0.004, 0.004);
   const end = t + Math.max(duration, 0.1);
   gain.gain.setValueAtTime(0.0001, t);
   gain.gain.exponentialRampToValueAtTime(peak, t + attack);
-  // Sampled notes: hold through the note, quick release at the end.
-  gain.gain.setValueAtTime(peak, Math.max(t + attack, end - 0.06));
+  // Sampled notes: hold through the note, gentle release at the end.
+  gain.gain.setValueAtTime(peak, Math.max(t + attack, end - 0.12));
   gain.gain.exponentialRampToValueAtTime(0.0001, end);
 
   src.connect(gain);

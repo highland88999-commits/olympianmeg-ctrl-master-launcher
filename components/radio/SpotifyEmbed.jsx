@@ -17,6 +17,7 @@
 
 import { useEffect, useRef } from 'react';
 import { useRadio } from './RadioProvider';
+import { STATION } from '@/lib/radio/station';
 
 const IFRAME_API_URL = 'https://open.spotify.com/embed/iframe-api/v1';
 
@@ -69,7 +70,7 @@ export default function SpotifyEmbed() {
     loadIframeApi()
       .then((api) => {
         if (cancelled || !hostRef.current) return;
-        const initialUri = current?.uri || 'spotify:playlist:0zSejHQqxofrcKxS4HYbVU';
+        const initialUri = current?.uri || STATION.albumUri;
         api.createController(
           hostRef.current,
           { width: '100%', height: '152', uri: initialUri },

@@ -217,13 +217,13 @@ function LibrarySheet() {
           <SpotifyEmbed />
         </div>
         <p className="mt-2 text-[11px] leading-snug text-white/60">
-          Playing 30-second previews. For full tracks, open the playlist in the Spotify
+          Playing 30-second previews. For full tracks, open the album in the Spotify
           app — full playback needs Spotify Premium.
         </p>
       </div>
 
-      {/* One-time invite to collaborate on the station playlist (first-load
-          session only, dismissible — see CollabInviteCard). */}
+      {/* Collaborate invite (retired 2026-10-06 — the station is an album now,
+          not a collaborative playlist; the card stays dormant). */}
       <CollabInviteCard />
 
       <div className="mt-2 flex items-center justify-between px-3">
@@ -277,7 +277,7 @@ function LibrarySheet() {
           </a>
         )}
         <p className="mt-1.5 text-center text-[11px] text-white/45">
-          Want to add tracks? The playlists accept collaborators — Merlin enables that in the Spotify app.
+          Pocket universes can still contribute tracks — they play as an encore after the album.
         </p>
       </div>
       </>

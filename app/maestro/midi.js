@@ -1,6 +1,7 @@
 // midi.js — a small, dependency-free Standard MIDI File (SMF) parser.
 // Parses type 0/1 files: header, track chunks, tempo map, note on/off with
-// running status, and converts ticks to seconds. No DOM, no network.
+// running status, sustain pedal (CC 64, extends note durations like a real
+// damper), and converts ticks to seconds. No DOM, no network.
 // Input: Uint8Array. Output: { division, trackCount, tracks: [{ name, notes }] }
 // where each note is { midi, name, start, duration, velocity }.
 
@@ -67,6 +68,7 @@ export function parseMidi(bytes) {
     let trackName = '';
     const open = new Map(); // (channel*128+midi) -> { startTick, velocity }
     const notes = [];
+    const pedalEvents = []; // sustain pedal (CC 64): { tick, down }
 
     while (off < end) {
       const d = readVarLen(bytes, off);
@@ -122,6 +124,13 @@ export function parseMidi(bytes) {
           }
         } else if (kind === 0xc0 || kind === 0xd0) {
           off += 1;
+        } else if (kind === 0xb0) {
+          // Control change: capture the sustain pedal (CC 64); skip the rest.
+          if (off + 2 > end) throw new Error('Truncated control change');
+          const cc = bytes[off];
+          const val = bytes[off + 1];
+          off += 2;
+          if (cc === 64) pedalEvents.push({ tick, down: val >= 64 });
         } else {
           off += 2;
         }
@@ -136,6 +145,30 @@ export function parseMidi(bytes) {
         endTick: tick,
         velocity: o.velocity,
       });
+    }
+
+    // Sustain pedal (CC 64): merge pedal-down spans into intervals, then let
+    // any note whose note-off lands inside a down interval ring until the
+    // pedal lifts — the way a real damper pedal behaves.
+    const pedalDown = [];
+    let pedalStart = null;
+    for (const pe of pedalEvents) {
+      if (pe.down && pedalStart === null) pedalStart = pe.tick;
+      else if (!pe.down && pedalStart !== null) {
+        pedalDown.push([pedalStart, pe.tick]);
+        pedalStart = null;
+      }
+    }
+    if (pedalStart !== null) pedalDown.push([pedalStart, tick]);
+    if (pedalDown.length > 0) {
+      for (const n of notes) {
+        for (const [s, e] of pedalDown) {
+          if (n.endTick >= s && n.endTick < e) {
+            n.endTick = e;
+            break;
+          }
+        }
+      }
     }
 
     tracks.push({ name: trackName || `Track ${t + 1}`, notes });
@@ -168,6 +201,9 @@ export function parseMidi(bytes) {
   };
 
   let totalNotes = 0;
+  // A damper-held note rings, but never forever: 12s is beyond any real
+  // grand's natural decay and keeps runaway pedals from pinning the mixer.
+  const MAX_NOTE_SECONDS = 12;
   for (const tr of tracks) {
     tr.notes = tr.notes
       .filter((n) => n.endTick > n.startTick)
@@ -175,7 +211,10 @@ export function parseMidi(bytes) {
         midi: n.midi,
         name: noteName(n.midi),
         start: secPerTickAt(n.startTick),
-        duration: Math.max(0.03, secPerTickAt(n.endTick) - secPerTickAt(n.startTick)),
+        duration: Math.min(
+          MAX_NOTE_SECONDS,
+          Math.max(0.03, secPerTickAt(n.endTick) - secPerTickAt(n.startTick))
+        ),
         velocity: n.velocity / 127,
       }))
       .sort((a, b) => a.start - b.start);

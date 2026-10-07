@@ -18,7 +18,6 @@ import {
   STATION_TRACKS,
   VAULT_TRACKS,
   buildQueue,
-  buildFirstLoadQueue,
   createContributionStore,
   nextIndex,
   prevIndex,
@@ -50,13 +49,9 @@ export { contributionStore as radioContributions };
 
 const LS_SHUFFLE = 'nexus.radio.shuffle';
 const LS_MINIMIZED = 'nexus.radio.minimized';
-// First-load ritual: ENCOM Part I + Part II open the queue once per user,
-// then the station shuffles normally. Device flag is the fast path; the
-// per-user flag covers shared devices and returning users on new devices.
-const LS_FIRST_LOAD = 'nexus.radio.firstLoadDone';
-// The collaborate invite is shown once (first-load session), dismissible,
-// and never nags again.
-const LS_COLLAB_DISMISSED = 'nexus.radio.collabDismissed';
+// The collaborate invite is shown until dismissed, then never again.
+// (Retired with the ENCOM first-load ritual — the station is now an album,
+// not a collaborative playlist. Kept as a no-op so the card stays dormant.)
 
 function readLS(key, fallback) {
   try {
@@ -107,16 +102,17 @@ export function RadioProvider({ children }) {
     } catch {}
     return null;
   });
+  // Initial queue: resume the tab's session first (an unavoidable full-page
+  // reload — Spotify OAuth round-trip, external return — lands back on the
+  // same track instead of rebuilding the station from scratch). Otherwise a
+  // fresh queue: "The Grid" opens on EVERY open, then the album in order.
+  // Restore never autoplays: the embed loads the track paused and the bar
+  // stays honest.
   const [queue, setQueue] = useState(() => {
     if (typeof window === 'undefined') return buildQueue({ shuffle: true });
     if (initialPlayback) return initialPlayback.tracks;
-    return readLS(LS_FIRST_LOAD, false)
-      ? buildQueue({ shuffle: true })
-      : buildFirstLoadQueue();
+    return buildQueue({ shuffle: true });
   });
-  const [isFirstLoad, setIsFirstLoad] = useState(
-    () => typeof window !== 'undefined' && !initialPlayback && !readLS(LS_FIRST_LOAD, false)
-  );
   const [index, setIndex] = useState(() => (initialPlayback ? initialPlayback.index : 0));
   const [playing, setPlaying] = useState(false); // real state, from Spotify events only
   const [engineReady, setEngineReady] = useState(false);
@@ -221,53 +217,18 @@ export function RadioProvider({ children }) {
 
   // First-load flags: mark the device immediately; mirror per-user when
   // signed in. A signed-in user who never got the ritual on this device
-  // (shared device, new device) gets the ENCOM opener served now.
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    let cancelled = false;
-    const setFlag = (key) => { try { window.localStorage.setItem(key, '1'); } catch {} };
-    const getFlag = (key) => {
-      try { return window.localStorage.getItem(key) === '1'; } catch { return false; }
-    };
-    (async () => {
-      let uid = null;
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        uid = session?.user?.id || null;
-      } catch {}
-      if (cancelled) return;
-      if (getFlag(LS_FIRST_LOAD)) {
-        // Device already welcomed — check the signed-in user separately.
-        if (uid && !getFlag(`${LS_FIRST_LOAD}.${uid}`)) {
-          const q = buildFirstLoadQueue({ contributions: contributionStore.allTracks() });
-          setQueue(q);
-          queueRef.current = q;
-          setIndex(0);
-          indexRef.current = 0;
-          setIsFirstLoad(true);
-          setFlag(`${LS_FIRST_LOAD}.${uid}`);
-        }
-        return;
-      }
-      setFlag(LS_FIRST_LOAD);
-      if (uid) setFlag(`${LS_FIRST_LOAD}.${uid}`);
-    })();
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // (Retired 2026-10-06: the ENCOM first-load ritual is gone. Every open now
+  // starts with "The Grid" via buildQueue(), so no per-user first-load
+  // gating is needed.)
 
-  // Collaborate invite: shown during the first-load session only, dismissible,
-  // never repeated once dismissed. The actual playlist collaboration happens
-  // through Spotify's own invite-collaborators (Merlin flips that toggle
-  // himself in the Spotify app) — this card only points at the playlist.
-  const [collabDismissed, setCollabDismissed] = useState(
-    () => typeof window !== 'undefined' && readLS(LS_COLLAB_DISMISSED, false)
-  );
+  // Collaborate invite: retired with the ENCOM ritual — the station is now an
+  // album, not a collaborative playlist. The card stays dormant (never shown);
+  // the component and dismiss plumbing remain so nothing else breaks.
+  const [collabDismissed, setCollabDismissed] = useState(true);
   const dismissCollabInvite = useCallback(() => {
     setCollabDismissed(true);
-    try { window.localStorage.setItem(LS_COLLAB_DISMISSED, '1'); } catch {}
   }, []);
-  const showCollabInvite = isFirstLoad && !collabDismissed;
+  const showCollabInvite = false;
 
   // Rebuild the queue when shuffle mode or contributions change.
   // Keeps the currently-playing track at the head of the new order.
@@ -643,8 +604,8 @@ export function RadioProvider({ children }) {
     minimized,
     expanded,
     contributions,
-    // First-load ritual + collaborate invite (Tasks 1 & 2).
-    isFirstLoad,
+    // Collaborate invite (retired — always false; card stays dormant).
+    isFirstLoad: false,
     showCollabInvite,
     dismissCollabInvite,
     togglePlay,
@@ -675,7 +636,7 @@ export function RadioProvider({ children }) {
     contribute, removeContribution, registerController, handlePlaybackUpdate, rebuildQueue,
     source, setSource, spotify, connectSpotify, disconnectSpotify,
     refreshSpotifyStatus, getSpotifyToken,
-    isFirstLoad, showCollabInvite, dismissCollabInvite,
+    showCollabInvite, dismissCollabInvite,
   ]);
 
   return <RadioContext.Provider value={value}>{children}</RadioContext.Provider>;

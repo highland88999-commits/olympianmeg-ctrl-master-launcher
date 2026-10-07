@@ -1,17 +1,21 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
+import { supabase } from '@/lib/supabase';
 
 // Global "Report a bug" floating button — mounted once in the root layout so
-// it exists on every page. Opens a small composer; sending opens the user's
-// mail app addressed to the build inbox with the page URL and device details
-// pre-filled. Screenshots are attached by the user in their mail app.
-
-const INBOX = 'olympiannexus@gmail.com';
+// it exists on every page. Reports go straight into the bug_reports table
+// so Muse can see and act on them (not into email).
+//
+// Auto-captured with every report: page URL, user agent, viewport size,
+// timestamp, and the reporter's account when signed in.
 
 export default function BugReportButton() {
   const [open, setOpen] = useState(false);
-  const [message, setMessage] = useState('');
+  const [description, setDescription] = useState('');
+  const [steps, setSteps] = useState('');
+  const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
+  const [error, setError] = useState('');
   const panelRef = useRef(null);
 
   // Close on Escape; close when tapping outside the panel.
@@ -27,28 +31,48 @@ export default function BugReportButton() {
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('pointerdown', onDown);
     };
-  }, [open ]);
+  }, [open]);
 
-  const send = () => {
-    const page = typeof window !== 'undefined' ? window.location.href : '';
-    const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
-    const vp = typeof window !== 'undefined' ? `${window.innerWidth}x${window.innerHeight}` : '';
-    const when = new Date().toISOString();
-    const subject = `[Bug] ${page}`;
-    const body = [
-      message.trim() || '(no description given)',
-      '',
-      '---',
-      `Page: ${page}`,
-      `When: ${when}`,
-      `Screen: ${vp}`,
-      `Browser: ${ua}`,
-      '',
-      'If you took a screenshot of the error, please attach it to this email.',
-    ].join('\n');
-    window.location.href = `mailto:${INBOX}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    setSent(true);
-    setTimeout(() => { setOpen(false); setSent(false); setMessage(''); }, 1200);
+  const send = async () => {
+    if (!description.trim() || sending) return;
+    setSending(true);
+    setError('');
+    try {
+      // Best effort: attach the session so the report links to the account.
+      let token = '';
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        token = session?.access_token || '';
+      } catch { /* anonymous report is fine */ }
+
+      const res = await fetch('/api/bug-report', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          description: description.trim(),
+          steps: steps.trim(),
+          page_url: typeof window !== 'undefined' ? window.location.href : '',
+          user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
+          viewport: typeof window !== 'undefined' ? `${window.innerWidth}x${window.innerHeight}` : '',
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!data.ok) throw new Error(data.error || 'Could not send the report.');
+      setSent(true);
+      setTimeout(() => {
+        setOpen(false);
+        setSent(false);
+        setDescription('');
+        setSteps('');
+      }, 1600);
+    } catch (e) {
+      setError(e.message || 'Could not send the report.');
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -77,22 +101,34 @@ export default function BugReportButton() {
             What went wrong? The page address and your device details are added automatically.
           </p>
           <textarea
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            rows={4}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={3}
             placeholder="Describe the bug…"
             aria-label="Bug description"
+            className="mb-2 w-full resize-none rounded-xl border border-white/10 bg-black/60 p-2.5 text-sm text-white placeholder:text-zinc-600 focus:border-teal-300/60 focus:outline-none"
+          />
+          <textarea
+            value={steps}
+            onChange={(e) => setSteps(e.target.value)}
+            rows={2}
+            placeholder="What were you doing? (optional)"
+            aria-label="What you were doing"
             className="mb-3 w-full resize-none rounded-xl border border-white/10 bg-black/60 p-2.5 text-sm text-white placeholder:text-zinc-600 focus:border-teal-300/60 focus:outline-none"
           />
+          {error && (
+            <p className="mb-2 text-xs leading-relaxed text-red-300">{error}</p>
+          )}
           <button
             type="button"
             onClick={send}
-            className="w-full rounded-xl bg-teal-300/90 px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-teal-200"
+            disabled={sending || !description.trim()}
+            className="w-full rounded-xl bg-teal-300/90 px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-teal-200 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {sent ? 'Opening your mail app…' : 'Send bug report'}
+            {sending ? 'Sending…' : sent ? 'Report sent — thank you!' : 'Send bug report'}
           </button>
           <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
-            Opens your mail app addressed to the build team. Attach a screenshot of the error if you have one.
+            Goes straight to the build team. No email needed.
           </p>
         </div>
       )}

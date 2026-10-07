@@ -169,3 +169,47 @@ test('every midi note 21..108 has a layout entry exactly once', () => {
   assert.equal(midis.length, 88);
   for (let i = 0; i < 88; i += 1) assert.equal(midis[i], 21 + i);
 });
+
+// ---------- Sustain pedal (CC 64) ----------
+
+function buildPedalMidi() {
+  // One note (C4) with the damper pedal down across its note-off:
+  // note on @0, pedal down @0, note off @480, pedal up @960.
+  // Division 480, 120bpm -> note-off at 0.5s, pedal-up at 1.0s.
+  const out = [];
+  const push = (...bs) => out.push(...bs);
+  const varlen = (v) => {
+    const bytes = [v & 0x7f];
+    let x = v >> 7;
+    while (x > 0) { bytes.unshift((x & 0x7f) | 0x80); x >>= 7; }
+    return bytes;
+  };
+  push(0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 0, 0, 1, 0x01, 0xe0); // division 480
+  const track = [];
+  const tpush = (...bs) => track.push(...bs);
+  tpush(...varlen(0), 0xff, 0x51, 0x03, 0x07, 0xa1, 0x20); // 500000 mpqn
+  tpush(...varlen(0), 0x90, 60, 100);   // note on
+  tpush(...varlen(0), 0xb0, 64, 127);   // pedal down
+  tpush(...varlen(480), 0x80, 60, 0);   // note off @480
+  tpush(...varlen(480), 0xb0, 64, 0);    // pedal up @960
+  tpush(...varlen(0), 0xff, 0x2f, 0x00);
+  push(0x4d, 0x54, 0x72, 0x6b);
+  const len = track.length;
+  push((len >>> 24) & 0xff, (len >>> 16) & 0xff, (len >>> 8) & 0xff, len & 0xff);
+  push(...track);
+  return new Uint8Array(out);
+}
+
+test('sustain pedal extends a note past its note-off', () => {
+  const parsed = parseMidi(buildPedalMidi());
+  assert.equal(parsed.totalNotes, 1);
+  const n = parsed.tracks[0].notes[0];
+  // Pedal lifts at 1.0s; without it the note would end at 0.5s.
+  assert.ok(Math.abs(n.duration - 1.0) < 0.01, `expected ~1.0s, got ${n.duration}`);
+});
+
+test('a note ending after pedal-up is not extended', () => {
+  const parsed = parseMidi(buildTestMidi({ note: 60, startTick: 0, endTick: 480 }));
+  const n = parsed.tracks[0].notes[0];
+  assert.ok(Math.abs(n.duration - 0.5) < 0.01, `expected ~0.5s, got ${n.duration}`);
+});

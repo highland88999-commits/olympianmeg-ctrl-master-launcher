@@ -1,6 +1,6 @@
 // Tests for the Nexus universe radio.
-// Pure logic: station data, true-shuffle queue building, module contributions,
-// and the shared window-dock registry contract.
+// Pure logic: station data, The Grid every-open opener, album-order queue
+// building, module contributions, and the shared window-dock registry contract.
 // Run: node --test tests/radio.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -12,6 +12,7 @@ import {
   VAULT_TRACKS,
   buildQueue,
   createContributionStore,
+  gridOpener,
   isValidModuleId,
   isValidTrackUri,
   nextIndex,
@@ -35,37 +36,53 @@ import {
 function seeded(seed) {
   let a = seed >>> 0;
   return () => {
-    a |= 0; a = (a + 0x6d2b79f5) | 0;
+    a |= 0; a = (a + 0x6D2b79f5) | 0;
     let t = Math.imul(a ^ (a >>> 15), 1 | a);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
 
+// Fake 22-track station in album order (The Grid is track 2, like the real
+// album) with valid URIs, so queue-logic tests don't depend on real URI
+// verification status.
+const FAKE_STATION = Array.from({ length: 22 }, (_, i) => ({
+  uri: `spotify:track:${String(i).padStart(22, 'A')}`,
+  verified: true,
+  title: i === 1 ? 'The Grid' : `Track ${i + 1}`,
+  artist: 'Daft Punk',
+  durationMs: 100000 + i,
+  explicit: false,
+  openUrl: `https://open.spotify.com/track/${String(i).padStart(22, 'A')}`,
+}));
+
 // ---------- station data ----------
 
-test('station points at Merlin\u2019s real playlist', () => {
-  assert.equal(STATION.playlistId, '0zSejHQqxofrcKxS4HYbVU');
-  assert.equal(STATION.playlistUri, 'spotify:playlist:0zSejHQqxofrcKxS4HYbVU');
-  assert.equal(STATION.openUrl, 'https://open.spotify.com/playlist/0zSejHQqxofrcKxS4HYbVU');
-  assert.match(STATION.name, /Cab Fare and Dynamite/);
+test('station points at the TRON: Legacy album', () => {
+  assert.equal(STATION.albumId, '3AMXFnwHWXCvNr5NCCpLZI');
+  assert.equal(STATION.albumUri, 'spotify:album:3AMXFnwHWXCvNr5NCCpLZI');
+  assert.equal(STATION.openUrl, 'https://open.spotify.com/album/3AMXFnwHWXCvNr5NCCpLZI');
+  assert.match(STATION.name, /TRON: Legacy/);
 });
 
-test('station has exactly his 10 tracks, in his order', () => {
-  assert.equal(STATION_TRACKS.length, 10);
-  assert.equal(STATION_TRACKS[0].title, 'Next Episode - HEDEGAARD Instrumental Remix');
-  assert.equal(STATION_TRACKS[0].artist, 'HEDEGAARD');
-  assert.equal(STATION_TRACKS[9].title, 'Get Up (Rattle) [feat. Far East Movement] - Vocal Edit');
+test('station has the 22-track album sequence, in album order', () => {
+  assert.equal(STATION_TRACKS.length, 22);
+  const titles = STATION_TRACKS.map((t) => t.title);
+  assert.deepEqual(titles, [
+    'Overture', 'The Grid', 'The Son of Flynn', 'Recognizer', 'Armory',
+    'Arena', 'Rinzler', 'The Game Has Changed', 'Outlands', 'Adagio For TRON',
+    'Nocturne', 'End of Line', 'Derezzed', 'Fall', 'Solar Sailer',
+    'Rectifier', 'Disc Wars', 'C.L.U.', 'Arrival', 'Flynn Lives',
+    'TRON Legacy (End Titles)', 'Finale',
+  ]);
   for (const t of STATION_TRACKS) {
-    assert.ok(isValidTrackUri(t.uri), `bad uri ${t.uri}`);
-    assert.ok(t.title && t.artist);
+    assert.equal(t.artist, 'Daft Punk');
     assert.ok(Number.isFinite(t.durationMs) && t.durationMs > 0);
-    assert.equal(typeof t.explicit, 'boolean');
+    assert.equal(t.explicit, false);
+    // URIs are honest: present ones must be valid; missing ones are null
+    // (never guessed) until verified against Spotify's catalog.
+    if (t.uri !== null) assert.ok(isValidTrackUri(t.uri), `bad uri ${t.uri}`);
   }
-  // The one explicit track is flagged honestly.
-  const explicit = STATION_TRACKS.filter((t) => t.explicit);
-  assert.equal(explicit.length, 1);
-  assert.equal(explicit[0].title, 'Dysfunctional You');
 });
 
 test('track URI validation rejects junk', () => {
@@ -80,35 +97,57 @@ test('track URI validation rejects junk', () => {
   assert.equal(isValidModuleId(''), false);
 });
 
+// ---------- The Grid opener ----------
+
+test('gridOpener returns The Grid when its URI is usable', () => {
+  const grid = gridOpener(FAKE_STATION);
+  assert.ok(grid);
+  assert.equal(grid.title, 'The Grid');
+  assert.ok(isValidTrackUri(grid.uri));
+});
+
+test('gridOpener returns null when The Grid has no usable URI (never faked)', () => {
+  const noGrid = FAKE_STATION.map((t) => (t.title === 'The Grid' ? { ...t, uri: null } : t));
+  assert.equal(gridOpener(noGrid), null);
+  assert.equal(gridOpener([]), null);
+});
+
 // ---------- shuffle ----------
 
 test('shuffleTracks returns a true permutation and never mutates input', () => {
-  const before = STATION_TRACKS.map((t) => t.uri);
-  const shuffled = shuffleTracks(STATION_TRACKS, seeded(42));
-  assert.equal(shuffled.length, 10);
-  assert.deepEqual(STATION_TRACKS.map((t) => t.uri), before); // untouched
+  const before = FAKE_STATION.map((t) => t.uri);
+  const shuffled = shuffleTracks(FAKE_STATION, seeded(42));
+  assert.equal(shuffled.length, 22);
+  assert.deepEqual(FAKE_STATION.map((t) => t.uri), before); // untouched
   assert.deepEqual(shuffled.map((t) => t.uri).sort(), before.slice().sort()); // same set
-  // A seeded shuffle is deterministic and actually reorders.
-  const again = shuffleTracks(STATION_TRACKS, seeded(42));
+  const again = shuffleTracks(FAKE_STATION, seeded(42));
   assert.deepEqual(shuffled.map((t) => t.uri), again.map((t) => t.uri));
   assert.notDeepEqual(shuffled.map((t) => t.uri), before);
 });
 
 // ---------- queue building ----------
 
-test('buildQueue shuffles the queue itself by default (true shuffle)', () => {
-  const q = buildQueue({ shuffle: true, rng: seeded(7) });
-  assert.equal(q.length, 10);
-  // Same tracks, genuinely reordered — not just a toggle flag.
-  assert.notDeepEqual(q.map((t) => t.uri), STATION_TRACKS.map((t) => t.uri));
-  assert.deepEqual(q.map((t) => t.uri).sort(), STATION_TRACKS.map((t) => t.uri).sort());
-  // Merlin's tracks are all still there — none removed, none replaced.
+test('The Grid opens the queue on EVERY build, then album order (never shuffled)', () => {
+  const q = buildQueue({ stationTracks: FAKE_STATION, shuffle: true, rng: seeded(7) });
+  assert.equal(q.length, 22);
+  assert.equal(q[0].title, 'The Grid');
+  // Rest in album order: Overture, The Son of Flynn (Track 3), ...
+  assert.equal(q[1].title, 'Track 1'); // Overture's fake title
+  assert.equal(q[2].title, 'Track 3');
+  assert.equal(q[21].title, 'Track 22');
   for (const t of q) assert.equal(t.source, 'station');
+  // Even with shuffle on, the station block order is deterministic.
+  const q2 = buildQueue({ stationTracks: FAKE_STATION, shuffle: true, rng: seeded(99) });
+  assert.deepEqual(q.map((t) => t.uri), q2.map((t) => t.uri));
 });
 
-test('buildQueue with shuffle:false preserves his exact order', () => {
-  const q = buildQueue({ shuffle: false });
-  assert.deepEqual(q.map((t) => t.uri), STATION_TRACKS.map((t) => t.uri));
+test('tracks without usable URIs are skipped, never guessed', () => {
+  const partial = FAKE_STATION.map((t, i) => (i % 2 === 0 ? { ...t, uri: null } : t));
+  const q = buildQueue({ stationTracks: partial, shuffle: false });
+  assert.equal(q.length, 11);
+  assert.ok(q.every((t) => isValidTrackUri(t.uri)));
+  // The Grid (index 1, kept) still opens.
+  assert.equal(q[0].title, 'The Grid');
 });
 
 test('contributions form an encore block AFTER the station block', () => {
@@ -118,26 +157,30 @@ test('contributions form an encore block AFTER the station block', () => {
     { uri: 'spotify:track:BBBBBBBBBBBBBBBBBBBBBB', title: 'Nova Song 2', artist: 'Nova' },
   ]);
   assert.equal(res.ok, true);
-  const q = buildQueue({ shuffle: false, contributions: store.allTracks() });
-  assert.equal(q.length, 12);
-  assert.deepEqual(q.slice(0, 10).map((t) => t.uri), STATION_TRACKS.map((t) => t.uri));
-  assert.equal(q[10].source, 'module');
-  assert.equal(q[10].moduleName, 'NOVA');
-  assert.equal(sourceLabel(q[10]), 'Contributed by NOVA');
-  assert.equal(sourceLabel(q[0]), "From Merlin's station playlist");
+  const q = buildQueue({ stationTracks: FAKE_STATION, shuffle: false, contributions: store.allTracks() });
+  assert.equal(q.length, 24);
+  assert.equal(q[0].title, 'The Grid');
+  assert.equal(q[22].source, 'module');
+  assert.equal(q[22].moduleName, 'NOVA');
+  assert.equal(sourceLabel(q[22]), 'Contributed by NOVA');
+  assert.equal(sourceLabel(q[0]), "From Merlin's TRON: Legacy station");
 });
 
-test('shuffle shuffles each block within itself, station block stays first', () => {
+test('vault block follows the station; encore stays last', () => {
   const store = createContributionStore();
   store.contribute('argo', 'ARGO', [
     { uri: 'spotify:track:CCCCCCCCCCCCCCCCCCCCCC', title: 'A', artist: 'A' },
-    { uri: 'spotify:track:DDDDDDDDDDDDDDDDDDDDDD', title: 'B', artist: 'B' },
   ]);
-  const q = buildQueue({ shuffle: true, contributions: store.allTracks(), rng: seeded(99) });
-  assert.equal(q.length, 12);
-  const stationUris = new Set(STATION_TRACKS.map((t) => t.uri));
-  assert.ok(q.slice(0, 10).every((t) => stationUris.has(t.uri)), 'station block first');
-  assert.ok(q.slice(10).every((t) => t.source === 'module'), 'encore block last');
+  const q = buildQueue({
+    stationTracks: FAKE_STATION,
+    shuffle: false,
+    vaultTracks: FAKE_VAULT,
+    contributions: store.allTracks(),
+  });
+  assert.equal(q.length, 25);
+  assert.ok(q.slice(0, 22).every((t) => t.source === 'station'), 'station block first');
+  assert.ok(q.slice(22, 24).every((t) => t.source === 'vault'), 'vault block second');
+  assert.equal(q[24].source, 'module', 'encore last');
 });
 
 // ---------- Full Vault (second playlist) ----------
@@ -157,35 +200,21 @@ test('vault is pending until its URI arrives — never faked', () => {
 });
 
 test('empty vault degrades to the station alone', () => {
-  const q = buildQueue({ shuffle: true, vaultTracks: [], rng: seeded(11) });
-  assert.equal(q.length, 10);
+  const q = buildQueue({ stationTracks: FAKE_STATION, shuffle: true, vaultTracks: [], rng: seeded(11) });
+  assert.equal(q.length, 22);
   assert.ok(q.every((t) => t.source === 'station'));
+  assert.equal(q[0].title, 'The Grid');
 });
 
-test('shuffle runs ACROSS station + vault as one pool', () => {
-  const q = buildQueue({ shuffle: true, vaultTracks: FAKE_VAULT, rng: seeded(21) });
-  assert.equal(q.length, 12);
-  const uris = q.map((t) => t.uri);
-  // Same full set: nothing lost, nothing invented.
-  assert.deepEqual(uris.slice().sort(), [...STATION_TRACKS.map((t) => t.uri), ...FAKE_VAULT.map((t) => t.uri)].sort());
-  // Truly interleaved: a vault track appears inside the station run (seeded, deterministic).
-  const firstVaultAt = q.findIndex((t) => t.source === 'vault');
-  assert.ok(firstVaultAt > 0 && firstVaultAt < 11, 'vault interleaved across the pool');
-  assert.equal(sourceLabel(q[firstVaultAt]), 'From the Full Vault playlist');
-  assert.equal(q[firstVaultAt].moduleName, 'Full Vault');
-});
-
-test('shuffle:false keeps station order, then vault order, then contributions', () => {
-  const store = createContributionStore();
-  store.contribute('nova', 'NOVA', [
-    { uri: 'spotify:track:AAAAAAAAAAAAAAAAAAAAAA', title: 'N', artist: 'N' },
+test('shuffle:true shuffles vault and encore, never the station block', () => {
+  const q = buildQueue({ stationTracks: FAKE_STATION, shuffle: true, vaultTracks: FAKE_VAULT, rng: seeded(21) });
+  assert.equal(q.length, 24);
+  // Station block: Grid first, album order, untouched by shuffle.
+  assert.equal(q[0].title, 'The Grid');
+  assert.deepEqual(q.slice(0, 22).map((t) => t.uri), [
+    FAKE_STATION[1].uri, ...FAKE_STATION.slice(0, 1).map((t) => t.uri), ...FAKE_STATION.slice(2).map((t) => t.uri),
   ]);
-  const q = buildQueue({ shuffle: false, vaultTracks: FAKE_VAULT, contributions: store.allTracks() });
-  assert.deepEqual(q.slice(0, 10).map((t) => t.uri), STATION_TRACKS.map((t) => t.uri));
-  assert.deepEqual(q.slice(10, 12).map((t) => t.uri), FAKE_VAULT.map((t) => t.uri));
-  assert.equal(q[12].source, 'module');
-  // Merlin's station order is byte-for-byte his curation even with a vault present.
-  assert.equal(q[0].title, 'Next Episode - HEDEGAARD Instrumental Remix');
+  assert.ok(q.slice(22).every((t) => t.source === 'vault'));
 });
 
 // ---------- contribution store ----------
@@ -214,9 +243,9 @@ test('contribution store validates and dedups', () => {
 // ---------- index helpers ----------
 
 test('nextIndex/prevIndex wrap around the queue', () => {
-  const q = buildQueue({ shuffle: false });
-  assert.equal(nextIndex(q, 9), 0);
-  assert.equal(prevIndex(q, 0), 9);
+  const q = buildQueue({ stationTracks: FAKE_STATION, shuffle: false });
+  assert.equal(nextIndex(q, 21), 0);
+  assert.equal(prevIndex(q, 0), 21);
   assert.equal(nextIndex(q, 3), 4);
   assert.equal(nextIndex([], 0), -1);
 });

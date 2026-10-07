@@ -11,8 +11,8 @@ import {
   playSampledNote,
 } from '../app/maestro/samples.js';
 
-test('every instrument declares sampleRoots + sampleDir', () => {
-  assert.equal(INSTRUMENTS.length, 5);
+test('the piano declares sampleRoots + sampleDir', () => {
+  assert.equal(INSTRUMENTS.length, 1);
   for (const inst of INSTRUMENTS) {
     assert.ok(Array.isArray(inst.sampleRoots) && inst.sampleRoots.length > 0, `${inst.id} sampleRoots`);
     assert.ok(typeof inst.sampleDir === 'string' && inst.sampleDir.length > 0, `${inst.id} sampleDir`);
@@ -20,7 +20,7 @@ test('every instrument declares sampleRoots + sampleDir', () => {
   }
 });
 
-test('every MIDI note 21-108 resolves to a declared root for every instrument', () => {
+test('every MIDI note 21-108 resolves to a declared piano root', () => {
   for (const inst of INSTRUMENTS) {
     for (let midi = 21; midi <= 108; midi++) {
       const root = resolveSample(inst.sampleRoots, midi);

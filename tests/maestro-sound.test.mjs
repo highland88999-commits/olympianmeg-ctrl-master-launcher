@@ -29,15 +29,14 @@ test('piano is the landing (default) instrument', () => {
   assert.equal(INSTRUMENTS[0].id, 'piano');
 });
 
-test('all five requested voices exist with complete recipes', () => {
-  for (const id of ['piano', 'trumpet', 'violin', 'guitar', 'electric-guitar']) {
-    assert.ok(INSTRUMENT_IDS.includes(id), `missing ${id}`);
-    const v = getInstrument(id);
-    assert.ok(v.name && v.icon, `${id} needs name+icon`);
-    assert.ok(['triangle', 'sawtooth', 'square'].includes(v.oscType), `${id} oscType`);
-    assert.ok(v.filterFreq > 0, `${id} filterFreq`);
-    assert.ok(v.attack >= 0, `${id} attack`);
-  }
+test('piano is the one and only voice', () => {
+  assert.equal(INSTRUMENTS.length, 1);
+  const v = getInstrument('piano');
+  assert.ok(v.name && v.icon, 'piano needs name+icon');
+  assert.ok(['triangle', 'sawtooth', 'square'].includes(v.oscType), 'piano oscType');
+  assert.ok(v.filterFreq > 0, 'piano filterFreq');
+  assert.ok(v.attack >= 0, 'piano attack');
+  assert.ok(Array.isArray(v.sampleRoots) && v.sampleRoots.length === 30, 'piano has 30 sample roots');
 });
 
 test('unknown instrument falls back to piano', () => {
@@ -45,9 +44,9 @@ test('unknown instrument falls back to piano', () => {
   assert.equal(getInstrument(undefined).id, 'piano');
 });
 
-test('only the electric guitar carries distortion', () => {
+test('no voice carries distortion (piano is clean)', () => {
   const withDist = INSTRUMENTS.filter((v) => v.distortion > 0).map((v) => v.id);
-  assert.deepEqual(withDist, ['electric-guitar']);
+  assert.deepEqual(withDist, []);
 });
 
 test('midiToFreq: A4 is 440Hz, transpose shifts by octaves', () => {

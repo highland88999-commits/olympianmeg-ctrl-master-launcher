@@ -1,12 +1,14 @@
-// Maestro instrument voices + shared sound helpers.
+// Maestro piano voice + shared sound helpers.
 //
-// The player synthesizes every note with the raw Web Audio API (no sample
-// downloads, works offline). Each instrument is a voice recipe: oscillator
-// type, filter, envelope, vibrato, and optional distortion. Switching voices
-// or transposing never restarts the song — live oscillators are retuned
-// in place.
+// The player plays real Salamander Grand Piano multisamples through the raw
+// Web Audio API (no sample downloads beyond the hosted .mp3s, works offline
+// once cached). The piano is the one and only voice — a true grand piano
+// sound, velocity-sensitive, with sustain-pedal-aware MIDI playback.
+// The synth oscillator path remains as a silent fallback when a sample has
+// not decoded yet. Transposing never restarts the song — live oscillators
+// are retuned in place.
 
-// Order matters: the first entry is the landing (default) instrument.
+// The one and only instrument: the grand piano.
 export const INSTRUMENTS = [
   {
     id: 'piano',
@@ -25,74 +27,6 @@ export const INSTRUMENTS = [
     vibratoRate: 0,
     vibratoDepth: 0,
     distortion: 0,
-  },
-  {
-    id: 'trumpet',
-    name: 'Trumpet',
-    icon: '🎺',
-    oscType: 'sawtooth',
-    // Multisamples: FluidR3 GM (MIT, Frank Wen & contributors), preset 56.
-    // Files: trumpet_root<midi>.mp3
-    sampleDir: 'trumpet',
-    sampleRoots: [52,55,60,67,76,84],
-    filterType: 'lowpass',
-    filterFreq: 3000,
-    attack: 0.05,
-    peakScale: 0.85,
-    vibratoRate: 5.5,
-    vibratoDepth: 4,
-    distortion: 0,
-  },
-  {
-    id: 'violin',
-    name: 'Violin',
-    icon: '🎻',
-    oscType: 'sawtooth',
-    // Multisamples: FluidR3 GM (MIT), preset 40; stereo (L)/(R) pairs mixed to mono.
-    // Files: violin_root<midi>.mp3
-    sampleDir: 'violin',
-    sampleRoots: [68,71,74,77,80,86,89,92,95,98,101,104,107,110],
-    filterType: 'lowpass',
-    filterFreq: 2400,
-    attack: 0.18,
-    peakScale: 0.8,
-    vibratoRate: 5.0,
-    vibratoDepth: 7,
-    distortion: 0,
-  },
-  {
-    id: 'guitar',
-    name: 'Guitar',
-    icon: '🎸',
-    oscType: 'square',
-    // Multisamples: FluidR3 GM (MIT), preset 24 (nylon string).
-    // Files: guitar_root<midi>.mp3
-    sampleDir: 'guitar',
-    sampleRoots: [40,45,50,55,59,64,69,71,72,76],
-    filterType: 'lowpass',
-    filterFreq: 1800,
-    attack: 0.005,
-    peakScale: 0.7,
-    vibratoRate: 0,
-    vibratoDepth: 0,
-    distortion: 0,
-  },
-  {
-    id: 'electric-guitar',
-    name: 'Electric guitar',
-    icon: '⚡',
-    oscType: 'sawtooth',
-    // Multisamples: FluidR3 GM (MIT), preset 30 (distortion guitar).
-    // Files: electric-guitar_root<midi>.mp3
-    sampleDir: 'electric-guitar',
-    sampleRoots: [40,45,50,55,59,60,65,67,76,79],
-    filterType: 'lowpass',
-    filterFreq: 3600,
-    attack: 0.01,
-    peakScale: 0.9,
-    vibratoRate: 0,
-    vibratoDepth: 0,
-    distortion: 45,
   },
 ];
 
@@ -124,7 +58,7 @@ export function midiToFreq(midi, transpose = 0) {
   return 440 * Math.pow(2, (midi + transpose - 69) / 12);
 }
 
-// Gentle overdrive curve for the electric guitar voice.
+// Gentle overdrive curve (kept for the test suite; no current voice uses it).
 export function makeDistortionCurve(amount = 45) {
   const n = 256;
   const curve = new Float32Array(n);

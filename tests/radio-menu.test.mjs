@@ -1,11 +1,12 @@
 // tests/radio-menu.test.mjs
-// Radio onboarding (ENCOM first-load) + collaborate invite + two-axis
-// Hermes-style satellite menu (2026-09-29).
+// Radio TRON: Legacy station (2026-10-06) + collaborate invite retirement +
+// two-axis Hermes-style satellite menu (2026-09-29).
 //
-// Task 1: a user's first load opens with ENCOM Part I → ENCOM Part II, then
-//   a shuffled queue. Later loads shuffle normally.
-// Task 2: one dismissible inline invite to collaborate on the station
-//   playlist — shown on the first-load session, never nagging.
+// Task 1 (2026-10-06): the station is Daft Punk's TRON: Legacy soundtrack.
+//   "The Grid" opens the queue on EVERY open, then the album plays in order.
+//   The old ENCOM first-load ritual is retired.
+// Task 2 (2026-10-06): the collaborate invite is retired — the station is an
+//   album, not a collaborative playlist. The card stays dormant.
 // Task 3: SatelliteMenu is a two-axis slider inside the menu window —
 //   categories scroll horizontally on a top rail, items scroll vertically
 //   beneath, satellite programs slide open with Hermes motion language.
@@ -16,11 +17,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import {
-  ENCOM_OPENER,
   STATION,
   STATION_TRACKS,
-  buildFirstLoadQueue,
   buildQueue,
+  gridOpener,
   isValidTrackUri,
   sourceLabel,
 } from '../lib/radio/station.js';
@@ -35,67 +35,76 @@ const codeOnly = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/
 function seeded(seed) {
   let a = seed >>> 0;
   return () => {
-    a |= 0; a = (a + 0x6d2b79f5) | 0;
+    a |= 0; a = (a + 0x6D2b79f5) | 0;
     let t = Math.imul(a ^ (a >>> 15), 1 | a);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
 
-// --- Task 1: ENCOM first-load -----------------------------------------------
+// Fake 22-track station with valid URIs (The Grid at album position 2).
+const FAKE_STATION = Array.from({ length: 22 }, (_, i) => ({
+  uri: `spotify:track:${String(i).padStart(22, 'B')}`,
+  verified: true,
+  title: i === 1 ? 'The Grid' : `Track ${i + 1}`,
+  artist: 'Daft Punk',
+  durationMs: 100000 + i,
+  explicit: false,
+  openUrl: `https://open.spotify.com/track/${String(i).padStart(22, 'B')}`,
+}));
 
-test('1a. opener is ENCOM Part I then ENCOM Part II, in that order', () => {
-  assert.equal(ENCOM_OPENER.length, 2);
-  assert.equal(ENCOM_OPENER[0].title, 'Encom Part I');
-  assert.equal(ENCOM_OPENER[0].artist, 'Daft Punk');
-  assert.equal(ENCOM_OPENER[1].title, 'Encom Part II');
-  assert.equal(ENCOM_OPENER[1].artist, 'Daft Punk');
+// --- Task 1: The Grid every-open opener --------------------------------------
+
+test('1a. gridOpener finds The Grid when its URI is usable', () => {
+  const grid = gridOpener(FAKE_STATION);
+  assert.ok(grid);
+  assert.equal(grid.title, 'The Grid');
+  assert.ok(isValidTrackUri(grid.uri));
 });
 
-test('1b. opener URIs are well-formed Spotify track URIs', () => {
-  for (const t of ENCOM_OPENER) {
-    assert.ok(isValidTrackUri(t.uri), `${t.title} URI is valid`);
+test('1b. gridOpener returns null (never a wrong track) when The Grid has no URI', () => {
+  const noGrid = FAKE_STATION.map((t) => (t.title === 'The Grid' ? { ...t, uri: null } : t));
+  assert.equal(gridOpener(noGrid), null);
+});
+
+test('1c. every queue build opens with The Grid — not just the first load', () => {
+  for (const seed of [7, 42, 99]) {
+    const q = buildQueue({ stationTracks: FAKE_STATION, shuffle: true, rng: seeded(seed) });
+    assert.equal(q[0].title, 'The Grid', `seed ${seed}: The Grid opens`);
   }
+  // No first-load-only builder remains.
+  assert.ok(!codeOnly(providerSrc).includes('buildFirstLoadQueue'), 'provider has no first-load builder');
 });
 
-test('1c. first-load queue opens with ENCOM I then ENCOM II', () => {
-  const q = buildFirstLoadQueue({ rng: seeded(7) });
-  assert.equal(q[0].title, 'Encom Part I');
-  assert.equal(q[0].uri, ENCOM_OPENER[0].uri);
-  assert.equal(q[1].title, 'Encom Part II');
-  assert.equal(q[1].uri, ENCOM_OPENER[1].uri);
+test('1d. the station plays in album order after The Grid (never shuffled)', () => {
+  const q = buildQueue({ stationTracks: FAKE_STATION, shuffle: true, rng: seeded(7) });
+  assert.equal(q[0].title, 'The Grid');
+  assert.equal(q[1].title, 'Track 1'); // Overture slot
+  assert.equal(q[2].title, 'Track 3');
+  assert.equal(q[21].title, 'Track 22');
 });
 
-test('1d. first-load queue keeps every station track after the opener', () => {
-  const q = buildFirstLoadQueue({ rng: seeded(7) });
-  const stationUris = new Set(STATION_TRACKS.map((t) => t.uri));
-  const rest = q.slice(2).filter((t) => t.source === 'station');
-  assert.equal(rest.length, STATION_TRACKS.length);
-  for (const u of stationUris) {
-    assert.ok(rest.some((t) => t.uri === u), `station track ${u} present after opener`);
-  }
-});
-
-test('1e. building the queue never reorders Merlin\'s station source array', () => {
-  const before = STATION_TRACKS.map((t) => t.uri);
-  buildFirstLoadQueue({ rng: seeded(42) });
+test('1e. building the queue never reorders the station source array', () => {
+  const before = STATION_TRACKS.map((t) => t.title);
+  buildQueue({ stationTracks: FAKE_STATION, shuffle: true, rng: seeded(42) });
   buildQueue({ shuffle: true, rng: seeded(42) });
-  assert.deepEqual(STATION_TRACKS.map((t) => t.uri), before);
+  assert.deepEqual(STATION_TRACKS.map((t) => t.title), before);
 });
 
-test('1f. no duplicate URIs in the first-load queue', () => {
-  const q = buildFirstLoadQueue({ rng: seeded(11) });
+test('1f. no duplicate URIs in the queue', () => {
+  const q = buildQueue({ stationTracks: FAKE_STATION, shuffle: true, rng: seeded(11) });
   const uris = q.map((t) => t.uri);
   assert.equal(new Set(uris).size, uris.length, 'every URI appears once');
 });
 
-test('1g. the pool behind the opener is shuffled, not canonical order', () => {
-  const q = buildFirstLoadQueue({ rng: seeded(99) });
-  const poolUris = q.slice(2, 2 + STATION_TRACKS.length).map((t) => t.uri);
-  assert.notDeepEqual(poolUris, STATION_TRACKS.map((t) => t.uri));
+test('1g. tracks without URIs are skipped, never guessed', () => {
+  const partial = FAKE_STATION.map((t, i) => (i > 5 ? { ...t, uri: null } : t));
+  const q = buildQueue({ stationTracks: partial, shuffle: false });
+  assert.ok(q.every((t) => isValidTrackUri(t.uri)));
+  assert.equal(q[0].title, 'The Grid');
 });
 
-test('1h. contributions land in the encore block after the pool', () => {
+test('1h. contributions land in the encore block after the station', () => {
   const contrib = [{
     uri: 'spotify:track:7hqlHZIXhwAzpWQxm9KzBd',
     title: 'Derezzed',
@@ -104,46 +113,35 @@ test('1h. contributions land in the encore block after the pool', () => {
     moduleId: 'test-module',
     moduleName: 'Test Module',
   }];
-  const q = buildFirstLoadQueue({ contributions: contrib, rng: seeded(5) });
+  const q = buildQueue({ stationTracks: FAKE_STATION, contributions: contrib, rng: seeded(5) });
   const tail = q[q.length - 1];
   assert.equal(tail.uri, contrib[0].uri);
   assert.equal(tail.source, 'module');
 });
 
-test('1i. opener tracks are labeled honestly in the UI', () => {
-  const q = buildFirstLoadQueue({ rng: seeded(1) });
-  assert.equal(sourceLabel(q[0]), "Merlin's first-load opener");
-  assert.equal(sourceLabel(q[2]), "From Merlin's station playlist");
+test('1i. station tracks are labeled honestly in the UI', () => {
+  const q = buildQueue({ stationTracks: FAKE_STATION, shuffle: false });
+  assert.equal(sourceLabel(q[0]), "From Merlin's TRON: Legacy station");
 });
 
-test('1j. provider gates the ritual per-user via localStorage flags', () => {
-  assert.ok(providerSrc.includes("nexus.radio.firstLoadDone"), 'device flag key present');
-  assert.ok(providerSrc.includes('buildFirstLoadQueue'), 'first-load builder wired in');
-  assert.ok(providerSrc.includes('isFirstLoad'), 'first-load state exposed');
-  assert.ok(providerSrc.includes('LS_FIRST_LOAD}.${uid}'), 'per-user flag for shared devices');
+test('1j. the ENCOM first-load ritual is fully retired', () => {
+  const code = codeOnly(providerSrc);
+  assert.ok(!code.includes('ENCOM'), 'no ENCOM references in provider code');
+  assert.ok(!code.includes('firstLoadDone'), 'no first-load flags in provider code');
+  assert.ok(!code.includes('buildFirstLoadQueue'), 'no first-load builder in provider code');
 });
 
-// --- Task 2: collaborate invite ---------------------------------------------
+// --- Task 2: collaborate invite retired -------------------------------------
 
-test('2a. invite card renders only on the first-load session and dismisses', () => {
+test('2a. the invite is retired — never shown (station is an album, not a playlist)', () => {
+  assert.ok(providerSrc.includes('showCollabInvite'), 'still exposed in context (dormant)');
+  const code = codeOnly(providerSrc);
+  assert.ok(code.includes('const showCollabInvite = false'), 'hard-off, not gated on first load');
+});
+
+test('2b. invite card still renders nothing when hidden', () => {
   assert.ok(cardSrc.includes('showCollabInvite'), 'visibility gate');
   assert.ok(cardSrc.includes('if (!showCollabInvite) return null'), 'renders nothing when hidden');
-  assert.ok(cardSrc.includes('dismissCollabInvite'), 'dismiss wired');
-  assert.ok(cardSrc.includes('aria-label="Dismiss the collaborate invitation"'), 'accessible dismiss');
-});
-
-test('2b. invite points at the real station playlist, claims nothing else', () => {
-  const code = codeOnly(cardSrc);
-  assert.ok(code.includes('STATION.openUrl'), 'links the actual playlist');
-  assert.ok(code.includes('Merlin'), 'Merlin approves collaborators in Spotify');
-  assert.ok(!code.includes('invite-collaborators'), 'does not pretend the app grants access');
-});
-
-test('2c. provider shows the invite once and never nags after dismissal', () => {
-  assert.ok(providerSrc.includes('showCollabInvite'), 'exposed in context');
-  assert.ok(providerSrc.includes('dismissCollabInvite'), 'dismiss exposed in context');
-  assert.ok(providerSrc.includes('nexus.radio.collabDismissed'), 'dismissal persisted');
-  assert.ok(providerSrc.includes('isFirstLoad && !collabDismissed'), 'shown only during first-load session');
 });
 
 // --- Task 3: two-axis Hermes-style slider menu -------------------------------
