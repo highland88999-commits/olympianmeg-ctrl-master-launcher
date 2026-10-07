@@ -132,7 +132,7 @@ export default function HivePage() {
       </div>
 
       {/* Mode switcher */}
-      <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-6 flex flex-col items-center gap-2">
+      <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-6 pb-[max(1rem,env(safe-area-inset-bottom))] flex flex-col items-center gap-2">
         <p className="text-[11px] uppercase tracking-widest text-cyan-100/50 pointer-events-none">
           Tap a cell to send a pulse through the hive
         </p>

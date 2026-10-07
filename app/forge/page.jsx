@@ -651,7 +651,8 @@ export default function ForgePage() {
       {/* Toast */}
       {toast && (
         <div
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-lg bg-orange-500/90 text-black text-sm font-semibold shadow-lg"
+          className="fixed left-1/2 -translate-x-1/2 px-4 py-2 rounded-lg bg-orange-500/90 text-black text-sm font-semibold shadow-lg"
+          style={{ bottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}
           role="status"
         >
           {toast}

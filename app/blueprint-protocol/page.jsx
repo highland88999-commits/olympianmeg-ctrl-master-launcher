@@ -111,7 +111,7 @@ const CSS = `
 .bp-epoch-tabs { display: flex; gap: 10px; flex-wrap: wrap; margin: 24px 0; }
 .bp-epoch-tab { background: transparent; border: 1px solid #f97316; color: #fb923c; font-family: inherit; padding: 10px 16px; cursor: pointer; border-radius: 3px; min-height: 44px; font-size: 0.9rem; display: inline-flex; align-items: center; gap: 8px; }
 .bp-epoch-tab.active { background: #f97316; color: #000; font-weight: bold; }
-.bp-top { position: fixed; bottom: 20px; right: 20px; z-index: 10; background: rgba(0,255,204,0.12); border: 1px solid #00ffcc; color: #00ffcc; font-family: inherit; font-size: 0.85rem; padding: 10px 14px; cursor: pointer; border-radius: 4px; display: inline-flex; align-items: center; gap: 8px; }
+.bp-top { position: fixed; bottom: max(20px, env(safe-area-inset-bottom)); right: 20px; z-index: 10; background: rgba(0,255,204,0.12); border: 1px solid #00ffcc; color: #00ffcc; font-family: inherit; font-size: 0.85rem; padding: 10px 14px; cursor: pointer; border-radius: 4px; display: inline-flex; align-items: center; gap: 8px; }
 @media (max-width: 700px) { .bp-h1 { font-size: 2.2rem; } .bp-content { padding: 2rem 6%; } }
 `;
 

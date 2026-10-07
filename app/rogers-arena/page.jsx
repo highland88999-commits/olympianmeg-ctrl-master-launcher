@@ -216,7 +216,7 @@ export default function RogersArenaPage() {
 
           {/* Mode picker */}
           <nav
-            className="absolute bottom-0 left-0 right-0 p-4 sm:p-6 flex flex-col items-center gap-2"
+            className="absolute bottom-0 left-0 right-0 p-4 sm:p-6 pb-[max(1rem,env(safe-area-inset-bottom))] flex flex-col items-center gap-2"
             aria-label="Arena modes"
           >
             <p className="text-[11px] text-zinc-500 uppercase tracking-widest pointer-events-none">

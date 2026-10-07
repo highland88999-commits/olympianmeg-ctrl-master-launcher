@@ -358,7 +358,7 @@ export default function PersymphonyPage() {
       )}
 
       {/* Controls */}
-      <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-6 z-10">
+      <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-6 pb-[max(1rem,env(safe-area-inset-bottom))] z-10">
         <div
           className="mx-auto max-w-3xl backdrop-blur border border-amber-400/25 rounded-xl px-4 py-3 flex flex-wrap items-center gap-x-5 gap-y-3"
           style={{

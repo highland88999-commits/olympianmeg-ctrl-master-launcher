@@ -206,7 +206,7 @@ export default function LokiPage() {
         </button>
       </div>
 
-      <div className="absolute bottom-0 left-0 right-0 flex justify-center pb-6 pointer-events-none">
+      <div className="absolute bottom-0 left-0 right-0 flex justify-center pointer-events-none" style={{ paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}>
         <p className="text-xs tracking-[0.25em] uppercase text-white/40">
           {reducedMotion ? 'An illusion, held still' : 'Tap to shift the illusion'}
         </p>

@@ -459,7 +459,7 @@ export default function RaptorRushPage() {
 
         {/* Party notice toast */}
         {partyNotice && (
-          <div className="fixed z-[60] bottom-8 inset-x-0 flex justify-center px-6 pointer-events-none">
+          <div className="fixed z-[60] inset-x-0 flex justify-center px-6 pointer-events-none" style={{ bottom: 'max(2rem, env(safe-area-inset-bottom))' }}>
             <div className="bg-amber-950/95 border border-amber-500/60 text-amber-100 text-sm px-5 py-3 rounded-lg max-w-sm text-center">
               {partyNotice}
             </div>

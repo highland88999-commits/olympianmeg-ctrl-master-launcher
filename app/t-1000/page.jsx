@@ -238,7 +238,7 @@ export default function T1000Page() {
         </p>
       </div>
 
-      <div className="absolute bottom-0 left-0 right-0 p-5 flex flex-wrap gap-2 justify-center">
+      <div className="absolute bottom-0 left-0 right-0 p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] flex flex-wrap gap-2 justify-center">
         {MODE_KEYS.map((k) => (
           <button
             key={k}

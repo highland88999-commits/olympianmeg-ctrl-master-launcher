@@ -256,7 +256,7 @@ export default function LifePage() {
         </div>
       )}
 
-      <div className="absolute bottom-0 left-0 right-0 flex justify-center pb-5 pointer-events-none px-4">
+      <div className="absolute bottom-0 left-0 right-0 flex justify-center pointer-events-none px-4" style={{ paddingBottom: 'max(1.25rem, env(safe-area-inset-bottom))' }}>
         <p className="text-[10px] sm:text-xs tracking-[0.25em] uppercase text-white/40 text-center">
           {game && game.playing
             ? 'Guide your spark — dodge the shards, grab the surges'

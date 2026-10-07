@@ -1,233 +1,226 @@
-"use client";
+// app/mega-city/page.jsx — Mega City GTA: realistic 3D open world.
+// Walk, drive, ride the Line One subway, wanted system, missions.
 
-import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-import {
-  createScene, HOTSPOTS, DISTRICTS, ACCENT, timeLabel, timeString,
-  DESCENT_START_CAM, GROUND_CAM, STATION_CAM,
-} from "./scene";
-import { fx, unlockFx } from "@/lib/fx";
-import AphroIcon from "@/components/aphrodite/icons";
-import { AphroBg, aphroPanel } from "@/components/aphrodite/ambience";
+'use client';
 
-const DESCENT_MS = 3400;
-const START_ALT_M = 12400;
-
-// APHRODITE treatment: fixed city-night art behind menus/HUD, SVG icon
-// buttons, panel texture on chips/panels/districts, styled descent veil.
-function IconBtn({ icon, label, ...props }) {
-  return (
-    <button {...props}>
-      <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-        <AphroIcon name={icon} size={15} />
-        <span>{label}</span>
-      </span>
-    </button>
-  );
-}
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import { createGTAScene } from './gta-scene';
+import { WantedStars, HealthBar, Minimap, Speedometer, MissionTracker, TouchControls } from '@/lib/gta/hud';
+import { MISSION_STATE } from '@/lib/gta/missions';
 
 export default function MegaCityPage() {
   const canvasRef = useRef(null);
   const sceneRef = useRef(null);
   const router = useRouter();
-  const [time, setTime] = useState(0.95);
-  const [traffic, setTraffic] = useState(true);
-  const [fly, setFly] = useState(false);
-  const [hotspot, setHotspot] = useState(null);
-  // Entry: spacecraft-style descent to ground level. Tap to skip.
-  const [descending, setDescending] = useState(true);
-  const [alt, setAlt] = useState(START_ALT_M);
-  const [touchdown, setTouchdown] = useState(false);
-  // Exit: simple zoom-out back to stationing.
-  const [exiting, setExiting] = useState(false);
+  const [hud, setHud] = useState(null);
+  const [msg, setMsg] = useState('Welcome to Mega City. WASD to walk, E to enter cars.');
+  const [missions, setMissions] = useState([]);
+  const [isTouch, setIsTouch] = useState(false);
+  const [subwayRide, setSubwayRide] = useState(null); // riding overlay data
 
   useEffect(() => {
-    document.title = "Mega City — ARGUS Observatory";
-    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const s = createScene(canvasRef.current, { onHotspot: setHotspot });
-    sceneRef.current = s;
-    unlockFx();
-    if (reduced) {
-      // Reduced motion: start on the ground, no descent flight.
-      s.snapCamera(GROUND_CAM);
-      setDescending(false);
-      setAlt(0);
-    } else {
-      s.snapCamera(DESCENT_START_CAM);
-      fx.landing();
-      const t0 = performance.now();
-      let raf = 0;
-      let done = false;
-      const finish = () => {
-        if (done) return;
-        done = true;
-        cancelAnimationFrame(raf);
-        setAlt(0);
-        setTouchdown(true);
-        setTimeout(() => { setDescending(false); setTouchdown(false); }, 1500);
-      };
-      const tick = () => {
-        const k = Math.min(1, (performance.now() - t0) / DESCENT_MS);
-        setAlt(Math.round(START_ALT_M * (1 - k)));
-        if (k < 1) raf = requestAnimationFrame(tick);
-      };
-      raf = requestAnimationFrame(tick);
-      s.tweenCamera(GROUND_CAM, DESCENT_MS, finish);
-      // If the user grabs the camera mid-descent, the tween cancels itself —
-      // treat that as a skip too.
-      const watch = setInterval(() => {
-        if (s.tweenProgress() === null && !done) { clearInterval(watch); finish(); }
-      }, 300);
-      return () => { clearInterval(watch); done = true; cancelAnimationFrame(raf); s.destroy(); };
+    setIsTouch('ontouchstart' in window);
+    document.title = 'Mega City — GTA';
+
+    const scene = createGTAScene(canvasRef.current, {
+      onEvent: (e) => {
+        if (e.type === 'hud') {
+          setHud(e);
+          if (!e.subway) setSubwayRide(null);
+        } else if (e.type === 'enter_vehicle') {
+          setMsg('You took the car. The cops noticed.');
+        } else if (e.type === 'exit_vehicle') {
+          setMsg('On foot.');
+        } else if (e.type === 'busted') {
+          setMsg(`Busted! You lost $50. Money: $${e.money}`);
+        } else if (e.type === 'mission_start') {
+          setMsg(`${e.mission.title}: ${e.mission.briefing}`);
+        } else if (e.type === 'mission_complete') {
+          setMsg(`Mission complete! +$${e.reward}. Total: $${e.money}`);
+        } else if (e.type === 'mission_failed') {
+          setMsg(`Mission failed: ${e.reason}`);
+        } else if (e.type === 'objective_complete') {
+          setMsg(`Objective done: ${e.objective.label}`);
+        } else if (e.type === 'subway_prompt') {
+          if (e.text) setMsg(e.text);
+        } else if (e.type === 'subway_enter') {
+          setMsg(`Welcome to ${e.station} station. The train is coming.`);
+        } else if (e.type === 'subway_board') {
+          setMsg(`Aboard Line One at ${e.station}.`);
+        } else if (e.type === 'subway_ride') {
+          setSubwayRide(e);
+        } else if (e.type === 'subway_platform') {
+          setSubwayRide(null);
+          setMsg(`You stepped off at ${e.station}. Green stairs go back to the street.`);
+        } else if (e.type === 'subway_surface') {
+          setSubwayRide(null);
+          setMsg(`Back on the street near ${e.station}.`);
+        }
+      },
+    });
+    sceneRef.current = scene;
+    scene.start();
+    setMissions(scene.getMissions());
+
+    // Mouse camera
+    let dragging = false, lx = 0, ly = 0;
+    const onDown = (e) => { dragging = true; lx = e.clientX; ly = e.clientY; };
+    const onMove = (e) => {
+      if (!dragging) return;
+      const dx = e.clientX - lx, dy = e.clientY - ly;
+      scene.setCamYaw(scene.getCamYaw() - dx * 0.005);
+      lx = e.clientX; ly = e.clientY;
+    };
+    const onUp = () => { dragging = false; };
+    canvasRef.current.addEventListener('pointerdown', onDown);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+
+    // Touch camera + joystick
+    let touchCleanup = null;
+    if ('ontouchstart' in window) {
+      const joyEl = document.getElementById('gta-joystick');
+      if (joyEl) {
+        const bound = scene.input.bindTouch(joyEl, (dx) => {
+          scene.setCamYaw(scene.getCamYaw() - dx * 0.008);
+        });
+        touchCleanup = bound.cleanup;
+      }
     }
-    return () => s.destroy();
+
+    return () => {
+      scene.destroy();
+      canvasRef.current?.removeEventListener('pointerdown', onDown);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      if (touchCleanup) touchCleanup();
+    };
   }, []);
 
-  useEffect(() => { sceneRef.current && sceneRef.current.setTime(time); }, [time]);
-  useEffect(() => { sceneRef.current && sceneRef.current.setTraffic(traffic); }, [traffic]);
-  useEffect(() => { sceneRef.current && sceneRef.current.setFly(fly); }, [fly]);
-
-  function select(h) {
-    setHotspot(h);
-    if (h) sceneRef.current && sceneRef.current.focus(h);
-    else sceneRef.current && sceneRef.current.clearSelection();
-  }
-
-  function skipDescent() {
-    const s = sceneRef.current;
-    if (!s || !descending) return;
-    fx.tap();
-    s.snapCamera(GROUND_CAM);
-    setAlt(0);
-    setTouchdown(false);
-    setDescending(false);
-  }
-
-  function exitToStation() {
-    if (exiting) return;
-    const s = sceneRef.current;
-    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    fx.tap();
-    if (!s || reduced) { router.push("/"); return; }
-    setExiting(true);
-    s.tweenCamera(STATION_CAM, 1100, () => router.push("/"));
-  }
-
-  const presets = [["Dawn", 0.26, "sunrise"], ["Day", 0.5, "sun"], ["Dusk", 0.72, "sunset"], ["Night", 0.95, "moon"]];
+  const startMission = useCallback((id) => {
+    sceneRef.current?.startMission(id);
+  }, []);
 
   return (
-    <main className="argus">
-      <AphroBg img="/images/aphrodite/megacity-bg.webp" opacity={0.35} />
-      <style>{`
-        .argus { min-height: 100dvh; background: #03040c; color: #e6f4ff; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; display: flex; flex-direction: column; }
-        .argus header, .argus .stage, .argus .controls, .argus .sites, .argus .districts { position: relative; z-index: 1; }
-        .argus header { padding: 18px 20px 10px; }
-        .argus .kicker { font-size: 11px; letter-spacing: 4px; color: ${ACCENT}; text-transform: uppercase; }
-        .argus h1 { margin: 4px 0 2px; font-size: clamp(1.6rem, 5vw, 2.6rem); letter-spacing: 6px; font-weight: 800; }
-        .argus .sub { color: #8fa8c8; font-size: 0.9rem; max-width: 60ch; }
-        .argus .stage { position: relative; margin: 10px 16px 0; border: 1px solid #1e3a55; border-radius: 14px; overflow: hidden; height: min(62dvh, 560px); min-height: 320px; background: #000; }
-        .argus canvas { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
-        .argus canvas:active { cursor: grabbing; }
-        .argus .stage.descending canvas { animation: descendShake 0.4s linear infinite; }
-        @keyframes descendShake { 0% { transform: translateY(0); } 50% { transform: translateY(2px); } 100% { transform: translateY(0); } }
-        .argus .veil { position: absolute; inset: 0; display: flex; align-items: flex-start; justify-content: center; padding-top: 18px; background: transparent; border: 0; cursor: pointer; z-index: 5; }
-        .argus .chip { background: rgba(3,8,16,0.82); border: 1px solid ${ACCENT}; border-radius: 12px; padding: 12px 22px; text-align: center; box-shadow: 0 0 24px rgba(0,242,255,0.25); background-image: url(/images/aphrodite/panel-texture.webp); background-size: 512px 512px; background-blend-mode: overlay; }
-        .argus .chip .lbl { font-size: 0.72rem; letter-spacing: 4px; color: ${ACCENT}; font-weight: 700; }
-        .argus .chip .alt { font-size: 1.5rem; font-weight: 800; letter-spacing: 2px; color: #fff; font-variant-numeric: tabular-nums; margin-top: 4px; }
-        .argus .chip .skip { margin-top: 8px; font-size: 0.68rem; letter-spacing: 3px; color: #8fa8c8; }
-        .argus .chip .skipBtn { margin-top: 6px; min-height: 44px; padding: 8px 18px; border-radius: 8px; border: 1px solid ${ACCENT}; background: transparent; color: ${ACCENT}; font-size: 0.75rem; letter-spacing: 2px; cursor: pointer; }
-        .argus .exitVeil { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(2,4,10,0.45); z-index: 6; }
-        .argus .panel { position: absolute; left: 12px; bottom: 12px; right: 12px; max-width: 430px; background: rgba(4,8,18,0.93); border: 1px solid ${ACCENT}; border-radius: 10px; padding: 14px 16px; z-index: 4; background-image: url(/images/aphrodite/panel-texture.webp); background-size: 512px 512px; background-blend-mode: overlay; }
-        .argus .panel h2 { margin: 0 0 6px; font-size: 1.05rem; letter-spacing: 2px; color: ${ACCENT}; }
-        .argus .panel p { margin: 0 0 10px; font-size: 0.88rem; line-height: 1.5; color: #d4e8fa; }
-        .argus .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 14px 20px; }
-        .argus .ctl { display: flex; align-items: center; gap: 10px; font-size: 0.8rem; letter-spacing: 1px; color: #8fa8c8; }
-        .argus input[type="range"] { width: 150px; accent-color: ${ACCENT}; }
-        .argus button { min-height: 44px; min-width: 44px; padding: 10px 16px; border-radius: 8px; border: 1px solid #1e3a55; background: #060b16; color: #e6f4ff; font-size: 0.8rem; letter-spacing: 1px; cursor: pointer; }
-        .argus button.on { background: ${ACCENT}; border-color: ${ACCENT}; color: #001318; font-weight: 700; }
-        .argus button.stationBtn { border-color: ${ACCENT}; color: ${ACCENT}; font-weight: 700; }
-        .argus .clock { font-variant-numeric: tabular-nums; color: #fff; font-weight: 700; }
-        .argus .sites { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 20px 8px; }
-        .argus .sites button { border-color: #1e3a55; background: #060b16; }
-        .argus .districts { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 20px 20px; }
-        .argus .dist { flex: 1 1 180px; border: 1px solid #1e3a55; border-left: 4px solid var(--dc); border-radius: 8px; padding: 10px 12px; background: #060b16; text-align: left; background-image: url(/images/aphrodite/panel-texture.webp); background-size: 512px 512px; background-blend-mode: overlay; }
-        .argus .dist h3 { margin: 0 0 4px; font-size: 0.8rem; letter-spacing: 2px; color: var(--dc); }
-        .argus .dist p { margin: 0; font-size: 0.78rem; color: #9db4d2; line-height: 1.4; }
-        @media (prefers-reduced-motion: reduce) { .argus .stage.descending canvas { animation: none; } }
-      `}</style>
+    <main style={{ position: 'fixed', inset: 0, background: '#000', overflow: 'hidden' }}>
+      <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block', touchAction: 'none' }} />
 
-      <header>
-        <div className="kicker">ARGUS // Observatory</div>
-        <h1>CYBER METROPOLIS</h1>
-        <div className="sub">Nine million lights and one long night. Drag to pan, scroll or pinch to zoom, tap a marker for intel.</div>
-      </header>
+      {/* HUD top-left: wanted + health + money */}
+      <div style={{
+        position: 'absolute', top: 16, left: 16, zIndex: 10,
+        display: 'flex', flexDirection: 'column', gap: 8,
+        pointerEvents: 'none',
+      }}>
+        <WantedStars stars={hud?.wanted || 0} />
+        <HealthBar health={hud?.player?.health || 100} />
+        <div style={{ color: '#4ade80', fontWeight: 700, fontSize: 16 }}>${hud?.money || 0}</div>
+      </div>
 
-      <div className={`stage${descending && !touchdown ? " descending" : ""}`}>
-        <canvas ref={canvasRef} aria-label="Interactive panorama of Mega City" />
-        {descending && (
-          <div className="veil" onClick={skipDescent}>
-            <div className="chip" role="status" aria-live="polite">
-              <div className="lbl">{touchdown ? "● TOUCHDOWN" : "▼ DESCENDING"}</div>
-              <div className="alt">{touchdown ? "WELCOME TO MEGA CITY" : `ALT ${alt.toLocaleString("en-US")} M`}</div>
-              {!touchdown && (
-                <div>
-                  <div className="skip">TAP ANYWHERE TO SKIP</div>
-                  <button className="skipBtn" onClick={(e) => { e.stopPropagation(); skipDescent(); }}>SKIP</button>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-        {exiting && (
-          <div className="exitVeil">
-            <div className="chip" role="status" aria-live="polite">
-              <div className="lbl">▲ RETURNING TO STATION…</div>
-            </div>
-          </div>
-        )}
-        {hotspot && (
-          <div className="panel" role="dialog" aria-label={hotspot.title}>
-            <h2>{hotspot.title}</h2>
-            <p>{hotspot.body}</p>
-            <IconBtn icon="x" label="Close" onClick={() => select(null)} />
-          </div>
+      {/* Minimap top-right */}
+      <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 10, pointerEvents: 'none' }}>
+        {hud && (
+          <Minimap
+            player={hud.player}
+            vehicles={hud.vehicles}
+            cops={hud.cops}
+            missionMarker={hud.missionMarker}
+          />
         )}
       </div>
 
-      <div className="controls">
-        <IconBtn icon="antenna" label="STATION" className="stationBtn" onClick={exitToStation} aria-label="Return to station" />
-        <div className="ctl">
-          <span>TIME</span>
-          <input type="range" min="0" max="1000" value={Math.round(time * 1000)}
-            onChange={(e) => setTime(Number(e.target.value) / 1000)} aria-label="Time of day" />
-          <span className="clock">{timeString(time)} · {timeLabel(time)}</span>
+      {/* Mission tracker */}
+      <div style={{ position: 'absolute', top: 180, left: 16, zIndex: 10, pointerEvents: 'none' }}>
+        <MissionTracker mission={hud?.mission} />
+      </div>
+
+      {/* Speedometer (driving) */}
+      {hud?.vehicle && (
+        <div style={{ position: 'absolute', bottom: 'calc(24px + env(safe-area-inset-bottom))', right: 24, zIndex: 10, pointerEvents: 'none' }}>
+          <Speedometer speedKmh={Math.abs(hud.vehicle.speed) * 3.6} />
         </div>
-        {presets.map(([label, t, icon]) => (
-          <IconBtn key={label} icon={icon} label={label} onClick={() => setTime(t)} aria-label={`Set time to ${label}`} />
-        ))}
-        <IconBtn icon="cars" label={`TRAFFIC ${traffic ? "ON" : "OFF"}`} className={traffic ? "on" : ""} onClick={() => setTraffic(!traffic)} aria-pressed={traffic} />
-        <IconBtn icon="rocket" label={fly ? "FLYTHROUGH ON" : "FLYTHROUGH"} className={fly ? "on" : ""} onClick={() => setFly(!fly)} aria-pressed={fly} />
+      )}
+
+      {/* Message bar */}
+      <div style={{
+        position: 'absolute', bottom: 'calc(24px + env(safe-area-inset-bottom))', left: '50%',
+        transform: 'translateX(-50%)', zIndex: 10, pointerEvents: 'none',
+        background: 'rgba(0,0,0,0.7)', color: '#fff', padding: '10px 20px',
+        borderRadius: 8, fontSize: 14, maxWidth: '90vw', textAlign: 'center',
+      }}>
+        {msg}
       </div>
 
-      <div className="sites" aria-label="Sites of interest">
-        {HOTSPOTS.map((h) => (
-          <IconBtn key={h.id} icon="pin" label={h.title} onClick={() => select(h)} />
-        ))}
-      </div>
-
-      <div className="districts" aria-label="Districts">
-        {DISTRICTS.map((d) => (
-          <button key={d.id} className="dist" style={{ "--dc": d.color }} onClick={() => {
-            const h = HOTSPOTS.find((x) => x.id === d.id);
-            if (h) select(h);
-          }}>
-            <h3>{d.name}</h3>
-            <p>{d.desc}</p>
+      {/* Missions menu */}
+      <div style={{ position: 'absolute', bottom: 'calc(80px + env(safe-area-inset-bottom))', left: 16, zIndex: 10 }}>
+        {missions.filter(m => m.state !== 'active').map(m => (
+          <button
+            key={m.id}
+            onClick={() => startMission(m.id)}
+            disabled={m.state === 'complete'}
+            style={{
+              display: 'block', marginBottom: 8, padding: '10px 16px',
+              background: m.state === 'complete' ? 'rgba(74,222,128,0.2)' : 'rgba(0,0,0,0.7)',
+              border: '1px solid rgba(255,255,255,0.2)', borderRadius: 8,
+              color: '#fff', fontSize: 13, cursor: 'pointer',
+              opacity: m.state === 'complete' ? 0.5 : 1,
+            }}
+          >
+            {m.state === 'complete' ? '✓ ' : ''}{m.title} — ${m.reward}
           </button>
         ))}
       </div>
-      {/* Safari bottom-bar clearance */}
-      <div aria-hidden="true" className="player-clear" />
+
+      {/* Exit */}
+      <button
+        onClick={() => router.push('/')}
+        style={{
+          position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)',
+          zIndex: 10, padding: '8px 16px', background: 'rgba(0,0,0,0.6)',
+          border: '1px solid rgba(255,255,255,0.2)', borderRadius: 8,
+          color: '#fff', fontSize: 12, cursor: 'pointer',
+        }}
+      >
+        EXIT CITY
+      </button>
+
+      {/* Touch controls */}
+      <TouchControls input={sceneRef.current?.input} visible={isTouch} />
+
+      {/* Subway riding overlay */}
+      {subwayRide && (
+        <div style={{
+          position: 'absolute', top: 64, left: '50%', transform: 'translateX(-50%)',
+          zIndex: 20, pointerEvents: 'none',
+          background: 'rgba(8,10,16,0.88)', border: '1px solid rgba(255,204,51,0.4)',
+          borderRadius: 12, padding: '14px 22px', textAlign: 'center', minWidth: 260,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+            <span style={{ color: '#ffd700', fontSize: 20, fontWeight: 900 }}>Ω</span>
+            <span style={{ color: '#ffcc33', fontWeight: 800, fontSize: 15, letterSpacing: 2 }}>
+              🚇 LINE ONE
+            </span>
+          </div>
+          <div style={{ color: '#fff', fontSize: 17, fontWeight: 700, marginTop: 8 }}>
+            {subwayRide.mode === 'dwell' && subwayRide.atStation
+              ? subwayRide.atStation
+              : `Next stop: ${subwayRide.nextStop || '—'}`}
+          </div>
+          <div style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13, marginTop: 4 }}>
+            {subwayRide.mode === 'dwell'
+              ? 'Doors open — press E to step off'
+              : 'Riding underground — sit tight'}
+          </div>
+        </div>
+      )}
+
+      {/* Golden Omega mark */}
+      <div style={{
+        position: 'absolute', bottom: 'calc(24px + env(safe-area-inset-bottom))', left: 16,
+        zIndex: 10, pointerEvents: 'none',
+        color: '#ffd700', fontSize: 22, fontWeight: 900, opacity: 0.85,
+        textShadow: '0 0 10px rgba(255,215,0,0.6)',
+      }} aria-label="Omega brand">Ω</div>
     </main>
   );
 }
