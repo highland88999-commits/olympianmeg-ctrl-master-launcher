@@ -20,13 +20,56 @@ async function loadProfile(username, type) {
     return { offline: true };
   }
   try {
-    const { data: profile, error } = await db
-      .from('user_profiles')
-      .select('*')
-      .eq('username', username)
-      .eq('type', type)
-      .maybeSingle();
-    if (error || !profile) return { missing: true };
+    let profile = null;
+    if (type === 'business') {
+      // Business profiles live under '{username}-biz' and share the user_id.
+      // Try direct match first, then fall back via the personal profile's user.
+      const { data: direct } = await db
+        .from('user_profiles')
+        .select('*')
+        .eq('username', username)
+        .eq('type', 'business')
+        .maybeSingle();
+      if (direct) {
+        profile = direct;
+      } else {
+        const { data: personal } = await db
+          .from('user_profiles')
+          .select('user_id')
+          .eq('username', username)
+          .eq('type', 'personal')
+          .maybeSingle();
+        if (personal?.user_id) {
+          const { data: byUser } = await db
+            .from('user_profiles')
+            .select('*')
+            .eq('user_id', personal.user_id)
+            .eq('type', 'business')
+            .maybeSingle();
+          profile = byUser || null;
+        }
+        // last resort: the '{username}-biz' convention
+        if (!profile) {
+          const { data: bySuffix } = await db
+            .from('user_profiles')
+            .select('*')
+            .eq('username', `${username}-biz`)
+            .eq('type', 'business')
+            .maybeSingle();
+          profile = bySuffix || null;
+        }
+      }
+    } else {
+      const { data, error } = await db
+        .from('user_profiles')
+        .select('*')
+        .eq('username', username)
+        .eq('type', type)
+        .maybeSingle();
+      if (error) return { missing: true };
+      profile = data;
+    }
+    if (!profile) return { missing: true };
     const [{ data: art }, { data: posts }] = await Promise.all([
       db.from('art_pieces').select('*').eq('profile_id', profile.id).order('created_at', { ascending: false }),
       db.from('profile_posts').select('*').eq('profile_id', profile.id).order('created_at', { ascending: false }).limit(50),
