@@ -318,5 +318,17 @@
   "sat.hygieia.title": "Health Reminders",
   "sat.hygieia.subtitle": "Health reminders & steps",
   "sat.live-recordings.title": "Community Videos",
-  "sat.live-recordings.subtitle": "Community video feed"
+  "sat.live-recordings.subtitle": "Community video feed",
+  "sat.hawkins.title": "Hawkins: Hunt For Vecna",
+  "sat.hawkins.subtitle": "Seal Vecna. Survive the Upside Down.",
+  "sat.undulatus.title": "Undulatus",
+  "sat.undulatus.subtitle": "Cloud-surf the altocumulus",
+  "sat.shadow-realm.title": "Shadow Realm",
+  "sat.shadow-realm.subtitle": "Night Grid race mode",
+  "sat.geometry-engine.title": "Geometry Engine",
+  "sat.geometry-engine.subtitle": "3D geometry builder",
+  "sat.publisher-studio.title": "Publisher Studio",
+  "sat.publisher-studio.subtitle": "Publish to the multiverse",
+  "sat.renewal-plan.title": "Renewal Plan",
+  "sat.renewal-plan.subtitle": "Olympus renewal timeline"
 }

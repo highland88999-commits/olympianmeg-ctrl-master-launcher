@@ -153,6 +153,23 @@ export const SATELLITES: SatelliteEntry[] = [
   // OMEGA STORE (Merlin's Printful hoodie store, the HERMES shopping
   // satellite) sits with the merchant row: ARGUS/SHOPPING.
   { key: "store", route: "/store", pos: "HERMES", section: "SHOPPING", constellation: "ARGUS" },
+  // HAWKINS (Hawkins: Hunt For Vecna — the Stranger Things open-world hunt)
+  // sits with the other DIONYSUS games: ZEUS/GAMES.
+  { key: "hawkins", route: "/hawkins", pos: "DIONYSUS", section: "GAMES", constellation: "ZEUS" },
+  // UNDULATUS (cloud-surfing game) sits with the DIONYSUS games: ZEUS/GAMES.
+  { key: "undulatus", route: "/undulatus", pos: "DIONYSUS", section: "GAMES", constellation: "ZEUS" },
+  // LIVE-RECORDINGS (community videos) sits with the DIONYSUS games row: ZEUS/GAMES.
+  { key: "live-recordings", route: "/live-recordings", pos: "DIONYSUS", section: "GAMES", constellation: "ZEUS" },
+  // SHADOW-REALM (Night Grid race mode) sits with the DIONYSUS games: ZEUS/GAMES.
+  { key: "shadow-realm", route: "/shadow-realm", pos: "DIONYSUS", section: "GAMES", constellation: "ZEUS" },
+  // GEOMETRY-ENGINE (3D geometry tool) sits with the HEPHAESTUS forge tools: ARES/TOOLS.
+  { key: "geometry-engine", route: "/geometry-engine", pos: "HEPHAESTUS", section: "TOOLS", constellation: "ARES" },
+  // PUBLISHER-STUDIO (publishing studio) sits with the HEPHAESTUS forge tools: ARES/TOOLS.
+  { key: "publisher-studio", route: "/publisher-studio", pos: "HEPHAESTUS", section: "TOOLS", constellation: "ARES" },
+  // PLANET-TECH (computing power for a cleaner world) sits with the HEPHAESTUS forge: ARES/TOOLS.
+  { key: "planet-tech", route: "/planet-tech", pos: "HEPHAESTUS", section: "TOOLS", constellation: "ARES" },
+  // RENEWAL-PLAN (Olympus Meet The Gods renewal timeline) sits with ATHENA wisdom: THOTH/WISDOM.
+  { key: "renewal-plan", route: "/renewal-plan", pos: "ATHENA", section: "WISDOM", constellation: "THOTH" },
 ];
 
 export interface SectionDef { name: string; key: string; constellation: string; }
