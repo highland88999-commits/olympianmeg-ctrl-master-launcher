@@ -3,11 +3,11 @@
 // Products come live from Printful (GET /api/store/products) — Merlin's
 // real "Omega Store" catalog; nothing is hardcoded. Apparel (hoodies etc.)
 // is grouped first, everything else follows, unclassified items land under
-// "More". Printful checkout is NOT wired yet, so every Printful card keeps
-// its buy CTA honestly disabled ("Checkout coming soon") — no order is
-// ever faked or placed. The Luge free-hoodie reward (/store?reward=luge)
-// is separate: it claims through POST /api/luge/claim and never touches
-// checkout, so it is unaffected.
+// "More". Checkout is live: the buy CTA posts to POST /api/store/checkout,
+// which re-prices server-side from Stripe and opens a real Stripe Checkout
+// session (or debits gold when chosen). The Luge free-hoodie reward
+// (/store?reward=luge) is separate: it claims through POST /api/luge/claim
+// and never touches checkout, so it is unaffected.
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
@@ -26,9 +26,10 @@ const SIZES = ['S', 'M', 'L', 'XL', '2XL', '3XL'];
 function ProductCard({ product, onBuy, buying, gold, setGold, rewardMode, onRedeem }) {
   const [size, setSize] = useState('L');
   const isApparel = product.kind === 'apparel';
-  // Printful cards are listed read-only until Merlin approves wiring
-  // checkout: the buy CTA stays honestly disabled. Reward redemption
-  // (Luge) bypasses checkout entirely and is unaffected.
+  // The buy CTA enables when the server reports checkoutReady (Stripe is
+  // configured). Without it, the CTA stays honestly disabled — no order is
+  // ever faked or placed. Reward redemption (Luge) bypasses checkout
+  // entirely and is unaffected.
   const checkoutOpen = product.checkoutReady !== false;
 
   return (

@@ -17,8 +17,12 @@
 // `kind` is a soft grouping hint from the product name ('apparel' for
 // hoodies/shirts/etc., else 'other'). The store page groups apparel first
 // and puts anything unclassified under "More" — nothing is hidden.
-// `checkoutReady` is false for every Printful card until Merlin approves
-// wiring checkout: the page keeps the buy CTA honestly disabled.
+// `checkoutReady` is true when Stripe is configured server-side: the buy
+// CTA enables and POST /api/store/checkout runs the real server-priced
+// flow. Without STRIPE_SECRET_KEY the CTA stays honestly disabled
+// ("Checkout coming soon"). Note the checkout re-prices every product from
+// Stripe by exact name at purchase time — run POST /api/store/sync-products
+// (Merlin-only) once so the catalog exists in Stripe before selling.
 import { NextResponse } from 'next/server';
 import { apiGuard } from '@/lib/api-guard';
 import {
@@ -44,8 +48,12 @@ export const GET = apiGuard(async function GET() {
   }
 
   try {
-    const products = await getCatalog();
-    return NextResponse.json({ configured: true, products });
+    const catalog = await getCatalog();
+    const checkoutReady = !!process.env.STRIPE_SECRET_KEY;
+    return NextResponse.json({
+      configured: true,
+      products: catalog.map((p) => ({ ...p, checkoutReady })),
+    });
   } catch (err) {
     return NextResponse.json(
       {

@@ -342,7 +342,7 @@ export default function RaptorRushPage() {
     const name = sanitizeName(playerName);
     try { localStorage.setItem(NAME_KEY, name); } catch { /* ignore */ }
     setCallsign(name);
-    const { ok, missing } = await submitScore({
+    const { ok, missing, guest } = await submitScore({
       playerName: name,
       score: g.score,
       rabbits: g.prey,
@@ -353,9 +353,11 @@ export default function RaptorRushPage() {
     if (ok) {
       setSaved(true);
     } else {
-      setSaveNote(missing
-        ? 'The shared scoreboard is coming soon — your best is saved on this device.'
-        : 'Could not save — try again.');
+      setSaveNote(guest
+        ? 'Sign in to join the shared board — your best is saved on this device.'
+        : missing
+          ? 'The shared scoreboard is coming soon — your best is saved on this device.'
+          : 'Could not save — try again.');
     }
   }, [saving, saved, playerName, match]);
 

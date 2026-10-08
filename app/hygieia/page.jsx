@@ -1,15 +1,14 @@
-// app/hygieia/page.jsx — HYGIEIA: health reminders + step history.
+// app/hygieia/page.jsx — HYGIEIA: health reminders + step, sleep, and water tracking.
 //
 // Health reminders you set yourself (once / daily / weekly), and your
-// personal step history. Honest by design:
+// personal step, sleep, and water history. Honest by design:
 // - Notification delivery is NOT implemented: reminders show in-app only,
 //   in the "Due now" strip, while the page is open. Phone push arrives
 //   with the mobile phase (lib/hygieia/notify.ts is a documented stub).
-// - Step counts are entered by hand — phone health sync comes later.
-// - "Room to grow" sections (sleep, water) are static placeholders,
-//   clearly marked "coming later". No fake inputs, no currency of any
-//   kind (a step-to-credit currency is PARKED by Merlin, 2026-09-29 —
-//   see lib/hygieia/notes.ts).
+// - Step counts, sleep nights, and water intake are entered by hand —
+//   phone health sync comes with the mobile app.
+// - No currency of any kind (a step-to-credit currency is PARKED by
+//   Merlin, 2026-09-29 — see lib/hygieia/notes.ts).
 //
 // Zero external requests at runtime beyond Supabase. No animations
 // (reduced-motion safe by default). The page scrolls; Safari bottom-bar
@@ -47,14 +46,20 @@ function HygIcon({ name, size = 14 }) {
     case 'power': return (<svg {...p}><path d="M12 2v10" /><path d="M18.4 6.6a9 9 0 1 1-12.8 0" /></svg>);
     case 'bell': return (<svg {...p}><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /></svg>);
     case 'steps': return (<svg {...p}><ellipse cx="9" cy="7.5" rx="3" ry="4" /><ellipse cx="15.5" cy="16.5" rx="3" ry="4" /></svg>);
+    case 'moon': return (<svg {...p}><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" /></svg>);
+    case 'drop': return (<svg {...p}><path d="M12 2.7 6.7 8.6a7.4 7.4 0 1 0 10.6 0Z" /></svg>);
     default: return null;
   }
 }
 
 const TITLE = 'Hygieia';
-const SUBTITLE = 'Your health corner — reminders you set, and your steps.';
+const SUBTITLE = 'Your health corner — reminders, steps, sleep, and water.';
 
 const STEP_COLUMNS = 'step_date,steps';
+const SLEEP_COLUMNS = 'sleep_date,bedtime,wake_time,hours,quality';
+const WATER_COLUMNS = 'water_date,ml';
+const WATER_GOAL_KEY = 'hygieia-water-goal-ml';
+const DEFAULT_WATER_GOAL_ML = 2000;
 
 const DAY_OPTIONS = [
   { n: 0, label: 'Sun' },
@@ -78,6 +83,30 @@ function todayISO() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
+
+function yesterdayISO() {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** Hours between a bedtime and wake time (HH:MM), rolling past midnight. */
+function sleepHoursBetween(bedtime, wake) {
+  const [bh, bm] = bedtime.split(':').map(Number);
+  const [wh, wm] = wake.split(':').map(Number);
+  let mins = (wh * 60 + wm) - (bh * 60 + bm);
+  if (mins <= 0) mins += 24 * 60;
+  return Math.round((mins / 60) * 10) / 10;
+}
+
+function formatHours(h) {
+  if (h == null) return '—';
+  const whole = Math.floor(h);
+  const mins = Math.round((h - whole) * 60);
+  return mins === 0 ? `${whole}h` : `${whole}h ${mins}m`;
+}
+
+const QUALITY_LABELS = { 1: 'Rough', 2: 'Restless', 3: 'Okay', 4: 'Good', 5: 'Great' };
 
 /** True when a Supabase error means the table simply isn't there yet. */
 function isMissingTable(err) {
@@ -311,6 +340,26 @@ export default function HygieiaPage() {
   const [todaySteps, setTodaySteps] = useState('');
   const [stepsSaving, setStepsSaving] = useState(false);
 
+  // Sleep
+  const [sleepLog, setSleepLog] = useState([]);
+  const [sleepLoading, setSleepLoading] = useState(false);
+  const [sleepMissing, setSleepMissing] = useState(false);
+  const [sleepError, setSleepError] = useState('');
+  const [sleepSaving, setSleepSaving] = useState(false);
+  const [sleepDate, setSleepDate] = useState(yesterdayISO());
+  const [bedtime, setBedtime] = useState('23:00');
+  const [wakeTime, setWakeTime] = useState('07:00');
+  const [sleepQuality, setSleepQuality] = useState(4);
+
+  // Water
+  const [waterLog, setWaterLog] = useState([]);
+  const [waterLoading, setWaterLoading] = useState(false);
+  const [waterMissing, setWaterMissing] = useState(false);
+  const [waterError, setWaterError] = useState('');
+  const [waterSaving, setWaterSaving] = useState(false);
+  const [customMl, setCustomMl] = useState('');
+  const [waterGoalMl, setWaterGoalMl] = useState(DEFAULT_WATER_GOAL_ML);
+
   useEffect(() => {
     try {
       supabase.auth.getUser().then(({ data }) => {
@@ -376,12 +425,77 @@ export default function HygieiaPage() {
     }
   }, [user]);
 
+  const loadSleep = useCallback(async () => {
+    if (!user) return;
+    setSleepLoading(true);
+    setSleepError('');
+    try {
+      const { data, error } = await supabase
+        .from('user_sleep')
+        .select(SLEEP_COLUMNS)
+        .order('sleep_date', { ascending: false });
+      if (error) {
+        if (isMissingTable(error)) setSleepMissing(true);
+        else setSleepError('Could not load your sleep log. Please try again.');
+        setSleepLog([]);
+      } else {
+        setSleepMissing(false);
+        setSleepLog(data || []);
+      }
+    } catch {
+      setSleepError('Could not load your sleep log. Please try again.');
+    } finally {
+      setSleepLoading(false);
+    }
+  }, [user]);
+
+  const loadWater = useCallback(async () => {
+    if (!user) return;
+    setWaterLoading(true);
+    setWaterError('');
+    try {
+      const { data, error } = await supabase
+        .from('user_water')
+        .select(WATER_COLUMNS)
+        .order('water_date', { ascending: false });
+      if (error) {
+        if (isMissingTable(error)) setWaterMissing(true);
+        else setWaterError('Could not load your water log. Please try again.');
+        setWaterLog([]);
+      } else {
+        setWaterMissing(false);
+        setWaterLog(data || []);
+      }
+    } catch {
+      setWaterError('Could not load your water log. Please try again.');
+    } finally {
+      setWaterLoading(false);
+    }
+  }, [user]);
+
   useEffect(() => {
     if (user) {
       loadReminders();
       loadSteps();
+      loadSleep();
+      loadWater();
     }
-  }, [user, loadReminders, loadSteps]);
+  }, [user, loadReminders, loadSteps, loadSleep, loadWater]);
+
+  // Water goal lives on this device (a preference, not health data).
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(WATER_GOAL_KEY);
+      const n = raw ? Number(raw) : NaN;
+      if (Number.isInteger(n) && n >= 250 && n <= 10000) setWaterGoalMl(n);
+    } catch { /* private mode — default goal stands */ }
+  }, []);
+
+  const setWaterGoal = (n) => {
+    if (!Number.isInteger(n) || n < 250 || n > 10000) return;
+    setWaterGoalMl(n);
+    try { window.localStorage.setItem(WATER_GOAL_KEY, String(n)); } catch { /* ignore */ }
+  };
 
   // Re-check the "due now" strip every 30s while the page is open.
   useEffect(() => {
@@ -457,6 +571,79 @@ export default function HygieiaPage() {
     }
   }, [todaySteps, user, loadSteps]);
 
+  const saveSleep = useCallback(async () => {
+    if (!sleepDate || !bedtime || !wakeTime) {
+      setSleepError('Pick a night, a bedtime, and a wake time.');
+      return;
+    }
+    const hours = sleepHoursBetween(bedtime, wakeTime);
+    if (hours <= 0 || hours > 24) {
+      setSleepError('Those times don\'t make a valid night of sleep.');
+      return;
+    }
+    setSleepSaving(true);
+    setSleepError('');
+    try {
+      const { error } = await supabase.from('user_sleep').upsert(
+        {
+          user_id: user.id,
+          sleep_date: sleepDate,
+          bedtime,
+          wake_time: wakeTime,
+          hours,
+          quality: sleepQuality,
+          updated_at: new Date().toISOString(),
+        },
+      );
+      if (error) {
+        if (isMissingTable(error)) setSleepMissing(true);
+        else setSleepError('Could not save your sleep. Please try again.');
+      } else {
+        await loadSleep();
+      }
+    } catch {
+      setSleepError('Could not save your sleep. Please try again.');
+    } finally {
+      setSleepSaving(false);
+    }
+  }, [sleepDate, bedtime, wakeTime, sleepQuality, user, loadSleep]);
+
+  const deleteSleep = useCallback(async (row) => {
+    if (!window.confirm(`Delete the sleep entry for ${row.sleep_date}?`)) return;
+    setSleepError('');
+    const { error } = await supabase.from('user_sleep').delete().eq('user_id', user.id).eq('sleep_date', row.sleep_date);
+    if (error) setSleepError('Could not delete that entry. Please try again.');
+    else setSleepLog((list) => list.filter((x) => x.sleep_date !== row.sleep_date));
+  }, [user]);
+
+  const addWater = useCallback(async (ml) => {
+    if (!Number.isInteger(ml) || ml <= 0 || ml > 5000) {
+      setWaterError('Enter a whole number of millilitres (1–5000).');
+      return;
+    }
+    setWaterSaving(true);
+    setWaterError('');
+    try {
+      const today = todayISO();
+      const current = waterLog.find((r) => r.water_date === today);
+      const next = (current ? Number(current.ml) : 0) + ml;
+      const { error } = await supabase.from('user_water').upsert(
+        { user_id: user.id, water_date: today, ml: next, updated_at: new Date().toISOString() },
+      );
+      if (error) {
+        if (isMissingTable(error)) setWaterMissing(true);
+        else setWaterError('Could not log your water. Please try again.');
+      } else {
+        setCustomMl('');
+        await loadWater();
+      }
+    } catch {
+      setWaterError('Could not log your water. Please try again.');
+    } finally {
+      setWaterSaving(false);
+    }
+  }, [waterLog, user, loadWater]);
+
   const stepTotals = useMemo(() => {
     const all = steps.reduce((s, r) => s + (Number(r.steps) || 0), 0);
     const today = steps.find((r) => r.step_date === todayISO());
@@ -468,6 +655,26 @@ export default function HygieiaPage() {
       .reduce((s, r) => s + (Number(r.steps) || 0), 0);
     return { all, today: today ? Number(today.steps) : 0, week };
   }, [steps]);
+
+  const sleepStats = useMemo(() => {
+    if (sleepLog.length === 0) return { last: null, avg7: null };
+    const last = sleepLog[0];
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 6);
+    weekAgo.setHours(0, 0, 0, 0);
+    const recent = sleepLog.filter((r) => new Date(`${r.sleep_date}T12:00:00`) >= weekAgo);
+    const avg7 = recent.length
+      ? Math.round((recent.reduce((s, r) => s + (Number(r.hours) || 0), 0) / recent.length) * 10) / 10
+      : null;
+    return { last, avg7 };
+  }, [sleepLog]);
+
+  const waterStats = useMemo(() => {
+    const today = waterLog.find((r) => r.water_date === todayISO());
+    const todayMl = today ? Number(today.ml) : 0;
+    const pct = Math.min(100, Math.round((todayMl / waterGoalMl) * 100));
+    return { todayMl, pct };
+  }, [waterLog, waterGoalMl]);
 
   const orderedReminders = useMemo(() => {
     // Enabled reminders first, ordered by their next fire time.
@@ -523,6 +730,8 @@ export default function HygieiaPage() {
               {[
                 { key: 'reminders', label: 'Reminders', icon: 'bell' },
                 { key: 'steps', label: 'Steps', icon: 'steps' },
+                { key: 'sleep', label: 'Sleep', icon: 'moon' },
+                { key: 'water', label: 'Water', icon: 'drop' },
               ].map((t) => (
                 <button
                   key={t.key}
@@ -733,24 +942,307 @@ export default function HygieiaPage() {
                     </ul>
                   )}
                 </SectionCard>
+              </div>
+            )}
 
-                <SectionCard title="Room to grow">
-                  <ul className="flex flex-col gap-2">
-                    {[
-                      { name: 'Sleep', note: 'Nightly sleep hours and quality.' },
-                      { name: 'Water', note: 'Daily water intake.' },
-                    ].map((m) => (
-                      <li key={m.name} className="rounded-lg border border-dashed border-zinc-800 px-4 py-3">
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm font-bold text-zinc-300">{m.name}</span>
-                          <span className="rounded-full border border-zinc-700 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-zinc-500">
-                            Coming later
+            {tab === 'sleep' && (
+              <div className="mt-4 flex flex-col gap-4">
+                {sleepMissing && (
+                  <ErrorNote>
+                    The sleep database isn&apos;t set up yet, so nights can&apos;t be saved or shown
+                    right now. Everything will appear once the sleep database update is run.
+                  </ErrorNote>
+                )}
+                {sleepError && <ErrorNote>{sleepError}</ErrorNote>}
+
+                <SectionCard title="Your sleep">
+                  {sleepLoading ? (
+                    <LoadingNote>Loading your sleep…</LoadingNote>
+                  ) : sleepLog.length === 0 ? (
+                    <EmptyNote>
+                      No nights logged yet. Log last night below — your average builds from there.
+                    </EmptyNote>
+                  ) : (
+                    <dl className="grid grid-cols-2 gap-2 text-center">
+                      <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-2 py-3">
+                        <dt className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Last night</dt>
+                        <dd className="mt-1 text-xl font-black text-white">
+                          {formatHours(Number(sleepStats.last.hours))}
+                        </dd>
+                        <dd className="mt-0.5 text-xs text-zinc-400">
+                          {QUALITY_LABELS[sleepStats.last.quality] || ''}
+                        </dd>
+                      </div>
+                      <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-2 py-3">
+                        <dt className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">7-night avg</dt>
+                        <dd className="mt-1 text-xl font-black text-white">
+                          {sleepStats.avg7 != null ? formatHours(sleepStats.avg7) : '—'}
+                        </dd>
+                        <dd className="mt-0.5 text-xs text-zinc-400">per night</dd>
+                      </div>
+                    </dl>
+                  )}
+                </SectionCard>
+
+                <SectionCard title="Log a night">
+                  <p className="mb-3 text-xs text-zinc-500">
+                    Entered by hand — phone health sync comes with the mobile app.
+                  </p>
+                  <div className="flex flex-col gap-3">
+                    <div>
+                      <label htmlFor="hyg-sleep-date" className="mb-1 block text-xs font-bold uppercase tracking-widest text-zinc-500">
+                        Night of
+                      </label>
+                      <input
+                        id="hyg-sleep-date"
+                        type="date"
+                        className={inputCls}
+                        value={sleepDate}
+                        max={todayISO()}
+                        onChange={(e) => setSleepDate(e.target.value)}
+                      />
+                    </div>
+                    <div className="flex gap-3">
+                      <div className="flex-1">
+                        <label htmlFor="hyg-bedtime" className="mb-1 block text-xs font-bold uppercase tracking-widest text-zinc-500">
+                          Bedtime
+                        </label>
+                        <input
+                          id="hyg-bedtime"
+                          type="time"
+                          className={inputCls}
+                          value={bedtime}
+                          onChange={(e) => setBedtime(e.target.value)}
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <label htmlFor="hyg-wake" className="mb-1 block text-xs font-bold uppercase tracking-widest text-zinc-500">
+                          Wake time
+                        </label>
+                        <input
+                          id="hyg-wake"
+                          type="time"
+                          className={inputCls}
+                          value={wakeTime}
+                          onChange={(e) => setWakeTime(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <p className="text-sm text-zinc-300" aria-live="polite">
+                      That&apos;s <strong className="text-white">{formatHours(sleepHoursBetween(bedtime, wakeTime))}</strong> of sleep.
+                    </p>
+                    <fieldset>
+                      <legend className="mb-1 block text-xs font-bold uppercase tracking-widest text-zinc-500">
+                        How did you sleep?
+                      </legend>
+                      <div className="flex gap-2" role="radiogroup" aria-label="Sleep quality">
+                        {[1, 2, 3, 4, 5].map((q) => (
+                          <button
+                            key={q}
+                            type="button"
+                            role="radio"
+                            aria-checked={sleepQuality === q}
+                            title={QUALITY_LABELS[q]}
+                            onClick={() => setSleepQuality(q)}
+                            className={`min-h-[44px] flex-1 rounded-lg border text-sm font-bold ${
+                              sleepQuality === q
+                                ? 'border-amber-200 bg-amber-200 text-black'
+                                : 'border-zinc-700 text-zinc-400 hover:bg-zinc-900'
+                            }`}
+                          >
+                            {QUALITY_LABELS[q]}
+                          </button>
+                        ))}
+                      </div>
+                    </fieldset>
+                    <button
+                      type="button"
+                      className={btnPrimary}
+                      disabled={sleepSaving || sleepMissing}
+                      onClick={saveSleep}
+                    >
+                      {sleepSaving ? 'Saving…' : (
+                        <>
+                          <HygIcon name="check" />
+                          Save night
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </SectionCard>
+
+                <SectionCard title="History">
+                  {sleepLog.length === 0 && !sleepLoading ? (
+                    <EmptyNote>Your sleep history will grow here, one night at a time.</EmptyNote>
+                  ) : (
+                    <ul className="flex max-h-72 flex-col gap-1 overflow-y-auto">
+                      {sleepLog.map((r) => (
+                        <li
+                          key={r.sleep_date}
+                          className="flex items-center justify-between gap-2 rounded-lg border border-zinc-800/70 px-4 py-2.5"
+                        >
+                          <span className="min-w-0">
+                            <span className="block text-sm text-zinc-300">{r.sleep_date}</span>
+                            <span className="block text-xs text-zinc-500">
+                              {r.bedtime?.slice(0, 5)} → {r.wake_time?.slice(0, 5)}
+                              {r.quality ? ` · ${QUALITY_LABELS[r.quality]}` : ''}
+                            </span>
                           </span>
-                        </div>
-                        <p className="mt-1 text-xs text-zinc-500">{m.note}</p>
-                      </li>
+                          <span className="flex shrink-0 items-center gap-2">
+                            <span className="text-sm font-bold text-white">{formatHours(Number(r.hours))}</span>
+                            <button
+                              type="button"
+                              aria-label={`Delete sleep entry for ${r.sleep_date}`}
+                              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg border border-zinc-800 text-zinc-500 hover:bg-zinc-900 hover:text-red-300"
+                              onClick={() => deleteSleep(r)}
+                            >
+                              <HygIcon name="trash" size={12} />
+                            </button>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </SectionCard>
+              </div>
+            )}
+
+            {tab === 'water' && (
+              <div className="mt-4 flex flex-col gap-4">
+                {waterMissing && (
+                  <ErrorNote>
+                    The water database isn&apos;t set up yet, so intake can&apos;t be saved or shown
+                    right now. Everything will appear once the water database update is run.
+                  </ErrorNote>
+                )}
+                {waterError && <ErrorNote>{waterError}</ErrorNote>}
+
+                <SectionCard title="Today">
+                  {waterLoading ? (
+                    <LoadingNote>Loading your water…</LoadingNote>
+                  ) : (
+                    <>
+                      <div className="text-center">
+                        <p className="text-3xl font-black text-white">
+                          {(waterStats.todayMl / 1000).toFixed(2).replace(/\.?0+$/, '')}
+                          <span className="text-base font-bold text-zinc-400"> L</span>
+                        </p>
+                        <p className="mt-1 text-xs text-zinc-500">
+                          of {(waterGoalMl / 1000).toFixed(1).replace(/\.0$/, '')} L goal · {waterStats.pct}%
+                        </p>
+                      </div>
+                      <div
+                        className="mt-3 h-3 overflow-hidden rounded-full bg-zinc-800"
+                        role="progressbar"
+                        aria-valuenow={waterStats.pct}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-label="Daily water progress"
+                      >
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-sky-300 transition-all"
+                          style={{ width: `${waterStats.pct}%` }}
+                        />
+                      </div>
+                      {waterStats.pct >= 100 && (
+                        <p className="mt-2 text-center text-sm font-bold text-cyan-300">
+                          Goal reached — nicely hydrated.
+                        </p>
+                      )}
+                    </>
+                  )}
+                </SectionCard>
+
+                <SectionCard title="Log water">
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { ml: 250, label: 'Glass', sub: '250 ml' },
+                      { ml: 500, label: 'Bottle', sub: '500 ml' },
+                      { ml: 750, label: 'Large', sub: '750 ml' },
+                    ].map((b) => (
+                      <button
+                        key={b.ml}
+                        type="button"
+                        disabled={waterSaving || waterMissing}
+                        onClick={() => addWater(b.ml)}
+                        className="inline-flex min-h-[64px] flex-col items-center justify-center gap-0.5 rounded-lg border border-zinc-700 px-2 text-sm font-bold text-zinc-100 hover:bg-zinc-900 disabled:opacity-40"
+                      >
+                        <HygIcon name="drop" size={16} />
+                        {b.label}
+                        <span className="text-[11px] font-normal text-zinc-500">{b.sub}</span>
+                      </button>
                     ))}
-                  </ul>
+                  </div>
+                  <div className="mt-3 flex gap-2">
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={1}
+                      max={5000}
+                      step={1}
+                      className={inputCls}
+                      value={customMl}
+                      placeholder="Custom ml, e.g. 330"
+                      aria-label="Custom amount in millilitres"
+                      onChange={(e) => setCustomMl(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      className={btnPrimary}
+                      disabled={waterSaving || waterMissing}
+                      onClick={() => addWater(Number(customMl))}
+                    >
+                      {waterSaving ? 'Adding…' : (
+                        <>
+                          <HygIcon name="plus" />
+                          Add
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </SectionCard>
+
+                <SectionCard title="Daily goal">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={250}
+                      max={10000}
+                      step={250}
+                      className={inputCls}
+                      value={waterGoalMl}
+                      aria-label="Daily water goal in millilitres"
+                      onChange={(e) => {
+                        const n = Number(e.target.value);
+                        if (Number.isInteger(n)) setWaterGoal(n);
+                      }}
+                    />
+                    <span className="shrink-0 text-sm text-zinc-400">ml / day</span>
+                  </div>
+                  <p className="mt-2 text-xs text-zinc-500">
+                    Saved on this device. A common target is 2000 ml.
+                  </p>
+                </SectionCard>
+
+                <SectionCard title="History">
+                  {waterLog.length === 0 && !waterLoading ? (
+                    <EmptyNote>Your water history will grow here, one day at a time.</EmptyNote>
+                  ) : (
+                    <ul className="flex max-h-72 flex-col gap-1 overflow-y-auto">
+                      {waterLog.map((r) => (
+                        <li
+                          key={r.water_date}
+                          className="flex items-center justify-between rounded-lg border border-zinc-800/70 px-4 py-2.5"
+                        >
+                          <span className="text-sm text-zinc-300">{r.water_date}</span>
+                          <span className="text-sm font-bold text-white">
+                            {(Number(r.ml) / 1000).toFixed(2).replace(/\.?0+$/, '')} L
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </SectionCard>
               </div>
             )}
