@@ -217,7 +217,7 @@ export default function HerculesPage() {
 
       {/* Cruising */}
       {showCruise && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 w-[86%] max-w-md pointer-events-none">
+        <div className="absolute left-1/2 -translate-x-1/2 z-20 w-[86%] max-w-md pointer-events-none" style={{ top: 'max(3.5rem, calc(env(safe-area-inset-top) + 3rem))' }}>
           <div className="herc-card rounded-xl border border-amber-400/30 bg-black/60 px-4 py-3">
             <p className="text-xs tracking-[0.25em] uppercase text-amber-200">Cruising…</p>
             <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-amber-400/15">

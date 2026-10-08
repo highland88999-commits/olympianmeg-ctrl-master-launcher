@@ -474,7 +474,7 @@ export default function RaptorRushPage() {
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full touch-none" />
 
       {/* HUD */}
-      <div className="absolute top-0 left-0 right-0 flex items-start justify-between px-5 pt-4 pointer-events-none">
+      <div className="absolute left-0 right-0 flex items-start justify-between px-5 pt-4 pointer-events-none" style={{ top: 'max(3.5rem, calc(env(safe-area-inset-top) + 3rem))' }}>
         <div className="text-left">
           <div className="text-cyan-300 font-bold text-xl tracking-widest" style={{ textShadow: '0 0 12px #00f2ff' }}>
             SCORE {score}

@@ -100,7 +100,7 @@ export default function AntiLifePage() {
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full block" aria-hidden="true" style={{ touchAction: 'none' }} />
 
       {/* HUD */}
-      <div className="absolute top-0 left-0 right-0 flex items-start justify-between p-4 sm:p-5 pointer-events-none">
+      <div className="absolute left-0 right-0 flex items-start justify-between p-4 sm:p-5 pointer-events-none" style={{ top: 'max(3.5rem, calc(env(safe-area-inset-top) + 3rem))' }}>
         <div className="relative overflow-hidden bg-black/60 backdrop-blur-sm px-4 py-3 border-l-2 border-red-500/80 max-w-[78vw]">
           <div aria-hidden="true" className="absolute inset-0 opacity-25 pointer-events-none" style={panelTileStyle()} />
           <div className="relative">

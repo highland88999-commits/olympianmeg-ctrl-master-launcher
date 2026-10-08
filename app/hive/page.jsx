@@ -93,7 +93,7 @@ export default function HivePage() {
       />
 
       {/* HUD */}
-      <div className="absolute top-0 left-0 right-0 p-4 sm:p-6 pointer-events-none">
+      <div className="absolute left-0 right-0 p-4 sm:p-6 pointer-events-none" style={{ top: 'max(3.5rem, calc(env(safe-area-inset-top) + 3rem))' }}>
         <h1 className="text-xl sm:text-2xl font-black tracking-widest uppercase text-cyan-300">
           Cyber Hive
         </h1>

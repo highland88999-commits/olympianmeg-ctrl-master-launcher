@@ -149,7 +149,7 @@ export default function RogersArenaPage() {
         <div className="absolute inset-0 bg-gradient-to-b from-[#05070d]/75 via-[#05070d]/40 to-[#05070d]/85" />
       </div>
       {/* Section tabs: arena vignette | live game center | real ticket booking */}
-      <div className="absolute top-0 left-0 right-0 z-20 flex justify-center pt-3 pointer-events-none">
+      <div className="absolute left-0 right-0 z-20 flex justify-center pt-3 pointer-events-none" style={{ top: 'max(3.5rem, calc(env(safe-area-inset-top) + 3rem))' }}>
         <div
           className="pointer-events-auto flex gap-1 p-1 rounded-full bg-black/70 border border-white/15"
           role="tablist"

@@ -237,7 +237,7 @@ export default function NeonRacerPage() {
 
         {/* HUD */}
         {phase !== 'ready' && (
-          <div className="absolute top-0 left-0 right-0 z-10 pointer-events-none">
+          <div className="absolute left-0 right-0 z-10 pointer-events-none" style={{ top: 'max(3.5rem, calc(env(safe-area-inset-top) + 3rem))' }}>
             <div className="flex items-start justify-between px-4 pt-4">
               <div>
                 <div className="text-[11px] tracking-widest text-cyan-300/70 uppercase">Score</div>

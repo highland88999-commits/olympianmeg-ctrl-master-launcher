@@ -674,7 +674,7 @@ export default function NovaPage() {
       />
 
       {/* header */}
-      <div className="absolute top-0 left-0 right-0 flex items-start justify-between p-4 sm:p-5 pointer-events-none">
+      <div className="absolute left-0 right-0 flex items-start justify-between p-4 sm:p-5 pointer-events-none" style={{ top: 'max(3.5rem, calc(env(safe-area-inset-top) + 3rem))' }}>
         <div className="relative overflow-hidden bg-black/60 backdrop-blur-sm px-4 py-3 border-l-2 border-cyan-400/80 max-w-[70vw]">
           <HermesPanelTexture opacity={0.12} />
           <div className="text-[10px] sm:text-[11px] tracking-[0.3em] uppercase text-cyan-300/90">

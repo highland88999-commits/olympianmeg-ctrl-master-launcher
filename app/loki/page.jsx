@@ -178,7 +178,7 @@ export default function LokiPage() {
       />
 
       {/* HUD */}
-      <div className="absolute top-0 left-0 right-0 flex items-start justify-between p-5 pointer-events-none">
+      <div className="absolute left-0 right-0 flex items-start justify-between p-5 pointer-events-none" style={{ top: 'max(3.5rem, calc(env(safe-area-inset-top) + 3rem))' }}>
         <div>
           <div className="text-[11px] tracking-[0.35em] uppercase text-amber-200/60">Loki's Illusions</div>
           <h1 className="text-2xl font-black text-white tracking-wide mt-1" style={{ textShadow: `0 0 18px ${theme.palette.glow}` }}>

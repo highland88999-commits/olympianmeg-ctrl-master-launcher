@@ -308,7 +308,7 @@ export default function OmegaPinballPage() {
       {/* ARES interior art: page backdrop behind menus/HUD (never over gameplay) */}
       <AresBackdrop src="/images/omega-pinball/omega-pinball-bg.webp" strength={0.4} />
       {/* HUD */}
-      <div className="absolute top-0 left-0 right-0 z-10 flex items-start justify-between px-4 pt-3 pointer-events-none">
+      <div className="absolute left-0 right-0 z-10 flex items-start justify-between px-4 pt-3 pointer-events-none" style={{ top: 'max(3.5rem, calc(env(safe-area-inset-top) + 3rem))' }}>
         <div>
           <div className="text-[10px] uppercase tracking-widest text-cyan-300/70">Score</div>
           <div className="text-2xl font-black tabular-nums text-white">{formatScore(score)}</div>

@@ -506,7 +506,7 @@ function StreetHud({
     <>
       <div
         style={{
-          position: 'absolute', top: 14, left: 14, zIndex: 10,
+          position: 'absolute', top: 'max(3.5rem, calc(env(safe-area-inset-top) + 3rem))', left: 14, zIndex: 10,
           display: 'flex', flexDirection: 'column', gap: 8,
         }}
       >
@@ -536,7 +536,7 @@ function StreetHud({
         </div>
       </div>
 
-      <div style={{ position: 'absolute', top: 14, right: 14, display: 'flex', gap: 8, zIndex: 10 }}>
+      <div style={{ position: 'absolute', top: 'max(3.5rem, calc(env(safe-area-inset-top) + 3rem))', right: 14, display: 'flex', gap: 8, zIndex: 10 }}>
         <button onClick={onMode} style={hudBtn} aria-label="Switch drive mode">
           {mode === 'ride' ? (<HIcon><BikeIcon size={14} />RIDE</HIcon>) : mode === 'fly' ? (<HIcon><WingIcon size={14} />FLY</HIcon>) : (<HIcon><StepsIcon size={14} />WALK</HIcon>)}
         </button>
@@ -874,7 +874,7 @@ export default function ArgoPage() {
 
       {/* Header — hidden at street level (the street HUD takes over) */}
       {!streetActive && (
-      <div className="absolute top-0 left-0 right-0 flex items-start justify-between p-4 sm:p-5 pointer-events-none">
+      <div className="absolute left-0 right-0 flex items-start justify-between p-4 sm:p-5 pointer-events-none" style={{ top: 'max(3.5rem, calc(env(safe-area-inset-top) + 3rem))' }}>
         <div className="relative overflow-hidden bg-black/60 backdrop-blur-sm px-4 py-3 border-l-2 border-amber-400/80 max-w-[78vw]">
           <HermesPanelTexture opacity={0.12} />
           <div className="text-[10px] sm:text-[11px] tracking-[0.3em] uppercase text-amber-300/90">

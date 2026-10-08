@@ -231,7 +231,7 @@ export default function T1000Page() {
         </div>
       )}
 
-      <div className="absolute top-0 left-0 right-0 p-5 pointer-events-none">
+      <div className="absolute left-0 right-0 p-5 pointer-events-none" style={{ top: 'max(3.5rem, calc(env(safe-area-inset-top) + 3rem))' }}>
         <h1 className="text-white text-2xl font-black tracking-widest uppercase" style={{ textShadow: '0 0 22px rgba(232,185,60,0.35)' }}>Liquid Metal Dome</h1>
         <p className="text-zinc-400 text-sm mt-1">
           Liquid metal holo-dome. Drag to stir the metal, tap to send a pulse.

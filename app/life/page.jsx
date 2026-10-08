@@ -115,7 +115,7 @@ export default function LifePage() {
         style={{ background: 'radial-gradient(120% 90% at 50% 100%, rgba(255,150,60,0.10) 0%, rgba(120,53,15,0.05) 42%, transparent 70%)' }} />
 
       {/* HUD */}
-      <div className="absolute top-0 left-0 right-0 flex items-start justify-between p-4 sm:p-5 pointer-events-none">
+      <div className="absolute left-0 right-0 flex items-start justify-between p-4 sm:p-5 pointer-events-none" style={{ top: 'max(3.5rem, calc(env(safe-area-inset-top) + 3rem))' }}>
         <div
           key={zoomTick}
           className="relative overflow-hidden bg-black/60 backdrop-blur-sm px-4 py-3 border-l-2 border-cyan-400/80 max-w-[78vw]"

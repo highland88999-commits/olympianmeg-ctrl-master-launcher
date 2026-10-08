@@ -225,7 +225,7 @@ export default function ZeusVHadesPage() {
 
       {/* HUD */}
       {(phase === 'racing' || phase === 'countdown') && (
-        <div className="absolute top-0 left-0 right-0 z-20 pointer-events-none">
+        <div className="absolute left-0 right-0 z-20 pointer-events-none" style={{ top: 'max(3.5rem, calc(env(safe-area-inset-top) + 3rem))' }}>
           <div className="flex items-center justify-between px-4 py-3">
             <div
               className={`px-4 py-2 rounded-lg border-2 font-black text-lg tracking-widest ${

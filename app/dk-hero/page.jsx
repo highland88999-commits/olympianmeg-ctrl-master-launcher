@@ -232,7 +232,7 @@ export default function DKHeroPage() {
       <canvas ref={canvasRef} className="absolute inset-0" aria-label="DK Hero game canvas" />
 
       {/* HUD */}
-      <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 py-3 pointer-events-none">
+      <div className="absolute left-0 right-0 flex items-center justify-between px-4 py-3 pointer-events-none" style={{ top: 'max(3.5rem, calc(env(safe-area-inset-top) + 3rem))' }}>
         <div className="flex gap-5 text-sm font-bold tracking-widest uppercase">
           <span className="text-amber-300">Score <span className="text-white">{hud.score}</span></span>
           <span className="text-amber-300">Lives <span className="text-white">{hud.lives}</span></span>

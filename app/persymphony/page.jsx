@@ -293,7 +293,7 @@ export default function PersymphonyPage() {
       )}
 
       {/* Header */}
-      <div className="absolute top-0 left-0 right-0 p-4 sm:p-6 flex items-start justify-between pointer-events-none">
+      <div className="absolute left-0 right-0 p-4 sm:p-6 flex items-start justify-between pointer-events-none" style={{ top: 'max(3.5rem, calc(env(safe-area-inset-top) + 3rem))' }}>
         <div>
           <h1 className="text-white text-xl sm:text-2xl font-black tracking-widest uppercase">
             Music Arena
