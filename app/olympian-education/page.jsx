@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { supabase } from "@/lib/supabase";
 import {
   SCHOOLS,
   LESSONS,
@@ -10,6 +11,24 @@ import {
   loadProgress,
   saveProgress,
 } from "./curriculum";
+
+// Award the Olympian Scholar achievement when all 12 lessons are complete.
+// Server is idempotent; guests get a 401 which we silently ignore. This also
+// awards retroactively on load for anyone (like Merlin) who already finished.
+async function maybeAwardScholar(completedIds) {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    await fetch("/api/achievements/award", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + session.access_token,
+      },
+      body: JSON.stringify({ key: "olympian-scholar", lessonIds: completedIds }),
+    });
+  } catch { /* achievement service offline — try again next visit */ }
+}
 
 /**
  * Olympian Education — three schools of learning drifting as orbital orbs
@@ -106,8 +125,15 @@ export default function OlympianEducationPage() {  const bgRef = useRef(null);
   panelRef.current = panel;
 
   useEffect(() => {
-    setCompleted(loadProgress(localStorage));
+    const ids = loadProgress(localStorage);
+    setCompleted(ids);
+    if (ids.length >= 12) maybeAwardScholar(ids);
   }, []);
+
+  // Award when the final lesson is completed in-session.
+  useEffect(() => {
+    if (completed.length >= 12) maybeAwardScholar(completed);
+  }, [completed]);
 
   const openLesson = (lesson) => setPanel({ type: "lesson", lesson });
   const openOverview = () => setPanel({ type: "overview" });

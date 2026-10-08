@@ -35,6 +35,7 @@ import {
 } from '@/lib/user-content/bridges';
 import DefaultAvatarPicker from '@/components/profile/DefaultAvatarPicker';
 import MyCreations from '@/components/profile/MyCreations';
+import Achievements from '@/components/profile/Achievements';
 
 const SUIT_COLORS = [
   '#00f2ff', '#ff2fd6', '#ffd166', '#06d6a0', '#8b5cf6',
@@ -482,6 +483,9 @@ export default function ProfilePage() {
         {/* My Creations — server-backed forge items (the one section that
             talks to the network: your creations live on your account). */}
         <MyCreations />
+
+        {/* Achievements — Vecna Slayer milestones, Olympian Scholar, … */}
+        <Achievements />
 
         <p className="text-[11px] text-neutral-600 text-center px-6">
           This profile lives in your browser on this device. It travels with you
