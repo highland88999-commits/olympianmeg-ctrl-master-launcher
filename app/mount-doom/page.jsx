@@ -48,6 +48,13 @@ export default function MountDoomPage() {
     else sceneRef.current && sceneRef.current.clearSelection();
   }
 
+  function stepHotspot(dir) {
+    if (!HOTSPOTS.length) return;
+    const i = hotspot ? HOTSPOTS.findIndex((h) => h.id === hotspot.id) : -1;
+    const n = (i + dir + HOTSPOTS.length) % HOTSPOTS.length;
+    select(HOTSPOTS[n]);
+  }
+
   const presets = [["Dawn", 0.26], ["Day", 0.5], ["Dusk", 0.72], ["Night", 0.95]];
 
   return (
@@ -71,14 +78,19 @@ export default function MountDoomPage() {
         .argus .stage { position: relative; margin: 10px 16px 0; border: 1px solid #3a2a22; border-radius: 14px; overflow: hidden; height: min(62dvh, 560px); min-height: 320px; background: #000; }
         .argus canvas { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
         .argus canvas:active { cursor: grabbing; }
-        .argus .panel { position: absolute; left: 12px; bottom: 12px; right: 12px; max-width: 430px; background-color: rgba(8,5,4,0.92); background-image: url("${NOISE}"); background-size: 140px 140px; border: 1px solid ${ACCENT}; border-radius: 10px; padding: 14px 16px; }
+        .argus .panel { position: absolute; left: 12px; bottom: 12px; right: 12px; max-width: 430px; background-color: rgba(8,5,4,0.94); background-image: url("${NOISE}"); background-size: 140px 140px; border: 1px solid ${ACCENT}; border-radius: 12px; padding: 16px 16px 14px; box-shadow: 0 12px 40px rgba(0,0,0,0.6); }
         .argus .panel h2 { margin: 0 0 6px; font-size: 1.05rem; letter-spacing: 2px; color: ${ACCENT}; }
-        .argus .panel p { margin: 0 0 10px; font-size: 0.88rem; line-height: 1.5; color: #e8d9c6; }
-        .argus .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 14px 20px; }
-        .argus .ctl { display: flex; align-items: center; gap: 10px; font-size: 0.8rem; letter-spacing: 1px; color: #cbb59d; }
-        .argus input[type="range"] { width: 150px; accent-color: ${ACCENT}; }
-        .argus button { min-height: 44px; min-width: 44px; padding: 10px 16px; border-radius: 8px; border: 1px solid #4a3628; background: #140d0a; color: #f5e9dd; font-size: 0.8rem; letter-spacing: 1px; cursor: pointer; }
+        .argus .panel p { margin: 0 0 12px; font-size: 0.88rem; line-height: 1.55; color: #e8d9c6; }
+        .argus .panel .prow { display: flex; gap: 8px; align-items: center; }
+        .argus .panel .pcount { margin-left: auto; font-size: 0.72rem; letter-spacing: 2px; color: #8a7360; font-variant-numeric: tabular-nums; }
+        .argus .controls { display: flex; flex-direction: column; gap: 14px; padding: 16px 20px; }
+        .argus .ctlgroup { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+        .argus .ctl { display: flex; align-items: center; gap: 10px; font-size: 0.78rem; letter-spacing: 2px; color: #cbb59d; flex: 1 1 240px; min-width: 0; }
+        .argus .ctl .glabel { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
+        .argus input[type="range"] { flex: 1; min-width: 90px; height: 32px; accent-color: ${ACCENT}; }
+        .argus button { min-height: 48px; min-width: 48px; padding: 12px 18px; border-radius: 10px; border: 1px solid #4a3628; background: #140d0a; color: #f5e9dd; font-size: 0.8rem; letter-spacing: 1px; cursor: pointer; }
         .argus button.on { background: ${ACCENT}; border-color: ${ACCENT}; color: #0a0503; font-weight: 700; }
+        .argus .presetrow { display: flex; flex-wrap: wrap; gap: 8px; }
         .argus .controls button, .argus .sites button, .argus .panel button { display: inline-flex; align-items: center; gap: 8px; justify-content: center; }
         .argus .controls { background-color: rgba(8,5,4,0.55); background-image: url("${NOISE}"); background-size: 140px 140px; border-top: 1px solid rgba(255,90,31,0.2); border-bottom: 1px solid rgba(255,90,31,0.2); }
         .argus-boot { position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center; gap: 10px;
@@ -115,29 +127,43 @@ export default function MountDoomPage() {
           <div className="panel" role="dialog" aria-label={hotspot.title}>
             <h2>{hotspot.title}</h2>
             <p>{hotspot.body}</p>
-            <button onClick={() => select(null)}><Glyph size={14}>{IC.x}</Glyph>Close</button>
+            <div className="prow">
+              <button onClick={() => stepHotspot(-1)} aria-label="Previous site">←</button>
+              <button onClick={() => stepHotspot(1)} aria-label="Next site">→</button>
+              <button onClick={() => select(null)}><Glyph size={14}>{IC.x}</Glyph>Close</button>
+              <span className="pcount" aria-hidden="true">
+                {HOTSPOTS.findIndex((h) => h.id === hotspot.id) + 1} / {HOTSPOTS.length}
+              </span>
+            </div>
           </div>
         )}
       </div>
 
       <div className="controls">
-        <div className="ctl">
-          <span>TIME</span>
-          <input type="range" min="0" max="1000" value={Math.round(time * 1000)}
-            onChange={(e) => setTime(Number(e.target.value) / 1000)} aria-label="Time of day" />
-          <span className="clock">{timeString(time)} · {timeLabel(time)}</span>
+        <div className="ctlgroup" aria-label="Time of day">
+          <div className="ctl">
+            <span className="glabel"><Glyph size={15}>{IC.clock}</Glyph>TIME</span>
+            <input type="range" min="0" max="1000" value={Math.round(time * 1000)}
+              onChange={(e) => setTime(Number(e.target.value) / 1000)} aria-label="Time of day" />
+            <span className="clock">{timeString(time)} · {timeLabel(time)}</span>
+          </div>
         </div>
-        {presets.map(([label, t]) => (
-          <button key={label} onClick={() => setTime(t)}><Glyph size={14}>{IC.clock}</Glyph>{label}</button>
-        ))}
-        <div className="ctl">
-          <span>ERUPTION</span>
-          <input type="range" min="0" max="100" value={intensity}
-            onChange={(e) => setIntensity(Number(e.target.value))} aria-label="Eruption intensity" />
+        <div className="presetrow" aria-label="Time presets">
+          {presets.map(([label, t]) => (
+            <button key={label} onClick={() => setTime(t)}><Glyph size={14}>{IC.clock}</Glyph>{label}</button>
+          ))}
         </div>
-        <button className={fly ? "on" : ""} onClick={() => setFly(!fly)} aria-pressed={fly}>
-          <Glyph size={14}>{IC.fly}</Glyph>{fly ? "FLYTHROUGH ON" : "FLYTHROUGH"}
-        </button>
+        <div className="ctlgroup" aria-label="Eruption and flight">
+          <div className="ctl">
+            <span className="glabel"><Glyph size={15}>{IC.flame}</Glyph>ERUPTION</span>
+            <input type="range" min="0" max="100" value={intensity}
+              onChange={(e) => setIntensity(Number(e.target.value))} aria-label="Eruption intensity" />
+            <span className="clock">{intensity}%</span>
+          </div>
+          <button className={fly ? "on" : ""} onClick={() => setFly(!fly)} aria-pressed={fly}>
+            <Glyph size={14}>{IC.fly}</Glyph>{fly ? "FLYTHROUGH ON" : "FLYTHROUGH"}
+          </button>
+        </div>
       </div>
 
       <div className="sites" aria-label="Sites of interest">

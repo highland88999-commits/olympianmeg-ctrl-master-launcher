@@ -1,7 +1,16 @@
 /*
  * Mount Doom — ARGUS Observatory scene.
- * Hand-rolled canvas 2D volcanic panorama. Zero network calls.
- * Pure helpers (top of file) are covered by headless tests.
+ * Photorealistic canvas-2D volcanic panorama. Zero network calls.
+ *
+ * Rendering strategy: every texture (basalt rock, crusty lava, smoke puffs,
+ * ember glows, film grain) is procedurally generated ONCE at init from a
+ * seeded RNG, then composited per frame as bounded drawImage/gradient calls —
+ * photographic detail without melting phone GPUs. Emissive elements (lava,
+ * embers, crater bloom) use additive 'lighter' blending; smoke uses layered
+ * alpha sprites for a volumetric read.
+ *
+ * Pure helpers (top of file) are covered by headless tests — their
+ * signatures and outputs must not change.
  */
 
 // ---------------- pure core ----------------
@@ -129,28 +138,259 @@ export const HOTSPOTS = [
 
 export const ACCENT = "#ff5a1f";
 
-// ---------------- scene ----------------
-const rng = mulberry32(0xd00d);
-const STARS = Array.from({ length: 150 }, () => ({ x: rng() * WORLD_W, y: rng() * 560, r: 0.4 + rng() * 1.4, p: rng() * 6.28 }));
+// ---------------- procedural texture foundry ----------------
+// Everything below is generated once at init from a seeded RNG so the
+// mountain looks identical on every load. Per-frame cost is drawImage.
+
+function makeCanvas(w, h) {
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  return c;
+}
+
+// Tileable value noise in [0,1].
+function valueNoise(rng, size, octaves) {
+  const out = new Float32Array(size * size);
+  let amp = 1, total = 0;
+  for (let o = 0; o < octaves; o++) {
+    const cells = 4 * (1 << o);
+    const grid = new Float32Array((cells + 1) * (cells + 1));
+    for (let i = 0; i < grid.length; i++) grid[i] = rng();
+    const step = size / cells;
+    for (let y = 0; y < size; y++) {
+      const gy = y / step, y0 = Math.floor(gy) % cells, fy = gy - Math.floor(gy);
+      const sy = fy * fy * (3 - 2 * fy);
+      for (let x = 0; x < size; x++) {
+        const gx = x / step, x0 = Math.floor(gx) % cells, fx = gx - Math.floor(gx);
+        const sx = fx * fx * (3 - 2 * fx);
+        const a = grid[y0 * (cells + 1) + x0];
+        const b = grid[y0 * (cells + 1) + x0 + 1];
+        const c = grid[(y0 + 1) * (cells + 1) + x0];
+        const d = grid[(y0 + 1) * (cells + 1) + x0 + 1];
+        out[y * size + x] += (a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy) * amp;
+      }
+    }
+    total += amp;
+    amp *= 0.5;
+  }
+  for (let i = 0; i < out.length; i++) out[i] /= total;
+  return out;
+}
+
+// Dark basalt rock face.
+function buildRockTile(rng) {
+  const S = 256;
+  const c = makeCanvas(S, S);
+  const x = c.getContext("2d");
+  const n = valueNoise(rng, S, 4);
+  const img = x.createImageData(S, S);
+  for (let i = 0; i < S * S; i++) {
+    const v = n[i];
+    const ridge = Math.pow(Math.abs(v - 0.5) * 2, 0.7);
+    const base = 26 + ridge * 46 + v * 22;
+    img.data[i * 4] = base * 1.06;
+    img.data[i * 4 + 1] = base * 0.82;
+    img.data[i * 4 + 2] = base * 0.74;
+    img.data[i * 4 + 3] = 255;
+  }
+  x.putImageData(img, 0, 0);
+  // strata bands + speckle
+  x.globalAlpha = 0.16;
+  for (let i = 0; i < 9; i++) {
+    x.fillStyle = i % 2 ? "#000" : "#5a463c";
+    const y = rng() * S;
+    x.fillRect(0, y, S, 3 + rng() * 9);
+  }
+  x.globalAlpha = 0.5;
+  for (let i = 0; i < 260; i++) {
+    const g = 20 + rng() * 60;
+    x.fillStyle = "rgb(" + (g | 0) + "," + ((g * 0.85) | 0) + "," + ((g * 0.8) | 0) + ")";
+    x.fillRect(rng() * S, rng() * S, 1 + rng() * 2, 1 + rng() * 2);
+  }
+  x.globalAlpha = 1;
+  return c;
+}
+
+// Crusty lava: dark plates over a bright molten base, with glowing cracks.
+function buildLavaTile(rng) {
+  const W2 = 256, H2 = 128;
+  const c = makeCanvas(W2, H2);
+  const x = c.getContext("2d");
+  const g = x.createLinearGradient(0, 0, 0, H2);
+  g.addColorStop(0, "#ff9a1f");
+  g.addColorStop(0.45, "#e8480c");
+  g.addColorStop(1, "#7a1502");
+  x.fillStyle = g;
+  x.fillRect(0, 0, W2, H2);
+  // dark crust plates
+  const n = valueNoise(rng, 128, 3);
+  x.globalAlpha = 0.88;
+  for (let py = 0; py < H2; py += 2) {
+    for (let px = 0; px < W2; px += 2) {
+      const v = n[((py >> 1) % 128) * 128 + ((px >> 1) % 128)];
+      if (v > 0.52) {
+        const d = 8 + (v - 0.52) * 60;
+        x.fillStyle = "rgb(" + (d | 0) + "," + ((d * 0.42) | 0) + "," + ((d * 0.3) | 0) + ")";
+        x.fillRect(px, py, 2, 2);
+      }
+    }
+  }
+  x.globalAlpha = 1;
+  // bright cracks: random walks
+  x.lineCap = "round";
+  for (let i = 0; i < 16; i++) {
+    let px = rng() * W2, py = rng() * H2;
+    x.strokeStyle = "rgba(255,220,120,0.9)";
+    x.shadowColor = "#ffb01f";
+    x.shadowBlur = 8;
+    x.lineWidth = 1.6 + rng() * 1.6;
+    x.beginPath();
+    x.moveTo(px, py);
+    for (let k = 0; k < 7; k++) {
+      px += (rng() - 0.5) * 46;
+      py += (rng() - 0.5) * 26;
+      x.lineTo(px, py);
+    }
+    x.stroke();
+  }
+  x.shadowBlur = 0;
+  return c;
+}
+
+// Soft volumetric smoke puff. warm=true gets a lava-lit underbelly.
+function buildSmokeSprite(rng, warm) {
+  const S = 160;
+  const c = makeCanvas(S, S);
+  const x = c.getContext("2d");
+  for (let i = 0; i < 22; i++) {
+    const a = rng() * Math.PI * 2;
+    const d = rng() * S * 0.26;
+    const px = S / 2 + Math.cos(a) * d;
+    const py = S / 2 + Math.sin(a) * d * 0.8;
+    const r = S * (0.1 + rng() * 0.2);
+    const gg = x.createRadialGradient(px, py, 0, px, py, r);
+    gg.addColorStop(0, "rgba(255,255,255," + (0.10 + rng() * 0.10) + ")");
+    gg.addColorStop(1, "rgba(255,255,255,0)");
+    x.fillStyle = gg;
+    x.beginPath();
+    x.arc(px, py, r, 0, 6.29);
+    x.fill();
+  }
+  // shape the puff: fade edges into a round sprite
+  x.globalCompositeOperation = "destination-in";
+  const m = x.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+  m.addColorStop(0, "rgba(0,0,0,1)");
+  m.addColorStop(0.7, "rgba(0,0,0,0.85)");
+  m.addColorStop(1, "rgba(0,0,0,0)");
+  x.fillStyle = m;
+  x.fillRect(0, 0, S, S);
+  x.globalCompositeOperation = "source-over";
+  if (warm) {
+    // lava light from below
+    x.globalCompositeOperation = "source-atop";
+    const w = x.createLinearGradient(0, S * 0.35, 0, S);
+    w.addColorStop(0, "rgba(255,120,30,0)");
+    w.addColorStop(1, "rgba(255,110,25,0.55)");
+    x.fillStyle = w;
+    x.fillRect(0, 0, S, S);
+    x.globalCompositeOperation = "source-over";
+  }
+  return c;
+}
+
+// Hot ember glow dot.
+function buildEmberSprite() {
+  const S = 48;
+  const c = makeCanvas(S, S);
+  const x = c.getContext("2d");
+  const g = x.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+  g.addColorStop(0, "rgba(255,246,220,1)");
+  g.addColorStop(0.25, "rgba(255,210,63,0.95)");
+  g.addColorStop(0.55, "rgba(255,110,20,0.5)");
+  g.addColorStop(1, "rgba(255,80,10,0)");
+  x.fillStyle = g;
+  x.fillRect(0, 0, S, S);
+  return c;
+}
+
+// Monochrome film grain tile.
+function buildGrainTile(rng) {
+  const S = 128;
+  const c = makeCanvas(S, S);
+  const x = c.getContext("2d");
+  const img = x.createImageData(S, S);
+  for (let i = 0; i < S * S; i++) {
+    const v = (rng() * 255) | 0;
+    img.data[i * 4] = v;
+    img.data[i * 4 + 1] = v;
+    img.data[i * 4 + 2] = v;
+    img.data[i * 4 + 3] = 255;
+  }
+  x.putImageData(img, 0, 0);
+  return c;
+}
+
+// ---------------- static world geometry (seeded) ----------------
+const wrng = mulberry32(0xd00d);
+const STARS = Array.from({ length: 170 }, () => ({ x: wrng() * WORLD_W, y: wrng() * 560, r: 0.4 + wrng() * 1.5, p: wrng() * 6.28 }));
 const FAR_RIDGE = [];
-for (let i = 0; i <= 24; i++) FAR_RIDGE.push({ x: (i / 24) * WORLD_W, y: 470 - rng() * 130 });
+for (let i = 0; i <= 28; i++) FAR_RIDGE.push({ x: (i / 28) * WORLD_W, y: 468 - wrng() * 150 });
 const MID_RIDGE = [];
-for (let i = 0; i <= 20; i++) MID_RIDGE.push({ x: (i / 20) * WORLD_W, y: 560 - rng() * 90 });
-const ASH = Array.from({ length: 7 }, (_, i) => ({ x: rng() * WORLD_W, y: 120 + rng() * 260, w: 180 + rng() * 220, h: 40 + rng() * 40, v: 6 + rng() * 14 }));
+for (let i = 0; i <= 22; i++) MID_RIDGE.push({ x: (i / 22) * WORLD_W, y: 560 - wrng() * 100 });
+const CLOUDS = Array.from({ length: 7 }, () => ({
+  x: wrng() * WORLD_W, y: 110 + wrng() * 260,
+  s: 260 + wrng() * 320, v: 5 + wrng() * 12, a: 0.10 + wrng() * 0.10,
+}));
 const CRACKS = [];
-for (let i = 0; i < 9; i++) {
+for (let i = 0; i < 10; i++) {
   const pts = [];
-  let x = 80 + rng() * 1440;
+  let x = 60 + wrng() * 1480;
   let y = 730;
   pts.push([x, y]);
-  for (let k = 0; k < 5; k++) { x += (rng() - 0.5) * 220; y += 20 + rng() * 30; pts.push([x, y]); }
+  for (let k = 0; k < 6; k++) { x += (wrng() - 0.5) * 200; y += 18 + wrng() * 28; pts.push([x, y]); }
   CRACKS.push(pts);
+}
+// Crater/cone landmarks (world coords)
+const CRATER = { x: 800, y: 352 };
+
+function conePath(x) {
+  x.beginPath();
+  x.moveTo(CRATER.x - 440, 770);
+  x.lineTo(CRATER.x - 100, 398);
+  x.lineTo(CRATER.x - 64, 346);
+  x.lineTo(CRATER.x - 42, 354);
+  x.lineTo(CRATER.x + 42, 354);
+  x.lineTo(CRATER.x + 64, 346);
+  x.lineTo(CRATER.x + 100, 398);
+  x.lineTo(CRATER.x + 440, 770);
+  x.closePath();
+}
+
+// Deterministic eruption flicker: layered sines read as flame noise.
+function flick(t) {
+  return 0.82 + 0.11 * Math.sin(t * 7.3) + 0.07 * Math.sin(t * 13.7 + 1.7);
+}
+// Dusk/dawn horizon burn factor for time t in [0,1).
+function duskBurn(t) {
+  const d = (a, b) => { const w = Math.abs(a - b) % 1; return Math.min(w, 1 - w); };
+  const m = Math.min(d(t, 0.26), d(t, 0.72));
+  return Math.exp(-(m * m) / (2 * 0.028 * 0.028));
 }
 
 export function createScene(canvas, opts) {
   const onHotspot = (opts && opts.onHotspot) || function () {};
   const ctx = canvas.getContext("2d");
   const reduced = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // --- one-time texture bake ---
+  const trng = mulberry32(0xb16b00b5);
+  const rockTile = buildRockTile(trng);
+  const lavaTile = buildLavaTile(trng);
+  const smokeCool = [buildSmokeSprite(trng, false), buildSmokeSprite(trng, false), buildSmokeSprite(trng, false)];
+  const smokeWarm = [buildSmokeSprite(trng, true), buildSmokeSprite(trng, true)];
+  const emberSprite = buildEmberSprite();
+  const grainTile = buildGrainTile(trng);
 
   let W = 0, H = 0, dpr = 1;
   const state = {
@@ -161,8 +401,14 @@ export function createScene(canvas, opts) {
     fly: false,
     t: 0,
   };
+  const prng = mulberry32((Math.random() * 0xffffffff) >>> 0);
   const embers = [];
-  let emberSeed = 1234;
+  const smoke = [];
+  const ashFall = Array.from({ length: 70 }, () => ({
+    x: prng(), y: prng(), vy: 0.02 + prng() * 0.05, sway: prng() * 6.28, r: 0.8 + prng() * 1.8,
+  }));
+  const bombs = [];
+  let bombTimer = 1.2;
 
   function resize() {
     dpr = clamp(window.devicePixelRatio || 1, 1, 2);
@@ -183,27 +429,49 @@ export function createScene(canvas, opts) {
   function wy2sy(wy) {
     return (wy - state.cam.y) * state.cam.z + H / 2;
   }
+  // Enter world-space rendering (factor-1 layers): draw in world coords.
+  function worldTransform() {
+    ctx.setTransform(dpr * state.cam.z, 0, 0, dpr * state.cam.z,
+      dpr * (W / 2 - state.cam.x * state.cam.z), dpr * (H / 2 - state.cam.y * state.cam.z));
+  }
+  function screenTransform() {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
 
-  function spawnEmber() {
-    const r = mulberry32((emberSeed = (emberSeed * 1103515245 + 12345) & 0x7fffffff));
+  function spawnEmber(x, y, spread, up) {
     embers.push({
-      x: 800 + (r() - 0.5) * 90,
-      y: 360,
-      vx: (r() - 0.5) * 60,
-      vy: -(60 + r() * 160),
+      x: x + (prng() - 0.5) * spread,
+      y: y,
+      px: x, py: y,
+      vx: (prng() - 0.5) * 70,
+      vy: -(up * (0.6 + prng() * 0.9)),
       life: 1,
-      decay: 0.25 + r() * 0.5,
-      r: 1.5 + r() * 3,
+      decay: 0.22 + prng() * 0.45,
+      s: 5 + prng() * 11,
     });
   }
 
-  function drawRidge(pts, factor, color, baseY) {
+  function spawnSmoke() {
+    smoke.push({
+      x: CRATER.x + (prng() - 0.5) * 70,
+      y: CRATER.y - 10,
+      vx: 8 + prng() * 14,
+      vy: -(46 + prng() * 40) * (0.5 + state.intensity * 0.8),
+      life: 0,
+      max: 5 + prng() * 4,
+      s: 46 + prng() * 40,
+      grow: 16 + prng() * 14,
+      sprite: prng() < 0.5 ? 0 : 1,
+    });
+  }
+
+  function drawRidge(pts, factor, baseColor, hazeColor, hazeAmt) {
     ctx.beginPath();
-    ctx.moveTo(-50, H + 50);
+    ctx.moveTo(-60, H + 60);
     for (const p of pts) ctx.lineTo(layerX(p.x, factor), wy2sy(p.y));
-    ctx.lineTo(W + 50, H + 50);
+    ctx.lineTo(W + 60, H + 60);
     ctx.closePath();
-    ctx.fillStyle = color;
+    ctx.fillStyle = mixHex(baseColor, hazeColor, hazeAmt);
     ctx.fill();
   }
 
@@ -211,13 +479,29 @@ export function createScene(canvas, opts) {
     const dt = Math.min(0.05, (now - (draw.last || now)) / 1000);
     draw.last = now;
     if (!reduced) state.t += dt;
-    if (state.fly && !reduced) {
-      state.cam.x = WORLD_W / 2 + Math.sin(state.t * 0.12) * 420;
-      state.cam.z = 1.05 + Math.sin(state.t * 0.07) * 0.35;
+    const t = state.t;
+    const inten = state.intensity;
+    const fl = reduced ? 0.86 : flick(t);
+
+    // --- fly mode: eased cinematic drift (pauses while the user drags) ---
+    if (state.fly && !reduced && !dragging) {
+      const tx = WORLD_W / 2 + Math.sin(t * 0.1) * 430;
+      const ty = 450 + Math.sin(t * 0.073 + 1.3) * 70;
+      const tz = 1.12 + Math.sin(t * 0.05) * 0.32;
+      const k = 1 - Math.exp(-dt * 1.4);
+      state.cam.x += (tx - state.cam.x) * k;
+      state.cam.y += (ty - state.cam.y) * k;
+      state.cam.z += (tz - state.cam.z) * k;
       state.cam = clampCamera(state.cam);
     }
 
     const sky = skyAt(state.time);
+    const nightF = sky.moon;
+    const duskF = duskBurn(state.time);
+    const cz = state.cam.z;
+
+    // --- sky ---
+    screenTransform();
     const g = ctx.createLinearGradient(0, 0, 0, H);
     g.addColorStop(0, sky.top);
     g.addColorStop(0.55, sky.mid);
@@ -225,183 +509,404 @@ export function createScene(canvas, opts) {
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, H);
 
+    // dusk/dawn horizon burn
+    if (duskF > 0.03) {
+      const hy = wy2sy(470);
+      const bg = ctx.createLinearGradient(0, hy - H * 0.22, 0, hy + H * 0.1);
+      bg.addColorStop(0, "rgba(255,120,40,0)");
+      bg.addColorStop(0.65, "rgba(255,110,35," + (0.42 * duskF) + ")");
+      bg.addColorStop(1, "rgba(255,70,20,0)");
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, hy - H * 0.22, W, H * 0.32);
+    }
+
     // stars
     if (sky.star > 0.02) {
-      ctx.save();
       for (const s of STARS) {
-        const tw = 0.6 + 0.4 * Math.sin(state.t * 2 + s.p);
+        const tw = 0.6 + 0.4 * Math.sin(t * 2 + s.p);
         ctx.globalAlpha = sky.star * tw * 0.9;
         ctx.fillStyle = "#cfe4ff";
         ctx.fillRect(layerX(s.x, 0.15), wy2sy(s.y), s.r, s.r);
       }
-      ctx.restore();
+      ctx.globalAlpha = 1;
     }
 
-    // sun
+    // sun with atmospheric glow
     const sp = clamp((state.time - 0.25) / 0.5, 0, 1);
     if (sky.sun > 0.02 && sp > 0 && sp < 1) {
       const sx = W * 0.12 + sp * W * 0.76;
       const sy = H * 0.72 - Math.sin(sp * Math.PI) * H * 0.55;
-      const glow = ctx.createRadialGradient(sx, sy, 0, sx, sy, 90);
-      glow.addColorStop(0, "rgba(255,220,150," + (0.9 * sky.sun) + ")");
-      glow.addColorStop(1, "rgba(255,220,150,0)");
+      const glow = ctx.createRadialGradient(sx, sy, 0, sx, sy, 150);
+      glow.addColorStop(0, "rgba(255,214,140," + (0.85 * sky.sun) + ")");
+      glow.addColorStop(0.4, "rgba(255,180,110," + (0.28 * sky.sun) + ")");
+      glow.addColorStop(1, "rgba(255,180,110,0)");
       ctx.fillStyle = glow;
-      ctx.fillRect(sx - 90, sy - 90, 180, 180);
+      ctx.fillRect(sx - 150, sy - 150, 300, 300);
       ctx.fillStyle = "#fff3d6";
       ctx.beginPath();
-      ctx.arc(sx, sy, 22 * sky.sun + 6, 0, 6.29);
+      ctx.arc(sx, sy, 20 * sky.sun + 6, 0, 6.29);
       ctx.fill();
     }
     // moon
     if (sky.moon > 0.02) {
       const mp = (state.time < 0.25 ? state.time + 1 : state.time) - 0.75;
       const mx = W * 0.7 - mp * W * 0.5;
-      const my = H * 0.2;
-      ctx.fillStyle = "rgba(220,230,255," + (0.9 * sky.moon) + ")";
+      const my = H * 0.18;
+      const mg = ctx.createRadialGradient(mx, my, 0, mx, my, 60);
+      mg.addColorStop(0, "rgba(210,225,255," + (0.35 * sky.moon) + ")");
+      mg.addColorStop(1, "rgba(210,225,255,0)");
+      ctx.fillStyle = mg;
+      ctx.fillRect(mx - 60, my - 60, 120, 120);
+      ctx.fillStyle = "rgba(224,233,255," + (0.92 * sky.moon) + ")";
       ctx.beginPath();
-      ctx.arc(mx, my, 18, 0, 6.29);
+      ctx.arc(mx, my, 17, 0, 6.29);
       ctx.fill();
     }
 
     const dark = 1 - sky.sun * 0.55;
 
-    // far + mid ridges
-    drawRidge(FAR_RIDGE, 0.25, mixHex("#241a2e", "#0e0a16", dark), 0);
-    drawRidge(MID_RIDGE, 0.55, mixHex("#1c141f", "#0a080e", dark), 0);
+    // --- ridges with aerial perspective ---
+    drawRidge(FAR_RIDGE, 0.25, "#241a2e", sky.bot, 0.5);
+    // volcanic sky-wash at night: faint red aura behind the cone
+    if (nightF > 0.05 && inten > 0.05) {
+      const csx = layerX(CRATER.x, 0.55), csy = wy2sy(420);
+      const wash = ctx.createRadialGradient(csx, csy, 0, csx, csy, 420 * cz);
+      wash.addColorStop(0, "rgba(255,90,20," + (0.16 * inten * nightF * fl) + ")");
+      wash.addColorStop(1, "rgba(255,90,20,0)");
+      ctx.fillStyle = wash;
+      ctx.fillRect(csx - 420 * cz, csy - 420 * cz, 840 * cz, 840 * cz);
+    }
+    drawRidge(MID_RIDGE, 0.55, "#1c141f", sky.bot, 0.3);
+    // horizon haze band
+    const hz = ctx.createLinearGradient(0, wy2sy(430), 0, wy2sy(560));
+    hz.addColorStop(0, "rgba(0,0,0,0)");
+    hz.addColorStop(1, "rgba(20,12,16,0.35)");
+    ctx.fillStyle = hz;
+    ctx.fillRect(0, wy2sy(430), W, wy2sy(560) - wy2sy(430));
 
-    // ash clouds drifting
-    ctx.save();
-    for (const a of ASH) {
+    // --- drifting ash clouds: layered smoke sprites ---
+    for (const a of CLOUDS) {
       if (!reduced) {
         a.x += a.v * dt;
-        if (a.x - a.w > WORLD_W) a.x = -a.w;
+        if (a.x - a.s > WORLD_W) a.x = -a.s;
       }
-      ctx.globalAlpha = 0.28;
-      ctx.fillStyle = "#2a2028";
-      ctx.beginPath();
-      ctx.ellipse(layerX(a.x, 0.7), wy2sy(a.y), a.w * state.cam.z * 0.5, a.h * state.cam.z * 0.5, 0, 0, 6.29);
-      ctx.fill();
+      const sx = layerX(a.x, 0.7), sy = wy2sy(a.y);
+      const s = a.s * cz;
+      ctx.globalAlpha = a.a * (0.7 + 0.3 * sky.moon + 0.4 * duskF);
+      ctx.drawImage(smokeCool[a.v > 9 ? 1 : 0], sx - s / 2, sy - s * 0.36, s, s * 0.72);
+      ctx.drawImage(smokeCool[2], sx - s / 4, sy - s * 0.3, s * 0.7, s * 0.5);
     }
+    ctx.globalAlpha = 1;
+
+    // ================= volcano (world space) =================
+    worldTransform();
+    const wz = 1; // world units; screen scale already in transform
+
+    // cone body: basalt texture clipped to silhouette
+    ctx.save();
+    conePath(ctx);
+    ctx.clip();
+    const bbX0 = CRATER.x - 460, bbY0 = 330, bbX1 = CRATER.x + 460, bbY1 = 780;
+    for (let ty = bbY0; ty < bbY1; ty += 256) {
+      for (let tx = bbX0; tx < bbX1; tx += 256) {
+        ctx.drawImage(rockTile, tx, ty, 256, 256);
+      }
+    }
+    // darken with altitude shading: deep base, slightly lighter mid-slope
+    let shade = ctx.createLinearGradient(0, 330, 0, 780);
+    shade.addColorStop(0, "rgba(0,0,0,0.42)");
+    shade.addColorStop(0.45, "rgba(0,0,0,0.12)");
+    shade.addColorStop(1, "rgba(0,0,0,0.5)");
+    ctx.fillStyle = shade;
+    ctx.fillRect(bbX0, bbY0, bbX1 - bbX0, bbY1 - bbY0);
+    // daylight: warm kiss on the west slope; night: near-black east
+    const slope = ctx.createLinearGradient(bbX0, 0, bbX1, 0);
+    slope.addColorStop(0, "rgba(255,170,110," + (0.14 * sky.sun) + ")");
+    slope.addColorStop(0.55, "rgba(0,0,0,0)");
+    slope.addColorStop(1, "rgba(0,0,0," + (0.34 * (0.4 + 0.6 * dark)) + ")");
+    ctx.fillStyle = slope;
+    ctx.fillRect(bbX0, bbY0, bbX1 - bbX0, bbY1 - bbY0);
+    // lava rim-light bleeding down from the crater
+    const rim = ctx.createRadialGradient(CRATER.x, CRATER.y, 10, CRATER.x, CRATER.y, 300);
+    rim.addColorStop(0, "rgba(255,130,40," + (0.6 * fl * (0.35 + 0.65 * inten)) + ")");
+    rim.addColorStop(1, "rgba(255,130,40,0)");
+    ctx.fillStyle = rim;
+    ctx.fillRect(CRATER.x - 300, CRATER.y - 300, 600, 600);
     ctx.restore();
 
-    // volcano cone
-    const cx = layerX(800, 1), cy = wy2sy(340), cz = state.cam.z;
-    ctx.beginPath();
-    ctx.moveTo(cx - 430 * cz, wy2sy(760));
-    ctx.lineTo(cx - 90 * cz, cy + 40 * cz);
-    ctx.lineTo(cx - 60 * cz, cy);
-    ctx.lineTo(cx + 60 * cz, cy);
-    ctx.lineTo(cx + 90 * cz, cy + 40 * cz);
-    ctx.lineTo(cx + 430 * cz, wy2sy(760));
-    ctx.closePath();
-    ctx.fillStyle = mixHex("#3a2420", "#120c0c", dark);
-    ctx.fill();
-    // slope shading
-    ctx.beginPath();
-    ctx.moveTo(cx, cy);
-    ctx.lineTo(cx + 90 * cz, cy + 40 * cz);
-    ctx.lineTo(cx + 430 * cz, wy2sy(760));
-    ctx.lineTo(cx + 120 * cz, wy2sy(760));
-    ctx.closePath();
-    ctx.fillStyle = "rgba(0,0,0,0.35)";
-    ctx.fill();
-
-    // crater glow (localized)
-    const glowR = (150 + state.intensity * 60) * cz;
-    const cg = ctx.createRadialGradient(cx, cy + 10 * cz, 0, cx, cy + 10 * cz, glowR);
-    const pulse = reduced ? 0.85 : 0.75 + 0.15 * Math.sin(state.t * 3);
-    cg.addColorStop(0, "rgba(255,120,20," + (0.95 * pulse) + ")");
-    cg.addColorStop(0.4, "rgba(255,60,10," + (0.55 * pulse) + ")");
-    cg.addColorStop(1, "rgba(255,60,10,0)");
-    ctx.fillStyle = cg;
-    ctx.fillRect(cx - glowR, cy + 10 * cz - glowR, glowR * 2, glowR * 2);
-    // lava pool
-    ctx.fillStyle = "#ffb01f";
-    ctx.beginPath();
-    ctx.ellipse(cx, cy + 8 * cz, 52 * cz, 12 * cz, 0, 0, 6.29);
-    ctx.fill();
-
-    // lava river down the east flank
+    // crater bloom: stacked additive glows (the photographic "blowout")
     ctx.save();
-    ctx.strokeStyle = "#ff7a1f";
-    ctx.lineCap = "round";
-    ctx.shadowColor = "#ff5a1f";
-    ctx.shadowBlur = 18;
-    ctx.lineWidth = 10 * cz;
-    ctx.setLineDash([26 * cz, 18 * cz]);
-    ctx.lineDashOffset = reduced ? 0 : -state.t * 90;
+    ctx.globalCompositeOperation = "lighter";
+    const glowA = 0.35 + 0.65 * inten;
+    let bloom = ctx.createRadialGradient(CRATER.x, CRATER.y, 0, CRATER.x, CRATER.y, 340);
+    bloom.addColorStop(0, "rgba(255,96,22," + (0.34 * fl * glowA) + ")");
+    bloom.addColorStop(1, "rgba(255,96,22,0)");
+    ctx.fillStyle = bloom;
+    ctx.fillRect(CRATER.x - 340, CRATER.y - 340, 680, 680);
+    bloom = ctx.createRadialGradient(CRATER.x, CRATER.y, 0, CRATER.x, CRATER.y, 170);
+    bloom.addColorStop(0, "rgba(255,140,40," + (0.5 * fl * glowA) + ")");
+    bloom.addColorStop(1, "rgba(255,140,40,0)");
+    ctx.fillStyle = bloom;
+    ctx.fillRect(CRATER.x - 170, CRATER.y - 170, 340, 340);
+    ctx.restore();
+
+    // lava pool: scrolling crust texture + white-hot core
+    ctx.save();
     ctx.beginPath();
-    ctx.moveTo(cx + 60 * cz, cy + 30 * cz);
-    ctx.bezierCurveTo(
-      layerX(950, 1), wy2sy(500),
-      layerX(900, 1), wy2sy(640),
-      layerX(1010, 1), wy2sy(760)
-    );
+    ctx.ellipse(CRATER.x, CRATER.y + 2, 48, 11, 0, 0, 6.29);
+    ctx.clip();
+    const scroll = reduced ? 0 : (t * 26) % 256;
+    for (let tx = -256; tx < 256; tx += 256) {
+      ctx.drawImage(lavaTile, CRATER.x - 128 + tx + scroll - 128, CRATER.y - 62, 256, 128);
+    }
+    ctx.restore();
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    const core = ctx.createRadialGradient(CRATER.x, CRATER.y + 2, 0, CRATER.x, CRATER.y + 2, 46);
+    core.addColorStop(0, "rgba(255,244,200," + (0.85 * fl) + ")");
+    core.addColorStop(0.5, "rgba(255,180,60," + (0.5 * fl) + ")");
+    core.addColorStop(1, "rgba(255,120,20,0)");
+    ctx.fillStyle = core;
+    ctx.beginPath();
+    ctx.ellipse(CRATER.x, CRATER.y + 2, 48, 11, 0, 0, 6.29);
+    ctx.fill();
+    ctx.restore();
+    // dark crater lip
+    ctx.strokeStyle = "rgba(10,4,2,0.85)";
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.ellipse(CRATER.x, CRATER.y + 2, 50, 12, 0, 0.15 * Math.PI, 0.85 * Math.PI);
+    ctx.stroke();
+
+    // lava river: layered glowing channel down the east flank
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    ctx.moveTo(CRATER.x + 58, CRATER.y + 22);
+    ctx.bezierCurveTo(950, 500, 905, 640, 1012, 762);
+    // wide heat spill
+    ctx.strokeStyle = "rgba(255,70,12," + (0.30 * fl * glowA) + ")";
+    ctx.lineWidth = 34;
+    ctx.shadowColor = "#ff5a1f";
+    ctx.shadowBlur = 34;
+    ctx.stroke();
+    // mid channel
+    ctx.shadowBlur = 18;
+    ctx.strokeStyle = "rgba(255,106,26," + (0.75 * fl) + ")";
+    ctx.lineWidth = 13;
+    ctx.stroke();
+    // bright flowing core
+    ctx.shadowBlur = 10;
+    ctx.strokeStyle = "rgba(255,214,110," + (0.95 * fl) + ")";
+    ctx.lineWidth = 4.5;
+    ctx.setLineDash([30, 22]);
+    ctx.lineDashOffset = reduced ? 0 : -t * 110;
     ctx.stroke();
     ctx.restore();
 
-    // embers
+    // --- smoke column (volumetric, lava-lit at the base) ---
     if (!reduced) {
-      const want = Math.floor(state.intensity * 60);
-      while (embers.length < want) spawnEmber();
+      const want = Math.floor(10 + inten * 26);
+      if (smoke.length < want && prng() < 0.6) spawnSmoke();
+      ctx.save();
+      for (let i = smoke.length - 1; i >= 0; i--) {
+        const p = smoke[i];
+        p.life += dt;
+        if (p.life >= p.max) { smoke.splice(i, 1); continue; }
+        p.vy *= 1 - 0.12 * dt;
+        p.x += (p.vx + Math.sin(t * 1.7 + p.life * 2) * 14) * dt;
+        p.y += p.vy * dt;
+        const f = p.life / p.max;
+        const size = p.s + p.grow * p.life;
+        const warm = f < 0.38;
+        const spr = warm ? smokeWarm[p.sprite % 2] : smokeCool[(p.sprite + 1) % 3];
+        ctx.globalAlpha = Math.sin(f * Math.PI) * (0.34 + 0.3 * inten) * (0.35 + 0.65 * (1 - nightF * 0.4));
+        const dw = size, dh = size * 0.8;
+        ctx.drawImage(spr, p.x - dw / 2, p.y - dh / 2, dw, dh);
+      }
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    } else {
+      // static plume for reduced motion
+      for (let i = 0; i < 8; i++) {
+        const f = i / 8;
+        const size = 60 + f * 110;
+        ctx.globalAlpha = Math.sin(f * Math.PI) * 0.3;
+        ctx.drawImage(f < 0.4 ? smokeWarm[0] : smokeCool[0],
+          CRATER.x + f * 90 - size / 2, CRATER.y - 20 - f * 260 - size * 0.4, size, size * 0.8);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // --- lava bombs at high intensity ---
+    if (!reduced && inten > 0.55) {
+      bombTimer -= dt;
+      if (bombTimer <= 0) {
+        bombTimer = 0.9 + prng() * 1.6;
+        bombs.push({
+          x: CRATER.x + (prng() - 0.5) * 40, y: CRATER.y,
+          vx: (prng() - 0.5) * 300, vy: -(320 + prng() * 320),
+          life: 2.4, s: 6 + prng() * 7,
+        });
+      }
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      for (let i = bombs.length - 1; i >= 0; i--) {
+        const b = bombs[i];
+        b.life -= dt;
+        b.vy += 520 * dt;
+        b.x += b.vx * dt;
+        b.y += b.vy * dt;
+        if (b.life <= 0 || b.y > 700) {
+          for (let k = 0; k < 6; k++) spawnEmber(b.x, Math.min(b.y, 690), 60, 160);
+          bombs.splice(i, 1);
+          continue;
+        }
+        ctx.globalAlpha = clamp(b.life, 0, 1);
+        const s = b.s * 3;
+        ctx.drawImage(emberSprite, b.x - s / 2, b.y - s / 2, s, s);
+      }
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    }
+
+    // --- embers: additive glow sprites with trails ---
+    if (!reduced) {
+      const want = Math.floor(inten * 70);
+      while (embers.length < want && prng() < 0.5) spawnEmber(CRATER.x, CRATER.y - 6, 90, 190);
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
       for (let i = embers.length - 1; i >= 0; i--) {
         const e = embers[i];
-        e.x += e.vx * dt; e.y += e.vy * dt; e.vy -= 20 * dt; e.life -= e.decay * dt;
-        if (e.life <= 0 || e.y < 40) { embers.splice(i, 1); continue; }
-        const s = worldToScreen(e.x, e.y, state.cam, W, H);
-        ctx.globalAlpha = clamp(e.life, 0, 1);
-        ctx.fillStyle = e.life > 0.5 ? "#ffd23f" : "#ff5a1f";
+        e.px = e.x; e.py = e.y;
+        e.x += e.vx * dt + Math.sin(t * 3 + e.py * 0.05) * 12 * dt;
+        e.y += e.vy * dt;
+        e.vy -= 26 * dt;
+        e.life -= e.decay * dt;
+        if (e.life <= 0 || e.y < 30) { embers.splice(i, 1); continue; }
+        const a = clamp(e.life, 0, 1);
+        // trail
+        ctx.globalAlpha = a * 0.35;
+        ctx.strokeStyle = e.life > 0.5 ? "#ffd23f" : "#ff7a1f";
+        ctx.lineWidth = e.s * 0.28;
         ctx.beginPath();
-        ctx.arc(s.x, s.y, e.r * state.cam.z, 0, 6.29);
+        ctx.moveTo(e.px, e.py);
+        ctx.lineTo(e.x, e.y);
+        ctx.stroke();
+        // head glow
+        ctx.globalAlpha = a;
+        const s = e.s * (0.7 + 0.6 * e.life);
+        ctx.drawImage(emberSprite, e.x - s / 2, e.y - s / 2, s, s);
+      }
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    }
+
+    // --- foreground: textured rock shelf with glowing cracks ---
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(CRATER.x - 900, 718, 1800, 200);
+    ctx.clip();
+    for (let ty = 700; ty < 940; ty += 256) {
+      for (let tx = CRATER.x - 900; tx < CRATER.x + 900; tx += 256) {
+        ctx.drawImage(rockTile, tx, ty, 256, 256);
+      }
+    }
+    const fgShade = ctx.createLinearGradient(0, 718, 0, 920);
+    fgShade.addColorStop(0, "rgba(0,0,0,0.55)");
+    fgShade.addColorStop(1, "rgba(0,0,0,0.82)");
+    ctx.fillStyle = fgShade;
+    ctx.fillRect(CRATER.x - 900, 718, 1800, 202);
+    // cracks glow brighter near the cone, flickering with the eruption
+    ctx.save();
+    ctx.strokeStyle = "rgba(255,96,31,0.9)";
+    ctx.lineWidth = 2.2;
+    ctx.shadowColor = "#ff5a1f";
+    ctx.shadowBlur = 12;
+    for (const c of CRACKS) {
+      ctx.beginPath();
+      c.forEach(([px, py], i) => {
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      });
+      const nearCone = clamp(1 - Math.abs(c[0][0] - CRATER.x) / 900, 0.15, 1);
+      ctx.globalAlpha = (0.3 + 0.7 * fl * glowA) * nearCone * (0.4 + 0.6 * (1 - dark * 0.5));
+      ctx.stroke();
+    }
+    ctx.restore();
+    ctx.restore();
+    ctx.globalAlpha = 1;
+
+    // ================= back to screen space =================
+    screenTransform();
+
+    // --- fine ash fall across the foreground ---
+    if (!reduced) {
+      ctx.fillStyle = "#9a8f88";
+      for (const a of ashFall) {
+        a.y += a.vy * dt;
+        if (a.y > 1.02) { a.y = -0.02; a.x = prng(); }
+        const sx = a.x * W + Math.sin(t * 1.3 + a.sway) * 14;
+        const sy = a.y * H;
+        ctx.globalAlpha = 0.28;
+        ctx.beginPath();
+        ctx.arc(sx, sy, a.r, 0, 6.29);
         ctx.fill();
       }
       ctx.globalAlpha = 1;
     }
 
-    // foreground rock with glowing cracks
-    ctx.fillStyle = mixHex("#171112", "#070505", dark);
-    ctx.fillRect(0, wy2sy(720), W, H - wy2sy(720) + 2);
-    ctx.save();
-    ctx.strokeStyle = "rgba(255,90,31,0.85)";
-    ctx.lineWidth = 2.5;
-    ctx.shadowColor = "#ff5a1f";
-    ctx.shadowBlur = 10;
-    for (const c of CRACKS) {
-      ctx.beginPath();
-      c.forEach(([px, py], i) => {
-        const s = worldToScreen(px, py, state.cam, W, H);
-        if (i === 0) ctx.moveTo(s.x, s.y); else ctx.lineTo(s.x, s.y);
-      });
-      ctx.globalAlpha = 0.35 + 0.65 * (1 - dark);
-      ctx.stroke();
-    }
-    ctx.restore();
-    ctx.globalAlpha = 1;
-
-    // hotspots
-    for (const h of HOTSPOTS) {
+    // --- hotspots: expanding halo affordances ---
+    HOTSPOTS.forEach((h, idx) => {
       const s = worldToScreen(h.x, h.y, state.cam, W, H);
       const sel = state.selected && state.selected.id === h.id;
-      const pr = reduced ? 12 : 10 + 4 * Math.sin(state.t * 4);
-      ctx.beginPath();
-      ctx.arc(s.x, s.y, (sel ? 16 : pr) * state.cam.z * 0.9 + 4, 0, 6.29);
-      ctx.strokeStyle = ACCENT;
-      ctx.globalAlpha = sel ? 1 : 0.75;
-      ctx.lineWidth = sel ? 3 : 2;
-      ctx.stroke();
+      if (!reduced) {
+        for (let r = 0; r < 2; r++) {
+          const ph = (t * 0.55 + idx * 0.22 + r * 0.5) % 1;
+          const rr = (10 + ph * 30) * cz * 0.9 + 4;
+          ctx.globalAlpha = (1 - ph) * (sel ? 0.85 : 0.5);
+          ctx.strokeStyle = ACCENT;
+          ctx.lineWidth = sel ? 2.5 : 1.6;
+          ctx.beginPath();
+          ctx.arc(s.x, s.y, rr, 0, 6.29);
+          ctx.stroke();
+        }
+      } else {
+        ctx.globalAlpha = 0.7;
+        ctx.strokeStyle = ACCENT;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, 16 * cz * 0.9 + 4, 0, 6.29);
+        ctx.stroke();
+      }
       ctx.globalAlpha = 1;
+      ctx.strokeStyle = sel ? "#fff" : ACCENT;
+      ctx.lineWidth = sel ? 3 : 2;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, (sel ? 15 : 11) * cz * 0.9 + 4, 0, 6.29);
+      ctx.stroke();
       ctx.fillStyle = sel ? "#fff" : ACCENT;
       ctx.beginPath();
       ctx.arc(s.x, s.y, 4.5, 0, 6.29);
       ctx.fill();
-    }
+    });
+    ctx.globalAlpha = 1;
 
-    // vignette
+    // --- vignette + photographic grain ---
     const vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.42, W / 2, H / 2, Math.max(W, H) * 0.75);
     vg.addColorStop(0, "rgba(0,0,0,0)");
-    vg.addColorStop(1, "rgba(0,0,0,0.45)");
+    vg.addColorStop(1, "rgba(0,0,0,0.5)");
     ctx.fillStyle = vg;
     ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = 0.055;
+    const gox = reduced ? 0 : (t * 13) % 128;
+    const goy = reduced ? 0 : (t * 7) % 128;
+    for (let gy = -128; gy < H + 128; gy += 128) {
+      for (let gx = -128; gx < W + 128; gx += 128) {
+        ctx.drawImage(grainTile, gx + gox - 128, gy + goy - 128);
+      }
+    }
+    ctx.globalAlpha = 1;
   }
 
   // ---- interaction ----
