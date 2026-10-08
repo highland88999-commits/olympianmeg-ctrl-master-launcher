@@ -1209,20 +1209,26 @@ export function createEngine(canvas, hooks) {
       }
     }, { passive: true });
     window.addEventListener('touchmove', (e) => {
+      // Block page scroll while a game touch (stick or look) is active —
+      // otherwise the drag scrolls the page instead of moving the player.
+      let gameTouch = false;
       for (const t of e.changedTouches) {
         if (t.identifier === sid) {
+          gameTouch = true;
           let dx = t.clientX - sx, dy = t.clientY - sy;
           const m = Math.hypot(dx, dy), max = 46;
           if (m > max) { dx *= max / m; dy *= max / m; }
           if (nub) { nub.style.left = (38 + dx) + 'px'; nub.style.top = (38 + dy) + 'px'; }
           E.keys._tx = dx / max; E.keys._ty = dy / max;
         } else if (t.identifier === lookId) {
+          gameTouch = true;
           E.player.yaw -= (t.clientX - lx) * 0.006;
           E.player.pitch = Math.max(-1.35, Math.min(1.35, E.player.pitch - (t.clientY - ly) * 0.006));
           lx = t.clientX; ly = t.clientY;
         }
       }
-    }, { passive: true });
+      if (gameTouch) e.preventDefault();
+    }, { passive: false });
     window.addEventListener('touchend', (e) => {
       for (const t of e.changedTouches) {
         if (t.identifier === sid) {

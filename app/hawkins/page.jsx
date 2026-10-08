@@ -405,6 +405,7 @@ const styles = {
   stick: {
     position: 'fixed', left: 30, bottom: 110, width: 120, height: 120,
     border: '2px solid rgba(255,60,60,0.4)', borderRadius: '50%', zIndex: 60, pointerEvents: 'auto',
+    touchAction: 'none',
   },
   nub: {
     position: 'absolute', left: 38, top: 38, width: 44, height: 44,
@@ -415,11 +416,13 @@ const styles = {
     border: '2px solid rgba(255,60,60,0.6)', borderRadius: '50%', zIndex: 60,
     color: '#ff4444', fontSize: 13, display: 'flex', alignItems: 'center',
     justifyContent: 'center', background: 'rgba(255,0,0,0.08)', pointerEvents: 'auto',
+    touchAction: 'none',
   },
   actbtn: {
     position: 'fixed', right: 150, bottom: 120, width: 76, height: 76,
     border: '2px solid rgba(100,255,150,0.6)', borderRadius: '50%', zIndex: 60,
     color: '#66ff99', fontSize: 11, display: 'flex', alignItems: 'center',
     justifyContent: 'center', background: 'rgba(0,255,100,0.06)', pointerEvents: 'auto',
+    touchAction: 'none',
   },
 };
