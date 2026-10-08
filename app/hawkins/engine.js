@@ -443,16 +443,6 @@ export function createEngine(canvas, hooks) {
       label: E.dimension === 'upside' ? 'PORTAL — BACK TO HAWKINS' : 'PORTAL — THE UPSIDE DOWN',
     };
   };
-    const E = engine;
-    E.dimension = E.dimension === 'hawkins' ? 'upside' : 'hawkins';
-    E.dimTransition = 1.1;
-    E.hooks.onDimFlash();
-    E.hooks.onDimension(E.dimension, E.convergence);
-    E.shake(0.5);
-    E.hooks.feed(E.dimension === 'upside' ? 'you crossed over…' : 'back in hawkins');
-    // Vecna waits beyond the portal — he only wakes when you cross over
-    if (E.vecnaRevealed && !E.vecnaActive && E.dimension === 'upside') E.activateVecna();
-  };
 
   engine.applyDimension = function (dt) {
     const E = engine;
