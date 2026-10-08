@@ -88,7 +88,20 @@ export default function HawkinsPage() {
         setTimeout(() => setFinishHim(false), 2600);
       },
       onCaptureProgress: (p, t) => setHud((h) => ({ ...h, captureProgress: p, finishTimer: t })),
-      onFatality: () => setFatality(true),
+      onFatality: () => {
+        setFatality(true);
+        // Report the Vecna kill for achievements (fire-and-forget; guests
+        // get a 401 which we silently ignore).
+        fetch('/api/hawkins/vecna-kill', { method: 'POST', credentials: 'include' })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => {
+            if (d && d.ok && d.milestone) {
+              showBanner(`🏆 ${d.milestone.title} — #${d.killNumber} VECNA SEALED`, 6000);
+              showChime(`A unique video prompt is yours — keep it or sell it. Check your profile.`);
+            }
+          })
+          .catch(() => {});
+      },
       onWin: (kills) => {
         setFatality(false);
         setPhase('won');
