@@ -25,14 +25,17 @@ const pidToIndex = (pid) => {
   return m ? parseInt(m[1], 10) : -1;
 };
 
-export default function PumpkinHarvest({ built, onToast }) {
+export default function PumpkinHarvest({ built, onToast, onTrophy }) {
   const { gl, camera, scene } = useThree();
   const harvestedRef = useRef(new Set());
   const motesRef = useRef([]); // { mesh, age }
   const toastRef = useRef(onToast);
   toastRef.current = onToast;
+  const trophyRef = useRef(onTrophy);
+  trophyRef.current = onTrophy;
 
   const say = (msg) => { try { toastRef.current?.(msg); } catch { /* noop */ } };
+  const celebrate = () => { try { trophyRef.current?.(); } catch { /* noop */ } };
 
   // Load this season's harvested set and dim those pumpkins.
   useEffect(() => {
@@ -51,6 +54,9 @@ export default function PumpkinHarvest({ built, onToast }) {
           const idx = pidToIndex(pid);
           if (idx >= 0) built.setHarvested(idx);
         }
+        // Backfill edge: the server recorded the trophy for a pre-existing
+        // 12/12 — celebrate once on this load.
+        if (j.trophyEarned) celebrate();
       } catch { /* soft fail: pumpkins stay harvestable-looking */ }
     })();
     return () => { cancelled = true; };
@@ -108,6 +114,7 @@ export default function PumpkinHarvest({ built, onToast }) {
           if (idx >= 0) built.setHarvested(idx);
           spawnMote(hits[0].point);
           say(`+${j.piece ?? ECONOMY.PUMPKIN_GOLD_PER_PIECE} gold harvested ✨`);
+          if (j.trophyEarned) celebrate(); // all 12 this season 🏆
         } else {
           say(j.error || 'Could not harvest');
         }

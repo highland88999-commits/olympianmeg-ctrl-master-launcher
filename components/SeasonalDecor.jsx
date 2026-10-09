@@ -12,7 +12,7 @@
 // never clutters it. On dates with no season (and no tree) this renders
 // nothing at all — the hub stays clean.
 
-import { useMemo, useEffect, useState } from 'react';
+import { useMemo, useEffect, useState, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { getSeason, treeVisible, seasonBadge, starwarsDay } from '@/lib/seasonal/seasons';
@@ -75,6 +75,122 @@ export function SeasonToast() {
   );
 }
 
+// Trophy bus: PumpkinHarvest (inside the Canvas) publishes, TrophyOverlay
+// (DOM, mounted next to SeasonToast in HomeScene) renders the celebration.
+// Fires at most once per user per season — the server enforces that.
+const trophyListeners = new Set();
+export function announceTrophy() {
+  for (const fn of trophyListeners) {
+    try { fn(); } catch { /* noop */ }
+  }
+}
+
+const TROPHY_VIDEO = '/videos/spooky-coin-collector.mp4';
+
+// Spooky Coin Collector celebration. A banner, never a blocking modal:
+// the backdrop is pointer-transparent (taps pass through to the hub),
+// the card is dismissible with a clear close button, and it auto-dismisses
+// shortly after the video finishes. Mobile-first, Safari-safe.
+export function TrophyOverlay() {
+  const [show, setShow] = useState(false);
+  const [nonce, setNonce] = useState(0);
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    const fn = () => { setShow(true); setNonce((n) => n + 1); };
+    trophyListeners.add(fn);
+    return () => { trophyListeners.delete(fn); };
+  }, []);
+
+  useEffect(() => () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+  }, []);
+
+  const dismiss = () => {
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+    setShow(false);
+  };
+
+  if (!show) return null;
+  return (
+    <div
+      key={nonce}
+      role="status"
+      aria-live="polite"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 70,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding:
+          'calc(env(safe-area-inset-top, 0px) + 16px) 16px calc(env(safe-area-inset-bottom, 0px) + 16px)',
+        pointerEvents: 'none', // banner, not a modal: hub stays interactive
+      }}
+    >
+      <div
+        style={{
+          pointerEvents: 'auto',
+          position: 'relative',
+          width: '100%',
+          maxWidth: 'min(92vw, 400px)',
+          borderRadius: 18,
+          padding: '14px 14px 18px',
+          textAlign: 'center',
+          color: '#fff7e6',
+          background: 'rgba(16, 8, 28, 0.92)',
+          border: '2px solid rgba(255, 190, 80, 0.65)',
+          boxShadow: '0 0 42px rgba(255, 170, 60, 0.35), 0 18px 60px rgba(0,0,0,0.55)',
+          backdropFilter: 'blur(10px)',
+          WebkitBackdropFilter: 'blur(10px)',
+        }}
+      >
+        <button
+          onClick={dismiss}
+          aria-label="Close celebration"
+          style={{
+            position: 'absolute',
+            top: 6,
+            right: 6,
+            width: 40,
+            height: 40,
+            borderRadius: '50%',
+            border: '1px solid rgba(255,255,255,0.25)',
+            background: 'rgba(0,0,0,0.45)',
+            color: '#fff',
+            fontSize: 18,
+            lineHeight: 1,
+            cursor: 'pointer',
+          }}
+        >
+          ✕
+        </button>
+        <video
+          src={TROPHY_VIDEO}
+          autoPlay
+          muted
+          loop
+          playsInline
+          aria-hidden="true"
+          onLoadedMetadata={(e) => {
+            const ms = (e.currentTarget.duration || 10) * 1000;
+            if (timerRef.current) clearTimeout(timerRef.current);
+            timerRef.current = setTimeout(dismiss, ms + 800);
+          }}
+          style={{ width: '100%', borderRadius: 12, display: 'block', background: '#000' }}
+        />
+        <div style={{ marginTop: 12, fontSize: 22, fontWeight: 800, letterSpacing: '0.02em', color: '#ffd75e' }}>
+          🏆 Spooky Coin Collector
+        </div>
+        <div style={{ marginTop: 6, fontSize: 14, color: 'rgba(255,247,230,0.85)' }}>
+          You harvested every pumpkin — a rare achievement
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Tree placement: inside the satellite constellation, front-and-center of
 // the spawn view (camera at ORBIT_CENTER looks -Z), slightly below eye
 // level — "right in front of the user but out a little bit in the middle
@@ -131,7 +247,7 @@ export default function SeasonalDecor() {
     <>
       <primitive object={built.group} />
       {season === 'halloween' && built.proxies && (
-        <PumpkinHarvest built={built} onToast={seasonToast} />
+        <PumpkinHarvest built={built} onToast={seasonToast} onTrophy={announceTrophy} />
       )}
     </>
   );

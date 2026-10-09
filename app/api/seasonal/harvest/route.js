@@ -26,6 +26,13 @@ import { apiGuard } from '@/lib/api-guard';
 
 const PUMPKIN_IDS = new Set(Array.from({ length: 12 }, (_, i) => `pumpkin-${i}`));
 
+// Rare prestige trophy: awarded (server-side only) when a user has harvested
+// every pumpkin in a season. Recorded as a pseudo-row in the same table so
+// the PK (user_id, season, pumpkin_id) enforces once-per-season with no new
+// migration. NO gold attached — pure prestige. Clients can never request it:
+// the PUMPKIN_IDS whitelist above stays limited to pumpkin-0..11.
+const TROPHY_ID = 'trophy:spooky-coin-collector';
+
 const seasonKey = (d = new Date()) => `halloween-${d.getUTCFullYear()}`;
 // Pumpkins only exist while the Halloween decorations are up (Oct, UTC).
 const inSeason = (d = new Date()) => d.getUTCMonth() === 9;
@@ -86,12 +93,38 @@ export const POST = apiGuard(async function POST(req) {
     // (If the table is missing we still return ok — the idempotency key
     // alone prevents double-credit until the migration runs.)
 
+    // Spooky Coin Collector: all 12 pumpkins harvested this season?
+    // Insert (not upsert) the trophy pseudo-row — 23505 means a racing
+    // request won, so only the actual inserter reports trophyEarned.
+    let trophyEarned = false;
+    try {
+      const { data: rows } = await db
+        .from('seasonal_harvests')
+        .select('pumpkin_id')
+        .eq('user_id', auth.user.id)
+        .eq('season', season);
+      const realCount = new Set(
+        (rows || []).map((r) => r.pumpkin_id).filter((id) => PUMPKIN_IDS.has(id))
+      ).size;
+      if (realCount >= PUMPKIN_IDS.size) {
+        const { error: trophyErr } = await db.from('seasonal_harvests').insert({
+          user_id: auth.user.id,
+          season,
+          pumpkin_id: TROPHY_ID,
+        });
+        trophyEarned = !trophyErr;
+      }
+    } catch {
+      // Prestige-only: a trophy failure must never break a harvest.
+    }
+
     const gold = await getBalance(auth.user.id, db).catch(() => res.balanceAfter);
     return NextResponse.json({
       ok: true,
       already: !!res.wasDuplicate,
       gold,
       piece: ECONOMY.PUMPKIN_GOLD_PER_PIECE,
+      ...(trophyEarned ? { trophyEarned: true } : {}),
     });
   } catch (err) {
     if (err instanceof CapReachedError) {
