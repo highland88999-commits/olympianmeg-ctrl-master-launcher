@@ -334,5 +334,19 @@
   "sat.renewal-plan.title": "Renewal Plan",
   "sat.renewal-plan.subtitle": "Olympus renewal timeline",
   "sat.languages.title": "Languages",
-  "sat.languages.subtitle": "Every language on Earth, in its own words."
+  "sat.languages.subtitle": "Every language on Earth, in its own words.",
+  "season.halloween": "Halloween",
+  "season.remembrance": "Remembrance Day",
+  "season.thanksgiving": "Thanksgiving",
+  "season.christmas": "Christmas",
+  "season.newyear": "New Year",
+  "season.valentines": "Valentine's Day",
+  "season.stpatricks": "St. Patrick's Day",
+  "season.easter": "Easter",
+  "season.holi": "Holi",
+  "season.lunarnewyear": "Lunar New Year",
+  "season.canadaday": "Canada Day",
+  "season.independence": "Independence Day",
+  "season.diwali": "Diwali",
+  "season.starwars": "Star Wars Days"
 }

@@ -24,6 +24,7 @@ import { FREE_FLY_SPEED, BIKE_TUNING } from '../lib/hub-layout';
 import { registerCollider, unregisterCollider, resolveFlightCollision } from '../lib/hub-collision';
 import { createBikeFlightState, stepBikeFlight, rotateOffsetByYaw, bikeForward } from '../lib/bike-flight';
 import { dismountPosition } from '../lib/rider-state';
+import SeasonalDecor, { SeasonBadge } from './SeasonalDecor';
 import { applyCoverFit } from '../lib/texture-fit';
 import { GOD_TOWER_SPOTS } from '../lib/home-positions';
 import { panelsForTower } from '../lib/tower-panels';
@@ -634,6 +635,10 @@ export default function HomeScene({
         <fogExp2 attach="fog" args={['#050505', 0.0016]} />
         <Stars radius={100} depth={50} count={7000} factor={4} saturation={0} fade speed={1} />
 
+        {/* Seasonal decoration cycle: date-driven holiday decor + Merlin's
+            Christmas tree (Nov 22 - Twelfth Night). Renders nothing off-season. */}
+        <SeasonalDecor />
+
         <ambientLight intensity={0.4} color="#222233" />
 
         <Suspense fallback={null}>
@@ -693,6 +698,7 @@ export default function HomeScene({
           <Bloom luminanceThreshold={0.4} luminanceSmoothing={0.2} intensity={1.5} />
         </EffectComposer>
       </Canvas>
+      <SeasonBadge />
     </div>
   );
 }
