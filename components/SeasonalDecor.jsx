@@ -206,11 +206,17 @@ export default function SeasonalDecor() {
   const built = useMemo(() => {
     const group = new THREE.Group();
     const updates = [];
+    const extras = {};
     if (season && BUILDERS[season]) {
       const extra = season === 'starwars' ? starwarsDay(now) : undefined;
       const made = BUILDERS[season](THREE, extra);
       group.add(made.group);
       if (made.update) updates.push(made.update);
+      // Pass through everything the builder returns (proxies, setHarvested,
+      // pumpkinSpots, ...) — PumpkinHarvest mounts on built.proxies.
+      for (const k of Object.keys(made)) {
+        if (k !== 'group' && k !== 'update') extras[k] = made[k];
+      }
     }
     if (showTree) {
       const tree = buildChristmasTree(THREE);
@@ -227,7 +233,7 @@ export default function SeasonalDecor() {
       plat.position.set(TREE_POS[0], TREE_POS[1] - 0.05, TREE_POS[2]);
       group.add(plat);
     }
-    return { group, updates };
+    return { group, updates, ...extras };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
