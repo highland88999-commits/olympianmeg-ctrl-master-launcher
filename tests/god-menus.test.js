@@ -75,6 +75,13 @@ t('UTILITIES carries notepad, calculator and calendar',
   utilitiesMenu.satellites.includes('calendar'));
 t('godMenuFor routes the calendar to UTILITIES', godMenuFor('calendar')?.god === 'UTILITIES');
 
+// --- CLOUD PHONE: server-side app instances (2026-10-09, HEPHAESTUS) ---------
+const hephaestusMenu = GOD_MENUS.find((m) => m.god === 'HEPHAESTUS');
+t('HEPHAESTUS carries cloud-phone', hephaestusMenu && hephaestusMenu.satellites.includes('cloud-phone'));
+t('godMenuFor routes cloud-phone to HEPHAESTUS', godMenuFor('cloud-phone')?.god === 'HEPHAESTUS');
+t('satellites.ts registers cloud-phone at /cloud-phone',
+  satKeys.includes('cloud-phone') && satSrc.includes('route: "/cloud-phone"'));
+
 // --- helpers ----------------------------------------------------------------
 t('godMenuFor finds the right menu', godMenuFor('chess')?.god === 'ARES');
 t('godMenuFor finds plutus menu', godMenuFor('liquid-gold')?.god === 'PLUTUS');
