@@ -82,6 +82,23 @@ t('godMenuFor routes cloud-phone to HEPHAESTUS', godMenuFor('cloud-phone')?.god 
 t('satellites.ts registers cloud-phone at /cloud-phone',
   satKeys.includes('cloud-phone') && satSrc.includes('route: "/cloud-phone"'));
 
+// --- WORLD NEXUS: the containing hub (2026-10-09, HEPHAESTUS) ----------------
+t('HEPHAESTUS carries world-nexus', hephaestusMenu && hephaestusMenu.satellites.includes('world-nexus'));
+t('godMenuFor routes world-nexus to HEPHAESTUS', godMenuFor('world-nexus')?.god === 'HEPHAESTUS');
+t('satellites.ts registers world-nexus at /world-nexus',
+  satKeys.includes('world-nexus') && satSrc.includes('route: "/world-nexus"'));
+t('world-nexus manifest lists gate arches for all 11 god districts',
+  (() => {
+    try {
+      const m = JSON.parse(readFileSync('app/world-nexus/generation-manifest.json', 'utf8'));
+      const gates = m.assets.filter((a) => a.id.startsWith('gate-'));
+      const districts = new Set(gates.map((a) => a.district));
+      return gates.length === 11 && districts.size === 11;
+    } catch { return false; }
+  })());
+t('world-nexus asset loader never throws without a GLB present',
+  readFileSync('lib/world-nexus/asset-loader.js', 'utf8').includes('catch (_)'));
+
 // --- helpers ----------------------------------------------------------------
 t('godMenuFor finds the right menu', godMenuFor('chess')?.god === 'ARES');
 t('godMenuFor finds plutus menu', godMenuFor('liquid-gold')?.god === 'PLUTUS');

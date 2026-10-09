@@ -344,5 +344,7 @@
   "sat.renewal-plan.title": "แผนการฟื้นฟู",
   "sat.renewal-plan.subtitle": "ลำดับเวลาการฟื้นฟูโอลิมปัส",
   "sat.languages.title": "ภาษา",
-  "sat.languages.subtitle": "ทุกภาษาทั่วโลก ในแบบฉบับของตัวเอง"
+  "sat.languages.subtitle": "ทุกภาษาทั่วโลก ในแบบฉบับของตัวเอง",
+  "sat.world-nexus.title": "World Nexus",
+  "sat.world-nexus.subtitle": "One hub. Every world. Walk them all."
 }
