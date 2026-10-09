@@ -24,7 +24,7 @@ import { FREE_FLY_SPEED, BIKE_TUNING } from '../lib/hub-layout';
 import { registerCollider, unregisterCollider, resolveFlightCollision } from '../lib/hub-collision';
 import { createBikeFlightState, stepBikeFlight, rotateOffsetByYaw, bikeForward } from '../lib/bike-flight';
 import { dismountPosition } from '../lib/rider-state';
-import SeasonalDecor, { SeasonBadge } from './SeasonalDecor';
+import SeasonalDecor, { SeasonBadge, SeasonToast } from './SeasonalDecor';
 import { applyCoverFit } from '../lib/texture-fit';
 import { GOD_TOWER_SPOTS } from '../lib/home-positions';
 import { panelsForTower } from '../lib/tower-panels';
@@ -699,6 +699,7 @@ export default function HomeScene({
         </EffectComposer>
       </Canvas>
       <SeasonBadge />
+      <SeasonToast />
     </div>
   );
 }

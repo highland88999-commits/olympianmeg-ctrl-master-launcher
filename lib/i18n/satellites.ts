@@ -112,6 +112,7 @@ export const SATELLITES: SatelliteEntry[] = [
   { key: "mega-city", route: "/mega-city", pos: "APHRODITE", section: "OBSERVATORY", constellation: "ARGUS" },
   { key: "mordor-smelting", route: "/mordor-smelting", pos: "HEPHAESTUS", section: "OBSERVATORY", constellation: "ARGUS" },
   { key: "mount-doom", route: "/mount-doom", pos: "HEPHAESTUS", section: "OBSERVATORY", constellation: "ARGUS" },
+  { key: "new-earth", route: "/new-earth", pos: "HEPHAESTUS", section: "OBSERVATORY", constellation: "ARGUS" },
   { key: "mount-olympus", route: "/mount-olympus", pos: "ARTEMIS", section: "OBSERVATORY", constellation: "ARGUS" },
   { key: "olympus-aetheris", route: "/olympus-aetheris", pos: "ARTEMIS", section: "OBSERVATORY", constellation: "ARGUS" },
   { key: "olympus-eclipse", route: "/olympus-eclipse", pos: "ARTEMIS", section: "OBSERVATORY", constellation: "ARGUS" },

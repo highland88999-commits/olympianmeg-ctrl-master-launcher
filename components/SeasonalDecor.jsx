@@ -12,7 +12,7 @@
 // never clutters it. On dates with no season (and no tree) this renders
 // nothing at all — the hub stays clean.
 
-import { useMemo, useEffect } from 'react';
+import { useMemo, useEffect, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { getSeason, treeVisible, seasonBadge, starwarsDay } from '@/lib/seasonal/seasons';
@@ -20,6 +20,60 @@ import { buildChristmasTree } from '@/lib/seasonal/tree';
 import { BUILDERS, disposeGroup } from '@/lib/seasonal/decorations';
 import { ORBIT_CENTER } from '@/lib/god-orbits';
 import { useI18n } from '@/lib/i18n';
+import PumpkinHarvest from '@/components/PumpkinHarvest';
+
+// Tiny toast bus: PumpkinHarvest (inside the Canvas) publishes, SeasonToast
+// (DOM, mounted next to SeasonBadge in HomeScene) renders. Off-season there
+// are no publishers, so nothing ever shows.
+const toastListeners = new Set();
+export function seasonToast(msg) {
+  for (const fn of toastListeners) {
+    try { fn(msg); } catch { /* noop */ }
+  }
+}
+
+export function SeasonToast() {
+  const [msg, setMsg] = useState(null);
+  const [nonce, setNonce] = useState(0);
+  useEffect(() => {
+    const fn = (m) => { setMsg(m); setNonce((n) => n + 1); };
+    toastListeners.add(fn);
+    return () => { toastListeners.delete(fn); };
+  }, []);
+  useEffect(() => {
+    if (msg == null) return;
+    const t = setTimeout(() => setMsg(null), 2600);
+    return () => clearTimeout(t);
+  }, [msg, nonce]);
+  if (msg == null) return null;
+  return (
+    <div
+      key={nonce}
+      aria-live="polite"
+      style={{
+        position: 'fixed',
+        left: '50%',
+        bottom: 'calc(env(safe-area-inset-bottom, 0px) + 148px)',
+        transform: 'translateX(-50%)',
+        zIndex: 40,
+        pointerEvents: 'none',
+        padding: '8px 16px',
+        borderRadius: 999,
+        fontSize: 14,
+        fontWeight: 600,
+        whiteSpace: 'nowrap',
+        color: '#fff8e7',
+        background: 'rgba(20,14,4,0.72)',
+        border: '1px solid rgba(255,215,94,0.45)',
+        boxShadow: '0 0 18px rgba(255,180,60,0.35)',
+        backdropFilter: 'blur(8px)',
+        WebkitBackdropFilter: 'blur(8px)',
+      }}
+    >
+      {msg}
+    </div>
+  );
+}
 
 // Tree placement: inside the satellite constellation, front-and-center of
 // the spawn view (camera at ORBIT_CENTER looks -Z), slightly below eye
@@ -73,7 +127,14 @@ export default function SeasonalDecor() {
   });
 
   if (!season && !showTree) return null;
-  return <primitive object={built.group} />;
+  return (
+    <>
+      <primitive object={built.group} />
+      {season === 'halloween' && built.proxies && (
+        <PumpkinHarvest built={built} onToast={seasonToast} />
+      )}
+    </>
+  );
 }
 
 // Small floating badge so users know why the hub changed its look.
