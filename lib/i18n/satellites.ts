@@ -173,6 +173,9 @@ export const SATELLITES: SatelliteEntry[] = [
   { key: "planet-tech", route: "/planet-tech", pos: "HEPHAESTUS", section: "TOOLS", constellation: "ARES" },
   // RENEWAL-PLAN (Olympus Meet The Gods renewal timeline) sits with ATHENA wisdom: THOTH/WISDOM.
   { key: "renewal-plan", route: "/renewal-plan", pos: "ATHENA", section: "WISDOM", constellation: "THOTH" },
+  // LANGUAGES (every language on Earth, in its own words) sits with the
+  // ATHENA wisdom row: THOTH/WISDOM.
+  { key: "languages", route: "/languages", pos: "ATHENA", section: "WISDOM", constellation: "THOTH" },
 ];
 
 export interface SectionDef { name: string; key: string; constellation: string; }

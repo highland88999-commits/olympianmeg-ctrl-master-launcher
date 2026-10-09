@@ -7,6 +7,31 @@ import fr from './locales/fr.json';
 import de from './locales/de.json';
 import pt from './locales/pt.json';
 import it from './locales/it.json';
+// Machine-translated (Gemini) — honest "AI" badge in the language picker.
+import zh from './locales/zh.json';
+import hi from './locales/hi.json';
+import ar from './locales/ar.json';
+import bn from './locales/bn.json';
+import ru from './locales/ru.json';
+import ur from './locales/ur.json';
+import id from './locales/id.json';
+import ja from './locales/ja.json';
+import ms from './locales/ms.json';
+import tr from './locales/tr.json';
+import ko from './locales/ko.json';
+import vi from './locales/vi.json';
+import ta from './locales/ta.json';
+import fa from './locales/fa.json';
+import pl from './locales/pl.json';
+import uk from './locales/uk.json';
+import nl from './locales/nl.json';
+import th from './locales/th.json';
+import sw from './locales/sw.json';
+import ha from './locales/ha.json';
+import yo from './locales/yo.json';
+import am from './locales/am.json';
+import ne from './locales/ne.json';
+import pa from './locales/pa.json';
 
 // ---------------------------------------------------------------------------
 // Nexus i18n — zero-dependency, zero-network translation layer.
@@ -19,6 +44,7 @@ export interface Language {
   code: string;
   native: string;   // name in its own language
   english: string;  // name in English
+  machine?: boolean; // true = AI machine-translated (honest badge in picker)
 }
 
 export const LANGUAGES: Language[] = [
@@ -29,10 +55,39 @@ export const LANGUAGES: Language[] = [
   { code: 'de', native: 'Deutsch', english: 'German' },
   { code: 'pt', native: 'Português', english: 'Portuguese' },
   { code: 'it', native: 'Italiano', english: 'Italian' },
+  // Machine-translated via Gemini — whole app translates, marked honestly.
+  { code: 'zh', native: '中文', english: 'Chinese', machine: true },
+  { code: 'hi', native: 'हिन्दी', english: 'Hindi', machine: true },
+  { code: 'ar', native: 'العربية', english: 'Arabic', machine: true },
+  { code: 'bn', native: 'বাংলা', english: 'Bengali', machine: true },
+  { code: 'ru', native: 'русский', english: 'Russian', machine: true },
+  { code: 'ur', native: 'اردو', english: 'Urdu', machine: true },
+  { code: 'id', native: 'Bahasa Indonesia', english: 'Indonesian', machine: true },
+  { code: 'ja', native: '日本語', english: 'Japanese', machine: true },
+  { code: 'ms', native: 'Bahasa Melayu', english: 'Malay', machine: true },
+  { code: 'tr', native: 'Türkçe', english: 'Turkish', machine: true },
+  { code: 'ko', native: '한국어', english: 'Korean', machine: true },
+  { code: 'vi', native: 'Tiếng Việt', english: 'Vietnamese', machine: true },
+  { code: 'ta', native: 'தமிழ்', english: 'Tamil', machine: true },
+  { code: 'fa', native: 'فارسی', english: 'Persian', machine: true },
+  { code: 'pl', native: 'polski', english: 'Polish', machine: true },
+  { code: 'uk', native: 'українська', english: 'Ukrainian', machine: true },
+  { code: 'nl', native: 'Nederlands', english: 'Dutch', machine: true },
+  { code: 'th', native: 'ไทย', english: 'Thai', machine: true },
+  { code: 'sw', native: 'Kiswahili', english: 'Swahili', machine: true },
+  { code: 'ha', native: 'Hausa', english: 'Hausa', machine: true },
+  { code: 'yo', native: 'Èdè Yorùbá', english: 'Yoruba', machine: true },
+  { code: 'am', native: 'አማርኛ', english: 'Amharic', machine: true },
+  { code: 'ne', native: 'नेपाली', english: 'Nepali', machine: true },
+  { code: 'pa', native: 'ਪੰਜਾਬੀ', english: 'Punjabi', machine: true },
 ];
 
 type Dict = Record<string, string>;
-const DICTS: Record<string, Dict> = { en, el, es, fr, de, pt, it };
+const DICTS: Record<string, Dict> = {
+  en, el, es, fr, de, pt, it,
+  zh, hi, ar, bn, ru, ur, id, ja, ms, tr, ko, vi,
+  ta, fa, pl, uk, nl, th, sw, ha, yo, am, ne, pa,
+};
 
 const STORAGE_KEY = 'nexus-language';
 const DEFAULT_LANG = 'en';
