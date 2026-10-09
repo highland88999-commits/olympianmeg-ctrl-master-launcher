@@ -162,6 +162,9 @@ export const SATELLITES: SatelliteEntry[] = [
   { key: "live-recordings", route: "/live-recordings", pos: "DIONYSUS", section: "GAMES", constellation: "ZEUS" },
   // SHADOW-REALM (Night Grid race mode) sits with the DIONYSUS games: ZEUS/GAMES.
   { key: "shadow-realm", route: "/shadow-realm", pos: "DIONYSUS", section: "GAMES", constellation: "ZEUS" },
+  // KOMBAT (Kombat Arena — 43-fighter 2.5D fighting game) sits with the
+  // DIONYSUS games: ZEUS/GAMES.
+  { key: "kombat", route: "/kombat", pos: "DIONYSUS", section: "GAMES", constellation: "ZEUS" },
   // GEOMETRY-ENGINE (3D geometry tool) sits with the HEPHAESTUS forge tools: ARES/TOOLS.
   { key: "geometry-engine", route: "/geometry-engine", pos: "HEPHAESTUS", section: "TOOLS", constellation: "ARES" },
   // PUBLISHER-STUDIO (publishing studio) sits with the HEPHAESTUS forge tools: ARES/TOOLS.
