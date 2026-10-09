@@ -65,6 +65,16 @@ t('merchant gold resolves to a real hex for the 3D ring',
   typeof GOD_HEX.gold === 'string' && /^#[0-9a-fA-F]{6}$/.test(GOD_HEX.gold));
 t('godMenuFor routes the store to HERMES', godMenuFor('store')?.god === 'HERMES');
 
+// --- UTILITIES: everyday tools (2026-10-09) ----------------------------------
+const utilitiesMenu = GOD_MENUS.find((m) => m.god === 'UTILITIES');
+t('UTILITIES is the Utilities category', utilitiesMenu && utilitiesMenu.category === 'Utilities');
+t('UTILITIES carries notepad, calculator and calendar',
+  utilitiesMenu &&
+  utilitiesMenu.satellites.includes('notepad') &&
+  utilitiesMenu.satellites.includes('calculator') &&
+  utilitiesMenu.satellites.includes('calendar'));
+t('godMenuFor routes the calendar to UTILITIES', godMenuFor('calendar')?.god === 'UTILITIES');
+
 // --- helpers ----------------------------------------------------------------
 t('godMenuFor finds the right menu', godMenuFor('chess')?.god === 'ARES');
 t('godMenuFor finds plutus menu', godMenuFor('liquid-gold')?.god === 'PLUTUS');
