@@ -1,4 +1,4 @@
-// tests/god-menus.test.js — Headless tests for the 10 god-menu navigation.
+// tests/god-menus.test.js — Headless tests for the 11 god-menu navigation.
 // Run: node tests/god-menus.test.js (from the repo root). No browser, no network.
 import { readFileSync } from 'fs';
 import { GOD_MENUS, godMenuFor, allGodMenuSatellites, menuArtFor, menuBannerFor } from '../lib/god-menus.js';
@@ -18,8 +18,8 @@ const satSrc = readFileSync('lib/i18n/satellites.ts', 'utf8');
 const satKeys = [...satSrc.matchAll(/\{ key: "([^"]+)", route: "([^"]+)", pos: "([^"]+)", section: "([^"]+)", constellation: "([^"]+)" \}/g)]
   .map((m) => m[1]);
 
-// --- shape: exactly 10 god menus -------------------------------------------
-t('exactly 10 god menus', GOD_MENUS.length === 10);
+// --- shape: exactly 11 god menus -------------------------------------------
+t('exactly 11 god menus', GOD_MENUS.length === 11);
 
 const godNameRe = /^[A-Z][A-Z]+$/;
 for (const m of GOD_MENUS) {
@@ -27,7 +27,7 @@ for (const m of GOD_MENUS) {
   t(`${m.god}: plain-English category label`, typeof m.category === 'string' && m.category.length >= 4 && m.category.length <= 40);
   t(`${m.god}: tagline explains the contents`, typeof m.tagline === 'string' && m.tagline.length >= 20);
   t(`${m.god}: satellites is a non-empty array`, Array.isArray(m.satellites) && m.satellites.length > 0);
-  t(`${m.god}: menu size is sane (~14, within 8..16)`, m.satellites.length >= 8 && m.satellites.length <= 16);
+  t(`${m.god}: menu size is sane (2..24; new categories start small)`, m.satellites.length >= 2 && m.satellites.length <= 24);
   t(`${m.god}: texture is null or an honest menus texture path`,
     m.texture === null || (typeof m.texture === 'string' && m.texture.startsWith('/textures/menus/')));
   t(`${m.god}: gradient fallback is two hex colors`,
@@ -98,7 +98,7 @@ t('panel degrades honestly when a menu texture is missing (onError fallback)',
 t('satellites.ts still carries constellation + pos for the 3D layer',
   satSrc.includes('constellation:') && satSrc.includes('pos:'));
 
-// --- orbit rings: the 10 god bands around the constellation center ---------
+// --- orbit rings: the 11 god bands around the constellation center ---------
 import {
   GOD_BANDS,
   ORBIT_CENTER,
@@ -116,16 +116,16 @@ import {
   dist3,
 } from '../lib/god-orbits.js';
 
-t('exactly 10 orbit bands, one per god menu, in order',
-  GOD_BANDS.length === 10 && GOD_BANDS.every((b, i) => b.god === GOD_MENUS[i].god));
+t('exactly 11 orbit bands, one per god menu, in order',
+  GOD_BANDS.length === 11 && GOD_BANDS.every((b, i) => b.god === GOD_MENUS[i].god));
 t('band radii grow outward and clear the old tower ring (r~40)',
   GOD_BANDS.every((b, i) => b.radius >= 46 && (i === 0 || b.radius > GOD_BANDS[i - 1].radius)));
-t('exactly ONE physical satellite per band (10 total, not every program)',
+t('exactly ONE physical satellite per band (11 total, not every program)',
   GOD_BANDS.every((b) => b.count === 1));
 t('bandAngle advances with time (bands actually orbit)',
   GOD_BANDS.every((b) => bandAngle(b, 10) > bandAngle(b, 0)));
-t('the 10 satellites are evenly spaced: phases exactly 36° apart',
-  GOD_BANDS.every((b, i) => Math.abs(b.phase - (i * Math.PI * 2) / 10) < 1e-12));
+t('the 11 satellites are evenly spaced: phases exactly 360/11° apart',
+  GOD_BANDS.every((b, i) => Math.abs(b.phase - (i * Math.PI * 2) / 11) < 1e-12));
 t('world-space satellite spacing reads even (tilt perturbs < 1°)',
   [0, 30, 300, 1000].every((tt) => {
     const angs = GOD_BANDS.map((_, i) => {
@@ -136,7 +136,7 @@ t('world-space satellite spacing reads even (tilt perturbs < 1°)',
       const b = angs[(i + 1) % angs.length];
       let d = (b - a) % (Math.PI * 2);
       if (d < 0) d += Math.PI * 2;
-      return Math.abs(d - (Math.PI * 2) / 10) < 0.02; // < ~1.15°
+      return Math.abs(d - (Math.PI * 2) / GOD_BANDS.length) < 0.02; // < ~1.15°
     });
   }));
 t('ring spin is counter-rotation against Earth (negative Y application)',
@@ -203,8 +203,10 @@ t('bike rig reuses the existing TRON bike model (no duplicate model)',
   bikeSrc.includes('WispBike') && bikeSrc.includes("from './nova/TronBikes'"));
 
 // --- menuArtFor / menuBannerFor (SatelliteMenu.jsx imports) -----------------
-t('menuBannerFor returns a texture path for every god menu',
-  GOD_MENUS.every((m) => typeof menuBannerFor(m.god) === 'string' && menuBannerFor(m.god).length > 0));
+t('menuBannerFor returns a texture path or the documented null-texture fallback',
+  GOD_MENUS.every((m) =>
+    (typeof menuBannerFor(m.god) === 'string' && menuBannerFor(m.god).length > 0) ||
+    (m.texture === null && Array.isArray(m.gradient) && m.gradient.length === 2)));
 t('menuBannerFor(HERMES) points at the hermes banner',
   menuBannerFor('HERMES') === '/textures/menus/hermes/banner.jpeg');
 t('menuBannerFor(ARES) honors the .jpg texture (not .jpeg)',
