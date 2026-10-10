@@ -165,6 +165,9 @@ export const SATELLITES: SatelliteEntry[] = [
   // STAR-WARS (Star Wars — open-world saga, Episodes I-IX) sits with the
   // DIONYSUS games: ZEUS/GAMES.
   { key: "star-wars", route: "/star-wars", pos: "DIONYSUS", section: "GAMES", constellation: "ZEUS" },
+  // MIDDLE-EARTH (Middle-earth — open-world Tolkien tribute) sits with the
+  // DIONYSUS games: ZEUS/GAMES.
+  { key: "middle-earth", route: "/middle-earth", pos: "DIONYSUS", section: "GAMES", constellation: "ZEUS" },
   // UNDULATUS (cloud-surfing game) sits with the DIONYSUS games: ZEUS/GAMES.
   { key: "undulatus", route: "/undulatus", pos: "DIONYSUS", section: "GAMES", constellation: "ZEUS" },
   // LIVE-RECORDINGS (community videos) sits with the DIONYSUS games row: ZEUS/GAMES.
