@@ -110,6 +110,6 @@ Completing the final beat opens a quiet tribute screen:
     landmarks.js, data.js, tests/data.test.mjs, tests/builders.test.mjs}` +
     `reports/middle-earth-2026-10-09.md`
   - Registry (32): `lib/god-menus.js`, `lib/i18n/satellites.ts`, 31 locale files
-- Main tip: `<SHA>`
-- Vercel `nexus`: **READY** on `<SHA>`
-- Vercel `olympianmeg-ctrl-master-launcher`: **READY** on `<SHA>`
+- Main tip: `ea4002bd0f8e`
+- Vercel `nexus`: **READY** on `ea4002bd0f8e`
+- Vercel `olympianmeg-ctrl-master-launcher`: **READY** on `ea4002bd0f8e`
