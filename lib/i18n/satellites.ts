@@ -162,6 +162,9 @@ export const SATELLITES: SatelliteEntry[] = [
   // HAWKINS (Hawkins: Hunt For Vecna — the Stranger Things open-world hunt)
   // sits with the other DIONYSUS games: ZEUS/GAMES.
   { key: "hawkins", route: "/hawkins", pos: "DIONYSUS", section: "GAMES", constellation: "ZEUS" },
+  // STAR-WARS (Star Wars — open-world saga, Episodes I-IX) sits with the
+  // DIONYSUS games: ZEUS/GAMES.
+  { key: "star-wars", route: "/star-wars", pos: "DIONYSUS", section: "GAMES", constellation: "ZEUS" },
   // UNDULATUS (cloud-surfing game) sits with the DIONYSUS games: ZEUS/GAMES.
   { key: "undulatus", route: "/undulatus", pos: "DIONYSUS", section: "GAMES", constellation: "ZEUS" },
   // LIVE-RECORDINGS (community videos) sits with the DIONYSUS games row: ZEUS/GAMES.
