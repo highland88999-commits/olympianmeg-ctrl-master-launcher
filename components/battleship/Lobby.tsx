@@ -2,16 +2,20 @@ import { useState } from 'react'
 import { supabase } from '@/lib/battleship/supabase'
 import { useGameStore } from '@/store/battleship/useGameStore'
 import OasisLinkedHost from '@/components/battleship/OasisLinkedHost'
+import FriendInvite from '@/components/pvp/FriendInvite'
+import { createLinkedLobby } from '@/lib/battleship/oasis-adapter'
 import Link from 'next/link'
 import { AresButton, AresIcon, AresLoader, ARES } from '@/components/ares/ares-chrome'
 
 export default function Lobby() {
   const setGameMode = useGameStore(state => state.setGameMode)
   const setRoomId = useGameStore(state => state.setRoomId)
-  
+
   const [roomInput, setRoomInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
+  const [inviteCode, setInviteCode] = useState(null)
+  const [userId, setUserId] = useState(null)
 
   const handleStartPvE = () => {
     setGameMode('pve')
@@ -73,7 +77,44 @@ export default function Lobby() {
     setRoomId(roomInput, false)
   }
 
+  // Friend invites (PvP baseline): create the linked lobby (code lives in
+  // both the native battleship table and oasis_rooms), then open the friend
+  // picker. Invited friends accept and land on /battleship?code=XXXXXX,
+  // which the OasisDeepLinkJoiner seats into both rows.
+  const handleInviteFriends = async () => {
+    setLoading(true)
+    setErrorMsg('')
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { setErrorMsg('Sign in to invite friends.'); setLoading(false); return }
+      setUserId(user.id)
+      const { code } = await createLinkedLobby(supabase, { userId: user.id })
+      setInviteCode(code)
+    } catch (e) {
+      setErrorMsg((e && e.message) || 'Could not create a battle room.')
+    }
+    setLoading(false)
+  }
+
+  const closeInvitePicker = () => {
+    const code = inviteCode
+    setInviteCode(null)
+    if (code) {
+      setGameMode('pvp')
+      setRoomId(code, true)
+    }
+  }
+
+  // onRoomReady(code: string): the picker confirms it is bound to our linked
+  // lobby. Seating deliberately stays in onClose, not here — the picker must
+  // remain mounted as the live waiting UI (accept/decline feed), and seating
+  // the game unmounts this Lobby (page renders the board when roomId is set).
+  const handleRoomReady = (code: string) => {
+    if (code && code !== inviteCode) setInviteCode(code)
+  }
+
   return (
+    <>
     <div className="absolute z-20 flex items-center justify-center w-full h-full overflow-hidden">
       {/* ARES interior art behind the lobby card */}
       <img
@@ -118,6 +159,9 @@ export default function Lobby() {
 
           <AresButton icon="users" tone="crimson" onClick={handleCreatePvP}>Host Multiplayer Game</AresButton>
 
+          {/* Friend invites (PvP baseline): linked lobby + directed invites. */}
+          <AresButton icon="users" tone="gold" onClick={handleInviteFriends} disabled={loading}>Invite Friends</AresButton>
+
           {/* OASIS adapter: same battle, shareable 6-char code + deep link. */}
           <OasisLinkedHost />
 
@@ -135,6 +179,20 @@ export default function Lobby() {
         </Link>
       </div>
     </div>
+    {inviteCode && (
+      <FriendInvite
+        supabase={supabase}
+        userId={userId}
+        gameSlug="battleship"
+        gameName="Battleship"
+        minPlayers={2}
+        maxPlayers={2}
+        existingRoomCode={inviteCode}
+        onRoomReady={handleRoomReady}
+        onClose={closeInvitePicker}
+      />
+    )}
+    </>
   )
 }
 
