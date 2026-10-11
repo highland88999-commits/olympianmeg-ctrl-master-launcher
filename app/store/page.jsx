@@ -159,14 +159,31 @@ function StoreInner() {
     return () => { alive = false; };
   }, []);
 
+  // Product-type categories (Merlin, 2026-10-11): the store groups products
+  // by type — Hoodies, Mugs, Tees, etc. `category` comes from categoryOf()
+  // in lib/store-printful.js; anything unrecognized lands under "More".
+  const CATEGORY_ORDER = [
+    'Hoodies', 'Sweatshirts', 'Tees', 'Jackets', 'Pants', 'Mugs',
+    'Posters', 'Headwear', 'Stickers', 'Socks', 'More',
+  ];
+
   const groups = useMemo(() => {
     const list = products || [];
-    // `kind` is only ever 'apparel' or 'other' (see kindOf in
-    // lib/store-printful.js) — there is no third group, so the old `rest`
-    // bucket could never be non-empty. Removed, not hidden.
-    const apparel = list.filter((p) => p.kind === 'apparel');
-    const more = list.filter((p) => p.kind === 'other');
-    return { apparel, more };
+    const byCat = new Map();
+    for (const p of list) {
+      const cat = (p && p.category) || 'More';
+      if (!byCat.has(cat)) byCat.set(cat, []);
+      byCat.get(cat).push(p);
+    }
+    const ordered = CATEGORY_ORDER.filter((c) => byCat.has(c)).map((c) => ({
+      title: c,
+      items: byCat.get(c),
+    }));
+    // Any category not in the fixed order still renders, at the end.
+    for (const [cat, items] of byCat) {
+      if (!CATEGORY_ORDER.includes(cat)) ordered.push({ title: cat, items });
+    }
+    return ordered;
   }, [products]);
 
   const onBuy = useCallback(async (product, size) => {
@@ -401,8 +418,9 @@ function StoreInner() {
           <p className="text-sm text-slate-400">Nothing listed yet — check back soon.</p>
         ) : (
           <>
-            <Section title="Apparel" items={groups.apparel} />
-            <Section title="More" items={groups.more} />
+            {groups.map((g) => (
+              <Section key={g.title} title={g.title} items={g.items} />
+            ))}
           </>
         )}
 

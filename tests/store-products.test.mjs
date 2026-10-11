@@ -10,7 +10,7 @@
 //
 // The store must NEVER invent products, fake a checkout, or leak the
 // Printful key: mapping is 1:1 from Printful payloads, every card carries
-// checkoutReady:true (checkout is wired), and failures
+// checkoutReady:false until Merlin approves wiring checkout, and failures
 // surface as honest notices, never crashes or fake listings.
 import {
   mapListItemToCard,
@@ -20,6 +20,7 @@ import {
   noticeForError,
   isPrintfulConfigured,
   getCatalog,
+  categoryOf,
   __resetCache,
 } from '../lib/store-printful.js';
 
@@ -62,8 +63,16 @@ t('hoodie: currency cad', hoodie.currency === 'cad');
 t('hoodie: priceLabel formatted', typeof hoodie.priceLabel === 'string' && hoodie.priceLabel.includes('95'));
 t('hoodie: variantCount from list', hoodie.variantCount === 11);
 t('hoodie: kind apparel', hoodie.kind === 'apparel');
-t('hoodie: checkout ready', hoodie.checkoutReady === true);
+t('hoodie: category Hoodies', hoodie.category === 'Hoodies');
+t('hoodie: checkout not ready', hoodie.checkoutReady === false);
 t('hoodie: priceId null', hoodie.priceId === null);
+
+// --- categories: product-type grouping (Merlin 2026-10-11) -------------------
+t('category: mug name -> Mugs', categoryOf('Neon Tiger Mug') === 'Mugs');
+t('category: hoodie name -> Hoodies', categoryOf('Unisex Hoodie - X') === 'Hoodies');
+t('category: track pants -> Pants', categoryOf('Unisex track pants - Y') === 'Pants');
+t('category: unknown -> More', categoryOf('Glitch') === 'More');
+t('category: empty -> More', categoryOf('') === 'More');
 
 const second = mapListItemToCard(SECOND_ITEM);
 t('second: id mapped', second.id === 'pf_7');
@@ -105,7 +114,7 @@ t('dedupe: id-less cards are never collapsed',
 // --- buildCards: empty + nulls ----------------------------------------------
 t('buildCards([]) is honestly empty', buildCards([]).length === 0);
 t('buildCards drops nulls', buildCards([null, HOODIE_ITEM, undefined]).length === 1);
-t('buildCards marks every card checkout ready', buildCards([HOODIE_ITEM, SECOND_ITEM]).every((c) => c.checkoutReady === true));
+t('buildCards never marks checkout ready', buildCards([HOODIE_ITEM, SECOND_ITEM]).every((c) => c.checkoutReady === false));
 
 // --- error notices: honest, generic, no credential leaks ---------------------
 for (const status of [401, 403, 500, 0, undefined]) {
