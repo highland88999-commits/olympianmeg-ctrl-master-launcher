@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import AchievementBanner from "@/components/achievements/AchievementBanner";
 
 /**
  * Calendar — a clean, quiet month view for your schedule.
@@ -32,6 +33,30 @@ function eventsKey(uid) {
 }
 function bgChoiceKey(uid) {
   return `olympus:calendar:bg-choice:${uid || "guest"}`;
+}
+
+// Lifetime count of events this account has created on this device (never
+// decremented — deleting events can't re-trigger or game the milestones).
+function createdCountKey(uid) {
+  return `olympus:calendar:created-count:${uid || "guest"}`;
+}
+
+function loadCreatedCount(uid) {
+  try {
+    return parseInt(window.localStorage.getItem(createdCountKey(uid)) || "0", 10) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+function bumpCreatedCount(uid) {
+  try {
+    const next = loadCreatedCount(uid) + 1;
+    window.localStorage.setItem(createdCountKey(uid), String(next));
+    return next;
+  } catch {
+    return loadCreatedCount(uid) + 1;
+  }
 }
 
 function loadEvents(uid) {
@@ -260,6 +285,7 @@ export default function CalendarPage() {
   const [uploadUrl, setUploadUrl] = useState(null);
   const [uploadBusy, setUploadBusy] = useState(false);
   const [uploadError, setUploadError] = useState("");
+  const [celebrateKey, setCelebrateKey] = useState(null); // achievement celebration
   const fileRef = useRef(null);
   const uploadUrlRef = useRef(null);
 
@@ -383,6 +409,7 @@ export default function CalendarPage() {
     const title = (editing.title || "").trim();
     if (!title) return;
     const now = Date.now();
+    const isNew = !editing.id;
     setEvents((prev) => {
       const list = [...(prev[selectedKey] || [])];
       if (editing.id) {
@@ -411,6 +438,35 @@ export default function CalendarPage() {
       return next;
     });
     setEditing(null);
+    // Achievement milestones: 1st and 10th event ever created by this account.
+    if (isNew) {
+      const count = bumpCreatedCount(uid);
+      if (count === 1) grantAchievement("calendar-first-entry");
+      else if (count === 10) grantAchievement("calendar-tenth-entry");
+    }
+  }
+
+  // Fire-and-forget achievement grant. Signed-in users only (guests earn
+  // nothing server-side). The banner shows only when the server confirms a
+  // fresh award (awarded=false means already held — no repeat celebration).
+  async function grantAchievement(key) {
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data?.session?.access_token;
+      if (!token) return;
+      const res = await fetch("/api/achievements/grant", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ key }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok && json && json.awarded) setCelebrateKey(key);
+    } catch {
+      /* achievement failure must never break the calendar */
+    }
   }
 
   function requestDelete(id) {
@@ -907,6 +963,11 @@ export default function CalendarPage() {
           </div>
         )}
       </div>
+      <AchievementBanner
+        achievementKey={celebrateKey}
+        show={!!celebrateKey}
+        onDismiss={() => setCelebrateKey(null)}
+      />
     </div>
   );
 }

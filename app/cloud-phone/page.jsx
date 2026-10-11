@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { CLOUD_PHONE_CATALOG, CATALOG_SOURCES } from "@/lib/cloud-phone/catalog";
+import AchievementBanner from "@/components/achievements/AchievementBanner";
 
 /**
  * Cloud Phone — one thin client on the user's phone; every app runs as the
@@ -122,6 +123,7 @@ export default function CloudPhonePage() {
   const [notice, setNotice] = useState(null); // { kind: 'ok'|'err', text }
   const [confirmUninstall, setConfirmUninstall] = useState(null);
   const [launching, setLaunching] = useState(null); // { instance, phase: 'provisioning'|'waiting' }
+  const [pioneer, setPioneer] = useState(false); // Cloud Phone Pioneer celebration
 
   const flash = useCallback((kind, text) => {
     setNotice({ kind, text });
@@ -197,10 +199,14 @@ export default function CloudPhonePage() {
     setBusy(`install:${appId}`);
     setNotice(null);
     try {
-      await authedFetch("/api/cloud-phone/install", { app_id: appId });
+      const json = await authedFetch("/api/cloud-phone/install", { app_id: appId });
       await refresh();
       const app = catalogById.get(appId);
       flash("ok", `${app?.name || "App"} is now reserved in your cloud.`);
+      // Cloud Phone Pioneer: first-ever install earns the trophy — the
+      // server reports it, the banner celebrates it. Never requestable
+      // from the client; the flag is purely informational here.
+      if (json && json.pioneerEarned) setPioneer(true);
     } catch (e) {
       flash("err", e.message);
     } finally {
@@ -357,6 +363,7 @@ export default function CloudPhonePage() {
   // Main view ----------------------------------------------------------------
   return (
     <div style={shell}>
+      <AchievementBanner achievementKey="cloud-phone-pioneer" show={pioneer} onDismiss={() => setPioneer(false)} />
       <div style={content}>
         {/* Hero */}
         <div style={{ marginBottom: "1.25rem" }}>

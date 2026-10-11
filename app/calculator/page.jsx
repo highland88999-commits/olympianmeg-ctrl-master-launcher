@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import AchievementBanner from "@/components/achievements/AchievementBanner";
 
 /**
  * Calculator — a clean everyday calculator with a running history tape.
@@ -17,6 +18,28 @@ const FALLBACK_BG =
 
 function storeKey(uid) {
   return `olympus:calculator:${uid || "guest"}`;
+}
+
+// First-completed-calculation flag (per account). The achievement grant
+// itself is idempotent server-side, so this is just a client fast-path.
+function usedKey(uid) {
+  return `olympus:calculator:used:${uid || "guest"}`;
+}
+
+function hasUsed(uid) {
+  try {
+    return window.localStorage.getItem(usedKey(uid)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function markUsed(uid) {
+  try {
+    window.localStorage.setItem(usedKey(uid), "1");
+  } catch {
+    /* ignore */
+  }
 }
 
 function compute(a, b, op) {
@@ -113,6 +136,7 @@ export default function CalculatorPage() {
   const [waiting, setWaiting] = useState(false);
   const [tape, setTape] = useState([]);
   const [videoOk, setVideoOk] = useState(true);
+  const [celebrateKey, setCelebrateKey] = useState(null); // achievement celebration
 
   useEffect(() => {
     let alive = true;
@@ -229,6 +253,29 @@ export default function CalculatorPage() {
     [acc, op, waiting, display, pushTape]
   );
 
+  // First Calculation achievement: fire-and-forget grant. Signed-in users
+  // only (guests earn nothing server-side); the banner shows only when the
+  // server confirms a fresh award.
+  const grantFirstUse = useCallback(async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data?.session?.access_token;
+      if (!token) return;
+      const res = await fetch("/api/achievements/grant", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ key: "calculator-first-use" }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok && json && json.awarded) setCelebrateKey("calculator-first-use");
+    } catch {
+      /* achievement failure must never break the calculator */
+    }
+  }, []);
+
   const equals = useCallback(() => {
     if (acc === null || !op) return;
     const cur = parseFloat(display);
@@ -240,7 +287,12 @@ export default function CalculatorPage() {
     setAcc(null);
     setOp(null);
     setWaiting(true);
-  }, [acc, op, display, pushTape]);
+    // First Calculation: first completed calculation (a valid `=` result).
+    if (r !== "Error" && !hasUsed(uid)) {
+      markUsed(uid);
+      grantFirstUse();
+    }
+  }, [acc, op, display, pushTape, uid, grantFirstUse]);
 
   const press = useCallback(
     (label) => {
@@ -460,6 +512,11 @@ export default function CalculatorPage() {
           ))}
         </div>
       </div>
+      <AchievementBanner
+        achievementKey={celebrateKey}
+        show={!!celebrateKey}
+        onDismiss={() => setCelebrateKey(null)}
+      />
     </div>
   );
 }

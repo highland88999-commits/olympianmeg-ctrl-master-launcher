@@ -13,6 +13,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getCloudPhoneUser } from '@/lib/cloud-phone/server';
 import { catalogById } from '@/lib/cloud-phone/catalog';
+import { getServiceClient } from '@/lib/economy/supabase';
 
 export async function POST(req) {
   let body;
@@ -65,5 +66,37 @@ export async function POST(req) {
   // ready, and container_ref <- the runtime's session/container id.
   // Until that lands, the instance waits honestly in "provisioning".
 
-  return NextResponse.json({ instance, reused: false });
+  // Cloud Phone Pioneer: pure-prestige trophy for the user's FIRST cloud
+  // install, ever. Server-side only — clients can never request it (same
+  // principle as the Spooky Coin Collector trophy). Insert (not upsert): a
+  // 23505 from a racing request just means the other request won the insert.
+  // Prestige-only: a trophy failure must never break an install, and a
+  // missing user_achievements table (migration not run yet) is a soft skip.
+  let pioneerEarned = false;
+  try {
+    const { count } = await supabase
+      .from('cloud_phone_instances')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id);
+    if (count === 1) {
+      const admin = await getServiceClient();
+      if (admin) {
+        const { error: trophyErr } = await admin.from('user_achievements').insert({
+          user_id: user.id,
+          key: 'cloud-phone-pioneer',
+          title: 'Cloud Phone Pioneer',
+          metadata: { description: 'Installed your first app into Cloud Phone.' },
+        });
+        pioneerEarned = !trophyErr;
+      }
+    }
+  } catch {
+    // Prestige-only: never break an install over the trophy.
+  }
+
+  return NextResponse.json({
+    instance,
+    reused: false,
+    ...(pioneerEarned ? { pioneerEarned: true } : {}),
+  });
 }

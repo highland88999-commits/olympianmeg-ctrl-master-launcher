@@ -24,6 +24,14 @@ photos, files).
 - **Launch viewport**: full-screen placeholder with honest states —
   "Provisioning your instance…" then "Server runtime not connected", explaining
   the instance is reserved and streaming starts once the runtime lands.
+- **Cloud Phone Pioneer achievement**: a user's first-ever install awards the
+  `cloud-phone-pioneer` trophy (pure prestige, no gold) — server-side only,
+  stored in `user_achievements`, celebrated with the shared video-backed
+  `AchievementBanner` (plays `/videos/achievements/cloud-phone-pioneer.mp4`
+  when present, typographic gold card fallback). Clients can never request
+  it directly. See `lib/achievements/catalog.js`,
+  `app/api/cloud-phone/install/route.js`, and
+  `components/achievements/AchievementBanner.jsx`.
 
 ## What is NOT built
 
