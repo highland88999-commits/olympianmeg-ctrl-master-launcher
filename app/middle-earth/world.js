@@ -107,6 +107,7 @@ const LANDMARKS = [
   // Moria — checkpoints: West gate (-140,0), bridge (-115,-10), East gate (-95,0)
   { type: 'moria-door', x: -140, z: 0, s: 1 },
   { type: 'moria-bridge', x: -115, z: -10, s: 1 },
+  { type: 'moria-door', x: -95, z: 0, s: 1, ry: Math.PI }, // East gate checkpoint
   // Lothlorien — quest target: Mirror glade (-50, -15, r8)
   { type: 'galadriel-mirror', x: -50, z: -15, s: 1 },
   { type: 'mallorn-tree', x: -63, z: 14, s: 1.2 },
@@ -161,7 +162,7 @@ function makeHeightAt() {
 }
 
 /* Gold-on-dark floating label sprite (region gates + quest beacons). */
-function makeLabel(R, text, ownedTextures, scaleW, scaleH) {
+function makeLabel(R, text, scaleW, scaleH) {
   const cv = document.createElement('canvas');
   cv.width = 256; cv.height = 64;
   const ctx = cv.getContext('2d');
@@ -178,7 +179,6 @@ function makeLabel(R, text, ownedTextures, scaleW, scaleH) {
   }
   const tex = new R.CanvasTexture(cv);
   tex.colorSpace = R.SRGBColorSpace;
-  ownedTextures.push(tex);
   const sp = new R.Sprite(new R.SpriteMaterial({
     map: tex, transparent: true, depthWrite: false, fog: false,
   }));
@@ -188,7 +188,7 @@ function makeLabel(R, text, ownedTextures, scaleW, scaleH) {
 
 /* Region gate: stone arch with a floating label. Decorative — the opening is
  * wide and free roam is never blocked; only the pillars are solid. */
-function buildGate(R, gx, gy, regionName, ownedTextures, stoneMat, updaters) {
+function buildGate(R, gx, gy, regionName, stoneMat, updaters) {
   const g = new R.Group();
   const pillarGeo = new R.BoxGeometry(1.8, 7, 1.8);
   for (const pz of [-8, 8]) {
@@ -202,7 +202,7 @@ function buildGate(R, gx, gy, regionName, ownedTextures, stoneMat, updaters) {
   const lintel = new R.Mesh(new R.BoxGeometry(2.2, 1.6, 19.6), stoneMat);
   lintel.position.set(gx, gy + 8.1, 0);
   g.add(lintel);
-  const label = makeLabel(R, regionName, ownedTextures, 24, 6);
+  const label = makeLabel(R, regionName, 24, 6);
   label.position.set(gx, gy + 11.5, 0);
   g.add(label);
   updaters.push(function (t) {
@@ -216,7 +216,7 @@ function buildGate(R, gx, gy, regionName, ownedTextures, stoneMat, updaters) {
 
 /* Quest beacon: gold checkpoint rings + target light pillar, all from the
  * active quest's own target/checkpoints (the source of truth). */
-function buildBeacon(R, quest, heightAt, updaters, ownedTextures) {
+function buildBeacon(R, quest, heightAt, updaters) {
   if (!quest) return null;
   const g = new R.Group();
   const cps = Array.isArray(quest.checkpoints) ? quest.checkpoints : [];
@@ -231,7 +231,7 @@ function buildBeacon(R, quest, heightAt, updaters, ownedTextures) {
     g.add(ring);
     rings.push(ring);
     if (cp.label) {
-      const lab = makeLabel(R, cp.label, ownedTextures, 15, 3.75);
+      const lab = makeLabel(R, cp.label, 15, 3.75);
       lab.position.set(cp.x, cy + (cp.r || 5) + 3, cp.z);
       g.add(lab);
       updaters.push(function (t) {
@@ -266,7 +266,7 @@ function buildBeacon(R, quest, heightAt, updaters, ownedTextures) {
     groundRing.position.set(tg.x, ty + 0.5, tg.z);
     g.add(groundRing);
     if (tg.label) {
-      const lab = makeLabel(R, tg.label, ownedTextures, 17, 4.25);
+      const lab = makeLabel(R, tg.label, 17, 4.25);
       lab.position.set(tg.x, ty + (tg.r || 6) + 4, tg.z);
       g.add(lab);
       updaters.push(function (t) {
@@ -307,14 +307,12 @@ export function buildWorld(THREE, T, DATA, activeQuest) {
   const group = new R.Group();
   const colliders = [];
   const updaters = [];
-  const ownedTextures = [];
   const heightAt = makeHeightAt();
 
   function safeTexture(maker, repeatX, repeatY) {
     try {
       const t = maker();
       t.repeat.set(repeatX || 1, repeatY || 1);
-      ownedTextures.push(t);
       return t;
     } catch (e) { return null; }
   }
@@ -421,13 +419,13 @@ export function buildWorld(THREE, T, DATA, activeQuest) {
   for (let i = 0; i < rb.length - 1; i++) {
     const gx = rb[i].x1;
     const gy = heightAt(gx, 0);
-    const gate = buildGate(R, gx, gy, rb[i + 1].region.name, ownedTextures, gateMat, updaters);
+    const gate = buildGate(R, gx, gy, rb[i + 1].region.name, gateMat, updaters);
     group.add(gate.group);
     for (const c of gate.colliders) colliders.push(c);
   }
 
   /* ---------- quest beacon ---------- */
-  const beacon = buildBeacon(R, activeQuest, heightAt, updaters, ownedTextures);
+  const beacon = buildBeacon(R, activeQuest, heightAt, updaters);
   if (beacon) group.add(beacon.group);
 
   /* ---------- ambient scatter (clear of landmark colliders) ---------- */
@@ -477,16 +475,32 @@ export function buildWorld(THREE, T, DATA, activeQuest) {
     }
   }
 
+  /* Spawn near the active quest's first step (facing east toward it) so
+   * late quests don't force a full west-to-east walk every time. Wandering
+   * (no quest) keeps the Shire spawn. Offsets verified clear of landmark
+   * colliders; free roam is untouched. */
+  function questSpawn() {
+    if (activeQuest) {
+      const cps = Array.isArray(activeQuest.checkpoints) ? activeQuest.checkpoints : [];
+      const first = cps.length ? cps[0] : activeQuest.target;
+      if (first && typeof first.x === 'number' && typeof first.z === 'number') {
+        return { x: first.x - 30, z: first.z + 30, yaw: -Math.PI / 2 };
+      }
+    }
+    return { x: SPAWN.x, z: SPAWN.z, yaw: SPAWN.yaw };
+  }
+
   function dispose() {
-    const owned = new Set(ownedTextures);
+    // The entire world group is discarded on dispose, so every texture found
+    // on a material is released — including the ones landmark/ambient
+    // builders created via T[maker]() (each buildWorld call makes fresh
+    // ones, so skipping them leaked GPU memory on every quest transition).
     group.traverse(function (o) {
       if (o.isMesh || o.isSprite || o.isPoints) {
         if (o.geometry) { try { o.geometry.dispose(); } catch (e) {} }
         const mats = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : []);
         for (const m of mats) {
-          // Only dispose texture maps this builder created; landmark/
-          // ambient textures are owned by their builders.
-          if (m.map && owned.has(m.map)) { try { m.map.dispose(); } catch (e) {} }
+          if (m.map) { try { m.map.dispose(); } catch (e) {} }
           try { m.dispose(); } catch (e) {}
         }
       }
@@ -496,7 +510,7 @@ export function buildWorld(THREE, T, DATA, activeQuest) {
   return {
     group: group,
     colliders: colliders,
-    spawn: { x: SPAWN.x, z: SPAWN.z, yaw: SPAWN.yaw },
+    spawn: questSpawn(),
     bounds: { kind: 'box', min: { x: -335, z: -155 }, max: { x: 335, z: 155 } },
     groundHeight: heightAt,
     update: update,

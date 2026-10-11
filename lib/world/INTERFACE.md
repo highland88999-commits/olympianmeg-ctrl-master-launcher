@@ -31,6 +31,9 @@ Advances one frame, mutates and returns `w`.
 - `world`: `{ eye, speed, sprintMult, gravity, jumpV, groundHeight(x,z)->y, colliders: [{x,z,r}], bounds }`
   - `groundHeight` defaults to `() => 0` (flat plane)
   - `bounds`: `{ kind: 'circle'|'ring'|'box', max, min? }`
+    - circle/ring: `max` (and `min` for ring) are numbers
+    - box: `max` may be a number (`|x|,|z| <= max`) or an `{x, z}` object;
+      `min` may be an `{x, z}` object (defaults to `-max` per axis)
 - Solid-geometry rule: colliders push out (slide/deflect), bounds contain.
   The walker never passes through geometry.
 
