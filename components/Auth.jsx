@@ -300,7 +300,8 @@ export default function Auth({ onLogin }) {
         )}
         {/* No veil, no fade — Merlin 2026-10-12: true color, video fully visible behind auth text. */}
       </div>
-      <div className="bg-[#0c0c12]/90 p-10 border border-[#00f2ff] rounded-xl w-[90%] max-w-[420px] shadow-[0_0_40px_rgba(8,247,254,0.15)] flex flex-col relative">
+      {/* Transparent container — Merlin 2026-10-12: video shows through between all elements. */}
+      <div className="p-10 w-[90%] max-w-[420px] flex flex-col relative">
         
         <h2 className="font-['Orbitron'] text-[#00f2ff] text-xl text-center tracking-[0.15em] mb-2 uppercase">
           {tiktokAsk ? "WHAT'S YOUR TIKTOK?" : (
