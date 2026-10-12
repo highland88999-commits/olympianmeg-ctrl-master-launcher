@@ -30,9 +30,6 @@ function makeRideLabelTexture() {
   c.width = 512;
   c.height = 96;
   const ctx = c.getContext('2d');
-  // iPhone hardening (2026-10-01): iOS Safari returns null for 2D contexts
-  // under canvas memory pressure — null texture is fine, a throw is not.
-  if (!ctx) return null;
   ctx.clearRect(0, 0, 512, 96);
   ctx.font = '800 40px system-ui, -apple-system, sans-serif';
   ctx.textAlign = 'center';
@@ -42,7 +39,7 @@ function makeRideLabelTexture() {
   ctx.beginPath();
   ctx.roundRect(256 - w / 2, 12, w, 72, 18);
   ctx.fill();
-  ctx.fillStyle = '#5ff5d6';
+  ctx.fillStyle = '#ff6666';
   ctx.fillText('YOUR RIDE', 256, 50);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -56,7 +53,7 @@ export default function BikeRig({ bikeRef }) {
   useEffect(() => {
     const t = makeRideLabelTexture();
     setLabelTex(t);
-    return () => { if (t) t.dispose(); };
+    return () => t.dispose();
   }, []);
 
   useFrame((state) => {
@@ -85,13 +82,14 @@ export default function BikeRig({ bikeRef }) {
 
   return (
     <group ref={bikeRef} position={BIKE_PARK_POS}>
-      <WispBike color="#00ffcc" />
+      {/* Ares crimson wrap — Merlin 2026-10-12: hub bike matches the TRON room Ares bike. */}
+      <WispBike color="#ff2222" />
       {/* Landing beacon: a soft pulsing ring under the bike so the parked
           ride reads instantly as the thing to walk toward. */}
       <mesh ref={beaconRef} position={[0, -0.7, 0]} rotation-x={-Math.PI / 2}>
         <ringGeometry args={[1.7, 2.1, 48]} />
         <meshBasicMaterial
-          color="#00ffcc"
+          color="#ff2222"
           transparent
           opacity={0.45}
           side={THREE.DoubleSide}
