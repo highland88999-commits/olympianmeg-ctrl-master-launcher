@@ -172,9 +172,6 @@ function NexusHub() {
     onAutoAxis: setFlightAxis,
   });
 
-  // Riding the TRON bike (drives the spawn circle's glow state).
-  const riding = appState === 'on_bike' || appState === 'to_bike';
-
   useEffect(() => {
     // No backend configured yet: enter honest guest mode instead of crashing.
     // lib/supabase.ts throws on first use when NEXT_PUBLIC_SUPABASE_* are
@@ -607,31 +604,15 @@ function NexusHub() {
         </>
       )}
 
-      {/* Spawn to Bike — 64px circle, fixed bottom-right, CLEAR of the
-          persistent radio bar (z-70, ~8rem tall incl. transport strip +
-          safe-area). Flies the camera into the rider's seat on the parked
-          TRON bike; tap again to dismount. Glow intensifies while riding. */}
-      {(user || cloudOffline) && (appState === 'hub_intro' || appState === 'hub_freeroam' || appState === 'to_bike' || appState === 'on_bike') && (
-        <button
-          onClick={toggleBike}
-          aria-label={riding ? 'Leave the TRON bike' : 'Spawn to the TRON bike'}
-          title={riding ? 'Leave bike' : 'Spawn to bike'}
-          className={`absolute bottom-[calc(8.75rem+env(safe-area-inset-bottom))] right-5 z-[80] w-16 h-16 rounded-full flex items-center justify-center border-2 backdrop-blur-md hover:scale-105 active:scale-95 transition-all ui-element pointer-events-auto ${
-            riding
-              ? 'border-teal-300 bg-teal-950/70 shadow-[0_0_32px_rgba(45,212,191,0.5)]'
-              : 'border-teal-400/50 bg-zinc-950/90 shadow-[0_0_20px_rgba(45,212,191,0.15)] hover:bg-teal-900/40'
-          }`}
-        >
-          <span aria-hidden="true" className="text-3xl">🏍️</span>
-        </button>
-      )}
+      {/* SPAWN TO BIKE removed 2026-10-12 (Merlin: single ride button only).
+          The ride button now lives in the right-edge column directly beneath
+          NIGHT GRID (see BikeFloatButton below). */}
 
       {/* NIGHT GRID — 64px circle entry to the Shadow Realm (the built
           Tron-bike race/free-roam scene: tracks, Wisp/Comet/Atlas trim
-          bikes, Tron light schemes). Stacked in the right-edge control
-          column directly ABOVE the STORE float button, aligned to its x
-          (right 12px + safe-area) so the column reads NIGHT GRID → STORE →
-          RIDE. Same pocket-universe launch path as the satellite menu:
+          bikes, Tron light schemes). Top of the right-edge control column:
+          NIGHT GRID → RIDE → STORE, stacked vertically with no overlap.
+          Same pocket-universe launch path as the satellite menu:
           fx.bikeMount() + launchPocketUniverse (the orbit animation),
           landing on /shadow-realm?mode=race — the realm page itself handles
           mode/track/vehicle selection. */}
@@ -640,7 +621,7 @@ function NexusHub() {
           className="fixed z-40 flex flex-col items-center ui-element pointer-events-auto"
           style={{
             right: 'calc(env(safe-area-inset-right, 0px) + 14px)',
-            top: 'calc(50% - 106px)',
+            top: 'calc(50% - 110px)',
           }}
         >
           <button
@@ -658,8 +639,8 @@ function NexusHub() {
         </div>
       )}
 
-      {/* Circular TRON-bike shortcut — same onClick as SPAWN TO BIKE, stacked
-          on the right edge directly below the floating STORE button. */}
+      {/* The single RIDE button — directly beneath NIGHT GRID in the
+          right-edge column (NIGHT GRID → RIDE → STORE), no overlap. */}
       {(user || cloudOffline) && (appState === 'hub_intro' || appState === 'hub_freeroam' || appState === 'to_bike' || appState === 'on_bike') && (
         <BikeFloatButton
           onToggleBike={toggleBike}

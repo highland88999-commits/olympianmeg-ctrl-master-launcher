@@ -1671,8 +1671,10 @@ function ShadowRealmInner() {
                 );
               })()}
             </div>
-            {/* ride controls: motion + immersion circles; pause/leave adapt to immersion */}
-            <div style={{ position: 'absolute', top: 'calc(12px + env(safe-area-inset-top, 0px))', right: 'calc(12px + env(safe-area-inset-right, 0px))', display: 'flex', gap: 8, pointerEvents: 'auto', zIndex: 7 }}>
+            {/* ride controls: motion + immersion circles; pause/leave adapt to immersion.
+                Merlin 2026-10-12: vertical stack on the right edge (not top) —
+                clear of the overlay. */}
+            <div style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', right: 'calc(12px + env(safe-area-inset-right, 0px))', display: 'flex', flexDirection: 'column', gap: 8, pointerEvents: 'auto', zIndex: 7 }}>
               <button
                 aria-label={motion.motionOn ? 'Turn off tilt steering and gyro look' : 'Turn on tilt steering and gyro look'}
                 title="Tilt steering + gyro look"

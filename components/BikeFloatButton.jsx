@@ -2,10 +2,10 @@
 import { useState } from 'react';
 import { fx } from '@/lib/fx';
 
-// BikeFloatButton — the TRON-bike shortcut, stacked on the right edge
-// directly BELOW the floating STORE/hoodie button, aligned to the same x
-// (right: calc(env(safe-area-inset-right) + 12px)) so the two read as one
-// clean vertical control column.
+// BikeFloatButton — the single TRON-bike ride button in the hub (Merlin
+// 2026-10-12: one ride button only). Positioned on the right edge DIRECTLY
+// BENEATH the NIGHT GRID button (no overlap — vertically stacked), aligned
+// to the same x so the column reads NIGHT GRID → RIDE → STORE.
 //
 // The icon is a looping muted video inside a circular mask: the electric-
 // streak loop at /gemini_generated_video_65272AD7.mp4 (the same generated
@@ -24,9 +24,9 @@ export default function BikeFloatButton({ onToggleBike, riding = false }) {
       className="fixed z-40 flex flex-col items-center gap-1 ui-element pointer-events-auto"
       style={{
         right: 'calc(env(safe-area-inset-right, 0px) + 12px)',
-        // The STORE block is vertically centered and ~92px tall
-        // (68px circle + label); this sits just below it, same x.
-        top: 'calc(50% + 56px)',
+        // Directly beneath NIGHT GRID (top: calc(50% - 110px), 64px tall):
+        // 50% - 110px + 64px + 12px gap = 50% - 34px. No overlap.
+        top: 'calc(50% - 34px)',
       }}
     >
       <button

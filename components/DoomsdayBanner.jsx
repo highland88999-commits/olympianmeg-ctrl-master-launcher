@@ -7,6 +7,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 
 function pad(n) {
@@ -17,9 +18,14 @@ const MIN_KEY = 'doomsday-banner-min';
 const VIDEO_SRC = '/videos/doomsday-bg.mp4';
 
 export default function DoomsdayBanner() {
+  const pathname = usePathname();
   const [info, setInfo] = useState(null);
   const [minimized, setMinimized] = useState(false);
   const [videoOk, setVideoOk] = useState(true);
+
+  // TRON realm (shadow-realm): banner fully hidden — Merlin 2026-10-12,
+  // it interferes with the realm overlay. Not transparent; removed.
+  if (pathname && pathname.startsWith('/shadow-realm')) return null;
 
   useEffect(() => {
     try {

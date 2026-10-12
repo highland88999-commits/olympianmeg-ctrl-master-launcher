@@ -62,8 +62,9 @@ export default function StoreFloatButton() {
       className="fixed z-40 flex flex-col items-center gap-1 ui-element pointer-events-auto"
       style={{
         right: 'calc(env(safe-area-inset-right, 0px) + 12px)',
-        top: '50%',
-        transform: 'translateY(-50%)',
+        // Below RIDE in the right-edge column (NIGHT GRID → RIDE → STORE).
+        // RIDE sits at top: calc(50% - 34px), ~88px tall (68px + label).
+        top: 'calc(50% + 66px)',
       }}
     >
       <button
