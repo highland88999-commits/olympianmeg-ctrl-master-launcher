@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase';
 import { LanguageProvider, useI18n } from '@/lib/i18n';
 import { SATELLITES } from '@/lib/i18n/satellites';
 import SatelliteMenu from '@/components/SatelliteMenu';
+import { PortalButtonDecor, MenuHeaderDecor } from '@/components/PortalSeasonalDecor';
 import { orbitTime, orbitPositionFor } from '@/lib/god-orbits';
 import { GOD_TOWER_SPOTS, GOD_TOWER_POS, BABEL_POS, ARTEMIS_POS } from '@/lib/home-positions';
 import SettingsGear from '@/components/SettingsGear';
@@ -71,6 +72,15 @@ function NexusHub() {
   // case the Canvas keeps its original opaque #050505 background — honest,
   // never a fake video.
   const [bgVideoOk, setBgVideoOk] = useState(true);
+  // Hub sweep: true once the post-login video has played through (or the
+  // intro circle sweep completes) — video goes away, starfield over black
+  // takes over. Merlin 2026-10-12.
+  const [sweepDone, setSweepDone] = useState(false);
+  // When the intro circle sweep completes (hub_intro -> hub_freeroam),
+  // the sweep video goes away even if it hasn't finished playing.
+  useEffect(() => {
+    if (appState === 'hub_freeroam' && !sweepDone) setSweepDone(true);
+  }, [appState, sweepDone]);
   const introAutoPlayed = useRef(false);
   useEffect(() => {
     if ((user || cloudOffline) && !introAutoPlayed.current) {
@@ -489,16 +499,6 @@ function NexusHub() {
               className="fixed inset-0 z-[40000] ui-element"
             >
               <div className="absolute inset-0 bg-zinc-950/[0.98]" aria-hidden="true" />
-              {/* Menu background video — Merlin's transfer batch 2. */}
-              <video
-                className="absolute inset-0 w-full h-full object-cover opacity-20 pointer-events-none"
-                src="/videos/menu-background.mp4"
-                autoPlay
-                muted
-                loop
-                playsInline
-                aria-hidden="true"
-              />
               <div
                 className="relative h-full flex flex-col gap-5 p-4 sm:p-6"
                 style={{
@@ -510,7 +510,7 @@ function NexusHub() {
               >
                 <div className="flex justify-between items-center border-b border-zinc-800 pb-2 shrink-0">
                   <div className="flex flex-col">
-                    <span className="text-xs font-bold tracking-widest text-white uppercase">Select your satellites</span>
+                    <span className="text-xs font-bold tracking-widest text-white uppercase flex items-center gap-2">Select your satellites <MenuHeaderDecor /></span>
                     <span className="text-[9px] font-mono text-cyan-400 tracking-wider uppercase">{t('ui.operator')}: {user || 'GUEST'}</span>
                   </div>
                   <div className="flex items-center gap-1">
@@ -544,13 +544,17 @@ function NexusHub() {
             </div>
           ) : (
             <div className="absolute bottom-[calc(8.75rem+env(safe-area-inset-bottom))] left-5 z-[80] flex flex-col items-start gap-4 ui-element pointer-events-auto">
-              <button
-                onClick={() => { fx.menuOpen(); setIsMenuExpanded(true); }}
-                aria-label="Open menu"
-                className="w-16 h-16 rounded-full flex items-center justify-center shadow-[0_0_25px_rgba(0,242,255,0.4)] hover:scale-105 transition-all overflow-hidden border-2 border-cyan-500 relative bg-cyan-950/60"
-              >
-                <video src="/chess/assets/effects/gemini_generated_video_758D2655.mp4" autoPlay loop muted playsInline className="absolute inset-0 w-full h-full object-cover scale-110" />
-              </button>
+              <div className="relative">
+                <button
+                  onClick={() => { fx.menuOpen(); setIsMenuExpanded(true); }}
+                  aria-label="Open menu"
+                  className="w-16 h-16 rounded-full flex items-center justify-center shadow-[0_0_25px_rgba(0,242,255,0.4)] hover:scale-105 transition-all overflow-hidden border-2 border-cyan-500 relative bg-cyan-950/60"
+                >
+                  <video src="/chess/assets/effects/gemini_generated_video_758D2655.mp4" autoPlay loop muted playsInline className="absolute inset-0 w-full h-full object-cover scale-110" />
+                </button>
+                {/* Seasonal portal dressing (ambient only — never blocks taps) */}
+                <PortalButtonDecor />
+              </div>
             </div>
           )}
 
@@ -686,18 +690,20 @@ function NexusHub() {
           parked TRON bike reading in front of it. Looping, muted,
           playsinline. Gated on the hub being visible so it never
           double-plays under the Auth overlay. */}
-      {(user || cloudOffline) && bgVideoOk && (
+      {/* Hub sweep video — Merlin 2026-10-12: plays ONCE after login until the
+          first circle sweep completes, then swaps to starfield over black.
+          True color, no fade, no veil. */}
+      {(user || cloudOffline) && bgVideoOk && !sweepDone && (
         <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
           <video
-            src="/media/entrance.mp4"
+            src="/media/hub-sweep.mp4"
             autoPlay
-            loop
             muted
             playsInline
+            onEnded={() => setSweepDone(true)}
             onError={() => setBgVideoOk(false)}
             className="absolute inset-0 w-full h-full object-cover"
           />
-          <div className="absolute inset-0 bg-black/20" />
         </div>
       )}
 
