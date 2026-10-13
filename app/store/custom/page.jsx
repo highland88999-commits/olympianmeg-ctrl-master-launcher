@@ -35,6 +35,11 @@ import {
   centsToCadString,
 } from '@/lib/store/custom-products';
 import { supabase } from '@/lib/supabase';
+import ShareButton from '@/components/store/ShareButton';
+import {
+  productShareUrl,
+  productShareText,
+} from '@/lib/store/share';
 
 const MAX_FILE_MB = 10;
 const MIN_DIM = 800;
@@ -571,6 +576,19 @@ export default function CustomProductPage() {
               </div>
             )}
             <div className="mx-auto mt-5 flex max-w-sm flex-col gap-3">
+              {/* Share the creation (Merlin, 2026-10-13): a share button
+                  lives beside every product a user makes. The URL is the
+                  product's canonical store link — the store page scrolls
+                  straight to this product's card. */}
+              <ShareButton
+                url={productShareUrl(result.productId)}
+                title={result.productName || `My Custom ${product.name}`}
+                text={productShareText({
+                  name: result.productName,
+                  priceLabel: `CA$${result.finalPriceCad ?? product.priceCad}`,
+                })}
+                size="lg"
+              />
               {/* pricing breakdown — all figures server-computed at creation */}
               <div className="space-y-1 rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-left text-sm">
                 <div className="flex justify-between text-slate-400">

@@ -229,6 +229,22 @@ export const CopyIcon = (p) => (
   </G>
 );
 
+export const ShareIcon = (p) => (
+  <G {...p}>
+    <circle cx="18" cy="5" r="3" />
+    <circle cx="6" cy="12" r="3" />
+    <circle cx="18" cy="19" r="3" />
+    <path d="M8.6 13.5l6.8 4" />
+    <path d="M15.4 6.5l-6.8 4" />
+  </G>
+);
+
+export const CheckIcon = (p) => (
+  <G {...p}>
+    <path d="M20 6 9 17l-5-5" />
+  </G>
+);
+
 export const RotateIcon = (p) => (
   <G {...p}>
     <path d="M1 4v6h6" />

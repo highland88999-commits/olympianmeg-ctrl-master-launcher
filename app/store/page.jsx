@@ -20,10 +20,21 @@ import {
   AmbienceToggle,
 } from '@/components/hermes-ui/HermesUi';
 import { CartIcon } from '@/lib/hermes-icons';
+import ShareButton from '@/components/store/ShareButton';
+import {
+  productShareUrl,
+  categoryShareUrl,
+  productAnchorId,
+  categoryAnchorId,
+  productShareTitle,
+  productShareText,
+  categoryShareTitle,
+  categoryShareText,
+} from '@/lib/store/share';
 
 const SIZES = ['S', 'M', 'L', 'XL', '2XL', '3XL'];
 
-function ProductCard({ product, onBuy, buying, gold, setGold, rewardMode, onRedeem }) {
+function ProductCard({ product, onBuy, buying, gold, setGold, rewardMode, onRedeem, highlighted }) {
   const [size, setSize] = useState('L');
   const isApparel = product.kind === 'apparel';
   // The buy CTA enables when the server reports checkoutReady (Stripe is
@@ -33,7 +44,12 @@ function ProductCard({ product, onBuy, buying, gold, setGold, rewardMode, onRede
   const checkoutOpen = product.checkoutReady !== false;
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/5">
+    <div
+      id={productAnchorId(product.id)}
+      className={`flex scroll-mt-24 flex-col overflow-hidden rounded-2xl border bg-white/5 ${
+        highlighted ? 'border-amber-300/70 ring-2 ring-amber-300/60' : 'border-white/10'
+      }`}
+    >
       {product.image ? (
         <img
           src={product.image}
@@ -49,7 +65,15 @@ function ProductCard({ product, onBuy, buying, gold, setGold, rewardMode, onRede
       <div className="relative flex flex-1 flex-col gap-3 p-4">
         <HermesPanelTexture opacity={0.06} />
         <div className="relative">
-          <div className="font-semibold text-white">{product.name}</div>
+          <div className="flex items-start justify-between gap-2">
+            <div className="font-semibold text-white">{product.name}</div>
+            <ShareButton
+              url={productShareUrl(product.id)}
+              title={productShareTitle(product)}
+              text={productShareText(product)}
+              className="shrink-0"
+            />
+          </div>
           {product.description ? (
             <p className="mt-1 text-sm text-slate-400">{product.description}</p>
           ) : null}
@@ -159,6 +183,34 @@ function StoreInner() {
     return () => { alive = false; };
   }, []);
 
+  // Share deep links (Merlin, 2026-10-13): every product and category in
+  // the store is shareable; the shared URL is /store?product=pf_<id> or
+  // /store?category=<Name> (built by lib/store/share.js). When one lands
+  // here, scroll the shared card/section into view and highlight it
+  // briefly. A target missing from the catalog (say, a custom creation
+  // the cached listing has not picked up yet) simply leaves the plain
+  // storefront — no error, no dead end.
+  const wantedProduct = params.get('product');
+  const wantedCategory = params.get('category');
+  const [highlightId, setHighlightId] = useState(null);
+
+  useEffect(() => {
+    if (!products || (!wantedProduct && !wantedCategory)) return;
+    const targetId = wantedProduct
+      ? productAnchorId(wantedProduct)
+      : categoryAnchorId(wantedCategory);
+    if (!targetId) return;
+    const scrollTimer = setTimeout(() => {
+      const el = document.getElementById(targetId);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        setHighlightId(targetId);
+      }
+    }, 80);
+    const clearTimer = setTimeout(() => setHighlightId(null), 3200);
+    return () => { clearTimeout(scrollTimer); clearTimeout(clearTimer); };
+  }, [products, wantedProduct, wantedCategory]);
+
   // Product-type categories (Merlin, 2026-10-11): the store groups products
   // by type — Hoodies, Mugs, Tees, etc. `category` comes from categoryOf()
   // in lib/store-printful.js; anything unrecognized lands under "More".
@@ -259,9 +311,23 @@ function StoreInner() {
 
   const Section = ({ title, items }) => {
     if (!items.length) return null;
+    const anchor = categoryAnchorId(title);
     return (
-      <section className="mb-10">
-        <h2 className="mb-4 text-sm font-bold uppercase tracking-widest text-slate-400">{title}</h2>
+      <section id={anchor} className="mb-10 scroll-mt-24">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <h2
+            className={`text-sm font-bold uppercase tracking-widest ${
+              highlightId === anchor ? 'text-amber-300' : 'text-slate-400'
+            }`}
+          >
+            {title}
+          </h2>
+          <ShareButton
+            url={categoryShareUrl(title)}
+            title={categoryShareTitle(title)}
+            text={categoryShareText(title)}
+          />
+        </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {items.map((p) => (
             <ProductCard
@@ -273,6 +339,7 @@ function StoreInner() {
               setGold={setUseGold}
               rewardMode={rewardMode}
               onRedeem={onRedeem}
+              highlighted={highlightId === productAnchorId(p.id)}
             />
           ))}
         </div>
