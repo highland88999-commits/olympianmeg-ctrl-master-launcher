@@ -35,6 +35,7 @@ import { getUserFromRequest as getGoldUser } from '@/lib/economy/auth';
 import { getServiceClient } from '@/lib/economy/supabase';
 import { applyGoldCheckout } from '@/lib/economy/checkout';
 import { getCatalog, getProductVariants } from '@/lib/store-printful';
+import { encodeStoreCogsLines } from '@/lib/affiliates/costs';
 import { hoodieDiscountCapForOrder, MAX_QTY_PER_LINE } from '@/lib/gold/store-discount';
 import { apiGuard } from '@/lib/api-guard';
 
@@ -207,6 +208,10 @@ export const POST = apiGuard(async function POST(req) {
         syncId,
         variantId: String(variant.variantId),
         size: needsSize ? variant.size : '',
+        // The variant's real size, kept even when the buyer made no size
+        // choice (single-variant products): the affiliate COGS resolution
+        // keys on it, where the display `size` above is ''.
+        variantSize: variant.size,
       });
     }
     const currencies = new Set(lines.map((l) => l.currency));
@@ -281,6 +286,22 @@ export const POST = apiGuard(async function POST(req) {
             printful_product_id: lines.map((l) => l.syncId).join(','),
             printful_variant_id: lines.map((l) => l.variantId).join(','),
             size: lines.length === 1 ? lines[0].size : '',
+            // Affiliate true-COGS transport (lib/affiliates/costs.js):
+            // the webhook resolves each line's Printful cost from these
+            // keys. `product_id` is the single-line key the costs module
+            // keys on (pf_<sync id>); cogs_lines* carries EVERY line
+            // (product, catalog variant, real variant size, qty) so
+            // multi-line carts resolve too. The printful_* keys above
+            // stay for the order record / fulfillment trail.
+            ...(lines.length === 1 ? { product_id: `pf_${lines[0].syncId}` } : {}),
+            ...encodeStoreCogsLines(
+              lines.map((l) => ({
+                product_id: `pf_${l.syncId}`,
+                variant_id: l.variantId,
+                size: l.variantSize,
+                qty: l.qty,
+              }))
+            ),
             hoodie_units: String(hoodieUnits),
             gold_applied_gold: String(gold.goldAppliedGold),
             gold_applied_cents: String(gold.goldAppliedCents),

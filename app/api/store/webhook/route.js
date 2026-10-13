@@ -13,7 +13,7 @@ import { getServiceClient } from '@/lib/economy/supabase';
 import { billableSessionOrNull } from '@/lib/stripe-webhook';
 import { apiGuard } from '@/lib/api-guard';
 import { accrueAffiliateCommission, stripeFeeCents } from '@/lib/affiliates/server';
-import { storeProductKey, resolveStoreCogs } from '@/lib/affiliates/costs';
+import { parseStoreCogsLines, resolveStoreOrderCogs, storeOrderProductKey } from '@/lib/affiliates/costs';
 
 export const POST = apiGuard(async function POST(req) {
   const stripeKey = process.env.STRIPE_SECRET_KEY;
@@ -78,8 +78,8 @@ export const POST = apiGuard(async function POST(req) {
         // See the PRINTFUL FULFILLMENT section below for the chain and what
         // must be true before it ever runs.
 
-        // In-house affiliate hook: 10% of the house's net (revenue - fees;
-        // Printful COGS is subtracted once fulfillment is wired — flagged).
+        // In-house affiliate hook: 10% of the house's net (revenue -
+        // Stripe fees - true Printful COGS, resolved per line below).
         // Gold-paid orders never reach this webhook (recorded directly as
         // paid with zero card revenue), so only real-money sales accrue.
         try {
@@ -89,6 +89,17 @@ export const POST = apiGuard(async function POST(req) {
             .eq('stripe_session_id', session.id)
             .maybeSingle();
           const meta = session.metadata || {};
+          // True COGS: checkout transports every priced line in the
+          // session metadata (cogs_lines*, lib/affiliates/costs.js). The
+          // order cost is the sum of per-variant costs x qty across all
+          // lines. When the lines are absent/malformed or any line's cost
+          // can't be resolved, resolution returns null and the commission
+          // parks as pending_cost — never silently accrued on the
+          // inflated base. Single-line orders also carry a real
+          // product_key so finalize-costs can un-park them by key;
+          // multi-line parks carry none (their cost is an order total,
+          // not one variant's cost).
+          const cogsLines = parseStoreCogsLines(meta);
           await accrueAffiliateCommission(admin, {
             source: 'store',
             source_id: session.id,
@@ -96,11 +107,8 @@ export const POST = apiGuard(async function POST(req) {
             buyer_email: session.customer_details?.email || '',
             gross_cents: order?.amount_cents ?? session.amount_total ?? 0,
             stripe_fee_cents: await stripeFeeCents(stripe, session),
-            // True COGS: Printful per-variant base cost (CAD). When the cost
-            // can't be resolved the commission parks as pending_cost —
-            // never silently accrued on the inflated base.
-            product_key: storeProductKey({ product_id: meta.product_id, size: meta.size }),
-            resolve_cogs: () => resolveStoreCogs(admin, { product_id: meta.product_id, size: meta.size }),
+            product_key: storeOrderProductKey(cogsLines),
+            resolve_cogs: () => resolveStoreOrderCogs(admin, cogsLines),
           });
         } catch (affErr) {
           console.error('Store webhook: affiliate accrual failed (non-fatal):', affErr?.message || affErr);
