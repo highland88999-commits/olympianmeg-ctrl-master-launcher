@@ -1,25 +1,29 @@
 'use client';
-// /store/custom — Custom Hoodie Designer.
-// A native Omega Store category: upload your own graphic, position and size
-// it on the hoodie, then create a real Printful product (same base as
-// Merlin's hoodies: AOP Recycled Unisex Hoodie, White, CA$95) and buy it
-// through the existing Stripe checkout.
+// /store/custom — Custom Product Designer.
+// A native Omega Store category: pick a blank product, upload your own
+// graphic, position and size it, then create a real Printful product and
+// buy it through the existing Stripe checkout.
+//
+// Templates live in lib/store/custom-products.js — one per completed
+// product type (the original All-Over Print Recycled Unisex Hoodie,
+// White, CA$95, is the default). Print resolution, placements, variants
+// and prices all come from the Printful catalog specs in that config.
 //
 // Flow:
-//   1. Upload  — drag & drop or file picker, client-side validation
-//                (type, size, dimensions, transparency check).
+//   1. Upload  — pick a product, then drag & drop or file picker,
+//                client-side validation (type, size, dimensions,
+//                transparency check).
 //   2. Design  — drag the graphic to position it, slider to resize.
-//                The canvas exports a 4500x5400 print-ready PNG with the
-//                graphic baked at the chosen position/scale.
+//                The canvas exports a print-ready PNG at the chosen
+//                product's print resolution with the graphic baked at
+//                the chosen position/scale.
 //   3. Create  — POST /api/store/custom/create uploads to Printful and
 //                creates the sync product; the official mockup is shown
 //                with Buy Now (existing checkout) and View in Store.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { CUSTOM_PRODUCTS, getCustomProduct, DEFAULT_PRODUCT_KEY } from '@/lib/store/custom-products';
 
-// Print resolution for the exported file.
-const PRINT_W = 4500;
-const PRINT_H = 5400;
 const MAX_FILE_MB = 10;
 const MIN_DIM = 800;
 
@@ -27,7 +31,12 @@ const STEPS = ['Upload', 'Design', 'Create'];
 
 function cx(...xs) { return xs.filter(Boolean).join(' '); }
 
-export default function CustomHoodiePage() {
+export default function CustomProductPage() {
+  const [productKey, setProductKey] = useState(DEFAULT_PRODUCT_KEY);
+  const product = getCustomProduct(productKey) || CUSTOM_PRODUCTS[0];
+  const PRINT_W = product.print.w;
+  const PRINT_H = product.print.h;
+
   const [step, setStep] = useState(0);
   const [file, setFile] = useState(null);          // File object
   const [imgUrl, setImgUrl] = useState(null);      // object URL for preview
@@ -38,18 +47,32 @@ export default function CustomHoodiePage() {
   const [dragOver, setDragOver] = useState(false);
 
   // Design state — position/size as fractions of the print area.
-  const [gx, setGx] = useState(0.5);   // center x (0..1)
-  const [gy, setGy] = useState(0.38);  // center y (0..1)
-  const [gs, setGs] = useState(0.55);  // graphic width as fraction of print width
+  const [gx, setGx] = useState(product.design.x);   // center x (0..1)
+  const [gy, setGy] = useState(product.design.y);   // center y (0..1)
+  const [gs, setGs] = useState(product.design.scale); // graphic width as fraction of print width
 
   const [designName, setDesignName] = useState('');
   const [creating, setCreating] = useState(false);
   const [result, setResult] = useState(null);      // {productId, productName, mockupUrl}
+  const [buySize, setBuySize] = useState(product.defaultSize || '');
   const [buying, setBuying] = useState(false);
 
   const fileInputRef = useRef(null);
   const stageRef = useRef(null);
   const dragRef = useRef(null);
+
+  // ---- pick a blank product (keeps any uploaded graphic) ----
+  const selectProduct = useCallback((key) => {
+    const p = getCustomProduct(key);
+    if (!p) return;
+    setProductKey(key);
+    setGx(p.design.x);
+    setGy(p.design.y);
+    setGs(p.design.scale);
+    setBuySize(p.defaultSize || '');
+    setResult(null);
+    setError(null);
+  }, []);
 
   // ---- upload & validation ----
   const validateAndLoad = useCallback((f) => {
@@ -140,7 +163,7 @@ export default function CustomHoodiePage() {
     return () => { if (imgUrl) URL.revokeObjectURL(imgUrl); };
   }, [imgUrl]);
 
-  // ---- export print-ready PNG ----
+  // ---- export print-ready PNG at the product's print resolution ----
   const exportPrintFile = useCallback(() => {
     return new Promise((resolve, reject) => {
       const img = new Image();
@@ -160,7 +183,7 @@ export default function CustomHoodiePage() {
       img.onerror = () => reject(new Error('Could not render design.'));
       img.src = imgUrl;
     });
-  }, [imgUrl, gx, gy, gs]);
+  }, [imgUrl, gx, gy, gs, PRINT_W, PRINT_H]);
 
   // ---- create product ----
   const createProduct = useCallback(async () => {
@@ -173,21 +196,22 @@ export default function CustomHoodiePage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          productKey,
           imageBase64: base64,
-          fileName: `custom-hoodie-${Date.now()}.png`,
-          designName: designName.trim() || 'My Custom Hoodie',
+          fileName: `custom-${productKey}-${Date.now()}.png`,
+          designName: designName.trim() || `My Custom ${product.name}`,
         }),
       });
       const data = await res.json();
-      if (!data.ok) throw new Error(data.error || 'Could not create your hoodie.');
+      if (!data.ok) throw new Error(data.error || 'Could not create your product.');
       setResult(data);
       setStep(2);
     } catch (err) {
-      setError(err.message || 'Something went wrong creating your hoodie.');
+      setError(err.message || 'Something went wrong creating your product.');
     } finally {
       setCreating(false);
     }
-  }, [exportPrintFile, designName]);
+  }, [exportPrintFile, designName, productKey, product.name]);
 
   // ---- buy now via existing checkout ----
   const buyNow = useCallback(async () => {
@@ -195,10 +219,12 @@ export default function CustomHoodiePage() {
     setError(null);
     setBuying(true);
     try {
+      const payload = { productId: `pf_${result.productId}` };
+      if (product.variants.length > 1) payload.size = buySize || product.defaultSize || product.variants[0].size;
       const res = await fetch('/api/store/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ productId: result.productId, size: 'L' }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (data.type === 'stripe' && data.url) {
@@ -215,16 +241,17 @@ export default function CustomHoodiePage() {
     } finally {
       setBuying(false);
     }
-  }, [result]);
+  }, [result, product, buySize]);
 
   const resetAll = useCallback(() => {
     if (imgUrl) URL.revokeObjectURL(imgUrl);
     setFile(null); setImgUrl(null); setImgSize(null);
     setHasTransparency(null); setQualityWarn(false);
-    setGx(0.5); setGy(0.38); setGs(0.55);
+    setGx(product.design.x); setGy(product.design.y); setGs(product.design.scale);
+    setBuySize(product.defaultSize || '');
     setDesignName(''); setResult(null); setError(null);
     setStep(0);
-  }, [imgUrl]);
+  }, [imgUrl, product]);
 
   return (
     <div className="min-h-dvh bg-[#06070d] text-white"
@@ -233,9 +260,9 @@ export default function CustomHoodiePage() {
         {/* header */}
         <div className="mb-6 flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold">Design Your Own Hoodie</h1>
+            <h1 className="text-2xl font-bold">Design Your Own</h1>
             <p className="mt-1 text-sm text-slate-400">
-              Upload your graphic, place it, and we&apos;ll make it real — CA$95.
+              Pick a product, upload your graphic, place it, and we&apos;ll make it real.
             </p>
           </div>
           <Link href="/store" className="shrink-0 rounded-lg border border-white/15 px-3 py-2 text-sm text-slate-300">
@@ -262,37 +289,69 @@ export default function CustomHoodiePage() {
           </div>
         )}
 
-        {/* STEP 1 — upload */}
+        {/* STEP 1 — pick a product + upload */}
         {step === 0 && (
-          <div
-            onDrop={onDrop}
-            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-            onDragLeave={() => setDragOver(false)}
-            onClick={() => fileInputRef.current && fileInputRef.current.click()}
-            className={cx(
-              'cursor-pointer rounded-2xl border-2 border-dashed p-10 text-center transition-colors',
-              dragOver ? 'border-amber-400 bg-amber-400/10' : 'border-white/20 bg-white/5'
-            )}
-          >
-            <div className="text-5xl">🎨</div>
-            <div className="mt-3 font-semibold">Drop your graphic here</div>
-            <div className="mt-1 text-sm text-slate-400">or tap to browse — PNG, JPG, or WebP</div>
-            <div className="mt-3 text-xs text-slate-500">
-              Transparent PNG works best · at least {MIN_DIM}×{MIN_DIM}px · max {MAX_FILE_MB}MB
+          <div>
+            <div className="mb-3 text-sm font-semibold text-slate-200">1 · Pick your product</div>
+            <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {CUSTOM_PRODUCTS.map((p) => (
+                <button
+                  key={p.key}
+                  onClick={() => selectProduct(p.key)}
+                  className={cx(
+                    'rounded-xl border px-3 py-3 text-left transition-colors',
+                    p.key === productKey
+                      ? 'border-amber-400 bg-amber-400/10'
+                      : 'border-white/15 bg-white/5 hover:border-white/30'
+                  )}
+                >
+                  <div className="text-2xl">{p.emoji}</div>
+                  <div className="mt-1 text-sm font-semibold leading-tight">{p.pickerLabel}</div>
+                  <div className="mt-0.5 text-xs text-slate-400">{p.variantNote}</div>
+                  <div className="mt-1 text-xs font-semibold text-amber-300">CA${p.priceCad}</div>
+                </button>
+              ))}
             </div>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              className="hidden"
-              onChange={(e) => validateAndLoad(e.target.files && e.target.files[0])}
-            />
+
+            <div className="mb-3 text-sm font-semibold text-slate-200">2 · Add your graphic</div>
+            <div
+              onDrop={onDrop}
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onClick={() => fileInputRef.current && fileInputRef.current.click()}
+              className={cx(
+                'cursor-pointer rounded-2xl border-2 border-dashed p-10 text-center transition-colors',
+                dragOver ? 'border-amber-400 bg-amber-400/10' : 'border-white/20 bg-white/5'
+              )}
+            >
+              <div className="text-5xl">🎨</div>
+              <div className="mt-3 font-semibold">Drop your graphic here</div>
+              <div className="mt-1 text-sm text-slate-400">or tap to browse — PNG, JPG, or WebP</div>
+              <div className="mt-3 text-xs text-slate-500">
+                Transparent PNG works best · at least {MIN_DIM}×{MIN_DIM}px · max {MAX_FILE_MB}MB
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="hidden"
+                onChange={(e) => validateAndLoad(e.target.files && e.target.files[0])}
+              />
+            </div>
           </div>
         )}
 
         {/* STEP 2 — design */}
         {step === 1 && imgUrl && (
           <div>
+            <div className="mb-3 flex items-center justify-between">
+              <div className="text-sm text-slate-400">
+                Designing on: <span className="font-semibold text-slate-200">{product.name}</span> — CA${product.priceCad}
+              </div>
+              <button onClick={() => setStep(0)} className="text-xs text-slate-400 underline">
+                Change product
+              </button>
+            </div>
             <div className="mb-3 text-sm text-slate-400">
               Drag your graphic to move it · use the slider to resize
             </div>
@@ -303,9 +362,9 @@ export default function CustomHoodiePage() {
                 className="relative w-full overflow-hidden rounded-2xl border border-white/15 bg-white"
                 style={{ aspectRatio: `${PRINT_W} / ${PRINT_H}` }}
               >
-                {/* hoodie hint */}
+                {/* product hint */}
                 <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                  <span className="text-xs uppercase tracking-widest text-slate-400/70">front print area</span>
+                  <span className="text-xs uppercase tracking-widest text-slate-400/70">{product.stageHint}</span>
                 </div>
                 <img
                   src={imgUrl}
@@ -361,7 +420,7 @@ export default function CustomHoodiePage() {
                   type="text"
                   value={designName}
                   onChange={(e) => setDesignName(e.target.value)}
-                  placeholder="My Custom Hoodie"
+                  placeholder={`My Custom ${product.name}`}
                   maxLength={80}
                   className="mt-1 block w-full rounded-lg border border-white/15 bg-black/50 px-3 py-2 text-white"
                 />
@@ -379,7 +438,7 @@ export default function CustomHoodiePage() {
                 disabled={creating}
                 className="flex-1 rounded-xl bg-amber-400 px-4 py-3 font-semibold text-black disabled:opacity-50"
               >
-                {creating ? 'Creating your hoodie…' : 'Create My Hoodie — CA$95'}
+                {creating ? `Creating your ${product.pickerLabel.toLowerCase()}…` : `Create My ${product.pickerLabel} — CA$${product.priceCad}`}
               </button>
             </div>
             {creating && (
@@ -393,8 +452,8 @@ export default function CustomHoodiePage() {
         {/* STEP 3 — created */}
         {step === 2 && result && (
           <div className="text-center">
-            <div className="text-5xl">🧥</div>
-            <h2 className="mt-3 text-xl font-bold">Your hoodie is real</h2>
+            <div className="text-5xl">{product.emoji}</div>
+            <h2 className="mt-3 text-xl font-bold">Your {product.pickerLabel.toLowerCase()} is real</h2>
             <p className="mt-1 text-sm text-slate-400">{result.productName}</p>
             {result.mockupUrl ? (
               <img
@@ -408,12 +467,26 @@ export default function CustomHoodiePage() {
               </div>
             )}
             <div className="mx-auto mt-5 flex max-w-sm flex-col gap-3">
+              {product.variants.length > 1 && (
+                <label className="text-left text-sm text-slate-300">
+                  Size
+                  <select
+                    value={buySize}
+                    onChange={(e) => setBuySize(e.target.value)}
+                    className="mt-1 block w-full rounded-lg border border-white/15 bg-black/50 px-3 py-2 text-white"
+                  >
+                    {product.variants.map((v) => (
+                      <option key={v.id} value={v.size}>{v.size}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <button
                 onClick={buyNow}
                 disabled={buying}
                 className="rounded-xl bg-amber-400 px-4 py-3 font-semibold text-black disabled:opacity-50"
               >
-                {buying ? 'Opening checkout…' : 'Buy Now — CA$95'}
+                {buying ? 'Opening checkout…' : `Buy Now — CA$${product.priceCad}`}
               </button>
               <Link
                 href="/store"
