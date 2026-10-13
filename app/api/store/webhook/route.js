@@ -4,8 +4,11 @@
 //
 // Setup (Merlin): in the Stripe dashboard, add a webhook endpoint for
 //   https://<app>/api/store/webhook
-// listening to `checkout.session.completed` + `checkout.session.async_payment_succeeded`, and set
-// STRIPE_STORE_WEBHOOK_SECRET (or the shared STRIPE_WEBHOOK_SECRET)
+// listening to `checkout.session.completed` + `checkout.session.async_payment_succeeded`
+// (order payment) AND `charge.refunded` + `charge.dispute.created`
+// (creator-payout clawbacks — without those two events, refunds and
+// chargebacks still land in Stripe but no creator credit is reversed),
+// and set STRIPE_STORE_WEBHOOK_SECRET (or the shared STRIPE_WEBHOOK_SECRET)
 // in Vercel env vars. Nothing is registered in Stripe by this code —
 // scaffold only, per the rollout plan.
 import Stripe from 'stripe';
@@ -15,6 +18,7 @@ import { apiGuard } from '@/lib/api-guard';
 import { accrueAffiliateCommission, stripeFeeCents } from '@/lib/affiliates/server';
 import { parseStoreCogsLines, resolveStoreOrderCogs, storeOrderProductKey } from '@/lib/affiliates/costs';
 import { markBaselineOfferRedeemed } from '@/lib/store/custom-creations';
+import { creditCreatorSale, reverseCreatorSale, parseCreatorSale } from '@/lib/store/creator-payouts';
 
 export const POST = apiGuard(async function POST(req) {
   const stripeKey = process.env.STRIPE_SECRET_KEY;
@@ -33,6 +37,27 @@ export const POST = apiGuard(async function POST(req) {
   } catch (err) {
     console.error('Store webhook signature error:', err?.message || err);
     return new Response('Invalid signature.', { status: 400 });
+  }
+
+  // Creator-payout clawbacks: a refund or chargeback on a custom-
+  // creation sale reverses the creator's wallet credit (proportional
+  // to the money that came back; lib/store/creator-payouts.js). These
+  // events are not billable checkout sessions, so they are handled
+  // before the gate below. Events that don't belong to a store
+  // creation sale are acknowledged untouched; a reversal that fails
+  // to apply is NOT acknowledged (500) so Stripe retries — reversals
+  // are idempotent, so retrying is safe.
+  if (event.type === 'charge.refunded' || event.type === 'charge.dispute.created') {
+    try {
+      const outcome = await handleCreatorReversal(stripe, event);
+      if (!outcome.handled) {
+        return Response.json({ ok: true, received: true, ignored: true });
+      }
+      return Response.json({ ok: true, received: true, creator_reversal: outcome.result });
+    } catch (err) {
+      console.error('Store webhook: creator reversal failed (not acknowledged; Stripe will retry):', err?.message || err);
+      return Response.json({ ok: false, error: 'Creator reversal failed.' }, { status: 500 });
+    }
   }
 
   // Only act when the money has actually arrived (shared webhook gate).
@@ -127,6 +152,35 @@ export const POST = apiGuard(async function POST(req) {
         } catch (redeemErr) {
           console.error('Store webhook: baseline offer redemption marking failed (non-fatal):', redeemErr?.message || redeemErr);
         }
+
+        // Creator payout: a paid custom-creation sale credits the
+        // creator's wallet with their markup, net of their proportional
+        // share of the real Stripe fee and the $1.00 platform fee
+        // (lib/store/creator-payouts.js). Baseline-offer redemptions
+        // and plain store sales earn nothing here. Best-effort like
+        // the hooks above — a payout failure never fails the order —
+        // and idempotent on the session id via the wallet ledger's
+        // reference guard, so redelivery can't double-credit.
+        try {
+          const payout = await creditCreatorSale(admin, stripe, session);
+          if (payout.credited) {
+            console.log(
+              `Store webhook: creator payout ${payout.breakdown.netCents}c credited ` +
+              `(markup ${payout.breakdown.grossCents}c - Stripe fee share ${payout.breakdown.stripeFeeCents}c ` +
+              `- platform fee ${payout.breakdown.platformFeeCents}c, session ${session.id}).`
+            );
+          } else if (payout.reason === 'fees_consumed_markup') {
+            console.error(
+              `Store webhook: creator payout floored at $0 for session ${session.id} — fees ` +
+              `(${payout.breakdown.stripeFeeCents}c Stripe fee share + ${payout.breakdown.platformFeeCents}c platform fee) ` +
+              `consumed the ${payout.breakdown.grossCents}c markup; shortfall ${payout.breakdown.shortfallCents}c. No wallet row written.`
+            );
+          } else if (payout.duplicate) {
+            console.log(`Store webhook: creator payout already applied for session ${session.id}.`);
+          }
+        } catch (payErr) {
+          console.error('Store webhook: creator payout failed (non-fatal):', payErr?.message || payErr);
+        }
       }
       return Response.json({ ok: true });
     } catch (err) {
@@ -145,6 +199,76 @@ export const POST = apiGuard(async function POST(req) {
     }
   }
 });
+
+// ============================================================================
+// CREATOR-PAYOUT CLAWBACKS — refund / chargeback resolution.
+//
+// A `charge.refunded` event carries the Charge (payment_intent +
+// amount_refunded, cumulative); a `charge.dispute.created` event
+// carries the Dispute (payment_intent + amount, with the Charge
+// retrievable for the original total). Neither carries the checkout
+// session's metadata, so the session is resolved through Stripe by
+// payment intent — the only trustworthy link back to the server-
+// stamped creator metadata. Returns { handled: false } for anything
+// that isn't a store custom-creation sale (other surfaces share this
+// Stripe account; their refunds are not this webhook's business).
+// Throws on infrastructure failure so the caller answers 500 and
+// Stripe retries; reverseCreatorSale is idempotent, so a retry after
+// a partial failure can never double-claw.
+// ============================================================================
+async function handleCreatorReversal(stripe, event) {
+  const obj = event?.data?.object || {};
+  const kind = event.type === 'charge.dispute.created' ? 'chargeback' : 'refund';
+  let paymentIntentId =
+    typeof obj.payment_intent === 'string' ? obj.payment_intent : obj.payment_intent?.id || null;
+  let clawedBackTotalCents = 0;
+  let transactionTotalCents = 0;
+
+  if (kind === 'refund') {
+    clawedBackTotalCents = Math.max(0, Math.round(Number(obj.amount_refunded) || 0));
+    transactionTotalCents = Math.max(0, Math.round(Number(obj.amount) || 0));
+  } else {
+    clawedBackTotalCents = Math.max(0, Math.round(Number(obj.amount) || 0));
+    const chargeId = typeof obj.charge === 'string' ? obj.charge : obj.charge?.id || null;
+    if (chargeId) {
+      const charge = await stripe.charges.retrieve(chargeId);
+      transactionTotalCents = Math.max(0, Math.round(Number(charge?.amount) || 0));
+      if (!paymentIntentId) {
+        paymentIntentId =
+          typeof charge?.payment_intent === 'string' ? charge.payment_intent : charge?.payment_intent?.id || null;
+      }
+    }
+  }
+  if (!paymentIntentId) return { handled: false };
+
+  const sessions = await stripe.checkout.sessions.list({ payment_intent: paymentIntentId, limit: 1 });
+  const session = sessions?.data?.[0];
+  if (!session) return { handled: false };
+  const meta = session.metadata || {};
+  if (meta.surface !== 'store' || !parseCreatorSale(meta)) return { handled: false };
+
+  const admin = await getServiceClient();
+  if (!admin) throw new Error('service client unavailable');
+  const result = await reverseCreatorSale(admin, {
+    sessionId: session.id,
+    kind,
+    eventId: event.id,
+    clawedBackTotalCents,
+    transactionTotalCents,
+  });
+  if (result.reversed) {
+    console.log(
+      `Store webhook: creator payout reversed ${result.amountCents}c (${kind}, session ${session.id}` +
+      `${result.shortfallCents ? `, ${result.shortfallCents}c unrecovered — see the ledger note` : ''}).`
+    );
+  } else if (result.reason === 'insufficient_balance') {
+    console.error(
+      `Store webhook: creator reversal for session ${session.id} could not recover ` +
+      `${result.shortfallCents}c — the creator's wallet balance was spent or released first. Noted for Merlin.`
+    );
+  }
+  return { handled: true, result };
+}
 
 // ============================================================================
 // PRINTFUL FULFILLMENT — connection chain (NOT live yet).
