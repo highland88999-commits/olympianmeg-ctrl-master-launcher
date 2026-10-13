@@ -14,6 +14,7 @@ import { billableSessionOrNull } from '@/lib/stripe-webhook';
 import { apiGuard } from '@/lib/api-guard';
 import { accrueAffiliateCommission, stripeFeeCents } from '@/lib/affiliates/server';
 import { parseStoreCogsLines, resolveStoreOrderCogs, storeOrderProductKey } from '@/lib/affiliates/costs';
+import { markBaselineOfferRedeemed } from '@/lib/store/custom-creations';
 
 export const POST = apiGuard(async function POST(req) {
   const stripeKey = process.env.STRIPE_SECRET_KEY;
@@ -112,6 +113,19 @@ export const POST = apiGuard(async function POST(req) {
           });
         } catch (affErr) {
           console.error('Store webhook: affiliate accrual failed (non-fatal):', affErr?.message || affErr);
+        }
+
+        // Custom creations: a paid baseline-offer session redeems the
+        // creator's one-time first-copy-at-base-price offer. Additive
+        // and best-effort — the creations record may still live only in
+        // Stripe metadata (its Supabase migration is pending), and a
+        // failure here must never fail the webhook.
+        try {
+          if (meta.custom_baseline_offer === 'true' && meta.printful_product_id) {
+            await markBaselineOfferRedeemed(String(meta.printful_product_id), session.id);
+          }
+        } catch (redeemErr) {
+          console.error('Store webhook: baseline offer redemption marking failed (non-fatal):', redeemErr?.message || redeemErr);
         }
       }
       return Response.json({ ok: true });

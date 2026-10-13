@@ -13,16 +13,28 @@
 //   1. Upload  — pick a product, then drag & drop or file picker,
 //                client-side validation (type, size, dimensions,
 //                transparency check).
-//   2. Design  — drag the graphic to position it, slider to resize.
-//                The canvas exports a print-ready PNG at the chosen
-//                product's print resolution with the graphic baked at
-//                the chosen position/scale.
+//   2. Design  — drag the graphic to position it, slider to resize,
+//                name the design, and set the creator markup (the
+//                creation sells at base price + markup; the markup is
+//                the creator's income per sale). The canvas exports a
+//                print-ready PNG at the chosen product's print resolution
+//                with the graphic baked at the chosen position/scale.
 //   3. Create  — POST /api/store/custom/create uploads to Printful and
-//                creates the sync product; the official mockup is shown
-//                with Buy Now (existing checkout) and View in Store.
+//                creates the sync product at the server-computed store
+//                price; the official mockup is shown with purchase via
+//                POST /api/store/custom/buy (server-priced from the
+//                creation record), including the creator's one-time
+//                first copy at the base price, and View in Store.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { CUSTOM_PRODUCTS, getCustomProduct, DEFAULT_PRODUCT_KEY } from '@/lib/store/custom-products';
+import {
+  CUSTOM_PRODUCTS,
+  getCustomProduct,
+  DEFAULT_PRODUCT_KEY,
+  parseMarkupToCents,
+  centsToCadString,
+} from '@/lib/store/custom-products';
+import { supabase } from '@/lib/supabase';
 
 const MAX_FILE_MB = 10;
 const MIN_DIM = 800;
@@ -52,14 +64,45 @@ export default function CustomProductPage() {
   const [gs, setGs] = useState(product.design.scale); // graphic width as fraction of print width
 
   const [designName, setDesignName] = useState('');
+  const [markup, setMarkup] = useState('0');       // creator markup, CAD dollars (string while typing)
+  const [signedIn, setSignedIn] = useState(null);  // null = not checked yet
   const [creating, setCreating] = useState(false);
-  const [result, setResult] = useState(null);      // {productId, productName, mockupUrl}
+  const [result, setResult] = useState(null);      // {productId, productName, mockupUrl, ...pricing}
+  const [baselineUsed, setBaselineUsed] = useState(false);
   const [buySize, setBuySize] = useState(product.defaultSize || '');
   const [buying, setBuying] = useState(false);
 
   const fileInputRef = useRef(null);
   const stageRef = useRef(null);
   const dragRef = useRef(null);
+
+  // ---- creator identity (Supabase session, same pattern as the wallet) ----
+  // Creation works for guests too, but attribution + the baseline offer
+  // need a verified creator, so the page attaches its session token to
+  // the create/buy calls and says plainly when it can't.
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (alive) setSignedIn(!!(data && data.session));
+      } catch { if (alive) setSignedIn(false); }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  const authHeaders = useCallback(async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data && data.session && data.session.access_token;
+      return token ? { Authorization: `Bearer ${token}` } : {};
+    } catch { return {}; }
+  }, []);
+
+  // Live markup math — display only; the server recomputes everything.
+  const markupParsed = parseMarkupToCents(markup === '' ? '0' : markup, product.priceCents);
+  const markupCents = markupParsed.ok ? markupParsed.markupCents : 0;
+  const finalCents = product.priceCents + markupCents;
 
   // ---- pick a blank product (keeps any uploaded graphic) ----
   const selectProduct = useCallback((key) => {
@@ -188,42 +231,53 @@ export default function CustomProductPage() {
   // ---- create product ----
   const createProduct = useCallback(async () => {
     setError(null);
+    if (!markupParsed.ok) {
+      setError(markupParsed.error);
+      return;
+    }
     setCreating(true);
     try {
       const dataUrl = await exportPrintFile();
       const base64 = dataUrl.split(',')[1];
       const res = await fetch('/api/store/custom/create', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
         body: JSON.stringify({
           productKey,
           imageBase64: base64,
           fileName: `custom-${productKey}-${Date.now()}.png`,
           designName: designName.trim() || `My Custom ${product.name}`,
+          // Only the markup travels — the server recomputes the price.
+          markup: markup === '' ? '0' : markup,
         }),
       });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || 'Could not create your product.');
       setResult(data);
+      setBaselineUsed(false);
       setStep(2);
     } catch (err) {
       setError(err.message || 'Something went wrong creating your product.');
     } finally {
       setCreating(false);
     }
-  }, [exportPrintFile, designName, productKey, product.name]);
+  }, [exportPrintFile, designName, productKey, product.name, markup, markupParsed, authHeaders]);
 
-  // ---- buy now via existing checkout ----
-  const buyNow = useCallback(async () => {
+  // ---- buy a creation via the custom buy route (server-priced from
+  // the creation record: baseline + markup; baselineOffer asks for the
+  // creator's one-time first copy at the base price — the server
+  // verifies creator + redemption before honouring it) ----
+  const buyCustom = useCallback(async (baselineOffer) => {
     if (!result || !result.productId) return;
     setError(null);
     setBuying(true);
     try {
-      const payload = { productId: `pf_${result.productId}` };
+      const payload = { productId: `pf_${result.productId}`, baselineOffer: !!baselineOffer };
+      if (result.stripeProductId) payload.stripeProductId = result.stripeProductId;
       if (product.variants.length > 1) payload.size = buySize || product.defaultSize || product.variants[0].size;
-      const res = await fetch('/api/store/checkout', {
+      const res = await fetch('/api/store/custom/buy', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
         body: JSON.stringify(payload),
       });
       const data = await res.json();
@@ -231,17 +285,17 @@ export default function CustomProductPage() {
         window.location.href = data.url;
         return;
       }
-      if (data.type === 'gold') {
-        setError('Covered by gold — order placed.');
-        return;
-      }
+      if (baselineOffer && res.status === 409) setBaselineUsed(true);
       throw new Error(data.error || 'Checkout is not available right now.');
     } catch (err) {
       setError(err.message);
     } finally {
       setBuying(false);
     }
-  }, [result, product, buySize]);
+  }, [result, product, buySize, authHeaders]);
+
+  const buyNow = useCallback(() => buyCustom(false), [buyCustom]);
+  const buyBaseline = useCallback(() => buyCustom(true), [buyCustom]);
 
   const resetAll = useCallback(() => {
     if (imgUrl) URL.revokeObjectURL(imgUrl);
@@ -249,7 +303,7 @@ export default function CustomProductPage() {
     setHasTransparency(null); setQualityWarn(false);
     setGx(product.design.x); setGy(product.design.y); setGs(product.design.scale);
     setBuySize(product.defaultSize || '');
-    setDesignName(''); setResult(null); setError(null);
+    setDesignName(''); setMarkup('0'); setResult(null); setBaselineUsed(false); setError(null);
     setStep(0);
   }, [imgUrl, product]);
 
@@ -426,6 +480,56 @@ export default function CustomProductPage() {
                 />
               </label>
             </div>
+            {/* markup — the creator sets their cut before the creation
+                goes into the store (Merlin's creator marketplace) */}
+            <div className="mt-5 rounded-xl border border-white/15 bg-white/5 p-4">
+              <div className="text-sm font-semibold text-slate-200">Sell it in the store</div>
+              <p className="mt-1 text-xs text-slate-400">
+                Your creation goes into the store at the base price plus your markup.
+                Your markup is what you earn on every sale.
+              </p>
+              <label className="mt-3 block text-sm text-slate-300">
+                Your markup (CA$)
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  inputMode="decimal"
+                  value={markup}
+                  onChange={(e) => setMarkup(e.target.value)}
+                  className="mt-1 block w-full rounded-lg border border-white/15 bg-black/50 px-3 py-2 text-white"
+                />
+              </label>
+              {markupParsed.ok ? (
+                <div className="mt-3 space-y-1 text-sm">
+                  <div className="flex justify-between text-slate-400">
+                    <span>Base price</span><span>CA${product.priceCad}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-400">
+                    <span>Your markup</span><span>CA${centsToCadString(markupCents)}</span>
+                  </div>
+                  <div className="flex justify-between font-semibold text-slate-100">
+                    <span>Store price</span><span>CA${centsToCadString(finalCents)}</span>
+                  </div>
+                  {markupCents > 0 ? (
+                    <div className="pt-1 text-emerald-300">
+                      You earn CA${centsToCadString(markupCents)} per sale.
+                    </div>
+                  ) : (
+                    <div className="pt-1 text-amber-300">
+                      At $0 markup your creation sells at the base price and you earn nothing per sale.
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="mt-3 text-sm text-red-300">{markupParsed.error}</div>
+              )}
+              {signedIn === false && (
+                <div className="mt-3 text-xs text-slate-400">
+                  You&apos;re not signed in — sign in first so this creation, and its earnings, are credited to your account.
+                </div>
+              )}
+            </div>
             <div className="mt-4 flex gap-3">
               <button
                 onClick={resetAll}
@@ -435,10 +539,10 @@ export default function CustomProductPage() {
               </button>
               <button
                 onClick={createProduct}
-                disabled={creating}
+                disabled={creating || !markupParsed.ok}
                 className="flex-1 rounded-xl bg-amber-400 px-4 py-3 font-semibold text-black disabled:opacity-50"
               >
-                {creating ? `Creating your ${product.pickerLabel.toLowerCase()}…` : `Create My ${product.pickerLabel} — CA$${product.priceCad}`}
+                {creating ? `Creating your ${product.pickerLabel.toLowerCase()}…` : `Create My ${product.pickerLabel} — CA$${centsToCadString(finalCents)}`}
               </button>
             </div>
             {creating && (
@@ -467,6 +571,27 @@ export default function CustomProductPage() {
               </div>
             )}
             <div className="mx-auto mt-5 flex max-w-sm flex-col gap-3">
+              {/* pricing breakdown — all figures server-computed at creation */}
+              <div className="space-y-1 rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-left text-sm">
+                <div className="flex justify-between text-slate-400">
+                  <span>Base price</span><span>CA${result.baselinePriceCad ?? product.priceCad}</span>
+                </div>
+                <div className="flex justify-between text-slate-400">
+                  <span>Your markup</span><span>CA${result.markupCad ?? '0.00'}</span>
+                </div>
+                <div className="flex justify-between font-semibold text-slate-100">
+                  <span>Store price</span><span>CA${result.finalPriceCad ?? product.priceCad}</span>
+                </div>
+                {result.creatorAttached ? (
+                  <div className="pt-1 text-xs text-slate-400">
+                    Listed under your account — you earn CA${result.markupCad ?? '0.00'} on every sale.
+                  </div>
+                ) : (
+                  <div className="pt-1 text-xs text-slate-400">
+                    Created without an account attached, so no earnings are credited for this one.
+                  </div>
+                )}
+              </div>
               {product.variants.length > 1 && (
                 <label className="text-left text-sm text-slate-300">
                   Size
@@ -481,13 +606,35 @@ export default function CustomProductPage() {
                   </select>
                 </label>
               )}
-              <button
-                onClick={buyNow}
-                disabled={buying}
-                className="rounded-xl bg-amber-400 px-4 py-3 font-semibold text-black disabled:opacity-50"
-              >
-                {buying ? 'Opening checkout…' : `Buy Now — CA$${product.priceCad}`}
-              </button>
+              {result.baselineOfferAvailable && !baselineUsed ? (
+                <>
+                  <button
+                    onClick={buyBaseline}
+                    disabled={buying}
+                    className="rounded-xl bg-amber-400 px-4 py-3 font-semibold text-black disabled:opacity-50"
+                  >
+                    {buying ? 'Opening checkout…' : `Buy yours at base price — CA$${result.baselinePriceCad ?? product.priceCad}`}
+                  </button>
+                  <div className="-mt-1 text-xs text-slate-400">
+                    Your one-time creator offer: your first copy at the base price — no markup.
+                  </div>
+                  <button
+                    onClick={buyNow}
+                    disabled={buying}
+                    className="rounded-xl border border-white/15 px-4 py-3 text-sm text-slate-200 disabled:opacity-50"
+                  >
+                    {buying ? 'Opening checkout…' : `Buy at store price — CA$${result.finalPriceCad ?? product.priceCad}`}
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={buyNow}
+                  disabled={buying}
+                  className="rounded-xl bg-amber-400 px-4 py-3 font-semibold text-black disabled:opacity-50"
+                >
+                  {buying ? 'Opening checkout…' : `Buy Now — CA$${result.finalPriceCad ?? product.priceCad}`}
+                </button>
+              )}
               <Link
                 href="/store"
                 className="rounded-xl border border-white/15 px-4 py-3 text-center text-sm text-slate-300"

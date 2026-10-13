@@ -20,9 +20,27 @@
 // config — never from the client.
 // Writes are real (a real Printful product is created) — the designer UI
 // makes that explicit before the user confirms.
+//
+// Creator markup (2026-10-13): the client may submit a markup in CAD
+// dollars; the store price (baseline + markup) is computed HERE from
+// the template config and stamped on both the Printful variants and the
+// Stripe product. The creation is recorded with its creator + full
+// pricing breakdown (lib/store/custom-creations.js) for the creator
+// pages and wallet-crediting steps.
 import { NextResponse } from 'next/server';
 import { apiGuard } from '@/lib/api-guard';
-import { getCustomProduct, DEFAULT_PRODUCT_KEY } from '@/lib/store/custom-products';
+import {
+  getCustomProduct,
+  DEFAULT_PRODUCT_KEY,
+  parseMarkupToCents,
+  finalPriceCents,
+  centsToCadString,
+} from '@/lib/store/custom-products';
+import {
+  optionalUserFromRequest,
+  insertCreationRecord,
+  stripeMetadataForRecord,
+} from '@/lib/store/custom-creations';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -83,7 +101,7 @@ export const POST = apiGuard(async (req) => {
     return NextResponse.json({ ok: false, error: 'Invalid request.' }, { status: 400 });
   }
 
-  const { imageBase64, fileName, designName, productKey } = body || {};
+  const { imageBase64, fileName, designName, productKey, markup } = body || {};
   if (!imageBase64 || typeof imageBase64 !== 'string' || imageBase64.length < 100) {
     return NextResponse.json({ ok: false, error: 'No design image received.' }, { status: 400 });
   }
@@ -97,6 +115,24 @@ export const POST = apiGuard(async (req) => {
   if (!product) {
     return NextResponse.json({ ok: false, error: 'Unknown product template.' }, { status: 400 });
   }
+
+  // Creator markup (Merlin's creator marketplace): the client submits
+  // ONLY the markup amount in CAD dollars; the store price is recomputed
+  // here from the template baseline — a client-supplied final price is
+  // never trusted (payment law). An absent markup means 0 (older
+  // clients, the plain purchase path). Invalid markup creates nothing.
+  const parsedMarkup = parseMarkupToCents(markup, product.priceCents);
+  if (!parsedMarkup.ok) {
+    return NextResponse.json({ ok: false, error: parsedMarkup.error }, { status: 400 });
+  }
+  const markupCents = parsedMarkup.markupCents;
+  const finalCents = finalPriceCents(product.priceCents, markupCents);
+  const finalCad = centsToCadString(finalCents);
+
+  // Creator identity: a verified Supabase user when the client sent its
+  // session token; guests may still create (attribution stays empty and
+  // no baseline offer attaches — see lib/store/custom-creations.js).
+  const creator = await optionalUserFromRequest(req);
 
   const stripPrefix = imageBase64.replace(/^data:image\/\w+;base64,/, '');
   const dims = pngDimensions(stripPrefix);
@@ -126,7 +162,7 @@ export const POST = apiGuard(async (req) => {
     sync_product: { name: `${product.name} - Custom: ${safeName}` },
     sync_variants: product.variants.map((v) => ({
       variant_id: v.id,
-      retail_price: product.priceCad,
+      retail_price: finalCad,
       currency: CURRENCY,
       files,
     })),
@@ -153,31 +189,81 @@ export const POST = apiGuard(async (req) => {
   } catch { /* mockup optional — product still created */ }
 
   // 4. Create the matching Stripe product so Buy Now works immediately
-  //    (the checkout re-prices from Stripe by exact name — same pattern as
-  //    /api/store/sync-products). Skipped honestly when Stripe isn't set up.
+  //    (same pattern as /api/store/sync-products), priced at the final
+  //    store price (baseline + markup). The product's metadata carries
+  //    the full creator-attribution record — see step 5. Skipped
+  //    honestly when Stripe isn't set up.
+  const productName = sp.name || `${product.name} - Custom: ${safeName}`;
   let stripeReady = false;
+  let stripeProductId = null;
   if (process.env.STRIPE_SECRET_KEY) {
     try {
       const mod = await import('stripe');
       const Stripe = mod.default || mod.Stripe || mod;
       const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-      const productName = sp.name || `${product.name} - Custom: ${safeName}`;
-      await stripe.products.create({
+      const stripeProduct = await stripe.products.create({
         name: productName,
         images: mockupUrl ? [mockupUrl] : undefined,
-        metadata: { surface: 'store', printful_id: String(productId), custom: 'true', product_key: product.key },
-        default_price_data: { unit_amount: product.priceCents, currency: 'cad' },
+        metadata: {
+          surface: 'store',
+          printful_id: String(productId),
+          custom: 'true',
+          product_key: product.key,
+          ...stripeMetadataForRecord({
+            creatorUserId: creator ? creator.id : null,
+            templateKey: product.key,
+            designName: safeName,
+            productName,
+            baselineCents: product.priceCents,
+            markupCents,
+            finalCents,
+            currency: 'cad',
+          }),
+        },
+        default_price_data: { unit_amount: finalCents, currency: 'cad' },
       }, { idempotencyKey: `store_custom_${productId}` });
+      stripeProductId = stripeProduct.id;
       stripeReady = true;
     } catch { /* Stripe sync failed — product exists, checkout may need a manual sync */ }
   }
 
+  // 5. Creator attribution record (lib/store/custom-creations.js). The
+  //    Stripe metadata above already carries it; this best-effort insert
+  //    lands the same record in Supabase once the prepared migration
+  //    (supabase/migrations/20261013_store_custom_creations.sql) runs.
+  //    Never fails the creation.
+  await insertCreationRecord({
+    creatorUserId: creator ? creator.id : null,
+    creatorEmail: creator ? creator.email || null : null,
+    templateKey: product.key,
+    designName: safeName,
+    productName,
+    printfulProductId: String(productId),
+    stripeProductId,
+    baselineCents: product.priceCents,
+    markupCents,
+    finalCents,
+    currency: 'cad',
+  });
+
   return NextResponse.json({
     ok: true,
     productId,
-    productName: sp.name || `${product.name} - Custom: ${safeName}`,
+    productName,
     mockupUrl,
     stripeReady,
+    stripeProductId,
     productKey: product.key,
+    // Pricing breakdown — all server-computed from the template config.
+    baselineCents: product.priceCents,
+    markupCents,
+    finalCents,
+    baselinePriceCad: product.priceCad,
+    markupCad: centsToCadString(markupCents),
+    finalPriceCad: finalCad,
+    // The creator's one-time baseline offer attaches only to a verified
+    // creator; the buy route re-verifies before honouring it.
+    creatorAttached: !!creator,
+    baselineOfferAvailable: !!creator,
   });
 });
