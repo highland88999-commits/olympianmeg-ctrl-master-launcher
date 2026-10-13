@@ -112,14 +112,22 @@ export default function ProfilePage() {
               ) : (
                 <p className="mt-2 text-sm text-zinc-600">No bio yet.</p>
               )}
-              {isOwner && (
-                <button
-                  onClick={() => setEditing(true)}
-                  className="mt-4 min-h-[44px] rounded-full bg-white/10 px-5 text-sm font-semibold text-white hover:bg-white/15"
+              <div className="mt-4 flex flex-wrap gap-3">
+                <Link
+                  href={`/store/creator/${encodeURIComponent(id)}`}
+                  className="inline-flex min-h-[44px] items-center rounded-full bg-white/10 px-5 text-sm font-semibold text-white hover:bg-white/15"
                 >
-                  Edit profile
-                </button>
-              )}
+                  View storefront
+                </Link>
+                {isOwner && (
+                  <button
+                    onClick={() => setEditing(true)}
+                    className="min-h-[44px] rounded-full bg-white/10 px-5 text-sm font-semibold text-white hover:bg-white/15"
+                  >
+                    Edit profile
+                  </button>
+                )}
+              </div>
             </>
           ) : (
             <form onSubmit={save} className="space-y-4">

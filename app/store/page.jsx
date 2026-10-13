@@ -432,6 +432,19 @@ function StoreInner() {
           </div>
         )}
 
+        {!rewardMode && (
+          <Link
+            href="/store/marketplace"
+            className="mb-6 flex items-center justify-between gap-3 rounded-xl border border-amber-300/25 bg-amber-300/5 px-4 py-3 text-sm text-slate-200 transition hover:border-amber-300/50"
+          >
+            <span>
+              <span className="font-semibold text-amber-300">Creator Marketplace</span>
+              {' '}— shop designs made by the community, or sell your own.
+            </span>
+            <span aria-hidden="true" className="shrink-0 text-amber-300">→</span>
+          </Link>
+        )}
+
         {rewardMode && (
           <div className="mb-6 rounded-xl border border-amber-400/50 bg-amber-400/10 px-4 py-4">
             <div className="text-sm font-bold uppercase tracking-widest text-amber-300">🏂 Luge reward — your free hoodie</div>

@@ -35,6 +35,7 @@ import {
 } from '@/lib/user-content/bridges';
 import DefaultAvatarPicker from '@/components/profile/DefaultAvatarPicker';
 import MyCreations from '@/components/profile/MyCreations';
+import MyStorefront from '@/components/profile/MyStorefront';
 import Achievements from '@/components/profile/Achievements';
 
 const SUIT_COLORS = [
@@ -483,6 +484,11 @@ export default function ProfilePage() {
         {/* My Creations — server-backed forge items (the one section that
             talks to the network: your creations live on your account). */}
         <MyCreations />
+
+        {/* My Storefront — the creator's public Omega Store page (their
+            Custom Designer products for sale), plus design/marketplace
+            links. Renders only when signed in. */}
+        <MyStorefront />
 
         {/* Achievements — Vecna Slayer milestones, Olympian Scholar, … */}
         <Achievements />
