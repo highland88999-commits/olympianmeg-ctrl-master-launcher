@@ -23,10 +23,6 @@ export default function DoomsdayBanner() {
   const [minimized, setMinimized] = useState(false);
   const [videoOk, setVideoOk] = useState(true);
 
-  // TRON realm (shadow-realm): banner fully hidden — Merlin 2026-10-12,
-  // it interferes with the realm overlay. Not transparent; removed.
-  if (pathname && pathname.startsWith('/shadow-realm')) return null;
-
   useEffect(() => {
     try {
       setMinimized(window.localStorage.getItem(MIN_KEY) === '1');
@@ -72,6 +68,13 @@ export default function DoomsdayBanner() {
       return next;
     });
   }
+
+  // TRON realm (shadow-realm): banner fully hidden — Merlin 2026-10-12,
+  // it interferes with the realm overlay. Not transparent; removed.
+  // This check MUST stay below every hook: returning above the useEffect
+  // changed the hook count between routes and crashed the app with React
+  // error #300 (rendered fewer hooks than expected) on 2026-10-13.
+  if (pathname && pathname.startsWith('/shadow-realm')) return null;
 
   if (!info) return null;
 
