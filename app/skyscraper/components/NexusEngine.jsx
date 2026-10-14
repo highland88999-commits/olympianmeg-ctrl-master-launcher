@@ -1,5 +1,5 @@
 'use client';
-import { useRef, useEffect, useMemo, memo } from 'react';
+import { useRef, useEffect, useMemo, useState, memo } from 'react';
 import * as THREE from 'three';
 import { useFrame, useThree } from '@react-three/fiber';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
@@ -23,8 +23,12 @@ import DeadpoolAvatar from './DeadpoolAvatar';
 // The pick crosses the wire in the broadcast payload's `char`
 // field (validated against the roster on receipt); peers whose
 // clients don't send one are resolved once through the public
-// profile-character API by their authId. Seated/driving poses do
-// not exist yet (Wave 6): while DRIVING the bespoke hero rides.
+// profile-character API by their authId. DRIVING (the follow-up
+// wave, on Wave 6's 'drive' pose): the picked character rides the
+// Lightcycle in the bespoke hero's seat — he steps aside only
+// while a picked model is ready, and rides again the moment it
+// isn't (the same rule as on foot, and as ever the fallback is
+// the native body, never a hole).
 import {
     createPresenceEmbodiments, characterIdFromPresencePayload,
 } from '@/lib/characters/presence-embodiment';
@@ -60,7 +64,7 @@ const applySkyscraperCollision = (objOrCamera) => {
     }
 };
 
-const Lightcycle = memo(({ bikeRef, onMount, color, animState, isActive }) => (
+const Lightcycle = memo(({ bikeRef, onMount, color, animState, isActive, riderHost, riderReady }) => (
     <group ref={bikeRef} onPointerDown={onMount}>
         <mesh position={[0, 0.5, -1.2]} rotation={[0, 0, Math.PI/2]}><cylinderGeometry args={[0.5, 0.5, 0.2, 32]} /><meshStandardMaterial color="#050505" metalness={0.8} roughness={0.5} /></mesh>
         <mesh position={[0, 0.5, -1.2]} rotation={[0, 0, Math.PI/2]}><torusGeometry args={[0.5, 0.05, 16, 64]} /><meshStandardMaterial color={color} emissive={color} emissiveIntensity={2} /></mesh>
@@ -70,9 +74,23 @@ const Lightcycle = memo(({ bikeRef, onMount, color, animState, isActive }) => (
         <mesh position={[0, 0.7, -0.2]}><boxGeometry args={[0.4, 0.2, 1.2]} /><meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.5} transparent opacity={0.6} /></mesh>
         <pointLight position={[0, 0.5, 0]} color={color} intensity={2} distance={10} />
         
-        {/* 🚀 RENDER AVATAR IN DRIVING POSTURE */}
+        {/* 🚀 RENDER AVATAR IN DRIVING POSTURE — the picked
+            character (the Wave 2 self host) drives while its
+            model is ready, inside a wrapper replicating the
+            bespoke rider's own outer transform (π yaw, 3.5
+            scale, his settled driving bob: −0.2 drop, 0.4 lean)
+            so the swap changes WHO rides, never where the rider
+            sits. No pick / not ready: Deadpool rides, as ever. */}
         {animState === 'DRIVING' && isActive && (
-             <DeadpoolAvatar isDriving={true} velocity={1} />
+            riderReady && riderHost ? (
+                <group rotation={[0, Math.PI, 0]} scale={[3.5, 3.5, 3.5]}>
+                    <group position={[0, -0.2, 0]} rotation={[0.4, 0, 0]}>
+                        <primitive object={riderHost} />
+                    </group>
+                </group>
+            ) : (
+                <DeadpoolAvatar isDriving={true} velocity={1} />
+            )
         )}
 
         {animState !== 'DRIVING' && (
@@ -166,6 +184,12 @@ export default function NexusEngine({
     }
     const walkerCharRef = useRef(undefined);
     const selfHost = useMemo(() => embRef.current.hostFor('self'), []);
+    // The self model's readiness as React state: the Lightcycle
+    // rider swap is a render branch (Deadpool vs the host), and
+    // readiness flips asynchronously as the GLB streams in —
+    // useFrame mirrors it here only when it actually changes.
+    const selfReadyRef = useRef(false);
+    const [selfReady, setSelfReady] = useState(false);
     const nativeAvatarRef = useRef();
     const peerFetchRef = useRef({}); // peerId -> true once its pick lookup ran
 
@@ -389,6 +413,14 @@ export default function NexusEngine({
             }
         });
 
+        // Self readiness mirror for the Lightcycle rider swap.
+        const selfHandleNow = embRef.current.handleFor('self');
+        const selfReadyNow = !!(selfHandleNow && selfHandleNow.isReady());
+        if (selfReadyNow !== selfReadyRef.current) {
+            selfReadyRef.current = selfReadyNow;
+            setSelfReady(selfReadyNow);
+        }
+
         if (!isGhostMode && Date.now() - lastBroadcast.current > 66) {
             supabase.channel('hub_room').send({
                 type: 'broadcast', event: 'player_move',
@@ -531,7 +563,14 @@ export default function NexusEngine({
                 currentMeshRef.current.quaternion.copy(currentQuatRef.current);
                 currentMeshRef.current.scale.setScalar(currentScaleRef.current);
             }
-    
+
+            // 🚀 DRIVING EMBODIMENT: the picked character holds
+            // the 'drive' pose on the bike — its host is mounted
+            // inside the active Lightcycle (see the rider swap).
+            if (selfHandleNow && selfHandleNow.isReady()) {
+                selfHandleNow.update('drive', dt, state.clock.elapsedTime, {});
+            }
+
             const speedFactor = Math.abs(velocity.current.z);
             const dynamicZOffset = -6 - (speedFactor * 2.5);
             const dynamicYOffset = 2 + (speedFactor * 0.6);
@@ -687,6 +726,7 @@ export default function NexusEngine({
 
                     <Lightcycle 
                         bikeRef={bikeRef} color="#00ffff" animState={animState} 
+                        riderHost={selfHost} riderReady={selfReady}
                         isActive={activeBike.current === 'surface'}
                         onMount={(e) => {
                             e.stopPropagation();
@@ -702,6 +742,7 @@ export default function NexusEngine({
                     {(isGhostMode || activeBike.current === 'underworld') && (
                         <Lightcycle 
                             bikeRef={underworldBikeRef} color="#ff0000" animState={animState} 
+                            riderHost={selfHost} riderReady={selfReady}
                             isActive={activeBike.current === 'underworld'}
                             onMount={(e) => {
                                 e.stopPropagation();

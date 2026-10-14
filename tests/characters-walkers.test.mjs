@@ -3,6 +3,12 @@
 // (lib/gta/walker-embodiment.js) that embodies the player's capsule
 // in Mega City, Truman and the Babel district, plus the source
 // wiring of the three scenes and their picker mounts.
+// REVISED by the driving-embodiment follow-up wave: the adapter
+// now carries a permanent seat group under the anchor (the driver
+// mount), so §4/§5 child-bookkeeping pins name it explicitly, and
+// §5's vehicle pins describe the UNMOUNTABLE-vehicle case (a
+// vehicle without position/heading) — the mountable driving path
+// itself is pinned by tests/characters-driving.test.mjs.
 // Run: node tests/characters-walkers.test.mjs (from the repo root).
 // No browser; the network is stubbed out — GLB loads are forced to
 // fail so the fallback contract (capsule stays) is exercised, and
@@ -76,7 +82,7 @@ t('moving player walks', walkerPoseFor(fakePlayer({ moving: true })) === 'walk')
 t('sprinting player runs', walkerPoseFor(fakePlayer({ moving: true, sprinting: true })) === 'run');
 t('sprint flag without motion still idles',
   walkerPoseFor(fakePlayer({ sprinting: true })) === 'idle');
-t('driving never poses the walker (Wave 6 owns seated)',
+t('in-vehicle maps to idle in the on-foot vocabulary (driving is the seat mount)',
   walkerPoseFor(fakePlayer({ moving: true, sprinting: true, inVehicle: {} })) === 'idle');
 t('no player idles', walkerPoseFor(null) === 'idle' && walkerPoseFor(undefined) === 'idle');
 
@@ -89,7 +95,7 @@ t('not ready = capsule stays',
   walkerShowing({ hasHandle: true, ready: false, inVehicle: false, hidden: false }) === false);
 t('no handle = capsule stays',
   walkerShowing({ hasHandle: false, ready: true, inVehicle: false, hidden: false }) === false);
-t('driving = capsule (native driving rendering untouched)',
+t('walkerShowing stays the on-foot question (in-vehicle = not on-foot showing)',
   walkerShowing({ hasHandle: true, ready: true, inVehicle: true, hidden: false }) === false);
 t('world-hidden (subway train) = nothing shows',
   walkerShowing({ hasHandle: true, ready: true, inVehicle: false, hidden: true }) === false);
@@ -124,11 +130,12 @@ t('empty state = capsule', walkerShowing() === false && walkerShowing({}) === fa
   });
   t('profile pick resolves to the embodiment', w.characterId() === JASON);
   t('profile pick attempts the GLB path (handle exists)', w.hasHandle() === true);
-  t('handle group rides under the anchor', w.group.children.length === 1);
+  t('handle group rides under the anchor, beside the seat group',
+    w.group.children.length === 2 && w.group.children.includes(w.seat));
   t('while loading, update keeps the capsule',
     w.update(fakePlayer({ moving: true }), 0.016, 1.0, {}) === false);
   // the inner handle's ready promise settles false under the stub
-  const inner = w.group.children[0];
+  const inner = w.group.children.find((c) => c !== w.seat);
   t('anchor tracks the walker root (x, z, heading)',
     w.group.position.x === 3 && w.group.position.z === -7
     && Math.abs(w.group.rotation.y - 1.25) < 1e-9);
@@ -223,17 +230,18 @@ t('empty state = capsule', walkerShowing() === false && walkerShowing({}) === fa
   t('the capsule footprint reached the attach (procSize.y = 2)',
     calls.every((c) => !c.procSize || c.procSize.y === 2));
   const before = calls.length;
-  t('driving hides the embodiment (capsule/native rendering)',
+  t('an unmountable vehicle (no position/heading) keeps the capsule',
     w.update(fakePlayer({ inVehicle: {}, moving: true }), 0.016, 2.3, {}) === false
     && w.group.visible === false);
-  t('no pose is driven while driving', calls.length === before);
+  t('no pose is driven for an unmountable vehicle', calls.length === before);
   t('world-hidden hides the embodiment (subway train rule)',
     w.update(fakePlayer(), 0.016, 2.4, { hidden: true }) === false);
   t('anchor still tracks while hidden (no pop on reappear)',
     w.group.position.x === 3 && w.group.position.z === -7);
   t('swapping characters disposes the old handle',
     w.setCharacter(FREDDY) === true && disposedCount === 1
-    && w.characterId() === FREDDY && w.group.children[0].name === 'fake-' + FREDDY);
+    && w.characterId() === FREDDY
+    && w.group.children.some((c) => c.name === 'fake-' + FREDDY));
   w.dispose();
   t('adapter dispose disposes the live handle', disposedCount === 2);
 }
