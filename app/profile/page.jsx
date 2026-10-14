@@ -35,6 +35,7 @@ import {
 } from '@/lib/user-content/bridges';
 import DefaultAvatarPicker from '@/components/profile/DefaultAvatarPicker';
 import MyCreations from '@/components/profile/MyCreations';
+import MyCharacters from '@/components/profile/MyCharacters';
 import MyStorefront from '@/components/profile/MyStorefront';
 import Achievements from '@/components/profile/Achievements';
 
@@ -484,6 +485,12 @@ export default function ProfilePage() {
         {/* My Creations — server-backed forge items (the one section that
             talks to the network: your creations live on your account). */}
         <MyCreations />
+
+        {/* Characters — the platform roster from the Olympus 3D
+            generator. Pick one as your profile character; the pick is
+            stored on your account (device-local until the character
+            column's platform update lands). Signed-in only. */}
+        <MyCharacters />
 
         {/* My Storefront — the creator's public Omega Store page (their
             Custom Designer products for sale), plus design/marketplace

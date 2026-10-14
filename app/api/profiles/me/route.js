@@ -9,6 +9,7 @@ import { getUserFromRequest } from '@/lib/economy/auth';
 import { getServiceClient } from '@/lib/economy/supabase';
 import { ensureProfiles } from '@/lib/profiles/ensure';
 import { validateProfileUpdate, PROFILE_TYPES } from '@/lib/profiles/validation';
+import { isCharacterId } from '@/lib/characters/roster';
 import { apiGuard } from '@/lib/api-guard';
 
 export const GET = apiGuard(async function GET(req) {
@@ -62,6 +63,21 @@ export const PATCH = apiGuard(async function PATCH(req) {
     langSent = true;
   }
   delete v.value.preferred_language;
+
+  // Profile character belongs on the PERSONAL row only, same rule.
+  // Roster membership is enforced here (validation only checks the
+  // id's shape): an id that is not a real platform character is a 400,
+  // never a silent store.
+  let profileCharacterId = null;
+  let characterSent = false;
+  if (type === 'personal' && 'profile_character_id' in v.value) {
+    profileCharacterId = v.value.profile_character_id;
+    characterSent = true;
+    if (profileCharacterId !== null && !isCharacterId(profileCharacterId)) {
+      return NextResponse.json({ error: 'Unknown character.' }, { status: 400 });
+    }
+  }
+  delete v.value.profile_character_id;
 
   // Username changes must stay unique across all users.
   if (v.value.username) {
@@ -117,5 +133,28 @@ export const PATCH = apiGuard(async function PATCH(req) {
       .eq('type', 'personal');
     if (lErr && lErr.code !== '42703') throw lErr;
   }
-  return NextResponse.json({ ok: true, profile: data });
+
+  // Profile character, written defensively: the 20261013_profile_character
+  // migration has NOT run yet, so the column may not exist. Same
+  // tolerance as the TikTok handle (42703, plus PostgREST's PGRST204
+  // schema-cache code) — the pick lands once Merlin green-lights the
+  // migration; the client keeps it in localStorage meanwhile and is
+  // told honestly via `persisted` whether the account row took it.
+  let characterPersisted = null;
+  if (characterSent) {
+    const { error: cErr } = await admin
+      .from('user_profiles')
+      .update({ profile_character_id: profileCharacterId })
+      .eq('user_id', auth.user.id)
+      .eq('type', 'personal');
+    if (cErr && cErr.code !== '42703' && cErr.code !== 'PGRST204') throw cErr;
+    characterPersisted = !cErr;
+  }
+  return NextResponse.json({
+    ok: true,
+    profile: data,
+    ...(characterSent
+      ? { profileCharacter: { id: profileCharacterId, persisted: characterPersisted } }
+      : {}),
+  });
 });

@@ -9,12 +9,14 @@ import Starfield from '@/components/agora/Starfield';
 import PostCard from '@/components/agora/PostCard';
 import { validateProfile, sanitizeText, LIMITS } from '@/lib/agora/validation';
 import { displayNameOf } from '@/lib/agora/format';
+import { getCharacterById } from '@/lib/characters/roster';
 
 export default function ProfilePage() {
   const params = useParams();
   const id = params?.id;
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
+  const [character, setCharacter] = useState(null);
   const [posts, setPosts] = useState([]);
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState('');
@@ -53,6 +55,15 @@ export default function ProfilePage() {
         .eq('user_id', id)
         .order('created_at', { ascending: false })
         .limit(20);
+      // The user's profile character (platform roster) — public by
+      // design, served by the profiles API (roster id only, resolved
+      // against the local roster here). Best-effort: a character that
+      // fails to load simply doesn't render.
+      try {
+        const res = await fetch(`/api/profiles/${encodeURIComponent(id)}/character`);
+        const cdata = await res.json().catch(() => ({}));
+        if (!cancelled) setCharacter(getCharacterById(cdata?.characterId) || null);
+      } catch { /* no character block — fine */ }
       if (!cancelled) {
         setPosts((list || []).map((p) => ({ ...p, agora_profiles: prof || null })));
         setLoading(false);
@@ -128,6 +139,22 @@ export default function ProfilePage() {
                   </button>
                 )}
               </div>
+              {character && (
+                <div className="mt-5 flex items-center gap-4 rounded-lg border border-white/10 bg-white/5 p-3">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={character.preview}
+                    alt={character.name}
+                    width={64}
+                    height={64}
+                    className="h-16 w-16 shrink-0 rounded-lg object-cover"
+                  />
+                  <div className="min-w-0">
+                    <div className="text-[10px] uppercase tracking-[0.3em] text-zinc-500">Profile character</div>
+                    <div className="truncate text-base font-bold text-white">{character.name}</div>
+                  </div>
+                </div>
+              )}
             </>
           ) : (
             <form onSubmit={save} className="space-y-4">
