@@ -19,6 +19,16 @@ import {
 } from '@/lib/luge/track';
 import GoldCheckoutOption from '@/components/economy/GoldCheckoutOption';
 import { fx, unlockFx } from '@/lib/fx';
+import { resolveSurfaceCharacter } from '@/lib/characters/embodiment';
+import {
+  createEmbodimentScene,
+  prefetchCharacterGlbs,
+} from '@/lib/characters/character-glb';
+import {
+  LUGE_RIDER_MOUNT,
+  LUGE_RIDER_POSE,
+  LUGE_RIDER_PROC_SIZE,
+} from '@/lib/luge/rider-embodiment';
 import {
   createRoom,
   joinRoom,
@@ -180,6 +190,61 @@ function RivalGhosts({ curve, rivals }) {
           <meshBasicMaterial color={r.color} toneMapped={false} transparent opacity={0.85} />
         </mesh>
       ))}
+    </group>
+  );
+}
+
+// WAVE 6 — the rider: the user's picked character (profile
+// default, or this surface's override) lying on the sled in the
+// pose driver's 'seated' pose, tipped back into the luge recline
+// by the mount contract in lib/luge/rider-embodiment.js (mount ->
+// recline -> yaw -> the Wave 0 embodiment). Visual swap only: the
+// sled's physics, tube, speeds and balance never see the rider,
+// and with no character picked nothing mounts at all — the sled
+// renders exactly as it always has. The mount stays invisible
+// until the model is truly on stage (fallback law: no pop-in, no
+// hole — the empty sled is this surface's native state).
+function RiderFigure() {
+  const pick = useMemo(() => resolveSurfaceCharacter('luge'), []);
+  const yawRef = useRef(null);
+  const handleRef = useRef(null);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if (!pick || !yawRef.current) return undefined;
+    prefetchCharacterGlbs([pick.id]);
+    const scene = createEmbodimentScene({ maxLiveGlb: 1 });
+    const handle = scene.attach({
+      characterId: pick.id,
+      procSize: LUGE_RIDER_PROC_SIZE,
+      slotKey: 'luge:self',
+    });
+    if (!handle) return undefined;
+    let live = true;
+    handleRef.current = handle;
+    yawRef.current.add(handle.group);
+    handle.ready.then((ok) => { if (live && ok) setReady(true); });
+    return () => {
+      live = false;
+      handleRef.current = null;
+      if (handle.group && handle.group.parent === yawRef.current) {
+        yawRef.current.remove(handle.group);
+      }
+      handle.dispose();
+    };
+  }, [pick]);
+
+  useFrame((state, delta) => {
+    const h = handleRef.current;
+    if (h) h.update(LUGE_RIDER_POSE, delta, state.clock.elapsedTime);
+  });
+
+  if (!pick) return null;
+  return (
+    <group position={LUGE_RIDER_MOUNT.position} visible={ready}>
+      <group rotation={[LUGE_RIDER_MOUNT.recline, 0, 0]}>
+        <group rotation={[0, LUGE_RIDER_MOUNT.yaw, 0]} ref={yawRef} />
+      </group>
     </group>
   );
 }
@@ -390,6 +455,9 @@ function LugeTrack({ course, sled, tiltData, onFinish, pvp }) {
           <boxGeometry args={[3.2, 0.2, 6.2]} />
           <meshBasicMaterial color={sled.accent} toneMapped={false} />
         </mesh>
+        {/* WAVE 6: the rider — your character, seated on the sled.
+            Purely visual; nothing here touches the sled's physics. */}
+        <RiderFigure />
         {/* Kept small and local: light must never drown out the hull textures. */}
         <pointLight color={sled.accent} intensity={2.0} distance={60} position={[0, 2, -5]} />
       </group>
