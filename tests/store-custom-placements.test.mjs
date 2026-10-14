@@ -158,5 +158,52 @@ t('joggers is the only multi-placement template',
   t('hoodie client-supplied pocket: rejected', plan.ok === false);
 }
 
+// --- Second batch: the final five rollout types (2026-10-14) --------
+// Specs are the live Printful values (GET /products/{id} +
+// GET /mockup-generator/printfiles/{id}): puzzle 534 and beach towel
+// 259 pin one variant because each size has its own printfile spec;
+// water bottle 848 pins the Clear colour (one size, one shared spec);
+// postcards 433 and apron 894 have a single variant each. The AOP
+// apron's only placement is 'front', so its file type is 'front'.
+const BATCH2 = [
+  { key: 'puzzle', catalogId: 534, priceCents: 3500, type: 'default',
+    print: { w: 4200, h: 3300, dpi: 300, fill: 'cover' }, variantId: 13431 },
+  { key: 'postcards', catalogId: 433, priceCents: 1500, type: 'default',
+    print: { w: 1842, h: 1240, dpi: 300, fill: 'cover' }, variantId: 11513 },
+  { key: 'apron', catalogId: 894, priceCents: 3500, type: 'front',
+    print: { w: 4350, h: 4783, dpi: 150, fill: 'cover' }, variantId: 22903 },
+  { key: 'water-bottle', catalogId: 848, priceCents: 4500, type: 'default',
+    print: { w: 2914, h: 1196, dpi: 300, fill: 'fit' }, variantId: 22017 },
+  { key: 'beach-towel', catalogId: 259, priceCents: 5500, type: 'default',
+    print: { w: 9300, h: 4800, dpi: 150, fill: 'cover' }, variantId: 8874 },
+];
+
+t('catalogue now holds 17 templates', CUSTOM_PRODUCTS.length === 17);
+for (const spec of BATCH2) {
+  const p = getCustomProduct(spec.key);
+  t(`${spec.key}: resolves`, !!p);
+  if (!p) continue;
+  t(`${spec.key}: catalog id`, p.catalogId === spec.catalogId);
+  t(`${spec.key}: baseline price matches the rollout price`,
+    p.priceCents === spec.priceCents);
+  const pls = placementsFor(p);
+  t(`${spec.key}: exactly one user placement`, pls.length === 1);
+  t(`${spec.key}: placement file type`, pls[0].type === spec.type);
+  t(`${spec.key}: print spec`,
+    p.print.w === spec.print.w && p.print.h === spec.print.h &&
+    p.print.dpi === spec.print.dpi && p.print.fill === spec.print.fill);
+  t(`${spec.key}: single pinned variant`,
+    p.variants.length === 1 && p.variants[0].id === spec.variantId);
+  t(`${spec.key}: no size preselect on a single-variant template`,
+    p.defaultSize === null);
+  const plan = planPlacementFiles(p, null);
+  t(`${spec.key}: legacy plan ok`, plan.ok === true);
+  t(`${spec.key}: legacy plan uploads once, one file of its type`,
+    plan.uploads.length === 1 && plan.files.length === 1 &&
+    plan.files[0].type === spec.type &&
+    plan.files[0].source === pls[0].key);
+  t(`${spec.key}: no pocket attachment`, !p.pocketFromFront);
+}
+
 console.log(`store-custom-placements: ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
