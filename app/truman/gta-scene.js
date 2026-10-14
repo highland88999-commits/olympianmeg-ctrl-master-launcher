@@ -10,6 +10,7 @@ import { createWanted, commitCrime, updateWanted, updateCop, checkBusted, resetW
 import { createMission, updateMission, startMission, currentObjective, MISSION_STATE, TRUMAN_MISSIONS } from '@/lib/gta/missions.js';
 import { createInput } from '@/lib/gta/input.js';
 import { findClearSpot } from '@/lib/gta/collisions.js';
+import { createWalkerEmbodiment, capsuleProcSize } from '@/lib/gta/walker-embodiment.js';
 
 function mulberry32(seed) {
   let s = seed >>> 0;
@@ -156,6 +157,13 @@ export function createTrumanGTAScene(canvas, opts = {}) {
   playerMesh.castShadow = true;
   scene.add(playerMesh);
 
+  // Wave 1 (characters everywhere): the walker IS your character —
+  // shared adapter (lib/gta/walker-embodiment.js); the capsule
+  // stays as the native fallback until the model is ready.
+  const walker = createWalkerEmbodiment({
+    scene, surface: 'truman', procSize: capsuleProcSize(0.5, 1.0),
+  });
+
   // Vehicles (perfect identical sedans — uncanny)
   const vehicles = [];
   const vehicleMeshes = new Map();
@@ -273,6 +281,8 @@ export function createTrumanGTAScene(canvas, opts = {}) {
 
     playerMesh.position.set(player.x, player.y + 1.0, player.z);
     playerMesh.rotation.y = player.heading;
+    // Embodied character stands in for the capsule while ready
+    playerMesh.visible = !walker.update(player, dt, now / 1000, {});
 
     const targetX = player.x, targetZ = player.z;
     const px = targetX - Math.sin(camYaw) * Math.cos(camPitch) * camDist;
@@ -365,6 +375,7 @@ export function createTrumanGTAScene(canvas, opts = {}) {
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', resize);
       input.detach();
+      walker.dispose();
       renderer.dispose();
     },
     setCamYaw(yaw) { camYaw = yaw; },
@@ -378,6 +389,8 @@ export function createTrumanGTAScene(canvas, opts = {}) {
       }
     },
     getMissions() { return missions; },
+    setWalkerCharacter(id) { walker.setCharacter(id); },
+    getWalkerCharacter() { return walker.characterId(); },
     input,
   };
 }

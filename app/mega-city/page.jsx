@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { createGTAScene } from './gta-scene';
 import { WantedStars, HealthBar, Minimap, Speedometer, MissionTracker, TouchControls } from '@/lib/gta/hud';
+import CharacterPicker from '@/components/characters/CharacterPicker';
 import { MISSION_STATE } from '@/lib/gta/missions';
 
 export default function MegaCityPage() {
@@ -133,6 +134,13 @@ export default function MegaCityPage() {
       <div style={{ position: 'absolute', top: 180, left: 16, zIndex: 10, pointerEvents: 'none' }}>
         <MissionTracker mission={hud?.mission} />
       </div>
+
+      {/* Character picker — walk as your character (Wave 1) */}
+      <CharacterPicker
+        surface="mega-city"
+        style={{ top: 180, right: 16 }}
+        onPick={(id) => sceneRef.current?.setWalkerCharacter(id)}
+      />
 
       {/* Speedometer (driving) */}
       {hud?.vehicle && (

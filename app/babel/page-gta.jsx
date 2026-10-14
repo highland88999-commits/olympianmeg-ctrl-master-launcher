@@ -8,6 +8,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { createGTAScene } from './gta-scene';
 import { WantedStars, HealthBar, Minimap, Speedometer, MissionTracker, TouchControls } from '@/lib/gta/hud';
+import CharacterPicker from '@/components/characters/CharacterPicker';
 
 export default function BabelGTAPage() {
   const canvasRef = useRef(null);
@@ -122,6 +123,14 @@ export default function BabelGTAPage() {
       <div style={{ position: 'absolute', top: 180, left: 16, zIndex: 10, pointerEvents: 'none' }}>
         <MissionTracker mission={hud?.mission} />
       </div>
+
+      {/* Character picker — walk as your character (Wave 1) */}
+      <CharacterPicker
+        surface="babel"
+        accent="#d4a24e"
+        style={{ top: 180, right: 16 }}
+        onPick={(id) => sceneRef.current?.setWalkerCharacter(id)}
+      />
 
       {/* Speedometer (driving) */}
       {hud?.vehicle && (

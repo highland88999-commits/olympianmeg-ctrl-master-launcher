@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { createTrumanGTAScene } from './gta-scene';
 import { WantedStars, HealthBar, Minimap, Speedometer, MissionTracker, TouchControls } from '@/lib/gta/hud';
+import CharacterPicker from '@/components/characters/CharacterPicker';
 
 export default function TrumanPage() {
   const canvasRef = useRef(null);
@@ -99,6 +100,13 @@ export default function TrumanPage() {
       <div style={{ position: 'absolute', top: 180, left: 16, zIndex: 10, pointerEvents: 'none' }}>
         <MissionTracker mission={hud?.mission} />
       </div>
+
+      {/* Character picker — walk as your character (Wave 1) */}
+      <CharacterPicker
+        surface="truman"
+        style={{ top: 180, right: 16 }}
+        onPick={(id) => sceneRef.current?.setWalkerCharacter(id)}
+      />
 
       {hud?.vehicle && (
         <div style={{ position: 'absolute', bottom: 'calc(24px + env(safe-area-inset-bottom))', right: 24, zIndex: 10, pointerEvents: 'none' }}>

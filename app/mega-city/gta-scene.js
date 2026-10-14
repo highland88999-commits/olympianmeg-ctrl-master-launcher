@@ -9,6 +9,7 @@ import { createWanted, commitCrime, updateWanted, updateCop, checkBusted, resetW
 import { createMission, updateMission, startMission, currentObjective, MISSION_STATE, MEGA_CITY_MISSIONS } from '@/lib/gta/missions.js';
 import { createInput } from '@/lib/gta/input.js';
 import { findClearSpot } from '@/lib/gta/collisions.js';
+import { createWalkerEmbodiment, capsuleProcSize } from '@/lib/gta/walker-embodiment.js';
 import {
   SUBWAY as SUBWAY_CFG, createSubway, updateSubway, subwayPos,
   subwayStatus, nearestStationEntrance,
@@ -246,6 +247,15 @@ export function createGTAScene(canvas, opts = {}) {
   playerMesh.castShadow = true;
   scene.add(playerMesh);
 
+  // Wave 1 (characters everywhere): the walker IS your character —
+  // the shared adapter (lib/gta/walker-embodiment.js) embodies the
+  // resolved pick at the capsule's footprint; the capsule above
+  // stays as the native fallback until the model is ready, and
+  // forever if the load fails.
+  const walker = createWalkerEmbodiment({
+    scene, surface: 'mega-city', procSize: capsuleProcSize(0.5, 1.0),
+  });
+
   // Vehicles (parked around the city)
   const vehicles = [];
   const vehicleMeshes = new Map();
@@ -442,8 +452,11 @@ export function createGTAScene(canvas, opts = {}) {
       updatePlayer(player, inp, camYaw, cityData.colliders, dt);
     }
 
-    // Player mesh (hidden while riding the train)
-    playerMesh.visible = !(sw && sw.mode === 'riding');
+    // Player mesh (hidden while riding the train; hidden whenever
+    // the embodied character is standing in for it)
+    const ridingTrain = !!(sw && sw.mode === 'riding');
+    const embShowing = walker.update(player, dt, now / 1000, { hidden: ridingTrain });
+    playerMesh.visible = !ridingTrain && !embShowing;
     playerMesh.position.set(player.x, player.y + 1.0, player.z);
     playerMesh.rotation.y = player.heading;
 
@@ -591,6 +604,7 @@ export function createGTAScene(canvas, opts = {}) {
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', resize);
       input.detach();
+      walker.dispose();
       renderer.dispose();
     },
     setCamYaw(yaw) { camYaw = yaw; },
@@ -605,6 +619,8 @@ export function createGTAScene(canvas, opts = {}) {
       }
     },
     getMissions() { return missions; },
+    setWalkerCharacter(id) { walker.setCharacter(id); },
+    getWalkerCharacter() { return walker.characterId(); },
     input,
   };
 }
