@@ -17,6 +17,7 @@ import {
   DIFFICULTY, ATTACKS, SPECIAL_STARTUP, SPECIAL_ACTIVE, SPECIAL_RECOVERY,
   SPECIAL_RANGE_BONUS, WARD_SECONDS, COMBO_MULT,
   calcDamage, calcBlockedDamage, walkSpeed,
+  buildSpecialKit, specialIndexForAction, pickReadySpecial, cooldownFraction,
 } from '../../lib/kombat/rules.js';
 
 const ACTIONABLE = new Set(['idle', 'walk']);
@@ -133,8 +134,11 @@ function makeFighter(scene, fighterId, x, facing, specialIdxs, isPlayer, diff) {
   const rig = buildFighterRig(params);
   rig.position.set(x, 0, 0);
   scene.add(rig);
-  const specials = specialIdxs.map((i) => data.specials[i]).filter(Boolean);
-  while (specials.length < 2) specials.push(data.specials[specials.length % data.specials.length]);
+  // STEP 5 — ALL SPECIALS LIVE: the full kit, always. A legacy
+  // equip-2 selection (specialIdxs) is accepted for config compat
+  // and no longer restricts the kit — old flows field every special.
+  void specialIdxs;
+  const { specials, cooldowns } = buildSpecialKit(data);
   return {
     data, rig, params,
     id: fighterId,
@@ -147,7 +151,7 @@ function makeFighter(scene, fighterId, x, facing, specialIdxs, isPlayer, diff) {
     dashT: 0, dashDir: 1, dashCd: 0,
     attack: null, // { kind:'light'|'heavy'|'special', phase, t, didHit, spec, specIdx }
     hitstunT: 0,
-    specials, cooldowns: [0, 0],
+    specials, cooldowns,
     wardT: 0,
     chain: { count: 0, t: 0 },
     wobble: false,
@@ -234,15 +238,17 @@ export function createKombatEngine(canvas, config) {
       p1Name: player.data.name, p2Name: cpu.data.name,
       time: Math.max(0, Math.ceil(timeLeft)),
       round, p1Rounds: player.rounds, p2Rounds: cpu.rounds,
-      sp1cd: player.cooldowns[0] > 0 ? player.cooldowns[0] / Math.max(0.01, player.specials[0].cooldown) : 0,
-      sp2cd: player.cooldowns[1] > 0 ? player.cooldowns[1] / Math.max(0.01, player.specials[1].cooldown) : 0,
+      // per-special cooldown fractions for the Powers pad (all live)
+      spcds: player.specials.map((s, i) => cooldownFraction(s, player.cooldowns[i])),
+      sp1cd: cooldownFraction(player.specials[0], player.cooldowns[0]),
+      sp2cd: cooldownFraction(player.specials[1], player.cooldowns[1]),
       phase,
     };
   }
   function sendHud(force = false) {
     const now = performance.now();
     const p = hudPayload();
-    const k = `${p.p1}|${p.p2}|${p.time}|${p.round}|${p.p1Rounds}|${p.p2Rounds}|${p.phase}|${p.sp1cd.toFixed(1)}|${p.sp2cd.toFixed(1)}`;
+    const k = `${p.p1}|${p.p2}|${p.time}|${p.round}|${p.p1Rounds}|${p.p2Rounds}|${p.phase}|${p.spcds.map((v) => v.toFixed(1)).join(',')}`;
     if (force || k !== lastHudKey || now - lastHudSent > 250) {
       lastHudKey = k; lastHudSent = now;
       H('onHud', p);
@@ -462,7 +468,7 @@ export function createKombatEngine(canvas, config) {
       f.x = x; f.facing = face; f.health = MAX_HEALTH;
       f.vel = 0; f.attack = null; f.hitstunT = 0;
       f.blockHeld = false; f.moveDir = 0;
-      f.cooldowns = [0, 0]; f.wardT = 0;
+      f.cooldowns = f.specials.map(() => 0); f.wardT = 0;
       f.chain.count = 0; f.chain.t = 0;
       f.wobble = false; f.dashT = 0; f.dashCd = 0;
       setPoseState(f, 'idle');
@@ -483,8 +489,9 @@ export function createKombatEngine(canvas, config) {
     if (inRange) {
       const r = Math.random();
       if (r < diff.aggression) {
-        // attack: maybe a special, else heavy/light
-        const readyIdx = f.specials.findIndex((s, i) => f.cooldowns[i] <= 0 && s.damage > 0);
+        // attack: maybe a special, else heavy/light — the AI picks
+        // from the SAME full kit the player holds (Step 5 parity)
+        const readyIdx = pickReadySpecial(f.specials, f.cooldowns);
         const wardIdx = f.specials.findIndex((s, i) => f.cooldowns[i] <= 0 && s.damage <= 0);
         if (readyIdx >= 0 && Math.random() < diff.specialChance) trySpecial(f, readyIdx);
         else if (wardIdx >= 0 && f.health < 45 && Math.random() < 0.5) trySpecial(f, wardIdx);
@@ -542,7 +549,7 @@ export function createKombatEngine(canvas, config) {
     f.poseT += dt;
     f.walkT += dt;
     if (f.chain.t < COMBO_WINDOW) f.chain.t += dt; else f.chain.count = 0;
-    for (let i = 0; i < 2; i++) if (f.cooldowns[i] > 0) f.cooldowns[i] = Math.max(0, f.cooldowns[i] - dt);
+    for (let i = 0; i < f.cooldowns.length; i++) if (f.cooldowns[i] > 0) f.cooldowns[i] = Math.max(0, f.cooldowns[i] - dt);
     if (f.wardT > 0) f.wardT -= dt;
     if (f.dashCd > 0) f.dashCd -= dt;
     if (f.hitstunT > 0) {
@@ -711,8 +718,13 @@ export function createKombatEngine(canvas, config) {
         if (a === 'light') tryAttack(player, 'light');
         else if (a === 'heavy') tryAttack(player, 'heavy');
         else if (a === 'dash') tryDash(player, player.moveDir !== 0 ? Math.sign(player.moveDir) : 0);
-        else if (a === 'sp1') trySpecial(player, 0);
-        else if (a === 'sp2') trySpecial(player, 1);
+        // Movement-pad dashes: toward / away from the opponent
+        else if (a === 'dashIn') tryDash(player, player.facing);
+        else if (a === 'dashBack') tryDash(player, -player.facing);
+        else {
+          const si = specialIndexForAction(a);
+          if (si >= 0) trySpecial(player, si);
+        }
       }
     } else if (phase === 'finishHim') {
       for (const a of pressed.splice(0)) {
@@ -774,7 +786,7 @@ export function createKombatEngine(canvas, config) {
     setMove(v) { input.move = Math.max(-1, Math.min(1, v || 0)); },
     setBlock(b) { input.block = !!b; },
     press(action) {
-      if (['light', 'heavy', 'dash', 'sp1', 'sp2', 'fatality'].includes(action)) pressed.push(action);
+      if (['light', 'heavy', 'dash', 'dashIn', 'dashBack', 'sp1', 'sp2', 'sp3', 'sp4', 'sp5', 'sp6', 'fatality'].includes(action)) pressed.push(action);
     },
     start() {
       ac(); // unlock audio on the user's tap

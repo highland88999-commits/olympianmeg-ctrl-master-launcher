@@ -18,6 +18,7 @@ import {
   DIFFICULTY, ATTACKS, SPECIAL_STARTUP, SPECIAL_ACTIVE, SPECIAL_RECOVERY,
   SPECIAL_RANGE_BONUS, WARD_SECONDS, COMBO_MULT,
   calcDamage, calcBlockedDamage, walkSpeed,
+  buildSpecialKit, specialIndexForAction, pickReadySpecial, cooldownFraction,
 } from '../../lib/kombat/rules.js';
 import {
   BRAWL_ROUND_TIME, BRAWL_MIN_SEPARATION, MULTI_KO_WINDOW,
@@ -142,8 +143,9 @@ function makeBrawlFighter(scene, fighterId, x, z, specialIdxs, isPlayer, diff) {
   const rig = buildFighterRig(params);
   rig.position.set(x, 0, z);
   scene.add(rig);
-  const specials = specialIdxs.map((i) => data.specials[i]).filter(Boolean);
-  while (specials.length < 2) specials.push(data.specials[specials.length % data.specials.length]);
+  // STEP 5 — ALL SPECIALS LIVE: the full kit, always (see engine.js).
+  void specialIdxs;
+  const { specials, cooldowns } = buildSpecialKit(data);
   return {
     data, rig, params,
     id: fighterId,
@@ -159,7 +161,7 @@ function makeBrawlFighter(scene, fighterId, x, z, specialIdxs, isPlayer, diff) {
     attack: null,
     hitstunT: 0,
     wobble: false, // finish-him victim: dizzy sway
-    specials, cooldowns: [0, 0],
+    specials, cooldowns,
     wardT: 0,
     chain: { count: 0, t: 0 },
     speed: walkSpeed(data.stats.speed, isPlayer ? 1 : (diff?.speedMul ?? 1)),
@@ -298,15 +300,17 @@ export function createBrawlEngine(canvas, config) {
       playerName: player.data.name,
       targetName: target ? target.data.name : '',
       eliminated: !player.alive,
-      sp1cd: player.cooldowns[0] > 0 ? player.cooldowns[0] / Math.max(0.01, player.specials[0].cooldown) : 0,
-      sp2cd: player.cooldowns[1] > 0 ? player.cooldowns[1] / Math.max(0.01, player.specials[1].cooldown) : 0,
+      // per-special cooldown fractions for the Powers pad (all live)
+      spcds: player.specials.map((s, i) => cooldownFraction(s, player.cooldowns[i])),
+      sp1cd: cooldownFraction(player.specials[0], player.cooldowns[0]),
+      sp2cd: cooldownFraction(player.specials[1], player.cooldowns[1]),
       phase,
     };
   }
   function sendHud(force = false) {
     const now = performance.now();
     const p = hudPayload();
-    const k = `${p.hp}|${p.alive}|${p.time}|${p.round}|${p.playerRounds}|${p.phase}|${p.targetName}|${p.sp1cd.toFixed(1)}|${p.sp2cd.toFixed(1)}`;
+    const k = `${p.hp}|${p.alive}|${p.time}|${p.round}|${p.playerRounds}|${p.phase}|${p.targetName}|${p.spcds.map((v) => v.toFixed(1)).join(',')}`;
     if (force || k !== lastHudKey || now - lastHudSent > 250) {
       lastHudKey = k; lastHudSent = now;
       H('onHud', p);
@@ -558,7 +562,7 @@ export function createBrawlEngine(canvas, config) {
       f.attack = null; f.hitstunT = 0;
       f.blockHeld = false; f.moveX = 0; f.moveZ = 0;
       f.wobble = false;
-      f.cooldowns = [0, 0]; f.wardT = 0;
+      f.cooldowns = f.specials.map(() => 0); f.wardT = 0;
       f.chain.count = 0; f.chain.t = 0;
       f.dashT = 0; f.dashCd = 0;
       if (f.ai) { f.ai.thinkT = 0.4; f.ai.blockUntil = 0; f.ai.reactArmed = false; f.ai.targetIdx = -1; }
@@ -680,7 +684,8 @@ export function createBrawlEngine(canvas, config) {
     } else {
       const r = Math.random();
       if (r < diff.aggression) {
-        const readyIdx = f.specials.findIndex((s, i) => f.cooldowns[i] <= 0 && s.damage > 0);
+        // same full kit + same picker as the player (Step 5 parity)
+        const readyIdx = pickReadySpecial(f.specials, f.cooldowns);
         const wardIdx = f.specials.findIndex((s, i) => f.cooldowns[i] <= 0 && s.damage <= 0);
         if (readyIdx >= 0 && Math.random() < diff.specialChance) trySpecial(f, readyIdx);
         else if (wardIdx >= 0 && f.health < 45 && Math.random() < 0.5) trySpecial(f, wardIdx);
@@ -734,7 +739,7 @@ export function createBrawlEngine(canvas, config) {
     f.poseT += dt;
     f.walkT += dt;
     if (f.chain.t < COMBO_WINDOW) f.chain.t += dt; else f.chain.count = 0;
-    for (let i = 0; i < 2; i++) if (f.cooldowns[i] > 0) f.cooldowns[i] = Math.max(0, f.cooldowns[i] - dt);
+    for (let i = 0; i < f.cooldowns.length; i++) if (f.cooldowns[i] > 0) f.cooldowns[i] = Math.max(0, f.cooldowns[i] - dt);
     if (f.wardT > 0) f.wardT -= dt;
     if (f.dashCd > 0) f.dashCd -= dt;
     if (f.hitstunT > 0) {
@@ -966,8 +971,10 @@ export function createBrawlEngine(canvas, config) {
         else if (a === 'heavy') tryAttack(player, 'heavy', ATTACKS.heavy.range + 1.2);
         else if (a === 'dash') tryDash(player, input.mx, input.mz);
         else if (a === 'jump') tryJump(player);
-        else if (a === 'sp1') trySpecial(player, 0);
-        else if (a === 'sp2') trySpecial(player, 1);
+        else {
+          const si = specialIndexForAction(a);
+          if (si >= 0) trySpecial(player, si);
+        }
       }
     } else if (phase === 'finishHim') {
       // Only the champion's player may act — a single FATALITY press.
@@ -1046,7 +1053,7 @@ export function createBrawlEngine(canvas, config) {
     },
     setBlock(b) { input.block = !!b; },
     press(action) {
-      if (['light', 'heavy', 'dash', 'sp1', 'sp2', 'jump', 'fatality'].includes(action)) pressed.push(action);
+      if (['light', 'heavy', 'dash', 'sp1', 'sp2', 'sp3', 'sp4', 'sp5', 'sp6', 'jump', 'fatality'].includes(action)) pressed.push(action);
     },
     start() {
       ac();

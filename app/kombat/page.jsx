@@ -2,10 +2,12 @@
 
 // KOMBAT ARENA — 43-fighter 2.5D fighting game.
 // Character select (live 3D preview) -> versus splash -> fight -> result.
-// Mobile-first: virtual joystick + thumb buttons, non-passive touch handling,
-// safe-area clearance, desktop keyboard fallback.
+// Mobile-first: Merlin's N-gon pad controller (components/controls) —
+// continuous-contact glide pads, ALL specials live on the Powers pad,
+// non-passive touch handling, safe-area clearance, desktop keyboard
+// fallback + Mouse Pad mode (controller Settings).
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import * as THREE from 'three';
 import { buildFighterRig, poseRig, updateEffects } from '../../lib/kombat/rig.js';
 import { FIGHTERS, FRANCHISES, getFighter } from '../../lib/kombat/roster.js';
@@ -19,6 +21,29 @@ import {
 } from '../../lib/kombat/select.js';
 import { supabase } from '@/lib/supabase';
 import { ARENA_META } from './arenas';
+import ControllerLayer from '../../components/controls/ControllerLayer.jsx';
+import { duelPads, brawlPads } from '../../lib/kombat/pads.js';
+import {
+  loadControllerSettings,
+  saveControllerSettings,
+} from '../../lib/controls/settings.js';
+
+// Kombat controller wrap art (Menu Art Transfer slots
+// controller-border-kombat / controller-deadspace-kombat): no art has
+// been uploaded yet, so the pads ship with the clean themed CSS
+// border fallback. When uploads land, resolve their URLs here and
+// pass them through — the pads take wraps with no further changes.
+const KOMBAT_WRAP = null;
+
+/** Per-Powers-pad runtime state: wedge cooldown shades + Fatality. */
+function powersRuntime(hud, finishHim) {
+  const rt = {};
+  const cds = hud.spcds || [];
+  for (let i = 0; i < cds.length; i++) rt[`sp${i + 1}`] = { cooldown: cds[i] || 0 };
+  const armed = !!(finishHim.active && finishHim.mine);
+  rt.fatality = { dark: !armed, lit: armed };
+  return rt;
+}
 
 const DIFFS = [
   { id: 'easy', label: 'EASY', desc: 'Slow reactions, timid AI' },
@@ -165,10 +190,15 @@ function FightScreen({ config, onExit }) {
   const canvasRef = useRef(null);
   const engineRef = useRef(null);
   const rootRef = useRef(null);
-  const joyRef = useRef(null);
-  const knobRef = useRef(null);
   const touchGuard = useRef(0); // ignore emulated mouse events after touch
-  const [hud, setHud] = useState({ p1: 1, p2: 1, time: 60, round: 1, p1Rounds: 0, p2Rounds: 0, sp1cd: 0, sp2cd: 0, p1Name: '', p2Name: '' });
+  const [hud, setHud] = useState({ p1: 1, p2: 1, time: 60, round: 1, p1Rounds: 0, p2Rounds: 0, sp1cd: 0, sp2cd: 0, spcds: [], p1Name: '', p2Name: '' });
+  // Merlin's controller: last-chosen settings, restored on load,
+  // persisted the moment they change (never changes on its own)
+  const [ctlSettings, setCtlSettings] = useState(() => loadControllerSettings());
+  const updateCtlSettings = useCallback((next) => {
+    setCtlSettings(next);
+    saveControllerSettings(next);
+  }, []);
   const [banner, setBanner] = useState({ text: '', sub: '', key: 0 });
   const [finishHim, setFinishHim] = useState({ active: false, seconds: 0, mine: false });
   const [fatalityName, setFatalityName] = useState('');
@@ -236,65 +266,8 @@ function FightScreen({ config, onExit }) {
     };
   }, []);
 
-  // joystick: native touch tracking (move axis + quick flick = dash)
-  useEffect(() => {
-    const zone = joyRef.current;
-    if (!zone) return;
-    let touchId = null;
-    let startX = 0;
-    let lastTapT = 0;
-    let lastTapDir = 0;
-    const knob = knobRef.current;
-    const setKnob = (dx) => {
-      if (knob) knob.style.transform = `translate(${Math.max(-34, Math.min(34, dx))}px, 0)`;
-    };
-    const onStart = (e) => {
-      const t = e.changedTouches[0];
-      touchId = t.identifier;
-      startX = t.clientX;
-      setKnob(0);
-    };
-    const onMove = (e) => {
-      for (const t of e.changedTouches) {
-        if (t.identifier !== touchId) continue;
-        const dx = t.clientX - startX;
-        engineRef.current?.setMove(Math.max(-1, Math.min(1, dx / 45)));
-        setKnob(dx);
-      }
-    };
-    const onEnd = (e) => {
-      for (const t of e.changedTouches) {
-        if (t.identifier !== touchId) continue;
-        const dx = t.clientX - startX;
-        const dir = Math.sign(dx);
-        const now = performance.now();
-        if (Math.abs(dx) > 26 && dir !== 0) {
-          if (now - lastTapT < 320 && dir === lastTapDir) {
-            engineRef.current?.press('dash');
-            lastTapT = 0;
-          } else {
-            lastTapT = now;
-            lastTapDir = dir;
-          }
-        }
-        touchId = null;
-        engineRef.current?.setMove(0);
-        setKnob(0);
-      }
-    };
-    zone.addEventListener('touchstart', onStart, { passive: true });
-    zone.addEventListener('touchmove', onMove, { passive: true });
-    zone.addEventListener('touchend', onEnd, { passive: true });
-    zone.addEventListener('touchcancel', onEnd, { passive: true });
-    return () => {
-      zone.removeEventListener('touchstart', onStart);
-      zone.removeEventListener('touchmove', onMove);
-      zone.removeEventListener('touchend', onEnd);
-      zone.removeEventListener('touchcancel', onEnd);
-    };
-  }, []);
-
-  // desktop keyboard fallback
+  // desktop keyboard fallback (Standard desktop mode; Mouse Pad
+  // mode lives in the pads themselves)
   useEffect(() => {
     const held = new Set();
     const applyMove = () => {
@@ -313,6 +286,10 @@ function FightScreen({ config, onExit }) {
         case 'KeyL': eng.setBlock(true); break;
         case 'KeyU': eng.press('sp1'); break;
         case 'KeyI': eng.press('sp2'); break;
+        case 'KeyO': eng.press('sp3'); break;
+        case 'KeyP': eng.press('sp4'); break;
+        case 'BracketLeft': eng.press('sp5'); break;
+        case 'BracketRight': eng.press('sp6'); break;
         case 'ShiftLeft': case 'ShiftRight': eng.press('dash'); break;
         case 'KeyF': eng.press('fatality'); break;
         default: break;
@@ -343,15 +320,35 @@ function FightScreen({ config, onExit }) {
     if (Date.now() - touchGuard.current > 600) fn();
   };
 
-  const sp = [config.playerSpecials[0], config.playerSpecials[1]].map((i) => getFighter(config.playerId)?.specials[i]);
-
-  const btnBase =
-    'flex flex-col items-center justify-center rounded-full font-black text-white select-none ' +
-    'active:scale-95 transition-transform border-2 shadow-lg';
-  const cdStyle = (frac, color) =>
-    frac > 0
-      ? { background: `conic-gradient(rgba(0,0,0,0.72) ${Math.round(frac * 360)}deg, ${color} 0deg)` }
-      : { background: color };
+  // ---------------------------------------------------------------
+  // Merlin's controller — duel configuration (control map):
+  // Movement SQUARE · Combat TRIANGLE · Powers HEXAGON (heptagon
+  // for the two 6-special fighters). Camera: fixed arena framing —
+  // the dead space rests.
+  // ---------------------------------------------------------------
+  const pads = useMemo(() => duelPads(config.playerId), [config.playerId]);
+  const ctlPress = useCallback((key) => {
+    const eng = engineRef.current;
+    if (!eng) return;
+    if (key === 'punch') eng.press('light');
+    else if (key === 'kick') eng.press('heavy');
+    else eng.press(key); // dashIn / dashBack / sp1..sp6 / fatality
+  }, []);
+  const ctlHold = useCallback((key, on) => {
+    if (key === 'block') engineRef.current?.setBlock(on);
+  }, []);
+  const ctlAnalog = useCallback((padId, info) => {
+    if (padId !== 'movement') return;
+    const eng = engineRef.current;
+    if (!eng) return;
+    if (info.key === 'advance') eng.setMove(info.tilt);
+    else if (info.key === 'retreat') eng.setMove(-info.tilt);
+    else eng.setMove(0);
+  }, []);
+  const runtimeByPad = useMemo(
+    () => ({ powers: powersRuntime(hud, finishHim) }),
+    [hud, finishHim],
+  );
 
   return (
     <div
@@ -467,92 +464,17 @@ function FightScreen({ config, onExit }) {
         </div>
       ) : null}
 
-      {/* controls */}
-      <div
-        className="absolute inset-x-0 bottom-0 flex items-end justify-between px-3"
-        style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
-      >
-        {/* joystick */}
-        <div
-          ref={joyRef}
-          className="relative flex h-36 w-36 items-center justify-center rounded-full border-2 border-white/25 bg-white/5"
-          style={{ touchAction: 'none' }}
-          aria-label="Move"
-        >
-          <div className="absolute text-[10px] font-bold tracking-widest text-white/40">MOVE</div>
-          <div ref={knobRef} className="h-16 w-16 rounded-full border-2 border-amber-200/60 bg-amber-400/30 shadow-lg" />
-        </div>
-
-        {/* buttons */}
-        <div className="flex flex-col items-end gap-2">
-          {finishHim.active && finishHim.mine ? (
-            <button
-              className={`${btnBase} kombat-pulse h-20 w-20 border-red-300 bg-red-600 text-sm`}
-              style={{ touchAction: 'none' }}
-              onTouchStart={pressStart(() => engineRef.current?.press('fatality'))}
-              onMouseDown={mouseDown(() => engineRef.current?.press('fatality'))}
-            >FATALITY</button>
-          ) : null}
-          <div className="flex gap-2">
-            <button
-              aria-label="Punch"
-              className={`${btnBase} h-16 w-16 border-orange-300 bg-orange-600 text-[11px]`}
-              style={{ touchAction: 'none' }}
-              onTouchStart={pressStart(() => engineRef.current?.press('light'))}
-              onMouseDown={mouseDown(() => engineRef.current?.press('light'))}
-            >PUNCH</button>
-            <button
-              aria-label="Kick"
-              className={`${btnBase} h-16 w-16 border-red-300 bg-red-700 text-[11px]`}
-              style={{ touchAction: 'none' }}
-              onTouchStart={pressStart(() => engineRef.current?.press('heavy'))}
-              onMouseDown={mouseDown(() => engineRef.current?.press('heavy'))}
-            >KICK</button>
-          </div>
-          <div className="flex gap-2">
-            <button
-              aria-label="Special 1"
-              title={sp[0]?.name}
-              className={`${btnBase} relative h-14 w-14 overflow-hidden border-purple-300 text-[10px]`}
-              style={{ touchAction: 'none', ...cdStyle(hud.sp1cd, '#7c3aed') }}
-              onTouchStart={pressStart(() => engineRef.current?.press('sp1'))}
-              onMouseDown={mouseDown(() => engineRef.current?.press('sp1'))}
-            >
-              <span className="relative z-10 leading-tight">SP1</span>
-              <span className="relative z-10 max-w-[52px] truncate text-[8px] font-bold opacity-80">{sp[0]?.name}</span>
-            </button>
-            <button
-              aria-label="Special 2"
-              title={sp[1]?.name}
-              className={`${btnBase} relative h-14 w-14 overflow-hidden border-purple-300 text-[10px]`}
-              style={{ touchAction: 'none', ...cdStyle(hud.sp2cd, '#7c3aed') }}
-              onTouchStart={pressStart(() => engineRef.current?.press('sp2'))}
-              onMouseDown={mouseDown(() => engineRef.current?.press('sp2'))}
-            >
-              <span className="relative z-10 leading-tight">SP2</span>
-              <span className="relative z-10 max-w-[52px] truncate text-[8px] font-bold opacity-80">{sp[1]?.name}</span>
-            </button>
-            <button
-              aria-label="Block (hold)"
-              className={`${btnBase} h-14 w-14 border-sky-300 bg-sky-700 text-[10px]`}
-              style={{ touchAction: 'none' }}
-              onTouchStart={pressStart(() => engineRef.current?.setBlock(true))}
-              onTouchEnd={(e) => { e.preventDefault(); engineRef.current?.setBlock(false); }}
-              onTouchCancel={() => engineRef.current?.setBlock(false)}
-              onMouseDown={mouseDown(() => engineRef.current?.setBlock(true))}
-              onMouseUp={mouseDown(() => engineRef.current?.setBlock(false))}
-              onMouseLeave={() => engineRef.current?.setBlock(false)}
-            >BLOCK</button>
-            <button
-              aria-label="Dash"
-              className={`${btnBase} h-14 w-14 border-emerald-300 bg-emerald-700 text-[10px]`}
-              style={{ touchAction: 'none' }}
-              onTouchStart={pressStart(() => engineRef.current?.press('dash'))}
-              onMouseDown={mouseDown(() => engineRef.current?.press('dash'))}
-            >DASH</button>
-          </div>
-        </div>
-      </div>
+      {/* Merlin's controller — pads hug the edges, arena undisturbed */}
+      <ControllerLayer
+        pads={pads}
+        settings={ctlSettings}
+        onSettingsChange={updateCtlSettings}
+        runtimeByPad={runtimeByPad}
+        wrap={KOMBAT_WRAP}
+        onPress={ctlPress}
+        onHold={ctlHold}
+        onAnalog={ctlAnalog}
+      />
     </div>
   );
 }
@@ -567,7 +489,6 @@ function SelectScreen({ mode, setMode, onFight }) {
   const [highlightId, setHighlightId] = useState(FIGHTERS[0].id);
   const [difficulty, setDifficulty] = useState('normal');
   const [arenaIdx, setArenaIdx] = useState(0);
-  const [specialIdxs, setSpecialIdxs] = useState([0, 1]);
   const touchedRef = useRef(false);
   useProfilePreHighlight((kombatId) => { if (!touchedRef.current) setHighlightId(kombatId); });
 
@@ -582,19 +503,10 @@ function SelectScreen({ mode, setMode, onFight }) {
     if (!isFighterSelectable(id)) return; // still forging — visible, never pickable
     if (pickMode === 'player') {
       setPlayerId(id);
-      setSpecialIdxs([0, 1]);
       setPickMode('cpu');
     } else {
       setCpuId(id);
     }
-  };
-
-  const toggleSpecial = (i) => {
-    setSpecialIdxs((prev) => {
-      if (prev.includes(i)) return prev.length > 1 ? prev.filter((x) => x !== i) : prev;
-      if (prev.length >= 2) return [prev[1], i];
-      return [...prev, i];
-    });
   };
 
   const randomCpu = () => {
@@ -604,7 +516,10 @@ function SelectScreen({ mode, setMode, onFight }) {
     setHighlightId(pick.id);
   };
 
-  const canFight = playerId && cpuId && specialIdxs.length === 2;
+  // STEP 5: no more equip-2 ritual — every special is live on the
+  // Powers pad. The config still carries the full index list so the
+  // engine boundary stays explicit (engines field the whole kit).
+  const canFight = playerId && cpuId;
   const startFight = () => {
     if (!canFight) return;
     onFight({
@@ -612,14 +527,8 @@ function SelectScreen({ mode, setMode, onFight }) {
       cpuId,
       difficulty,
       arenaIdx,
-      playerSpecials: specialIdxs,
-      cpuSpecials: (() => {
-        const n = getFighter(cpuId).specials.length;
-        const a = Math.floor(Math.random() * n);
-        let b = Math.floor(Math.random() * n);
-        if (b === a) b = (b + 1) % n;
-        return [a, b];
-      })(),
+      playerSpecials: getFighter(playerId).specials.map((_, i) => i),
+      cpuSpecials: getFighter(cpuId).specials.map((_, i) => i),
     });
   };
 
@@ -744,24 +653,20 @@ function SelectScreen({ mode, setMode, onFight }) {
         {/* specials */}
         {player ? (
           <>
-            <h3 className="mb-2 mt-6 text-[11px] font-black tracking-[0.25em] text-white/40">YOUR SPECIAL MOVES — PICK 2</h3>
+            <h3 className="mb-2 mt-6 text-[11px] font-black tracking-[0.25em] text-white/40">YOUR SPECIAL MOVES — ALL {player.specials.length} LIVE ON THE POWERS PAD</h3>
             <div className="grid grid-cols-1 gap-2">
-              {player.specials.map((s, i) => {
-                const on = specialIdxs.includes(i);
-                return (
-                  <button
-                    key={i}
-                    onClick={() => toggleSpecial(i)}
-                    className={`rounded-xl border-2 px-3 py-2.5 text-left ${on ? 'border-purple-300 bg-purple-500/20' : 'border-white/10 bg-white/5'}`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className={`text-sm font-black ${on ? 'text-purple-200' : 'text-white/70'}`}>{on ? '✓ ' : ''}{s.name}</span>
-                      <span className="text-[10px] font-bold text-white/40">DMG {s.damage} · CD {s.cooldown}s</span>
-                    </div>
-                    <div className="mt-0.5 text-[11px] text-white/45">{s.effect}</div>
-                  </button>
-                );
-              })}
+              {player.specials.map((s, i) => (
+                <div
+                  key={i}
+                  className="rounded-xl border-2 border-purple-300/40 bg-purple-500/10 px-3 py-2.5 text-left"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-black text-purple-200">{s.name}</span>
+                    <span className="text-[10px] font-bold text-white/40">DMG {s.damage} · CD {s.cooldown}s</span>
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-white/45">{s.effect}</div>
+                </div>
+              ))}
             </div>
           </>
         ) : null}
@@ -824,7 +729,6 @@ function BrawlSetupScreen({ mode, setMode, onFight }) {
   const [bestOf, setBestOf] = useState(5);
   const [difficulty, setDifficulty] = useState('normal');
   const [arenaIdx, setArenaIdx] = useState(0);
-  const [specialIdxs, setSpecialIdxs] = useState([0, 1]);
 
   const touchedRef = useRef(false);
   useProfilePreHighlight((kombatId) => { if (!touchedRef.current) setHighlightId(kombatId); });
@@ -839,32 +743,19 @@ function BrawlSetupScreen({ mode, setMode, onFight }) {
     setHighlightId(id);
     if (!isFighterSelectable(id)) return; // still forging — visible, never pickable
     setPlayerId(id);
-    setSpecialIdxs([0, 1]);
   };
 
-  const toggleSpecial = (i) => {
-    setSpecialIdxs((prev) => {
-      if (prev.includes(i)) return prev.length > 1 ? prev.filter((x) => x !== i) : prev;
-      if (prev.length >= 2) return [prev[1], i];
-      return [...prev, i];
-    });
-  };
-
+  // STEP 5: every fighter — player and CPU alike — fields ALL of
+  // their specials on the Powers pad. No equip step remains.
   const startFight = () => {
-    if (!playerId || specialIdxs.length !== 2) return;
+    if (!playerId) return;
     const pool = selectableFighters().filter((f) => f.id !== playerId);
     for (let i = pool.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [pool[i], pool[j]] = [pool[j], pool[i]];
     }
     const cpuIds = pool.slice(0, count - 1).map((f) => f.id);
-    const cpuSpecials = cpuIds.map((id) => {
-      const n = getFighter(id).specials.length;
-      const a = Math.floor(Math.random() * n);
-      let b = Math.floor(Math.random() * n);
-      if (b === a) b = (b + 1) % n;
-      return [a, b];
-    });
+    const cpuSpecials = cpuIds.map((id) => getFighter(id).specials.map((_, i) => i));
     onFight({
       mode: 'brawl',
       playerId,
@@ -872,7 +763,7 @@ function BrawlSetupScreen({ mode, setMode, onFight }) {
       difficulty,
       arenaIdx,
       bestOf,
-      playerSpecials: specialIdxs,
+      playerSpecials: getFighter(playerId).specials.map((_, i) => i),
       cpuSpecials,
     });
   };
@@ -887,7 +778,7 @@ function BrawlSetupScreen({ mode, setMode, onFight }) {
     </div>
   );
 
-  const canFight = playerId && specialIdxs.length === 2;
+  const canFight = !!playerId;
 
   return (
     <div className="min-h-screen bg-[#0a0a12] pb-40 text-white" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}>
@@ -1015,25 +906,20 @@ function BrawlSetupScreen({ mode, setMode, onFight }) {
         {/* specials */}
         {player ? (
           <>
-            <h3 className="mb-2 mt-6 text-[11px] font-black tracking-[0.25em] text-white/40">YOUR SPECIAL MOVES — PICK 2</h3>
+            <h3 className="mb-2 mt-6 text-[11px] font-black tracking-[0.25em] text-white/40">YOUR SPECIAL MOVES — ALL {player.specials.length} LIVE ON THE POWERS PAD</h3>
             <div className="grid grid-cols-1 gap-2">
-              {player.specials.map((s, i) => {
-                const on = specialIdxs.includes(i);
-                return (
-                  <button
-                    key={i}
-                    onClick={() => toggleSpecial(i)}
-                    className={`rounded-xl border-2 px-3 py-2.5 text-left ${on ? 'border-purple-300 bg-purple-500/20' : 'border-white/10 bg-white/5'}`}
-                    style={{ touchAction: 'manipulation' }}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className={`text-sm font-black ${on ? 'text-purple-200' : 'text-white/70'}`}>{on ? '✓ ' : ''}{s.name}</span>
-                      <span className="text-[10px] font-bold text-white/40">DMG {s.damage} · CD {s.cooldown}s</span>
-                    </div>
-                    <div className="mt-0.5 text-[11px] text-white/45">{s.effect}</div>
-                  </button>
-                );
-              })}
+              {player.specials.map((s, i) => (
+                <div
+                  key={i}
+                  className="rounded-xl border-2 border-purple-300/40 bg-purple-500/10 px-3 py-2.5 text-left"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-black text-purple-200">{s.name}</span>
+                    <span className="text-[10px] font-bold text-white/40">DMG {s.damage} · CD {s.cooldown}s</span>
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-white/45">{s.effect}</div>
+                </div>
+              ))}
             </div>
           </>
         ) : null}
@@ -1069,14 +955,18 @@ function BrawlFightScreen({ config, onExit }) {
   const canvasRef = useRef(null);
   const engineRef = useRef(null);
   const rootRef = useRef(null);
-  const joyRef = useRef(null);
-  const knobRef = useRef(null);
   const touchGuard = useRef(0);
   const [hud, setHud] = useState({
     hp: 1, alive: 1, total: 1, time: 75, round: 1, bestOf: 3, winsNeeded: 2,
     playerRounds: 0, playerName: '', targetName: '', eliminated: false,
-    sp1cd: 0, sp2cd: 0, phase: 'intro',
+    sp1cd: 0, sp2cd: 0, spcds: [], phase: 'intro',
   });
+  // the same controller settings as the duel — one controller, every mode
+  const [ctlSettings, setCtlSettings] = useState(() => loadControllerSettings());
+  const updateCtlSettings = useCallback((next) => {
+    setCtlSettings(next);
+    saveControllerSettings(next);
+  }, []);
   const [banner, setBanner] = useState({ text: '', sub: '', key: 0 });
   const [combo, setCombo] = useState(null);
   const [finishHim, setFinishHim] = useState({ active: false, seconds: 0, mine: false });
@@ -1144,55 +1034,6 @@ function BrawlFightScreen({ config, onExit }) {
     };
   }, []);
 
-  // joystick: 2D tracking (screen space) -> engine maps to world XZ
-  useEffect(() => {
-    const zone = joyRef.current;
-    if (!zone) return;
-    let touchId = null;
-    let startX = 0, startY = 0;
-    const knob = knobRef.current;
-    const setKnob = (dx, dy) => {
-      if (knob) {
-        const cx = Math.max(-30, Math.min(30, dx));
-        const cy = Math.max(-30, Math.min(30, dy));
-        knob.style.transform = `translate(${cx}px, ${cy}px)`;
-      }
-    };
-    const onStart = (e) => {
-      const t = e.changedTouches[0];
-      touchId = t.identifier;
-      startX = t.clientX; startY = t.clientY;
-      setKnob(0, 0);
-    };
-    const onMove = (e) => {
-      for (const t of e.changedTouches) {
-        if (t.identifier !== touchId) continue;
-        const dx = t.clientX - startX;
-        const dy = t.clientY - startY;
-        engineRef.current?.setMove(dx / 45, dy / 45);
-        setKnob(dx, dy);
-      }
-    };
-    const onEnd = (e) => {
-      for (const t of e.changedTouches) {
-        if (t.identifier !== touchId) continue;
-        touchId = null;
-        engineRef.current?.setMove(0, 0);
-        setKnob(0, 0);
-      }
-    };
-    zone.addEventListener('touchstart', onStart, { passive: true });
-    zone.addEventListener('touchmove', onMove, { passive: true });
-    zone.addEventListener('touchend', onEnd, { passive: true });
-    zone.addEventListener('touchcancel', onEnd, { passive: true });
-    return () => {
-      zone.removeEventListener('touchstart', onStart);
-      zone.removeEventListener('touchmove', onMove);
-      zone.removeEventListener('touchend', onEnd);
-      zone.removeEventListener('touchcancel', onEnd);
-    };
-  }, []);
-
   // desktop keyboard fallback (WASD/arrows move in screen space)
   useEffect(() => {
     const held = new Set();
@@ -1215,6 +1056,10 @@ function BrawlFightScreen({ config, onExit }) {
         case 'KeyL': eng.setBlock(true); break;
         case 'KeyU': eng.press('sp1'); break;
         case 'KeyI': eng.press('sp2'); break;
+        case 'KeyO': eng.press('sp3'); break;
+        case 'KeyP': eng.press('sp4'); break;
+        case 'BracketLeft': eng.press('sp5'); break;
+        case 'BracketRight': eng.press('sp6'); break;
         case 'ShiftLeft': case 'ShiftRight': eng.press('dash'); break;
         case 'Space': eng.press('jump'); break;
         case 'KeyF': eng.press('fatality'); break;
@@ -1248,15 +1093,31 @@ function BrawlFightScreen({ config, onExit }) {
     if (Date.now() - touchGuard.current > 600) fn();
   };
 
-  const sp = [config.playerSpecials[0], config.playerSpecials[1]].map((i) => getFighter(config.playerId)?.specials[i]);
-
-  const btnBase =
-    'flex flex-col items-center justify-center rounded-full font-black text-white select-none ' +
-    'active:scale-95 transition-transform border-2 shadow-lg';
-  const cdStyle = (frac, color) =>
-    frac > 0
-      ? { background: `conic-gradient(rgba(0,0,0,0.72) ${Math.round(frac * 360)}deg, ${color} 0deg)` }
-      : { background: color };
+  // ---------------------------------------------------------------
+  // Merlin's controller — brawl configuration (control map):
+  // Movement OCTAGON (8-way analog compass) · Combat PENTAGON
+  // (Punch · Kick · Block · Jump · Dash) · Powers HEXAGON.
+  // ---------------------------------------------------------------
+  const pads = useMemo(() => brawlPads(config.playerId), [config.playerId]);
+  const ctlPress = useCallback((key) => {
+    const eng = engineRef.current;
+    if (!eng) return;
+    if (key === 'punch') eng.press('light');
+    else if (key === 'kick') eng.press('heavy');
+    else eng.press(key); // jump / dash / sp1..sp6 / fatality
+  }, []);
+  const ctlHold = useCallback((key, on) => {
+    if (key === 'block') engineRef.current?.setBlock(on);
+  }, []);
+  const ctlAnalog = useCallback((padId, info) => {
+    if (padId !== 'movement') return;
+    // screen-space vector; the engine maps it to world XZ
+    engineRef.current?.setMove(info.vector?.x || 0, info.vector?.y || 0);
+  }, []);
+  const runtimeByPad = useMemo(
+    () => ({ powers: powersRuntime(hud, finishHim) }),
+    [hud, finishHim],
+  );
 
   return (
     <div
@@ -1373,99 +1234,17 @@ function BrawlFightScreen({ config, onExit }) {
         </div>
       ) : null}
 
-      {/* controls */}
-      <div
-        className="absolute inset-x-0 bottom-0 flex items-end justify-between px-3"
-        style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
-      >
-        {/* joystick (2D) */}
-        <div
-          ref={joyRef}
-          className="relative flex h-36 w-36 items-center justify-center rounded-full border-2 border-white/25 bg-white/5"
-          style={{ touchAction: 'none' }}
-          aria-label="Move"
-        >
-          <div className="absolute text-[10px] font-bold tracking-widest text-white/40">MOVE</div>
-          <div ref={knobRef} className="h-16 w-16 rounded-full border-2 border-amber-200/60 bg-amber-400/30 shadow-lg" />
-        </div>
-
-        {/* buttons */}
-        <div className="flex flex-col items-end gap-2">
-          {finishHim.active && finishHim.mine ? (
-            <button
-              className={`${btnBase} kombat-pulse h-20 w-20 border-red-300 bg-red-600 text-sm`}
-              style={{ touchAction: 'none' }}
-              onTouchStart={pressStart(() => engineRef.current?.press('fatality'))}
-              onMouseDown={mouseDown(() => engineRef.current?.press('fatality'))}
-            >FATALITY</button>
-          ) : null}
-          <div className="flex gap-2">
-            <button
-              aria-label="Punch"
-              className={`${btnBase} h-16 w-16 border-orange-300 bg-orange-600 text-[11px]`}
-              style={{ touchAction: 'none' }}
-              onTouchStart={pressStart(() => engineRef.current?.press('light'))}
-              onMouseDown={mouseDown(() => engineRef.current?.press('light'))}
-            >PUNCH</button>
-            <button
-              aria-label="Kick"
-              className={`${btnBase} h-16 w-16 border-red-300 bg-red-700 text-[11px]`}
-              style={{ touchAction: 'none' }}
-              onTouchStart={pressStart(() => engineRef.current?.press('heavy'))}
-              onMouseDown={mouseDown(() => engineRef.current?.press('heavy'))}
-            >KICK</button>
-          </div>
-          <div className="flex gap-2">
-            <button
-              aria-label="Special 1"
-              title={sp[0]?.name}
-              className={`${btnBase} relative h-14 w-14 overflow-hidden border-purple-300 text-[10px]`}
-              style={{ touchAction: 'none', ...cdStyle(hud.sp1cd, '#7c3aed') }}
-              onTouchStart={pressStart(() => engineRef.current?.press('sp1'))}
-              onMouseDown={mouseDown(() => engineRef.current?.press('sp1'))}
-            >
-              <span className="relative z-10 leading-tight">SP1</span>
-              <span className="relative z-10 max-w-[52px] truncate text-[8px] font-bold opacity-80">{sp[0]?.name}</span>
-            </button>
-            <button
-              aria-label="Special 2"
-              title={sp[1]?.name}
-              className={`${btnBase} relative h-14 w-14 overflow-hidden border-purple-300 text-[10px]`}
-              style={{ touchAction: 'none', ...cdStyle(hud.sp2cd, '#7c3aed') }}
-              onTouchStart={pressStart(() => engineRef.current?.press('sp2'))}
-              onMouseDown={mouseDown(() => engineRef.current?.press('sp2'))}
-            >
-              <span className="relative z-10 leading-tight">SP2</span>
-              <span className="relative z-10 max-w-[52px] truncate text-[8px] font-bold opacity-80">{sp[1]?.name}</span>
-            </button>
-            <button
-              aria-label="Block (hold)"
-              className={`${btnBase} h-14 w-14 border-sky-300 bg-sky-700 text-[10px]`}
-              style={{ touchAction: 'none' }}
-              onTouchStart={pressStart(() => engineRef.current?.setBlock(true))}
-              onTouchEnd={(e) => { e.preventDefault(); engineRef.current?.setBlock(false); }}
-              onTouchCancel={() => engineRef.current?.setBlock(false)}
-              onMouseDown={mouseDown(() => engineRef.current?.setBlock(true))}
-              onMouseUp={mouseDown(() => engineRef.current?.setBlock(false))}
-              onMouseLeave={() => engineRef.current?.setBlock(false)}
-            >BLOCK</button>
-            <button
-              aria-label="Dash"
-              className={`${btnBase} h-14 w-14 border-emerald-300 bg-emerald-700 text-[10px]`}
-              style={{ touchAction: 'none' }}
-              onTouchStart={pressStart(() => engineRef.current?.press('dash'))}
-              onMouseDown={mouseDown(() => engineRef.current?.press('dash'))}
-            >DASH</button>
-            <button
-              aria-label="Jump"
-              className={`${btnBase} h-14 w-14 border-amber-300 bg-amber-600 text-[10px]`}
-              style={{ touchAction: 'none' }}
-              onTouchStart={pressStart(() => engineRef.current?.press('jump'))}
-              onMouseDown={mouseDown(() => engineRef.current?.press('jump'))}
-            >JUMP</button>
-          </div>
-        </div>
-      </div>
+      {/* Merlin's controller — pads hug the edges, arena undisturbed */}
+      <ControllerLayer
+        pads={pads}
+        settings={ctlSettings}
+        onSettingsChange={updateCtlSettings}
+        runtimeByPad={runtimeByPad}
+        wrap={KOMBAT_WRAP}
+        onPress={ctlPress}
+        onHold={ctlHold}
+        onAnalog={ctlAnalog}
+      />
     </div>
   );
 }
