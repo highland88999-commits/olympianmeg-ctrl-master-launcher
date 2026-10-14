@@ -50,16 +50,16 @@ const AVAILABLE_IDS = sorted([
   'q023-claw-raptor', 'q024-fang-raptor', 'q025-peter-venkman', 'q026-ray-stantz',
   'q033-hulk',
 ]);
-// Dual-wield audit — RESIDUAL gaps. Step 2 fixed Pennywise (claw-glove
-// pair), Predator (claws pair, plasma caster kept) and T-1000 (knife
-// pair); the three are asserted exactly in the canonical-pair block
-// below. The two gaps left are rig-vocabulary limits, not oversights —
-// tracked, not hidden: if this set changes in either direction the
-// suite goes red until a human updates the audit on purpose.
-const KNOWN_VISUAL_GAPS = {
-  'iron-man': 'twin palm repulsors unexpressed: rig effect anchors resolve to chest/head/right-hand only — no left-palm anchor exists in rig.js',
-  'tifa-lockhart': 'fighting gloves unexpressed: the rig has no plain-glove attachment type (claw-glove is Freddy\'s razor glove) — gloves stay costume until the rig gains one',
-};
+// Dual-wield audit — the tracked gap set is EMPTY. Step 2 fixed
+// Pennywise (claw-glove pair), Predator (claws pair, plasma caster
+// kept) and T-1000 (knife pair); Step 3 closed the last two with the
+// rig extensions they needed — a left-hand effect anchor (Iron Man's
+// twin repulsors) and a plain glove attachment type (Tifa's fighting
+// gloves). All seven dual-wielders are asserted exactly in the
+// canonical-pair block below. The set stays as a tripwire: if a
+// dual-wielder ever loses its pair, the suite goes red until a human
+// updates the audit on purpose.
+const KNOWN_VISUAL_GAPS = {};
 
 // --- coverage: one record per roster fighter -------------------------------
 t('bridge carries all 43 fighters', LOADOUTS.length === 43 && LOADOUT_COUNT === 43);
@@ -148,9 +148,20 @@ function bothSidesTypes(visual) {
     .filter(([, sides]) => sides.has('right') && sides.has('left'))
     .map(([type]) => type);
 }
+function bothHandsEffectTypes(visual) {
+  const byType = new Map();
+  for (const e of visual?.effects || []) {
+    if (!e.anchor) continue;
+    if (!byType.has(e.type)) byType.set(e.type, new Set());
+    byType.get(e.type).add(e.anchor);
+  }
+  return [...byType.entries()]
+    .filter(([, anchors]) => anchors.has('hand') && anchors.has('handL'))
+    .map(([type]) => type);
+}
 const auditGaps = [];
 for (const id of DUAL_WIELDERS) {
-  const pairTypes = bothSidesTypes(VISUALS[id]);
+  const pairTypes = [...bothSidesTypes(VISUALS[id]), ...bothHandsEffectTypes(VISUALS[id])];
   if (pairTypes.length === 0) auditGaps.push(id);
   else t(`${id} visual spec wields its pair on both sides (${pairTypes.join('+')})`, true);
 }
@@ -186,14 +197,16 @@ for (const id of auditGaps) {
   t('T-1000 morphs blade arms on BOTH sides (one knife per arm)',
     t1.filter((a) => a.type === 'knife').length === 2
     && eq(sorted(t1.filter((a) => a.type === 'knife').map((a) => a.side)), ['left', 'right']));
+  // Step 3 fixes — the last two gaps, closed by their rig extensions:
+  const im = VISUALS['iron-man'].effects;
+  t('Iron Man fires twin repulsors — exactly two glows, one per hand anchor',
+    im.filter((e) => e.type === 'glow').length === 2
+    && eq(sorted(im.filter((e) => e.type === 'glow').map((e) => e.anchor)), ['hand', 'handL']));
+  const tf = VISUALS['tifa-lockhart'].attachments;
+  t('Tifa wears her fighting gloves on BOTH hands',
+    tf.filter((a) => a.type === 'gloves').length === 2
+    && eq(sorted(tf.filter((a) => a.type === 'gloves').map((a) => a.side)), ['left', 'right']));
 }
-// The two residual gaps are pinned to their current honest state, so an
-// unreviewed change to either entry goes red like any other drift:
-t('Iron Man expresses the one repulsor the effect anchors can reach (right hand)',
-  (VISUALS['iron-man'].attachments || []).length === 0
-  && VISUALS['iron-man'].effects.filter((e) => e.type === 'glow' && e.anchor === 'hand').length === 1);
-t('Tifa wears no bladed stand-in for her fighting gloves',
-  (VISUALS['tifa-lockhart'].attachments || []).length === 0);
 t('Chucky visual spec does not fake a dual-wield',
   bothSidesTypes(VISUALS['chucky']).length === 0);
 
