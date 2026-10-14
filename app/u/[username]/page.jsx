@@ -7,6 +7,8 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { ProfileClient } from '@/components/profiles/ProfileClient';
 import ProfileAffiliatePanel from '@/components/affiliates/ProfileAffiliatePanel';
+import CharacterToken from '@/components/characters/CharacterToken';
+import { getCharacterById } from '@/lib/characters/roster';
 
 export const dynamic = 'force-dynamic';
 
@@ -70,11 +72,33 @@ async function loadProfile(username, type) {
       profile = data;
     }
     if (!profile) return { missing: true };
+    // WAVE 2: the owner's profile character (platform roster),
+    // the display Agora profiles already have. The pick lives on
+    // the PERSONAL row (profile_character_id): read it straight
+    // off this row for the personal view; for the business view,
+    // one guarded lookup by user_id. A missing column (pre-
+    // migration) or any error simply means "no character shown".
+    let characterId = null;
+    try {
+      if (type !== 'business' && typeof profile.profile_character_id === 'string') {
+        characterId = profile.profile_character_id;
+      } else if (profile.user_id) {
+        const { data: personal } = await db
+          .from('user_profiles')
+          .select('profile_character_id')
+          .eq('user_id', profile.user_id)
+          .eq('type', 'personal')
+          .maybeSingle();
+        characterId = personal?.profile_character_id || null;
+      }
+    } catch {
+      characterId = null;
+    }
     const [{ data: art }, { data: posts }] = await Promise.all([
       db.from('art_pieces').select('*').eq('profile_id', profile.id).order('created_at', { ascending: false }),
       db.from('profile_posts').select('*').eq('profile_id', profile.id).order('created_at', { ascending: false }).limit(50),
     ]);
-    return { profile, art: art || [], posts: posts || [] };
+    return { profile, art: art || [], posts: posts || [], characterId };
   } catch {
     return { offline: true };
   }
@@ -174,6 +198,8 @@ export default async function UserProfilePage({ params, searchParams }) {
   if (data.missing) notFound();
 
   const { profile: p, art, posts } = data;
+  // Roster-validated here; an unknown stored id renders nothing.
+  const character = getCharacterById(data.characterId);
 
   return (
     <main className="pf-root">
@@ -220,6 +246,16 @@ export default async function UserProfilePage({ params, searchParams }) {
             ))}
           </div>
         ) : null}
+
+        {/* WAVE 2: the owner's profile character — the same
+            display the Agora profile carries (CharacterToken
+            plate: preview + name), closing the /u gap. */}
+        {character && (
+          <section className="pf-section" style={{ marginTop: '1.6rem' }} aria-label="Profile character">
+            <h2 className="pf-h">Profile character</h2>
+            <CharacterToken characterId={character.id} variant="plate" size={56} />
+          </section>
+        )}
 
         {/* Affiliate panel: owner-only. Renders nothing for anyone else —
             not even the prompt. Appears on both personal and business views. */}

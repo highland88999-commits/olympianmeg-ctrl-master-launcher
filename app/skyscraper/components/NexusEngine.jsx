@@ -15,6 +15,31 @@ import GuidanceArrow from './GuidanceArrow';
 // 🚀 IMPORT THE PROCEDURAL DEADPOOL
 import DeadpoolAvatar from './DeadpoolAvatar';
 
+// WAVE 2 (characters-everywhere) — social embodiment: the player
+// and their hub_room peers stand in this world as their profile
+// characters (Wave 0 module), with the bespoke Deadpool (self) and
+// the wireframe capsules (peers) as the native bodies that stay
+// until a model is ready — and forever on failure (fallback law).
+// The pick crosses the wire in the broadcast payload's `char`
+// field (validated against the roster on receipt); peers whose
+// clients don't send one are resolved once through the public
+// profile-character API by their authId. Seated/driving poses do
+// not exist yet (Wave 6): while DRIVING the bespoke hero rides.
+import {
+    createPresenceEmbodiments, characterIdFromPresencePayload,
+} from '@/lib/characters/presence-embodiment';
+import { resolveSurfaceCharacterId } from '@/lib/characters/embodiment';
+
+// Measured footprint of the peer wireframe capsule
+// (CapsuleGeometry(0.4, 1.2): Ø0.8 across, 2.0 tall — its center
+// sits 1.0 above the floor) and the scale the self embodiment
+// takes inside the avatar group.
+const FIGURE_PROC_SIZE = { x: 0.8, y: 2.0, z: 0.8 };
+// A peer silent this long is gone (mirrors STALE_MS in
+// lib/presence.js): retire its mesh AND its embodiment, so a
+// capped scene never leaks GLB slots to ghosts.
+const PEER_STALE_MS = 15000;
+
 const PULL_IN_POS = new THREE.Vector3(0, 1.7, 0);
 const PULL_IN_QUAT = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0, 'YXZ'));
 const PUSH_OUT_QUAT = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.PI, 0, 'YXZ'));
@@ -61,11 +86,11 @@ const Lightcycle = memo(({ bikeRef, onMount, color, animState, isActive }) => (
 ));
 Lightcycle.displayName = 'Lightcycle';
 
-export default function NexusEngine({ 
-    currentFloor, setCurrentFloor, animState, setAnimState, controlMode, isMobile, 
-    hasEntered, isMapOpen, setIsMapOpen, isFreeRoam, isGhostMode, setActivePlot, 
+export default function NexusEngine({
+    currentFloor, setCurrentFloor, animState, setAnimState, controlMode, isMobile,
+    hasEntered, isMapOpen, setIsMapOpen, isFreeRoam, isGhostMode, setActivePlot,
     inMilesRoom, setInMilesRoom, setShowMilesModal, setShowRestrictedModal,
-    isDead, supabase, user 
+    isDead, supabase, user, walkerCharacterId
 }) {
     const { camera, scene } = useThree();
     
@@ -129,18 +154,95 @@ export default function NexusEngine({
     const lastBroadcast = useRef(0);
     const sessionToken = useMemo(() => Math.random().toString(36).substring(2), []);
 
+    // WAVE 2 embodiment state: one presence manager for the whole
+    // scene (self + peers share the live-GLB cap, slot keys are
+    // per-instance). walkerCharRef is the effective self pick —
+    // the page's CharacterPicker reports it through the
+    // walkerCharacterId prop; until it does, the engine resolves
+    // the Wave 0 chain itself so the first frames are already right.
+    const embRef = useRef(null);
+    if (!embRef.current) {
+        embRef.current = createPresenceEmbodiments({ keyPrefix: 'skyscraper' });
+    }
+    const walkerCharRef = useRef(undefined);
+    const selfHost = useMemo(() => embRef.current.hostFor('self'), []);
+    const nativeAvatarRef = useRef();
+    const peerFetchRef = useRef({}); // peerId -> true once its pick lookup ran
+
+    // Attach (or swap/clear) a peer's embodiment inside the player
+    // group. Refs only — safe to call from the channel handler.
+    const attachPeerEmbodiment = (peerId, characterId) => {
+        const emb = embRef.current;
+        if (!emb) return null;
+        const handle = emb.sync(peerId, characterId, FIGURE_PROC_SIZE);
+        if (handle && playerGroupRef.current) {
+            const host = emb.hostFor(peerId);
+            if (host.parent !== playerGroupRef.current) playerGroupRef.current.add(host);
+        }
+        return handle;
+    };
+
+    // Peers whose broadcast carries no pick: one lookup of their
+    // public profile character by authId (the profiles API already
+    // serves exactly this, roster-validated). Failure leaves the
+    // wireframe capsule — the fallback law, not an error state.
+    const fetchPeerCharacter = (peerId, authId) => {
+        if (!authId || peerFetchRef.current[peerId]) return;
+        peerFetchRef.current[peerId] = true;
+        fetch(`/api/profiles/${encodeURIComponent(authId)}/character`)
+            .then((r) => (r.ok ? r.json() : null))
+            .then((data) => {
+                const rec = remotePlayersRef.current[peerId];
+                const id = characterIdFromPresencePayload({ char: data ? data.characterId : null });
+                if (!rec || !id || rec.charId) return;
+                rec.charId = id;
+                attachPeerEmbodiment(peerId, id);
+            })
+            .catch(() => { /* the capsule stays — fallback law */ });
+    };
+
+    // The self pick: prop reports win; self-resolve until then.
+    useEffect(() => {
+        const id = walkerCharacterId !== undefined
+            ? walkerCharacterId
+            : resolveSurfaceCharacterId('skyscraper');
+        walkerCharRef.current = id;
+        embRef.current.sync('self', id, FIGURE_PROC_SIZE);
+    }, [walkerCharacterId]);
+
+    // Scene teardown frees every embodiment (models + slots).
+    useEffect(() => () => { embRef.current?.disposeAll(); }, []);
+
     useEffect(() => {
         if (!hasEntered) return;
         const channel = supabase.channel('hub_room', { config: { broadcast: { ack: false } } });
         channel.on('broadcast', { event: 'player_move' }, ({ payload }) => {
             if (payload.id === sessionToken) return;
-            if (!remotePlayersRef.current[payload.id]) {
+            const rec = remotePlayersRef.current[payload.id];
+            if (!rec) {
                 const mesh = new THREE.Mesh(avatarGeo, avatarMat);
                 if (playerGroupRef.current) playerGroupRef.current.add(mesh);
-                remotePlayersRef.current[payload.id] = { mesh, targetPos: new THREE.Vector3(payload.x, payload.y, payload.z), targetRot: payload.ry };
+                const fresh = {
+                    mesh,
+                    targetPos: new THREE.Vector3(payload.x, payload.y, payload.z),
+                    targetRot: payload.ry,
+                    // WAVE 2: the peer's pick rides the payload —
+                    // validated against the roster, never trusted raw
+                    charId: characterIdFromPresencePayload(payload),
+                    lastSeen: Date.now(),
+                };
+                remotePlayersRef.current[payload.id] = fresh;
+                if (fresh.charId) attachPeerEmbodiment(payload.id, fresh.charId);
+                else fetchPeerCharacter(payload.id, payload.authId);
             } else {
-                remotePlayersRef.current[payload.id].targetPos.set(payload.x, payload.y, payload.z);
-                remotePlayersRef.current[payload.id].targetRot = payload.ry;
+                rec.targetPos.set(payload.x, payload.y, payload.z);
+                rec.targetRot = payload.ry;
+                rec.lastSeen = Date.now();
+                const charId = characterIdFromPresencePayload(payload);
+                if (charId && charId !== rec.charId) {
+                    rec.charId = charId;
+                    attachPeerEmbodiment(payload.id, charId);
+                }
             }
         }).subscribe();
         return () => supabase.removeChannel(channel);
@@ -254,15 +356,45 @@ export default function NexusEngine({
             scene.fog.color.setHex(isUnderworldCam || isGhostMode ? 0x0a0000 : 0x000000);
         }
 
-        Object.values(remotePlayersRef.current).forEach(p => {
+        // Peers: glide the native capsule; its embodiment (when the
+        // peer has a pick) stands on the floor beneath it and the
+        // capsule steps aside while the model is live (fallback
+        // law). A peer silent past PEER_STALE_MS is retired —
+        // mesh AND embodiment — so capped slots never leak.
+        const frameNow = Date.now();
+        Object.entries(remotePlayersRef.current).forEach(([peerId, p]) => {
+            if (frameNow - (p.lastSeen || 0) > PEER_STALE_MS) {
+                if (p.mesh.parent) p.mesh.parent.remove(p.mesh);
+                const host = embRef.current.remove(peerId);
+                if (host && host.parent) host.parent.remove(host);
+                delete remotePlayersRef.current[peerId];
+                delete peerFetchRef.current[peerId];
+                return;
+            }
             p.mesh.position.lerp(p.targetPos, 0.15);
             p.mesh.rotation.y += (p.targetRot - p.mesh.rotation.y) * 0.15;
+            const handle = embRef.current.handleFor(peerId);
+            if (handle) {
+                const host = embRef.current.hostFor(peerId);
+                host.position.set(
+                    p.mesh.position.x,
+                    p.mesh.position.y - FIGURE_PROC_SIZE.y / 2,
+                    p.mesh.position.z
+                );
+                host.rotation.y = p.mesh.rotation.y;
+                p.mesh.visible = !handle.isReady();
+                if (handle.isReady()) handle.update('idle', dt, state.clock.elapsedTime, {});
+            } else {
+                p.mesh.visible = true;
+            }
         });
 
         if (!isGhostMode && Date.now() - lastBroadcast.current > 66) {
             supabase.channel('hub_room').send({
                 type: 'broadcast', event: 'player_move',
-                payload: { id: sessionToken, authId: user ? user.id : null, x: playerPos.current.x, y: playerPos.current.y, z: playerPos.current.z, ry: currentEuler.current.y }
+                // WAVE 2: `char` carries our effective pick so peers
+                // embody us as our character (null = native capsule)
+                payload: { id: sessionToken, authId: user ? user.id : null, char: walkerCharRef.current || null, x: playerPos.current.x, y: playerPos.current.y, z: playerPos.current.z, ry: currentEuler.current.y }
             });
             lastBroadcast.current = Date.now();
         }
@@ -501,6 +633,19 @@ export default function NexusEngine({
                 avatarWalkingRef.current.quaternion.slerp(targetQuat, 0.2);
             }
 
+            // 🚀 WAVE 2: the embodied self lives inside the avatar
+            // group (it inherits this position + facing). Deadpool
+            // is the native body: visible until the model is ready,
+            // back instantly if the pick clears or the load failed.
+            const selfHandle = embRef.current.handleFor('self');
+            if (nativeAvatarRef.current) {
+                nativeAvatarRef.current.visible = !(selfHandle && selfHandle.isReady());
+            }
+            if (selfHandle && selfHandle.isReady()) {
+                const selfMoving = Math.abs(velocity.current.z) > 0.1 || Math.abs(velocity.current.x) > 0.1;
+                selfHandle.update(selfMoving ? 'walk' : 'idle', dt, state.clock.elapsedTime, { moveDir: selfMoving ? 1 : 0 });
+            }
+
             // 🚀 SMOOTH 3RD PERSON CAMERA TRAILING
             camera.quaternion.setFromEuler(currentEuler.current);
             tempVec3.set(0, 1.4, 3.5); // 1.4m high, 3.5m back
@@ -574,10 +719,15 @@ export default function NexusEngine({
                 </>
             )}
 
-            {/* 🚀 THE THIRD PERSON AVATAR */}
+            {/* 🚀 THE THIRD PERSON AVATAR — the bespoke Deadpool is
+                the native body; the Wave 2 embodiment host stands
+                inside the same group and takes over when ready */}
             {!isDead && animState === 'FREE_ROAM' && (
                 <group ref={avatarWalkingRef}>
-                     <DeadpoolAvatar isDriving={false} velocity={velocity.current.lengthSq()} />
+                     <group ref={nativeAvatarRef}>
+                         <DeadpoolAvatar isDriving={false} velocity={velocity.current.lengthSq()} />
+                     </group>
+                     <primitive object={selfHost} />
                 </group>
             )}
             

@@ -12,6 +12,7 @@ import Telemetry from './components/Telemetry';
 import { MapProvider } from './components/MapContext';
 import AphroIcon from '@/components/aphrodite/icons';
 import { aphroPanel } from '@/components/aphrodite/ambience';
+import CharacterPicker from '@/components/characters/CharacterPicker';
 
 // APHRODITE light touch (per directive): icon glyphs on the page-level
 // buttons + shared panel texture on the two modal panels. Nothing structural.
@@ -75,6 +76,11 @@ export default function OmegaTower() {
     
     const [user, setUser] = useState(null);
     const [showAuthModal, setShowAuthModal] = useState(false);
+
+    // WAVE 2: the walker's character pick (CharacterPicker reports
+    // the effective pick — surface override > profile character —
+    // and NexusEngine embodies it; undefined until the picker does)
+    const [walkerPick, setWalkerPick] = useState(undefined);
 
     useEffect(() => {
         setIsMobile(/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent));
@@ -197,6 +203,18 @@ export default function OmegaTower() {
 
             {!user && hasEntered && (
                 <button onClick={() => setShowAuthModal(true)} style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 8000, background: 'rgba(0, 255, 255, 0.15)', border: '1px solid #00ffff', color: '#00ffff', padding: '10px 20px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', letterSpacing: '2px', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', gap: 8 }}><AphroIcon name="user" size={16} /> SYSTEM LOGIN</button>
+            )}
+
+            {/* WAVE 2: walk as your character — the pick defaults to
+                your profile character; Deadpool stays the native
+                body when you have none or a model fails to load */}
+            {hasEntered && (
+                <CharacterPicker
+                    surface="skyscraper"
+                    accent="#00f0ff"
+                    onPick={setWalkerPick}
+                    style={{ top: '70px', left: '20px', zIndex: 8000 }}
+                />
             )}
             
             {isGhostMode && (
@@ -329,6 +347,7 @@ export default function OmegaTower() {
                                 setShowMilesModal={setShowMilesModal}
                                 setShowRestrictedModal={setShowRestrictedModal}
                                 supabase={supabase} user={user}
+                                walkerCharacterId={walkerPick}
                             />
                         </Suspense>
                     </MapProvider>

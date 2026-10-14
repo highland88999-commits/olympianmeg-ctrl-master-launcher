@@ -16,6 +16,27 @@ import * as THREE from 'three';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 
+import CharacterGlb from '@/components/characters/CharacterGlb';
+import { resolveSurfaceCharacterId } from '@/lib/characters/embodiment';
+
+// WAVE 2 (characters-everywhere): the visitor's own figure is
+// embodied as their profile character through the shared Wave 0
+// module — the hooded figure below is the native body and stays
+// until the model is ready, forever if the load fails (fallback
+// law). PEERS keep their hooded figures + name tags for now, and
+// that is a data limit, not a choice: the presence layer
+// (lib/presence.js) carries only an ephemeral session id, a label
+// and a color — no account identity and no character pick — and
+// the presence table has no column a pick could ride in. Carrying
+// peers' picks means a presence-schema change (SQL, review-gated)
+// or an account-keyed presence read; until one of those lands,
+// embodying peers would mean inventing who they are.
+
+// Measured footprint of the native hooded figure (cone Ø0.84
+// across, head top ≈ 2.21): the GLB takes its place at its scale.
+const FIGURE_PROC_SIZE = { x: 0.84, y: 2.2, z: 0.84 };
+const SELF_SLOT_KEY = 'persephone:self';
+
 // Local reduced-motion hook. @react-three/drei does NOT export
 // useReducedMotion (importing it yields undefined and crashes the page at
 // runtime while the production build stays green), so we read the media
@@ -111,18 +132,41 @@ function Embers({ reduced, count = 260 }) {
 
 // ---------------------------------------------------------------------------
 // One attendee avatar: a hooded-figure cone + head + name tag.
+// With a characterId (the visitor's own figure — see the Wave 2
+// note above) the shared embodiment attaches inside the figure's
+// host group and the native cone + head step aside the moment
+// the model reports ready; without one, or on any load failure,
+// the hooded figure simply stays. Name tag + the "you" light are
+// identity markers, not body — they stay either way.
 // ---------------------------------------------------------------------------
-function AvatarFigure({ position, color, label, you = false }) {
+function AvatarFigure({ position, color, label, you = false, characterId = null }) {
+  const host = useMemo(() => new THREE.Group(), []);
+  const [live, setLive] = useState(false);
+  useEffect(() => { setLive(false); }, [characterId]);
   return (
     <group position={position}>
-      <mesh position={[0, 0.85, 0]}>
-        <coneGeometry args={[0.42, 1.7, 8]} />
-        <meshStandardMaterial color={you ? '#ffd700' : color} roughness={0.85} metalness={0.1} />
-      </mesh>
-      <mesh position={[0, 1.95, 0]}>
-        <sphereGeometry args={[0.26, 12, 12]} />
-        <meshStandardMaterial color={you ? '#f5e6bd' : '#2a2118'} roughness={0.7} />
-      </mesh>
+      <primitive object={host} />
+      {characterId && (
+        <CharacterGlb
+          characterId={characterId}
+          host={host}
+          procSize={FIGURE_PROC_SIZE}
+          slotKey={SELF_SLOT_KEY}
+          onReady={(ok) => setLive(!!ok)}
+        />
+      )}
+      {!live && (
+        <>
+          <mesh position={[0, 0.85, 0]}>
+            <coneGeometry args={[0.42, 1.7, 8]} />
+            <meshStandardMaterial color={you ? '#ffd700' : color} roughness={0.85} metalness={0.1} />
+          </mesh>
+          <mesh position={[0, 1.95, 0]}>
+            <sphereGeometry args={[0.26, 12, 12]} />
+            <meshStandardMaterial color={you ? '#f5e6bd' : '#2a2118'} roughness={0.7} />
+          </mesh>
+        </>
+      )}
       {you && (
         <pointLight position={[0, 2.4, 0]} color="#ffd700" intensity={6} distance={6} decay={2} />
       )}
@@ -146,6 +190,14 @@ function peerSpot(peer, i) {
 // ---------------------------------------------------------------------------
 function Hall({ peers, reduced }) {
   const camRef = useRef(null);
+
+  // The visitor's own pick (Wave 0 chain: 'persephone' surface
+  // override > profile character > none). Read after mount — the
+  // pick lives in the device mirror.
+  const [selfCharacterId, setSelfCharacterId] = useState(null);
+  useEffect(() => {
+    setSelfCharacterId(resolveSurfaceCharacterId('persephone'));
+  }, []);
 
   // Slow cinematic drift; frozen for reduced motion.
   useFrame((state) => {
@@ -266,10 +318,13 @@ function Hall({ peers, reduced }) {
 
       <Embers reduced={reduced} />
 
-      {/* the visitor */}
-      <AvatarFigure position={[2.6, 0, 6.5]} color="#ffd700" label="You" you />
+      {/* the visitor — embodied as their profile character when
+          they have one (Wave 2); the hooded figure otherwise */}
+      <AvatarFigure position={[2.6, 0, 6.5]} color="#ffd700" label="You" you characterId={selfCharacterId} />
 
-      {/* REAL peers only — nothing faked */}
+      {/* REAL peers only — nothing faked. Hooded figures + name
+          tags: the presence payload carries no pick to embody
+          (see the Wave 2 note at the top of this file). */}
       {peers.map((p, i) => (
         <AvatarFigure key={p.id || i} position={peerSpot(p, i)} color={p.color || '#b08d3e'} label={p.label || 'Guest'} />
       ))}
