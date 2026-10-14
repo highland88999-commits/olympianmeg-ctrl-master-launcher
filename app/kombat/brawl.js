@@ -12,6 +12,14 @@ import * as THREE from 'three';
 import { buildFighterRig, poseRig, updateEffects } from '../../lib/kombat/rig.js';
 import { getFighter } from '../../lib/kombat/roster.js';
 import { VISUALS } from '../../lib/kombat/visuals.js';
+import { attachGlbFighter } from '../../lib/kombat/glb-fighter.js';
+import {
+  classifyKit, chooseSpecial, specialUsable, healAmountFor,
+  statusDamageMul, statusSpeedMul, KIND_FX, BUFF_SECONDS, DEBUFF_SECONDS,
+} from '../../lib/kombat/specials.js';
+import { resolvePose } from '../../lib/kombat/pose-state.js';
+import { applyFloorClamp, stepVertical, solveFloorY } from '../../lib/kombat/floor.js';
+import { brawlFraming } from '../../lib/kombat/framing.js';
 import { buildBrawlArena, clampToArena, brawlSpawns, createBrawlCamera } from './arena3d.js';
 import {
   MAX_HEALTH, COMBO_WINDOW, BLOCK_REDUCTION, FINISH_HIM_SECONDS,
@@ -26,6 +34,7 @@ import {
 } from '../../lib/kombat/brawl-rules.js';
 
 const ACTIONABLE = new Set(['idle', 'walk']);
+const _floorBox = new THREE.Box3(); // shared floor-law measure
 
 // jump tuning: apex ~1.2 units, airtime ~0.65s — snappy on a phone
 const JUMP_V = 7.2;
@@ -146,8 +155,23 @@ function makeBrawlFighter(scene, fighterId, x, z, specialIdxs, isPlayer, diff) {
   // STEP 5 — ALL SPECIALS LIVE: the full kit, always (see engine.js).
   void specialIdxs;
   const { specials, cooldowns } = buildSpecialKit(data);
+  // STEP 6 — specials logic (kinds/bands) + GLB swap, as the duel.
+  const specKinds = classifyKit(specials, fighterId);
+  rig.updateMatrixWorld(true);
+  const procBox = new THREE.Box3().setFromObject(rig);
+  const procSize = procBox.getSize(new THREE.Vector3());
+  const glb = attachGlbFighter({ kombatId: fighterId, procSize });
+  if (glb) {
+    rig.add(glb.group);
+    glb.ready.then((ok) => {
+      if (!ok) return;
+      for (const child of rig.children) {
+        if (child !== glb.group) child.visible = false;
+      }
+    });
+  }
   return {
-    data, rig, params,
+    data, rig, params, glb,
     id: fighterId,
     isPlayer,
     pos: new THREE.Vector3(x, 0, z),
@@ -161,8 +185,8 @@ function makeBrawlFighter(scene, fighterId, x, z, specialIdxs, isPlayer, diff) {
     attack: null,
     hitstunT: 0,
     wobble: false, // finish-him victim: dizzy sway
-    specials, cooldowns,
-    wardT: 0,
+    specials, cooldowns, specKinds,
+    wardT: 0, buffT: 0, debuffT: 0,
     chain: { count: 0, t: 0 },
     speed: walkSpeed(data.stats.speed, isPlayer ? 1 : (diff?.speedMul ?? 1)),
     ai: isPlayer ? null : {
@@ -350,9 +374,18 @@ export function createBrawlEngine(canvas, config) {
     if (f.hitstunT > 0) return false;
     const spec = f.specials[idx];
     if (!spec || f.cooldowns[idx] > 0) return false;
-    const tgt = nearestEnemy(f, fighters, 2.0 + SPECIAL_RANGE_BONUS + 1.2);
+    const kind = f.specKinds[idx].kind;
+    // STEP 6 — condition gates, shared with the duel + AI policy.
+    const gate = specialUsable(spec, kind, f, null);
+    if (!gate.ok) {
+      if (f.isPlayer) { sfx.block(); H('onSpecialDenied', idx, gate.reason); }
+      return false;
+    }
+    // ranged kinds snap-face over a longer leash than melee kinds
+    const snap = kind === 'projectile' || kind === 'movement' ? 9 : 2.0 + SPECIAL_RANGE_BONUS + 1.2;
+    const tgt = nearestEnemy(f, fighters, snap);
     if (tgt) faceTowards(f, tgt.pos.x, tgt.pos.z);
-    f.attack = { kind: 'special', phase: 'startup', t: 0, didHit: false, spec, specIdx: idx };
+    f.attack = { kind: 'special', phase: 'startup', t: 0, didHit: false, spec, specIdx: idx, specKind: kind };
     setPoseState(f, 'special');
     f.cooldowns[idx] = spec.cooldown;
     for (const o of fighters) {
@@ -405,49 +438,75 @@ export function createBrawlEngine(canvas, config) {
     return ATTACKS[a.kind];
   }
 
-  function resolveHit(att, def) {
-    const a = att.attack;
-    let base, range, knockback, hitstun, heavyFx;
-    if (a.kind === 'special') {
-      const spec = a.spec;
-      if (spec.damage <= 0) {
-        att.wardT = WARD_SECONDS;
-        _v1.set(att.pos.x, 1.25, att.pos.z);
-        bursts.spawn(_v1, 0x66ccff, 20, 3, 0.7, 0.12);
-        sfx.block();
-        att.attack = null;
-        setPoseState(att, 'idle');
-        return;
-      }
-      base = spec.damage;
-      range = 2.0 + SPECIAL_RANGE_BONUS;
-      knockback = 1.2; hitstun = 0.6; heavyFx = true;
-    } else {
-      const t = ATTACKS[a.kind];
-      base = t.base; range = t.range; knockback = t.knockback; hitstun = t.hitstun;
-      heavyFx = a.kind === 'heavy';
+  // STEP 6 — projectiles (brawl): an orb flies along the attacker's
+  // facing; the first living enemy within contact radius takes the
+  // hit through landHit, exactly like the duel engine.
+  const projectiles = [];
+  const projGeo = new THREE.SphereGeometry(0.17, 12, 10);
+  function spawnProjectile(att, spec) {
+    forwardOf(att, _v1);
+    const mat = new THREE.MeshBasicMaterial({ color: KIND_FX.projectile.color });
+    const mesh = new THREE.Mesh(projGeo, mat);
+    mesh.position.set(att.pos.x + _v1.x * 0.8, 1.3, att.pos.z + _v1.z * 0.8);
+    scene.add(mesh);
+    projectiles.push({
+      mesh, owner: att, spec, life: 2.2,
+      dirX: _v1.x, dirZ: _v1.z, speed: 10.5,
+    });
+    bursts.spawn(mesh.position, KIND_FX.projectile.color, 10, 2.5, 0.35, 0.1);
+  }
+  function clearProjectiles() {
+    for (const p of projectiles) {
+      scene.remove(p.mesh);
+      p.mesh.material.dispose();
     }
+    projectiles.length = 0;
+  }
+  function updateProjectiles(dt) {
+    for (let i = projectiles.length - 1; i >= 0; i--) {
+      const p = projectiles[i];
+      p.life -= dt;
+      p.mesh.position.x += p.dirX * p.speed * dt;
+      p.mesh.position.z += p.dirZ * p.speed * dt;
+      let consumed = p.life <= 0;
+      if (!consumed) {
+        for (const o of fighters) {
+          if (o === p.owner || !o.alive) continue;
+          const dx = o.pos.x - p.mesh.position.x;
+          const dz = o.pos.z - p.mesh.position.z;
+          if (dx * dx + dz * dz < 0.55 * 0.55 && o.y < 1.1) {
+            landHit(p.owner, o, { base: p.spec.damage, knockback: 1.1, hitstun: 0.55, heavyFx: true });
+            consumed = true;
+            break;
+          }
+        }
+      }
+      if (consumed) {
+        scene.remove(p.mesh);
+        p.mesh.material.dispose();
+        projectiles.splice(i, 1);
+      }
+    }
+  }
 
+  // The shared damage landing (combo, ward, status multipliers,
+  // block/chip, hitstun, knockback, KO) — mirrors the duel engine.
+  function landHit(att, def, { base, knockback, hitstun, heavyFx, ignoreBlock = false, applyDebuff = false }) {
     const dx = def.pos.x - att.pos.x;
     const dz = def.pos.z - att.pos.z;
     const dist = Math.hypot(dx, dz);
-    if (dist > range + 0.35) return; // whiff
-    // attacker must be roughly facing the defender
-    forwardOf(att, _v1);
-    const dotFace = (dx * _v1.x + dz * _v1.z) / (dist || 1);
-    if (dotFace < 0.2) return;
-
     // defender blocks only while facing the attacker
     forwardOf(def, _v2);
     const toAtt = dist > 0.001 ? -1 / dist : 0;
     const dotBlock = (dx * _v2.x + dz * _v2.z) * toAtt;
-    const blocking = def.blockHeld && ACTIONABLE.has(def.state) && def.hitstunT <= 0 && dotBlock > 0.35;
+    const blocking = !ignoreBlock && def.blockHeld && ACTIONABLE.has(def.state) && def.hitstunT <= 0 && dotBlock > 0.35;
 
     let dmg = calcDamage(base, att.data.stats.power, def.data.stats.toughness);
     att.chain.count = att.chain.t < COMBO_WINDOW ? att.chain.count + 1 : 1;
     att.chain.t = 0;
     dmg = Math.round(dmg * (COMBO_MULT[Math.min(3, att.chain.count)] || 1));
     if (att.chain.count >= 2) H('onCombo', att.isPlayer ? 0 : 1, att.chain.count);
+    dmg = Math.max(1, Math.round(dmg * statusDamageMul(att, def)));
     if (def.wardT > 0) dmg = Math.max(1, Math.round(dmg * 0.5));
 
     const kl = dist > 0.001 ? 1 / dist : 0;
@@ -469,8 +528,13 @@ export function createBrawlEngine(canvas, config) {
       def.attack = null; // getting hit interrupts your own attack
       setPoseState(def, 'hit');
       def.blockHeld = false;
+      if (applyDebuff) def.debuffT = DEBUFF_SECONDS;
       def.chain.count = 0;
       bursts.spawn(_v1, heavyFx ? 0xff7722 : 0xffcc44, heavyFx ? 30 : 20, heavyFx ? 6 : 4.5, 0.6, 0.14);
+      if (applyDebuff) {
+        _v2.set(def.pos.x, 1.25, def.pos.z);
+        bursts.spawn(_v2, KIND_FX.debuff.color, 16, 2.5, 0.5, 0.11);
+      }
       if (heavyFx) sfx.heavy(); else sfx.hit();
     }
 
@@ -478,6 +542,37 @@ export function createBrawlEngine(canvas, config) {
     sendHud(true);
 
     if (def.health <= 0 && !blocking) onKnockout(att, def);
+  }
+
+  function resolveHit(att, def) {
+    const a = att.attack;
+    let base, range, knockback, hitstun, heavyFx;
+    let ignoreBlock = false, applyDebuff = false;
+    if (a.kind === 'special') {
+      // self kinds and projectiles resolve before this is called
+      const kind = a.specKind || 'strike';
+      base = a.spec.damage;
+      hitstun = 0.6; heavyFx = true;
+      range = att.specKinds[a.specIdx] ? att.specKinds[a.specIdx].band[1] : 2.0 + SPECIAL_RANGE_BONUS;
+      if (kind === 'grab') { knockback = 1.7; ignoreBlock = true; }
+      else if (kind === 'debuff') { knockback = 1.0; applyDebuff = true; }
+      else { knockback = 1.2; }
+    } else {
+      const t = ATTACKS[a.kind];
+      base = t.base; range = t.range; knockback = t.knockback; hitstun = t.hitstun;
+      heavyFx = a.kind === 'heavy';
+    }
+
+    const dx = def.pos.x - att.pos.x;
+    const dz = def.pos.z - att.pos.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist > range + 0.35) return; // whiff — honest, per kind band
+    // attacker must be roughly facing the defender
+    forwardOf(att, _v1);
+    const dotFace = (dx * _v1.x + dz * _v1.z) / (dist || 1);
+    if (dotFace < 0.2) return;
+
+    landHit(att, def, { base, knockback, hitstun, heavyFx, ignoreBlock, applyDebuff });
   }
 
   function onKnockout(att, def) {
@@ -563,6 +658,7 @@ export function createBrawlEngine(canvas, config) {
       f.blockHeld = false; f.moveX = 0; f.moveZ = 0;
       f.wobble = false;
       f.cooldowns = f.specials.map(() => 0); f.wardT = 0;
+      f.buffT = 0; f.debuffT = 0;
       f.chain.count = 0; f.chain.t = 0;
       f.dashT = 0; f.dashCd = 0;
       if (f.ai) { f.ai.thinkT = 0.4; f.ai.blockUntil = 0; f.ai.reactArmed = false; f.ai.targetIdx = -1; }
@@ -571,6 +667,7 @@ export function createBrawlEngine(canvas, config) {
       f.rig.rotation.y = f.yaw;
       f.rig.rotation.z = 0;
     });
+    clearProjectiles();
     timeLeft = BRAWL_ROUND_TIME;
     announcedFight = false;
     koChain.count = 0; koChain.t = 99;
@@ -620,7 +717,8 @@ export function createBrawlEngine(canvas, config) {
     setPoseState(winner, 'idle');
     phase = 'finishHim'; phaseT = FINISH_HIM_SECONDS;
     fatalityDone = false;
-    H('onAnnounce', 'FINISH HIM!', '');
+    // STEP 6 — single render: only the onFinishHim overlay carries
+    // FINISH HIM (see engine.js — the announce doubled it).
     H('onFinishHim', true, FINISH_HIM_SECONDS, winner.isPlayer);
     sfx.announce();
     // CPU champions sometimes perform their own fatality — scaled by
@@ -668,6 +766,15 @@ export function createBrawlEngine(canvas, config) {
     const dz = (foe.pos.z - f.pos.z) / (d || 1);
 
     if (d > 2.6) {
+      // from range, logic may fire first — projectile, buff, heal or
+      // a dash-in special (Step 6 AI policy, lib/kombat/specials.js)
+      if (Math.random() < diff.specialChance) {
+        const idx = chooseSpecial(f.specials, f.specKinds, f.cooldowns, {
+          dist: d, selfHealth: f.health, foeHealth: foe.health,
+          selfWardT: f.wardT, selfBuffT: f.buffT, foeDebuffT: foe.debuffT,
+        }, Math.random);
+        if (idx >= 0 && trySpecial(f, idx)) { f.moveX = 0; f.moveZ = 0; return; }
+      }
       // approach with a wandering strafe so brawls don't conga-line
       a.strafeT -= diff.thinkMs / 1000;
       if (a.strafeT <= 0) {
@@ -684,13 +791,20 @@ export function createBrawlEngine(canvas, config) {
     } else {
       const r = Math.random();
       if (r < diff.aggression) {
-        // same full kit + same picker as the player (Step 5 parity)
-        const readyIdx = pickReadySpecial(f.specials, f.cooldowns);
-        const wardIdx = f.specials.findIndex((s, i) => f.cooldowns[i] <= 0 && s.damage <= 0);
-        if (readyIdx >= 0 && Math.random() < diff.specialChance) trySpecial(f, readyIdx);
-        else if (wardIdx >= 0 && f.health < 45 && Math.random() < 0.5) trySpecial(f, wardIdx);
-        else if (Math.random() < diff.heavyChance) tryAttack(f, 'heavy', ATTACKS.heavy.range + 1.2);
-        else tryAttack(f, 'light', ATTACKS.light.range + 1.2);
+        // same full kit as the player (Step 5 parity), picked by
+        // LOGIC since Step 6 — kind, band, health, status (specials.js)
+        let acted = false;
+        if (Math.random() < diff.specialChance) {
+          const idx = chooseSpecial(f.specials, f.specKinds, f.cooldowns, {
+            dist: d, selfHealth: f.health, foeHealth: foe.health,
+            selfWardT: f.wardT, selfBuffT: f.buffT, foeDebuffT: foe.debuffT,
+          }, Math.random);
+          if (idx >= 0) acted = trySpecial(f, idx);
+        }
+        if (!acted) {
+          if (Math.random() < diff.heavyChance) tryAttack(f, 'heavy', ATTACKS.heavy.range + 1.2);
+          else tryAttack(f, 'light', ATTACKS.light.range + 1.2);
+        }
         if (Math.random() < diff.retreatChance) {
           f.moveX = -dx; f.moveZ = -dz; // back off after attacking
         } else { f.moveX = 0; f.moveZ = 0; }
@@ -741,6 +855,8 @@ export function createBrawlEngine(canvas, config) {
     if (f.chain.t < COMBO_WINDOW) f.chain.t += dt; else f.chain.count = 0;
     for (let i = 0; i < f.cooldowns.length; i++) if (f.cooldowns[i] > 0) f.cooldowns[i] = Math.max(0, f.cooldowns[i] - dt);
     if (f.wardT > 0) f.wardT -= dt;
+    if (f.buffT > 0) f.buffT -= dt;
+    if (f.debuffT > 0) f.debuffT -= dt;
     if (f.dashCd > 0) f.dashCd -= dt;
     if (f.hitstunT > 0) {
       f.hitstunT -= dt;
@@ -753,15 +869,11 @@ export function createBrawlEngine(canvas, config) {
       f.vel.multiplyScalar(Math.max(0, 1 - 6 * dt));
     }
 
-    // jump physics: vertical velocity + gravity, clean landing at y=0
+    // jump physics — through the shared floor-law stepper: gravity
+    // integrates, the plane catches, nothing ever crosses below it
     if (!f.grounded) {
-      f.vy -= GRAVITY * dt;
-      f.y += f.vy * dt;
-      if (f.y <= 0) {
-        f.y = 0;
-        f.vy = 0;
-        f.grounded = true;
-      }
+      const sv = stepVertical(f.y, f.vy, GRAVITY, dt);
+      f.y = sv.y; f.vy = sv.vy; f.grounded = sv.grounded;
     }
 
     // dash
@@ -779,15 +891,47 @@ export function createBrawlEngine(canvas, config) {
         a.phase = 'active';
         if (!a.didHit) {
           a.didHit = true;
-          if (a.kind === 'special' && a.spec && a.spec.damage <= 0) {
-            // defensive ward: applies whether or not anyone is in range
-            f.wardT = WARD_SECONDS;
+          const skind = a.kind === 'special' ? (a.specKind || 'strike') : null;
+          if (skind === 'ward' || skind === 'heal' || skind === 'buff') {
+            // STEP 6 — self kinds resolve on the user, in kind color
             _v1.set(f.pos.x, 1.25, f.pos.z);
-            bursts.spawn(_v1, 0x66ccff, 20, 3, 0.7, 0.12);
-            sfx.block();
+            if (skind === 'ward') {
+              f.wardT = WARD_SECONDS;
+              bursts.spawn(_v1, KIND_FX.ward.color, 20, 3, 0.7, 0.12);
+              sfx.block();
+            } else if (skind === 'heal') {
+              f.health = Math.min(MAX_HEALTH, f.health + healAmountFor(a.spec));
+              bursts.spawn(_v1, KIND_FX.heal.color, 20, 2.5, 0.8, 0.12, 3);
+              sfx.special();
+            } else {
+              f.buffT = BUFF_SECONDS;
+              bursts.spawn(_v1, KIND_FX.buff.color, 20, 3.5, 0.7, 0.12);
+              sfx.special();
+            }
             f.attack = null;
             setPoseState(f, 'idle');
+            sendHud(true);
+          } else if (skind === 'projectile') {
+            spawnProjectile(f, a.spec);
+            sfx.special();
           } else {
+            if (skind === 'movement') {
+              // dash to the nearest enemy, then strike from arrival
+              const tgt0 = nearestEnemy(f, fighters, 9);
+              if (tgt0) {
+                faceTowards(f, tgt0.pos.x, tgt0.pos.z);
+                const dx = tgt0.pos.x - f.pos.x, dz = tgt0.pos.z - f.pos.z;
+                const d = Math.hypot(dx, dz) || 1;
+                const stop = Math.max(0, d - 1.3);
+                _v1.set(f.pos.x, 1.25, f.pos.z);
+                bursts.spawn(_v1, KIND_FX.movement.color, 12, 3, 0.4, 0.1);
+                f.pos.x += (dx / d) * stop;
+                f.pos.z += (dz / d) * stop;
+                clampToArena(f.pos, arena);
+                _v1.set(f.pos.x, 1.25, f.pos.z);
+                bursts.spawn(_v1, KIND_FX.movement.color, 12, 3, 0.4, 0.1);
+              }
+            }
             // single-target: nearest enemy inside range + facing cone
             const reach = a.kind === 'special' ? 2.0 + SPECIAL_RANGE_BONUS + 0.35 : ATTACKS[a.kind].range + 0.35;
             const tgt = nearestEnemy(f, fighters, reach);
@@ -813,8 +957,8 @@ export function createBrawlEngine(canvas, config) {
     if (canMove && ml > 0.05) {
       const nx = f.moveX / Math.max(1, ml), nz = f.moveZ / Math.max(1, ml);
       const airMul = f.grounded ? 1 : 0.85; // slight air-control penalty
-      f.pos.x += nx * f.speed * airMul * dt;
-      f.pos.z += nz * f.speed * airMul * dt;
+      f.pos.x += nx * f.speed * statusSpeedMul(f) * airMul * dt;
+      f.pos.z += nz * f.speed * statusSpeedMul(f) * airMul * dt;
       // face travel direction (AI already faces its target; don't override mid-think)
       if (f.isPlayer || !f.ai || f.ai.targetIdx < 0) {
         const want = Math.atan2(nx, nz);
@@ -830,22 +974,39 @@ export function createBrawlEngine(canvas, config) {
 
     clampToArena(f.pos, arena);
 
-    // pose
-    let pose = 'idle';
-    if (!f.alive) pose = 'ko';
-    else if (!f.grounded) pose = 'walk'; // airborne: legs cycle, reads as a leap
-    else if (f.state === 'walk') pose = 'walk';
-    else if (f.state === 'punch') pose = 'punch';
-    else if (f.state === 'kick') pose = 'kick';
-    else if (f.state === 'special') pose = 'special';
-    else if (f.state === 'hit' || f.state === 'dizzy') pose = 'hit'; // dizzy: hit pose + wobble
-    else if (f.state === 'win') pose = 'win';
-    else if (f.state === 'dash') pose = 'walk';
-    else if (f.state === 'block' || (f.blockHeld && ACTIONABLE.has(f.state))) pose = 'block';
-    poseRig(f.rig, pose, pose === 'walk' || pose === 'idle' ? f.walkT : f.poseT);
+    // pose — the shared resolver (downed-state law: 'ko' iff downed)
+    const pose = resolvePose({
+      state: f.state, alive: f.alive, grounded: f.grounded,
+      blockHeld: f.blockHeld, actionable: ACTIONABLE.has(f.state),
+    });
+    if (f.glb && f.glb.isReady()) {
+      // STEP 6 — the real model, posed by the code pose driver
+      forwardOf(f, _v1);
+      const moveDot = (f.moveX * _v1.x + f.moveZ * _v1.z) >= 0 ? 1 : -1;
+      const timing = f.attack ? attackTiming(f) : null;
+      f.glb.update(pose, dt, elapsed, {
+        moveDir: moveDot,
+        specKind: f.attack?.specKind,
+        actionT: f.attack ? f.attack.t : null,
+        actionDur: timing ? timing.startup + timing.active + timing.recovery : null,
+      });
+    } else {
+      poseRig(f.rig, pose, pose === 'walk' || pose === 'idle' ? f.walkT : f.poseT);
+    }
     updateEffects(f.rig, dt);
 
     f.rig.position.set(f.pos.x, f.y, f.pos.z);
+    // FLOOR LAW (shared update path): GLB bodies are floor-safe by
+    // construction + root clamp; procedural bodies get the geometric
+    // clamp (posed box measured, root solved onto the plane).
+    if (f.glb && f.glb.isReady()) {
+      applyFloorClamp(f.rig);
+    } else {
+      _floorBox.setFromObject(f.rig);
+      if (Number.isFinite(_floorBox.min.y)) {
+        f.rig.position.y = solveFloorY(f.rig.position.y, _floorBox.min.y, f.y);
+      }
+    }
     f.rig.rotation.y = f.yaw;
     // dizzy wobble (finish-him victim) — mirrors the duel engine
     f.rig.rotation.z = f.wobble ? Math.sin(f.walkT * 3.2) * 0.09 : 0;
@@ -860,6 +1021,11 @@ export function createBrawlEngine(canvas, config) {
     const h = canvas.clientHeight || canvas.parentElement?.clientHeight || 480;
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
+    // STEP 6 — framing vs pads: shift the fight band up at phone
+    // aspects so brawlers never play under the pad row.
+    const fr = brawlFraming(w / h);
+    if (fr.shiftUpFrac > 0) camera.setViewOffset(w, h, 0, Math.round(fr.shiftUpFrac * h), w, h);
+    else camera.clearViewOffset();
     camera.updateProjectionMatrix();
   }
   window.addEventListener('resize', resize);
@@ -1017,6 +1183,7 @@ export function createBrawlEngine(canvas, config) {
     }
 
     for (const f of fighters) fighterUpdate(f, dt);
+    updateProjectiles(dt);
     stage.update(dt, elapsed);
     bursts.update(dt);
 

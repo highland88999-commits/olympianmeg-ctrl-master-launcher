@@ -10,6 +10,14 @@ import * as THREE from 'three';
 import { buildFighterRig, poseRig, updateEffects } from '../../lib/kombat/rig.js';
 import { getFighter } from '../../lib/kombat/roster.js';
 import { VISUALS } from '../../lib/kombat/visuals.js';
+import { attachGlbFighter } from '../../lib/kombat/glb-fighter.js';
+import {
+  classifyKit, chooseSpecial, specialUsable, inBand, healAmountFor,
+  statusDamageMul, statusSpeedMul, KIND_FX, BUFF_SECONDS, DEBUFF_SECONDS,
+} from '../../lib/kombat/specials.js';
+import { resolvePose } from '../../lib/kombat/pose-state.js';
+import { applyFloorClamp, solveFloorY } from '../../lib/kombat/floor.js';
+import { duelFraming } from '../../lib/kombat/framing.js';
 import { buildArena } from './arenas.js';
 import {
   MAX_HEALTH, ROUND_TIME, ROUNDS_TO_WIN, FINISH_HIM_SECONDS,
@@ -21,6 +29,7 @@ import {
 } from '../../lib/kombat/rules.js';
 
 const ACTIONABLE = new Set(['idle', 'walk']);
+const _floorBox = new THREE.Box3(); // shared floor-law measure (engine.js + brawl.js pattern)
 
 // ------------------------------------------------------------------
 // tiny WebAudio bleeps (no audio files); context resumes on user gesture
@@ -139,8 +148,27 @@ function makeFighter(scene, fighterId, x, facing, specialIdxs, isPlayer, diff) {
   // and no longer restricts the kit — old flows field every special.
   void specialIdxs;
   const { specials, cooldowns } = buildSpecialKit(data);
+  // STEP 6 — specials carry logic: classify the kit once (kind +
+  // range band per special) for execution and the AI policy.
+  const specKinds = classifyKit(specials, fighterId);
+  // STEP 6 — GLB SWAP: attach the fighter's real Tripo model under
+  // the rig root. The procedural body stands in until the model
+  // arrives, and stays forever if the load fails or no glbUrl exists.
+  rig.updateMatrixWorld(true);
+  const procBox = new THREE.Box3().setFromObject(rig);
+  const procSize = procBox.getSize(new THREE.Vector3());
+  const glb = attachGlbFighter({ kombatId: fighterId, procSize });
+  if (glb) {
+    rig.add(glb.group);
+    glb.ready.then((ok) => {
+      if (!ok) return;
+      for (const child of rig.children) {
+        if (child !== glb.group) child.visible = false;
+      }
+    });
+  }
   return {
-    data, rig, params,
+    data, rig, params, glb,
     id: fighterId,
     isPlayer,
     x, facing, // facing: +1 (toward +X) | -1
@@ -149,10 +177,10 @@ function makeFighter(scene, fighterId, x, facing, specialIdxs, isPlayer, diff) {
     moveDir: 0, blockHeld: false,
     vel: 0, // knockback velocity along X
     dashT: 0, dashDir: 1, dashCd: 0,
-    attack: null, // { kind:'light'|'heavy'|'special', phase, t, didHit, spec, specIdx }
+    attack: null, // { kind:'light'|'heavy'|'special', phase, t, didHit, spec, specIdx, specKind }
     hitstunT: 0,
-    specials, cooldowns,
-    wardT: 0,
+    specials, cooldowns, specKinds,
+    wardT: 0, buffT: 0, debuffT: 0,
     chain: { count: 0, t: 0 },
     wobble: false,
     speed: walkSpeed(data.stats.speed, isPlayer ? 1 : (diff?.speedMul ?? 1)),
@@ -193,6 +221,11 @@ export function createKombatEngine(canvas, config) {
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 120);
   camera.position.set(0, 2.35, 8.8);
+  // STEP 6 — framing state (set by resize() from lib/kombat/framing):
+  // portrait viewports widen + pull back + shift the fight band up
+  // above the pad row; landscape keeps the classic framing.
+  const camBase = new THREE.Vector3(0, 2.35, 8.8);
+  const camLookBase = new THREE.Vector3(0, 1.35, 0);
 
   scene.add(new THREE.HemisphereLight(0xbfd0ff, 0x201510, 0.85));
   const key = new THREE.DirectionalLight(0xffffff, 1.1);
@@ -281,7 +314,17 @@ export function createKombatEngine(canvas, config) {
     if (f.hitstunT > 0) return false;
     const spec = f.specials[idx];
     if (!spec || f.cooldowns[idx] > 0) return false;
-    f.attack = { kind: 'special', phase: 'startup', t: 0, didHit: false, spec, specIdx: idx };
+    const kind = f.specKinds[idx].kind;
+    // STEP 6 — condition gates (shared with the AI policy): a heal
+    // at full health, a ward while already warded, a buff while
+    // already buffed are DENIED — no cooldown burned, honest blip.
+    const foe0 = f.isPlayer ? cpu : player;
+    const gate = specialUsable(spec, kind, f, foe0);
+    if (!gate.ok) {
+      if (f.isPlayer) { sfx.block(); H('onSpecialDenied', idx, gate.reason); }
+      return false;
+    }
+    f.attack = { kind: 'special', phase: 'startup', t: 0, didHit: false, spec, specIdx: idx, specKind: kind };
     setPoseState(f, 'special');
     f.cooldowns[idx] = spec.cooldown;
     const foe = f.isPlayer ? cpu : player;
@@ -315,34 +358,52 @@ export function createKombatEngine(canvas, config) {
     return ATTACKS[a.kind];
   }
 
-  function resolveHit(att, def) {
-    const a = att.attack;
-    let base, range, knockback, hitstun, heavyFx;
-    if (a.kind === 'special') {
-      const spec = a.spec;
-      if (spec.damage <= 0) {
-        // utility special: defensive ward (halves incoming damage for a while)
-        att.wardT = WARD_SECONDS;
-        bursts.spawn(chestOf(att), 0x66ccff, 20, 3, 0.7, 0.12);
-        sfx.block();
-        att.attack = null;
-        setPoseState(att, 'idle');
-        return;
-      }
-      base = spec.damage;
-      range = 2.0 + SPECIAL_RANGE_BONUS;
-      knockback = 1.2; hitstun = 0.6; heavyFx = true;
-    } else {
-      const t = ATTACKS[a.kind];
-      base = t.base; range = t.range; knockback = t.knockback; hitstun = t.hitstun;
-      heavyFx = a.kind === 'heavy';
+  // STEP 6 — projectiles: traveling special attacks. An orb spawns
+  // at the attacker's hand when a projectile-kind special goes
+  // active and flies straight; contact resolves through landHit, so
+  // blocking/ward/combo rules stay identical to melee.
+  const projectiles = [];
+  const projGeo = new THREE.SphereGeometry(0.16, 12, 10);
+  function spawnProjectile(att, spec) {
+    const mat = new THREE.MeshBasicMaterial({ color: KIND_FX.projectile.color });
+    const mesh = new THREE.Mesh(projGeo, mat);
+    mesh.position.set(att.x + att.facing * 0.75, 1.3, 0);
+    scene.add(mesh);
+    projectiles.push({ mesh, owner: att, spec, dir: att.facing, speed: 10.5, life: 1.8 });
+    bursts.spawn(mesh.position, KIND_FX.projectile.color, 10, 2.5, 0.35, 0.1);
+  }
+  function clearProjectiles() {
+    for (const p of projectiles) {
+      scene.remove(p.mesh);
+      p.mesh.material.dispose();
     }
+    projectiles.length = 0;
+  }
+  function updateProjectiles(dt) {
+    for (let i = projectiles.length - 1; i >= 0; i--) {
+      const p = projectiles[i];
+      p.life -= dt;
+      p.mesh.position.x += p.dir * p.speed * dt;
+      const target = p.owner === player ? cpu : player;
+      const dx = target.x - p.mesh.position.x;
+      const crossed = (p.dir > 0 && dx <= 0.3 && dx > -0.6) || (p.dir < 0 && dx >= -0.3 && dx < 0.6);
+      if (crossed && target.state !== 'ko') {
+        landHit(p.owner, target, { base: p.spec.damage, knockback: 1.1, hitstun: 0.55, heavyFx: true });
+        scene.remove(p.mesh);
+        p.mesh.material.dispose();
+        projectiles.splice(i, 1);
+      } else if (p.life <= 0 || Math.abs(p.mesh.position.x) > ARENA_HALF_WIDTH + 1.5) {
+        scene.remove(p.mesh);
+        p.mesh.material.dispose();
+        projectiles.splice(i, 1);
+      }
+    }
+  }
 
-    const dist = Math.abs(att.x - def.x);
-    const facingFoe = (att.x < def.x ? 1 : -1) === att.facing;
-    if (dist > range + 0.35 || !facingFoe) return; // whiff
-
-    const blocking = def.blockHeld && ACTIONABLE.has(def.state) && def.hitstunT <= 0
+  // The shared damage landing: combo chain, ward halving, status
+  // multipliers, block/chip, hitstun, knockback, KO.
+  function landHit(att, def, { base, knockback, hitstun, heavyFx, ignoreBlock = false, applyDebuff = false }) {
+    const blocking = !ignoreBlock && def.blockHeld && ACTIONABLE.has(def.state) && def.hitstunT <= 0
       && (def.x < att.x ? 1 : -1) === def.facing;
 
     let dmg = calcDamage(base, att.data.stats.power, def.data.stats.toughness);
@@ -351,6 +412,7 @@ export function createKombatEngine(canvas, config) {
     att.chain.t = 0;
     dmg = Math.round(dmg * (COMBO_MULT[Math.min(3, att.chain.count)] || 1));
     if (att.chain.count >= 2) H('onCombo', att.isPlayer ? 0 : 1, att.chain.count);
+    dmg = Math.max(1, Math.round(dmg * statusDamageMul(att, def)));
     if (def.wardT > 0) dmg = Math.max(1, Math.round(dmg * 0.5));
 
     const dir = def.x >= att.x ? 1 : -1;
@@ -369,9 +431,11 @@ export function createKombatEngine(canvas, config) {
       def.attack = null; // getting hit interrupts your own attack
       setPoseState(def, 'hit');
       def.blockHeld = false;
+      if (applyDebuff) def.debuffT = DEBUFF_SECONDS;
       // getting hit breaks your combo chain
       def.chain.count = 0;
       bursts.spawn(mid, heavyFx ? 0xff7722 : 0xffcc44, heavyFx ? 34 : 22, heavyFx ? 6 : 4.5, 0.6, 0.14);
+      if (applyDebuff) bursts.spawn(chestOf(def), KIND_FX.debuff.color, 16, 2.5, 0.5, 0.11);
       if (heavyFx) sfx.heavy(); else sfx.hit();
     }
 
@@ -380,6 +444,68 @@ export function createKombatEngine(canvas, config) {
     sendHud(true);
 
     if (def.health <= 0 && !blocking) onKnockout(att, def);
+  }
+
+  function resolveHit(att, def) {
+    const a = att.attack;
+    let base, range, knockback, hitstun, heavyFx;
+    let ignoreBlock = false, applyDebuff = false;
+    if (a.kind === 'special') {
+      const spec = a.spec;
+      const kind = a.specKind || 'strike';
+      // STEP 6 — per-kind execution (lib/kombat/specials.js). Self
+      // kinds resolve on the user and never touch the opponent;
+      // offensive kinds share landHit with kind-correct bands.
+      if (kind === 'ward' || kind === 'heal' || kind === 'buff') {
+        if (kind === 'ward') {
+          att.wardT = WARD_SECONDS;
+          bursts.spawn(chestOf(att), KIND_FX.ward.color, 22, 3, 0.7, 0.12);
+          sfx.block();
+        } else if (kind === 'heal') {
+          att.health = Math.min(MAX_HEALTH, att.health + healAmountFor(spec));
+          bursts.spawn(chestOf(att), KIND_FX.heal.color, 22, 2.5, 0.8, 0.12, 3);
+          sfx.special();
+        } else {
+          att.buffT = BUFF_SECONDS;
+          bursts.spawn(chestOf(att), KIND_FX.buff.color, 22, 3.5, 0.7, 0.12);
+          sfx.special();
+        }
+        att.attack = null;
+        setPoseState(att, 'idle');
+        sendHud(true);
+        return;
+      }
+      if (kind === 'projectile') {
+        spawnProjectile(att, spec);
+        sfx.special();
+        return; // damage lands (or not) when the orb arrives — honest travel
+      }
+      if (kind === 'movement') {
+        // close the distance NOW, then strike from arrival range
+        const gap = 1.3;
+        const target = def.x - att.facing * gap;
+        bursts.spawn(chestOf(att), KIND_FX.movement.color, 14, 3, 0.4, 0.1);
+        att.x = Math.max(-ARENA_HALF_WIDTH, Math.min(ARENA_HALF_WIDTH, target));
+        bursts.spawn(chestOf(att), KIND_FX.movement.color, 14, 3, 0.4, 0.1);
+      }
+      base = spec.damage;
+      hitstun = 0.6; heavyFx = true;
+      // the classified band rules the reach (incl. data overrides)
+      range = att.specKinds[a.specIdx] ? att.specKinds[a.specIdx].band[1] : 2.0 + SPECIAL_RANGE_BONUS;
+      if (kind === 'grab') { knockback = 1.7; ignoreBlock = true; }
+      else if (kind === 'debuff') { knockback = 1.0; applyDebuff = true; }
+      else { knockback = 1.2; }
+    } else {
+      const t = ATTACKS[a.kind];
+      base = t.base; range = t.range; knockback = t.knockback; hitstun = t.hitstun;
+      heavyFx = a.kind === 'heavy';
+    }
+
+    const dist = Math.abs(att.x - def.x);
+    const facingFoe = (att.x < def.x ? 1 : -1) === att.facing;
+    if (dist > range + 0.35 || !facingFoe) return; // whiff — honest, per kind band
+
+    landHit(att, def, { base, knockback, hitstun, heavyFx, ignoreBlock, applyDebuff });
   }
 
   function onKnockout(winner, loser) {
@@ -413,7 +539,10 @@ export function createKombatEngine(canvas, config) {
     setPoseState(winner, 'idle');
     phase = 'finishHim'; phaseT = FINISH_HIM_SECONDS;
     fatalityDone = false;
-    H('onAnnounce', 'FINISH HIM!', '');
+    // STEP 6 — FINISH HIM renders ONCE: only the dedicated overlay
+    // (onFinishHim) carries it now. Announcing it here too stacked a
+    // second, offset copy of the text over the overlay (Merlin's
+    // playtest recording, 2026-10-14).
     H('onFinishHim', true, FINISH_HIM_SECONDS, winner.isPlayer);
     sfx.announce();
     // CPU winners sometimes perform their own fatality — scaled by
@@ -469,12 +598,14 @@ export function createKombatEngine(canvas, config) {
       f.vel = 0; f.attack = null; f.hitstunT = 0;
       f.blockHeld = false; f.moveDir = 0;
       f.cooldowns = f.specials.map(() => 0); f.wardT = 0;
+      f.buffT = 0; f.debuffT = 0;
       f.chain.count = 0; f.chain.t = 0;
       f.wobble = false; f.dashT = 0; f.dashCd = 0;
       setPoseState(f, 'idle');
       f.rig.position.set(x, 0, 0);
       f.rig.rotation.z = 0;
     }
+    clearProjectiles();
     timeLeft = ROUND_TIME;
     announcedFight = false;
   }
@@ -490,13 +621,22 @@ export function createKombatEngine(canvas, config) {
       const r = Math.random();
       if (r < diff.aggression) {
         // attack: maybe a special, else heavy/light — the AI picks
-        // from the SAME full kit the player holds (Step 5 parity)
-        const readyIdx = pickReadySpecial(f.specials, f.cooldowns);
-        const wardIdx = f.specials.findIndex((s, i) => f.cooldowns[i] <= 0 && s.damage <= 0);
-        if (readyIdx >= 0 && Math.random() < diff.specialChance) trySpecial(f, readyIdx);
-        else if (wardIdx >= 0 && f.health < 45 && Math.random() < 0.5) trySpecial(f, wardIdx);
-        else if (Math.random() < diff.heavyChance) tryAttack(f, 'heavy');
-        else tryAttack(f, 'light');
+        // from the SAME full kit the player holds (Step 5 parity),
+        // and since Step 6 the pick is LOGIC, not uniform-random:
+        // chooseSpecial weighs kind, range band, both health totals
+        // and live status effects (lib/kombat/specials.js).
+        let acted = false;
+        if (Math.random() < diff.specialChance) {
+          const idx = chooseSpecial(f.specials, f.specKinds, f.cooldowns, {
+            dist, selfHealth: f.health, foeHealth: foe.health,
+            selfWardT: f.wardT, selfBuffT: f.buffT, foeDebuffT: foe.debuffT,
+          }, Math.random);
+          if (idx >= 0) acted = trySpecial(f, idx);
+        }
+        if (!acted) {
+          if (Math.random() < diff.heavyChance) tryAttack(f, 'heavy');
+          else tryAttack(f, 'light');
+        }
         if (Math.random() < diff.retreatChance) f.ai.retreatT = 0.45;
       } else if (r < diff.aggression + 0.18) {
         f.ai.blockUntil = elapsed + 0.35 + Math.random() * 0.3;
@@ -505,9 +645,18 @@ export function createKombatEngine(canvas, config) {
       }
       f.ai.moveDir = 0;
     } else {
-      // approach; sometimes dash in from far
-      f.ai.moveDir = toward;
-      if (dist > 4.2 && Math.random() < diff.dashChance) tryDash(f, toward);
+      // approach; from range, logic may still fire — a projectile, a
+      // buff, a heal, or a dash-in special beats walking into range
+      let acted = false;
+      if (Math.random() < diff.specialChance) {
+        const idx = chooseSpecial(f.specials, f.specKinds, f.cooldowns, {
+          dist, selfHealth: f.health, foeHealth: foe.health,
+          selfWardT: f.wardT, selfBuffT: f.buffT, foeDebuffT: foe.debuffT,
+        }, Math.random);
+        if (idx >= 0) acted = trySpecial(f, idx);
+      }
+      f.ai.moveDir = acted ? 0 : toward;
+      if (!acted && dist > 4.2 && Math.random() < diff.dashChance) tryDash(f, toward);
       if (dist < 3.2 && Math.random() < 0.3) f.ai.blockUntil = elapsed + 0.25; // cautious approach
     }
   }
@@ -551,6 +700,8 @@ export function createKombatEngine(canvas, config) {
     if (f.chain.t < COMBO_WINDOW) f.chain.t += dt; else f.chain.count = 0;
     for (let i = 0; i < f.cooldowns.length; i++) if (f.cooldowns[i] > 0) f.cooldowns[i] = Math.max(0, f.cooldowns[i] - dt);
     if (f.wardT > 0) f.wardT -= dt;
+    if (f.buffT > 0) f.buffT -= dt;
+    if (f.debuffT > 0) f.debuffT -= dt;
     if (f.dashCd > 0) f.dashCd -= dt;
     if (f.hitstunT > 0) {
       f.hitstunT -= dt;
@@ -587,10 +738,10 @@ export function createKombatEngine(canvas, config) {
       }
     }
 
-    // movement
+    // movement (status effects bend speed: buff hastes, curse slows)
     const canMove = ACTIONABLE.has(f.state) && f.hitstunT <= 0 && !f.blockHeld && phase === 'fight';
     if (canMove && f.moveDir !== 0) {
-      f.x += f.moveDir * f.speed * dt;
+      f.x += f.moveDir * f.speed * statusSpeedMul(f) * dt;
       if (f.state === 'idle') setPoseState(f, 'walk');
     } else if (f.state === 'walk' && (f.moveDir === 0 || !canMove)) {
       setPoseState(f, 'idle');
@@ -598,24 +749,43 @@ export function createKombatEngine(canvas, config) {
 
     f.x = Math.max(-ARENA_HALF_WIDTH, Math.min(ARENA_HALF_WIDTH, f.x));
 
-    // pose
-    let pose = 'idle';
-    if (f.state === 'walk') pose = 'walk';
-    else if (f.state === 'punch') pose = 'punch';
-    else if (f.state === 'kick') pose = 'kick';
-    else if (f.state === 'special') pose = 'special';
-    else if (f.state === 'hit' || f.state === 'dizzy') pose = 'hit';
-    else if (f.state === 'ko') pose = 'ko';
-    else if (f.state === 'win') pose = 'win';
-    else if (f.state === 'dash') pose = 'walk';
-    else if (f.state === 'block' || (f.blockHeld && ACTIONABLE.has(f.state))) pose = 'block';
-    poseRig(f.rig, pose, pose === 'walk' || pose === 'idle' ? f.walkT : f.poseT);
+    // pose — one shared resolver for both engines (downed-state law:
+    // 'ko' pose iff the fighter is actually downed)
+    const pose = resolvePose({
+      state: f.state, alive: f.state !== 'ko',
+      blockHeld: f.blockHeld, actionable: ACTIONABLE.has(f.state),
+    });
+    if (f.glb && f.glb.isReady()) {
+      // STEP 6 — the real model, posed by the code pose driver
+      const timing = f.attack ? attackTiming(f) : null;
+      f.glb.update(pose, dt, elapsed, {
+        moveDir: f.moveDir,
+        specKind: f.attack?.specKind,
+        actionT: f.attack ? f.attack.t : null,
+        actionDur: timing ? timing.startup + timing.active + timing.recovery : null,
+      });
+    } else {
+      poseRig(f.rig, pose, pose === 'walk' || pose === 'idle' ? f.walkT : f.poseT);
+    }
     updateEffects(f.rig, dt);
 
     // dizzy wobble (finish-him loser)
     f.rig.rotation.z = f.wobble ? Math.sin(f.walkT * 3.2) * 0.09 : 0;
 
     f.rig.position.x = f.x;
+    // FLOOR LAW (shared update path): the GLB body is floor-safe by
+    // construction (driver lift/fall math) and gets the root clamp;
+    // the procedural body gets the geometric clamp — its posed box
+    // is measured and the root solved so its lowest point rests ON
+    // the plane in every pose.
+    if (f.glb && f.glb.isReady()) {
+      applyFloorClamp(f.rig);
+    } else {
+      _floorBox.setFromObject(f.rig);
+      if (Number.isFinite(_floorBox.min.y)) {
+        f.rig.position.y = solveFloorY(f.rig.position.y, _floorBox.min.y, 0);
+      }
+    }
   }
 
   // ---------------- main loop ----------------
@@ -628,12 +798,19 @@ export function createKombatEngine(canvas, config) {
     const h = canvas.clientHeight || canvas.parentElement?.clientHeight || 480;
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
+    // STEP 6 — framing vs pads: at phone aspects the fighters play
+    // in the clear band above the pad row, never under a pad.
+    const fr = duelFraming(w / h, ARENA_HALF_WIDTH);
+    camera.fov = fr.fovY;
+    if (fr.shiftUpFrac > 0) camera.setViewOffset(w, h, 0, Math.round(fr.shiftUpFrac * h), w, h);
+    else camera.clearViewOffset();
     camera.updateProjectionMatrix();
+    camBase.set(0, fr.camY, fr.camZ);
+    camLookBase.set(0, fr.lookY, 0);
   }
   window.addEventListener('resize', resize);
   resize();
 
-  const camBase = new THREE.Vector3(0, 2.35, 8.8);
   const camLook = new THREE.Vector3(0, 1.35, 0);
   const camTmp = new THREE.Vector3();
   const lookTmp = new THREE.Vector3();
@@ -753,6 +930,7 @@ export function createKombatEngine(canvas, config) {
 
     fighterUpdate(player, cpu, dt);
     fighterUpdate(cpu, player, dt);
+    updateProjectiles(dt);
     stage.update(dt, elapsed);
     bursts.update(dt);
 
@@ -766,8 +944,8 @@ export function createKombatEngine(canvas, config) {
       camera.position.lerp(camTmp, 1 - Math.pow(0.001, rawDt));
       camLook.lerp(lookTmp, 1 - Math.pow(0.001, rawDt));
     } else {
-      camTmp.set(THREE.MathUtils.clamp(midX * 0.35, -1.4, 1.4), 2.35, 8.8 - zoomPulse * 1.3);
-      lookTmp.set(THREE.MathUtils.clamp(midX * 0.3, -1.2, 1.2), 1.35, 0);
+      camTmp.set(THREE.MathUtils.clamp(midX * 0.35, -1.4, 1.4), camBase.y, camBase.z - zoomPulse * 1.3);
+      lookTmp.set(THREE.MathUtils.clamp(midX * 0.3, -1.2, 1.2), camLookBase.y, 0);
       const k = 1 - Math.pow(0.0001, rawDt);
       camera.position.lerp(camTmp, k);
       camLook.lerp(lookTmp, k);

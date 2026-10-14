@@ -14,6 +14,7 @@ import { FIGHTERS, FRANCHISES, getFighter } from '../../lib/kombat/roster.js';
 import { VISUALS } from '../../lib/kombat/visuals.js';
 import { createKombatEngine } from './engine';
 import { createBrawlEngine } from './brawl';
+import { prefetchFighterGlbs } from '../../lib/kombat/glb-fighter.js';
 import { BRAWL_COUNTS, BRAWL_BEST_OF } from '../../lib/kombat/brawl-rules.js';
 import {
   getSelectEntry, isFighterSelectable, selectableFighters,
@@ -1263,6 +1264,10 @@ export default function KombatPage() {
     setConfig(cfg);
     setResult(null);
     setPhase('versus');
+    // STEP 6 — prefetch both fighters' GLBs during the versus
+    // splash so the real models are ready when the fight starts
+    // (the procedural body covers any remaining load time).
+    prefetchFighterGlbs([cfg.playerId, cfg.cpuId, ...(cfg.cpuIds || [])].filter(Boolean));
     clearTimeout(versusTimer.current);
     versusTimer.current = setTimeout(() => setPhase('fight'), 1700);
   }, []);
