@@ -1,20 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/chess/supabase';
-import {
-  kingPicksFromState, withKingPick,
-  opponentKingFromState, opponentKingFromMove, validKingPick,
-} from '@/lib/chess/king-character';
 
 // Chess PvP transport — database-backed rooms (the proven battleship pattern).
 // No Supabase Realtime dependency: moves, state sync, and resign flow through
 // the `oasis_rooms` table (game = 'chess') with lightweight polling (~1.5s,
 // plenty for turn-based play). Same hook API as the old broadcast version.
-//
-// WAVE 3: each player's KING pick (their profile character, D1)
-// rides the same room row — merged into full_state.kingPicks and
-// piggybacked on every last_move (see lib/chess/king-character.js
-// for the protocol). No new columns, no new SQL: the picks live
-// inside the JSONB the transport already moves.
 const POLL_MS = 1500;
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
@@ -36,16 +26,10 @@ export function useMatchmaking(username) {
   const [fullStateSync, setFullStateSync] = useState(null);
   const [hostNeedsToSync, setHostNeedsToSync] = useState(0);
 
-  // WAVE 3: the opponent's king pick (characterId) once the room
-  // state testifies to it; null = their king keeps its native figure.
-  const [opponentKingId, setOpponentKingId] = useState(null);
-
   const userIdRef = useRef(null);
   const lastMoveSeqRef = useRef(-1);
   const syncedRef = useRef(false);
   const pollRef = useRef(null);
-  const myKingIdRef = useRef(null); // my validated king pick
-  const fullStateRef = useRef(null); // last full_state seen or written
 
   const getUserId = async () => {
     if (userIdRef.current) return userIdRef.current;
@@ -86,38 +70,11 @@ export function useMatchmaking(username) {
         setGameStatus('active');
       }
 
-      // WAVE 3 — king picks riding full_state (protocol in
-      // lib/chess/king-character.js): learn the opponent's pick,
-      // and self-heal my own pick into any pieces-carrying state
-      // that lacks it, so the two writers converge instead of
-      // clobbering each other.
-      if (room.full_state) {
-        fullStateRef.current = room.full_state;
-        const oppPick = opponentKingFromState(room.full_state, myColor);
-        if (oppPick) setOpponentKingId(oppPick);
-        const myPick = validKingPick(myKingIdRef.current);
-        if (
-          room.full_state.pieces &&
-          kingPicksFromState(room.full_state)[myColor] !== myPick
-        ) {
-          const merged = withKingPick(room.full_state, myColor, myPick);
-          fullStateRef.current = merged;
-          await supabase
-            .from('oasis_rooms')
-            .update({ full_state: merged })
-            .eq('game', 'chess')
-            .eq('room_code', sectorId);
-        }
-      }
-
       // Incoming move (dedupe by sequence number)
       const lm = room.last_move;
       if (lm && typeof lm.seq === 'number' && lm.seq > lastMoveSeqRef.current && lm.senderColor !== myColor) {
         lastMoveSeqRef.current = lm.seq;
         setOpponentMove({ pieceId: lm.pieceId, to: lm.to, nextTurn: lm.nextTurn, promotion: lm.promotion || 'queen' });
-        // The move also testifies to the mover's king pick.
-        const movePick = opponentKingFromMove(lm, myColor);
-        if (movePick) setOpponentKingId(movePick);
       }
 
       // Opponent resigned
@@ -151,8 +108,6 @@ export function useMatchmaking(username) {
     if (error) return;
     lastMoveSeqRef.current = -1;
     syncedRef.current = false;
-    fullStateRef.current = null;
-    setOpponentKingId(null);
     setSectorId(code);
     setPlayerColor('cyan');
     setGameStatus('waiting');
@@ -182,8 +137,6 @@ export function useMatchmaking(username) {
 
     lastMoveSeqRef.current = -1;
     syncedRef.current = false;
-    fullStateRef.current = null;
-    setOpponentKingId(null);
     setSectorId(clean);
     setPlayerColor('pink');
     setGameStatus('waiting'); // flips to active once the host's state arrives
@@ -204,8 +157,6 @@ export function useMatchmaking(username) {
     if (error || !room) return false;
     lastMoveSeqRef.current = (room.last_move && typeof room.last_move.seq === 'number') ? room.last_move.seq : -1;
     syncedRef.current = false;
-    fullStateRef.current = null;
-    setOpponentKingId(null);
     setOpponentMove(null);
     setOpponentResigned(false);
     setFullStateSync(null);
@@ -227,37 +178,13 @@ export function useMatchmaking(username) {
     const seq = lastMoveSeqRef.current + 1;
     lastMoveSeqRef.current = seq;
     await updateRoom({
-      // kingId: the mover's king pick rides every move (WAVE 3).
-      last_move: { seq, pieceId, to: { x: tx, z: tz }, nextTurn, senderColor: playerColor, promotion, kingId: validKingPick(myKingIdRef.current) },
+      last_move: { seq, pieceId, to: { x: tx, z: tz }, nextTurn, senderColor: playerColor, promotion },
       current_turn: nextTurn,
     });
   };
 
   const broadcastState = (pieces, currentTurn) => {
-    // My king pick is merged into the state channel; an opponent
-    // pick already present in the last seen state is preserved.
-    const fs = withKingPick(
-      { ...(fullStateRef.current || {}), pieces, currentTurn },
-      playerColor,
-      myKingIdRef.current
-    );
-    fullStateRef.current = fs;
-    updateRoom({ full_state: fs });
-  };
-
-  // WAVE 3 — the page hands the hook the player's king pick (the
-  // pick chain's effective id, or null for the native king). Stored
-  // for the broadcast channels; if a pieces-carrying full_state
-  // already exists, the pick is merged in immediately — the poll
-  // self-heal covers every other ordering.
-  const publishKingPick = (characterId) => {
-    myKingIdRef.current = validKingPick(characterId);
-    const fs = fullStateRef.current;
-    if (fs && fs.pieces && playerColor) {
-      const merged = withKingPick(fs, playerColor, myKingIdRef.current);
-      fullStateRef.current = merged;
-      updateRoom({ full_state: merged });
-    }
+    updateRoom({ full_state: { pieces, currentTurn } });
   };
 
   const broadcastResign = async () => {
@@ -269,7 +196,6 @@ export function useMatchmaking(username) {
   return {
     sectorId, playerColor, gameStatus, opponentMove, opponentResigned,
     hostMatch, joinMatch, adoptRoom, broadcastMove, broadcastResign,
-    broadcastState, fullStateSync, hostNeedsToSync,
-    opponentKingId, publishKingPick
+    broadcastState, fullStateSync, hostNeedsToSync
   };
 }
