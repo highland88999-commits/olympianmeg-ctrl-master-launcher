@@ -49,7 +49,26 @@ const AVAILABLE_IDS = sorted([
   'q018-t-1000', 'q019-ellen-ripley', 'q020-neo', 'q021-t-rex', 'q022-swift-raptor',
   'q023-claw-raptor', 'q024-fang-raptor', 'q025-peter-venkman', 'q026-ray-stantz',
   'q027-egon-spengler', 'q028-winston-zeddemore', 'q029-slimer', 'q030-stay-puft',
-  'q033-hulk',
+  'q031-bugs-bunny', 'q032-tasmanian-devil', 'q033-hulk', 'q034-deadpool',
+  'q035-wolverine', 'q036-thanos',
+]);
+// Step 4 hosting snapshot: every available fighter's optimized GLB was
+// uploaded to the public Supabase Storage bucket 'fighter-models' and
+// verified live (HEAD 200 + glTF magic) — the bridge's glbUrl must equal
+// the bucket URL for exactly these fighters and stay null for the rest.
+// Regenerate the bridge + this list when hosting changes.
+const GLB_URL_BASE = 'https://pjslctbyigtapvblbjao.supabase.co/storage/v1/object/public/fighter-models';
+const glbUrlFor = (characterId) => `${GLB_URL_BASE}/${characterId}.glb`;
+const HOSTED_IDS = sorted([
+  'q001-freddy-krueger', 'q002-jason-voorhees', 'q003-michael-myers', 'q004-leatherface',
+  'q005-pennywise', 'q006-ghostface', 'q007-chucky', 'q008-pinhead', 'q009-candyman',
+  'q010-samara-morgan', 'q011-xenomorph', 'q012-predator', 'q013-darth-vader',
+  'q014-luke-skywalker', 'q015-yoda', 'q016-emperor-palpatine', 'q017-t-800-terminator',
+  'q018-t-1000', 'q019-ellen-ripley', 'q020-neo', 'q021-t-rex', 'q022-swift-raptor',
+  'q023-claw-raptor', 'q024-fang-raptor', 'q025-peter-venkman', 'q026-ray-stantz',
+  'q027-egon-spengler', 'q028-winston-zeddemore', 'q029-slimer', 'q030-stay-puft',
+  'q031-bugs-bunny', 'q032-tasmanian-devil', 'q033-hulk', 'q034-deadpool',
+  'q035-wolverine', 'q036-thanos',
 ]);
 // Dual-wield audit — the tracked gap set is EMPTY. Step 2 fixed
 // Pennywise (claw-glove pair), Predator (claws pair, plasma caster
@@ -89,7 +108,8 @@ for (const l of LOADOUTS) {
     ['humanoid', 'creature', 'floater', 'other'].includes(l.motionClass));
   t(`${l.kombatId} rig class in domain`,
     ['humanoid', 'creature', 'none'].includes(l.rigClass));
-  t(`${l.kombatId} glbUrl still null (Step 4 fills it)`, l.glbUrl === null);
+  t(`${l.kombatId} glbUrl is its Step 4 hosted URL or null`,
+    l.glbUrl === (HOSTED_IDS.includes(l.characterId) ? glbUrlFor(l.characterId) : null));
   if (l.weapon === null) {
     t(`${l.kombatId} weaponless is a fingerprint fighter`, WEAPONLESS.includes(l.kombatId));
   } else {
@@ -122,6 +142,10 @@ t('weapon spot check: Chucky grips ONE knife (no false dual-wield)',
 // --- availability + previews --------------------------------------------------
 t('available set matches the sprint snapshot',
   eq(sorted(LOADOUTS.filter((l) => l.available).map((l) => l.characterId)), AVAILABLE_IDS));
+t('hosted GLB set matches the Step 4 hosting snapshot',
+  eq(sorted(LOADOUTS.filter((l) => l.glbUrl !== null).map((l) => l.characterId)), HOSTED_IDS));
+t('hosted GLBs are a subset of available fighters',
+  LOADOUTS.every((l) => l.glbUrl === null || l.available === true));
 const publishedById = new Map(CHARACTERS.map((c) => [c.id, c]));
 for (const l of LOADOUTS) {
   if (l.preview !== null) {
