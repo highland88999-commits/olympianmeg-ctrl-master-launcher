@@ -36,11 +36,19 @@ import {
 // pass them through — the pads take wraps with no further changes.
 const KOMBAT_WRAP = null;
 
-/** Per-Powers-pad runtime state: wedge cooldown shades + Fatality. */
-function powersRuntime(hud, finishHim) {
+/** Per-Powers-pad runtime state: wedge cooldown shades + Fatality.
+ *  deniedIdx >= 0 flashes that special's wedge DARK — the pad's own
+ *  vocabulary for "that move can't fire right now" (the engine's
+ *  onSpecialDenied hook: heal at full health, ward already up...).
+ *  A denied special never burns cooldown; now it never fails
+ *  silently either. */
+function powersRuntime(hud, finishHim, deniedIdx = -1) {
   const rt = {};
   const cds = hud.spcds || [];
   for (let i = 0; i < cds.length; i++) rt[`sp${i + 1}`] = { cooldown: cds[i] || 0 };
+  if (deniedIdx >= 0 && rt[`sp${deniedIdx + 1}`]) {
+    rt[`sp${deniedIdx + 1}`] = { ...rt[`sp${deniedIdx + 1}`], dark: true };
+  }
   const armed = !!(finishHim.active && finishHim.mine);
   rt.fatality = { dark: !armed, lit: armed };
   return rt;
@@ -204,14 +212,23 @@ function FightScreen({ config, onExit }) {
   const [finishHim, setFinishHim] = useState({ active: false, seconds: 0, mine: false });
   const [fatalityName, setFatalityName] = useState('');
   const [combo, setCombo] = useState(null);
+  // denied-special flash: the Powers wedge that just refused to fire
+  const [deniedIdx, setDeniedIdx] = useState(-1);
   const bannerTimer = useRef(null);
   const comboTimer = useRef(null);
   const fatalityTimer = useRef(null);
+  const deniedTimer = useRef(null);
 
   const showBanner = useCallback((text, sub) => {
     setBanner((b) => ({ text, sub, key: b.key + 1 }));
     clearTimeout(bannerTimer.current);
     bannerTimer.current = setTimeout(() => setBanner((b) => ({ ...b, text: '' })), 2600);
+  }, []);
+
+  const flashDenied = useCallback((idx) => {
+    setDeniedIdx(idx);
+    clearTimeout(deniedTimer.current);
+    deniedTimer.current = setTimeout(() => setDeniedIdx(-1), 400);
   }, []);
 
   // engine lifecycle
@@ -227,6 +244,7 @@ function FightScreen({ config, onExit }) {
       arena: config.arenaIdx,
       hooks: {
         onHud: (h) => setHud(h),
+        onSpecialDenied: (idx) => flashDenied(idx),
         onAnnounce: (text, sub) => showBanner(text, sub || ''),
         onFinishHim: (active, seconds, mine) => setFinishHim({ active, seconds, mine: !!mine }),
         onFatality: (name) => {
@@ -250,6 +268,7 @@ function FightScreen({ config, onExit }) {
       clearTimeout(bannerTimer.current);
       clearTimeout(comboTimer.current);
       clearTimeout(fatalityTimer.current);
+      clearTimeout(deniedTimer.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -347,8 +366,8 @@ function FightScreen({ config, onExit }) {
     else eng.setMove(0);
   }, []);
   const runtimeByPad = useMemo(
-    () => ({ powers: powersRuntime(hud, finishHim) }),
-    [hud, finishHim],
+    () => ({ powers: powersRuntime(hud, finishHim, deniedIdx) }),
+    [hud, finishHim, deniedIdx],
   );
 
   return (
@@ -972,14 +991,23 @@ function BrawlFightScreen({ config, onExit }) {
   const [combo, setCombo] = useState(null);
   const [finishHim, setFinishHim] = useState({ active: false, seconds: 0, mine: false });
   const [fatalityName, setFatalityName] = useState('');
+  // denied-special flash: the Powers wedge that just refused to fire
+  const [deniedIdx, setDeniedIdx] = useState(-1);
   const bannerTimer = useRef(null);
   const comboTimer = useRef(null);
   const fatalityTimer = useRef(null);
+  const deniedTimer = useRef(null);
 
   const showBanner = useCallback((text, sub) => {
     setBanner((b) => ({ text, sub, key: b.key + 1 }));
     clearTimeout(bannerTimer.current);
     bannerTimer.current = setTimeout(() => setBanner((b) => ({ ...b, text: '' })), 2600);
+  }, []);
+
+  const flashDenied = useCallback((idx) => {
+    setDeniedIdx(idx);
+    clearTimeout(deniedTimer.current);
+    deniedTimer.current = setTimeout(() => setDeniedIdx(-1), 400);
   }, []);
 
   useEffect(() => {
@@ -995,6 +1023,7 @@ function BrawlFightScreen({ config, onExit }) {
       bestOf: config.bestOf,
       hooks: {
         onHud: (h) => setHud(h),
+        onSpecialDenied: (idx) => flashDenied(idx),
         onAnnounce: (text, sub) => showBanner(text, sub || ''),
         onFinishHim: (active, seconds, mine) => setFinishHim({ active, seconds, mine: !!mine }),
         onFatality: (name) => {
@@ -1018,6 +1047,7 @@ function BrawlFightScreen({ config, onExit }) {
       clearTimeout(bannerTimer.current);
       clearTimeout(comboTimer.current);
       clearTimeout(fatalityTimer.current);
+      clearTimeout(deniedTimer.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1116,8 +1146,8 @@ function BrawlFightScreen({ config, onExit }) {
     engineRef.current?.setMove(info.vector?.x || 0, info.vector?.y || 0);
   }, []);
   const runtimeByPad = useMemo(
-    () => ({ powers: powersRuntime(hud, finishHim) }),
-    [hud, finishHim],
+    () => ({ powers: powersRuntime(hud, finishHim, deniedIdx) }),
+    [hud, finishHim, deniedIdx],
   );
 
   return (

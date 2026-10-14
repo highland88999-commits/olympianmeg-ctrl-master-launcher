@@ -23,7 +23,7 @@ import {
   MAX_HEALTH, ROUND_TIME, ROUNDS_TO_WIN, FINISH_HIM_SECONDS,
   COMBO_WINDOW, BLOCK_REDUCTION, ARENA_HALF_WIDTH, MIN_SEPARATION,
   DIFFICULTY, ATTACKS, SPECIAL_STARTUP, SPECIAL_ACTIVE, SPECIAL_RECOVERY,
-  SPECIAL_RANGE_BONUS, WARD_SECONDS, COMBO_MULT,
+  SPECIAL_RANGE_BONUS, WARD_SECONDS, COMBO_MULT, INPUT_BUFFER_SECONDS,
   calcDamage, calcBlockedDamage, walkSpeed,
   buildSpecialKit, specialIndexForAction, pickReadySpecial, cooldownFraction,
 } from '../../lib/kombat/rules.js';
@@ -244,6 +244,11 @@ export function createKombatEngine(canvas, config) {
   // input (player)
   const input = { move: 0, block: false };
   const pressed = [];
+  // INPUT BUFFER: the latest player press that arrived while the
+  // fighter was briefly non-actionable, held for INPUT_BUFFER_SECONDS
+  // and executed at the first legal frame (see rules.js). One slot —
+  // the newest intent replaces the oldest.
+  let bufferedPress = null; // { action, at }
 
   // match flow
   let phase = 'intro'; // intro | fight | roundEnd | preFinish | finishHim | fatality | koEnd | done
@@ -308,12 +313,19 @@ export function createKombatEngine(canvas, config) {
     return true;
   }
 
-  function trySpecial(f, idx) {
-    if (phase !== 'fight') return false;
-    if (!ACTIONABLE.has(f.state)) return false;
-    if (f.hitstunT > 0) return false;
+  // Attempt a special, reporting WHY it did not fire so the player
+  // input path can tell a momentary state-block (bufferable — the
+  // fighter is in hitstun / mid-attack / dashing and the press was
+  // honest) from a real denial (on cooldown, condition gate, wrong
+  // phase — never buffered, never queued behind the player's back).
+  // Returns: 'fired' | 'state' | 'cooldown' | 'denied' | 'phase' | 'nospec'.
+  function attemptSpecial(f, idx) {
+    if (phase !== 'fight') return 'phase';
+    if (!ACTIONABLE.has(f.state)) return 'state';
+    if (f.hitstunT > 0) return 'state';
     const spec = f.specials[idx];
-    if (!spec || f.cooldowns[idx] > 0) return false;
+    if (!spec) return 'nospec';
+    if (f.cooldowns[idx] > 0) return 'cooldown';
     const kind = f.specKinds[idx].kind;
     // STEP 6 — condition gates (shared with the AI policy): a heal
     // at full health, a ward while already warded, a buff while
@@ -322,11 +334,14 @@ export function createKombatEngine(canvas, config) {
     const gate = specialUsable(spec, kind, f, foe0);
     if (!gate.ok) {
       if (f.isPlayer) { sfx.block(); H('onSpecialDenied', idx, gate.reason); }
-      return false;
+      return 'denied';
     }
     f.attack = { kind: 'special', phase: 'startup', t: 0, didHit: false, spec, specIdx: idx, specKind: kind };
     setPoseState(f, 'special');
-    f.cooldowns[idx] = spec.cooldown;
+    // The cooldown is NOT committed here: it starts when the move
+    // RESOLVES (fighterUpdate, startup -> active). Committing at press
+    // time meant a fighter hit out of the 0.35s startup lost the move
+    // AND burned the full cooldown — the pad shaded, nothing fired.
     const foe = f.isPlayer ? cpu : player;
     if (!foe.isPlayer && foe.ai) {
       foe.ai.reactArmed = true;
@@ -334,7 +349,13 @@ export function createKombatEngine(canvas, config) {
     }
     if (f.isPlayer) sfx.special();
     H('onSpecialUsed', f.isPlayer ? 0 : 1, idx);
-    return true;
+    return 'fired';
+  }
+
+  // Bool view for the AI call sites (the AI only decides from
+  // actionable states, so the distinction never matters to it).
+  function trySpecial(f, idx) {
+    return attemptSpecial(f, idx) === 'fired';
   }
 
   function tryDash(f, dir) {
@@ -347,6 +368,33 @@ export function createKombatEngine(canvas, config) {
     f.dashCd = 0.8;
     setPoseState(f, 'dash');
     return true;
+  }
+
+  // Dispatch ONE player press (the same mapping the pad path has
+  // always used) and classify the outcome for the input buffer:
+  // bufferable == the press failed ONLY because the fighter is
+  // momentarily non-actionable (hitstun / mid-attack / dashing).
+  // Inside the fight phase, tryAttack/tryDash can fail for no other
+  // reason; specials report their own reason via attemptSpecial, and
+  // real denials (cooldown / condition gate) are never buffered.
+  function attemptPress(a) {
+    if (a === 'light' || a === 'heavy') {
+      const fired = tryAttack(player, a);
+      return { fired, bufferable: !fired };
+    }
+    if (a === 'dash' || a === 'dashIn' || a === 'dashBack') {
+      const dir = a === 'dashIn' ? player.facing
+        : a === 'dashBack' ? -player.facing
+        : (player.moveDir !== 0 ? Math.sign(player.moveDir) : 0);
+      const fired = tryDash(player, dir);
+      return { fired, bufferable: !fired };
+    }
+    const si = specialIndexForAction(a);
+    if (si >= 0) {
+      const r = attemptSpecial(player, si);
+      return { fired: r === 'fired', bufferable: r === 'state' };
+    }
+    return { fired: false, bufferable: false };
   }
 
   function attackTiming(f) {
@@ -593,6 +641,7 @@ export function createKombatEngine(canvas, config) {
   }
 
   function resetRoundPositions() {
+    bufferedPress = null; // a held press never survives a round reset
     for (const [f, x, face] of [[player, -2.2, 1], [cpu, 2.2, -1]]) {
       f.x = x; f.facing = face; f.health = MAX_HEALTH;
       f.vel = 0; f.attack = null; f.hitstunT = 0;
@@ -727,7 +776,17 @@ export function createKombatEngine(canvas, config) {
       a.t += dt;
       if (a.phase === 'startup' && a.t >= timing.startup) {
         a.phase = 'active';
-        if (!a.didHit) { a.didHit = true; resolveHit(f, foe); }
+        if (!a.didHit) {
+          a.didHit = true;
+          // COOLDOWN COMMITS AT RESOLUTION, not at press: a special
+          // interrupted during startup (the attack object destroyed by
+          // an incoming hit) never reaches this line, so it never
+          // burns its cooldown. A special that resolves — hit, chip,
+          // or honest whiff — always pays. Same rule for player + AI:
+          // both resolve through this one transition.
+          if (a.kind === 'special' && a.specIdx >= 0) f.cooldowns[a.specIdx] = a.spec.cooldown;
+          resolveHit(f, foe);
+        }
       } else if (a.phase === 'active' && a.t >= timing.startup + timing.active) {
         a.phase = 'recovery';
       } else if (a.phase === 'recovery' && a.t >= timing.startup + timing.active + timing.recovery) {
@@ -891,17 +950,22 @@ export function createKombatEngine(canvas, config) {
     if (phase === 'fight') {
       player.moveDir = player.blockHeld ? 0 : input.move;
       player.blockHeld = input.block && ACTIONABLE.has(player.state);
-      for (const a of pressed.splice(0)) {
-        if (a === 'light') tryAttack(player, 'light');
-        else if (a === 'heavy') tryAttack(player, 'heavy');
-        else if (a === 'dash') tryDash(player, player.moveDir !== 0 ? Math.sign(player.moveDir) : 0);
-        // Movement-pad dashes: toward / away from the opponent
-        else if (a === 'dashIn') tryDash(player, player.facing);
-        else if (a === 'dashBack') tryDash(player, -player.facing);
-        else {
-          const si = specialIndexForAction(a);
-          if (si >= 0) trySpecial(player, si);
+      // INPUT BUFFERING — the buffered intent is the OLDEST honest
+      // press, so it gets the first legal frame before any fresh tap.
+      // It is dropped the moment it fires, stops being bufferable
+      // (e.g. its special's condition gate denies it at the legal
+      // frame — the denial feedback fires then), or ages out.
+      if (bufferedPress) {
+        if (elapsed - bufferedPress.at > INPUT_BUFFER_SECONDS) {
+          bufferedPress = null;
+        } else {
+          const r = attemptPress(bufferedPress.action);
+          if (r.fired || !r.bufferable) bufferedPress = null;
         }
+      }
+      for (const a of pressed.splice(0)) {
+        const r = attemptPress(a);
+        if (!r.fired && r.bufferable) bufferedPress = { action: a, at: elapsed };
       }
     } else if (phase === 'finishHim') {
       for (const a of pressed.splice(0)) {
@@ -911,6 +975,7 @@ export function createKombatEngine(canvas, config) {
       cpu.moveDir = 0; cpu.blockHeld = false;
     } else {
       pressed.length = 0;
+      bufferedPress = null;
       player.moveDir = 0; cpu.moveDir = 0;
     }
 

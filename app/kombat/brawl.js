@@ -24,7 +24,7 @@ import { buildBrawlArena, clampToArena, brawlSpawns, createBrawlCamera } from '.
 import {
   MAX_HEALTH, COMBO_WINDOW, BLOCK_REDUCTION, FINISH_HIM_SECONDS,
   DIFFICULTY, ATTACKS, SPECIAL_STARTUP, SPECIAL_ACTIVE, SPECIAL_RECOVERY,
-  SPECIAL_RANGE_BONUS, WARD_SECONDS, COMBO_MULT,
+  SPECIAL_RANGE_BONUS, WARD_SECONDS, COMBO_MULT, INPUT_BUFFER_SECONDS,
   calcDamage, calcBlockedDamage, walkSpeed,
   buildSpecialKit, specialIndexForAction, pickReadySpecial, cooldownFraction,
 } from '../../lib/kombat/rules.js';
@@ -289,6 +289,11 @@ export function createBrawlEngine(canvas, config) {
   // input (player)
   const input = { mx: 0, mz: 0, block: false };
   const pressed = [];
+  // INPUT BUFFER: the latest player press that arrived while the
+  // fighter was briefly non-actionable, held for INPUT_BUFFER_SECONDS
+  // and executed at the first legal frame (see rules.js). One slot —
+  // the newest intent replaces the oldest. Duel parity.
+  let bufferedPress = null; // { action, at }
 
   // match flow
   let phase = 'intro'; // intro | fight | roundEnd | done
@@ -368,18 +373,23 @@ export function createBrawlEngine(canvas, config) {
     return true;
   }
 
-  function trySpecial(f, idx) {
-    if (phase !== 'fight') return false;
-    if (!f.alive || !ACTIONABLE.has(f.state)) return false;
-    if (f.hitstunT > 0) return false;
+  // Attempt a special, reporting WHY it did not fire so the player
+  // input path can tell a momentary state-block (bufferable) from a
+  // real denial (never buffered). Duel parity.
+  // Returns: 'fired' | 'state' | 'cooldown' | 'denied' | 'phase' | 'nospec'.
+  function attemptSpecial(f, idx) {
+    if (phase !== 'fight') return 'phase';
+    if (!f.alive || !ACTIONABLE.has(f.state)) return 'state';
+    if (f.hitstunT > 0) return 'state';
     const spec = f.specials[idx];
-    if (!spec || f.cooldowns[idx] > 0) return false;
+    if (!spec) return 'nospec';
+    if (f.cooldowns[idx] > 0) return 'cooldown';
     const kind = f.specKinds[idx].kind;
     // STEP 6 — condition gates, shared with the duel + AI policy.
     const gate = specialUsable(spec, kind, f, null);
     if (!gate.ok) {
       if (f.isPlayer) { sfx.block(); H('onSpecialDenied', idx, gate.reason); }
-      return false;
+      return 'denied';
     }
     // ranged kinds snap-face over a longer leash than melee kinds
     const snap = kind === 'projectile' || kind === 'movement' ? 9 : 2.0 + SPECIAL_RANGE_BONUS + 1.2;
@@ -387,7 +397,9 @@ export function createBrawlEngine(canvas, config) {
     if (tgt) faceTowards(f, tgt.pos.x, tgt.pos.z);
     f.attack = { kind: 'special', phase: 'startup', t: 0, didHit: false, spec, specIdx: idx, specKind: kind };
     setPoseState(f, 'special');
-    f.cooldowns[idx] = spec.cooldown;
+    // The cooldown is NOT committed here: it starts when the move
+    // RESOLVES (fighterUpdate, startup -> active) — an interrupted
+    // special never burns its cooldown. Duel parity.
     for (const o of fighters) {
       if (o === f || !o.alive || !o.ai) continue;
       if (distXZ(f, o) < 4.2) {
@@ -398,7 +410,38 @@ export function createBrawlEngine(canvas, config) {
     }
     if (f.isPlayer) sfx.special();
     H('onSpecialUsed', f.isPlayer ? 0 : 1, idx);
-    return true;
+    return 'fired';
+  }
+
+  // Bool view for the AI call sites (the AI only decides from
+  // actionable states, so the distinction never matters to it).
+  function trySpecial(f, idx) {
+    return attemptSpecial(f, idx) === 'fired';
+  }
+
+  // Dispatch ONE player press (the same mapping the pad path has
+  // always used) and classify the outcome for the input buffer:
+  // bufferable == the press failed ONLY because the fighter is
+  // momentarily non-actionable. Duel parity with engine.js.
+  function attemptPress(a) {
+    if (a === 'light' || a === 'heavy') {
+      const fired = tryAttack(player, a, ATTACKS[a].range + 1.2);
+      return { fired, bufferable: !fired };
+    }
+    if (a === 'dash') {
+      const fired = tryDash(player, input.mx, input.mz);
+      return { fired, bufferable: !fired };
+    }
+    if (a === 'jump') {
+      const fired = tryJump(player);
+      return { fired, bufferable: !fired };
+    }
+    const si = specialIndexForAction(a);
+    if (si >= 0) {
+      const r = attemptSpecial(player, si);
+      return { fired: r === 'fired', bufferable: r === 'state' };
+    }
+    return { fired: false, bufferable: false };
   }
 
   function tryDash(f, dx, dz) {
@@ -646,6 +689,7 @@ export function createBrawlEngine(canvas, config) {
   let cpuFatalityAt = -1; // time within the window when a CPU champion performs its fatality
 
   function resetRoundPositions() {
+    bufferedPress = null; // a held press never survives a round reset
     const spawns = brawlSpawns(fighters.length, arena);
     fighters.forEach((f, i) => {
       f.pos.set(spawns[i].x, 0, spawns[i].z);
@@ -891,6 +935,12 @@ export function createBrawlEngine(canvas, config) {
         a.phase = 'active';
         if (!a.didHit) {
           a.didHit = true;
+          // COOLDOWN COMMITS AT RESOLUTION, not at press — an
+          // interrupted special never burns its cooldown; a resolved
+          // one (hit, chip, or honest whiff) always pays. Player + AI
+          // share this one transition. Duel parity (engine.js).
+          if (a.kind === 'special' && a.specIdx >= 0) f.cooldowns[a.specIdx] = a.spec.cooldown;
+
           const skind = a.kind === 'special' ? (a.specKind || 'strike') : null;
           if (skind === 'ward' || skind === 'heal' || skind === 'buff') {
             // STEP 6 — self kinds resolve on the user, in kind color
@@ -1132,15 +1182,21 @@ export function createBrawlEngine(canvas, config) {
       player.moveX = player.blockHeld ? 0 : input.mx;
       player.moveZ = player.blockHeld ? 0 : input.mz;
       player.blockHeld = input.block && ACTIONABLE.has(player.state);
-      for (const a of pressed.splice(0)) {
-        if (a === 'light') tryAttack(player, 'light', ATTACKS.light.range + 1.2);
-        else if (a === 'heavy') tryAttack(player, 'heavy', ATTACKS.heavy.range + 1.2);
-        else if (a === 'dash') tryDash(player, input.mx, input.mz);
-        else if (a === 'jump') tryJump(player);
-        else {
-          const si = specialIndexForAction(a);
-          if (si >= 0) trySpecial(player, si);
+      // INPUT BUFFERING — the buffered intent is the OLDEST honest
+      // press, so it gets the first legal frame before any fresh tap.
+      // Dropped when it fires, stops being bufferable, or ages out.
+      // Duel parity (engine.js).
+      if (bufferedPress) {
+        if (elapsed - bufferedPress.at > INPUT_BUFFER_SECONDS) {
+          bufferedPress = null;
+        } else {
+          const r = attemptPress(bufferedPress.action);
+          if (r.fired || !r.bufferable) bufferedPress = null;
         }
+      }
+      for (const a of pressed.splice(0)) {
+        const r = attemptPress(a);
+        if (!r.fired && r.bufferable) bufferedPress = { action: a, at: elapsed };
       }
     } else if (phase === 'finishHim') {
       // Only the champion's player may act — a single FATALITY press.
@@ -1151,6 +1207,7 @@ export function createBrawlEngine(canvas, config) {
       player.moveX = 0; player.moveZ = 0; player.blockHeld = false;
     } else {
       pressed.length = 0;
+      bufferedPress = null;
       player.moveX = 0; player.moveZ = 0;
       if (phase !== 'fight') player.blockHeld = false;
     }
