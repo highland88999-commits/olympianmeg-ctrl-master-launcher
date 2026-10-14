@@ -38,8 +38,8 @@ const bridgeAvailable = LOADOUTS.filter((l) => l.available);
 // --- locked set == bridge-unavailable set -----------------------------------
 t('locked ids are exactly the bridge-unavailable fighters',
   eq(sorted(lockedFighterIds()), sorted(bridgeUnavailable.map((l) => l.kombatId))));
-t('locked count matches the bridge (12 pending at this snapshot)',
-  lockedFighterIds().length === bridgeUnavailable.length && bridgeUnavailable.length === 12);
+t('locked count matches the bridge (0 pending at this snapshot — full roster generated)',
+  lockedFighterIds().length === bridgeUnavailable.length && bridgeUnavailable.length === 0);
 t('selectable ids are exactly the bridge-available fighters',
   eq(sorted(selectableFighterIds()), sorted(bridgeAvailable.map((l) => l.kombatId))));
 t('locked and selectable partition the 43 fighters',
@@ -75,14 +75,14 @@ for (const l of LOADOUTS) {
       existsSync(new URL(`../public${l.preview}`, import.meta.url)));
   }
 }
-t('preview count matches the published roster (28)',
+t('preview count matches the published roster (43)',
   LOADOUTS.filter((l) => l.preview !== null).length === CHARACTERS.length
-  && CHARACTERS.length === 28);
+  && CHARACTERS.length === 43);
 t('locked fighters never carry a preview',
   bridgeUnavailable.every((l) => l.preview === null && fighterPreview(l.kombatId) === null));
-t('available-without-preview is exactly Winston, Slimer, Stay Puft',
+t('available-without-preview is exactly nobody (every available fighter is published)',
   eq(sorted(bridgeAvailable.filter((l) => l.preview === null).map((l) => l.kombatId)),
-    ['slimer', 'stay-puft', 'winston-zeddemore']));
+    []));
 t('fighterPreview of unknown id is null', fighterPreview('nobody') === null);
 
 // --- selectable pool (random / CPU / brawl fill draw from this) ---------------
@@ -102,9 +102,8 @@ for (const c of CHARACTERS) {
     resolveProfileFighter(c.id) === bridgeByCharacter.get(c.id)?.kombatId);
 }
 t('every published roster member resolves', CHARACTERS.every((c) => resolveProfileFighter(c.id) !== null));
-t('unpublished fighter does NOT resolve (not a roster member)',
-  resolveProfileFighter('q028-winston-zeddemore') === null
-  && resolveProfileFighter('q031-bugs-bunny') === null);
+t('non-roster sprint id does NOT resolve (not a roster member)',
+  resolveProfileFighter('q044-lakeside-cabin') === null);
 t('unknown character id does not resolve', resolveProfileFighter('q999-nobody') === null);
 t('a kombat id is not a profile character id', resolveProfileFighter('freddy-krueger') === null);
 t('non-string profile ids do not resolve',

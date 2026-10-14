@@ -50,7 +50,9 @@ const AVAILABLE_IDS = sorted([
   'q023-claw-raptor', 'q024-fang-raptor', 'q025-peter-venkman', 'q026-ray-stantz',
   'q027-egon-spengler', 'q028-winston-zeddemore', 'q029-slimer', 'q030-stay-puft',
   'q031-bugs-bunny', 'q032-tasmanian-devil', 'q033-hulk', 'q034-deadpool',
-  'q035-wolverine', 'q036-thanos',
+  'q035-wolverine', 'q036-thanos', 'q037-iron-man', 'q038-cloud-strife',
+  'q039-sephiroth', 'q040-tifa-lockhart', 'q041-b-o-b', 'q042-the-missing-link',
+  'q043-dr-cockroach',
 ]);
 // Step 4 hosting snapshot: every available fighter's optimized GLB was
 // uploaded to the public Supabase Storage bucket 'fighter-models' and
@@ -68,7 +70,9 @@ const HOSTED_IDS = sorted([
   'q023-claw-raptor', 'q024-fang-raptor', 'q025-peter-venkman', 'q026-ray-stantz',
   'q027-egon-spengler', 'q028-winston-zeddemore', 'q029-slimer', 'q030-stay-puft',
   'q031-bugs-bunny', 'q032-tasmanian-devil', 'q033-hulk', 'q034-deadpool',
-  'q035-wolverine', 'q036-thanos',
+  'q035-wolverine', 'q036-thanos', 'q037-iron-man', 'q038-cloud-strife',
+  'q039-sephiroth', 'q040-tifa-lockhart', 'q041-b-o-b', 'q042-the-missing-link',
+  'q043-dr-cockroach',
 ]);
 // Dual-wield audit — the tracked gap set is EMPTY. Step 2 fixed
 // Pennywise (claw-glove pair), Predator (claws pair, plasma caster

@@ -398,13 +398,17 @@ t('solveFloorY never lowers a root below its base',
 // 6. GLB FALLBACK CONTRACT
 // ==================================================================
 {
-  // a fighter with no glbUrl keeps the procedural body: attach is null
-  const noGlb = LOADOUTS.find((l) => !l.glbUrl);
-  t('a no-glbUrl loadout exists for the fallback contract', !!noGlb);
-  if (noGlb) {
-    t('attachGlbFighter returns null without a glbUrl',
-      attachGlbFighter({ kombatId: noGlb.kombatId, procSize: { x: 1, y: 1.9, z: 1 } }) === null);
-  }
+  // a fighter with no glbUrl keeps the procedural body: attach is null.
+  // Snapshot truth (wave-2 bridge refresh, 2026-10-14): the sprint
+  // completed all 43 fighters and every loadout now carries a glbUrl,
+  // so no live record exercises the no-glbUrl branch. That branch
+  // still guards future fighters (generated but not yet hosted); the
+  // null contract is asserted here through the no-loadout path, which
+  // shares the same guard in attachGlbFighter (!loadout || !glbUrl).
+  t('every loadout now carries a glbUrl (roster complete)',
+    LOADOUTS.every((l) => !!l.glbUrl));
+  t('attachGlbFighter returns null without a loadout/glbUrl',
+    attachGlbFighter({ kombatId: 'nobody', procSize: { x: 1, y: 1.9, z: 1 } }) === null);
   // a hosted fighter returns a handle that starts NOT ready (the
   // procedural body stands in while the model loads)
   const freddy = attachGlbFighter({ kombatId: 'freddy-krueger', procSize: { x: 0.7, y: 1.82, z: 0.6 } });
