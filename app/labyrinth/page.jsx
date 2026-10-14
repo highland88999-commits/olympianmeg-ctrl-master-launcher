@@ -10,6 +10,7 @@ import {
   formatTime,
 } from './maze';
 import { createLabyrinthScene } from './scene';
+import { resolveSurfaceCharacter } from '@/lib/characters/embodiment';
 
 /* ATHENA interior treatment: inline SVG chevrons for the d-pad + a portal
    glyph for the stage buttons (zero image weight; the 3D maze IS the art). */
@@ -53,6 +54,9 @@ export default function LabyrinthPage() {
   const [tokensLeft, setTokensLeft] = useState(STAGES[0].tokens);
   const [seconds, setSeconds] = useState(0);
   const [exitOpen, setExitOpen] = useState(false);
+  // Wave 5: the resolved profile character for the player token
+  // (null = the native glowing orb, exactly as before).
+  const [tokenCharacter, setTokenCharacter] = useState(null);
 
   // Build a fresh stage (logic only).
   const buildGame = useCallback((idx) => {
@@ -76,8 +80,14 @@ export default function LabyrinthPage() {
   // (Re)create the 3D scene whenever a new game is built.
   useEffect(() => {
     if (!mountRef.current || !gameRef.current) return;
+    // Wave 5: the player token is the user's profile character
+    // (pick chain: surface override > profile default > native orb).
+    const character = resolveSurfaceCharacter('labyrinth');
+    setTokenCharacter(character);
     const scene = createLabyrinthScene(mountRef.current, gameRef.current, {
       reducedMotion: reducedMotionRef.current,
+      characterPreview: character ? character.preview : null,
+      characterName: character ? character.name : null,
     });
     sceneRef.current = scene;
     return () => {
@@ -231,6 +241,11 @@ export default function LabyrinthPage() {
             then escape through the green portal.
           </p>
           <p className="text-xs text-zinc-500 mt-2">Three stages. The maze grows darker as you go.</p>
+          {tokenCharacter && (
+            <p className="text-xs text-teal-300 mt-3">
+              Walking as <span className="font-bold">{tokenCharacter.name}</span> — your profile character is your token in the maze.
+            </p>
+          )}
           <BigButton onClick={() => startStage(0)}>Enter the maze</BigButton>
         </Overlay>
       )}

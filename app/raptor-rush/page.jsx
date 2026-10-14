@@ -30,6 +30,12 @@ import {
 import OasisLobby from '@/components/oasis/Lobby';
 import { supabase } from '@/lib/supabase';
 import { fx, unlockFx } from '@/lib/fx';
+import CharacterToken from '@/components/characters/CharacterToken';
+import {
+  raptorRunnerOptions,
+  readSurfaceRunner,
+} from '@/lib/characters/raptor-runners';
+import { writeSurfaceOverride } from '@/lib/characters/embodiment';
 
 const BEST_KEY = 'raptor_rush_best';
 const NAME_KEY = 'raptor_rush_name';
@@ -97,6 +103,20 @@ export default function RaptorRushPage() {
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveNote, setSaveNote] = useState('');
+  // Wave 5: the picked runner (registry record) or null = the
+  // native code-art raptor. runnerRef mirrors it for the renderer,
+  // which is created inside an effect closure.
+  const [runnerPick, setRunnerPick] = useState(null);
+  const runnerRef = useRef(null);
+  const rendererRef = useRef(null);
+  const runnerOptions = raptorRunnerOptions();
+
+  const chooseRunner = useCallback((rec) => {
+    runnerRef.current = rec;
+    setRunnerPick(rec);
+    writeSurfaceOverride('raptor-rush', rec ? rec.characterId : null);
+    if (rendererRef.current) rendererRef.current.setRunner(rec);
+  }, []);
 
   const syncHud = useCallback(() => {
     const g = gameRef.current;
@@ -186,6 +206,14 @@ export default function RaptorRushPage() {
       setBest(bestRef.current);
       setPlayerName(localStorage.getItem(NAME_KEY) || '');
     } catch { /* ignore */ }
+    // Wave 5: restore this device's runner pick (pick chain —
+    // surface override, else a profile pick that is itself a
+    // raptor; a non-raptor resolution never enters the canyon).
+    const picked = readSurfaceRunner();
+    if (picked) {
+      runnerRef.current = picked;
+      setRunnerPick(picked);
+    }
     // FX system: unlock sound+haptics on the first gesture (deep links may
     // land here without passing through the hub).
     const unlock = () => unlockFx();
@@ -242,7 +270,16 @@ export default function RaptorRushPage() {
       window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     const canvas = canvasRef.current;
-    const renderer = createRenderer(canvas, { reducedMotion: reducedMotionRef.current });
+    const renderer = createRenderer(canvas, {
+      reducedMotion: reducedMotionRef.current,
+      runner: runnerRef.current,
+      spriteLoader: (src) => {
+        const img = new Image();
+        img.src = src;
+        return img;
+      },
+    });
+    rendererRef.current = renderer;
     renderer.resize();
 
     const onResize = () => renderer.resize();
@@ -312,6 +349,7 @@ export default function RaptorRushPage() {
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', onPointerUp);
       renderer.dispose();
+      if (rendererRef.current === renderer) rendererRef.current = null;
     };
   }, [doSteer, begin, syncHud, screen]);
 
@@ -396,6 +434,52 @@ export default function RaptorRushPage() {
             Eat rabbits · Dodge rock · High score wins
           </p>
           <div className="text-amber-300 text-sm tracking-widest mt-3">BEST {best}</div>
+
+          {/* Wave 5 — choose your raptor. Each token IS the fighter:
+              its sprite is a top-down render of the real model.
+              The pick is kept on this device (surface override). */}
+          <div className="w-full mt-8">
+            <div className="text-[10px] tracking-[0.4em] text-zinc-500 uppercase mb-3">Choose your raptor</div>
+            <div className="flex items-start justify-center gap-4">
+              <button
+                type="button"
+                onClick={() => chooseRunner(null)}
+                aria-pressed={runnerPick === null}
+                aria-label="Native raptor"
+                className="block"
+              >
+                <span
+                  className={`flex items-center justify-center overflow-hidden rounded-full ring-2 ${runnerPick === null ? 'ring-amber-300' : 'ring-white/20'}`}
+                  style={{ width: 56, height: 56, background: 'rgba(67,209,124,0.12)' }}
+                >
+                  <RrIcon name="claw" size={26} />
+                </span>
+                <span className="mt-1 block max-w-full truncate text-center text-[11px] font-semibold text-neutral-200">
+                  Native
+                </span>
+              </button>
+              {runnerOptions.map((r) => (
+                <div key={r.characterId} className="flex flex-col items-center">
+                  <CharacterToken
+                    characterId={r.characterId}
+                    variant="token"
+                    size={56}
+                    showName={false}
+                    selected={runnerPick?.characterId === r.characterId}
+                    onClick={() => chooseRunner(r)}
+                  />
+                  <span className="mt-1 block text-center text-[11px] font-semibold text-neutral-200">
+                    {r.shortName}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <p className="text-zinc-600 text-xs mt-2">
+              {runnerPick
+                ? `Running as ${runnerPick.name} — the real model, seen from the runner's sky.`
+                : 'Running the native canyon raptor.'}
+            </p>
+          </div>
 
           <div className="w-full flex flex-col gap-3 mt-8">
             <button
@@ -577,6 +661,11 @@ export default function RaptorRushPage() {
               </div>
             )}
             <div className="text-zinc-200 mt-6 space-y-1 text-lg">
+              {runnerPick && (
+                <div className="text-sm tracking-widest uppercase" style={{ color: runnerPick.accent }}>
+                  Hunted as {runnerPick.name}
+                </div>
+              )}
               <div>Score <span className="text-cyan-300 font-bold">{score}</span></div>
               <div>Distance <span className="text-amber-300 font-bold">{meters} m</span></div>
               <div>Rabbits eaten <span className="text-emerald-300 font-bold">{prey}</span></div>

@@ -7,6 +7,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { fx, unlockFx, throttle } from "@/lib/fx";
+import { resolveSurfaceCharacter } from "@/lib/characters/embodiment";
 import { AresBackdrop, AresButton, AresIcon, ARES } from "@/components/ares/ares-chrome";
 import {
   ARENA,
@@ -39,8 +40,14 @@ export default function ArachnidWeaver() {
   const [best, setBest] = useState(0);
   const [deadStats, setDeadStats] = useState(null);
   const reducedRef = useRef(false);
+  // Wave 5 (stretch): the profile character as the prey's token —
+  // resolved once here (before the game effect below runs) into a
+  // ref the canvas closure reads. Null = the native torch-bearer.
+  const tokenRef = useRef(null);
 
   useEffect(() => {
+    const character = resolveSurfaceCharacter("arachnid-weaver");
+    if (character && character.preview) tokenRef.current = character;
     try {
       setBest(Number(localStorage.getItem("arachnid-best") || 0));
     } catch (e) {}
@@ -64,6 +71,18 @@ export default function ArachnidWeaver() {
     if (!canvas || !wrap) return;
     const ctx = canvas.getContext("2d");
     const reduced = reducedRef.current;
+
+    // Wave 5 (stretch): preload the profile-character token image.
+    // tokenReady flips when it decodes; any failure leaves it false
+    // forever and the native torch-bearer draws, exactly as before.
+    let tokenImg = null;
+    let tokenReady = false;
+    if (tokenRef.current && tokenRef.current.preview) {
+      tokenImg = new Image();
+      tokenImg.onload = () => { tokenReady = true; };
+      tokenImg.onerror = () => { tokenReady = false; tokenImg = null; };
+      tokenImg.src = tokenRef.current.preview;
+    }
 
     let raf = 0;
     let last = performance.now();
@@ -301,20 +320,50 @@ export default function ArachnidWeaver() {
       ctx.arc(0, 0, 150, 0, TAU);
       ctx.fill();
 
-      // cloak
       const bob = moving && !reduced ? Math.sin(t * 14) * 2 : 0;
-      ctx.fillStyle = "#2c3a52";
-      ctx.beginPath();
-      ctx.moveTo(0, -16 + bob);
-      ctx.lineTo(-11, 12);
-      ctx.lineTo(11, 12);
-      ctx.closePath();
-      ctx.fill();
-      // head
-      ctx.fillStyle = "#d9b48f";
-      ctx.beginPath();
-      ctx.arc(0, -16 + bob, 6.5, 0, TAU);
-      ctx.fill();
+      if (tokenReady && tokenImg) {
+        // Wave 5 (stretch): the prey IS your profile character — a
+        // circular token at the figure's own footprint (radius 15
+        // vs the logic radius 14; the catch check never sees art).
+        // The bearer figure above rotates to face travel; the token
+        // counter-rotates so the character's face stays upright.
+        // The torch below still marks the bearer.
+        const R = 15;
+        ctx.save();
+        ctx.translate(0, -2 + bob);
+        if (moving) ctx.rotate(-(Math.atan2(p.vy, p.vx) + Math.PI / 2));
+        ctx.beginPath();
+        ctx.arc(0, 0, R, 0, TAU);
+        ctx.clip();
+        const side = Math.min(tokenImg.naturalWidth, tokenImg.naturalHeight) || R * 2;
+        ctx.drawImage(
+          tokenImg,
+          (tokenImg.naturalWidth - side) / 2,
+          (tokenImg.naturalHeight - side) / 2,
+          side, side,
+          -R, -R, R * 2, R * 2
+        );
+        ctx.restore();
+        ctx.strokeStyle = "rgba(255,190,90,0.85)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, -2 + bob, R, 0, TAU);
+        ctx.stroke();
+      } else {
+        // cloak
+        ctx.fillStyle = "#2c3a52";
+        ctx.beginPath();
+        ctx.moveTo(0, -16 + bob);
+        ctx.lineTo(-11, 12);
+        ctx.lineTo(11, 12);
+        ctx.closePath();
+        ctx.fill();
+        // head
+        ctx.fillStyle = "#d9b48f";
+        ctx.beginPath();
+        ctx.arc(0, -16 + bob, 6.5, 0, TAU);
+        ctx.fill();
+      }
       // torch arm + flame
       ctx.strokeStyle = "#5a3d22";
       ctx.lineWidth = 3;

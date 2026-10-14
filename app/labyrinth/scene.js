@@ -4,6 +4,15 @@
  * glowing player orb, collectible tokens, an exit portal,
  * and the Watching Eye (the eye-tracking motif from the second source repo) that
  * tracks the player's movement. Restrained bloom, full dispose.
+ *
+ * WAVE 5 (characters-everywhere): when options.characterPreview is
+ * set (the page resolves the user's profile character through the
+ * pick chain), the player's token becomes that character — a
+ * circular preview billboard riding the orb's glide. The orb is the
+ * fallback and the stand-in until the image arrives: on load the
+ * billboard fades in and the orb yields; on any failure the orb
+ * simply stays, exactly as before. Visual swap only — movement,
+ * collision and the maze logic in maze.js never see this.
  */
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -116,6 +125,67 @@ export function createLabyrinthScene(container, game, options = {}) {
   player.position.set(start.x, 0.6, start.z);
   scene.add(player);
   const playerTarget = player.position.clone();
+
+  // --- Wave 5: profile-character billboard on the player token ---
+  // A circular-cropped preview on a camera-facing sprite that rides
+  // the orb's position each frame (a sibling, not a child, so the
+  // orb can hide without hiding it). The teal ring keeps the token
+  // readable as "you" against the dark maze. The sprite stays
+  // hidden until its texture actually arrives; on any load failure
+  // it removes itself and the orb simply stays — the pre-Wave-5
+  // scene, unchanged.
+  let playerSprite = null;
+  if (options.characterPreview) {
+    const S = 256;
+    const disc = document.createElement('canvas');
+    disc.width = disc.height = S;
+    const dctx = disc.getContext('2d');
+    dctx.beginPath();
+    dctx.arc(S / 2, S / 2, S / 2 - 6, 0, Math.PI * 2);
+    dctx.fillStyle = '#0b2b26';
+    dctx.fill();
+    dctx.lineWidth = 10;
+    dctx.strokeStyle = '#39ffdd';
+    dctx.stroke();
+    const discTex = new THREE.CanvasTexture(disc);
+    discTex.colorSpace = THREE.SRGBColorSpace;
+    const sprite = new THREE.Sprite(
+      new THREE.SpriteMaterial({ map: discTex, transparent: true, depthWrite: false })
+    );
+    sprite.scale.set(1.7, 1.7, 1);
+    sprite.position.copy(player.position);
+    sprite.visible = false;
+    scene.add(sprite);
+    playerSprite = sprite;
+
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      if (disposed) return;
+      // "Cover"-fit the (square) roster preview into the disc.
+      const side = Math.min(img.naturalWidth, img.naturalHeight) || S;
+      const sx0 = ((img.naturalWidth || S) - side) / 2;
+      const sy0 = ((img.naturalHeight || S) - side) / 2;
+      dctx.save();
+      dctx.beginPath();
+      dctx.arc(S / 2, S / 2, S / 2 - 12, 0, Math.PI * 2);
+      dctx.clip();
+      dctx.drawImage(img, sx0, sy0, side, side, 6, 6, S - 12, S - 12);
+      dctx.restore();
+      discTex.needsUpdate = true;
+      sprite.visible = true;
+      player.visible = false; // the orb yields to the character
+    };
+    img.onerror = () => {
+      // Fallback is the native orb — remove the sprite, change
+      // nothing else.
+      scene.remove(sprite);
+      sprite.material.map.dispose();
+      sprite.material.dispose();
+      if (playerSprite === sprite) playerSprite = null;
+    };
+    img.src = options.characterPreview;
+  }
 
   // --- Tokens ---
   const tokenGeo = new THREE.OctahedronGeometry(0.42);
@@ -232,6 +302,15 @@ export function createLabyrinthScene(container, game, options = {}) {
     }
     player.position.y = 0.6 + (reducedMotion ? 0 : Math.sin(t * 3) * 0.08);
     playerLight.position.copy(player.position).y += 1.2;
+    // Wave 5: the character billboard rides the orb's glide + bob,
+    // lifted so the disc stands on the cell like a token.
+    if (playerSprite) {
+      playerSprite.position.set(
+        player.position.x,
+        player.position.y + 0.55,
+        player.position.z
+      );
+    }
 
     // Tokens bob / spin
     if (!reducedMotion) {

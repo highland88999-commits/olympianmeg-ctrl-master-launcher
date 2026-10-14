@@ -1,7 +1,17 @@
-// Raptor Rush — 2D canvas renderer. All art is procedural (no assets, no network).
-// Renders the game state produced by game.js. The canyon runs dead-ahead:
-// the horizon sits at the top, the track scrolls toward the player at the
-// bottom, and entities shrink toward the horizon (simple linear perspective).
+// Raptor Rush — 2D canvas renderer. Renders the game state produced
+// by game.js. The canyon runs dead-ahead: the horizon sits at the
+// top, the track scrolls toward the player at the bottom, and
+// entities shrink toward the horizon (simple linear perspective).
+//
+// WAVE 5 (characters-everywhere): the runner itself is embodied.
+// Each selectable raptor's sprite is a top-down render of its real
+// hosted GLB (lib/characters/raptor-runners.js) — a static asset,
+// drawn head-up in place of the procedural sprite. With no pick
+// (or while the sprite loads), the original procedural raptor
+// below draws exactly as it always has; picking Swift/Claw/Fang
+// also pre-tints that fallback to the runner's own palette, so the
+// runner reads as itself from the first frame. Visual swap only —
+// raptorBox and every other logic body are untouched.
 
 import {
   WORLD_W,
@@ -15,6 +25,16 @@ import {
   rabbitBox,
   escalationAt,
 } from './game';
+
+// Fallback-procedural palettes per runner (body / dark / belly),
+// matched to each GLB's top-down colours. The unpicked default is
+// the original green.
+const RUNNER_PALETTES = {
+  'raptor-swift': { body: '#43d17c', dark: '#1e7a44', belly: '#b8f0cd' },
+  'raptor-claw': { body: '#c93b3b', dark: '#6e1d1d', belly: '#e8a598' },
+  'raptor-fang': { body: '#7da453', dark: '#48682c', belly: '#cfe0ae' },
+};
+const NATIVE_PALETTE = RUNNER_PALETTES['raptor-swift'];
 
 // Perspective scale for a world y: 0.45 at the horizon, 1.0 at the player.
 export function depthScale(y) {
@@ -99,6 +119,36 @@ export function createRenderer(canvas, opts = {}) {
   let offY = 0;
   let runPhase = 0;
 
+  // --- Wave 5 runner embodiment -----------------------------------
+  // Sprites load lazily via opts.spriteLoader (the page passes a
+  // loader; tests/headless may pass null, which keeps the native
+  // procedural runner forever). currentRunner is a RAPTOR_RUNNERS
+  // record or null (native). spriteReady flips true when the picked
+  // runner's PNG has decoded; until then the procedural raptor —
+  // pre-tinted to the runner's palette — stands in.
+  const spriteLoader = opts.spriteLoader || null;
+  let currentRunner = null;
+  let spriteImg = null;
+  let spriteReady = false;
+
+  function setRunner(runner) {
+    currentRunner = runner || null;
+    spriteImg = null;
+    spriteReady = false;
+    if (currentRunner && spriteLoader) {
+      const img = spriteLoader(currentRunner.sprite);
+      if (img) {
+        spriteImg = img;
+        if (img.complete && img.naturalWidth > 0) spriteReady = true;
+        else if (typeof img.addEventListener === 'function') {
+          img.addEventListener('load', () => { spriteReady = true; });
+          img.addEventListener('error', () => { spriteReady = false; });
+        }
+      }
+    }
+  }
+  if (opts.runner) setRunner(opts.runner);
+
   const sky = makeSky(WORLD_W, WORLD_H);
   const wallL = makeWallStrip(TRACK_X0, 480, '#241428', 7, false);
   const wallR = makeWallStrip(WORLD_W - TRACK_X1, 480, '#241428', 13, true);
@@ -122,9 +172,10 @@ export function createRenderer(canvas, opts = {}) {
   function drawRaptorSprite(g, s) {
     const blink = g.invincible > 0 && Math.floor(g.time * 14) % 2 === 0;
     if (blink) return; // hit flash
-    const body = '#43d17c';
-    const dark = '#1e7a44';
-    const belly = '#b8f0cd';
+    const pal = (currentRunner && RUNNER_PALETTES[currentRunner.kombatId]) || NATIVE_PALETTE;
+    const body = pal.body;
+    const dark = pal.dark;
+    const belly = pal.belly;
     const bob = reducedMotion ? 0 : Math.sin(runPhase) * 3;
 
     // Tail sweeps back (down the screen).
@@ -193,6 +244,23 @@ export function createRenderer(canvas, opts = {}) {
     const s = depthScale(RAPTOR_Y);
     const cx = box.x + box.w / 2;
     const feetY = RAPTOR_Y;
+    // Hit flash applies to every embodiment, sprite included.
+    const blink = g.invincible > 0 && Math.floor(g.time * 14) % 2 === 0;
+    if (currentRunner && spriteReady && spriteImg && !blink) {
+      // Top-down GLB render, head up-screen (the asset is authored
+      // head-up, so no rotation). Sized to the hitbox's footprint
+      // with the model's real proportions: the sprite canvas is
+      // square, the body length spans the hitbox height, anchored
+      // so the head sits at the hitbox's top edge.
+      const bob = reducedMotion ? 0 : Math.sin(runPhase) * 3 * s;
+      const w = 116 * s;
+      const h = 116 * s;
+      ctx.save();
+      ctx.translate(cx, feetY + bob);
+      ctx.drawImage(spriteImg, -w / 2, -h, w, h);
+      ctx.restore();
+      return;
+    }
     ctx.save();
     ctx.translate(cx, feetY);
     ctx.rotate(-Math.PI / 2); // face up-screen (dead-ahead)
@@ -402,7 +470,9 @@ export function createRenderer(canvas, opts = {}) {
 
   function dispose() {
     // All art is generated in-memory; nothing to release beyond GC.
+    spriteImg = null;
+    spriteReady = false;
   }
 
-  return { draw, resize, dispose };
+  return { draw, resize, dispose, setRunner };
 }
