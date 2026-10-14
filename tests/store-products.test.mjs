@@ -21,6 +21,7 @@ import {
   isPrintfulConfigured,
   getCatalog,
   categoryOf,
+  priceCentsOf,
   __resetCache,
 } from '../lib/store-printful.js';
 
@@ -73,6 +74,59 @@ t('category: hoodie name -> Hoodies', categoryOf('Unisex Hoodie - X') === 'Hoodi
 t('category: track pants -> Pants', categoryOf('Unisex track pants - Y') === 'Pants');
 t('category: unknown -> More', categoryOf('Glitch') === 'More');
 t('category: empty -> More', categoryOf('') === 'More');
+
+// --- categories: rollout type prefixes always win (Merlin 2026-10-13) --------
+// Every rollout family gets its OWN category from the "<Type> - " prefix,
+// even when the graphic name contains another family's keyword — the old
+// keyword-first rules filed 5,339 of 5,694 rollout products wrong.
+const TYPE_CASES = [
+  ['Classic T-Shirt', 'T-Shirts', 9500],
+  ['Zip-Up Hoodie', 'Hoodies', 9500],
+  ['Drawstring Bag', 'Drawstring Bags', 9500],
+  ['Knit Sweater', 'Sweaters', 9500],
+  ['Joggers', 'Joggers', 9500],
+  ['Tank Top', 'Tank Tops', 6500],
+  ['Tote Bag', 'Tote Bags', 3500],
+  ['Tumbler', 'Tumblers', 4500],
+  ['Poster', 'Posters', 3500],
+  ['Framed Poster', 'Framed Posters', 7500],
+  ['Canvas', 'Canvas', 8500],
+  ['Die-Cut Stickers', 'Stickers', 1500],
+  ['Phone Case', 'Phone Cases', 4500],
+  ['Puzzle', 'Puzzles', 3500],
+  ['Postcards', 'Postcards', 1500],
+  ['Apron', 'Aprons', 3500],
+  ['Water Bottle', 'Water Bottles', 4500],
+  ['Beach Towel', 'Beach Towels', 5500],
+];
+for (const [type, cat, cents] of TYPE_CASES) {
+  t(`type prefix: ${type} -> ${cat}`, categoryOf(`${type} - Some Graphic`) === cat);
+  t(`type price: ${type} -> ${cents}`, priceCentsOf(`${type} - Some Graphic`) === cents);
+  t(`type card: ${type} price+category`, (() => {
+    const card = mapListItemToCard({ id: 42, name: `${type} - Some Graphic`, variants: 1 });
+    return card.category === cat && card.priceCents === cents;
+  })());
+}
+// The misfiled-Mug regressions from the live census: the graphic name is
+// a mug/hoodie name, the product is NOT — the type prefix decides.
+t('misfiled: water bottle with mug graphic', categoryOf('Water Bottle - Frosty Diamond Face Mug') === 'Water Bottles');
+t('misfiled: beach towel with mug graphic', categoryOf('Beach Towel - Galaxy Portal Mug') === 'Beach Towels');
+t('misfiled: tote with mug graphic', categoryOf('Tote Bag - Neon Tiger Mug') === 'Tote Bags');
+t('misfiled: t-shirt with hoodie graphic', categoryOf('Classic T-Shirt - Unisex Hoodie - You Sunk My Battleship') === 'T-Shirts');
+t('misfiled: stickers with hoodie graphic price', priceCentsOf('Die-Cut Stickers - Unisex Hoodie - Prompt: YIN/YEN') === 1500);
+t('misfiled: framed poster is not Posters', categoryOf('Framed Poster - X') === 'Framed Posters');
+t('misfiled: zip-up with mug graphic stays Hoodies', categoryOf('Zip-Up Hoodie - Frosty Mug') === 'Hoodies');
+// Legacy shapes keep working through the keyword fallback.
+t('legacy: mug suffix beats hoodie words', categoryOf('Olympian Hoodies X Maps Mug') === 'Mugs');
+t('legacy: mug batch price C$24.99', priceCentsOf('Neon Tiger Mug') === 2499);
+t('legacy: bare title defaults to C$95', priceCentsOf('Glitch') === 9500);
+t('legacy: track pants entry price', priceCentsOf('Unisex track pants - Artemis Hunting Gear') === 6050);
+t('legacy: wide-leg joggers price', (() => {
+  const card = mapListItemToCard({ id: 43, name: 'Wide-leg joggers - Camo', variants: 3 });
+  return card.category === 'Joggers' && card.priceCents === 8000;
+})());
+t('legacy: sweater keyword -> Sweaters', categoryOf('Cozy Knit Sweater') === 'Sweaters');
+t('legacy: sweatshirt keyword -> Sweatshirts', categoryOf('Classic Crewneck Sweatshirt') === 'Sweatshirts');
 
 const second = mapListItemToCard(SECOND_ITEM);
 t('second: id mapped', second.id === 'pf_7');

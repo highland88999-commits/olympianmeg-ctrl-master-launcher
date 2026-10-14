@@ -211,12 +211,16 @@ function StoreInner() {
     return () => { clearTimeout(scrollTimer); clearTimeout(clearTimer); };
   }, [products, wantedProduct, wantedCategory]);
 
-  // Product-type categories (Merlin, 2026-10-11): the store groups products
-  // by type — Hoodies, Mugs, Tees, etc. `category` comes from categoryOf()
-  // in lib/store-printful.js; anything unrecognized lands under "More".
+  // Product-type categories (Merlin, 2026-10-11; full-catalog expansion
+  // 2026-10-13): the store groups products by type — every product
+  // family gets its own section. `category` comes from categoryOf() in
+  // lib/store-printful.js; anything unrecognized lands under "More".
   const CATEGORY_ORDER = [
-    'Hoodies', 'Sweatshirts', 'Tees', 'Jackets', 'Pants', 'Mugs',
-    'Posters', 'Headwear', 'Stickers', 'Socks', 'More',
+    'Hoodies', 'T-Shirts', 'Sweatshirts', 'Sweaters', 'Jackets', 'Tank Tops',
+    'Joggers', 'Pants', 'Headwear', 'Mugs', 'Tumblers', 'Water Bottles',
+    'Tote Bags', 'Drawstring Bags', 'Posters', 'Framed Posters', 'Canvas',
+    'Stickers', 'Phone Cases', 'Puzzles', 'Postcards', 'Aprons',
+    'Beach Towels', 'Socks', 'More',
   ];
 
   const groups = useMemo(() => {
