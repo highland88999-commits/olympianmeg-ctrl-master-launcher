@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { latLonToVec3, tileGrid } from '@/lib/geo';
 import GoogleEarthTiles from '@/components/GoogleEarthTiles';
 import ProceduralEarthGlobe from '@/components/ProceduralEarthGlobe';
+import EarthAssets from '@/components/EarthAssets';
 
 // The hub Earth: Google's photorealistic 3D tiles when they stream, a real
 // procedural 3D terrain globe as the fallback — Earth is always 3D, never a
@@ -111,6 +112,7 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
           onInactive={() => setLayer('terrain')}
         />
         {layer === 'terrain' && <ProceduralEarthGlobe onSelect={onSelect} />}
+        {layer === 'terrain' && <EarthAssets />}
 
         {layer === 'terrain' && patchTex && (
           <mesh ref={patchRef}>
