@@ -1,15 +1,25 @@
 // app/api/store/custom/create/route.js
 // POST /api/store/custom/create — Custom Product Designer backend.
 //
-// Takes a user-designed print file (base64 PNG, already composited at the
-// chosen product's print resolution by the /store/custom designer canvas)
-// and:
-//   1. Uploads it to Printful Files (POST /files)
+// Takes user-designed print files (base64 PNGs, already composited at
+// each placement's print resolution by the /store/custom designer
+// canvas) and:
+//   1. Uploads each distinct graphic to Printful Files (POST /files)
 //   2. Creates a real sync product in Omega Store (POST /store/products)
 //      on the blank template the user picked — see
 //      lib/store/custom-products.js for the templates (the original
 //      All-Over Print Recycled Unisex Hoodie, White, 2XS-6XL, CA$95,
 //      remains the default when no productKey is sent)
+//
+// Placements (Merlin's placement rules, 2026-10-13): the client sends
+// one entry per placement in `images` — its own exported PNG, or
+// `sameAs` naming another placement whose graphic it reuses (Rule 1:
+// multi-placement templates take a different graphic per placement,
+// or the same one, the user's choice). Older clients send a single
+// `imageBase64` that fills every placement. On the AOP hoodie the
+// client only ever sends the front; the pocket attachment is added
+// here from the same uploaded front file (Rule 2 — see
+// planPlacementFiles in lib/store/custom-products.js).
 //   3. Sets the sync product thumbnail explicitly from Printful's
 //      generated mockup/preview (standing store rule)
 //   4. Returns the product id + mockup so the designer can show the
@@ -32,6 +42,8 @@ import { apiGuard } from '@/lib/api-guard';
 import {
   getCustomProduct,
   DEFAULT_PRODUCT_KEY,
+  placementsFor,
+  planPlacementFiles,
   parseMarkupToCents,
   finalPriceCents,
   centsToCadString,
@@ -101,12 +113,16 @@ export const POST = apiGuard(async (req) => {
     return NextResponse.json({ ok: false, error: 'Invalid request.' }, { status: 400 });
   }
 
-  const { imageBase64, fileName, designName, productKey, markup } = body || {};
-  if (!imageBase64 || typeof imageBase64 !== 'string' || imageBase64.length < 100) {
-    return NextResponse.json({ ok: false, error: 'No design image received.' }, { status: 400 });
-  }
-  if (imageBase64.length > 25 * 1024 * 1024) {
-    return NextResponse.json({ ok: false, error: 'Design image too large.' }, { status: 400 });
+  const { imageBase64, images, fileName, designName, productKey, markup } = body || {};
+  const hasImages = Array.isArray(images) && images.length > 0;
+  if (!hasImages) {
+    // Legacy single-image request: one graphic fills every placement.
+    if (!imageBase64 || typeof imageBase64 !== 'string' || imageBase64.length < 100) {
+      return NextResponse.json({ ok: false, error: 'No design image received.' }, { status: 400 });
+    }
+    if (imageBase64.length > 25 * 1024 * 1024) {
+      return NextResponse.json({ ok: false, error: 'Design image too large.' }, { status: 400 });
+    }
   }
 
   // Template selection is server-authoritative. A missing productKey
@@ -134,30 +150,84 @@ export const POST = apiGuard(async (req) => {
   // no baseline offer attaches — see lib/store/custom-creations.js).
   const creator = await optionalUserFromRequest(req);
 
-  const stripPrefix = imageBase64.replace(/^data:image\/\w+;base64,/, '');
-  const dims = pngDimensions(stripPrefix);
-  if (dims && (dims.w !== product.print.w || dims.h !== product.print.h)) {
-    return NextResponse.json(
-      { ok: false, error: 'Design image has the wrong print size for this product.' },
-      { status: 400 }
-    );
+  // Per-placement submissions (Rule 1): each `images` entry carries
+  // either its own exported PNG or sameAs naming the placement whose
+  // graphic it reuses. Payloads are validated per placement below.
+  let submissions = null;
+  const payloadByKey = new Map();
+  if (hasImages) {
+    submissions = {};
+    for (const entry of images) {
+      if (!entry || typeof entry.key !== 'string' || !entry.key) {
+        return NextResponse.json({ ok: false, error: 'Invalid design images.' }, { status: 400 });
+      }
+      if (submissions[entry.key]) {
+        return NextResponse.json({ ok: false, error: 'Duplicate placement in design.' }, { status: 400 });
+      }
+      if (typeof entry.sameAs === 'string' && entry.sameAs) {
+        submissions[entry.key] = { sameAs: entry.sameAs };
+      } else if (typeof entry.imageBase64 === 'string' && entry.imageBase64.length >= 100) {
+        if (entry.imageBase64.length > 25 * 1024 * 1024) {
+          return NextResponse.json({ ok: false, error: 'Design image too large.' }, { status: 400 });
+        }
+        submissions[entry.key] = { image: true };
+        payloadByKey.set(entry.key, entry.imageBase64);
+      } else {
+        return NextResponse.json({ ok: false, error: 'Invalid design images.' }, { status: 400 });
+      }
+    }
   }
+
+  // The plan is computed from the server-side template config — which
+  // placements exist, which files they take, and the hoodie's backend
+  // pocket attachment (Rule 2) are never the client's call.
+  const plan = planPlacementFiles(product, submissions);
+  if (!plan.ok) {
+    return NextResponse.json({ ok: false, error: plan.error }, { status: 400 });
+  }
+  const placementByKey = new Map(placementsFor(product).map((p) => [p.key, p]));
 
   const safeName = (designName || `Custom ${product.name}`).toString().slice(0, 80) || `Custom ${product.name}`;
   const safeFile = (fileName || `custom-${product.key}.png`).toString().replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 60);
+  const fileNameFor = (sourceKey, idx) => {
+    if (idx === 0) return safeFile;
+    const derived = `${safeFile.replace(/\.png$/i, '')}-${sourceKey}.png`;
+    return derived.slice(0, 60);
+  };
 
-  // 1. Upload the print file to Printful.
-  const file = await pf('POST', '/files', { file_name: safeFile, data: stripPrefix });
-  const fileId = file && file.id;
-  if (!fileId) throw new Error('Printful file upload failed.');
+  // 1. Upload each distinct graphic to Printful Files, once. Every
+  //    payload is confirmed against its placement's print spec first.
+  const fileIdBySource = {};
+  for (let i = 0; i < plan.uploads.length; i++) {
+    const sourceKey = plan.uploads[i];
+    const raw = hasImages ? payloadByKey.get(sourceKey) : imageBase64;
+    if (!raw) {
+      return NextResponse.json({ ok: false, error: 'Invalid design images.' }, { status: 400 });
+    }
+    const stripped = raw.replace(/^data:image\/\w+;base64,/, '');
+    const placement = placementByKey.get(sourceKey);
+    const spec = (placement && placement.print) || product.print;
+    const dims = pngDimensions(stripped);
+    if (dims && (dims.w !== spec.w || dims.h !== spec.h)) {
+      return NextResponse.json(
+        { ok: false, error: 'Design image has the wrong print size for this product.' },
+        { status: 400 }
+      );
+    }
+    const file = await pf('POST', '/files', { file_name: fileNameFor(sourceKey, i), data: stripped });
+    const fileId = file && file.id;
+    if (!fileId) throw new Error('Printful file upload failed.');
+    fileIdBySource[sourceKey] = fileId;
+  }
 
-  // 2. Create the sync product with the template's variants. The design
-  //    file attaches to the template's placement(s) — the hoodie keeps
-  //    its original type-less attachment (the product's default
-  //    placement); joggers attach to both leg placements.
-  const files = product.fileTypes.length
-    ? product.fileTypes.map((type) => ({ type, id: fileId }))
-    : [{ id: fileId }];
+  // 2. Create the sync product with the template's variants. The
+  //    planned attachments map each Printful placement to its file —
+  //    the hoodie keeps its original type-less front attachment and
+  //    gains the pocket attachment on the same file (Rule 2); joggers
+  //    attach each leg's own (or shared) graphic (Rule 1).
+  const files = plan.files.map((f) => (f.type
+    ? { type: f.type, id: fileIdBySource[f.source] }
+    : { id: fileIdBySource[f.source] }));
   const created = await pf('POST', '/store/products', {
     sync_product: { name: `${product.name} - Custom: ${safeName}` },
     sync_variants: product.variants.map((v) => ({

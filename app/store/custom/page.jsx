@@ -9,6 +9,16 @@
 // White, CA$95, is the default). Print resolution, placements, variants
 // and prices all come from the Printful catalog specs in that config.
 //
+// Merlin's placement rules (2026-10-13):
+//   1. A template with more than one placement (the joggers' legs)
+//      takes a DIFFERENT graphic per placement, or the same graphic
+//      reused — the user's choice per placement.
+//   2. On the AOP hoodie the user only ever handles the FRONT; the
+//      pocket is filled by the backend from the same front file.
+//   3. Print files are composed with an edge-mirrored fill by default:
+//      space the graphic doesn't cover reflects the graphic at its
+//      edges instead of staying blank (see composePrintCanvas).
+//
 // Flow:
 //   1. Upload  — pick a product, then drag & drop or file picker,
 //                client-side validation (type, size, dimensions,
@@ -17,8 +27,9 @@
 //                name the design, and set the creator markup (the
 //                creation sells at base price + markup; the markup is
 //                the creator's income per sale). The canvas exports a
-//                print-ready PNG at the chosen product's print resolution
-//                with the graphic baked at the chosen position/scale.
+//                print-ready PNG per placement at the product's print
+//                resolution with the graphic baked at the chosen
+//                position/scale over the mirrored fill.
 //   3. Create  — POST /api/store/custom/create uploads to Printful and
 //                creates the sync product at the server-computed store
 //                price; the official mockup is shown with purchase via
@@ -31,6 +42,7 @@ import {
   CUSTOM_PRODUCTS,
   getCustomProduct,
   DEFAULT_PRODUCT_KEY,
+  placementsFor,
   parseMarkupToCents,
   centsToCadString,
 } from '@/lib/store/custom-products';
@@ -48,25 +60,95 @@ const STEPS = ['Upload', 'Design', 'Create'];
 
 function cx(...xs) { return xs.filter(Boolean).join(' '); }
 
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Could not render design.'));
+    img.src = src;
+  });
+}
+
+// Compose a print canvas of W×H: the graphic drawn at `rect`, with
+// every uncovered pixel filled by edge-mirroring the graphic (Rule 3).
+// Reflected tiles are anchored on the graphic's own rect, so each
+// reflection meets the graphic's edge exactly — the fill reads as the
+// artwork continuing, never as blank space. The graphic itself is
+// drawn last, pristine, on top of its own home tile.
+function composePrintCanvas(img, W, H, rect) {
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const ctx = c.getContext('2d');
+  const { x, y, w, h } = rect;
+  if (w > 0 && h > 0) {
+    const iMin = Math.floor((0 - x) / w), iMax = Math.ceil((W - x) / w);
+    const jMin = Math.floor((0 - y) / h), jMax = Math.ceil((H - y) / h);
+    for (let i = iMin; i < iMax; i++) {
+      for (let j = jMin; j < jMax; j++) {
+        if (i === 0 && j === 0) continue;
+        const flipX = Math.abs(i % 2) === 1;
+        const flipY = Math.abs(j % 2) === 1;
+        ctx.save();
+        ctx.translate(x + i * w + (flipX ? w : 0), y + j * h + (flipY ? h : 0));
+        ctx.scale(flipX ? -1 : 1, flipY ? -1 : 1);
+        ctx.drawImage(img, 0, 0, w, h);
+        ctx.restore();
+      }
+    }
+    ctx.drawImage(img, x, y, w, h);
+  }
+  return c;
+}
+
+// The placed rect (px) of a design on a W×H canvas: the graphic's
+// width is `gs` of the canvas width, height keeps its aspect ratio,
+// centred on (gx, gy) as fractions of the canvas.
+function designRect(img, design, W, H) {
+  const gw = W * design.gs;
+  const gh = gw * (img.naturalHeight / img.naturalWidth);
+  return { x: W * design.gx - gw / 2, y: H * design.gy - gh / 2, w: gw, h: gh };
+}
+
+// Full-resolution print PNG for one placement (what gets uploaded).
+async function exportDesignPng(design, spec) {
+  const img = await loadImage(design.imgUrl);
+  const canvas = composePrintCanvas(img, spec.w, spec.h, designRect(img, design, spec.w, spec.h));
+  return canvas.toDataURL('image/png');
+}
+
+// Low-resolution composite for the stage backdrop, so the user sees
+// the mirrored fill while designing (same routine, smaller canvas).
+async function previewDesignUrl(design, spec, targetW = 480) {
+  const img = await loadImage(design.imgUrl);
+  const W = targetW;
+  const H = Math.max(1, Math.round(spec.h * (targetW / spec.w)));
+  const canvas = composePrintCanvas(img, W, H, designRect(img, design, W, H));
+  return canvas.toDataURL('image/png');
+}
+
 export default function CustomProductPage() {
   const [productKey, setProductKey] = useState(DEFAULT_PRODUCT_KEY);
   const product = getCustomProduct(productKey) || CUSTOM_PRODUCTS[0];
-  const PRINT_W = product.print.w;
-  const PRINT_H = product.print.h;
+  const placements = placementsFor(product);
+  const firstKey = placements.length ? placements[0].key : 'main';
+  const multi = placements.length > 1;
 
   const [step, setStep] = useState(0);
-  const [file, setFile] = useState(null);          // File object
-  const [imgUrl, setImgUrl] = useState(null);      // object URL for preview
-  const [imgSize, setImgSize] = useState(null);     // {w,h} natural dims
-  const [hasTransparency, setHasTransparency] = useState(null);
-  const [qualityWarn, setQualityWarn] = useState(false);
   const [error, setError] = useState(null);
   const [dragOver, setDragOver] = useState(false);
 
-  // Design state — position/size as fractions of the print area.
-  const [gx, setGx] = useState(product.design.x);   // center x (0..1)
-  const [gy, setGy] = useState(product.design.y);   // center y (0..1)
-  const [gs, setGs] = useState(product.design.scale); // graphic width as fraction of print width
+  // Per-placement design state (Rule 1). designs[key] holds a
+  // placement's own graphic + transform; reuse[key] names the
+  // placement whose graphic this placement shares instead.
+  // A design record: { imgUrl, imgSize, hasTransparency, qualityWarn,
+  // gx, gy, gs } — position/size as fractions of the print area.
+  const [designs, setDesigns] = useState({});
+  const [reuse, setReuse] = useState({});
+  const [activeKey, setActiveKey] = useState(() => {
+    const p = getCustomProduct(DEFAULT_PRODUCT_KEY);
+    const pls = p ? placementsFor(p) : [];
+    return pls.length ? pls[0].key : 'main';
+  });
 
   const [designName, setDesignName] = useState('');
   const [markup, setMarkup] = useState('0');       // creator markup, CAD dollars (string while typing)
@@ -76,10 +158,33 @@ export default function CustomProductPage() {
   const [baselineUsed, setBaselineUsed] = useState(false);
   const [buySize, setBuySize] = useState(product.defaultSize || '');
   const [buying, setBuying] = useState(false);
+  const [stageBg, setStageBg] = useState(null);    // mirrored-fill stage preview
 
   const fileInputRef = useRef(null);
+  const uploadTargetRef = useRef(null);
   const stageRef = useRef(null);
   const dragRef = useRef(null);
+  const designsRef = useRef(designs);
+  designsRef.current = designs;
+
+  const activePlacement = placements.find((p) => p.key === activeKey) || placements[0] || null;
+  const activeSourceKey = activePlacement
+    ? (reuse[activePlacement.key] || activePlacement.key)
+    : null;
+  const activeDesign = activeSourceKey ? (designs[activeSourceKey] || null) : null;
+  const activeIsReuse = !!(activePlacement && reuse[activePlacement.key]);
+  const activeSpec = (activePlacement && activePlacement.print) || product.print;
+  const PRINT_W = activeSpec.w;
+  const PRINT_H = activeSpec.h;
+
+  const labelOf = useCallback((key) => {
+    const p = placements.find((pl) => pl.key === key);
+    return p ? p.label : 'graphic';
+  }, [placements]);
+
+  const patchDesign = useCallback((key, patch) => {
+    setDesigns((prev) => (prev[key] ? { ...prev, [key]: { ...prev[key], ...patch } } : prev));
+  }, []);
 
   // ---- creator identity (Supabase session, same pattern as the wallet) ----
   // Creation works for guests too, but attribution + the baseline offer
@@ -110,24 +215,32 @@ export default function CustomProductPage() {
   const finalCents = product.priceCents + markupCents;
 
   // ---- pick a blank product (keeps any uploaded graphic) ----
-  const selectProduct = useCallback((key) => {
+  const selectProduct = (key) => {
     const p = getCustomProduct(key);
     if (!p) return;
+    const pls = placementsFor(p);
+    const first = pls.length ? pls[0] : null;
+    const carried = activeDesign;
+    const next = {};
+    if (carried && first) {
+      // Keep the graphic across the switch (as this page always has),
+      // re-homed on the new template's first placement with that
+      // template's default position/size.
+      next[first.key] = { ...carried, gx: p.design.x, gy: p.design.y, gs: p.design.scale };
+    }
     setProductKey(key);
-    setGx(p.design.x);
-    setGy(p.design.y);
-    setGs(p.design.scale);
+    setDesigns(next);
+    setReuse({});
+    setActiveKey(first ? first.key : 'main');
     setBuySize(p.defaultSize || '');
     setResult(null);
     setError(null);
-  }, []);
+  };
 
-  // ---- upload & validation ----
-  const validateAndLoad = useCallback((f) => {
+  // ---- upload & validation (per placement) ----
+  const validateAndLoad = useCallback((f, targetKey) => {
     setError(null);
-    setQualityWarn(false);
-    setHasTransparency(null);
-    if (!f) return;
+    if (!f || !targetKey) return;
     const okTypes = ['image/png', 'image/jpeg', 'image/webp'];
     if (!okTypes.includes(f.type)) {
       setError('Please use a PNG, JPG, or WebP image.');
@@ -146,9 +259,8 @@ export default function CustomProductPage() {
         setError(`That image is ${w}×${h}px — please use at least ${MIN_DIM}×${MIN_DIM}px for a clean print.`);
         return;
       }
-      setImgSize({ w, h });
-      if (w < 2000 || h < 2000) setQualityWarn(true);
       // Transparency check: sample the canvas for any non-opaque pixel.
+      let transparent = null;
       try {
         const c = document.createElement('canvas');
         const s = Math.min(200, w, h);
@@ -156,41 +268,68 @@ export default function CustomProductPage() {
         const ctx = c.getContext('2d', { willReadFrequently: true });
         ctx.drawImage(img, 0, 0, s, s);
         const px = ctx.getImageData(0, 0, s, s).data;
-        let transparent = false;
+        transparent = false;
         for (let i = 3; i < px.length; i += 40) {
           if (px[i] < 250) { transparent = true; break; }
         }
-        setHasTransparency(transparent);
-      } catch { setHasTransparency(null); }
-      setFile(f);
-      setImgUrl(url);
-      setStep(1);
+      } catch { transparent = null; }
+      setDesigns((prev) => {
+        const old = prev[targetKey];
+        if (old && old.imgUrl && old.imgUrl !== url) URL.revokeObjectURL(old.imgUrl);
+        return {
+          ...prev,
+          [targetKey]: {
+            imgUrl: url,
+            imgSize: { w, h },
+            hasTransparency: transparent,
+            qualityWarn: w < 2000 || h < 2000,
+            gx: product.design.x, gy: product.design.y, gs: product.design.scale,
+          },
+        };
+      });
+      // A fresh upload for a placement ends any reuse set for it.
+      setReuse((prev) => {
+        if (!prev[targetKey]) return prev;
+        const n = { ...prev };
+        delete n[targetKey];
+        return n;
+      });
+      setActiveKey(targetKey);
+      if (targetKey === firstKey) setStep(1);
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
       setError('Could not read that image — please try another file.');
     };
     img.src = url;
+  }, [product, firstKey]);
+
+  const pickFileFor = useCallback((key) => {
+    uploadTargetRef.current = key;
+    if (fileInputRef.current) fileInputRef.current.click();
   }, []);
 
-  const onDrop = useCallback((e) => {
+  const onDropFor = useCallback((key) => (e) => {
     e.preventDefault();
     setDragOver(false);
     const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-    if (f) validateAndLoad(f);
+    if (f) validateAndLoad(f, key);
   }, [validateAndLoad]);
 
   // ---- drag to reposition (pointer events: mouse + touch) ----
   const startDrag = useCallback((e) => {
-    if (!stageRef.current) return;
+    if (!stageRef.current || !activeSourceKey || activeIsReuse) return;
     e.preventDefault();
     const stage = stageRef.current;
     const rect = stage.getBoundingClientRect();
+    const sourceKey = activeSourceKey;
     const move = (ev) => {
       const x = (ev.clientX - rect.left) / rect.width;
       const y = (ev.clientY - rect.top) / rect.height;
-      setGx(Math.min(0.95, Math.max(0.05, x)));
-      setGy(Math.min(0.95, Math.max(0.05, y)));
+      patchDesign(sourceKey, {
+        gx: Math.min(0.95, Math.max(0.05, x)),
+        gy: Math.min(0.95, Math.max(0.05, y)),
+      });
     };
     const up = () => {
       window.removeEventListener('pointermove', move);
@@ -201,37 +340,33 @@ export default function CustomProductPage() {
     window.addEventListener('pointerup', up);
     window.addEventListener('pointercancel', up);
     dragRef.current = { move, up };
-  }, []);
+  }, [activeSourceKey, activeIsReuse, patchDesign]);
 
   useEffect(() => () => {
     if (dragRef.current) {
       window.removeEventListener('pointermove', dragRef.current.move);
       window.removeEventListener('pointerup', dragRef.current.up);
     }
-    return () => { if (imgUrl) URL.revokeObjectURL(imgUrl); };
-  }, [imgUrl]);
+  }, []);
 
-  // ---- export print-ready PNG at the product's print resolution ----
-  const exportPrintFile = useCallback(() => {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => {
-        const c = document.createElement('canvas');
-        c.width = PRINT_W; c.height = PRINT_H;
-        const ctx = c.getContext('2d');
-        ctx.clearRect(0, 0, PRINT_W, PRINT_H);
-        // Graphic width in print px; height keeps aspect ratio.
-        const gw = PRINT_W * gs;
-        const gh = gw * (img.naturalHeight / img.naturalWidth);
-        const cxp = PRINT_W * gx - gw / 2;
-        const cyp = PRINT_H * gy - gh / 2;
-        ctx.drawImage(img, cxp, cyp, gw, gh);
-        resolve(c.toDataURL('image/png'));
-      };
-      img.onerror = () => reject(new Error('Could not render design.'));
-      img.src = imgUrl;
+  useEffect(() => () => {
+    Object.values(designsRef.current).forEach((d) => {
+      if (d && d.imgUrl) URL.revokeObjectURL(d.imgUrl);
     });
-  }, [imgUrl, gx, gy, gs, PRINT_W, PRINT_H]);
+  }, []);
+
+  // ---- stage backdrop: the mirrored-fill composite (Rule 3 preview) ----
+  useEffect(() => {
+    if (!activeDesign) { setStageBg(null); return; }
+    let alive = true;
+    const timer = setTimeout(() => {
+      previewDesignUrl(activeDesign, activeSpec)
+        .then((u) => { if (alive) setStageBg(u); })
+        .catch(() => {});
+    }, 120);
+    return () => { alive = false; clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeDesign, product.key]);
 
   // ---- create product ----
   const createProduct = useCallback(async () => {
@@ -242,14 +377,27 @@ export default function CustomProductPage() {
     }
     setCreating(true);
     try {
-      const dataUrl = await exportPrintFile();
-      const base64 = dataUrl.split(',')[1];
+      // One exported PNG per placement that carries its own graphic;
+      // a reusing placement names its source instead (Rule 1).
+      const images = [];
+      for (const p of placements) {
+        if (reuse[p.key]) {
+          images.push({ key: p.key, sameAs: reuse[p.key] });
+          continue;
+        }
+        const d = designs[p.key];
+        if (!d) {
+          throw new Error(`Add a graphic for the ${p.label.toLowerCase()} placement, or set it to use the same graphic as another placement.`);
+        }
+        const dataUrl = await exportDesignPng(d, p.print || product.print);
+        images.push({ key: p.key, imageBase64: dataUrl.split(',')[1] });
+      }
       const res = await fetch('/api/store/custom/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
         body: JSON.stringify({
           productKey,
-          imageBase64: base64,
+          images,
           fileName: `custom-${productKey}-${Date.now()}.png`,
           designName: designName.trim() || `My Custom ${product.name}`,
           // Only the markup travels — the server recomputes the price.
@@ -266,7 +414,7 @@ export default function CustomProductPage() {
     } finally {
       setCreating(false);
     }
-  }, [exportPrintFile, designName, productKey, product.name, markup, markupParsed, authHeaders]);
+  }, [placements, reuse, designs, product, designName, productKey, markup, markupParsed, authHeaders]);
 
   // ---- buy a creation via the custom buy route (server-priced from
   // the creation record: baseline + markup; baselineOffer asks for the
@@ -303,18 +451,36 @@ export default function CustomProductPage() {
   const buyBaseline = useCallback(() => buyCustom(true), [buyCustom]);
 
   const resetAll = useCallback(() => {
-    if (imgUrl) URL.revokeObjectURL(imgUrl);
-    setFile(null); setImgUrl(null); setImgSize(null);
-    setHasTransparency(null); setQualityWarn(false);
-    setGx(product.design.x); setGy(product.design.y); setGs(product.design.scale);
-    setBuySize(product.defaultSize || '');
+    Object.values(designsRef.current).forEach((d) => {
+      if (d && d.imgUrl) URL.revokeObjectURL(d.imgUrl);
+    });
+    setDesigns({});
+    setReuse({});
+    const p = getCustomProduct(productKey) || CUSTOM_PRODUCTS[0];
+    const pls = placementsFor(p);
+    setActiveKey(pls.length ? pls[0].key : 'main');
+    setBuySize(p.defaultSize || '');
     setDesignName(''); setMarkup('0'); setResult(null); setBaselineUsed(false); setError(null);
     setStep(0);
-  }, [imgUrl, product]);
+  }, [productKey]);
+
+  const primaryDesign = designs[firstKey] || null;
 
   return (
     <div className="min-h-dvh bg-[#06070d] text-white"
       style={{ paddingBottom: 'max(5.5rem, calc(env(safe-area-inset-bottom) + 4.5rem))' }}>
+      {/* shared file picker for every placement's upload control */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files && e.target.files[0];
+          e.target.value = '';
+          if (f) validateAndLoad(f, uploadTargetRef.current || firstKey);
+        }}
+      />
       <div className="mx-auto max-w-2xl px-4 pt-6">
         {/* header */}
         <div className="mb-6 flex items-center justify-between">
@@ -372,36 +538,61 @@ export default function CustomProductPage() {
               ))}
             </div>
 
-            <div className="mb-3 text-sm font-semibold text-slate-200">2 · Add your graphic</div>
+            <div className="mb-3 text-sm font-semibold text-slate-200">
+              2 · Add your graphic{multi ? ` — ${labelOf(firstKey)}` : ''}
+            </div>
             <div
-              onDrop={onDrop}
+              onDrop={onDropFor(firstKey)}
               onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
               onDragLeave={() => setDragOver(false)}
-              onClick={() => fileInputRef.current && fileInputRef.current.click()}
+              onClick={() => pickFileFor(firstKey)}
               className={cx(
                 'cursor-pointer rounded-2xl border-2 border-dashed p-10 text-center transition-colors',
                 dragOver ? 'border-amber-400 bg-amber-400/10' : 'border-white/20 bg-white/5'
               )}
             >
-              <div className="text-5xl">🎨</div>
-              <div className="mt-3 font-semibold">Drop your graphic here</div>
-              <div className="mt-1 text-sm text-slate-400">or tap to browse — PNG, JPG, or WebP</div>
+              {primaryDesign ? (
+                <>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={primaryDesign.imgUrl} alt="Your graphic" className="mx-auto max-h-40 rounded-lg" />
+                  <div className="mt-3 font-semibold">Got it — tap to replace</div>
+                </>
+              ) : (
+                <>
+                  <div className="text-5xl">🎨</div>
+                  <div className="mt-3 font-semibold">Drop your graphic here</div>
+                  <div className="mt-1 text-sm text-slate-400">or tap to browse — PNG, JPG, or WebP</div>
+                </>
+              )}
               <div className="mt-3 text-xs text-slate-500">
                 Transparent PNG works best · at least {MIN_DIM}×{MIN_DIM}px · max {MAX_FILE_MB}MB
               </div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                className="hidden"
-                onChange={(e) => validateAndLoad(e.target.files && e.target.files[0])}
-              />
             </div>
+            {multi && (
+              <div className="mt-3 text-xs text-slate-400">
+                This product has {placements.length} print placements. In the next step you can give the{' '}
+                {placements.slice(1).map((p) => p.label.toLowerCase()).join(' and ')} its own graphic — or
+                use this same one.
+              </div>
+            )}
+            {product.pocketFromFront && (
+              <div className="mt-3 text-xs text-slate-400">
+                The pocket prints this same graphic, aligned with the front — nothing extra to upload.
+              </div>
+            )}
+            {primaryDesign && (
+              <button
+                onClick={() => setStep(1)}
+                className="mt-4 w-full rounded-xl bg-amber-400 px-4 py-3 font-semibold text-black"
+              >
+                Continue to design →
+              </button>
+            )}
           </div>
         )}
 
         {/* STEP 2 — design */}
-        {step === 1 && imgUrl && (
+        {step === 1 && activeDesign && (
           <div>
             <div className="mb-3 flex items-center justify-between">
               <div className="text-sm text-slate-400">
@@ -411,63 +602,179 @@ export default function CustomProductPage() {
                 Change product
               </button>
             </div>
+
+            {/* placement tabs (Rule 1 templates only) */}
+            {multi && (
+              <div className="mb-3 flex gap-2">
+                {placements.map((p) => {
+                  const isActive = activePlacement && p.key === activePlacement.key;
+                  const state = reuse[p.key]
+                    ? `same as ${labelOf(reuse[p.key]).toLowerCase()}`
+                    : designs[p.key] ? 'own graphic' : 'no graphic yet';
+                  return (
+                    <button
+                      key={p.key}
+                      onClick={() => setActiveKey(p.key)}
+                      className={cx(
+                        'flex-1 rounded-lg border px-3 py-2 text-left',
+                        isActive ? 'border-amber-400 bg-amber-400/10' : 'border-white/15 bg-white/5'
+                      )}
+                    >
+                      <div className="text-sm font-semibold">{p.label}</div>
+                      <div className="text-xs text-slate-400">{state}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* per-placement graphic choice for non-primary placements */}
+            {multi && activePlacement && activePlacement.key !== firstKey && (
+              <div className="mb-4 rounded-xl border border-white/15 bg-white/5 p-4">
+                <div className="text-sm font-semibold text-slate-200">{activePlacement.label} graphic</div>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => setReuse((prev) => ({ ...prev, [activePlacement.key]: firstKey }))}
+                    className={cx(
+                      'rounded-lg border px-3 py-2 text-sm',
+                      activeIsReuse ? 'border-amber-400 bg-amber-400/10 text-amber-200' : 'border-white/15 text-slate-300'
+                    )}
+                  >
+                    Same as {labelOf(firstKey).toLowerCase()}
+                  </button>
+                  <button
+                    onClick={() => setReuse((prev) => {
+                      const n = { ...prev };
+                      delete n[activePlacement.key];
+                      return n;
+                    })}
+                    className={cx(
+                      'rounded-lg border px-3 py-2 text-sm',
+                      !activeIsReuse ? 'border-amber-400 bg-amber-400/10 text-amber-200' : 'border-white/15 text-slate-300'
+                    )}
+                  >
+                    Different graphic
+                  </button>
+                </div>
+                {!activeIsReuse && !designs[activePlacement.key] && (
+                  <div
+                    onDrop={onDropFor(activePlacement.key)}
+                    onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                    onDragLeave={() => setDragOver(false)}
+                    onClick={() => pickFileFor(activePlacement.key)}
+                    className={cx(
+                      'mt-3 cursor-pointer rounded-xl border-2 border-dashed p-6 text-center transition-colors',
+                      dragOver ? 'border-amber-400 bg-amber-400/10' : 'border-white/20 bg-white/5'
+                    )}
+                  >
+                    <div className="text-3xl">🎨</div>
+                    <div className="mt-2 text-sm font-semibold">Drop the {activePlacement.label.toLowerCase()} graphic here</div>
+                    <div className="mt-1 text-xs text-slate-400">or tap to browse — PNG, JPG, or WebP</div>
+                  </div>
+                )}
+                {!activeIsReuse && designs[activePlacement.key] && (
+                  <button
+                    onClick={() => pickFileFor(activePlacement.key)}
+                    className="mt-3 text-xs text-slate-400 underline"
+                  >
+                    Replace this graphic
+                  </button>
+                )}
+                {activeIsReuse && (
+                  <div className="mt-3 text-xs text-slate-400">
+                    The {activePlacement.label.toLowerCase()} will print the {labelOf(firstKey).toLowerCase()} graphic,
+                    positioned exactly as you placed it there.
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="mb-3 text-sm text-slate-400">
               Drag your graphic to move it · use the slider to resize
+              <span className="block text-xs text-slate-500">
+                Space around your graphic is filled by mirroring its edges — no blank space.
+              </span>
             </div>
             {/* print-area stage */}
             <div className="mx-auto w-full max-w-sm">
               <div
                 ref={stageRef}
                 className="relative w-full overflow-hidden rounded-2xl border border-white/15 bg-white"
-                style={{ aspectRatio: `${PRINT_W} / ${PRINT_H}` }}
+                style={{
+                  aspectRatio: `${PRINT_W} / ${PRINT_H}`,
+                  ...(stageBg ? { backgroundImage: `url(${stageBg})`, backgroundSize: 'cover' } : {}),
+                }}
               >
                 {/* product hint */}
-                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                  <span className="text-xs uppercase tracking-widest text-slate-400/70">{product.stageHint}</span>
-                </div>
-                <img
-                  src={imgUrl}
-                  alt="Your graphic"
-                  onPointerDown={startDrag}
-                  draggable={false}
-                  className="absolute cursor-grab touch-none select-none active:cursor-grabbing"
-                  style={{
-                    left: `${gx * 100}%`,
-                    top: `${gy * 100}%`,
-                    width: `${gs * 100}%`,
-                    transform: 'translate(-50%, -50%)',
-                  }}
-                />
+                {!stageBg && (
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                    <span className="text-xs uppercase tracking-widest text-slate-400/70">{product.stageHint}</span>
+                  </div>
+                )}
+                {!activeIsReuse && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={activeDesign.imgUrl}
+                    alt="Your graphic"
+                    onPointerDown={startDrag}
+                    draggable={false}
+                    className="absolute cursor-grab touch-none select-none active:cursor-grabbing"
+                    style={{
+                      left: `${activeDesign.gx * 100}%`,
+                      top: `${activeDesign.gy * 100}%`,
+                      width: `${activeDesign.gs * 100}%`,
+                      transform: 'translate(-50%, -50%)',
+                    }}
+                  />
+                )}
+                {activeIsReuse && activePlacement && (
+                  <div className="absolute inset-x-0 bottom-0 bg-black/50 px-3 py-2 text-center text-xs text-slate-200">
+                    Same graphic as {labelOf(reuse[activePlacement.key]).toLowerCase()}
+                  </div>
+                )}
               </div>
             </div>
 
             {/* size slider */}
             <div className="mt-5">
               <label className="text-sm text-slate-300">
-                Graphic size — {Math.round(gs * 100)}% of print width
+                Graphic size — {Math.round(activeDesign.gs * 100)}% of print width
                 <input
-                  type="range" min={10} max={90} value={Math.round(gs * 100)}
-                  onChange={(e) => setGs(Number(e.target.value) / 100)}
-                  className="mt-2 w-full accent-amber-400"
+                  type="range" min={10} max={90} value={Math.round(activeDesign.gs * 100)}
+                  disabled={activeIsReuse}
+                  onChange={(e) => patchDesign(activeSourceKey, { gs: Number(e.target.value) / 100 })}
+                  className="mt-2 w-full accent-amber-400 disabled:opacity-40"
                 />
               </label>
+              {activeIsReuse && activePlacement && (
+                <div className="mt-1 text-xs text-slate-500">
+                  Size and position follow the {labelOf(reuse[activePlacement.key]).toLowerCase()} graphic.
+                </div>
+              )}
             </div>
 
             {/* validation notes */}
             <div className="mt-4 space-y-1 text-xs">
-              {imgSize && (
+              {activeDesign.imgSize && (
                 <div className="text-slate-500">
-                  {imgSize.w}×{imgSize.h}px
-                  {qualityWarn && <span className="text-amber-300"> — a larger file would print sharper</span>}
+                  {activeDesign.imgSize.w}×{activeDesign.imgSize.h}px
+                  {activeDesign.qualityWarn && <span className="text-amber-300"> — a larger file would print sharper</span>}
                 </div>
               )}
-              {hasTransparency === false && (
+              {activeDesign.hasTransparency === false && (
                 <div className="text-amber-300">
                   No transparency detected — the background of your image will print as-is.
                 </div>
               )}
-              {hasTransparency === true && (
-                <div className="text-emerald-300">Transparent background detected — clean print.</div>
+              {activeDesign.hasTransparency === true && (
+                <div className="text-emerald-300">
+                  Transparent background detected — open areas fill with a mirrored reflection of your graphic.
+                </div>
+              )}
+              {product.pocketFromFront && (
+                <div className="text-slate-400">
+                  The pocket prints this same graphic, aligned with the front — nothing extra to upload.
+                </div>
               )}
             </div>
 
@@ -565,6 +872,7 @@ export default function CustomProductPage() {
             <h2 className="mt-3 text-xl font-bold">Your {product.pickerLabel.toLowerCase()} is real</h2>
             <p className="mt-1 text-sm text-slate-400">{result.productName}</p>
             {result.mockupUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={result.mockupUrl}
                 alt={result.productName}
