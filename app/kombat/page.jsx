@@ -13,6 +13,11 @@ import { VISUALS } from '../../lib/kombat/visuals.js';
 import { createKombatEngine } from './engine';
 import { createBrawlEngine } from './brawl';
 import { BRAWL_COUNTS, BRAWL_BEST_OF } from '../../lib/kombat/brawl-rules.js';
+import {
+  getSelectEntry, isFighterSelectable, selectableFighters,
+  resolveProfileFighter, LOCKED_LABEL,
+} from '../../lib/kombat/select.js';
+import { supabase } from '@/lib/supabase';
 import { ARENA_META } from './arenas';
 
 const DIFFS = [
@@ -74,6 +79,83 @@ function PreviewCanvas({ fighterId }) {
     };
   }, [fighterId]);
   return <div ref={mountRef} className="h-full w-full" />;
+}
+
+// ------------------------------------------------------------------
+// Profile link: a signed-in user's saved profile character
+// (user_profiles.profile_character_id) pre-highlights its Kombat
+// fighter — "your character is waiting for you." Guests get no
+// preselect. The profile pick and the match pick stay separate
+// state: this only moves the highlight, never the pick, and it never
+// overrides a fighter the user has already tapped.
+// ------------------------------------------------------------------
+const PROFILE_CHARACTER_LS_KEY = 'olympus.profileCharacterId';
+
+function useProfilePreHighlight(apply) {
+  const applyRef = useRef(apply);
+  applyRef.current = apply;
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) return; // guest — no preselect
+        let characterId = null;
+        try {
+          const res = await fetch('/api/profiles/me', {
+            headers: { Authorization: 'Bearer ' + session.access_token },
+          });
+          const data = await res.json().catch(() => ({}));
+          const personal = data?.profiles?.personal || null;
+          if (personal && 'profile_character_id' in personal) {
+            characterId = personal.profile_character_id;
+          }
+        } catch { /* fall through to the device mirror */ }
+        if (!characterId) {
+          try { characterId = window.localStorage.getItem(PROFILE_CHARACTER_LS_KEY); } catch { /* private mode */ }
+        }
+        const kombatId = resolveProfileFighter(characterId);
+        if (!cancelled && kombatId) applyRef.current(kombatId);
+      } catch { /* the profile link is a courtesy — never block select */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+}
+
+// ------------------------------------------------------------------
+// One roster grid cell (shared by duel + brawl select): the real
+// generated preview where one is published, a darkened STILL FORGING
+// silhouette card for fighters the sprint has not completed yet, and
+// a plain initial card for available fighters still awaiting their
+// published preview (their portrait is the live procedural preview).
+// Grid art and locks come from the bridge via lib/kombat/select.js —
+// never from a hard-coded list.
+// ------------------------------------------------------------------
+function FighterCell({ f, entry, ringClass, onTap }) {
+  const locked = entry.locked;
+  return (
+    <button
+      onClick={() => onTap(f.id)}
+      aria-disabled={locked || undefined}
+      className={`rounded-lg border-2 px-1 py-1.5 text-[11px] font-bold leading-tight transition-colors ${ringClass}`}
+      style={{ touchAction: 'manipulation' }}
+    >
+      {entry.preview ? (
+        <span className="mb-1 block overflow-hidden rounded-md">
+          <img src={entry.preview} alt="" loading="lazy" className="aspect-square w-full object-cover" />
+        </span>
+      ) : locked ? (
+        <span className="mb-1 flex aspect-square w-full items-center justify-center rounded-md bg-black/70">
+          <span className="px-1 text-center text-[8px] font-black tracking-[0.25em] text-white/35">{LOCKED_LABEL}</span>
+        </span>
+      ) : (
+        <span className="mb-1 flex aspect-square w-full items-center justify-center rounded-md bg-white/[0.04]">
+          <span className="text-lg font-black text-white/25">{f.name.charAt(0)}</span>
+        </span>
+      )}
+      <span className={`block px-0.5 pb-0.5 ${locked ? 'text-white/40' : ''}`}>{f.name}</span>
+    </button>
+  );
 }
 
 // ------------------------------------------------------------------
@@ -486,12 +568,18 @@ function SelectScreen({ mode, setMode, onFight }) {
   const [difficulty, setDifficulty] = useState('normal');
   const [arenaIdx, setArenaIdx] = useState(0);
   const [specialIdxs, setSpecialIdxs] = useState([0, 1]);
+  const touchedRef = useRef(false);
+  useProfilePreHighlight((kombatId) => { if (!touchedRef.current) setHighlightId(kombatId); });
 
   const highlight = getFighter(highlightId);
+  const highlightEntry = getSelectEntry(highlightId);
+  const highlightLocked = !!highlightEntry?.locked;
   const player = playerId ? getFighter(playerId) : null;
 
   const tapFighter = (id) => {
+    touchedRef.current = true;
     setHighlightId(id);
+    if (!isFighterSelectable(id)) return; // still forging — visible, never pickable
     if (pickMode === 'player') {
       setPlayerId(id);
       setSpecialIdxs([0, 1]);
@@ -510,7 +598,7 @@ function SelectScreen({ mode, setMode, onFight }) {
   };
 
   const randomCpu = () => {
-    const pool = FIGHTERS.filter((f) => f.id !== playerId);
+    const pool = selectableFighters().filter((f) => f.id !== playerId);
     const pick = pool[Math.floor(Math.random() * pool.length)];
     setCpuId(pick.id);
     setHighlightId(pick.id);
@@ -557,12 +645,15 @@ function SelectScreen({ mode, setMode, onFight }) {
 
         {/* preview */}
         <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-b from-[#151524] to-[#0a0a12]">
-          <div className="h-52"><PreviewCanvas fighterId={highlightId} /></div>
+          <div className="h-52" style={highlightLocked ? { filter: 'brightness(0)' } : undefined}><PreviewCanvas fighterId={highlightId} /></div>
           <div className="px-4 pb-3">
             <div className="flex items-baseline justify-between">
               <h2 className="text-xl font-black text-amber-300">{highlight.name}</h2>
               <span className="text-[10px] font-bold tracking-widest text-white/40">{highlight.franchise.toUpperCase()}</span>
             </div>
+            {highlightLocked ? (
+              <p className="mt-2 text-[11px] font-black tracking-[0.25em] text-white/40">{LOCKED_LABEL} — THIS FIGHTER IS NOT PLAYABLE YET</p>
+            ) : null}
             <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1">
               {statBar('POWER', highlight.stats.power)}
               {statBar('SPEED', highlight.stats.speed)}
@@ -601,16 +692,18 @@ function SelectScreen({ mode, setMode, onFight }) {
                 const isP = f.id === playerId;
                 const isC = f.id === cpuId;
                 return (
-                  <button
+                  <FighterCell
                     key={f.id}
-                    onClick={() => tapFighter(f.id)}
-                    className={`rounded-lg border-2 px-1 py-2.5 text-[11px] font-bold leading-tight transition-colors ${
+                    f={f}
+                    entry={getSelectEntry(f.id)}
+                    onTap={tapFighter}
+                    ringClass={
                       isP ? 'border-amber-300 bg-amber-400/20 text-amber-100'
                       : isC ? 'border-red-400 bg-red-500/20 text-red-100'
                       : f.id === highlightId ? 'border-white/40 bg-white/10 text-white'
                       : 'border-white/10 bg-white/5 text-white/70'
-                    }`}
-                  >{f.name}</button>
+                    }
+                  />
                 );
               })}
             </div>
@@ -733,11 +826,18 @@ function BrawlSetupScreen({ mode, setMode, onFight }) {
   const [arenaIdx, setArenaIdx] = useState(0);
   const [specialIdxs, setSpecialIdxs] = useState([0, 1]);
 
+  const touchedRef = useRef(false);
+  useProfilePreHighlight((kombatId) => { if (!touchedRef.current) setHighlightId(kombatId); });
+
   const highlight = getFighter(highlightId);
+  const highlightEntry = getSelectEntry(highlightId);
+  const highlightLocked = !!highlightEntry?.locked;
   const player = playerId ? getFighter(playerId) : null;
 
   const tapFighter = (id) => {
+    touchedRef.current = true;
     setHighlightId(id);
+    if (!isFighterSelectable(id)) return; // still forging — visible, never pickable
     setPlayerId(id);
     setSpecialIdxs([0, 1]);
   };
@@ -752,7 +852,7 @@ function BrawlSetupScreen({ mode, setMode, onFight }) {
 
   const startFight = () => {
     if (!playerId || specialIdxs.length !== 2) return;
-    const pool = FIGHTERS.filter((f) => f.id !== playerId);
+    const pool = selectableFighters().filter((f) => f.id !== playerId);
     for (let i = pool.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [pool[i], pool[j]] = [pool[j], pool[i]];
@@ -801,12 +901,15 @@ function BrawlSetupScreen({ mode, setMode, onFight }) {
 
         {/* preview */}
         <div className="overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-b from-[#151524] to-[#0a0a12]">
-          <div className="h-52"><PreviewCanvas fighterId={highlightId} /></div>
+          <div className="h-52" style={highlightLocked ? { filter: 'brightness(0)' } : undefined}><PreviewCanvas fighterId={highlightId} /></div>
           <div className="px-4 pb-3">
             <div className="flex items-baseline justify-between">
               <h2 className="text-xl font-black text-amber-300">{highlight.name}</h2>
               <span className="text-[10px] font-bold tracking-widest text-white/40">{highlight.franchise.toUpperCase()}</span>
             </div>
+            {highlightLocked ? (
+              <p className="mt-2 text-[11px] font-black tracking-[0.25em] text-white/40">{LOCKED_LABEL} — THIS FIGHTER IS NOT PLAYABLE YET</p>
+            ) : null}
             <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1">
               {statBar('POWER', highlight.stats.power)}
               {statBar('SPEED', highlight.stats.speed)}
@@ -827,15 +930,17 @@ function BrawlSetupScreen({ mode, setMode, onFight }) {
               {FIGHTERS.filter((f) => f.franchise === fr).map((f) => {
                 const isP = f.id === playerId;
                 return (
-                  <button
+                  <FighterCell
                     key={f.id}
-                    onClick={() => tapFighter(f.id)}
-                    className={`rounded-lg border-2 px-1 py-2.5 text-[11px] font-bold leading-tight transition-colors ${
+                    f={f}
+                    entry={getSelectEntry(f.id)}
+                    onTap={tapFighter}
+                    ringClass={
                       isP ? 'border-amber-300 bg-amber-400/20 text-amber-100'
                       : f.id === highlightId ? 'border-white/40 bg-white/10 text-white'
                       : 'border-white/10 bg-white/5 text-white/70'
-                    }`}
-                  >{f.name}</button>
+                    }
+                  />
                 );
               })}
             </div>
