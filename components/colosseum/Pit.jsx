@@ -3,10 +3,12 @@
 // Lighting is deliberately restrained (Merlin's rule): dim ambient + one
 // warm point + one cool directional, no bloom postprocessing.
 'use client';
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { PIT_RADIUS, ENEMY_TYPES } from '@/lib/colosseum/game';
+import { championProcSize } from '@/lib/colosseum/champion';
+import CharacterGlb from '@/components/characters/CharacterGlb';
 
 const TYPE_COLORS = Object.fromEntries(
   Object.entries(ENEMY_TYPES).map(([k, v]) => [k, v.color])
@@ -141,9 +143,26 @@ function Arena() {
   );
 }
 
-function Gladiator({ x, z, color, scale = 1, staggered, hitFlash, enraged, onStrike }) {
+function Gladiator({ x, z, color, scale = 1, staggered, hitFlash, enraged, onStrike, characterId = null }) {
   const s = scale;
   const bodyColor = hitFlash > 0 ? '#ffffff' : color;
+
+  // WAVE 3 (characters-everywhere, decision D5): the CHAMPION —
+  // and only the champion — may be embodied as the player's chosen
+  // roster rival (lib/colosseum/champion.js; Hulk by default). The
+  // GLB stands in the champion's exact footprint and walks the
+  // same advance; the hit-target cylinder, the strike handler, the
+  // stagger marker and every combat number are the native ones —
+  // visual/identity swap only. The procedural body stays visible
+  // until the model is ready, and forever if the load fails.
+  const [embReady, setEmbReady] = useState(false);
+  const embHost = useMemo(() => new THREE.Group(), []);
+  const embPose = useRef('walk');
+  embPose.current = staggered ? 'idle' : hitFlash > 0 ? 'hit' : 'walk';
+  // Face the pit centre — the direction of the advance.
+  embHost.rotation.y = Math.atan2(z, -x);
+  useEffect(() => { setEmbReady(false); }, [characterId]);
+
   return (
     <group position={[x, 0, z]} onClick={(e) => { e.stopPropagation(); onStrike(); }}>
       {/* fat transparent hit-target for touch */}
@@ -151,7 +170,7 @@ function Gladiator({ x, z, color, scale = 1, staggered, hitFlash, enraged, onStr
         <cylinderGeometry args={[2.2 * s, 2.2 * s, 4.4 * s, 8]} />
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
-      <mesh position={[0, 1.1 * s, 0]}>
+      <mesh visible={!embReady} position={[0, 1.1 * s, 0]}>
         <cylinderGeometry args={[0.55 * s, 0.75 * s, 2.2 * s, 10]} />
         <meshStandardMaterial
           color={bodyColor}
@@ -160,15 +179,27 @@ function Gladiator({ x, z, color, scale = 1, staggered, hitFlash, enraged, onStr
           roughness={0.6}
         />
       </mesh>
-      <mesh position={[0, 2.6 * s, 0]}>
+      <mesh visible={!embReady} position={[0, 2.6 * s, 0]}>
         <sphereGeometry args={[0.5 * s, 12, 10]} />
         <meshStandardMaterial color={bodyColor} emissive={staggered ? '#eab308' : '#000000'} emissiveIntensity={staggered ? 1.2 : 0} roughness={0.5} />
       </mesh>
       {/* blade */}
-      <mesh position={[0.9 * s, 1.6 * s, 0]} rotation-z={-0.5}>
+      <mesh visible={!embReady} position={[0.9 * s, 1.6 * s, 0]} rotation-z={-0.5}>
         <boxGeometry args={[0.12 * s, 1.8 * s, 0.3 * s]} />
         <meshStandardMaterial color="#cbd5e1" metalness={0.9} roughness={0.3} />
       </mesh>
+      {characterId && (
+        <>
+          <primitive object={embHost} />
+          <CharacterGlb
+            characterId={characterId}
+            host={embHost}
+            poseRef={embPose}
+            procSize={championProcSize(s)}
+            onReady={setEmbReady}
+          />
+        </>
+      )}
       {staggered && (
         <mesh position={[0, 3.6 * s, 0]}>
           <sphereGeometry args={[0.32 * s, 8, 8]} />
@@ -235,7 +266,7 @@ function Effects({ effects }) {
   );
 }
 
-function Scene({ game, snap }) {
+function Scene({ game, snap, championId = null }) {
   const angle = useRef(0.6);
   useFrame(({ camera, clock }, dt) => {
     // advance the simulation
@@ -266,6 +297,7 @@ function Scene({ game, snap }) {
           hitFlash={e.hitFlash}
           enraged={e.enraged}
           onStrike={() => game.strike(e.id)}
+          characterId={e.type === 'champion' ? championId : null}
         />
       ))}
       <Effects effects={snap.effects} />
@@ -273,7 +305,7 @@ function Scene({ game, snap }) {
   );
 }
 
-export function Pit({ game, snap }) {
+export function Pit({ game, snap, championId = null }) {
   return (
     <Canvas
       dpr={[1, 1.75]}
@@ -281,7 +313,7 @@ export function Pit({ game, snap }) {
       camera={{ fov: 55, near: 0.5, far: 400, position: [26, 30, 36] }}
       style={{ touchAction: 'none' }}
     >
-      <Scene game={game} snap={snap} />
+      <Scene game={game} snap={snap} championId={championId} />
     </Canvas>
   );
 }

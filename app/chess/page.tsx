@@ -29,6 +29,15 @@ import { useMatchmaking } from '@/hooks/chess/useMatchmaking';
 import { chooseAiMove } from '@/lib/chess/ai';
 import { PROMOTION_CHOICES } from '@/lib/chess/rules';
 
+// WAVE 3 — king embodiment (characters-everywhere, D1: king only).
+// My king is my profile character via the pick chain (surface
+// 'chess', CharacterPicker below); in PvP the opponent's king is
+// their pick, learned from the room state via useMatchmaking.
+import CharacterPicker from '@/components/characters/CharacterPicker';
+import { getEmbodiment } from '@/lib/characters/embodiment';
+import { prefetchCharacterGlbs } from '@/lib/characters/character-glb';
+import { characterIdFromRosterNpcId } from '@/lib/oasis/roster-npcs';
+
 // OASIS — universal multiplayer lobby (min-max participation, NPC backfill, bosses)
 import OasisLobby from '@/components/oasis/Lobby';
 import { fx, unlockFx } from '@/lib/fx';
@@ -119,8 +128,35 @@ export default function QuantumChess() {
   const { 
     sectorId, playerColor, gameStatus, opponentMove, opponentResigned,
     hostMatch, joinMatch, adoptRoom, broadcastMove, broadcastResign,
-    broadcastState, fullStateSync, hostNeedsToSync 
+    broadcastState, fullStateSync, hostNeedsToSync,
+    opponentKingId, publishKingPick
   } = useMatchmaking(user);
+
+  // WAVE 3 — king picks. myKingId is the pick chain's effective id
+  // for surface 'chess' (CharacterPicker reports it); rivalKingId
+  // is a roster-legend rival's character when the OASIS lobby seats
+  // one against me solo (their king is their character too).
+  const [myKingId, setMyKingId] = useState<string | null>(null);
+  const [rivalKingId, setRivalKingId] = useState<string | null>(null);
+  const publishKingPickRef = useRef(publishKingPick);
+  publishKingPickRef.current = publishKingPick;
+  useEffect(() => {
+    publishKingPickRef.current(myKingId);
+  }, [myKingId]);
+
+  useEffect(() => {
+    const ids = [myKingId, opponentKingId, rivalKingId].filter(Boolean) as string[];
+    if (ids.length) prefetchCharacterGlbs(ids);
+  }, [myKingId, opponentKingId, rivalKingId]);
+
+  // Which character (if any) embodies each side's king right now.
+  const kingIdForTeam = (team: string): string | null => {
+    if (mode === 'global') {
+      return team === (playerColor || 'cyan') ? myKingId : opponentKingId;
+    }
+    if (mode === 'local') return myKingId; // pass-and-play: this device's pick stands for both kings
+    return team === 'cyan' ? myKingId : rivalKingId; // ai / solo
+  };
   
   const { 
     pieces, currentTurn, isGameOver, winner, isCheck, lastMove,
@@ -279,6 +315,7 @@ export default function QuantumChess() {
   const handleModeSelect = async (selectedMode: string, code: string | null = null) => {
     fx.tap(); // mode confirmed
     if (selectedMode === 'oasis') { setOasisOpen(true); return; }
+    setRivalKingId(null); // direct modes face the native king unless the lobby seats a legend
     setMode(selectedMode);
     if (selectedMode === 'host') { await hostMatch(); setMode('global'); }
     if (selectedMode === 'join' && code) { await joinMatch(code); setMode('global'); }
@@ -297,12 +334,23 @@ export default function QuantumChess() {
       const ok = await adoptRoom(room.room_code, isHost ? 'cyan' : 'pink');
       if (ok) {
         setNpcName(null);
+        setRivalKingId(null); // PvP: the opponent's king rides the room state
         setOasisOpen(false);
         setMode('global');
         return;
       }
     }
     // Solo vs NPC / boss, or a PvP room that backfilled to NPCs: play the AI.
+    // A roster-legend rival (WAVE 4 seat) embodies the pink king as
+    // their character; any other rival keeps the native king.
+    const rivalSeat: any = rivals[0];
+    const rivalChar = rivalSeat
+      ? characterIdFromRosterNpcId(rivalSeat.id)
+        || (rivalSeat.npc && getEmbodiment(rivalSeat.npc.characterId)
+          ? rivalSeat.npc.characterId
+          : null)
+      : null;
+    setRivalKingId(rivalChar);
     setNpcName(rivalName);
     setOasisOpen(false);
     setMode('ai');
@@ -360,6 +408,12 @@ export default function QuantumChess() {
       <div className="absolute z-50 top-5 right-5">
         <BackButton label="EXIT MATRIX" href="/" />
       </div>
+
+      {/* WAVE 3 — your king is your character: pick-chain control
+          (surface 'chess') shown while choosing a mode. */}
+      {!mode && !oasisOpen && (
+        <CharacterPicker surface="chess" accent="#00f2ff" onPick={setMyKingId} style={{ top: 20, left: 20 }} />
+      )}
 
       {!mode && !oasisOpen && <Modes onSelectMode={handleModeSelect} />}
 
@@ -448,6 +502,7 @@ export default function QuantumChess() {
               kingHoleTex={kingHoleTex}
               bishopBookTex={bishopBookTex}
               kingAsteroidTex={kingAsteroidTex}
+              kingCharacterId={p.type === 'king' ? kingIdForTeam(p.team) : undefined}
               onClick={(e: any) => {
                 e.stopPropagation();
                 if (pendingPromotion) return;

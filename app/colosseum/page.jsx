@@ -9,6 +9,13 @@ import { fx, unlockFx } from '@/lib/fx';
 import OasisLobby from '@/components/oasis/Lobby';
 import { supabase } from '@/lib/supabase';
 import { AresBackdrop, AresButton, AresIcon, AresHeader, AresLoader, AresEmpty, AresPanel, ARES } from '@/components/ares/ares-chrome';
+// WAVE 3 — the champion is a selectable roster rival (decision
+// D5): pick chain in lib/colosseum/champion.js, Hulk by default.
+import CharacterToken from '@/components/characters/CharacterToken';
+import { getEmbodiment, listEmbodiments } from '@/lib/characters/embodiment';
+import {
+  DEFAULT_CHAMPION_ID, chooseChampionCharacterId, resolveChampionCharacterId,
+} from '@/lib/colosseum/champion';
 
 function simulateNpcGlory(difficulty) {
   const d = Math.max(1, Math.min(10, Number(difficulty) || 3));
@@ -35,6 +42,25 @@ export default function ColosseumPage() {
   const [muted, setMuted] = useState(false);
   const [showHow, setShowHow] = useState(false);
   const [cloudOffline, setCloudOffline] = useState(false);
+  // WAVE 3: the reigning champion rival (D5 — Hulk until chosen).
+  const [championId, setChampionId] = useState(DEFAULT_CHAMPION_ID);
+  const [championOpen, setChampionOpen] = useState(false);
+
+  useEffect(() => {
+    // Picks live in localStorage — resolve after mount so the
+    // first paint and the server markup agree.
+    setChampionId(resolveChampionCharacterId());
+  }, []);
+
+  function chooseChampion(id) {
+    if (chooseChampionCharacterId(id)) {
+      setChampionId(resolveChampionCharacterId());
+    }
+    setChampionOpen(false);
+  }
+
+  const championEmb = getEmbodiment(championId);
+  const championName = championEmb ? championEmb.name : 'Hulk';
 
   const gameRef = useRef(null);
   const sfxRef = useRef(null);
@@ -224,9 +250,59 @@ export default function ColosseumPage() {
             >
               <span className="flex flex-col items-center leading-tight">
                 <span>CHALLENGE THE CHAMPION</span>
-                <span className="block text-[11px] font-normal normal-case tracking-normal opacity-80">Face the Undying Champion herself</span>
+                <span className="block text-[11px] font-normal normal-case tracking-normal opacity-80">Face {championName}, the Undying Champion</span>
               </span>
             </AresButton>
+          </div>
+
+          {/* WAVE 3 — boss select: choose who stands as champion */}
+          <div className="w-full mt-8">
+            <h2 className="text-sm font-bold tracking-widest text-white/50 mb-3">THE CHAMPION</h2>
+            <button
+              type="button"
+              aria-expanded={championOpen}
+              onClick={() => setChampionOpen((v) => !v)}
+              className="w-full flex items-center gap-3 rounded-2xl bg-white/5 border border-white/10 px-4 py-3 text-left min-h-[60px]"
+            >
+              {championEmb && championEmb.preview ? (
+                <img src={championEmb.preview} alt="" className="w-10 h-10 rounded-lg object-cover" />
+              ) : null}
+              <span className="flex-1">
+                <span className="block font-bold">{championName}</span>
+                <span className="block text-xs text-white/50">
+                  {championId === DEFAULT_CHAMPION_ID
+                    ? 'Reigning by default — tap to choose your rival'
+                    : 'Stands as the Undying Champion in boss mode'}
+                </span>
+              </span>
+              <span aria-hidden="true" className="text-white/60">{championOpen ? '▴' : '▾'}</span>
+            </button>
+            {championOpen && (
+              <div className="mt-3 rounded-2xl bg-black/40 border border-white/10 p-3">
+                <button
+                  type="button"
+                  onClick={() => chooseChampion(null)}
+                  className="w-full text-left rounded-lg px-3 py-2 mb-2 bg-white/5 border border-white/10 text-sm min-h-[44px]"
+                >
+                  Reset to default — <b>Hulk</b>
+                </button>
+                <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+                  {listEmbodiments().map((e) => (
+                    <CharacterToken
+                      key={e.id}
+                      embodiment={e}
+                      variant="token"
+                      size={52}
+                      selected={championId === e.id}
+                      onClick={() => chooseChampion(e.id)}
+                    />
+                  ))}
+                </div>
+                <p className="text-[11px] text-white/40 mt-2">
+                  The champion keeps the Undying Champion&apos;s strength — only the fighter changes.
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="w-full mt-8">
@@ -301,7 +377,7 @@ export default function ColosseumPage() {
       {screen === 'game' && g && (
         <div className="relative flex-1 flex flex-col">
           <div className="absolute inset-0">
-            <Pit game={g} snap={snap || g.snapshot()} />
+            <Pit game={g} snap={snap || g.snapshot()} championId={championId} />
           </div>
 
           {/* HUD */}
@@ -350,7 +426,7 @@ export default function ColosseumPage() {
           {mode === 'boss' && championSnap && (
             <div className="absolute top-40 left-1/2 -translate-x-1/2 w-64 pointer-events-none">
               <div className="text-center text-xs font-bold tracking-widest text-red-300 mb-1">
-                THE UNDYING CHAMPION
+                {championName.toUpperCase()} · THE UNDYING CHAMPION
               </div>
               <div className="h-3 bg-black/60 rounded-full overflow-hidden">
                 <div
