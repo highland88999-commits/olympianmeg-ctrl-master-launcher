@@ -1,10 +1,20 @@
 // OASIS NpcPicker — choose NPC rivals/allies, styled to the game's theme.
 // Props: gameSlug, tier ('rookie'|'veteran'|'elite'|'any'), selected (id[]),
 // maxSelect, onToggle(id), theme.
+//
+// WAVE 4 (characters-everywhere-plan.md §4): below the hand-authored
+// cast, a ROSTER LEGENDS shelf offers the 43 platform fighters as
+// seat-fill NPCs (lib/oasis/roster-npcs.js). A legend toggles through
+// the same onToggle/selected/maxSelect contract — its seat id is
+// `roster:<characterId>`, which the lobby resolves via getAnyNpc()
+// into the standard NPC record shape (display identity: the
+// fighter's name + preview; the seat/stats plumbing is unchanged).
 'use client';
 
 import { useMemo, useState } from 'react';
 import { npcsForGame, difficultyLabel, TIERS } from '@/lib/oasis/npcs';
+import { rosterNpcOptions } from '@/lib/oasis/roster-npcs';
+import CharacterToken from '@/components/characters/CharacterToken';
 
 export default function NpcPicker({
   gameSlug,
@@ -19,6 +29,11 @@ export default function NpcPicker({
   const list = useMemo(
     () => (tierFilter === 'any' ? all : all.filter((n) => n.tier === tierFilter)),
     [all, tierFilter],
+  );
+  const rosterAll = useMemo(() => rosterNpcOptions(), []);
+  const rosterList = useMemo(
+    () => (tierFilter === 'any' ? rosterAll : rosterAll.filter((n) => n.tier === tierFilter)),
+    [rosterAll, tierFilter],
   );
 
   const t = theme || {};
@@ -85,6 +100,42 @@ export default function NpcPicker({
       {list.length === 0 && (
         <p className="text-xs text-zinc-600 tracking-widest uppercase">No rivals in this tier for this game.</p>
       )}
+
+      <div className="border-t border-zinc-800/70 pt-3 flex flex-col gap-2">
+        <h4 className={`text-xs font-bold tracking-widest uppercase ${t.accentText || 'text-fuchsia-400'}`}>
+          ROSTER LEGENDS
+        </h4>
+        <p className="text-[11px] text-zinc-500 leading-snug">
+          The platform roster fights as itself — seat a legend and it plays under its own name.
+        </p>
+        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-64 overflow-y-auto pr-1">
+          {rosterList.map((npc) => {
+            const isSel = selected.includes(npc.id);
+            const disabled = !isSel && selected.length >= maxSelect;
+            return (
+              <div key={npc.id} className="relative">
+                <CharacterToken
+                  characterId={npc.characterId}
+                  variant="card"
+                  selected={isSel}
+                  onClick={() => onToggle && onToggle(npc.id)}
+                  className={disabled ? 'opacity-40 pointer-events-none' : ''}
+                />
+                <span className={`absolute top-1.5 right-1.5 text-[9px] font-bold tracking-widest uppercase px-1 py-0.5 border rounded bg-black/70 ${
+                  npc.tier === 'elite' ? 'text-red-400 border-red-500/50'
+                  : npc.tier === 'veteran' ? 'text-amber-300 border-amber-500/50'
+                  : 'text-zinc-300 border-zinc-600'
+                }`}>
+                  {difficultyLabel(npc.difficulty)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+        {rosterList.length === 0 && (
+          <p className="text-xs text-zinc-600 tracking-widest uppercase">No legends in this tier.</p>
+        )}
+      </div>
     </div>
   );
 }

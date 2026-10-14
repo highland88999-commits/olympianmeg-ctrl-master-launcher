@@ -1,18 +1,77 @@
 // OASIS RosterPanel — the waiting-room headcount: humans seated, NPCs
 // backfilled, open seats. Min-max participation made visible.
+//
+// WAVE 4 (characters-everywhere-plan.md §4): identity made visible —
+// each human's row carries their profile character's preview token
+// when they have one, and a roster-legend NPC seat shows the
+// fighter's own name + token instead of a generic "Rival".
+// Display only: seat logic, counts and readiness are unchanged.
+// A human's pick is read from the same public route the rest of
+// the platform uses (GET /api/profiles/<id>/character — one public
+// roster id, validated against the roster before it renders);
+// a human without a pick, or an unreachable lookup, renders
+// exactly as before. Roster NPC ids (`roster:<characterId>`)
+// resolve via getAnyNpc; hand-authored ids resolve as before.
 'use client';
 
-import { getNpc } from '@/lib/oasis/npcs';
+import { useEffect, useState } from 'react';
+import { getAnyNpc } from '@/lib/oasis/roster-npcs';
+import { getEmbodiment } from '@/lib/characters/embodiment';
+import CharacterToken from '@/components/characters/CharacterToken';
+
+// userId -> characterId | null, for the life of the page: a lobby
+// re-renders often, a player's pick doesn't change mid-wait.
+const profileCharCache = new Map();
+
+async function fetchProfileCharacterId(userId) {
+  if (profileCharCache.has(userId)) return profileCharCache.get(userId);
+  let characterId = null;
+  try {
+    const res = await fetch(`/api/profiles/${encodeURIComponent(userId)}/character`);
+    if (res && res.ok) {
+      const body = await res.json();
+      if (body && getEmbodiment(body.characterId)) characterId = body.characterId;
+    }
+  } catch { /* offline / unconnected — no token, the row stands as-is */ }
+  profileCharCache.set(userId, characterId);
+  return characterId;
+}
 
 export default function RosterPanel({ humans = [], npcIds = [], minPlayers, maxPlayers, theme, hostLabel = 'YOU' }) {
   const t = theme || {};
+  const [humanChars, setHumanChars] = useState({});
+
+  // Resolve each seated human's profile character (display only).
+  useEffect(() => {
+    const wanted = [...new Set(humans.map((h) => h?.id).filter(Boolean))]
+      .filter((id) => !(id in humanChars) && !profileCharCache.has(id));
+    if (wanted.length === 0) return undefined;
+    let cancelled = false;
+    (async () => {
+      const found = {};
+      await Promise.all(wanted.map(async (id) => {
+        found[id] = await fetchProfileCharacterId(id);
+      }));
+      if (!cancelled) setHumanChars((prev) => ({ ...prev, ...found }));
+    })();
+    return () => { cancelled = true; };
+    // humanChars is read as a "already resolved" set only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [humans]);
+
   const total = humans.length + npcIds.length;
   const seats = [];
   for (let i = 0; i < maxPlayers; i += 1) {
-    if (i < humans.length) seats.push({ kind: 'human', label: humans[i]?.label || hostLabel });
-    else if (i < total) {
-      const npc = getNpc(npcIds[i - humans.length]);
-      seats.push({ kind: 'npc', label: npc ? npc.name : 'Rival' });
+    if (i < humans.length) {
+      const human = humans[i];
+      seats.push({
+        kind: 'human',
+        label: human?.label || hostLabel,
+        characterId: (human?.id && (humanChars[human.id] ?? profileCharCache.get(human.id))) || null,
+      });
+    } else if (i < total) {
+      const npc = getAnyNpc(npcIds[i - humans.length]);
+      seats.push({ kind: 'npc', label: npc ? npc.name : 'Rival', characterId: npc?.characterId || null });
     } else seats.push({ kind: 'open', label: 'Open seat' });
   }
 
@@ -47,6 +106,9 @@ export default function RosterPanel({ humans = [], npcIds = [], minPlayers, maxP
             }`}>
               {i + 1}
             </span>
+            {seat.characterId && (
+              <CharacterToken characterId={seat.characterId} variant="token" size={24} showName={false} />
+            )}
             <span className={`font-bold tracking-wider uppercase ${seat.kind === 'open' ? 'text-zinc-600' : 'text-white'}`}>
               {seat.label}
             </span>

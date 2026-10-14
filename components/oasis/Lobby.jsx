@@ -22,6 +22,7 @@ import {
 } from '@/lib/oasis/rooms';
 import { fillParty, needsBackfill } from '@/lib/oasis/party';
 import { getNpc, pickBackfill } from '@/lib/oasis/npcs';
+import { getAnyNpc } from '@/lib/oasis/roster-npcs';
 import { bossesForGame, bossEligible } from '@/lib/oasis/bosses';
 import { fx } from '@/lib/fx';
 import ShareRoomCode from '@/components/oasis/ShareRoomCode';
@@ -100,7 +101,10 @@ export default function OasisLobby({ gameSlug, supabase, userId, callsign = 'PLA
 
   const launchFromRoom = async (roomRow, boss) => {
     const humans = (roomRow.player_ids || []).map((id) => id);
-    const chosenNpcs = (npcIds.map(getNpc).filter(Boolean));
+    // WAVE 4: getAnyNpc also resolves `roster:<characterId>` seat
+    // picks (NpcPicker's Roster Legends) into standard NPC records;
+    // hand-authored ids resolve exactly as before.
+    const chosenNpcs = (npcIds.map(getAnyNpc).filter(Boolean));
     // Backfill to the minimum when humans fall short — the min-max rule.
     // Skipped entirely for real-humans-only games (npcBackfill: false).
     const pool = noNpc ? [] : pickBackfill({

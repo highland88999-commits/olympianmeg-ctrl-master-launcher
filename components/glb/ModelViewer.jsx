@@ -8,6 +8,14 @@
 //   autoRotate     slowly turntable the model (default true)
 //   showPicker     show the animation picker buttons (default true)
 //   height         css height of the canvas area (default 320)
+//   characterId    WAVE 4: a platform roster characterId instead of
+//                  src. Roster GLBs carry NO baked animation clips,
+//                  so the figure is the Wave 0 embodiment
+//                  (lib/characters/character-glb.js) standing in the
+//                  pose driver's idle — driven, never a faked clip
+//                  picker, and no tint (legends wear their own
+//                  colors). The adapter is imported lazily, like
+//                  three itself, so src-only pages pay nothing extra.
 //
 // three.js is imported lazily so pages without 3D pay nothing.
 // Fully disposes GPU resources on unmount (no leaked renderers).
@@ -16,7 +24,7 @@ import { useEffect, useRef, useState } from 'react';
 const PRETTY = { idle: 'Idle', walk: 'Walk', run: 'Run', wave: 'Wave', drive: 'Drive', hover: 'Hover', beacon: 'Beacon' };
 const pretty = (n) => PRETTY[n] || n.charAt(0).toUpperCase() + n.slice(1);
 
-export default function ModelViewer({ src, animations, tint, autoRotate = true, showPicker = true, height = 320 }) {
+export default function ModelViewer({ src, animations, tint, autoRotate = true, showPicker = true, height = 320, characterId = null }) {
   const mountRef = useRef(null);
   const apiRef = useRef(null);
   const [clips, setClips] = useState([]);
@@ -25,7 +33,7 @@ export default function ModelViewer({ src, animations, tint, autoRotate = true, 
 
   useEffect(() => {
     let cancelled = false;
-    let renderer, scene, camera, controls, mixer, raf;
+    let renderer, scene, camera, controls, mixer, raf, charHandle;
     const clockHolder = { last: 0 };
 
     (async () => {
@@ -63,6 +71,41 @@ export default function ModelViewer({ src, animations, tint, autoRotate = true, 
         controls.maxDistance = 12;
         controls.autoRotate = !!autoRotate;
         controls.autoRotateSpeed = 1.2;
+
+        // WAVE 4 — roster character mode: the Wave 0 embodiment on
+        // this same stage. The model arrives normalized onto the
+        // floor at the human scale class, feet at y=0; the pose
+        // driver holds it in idle (its own movement profile colors
+        // the idle — Slimer hovers, Jason looms). No clip picker:
+        // setClips stays empty because there are no clips to pick.
+        if (characterId) {
+          const { attachCharacterGlb } = await import('@/lib/characters/character-glb');
+          const { procSizeForScaleClass } = await import('@/lib/characters/embodiment');
+          if (cancelled || !mountRef.current) return;
+          const procSize = procSizeForScaleClass('human') || { x: 1.9, y: 1.9, z: 1.9 };
+          charHandle = attachCharacterGlb({ characterId, procSize });
+          if (!charHandle) { setStatus('error'); return; }
+          scene.add(charHandle.group);
+          const hgt = procSize.y;
+          controls.target.set(0, hgt * 0.52, 0);
+          camera.position.set(hgt * 0.62, hgt * 0.74, hgt * 1.55);
+          camera.lookAt(controls.target);
+          controls.update();
+          setClips([]);
+          const tickChar = (t) => {
+            raf = requestAnimationFrame(tickChar);
+            const dt = Math.min(0.05, (t - clockHolder.last) / 1000 || 0.016);
+            clockHolder.last = t;
+            charHandle.update('idle', dt, t / 1000, {});
+            controls.update();
+            renderer.render(scene, camera);
+          };
+          raf = requestAnimationFrame(tickChar);
+          charHandle.ready
+            .then((ok) => { if (!cancelled) setStatus(ok ? 'ready' : 'error'); })
+            .catch(() => { if (!cancelled) setStatus('error'); });
+          return;
+        }
 
         const loader = new GLTFLoader();
         const gltf = await loader.loadAsync(src);
@@ -124,6 +167,7 @@ export default function ModelViewer({ src, animations, tint, autoRotate = true, 
     return () => {
       cancelled = true;
       if (raf) cancelAnimationFrame(raf);
+      if (charHandle) { charHandle.dispose(); charHandle = null; }
       const api = apiRef.current;
       if (api && api.model) {
         api.model.traverse((o) => {
@@ -144,7 +188,7 @@ export default function ModelViewer({ src, animations, tint, autoRotate = true, 
       apiRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [src]);
+  }, [src, characterId]);
 
   // apply tint when it changes
   useEffect(() => {
