@@ -50,16 +50,15 @@ const AVAILABLE_IDS = sorted([
   'q023-claw-raptor', 'q024-fang-raptor', 'q025-peter-venkman', 'q026-ray-stantz',
   'q033-hulk',
 ]);
-// Dual-wield audit: fighters whose canonical pair is NOT yet expressed as
-// both-sides attachments in the procedural visual spec. Tracked, not
-// hidden — if this set changes in either direction the suite goes red
-// until a human updates the audit on purpose.
+// Dual-wield audit — RESIDUAL gaps. Step 2 fixed Pennywise (claw-glove
+// pair), Predator (claws pair, plasma caster kept) and T-1000 (knife
+// pair); the three are asserted exactly in the canonical-pair block
+// below. The two gaps left are rig-vocabulary limits, not oversights —
+// tracked, not hidden: if this set changes in either direction the
+// suite goes red until a human updates the audit on purpose.
 const KNOWN_VISUAL_GAPS = {
-  'pennywise': 'razor-claw gloves are worn (costume), no attachments in visuals',
-  'predator': 'wrist blades unmodeled in visuals (plasma caster blaster only)',
-  't-1000': 'single right-side knife attachment stands in for morphic blade arms',
-  'iron-man': 'repulsors are an effect (glow, anchor hand), no attachments in visuals',
-  'tifa-lockhart': 'fighting gloves are worn (costume), no attachments in visuals',
+  'iron-man': 'twin palm repulsors unexpressed: rig effect anchors resolve to chest/head/right-hand only — no left-palm anchor exists in rig.js',
+  'tifa-lockhart': 'fighting gloves unexpressed: the rig has no plain-glove attachment type (claw-glove is Freddy\'s razor glove) — gloves stay costume until the rig gains one',
 };
 
 // --- coverage: one record per roster fighter -------------------------------
@@ -173,7 +172,28 @@ for (const id of auditGaps) {
   t('Wolverine carries exactly two claw sets, one per side',
     wv.filter((a) => a.type === 'claws').length === 2
     && eq(sorted(wv.map((a) => a.side)), ['left', 'right']));
+  // Step 2 fixes — the pairs the Step 1 audit tracked as gaps:
+  const pw = VISUALS['pennywise'].attachments;
+  t('Pennywise wears his razor-claw gloves on BOTH hands',
+    pw.filter((a) => a.type === 'claw-glove').length === 2
+    && eq(sorted(pw.filter((a) => a.type === 'claw-glove').map((a) => a.side)), ['left', 'right']));
+  const pr = VISUALS['predator'].attachments;
+  t('Predator wrist blades ride BOTH gauntlets, plasma caster kept',
+    pr.filter((a) => a.type === 'claws').length === 2
+    && eq(sorted(pr.filter((a) => a.type === 'claws').map((a) => a.side)), ['left', 'right'])
+    && pr.some((a) => a.type === 'blaster' && a.side === 'right'));
+  const t1 = VISUALS['t-1000'].attachments;
+  t('T-1000 morphs blade arms on BOTH sides (one knife per arm)',
+    t1.filter((a) => a.type === 'knife').length === 2
+    && eq(sorted(t1.filter((a) => a.type === 'knife').map((a) => a.side)), ['left', 'right']));
 }
+// The two residual gaps are pinned to their current honest state, so an
+// unreviewed change to either entry goes red like any other drift:
+t('Iron Man expresses the one repulsor the effect anchors can reach (right hand)',
+  (VISUALS['iron-man'].attachments || []).length === 0
+  && VISUALS['iron-man'].effects.filter((e) => e.type === 'glow' && e.anchor === 'hand').length === 1);
+t('Tifa wears no bladed stand-in for her fighting gloves',
+  (VISUALS['tifa-lockhart'].attachments || []).length === 0);
 t('Chucky visual spec does not fake a dual-wield',
   bothSidesTypes(VISUALS['chucky']).length === 0);
 
