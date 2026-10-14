@@ -48,6 +48,7 @@ const AVAILABLE_IDS = sorted([
   'q014-luke-skywalker', 'q015-yoda', 'q016-emperor-palpatine', 'q017-t-800-terminator',
   'q018-t-1000', 'q019-ellen-ripley', 'q020-neo', 'q021-t-rex', 'q022-swift-raptor',
   'q023-claw-raptor', 'q024-fang-raptor', 'q025-peter-venkman', 'q026-ray-stantz',
+  'q027-egon-spengler', 'q028-winston-zeddemore', 'q029-slimer', 'q030-stay-puft',
   'q033-hulk',
 ]);
 // Dual-wield audit — the tracked gap set is EMPTY. Step 2 fixed
