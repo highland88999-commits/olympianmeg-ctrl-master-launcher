@@ -71,9 +71,10 @@ export const metadata = {
     description: SITE_DESCRIPTION,
     images: ['/og-image.png'],
   },
-  alternates: {
-    canonical: SITE_URL,
-  },
+  // No global canonical here (SEO fix, 2026-10-13): a layout-level canonical
+  // is inherited by EVERY route, so all subpages used to declare the
+  // homepage as their canonical URL. Per-route canonicals are owned by
+  // route layouts and lib/seo.js programMetadata().
   robots: {
     index: true,
     follow: true,

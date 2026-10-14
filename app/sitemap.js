@@ -34,5 +34,25 @@ export default function sitemap() {
     });
   }
 
+  // Nested routes that are not god-menu satellites (store family,
+  // newsletter) — appended only if a satellite route didn't already
+  // produce the same URL, so the sitemap never lists a page twice.
+  const seen = new Set(entries.map((e) => e.url));
+  const EXTRA_ROUTES = [
+    { path: '/store/marketplace', changeFrequency: 'weekly', priority: 0.8 },
+    { path: '/store/custom', changeFrequency: 'weekly', priority: 0.8 },
+    { path: '/trifold', changeFrequency: 'weekly', priority: 0.7 },
+  ];
+  for (const r of EXTRA_ROUTES) {
+    const url = `${BASE}${r.path}`;
+    if (seen.has(url)) continue;
+    entries.push({
+      url,
+      lastModified: now,
+      changeFrequency: r.changeFrequency,
+      priority: r.priority,
+    });
+  }
+
   return entries;
 }
