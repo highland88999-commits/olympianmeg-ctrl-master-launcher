@@ -18,19 +18,19 @@ import { Html } from '@react-three/drei';
 
 import CharacterGlb from '@/components/characters/CharacterGlb';
 import { resolveSurfaceCharacterId } from '@/lib/characters/embodiment';
+import { characterIdFromPresencePayload } from '@/lib/characters/presence-embodiment';
 
 // WAVE 2 (characters-everywhere): the visitor's own figure is
 // embodied as their profile character through the shared Wave 0
 // module — the hooded figure below is the native body and stays
 // until the model is ready, forever if the load fails (fallback
-// law). PEERS keep their hooded figures + name tags for now, and
-// that is a data limit, not a choice: the presence layer
-// (lib/presence.js) carries only an ephemeral session id, a label
-// and a color — no account identity and no character pick — and
-// the presence table has no column a pick could ride in. Carrying
-// peers' picks means a presence-schema change (SQL, review-gated)
-// or an account-keyed presence read; until one of those lands,
-// embodying peers would mean inventing who they are.
+// law). PEERS are embodied the same way: their picks ride their
+// presence rows (the presence.character_id column, added
+// 2026-10-15) through lib/presence.js, and each peer's pick is
+// validated against the roster by characterIdFromPresencePayload
+// (lib/characters/presence-embodiment.js) before it reaches an
+// attach — an absent or unknown pick resolves to null and the
+// peer keeps the hooded figure. Nobody's embodiment is invented.
 
 // Measured footprint of the native hooded figure (cone Ø0.84
 // across, head top ≈ 2.21): the GLB takes its place at its scale.
@@ -132,14 +132,16 @@ function Embers({ reduced, count = 260 }) {
 
 // ---------------------------------------------------------------------------
 // One attendee avatar: a hooded-figure cone + head + name tag.
-// With a characterId (the visitor's own figure — see the Wave 2
-// note above) the shared embodiment attaches inside the figure's
-// host group and the native cone + head step aside the moment
-// the model reports ready; without one, or on any load failure,
-// the hooded figure simply stays. Name tag + the "you" light are
-// identity markers, not body — they stay either way.
+// With a characterId (the visitor's own figure, or a peer's pick —
+// see the Wave 2 note above) the shared embodiment attaches inside
+// the figure's host group and the native cone + head step aside
+// the moment the model reports ready; without one, or on any load
+// failure, the hooded figure simply stays. Name tag + the "you"
+// light are identity markers, not body — they stay either way.
+// slotKey is the per-instance cap key: one slot per attendee, so
+// two visitors who picked the same character are two instances.
 // ---------------------------------------------------------------------------
-function AvatarFigure({ position, color, label, you = false, characterId = null }) {
+function AvatarFigure({ position, color, label, you = false, characterId = null, slotKey = SELF_SLOT_KEY }) {
   const host = useMemo(() => new THREE.Group(), []);
   const [live, setLive] = useState(false);
   useEffect(() => { setLive(false); }, [characterId]);
@@ -151,7 +153,7 @@ function AvatarFigure({ position, color, label, you = false, characterId = null 
           characterId={characterId}
           host={host}
           procSize={FIGURE_PROC_SIZE}
-          slotKey={SELF_SLOT_KEY}
+          slotKey={slotKey}
           onReady={(ok) => setLive(!!ok)}
         />
       )}
@@ -322,11 +324,19 @@ function Hall({ peers, reduced }) {
           they have one (Wave 2); the hooded figure otherwise */}
       <AvatarFigure position={[2.6, 0, 6.5]} color="#ffd700" label="You" you characterId={selfCharacterId} />
 
-      {/* REAL peers only — nothing faked. Hooded figures + name
-          tags: the presence payload carries no pick to embody
-          (see the Wave 2 note at the top of this file). */}
+      {/* REAL peers only — nothing faked. Each peer renders as
+          their picked character when their presence row carries
+          one (validated by characterIdFromPresencePayload);
+          otherwise the hooded figure + name tag. */}
       {peers.map((p, i) => (
-        <AvatarFigure key={p.id || i} position={peerSpot(p, i)} color={p.color || '#b08d3e'} label={p.label || 'Guest'} />
+        <AvatarFigure
+          key={p.id || i}
+          position={peerSpot(p, i)}
+          color={p.color || '#b08d3e'}
+          label={p.label || 'Guest'}
+          characterId={characterIdFromPresencePayload(p)}
+          slotKey={`persephone:peer:${p.id || i}`}
+        />
       ))}
     </>
   );

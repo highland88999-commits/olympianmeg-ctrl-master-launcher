@@ -2,11 +2,14 @@
 // Honest attendance for the PERSEPHONE hall.
 //
 // Real presence only: wires lib/presence.js against the `presence` table
-// (sector 'persephone:hall') and reports the live peer list upward.
+// (sector 'persephone:hall') and reports the live peer list upward. It
+// also stamps the visitor's own character pick (the platform pick chain,
+// 'persephone' surface) onto their presence row, so everyone else's hall
+// can embody them — and reads everyone else's picks the same way.
 // - Peers present  -> "N people in the hall right now" (a real count).
 // - Joined, nobody else -> "Doors open — you're the first one here."
-// - Presence unavailable (no Supabase env, or the presence table isn't live
-//   yet — its SQL is still a draft) -> we SAY SO, and show no fake number.
+// - Presence unavailable (no Supabase env / table unreachable) -> we
+//   SAY SO, and show no fake number.
 //
 // No simulated crowd. No fake "LIVE" viewers. Ever.
 
@@ -14,6 +17,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { createPresenceClient } from '@/lib/presence';
+import { resolveSurfaceCharacterId } from '@/lib/characters/embodiment';
 import { fx } from '@/lib/fx';
 
 export default function AttendanceBar({ onPeers }) {
@@ -40,6 +44,7 @@ export default function AttendanceBar({ onPeers }) {
         sector: 'persephone:hall',
         label: 'Guest',
         color: '#ffd700',
+        characterId: resolveSurfaceCharacterId('persephone'),
         onPeers: (peers) => {
           if (cancelled) return;
           setCount(peers.length);

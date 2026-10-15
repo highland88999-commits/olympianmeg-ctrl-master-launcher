@@ -219,8 +219,13 @@ const { createEmbodimentScene } = await import('../lib/characters/character-glb.
     src.includes('FIGURE_PROC_SIZE = { x: 0.84, y: 2.2, z: 0.84 }'));
   t('peers render through the native figure (no invented picks)',
     src.includes('peers.map((p, i) => (') && !src.includes('characterId={p.'));
-  t('the peer limit is documented in-source (presence payload has no pick)',
-    src.includes('no account identity and no character pick'));
+  t('peers receive roster-validated picks (never raw payload fields)',
+    src.includes('characterId={characterIdFromPresencePayload(p)}'));
+  t('per-instance slot key for peers',
+    src.includes('slotKey={`persephone:peer:${p.id || i}`}'));
+  t('peer embodiment via presence picks is documented in-source',
+    src.includes('presence.character_id column')
+    && src.includes('characterIdFromPresencePayload'));
 }
 
 // ==================================================================
