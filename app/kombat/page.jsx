@@ -14,7 +14,9 @@ import { FIGHTERS, FRANCHISES, getFighter } from '../../lib/kombat/roster.js';
 import { VISUALS } from '../../lib/kombat/visuals.js';
 import { createKombatEngine } from './engine';
 import { createBrawlEngine } from './brawl';
-import { prefetchFighterGlbs } from '../../lib/kombat/glb-fighter.js';
+import { prefetchFighterGlbs, attachGlbFighter, fighterHasGlb } from '../../lib/kombat/glb-fighter.js';
+import { resolvePose } from '../../lib/kombat/pose-state.js';
+import { probeWebGL } from '../../lib/webgl-support.js';
 import { BRAWL_COUNTS, BRAWL_BEST_OF } from '../../lib/kombat/brawl-rules.js';
 import {
   getSelectEntry, isFighterSelectable, selectableFighters,
@@ -65,12 +67,25 @@ const DIFFS = [
 // ------------------------------------------------------------------
 function PreviewCanvas({ fighterId }) {
   const mountRef = useRef(null);
+  // 'pending' (poster shows) -> 'ready' (real GLB on stage) |
+  // 'fallback' (procedural rig — no GLB, a failed load, or no WebGL)
+  const [glbState, setGlbState] = useState('pending');
+  const poster = getSelectEntry(fighterId)?.preview || null;
   useEffect(() => {
+    setGlbState('pending');
     const mount = mountRef.current;
     if (!mount) return;
     const params = VISUALS[fighterId];
     if (!params) return;
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    let renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    } catch {
+      // No WebGL on this device: the card portrait stays up as the
+      // stage visual — never a crashed stage.
+      setGlbState('poster');
+      return;
+    }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     const w = mount.clientWidth || 300;
     const h = mount.clientHeight || 220;
@@ -89,6 +104,29 @@ function PreviewCanvas({ fighterId }) {
     scene.add(rim);
     const rig = buildFighterRig(params);
     scene.add(rig);
+    // The fighter's REAL model, attached exactly as the fight
+    // engine attaches it (2026-10-14: the stage used to pose the
+    // procedural rig forever — a puppet Freddy stood in for every
+    // fighter). The card portrait is the loading poster; the
+    // procedural rig poses only until the GLB lands, and stays as
+    // the fallback when there is no GLB or the load fails.
+    rig.updateMatrixWorld(true);
+    const procSize = new THREE.Box3().setFromObject(rig).getSize(new THREE.Vector3());
+    const glb = attachGlbFighter({ kombatId: fighterId, procSize });
+    let disposed = false;
+    if (glb) {
+      rig.add(glb.group);
+      glb.ready.then((ok) => {
+        if (disposed) return;
+        if (!ok) { setGlbState('fallback'); return; }
+        for (const child of rig.children) {
+          if (child !== glb.group) child.visible = false;
+        }
+        setGlbState('ready');
+      });
+    } else {
+      setGlbState('fallback');
+    }
     const clock = new THREE.Clock();
     let raf = 0;
     let t = 0;
@@ -97,13 +135,23 @@ function PreviewCanvas({ fighterId }) {
       const dt = Math.min(0.05, clock.getDelta());
       t += dt;
       rig.rotation.y += dt * 0.55;
-      poseRig(rig, 'idle', t);
+      if (glb && glb.isReady()) {
+        glb.update(
+          resolvePose({ state: 'idle', alive: true, blockHeld: false, actionable: true }),
+          dt, t,
+          { moveDir: 0, specKind: null, actionT: null, actionDur: null },
+        );
+      } else {
+        poseRig(rig, 'idle', t);
+      }
       updateEffects(rig, dt);
       renderer.render(scene, camera);
     };
     tick();
     return () => {
+      disposed = true;
       cancelAnimationFrame(raf);
+      if (glb) glb.dispose();
       scene.traverse((o) => {
         if (o.geometry) o.geometry.dispose();
         if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => m.dispose());
@@ -112,7 +160,20 @@ function PreviewCanvas({ fighterId }) {
       if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
     };
   }, [fighterId]);
-  return <div ref={mountRef} className="h-full w-full" />;
+  return (
+    <div className="relative h-full w-full">
+      {poster && (glbState === 'pending' || glbState === 'poster') ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={poster}
+          alt=""
+          draggable={false}
+          className="absolute inset-0 h-full w-full object-contain p-4"
+        />
+      ) : null}
+      <div ref={mountRef} className="absolute inset-0" />
+    </div>
+  );
 }
 
 // ------------------------------------------------------------------
@@ -195,7 +256,7 @@ function FighterCell({ f, entry, ringClass, onTap }) {
 // ------------------------------------------------------------------
 // Fight screen: canvas + HUD + touch controls
 // ------------------------------------------------------------------
-function FightScreen({ config, onExit }) {
+function FightScreen({ config, onExit, onReloadArena }) {
   const canvasRef = useRef(null);
   const engineRef = useRef(null);
   const rootRef = useRef(null);
@@ -212,6 +273,15 @@ function FightScreen({ config, onExit }) {
   const [finishHim, setFinishHim] = useState({ active: false, seconds: 0, mine: false });
   const [fatalityName, setFatalityName] = useState('');
   const [combo, setCombo] = useState(null);
+  // Round-1 model gate veil + WebGL recovery (2026-10-14):
+  // summoning shows while the engine holds the match until both
+  // real GLBs are in; glLost/glFailed surface a recoverable arena
+  // state instead of a dead black canvas (client_errors id 75).
+  const [summoning, setSummoning] = useState(
+    () => fighterHasGlb(config.playerId) || fighterHasGlb(config.cpuId),
+  );
+  const [glLost, setGlLost] = useState(false);
+  const [glFailed, setGlFailed] = useState(false);
   // denied-special flash: the Powers wedge that just refused to fire
   const [deniedIdx, setDeniedIdx] = useState(-1);
   const bannerTimer = useRef(null);
@@ -235,31 +305,43 @@ function FightScreen({ config, onExit }) {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const engine = createKombatEngine(canvas, {
-      playerId: config.playerId,
-      cpuId: config.cpuId,
-      difficulty: config.difficulty,
-      playerSpecials: config.playerSpecials,
-      cpuSpecials: config.cpuSpecials,
-      arena: config.arenaIdx,
-      hooks: {
-        onHud: (h) => setHud(h),
-        onSpecialDenied: (idx) => flashDenied(idx),
-        onAnnounce: (text, sub) => showBanner(text, sub || ''),
-        onFinishHim: (active, seconds, mine) => setFinishHim({ active, seconds, mine: !!mine }),
-        onFatality: (name) => {
-          setFatalityName(name);
-          clearTimeout(fatalityTimer.current);
-          fatalityTimer.current = setTimeout(() => setFatalityName(''), 3400);
+    // WebGL pre-flight (the homepage probe): a device that cannot
+    // create a context gets the recoverable arena state, not a
+    // thrown renderer and a dead page.
+    if (!probeWebGL()) { setGlFailed(true); return; }
+    let engine;
+    try {
+      engine = createKombatEngine(canvas, {
+        playerId: config.playerId,
+        cpuId: config.cpuId,
+        difficulty: config.difficulty,
+        playerSpecials: config.playerSpecials,
+        cpuSpecials: config.cpuSpecials,
+        arena: config.arenaIdx,
+        hooks: {
+          onHud: (h) => setHud(h),
+          onSpecialDenied: (idx) => flashDenied(idx),
+          onAnnounce: (text, sub) => showBanner(text, sub || ''),
+          onFinishHim: (active, seconds, mine) => setFinishHim({ active, seconds, mine: !!mine }),
+          onFatality: (name) => {
+            setFatalityName(name);
+            clearTimeout(fatalityTimer.current);
+            fatalityTimer.current = setTimeout(() => setFatalityName(''), 3400);
+          },
+          onCombo: (side, count) => {
+            setCombo({ side, count, key: Date.now() });
+            clearTimeout(comboTimer.current);
+            comboTimer.current = setTimeout(() => setCombo(null), 1200);
+          },
+          onSummoning: (active) => setSummoning(active),
+          onContextLost: (active) => setGlLost(active),
+          onMatchEnd: (result) => onExit(result),
         },
-        onCombo: (side, count) => {
-          setCombo({ side, count, key: Date.now() });
-          clearTimeout(comboTimer.current);
-          comboTimer.current = setTimeout(() => setCombo(null), 1200);
-        },
-        onMatchEnd: (result) => onExit(result),
-      },
-    });
+      });
+    } catch {
+      setGlFailed(true);
+      return;
+    }
     engineRef.current = engine;
     engine.start();
     return () => {
@@ -484,8 +566,42 @@ function FightScreen({ config, onExit }) {
         </div>
       ) : null}
 
+      {/* SUMMONING veil — the engine holds round 1 until the real
+          models are in (never procedural stand-ins when GLBs exist) */}
+      {summoning && !glFailed && !glLost ? (
+        <div className="pointer-events-none absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/60">
+          <div className="kombat-pulse text-2xl font-black tracking-[0.3em] text-amber-300">SUMMONING</div>
+          <div className="mt-2 text-[11px] font-bold tracking-widest text-white/50">LOADING THE REAL FIGHTERS…</div>
+        </div>
+      ) : null}
+
+      {/* WebGL loss — a recoverable arena state, never a dead canvas */}
+      {glLost || glFailed ? (
+        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/85 px-6 text-center">
+          <div className="text-2xl font-black tracking-widest text-red-400">ARENA FEED LOST</div>
+          <p className="mt-3 max-w-sm text-sm text-white/60">
+            {glFailed
+              ? 'This device could not open the 3D arena.'
+              : 'The 3D graphics context dropped (phones do this under memory pressure). The match is frozen where it stopped.'}
+          </p>
+          <button
+            onTouchStart={pressStart(() => onReloadArena?.())}
+            onMouseDown={mouseDown(() => onReloadArena?.())}
+            className="mt-6 rounded-2xl bg-gradient-to-b from-red-500 to-red-700 px-8 py-3.5 text-base font-black tracking-widest text-white active:scale-[0.98]"
+            style={{ touchAction: 'manipulation' }}
+          >RELOAD ARENA</button>
+          <button
+            onTouchStart={pressStart(() => onExit(null))}
+            onMouseDown={mouseDown(() => onExit(null))}
+            className="mt-3 rounded-2xl border-2 border-white/20 bg-white/5 px-8 py-3 text-sm font-black tracking-widest text-white/80"
+            style={{ touchAction: 'manipulation' }}
+          >LEAVE MATCH</button>
+        </div>
+      ) : null}
+
       {/* Merlin's controller — pads hug the edges, arena undisturbed */}
       <ControllerLayer
+        dimmed={!!fatalityName}
         pads={pads}
         settings={ctlSettings}
         onSettingsChange={updateCtlSettings}
@@ -563,7 +679,7 @@ function SelectScreen({ mode, setMode, onFight }) {
   );
 
   return (
-    <div className="min-h-screen bg-[#0a0a12] pb-40 text-white" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}>
+    <div className="min-h-screen bg-[#0a0a12] text-white" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))', paddingBottom: 'calc(13rem + env(safe-area-inset-bottom))' }}>
       <div className="px-4">
         <div className="text-center">
           <h1 className="text-4xl font-black tracking-tight text-red-500" style={{ textShadow: '0 0 24px rgba(255,30,30,.5)' }}>KOMBAT ARENA</h1>
@@ -801,7 +917,7 @@ function BrawlSetupScreen({ mode, setMode, onFight }) {
   const canFight = !!playerId;
 
   return (
-    <div className="min-h-screen bg-[#0a0a12] pb-40 text-white" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}>
+    <div className="min-h-screen bg-[#0a0a12] text-white" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))', paddingBottom: 'calc(13rem + env(safe-area-inset-bottom))' }}>
       <div className="px-4">
         <div className="text-center">
           <h1 className="text-4xl font-black tracking-tight text-red-500" style={{ textShadow: '0 0 24px rgba(255,30,30,.5)' }}>KOMBAT ARENA</h1>
@@ -971,7 +1087,7 @@ function BrawlSetupScreen({ mode, setMode, onFight }) {
 // ------------------------------------------------------------------
 // Brawl fight screen: canvas + HUD + 2D touch controls
 // ------------------------------------------------------------------
-function BrawlFightScreen({ config, onExit }) {
+function BrawlFightScreen({ config, onExit, onReloadArena }) {
   const canvasRef = useRef(null);
   const engineRef = useRef(null);
   const rootRef = useRef(null);
@@ -991,6 +1107,12 @@ function BrawlFightScreen({ config, onExit }) {
   const [combo, setCombo] = useState(null);
   const [finishHim, setFinishHim] = useState({ active: false, seconds: 0, mine: false });
   const [fatalityName, setFatalityName] = useState('');
+  // Round-1 model gate veil + WebGL recovery (2026-10-14, duel parity)
+  const [summoning, setSummoning] = useState(
+    () => fighterHasGlb(config.playerId) || (config.cpuIds || []).some((id) => fighterHasGlb(id)),
+  );
+  const [glLost, setGlLost] = useState(false);
+  const [glFailed, setGlFailed] = useState(false);
   // denied-special flash: the Powers wedge that just refused to fire
   const [deniedIdx, setDeniedIdx] = useState(-1);
   const bannerTimer = useRef(null);
@@ -1013,32 +1135,42 @@ function BrawlFightScreen({ config, onExit }) {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const engine = createBrawlEngine(canvas, {
-      playerId: config.playerId,
-      cpuIds: config.cpuIds,
-      difficulty: config.difficulty,
-      playerSpecials: config.playerSpecials,
-      cpuSpecials: config.cpuSpecials,
-      arena: config.arenaIdx,
-      bestOf: config.bestOf,
-      hooks: {
-        onHud: (h) => setHud(h),
-        onSpecialDenied: (idx) => flashDenied(idx),
-        onAnnounce: (text, sub) => showBanner(text, sub || ''),
-        onFinishHim: (active, seconds, mine) => setFinishHim({ active, seconds, mine: !!mine }),
-        onFatality: (name) => {
-          setFatalityName(name);
-          clearTimeout(fatalityTimer.current);
-          fatalityTimer.current = setTimeout(() => setFatalityName(''), 3400);
+    // WebGL pre-flight (duel parity): no context, no dead page.
+    if (!probeWebGL()) { setGlFailed(true); return; }
+    let engine;
+    try {
+      engine = createBrawlEngine(canvas, {
+        playerId: config.playerId,
+        cpuIds: config.cpuIds,
+        difficulty: config.difficulty,
+        playerSpecials: config.playerSpecials,
+        cpuSpecials: config.cpuSpecials,
+        arena: config.arenaIdx,
+        bestOf: config.bestOf,
+        hooks: {
+          onHud: (h) => setHud(h),
+          onSpecialDenied: (idx) => flashDenied(idx),
+          onAnnounce: (text, sub) => showBanner(text, sub || ''),
+          onFinishHim: (active, seconds, mine) => setFinishHim({ active, seconds, mine: !!mine }),
+          onFatality: (name) => {
+            setFatalityName(name);
+            clearTimeout(fatalityTimer.current);
+            fatalityTimer.current = setTimeout(() => setFatalityName(''), 3400);
+          },
+          onCombo: (side, count) => {
+            setCombo({ side, count, key: Date.now() });
+            clearTimeout(comboTimer.current);
+            comboTimer.current = setTimeout(() => setCombo(null), 1200);
+          },
+          onSummoning: (active) => setSummoning(active),
+          onContextLost: (active) => setGlLost(active),
+          onMatchEnd: (result) => onExit(result),
         },
-        onCombo: (side, count) => {
-          setCombo({ side, count, key: Date.now() });
-          clearTimeout(comboTimer.current);
-          comboTimer.current = setTimeout(() => setCombo(null), 1200);
-        },
-        onMatchEnd: (result) => onExit(result),
-      },
-    });
+      });
+    } catch {
+      setGlFailed(true);
+      return;
+    }
     engineRef.current = engine;
     engine.start();
     return () => {
@@ -1265,8 +1397,42 @@ function BrawlFightScreen({ config, onExit }) {
         </div>
       ) : null}
 
+      {/* SUMMONING veil — the engine holds round 1 until the real
+          models are in (never procedural stand-ins when GLBs exist) */}
+      {summoning && !glFailed && !glLost ? (
+        <div className="pointer-events-none absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/60">
+          <div className="kombat-pulse text-2xl font-black tracking-[0.3em] text-amber-300">SUMMONING</div>
+          <div className="mt-2 text-[11px] font-bold tracking-widest text-white/50">LOADING THE REAL FIGHTERS…</div>
+        </div>
+      ) : null}
+
+      {/* WebGL loss — a recoverable arena state, never a dead canvas */}
+      {glLost || glFailed ? (
+        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/85 px-6 text-center">
+          <div className="text-2xl font-black tracking-widest text-red-400">ARENA FEED LOST</div>
+          <p className="mt-3 max-w-sm text-sm text-white/60">
+            {glFailed
+              ? 'This device could not open the 3D arena.'
+              : 'The 3D graphics context dropped (phones do this under memory pressure). The match is frozen where it stopped.'}
+          </p>
+          <button
+            onTouchStart={pressStart(() => onReloadArena?.())}
+            onMouseDown={mouseDown(() => onReloadArena?.())}
+            className="mt-6 rounded-2xl bg-gradient-to-b from-red-500 to-red-700 px-8 py-3.5 text-base font-black tracking-widest text-white active:scale-[0.98]"
+            style={{ touchAction: 'manipulation' }}
+          >RELOAD ARENA</button>
+          <button
+            onTouchStart={pressStart(() => onExit(null))}
+            onMouseDown={mouseDown(() => onExit(null))}
+            className="mt-3 rounded-2xl border-2 border-white/20 bg-white/5 px-8 py-3 text-sm font-black tracking-widest text-white/80"
+            style={{ touchAction: 'manipulation' }}
+          >LEAVE MATCH</button>
+        </div>
+      ) : null}
+
       {/* Merlin's controller — pads hug the edges, arena undisturbed */}
       <ControllerLayer
+        dimmed={!!fatalityName}
         pads={pads}
         settings={ctlSettings}
         onSettingsChange={updateCtlSettings}
@@ -1289,6 +1455,10 @@ export default function KombatPage() {
   const [config, setConfig] = useState(null);
   const [result, setResult] = useState(null);
   const versusTimer = useRef(null);
+  // Arena reload (WebGL recovery, 2026-10-14): bumping the nonce
+  // remounts the fight screen with a fresh canvas + GL context.
+  const [fightNonce, setFightNonce] = useState(0);
+  const reloadArena = useCallback(() => setFightNonce((n) => n + 1), []);
 
   const beginFight = useCallback((cfg) => {
     setConfig(cfg);
@@ -1313,6 +1483,15 @@ export default function KombatPage() {
   }, []);
 
   useEffect(() => () => clearTimeout(versusTimer.current), []);
+
+  // Result presentation (2026-10-14): the winner's card portrait —
+  // the engines already report winnerId / championId, so this is
+  // presentation of tracked truth only; no invented stats.
+  const winnerPreview = result?.winnerId ? getSelectEntry(result.winnerId)?.preview : null;
+  const championPreview = result?.championId ? getSelectEntry(result.championId)?.preview : null;
+  const resultMeta = config
+    ? `${DIFFS.find((d) => d.id === config.difficulty)?.label || ''} · ${ARENA_META[config.arenaIdx]?.name || ''}`
+    : '';
 
   if (phase === 'select') {
     return mode === 'brawl'
@@ -1364,11 +1543,11 @@ export default function KombatPage() {
 
   if (phase === 'fight' && config) {
     const key = config.mode === 'brawl'
-      ? `brawl-${config.playerId}-${config.cpuIds.length}-${Date.now()}`
-      : `${config.playerId}-${config.cpuId}-${Date.now()}`;
+      ? `brawl-${config.playerId}-${config.cpuIds.length}-${Date.now()}-${fightNonce}`
+      : `${config.playerId}-${config.cpuId}-${Date.now()}-${fightNonce}`;
     return config.mode === 'brawl'
-      ? <BrawlFightScreen key={key} config={config} onExit={handleExit} />
-      : <FightScreen key={key} config={config} onExit={handleExit} />;
+      ? <BrawlFightScreen key={key} config={config} onExit={handleExit} onReloadArena={reloadArena} />
+      : <FightScreen key={key} config={config} onExit={handleExit} onReloadArena={reloadArena} />;
   }
 
   // result
@@ -1382,11 +1561,16 @@ export default function KombatPage() {
             ) : (
               <div className="text-5xl font-black text-red-500" style={{ textShadow: '0 0 30px rgba(255,30,30,.6)' }}>BRAWL KING</div>
             )}
+            {championPreview ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={championPreview} alt="" className="mt-5 h-44 w-44 rounded-3xl border-2 border-amber-300/50 bg-gradient-to-b from-white/10 to-transparent object-contain p-2" />
+            ) : null}
             <div className="mt-4 text-3xl font-black">{result.championName}</div>
             <div className={`mt-1 text-sm font-bold tracking-widest ${result.isPlayer ? 'text-amber-300' : 'text-red-300'}`}>
               {result.isPlayer ? 'YOU WIN THE BRAWL' : 'CPU WINS THE BRAWL'}
             </div>
             <div className="mt-2 text-xs text-white/40">Your rounds {result.playerRounds} · Best of {result.bestOf}</div>
+            <div className="mt-1 text-[11px] tracking-widest text-white/30">{resultMeta.toUpperCase()}</div>
           </>
         ) : null}
         <div className="mt-8 grid w-full max-w-xs gap-2">
@@ -1414,11 +1598,16 @@ export default function KombatPage() {
           {result.flawless && !result.fatality ? (
             <div className="text-4xl font-black text-amber-300">FLAWLESS VICTORY</div>
           ) : null}
+          {winnerPreview ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={winnerPreview} alt="" className="mt-5 h-44 w-44 rounded-3xl border-2 border-amber-300/50 bg-gradient-to-b from-white/10 to-transparent object-contain p-2" />
+          ) : null}
           <div className="mt-4 text-3xl font-black">{result.winnerName}</div>
           <div className={`mt-1 text-sm font-bold tracking-widest ${result.isPlayer ? 'text-amber-300' : 'text-red-300'}`}>
             {result.isPlayer ? 'YOU WIN' : 'CPU WINS'}
           </div>
-          <div className="mt-2 text-xs text-white/40">Rounds {result.p1Rounds} — {result.p2Rounds}</div>
+          <div className="mt-2 text-xs text-white/40">Rounds {result.p1Rounds} — {result.p2Rounds} · Best of 3</div>
+          <div className="mt-1 text-[11px] tracking-widest text-white/30">{resultMeta.toUpperCase()}</div>
         </>
       ) : null}
       <div className="mt-8 grid w-full max-w-xs gap-2">

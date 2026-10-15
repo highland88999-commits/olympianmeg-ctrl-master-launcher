@@ -13,6 +13,7 @@ import { buildFighterRig, poseRig, updateEffects } from '../../lib/kombat/rig.js
 import { getFighter } from '../../lib/kombat/roster.js';
 import { VISUALS } from '../../lib/kombat/visuals.js';
 import { attachGlbFighter } from '../../lib/kombat/glb-fighter.js';
+import { watchContextLoss } from '../../lib/webgl-support.js';
 import {
   classifyKit, chooseSpecial, specialUsable, healAmountFor,
   statusDamageMul, statusSpeedMul, KIND_FX, BUFF_SECONDS, DEBUFF_SECONDS,
@@ -249,6 +250,26 @@ export function createBrawlEngine(canvas, config) {
   // renderer / scene / camera — pixel ratio capped for 16-fighter mobile safety
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+
+  // CONTEXT-LOSS RESILIENCE (2026-10-14, duel parity — client_errors
+  // id 75): freeze the simulation while the GL context is lost,
+  // resume on restore, and past the grace window tell the page
+  // (onContextLost) so it can offer a recoverable arena reload.
+  let contextLost = false;
+  let contextLostAt = 0;
+  let contextLossReported = false;
+  const unwatchContext = watchContextLoss(canvas, {
+    onLost() {
+      contextLost = true;
+      contextLostAt = performance.now();
+      contextLossReported = false;
+    },
+    onRestored() {
+      contextLost = false;
+      contextLossReported = false;
+      H('onContextLost', false);
+    },
+  });
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 140);
 
@@ -295,8 +316,19 @@ export function createBrawlEngine(canvas, config) {
   // the newest intent replaces the oldest. Duel parity.
   let bufferedPress = null; // { action, at }
 
+  // ROUND-1 MODEL GATE (2026-10-14, duel parity): hold the match
+  // in a 'summoning' phase until EVERY fighter's GLB has settled
+  // (loaded OR failed), capped at GLB_GATE_MS so a stalled network
+  // can never hang the game; on timeout or failure the procedural
+  // bodies fight on — the fallback law, unchanged.
+  const GLB_GATE_MS = 6000;
+  const glbHandles = fighters.map((f) => f.glb).filter(Boolean);
+  let summoning = glbHandles.length > 0;
+  let startRequested = false;
+  let gateTimer = 0;
+
   // match flow
-  let phase = 'intro'; // intro | fight | roundEnd | done
+  let phase = summoning ? 'summoning' : 'intro'; // summoning | intro | fight | roundEnd | preFinish | finishHim | fatality | koEnd | done
   let phaseT = 0;
   let round = 1;
   let timeLeft = BRAWL_ROUND_TIME;
@@ -1086,6 +1118,16 @@ export function createBrawlEngine(canvas, config) {
   function frame() {
     if (disposed) return;
     raf = requestAnimationFrame(frame);
+    // Context lost: freeze the simulation (duel parity); the loop
+    // stays alive so a restore resumes where it froze. Past the
+    // grace window, tell the page once so it can offer a reload.
+    if (contextLost) {
+      if (!contextLossReported && performance.now() - contextLostAt > 3500) {
+        contextLossReported = true;
+        H('onContextLost', true);
+      }
+      return;
+    }
     const rawDt = Math.min(0.05, clock.getDelta());
     elapsed += rawDt;
     koChain.t += rawDt;
@@ -1098,7 +1140,12 @@ export function createBrawlEngine(canvas, config) {
     phaseT -= rawDt;
 
     // phase flow
-    if (phase === 'intro') {
+    if (phase === 'summoning') {
+      // Models still loading: fighters idle in place behind the
+      // page's SUMMONING veil; no timers run and presses are
+      // discarded by the input branch below, as in any non-fight
+      // phase.
+    } else if (phase === 'intro') {
       if (!announcedFight && phaseT <= 0.9) {
         announcedFight = true;
         H('onAnnounce', round === 1 ? 'BRAWL!' : `ROUND ${round}`, `${fighters.length} fighters enter`);
@@ -1268,6 +1315,32 @@ export function createBrawlEngine(canvas, config) {
     renderer.render(scene, camera);
   }
 
+  // The match proper begins here — immediately when no GLB gate
+  // applies, or the moment the gate lifts (see liftGate below).
+  function beginMatch() {
+    ac();
+    phase = 'intro'; phaseT = 1.8; round = 1;
+    resetRoundPositions();
+    H('onAnnounce', 'BRAWL!', `${fighters.length} fighters · best of ${bestOf}`);
+    sendHud(true);
+    if (!raf) frame();
+  }
+
+  function liftGate() {
+    if (!summoning) return;
+    summoning = false;
+    if (gateTimer) { clearTimeout(gateTimer); gateTimer = 0; }
+    H('onSummoning', false);
+    if (startRequested) {
+      startRequested = false;
+      beginMatch();
+    } else if (phase === 'summoning') {
+      phase = 'intro'; phaseT = 1.8;
+      H('onAnnounce', 'BRAWL!', `${fighters.length} fighters · best of ${bestOf}`);
+      sendHud(true);
+    }
+  }
+
   // ---------------- public API ----------------
   const engine = {
     /** x: right+, y: down+ (screen space); engine maps to world XZ. */
@@ -1280,17 +1353,17 @@ export function createBrawlEngine(canvas, config) {
       if (['light', 'heavy', 'dash', 'sp1', 'sp2', 'sp3', 'sp4', 'sp5', 'sp6', 'jump', 'fatality'].includes(action)) pressed.push(action);
     },
     start() {
-      ac();
-      phase = 'intro'; phaseT = 1.8; round = 1;
-      resetRoundPositions();
-      H('onAnnounce', 'BRAWL!', `${fighters.length} fighters · best of ${bestOf}`);
-      sendHud(true);
-      if (!raf) frame();
+      // While the model gate holds, remember the request — the
+      // match begins the moment every GLB settles (liftGate).
+      if (summoning) { startRequested = true; ac(); return; }
+      beginMatch();
     },
     dispose() {
       disposed = true;
       cancelAnimationFrame(raf);
       raf = 0;
+      if (gateTimer) { clearTimeout(gateTimer); gateTimer = 0; }
+      unwatchContext();
       window.removeEventListener('resize', resize);
       bursts.dispose();
       scene.traverse((o) => {
@@ -1303,8 +1376,16 @@ export function createBrawlEngine(canvas, config) {
   };
 
   frame();
-  H('onAnnounce', 'BRAWL!', `${fighters.length} fighters · best of ${bestOf}`);
-  phaseT = 1.8;
+  if (summoning) {
+    // Hold the BRAWL! announce until every model settles (or the
+    // cap expires); beginMatch does the announcing at gate lift.
+    H('onSummoning', true);
+    gateTimer = setTimeout(liftGate, GLB_GATE_MS);
+    Promise.allSettled(glbHandles.map((h) => h.ready)).then(liftGate);
+  } else {
+    H('onAnnounce', 'BRAWL!', `${fighters.length} fighters · best of ${bestOf}`);
+    phaseT = 1.8;
+  }
 
   return engine;
 }

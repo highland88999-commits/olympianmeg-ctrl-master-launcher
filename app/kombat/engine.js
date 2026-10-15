@@ -11,6 +11,7 @@ import { buildFighterRig, poseRig, updateEffects } from '../../lib/kombat/rig.js
 import { getFighter } from '../../lib/kombat/roster.js';
 import { VISUALS } from '../../lib/kombat/visuals.js';
 import { attachGlbFighter } from '../../lib/kombat/glb-fighter.js';
+import { watchContextLoss } from '../../lib/webgl-support.js';
 import {
   classifyKit, chooseSpecial, specialUsable, inBand, healAmountFor,
   statusDamageMul, statusSpeedMul, KIND_FX, BUFF_SECONDS, DEBUFF_SECONDS,
@@ -218,6 +219,29 @@ export function createKombatEngine(canvas, config) {
   // renderer / scene / camera
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+
+  // CONTEXT-LOSS RESILIENCE (2026-10-14, client_errors id 75 —
+  // Merlin's own iPhone dropped this canvas's context mid-session):
+  // while the context is lost the simulation FREEZES (it never plays
+  // out blind behind a black canvas); three re-initializes on
+  // webglcontextrestored, and if the context stays gone past the
+  // grace window the page is told (onContextLost) so it can offer a
+  // recoverable arena reload instead of a dead screen.
+  let contextLost = false;
+  let contextLostAt = 0;
+  let contextLossReported = false;
+  const unwatchContext = watchContextLoss(canvas, {
+    onLost() {
+      contextLost = true;
+      contextLostAt = performance.now();
+      contextLossReported = false;
+    },
+    onRestored() {
+      contextLost = false;
+      contextLossReported = false;
+      H('onContextLost', false);
+    },
+  });
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 120);
   camera.position.set(0, 2.35, 8.8);
@@ -250,8 +274,22 @@ export function createKombatEngine(canvas, config) {
   // the newest intent replaces the oldest.
   let bufferedPress = null; // { action, at }
 
+  // ROUND-1 MODEL GATE (2026-10-14): a fighter's GLB used to swap
+  // in whenever its parse finished — mid round 1 on a phone, so
+  // round 1 fought as procedural puppets and round 2 as the real
+  // models (Merlin's playtest). The match now holds in a 'summoning'
+  // phase until BOTH models have settled (loaded OR failed), capped
+  // at GLB_GATE_MS so a stalled network can never hang the game: on
+  // timeout or failure the procedural bodies fight on — the fallback
+  // law, unchanged. Fighters without a GLB never gate.
+  const GLB_GATE_MS = 6000;
+  const glbHandles = [player.glb, cpu.glb].filter(Boolean);
+  let summoning = glbHandles.length > 0;
+  let startRequested = false;
+  let gateTimer = 0;
+
   // match flow
-  let phase = 'intro'; // intro | fight | roundEnd | preFinish | finishHim | fatality | koEnd | done
+  let phase = summoning ? 'summoning' : 'intro'; // summoning | intro | fight | roundEnd | preFinish | finishHim | fatality | koEnd | done
   let phaseT = 0;
   let round = 1;
   let timeLeft = ROUND_TIME;
@@ -659,6 +697,35 @@ export function createKombatEngine(canvas, config) {
     announcedFight = false;
   }
 
+  // The match proper begins here — immediately when no GLB gate
+  // applies, or the moment the gate lifts (see liftGate below).
+  function beginMatch() {
+    ac(); // unlock audio on the user's tap
+    phase = 'intro'; phaseT = 1.8; round = 1;
+    resetRoundPositions();
+    H('onAnnounce', 'ROUND 1', `${player.data.name} vs ${cpu.data.name}`);
+    sendHud(true);
+    if (!raf) frame();
+  }
+
+  function liftGate() {
+    if (!summoning) return;
+    summoning = false;
+    if (gateTimer) { clearTimeout(gateTimer); gateTimer = 0; }
+    H('onSummoning', false);
+    if (startRequested) {
+      startRequested = false;
+      beginMatch();
+    } else if (phase === 'summoning') {
+      // Nobody called start() (never happens from the page, which
+      // starts the engine on mount): fall back to the classic
+      // construction-time intro so the arena never sits dead.
+      phase = 'intro'; phaseT = 1.8;
+      H('onAnnounce', 'ROUND 1', `${player.data.name} vs ${cpu.data.name}`);
+      sendHud(true);
+    }
+  }
+
   // ---------------- AI ----------------
   function aiThink() {
     const f = cpu, foe = player;
@@ -877,6 +944,17 @@ export function createKombatEngine(canvas, config) {
   function frame() {
     if (disposed) return;
     raf = requestAnimationFrame(frame);
+    // Context lost: freeze the whole simulation (timers included)
+    // rather than playing out blind; the loop stays alive so a
+    // restore resumes mid-match exactly where it froze. Past the
+    // grace window, tell the page once so it can offer a reload.
+    if (contextLost) {
+      if (!contextLossReported && performance.now() - contextLostAt > 3500) {
+        contextLossReported = true;
+        H('onContextLost', true);
+      }
+      return;
+    }
     let rawDt = Math.min(0.05, clock.getDelta());
     elapsed += rawDt;
 
@@ -890,7 +968,12 @@ export function createKombatEngine(canvas, config) {
     phaseT -= rawDt;
 
     // phase flow
-    if (phase === 'intro') {
+    if (phase === 'summoning') {
+      // Models still loading: fighters idle in place, camera and
+      // render stay live behind the page's SUMMONING veil; no
+      // timers run and no input is consumed (presses are discarded
+      // by the input branch below, as in every non-fight phase).
+    } else if (phase === 'intro') {
       if (!announcedFight && phaseT <= 0.9) {
         announcedFight = true;
         H('onAnnounce', 'FIGHT!', '');
@@ -1032,17 +1115,18 @@ export function createKombatEngine(canvas, config) {
       if (['light', 'heavy', 'dash', 'dashIn', 'dashBack', 'sp1', 'sp2', 'sp3', 'sp4', 'sp5', 'sp6', 'fatality'].includes(action)) pressed.push(action);
     },
     start() {
-      ac(); // unlock audio on the user's tap
-      phase = 'intro'; phaseT = 1.8; round = 1;
-      resetRoundPositions();
-      H('onAnnounce', 'ROUND 1', `${player.data.name} vs ${cpu.data.name}`);
-      sendHud(true);
-      if (!raf) frame();
+      // While the model gate holds, remember the request — the
+      // match begins the moment both GLBs settle (liftGate), never
+      // on procedural bodies when real models exist.
+      if (summoning) { startRequested = true; ac(); return; }
+      beginMatch();
     },
     dispose() {
       disposed = true;
       cancelAnimationFrame(raf);
       raf = 0;
+      if (gateTimer) { clearTimeout(gateTimer); gateTimer = 0; }
+      unwatchContext();
       window.removeEventListener('resize', resize);
       bursts.dispose();
       scene.traverse((o) => {
@@ -1054,10 +1138,18 @@ export function createKombatEngine(canvas, config) {
     get phase() { return phase; },
   };
 
-  // announce ROUND 1 as soon as the loop starts (engine.start re-announces anyway)
   frame();
-  H('onAnnounce', 'ROUND 1', `${player.data.name} vs ${cpu.data.name}`);
-  phaseT = 1.8;
+  if (summoning) {
+    // Hold ROUND 1 until both models settle (or the cap expires);
+    // beginMatch does the announcing when the gate lifts.
+    H('onSummoning', true);
+    gateTimer = setTimeout(liftGate, GLB_GATE_MS);
+    Promise.allSettled(glbHandles.map((h) => h.ready)).then(liftGate);
+  } else {
+    // announce ROUND 1 as soon as the loop starts (engine.start re-announces anyway)
+    H('onAnnounce', 'ROUND 1', `${player.data.name} vs ${cpu.data.name}`);
+    phaseT = 1.8;
+  }
 
   return engine;
 }

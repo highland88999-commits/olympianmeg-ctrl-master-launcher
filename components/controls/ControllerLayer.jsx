@@ -28,6 +28,9 @@ export default function ControllerLayer({
   onSettingsChange,
   runtimeByPad = {}, // padId -> { controlKey: { cooldown, dark, lit } }
   wrap = null, // { border, deadSpace } image URLs, or null for CSS borders
+  dimmed = false, // cinematic law: while a cinematic plays the pads
+  // fade OUT entirely (and stop taking touches) — engaged = legible,
+  // cinematic = gone. They fade back the moment it ends.
   onPress,
   onHold,
   onAnalog,
@@ -104,17 +107,25 @@ export default function ControllerLayer({
         left: `${placement.style.leftPct}%`,
         top: `${placement.style.topPct}%`,
         transform: 'translate(-50%, -50%)',
-        pointerEvents: 'auto',
+        pointerEvents: dimmed ? 'none' : 'auto',
       };
     }
-    const s = { position: 'absolute', bottom: placement.style.bottom, pointerEvents: 'auto' };
+    const s = { position: 'absolute', bottom: placement.style.bottom, pointerEvents: dimmed ? 'none' : 'auto' };
     if (placement.style.left != null) s.left = placement.style.left;
     if (placement.style.right != null) s.right = placement.style.right;
     return s;
   };
 
   return (
-    <div ref={layerRef} className="absolute inset-0 z-20" style={{ pointerEvents: 'none' }}>
+    <div
+      ref={layerRef}
+      className="absolute inset-0 z-20"
+      style={{
+        pointerEvents: 'none',
+        opacity: dimmed ? 0 : 1,
+        transition: 'opacity 350ms ease',
+      }}
+    >
       {pads.map((pad) => {
         const placement = placementFor(pad);
         return (
@@ -158,7 +169,7 @@ export default function ControllerLayer({
           onClick={() => setPanelOpen(true)}
           className="absolute bottom-0 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-white/25 bg-black/55 px-3 py-1.5 text-[10px] font-black tracking-widest text-white/75"
           style={{
-            pointerEvents: 'auto',
+            pointerEvents: dimmed ? 'none' : 'auto',
             touchAction: 'manipulation',
             marginBottom: 'max(0.45rem, env(safe-area-inset-bottom))',
             opacity: 0.65,

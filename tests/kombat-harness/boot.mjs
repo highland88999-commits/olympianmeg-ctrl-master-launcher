@@ -82,6 +82,15 @@ export async function makeMatch(playerId, cpuId, difficulty = 'easy') {
     playerId, cpuId, difficulty, arena: 0, hooks,
   });
   engine.start();
+  // Browser fidelity: on a real device the microtask queue drains
+  // between animation frames, so promise-driven engine state (the
+  // round-1 GLB summoning gate — the offline fetch stub rejects,
+  // the gate lifts, the match begins) settles before the next
+  // pumped frame. This harness pumps frames synchronously, so yield
+  // one macrotask here to model the browser exactly. Without the
+  // yield the gate could never lift inside step()'s sync loop — a
+  // harness artifact, not engine behavior.
+  await new Promise((r) => setTimeout(r, 0));
   return { engine, hooksLog, hud: () => lastHud };
 }
 

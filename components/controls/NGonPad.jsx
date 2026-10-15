@@ -69,6 +69,14 @@ export default function NGonPad({
   const gesture = gestureRef.current;
   const [engaged, setEngaged] = useState(false);
   const [activeWedge, setActiveWedge] = useState(-1);
+  // Edge-flipped labels (2026-10-14): an external-ring label whose
+  // text would run past the viewport edge grows the OTHER way
+  // instead — still outside the rim, still on its ring point, just
+  // never clipped (Merlin's playtest: "Command…", "Tidal Thr…" and
+  // "Retreat" cut at the screen edges on iPhone width). The 34px
+  // LABEL_GUTTER only covers ~30px of label; long special names
+  // need the flip. controlKey -> 'start' | 'end' override.
+  const [labelFlips, setLabelFlips] = useState({});
   const heldKeyRef = useRef(null);
   const mouseEngagedRef = useRef(false);
   const rootRef = useRef(null);
@@ -131,6 +139,33 @@ export default function NGonPad({
     emitAnalogNull();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Measure label overflow against the live viewport and flip any
+  // label that would clip. Runs after every render (cheap: <= 8
+  // labels) so custom-layout drags and rotations stay correct; the
+  // state write is guarded so a stable result never loops.
+  useEffect(() => {
+    if (!labelsOn) return;
+    const el = rootRef.current;
+    if (!el || typeof window === 'undefined') return;
+    const rect = el.getBoundingClientRect();
+    if (!rect.width) return;
+    const vw = window.innerWidth;
+    const next = {};
+    pad.controls.forEach((c, i) => {
+      const pos = labelPosition(i, sides, LABEL_R);
+      if (pos.anchor === 'middle') return;
+      const lines = splitLabel(c.shortLabel || c.label);
+      const fontSize = lines.some((l) => l.length > 9) ? 9 : 10.5;
+      // font-black advance + letter-spacing, estimated wide on
+      // purpose: flipping a label one frame early beats clipping it.
+      const estW = Math.max(...lines.map((l) => l.length)) * fontSize * 0.78 + 4;
+      const anchorPx = rect.left + ((50 + pos.x) / 100) * rect.width;
+      if (pos.anchor === 'start' && anchorPx + 4 + estW > vw - 2) next[c.key] = 'end';
+      else if (pos.anchor === 'end' && anchorPx - 4 - estW < 2) next[c.key] = 'start';
+    });
+    setLabelFlips((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+  });
 
   // Esc releases a mouse-pad engagement
   useEffect(() => {
@@ -305,6 +340,7 @@ export default function NGonPad({
       {/* external labels — ringed outside the rim, as drawn */}
       {labelsOn ? pad.controls.map((c, i) => {
         const pos = labelPosition(i, sides, LABEL_R);
+        const anchor = labelFlips[c.key] || pos.anchor;
         const rt = runtime[c.key] || {};
         const lines = splitLabel(c.shortLabel || c.label);
         return (
@@ -314,8 +350,8 @@ export default function NGonPad({
             style={{
               left: `calc(50% + ${pos.x}%)`,
               top: `calc(50% + ${pos.y}%)`,
-              transform: `translate(${pos.anchor === 'start' ? '4px' : pos.anchor === 'end' ? 'calc(-100% - 4px)' : '-50%'}, -50%)`,
-              textAlign: pos.anchor === 'end' ? 'right' : pos.anchor === 'start' ? 'left' : 'center',
+              transform: `translate(${anchor === 'start' ? '4px' : anchor === 'end' ? 'calc(-100% - 4px)' : '-50%'}, -50%)`,
+              textAlign: anchor === 'end' ? 'right' : anchor === 'start' ? 'left' : 'center',
               fontSize: lines.some((l) => l.length > 9) ? 9 : 10.5,
               lineHeight: 1.15,
               letterSpacing: '0.04em',
