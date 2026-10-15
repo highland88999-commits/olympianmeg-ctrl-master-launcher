@@ -135,9 +135,15 @@ export function MissionTracker({ mission }) {
   );
 }
 
-// Touch controls: left joystick + right buttons
-export function TouchControls({ input, onAction, visible }) {
+// Touch controls: left joystick + right buttons.
+// bottomLift (px, default 20 = the original placement) raises both the
+// joystick and the buttons above the launcher's bottom chrome — Mega
+// City passes a radio-aware lift so the action button can never collide
+// with the Nexus Radio dock chip / collapsed bar (demo fix, 2026-10-15).
+// The safe-area inset is always added on top of the lift.
+export function TouchControls({ input, onAction, visible, bottomLift = 20 }) {
   if (!visible) return null;
+  const lift = Number.isFinite(bottomLift) && bottomLift >= 0 ? bottomLift : 20;
   const btn = {
     width: 64, height: 64, borderRadius: '50%',
     background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.3)',
@@ -152,7 +158,7 @@ export function TouchControls({ input, onAction, visible }) {
         id="gta-joystick"
         style={{
           position: 'absolute', left: 20,
-          bottom: 'calc(20px + env(safe-area-inset-bottom))',
+          bottom: `calc(${lift}px + env(safe-area-inset-bottom))`,
           width: 120, height: 120, borderRadius: '50%',
           background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.2)',
           touchAction: 'none',
@@ -161,7 +167,7 @@ export function TouchControls({ input, onAction, visible }) {
       {/* Buttons */}
       <div style={{
         position: 'absolute', right: 20,
-        bottom: 'calc(20px + env(safe-area-inset-bottom))',
+        bottom: `calc(${lift}px + env(safe-area-inset-bottom))`,
         display: 'flex', gap: 12,
       }}>
         <button

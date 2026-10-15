@@ -9,19 +9,42 @@ import { createGTAScene } from './gta-scene';
 import { WantedStars, HealthBar, Minimap, Speedometer, MissionTracker, TouchControls } from '@/lib/gta/hud';
 import CharacterPicker from '@/components/characters/CharacterPicker';
 import { MISSION_STATE } from '@/lib/gta/missions';
+import { useRadio } from '@/components/radio/RadioProvider';
 
 export default function MegaCityPage() {
   const canvasRef = useRef(null);
   const sceneRef = useRef(null);
   const router = useRouter();
   const [hud, setHud] = useState(null);
-  const [msg, setMsg] = useState('Welcome to Mega City. WASD to walk, E to enter cars.');
+  const [msg, setMsg] = useState('Welcome to Mega City.');
   const [missions, setMissions] = useState([]);
   const [isTouch, setIsTouch] = useState(false);
+  const isTouchRef = useRef(false);
   const [subwayRide, setSubwayRide] = useState(null); // riding overlay data
 
+  // Mobile truth (demo fix, 2026-10-15): the launcher's Nexus Radio bar
+  // owns the bottom edge of every screen (collapsed bar ≈ 90px, the
+  // minimized dock chip ≈ 56px at bottom-right). On touch devices the
+  // city's bottom-anchored HUD lifts clear of it — most importantly the
+  // touch action button, which used to sit exactly under the radio
+  // chip — while the message bar and mission cards stack above the
+  // controls instead of covering each other. Desktop is unchanged.
+  const radio = useRadio();
+  const touchLift = radio.minimized ? 88 : 136; // px above the bottom edge
+  const controlsBottom = isTouch ? touchLift : 20;
+  const msgBottom = isTouch ? touchLift + 136 : 24;
+  const missionsBottom = isTouch ? touchLift + 196 : 80;
+
   useEffect(() => {
-    setIsTouch('ontouchstart' in window);
+    const touch = 'ontouchstart' in window;
+    setIsTouch(touch);
+    isTouchRef.current = touch;
+    // Help copy leads with the scheme the player actually holds
+    // (demo fix, 2026-10-15): touch first on touch devices, keyboard
+    // on desktop — never WASD as the primary instruction on a phone.
+    setMsg(touch
+      ? 'Welcome to Mega City. Left stick to walk, drag to look around — tap the E button to enter cars.'
+      : 'Welcome to Mega City. WASD to walk, E to enter cars.');
     document.title = 'Mega City — GTA';
 
     const scene = createGTAScene(canvasRef.current, {
@@ -44,7 +67,11 @@ export default function MegaCityPage() {
         } else if (e.type === 'objective_complete') {
           setMsg(`Objective done: ${e.objective.label}`);
         } else if (e.type === 'subway_prompt') {
-          if (e.text) setMsg(e.text);
+          if (e.text) {
+            // Touch truth: the on-screen action button is labelled E —
+            // prompts name the tap, not a key press, on touch devices.
+            setMsg(isTouchRef.current ? e.text.replaceAll('Press E', 'Tap E') : e.text);
+          }
         } else if (e.type === 'subway_enter') {
           setMsg(`Welcome to ${e.station} station. The train is coming.`);
         } else if (e.type === 'subway_board') {
@@ -144,14 +171,16 @@ export default function MegaCityPage() {
 
       {/* Speedometer (driving) */}
       {hud?.vehicle && (
-        <div style={{ position: 'absolute', bottom: 'calc(24px + env(safe-area-inset-bottom))', right: 24, zIndex: 10, pointerEvents: 'none' }}>
+        <div style={{ position: 'absolute', bottom: `calc(${isTouch ? touchLift : 24}px + env(safe-area-inset-bottom))`, right: 24, zIndex: 10, pointerEvents: 'none' }}>
           <Speedometer speedKmh={Math.abs(hud.vehicle.speed) * 3.6} />
         </div>
       )}
 
-      {/* Message bar */}
+      {/* Message bar — on touch it stacks above the lifted touch
+          controls so it can never sit under the radio bar or be
+          covered by the mission cards (demo fix, 2026-10-15). */}
       <div style={{
-        position: 'absolute', bottom: 'calc(24px + env(safe-area-inset-bottom))', left: '50%',
+        position: 'absolute', bottom: `calc(${msgBottom}px + env(safe-area-inset-bottom))`, left: '50%',
         transform: 'translateX(-50%)', zIndex: 10, pointerEvents: 'none',
         background: 'rgba(0,0,0,0.7)', color: '#fff', padding: '10px 20px',
         borderRadius: 8, fontSize: 14, maxWidth: '90vw', textAlign: 'center',
@@ -160,7 +189,7 @@ export default function MegaCityPage() {
       </div>
 
       {/* Missions menu */}
-      <div style={{ position: 'absolute', bottom: 'calc(80px + env(safe-area-inset-bottom))', left: 16, zIndex: 10 }}>
+      <div style={{ position: 'absolute', bottom: `calc(${missionsBottom}px + env(safe-area-inset-bottom))`, left: 16, zIndex: 10 }}>
         {missions.filter(m => m.state !== 'active').map(m => (
           <button
             key={m.id}
@@ -192,8 +221,8 @@ export default function MegaCityPage() {
         EXIT CITY
       </button>
 
-      {/* Touch controls */}
-      <TouchControls input={sceneRef.current?.input} visible={isTouch} />
+      {/* Touch controls — lifted clear of the radio chrome (see above) */}
+      <TouchControls input={sceneRef.current?.input} visible={isTouch} bottomLift={controlsBottom} />
 
       {/* Subway riding overlay */}
       {subwayRide && (
@@ -216,7 +245,7 @@ export default function MegaCityPage() {
           </div>
           <div style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13, marginTop: 4 }}>
             {subwayRide.mode === 'dwell'
-              ? 'Doors open — press E to step off'
+              ? (isTouch ? 'Doors open — tap E to step off' : 'Doors open — press E to step off')
               : 'Riding underground — sit tight'}
           </div>
         </div>
@@ -224,7 +253,7 @@ export default function MegaCityPage() {
 
       {/* Golden Omega mark */}
       <div style={{
-        position: 'absolute', bottom: 'calc(24px + env(safe-area-inset-bottom))', left: 16,
+        position: 'absolute', bottom: `calc(${isTouch ? touchLift : 24}px + env(safe-area-inset-bottom))`, left: 16,
         zIndex: 10, pointerEvents: 'none',
         color: '#ffd700', fontSize: 22, fontWeight: 900, opacity: 0.85,
         textShadow: '0 0 10px rgba(255,215,0,0.6)',

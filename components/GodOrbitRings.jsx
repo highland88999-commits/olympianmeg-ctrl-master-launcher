@@ -22,6 +22,8 @@ import * as THREE from 'three';
 import {
   GOD_BANDS,
   ORBIT_CENTER,
+  EARTH_CENTER,
+  EARTH_RADIUS,
   RING_SPIN,
   orbitTime,
   menuSatellitePosition,
@@ -29,6 +31,25 @@ import {
 import { registerCollider, unregisterCollider } from '@/lib/hub-collision';
 
 const SAT_RADIUS = 2.6;
+
+// God-name label distance behaviour (demo fix, 2026-10-15): at spawn the
+// camera sits ~46–68 units from every satellite, where the label's fixed
+// world size reads exactly as designed. Flying close used to blow the
+// name across the whole viewport ("DIONYSU…"), and a far-side label
+// clipped through Earth unreadably. So inside LABEL_REF_DIST the label
+// shrinks with distance — its on-screen size never exceeds the
+// normal-orbit size — and fades out as you arrive; a label whose
+// sightline passes through Earth fades to a whisper instead of
+// clipping through the planet. At normal orbit distance nothing
+// changes: full size, full opacity.
+const LABEL_REF_DIST = 30; // at/above this distance: full size
+const LABEL_FADE_NEAR = 5; // at/below this distance: fully faded
+const LABEL_FADE_FULL = 16; // at/above this distance: fully opaque
+const LABEL_MIN_SCALE = 0.1;
+const EARTH_C = new THREE.Vector3(EARTH_CENTER.x, EARTH_CENTER.y, EARTH_CENTER.z);
+const _wp = new THREE.Vector3();
+const _dir = new THREE.Vector3();
+const _ec = new THREE.Vector3();
 
 function useBannerTexture(url) {
   const [tex, setTex] = useState(null);
@@ -67,6 +88,52 @@ function HubSatellite({ band, index }) {
   const tex = useBannerTexture(band.texture);
   const angle = band.phase;
   const R = band.radius;
+  const satRef = useRef();
+  const labelRef = useRef();
+  const textRef = useRef();
+  const labelState = useRef({ scale: -1, opacity: -1 });
+
+  // Distance-driven label scale cap + fade (see constants above).
+  useFrame(({ camera }) => {
+    const sat = satRef.current;
+    const label = labelRef.current;
+    if (!sat || !label) return;
+    sat.getWorldPosition(_wp);
+    const dist = camera.position.distanceTo(_wp);
+
+    const scale = THREE.MathUtils.clamp(dist / LABEL_REF_DIST, LABEL_MIN_SCALE, 1);
+    let opacity = THREE.MathUtils.smoothstep(dist, LABEL_FADE_NEAR, LABEL_FADE_FULL);
+
+    // Far-side fade: does the camera→label sightline pass through Earth?
+    _dir.copy(_wp).sub(camera.position);
+    const len = _dir.length();
+    if (len > 0.001) {
+      _dir.divideScalar(len);
+      _ec.copy(EARTH_C).sub(camera.position);
+      const t = _ec.dot(_dir);
+      if (t > 0) {
+        const closestSq = _ec.lengthSq() - t * t;
+        const earthDist = camera.position.distanceTo(EARTH_C);
+        if (closestSq < (EARTH_RADIUS + 2) * (EARTH_RADIUS + 2) && dist > earthDist) {
+          opacity *= 0.08;
+        }
+      }
+    }
+
+    const st = labelState.current;
+    if (Math.abs(scale - st.scale) > 0.004) {
+      st.scale = scale;
+      label.scale.setScalar(scale);
+    }
+    const text = textRef.current;
+    if (text && Math.abs(opacity - st.opacity) > 0.02) {
+      st.opacity = opacity;
+      text.fillOpacity = opacity;
+      text.outlineOpacity = opacity;
+    }
+    const vis = opacity > 0.02;
+    if (label.visible !== vis) label.visible = vis;
+  });
 
   // Solid satellite: register a live sphere collider at the analytic
   // position (matches the rendered transform exactly).
@@ -102,7 +169,7 @@ function HubSatellite({ band, index }) {
         <meshBasicMaterial color={band.color} transparent opacity={0.45} />
       </mesh>
       {/* The satellite, fixed at its even-spacing angle */}
-      <group position={[R * Math.cos(angle), 0, R * Math.sin(angle)]}>
+      <group ref={satRef} position={[R * Math.cos(angle), 0, R * Math.sin(angle)]}>
         <mesh>
           <sphereGeometry args={[SAT_RADIUS, 32, 24]} />
           <primitive object={hullMat} attach="material" />
@@ -112,9 +179,12 @@ function HubSatellite({ band, index }) {
           <torusGeometry args={[SAT_RADIUS + 0.55, 0.09, 8, 64]} />
           <meshBasicMaterial color={band.color} fog={false} />
         </mesh>
-        {/* God-name marker */}
-        <Billboard position={[0, SAT_RADIUS + 1.7, 0]}>
+        {/* God-name marker — scale-capped and faded by camera distance
+            (see the useFrame above), so it can never fill the viewport
+            at close range or clip through Earth unreadably. */}
+        <Billboard ref={labelRef} position={[0, SAT_RADIUS + 1.7, 0]}>
           <Text
+            ref={textRef}
             fontSize={1.7}
             color={band.color}
             anchorX="center"

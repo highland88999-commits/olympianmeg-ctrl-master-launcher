@@ -24,6 +24,7 @@ import { getUserPosition, FALLBACK_POSITION } from '@/lib/geo';
 import { fx, unlockFx } from '@/lib/fx';
 import { shadowRealmUrl } from '@/app/shadow-realm/launch';
 import { useTilt } from '@/lib/use-tilt';
+import { useRadio } from '@/components/radio/RadioProvider';
 // Hub tutorial (Merlin 2026-10-03): 30-day standard rollout, then new
 // registrations only. Rollout rule lives in lib/hub-tutorial.js.
 import HubTutorial from '@/components/HubTutorial';
@@ -171,6 +172,18 @@ function NexusHub() {
     joyActive,
     onAutoAxis: setFlightAxis,
   });
+
+  // Radio-sheet layering (demo fix, 2026-10-15): while the Nexus Radio
+  // library sheet is open, the hub's floating chrome (portal orb, season
+  // badge, NIGHT GRID → RIDE → STORE column, corner stacks) must neither
+  // render over the sheet nor intercept its touches — the sheet's
+  // station row and NOW PLAYING line stay fully legible. The floaters
+  // hide (visibility, so no layout/state churn) and reappear untouched
+  // when the sheet collapses.
+  const { expanded: radioSheetOpen } = useRadio();
+  const chromeHiddenStyle = radioSheetOpen
+    ? { visibility: 'hidden', opacity: 0, pointerEvents: 'none' }
+    : undefined;
 
   useEffect(() => {
     // No backend configured yet: enter honest guest mode instead of crashing.
@@ -452,7 +465,7 @@ function NexusHub() {
         <HubTutorial onDone={() => { markHubTutorialSeen(); setShowHubTutorial(false); }} />
       )}
       {(user || cloudOffline) && !showIntro && (appState === 'hub_intro' || appState === 'hub_freeroam') && (
-        <div className="absolute top-5 left-5 z-50 flex flex-col gap-3 ui-element pointer-events-auto">
+        <div className="absolute top-5 left-5 z-50 flex flex-col gap-3 ui-element pointer-events-auto" style={chromeHiddenStyle}>
           <button
             onClick={() => { fx.tap(); setShowIntro(true); }}
             aria-label="Replay intro"
@@ -540,7 +553,7 @@ function NexusHub() {
               </div>
             </div>
           ) : (
-            <div className="absolute bottom-[calc(8.75rem+env(safe-area-inset-bottom))] left-5 z-[80] flex flex-col items-start gap-4 ui-element pointer-events-auto">
+            <div className="absolute bottom-[calc(8.75rem+env(safe-area-inset-bottom))] left-5 z-[80] flex flex-col items-start gap-4 ui-element pointer-events-auto" style={chromeHiddenStyle}>
               <div className="relative">
                 <button
                   onClick={() => { fx.menuOpen(); setIsMenuExpanded(true); }}
@@ -562,6 +575,7 @@ function NexusHub() {
           <div
             role="status"
             aria-label={`Flight axis: ${flightAxis}`}
+            style={chromeHiddenStyle}
             className="absolute top-5 right-5 z-50 w-14 h-14 rounded-full flex items-center justify-center overflow-hidden border-2 border-cyan-500/50 bg-zinc-950/90 shadow-[0_0_20px_rgba(0,242,255,0.15)] backdrop-blur-md ui-element pointer-events-none"
           >
             <FlightAxisStreaks axis={flightAxis} />
@@ -569,7 +583,7 @@ function NexusHub() {
 
           {/* Transient tilt messages — auto-dismiss, never a pop-up. */}
           {tiltMsg && (
-            <div className="absolute top-5 left-1/2 -translate-x-1/2 z-[60] pointer-events-none" role="status" aria-live="polite">
+            <div className="absolute top-5 left-1/2 -translate-x-1/2 z-[60] pointer-events-none" role="status" aria-live="polite" style={radioSheetOpen ? { visibility: 'hidden' } : undefined}>
               <div className="text-[11px] text-zinc-200 bg-zinc-950/95 border border-cyan-500/40 rounded-full px-4 py-1.5 shadow-lg whitespace-nowrap">
                 {tiltMsg}
               </div>
@@ -579,13 +593,15 @@ function NexusHub() {
           {/* Floating store shortcut — right edge, vertically centered, clear of
               the satellite menu toggle (bottom-left), FLIGHT AXIS (top-right),
               SPAWN TO BIKE (bottom-right), and the bottom radio bar. */}
-          <StoreFloatButton />
+          <div style={chromeHiddenStyle} aria-hidden={radioSheetOpen || undefined}>
+            <StoreFloatButton />
+          </div>
 
           {/* Profile icon + notifications — top-right below FLIGHT AXIS, clear of
               the store float button (right edge, vertically centered), the
               satellite menu toggle (bottom-left), SPAWN TO BIKE (bottom-right),
               and the bottom radio bar. */}
-          <div className="absolute top-[5.75rem] right-5 z-50 flex items-center gap-3 ui-element pointer-events-auto">
+          <div className="absolute top-[5.75rem] right-5 z-50 flex items-center gap-3 ui-element pointer-events-auto" style={chromeHiddenStyle}>
             <NotificationsWindow />
             <ProfileIcon />
           </div>
@@ -622,6 +638,7 @@ function NexusHub() {
           style={{
             right: 'calc(env(safe-area-inset-right, 0px) + 14px)',
             top: 'calc(50% - 110px)',
+            ...(radioSheetOpen ? { visibility: 'hidden', opacity: 0, pointerEvents: 'none' } : {}),
           }}
         >
           <button
@@ -642,10 +659,12 @@ function NexusHub() {
       {/* The single RIDE button — directly beneath NIGHT GRID in the
           right-edge column (NIGHT GRID → RIDE → STORE), no overlap. */}
       {(user || cloudOffline) && (appState === 'hub_intro' || appState === 'hub_freeroam' || appState === 'to_bike' || appState === 'on_bike') && (
-        <BikeFloatButton
-          onToggleBike={toggleBike}
-          riding={appState === 'on_bike' || appState === 'to_bike'}
-        />
+        <div style={chromeHiddenStyle} aria-hidden={radioSheetOpen || undefined}>
+          <BikeFloatButton
+            onToggleBike={toggleBike}
+            riding={appState === 'on_bike' || appState === 'to_bike'}
+          />
+        </div>
       )}
 
       {(user || cloudOffline) && (appState === 'diving_to_earth' || appState === 'earth_surface' || appState === 'earth_travel') && (
@@ -658,7 +677,7 @@ function NexusHub() {
       )}
 
       {(user || cloudOffline) && appState === 'hub_freeroam' && (
-        <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-40 pointer-events-none">
+        <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-40 pointer-events-none" style={chromeHiddenStyle}>
           <div className="text-[10px] tracking-[0.25em] uppercase text-cyan-300/70 bg-black/40 px-4 py-2 rounded-full border border-cyan-500/20">
             {t('earth.tapHint')}
           </div>
@@ -690,6 +709,7 @@ function NexusHub() {
 
       <HomeScene
         bgVideoOk={bgVideoOk}
+        radioSheetOpen={radioSheetOpen}
         appState={appState}
         setAppState={setAppState}
         satIndex={satIndex}

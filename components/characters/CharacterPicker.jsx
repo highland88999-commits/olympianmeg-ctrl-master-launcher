@@ -31,7 +31,9 @@ import CharacterToken from './CharacterToken';
 import {
   getEmbodiment, listEmbodiments, readProfileCharacterId,
   readSurfaceOverride, resolveSurfaceCharacterId, writeSurfaceOverride,
+  PROFILE_CHARACTER_LS_KEY,
 } from '@/lib/characters/embodiment';
+import { isCharacterId } from '@/lib/characters/roster';
 
 export default function CharacterPicker({ surface, onPick, accent = '#ffffff', style }) {
   const [open, setOpen] = useState(false);
@@ -53,6 +55,46 @@ export default function CharacterPicker({ surface, onPick, accent = '#ffffff', s
   // Picks live in localStorage (device mirror) — read after mount
   // so server-rendered markup and first client paint agree.
   useEffect(() => { refresh(true); }, [surface]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Account sync (demo fix, 2026-10-15): the pick chain's profile leg is
+  // the ACCOUNT row (user_profiles.profile_character_id) — the device
+  // mirror is only its local cache, written when a pick is saved on
+  // THIS device. A pick saved on another device (or before the mirror
+  // write existed) left the picker reading "Native figure" and the
+  // walker a plain capsule while the account had a character all along
+  // (Merlin's Mega City demo). On mount, read the account once: a valid
+  // account pick refreshes the mirror — the account is the source of
+  // truth, exactly the write MyCharacters makes on save — and
+  // re-resolves, so the label and the host scene (via onPick) see the
+  // real chain. A surface override still wins: refresh() resolves the
+  // chain, it is never bypassed. Guests (401) and network failures stay
+  // silent and keep the mirror's answer. An account with NO pick never
+  // clears the mirror: a pick whose save didn't persist lives there
+  // (the /api/profiles/me contract) and stays honored.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/profiles/me', {
+          headers: { accept: 'application/json' },
+        });
+        if (!res || !res.ok) return;
+        const data = await res.json().catch(() => null);
+        const accountId =
+          data && data.profiles && data.profiles.personal
+            ? data.profiles.personal.profile_character_id
+            : null;
+        if (cancelled || !isCharacterId(accountId)) return;
+        if (readProfileCharacterId() !== accountId) {
+          try {
+            window.localStorage.setItem(PROFILE_CHARACTER_LS_KEY, accountId);
+          } catch { /* the mirror is a cache — the refresh below still applies */ }
+        }
+        if (!cancelled) refresh(true);
+      } catch { /* offline / guest: the mirror's answer stands */ }
+    })();
+    return () => { cancelled = true; };
+  }, [surface]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function choose(id) {
     if (id === null) writeSurfaceOverride(surface, null);

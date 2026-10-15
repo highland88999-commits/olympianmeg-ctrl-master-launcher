@@ -36,6 +36,7 @@ export default function ArachnidWeaver() {
   const keysRef = useRef({});
   const joyRef = useRef({ active: false, id: null, sx: 0, sy: 0, dx: 0, dy: 0 });
   const [screen, setScreen] = useState("title"); // title | play | dead
+  const [isTouch, setIsTouch] = useState(false);
   const [hud, setHud] = useState({ t: 0, stamina: 100, near: 0, hunted: false, score: 0 });
   const [best, setBest] = useState(0);
   const [deadStats, setDeadStats] = useState(null);
@@ -46,6 +47,7 @@ export default function ArachnidWeaver() {
   const tokenRef = useRef(null);
 
   useEffect(() => {
+    setIsTouch('ontouchstart' in window);
     const character = resolveSurfaceCharacter("arachnid-weaver");
     if (character && character.preview) tokenRef.current = character;
     try {
@@ -198,7 +200,14 @@ export default function ArachnidWeaver() {
     function drawWebTrap(w, t) {
       ctx.save();
       ctx.translate(w.x, w.y);
-      ctx.strokeStyle = "rgba(200,220,255,0.20)";
+      // a faint silk sheen grounds the trap on the floor, and the web
+      // itself draws brighter (demo fix, 2026-10-15) — a trap you are
+      // meant to steer around has to be visible at phone brightness
+      ctx.fillStyle = "rgba(150,185,255,0.05)";
+      ctx.beginPath();
+      ctx.arc(0, 0, w.r, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(200,220,255,0.34)";
       ctx.lineWidth = 1.4;
       const radials = 10;
       for (let i = 0; i < radials; i++) {
@@ -417,6 +426,25 @@ export default function ArachnidWeaver() {
       if (dt > 0.1) dt = 0.1;
       const t = now / 1000;
 
+      // View metrics (demo fix, 2026-10-15): COVER, never contain. The
+      // visible window is at most 900×620 world units and always fills
+      // the viewport — the old contain scale (min of the two ratios)
+      // showed ~1,950 world units vertically on a portrait phone
+      // against an 1,100-unit arena, stranding the silk boundary as a
+      // thin rectangle floating in ~90% black void. The camera clamp
+      // below keeps that window inside the arena, so the nest always
+      // fills the screen edge to edge.
+      const cw = canvas.width;
+      const ch = canvas.height;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const viewW = cw / dpr;
+      const viewH = ch / dpr;
+      const scale = Math.max(viewW / 900, viewH / 620);
+      const winW = viewW / scale;
+      const winH = viewH / scale;
+      const clampCam = (v, win, size) =>
+        win >= size ? size / 2 : Math.max(win / 2, Math.min(size - win / 2, v));
+
       const g = gameRef.current;
       if (g && g.phase !== "dead") {
         pollKeys();
@@ -455,20 +483,16 @@ export default function ArachnidWeaver() {
           hunted: g.spider.mode === "chase" || g.spider.mode === "windup" || g.spider.mode === "lunge",
           score: scoreOf(g),
         });
-        // camera follows player
-        const tx = Math.max(0, Math.min(ARENA.w, g.player.x));
-        const tyy = Math.max(0, Math.min(ARENA.h, g.player.y));
+        // camera follows player, clamped so the visible window never
+        // leaves the arena (the boundary then meets the screen edge
+        // exactly when the player reaches the wall)
+        const tx = clampCam(g.player.x, winW, ARENA.w);
+        const tyy = clampCam(g.player.y, winH, ARENA.h);
         camX += (tx - camX) * Math.min(1, dt * 5);
         camY += (tyy - camY) * Math.min(1, dt * 5);
       }
 
       // ------- render -------
-      const w = canvas.width;
-      const h = canvas.height;
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      const viewW = w / dpr;
-      const viewH = h / dpr;
-      const scale = Math.min(viewW / 900, viewH / 620);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.fillStyle = "#060409";
       ctx.fillRect(0, 0, viewW, viewH);
@@ -482,24 +506,57 @@ export default function ArachnidWeaver() {
       }
       ctx.translate(-camX, -camY);
 
-      // cave floor: dark with procedural speckles
+      // cave floor: dark with procedural speckles — grounded a step
+      // brighter than the original (demo fix, 2026-10-15) so the nest
+      // reads at phone brightness; the mood stays cave-dark, the floor
+      // is a place now, not a void.
       const floorG = ctx.createRadialGradient(
         camX, camY, 80, camX, camY, 900
       );
-      floorG.addColorStop(0, "#0d0a14");
-      floorG.addColorStop(1, "#050308");
+      floorG.addColorStop(0, "#171126");
+      floorG.addColorStop(1, "#080611");
       ctx.fillStyle = floorG;
       ctx.fillRect(camX - 1000, camY - 800, 2000, 1600);
-      ctx.fillStyle = "rgba(140,120,180,0.10)";
+      ctx.fillStyle = "rgba(140,120,180,0.17)";
       for (let i = 0; i < 220; i++) {
         const px = ((i * 733) % ARENA.w + ARENA.w) % ARENA.w;
         const py = ((i * 389) % ARENA.h + ARENA.h) % ARENA.h;
         ctx.fillRect(px, py, 2.4, 2.4);
       }
-      // arena boundary: silk walls
-      ctx.strokeStyle = "rgba(200,220,255,0.28)";
-      ctx.lineWidth = 5;
+      // arena boundary: silk walls, woven not wireframe (demo fix,
+      // 2026-10-15) — a soft outer band, a bright core strand, and
+      // anchor threads lacing inward along every wall, so the edge of
+      // the nest reads as deliberate web-silk. With the cover camera
+      // the walls only appear at the screen's own edge, where the
+      // player actually reaches them.
+      ctx.strokeStyle = "rgba(150,175,235,0.10)";
+      ctx.lineWidth = 14;
       ctx.strokeRect(0, 0, ARENA.w, ARENA.h);
+      ctx.strokeStyle = "rgba(208,226,255,0.50)";
+      ctx.lineWidth = 2.5;
+      ctx.strokeRect(0, 0, ARENA.w, ARENA.h);
+      ctx.strokeStyle = "rgba(190,205,250,0.16)";
+      ctx.lineWidth = 1.2;
+      for (let x = 75; x < ARENA.w; x += 150) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.quadraticCurveTo(x + 7, 14, x, 28);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x, ARENA.h);
+        ctx.quadraticCurveTo(x + 7, ARENA.h - 14, x, ARENA.h - 28);
+        ctx.stroke();
+      }
+      for (let y = 75; y < ARENA.h; y += 150) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.quadraticCurveTo(14, y + 7, 28, y);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(ARENA.w, y);
+        ctx.quadraticCurveTo(ARENA.w - 14, y + 7, ARENA.w - 28, y);
+        ctx.stroke();
+      }
 
       // decorative anchor strands across the ceiling
       ctx.strokeStyle = "rgba(190,200,240,0.10)";
@@ -778,9 +835,19 @@ export default function ArachnidWeaver() {
               lineHeight: 2,
             }}
           >
-            MOVE — WASD / arrows / left-side touch drag
-            <br />
-            SPRINT — hold SHIFT, SPACE, or the SPRINT button
+            {isTouch ? (
+              <>
+                MOVE — drag on the left side of the screen
+                <br />
+                SPRINT — hold the SPRINT button
+              </>
+            ) : (
+              <>
+                MOVE — WASD / arrows / left-side touch drag
+                <br />
+                SPRINT — hold SHIFT, SPACE, or the SPRINT button
+              </>
+            )}
           </div>
           <AresButton icon="flame" tone="gold" onClick={startGame} style={{ marginTop: 30 }}>
             ENTER THE NEST

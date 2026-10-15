@@ -812,6 +812,12 @@ export default function HomeScene(props) {
   // Keep the quaternion ref initialized without the page needing three.js —
   // on every path below, fallback included.
   if (!props.earthQuatRef.current) props.earthQuatRef.current = new THREE.Quaternion();
+  // Radio-sheet layering (demo fix, 2026-10-15): the page passes
+  // radioSheetOpen while the Nexus Radio library sheet is open; the
+  // seasonal overlays below (Halloween badge, season toast, trophy
+  // overlay) then hide so they can never render over the sheet. It is a
+  // page-UI concern, not a scene prop — keep it out of HubScene's spread.
+  const { radioSheetOpen, ...sceneProps } = props;
 
   // Pre-flight probe, once, before the Canvas ever mounts.
   const [webglOk] = useState(() => probeWebGL());
@@ -841,12 +847,17 @@ export default function HomeScene(props) {
         <ThreeDUnavailableNotice />
       ) : (
         <SceneErrorBoundary fallback={<ThreeDUnavailableNotice />}>
-          <HubScene {...props} onContextLost={handleContextLost} />
+          <HubScene {...sceneProps} onContextLost={handleContextLost} />
         </SceneErrorBoundary>
       )}
-      <SeasonBadge />
-      <SeasonToast />
-      <TrophyOverlay />
+      <div
+        style={radioSheetOpen ? { visibility: 'hidden' } : undefined}
+        aria-hidden={radioSheetOpen || undefined}
+      >
+        <SeasonBadge />
+        <SeasonToast />
+        <TrophyOverlay />
+      </div>
     </div>
   );
 }
