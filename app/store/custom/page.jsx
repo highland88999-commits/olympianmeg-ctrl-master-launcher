@@ -52,6 +52,11 @@ import {
   productShareUrl,
   productShareText,
 } from '@/lib/store/share';
+import {
+  ourError,
+  friendlyDesignerError,
+  jsonOrNull,
+} from '@/lib/store/designer-errors';
 
 const MAX_FILE_MB = 10;
 const MIN_DIM = 800;
@@ -109,11 +114,32 @@ function designRect(img, design, W, H) {
   return { x: W * design.gx - gw / 2, y: H * design.gy - gh / 2, w: gw, h: gh };
 }
 
-// Full-resolution print PNG for one placement (what gets uploaded).
-async function exportDesignPng(design, spec) {
+// Full-resolution print PNG for one placement, as a binary Blob. The
+// file travels to staging as raw bytes (lib/store/design-upload.js) —
+// never as a base64 string inside a JSON body: at print resolution
+// that string runs to ~30MB, and iOS Safari kills the send with a raw
+// system error the customer should never see (2026-10-15).
+function canvasToBlob(canvas) {
+  return new Promise((resolve) => {
+    if (typeof canvas.toBlob === 'function') {
+      try {
+        canvas.toBlob((b) => resolve(b || null), 'image/png');
+        return;
+      } catch { /* fall through to the data-URL path */ }
+    }
+    try {
+      fetch(canvas.toDataURL('image/png'))
+        .then((r) => r.blob())
+        .then(resolve)
+        .catch(() => resolve(null));
+    } catch { resolve(null); }
+  });
+}
+
+async function exportDesignBlob(design, spec) {
   const img = await loadImage(design.imgUrl);
   const canvas = composePrintCanvas(img, spec.w, spec.h, designRect(img, design, spec.w, spec.h));
-  return canvas.toDataURL('image/png');
+  return canvasToBlob(canvas);
 }
 
 // Low-resolution composite for the stage backdrop, so the user sees
@@ -377,21 +403,51 @@ export default function CustomProductPage() {
     }
     setCreating(true);
     try {
-      // One exported PNG per placement that carries its own graphic;
-      // a reusing placement names its source instead (Rule 1).
-      const images = [];
-      for (const p of placements) {
-        if (reuse[p.key]) {
-          images.push({ key: p.key, sameAs: reuse[p.key] });
-          continue;
+      // One print file per placement that carries its own graphic; a
+      // reusing placement names its source instead (Rule 1). Files are
+      // rendered at full print resolution and staged as binary
+      // uploads; the create call itself then carries only the small
+      // staging paths (see lib/store/design-upload.js).
+      const ownPlacements = placements.filter((p) => !reuse[p.key]);
+      for (const p of ownPlacements) {
+        if (!designs[p.key]) {
+          throw ourError(`Add a graphic for the ${p.label.toLowerCase()} placement, or set it to use the same graphic as another placement.`);
         }
-        const d = designs[p.key];
-        if (!d) {
-          throw new Error(`Add a graphic for the ${p.label.toLowerCase()} placement, or set it to use the same graphic as another placement.`);
-        }
-        const dataUrl = await exportDesignPng(d, p.print || product.print);
-        images.push({ key: p.key, imageBase64: dataUrl.split(',')[1] });
       }
+      const blobs = {};
+      for (const p of ownPlacements) {
+        const blob = await exportDesignBlob(designs[p.key], p.print || product.print);
+        if (!blob) {
+          throw ourError('Could not render your design — please try uploading the graphic again.');
+        }
+        blobs[p.key] = blob;
+      }
+      // Mint one-time signed upload URLs, then send each file straight
+      // to storage as binary data.
+      const mintRes = await fetch('/api/store/custom/upload-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+        body: JSON.stringify({ productKey, keys: ownPlacements.map((p) => p.key) }),
+      });
+      const mintData = await jsonOrNull(mintRes);
+      if (!mintData || !mintData.ok || !Array.isArray(mintData.uploads)) {
+        throw ourError((mintData && mintData.error) || 'Could not start the upload — please try again.');
+      }
+      const pathByKey = {};
+      for (const up of mintData.uploads) {
+        const blob = blobs[up.key];
+        if (!blob || !up.bucket || !up.path || !up.token) {
+          throw ourError('Could not start the upload — please try again.');
+        }
+        const { error: upError } = await supabase.storage
+          .from(up.bucket)
+          .uploadToSignedUrl(up.path, up.token, blob, { contentType: 'image/png' });
+        if (upError) throw new Error(`Design upload failed: ${upError.message || 'storage error'}`);
+        pathByKey[up.key] = up.path;
+      }
+      const images = placements.map((p) => (reuse[p.key]
+        ? { key: p.key, sameAs: reuse[p.key] }
+        : { key: p.key, storagePath: pathByKey[p.key] }));
       const res = await fetch('/api/store/custom/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
@@ -404,13 +460,14 @@ export default function CustomProductPage() {
           markup: markup === '' ? '0' : markup,
         }),
       });
-      const data = await res.json();
-      if (!data.ok) throw new Error(data.error || 'Could not create your product.');
+      const data = await jsonOrNull(res);
+      if (!data) throw ourError('The store did not answer — please try again in a moment.');
+      if (!data.ok) throw ourError(data.error || 'Could not create your product.');
       setResult(data);
       setBaselineUsed(false);
       setStep(2);
     } catch (err) {
-      setError(err.message || 'Something went wrong creating your product.');
+      setError(friendlyDesignerError(err, 'Something went wrong creating your product.'));
     } finally {
       setCreating(false);
     }
@@ -433,15 +490,15 @@ export default function CustomProductPage() {
         headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
         body: JSON.stringify(payload),
       });
-      const data = await res.json();
-      if (data.type === 'stripe' && data.url) {
+      const data = await jsonOrNull(res);
+      if (data && data.type === 'stripe' && data.url) {
         window.location.href = data.url;
         return;
       }
       if (baselineOffer && res.status === 409) setBaselineUsed(true);
-      throw new Error(data.error || 'Checkout is not available right now.');
+      throw ourError((data && data.error) || 'Checkout is not available right now.');
     } catch (err) {
-      setError(err.message);
+      setError(friendlyDesignerError(err, 'Checkout is not available right now.'));
     } finally {
       setBuying(false);
     }
@@ -468,7 +525,7 @@ export default function CustomProductPage() {
 
   return (
     <div className="min-h-dvh bg-[#06070d] text-white"
-      style={{ paddingBottom: 'max(5.5rem, calc(env(safe-area-inset-bottom) + 4.5rem))' }}>
+      style={{ paddingBottom: 'max(5.5rem, calc(env(safe-area-inset-bottom) + 4.5rem))', overflowX: 'clip' }}>
       {/* shared file picker for every placement's upload control */}
       <input
         ref={fileInputRef}
@@ -483,8 +540,8 @@ export default function CustomProductPage() {
       />
       <div className="mx-auto max-w-2xl px-4 pt-6">
         {/* header */}
-        <div className="mb-6 flex items-center justify-between">
-          <div>
+        <div className="mb-6 flex items-start justify-between gap-3">
+          <div className="min-w-0">
             <h1 className="text-2xl font-bold">Design Your Own</h1>
             <p className="mt-1 text-sm text-slate-400">
               Pick a product, upload your graphic, place it, and we&apos;ll make it real.
@@ -499,7 +556,7 @@ export default function CustomProductPage() {
         <div className="mb-6 flex gap-2">
           {STEPS.map((s, i) => (
             <div key={s} className={cx(
-              'flex-1 rounded-lg px-3 py-2 text-center text-xs font-semibold uppercase tracking-wider',
+              'min-w-0 flex-1 rounded-lg px-2 py-2 text-center text-xs font-semibold uppercase tracking-wider',
               i === step ? 'bg-amber-400/20 text-amber-300' :
               i < step ? 'bg-white/10 text-slate-300' : 'bg-white/5 text-slate-500'
             )}>
@@ -594,11 +651,11 @@ export default function CustomProductPage() {
         {/* STEP 2 — design */}
         {step === 1 && activeDesign && (
           <div>
-            <div className="mb-3 flex items-center justify-between">
-              <div className="text-sm text-slate-400">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0 text-sm text-slate-400">
                 Designing on: <span className="font-semibold text-slate-200">{product.name}</span> — CA${product.priceCad}
               </div>
-              <button onClick={() => setStep(0)} className="text-xs text-slate-400 underline">
+              <button onClick={() => setStep(0)} className="shrink-0 text-xs text-slate-400 underline">
                 Change product
               </button>
             </div>
@@ -977,3 +1034,4 @@ export default function CustomProductPage() {
     </div>
   );
 }
+

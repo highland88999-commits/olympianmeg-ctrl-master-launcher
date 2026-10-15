@@ -53,6 +53,11 @@ import {
   insertCreationRecord,
   stripeMetadataForRecord,
 } from '@/lib/store/custom-creations';
+import {
+  isDesignUploadPath,
+  downloadDesignUpload,
+  deleteDesignUploads,
+} from '@/lib/store/design-upload';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -155,6 +160,7 @@ export const POST = apiGuard(async (req) => {
   // graphic it reuses. Payloads are validated per placement below.
   let submissions = null;
   const payloadByKey = new Map();
+  const storageByKey = new Map();
   if (hasImages) {
     submissions = {};
     for (const entry of images) {
@@ -166,6 +172,17 @@ export const POST = apiGuard(async (req) => {
       }
       if (typeof entry.sameAs === 'string' && entry.sameAs) {
         submissions[entry.key] = { sameAs: entry.sameAs };
+      } else if (typeof entry.storagePath === 'string' && entry.storagePath) {
+        // Print file staged directly in storage by the current designer
+        // (binary upload — see lib/store/design-upload.js). The path
+        // shape is validated here; the bytes are downloaded below and
+        // validated (PNG, exact print size) before anything reaches
+        // Printful.
+        if (!isDesignUploadPath(entry.storagePath)) {
+          return NextResponse.json({ ok: false, error: 'Invalid design images.' }, { status: 400 });
+        }
+        submissions[entry.key] = { image: true };
+        storageByKey.set(entry.key, entry.storagePath);
       } else if (typeof entry.imageBase64 === 'string' && entry.imageBase64.length >= 100) {
         if (entry.imageBase64.length > 25 * 1024 * 1024) {
           return NextResponse.json({ ok: false, error: 'Design image too large.' }, { status: 400 });
@@ -187,6 +204,25 @@ export const POST = apiGuard(async (req) => {
   }
   const placementByKey = new Map(placementsFor(product).map((p) => [p.key, p]));
 
+  // Pull any staged print files down now that the plan is known-good.
+  // From here they flow through the exact same path as a base64
+  // submission: PNG + print-size validation, then Printful.
+  const stagedPaths = [...storageByKey.values()];
+  if (stagedPaths.length) {
+    try {
+      for (const [k, p] of storageByKey) {
+        const buf = await downloadDesignUpload(p);
+        payloadByKey.set(k, buf.toString('base64'));
+      }
+    } catch {
+      await deleteDesignUploads(stagedPaths);
+      return NextResponse.json(
+        { ok: false, error: 'We could not read the uploaded design — please try creating it again.' },
+        { status: 502 }
+      );
+    }
+  }
+
   const safeName = (designName || `Custom ${product.name}`).toString().slice(0, 80) || `Custom ${product.name}`;
   const safeFile = (fileName || `custom-${product.key}.png`).toString().replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 60);
   const fileNameFor = (sourceKey, idx) => {
@@ -198,26 +234,32 @@ export const POST = apiGuard(async (req) => {
   // 1. Upload each distinct graphic to Printful Files, once. Every
   //    payload is confirmed against its placement's print spec first.
   const fileIdBySource = {};
-  for (let i = 0; i < plan.uploads.length; i++) {
-    const sourceKey = plan.uploads[i];
-    const raw = hasImages ? payloadByKey.get(sourceKey) : imageBase64;
-    if (!raw) {
-      return NextResponse.json({ ok: false, error: 'Invalid design images.' }, { status: 400 });
+  try {
+    for (let i = 0; i < plan.uploads.length; i++) {
+      const sourceKey = plan.uploads[i];
+      const raw = hasImages ? payloadByKey.get(sourceKey) : imageBase64;
+      if (!raw) {
+        return NextResponse.json({ ok: false, error: 'Invalid design images.' }, { status: 400 });
+      }
+      const stripped = raw.replace(/^data:image\/\w+;base64,/, '');
+      const placement = placementByKey.get(sourceKey);
+      const spec = (placement && placement.print) || product.print;
+      const dims = pngDimensions(stripped);
+      if (dims && (dims.w !== spec.w || dims.h !== spec.h)) {
+        return NextResponse.json(
+          { ok: false, error: 'Design image has the wrong print size for this product.' },
+          { status: 400 }
+        );
+      }
+      const file = await pf('POST', '/files', { file_name: fileNameFor(sourceKey, i), data: stripped });
+      const fileId = file && file.id;
+      if (!fileId) throw new Error('Printful file upload failed.');
+      fileIdBySource[sourceKey] = fileId;
     }
-    const stripped = raw.replace(/^data:image\/\w+;base64,/, '');
-    const placement = placementByKey.get(sourceKey);
-    const spec = (placement && placement.print) || product.print;
-    const dims = pngDimensions(stripped);
-    if (dims && (dims.w !== spec.w || dims.h !== spec.h)) {
-      return NextResponse.json(
-        { ok: false, error: 'Design image has the wrong print size for this product.' },
-        { status: 400 }
-      );
-    }
-    const file = await pf('POST', '/files', { file_name: fileNameFor(sourceKey, i), data: stripped });
-    const fileId = file && file.id;
-    if (!fileId) throw new Error('Printful file upload failed.');
-    fileIdBySource[sourceKey] = fileId;
+  } finally {
+    // Printful has the files (or the create failed) — the staged copies
+    // in storage have served their purpose either way.
+    if (stagedPaths.length) await deleteDesignUploads(stagedPaths);
   }
 
   // 2. Create the sync product with the template's variants. The
