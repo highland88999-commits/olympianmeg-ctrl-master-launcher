@@ -3,6 +3,15 @@
 // We log it to Vercel runtime logs AND persist it to the client_errors
 // Supabase table so crashes stay readable without dashboard log access.
 // Fire-and-forget by design: never fails, never blocks the client.
+//
+// Intake hygiene (2026-10-15, lib/client-error-hygiene.js): scanner /
+// crawler reports are not persisted, and identical (message + UA) bursts
+// dedupe within 10 minutes — one scanner burst once produced ~30 rows in
+// ~20 minutes and buried the real signal. Conservative by design: a first
+// occurrence is always recorded, and any plausible browser UA is kept.
+import { isScannerUserAgent, createErrorDeduper } from '@/lib/client-error-hygiene';
+
+const deduper = createErrorDeduper();
 
 export async function POST(req) {
   let report = null;
@@ -32,7 +41,16 @@ export async function POST(req) {
   try {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (report && url && key) {
+    const ua = report ? String(report.ua || '') : '';
+    const scanner = report ? isScannerUserAgent(ua) : false;
+    const duplicate =
+      report && !scanner ? !deduper.shouldRecord(report.message, ua) : false;
+    if (report && (scanner || duplicate)) {
+      console.error(
+        `[client-error] not persisted (${scanner ? 'scanner/crawler ua' : 'duplicate within 10m'}) message=${report.message || '-'}`
+      );
+    }
+    if (report && !scanner && !duplicate && url && key) {
       await fetch(`${url}/rest/v1/client_errors`, {
         method: 'POST',
         headers: {

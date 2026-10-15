@@ -6,7 +6,7 @@
 // Scene, markup, ad inventory (tower panels: Merlin's native stake.com slot
 // plus the rotating billboard partner inventory), and camera logic are
 // byte-identical to the inline version — this is a pure code-split.
-import { useState, useEffect, useRef, useMemo, Suspense } from 'react';
+import { useState, useEffect, useRef, useMemo, Suspense, Component } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Stars } from '@react-three/drei';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
@@ -27,6 +27,7 @@ import { dismountPosition } from '../lib/rider-state';
 import SeasonalDecor, { SeasonBadge, SeasonToast, TrophyOverlay } from './SeasonalDecor';
 import { applyCoverFit } from '../lib/texture-fit';
 import { GOD_TOWER_SPOTS } from '../lib/home-positions';
+import { probeWebGL } from '../lib/webgl-support';
 import { panelsForTower } from '../lib/tower-panels';
 import GodTower from './GodTower';
 
@@ -580,12 +581,15 @@ function StaticColliders() {
 
 
 // ---------------------------------------------------------------------------
-// HomeScene — the client-only 3D hub. Mounted by app/page.jsx through
-// next/dynamic with ssr:false. All DOM/UI around it stays in the page.
-// Canvas props, child order, and every prop below are byte-identical to the
-// inline version that used to live in app/page.jsx — pure code-split.
+// HubScene — the client-only 3D hub scene itself. Mounted by the guarded
+// HomeScene wrapper below (app/page.jsx loads the wrapper through
+// next/dynamic with ssr:false). All DOM/UI around it stays in the page.
+// Canvas props, child order, and every prop below are byte-identical to
+// the inline version that used to live in app/page.jsx — pure code-split —
+// with ONE deliberate addition: the Canvas onCreated hook that routes a
+// live WebGL context loss to the wrapper's fallback.
 // ---------------------------------------------------------------------------
-export default function HomeScene({
+function HubScene({
   bgVideoOk,
   appState,
   setAppState,
@@ -603,6 +607,7 @@ export default function HomeScene({
   beginEarthDive,
   onLaunchExternal,
   onBikeDismount,
+  onContextLost,
 }) {
   // Keep the quaternion ref initialized without the page needing three.js.
   if (!earthQuatRef.current) earthQuatRef.current = new THREE.Quaternion();
@@ -627,8 +632,15 @@ export default function HomeScene({
   }, []);
 
   return (
-    <div className="absolute inset-0 pointer-events-none">
-      <Canvas shadows="soft" gl={{ alpha: true }} camera={{ position: [ORBIT_CENTER.x, ORBIT_CENTER.y, ORBIT_CENTER.z], fov: 52, far: 2000 }} style={{ pointerEvents: 'auto' }}>
+      <Canvas shadows="soft" gl={{ alpha: true }} camera={{ position: [ORBIT_CENTER.x, ORBIT_CENTER.y, ORBIT_CENTER.z], fov: 52, far: 2000 }} style={{ pointerEvents: 'auto' }} onCreated={({ gl }) => {
+        // Live context loss (GPU reset, driver hiccup, OS sleep): hand it
+        // to the wrapper, which swaps in the 2D fallback — never a dead
+        // canvas and never the global error screen.
+        gl.domElement.addEventListener('webglcontextlost', (event) => {
+          event.preventDefault();
+          if (onContextLost) onContextLost();
+        });
+      }}>
         {!bgVideoOk && <color attach="background" args={['#050505']} />}
         {/* Thin fog: the tower field (~180 out) must read clearly from
             spawn, not vanish into haze. */}
@@ -698,6 +710,140 @@ export default function HomeScene({
           <Bloom luminanceThreshold={0.4} luminanceSmoothing={0.2} intensity={1.5} />
         </EffectComposer>
       </Canvas>
+  );
+}
+
+
+// ---------------------------------------------------------------------------
+// WebGL resilience guard (2026-10-15) — the default export.
+//
+// Why: three.js throws "Error creating WebGL context." synchronously at
+// Canvas mount on browsers/devices that cannot create a WebGL context
+// (crawlers, GPU-blocklisted or ancient browsers). With no local guard the
+// throw escaped to app/global-error.jsx, which replaces the ENTIRE page —
+// auth, menus, every DOM control — with the error screen (client_errors
+// class B, the site's #1 client error: 47 rows since 2026-10-01).
+//
+// The guard, in order:
+//   1. Pre-flight probe (lib/webgl-support.js): if WebGL is unavailable,
+//      the Canvas never mounts — the fallback renders instead.
+//   2. SceneErrorBoundary around the scene: any render/mount failure is
+//      caught HERE and swapped for the same fallback.
+//   3. A webglcontextlost listener (attached in HubScene's Canvas
+//      onCreated) routes live context loss to the fallback too.
+// The fallback is the scene's dark shell plus a short notice; the page's
+// DOM UI is a sibling of this component and stays fully intact and
+// functional either way. Capable browsers see zero change.
+// ---------------------------------------------------------------------------
+
+// Fire-and-forget report when the fallback engages, so the crew can see
+// how often real devices land here (kind 'scene-fallback', distinct from
+// the global boundary's reports). Mirrors global-error.jsx's reporter:
+// never throws, never blocks rendering. The API route dedupes bursts.
+function reportSceneFallback(error) {
+  try {
+    const payload = JSON.stringify({
+      kind: 'scene-fallback',
+      message: String((error && error.message) || 'WebGL unavailable').slice(0, 500),
+      stack: String((error && error.stack) || '').slice(0, 2500),
+      digest: null,
+      url: typeof window !== 'undefined' ? window.location.href.slice(0, 300) : '',
+      ua: typeof navigator !== 'undefined' ? navigator.userAgent.slice(0, 200) : '',
+    });
+    if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
+      navigator.sendBeacon(
+        '/api/client-error',
+        new Blob([payload], { type: 'application/json' })
+      );
+    } else if (typeof fetch !== 'undefined') {
+      fetch('/api/client-error', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: payload,
+        keepalive: true,
+      }).catch(() => {});
+    }
+  } catch {
+    /* reporter never throws */
+  }
+}
+
+class SceneErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { failed: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error) {
+    reportSceneFallback(error);
+  }
+
+  render() {
+    return this.state.failed ? this.props.fallback : this.props.children;
+  }
+}
+
+// The dark shell + notice shown in place of the 3D scene. Purely visual
+// (inherits the wrapper's pointer-events-none), so nothing on the page
+// becomes unclickable because of it. Styled to match global-error.jsx.
+function ThreeDUnavailableNotice() {
+  return (
+    <div className="absolute inset-0 bg-[#050505] flex items-center justify-center" role="status">
+      <div className="text-center px-6 max-w-md">
+        <div className="text-[0.7rem] tracking-[0.3em] text-cyan-300 mb-4">NEXUS VORTEX</div>
+        <h2 className="text-zinc-100 text-xl font-extrabold mb-3">3D is unavailable on this device</h2>
+        <p className="text-sm text-zinc-400 leading-relaxed">
+          This browser couldn&apos;t start WebGL, so the 3D hub is resting — everything
+          else still works: sign-in, menus, and every program in the hub.
+        </p>
+        <p className="text-xs text-zinc-500 leading-relaxed mt-3">
+          A current browser with hardware acceleration enabled brings the 3D hub back.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+export default function HomeScene(props) {
+  // Keep the quaternion ref initialized without the page needing three.js —
+  // on every path below, fallback included.
+  if (!props.earthQuatRef.current) props.earthQuatRef.current = new THREE.Quaternion();
+
+  // Pre-flight probe, once, before the Canvas ever mounts.
+  const [webglOk] = useState(() => probeWebGL());
+  const [contextLost, setContextLost] = useState(false);
+  const reportedRef = useRef(false);
+
+  useEffect(() => {
+    if (!webglOk && !reportedRef.current) {
+      reportedRef.current = true;
+      reportSceneFallback(new Error('WebGL unavailable (pre-flight probe)'));
+    }
+  }, [webglOk]);
+
+  const handleContextLost = () => {
+    if (!reportedRef.current) {
+      reportedRef.current = true;
+      reportSceneFallback(new Error('WebGL context lost'));
+    }
+    setContextLost(true);
+  };
+
+  const unavailable = !webglOk || contextLost;
+
+  return (
+    <div className="absolute inset-0 pointer-events-none">
+      {unavailable ? (
+        <ThreeDUnavailableNotice />
+      ) : (
+        <SceneErrorBoundary fallback={<ThreeDUnavailableNotice />}>
+          <HubScene {...props} onContextLost={handleContextLost} />
+        </SceneErrorBoundary>
+      )}
       <SeasonBadge />
       <SeasonToast />
       <TrophyOverlay />
