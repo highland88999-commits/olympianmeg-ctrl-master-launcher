@@ -15,7 +15,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
-import { getFortressUser, getFortressAdmin, ownerPrefix } from '@/lib/fortress/server';
+import { getFortressUser, getFortressAdmin, isOwnerKey } from '@/lib/fortress/server';
 import { sanitizeExpiryHours, buildShareUrl, SHARE_PASSPHRASE_NOTE } from '@/lib/fortress/shares';
 
 const SHARES = 'fortress_shares';
@@ -33,7 +33,7 @@ export async function POST(req) {
   const user = auth.user;
 
   const fileStorageKey = String(body?.fileStorageKey || '');
-  if (!fileStorageKey || !fileStorageKey.startsWith(ownerPrefix(user.id))) {
+  if (!fileStorageKey || !isOwnerKey(user.id, fileStorageKey)) {
     return NextResponse.json({ error: 'That file is not in your vault.' }, { status: 403 });
   }
 

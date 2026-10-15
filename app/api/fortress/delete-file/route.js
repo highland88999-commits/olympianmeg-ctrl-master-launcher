@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { getTier, FREE_TIER_ID } from '@/lib/fortress/tiers';
-import { getFortressUser, getFortressAdmin, deleteVaultObject, ownerPrefix } from '@/lib/fortress/server';
+import { getFortressUser, getFortressAdmin, deleteVaultObject, isOwnerKey } from '@/lib/fortress/server';
 import { removeUsedBytes, ensureQuotaFromMatrix, getQuotaRow } from '@/lib/fortress/quota-store';
 
 export async function POST(req) {
@@ -28,7 +28,7 @@ export async function POST(req) {
   const user = auth.user;
 
   const fileStorageKey = String(body?.fileStorageKey || '');
-  if (!fileStorageKey || !fileStorageKey.startsWith(ownerPrefix(user.id))) {
+  if (!fileStorageKey || !isOwnerKey(user.id, fileStorageKey)) {
     return NextResponse.json({ error: 'That file is not in your vault.' }, { status: 403 });
   }
 

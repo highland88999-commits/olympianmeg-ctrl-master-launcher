@@ -1,25 +1,10 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { Storage } from '@google-cloud/storage';
 import { getFortressAdmin } from '@/lib/fortress/server';
 import { ensureQuotaFromMatrix } from '@/lib/fortress/quota-store';
 import { checkQuota, getTier, FREE_TIER_ID } from '@/lib/fortress/tiers';
-
-// nexus carries NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET; accept either name.
-function bucketName(): string | undefined {
-  return process.env.FIREBASE_STORAGE_BUCKET || process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET;
-}
-
-function storageConfigError(): string | null {
-  if (!process.env.GCP_PROJECT_ID || !process.env.GCP_SERVICE_ACCOUNT_KEY) {
-    return 'Cloud storage is not connected yet (missing GCP_PROJECT_ID / GCP_SERVICE_ACCOUNT_KEY).';
-  }
-  if (!bucketName()) {
-    return 'Cloud storage bucket is not configured.';
-  }
-  return null;
-}
+import { ensureUserBucket } from '@/lib/fortress/vault-storage';
 
 export async function POST(req: Request) {
   try {
@@ -38,16 +23,17 @@ export async function POST(req: Request) {
     const { nodeId, encrypted, fileSize } = await req.json();
     if (!nodeId) return NextResponse.json({ error: 'Crystal Node ID required' }, { status: 400 });
 
+    const admin = await getFortressAdmin();
+    if (!admin) {
+      return NextResponse.json({ error: 'Storage accounting is unavailable — please try again.' }, { status: 503 });
+    }
+
     // Hard quota gate: nothing that would exceed the vault allowance gets an
     // upload link. Replacing a file in a node doesn't double-count it — the
     // node's current bytes are subtracted before the check. When accounting
     // can't be verified, the upload is refused rather than let through blind.
     const incomingBytes = Math.max(0, Number(fileSize) || 0);
     if (incomingBytes > 0) {
-      const admin = await getFortressAdmin();
-      if (!admin) {
-        return NextResponse.json({ error: 'Storage accounting is unavailable — please try again.' }, { status: 503 });
-      }
       try {
         const { row } = await ensureQuotaFromMatrix(admin, user.id);
         const tier = getTier(row.tier) || getTier(FREE_TIER_ID);
@@ -71,36 +57,26 @@ export async function POST(req: Request) {
       }
     }
 
-    const configError = storageConfigError();
-    if (configError) return NextResponse.json({ error: configError }, { status: 500 });
-
-    let serviceAccount: Record<string, unknown>;
-    try {
-      serviceAccount = JSON.parse(process.env.GCP_SERVICE_ACCOUNT_KEY as string);
-    } catch {
-      return NextResponse.json({ error: 'Cloud storage credential is invalid.' }, { status: 500 });
-    }
+    // Per-user Supabase bucket: every user gets their OWN private bucket,
+    // created on first use. The object path is derived server-side from the
+    // caller's id — the client can never aim an upload at another vault.
+    const bucket = await ensureUserBucket(admin, user.id);
 
     // Encrypted vault blobs are opaque ciphertext; legacy blobs were plain zips.
-    const fileStorageKey = `vaults/${user.id}/${nodeId}_core.${encrypted ? 'enc' : 'zip'}`;
-    const contentType = encrypted ? 'application/octet-stream' : 'application/zip';
+    const objectName = `vault/${nodeId}_core.${encrypted ? 'enc' : 'zip'}`;
+    const fileStorageKey = `${bucket}/${objectName}`;
 
-    const storage = new Storage({
-      projectId: process.env.GCP_PROJECT_ID,
-      credentials: serviceAccount,
-    });
+    const { data, error: signError } = await admin.storage
+      .from(bucket)
+      .createSignedUploadUrl(objectName, { upsert: true });
+    if (signError || !data?.signedUrl) {
+      return NextResponse.json(
+        { error: `Could not start the upload: ${signError?.message || 'unknown error'}` },
+        { status: 502 }
+      );
+    }
 
-    const bucket = storage.bucket(bucketName()!);
-    const file = bucket.file(fileStorageKey);
-
-    const [uploadUrl] = await file.getSignedUrl({
-      version: 'v4',
-      action: 'write',
-      expires: Date.now() + 15 * 60 * 1000,
-      contentType
-    });
-
-    return NextResponse.json({ uploadUrl, fileStorageKey });
+    return NextResponse.json({ uploadUrl: data.signedUrl, fileStorageKey });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
