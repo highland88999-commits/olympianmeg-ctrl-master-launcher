@@ -1,6 +1,8 @@
 // components/DoomsdayBanner.jsx
 // The financial-system-release countdown banner ("doomsday").
-// Shown on EVERY launcher load until the accumulative lock lifts
+// HUB-ONLY (Merlin, 2026-10-14): the countdown lives in the main hub
+// (route "/") and nowhere else — never inside a pocket universe or
+// program. Shown on hub loads until the accumulative lock lifts
 // (Dec 11, 2026) — then it removes itself. A banner, never a modal:
 // his no-popups law stands. Loki-green, minimizable (preference
 // persisted), video-ready background with gradient fallback.
@@ -69,12 +71,17 @@ export default function DoomsdayBanner() {
     });
   }
 
-  // TRON realm (shadow-realm): banner fully hidden — Merlin 2026-10-12,
-  // it interferes with the realm overlay. Not transparent; removed.
+  // HUB-ONLY gate (Merlin, 2026-10-14): render ONLY on the main hub
+  // route "/". Every pocket universe / program route gets null — the
+  // countdown never appears inside Kombat, the store, Earth, or any
+  // satellite. This subsumes the old shadow-realm carve-out
+  // (2026-10-12: banner fully hidden there); "/shadow-realm" is not
+  // "/", so it stays hidden. Not transparent; removed.
   // This check MUST stay below every hook: returning above the useEffect
   // changed the hook count between routes and crashed the app with React
   // error #300 (rendered fewer hooks than expected) on 2026-10-13.
-  if (pathname && pathname.startsWith('/shadow-realm')) return null;
+  // (An unknown/null pathname keeps the old fall-through behaviour.)
+  if (pathname && pathname !== '/') return null;
 
   if (!info) return null;
 

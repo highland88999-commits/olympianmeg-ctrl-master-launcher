@@ -101,9 +101,11 @@ export default function RootLayout({ children }) {
         <RadioProvider>
           <NativeBridge />
           <EconomyHeartbeat />
-          {/* Doomsday banner: Christmas-unlock countdown. Shows on every
-              load while wallets are in accumulative lock; removes itself
-              on Dec 11. A banner, never a modal. */}
+          {/* Doomsday banner: Christmas-unlock countdown. HUB-ONLY —
+              the component gates itself to the main hub route "/" and
+              renders nothing inside pocket universes or programs
+              (Merlin, 2026-10-14). Removes itself on Dec 11. A banner,
+              never a modal. */}
           <DoomsdayBanner />
           {children}
           <RadioBar />
