@@ -87,6 +87,7 @@ t('no ipify', !/ipify/.test(page));
 
 // ---------- API routes: conventions + gates ----------
 t('spots route is force-dynamic', /force-dynamic/.test(spotsRoute) && /force-dynamic/.test(snapshotRoute));
+t('spots GET treats missing coords as a 400, never as (0,0)', /latRaw === null/.test(spotsRoute) && /lngRaw === null/.test(spotsRoute));
 t('spots POST requires a signed-in user', /requireUser/.test(spotsRoute));
 t('spots POST merges duplicates instead of duplicating', /findMergeCandidate/.test(spotsRoute) && /merged: true/.test(spotsRoute));
 t('confirm route requires a signed-in user', /requireUser/.test(confirmRoute));

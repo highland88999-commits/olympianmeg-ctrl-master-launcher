@@ -40,8 +40,12 @@ const NOT_CONNECTED = {
 
 export const GET = apiGuard(async function GET(req) {
   const url = new URL(req.url);
-  const lat = Number(url.searchParams.get('lat'));
-  const lng = Number(url.searchParams.get('lng') ?? url.searchParams.get('lon'));
+  // Missing params must 400 — Number(null) is 0, which would silently
+  // query the Gulf of Guinea instead of asking for a real position.
+  const latRaw = url.searchParams.get('lat');
+  const lngRaw = url.searchParams.get('lng') ?? url.searchParams.get('lon');
+  const lat = latRaw === null ? NaN : Number(latRaw);
+  const lng = lngRaw === null ? NaN : Number(lngRaw);
   if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180) {
     return Response.json(
       { ok: false, error: 'Send lat and lng so we can find the spots near you.', spots: [] },
