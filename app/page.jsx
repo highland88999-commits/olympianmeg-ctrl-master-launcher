@@ -21,6 +21,7 @@ import EntranceSequence from '@/components/EntranceSequence';
 import { createEntranceMachine } from '@/lib/entrance-sequence';
 import EarthConsole from '@/components/EarthConsole';
 import { getUserPosition, FALLBACK_POSITION } from '@/lib/geo';
+import { roamState, beginRoam, endRoam, landmarkSpawns } from '@/lib/earth/roam';
 import { fx, unlockFx } from '@/lib/fx';
 import { shadowRealmUrl } from '@/app/shadow-realm/launch';
 import { useTilt } from '@/lib/use-tilt';
@@ -140,8 +141,41 @@ function NexusHub() {
     });
   };
   const travelToEarth = (dest) => { setPendingDest(dest); setAppState('earth_travel'); };
-  const arriveEarth = (dest) => { setEarthFocus(dest); setPendingDest(null); setAppState('earth_surface'); };
-  const returnToOrbit = () => { setPendingDest(null); setEarthFocus(null); setAppState('returning_to_orbit'); };
+  const arriveEarth = (dest) => {
+    setEarthFocus(dest);
+    setPendingDest(null);
+    // A landmark spawn pick travels, then lands the traveler on
+    // foot at street level instead of stopping at the overlook.
+    if (pendingRoamRef.current) {
+      pendingRoamRef.current = false;
+      beginRoam(roamState, dest.lat, dest.lon, 0);
+      setAppState('diving_to_street');
+    } else {
+      setAppState('earth_surface');
+    }
+  };
+  const returnToOrbit = () => {
+    pendingRoamRef.current = false;
+    endRoam(roamState);
+    setPendingDest(null);
+    setEarthFocus(null);
+    setAppState('returning_to_orbit');
+  };
+  // Street level (Day 2): descend from the overlook to the ground
+  // at the current focus and walk, embodied as your character.
+  const pendingRoamRef = useRef(false);
+  const earthSpawns = useMemo(() => landmarkSpawns(), []);
+  const beginStreetDive = () => {
+    if (!earthFocus) return;
+    fx.earthDive();
+    beginRoam(roamState, earthFocus.lat, earthFocus.lon, roamState.yawDeg || 0);
+    setAppState('diving_to_street');
+  };
+  const pickSpawn = (dest) => {
+    pendingRoamRef.current = true;
+    setPendingDest(dest);
+    setAppState('earth_travel');
+  };
 
   const controlsRef = useRef({
     moveX: 0, moveY: 0, lookDeltaX: 0, lookDeltaY: 0, keyW: 0, keyS: 0, keyA: 0, keyD: 0, zoom: 52, lastPinchDist: null
@@ -667,12 +701,16 @@ function NexusHub() {
         </div>
       )}
 
-      {(user || cloudOffline) && (appState === 'diving_to_earth' || appState === 'earth_surface' || appState === 'earth_travel') && (
+      {(user || cloudOffline) && (appState === 'diving_to_earth' || appState === 'earth_surface' || appState === 'earth_travel' || appState === 'diving_to_street' || appState === 'earth_roam') && (
         <EarthConsole
           focus={earthFocus}
           phase={appState}
           onTravel={travelToEarth}
           onReturn={returnToOrbit}
+          onStreet={beginStreetDive}
+          onAscend={() => setAppState('earth_surface')}
+          onSpawnPick={pickSpawn}
+          spawns={earthSpawns}
         />
       )}
 

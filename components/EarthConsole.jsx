@@ -13,7 +13,7 @@ const QUICK = [
 
 const MIN_KEY = 'earth-console-minimized';
 
-export default function EarthConsole({ focus, phase, onTravel, onReturn }) {
+export default function EarthConsole({ focus, phase, onTravel, onReturn, onStreet, onAscend, onSpawnPick, spawns }) {
   const { t } = useI18n();
   const [input, setInput] = useState('');
   const [results, setResults] = useState([]);
@@ -39,7 +39,9 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn }) {
     setSearching(false);
   };
 
-  const busy = phase === 'diving_to_earth' || phase === 'earth_travel';
+  const busy = phase === 'diving_to_earth' || phase === 'earth_travel' || phase === 'diving_to_street';
+  const atStreet = phase === 'earth_roam';
+  const canWalk = phase === 'earth_surface' || atStreet;
 
   // If a dive/travel starts while minimized, pop the console back open so the
   // traveling indicator is visible instead of failing silently.
@@ -90,7 +92,14 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn }) {
           )}
           {busy && (
             <div className="text-[10px] text-cyan-400 mt-1 animate-pulse">
-              {phase === 'earth_travel' ? t('earth.traveling') : t('earth.locating')}
+              {phase === 'earth_travel' ? t('earth.traveling')
+                : phase === 'diving_to_street' ? 'Descending to street level…'
+                : t('earth.locating')}
+            </div>
+          )}
+          {atStreet && (
+            <div className="text-[10px] text-cyan-300 mt-1">
+              On foot — left thumb to walk, drag the right side to look around.
             </div>
           )}
         </div>
@@ -139,6 +148,46 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn }) {
             </button>
           ))}
         </div>
+
+        {/* Street level (Day 2): descend to the ground and walk,
+            embodied as your character. Spawn picks travel first,
+            then land you on foot at the landmark. */}
+        {canWalk && !atStreet && (
+          <button
+            onClick={onStreet}
+            disabled={busy || !focus}
+            className="w-full py-2 text-[10px] font-bold tracking-[0.2em] uppercase text-cyan-200 border border-cyan-600/60 bg-cyan-950/50 rounded hover:border-cyan-400 hover:text-white transition-all disabled:opacity-50"
+          >
+            ⌄ Street level — walk here
+          </button>
+        )}
+        {atStreet && (
+          <button
+            onClick={onAscend}
+            className="w-full py-2 text-[10px] font-bold tracking-[0.2em] uppercase text-zinc-300 border border-zinc-700 rounded hover:border-cyan-500/50 hover:text-white transition-all"
+          >
+            ↑ Back to overlook
+          </button>
+        )}
+        {canWalk && spawns && spawns.length > 0 && (
+          <div className="flex flex-col gap-1">
+            <div className="text-[9px] font-bold tracking-[0.25em] uppercase text-zinc-500">
+              Walk at a landmark
+            </div>
+            <div className="flex flex-col gap-1 max-h-36 overflow-y-auto custom-scrollbar">
+              {spawns.map((s) => (
+                <button
+                  key={s.id}
+                  disabled={busy}
+                  onClick={() => onSpawnPick({ lat: s.lat, lon: s.lon, label: s.name })}
+                  className="text-left text-[11px] px-2 py-1.5 rounded bg-zinc-900/60 hover:bg-cyan-950/60 border border-zinc-800 hover:border-cyan-500/40 transition-all truncate disabled:opacity-50"
+                >
+                  🚶 {s.name} · {formatCoords(s.lat, s.lon)}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <button
           onClick={onReturn}

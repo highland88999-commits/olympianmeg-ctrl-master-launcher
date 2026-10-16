@@ -12,6 +12,9 @@ import {
   anchorFromRegion,
   seededRandom,
   METRES_PER_HUB_UNIT,
+  displayScaleFor,
+  DISPLAY_UNITS_PER_METRE,
+  HUB_UNITS_PER_DEGREE,
 } from '../lib/earth/placements.js';
 import { latLonToVec3, EARTH_RADIUS } from '../lib/geo.js';
 import { TERRAIN_RADIUS, displacementForHeight } from '../lib/terrain.js';
@@ -131,6 +134,120 @@ check('unanchored asset yields no placements rather than a wrong one', () => {
 
 check('EARTH_RADIUS sanity: hub units match the geo module', () => {
   assert.equal(EARTH_RADIUS, TERRAIN_RADIUS);
+});
+
+// --- Day 2 (2026-10-15): the demo-flaw audit fixes ---
+
+check('display caps: nothing renders as a giant (audit §4.2)', () => {
+  const byId = Object.fromEntries(EARTH_ASSETS.map((a) => [a.id, a]));
+  // Below both caps: honest display size preserved exactly.
+  assert.ok(Math.abs(displayScaleFor(byId['e049-eiffel-tower']).displayHeight - 330 * DISPLAY_UNITS_PER_METRE) < 1e-9);
+  assert.ok(Math.abs(displayScaleFor(byId['e040-uluru-monolith']).displayHeight - 348 * DISPLAY_UNITS_PER_METRE) < 1e-9);
+  // Burj (828 m) and CN Tower (553 m) land exactly on the height cap.
+  for (const id of ['e060-burj-khalifa', 'e053-cn-tower']) {
+    assert.ok(Math.abs(displayScaleFor(byId[id]).displayHeight - 375 * DISPLAY_UNITS_PER_METRE) < 1e-9, id);
+  }
+  // Fuji (3,776 m, wider than tall) lands on the footprint cap and
+  // drops under 4.5 units tall — it rendered 63 units wide and
+  // floated off the planet's limb before the caps.
+  const fuji = displayScaleFor(byId['e042-fuji-stratovolcano']);
+  assert.ok(Math.abs(fuji.footprint - 500 * DISPLAY_UNITS_PER_METRE) < 1e-6, `fuji footprint ${fuji.footprint}`);
+  assert.ok(fuji.displayHeight < 4.5, `fuji height ${fuji.displayHeight}`);
+  // Table Mountain's slab shrinks to a mesa under 2.5 units tall.
+  assert.ok(displayScaleFor(byId['e043-table-mountain']).displayHeight < 2.5);
+  // The caps hold for every asset in the bridge.
+  for (const a of EARTH_ASSETS) {
+    const s = displayScaleFor(a);
+    assert.ok(s.footprint <= 500 * DISPLAY_UNITS_PER_METRE + 1e-9, `${a.id} footprint ${s.footprint}`);
+    assert.ok(s.displayHeight <= 375 * DISPLAY_UNITS_PER_METRE + 1e-9, `${a.id} height ${s.displayHeight}`);
+    assert.ok(Math.abs(s.displayHeight - s.displayScale * a.nativeSize[1]) < 1e-9, `${a.id} scale/height agree`);
+  }
+});
+
+check('display grounding: raise is displayHeight/2 less any sink', () => {
+  for (const a of EARTH_ASSETS) {
+    for (const p of placementsFor(a, land, OW, OH, {
+      displayUnitsPerMetre: DISPLAY_UNITS_PER_METRE,
+      scatterCount: 6, segmentCount: 4,
+    })) {
+      // Signed projection onto the normal: a sunk asset (sinkFrac
+      // > 0.5, the reef) legitimately sits its origin below the
+      // surface point, so compare signed lift, not distance.
+      const proj = (p.position.x - p.surfacePoint.x) * p.normal.x
+        + (p.position.y - p.surfacePoint.y) * p.normal.y
+        + (p.position.z - p.surfacePoint.z) * p.normal.z;
+      const lift = p.displayHeight / 2 - (a.placement.sinkFrac || 0) * p.displayHeight;
+      assert.ok(Math.abs(proj - lift) < 1e-9, `${a.id} lift ${proj} vs ${lift}`);
+    }
+  }
+});
+
+check('scatter: spacing, jitter, grounded clones (audit §4.3)', () => {
+  const aspen = EARTH_ASSETS.find((a) => a.id === 'e011-trembling-aspen');
+  const ps = placementsFor(aspen, land, OW, OH, {
+    displayUnitsPerMetre: DISPLAY_UNITS_PER_METRE,
+    scatterCount: 24, scatterRadiusDeg: 1.6,
+  });
+  assert.equal(ps.length, 24); // spacing never drops an instance
+  const base = displayScaleFor(aspen);
+  const fpDeg = base.footprint / HUB_UNITS_PER_DEGREE;
+  for (const p of ps) {
+    const ratio = p.displayScale / base.displayScale;
+    assert.ok(ratio >= 0.8 && ratio <= 1.2, `jitter ratio ${ratio}`);
+    const off = Math.hypot(
+      p.position.x - p.surfacePoint.x,
+      p.position.y - p.surfacePoint.y,
+      p.position.z - p.surfacePoint.z,
+    );
+    assert.ok(Math.abs(off - p.displayHeight / 2) < 1e-9, 'jittered instance still grounded');
+  }
+  // Spacing guarantee (best-of-24 with count preserved): no
+  // stacking — the tightest pair still keeps ~a third of a crown
+  // width — and the large majority keep half a crown or more.
+  const nns = ps.map((p, i) => Math.min(...ps.filter((_, j) => j !== i).map((q) => Math.hypot(
+    (q.lon - p.lon) * Math.cos((p.lat * Math.PI) / 180), q.lat - p.lat,
+  ))));
+  assert.ok(Math.min(...nns) >= fpDeg * 0.35, `tightest pair ${Math.min(...nns)} deg`);
+  assert.ok(nns.filter((d) => d >= fpDeg * 0.5).length >= 20, 'most instances keep half a crown');
+});
+
+check('scatter: terrain masks and landmark exclusions (audit §4.3)', () => {
+  const aspen = EARTH_ASSETS.find((a) => a.id === 'e011-trembling-aspen');
+  // The synthetic land map samples 200/255 (above sea level): a
+  // land mask keeps every instance, a water mask keeps none; the
+  // ocean map inverts it.
+  assert.equal(placementsFor(aspen, land, OW, OH, {
+    displayUnitsPerMetre: DISPLAY_UNITS_PER_METRE, scatterCount: 12, terrainMask: 'land',
+  }).length, 12);
+  assert.equal(placementsFor(aspen, land, OW, OH, {
+    displayUnitsPerMetre: DISPLAY_UNITS_PER_METRE, scatterCount: 12, terrainMask: 'water',
+  }).length, 0);
+  assert.equal(placementsFor(aspen, ocean, OW, OH, {
+    displayUnitsPerMetre: DISPLAY_UNITS_PER_METRE, scatterCount: 12, terrainMask: 'land',
+  }).length, 0);
+  // An exclusion covering the whole disc drops every instance; a
+  // distant one drops none.
+  const anchor = anchorFromRegion(aspen.placement.region);
+  assert.equal(placementsFor(aspen, land, OW, OH, {
+    displayUnitsPerMetre: DISPLAY_UNITS_PER_METRE, scatterCount: 12,
+    exclusions: [{ lat: anchor.lat, lon: anchor.lon, radiusDeg: 3 }],
+  }).length, 0);
+  assert.equal(placementsFor(aspen, land, OW, OH, {
+    displayUnitsPerMetre: DISPLAY_UNITS_PER_METRE, scatterCount: 12,
+    exclusions: [{ lat: anchor.lat + 20, lon: anchor.lon, radiusDeg: 1 }],
+  }).length, 12);
+});
+
+check('total placements at default counts match the audited census', () => {
+  // The placement proof counted 1,505 placements at default
+  // densities over 32 singles + 29 scatter + 9 segments. The E4
+  // audit converted e036-dormant-volcano-cone from an 8-cone
+  // scatter to a single volcano: 33 + 28 x 48 + 9 x 9 = 1,458.
+  // The scene layer's own density overrides are EarthAssets'
+  // business; this pins the placement layer's contract.
+  let total = 0;
+  for (const a of EARTH_ASSETS) total += placementsFor(a, land, OW, OH).length;
+  assert.equal(total, 1458);
 });
 
 console.log(`earth-placements: ${passed} checks passed`);

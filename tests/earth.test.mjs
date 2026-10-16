@@ -69,8 +69,8 @@ t('geolocation with fallback', /getUserPosition/.test(page) && /FALLBACK_POSITIO
 // passes onSelect through to it.
 t('earth is clickable', /onSelect/.test(nexus) && /onClick=/.test(terrainGlobe) && /onSelect/.test(terrainGlobe));
 t('earth uses shared quaternion (treadmill)', /quatRef/.test(nexus));
-t('earth builds real-imagery lens', /tileGrid/.test(nexus) && /CanvasTexture/.test(nexus));
-t('earth lens positioned by lat/lon', /latLonToVec3/.test(nexus));
+t('earth builds real-imagery lens', /lensTilePlan/.test(nexus) && /CanvasTexture/.test(nexus));
+t('earth lens positioned by lat/lon', /buildLensGeometryData/.test(nexus));
 t('old inline EarthBackground removed', !/function EarthBackground/.test(page));
 
 t('flight handles dive', /diving_to_earth/.test(flight));

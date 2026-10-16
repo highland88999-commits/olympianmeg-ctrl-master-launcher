@@ -175,8 +175,8 @@ t('earth mounts the photorealistic tile globe', /<GoogleEarthTiles/.test(nexus))
 t('earth defaults to the 3D terrain layer', /useState\('terrain'\)/.test(nexus));
 t('earth only claims photorealistic after tiles render', /onActive=\{[^}]*'photorealistic'/.test(nexus));
 t('earth falls back to terrain on tile failure', /onInactive=\{[^}]*'terrain'/.test(nexus));
-t('earth keeps the ESRI lens as fallback', /tileGrid/.test(nexus) && /CanvasTexture/.test(nexus));
-t('earth hides the lens while photorealistic', /layer === 'terrain' && patchTex/.test(nexus));
+t('earth keeps the ESRI lens as fallback', /lensTilePlan/.test(nexus) && /CanvasTexture/.test(nexus));
+t('earth hides the lens while photorealistic', /effectiveLayer === 'terrain' && lens/.test(nexus));
 t('earth labels the layers in plain English',
   /Photorealistic/.test(nexus) && /Terrain/.test(nexus));
 

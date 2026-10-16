@@ -100,7 +100,7 @@ t('earth falls back to the terrain globe on tile failure', /onInactive=\{[^}]*'t
 t('earth badge is honest about the fallback', /Terrain · 3D/.test(nexus));
 t('flat stylized globe is gone', !/earth_atmos_2048|stylized globe/.test(nexus));
 t('no hotlinked earth textures remain', !/unpkg\.com\/three-globe|raw\.githubusercontent\.com\/mrdoob/.test(nexus));
-t('earth keeps the ESRI detail lens', /tileGrid/.test(nexus) && /CanvasTexture/.test(nexus));
+t('earth keeps the ESRI detail lens', /lensTilePlan/.test(nexus) && /CanvasTexture/.test(nexus));
 t('earth keeps the atmosphere shell', /AdditiveBlending/.test(nexus));
 
 console.log(`\n${passed} passed, ${failed} failed`);
