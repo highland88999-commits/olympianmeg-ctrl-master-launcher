@@ -23,6 +23,12 @@ import {
   LUGE_RIDER_RECLINE, LUGE_SLED_HULL, RIDER_REFERENCE,
   figurePointToSled,
 } from '../lib/luge/rider-embodiment.js';
+import {
+  MAX_EMBODIED_GHOST_RIDERS, GHOST_RIDER_POSE, GHOST_RIDER_PROC_SIZE,
+  GHOST_RIDER_MOUNT, GHOST_RIDER_SLOT_PREFIX,
+  ghostRiderCharacterId, ghostRiderSlotKey,
+  selectEmbodiedPeerKeys, sameKeySet,
+} from '../lib/ghost-riders.js';
 
 let passed = 0;
 let failed = 0;
@@ -364,6 +370,108 @@ t('rider stature fits the sled (creature length cap inside 6)',
   t('Luge tilt physics untouched (steering + ride radius intact)',
     luge.includes('steerAngle(tubeAngle.current, tiltData.current.x, delta)')
     && luge.includes('RIDE_RADIUS'));
+}
+
+// ---------------------------------------------------------------------------
+// Ghost-rider embodiment (2026-10-15, Merlin's executive call): a
+// presence peer with a character pick rides its ghost bike AS that
+// character; everyone else keeps the ghost silhouette. The cap is
+// the nearest 6 picked peers; picks are roster-validated; slot keys
+// are per-instance; the component wiring is source-checked.
+// ---------------------------------------------------------------------------
+{
+  const PICK = 'q006-ghostface'; // a real roster id
+  const peer = (id, pos, extra = {}) => ({
+    id, sector: 'nova:shallows', label: id, pos, vehicle: 'wisp',
+    color: '#22d3ee', characterId: null, ...extra,
+  });
+
+  // contract constants ride the Wave 6 vocabulary
+  t('ghost-rider: cap is 6', MAX_EMBODIED_GHOST_RIDERS === 6);
+  t("ghost-rider: pose is the seated family", GHOST_RIDER_POSE === 'seated'
+    && DRIVER_POSES.has(GHOST_RIDER_POSE) && GHOST_RIDER_POSE === LUGE_RIDER_POSE);
+  t('ghost-rider: proc size is a rider stature',
+    GHOST_RIDER_PROC_SIZE.y >= 1.8 && GHOST_RIDER_PROC_SIZE.y <= 2.3
+    && GHOST_RIDER_PROC_SIZE.x > 0 && GHOST_RIDER_PROC_SIZE.z > 0);
+  t('ghost-rider: mount sits at the ghost bike seat (frame top, hump z)',
+    Array.isArray(GHOST_RIDER_MOUNT.position)
+    && GHOST_RIDER_MOUNT.position[0] === 0
+    && GHOST_RIDER_MOUNT.position[1] > 0.4 && GHOST_RIDER_MOUNT.position[1] < 0.78
+    && GHOST_RIDER_MOUNT.position[2] === -0.3);
+
+  // pick extraction: roster-validated, both wire shapes, junk -> null
+  t('ghost-rider: characterId form resolves', ghostRiderCharacterId(peer('a', { x: 0, y: 0, z: 0 }, { characterId: PICK })) === PICK);
+  t('ghost-rider: compact char form resolves', ghostRiderCharacterId({ id: 'a', char: PICK }) === PICK);
+  t('ghost-rider: no pick -> null', ghostRiderCharacterId(peer('a', { x: 0, y: 0, z: 0 })) === null);
+  t('ghost-rider: unknown pick -> null', ghostRiderCharacterId(peer('a', { x: 0, y: 0, z: 0 }, { characterId: 'not-a-real-character' })) === null);
+  t('ghost-rider: malformed payload -> null',
+    ghostRiderCharacterId(null) === null && ghostRiderCharacterId({}) === null
+    && ghostRiderCharacterId({ characterId: 42 }) === null);
+
+  // slot keys are per-instance: same character, two peers, two keys
+  const k1 = ghostRiderSlotKey(peer('peer-one', { x: 0, y: 0, z: 0 }, { characterId: PICK }));
+  const k2 = ghostRiderSlotKey(peer('peer-two', { x: 0, y: 0, z: 0 }, { characterId: PICK }));
+  t('ghost-rider: slot keys are per-instance',
+    k1 !== k2 && k1.startsWith(`${GHOST_RIDER_SLOT_PREFIX}:`) && k2.includes('peer-two'));
+
+  // selection: nearest picked peers only, capped, deterministic
+  const origin = { x: 0, y: 0, z: 0 };
+  const crowd = [];
+  for (let i = 1; i <= 8; i++) {
+    crowd.push(peer(`picked-${i}`, { x: i * 10, y: 0, z: 0 }, { characterId: PICK }));
+  }
+  // an unpicked peer standing closest of all must never take a seat
+  crowd.push(peer('unpicked-near', { x: 1, y: 0, z: 0 }));
+  // an unknown pick near the camera is excluded the same way
+  crowd.push(peer('bogus-near', { x: 2, y: 0, z: 0 }, { characterId: 'not-a-real-character' }));
+  const selected = selectEmbodiedPeerKeys(crowd, origin);
+  t('ghost-rider: selection caps at 6', selected.length === MAX_EMBODIED_GHOST_RIDERS);
+  t('ghost-rider: selection takes the NEAREST picked peers', selected.includes('nova:shallows:picked-1')
+    && selected.includes('nova:shallows:picked-6') && !selected.includes('nova:shallows:picked-7')
+    && !selected.includes('nova:shallows:picked-8'));
+  t('ghost-rider: no-pick and unknown-pick peers never selected',
+    !selected.some((k) => k.includes('unpicked-near') || k.includes('bogus-near')));
+  t('ghost-rider: selection is nearest-first ordered',
+    selected[0] === 'nova:shallows:picked-1' && selected[5] === 'nova:shallows:picked-6');
+  const fromFarSide = selectEmbodiedPeerKeys(crowd, { x: 100, y: 0, z: 0 });
+  t('ghost-rider: selection follows the origin (camera)', fromFarSide[0] === 'nova:shallows:picked-8'
+    && !fromFarSide.includes('nova:shallows:picked-1'));
+  t('ghost-rider: fewer picked peers than the cap selects them all',
+    selectEmbodiedPeerKeys([crowd[0], crowd[1]], origin).length === 2);
+  t('ghost-rider: empty / malformed input selects nothing',
+    selectEmbodiedPeerKeys([], origin).length === 0
+    && selectEmbodiedPeerKeys(null, origin).length === 0
+    && selectEmbodiedPeerKeys([null, { pos: {} }], origin).length === 0);
+  t('ghost-rider: distance ties break deterministically by key',
+    sameKeySet(
+      selectEmbodiedPeerKeys([peer('b-peer', { x: 5, y: 0, z: 0 }, { characterId: PICK }),
+        peer('a-peer', { x: -5, y: 0, z: 0 }, { characterId: PICK })], origin, 1),
+      ['nova:shallows:a-peer'],
+    ));
+
+  // set comparison drives the component's no-churn rendering
+  t('ghost-rider: sameKeySet is order-insensitive and strict',
+    sameKeySet(['a', 'b'], ['b', 'a']) && !sameKeySet(['a'], ['a', 'b'])
+    && !sameKeySet(['a', 'b'], ['a', 'c']) && sameKeySet([], []));
+
+  // component wiring (source-level): shared embodiment, per-field
+  // registry capped at the law, native rider swaps on ready only
+  const ghost = readFileSync(new URL('../components/presence/GhostRiders.jsx', import.meta.url), 'utf8');
+  t('ghost-riders component: mounts the shared CharacterGlb embodiment',
+    ghost.includes("from '@/components/characters/CharacterGlb'") && ghost.includes('<CharacterGlb'));
+  t('ghost-riders component: per-field registry capped at the embodiment cap',
+    ghost.includes('createGlbSlotRegistry(MAX_EMBODIED_GHOST_RIDERS)'));
+  t('ghost-riders component: selection comes from the shared pure helper',
+    ghost.includes('selectEmbodiedPeerKeys') && ghost.includes('sameKeySet'));
+  t('ghost-riders component: rider mounts with per-instance slot key + seated pose contract',
+    ghost.includes('ghostRiderSlotKey(peer)') && ghost.includes('GHOST_RIDER_PROC_SIZE')
+    && ghost.includes('GHOST_RIDER_MOUNT.position'));
+  t('ghost-riders component: native rider hides only while the model is live',
+    ghost.includes('{!live && (') && ghost.includes('onReady={(ok) => setLive(!!ok)}'));
+  t('ghost-riders component: billboard answer stays ghost (no card in the seat)',
+    ghost.includes("kind === 'billboard'") && ghost.includes('setDenied(true)'));
+  t('ghost-riders component: ghost silhouette remains the no-pick render',
+    ghost.includes('torusGeometry') && ghost.includes('GHOST_OPACITY'));
 }
 
 console.log(`\ncharacters-riders: ${passed} passed, ${failed} failed`);
