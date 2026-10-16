@@ -13,6 +13,7 @@
 
 import { useRef, useMemo, useEffect, useCallback } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { useSceneContextGuard } from '@/components/SceneContextGuard';
 import { Stars } from '@react-three/drei';
 import * as THREE from 'three';
 import { barrierLoops, startPose, isBumpTrack } from './tracks';
@@ -1477,6 +1478,9 @@ export default function RealmScene({
   // 'bump', 'eliminated', 'bump-win'. The page owns HUD pips + heat flash.
   onBumpEvent,
 }) {
+  // Context-loss guard (fleet rollout 2026-10-15): freeze on loss, heal on
+  // restore, recoverable FEED LOST fallback if the context stays gone.
+  const sceneGuard = useSceneContextGuard({ label: 'SHADOW REALM' });
   const scheme = schemeByKey(schemeKey);
   const vehicle = vehicleByKey(vehicleKey);
   // LETHAL TRAILS: the Rig owns the player's Trail; the mesh renders it.
@@ -1496,6 +1500,7 @@ export default function RealmScene({
 
   return (
     <Canvas
+      onCreated={sceneGuard.onCreated}
       dpr={[1, 1.75]}
       gl={{ antialias: true, powerPreference: 'high-performance' }}
       camera={{ fov: 62, near: 0.5, far: 2600, position: [0, 8, -20] }}

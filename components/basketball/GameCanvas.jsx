@@ -2,6 +2,7 @@
 'use client';
 import { useMemo, useRef } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { useSceneContextGuard } from '@/components/SceneContextGuard';
 import * as THREE from 'three';
 import { CourtScene } from './Court';
 import { BALL_R } from '@/lib/basketball/constants';
@@ -163,8 +164,12 @@ function SimLoop({ game }) {
 }
 
 export function GameCanvas({ game, snap, children }) {
+  // Context-loss guard (fleet rollout 2026-10-15): freeze on loss, heal on
+  // restore, recoverable FEED LOST fallback if the context stays gone.
+  const sceneGuard = useSceneContextGuard({ label: 'BASKETBALL' });
   return (
     <Canvas
+      onCreated={sceneGuard.onCreated}
       dpr={Math.min(typeof window !== 'undefined' ? window.devicePixelRatio : 1, 2)}
       camera={{ position: [0, 5.1, 2.5], fov: 55, near: 0.1, far: 200 }}
       gl={{ antialias: true, powerPreference: 'high-performance' }}

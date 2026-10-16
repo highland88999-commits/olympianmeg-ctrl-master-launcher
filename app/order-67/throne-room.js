@@ -13,6 +13,7 @@
 //     setBackdrop(realm), setProjecting(bool), dispose() }
 
 import * as THREE from 'three';
+import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { backdropVideoUrl, backdropImageUrl, isBackdropRealm, throneCameraFrame, projectorSlotPositions } from '@/lib/order-67';
 
@@ -106,6 +107,10 @@ export function createThroneRoom(canvas, options = {}) {
   const { reducedMotion = false } = options;
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  // Context-loss guard (fleet rollout 2026-10-15): transient losses heal
+  // in place; a loss that stays gone surfaces the FEED LOST fallback,
+  // and the loop below freezes while the context is lost.
+  const contextGuard = guardCanvasContext(canvas, { label: 'ORDER 67' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
 
@@ -475,6 +480,7 @@ export function createThroneRoom(canvas, options = {}) {
 
   function tick() {
     raf = requestAnimationFrame(tick);
+    if (contextGuard.isLost()) return; // frozen while the context is gone
     const dt = Math.min(clock.getDelta(), 0.05);
     const t = clock.elapsedTime;
 
@@ -706,6 +712,7 @@ export function createThroneRoom(canvas, options = {}) {
       return projectors.size;
     },
     dispose() {
+      contextGuard.dispose();
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', resize);
       controls.dispose();

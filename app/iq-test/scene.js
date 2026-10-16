@@ -6,6 +6,7 @@
 // Lighting (per project rule): bloom is restrained so tiles stay readable.
 
 import * as THREE from 'three';
+import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
@@ -69,6 +70,10 @@ export function createIqScene(canvas, opts) {
   const api = { onTap: null, onDrop: null };
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  // Context-loss guard (fleet rollout 2026-10-15): transient losses heal
+  // in place; a loss that stays gone surfaces the FEED LOST fallback,
+  // and the loop below freezes while the context is lost.
+  const contextGuard = guardCanvasContext(canvas, { label: 'IQ TEST' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = TONE_EXPOSURE;
@@ -345,6 +350,7 @@ export function createIqScene(canvas, opts) {
   const clock = new THREE.Clock();
   function animate() {
     raf = requestAnimationFrame(animate);
+    if (contextGuard.isLost()) return; // frozen while the context is gone
     const delta = Math.min(clock.getDelta(), 0.05);
     if (!reducedMotion) {
       ring.rotation.z -= delta * 0.15;
@@ -363,6 +369,7 @@ export function createIqScene(canvas, opts) {
   animate();
 
   function dispose() {
+    contextGuard.dispose();
     cancelAnimationFrame(raf);
     clearTimeout(celebrateTimer);
     canvas.removeEventListener('pointerdown', onPointerDown);

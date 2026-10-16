@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { VERT, FRAG } from './shader';
+import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 import {
   createState,
   setMode,
@@ -120,12 +121,22 @@ export default function T1000Page() {
     };
     drawRef.current = draw;
 
+    // Context-loss guard (fleet rollout 2026-10-15). Raw WebGL state does
+    // NOT heal on webglcontextrestored the way three.js state does, so a
+    // loss (or a restore) lands on the recoverable FEED LOST state, and
+    // the loop below freezes while the context is lost.
+    const contextGuard = guardCanvasContext(canvas, {
+      label: 'T-1000',
+      onRestored: () => contextGuard.showFallback(),
+    });
+
     let raf = 0;
     let last = performance.now();
     if (reduced) {
       draw(); // one static frame
     } else {
       const loop = (now) => {
+        if (contextGuard.isLost()) { raf = requestAnimationFrame(loop); return; } // frozen while the context is gone
         const dt = Math.min(0.05, (now - last) / 1000);
         last = now;
         step(state, dt);
@@ -180,6 +191,7 @@ export default function T1000Page() {
     window.addEventListener('resize', resize);
 
     return () => {
+      contextGuard.dispose();
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', resize);
       canvas.removeEventListener('pointerdown', onDown);

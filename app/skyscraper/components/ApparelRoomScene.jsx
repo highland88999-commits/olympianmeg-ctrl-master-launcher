@@ -1,6 +1,7 @@
 "use client";
 import React, { useRef, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
+import { useSceneContextGuard } from "@/components/SceneContextGuard";
 import { OrbitControls, Text, Sparkles, Environment, MeshDistortMaterial } from "@react-three/drei";
 import { EffectComposer, Bloom } from "@react-three/postprocessing";
 import * as THREE from "three";
@@ -111,9 +112,12 @@ const ChangeRoomEnvironment = () => {
 };
 
 export default function ApparelRoomScene({ onOpenFullscreen }) {
+  // Context-loss guard (fleet rollout 2026-10-15): freeze on loss, heal on
+  // restore, recoverable FEED LOST fallback if the context stays gone.
+  const sceneGuard = useSceneContextGuard({ label: 'APPAREL ROOM' });
     return (
         <div style={{ width: "100%", height: "100%", background: "#050508", cursor: "crosshair" }}>
-            <Canvas camera={{ position: [0, 6, 16], fov: 55 }} shadows gl={{ antialias: true, alpha: false }}>
+            <Canvas camera={{ position: [0, 6, 16], fov: 55 }} shadows gl={{ antialias: true, alpha: false }} onCreated={sceneGuard.onCreated}>
                 <color attach="background" args={["#050508"]} />
                 <fog attach="fog" args={["#050508", 10, 50]} />
 

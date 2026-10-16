@@ -5,6 +5,7 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { guardCanvasContext } from '@/lib/scene-context-guard';
 import { buildWeapon } from '@/lib/world-engine/weapon-builder';
 import { buildWeatherSystem } from '@/lib/world-engine/weather-builder';
 import { buildWorld } from '@/lib/world-engine/world-builder';
@@ -40,6 +41,12 @@ export default function MiniViewport({ category, params }) {
     camera.position.set(0, 2, 6);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    // Context-loss guard (fleet rollout 2026-10-15) — this viewport is the
+    // shared 3D surface for the World Engine builders, the store profile
+    // and the auction house: transient losses heal in place, a loss that
+    // stays gone surfaces the FEED LOST fallback, and animate() freezes
+    // while the context is lost.
+    const contextGuard = guardCanvasContext(renderer.domElement, { label: 'WORLD ENGINE' });
     renderer.setSize(container.clientWidth, container.clientHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     container.appendChild(renderer.domElement);
@@ -65,6 +72,7 @@ export default function MiniViewport({ category, params }) {
     const clock = new THREE.Clock();
     const animate = () => {
       requestRef.current = requestAnimationFrame(animate);
+      if (contextGuard.isLost()) return; // frozen while the context is gone
       controls.update();
 
       const dt = Math.min(clock.getDelta(), 0.05);
@@ -88,6 +96,7 @@ export default function MiniViewport({ category, params }) {
     return () => {
       window.removeEventListener('resize', handleResize);
       cancelAnimationFrame(requestRef.current);
+      contextGuard.dispose();
       controls.dispose();
       renderer.dispose();
       if (container.contains(renderer.domElement)) {

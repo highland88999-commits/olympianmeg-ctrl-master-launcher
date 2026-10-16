@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import * as THREE from 'three';
+import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { supabase } from '@/lib/supabase';
 import { BackButton } from '@/components/ui';
@@ -48,6 +49,10 @@ export default function GeometryEngine() {
     renderer.setSize(canvasWidth, canvasHeight);
     renderer.setClearColor(0x000000, 0);
     canvasContainerRef.current.appendChild(renderer.domElement);
+    // Context-loss guard (fleet rollout 2026-10-15): transient losses heal
+    // in place; a loss that stays gone surfaces the FEED LOST fallback,
+    // and the loop below freezes while the context is lost.
+    const contextGuard = guardCanvasContext(renderer.domElement, { label: 'GEOMETRY ENGINE' });
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true; controls.dampingFactor = 0.12; controls.minDistance = 2.5; controls.maxDistance = 12;
@@ -86,6 +91,7 @@ export default function GeometryEngine() {
 
     function animate() {
         reqId = requestAnimationFrame(animate);
+        if (contextGuard.isLost()) return; // frozen while the context is gone
         controls.update();
         if (mesh) { mesh.rotation.y += 0.0035; mesh.rotation.x += 0.0018; }
         renderer.render(scene, camera);
@@ -120,7 +126,7 @@ export default function GeometryEngine() {
         setTimeout(() => { document.getElementById('btn-export').innerText = originalText; }, 3000);
     };
 
-    return () => cancelAnimationFrame(reqId);
+    return () => { contextGuard.dispose(); cancelAnimationFrame(reqId); };
   }, [router]);
 
   if (cloudOffline) return (

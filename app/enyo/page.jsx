@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 import {
   WEAPONS,
   WEAPON_KEYS,
@@ -666,6 +667,10 @@ function createEngine(canvas, cfg, cb) {
   const isTouch = !!cfg.isTouch;
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  // Context-loss guard (fleet rollout 2026-10-15): transient losses heal
+  // in place; a loss that stays gone surfaces the FEED LOST fallback,
+  // and loop() below freezes while the context is lost.
+  const contextGuard = guardCanvasContext(canvas, { label: 'ENYO' });
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -1267,6 +1272,7 @@ function createEngine(canvas, cfg, cb) {
   function loop(t) {
     if (!started) return;
     raf = requestAnimationFrame(loop);
+    if (contextGuard.isLost()) return; // frozen while the context is gone
     const dt = Math.min(0.05, (t - lastT) / 1000 || 0.016);
     lastT = t;
     if (paused || over) return;
@@ -1501,6 +1507,7 @@ function createEngine(canvas, cfg, cb) {
     },
     resize,
     destroy() {
+      contextGuard.dispose();
       started = false;
       cancelAnimationFrame(raf);
       window.removeEventListener('keydown', onKeyDown);

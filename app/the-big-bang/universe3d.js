@@ -9,6 +9,7 @@
  * the bang flash itself and the sun, both localized).
  */
 import * as THREE from 'three';
+import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 import {
   makeParticles,
   starColor,
@@ -94,6 +95,10 @@ export function createUniverseScene(canvas, options = {}) {
   const { reducedMotion = false } = options;
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  // Context-loss guard (fleet rollout 2026-10-15): transient losses heal
+  // in place; a loss that stays gone surfaces the FEED LOST fallback,
+  // and the loop below freezes while the context is lost.
+  const contextGuard = guardCanvasContext(canvas, { label: 'THE BIG BANG' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
   renderer.setClearColor(0x010102, 1);
 
@@ -232,6 +237,7 @@ export function createUniverseScene(canvas, options = {}) {
 
   function setTime(t, dt = 0) {
     if (disposed) return;
+    if (contextGuard.isLost()) return; // frozen while the context is gone
     const c = Math.max(0, Math.min(1, t));
     if (!reducedMotion && dt > 0) {
       swirl += dt * 2.4 * swirlWeightFor(c);
@@ -277,7 +283,7 @@ export function createUniverseScene(canvas, options = {}) {
   for (const m of solarMats) m.userData.baseOpacity = m.opacity;
 
   function render() {
-    if (!disposed) renderer.render(scene, camera);
+    if (!disposed && !contextGuard.isLost()) renderer.render(scene, camera);
   }
 
   function resize(w, h) {
@@ -289,6 +295,7 @@ export function createUniverseScene(canvas, options = {}) {
 
   function dispose() {
     disposed = true;
+    contextGuard.dispose();
     geo.dispose();
     pointsMat.dispose();
     flashTex.dispose();

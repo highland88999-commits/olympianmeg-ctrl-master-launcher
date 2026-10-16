@@ -5,6 +5,7 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
+import { useSceneContextGuard } from '@/components/SceneContextGuard';
 import * as THREE from 'three';
 import { PIT_RADIUS, ENEMY_TYPES } from '@/lib/colosseum/game';
 import { championProcSize } from '@/lib/colosseum/champion';
@@ -306,8 +307,12 @@ function Scene({ game, snap, championId = null }) {
 }
 
 export function Pit({ game, snap, championId = null }) {
+  // Context-loss guard (fleet rollout 2026-10-15): freeze on loss, heal on
+  // restore, recoverable FEED LOST fallback if the context stays gone.
+  const sceneGuard = useSceneContextGuard({ label: 'COLOSSEUM' });
   return (
     <Canvas
+      onCreated={sceneGuard.onCreated}
       dpr={[1, 1.75]}
       gl={{ antialias: true, powerPreference: 'high-performance' }}
       camera={{ fov: 55, near: 0.5, far: 400, position: [26, 30, 36] }}

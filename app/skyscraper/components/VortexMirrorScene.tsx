@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
+import { guardCanvasContext } from '../../../lib/scene-context-guard.js';
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
@@ -27,6 +28,10 @@ export default function VortexMirrorScene() {
     renderer.toneMappingExposure = 1.0;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     container.appendChild(renderer.domElement);
+    // Context-loss guard (fleet rollout 2026-10-15): transient losses heal
+    // in place; a loss that stays gone surfaces the FEED LOST fallback,
+    // and loop() below freezes while the context is lost.
+    const contextGuard = guardCanvasContext(renderer.domElement, { label: 'VORTEX MIRROR' });
 
     const composer = new EffectComposer(renderer);
     composer.addPass(new RenderPass(scene, camera));
@@ -194,6 +199,7 @@ export default function VortexMirrorScene() {
 
     const loop = () => {
       reqId = requestAnimationFrame(loop);
+      if (contextGuard.isLost()) return; // frozen while the context is gone
       const t = clock.getElapsedTime();
       
       entryPortal.rotation.y += 0.01;
@@ -257,6 +263,7 @@ export default function VortexMirrorScene() {
     loop();
 
     return () => {
+      contextGuard.dispose();
       cancelAnimationFrame(reqId);
       resizeObserver.disconnect();
       container.removeEventListener("pointerdown", onPointerDown);

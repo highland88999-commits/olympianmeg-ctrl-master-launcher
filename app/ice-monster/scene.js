@@ -10,6 +10,7 @@
 //    restrained (exposure 1.15, a modest cyan aura) so the ice stays readable.
 //  - Factory returns { beginZoom, hitBehemoth, setTrust, getTremor, dispose }.
 import * as THREE from 'three';
+import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import {
   paintArcticSky,
@@ -48,6 +49,10 @@ export function createIceMonsterScene(canvas, options = {}) {
   scene.add(camera);
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  // Context-loss guard (fleet rollout 2026-10-15): transient losses heal
+  // in place; a loss that stays gone surfaces the FEED LOST fallback,
+  // and the loop below freezes while the context is lost.
+  const contextGuard = guardCanvasContext(canvas, { label: 'ICE MONSTER' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.15;
@@ -283,6 +288,7 @@ export function createIceMonsterScene(canvas, options = {}) {
   function animate() {
     if (disposed) return;
     requestAnimationFrame(animate);
+    if (contextGuard.isLost()) return; // frozen while the context is gone
     const dt = Math.min(clock.getDelta(), 0.05);
     const time = clock.elapsedTime;
 
@@ -388,6 +394,7 @@ export function createIceMonsterScene(canvas, options = {}) {
   animate();
 
   function dispose() {
+    contextGuard.dispose();
     disposed = true;
     window.removeEventListener('resize', resize);
     controls.dispose();

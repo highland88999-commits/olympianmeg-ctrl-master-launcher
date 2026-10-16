@@ -2,6 +2,7 @@
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Canvas } from '@react-three/fiber';
+import { useSceneContextGuard } from '@/components/SceneContextGuard';
 import { OrbitControls } from '@react-three/drei';
 import Tower from '@/components/babel/Tower';
 import FloorSylva from '@/components/babel/FloorSylva';
@@ -95,6 +96,9 @@ function Joystick({ inputRef }) {
 }
 
 export default function BabelPage() {
+  // Context-loss guard (fleet rollout 2026-10-15): freeze on loss, heal on
+  // restore, recoverable FEED LOST fallback if the context stays gone.
+  const sceneGuard = useSceneContextGuard({ label: 'BABEL' });
   const router = useRouter();
   const [view, setView] = useState('tower'); // 'tower' or a scene floor id
   const [mode, setMode] = useState('orbit'); // 'orbit' | 'walk' — orbit is the untouched default
@@ -337,6 +341,7 @@ export default function BabelPage() {
           "not part of the THREE namespace" on divs inside it. */}
       <DuatArenaProvider inputRef={inputRef}>
       <Canvas
+        onCreated={sceneGuard.onCreated}
         shadows
         dpr={[1, 2]}
         camera={view === 'tower' ? { position: [30, 20, 36], fov: 50 } : { position: [0, 9, 36], fov: 55 }}

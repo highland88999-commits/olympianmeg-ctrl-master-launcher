@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
+import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 import { TARGETS, getTarget, nextIndex, prevIndex } from './targets';
 import { makeStarField, hashSeed } from './stars';
 import { drawTelescopeView, clampZoom, MIN_ZOOM, MAX_ZOOM } from './telescope';
@@ -70,6 +71,10 @@ export default function PearlPage() {
     const W = mount.clientWidth || window.innerWidth;
     const H = mount.clientHeight || window.innerHeight;
     renderer.setSize(W, H);
+    // Context-loss guard (fleet rollout 2026-10-15): transient losses heal
+    // in place; a loss that stays gone surfaces the FEED LOST fallback,
+    // and the loop below freezes while the context is lost.
+    const contextGuard = guardCanvasContext(renderer.domElement, { label: 'PEARL' });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     mount.appendChild(renderer.domElement);
 
@@ -202,6 +207,7 @@ export default function PearlPage() {
 
     function frame() {
       raf = requestAnimationFrame(frame);
+      if (contextGuard.isLost()) return; // frozen while the context is gone
       const dt = Math.min(clock.getDelta(), 0.05);
 
       if (!dragging) {
@@ -236,6 +242,7 @@ export default function PearlPage() {
     frame();
 
     return () => {
+      contextGuard.dispose();
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', onResize);
       window.removeEventListener('pointermove', onMove);

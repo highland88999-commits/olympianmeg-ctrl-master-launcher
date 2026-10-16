@@ -20,6 +20,7 @@
 // three.js is imported lazily so pages without 3D pay nothing.
 // Fully disposes GPU resources on unmount (no leaked renderers).
 import { useEffect, useRef, useState } from 'react';
+import { guardCanvasContext } from '@/lib/scene-context-guard';
 
 const PRETTY = { idle: 'Idle', walk: 'Walk', run: 'Run', wave: 'Wave', drive: 'Drive', hover: 'Hover', beacon: 'Beacon' };
 const pretty = (n) => PRETTY[n] || n.charAt(0).toUpperCase() + n.slice(1);
@@ -33,7 +34,7 @@ export default function ModelViewer({ src, animations, tint, autoRotate = true, 
 
   useEffect(() => {
     let cancelled = false;
-    let renderer, scene, camera, controls, mixer, raf, charHandle;
+    let renderer, scene, camera, controls, mixer, raf, charHandle, contextGuard;
     const clockHolder = { last: 0 };
 
     (async () => {
@@ -52,6 +53,10 @@ export default function ModelViewer({ src, animations, tint, autoRotate = true, 
         renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
         renderer.outputColorSpace = THREE.SRGBColorSpace;
         mount.appendChild(renderer.domElement);
+        // Context-loss guard (fleet rollout 2026-10-15): transient losses
+        // heal in place; a loss that stays gone surfaces the FEED LOST
+        // fallback, and both tick loops freeze while the context is lost.
+        contextGuard = guardCanvasContext(renderer.domElement, { label: 'MODEL VIEWER' });
 
         scene = new THREE.Scene();
         camera = new THREE.PerspectiveCamera(40, w / h, 0.1, 100);
@@ -94,6 +99,7 @@ export default function ModelViewer({ src, animations, tint, autoRotate = true, 
           setClips([]);
           const tickChar = (t) => {
             raf = requestAnimationFrame(tickChar);
+            if (contextGuard && contextGuard.isLost()) return; // frozen while the context is gone
             const dt = Math.min(0.05, (t - clockHolder.last) / 1000 || 0.016);
             clockHolder.last = t;
             charHandle.update('idle', dt, t / 1000, {});
@@ -145,6 +151,7 @@ export default function ModelViewer({ src, animations, tint, autoRotate = true, 
 
         const tick = (t) => {
           raf = requestAnimationFrame(tick);
+          if (contextGuard && contextGuard.isLost()) return; // frozen while the context is gone
           const dt = Math.min(0.05, (t - clockHolder.last) / 1000 || 0.016);
           clockHolder.last = t;
           if (mixer) mixer.update(dt);
@@ -166,6 +173,7 @@ export default function ModelViewer({ src, animations, tint, autoRotate = true, 
 
     return () => {
       cancelled = true;
+      if (contextGuard) contextGuard.dispose();
       if (raf) cancelAnimationFrame(raf);
       if (charHandle) { charHandle.dispose(); charHandle = null; }
       const api = apiRef.current;

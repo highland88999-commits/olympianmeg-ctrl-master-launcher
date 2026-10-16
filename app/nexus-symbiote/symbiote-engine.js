@@ -13,6 +13,7 @@
  */
 
 import { FEED_W, FEED_H } from "./demo-feed.js";
+import { guardCanvasContext } from "../../lib/scene-context-guard.js";
 
 export const VERTEX_SHADER = `
 attribute vec3 position;
@@ -82,6 +83,16 @@ export function createEngine(canvas) {
   const gl = canvas.getContext("webgl", { antialias: false, alpha: true });
   if (!gl) return null;
 
+  // Context-loss guard (fleet rollout 2026-10-15). Raw WebGL state does
+  // NOT heal on webglcontextrestored the way three.js state does, so a
+  // loss (or a restore) lands on the recoverable FEED LOST state, and
+  // frame() below freezes while the context is gone. The engine has no
+  // dispose() of its own; the guard lives with the page-owned canvas.
+  const contextGuard = guardCanvasContext(canvas, {
+    label: "NEXUS SYMBIOTE",
+    onRestored: () => contextGuard.showFallback(),
+  });
+
   function compile(type, src) {
     const s = gl.createShader(type);
     gl.shaderSource(s, src);
@@ -148,6 +159,7 @@ export function createEngine(canvas) {
   function frame() {
     if (!running) return;
     raf = requestAnimationFrame(frame);
+    if (contextGuard.isLost()) return; // frozen while the context is gone
     if (drawFrame) drawFrame(sCtx);
     const t = performance.now() * 0.001;
     let img;

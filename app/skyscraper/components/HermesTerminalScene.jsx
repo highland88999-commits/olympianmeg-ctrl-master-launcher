@@ -1,6 +1,7 @@
 "use client";
 import React, { useRef, memo } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
+import { useSceneContextGuard } from "@/components/SceneContextGuard";
 import { OrbitControls, Text, Sparkles, Environment, Html } from "@react-three/drei";
 import { EffectComposer, Bloom } from "@react-three/postprocessing";
 import * as THREE from "three";
@@ -103,9 +104,12 @@ const OldSchoolTerminal = memo(({ onActivate }) => {
 OldSchoolTerminal.displayName = 'OldSchoolTerminal';
 
 export default function HermesTerminalScene({ onOpenFullscreen }) {
+  // Context-loss guard (fleet rollout 2026-10-15): freeze on loss, heal on
+  // restore, recoverable FEED LOST fallback if the context stays gone.
+  const sceneGuard = useSceneContextGuard({ label: 'HERMES TERMINAL' });
   return (
     <div style={{ width: "100%", height: "100%", background: "#010203", cursor: "crosshair" }}>
-      <Canvas camera={{ position: [0, 5, 12], fov: 55 }} shadows gl={{ antialias: true, alpha: false, powerPreference: "high-performance" }}>
+      <Canvas camera={{ position: [0, 5, 12], fov: 55 }} shadows gl={{ antialias: true, alpha: false, powerPreference: "high-performance" }} onCreated={sceneGuard.onCreated}>
         <color attach="background" args={["#010203"]} />
         <fog attach="fog" args={["#010203", 5, 45]} />
 

@@ -3,6 +3,7 @@ import { useState, useEffect, Suspense, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import Script from 'next/script';
 import { Canvas } from '@react-three/fiber';
+import { useSceneContextGuard } from '@/components/SceneContextGuard';
 import { useProgress } from '@react-three/drei';
 import { createClient } from '@supabase/supabase-js';
 
@@ -38,6 +39,10 @@ const DragonScene = dynamic(() => import("./components/DragonUniverseScene"), { 
 const HamunaptraScene = dynamic(() => import("./components/HamunaptraUniverseScene"), { ssr: false, loading: () => null });
 
 export default function OmegaTower() {
+  // Context-loss guard (fleet rollout 2026-10-15): ONE hook watches all
+  // five inline tower Canvases below — freeze on loss, heal on restore,
+  // recoverable FEED LOST fallback if a context stays gone.
+  const sceneGuard = useSceneContextGuard({ label: 'SKYSCRAPER' });
     const [isMobile, setIsMobile] = useState(true);
     const [hasEntered, setHasEntered] = useState(false);
     const [showLanding, setShowLanding] = useState(true); 
@@ -248,7 +253,7 @@ export default function OmegaTower() {
             {activePlot === 'BILLBOARDS' && (
                 <div style={{ position: 'fixed', inset: 0, zIndex: 7000, background: '#010103' }}>
                     <button onClick={() => setActivePlot(null)} style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 7001, background: 'rgba(0,229,255,0.2)', border: '1px solid #00e5ff', color: '#00e5ff', padding: '10px 20px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 8 }}><AphroIcon name="door-exit" size={16} /> RETURN TO CITY</button>
-                    <Canvas dpr={[1, 1.5]} camera={{ position: [0, 0, 100], fov: 60 }}>
+                    <Canvas dpr={[1, 1.5]} camera={{ position: [0, 0, 100], fov: 60 }} onCreated={sceneGuard.onCreated}>
                         <Suspense fallback={null}><BillboardScene /></Suspense>
                     </Canvas>
                 </div>
@@ -257,7 +262,7 @@ export default function OmegaTower() {
             {activePlot === 'FOREST' && (
                 <div style={{ position: 'fixed', inset: 0, zIndex: 7000, background: '#010103' }}>
                     <button onClick={() => setActivePlot(null)} style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 7001, background: 'rgba(57,255,20,0.2)', border: '1px solid #39ff14', color: '#39ff14', padding: '10px 20px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 8 }}><AphroIcon name="door-exit" size={16} /> RETURN TO CITY</button>
-                    <Canvas dpr={[1, 1.5]} camera={{ position: [0, 20, 80], fov: 60 }}>
+                    <Canvas dpr={[1, 1.5]} camera={{ position: [0, 20, 80], fov: 60 }} onCreated={sceneGuard.onCreated}>
                         <Suspense fallback={null}><ForestScene /></Suspense>
                     </Canvas>
                 </div>
@@ -266,7 +271,7 @@ export default function OmegaTower() {
             {activePlot === 'DRAGON' && (
                 <div style={{ position: 'fixed', inset: 0, zIndex: 7000, background: '#010103' }}>
                     <button onClick={() => setActivePlot(null)} style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 7001, background: 'rgba(0,255,255,0.2)', border: '1px solid #00ffff', color: '#00ffff', padding: '10px 20px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 8 }}><AphroIcon name="door-exit" size={16} /> FLEE THE DRAGON</button>
-                    <Canvas dpr={[1, 1.5]} camera={{ position: [0, 1500, 3500], fov: 60, near: 0.1, far: 15000 }}>
+                    <Canvas dpr={[1, 1.5]} camera={{ position: [0, 1500, 3500], fov: 60, near: 0.1, far: 15000 }} onCreated={sceneGuard.onCreated}>
                         <Suspense fallback={null}><DragonScene /></Suspense>
                     </Canvas>
                 </div>
@@ -275,7 +280,7 @@ export default function OmegaTower() {
             {activePlot === 'HAMUNAPTRA' && (
                 <div style={{ position: 'fixed', inset: 0, zIndex: 7000, background: '#010103' }}>
                     <button onClick={() => setActivePlot(null)} style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 7001, background: 'rgba(212,175,55,0.2)', border: '1px solid #d4af37', color: '#d4af37', padding: '10px 20px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 8 }}><AphroIcon name="door-exit" size={16} /> ESCAPE THE SANDS</button>
-                    <Canvas dpr={[1, 1.5]} camera={{ position: [0, 50, 1000], fov: 60, near: 1, far: 20000 }}>
+                    <Canvas dpr={[1, 1.5]} camera={{ position: [0, 50, 1000], fov: 60, near: 1, far: 20000 }} onCreated={sceneGuard.onCreated}>
                         <Suspense fallback={null}><HamunaptraScene /></Suspense>
                     </Canvas>
                 </div>
@@ -331,7 +336,7 @@ export default function OmegaTower() {
 
             <div style={{ position: 'absolute', inset: 0, zIndex: 0 }}>
                 {/* 🚀 Changed near plane to 0.1 to prevent logarithmicDepthBuffer crashing on mobile GPUs */}
-                <Canvas dpr={[1, 1.5]} camera={{ position: [0, -478.3, 30], fov: isMobile ? 85 : 75, near: 0.1, far: 15000 }} gl={{ antialias: !isMobile, alpha: true, powerPreference: "high-performance", logarithmicDepthBuffer: true }}>
+                <Canvas dpr={[1, 1.5]} camera={{ position: [0, -478.3, 30], fov: isMobile ? 85 : 75, near: 0.1, far: 15000 }} gl={{ antialias: !isMobile, alpha: true, powerPreference: "high-performance", logarithmicDepthBuffer: true }} onCreated={sceneGuard.onCreated}>
                     <MapProvider>
                         <Suspense fallback={null}>
                             <NexusEngine 

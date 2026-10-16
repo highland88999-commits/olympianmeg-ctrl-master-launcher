@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState, Suspense } from 'react'
 import { Canvas } from '@react-three/fiber'
+import { useSceneContextGuard } from '@/components/SceneContextGuard';
 import { OrbitControls, Environment } from '@react-three/drei'
 import { EffectComposer, Bloom } from '@react-three/postprocessing'
 import { useRouter } from 'next/navigation'
@@ -35,6 +36,9 @@ import CyberHUD from '@/components/cerberus/CyberHUD'
 import Holoframe from '@/components/cerberus/Holoframe'
 
 export default function CerberusApp() {
+  // Context-loss guard (fleet rollout 2026-10-15): freeze on loss, heal on
+  // restore, recoverable FEED LOST fallback if the context stays gone.
+  const sceneGuard = useSceneContextGuard({ label: 'CERBERUS' });
   const router = useRouter()
   const { isZoomModeActive, openFrames, setSession, fetchUserNodes } = useCerberusStore()
   const [localSession, setLocalSession] = useState<any>(null)
@@ -123,6 +127,7 @@ export default function CerberusApp() {
       {/* FULLSCREEN 3D WEB (Transparent Background) */}
       <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 10 }}>
         <Canvas 
+          onCreated={sceneGuard.onCreated}
           camera={{ position: [0, 5, 25], fov: 50 }} 
           dpr={[1, 2]} 
           gl={{ antialias: false, powerPreference: "high-performance", alpha: true }}

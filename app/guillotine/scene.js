@@ -19,6 +19,7 @@
 //    and the orbit target is clamped near the machine (see cameraRig.js).
 
 import * as THREE from 'three';
+import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -63,6 +64,10 @@ export function createGuillotineScene(canvas, options = {}) {
   scene.add(camera);
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  // Context-loss guard (fleet rollout 2026-10-15): transient losses heal
+  // in place; a loss that stays gone surfaces the FEED LOST fallback,
+  // and the loop below freezes while the context is lost.
+  const contextGuard = guardCanvasContext(canvas, { label: 'GUILLOTINE' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.15;
@@ -368,6 +373,7 @@ export function createGuillotineScene(canvas, options = {}) {
   function loop() {
     if (disposed) return;
     rafId = requestAnimationFrame(loop);
+    if (contextGuard.isLost()) return; // frozen while the context is gone
     const dt = reducedMotion ? 0 : Math.min(clock.getDelta(), 0.1);
     elapsed += dt;
     const t = reducedMotion ? 0 : elapsed;
@@ -543,6 +549,7 @@ export function createGuillotineScene(canvas, options = {}) {
       sawMat.opacity = 0;
     },
     dispose() {
+      contextGuard.dispose();
       disposed = true;
       cancelAnimationFrame(rafId);
       window.removeEventListener('resize', resize);

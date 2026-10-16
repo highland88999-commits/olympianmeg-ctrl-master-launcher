@@ -10,6 +10,8 @@
 //
 // The launcher's default table state is unchanged; this mode is opt-in.
 
+import { guardCanvasContext } from '../../lib/scene-context-guard.js';
+
 export const VISUAL_MODES = ['classic', 'kaleidoscope'];
 export const DEFAULT_VISUAL = 'classic';
 export const VISUAL_SETTING_KEY = 'air-hockey-visual';
@@ -119,6 +121,16 @@ export function createKaleidoscope(canvas) {
   }
   if (!gl) return null;
 
+  // Context-loss guard (fleet rollout 2026-10-15). Raw WebGL state does
+  // NOT heal on webglcontextrestored the way three.js state does — the
+  // program and buffer die with the context — so a loss (or a restore)
+  // lands on the recoverable FEED LOST state and render() freezes while
+  // the context is gone.
+  const contextGuard = guardCanvasContext(canvas, {
+    label: 'AIR HOCKEY',
+    onRestored: () => contextGuard.showFallback(),
+  });
+
   try {
     const prog = gl.createProgram();
     gl.attachShader(prog, compile(gl, gl.VERTEX_SHADER, KALEIDOSCOPE_VERT));
@@ -147,6 +159,7 @@ export function createKaleidoscope(canvas) {
 
     return {
       render(timeSeconds) {
+        if (contextGuard.isLost()) return; // frozen while the context is gone
         gl.uniform1f(timeLoc, timeSeconds);
         gl.drawArrays(gl.TRIANGLES, 0, 3);
       },
@@ -160,6 +173,7 @@ export function createKaleidoscope(canvas) {
         gl.viewport(0, 0, canvas.width, canvas.height);
       },
       dispose() {
+        contextGuard.dispose();
         try {
           gl.deleteBuffer(buf);
           gl.deleteProgram(prog);
@@ -169,6 +183,7 @@ export function createKaleidoscope(canvas) {
       },
     };
   } catch {
+    contextGuard.dispose();
     return null;
   }
 }

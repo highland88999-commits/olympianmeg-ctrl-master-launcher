@@ -4,6 +4,7 @@
 // emissive materials only, so the arena geometry stays readable.
 
 import * as THREE from 'three';
+import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 import {
   MODES,
   getMode,
@@ -171,6 +172,10 @@ export function createArenaScene(mount, opts = {}) {
   let mode = getMode(modeId);
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
+  // Context-loss guard (fleet rollout 2026-10-15): transient losses heal
+  // in place; a loss that stays gone surfaces the FEED LOST fallback,
+  // and the loop below freezes while the context is lost.
+  const contextGuard = guardCanvasContext(renderer.domElement, { label: 'ROGERS ARENA' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.setSize(mount.clientWidth, mount.clientHeight);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -540,6 +545,7 @@ export function createArenaScene(mount, opts = {}) {
   let last = performance.now();
   function loop(now) {
     raf = requestAnimationFrame(loop);
+    if (contextGuard.isLost()) return; // frozen while the context is gone
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
     update(dt);
@@ -566,6 +572,7 @@ export function createArenaScene(mount, opts = {}) {
   ro.observe(mount);
 
   function dispose() {
+    contextGuard.dispose();
     cancelAnimationFrame(raf);
     ro.disconnect();
     scene.traverse((o) => {

@@ -17,6 +17,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { useSceneContextGuard } from '@/components/SceneContextGuard';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { TRON_BIKES, bikeByKey } from '@/components/nova/TronBikes';
@@ -452,6 +453,9 @@ function TouchControls({ inputRef, autopilotRef, visible }) {
 // ---------------------------------------------------------------------------
 
 export default function NovaPage() {
+  // Context-loss guard (fleet rollout 2026-10-15): freeze on loss, heal on
+  // restore, recoverable FEED LOST fallback if the context stays gone.
+  const sceneGuard = useSceneContextGuard({ label: 'NOVA' });
   const [reduced, setReduced] = useState(false);
   const [touchUI, setTouchUI] = useState(false);
   const [bikeKey, setBikeKey] = useState('wisp');
@@ -646,6 +650,7 @@ export default function NovaPage() {
       aria-label="NOVA — Deep Space on tron bikes"
     >
       <Canvas
+        onCreated={sceneGuard.onCreated}
         className="absolute inset-0"
         camera={{ position: [14, 7, 20], fov: 55, near: 0.5, far: 4000 }}
         gl={{ antialias: true, powerPreference: 'high-performance' }}

@@ -12,6 +12,7 @@ import JSZip from "jszip";
 import { useRouter } from 'next/navigation';
 import { BackButton } from '@/components/ui';
 import { supabase } from '@/lib/supabase';
+import { guardCanvasContext } from '@/lib/scene-context-guard';
 import { lockBlob, unlockBlob, isLockedNode } from '@/lib/fortress/vault-crypto';
 import { formatBytes, FREE_QUOTA_BYTES } from '@/lib/fortress/tiers';
 import { SHARE_PASSPHRASE_NOTE } from '@/lib/fortress/shares';
@@ -193,6 +194,10 @@ export default function FortressApp() {
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.toneMapping = THREE.ReinhardToneMapping;
     canvasContainerRef.current.appendChild(renderer.domElement);
+    // Context-loss guard (fleet rollout 2026-10-15): transient losses heal
+    // in place; a loss that stays gone surfaces the FEED LOST fallback,
+    // and the loop below freezes while the context is lost.
+    const contextGuard = guardCanvasContext(renderer.domElement, { label: 'FORTRESS OF SOLITUDE' });
 
     const carouselGroup = new THREE.Group();
     scene.add(carouselGroup);
@@ -255,6 +260,7 @@ export default function FortressApp() {
     let rafId = 0;
     const animate = () => {
       rafId = requestAnimationFrame(animate);
+      if (contextGuard.isLost()) return; // frozen while the context is gone
       controls.update();
       carouselGroup.rotation.y += 0.0015;
       composer.render();
@@ -271,6 +277,7 @@ export default function FortressApp() {
 
     // Cleanup handle so unmount stops the loop + listener (Phase 2b).
     engineRef.current.dispose = () => {
+      contextGuard.dispose();
       cancelAnimationFrame(rafId);
       window.removeEventListener('resize', handleEngineResize);
     };

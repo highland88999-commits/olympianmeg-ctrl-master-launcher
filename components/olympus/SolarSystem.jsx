@@ -7,6 +7,7 @@
 
 import { useRef, useState } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
+import { useSceneContextGuard } from '@/components/SceneContextGuard';
 import * as THREE from 'three';
 
 export const PLANETS = [
@@ -135,8 +136,12 @@ function Rig() {
 }
 
 export default function SolarSystem({ onSelectPlanet, selectedPlanet }) {
+  // Context-loss guard (fleet rollout 2026-10-15): freeze on loss, heal on
+  // restore, recoverable FEED LOST fallback if the context stays gone.
+  const sceneGuard = useSceneContextGuard({ label: 'OLYMPUS' });
   return (
     <Canvas
+      onCreated={sceneGuard.onCreated}
       camera={{ position: [0, 15, 36], fov: 55 }}
       dpr={[1, 2]}
       style={{ background: '#01020a' }}

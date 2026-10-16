@@ -17,6 +17,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { useSceneContextGuard } from '@/components/SceneContextGuard';
 import { OrbitControls, Line } from '@react-three/drei';
 import * as THREE from 'three';
 import StreetEarth from '@/components/argo/StreetEarth';
@@ -618,6 +619,9 @@ function TilesFailedPanel({ onBack }) {
 // ---------------------------------------------------------------------------
 
 export default function ArgoPage() {
+  // Context-loss guard (fleet rollout 2026-10-15): freeze on loss, heal on
+  // restore, recoverable FEED LOST fallback if the context stays gone.
+  const sceneGuard = useSceneContextGuard({ label: 'ARGO' });
   const [reduced, setReduced] = useState(false);
   const [layer, setLayer] = useState('loading'); // loading | photorealistic | stylized
   const [vehicleKey, setVehicleKey] = useState('skiff');
@@ -785,6 +789,7 @@ export default function ArgoPage() {
       aria-label="ARGO — Fleet Command over the real Earth"
     >
       <Canvas
+        onCreated={sceneGuard.onCreated}
         className="absolute inset-0"
         camera={{ position: [0, 62, 148], fov: 45, near: 0.5, far: 3000 }}
         gl={{ antialias: true, powerPreference: 'high-performance' }}

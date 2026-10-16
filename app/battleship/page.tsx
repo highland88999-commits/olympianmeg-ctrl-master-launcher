@@ -1,5 +1,6 @@
 'use client'
 import { Canvas } from '@react-three/fiber'
+import { useSceneContextGuard } from '@/components/SceneContextGuard';
 import { OrbitControls, Environment } from '@react-three/drei'
 import { EffectComposer, Bloom } from '@react-three/postprocessing'
 import { useEffect, useState, Suspense } from 'react'
@@ -25,6 +26,9 @@ function GameNetworkManager() {
 }
 
 export default function Game() {
+  // Context-loss guard (fleet rollout 2026-10-15): freeze on loss, heal on
+  // restore, recoverable FEED LOST fallback if the context stays gone.
+  const sceneGuard = useSceneContextGuard({ label: 'BATTLESHIP' });
   const router = useRouter()
   const [session, setSession] = useState<any>(null)
   const [mounted, setMounted] = useState(false)
@@ -101,7 +105,7 @@ export default function Game() {
       {roomId && (
         <>
           <HUD />
-          <Canvas camera={{ position: [0, 25, 18], fov: 45 }}>
+          <Canvas camera={{ position: [0, 25, 18], fov: 45 }} onCreated={sceneGuard.onCreated}>
             <color attach="background" args={['#050505']} />
             
             <ambientLight intensity={0.2} />

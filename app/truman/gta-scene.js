@@ -3,6 +3,7 @@
 // Keeps Matrix Brain time system (day/night synced to simulated time).
 
 import * as THREE from 'three';
+import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 import { generateTown, createTownGroundTexture, buildTownTrees, TRUMAN_POIS } from './town.js';
 import { createPlayer, updatePlayer } from '@/lib/gta/player.js';
 import { createVehicle, updateVehicle, enterVehicle, exitVehicle, nearestVehicle, VEHICLE_TYPES } from '@/lib/gta/vehicle.js';
@@ -26,6 +27,10 @@ export function createTrumanGTAScene(canvas, opts = {}) {
   const onEvent = opts.onEvent || (() => {});
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  // Context-loss guard (fleet rollout 2026-10-15): transient losses heal
+  // in place; a loss that stays gone surfaces the FEED LOST fallback,
+  // and the loop below freezes while the context is lost.
+  const contextGuard = guardCanvasContext(canvas, { label: 'TRUMAN' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -247,6 +252,7 @@ export function createTrumanGTAScene(canvas, opts = {}) {
 
   function loop(now) {
     raf = requestAnimationFrame(loop);
+    if (contextGuard.isLost()) return; // frozen while the context is gone
     const dt = Math.min(0.05, (now - lastT) / 1000);
     lastT = now;
 
@@ -372,6 +378,7 @@ export function createTrumanGTAScene(canvas, opts = {}) {
       raf = requestAnimationFrame(loop);
     },
     destroy() {
+      contextGuard.dispose();
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', resize);
       input.detach();

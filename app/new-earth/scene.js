@@ -4,6 +4,7 @@
 //   LANDMARKS, TOUR, createWorld(canvas, cb) -> world API.
 
 import * as THREE from 'three';
+import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 
 /* ============================================================
    Landmarks — the page shell builds against this exact shape
@@ -893,6 +894,10 @@ export function createWorld(canvas, cb) {
   let renderer;
   try {
     renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  // Context-loss guard (fleet rollout 2026-10-15): transient losses heal
+  // in place; a loss that stays gone surfaces the FEED LOST fallback,
+  // and the loop below freezes while the context is lost.
+  const contextGuard = guardCanvasContext(canvas, { label: 'NEW EARTH' });
   } catch (err) {
     throw new Error('New Earth: WebGL is unavailable in this browser (' +
       (err && err.message ? err.message : String(err)) + '). A WebGL-capable browser is required.');
@@ -1123,6 +1128,7 @@ export function createWorld(canvas, cb) {
   function tick() {
     if (destroyed) return;
     raf = requestAnimationFrame(tick);
+    if (contextGuard.isLost()) return; // frozen while the context is gone
     const dt = Math.min(clock.getDelta(), 0.05);
     const t = clock.elapsedTime;
     updateTour(dt);
@@ -1144,6 +1150,7 @@ export function createWorld(canvas, cb) {
   }
 
   function destroy() {
+    contextGuard.dispose();
     destroyed = true;
     cancelAnimationFrame(raf);
     canvas.removeEventListener('pointerdown', onPointerDown);

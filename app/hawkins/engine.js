@@ -3,6 +3,7 @@
 // Gather 5 clock traces. Worlds converge. Capture Vecna.
 
 import * as THREE from 'three';
+import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 
 const EYE = 7;
 const TRACES_NEEDED = 5;
@@ -53,6 +54,10 @@ export function createEngine(canvas, hooks) {
     E.scene.fog = new THREE.FogExp2(PAL.hawkins.fog, PAL.hawkins.fogD);
     E.camera = new THREE.PerspectiveCamera(74, 1, 0.1, 6000);
     E.renderer = new THREE.WebGLRenderer({ canvas: E.canvas, antialias: true, powerPreference: 'high-performance' });
+    // Context-loss guard (fleet rollout 2026-10-15): transient losses heal
+    // in place; a loss that stays gone surfaces the FEED LOST fallback,
+    // and the loop below freezes while the context is lost.
+    E.contextGuard = guardCanvasContext(E.canvas, { label: 'HAWKINS' });
     E.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
     E.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     E.renderer.toneMappingExposure = 1.15;
@@ -1359,6 +1364,7 @@ export function createEngine(canvas, hooks) {
     const loop = () => {
       if (!E.running) return;
       E.raf = requestAnimationFrame(loop);
+      if (E.contextGuard && E.contextGuard.isLost()) return; // frozen while the context is gone
       const dt = Math.min(E.clock.getDelta(), 0.05);
       const t = E.clock.getElapsedTime();
       if (E.player.alive) {
@@ -1437,6 +1443,7 @@ export function createEngine(canvas, hooks) {
   engine.dispose = function () {
     const E = engine;
     E.stop();
+    if (E.contextGuard) E.contextGuard.dispose();
     E.scene.traverse((o) => {
       if (o.geometry) o.geometry.dispose();
       if (o.material) {

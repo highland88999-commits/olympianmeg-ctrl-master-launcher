@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
+import { guardCanvasContext } from '../../../lib/scene-context-guard.js';
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
@@ -33,6 +34,10 @@ export default function ExcaliburScene({ onObjectClick, isUnlocked }: ExcaliburS
     renderer.toneMappingExposure = 1.3;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     container.appendChild(renderer.domElement);
+    // Context-loss guard (fleet rollout 2026-10-15): transient losses heal
+    // in place; a loss that stays gone surfaces the FEED LOST fallback,
+    // and loop() below freezes while the context is lost.
+    const contextGuard = guardCanvasContext(renderer.domElement, { label: 'EXCALIBUR' });
 
     const composer = new EffectComposer(renderer);
     composer.addPass(new RenderPass(scene, camera));
@@ -126,6 +131,7 @@ export default function ExcaliburScene({ onObjectClick, isUnlocked }: ExcaliburS
 
     const loop = () => {
       reqId = requestAnimationFrame(loop);
+      if (contextGuard.isLost()) return; // frozen while the context is gone
       const t = clock.getElapsedTime();
       energyTex.offset.y = t * 0.5;
 
@@ -167,6 +173,7 @@ export default function ExcaliburScene({ onObjectClick, isUnlocked }: ExcaliburS
     loop();
 
     return () => {
+      contextGuard.dispose();
       cancelAnimationFrame(reqId);
       resizeObserver.disconnect();
       container.removeEventListener("pointerdown", onPointerDown);

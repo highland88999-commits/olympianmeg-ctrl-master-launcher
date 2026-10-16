@@ -14,6 +14,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { Canvas, useFrame } from '@react-three/fiber';
+import { useSceneContextGuard } from '@/components/SceneContextGuard';
 import { Html } from '@react-three/drei';
 
 import CharacterGlb from '@/components/characters/CharacterGlb';
@@ -343,9 +344,13 @@ function Hall({ peers, reduced }) {
 }
 
 export default function HallScene({ peers = [] }) {
+  // Context-loss guard (fleet rollout 2026-10-15): freeze on loss, heal on
+  // restore, recoverable FEED LOST fallback if the context stays gone.
+  const sceneGuard = useSceneContextGuard({ label: 'PERSEPHONE' });
   const reduced = useReducedMotion();
   return (
     <Canvas
+      onCreated={sceneGuard.onCreated}
       className="absolute inset-0"
       gl={{ antialias: true, powerPreference: 'high-performance' }}
       dpr={[1, 2]}

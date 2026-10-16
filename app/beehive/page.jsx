@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { VERTEX_SHADER, FRAGMENT_SHADER } from "./shaders";
+import { guardCanvasContext } from "../../lib/scene-context-guard.js";
 
 // --- DIONYSUS interior treatment: icon set (no text buttons on this page) ---
 const BH_BG = "/images/beehive/bg.webp";
@@ -60,6 +61,15 @@ export default function BeehivePage() {
       return;
     }
     gl.useProgram(program);
+
+    // Context-loss guard (fleet rollout 2026-10-15). Raw WebGL state does
+    // NOT heal on webglcontextrestored the way three.js state does, so a
+    // loss (or a restore) lands on the recoverable FEED LOST state, and
+    // the render loop below freezes while the context is lost.
+    const contextGuard = guardCanvasContext(canvas, {
+      label: "BEEHIVE",
+      onRestored: () => contextGuard.showFallback(),
+    });
 
     const buf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
@@ -186,6 +196,7 @@ export default function BeehivePage() {
     } else {
       const render = (time) => {
         if (disposed) return;
+        if (contextGuard.isLost()) { rafId = requestAnimationFrame(render); return; } // frozen while the context is gone
         drawFrame(time * 0.001);
         rafId = requestAnimationFrame(render);
       };
@@ -194,6 +205,7 @@ export default function BeehivePage() {
 
     return () => {
       disposed = true;
+      contextGuard.dispose();
       cancelAnimationFrame(rafId);
       canvas.removeEventListener("mousedown", onMouseDown);
       window.removeEventListener("mousemove", onMouseMove);

@@ -14,6 +14,7 @@
 
 import * as THREE from 'three';
 import { TIERS } from './singularity.js';
+import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 
 export const WORLD_SCALE = 0.022; // world px -> scene units
 export const PLANE_TILT = -Math.PI / 3; // orbital plane tilt about the X axis
@@ -29,6 +30,10 @@ export function createHoleScene(canvas, opts = {}) {
   const reducedMotion = !!opts.reducedMotion;
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  // Context-loss guard (fleet rollout 2026-10-15): transient losses heal
+  // in place; a loss that stays gone surfaces the FEED LOST fallback,
+  // and render() below freezes while the context is lost.
+  const contextGuard = guardCanvasContext(canvas, { label: "HITCHHIKER'S GUIDE" });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 
   const scene = new THREE.Scene();
@@ -216,6 +221,7 @@ export function createHoleScene(canvas, opts = {}) {
   const _m4 = new THREE.Matrix4();
 
   function render(dt) {
+    if (contextGuard.isLost()) return; // frozen while the context is gone
     const flow = holeGroup.userData.flow;
     if (flow && !reducedMotion) {
       for (let i = 0; i < ACCRETION_COUNT; i++) {
@@ -242,6 +248,7 @@ export function createHoleScene(canvas, opts = {}) {
   }
 
   function dispose() {
+    contextGuard.dispose();
     scene.traverse((obj) => {
       if (obj.isMesh || obj.isPoints) {
         if (obj.geometry && obj.geometry !== bodyGeo && obj.geometry !== flashGeo) obj.geometry.dispose();

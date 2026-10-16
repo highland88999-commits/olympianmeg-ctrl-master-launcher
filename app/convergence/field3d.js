@@ -8,6 +8,7 @@
  */
 import * as THREE from 'three';
 import { FIELD_R, makeParticle3D, stepConvergence3D } from './engine.js';
+import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 
 /** HSL (h 0..360, s/l 0..1) -> [r, g, b] 0..1. Pure, headless-testable. */
 export function hslToRgb(h, s, l) {
@@ -62,6 +63,10 @@ export function createFieldScene(canvas, options = {}) {
   const { reducedMotion = false } = options;
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  // Context-loss guard (fleet rollout 2026-10-15): transient losses heal
+  // in place; a loss that stays gone surfaces the FEED LOST fallback,
+  // and setState/render freeze while the context is lost.
+  const contextGuard = guardCanvasContext(canvas, { label: 'CONVERGENCE' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
   renderer.setClearColor(0x000208, 1);
 
@@ -127,6 +132,7 @@ export function createFieldScene(canvas, options = {}) {
    */
   function setState(levels, dt, nowMs) {
     if (disposed || !points) return;
+    if (contextGuard.isLost()) return; // frozen while the context is gone
     if (particles.length !== params.count) build(params.count);
 
     if (!params.paused && dt > 0) {
@@ -163,7 +169,7 @@ export function createFieldScene(canvas, options = {}) {
   }
 
   function render() {
-    if (!disposed) renderer.render(scene, camera);
+    if (!disposed && !contextGuard.isLost()) renderer.render(scene, camera);
   }
 
   function setParams(next) {
@@ -179,6 +185,7 @@ export function createFieldScene(canvas, options = {}) {
 
   function dispose() {
     disposed = true;
+    contextGuard.dispose();
     if (geo) geo.dispose();
     if (pointsMat) pointsMat.dispose();
     coreTex.dispose();

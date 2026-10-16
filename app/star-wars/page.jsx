@@ -8,6 +8,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
+import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 import { buildGalaxy } from './galaxy';
 import { buildZone } from './zone';
 import * as T from './textures';
@@ -40,6 +41,7 @@ const SAGA = (CHAPTERS || [])
 export default function StarWarsPage() {
   const canvasRef = useRef(null);
   const rendererRef = useRef(null); // created once per page lifetime
+  const contextGuardRef = useRef(null); // one context-loss guard for that renderer
   const joyRef = useRef({ x: 0, y: 0 });
   const toastTimer = useRef(null);
   const introRef = useRef(false);
@@ -114,6 +116,12 @@ export default function StarWarsPage() {
         return;
       }
       rendererRef.current = renderer;
+      // Context-loss guard (fleet rollout 2026-10-15): one guard for the
+      // page-lifetime renderer — transient losses heal in place, a loss
+      // that stays gone surfaces the FEED LOST fallback, and frame()
+      // freezes while the context is lost. The renderer lives for the
+      // page's lifetime and is never disposed, so neither is the guard.
+      contextGuardRef.current = guardCanvasContext(canvas, { label: 'STAR WARS' });
     }
 
     const scene = new THREE.Scene();
@@ -169,6 +177,7 @@ export default function StarWarsPage() {
 
       const frame = (now) => {
         if (cancelled) return;
+        if (contextGuardRef.current && contextGuardRef.current.isLost()) { raf = requestAnimationFrame(frame); return; } // frozen while the context is gone
         const dt = Math.min((now - last) / 1000, 0.05);
         last = now;
         galaxy.update(now / 1000, dt);
@@ -265,6 +274,7 @@ export default function StarWarsPage() {
 
       const frame = (now) => {
         if (cancelled) return;
+        if (contextGuardRef.current && contextGuardRef.current.isLost()) { raf = requestAnimationFrame(frame); return; } // frozen while the context is gone
         const dt = Math.min((now - last) / 1000, 0.05);
         last = now;
         const t = now / 1000;

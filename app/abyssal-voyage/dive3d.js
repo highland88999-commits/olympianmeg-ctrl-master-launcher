@@ -9,6 +9,7 @@
  */
 import * as THREE from 'three';
 import { WORLD } from './engine.js';
+import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 
 // ---------------------------------------------------------------------------
 // Pure helpers (no DOM, headless-testable)
@@ -98,6 +99,10 @@ export function createDiveScene(canvas, options = {}) {
   const { reducedMotion = false } = options;
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  // Context-loss guard (fleet rollout 2026-10-15): transient losses heal
+  // in place; a loss that stays gone surfaces the FEED LOST fallback,
+  // and render() below freezes while the context is lost.
+  const contextGuard = guardCanvasContext(canvas, { label: 'ABYSSAL VOYAGE' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
 
   const scene = new THREE.Scene();
@@ -250,6 +255,7 @@ export function createDiveScene(canvas, options = {}) {
 
   function render(game, dt, nowMs) {
     if (disposed) return;
+    if (contextGuard.isLost()) return; // frozen while the context is gone
     const t = nowMs / 1000;
 
     // environment follows depth
@@ -357,6 +363,7 @@ export function createDiveScene(canvas, options = {}) {
 
   function dispose() {
     disposed = true;
+    contextGuard.dispose();
     scene.traverse((o) => {
       if (o.geometry) o.geometry.dispose();
       if (o.material) {

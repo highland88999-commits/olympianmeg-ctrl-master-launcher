@@ -17,6 +17,7 @@ import { createBrawlEngine } from './brawl';
 import { prefetchFighterGlbs, attachGlbFighter, fighterHasGlb } from '../../lib/kombat/glb-fighter.js';
 import { resolvePose } from '../../lib/kombat/pose-state.js';
 import { probeWebGL } from '../../lib/webgl-support.js';
+import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 import { BRAWL_COUNTS, BRAWL_BEST_OF } from '../../lib/kombat/brawl-rules.js';
 import {
   getSelectEntry, isFighterSelectable, selectableFighters,
@@ -70,6 +71,7 @@ function PreviewCanvas({ fighterId }) {
   // 'pending' (poster shows) -> 'ready' (real GLB on stage) |
   // 'fallback' (procedural rig — no GLB, a failed load, or no WebGL)
   const [glbState, setGlbState] = useState('pending');
+  const [stageNonce, setStageNonce] = useState(0); // context-loss reload remounts the preview
   const poster = getSelectEntry(fighterId)?.preview || null;
   useEffect(() => {
     setGlbState('pending');
@@ -91,6 +93,15 @@ function PreviewCanvas({ fighterId }) {
     const h = mount.clientHeight || 220;
     renderer.setSize(w, h);
     mount.appendChild(renderer.domElement);
+    // Context-loss guard (fleet rollout 2026-10-15): same protection as the
+    // fight engines — freeze on loss, heal on restore, and if the context
+    // stays gone the FEED LOST fallback reloads THIS preview (the nonce
+    // remounts the effect) instead of leaving a dead stage.
+    const contextGuard = guardCanvasContext(renderer.domElement, {
+      label: 'FIGHTER PREVIEW',
+      actionLabel: 'RELOAD PREVIEW',
+      onReload: () => setStageNonce((n) => n + 1),
+    });
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(38, w / h, 0.1, 50);
     camera.position.set(0, 1.55, 4.4);
@@ -132,6 +143,7 @@ function PreviewCanvas({ fighterId }) {
     let t = 0;
     const tick = () => {
       raf = requestAnimationFrame(tick);
+      if (contextGuard.isLost()) return; // frozen while the context is gone
       const dt = Math.min(0.05, clock.getDelta());
       t += dt;
       rig.rotation.y += dt * 0.55;
@@ -151,6 +163,7 @@ function PreviewCanvas({ fighterId }) {
     return () => {
       disposed = true;
       cancelAnimationFrame(raf);
+      contextGuard.dispose();
       if (glb) glb.dispose();
       scene.traverse((o) => {
         if (o.geometry) o.geometry.dispose();
@@ -159,7 +172,7 @@ function PreviewCanvas({ fighterId }) {
       renderer.dispose();
       if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
     };
-  }, [fighterId]);
+  }, [fighterId, stageNonce]);
   return (
     <div className="relative h-full w-full">
       {poster && (glbState === 'pending' || glbState === 'poster') ? (

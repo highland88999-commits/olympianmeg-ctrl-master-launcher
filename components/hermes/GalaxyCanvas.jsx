@@ -5,6 +5,7 @@
 
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
+import { guardCanvasContext } from '@/lib/scene-context-guard';
 
 export default function GalaxyCanvas() {
   const canvasRef = useRef(null);
@@ -20,6 +21,10 @@ export default function GalaxyCanvas() {
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 1, 10000);
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    // Context-loss guard (fleet rollout 2026-10-15): transient losses heal
+    // in place; a loss that stays gone surfaces the FEED LOST fallback,
+    // and animate() freezes while the context is lost.
+    const contextGuard = guardCanvasContext(canvas, { label: 'HERMES' });
     renderer.setSize(window.innerWidth, window.innerHeight);
 
     const galaxyColors = [0x00c8d8, 0x7a4fd0, 0xb06ab3];
@@ -53,6 +58,7 @@ export default function GalaxyCanvas() {
     } else {
       const animate = () => {
         animationFrameId = requestAnimationFrame(animate);
+        if (contextGuard.isLost()) return; // frozen while the context is gone
         particlesMesh.rotation.y += 0.0006;
         particlesMesh.rotation.x += 0.0003;
         material.color.lerp(targetColor, 0.01);
@@ -70,6 +76,7 @@ export default function GalaxyCanvas() {
 
     return () => {
       clearInterval(colorInterval);
+      contextGuard.dispose();
       cancelAnimationFrame(animationFrameId);
       window.removeEventListener('resize', handleResize);
       geometry.dispose();

@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import * as THREE from 'three';
+import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 import { Orbitron, Rajdhani } from 'next/font/google';
 
 const orbitron = Orbitron({ subsets: ['latin'], weight: ['400', '700'] });
@@ -91,6 +92,7 @@ export default function Alexandria() {
     if (!mounted) return;
     let reqId;
     let renderer = null;
+    let contextGuard = null;
     const renderViews = [];
     const disposables = [];
     let masterLibrary = [];
@@ -278,6 +280,10 @@ export default function Alexandria() {
 
     if (canvasRef.current) {
       renderer = new THREE.WebGLRenderer({ canvas: canvasRef.current, antialias: true, alpha: true });
+      // Context-loss guard (fleet rollout 2026-10-15): transient losses heal
+      // in place; a loss that stays gone surfaces the FEED LOST fallback,
+      // and the loop below freezes while the context is lost.
+      contextGuard = guardCanvasContext(canvasRef.current, { label: 'ALEXANDRIA' });
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
       renderer.setClearColor(0x000000, 0);
       const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
@@ -285,6 +291,7 @@ export default function Alexandria() {
 
       function animate() {
         reqId = requestAnimationFrame(animate);
+        if (contextGuard && contextGuard.isLost()) return; // frozen while the context is gone
         const width = window.innerWidth, height = window.innerHeight;
         if (canvasRef.current.width !== width || canvasRef.current.height !== height) renderer.setSize(width, height, false);
         renderer.setClearColor(0x000000, 0);
@@ -319,6 +326,7 @@ export default function Alexandria() {
       cancelAnimationFrame(reqId);
       cleanups.forEach(fn => { try { fn(); } catch (e) {} });
       disposeLibrary();
+      if (contextGuard) { try { contextGuard.dispose(); } catch (e) {} }
       if (renderer) { try { renderer.dispose(); } catch (e) {} }
       delete window.scrollToPage;
     };

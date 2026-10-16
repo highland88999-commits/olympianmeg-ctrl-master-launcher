@@ -15,6 +15,7 @@
  * collision and the maze logic in maze.js never see this.
  */
 import * as THREE from 'three';
+import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
@@ -51,6 +52,10 @@ export function createLabyrinthScene(container, game, options = {}) {
   );
 
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+  // Context-loss guard (fleet rollout 2026-10-15): transient losses heal
+  // in place; a loss that stays gone surfaces the FEED LOST fallback,
+  // and the loop below freezes while the context is lost.
+  const contextGuard = guardCanvasContext(renderer.domElement, { label: 'LABYRINTH' });
   renderer.setSize(container.clientWidth, container.clientHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
   container.appendChild(renderer.domElement);
@@ -342,6 +347,7 @@ export function createLabyrinthScene(container, game, options = {}) {
   function render() {
     if (disposed) return;
     raf = requestAnimationFrame(render);
+    if (contextGuard.isLost()) return; // frozen while the context is gone
     update();
     composer.render();
   }
@@ -358,6 +364,7 @@ export function createLabyrinthScene(container, game, options = {}) {
   window.addEventListener('resize', resize);
 
   function dispose() {
+    contextGuard.dispose();
     disposed = true;
     cancelAnimationFrame(raf);
     window.removeEventListener('resize', resize);

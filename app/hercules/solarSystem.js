@@ -15,6 +15,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { PLANETS, SUN, QUALITY } from './tour.js';
+import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 
 const SUN_LIGHT_INTENSITY = 3.2;
 
@@ -22,6 +23,10 @@ export function createSolarScene(canvas, { qualityTier = 'medium', reducedMotion
   const q = QUALITY[qualityTier] || QUALITY.medium;
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  // Context-loss guard (fleet rollout 2026-10-15): transient losses heal
+  // in place; a loss that stays gone surfaces the FEED LOST fallback,
+  // and tick() below freezes while the context is lost.
+  const contextGuard = guardCanvasContext(canvas, { label: 'HERCULES' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, q.maxPixelRatio));
 
   const scene = new THREE.Scene();
@@ -208,6 +213,7 @@ export function createSolarScene(canvas, { qualityTier = 'medium', reducedMotion
   function tick(now) {
     if (!running) return;
     raf = requestAnimationFrame(tick);
+    if (contextGuard.isLost()) return; // frozen while the context is gone
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
 
@@ -274,6 +280,7 @@ export function createSolarScene(canvas, { qualityTier = 'medium', reducedMotion
     goHome: () => { arrivedAt.id = null; goHome(); },
     dispose() {
       running = false;
+      contextGuard.dispose();
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', resize);
       controls.dispose();

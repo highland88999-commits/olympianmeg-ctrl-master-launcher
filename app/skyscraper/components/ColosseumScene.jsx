@@ -1,6 +1,7 @@
 "use client";
 import React, { useRef, useState, useMemo } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
+import { useSceneContextGuard } from "@/components/SceneContextGuard";
 import { OrbitControls, useVideoTexture, Text, Sparkles, Environment } from "@react-three/drei";
 import { EffectComposer, Bloom } from "@react-three/postprocessing";
 import * as THREE from "three";
@@ -110,6 +111,9 @@ const ArenaArchitecture = ({ energyTex }) => {
 };
 
 export default function ColosseumScene({ onOpenFullscreen }) {
+  // Context-loss guard (fleet rollout 2026-10-15): freeze on loss, heal on
+  // restore, recoverable FEED LOST fallback if the context stays gone.
+  const sceneGuard = useSceneContextGuard({ label: 'COLOSSEUM' });
     const skyTex = useVideoTexture('/media/skyscraper/YTDown.com_Shorts_above-the-clouds-sunset-ethereal-ocean-v_Media_FfDVZAOQIio_001_1080p.mp4', { muted: true, loop: true, playsInline: true, crossOrigin: 'anonymous' });
     const floorTex = useVideoTexture('/media/skyscraper/gemini_generated_video_B04513D4.mp4', { muted: true, loop: true, playsInline: true, crossOrigin: 'anonymous' });
     const energyTex = useVideoTexture('/media/skyscraper/4ab3h5.mp4', { muted: true, loop: true, playsInline: true, crossOrigin: 'anonymous' });
@@ -131,7 +135,7 @@ export default function ColosseumScene({ onOpenFullscreen }) {
 
     return (
         <div style={{ width: "100%", height: "100%", background: "#010103", cursor: "crosshair" }}>
-            <Canvas camera={{ position: [0, 80, 350], fov: 60 }} gl={{ antialias: true, powerPreference: "high-performance" }}>
+            <Canvas camera={{ position: [0, 80, 350], fov: 60 }} gl={{ antialias: true, powerPreference: "high-performance" }} onCreated={sceneGuard.onCreated}>
                 <fogExp2 attach="fog" args={[0x010103, 0.0008]} />
                 
                 <ambientLight intensity={0.5} />

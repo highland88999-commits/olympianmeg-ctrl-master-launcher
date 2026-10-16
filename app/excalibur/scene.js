@@ -11,6 +11,7 @@
 //    setWorthiness, triggerChampion, dispose.
 
 import * as THREE from 'three';
+import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -41,6 +42,10 @@ export function createExcaliburScene(canvas, options = {}) {
   scene.add(camera);
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  // Context-loss guard (fleet rollout 2026-10-15): transient losses heal
+  // in place; a loss that stays gone surfaces the FEED LOST fallback,
+  // and the loop below freezes while the context is lost.
+  const contextGuard = guardCanvasContext(canvas, { label: 'EXCALIBUR' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.15;
@@ -232,6 +237,7 @@ export function createExcaliburScene(canvas, options = {}) {
   function loop() {
     if (disposed) return;
     rafId = requestAnimationFrame(loop);
+    if (contextGuard.isLost()) return; // frozen while the context is gone
     const t = reducedMotion ? 0 : clock.getElapsedTime();
 
     if (!reducedMotion) energyTex.offset.y = t * 0.5;
@@ -344,6 +350,7 @@ export function createExcaliburScene(canvas, options = {}) {
       strikeLight.color.setHex(0xffffff);
     },
     dispose() {
+      contextGuard.dispose();
       disposed = true;
       cancelAnimationFrame(rafId);
       window.removeEventListener('resize', resize);

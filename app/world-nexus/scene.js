@@ -12,6 +12,7 @@
 // only pass-through: walking through one navigates to that world's route.
 
 import * as THREE from 'three';
+import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { WORLDS, GODS } from './world-names.js';
 import manifest from './generation-manifest.json';
@@ -79,6 +80,10 @@ export function createWorld(canvas, cb = {}) {
   let renderer;
   try {
     renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  // Context-loss guard (fleet rollout 2026-10-15): transient losses heal
+  // in place; a loss that stays gone surfaces the FEED LOST fallback,
+  // and the loop below freezes while the context is lost.
+  const contextGuard = guardCanvasContext(canvas, { label: 'WORLD NEXUS' });
   } catch (err) {
     if (onError) onError(err);
     throw err;
@@ -472,6 +477,7 @@ export function createWorld(canvas, cb = {}) {
   let firstFrame = true;
   function tick(now) {
     raf = requestAnimationFrame(tick);
+    if (contextGuard.isLost()) return; // frozen while the context is gone
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     const t = now / 1000;
@@ -525,6 +531,7 @@ export function createWorld(canvas, cb = {}) {
 
   return {
     destroy() {
+      contextGuard.dispose();
       cancelAnimationFrame(raf);
       canvas.removeEventListener('pointerdown', onDown);
       window.removeEventListener('pointermove', onMovePtr);

@@ -5,6 +5,7 @@ import { useEffect, useState, useRef, useMemo } from 'react';
 import { BackButton } from '@/components/ui';
 import Link from 'next/link';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { useSceneContextGuard } from '@/components/SceneContextGuard';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { supabase } from '@/lib/supabase';
@@ -471,6 +472,9 @@ function LugeTrack({ course, sled, tiltData, onFinish, pvp }) {
 const FINAL_COURSE_ID = 20;
 
 export default function LugeEngine() {
+  // Context-loss guard (fleet rollout 2026-10-15): freeze on loss, heal on
+  // restore, recoverable FEED LOST fallback if the context stays gone.
+  const sceneGuard = useSceneContextGuard({ label: 'LUGE' });
   const [mounted, setMounted] = useState(false);
   const [authed, setAuthed] = useState(false);
   const [cloudOffline, setCloudOffline] = useState(false);
@@ -1713,7 +1717,7 @@ export default function LugeEngine() {
           onTouchStart={(e) => touchSteer(e.touches[0].clientX)}
           onTouchEnd={touchRelease}
         >
-          <Canvas camera={{ position: [0, 0, 0], fov: 60 }} style={{ position: 'absolute', inset: 0 }}>
+          <Canvas camera={{ position: [0, 0, 0], fov: 60 }} style={{ position: 'absolute', inset: 0 }} onCreated={sceneGuard.onCreated}>
             <color attach="background" args={['#020202']} />
             <fogExp2 attach="fog" args={['#020202', 0.005]} />
             <ambientLight intensity={0.5} />

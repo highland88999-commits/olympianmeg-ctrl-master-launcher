@@ -1,6 +1,7 @@
 "use client";
 import React, { useRef, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
+import { useSceneContextGuard } from "@/components/SceneContextGuard";
 import { OrbitControls, Sparkles, Environment } from "@react-three/drei";
 import { EffectComposer, Bloom } from "@react-three/postprocessing";
 import * as THREE from "three";
@@ -83,9 +84,12 @@ const DeathStar = ({ onActivate }) => {
 };
 
 export default function DeathStarScene({ onOpenFullscreen }) {
+  // Context-loss guard (fleet rollout 2026-10-15): freeze on loss, heal on
+  // restore, recoverable FEED LOST fallback if the context stays gone.
+  const sceneGuard = useSceneContextGuard({ label: 'DEATH STAR' });
     return (
         <div style={{ width: "100%", height: "100%", background: "#010102", cursor: "crosshair" }}>
-            <Canvas camera={{ position: [0, 2, 15], fov: 55 }} shadows gl={{ antialias: true, alpha: false }}>
+            <Canvas camera={{ position: [0, 2, 15], fov: 55 }} shadows gl={{ antialias: true, alpha: false }} onCreated={sceneGuard.onCreated}>
                 <color attach="background" args={["#010102"]} />
                 <fog attach="fog" args={["#010102", 10, 40]} />
                 

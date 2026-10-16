@@ -2,6 +2,7 @@
 // Ties together: city gen, player, vehicles, wanted, missions, HUD, day/night.
 
 import * as THREE from 'three';
+import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 import { generateCity, createGroundTexture, buildStreetlights, SUBWAY_STATIONS } from './city.js';
 import { createPlayer, updatePlayer } from '@/lib/gta/player.js';
 import { createVehicle, updateVehicle, enterVehicle, exitVehicle, nearestVehicle, VEHICLE_TYPES } from '@/lib/gta/vehicle.js';
@@ -30,6 +31,10 @@ export function createGTAScene(canvas, opts = {}) {
 
   // Renderer
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  // Context-loss guard (fleet rollout 2026-10-15): transient losses heal
+  // in place; a loss that stays gone surfaces the FEED LOST fallback,
+  // and the loop below freezes while the context is lost.
+  const contextGuard = guardCanvasContext(canvas, { label: 'MEGA CITY' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -357,6 +362,7 @@ export function createGTAScene(canvas, opts = {}) {
 
   function loop(now) {
     raf = requestAnimationFrame(loop);
+    if (contextGuard.isLost()) return; // frozen while the context is gone
     const dt = Math.min(0.05, (now - lastT) / 1000);
     lastT = now;
 
@@ -601,6 +607,7 @@ export function createGTAScene(canvas, opts = {}) {
       raf = requestAnimationFrame(loop);
     },
     destroy() {
+      contextGuard.dispose();
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', resize);
       input.detach();

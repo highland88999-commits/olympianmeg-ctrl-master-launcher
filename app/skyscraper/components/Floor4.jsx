@@ -2,6 +2,7 @@
 import React, { useState, useRef, useMemo, useEffect, Suspense } from 'react';
 import * as THREE from 'three';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { useSceneContextGuard } from '@/components/SceneContextGuard';
 import { OrbitControls, useVideoTexture, Trail, Sparkles, Sphere } from '@react-three/drei';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 
@@ -207,6 +208,9 @@ const GameScene = ({ gameState, setGameState, highestLevel, setHighestLevel }) =
 };
 
 export default function Floor4() {
+  // Context-loss guard (fleet rollout 2026-10-15): freeze on loss, heal on
+  // restore, recoverable FEED LOST fallback if the context stays gone.
+  const sceneGuard = useSceneContextGuard({ label: 'FLOOR 4' });
     const [gameState, setGameState] = useState('menu');
     const [highestLevel, setHighestLevel] = useState(1);
     const [activeKey, setActiveKey] = useState(null);
@@ -281,7 +285,7 @@ export default function Floor4() {
                 </div>
             </div>
 
-            <Canvas camera={{ position: [0, 20, 50], fov: 60 }} gl={{ antialias: true, alpha: false }}>
+            <Canvas camera={{ position: [0, 20, 50], fov: 60 }} gl={{ antialias: true, alpha: false }} onCreated={sceneGuard.onCreated}>
                 <color attach="background" args={['#000']} />
                 <fogExp2 attach="fog" args={['#000000', 0.005]} />
                 

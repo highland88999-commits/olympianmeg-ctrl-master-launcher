@@ -11,6 +11,7 @@
 //   { ready, setNight(bool), zoomBy(d), project(anchorId), render(dt), resize(w,h), dispose() }
 
 import * as THREE from 'three';
+import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { buildStatueGlb } from './glb.js';
@@ -66,6 +67,10 @@ export function createLibertyScene(canvas, opts = {}) {
   const reducedMotion = !!opts.reducedMotion;
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  // Context-loss guard (fleet rollout 2026-10-15): transient losses heal
+  // in place; a loss that stays gone surfaces the FEED LOST fallback,
+  // and the loop below freezes while the context is lost.
+  const contextGuard = guardCanvasContext(canvas, { label: 'STATUE OF LIBERTY' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, MAX_DPR));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -217,6 +222,7 @@ export function createLibertyScene(canvas, opts = {}) {
   }
 
   function render(dt) {
+    if (contextGuard.isLost()) return; // frozen while the context is gone
     controls.update();
     if (Math.abs(nightMix - nightTarget) > 0.0005) {
       nightMix += (nightTarget - nightMix) * Math.min(1, dt * 3.5);
@@ -234,6 +240,7 @@ export function createLibertyScene(canvas, opts = {}) {
   }
 
   function dispose() {
+    contextGuard.dispose();
     controls.dispose();
     scene.traverse((obj) => {
       if (obj.isMesh || obj.isPoints) {

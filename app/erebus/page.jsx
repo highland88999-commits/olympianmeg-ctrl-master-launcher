@@ -18,6 +18,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { useSceneContextGuard } from '@/components/SceneContextGuard';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { TRON_BIKES, bikeByKey } from '@/components/nova/TronBikes';
@@ -801,6 +802,9 @@ function BikePicker({ bikeKey, setBikeKey }) {
 // ---------------------------------------------------------------------------
 
 export default function ErebusPage() {
+  // Context-loss guard (fleet rollout 2026-10-15): freeze on loss, heal on
+  // restore, recoverable FEED LOST fallback if the context stays gone.
+  const sceneGuard = useSceneContextGuard({ label: 'EREBUS' });
   const [reduced, setReduced] = useState(false);
   const [touchUI, setTouchUI] = useState(false);
   const [view, setView] = useState('atlas'); // atlas | explorer
@@ -1174,6 +1178,7 @@ export default function ErebusPage() {
       aria-label={`EREBUS explorer — ${universe.name} on a tron bike`}
     >
       <Canvas
+        onCreated={sceneGuard.onCreated}
         className="absolute inset-0"
         camera={{ position: [14, 7, 20], fov: 55, near: 0.5, far: 4000 }}
         gl={{ antialias: true, powerPreference: 'high-performance' }}
