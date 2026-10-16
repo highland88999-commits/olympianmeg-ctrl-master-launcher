@@ -29,12 +29,13 @@ import {
   TRAIL_KILL_RADIUS,
   TRAIL_IMMUNITY_S,
   TRAIL_MAX_POINTS,
-  TRAIL_LIFETIME_S,
+  TRAIL_HALF_WIDTH,
   checkRivalTrails,
   findSafeSpot,
   serializeTrail,
   deserializeTrail,
   trailAheadWarning,
+  writeTrailRibbon,
 } from '@/lib/shadow-realm/trails';
 import { createOrbit, resetOrbit, applyDrag, applyPinch, applyWheel, orbitCamera } from './orbit';
 import {
@@ -520,7 +521,10 @@ function TrailRibbon({ scheme, apiRef }) {
       const arr = pos.array;
       for (let i = 0; i < TRAIL_N; i++) {
         const p = h[Math.min(i, h.length - 1)] || { x, z, dx, dz };
-        const w = 0.85 * (1 - i / TRAIL_N) + 0.06;
+        // Same thin profile as the live TrailMesh ribbon (lib trails.js
+        // owns the width) — a fat ribbon here filled the chase view as
+        // a solid slab in the 2026-10-15 demo.
+        const w = TRAIL_HALF_WIDTH * (1 - (i / TRAIL_N) * 0.6) + 0.02;
         const px = -p.dz * w;
         const pz = p.dx * w;
         arr[i * 6] = p.x - px;
@@ -732,8 +736,12 @@ function respawnPlayer(s, ctx) {
 // TrailMesh: renders a lethal Trail (lib/shadow-realm/trails.js) as an
 // additive ribbon. The FULL collision trail is drawn (up to 600 points) —
 // the visual must match the lethal geometry, or riders die to invisible
-// walls. Old segments dissolve by age (alpha fades over TRAIL_LIFETIME_S).
-// Updated imperatively in useFrame — no React state per frame.
+// walls. The ribbon itself is a THIN line of light (TRAIL_HALF_WIDTH in
+// lib/shadow-realm/trails.js, where the geometry is written and tested):
+// a wide flat carpet at this camera reads as a solid slab that fills
+// the screen — the 2026-10-15 demo bug. Old segments dissolve by age
+// and by distance behind the head. Updated imperatively in useFrame —
+// no React state per frame.
 // ---------------------------------------------------------------------------
 
 const TRAIL_MESH_MAX = TRAIL_MAX_POINTS;
@@ -762,49 +770,10 @@ export function TrailMesh({ trailGetter, color }) {
     const pts = trail ? trail.points : null;
     const pos = geo.attributes.position;
     const colAttr = geo.attributes.color;
-    const now = state.clock.elapsedTime;
-    const n = pts ? Math.min(pts.length, TRAIL_MESH_MAX) : 0;
-    // Oldest first for the ribbon (index 0 = oldest).
-    for (let i = 0; i < TRAIL_MESH_MAX; i++) {
-      const p = i < n ? pts[pts.length - n + i] : null;
-      let x, z, dx, dz, alpha;
-      if (p) {
-        x = p.x;
-        z = p.z;
-        // Direction from neighbors (for ribbon width).
-        const pn = pts[Math.min(pts.length - 1, pts.length - n + i + 1)];
-        const pp = pts[Math.max(0, pts.length - n + i - 1)];
-        dx = pn.x - pp.x;
-        dz = pn.z - pp.z;
-        const l = Math.hypot(dx, dz) || 1;
-        dx /= l;
-        dz /= l;
-        // Age dissolve: fade over the lifetime; also taper the tail.
-        const age = Math.max(0, now - p.t);
-        const ageFade = Math.max(0, 1 - age / TRAIL_LIFETIME_S);
-        const tailFade = 0.15 + 0.85 * (i / Math.max(1, n - 1));
-        alpha = ageFade * tailFade * 0.8;
-      } else {
-        x = 0; z = 0; dx = 0; dz = 1; alpha = 0;
-      }
-      const w = 0.85;
-      const px = -dz * w;
-      const pz = dx * w;
-      const o = i * 6;
-      pos.array[o] = x - px;
-      pos.array[o + 1] = 0.32;
-      pos.array[o + 2] = z - pz;
-      pos.array[o + 3] = x + px;
-      pos.array[o + 4] = 0.32;
-      pos.array[o + 5] = z + pz;
-      const co = i * 8;
-      for (let k = 0; k < 2; k++) {
-        colAttr.array[co + k * 4] = col.r;
-        colAttr.array[co + k * 4 + 1] = col.g;
-        colAttr.array[co + k * 4 + 2] = col.b;
-        colAttr.array[co + k * 4 + 3] = alpha;
-      }
-    }
+    // All ribbon math lives in lib/shadow-realm/trails.js
+    // (writeTrailRibbon) so the headless suite can assert the geometry:
+    // thin constant width, flat plane, distance-behind-head taper.
+    writeTrailRibbon(pts, state.clock.elapsedTime, col, pos.array, colAttr.array, TRAIL_MESH_MAX);
     pos.needsUpdate = true;
     colAttr.needsUpdate = true;
     geo.computeBoundingSphere();

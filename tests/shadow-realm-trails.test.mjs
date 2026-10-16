@@ -20,6 +20,11 @@ import {
   TRAIL_FRESH_S,
   TRAIL_IMMUNITY_S,
   BEACON_TRAIL_POINTS,
+  TRAIL_HALF_WIDTH,
+  TRAIL_RIBBON_Y,
+  TRAIL_TAPER_START,
+  TRAIL_PEAK_ALPHA,
+  writeTrailRibbon,
   pointToSegmentDist,
   hitTest,
   checkRivalTrails,
@@ -367,6 +372,132 @@ describe('AI trail avoidance + death (ai.js)', () => {
     assert.equal(bot.trail.length, 0, 'trail cleared');
     assert.equal(bot.trailImmuneT, BOT_TRAIL_IMMUNITY_S);
     assert.equal(bot.speed, 0);
+  });
+});
+
+describe('trail ribbon geometry (2026-10-15 demo: slab trails)', () => {
+  const RGB = { r: 0.33, g: 0.88, b: 0.91 };
+
+  // Ride a straight line along +Z, recording through the real Trail at a
+  // constant speed — the ring buffer keeps one point per TRAIL_SPACING,
+  // so cruise and boost produce the same spatial path at different ages.
+  function rideTrail(speed, dist) {
+    const t = new Trail();
+    let now = 0;
+    let z = 0;
+    t.record(0, 0, 0);
+    while (z < dist) {
+      z += 0.5;
+      now += 0.5 / speed;
+      t.record(0, z, now);
+    }
+    return { trail: t, now };
+  }
+
+  function ribbonFor(trail, now) {
+    const pos = new Float32Array(TRAIL_MAX_POINTS * 2 * 3);
+    const col = new Float32Array(TRAIL_MAX_POINTS * 2 * 4);
+    const n = writeTrailRibbon(trail.points, now, RGB, pos, col, TRAIL_MAX_POINTS);
+    return { pos, col, n };
+  }
+
+  // Cross-section i: midpoint, width, alpha, read back from the arrays.
+  function section(pos, col, i) {
+    const o = i * 6;
+    const ax = pos[o], ay = pos[o + 1], az = pos[o + 2];
+    const bx = pos[o + 3], by = pos[o + 4], bz = pos[o + 5];
+    return {
+      mx: (ax + bx) / 2, mz: (az + bz) / 2,
+      width: Math.hypot(bx - ax, bz - az),
+      // Float32 storage: compare against the plane with float tolerance.
+      flat: Math.abs(ay - TRAIL_RIBBON_Y) < 1e-6 && Math.abs(by - TRAIL_RIBBON_Y) < 1e-6,
+      alpha: col[i * 8 + 3],
+    };
+  }
+
+  it('ribbon width is thin and constant at cruise AND boost speed', () => {
+    for (const speed of [8, 55]) {
+      const { trail, now } = rideTrail(speed, 400);
+      const { pos, col, n } = ribbonFor(trail, now);
+      assert.ok(n > 150, `drew the ride (n=${n})`);
+      for (let i = 0; i < n; i++) {
+        const s = section(pos, col, i);
+        assert.ok(Math.abs(s.width - 2 * TRAIL_HALF_WIDTH) < 1e-5,
+          `speed ${speed}: section ${i} width ${s.width} != ${2 * TRAIL_HALF_WIDTH}`);
+      }
+      // Regression bound vs the old 1.7-wide carpet.
+      assert.ok(2 * TRAIL_HALF_WIDTH <= 0.3, 'ribbon stays a thin line of light');
+    }
+  });
+
+  it('ribbon is a flat plane centered on the lethal centerline', () => {
+    const { trail, now } = rideTrail(30, 200);
+    const { pos, col, n } = ribbonFor(trail, now);
+    for (let i = 0; i < n; i++) {
+      const s = section(pos, col, i);
+      const p = trail.points[trail.points.length - n + i];
+      assert.ok(s.flat, `section ${i} leaves the ribbon plane`);
+      assert.ok(Math.abs(s.mx - p.x) < 1e-9 && Math.abs(s.mz - p.z) < 1e-9,
+        `section ${i} midpoint drifts off the trail point`);
+    }
+  });
+
+  it('width stays constant through a turn', () => {
+    const t = new Trail();
+    let now = 0;
+    for (let z = 0; z <= 60; z += 2) { t.record(0, z, now); now += 0.05; }
+    for (let x = 2; x <= 60; x += 2) { t.record(x, 60, now); now += 0.05; }
+    const { pos, col, n } = ribbonFor(t, now);
+    for (let i = 0; i < n; i++) {
+      const s = section(pos, col, i);
+      assert.ok(Math.abs(s.width - 2 * TRAIL_HALF_WIDTH) < 1e-5,
+        `corner section ${i} width ${s.width}`);
+    }
+  });
+
+  it('alpha tapers by distance behind the head, never a uniform sheet', () => {
+    // Fast ride: the whole trail is young, so the age fade is ~flat and
+    // the distance taper is what shapes the alpha.
+    const { trail, now } = rideTrail(55, 500);
+    const { pos, col, n } = ribbonFor(trail, now);
+    const alphaAt = (distBehind) => {
+      const i = n - 1 - Math.round(distBehind / TRAIL_SPACING);
+      return col[i * 8 + 3];
+    };
+    const head = alphaAt(0);
+    assert.ok(head > 0 && head <= TRAIL_PEAK_ALPHA + 1e-6, `head alpha ${head}`);
+    assert.ok(alphaAt(TRAIL_TAPER_START) > alphaAt(120), 'taper bites by 120 units back');
+    assert.ok(alphaAt(120) > alphaAt(300), 'taper keeps falling to 300 units back');
+    assert.ok(alphaAt(300) < head * 0.5, 'far tail is well under half the head alpha');
+    // Non-increasing from head to tail on a uniform young trail.
+    let prev = Infinity;
+    for (let i = n - 1; i >= 0; i--) {
+      const a = col[i * 8 + 3];
+      assert.ok(a <= prev + 1e-9, `alpha rises toward the tail at ${i}`);
+      prev = a;
+    }
+  });
+
+  it('a fresh spawn draws only its own points (no phantom slab)', () => {
+    const t = new Trail();
+    t.record(0, 0, 0);
+    t.record(0, 2, 0.1);
+    const { pos, col, n } = ribbonFor(t, 0.1);
+    assert.equal(n, 2);
+    for (let i = 2; i < TRAIL_MAX_POINTS; i++) {
+      assert.equal(col[i * 8 + 3], 0, `undrawn section ${i} must be invisible`);
+    }
+    void pos;
+  });
+
+  it('renderer + menu contracts (source)', () => {
+    const scene = src('app/shadow-realm/scene.jsx');
+    assert.ok(scene.includes('writeTrailRibbon'), 'TrailMesh uses the shared ribbon writer');
+    assert.ok(!scene.includes('const w = 0.85'), 'the 0.85 half-width slab is gone');
+    const page = src('app/shadow-realm/page.jsx');
+    assert.ok(page.includes('sr-menu-scroll'), 'menu carries the phone gutter class');
+    assert.ok(page.includes('max-width: 700px'), 'gutter is phone-width only');
+    assert.ok(page.includes('safe-area-inset-bottom'), 'Safari bottom clearance kept');
   });
 });
 

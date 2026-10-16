@@ -138,7 +138,7 @@ const css = {
   },
   cardSel: { border: '1px solid #38bdf8', background: '#0d1a33', boxShadow: '0 0 18px rgba(56,189,248,.25)' },
   cardName: { fontWeight: 700, fontSize: 16, color: '#e0f2fe' },
-  cardMeta: { fontSize: 12, color: '#38bdf8', letterSpacing: 1, marginTop: 2 },
+  cardMeta: { fontSize: 12, color: '#38bdf8', letterSpacing: 0.5, marginTop: 2 },
   cardDesc: { fontSize: 13, color: '#94a3b8', marginTop: 6, lineHeight: 1.45 },
   row: { display: 'flex', gap: 10, alignItems: 'center' },
   chip: { fontSize: 12, padding: '6px 12px', borderRadius: 999, border: '1px solid #1e3a5f', color: '#7dd3fc', background: 'transparent', cursor: 'pointer' },
@@ -1068,7 +1068,18 @@ function ShadowRealmInner() {
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.35, pointerEvents: 'none' }}
           onError={(e) => { e.currentTarget.style.display = 'none'; }}
         />
-        <div style={{ ...css.center, position: 'relative' }}>
+        {/* Phone-width menu clearance (2026-10-15 demo): the launcher
+            shell's floating portal button rides the left-center edge of
+            the screen and renders OVER full-width menu text — it ate the
+            first letters of wrapped card lines ("GLOW." read as "LOW.")
+            and mode descriptions as they scrolled beneath it. Below
+            700px the centered column is screen-wide, so reserve a left
+            gutter the button's band can occupy without touching text,
+            and keep the bottom clear of the Safari bar. Desktop keeps
+            the plain 20px padding (the column is centered, the button
+            floats clear of it). */}
+        <style>{`@media (max-width: 700px) { .sr-menu-scroll { padding-left: 68px !important; padding-bottom: calc(24px + env(safe-area-inset-bottom)) !important; } }`}</style>
+        <div className="sr-menu-scroll" style={{ ...css.center, position: 'relative' }}>
           <div style={css.title}>SHADOW REALM</div>
           <div style={css.sub}>NIGHT-CYCLE GRID · TRON LIGHT BIKES</div>
           {stage === 'mode' && (
