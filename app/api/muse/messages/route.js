@@ -123,13 +123,13 @@ export const POST = apiGuard(async function POST(req) {
     is_read: true,
   });
 
-  if (mode === 'inbox') {
-    await notifyMerlin({
-      title: 'New portal message',
-      body: message.length > 140 ? message.slice(0, 140) + '…' : message,
-      meta: { thread_id: threadId, page_url: pageUrl },
-    });
-  }
+  // Route EVERYTHING the portal agent does to Merlin (olympiannexus@gmail.com):
+  // inbox-mode escalations and AI-handled replies alike land in his notifications.
+  await notifyMerlin({
+    title: mode === 'inbox' ? 'New portal message' : 'Muse AI replied',
+    body: message.length > 140 ? message.slice(0, 140) + '…' : message,
+    meta: { thread_id: threadId, page_url: pageUrl, mode },
+  });
 
   return Response.json({ ok: true, thread_id: threadId, reply, mode });
 });
