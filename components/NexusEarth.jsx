@@ -7,7 +7,9 @@ import GoogleEarthTiles from '@/components/GoogleEarthTiles';
 import ProceduralEarthGlobe from '@/components/ProceduralEarthGlobe';
 import EarthAssets from '@/components/EarthAssets';
 import EarthWalker from '@/components/EarthWalker';
-import { LENS_PRESETS, lensTilePlan, buildLensGeometryData } from '@/lib/earth/lens';
+import StreetGroundPatch, { StreetFillLight } from '@/components/StreetGroundPatch';
+import { LENS_PRESETS, LENS_LIFT, lensTilePlan, buildLensGeometryData } from '@/lib/earth/lens';
+import { HUB_UNITS_PER_DEGREE } from '@/lib/earth/placements';
 import { loadHeightData, getHeightData } from '@/lib/earth/heightmap';
 import { roamState } from '@/lib/earth/roam';
 
@@ -77,9 +79,15 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
     }
     if (roaming && roamState.active) {
       const c = roamCenterRef.current;
+      // Recenter when the traveler walks out of the street disc's
+      // middle: 40% of the street lens radius, in degrees. (The old
+      // fixed 0.06° refired every few steps at full tilt, thrashing
+      // the 64-tile composite; this keeps the traveler on the
+      // photographic ground with far fewer rebuilds.)
+      const recenterDeg = (LENS_PRESETS.street.radiusUnits * 0.4) / HUB_UNITS_PER_DEGREE;
       const moved = !c
-        || Math.abs(c.lat - roamState.lat) > 0.06
-        || Math.abs(c.lon - roamState.lon) > 0.06;
+        || Math.abs(c.lat - roamState.lat) > recenterDeg
+        || Math.abs(c.lon - roamState.lon) > recenterDeg;
       const now = performance.now();
       if (moved && now - lastLensBuildRef.current > 900) {
         lastLensBuildRef.current = now;
@@ -131,7 +139,11 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
       const data = buildLensGeometryData(
         hd.data, hd.w, hd.h, lensCenter.lat, lensCenter.lon,
         preset.radiusUnits, plan,
-        { rings: presetName === 'street' ? 12 : 22, sectors: 48 },
+        {
+          rings: presetName === 'street' ? 12 : 22,
+          sectors: 48,
+          lift: preset.lift ?? LENS_LIFT,
+        },
       );
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
@@ -199,6 +211,14 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
             />
           </mesh>
         )}
+        {/* Street-level detail ground + lantern fill: only on the
+            terrain layer while roaming (walkthrough flaw 2026-10-17:
+            the 160×120 globe's ~135 m facets read as broken shards
+            from 1.62 m up). */}
+        {effectiveLayer === 'terrain' && roaming && (
+          <StreetGroundPatch center={roamCenter} />
+        )}
+        {effectiveLayer === 'terrain' && <StreetFillLight active={roaming} />}
       </group>
 
       <mesh scale={[1.025, 1.025, 1.025]}>
