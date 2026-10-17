@@ -1,16 +1,19 @@
 // app/api/agent-engine/command/route.ts — Agent Engine runtime (Phase 1).
 //
 // Merlin-gated command endpoint for the Agent Engine console at
-// /agent-engine. Drives a Gemini function-calling loop over a small,
-// READ-ONLY toolset: the agent can look at the ecosystem but cannot
-// change it (Phase 1). Every tool call is written to the agent_runs
-// ledger via the service-role client (best effort — a ledger failure
-// never blocks the reply).
+// /agent-engine. Drives a Gemini function-calling loop over the engine
+// toolset: read tools run free (brain, telemetry, places, manifest, web,
+// store catalog); WRITE tools (store_create_product, store_buy_link) NEVER
+// execute without the user's explicit per-action approval — the runtime
+// returns a confirmation request, the console renders APPROVE/DECLINE,
+// and execution also notifies Merlin (in-app + email). Every tool call
+// is written to the agent_runs ledger via the service-role client
+// (best effort — a ledger failure never blocks the reply).
 //
 // Standing governance: no agent may edit the housing / alter the
-// ecosystem without passing through Merlin first. Phase 1 tools are
-// reads only; write tools (Phase 2) will require Merlin's explicit
-// per-action approval plus an email to olympiannexus@gmail.com.
+// ecosystem without passing through Merlin first. Store writes follow
+// the same law: explicit approval per action + email to
+// olympiannexus@gmail.com on execution.
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
@@ -245,7 +248,7 @@ async function runTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       return {
         confirmation_required: true,
         summary,
-        confirmKey,
+        confirmKey: key,
         note: 'This action was NOT executed. Present the summary to the user and ask for explicit approval. When they approve, call the tool again with identical arguments.',
       };
     }
