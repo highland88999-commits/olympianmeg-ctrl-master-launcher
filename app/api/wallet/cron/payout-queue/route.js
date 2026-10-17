@@ -79,6 +79,7 @@ export const GET = apiGuard(async function GET(req) {
     .from('wallet_withdrawals')
     .select('id, user_id, amount_cents, status, destination_label, note, created_at')
     .eq('status', 'requested')
+    .eq('payout_method', 'stripe_connect')
     .order('created_at', { ascending: true })
     .limit(MAX_QUEUE_BATCH);
   if (qErr) throw new Error(`Could not load the queue: ${qErr.message}`);
@@ -102,7 +103,7 @@ export const GET = apiGuard(async function GET(req) {
   }
   const ordered = orderPayoutQueue(queued, oldestCreditByUser);
 
-  const stripe = stripeClient();
+  const stripe = await stripeClient();
   const results = [];
   let stoppedOnFunds = false;
 
@@ -139,13 +140,29 @@ export const GET = apiGuard(async function GET(req) {
         continue;
       }
 
-      const transfer = await stripe.transfers.create({
-        amount: Math.round(Number(w.amount_cents)),
-        currency,
-        destination,
-        description: `Wallet withdrawal ${w.id}`,
-        metadata: { withdrawal_id: w.id, product: 'wallet', queue: 'christmas' },
-      });
+      // Idempotency: if a previous run already created the Stripe transfer
+      // (crash between transfer and DB write), never create a second one.
+      // Mirrors the Wise queue's wise_transfer_id pre-check.
+      const { data: existing } = await admin
+        .from('wallet_withdrawals')
+        .select('stripe_transfer_id, status')
+        .eq('id', w.id)
+        .maybeSingle();
+      if (existing?.stripe_transfer_id) {
+        results.push({ id: w.id, outcome: 'skipped', reason: 'transfer already created', transfer_id: existing.stripe_transfer_id });
+        continue;
+      }
+
+      const transfer = await stripe.transfers.create(
+        {
+          amount: Math.round(Number(w.amount_cents)),
+          currency,
+          destination,
+          description: `Wallet withdrawal ${w.id}`,
+          metadata: { withdrawal_id: w.id, product: 'wallet', queue: 'christmas' },
+        },
+        { idempotencyKey: `christmas-queue:${w.id}` },
+      );
 
       await debitWallet(admin, w.user_id, {
         program: 'withdrawal',
