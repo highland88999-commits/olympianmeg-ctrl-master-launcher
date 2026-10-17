@@ -10,3 +10,9 @@ components/earth/RedwaterQuicksand.tsx
 app/api/redwater/claim/route.js
 supabase/redwater.sql
 lib/achievements/catalog.js
+lib/payouts/shakepay.js
+app/api/payouts/cron/shakepay-queue/route.js
+app/api/payouts/cron/shakepay-fund-queue/route.js
+app/api/payouts/cron/shakepay-confirm-queue/route.js
+app/api/payouts/shakepay-webhook/route.js
+supabase/migrations/20261017_shakepay_payouts.sql
