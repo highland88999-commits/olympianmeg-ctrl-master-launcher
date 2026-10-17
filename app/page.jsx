@@ -1,4 +1,3 @@
-// FILE: app/page.jsx
 'use client';
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import dynamic from 'next/dynamic';
@@ -27,8 +26,6 @@ import { fx, unlockFx } from '@/lib/fx';
 import { shadowRealmUrl } from '@/app/shadow-realm/launch';
 import { useTilt } from '@/lib/use-tilt';
 import { useRadio } from '@/components/radio/RadioProvider';
-// Hub tutorial (Merlin 2026-10-03): 30-day standard rollout, then new
-// registrations only. Rollout rule lives in lib/hub-tutorial.js.
 import HubTutorial from '@/components/HubTutorial';
 import {
   shouldShowHubTutorial,
@@ -38,9 +35,6 @@ import {
   resolveHubRegisteredAt,
 } from '@/lib/hub-tutorial';
 
-// The 3D hub scene (three.js + god panels) is code-split: it loads only on
-// the client, after the page shell, so the heavy 3D stack never blocks the
-// DOM/UI. Scene content is byte-identical to the former inline version.
 const HomeScene = dynamic(() => import('@/components/HomeScene'), {
   ssr: false,
   loading: () => <div className="absolute inset-0 bg-[#050505]" aria-hidden="true" />,
@@ -50,8 +44,6 @@ function NexusHub() {
   const router = useRouter();
   const { t } = useI18n();
 
-  // Memoized drop-target fallbacks: the 10 god-tower spots by god name, plus
-  // legacy reference points so pointer/joystick re-renders never re-allocate.
   const POS_MAP = useMemo(
     () => ({ ...GOD_TOWER_POS, BABEL_POS, ARTEMIS_POS }),
     []
@@ -60,32 +52,17 @@ function NexusHub() {
   const [appState, setAppState] = useState('hub_intro');
   const [isMenuExpanded, setIsMenuExpanded] = useState(true);
   const [user, setUser] = useState(null);
-  // Honest guest mode: true while no Supabase backend is configured (fresh
-  // deploy before Merlin's new Supabase project exists). The hub stays fully
-  // explorable; the Auth gate is bypassed ONLY in this state. The moment env
-  // vars exist, original auth behavior returns unchanged.
   const [cloudOffline, setCloudOffline] = useState(false);
   const [cloudNoteDismissed, setCloudNoteDismissed] = useState(false);
 
-  // Entrance cinematic: auto-plays once per device until explicitly skipped
-  // (the skip preference is persisted in localStorage by
-  // lib/entrance-sequence.js). It renders OVER the already-mounted orbit
-  // scene, so the handoff is a fade — never a blank screen.
   const [showIntro, setShowIntro] = useState(false);
-  // Merlin's entrance video as a SHADOWED distant backdrop behind the 3D
-  // home scene: true until the <video> reports the file missing, in which
-  // case the Canvas keeps its original opaque #050505 background — honest,
-  // never a fake video.
   const [bgVideoOk, setBgVideoOk] = useState(true);
-  // Hub sweep: true once the post-login video has played through (or the
-  // intro circle sweep completes) — video goes away, starfield over black
-  // takes over. Merlin 2026-10-12.
   const [sweepDone, setSweepDone] = useState(false);
-  // When the intro circle sweep completes (hub_intro -> hub_freeroam),
-  // the sweep video goes away even if it hasn't finished playing.
+  
   useEffect(() => {
     if (appState === 'hub_freeroam' && !sweepDone) setSweepDone(true);
   }, [appState, sweepDone]);
+  
   const introAutoPlayed = useRef(false);
   useEffect(() => {
     if ((user || cloudOffline) && !introAutoPlayed.current) {
@@ -99,9 +76,6 @@ function NexusHub() {
     }
   }, [user, cloudOffline]);
 
-  // Hub tutorial (Merlin 2026-10-03): standard for 30 days from 2026-10-03,
-  // then new registrations only (see lib/hub-tutorial.js). Shows once per
-  // browser; Skip counts as seen. Waits out the entrance cinematic.
   const [showHubTutorial, setShowHubTutorial] = useState(false);
   useEffect(() => {
     if (!(user || cloudOffline)) return;
@@ -117,19 +91,11 @@ function NexusHub() {
 
   const [activeSatTarget, setActiveSatTarget] = useState(GOD_TOWER_SPOTS[0].pos);
   const [flightAxis, setFlightAxis] = useState('horizontal');
-
-  // Per-account rider persistence: where the rider last dismounted (beside
-  // the bike — never a default spawn point). Loaded from /api/rider/state on
-  // sign-in; spawn-to-bike resumes there. Null = no saved row yet, so the
-  // bike keeps its existing position. A ref (not state): toggleBike reads it
-  // from event handlers, never from render.
   const savedSpawnRef = useRef(null);
 
-  // --- Explorable Earth: the traveler stands still, the world moves. ---
-  // Initialized inside HomeScene (it owns the three.js import now).
   const earthQuatRef = useRef(null);
-  const [earthFocus, setEarthFocus] = useState(null);   // { lat, lon, label }
-  const [pendingDest, setPendingDest] = useState(null); // destination being brought to us
+  const [earthFocus, setEarthFocus] = useState(null);
+  const [pendingDest, setPendingDest] = useState(null);
 
   const beginEarthDive = () => {
     if (appState !== 'hub_freeroam') return;
@@ -141,12 +107,12 @@ function NexusHub() {
       else setEarthFocus({ ...FALLBACK_POSITION });
     });
   };
+  
   const travelToEarth = (dest) => { setPendingDest(dest); setAppState('earth_travel'); };
+  
   const arriveEarth = (dest) => {
     setEarthFocus(dest);
     setPendingDest(null);
-    // A landmark spawn pick travels, then lands the traveler on
-    // foot at street level instead of stopping at the overlook.
     if (pendingRoamRef.current) {
       pendingRoamRef.current = false;
       beginRoam(roamState, dest.lat, dest.lon, 0);
@@ -155,6 +121,7 @@ function NexusHub() {
       setAppState('earth_surface');
     }
   };
+  
   const returnToOrbit = () => {
     pendingRoamRef.current = false;
     endRoam(roamState);
@@ -162,16 +129,17 @@ function NexusHub() {
     setEarthFocus(null);
     setAppState('returning_to_orbit');
   };
-  // Street level (Day 2): descend from the overlook to the ground
-  // at the current focus and walk, embodied as your character.
+
   const pendingRoamRef = useRef(false);
   const earthSpawns = useMemo(() => landmarkSpawns(), []);
+  
   const beginStreetDive = () => {
     if (!earthFocus) return;
     fx.earthDive();
     beginRoam(roamState, earthFocus.lat, earthFocus.lon, roamState.yawDeg || 0);
     setAppState('diving_to_street');
   };
+  
   const pickSpawn = (dest) => {
     pendingRoamRef.current = true;
     setPendingDest(dest);
@@ -182,14 +150,9 @@ function NexusHub() {
     moveX: 0, moveY: 0, lookDeltaX: 0, lookDeltaY: 0, keyW: 0, keyS: 0, keyA: 0, keyD: 0, zoom: 52, lastPinchDist: null
   });
 
-  // Parked TRON bike rig (position read by the camera controller).
   const bikeRef = useRef(null);
-
-  // Satellite index for the god menus — top-level hook (never conditional).
   const satIndex = useMemo(() => new Map(SATELLITES.map((s) => [s.key, s])), []);
 
-  // Resolve the AI / Thoth satellite key & fallback tower position dynamically
-  // so the Agent Forge button routes through the exact same orbital drop path.
   const aiSatMeta = useMemo(() => {
     const match = SATELLITES.find(
       (s) =>
@@ -210,12 +173,6 @@ function NexusHub() {
   const lastLook = useRef({ x: 0, y: 0 });
   const isLooking = useRef(false);
 
-  // Phone-tilt vertical control with AUTOMATIC flight axis (Merlin: no
-  // buttons — "tilt instead of a button"). The axis follows the phone: tilt
-  // beyond the ±8° dead-zone and vertical control engages automatically;
-  // hold the phone level and flight returns to horizontal. Writes to
-  // controlsRef.current.moveY (the joystick's channel); the joystick always
-  // wins while active. See lib/use-tilt.js.
   const { tiltMsg } = useTilt({
     controlsRef,
     flightAxis,
@@ -224,22 +181,12 @@ function NexusHub() {
     onAutoAxis: setFlightAxis,
   });
 
-  // Radio-sheet layering (demo fix, 2026-10-15): while the Nexus Radio
-  // library sheet is open, the hub's floating chrome (portal orb, season
-  // badge, NIGHT GRID → RIDE → STORE column, corner stacks) must neither
-  // render over the sheet nor intercept its touches — the sheet's
-  // station row and NOW PLAYING line stay fully legible. The floaters
-  // hide (visibility, so no layout/state churn) and reappear untouched
-  // when the sheet collapses.
   const { expanded: radioSheetOpen } = useRadio();
   const chromeHiddenStyle = radioSheetOpen
     ? { visibility: 'hidden', opacity: 0, pointerEvents: 'none' }
     : undefined;
 
   useEffect(() => {
-    // No backend configured yet: enter honest guest mode instead of crashing.
-    // lib/supabase.ts throws on first use when NEXT_PUBLIC_SUPABASE_* are
-    // missing, so we check before touching the client at all.
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
       setCloudOffline(true);
       const cached = localStorage.getItem('nexus_user');
@@ -273,8 +220,6 @@ function NexusHub() {
 
       return () => subscription.unsubscribe();
     } catch (err) {
-      // Backend unreachable/misconfigured at runtime: degrade honestly,
-      // never crash the hub into the error boundary.
       console.warn('Cloud auth unavailable, entering guest mode:', err);
       setCloudOffline(true);
       const cached = localStorage.getItem('nexus_user');
@@ -283,12 +228,8 @@ function NexusHub() {
   }, []);
 
   useEffect(() => {
-    // FX system: unlock sound+haptics on the first user gesture (autoplay
-    // policy keeps audio silent until then, and we never buzz uninvited),
-    // and layer entrance-cinematic haptics via the 'nexus:entrance-phase'
-    // event (sound for those phases stays in lib/entrance-audio.js).
     const unlock = () => unlockFx();
-    const onPhase = (e) => { try { fx.entrancePhase(e.detail && e.detail.phase); } catch { /* noop */ } };
+    const onPhase = (e) => { try { fx.entrancePhase(e.detail && e.detail.phase); } catch { } };
     window.addEventListener('pointerdown', unlock, { once: true });
     window.addEventListener('keydown', unlock, { once: true });
     window.addEventListener('nexus:entrance-phase', onPhase);
@@ -300,9 +241,6 @@ function NexusHub() {
   }, []);
 
   useEffect(() => {
-    // Device-adaptable menu: start collapsed on phones so the 3D hub is
-    // visible first; the bottom-left menu button opens it on demand.
-    // Runs only on mount (client side), so no SSR window access.
     if (typeof window !== 'undefined' && window.innerWidth < 640) {
       setIsMenuExpanded(false);
     }
@@ -327,8 +265,6 @@ function NexusHub() {
     return () => { window.removeEventListener('keydown', handleKeyDown); window.removeEventListener('keyup', handleKeyUp); };
   }, [appState]);
 
-  // The Supabase access token for the rider-state API. The server derives
-  // user_id from this token (requireUser) — the client never asserts identity.
   const getAccessToken = useCallback(async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -338,8 +274,6 @@ function NexusHub() {
     }
   }, []);
 
-  // Load the account's saved dismount spot once signed in. Cloud-offline
-  // guests have no backend to read from — they keep the default spot.
   useEffect(() => {
     if (!user || cloudOffline) return;
     let alive = true;
@@ -356,26 +290,17 @@ function NexusHub() {
     try {
       await supabase.auth.signOut();
     } catch {
-      // Cloud offline: nothing to sign out of server-side.
     }
     localStorage.removeItem('nexus_user');
     setUser(null);
   };
 
   const launchPocketUniverse = useCallback((route, satKey, fallbackPos, directPos) => {
-    // Sound + haptics for the launch. Internal routes get the drop fanfare;
-    // external affiliate links (stake.com tower panels) get a neutral tap —
-    // no fanfare on his inventory, ever.
     fx.routeLaunch(route);
-    // The one menu-to-satellite function. Drop target resolution:
-    // 1. directPos — explicit 3D position (tower ad panels);
-    // 2. the satellite's live orbit-node position (god bands);
-    // 3. the constellation tower position the satellite lists.
     let target = null;
     if (Array.isArray(directPos)) {
       target = directPos;
     } else if (Array.isArray(satKey)) {
-      // Legacy 2-argument call support: launchPocketUniverse('/route', SOME_POS_ARRAY)
       target = satKey;
     } else {
       if (satKey) {
@@ -406,9 +331,6 @@ function NexusHub() {
     }
   };
 
-  // The 3D scene calls this the moment a dismount lands: the rider has been
-  // placed beside the bike (computed in HomeScene), the spot becomes this
-  // session's spawn point, and it is persisted per account server-side.
   const handleBikeDismount = (pos) => {
     savedSpawnRef.current = [pos.x, pos.y, pos.z];
     if (user && !cloudOffline) {
@@ -501,14 +423,9 @@ function NexusHub() {
         </div>
       )}
       
-      {/* Entrance cinematic: plays over the live orbit scene; tap anywhere,
-          the Skip button, or Escape to skip (persisted). Replay anytime via
-          the ↺ INTRO control. */}
       {(user || cloudOffline) && showIntro && (
         <EntranceSequence onDone={() => setShowIntro(false)} />
       )}
-      {/* Hub tutorial (Merlin 2026-10-03): 30-day standard rollout, then new
-          registrations only. Skip dismisses permanently, same as completing. */}
       {(user || cloudOffline) && showHubTutorial && !showIntro && (
         <HubTutorial onDone={() => { markHubTutorialSeen(); setShowHubTutorial(false); }} />
       )}
@@ -522,7 +439,6 @@ function NexusHub() {
           >
             <span aria-hidden="true">↺</span>
           </button>
-          {/* Merlin's written product roadmap — the 8-node Renewal Plan timeline. */}
           <button
             onClick={() => { fx.tap(); router.push('/renewal-plan'); }}
             aria-label="Open the Renewal Plan timeline"
@@ -531,7 +447,6 @@ function NexusHub() {
           >
             <span aria-hidden="true">◈</span>
           </button>
-          {/* Hub tutorial replay — same overlay as the first-visit orientation. */}
           <button
             onClick={() => { fx.tap(); setShowHubTutorial(true); }}
             aria-label="Replay the hub tutorial"
@@ -546,10 +461,6 @@ function NexusHub() {
       {(user || cloudOffline) && (appState === 'hub_intro' || appState === 'hub_freeroam') && (
         <>
           {isMenuExpanded ? (
-            /* Program menu — fullscreen corner-to-corner overlay above all hub
-               UI (Merlin 2026-10-03: resolves visibility/CSS overlap issues).
-               Minimize ([_]) collapses it back into the portal button and the
-               hub UI reappears untouched beneath. */
             <div
               role="dialog"
               aria-modal="true"
@@ -577,10 +488,6 @@ function NexusHub() {
                   </div>
                 </div>
 
-                {/* Satellite menu: select your satellites. Each satellite row opens
-                    a dropdown of the programming inside it; tapping a program
-                    launches it through the one menu-to-satellite function,
-                    launchPocketUniverse. */}
                 <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar flex flex-col gap-4">
                   <SatelliteMenu
                     t={t}
@@ -588,7 +495,6 @@ function NexusHub() {
                     onLaunch={(route, key, pos) => launchPocketUniverse(route, key, pos)}
                   />
 
-                  {/* AGENT FORGE & MASTER BRAIN SYNC — Unified into the AI / Thoth orbital launch path */}
                   <div className="pt-2 border-t border-zinc-800/80 shrink-0">
                     <button
                       onClick={() => launchPocketUniverse('/agent-forge', aiSatMeta.key, aiSatMeta.posKey)}
@@ -604,7 +510,6 @@ function NexusHub() {
                   </div>
                 </div>
 
-                {/* DISCONNECT — signed-in users only; guests have nothing to disconnect */}
                 {user && (
                 <button
                   onClick={handleSignOut}
@@ -625,16 +530,11 @@ function NexusHub() {
                 >
                   <video src="/chess/assets/effects/gemini_generated_video_758D2655.mp4" autoPlay loop muted playsInline className="absolute inset-0 w-full h-full object-cover scale-110" />
                 </button>
-                {/* Seasonal portal dressing (ambient only — never blocks taps) */}
                 <PortalButtonDecor />
               </div>
             </div>
           )}
 
-          {/* FLIGHT AXIS — passive state readout (no button: the axis is
-              automatic now — tilt the phone beyond the dead-zone for
-              vertical, hold it level for horizontal). The live streak
-              canvas still shows the current axis. */}
           <div
             role="status"
             aria-label={`Flight axis: ${flightAxis}`}
@@ -644,7 +544,6 @@ function NexusHub() {
             <FlightAxisStreaks axis={flightAxis} />
           </div>
 
-          {/* Transient tilt messages — auto-dismiss, never a pop-up. */}
           {tiltMsg && (
             <div className="absolute top-5 left-1/2 -translate-x-1/2 z-[60] pointer-events-none" role="status" aria-live="polite" style={radioSheetOpen ? { visibility: 'hidden' } : undefined}>
               <div className="text-[11px] text-zinc-200 bg-zinc-950/95 border border-cyan-500/40 rounded-full px-4 py-1.5 shadow-lg whitespace-nowrap">
@@ -653,17 +552,10 @@ function NexusHub() {
             </div>
           )}
 
-          {/* Floating store shortcut — right edge, vertically centered, clear of
-              the satellite menu toggle (bottom-left), FLIGHT AXIS (top-right),
-              SPAWN TO BIKE (bottom-right), and the bottom radio bar. */}
           <div style={chromeHiddenStyle} aria-hidden={radioSheetOpen || undefined}>
             <StoreFloatButton />
           </div>
 
-          {/* Profile icon + notifications — top-right below FLIGHT AXIS, clear of
-              the store float button (right edge, vertically centered), the
-              satellite menu toggle (bottom-left), SPAWN TO BIKE (bottom-right),
-              and the bottom radio bar. */}
           <div className="absolute top-[5.75rem] right-5 z-50 flex items-center gap-3 ui-element pointer-events-auto" style={chromeHiddenStyle}>
             <NotificationsWindow />
             <ProfileIcon />
@@ -683,7 +575,6 @@ function NexusHub() {
         </>
       )}
 
-      {/* NIGHT GRID — 64px circle entry to the Shadow Realm */}
       {(user || cloudOffline) && (appState === 'hub_intro' || appState === 'hub_freeroam' || appState === 'to_bike' || appState === 'on_bike') && (
         <div
           className="fixed z-40 flex flex-col items-center ui-element pointer-events-auto"
@@ -708,8 +599,6 @@ function NexusHub() {
         </div>
       )}
 
-      {/* The single RIDE button — directly beneath NIGHT GRID in the
-          right-edge column (NIGHT GRID → RIDE → STORE), no overlap. */}
       {(user || cloudOffline) && (appState === 'hub_intro' || appState === 'hub_freeroam' || appState === 'to_bike' || appState === 'on_bike') && (
         <div style={chromeHiddenStyle} aria-hidden={radioSheetOpen || undefined}>
           <BikeFloatButton
@@ -740,9 +629,6 @@ function NexusHub() {
         </div>
       )}
 
-      {/* Hub sweep video — Merlin 2026-10-12: plays ONCE after login until the
-          first circle sweep completes, then swaps to starfield over black.
-          True color, no fade, no veil. */}
       {(user || cloudOffline) && bgVideoOk && !sweepDone && (
         <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
           <video
