@@ -1,5 +1,6 @@
+// FILE: app/page.jsx
 'use client';
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import Auth from '@/components/Auth';
@@ -45,14 +46,16 @@ const HomeScene = dynamic(() => import('@/components/HomeScene'), {
   loading: () => <div className="absolute inset-0 bg-[#050505]" aria-hidden="true" />,
 });
 
-
 function NexusHub() {
   const router = useRouter();
   const { t } = useI18n();
-  // Drop-target fallbacks: the 10 god-tower spots by god name, plus the
-  // legacy reference points. (Nothing currently passes fallbackPos, but the
-  // map stays honest for any caller that does.)
-  const POS_MAP = { ...GOD_TOWER_POS, BABEL_POS, ARTEMIS_POS };
+
+  // Memoized drop-target fallbacks: the 10 god-tower spots by god name, plus
+  // legacy reference points so pointer/joystick re-renders never re-allocate.
+  const POS_MAP = useMemo(
+    () => ({ ...GOD_TOWER_POS, BABEL_POS, ARTEMIS_POS }),
+    []
+  );
 
   const [appState, setAppState] = useState('hub_intro');
   const [isMenuExpanded, setIsMenuExpanded] = useState(true);
@@ -108,14 +111,12 @@ function NexusHub() {
       setShowHubTutorial(true);
     }
   }, [user, cloudOffline, showIntro]);
-  
+
   const targetRouteRef = useRef('');
   const adWindowRef = useRef(null);
-  
-  const [activeSatTarget, setActiveSatTarget] = useState(GOD_TOWER_SPOTS[0].pos);
-  
 
-  const [flightAxis, setFlightAxis] = useState('horizontal'); 
+  const [activeSatTarget, setActiveSatTarget] = useState(GOD_TOWER_SPOTS[0].pos);
+  const [flightAxis, setFlightAxis] = useState('horizontal');
 
   // Per-account rider persistence: where the rider last dismounted (beside
   // the bike — never a default spawn point). Loaded from /api/rider/state on
@@ -186,6 +187,22 @@ function NexusHub() {
 
   // Satellite index for the god menus — top-level hook (never conditional).
   const satIndex = useMemo(() => new Map(SATELLITES.map((s) => [s.key, s])), []);
+
+  // Resolve the AI / Thoth satellite key & fallback tower position dynamically
+  // so the Agent Forge button routes through the exact same orbital drop path.
+  const aiSatMeta = useMemo(() => {
+    const match = SATELLITES.find(
+      (s) =>
+        s.key?.toLowerCase().includes('thoth') ||
+        s.key?.toLowerCase().includes('apollo') ||
+        s.key?.toLowerCase().includes('athena') ||
+        s.programs?.some((p) => p.route === '/human-ai' || p.route === '/alexandria')
+    );
+    return {
+      key: match?.key || 'thoth',
+      posKey: match?.pos || 'THOTH_POS',
+    };
+  }, []);
 
   const [joyBase, setJoyBase] = useState({ x: 0, y: 0 });
   const [joyStick, setJoyStick] = useState({ x: 0, y: 0 });
@@ -312,14 +329,14 @@ function NexusHub() {
 
   // The Supabase access token for the rider-state API. The server derives
   // user_id from this token (requireUser) — the client never asserts identity.
-  const getAccessToken = async () => {
+  const getAccessToken = useCallback(async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       return session?.access_token || null;
     } catch {
       return null;
     }
-  };
+  }, []);
 
   // Load the account's saved dismount spot once signed in. Cloud-offline
   // guests have no backend to read from — they keep the default spot.
@@ -331,7 +348,7 @@ function NexusHub() {
       savedSpawnRef.current = [s.x, s.y, s.z];
     });
     return () => { alive = false; };
-  }, [user, cloudOffline]);
+  }, [user, cloudOffline, getAccessToken]);
 
   const handleLogin = (callsign) => setUser(callsign);
 
@@ -345,7 +362,7 @@ function NexusHub() {
     setUser(null);
   };
 
-  const launchPocketUniverse = (route, satKey, fallbackPos, directPos) => {
+  const launchPocketUniverse = useCallback((route, satKey, fallbackPos, directPos) => {
     // Sound + haptics for the launch. Internal routes get the drop fanfare;
     // external affiliate links (stake.com tower panels) get a neutral tap —
     // no fanfare on his inventory, ever.
@@ -355,8 +372,11 @@ function NexusHub() {
     // 2. the satellite's live orbit-node position (god bands);
     // 3. the constellation tower position the satellite lists.
     let target = null;
-    if (directPos) {
+    if (Array.isArray(directPos)) {
       target = directPos;
+    } else if (Array.isArray(satKey)) {
+      // Legacy 2-argument call support: launchPocketUniverse('/route', SOME_POS_ARRAY)
+      target = satKey;
     } else {
       if (satKey) {
         const p = orbitPositionFor(satKey, orbitTime());
@@ -368,7 +388,7 @@ function NexusHub() {
     targetRouteRef.current = route;
     setIsMenuExpanded(false);
     setAppState('returning_to_satellite');
-  };
+  }, [POS_MAP]);
 
   const toggleBike = () => {
     if (appState === 'on_bike' || appState === 'to_bike') {
@@ -376,12 +396,6 @@ function NexusHub() {
       setAppState('hub_freeroam');
     } else if (appState === 'hub_intro' || appState === 'hub_freeroam') {
       fx.bikeMount();
-      // Spawn at the account's saved spot when one exists: the bike is moved
-      // there first, then the camera flies into the rider's seat. The saved
-      // spot is the rider's dismount position (eye height beside the bike),
-      // so the bike is seated DISMOUNT_EYE below it — otherwise each
-      // mount/dismount cycle would ratchet the bike upward. No saved row →
-      // the bike keeps its existing (parked) position.
       const saved = savedSpawnRef.current;
       if (bikeRef.current && saved) {
         bikeRef.current.position.set(saved[0], saved[1] - DISMOUNT_EYE, saved[2]);
@@ -567,12 +581,27 @@ function NexusHub() {
                     a dropdown of the programming inside it; tapping a program
                     launches it through the one menu-to-satellite function,
                     launchPocketUniverse. */}
-                <div className="flex-1 min-h-0">
+                <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar flex flex-col gap-4">
                   <SatelliteMenu
                     t={t}
                     satIndex={satIndex}
                     onLaunch={(route, key, pos) => launchPocketUniverse(route, key, pos)}
                   />
+
+                  {/* AGENT FORGE & MASTER BRAIN SYNC — Unified into the AI / Thoth orbital launch path */}
+                  <div className="pt-2 border-t border-zinc-800/80 shrink-0">
+                    <button
+                      onClick={() => launchPocketUniverse('/agent-forge', aiSatMeta.key, aiSatMeta.posKey)}
+                      className="w-full flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group"
+                    >
+                      <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">
+                        Agent Forge
+                      </span>
+                      <span className="text-[10px] text-zinc-500 uppercase mt-1">
+                        Personal AI &amp; Brain Sync
+                      </span>
+                    </button>
+                  </div>
                 </div>
 
                 {/* DISCONNECT — signed-in users only; guests have nothing to disconnect */}
@@ -654,18 +683,7 @@ function NexusHub() {
         </>
       )}
 
-      {/* SPAWN TO BIKE removed 2026-10-12 (Merlin: single ride button only).
-          The ride button now lives in the right-edge column directly beneath
-          NIGHT GRID (see BikeFloatButton below). */}
-
-      {/* NIGHT GRID — 64px circle entry to the Shadow Realm (the built
-          Tron-bike race/free-roam scene: tracks, Wisp/Comet/Atlas trim
-          bikes, Tron light schemes). Top of the right-edge control column:
-          NIGHT GRID → RIDE → STORE, stacked vertically with no overlap.
-          Same pocket-universe launch path as the satellite menu:
-          fx.bikeMount() + launchPocketUniverse (the orbit animation),
-          landing on /shadow-realm?mode=race — the realm page itself handles
-          mode/track/vehicle selection. */}
+      {/* NIGHT GRID — 64px circle entry to the Shadow Realm */}
       {(user || cloudOffline) && (appState === 'hub_intro' || appState === 'hub_freeroam' || appState === 'to_bike' || appState === 'on_bike') && (
         <div
           className="fixed z-40 flex flex-col items-center ui-element pointer-events-auto"
@@ -722,12 +740,6 @@ function NexusHub() {
         </div>
       )}
 
-      {/* Merlin's entrance video — full normal brightness and clarity
-          (Merlin 2026-09-30: video brightness universally normal and clear).
-          A light veil keeps the live Earth, orbit rings, satellites, and
-          parked TRON bike reading in front of it. Looping, muted,
-          playsinline. Gated on the hub being visible so it never
-          double-plays under the Auth overlay. */}
       {/* Hub sweep video — Merlin 2026-10-12: plays ONCE after login until the
           first circle sweep completes, then swaps to starfield over black.
           True color, no fade, no veil. */}
