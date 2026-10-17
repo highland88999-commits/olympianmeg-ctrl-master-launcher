@@ -6,3 +6,7 @@ app/api/telemetry/nodes/route.ts
 app/agent-forge/page.tsx
 public/muse_provision_manifest.txt
 app/lib/terrainUtils.ts
+components/earth/RedwaterQuicksand.tsx
+app/api/redwater/claim/route.js
+supabase/redwater.sql
+lib/achievements/catalog.js
