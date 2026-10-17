@@ -183,9 +183,10 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
                   key={s.id}
                   disabled={busy}
                   onClick={() => onSpawnPick({ lat: s.lat, lon: s.lon, label: s.name })}
-                  className="text-left text-[11px] px-2 py-1.5 rounded bg-zinc-900/60 hover:bg-cyan-950/60 border border-zinc-800 hover:border-cyan-500/40 transition-all truncate disabled:opacity-50"
+                  className="text-left text-[11px] px-2 py-1.5 rounded bg-zinc-900/60 hover:bg-cyan-950/60 border border-zinc-800 hover:border-cyan-500/40 transition-all truncate disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  🚶 {s.name} · {formatCoords(s.lat, s.lon)}
+                  <span aria-hidden="true" className="text-cyan-500 mr-1">→</span>
+                  {s.name} <span className="text-zinc-500">· {formatCoords(s.lat, s.lon)}</span>
                 </button>
               ))}
             </div>
