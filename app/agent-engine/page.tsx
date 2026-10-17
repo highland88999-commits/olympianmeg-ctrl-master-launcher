@@ -376,7 +376,7 @@ function AgentEngineConsole() {
               className="flex-1 p-3 text-xs bg-black border border-zinc-700 rounded-lg text-white focus:border-cyan-400 outline-none"
             />
             <button
-              onClick={handleSendMessage}
+              onClick={() => handleSendMessage()}
               disabled={chatLoading}
               className="px-6 py-3 text-xs font-bold tracking-widest uppercase bg-cyan-400 text-black rounded-lg hover:bg-white transition-all"
             >
