@@ -88,6 +88,7 @@ export default function HawkinsPage() {
         setTimeout(() => setFinishHim(false), 2600);
       },
       onCaptureProgress: (p, t) => setHud((h) => ({ ...h, captureProgress: p, finishTimer: t })),
+      onPerspective: (perspective) => setHud((h) => ({ ...h, perspective })),
       onFatality: () => {
         setFatality(true);
         // Report the Vecna kill for achievements (fire-and-forget; guests
@@ -137,7 +138,14 @@ export default function HawkinsPage() {
       {/* ---------- HUD ---------- */}
       {phase === 'playing' && (
         <div style={styles.hud}>
-          <div style={styles.crosshair} />
+          <div style={styles.reticle}>
+            <div style={styles.retRing} />
+            <div style={styles.retDot} />
+            <div style={{ ...styles.retTick, top: 0, left: '50%', transform: 'translateX(-50%)' }} />
+            <div style={{ ...styles.retTick, bottom: 0, left: '50%', transform: 'translateX(-50%)' }} />
+            <div style={{ ...styles.retTick, left: 0, top: '50%', transform: 'translateY(-50%)', width: 9, height: 2 }} />
+            <div style={{ ...styles.retTick, right: 0, top: '50%', transform: 'translateY(-50%)', width: 9, height: 2 }} />
+          </div>
           {hud.hitmark > 0 && (
             <div style={{ ...styles.hitmarker, borderColor: hud.hitmark === 2 ? '#ff3333' : '#fff' }} />
           )}
@@ -184,6 +192,13 @@ export default function HawkinsPage() {
             <div style={styles.kills}>{hud.kills} KILLS</div>
             <div style={styles.wave}>WAVE {hud.wave}</div>
           </div>
+
+          <button
+            style={styles.perspbtn}
+            onClick={() => engineRef.current && engineRef.current.togglePerspective()}
+          >
+            {(hud.perspective === 'third' ? '3RD' : '1ST') + ' PERSON · V'}
+          </button>
 
           {banner && <div style={styles.wavebanner}>{banner}</div>}
           {chime && <div style={styles.clockchime}>♱ {chime} ♱</div>}
@@ -283,11 +298,29 @@ const styles = {
   root: { position: 'fixed', inset: 0, background: '#050005', overflow: 'hidden' },
   canvas: { position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block' },
   hud: { position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 50 },
-  crosshair: {
-    position: 'absolute', left: '50%', top: '50%', width: 24, height: 24,
-    transform: 'translate(-50%,-50%)', opacity: 0.9,
-    background: 'linear-gradient(to right, transparent 11px, rgba(255,60,60,0.9) 11px, rgba(255,60,60,0.9) 13px, transparent 13px), linear-gradient(to bottom, transparent 11px, rgba(255,60,60,0.9) 11px, rgba(255,60,60,0.9) 13px, transparent 13px)',
-    filter: 'drop-shadow(0 0 6px #ff0000)',
+  reticle: {
+    position: 'absolute', left: '50%', top: '50%', width: 44, height: 44,
+    transform: 'translate(-50%,-50%)', opacity: 0.95, pointerEvents: 'none',
+    filter: 'drop-shadow(0 0 6px rgba(255,40,40,0.9))',
+  },
+  retRing: {
+    position: 'absolute', inset: 6, borderRadius: '50%',
+    border: '2px solid rgba(255,70,70,0.85)',
+  },
+  retDot: {
+    position: 'absolute', left: '50%', top: '50%', width: 4, height: 4,
+    transform: 'translate(-50%,-50%)', borderRadius: '50%',
+    background: '#ff4444',
+  },
+  retTick: {
+    position: 'absolute', width: 2, height: 9, background: 'rgba(255,70,70,0.9)',
+  },
+  perspbtn: {
+    position: 'absolute', top: 76, right: 14, zIndex: 60,
+    pointerEvents: 'auto', cursor: 'pointer',
+    background: 'rgba(10,5,12,0.72)', color: '#ff8899',
+    border: '1px solid rgba(255,80,100,0.5)', borderRadius: 8,
+    padding: '8px 12px', fontSize: 11, letterSpacing: 2, fontWeight: 700,
   },
   hitmarker: {
     position: 'absolute', left: '50%', top: '50%', width: 34, height: 34,

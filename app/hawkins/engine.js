@@ -42,6 +42,8 @@ export function createEngine(canvas, hooks) {
     ash: null, spores: null, flashlight: null, muzzle: null,
     shakeAmt: 0, isTouch: false,
     hudTimer: 0,
+    perspective: 'first', // 'first' | 'third' — camera perspective toggle
+    playerAvatar: null,
   };
 
   /* ---------------- boot ---------------- */
@@ -74,8 +76,64 @@ export function createEngine(canvas, hooks) {
 
     E.buildLights(); E.buildGround(); E.buildRoad(); E.buildHawkins();
     E.buildAsh(); E.buildSpores(); E.buildFlashlight(); E.buildMuzzle();
+    E.buildPlayerAvatar();
     E.bindInput();
     E.resize();
+  };
+
+  /* ---------------- player avatar (3rd person) ---------------- */
+  // Placeholder figure until the Tripo3D character GLBs land; then this
+  // group gets replaced by the loaded model via E.setPlayerAvatarModel().
+  engine.buildPlayerAvatar = function () {
+    const E = engine;
+    const g = new THREE.Group();
+    const cloth = new THREE.MeshStandardMaterial({ color: 0x1a1a22, roughness: 0.85 });
+    const skin = new THREE.MeshStandardMaterial({ color: 0x2a2a33, roughness: 0.7 });
+    const glow = new THREE.MeshBasicMaterial({ color: 0xff3344 });
+    const torso = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 2.0, 5.5, 8), cloth);
+    torso.position.y = 8.2; torso.castShadow = true; g.add(torso);
+    for (const s of [-1, 1]) {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.55, 5.5, 6), cloth);
+      leg.position.set(s * 0.9, 2.75, 0); leg.castShadow = true; g.add(leg);
+      leg.userData.side = s;
+      const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.45, 5, 6), cloth);
+      arm.position.set(s * 2.4, 8.2, 0); arm.rotation.z = s * 0.12; arm.castShadow = true; g.add(arm);
+    }
+    const head = new THREE.Mesh(new THREE.SphereGeometry(1.3, 10, 8), skin);
+    head.position.y = 12.4; head.castShadow = true; g.add(head);
+    const visor = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.35, 0.3), glow);
+    visor.position.set(0, 12.5, 1.15); g.add(visor);
+    g.visible = false;
+    E.scene.add(g);
+    E.playerAvatar = g;
+  };
+
+  // Swap the placeholder for a loaded character GLB (Tripo3D). The model
+  // is scaled to ~13 units tall and parented so the toggle keeps working.
+  engine.setPlayerAvatarModel = function (model) {
+    const E = engine;
+    if (E.playerAvatar) E.scene.remove(E.playerAvatar);
+    model.visible = (E.perspective === 'third');
+    E.scene.add(model);
+    E.playerAvatar = model;
+  };
+
+  engine.togglePerspective = function () {
+    const E = engine;
+    E.perspective = E.perspective === 'first' ? 'third' : 'first';
+    if (E.playerAvatar) E.playerAvatar.visible = (E.perspective === 'third');
+    E.hooks.feed(E.perspective === 'third' ? 'THIRD PERSON' : 'FIRST PERSON');
+    E.hooks.onPerspective(E.perspective);
+    return E.perspective;
+  };
+
+  // Where shots visually originate: the camera in 1st person, the
+  // player's eye line in 3rd person. Hit detection already uses P.pos.
+  engine.getShotOrigin = function () {
+    const E = engine;
+    if (E.perspective === 'third')
+      return new THREE.Vector3(E.player.pos.x, EYE + 4, E.player.pos.z);
+    return E.camera.position.clone();
   };
 
   engine.resize = function () {
@@ -986,7 +1044,7 @@ export function createEngine(canvas, hooks) {
     P.ammo--; P.fireCooldown = 0.32;
     E.hooks.onAmmo(P.ammo, P.magSize);
     for (const d of E.demogorgons) { d.heardShot = true; d.lastKnown.copy(P.pos); }
-    E.muzzle.position.copy(E.camera.position).add(new THREE.Vector3(0, -1.5, 0))
+    E.muzzle.position.copy(E.getShotOrigin()).add(new THREE.Vector3(0, -1.5, 0))
       .add(E.getForward().multiplyScalar(6));
     E.muzzle.intensity = 5;
     setTimeout(() => { E.muzzle.intensity = 0; }, 60);
@@ -1047,14 +1105,14 @@ export function createEngine(canvas, hooks) {
         }
       }
     }
-    if (!hit) E.spawnTracer(E.camera.position.clone().add(dir.multiplyScalar(150)));
+    if (!hit) E.spawnTracer(E.getShotOrigin().add(dir.multiplyScalar(150)));
     E.shake(0.26);
     if (P.ammo === 0) E.startReload();
   };
 
   engine.spawnTracer = function (to) {
     const E = engine;
-    const from = E.camera.position.clone().add(new THREE.Vector3(0.9, -1.1, 0))
+    const from = E.getShotOrigin().add(new THREE.Vector3(0.9, -1.1, 0))
       .add(E.getForward().multiplyScalar(3));
     const line = new THREE.Line(
       new THREE.BufferGeometry().setFromPoints([from, to]),
@@ -1166,6 +1224,7 @@ export function createEngine(canvas, hooks) {
       E.keys[e.code] = true;
       if (e.code === 'KeyR') E.startReload();
       if (e.code === 'KeyE') E.tryBikeToggle();
+      if (e.code === 'KeyV') E.togglePerspective();
       if (['ArrowUp', 'ArrowDown', 'Space'].includes(e.code)) e.preventDefault();
     };
     E._onKeyUp = (e) => { E.keys[e.code] = false; };
@@ -1296,10 +1355,27 @@ export function createEngine(canvas, hooks) {
       shy = (Math.random() - 0.5) * E.shakeAmt * 1.6;
       E.shakeAmt *= Math.pow(0.02, dt);
     }
-    E.camera.rotation.order = 'YXZ';
-    E.camera.rotation.y = P.yaw + shx * 0.03;
-    E.camera.rotation.x = P.pitch + shy * 0.03;
-    E.camera.rotation.z = 0;
+    if (E.perspective === 'third') {
+      // 3rd person: camera trails behind + above, aimed down the shot ray
+      // so the center reticle stays true.
+      const back = new THREE.Vector3(Math.sin(P.yaw), 0, Math.cos(P.yaw));
+      const cx = P.pos.x - back.x * 26, cz = P.pos.z - back.z * 26;
+      E.camera.position.set(cx, EYE + 13 + bob * 0.5, cz);
+      const aim = new THREE.Vector3(
+        P.pos.x + Math.sin(P.yaw) * Math.cos(P.pitch) * 120,
+        EYE + 4 + Math.sin(P.pitch) * 120,
+        P.pos.z + Math.cos(P.yaw) * Math.cos(P.pitch) * 120);
+      E.camera.lookAt(aim);
+      if (E.playerAvatar) {
+        E.playerAvatar.position.set(P.pos.x, Math.abs(Math.sin(t * 11)) * 0.4 * ((mx || mz) ? 1 : 0), P.pos.z);
+        E.playerAvatar.rotation.y = P.yaw;
+      }
+    } else {
+      E.camera.rotation.order = 'YXZ';
+      E.camera.rotation.y = P.yaw + shx * 0.03;
+      E.camera.rotation.x = P.pitch + shy * 0.03;
+      E.camera.rotation.z = 0;
+    }
     // bike follows the rider; FOV kicks up at speed
     const riding = !!(E.bike && E.bike.mounted);
     if (riding) {

@@ -1842,15 +1842,16 @@ export default function EnyoPage() {
       {/* ================= HUD ================= */}
       {(phase === 'playing' || phase === 'over') && hud && (
         <>
-          {/* crosshair */}
+          {/* reticle */}
           {phase === 'playing' && !paused && (
             <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none">
-              <div className="w-[18px] h-[18px] relative">
-                <div className="absolute left-1/2 top-0 -translate-x-1/2 w-[2px] h-[5px] bg-white/90" />
-                <div className="absolute left-1/2 bottom-0 -translate-x-1/2 w-[2px] h-[5px] bg-white/90" />
-                <div className="absolute top-1/2 left-0 -translate-y-1/2 h-[2px] w-[5px] bg-white/90" />
-                <div className="absolute top-1/2 right-0 -translate-y-1/2 h-[2px] w-[5px] bg-white/90" />
-                <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[2px] h-[2px] bg-white rounded-full" />
+              <div className="w-[44px] h-[44px] relative" style={{ filter: 'drop-shadow(0 0 6px rgba(255,200,90,0.9))' }}>
+                <div className="absolute rounded-full" style={{ inset: 6, border: '2px solid rgba(255,210,120,0.9)' }} />
+                <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[4px] h-[4px] rounded-full" style={{ background: '#ffd878' }} />
+                <div className="absolute left-1/2 top-0 -translate-x-1/2 w-[2px] h-[9px]" style={{ background: 'rgba(255,210,120,0.9)' }} />
+                <div className="absolute left-1/2 bottom-0 -translate-x-1/2 w-[2px] h-[9px]" style={{ background: 'rgba(255,210,120,0.9)' }} />
+                <div className="absolute top-1/2 left-0 -translate-y-1/2 h-[2px] w-[9px]" style={{ background: 'rgba(255,210,120,0.9)' }} />
+                <div className="absolute top-1/2 right-0 -translate-y-1/2 h-[2px] w-[9px]" style={{ background: 'rgba(255,210,120,0.9)' }} />
               </div>
               {/* hitmarker */}
               {hitmark && (
