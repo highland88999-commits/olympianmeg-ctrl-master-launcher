@@ -5,3 +5,4 @@ app/api/user-agents/route.ts
 app/api/telemetry/nodes/route.ts
 app/agent-forge/page.tsx
 public/muse_provision_manifest.txt
+app/lib/terrainUtils.ts
