@@ -50,6 +50,9 @@ function AgentEngineConsole() {
   const [chatLoading, setChatLoading] = useState(false);
   const logScrollRef = useRef<HTMLDivElement>(null);
 
+  // --- PENDING WRITE APPROVALS (per Merlin's governance rule) ---
+  const [confirmations, setConfirmations] = useState<any[]>([]);
+
   const selectedAgent =
     selectedKey === 'merlin'
       ? MERLIN_AGENT
@@ -102,10 +105,11 @@ function AgentEngineConsole() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [log, chatLoading, selectedKey]);
 
-  const handleSendMessage = async () => {
-    if (!chatInput.trim() || !session || chatLoading) return;
-    const msg = chatInput.trim();
-    setChatInput('');
+  const handleSendMessage = async (overrideMsg?: string, confirmed?: any[]) => {
+    const raw = overrideMsg !== undefined ? overrideMsg : chatInput.trim();
+    if (!raw || !session || chatLoading) return;
+    const msg = raw;
+    if (overrideMsg === undefined) setChatInput('');
     const key = selectedKey;
     const agentRef = selectedAgent;
 
@@ -131,9 +135,14 @@ function AgentEngineConsole() {
           agent: key === 'merlin' ? 'merlin' : agentRef.id,
           message: msg,
           history,
+          ...(confirmed && confirmed.length ? { confirmed } : {}),
         }),
       });
       const data = await res.json();
+
+      if (Array.isArray(data.confirmationRequests) && data.confirmationRequests.length) {
+        setConfirmations(data.confirmationRequests);
+      }
 
       const entries: LogEntry[] = [...base];
       (data.toolCalls || []).forEach((tc: any) => {
@@ -169,6 +178,25 @@ function AgentEngineConsole() {
     } finally {
       setChatLoading(false);
     }
+  };
+
+  const handleApprove = (c: any) => {
+    setConfirmations((prev) => prev.filter((x) => x.confirmKey !== c.confirmKey));
+    handleSendMessage('Approved — execute it.', [
+      { confirmKey: c.confirmKey, tool: c.tool, args: c.args },
+    ]);
+  };
+
+  const handleDecline = (c: any) => {
+    setConfirmations((prev) => prev.filter((x) => x.confirmKey !== c.confirmKey));
+    const key = selectedKey;
+    const entry: LogEntry = {
+      kind: 'agent',
+      role: 'agent',
+      text: 'Declined — the action was not executed.',
+      ts: new Date().toISOString(),
+    };
+    setLogs((prev) => ({ ...prev, [key]: [...(prev[key] || []), entry] }));
   };
 
   if (!mounted || !session) return <div className="w-screen h-screen bg-[#050508]" />;
@@ -274,7 +302,7 @@ function AgentEngineConsole() {
                   {selectedAgent.agent_name} ONLINE
                 </div>
                 <p className="text-xs text-zinc-400 leading-relaxed">
-                  Describe the task. I can read the Brain, search places, check telemetry, look up the store, and fetch the web.
+                  Describe the task. I can read the Brain, search places, check telemetry, look up store templates and creations — and with your approval, create real store products or mint checkout links.
                 </p>
               </div>
             )}
@@ -309,6 +337,33 @@ function AgentEngineConsole() {
                 {selectedAgent.agent_name.toUpperCase()} IS SYNTHESIZING…
               </div>
             )}
+
+            {confirmations.map((c) => (
+              <div key={c.confirmKey} className="flex justify-start">
+                <div className="max-w-[85%] p-4 rounded-xl text-xs leading-relaxed bg-amber-950/40 border border-amber-400/50">
+                  <div className="text-amber-300 tracking-widest uppercase mb-2">
+                    ⚠ APPROVAL REQUIRED · {String(c.tool).replace(/_/g, ' ')}
+                  </div>
+                  <div className="text-zinc-200 whitespace-pre-wrap">{c.summary}</div>
+                  <div className="flex gap-3 mt-3">
+                    <button
+                      onClick={() => handleApprove(c)}
+                      disabled={chatLoading}
+                      className="px-5 py-2 text-xs font-bold tracking-widest uppercase bg-amber-400 text-black rounded-lg hover:bg-white transition-all disabled:opacity-50"
+                    >
+                      APPROVE
+                    </button>
+                    <button
+                      onClick={() => handleDecline(c)}
+                      disabled={chatLoading}
+                      className="px-5 py-2 text-xs font-bold tracking-widest uppercase border border-zinc-600 text-zinc-300 rounded-lg hover:border-red-400 hover:text-red-400 transition-all disabled:opacity-50"
+                    >
+                      DECLINE
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
 
           <div className="p-4 bg-zinc-950 border-t border-zinc-800 flex gap-3">
