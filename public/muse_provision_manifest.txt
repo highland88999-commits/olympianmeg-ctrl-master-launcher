@@ -19,3 +19,7 @@ supabase/migrations/20261017_shakepay_payouts.sql
 lib/earth/street-patch.js
 components/StreetGroundPatch.jsx
 tests/earth-street-ground.test.mjs
+app/agent-engine/page.tsx
+app/api/agent-engine/command/route.ts
+supabase/agent-engine.sql
+lib/i18n/satellites.ts
