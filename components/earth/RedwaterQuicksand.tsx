@@ -492,5 +492,5 @@ const overlayStyle = {
   fontFamily: 'system-ui, sans-serif',
   fontSize: '15px',
   maxWidth: '420px',
-  textAlign: 'center',
+  textAlign: 'center' as const,
 };
