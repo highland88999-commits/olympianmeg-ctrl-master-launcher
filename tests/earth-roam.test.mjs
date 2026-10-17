@@ -16,6 +16,7 @@ import {
   cameraRig,
   ROAM_MAX_SPEED,
   ROAM_HEAD_M,
+  ROAM_MIN_CAM_ABOVE_GROUND_M,
 } from '../lib/earth/roam.js';
 import { DISPLAY_UNITS_PER_METRE, surfaceRadiusAt } from '../lib/earth/placements.js';
 import { latLonToVec3, EARTH_RADIUS } from '../lib/geo.js';
@@ -148,6 +149,43 @@ check('begin/end roam toggles the session flags cleanly', () => {
   assert.ok(st.active && st.lat === 1 && st.lon === 2 && st.yawDeg === 45 && st.faceDeg === 45);
   endRoam(st);
   assert.ok(!st.active && !st.moving && !st.sprinting && st.speed01 === 0);
+});
+
+check('camera rig: absolute floor holds at the steepest negative pitch', () => {
+  const st = beginRoam(createRoamState(), 54, -115, 90);
+  st.pitchDeg = -28; // ROAM_PITCH_MIN: boom dips the lens toward the dirt
+  const rig = cameraRig(st, land, OW, OH);
+  const camAboveM = dot(
+    { x: rig.camPos.x - rig.ground.x, y: rig.camPos.y - rig.ground.y, z: rig.camPos.z - rig.ground.z },
+    rig.normal,
+  ) / DISPLAY_UNITS_PER_METRE;
+  assert.ok(
+    camAboveM >= ROAM_MIN_CAM_ABOVE_GROUND_M - 1e-9,
+    `camera ${camAboveM.toFixed(3)}m above ground, floor is ${ROAM_MIN_CAM_ABOVE_GROUND_M}m`,
+  );
+});
+
+check('camera rig: absolute floor holds across the full pitch sweep', () => {
+  for (const pitch of [-28, -15, 0, 14, 30, 55]) {
+    const st = beginRoam(createRoamState(), -33.86, 151.21, 180);
+    st.pitchDeg = pitch;
+    const rig = cameraRig(st, land, OW, OH);
+    const camAboveM = dot(
+      { x: rig.camPos.x - rig.ground.x, y: rig.camPos.y - rig.ground.y, z: rig.camPos.z - rig.ground.z },
+      rig.normal,
+    ) / DISPLAY_UNITS_PER_METRE;
+    assert.ok(
+      camAboveM >= ROAM_MIN_CAM_ABOVE_GROUND_M - 1e-9,
+      `pitch ${pitch}: camera ${camAboveM.toFixed(3)}m above ground`,
+    );
+  }
+});
+
+check('camera rig: avatar stays planted on the ground (floor is for the lens)', () => {
+  const st = beginRoam(createRoamState(), 54, -115, 90);
+  st.pitchDeg = -28;
+  const rig = cameraRig(st, land, OW, OH);
+  assert.ok(near(mag(rig.avatarPos), mag(rig.ground), 1e-9), 'avatar sits exactly on the surface');
 });
 
 console.log(`earth-roam: ${passed} checks passed`);
