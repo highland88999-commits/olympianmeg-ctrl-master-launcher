@@ -278,7 +278,7 @@ async function runTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       return {
         rows_sampled: rows.length,
         newest: rows[0]?.created_at || null,
-        columns_seen: [...keys].slice(0, 30),
+        columns_seen: Array.from(keys).slice(0, 30),
         sample: rows.slice(0, 3),
       };
     }
