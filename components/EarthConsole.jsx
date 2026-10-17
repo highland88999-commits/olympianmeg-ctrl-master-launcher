@@ -137,14 +137,17 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
         )}
 
         <div className="flex flex-col gap-1">
+          <div className="text-[9px] font-bold tracking-[0.25em] uppercase text-zinc-500">
+            Quick locations
+          </div>
           {QUICK.map((q) => (
             <button
               key={q.label}
               disabled={busy}
               onClick={() => onTravel(q)}
-              className="text-left text-[11px] px-2 py-1.5 rounded text-zinc-400 hover:text-white hover:bg-zinc-800/60 transition-all truncate disabled:opacity-50"
+              className="text-left text-[11px] px-2 py-1.5 rounded bg-zinc-900/60 hover:bg-cyan-950/60 border border-zinc-800 hover:border-cyan-500/40 transition-all truncate disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              → {q.label}
+              <span aria-hidden="true" className="text-cyan-500 mr-1">→</span>{q.label}
             </button>
           ))}
         </div>
