@@ -23,6 +23,18 @@
     {
       "path": "/api/payouts/cron/etransfer-queue",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/payouts/cron/shakepay-queue",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/payouts/cron/shakepay-fund-queue",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/payouts/cron/shakepay-confirm-queue",
+      "schedule": "*/15 * * * *"
     }
   ]
 }
