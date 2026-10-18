@@ -220,8 +220,26 @@ export default function GoogleEarthTiles({ onSelect, onActive, onInactive, onPar
     const cy = e.nativeEvent?.clientY ?? 0;
     const dist = Math.hypot(cx - last.x, cy - last.y);
     if (dt < 350 && dist < 40) {
-      // Double-tap! Trigger the parachute with this event's hit data.
+      // Double-tap! Do a manual raycast (R3F doesn't populate intersections
+      // for onPointerDown on groups). Convert screen coords to NDC, raycast
+      // against the tile group, then run the parachute logic.
       lastTapRef.current = { time: 0, x: 0, y: 0 }; // reset
+      try {
+        const rect = gl.domElement.getBoundingClientRect();
+        const nx = ((cx - rect.left) / rect.width) * 2 - 1;
+        const ny = -((cy - rect.top) / rect.height) * 2 + 1;
+        raycaster.setFromCamera({ x: nx, y: ny }, camera);
+        const tileGroup = tiles?.group;
+        if (tileGroup) {
+          const hits = raycaster.intersectObject(tileGroup, true);
+          if (hits.length > 0) {
+            // Synthesize an event with intersections for handleDoubleClick
+            handleDoubleClick({ ...e, intersections: hits, stopPropagation: () => {} });
+            return;
+          }
+        }
+      } catch {}
+      // Fallback: try the original event (may have intersections)
       handleDoubleClick(e);
     } else {
       lastTapRef.current = { time: now, x: cx, y: cy };
