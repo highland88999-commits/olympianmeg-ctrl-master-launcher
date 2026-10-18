@@ -633,7 +633,7 @@ function HubScene({
   }, []);
 
   return (
-      <Canvas shadows="soft" gl={{ alpha: true }} camera={{ position: [ORBIT_CENTER.x, ORBIT_CENTER.y, ORBIT_CENTER.z], fov: 52, far: 2000 }} style={{ pointerEvents: 'auto' }} onCreated={({ gl }) => {
+      <Canvas shadows="soft" gl={{ alpha: true, antialias: false, powerPreference: 'default' }} camera={{ position: [ORBIT_CENTER.x, ORBIT_CENTER.y, ORBIT_CENTER.z], fov: 52, far: 2000 }} style={{ pointerEvents: 'auto' }} onCreated={({ gl }) => {
         // Live context loss (GPU reset, driver hiccup, OS sleep): hand it
         // to the wrapper, which swaps in the 2D fallback — never a dead
         // canvas and never the global error screen.
