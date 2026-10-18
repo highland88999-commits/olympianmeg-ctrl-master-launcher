@@ -6,7 +6,7 @@
 // Scene, markup, ad inventory (tower panels: Merlin's native stake.com slot
 // plus the rotating billboard partner inventory), and camera logic are
 // byte-identical to the inline version — this is a pure code-split.
-import { useState, useEffect, useRef, useMemo, Suspense, Component } from 'react';
+import { useState, useEffect, useRef, useMemo, Suspense, Component, cloneElement, isValidElement } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Stars } from '@react-three/drei';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
@@ -793,8 +793,8 @@ class SceneErrorBoundary extends Component {
     if (this.state.failed && this.props.fallback) {
       // Clone the fallback element to inject the error message
       const { fallback } = this.props;
-      if (fallback && fallback.props) {
-        return { ...fallback, props: { ...fallback.props, threeError: this.state.errorMessage } };
+      if (isValidElement(fallback)) {
+        return cloneElement(fallback, { threeError: this.state.errorMessage });
       }
       return fallback;
     }

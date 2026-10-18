@@ -47,6 +47,10 @@ export default function GoogleEarthTiles({ onSelect, onActive, onInactive, onPar
   const sessionRef = useRef(null);
   const stateRef = useRef({ tiles: null, timers: [], alive: true });
   const cbRef = useRef({ onActive, onInactive, onParachute, quatRef });
+  // Double-tap detection for touch devices (iOS Safari doesn't fire
+  // onDoubleClick for touch). MUST be above the `if (!tiles) return null`
+  // early return — React requires every hook to run on every render.
+  const lastTapRef = useRef({ time: 0, x: 0, y: 0 });
   cbRef.current = { onActive, onInactive, onParachute, quatRef };
 
   useEffect(() => {
@@ -203,10 +207,7 @@ export default function GoogleEarthTiles({ onSelect, onActive, onInactive, onPar
     if (lat >= -85 && lat <= 85) cb.onParachute({ lat, lon });
   };
 
-  // Double-tap detection for touch devices (iOS Safari doesn't fire
-  // onDoubleClick for touch). Track last tap time/position; two taps
-  // within 350ms and 40px = double-tap.
-  const lastTapRef = useRef({ time: 0, x: 0, y: 0 });
+  // Double-tap handler uses lastTapRef declared above.
 
   const handlePointerDown = (e) => {
     // Only for touch pointers; mouse uses onDoubleClick
