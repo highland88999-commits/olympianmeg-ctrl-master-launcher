@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
+import * as THREE from 'three';
 import {
   rootUrlForSession,
   sessionExpiryMs,
@@ -51,7 +52,18 @@ export default function GoogleEarthTiles({ onSelect, onActive, onInactive, onPar
   // onDoubleClick for touch). MUST be above the `if (!tiles) return null`
   // early return — React requires every hook to run on every render.
   const lastTapRef = useRef({ time: 0, x: 0, y: 0 });
+  // Blue tap-highlight marker: shows where a single tap landed (fades after 800ms).
+  const [tapSpot, setTapSpot] = useState(null);
+  const tapTimerRef = useRef(null);
   cbRef.current = { onActive, onInactive, onParachute, quatRef };
+
+  // Show a brief blue ring at the tapped 3D point for visual feedback.
+  const flashTapSpot = (point) => {
+    if (!point) return;
+    setTapSpot(point.clone ? point.clone() : { ...point });
+    if (tapTimerRef.current) clearTimeout(tapTimerRef.current);
+    tapTimerRef.current = setTimeout(() => setTapSpot(null), 800);
+  };
 
   useEffect(() => {
     const st = stateRef.current;
@@ -243,6 +255,18 @@ export default function GoogleEarthTiles({ onSelect, onActive, onInactive, onPar
       handleDoubleClick(e);
     } else {
       lastTapRef.current = { time: now, x: cx, y: cy };
+      // Single tap: flash a blue ring where it landed (visual feedback).
+      try {
+        const rect = gl.domElement.getBoundingClientRect();
+        const nx = ((cx - rect.left) / rect.width) * 2 - 1;
+        const ny = -((cy - rect.top) / rect.height) * 2 + 1;
+        raycaster.setFromCamera({ x: nx, y: ny }, camera);
+        const tileGroup = tiles?.group;
+        if (tileGroup) {
+          const hits = raycaster.intersectObject(tileGroup, true);
+          if (hits.length > 0) flashTapSpot(hits[0].point);
+        }
+      } catch {}
     }
   };
 
@@ -253,6 +277,13 @@ export default function GoogleEarthTiles({ onSelect, onActive, onInactive, onPar
       onPointerDown={handlePointerDown}
     >
       <primitive object={tiles.group} />
+      {/* Blue tap-highlight ring: brief visual feedback for single taps */}
+      {tapSpot && (
+        <mesh position={[tapSpot.x, tapSpot.y, tapSpot.z]} raycast={() => null}>
+          <ringGeometry args={[0.35, 0.5, 32]} />
+          <meshBasicMaterial color="#00aaff" transparent opacity={0.9} side={THREE.DoubleSide} depthWrite={false} />
+        </mesh>
+      )}
     </group>
   );
 }
