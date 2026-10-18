@@ -16,7 +16,7 @@ const QUICK = [
 
 const MIN_KEY = 'earth-console-minimized';
 
-export default function EarthConsole({ focus, phase, onTravel, onReturn, onStreet, onAscend, onSpawnPick, spawns }) {
+export default function EarthConsole({ focus, phase, onTravel, onReturn, onStreet, onAscend, onSpawnPick, spawns, selectedTile, onDropToTile }) {
   const { t } = useI18n();
   const [input, setInput] = useState('');
   const [results, setResults] = useState([]);
@@ -197,6 +197,15 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
             >
               ✦ Reanimate <span className="text-zinc-500 normal-case tracking-normal">(grow to orbital size)</span>
             </button>
+            {/* DROP: parachute to the tapped tile */}
+            {selectedTile && onDropToTile && (
+              <button
+                onClick={() => onDropToTile(selectedTile)}
+                className="w-full py-2.5 text-[11px] font-bold tracking-[0.2em] uppercase text-white border border-cyan-400 bg-cyan-600/40 rounded hover:bg-cyan-500 hover:border-cyan-300 transition-all animate-pulse"
+              >
+                🪂 DROP HERE <span className="text-cyan-200 normal-case tracking-normal">({selectedTile.lat.toFixed(2)}°, {selectedTile.lon.toFixed(2)}°)</span>
+              </button>
+            )}
           </>
         )}
         {canWalk && spawns && spawns.length > 0 && (

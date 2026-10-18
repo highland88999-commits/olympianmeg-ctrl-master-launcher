@@ -606,6 +606,7 @@ function HubScene({
   arriveEarth,
   beginEarthDive,
   onParachute,
+  onTileSelect,
   onLaunchExternal,
   onBikeDismount,
   onContextLost,
@@ -659,6 +660,7 @@ function HubScene({
           <NexusEarth
             onSelect={appState === 'hub_freeroam' ? beginEarthDive : null}
             onParachute={onParachute}
+            onTileSelect={onTileSelect}
             quatRef={earthQuatRef}
             focus={earthFocus}
             phase={appState}

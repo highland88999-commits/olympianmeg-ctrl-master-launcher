@@ -39,7 +39,7 @@ import { roamState } from '@/lib/earth/roam';
 //   carries the placed world — so roaming forces the terrain layer
 //   and mounts the embodied traveler (EarthWalker).
 // - A small badge names the active layer in plain English.
-export default function NexusEarth({ onSelect, onParachute, quatRef, focus, phase, spinEnabled, controls }) {
+export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRef, focus, phase, spinEnabled, controls }) {
   const spinRef = useRef();
   const lensMatRef = useRef();
   const lensRef = useRef(null); // { tex, geo } awaiting disposal
@@ -196,12 +196,13 @@ export default function NexusEarth({ onSelect, onParachute, quatRef, focus, phas
           <GoogleEarthTiles
             onSelect={onSelect}
             onParachute={onParachute}
+            onTileSelect={onTileSelect}
             quatRef={quatRef}
             onActive={() => setLayer('photorealistic')}
             onInactive={() => setLayer('terrain')}
           />
         </group>
-        {effectiveLayer === 'terrain' && <ProceduralEarthGlobe onSelect={onSelect} onParachute={onParachute} quatRef={quatRef} />}
+        {effectiveLayer === 'terrain' && <ProceduralEarthGlobe onSelect={onSelect} onParachute={onParachute} onTileSelect={onTileSelect} quatRef={quatRef} />}
         {effectiveLayer === 'terrain' && <EarthAssets />}
         {effectiveLayer === 'terrain' && <EarthWalker />}
         {/* Climbable ladders on structures, monument elevators — street only */}

@@ -96,6 +96,8 @@ function NexusHub() {
   const earthQuatRef = useRef(null);
   const [earthFocus, setEarthFocus] = useState(null);
   const [pendingDest, setPendingDest] = useState(null);
+  // Selected tile for the DROP button (tap a tile, then hit DROP to parachute)
+  const [selectedTile, setSelectedTile] = useState(null);
 
   const beginEarthDive = () => {
     if (appState !== 'hub_freeroam') return;
@@ -147,9 +149,15 @@ function NexusHub() {
     if (appState !== 'earth_surface' && appState !== 'hub_freeroam') return;
     fx.earthDive();
     setEarthFocus({ lat, lon, label: 'Parachute drop' });
+    setSelectedTile(null); // clear selection after dropping
     beginRoam(roamState, lat, lon, roamState.yawDeg || 0);
     setAppState('diving_to_street');
   };
+
+  // Tile selection for the DROP button (tap a tile, then hit DROP)
+  const handleTileSelect = useCallback(({ lat, lon }) => {
+    setSelectedTile({ lat, lon });
+  }, []);
   
   const pickSpawn = (dest) => {
     pendingRoamRef.current = true;
@@ -629,6 +637,8 @@ function NexusHub() {
           onAscend={() => setAppState('earth_surface')}
           onSpawnPick={pickSpawn}
           spawns={earthSpawns}
+          selectedTile={selectedTile}
+          onDropToTile={parachuteTo}
         />
       )}
 
@@ -672,6 +682,7 @@ function NexusHub() {
         arriveEarth={arriveEarth}
         beginEarthDive={beginEarthDive}
         onParachute={parachuteTo}
+        onTileSelect={handleTileSelect}
         onBikeDismount={handleBikeDismount}
         onLaunchExternal={(url, id) => {
           adWindowRef.current = window.open('', '_blank');

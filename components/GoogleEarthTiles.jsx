@@ -42,12 +42,12 @@ async function fetchSessionToken() {
   return data;
 }
 
-export default function GoogleEarthTiles({ onSelect, onActive, onInactive, onParachute, quatRef }) {
+export default function GoogleEarthTiles({ onSelect, onActive, onInactive, onParachute, onTileSelect, quatRef }) {
   const { camera, gl, size, raycaster } = useThree();
   const [tiles, setTiles] = useState(null);
   const sessionRef = useRef(null);
   const stateRef = useRef({ tiles: null, timers: [], alive: true });
-  const cbRef = useRef({ onActive, onInactive, onParachute, quatRef });
+  const cbRef = useRef({ onActive, onInactive, onParachute, onTileSelect, quatRef });
   // Double-tap detection for touch devices (iOS Safari doesn't fire
   // onDoubleClick for touch). MUST be above the `if (!tiles) return null`
   // early return — React requires every hook to run on every render.
@@ -55,7 +55,7 @@ export default function GoogleEarthTiles({ onSelect, onActive, onInactive, onPar
   // Blue tap-highlight marker: shows where a single tap landed (fades after 800ms).
   const [tapSpot, setTapSpot] = useState(null);
   const tapTimerRef = useRef(null);
-  cbRef.current = { onActive, onInactive, onParachute, quatRef };
+  cbRef.current = { onActive, onInactive, onParachute, onTileSelect, quatRef };
 
   // Show a brief blue ring at the tapped 3D point for visual feedback.
   const flashTapSpot = (point) => {
@@ -264,7 +264,23 @@ export default function GoogleEarthTiles({ onSelect, onActive, onInactive, onPar
         const tileGroup = tiles?.group;
         if (tileGroup) {
           const hits = raycaster.intersectObject(tileGroup, true);
-          if (hits.length > 0) flashTapSpot(hits[0].point);
+          if (hits.length > 0) {
+            flashTapSpot(hits[0].point);
+            // Also notify parent of the selected tile lat/lon for the DROP button
+            const cb = cbRef.current;
+            if (cb.onTileSelect) {
+              const wp = hits[0].point.clone();
+              wp.x -= 0; wp.y -= -60; wp.z -= -120;
+              const q = cb.quatRef?.current;
+              if (q) wp.applyQuaternion(q.clone().invert());
+              const r = Math.hypot(wp.x, wp.y, wp.z) || 55;
+              const lat = 90 - (Math.acos(Math.max(-1, Math.min(1, wp.y / r))) * 180) / Math.PI;
+              let lon = (Math.atan2(wp.z, -wp.x) * 180) / Math.PI - 180;
+              while (lon > 180) lon -= 360;
+              while (lon < -180) lon += 360;
+              if (lat >= -85 && lat <= 85) cb.onTileSelect({ lat, lon });
+            }
+          }
         }
       } catch {}
     }
