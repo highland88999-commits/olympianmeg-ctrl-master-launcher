@@ -148,7 +148,8 @@ function NexusHub() {
   // to street level at that exact lat/lon. The character starts at
   // orbital scale and shrinks during the descent (lib/earth/parachute).
   const parachuteTo = ({ lat, lon }) => {
-    if (appState !== 'earth_surface' && appState !== 'hub_freeroam') return;
+    const allowed = ['hub_intro', 'hub_freeroam', 'earth_surface', 'earth_roam'];
+    if (!allowed.includes(appState)) return;
     fx.earthDive();
     setEarthFocus({ lat, lon, label: 'Parachute drop' });
     setSelectedTile(null); // clear selection after dropping
