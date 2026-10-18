@@ -1,35 +1,49 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { createScene, HOTSPOTS, SEASONS, ACCENT, timeLabel, timeString } from "./scene";
-import { IcSunrise, IcSun, IcSunset, IcMoon, IcWings, IcClose, IcMarker, IcSprout, IcSnowflake } from "@/app/artemis-ui/icons";
+import dynamic from "next/dynamic";
+import { HOTSPOTS, SEASONS, ACCENT } from "@/lib/aethelgard/data";
+import { timeLabel, timeString } from "./scene";
+import { IcSunrise, IcSun, IcSunset, IcMoon, IcWings, IcClose, IcMarker, IcSprout, IcSnowflake, IcRoute } from "@/app/artemis-ui/icons";
+
+// R3F scene loads client-side only (WebGL).
+const RainforestScene = dynamic(() => import("@/components/aethelgard/RainforestScene"), {
+  ssr: false,
+  loading: () => (
+    <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#7ddf9a", letterSpacing: 3, fontSize: 12 }}>
+      GROWING THE RAINFOREST…
+    </div>
+  ),
+});
 
 const PRESET_ICONS = [IcSunrise, IcSun, IcSunset, IcMoon];
-const SEASON_ICONS = [IcSprout, IcSun, IcSunset, IcSnowflake];
+// rainforest moods: WET, DRY, BLOOM, MIST
+const SEASON_ICONS = [IcSnowflake, IcSun, IcSprout, IcMoon];
 
 export default function AethelgardPage() {
-  const canvasRef = useRef(null);
-  const sceneRef = useRef(null);
+  const inputRef = useRef({ keys: { fwd: false, back: false, left: false, right: false, up: false, down: false } });
   const [time, setTime] = useState(0.32);
   const [season, setSeason] = useState(1);
-  const [fly, setFly] = useState(false);
+  const [mode, setMode] = useState("orbit"); // orbit | walk | fly
   const [hotspot, setHotspot] = useState(null);
+  const [focusReq, setFocusReq] = useState(null);
 
   useEffect(() => {
-    document.title = "Aethelgard — ARGUS Observatory";
-    const s = createScene(canvasRef.current, { onHotspot: setHotspot });
-    sceneRef.current = s;
-    return () => s.destroy();
+    document.title = "Aethelgard — Pocket Rainforest";
   }, []);
 
-  useEffect(() => { sceneRef.current && sceneRef.current.setTime(time); }, [time]);
-  useEffect(() => { sceneRef.current && sceneRef.current.setSeason(season); }, [season]);
-  useEffect(() => { sceneRef.current && sceneRef.current.setFly(fly); }, [fly]);
-
   function select(h) {
-    setHotspot(h);
-    if (h) sceneRef.current && sceneRef.current.focus(h);
-    else sceneRef.current && sceneRef.current.clearSelection();
+    setHotspot(h || null);
+    if (h) setFocusReq({ id: h.id, nonce: Date.now() });
+  }
+
+  function onMarker(id) {
+    const h = HOTSPOTS.find((x) => x.id === id) || null;
+    select(h);
+  }
+
+  function toggleMode(m) {
+    setMode((prev) => (prev === m ? "orbit" : m));
   }
 
   const presets = [["Dawn", 0.26], ["Day", 0.5], ["Dusk", 0.72], ["Night", 0.95]];
@@ -48,9 +62,7 @@ export default function AethelgardPage() {
         .argus h1 { margin: 4px 0 2px; font-size: clamp(1.6rem, 5vw, 2.6rem); letter-spacing: 6px; font-weight: 800; }
         .argus .sub { color: #a8b89a; font-size: 0.9rem; max-width: 60ch; }
         .argus .stage { position: relative; margin: 10px 16px 0; border: 1px solid #3a4432; border-radius: 14px; overflow: hidden; height: min(62dvh, 560px); min-height: 320px; background: #000; }
-        .argus canvas { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
-        .argus canvas:active { cursor: grabbing; }
-        .argus .panel { position: absolute; left: 12px; bottom: 12px; right: 12px; max-width: 430px;
+        .argus .panel { position: absolute; left: 12px; bottom: 12px; right: 12px; max-width: 430px; z-index: 5;
           background-image: linear-gradient(rgba(8,10,6,0.92), rgba(8,10,6,0.92)), url(/images/aethelgard/tile.webp);
           background-size: auto, 160px; border: 1px solid ${ACCENT}; border-radius: 10px; padding: 14px 16px; }
         .argus .panel h2 { margin: 0 0 6px; font-size: 1.05rem; letter-spacing: 2px; color: ${ACCENT}; }
@@ -67,13 +79,21 @@ export default function AethelgardPage() {
       `}</style>
 
       <header>
-        <div className="kicker">ARGUS // Observatory</div>
+        <div className="kicker">ARGUS // Pocket Universe</div>
         <h1>AETHELGARD</h1>
-        <div className="sub">A walled realm beneath the Old Forest. Drag to pan, scroll or pinch to zoom, tap a marker for intel.</div>
+        <div className="sub">A pocket rainforest universe. Drag to orbit, walk the forest floor, or fly the canopy — tap a marker for intel.</div>
       </header>
 
       <div className="stage">
-        <canvas ref={canvasRef} aria-label="Interactive panorama of Aethelgard" />
+        <RainforestScene
+          mode={mode}
+          timeOfDay={time}
+          seasonIdx={season}
+          inputRef={inputRef}
+          focusReq={focusReq}
+          onHotspot={onMarker}
+          activeId={hotspot ? hotspot.id : null}
+        />
         {hotspot && (
           <div className="panel" role="dialog" aria-label={hotspot.title}>
             <h2>{hotspot.title}</h2>
@@ -106,8 +126,11 @@ export default function AethelgardPage() {
             </button>
           );
         })}
-        <button className={fly ? "on" : ""} onClick={() => setFly(!fly)} aria-pressed={fly}>
-          <IcWings /><span>{fly ? "FLYTHROUGH ON" : "FLYTHROUGH"}</span>
+        <button className={mode === "walk" ? "on" : ""} onClick={() => toggleMode("walk")} aria-pressed={mode === "walk"}>
+          <IcRoute /><span>{mode === "walk" ? "WALKING" : "WALK"}</span>
+        </button>
+        <button className={mode === "fly" ? "on" : ""} onClick={() => toggleMode("fly")} aria-pressed={mode === "fly"}>
+          <IcWings /><span>{mode === "fly" ? "FLYING" : "FLY"}</span>
         </button>
       </div>
 
