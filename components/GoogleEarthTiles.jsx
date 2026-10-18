@@ -41,13 +41,13 @@ async function fetchSessionToken() {
   return data;
 }
 
-export default function GoogleEarthTiles({ onSelect, onActive, onInactive }) {
-  const { camera, gl, size } = useThree();
+export default function GoogleEarthTiles({ onSelect, onActive, onInactive, onParachute, quatRef }) {
+  const { camera, gl, size, raycaster } = useThree();
   const [tiles, setTiles] = useState(null);
   const sessionRef = useRef(null);
   const stateRef = useRef({ tiles: null, timers: [], alive: true });
-  const cbRef = useRef({ onActive, onInactive });
-  cbRef.current = { onActive, onInactive };
+  const cbRef = useRef({ onActive, onInactive, onParachute, quatRef });
+  cbRef.current = { onActive, onInactive, onParachute, quatRef };
 
   useEffect(() => {
     const st = stateRef.current;
@@ -176,8 +176,38 @@ export default function GoogleEarthTiles({ onSelect, onActive, onInactive }) {
   // Clicks pass through to the hub like the stylized globe's. Only onClick
   // is attached (no hover handlers) so the tile meshes are raycast on click
   // only, never on every pointer move.
+  //
+  // Double-click parachute: raycast the tile meshes, convert the hit
+  // point back to lat/lon, and hand it to the parent for the parachute
+  // dive. The tile group is ECEF meters (Z-up) scaled to hub units and
+  // rotated to Y-up, nested under NexusEarth's spin group at
+  // [0,-60,-120] with quatRef rotation.
+  const handleDoubleClick = (e) => {
+    e.stopPropagation();
+    const cb = cbRef.current;
+    if (!cb.onParachute) return;
+    const hit = e.intersections && e.intersections[0];
+    if (!hit) return;
+    // World → NexusEarth local: un-translate, un-rotate
+    const wp = hit.point.clone();
+    wp.x -= 0; wp.y -= -60; wp.z -= -120;
+    const q = cb.quatRef?.current;
+    if (q) wp.applyQuaternion(q.clone().invert());
+    // Globe-local Cartesian (55-unit Y-up sphere) → lat/lon.
+    // Inverse of latLonToVec3 (lib/geo.js).
+    const r = Math.hypot(wp.x, wp.y, wp.z) || 55;
+    const lat = 90 - (Math.acos(Math.max(-1, Math.min(1, wp.y / r))) * 180) / Math.PI;
+    let lon = (Math.atan2(wp.z, -wp.x) * 180) / Math.PI - 180;
+    while (lon > 180) lon -= 360;
+    while (lon < -180) lon += 360;
+    if (lat >= -85 && lat <= 85) cb.onParachute({ lat, lon });
+  };
+
   return (
-    <group onClick={(e) => { e.stopPropagation(); if (onSelect) onSelect(); }}>
+    <group
+      onClick={(e) => { e.stopPropagation(); if (onSelect) onSelect(); }}
+      onDoubleClick={handleDoubleClick}
+    >
       <primitive object={tiles.group} />
     </group>
   );

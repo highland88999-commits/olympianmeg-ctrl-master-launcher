@@ -7,6 +7,7 @@ import { roamState, tangentFrame, headingVector } from '@/lib/earth/roam';
 import { surfaceRadiusOrBase } from '@/lib/earth/heightmap';
 import { latLonToVec3 } from '@/lib/geo';
 import { DISPLAY_UNITS_PER_METRE } from '@/lib/earth/placements';
+import { parachuteState, getClimbAltM } from '@/lib/earth/parachute';
 
 // EarthWalker — the traveler's body at street level (campaign
 // Day 2). Mounted inside NexusEarth's spin group, so everything
@@ -55,8 +56,13 @@ export default function EarthWalker() {
       return;
     }
     rig.visible = true;
+    // Parachute scale: the avatar shrinks from orbital size (100x) to
+    // street size (1x) during the descent, grows back on reanimate.
+    rig.scale.setScalar(parachuteState.scale);
+    // Climb altitude: ladders and monument elevators lift the walker
+    const altU = getClimbAltM() * UPM;
     const r = surfaceRadiusOrBase(roamState.lat, roamState.lon);
-    const p = latLonToVec3(roamState.lat, roamState.lon, r);
+    const p = latLonToVec3(roamState.lat, roamState.lon, r + altU);
     rig.position.set(p.x, p.y, p.z);
     const frame = tangentFrame(roamState.lat, roamState.lon);
     const fwd = headingVector(frame, roamState.faceDeg);

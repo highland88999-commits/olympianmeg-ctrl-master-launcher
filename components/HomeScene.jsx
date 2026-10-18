@@ -605,6 +605,7 @@ function HubScene({
   pendingDest,
   arriveEarth,
   beginEarthDive,
+  onParachute,
   onLaunchExternal,
   onBikeDismount,
   onContextLost,
@@ -657,10 +658,12 @@ function HubScene({
           <SunBackground />
           <NexusEarth
             onSelect={appState === 'hub_freeroam' ? beginEarthDive : null}
+            onParachute={onParachute}
             quatRef={earthQuatRef}
             focus={earthFocus}
             phase={appState}
             spinEnabled={appState === 'hub_intro' || appState === 'hub_freeroam'}
+            controls={controlsRef}
           />
           <MarsBackground />
           <TextureProvider onLaunchExternal={onLaunchExternal} />

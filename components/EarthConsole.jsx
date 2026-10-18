@@ -2,6 +2,9 @@
 import { useEffect, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { searchPlaces, formatCoords } from '@/lib/geo';
+import { summonBike, dismissBike, bikeState } from '@/components/EarthBike';
+import { beginReanimate, isAtStreetScale, parachuteState } from '@/lib/earth/parachute';
+import { roamState } from '@/lib/earth/roam';
 
 const QUICK = [
   { label: 'Redwater, Alberta', lat: 53.9486, lon: -113.1067 },
@@ -18,6 +21,7 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
   const [input, setInput] = useState('');
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
+  const [bikeOut, setBikeOut] = useState(false);
   const [minimized, setMinimized] = useState(() => {
     try { return localStorage.getItem(MIN_KEY) === '1'; } catch { return false; }
   });
@@ -102,6 +106,10 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
               On foot — left thumb to walk, drag the right side to look around.
             </div>
           )}
+          {/* Parachute / climb / elevator hints */}
+          <div className="text-[10px] text-zinc-500 mt-1 leading-relaxed">
+            Double-click any tile to parachute down · Double-click ladders to climb · Double-click monuments for the elevator
+          </div>
         </div>
 
         <form onSubmit={submit} className="flex gap-2">
@@ -165,12 +173,31 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
           </button>
         )}
         {atStreet && (
-          <button
-            onClick={onAscend}
-            className="w-full py-2 text-[10px] font-bold tracking-[0.2em] uppercase text-zinc-300 border border-zinc-700 rounded hover:border-cyan-500/50 hover:text-white transition-all"
-          >
-            ↑ Back to overlook
-          </button>
+          <>
+            <button
+              onClick={onAscend}
+              className="w-full py-2 text-[10px] font-bold tracking-[0.2em] uppercase text-zinc-300 border border-zinc-700 rounded hover:border-cyan-500/50 hover:text-white transition-all"
+            >
+              ↑ Back to overlook
+            </button>
+            {/* Summonable TRON bike (B key) */}
+            <button
+              onClick={() => {
+                if (bikeOut) { dismissBike(); setBikeOut(false); }
+                else if (summonBike()) { setBikeOut(true); }
+              }}
+              className="w-full py-2 text-[10px] font-bold tracking-[0.2em] uppercase text-teal-200 border border-teal-600/60 bg-teal-950/50 rounded hover:border-teal-400 hover:text-white transition-all"
+            >
+              {bikeOut ? '✕ Dismiss bike' : '🏍 Summon bike'} <span className="text-zinc-500 normal-case tracking-normal">(B · E to ride)</span>
+            </button>
+            {/* Reanimate: grow back to orbital scale */}
+            <button
+              onClick={() => beginReanimate()}
+              className="w-full py-2 text-[10px] font-bold tracking-[0.2em] uppercase text-amber-200 border border-amber-600/60 bg-amber-950/50 rounded hover:border-amber-400 hover:text-white transition-all"
+            >
+              ✦ Reanimate <span className="text-zinc-500 normal-case tracking-normal">(grow to orbital size)</span>
+            </button>
+          </>
         )}
         {canWalk && spawns && spawns.length > 0 && (
           <div className="flex flex-col gap-1">

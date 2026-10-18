@@ -139,6 +139,17 @@ function NexusHub() {
     beginRoam(roamState, earthFocus.lat, earthFocus.lon, roamState.yawDeg || 0);
     setAppState('diving_to_street');
   };
+
+  // Double-click parachute: user double-clicks a tile → parachute down
+  // to street level at that exact lat/lon. The character starts at
+  // orbital scale and shrinks during the descent (lib/earth/parachute).
+  const parachuteTo = ({ lat, lon }) => {
+    if (appState !== 'earth_surface' && appState !== 'hub_freeroam') return;
+    fx.earthDive();
+    setEarthFocus({ lat, lon, label: 'Parachute drop' });
+    beginRoam(roamState, lat, lon, roamState.yawDeg || 0);
+    setAppState('diving_to_street');
+  };
   
   const pickSpawn = (dest) => {
     pendingRoamRef.current = true;
@@ -660,6 +671,7 @@ function NexusHub() {
         pendingDest={pendingDest}
         arriveEarth={arriveEarth}
         beginEarthDive={beginEarthDive}
+        onParachute={parachuteTo}
         onBikeDismount={handleBikeDismount}
         onLaunchExternal={(url, id) => {
           adWindowRef.current = window.open('', '_blank');

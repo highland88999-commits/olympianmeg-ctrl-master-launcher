@@ -72,7 +72,7 @@ const FRAGMENT_SHADER = /* glsl */ `
   }
 `;
 
-export default function ProceduralEarthGlobe({ onSelect }) {
+export default function ProceduralEarthGlobe({ onSelect, onParachute, quatRef }) {
   const [ready, setReady] = useState(null);
   const disposables = useRef([]);
 
@@ -153,6 +153,23 @@ export default function ProceduralEarthGlobe({ onSelect }) {
       onClick={(e) => {
         e.stopPropagation();
         if (onSelect) onSelect();
+      }}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        if (!onParachute) return;
+        const hit = e.intersections && e.intersections[0];
+        if (!hit) return;
+        // World → NexusEarth local → lat/lon (inverse of latLonToVec3)
+        const wp = hit.point.clone();
+        wp.y -= -60; wp.z -= -120;
+        const q = quatRef?.current;
+        if (q) wp.applyQuaternion(q.clone().invert());
+        const r = Math.hypot(wp.x, wp.y, wp.z) || 55;
+        const lat = 90 - (Math.acos(Math.max(-1, Math.min(1, wp.y / r))) * 180) / Math.PI;
+        let lon = (Math.atan2(wp.z, -wp.x) * 180) / Math.PI - 180;
+        while (lon > 180) lon -= 360;
+        while (lon < -180) lon += 360;
+        if (lat >= -85 && lat <= 85) onParachute({ lat, lon });
       }}
       onPointerOver={(e) => {
         e.stopPropagation();

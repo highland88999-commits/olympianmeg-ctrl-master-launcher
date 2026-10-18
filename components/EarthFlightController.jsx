@@ -16,6 +16,15 @@ import {
   loadHeightData,
   surfaceRadiusOrBase,
 } from '@/lib/earth/heightmap';
+import {
+  parachuteState,
+  beginParachuteDive,
+  stepParachute,
+  resetParachute,
+  stepClimb,
+  getClimbAltM,
+} from '@/lib/earth/parachute';
+import { DISPLAY_UNITS_PER_METRE } from '@/lib/earth/placements';
 
 export const EARTH_CENTER = new THREE.Vector3(0, -60, -120);
 const HUB_HOME = new THREE.Vector3(0, 75, 20);
@@ -48,16 +57,35 @@ export default function EarthFlightController({
   // The street rig in world space: globe-local rig points rotated
   // by the shared planet quaternion and centred on EARTH_CENTER —
   // the same transform the dive math has always used.
+  //
+  // Parachute/reanimate scaling: when the character is scaled (diving
+  // from orbital size or reanimating back), the camera offsets scale
+  // in lockstep so the relative framing stays identical. The climb
+  // altitude (ladders/elevators) lifts the whole rig along the normal.
   const streetRigWorld = () => {
     const hd = getHeightData();
     const rig = cameraRig(roamState, hd ? hd.data : null, hd ? hd.w : 0, hd ? hd.h : 0);
     const q = quatRef.current;
     const toWorld = (p) => new THREE.Vector3(p.x, p.y, p.z).applyQuaternion(q).add(EARTH_CENTER);
+
+    const scale = parachuteState.scale;
+    const altU = getClimbAltM() * DISPLAY_UNITS_PER_METRE;
+    const n = new THREE.Vector3(rig.normal.x, rig.normal.y, rig.normal.z);
+    const ground = new THREE.Vector3(rig.ground.x, rig.ground.y, rig.ground.z);
+
+    // Scale camera offsets from the ground point, then lift by climb altitude
+    const scaleFromGround = (p) => {
+      const v = new THREE.Vector3(p.x, p.y, p.z).sub(ground).multiplyScalar(scale).add(ground);
+      v.addScaledVector(n, altU);
+      return v;
+    };
+    const groundLifted = ground.clone().addScaledVector(n, altU);
+
     return {
       rig,
-      camPos: toWorld(rig.camPos),
-      look: toWorld(rig.lookTarget),
-      ground: toWorld(rig.ground),
+      camPos: toWorld(scaleFromGround(rig.camPos)),
+      look: toWorld(scaleFromGround(rig.lookTarget)),
+      ground: toWorld(groundLifted),
       up: new THREE.Vector3(rig.normal.x, rig.normal.y, rig.normal.z).applyQuaternion(q),
     };
   };
@@ -125,6 +153,8 @@ export default function EarthFlightController({
           beginRoam(roamState, focus.lat, focus.lon, roamState.yawDeg || 0);
         }
         loadHeightData();
+        // Parachute: character starts at orbital scale, shrinks to street size
+        beginParachuteDive();
         streetDive.current = {
           t: 0,
           dur: 3.2,
@@ -135,6 +165,8 @@ export default function EarthFlightController({
       const dv = streetDive.current;
       dv.t += delta / dv.dur;
       const k = easeInOutCubic(Math.min(dv.t, 1));
+      // Step the parachute scale in lockstep with the camera dive
+      stepParachute(delta, dv.dur);
       const { rig, camPos, look, up } = streetRigWorld();
       camera.position.lerpVectors(dv.fromPos, camPos, k);
       camera.quaternion.slerpQuaternions(
@@ -153,6 +185,13 @@ export default function EarthFlightController({
       }
     } else if (launchState === 'earth_roam' && quatRef.current) {
       const c = controls.current;
+      // Reanimate: grow the character back to orbital scale (1 → 100),
+      // camera scaling up in lockstep via streetRigWorld.
+      if (parachuteState.mode === 'reanimating') {
+        stepParachute(delta, 2.5);
+      }
+      // Climb: ladders and monument elevators (altitude in metres)
+      stepClimb(delta);
       // Look: the page's right-side drag, in compass terms (drag
       // right turns right, drag down pitches the view down — the
       // hub's own drag feel, mapped onto the orbit rig).

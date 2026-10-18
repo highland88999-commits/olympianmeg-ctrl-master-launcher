@@ -7,6 +7,9 @@ import GoogleEarthTiles from '@/components/GoogleEarthTiles';
 import ProceduralEarthGlobe from '@/components/ProceduralEarthGlobe';
 import EarthAssets from '@/components/EarthAssets';
 import EarthWalker from '@/components/EarthWalker';
+import EarthLadders from '@/components/EarthLadders';
+import MonumentElevator from '@/components/MonumentElevator';
+import EarthBike from '@/components/EarthBike';
 import StreetGroundPatch, { StreetFillLight } from '@/components/StreetGroundPatch';
 import { LENS_PRESETS, LENS_LIFT, lensTilePlan, buildLensGeometryData } from '@/lib/earth/lens';
 import { HUB_UNITS_PER_DEGREE } from '@/lib/earth/placements';
@@ -36,7 +39,7 @@ import { roamState } from '@/lib/earth/roam';
 //   carries the placed world — so roaming forces the terrain layer
 //   and mounts the embodied traveler (EarthWalker).
 // - A small badge names the active layer in plain English.
-export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnabled }) {
+export default function NexusEarth({ onSelect, onParachute, quatRef, focus, phase, spinEnabled, controls }) {
   const spinRef = useRef();
   const lensMatRef = useRef();
   const lensRef = useRef(null); // { tex, geo } awaiting disposal
@@ -192,13 +195,20 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
         <group visible={!roaming}>
           <GoogleEarthTiles
             onSelect={onSelect}
+            onParachute={onParachute}
+            quatRef={quatRef}
             onActive={() => setLayer('photorealistic')}
             onInactive={() => setLayer('terrain')}
           />
         </group>
-        {effectiveLayer === 'terrain' && <ProceduralEarthGlobe onSelect={onSelect} />}
+        {effectiveLayer === 'terrain' && <ProceduralEarthGlobe onSelect={onSelect} onParachute={onParachute} quatRef={quatRef} />}
         {effectiveLayer === 'terrain' && <EarthAssets />}
         {effectiveLayer === 'terrain' && <EarthWalker />}
+        {/* Climbable ladders on structures, monument elevators — street only */}
+        {effectiveLayer === 'terrain' && roaming && <EarthLadders visible={roaming} />}
+        {effectiveLayer === 'terrain' && roaming && <MonumentElevator visible={roaming} />}
+        {/* Summonable TRON bike — street only */}
+        {effectiveLayer === 'terrain' && roaming && <EarthBike controls={controls} />}
 
         {effectiveLayer === 'terrain' && lens && (
           <mesh geometry={lens.geo} renderOrder={3}>
