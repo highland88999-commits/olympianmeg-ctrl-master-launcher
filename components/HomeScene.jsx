@@ -710,7 +710,7 @@ function HubScene({
         />
 
         <EffectComposer>
-          <Bloom luminanceThreshold={0.4} luminanceSmoothing={0.2} intensity={1.5} />
+          <Bloom luminanceThreshold={0.65} luminanceSmoothing={0.2} intensity={0.8} />
         </EffectComposer>
       </Canvas>
   );

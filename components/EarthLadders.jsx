@@ -35,6 +35,9 @@ function climbableStructures() {
 
 function LadderMesh({ asset, onClimb }) {
   const groupRef = useRef();
+  // Double-tap detection for touch (iOS doesn't fire onDoubleClick).
+  // MUST be above any early return — React hooks order.
+  const tapRef = useRef({ time: 0, x: 0, y: 0 });
   const { lat, lon } = asset.placement;
   const heightM = asset.scaleM || 10;
   const heightU = heightM * UPM;
@@ -73,6 +76,21 @@ function LadderMesh({ asset, onClimb }) {
       onDoubleClick={(e) => {
         e.stopPropagation();
         if (roamState.active && onClimb) onClimb(asset);
+      }}
+      onPointerDown={(e) => {
+        // Touch double-tap → climb (iOS Safari doesn't fire onDoubleClick)
+        if (e.pointerType && e.pointerType !== 'touch') return;
+        const now = performance.now();
+        const last = tapRef.current;
+        const cx = e.nativeEvent?.clientX ?? 0;
+        const cy = e.nativeEvent?.clientY ?? 0;
+        if (now - last.time < 350 && Math.hypot(cx - last.x, cy - last.y) < 40) {
+          tapRef.current = { time: 0, x: 0, y: 0 };
+          e.stopPropagation();
+          if (roamState.active && onClimb) onClimb(asset);
+        } else {
+          tapRef.current = { time: now, x: cx, y: cy };
+        }
       }}
     >
       {/* Rails */}
