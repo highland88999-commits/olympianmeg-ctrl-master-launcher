@@ -27,7 +27,7 @@ import { dismountPosition } from '../lib/rider-state';
 import SeasonalDecor, { SeasonBadge, SeasonToast, TrophyOverlay } from './SeasonalDecor';
 import { applyCoverFit } from '../lib/texture-fit';
 import { GOD_TOWER_SPOTS } from '../lib/home-positions';
-import { probeWebGL } from '../lib/webgl-support';
+import { probeWebGL, resetWebGLProbeCache } from '../lib/webgl-support';
 import { panelsForTower } from '../lib/tower-panels';
 import GodTower from './GodTower';
 
@@ -793,9 +793,12 @@ class SceneErrorBoundary extends Component {
 // The dark shell + notice shown in place of the 3D scene. Purely visual
 // (inherits the wrapper's pointer-events-none), so nothing on the page
 // becomes unclickable because of it. Styled to match global-error.jsx.
-function ThreeDUnavailableNotice() {
+// Includes a retry button: iOS Safari sometimes fails the WebGL probe
+// transiently (GPU process pressure, context limit), and a re-probe
+// after a moment often succeeds.
+function ThreeDUnavailableNotice({ onRetry }) {
   return (
-    <div className="absolute inset-0 bg-[#050505] flex items-center justify-center" role="status">
+    <div className="absolute inset-0 bg-[#050505] flex items-center justify-center pointer-events-auto" role="status">
       <div className="text-center px-6 max-w-md">
         <div className="text-[0.7rem] tracking-[0.3em] text-cyan-300 mb-4">NEXUS VORTEX</div>
         <h2 className="text-zinc-100 text-xl font-extrabold mb-3">3D is unavailable on this device</h2>
@@ -805,6 +808,17 @@ function ThreeDUnavailableNotice() {
         </p>
         <p className="text-xs text-zinc-500 leading-relaxed mt-3">
           A current browser with hardware acceleration enabled brings the 3D hub back.
+        </p>
+        {onRetry && (
+          <button
+            onClick={onRetry}
+            className="mt-6 px-6 py-3 rounded-full bg-cyan-500/20 border border-cyan-400/50 text-cyan-200 text-sm font-semibold tracking-wide hover:bg-cyan-500/30 active:scale-95 transition-all"
+          >
+            Try 3D Again
+          </button>
+        )}
+        <p className="text-[11px] text-zinc-600 leading-relaxed mt-4">
+          Tip: close other browser tabs, turn off Low Power Mode, and make sure you&apos;re not in Private Browsing.
         </p>
       </div>
     </div>
@@ -823,9 +837,26 @@ export default function HomeScene(props) {
   const { radioSheetOpen, ...sceneProps } = props;
 
   // Pre-flight probe, once, before the Canvas ever mounts.
-  const [webglOk] = useState(() => probeWebGL());
+  const [webglOk, setWebglOk] = useState(() => probeWebGL());
   const [contextLost, setContextLost] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
   const reportedRef = useRef(false);
+
+  // Retry the WebGL probe (iOS Safari transient failures). Reset the
+  // memoized verdict, wait a beat for the GPU process to settle, re-probe.
+  const retryWebGL = () => {
+    resetWebGLProbeCache();
+    // Small delay lets Safari's GPU process recover from pressure.
+    setTimeout(() => {
+      const ok = probeWebGL();
+      setRetryCount((c) => c + 1);
+      setWebglOk(ok);
+      if (ok) {
+        setContextLost(false);
+        reportedRef.current = false;
+      }
+    }, 800);
+  };
 
   useEffect(() => {
     if (!webglOk && !reportedRef.current) {
@@ -847,9 +878,9 @@ export default function HomeScene(props) {
   return (
     <div className="absolute inset-0 pointer-events-none">
       {unavailable ? (
-        <ThreeDUnavailableNotice />
+        <ThreeDUnavailableNotice onRetry={retryWebGL} />
       ) : (
-        <SceneErrorBoundary fallback={<ThreeDUnavailableNotice />}>
+        <SceneErrorBoundary fallback={<ThreeDUnavailableNotice onRetry={retryWebGL} />}>
           <HubScene {...sceneProps} onContextLost={handleContextLost} />
         </SceneErrorBoundary>
       )}
