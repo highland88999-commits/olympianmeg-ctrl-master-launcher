@@ -8,7 +8,7 @@ import { latLonToVec3 } from '@/lib/geo';
 import { surfaceRadiusOrBase } from '@/lib/earth/heightmap';
 import { DISPLAY_UNITS_PER_METRE } from '@/lib/earth/placements';
 import { roamState, tangentFrame, headingVector } from '@/lib/earth/roam';
-import { bikeState } from '@/lib/earth/parachute';
+import { bikeState, parachuteState } from '@/lib/earth/parachute';
 
 // EarthBike — summonable TRON Wisp bike for hub Earth street view.
 //
@@ -192,9 +192,11 @@ export default function EarthBike({ controls }) {
     }
 
     // --- Position the bike mesh on the globe ---
-    // Ground collision: radius is surface + altitude, never below surface
+    // Ground collision: radius is surface + altitude, never below surface.
+    // Altitude scales with the walker (Ant-Man): at 0.05x the hover is tiny too.
     const surfR = surfaceRadiusOrBase(bikeState.lat, bikeState.lon);
-    const r = surfR + Math.max(HOVER_MIN_M, bikeState.altM) * UPM;
+    const scaledAltM = Math.max(HOVER_MIN_M, bikeState.altM) * parachuteState.scale;
+    const r = surfR + scaledAltM * UPM;
     const p = latLonToVec3(bikeState.lat, bikeState.lon, r);
     g.position.set(p.x, p.y, p.z);
 
@@ -212,6 +214,9 @@ export default function EarthBike({ controls }) {
     const c = controls?.current || {};
     const turn = (c.moveX || 0) + ((c.keyD ? 1 : 0) - (c.keyA ? 1 : 0));
     g.rotateZ(-turn * 0.25);
+
+    // Scale with the walker (Ant-Man): bike shrinks/grows in lockstep
+    g.scale.setScalar(parachuteState.scale);
   });
 
   return (
