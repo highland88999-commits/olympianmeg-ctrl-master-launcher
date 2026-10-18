@@ -58,8 +58,8 @@ export default function EarthFlightController({
   // by the shared planet quaternion and centred on EARTH_CENTER —
   // the same transform the dive math has always used.
   //
-  // Parachute/reanimate scaling: when the character is scaled (diving
-  // from orbital size or reanimating back), the camera offsets scale
+  // Shrink/reanimate scaling: when the character is scaled (shrinking
+  // into the tile or reanimating back), the camera offsets scale
   // in lockstep so the relative framing stays identical. The climb
   // altitude (ladders/elevators) lifts the whole rig along the normal.
   const streetRigWorld = () => {
@@ -153,7 +153,7 @@ export default function EarthFlightController({
           beginRoam(roamState, focus.lat, focus.lon, roamState.yawDeg || 0);
         }
         loadHeightData();
-        // Parachute: character starts at orbital scale, shrinks to street size
+        // Shrink: character starts at normal size, shrinks into the tile
         beginParachuteDive();
         streetDive.current = {
           t: 0,
@@ -185,7 +185,7 @@ export default function EarthFlightController({
       }
     } else if (launchState === 'earth_roam' && quatRef.current) {
       const c = controls.current;
-      // Reanimate: grow the character back to orbital scale (1 → 100),
+      // Reanimate: grow the character back to normal size (0.05 → 1),
       // camera scaling up in lockstep via streetRigWorld.
       if (parachuteState.mode === 'reanimating') {
         stepParachute(delta, 2.5);
