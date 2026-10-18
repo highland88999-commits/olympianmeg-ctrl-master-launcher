@@ -774,18 +774,30 @@ function reportSceneFallback(error) {
 class SceneErrorBoundary extends Component {
   constructor(props) {
     super(props);
-    this.state = { failed: false };
+    this.state = { failed: false, errorMessage: '' };
   }
 
-  static getDerivedStateFromError() {
-    return { failed: true };
+  static getDerivedStateFromError(error) {
+    return { failed: true, errorMessage: String((error && error.message) || error || '').slice(0, 300) };
   }
 
   componentDidCatch(error) {
     reportSceneFallback(error);
+    // Store the error message so the fallback UI can display it
+    if (this.props.onError) {
+      try { this.props.onError(String((error && error.message) || error || '').slice(0, 300)); } catch {}
+    }
   }
 
   render() {
+    if (this.state.failed && this.props.fallback) {
+      // Clone the fallback element to inject the error message
+      const { fallback } = this.props;
+      if (fallback && fallback.props) {
+        return { ...fallback, props: { ...fallback.props, threeError: this.state.errorMessage } };
+      }
+      return fallback;
+    }
     return this.state.failed ? this.props.fallback : this.props.children;
   }
 }
@@ -796,7 +808,7 @@ class SceneErrorBoundary extends Component {
 // Includes a retry button: iOS Safari sometimes fails the WebGL probe
 // transiently (GPU process pressure, context limit), and a re-probe
 // after a moment often succeeds.
-function ThreeDUnavailableNotice({ onRetry, diagnosis }) {
+function ThreeDUnavailableNotice({ onRetry, diagnosis, threeError }) {
   return (
     <div className="absolute inset-0 bg-[#050505] flex items-center justify-center pointer-events-auto" role="status">
       <div className="text-center px-6 max-w-md">
@@ -809,6 +821,11 @@ function ThreeDUnavailableNotice({ onRetry, diagnosis }) {
         {diagnosis && diagnosis.detail && (
           <p className="text-xs text-zinc-500 leading-relaxed mt-3 font-mono">
             {diagnosis.detail}
+          </p>
+        )}
+        {threeError && (
+          <p className="text-xs text-red-400/80 leading-relaxed mt-2 font-mono break-words">
+            3D error: {threeError}
           </p>
         )}
         {onRetry && (
