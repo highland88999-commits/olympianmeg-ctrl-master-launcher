@@ -203,10 +203,35 @@ export default function GoogleEarthTiles({ onSelect, onActive, onInactive, onPar
     if (lat >= -85 && lat <= 85) cb.onParachute({ lat, lon });
   };
 
+  // Double-tap detection for touch devices (iOS Safari doesn't fire
+  // onDoubleClick for touch). Track last tap time/position; two taps
+  // within 350ms and 40px = double-tap.
+  const lastTapRef = useRef({ time: 0, x: 0, y: 0 });
+
+  const handlePointerDown = (e) => {
+    // Only for touch pointers; mouse uses onDoubleClick
+    if (e.pointerType && e.pointerType !== 'touch') return;
+    const now = performance.now();
+    const last = lastTapRef.current;
+    const dt = now - last.time;
+    // e.nativeEvent gives us clientX/Y for position proximity check
+    const cx = e.nativeEvent?.clientX ?? 0;
+    const cy = e.nativeEvent?.clientY ?? 0;
+    const dist = Math.hypot(cx - last.x, cy - last.y);
+    if (dt < 350 && dist < 40) {
+      // Double-tap! Trigger the parachute with this event's hit data.
+      lastTapRef.current = { time: 0, x: 0, y: 0 }; // reset
+      handleDoubleClick(e);
+    } else {
+      lastTapRef.current = { time: now, x: cx, y: cy };
+    }
+  };
+
   return (
     <group
       onClick={(e) => { e.stopPropagation(); if (onSelect) onSelect(); }}
       onDoubleClick={handleDoubleClick}
+      onPointerDown={handlePointerDown}
     >
       <primitive object={tiles.group} />
     </group>

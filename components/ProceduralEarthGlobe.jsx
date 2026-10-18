@@ -75,6 +75,7 @@ const FRAGMENT_SHADER = /* glsl */ `
 export default function ProceduralEarthGlobe({ onSelect, onParachute, quatRef }) {
   const [ready, setReady] = useState(null);
   const disposables = useRef([]);
+  const doubleTapRef = useRef({ time: 0, x: 0, y: 0 });
 
   useEffect(() => {
     let alive = true;
@@ -170,6 +171,34 @@ export default function ProceduralEarthGlobe({ onSelect, onParachute, quatRef })
         while (lon > 180) lon -= 360;
         while (lon < -180) lon += 360;
         if (lat >= -85 && lat <= 85) onParachute({ lat, lon });
+      }}
+      onPointerDown={(e) => {
+        // Double-tap for touch devices (iOS doesn't fire onDoubleClick)
+        if (e.pointerType && e.pointerType !== 'touch') return;
+        const now = performance.now();
+        const last = doubleTapRef.current;
+        const cx = e.nativeEvent?.clientX ?? 0;
+        const cy = e.nativeEvent?.clientY ?? 0;
+        if (now - last.time < 350 && Math.hypot(cx - last.x, cy - last.y) < 40) {
+          doubleTapRef.current = { time: 0, x: 0, y: 0 };
+          // Reuse the double-click handler logic
+          e.stopPropagation();
+          if (!onParachute) return;
+          const hit = e.intersections && e.intersections[0];
+          if (!hit) return;
+          const wp = hit.point.clone();
+          wp.y -= -60; wp.z -= -120;
+          const q = quatRef?.current;
+          if (q) wp.applyQuaternion(q.clone().invert());
+          const r = Math.hypot(wp.x, wp.y, wp.z) || 55;
+          const lat = 90 - (Math.acos(Math.max(-1, Math.min(1, wp.y / r))) * 180) / Math.PI;
+          let lon = (Math.atan2(wp.z, -wp.x) * 180) / Math.PI - 180;
+          while (lon > 180) lon -= 360;
+          while (lon < -180) lon += 360;
+          if (lat >= -85 && lat <= 85) onParachute({ lat, lon });
+        } else {
+          doubleTapRef.current = { time: now, x: cx, y: cy };
+        }
       }}
       onPointerOver={(e) => {
         e.stopPropagation();
