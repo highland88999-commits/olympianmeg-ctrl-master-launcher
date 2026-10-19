@@ -97,7 +97,7 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
           {busy && (
             <div className="text-[10px] text-cyan-400 mt-1 animate-pulse">
               {phase === 'earth_travel' ? t('earth.traveling')
-                : phase === 'diving_to_street' ? 'Descending to street level…'
+                : phase === 'diving_to_street' ? 'Shrinking into tile world…'
                 : t('earth.locating')}
             </div>
           )}
@@ -195,7 +195,7 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
               onClick={() => beginReanimate()}
               className="w-full py-2 text-[10px] font-bold tracking-[0.2em] uppercase text-amber-200 border border-amber-600/60 bg-amber-950/50 rounded hover:border-amber-400 hover:text-white transition-all"
             >
-              ✦ Reanimate <span className="text-zinc-500 normal-case tracking-normal">(grow to orbital size)</span>
+              ✦ Reanimate <span className="text-zinc-500 normal-case tracking-normal">(grow to normal size)</span>
             </button>
             {/* DROP: parachute to the tapped tile */}
             {selectedTile && onDropToTile && (
@@ -203,7 +203,7 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
                 onClick={() => onDropToTile(selectedTile)}
                 className="w-full py-2.5 text-[11px] font-bold tracking-[0.2em] uppercase text-white border border-cyan-400 bg-cyan-600/40 rounded hover:bg-cyan-500 hover:border-cyan-300 transition-all animate-pulse"
               >
-                🪂 DROP HERE <span className="text-cyan-200 normal-case tracking-normal">({selectedTile.lat.toFixed(2)}°, {selectedTile.lon.toFixed(2)}°)</span>
+                🔬 SHRINK HERE <span className="text-cyan-200 normal-case tracking-normal">({selectedTile.lat.toFixed(2)}°, {selectedTile.lon.toFixed(2)}°)</span>
               </button>
             )}
           </>
@@ -219,7 +219,7 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
                   key={s.id}
                   disabled={busy}
                   onClick={() => onSpawnPick({ lat: s.lat, lon: s.lon, label: s.name })}
-                  className="text-left text-[11px] px-2 py-1.5 rounded bg-zinc-900/60 hover:bg-cyan-950/60 border border-zinc-800 hover:border-cyan-500/40 transition-all truncate disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="text-left text-[12px] px-2 py-1.5 rounded bg-zinc-900/60 hover:bg-cyan-950/60 border border-zinc-800 hover:border-cyan-500/40 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <span aria-hidden="true" className="text-cyan-500 mr-1">→</span>
                   {s.name} <span className="text-zinc-500">· {formatCoords(s.lat, s.lon)}</span>

@@ -1,7 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import GoogleEarthTiles from '@/components/GoogleEarthTiles';
 import ProceduralEarthGlobe from '@/components/ProceduralEarthGlobe';
@@ -257,13 +256,6 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
           `}
         />
       </mesh>
-
-      {/* Honest layer badge: names what is actually rendering, in plain English. */}
-      <Html position={[0, 64, 0]} center zIndexRange={[30, 0]} style={{ pointerEvents: 'none' }}>
-        <div className="pointer-events-none select-none whitespace-nowrap rounded-full bg-black/55 px-2.5 py-1 text-[10px] font-medium tracking-wide text-white/90 backdrop-blur-sm">
-          {effectiveLayer === 'photorealistic' ? 'Photorealistic · Google' : 'Terrain · 3D'}
-        </div>
-      </Html>
     </group>
   );
 }

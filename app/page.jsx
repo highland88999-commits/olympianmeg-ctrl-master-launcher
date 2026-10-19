@@ -24,6 +24,7 @@ import CharacterPicker from '@/components/characters/CharacterPicker';
 import { getEmbodimentForSurface } from '@/lib/gta/walker-embodiment';
 import { getUserPosition, FALLBACK_POSITION } from '@/lib/geo';
 import { roamState, beginRoam, endRoam, landmarkSpawns } from '@/lib/earth/roam';
+import { beginParachuteDive } from '@/lib/earth/parachute';
 import { fx, unlockFx } from '@/lib/fx';
 import { shadowRealmUrl } from '@/app/shadow-realm/launch';
 import { useTilt } from '@/lib/use-tilt';
@@ -151,9 +152,10 @@ function NexusHub() {
     const allowed = ['hub_intro', 'hub_freeroam', 'earth_surface', 'earth_roam'];
     if (!allowed.includes(appState)) return;
     fx.earthDive();
-    setEarthFocus({ lat, lon, label: 'Parachute drop' });
+    setEarthFocus({ lat, lon, label: 'Shrink into tile' });
     setSelectedTile(null); // clear selection after dropping
     beginRoam(roamState, lat, lon, roamState.yawDeg || 0);
+    beginParachuteDive(); // start the 1x → 0.05x shrink animation
     setAppState('diving_to_street');
   };
 
@@ -695,7 +697,7 @@ function NexusHub() {
         arriveEarth={arriveEarth}
         beginEarthDive={beginEarthDive}
         onParachute={parachuteTo}
-        onTileSelect={handleTileSelect}
+        onTileSelect={appState === 'earth_surface' ? handleTileSelect : null}
         onBikeDismount={handleBikeDismount}
         onLaunchExternal={(url, id) => {
           adWindowRef.current = window.open('', '_blank');

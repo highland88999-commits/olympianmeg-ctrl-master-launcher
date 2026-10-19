@@ -149,8 +149,8 @@ function SunBackground() {
 
       <directionalLight 
         position={[0, 90, 250]} 
-        color="#ffffff" 
-        intensity={1.5} 
+        color="#fff5e6" 
+        intensity={1.0} 
         target-position={[0, -60, -120]} 
         castShadow 
         shadow-mapSize={[2048, 2048]} 

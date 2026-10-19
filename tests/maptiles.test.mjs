@@ -177,8 +177,8 @@ t('earth only claims photorealistic after tiles render', /onActive=\{[^}]*'photo
 t('earth falls back to terrain on tile failure', /onInactive=\{[^}]*'terrain'/.test(nexus));
 t('earth keeps the ESRI lens as fallback', /lensTilePlan/.test(nexus) && /CanvasTexture/.test(nexus));
 t('earth hides the lens while photorealistic', /effectiveLayer === 'terrain' && lens/.test(nexus));
-t('earth labels the layers in plain English',
-  /Photorealistic/.test(nexus) && /Terrain/.test(nexus));
+t('earth does not render debug layer badges in 3D space',
+  !/Terrain.*3D/.test(nexus) && !/Photorealistic.*Google/.test(nexus));
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
