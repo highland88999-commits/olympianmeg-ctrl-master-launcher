@@ -9,6 +9,7 @@ import {
   HUB_UNITS_PER_DEGREE,
 } from '@/lib/earth/placements';
 import { loadHeightData } from '@/lib/earth/heightmap';
+import { publishColliders } from '@/lib/earth/collision';
 
 // EarthAssets — the generated-asset layer for the fallback terrain
 // globe (TERRAFORM_PLAN.md §6). Renders the Tripo-generated Earth
@@ -142,6 +143,37 @@ export default function EarthAssets() {
             exclusions: mode === 'instanced-scatter' ? EXCLUSIONS : null,
           });
           if (!placements.length) continue;
+          // Publish colliders for solid objects (trees, rocks, structures).
+          // Scatter instances get small trunk/base radii; singles are
+          // already covered by buildColliders() but we include them for
+          // the exact rendered positions.
+          if (mode !== 'single') {
+            const cat = asset.category || 'prop';
+            // Only solid categories: vegetation (trees), terrain (rocks),
+            // buildings, landmarks, props. Grass tufts and small plants
+            // are pass-through (radius 0).
+            const isSolid =
+              cat === 'building' ||
+              cat === 'landmark' ||
+              cat === 'prop' ||
+              (cat === 'vegetation' && (asset.scaleM || 0) > 1.5) ||
+              (cat === 'terrain' && (asset.scaleM || 0) > 1.0);
+            if (isSolid) {
+              const radiusM =
+                cat === 'vegetation'
+                  ? 0.6 // tree trunk
+                  : Math.max((asset.scaleM || 2) / 4, 0.8);
+              const batch = placements.map((p) => ({
+                lat: p.lat,
+                lon: p.lon,
+                radiusM,
+                id: asset.id,
+                category: cat,
+                name: asset.name || asset.id,
+              }));
+              publishColliders(batch);
+            }
+          }
           let gltf;
           try {
             gltf = await loader.loadAsync(asset.glbUrl);

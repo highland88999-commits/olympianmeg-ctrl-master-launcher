@@ -226,6 +226,7 @@ export default function ProceduralEarthGlobe({ onSelect, onParachute, onTileSele
         uniforms={ready.uniforms}
         vertexShader={VERTEX_SHADER}
         fragmentShader={FRAGMENT_SHADER}
+        side={THREE.DoubleSide}
       />
     </mesh>
   );

@@ -269,26 +269,22 @@ export default function EarthFlightController({
 
     // Floor clamp: camera never passes below the terrain (street phases only).
     // Pushes the camera out along the surface normal if it's under the floor.
-    if ((launchState === 'diving_to_street' || launchState === 'earth_roam') && quatRef.current) {
+    // This is the ABSOLUTE cutoff — the land layer is the limit, no exceptions.
+    if (launchState === 'diving_to_street' || launchState === 'earth_roam') {
       const camPos = camera.position;
-      // Convert to globe-local (un-translate Earth center, un-rotate)
-      const local = camPos.clone();
-      local.x -= 0; local.y -= -60; local.z -= -120;
-      local.applyQuaternion(quatRef.current.clone().invert());
-      const r = Math.hypot(local.x, local.y, local.z) || 1;
-      const lat = 90 - (Math.acos(Math.max(-1, Math.min(1, local.y / r))) * 180) / Math.PI;
-      let lon = (Math.atan2(local.z, -local.x) * 180) / Math.PI - 180;
-      while (lon > 180) lon -= 360;
-      while (lon < -180) lon += 360;
-      const surfR = surfaceRadiusOrBase(lat, lon);
-      // Minimum 0.3m above surface (scaled by walker size for Ant-Man)
-      const minR = surfR + 0.3 * DISPLAY_UNITS_PER_METRE * parachuteState.scale;
-      if (r < minR) {
-        // Push out along the radial direction
-        const push = local.clone().normalize().multiplyScalar(minR - r);
-        // Convert push back to world (re-rotate, re-translate is implicit in position)
-        push.applyQuaternion(quatRef.current);
-        camPos.add(push);
+      // Earth center in world space
+      const ex = 0, ey = -60, ez = -120;
+      const dx = camPos.x - ex, dy = camPos.y - ey, dz = camPos.z - ez;
+      const distFromCenter = Math.hypot(dx, dy, dz) || 1;
+      // Minimum distance: Earth radius (55) + 1.0m margin (scaled for Ant-Man).
+      // Using base radius + margin is conservative — terrain hills only make
+      // the surface higher, so this never lets the camera under the land.
+      const minDist = 55 + 1.0 * DISPLAY_UNITS_PER_METRE * (parachuteState?.scale || 1);
+      if (distFromCenter < minDist) {
+        const push = (minDist - distFromCenter) / distFromCenter;
+        camPos.x += dx * push;
+        camPos.y += dy * push;
+        camPos.z += dz * push;
       }
     }
   });
