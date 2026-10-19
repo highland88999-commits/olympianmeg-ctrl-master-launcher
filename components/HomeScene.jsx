@@ -150,7 +150,7 @@ function SunBackground() {
       <directionalLight 
         position={[0, 90, 250]} 
         color="#fff5e6" 
-        intensity={1.0} 
+        intensity={0.85} 
         target-position={[0, -60, -120]} 
         castShadow 
         shadow-mapSize={[2048, 2048]} 
@@ -676,7 +676,8 @@ function HubScene({
           {/* The Moon, the asteroid belt, and the waypoint beacons */}
           <HubMoon />
           <AsteroidField />
-          <NavBeacons />
+          {/* Hide waypoint beacons at street level (they're orbit navigation aids) */}
+          {!['diving_to_street', 'earth_roam'].includes(appState) && <NavBeacons />}
           <StaticColliders />
           {/* NOTE (declutter, 2026-09-29): the persistent space-portal gate
               field was removed from the interface — too cluttered. The

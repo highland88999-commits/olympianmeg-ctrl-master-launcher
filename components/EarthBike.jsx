@@ -43,8 +43,8 @@ function vec3ToLatLon(x, y, z) {
 export function summonBike() {
   if (!roamState.active) return false;
   bikeState.summoned = true;
-  bikeState.mounted = false;
-  // Appear next to the walker: offset a few metres to the side
+  bikeState.mounted = true; // auto-mount: spawn riding
+  // Appear at the walker's position (they're already on it)
   bikeState.lat = roamState.lat;
   bikeState.lon = roamState.lon;
   bikeState.altM = HOVER_MIN_M + 0.6;
