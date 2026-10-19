@@ -20,8 +20,6 @@ import NotificationsWindow from '@/components/NotificationsWindow';
 import EntranceSequence from '@/components/EntranceSequence';
 import { createEntranceMachine } from '@/lib/entrance-sequence';
 import EarthConsole from '@/components/EarthConsole';
-import CharacterPicker from '@/components/characters/CharacterPicker';
-import { getEmbodimentForSurface } from '@/lib/gta/walker-embodiment';
 import { getUserPosition, FALLBACK_POSITION } from '@/lib/geo';
 import { roamState, beginRoam, endRoam, landmarkSpawns } from '@/lib/earth/roam';
 import { beginParachuteDive } from '@/lib/earth/parachute';
@@ -647,15 +645,7 @@ function NexusHub() {
         />
       )}
 
-      {/* Character picker for Earth — persistent pick, beside the nav console */}
-      {(user || cloudOffline) && (appState === 'diving_to_earth' || appState === 'earth_surface' || appState === 'earth_travel' || appState === 'diving_to_street' || appState === 'earth_roam') && (
-        <CharacterPicker
-          surface="earth"
-          accent="#00f2ff"
-          style={{ bottom: 'calc(11rem + env(safe-area-inset-bottom))', right: 12, position: 'fixed', zIndex: 50 }}
-          onPick={(id) => getEmbodimentForSurface('earth')?.setCharacter(id)}
-        />
-      )}
+      {/* Character picker now lives inside EarthConsole menu (not floating) */}
 
       {(user || cloudOffline) && appState === 'hub_freeroam' && (
         <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-40 pointer-events-none" style={chromeHiddenStyle}>

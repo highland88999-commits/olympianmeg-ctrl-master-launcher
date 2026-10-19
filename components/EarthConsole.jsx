@@ -5,6 +5,8 @@ import { searchPlaces, formatCoords } from '@/lib/geo';
 import { summonBike, dismissBike, bikeState } from '@/components/EarthBike';
 import { beginReanimate, isAtStreetScale, parachuteState } from '@/lib/earth/parachute';
 import { roamState } from '@/lib/earth/roam';
+import { getEmbodimentForSurface } from '@/lib/gta/walker-embodiment';
+import CharacterPicker from '@/components/characters/CharacterPicker';
 
 const QUICK = [
   { label: 'Redwater, Alberta', lat: 53.9486, lon: -113.1067 },
@@ -206,6 +208,15 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
                   🔬 Quantum Realm
                 </button>
               )}
+            </div>
+            {/* Character selection — in the menu, not floating */}
+            <div className="mt-1">
+              <div className="text-[9px] font-bold tracking-[0.2em] uppercase text-zinc-500 mb-1">Character</div>
+              <CharacterPicker
+                surface="earth"
+                accent="#00f2ff"
+                onPick={(id) => getEmbodimentForSurface('earth')?.setCharacter(id)}
+              />
             </div>
           </>
         )}
