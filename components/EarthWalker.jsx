@@ -104,7 +104,7 @@ export default function EarthWalker() {
   return (
     <group ref={rigRef} visible={false}>
       {/* Fill light: keeps characters readable, not silhouettes */}
-      <pointLight position={[0, 3, 2]} intensity={0.8} distance={10} color="#ffffff" />
+      <pointLight position={[0, 3, 2]} intensity={2.0} distance={20} color="#ffffff" />
       {/* Native figure: a slim hub-cyan capsule, 2 display-metres. */}
       <mesh ref={capsuleRef} position={[0, PROC_SIZE.y / 2, 0]}>
         <capsuleGeometry args={[0.5 * UPM, 1.0 * UPM, 4, 12]} />

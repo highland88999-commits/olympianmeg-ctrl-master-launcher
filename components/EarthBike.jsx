@@ -9,6 +9,7 @@ import { surfaceRadiusOrBase } from '@/lib/earth/heightmap';
 import { DISPLAY_UNITS_PER_METRE } from '@/lib/earth/placements';
 import { roamState, tangentFrame, headingVector } from '@/lib/earth/roam';
 import { bikeState, parachuteState } from '@/lib/earth/parachute';
+import { moveWithCollision } from '@/lib/earth/collision';
 
 // EarthBike — summonable TRON Wisp bike for hub Earth street view.
 //
@@ -173,11 +174,15 @@ export default function EarthBike({ controls }) {
           Math.sin(br) * Math.sin(distRad) * Math.cos(p1),
           Math.cos(distRad) - Math.sin(p1) * Math.sin(lat2)
         );
-      bikeState.lat = Math.max(-85, Math.min(85, (lat2 * 180) / Math.PI));
+      const newLat = Math.max(-85, Math.min(85, (lat2 * 180) / Math.PI));
       let lonD = (lon2 * 180) / Math.PI;
       while (lonD > 180) lonD -= 360;
       while (lonD < -180) lonD += 360;
-      bikeState.lon = lonD;
+      // Solid collision on bike: mountains, large structures, oil rigs block.
+      // (Vegetation pass-through allowed on bike per Merlin's rule.)
+      const moved = moveWithCollision(bikeState.lat, bikeState.lon, newLat, lonD, 1.5, true);
+      bikeState.lat = moved.lat;
+      bikeState.lon = moved.lon;
 
       // Altitude: Space rises, C descends, clamped above the terrain
       bikeState.altM += (upIn - downIn) * 12 * dt;

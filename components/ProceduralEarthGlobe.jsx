@@ -41,8 +41,8 @@ const FRAGMENT_SHADER = /* glsl */ `
 
   // Hypsometric tint: real terrain colors by elevation.
   vec3 hypsometric(float h) {
-    // ocean: abyss -> continental shelf
-    vec3 ocean = mix(vec3(0.012, 0.063, 0.18), vec3(0.05, 0.32, 0.42), smoothstep(0.0, 0.047, h));
+    // ocean: abyss -> continental shelf (clear blue, not murky)
+    vec3 ocean = mix(vec3(0.02, 0.15, 0.45), vec3(0.10, 0.45, 0.75), smoothstep(0.0, 0.047, h));
     // land: lowland -> highland -> rock -> snow
     vec3 land = vec3(0.16, 0.35, 0.13);
     land = mix(land, vec3(0.45, 0.33, 0.20), smoothstep(0.09, 0.24, h));
