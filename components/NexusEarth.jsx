@@ -13,6 +13,7 @@ import StreetGroundPatch, { StreetFillLight } from '@/components/StreetGroundPat
 import { LENS_PRESETS, LENS_LIFT, lensTilePlan, buildLensGeometryData } from '@/lib/earth/lens';
 import { HUB_UNITS_PER_DEGREE } from '@/lib/earth/placements';
 import { loadHeightData, getHeightData } from '@/lib/earth/heightmap';
+import { parachuteState } from '@/lib/earth/parachute';
 import { roamState } from '@/lib/earth/roam';
 
 // The hub Earth: Google's photorealistic 3D tiles when they stream, a real
@@ -50,9 +51,18 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
   // 'terrain' = procedural 3D globe + ESRI lens (default, always 3D).
   // 'photorealistic' = Google 3D tiles, only after they really render.
   const [layer, setLayer] = useState('terrain');
+  // Micro mode: when shrunk to Ant-Man size (scale < 0.5), hide all 3D
+  // objects (trees, rocks, buildings). They reappear on REANIMATE.
+  const [microMode, setMicroMode] = useState(false);
 
   const roaming = phase === 'diving_to_street' || phase === 'earth_roam';
   const effectiveLayer = roaming ? 'terrain' : layer;
+
+  // Track Ant-Man scale: hide objects at micro size
+  useFrame(() => {
+    const isMicro = (parachuteState?.scale || 1) < 0.5;
+    if (isMicro !== microMode) setMicroMode(isMicro);
+  });
 
   // Shared heightmap: one decode for globe, assets, lens, walker.
   useEffect(() => {
@@ -202,11 +212,12 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
           />
         </group>
         {effectiveLayer === 'terrain' && <ProceduralEarthGlobe onSelect={onSelect} onParachute={onParachute} onTileSelect={onTileSelect} quatRef={quatRef} />}
-        {effectiveLayer === 'terrain' && <EarthAssets />}
+        {/* 3D objects hidden in micro (Ant-Man) mode — reappear on REANIMATE */}
+        {effectiveLayer === 'terrain' && !microMode && <EarthAssets />}
         {effectiveLayer === 'terrain' && <EarthWalker />}
-        {/* Climbable ladders on structures, monument elevators — street only */}
-        {effectiveLayer === 'terrain' && roaming && <EarthLadders visible={roaming} />}
-        {effectiveLayer === 'terrain' && roaming && <MonumentElevator visible={roaming} />}
+        {/* Climbable ladders on structures, monument elevators — street only, not in micro */}
+        {effectiveLayer === 'terrain' && roaming && !microMode && <EarthLadders visible={roaming} />}
+        {effectiveLayer === 'terrain' && roaming && !microMode && <MonumentElevator visible={roaming} />}
         {/* Summonable TRON bike — street only */}
         {effectiveLayer === 'terrain' && roaming && <EarthBike controls={controls} />}
 
@@ -231,6 +242,9 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
         {effectiveLayer === 'terrain' && <StreetFillLight active={roaming} />}
       </group>
 
+      {/* Atmosphere shell — hidden at street level (camera is inside it,
+          additive blending saturates to white). Only for orbital view. */}
+      {!roaming && (
       <mesh scale={[1.025, 1.025, 1.025]}>
         <sphereGeometry args={[55, 64, 64]} />
         <shaderMaterial
@@ -256,6 +270,7 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
           `}
         />
       </mesh>
+      )}
     </group>
   );
 }

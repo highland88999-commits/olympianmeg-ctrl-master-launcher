@@ -119,7 +119,9 @@ export default function EarthBike({ controls }) {
 
   useFrame((state, rawDt) => {
     const g = groupRef.current;
-    if (!g || !bikeState.summoned || !roamState.active) {
+    // Hidden in micro (Ant-Man) mode — all 3D objects disappear at smallest size
+    const isMicro = (parachuteState?.scale || 1) < 0.5;
+    if (!g || !bikeState.summoned || !roamState.active || isMicro) {
       if (g) g.visible = false;
       return;
     }
