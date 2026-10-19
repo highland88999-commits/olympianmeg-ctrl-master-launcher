@@ -180,7 +180,9 @@ export default function EarthBike({ controls }) {
       while (lonD < -180) lonD += 360;
       // Solid collision on bike: mountains, large structures, oil rigs block.
       // (Vegetation pass-through allowed on bike per Merlin's rule.)
-      const moved = moveWithCollision(bikeState.lat, bikeState.lon, newLat, lonD, 1.5, true);
+      // Bike radius scales with Ant-Man shrink.
+      const bikeRadiusM = 1.5 * (parachuteState.scale || 1);
+      const moved = moveWithCollision(bikeState.lat, bikeState.lon, newLat, lonD, bikeRadiusM, true);
       bikeState.lat = moved.lat;
       bikeState.lon = moved.lon;
 
