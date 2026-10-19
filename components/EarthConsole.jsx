@@ -190,22 +190,23 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
             >
               {bikeOut ? '✕ Dismiss bike' : '🏍 Summon bike'} <span className="text-zinc-500 normal-case tracking-normal">(B · E to ride)</span>
             </button>
-            {/* Reanimate: grow back to orbital scale */}
-            <button
-              onClick={() => beginReanimate()}
-              className="w-full py-2 text-[10px] font-bold tracking-[0.2em] uppercase text-amber-200 border border-amber-600/60 bg-amber-950/50 rounded hover:border-amber-400 hover:text-white transition-all"
-            >
-              ✦ Reanimate <span className="text-zinc-500 normal-case tracking-normal">(grow to normal size)</span>
-            </button>
-            {/* DROP: parachute to the tapped tile */}
-            {selectedTile && onDropToTile && (
+            {/* Size: Normal View vs Quantum Realm */}
+            <div className="grid grid-cols-2 gap-2">
               <button
-                onClick={() => onDropToTile(selectedTile)}
-                className="w-full py-2.5 text-[11px] font-bold tracking-[0.2em] uppercase text-white border border-cyan-400 bg-cyan-600/40 rounded hover:bg-cyan-500 hover:border-cyan-300 transition-all animate-pulse"
+                onClick={() => beginReanimate()}
+                className="py-2 text-[10px] font-bold tracking-[0.15em] uppercase text-amber-200 border border-amber-600/60 bg-amber-950/50 rounded hover:border-amber-400 hover:text-white transition-all"
               >
-                🔬 SHRINK HERE <span className="text-cyan-200 normal-case tracking-normal">({selectedTile.lat.toFixed(2)}°, {selectedTile.lon.toFixed(2)}°)</span>
+                ✦ Normal View
               </button>
-            )}
+              {selectedTile && onDropToTile && (
+                <button
+                  onClick={() => onDropToTile(selectedTile)}
+                  className="py-2 text-[10px] font-bold tracking-[0.15em] uppercase text-cyan-200 border border-cyan-600/60 bg-cyan-950/50 rounded hover:border-cyan-400 hover:text-white transition-all animate-pulse"
+                >
+                  🔬 Quantum Realm
+                </button>
+              )}
+            </div>
           </>
         )}
         {canWalk && spawns && spawns.length > 0 && (

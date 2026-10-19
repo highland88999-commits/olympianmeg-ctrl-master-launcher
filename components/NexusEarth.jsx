@@ -240,6 +240,39 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
           <StreetGroundPatch center={roamCenter} />
         )}
         {effectiveLayer === 'terrain' && <StreetFillLight active={roaming} />}
+        {/* Day sky dome at street level: blue during day, transparent at night.
+            Uses sun direction to fade — day side gets blue sky, night side
+            stays clear so stars show through. Replaces the atmosphere shell
+            which saturates to white when the camera is inside it. */}
+        {effectiveLayer === 'terrain' && roaming && (
+          <mesh scale={[1.5, 1.5, 1.5]}>
+            <sphereGeometry args={[55, 32, 32]} />
+            <shaderMaterial
+              side={THREE.BackSide}
+              transparent={true}
+              depthWrite={false}
+              uniforms={{
+                sunDirection: { value: new THREE.Vector3(0, 150, 370).normalize() },
+              }}
+              vertexShader={`
+                varying vec3 vWorldNormal;
+                void main() {
+                  vWorldNormal = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
+                  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+              `}
+              fragmentShader={`
+                uniform vec3 sunDirection;
+                varying vec3 vWorldNormal;
+                void main() {
+                  float dayness = smoothstep(-0.1, 0.3, dot(normalize(vWorldNormal), sunDirection));
+                  vec3 skyBlue = vec3(0.53, 0.81, 0.92);
+                  gl_FragColor = vec4(skyBlue, dayness * 0.95);
+                }
+              `}
+            />
+          </mesh>
+        )}
       </group>
 
       {/* Atmosphere shell — hidden at street level (camera is inside it,
