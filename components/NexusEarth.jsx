@@ -10,6 +10,7 @@ import EarthLadders from '@/components/EarthLadders';
 import MonumentElevator from '@/components/MonumentElevator';
 import EarthBike from '@/components/EarthBike';
 import StreetGroundPatch, { StreetFillLight, MicroGroundDisc } from '@/components/StreetGroundPatch';
+import QuantumSkyDome from '@/components/QuantumSkyDome';
 import { LENS_PRESETS, LENS_LIFT, lensTilePlan, buildLensGeometryData } from '@/lib/earth/lens';
 import { HUB_UNITS_PER_DEGREE, DISPLAY_UNITS_PER_METRE } from '@/lib/earth/placements';
 import { loadHeightData, getHeightData } from '@/lib/earth/heightmap';
@@ -261,12 +262,19 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
         {effectiveLayer === 'terrain' && roaming && (
           <MicroGroundDisc />
         )}
+        {/* The Quantum Realm's own sky: renders only below 0.5x —
+            from normal size it does not exist at all. */}
+        {effectiveLayer === 'terrain' && roaming && (
+          <QuantumSkyDome />
+        )}
         {effectiveLayer === 'terrain' && <StreetFillLight active={roaming} />}
         {/* Day sky dome at street level: blue during day, transparent at night.
             Uses sun direction to fade — day side gets blue sky, night side
             stays clear so stars show through. Replaces the atmosphere shell
-            which saturates to white when the camera is inside it. */}
-        {effectiveLayer === 'terrain' && roaming && (
+            which saturates to white when the camera is inside it.
+            NORMAL LAYER ONLY: in the Quantum Realm this sky hands over
+            to the QuantumSkyDome — two skies, two layers, never mixed. */}
+        {effectiveLayer === 'terrain' && roaming && !microMode && (
           <mesh scale={[1.5, 1.5, 1.5]}>
             <sphereGeometry args={[55, 32, 32]} />
             <shaderMaterial
