@@ -24,7 +24,7 @@ import { FREE_FLY_SPEED, BIKE_TUNING } from '../lib/hub-layout';
 import { registerCollider, unregisterCollider, resolveFlightCollision } from '../lib/hub-collision';
 import { createBikeFlightState, stepBikeFlight, rotateOffsetByYaw, bikeForward } from '../lib/bike-flight';
 import { dismountPosition } from '../lib/rider-state';
-import SeasonalDecor, { SeasonBadge, SeasonToast, TrophyOverlay } from './SeasonalDecor';
+import SeasonalDecor, { SeasonToast, TrophyOverlay } from './SeasonalDecor';
 import { applyCoverFit } from '../lib/texture-fit';
 import { GOD_TOWER_SPOTS } from '../lib/home-positions';
 import { probeWebGL, resetWebGLProbeCache, diagnoseWebGL } from '../lib/webgl-support';
@@ -914,7 +914,8 @@ export default function HomeScene(props) {
         style={radioSheetOpen ? { visibility: 'hidden' } : undefined}
         aria-hidden={radioSheetOpen || undefined}
       >
-        <SeasonBadge />
+        {/* The season badge moved into the bottom of the Concourse
+            (Merlin, 2026-10-20); toasts and the trophy stay here. */}
         <SeasonToast />
         <TrophyOverlay />
       </div>

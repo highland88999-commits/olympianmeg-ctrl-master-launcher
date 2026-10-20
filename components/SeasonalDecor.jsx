@@ -259,32 +259,42 @@ export default function SeasonalDecor() {
   );
 }
 
-// Small floating badge so users know why the hub changed its look.
-export function SeasonBadge() {
+// Small badge so users know why the hub changed its look. Default
+// form floats over the hub; the `inline` form lives at the bottom of
+// the Concourse (Merlin, 2026-10-20 — the floating hub badge moved
+// into the Concourse; HomeScene no longer mounts the floating form).
+export function SeasonBadge({ inline = false } = {}) {
   const season = useMemo(() => getSeason(new Date()), []);
   const { t } = useI18n();
   if (!season) return null;
   const b = seasonBadge(season);
   if (!b) return null;
+  const shared = {
+    pointerEvents: 'none',
+    padding: '6px 12px',
+    borderRadius: 999,
+    fontSize: 13,
+    letterSpacing: '0.02em',
+    color: 'rgba(255,255,255,0.85)',
+    background: 'rgba(10,14,24,0.55)',
+    border: '1px solid rgba(255,255,255,0.14)',
+    backdropFilter: 'blur(8px)',
+    WebkitBackdropFilter: 'blur(8px)',
+  };
   return (
     <div
       aria-hidden="true"
-      style={{
-        position: 'fixed',
-        left: 12,
-        bottom: 'calc(env(safe-area-inset-bottom, 0px) + 84px)',
-        zIndex: 30,
-        pointerEvents: 'none',
-        padding: '6px 12px',
-        borderRadius: 999,
-        fontSize: 13,
-        letterSpacing: '0.02em',
-        color: 'rgba(255,255,255,0.85)',
-        background: 'rgba(10,14,24,0.55)',
-        border: '1px solid rgba(255,255,255,0.14)',
-        backdropFilter: 'blur(8px)',
-        WebkitBackdropFilter: 'blur(8px)',
-      }}
+      style={
+        inline
+          ? { ...shared, display: 'inline-block' }
+          : {
+              ...shared,
+              position: 'fixed',
+              left: 12,
+              bottom: 'calc(env(safe-area-inset-bottom, 0px) + 84px)',
+              zIndex: 30,
+            }
+      }
     >
       {b.badge} {t(b.nameKey)}
     </div>

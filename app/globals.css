@@ -59,6 +59,7 @@ canvas, .no-select {
 .page-back {
   min-height: 44px;
   min-width: 44px;
+  flex-shrink: 0; /* never let a flex row squeeze the pill — the nowrap label would spill out of it (Battleship profile, 2026-10-20) */
   display: inline-flex;
   align-items: center;
   justify-content: center;

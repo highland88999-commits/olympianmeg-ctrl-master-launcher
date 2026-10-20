@@ -39,6 +39,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { bikeState } from '@/lib/earth/parachute';
 import { DoomsdayStrip } from './DoomsdayBanner';
 import PhoneFrame from './PhoneFrame';
+import { SeasonBadge } from './SeasonalDecor';
 
 const LS_KEY = 'olympus.concourse.v1';
 const SIZE = 56;
@@ -385,6 +386,14 @@ export default function Concourse() {
               </>
             )}
           </div>
+          {/* The season badge lives at the bottom of the Concourse now
+              (Merlin, 2026-10-20) — hub-only, like its old floating
+              form; renders nothing out of season. */}
+          {isHub && (
+            <div className="mt-2.5 flex justify-center">
+              <SeasonBadge inline />
+            </div>
+          )}
         </div>
       )}
 
