@@ -81,7 +81,7 @@ function extractJson(text) {
 // tokens were eating the output budget and truncating the scene JSON),
 // compact token budget, and a hard per-attempt timeout so a slow generation
 // can never hang the function past the client's patience.
-async function attemptInterpret({ key, parts, jsonMime, thinking }) {
+async function attemptInterpret({ key, parts, model, jsonMime, thinking }) {
   const generationConfig = {
     temperature: 0.9,
     maxOutputTokens: 3500,
@@ -92,7 +92,7 @@ async function attemptInterpret({ key, parts, jsonMime, thinking }) {
   let res;
   try {
     res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
@@ -141,25 +141,34 @@ async function callInterpreter({ prompt, instruction, currentScene }) {
     parts.push({ text: `DREAM DESCRIPTION: "${prompt}"\n\nReturn the scene JSON.` });
   }
 
-  // Attempt 1: JSON mime mode, thinking disabled.
-  let result = await attemptInterpret({ key, parts, jsonMime: true, thinking: true });
-  if (result.scene) return result;
-  console.error(
-    `[dream-engine] interpreter attempt 1 (json mime) failed: ${result.error}` +
-      `${result.status ? ` HTTP ${result.status}` : ''} :: ${result.detail || '(no detail)'}`
-  );
-
-  // Attempt 2: exactly one retry WITHOUT responseMimeType and without the
-  // thinking field — some models/projects reject either outright.
-  // extractJson() already strips markdown fences and surrounding prose, so
-  // plain text output still parses.
-  result = await attemptInterpret({ key, parts, jsonMime: false, thinking: false });
-  if (result.scene) return result;
-  console.error(
-    `[dream-engine] interpreter attempt 2 (plain) failed: ${result.error}` +
-      `${result.status ? ` HTTP ${result.status}` : ''} :: ${result.detail || '(no detail)'}`
-  );
-  return result;
+  // Model fallback chain (added Oct 20 after production gemini_503s):
+  // gemini-3.8-flash returned 503 UNAVAILABLE on every call while the route
+  // was otherwise healthy. The Interpreter now walks the chain — first model
+  // that answers wins. An 'unparseable' result earns one plain-text retry on
+  // the same model before moving on.
+  const MODELS = [GEMINI_MODEL, 'gemini-2.5-flash', 'gemini-2.0-flash'];
+  let lastResult = null;
+  for (const model of MODELS) {
+    let result = await attemptInterpret({ key, parts, model, jsonMime: true, thinking: true });
+    if (result.scene) return result;
+    console.error(
+      `[dream-engine] interpreter (${model}, json mime) failed: ${result.error}` +
+        `${result.status ? ` HTTP ${result.status}` : ''} :: ${result.detail || '(no detail)'}`
+    );
+    lastResult = result;
+    if (result.error === 'unparseable') {
+      result = await attemptInterpret({ key, parts, model, jsonMime: false, thinking: false });
+      if (result.scene) return result;
+      console.error(
+        `[dream-engine] interpreter (${model}, plain) failed: ${result.error}` +
+          `${result.status ? ` HTTP ${result.status}` : ''} :: ${result.detail || '(no detail)'}`
+      );
+      lastResult = result;
+    }
+    // Brief backoff before trying the next model — 503s are often transient.
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  return lastResult;
 }
 
 // POST { prompt }                      -> interpret a fresh dream
