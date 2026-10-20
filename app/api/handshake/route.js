@@ -12,6 +12,9 @@
 //
 //   GET  ?type=bug-reports&since=<ISO>   -> new bug reports since timestamp
 //   GET  ?type=help-requests&since=<ISO>  -> Muse portal threads needing help
+//   POST { action: 'claim', type: 'bug-report'|'help-request', id, agent }
+//        -> atomically claim an item; only the successful claimer sends the
+//           user-facing "received" acknowledgment. Returns { claimed: bool }.
 //   POST { action: 'bug-status', id, status }
 //   POST { action: 'help-reply', thread_id, reply }
 export const dynamic = 'force-dynamic';
@@ -56,7 +59,7 @@ export const GET = apiGuard(async function GET(req) {
     if (!admin) throw new Error('Database not connected.');
     const { data, error } = await admin
       .from('bug_reports')
-      .select('id, user_id, page_url, description, steps, user_agent, viewport, status, created_at, updated_at')
+      .select('id, user_id, page_url, description, steps, user_agent, viewport, status, claimed_by, claimed_at, ack_sent, created_at, updated_at')
       .gte('created_at', since)
       .order('created_at', { ascending: true })
       .limit(200);
@@ -70,7 +73,7 @@ export const GET = apiGuard(async function GET(req) {
     // ones the old account's help agent should pick up.
     const { data: threads, error } = await admin
       .from('muse_threads')
-      .select('id, user_id, page_url, status, created_at, last_message_at')
+      .select('id, user_id, page_url, status, claimed_by, claimed_at, ack_sent, created_at, last_message_at')
       .eq('status', 'inbox')
       .gte('last_message_at', since)
       .order('last_message_at', { ascending: true })
@@ -104,6 +107,51 @@ export const POST = apiGuard(async function POST(req) {
   try { body = await req.json(); } catch { /* validated below */ }
 
   const action = body.action;
+
+  // Claim: atomic first-come-first-served. Only the account that wins the
+  // claim sends the user-facing "we received your query" acknowledgment.
+  // The loser gets { claimed: false } and stays silent.
+  if (action === 'claim') {
+    const type = body.type; // 'bug-report' | 'help-request'
+    const id = typeof body.id === 'string' ? body.id.trim() : '';
+    const agent = typeof body.agent === 'string' ? body.agent.trim().slice(0, 100) : 'unknown';
+    if (!id || (type !== 'bug-report' && type !== 'help-request')) {
+      const e = new Error("type must be 'bug-report' or 'help-request', with an id.");
+      e.status = 400;
+      throw e;
+    }
+    const table = type === 'bug-report' ? 'bug_reports' : 'muse_threads';
+    const admin = type === 'bug-report' ? await getServiceClient() : getAdminClient();
+    if (!admin) throw new Error('Database not connected.');
+
+    // Atomic: only wins if nobody claimed it yet.
+    const { data, error } = await admin
+      .from(table)
+      .update({ claimed_by: agent, claimed_at: new Date().toISOString() })
+      .eq('id', id)
+      .is('claimed_by', null)
+      .select('id');
+    if (error) throw new Error('Could not claim item.');
+    const won = (data || []).length > 0;
+    return Response.json({ ok: true, claimed: won, id, claimed_by: won ? agent : undefined });
+  }
+
+  if (action === 'ack-sent') {
+    // Mark that the user-facing acknowledgment was delivered, so the other
+    // account never sends a duplicate.
+    const type = body.type;
+    const id = typeof body.id === 'string' ? body.id.trim() : '';
+    if (!id || (type !== 'bug-report' && type !== 'help-request')) {
+      const e = new Error("type must be 'bug-report' or 'help-request', with an id.");
+      e.status = 400;
+      throw e;
+    }
+    const table = type === 'bug-report' ? 'bug_reports' : 'muse_threads';
+    const admin = type === 'bug-report' ? await getServiceClient() : getAdminClient();
+    if (!admin) throw new Error('Database not connected.');
+    await admin.from(table).update({ ack_sent: true }).eq('id', id);
+    return Response.json({ ok: true, id, ack_sent: true });
+  }
 
   if (action === 'bug-status') {
     const id = typeof body.id === 'string' ? body.id.trim() : '';
