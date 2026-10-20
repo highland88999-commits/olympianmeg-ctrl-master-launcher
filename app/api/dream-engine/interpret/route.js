@@ -179,7 +179,7 @@ export async function POST(req) {
       message:
         error === 'no_key'
           ? 'The Interpreter is asleep (no Gemini key on the server). Showing the threshold dreamscape.'
-          : 'The Interpreter could not shape that dream. Showing the threshold dreamscape — try again.',
+          : `The Interpreter could not shape that dream [${error || 'unknown'}]. Showing the threshold dreamscape — try again.`,
     });
   }
 
