@@ -81,10 +81,10 @@ function extractJson(text) {
 // tokens were eating the output budget and truncating the scene JSON),
 // compact token budget, and a hard per-attempt timeout so a slow generation
 // can never hang the function past the client's patience.
-async function attemptInterpret({ key, parts, model, jsonMime, thinking }) {
+async function attemptInterpret({ key, parts, model, jsonMime, thinking, timeoutMs = 28000 }) {
   const generationConfig = {
     temperature: 0.9,
-    maxOutputTokens: 3500,
+    maxOutputTokens: 2000,
   };
   if (jsonMime) generationConfig.responseMimeType = 'application/json';
   if (thinking) generationConfig.thinkingConfig = { thinkingBudget: 0 };
@@ -101,7 +101,7 @@ async function attemptInterpret({ key, parts, model, jsonMime, thinking }) {
           contents: [{ role: 'user', parts }],
           generationConfig,
         }),
-        signal: AbortSignal.timeout(20000),
+        signal: AbortSignal.timeout(timeoutMs),
       }
     );
   } catch (e) {
@@ -146,30 +146,50 @@ async function callInterpreter({ prompt, instruction, currentScene }) {
   // was otherwise healthy. The Interpreter now walks the chain — first model
   // that answers wins. An 'unparseable' result earns one plain-text retry on
   // the same model before moving on.
-  const MODELS = [GEMINI_MODEL, 'gemini-2.5-flash', 'gemini-2.5-flash-lite'];
+  // Attempt plan (Oct 20, after live diagnosis): the nexus GEMINI_API_KEY
+  // only unlocks gemini-3.8-flash — gemini-2.5-flash and 2.5-flash-lite both
+  // return 404 for this key, and the launcher project has no key at all.
+  // 3.8-flash itself is capacity-sick: alternating 503s and >20s hangs.
+  // So: two shots at 3.8 (the retry only on transient timeout/503), then one
+  // fast shot at 2.5-flash in case key entitlements change. All inside the
+  // 60s function budget. First success wins; every failure is reported in
+  // `attempts` so the fallback banner names exactly what happened.
+  const PLAN = [
+    { model: GEMINI_MODEL, timeoutMs: 28000 },
+    { model: GEMINI_MODEL, timeoutMs: 25000, onlyIfTransient: true },
+    { model: 'gemini-2.5-flash', timeoutMs: 10000 },
+  ];
   let lastResult = null;
   const attempts = [];
-  for (const model of MODELS) {
-    let result = await attemptInterpret({ key, parts, model, jsonMime: true, thinking: true });
+  for (const step of PLAN) {
+    if (step.onlyIfTransient) {
+      const prev = lastResult && lastResult.error;
+      if (prev !== 'gemini_timeout' && prev !== 'gemini_503') continue;
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    let result = await attemptInterpret({
+      key, parts, model: step.model, jsonMime: true, thinking: true, timeoutMs: step.timeoutMs,
+    });
     if (result.scene) return result;
     console.error(
-      `[dream-engine] interpreter (${model}, json mime) failed: ${result.error}` +
+      `[dream-engine] interpreter (${step.model}, json mime) failed: ${result.error}` +
         `${result.status ? ` HTTP ${result.status}` : ''} :: ${result.detail || '(no detail)'}`
     );
-    attempts.push(`${model.replace('gemini-', '')}:${result.error}`);
+    attempts.push(`${step.model.replace('gemini-', '')}:${result.error}`);
     lastResult = result;
     if (result.error === 'unparseable') {
-      result = await attemptInterpret({ key, parts, model, jsonMime: false, thinking: false });
+      result = await attemptInterpret({
+        key, parts, model: step.model, jsonMime: false, thinking: false, timeoutMs: step.timeoutMs,
+      });
       if (result.scene) return result;
       console.error(
-        `[dream-engine] interpreter (${model}, plain) failed: ${result.error}` +
+        `[dream-engine] interpreter (${step.model}, plain) failed: ${result.error}` +
           `${result.status ? ` HTTP ${result.status}` : ''} :: ${result.detail || '(no detail)'}`
       );
-      attempts.push(`${model.replace('gemini-', '')}/plain:${result.error}`);
+      attempts.push(`${step.model.replace('gemini-', '')}/plain:${result.error}`);
       lastResult = result;
+      break; // unparseable twice-ish: model answered but gibberish — stop burning budget
     }
-    // Brief backoff before trying the next model — 503s are often transient.
-    await new Promise((r) => setTimeout(r, 1500));
   }
   return { ...lastResult, attempts };
 }
