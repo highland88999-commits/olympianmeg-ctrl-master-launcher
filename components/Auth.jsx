@@ -2,7 +2,13 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { GOOGLE_PROVIDER, mapGoogleSignInError } from '@/lib/auth/google-errors';
-import { normalizeTikTokHandle } from '@/lib/tiktok-attribution';
+
+// Auth.jsx — Simplified for beginners (2026-10-19).
+// Design rule: a 7-year-old must be able to register.
+// - Google sign-in is the hero: one tap, no password, no email verification.
+// - Plain language everywhere. No jargon ("node", "encryption key", "matrix").
+// - Email is the fallback, kept simple.
+// - No TikTok prompt, no extra steps. Get them inside first.
 
 export default function Auth({ onLogin }) {
   const [email, setEmail] = useState('');
@@ -11,56 +17,14 @@ export default function Auth({ onLogin }) {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
-  // Entrance video: true until the <video> element reports the file missing.
-  // Merlin drops his video at public/media/entrance.mp4 (served as
-  // /media/entrance.mp4); until then an animated gradient shows — honest,
-  // never a fake video.
   const [videoOk, setVideoOk] = useState(true);
-  
-  // Modes: 'login', 'signup', 'reset', 'update'
-  const [mode, setMode] = useState('login');
-  // Resend-verification affordance: shown after a fresh signup, or when a
-  // login fails because the email was never confirmed. Supabase's built-in
-  // mailer is throttled to a few sends per hour and lands in spam often, so
-  // users need a way to trigger a fresh send without re-registering.
+
+  // Modes: 'login', 'signup', 'reset'
+  const [mode, setMode] = useState('signup');
   const [resending, setResending] = useState(false);
   const [showResend, setShowResend] = useState(false);
 
-  // TikTok handle prompt (Live Recordings identity, Part 1): optional,
-  // skippable, asked once per device after email signup. Never blocks or
-  // degrades auth — every write path below is wrapped in try/catch.
-  const [tiktokAsk, setTiktokAsk] = useState(false);
-  const [tiktokHandle, setTiktokHandle] = useState('');
-  const [tiktokErr, setTiktokErr] = useState('');
-
-  // If the user typed a handle before they had a session (email signup
-  // needs verification first), flush it once they sign in.
-  const flushPendingTikTok = async (accessToken) => {
-    let pending = '';
-    try {
-      pending = localStorage.getItem('nexus_tiktok_pending') || '';
-    } catch { return; }
-    if (!pending || !accessToken) return;
-    try {
-      const r = await fetch('/api/profiles/me', {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ type: 'personal', tiktok_handle: pending }),
-      });
-      if (r.ok) {
-        try { localStorage.removeItem('nexus_tiktok_pending'); } catch { /* ignore */ }
-      }
-    } catch {
-      // Network failure: keep the stash; the next sign-in retries.
-    }
-  };
-
-  // Sends a stashed ?ref=CODE to the server for binding. The server
-  // validates the code, resolves the affiliate, and writes the referral —
-  // first binding wins, self-referral rejected. Safe to call repeatedly.
+  // Sends a stashed ?ref=CODE to the server for binding.
   const bindPendingReferral = async (accessToken) => {
     let code = '';
     try {
@@ -80,37 +44,20 @@ export default function Auth({ onLogin }) {
       if (d && (d.ok || d.already)) {
         try { localStorage.removeItem('pending_aff_ref'); } catch { /* ignore */ }
       }
-    } catch {
-      // Network failure: keep the stash; the next sign-in retries.
-    }
+    } catch { /* ignore */ }
   };
 
   useEffect(() => {
-    // In-house affiliate attribution: capture ?ref=CODE from the URL and
-    // stash it. It is bound server-side once the user has a session
-    // (below) — the client never asserts the binding itself.
     try {
       const params = new URLSearchParams(window.location.search);
       const ref = (params.get('ref') || '').trim();
       if (ref) localStorage.setItem('pending_aff_ref', ref);
     } catch { /* ignore */ }
 
-    // Listens for the user returning from a password reset email link.
-    // Guarded: lib/supabase throws synchronously when env vars are absent.
-    // The launcher's offline gate keeps this panel unmounted while the cloud
-    // is down, so this is a last-resort guard only.
     try {
       const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-        if (event === 'PASSWORD_RECOVERY') {
-          setMode('update');
-          setMessage('SECURE LINK VERIFIED. ENTER NEW ENCRYPTION KEY.');
-          setError('');
-        }
-        // Affiliate bind: a fresh SIGNED_IN session picks up any stashed
-        // referral code — covers email signup/login and Google OAuth return.
         if (event === 'SIGNED_IN' && session?.access_token) {
           bindPendingReferral(session.access_token);
-          flushPendingTikTok(session.access_token);
         }
       });
       return () => subscription.unsubscribe();
@@ -130,98 +77,44 @@ export default function Auth({ onLogin }) {
       if (mode === 'signup') {
         const { error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
-        setMessage('VERIFICATION MATRIX SENT. CHECK INBOX AND SPAM FOLDER.');
+        setMessage('Almost done! Check your email for a confirmation link (look in spam too).');
         setShowResend(true);
-        // Ask-once TikTok prompt: optional, skippable, never blocks auth.
-        let asked = true;
-        try { asked = localStorage.getItem('nexus_tiktok_asked') === '1'; } catch { /* ignore */ }
-        if (!asked) {
-          setTiktokHandle('');
-          setTiktokErr('');
-          setTiktokAsk(true);
-        }
-      } 
+      }
       else if (mode === 'login') {
         const { data, error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
         if (onLogin && data.user) {
-          const callsign = 
-            data.user.user_metadata?.username || 
-            data.user.user_metadata?.callsign || 
-            data.user.email.split('@')[0].toUpperCase();
+          const callsign =
+            data.user.user_metadata?.username ||
+            data.user.user_metadata?.callsign ||
+            data.user.email.split('@')[0];
           onLogin(callsign);
         }
-      } 
+      }
       else if (mode === 'reset') {
-        // Triggers the Supabase Reset Password Email
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: window.location.origin, 
+          redirectTo: window.location.origin,
         });
         if (error) throw error;
-        setMessage('RESET PROTOCOL INITIATED. CHECK COMMS FOR LINK.');
-      } 
-      else if (mode === 'update') {
-        // Updates the user's password using the active recovery session
-        const { error } = await supabase.auth.updateUser({ password });
-        if (error) throw error;
-        setMessage('ENCRYPTION KEY UPDATED SUCCESSFULLY.');
-        setTimeout(() => setMode('login'), 3000);
+        setMessage('Password reset link sent. Check your email.');
       }
     } catch (err) {
-      const msg = (err && err.message) || 'UNKNOWN ERROR';
-      setError(msg.toUpperCase());
-      // Unconfirmed email on login: offer a resend instead of a dead end.
-      if (/email not confirmed/i.test(msg)) setShowResend(true);
+      const msg = (err && err.message) || 'Something went wrong. Please try again.';
+      // Friendly translations of common Supabase errors
+      let friendly = msg;
+      if (/invalid login credentials/i.test(msg)) friendly = 'Wrong email or password. Try again.';
+      else if (/email not confirmed/i.test(msg)) { friendly = 'Please confirm your email first — check your inbox.'; setShowResend(true); }
+      else if (/user already registered/i.test(msg)) friendly = 'This email is already registered. Try logging in instead.';
+      else if (/password should be at least/i.test(msg)) friendly = 'Password must be at least 6 characters.';
+      setError(friendly);
     } finally {
       setLoading(false);
     }
   };
 
-  // TikTok prompt actions: skip is one tap; save is best-effort and can
-  // never fail the auth flow — errors are swallowed on purpose.
-  const closeTikTokAsk = () => {
-    try { localStorage.setItem('nexus_tiktok_asked', '1'); } catch { /* ignore */ }
-    setTiktokAsk(false);
-    setTiktokHandle('');
-    setTiktokErr('');
-  };
-
-  const saveTikTokHandle = async () => {
-    const raw = tiktokHandle.trim();
-    const h = normalizeTikTokHandle(raw);
-    if (raw && !h) {
-      setTiktokErr('LETTERS, NUMBERS, _ AND . ONLY (MAX 24).');
-      return;
-    }
-    closeTikTokAsk();
-    if (!h) return; // blank = skip
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.access_token) {
-        // Best-effort: profile row may not exist yet (email unverified);
-        // failures stay silent so auth is never degraded.
-        await fetch('/api/profiles/me', {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({ type: 'personal', tiktok_handle: h }),
-        }).catch(() => {});
-      } else {
-        // No session yet (verification pending) — stash for the SIGNED_IN
-        // flush above.
-        try { localStorage.setItem('nexus_tiktok_pending', h); } catch { /* ignore */ }
-      }
-    } catch { /* silent by design */ }
-  };
-  // Re-sends the signup confirmation email. Counts against the same
-  // provider throttle as the original send, so the UI copy tells the user
-  // to check the spam folder too — that's where the shared Supabase sender
-  // lands most often.
   const handleResendVerification = async () => {
     if (!email) {
-      setError('ENTER YOUR SECURE EMAIL FIRST.');
+      setError('Enter your email first.');
       return;
     }
     setResending(true);
@@ -230,24 +123,14 @@ export default function Auth({ onLogin }) {
     try {
       const { error } = await supabase.auth.resend({ type: 'signup', email });
       if (error) throw error;
-      setMessage('VERIFICATION MATRIX RE-SENT. CHECK INBOX AND SPAM FOLDER.');
+      setMessage('Confirmation email re-sent. Check your inbox and spam folder.');
     } catch (err) {
-      setError(((err && err.message) || 'RESEND FAILED').toUpperCase());
+      setError('Could not resend. Please try again later.');
     } finally {
       setResending(false);
     }
   };
 
-  // Google sign-in goes through SUPABASE OAuth (signInWithOAuth), not
-  // Firebase. Reason: this launcher's entire identity system — sessions,
-  // RLS, gold ledger, profiles, vault — is keyed on the Supabase user.
-  // There is no Firebase Auth SDK in the app (Firebase here is Storage-only
-  // via REST). A Supabase OAuth sign-in returns a real Supabase session, so
-  // a Google user lands in the exact same session/bootstrap flow as an
-  // email user — one system, not two. The Google provider must be enabled
-  // in the Supabase dashboard (Authentication -> Providers -> Google) with
-  // the site's origin in the redirect URLs; until then this fails with a
-  // plain message, never a crash.
   const handleGoogleSignIn = async () => {
     setGoogleLoading(true);
     setError('');
@@ -258,22 +141,22 @@ export default function Auth({ onLogin }) {
         options: { redirectTo: window.location.origin },
       });
       if (error) throw error;
-      // Success: supabase-js hands the browser to Google; Google returns
-      // the user to window.location.origin where the session is picked up
-      // by the onAuthStateChange listener in app/page.jsx. No popup, so
-      // mobile Safari's popup blocker is never in the way.
     } catch (err) {
       setError(mapGoogleSignInError((err && err.message) || err));
       setGoogleLoading(false);
     }
   };
 
+  const switchMode = (m) => {
+    setMode(m);
+    setError('');
+    setMessage('');
+    setShowResend(false);
+  };
+
   return (
     <div className="fixed inset-0 z-[50000] flex justify-center items-center overflow-hidden">
-      {/* Entrance background — Merlin's one house ad slot. His video plays
-          behind the auth text when public/media/entrance.mp4 exists; an
-          elegant animated gradient shows until then. The dim overlay keeps
-          the auth text readable over either. */}
+      {/* Background */}
       <div className="absolute inset-0 bg-[#050508]" aria-hidden="true">
         <style>{`@keyframes auth-bg-drift { 0% { transform: scale(1) translate(0, 0); } 100% { transform: scale(1.18) translate(-2%, 3%); } }
 @media (prefers-reduced-motion: reduce) { .auth-bg-layer { animation: none !important; } }`}</style>
@@ -298,182 +181,113 @@ export default function Auth({ onLogin }) {
             className="absolute inset-0 w-full h-full object-cover"
           />
         )}
-        {/* No veil, no fade — Merlin 2026-10-12: true color, video fully visible behind auth text. */}
       </div>
-      {/* Transparent container — Merlin 2026-10-12: video shows through between all elements. */}
-      <div className="p-10 w-[90%] max-w-[420px] flex flex-col relative">
-        
-        <h2 className="font-['Orbitron'] text-[#00f2ff] text-xl text-center tracking-[0.15em] mb-2 uppercase">
-          {tiktokAsk ? "WHAT'S YOUR TIKTOK?" : (
-            <>
-              {mode === 'login' && 'IDENTITY VERIFICATION'}
-              {mode === 'signup' && 'REGISTER NEW NODE'}
-              {mode === 'reset' && 'NETWORK RECOVERY'}
-              {mode === 'update' && 'SECURE NEW KEY'}
-            </>
-          )}
+
+      <div className="p-8 w-[90%] max-w-[400px] flex flex-col relative">
+        <h2 className="font-['Orbitron'] text-[#00f2ff] text-xl text-center tracking-[0.1em] mb-1">
+          {mode === 'login' && 'Welcome back'}
+          {mode === 'signup' && 'Join Olympus'}
+          {mode === 'reset' && 'Reset password'}
         </h2>
-        {/* One Supabase Auth session spans every pocket universe on this
-            origin (single shared client in lib/supabase.ts) — say so plainly
-            so nobody thinks each universe needs its own account. */}
-        <p className="text-zinc-500 text-[10px] text-center font-mono tracking-[0.2em] uppercase mb-6">
-          {tiktokAsk ? 'OPTIONAL — SHARE YOUR CLIPS WITH CREDIT' : 'One account for every universe'}
+        <p className="text-zinc-400 text-xs text-center mb-6">
+          One account for everything
         </p>
 
-        {/* Post-signup TikTok prompt: one optional screen, one-tap skip,
-            asked once per device. Dismissing never touches auth state. */}
-        {tiktokAsk ? (
-          <div className="flex flex-col gap-4">
-            <p className="text-zinc-400 text-xs text-center font-mono leading-relaxed">
-              SO YOUR LIVE RECORDINGS CAN BE CREDITED TO YOU ON OLYMPUS.
-              SKIP IT IF YOU LIKE — YOU CAN ADD IT LATER IN YOUR PROFILE.
-            </p>
-            <input
-              type="text"
-              placeholder="@yourhandle"
-              value={tiktokHandle}
-              onChange={(e) => {
-                setTiktokHandle(e.target.value.replace(/^@/, ''));
-                setTiktokErr('');
-              }}
-              maxLength={25}
-              autoComplete="off"
-              spellCheck={false}
-              className="w-full p-3 bg-black border border-zinc-800 text-[#00f2ff] rounded outline-none font-mono text-center focus:border-[#00f2ff] focus:shadow-[0_0_15px_rgba(8,247,254,0.2)] transition-all"
-            />
-            {tiktokErr && <div className="text-[#ff3366] text-xs text-center font-mono min-h-[20px]">{tiktokErr}</div>}
-            <button
-              type="button"
-              onClick={saveTikTokHandle}
-              className="w-full p-3 mt-2 bg-transparent border border-[#00f2ff] text-[#00f2ff] font-['Orbitron'] font-bold tracking-widest uppercase rounded hover:bg-[#00f2ff] hover:text-black hover:shadow-[0_0_20px_rgba(8,247,254,0.4)] transition-all"
-            >
-              SAVE HANDLE
-            </button>
-            <button
-              type="button"
-              onClick={closeTikTokAsk}
-              className="w-full p-2 bg-transparent border border-zinc-600 text-zinc-400 font-['Orbitron'] text-[10px] tracking-widest uppercase rounded hover:border-zinc-300 hover:text-zinc-200 transition-all"
-            >
-              SKIP
-            </button>
-          </div>
-        ) : (
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          
-          {/* Email field hidden only during 'update' mode */}
-          {mode !== 'update' && (
-            <input
-              type="email"
-              placeholder="Secure Email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              className="w-full p-3 bg-black border border-zinc-800 text-[#00f2ff] rounded outline-none font-mono text-center focus:border-[#00f2ff] focus:shadow-[0_0_15px_rgba(8,247,254,0.2)] transition-all"
-            />
-          )}
+        {/* GOOGLE FIRST — the 7-year-old path: one tap, no typing */}
+        <button
+          type="button"
+          onClick={handleGoogleSignIn}
+          disabled={googleLoading || loading}
+          className="w-full p-4 bg-[#00f2ff] text-black font-['Orbitron'] font-bold text-sm tracking-widest uppercase rounded-lg hover:bg-[#00d4e0] active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3 shadow-[0_0_25px_rgba(0,242,255,0.3)]"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M12.48 10.92v3.28h7.84c-.24 1.84-.853 3.187-1.787 4.133-1.147 1.147-2.933 2.4-6.053 2.4-4.827 0-8.6-3.893-8.6-8.72s3.773-8.72 8.6-8.72c2.6 0 4.507 1.027 5.907 2.347l2.307-2.307C18.747 1.44 16.133 0 12.48 0 5.867 0 .307 5.387.307 12s5.56 12 12.173 12c3.573 0 6.267-1.173 8.373-3.36 2.16-2.16 2.84-5.213 2.84-7.667 0-.76-.053-1.467-.173-2.053H12.48z" />
+          </svg>
+          {googleLoading ? 'Connecting...' : 'Continue with Google'}
+        </button>
 
-          {/* Password field hidden during 'reset' mode */}
+        {/* Divider */}
+        <div className="flex items-center gap-3 my-5" aria-hidden="true">
+          <div className="h-px flex-1 bg-zinc-800" />
+          <span className="text-[11px] text-zinc-500">or use email</span>
+          <div className="h-px flex-1 bg-zinc-800" />
+        </div>
+
+        {/* Email fallback — plain language */}
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+          <input
+            type="email"
+            placeholder="Email address"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            autoComplete="email"
+            className="w-full p-3 bg-black/60 border border-zinc-700 text-white rounded-lg outline-none text-center focus:border-[#00f2ff] transition-all placeholder:text-zinc-500"
+          />
           {mode !== 'reset' && (
             <input
               type="password"
-              placeholder={mode === 'update' ? "New Encryption Key" : "Encryption Key"}
+              placeholder="Password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              className="w-full p-3 bg-black border border-zinc-800 text-[#00f2ff] rounded outline-none font-mono text-center focus:border-[#00f2ff] focus:shadow-[0_0_15px_rgba(8,247,254,0.2)] transition-all"
+              minLength={6}
+              autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
+              className="w-full p-3 bg-black/60 border border-zinc-700 text-white rounded-lg outline-none text-center focus:border-[#00f2ff] transition-all placeholder:text-zinc-500"
             />
           )}
 
-          {error && <div className="text-[#ff3366] text-xs text-center font-mono min-h-[20px]">{error}</div>}
-          {message && <div className="text-[#00ff88] text-xs text-center font-mono min-h-[20px]">{message}</div>}
+          {error && <div className="text-[#ff6b6b] text-xs text-center min-h-[20px]">{error}</div>}
+          {message && <div className="text-[#00ff88] text-xs text-center min-h-[20px]">{message}</div>}
 
-          {/* Resend-verification affordance: appears after signup, or when a
-              login fails on an unconfirmed email. Hidden in reset/update modes. */}
-          {showResend && (mode === 'login' || mode === 'signup') && (
+          {showResend && (
             <button
               type="button"
               onClick={handleResendVerification}
               disabled={resending}
-              className="w-full p-2 bg-transparent border border-[#00ff88] text-[#00ff88] font-['Orbitron'] text-[10px] tracking-widest uppercase rounded hover:bg-[#00ff88] hover:text-black transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              className="text-[#00f2ff] text-xs underline disabled:opacity-50"
             >
-              {resending ? 'RETRANSMITTING...' : "DIDN'T GET IT? RESEND VERIFICATION"}
+              {resending ? 'Sending...' : "Didn't get the email? Send it again"}
             </button>
           )}
 
-          <button 
-            type="submit" 
+          <button
+            type="submit"
             disabled={loading}
-            className="w-full p-3 mt-2 bg-transparent border border-[#00f2ff] text-[#00f2ff] font-['Orbitron'] font-bold tracking-widest uppercase rounded hover:bg-[#00f2ff] hover:text-black hover:shadow-[0_0_20px_rgba(8,247,254,0.4)] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full p-3 bg-transparent border border-zinc-500 text-zinc-200 font-['Orbitron'] font-bold text-sm tracking-widest uppercase rounded-lg hover:border-[#00f2ff] hover:text-[#00f2ff] active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {loading ? 'PROCESSING...' : (
-              mode === 'login' ? 'INITIALIZE LOGIN' :
-              mode === 'signup' ? 'ESTABLISH NODE' :
-              mode === 'reset' ? 'TRANSMIT LINK' : 'SET NEW KEY'
+            {loading ? 'Please wait...' : (
+              mode === 'login' ? 'Log in' :
+              mode === 'signup' ? 'Create account' :
+              'Send reset link'
             )}
           </button>
         </form>
-        )}
 
-        {/* Google sign-in: shown on the login/signup screens only. Same
-            identity system as email (Supabase session) — see handleGoogleSignIn. */}
-        {!tiktokAsk && (mode === 'login' || mode === 'signup') && (
-          <div className="flex flex-col gap-2 mt-4">
-            <div className="flex items-center gap-3" aria-hidden="true">
-              <div className="h-px flex-1 bg-zinc-800" />
-              <span className="font-['Orbitron'] text-[10px] tracking-[0.2em] text-zinc-600">OR</span>
-              <div className="h-px flex-1 bg-zinc-800" />
-            </div>
-            <button
-              type="button"
-              onClick={handleGoogleSignIn}
-              disabled={googleLoading || loading}
-              className="w-full p-3 bg-transparent border border-zinc-500 text-zinc-200 font-['Orbitron'] font-bold text-sm tracking-widest uppercase rounded hover:border-[#00f2ff] hover:text-[#00f2ff] hover:shadow-[0_0_20px_rgba(8,247,254,0.25)] transition-all motion-reduce:transition-none disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <path d="M12.48 10.92v3.28h7.84c-.24 1.84-.853 3.187-1.787 4.133-1.147 1.147-2.933 2.4-6.053 2.4-4.827 0-8.6-3.893-8.6-8.72s3.773-8.72 8.6-8.72c2.6 0 4.507 1.027 5.907 2.347l2.307-2.307C18.747 1.44 16.133 0 12.48 0 5.867 0 .307 5.387.307 12s5.56 12 12.173 12c3.573 0 6.267-1.173 8.373-3.36 2.16-2.16 2.84-5.213 2.84-7.667 0-.76-.053-1.467-.173-2.053H12.48z" />
-              </svg>
-              {googleLoading ? 'CONTACTING GOOGLE...' : 'CONTINUE WITH GOOGLE'}
+        {/* Simple mode switcher */}
+        <div className="flex flex-col items-center gap-2 mt-5 text-xs">
+          {mode === 'signup' && (
+            <button onClick={() => switchMode('login')} className="text-zinc-400 hover:text-[#00f2ff] transition-colors">
+              Already have an account? <span className="underline">Log in</span>
             </button>
-            <p className="text-zinc-600 text-[10px] text-center font-mono leading-relaxed">
-              NEW HERE? GOOGLE SIGN-IN CREATES YOUR NODE AUTOMATICALLY.
-            </p>
-          </div>
-        )}
-
-        {/* Dynamic State Toggles */}
-        {!tiktokAsk && (
-        <div className="flex flex-col gap-2 mt-4">
+          )}
           {mode === 'login' && (
             <>
-              <button 
-                onClick={() => { setMode('reset'); setError(''); setMessage(''); setShowResend(false); }}
-                className="w-full p-2 bg-transparent border border-zinc-600 text-zinc-400 font-['Orbitron'] text-[10px] tracking-widest uppercase rounded hover:border-amber-400 hover:text-amber-400 transition-all"
-              >
-                FORGOT ENCRYPTION KEY?
+              <button onClick={() => switchMode('signup')} className="text-zinc-400 hover:text-[#00f2ff] transition-colors">
+                New here? <span className="underline">Create an account</span>
               </button>
-              <button 
-                onClick={() => { setMode('signup'); setError(''); setMessage(''); setShowResend(false); }}
-                className="w-full p-2 bg-transparent border border-zinc-600 text-zinc-400 font-['Orbitron'] text-[10px] tracking-widest uppercase rounded hover:border-[#fe53bb] hover:text-[#fe53bb] transition-all"
-              >
-                REGISTER NEW NODE
+              <button onClick={() => switchMode('reset')} className="text-zinc-500 hover:text-zinc-300 transition-colors">
+                Forgot your password?
               </button>
             </>
           )}
-
-          {(mode === 'signup' || mode === 'reset') && (
-            <button 
-              onClick={() => { setMode('login'); setError(''); setMessage(''); setShowResend(false); }}
-              className="w-full p-2 mt-2 bg-transparent border border-zinc-600 text-zinc-400 font-['Orbitron'] text-[10px] tracking-widest uppercase rounded hover:border-[#00f2ff] hover:text-[#00f2ff] transition-all"
-            >
-              RETURN TO LOGIN
+          {mode === 'reset' && (
+            <button onClick={() => switchMode('login')} className="text-zinc-400 hover:text-[#00f2ff] transition-colors">
+              <span className="underline">Back to log in</span>
             </button>
           )}
         </div>
-        )}
-
       </div>
     </div>
   );
 }
-
-
