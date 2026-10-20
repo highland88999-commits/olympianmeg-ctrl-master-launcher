@@ -7,12 +7,10 @@ import { supabase } from '@/lib/supabase';
 import { LanguageProvider, useI18n } from '@/lib/i18n';
 import { SATELLITES } from '@/lib/i18n/satellites';
 import SatelliteMenu from '@/components/SatelliteMenu';
-import { PortalButtonDecor, MenuHeaderDecor } from '@/components/PortalSeasonalDecor';
+import { MenuHeaderDecor } from '@/components/PortalSeasonalDecor';
 import { orbitTime, orbitPositionFor } from '@/lib/god-orbits';
 import { GOD_TOWER_SPOTS, GOD_TOWER_POS, BABEL_POS, ARTEMIS_POS } from '@/lib/home-positions';
 import SettingsGear from '@/components/SettingsGear';
-import BikeFloatButton from '@/components/BikeFloatButton';
-import FlightAxisStreaks from '@/components/FlightAxisStreaks';
 import { fetchRiderState, saveRiderState, DISMOUNT_EYE } from '@/lib/rider-state';
 import ProfileIcon from '@/components/ProfileIcon';
 import NotificationsWindow from '@/components/NotificationsWindow';
@@ -63,18 +61,38 @@ function NexusHub() {
     if (appState === 'hub_freeroam' && !sweepDone) setSweepDone(true);
   }, [appState, sweepDone]);
 
-  // The Concourse's Portals tile toggles this hub menu panel.
+  // The Concourse's hub tiles drive the hub's own functions from
+  // here: Portals toggles the program menu; Intro / Guide replay the
+  // intro and tutorial; Night launches the Shadow Realm race; Bike
+  // toggles the TRON bike. Phase-gated to the states where those
+  // controls used to live on the hub itself.
+  const appStateRef = useRef(appState);
+  appStateRef.current = appState;
   useEffect(() => {
+    const HUB = ['hub_intro', 'hub_freeroam'];
+    const RIDE = ['hub_intro', 'hub_freeroam', 'to_bike', 'on_bike'];
     const handler = (e) => {
-      if (e?.detail?.tile !== 'portals') return;
-      setIsMenuExpanded((expanded) => {
-        if (!expanded) { try { fx.menuOpen(); } catch {} }
-        return !expanded;
-      });
+      const tile = e?.detail?.tile;
+      const state = appStateRef.current;
+      if (tile === 'portals') {
+        setIsMenuExpanded((expanded) => {
+          if (!expanded) { try { fx.menuOpen(); } catch {} }
+          return !expanded;
+        });
+      } else if (tile === 'intro' && HUB.includes(state)) {
+        fx.tap(); setShowIntro(true);
+      } else if (tile === 'guide' && HUB.includes(state)) {
+        fx.tap(); setShowHubTutorial(true);
+      } else if (tile === 'night' && RIDE.includes(state)) {
+        fx.bikeMount();
+        launchPocketUniverse(shadowRealmUrl('race'), 'shadow-realm', null, null);
+      } else if (tile === 'bike' && RIDE.includes(state)) {
+        toggleBike();
+      }
     };
     window.addEventListener('olympus:concourse-open', handler);
     return () => window.removeEventListener('olympus:concourse-open', handler);
-  }, []);
+  });
   
   const introAutoPlayed = useRef(false);
   useEffect(() => {
@@ -463,34 +481,8 @@ function NexusHub() {
       {(user || cloudOffline) && showHubTutorial && !showIntro && (
         <HubTutorial onDone={() => { markHubTutorialSeen(); setShowHubTutorial(false); }} />
       )}
-      {(user || cloudOffline) && !showIntro && (appState === 'hub_intro' || appState === 'hub_freeroam') && (
-        <div className="absolute top-5 left-5 z-50 flex flex-col gap-3 ui-element pointer-events-auto" style={chromeHiddenStyle}>
-          <button
-            onClick={() => { fx.tap(); setShowIntro(true); }}
-            aria-label="Replay intro"
-            title="Replay intro"
-            className="w-12 h-12 rounded-full flex items-center justify-center text-xl text-zinc-400 border-2 border-zinc-800 bg-zinc-950/80 backdrop-blur-md hover:text-white hover:border-zinc-500 hover:scale-105 active:scale-95 transition-all"
-          >
-            <span aria-hidden="true">↺</span>
-          </button>
-          <button
-            onClick={() => { fx.tap(); router.push('/renewal-plan'); }}
-            aria-label="Open the Renewal Plan timeline"
-            title="Renewal Plan"
-            className="w-12 h-12 rounded-full flex items-center justify-center text-xl text-teal-300/80 border-2 border-teal-500/30 bg-zinc-950/80 backdrop-blur-md hover:text-teal-100 hover:border-teal-400/60 hover:scale-105 active:scale-95 transition-all"
-          >
-            <span aria-hidden="true">◈</span>
-          </button>
-          <button
-            onClick={() => { fx.tap(); setShowHubTutorial(true); }}
-            aria-label="Replay the hub tutorial"
-            title="Tutorial"
-            className="w-12 h-12 rounded-full flex items-center justify-center text-xl text-zinc-400 border-2 border-zinc-800 bg-zinc-950/80 backdrop-blur-md hover:text-white hover:border-zinc-500 hover:scale-105 active:scale-95 transition-all"
-          >
-            <span aria-hidden="true">?</span>
-          </button>
-        </div>
-      )}
+      {/* Left column retired 2026-10-20: Replay Intro / Renewal Plan / Tutorial now live in the Concourse (Intro / Renew / Guide tiles). */}
+      
       
       {(user || cloudOffline) && (appState === 'hub_intro' || appState === 'hub_freeroam') && (
         <>
@@ -554,29 +546,10 @@ function NexusHub() {
                 )}
               </div>
             </div>
-          ) : (
-            <div className="absolute bottom-[calc(8.75rem+env(safe-area-inset-bottom))] left-5 z-[80] flex flex-col items-start gap-4 ui-element pointer-events-auto" style={chromeHiddenStyle}>
-              <div className="relative">
-                <button
-                  onClick={() => { fx.menuOpen(); setIsMenuExpanded(true); }}
-                  aria-label="Open menu"
-                  className="w-16 h-16 rounded-full flex items-center justify-center shadow-[0_0_25px_rgba(0,242,255,0.4)] hover:scale-105 transition-all overflow-hidden border-2 border-cyan-500 relative bg-cyan-950/60"
-                >
-                  <video src="/chess/assets/effects/gemini_generated_video_758D2655.mp4" autoPlay loop muted playsInline className="absolute inset-0 w-full h-full object-cover scale-110" />
-                </button>
-                <PortalButtonDecor />
-              </div>
-            </div>
-          )}
+          ) : null}
 
-          <div
-            role="status"
-            aria-label={`Flight axis: ${flightAxis}`}
-            style={chromeHiddenStyle}
-            className="absolute top-5 right-5 z-50 w-14 h-14 rounded-full flex items-center justify-center overflow-hidden border-2 border-cyan-500/50 bg-zinc-950/90 shadow-[0_0_20px_rgba(0,242,255,0.15)] backdrop-blur-md ui-element pointer-events-none"
-          >
-            <FlightAxisStreaks axis={flightAxis} />
-          </div>
+{/* Flight Axis readout deleted 2026-10-20 (Merlin): a passive display that did nothing when tapped. */}
+
 
           {tiltMsg && (
             <div className="absolute top-5 left-1/2 -translate-x-1/2 z-[60] pointer-events-none" role="status" aria-live="polite" style={radioSheetOpen ? { visibility: 'hidden' } : undefined}>
@@ -608,38 +581,11 @@ function NexusHub() {
         </>
       )}
 
-      {(user || cloudOffline) && (appState === 'hub_intro' || appState === 'hub_freeroam' || appState === 'to_bike' || appState === 'on_bike') && (
-        <div
-          className="fixed z-40 flex flex-col items-center ui-element pointer-events-auto"
-          style={{
-            right: 'calc(env(safe-area-inset-right, 0px) + 14px)',
-            top: 'calc(50% - 110px)',
-            ...(radioSheetOpen ? { visibility: 'hidden', opacity: 0, pointerEvents: 'none' } : {}),
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => {
-              fx.bikeMount();
-              launchPocketUniverse(shadowRealmUrl('race'), 'shadow-realm', null, null);
-            }}
-            aria-label="NIGHT GRID — enter the Shadow Realm"
-            title="NIGHT GRID"
-            className="w-16 h-16 rounded-full flex items-center justify-center border-2 border-violet-400/70 bg-zinc-950/90 shadow-[0_0_24px_rgba(167,139,250,0.35)] backdrop-blur-md hover:border-violet-300 hover:shadow-[0_0_32px_rgba(167,139,250,0.55)] hover:scale-105 active:scale-95 transition-all"
-          >
-            <span aria-hidden="true" className="text-3xl">🌑</span>
-          </button>
-        </div>
-      )}
+      {/* NIGHT GRID retired 2026-10-20: lives in the Concourse (Night tile). */}
 
-      {(user || cloudOffline) && (appState === 'hub_intro' || appState === 'hub_freeroam' || appState === 'to_bike' || appState === 'on_bike') && (
-        <div style={chromeHiddenStyle} aria-hidden={radioSheetOpen || undefined}>
-          <BikeFloatButton
-            onToggleBike={toggleBike}
-            riding={appState === 'on_bike' || appState === 'to_bike'}
-          />
-        </div>
-      )}
+
+      {/* BikeFloatButton retired 2026-10-20: lives in the Concourse (Bike tile). */}
+
 
       {(user || cloudOffline) && (appState === 'diving_to_earth' || appState === 'earth_surface' || appState === 'earth_travel' || appState === 'diving_to_street' || appState === 'earth_roam') && (
         <EarthConsole

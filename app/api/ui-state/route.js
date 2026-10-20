@@ -1,4 +1,5 @@
-// app/api/ui-state/route.js — per-account UI state (Muse FAB position, …).
+// app/api/ui-state/route.js — per-account UI state (Muse FAB position,
+// Concourse Orb position + pinned tiles, …).
 //   GET  /api/ui-state -> { ok: true, preferences }
 //   POST /api/ui-state { preferences: { muse_fab: { x, y } } } -> { ok: true, preferences }
 //
@@ -61,6 +62,30 @@ export const POST = noCache(
         return NextResponse.json({ error: 'muse_fab must be { x, y } with 0..1 numbers.' }, { status: 400 });
       }
       patch.muse_fab = sane;
+    }
+    if ('concourse_orb' in prefs) {
+      const v = prefs.concourse_orb;
+      const sane = v && typeof v === 'object' ? sanitizeFractions({ x: v.x, y: v.y }) : null;
+      if (!sane) {
+        return NextResponse.json({ error: 'concourse_orb must be { x, y } with 0..1 numbers.' }, { status: 400 });
+      }
+      patch.concourse_orb = sane;
+    }
+    if ('concourse_pins' in prefs) {
+      // Map of Concourse tile id -> viewport fractions. Tile ids are
+      // whitelisted; malformed entries are dropped, never stored.
+      const TILE_IDS = ['tour', 'portals', 'intro', 'guide', 'renewal', 'night', 'bike', 'muse', 'radio', 'store', 'bug', 'alerts', 'profile'];
+      const raw = prefs.concourse_pins;
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+        return NextResponse.json({ error: 'concourse_pins must be an object of tile positions.' }, { status: 400 });
+      }
+      const pins = {};
+      for (const [id, v] of Object.entries(raw)) {
+        if (!TILE_IDS.includes(id) || !v || typeof v !== 'object') continue;
+        const sane = sanitizeFractions({ x: v.x, y: v.y });
+        if (sane) pins[id] = sane;
+      }
+      patch.concourse_pins = pins;
     }
     if (!Object.keys(patch).length) {
       return NextResponse.json({ error: 'Nothing to save.' }, { status: 400 });

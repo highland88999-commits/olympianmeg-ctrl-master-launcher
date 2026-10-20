@@ -40,6 +40,7 @@ import {
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, '..');
 const page = readFileSync(join(repo, 'app', 'page.jsx'), 'utf8');
+const concourse = readFileSync(join(repo, 'components', 'Concourse.jsx'), 'utf8');
 const useTiltSrc = readFileSync(join(repo, 'lib', 'use-tilt.js'), 'utf8');
 const tiltControlSrc = readFileSync(join(repo, 'lib', 'tilt-control.js'), 'utf8');
 
@@ -295,30 +296,26 @@ describe('shadowRealmUrl', () => {
 // 5. app/page.jsx static wiring — circles, labels, unchanged behaviors
 // ---------------------------------------------------------------------------
 describe('hub circle buttons (static wiring)', () => {
-  it('FLIGHT AXIS is a 56px passive readout keeping the streak canvas (no toggle)', () => {
-    assert.ok(page.includes('w-14 h-14 rounded-full'), '56px circle class');
-    assert.ok(page.includes('<FlightAxisStreaks axis={flightAxis} />'), 'streak canvas kept as the icon');
-    assert.ok(
-      page.includes('aria-label={`Flight axis: ${flightAxis}`}'),
-      'aria-label reads the current axis with no toggle affordance'
-    );
+  it('FLIGHT AXIS readout is deleted (Merlin 2026-10-20: it did nothing when tapped)', () => {
+    assert.ok(!page.includes('FlightAxisStreaks'), 'streak readout gone from the hub');
+    assert.ok(!page.includes('Flight axis:'), 'no passive flight-axis circle');
   });
 
-  it('SPAWN TO BIKE is a 64px circle with a bike glyph and ride-state labels', () => {
-    assert.ok(page.includes('w-16 h-16 rounded-full'), '64px circle class');
-    assert.ok(page.includes('🏍️'), 'bike glyph');
-    assert.ok(page.includes("aria-label={riding ? 'Leave the TRON bike' : 'Spawn to the TRON bike'}"));
-    assert.ok(page.includes('onClick={toggleBike}'), 'same toggleBike handler');
+  it('SPAWN TO BIKE lives in the Concourse as the Bike tile (2026-10-20)', () => {
+    assert.ok(concourse.includes("{ id: 'bike', label: 'Bike', icon: '🏍️', hubOnly: true }"), 'bike tile in the Concourse');
+    assert.ok(page.includes("tile === 'bike'"), 'page listens for the bike tile');
+    assert.ok(page.includes('toggleBike();'), 'same toggleBike handler fires');
+    assert.ok(!page.includes('<BikeFloatButton'), 'standalone bike float retired');
   });
 
-  it('INTRO and RENEWAL PLAN are 48px circles with ↺ and ◈', () => {
-    assert.ok(page.includes('w-12 h-12 rounded-full'), '48px circle class');
-    assert.ok(page.includes('↺</span>'), 'replay glyph');
-    assert.ok(page.includes('◈</span>'), 'renewal glyph');
-    assert.ok(page.includes('aria-label="Replay intro"'));
-    assert.ok(page.includes('aria-label="Open the Renewal Plan timeline"'));
-    assert.ok(page.includes("setShowIntro(true)"), 'replay handler unchanged');
-    assert.ok(page.includes("router.push('/renewal-plan')"), 'renewal handler unchanged');
+  it('INTRO and RENEWAL PLAN live in the Concourse as tiles (2026-10-20)', () => {
+    assert.ok(concourse.includes("{ id: 'intro', label: 'Intro', icon: '↺', hubOnly: true }"), 'intro tile');
+    assert.ok(concourse.includes("{ id: 'renewal', label: 'Renew', icon: '◈', hubOnly: true }"), 'renewal tile');
+    assert.ok(concourse.includes("{ id: 'guide', label: 'Guide', icon: '?', hubOnly: true }"), 'tutorial tile');
+    assert.ok(page.includes("tile === 'intro'") && page.includes('setShowIntro(true)'), 'replay handler via tile');
+    assert.ok(page.includes("tile === 'guide'") && page.includes('setShowHubTutorial(true)'), 'tutorial handler via tile');
+    assert.ok(concourse.includes("router.push('/renewal-plan')"), 'renewal handler via tile');
+    assert.ok(!page.includes('aria-label="Replay intro"'), 'standalone circles retired');
   });
 
   it('the old rectangular pills are gone (comments ignored)', () => {
@@ -332,7 +329,7 @@ describe('hub circle buttons (static wiring)', () => {
 
   it('untouched controls are still present', () => {
     assert.ok(page.includes('CLICK THE EARTH TO DESCEND') || page.includes('earth.tapHint'), 'descend hint kept');
-    assert.ok(page.includes('BikeFloatButton'), 'BikeFloatButton left alone');
+    assert.ok(page.includes('Bike tile'), 'bike rehoused in the Concourse');
     // 2026-10-20: hub floaters rehoused into the Concourse (Merlin) —
     // the store float retired into the Store tile, and the bell/avatar
     // render in concourse mode (launchers hidden, panels intact).
@@ -387,11 +384,10 @@ describe('tilt hook contract (static)', () => {
 });
 
 describe('Shadow Realm spawn button (static wiring)', () => {
-  it('renders a 64px NIGHT GRID circle with the violet glow', () => {
-    assert.ok(page.includes('aria-label="NIGHT GRID — enter the Shadow Realm"'));
-    assert.ok(page.includes('title="NIGHT GRID"'));
-    assert.ok(page.includes('🌑'), 'night-grid glyph');
-    assert.ok(page.includes('border-violet-400/70'), 'violet accent');
+  it('NIGHT GRID lives in the Concourse as the Night tile (2026-10-20)', () => {
+    assert.ok(concourse.includes("{ id: 'night', label: 'Night', icon: '🌑', hubOnly: true }"), 'night tile in the Concourse');
+    assert.ok(page.includes("tile === 'night'"), 'page listens for the night tile');
+    assert.ok(!page.includes('aria-label="NIGHT GRID — enter the Shadow Realm"'), 'standalone circle retired');
   });
 
   it('launches via the established pocket-universe path', () => {
@@ -401,8 +397,8 @@ describe('Shadow Realm spawn button (static wiring)', () => {
     assert.ok(page.includes('fx.bikeMount()'), 'bike-mount fanfare on entry');
   });
 
-  it('sits in the right-edge control column above the STORE button', () => {
-    assert.ok(page.includes("top: 'calc(50% - 106px)'"), 'above the vertically-centered store float');
-    assert.ok(page.includes('NIGHT GRID → STORE →'), 'column order documented');
+  it('the right-edge column is gone — its functions live in the Concourse (2026-10-20)', () => {
+    assert.ok(concourse.includes("label: 'Night'") && concourse.includes("label: 'Bike'"), 'column functions rehoused as tiles');
+    assert.ok(page.includes("olympus:concourse-open"), 'page drives them from tile events');
   });
 });

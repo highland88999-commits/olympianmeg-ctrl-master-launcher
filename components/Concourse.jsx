@@ -1,25 +1,33 @@
 'use client';
 
 // The Concourse — the hub's one glass holoframe for every floating
-// function (Merlin, 2026-10-20). Named parts, for directing edits:
-//   Concourse Orb  — the main button (bottom right by default)
-//   The Concourse  — the glass box the Orb opens
-//   Tiles          — Tour / Portals / Muse / Radio / Store / Bug /
-//                    Alerts / Profile, ALL the same 56×56 size
-//   Pins           — a tile held for 2s pops out onto the hub as its
-//                    own floating button; hold it again (or drop it
-//                    on the Orb) to send it home
-//   The Travelator — the tour (Phase 2; the Tour tile is its door)
+// function (Merlin, 2026-10-20). A 3-layer system:
+//   Layer 1 · Concourse Orb — the one button on the hub
+//   Layer 2 · The Concourse — the glass box of tiles the Orb opens
+//   Layer 3 · the panels & programs the tiles fire
+//
+// Named parts, for directing edits:
+//   Concourse Orb  — main button (bottom right by default). Hold 2s
+//                    to drag it anywhere; its spot is remembered per
+//                    account (localStorage instantly, /api/ui-state
+//                    across logins and devices).
+//   The Concourse  — transparent glass box; click the Orb to
+//                    expand/minimize.
+//   Tiles          — ALL the same 56×56: Tour, Portals, Intro, Guide,
+//                    Renewal, Night Grid, Bike (hub-only), Muse,
+//                    Radio, Store, Bug, Alerts, Profile.
+//   Pins           — hold a tile 2s to pop it out onto the hub as its
+//                    own floating button; drop it on the Orb (or hold
+//                    it again and drop it home) to unpin. Pins are
+//                    remembered per account too.
 //
 // Nothing here reimplements the functions: tiles fire the real
 // actions — an `olympus:concourse-open` window event the rehoused
-// components listen for, a router push for the store, a page event
-// for the portal menu. The old floaters keep their panels and logic;
-// only their launchers moved in here.
+// components and the hub page listen for, or a router push.
 //
 // CSS etiquette (Merlin: "respectful of other components"):
-//   - z-[58]: below the Muse sheet (65), bug form (60+), Earth
-//     Console (80), Auth, and modal dismiss layers (88)
+//   - z-[58]: below the Muse sheet (65), bug form (60), Earth
+//     Console (80), program menu (40000) and modal layers
 //   - anchored bottom-right with safe-area insets, opens up-left in a
 //     capped footprint; never covers the left-half joystick zone
 //   - YIELD: while the Earth bike is out, the Orb (if the user never
@@ -33,6 +41,7 @@ import { bikeState } from '@/lib/earth/parachute';
 const LS_KEY = 'olympus.concourse.v1';
 const SIZE = 56;
 const HOLD_MS = 2000;
+const SAVE_DEBOUNCE_MS = 600;
 
 export const CONCOURSE_EVENT = 'olympus:concourse-open';
 export function fireConcourseTile(tile) {
@@ -44,6 +53,11 @@ export function fireConcourseTile(tile) {
 const TILES = [
   { id: 'tour', label: 'Tour', icon: '🗺️', soon: true },
   { id: 'portals', label: 'Portals', icon: '🎃', hubOnly: true },
+  { id: 'intro', label: 'Intro', icon: '↺', hubOnly: true },
+  { id: 'guide', label: 'Guide', icon: '?', hubOnly: true },
+  { id: 'renewal', label: 'Renew', icon: '◈', hubOnly: true },
+  { id: 'night', label: 'Night', icon: '🌑', hubOnly: true },
+  { id: 'bike', label: 'Bike', icon: '🏍️', hubOnly: true },
   { id: 'muse', label: 'Muse', icon: '✦' },
   { id: 'radio', label: 'Radio', icon: '🎵' },
   { id: 'store', label: 'Store', icon: '🛍️' },
@@ -52,14 +66,32 @@ const TILES = [
   { id: 'profile', label: 'Profile', icon: '👤' },
 ];
 
-function loadSaved() {
+const clamp01 = (n) => Math.min(1, Math.max(0, n));
+const isFrac = (v) => v && typeof v === 'object' && Number.isFinite(v.x) && Number.isFinite(v.y);
+
+function loadLocal() {
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return { orb: null, pins: {} };
     const parsed = JSON.parse(raw);
-    return { orb: parsed?.orb || null, pins: parsed?.pins || {} };
+    const orb = isFrac(parsed?.orb) ? parsed.orb : null;
+    const pins = {};
+    if (parsed?.pins && typeof parsed.pins === 'object') {
+      for (const [id, v] of Object.entries(parsed.pins)) if (isFrac(v)) pins[id] = v;
+    }
+    return { orb, pins };
   } catch {
     return { orb: null, pins: {} };
+  }
+}
+
+async function getToken() {
+  try {
+    const { supabase } = await import('@/lib/supabase');
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token || null;
+  } catch {
+    return null;
   }
 }
 
@@ -71,36 +103,120 @@ export default function Concourse() {
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState('');
-  const [orbPos, setOrbPos] = useState(null); // {x, y} px, top-left
+  const [viewport, setViewport] = useState({ w: 0, h: 0 });
+  const [orbFrac, setOrbFrac] = useState(null); // {x, y} fractions
   const [orbCustom, setOrbCustom] = useState(false);
-  const [pins, setPins] = useState({}); // tileId -> {x, y}
-  const [drag, setDrag] = useState(null); // {kind, id, x, y, active}
+  const [pinsFrac, setPinsFrac] = useState({}); // tileId -> {x, y}
+  const [drag, setDrag] = useState(null); // {kind, id, x, y, active} px
   const [bikeOut, setBikeOut] = useState(false);
 
   const dragRef = useRef(null);
   const suppressClickRef = useRef(0);
   const orbRef = useRef(null);
+  const saveTimerRef = useRef(null);
+  const stateRef = useRef({ orb: null, pins: {}, custom: false });
+  stateRef.current = { orb: orbFrac, pins: pinsFrac, custom: orbCustom };
 
-  // Hydrate saved layout (positions are per user, localStorage).
-  useEffect(() => {
-    const saved = loadSaved();
-    if (saved.orb) {
-      setOrbPos(saved.orb);
-      setOrbCustom(true);
-    } else {
-      setOrbPos({
-        x: Math.max(12, window.innerWidth - 18 - SIZE),
-        y: Math.max(12, window.innerHeight - 96 - SIZE),
-      });
-    }
-    setPins(saved.pins || {});
-    setMounted(true);
+  const toPx = useCallback(
+    (frac) => ({
+      x: frac.x * Math.max(0, viewport.w - SIZE),
+      y: frac.y * Math.max(0, viewport.h - SIZE),
+    }),
+    [viewport]
+  );
+  const toFrac = useCallback(
+    (px) => ({
+      x: clamp01(px.x / Math.max(1, viewport.w - SIZE)),
+      y: clamp01(px.y / Math.max(1, viewport.h - SIZE)),
+    }),
+    [viewport]
+  );
+
+  const persist = useCallback((orb, pins) => {
+    try {
+      localStorage.setItem(LS_KEY, JSON.stringify({ orb, pins }));
+    } catch {}
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(async () => {
+      const token = await getToken();
+      if (!token) return; // signed out: localStorage only
+      try {
+        await fetch('/api/ui-state', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ preferences: { concourse_orb: orb, concourse_pins: pins } }),
+        });
+      } catch {
+        // offline — localStorage already holds it; next drag retries
+      }
+    }, SAVE_DEBOUNCE_MS);
   }, []);
 
-  const persist = useCallback((orb, pinsMap, custom) => {
-    try {
-      localStorage.setItem(LS_KEY, JSON.stringify({ orb: custom ? orb : null, pins: pinsMap }));
-    } catch {}
+  // Hydrate: localStorage instantly; the account copy wins when
+  // signed in (so the layout follows the user across logins).
+  useEffect(() => {
+    setViewport({ w: window.innerWidth, h: window.innerHeight });
+    const local = loadLocal();
+    let orb = local.orb;
+    // Legacy v1 stored raw pixels — convert into fractions.
+    if (orb && (orb.x > 1 || orb.y > 1)) {
+      orb = {
+        x: clamp01(orb.x / Math.max(1, window.innerWidth - SIZE)),
+        y: clamp01(orb.y / Math.max(1, window.innerHeight - SIZE)),
+      };
+    }
+    const pins = {};
+    for (const [id, v] of Object.entries(local.pins)) {
+      pins[id] = v.x > 1 || v.y > 1
+        ? { x: clamp01(v.x / Math.max(1, window.innerWidth - SIZE)), y: clamp01(v.y / Math.max(1, window.innerHeight - SIZE)) }
+        : v;
+    }
+    if (orb) {
+      setOrbFrac(orb);
+      setOrbCustom(true);
+    } else {
+      setOrbFrac({
+        x: clamp01((window.innerWidth - 18 - SIZE) / Math.max(1, window.innerWidth - SIZE)),
+        y: clamp01((window.innerHeight - 96 - SIZE) / Math.max(1, window.innerHeight - SIZE)),
+      });
+    }
+    setPinsFrac(pins);
+    setMounted(true);
+
+    let cancelled = false;
+    (async () => {
+      const token = await getToken();
+      if (!token || cancelled) return;
+      try {
+        const res = await fetch('/api/ui-state', { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
+        const data = await res.json().catch(() => null);
+        const prefs = data?.preferences || {};
+        if (cancelled) return;
+        if (isFrac(prefs.concourse_orb)) {
+          setOrbFrac({ x: clamp01(prefs.concourse_orb.x), y: clamp01(prefs.concourse_orb.y) });
+          setOrbCustom(true);
+        }
+        if (prefs.concourse_pins && typeof prefs.concourse_pins === 'object') {
+          const dbPins = {};
+          for (const [id, v] of Object.entries(prefs.concourse_pins)) {
+            if (isFrac(v)) dbPins[id] = { x: clamp01(v.x), y: clamp01(v.y) };
+          }
+          setPinsFrac(dbPins);
+        }
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Track viewport for fraction -> px rendering.
+  useEffect(() => {
+    const onResize = () => setViewport({ w: window.innerWidth, h: window.innerHeight });
+    window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('orientationchange', onResize);
+    };
   }, []);
 
   // Yield rule: bike controls own the bottom-right while riding.
@@ -116,11 +232,9 @@ export default function Concourse() {
         return;
       }
       setNote('');
-      if (tile.id === 'store') {
-        router.push('/store');
-      } else {
-        fireConcourseTile(tile.id);
-      }
+      if (tile.id === 'store') router.push('/store');
+      else if (tile.id === 'renewal') router.push('/renewal-plan');
+      else fireConcourseTile(tile.id);
       setOpen(false);
     },
     [router]
@@ -131,7 +245,7 @@ export default function Concourse() {
   const beginPress = (kind, id, e) => {
     const startX = e.clientX;
     const startY = e.clientY;
-    const info = { kind, id, startX, startY, active: false, timer: null, x: startX, y: startY };
+    const info = { kind, id, x: startX, y: startY, active: false, timer: null };
     info.timer = setTimeout(() => {
       info.active = true;
       setDrag({ kind, id, x: info.x, y: info.y, active: true });
@@ -160,29 +274,24 @@ export default function Concourse() {
       if (!wasActive) return; // plain tap — the click handler runs
       suppressClickRef.current = Date.now();
 
-      const dropX = ev.clientX;
-      const dropY = ev.clientY;
+      const dropPx = { x: ev.clientX - SIZE / 2, y: ev.clientY - SIZE / 2 };
       const orbRect = orbRef.current?.getBoundingClientRect();
       const onOrb = orbRect
-        && dropX >= orbRect.left - 8 && dropX <= orbRect.right + 8
-        && dropY >= orbRect.top - 8 && dropY <= orbRect.bottom + 8;
+        && ev.clientX >= orbRect.left - 8 && ev.clientX <= orbRect.right + 8
+        && ev.clientY >= orbRect.top - 8 && ev.clientY <= orbRect.bottom + 8;
+      const { orb, pins } = stateRef.current;
 
       if (kind === 'orb') {
-        const next = { x: dropX - SIZE / 2, y: dropY - SIZE / 2 };
-        setOrbPos(next);
+        const next = toFrac(dropPx);
+        setOrbFrac(next);
         setOrbCustom(true);
-        persist(next, pins, true);
+        persist(next, pins);
       } else if (id) {
-        setPins((prev) => {
-          const nextPins = { ...prev };
-          if (onOrb) {
-            delete nextPins[id]; // dropped home
-          } else {
-            nextPins[id] = { x: dropX - SIZE / 2, y: dropY - SIZE / 2 };
-          }
-          persist(orbPos, nextPins, orbCustom);
-          return nextPins;
-        });
+        const nextPins = { ...pins };
+        if (onOrb) delete nextPins[id]; // dropped home
+        else nextPins[id] = toFrac(dropPx);
+        setPinsFrac(nextPins);
+        persist(orb, nextPins);
       }
     };
     window.addEventListener('pointermove', onMove);
@@ -192,16 +301,19 @@ export default function Concourse() {
 
   const tapGuard = () => Date.now() - suppressClickRef.current < 350;
 
-  if (!mounted || !orbPos) return null;
+  if (!mounted || !orbFrac || !viewport.w) return null;
 
   const visibleTiles = TILES.filter((t) => !t.hubOnly || onHub);
-  const boxedTiles = visibleTiles.filter((t) => !pins[t.id]);
+  const boxedTiles = visibleTiles.filter((t) => !pinsFrac[t.id]);
+  const orbPx = toPx(orbFrac);
   const yieldLift = bikeOut && !orbCustom ? 270 : 0;
-  const orbY = orbPos.y - yieldLift;
+  const orbRenderY = drag?.active && drag.kind === 'orb' ? drag.y - SIZE / 2 : orbPx.y - yieldLift;
 
   const boxW = 4 * SIZE + 3 * 10 + 28; // 4 tiles per row + gaps + padding
-  const boxX = Math.max(10, Math.min(orbPos.x + SIZE - boxW, window.innerWidth - boxW - 10));
-  const boxY = Math.max(10, orbY - 208);
+  const rows = Math.max(1, Math.ceil(boxedTiles.length / 4));
+  const boxH = 42 + rows * (SIZE + 10) + 40;
+  const boxX = Math.max(10, Math.min(orbPx.x + SIZE - boxW, viewport.w - boxW - 10));
+  const boxY = Math.max(10, orbPx.y - yieldLift - boxH - 12);
 
   const tileButton = (tile, { pinned = false } = {}) => {
     const isDragging = drag?.active && drag.id === tile.id;
@@ -231,7 +343,7 @@ export default function Concourse() {
 
   return (
     <>
-      {/* The Concourse (glass box) */}
+      {/* Layer 2 · The Concourse (glass box) */}
       {open && (
         <div
           role="dialog"
@@ -264,12 +376,15 @@ export default function Concourse() {
 
       {/* Pinned tiles, floating on the hub */}
       {visibleTiles
-        .filter((t) => pins[t.id] && !(drag?.active && drag.id === t.id))
-        .map((t) => (
-          <div key={t.id} className="ui-element fixed z-[58]" style={{ left: pins[t.id].x, top: pins[t.id].y }}>
-            {tileButton(t, { pinned: true })}
-          </div>
-        ))}
+        .filter((t) => pinsFrac[t.id] && !(drag?.active && drag.id === t.id))
+        .map((t) => {
+          const p = toPx(pinsFrac[t.id]);
+          return (
+            <div key={t.id} className="ui-element fixed z-[58]" style={{ left: p.x, top: p.y }}>
+              {tileButton(t, { pinned: true })}
+            </div>
+          );
+        })}
 
       {/* Drag ghost: the tile under your finger while pinning */}
       {drag?.active && drag.kind === 'tile' && drag.id && (
@@ -283,7 +398,7 @@ export default function Concourse() {
         </div>
       )}
 
-      {/* Concourse Orb */}
+      {/* Layer 1 · Concourse Orb */}
       <button
         ref={orbRef}
         type="button"
@@ -297,8 +412,8 @@ export default function Concourse() {
             : 'border-cyan-200/40 bg-zinc-950/70 shadow-[0_10px_30px_rgba(0,0,0,0.5),0_0_22px_rgba(0,242,255,0.22)] hover:shadow-[0_10px_30px_rgba(0,0,0,0.5),0_0_30px_rgba(0,242,255,0.4)]'
         }`}
         style={{
-          left: drag?.active && drag.kind === 'orb' ? drag.x - SIZE / 2 : orbPos.x,
-          top: drag?.active && drag.kind === 'orb' ? drag.y - SIZE / 2 : orbY,
+          left: drag?.active && drag.kind === 'orb' ? drag.x - SIZE / 2 : orbPx.x,
+          top: orbRenderY,
           width: SIZE,
           height: SIZE,
         }}
