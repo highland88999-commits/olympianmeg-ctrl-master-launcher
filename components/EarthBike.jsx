@@ -119,9 +119,11 @@ export default function EarthBike({ controls }) {
 
   useFrame((state, rawDt) => {
     const g = groupRef.current;
-    // Hidden in micro (Ant-Man) mode — all 3D objects disappear at smallest size
-    const isMicro = (parachuteState?.scale || 1) < 0.5;
-    if (!g || !bikeState.summoned || !roamState.active || isMicro) {
+    // The bike exists at EVERY scale — it shrinks with the walker
+    // (scale set below), so it rides in the Quantum Realm too. It was
+    // previously hidden in micro mode, which made bike mode vanish
+    // exactly where Merlin rides smallest (2026-10-20).
+    if (!g || !bikeState.summoned || !roamState.active) {
       if (g) g.visible = false;
       return;
     }
@@ -134,10 +136,13 @@ export default function EarthBike({ controls }) {
       const k = keys.current;
       const thrust = -((c.moveY || 0) + ((c.keyS ? 1 : 0) - (c.keyW ? 1 : 0)));
       const turn = (c.moveX || 0) + ((c.keyD ? 1 : 0) - (c.keyA ? 1 : 0));
-      const boost = !!(k['shift']);
+      // Boost / rise / sink come from the keyboard OR the on-screen
+      // bike controls (EarthConsole overlay writes bikeBoost /
+      // bikeUp / bikeDown into the shared controls object).
+      const boost = !!(k['shift'] || c.bikeBoost);
       const brake = thrust < -0.5;
-      const upIn = k[' '] ? 1 : 0;
-      const downIn = (k['c'] || 0) ? 1 : 0;
+      const upIn = k[' '] || c.bikeUp ? 1 : 0;
+      const downIn = k['c'] || c.bikeDown ? 1 : 0;
 
       // Step speed/yaw with the Myriad flight model (same feel)
       const f = {

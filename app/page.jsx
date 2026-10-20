@@ -642,6 +642,7 @@ function NexusHub() {
           spawns={earthSpawns}
           selectedTile={selectedTile}
           onDropToTile={parachuteTo}
+          controlsRef={controlsRef}
         />
       )}
 

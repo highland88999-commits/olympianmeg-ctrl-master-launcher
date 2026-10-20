@@ -9,9 +9,9 @@ import EarthWalker from '@/components/EarthWalker';
 import EarthLadders from '@/components/EarthLadders';
 import MonumentElevator from '@/components/MonumentElevator';
 import EarthBike from '@/components/EarthBike';
-import StreetGroundPatch, { StreetFillLight } from '@/components/StreetGroundPatch';
+import StreetGroundPatch, { StreetFillLight, MicroGroundDisc } from '@/components/StreetGroundPatch';
 import { LENS_PRESETS, LENS_LIFT, lensTilePlan, buildLensGeometryData } from '@/lib/earth/lens';
-import { HUB_UNITS_PER_DEGREE } from '@/lib/earth/placements';
+import { HUB_UNITS_PER_DEGREE, DISPLAY_UNITS_PER_METRE } from '@/lib/earth/placements';
 import { loadHeightData, getHeightData } from '@/lib/earth/heightmap';
 import { parachuteState } from '@/lib/earth/parachute';
 import { roamState } from '@/lib/earth/roam';
@@ -44,10 +44,12 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
   const lensMatRef = useRef();
   const lensRef = useRef(null); // { tex, geo } awaiting disposal
   const roamCenterRef = useRef(null);
+  const patchCenterRef = useRef(null);
   const lastLensBuildRef = useRef(0);
   const [lens, setLens] = useState(null);
   const [heightReady, setHeightReady] = useState(false);
   const [roamCenter, setRoamCenter] = useState(null);
+  const [patchCenter, setPatchCenter] = useState(null);
   // 'terrain' = procedural 3D globe + ESRI lens (default, always 3D).
   // 'photorealistic' = Google 3D tiles, only after they really render.
   const [layer, setLayer] = useState('terrain');
@@ -106,6 +108,20 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
         const next = { lat: roamState.lat, lon: roamState.lon };
         roamCenterRef.current = next;
         setRoamCenter(next);
+      }
+      // The street PATCH recenters on its own, much tighter beat: it
+      // is pure geometry (no tile fetches), and at bike speed the
+      // traveler crosses the lens's 900ms throttle in a blink — the
+      // floor must already be there, all around and behind, before
+      // it's needed (Merlin, 2026-10-20). ~10 m threshold, no timer.
+      const pc = patchCenterRef.current;
+      const patchDeg = (10 * DISPLAY_UNITS_PER_METRE) / HUB_UNITS_PER_DEGREE;
+      if (!pc
+        || Math.abs(pc.lat - roamState.lat) > patchDeg
+        || Math.abs(pc.lon - roamState.lon) > patchDeg) {
+        const next = { lat: roamState.lat, lon: roamState.lon };
+        patchCenterRef.current = next;
+        setPatchCenter(next);
       }
     }
   });
@@ -229,6 +245,7 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
               transparent
               opacity={0}
               depthWrite={false}
+              side={THREE.DoubleSide}
             />
           </mesh>
         )}
@@ -237,7 +254,12 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
             the 160×120 globe's ~135 m facets read as broken shards
             from 1.62 m up). */}
         {effectiveLayer === 'terrain' && roaming && (
-          <StreetGroundPatch center={roamCenter} />
+          <StreetGroundPatch center={patchCenter} />
+        )}
+        {/* The Quantum Realm's own floor: a small opaque disc that
+            follows the tiny walker in every direction. */}
+        {effectiveLayer === 'terrain' && roaming && (
+          <MicroGroundDisc />
         )}
         {effectiveLayer === 'terrain' && <StreetFillLight active={roaming} />}
         {/* Day sky dome at street level: blue during day, transparent at night.

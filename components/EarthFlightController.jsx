@@ -18,6 +18,7 @@ import {
 } from '@/lib/earth/heightmap';
 import {
   parachuteState,
+  bikeState,
   beginParachuteDive,
   stepParachute,
   resetParachute,
@@ -69,7 +70,14 @@ export default function EarthFlightController({
     const toWorld = (p) => new THREE.Vector3(p.x, p.y, p.z).applyQuaternion(q).add(EARTH_CENTER);
 
     const scale = parachuteState.scale;
-    const altU = getClimbAltM() * DISPLAY_UNITS_PER_METRE;
+    // Rig lift along the surface normal: climb altitude (ladders /
+    // elevators, real metres) plus — while mounted — the bike's hover
+    // altitude. Bike altitude is in walker-metres, so it scales with
+    // the shrink exactly like the bike mesh itself (EarthBike places
+    // the mesh at altM × scale). Without this the camera stayed
+    // glued to the ground while the bike flew above it.
+    const bikeLiftM = bikeState.mounted ? bikeState.altM * scale : 0;
+    const altU = (getClimbAltM() + bikeLiftM) * DISPLAY_UNITS_PER_METRE;
     const n = new THREE.Vector3(rig.normal.x, rig.normal.y, rig.normal.z);
     const ground = new THREE.Vector3(rig.ground.x, rig.ground.y, rig.ground.z);
 
@@ -97,8 +105,13 @@ export default function EarthFlightController({
 
   // At street scale the default near plane (0.1) would clip the
   // ground at the traveler's feet; shrink it with altitude.
+  // CRITICAL: the distance passed in must be the SCALED (world-space)
+  // camera-to-ground distance. The unscaled rig distance at micro
+  // scale put the near plane ~5x beyond the actual ground, clipping
+  // the entire floor away in the Quantum Realm (sub-terrain
+  // bleed-through, Merlin 2026-10-20).
   const tuneNear = (distToGround) => {
-    const near = THREE.MathUtils.clamp(distToGround * 0.25, 0.004, 0.1);
+    const near = THREE.MathUtils.clamp(distToGround * 0.18, 0.0006, 0.06);
     if (Math.abs(camera.near - near) > 0.002) {
       camera.near = near;
       camera.updateProjectionMatrix();
@@ -176,7 +189,7 @@ export default function EarthFlightController({
         rig.camPos.x - rig.ground.x,
         rig.camPos.y - rig.ground.y,
         rig.camPos.z - rig.ground.z,
-      ));
+      ) * parachuteState.scale);
       camera.fov = THREE.MathUtils.lerp(camera.fov, 55, delta * 2);
       camera.updateProjectionMatrix();
       if (dv.t >= 1) {
@@ -206,11 +219,15 @@ export default function EarthFlightController({
       }
       // Walk: hub control convention — forward is the negated
       // moveY channel (joystick up / W), strafe is moveX (D / A).
+      // While the bike is mounted it owns roamState (EarthBike syncs
+      // it every frame) — stepping the walker too would double-move.
       const forward = -((c.moveY || 0) + ((c.keyS ? 1 : 0) - (c.keyW ? 1 : 0)));
       const strafe = (c.moveX || 0) + ((c.keyD ? 1 : 0) - (c.keyA ? 1 : 0));
-      stepRoam(roamState, { forward, strafe }, delta, {
-        radius: surfaceRadiusOrBase(roamState.lat, roamState.lon),
-      });
+      if (!bikeState.mounted) {
+        stepRoam(roamState, { forward, strafe }, delta, {
+          radius: surfaceRadiusOrBase(roamState.lat, roamState.lon),
+        });
+      }
       if (!roamState.moving) roamState.faceDeg = roamState.yawDeg;
 
       const { rig, camPos, look, up } = streetRigWorld();
@@ -220,7 +237,7 @@ export default function EarthFlightController({
         rig.camPos.x - rig.ground.x,
         rig.camPos.y - rig.ground.y,
         rig.camPos.z - rig.ground.z,
-      ));
+      ) * parachuteState.scale);
       camera.fov = THREE.MathUtils.lerp(camera.fov, 55, delta * 2);
       camera.updateProjectionMatrix();
     } else if (launchState === 'earth_surface') {
@@ -270,16 +287,22 @@ export default function EarthFlightController({
     // Floor clamp: camera never passes below the terrain (street phases only).
     // Pushes the camera out along the surface normal if it's under the floor.
     // This is the ABSOLUTE cutoff — the land layer is the limit, no exceptions.
-    if (launchState === 'diving_to_street' || launchState === 'earth_roam') {
+    // Uses the TRUE local surface radius at the traveler (not a flat 55):
+    // at high-elevation sites the flat value let the clamp fight the rig
+    // (the Christ the Redeemer shake). While a ladder/elevator climb is
+    // active the authored climb path owns altitude, so the clamp stands
+    // down entirely.
+    if ((launchState === 'diving_to_street' || launchState === 'earth_roam') && getClimbAltM() <= 0.05) {
       const camPos = camera.position;
       // Earth center in world space
       const ex = 0, ey = -60, ez = -120;
       const dx = camPos.x - ex, dy = camPos.y - ey, dz = camPos.z - ez;
       const distFromCenter = Math.hypot(dx, dy, dz) || 1;
-      // Minimum distance: Earth radius (55) + 1.0m margin (scaled for Ant-Man).
-      // Using base radius + margin is conservative — terrain hills only make
-      // the surface higher, so this never lets the camera under the land.
-      const minDist = 55 + 1.0 * DISPLAY_UNITS_PER_METRE * (parachuteState?.scale || 1);
+      // Minimum distance: local terrain surface + 0.3m margin (scaled
+      // for Ant-Man). Terrain above the base radius only raises this
+      // floor, so the camera can never slip under the local land.
+      const minDist = surfaceRadiusOrBase(roamState.lat, roamState.lon)
+        + 0.3 * DISPLAY_UNITS_PER_METRE * (parachuteState?.scale || 1);
       if (distFromCenter < minDist) {
         const push = (minDist - distFromCenter) / distFromCenter;
         camPos.x += dx * push;

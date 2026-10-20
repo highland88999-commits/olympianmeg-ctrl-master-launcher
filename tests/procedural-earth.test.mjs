@@ -97,7 +97,7 @@ t('earth imports the procedural globe', /import ProceduralEarthGlobe/.test(nexus
 t('earth renders the procedural globe on the fallback layer', /<ProceduralEarthGlobe/.test(nexus));
 t('earth keeps Google tiles primary', /<GoogleEarthTiles/.test(nexus) && /onActive=\{[^}]*'photorealistic'/.test(nexus));
 t('earth falls back to the terrain globe on tile failure', /onInactive=\{[^}]*'terrain'/.test(nexus));
-t('earth badge is honest about the fallback', /Terrain · 3D/.test(nexus));
+t('earth layer state tracks tile activity honestly', /effectiveLayer/.test(nexus) && /setLayer\('terrain'\)/.test(nexus));
 t('flat stylized globe is gone', !/earth_atmos_2048|stylized globe/.test(nexus));
 t('no hotlinked earth textures remain', !/unpkg\.com\/three-globe|raw\.githubusercontent\.com\/mrdoob/.test(nexus));
 t('earth keeps the ESRI detail lens', /lensTilePlan/.test(nexus) && /CanvasTexture/.test(nexus));
