@@ -74,7 +74,7 @@ export const POST = noCache(
     if ('concourse_pins' in prefs) {
       // Map of Concourse tile id -> viewport fractions. Tile ids are
       // whitelisted; malformed entries are dropped, never stored.
-      const TILE_IDS = ['tour', 'portals', 'intro', 'guide', 'renewal', 'night', 'bike', 'muse', 'radio', 'store', 'bug', 'alerts', 'profile'];
+      const TILE_IDS = ['tour', 'portals', 'intro', 'guide', 'renewal', 'night', 'bike', 'muse', 'radio', 'store', 'bug', 'alerts', 'profile', 'phone'];
       const raw = prefs.concourse_pins;
       if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
         return NextResponse.json({ error: 'concourse_pins must be an object of tile positions.' }, { status: 400 });

@@ -26,7 +26,7 @@
 import { useEffect, useState } from 'react';
 import {
   Play, Pause, SkipBack, SkipForward, Shuffle, Dices, ChevronDown,
-  Minus, Radio, ExternalLink, Music2, ListMusic,
+  Minus, ExternalLink, Music2, ListMusic,
 } from 'lucide-react';
 import { useRadio } from './RadioProvider';
 import SpotifyEmbed from './SpotifyEmbed';
@@ -306,19 +306,12 @@ export default function RadioBar() {
     return () => window.removeEventListener('olympus:concourse-open', handler);
   }, [setMinimized, setExpanded]);
 
-  // MINIMIZED — interim dock chip (the shared dock registry already knows us).
+  // MINIMIZED — the dock chip retired 2026-10-20 (Merlin): the radio
+  // lives in the Concourse now; its Radio tile un-minimizes and opens
+  // the library. Minimized renders nothing (playback state unchanged —
+  // the embed was already unmounted in this state).
   if (minimized) {
-    return (
-      <button
-        type="button"
-        onClick={() => setMinimized(false)}
-        aria-label="Restore radio from the dock"
-        title="Radio"
-        className="fixed bottom-[calc(0.75rem+env(safe-area-inset-bottom))] right-3 z-[70] flex h-11 w-11 items-center justify-center rounded-full border border-white/15 bg-black/85 text-teal-300 shadow-lg backdrop-blur-md transition-transform motion-reduce:transition-none hover:scale-105 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-300"
-      >
-        <Radio size={18} aria-hidden="true" />
-      </button>
-    );
+    return null;
   }
 
   const sheetOpen = expanded;

@@ -38,6 +38,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { bikeState } from '@/lib/earth/parachute';
 import { DoomsdayStrip } from './DoomsdayBanner';
+import PhoneFrame from './PhoneFrame';
 
 const LS_KEY = 'olympus.concourse.v1';
 const SIZE = 56;
@@ -65,6 +66,7 @@ const TILES = [
   { id: 'bug', label: 'Bug', icon: '🐛' },
   { id: 'alerts', label: 'Alerts', icon: '🔔' },
   { id: 'profile', label: 'Profile', icon: '👤' },
+  { id: 'phone', label: 'Phone', icon: '📱' },
 ];
 
 const clamp01 = (n) => Math.min(1, Math.max(0, n));
@@ -110,7 +112,7 @@ export default function Concourse() {
   const [pinsFrac, setPinsFrac] = useState({}); // tileId -> {x, y}
   const [drag, setDrag] = useState(null); // {kind, id, x, y, active} px
   const [bikeOut, setBikeOut] = useState(false);
-  const [doomVisible, setDoomVisible] = useState(false);
+  const [phoneOpen, setPhoneOpen] = useState(false);
 
   const dragRef = useRef(null);
   const suppressClickRef = useRef(0);
@@ -236,6 +238,7 @@ export default function Concourse() {
       setNote('');
       if (tile.id === 'store') router.push('/store');
       else if (tile.id === 'renewal') router.push('/renewal-plan');
+      else if (tile.id === 'phone') { setPhoneOpen(true); setOpen(false); return; }
       else fireConcourseTile(tile.id);
       setOpen(false);
     },
@@ -312,10 +315,11 @@ export default function Concourse() {
   const orbRenderY = drag?.active && drag.kind === 'orb' ? drag.y - SIZE / 2 : orbPx.y - yieldLift;
 
   const boxW = 4 * SIZE + 3 * 10 + 28; // 4 tiles per row + gaps + padding
-  const rows = Math.max(1, Math.ceil(boxedTiles.length / 4));
-  const boxH = 42 + rows * (SIZE + 10) + 40 + (doomVisible ? 38 : 0);
   const boxX = Math.max(10, Math.min(orbPx.x + SIZE - boxW, viewport.w - boxW - 10));
-  const boxY = Math.max(10, orbPx.y - yieldLift - boxH - 12);
+  // The box anchors by its BOTTOM edge, 12px above the Orb — height
+  // is whatever the tiles need, and it can never slide down over the
+  // Orb or its own footer text (Merlin's screenshot, 2026-10-20).
+  const boxBottom = viewport.h - (orbPx.y - yieldLift) + 12;
 
   const tileButton = (tile, { pinned = false } = {}) => {
     const isDragging = drag?.active && drag.id === tile.id;
@@ -327,12 +331,12 @@ export default function Concourse() {
         title={tile.label}
         onPointerDown={(e) => beginPress('tile', tile.id, e)}
         onClick={() => { if (!tapGuard()) fireTile(tile); }}
-        className={`ui-element pointer-events-auto relative flex flex-col items-center justify-center gap-0.5 rounded-2xl border backdrop-blur-md transition-all active:scale-95 select-none touch-none ${
+        className={`ui-element pointer-events-auto relative flex flex-col items-center justify-center gap-0.5 rounded-2xl border backdrop-blur-md transition-all active:scale-95 select-none touch-none ${pinned ? '' : 'w-full'} ${
           isDragging
             ? 'border-cyan-300 bg-cyan-400/30 scale-110 shadow-[0_0_28px_rgba(0,242,255,0.55)]'
             : 'border-white/15 bg-white/[0.06] hover:border-cyan-300/50 hover:bg-cyan-400/10 shadow-[0_4px_18px_rgba(0,0,0,0.35)]'
         }`}
-        style={{ width: SIZE, height: SIZE }}
+        style={pinned ? { width: SIZE, height: SIZE } : { height: SIZE }}
       >
         <span aria-hidden="true" className="text-[22px] leading-none">{tile.icon}</span>
         <span className="text-[8.5px] font-black tracking-[0.14em] uppercase text-zinc-200">{tile.label}</span>
@@ -350,12 +354,12 @@ export default function Concourse() {
         <div
           role="dialog"
           aria-label="The Concourse"
-          className="ui-element fixed z-[58] rounded-3xl border border-cyan-200/25 bg-zinc-950/55 p-3.5 shadow-[0_18px_50px_rgba(0,0,0,0.55),0_0_35px_rgba(0,242,255,0.10)] backdrop-blur-xl"
-          style={{ left: boxX, top: boxY, width: boxW }}
+          className="ui-element fixed z-[58] max-h-[calc(100dvh-110px)] overflow-y-auto rounded-3xl border border-cyan-200/25 bg-zinc-950/55 p-3.5 shadow-[0_18px_50px_rgba(0,0,0,0.55),0_0_35px_rgba(0,242,255,0.10)] backdrop-blur-xl"
+          style={{ left: boxX, bottom: boxBottom, width: boxW }}
         >
           {/* The golden Doomsday countdown crowns the Concourse
               (Merlin, 2026-10-20) — hub-only, self-removing Dec 11. */}
-          <DoomsdayStrip onVisibility={setDoomVisible} />
+          <DoomsdayStrip />
           <div className="mb-2.5 flex items-center justify-between px-0.5">
             <div className="text-[10px] font-black tracking-[0.3em] uppercase text-cyan-200">The Concourse</div>
             <button
@@ -367,14 +371,19 @@ export default function Concourse() {
               <span aria-hidden="true" className="text-xs leading-none">—</span>
             </button>
           </div>
-          <div className="flex flex-wrap gap-2.5">
+          <div className="grid grid-cols-4 gap-2.5">
             {boxedTiles.map((t) => tileButton(t))}
             {boxedTiles.length === 0 && (
               <div className="px-1 py-2 text-[11px] text-zinc-400">Everything is pinned out on the hub.</div>
             )}
           </div>
           <div className="mt-2.5 px-0.5 text-[9.5px] leading-relaxed text-zinc-500">
-            {note || 'Hold any tile 2 seconds to pin it out on the hub. Hold the Orb to move it.'}
+            {note || (
+              <>
+                <span className="block">Hold a tile 2s → pin it out on the hub. Drop it on the Orb to send it home.</span>
+                <span className="block">Hold the Orb 2s → move it.</span>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -402,6 +411,9 @@ export default function Concourse() {
           <span className="text-[8.5px] font-black tracking-[0.14em] uppercase text-white">{TILES.find((t) => t.id === drag.id)?.label}</span>
         </div>
       )}
+
+      {/* Layer 3 · the Cloud Phone frame (Phone tile) */}
+      <PhoneFrame open={phoneOpen} onClose={() => setPhoneOpen(false)} />
 
       {/* Layer 1 · Concourse Orb */}
       <button
