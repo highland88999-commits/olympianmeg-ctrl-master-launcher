@@ -318,6 +318,13 @@ describe('hub circle buttons (static wiring)', () => {
     assert.ok(!page.includes('aria-label="Replay intro"'), 'standalone circles retired');
   });
 
+  it('HOLOGRAPHIC CALLS lives in the Concourse as the Calls tile (2026-10-20)', () => {
+    assert.ok(concourse.includes("{ id: 'calls', label: 'Calls', icon: '🔮' }"), 'calls tile in the Concourse');
+    assert.ok(concourse.includes("tile.id === 'calls'") && concourse.includes("router.push('/order-67')"), 'calls tile routes to the Holographic Calls program');
+    assert.ok(concourse.indexOf("id: 'phone'") < concourse.indexOf("id: 'calls'"), 'calls sits beside phone in the Connect row');
+    assert.ok(concourse.indexOf("id: 'portals'") < concourse.indexOf("id: 'tour'"), 'portals leads the Journey row');
+  });
+
   it('the old rectangular pills are gone (comments ignored)', () => {
     const noComments = page.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
     assert.ok(!noComments.includes('FLIGHT AXIS:'), 'no FLIGHT AXIS text pill');

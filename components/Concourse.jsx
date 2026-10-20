@@ -13,9 +13,11 @@
 //                    across logins and devices).
 //   The Concourse  — transparent glass box; click the Orb to
 //                    expand/minimize.
-//   Tiles          — ALL the same 56×56: Tour, Portals, Intro, Guide,
-//                    Renewal, Night Grid, Bike (hub-only), Muse,
-//                    Radio, Store, Bug, Alerts, Profile.
+//   Tiles          — ALL the same 56×56, in composed order:
+//                    Portals, Tour, Intro, Guide, Night Grid, Bike,
+//                    Renewal (hub-only set), Muse, Phone, Calls
+//                    (Holographic Calls → /order-67), Radio, Store,
+//                    Alerts, Profile, Bug.
 //   Pins           — hold a tile 2s to pop it out onto the hub as its
 //                    own floating button; drop it on the Orb (or hold
 //                    it again and drop it home) to unpin. Pins are
@@ -53,21 +55,31 @@ export function fireConcourseTile(tile) {
   } catch {}
 }
 
+// Tile order is composed in four visual movements (Merlin,
+// 2026-10-20 — "reorder the icons for best aesthetic pleasure"):
+//   Journey · Portals, Tour, Intro, Guide — the way in
+//   Hub     · Night, Bike, Renew, Muse — life on the hub
+//   Connect · Phone, Calls, Radio, Store — reach out & trade
+//   You     · Alerts, Profile, Bug — the personal corner
+// Off the hub the hub-only tiles drop out and the same order
+// collapses into two clean rows (Muse/Phone/Calls/Radio, then
+// Store/Alerts/Profile/Bug).
 const TILES = [
-  { id: 'tour', label: 'Tour', icon: '🗺️', soon: true },
   { id: 'portals', label: 'Portals', icon: '🎃', hubOnly: true },
+  { id: 'tour', label: 'Tour', icon: '🗺️', soon: true },
   { id: 'intro', label: 'Intro', icon: '↺', hubOnly: true },
   { id: 'guide', label: 'Guide', icon: '?', hubOnly: true },
-  { id: 'renewal', label: 'Renew', icon: '◈', hubOnly: true },
   { id: 'night', label: 'Night', icon: '🌑', hubOnly: true },
   { id: 'bike', label: 'Bike', icon: '🏍️', hubOnly: true },
+  { id: 'renewal', label: 'Renew', icon: '◈', hubOnly: true },
   { id: 'muse', label: 'Muse', icon: '✦' },
+  { id: 'phone', label: 'Phone', icon: '📱' },
+  { id: 'calls', label: 'Calls', icon: '🔮' },
   { id: 'radio', label: 'Radio', icon: '🎵' },
   { id: 'store', label: 'Store', icon: '🛍️' },
-  { id: 'bug', label: 'Bug', icon: '🐛' },
   { id: 'alerts', label: 'Alerts', icon: '🔔' },
   { id: 'profile', label: 'Profile', icon: '👤' },
-  { id: 'phone', label: 'Phone', icon: '📱' },
+  { id: 'bug', label: 'Bug', icon: '🐛' },
 ];
 
 const clamp01 = (n) => Math.min(1, Math.max(0, n));
@@ -239,6 +251,7 @@ export default function Concourse() {
       setNote('');
       if (tile.id === 'store') router.push('/store');
       else if (tile.id === 'renewal') router.push('/renewal-plan');
+      else if (tile.id === 'calls') router.push('/order-67'); // Holographic Calls
       else if (tile.id === 'phone') { setPhoneOpen(true); setOpen(false); return; }
       else fireConcourseTile(tile.id);
       setOpen(false);
