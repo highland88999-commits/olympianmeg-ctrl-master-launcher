@@ -127,11 +127,18 @@ export default function GoogleEarthTiles({ onSelect, onActive, onInactive, onPar
         // renderer; URLs that already carry a token pass through untouched.
         renderer.preprocessURL = (uri) => withSession(uri, sessionRef.current);
         renderer.fetchOptions.mode = 'cors';
-        renderer.errorTarget = 24;
+        // Detail radius + persistence (Merlin, 2026-10-20): a lower
+        // screen-space error target keeps tiles refined farther
+        // from the camera (bigger full-detail radius), and a larger
+        // LRU cache means tiles that have rendered STAY rendered
+        // instead of being evicted and re-streamed when the view
+        // swings back. The cache only fills with what actually
+        // streams in, so the ceiling costs nothing until used.
+        renderer.errorTarget = 16;
         renderer.downloadQueue.maxJobs = 20;
         renderer.parseQueue.maxJobs = 8;
-        renderer.lruCache.minSize = 1500;
-        renderer.lruCache.maxSize = 3000;
+        renderer.lruCache.minSize = 2500;
+        renderer.lruCache.maxSize = 6000;
 
         const onTileSet = () => settleActive();
         renderer.addEventListener('load-tile-set', onTileSet);

@@ -12,6 +12,7 @@ import EarthBike from '@/components/EarthBike';
 import StreetGroundPatch, { StreetFillLight, MicroGroundDisc } from '@/components/StreetGroundPatch';
 import QuantumSkyDome from '@/components/QuantumSkyDome';
 import { LENS_PRESETS, LENS_LIFT, lensTilePlan, buildLensGeometryData } from '@/lib/earth/lens';
+import { tileCellKey, recordRenderedTileKey } from '@/lib/earth/lens-cache';
 import { HUB_UNITS_PER_DEGREE, DISPLAY_UNITS_PER_METRE } from '@/lib/earth/placements';
 import { loadHeightData, getHeightData } from '@/lib/earth/heightmap';
 import { parachuteState } from '@/lib/earth/parachute';
@@ -40,14 +41,23 @@ import { roamState } from '@/lib/earth/roam';
 //   carries the placed world — so roaming forces the terrain layer
 //   and mounts the embodied traveler (EarthWalker).
 // - A small badge names the active layer in plain English.
+// Rendered lens sheets PERSIST (Merlin, 2026-10-20: "once a tile
+// has rendered, it stays rendered"). Recentering used to dispose
+// the previous sheet, so the photographic ground behind the
+// traveler vanished back to bare globe. Now the last few sheets
+// stay mounted; only beyond the cap is the oldest disposed. The
+// cap is a GPU-memory call: each sheet is a 2048² canvas texture
+// (~17 MB), so 4 sheets ≈ 67 MB worst case — the current area plus
+// the ground just walked, without unbounded growth on an iPhone.
+const MAX_LENS_SHEETS = 4;
+
 export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRef, focus, phase, spinEnabled, controls }) {
   const spinRef = useRef();
-  const lensMatRef = useRef();
-  const lensRef = useRef(null); // { tex, geo } awaiting disposal
+  const sheetsRef = useRef([]); // [{ key, mesh }] — mirror of lensSheets for frame-loop access
   const roamCenterRef = useRef(null);
   const patchCenterRef = useRef(null);
   const lastLensBuildRef = useRef(0);
-  const [lens, setLens] = useState(null);
+  const [lensSheets, setLensSheets] = useState([]);
   const [heightReady, setHeightReady] = useState(false);
   const [roamCenter, setRoamCenter] = useState(null);
   const [patchCenter, setPatchCenter] = useState(null);
@@ -87,10 +97,13 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
     if (spinRef.current && quatRef?.current) {
       spinRef.current.quaternion.copy(quatRef.current);
     }
-    if (lensMatRef.current) {
+    if (sheetsRef.current.length) {
       const target = (focus || roaming) && phase !== 'earth_travel' ? 0.96 : 0;
-      const m = lensMatRef.current;
-      m.opacity += (target - m.opacity) * Math.min(1, delta * 3);
+      for (const s of sheetsRef.current) {
+        const m = s.mesh.material;
+        m.opacity += (target - m.opacity) * Math.min(1, delta * 3);
+        s.mesh.visible = m.opacity > 0.02;
+      }
     }
     if (roaming && roamState.active) {
       const c = roamCenterRef.current;
@@ -127,6 +140,17 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
     }
   });
 
+  // Dispose every persisted lens sheet (leaving Earth / unmount).
+  const clearLensSheets = () => {
+    for (const s of sheetsRef.current) {
+      s.mesh.geometry.dispose();
+      s.mesh.material.map?.dispose();
+      s.mesh.material.dispose();
+    }
+    sheetsRef.current = [];
+    setLensSheets([]);
+  };
+
   // Build the lens for the current centre + range preset.
   const lensCenter = roaming ? roamCenter : focus;
   const presetName = roaming ? 'street' : 'overlook';
@@ -134,7 +158,7 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
     ? `${presetName}:${lensCenter.lat.toFixed(4)},${lensCenter.lon.toFixed(4)}`
     : null;
   useEffect(() => {
-    if (!lensCenter || !heightReady) { setLens(null); return undefined; }
+    if (!lensCenter || !heightReady) { clearLensSheets(); return undefined; }
     let alive = true;
     const preset = LENS_PRESETS[presetName];
     const plan = lensTilePlan(lensCenter.lat, lensCenter.lon, preset.zoom, preset.grid, preset.canvasPx);
@@ -178,12 +202,29 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
       geo.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
       geo.setAttribute('uv', new THREE.BufferAttribute(data.uvs, 2));
       geo.setIndex(new THREE.BufferAttribute(data.indices, 1));
-      if (lensRef.current) {
-        lensRef.current.tex.dispose();
-        lensRef.current.geo.dispose();
-      }
-      lensRef.current = { tex, geo };
-      setLens(lensRef.current);
+      const mat = new THREE.MeshBasicMaterial({
+        map: tex, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.renderOrder = 3;
+      // Persist this sheet alongside the recent ones (see
+      // MAX_LENS_SHEETS): a rebuilt cell replaces its old sheet;
+      // only sheets beyond the cap are disposed.
+      const disposeSheet = (s) => {
+        s.mesh.geometry.dispose();
+        s.mesh.material.map?.dispose();
+        s.mesh.material.dispose();
+      };
+      const key = centerKey;
+      const replaced = sheetsRef.current.find((s) => s.key === key);
+      if (replaced) disposeSheet(replaced);
+      const next = [...sheetsRef.current.filter((s) => s.key !== key), { key, mesh }];
+      while (next.length > MAX_LENS_SHEETS) disposeSheet(next.shift());
+      sheetsRef.current = next;
+      setLensSheets(next);
+      // The device record of rendered ground — this cell has been
+      // mapped on this device, permanently (lens-cache.js).
+      recordRenderedTileKey(tileCellKey(presetName, plan));
     };
     plan.tiles.forEach((t) => {
       if (!t.url) { settledCount += 1; if (settledCount === plan.tiles.length) finish(); return; }
@@ -206,13 +247,14 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centerKey, heightReady]);
 
-  // Dispose the lens sheet on unmount.
+  // Dispose all lens sheets on unmount.
   useEffect(() => () => {
-    if (lensRef.current) {
-      lensRef.current.tex.dispose();
-      lensRef.current.geo.dispose();
-      lensRef.current = null;
+    for (const s of sheetsRef.current) {
+      s.mesh.geometry.dispose();
+      s.mesh.material.map?.dispose();
+      s.mesh.material.dispose();
     }
+    sheetsRef.current = [];
   }, []);
 
   return (
@@ -238,18 +280,9 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
         {/* Summonable TRON bike — street only */}
         {effectiveLayer === 'terrain' && roaming && <EarthBike controls={controls} />}
 
-        {effectiveLayer === 'terrain' && lens && !microMode && (
-          <mesh geometry={lens.geo} renderOrder={3}>
-            <meshBasicMaterial
-              ref={lensMatRef}
-              map={lens.tex}
-              transparent
-              opacity={0}
-              depthWrite={false}
-              side={THREE.DoubleSide}
-            />
-          </mesh>
-        )}
+        {effectiveLayer === 'terrain' && !microMode && lensSheets.map((s) => (
+          <primitive key={s.key} object={s.mesh} />
+        ))}
         {/* Street-level detail ground + lantern fill: only on the
             terrain layer while roaming (walkthrough flaw 2026-10-17:
             the 160×120 globe's ~135 m facets read as broken shards

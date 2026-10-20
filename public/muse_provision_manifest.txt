@@ -17,8 +17,10 @@ app/api/payouts/cron/shakepay-confirm-queue/route.js
 app/api/payouts/shakepay-webhook/route.js
 supabase/migrations/20261017_shakepay_payouts.sql
 lib/earth/street-patch.js
+lib/earth/lens-cache.js
 components/StreetGroundPatch.jsx
 tests/earth-street-ground.test.mjs
+tests/earth-lens-cache.test.mjs
 app/agent-engine/page.tsx
 app/api/agent-engine/command/route.ts
 supabase/agent-engine.sql

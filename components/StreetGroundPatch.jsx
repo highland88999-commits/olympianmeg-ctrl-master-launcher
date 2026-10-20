@@ -12,6 +12,9 @@ import {
   buildStreetPatchGeometryData,
   hypsometricColor,
   STREET_PATCH_RADIUS,
+  MICRO_DISC_RADIUS_U,
+  microDiscLiftU,
+  microGrainTileU,
 } from '@/lib/earth/street-patch';
 
 // StreetGroundPatch — the street-level detail ground for the hub
@@ -122,28 +125,93 @@ export function StreetFillLight({ active }) {  const ref = useRef();
 // In micro mode the street patch floats ~12.5 world-cm overhead (2.5x
 // the tiny walker's height) and the globe's facets are ~135 m wide, so
 // the quantum layer had no floor of its own. This disc IS that floor:
-// ~3.1 world-metres across (≈62 m from the walker's own scale), it
-// hugs the terrain surface a hair above the globe, follows the walker
-// every frame in every direction, is opaque from both sides, and is
-// colored from the same hypsometric ramp as the terrain it covers.
-const MICRO_DISC_RADIUS_U = 0.05; // hub units ≈ 3.1 m
-const MICRO_DISC_LIFT_U = 0.00006; // ≈ 4 mm — under the tiny eye line
-
+// it hugs the terrain surface a hair above the globe, follows the
+// walker every frame in every direction, is opaque from both sides,
+// and is colored from the same hypsometric ramp as the terrain it
+// covers.
+//
+// 2026-10-20 repair (Merlin: "no motion controls in the Quantum
+// Realm" + "the world feels inverted"): the disc's lift was an
+// UNSCALED 0.00006 hub units while the tiny eye sits ~2.6e-7 units
+// above the ground — the floor floated ~230 eye-heights OVERHEAD.
+// The world was literally upside down (ground in the sky), and with
+// a featureless ceiling overhead plus a walker-locked sky, walking
+// produced zero visible motion. Two fixes:
+//   1. The lift now scales with the shrink (microDiscLiftU) — the
+//      floor is underfoot again at every scale.
+//   2. The disc carries a fine grain texture sized in WALKER metres
+//      (microGrainTileU) and anchored to the world: as the walker
+//      moves, the texture offset compensates the disc's follow, so
+//      the ground pattern stays fixed to the Earth and streams past
+//      underfoot — motion you can SEE, on foot and on the bike.
 export function MicroGroundDisc() {
   const meshRef = useRef();
   const matRef = useRef();
+  const texRef = useRef(null);
+  const anchorRef = useRef(null); // { lat, lon, east, north, offU, offV }
   const colorRef = useRef({ key: '', color: new THREE.Color('#3a5f2a') });
+
+  // Grain texture: near-white speckle so the terrain tint (material
+  // color) multiplies through. Built client-side only.
+  useEffect(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 256;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return undefined;
+    ctx.fillStyle = '#ececec';
+    ctx.fillRect(0, 0, 256, 256);
+    let seed = 987654321;
+    const rnd = () => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return seed / 0x7fffffff;
+    };
+    // Fine grain: thousands of 1-2px motes in a bright-grey range.
+    for (let i = 0; i < 3200; i++) {
+      const g = 150 + Math.floor(rnd() * 100);
+      ctx.fillStyle = `rgb(${g},${g},${g})`;
+      ctx.fillRect(rnd() * 256, rnd() * 256, 1 + rnd() * 2, 1 + rnd() * 2);
+    }
+    // Soft blotches for larger-scale variation.
+    for (let i = 0; i < 22; i++) {
+      const g = 175 + Math.floor(rnd() * 60);
+      const x = rnd() * 256;
+      const y = rnd() * 256;
+      const r = 10 + rnd() * 30;
+      const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
+      grad.addColorStop(0, `rgba(${g},${g},${g},0.35)`);
+      grad.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.anisotropy = 4;
+    texRef.current = tex;
+    if (matRef.current) {
+      matRef.current.map = tex;
+      matRef.current.needsUpdate = true;
+    }
+    return () => {
+      tex.dispose();
+      texRef.current = null;
+    };
+  }, []);
 
   useFrame(() => {
     const mesh = meshRef.current;
     if (!mesh) return;
-    const micro = (parachuteState?.scale || 1) < 0.5;
+    const scale = parachuteState?.scale || 1;
+    const micro = scale < 0.5;
     const on = micro && roamState.active;
     mesh.visible = !!on;
-    if (!on) return;
+    if (!on) {
+      anchorRef.current = null;
+      return;
+    }
 
     const { lat, lon } = roamState;
-    const r = surfaceRadiusOrBase(lat, lon) + MICRO_DISC_LIFT_U;
+    const r = surfaceRadiusOrBase(lat, lon) + microDiscLiftU(scale);
     const p = latLonToVec3(lat, lon, r);
     mesh.position.set(p.x, p.y, p.z);
 
@@ -154,6 +222,38 @@ export function MicroGroundDisc() {
     const east = new THREE.Vector3(frame.east.x, frame.east.y, frame.east.z);
     const basis = new THREE.Matrix4().makeBasis(east, north, normal);
     mesh.quaternion.setFromRotationMatrix(basis);
+
+    // World-anchored grain: the disc follows the walker, so shift
+    // the texture by the walker's displacement from the anchor —
+    // the pattern then belongs to the Earth, not to the disc, and
+    // walking (or riding) visibly moves the ground.
+    const tex = texRef.current;
+    if (tex) {
+      const tileU = microGrainTileU(scale);
+      tex.repeat.setScalar((2 * MICRO_DISC_RADIUS_U) / tileU);
+      let a = anchorRef.current;
+      if (!a) {
+        a = { lat, lon, east: frame.east, north: frame.north, offU: 0, offV: 0 };
+        anchorRef.current = a;
+      }
+      const pa = latLonToVec3(a.lat, a.lon, r);
+      let dE = (p.x - pa.x) * a.east.x + (p.y - pa.y) * a.east.y + (p.z - pa.z) * a.east.z;
+      let dN = (p.x - pa.x) * a.north.x + (p.y - pa.y) * a.north.y + (p.z - pa.z) * a.north.z;
+      if (Math.hypot(dE, dN) > 0.005) {
+        // Re-anchor before the tangent frame drifts: fold the
+        // travelled displacement into the accumulated offset so
+        // the pattern never jumps.
+        a = {
+          lat, lon, east: frame.east, north: frame.north,
+          offU: a.offU + dE / tileU, offV: a.offV + dN / tileU,
+        };
+        anchorRef.current = a;
+        dE = 0;
+        dN = 0;
+      }
+      const wrap01 = (x) => ((x % 1) + 1) % 1;
+      tex.offset.set(wrap01(a.offU + dE / tileU), wrap01(a.offV + dN / tileU));
+    }
 
     // Match the terrain color underfoot (refresh on coarse moves only).
     const key = `${lat.toFixed(3)},${lon.toFixed(3)}`;
