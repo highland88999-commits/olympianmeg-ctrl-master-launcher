@@ -157,6 +157,23 @@ export default function AgoraFeed() {
           )}
         </div>
 
+        <div className="mb-4 flex items-center gap-3">
+          <Link
+            href="/agora/people"
+            className="inline-flex min-h-[44px] items-center gap-2 rounded-full bg-white/10 px-5 py-2.5 text-sm font-semibold text-zinc-200 hover:bg-white/15"
+          >
+            <AphroIcon name="user" size={16} /> People
+          </Link>
+          {user && (
+            <Link
+              href={`/agora/profile/${user.id}`}
+              className="inline-flex min-h-[44px] items-center gap-2 rounded-full bg-white/10 px-5 py-2.5 text-sm font-semibold text-zinc-200 hover:bg-white/15"
+            >
+              <AphroIcon name="user" size={16} /> My profile
+            </Link>
+          )}
+        </div>
+
         {cloudOffline ? (
           <div className="rounded-xl border border-white/10 bg-black/50 p-10 text-center">
             <p className="text-zinc-400">Cloud features are offline — this page needs the database connection.</p>

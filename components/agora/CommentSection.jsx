@@ -3,6 +3,7 @@
 // Comments list + add-comment form + like toggle for a post.
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { validateComment, sanitizeText, LIMITS } from '@/lib/agora/validation';
 import { timeAgo, displayNameOf } from '@/lib/agora/format';
@@ -120,7 +121,16 @@ export default function CommentSection({ postId, initialLikeCount, initialLiked 
           {comments.map((c) => (
             <li key={c.id} className="rounded-lg border border-white/10 bg-[#0a1230]/50 p-4">
               <div className="mb-1 flex items-center justify-between text-xs text-zinc-500">
-                <span>{displayNameOf(c.agora_profiles)} · {timeAgo(c.created_at)}</span>
+                <span>
+                  {c.user_id ? (
+                    <Link href={`/agora/profile/${c.user_id}`} className="font-medium text-rose-200 underline decoration-rose-300/40 underline-offset-2 hover:text-white">
+                      {displayNameOf(c.agora_profiles)}
+                    </Link>
+                  ) : (
+                    displayNameOf(c.agora_profiles)
+                  )}{' '}
+                  · {timeAgo(c.created_at)}
+                </span>
                 {user && user.id === c.user_id && (
                   <button
                     onClick={() => deleteComment(c.id, c.user_id)}
