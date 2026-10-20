@@ -45,6 +45,14 @@
   "sat.loki.subtitle": "ቅዠቶች እና ድባብ",
   "sat.neon-racer.title": "የኒዮን እሽቅድምድም",
   "sat.neon-racer.subtitle": "የጥልቅ ጠፈር ህልውና",
+  "sat.neon-void.title": "Neon Void",
+  "sat.neon-void.subtitle": "3D Maze Chase",
+  "sat.dream-engine.title": "Dream Engine",
+  "sat.dream-engine.subtitle": "Describe a Dream, Walk Inside It",
+  "sat.swamp-run.title": "Swamp Run",
+  "sat.swamp-run.subtitle": "Crocodile Survival",
+  "sat.tetrus.title": "Tetrus",
+  "sat.tetrus.subtitle": "Build Tartarus, Trap Kronos",
   "sat.omega-pinball.title": "ፒንቦል",
   "sat.omega-pinball.subtitle": "የ99 ደረጃዎች ጉዞ",
   "sat.persymphony.title": "የሙዚቃ ሜዳ",
@@ -350,5 +358,7 @@
   "sat.world-nexus.title": "World Nexus",
   "sat.world-nexus.subtitle": "One hub. Every world. Walk them all.",
   "sat.middleearth.title": "Middle-earth",
-  "sat.middleearth.subtitle": "An open-world tribute across Middle-earth."
+  "sat.middleearth.subtitle": "An open-world tribute across Middle-earth.",
+  "sat.tidal-rush.title": "Tidal Rush",
+  "sat.tidal-rush.subtitle": "3D Jet Ski Racing"
 }
