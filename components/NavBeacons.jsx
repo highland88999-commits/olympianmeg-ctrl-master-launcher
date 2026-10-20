@@ -11,33 +11,38 @@ import { BEACONS } from '@/lib/hub-layout';
 
 function Beacon({ def }) {
   const { position, beamHeight, beamRadius, color, label, labelY } = def;
+  const showBeam = def.beam !== false;
   return (
     <group position={[position.x, position.y, position.z]}>
-      {/* Light beam, centered so it rises from the waypoint */}
-      <mesh position={[0, beamHeight / 2 - 20, 0]}>
-        <cylinderGeometry args={[beamRadius, beamRadius * 1.6, beamHeight, 12, 1, true]} />
-        <meshBasicMaterial
-          color={color}
-          transparent
-          opacity={0.32}
-          blending={THREE.AdditiveBlending}
-          side={THREE.DoubleSide}
-          depthWrite={false}
-          fog={false}
-        />
-      </mesh>
-      {/* Base pulse ring */}
-      <mesh position={[0, -18, 0]} rotation-x={-Math.PI / 2}>
-        <ringGeometry args={[6, 8.5, 48]} />
-        <meshBasicMaterial
-          color={color}
-          transparent
-          opacity={0.5}
-          side={THREE.DoubleSide}
-          depthWrite={false}
-          fog={false}
-        />
-      </mesh>
+      {showBeam && (
+        <>
+          {/* Light beam, centered so it rises from the waypoint */}
+          <mesh position={[0, beamHeight / 2 - 20, 0]}>
+            <cylinderGeometry args={[beamRadius, beamRadius * 1.6, beamHeight, 12, 1, true]} />
+            <meshBasicMaterial
+              color={color}
+              transparent
+              opacity={0.32}
+              blending={THREE.AdditiveBlending}
+              side={THREE.DoubleSide}
+              depthWrite={false}
+              fog={false}
+            />
+          </mesh>
+          {/* Base pulse ring */}
+          <mesh position={[0, -18, 0]} rotation-x={-Math.PI / 2}>
+            <ringGeometry args={[6, 8.5, 48]} />
+            <meshBasicMaterial
+              color={color}
+              transparent
+              opacity={0.5}
+              side={THREE.DoubleSide}
+              depthWrite={false}
+              fog={false}
+            />
+          </mesh>
+        </>
+      )}
       <Billboard position={[0, labelY, 0]}>
         <Text
           fontSize={14}

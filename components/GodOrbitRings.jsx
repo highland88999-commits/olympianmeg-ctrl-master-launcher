@@ -33,7 +33,9 @@ import { registerCollider, unregisterCollider } from '@/lib/hub-collision';
 // 2026-10-20 (Merlin): satellites baked 1.5× bigger (was 2.6) so the
 // banner ads on their hulls read at hub distances; every satellite-
 // derived dimension (accent ring, labels, number tag) scales in ratio.
-const SAT_RADIUS = 3.9;
+// Later the same day Merlin asked for bigger still: 3.9 → 5.9, with
+// the bands spread and the tower ring pushed out to match (below).
+const SAT_RADIUS = 5.9;
 
 // God-name label distance behaviour (demo fix, 2026-10-15): at spawn the
 // camera sits ~46–68 units from every satellite, where the label's fixed
@@ -188,20 +190,20 @@ function HubSatellite({ band, index }) {
         </mesh>
         {/* Equatorial accent ring in the god's color */}
         <mesh rotation-x={Math.PI / 2}>
-          <torusGeometry args={[SAT_RADIUS + 0.83, 0.14, 8, 64]} />
+          <torusGeometry args={[SAT_RADIUS + 1.24, 0.21, 8, 64]} />
           <meshBasicMaterial color={band.color} fog={false} />
         </mesh>
         {/* God-name marker — scale-capped and faded by camera distance
             (see the useFrame above), so it can never fill the viewport
             at close range or clip through Earth unreadably. */}
-        <Billboard ref={labelRef} position={[0, SAT_RADIUS + 2.55, 0]}>
+        <Billboard ref={labelRef} position={[0, SAT_RADIUS + 3.8, 0]}>
           <Text
             ref={textRef}
-            fontSize={2.55}
+            fontSize={3.8}
             color={band.color}
             anchorX="center"
             anchorY="middle"
-            outlineWidth={0.08}
+            outlineWidth={0.12}
             outlineColor="#000000"
           >
             {band.label}
@@ -211,14 +213,14 @@ function HubSatellite({ band, index }) {
             each satellite so ads can be mapped by number — "ad 4" is
             the 4th band's satellite. Same distance behaviour as the
             god-name label above. */}
-        <Billboard ref={numLabelRef} position={[0, -(SAT_RADIUS + 2.4), 0]}>
+        <Billboard ref={numLabelRef} position={[0, -(SAT_RADIUS + 3.6), 0]}>
           <Text
             ref={numTextRef}
-            fontSize={2.1}
+            fontSize={3.2}
             color="#ffffff"
             anchorX="center"
             anchorY="middle"
-            outlineWidth={0.07}
+            outlineWidth={0.1}
             outlineColor="#000000"
           >
             {String(index + 1)}

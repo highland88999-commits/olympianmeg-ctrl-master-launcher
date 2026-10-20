@@ -35,8 +35,11 @@ function MarsBackground() {
   const marsRef = useRef();
   useFrame((state, delta) => { if (marsRef.current) marsRef.current.rotation.y += delta * 0.05; });
   
+  // Mars pushed further out (Merlin, 2026-10-20) so the satellite
+  // field has a good bit of distance from the planet system. Earth
+  // stays exactly where it is.
   return (
-    <group position={[-70, 45, -100]}>
+    <group position={[-105, 68, -150]}>
       <mesh ref={marsRef} receiveShadow castShadow>
         <sphereGeometry args={[30, 64, 64]} />
         <meshStandardMaterial color="#b33900" roughness={0.9} metalness={0.1} />
