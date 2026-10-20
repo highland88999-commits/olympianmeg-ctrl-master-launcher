@@ -57,7 +57,7 @@ export default function EarthWalker() {
     }
     rig.visible = true;
     // Shrink scale: the avatar shrinks from normal size (1x) to micro
-    // size (0.05x) into the tile world, grows back on reanimate.
+    // size (0.00001x) into the tile world, grows back on reanimate.
     rig.scale.setScalar(parachuteState.scale);
     // Climb altitude: ladders and monument elevators lift the walker.
     // Bike altitude: while mounted, the walker rides ON the bike —

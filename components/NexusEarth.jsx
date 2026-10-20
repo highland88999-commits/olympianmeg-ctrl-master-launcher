@@ -237,7 +237,7 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
         {/* Summonable TRON bike — street only */}
         {effectiveLayer === 'terrain' && roaming && <EarthBike controls={controls} />}
 
-        {effectiveLayer === 'terrain' && lens && (
+        {effectiveLayer === 'terrain' && lens && !microMode && (
           <mesh geometry={lens.geo} renderOrder={3}>
             <meshBasicMaterial
               ref={lensMatRef}
@@ -253,7 +253,7 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
             terrain layer while roaming (walkthrough flaw 2026-10-17:
             the 160×120 globe's ~135 m facets read as broken shards
             from 1.62 m up). */}
-        {effectiveLayer === 'terrain' && roaming && (
+        {effectiveLayer === 'terrain' && roaming && !microMode && (
           <StreetGroundPatch center={patchCenter} />
         )}
         {/* The Quantum Realm's own floor: a small opaque disc that

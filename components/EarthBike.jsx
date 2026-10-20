@@ -160,8 +160,10 @@ export default function EarthBike({ controls }) {
       bikeState.speed = next.speed;
       bikeState.yawDeg = ((next.yaw * 180) / Math.PI) % 360;
 
-      // Move over the globe: great-circle step along the heading
-      const distM = next.speed * dt * 3; // tune: flight units → metres feel
+      // Move over the globe: great-circle step along the heading.
+      // Distance scales with the Ant-Man shrink (proportional at
+      // every size, same as walking).
+      const distM = next.speed * dt * 3 * (parachuteState.scale || 1); // tune: flight units → metres feel
       const distRad = (distM * UPM) / surfaceRadiusOrBase(bikeState.lat, bikeState.lon);
       const br = (bikeState.yawDeg * Math.PI) / 180;
       const p1 = (bikeState.lat * Math.PI) / 180;

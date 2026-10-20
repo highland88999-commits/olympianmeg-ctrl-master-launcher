@@ -111,7 +111,7 @@ export default function EarthFlightController({
   // the entire floor away in the Quantum Realm (sub-terrain
   // bleed-through, Merlin 2026-10-20).
   const tuneNear = (distToGround) => {
-    const near = THREE.MathUtils.clamp(distToGround * 0.18, 0.0006, 0.06);
+    const near = THREE.MathUtils.clamp(distToGround * 0.15, 1e-8, 0.06);
     if (Math.abs(camera.near - near) > 0.002) {
       camera.near = near;
       camera.updateProjectionMatrix();
