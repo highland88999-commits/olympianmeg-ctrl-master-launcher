@@ -556,6 +556,7 @@ function TextureProvider({ onLaunchExternal }) {
           onLaunchExternal={(url) => onLaunchExternal(url, spot.pos)}
           textures={textures}
           panels={towerPanels[i]}
+          towerIndex={i}
         />
       ))}
     </>

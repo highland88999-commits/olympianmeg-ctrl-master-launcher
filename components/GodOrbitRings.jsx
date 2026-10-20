@@ -32,7 +32,7 @@ import { registerCollider, unregisterCollider } from '@/lib/hub-collision';
 
 // 2026-10-20 (Merlin): satellites baked 1.5× bigger (was 2.6) so the
 // banner ads on their hulls read at hub distances; every satellite-
-// derived dimension (accent ring, labels, number tag) scales in ratio.
+// derived dimension (accent ring, labels) scales in ratio.
 // Later the same day Merlin asked for bigger still: 3.9 → 5.9, with
 // the bands spread and the tower ring pushed out to match (below).
 const SAT_RADIUS = 5.9;
@@ -96,8 +96,6 @@ function HubSatellite({ band, index }) {
   const satRef = useRef();
   const labelRef = useRef();
   const textRef = useRef();
-  const numLabelRef = useRef();
-  const numTextRef = useRef();
   const labelState = useRef({ scale: -1, opacity: -1 });
 
   // Distance-driven label scale cap + fade (see constants above).
@@ -131,22 +129,15 @@ function HubSatellite({ band, index }) {
     if (Math.abs(scale - st.scale) > 0.004) {
       st.scale = scale;
       label.scale.setScalar(scale);
-      if (numLabelRef.current) numLabelRef.current.scale.setScalar(scale);
     }
     const text = textRef.current;
     if (text && Math.abs(opacity - st.opacity) > 0.02) {
       st.opacity = opacity;
       text.fillOpacity = opacity;
       text.outlineOpacity = opacity;
-      const num = numTextRef.current;
-      if (num) {
-        num.fillOpacity = opacity;
-        num.outlineOpacity = opacity;
-      }
     }
     const vis = opacity > 0.02;
     if (label.visible !== vis) label.visible = vis;
-    if (numLabelRef.current && numLabelRef.current.visible !== vis) numLabelRef.current.visible = vis;
   });
 
   // Solid satellite: register a live sphere collider at the analytic
@@ -209,23 +200,10 @@ function HubSatellite({ band, index }) {
             {band.label}
           </Text>
         </Billboard>
-        {/* Ad-space number (Merlin, 2026-10-20): a plain number under
-            each satellite so ads can be mapped by number — "ad 4" is
-            the 4th band's satellite. Same distance behaviour as the
-            god-name label above. */}
-        <Billboard ref={numLabelRef} position={[0, -(SAT_RADIUS + 3.6), 0]}>
-          <Text
-            ref={numTextRef}
-            fontSize={3.2}
-            color="#ffffff"
-            anchorX="center"
-            anchorY="middle"
-            outlineWidth={0.1}
-            outlineColor="#000000"
-          >
-            {String(index + 1)}
-          </Text>
-        </Billboard>
+        {/* No number under the satellite (Merlin, 2026-10-20): the
+            ad numbering moved onto the billboard inventory itself —
+            every god-tower panel now wears its own badge from the
+            single 1–44 run (components/GodTower.jsx). */}
       </group>
     </group>
   );

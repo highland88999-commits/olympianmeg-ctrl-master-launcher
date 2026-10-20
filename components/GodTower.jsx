@@ -5,6 +5,8 @@
 //
 // Each tower carries four ad panels reading the real billboard inventory
 // (lib/partners.js, assigned deterministically by lib/tower-panels.js).
+// Every panel also wears its own number badge from the single 1–44
+// billboard run (billboardNumberFor in lib/tower-panels.js).
 // Panel 0 is ALWAYS Merlin's native stake.com placement — his own
 // inventory, never removed, never rotated out. Panels 1–3 rotate the
 // affiliate partners, Betty, and YOUR AD HERE fillers so the forty panels
@@ -23,7 +25,7 @@ import {
   drawCoverFit,
 } from '@/lib/billboard-face';
 import { STAKE_SLOT } from '@/lib/partners';
-import { panelsForTower } from '@/lib/tower-panels';
+import { panelsForTower, billboardNumberFor } from '@/lib/tower-panels';
 
 // Tower panel faces are static canvas textures (380×450 ≈ 100px per world
 // unit on the 3.8×4.5 face) — forty autoplaying videos would melt phone
@@ -141,7 +143,38 @@ function usePanelFaceTexture(slot, stakeTex) {
   return tex;
 }
 
-function TowerAdPanel({ slot, stakeTex, color, onLaunchExternal }) {
+// Per-billboard number badge (Merlin, 2026-10-20): each panel face
+// carries its OWN number from the single 1–44 run across the ring
+// (lib/tower-panels.js billboardNumberFor). White digits on a small
+// black plate that only borders the number — the plate width follows
+// the digit count, so it hugs one-digit and two-digit numbers alike.
+// It sits proud of the panel's top area (no z-fighting) and rotates
+// WITH the face — deliberately NOT a camera-facing billboard, so
+// each of the four sides shows only its own number.
+function BillboardNumberBadge({ number }) {
+  const label = String(number);
+  const plateW = label.length * 0.36 + 0.3;
+  return (
+    <group position={[0, 2.95, 0.3]}>
+      <mesh>
+        <planeGeometry args={[plateW, 0.74]} />
+        <meshBasicMaterial color="#000000" />
+      </mesh>
+      <Text
+        position={[0, 0, 0.01]}
+        fontSize={0.52}
+        color="#ffffff"
+        anchorX="center"
+        anchorY="middle"
+        fontWeight="bold"
+      >
+        {label}
+      </Text>
+    </group>
+  );
+}
+
+function TowerAdPanel({ slot, stakeTex, color, onLaunchExternal, badgeNumber }) {
   const [hovered, setHovered] = useState(false);
   const [btnHovered, setBtnHovered] = useState(false);
   const [emailHovered, setEmailHovered] = useState(false);
@@ -183,6 +216,11 @@ function TowerAdPanel({ slot, stakeTex, color, onLaunchExternal }) {
         <boxGeometry args={[4.2, 7.2, 0.2]} />
         <meshStandardMaterial color="#222222" metalness={0.8} roughness={0.4} emissive="#121214" emissiveIntensity={0.5} />
       </mesh>
+
+      {/* This panel's own billboard number, on the face's top area */}
+      {typeof badgeNumber === 'number' && (
+        <BillboardNumberBadge number={badgeNumber} />
+      )}
 
       <mesh
         position={[0, 1, 0.24]}
@@ -244,7 +282,7 @@ function TowerAdPanel({ slot, stakeTex, color, onLaunchExternal }) {
   );
 }
 
-function GodTower({ god, color, position, onLaunchExternal, textures, panels = panelsForTower(0) }) {
+function GodTower({ god, color, position, onLaunchExternal, textures, panels = panelsForTower(0), towerIndex = 0 }) {
   const satelliteRef = useRef();
   useFrame((state, delta) => {
     if (satelliteRef.current) {
@@ -301,6 +339,7 @@ function GodTower({ god, color, position, onLaunchExternal, textures, panels = p
                 stakeTex={adTex}
                 color={color}
                 onLaunchExternal={onLaunchExternal}
+                badgeNumber={billboardNumberFor(towerIndex, i)}
               />
             </group>
           </group>
