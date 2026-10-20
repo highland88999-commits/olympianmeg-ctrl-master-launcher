@@ -1,0 +1,416 @@
+// app/swamp-run/engine.js
+// SWAMP RUN — pure game logic. No DOM, no rendering. Headless-testable.
+//
+// The run: paddle a canoe through a seeded Florida swamp while a crocodile
+// patrols below the surface. Stay quiet, stay hidden behind the cypress —
+// awareness builds from sight (line of sight + range) and noise (fast
+// paddling is LOUD). Get spotted in the canoe and the chase is a paddle
+// sprint: PADDLE. If it catches the canoe it RAMS you into the water and
+// you get exactly 10 seconds of grace, circled by those eyes, to swim.
+// Then it hunts — water AND land — until it eats you.
+// Score = survival seconds x distance metres.
+
+import {
+  generateWorld,
+  terrainAt,
+  isWater,
+  lineOfSight,
+  collideTrees,
+  clampToWorld,
+  dist,
+} from '../../lib/swamp-run/world.js';
+import { computeScore } from '../../lib/swamp-run/board.js';
+
+export const TUNING = {
+  graceSeconds: 10,
+  sightRange: 38,
+  catchCanoe: 2.6, // metres — close enough to ram
+  catchBody: 1.8, // metres — close enough to eat
+  circleRadius: 7.5, // how wide it circles you during grace
+  canoeSpeed: 6.1,
+  canoeSprintSpeed: 10.6,
+  swimSpeed: 2.35,
+  footSpeed: 3.65,
+  crocPatrolSpeed: 3.1,
+  crocChaseSpeed: 9.7,
+  crocHuntWaterSpeed: 8.3,
+  crocHuntLandSpeed: 4.45,
+};
+
+/** How far the croc can hear the player right now (metres). */
+export function noiseRadiusFor(state) {
+  const p = state.player;
+  const moving = Math.abs(p.speed) > 0.4;
+  if (!moving) return 0;
+  switch (p.mode) {
+    case 'canoe':
+      return state.input.sprint ? 26 : 14; // sprint paddling carries far
+    case 'swim':
+      return 9; // splashing, but small
+    case 'foot':
+      return 11; // crashing through palmettos
+    default:
+      return 0;
+  }
+}
+
+/**
+ * Awareness gain this tick, 0..1 per second before dt scaling.
+ * Sight: needs line of sight inside sightRange; closer fills faster.
+ * Sound: inside the noise radius the croc hears you through the trees.
+ */
+export function detectionRate(state) {
+  const { player, croc, world } = state;
+  const d = dist(player.x, player.z, croc.x, croc.z);
+  let rate = 0;
+  if (d <= TUNING.sightRange && lineOfSight(world.trees, croc.x, croc.z, player.x, player.z)) {
+    const closeness = 1 - d / TUNING.sightRange; // 0 at edge, 1 at the snout
+    rate += 0.85 + closeness * 1.3;
+  }
+  const noise = noiseRadiusFor(state);
+  if (noise > 0 && d <= noise) rate += 0.95;
+  return rate;
+}
+
+export function createGame(seed = 1) {
+  const world = generateWorld(seed);
+  const state = {
+    status: 'ready', // ready -> playing -> dead
+    readyTimer: 1.1,
+    time: 0,
+    survival: 0,
+    distance: 0,
+    seed: world.seed,
+    world,
+    player: {
+      x: world.spawn.x,
+      z: world.spawn.z,
+      heading: world.spawn.heading,
+      speed: 0,
+      mode: 'canoe', // canoe | swim | foot
+    },
+    canoe: {
+      x: world.spawn.x,
+      z: world.spawn.z,
+      heading: world.spawn.heading,
+      alive: true,
+      parked: false, // beached on purpose, waiting for its paddler
+    },
+    croc: {
+      x: world.crocSpawn.x,
+      z: world.crocSpawn.z,
+      heading: 0,
+      speed: 0,
+      mode: 'patrol', // patrol | chase | circle | hunt
+      awareness: 0,
+      waypoint: 0,
+      circleAngle: 0,
+      growlTimer: 4,
+    },
+    graceTimer: null, // seconds left of post-ram grace (null = not in grace)
+    graceWhole: null, // last whole second announced (tick events)
+    input: { thrust: 0, turn: 0, sprint: false },
+    events: [],
+    death: null,
+    paddleTimer: 0,
+    stepTimer: 0,
+  };
+  return state;
+}
+
+export function setInput(state, input) {
+  if (!input) return;
+  state.input.thrust = Math.max(-1, Math.min(1, Number(input.thrust) || 0));
+  state.input.turn = Math.max(-1, Math.min(1, Number(input.turn) || 0));
+  state.input.sprint = !!input.sprint;
+}
+
+export function drainEvents(state) {
+  const out = state.events;
+  state.events = [];
+  return out;
+}
+
+export function currentScore(state) {
+  return computeScore(state.survival, state.distance);
+}
+
+function emit(state, type, extra = {}) {
+  state.events.push({ type, ...extra });
+}
+
+function turnToward(entity, targetHeading, rate, dt) {
+  let diff = targetHeading - entity.heading;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  const maxTurn = rate * dt;
+  entity.heading += Math.max(-maxTurn, Math.min(maxTurn, diff));
+}
+
+function headingTo(x1, z1, x2, z2) {
+  return Math.atan2(x2 - x1, z2 - z1);
+}
+
+// ---------------------------------------------------------------- player --
+function stepPlayer(state, dt) {
+  const p = state.player;
+  const { input } = state;
+  const turnRate = p.mode === 'canoe' ? 1.85 : p.mode === 'swim' ? 2.7 : 3.4;
+  p.heading += input.turn * turnRate * dt;
+
+  let cruise = TUNING.canoeSpeed;
+  if (p.mode === 'swim') cruise = TUNING.swimSpeed;
+  if (p.mode === 'foot') cruise = TUNING.footSpeed;
+  let target = cruise * Math.max(0, input.thrust); // no reverse — swamp rules
+  if (p.mode === 'canoe' && input.sprint) {
+    target = TUNING.canoeSprintSpeed * Math.max(0, input.thrust);
+  }
+  const accel = p.mode === 'canoe' ? 5.5 : 7;
+  p.speed += Math.max(-accel * dt, Math.min(accel * dt, target - p.speed));
+  if (Math.abs(p.speed) < 0.02 && target === 0) p.speed = 0;
+
+  if (p.speed !== 0) {
+    const stepLen = p.speed * dt;
+    let nx = clampToWorld(p.x + Math.sin(p.heading) * stepLen);
+    let nz = clampToWorld(p.z + Math.cos(p.heading) * stepLen);
+    const pushed = collideTrees(state.world.trees, nx, nz, p.mode === 'canoe' ? 0.9 : 0.45);
+    nx = pushed.x;
+    nz = pushed.z;
+    const here = terrainAt(state.seed, nx, nz);
+    const moved = dist(p.x, p.z, nx, nz);
+    state.distance += moved;
+
+    if (p.mode === 'canoe') {
+      if (here !== 'water') {
+        // Beached! Hop out on foot; the canoe waits at the shore.
+        p.x = nx;
+        p.z = nz;
+        p.mode = 'foot';
+        p.speed = 0;
+        state.canoe.parked = true;
+        state.canoe.x = state.player.x - Math.sin(p.heading) * 1.4;
+        state.canoe.z = state.player.z - Math.cos(p.heading) * 1.4;
+        state.canoe.heading = p.heading;
+        emit(state, 'beach');
+      } else {
+        p.x = nx;
+        p.z = nz;
+        state.canoe.x = nx;
+        state.canoe.z = nz;
+        state.canoe.heading = p.heading;
+      }
+    } else if (p.mode === 'foot') {
+      if (here === 'water') {
+        // Stepping off the bank: back in the canoe if it's waiting close,
+        // otherwise you're swimming.
+        const nearCanoe =
+          state.canoe.alive &&
+          state.canoe.parked &&
+          dist(nx, nz, state.canoe.x, state.canoe.z) < 3;
+        p.x = nx;
+        p.z = nz;
+        if (nearCanoe) {
+          p.mode = 'canoe';
+          state.canoe.parked = false;
+          p.heading = state.canoe.heading;
+          emit(state, 'board');
+        } else {
+          p.mode = 'swim';
+          emit(state, 'splash');
+        }
+      } else {
+        p.x = nx;
+        p.z = nz;
+      }
+    } else {
+      // swimming
+      if (here === 'land') {
+        p.x = nx;
+        p.z = nz;
+        p.mode = 'foot';
+        emit(state, 'ashore');
+      } else {
+        p.x = nx;
+        p.z = nz;
+      }
+    }
+  }
+
+  // Paddle / step audio cadence.
+  if (p.speed > 0.6 && p.mode === 'canoe') {
+    state.paddleTimer -= dt * (state.input.sprint ? 1.9 : 1);
+    if (state.paddleTimer <= 0) {
+      state.paddleTimer = 0.62;
+      emit(state, state.input.sprint ? 'sprintPaddle' : 'paddle');
+    }
+  } else if (p.speed > 0.6 && p.mode === 'foot') {
+    state.stepTimer -= dt;
+    if (state.stepTimer <= 0) {
+      state.stepTimer = 0.34;
+      emit(state, 'step');
+    }
+  } else if (p.speed > 0.6 && p.mode === 'swim') {
+    state.paddleTimer -= dt;
+    if (state.paddleTimer <= 0) {
+      state.paddleTimer = 0.8;
+      emit(state, 'swimStroke');
+    }
+  }
+}
+
+// ------------------------------------------------------------------ croc --
+function stepCroc(state, dt) {
+  const c = state.croc;
+  const p = state.player;
+  const d = dist(c.x, c.z, p.x, p.z);
+  const escalation = Math.min(1.3, state.survival / 240); // it learns you
+
+  if (c.mode === 'patrol') {
+    const wp = state.world.waypoints[c.waypoint % state.world.waypoints.length];
+    if (dist(c.x, c.z, wp.x, wp.z) < 6) c.waypoint += 1;
+    const target = state.world.waypoints[c.waypoint % state.world.waypoints.length];
+    turnToward(c, headingTo(c.x, c.z, target.x, target.z), 1.2, dt);
+    c.speed = TUNING.crocPatrolSpeed;
+    moveCroc(state, dt);
+    // Ambient menace: a growl when it drifts close, seen or not.
+    c.growlTimer -= dt;
+    if (d < 20 && c.growlTimer <= 0) {
+      c.growlTimer = 6 + (d / 20) * 4;
+      emit(state, 'growl');
+    }
+    return;
+  }
+
+  if (c.mode === 'chase') {
+    // Canoe chase: it wants the boat. Slightly slower than a sprinting
+    // paddler in a straight line — but it never gets tired and cuts the
+    // bends. Catch the canoe and it RAMS.
+    turnToward(c, headingTo(c.x, c.z, p.x, p.z), 1.55, dt);
+    c.speed = TUNING.crocChaseSpeed + escalation;
+    moveCroc(state, dt);
+    if (p.mode === 'canoe' && dist(c.x, c.z, p.x, p.z) < TUNING.catchCanoe) {
+      ramPlayer(state);
+    } else if (p.mode !== 'canoe') {
+      c.mode = 'hunt'; // you bailed onto land mid-chase — it follows
+    }
+    return;
+  }
+
+  if (c.mode === 'circle') {
+    // Grace: it circles you in the water, eyes up, counting with you.
+    c.circleAngle += dt * 0.85;
+    const tx = p.x + Math.sin(c.circleAngle) * TUNING.circleRadius;
+    const tz = p.z + Math.cos(c.circleAngle) * TUNING.circleRadius;
+    const spot = { x: clampToWorld(tx), z: clampToWorld(tz) };
+    turnToward(c, headingTo(c.x, c.z, spot.x, spot.z), 2.2, dt);
+    c.speed = 4.2;
+    moveCroc(state, dt);
+    c.heading = headingTo(c.x, c.z, p.x, p.z); // always watching you
+    return;
+  }
+
+  if (c.mode === 'hunt') {
+    // Everywhere hunt: water speed on water, slower but relentless on land.
+    turnToward(c, headingTo(c.x, c.z, p.x, p.z), 1.9, dt);
+    const onWater = isWater(state.seed, c.x, c.z);
+    c.speed = (onWater ? TUNING.crocHuntWaterSpeed : TUNING.crocHuntLandSpeed) + escalation;
+    moveCroc(state, dt);
+    if (state.graceTimer === null && dist(c.x, c.z, p.x, p.z) < TUNING.catchBody) {
+      killPlayer(state);
+    }
+  }
+}
+
+function moveCroc(state, dt) {
+  const c = state.croc;
+  c.x = clampToWorld(c.x + Math.sin(c.heading) * c.speed * dt);
+  c.z = clampToWorld(c.z + Math.cos(c.heading) * c.speed * dt);
+}
+
+function ramPlayer(state) {
+  const p = state.player;
+  p.mode = 'swim';
+  p.speed = 0;
+  state.canoe.alive = false; // capsized and drifting — gone
+  state.canoe.parked = false;
+  state.graceTimer = TUNING.graceSeconds;
+  state.graceWhole = TUNING.graceSeconds;
+  state.croc.mode = 'circle';
+  state.croc.circleAngle = Math.atan2(state.croc.x - p.x, state.croc.z - p.z);
+  emit(state, 'ram');
+  emit(state, 'swimStart', { seconds: TUNING.graceSeconds });
+}
+
+function killPlayer(state) {
+  state.status = 'dead';
+  state.death = {
+    x: state.player.x,
+    z: state.player.z,
+    crocX: state.croc.x,
+    crocZ: state.croc.z,
+    crocHeading: state.croc.heading,
+    seconds: Math.floor(state.survival),
+    distance: Math.floor(state.distance),
+    score: currentScore(state),
+  };
+  emit(state, 'death');
+}
+
+// -------------------------------------------------------------- detection --
+function stepDetection(state, dt) {
+  const c = state.croc;
+  if (c.mode !== 'patrol') return; // already knows — awareness is moot
+  const rate = detectionRate(state);
+  if (rate > 0) {
+    c.awareness = Math.min(1, c.awareness + rate * dt);
+  } else {
+    c.awareness = Math.max(0, c.awareness - 0.22 * dt);
+  }
+  if (c.awareness >= 1) {
+    c.awareness = 1;
+    emit(state, 'spotted');
+    if (state.player.mode === 'canoe') {
+      c.mode = 'chase';
+    } else {
+      c.mode = 'hunt'; // caught swimming or sneaking — no grace for that
+    }
+  }
+}
+
+// ------------------------------------------------------------------ main --
+export function stepGame(state, dt) {
+  if (state.status === 'dead') return;
+  state.time += dt;
+
+  if (state.status === 'ready') {
+    state.readyTimer -= dt;
+    if (state.readyTimer <= 0) {
+      state.status = 'playing';
+      emit(state, 'start');
+    }
+    return;
+  }
+
+  state.survival += dt;
+  stepPlayer(state, dt);
+  stepDetection(state, dt);
+
+  // Grace countdown (post-ram): croc circles, ticks each second, and when
+  // the count dies, the hunt begins.
+  if (state.graceTimer !== null) {
+    state.graceTimer -= dt;
+    const whole = Math.ceil(state.graceTimer);
+    if (whole < state.graceWhole && whole > 0) {
+      state.graceWhole = whole;
+      emit(state, 'tick', { remaining: whole });
+    }
+    if (state.graceTimer <= 0) {
+      state.graceTimer = null;
+      state.graceWhole = null;
+      state.croc.mode = 'hunt';
+      emit(state, 'graceEnd');
+    }
+  }
+
+  stepCroc(state, dt);
+}
