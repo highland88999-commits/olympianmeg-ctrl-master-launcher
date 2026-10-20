@@ -11,6 +11,7 @@
 // values, and any failure falls back to the default scene with a note.
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 import { NextResponse } from 'next/server';
 import {
@@ -49,7 +50,7 @@ Allowed object types ONLY: ${OBJECT_TYPES.join(', ')}.
 Ground types ONLY: ${GROUND_TYPES.join(', ')}. Particles ONLY: ${PARTICLE_TYPES.join(', ')}.
 
 Composition rules:
-- 8 to 24 objects. Spread them around the origin (the dreamer starts at 0,0,0 looking toward -z). Keep x,z within -45..45, y within 0..35.
+- 8 to 16 objects. Spread them around the origin (the dreamer starts at 0,0,0 looking toward -z). Keep x,z within -45..45, y within 0..35.
 - A "liquid silver sky" means skyColor near-white grey with high light; translate material words into roughness/metalness (liquid metal: roughness 0.05, metalness 1; wax: roughness 0.35, metalness 0; stone: roughness 0.95).
 - Use emissive sparingly for things that glow in the dream.
 - Use "float": true for anything weightless, hovering, or falling slowly; floating objects bob in the renderer.
@@ -76,12 +77,17 @@ function extractJson(text) {
 // One Gemini attempt. Returns { scene } on success, otherwise
 // { scene: null, error, status?, detail? } where detail is a short snippet of
 // what Gemini actually said — logged server-side, never sent to the client.
-async function attemptInterpret({ key, parts, jsonMime }) {
+// Hardened after production failures (Oct 20): thinking disabled (thinking
+// tokens were eating the output budget and truncating the scene JSON),
+// compact token budget, and a hard per-attempt timeout so a slow generation
+// can never hang the function past the client's patience.
+async function attemptInterpret({ key, parts, jsonMime, thinking }) {
   const generationConfig = {
     temperature: 0.9,
-    maxOutputTokens: 8192,
+    maxOutputTokens: 3500,
   };
   if (jsonMime) generationConfig.responseMimeType = 'application/json';
+  if (thinking) generationConfig.thinkingConfig = { thinkingBudget: 0 };
 
   let res;
   try {
@@ -95,10 +101,12 @@ async function attemptInterpret({ key, parts, jsonMime }) {
           contents: [{ role: 'user', parts }],
           generationConfig,
         }),
+        signal: AbortSignal.timeout(20000),
       }
     );
   } catch (e) {
-    return { scene: null, error: 'network', detail: String((e && e.message) || e).slice(0, 300) };
+    const timedOut = e && (e.name === 'TimeoutError' || e.name === 'AbortError');
+    return { scene: null, error: timedOut ? 'gemini_timeout' : 'network', detail: String((e && e.message) || e).slice(0, 300) };
   }
 
   if (!res.ok) {
@@ -107,9 +115,16 @@ async function attemptInterpret({ key, parts, jsonMime }) {
   }
 
   const data = await res.json().catch(() => null);
-  const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '';
+  const candidate = data?.candidates?.[0];
+  const text = candidate?.content?.parts?.map((p) => p.text || '').join('') || '';
   const parsed = extractJson(text);
-  if (!parsed) return { scene: null, error: 'unparseable', detail: text.slice(0, 300) };
+  if (!parsed) {
+    return {
+      scene: null,
+      error: 'unparseable',
+      detail: `finishReason=${candidate?.finishReason || '?'} textLen=${text.length} :: ${text.slice(0, 200)}`,
+    };
+  }
   return { scene: normalizeScene(parsed), error: null };
 }
 
@@ -126,18 +141,19 @@ async function callInterpreter({ prompt, instruction, currentScene }) {
     parts.push({ text: `DREAM DESCRIPTION: "${prompt}"\n\nReturn the scene JSON.` });
   }
 
-  // Attempt 1: JSON mime mode.
-  let result = await attemptInterpret({ key, parts, jsonMime: true });
+  // Attempt 1: JSON mime mode, thinking disabled.
+  let result = await attemptInterpret({ key, parts, jsonMime: true, thinking: true });
   if (result.scene) return result;
   console.error(
     `[dream-engine] interpreter attempt 1 (json mime) failed: ${result.error}` +
       `${result.status ? ` HTTP ${result.status}` : ''} :: ${result.detail || '(no detail)'}`
   );
 
-  // Attempt 2: exactly one retry WITHOUT responseMimeType — some
-  // models/projects reject JSON mode outright. extractJson() already strips
-  // markdown fences and surrounding prose, so plain text output still parses.
-  result = await attemptInterpret({ key, parts, jsonMime: false });
+  // Attempt 2: exactly one retry WITHOUT responseMimeType and without the
+  // thinking field — some models/projects reject either outright.
+  // extractJson() already strips markdown fences and surrounding prose, so
+  // plain text output still parses.
+  result = await attemptInterpret({ key, parts, jsonMime: false, thinking: false });
   if (result.scene) return result;
   console.error(
     `[dream-engine] interpreter attempt 2 (plain) failed: ${result.error}` +
