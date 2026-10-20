@@ -9,7 +9,7 @@
 // melts the world instead of snapping it. Dreamlike by default: fog,
 // floating objects bob, slow spins, drifting particles.
 
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 
@@ -428,6 +428,100 @@ function Environment({ env }) {
 }
 
 // ---------------------------------------------------------------------------
+// The Projection Screen: a grand arched cinema of the subconscious standing
+// at the back of the dreamscape. The Dream Engine's film of the dream (Veo)
+// plays on it as a VideoTexture once the projection has formed — WebGL is
+// instant, the film fades in when it is ready. The video material ignores
+// fog on purpose: a projection is light, and light cuts through dream-fog.
+// ---------------------------------------------------------------------------
+function ProjectionScreen({ videoUrl }) {
+  const [texture, setTexture] = useState(null);
+  const matRef = useRef(null);
+
+  useEffect(() => {
+    if (!videoUrl) {
+      setTexture(null);
+      return undefined;
+    }
+    const video = document.createElement('video');
+    video.src = videoUrl;
+    video.loop = true;
+    video.muted = true;
+    video.playsInline = true;
+    video.autoplay = true;
+    const tex = new THREE.VideoTexture(video);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    setTexture(tex);
+    const played = video.play();
+    if (played && typeof played.catch === 'function') played.catch(() => {});
+    return () => {
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+      tex.dispose();
+      setTexture(null);
+    };
+  }, [videoUrl]);
+
+  useFrame((_, dt) => {
+    if (matRef.current) {
+      matRef.current.opacity = THREE.MathUtils.damp(matRef.current.opacity, texture ? 0.96 : 0, 2.2, dt);
+    }
+  });
+
+  const archShape = useMemo(() => {
+    const hw = 14; // half width
+    const side = 10; // straight side height before the arc
+    const s = new THREE.Shape();
+    s.moveTo(-hw, 0);
+    s.lineTo(-hw, side);
+    s.absarc(0, side, hw, Math.PI, 0, true);
+    s.lineTo(hw, 0);
+    s.lineTo(-hw, 0);
+    return s;
+  }, []);
+
+  if (!videoUrl) return null;
+
+  return (
+    <group position={[0, 0, -46]}>
+      {/* golden rim, slightly larger, behind the dark arch face */}
+      <mesh position={[0, 0, -0.12]} scale={[1.045, 1.03, 1]}>
+        <shapeGeometry args={[archShape]} />
+        <meshStandardMaterial color="#8a6a1f" roughness={0.32} metalness={0.95} emissive="#5a4300" emissiveIntensity={0.55} />
+      </mesh>
+      {/* the arch face */}
+      <mesh position={[0, 0, 0]}>
+        <shapeGeometry args={[archShape]} />
+        <meshStandardMaterial color="#17102e" roughness={0.45} metalness={0.65} emissive="#241545" emissiveIntensity={0.45} />
+      </mesh>
+      {/* pillars */}
+      {[-14.6, 14.6].map((x) => (
+        <mesh key={x} position={[x, 5.5, 0]}>
+          <boxGeometry args={[1.3, 11, 1.3]} />
+          <meshStandardMaterial color="#241a4a" roughness={0.5} metalness={0.6} emissive="#31205e" emissiveIntensity={0.3} />
+        </mesh>
+      ))}
+      {/* the film itself */}
+      {texture && (
+        <mesh position={[0, 10, 0.18]}>
+          <planeGeometry args={[23, 13]} />
+          <meshBasicMaterial
+            ref={matRef}
+            map={texture}
+            transparent
+            opacity={0}
+            toneMapped={false}
+            fog={false}
+            color="#e9e5ff"
+          />
+        </mesh>
+      )}
+    </group>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Camera rig: walk (WASD + drag look + joystick) or slow orbit.
 // rig ref shape: { mode, joyX, joyY } — owned by the page.
 // ---------------------------------------------------------------------------
@@ -526,7 +620,7 @@ function CameraRig({ rig }) {
   return null;
 }
 
-export default function DreamScene({ scene, rig }) {
+export default function DreamScene({ scene, rig, projectionUrl = null, showScreen = true }) {
   const env = scene.environment;
   return (<>
     <Environment env={env} />
@@ -535,6 +629,7 @@ export default function DreamScene({ scene, rig }) {
     {scene.objects.map((obj, i) => (
       <DreamObject key={`${obj.type}-${i}`} obj={obj} />
     ))}
+    {projectionUrl && showScreen ? <ProjectionScreen videoUrl={projectionUrl} /> : null}
     <CameraRig rig={rig} />
   </>);
 }

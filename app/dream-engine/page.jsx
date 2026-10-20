@@ -2,8 +2,11 @@
 // THE DREAM ENGINE — Sandbox Mode.
 // Describe a dream; the Interpreter (Gemini) shapes it into a 3D scene you
 // can walk through, then keep directing it in words: "make the sky obsidian",
-// "add a staircase to nowhere". Mode 1 of Merlin's dual-mode design — the
-// Cinematic Vault (cloud render) is a later chapter.
+// "add a staircase to nowhere". The WebGL scene is instant; meanwhile the
+// Projection (stage 4) renders a Veo film of the same dream, which fades in
+// on the great arch in-world and in a corner panel when it is ready.
+// Mode 1 of Merlin's dual-mode design — the Cinematic Vault (cloud render)
+// is a later chapter.
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -20,6 +23,9 @@ import {
   Loader2,
   Shuffle,
   ChevronLeft,
+  Clapperboard,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { normalizeScene, DEFAULT_SCENE } from '@/lib/dream-engine/schema';
 import { EXAMPLE_DREAMS, randomSurprise } from '@/lib/dream-engine/examples';
@@ -52,6 +58,10 @@ async function callInterpreter(payload) {
   }
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const PROJECTION_POLL_MS = 10000;
+const PROJECTION_TIMEOUT_MS = 3 * 60 * 1000;
+
 export default function DreamEnginePage() {
   const [scene, setScene] = useState(() => normalizeScene(DEFAULT_SCENE));
   const [phase, setPhase] = useState('intro'); // intro | dreaming
@@ -63,6 +73,13 @@ export default function DreamEnginePage() {
   const [mode, setMode] = useState('walk');
   const [fadeTick, setFadeTick] = useState(0);
   const [log, setLog] = useState([]);
+  // Projection (stage 4): the Veo film of the dream.
+  // status: idle | forming | ready | unavailable
+  const [projection, setProjection] = useState({ status: 'idle', videoUrl: null });
+  const [projNote, setProjNote] = useState('');
+  const [showScreen, setShowScreen] = useState(true);
+  const projRun = useRef(0);
+  const lastDream = useRef('');
   const rig = useRef({ mode: 'walk', joyX: 0, joyY: 0 });
   const joyBase = useRef(null);
   const joyKnob = useRef(null);
@@ -70,6 +87,9 @@ export default function DreamEnginePage() {
   useEffect(() => {
     rig.current.mode = mode;
   }, [mode]);
+
+  // Cancel any in-flight projection poll when the page unmounts.
+  useEffect(() => () => { projRun.current += 1; }, []);
 
   const applyScene = useCallback((data, logLine) => {
     setScene(normalizeScene(data.scene));
@@ -79,21 +99,80 @@ export default function DreamEnginePage() {
     if (logLine) setLog((l) => [...l.slice(-5), logLine]);
   }, []);
 
+  // Start a Veo projection and poll until the film exists (~3 min cap).
+  // Fire-and-forget by design: the WebGL dream never waits on the film.
+  // Any failure lands in the honest unavailable state — no fake video.
+  const startProjection = useCallback(async (sourceText) => {
+    const text = (sourceText || '').trim();
+    if (!text) return;
+    const run = ++projRun.current;
+    setProjection({ status: 'forming', videoUrl: null });
+    setProjNote('');
+    try {
+      const res = await fetch('/api/dream-engine/project', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: text.slice(0, 1200) }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.op) throw new Error('projection_start_failed');
+      const op = data.op;
+      const deadline = Date.now() + PROJECTION_TIMEOUT_MS;
+      while (Date.now() < deadline) {
+        await sleep(PROJECTION_POLL_MS);
+        if (projRun.current !== run) return; // superseded by a newer dream
+        const poll = await fetch(`/api/dream-engine/project?op=${encodeURIComponent(op)}`);
+        const pdata = await poll.json().catch(() => null);
+        if (projRun.current !== run) return;
+        if (!poll.ok || pdata?.error) throw new Error('projection_poll_failed');
+        if (pdata?.done && pdata?.videoUrl) {
+          setProjection({ status: 'ready', videoUrl: pdata.videoUrl });
+          return;
+        }
+      }
+      throw new Error('projection_timeout');
+    } catch {
+      if (projRun.current !== run) return;
+      setProjection({ status: 'unavailable', videoUrl: null });
+      setProjNote('Projection unavailable — the dream remains in WebGL.');
+    }
+  }, []);
+
   const beginDream = useCallback(async (text) => {
     const prompt = (text || '').trim();
     if (!prompt || busy) return;
     setBusy(true);
     setBusyLabel('Interpreting your dream…');
+    // A new dream retires any film of the old one.
+    projRun.current += 1;
+    setProjection({ status: 'idle', videoUrl: null });
+    setProjNote('');
     try {
       const data = await callInterpreter({ prompt });
       applyScene(data, `Dream: ${prompt}`);
       setPhase('dreaming');
+      if (!data.fallback) {
+        lastDream.current = prompt;
+        startProjection(prompt); // fire-and-forget; WebGL is already live
+      }
     } catch (e) {
       setNote(e.message || 'Something went quiet in the dream. Try again.');
     } finally {
       setBusy(false);
     }
-  }, [busy, applyScene]);
+  }, [busy, applyScene, startProjection]);
+
+  // Re-project: regenerate the film from where the dream has drifted to —
+  // its current mood, hour and forms, with the original dream for grounding.
+  const reproject = useCallback(() => {
+    const env = scene.environment;
+    const summary =
+      `${scene.mood.label}. ${scene.mood.reading} ` +
+      `Time of day: ${env.timeOfDay}; ground of ${env.groundType}; ` +
+      `${scene.objects.length} dream forms drift in ${env.particles} light.` +
+      (lastDream.current ? ` Original dream: ${lastDream.current}` : '');
+    startProjection(summary);
+  }, [scene, startProjection]);
 
   const direct = useCallback(async () => {
     const instruction = command.trim();
@@ -112,6 +191,10 @@ export default function DreamEnginePage() {
   }, [command, busy, scene, applyScene]);
 
   const newDream = useCallback(() => {
+    projRun.current += 1; // cancel any projection poll
+    setProjection({ status: 'idle', videoUrl: null });
+    setProjNote('');
+    lastDream.current = '';
     setPhase('intro');
     setDreamText('');
     setCommand('');
@@ -156,7 +239,12 @@ export default function DreamEnginePage() {
   return (
     <main className="de-root">
       <div className="de-canvas">
-        <DreamCanvas scene={scene} rig={rig} />
+        <DreamCanvas
+          scene={scene}
+          rig={rig}
+          projectionUrl={projection.status === 'ready' ? projection.videoUrl : null}
+          showScreen={showScreen}
+        />
       </div>
 
       {/* fade pulse on every scene change */}
@@ -186,6 +274,21 @@ export default function DreamEnginePage() {
             >
               <Orbit size={15} /> Orbit
             </button>
+            <button
+              className="de-chip-btn"
+              onClick={reproject}
+              disabled={projection.status === 'forming'}
+            >
+              <Clapperboard size={15} /> {projection.status === 'forming' ? 'Projecting…' : 'Re-project'}
+            </button>
+            {projection.status === 'ready' && (
+              <button
+                className={`de-chip-btn ${showScreen ? 'active' : ''}`}
+                onClick={() => setShowScreen((s) => !s)}
+              >
+                {showScreen ? <Eye size={15} /> : <EyeOff size={15} />} Screen
+              </button>
+            )}
             <button className="de-chip-btn" onClick={newDream}>
               <RefreshCw size={15} /> New Dream
             </button>
@@ -205,6 +308,36 @@ export default function DreamEnginePage() {
       )}
 
       {note && <div className="de-note">{note}</div>}
+
+      {/* projection forming shimmer chip */}
+      {phase === 'dreaming' && projection.status === 'forming' && (
+        <div className="de-proj-chip">
+          <Loader2 className="de-spin" size={13} />
+          <span>Projection forming…</span>
+        </div>
+      )}
+
+      {/* dream projection — picture in picture */}
+      {phase === 'dreaming' && projection.status === 'ready' && projection.videoUrl && (
+        <div className="de-pip">
+          <div className="de-pip-head">
+            <Clapperboard size={12} /> DREAM PROJECTION
+          </div>
+          <video
+            key={projection.videoUrl}
+            src={projection.videoUrl}
+            autoPlay
+            loop
+            muted
+            playsInline
+          />
+        </div>
+      )}
+
+      {/* honest one-liner when the film could not be made */}
+      {phase === 'dreaming' && projNote && (
+        <div className="de-proj-note">{projNote}</div>
+      )}
 
       {/* intro / start panel */}
       {phase === 'intro' && (
@@ -361,6 +494,41 @@ export default function DreamEnginePage() {
         }
         .de-note.inline { position: static; max-width: none; margin-top: 12px; }
 
+        .de-proj-chip {
+          position: absolute; top: 66px; left: 50%; transform: translateX(-50%); z-index: 11;
+          display: inline-flex; align-items: center; gap: 7px;
+          padding: 7px 14px; border-radius: 999px; font-size: 12px; letter-spacing: 0.06em;
+          color: #ffe9b0; border: 1px solid rgba(255,217,138,0.45);
+          background: linear-gradient(110deg, rgba(38,28,84,0.85) 30%, rgba(96,74,190,0.9) 50%, rgba(38,28,84,0.85) 70%);
+          background-size: 200% 100%;
+          animation: de-shimmer 1.6s linear infinite;
+          backdrop-filter: blur(8px); white-space: nowrap;
+        }
+        @keyframes de-shimmer { to { background-position: -200% 0; } }
+
+        .de-pip {
+          position: absolute; right: 14px; bottom: 118px; z-index: 10;
+          width: 228px; border-radius: 14px; overflow: hidden;
+          background: rgba(12,8,30,0.85); border: 1px solid rgba(255,217,138,0.5);
+          box-shadow: 0 14px 44px rgba(0,0,0,0.6), 0 0 24px rgba(255,200,100,0.15);
+          backdrop-filter: blur(10px);
+          animation: de-fade-pulse 0.8s ease-out reverse;
+        }
+        .de-pip-head {
+          display: flex; align-items: center; gap: 6px;
+          padding: 6px 10px; font-family: Orbitron, sans-serif;
+          font-size: 9.5px; letter-spacing: 0.24em; color: #ffd98a;
+          background: rgba(38,28,84,0.6);
+        }
+        .de-pip video { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #000; }
+
+        .de-proj-note {
+          position: absolute; right: 14px; bottom: 118px; z-index: 10; max-width: min(300px, 80vw);
+          padding: 8px 12px; border-radius: 10px; font-size: 12px; line-height: 1.4;
+          color: #cfc4ff; background: rgba(16,10,38,0.78);
+          border: 1px solid rgba(150,130,255,0.35); backdrop-filter: blur(8px);
+        }
+
         .de-intro-wrap {
           position: absolute; inset: 0; z-index: 8; display: flex;
           align-items: center; justify-content: center; padding: 18px;
@@ -468,6 +636,8 @@ export default function DreamEnginePage() {
           .de-mood { top: 62px; }
           .de-count { display: none; }
           .de-intro { padding: 22px 18px 18px; }
+          .de-pip { width: 168px; bottom: 108px; }
+          .de-proj-note { bottom: 108px; }
         }
       `}</style>
     </main>

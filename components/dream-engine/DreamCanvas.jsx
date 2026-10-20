@@ -5,7 +5,7 @@
 import { Canvas } from '@react-three/fiber';
 import DreamScene from './DreamScene';
 
-export default function DreamCanvas({ scene, rig }) {
+export default function DreamCanvas({ scene, rig, projectionUrl = null, showScreen = true }) {
   return (
     <Canvas
       dpr={[1, 2]}
@@ -13,7 +13,7 @@ export default function DreamCanvas({ scene, rig }) {
       gl={{ antialias: true, powerPreference: 'high-performance' }}
       style={{ background: '#0b1026' }}
     >
-      <DreamScene scene={scene} rig={rig} />
+      <DreamScene scene={scene} rig={rig} projectionUrl={projectionUrl} showScreen={showScreen} />
     </Canvas>
   );
 }

@@ -2,8 +2,11 @@
 // THE INTERPRETER — stage 1 of the Dream Engine.
 // Takes a dream description (and optionally the current scene + a directing
 // instruction) and returns a complete, validated scene JSON for the Builder.
-// Gemini call follows the house pattern (lib/muse/responder.js): v1beta
-// generateContent, x-goog-api-key header, GEMINI_API_KEY env. The model's raw
+// Gemini call follows the house pattern (lib/muse/responder.js): model
+// gemini-3.8-flash, v1beta generateContent, x-goog-api-key header,
+// GEMINI_API_KEY env. First attempt asks for JSON via responseMimeType; if
+// that errors or comes back unparseable, ONE retry goes out without
+// responseMimeType (extractJson tolerates fences/prose). The model's raw
 // output is NEVER trusted — normalizeScene() coerces it into renderer-safe
 // values, and any failure falls back to the default scene with a note.
 
@@ -18,7 +21,7 @@ import {
   PARTICLE_TYPES,
 } from '@/lib/dream-engine/schema';
 
-const GEMINI_MODEL = 'gemini-2.5-flash';
+const GEMINI_MODEL = 'gemini-3.8-flash';
 const MAX_PROMPT_CHARS = 1200;
 const MAX_INSTRUCTION_CHARS = 600;
 
@@ -70,45 +73,77 @@ function extractJson(text) {
   }
 }
 
-async function callInterpreter({ prompt, instruction, currentScene }) {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) return { scene: null, error: 'no_key' };
+// One Gemini attempt. Returns { scene } on success, otherwise
+// { scene: null, error, status?, detail? } where detail is a short snippet of
+// what Gemini actually said — logged server-side, never sent to the client.
+async function attemptInterpret({ key, parts, jsonMime }) {
+  const generationConfig = {
+    temperature: 0.9,
+    maxOutputTokens: 8192,
+  };
+  if (jsonMime) generationConfig.responseMimeType = 'application/json';
 
-  const parts = [];
-  if (currentScene && instruction) {
-    parts.push(
-      `CURRENT SCENE (JSON):\n${JSON.stringify(currentScene)}\n\nDIRECTING INSTRUCTION: "${instruction}"\n\nReturn the full updated scene JSON.`
-    );
-  } else {
-    parts.push(`DREAM DESCRIPTION: "${prompt}"\n\nReturn the scene JSON.`);
-  }
-
+  let res;
   try {
-    const res = await fetch(
+    res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-          contents: [{ role: 'user', parts: [{ text: parts.join('\n') }] }],
-          generationConfig: {
-            temperature: 0.9,
-            maxOutputTokens: 4096,
-            responseMimeType: 'application/json',
-          },
+          contents: [{ role: 'user', parts }],
+          generationConfig,
         }),
       }
     );
-    if (!res.ok) return { scene: null, error: `gemini_${res.status}` };
-    const data = await res.json();
-    const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '';
-    const parsed = extractJson(text);
-    if (!parsed) return { scene: null, error: 'unparseable' };
-    return { scene: normalizeScene(parsed), error: null };
-  } catch {
-    return { scene: null, error: 'network' };
+  } catch (e) {
+    return { scene: null, error: 'network', detail: String((e && e.message) || e).slice(0, 300) };
   }
+
+  if (!res.ok) {
+    const bodyText = await res.text().catch(() => '');
+    return { scene: null, error: `gemini_${res.status}`, status: res.status, detail: bodyText.slice(0, 300) };
+  }
+
+  const data = await res.json().catch(() => null);
+  const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '';
+  const parsed = extractJson(text);
+  if (!parsed) return { scene: null, error: 'unparseable', detail: text.slice(0, 300) };
+  return { scene: normalizeScene(parsed), error: null };
+}
+
+async function callInterpreter({ prompt, instruction, currentScene }) {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) return { scene: null, error: 'no_key' };
+
+  const parts = [];
+  if (currentScene && instruction) {
+    parts.push({
+      text: `CURRENT SCENE (JSON):\n${JSON.stringify(currentScene)}\n\nDIRECTING INSTRUCTION: "${instruction}"\n\nReturn the full updated scene JSON.`,
+    });
+  } else {
+    parts.push({ text: `DREAM DESCRIPTION: "${prompt}"\n\nReturn the scene JSON.` });
+  }
+
+  // Attempt 1: JSON mime mode.
+  let result = await attemptInterpret({ key, parts, jsonMime: true });
+  if (result.scene) return result;
+  console.error(
+    `[dream-engine] interpreter attempt 1 (json mime) failed: ${result.error}` +
+      `${result.status ? ` HTTP ${result.status}` : ''} :: ${result.detail || '(no detail)'}`
+  );
+
+  // Attempt 2: exactly one retry WITHOUT responseMimeType — some
+  // models/projects reject JSON mode outright. extractJson() already strips
+  // markdown fences and surrounding prose, so plain text output still parses.
+  result = await attemptInterpret({ key, parts, jsonMime: false });
+  if (result.scene) return result;
+  console.error(
+    `[dream-engine] interpreter attempt 2 (plain) failed: ${result.error}` +
+      `${result.status ? ` HTTP ${result.status}` : ''} :: ${result.detail || '(no detail)'}`
+  );
+  return result;
 }
 
 // POST { prompt }                      -> interpret a fresh dream
