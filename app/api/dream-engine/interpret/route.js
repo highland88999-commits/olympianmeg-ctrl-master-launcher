@@ -146,8 +146,9 @@ async function callInterpreter({ prompt, instruction, currentScene }) {
   // was otherwise healthy. The Interpreter now walks the chain — first model
   // that answers wins. An 'unparseable' result earns one plain-text retry on
   // the same model before moving on.
-  const MODELS = [GEMINI_MODEL, 'gemini-2.5-flash', 'gemini-2.0-flash'];
+  const MODELS = [GEMINI_MODEL, 'gemini-2.5-flash', 'gemini-2.5-flash-lite'];
   let lastResult = null;
+  const attempts = [];
   for (const model of MODELS) {
     let result = await attemptInterpret({ key, parts, model, jsonMime: true, thinking: true });
     if (result.scene) return result;
@@ -155,6 +156,7 @@ async function callInterpreter({ prompt, instruction, currentScene }) {
       `[dream-engine] interpreter (${model}, json mime) failed: ${result.error}` +
         `${result.status ? ` HTTP ${result.status}` : ''} :: ${result.detail || '(no detail)'}`
     );
+    attempts.push(`${model.replace('gemini-', '')}:${result.error}`);
     lastResult = result;
     if (result.error === 'unparseable') {
       result = await attemptInterpret({ key, parts, model, jsonMime: false, thinking: false });
@@ -163,12 +165,13 @@ async function callInterpreter({ prompt, instruction, currentScene }) {
         `[dream-engine] interpreter (${model}, plain) failed: ${result.error}` +
           `${result.status ? ` HTTP ${result.status}` : ''} :: ${result.detail || '(no detail)'}`
       );
+      attempts.push(`${model.replace('gemini-', '')}/plain:${result.error}`);
       lastResult = result;
     }
     // Brief backoff before trying the next model — 503s are often transient.
     await new Promise((r) => setTimeout(r, 1500));
   }
-  return lastResult;
+  return { ...lastResult, attempts };
 }
 
 // POST { prompt }                      -> interpret a fresh dream
@@ -192,7 +195,7 @@ export async function POST(req) {
     return NextResponse.json({ error: 'Directing needs the current scene.' }, { status: 400 });
   }
 
-  const { scene, error } = await callInterpreter({ prompt, instruction, currentScene });
+  const { scene, error, attempts } = await callInterpreter({ prompt, instruction, currentScene });
 
   if (!scene) {
     // Graceful degradation: the sandbox still opens on the default dreamscape,
@@ -204,7 +207,7 @@ export async function POST(req) {
       message:
         error === 'no_key'
           ? 'The Interpreter is asleep (no Gemini key on the server). Showing the threshold dreamscape.'
-          : `The Interpreter could not shape that dream [${error || 'unknown'}]. Showing the threshold dreamscape — try again.`,
+          : `The Interpreter could not shape that dream [${(attempts && attempts.length ? attempts.join(' > ') : error) || 'unknown'}]. Showing the threshold dreamscape — try again.`,
     });
   }
 
