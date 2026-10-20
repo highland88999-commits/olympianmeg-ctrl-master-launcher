@@ -30,7 +30,10 @@ import {
 } from '@/lib/god-orbits';
 import { registerCollider, unregisterCollider } from '@/lib/hub-collision';
 
-const SAT_RADIUS = 2.6;
+// 2026-10-20 (Merlin): satellites baked 1.5× bigger (was 2.6) so the
+// banner ads on their hulls read at hub distances; every satellite-
+// derived dimension (accent ring, labels, number tag) scales in ratio.
+const SAT_RADIUS = 3.9;
 
 // God-name label distance behaviour (demo fix, 2026-10-15): at spawn the
 // camera sits ~46–68 units from every satellite, where the label's fixed
@@ -91,6 +94,8 @@ function HubSatellite({ band, index }) {
   const satRef = useRef();
   const labelRef = useRef();
   const textRef = useRef();
+  const numLabelRef = useRef();
+  const numTextRef = useRef();
   const labelState = useRef({ scale: -1, opacity: -1 });
 
   // Distance-driven label scale cap + fade (see constants above).
@@ -124,15 +129,22 @@ function HubSatellite({ band, index }) {
     if (Math.abs(scale - st.scale) > 0.004) {
       st.scale = scale;
       label.scale.setScalar(scale);
+      if (numLabelRef.current) numLabelRef.current.scale.setScalar(scale);
     }
     const text = textRef.current;
     if (text && Math.abs(opacity - st.opacity) > 0.02) {
       st.opacity = opacity;
       text.fillOpacity = opacity;
       text.outlineOpacity = opacity;
+      const num = numTextRef.current;
+      if (num) {
+        num.fillOpacity = opacity;
+        num.outlineOpacity = opacity;
+      }
     }
     const vis = opacity > 0.02;
     if (label.visible !== vis) label.visible = vis;
+    if (numLabelRef.current && numLabelRef.current.visible !== vis) numLabelRef.current.visible = vis;
   });
 
   // Solid satellite: register a live sphere collider at the analytic
@@ -176,23 +188,40 @@ function HubSatellite({ band, index }) {
         </mesh>
         {/* Equatorial accent ring in the god's color */}
         <mesh rotation-x={Math.PI / 2}>
-          <torusGeometry args={[SAT_RADIUS + 0.55, 0.09, 8, 64]} />
+          <torusGeometry args={[SAT_RADIUS + 0.83, 0.14, 8, 64]} />
           <meshBasicMaterial color={band.color} fog={false} />
         </mesh>
         {/* God-name marker — scale-capped and faded by camera distance
             (see the useFrame above), so it can never fill the viewport
             at close range or clip through Earth unreadably. */}
-        <Billboard ref={labelRef} position={[0, SAT_RADIUS + 1.7, 0]}>
+        <Billboard ref={labelRef} position={[0, SAT_RADIUS + 2.55, 0]}>
           <Text
             ref={textRef}
-            fontSize={1.7}
+            fontSize={2.55}
             color={band.color}
             anchorX="center"
             anchorY="middle"
-            outlineWidth={0.05}
+            outlineWidth={0.08}
             outlineColor="#000000"
           >
             {band.label}
+          </Text>
+        </Billboard>
+        {/* Ad-space number (Merlin, 2026-10-20): a plain number under
+            each satellite so ads can be mapped by number — "ad 4" is
+            the 4th band's satellite. Same distance behaviour as the
+            god-name label above. */}
+        <Billboard ref={numLabelRef} position={[0, -(SAT_RADIUS + 2.4), 0]}>
+          <Text
+            ref={numTextRef}
+            fontSize={2.1}
+            color="#ffffff"
+            anchorX="center"
+            anchorY="middle"
+            outlineWidth={0.07}
+            outlineColor="#000000"
+          >
+            {String(index + 1)}
           </Text>
         </Billboard>
       </group>
