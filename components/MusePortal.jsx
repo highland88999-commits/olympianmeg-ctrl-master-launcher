@@ -86,13 +86,22 @@ function writeLocalPos(fx, fy) {
   }
 }
 
-export default function MusePortal() {
+export default function MusePortal({ concourse = false } = {}) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([GREETING]);
   const [threadId, setThreadId] = useState(null);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [typing, setTyping] = useState(false);
+
+  // The Concourse (hub holoframe) rehoused this portal's launcher:
+  // its Muse tile fires `olympus:concourse-open` and we just open.
+  useEffect(() => {
+    if (!concourse) return undefined;
+    const handler = (e) => { if (e?.detail?.tile === 'muse') setOpen(true); };
+    window.addEventListener('olympus:concourse-open', handler);
+    return () => window.removeEventListener('olympus:concourse-open', handler);
+  }, [concourse]);
   const [error, setError] = useState('');
   // FAB position as viewport fractions {x, y}; null until resolved on mount.
   const [pos, setPos] = useState(null);
@@ -388,7 +397,9 @@ export default function MusePortal() {
 
   return (
     <>
-      {/* the floating spark — draggable; tap still opens the chat */}
+      {/* the floating spark — draggable; tap still opens the chat.
+          In Concourse mode the spark retires: the Concourse tile opens us. */}
+      {!concourse && (
       <button
         ref={btnRef}
         type="button"
@@ -426,6 +437,7 @@ export default function MusePortal() {
           </svg>
         )}
       </button>
+      )}
 
       {/* the chat sheet */}
       {open && (

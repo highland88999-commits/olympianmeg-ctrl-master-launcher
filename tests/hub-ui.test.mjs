@@ -333,9 +333,12 @@ describe('hub circle buttons (static wiring)', () => {
   it('untouched controls are still present', () => {
     assert.ok(page.includes('CLICK THE EARTH TO DESCEND') || page.includes('earth.tapHint'), 'descend hint kept');
     assert.ok(page.includes('BikeFloatButton'), 'BikeFloatButton left alone');
-    assert.ok(page.includes('StoreFloatButton'), 'store float button kept');
-    assert.ok(page.includes('<NotificationsWindow />'), 'bell kept');
-    assert.ok(page.includes('<ProfileIcon />'), 'avatar kept');
+    // 2026-10-20: hub floaters rehoused into the Concourse (Merlin) —
+    // the store float retired into the Store tile, and the bell/avatar
+    // render in concourse mode (launchers hidden, panels intact).
+    assert.ok(!page.includes('<StoreFloatButton'), 'store float retired into the Concourse');
+    assert.ok(page.includes('<NotificationsWindow concourse />'), 'bell kept (Concourse mode)');
+    assert.ok(page.includes('<ProfileIcon concourse />'), 'avatar kept (Concourse mode)');
   });
 });
 

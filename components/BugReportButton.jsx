@@ -9,7 +9,7 @@ import { supabase } from '@/lib/supabase';
 // Auto-captured with every report: page URL, user agent, viewport size,
 // timestamp, and the reporter's account when signed in.
 
-export default function BugReportButton() {
+export default function BugReportButton({ concourse = false } = {}) {
   const [open, setOpen] = useState(false);
   const [description, setDescription] = useState('');
   const [steps, setSteps] = useState('');
@@ -17,6 +17,15 @@ export default function BugReportButton() {
   const [sent, setSent] = useState(false);
   const [error, setError] = useState('');
   const panelRef = useRef(null);
+
+  // The Concourse rehoused this button's launcher: its Bug tile
+  // fires `olympus:concourse-open` and we just open the form.
+  useEffect(() => {
+    if (!concourse) return undefined;
+    const handler = (e) => { if (e?.detail?.tile === 'bug') setOpen(true); };
+    window.addEventListener('olympus:concourse-open', handler);
+    return () => window.removeEventListener('olympus:concourse-open', handler);
+  }, [concourse]);
 
   // Close on Escape; close when tapping outside the panel.
   useEffect(() => {
@@ -132,6 +141,7 @@ export default function BugReportButton() {
           </p>
         </div>
       )}
+      {!concourse && (
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -150,6 +160,7 @@ export default function BugReportButton() {
           <circle cx="12" cy="12" r="2.2" fill="currentColor" opacity="0.55" />
         </svg>
       </button>
+      )}
     </div>
   );
 }

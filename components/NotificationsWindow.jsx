@@ -79,7 +79,7 @@ function ActionButtons({ id, busy, onRespond }) {
   );
 }
 
-export default function NotificationsWindow() {
+export default function NotificationsWindow({ concourse = false } = {}) {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState([]);
   const [unread, setUnread] = useState(0);
@@ -89,6 +89,15 @@ export default function NotificationsWindow() {
   const [bellArt, setBellArt] = useState(true);
   const [signedIn, setSignedIn] = useState(false);
   const rootRef = useRef(null);
+
+  // The Concourse rehoused the bell: its Alerts tile fires
+  // `olympus:concourse-open` and we just open the panel.
+  useEffect(() => {
+    if (!concourse) return undefined;
+    const handler = (e) => { if (e?.detail?.tile === 'alerts') setOpen(true); };
+    window.addEventListener('olympus:concourse-open', handler);
+    return () => window.removeEventListener('olympus:concourse-open', handler);
+  }, [concourse]);
 
   const load = useCallback(async (markRead) => {
     let token = '';
@@ -174,7 +183,8 @@ export default function NotificationsWindow() {
 
   return (
     <div ref={rootRef} data-ui="notifications-root" className="relative">
-      {/* Bell */}
+      {/* Bell — retired in Concourse mode; the Alerts tile opens us. */}
+      {!concourse && (
       <button
         type="button"
         data-ui="notifications-bell"
@@ -203,6 +213,7 @@ export default function NotificationsWindow() {
           </span>
         )}
       </button>
+      )}
 
       {open && (
         <>

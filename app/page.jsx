@@ -11,7 +11,6 @@ import { PortalButtonDecor, MenuHeaderDecor } from '@/components/PortalSeasonalD
 import { orbitTime, orbitPositionFor } from '@/lib/god-orbits';
 import { GOD_TOWER_SPOTS, GOD_TOWER_POS, BABEL_POS, ARTEMIS_POS } from '@/lib/home-positions';
 import SettingsGear from '@/components/SettingsGear';
-import StoreFloatButton from '@/components/StoreFloatButton';
 import BikeFloatButton from '@/components/BikeFloatButton';
 import FlightAxisStreaks from '@/components/FlightAxisStreaks';
 import { fetchRiderState, saveRiderState, DISMOUNT_EYE } from '@/lib/rider-state';
@@ -63,6 +62,19 @@ function NexusHub() {
   useEffect(() => {
     if (appState === 'hub_freeroam' && !sweepDone) setSweepDone(true);
   }, [appState, sweepDone]);
+
+  // The Concourse's Portals tile toggles this hub menu panel.
+  useEffect(() => {
+    const handler = (e) => {
+      if (e?.detail?.tile !== 'portals') return;
+      setIsMenuExpanded((expanded) => {
+        if (!expanded) { try { fx.menuOpen(); } catch {} }
+        return !expanded;
+      });
+    };
+    window.addEventListener('olympus:concourse-open', handler);
+    return () => window.removeEventListener('olympus:concourse-open', handler);
+  }, []);
   
   const introAutoPlayed = useRef(false);
   useEffect(() => {
@@ -574,13 +586,12 @@ function NexusHub() {
             </div>
           )}
 
-          <div style={chromeHiddenStyle} aria-hidden={radioSheetOpen || undefined}>
-            <StoreFloatButton />
-          </div>
+          {/* StoreFloatButton retired 2026-10-20: the store lives in
+              the Concourse now (Store tile → /store). */}
 
           <div className="absolute top-[5.75rem] right-5 z-50 flex items-center gap-3 ui-element pointer-events-auto" style={chromeHiddenStyle}>
-            <NotificationsWindow />
-            <ProfileIcon />
+            <NotificationsWindow concourse />
+            <ProfileIcon concourse />
           </div>
 
           {joyActive && Math.hypot(joyStick.x - joyBase.x, joyStick.y - joyBase.y) > 5 && (

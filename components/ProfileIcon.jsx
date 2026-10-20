@@ -20,12 +20,21 @@ function initialOf(name) {
   return c ? c.toUpperCase() : '✦';
 }
 
-export default function ProfileIcon() {
+export default function ProfileIcon({ concourse = false } = {}) {
   const [profiles, setProfiles] = useState(null); // { personal, business } | null
   const [view, setView] = useState('personal');
   const [open, setOpen] = useState(false);
   const [frameArt, setFrameArt] = useState(true);
   const rootRef = useRef(null);
+
+  // The Concourse rehoused the icon: its Profile tile fires
+  // `olympus:concourse-open` and we just open the preview.
+  useEffect(() => {
+    if (!concourse) return undefined;
+    const handler = (e) => { if (e?.detail?.tile === 'profile') setOpen(true); };
+    window.addEventListener('olympus:concourse-open', handler);
+    return () => window.removeEventListener('olympus:concourse-open', handler);
+  }, [concourse]);
 
   const load = useCallback(async () => {
     let headers = {};
@@ -63,6 +72,7 @@ export default function ProfileIcon() {
 
   return (
     <div ref={rootRef} data-ui="profile-root" className="relative">
+      {!concourse && (
       <button
         type="button"
         data-ui="profile-icon"
@@ -89,6 +99,7 @@ export default function ProfileIcon() {
           />
         )}
       </button>
+      )}
 
       {open && (
         <>

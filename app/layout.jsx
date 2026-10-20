@@ -8,6 +8,7 @@ import BugReportButton from '@/components/BugReportButton';
 import RealmCalloutGuard from '@/components/RealmCalloutGuard';
 import DoomsdayBanner from '@/components/DoomsdayBanner';
 import MusePortal from '@/components/MusePortal';
+import Concourse from '@/components/Concourse';
 import JsonLd from '@/components/JsonLd';
 
 const inter = Inter({ subsets: ["latin"] });
@@ -109,8 +110,11 @@ export default function RootLayout({ children }) {
           <DoomsdayBanner />
           {children}
           <RadioBar />
-          <BugReportButton />
-          <MusePortal />
+          <BugReportButton concourse />
+          <MusePortal concourse />
+          {/* The Concourse: one glass holoframe housing every hub
+              floater (Orb + tiles + pins). See components/Concourse.jsx. */}
+          <Concourse />
         </RadioProvider>
       </body>
     </html>

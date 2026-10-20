@@ -23,7 +23,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Play, Pause, SkipBack, SkipForward, Shuffle, Dices, ChevronDown,
   Minus, Radio, ExternalLink, Music2, ListMusic,
@@ -293,6 +293,18 @@ export default function RadioBar() {
     setMinimized, setExpanded, source, sourceLabel, spotify,
   } = useRadio();
   const isMySpotify = source === SOURCES.MY_SPOTIFY;
+
+  // The Concourse rehoused the radio's hub presence: its Radio tile
+  // fires `olympus:concourse-open` — un-minimize and open the library.
+  useEffect(() => {
+    const handler = (e) => {
+      if (e?.detail?.tile !== 'radio') return;
+      setMinimized(false);
+      setExpanded(true);
+    };
+    window.addEventListener('olympus:concourse-open', handler);
+    return () => window.removeEventListener('olympus:concourse-open', handler);
+  }, [setMinimized, setExpanded]);
 
   // MINIMIZED — interim dock chip (the shared dock registry already knows us).
   if (minimized) {
