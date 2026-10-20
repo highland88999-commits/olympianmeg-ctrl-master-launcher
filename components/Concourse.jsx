@@ -389,7 +389,7 @@ export default function Concourse() {
           {/* The season badge lives at the bottom of the Concourse now
               (Merlin, 2026-10-20) — hub-only, like its old floating
               form; renders nothing out of season. */}
-          {isHub && (
+          {onHub && (
             <div className="mt-2.5 flex justify-center">
               <SeasonBadge inline />
             </div>
