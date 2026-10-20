@@ -1,11 +1,13 @@
 // components/DoomsdayBanner.jsx
-// The financial-system-release countdown banner ("doomsday").
+// The financial-system-release countdown ("doomsday").
 // HUB-ONLY (Merlin, 2026-10-14): the countdown lives in the main hub
 // (route "/") and nowhere else — never inside a pocket universe or
-// program. Shown on hub loads until the accumulative lock lifts
-// (Dec 11, 2026) — then it removes itself. A banner, never a modal:
-// his no-popups law stands. Loki-green, minimizable (preference
-// persisted), video-ready background with gradient fallback.
+// program. Shown until the accumulative lock lifts (Dec 11, 2026) —
+// then it removes itself. Never a modal: his no-popups law stands.
+// 2026-10-20 (Merlin): the countdown MOVED into the top of the
+// Concourse, styled gold — see DoomsdayStrip below. The old page-top
+// banner (Loki-green, minimizable, video background) is retired;
+// DoomsdayStrip is the only mounted form now.
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -240,5 +242,83 @@ export default function DoomsdayBanner() {
         {toggleBtn}
       </div>
     </div>
+  );
+}
+
+// DoomsdayStrip — the countdown's Concourse form (Merlin, 2026-10-20):
+// a golden band across the top of the Concourse box. Same lock data
+// and per-second tick as the retired banner; hub-only; removes itself
+// when the lock lifts. Reports its visibility so the Concourse can
+// size the box around it. The whole strip links to the explainer.
+export function DoomsdayStrip({ onVisibility }) {
+  const pathname = usePathname();
+  const [info, setInfo] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+    let timer = null;
+    async function load() {
+      try {
+        const res = await fetch('/api/wallet/lock', { cache: 'no-store' });
+        const data = await res.json().catch(() => ({}));
+        if (!alive) return;
+        if (data && data.ok && data.locked) {
+          setInfo(data);
+          timer = setInterval(() => {
+            setInfo((prev) =>
+              prev ? { ...prev, countdown_ms: Math.max(0, (prev.countdown_ms || 0) - 1000) } : prev
+            );
+          }, 1000);
+        } else {
+          setInfo(null);
+        }
+      } catch {
+        /* strip stays hidden on error — never break the shell */
+      }
+    }
+    load();
+    return () => {
+      alive = false;
+      if (timer) clearInterval(timer);
+    };
+  }, []);
+
+  const visible = !!info && (!pathname || pathname === '/');
+  useEffect(() => {
+    onVisibility?.(visible);
+  }, [visible, onVisibility]);
+
+  if (!visible) return null;
+
+  const ms = Math.max(0, info.countdown_ms || 0);
+  const days = Math.floor(ms / 86400000);
+  const hours = Math.floor((ms % 86400000) / 3600000);
+  const mins = Math.floor((ms % 3600000) / 60000);
+  const secs = Math.floor((ms % 60000) / 1000);
+  const clock = `${days}d ${pad(hours)}:${pad(mins)}:${pad(secs)}`;
+
+  return (
+    <Link
+      href="/wallet/how-it-works"
+      role="status"
+      aria-label={`Financial system releases in ${days} days`}
+      className="ui-element pointer-events-auto -mx-3.5 -mt-3.5 mb-3 flex items-center justify-center gap-2.5 rounded-t-[1.35rem] border-b border-amber-300/40 px-3.5 py-2 no-underline shadow-[inset_0_1px_0_rgba(255,215,130,0.35),0_0_24px_rgba(245,197,66,0.15)]"
+      style={{
+        background:
+          'linear-gradient(90deg, rgba(66,45,4,0.85) 0%, rgba(120,84,10,0.75) 50%, rgba(66,45,4,0.85) 100%)',
+      }}
+    >
+      <span className="text-[10px] font-black tracking-[0.28em] uppercase text-amber-300 drop-shadow-[0_0_6px_rgba(245,197,66,0.6)]">
+        Doomsday
+      </span>
+      <span
+        className="text-[13px] font-extrabold tabular-nums text-amber-100 drop-shadow-[0_0_8px_rgba(245,197,66,0.45)]"
+      >
+        {clock}
+      </span>
+      <span className="text-[9px] font-semibold tracking-wider uppercase text-amber-200/70">
+        until {info.locked_until_label || 'Dec 11'}
+      </span>
+    </Link>
   );
 }

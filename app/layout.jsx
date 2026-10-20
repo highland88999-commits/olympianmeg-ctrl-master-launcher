@@ -6,7 +6,6 @@ import RadioBar from '@/components/radio/RadioBar';
 import NativeBridge from '@/components/NativeBridge';
 import BugReportButton from '@/components/BugReportButton';
 import RealmCalloutGuard from '@/components/RealmCalloutGuard';
-import DoomsdayBanner from '@/components/DoomsdayBanner';
 import MusePortal from '@/components/MusePortal';
 import Concourse from '@/components/Concourse';
 import JsonLd from '@/components/JsonLd';
@@ -102,12 +101,11 @@ export default function RootLayout({ children }) {
         <RadioProvider>
           <NativeBridge />
           <EconomyHeartbeat />
-          {/* Doomsday banner: Christmas-unlock countdown. HUB-ONLY —
-              the component gates itself to the main hub route "/" and
-              renders nothing inside pocket universes or programs
-              (Merlin, 2026-10-14). Removes itself on Dec 11. A banner,
-              never a modal. */}
-          <DoomsdayBanner />
+          {/* The Doomsday countdown moved into the top of the
+              Concourse, styled gold (Merlin, 2026-10-20) — see
+              DoomsdayStrip in components/DoomsdayBanner.jsx, rendered
+              by components/Concourse.jsx. Hub-only, removes itself
+              when the lock lifts on Dec 11. */}
           {children}
           <RadioBar />
           <BugReportButton concourse />

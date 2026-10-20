@@ -37,6 +37,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { bikeState } from '@/lib/earth/parachute';
+import { DoomsdayStrip } from './DoomsdayBanner';
 
 const LS_KEY = 'olympus.concourse.v1';
 const SIZE = 56;
@@ -109,6 +110,7 @@ export default function Concourse() {
   const [pinsFrac, setPinsFrac] = useState({}); // tileId -> {x, y}
   const [drag, setDrag] = useState(null); // {kind, id, x, y, active} px
   const [bikeOut, setBikeOut] = useState(false);
+  const [doomVisible, setDoomVisible] = useState(false);
 
   const dragRef = useRef(null);
   const suppressClickRef = useRef(0);
@@ -311,7 +313,7 @@ export default function Concourse() {
 
   const boxW = 4 * SIZE + 3 * 10 + 28; // 4 tiles per row + gaps + padding
   const rows = Math.max(1, Math.ceil(boxedTiles.length / 4));
-  const boxH = 42 + rows * (SIZE + 10) + 40;
+  const boxH = 42 + rows * (SIZE + 10) + 40 + (doomVisible ? 38 : 0);
   const boxX = Math.max(10, Math.min(orbPx.x + SIZE - boxW, viewport.w - boxW - 10));
   const boxY = Math.max(10, orbPx.y - yieldLift - boxH - 12);
 
@@ -351,6 +353,9 @@ export default function Concourse() {
           className="ui-element fixed z-[58] rounded-3xl border border-cyan-200/25 bg-zinc-950/55 p-3.5 shadow-[0_18px_50px_rgba(0,0,0,0.55),0_0_35px_rgba(0,242,255,0.10)] backdrop-blur-xl"
           style={{ left: boxX, top: boxY, width: boxW }}
         >
+          {/* The golden Doomsday countdown crowns the Concourse
+              (Merlin, 2026-10-20) — hub-only, self-removing Dec 11. */}
+          <DoomsdayStrip onVisibility={setDoomVisible} />
           <div className="mb-2.5 flex items-center justify-between px-0.5">
             <div className="text-[10px] font-black tracking-[0.3em] uppercase text-cyan-200">The Concourse</div>
             <button
