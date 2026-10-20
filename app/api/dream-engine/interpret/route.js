@@ -1,0 +1,152 @@
+// app/api/dream-engine/interpret/route.js
+// THE INTERPRETER — stage 1 of the Dream Engine.
+// Takes a dream description (and optionally the current scene + a directing
+// instruction) and returns a complete, validated scene JSON for the Builder.
+// Gemini call follows the house pattern (lib/muse/responder.js): v1beta
+// generateContent, x-goog-api-key header, GEMINI_API_KEY env. The model's raw
+// output is NEVER trusted — normalizeScene() coerces it into renderer-safe
+// values, and any failure falls back to the default scene with a note.
+
+export const dynamic = 'force-dynamic';
+
+import { NextResponse } from 'next/server';
+import {
+  normalizeScene,
+  DEFAULT_SCENE,
+  OBJECT_TYPES,
+  GROUND_TYPES,
+  PARTICLE_TYPES,
+} from '@/lib/dream-engine/schema';
+
+const GEMINI_MODEL = 'gemini-2.5-flash';
+const MAX_PROMPT_CHARS = 1200;
+const MAX_INSTRUCTION_CHARS = 600;
+
+const SYSTEM_PROMPT = `You are the Interpreter of the Dream Engine. You translate a person's dream description into a 3D scene described ONLY as JSON. Dreams are illogical: embrace impossible scale, floating objects, melting architecture, endless hallways, skies of liquid metal. Never make it ordinary.
+
+Return ONLY a JSON object with this exact shape (no markdown, no commentary):
+{
+  "environment": {
+    "skyColor": "#rrggbb", "fogColor": "#rrggbb", "fogDensity": 0.0-0.06,
+    "groundColor": "#rrggbb", "groundType": "flat|water|void|dunes",
+    "lightColor": "#rrggbb", "lightIntensity": 0-2.5, "ambient": 0-1.2,
+    "timeOfDay": "short label e.g. 'liquid dawn'",
+    "particles": "none|stars|dust|sparks|petals|snow", "particleColor": "#rrggbb"
+  },
+  "objects": [
+    { "type": "one of the allowed types", "position": [x, y, z], "scale": [x, y, z],
+      "rotationY": 0, "color": "#rrggbb", "roughness": 0-1, "metalness": 0-1,
+      "emissive": "#rrggbb", "emissiveIntensity": 0-3, "float": true/false,
+      "spin": "slow|none", "cluster": { "count": 1-12, "spread": 1-30 } }
+  ],
+  "mood": { "label": "2-4 word mood title", "reading": "one evocative sentence interpreting the dream" }
+}
+
+Allowed object types ONLY: ${OBJECT_TYPES.join(', ')}.
+Ground types ONLY: ${GROUND_TYPES.join(', ')}. Particles ONLY: ${PARTICLE_TYPES.join(', ')}.
+
+Composition rules:
+- 8 to 24 objects. Spread them around the origin (the dreamer starts at 0,0,0 looking toward -z). Keep x,z within -45..45, y within 0..35.
+- A "liquid silver sky" means skyColor near-white grey with high light; translate material words into roughness/metalness (liquid metal: roughness 0.05, metalness 1; wax: roughness 0.35, metalness 0; stone: roughness 0.95).
+- Use emissive sparingly for things that glow in the dream.
+- Use "float": true for anything weightless, hovering, or falling slowly; floating objects bob in the renderer.
+- Use cluster for repeated things (a forest, a field of candles, falling petals as geometry) instead of listing each one.
+- Fog is the dream's breath: almost every dream wants fogDensity 0.008-0.035.
+
+When given a CURRENT SCENE and a DIRECTING INSTRUCTION, return the FULL updated scene: keep everything the instruction does not mention, change only what it asks, and update the mood reading to acknowledge the change.`;
+
+function extractJson(text) {
+  if (typeof text !== 'string') return null;
+  let s = text.trim();
+  // Strip markdown fences if the model added them anyway.
+  s = s.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+  const start = s.indexOf('{');
+  const end = s.lastIndexOf('}');
+  if (start === -1 || end === -1 || end <= start) return null;
+  try {
+    return JSON.parse(s.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+}
+
+async function callInterpreter({ prompt, instruction, currentScene }) {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) return { scene: null, error: 'no_key' };
+
+  const parts = [];
+  if (currentScene && instruction) {
+    parts.push(
+      `CURRENT SCENE (JSON):\n${JSON.stringify(currentScene)}\n\nDIRECTING INSTRUCTION: "${instruction}"\n\nReturn the full updated scene JSON.`
+    );
+  } else {
+    parts.push(`DREAM DESCRIPTION: "${prompt}"\n\nReturn the scene JSON.`);
+  }
+
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+          contents: [{ role: 'user', parts: [{ text: parts.join('\n') }] }],
+          generationConfig: {
+            temperature: 0.9,
+            maxOutputTokens: 4096,
+            responseMimeType: 'application/json',
+          },
+        }),
+      }
+    );
+    if (!res.ok) return { scene: null, error: `gemini_${res.status}` };
+    const data = await res.json();
+    const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '';
+    const parsed = extractJson(text);
+    if (!parsed) return { scene: null, error: 'unparseable' };
+    return { scene: normalizeScene(parsed), error: null };
+  } catch {
+    return { scene: null, error: 'network' };
+  }
+}
+
+// POST { prompt }                      -> interpret a fresh dream
+// POST { instruction, currentScene }   -> direct changes to the live scene
+export async function POST(req) {
+  let body;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 });
+  }
+
+  const prompt = typeof body?.prompt === 'string' ? body.prompt.trim().slice(0, MAX_PROMPT_CHARS) : '';
+  const instruction = typeof body?.instruction === 'string' ? body.instruction.trim().slice(0, MAX_INSTRUCTION_CHARS) : '';
+  const currentScene = body?.currentScene && typeof body.currentScene === 'object' ? normalizeScene(body.currentScene) : null;
+
+  if (!prompt && !instruction) {
+    return NextResponse.json({ error: 'Describe a dream, or give a directing instruction.' }, { status: 400 });
+  }
+  if (instruction && !currentScene) {
+    return NextResponse.json({ error: 'Directing needs the current scene.' }, { status: 400 });
+  }
+
+  const { scene, error } = await callInterpreter({ prompt, instruction, currentScene });
+
+  if (!scene) {
+    // Graceful degradation: the sandbox still opens on the default dreamscape,
+    // and the UI tells the dreamer the Interpreter is unavailable.
+    return NextResponse.json({
+      scene: normalizeScene(DEFAULT_SCENE),
+      fallback: true,
+      error,
+      message:
+        error === 'no_key'
+          ? 'The Interpreter is asleep (no Gemini key on the server). Showing the threshold dreamscape.'
+          : 'The Interpreter could not shape that dream. Showing the threshold dreamscape — try again.',
+    });
+  }
+
+  return NextResponse.json({ scene, fallback: false });
+}

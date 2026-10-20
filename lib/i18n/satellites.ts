@@ -78,6 +78,7 @@ export const SATELLITES: SatelliteEntry[] = [
   { key: "meet-the-gods", route: "/meet-the-gods", pos: "ATHENA", section: "AI PROGRAMS", constellation: "THOTH" },
   { key: "nexus-vortex", route: "/nexus-vortex", pos: "HERMES", section: "AI PROGRAMS", constellation: "THOTH" },
   { key: "agent-engine", route: "/agent-engine", pos: "ATHENA", section: "AI PROGRAMS", constellation: "THOTH" },
+  { key: "dream-engine", route: "/dream-engine", pos: "ATHENA", section: "AI PROGRAMS", constellation: "THOTH" },
   { key: "nexus-symbiote", route: "/nexus-symbiote", pos: "APOLLO", section: "AI PROGRAMS", constellation: "THOTH" },
   { key: "nv2-video-library", route: "/nv2-video-library", pos: "ATHENA", section: "AI PROGRAMS", constellation: "THOTH" },
   { key: "olympian-education", route: "/olympian-education", pos: "ATHENA", section: "AI PROGRAMS", constellation: "THOTH" },
