@@ -22,6 +22,7 @@ import {
   RIDER_OFFSET,
   BIKE_LOOK_AHEAD,
 } from '@/lib/god-orbits';
+import { makeStormWrapCanvas } from '@/lib/olympus-storm-wrap';
 
 export { BIKE_PARK_POS, RIDER_OFFSET, BIKE_LOOK_AHEAD };
 
@@ -39,21 +40,42 @@ function makeRideLabelTexture() {
   ctx.beginPath();
   ctx.roundRect(256 - w / 2, 12, w, 72, 18);
   ctx.fill();
-  ctx.fillStyle = '#ff6666';
+  ctx.fillStyle = '#ffd76a';
   ctx.fillText('YOUR RIDE', 256, 50);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
 
+// "Olympus Storm" livery for the hub bike (Merlin, 2026-10-21): the
+// procedural wrap from lib/olympus-storm-wrap.js as a CanvasTexture.
+// Per-instance — the Earth Wisp keeps its own shared brand wrap.
+function makeStormTexture() {
+  const c = makeStormWrapCanvas();
+  if (!c) return null;
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  return tex;
+}
+
 export default function BikeRig({ bikeRef }) {
   const beaconRef = useRef();
   const [labelTex, setLabelTex] = useState(null);
+  const [stormTex, setStormTex] = useState(null);
 
   useEffect(() => {
     const t = makeRideLabelTexture();
     setLabelTex(t);
     return () => t.dispose();
+  }, []);
+
+  useEffect(() => {
+    const t = makeStormTexture();
+    setStormTex(t);
+    return () => {
+      if (t) t.dispose();
+    };
   }, []);
 
   useFrame((state) => {
@@ -82,14 +104,17 @@ export default function BikeRig({ bikeRef }) {
 
   return (
     <group ref={bikeRef} position={BIKE_PARK_POS}>
-      {/* Ares crimson wrap — Merlin 2026-10-12: hub bike matches the TRON room Ares bike. */}
-      <WispBike color="#ff2222" />
+      {/* Olympus Storm wrap — Merlin 2026-10-21: the hub bike wears its
+          own livery (violet-black, molten-gold Greek key, cyan light
+          lines). The cyan accent color drives the stripe / engine / pod
+          glows so the wrap's pinstripes echo the bike's own light. */}
+      <WispBike color="#00e5ff" wrapTexture={stormTex} />
       {/* Landing beacon: a soft pulsing ring under the bike so the parked
           ride reads instantly as the thing to walk toward. */}
       <mesh ref={beaconRef} position={[0, -0.7, 0]} rotation-x={-Math.PI / 2}>
         <ringGeometry args={[1.7, 2.1, 48]} />
         <meshBasicMaterial
-          color="#ff2222"
+          color="#00e5ff"
           transparent
           opacity={0.45}
           side={THREE.DoubleSide}

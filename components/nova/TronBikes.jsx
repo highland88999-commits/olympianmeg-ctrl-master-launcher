@@ -8,7 +8,7 @@
 
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import * as THREE from 'three';
 
 // Brand livery wraps — Merlin's Nexus Vortex graphics, generated per the
@@ -118,14 +118,60 @@ function EngineGlow({ color = '#00ffcc', y = 0.5, r = 0.14, z = -1.35 }) {
 }
 
 // WISP — agile scout. Slim swept frame, small canopy, tight pods.
-export function WispBike({ color = '#00ffcc' }) {
-  const wrap = useWrapTexture(WRAPS.wisp);
+//
+// wrapTexture (optional): a per-instance livery texture that overrides
+// the shared brand wrap on THIS bike only — the hub bike's "Olympus
+// Storm" wrap (lib/olympus-storm-wrap.js). Earth and nova/argo never
+// pass it, so their Wisps are byte-identical to before. When a livery
+// is present the hull takes a material array: BoxGeometry reads a
+// texture stern->nose on the -X flank but nose->stern on the +X flank
+// (audited against the geometry's UVs), so the +X flank gets a
+// horizontally flipped clone and the design reads nose-forward on
+// BOTH sides. Material order: [+x, -x, +y, -y, +z, -z].
+export function WispBike({ color = '#00ffcc', wrapTexture = null }) {
+  const sharedWrap = useWrapTexture(WRAPS.wisp);
+  const wrap = wrapTexture || sharedWrap;
+
+  const hullMaterials = useMemo(() => {
+    if (!wrapTexture) return null;
+    const params = {
+      color: '#ffffff',
+      metalness: 0.75,
+      roughness: 0.28,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.12,
+    };
+    const flipped = wrapTexture.clone();
+    flipped.wrapS = THREE.RepeatWrapping;
+    flipped.repeat.x = -1;
+    flipped.needsUpdate = true;
+    const plain = new THREE.MeshPhysicalMaterial({ ...params, map: wrapTexture });
+    const flip = new THREE.MeshPhysicalMaterial({ ...params, map: flipped });
+    return [flip, plain, plain, plain, plain, plain];
+  }, [wrapTexture]);
+
+  useEffect(() => {
+    if (!hullMaterials) return undefined;
+    return () => {
+      for (const m of hullMaterials) {
+        if (m.map && m.map !== wrapTexture) m.map.dispose();
+        m.dispose();
+      }
+    };
+  }, [hullMaterials, wrapTexture]);
+
   return (
     <group>
-      <mesh position={[0, 0.62, 0.1]} rotation={[0.06, 0, 0]}>
-        <boxGeometry args={[0.42, 0.34, 2.6]} />
-        <Paint wrap={wrap} />
-      </mesh>
+      {hullMaterials ? (
+        <mesh position={[0, 0.62, 0.1]} rotation={[0.06, 0, 0]} material={hullMaterials}>
+          <boxGeometry args={[0.42, 0.34, 2.6]} />
+        </mesh>
+      ) : (
+        <mesh position={[0, 0.62, 0.1]} rotation={[0.06, 0, 0]}>
+          <boxGeometry args={[0.42, 0.34, 2.6]} />
+          <Paint wrap={wrap} />
+        </mesh>
+      )}
       {/* swept nose fins */}
       {[-1, 1].map((s, i) => (
         <mesh key={i} position={[s * 0.3, 0.55, 0.95]} rotation={[0, s * 0.35, 0]}>

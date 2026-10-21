@@ -388,7 +388,11 @@ function SequenceController({ launchState, setLaunchState, portalTex, payloadTex
         bikeRef.current.rotation.y = st.yaw;
         bikeRef.current.rotation.z = THREE.MathUtils.lerp(
           bikeRef.current.rotation.z,
-          -input.steer * 0.38,
+          // Bank INTO the turn: positive steer (right) leans the bike right
+          // — in the bike's local frame its top tips toward −X, the rider's
+          // right when facing the +Z nose, which is positive rotation.z.
+          // (Sign flipped with the 2026-10-21 steering fix in bike-flight.)
+          input.steer * 0.38,
           Math.min(1, step * 6)
         );
       }

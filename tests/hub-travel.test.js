@@ -342,11 +342,31 @@ t('the bike actually moves forward when throttled (the reported bug)', (() => {
   for (let i = 0; i < 120; i++) stepBikeFlight(st, { throttle: 1, steer: 0, vertical: false }, 1 / 60, BIKE_TUNING);
   return st.pos.z > z0 + 50; // nose +Z at yaw 0
 })());
-t('steering yaws the bike (D turns right, toward +X)', (() => {
+t('steering yaws the bike (D turns right, toward -X — the rider right when facing +Z)', (() => {
+  // Rider's frame: facing the +Z nose, the rider's right hand is toward
+  // -X (three.js right-handed). A right turn must swing the nose that
+  // way: yaw DECREASES. (Pre-2026-10-21 this asserted yaw > 0 / +X —
+  // it encoded the inversion Merlin reported.)
   const st = createBikeFlightState([0, 35, -152.3], 0);
   stepBikeFlight(st, { throttle: 0, steer: 1, vertical: false }, 1, BIKE_TUNING);
   const f = bikeForward(st.yaw);
+  return st.yaw < 0 && f.x < 0;
+})());
+t('steering left yaws the other way (A turns left, toward +X)', (() => {
+  const st = createBikeFlightState([0, 35, -152.3], 0);
+  stepBikeFlight(st, { throttle: 0, steer: -1, vertical: false }, 1, BIKE_TUNING);
+  const f = bikeForward(st.yaw);
   return st.yaw > 0 && f.x > 0;
+})());
+t('held right steer curves the ride to the rider right (forward + rightward)', (() => {
+  const st = createBikeFlightState([0, 35, -152.3], 0);
+  for (let i = 0; i < 30; i++) stepBikeFlight(st, { throttle: 1, steer: 1, vertical: false }, 1 / 60, BIKE_TUNING);
+  return st.yaw < -0.5 && st.pos.x < -2 && st.pos.z > -152.3 + 5;
+})());
+t('held left steer curves the ride to the rider left', (() => {
+  const st = createBikeFlightState([0, 35, -152.3], 0);
+  for (let i = 0; i < 30; i++) stepBikeFlight(st, { throttle: 1, steer: -1, vertical: false }, 1 / 60, BIKE_TUNING);
+  return st.yaw > 0.5 && st.pos.x > 2 && st.pos.z > -152.3 + 5;
 })());
 t('releasing throttle brakes to a stop (no runaway)', (() => {
   const st = createBikeFlightState([0, 35, -152.3], 0);
