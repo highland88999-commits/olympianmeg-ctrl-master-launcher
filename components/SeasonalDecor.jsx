@@ -305,6 +305,8 @@ export function SeasonBadge({ inline = false } = {}) {
     border: '1px solid rgba(255,255,255,0.14)',
     backdropFilter: 'blur(8px)',
     WebkitBackdropFilter: 'blur(8px)',
+    position: 'relative',
+    overflow: 'hidden',
   };
   return (
     <div
@@ -321,7 +323,24 @@ export function SeasonBadge({ inline = false } = {}) {
             }
       }
     >
-      <SeasonGlyph season={season} badge={b.badge} /> {t(b.nameKey)}
+      {/* The Concourse TRON tile plate skins the pill too (Merlin,
+          2026-10-21) — behind the season artwork + name. */}
+      <img
+        src="/concourse-icons/tile-plate.webp"
+        alt=""
+        aria-hidden="true"
+        style={{
+          position: 'absolute',
+          inset: 0,
+          width: '100%',
+          height: '100%',
+          objectFit: 'cover',
+          objectPosition: '50% 50%',
+        }}
+      />
+      <span style={{ position: 'relative' }}>
+        <SeasonGlyph season={season} badge={b.badge} /> {t(b.nameKey)}
+      </span>
     </div>
   );
 }

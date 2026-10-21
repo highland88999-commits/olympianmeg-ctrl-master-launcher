@@ -45,6 +45,7 @@ const layout = readFileSync(join(repo, 'app', 'layout.jsx'), 'utf8');
 const useTilt = readFileSync(join(repo, 'lib', 'use-tilt.js'), 'utf8');
 const radioProvider = readFileSync(join(repo, 'components', 'radio', 'RadioProvider.jsx'), 'utf8');
 const enDict = JSON.parse(readFileSync(join(repo, 'lib', 'i18n', 'locales', 'en.json'), 'utf8'));
+const seasonalDecor = readFileSync(join(repo, 'components', 'SeasonalDecor.jsx'), 'utf8');
 
 function memStore() {
   const m = new Map();
@@ -273,5 +274,16 @@ describe('sound gate (Part 3)', () => {
     const order = ["id: 'background'", "id: 'language'", "id: 'tilt'", "id: 'sound'"].map((x) => panel.indexOf(x));
     assert.ok(order.every((i) => i >= 0), 'all four sections present');
     assert.ok(order[0] < order[1] && order[1] < order[2] && order[2] < order[3], 'in Merlin\'s order');
+  });
+});
+
+describe('tile plate (Part 5)', () => {
+  it('every tile button wears the TRON plate under its emblem', () => {
+    assert.ok(concourse.includes("src=\"/concourse-icons/tile-plate.webp\""), 'plate rendered in the tile button');
+    assert.ok(existsSync(join(repo, 'public', 'concourse-icons', 'tile-plate.webp')), 'plate asset shipped');
+  });
+
+  it('the season pill wears the same plate behind its artwork + name', () => {
+    assert.ok(seasonalDecor.includes("src=\"/concourse-icons/tile-plate.webp\""), 'plate rendered in SeasonBadge');
   });
 });

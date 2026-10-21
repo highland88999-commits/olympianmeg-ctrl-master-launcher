@@ -133,7 +133,7 @@ async function getToken() {
 function TileGlyph({ tile }) {
   const [failed, setFailed] = useState(false);
   if (!tile.art || failed) {
-    return <span aria-hidden="true" className="text-[22px] leading-none">{tile.icon}</span>;
+    return <span aria-hidden="true" className="relative z-10 text-[22px] leading-none">{tile.icon}</span>;
   }
   return (
     <img
@@ -142,7 +142,7 @@ function TileGlyph({ tile }) {
       aria-hidden="true"
       draggable={false}
       onError={() => setFailed(true)}
-      className="h-[26px] w-[26px] rounded-lg object-cover"
+      className="relative z-10 h-[26px] w-[26px] rounded-lg object-cover"
     />
   );
 }
@@ -512,8 +512,18 @@ export default function Concourse() {
         }`}
         style={pinned ? { width: SIZE, height: SIZE } : { height: SIZE }}
       >
+        {/* TRON plate (Merlin, 2026-10-21): the dark circuit plate
+            skins every tile; its cyan ring frames the emblem, the
+            label rides the plate's black lower fade. */}
+        <img
+          src="/concourse-icons/tile-plate.webp"
+          alt=""
+          aria-hidden="true"
+          draggable={false}
+          className="pointer-events-none absolute inset-0 h-full w-full rounded-2xl object-cover"
+        />
         <TileGlyph tile={tile} />
-        <span className="text-[8.5px] font-black tracking-[0.14em] uppercase text-zinc-200">{tile.label}</span>
+        <span className="relative z-10 text-[8.5px] font-black tracking-[0.14em] uppercase text-zinc-200">{tile.label}</span>
         {tile.soon && (
           <span className="absolute -top-1.5 -right-1.5 rounded-full bg-amber-400 px-1.5 py-px text-[7.5px] font-black tracking-wider text-zinc-950">SOON</span>
         )}
@@ -597,8 +607,15 @@ export default function Concourse() {
           className="pointer-events-none fixed z-[59] flex flex-col items-center justify-center gap-0.5 rounded-2xl border border-cyan-300 bg-cyan-400/30 backdrop-blur-md shadow-[0_0_28px_rgba(0,242,255,0.55)]"
           style={{ left: drag.x - SIZE / 2, top: drag.y - SIZE / 2, width: SIZE, height: SIZE }}
         >
+          <img
+            src="/concourse-icons/tile-plate.webp"
+            alt=""
+            aria-hidden="true"
+            draggable={false}
+            className="pointer-events-none absolute inset-0 h-full w-full rounded-2xl object-cover"
+          />
           <TileGlyph tile={dragTile} />
-          <span className="text-[8.5px] font-black tracking-[0.14em] uppercase text-white">{dragTile?.label}</span>
+          <span className="relative z-10 text-[8.5px] font-black tracking-[0.14em] uppercase text-white">{dragTile?.label}</span>
         </div>
       )}
 
