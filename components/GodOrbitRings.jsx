@@ -21,6 +21,8 @@ import { Text, Billboard } from '@react-three/drei';
 import * as THREE from 'three';
 import {
   GOD_BANDS,
+  GRAND_RING_RADII,
+  GRAND_RING_TILT_FACTOR,
   ORBIT_CENTER,
   EARTH_CENTER,
   EARTH_RADIUS,
@@ -35,7 +37,19 @@ import { registerCollider, unregisterCollider } from '@/lib/hub-collision';
 // derived dimension (accent ring, labels) scales in ratio.
 // Later the same day Merlin asked for bigger still: 3.9 → 5.9, with
 // the bands spread and the tower ring pushed out to match (below).
-const SAT_RADIUS = 5.9;
+// Later still (2026-10-20): the planets grow 1.5× again — 5.9 → 8.85 —
+// and the ring system expands into GRAND RINGS outside Mars
+// (GRAND_RING_RADII in lib/god-orbits.js: 140…200, one per band). The
+// planet lanes themselves did not move, so no planet comes closer to
+// the landing spot than the satellites already did; each lane's own
+// ring is now the planet's fine INNER ring, and the grand rings carry
+// the system.
+const SAT_RADIUS = 8.85;
+
+// Grand ring tube: modest, so the family reads as the system's main
+// rings without becoming walls. Tilt comes from GRAND_RING_TILT_FACTOR
+// (near-flat — Mars clearance, see lib/god-orbits.js).
+const GRAND_RING_TUBE = 0.18;
 
 // God-name label distance behaviour (demo fix, 2026-10-15): at spawn the
 // camera sits ~46–68 units from every satellite, where the label's fixed
@@ -167,11 +181,13 @@ function HubSatellite({ band, index }) {
   useEffect(() => () => hullMat.dispose(), [hullMat]);
 
   return (
+    <>
     <group rotation={[0, 0, band.tiltRad]}>
-      {/* Orbit ring */}
+      {/* Inner orbit ring — the planet's own lane marker. Kept fine and
+          subtle since the grand rings (below) carry the system. */}
       <mesh rotation-x={Math.PI / 2}>
-        <torusGeometry args={[R, 0.14, 8, 160]} />
-        <meshBasicMaterial color={band.color} transparent opacity={0.45} />
+        <torusGeometry args={[R, 0.07, 8, 160]} />
+        <meshBasicMaterial color={band.color} transparent opacity={0.35} />
       </mesh>
       {/* The satellite, fixed at its even-spacing angle */}
       <group ref={satRef} position={[R * Math.cos(angle), 0, R * Math.sin(angle)]}>
@@ -181,16 +197,16 @@ function HubSatellite({ band, index }) {
         </mesh>
         {/* Equatorial accent ring in the god's color */}
         <mesh rotation-x={Math.PI / 2}>
-          <torusGeometry args={[SAT_RADIUS + 1.24, 0.21, 8, 64]} />
+          <torusGeometry args={[SAT_RADIUS + 1.86, 0.315, 8, 64]} />
           <meshBasicMaterial color={band.color} fog={false} />
         </mesh>
         {/* God-name marker — scale-capped and faded by camera distance
             (see the useFrame above), so it can never fill the viewport
             at close range or clip through Earth unreadably. */}
-        <Billboard ref={labelRef} position={[0, SAT_RADIUS + 3.8, 0]}>
+        <Billboard ref={labelRef} position={[0, SAT_RADIUS + 5.7, 0]}>
           <Text
             ref={textRef}
-            fontSize={3.8}
+            fontSize={5.7}
             color={band.color}
             anchorX="center"
             anchorY="middle"
@@ -206,6 +222,18 @@ function HubSatellite({ band, index }) {
             single 1–44 run (components/GodTower.jsx). */}
       </group>
     </group>
+    {/* Grand ring — this band's ring in the expanded planetary system
+        (GRAND_RING_RADII: 140…200, first ring just outside Mars), in
+        the god's color, near-flat, counter-rotating with the same
+        assembly. Rendered outside the satellite's tilt group so its
+        tilt stays at the Mars-safe fraction of the band tilt. */}
+    <group rotation={[0, 0, band.tiltRad * GRAND_RING_TILT_FACTOR]}>
+      <mesh rotation-x={Math.PI / 2}>
+        <torusGeometry args={[GRAND_RING_RADII[index], GRAND_RING_TUBE, 8, 256]} />
+        <meshBasicMaterial color={band.color} transparent opacity={0.85} fog={false} />
+      </mesh>
+    </group>
+    </>
   );
 }
 

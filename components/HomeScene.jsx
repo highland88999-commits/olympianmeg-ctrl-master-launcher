@@ -575,7 +575,7 @@ function StaticColliders() {
   useEffect(() => {
     registerCollider('earth', () => ({ ...EARTH_CENTER }), EARTH_RADIUS + 1);
     registerCollider('sun', () => ({ x: 0, y: 90, z: 250 }), 46);
-    registerCollider('mars', () => ({ x: -70, y: 45, z: -100 }), 32);
+    registerCollider('mars', () => ({ x: -105, y: 68, z: -150 }), 30);
     return () => {
       ['earth', 'sun', 'mars'].forEach(unregisterCollider);
     };
