@@ -39,10 +39,13 @@ function MarsBackground() {
   // the whole planetary system expanded outward from ORBIT_CENTER by
   // 1.5× and Mars grew 1.5× with it — group position
   // ORBIT_CENTER + 1.5×([-105, 68, -150] − ORBIT_CENTER), sphere
-  // 30 → 45. Its collider in StaticColliders matches this transform
-  // exactly. Earth stays exactly where it is.
+  // 30 → 45. Expansion pass later that day: the offset from
+  // ORBIT_CENTER scaled another 1.5× (size unchanged) so the planets
+  // stay beyond the doubled satellites and the pushed-out towers.
+  // Its collider in StaticColliders matches this transform exactly.
+  // Earth stays exactly where it is.
   return (
-    <group position={[-157.5, 84.5, -185]}>
+    <group position={[-236.25, 109.25, -237.5]}>
       <mesh ref={marsRef} receiveShadow castShadow>
         <sphereGeometry args={[45, 64, 64]} />
         <meshStandardMaterial color="#b33900" roughness={0.9} metalness={0.1} />
@@ -119,7 +122,7 @@ function SunBackground() {
 
   return (
     <>
-      <group position={[0, 117.5, 415]}>
+      <group position={[0, 158.75, 662.5]}>
         <mesh ref={sunRef}>
           <sphereGeometry args={[67.5, 64, 64]} />
           <meshBasicMaterial map={sunMap} color="#ffcc66" toneMapped={false} />
@@ -154,7 +157,7 @@ function SunBackground() {
       </group>
 
       <directionalLight
-        position={[0, 117.5, 415]}
+        position={[0, 158.75, 662.5]}
         color="#fff5e6" 
         intensity={0.85} 
         target-position={[0, -60, -120]} 
@@ -571,10 +574,10 @@ function TextureProvider({ onLaunchExternal }) {
 // SystemRings — the grand rings of the hub's planetary system
 // (Merlin, 2026-10-20): eleven rainbow rings centered on ORBIT_CENTER,
 // wrapping the expanded planet system (Mars + Sun) on the far side of
-// the satellites — the first ring (205) sits just outside Mars. They
+// the satellites — the first ring (350) sits just outside Mars. They
 // are the system's fixed frame: static, NOT part of the satellites'
 // counter-rotating assembly (the satellites keep their own lanes
-// inside the hollow, 50–94). Near-flat alternating tilts
+// inside the hollow, 84–164). Near-flat alternating tilts
 // (SYSTEM_RING_TILTS, ≤ 0.009 rad) — Mars hangs over the ring plane.
 // Radii/tilts live in lib/god-orbits.js.
 // ---------------------------------------------------------------------------
@@ -609,8 +612,8 @@ function SystemRings() {
 function StaticColliders() {
   useEffect(() => {
     registerCollider('earth', () => ({ ...EARTH_CENTER }), EARTH_RADIUS + 1);
-    registerCollider('sun', () => ({ x: 0, y: 117.5, z: 415 }), 68);
-    registerCollider('mars', () => ({ x: -157.5, y: 84.5, z: -185 }), 45);
+    registerCollider('sun', () => ({ x: 0, y: 158.75, z: 662.5 }), 68);
+    registerCollider('mars', () => ({ x: -236.25, y: 109.25, z: -237.5 }), 45);
     return () => {
       ['earth', 'sun', 'mars'].forEach(unregisterCollider);
     };

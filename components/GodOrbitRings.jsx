@@ -35,26 +35,30 @@ import { registerCollider, unregisterCollider } from '@/lib/hub-collision';
 // derived dimension (accent ring, labels) scales in ratio.
 // Later the same day Merlin asked for bigger still: 3.9 → 5.9, with
 // the bands spread and the tower ring pushed out to match (below).
-// This is Merlin's last-set satellite size. The hub's PLANETS (Mars,
-// the Sun) are a separate system on the far side of the satellites —
-// they grew and their grand rings (SYSTEM_RING_RADII in
-// lib/god-orbits.js) live with them in components/HomeScene.jsx, not
-// in this constellation.
-const SAT_RADIUS = 5.9;
+// Expansion pass, same day: satellites doubled once more, 5.9 → 11.8,
+// and everything else moved out to accommodate (lanes 84–164, tower
+// ring 190, planets + rings further still) so no PLANET ever passes
+// in front of a satellite. The hub's PLANETS (Mars, the Sun) are a
+// separate system on the far side of the satellites — their grand
+// rings (SYSTEM_RING_RADII in lib/god-orbits.js) live with them in
+// components/HomeScene.jsx, not in this constellation.
+const SAT_RADIUS = 11.8;
 
 // God-name label distance behaviour (demo fix, 2026-10-15): at spawn the
-// camera sits ~46–68 units from every satellite, where the label's fixed
-// world size reads exactly as designed. Flying close used to blow the
-// name across the whole viewport ("DIONYSU…"), and a far-side label
-// clipped through Earth unreadably. So inside LABEL_REF_DIST the label
-// shrinks with distance — its on-screen size never exceeds the
-// normal-orbit size — and fades out as you arrive; a label whose
-// sightline passes through Earth fades to a whisper instead of
-// clipping through the planet. At normal orbit distance nothing
-// changes: full size, full opacity.
-const LABEL_REF_DIST = 30; // at/above this distance: full size
-const LABEL_FADE_NEAR = 5; // at/below this distance: fully faded
-const LABEL_FADE_FULL = 16; // at/above this distance: fully opaque
+// camera sits ~84–164 units from every satellite (lanes after the
+// 2026-10-20 expansion pass), where the label's fixed world size reads
+// exactly as designed. Flying close used to blow the name across the
+// whole viewport ("DIONYSU…"), and a far-side label clipped through
+// Earth unreadably. So inside LABEL_REF_DIST the label shrinks with
+// distance — its on-screen size never exceeds the normal-orbit size —
+// and fades out as you arrive; a label whose sightline passes through
+// Earth fades to a whisper instead of clipping through the planet. At
+// normal orbit distance nothing changes: full size, full opacity.
+// The three distances doubled with the satellites (11.8 hull) so the
+// close-approach behaviour is identical in relative terms.
+const LABEL_REF_DIST = 60; // at/above this distance: full size
+const LABEL_FADE_NEAR = 10; // at/below this distance: fully faded
+const LABEL_FADE_FULL = 32; // at/above this distance: fully opaque
 const LABEL_MIN_SCALE = 0.1;
 const EARTH_C = new THREE.Vector3(EARTH_CENTER.x, EARTH_CENTER.y, EARTH_CENTER.z);
 const _wp = new THREE.Vector3();
@@ -151,7 +155,7 @@ function HubSatellite({ band, index }) {
     registerCollider(
       `hubsat-${band.god}`,
       () => menuSatellitePosition(index, orbitTime()),
-      SAT_RADIUS + 0.9
+      SAT_RADIUS + 1.8
     );
     return () => unregisterCollider(`hubsat-${band.god}`);
   }, [band.god, index]);
@@ -175,7 +179,7 @@ function HubSatellite({ band, index }) {
     <group rotation={[0, 0, band.tiltRad]}>
       {/* Orbit ring — the satellite's own lane around the landing spot. */}
       <mesh rotation-x={Math.PI / 2}>
-        <torusGeometry args={[R, 0.14, 8, 160]} />
+        <torusGeometry args={[R, 0.28, 8, 160]} />
         <meshBasicMaterial color={band.color} transparent opacity={0.45} />
       </mesh>
       {/* The satellite, fixed at its even-spacing angle */}
@@ -186,20 +190,20 @@ function HubSatellite({ band, index }) {
         </mesh>
         {/* Equatorial accent ring in the god's color */}
         <mesh rotation-x={Math.PI / 2}>
-          <torusGeometry args={[SAT_RADIUS + 1.24, 0.21, 8, 64]} />
+          <torusGeometry args={[SAT_RADIUS + 2.48, 0.42, 8, 64]} />
           <meshBasicMaterial color={band.color} fog={false} />
         </mesh>
         {/* God-name marker — scale-capped and faded by camera distance
             (see the useFrame above), so it can never fill the viewport
             at close range or clip through Earth unreadably. */}
-        <Billboard ref={labelRef} position={[0, SAT_RADIUS + 3.8, 0]}>
+        <Billboard ref={labelRef} position={[0, SAT_RADIUS + 7.6, 0]}>
           <Text
             ref={textRef}
-            fontSize={3.8}
+            fontSize={7.6}
             color={band.color}
             anchorX="center"
             anchorY="middle"
-            outlineWidth={0.12}
+            outlineWidth={0.24}
             outlineColor="#000000"
           >
             {band.label}

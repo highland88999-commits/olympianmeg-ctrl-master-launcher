@@ -13,6 +13,7 @@ import {
   GOD_BANDS,
   GOD_HEX,
   BIKE_PARK_POS,
+  menuSatellitePosition,
   dist3,
 } from '../lib/god-orbits.js';
 import {
@@ -141,11 +142,24 @@ t('Moon orbit is slow and stately (one revolution ≈ 4 minutes)', (() => {
 })());
 t('Moon is a real body, not a speck (radius 8..20)', MOON_RADIUS >= 8 && MOON_RADIUS <= 20);
 t('Moon stays clear of the satellite ring', (() => {
-  // Closest approach of the moon's orbit circle to ORBIT_CENTER, in XZ.
-  const hubDx = ORBIT_CENTER.x - EARTH_CENTER.x;
-  const hubDz = ORBIT_CENTER.z - EARTH_CENTER.z;
-  const hubD = Math.sqrt(hubDx * hubDx + hubDz * hubDz);
-  return MOON_ORBIT_RADIUS - hubD > MAX_BAND_RADIUS + MOON_RADIUS;
+  // DESIGN-CHANGE UPDATE (2026-10-20, Merlin's expansion pass): the old
+  // assertion was an XZ-only proxy (MOON_ORBIT_RADIUS − hubD >
+  // MAX_BAND_RADIUS + MOON_RADIUS) — valid only while the satellite ring
+  // was smaller than the XZ gap between the two orbit centers. With the
+  // lanes expanded to 84–164 the proxy fails even though the Moon still
+  // clears every satellite in 3D: its orbital plane (y = EARTH_CENTER.y
+  // + 18) passes below the satellite shell. Same invariant, checked for
+  // real: sample the 3D distance between the Moon and every satellite
+  // over time. SAT_RADIUS mirrors components/GodOrbitRings.jsx.
+  const SAT_RADIUS = 11.8;
+  let min = Infinity;
+  for (let t = 0; t <= 2000; t += 1) {
+    const m = moonPositionAt(t);
+    for (let i = 0; i < GOD_BANDS.length; i++) {
+      min = Math.min(min, dist3(m, menuSatellitePosition(i, t)));
+    }
+  }
+  return min > MOON_RADIUS + SAT_RADIUS;
 })());
 
 // --- asteroid field ---------------------------------------------------------------
