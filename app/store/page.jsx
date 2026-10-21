@@ -21,6 +21,7 @@ import {
 } from '@/components/hermes-ui/HermesUi';
 import { CartIcon } from '@/lib/hermes-icons';
 import ShareButton from '@/components/store/ShareButton';
+import KaleidoStage from '@/components/store/KaleidoStage';
 import {
   productShareUrl,
   categoryShareUrl,
@@ -46,22 +47,28 @@ function ProductCard({ product, onBuy, buying, gold, setGold, rewardMode, onRede
   return (
     <div
       id={productAnchorId(product.id)}
-      className={`flex scroll-mt-24 flex-col overflow-hidden rounded-2xl border bg-white/5 ${
+      className={`flex scroll-mt-32 flex-col overflow-hidden rounded-2xl border bg-white/5 ${
         highlighted ? 'border-amber-300/70 ring-2 ring-amber-300/60' : 'border-white/10'
       }`}
     >
-      {product.image ? (
-        <img
-          src={product.image}
-          alt={product.name}
-          className="aspect-square w-full object-cover"
-          loading="lazy"
-        />
-      ) : (
-        <div className="flex aspect-square w-full items-center justify-center bg-black/40 text-5xl">
-          🧥
-        </div>
-      )}
+      {/* Kaleidoscope stage (Merlin, 2026-10-20): the product image sits
+          inset on a slowly turning kaleidoscope in the product's own
+          hue, instead of bleeding edge to edge. No-image products keep
+          the placeholder, centred on the stage. */}
+      <KaleidoStage hueKey={product.id || product.name}>
+        {product.image ? (
+          <img
+            src={product.image}
+            alt={product.name}
+            className="aspect-square h-full w-full rounded-xl object-cover shadow-2xl"
+            loading="lazy"
+          />
+        ) : (
+          <div className="flex aspect-square h-full w-full items-center justify-center rounded-xl bg-black/40 text-5xl shadow-2xl">
+            🧥
+          </div>
+        )}
+      </KaleidoStage>
       <div className="relative flex flex-1 flex-col gap-3 p-4">
         <HermesPanelTexture opacity={0.06} />
         <div className="relative">
@@ -121,6 +128,45 @@ function ProductCard({ product, onBuy, buying, gold, setGold, rewardMode, onRede
               ? 'Checkout coming soon'
               : (buying ? 'Starting checkout…' : 'Buy now')}
         </button>
+      </div>
+    </div>
+  );
+}
+
+// Category menu bar (Merlin, 2026-10-20): every product type gets its
+// own pill in a horizontally scrollable bar at the top of the store,
+// styled after the town-square (Agora) CategoryTabs — same container,
+// pill shape and tab semantics, but in the store's amber accent.
+// Picking a type isolates it: only that category's section renders.
+// "All" restores the full stacked storefront. The bar sticks under the
+// header (which is 61px tall) so it stays in reach while scrolling.
+function CategoryBar({ tabs, selected, onSelect }) {
+  return (
+    <div className="sticky top-[61px] z-30 -mx-4 mb-6 bg-[#06070d]/90 px-4 pt-1 backdrop-blur">
+      <div
+        className="flex gap-2 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        role="tablist"
+        aria-label="Product categories"
+      >
+        {tabs.map((t) => {
+          const isActive = selected === t;
+          return (
+            <button
+              key={t}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              onClick={() => onSelect(t)}
+              className={`min-h-[44px] shrink-0 rounded-full px-4 text-sm font-medium transition-colors ${
+                isActive
+                  ? 'bg-amber-300 text-black'
+                  : 'bg-white/5 text-zinc-300 hover:bg-white/10'
+              }`}
+            >
+              {t}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -193,12 +239,26 @@ function StoreInner() {
   const wantedProduct = params.get('product');
   const wantedCategory = params.get('category');
   const [highlightId, setHighlightId] = useState(null);
+  // Category menu selection (Merlin, 2026-10-20): 'All' shows the whole
+  // stacked storefront; any other value isolates that one category's
+  // section. Deep links below drive it too — a shared category selects
+  // itself in the menu, and a shared product selects its own category
+  // first so its card is rendered when the scroll goes looking for it.
+  const [selectedCategory, setSelectedCategory] = useState('All');
 
   useEffect(() => {
     if (!products || (!wantedProduct && !wantedCategory)) return;
-    const targetId = wantedProduct
-      ? productAnchorId(wantedProduct)
-      : categoryAnchorId(wantedCategory);
+    let targetId = null;
+    if (wantedProduct) {
+      targetId = productAnchorId(wantedProduct);
+      const prod = products.find((p) => productAnchorId(p.id) === targetId);
+      if (prod) setSelectedCategory(prod.category || 'More');
+    } else if (wantedCategory) {
+      targetId = categoryAnchorId(wantedCategory);
+      if (products.some((p) => (p.category || 'More') === wantedCategory)) {
+        setSelectedCategory(wantedCategory);
+      }
+    }
     if (!targetId) return;
     const scrollTimer = setTimeout(() => {
       const el = document.getElementById(targetId);
@@ -206,8 +266,8 @@ function StoreInner() {
         el.scrollIntoView({ behavior: 'smooth', block: 'start' });
         setHighlightId(targetId);
       }
-    }, 80);
-    const clearTimer = setTimeout(() => setHighlightId(null), 3200);
+    }, 200);
+    const clearTimer = setTimeout(() => setHighlightId(null), 3400);
     return () => { clearTimeout(scrollTimer); clearTimeout(clearTimer); };
   }, [products, wantedProduct, wantedCategory]);
 
@@ -317,7 +377,7 @@ function StoreInner() {
     if (!items.length) return null;
     const anchor = categoryAnchorId(title);
     return (
-      <section id={anchor} className="mb-10 scroll-mt-24">
+      <section id={anchor} className="mb-10 scroll-mt-32">
         <div className="mb-4 flex items-center justify-between gap-3">
           <h2
             className={`text-sm font-bold uppercase tracking-widest ${
@@ -436,6 +496,14 @@ function StoreInner() {
           </div>
         )}
 
+        {!rewardMode && groups.length > 0 && (
+          <CategoryBar
+            tabs={['All', ...groups.map((g) => g.title)]}
+            selected={selectedCategory}
+            onSelect={setSelectedCategory}
+          />
+        )}
+
         {!rewardMode && (
           <Link
             href="/store/marketplace"
@@ -502,7 +570,10 @@ function StoreInner() {
           <p className="text-sm text-slate-400">Nothing listed yet — check back soon.</p>
         ) : (
           <>
-            {groups.map((g) => (
+            {(selectedCategory === 'All'
+              ? groups
+              : groups.filter((g) => g.title === selectedCategory)
+            ).map((g) => (
               <Section key={g.title} title={g.title} items={g.items} />
             ))}
           </>

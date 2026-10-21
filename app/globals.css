@@ -104,3 +104,50 @@ canvas, .no-select {
   user-select: none !important;
   -webkit-touch-callout: none !important;
 }
+
+/* ---- Store kaleidoscope card stage (Merlin 2026-10-20) ----
+   The backdrop behind every store product / creator-marketplace card.
+   Layered conic wedges + a radial highlight read as a kaleidoscope;
+   the hue comes from the --khue custom property (a stable hash of the
+   product id, set inline by components/store/KaleidoStage.jsx — the
+   same product always gets the same hue). The pattern lives on an
+   oversized ::before layer rotating slowly (transform-only, so it
+   stays composited); the product image sits inset above it on a
+   padded, positioned child. CSS-only: no canvas, no JS animation. */
+.kaleido-stage {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  background: #0b0b14;
+}
+.kaleido-stage::before {
+  content: "";
+  position: absolute;
+  inset: -55%;
+  z-index: 0;
+  background:
+    radial-gradient(circle at 50% 50%, hsl(var(--khue, 45), 95%, 74%) 0%, transparent 46%),
+    repeating-conic-gradient(from 0deg at 50% 50%,
+      hsl(var(--khue, 45), 85%, 55%) 0deg 18deg,
+      hsl(calc(var(--khue, 45) + 45), 85%, 47%) 18deg 36deg,
+      hsl(calc(var(--khue, 45) + 120), 80%, 52%) 36deg 54deg,
+      hsl(calc(var(--khue, 45) + 210), 80%, 43%) 54deg 72deg,
+      hsl(calc(var(--khue, 45) + 300), 85%, 50%) 72deg 90deg);
+  opacity: 0.85;
+  animation: kaleido-spin 60s linear infinite;
+  will-change: transform;
+}
+.kaleido-stage::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 42%, transparent 55%, rgba(0, 0, 0, 0.38) 100%);
+}
+@keyframes kaleido-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kaleido-stage::before { animation: none; }
+}

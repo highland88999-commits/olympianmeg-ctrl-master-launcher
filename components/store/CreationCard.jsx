@@ -22,6 +22,7 @@ import { supabase } from '@/lib/supabase';
 import { HermesPanelTexture } from '@/components/hermes-ui/HermesUi';
 import { CartIcon } from '@/lib/hermes-icons';
 import ShareButton from '@/components/store/ShareButton';
+import KaleidoStage from '@/components/store/KaleidoStage';
 import { productShareTitle, productShareText } from '@/lib/store/share';
 
 export default function CreationCard({ creation, showCreator = true }) {
@@ -99,18 +100,23 @@ export default function CreationCard({ creation, showCreator = true }) {
   return (
     <div className="flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/5">
       <Link href={creation.storePath} aria-label={`View ${creation.name} in the store`}>
-        {creation.image ? (
-          <img
-            src={creation.image}
-            alt={creation.name}
-            className="aspect-square w-full object-cover"
-            loading="lazy"
-          />
-        ) : (
-          <div className="flex aspect-square w-full items-center justify-center bg-black/40 text-5xl">
-            🧥
-          </div>
-        )}
+        {/* Kaleidoscope stage (Merlin, 2026-10-20): same treatment as the
+            catalog cards — image inset on a kaleidoscope in the
+            creation's own hue; placeholder centred when imageless. */}
+        <KaleidoStage hueKey={creation.id || creation.name}>
+          {creation.image ? (
+            <img
+              src={creation.image}
+              alt={creation.name}
+              className="aspect-square h-full w-full rounded-xl object-cover shadow-2xl"
+              loading="lazy"
+            />
+          ) : (
+            <div className="flex aspect-square h-full w-full items-center justify-center rounded-xl bg-black/40 text-5xl shadow-2xl">
+              🧥
+            </div>
+          )}
+        </KaleidoStage>
       </Link>
       <div className="relative flex flex-1 flex-col gap-3 p-4">
         <HermesPanelTexture opacity={0.06} />
