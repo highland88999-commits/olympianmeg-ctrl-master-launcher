@@ -19,7 +19,7 @@ import HubMoon from './HubMoon';
 import AsteroidField from './AsteroidField';
 import NavBeacons from './NavBeacons';
 import EarthFlightController from './EarthFlightController';
-import { ORBIT_CENTER, EARTH_CENTER, EARTH_RADIUS, GOD_BANDS } from '../lib/god-orbits';
+import { ORBIT_CENTER, EARTH_CENTER, EARTH_RADIUS, GOD_BANDS, SYSTEM_RING_RADII, SYSTEM_RING_TILTS } from '../lib/god-orbits';
 import { FREE_FLY_SPEED, BIKE_TUNING } from '../lib/hub-layout';
 import { registerCollider, unregisterCollider, resolveFlightCollision } from '../lib/hub-collision';
 import { createBikeFlightState, stepBikeFlight, rotateOffsetByYaw, bikeForward } from '../lib/bike-flight';
@@ -35,20 +35,23 @@ function MarsBackground() {
   const marsRef = useRef();
   useFrame((state, delta) => { if (marsRef.current) marsRef.current.rotation.y += delta * 0.05; });
   
-  // Mars pushed further out (Merlin, 2026-10-20) so the satellite
-  // field has a good bit of distance from the planet system. Earth
-  // stays exactly where it is.
+  // Mars rides the far side of the satellites (Merlin, 2026-10-20):
+  // the whole planetary system expanded outward from ORBIT_CENTER by
+  // 1.5× and Mars grew 1.5× with it — group position
+  // ORBIT_CENTER + 1.5×([-105, 68, -150] − ORBIT_CENTER), sphere
+  // 30 → 45. Its collider in StaticColliders matches this transform
+  // exactly. Earth stays exactly where it is.
   return (
-    <group position={[-105, 68, -150]}>
+    <group position={[-157.5, 84.5, -185]}>
       <mesh ref={marsRef} receiveShadow castShadow>
-        <sphereGeometry args={[30, 64, 64]} />
+        <sphereGeometry args={[45, 64, 64]} />
         <meshStandardMaterial color="#b33900" roughness={0.9} metalness={0.1} />
       </mesh>
 
-      <pointLight color="#ff4500" intensity={0.8} distance={100} position={[0, 0, 35]} />
+      <pointLight color="#ff4500" intensity={0.8} distance={150} position={[0, 0, 52.5]} />
 
       <mesh scale={[1.035, 1.035, 1.035]}>
-        <sphereGeometry args={[30, 64, 64]} />
+        <sphereGeometry args={[45, 64, 64]} />
         <shaderMaterial
           blending={THREE.AdditiveBlending}
           side={THREE.BackSide}
@@ -116,25 +119,25 @@ function SunBackground() {
 
   return (
     <>
-      <group position={[0, 90, 250]}>
+      <group position={[0, 117.5, 415]}>
         <mesh ref={sunRef}>
-          <sphereGeometry args={[45, 64, 64]} />
+          <sphereGeometry args={[67.5, 64, 64]} />
           <meshBasicMaterial map={sunMap} color="#ffcc66" toneMapped={false} />
         </mesh>
 
         <mesh scale={[1.1, 1.1, 1.1]}>
-          <sphereGeometry args={[45, 64, 64]} />
+          <sphereGeometry args={[67.5, 64, 64]} />
           <meshBasicMaterial color="#ffaa55" transparent opacity={0.4} blending={THREE.AdditiveBlending} toneMapped={false} />
         </mesh>
-        
+
         <mesh scale={[1.3, 1.3, 1.3]}>
-          <sphereGeometry args={[45, 64, 64]} />
+          <sphereGeometry args={[67.5, 64, 64]} />
           <meshBasicMaterial color="#ff6600" transparent opacity={0.15} blending={THREE.AdditiveBlending} toneMapped={false} />
         </mesh>
 
         {/* Light bleed: camera-facing halo, luminous from every angle */}
         {glowMap && (
-          <sprite scale={[430, 430, 1]}>
+          <sprite scale={[645, 645, 1]}>
             <spriteMaterial
               map={glowMap}
               color="#ffe2a8"
@@ -150,8 +153,8 @@ function SunBackground() {
         <pointLight color="#ffd27f" intensity={4.0} distance={800} decay={1.5} position={[0, 0, 0]} />
       </group>
 
-      <directionalLight 
-        position={[0, 90, 250]} 
+      <directionalLight
+        position={[0, 117.5, 415]}
         color="#fff5e6" 
         intensity={0.85} 
         target-position={[0, -60, -120]} 
@@ -565,6 +568,38 @@ function TextureProvider({ onLaunchExternal }) {
 
 
 // ---------------------------------------------------------------------------
+// SystemRings — the grand rings of the hub's planetary system
+// (Merlin, 2026-10-20): eleven rainbow rings centered on ORBIT_CENTER,
+// wrapping the expanded planet system (Mars + Sun) on the far side of
+// the satellites — the first ring (205) sits just outside Mars. They
+// are the system's fixed frame: static, NOT part of the satellites'
+// counter-rotating assembly (the satellites keep their own lanes
+// inside the hollow, 50–94). Near-flat alternating tilts
+// (SYSTEM_RING_TILTS, ≤ 0.009 rad) — Mars hangs over the ring plane.
+// Radii/tilts live in lib/god-orbits.js.
+// ---------------------------------------------------------------------------
+function SystemRings() {
+  return (
+    <group position={[ORBIT_CENTER.x, ORBIT_CENTER.y, ORBIT_CENTER.z]}>
+      {SYSTEM_RING_RADII.map((R, i) => (
+        <group key={R} rotation={[0, 0, SYSTEM_RING_TILTS[i]]}>
+          <mesh rotation-x={Math.PI / 2}>
+            <torusGeometry args={[R, 0.2, 8, 256]} />
+            <meshBasicMaterial
+              color={`hsl(${Math.round((i * 360) / SYSTEM_RING_RADII.length)}, 85%, 60%)`}
+              transparent
+              opacity={0.85}
+              fog={false}
+            />
+          </mesh>
+        </group>
+      ))}
+    </group>
+  );
+}
+
+
+// ---------------------------------------------------------------------------
 // StaticColliders — solid-geometry registration for the hub's big bodies.
 // Satellites, Moon, asteroids, and the god towers register their own (live)
 // colliders; Earth, Sun, and Mars are static and live here.
@@ -574,8 +609,8 @@ function TextureProvider({ onLaunchExternal }) {
 function StaticColliders() {
   useEffect(() => {
     registerCollider('earth', () => ({ ...EARTH_CENTER }), EARTH_RADIUS + 1);
-    registerCollider('sun', () => ({ x: 0, y: 90, z: 250 }), 46);
-    registerCollider('mars', () => ({ x: -105, y: 68, z: -150 }), 30);
+    registerCollider('sun', () => ({ x: 0, y: 117.5, z: 415 }), 68);
+    registerCollider('mars', () => ({ x: -157.5, y: 84.5, z: -185 }), 45);
     return () => {
       ['earth', 'sun', 'mars'].forEach(unregisterCollider);
     };
@@ -672,6 +707,9 @@ function HubScene({
             controls={controlsRef}
           />
           <MarsBackground />
+          {/* The planetary system's grand rainbow rings — fixed frame
+              around the planets, outside the satellite hollow. */}
+          <SystemRings />
           <TextureProvider onLaunchExternal={onLaunchExternal} />
           {/* Hub satellite constellation — 10 physical textured satellites.
               The floating video button's satellite menu is the single way
