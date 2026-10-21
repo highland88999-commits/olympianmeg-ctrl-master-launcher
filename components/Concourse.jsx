@@ -65,21 +65,21 @@ export function fireConcourseTile(tile) {
 // collapses into two clean rows (Muse/Phone/Calls/Radio, then
 // Store/Alerts/Profile/Bug).
 const TILES = [
-  { id: 'portals', label: 'Portals', icon: '🎃', hubOnly: true },
-  { id: 'tour', label: 'Tour', icon: '🗺️', soon: true },
-  { id: 'intro', label: 'Intro', icon: '↺', hubOnly: true },
-  { id: 'guide', label: 'Guide', icon: '?', hubOnly: true },
-  { id: 'night', label: 'Night', icon: '🌑', hubOnly: true },
-  { id: 'bike', label: 'Bike', icon: '🏍️', hubOnly: true },
-  { id: 'renewal', label: 'Renew', icon: '◈', hubOnly: true },
-  { id: 'muse', label: 'Muse', icon: '✦' },
-  { id: 'phone', label: 'Phone', icon: '📱' },
-  { id: 'calls', label: 'Calls', icon: '🔮' },
-  { id: 'radio', label: 'Radio', icon: '🎵' },
-  { id: 'store', label: 'Store', icon: '🛍️' },
-  { id: 'alerts', label: 'Alerts', icon: '🔔' },
-  { id: 'profile', label: 'Profile', icon: '👤' },
-  { id: 'bug', label: 'Bug', icon: '🐛' },
+  { id: 'portals', label: 'Portals', icon: '🎃', art: '/concourse-icons/portals.webp', hubOnly: true },
+  { id: 'tour', label: 'Tour', icon: '🗺️', art: '/concourse-icons/tour.webp', soon: true },
+  { id: 'intro', label: 'Intro', icon: '↺', art: '/concourse-icons/intro.webp', hubOnly: true },
+  { id: 'guide', label: 'Guide', icon: '?', art: '/concourse-icons/guide.webp', hubOnly: true },
+  { id: 'night', label: 'Night', icon: '🌑', art: '/concourse-icons/night.webp', hubOnly: true },
+  { id: 'bike', label: 'Bike', icon: '🏍️', art: '/concourse-icons/bike.webp', hubOnly: true },
+  { id: 'renewal', label: 'Renew', icon: '◈', art: '/concourse-icons/renew.webp', hubOnly: true },
+  { id: 'muse', label: 'Muse', icon: '✦', art: '/concourse-icons/muse.webp' },
+  { id: 'phone', label: 'Phone', icon: '📱', art: '/concourse-icons/phone.webp' },
+  { id: 'calls', label: 'Calls', icon: '🔮', art: '/concourse-icons/calls.webp' },
+  { id: 'radio', label: 'Radio', icon: '🎵', art: '/concourse-icons/radio.webp' },
+  { id: 'store', label: 'Store', icon: '🛍️', art: '/concourse-icons/store.webp' },
+  { id: 'alerts', label: 'Alerts', icon: '🔔', art: '/concourse-icons/alerts.webp' },
+  { id: 'profile', label: 'Profile', icon: '👤', art: '/concourse-icons/profile.webp' },
+  { id: 'bug', label: 'Bug', icon: '🐛', art: '/concourse-icons/bug.webp' },
 ];
 
 const clamp01 = (n) => Math.min(1, Math.max(0, n));
@@ -109,6 +109,54 @@ async function getToken() {
   } catch {
     return null;
   }
+}
+
+// Tile glyph — the generated artwork is the face of the tile; the
+// original emoji is the fallback if the art is missing or fails to
+// load, so the menu never shows a broken-image hole. One component
+// serves the box grid, the pins and the drag ghost alike: they all
+// read the same TILES entry (icon + art).
+function TileGlyph({ tile }) {
+  const [failed, setFailed] = useState(false);
+  if (!tile.art || failed) {
+    return <span aria-hidden="true" className="text-[22px] leading-none">{tile.icon}</span>;
+  }
+  return (
+    <img
+      src={tile.art}
+      alt=""
+      aria-hidden="true"
+      draggable={false}
+      onError={() => setFailed(true)}
+      className="h-[26px] w-[26px] rounded-lg object-cover"
+    />
+  );
+}
+
+// Orb face — the generated orb artwork fills the button's circle;
+// if it ever fails to load, the original four glowing dots return.
+function OrbFace() {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <span aria-hidden="true" className="grid grid-cols-2 gap-[5px]">
+        <span className="h-[9px] w-[9px] rounded-full bg-cyan-300 shadow-[0_0_8px_rgba(0,242,255,0.9)]" />
+        <span className="h-[9px] w-[9px] rounded-full bg-teal-300 shadow-[0_0_8px_rgba(45,255,210,0.9)]" />
+        <span className="h-[9px] w-[9px] rounded-full bg-violet-300 shadow-[0_0_8px_rgba(196,141,255,0.9)]" />
+        <span className="h-[9px] w-[9px] rounded-full bg-amber-300 shadow-[0_0_8px_rgba(255,205,86,0.9)]" />
+      </span>
+    );
+  }
+  return (
+    <img
+      src="/concourse-icons/orb.webp"
+      alt=""
+      aria-hidden="true"
+      draggable={false}
+      onError={() => setFailed(true)}
+      className="h-full w-full rounded-full object-cover"
+    />
+  );
 }
 
 export default function Concourse() {
@@ -335,6 +383,8 @@ export default function Concourse() {
   // Orb or its own footer text (Merlin's screenshot, 2026-10-20).
   const boxBottom = viewport.h - (orbPx.y - yieldLift) + 12;
 
+  const dragTile = drag?.active && drag.kind === 'tile' && drag.id ? TILES.find((t) => t.id === drag.id) : null;
+
   const tileButton = (tile, { pinned = false } = {}) => {
     const isDragging = drag?.active && drag.id === tile.id;
     return (
@@ -352,7 +402,7 @@ export default function Concourse() {
         }`}
         style={pinned ? { width: SIZE, height: SIZE } : { height: SIZE }}
       >
-        <span aria-hidden="true" className="text-[22px] leading-none">{tile.icon}</span>
+        <TileGlyph tile={tile} />
         <span className="text-[8.5px] font-black tracking-[0.14em] uppercase text-zinc-200">{tile.label}</span>
         {tile.soon && (
           <span className="absolute -top-1.5 -right-1.5 rounded-full bg-amber-400 px-1.5 py-px text-[7.5px] font-black tracking-wider text-zinc-950">SOON</span>
@@ -423,14 +473,14 @@ export default function Concourse() {
         })}
 
       {/* Drag ghost: the tile under your finger while pinning */}
-      {drag?.active && drag.kind === 'tile' && drag.id && (
+      {drag?.active && drag.kind === 'tile' && drag.id && dragTile && (
         <div
           aria-hidden="true"
           className="pointer-events-none fixed z-[59] flex flex-col items-center justify-center gap-0.5 rounded-2xl border border-cyan-300 bg-cyan-400/30 backdrop-blur-md shadow-[0_0_28px_rgba(0,242,255,0.55)]"
           style={{ left: drag.x - SIZE / 2, top: drag.y - SIZE / 2, width: SIZE, height: SIZE }}
         >
-          <span className="text-[22px] leading-none">{TILES.find((t) => t.id === drag.id)?.icon}</span>
-          <span className="text-[8.5px] font-black tracking-[0.14em] uppercase text-white">{TILES.find((t) => t.id === drag.id)?.label}</span>
+          <TileGlyph tile={dragTile} />
+          <span className="text-[8.5px] font-black tracking-[0.14em] uppercase text-white">{dragTile?.label}</span>
         </div>
       )}
 
@@ -457,12 +507,7 @@ export default function Concourse() {
           height: SIZE,
         }}
       >
-        <span aria-hidden="true" className="grid grid-cols-2 gap-[5px]">
-          <span className="h-[9px] w-[9px] rounded-full bg-cyan-300 shadow-[0_0_8px_rgba(0,242,255,0.9)]" />
-          <span className="h-[9px] w-[9px] rounded-full bg-teal-300 shadow-[0_0_8px_rgba(45,255,210,0.9)]" />
-          <span className="h-[9px] w-[9px] rounded-full bg-violet-300 shadow-[0_0_8px_rgba(196,141,255,0.9)]" />
-          <span className="h-[9px] w-[9px] rounded-full bg-amber-300 shadow-[0_0_8px_rgba(255,205,86,0.9)]" />
-        </span>
+        <OrbFace />
       </button>
     </>
   );

@@ -259,6 +259,31 @@ export default function SeasonalDecor() {
   );
 }
 
+// Season glyph — Halloween wears the generated pumpkin artwork
+// (small + round, beside the season name); if the art fails to load,
+// and for every other season, the emoji badge glyph renders exactly
+// as before. The name text (t(b.nameKey)) is untouched.
+function SeasonGlyph({ season, badge }) {
+  const [failed, setFailed] = useState(false);
+  if (season !== 'halloween' || failed) return <>{badge}</>;
+  return (
+    <img
+      src="/concourse-icons/season-halloween.webp"
+      alt=""
+      aria-hidden="true"
+      onError={() => setFailed(true)}
+      style={{
+        width: 18,
+        height: 18,
+        borderRadius: '50%',
+        objectFit: 'cover',
+        display: 'inline-block',
+        verticalAlign: '-4px',
+      }}
+    />
+  );
+}
+
 // Small badge so users know why the hub changed its look. Default
 // form floats over the hub; the `inline` form lives at the bottom of
 // the Concourse (Merlin, 2026-10-20 — the floating hub badge moved
@@ -296,7 +321,7 @@ export function SeasonBadge({ inline = false } = {}) {
             }
       }
     >
-      {b.badge} {t(b.nameKey)}
+      <SeasonGlyph season={season} badge={b.badge} /> {t(b.nameKey)}
     </div>
   );
 }

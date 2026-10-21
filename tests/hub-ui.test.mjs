@@ -302,16 +302,16 @@ describe('hub circle buttons (static wiring)', () => {
   });
 
   it('SPAWN TO BIKE lives in the Concourse as the Bike tile (2026-10-20)', () => {
-    assert.ok(concourse.includes("{ id: 'bike', label: 'Bike', icon: '🏍️', hubOnly: true }"), 'bike tile in the Concourse');
+    assert.ok(concourse.includes("{ id: 'bike', label: 'Bike', icon: '🏍️', art: '/concourse-icons/bike.webp', hubOnly: true }"), 'bike tile in the Concourse');
     assert.ok(page.includes("tile === 'bike'"), 'page listens for the bike tile');
     assert.ok(page.includes('toggleBike();'), 'same toggleBike handler fires');
     assert.ok(!page.includes('<BikeFloatButton'), 'standalone bike float retired');
   });
 
   it('INTRO and RENEWAL PLAN live in the Concourse as tiles (2026-10-20)', () => {
-    assert.ok(concourse.includes("{ id: 'intro', label: 'Intro', icon: '↺', hubOnly: true }"), 'intro tile');
-    assert.ok(concourse.includes("{ id: 'renewal', label: 'Renew', icon: '◈', hubOnly: true }"), 'renewal tile');
-    assert.ok(concourse.includes("{ id: 'guide', label: 'Guide', icon: '?', hubOnly: true }"), 'tutorial tile');
+    assert.ok(concourse.includes("{ id: 'intro', label: 'Intro', icon: '↺', art: '/concourse-icons/intro.webp', hubOnly: true }"), 'intro tile');
+    assert.ok(concourse.includes("{ id: 'renewal', label: 'Renew', icon: '◈', art: '/concourse-icons/renew.webp', hubOnly: true }"), 'renewal tile');
+    assert.ok(concourse.includes("{ id: 'guide', label: 'Guide', icon: '?', art: '/concourse-icons/guide.webp', hubOnly: true }"), 'tutorial tile');
     assert.ok(page.includes("tile === 'intro'") && page.includes('setShowIntro(true)'), 'replay handler via tile');
     assert.ok(page.includes("tile === 'guide'") && page.includes('setShowHubTutorial(true)'), 'tutorial handler via tile');
     assert.ok(concourse.includes("router.push('/renewal-plan')"), 'renewal handler via tile');
@@ -319,7 +319,7 @@ describe('hub circle buttons (static wiring)', () => {
   });
 
   it('HOLOGRAPHIC CALLS lives in the Concourse as the Calls tile (2026-10-20)', () => {
-    assert.ok(concourse.includes("{ id: 'calls', label: 'Calls', icon: '🔮' }"), 'calls tile in the Concourse');
+    assert.ok(concourse.includes("{ id: 'calls', label: 'Calls', icon: '🔮', art: '/concourse-icons/calls.webp' }"), 'calls tile in the Concourse');
     assert.ok(concourse.includes("tile.id === 'calls'") && concourse.includes("router.push('/order-67')"), 'calls tile routes to the Holographic Calls program');
     assert.ok(concourse.indexOf("id: 'phone'") < concourse.indexOf("id: 'calls'"), 'calls sits beside phone in the Connect row');
     assert.ok(concourse.indexOf("id: 'portals'") < concourse.indexOf("id: 'tour'"), 'portals leads the Journey row');
@@ -392,7 +392,7 @@ describe('tilt hook contract (static)', () => {
 
 describe('Shadow Realm spawn button (static wiring)', () => {
   it('NIGHT GRID lives in the Concourse as the Night tile (2026-10-20)', () => {
-    assert.ok(concourse.includes("{ id: 'night', label: 'Night', icon: '🌑', hubOnly: true }"), 'night tile in the Concourse');
+    assert.ok(concourse.includes("{ id: 'night', label: 'Night', icon: '🌑', art: '/concourse-icons/night.webp', hubOnly: true }"), 'night tile in the Concourse');
     assert.ok(page.includes("tile === 'night'"), 'page listens for the night tile');
     assert.ok(!page.includes('aria-label="NIGHT GRID — enter the Shadow Realm"'), 'standalone circle retired');
   });
