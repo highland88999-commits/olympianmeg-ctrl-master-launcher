@@ -108,7 +108,7 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
           <BikeControls mounted={bikeUi.mounted} controlsRef={controlsRef} />
         )}
         {atStreet && swimUi.active && (
-          <SwimControls controlsRef={controlsRef} submergeM={swimUi.submergeM} depthM={swimUi.depthM} />
+          <SwimControls controlsRef={controlsRef} submergeM={swimUi.submergeM} depthM={swimUi.depthM} liftPx={bikeUi.out ? 196 : 0} />
         )}
         <EarthViewToggle phase={phase} />
       </>
@@ -317,7 +317,7 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
       <BikeControls mounted={bikeUi.mounted} controlsRef={controlsRef} />
     )}
     {atStreet && swimUi.active && (
-      <SwimControls controlsRef={controlsRef} submergeM={swimUi.submergeM} depthM={swimUi.depthM} />
+      <SwimControls controlsRef={controlsRef} submergeM={swimUi.submergeM} depthM={swimUi.depthM} liftPx={bikeUi.out ? 196 : 0} />
     )}
     <EarthViewToggle phase={phase} />
     </>
@@ -462,7 +462,7 @@ function BikeControls({ mounted, controlsRef }) {
 // controls object the flight controller reads each frame. Rendered
 // by EarthConsole in both its branches, exactly like BikeControls,
 // so closing the menu never strands a diver without a way up.
-function SwimControls({ controlsRef, submergeM, depthM }) {
+function SwimControls({ controlsRef, submergeM, depthM, liftPx = 0 }) {
   const [held, setHeld] = useState({ dive: false, surface: false });
   const setFlag = (name, on) => {
     setHeld((h) => ({ ...h, [name]: on }));
@@ -483,7 +483,7 @@ function SwimControls({ controlsRef, submergeM, depthM }) {
   return (
     <div
       className="fixed z-[70] ui-element flex flex-col items-end gap-2.5"
-      style={{ right: 'calc(env(safe-area-inset-right, 0px) + 18px)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 92px)' }}
+      style={{ right: 'calc(env(safe-area-inset-right, 0px) + 18px)', bottom: `calc(env(safe-area-inset-bottom, 0px) + ${92 + (liftPx || 0)}px)` }}
     >
       <div className="px-3 py-1.5 rounded-full border border-sky-400/50 bg-sky-950/70 backdrop-blur-md text-[10px] font-bold tracking-[0.15em] uppercase text-sky-100">
         🏊 {submerged ? `${submergeM.toFixed(1)} m down` : 'Swimming'} · water {depthM.toFixed(1)} m
