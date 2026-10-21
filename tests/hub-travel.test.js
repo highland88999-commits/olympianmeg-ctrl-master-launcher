@@ -12,6 +12,7 @@ import {
   MAX_BAND_RADIUS,
   GOD_BANDS,
   GOD_HEX,
+  RING_SPIN,
   BIKE_PARK_POS,
   menuSatellitePosition,
   dist3,
@@ -92,15 +93,28 @@ t(
   )
 );
 t(
-  'towers crown the hub outside the satellite rings (no crowding)',
-  TOWER_ORBIT_RADIUS > MAX_BAND_RADIUS
+  'satellites ring spawn INSIDE the planet bands, colliders clear (final model)',
+  // DESIGN-CHANGE UPDATE (2026-10-20, Merlin's final layout): the old
+  // assertion (TOWER_ORBIT_RADIUS > MAX_BAND_RADIUS) encoded the
+  // expansion-pass order — towers outside the orb lanes. Merlin's
+  // final model inverts it: the towers (his SATELLITES) move IN to
+  // 110 and double; the orbs (his PLANETS) move OUT to lanes 195–231.
+  // Same no-crowding invariant, new direction: the satellites'
+  // doubled flight colliders (110 + 22 reach) clear the innermost
+  // planet's flight surface (195 − (11.8 hull + 1.8 collider pad)).
+  TOWER_ORBIT_RADIUS + 22 < GOD_BANDS[0].radius - (11.8 + 1.8)
 );
 t(
-  'no tower sits on the bike axis — the parked bike stays clear of tower colliders',
+  'parked bike stays clear of every tower collider (nearest is the on-axis tower)',
+  // DESIGN-CHANGE UPDATE (2026-10-20, Merlin's final layout): a tower
+  // DOES sit on the −Z bike axis (the half-step phase puts tower 5
+  // dead ahead) — already true at ring 190. What the layout
+  // guarantees is clearance: GodTower's collider doubled with the
+  // towers (radius 22), and the bike parks 35 from that tower's
+  // center — 13 clear of its collider surface.
   (() => {
     const bike = { x: BIKE_PARK_POS[0], y: BIKE_PARK_POS[1], z: BIKE_PARK_POS[2] };
-    // GodTower registers a solid sphere collider of radius 11.
-    return towerPositions.every((p) => dist3(P(p), bike) > 15);
+    return towerPositions.every((p) => dist3(P(p), bike) > 22);
   })()
 );
 t(
@@ -119,9 +133,18 @@ t(
     BIKE_PARK_POS[2] < ORBIT_CENTER.z
 );
 t(
-  'bike sits just outside the outermost ring',
-  ORBIT_CENTER.z - BIKE_PARK_POS[2] > MAX_BAND_RADIUS &&
-    ORBIT_CENTER.z - BIKE_PARK_POS[2] < MAX_BAND_RADIUS + 15
+  'bike parks just outside the SATELLITE ring (not out with the planets)',
+  // DESIGN-CHANGE UPDATE (2026-10-20, Merlin's final layout): the
+  // bike used to anchor just outside the outermost god band, back
+  // when the bands were the innermost ring. The planets now orbit at
+  // 195–231, OUTSIDE the satellites; the bike is a hub fixture and
+  // anchors to the satellite ring instead — just past the towers'
+  // doubled collider reach (110 + 22 = 132), within 15 of it.
+  (() => {
+    const park = ORBIT_CENTER.z - BIKE_PARK_POS[2];
+    const reach = TOWER_ORBIT_RADIUS + 22;
+    return park > reach && park < reach + 15;
+  })()
 );
 
 // --- Moon ----------------------------------------------------------------------
@@ -167,10 +190,27 @@ t(
   'asteroid field is well away from spawn (>250)',
   dist3(ASTEROID_CENTER, ORBIT_CENTER) > 250
 );
-t(
-  'asteroid field clears the satellite ring entirely',
-  dist3(ASTEROID_CENTER, ORBIT_CENTER) - ASTEROID_FIELD_RADIUS > MAX_BAND_RADIUS + 20
-);
+t('asteroid field clears the planet flight volume entirely', (() => {
+  // DESIGN-CHANGE UPDATE (2026-10-20, Merlin's final layout): the old
+  // assertion compared raw center distances (belt edge >
+  // MAX_BAND_RADIUS + 20) — a proxy valid while the orb ring was
+  // small and central. The planets now orbit at 195–231, out past the
+  // satellites, so the proxy's premise is gone. Same invariant,
+  // checked for real (the Moon treatment): sample every planet over a
+  // full assembly rotation and require the belt's spherical boundary
+  // to clear each planet's flight collider (11.8 hull + 1.8 pad, as
+  // registered in GodOrbitRings). Sampled minimum at build time:
+  // belt clearance ≈ 15.6 > 13.6.
+  const ORB_COLLIDER = 11.8 + 1.8;
+  const period = (Math.PI * 2) / RING_SPIN;
+  let min = Infinity;
+  for (let tt = 0; tt <= period; tt += 0.5) {
+    for (let i = 0; i < GOD_BANDS.length; i++) {
+      min = Math.min(min, dist3(menuSatellitePosition(i, tt), ASTEROID_CENTER));
+    }
+  }
+  return min - ASTEROID_FIELD_RADIUS > ORB_COLLIDER;
+})());
 t('asteroid belt has real substance (60..160 rocks)', ASTEROID_COUNT >= 60 && ASTEROID_COUNT <= 160);
 
 // --- travel tuning: a satisfying ride, not a crawl ----------------------------------

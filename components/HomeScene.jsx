@@ -577,10 +577,12 @@ function TextureProvider({ onLaunchExternal }) {
 // (Merlin, 2026-10-20): eleven rainbow rings centered on MARS
 // (MARS_CENTER, lib/god-orbits.js) — they belong to the planet, out
 // where the planets live. The loading spot is dead center of the hub
-// and the satellites' orbit circle is the boundary: no part of any
-// ring is inside that circle or between the loading spot and the
-// satellites (nearest ring arc ≈ 201 from ORBIT_CENTER; satellites
-// reach only 178.7, towers 194.5). The first ring (52) sits just
+// and the satellites' circle (the towers at 110, colliders reaching
+// 132) is the boundary: no part of any ring is inside that circle or
+// between the loading spot and the satellites (nearest ring arc
+// ≈ 201 from ORBIT_CENTER; the planets share this outer zone at
+// lanes 195–231 and clear the ring tori by ≈ 17, sampled). The
+// first ring (52) sits just
 // outside Mars' sphere (r45), the family steps +4 out to 92. Static,
 // NOT part of the satellites' counter-rotating assembly. Near-flat
 // alternating tilts (SYSTEM_RING_TILTS, ≤ 0.009 rad). Radii/tilts

@@ -295,8 +295,11 @@ function GodTower({ god, color, position, onLaunchExternal, textures, panels = p
   });
 
   // Solid: generous sphere covering the body + the four ad panels.
+  // Radius doubled with the tower (11 at group scale 0.8 → 22 at the
+  // 1.6 scale Merlin ordered 2026-10-20), so flight clearance scales
+  // with the satellite itself.
   useEffect(() => {
-    registerCollider(`tower-${god}`, () => ({ x: position[0], y: position[1], z: position[2] }), 11);
+    registerCollider(`tower-${god}`, () => ({ x: position[0], y: position[1], z: position[2] }), 22);
     return () => unregisterCollider(`tower-${god}`);
   }, [god, position]);
 
@@ -305,7 +308,12 @@ function GodTower({ god, color, position, onLaunchExternal, textures, panels = p
 
   return (
     <group position={position}>
-      <group ref={satelliteRef} scale={[0.8, 0.8, 0.8]}>
+      {/* Merlin, 2026-10-20: satellites 2× — group scale 0.8 → 1.6
+          renders the tower at exactly twice its previous on-screen
+          size. Body, skirt, propeller, name plates and the four ad
+          panels (the AD SPACES, badges included) are all children of
+          this group, so everything grows together, as ordered. */}
+      <group ref={satelliteRef} scale={[1.6, 1.6, 1.6]}>
 
         <Billboard position={[0, 16, 0]}>
           <Text fontSize={1.6} color={color} letterSpacing={0.2} fontWeight="bold">
