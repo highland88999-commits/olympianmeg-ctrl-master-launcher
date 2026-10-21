@@ -3,7 +3,7 @@
 export const WORLDS = [
   { key: "air-hockey", title: "Air Hockey", route: "/air-hockey", god: "ARES" },
   { key: "colosseum", title: "Arena Battler", route: "/colosseum", god: "ARES" },
-  { key: "enyo", title: "Arena Shooter", route: "/enyo", god: "ARES" },
+  { key: "enyo", title: "Enyo", route: "/enyo", god: "ARES" },
   { key: "battleship", title: "Battleship", route: "/battleship", god: "ARES" },
   { key: "chess", title: "Chess", route: "/chess", god: "ARES" },
   { key: "astra", title: "Cockpit Shooter", route: "/astra", god: "ARES" },
@@ -113,7 +113,7 @@ export const WORLDS = [
   { key: "life", title: "Spark Flight", route: "/life", god: "HESTIA" },
   { key: "styx", title: "The Passage", route: "/styx", god: "HESTIA" },
   { key: "dk-hero", title: "Arcade Climber", route: "/dk-hero", god: "DIONYSUS" },
-  { key: "raptor-rush", title: "Canyon Sprint", route: "/raptor-rush", god: "DIONYSUS" },
+  { key: "raptor-rush", title: "Raptor Rush", route: "/raptor-rush", god: "DIONYSUS" },
   { key: "live-recordings", title: "Community Videos", route: "/live-recordings", god: "DIONYSUS" },
   { key: "rogers-arena", title: "Concert Arena", route: "/rogers-arena", god: "DIONYSUS" },
   { key: "persephone", title: "Concert Hall", route: "/persephone", god: "DIONYSUS" },

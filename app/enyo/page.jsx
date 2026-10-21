@@ -28,7 +28,7 @@ import {
 import { fx, unlockFx, setFxEnabled, isFxEnabled } from '@/lib/fx';
 import { AresBackdrop, AresButton, AresIcon, AresPanel, ARES } from '@/components/ares/ares-chrome';
 
-const TITLE = 'ENYO — Arena Shooter';
+const TITLE = 'ENYO';
 const EYE = 1.65;
 const PLAYER_R = 0.45;
 const WALK = 6;
