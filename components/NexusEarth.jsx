@@ -52,6 +52,27 @@ import { roamState } from '@/lib/earth/roam';
 // the ground just walked, without unbounded growth on an iPhone.
 const MAX_LENS_SHEETS = 4;
 
+// The globe's centre in world space (this component's outer group
+// position) — the atmosphere shell's camera-distance gate below
+// measures against it.
+const EARTH_CENTER_WORLD = new THREE.Vector3(0, -60, -120);
+// The atmosphere shell (radius 55 × 1.025 ≈ 56.4) only renders
+// while the camera is OUTSIDE this distance from the centre:
+// additive BackSide shading saturates to a naked white frame for
+// as long as the lens travels inside the shell band (round 4,
+// defect 5 — the ~1.5 s whiteout on every ascend, and the flash
+// on return to orbit: the shell used to remount the moment the
+// phase left `roaming`, with the camera still at street level
+// inside it).
+const SHELL_CAMERA_MIN_DIST = 57.5;
+// Below this Ant-Man scale the Quantum Realm is sealed (round 4,
+// defect 1): the macro globe itself hands over to the realm's own
+// floor (MicroGroundDisc) and sky (QuantumSkyDome). The threshold
+// sits deep in the dive — by 0.05x the dome is already fully
+// opaque and the ground fills the view, so the handover reads as
+// arriving inside the tile, not as the world blinking out.
+const DEEP_MICRO_SCALE = 0.05;
+
 export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRef, focus, phase, spinEnabled, controls }) {
   const spinRef = useRef();
   const sheetsRef = useRef([]); // [{ key, mesh }] — mirror of lensSheets for frame-loop access
@@ -68,14 +89,21 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
   // Micro mode: when shrunk to Ant-Man size (scale < 0.5), hide all 3D
   // objects (trees, rocks, buildings). They reappear on REANIMATE.
   const [microMode, setMicroMode] = useState(false);
+  // Deep micro (scale < 0.05): the Quantum Realm seal — even the
+  // globe itself stands down (see DEEP_MICRO_SCALE above).
+  const [deepMicro, setDeepMicro] = useState(false);
+  const shellRef = useRef();
 
   const roaming = phase === 'diving_to_street' || phase === 'earth_roam';
   const effectiveLayer = roaming ? 'terrain' : layer;
 
   // Track Ant-Man scale: hide objects at micro size
   useFrame(() => {
-    const isMicro = (parachuteState?.scale || 1) < 0.5;
+    const s = parachuteState?.scale || 1;
+    const isMicro = s < 0.5;
     if (isMicro !== microMode) setMicroMode(isMicro);
+    const isDeep = s < DEEP_MICRO_SCALE;
+    if (isDeep !== deepMicro) setDeepMicro(isDeep);
   });
 
   // Shared heightmap: one decode for globe, assets, lens, walker.
@@ -89,6 +117,12 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
   // walked out of its middle (throttled: the composite is a real
   // canvas build, and the feather hides the handoff).
   useFrame((state, delta) => {
+    // Atmosphere shell gate (SHELL_CAMERA_MIN_DIST above): the
+    // shell exists only for a camera outside its band — never
+    // while the lens is transiting it on the way up or down.
+    if (shellRef.current) {
+      shellRef.current.visible = state.camera.position.distanceTo(EARTH_CENTER_WORLD) > SHELL_CAMERA_MIN_DIST;
+    }
     if (spinEnabled && spinRef.current && quatRef?.current) {
       const qy = new THREE.Quaternion().setFromAxisAngle(
         new THREE.Vector3(0, 1, 0), delta * 0.05
@@ -271,7 +305,7 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
             onInactive={() => setLayer('terrain')}
           />
         </group>
-        {effectiveLayer === 'terrain' && <ProceduralEarthGlobe onSelect={onSelect} onParachute={onParachute} onTileSelect={onTileSelect} quatRef={quatRef} />}
+        {effectiveLayer === 'terrain' && !deepMicro && <ProceduralEarthGlobe onSelect={onSelect} onParachute={onParachute} onTileSelect={onTileSelect} quatRef={quatRef} />}
         {/* 3D objects hidden in micro (Ant-Man) mode — reappear on REANIMATE */}
         {effectiveLayer === 'terrain' && !microMode && <EarthAssets />}
         {effectiveLayer === 'terrain' && <EarthWalker />}
@@ -346,8 +380,12 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
       </group>
 
       {/* Atmosphere shell — hidden at street level (camera is inside it,
-          additive blending saturates to white). Only for orbital view. */}
+          additive blending saturates to white). Only for orbital view,
+          and (round 4) only while the camera is outside its band: the
+          group starts hidden and the frame loop shows it once the
+          lens is clear, so ascents never flash white through it. */}
       {!roaming && (
+      <group ref={shellRef} visible={false}>
       <mesh scale={[1.025, 1.025, 1.025]}>
         <sphereGeometry args={[55, 64, 64]} />
         <shaderMaterial
@@ -373,6 +411,7 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
           `}
         />
       </mesh>
+      </group>
       )}
     </group>
   );

@@ -48,10 +48,17 @@ const FRAGMENT_SHADER = /* glsl */ `
     land = mix(land, vec3(0.45, 0.33, 0.20), smoothstep(0.09, 0.24, h));
     land = mix(land, vec3(0.48, 0.45, 0.42), smoothstep(0.24, 0.45, h));
     land = mix(land, vec3(0.93, 0.95, 0.98), smoothstep(0.55, 0.72, h));
-    vec3 t = mix(ocean, land, smoothstep(0.043, 0.051, h));
-    // polar ice caps
+    float landAmt = smoothstep(0.043, 0.051, h);
+    vec3 t = mix(ocean, land, landAmt);
+    // Polar ice caps — a LAND color (round 4): the latitude term
+    // used to whiten EVERYTHING past ~72 degrees, open Arctic
+    // ocean included, so the polar sea rendered as one flat white
+    // slab plain and polar relief read as giant naked facets.
+    // Ice now sits on land and shelves only; open polar water
+    // stays clear bright blue (Merlin's ocean law). Mirrored in
+    // hypsometricColor (lib/earth/street-patch.js) — keep in sync.
     float lat = abs(vUv.y * 2.0 - 1.0);
-    float ice = smoothstep(0.80, 0.88, lat);
+    float ice = smoothstep(0.80, 0.88, lat) * landAmt;
     return mix(t, vec3(0.93, 0.95, 0.98), ice);
   }
 
@@ -68,6 +75,14 @@ const FRAGMENT_SHADER = /* glsl */ `
     vec3 col = mix(nightColor * 1.1, dayColor, dayMix);
     // Gentle terminator shading only — the texture is never washed out.
     col *= mix(0.72, 1.0, dayMix);
+    // Ambient floor (round 4): over ocean the night texture is
+    // ~black, so any facet turned from the sun went PURE black —
+    // the black slabs floating on polar water and the black
+    // polygons seen from the overlook. Unlit terrain now keeps a
+    // floor of its own day identity: shadow sides read deep
+    // blue-grey, never naked black. Night stays night (the floor
+    // is dim and it vanishes on the day side).
+    col += dayColor * 0.14 * (1.0 - dayMix);
     gl_FragColor = vec4(col, 1.0);
   }
 `;

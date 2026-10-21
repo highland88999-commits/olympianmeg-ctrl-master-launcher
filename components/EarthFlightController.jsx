@@ -25,7 +25,10 @@ import {
   stepClimb,
   getClimbAltM,
 } from '@/lib/earth/parachute';
-import { DISPLAY_UNITS_PER_METRE } from '@/lib/earth/placements';
+import {
+  DISPLAY_UNITS_PER_METRE,
+  globeGridSurfaceRadius,
+} from '@/lib/earth/placements';
 import { effectiveEarthViewMode } from '@/lib/earth/view-mode';
 
 export const EARTH_CENTER = new THREE.Vector3(0, -60, -120);
@@ -341,7 +344,21 @@ export default function EarthFlightController({
         const camLL = vec3ToLatLon(camLocal);
         if (camLL.radius > 0) { camLat = camLL.lat; camLon = camLL.lon; }
       }
-      const minDist = surfaceRadiusOrBase(camLat, camLon)
+      // The backstop reads the DRAWN surface like cameraRig does
+      // (round 4, defect 5): the higher of the true sampled
+      // surface and the coarse globe-grid surface the facets and
+      // the street patch actually render — on relief the grid
+      // stands above the smooth surface, and a true-only clamp
+      // still let the lens enter a facet and white out.
+      let floorR = surfaceRadiusOrBase(camLat, camLon);
+      const hdClamp = getHeightData();
+      if (hdClamp) {
+        floorR = Math.max(
+          floorR,
+          globeGridSurfaceRadius(hdClamp.data, hdClamp.w, hdClamp.h, camLat, camLon),
+        );
+      }
+      const minDist = floorR
         + 0.3 * DISPLAY_UNITS_PER_METRE * (parachuteState?.scale || 1);
       if (distFromCenter < minDist) {
         const push = (minDist - distFromCenter) / distFromCenter;

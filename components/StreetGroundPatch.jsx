@@ -158,16 +158,28 @@ export function MicroGroundDisc() {
     canvas.width = canvas.height = 256;
     const ctx = canvas.getContext('2d');
     if (!ctx) return undefined;
-    ctx.fillStyle = '#ececec';
+    ctx.fillStyle = '#dcdcdc';
     ctx.fillRect(0, 0, 256, 256);
     let seed = 987654321;
     const rnd = () => {
       seed = (seed * 1103515245 + 12345) & 0x7fffffff;
       return seed / 0x7fffffff;
     };
-    // Fine grain: thousands of 1-2px motes in a bright-grey range.
+    // Fine grain: thousands of 1-2px motes across a WIDE value
+    // range (round 4, defect 3): the old 150-250-on-#ececec grain
+    // multiplied by the near-white polar tint averaged to a flat
+    // white void on screen — the contrast was there in the file
+    // and invisible in the world. The range now runs dark enough
+    // (100-240, plus a dark speckle pass at 55-110) that the
+    // ground keeps visible texture after the terrain tint and
+    // the scene lighting have their way with it.
     for (let i = 0; i < 3200; i++) {
-      const g = 150 + Math.floor(rnd() * 100);
+      const g = 100 + Math.floor(rnd() * 140);
+      ctx.fillStyle = `rgb(${g},${g},${g})`;
+      ctx.fillRect(rnd() * 256, rnd() * 256, 1 + rnd() * 2, 1 + rnd() * 2);
+    }
+    for (let i = 0; i < 500; i++) {
+      const g = 55 + Math.floor(rnd() * 55);
       ctx.fillStyle = `rgb(${g},${g},${g})`;
       ctx.fillRect(rnd() * 256, rnd() * 256, 1 + rnd() * 2, 1 + rnd() * 2);
     }
@@ -186,7 +198,7 @@ export function MicroGroundDisc() {
     const tex = new THREE.CanvasTexture(canvas);
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
-    tex.anisotropy = 4;
+    tex.anisotropy = 8;
     texRef.current = tex;
     if (matRef.current) {
       matRef.current.map = tex;
@@ -196,6 +208,47 @@ export function MicroGroundDisc() {
       tex.dispose();
       texRef.current = null;
     };
+  }, []);
+
+  // Disc-scale mottling (round 4, defect 3): the grain texture is
+  // sized in WALKER metres (one tile = 3 m of the traveler's own
+  // scale), so across most of the visible floor — an expanse of
+  // hundreds of thousands of walker-metres — it mip-averages to
+  // its mean value and the realm's floor reads as a flat void no
+  // matter the grain's contrast. A second, LOW-frequency layer
+  // lives in the vertex colors instead: two octaves of hashed
+  // cells (~1/8 and ~1/25 of the disc across) tinting 0.72–1.0,
+  // structure at the scale the eye can actually resolve from
+  // inside the realm. The disc geometry is a ring grid (see the
+  // JSX) precisely so it HAS interior vertices to carry this.
+  useEffect(() => {
+    const mesh = meshRef.current;
+    if (!mesh || !mesh.geometry) return;
+    const geo = mesh.geometry;
+    if (geo.getAttribute('color')) return;
+    const pos = geo.getAttribute('position');
+    const colors = new Float32Array(pos.count * 3);
+    const cellHash = (cx, cy) => {
+      let x = (Math.imul(cx, 374761393) + Math.imul(cy, 668265263)) >>> 0;
+      x = (x ^ (x >>> 13)) >>> 0;
+      x = Math.imul(x, 1274126177) >>> 0;
+      return ((x ^ (x >>> 16)) >>> 0) / 4294967296;
+    };
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i) + MICRO_DISC_RADIUS_U;
+      const y = pos.getY(i) + MICRO_DISC_RADIUS_U;
+      const coarse = cellHash(Math.floor(x / 0.0125), Math.floor(y / 0.0125));
+      const fine = cellHash(Math.floor(x / 0.004), Math.floor(y / 0.004));
+      const v = 0.72 + 0.19 * coarse + 0.09 * fine;
+      colors[i * 3] = v;
+      colors[i * 3 + 1] = v;
+      colors[i * 3 + 2] = v;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    if (matRef.current) {
+      matRef.current.vertexColors = true;
+      matRef.current.needsUpdate = true;
+    }
   }, []);
 
   useFrame(() => {
@@ -270,7 +323,11 @@ export function MicroGroundDisc() {
 
   return (
     <mesh ref={meshRef} visible={false} rotation={[0, 0, 0]} renderOrder={2}>
-      <circleGeometry args={[MICRO_DISC_RADIUS_U, 48]} />
+      {/* Ring grid, not a fan: interior vertices carry the
+          disc-scale vertex mottling (see the effect above). The
+          UVs stay planar over the bounding square, so the grain
+          texture math is unchanged. */}
+      <ringGeometry args={[0, MICRO_DISC_RADIUS_U, 48, 6]} />
       <meshStandardMaterial
         ref={matRef}
         color="#3a5f2a"

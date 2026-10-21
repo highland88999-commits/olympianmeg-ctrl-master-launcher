@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { searchPlaces, formatCoords } from '@/lib/geo';
 import { summonBike, dismissBike, toggleMount } from '@/components/EarthBike';
@@ -107,7 +107,11 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
         {atStreet && bikeUi.out && (
           <BikeControls mounted={bikeUi.mounted} controlsRef={controlsRef} />
         )}
-        {atStreet && swimUi.active && (
+        {/* Water controls stand down in the Quantum Realm (round
+            4): the parachute dive suspends the swim state itself,
+            and this gate keeps the buttons out regardless — no
+            diving at micrometre scale. */}
+        {atStreet && swimUi.active && !sizeUi.micro && (
           <SwimControls controlsRef={controlsRef} submergeM={swimUi.submergeM} depthM={swimUi.depthM} liftPx={bikeUi.out ? 196 : 0} />
         )}
         <EarthViewToggle phase={phase} />
@@ -119,9 +123,20 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
     <>
     {/* Earth console — opens centered; the minimize control collapses it to a
         floating globe icon on the right edge. Kept clear of the persistent
-        radio bar (z-80) so its destination list is never buried. */}
-    <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[80] w-[min(92vw,20rem)] ui-element pointer-events-auto">
-      <div className="bg-zinc-950/90 border border-cyan-500/30 rounded-xl p-4 shadow-[0_0_30px_rgba(0,242,255,0.12)] backdrop-blur-md flex flex-col gap-3 max-h-[70dvh] overflow-y-auto custom-scrollbar">
+        radio bar (z-80) so its destination list is never buried.
+        GHOST FIX (round 4, defect 6): the card used to be centered
+        by a -translate-x/y-1/2 transform on its wrapper. On open
+        and on phase/size state changes the card's content (and
+        therefore its height) changes in the same frames — the
+        transform recentered a backdrop-blur card mid-change, and
+        iOS Safari painted both the old and new positions for
+        several frames: an offset, semi-transparent double card.
+        The card now centers by flex layout (no transform anywhere
+        in its chain) and carries its own composited layer
+        (translateZ(0) on the card itself), so a content change
+        repaints ONE box in ONE place. */}
+    <div className="absolute inset-0 z-[80] flex items-center justify-center pointer-events-none ui-element">
+      <div className="bg-zinc-950/90 border border-cyan-500/30 rounded-xl p-4 shadow-[0_0_30px_rgba(0,242,255,0.12)] backdrop-blur-md flex flex-col gap-3 max-h-[70dvh] overflow-y-auto custom-scrollbar w-[min(92vw,20rem)] pointer-events-auto [transform:translateZ(0)]">
         <div className="border-b border-zinc-800 pb-2">
           <div className="flex items-center justify-between gap-2">
             <div className="text-xs font-black tracking-[0.25em] uppercase text-cyan-300">
@@ -316,7 +331,7 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
     {atStreet && bikeUi.out && (
       <BikeControls mounted={bikeUi.mounted} controlsRef={controlsRef} />
     )}
-    {atStreet && swimUi.active && (
+    {atStreet && swimUi.active && !sizeUi.micro && (
       <SwimControls controlsRef={controlsRef} submergeM={swimUi.submergeM} depthM={swimUi.depthM} liftPx={bikeUi.out ? 196 : 0} />
     )}
     <EarthViewToggle phase={phase} />
@@ -336,7 +351,11 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
 //     (EarthBike reads them alongside the keyboard)
 //   - a RIDE / DISMOUNT button so touch users can get on and off
 // Premium glass styling, big targets — a 7-year-old can ride it.
-function BikeControls({ mounted, controlsRef }) {
+// Memoized (round 4, defect 6): the console re-renders on every
+// 250 ms state poll, but the control clusters' inputs are stable
+// refs and rounded numbers — memo keeps their DOM (and the
+// browser's paint of everything near them) out of card re-renders.
+const BikeControls = memo(function BikeControls({ mounted, controlsRef }) {
   const padRef = useRef(null);
   const [knob, setKnob] = useState({ x: 0, y: 0 });
   const [held, setHeld] = useState({ boost: false, up: false, down: false });
@@ -449,7 +468,7 @@ function BikeControls({ mounted, controlsRef }) {
       </div>
     </>
   );
-}
+});
 
 // SwimControls — the water controls (Merlin, 2026-10-20: "when in
 // water, enable swimming and diving and resurfacing"). While the
@@ -462,7 +481,7 @@ function BikeControls({ mounted, controlsRef }) {
 // controls object the flight controller reads each frame. Rendered
 // by EarthConsole in both its branches, exactly like BikeControls,
 // so closing the menu never strands a diver without a way up.
-function SwimControls({ controlsRef, submergeM, depthM, liftPx = 0 }) {
+const SwimControls = memo(function SwimControls({ controlsRef, submergeM, depthM, liftPx = 0 }) {
   const [held, setHeld] = useState({ dive: false, surface: false });
   const setFlag = (name, on) => {
     setHeld((h) => ({ ...h, [name]: on }));
@@ -506,4 +525,4 @@ function SwimControls({ controlsRef, submergeM, depthM, liftPx = 0 }) {
       </button>
     </div>
   );
-}
+});
