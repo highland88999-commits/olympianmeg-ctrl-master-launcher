@@ -25,13 +25,16 @@ import {
   drawCoverFit,
 } from '@/lib/billboard-face';
 import { STAKE_SLOT } from '@/lib/partners';
-import { panelsForTower, billboardNumberFor } from '@/lib/tower-panels';
+import { panelsForTower, billboardNumberFor, PANEL_SCALE } from '@/lib/tower-panels';
 
-// Tower panel faces are static canvas textures (380×450 ≈ 100px per world
-// unit on the 3.8×4.5 face) — forty autoplaying videos would melt phone
-// GPUs. When a slot later ships a real image creative, it paints cover-fit.
-const FACE_PX_W = 380;
-const FACE_PX_H = 450;
+// Tower panel faces are static canvas textures — forty autoplaying
+// videos would melt phone GPUs. When a slot later ships a real image
+// creative, it paints cover-fit. The canvas is 570×675: the same
+// 38:45 aspect as the 3.8×4.5 face, at the same ≈100px per world unit
+// the face had before the panels grew 1.5× (PANEL_SCALE), so the
+// bigger screens stay just as crisp from the spawn.
+const FACE_PX_W = 570;
+const FACE_PX_H = 675;
 
 // Same advertise-inquiry address as the street monuments.
 const INQUIRIES_EMAIL = 'olympiannexus@gmail.com';
@@ -211,7 +214,12 @@ function TowerAdPanel({ slot, stakeTex, color, onLaunchExternal, badgeNumber }) 
   };
 
   return (
-    <group>
+    // Merlin, 2026-10-20: the ad-space screens grow 1.5× (PANEL_SCALE,
+    // lib/tower-panels.js). The whole panel scales about its own
+    // centre — mount point and facing on the tower are untouched, the
+    // face keeps its aspect (no stretched creative), and the number
+    // badge rides along as a child in the same relative spot.
+    <group scale={[PANEL_SCALE, PANEL_SCALE, PANEL_SCALE]}>
       <mesh position={[0, 0, 0]} receiveShadow>
         <boxGeometry args={[4.2, 7.2, 0.2]} />
         <meshStandardMaterial color="#222222" metalness={0.8} roughness={0.4} emissive="#121214" emissiveIntensity={0.5} />
