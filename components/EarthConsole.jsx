@@ -29,11 +29,31 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
   // set only by the button would desync (and did — Merlin, 2026-10-20:
   // bike controls never appeared). Polling keeps every surface honest.
   const [bikeUi, setBikeUi] = useState({ out: false, mounted: false });
+  // Size + swim UI state, polled from the same singletons for the
+  // same reason as the bike state: the parachute dive and the swim
+  // state machine mutate them outside React, so a local useState
+  // set only by buttons would desync.
+  const [sizeUi, setSizeUi] = useState({ micro: false });
+  const [swimUi, setSwimUi] = useState({ active: false, submergeM: 0, depthM: 0 });
   useEffect(() => {
     const id = setInterval(() => {
       setBikeUi((prev) => {
         const next = { out: !!bikeState.summoned, mounted: !!bikeState.mounted };
         return prev.out === next.out && prev.mounted === next.mounted ? prev : next;
+      });
+      setSizeUi((prev) => {
+        const next = { micro: (parachuteState?.scale || 1) < 0.5 };
+        return prev.micro === next.micro ? prev : next;
+      });
+      setSwimUi((prev) => {
+        const sw = roamState.swim || {};
+        const next = {
+          active: !!sw.active,
+          submergeM: Math.round((sw.submergeM || 0) * 10) / 10,
+          depthM: Math.round((sw.depthM || 0) * 10) / 10,
+        };
+        return prev.active === next.active && prev.submergeM === next.submergeM
+          && prev.depthM === next.depthM ? prev : next;
       });
     }, 250);
     return () => clearInterval(id);
@@ -86,6 +106,9 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
         </button>
         {atStreet && bikeUi.out && (
           <BikeControls mounted={bikeUi.mounted} controlsRef={controlsRef} />
+        )}
+        {atStreet && swimUi.active && (
+          <SwimControls controlsRef={controlsRef} submergeM={swimUi.submergeM} depthM={swimUi.depthM} />
         )}
         <EarthViewToggle phase={phase} />
       </>
@@ -216,7 +239,22 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
             >
               {bikeUi.out ? '✕ Dismiss bike' : '🏍 Summon bike'} <span className="text-zinc-500 normal-case tracking-normal">(B · E to ride)</span>
             </button>
-            {/* Size: Normal View vs Quantum Realm */}
+            {/* Size state (polled from the parachute singleton like
+                the bike state above): which size world am I in? */}
+            <div className={`text-[10px] mt-1 ${sizeUi.micro ? 'text-violet-300' : 'text-zinc-500'}`}>
+              {sizeUi.micro
+                ? '🔬 Quantum Realm — Ant-Man scale · you are micrometres tall · third person locked'
+                : 'Size — normal view'}
+            </div>
+            {/* Size: Normal View vs Quantum Realm. The Quantum door
+                stands at street level ALWAYS (Merlin, 2026-10-20:
+                "the quantum realm isn't showing up" — the button
+                used to exist only when a tile had been selected in
+                the aerial view, so at street level there was no
+                door at all). With a tile selected it drops there;
+                without one it shrinks HERE, into the tile under
+                the walker's feet — same parachuteTo path either
+                way (beginRoam + beginParachuteDive in page.jsx). */}
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={() => beginReanimate()}
@@ -224,9 +262,9 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
               >
                 ✦ Normal View
               </button>
-              {selectedTile && onDropToTile && (
+              {onDropToTile && (
                 <button
-                  onClick={() => onDropToTile(selectedTile)}
+                  onClick={() => onDropToTile(selectedTile || { lat: roamState.lat, lon: roamState.lon })}
                   className="py-2 text-[10px] font-bold tracking-[0.15em] uppercase text-cyan-200 border border-cyan-600/60 bg-cyan-950/50 rounded hover:border-cyan-400 hover:text-white transition-all animate-pulse"
                 >
                   🔬 Quantum Realm
@@ -237,6 +275,7 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
             <div className="mt-1">
               <div className="text-[9px] font-bold tracking-[0.2em] uppercase text-zinc-500 mb-1">Character</div>
               <CharacterPicker
+                embedded
                 surface="earth"
                 accent="#00f2ff"
                 onPick={(id) => getEmbodimentForSurface('earth')?.setCharacter(id)}
@@ -276,6 +315,9 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
     </div>
     {atStreet && bikeUi.out && (
       <BikeControls mounted={bikeUi.mounted} controlsRef={controlsRef} />
+    )}
+    {atStreet && swimUi.active && (
+      <SwimControls controlsRef={controlsRef} submergeM={swimUi.submergeM} depthM={swimUi.depthM} />
     )}
     <EarthViewToggle phase={phase} />
     </>
@@ -406,5 +448,62 @@ function BikeControls({ mounted, controlsRef }) {
         )}
       </div>
     </>
+  );
+}
+
+// SwimControls — the water controls (Merlin, 2026-10-20: "when in
+// water, enable swimming and diving and resurfacing"). While the
+// roam swim state is active (lib/earth/swim.js), the traveler swims
+// with the usual move stick; these two HOLD buttons are the
+// vertical axis: DIVE ▼ sinks while held (the seabed is the floor —
+// the state machine clamps it), SURFACE ▲ rises while held, and at
+// the surface the swimmer floats again. Same hold-to-press pattern
+// as BikeControls, writing swimDive / swimSurface into the shared
+// controls object the flight controller reads each frame. Rendered
+// by EarthConsole in both its branches, exactly like BikeControls,
+// so closing the menu never strands a diver without a way up.
+function SwimControls({ controlsRef, submergeM, depthM }) {
+  const [held, setHeld] = useState({ dive: false, surface: false });
+  const setFlag = (name, on) => {
+    setHeld((h) => ({ ...h, [name]: on }));
+    if (controlsRef?.current) {
+      if (name === 'dive') controlsRef.current.swimDive = on;
+      if (name === 'surface') controlsRef.current.swimSurface = on;
+    }
+  };
+  const holdProps = (name) => ({
+    onPointerDown: (e) => { e.preventDefault(); setFlag(name, true); },
+    onPointerUp: () => setFlag(name, false),
+    onPointerLeave: () => setFlag(name, false),
+    onPointerCancel: () => setFlag(name, false),
+    onContextMenu: (e) => e.preventDefault(),
+  });
+  const btnBase = 'ui-element pointer-events-auto select-none touch-none flex items-center justify-center rounded-full border backdrop-blur-md font-black transition-all active:scale-95';
+  const submerged = (submergeM || 0) > 0.05;
+  return (
+    <div
+      className="fixed z-[70] ui-element flex flex-col items-end gap-2.5"
+      style={{ right: 'calc(env(safe-area-inset-right, 0px) + 18px)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 92px)' }}
+    >
+      <div className="px-3 py-1.5 rounded-full border border-sky-400/50 bg-sky-950/70 backdrop-blur-md text-[10px] font-bold tracking-[0.15em] uppercase text-sky-100">
+        🏊 {submerged ? `${submergeM.toFixed(1)} m down` : 'Swimming'} · water {depthM.toFixed(1)} m
+      </div>
+      <button
+        type="button"
+        aria-label="Surface — hold to rise"
+        {...holdProps('surface')}
+        className={`${btnBase} w-14 h-14 text-xl text-sky-100 border-sky-400/60 ${held.surface ? 'bg-sky-500/60' : 'bg-sky-950/60'} shadow-[0_0_20px_rgba(56,189,248,0.3)]`}
+      >
+        ▲
+      </button>
+      <button
+        type="button"
+        aria-label="Dive — hold to descend"
+        {...holdProps('dive')}
+        className={`${btnBase} w-[4.5rem] h-[4.5rem] text-[10px] tracking-[0.15em] text-sky-100 border-sky-400/70 ${held.dive ? 'bg-sky-500/60' : 'bg-sky-950/60'} shadow-[0_0_24px_rgba(56,189,248,0.35)]`}
+      >
+        ▼ DIVE
+      </button>
+    </div>
   );
 }

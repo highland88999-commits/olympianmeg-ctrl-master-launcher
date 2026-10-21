@@ -11,6 +11,7 @@ import MonumentElevator from '@/components/MonumentElevator';
 import EarthBike from '@/components/EarthBike';
 import StreetGroundPatch, { StreetFillLight, MicroGroundDisc } from '@/components/StreetGroundPatch';
 import QuantumSkyDome from '@/components/QuantumSkyDome';
+import UnderwaterVeil from '@/components/UnderwaterVeil';
 import { LENS_PRESETS, LENS_LIFT, lensTilePlan, buildLensGeometryData } from '@/lib/earth/lens';
 import { tileCellKey, recordRenderedTileKey } from '@/lib/earth/lens-cache';
 import { HUB_UNITS_PER_DEGREE, DISPLAY_UNITS_PER_METRE } from '@/lib/earth/placements';
@@ -299,6 +300,12 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
             from normal size it does not exist at all. */}
         {effectiveLayer === 'terrain' && roaming && (
           <QuantumSkyDome />
+        )}
+        {/* Underwater ambience for swimming: a clear bright-blue
+            wash that exists only while the camera is under the
+            waterline (self-gating inside the component). */}
+        {effectiveLayer === 'terrain' && roaming && (
+          <UnderwaterVeil />
         )}
         {effectiveLayer === 'terrain' && <StreetFillLight active={roaming} />}
         {/* Day sky dome at street level: blue during day, transparent at night.

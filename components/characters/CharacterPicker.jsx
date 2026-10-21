@@ -26,6 +26,13 @@
 //   accent    theme color for the surface (Babel's gold, default
 //             white)
 //   style     placement styles from the host page (position etc.)
+//   embedded  host-menu mode (Earth console): the picker lives IN
+//             FLOW inside a bounded card — full-width header with
+//             no "CHARACTER" word (the host labels its own
+//             section), and the roster panel expands in flow,
+//             pushing host content instead of floating over it.
+//             Nothing paints outside the host card. Default false
+//             keeps the floating GTA-pages behaviour unchanged.
 import { useEffect, useRef, useState } from 'react';
 import CharacterToken from './CharacterToken';
 import {
@@ -35,7 +42,7 @@ import {
 } from '@/lib/characters/embodiment';
 import { isCharacterId } from '@/lib/characters/roster';
 
-export default function CharacterPicker({ surface, onPick, accent = '#ffffff', style }) {
+export default function CharacterPicker({ surface, onPick, accent = '#ffffff', style, embedded = false }) {
   const [open, setOpen] = useState(false);
   const [overrideId, setOverrideId] = useState(null);
   const [profileId, setProfileId] = useState(null);
@@ -108,7 +115,9 @@ export default function CharacterPicker({ surface, onPick, accent = '#ffffff', s
   const border = accent === '#ffffff' ? 'rgba(255,255,255,0.2)' : accent;
 
   return (
-    <div style={{ position: 'absolute', zIndex: 30, ...style }}>
+    <div style={embedded
+      ? { position: 'relative', width: '100%', minWidth: 0, ...style }
+      : { position: 'absolute', zIndex: 30, ...style }}>
       <button
         type="button"
         aria-expanded={open}
@@ -118,27 +127,44 @@ export default function CharacterPicker({ surface, onPick, accent = '#ffffff', s
           display: 'flex', alignItems: 'center', gap: 8,
           padding: '7px 12px', background: 'rgba(0,0,0,0.7)',
           border: `1px solid ${border}`, borderRadius: 8,
-          color: '#fff', fontSize: 12, cursor: 'pointer', maxWidth: '78vw',
+          color: '#fff', fontSize: 12, cursor: 'pointer',
+          maxWidth: embedded ? '100%' : '78vw',
+          width: embedded ? '100%' : undefined,
+          boxSizing: 'border-box',
         }}
       >
         {effective && effective.preview ? (
           <img
             src={effective.preview} alt=""
-            style={{ width: 22, height: 22, borderRadius: 6, objectFit: 'cover', display: 'block' }}
+            style={{ width: 22, height: 22, borderRadius: 6, objectFit: 'cover', display: 'block', flexShrink: 0 }}
           />
         ) : null}
-        <span style={{ fontWeight: 700, letterSpacing: 1, color: accent }}>CHARACTER</span>
-        <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        {!embedded && (
+          <span style={{ fontWeight: 700, letterSpacing: 1, color: accent }}>CHARACTER</span>
+        )}
+        <span style={{
+          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+          flex: '1 1 auto', minWidth: 0, textAlign: 'left',
+        }}>
           {effective ? effective.name : 'Native figure'}
         </span>
-        <span aria-hidden="true" style={{ opacity: 0.7 }}>{open ? '▴' : '▾'}</span>
+        <span aria-hidden="true" style={{ opacity: 0.7, flexShrink: 0 }}>{open ? '▴' : '▾'}</span>
       </button>
 
       {open && (
         <div
           role="dialog"
           aria-label="Character roster"
-          style={{
+          style={embedded ? {
+            // In flow: the panel takes real layout space inside the
+            // host card (the host's own scroll region absorbs the
+            // growth) — bounded by the card's width, never painted
+            // over siblings or past the card's edge.
+            position: 'static', width: '100%', boxSizing: 'border-box',
+            marginTop: 8, maxHeight: '44vh', overflowY: 'auto',
+            background: 'rgba(8,9,13,0.94)', border: `1px solid ${border}`,
+            borderRadius: 12, padding: 10,
+          } : {
             position: 'absolute', top: 'calc(100% + 8px)', right: 0,
             width: 'min(330px, 86vw)', maxHeight: '52vh', overflowY: 'auto',
             background: 'rgba(8,9,13,0.94)', border: `1px solid ${border}`,

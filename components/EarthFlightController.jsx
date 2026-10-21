@@ -2,7 +2,7 @@
 import { useRef } from 'react';
 import { useThree, useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { latLonToVec3, easeInOutCubic } from '@/lib/geo';
+import { latLonToVec3, vec3ToLatLon, easeInOutCubic } from '@/lib/geo';
 import {
   roamState,
   beginRoam,
@@ -72,6 +72,14 @@ export default function EarthFlightController({
     // visible in the tile world for the whole micro stay.
     const rig = cameraRig(roamState, hd ? hd.data : null, hd ? hd.w : 0, hd ? hd.h : 0, {
       firstPerson: effectiveEarthViewMode() === 'first',
+      // The embodied character's measured size (published by
+      // EarthWalker): the boom frames the whole body, raptor
+      // included — not a human's 7.5 m default shot.
+      charSizeM: roamState.charSizeM || null,
+      // Swimming: the rig rides the swimmer's lift above the
+      // seabed point (EarthWalker applies the same altM to the
+      // body, so lens and swimmer agree). The bike never swims.
+      swimAltM: bikeState.mounted ? 0 : (roamState.swim?.altM || 0),
     });
     const q = quatRef.current;
     const toWorld = (p) => new THREE.Vector3(p.x, p.y, p.z).applyQuaternion(q).add(EARTH_CENTER);
@@ -231,8 +239,17 @@ export default function EarthFlightController({
       const forward = -((c.moveY || 0) + ((c.keyS ? 1 : 0) - (c.keyW ? 1 : 0)));
       const strafe = (c.moveX || 0) + ((c.keyD ? 1 : 0) - (c.keyA ? 1 : 0));
       if (!bikeState.mounted) {
-        stepRoam(roamState, { forward, strafe }, delta, {
+        const hdNow = getHeightData();
+        stepRoam(roamState, {
+          forward, strafe,
+          // Water (lib/earth/swim.js): the console's hold buttons
+          // write these channels; the heightmap lets stepRoam run
+          // the swim state machine alongside the walk.
+          dive: !!c.swimDive,
+          surface: !!c.swimSurface,
+        }, delta, {
           radius: surfaceRadiusOrBase(roamState.lat, roamState.lon),
+          heightData: hdNow ? { data: hdNow.data, w: hdNow.w, h: hdNow.h } : null,
         });
       }
       if (!roamState.moving) roamState.faceDeg = roamState.yawDeg;
@@ -305,10 +322,26 @@ export default function EarthFlightController({
       const ex = 0, ey = -60, ez = -120;
       const dx = camPos.x - ex, dy = camPos.y - ey, dz = camPos.z - ez;
       const distFromCenter = Math.hypot(dx, dy, dz) || 1;
-      // Minimum distance: local terrain surface + 0.3m margin (scaled
-      // for Ant-Man). Terrain above the base radius only raises this
-      // floor, so the camera can never slip under the local land.
-      const minDist = surfaceRadiusOrBase(roamState.lat, roamState.lon)
+      // Minimum distance: the terrain surface UNDER THE CAMERA +
+      // 0.3m margin (scaled for Ant-Man). Round 3 (the black-band
+      // shot): this clamp used to read the surface at the WALKER's
+      // lat/lon — but the boom parks the lens metres behind him,
+      // where a rising slope or a structure's side can stand higher
+      // than his own ground; the lens sank under THAT surface and
+      // the frame filled with geometry undersides. The camera now
+      // answers for its own position: un-rotate the world offset
+      // into globe-local space, recover the camera's lat/lon, and
+      // clamp against the surface there (cameraRig applies the
+      // same law in rig space; this is the world-space backstop).
+      let camLat = roamState.lat;
+      let camLon = roamState.lon;
+      if (quatRef.current) {
+        const invQ = quatRef.current.clone().invert();
+        const camLocal = new THREE.Vector3(dx, dy, dz).applyQuaternion(invQ);
+        const camLL = vec3ToLatLon(camLocal);
+        if (camLL.radius > 0) { camLat = camLL.lat; camLon = camLL.lon; }
+      }
+      const minDist = surfaceRadiusOrBase(camLat, camLon)
         + 0.3 * DISPLAY_UNITS_PER_METRE * (parachuteState?.scale || 1);
       if (distFromCenter < minDist) {
         const push = (minDist - distFromCenter) / distFromCenter;

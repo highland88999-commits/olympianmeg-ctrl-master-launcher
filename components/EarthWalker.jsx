@@ -68,7 +68,23 @@ export default function EarthWalker() {
     // camera rig use, so all three agree (no more character standing
     // on the ground under a flying bike).
     const bikeAltU = bikeState.mounted ? bikeState.altM * parachuteState.scale * UPM : 0;
-    const altU = getClimbAltM() * UPM + bikeAltU;
+    // Swim lift (lib/earth/swim.js): in water the body floats at
+    // the surface or hangs submerged above the seabed — the state
+    // machine publishes the lift in display metres and the rig
+    // rides it like the climb lift (the camera rig reads the same
+    // number, so lens and body agree). The bike keeps its own
+    // altitude story and never swims. A gentle bob while floating
+    // at the surface sells the water without touching the rig's
+    // pose (the pose driver has no swim gait — honest treading).
+    const swimming = !bikeState.mounted && !!(roamState.swim && roamState.swim.active);
+    let swimAltU = 0;
+    if (swimming) {
+      swimAltU = (roamState.swim.altM || 0) * UPM;
+      if ((roamState.swim.submergeM || 0) < 0.05) {
+        swimAltU += Math.sin(state.clock.elapsedTime * 2.2) * 0.06 * UPM;
+      }
+    }
+    const altU = getClimbAltM() * UPM + bikeAltU + swimAltU;
     const r = surfaceRadiusOrBase(roamState.lat, roamState.lon);
     const p = latLonToVec3(roamState.lat, roamState.lon, r + altU);
     rig.position.set(p.x, p.y, p.z);
@@ -115,6 +131,23 @@ export default function EarthWalker() {
       // the black-clawed-hands disease). Idempotent; re-applied
       // until the late-loading model is in and tamed.
       if (emb.characterId()) tameTripoMaterials(emb.group);
+      // Publish the embodied body's measured size for the street
+      // camera (roamState.charSizeM, display metres): the boom
+      // frames the WHOLE animal — a 3.5 m raptor is not framed by
+      // a human's 7.5 m shot (round 3: "3rd person should put the
+      // character fully in front of the camera"). Held across
+      // loads: while a new pick streams in, the last measured
+      // body keeps the framing steady.
+      const bodySize = emb.bodySize ? emb.bodySize() : null;
+      if (bodySize) {
+        roamState.charSizeM = {
+          heightM: bodySize.y / UPM,
+          lengthM: Math.max(bodySize.x, bodySize.z) / UPM,
+        };
+      }
+    }
+    if (emb && !emb.characterId() && roamState.charSizeM) {
+      roamState.charSizeM = null; // back to the native figure
     }
     // Only show the capsule when NO character is selected (not during loads).
     // A selected-but-loading character shows nothing briefly — no flash.
