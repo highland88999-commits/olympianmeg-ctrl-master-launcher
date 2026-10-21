@@ -42,6 +42,8 @@ import { bikeState } from '@/lib/earth/parachute';
 import { DoomsdayStrip } from './DoomsdayBanner';
 import PhoneFrame from './PhoneFrame';
 import { SeasonBadge } from './SeasonalDecor';
+import ConcourseSettings from './ConcourseSettings';
+import { CONCOURSE_BG_ART, resolveConcourseBg } from '@/lib/concourse-bg';
 
 const LS_KEY = 'olympus.concourse.v1';
 const SIZE = 56;
@@ -79,6 +81,7 @@ const TILES = [
   { id: 'store', label: 'Store', icon: '🛍️', art: '/concourse-icons/store.webp' },
   { id: 'alerts', label: 'Alerts', icon: '🔔', art: '/concourse-icons/alerts.webp' },
   { id: 'profile', label: 'Profile', icon: '👤', art: '/concourse-icons/profile.webp' },
+  { id: 'settings', label: 'Settings', icon: '⚙️' },
   { id: 'bug', label: 'Bug', icon: '🐛', art: '/concourse-icons/bug.webp' },
 ];
 
@@ -88,17 +91,27 @@ const isFrac = (v) => v && typeof v === 'object' && Number.isFinite(v.x) && Numb
 function loadLocal() {
   try {
     const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return { orb: null, pins: {} };
+    if (!raw) return { orb: null, pins: {}, bg: null };
     const parsed = JSON.parse(raw);
     const orb = isFrac(parsed?.orb) ? parsed.orb : null;
     const pins = {};
     if (parsed?.pins && typeof parsed.pins === 'object') {
       for (const [id, v] of Object.entries(parsed.pins)) if (isFrac(v)) pins[id] = v;
     }
-    return { orb, pins };
+    const bg = parsed?.bg && typeof parsed.bg === 'object' ? parsed.bg : null;
+    return { orb, pins, bg };
   } catch {
-    return { orb: null, pins: {} };
+    return { orb: null, pins: {}, bg: null };
   }
+}
+
+// Merge a new backdrop into the local cache without disturbing the
+// orb/pins the drag engine owns.
+function writeLocalBg(bg) {
+  try {
+    const l = loadLocal();
+    localStorage.setItem(LS_KEY, JSON.stringify({ orb: l.orb, pins: l.pins, bg }));
+  } catch {}
 }
 
 async function getToken() {
@@ -159,6 +172,33 @@ function OrbFace() {
   );
 }
 
+
+// The box backdrop media: the default artwork, the user's own photo,
+// or the user's own video (muted, looping; held still — no autoplay —
+// under prefers-reduced-motion). Sits under a scrim of the same
+// darkness the glass always had (bg-zinc-950/55), so tiles and labels
+// read exactly as before.
+function ConcourseBackdrop({ bg }) {
+  const [reduceMotion] = useState(
+    () => typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+  );
+  if (bg?.kind === 'video' && bg.url) {
+    return (
+      <video
+        src={bg.url}
+        autoPlay={!reduceMotion}
+        muted
+        loop
+        playsInline
+        preload="metadata"
+        className="h-full w-full object-cover"
+      />
+    );
+  }
+  const src = bg?.kind === 'image' && bg.url ? bg.url : CONCOURSE_BG_ART;
+  return <img src={src} alt="" aria-hidden="true" draggable={false} className="h-full w-full object-cover" />;
+}
+
 export default function Concourse() {
   const router = useRouter();
   const pathname = usePathname();
@@ -174,13 +214,16 @@ export default function Concourse() {
   const [drag, setDrag] = useState(null); // {kind, id, x, y, active} px
   const [bikeOut, setBikeOut] = useState(false);
   const [phoneOpen, setPhoneOpen] = useState(false);
+  const [bgPref, setBgPref] = useState({ kind: 'default' });
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const dragRef = useRef(null);
   const suppressClickRef = useRef(0);
   const orbRef = useRef(null);
   const saveTimerRef = useRef(null);
+  const saveBgTimerRef = useRef(null);
   const stateRef = useRef({ orb: null, pins: {}, custom: false });
-  stateRef.current = { orb: orbFrac, pins: pinsFrac, custom: orbCustom };
+  stateRef.current = { orb: orbFrac, pins: pinsFrac, custom: orbCustom, bg: bgPref };
 
   const toPx = useCallback(
     (frac) => ({
@@ -199,7 +242,7 @@ export default function Concourse() {
 
   const persist = useCallback((orb, pins) => {
     try {
-      localStorage.setItem(LS_KEY, JSON.stringify({ orb, pins }));
+      localStorage.setItem(LS_KEY, JSON.stringify({ orb, pins, bg: stateRef.current.bg }));
     } catch {}
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
@@ -246,6 +289,7 @@ export default function Concourse() {
       });
     }
     setPinsFrac(pins);
+    if (local.bg) setBgPref(resolveConcourseBg(local.bg));
     setMounted(true);
 
     let cancelled = false;
@@ -260,6 +304,11 @@ export default function Concourse() {
         if (isFrac(prefs.concourse_orb)) {
           setOrbFrac({ x: clamp01(prefs.concourse_orb.x), y: clamp01(prefs.concourse_orb.y) });
           setOrbCustom(true);
+        }
+        if (prefs.concourse_bg) {
+          const r = resolveConcourseBg(prefs.concourse_bg);
+          setBgPref(r);
+          writeLocalBg(r);
         }
         if (prefs.concourse_pins && typeof prefs.concourse_pins === 'object') {
           const dbPins = {};
@@ -300,12 +349,35 @@ export default function Concourse() {
       if (tile.id === 'store') router.push('/store');
       else if (tile.id === 'renewal') router.push('/renewal-plan');
       else if (tile.id === 'calls') router.push('/order-67'); // Holographic Calls
+      else if (tile.id === 'settings') { setSettingsOpen(true); setOpen(false); return; }
       else if (tile.id === 'phone') { setPhoneOpen(true); setOpen(false); return; }
       else fireConcourseTile(tile.id);
       setOpen(false);
     },
     [router]
   );
+
+  // Backdrop choice: local cache instantly, account copy debounced
+  // (same pattern as the orb/pins persist above).
+  const applyBg = useCallback((next) => {
+    const resolved = resolveConcourseBg(next);
+    setBgPref(resolved);
+    writeLocalBg(resolved);
+    if (saveBgTimerRef.current) clearTimeout(saveBgTimerRef.current);
+    saveBgTimerRef.current = setTimeout(async () => {
+      const token = await getToken();
+      if (!token) return; // signed out: localStorage only
+      try {
+        await fetch('/api/ui-state', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ preferences: { concourse_bg: resolved } }),
+        });
+      } catch {
+        // offline — localStorage already holds it; next change retries
+      }
+    }, SAVE_DEBOUNCE_MS);
+  }, []);
 
   // --- press & hold drag engine -------------------------------------
   // Tap = action. Hold 2s (without wandering) = lift & drag.
@@ -421,6 +493,13 @@ export default function Concourse() {
           className="ui-element fixed z-[58] max-h-[calc(100dvh-110px)] overflow-y-auto rounded-3xl border border-cyan-200/25 bg-zinc-950/55 p-3.5 shadow-[0_18px_50px_rgba(0,0,0,0.55),0_0_35px_rgba(0,242,255,0.10)] backdrop-blur-xl"
           style={{ left: boxX, bottom: boxBottom, width: boxW }}
         >
+          {/* Backdrop: the user's chosen Concourse background under
+              a scrim of the glass's own darkness. */}
+          <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden rounded-3xl">
+            <ConcourseBackdrop bg={bgPref} />
+            <div className="absolute inset-0 bg-zinc-950/55" />
+          </div>
+          <div className="relative">
           {/* The golden Doomsday countdown crowns the Concourse
               (Merlin, 2026-10-20) — hub-only, self-removing Dec 11. */}
           <DoomsdayStrip />
@@ -457,6 +536,7 @@ export default function Concourse() {
               <SeasonBadge inline />
             </div>
           )}
+          </div>
         </div>
       )}
 
@@ -486,6 +566,9 @@ export default function Concourse() {
 
       {/* Layer 3 · the Cloud Phone frame (Phone tile) */}
       <PhoneFrame open={phoneOpen} onClose={() => setPhoneOpen(false)} />
+
+      {/* Layer 3 · Concourse Settings sheet */}
+      <ConcourseSettings open={settingsOpen} onClose={() => setSettingsOpen(false)} bg={bgPref} onApplyBg={applyBg} />
 
       {/* Layer 1 · Concourse Orb */}
       <button

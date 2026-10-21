@@ -325,6 +325,12 @@ describe('hub circle buttons (static wiring)', () => {
     assert.ok(concourse.indexOf("id: 'portals'") < concourse.indexOf("id: 'tour'"), 'portals leads the Journey row');
   });
 
+  it('SETTINGS lives in the Concourse as a tile in the You row (2026-10-21)', () => {
+    assert.ok(concourse.includes("{ id: 'settings', label: 'Settings', icon: '⚙️' }"), 'settings tile in the Concourse');
+    assert.ok(concourse.indexOf("id: 'profile'") < concourse.indexOf("id: 'settings'"), 'settings sits after profile');
+    assert.ok(concourse.indexOf("id: 'settings'") < concourse.indexOf("id: 'bug'"), 'settings sits before bug — Alerts, Profile, Settings, Bug');
+  });
+
   it('the old rectangular pills are gone (comments ignored)', () => {
     const noComments = page.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
     assert.ok(!noComments.includes('FLIGHT AXIS:'), 'no FLIGHT AXIS text pill');

@@ -14,6 +14,7 @@ import { getServiceClient } from '@/lib/economy/supabase';
 import { apiGuard } from '@/lib/api-guard';
 import { noCache } from '@/lib/no-cache';
 import { sanitizeFractions } from '@/lib/muse-fab';
+import { sanitizeConcourseBg } from '@/lib/concourse-bg';
 
 function pickMuseFab(prefs) {
   if (!prefs || typeof prefs !== 'object') return null;
@@ -74,7 +75,7 @@ export const POST = noCache(
     if ('concourse_pins' in prefs) {
       // Map of Concourse tile id -> viewport fractions. Tile ids are
       // whitelisted; malformed entries are dropped, never stored.
-      const TILE_IDS = ['tour', 'portals', 'intro', 'guide', 'renewal', 'night', 'bike', 'muse', 'radio', 'store', 'bug', 'alerts', 'profile', 'phone', 'calls'];
+      const TILE_IDS = ['tour', 'portals', 'intro', 'guide', 'renewal', 'night', 'bike', 'muse', 'radio', 'store', 'bug', 'alerts', 'profile', 'phone', 'calls', 'settings'];
       const raw = prefs.concourse_pins;
       if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
         return NextResponse.json({ error: 'concourse_pins must be an object of tile positions.' }, { status: 400 });
@@ -86,6 +87,16 @@ export const POST = noCache(
         if (sane) pins[id] = sane;
       }
       patch.concourse_pins = pins;
+    }
+    if ('concourse_bg' in prefs) {
+      // Concourse box backdrop: { kind: 'default' } or
+      // { kind: 'image'|'video', url: https://… }. Junk is rejected,
+      // never stored (sanitizeConcourseBg in lib/concourse-bg).
+      const sane = sanitizeConcourseBg(prefs.concourse_bg);
+      if (!sane) {
+        return NextResponse.json({ error: 'concourse_bg must be { kind: default|image|video, url? }.' }, { status: 400 });
+      }
+      patch.concourse_bg = sane;
     }
     if (!Object.keys(patch).length) {
       return NextResponse.json({ error: 'Nothing to save.' }, { status: 400 });
