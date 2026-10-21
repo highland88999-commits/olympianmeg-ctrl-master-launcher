@@ -92,7 +92,7 @@ export const WORLDS = [
   { key: "abyssal-voyage", title: "Deep-Sea Dive", route: "/abyssal-voyage", god: "ARTEMIS" },
   { key: "olympus-eclipse", title: "Eclipse Sim", route: "/olympus-eclipse", god: "ARTEMIS" },
   { key: "artemis", title: "Home Base", route: "/artemis", god: "ARTEMIS" },
-  { key: "aethelgard", title: "Medieval Realm", route: "/aethelgard", god: "ARTEMIS" },
+  { key: "aethelgard", title: "Medieval Realm", route: "/aethelgard", god: "APHRODITE" },
   { key: "artemis-hub", title: "Portal Hub", route: "/artemis-hub", god: "ARTEMIS" },
   { key: "tree", title: "Seasons", route: "/tree", god: "ARTEMIS" },
   { key: "hercules", title: "Solar System Tour", route: "/hercules", god: "ARTEMIS" },
