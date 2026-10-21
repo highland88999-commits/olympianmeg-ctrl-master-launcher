@@ -15,6 +15,7 @@ import { apiGuard } from '@/lib/api-guard';
 import { noCache } from '@/lib/no-cache';
 import { sanitizeFractions } from '@/lib/muse-fab';
 import { sanitizeConcourseBg } from '@/lib/concourse-bg';
+import { sanitizeUiSettings } from '@/lib/ui-settings';
 
 function pickMuseFab(prefs) {
   if (!prefs || typeof prefs !== 'object') return null;
@@ -97,6 +98,15 @@ export const POST = noCache(
         return NextResponse.json({ error: 'concourse_bg must be { kind: default|image|video, url? }.' }, { status: 400 });
       }
       patch.concourse_bg = sane;
+    }
+    if ('settings' in prefs) {
+      // Account UI settings from the Concourse Settings sheet:
+      // { sound: boolean }. Validated like every other key here.
+      const sane = sanitizeUiSettings(prefs.settings);
+      if (!sane) {
+        return NextResponse.json({ error: 'settings must be { sound: boolean }.' }, { status: 400 });
+      }
+      patch.settings = sane;
     }
     if (!Object.keys(patch).length) {
       return NextResponse.json({ error: 'Nothing to save.' }, { status: 400 });

@@ -44,6 +44,7 @@ import PhoneFrame from './PhoneFrame';
 import { SeasonBadge } from './SeasonalDecor';
 import ConcourseSettings from './ConcourseSettings';
 import { CONCOURSE_BG_ART, resolveConcourseBg } from '@/lib/concourse-bg';
+import { resolveUiSettings, readUiSettingsCache, writeUiSettingsCache, UI_SETTINGS_EVENT } from '@/lib/ui-settings';
 
 const LS_KEY = 'olympus.concourse.v1';
 const SIZE = 56;
@@ -216,12 +217,14 @@ export default function Concourse() {
   const [phoneOpen, setPhoneOpen] = useState(false);
   const [bgPref, setBgPref] = useState({ kind: 'default' });
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [uiSettings, setUiSettings] = useState({ sound: true });
 
   const dragRef = useRef(null);
   const suppressClickRef = useRef(0);
   const orbRef = useRef(null);
   const saveTimerRef = useRef(null);
   const saveBgTimerRef = useRef(null);
+  const saveSettingsTimerRef = useRef(null);
   const stateRef = useRef({ orb: null, pins: {}, custom: false });
   stateRef.current = { orb: orbFrac, pins: pinsFrac, custom: orbCustom, bg: bgPref };
 
@@ -290,6 +293,8 @@ export default function Concourse() {
     }
     setPinsFrac(pins);
     if (local.bg) setBgPref(resolveConcourseBg(local.bg));
+    const cachedSettings = readUiSettingsCache(window.localStorage);
+    if (cachedSettings) setUiSettings(cachedSettings);
     setMounted(true);
 
     let cancelled = false;
@@ -304,6 +309,14 @@ export default function Concourse() {
         if (isFrac(prefs.concourse_orb)) {
           setOrbFrac({ x: clamp01(prefs.concourse_orb.x), y: clamp01(prefs.concourse_orb.y) });
           setOrbCustom(true);
+        }
+        if (prefs.settings) {
+          const r = resolveUiSettings(prefs.settings);
+          setUiSettings(r);
+          writeUiSettingsCache(window.localStorage, r);
+          try {
+            window.dispatchEvent(new CustomEvent(UI_SETTINGS_EVENT, { detail: { settings: r } }));
+          } catch {}
         }
         if (prefs.concourse_bg) {
           const r = resolveConcourseBg(prefs.concourse_bg);
@@ -372,6 +385,31 @@ export default function Concourse() {
           method: 'POST',
           headers: { 'content-type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({ preferences: { concourse_bg: resolved } }),
+        });
+      } catch {
+        // offline — localStorage already holds it; next change retries
+      }
+    }, SAVE_DEBOUNCE_MS);
+  }, []);
+
+  // UI settings (Sound): cache + broadcast instantly (the radio and
+  // hub fx listen), account copy debounced like the backdrop.
+  const applySettings = useCallback((next) => {
+    const resolved = resolveUiSettings(next);
+    setUiSettings(resolved);
+    writeUiSettingsCache(typeof window !== 'undefined' ? window.localStorage : null, resolved);
+    try {
+      window.dispatchEvent(new CustomEvent(UI_SETTINGS_EVENT, { detail: { settings: resolved } }));
+    } catch {}
+    if (saveSettingsTimerRef.current) clearTimeout(saveSettingsTimerRef.current);
+    saveSettingsTimerRef.current = setTimeout(async () => {
+      const token = await getToken();
+      if (!token) return; // signed out: localStorage only
+      try {
+        await fetch('/api/ui-state', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ preferences: { settings: resolved } }),
         });
       } catch {
         // offline — localStorage already holds it; next change retries
@@ -568,7 +606,7 @@ export default function Concourse() {
       <PhoneFrame open={phoneOpen} onClose={() => setPhoneOpen(false)} />
 
       {/* Layer 3 · Concourse Settings sheet */}
-      <ConcourseSettings open={settingsOpen} onClose={() => setSettingsOpen(false)} bg={bgPref} onApplyBg={applyBg} />
+      <ConcourseSettings open={settingsOpen} onClose={() => setSettingsOpen(false)} bg={bgPref} onApplyBg={applyBg} settings={uiSettings} onApplySettings={applySettings} />
 
       {/* Layer 1 · Concourse Orb */}
       <button

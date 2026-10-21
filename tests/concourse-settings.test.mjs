@@ -15,6 +15,18 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import {
+  sanitizeUiSettings,
+  resolveUiSettings,
+  readUiSettingsCache,
+  writeUiSettingsCache,
+  UI_SETTINGS_CACHE_KEY,
+} from '../lib/ui-settings.js';
+import {
+  TILT_PREF_KEY,
+  loadTiltPref,
+  saveTiltPref,
+} from '../lib/tilt-control.js';
+import {
   CONCOURSE_BG_ART,
   BG_IMAGE_MAX_BYTES,
   BG_VIDEO_MAX_BYTES,
@@ -29,6 +41,19 @@ const concourse = readFileSync(join(repo, 'components', 'Concourse.jsx'), 'utf8'
 const panel = readFileSync(join(repo, 'components', 'ConcourseSettings.jsx'), 'utf8');
 const uiState = readFileSync(join(repo, 'app', 'api', 'ui-state', 'route.js'), 'utf8');
 const uploadRoute = readFileSync(join(repo, 'app', 'api', 'concourse', 'background-upload-url', 'route.js'), 'utf8');
+const layout = readFileSync(join(repo, 'app', 'layout.jsx'), 'utf8');
+const useTilt = readFileSync(join(repo, 'lib', 'use-tilt.js'), 'utf8');
+const radioProvider = readFileSync(join(repo, 'components', 'radio', 'RadioProvider.jsx'), 'utf8');
+const enDict = JSON.parse(readFileSync(join(repo, 'lib', 'i18n', 'locales', 'en.json'), 'utf8'));
+
+function memStore() {
+  const m = new Map();
+  return {
+    getItem: (k) => (m.has(k) ? m.get(k) : null),
+    setItem: (k, v) => m.set(k, String(v)),
+    removeItem: (k) => m.delete(k),
+  };
+}
 
 const HTTPS_URL = 'https://pjslctbyigtapvblbjao.supabase.co/storage/v1/object/public/profile-media/profiles/u1/concourse-bg/x.webp';
 
@@ -140,5 +165,113 @@ describe('Concourse Settings wiring (static)', () => {
     assert.ok(panel.includes("id: 'background'"), 'background section seam');
     assert.ok(panel.includes('Back to default'), 'reset present');
     assert.ok(panel.includes('My photo') && panel.includes('My video'), 'photo + video choices');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Part 3 — Language / Tilt / Sound sections
+// ---------------------------------------------------------------------------
+describe('sanitizeUiSettings (the settings ui-state key)', () => {
+  it('accepts a boolean sound flag and drops unknown keys', () => {
+    assert.deepEqual(sanitizeUiSettings({ sound: false }), { sound: false });
+    assert.deepEqual(sanitizeUiSettings({ sound: true, volume: 3, theme: 'x' }), { sound: true });
+  });
+
+  it('rejects junk: non-objects, arrays, a missing or non-boolean sound', () => {
+    for (const bad of [null, undefined, 'x', 1, [], {}, { sound: 'yes' }, { sound: 1 }, { sound: null }]) {
+      assert.equal(sanitizeUiSettings(bad), null, JSON.stringify(bad));
+    }
+  });
+
+  it('resolveUiSettings defaults to sound ON with no stored value', () => {
+    assert.deepEqual(resolveUiSettings(undefined), { sound: true });
+    assert.deepEqual(resolveUiSettings({ sound: 'junk' }), { sound: true });
+    assert.deepEqual(resolveUiSettings({ sound: false }), { sound: false });
+  });
+
+  it('the localStorage cache round-trips through the injected store', () => {
+    const st = memStore();
+    assert.equal(readUiSettingsCache(st), null);
+    writeUiSettingsCache(st, { sound: false });
+    assert.deepEqual(readUiSettingsCache(st), { sound: false });
+    assert.ok(st.getItem(UI_SETTINGS_CACHE_KEY).includes('"sound":false'));
+  });
+
+  it('the ui-state route validates the settings key server-side', () => {
+    assert.ok(uiState.includes("if ('settings' in prefs)"), 'route accepts settings');
+    assert.ok(uiState.includes('sanitizeUiSettings(prefs.settings)'), 'route sanitizes');
+  });
+});
+
+describe('language mount (Part 3 infra)', () => {
+  it('app/layout.jsx mounts LanguageProvider around the tree', () => {
+    assert.ok(layout.includes("import { LanguageProvider } from '@/lib/i18n';"), 'provider imported in layout');
+    assert.ok(layout.includes('<LanguageProvider>'), 'provider mounted in layout');
+    assert.ok(
+      layout.indexOf('<LanguageProvider>') < layout.indexOf('<Concourse'),
+      'the Concourse lives inside the provider, so the season pill translates'
+    );
+  });
+
+  it('the season key resolves in English — the pill reads "Halloween", not the key', () => {
+    assert.equal(enDict['season.halloween'], 'Halloween');
+  });
+
+  it('the language section lists every locale from useI18n and marks the current one', () => {
+    assert.ok(panel.includes("id: 'language'"), 'language section seam');
+    assert.ok(panel.includes('useI18n()'), 'panel reads the i18n context');
+    assert.ok(panel.includes('languages.map'), 'all locales listed');
+    assert.ok(panel.includes('setLang(l.code)'), 'one tap switches');
+  });
+});
+
+describe('tilt wiring (Part 3)', () => {
+  it('an explicit off persists as \'0\' — distinguishable from never-touched', () => {
+    const st = memStore();
+    saveTiltPref(st, true);
+    assert.equal(st.getItem(TILT_PREF_KEY), '1');
+    assert.equal(loadTiltPref(st), true);
+    saveTiltPref(st, false);
+    assert.equal(st.getItem(TILT_PREF_KEY), '0', 'deliberate off is stored, not removed');
+    assert.equal(loadTiltPref(st), false);
+  });
+
+  it('the hub hook honors the explicit off over its auto-arm', () => {
+    assert.ok(useTilt.includes("getItem(TILT_PREF_KEY) === '0'"), 'off gate in the enablement effect');
+  });
+
+  it('the live hook hears the Settings switch and Recalibrate via window events', () => {
+    assert.ok(useTilt.includes("'olympus:tilt-pref-changed'"), 'pref-changed listener');
+    assert.ok(useTilt.includes("'olympus:tilt-recalibrate'"), 'recalibrate listener');
+    assert.ok(useTilt.includes('neutralRef.current = null'), 'recalibrate re-zeros the neutral');
+    assert.ok(panel.includes("dispatchEvent(new CustomEvent('olympus:tilt-pref-changed'"), 'panel dispatches the switch');
+    assert.ok(panel.includes("dispatchEvent(new CustomEvent('olympus:tilt-recalibrate')"), 'panel dispatches recalibrate');
+  });
+
+  it('the tilt section offers the iOS motion-permission remedy', () => {
+    assert.ok(panel.includes("id: 'tilt'"), 'tilt section seam');
+    assert.ok(panel.includes('DeviceOrientationEvent.requestPermission()'), 'permission requested in a gesture');
+    assert.ok(panel.includes('Enable motion access'), 'visible remedy button');
+    assert.ok(panel.includes('saveTiltPref(window.localStorage, next)'), 'switch bound to the pref');
+  });
+});
+
+describe('sound gate (Part 3)', () => {
+  it('the panel has a Sound section with honest scope copy', () => {
+    assert.ok(panel.includes("id: 'sound'"), 'sound section seam');
+    assert.ok(panel.includes('Games keep their own sound settings'), 'no overclaiming in the copy');
+  });
+
+  it('the radio provider gates playback on the master flag', () => {
+    assert.ok(radioProvider.includes('UI_SETTINGS_EVENT'), 'provider hears settings changes');
+    assert.ok(radioProvider.includes('setFxEnabled(soundOn)'), 'hub fx follow the flag');
+    assert.ok(radioProvider.includes('soundOnRef.current'), 'play paths check the flag');
+    assert.ok(radioProvider.includes("typeof ctl.pause === 'function'"), 'turning off pauses the embed');
+  });
+
+  it('panel order is Background, Language, Tilt, Sound', () => {
+    const order = ["id: 'background'", "id: 'language'", "id: 'tilt'", "id: 'sound'"].map((x) => panel.indexOf(x));
+    assert.ok(order.every((i) => i >= 0), 'all four sections present');
+    assert.ok(order[0] < order[1] && order[1] < order[2] && order[2] < order[3], 'in Merlin\'s order');
   });
 });

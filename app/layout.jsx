@@ -9,6 +9,7 @@ import RealmCalloutGuard from '@/components/RealmCalloutGuard';
 import MusePortal from '@/components/MusePortal';
 import Concourse from '@/components/Concourse';
 import JsonLd from '@/components/JsonLd';
+import { LanguageProvider } from '@/lib/i18n';
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -98,6 +99,11 @@ export default function RootLayout({ children }) {
             (auto-detects full-viewport game canvases; chat/forms/inputs
             keep working). Mounted once — every realm inherits it. */}
         <RealmCalloutGuard />
+        {/* LanguageProvider lives at the ROOT (Merlin, 2026-10-21):
+            layout-level components (the Concourse, the season pill)
+            translate too — page.jsx keeps its nested instance; both
+            initialize from the same localStorage language. */}
+        <LanguageProvider>
         <RadioProvider>
           <NativeBridge />
           <EconomyHeartbeat />
@@ -114,6 +120,7 @@ export default function RootLayout({ children }) {
               floater (Orb + tiles + pins). See components/Concourse.jsx. */}
           <Concourse />
         </RadioProvider>
+        </LanguageProvider>
       </body>
     </html>
   );

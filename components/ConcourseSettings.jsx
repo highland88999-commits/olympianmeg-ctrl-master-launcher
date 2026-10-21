@@ -6,6 +6,13 @@
 // settings slot in without restructuring; v1 ships Background only.
 
 import { useRef, useState } from 'react';
+import { useI18n } from '@/lib/i18n';
+import {
+  TILT_PREF_KEY,
+  classifyTiltEnv,
+  classifyTiltPermission,
+  saveTiltPref,
+} from '@/lib/tilt-control';
 import {
   CONCOURSE_BG_ART,
   BG_IMAGE_MAX_BYTES,
@@ -154,13 +161,197 @@ function BackgroundSection({ bg, onApply }) {
   );
 }
 
-// Section seams: each entry renders one settings section. Language,
-// Tilt and Sound slot into this list later — nothing else changes.
+// A plain on/off switch (tilt, sound).
+function Switch({ on, onChange, label }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      onClick={() => onChange(!on)}
+      className={`ui-element pointer-events-auto relative h-6 w-11 shrink-0 rounded-full transition-colors ${on ? 'bg-cyan-400/80' : 'bg-zinc-700'}`}
+    >
+      <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${on ? 'left-[22px]' : 'left-0.5'}`} />
+    </button>
+  );
+}
+
+// Language: the full locale list, one tap switches the whole app.
+// The layout-level LanguageProvider carries the change everywhere
+// (this sheet included); the current language is marked.
+function LanguageSection() {
+  const { lang, setLang, languages } = useI18n();
+  const [expanded, setExpanded] = useState(false);
+  const current = languages.find((l) => l.code === lang);
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setExpanded((e) => !e)}
+        aria-expanded={expanded}
+        className="ui-element pointer-events-auto flex w-full items-center gap-3 rounded-2xl border border-white/12 bg-white/[0.04] px-3 py-2.5 text-left transition-all hover:border-cyan-300/40 active:scale-[0.98]"
+      >
+        <span aria-hidden="true" className="text-[16px]">🌐</span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[12px] font-bold text-zinc-100">{current ? current.native : lang}</span>
+          <span className="block text-[10px] text-zinc-400">{current ? current.english : 'Language'}</span>
+        </span>
+        <span aria-hidden="true" className="text-[10px] text-zinc-400">{expanded ? '▴' : '▾'}</span>
+      </button>
+      {expanded && (
+        <div className="mt-2 max-h-56 overflow-y-auto rounded-2xl border border-white/10">
+          {languages.map((l) => (
+            <button
+              key={l.code}
+              type="button"
+              onClick={() => setLang(l.code)}
+              aria-pressed={l.code === lang}
+              className={`ui-element pointer-events-auto flex w-full items-center gap-2 px-3 py-2 text-left transition-colors ${
+                l.code === lang ? 'bg-cyan-400/10' : 'hover:bg-white/[0.04]'
+              }`}
+            >
+              <span className="min-w-0 flex-1 truncate text-[12px] text-zinc-100">
+                {l.native} <span className="text-zinc-500">{l.english}</span>
+              </span>
+              {l.machine && (
+                <span className="rounded-full bg-violet-400/20 px-1.5 py-px text-[8px] font-black tracking-wider text-violet-200">AI</span>
+              )}
+              {l.code === lang && <span aria-hidden="true" className="text-sm text-cyan-300">✓</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function tiltEnvHere() {
+  const DOE = typeof DeviceOrientationEvent !== 'undefined' ? DeviceOrientationEvent : undefined;
+  let reducedMotion = false;
+  try {
+    reducedMotion = !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  } catch {}
+  return classifyTiltEnv({
+    reducedMotion,
+    hasDeviceOrientationEvent: !!DOE,
+    hasRequestPermission: !!DOE && typeof DOE.requestPermission === 'function',
+  });
+}
+
+// Tilt: the hub's tilt steering, bound to the nexus_tilt_enabled
+// pref. The live hook (lib/use-tilt.js) hears changes through
+// window events — the panel is layout-level, the hook is hub-level.
+// On iOS this section is also where motion permission gets granted:
+// Merlin's phone showed "Tilt denied" because no visible surface
+// ever offered the request in a gesture.
+function TiltSection() {
+  const [on, setOn] = useState(() => {
+    try {
+      return window.localStorage.getItem(TILT_PREF_KEY) !== '0';
+    } catch {
+      return true;
+    }
+  });
+  const [env] = useState(tiltEnvHere);
+  const [permMsg, setPermMsg] = useState('');
+  const [note, setNote] = useState('');
+
+  const toggle = (next) => {
+    setOn(next);
+    saveTiltPref(window.localStorage, next);
+    try {
+      window.dispatchEvent(new CustomEvent('olympus:tilt-pref-changed', { detail: { on: next } }));
+    } catch {}
+  };
+
+  const askPermission = async () => {
+    try {
+      const res = await DeviceOrientationEvent.requestPermission();
+      const p = classifyTiltPermission(res);
+      setPermMsg(p.ok ? 'Motion access granted — tilt is live.' : p.message);
+      if (p.ok && !on) toggle(true);
+    } catch {
+      setPermMsg('Tilt denied — enable motion access in Settings.');
+    }
+  };
+
+  const recalibrate = () => {
+    try {
+      window.dispatchEvent(new CustomEvent('olympus:tilt-recalibrate'));
+    } catch {}
+    setNote('Recalibrating — hold the phone the way you naturally hold it; that hold is level now.');
+  };
+
+  return (
+    <div className="flex flex-col gap-2.5">
+      <div className="flex items-center gap-3">
+        <span className="min-w-0 flex-1">
+          <span className="block text-[12px] font-bold text-zinc-100">Tilt steering</span>
+          <span className="block text-[10px] text-zinc-400">Tilt the phone to climb and descend on the hub.</span>
+        </span>
+        <Switch on={on} onChange={toggle} label="Tilt steering" />
+      </div>
+      {!env.ok && env.reason === 'unavailable' && (
+        <p className="px-0.5 text-[11px] leading-snug text-zinc-400">Tilt is not available on this device.</p>
+      )}
+      {!env.ok && env.reason === 'reduced-motion' && (
+        <p className="px-0.5 text-[11px] leading-snug text-zinc-400">Tilt stays off — your device asks for reduced motion.</p>
+      )}
+      {env.ok && env.reason === 'permission-needed' && (
+        <>
+          <button
+            type="button"
+            onClick={askPermission}
+            className="ui-element pointer-events-auto self-start rounded-full border border-cyan-300/50 px-3 py-1.5 text-[11px] font-bold text-cyan-200 transition-all hover:bg-cyan-400/10 active:scale-95"
+          >
+            Enable motion access
+          </button>
+          <p className="px-0.5 text-[10px] leading-snug text-zinc-500">
+            iPhones need this permission for tilt. If it was denied before, allow Motion &amp; Orientation in your browser settings, then tap again.
+          </p>
+        </>
+      )}
+      {env.ok && env.reason === 'direct' && (
+        <p className="px-0.5 text-[11px] leading-snug text-zinc-400">No permission needed on this device — tilt works automatically.</p>
+      )}
+      {permMsg && <p className="px-0.5 text-[11px] leading-snug text-cyan-200">{permMsg}</p>}
+      <button
+        type="button"
+        onClick={recalibrate}
+        className="ui-element pointer-events-auto self-start rounded-full border border-white/15 px-3 py-1.5 text-[11px] font-bold text-zinc-200 transition-all hover:border-cyan-300/40 active:scale-95"
+      >
+        Recalibrate
+      </button>
+      {note && <p className="px-0.5 text-[11px] leading-snug text-zinc-400">{note}</p>}
+    </div>
+  );
+}
+
+// Sound: the master switch. It gates the Radio and the hub fx
+// sounds (games keep their own sound settings for now — no
+// overclaiming, it says so right here).
+function SoundSection({ settings, onApply }) {
+  return (
+    <div className="flex items-center gap-3">
+      <span className="min-w-0 flex-1">
+        <span className="block text-[12px] font-bold text-zinc-100">Sound</span>
+        <span className="block text-[10px] text-zinc-400">Radio + hub sounds. Games keep their own sound settings for now.</span>
+      </span>
+      <Switch on={settings.sound} onChange={(next) => onApply({ ...settings, sound: next })} label="Sound" />
+    </div>
+  );
+}
+
+// Section seams: each entry renders one settings section.
 const SECTIONS = [
-  { id: 'background', title: 'Background', render: (ctx) => <BackgroundSection {...ctx} /> },
+  { id: 'background', title: 'Background', render: ({ bg, onApplyBg }) => <BackgroundSection bg={bg} onApply={onApplyBg} /> },
+  { id: 'language', title: 'Language', render: () => <LanguageSection /> },
+  { id: 'tilt', title: 'Tilt', render: () => <TiltSection /> },
+  { id: 'sound', title: 'Sound', render: ({ settings, onApplySettings }) => <SoundSection settings={settings} onApply={onApplySettings} /> },
 ];
 
-export default function ConcourseSettings({ open, onClose, bg, onApplyBg }) {
+export default function ConcourseSettings({ open, onClose, bg, onApplyBg, settings, onApplySettings }) {
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-[62] flex items-center justify-center p-4" role="dialog" aria-label="Concourse settings">
@@ -185,7 +376,7 @@ export default function ConcourseSettings({ open, onClose, bg, onApplyBg }) {
         {SECTIONS.map((s) => (
           <section key={s.id} aria-label={s.title} className="mb-4 last:mb-0">
             <div className="mb-2 text-[10px] font-black tracking-[0.22em] uppercase text-zinc-400">{s.title}</div>
-            {s.render({ bg, onApply: onApplyBg })}
+            {s.render({ bg, onApplyBg, settings, onApplySettings })}
           </section>
         ))}
       </div>

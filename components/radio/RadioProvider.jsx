@@ -39,6 +39,8 @@ import {
   redirectUriFor,
 } from '@/lib/radio/spotify-auth';
 import { loadPlaybackState, savePlaybackState } from '@/lib/radio/playback-state';
+import { resolveUiSettings, readUiSettingsCache, UI_SETTINGS_EVENT } from '@/lib/ui-settings';
+import { setFxEnabled } from '@/lib/fx';
 
 const RadioContext = createContext(null);
 
@@ -115,6 +117,10 @@ export function RadioProvider({ children }) {
   });
   const [index, setIndex] = useState(() => (initialPlayback ? initialPlayback.index : 0));
   const [playing, setPlaying] = useState(false); // real state, from Spotify events only
+  // Master sound (Concourse Settings → Sound): default ON. When off,
+  // the radio pauses and stays paused, and hub fx go silent.
+  const [soundOn, setSoundOn] = useState(true);
+  const soundOnRef = useRef(true);
   const [engineReady, setEngineReady] = useState(false);
   const [engineError, setEngineError] = useState(null);
   const [contribVersion, setContribVersion] = useState(0); // bump to rebuild queue
@@ -263,6 +269,35 @@ export function RadioProvider({ children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contribVersion]);
 
+  // Master sound wiring: the localStorage cache paints instantly;
+  // the Settings sheet broadcasts changes on UI_SETTINGS_EVENT (the
+  // Concourse also dispatches it when the account copy lands).
+  useEffect(() => {
+    const cached = readUiSettingsCache(typeof window !== 'undefined' ? window.localStorage : null);
+    if (cached) {
+      soundOnRef.current = cached.sound;
+      setSoundOn(cached.sound);
+    }
+    const onChange = (e) => {
+      const next = resolveUiSettings(e?.detail?.settings);
+      soundOnRef.current = next.sound;
+      setSoundOn(next.sound);
+    };
+    window.addEventListener(UI_SETTINGS_EVENT, onChange);
+    return () => window.removeEventListener(UI_SETTINGS_EVENT, onChange);
+  }, []);
+
+  // The gate itself: fx follow the flag immediately; turning sound
+  // off pauses the embed (least destructive — nothing unloads, the
+  // station resumes only when the user presses play with sound on).
+  useEffect(() => {
+    setFxEnabled(soundOn);
+    if (!soundOn) {
+      const ctl = controllerRef.current;
+      try { if (ctl && typeof ctl.pause === 'function') ctl.pause(); } catch {}
+    }
+  }, [soundOn]);
+
   const toggleShuffle = useCallback(() => {
     setShuffle((s) => {
       const next = !s;
@@ -283,7 +318,7 @@ export function RadioProvider({ children }) {
     if (ctl && typeof ctl.loadUri === 'function') {
       try {
         ctl.loadUri(track.uri);
-        if (autoplay && typeof ctl.play === 'function') ctl.play();
+        if (autoplay && soundOnRef.current && typeof ctl.play === 'function') ctl.play();
       } catch {
         // The embed reports its own errors; the bar never fakes state.
       }
@@ -291,6 +326,7 @@ export function RadioProvider({ children }) {
   }, []);
 
   const togglePlay = useCallback(() => {
+    if (!soundOnRef.current) return; // master sound off — the radio stays paused
     const ctl = controllerRef.current;
     if (!ctl) return; // engine not ready — button shows its loading state
     try {
@@ -598,6 +634,7 @@ export function RadioProvider({ children }) {
     index,
     current: queue[index] || null,
     playing,
+    soundOn,
     engineReady,
     engineError,
     shuffle,
@@ -631,7 +668,7 @@ export function RadioProvider({ children }) {
     refreshSpotifyStatus,
     getSpotifyToken,
   }), [
-    queue, index, playing, engineReady, engineError, shuffle, minimized,
+    queue, index, playing, soundOn, engineReady, engineError, shuffle, minimized,
     expanded, contributions, togglePlay, next, prev, toggleShuffle,
     contribute, removeContribution, registerController, handlePlaybackUpdate, rebuildQueue,
     source, setSource, spotify, connectSpotify, disconnectSpotify,
