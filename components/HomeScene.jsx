@@ -19,7 +19,7 @@ import HubMoon from './HubMoon';
 import AsteroidField from './AsteroidField';
 import NavBeacons from './NavBeacons';
 import EarthFlightController from './EarthFlightController';
-import { ORBIT_CENTER, EARTH_CENTER, EARTH_RADIUS, GOD_BANDS, SYSTEM_RING_RADII, SYSTEM_RING_TILTS } from '../lib/god-orbits';
+import { ORBIT_CENTER, EARTH_CENTER, EARTH_RADIUS, GOD_BANDS, MARS_CENTER, MARS_RADIUS, SYSTEM_RING_RADII, SYSTEM_RING_TILTS } from '../lib/god-orbits';
 import { FREE_FLY_SPEED, BIKE_TUNING } from '../lib/hub-layout';
 import { registerCollider, unregisterCollider, resolveFlightCollision } from '../lib/hub-collision';
 import { createBikeFlightState, stepBikeFlight, rotateOffsetByYaw, bikeForward } from '../lib/bike-flight';
@@ -42,19 +42,21 @@ function MarsBackground() {
   // 30 → 45. Expansion pass later that day: the offset from
   // ORBIT_CENTER scaled another 1.5× (size unchanged) so the planets
   // stay beyond the doubled satellites and the pushed-out towers.
-  // Its collider in StaticColliders matches this transform exactly.
-  // Earth stays exactly where it is.
+  // Position + radius read MARS_CENTER / MARS_RADIUS (lib/god-orbits.js)
+  // — the single source of truth that also feeds its collider in
+  // StaticColliders and the Mars-centered SYSTEM RINGS, so the three
+  // can never drift apart. Earth stays exactly where it is.
   return (
-    <group position={[-236.25, 109.25, -237.5]}>
+    <group position={[MARS_CENTER.x, MARS_CENTER.y, MARS_CENTER.z]}>
       <mesh ref={marsRef} receiveShadow castShadow>
-        <sphereGeometry args={[45, 64, 64]} />
+        <sphereGeometry args={[MARS_RADIUS, 64, 64]} />
         <meshStandardMaterial color="#b33900" roughness={0.9} metalness={0.1} />
       </mesh>
 
       <pointLight color="#ff4500" intensity={0.8} distance={150} position={[0, 0, 52.5]} />
 
       <mesh scale={[1.035, 1.035, 1.035]}>
-        <sphereGeometry args={[45, 64, 64]} />
+        <sphereGeometry args={[MARS_RADIUS, 64, 64]} />
         <shaderMaterial
           blending={THREE.AdditiveBlending}
           side={THREE.BackSide}
@@ -571,19 +573,22 @@ function TextureProvider({ onLaunchExternal }) {
 
 
 // ---------------------------------------------------------------------------
-// SystemRings — the grand rings of the hub's planetary system
-// (Merlin, 2026-10-20): eleven rainbow rings centered on ORBIT_CENTER,
-// wrapping the expanded planet system (Mars + Sun) on the far side of
-// the satellites — the first ring (350) sits just outside Mars. They
-// are the system's fixed frame: static, NOT part of the satellites'
-// counter-rotating assembly (the satellites keep their own lanes
-// inside the hollow, 84–164). Near-flat alternating tilts
-// (SYSTEM_RING_TILTS, ≤ 0.009 rad) — Mars hangs over the ring plane.
-// Radii/tilts live in lib/god-orbits.js.
+// SystemRings — the grand rings of the planetary system
+// (Merlin, 2026-10-20): eleven rainbow rings centered on MARS
+// (MARS_CENTER, lib/god-orbits.js) — they belong to the planet, out
+// where the planets live. The loading spot is dead center of the hub
+// and the satellites' orbit circle is the boundary: no part of any
+// ring is inside that circle or between the loading spot and the
+// satellites (nearest ring arc ≈ 201 from ORBIT_CENTER; satellites
+// reach only 178.7, towers 194.5). The first ring (52) sits just
+// outside Mars' sphere (r45), the family steps +4 out to 92. Static,
+// NOT part of the satellites' counter-rotating assembly. Near-flat
+// alternating tilts (SYSTEM_RING_TILTS, ≤ 0.009 rad). Radii/tilts
+// live in lib/god-orbits.js.
 // ---------------------------------------------------------------------------
 function SystemRings() {
   return (
-    <group position={[ORBIT_CENTER.x, ORBIT_CENTER.y, ORBIT_CENTER.z]}>
+    <group position={[MARS_CENTER.x, MARS_CENTER.y, MARS_CENTER.z]}>
       {SYSTEM_RING_RADII.map((R, i) => (
         <group key={R} rotation={[0, 0, SYSTEM_RING_TILTS[i]]}>
           <mesh rotation-x={Math.PI / 2}>
@@ -613,7 +618,7 @@ function StaticColliders() {
   useEffect(() => {
     registerCollider('earth', () => ({ ...EARTH_CENTER }), EARTH_RADIUS + 1);
     registerCollider('sun', () => ({ x: 0, y: 158.75, z: 662.5 }), 68);
-    registerCollider('mars', () => ({ x: -236.25, y: 109.25, z: -237.5 }), 45);
+    registerCollider('mars', () => ({ ...MARS_CENTER }), MARS_RADIUS);
     return () => {
       ['earth', 'sun', 'mars'].forEach(unregisterCollider);
     };
