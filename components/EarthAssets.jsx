@@ -10,6 +10,7 @@ import {
 } from '@/lib/earth/placements';
 import { loadHeightData } from '@/lib/earth/heightmap';
 import { publishColliders } from '@/lib/earth/collision';
+import { tameTripoMaterials } from '@/lib/characters/tame-materials';
 
 // EarthAssets — the generated-asset layer for the fallback terrain
 // globe (TERRAFORM_PLAN.md §6). Renders the Tripo-generated Earth
@@ -36,6 +37,20 @@ import { publishColliders } from '@/lib/earth/collision';
 //   longer plant in lakes or through landmarks.
 // - Segment counts are geographic (short abutted runs), no longer
 //   an accident of triangle count.
+
+// Per-asset DISPLAY height caps (metres), the singles' analogue
+// of SCATTER_OVERRIDES: the bridge scaleM stays honest in the
+// manifest; only the street-level read is art-directed. The
+// Moraine Lake peaks (e045, scaleM 250) are the standing case:
+// at the globe's compressed geography they sit ~170 display
+// metres from the Alberta street spawns, so a 250 m read filled
+// the sky as a floating black slab (its base hidden below the
+// horizon's curve — Merlin's "T-Rex", 2026-10-20). Capped to a
+// deliberate 60 m diorama: still the biggest silhouette in the
+// region, no longer a kaiju overhead.
+const DISPLAY_HEIGHT_CAPS_M = {
+  'e045-moraine-lake-peaks': 60,
+};
 
 // Per-species instance budget for scatter: ~300K triangles
 // aggregate. Species whose foliage hit the simplifier's floor
@@ -136,6 +151,7 @@ export default function EarthAssets() {
           const override = SCATTER_OVERRIDES[asset.id] || {};
           const placements = placementsFor(asset, gray, imgW, imgH, {
             displayUnitsPerMetre: DISPLAY_UNITS_PER_METRE,
+            heightCapM: DISPLAY_HEIGHT_CAPS_M[asset.id],
             scatterCount: override.count ?? scatterCountFor(asset),
             scatterRadiusDeg: override.radiusDeg,
             segmentCount: SEGMENT_COUNTS[asset.id] ?? 9,
@@ -182,6 +198,7 @@ export default function EarthAssets() {
             continue;
           }
           if (!alive) return;
+          tameTripoMaterials(gltf.scene);
           disposables.current.push(gltf.scene);
           const place = (obj, p) => {
             obj.position.set(p.position.x, p.position.y, p.position.z);

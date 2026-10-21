@@ -8,6 +8,8 @@ import { surfaceRadiusOrBase } from '@/lib/earth/heightmap';
 import { latLonToVec3 } from '@/lib/geo';
 import { DISPLAY_UNITS_PER_METRE } from '@/lib/earth/placements';
 import { parachuteState, bikeState, getClimbAltM } from '@/lib/earth/parachute';
+import { effectiveEarthViewMode } from '@/lib/earth/view-mode';
+import { tameTripoMaterials } from '@/lib/characters/tame-materials';
 
 // EarthWalker — the traveler's body at street level (campaign
 // Day 2). Mounted inside NexusEarth's spin group, so everything
@@ -31,6 +33,7 @@ const PROC_SIZE = { x: 1 * UPM, y: 2 * UPM, z: 1 * UPM };
 export default function EarthWalker() {
   const rigRef = useRef();
   const capsuleRef = useRef();
+  const lightRef = useRef();
   const embRef = useRef(null);
 
   useEffect(() => {
@@ -86,6 +89,14 @@ export default function EarthWalker() {
     // the rig carries the globe placement, the adapter carries
     // the body (pose + floor clamp in rig-local space).
     const emb = embRef.current;
+    // First person (lib/earth/view-mode.js): the traveler's own
+    // body leaves the frame entirely — the clean-view law. No
+    // floating hands, no body parts hanging into the picture:
+    // the embodiment's own hidden flag does the work, and the
+    // capsule obeys the same rule. In the Quantum Realm the
+    // effective mode is forced third person, so the shrunken
+    // character stays visible there (Merlin, 2026-10-20).
+    const firstPerson = effectiveEarthViewMode() === 'first';
     let showing = false;
     if (emb) {
       showing = emb.update(
@@ -97,20 +108,44 @@ export default function EarthWalker() {
         },
         Math.min(dt, 0.05),
         state.clock.elapsedTime,
-        { hidden: false },
+        { hidden: firstPerson },
       );
+      // The character GLB is a Tripo model: tame its materials
+      // (metalness default 1 = pitch black under plain lights —
+      // the black-clawed-hands disease). Idempotent; re-applied
+      // until the late-loading model is in and tamed.
+      if (emb.characterId()) tameTripoMaterials(emb.group);
     }
     // Only show the capsule when NO character is selected (not during loads).
     // A selected-but-loading character shows nothing briefly — no flash.
     const hasPick = !!(emb && emb.characterId());
-    if (capsuleRef.current) capsuleRef.current.visible = !showing && !hasPick;
+    if (capsuleRef.current) {
+      capsuleRef.current.visible = !showing && !hasPick && !firstPerson;
+    }
+    // Fill lantern: intensity/distance are WORLD-space quantities
+    // in three.js, so they scale with the Ant-Man shrink (the
+    // light's rig-local position already does) — otherwise the
+    // lamp that is gentle at street size becomes a supernova at
+    // micro size and a void at none.
+    if (lightRef.current) {
+      const s = parachuteState.scale || 1;
+      lightRef.current.intensity = 0.0012 * s * s;
+      lightRef.current.distance = 0.35 * s;
+    }
   });
 
   return (
     <group ref={rigRef} visible={false}>
-      {/* Fill light: keeps characters readable, not silhouettes.
-          Low intensity + short distance so it doesn't blow out the scene. */}
-      <pointLight position={[0, 3, 2]} intensity={0.35} distance={6} color="#ffffff" />
+      {/* Fill lantern: keeps the character readable, not a
+          silhouette. Rig-local units are HUB units (the whole
+          avatar is 0.032 of them), so the lamp hovers ~3 display
+          metres up on the camera side of the traveler — the old
+          [0, 3, 2] / intensity 0.35 placement was authored as if
+          the rig were metre-scale and sat ~190 m overhead,
+          contributing almost nothing while the character read
+          pitch black. Intensity + distance are compensated per
+          frame for the Ant-Man scale (see useFrame). */}
+      <pointLight ref={lightRef} position={[0, 0.05, -0.035]} intensity={0.0012} distance={0.35} color="#ffffff" />
       {/* Native figure: a slim hub-cyan capsule, 2 display-metres. */}
       <mesh ref={capsuleRef} position={[0, PROC_SIZE.y / 2, 0]}>
         <capsuleGeometry args={[0.5 * UPM, 1.0 * UPM, 4, 12]} />

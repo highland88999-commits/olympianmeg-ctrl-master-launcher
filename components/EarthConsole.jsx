@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { searchPlaces, formatCoords } from '@/lib/geo';
 import { summonBike, dismissBike, toggleMount } from '@/components/EarthBike';
+import EarthViewToggle from '@/components/EarthViewToggle';
 import { beginReanimate, isAtStreetScale, parachuteState, bikeState } from '@/lib/earth/parachute';
 import { roamState } from '@/lib/earth/roam';
 import { getEmbodimentForSurface } from '@/lib/gta/walker-embodiment';
@@ -86,6 +87,7 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
         {atStreet && bikeUi.out && (
           <BikeControls mounted={bikeUi.mounted} controlsRef={controlsRef} />
         )}
+        <EarthViewToggle phase={phase} />
       </>
     );
   }
@@ -275,6 +277,7 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
     {atStreet && bikeUi.out && (
       <BikeControls mounted={bikeUi.mounted} controlsRef={controlsRef} />
     )}
+    <EarthViewToggle phase={phase} />
     </>
   );
 }

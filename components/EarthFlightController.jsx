@@ -26,6 +26,7 @@ import {
   getClimbAltM,
 } from '@/lib/earth/parachute';
 import { DISPLAY_UNITS_PER_METRE } from '@/lib/earth/placements';
+import { effectiveEarthViewMode } from '@/lib/earth/view-mode';
 
 export const EARTH_CENTER = new THREE.Vector3(0, -60, -120);
 const HUB_HOME = new THREE.Vector3(0, 75, 20);
@@ -65,7 +66,13 @@ export default function EarthFlightController({
   // altitude (ladders/elevators) lifts the whole rig along the normal.
   const streetRigWorld = () => {
     const hd = getHeightData();
-    const rig = cameraRig(roamState, hd ? hd.data : null, hd ? hd.w : 0, hd ? hd.h : 0);
+    // View mode (lib/earth/view-mode.js): the traveler's first /
+    // third person choice — except in the Quantum Realm, where
+    // third person is forced so the shrunken character stays
+    // visible in the tile world for the whole micro stay.
+    const rig = cameraRig(roamState, hd ? hd.data : null, hd ? hd.w : 0, hd ? hd.h : 0, {
+      firstPerson: effectiveEarthViewMode() === 'first',
+    });
     const q = quatRef.current;
     const toWorld = (p) => new THREE.Vector3(p.x, p.y, p.z).applyQuaternion(q).add(EARTH_CENTER);
 

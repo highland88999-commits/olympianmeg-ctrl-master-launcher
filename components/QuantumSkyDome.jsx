@@ -2,7 +2,7 @@
 import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { roamState } from '@/lib/earth/roam';
+import { roamState, tangentFrame } from '@/lib/earth/roam';
 import { parachuteState } from '@/lib/earth/parachute';
 import { latLonToVec3 } from '@/lib/geo';
 import { surfaceRadiusOrBase } from '@/lib/earth/heightmap';
@@ -94,6 +94,12 @@ const FRAG = /* glsl */ `
 
 export default function QuantumSkyDome() {
   const meshRef = useRef();
+  const scratch = useRef({
+    east: new THREE.Vector3(),
+    normal: new THREE.Vector3(),
+    zAxis: new THREE.Vector3(),
+    basis: new THREE.Matrix4(),
+  });
   const uniforms = useMemo(
     () => ({
       uTime: { value: 0 },
@@ -118,6 +124,27 @@ export default function QuantumSkyDome() {
     const r = surfaceRadiusOrBase(roamState.lat, roamState.lon);
     const p = latLonToVec3(roamState.lat, roamState.lon, r);
     mesh.position.set(p.x, p.y, p.z);
+
+    // ORIENT the sky to the walker's ground (2026-10-20 repair —
+    // "the sky and land in the quantum realm are still upside
+    // down"): the shader keys its whole world on the sphere's
+    // LOCAL Y (zenith up, horizon band at local d.y = 0), but the
+    // mesh carried no rotation, so local Y was the globe's POLE
+    // axis — 36° off the true up at Alberta latitudes, worse
+    // elsewhere — and the horizon band lay tilted across the view
+    // like a capsized world. Now the dome takes the walker's own
+    // tangent frame every frame (the same frame EarthWalker and
+    // the MicroGroundDisc stand on): local +Y onto the surface
+    // normal, local +X onto east (det +1 by construction — the
+    // nebula field stays compass-true, never mirrored), so the
+    // membrane glow sits exactly at eye level, all the way around.
+    const frame = tangentFrame(roamState.lat, roamState.lon);
+    const s = scratch.current;
+    s.east.set(frame.east.x, frame.east.y, frame.east.z);
+    s.normal.set(frame.normal.x, frame.normal.y, frame.normal.z);
+    s.zAxis.crossVectors(s.east, s.normal);
+    s.basis.makeBasis(s.east, s.normal, s.zAxis);
+    mesh.quaternion.setFromRotationMatrix(s.basis);
   });
 
   return (
