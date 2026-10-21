@@ -26,6 +26,7 @@ export const SATELLITES: SatelliteEntry[] = [
   { key: "swamp-run", route: "/swamp-run", pos: "DIONYSUS", section: "GAMES", constellation: "ZEUS" },
   { key: "tetrus", route: "/tetrus", pos: "DIONYSUS", section: "GAMES", constellation: "ZEUS" },
   { key: "tidal-rush", route: "/tidal-rush", pos: "HERMES", section: "GAMES", constellation: "ZEUS" },
+  { key: "cloud-gaming", route: "/cloud-gaming", pos: "HERMES", section: "GAMES", constellation: "ZEUS" },
   { key: "nova", route: "/nova", pos: "HERMES", section: "GAMES", constellation: "ZEUS" },
   { key: "myriad", route: "/myriad", pos: "HERMES", section: "GAMES", constellation: "ZEUS" },
   { key: "erebus", route: "/erebus", pos: "HERMES", section: "GAMES", constellation: "ZEUS" },
