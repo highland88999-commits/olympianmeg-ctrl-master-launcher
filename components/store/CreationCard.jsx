@@ -30,6 +30,9 @@ export default function CreationCard({ creation, showCreator = true }) {
   const [size, setSize] = useState('');
   const [buying, setBuying] = useState(false);
   const [error, setError] = useState('');
+  // A stored image URL that fails to load falls back to the
+  // placeholder — never a broken-image glyph (2026-10-21).
+  const [imgFailed, setImgFailed] = useState(false);
 
   const productId = creation && creation.id;
 
@@ -104,10 +107,11 @@ export default function CreationCard({ creation, showCreator = true }) {
             catalog cards — image inset on a kaleidoscope in the
             creation's own hue; placeholder centred when imageless. */}
         <KaleidoStage hueKey={creation.id || creation.name}>
-          {creation.image ? (
+          {creation.image && !imgFailed ? (
             <img
               src={creation.image}
               alt={creation.name}
+              onError={() => setImgFailed(true)}
               className="aspect-square h-full w-full rounded-xl object-cover shadow-2xl"
               loading="lazy"
             />

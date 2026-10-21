@@ -9,15 +9,29 @@
 // White, CA$95, is the default). Print resolution, placements, variants
 // and prices all come from the Printful catalog specs in that config.
 //
-// Merlin's placement rules (2026-10-13):
+// Merlin's placement rules (2026-10-13; Rule 2 amended 2026-10-21):
 //   1. A template with more than one placement (the joggers' legs)
 //      takes a DIFFERENT graphic per placement, or the same graphic
 //      reused — the user's choice per placement.
-//   2. On the AOP hoodie the user only ever handles the FRONT; the
-//      pocket is filled by the backend from the same front file.
+//   2. On the AOP hoodie the FRONT and POCKET are linked: one upload
+//      slot (labelled 'Front + Pocket') serves both, and the pocket
+//      attachment is filled by the backend from the same front file,
+//      so the graphic reads continuously across the raised pocket.
+//      The BACK is its own placement with its own unique graphic.
 //   3. Print files are composed with an edge-mirrored fill by default:
 //      space the graphic doesn't cover reflects the graphic at its
 //      edges instead of staying blank (see composePrintCanvas).
+//   4. Design settings (2026-10-21 — the Printful design-maker
+//      equivalents): per placement, the user can mirror the graphic
+//      horizontally/vertically, rotate it, and choose the fill for
+//      uncovered space (mirror edges / repeat pattern / leave blank),
+//      on top of drag position + size. Settings live on the design
+//      record and are baked into the exported print PNG exactly as
+//      position/scale are; the defaults reproduce the pre-settings
+//      behaviour bit-for-bit. On the hoodie the settings apply ONCE
+//      to the front+pocket pair (they are baked into the shared
+//      front file the pocket attaches from); the back's settings
+//      are independent.
 //
 // Flow:
 //   1. Upload  — pick a product, then drag & drop or file picker,
@@ -74,33 +88,74 @@ function loadImage(src) {
   });
 }
 
+// Design settings defaults (Rule 4): mirror mode in Printful's
+// design maker flips the artwork; our defaults are NO flip, NO
+// rotation, and the edge-mirrored fill the designer has always used —
+// so a design record with default settings composes exactly the file
+// it composed before settings existed.
+const DEFAULT_DESIGN_SETTINGS = { flipX: false, flipY: false, rot: 0, fill: 'mirror' };
+const FILL_MODES = ['mirror', 'repeat', 'blank'];
+
+function designSettings(design) {
+  const d = design || {};
+  return {
+    flipX: !!d.flipX,
+    flipY: !!d.flipY,
+    rot: Number.isFinite(d.rot) ? ((d.rot % 360) + 360) % 360 : 0,
+    fill: FILL_MODES.includes(d.fill) ? d.fill : 'mirror',
+  };
+}
+
+// The graphic pre-transformed by its design settings (mirror flips +
+// rotation about its centre), rendered once into a w×h tile canvas.
+// Every fill mode and every reflected tile draws THIS tile, so the
+// settings apply uniformly — the mirrored fill mirrors the already-
+// transformed graphic, exactly as Printful's maker does.
+function makeDesignTile(img, w, h, settings) {
+  const tile = document.createElement('canvas');
+  tile.width = Math.max(1, Math.round(w));
+  tile.height = Math.max(1, Math.round(h));
+  const tctx = tile.getContext('2d');
+  tctx.translate(tile.width / 2, tile.height / 2);
+  if (settings.rot) tctx.rotate((settings.rot * Math.PI) / 180);
+  tctx.scale(settings.flipX ? -1 : 1, settings.flipY ? -1 : 1);
+  tctx.drawImage(img, -tile.width / 2, -tile.height / 2, tile.width, tile.height);
+  return tile;
+}
+
 // Compose a print canvas of W×H: the graphic drawn at `rect`, with
-// every uncovered pixel filled by edge-mirroring the graphic (Rule 3).
-// Reflected tiles are anchored on the graphic's own rect, so each
-// reflection meets the graphic's edge exactly — the fill reads as the
-// artwork continuing, never as blank space. The graphic itself is
-// drawn last, pristine, on top of its own home tile.
-function composePrintCanvas(img, W, H, rect) {
+// every uncovered pixel filled per the design's fill mode (Rule 3/4):
+// 'mirror' edge-mirrors the graphic, 'repeat' tiles it unflipped as
+// a pattern, 'blank' leaves uncovered space unprinted. Reflected
+// tiles are anchored on the graphic's own rect, so each reflection
+// meets the graphic's edge exactly — the fill reads as the artwork
+// continuing, never as blank space. The graphic itself is drawn
+// last, pristine, on top of its own home tile.
+function composePrintCanvas(img, W, H, rect, design) {
   const c = document.createElement('canvas');
   c.width = W; c.height = H;
   const ctx = c.getContext('2d');
   const { x, y, w, h } = rect;
   if (w > 0 && h > 0) {
-    const iMin = Math.floor((0 - x) / w), iMax = Math.ceil((W - x) / w);
-    const jMin = Math.floor((0 - y) / h), jMax = Math.ceil((H - y) / h);
-    for (let i = iMin; i < iMax; i++) {
-      for (let j = jMin; j < jMax; j++) {
-        if (i === 0 && j === 0) continue;
-        const flipX = Math.abs(i % 2) === 1;
-        const flipY = Math.abs(j % 2) === 1;
-        ctx.save();
-        ctx.translate(x + i * w + (flipX ? w : 0), y + j * h + (flipY ? h : 0));
-        ctx.scale(flipX ? -1 : 1, flipY ? -1 : 1);
-        ctx.drawImage(img, 0, 0, w, h);
-        ctx.restore();
+    const settings = designSettings(design);
+    const tile = makeDesignTile(img, w, h, settings);
+    if (settings.fill !== 'blank') {
+      const iMin = Math.floor((0 - x) / w), iMax = Math.ceil((W - x) / w);
+      const jMin = Math.floor((0 - y) / h), jMax = Math.ceil((H - y) / h);
+      for (let i = iMin; i < iMax; i++) {
+        for (let j = jMin; j < jMax; j++) {
+          if (i === 0 && j === 0) continue;
+          const flipX = settings.fill === 'mirror' && Math.abs(i % 2) === 1;
+          const flipY = settings.fill === 'mirror' && Math.abs(j % 2) === 1;
+          ctx.save();
+          ctx.translate(x + i * w + (flipX ? w : 0), y + j * h + (flipY ? h : 0));
+          ctx.scale(flipX ? -1 : 1, flipY ? -1 : 1);
+          ctx.drawImage(tile, 0, 0, w, h);
+          ctx.restore();
+        }
       }
     }
-    ctx.drawImage(img, x, y, w, h);
+    ctx.drawImage(tile, x, y, w, h);
   }
   return c;
 }
@@ -138,18 +193,29 @@ function canvasToBlob(canvas) {
 
 async function exportDesignBlob(design, spec) {
   const img = await loadImage(design.imgUrl);
-  const canvas = composePrintCanvas(img, spec.w, spec.h, designRect(img, design, spec.w, spec.h));
+  const canvas = composePrintCanvas(img, spec.w, spec.h, designRect(img, design, spec.w, spec.h), design);
   return canvasToBlob(canvas);
 }
 
 // Low-resolution composite for the stage backdrop, so the user sees
-// the mirrored fill while designing (same routine, smaller canvas).
+// the fill exactly as it will print (same routine, smaller canvas).
 async function previewDesignUrl(design, spec, targetW = 480) {
   const img = await loadImage(design.imgUrl);
   const W = targetW;
   const H = Math.max(1, Math.round(spec.h * (targetW / spec.w)));
-  const canvas = composePrintCanvas(img, W, H, designRect(img, design, W, H));
+  const canvas = composePrintCanvas(img, W, H, designRect(img, design, W, H), design);
   return canvas.toDataURL('image/png');
+}
+
+// The hoodie's back starts out REUSING the front graphic (the
+// linked front+pocket pair is the one required upload; the back's
+// own unique graphic is the user's option, Rule 2 amendment). Other
+// multi-placement templates start unchosen, as they always have.
+function defaultReuseFor(product) {
+  if (!product || !product.pocketFromFront) return {};
+  const pls = placementsFor(product);
+  if (pls.length < 2) return {};
+  return { [pls[1].key]: pls[0].key };
 }
 
 export default function CustomProductPage() {
@@ -169,7 +235,7 @@ export default function CustomProductPage() {
   // A design record: { imgUrl, imgSize, hasTransparency, qualityWarn,
   // gx, gy, gs } — position/size as fractions of the print area.
   const [designs, setDesigns] = useState({});
-  const [reuse, setReuse] = useState({});
+  const [reuse, setReuse] = useState(() => defaultReuseFor(getCustomProduct(DEFAULT_PRODUCT_KEY)));
   const [activeKey, setActiveKey] = useState(() => {
     const p = getCustomProduct(DEFAULT_PRODUCT_KEY);
     const pls = p ? placementsFor(p) : [];
@@ -256,7 +322,7 @@ export default function CustomProductPage() {
     }
     setProductKey(key);
     setDesigns(next);
-    setReuse({});
+    setReuse(defaultReuseFor(p));
     setActiveKey(first ? first.key : 'main');
     setBuySize(p.defaultSize || '');
     setResult(null);
@@ -310,6 +376,7 @@ export default function CustomProductPage() {
             hasTransparency: transparent,
             qualityWarn: w < 2000 || h < 2000,
             gx: product.design.x, gy: product.design.y, gs: product.design.scale,
+            ...DEFAULT_DESIGN_SETTINGS,
           },
         };
       });
@@ -512,8 +579,8 @@ export default function CustomProductPage() {
       if (d && d.imgUrl) URL.revokeObjectURL(d.imgUrl);
     });
     setDesigns({});
-    setReuse({});
     const p = getCustomProduct(productKey) || CUSTOM_PRODUCTS[0];
+    setReuse(defaultReuseFor(p));
     const pls = placementsFor(p);
     setActiveKey(pls.length ? pls[0].key : 'main');
     setBuySize(p.defaultSize || '');
@@ -749,7 +816,11 @@ export default function CustomProductPage() {
             <div className="mb-3 text-sm text-slate-400">
               Drag your graphic to move it · use the slider to resize
               <span className="block text-xs text-slate-500">
-                Space around your graphic is filled by mirroring its edges — no blank space.
+                {designSettings(activeDesign).fill === 'repeat'
+                  ? 'Space around your graphic is filled by repeating it as a pattern.'
+                  : designSettings(activeDesign).fill === 'blank'
+                    ? 'Space around your graphic is left blank — only your graphic prints.'
+                    : 'Space around your graphic is filled by mirroring its edges — no blank space.'}
               </span>
             </div>
             {/* print-area stage */}
@@ -780,9 +851,27 @@ export default function CustomProductPage() {
                       left: `${activeDesign.gx * 100}%`,
                       top: `${activeDesign.gy * 100}%`,
                       width: `${activeDesign.gs * 100}%`,
-                      transform: 'translate(-50%, -50%)',
+                      transform: `translate(-50%, -50%) rotate(${designSettings(activeDesign).rot}deg) scale(${designSettings(activeDesign).flipX ? -1 : 1}, ${designSettings(activeDesign).flipY ? -1 : 1})`,
                     }}
                   />
+                )}
+                {/* Pocket guide (hoodie, Rule 2): the dashed zone is
+                    where the raised kangaroo pocket sits on the
+                    front — the same graphic continues across it. */}
+                {product.pocketGuide && activePlacement && activePlacement.key === firstKey && !activeIsReuse && (
+                  <div
+                    className="pointer-events-none absolute rounded-md border-2 border-dashed border-amber-500/70"
+                    style={{
+                      left: `${product.pocketGuide.left}%`,
+                      top: `${product.pocketGuide.top}%`,
+                      width: `${product.pocketGuide.width}%`,
+                      height: `${product.pocketGuide.height}%`,
+                    }}
+                  >
+                    <span className="absolute -top-5 left-0 text-[10px] font-semibold uppercase tracking-widest text-amber-600">
+                      pocket — same graphic
+                    </span>
+                  </div>
                 )}
                 {activeIsReuse && activePlacement && (
                   <div className="absolute inset-x-0 bottom-0 bg-black/50 px-3 py-2 text-center text-xs text-slate-200">
@@ -810,6 +899,95 @@ export default function CustomProductPage() {
               )}
             </div>
 
+            {/* design settings (Rule 4 — Printful design-maker
+                equivalents, applied per placement and baked into the
+                exported print file). On the hoodie these live on the
+                front record, so they apply once to the front+pocket
+                pair; the back has its own. */}
+            <div className="mt-5 rounded-xl border border-white/15 bg-white/5 p-4">
+              <div className="text-sm font-semibold text-slate-200">Design settings</div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={activeIsReuse}
+                  onClick={() => patchDesign(activeSourceKey, { flipX: !designSettings(activeDesign).flipX })}
+                  className={cx(
+                    'rounded-lg border px-3 py-2 text-sm disabled:opacity-40',
+                    designSettings(activeDesign).flipX
+                      ? 'border-amber-400 bg-amber-400/10 text-amber-200'
+                      : 'border-white/15 text-slate-300'
+                  )}
+                >
+                  ⇋ Mirror horizontal
+                </button>
+                <button
+                  type="button"
+                  disabled={activeIsReuse}
+                  onClick={() => patchDesign(activeSourceKey, { flipY: !designSettings(activeDesign).flipY })}
+                  className={cx(
+                    'rounded-lg border px-3 py-2 text-sm disabled:opacity-40',
+                    designSettings(activeDesign).flipY
+                      ? 'border-amber-400 bg-amber-400/10 text-amber-200'
+                      : 'border-white/15 text-slate-300'
+                  )}
+                >
+                  ⇅ Mirror vertical
+                </button>
+                <button
+                  type="button"
+                  disabled={activeIsReuse}
+                  onClick={() => patchDesign(activeSourceKey, { gx: 0.5, gy: 0.5 })}
+                  className="rounded-lg border border-white/15 px-3 py-2 text-sm text-slate-300 disabled:opacity-40"
+                >
+                  Center graphic
+                </button>
+              </div>
+              <label className="mt-4 block text-sm text-slate-300">
+                Rotate — {designSettings(activeDesign).rot}°
+                <input
+                  type="range" min={0} max={359} step={1}
+                  value={designSettings(activeDesign).rot}
+                  disabled={activeIsReuse}
+                  onChange={(e) => patchDesign(activeSourceKey, { rot: Number(e.target.value) })}
+                  className="mt-2 w-full accent-amber-400 disabled:opacity-40"
+                />
+              </label>
+              <div className="mt-4">
+                <div className="text-sm text-slate-300">Fill the space around the graphic</div>
+                <div className="mt-2 grid grid-cols-3 gap-2">
+                  {[
+                    ['mirror', 'Mirror edges'],
+                    ['repeat', 'Repeat'],
+                    ['blank', 'Leave blank'],
+                  ].map(([mode, label]) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      disabled={activeIsReuse}
+                      onClick={() => patchDesign(activeSourceKey, { fill: mode })}
+                      className={cx(
+                        'rounded-lg border px-2 py-2 text-sm disabled:opacity-40',
+                        designSettings(activeDesign).fill === mode
+                          ? 'border-amber-400 bg-amber-400/10 text-amber-200'
+                          : 'border-white/15 text-slate-300'
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {activeIsReuse && activePlacement ? (
+                <div className="mt-3 text-xs text-slate-500">
+                  Settings follow the {labelOf(reuse[activePlacement.key]).toLowerCase()} graphic.
+                </div>
+              ) : product.pocketFromFront && activePlacement && activePlacement.key === firstKey ? (
+                <div className="mt-3 text-xs text-slate-500">
+                  These settings apply to the front and the pocket together — the pocket prints this same file.
+                </div>
+              ) : null}
+            </div>
+
             {/* validation notes */}
             <div className="mt-4 space-y-1 text-xs">
               {activeDesign.imgSize && (
@@ -825,7 +1003,7 @@ export default function CustomProductPage() {
               )}
               {activeDesign.hasTransparency === true && (
                 <div className="text-emerald-300">
-                  Transparent background detected — open areas fill with a mirrored reflection of your graphic.
+                  Transparent background detected — open areas are filled per your fill setting (mirror edges by default).
                 </div>
               )}
               {product.pocketFromFront && (

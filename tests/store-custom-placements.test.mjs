@@ -8,10 +8,14 @@
 //   Rule 1: a multi-placement template (joggers) takes a different
 //           graphic per placement, or the same one reused — the
 //           user's choice per placement.
-//   Rule 2: the AOP hoodie exposes ONLY the front to the user; the
-//           planner appends the pocket attachment sourced from the
-//           front's file (Sutton's composition law — same file,
-//           default placement, pocket stays aligned with the front).
+//   Rule 2: the AOP hoodie's FRONT and POCKET are linked — one user
+//           placement serves the pair, and the planner appends the
+//           pocket attachment sourced from the front's file (Sutton's
+//           composition law — same file, default placement, so the
+//           graphic reads continuously across the raised pocket).
+//           AMENDMENT (Merlin, 2026-10-21): the hoodie's BACK is its
+//           own user placement with its own unique graphic (or the
+//           front's, reused) — the planner treats it under Rule 1.
 import {
   CUSTOM_PRODUCTS,
   getCustomProduct,
@@ -41,16 +45,22 @@ const hoodie = getCustomProduct('hoodie');
 const joggers = getCustomProduct('joggers');
 const tshirt = getCustomProduct('tshirt');
 
-t('hoodie: exactly one user placement', placementsFor(hoodie).length === 1);
+t('hoodie: two user placements (front+pocket pair, back)', placementsFor(hoodie).length === 2);
 t('hoodie: front placement is type-less (legacy attachment)',
   placementsFor(hoodie)[0].type === null);
+t('hoodie: front slot is the linked front+pocket pair',
+  placementsFor(hoodie)[0].label === 'Front + Pocket');
+t('hoodie: back placement carries the back file type',
+  placementsFor(hoodie)[1].key === 'back' && placementsFor(hoodie)[1].type === 'back');
 t('hoodie: pocketFromFront set', hoodie.pocketFromFront === true);
+t('hoodie: pocket guide present for the stage overlay',
+  !!hoodie.pocketGuide && hoodie.pocketGuide.width > 0);
 t('joggers: two placements', placementsFor(joggers).length === 2);
 t('joggers: leg types', placementsFor(joggers).map((p) => p.type).join() === 'leg_right,leg_left');
 t('only the hoodie has pocketFromFront',
   CUSTOM_PRODUCTS.filter((p) => p.pocketFromFront).map((p) => p.key).join() === 'hoodie');
-t('joggers is the only multi-placement template',
-  CUSTOM_PRODUCTS.filter((p) => placementsFor(p).length > 1).map((p) => p.key).join() === 'joggers');
+t('hoodie + joggers are the multi-placement templates',
+  CUSTOM_PRODUCTS.filter((p) => placementsFor(p).length > 1).map((p) => p.key).join() === 'hoodie,joggers');
 
 // --- legacy single-image plans --------------------------------------
 {
@@ -73,11 +83,12 @@ t('joggers is the only multi-placement template',
   const plan = planPlacementFiles(hoodie, null);
   t('legacy hoodie: ok', plan.ok === true);
   t('legacy hoodie: one upload', plan.uploads.length === 1);
-  t('legacy hoodie: front type-less + pocket on same file',
-    plan.files.length === 2 &&
+  t('legacy hoodie: front + back + pocket all on the one file',
+    plan.files.length === 3 &&
     plan.files[0].type === null &&
-    plan.files[1].type === 'pocket' &&
-    plan.files[0].source === plan.files[1].source);
+    plan.files[1].type === 'back' &&
+    plan.files[2].type === 'pocket' &&
+    plan.files.every((f) => f.source === 'front'));
 }
 
 // --- Rule 1: per-placement graphics on the joggers -------------------
@@ -142,23 +153,52 @@ t('joggers is the only multi-placement template',
 
 // --- Rule 2: hoodie pocket comes from the backend, never the client --
 {
+  const plan = planPlacementFiles(hoodie, {
+    front: { image: true },
+    back: { sameAs: 'front' },
+  });
+  t('hoodie front + back-reuse: ok', plan.ok === true);
+  t('hoodie front + back-reuse: pocket appended on the front file',
+    plan.files.length === 3 && plan.files[2].type === 'pocket' &&
+    plan.files[2].source === 'front' && plan.uploads.length === 1);
+}
+{
+  // The back's own unique graphic: two uploads; the pocket STILL
+  // derives from the front file alone (settings/continuity law).
+  const plan = planPlacementFiles(hoodie, {
+    front: { image: true },
+    back: { image: true },
+  });
+  t('hoodie back own graphic: ok', plan.ok === true);
+  t('hoodie back own graphic: two uploads, back gets its own file',
+    plan.uploads.length === 2 &&
+    plan.files.length === 3 &&
+    plan.files[1].type === 'back' && plan.files[1].source === 'back');
+  t('hoodie back own graphic: pocket still sourced from the front',
+    plan.files[2].type === 'pocket' && plan.files[2].source === 'front');
+}
+{
+  // Front without any back decision is incomplete now that the back
+  // is a user placement (the designer seeds it to reuse the front).
   const plan = planPlacementFiles(hoodie, { front: { image: true } });
-  t('hoodie explicit front: ok', plan.ok === true);
-  t('hoodie explicit front: pocket appended on same file',
-    plan.files.length === 2 && plan.files[1].type === 'pocket' &&
-    plan.files[1].source === 'front' && plan.uploads.length === 1);
+  t('hoodie front alone (no back): rejected as incomplete', plan.ok === false);
 }
 {
   // a client trying to submit its own pocket gets rejected outright —
   // the pocket is not a user placement on the hoodie.
   const plan = planPlacementFiles(hoodie, {
     front: { image: true },
+    back: { sameAs: 'front' },
     pocket: { image: true },
   });
   t('hoodie client-supplied pocket: rejected', plan.ok === false);
 }
 
 // --- Second batch: the final five rollout types (2026-10-14) --------
+// Baseline prices below are the 2026-10-21 percentage-rule values
+// (template first-variant cost x the hoodie factor 9500/5795): puzzle
+// C$21.75 -> 3566, postcards C$2.25 -> 369, apron C$32.75 -> 5369,
+// water bottle C$38.95 -> 6385, beach towel C$41.75 -> 6844.
 // Specs are the live Printful values (GET /products/{id} +
 // GET /mockup-generator/printfiles/{id}): puzzle 534 and beach towel
 // 259 pin one variant because each size has its own printfile spec;
@@ -166,15 +206,15 @@ t('joggers is the only multi-placement template',
 // postcards 433 and apron 894 have a single variant each. The AOP
 // apron's only placement is 'front', so its file type is 'front'.
 const BATCH2 = [
-  { key: 'puzzle', catalogId: 534, priceCents: 3500, type: 'default',
+  { key: 'puzzle', catalogId: 534, priceCents: 3566, type: 'default',
     print: { w: 4200, h: 3300, dpi: 300, fill: 'cover' }, variantId: 13431 },
-  { key: 'postcards', catalogId: 433, priceCents: 1500, type: 'default',
+  { key: 'postcards', catalogId: 433, priceCents: 369, type: 'default',
     print: { w: 1842, h: 1240, dpi: 300, fill: 'cover' }, variantId: 11513 },
-  { key: 'apron', catalogId: 894, priceCents: 3500, type: 'front',
+  { key: 'apron', catalogId: 894, priceCents: 5369, type: 'front',
     print: { w: 4350, h: 4783, dpi: 150, fill: 'cover' }, variantId: 22903 },
-  { key: 'water-bottle', catalogId: 848, priceCents: 4500, type: 'default',
+  { key: 'water-bottle', catalogId: 848, priceCents: 6385, type: 'default',
     print: { w: 2914, h: 1196, dpi: 300, fill: 'fit' }, variantId: 22017 },
-  { key: 'beach-towel', catalogId: 259, priceCents: 5500, type: 'default',
+  { key: 'beach-towel', catalogId: 259, priceCents: 6844, type: 'default',
     print: { w: 9300, h: 4800, dpi: 150, fill: 'cover' }, variantId: 8874 },
 ];
 
@@ -184,7 +224,7 @@ for (const spec of BATCH2) {
   t(`${spec.key}: resolves`, !!p);
   if (!p) continue;
   t(`${spec.key}: catalog id`, p.catalogId === spec.catalogId);
-  t(`${spec.key}: baseline price matches the rollout price`,
+  t(`${spec.key}: baseline price matches the percentage rule`,
     p.priceCents === spec.priceCents);
   const pls = placementsFor(p);
   t(`${spec.key}: exactly one user placement`, pls.length === 1);

@@ -17,11 +17,16 @@
 // multi-placement templates take a different graphic per placement,
 // or the same one, the user's choice). Older clients send a single
 // `imageBase64` that fills every placement. On the AOP hoodie the
-// client only ever sends the front; the pocket attachment is added
-// here from the same uploaded front file (Rule 2 — see
-// planPlacementFiles in lib/store/custom-products.js).
+// front and pocket are LINKED (Rule 2, amended 2026-10-21): the
+// client sends the front (labelled 'Front + Pocket') and, as its own
+// placement, the back; the pocket attachment is added here from the
+// same uploaded front file — see planPlacementFiles in
+// lib/store/custom-products.js.
 //   3. Sets the sync product thumbnail explicitly from Printful's
-//      generated mockup/preview (standing store rule)
+//      generated mockup — the first sync variant's 'preview' file,
+//      polled briefly because mockup generation is asynchronous; the
+//      list thumbnail_url is degenerate (bare CDN root) for most
+//      products and is never trusted unless it is a real file URL.
 //   4. Returns the product id + mockup so the designer can show the
 //      official render and hand off to the existing checkout flow.
 //
@@ -58,6 +63,7 @@ import {
   downloadDesignUpload,
   deleteDesignUploads,
 } from '@/lib/store/design-upload';
+import { isRealImageUrl } from '@/lib/store-printful';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -283,14 +289,35 @@ export const POST = apiGuard(async (req) => {
   const productId = sp.id;
   if (!productId) throw new Error('Printful product creation failed.');
 
-  // 3. Fetch the product to get Printful's official mockup image, then
-  //    set the thumbnail explicitly from it (standing store rule).
-  //    Best-effort: the product exists either way.
+  // 3. Select the product's MOCKUP as its store image (Merlin,
+  //    2026-10-21: "ensure mockups are selected when listing so that
+  //    they appear in the store"). The mockup is the first sync
+  //    variant's file of type 'preview' — Printful's on-product
+  //    render. Generation is asynchronous, so poll briefly; the sync
+  //    product's thumbnail_url is only a fallback and only when it is
+  //    a real file URL (for most products it is the bare CDN root,
+  //    which renders as a broken image). The chosen URL is stamped as
+  //    the sync product thumbnail explicitly (standing store rule).
+  //    Best-effort: the product exists either way, and the storefront
+  //    card resolves the preview lazily if this step found none yet.
   let mockupUrl = null;
   try {
-    const detail = await pf('GET', `/store/products/${productId}`);
-    const dsp = (detail && (detail.sync_product || detail)) || {};
-    mockupUrl = dsp.thumbnail_url || dsp.image || null;
+    for (let attempt = 0; attempt < 6 && !mockupUrl; attempt++) {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, 2500));
+      const detail = await pf('GET', `/store/products/${productId}`);
+      const dsp = (detail && detail.sync_product) || {};
+      const svs = (detail && detail.sync_variants) || [];
+      for (const v of svs) {
+        const preview = ((v && v.files) || []).find((f) => f && f.type === 'preview');
+        if (preview && isRealImageUrl(preview.preview_url)) {
+          mockupUrl = preview.preview_url;
+          break;
+        }
+      }
+      if (!mockupUrl && isRealImageUrl(dsp.thumbnail_url)) {
+        mockupUrl = dsp.thumbnail_url;
+      }
+    }
     if (mockupUrl) {
       try {
         await pf('PUT', `/store/products/${productId}`, {

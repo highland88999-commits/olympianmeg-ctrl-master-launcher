@@ -8,7 +8,7 @@
 // session (or debits gold when chosen). The Luge free-hoodie reward
 // (/store?reward=luge) is separate: it claims through POST /api/luge/claim
 // and never touches checkout, so it is unaffected.
-import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
@@ -38,6 +38,33 @@ const SIZES = ['S', 'M', 'L', 'XL', '2XL', '3XL'];
 function ProductCard({ product, onBuy, buying, gold, setGold, rewardMode, onRedeem, highlighted }) {
   const [size, setSize] = useState('L');
   const isApparel = product.kind === 'apparel';
+  // Mockup image (2026-10-21): most list thumbnails are the degenerate
+  // CDN root, so the card arrives imageless with imagePending set and
+  // resolves the product's real Printful mockup lazily when it nears
+  // the viewport (GET /api/store/product-image). Any image that fails
+  // to load is hidden — a card shows the mockup or the plain
+  // placeholder, never a broken-image glyph.
+  const [imgSrc, setImgSrc] = useState(product.image || null);
+  const [imgFailed, setImgFailed] = useState(false);
+  const cardRef = useRef(null);
+  useEffect(() => {
+    setImgSrc(product.image || null);
+    setImgFailed(false);
+  }, [product.id, product.image]);
+  useEffect(() => {
+    if (imgSrc || !product.imagePending || !cardRef.current) return undefined;
+    let alive = true;
+    const io = new IntersectionObserver((entries) => {
+      if (!entries.some((e) => e.isIntersecting)) return;
+      io.disconnect();
+      fetch(`/api/store/product-image?id=${encodeURIComponent(product.id)}`)
+        .then((r) => r.json())
+        .then((d) => { if (alive && d && d.image) setImgSrc(d.image); })
+        .catch(() => {});
+    }, { rootMargin: '300px' });
+    io.observe(cardRef.current);
+    return () => { alive = false; io.disconnect(); };
+  }, [imgSrc, product.id, product.imagePending]);
   // The buy CTA enables when the server reports checkoutReady (Stripe is
   // configured). Without it, the CTA stays honestly disabled — no order is
   // ever faked or placed. Reward redemption (Luge) bypasses checkout
@@ -46,6 +73,7 @@ function ProductCard({ product, onBuy, buying, gold, setGold, rewardMode, onRede
 
   return (
     <div
+      ref={cardRef}
       id={productAnchorId(product.id)}
       className={`flex scroll-mt-32 flex-col overflow-hidden rounded-2xl border bg-white/5 ${
         highlighted ? 'border-amber-300/70 ring-2 ring-amber-300/60' : 'border-white/10'
@@ -56,10 +84,11 @@ function ProductCard({ product, onBuy, buying, gold, setGold, rewardMode, onRede
           hue, instead of bleeding edge to edge. No-image products keep
           the placeholder, centred on the stage. */}
       <KaleidoStage hueKey={product.id || product.name}>
-        {product.image ? (
+        {imgSrc && !imgFailed ? (
           <img
-            src={product.image}
+            src={imgSrc}
             alt={product.name}
+            onError={() => setImgFailed(true)}
             className="aspect-square h-full w-full rounded-xl object-cover shadow-2xl"
             loading="lazy"
           />
@@ -272,14 +301,23 @@ function StoreInner() {
   }, [products, wantedProduct, wantedCategory]);
 
   // Product-type categories (Merlin, 2026-10-11; full-catalog expansion
-  // 2026-10-13): the store groups products by type — every product
-  // family gets its own section. `category` comes from categoryOf() in
-  // lib/store-printful.js; anything unrecognized lands under "More".
+  // 2026-10-13; verified-type overhaul 2026-10-21): the store groups
+  // products by their Printful catalog TYPE — every family gets its
+  // own section, including the families the old name-keyword filing
+  // buried (Blankets, Pillows & Pillow Cases, Candles, …). `category`
+  // comes from categoryOf() in lib/store-printful.js; anything
+  // unrecognized lands under "More".
   const CATEGORY_ORDER = [
     'Hoodies', 'T-Shirts', 'Sweatshirts', 'Sweaters', 'Jackets', 'Tank Tops',
-    'Joggers', 'Pants', 'Headwear', 'Mugs', 'Tumblers', 'Water Bottles',
-    'Tote Bags', 'Drawstring Bags', 'Posters', 'Framed Posters', 'Canvas',
-    'Stickers', 'Phone Cases', 'Puzzles', 'Postcards', 'Aprons',
+    'Joggers', 'Pants', 'Leggings', 'Shorts', 'Dresses', 'Swimwear',
+    'Sports Bras', 'Sports Jerseys', 'Pajamas', 'Polo Shirts', 'Headwear',
+    'Baby Bodysuits', 'Shoes', 'Blankets', 'Pillows & Pillow Cases',
+    'Candles', 'Mugs', 'Tumblers', 'Water Bottles', 'Glassware',
+    'Tote Bags', 'Drawstring Bags', 'Crossbody Bags', 'Backpacks',
+    'Posters', 'Framed Posters', 'Canvas', 'Stickers', 'Phone Cases',
+    'Notebooks & Journals', 'Mouse Pads & Desk Mats', 'Puzzles',
+    'Postcards', 'Gift Wrap & Bags', 'Calendars', 'Ornaments',
+    'Flags & Pennants', 'Table Linens', 'Pet Accessories', 'Aprons',
     'Beach Towels', 'Socks', 'More',
   ];
 
@@ -368,8 +406,11 @@ function StoreInner() {
     }
   }, []);
 
+  // The Luge reward pool is every hoodie by TYPE (2026-10-21: the
+  // verified category, not a name match — graphic-titled hoodies like
+  // "Glitch" are hoodies too).
   const hoodies = useMemo(
-    () => (products || []).filter((p) => p.kind === 'apparel' && /hoodie/i.test(p.name || '')),
+    () => (products || []).filter((p) => p.category === 'Hoodies'),
     [products]
   );
 

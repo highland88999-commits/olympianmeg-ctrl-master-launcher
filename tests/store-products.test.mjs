@@ -22,6 +22,8 @@ import {
   getCatalog,
   categoryOf,
   priceCentsOf,
+  getProductImage,
+  isRealImageUrl,
   __resetCache,
 } from '../lib/store-printful.js';
 
@@ -75,29 +77,70 @@ t('category: track pants -> Pants', categoryOf('Unisex track pants - Y') === 'Pa
 t('category: unknown -> More', categoryOf('Glitch') === 'More');
 t('category: empty -> More', categoryOf('') === 'More');
 
-// --- categories: rollout type prefixes always win (Merlin 2026-10-13) --------
-// Every rollout family gets its OWN category from the "<Type> - " prefix,
-// even when the graphic name contains another family's keyword — the old
-// keyword-first rules filed 5,339 of 5,694 rollout products wrong.
+// --- categories: VERIFIED TYPE always wins (Merlin, 2026-10-21) --------
+// Every rollout family is filed by its Printful catalog TYPE, verified
+// live: for each first segment below, two independent sync products
+// were fetched and their first variant's catalog product matched 1:1.
+// Prices are Merlin's percentage rule: each family's entry-variant
+// Printful cost x the hoodie markup factor (9500/5795 — the C$95
+// hoodie over its C$57.95 cost), rounded to the nearest cent. Graphic
+// names NEVER file a product: a blanket whose graphic is a hoodie
+// design is a BLANKET (the old keyword rules put Blankets under
+// Hoodies and Pillows & Pillow Cases under Pants/Mugs — the exact
+// symptoms from Merlin's 2026-10-21 store walkthrough).
 const TYPE_CASES = [
-  ['Classic T-Shirt', 'T-Shirts', 9500],
-  ['Zip-Up Hoodie', 'Hoodies', 9500],
-  ['Drawstring Bag', 'Drawstring Bags', 9500],
-  ['Knit Sweater', 'Sweaters', 9500],
-  ['Joggers', 'Joggers', 9500],
-  ['Tank Top', 'Tank Tops', 6500],
-  ['Tote Bag', 'Tote Bags', 3500],
-  ['Tumbler', 'Tumblers', 4500],
-  ['Poster', 'Posters', 3500],
-  ['Framed Poster', 'Framed Posters', 7500],
-  ['Canvas', 'Canvas', 8500],
-  ['Die-Cut Stickers', 'Stickers', 1500],
-  ['Phone Case', 'Phone Cases', 4500],
-  ['Puzzle', 'Puzzles', 3500],
-  ['Postcards', 'Postcards', 1500],
-  ['Apron', 'Aprons', 3500],
-  ['Water Bottle', 'Water Bottles', 4500],
-  ['Beach Towel', 'Beach Towels', 5500],
+  ['Unisex Hoodie', 'Hoodies', 9500],
+  ['Classic T-Shirt', 'T-Shirts', 4180],
+  ['Framed Poster', 'Framed Posters', 5566],
+  ['Tank Top', 'Tank Tops', 4139],
+  ['Tote Bag', 'Tote Bags', 4139],
+  ['Apron', 'Aprons', 5369],
+  ['Baby Bodysuits', 'Baby Bodysuits', 2705],
+  ['Backpacks', 'Backpacks', 10697],
+  ['Beach Towel', 'Beach Towels', 6844],
+  ['Blankets', 'Blankets', 5730],
+  ['Calendars', 'Calendars', 4508],
+  ['Canvas', 'Canvas', 3926],
+  ['Crossbody, Fanny & Sling Bags', 'Crossbody Bags', 5615],
+  ['Die-Cut Stickers', 'Stickers', 902],
+  ['Drawstring Bag', 'Drawstring Bags', 3648],
+  ['Dresses', 'Dresses', 8770],
+  ['Flags & Pennants', 'Flags & Pennants', 5451],
+  ['Gift Wrap & Paper Bags', 'Gift Wrap & Bags', 1393],
+  ['Glassware', 'Glassware', 2910],
+  ['Headwear', 'Headwear', 3156],
+  ['Jackets', 'Jackets', 9959],
+  ['Joggers', 'Joggers', 9664],
+  ['Knit Sweater', 'Sweaters', 11189],
+  ['Leggings', 'Leggings', 8934],
+  ['Mouse Pads & Desk Mats', 'Mouse Pads & Desk Mats', 2336],
+  ['Notebooks & Journals', 'Notebooks & Journals', 3156],
+  ['Ornaments', 'Ornaments', 1959],
+  ['Pajamas', 'Pajamas', 7369],
+  ['Pet Accessories', 'Pet Accessories', 4180],
+  ['Phone Case', 'Phone Cases', 3811],
+  ['Pillows & Pillow Cases', 'Pillows & Pillow Cases', 3197],
+  ['Polo Shirts', 'Polo Shirts', 5328],
+  ['Postcards', 'Postcards', 369],
+  ['Poster', 'Posters', 2541],
+  ['Puzzle', 'Puzzles', 3566],
+  ['Shoes', 'Shoes', 10205],
+  ['Shorts', 'Shorts', 7746],
+  ['Sports Bras', 'Sports Bras', 6270],
+  ['Sports Jerseys', 'Sports Jerseys', 7746],
+  ['Sweatshirts', 'Sweatshirts', 8238],
+  ['Swimwear', 'Swimwear', 10410],
+  ['Table Linens', 'Table Linens', 9426],
+  ['Tumbler', 'Tumblers', 2418],
+  ['Water Bottle', 'Water Bottles', 6385],
+  ['Zip-Up Hoodie', 'Hoodies', 12582],
+  ['Candles', 'Candles', 2705],
+  ['Unisex zip hoodie', 'Hoodies', 12123],
+  ['Unisex track pants', 'Pants', 7131],
+  ['Galaga x Arcade', 'Hoodies', 9500],
+  ['Olympian Unisex Hoodie', 'Hoodies', 9500],
+  ['The Architect; Unisex Hoodie', 'Hoodies', 9500],
+  ['Wide-leg joggers', 'Joggers', 9262],
 ];
 for (const [type, cat, cents] of TYPE_CASES) {
   t(`type prefix: ${type} -> ${cat}`, categoryOf(`${type} - Some Graphic`) === cat);
@@ -107,26 +150,52 @@ for (const [type, cat, cents] of TYPE_CASES) {
     return card.category === cat && card.priceCents === cents;
   })());
 }
-// The misfiled-Mug regressions from the live census: the graphic name is
-// a mug/hoodie name, the product is NOT — the type prefix decides.
+// The misfiled regressions from Merlin's walkthrough + the live
+// census: the graphic name names another product; the TYPE decides.
 t('misfiled: water bottle with mug graphic', categoryOf('Water Bottle - Frosty Diamond Face Mug') === 'Water Bottles');
 t('misfiled: beach towel with mug graphic', categoryOf('Beach Towel - Galaxy Portal Mug') === 'Beach Towels');
 t('misfiled: tote with mug graphic', categoryOf('Tote Bag - Neon Tiger Mug') === 'Tote Bags');
 t('misfiled: t-shirt with hoodie graphic', categoryOf('Classic T-Shirt - Unisex Hoodie - You Sunk My Battleship') === 'T-Shirts');
-t('misfiled: stickers with hoodie graphic price', priceCentsOf('Die-Cut Stickers - Unisex Hoodie - Prompt: YIN/YEN') === 1500);
+t('misfiled: stickers with hoodie graphic price', priceCentsOf('Die-Cut Stickers - Unisex Hoodie - Prompt: YIN/YEN') === 902);
 t('misfiled: framed poster is not Posters', categoryOf('Framed Poster - X') === 'Framed Posters');
 t('misfiled: zip-up with mug graphic stays Hoodies', categoryOf('Zip-Up Hoodie - Frosty Mug') === 'Hoodies');
-// Legacy shapes keep working through the keyword fallback.
+t('misfiled: blanket with hoodie graphic is a Blanket', categoryOf('Blankets - Unisex Hoodie - You Sunk My Battleship') === 'Blankets');
+t('misfiled: pillow with pants graphic is a Pillow', categoryOf('Pillows & Pillow Cases - Unisex track pants - Y') === 'Pillows & Pillow Cases');
+// Legacy shapes: pre-rollout dashboard names END in the type word —
+// structure, verified against the catalog (all 88 live "* Mug"
+// products are catalog 19). Everything else unrecognized is 'More'
+// at the C$95 anchor: name-keyword filing is GONE (it was the bug).
 t('legacy: mug suffix beats hoodie words', categoryOf('Olympian Hoodies X Maps Mug') === 'Mugs');
-t('legacy: mug batch price C$24.99', priceCentsOf('Neon Tiger Mug') === 2499);
+t('legacy: mug batch price = cost x hoodie factor', priceCentsOf('Neon Tiger Mug') === 1434);
 t('legacy: bare title defaults to C$95', priceCentsOf('Glitch') === 9500);
-t('legacy: track pants entry price', priceCentsOf('Unisex track pants - Artemis Hunting Gear') === 6050);
+t('legacy: track pants entry price', priceCentsOf('Unisex track pants - Artemis Hunting Gear') === 7131);
 t('legacy: wide-leg joggers price', (() => {
   const card = mapListItemToCard({ id: 43, name: 'Wide-leg joggers - Camo', variants: 3 });
-  return card.category === 'Joggers' && card.priceCents === 8000;
+  return card.category === 'Joggers' && card.priceCents === 9262;
 })());
-t('legacy: sweater keyword -> Sweaters', categoryOf('Cozy Knit Sweater') === 'Sweaters');
-t('legacy: sweatshirt keyword -> Sweatshirts', categoryOf('Classic Crewneck Sweatshirt') === 'Sweatshirts');
+t('legacy: keyword filing removed (sweater words in a title)', categoryOf('Cozy Knit Sweater') === 'More');
+t('legacy: keyword filing removed (sweatshirt words in a title)', categoryOf('Classic Crewneck Sweatshirt') === 'More');
+// Verified per-product types: graphic-titled legacy products carry no
+// type in their name; the audit typed them by detail fetch, keyed by
+// Printful id (Glitch the product, id 474601990, IS a hoodie — the
+// bare NAME 'Glitch' above still resolves 'More' without its id).
+t('verified id: Glitch the product is a Hoodie', (() => {
+  const card = mapListItemToCard({ id: 474601990, name: 'Glitch', variants: 11 });
+  return card.category === 'Hoodies' && card.priceCents === 9500 && card.kind === 'apparel';
+})());
+t('verified id: Grafitti Wear the pants', (() => {
+  const card = mapListItemToCard({ id: 428063212, name: 'Grafitti Wear', variants: 11 });
+  return card.category === 'Pants' && card.priceCents === 7746;
+})());
+
+// --- images: the degenerate thumbnail must never reach a card --------
+t('image url: bare CDN root is not a real image', isRealImageUrl('https://files.cdn.printful.com/') === false);
+t('image url: real preview file is a real image', isRealImageUrl('https://files.cdn.printful.com/files/0c0/0c0ae57c5b6a7822f2ed3229c23b338a_preview.png') === true);
+t('image url: null is not a real image', isRealImageUrl(null) === false);
+const degen = mapListItemToCard({ id: 77, name: 'Blankets - X', thumbnail_url: 'https://files.cdn.printful.com/', variants: 1 });
+t('degenerate thumbnail: image null + pending resolution', degen.image === null && degen.imagePending === true);
+const realThumb = mapListItemToCard({ id: 78, name: 'Blankets - X', thumbnail_url: 'https://files.cdn.printful.com/files/abc/preview.png', variants: 1 });
+t('real thumbnail: image set, nothing pending', realThumb.image === 'https://files.cdn.printful.com/files/abc/preview.png' && realThumb.imagePending === false);
 
 const second = mapListItemToCard(SECOND_ITEM);
 t('second: id mapped', second.id === 'pf_7');
@@ -303,6 +372,42 @@ try {
 } catch (e) { threw2 = e; }
 t('api down: getCatalog throws, never returns fake products', !!threw2);
 t('api down: notice is honest', noticeForError(threw2 && threw2.status).includes('try again later'));
+
+// --- mockup resolution: the detail payload's preview file wins -----
+// The list thumbnail for most products is the bare CDN root; the real
+// mockup is the first sync variant's 'preview' file in the DETAIL
+// payload. getProductImage reads exactly that (its own call — the
+// catalog build above stays list-only, as the mocks there assert).
+globalThis.fetch = async (url) => {
+  if (String(url).includes('/store/products/555?')) {
+    return {
+      ok: true, status: 200,
+      json: async () => ({
+        code: 200,
+        result: {
+          sync_product: { id: 555, thumbnail_url: 'https://files.cdn.printful.com/' },
+          sync_variants: [{
+            id: 9001, variant_id: 22609,
+            files: [
+              { type: 'default', preview_url: 'https://files.cdn.printful.com/files/aaa/design_preview.png' },
+              { type: 'preview', preview_url: 'https://files.cdn.printful.com/files/bbb/mockup_preview.png' },
+            ],
+          }],
+        },
+      }),
+    };
+  }
+  throw new Error('unexpected fetch: ' + url);
+};
+process.env.PRINTFUL_API_KEY = 'test-key-never-real';
+__resetCache();
+const resolved = await getProductImage('555');
+t('mockup resolution: preview file beats design file + degenerate thumb',
+  resolved === 'https://files.cdn.printful.com/files/bbb/mockup_preview.png');
+const resolvedPf = await getProductImage('pf_555'.replace(/^pf_/, ''));
+t('mockup resolution: cached per product', resolvedPf === resolved);
+const noImage = await getProductImage('not-a-number');
+t('mockup resolution: bad id -> null, never a crash', noImage === null);
 
 globalThis.fetch = realFetch;
 __resetCache();
