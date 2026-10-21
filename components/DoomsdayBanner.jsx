@@ -253,6 +253,7 @@ export default function DoomsdayBanner() {
 export function DoomsdayStrip({ onVisibility }) {
   const pathname = usePathname();
   const [info, setInfo] = useState(null);
+  const [artFailed, setArtFailed] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -302,21 +303,43 @@ export function DoomsdayStrip({ onVisibility }) {
       href="/wallet/how-it-works"
       role="status"
       aria-label={`Financial system releases in ${days} days`}
-      className="ui-element pointer-events-auto -mx-3.5 -mt-3.5 mb-3 flex items-center justify-center gap-2.5 rounded-t-[1.35rem] border-b border-amber-300/40 px-3.5 py-2 no-underline shadow-[inset_0_1px_0_rgba(255,215,130,0.35),0_0_24px_rgba(245,197,66,0.15)]"
-      style={{
-        background:
-          'linear-gradient(90deg, rgba(66,45,4,0.85) 0%, rgba(120,84,10,0.75) 50%, rgba(66,45,4,0.85) 100%)',
-      }}
+      className="ui-element pointer-events-auto relative -mx-3.5 -mt-3.5 mb-3 flex items-center justify-center gap-2.5 overflow-hidden rounded-t-[1.35rem] border-b border-amber-300/40 px-3.5 py-2 no-underline shadow-[inset_0_1px_0_rgba(255,215,130,0.35),0_0_24px_rgba(245,197,66,0.15)]"
     >
-      <span className="text-[10px] font-black tracking-[0.28em] uppercase text-amber-300 drop-shadow-[0_0_6px_rgba(245,197,66,0.6)]">
+      {/* The golden graphic (Merlin, 2026-10-21) replaces the flat
+          gold gradient: sunburst over Olympus, cropped so the text
+          row rides the artwork's dark bronze field (object-position
+          62% — below the bright sunburst, above the Greek-key band).
+          If the art ever fails, the old gradient returns. */}
+      {artFailed ? (
+        <span
+          aria-hidden="true"
+          className="absolute inset-0"
+          style={{
+            background:
+              'linear-gradient(90deg, rgba(66,45,4,0.85) 0%, rgba(120,84,10,0.75) 50%, rgba(66,45,4,0.85) 100%)',
+          }}
+        />
+      ) : (
+        <img
+          src="/concourse-icons/doomsday-strip.webp"
+          alt=""
+          aria-hidden="true"
+          draggable={false}
+          onError={() => setArtFailed(true)}
+          className="absolute inset-0 h-full w-full object-cover"
+          style={{ objectPosition: '50% 62%' }}
+        />
+      )}
+      <span className="relative text-[10px] font-black tracking-[0.28em] uppercase text-amber-300 drop-shadow-[0_0_6px_rgba(245,197,66,0.6)]">
         Doomsday
       </span>
       <span
-        className="text-[13px] font-extrabold tabular-nums text-amber-100 drop-shadow-[0_0_8px_rgba(245,197,66,0.45)]"
+        className="relative text-[13px] font-extrabold tabular-nums text-amber-100 drop-shadow-[0_0_8px_rgba(245,197,66,0.45)]"
+        style={{ textShadow: '0 1px 8px rgba(0,0,0,0.55)' }}
       >
         {clock}
       </span>
-      <span className="text-[9px] font-semibold tracking-wider uppercase text-amber-200/70">
+      <span className="relative text-[9px] font-semibold tracking-wider uppercase text-amber-200/70">
         until {info.locked_until_label || 'Dec 11'}
       </span>
     </Link>
