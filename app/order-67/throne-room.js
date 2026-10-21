@@ -1,8 +1,11 @@
 // app/order-67/throne-room.js — the Order 67 holochamber (Three.js).
 // A dark circular chamber with a central projection dais, a holoprojector
 // throwing a volumetric light cone, drifting dust motes, and a hologram
-// plane where the peer's video materializes through a Palpatine-style
-// shader (cyan monochrome, scanlines, flicker, reveal wipe).
+// panel where the peer's video materializes through a reveal wipe. The
+// panel sits flat and upright on its light cone, yaws to face the viewer,
+// and carries the video's true colors under a light hologram sheen
+// (gentle cyan tint, shallow scanlines, a whisper of flicker) — so two
+// callers can actually see each other, not a washed-out blue ghost.
 //
 // Optional realm dome: a 360° environment dropped OVER the throne room like
 // a shelter (Merlin's call) — one inverted sphere, one texture, fading in on
@@ -38,25 +41,28 @@ void main() {
   uv.x += sin(uv.y * 36.0 + uTime * 2.6) * 0.004 * uFlicker;
 
   vec3 tex = texture2D(uMap, uv).rgb;
-  float lum = dot(tex, vec3(0.299, 0.587, 0.114));
 
-  // cyan/blue monochrome hologram
-  vec3 holo = vec3(0.35, 0.85, 1.0) * lum;
+  // the person's real colors, kissed with cyan: a flat screen of light
+  // carrying the actual video frame, not a luminance repaint
+  vec3 col = mix(tex, tex * vec3(0.80, 0.98, 1.10), 0.18);
 
-  // scanlines
-  float scan = 0.78 + 0.22 * sin(vUv.y * 440.0);
+  // shallow scanlines — a sheen over the image, never a veil
+  float scan = 0.94 + 0.06 * sin(vUv.y * 440.0);
 
-  // layered-sine flicker
-  float fl = 1.0 - uFlicker * 0.10 * (0.5 + 0.5 * sin(uTime * 43.0) * sin(uTime * 29.0 + 1.7));
+  // a whisper of flicker, color only — it must never eat the alpha,
+  // or faces dissolve back into ghosts
+  float fl = 1.0 - uFlicker * 0.03 * (0.5 + 0.5 * sin(uTime * 43.0) * sin(uTime * 29.0 + 1.7));
 
   // materialize wipe rising from the bottom, bright leading edge
   float vis = 1.0 - smoothstep(uReveal - 0.05, uReveal, vUv.y);
   float edge = smoothstep(uReveal - 0.06, uReveal, vUv.y)
              * (1.0 - smoothstep(uReveal, uReveal + 0.015, vUv.y));
-  holo += vec3(0.5, 0.9, 1.0) * edge * 1.6;
+  col += vec3(0.5, 0.9, 1.0) * edge * 1.2;
+  col *= scan * fl;
 
-  float alpha = clamp(vis, 0.0, 1.0) * scan * fl;
-  gl_FragColor = vec4(holo * alpha, alpha * 0.92);
+  // essentially solid once materialized: alpha is the wipe alone
+  float alpha = clamp(vis, 0.0, 1.0) * 0.97;
+  gl_FragColor = vec4(col, alpha);
 }
 `;
 
@@ -257,7 +263,13 @@ export function createThroneRoom(canvas, options = {}) {
     scene.add(dustPts);
   }
 
-  // --- the hologram plane ---
+  // --- the hologram panel ---
+  // Panel shape shared with every guest projector below (they scale it):
+  // wide and tall enough for a face to read on a phone, seated with its
+  // bottom edge at y ~0.78 so it stands flat on the light cone.
+  const HOLO_W = 2.0;
+  const HOLO_H = 3.0;
+  const HOLO_Y = 2.28; // panel center height: 0.78 + HOLO_H / 2
   const holoUniforms = {
     uMap: { value: null },
     uTime: { value: 0 },
@@ -269,12 +281,12 @@ export function createThroneRoom(canvas, options = {}) {
     fragmentShader: HOLO_FRAGMENT,
     uniforms: holoUniforms,
     transparent: true,
-    blending: THREE.AdditiveBlending,
+    blending: THREE.NormalBlending,
     depthWrite: false,
     side: THREE.DoubleSide,
   }));
-  const holoPlane = new THREE.Mesh(track(new THREE.PlaneGeometry(1.7, 2.55)), holoMat);
-  holoPlane.position.y = 2.05;
+  const holoPlane = new THREE.Mesh(track(new THREE.PlaneGeometry(HOLO_W, HOLO_H)), holoMat);
+  holoPlane.position.y = HOLO_Y;
   holoPlane.visible = false;
   scene.add(holoPlane);
 
@@ -417,17 +429,17 @@ export function createThroneRoom(canvas, options = {}) {
       fragmentShader: HOLO_FRAGMENT,
       uniforms,
       transparent: true,
-      blending: THREE.AdditiveBlending,
+      blending: THREE.NormalBlending,
       depthWrite: false,
       side: THREE.DoubleSide,
     }));
-    const hp = new THREE.Mesh(track(new THREE.PlaneGeometry(1.7 * scale, 2.55 * scale)), hm);
-    hp.position.y = 2.05 * scale;
+    const hp = new THREE.Mesh(track(new THREE.PlaneGeometry(HOLO_W * scale, HOLO_H * scale)), hm);
+    hp.position.y = HOLO_Y * scale;
     hp.visible = false;
     group.add(hp);
     rec.holoUniforms = uniforms;
     rec.holoPlane = hp;
-    rec.baseHoloY = 2.05 * scale;
+    rec.baseHoloY = HOLO_Y * scale;
     return rec;
   }
 
@@ -473,6 +485,24 @@ export function createThroneRoom(canvas, options = {}) {
   resize();
   window.addEventListener('resize', resize);
 
+  // --- billboarding: panels sit flat and upright on their cones and
+  // yaw (never pitch or roll) to face the viewer, so the person on the
+  // panel is actually visible from wherever the camera sits ---
+  const holoWorldPos = new THREE.Vector3();
+  function faceViewer(plane, k) {
+    plane.getWorldPosition(holoWorldPos);
+    const targetYaw = Math.atan2(
+      camera.position.x - holoWorldPos.x,
+      camera.position.z - holoWorldPos.z
+    );
+    // Parent frames carry no yaw of their own (the local panel hangs on
+    // the scene; guest groups are only positioned by layoutProjectors),
+    // so the world yaw is the local yaw.
+    let d = targetYaw - plane.rotation.y;
+    d = Math.atan2(Math.sin(d), Math.cos(d)); // shortest arc, no spin-around
+    plane.rotation.y += d * k;
+  }
+
   // --- main loop ---
   let raf = 0;
   const clock = new THREE.Clock();
@@ -509,7 +539,7 @@ export function createThroneRoom(canvas, options = {}) {
     }
     if (!reducedMotion) {
       coneMat.opacity = 0.065 + 0.02 * (0.5 + 0.5 * Math.sin(t * 1.7));
-      holoPlane.position.y = 2.05 + Math.sin(t * 1.1) * 0.045;
+      holoPlane.position.y = HOLO_Y + Math.sin(t * 1.1) * 0.045;
       const s = 1 + 0.06 * Math.sin(t * 3.2);
       lens.scale.set(s, s, s);
     }
@@ -564,6 +594,13 @@ export function createThroneRoom(canvas, options = {}) {
     }
 
     controls.update();
+
+    // face every hologram panel at the viewer, eased like the camera
+    // drift so orbiting never makes a panel jitter or snap
+    const yawK = Math.min(1, dt * 5);
+    faceViewer(holoPlane, yawK);
+    for (const rec of projectors.values()) faceViewer(rec.holoPlane, yawK);
+
     renderer.render(scene, camera);
   }
   tick();
