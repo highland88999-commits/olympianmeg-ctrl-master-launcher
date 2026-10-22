@@ -8,7 +8,7 @@
 // - registration: "portal-room" is a satellite exactly once, claimed by
 //   exactly one god menu (HERMES), titled in all 31 locales
 // - roster: the room's program list (registry deduped by route, minus
-//   the room itself) is 165 portals
+//   the room itself) is 166 portals
 // - wiring: HomeScene mounts the gate behind freeroam; the gate pushes
 //   OMEGA_ROUTE on click and on fly-through
 //
@@ -135,7 +135,7 @@ describe('registration — one satellite, one god, every language', () => {
     }
   });
 
-  it('the room roster (deduped by route, minus itself) is 165 portals', () => {
+  it('the room roster (deduped by route, minus itself) is 166 portals', () => {
     const seen = new Set();
     let count = 0;
     for (const e of entries) {
@@ -144,7 +144,7 @@ describe('registration — one satellite, one god, every language', () => {
       seen.add(e.route);
       count += 1;
     }
-    assert.equal(count, 165);
+    assert.equal(count, 166);
   });
 });
 

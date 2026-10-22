@@ -106,6 +106,7 @@ export const SATELLITES: SatelliteEntry[] = [
   { key: "omega-postal", route: "/omega-postal", pos: "HERMES", section: "OBSERVATORY", constellation: "ARGUS" },
   { key: "abyssal-voyage", route: "/abyssal-voyage", pos: "ARTEMIS", section: "GAMES", constellation: "ZEUS" },
   { key: "aethelgard", route: "/aethelgard", pos: "APHRODITE", section: "OBSERVATORY", constellation: "ARGUS" },
+  { key: "mars", route: "/mars", pos: "ARES", section: "OBSERVATORY", constellation: "ARGUS" },
   { key: "arachnid-weaver", route: "/arachnid-weaver", pos: "ARES", section: "GAMES", constellation: "ZEUS" },
   { key: "architectural-legacy", route: "/architectural-legacy", pos: "APOLLO", section: "OBSERVATORY", constellation: "ARGUS" },
   { key: "astra", route: "/astra", pos: "ARES", section: "GAMES", constellation: "ZEUS" },
