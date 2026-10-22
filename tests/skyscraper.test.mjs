@@ -132,5 +132,36 @@ t(`all referenced media self-hosted (unexpected missing: ${unexpectedMissing.len
 t('h7317z.mp4 documented as unavailable', missingMedia.includes('h7317z.mp4'));
 if (unexpectedMissing.length) console.error('  missing:', unexpectedMissing.join(', '));
 
+// --- PortalWarp regression (bug report 2026-10-22) ---------------------------
+// Exterior.jsx rendered <PortalWarp> at four sites but the component was
+// never defined, so /skyscraper died on load with
+// "Can't find variable: PortalWarp" (iPhone Safari). Pin the definition,
+// the four call sites, and the contract NexusEngine raycasts against.
+const exterior = readFileSync(`${APP}/components/Exterior.jsx`, 'utf8');
+const nexus = readFileSync(`${APP}/components/NexusEngine.jsx`, 'utf8');
+t('Exterior defines PortalWarp', /const PortalWarp = memo\(/.test(exterior));
+t('Exterior renders PortalWarp at all four warp sites',
+  (exterior.match(/<PortalWarp\b/g) || []).length === 4);
+t('PortalWarp mesh carries the caller-provided name', /<mesh name=\{name\}/.test(exterior));
+t('PortalWarp tints via color prop with untinted default', /color = '#ffffff'/.test(exterior));
+t('NexusEngine teleports on PORTAL_Respawn', nexus.includes("portalHit.object.name === 'PORTAL_Respawn'"));
+t('NexusEngine teleports on PORTAL_WarpB', nexus.includes("portalHit.object.name === 'PORTAL_WarpB'"));
+// Generic guard for this bug class: every capitalized JSX tag used in
+// Exterior.jsx must resolve to an import or a local definition.
+{
+  const defined = new Set();
+  for (const m of exterior.matchAll(/(?:const|function)\s+([A-Z][A-Za-z0-9]*)/g)) defined.add(m[1]);
+  for (const m of exterior.matchAll(/import\s+(?:\{([^}]*)\}|([A-Z][A-Za-z0-9]*))/g)) {
+    if (m[2]) defined.add(m[2]);
+    if (m[1]) for (const part of m[1].split(',')) {
+      const name = part.trim().split(/\s+as\s+/).pop().trim();
+      if (/^[A-Z]/.test(name)) defined.add(name);
+    }
+  }
+  const unresolved = [...new Set([...exterior.matchAll(/<([A-Z][A-Za-z0-9]*)\b/g)].map((m) => m[1]))]
+    .filter((name) => !defined.has(name));
+  t(`Exterior: every JSX component resolves (${unresolved.join(', ') || 'all defined'})`, unresolved.length === 0);
+}
+
 console.log(`\nskyscraper: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

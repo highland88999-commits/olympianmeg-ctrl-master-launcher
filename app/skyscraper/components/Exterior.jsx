@@ -32,6 +32,42 @@ const RespawnCube = memo(({ position }) => {
 });
 RespawnCube.displayName = 'RespawnCube';
 
+// 🚀 PORTAL WARP — the drive-through / walk-through warp gates the
+// NexusEngine teleports on (PORTAL_Respawn ⇄ surface, PORTAL_WarpB ⇄
+// underworld). This component was referenced at four sites (the
+// underworld pair, the roving surface respawn gate, the Abyssal Gate
+// plot) but never defined, so rendering Exterior threw
+// "Can't find variable: PortalWarp" and killed the whole /skyscraper
+// scene on load (bug report 2026-10-22, filed under Aethelgard — the
+// crash digest's own URL is /skyscraper). It generalizes RespawnCube
+// above: same 10×15×10 video-texture gate, but the mesh carries the
+// caller's `name` (the engine raycasts for exactly PORTAL_Respawn /
+// PORTAL_WarpB) and an optional `color` tints the gate (WarpB's
+// #ff0044); the default white leaves the portal video untinted.
+const PortalWarp = memo(({ name, position, color = '#ffffff' }) => {
+    const portalVid = useVideoTexture('/media/skyscraper/va51ee.mp4', { muted: true, loop: true, playsInline: true });
+    portalVid.colorSpace = THREE.SRGBColorSpace;
+
+    const groupRef = useRef();
+    useFrame((_, delta) => {
+        if (groupRef.current) groupRef.current.rotation.y += delta * 0.6;
+    });
+
+    const sideMat = useMemo(() => new THREE.MeshBasicMaterial({ map: portalVid, color }), [portalVid, color]);
+    const capMat = useMemo(() => new THREE.MeshBasicMaterial({ color: 0x000000 }), []);
+    const materials = useMemo(() => [sideMat, sideMat, capMat, capMat, sideMat, sideMat], [sideMat, capMat]);
+
+    return (
+        <group position={position} ref={groupRef}>
+            <mesh name={name} material={materials} dispose={null}>
+                <boxGeometry args={[10, 15, 10]} />
+            </mesh>
+            <Sparkles count={50} scale={[15, 20, 15]} size={8} color={color} speed={2} />
+        </group>
+    );
+});
+PortalWarp.displayName = 'PortalWarp';
+
 const NeonTunnel = memo(({ startPos, color, isUnderworld }) => {
     const tubeGeo = useMemo(() => {
         const curve = new THREE.CatmullRomCurve3([
