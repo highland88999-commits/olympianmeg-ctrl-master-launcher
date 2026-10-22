@@ -201,6 +201,10 @@ export const SATELLITES: SatelliteEntry[] = [
   // per program, each with its own video) sits with HERMES as the
   // traveller's door: ARGUS/OBSERVATORY.
   { key: "portal-room", route: "/portal-room", pos: "HERMES", section: "OBSERVATORY", constellation: "ARGUS" },
+  // JOURNAL (per-user journal, auto-timestamped entries) sits with the
+  // other UTILITIES everyday tools (notepad / calculator / calendar):
+  // ARES/UTILITIES.
+  { key: "journal", route: "/journal", pos: "UTILITIES", section: "UTILITIES", constellation: "ARES" },
 ];
 
 export interface SectionDef { name: string; key: string; constellation: string; }
