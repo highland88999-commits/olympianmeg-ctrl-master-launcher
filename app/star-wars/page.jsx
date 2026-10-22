@@ -7,7 +7,6 @@
 //         with beat detection (checkpoints -> target) wired to data.js progress.
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
 import * as THREE from 'three';
 import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 import { buildGalaxy } from './galaxy';
@@ -40,7 +39,6 @@ const SAGA = (CHAPTERS || [])
   .filter((id) => PLANETS && PLANETS[id]);
 
 export default function StarWarsPage() {
-  const router = useRouter();
   const canvasRef = useRef(null);
   const rendererRef = useRef(null); // created once per page lifetime
   const contextGuardRef = useRef(null); // one context-loss guard for that renderer
@@ -73,43 +71,6 @@ export default function StarWarsPage() {
     clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(''), 2600);
   }, []);
-
-  // ---------- exit (bug report ae65ed3f: "exit to lobby button top left") ----------
-  // One control, top-left, in every mode: from crawl/map/zone it returns to
-  // this page's lobby (the saga menu); from the lobby itself it leaves the
-  // page — back when there is history, otherwise the hub, matching the
-  // shared PageBack behavior used across the platform.
-  const leavePage = useCallback(() => {
-    try {
-      if (window.history.length > 1) router.back();
-      else router.push('/');
-    } catch {
-      router.push('/');
-    }
-  }, [router]);
-
-  const exitToLobby = useCallback(() => {
-    if (mode === 'menu') {
-      leavePage();
-      return;
-    }
-    setSelectedId(null);
-    setBeatOverlay(false);
-    setIntro(false);
-    setMode('menu');
-  }, [mode, leavePage]);
-
-  // Esc performs the same exit step (desktop/TV play).
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.code === 'Escape') {
-        e.preventDefault();
-        exitToLobby();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [exitToLobby]);
 
   useEffect(() => { introRef.current = intro; }, [intro]);
 
@@ -430,17 +391,8 @@ export default function StarWarsPage() {
     <div style={styles.root}>
       <canvas ref={canvasRef} style={styles.canvas} />
 
-      {/* Exit to lobby — top-left, always reachable, every mode. Uses the
-          shared .page-back affordance styling (components/PageBack). */}
-      <button
-        type="button"
-        className="page-back"
-        style={styles.exitBtn}
-        onClick={exitToLobby}
-        aria-label={mode === 'menu' ? 'Exit Star Wars' : 'Exit to lobby'}
-      >
-        ← {mode === 'menu' ? 'Exit' : 'Lobby'}
-      </button>
+      {/* Exit to lobby — always visible, top left, in every mode */}
+      <a href="/" style={styles.exitBtn} aria-label="Exit to lobby">← Exit to Lobby</a>
 
       {webglFail && (
         <div style={styles.overlay}>
@@ -581,10 +533,6 @@ export default function StarWarsPage() {
 const styles = {
   root: { position: 'fixed', inset: 0, background: '#020208', overflow: 'hidden', color: '#eee' },
   canvas: { position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block', touchAction: 'none' },
-  exitBtn: {
-    position: 'absolute', top: 'calc(env(safe-area-inset-top, 0px) + 12px)', left: 20,
-    zIndex: 80, background: 'rgba(10,10,20,0.55)',
-  },
   hud: { position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 50 },
   // menu / crawl
   menu: {
@@ -623,9 +571,17 @@ const styles = {
   },
   beatPlanet: { color: '#9fb4d8', letterSpacing: 1 },
   beatTitle: { color: '#ffe81f', textAlign: 'right' },
+  exitBtn: {
+    position: 'absolute', top: BANNER_CLEAR, left: 20, zIndex: 90,
+    display: 'inline-flex', alignItems: 'center', minHeight: 44,
+    padding: '10px 16px', fontSize: 13, letterSpacing: 1, fontWeight: 700,
+    color: '#ffe81f', background: 'rgba(10,10,20,0.72)',
+    border: '1px solid rgba(255,232,31,0.55)', borderRadius: 8,
+    textDecoration: 'none', pointerEvents: 'auto', cursor: 'pointer',
+  },
   // map HUD
   mapTop: {
-    position: 'absolute', top: BANNER_CLEAR, left: 20, right: 20,
+    position: 'absolute', top: 'calc(' + BANNER_CLEAR + ' + 54px)', left: 20, right: 20,
     display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
     pointerEvents: 'none',
   },
@@ -649,13 +605,13 @@ const styles = {
   },
   // zone HUD
   zoneTop: {
-    position: 'absolute', top: BANNER_CLEAR, left: 20, right: 20,
+    position: 'absolute', top: 'calc(' + BANNER_CLEAR + ' + 54px)', left: 20, right: 20,
     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
     pointerEvents: 'none',
   },
   zoneName: { color: '#fff', fontSize: 17, letterSpacing: 3, fontWeight: 700, textShadow: '0 0 12px rgba(0,0,0,0.9)' },
   objective: {
-    position: 'absolute', top: 'calc(' + BANNER_CLEAR + ' + 46px)', left: '50%',
+    position: 'absolute', top: 'calc(' + BANNER_CLEAR + ' + 100px)', left: '50%',
     transform: 'translateX(-50%)', textAlign: 'center', maxWidth: '88vw',
   },
   objText: {
