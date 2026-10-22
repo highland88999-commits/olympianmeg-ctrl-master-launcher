@@ -149,6 +149,24 @@ function NexusHub() {
     });
   };
 
+  // Communiverse deep link (Merlin, 2026-10-22): Earth is the first planet
+  // of the Communiverse, and clicking it there lands here with
+  // ?enter=earth — dive straight to Earth as soon as freeroam is live,
+  // exactly as if the Earth planet had been tapped in the hub.
+  const earthDeepLinkRef = useRef(false);
+  useEffect(() => {
+    if (earthDeepLinkRef.current) return;
+    if (!(user || cloudOffline)) return;
+    if (appState !== 'hub_freeroam') return;
+    try {
+      if (new URLSearchParams(window.location.search).get('enter') === 'earth') {
+        earthDeepLinkRef.current = true;
+        beginEarthDive();
+      }
+    } catch { /* a malformed URL must never break the hub */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, cloudOffline, appState]);
+
   // Mars realm (Merlin, 2026-10-21): the seeded exobiology surface
   // lives INSIDE the hub's Mars planet — tap the planet in freeroam
   // and dive in without leaving this page, exactly like Earth. The

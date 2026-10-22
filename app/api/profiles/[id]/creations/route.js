@@ -8,6 +8,7 @@ import { NextResponse } from 'next/server';
 import { apiGuard } from '@/lib/api-guard';
 import { getAdminClient } from '@/lib/world-engine/server';
 import { isValidCategory, normalizeCategory, clampInt, publicAssetFields } from '@/lib/auction/helpers';
+import { isInCommuniverse } from '@/lib/communiverse';
 
 export const GET = apiGuard(async function GET(req, ctx) {
   const params = await ctx.params;
@@ -37,5 +38,8 @@ export const GET = apiGuard(async function GET(req, ctx) {
 
   const { data, error } = await q;
   if (error) return NextResponse.json({ error: 'Could not load creations.' }, { status: 500 });
-  return NextResponse.json({ ok: true, creations: (data || []).map(publicAssetFields) });
+  return NextResponse.json({
+    ok: true,
+    creations: (data || []).map((a) => publicAssetFields({ ...a, in_communiverse: isInCommuniverse(a.generation_params) })),
+  });
 });

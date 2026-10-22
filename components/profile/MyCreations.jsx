@@ -238,15 +238,37 @@ function ListForm({ busy, error, onSubmit, onCancel }) {
   );
 }
 
-function CreationCard({ asset, listingId, busy, onRename, onList, onUnlist }) {
+function CreationCard({ asset, listingId, busy, onRename, onList, onUnlist, onToggleCommuniverse, onDirect }) {
   const [editing, setEditing] = useState(false);
   const [listing, setListing] = useState(false);
   const [confirmUnlist, setConfirmUnlist] = useState(false);
   const [formError, setFormError] = useState(null);
   const [renameError, setRenameError] = useState(null);
   const [showPrompt, setShowPrompt] = useState(false);
+  const [directing, setDirecting] = useState(false);
+  const [directPrompt, setDirectPrompt] = useState('');
+  const [directError, setDirectError] = useState(null);
 
   const listed = !!asset.is_listed;
+  // Worlds get the Communiverse treatment (Merlin, 2026-10-22): click the
+  // world to go right to it, publish it into the Communiverse, and direct
+  // its building with Muse (the Concourse Muse icon).
+  const isWorld = asset.category === 'world';
+  const inCommuniverse = !!asset.in_communiverse;
+
+  const handleDirect = async (e) => {
+    e.preventDefault();
+    const text = directPrompt.trim();
+    if (!text) return;
+    setDirectError(null);
+    try {
+      await onDirect(asset.id, text);
+      setDirecting(false);
+      setDirectPrompt('');
+    } catch (err) {
+      setDirectError(err.message);
+    }
+  };
 
   const handleRename = async (name) => {
     setRenameError(null);
@@ -297,17 +319,36 @@ function CreationCard({ asset, listingId, busy, onRename, onList, onUnlist }) {
 
   return (
     <div className="rounded-xl border border-white/10 bg-black/30 overflow-hidden flex flex-col">
-      <InView className="relative h-40 w-full bg-[#07070c]">
-        <MiniViewport category={asset.category} params={asset.generation_params || {}} />
-      </InView>
+      {isWorld ? (
+        <Link href={'/communiverse/world/' + asset.id} aria-label={'Enter ' + (asset.display_name || 'your world')} className="block">
+          <InView className="relative h-40 w-full bg-[#07070c]">
+            <MiniViewport category={asset.category} params={asset.generation_params || {}} />
+          </InView>
+        </Link>
+      ) : (
+        <InView className="relative h-40 w-full bg-[#07070c]">
+          <MiniViewport category={asset.category} params={asset.generation_params || {}} />
+        </InView>
+      )}
       <div className="p-3 flex flex-col gap-2 flex-1">
         <div className="flex items-start justify-between gap-2">
-          <p className="text-sm font-semibold text-neutral-100 truncate" title={asset.display_name}>
-            {asset.display_name || 'Untitled ' + asset.category}
-          </p>
+          {isWorld ? (
+            <Link href={'/communiverse/world/' + asset.id} className="text-sm font-semibold text-neutral-100 truncate hover:text-cyan-200" title={asset.display_name}>
+              {asset.display_name || 'Untitled ' + asset.category}
+            </Link>
+          ) : (
+            <p className="text-sm font-semibold text-neutral-100 truncate" title={asset.display_name}>
+              {asset.display_name || 'Untitled ' + asset.category}
+            </p>
+          )}
           {listed && (
             <span className="shrink-0 text-[10px] tracking-[0.15em] uppercase px-2 py-1 rounded bg-emerald-300/15 text-emerald-200 border border-emerald-300/30">
               Listed{asset.listing_type ? ' · ' + (LISTING_LABELS[asset.listing_type] || asset.listing_type) : ''}
+            </span>
+          )}
+          {isWorld && inCommuniverse && (
+            <span className="shrink-0 text-[10px] tracking-[0.15em] uppercase px-2 py-1 rounded bg-cyan-300/15 text-cyan-200 border border-cyan-300/30">
+              In the Communiverse
             </span>
           )}
         </div>
@@ -327,6 +368,40 @@ function CreationCard({ asset, listingId, busy, onRename, onList, onUnlist }) {
           <ListForm busy={busy} error={formError} onSubmit={handleList} onCancel={() => { setListing(false); setFormError(null); }} />
         ) : (
           <div className="flex flex-wrap gap-2 mt-auto pt-1">
+            {isWorld && (
+              <Link
+                href={'/communiverse/world/' + asset.id}
+                className="min-h-[44px] px-3 rounded-lg bg-cyan-300/90 text-black text-xs font-bold hover:bg-cyan-200 inline-flex items-center"
+              >
+                Enter world
+              </Link>
+            )}
+            {isWorld && (
+              <button
+                type="button"
+                onClick={() => { setDirecting((v) => !v); setDirectError(null); }}
+                aria-expanded={directing}
+                className="min-h-[44px] px-3 rounded-lg border border-white/15 text-xs text-neutral-200 hover:bg-white/10 inline-flex items-center gap-1.5"
+              >
+                {/* Same Muse icon as the Concourse Muse tile. */}
+                <img src="/concourse-icons/muse.webp" alt="" width={16} height={16} className="rounded" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                ✦ Direct with Muse
+              </button>
+            )}
+            {isWorld && (
+              <button
+                type="button"
+                onClick={async () => {
+                  setFormError(null);
+                  try { await onToggleCommuniverse(asset.id, !inCommuniverse); }
+                  catch (err) { setFormError(err.message); }
+                }}
+                disabled={busy}
+                className="min-h-[44px] px-3 rounded-lg border border-cyan-300/40 text-xs text-cyan-200 hover:bg-cyan-300/10 disabled:opacity-50"
+              >
+                {busy ? 'Working…' : inCommuniverse ? 'Remove from Communiverse' : 'Publish to Communiverse'}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => { setEditing(true); setConfirmUnlist(false); }}
@@ -371,6 +446,42 @@ function CreationCard({ asset, listingId, busy, onRename, onList, onUnlist }) {
             )}
           </div>
         )}
+        {isWorld && directing && !editing && !listing && (
+          <form onSubmit={handleDirect} className="flex flex-col gap-2 rounded-lg border border-white/10 bg-white/5 p-3">
+            <label className="text-[11px] tracking-[0.2em] uppercase text-neutral-400" htmlFor={'direct-' + asset.id}>
+              Direct this world with Muse
+            </label>
+            <textarea
+              id={'direct-' + asset.id}
+              value={directPrompt}
+              onChange={(e) => setDirectPrompt(e.target.value)}
+              maxLength={2000}
+              rows={3}
+              placeholder="Describe the planet you want — terrain, colors, mood…"
+              className="w-full rounded-lg bg-white/5 border border-white/15 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-cyan-300/70"
+            />
+            {directError && <p className="text-xs text-red-300">{directError}</p>}
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                disabled={busy || !directPrompt.trim()}
+                className="min-h-[44px] px-4 rounded-lg bg-cyan-300/90 text-black text-sm font-bold hover:bg-cyan-200 disabled:opacity-50"
+              >
+                {busy ? 'Forging…' : 'Re-forge my world'}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setDirecting(false); setDirectError(null); }}
+                className="min-h-[44px] px-4 rounded-lg border border-white/15 text-sm text-neutral-300 hover:bg-white/10"
+              >
+                Cancel
+              </button>
+            </div>
+            <p className="text-[11px] text-neutral-500">
+              Muse rebuilds the planet from your words (World Engine generations: free monthly first, then Aether).
+            </p>
+          </form>
+        )}
         {formError && !listing && <p className="text-xs text-red-300">{formError}</p>}
         {showPrompt && asset.prompt && (
           <div className="rounded-lg border border-white/10 bg-white/5 p-3">
@@ -383,11 +494,16 @@ function CreationCard({ asset, listingId, busy, onRename, onList, onUnlist }) {
   );
 }
 
-function CategorySection({ def, items, loading, error, listingByAsset, busyByAsset, onRefresh, onRename, onList, onUnlist }) {
+function CategorySection({ def, items, loading, error, listingByAsset, busyByAsset, onRefresh, onRename, onList, onUnlist, onToggleCommuniverse, onDirect }) {
   return (
     <div aria-label={def.title}>
       <div className="flex items-baseline justify-between gap-2 mb-2">
         <h3 className="text-xs font-bold tracking-[0.25em] uppercase text-neutral-200">{def.title}</h3>
+        {def.category === 'world' && (
+          <Link href="/communiverse" className="text-[11px] text-cyan-300 hover:underline">
+            Visit the Communiverse →
+          </Link>
+        )}
         {!loading && !error && items.length > 0 && (
           <span className="text-[11px] text-neutral-500">{items.length}</span>
         )}
@@ -414,6 +530,8 @@ function CategorySection({ def, items, loading, error, listingByAsset, busyByAss
               onRename={onRename}
               onList={onList}
               onUnlist={onUnlist}
+              onToggleCommuniverse={onToggleCommuniverse}
+              onDirect={onDirect}
             />
           ))}
         </div>
@@ -519,6 +637,30 @@ export default function MyCreations() {
     }
   }, [setBusy, userId, refreshCategory]);
 
+  // Communiverse (Merlin, 2026-10-22): publish/unpublish a world, and
+  // direct a world's building with Muse. Both write through the
+  // owner-checked /api/communiverse routes, then the world section is
+  // re-read so the card shows the new planet / new publish state.
+  const handleToggleCommuniverse = useCallback(async (assetId, publish) => {
+    setBusy(assetId, true);
+    try {
+      await apiCall('/api/communiverse/publish', { method: 'POST', body: { asset_id: assetId, publish } });
+      if (userId) await refreshCategory(userId, 'world');
+    } finally {
+      setBusy(assetId, false);
+    }
+  }, [setBusy, userId, refreshCategory]);
+
+  const handleDirect = useCallback(async (assetId, prompt) => {
+    setBusy(assetId, true);
+    try {
+      await apiCall('/api/communiverse/direct', { method: 'POST', body: { asset_id: assetId, prompt } });
+      if (userId) await refreshCategory(userId, 'world');
+    } finally {
+      setBusy(assetId, false);
+    }
+  }, [setBusy, userId, refreshCategory]);
+
   const handleUnlist = useCallback(async (assetId, listingId) => {
     if (!listingId) throw new Error('The listing is still loading — try again in a moment.');
     setBusy(assetId, true);
@@ -541,7 +683,11 @@ export default function MyCreations() {
       <h2 className="text-sm font-bold tracking-[0.3em] uppercase text-neutral-100 mb-1">My Creations</h2>
       <p className="text-xs text-neutral-500 mb-5">
         Everything you have forged in the World Engine, saved to your account.
-        Rename anything, or list it for sale on the Auction House.
+        Rename anything, or list it for sale on the Auction House. Worlds can
+        also be published into the{' '}
+        <Link href="/communiverse" className="text-cyan-300 hover:underline">Communiverse</Link>,
+        entered with one click, and directed with Muse — and if a world sells,
+        all of that goes to its buyer with it.
       </p>
 
       {authState === 'loading' && (
@@ -571,6 +717,8 @@ export default function MyCreations() {
               onRename={handleRename}
               onList={handleList}
               onUnlist={handleUnlist}
+              onToggleCommuniverse={handleToggleCommuniverse}
+              onDirect={handleDirect}
             />
           ))}
         </div>
