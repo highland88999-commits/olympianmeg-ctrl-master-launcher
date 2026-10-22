@@ -1,0 +1,346 @@
+/* =========================================================
+   OMEGA COMMS — ported from the Communications Array
+   (Merlin's Communications-Array repo, MIT). Adaptations:
+   the fixed hologram overlay is now a page-flow root
+   (.omega-comms-root), the panel is page-sized, and the
+   external background video is replaced by a CSS wash
+   (.comm-panel-bg) — no external media is fetched.
+   ========================================================= */
+
+/* =========================================================
+   MASTER COMMUNICATIONS ARRAY - AESTHETIC ENGINE
+   ========================================================= */
+
+/* 1. Scoped Theme Variables */
+.omega-comms-root {
+  --neon-primary: #0ff;
+  --neon-primary-dim: rgba(0, 255, 255, 0.4);
+  --neon-primary-glow: rgba(0, 255, 255, 0.15);
+  --neon-primary-bg: rgba(0, 255, 255, 0.05);
+  
+  --neon-secondary: #bc13fe;
+  --neon-secondary-glow: rgba(188, 19, 254, 0.15);
+  
+  --text-primary: #0ff;
+  --text-light: #e0ffff;
+  --text-purple: #f3dffc;
+  
+  --bg-dark: rgba(4, 8, 15, 0.70);
+  --bg-darker: rgba(0, 0, 0, 0.4);
+  
+  --font-matrix: 'Courier New', Courier, monospace;
+
+  position: relative;
+  width: 100%;
+  display: flex; justify-content: center; align-items: flex-start;
+}
+
+/* 2. Main Panel Structure & Video Background */
+.comm-panel {
+  position: relative;
+  width: 100%;
+  max-width: 880px;
+  height: min(78vh, 860px);
+  max-height: 78dvh;
+  display: flex; 
+  flex-direction: column;
+  background: var(--bg-dark);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--neon-primary-dim);
+  box-shadow: 0 0 30px var(--neon-primary-glow), inset 0 0 20px var(--neon-primary-bg);
+  color: var(--text-primary);
+  font-family: var(--font-matrix);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.comm-panel-bg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  opacity: 0.55;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 90% at 15% 0%, rgba(188, 19, 254, 0.20), transparent 55%),
+    radial-gradient(120% 90% at 85% 100%, rgba(0, 255, 255, 0.16), transparent 55%),
+    linear-gradient(160deg, rgba(0, 255, 255, 0.05), rgba(0, 0, 0, 0.25) 60%);
+}
+
+/* 3. Header & Navigation */
+.comm-header {
+  position: relative;
+  z-index: 1;
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 15px 20px;
+  background: var(--neon-primary-bg);
+  border-bottom: 1px solid var(--neon-primary-dim);
+}
+
+.comm-header h2 { margin: 0; font-size: 1.2rem; text-shadow: 0 0 10px var(--neon-primary); }
+
+.close-btn { 
+  background: transparent; border: none; color: var(--neon-primary); 
+  cursor: pointer; font-size: 1.2rem; transition: 0.2s;
+}
+.close-btn:hover { color: #fff; text-shadow: 0 0 10px #f00; }
+
+.tab-container { 
+  position: relative;
+  z-index: 1;
+  display: flex; 
+  border-bottom: 1px solid var(--neon-primary-dim); 
+  background: rgba(0,0,0,0.5);
+}
+
+.tab { 
+  flex: 1; padding: 12px; background: transparent; border: none; 
+  color: var(--neon-primary-dim); cursor: pointer; transition: 0.3s; 
+  font-family: var(--font-matrix); font-weight: bold; letter-spacing: 1px;
+}
+.tab:hover { background: var(--neon-primary-bg); color: var(--text-primary); }
+.tab.active { 
+  background: var(--neon-primary-bg); color: var(--text-primary); 
+  border-bottom: 2px solid var(--neon-primary); text-shadow: 0 0 8px var(--neon-primary); 
+}
+
+/* 4. Global & Feed Containers */
+.feed-container, .chat-interface { 
+  position: relative;
+  z-index: 1;
+  flex: 1; 
+  overflow: hidden; 
+  display: flex; 
+  flex-direction: column; 
+}
+
+.message-feed {
+  flex: 1; padding: 20px; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 15px;
+}
+
+.message-feed::-webkit-scrollbar { width: 6px; }
+.message-feed::-webkit-scrollbar-thumb { background: var(--neon-primary-dim); border-radius: 3px; }
+
+/* 5. Message Bubbles (Text Overlay Matrix Style) */
+.message-wrapper { display: flex; flex-direction: column; max-width: 85%; }
+.msg-left { align-self: flex-start; }
+.msg-right { align-self: flex-end; align-items: flex-end; }
+
+.msg-sender { font-size: 0.75rem; color: var(--neon-primary); margin-bottom: 4px; font-weight: bold; }
+
+/* Environmental Awareness Text */
+.msg-env { 
+  font-size: 0.60rem; 
+  color: rgba(0, 255, 255, 0.5); 
+  margin-bottom: 6px; 
+  font-family: var(--font-matrix);
+  letter-spacing: 0.5px;
+  text-shadow: none;
+}
+.msg-right .msg-env { 
+  text-align: right; 
+  color: rgba(188, 19, 254, 0.5); 
+}
+
+.msg-status { font-size: 0.6rem; color: var(--neon-primary-dim); margin-top: 4px; letter-spacing: 1px; }
+
+.message-bubble {
+  padding: 8px 12px; 
+  font-size: 0.95rem; 
+  line-height: 1.4;
+  background: transparent !important; 
+  box-shadow: none !important;
+  text-shadow: 1px 1px 3px rgba(0,0,0,0.9), 0 0 5px rgba(0,0,0,0.8);
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+.their-bubble {
+  border-left: 2px solid var(--neon-primary);
+  color: var(--text-light);
+}
+
+.my-bubble {
+  border-right: 2px solid var(--neon-secondary);
+  color: var(--text-purple);
+}
+
+/* 6. Inputs & Buttons */
+.input-container {
+  display: flex; gap: 10px; padding: 15px 20px;
+  padding-bottom: calc(15px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--neon-primary-dim);
+  background: rgba(0,0,0,0.85);
+  flex-shrink: 0;
+}
+
+.input-container input, .new-chat-box input {
+  flex: 1; width: 100%;
+  background: var(--neon-primary-bg);
+  border: 1px solid var(--neon-primary-dim);
+  color: var(--text-primary); outline: none;
+  font-family: var(--font-matrix); border-radius: 4px;
+}
+.input-container input { padding: 10px 15px; }
+.new-chat-box input { padding: 8px; font-size: 0.85rem; }
+.input-container input:focus, .new-chat-box input:focus { box-shadow: 0 0 10px var(--neon-primary-glow); }
+
+.send-btn {
+  background: var(--neon-primary-bg);
+  border: 1px solid var(--neon-primary); color: var(--text-primary);
+  padding: 0 20px; cursor: pointer; border-radius: 4px; transition: 0.2s;
+  font-family: var(--font-matrix); font-weight: bold;
+}
+.send-btn:hover { background: var(--neon-primary-glow); box-shadow: 0 0 15px var(--neon-primary-dim); }
+
+/* 7. P2P Dual-Pane Layout */
+.p2p-interface {
+  position: relative;
+  z-index: 1;
+  display: flex; 
+  height: 100%; 
+}
+
+.contacts-sidebar {
+  flex: 0 0 220px;
+  max-width: 35%;
+  border-right: 1px solid var(--neon-primary-dim);
+  display: flex; flex-direction: column;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.new-chat-box { padding: 12px; border-bottom: 1px solid var(--neon-primary-dim); }
+
+.contacts-list { flex: 1; overflow-y: auto; }
+.contacts-list::-webkit-scrollbar { width: 4px; }
+.contacts-list::-webkit-scrollbar-thumb { background: var(--neon-primary-dim); }
+
+.contact-item {
+  padding: 12px 15px; cursor: pointer;
+  border-bottom: 1px solid var(--neon-primary-bg);
+  color: rgba(0, 255, 255, 0.7); transition: 0.2s;
+}
+.contact-item:hover, .contact-item.active {
+  background: var(--neon-primary-glow); color: var(--text-primary);
+  border-left: 3px solid var(--neon-primary);
+}
+
+.p2p-chat-area { flex: 1; display: flex; flex-direction: column; }
+
+.p2p-placeholder {
+  margin: auto; color: var(--neon-primary-dim); letter-spacing: 2px;
+}
+
+.p2p-chat-header {
+  padding: 12px 20px; background: rgba(0,0,0,0.5);
+  border-bottom: 1px solid var(--neon-primary-bg);
+  font-size: 0.85rem; color: var(--neon-primary-dim);
+}
+.p2p-chat-header span { color: var(--text-primary); font-weight: bold; letter-spacing: 1px; }
+
+/* 8. Squad Specific Elements */
+.squad-action-btn {
+  background: var(--neon-primary-bg);
+  border: 1px solid var(--neon-primary-dim);
+  color: var(--neon-primary);
+  cursor: pointer;
+  width: 30px;
+  font-weight: bold;
+  transition: 0.2s;
+}
+.squad-action-btn:hover {
+  background: var(--neon-primary);
+  color: #000;
+  box-shadow: 0 0 10px var(--neon-primary-glow);
+}
+
+.squad-invite-code {
+  font-size: 0.75rem;
+  color: var(--neon-primary-dim);
+  cursor: pointer;
+  transition: 0.2s;
+}
+.squad-invite-code:hover {
+  color: var(--text-primary);
+  text-shadow: 0 0 5px var(--neon-primary);
+}
+
+/* 9. Mobile Phone Rules */
+@media (max-width: 768px) {
+  .comm-panel {
+    width: 100%;
+    max-width: 100%;
+    height: 82dvh;
+    max-height: 82dvh;
+    border-radius: 8px;
+  }
+
+  .p2p-interface {
+    flex-direction: column;
+  }
+
+  .contacts-sidebar {
+    max-width: 100%;
+    flex: none;
+    border-right: none;
+    border-bottom: 1px solid var(--neon-primary-dim);
+  }
+
+  .new-chat-box {
+    padding: 12px 15px;
+  }
+
+  .contacts-list {
+    display: flex;
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 2px;
+  }
+
+  .contact-item {
+    white-space: nowrap;
+    border-bottom: none;
+    border-right: 1px solid var(--neon-primary-bg);
+  }
+
+  .contact-item:hover, .contact-item.active {
+    border-left: none;
+    border-bottom: 3px solid var(--neon-primary);
+  }
+  
+  .send-btn {
+    padding: 0 12px;
+    font-size: 0.85rem;
+  }
+  
+  /* Prevent double padding when keyboard is open on iOS */
+  .input-container {
+      padding-bottom: 15px; 
+  }
+}
+
+/* Olympus page states (setup pending, signed out, load notes) */
+.omega-comms-note {
+  position: relative;
+  z-index: 1;
+  margin: auto;
+  max-width: 520px;
+  padding: 24px 20px;
+  text-align: center;
+  color: var(--text-light);
+  font-family: var(--font-matrix);
+  line-height: 1.6;
+}
+.omega-comms-note h3 {
+  margin: 0 0 8px;
+  color: var(--text-primary);
+  font-size: 1rem;
+  letter-spacing: 2px;
+  text-shadow: 0 0 8px var(--neon-primary);
+}
+.omega-comms-note p { margin: 0; font-size: 0.85rem; opacity: 0.85; }
