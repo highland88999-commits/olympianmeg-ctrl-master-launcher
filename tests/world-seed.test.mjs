@@ -34,6 +34,7 @@ import {
 } from '../lib/world-engine/world-seed.js';
 import { VALID_TERRAIN, VALID_WEATHER } from '../lib/world-engine/aesthetic.js';
 import { publicWorldFields, EARTH_ENTRY } from '../lib/communiverse.js';
+import { planetSeedFor } from '../lib/planets/planet-seeds.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, '..');
@@ -181,10 +182,12 @@ describe('serializers surface the seed', () => {
     assert.equal(w.generation_params.seed, 'Amber-Lagoon-742');
   });
 
-  it('unseeded worlds and Earth carry no seed', () => {
+  it('unseeded worlds carry no seed; Earth carries its canonical seed', () => {
     const w = publicWorldFields({ id: 'w2', generation_params: { terrainType: 'desert' } });
     assert.equal(w.seed, null);
-    assert.equal(EARTH_ENTRY.seed, null);
+    // Earth is never GENERATED from a seed, but it carries its
+    // canonical one (Azure-Harbor-001) as identity, like every world.
+    assert.equal(EARTH_ENTRY.seed, planetSeedFor('earth').seed);
   });
 });
 
