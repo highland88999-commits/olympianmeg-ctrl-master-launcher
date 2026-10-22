@@ -31,6 +31,7 @@ import { probeWebGL, resetWebGLProbeCache, diagnoseWebGL } from '../lib/webgl-su
 import { panelsForTower } from '../lib/tower-panels';
 import { parachuteState } from '../lib/earth/parachute';
 import GodTower from './GodTower';
+import OmegaHubGate from './OmegaHubGate';
 
 // QuantumGate — the Quantum Realm seal (Earth round 4, defect 1;
 // Merlin's layer law: the realm has its own floor and sky, fully
@@ -736,6 +737,9 @@ function HubScene({
         <Suspense fallback={null}>
           <QuantumGate>
             <SunBackground />
+            {/* THE OMEGA ARCH — just beyond the Sun. The Portal Room's
+                showpiece door: click it or fly through it in freeroam. */}
+            <OmegaHubGate freeroam={appState === 'hub_freeroam'} />
           </QuantumGate>
           <NexusEarth
             onSelect={appState === 'hub_freeroam' ? beginEarthDive : null}

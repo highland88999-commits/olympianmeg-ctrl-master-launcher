@@ -196,6 +196,10 @@ export const SATELLITES: SatelliteEntry[] = [
   // LANGUAGES (every language on Earth, in its own words) sits with the
   // ATHENA wisdom row: THOTH/WISDOM.
   { key: "languages", route: "/languages", pos: "ATHENA", section: "WISDOM", constellation: "THOTH" },
+  // PORTAL ROOM (the room of portals behind the Omega Arch — one portal
+  // per program, each with its own video) sits with HERMES as the
+  // traveller's door: ARGUS/OBSERVATORY.
+  { key: "portal-room", route: "/portal-room", pos: "HERMES", section: "OBSERVATORY", constellation: "ARGUS" },
 ];
 
 export interface SectionDef { name: string; key: string; constellation: string; }
