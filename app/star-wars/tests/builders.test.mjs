@@ -53,8 +53,8 @@ describe('textures', () => {
 });
 
 describe('landmarks', () => {
-  it('exports 28 landmark types', () => {
-    assert.equal(LM.LANDMARK_TYPES.length, 28);
+  it('exports 29 landmark types', () => {
+    assert.equal(LM.LANDMARK_TYPES.length, 29);
   });
 
   for (const type of LM.LANDMARK_TYPES) {

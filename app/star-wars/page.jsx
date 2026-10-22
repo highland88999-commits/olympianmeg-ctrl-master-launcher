@@ -391,6 +391,9 @@ export default function StarWarsPage() {
     <div style={styles.root}>
       <canvas ref={canvasRef} style={styles.canvas} />
 
+      {/* Exit to lobby — always visible, top left, in every mode */}
+      <a href="/" style={styles.exitBtn} aria-label="Exit to lobby">← Exit to Lobby</a>
+
       {webglFail && (
         <div style={styles.overlay}>
           <div style={styles.panel}>
@@ -568,9 +571,17 @@ const styles = {
   },
   beatPlanet: { color: '#9fb4d8', letterSpacing: 1 },
   beatTitle: { color: '#ffe81f', textAlign: 'right' },
+  exitBtn: {
+    position: 'absolute', top: BANNER_CLEAR, left: 20, zIndex: 90,
+    display: 'inline-flex', alignItems: 'center', minHeight: 44,
+    padding: '10px 16px', fontSize: 13, letterSpacing: 1, fontWeight: 700,
+    color: '#ffe81f', background: 'rgba(10,10,20,0.72)',
+    border: '1px solid rgba(255,232,31,0.55)', borderRadius: 8,
+    textDecoration: 'none', pointerEvents: 'auto', cursor: 'pointer',
+  },
   // map HUD
   mapTop: {
-    position: 'absolute', top: BANNER_CLEAR, left: 20, right: 20,
+    position: 'absolute', top: 'calc(' + BANNER_CLEAR + ' + 54px)', left: 20, right: 20,
     display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
     pointerEvents: 'none',
   },
@@ -594,13 +605,13 @@ const styles = {
   },
   // zone HUD
   zoneTop: {
-    position: 'absolute', top: BANNER_CLEAR, left: 20, right: 20,
+    position: 'absolute', top: 'calc(' + BANNER_CLEAR + ' + 54px)', left: 20, right: 20,
     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
     pointerEvents: 'none',
   },
   zoneName: { color: '#fff', fontSize: 17, letterSpacing: 3, fontWeight: 700, textShadow: '0 0 12px rgba(0,0,0,0.9)' },
   objective: {
-    position: 'absolute', top: 'calc(' + BANNER_CLEAR + ' + 46px)', left: '50%',
+    position: 'absolute', top: 'calc(' + BANNER_CLEAR + ' + 100px)', left: '50%',
     transform: 'translateX(-50%)', textAlign: 'center', maxWidth: '88vw',
   },
   objText: {

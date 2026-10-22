@@ -132,6 +132,8 @@ export const PLANETS = {
       { type: 'moisture-farm', x: 45, z: 20, s: 1 },
       { type: 'podrace-arch', x: -50, z: 30, s: 1.4, ry: 0.9 },
       { type: 'beggars-canyon', x: 0, z: 70, s: 2 },
+      { type: 'podracer', x: 18, z: -12, s: 1.2, ry: 0.6 },
+      { type: 'podracer', x: -20, z: -8, s: 1.2, ry: -0.4 },
     ],
     ambient: [
       { type: 'bantha', count: 4 },

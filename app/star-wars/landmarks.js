@@ -64,7 +64,7 @@ function dome(R, r, ws, hs) {
 }
 
 export const LANDMARK_TYPES = [
-  'mos-eisley', 'moisture-farm', 'podrace-arch', 'beggars-canyon', 'theed-palace',
+  'mos-eisley', 'moisture-farm', 'podrace-arch', 'beggars-canyon', 'podracer', 'theed-palace',
   'jedi-temple', 'senate-dome', 'tipoca-city', 'geonosis-arena', 'droid-foundry',
   'mustafar-fortress', 'lava-falls', 'yavin-temple', 'echo-base', 'swamp-hut',
   'cloud-city', 'shield-generator', 'ewok-village', 'niima-outpost', 'maz-castle',
@@ -127,6 +127,33 @@ const BUILDERS = {
       }
     }
     return done(R, g, cols);
+  },
+  /* Tatooine — podracer: two engines with an energy beam, cockpit pod behind. */
+  'podracer': function (R) {
+    const g = new R.Group();
+    const hull = M(R, 0xb8bcc2, { metalness: 0.65, roughness: 0.35 });
+    const orange = M(R, 0xd96c27, { metalness: 0.45, roughness: 0.45 });
+    const dark = M(R, 0x2b2f35, { metalness: 0.55, roughness: 0.45 });
+    for (const s of [-1, 1]) {
+      const engine = mesh(R, new R.CylinderGeometry(0.9, 0.75, 4.6, 12), hull, s * 2.4, 1.15, -0.6);
+      engine.rotation.x = Math.PI / 2; g.add(engine);
+      const intake = mesh(R, new R.CylinderGeometry(1.05, 0.9, 0.7, 12), orange, s * 2.4, 1.15, -3.1);
+      intake.rotation.x = Math.PI / 2; g.add(intake);
+      g.add(mesh(R, new R.SphereGeometry(0.42, 8, 6), E(R, 0x7fe7ff), s * 2.4, 1.15, -3.55));
+      g.add(mesh(R, new R.BoxGeometry(0.18, 1.1, 1.4), orange, s * 2.4, 2, 1.5));
+      const cable = mesh(R, new R.BoxGeometry(0.12, 0.12, 4.6), dark, s * 1.2, 1, 1.6);
+      cable.rotation.y = s * 0.52; g.add(cable);
+    }
+    const beam = mesh(R, new R.BoxGeometry(4.8, 0.16, 0.16), E(R, 0xd76bff, { transparent: true, opacity: 0.9 }), 0, 1.15, -3.1);
+    beam.userData.pulse = true; g.add(beam);
+    const pod = mesh(R, new R.SphereGeometry(1.15, 12, 9), orange, 0, 0.95, 3.4);
+    pod.scale.set(0.95, 0.8, 1.9); g.add(pod);
+    const canopy = mesh(R, new R.SphereGeometry(0.55, 9, 7), dark, 0, 1.55, 2.9);
+    canopy.scale.set(0.9, 0.65, 1.3); g.add(canopy);
+    g.add(mesh(R, new R.BoxGeometry(1.5, 0.16, 0.9), hull, 0, 0.55, 5.4));
+    return done(R, g, [
+      { x: -2.4, z: -0.6, r: 1.7 }, { x: 2.4, z: -0.6, r: 1.7 }, { x: 0, z: 3.4, r: 1.8 },
+    ]);
   },
   /* Naboo — grand domed palace + columns + plaza disc. */
   'theed-palace': function (R) {

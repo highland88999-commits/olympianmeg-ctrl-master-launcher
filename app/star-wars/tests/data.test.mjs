@@ -22,7 +22,7 @@ import data, {
 } from '../data.js';
 
 const LANDMARK_TYPES = [
-  'mos-eisley', 'moisture-farm', 'podrace-arch', 'beggars-canyon',
+  'mos-eisley', 'moisture-farm', 'podrace-arch', 'beggars-canyon', 'podracer',
   'theed-palace', 'jedi-temple', 'senate-dome', 'tipoca-city',
   'geonosis-arena', 'droid-foundry', 'mustafar-fortress', 'lava-falls',
   'yavin-temple', 'echo-base', 'swamp-hut', 'cloud-city',
