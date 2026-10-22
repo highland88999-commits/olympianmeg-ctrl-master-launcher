@@ -55,7 +55,7 @@ function QuantumGate({ children }) {
   return <group visible={!micro}>{children}</group>;
 }
 
-function MarsBackground() {
+function MarsBackground({ onSelect }) {
   const marsRef = useRef();
   useFrame((state, delta) => { if (marsRef.current) marsRef.current.rotation.y += delta * 0.05; });
   
@@ -70,8 +70,16 @@ function MarsBackground() {
   // — the single source of truth that also feeds its collider in
   // StaticColliders and the Mars-centered SYSTEM RINGS, so the three
   // can never drift apart. Earth stays exactly where it is.
+  // Clickable (Merlin, 2026-10-21): tapping the hub's Mars body now
+  // enters the Mars surface, mirroring how clicking Earth begins the
+  // dive. onSelect is gated by the parent to hub_freeroam (same gate
+  // as NexusEarth's onSelect); the handler sits on the group so both
+  // the planet mesh and its atmosphere shell deliver the tap.
   return (
-    <group position={[MARS_CENTER.x, MARS_CENTER.y, MARS_CENTER.z]}>
+    <group
+      position={[MARS_CENTER.x, MARS_CENTER.y, MARS_CENTER.z]}
+      onClick={onSelect ? (e) => { e.stopPropagation(); onSelect(); } : undefined}
+    >
       <mesh ref={marsRef} receiveShadow castShadow>
         <sphereGeometry args={[MARS_RADIUS, 64, 64]} />
         <meshStandardMaterial color="#b33900" roughness={0.9} metalness={0.1} />
@@ -752,7 +760,7 @@ function HubScene({
             controls={controlsRef}
           />
           <QuantumGate>
-            <MarsBackground />
+            <MarsBackground onSelect={appState === 'hub_freeroam' ? () => router.push('/mars') : null} />
             {/* The planetary system's grand rainbow rings — fixed frame
                 around the planets, outside the satellite hollow. */}
             <SystemRings />

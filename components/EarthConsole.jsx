@@ -134,9 +134,18 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
         The card now centers by flex layout (no transform anywhere
         in its chain) and carries its own composited layer
         (translateZ(0) on the card itself), so a content change
-        repaints ONE box in ONE place. */}
+        repaints ONE box in ONE place.
+        SCROLL GHOST (Merlin's video, 2026-10-21): scrolling the
+        console smeared its list rows into doubled, overlapping
+        ghosts. Two causes, both removed: (1) the card itself was a
+        backdrop-blur SCROLL container — iOS Safari re-composites
+        the blurred backdrop on every scroll frame and paints stale
+        row copies; the card is now a near-opaque solid (no blur).
+        (2) The search-results and landmark lists were NESTED
+        scrollers inside the card's scroller; they now flow in the
+        card's single scroll surface. */}
     <div className="absolute inset-0 z-[80] flex items-center justify-center pointer-events-none ui-element">
-      <div className="bg-zinc-950/90 border border-cyan-500/30 rounded-xl p-4 shadow-[0_0_30px_rgba(0,242,255,0.12)] backdrop-blur-md flex flex-col gap-3 max-h-[70dvh] overflow-y-auto custom-scrollbar w-[min(92vw,20rem)] pointer-events-auto [transform:translateZ(0)]">
+      <div className="bg-zinc-950/95 border border-cyan-500/30 rounded-xl p-4 shadow-[0_0_30px_rgba(0,242,255,0.12)] flex flex-col gap-3 max-h-[70dvh] overflow-y-auto custom-scrollbar w-[min(92vw,20rem)] pointer-events-auto [transform:translateZ(0)]">
         <div className="border-b border-zinc-800 pb-2">
           <div className="flex items-center justify-between gap-2">
             <div className="text-xs font-black tracking-[0.25em] uppercase text-cyan-300">
@@ -194,7 +203,7 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
         </form>
 
         {results.length > 0 && (
-          <div className="flex flex-col gap-1 max-h-32 overflow-y-auto custom-scrollbar">
+          <div className="flex flex-col gap-1">
             {results.map((r, i) => (
               <button
                 key={i}
@@ -303,7 +312,7 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
             <div className="text-[9px] font-bold tracking-[0.25em] uppercase text-zinc-500">
               Walk at a landmark
             </div>
-            <div className="flex flex-col gap-1 max-h-36 overflow-y-auto custom-scrollbar">
+            <div className="flex flex-col gap-1">
               {spawns.map((s) => (
                 <button
                   key={s.id}

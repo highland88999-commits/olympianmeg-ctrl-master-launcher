@@ -1,0 +1,37 @@
+// Hub Mars entry + Earth Console scroll-ghost pins (Merlin's video,
+// 2026-10-21): tapping the hub's Mars body must enter /mars like
+// clicking Earth starts the dive, and the Earth Console must keep
+// exactly ONE scroll surface with no backdrop-blur on it (iOS Safari
+// ghosts rows when a blurred element scrolls).
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+
+const home = readFileSync('components/HomeScene.jsx', 'utf8');
+const console_ = readFileSync('components/EarthConsole.jsx', 'utf8');
+
+test('MarsBackground accepts an onSelect prop', () => {
+  assert.match(home, /function MarsBackground\(\{ onSelect \}\)/);
+});
+
+test('Mars group delivers taps to onSelect (stopPropagation, gated)', () => {
+  assert.match(home, /onClick=\{onSelect \? \(e\) => \{ e\.stopPropagation\(\); onSelect\(\); \} : undefined\}/);
+});
+
+test('Mars mount is freeroam-gated and routes to /mars', () => {
+  assert.match(home, /<MarsBackground onSelect=\{appState === 'hub_freeroam' \? \(\) => router\.push\('\/mars'\) : null\} \/>/);
+});
+
+test('Earth Console card has no backdrop-blur (scroll ghost fix)', () => {
+  const code = console_.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*/g, '');
+  const cardLine = code.split('\n').find((l) => l.includes('max-h-[70dvh]'));
+  assert.ok(cardLine, 'console card line found');
+  assert.ok(!cardLine.includes('backdrop-blur'), 'card must not backdrop-blur');
+  assert.ok(cardLine.includes('bg-zinc-950/95'), 'card compensates with a solid bg');
+});
+
+test('Earth Console has exactly one scroll surface (no nested scrollers)', () => {
+  const code = console_.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*/g, '');
+  const count = (code.match(/overflow-y-auto/g) || []).length;
+  assert.equal(count, 1);
+});
