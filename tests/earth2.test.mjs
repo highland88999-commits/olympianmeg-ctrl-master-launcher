@@ -29,7 +29,36 @@ import {
   parcelById,
   isOwnableIndex,
   buyRefusal,
+  castleParcel,
+  isCastleParcel,
+  CASTLE_PARCEL_ID,
+  CASTLE_PARCEL_INDEX,
 } from '../lib/earth2/parcels.js';
+import {
+  GIFT_TABLE,
+  GIFT_WEIGHT_TOTAL,
+  rollGift,
+} from '../lib/earth2/gifts.js';
+import {
+  emptyBloodSacState,
+  loadBloodSacState,
+  saveBloodSacState,
+  collectBloodSac,
+  offerBloodSac,
+  BLOOD_SAC_STORAGE_KEY,
+} from '../lib/earth2/blood-sacs.js';
+import {
+  COMPY_SWARM,
+  MOSQUITO_CONFIG,
+  BAT_SWARM,
+  DRACULA_TIMINGS,
+  mosquitoDropsSac,
+  mosquitoFullness,
+  createDraculaMachine,
+  stepDracula,
+  draculaIsCount,
+  draculaIsBat,
+} from '../lib/earth2/creatures.js';
 import {
   resolveHomeBase,
   ownedRowsFor,
@@ -132,9 +161,17 @@ describe("Merlin's land rule — more free tiles than owned tiles", () => {
 
   it('the ownable interleave is the decided formula, evenly spread', () => {
     for (let i = 0; i < PARCELS.length; i++) {
+      // The formula rules — with exactly two documented exceptions
+      // at the South Pole (2026-10-22): the castle parcel (2475) is
+      // Free Commons whatever the formula says (Dracula's seat is
+      // nobody's property), and its western neighbour (2474) carries
+      // the ownable slot it vacated, keeping the split exact.
+      if (i === CASTLE_PARCEL_INDEX || i === CASTLE_PARCEL_INDEX - 1) continue;
       assert.equal(PARCELS[i].ownable, (i * 2) % 5 < 2, `index ${i}`);
       assert.equal(isOwnableIndex(i), PARCELS[i].ownable, `index ${i}`);
     }
+    assert.equal(PARCELS[CASTLE_PARCEL_INDEX].ownable, false, 'the castle is commons');
+    assert.equal(PARCELS[CASTLE_PARCEL_INDEX - 1].ownable, true, 'the compensation parcel is ownable');
     // No row is all-owned or all-free: the interleave spreads both.
     for (let row = 0; row < 50; row++) {
       const cells = PARCELS.slice(row * 50, row * 50 + 50);
@@ -414,5 +451,232 @@ describe('the owner lock (static wiring)', () => {
     const satellites = read('lib/i18n/satellites.ts');
     assert.ok(!satellites.includes('earth-2'), 'registry must not name earth-2');
     assert.ok(!satellites.includes('/earth-2'), 'registry must not route /earth-2');
+  });
+});
+
+// ── The blood-sac loop (Merlin, 2026-10-22): Castle Transylvania
+// at the South Pole, Dracula's gift table, the sac tallies, and the
+// creature systems the Bay runs on.
+
+describe('Castle Transylvania — Dracula’s seat at the South Pole', () => {
+  it('parcelAt(-88, 0) resolves to the castle, named and Free Commons', () => {
+    const c = parcelAt(-88, 0);
+    assert.equal(c.name, 'Castle Transylvania');
+    assert.equal(c.id, CASTLE_PARCEL_ID);
+    assert.equal(c.id, 'E2-2476');
+    assert.equal(c.row, 49, 'the southernmost row');
+    assert.equal(c.col, 25, 'the center column');
+    assert.equal(c.kind, 'commons');
+    assert.equal(c.ownable, false);
+    assert.equal(c.priceGold, null);
+    assert.equal(c.tier, 'landmark');
+  });
+
+  it('castleParcel / isCastleParcel agree, and the seat can never be bought or listed', () => {
+    const c = castleParcel();
+    assert.equal(c.index, CASTLE_PARCEL_INDEX);
+    assert.ok(isCastleParcel(c));
+    assert.ok(!isCastleParcel(parcelById('E2-0001')));
+    assert.ok(!isCastleParcel(null));
+    assert.match(buyRefusal(c), /Free Commons/);
+    // Not in the first-round sale, and the resale layer refuses it.
+    assert.ok(!firstRoundListings([]).some((p) => p.id === c.id));
+    const res = createLandListing(c, [], 1000, 'owner@x.io', 0);
+    assert.equal(res.ok, false);
+  });
+
+  it('the chamber shows the castle on the map and in the inspector', () => {
+    const page = read('app/earth-2/page.jsx');
+    assert.ok(page.includes('isCastleParcel'), 'page knows the castle parcel');
+    assert.ok(page.includes('Castle Transylvania'), 'page names the castle');
+    assert.ok(page.includes('🏰'), 'the map/inspector carry the castle marker');
+  });
+});
+
+describe("Dracula's gift table", () => {
+  it('weights are sane: positive, summing to 100, rarity in step with weight', () => {
+    assert.equal(GIFT_WEIGHT_TOTAL, 100);
+    assert.equal(GIFT_TABLE.reduce((s, g) => s + g.weight, 0), 100);
+    const ids = new Set(GIFT_TABLE.map((g) => g.id));
+    assert.equal(ids.size, GIFT_TABLE.length);
+    for (const g of GIFT_TABLE) {
+      assert.ok(g.weight > 0, g.id);
+      assert.ok(['gold', 'aether', 'weapon', 'jackpot'].includes(g.kind), g.id);
+      assert.ok(['common', 'uncommon', 'rare', 'epic', 'legendary'].includes(g.rarity), g.id);
+      if (g.kind === 'weapon') assert.ok(g.weapon, g.id);
+      if (g.kind === 'jackpot') {
+        assert.ok(g.gold >= 1000 && g.aether >= 5, 'the jackpot is a jackpot');
+        assert.equal(g.rarity, 'legendary');
+      }
+    }
+    // The named weapons from Merlin's armoury are on the table.
+    const weapons = GIFT_TABLE.filter((g) => g.kind === 'weapon').map((g) => g.weapon);
+    assert.deepEqual(weapons.sort(), ['Bloodmoon Rifle', 'Nightreaver Bow', 'Silverfang Dagger']);
+    // Gold comes in tiers.
+    const golds = GIFT_TABLE.filter((g) => g.kind === 'gold').map((g) => g.gold).sort((a, b) => a - b);
+    assert.deepEqual(golds, [25, 100, 500, 1000]);
+  });
+
+  it('every outcome is reachable over many seeded rolls, the jackpot rarest', () => {
+    // A seeded RNG drives the table deterministically.
+    let seed = 20261022;
+    const rng = () => {
+      seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
+      let x = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x;
+      return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+    };
+    const counts = new Map();
+    const kinds = new Set();
+    const N = 20000;
+    for (let i = 0; i < N; i++) {
+      const gift = rollGift(rng);
+      counts.set(gift.id, (counts.get(gift.id) || 0) + 1);
+      kinds.add(gift.kind);
+      if (gift.kind === 'gold') assert.ok(gift.gold > 0, gift.id);
+      if (gift.kind === 'weapon') assert.ok(gift.weapon, gift.id);
+    }
+    for (const g of GIFT_TABLE) {
+      assert.ok(counts.get(g.id) > 0, `${g.id} never rolled in ${N}`);
+    }
+    assert.deepEqual([...kinds].sort(), ['aether', 'gold', 'jackpot', 'weapon']);
+    const jackpotRate = counts.get('jackpot-favor') / N;
+    assert.ok(jackpotRate > 0.005 && jackpotRate < 0.045, `jackpot rate ${jackpotRate}`);
+    assert.ok(counts.get('gold-25') > counts.get('jackpot-favor') * 5, 'commons dominate');
+    // The default RNG (real randomness) also produces valid gifts.
+    const g = rollGift();
+    assert.ok(GIFT_TABLE.some((t) => t.id === g.id));
+  });
+});
+
+describe('blood-sac state', () => {
+  it('collecting and offering move exactly one sac at a time', () => {
+    let s = emptyBloodSacState();
+    assert.equal(s.sacs, 0);
+    s = collectBloodSac(s);
+    s = collectBloodSac(s);
+    assert.equal(s.sacs, 2);
+    const gift = { id: 'gold-100', kind: 'gold', label: '100 gold', rarity: 'common', gold: 100, aether: 0, weapon: null };
+    const res = offerBloodSac(s, gift, 1700000000000);
+    assert.equal(res.ok, true);
+    assert.equal(res.state.sacs, 1, 'exactly one sac consumed');
+    assert.equal(res.state.gold, 100);
+    assert.equal(res.state.history.length, 1);
+    assert.equal(res.state.history[0].label, '100 gold');
+    assert.equal(res.state.history[0].at, 1700000000000);
+    // The input state is untouched (pure functions).
+    assert.equal(s.sacs, 2);
+    assert.equal(s.gold, 0);
+  });
+
+  it('weapons and aether accumulate; an empty pouch is refused', () => {
+    let s = collectBloodSac(emptyBloodSacState());
+    const bow = { id: 'weapon-nightreaver', kind: 'weapon', label: 'Nightreaver Bow', rarity: 'rare', gold: 0, aether: 0, weapon: 'Nightreaver Bow' };
+    s = offerBloodSac(s, bow, 1).state;
+    assert.deepEqual(s.weapons, ['Nightreaver Bow']);
+    s = collectBloodSac(s);
+    const favor = { id: 'jackpot-favor', kind: 'jackpot', label: "Dracula's Favor", rarity: 'legendary', gold: 2500, aether: 10, weapon: null };
+    s = offerBloodSac(s, favor, 2).state;
+    assert.equal(s.gold, 2500);
+    assert.equal(s.aether, 10);
+    assert.equal(s.sacs, 0);
+    const refused = offerBloodSac(s, favor, 3);
+    assert.equal(refused.ok, false);
+    assert.equal(refused.state.sacs, 0);
+    assert.equal(refused.state.gold, 2500, 'a refused offer changes nothing');
+  });
+
+  it('persists through storage with the declared shape (and survives junk)', () => {
+    const store = new Map();
+    globalThis.localStorage = {
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => store.set(k, String(v)),
+      removeItem: (k) => store.delete(k),
+    };
+    try {
+      let s = collectBloodSac(collectBloodSac(emptyBloodSacState()));
+      s = offerBloodSac(s, { id: 'aether-3', kind: 'aether', label: 'Aether shards ×3', rarity: 'uncommon', gold: 0, aether: 3, weapon: null }, 42).state;
+      saveBloodSacState(s);
+      assert.ok(store.has(BLOOD_SAC_STORAGE_KEY));
+      const back = loadBloodSacState();
+      assert.equal(back.sacs, 1);
+      assert.equal(back.aether, 3);
+      assert.equal(back.history.length, 1);
+      assert.equal(back.history[0].giftId, 'aether-3');
+      // Junk in storage falls back to a clean state, never a crash.
+      store.set(BLOOD_SAC_STORAGE_KEY, '{"sacs":"lots","weapons":[7]}');
+      const clean = loadBloodSacState();
+      assert.equal(clean.sacs, 0);
+      assert.deepEqual(clean.weapons, []);
+    } finally {
+      delete globalThis.localStorage;
+    }
+    // No storage at all: loads empty, saves silently.
+    assert.deepEqual(loadBloodSacState(), emptyBloodSacState());
+  });
+});
+
+describe('the creature systems (swarm, mosquitos, Dracula)', () => {
+  it('the compy swarm config pins Merlin’s swarm: 12 compies at 0.4 m on the compsognathus', () => {
+    assert.equal(COMPY_SWARM.count, 12);
+    assert.equal(COMPY_SWARM.bodyLengthM, 0.4);
+    assert.equal(COMPY_SWARM.sourceSlug, 'compsognathus');
+    assert.ok(COMPY_SWARM.scatterRadius > 0);
+    assert.ok(COMPY_SWARM.scatterSpeedMultiplier > 1);
+    assert.ok(COMPY_SWARM.tempo > 1, 'the swarm runs at higher tempo');
+  });
+
+  it('the mosquito config pins the feeding loop: 6 mosquitos, an 8-second drink', () => {
+    assert.equal(MOSQUITO_CONFIG.count, 6);
+    assert.equal(MOSQUITO_CONFIG.feedSeconds, 8);
+    assert.equal(BAT_SWARM.count, 18);
+    assert.equal(BAT_SWARM.sourceSlug, 'vampire-bat');
+  });
+
+  it('only a mosquito that has drunk drops a blood sac', () => {
+    assert.equal(mosquitoDropsSac('feeding'), true);
+    assert.equal(mosquitoDropsSac('full'), true);
+    assert.equal(mosquitoDropsSac('cruising'), false);
+    assert.equal(mosquitoDropsSac('seeking'), false);
+    assert.equal(mosquitoDropsSac('falling'), false);
+    assert.equal(mosquitoDropsSac('gone'), false);
+    // The swell that betrays it: empty → filling → full.
+    assert.equal(mosquitoFullness('cruising', 0), 0);
+    assert.equal(mosquitoFullness('feeding', 4), 0.5);
+    assert.equal(mosquitoFullness('feeding', 99), 1);
+    assert.equal(mosquitoFullness('full', 0), 1);
+  });
+
+  it('Dracula’s transformation runs count → smoke → bat → return → smoke → count', () => {
+    let m = createDraculaMachine();
+    assert.equal(m.phase, 'count');
+    assert.ok(draculaIsCount(m.phase) && !draculaIsBat(m.phase));
+    m = stepDracula(m, 0.1, 'greet');
+    assert.equal(m.phase, 'smoke-out');
+    assert.equal(m.scatter, 1, 'the swarm scatters as he transforms');
+    m = stepDracula(m, DRACULA_TIMINGS.smokeSeconds + 0.01, null);
+    assert.equal(m.phase, 'bat');
+    assert.ok(draculaIsBat(m.phase));
+    m = stepDracula(m, DRACULA_TIMINGS.batSeconds + 0.01, null);
+    assert.equal(m.phase, 'return');
+    m = stepDracula(m, DRACULA_TIMINGS.returnSeconds + 0.01, null);
+    assert.equal(m.phase, 'smoke-in');
+    m = stepDracula(m, DRACULA_TIMINGS.smokeSeconds + 0.01, null);
+    assert.equal(m.phase, 'count');
+    assert.ok(draculaIsCount(m.phase));
+    // No greet, no hurry: he stays the Count until his idle cycle.
+    let idle = createDraculaMachine();
+    idle = stepDracula(idle, DRACULA_TIMINGS.idleSeconds - 1, null);
+    assert.equal(idle.phase, 'count');
+    idle = stepDracula(idle, 2, null);
+    assert.equal(idle.phase, 'smoke-out', 'the idle cycle takes him to the air');
+    // A greet mid-flight never breaks the machine.
+    let flying = stepDracula(createDraculaMachine(), 0.1, 'greet');
+    flying = stepDracula(flying, DRACULA_TIMINGS.smokeSeconds + 0.01, 'greet');
+    assert.equal(flying.phase, 'bat');
+    // The machine is pure: stepping never mutates its input.
+    const before = createDraculaMachine();
+    stepDracula(before, 1, 'greet');
+    assert.equal(before.phase, 'count');
   });
 });

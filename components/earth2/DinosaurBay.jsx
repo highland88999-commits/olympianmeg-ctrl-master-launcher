@@ -20,8 +20,17 @@
 // its name in the roster as failed instead of breaking the scene.
 
 import { useEffect, useRef, useState } from 'react';
-import { EARTH2_MODELS, earth2PlacedModels, earth2PendingModels } from '@/lib/earth2/models';
+import { EARTH2_MODELS, EARTH2_MODEL_BY_SLUG, earth2PlacedModels, earth2PendingModels } from '@/lib/earth2/models';
 import { resolveBones, normalizeJointName } from '@/lib/earth2/bones';
+import {
+  COMPY_SWARM,
+  MOSQUITO_CONFIG,
+  BAT_SWARM,
+  DRACULA_TIMINGS,
+  mosquitoDropsSac,
+  createDraculaMachine,
+  stepDracula,
+} from '@/lib/earth2/creatures';
 
 // Deterministic layout RNG (mulberry32) — the Bay arranges itself
 // the same way on every visit.
@@ -63,6 +72,9 @@ const LANDFORM_SPOTS = {
   'cliff-face': { at: [82, 10], head: -1.35 },
   'meteor-crater': { at: [30, -40], head: 0.3, sink: 2.5 },
   'tar-pit': { at: [12, 13], head: 0 },
+  // Castle Transylvania (South Pole in the world; the Bay's far
+  // south rim is its diorama stand-in) — Dracula's seat.
+  'castle-transylvania': { at: [-24, -100], head: 0.35 },
   'rocky-outcrop': { at: [-50, 24], head: 1.2 },
   'giant-boulder': { at: [-31, 31], head: 0, extra: [[45, -7, 0.7], [7, -31, 1.25]] },
 };
@@ -82,16 +94,44 @@ const STATUS_CHIP = {
   'awaiting-upload': 'border-amber-300/40 bg-amber-300/10 text-amber-100',
 };
 
-export default function DinosaurBay() {
+export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, greetSignal } = {}) {
   const mountRef = useRef(null);
   const labelsRef = useRef(null);
   const windRef = useRef(0.5);
   const [wind, setWind] = useState(25);
+  const [localSacs, setLocalSacs] = useState(0);
+  const [bayNotice, setBayNotice] = useState('');
   const [status, setStatus] = useState(() => {
     const init = {};
-    for (const m of EARTH2_MODELS) init[m.slug] = m.file ? 'queued' : 'awaiting-upload';
+    for (const m of EARTH2_MODELS) {
+      init[m.slug] = m.file ? 'queued' : m.status === 'placed' ? 'loading' : 'awaiting-upload';
+    }
     return init;
   });
+  // The scene (built once, in the effect below) talks to the chamber
+  // through refs so its closure never goes stale.
+  const greetRef = useRef(false);
+  const collectSacRef = useRef(() => {});
+  collectSacRef.current = () => {
+    if (typeof onBloodSac === 'function') onBloodSac();
+    else setLocalSacs((n) => n + 1);
+  };
+  const openExchangeRef = useRef(() => {});
+  openExchangeRef.current = () => {
+    greetRef.current = true; // he greets visitors by transforming
+    if (typeof onOpenExchange === 'function') onOpenExchange();
+  };
+  const noticeRef = useRef(() => {});
+  noticeRef.current = (msg) => setBayNotice(msg);
+  useEffect(() => {
+    if (greetSignal) greetRef.current = true;
+  }, [greetSignal]);
+  useEffect(() => {
+    if (!bayNotice) return undefined;
+    const id = setTimeout(() => setBayNotice(''), 4200);
+    return () => clearTimeout(id);
+  }, [bayNotice]);
+  const sacsShown = typeof bloodSacs === 'number' ? bloodSacs : localSacs;
   const placedCount = earth2PlacedModels().filter((m) => status[m.slug] === 'placed').length;
   const failed = EARTH2_MODELS.filter((m) => status[m.slug] === 'failed');
 
@@ -107,6 +147,7 @@ export default function DinosaurBay() {
       const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
       const { MeshoptDecoder } = await import('three/examples/jsm/libs/meshopt_decoder.module.js');
       const { OrbitControls } = await import('three/examples/jsm/controls/OrbitControls.js');
+      const SkeletonUtils = await import('three/examples/jsm/utils/SkeletonUtils.js');
       if (cancelled || !mountRef.current) return;
 
       const mount = mountRef.current;
@@ -194,6 +235,7 @@ export default function DinosaurBay() {
       const labels = [];  // { el, obj, h }
       const disposables = [];
       const track = (o) => { disposables.push(o); return o; };
+      let removePointer = () => {};
 
       const setStatusFor = (slug, s) => { if (!cancelled) setStatus((prev) => ({ ...prev, [slug]: s })); };
 
@@ -241,58 +283,72 @@ export default function DinosaurBay() {
         labels.push({ el, obj, h });
       }
 
+      // ── Bone roles, shared by creatures and the compy clones ──
+      // resolveBones works on the names as loaded; bones map keys
+      // are already normalized, so re-map role names through the
+      // same normalization the resolver applied.
+      function resolveRoles(modelScene) {
+        const bones = bonesOf(modelScene);
+        const roles = resolveBones([...bones.keys()]);
+        const roleBone = (name) => (name ? bones.get(normalizeJointName(name)) || null : null);
+        return {
+          dialect: roles.dialect,
+          spine: roles.spine.map(roleBone).filter(Boolean),
+          neck: roles.neck.map(roleBone).filter(Boolean),
+          head: roleBone(roles.head),
+          tail: roles.tail.map(roleBone).filter(Boolean),
+          legs: roles.legs.map((l) => ({
+            side: l.side, pair: l.pair,
+            thigh: roleBone(l.thigh), calf: roleBone(l.calf), foot: roleBone(l.foot),
+          })).filter((l) => l.thigh),
+          wings: roles.wings.map((w) => ({ side: w.side, chain: w.chain.map(roleBone).filter(Boolean) })).filter((w) => w.chain.length),
+        };
+      }
+
+      // Bind quaternions for every driven bone.
+      function bindQuats(resolved) {
+        const bind = new Map();
+        for (const b of [...resolved.spine, ...resolved.neck, ...(resolved.head ? [resolved.head] : []), ...resolved.tail,
+          ...resolved.legs.flatMap((l) => [l.thigh, l.calf, l.foot]),
+          ...resolved.wings.flatMap((w) => w.chain)]) {
+          if (b && !bind.has(b.uuid)) bind.set(b.uuid, b.quaternion.clone());
+        }
+        return bind;
+      }
+
+      // Facing: the head end of the spine is the front of the
+      // animal. Measure it off the bind pose, never assume an axis.
+      function measureFacing(modelScene, resolved) {
+        const holder = new THREE.Group();
+        holder.add(modelScene);
+        holder.updateMatrixWorld(true);
+        const headBone = resolved.head;
+        const pelvisBone = resolved.spine[0] || null;
+        if (headBone && pelvisBone) {
+          const hp = headBone.getWorldPosition(new THREE.Vector3());
+          const pp = pelvisBone.getWorldPosition(new THREE.Vector3());
+          const fx = hp.x - pp.x, fz = hp.z - pp.z;
+          if (Math.hypot(fx, fz) > 1e-4) return -Math.atan2(fx, fz);
+        }
+        return 0;
+      }
+
       // ── Creatures ──────────────────────────────────────────────
       async function placeCreature(entry) {
         setStatusFor(entry.slug, 'loading');
         try {
           const modelScene = await loadModel(entry);
-          const bones = bonesOf(modelScene);
-          const roles = resolveBones([...bones.keys()].map((k) => k));
-          // resolveBones works on the names as loaded; bones map keys
-          // are already normalized, so re-map role names through the
-          // same normalization the resolver applied.
-          const roleBone = (name) => (name ? bones.get(normalizeJointName(name)) || null : null);
-          const resolved = {
-            dialect: roles.dialect,
-            spine: roles.spine.map(roleBone).filter(Boolean),
-            neck: roles.neck.map(roleBone).filter(Boolean),
-            head: roleBone(roles.head),
-            tail: roles.tail.map(roleBone).filter(Boolean),
-            legs: roles.legs.map((l) => ({
-              side: l.side, pair: l.pair,
-              thigh: roleBone(l.thigh), calf: roleBone(l.calf), foot: roleBone(l.foot),
-            })).filter((l) => l.thigh),
-            wings: roles.wings.map((w) => ({ side: w.side, chain: w.chain.map(roleBone).filter(Boolean) })).filter((w) => w.chain.length),
-          };
-          // Facing: the head end of the spine is the front of the
-          // animal. Measure it off the bind pose, never assume an axis.
-          const holder = new THREE.Group();
-          holder.add(modelScene);
-          holder.updateMatrixWorld(true);
-          let facingYaw = 0;
-          const headBone = resolved.head;
-          const pelvisBone = resolved.spine[0] || null;
-          if (headBone && pelvisBone) {
-            const hp = headBone.getWorldPosition(new THREE.Vector3());
-            const pp = pelvisBone.getWorldPosition(new THREE.Vector3());
-            const fx = hp.x - pp.x, fz = hp.z - pp.z;
-            if (Math.hypot(fx, fz) > 1e-4) facingYaw = -Math.atan2(fx, fz);
-          }
+          const resolved = resolveRoles(modelScene);
+          const facingYaw = measureFacing(modelScene, resolved);
           const spin = normalize(modelScene, entry);
           spin.rotation.y = facingYaw;
           const root = new THREE.Group();
           root.add(spin);
-          // bind quaternions for every driven bone
-          const bind = new Map();
-          for (const b of [...resolved.spine, ...resolved.neck, ...(resolved.head ? [resolved.head] : []), ...resolved.tail,
-            ...resolved.legs.flatMap((l) => [l.thigh, l.calf, l.foot]),
-            ...resolved.wings.flatMap((w) => w.chain)]) {
-            if (b && !bind.has(b.uuid)) bind.set(b.uuid, b.quaternion.clone());
-          }
           const animal = {
-            entry, root, roles: resolved, bind,
+            entry, root, roles: resolved, bind: bindQuats(resolved),
             phase: rng() * Math.PI * 2,
             breathRate: 0.75 + rng() * 0.35,
+            tempo: 1,
             walker: null, flyer: entry.kind === 'flyer',
             dist: 0,
           };
@@ -405,6 +461,673 @@ export default function DinosaurBay() {
         await placeCreature(e);
       }
 
+      // ── The compy swarm, the mosquitos, Dracula & his bats ────
+      // (Merlin, 2026-10-22 — the blood-sac loop. The pure rules —
+      // swarm config, the feeding cycle, the transformation — live
+      // in lib/earth2/creatures.js; this section is their body.)
+      const CASTLE_AT = LANDFORM_SPOTS['castle-transylvania'].at;
+      // The Count stands before his castle on the south rim (the
+      // ground rises toward the rim, hence the plinth height).
+      const DRACULA_SPOT = new THREE.Vector3(-19, 2.6, -93);
+      const mosquitos = [];
+      const sacs = []; // { group, core }
+      const bursts = []; // { points, vels, life }
+      const swarmBats = [];
+      const drac = {
+        machine: createDraculaMachine(),
+        countForm: null, batForm: null, batParts: {},
+        smoke: null, batAngle: 0, returnFrom: new THREE.Vector3(),
+      };
+      const tmpMove = new THREE.Vector3();
+      const tmpTarget = new THREE.Vector3();
+      const anchorV = new THREE.Vector3();
+
+      function glowSprite(inner, outer) {
+        const c = document.createElement('canvas'); c.width = 128; c.height = 128;
+        const g = c.getContext('2d');
+        const grad = g.createRadialGradient(64, 64, 2, 64, 64, 64);
+        grad.addColorStop(0, inner); grad.addColorStop(1, outer);
+        g.fillStyle = grad; g.fillRect(0, 0, 128, 128);
+        const tex = new THREE.CanvasTexture(c);
+        const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+        track(spr);
+        return spr;
+      }
+
+      // ── Compy swarm: clones of the compsognathus at 0.4 m, on
+      // the shared bones/idle system at swarm tempo (creatures.js).
+      async function placeCompySwarm() {
+        const source = EARTH2_MODEL_BY_SLUG.get(COMPY_SWARM.sourceSlug);
+        if (!source || !source.file) { setStatusFor('compy-swarm', 'failed'); return; }
+        try {
+          const baseScene = await loadModel(source);
+          const pseudo = { ...source, scaleM: COMPY_SWARM.bodyLengthM };
+          for (let i = 0; i < COMPY_SWARM.count; i++) {
+            const modelScene = i === 0 ? baseScene : SkeletonUtils.clone(baseScene);
+            const resolved = resolveRoles(modelScene);
+            const facingYaw = measureFacing(modelScene, resolved);
+            const spin = normalize(modelScene, pseudo);
+            spin.rotation.y = facingYaw;
+            const root = new THREE.Group();
+            root.add(spin);
+            const ang = rng() * Math.PI * 2;
+            const rad = rng() * COMPY_SWARM.radius;
+            root.position.set(
+              COMPY_SWARM.center[0] + Math.cos(ang) * rad, 0,
+              COMPY_SWARM.center[1] + Math.sin(ang) * rad,
+            );
+            root.rotation.y = rng() * Math.PI * 2;
+            scene.add(root);
+            animals.push({
+              entry: pseudo, root, roles: resolved, bind: bindQuats(resolved),
+              phase: rng() * Math.PI * 2,
+              breathRate: 1.5 + rng() * 0.7,
+              tempo: COMPY_SWARM.tempo,
+              walker: null, flyer: false, dist: 0,
+              compy: {
+                wx: root.position.x, wz: root.position.z,
+                baseSpeed: COMPY_SWARM.baseSpeed * (0.8 + rng() * 0.5),
+                scatterT: 0,
+              },
+            });
+          }
+          setStatusFor('compy-swarm', 'placed');
+        } catch (err) {
+          setStatusFor('compy-swarm', 'failed');
+        }
+      }
+
+      // PLACEHOLDER — a stylized giant mosquito built from
+      // primitives (body, wings, proboscis, dangling legs). The
+      // real Tripo model (manifest 'giant-mosquito') is still in
+      // production; when its GLB lands at
+      // public/models/earth2/giant-mosquito.glb the loader path in
+      // placeMosquitos uses it instead. This stand-in is NOT that
+      // model and does not pretend to be.
+      function buildMosquitoStandIn() {
+        const group = new THREE.Group();
+        const mat = new THREE.MeshStandardMaterial({ color: 0x4a4238, roughness: 0.7 });
+        const abdomenMat = new THREE.MeshStandardMaterial({ color: 0x6b6257, roughness: 0.55 });
+        const abdomen = new THREE.Mesh(new THREE.SphereGeometry(0.17, 14, 10), abdomenMat);
+        abdomen.scale.set(1, 1, 1.9);
+        abdomen.position.set(0, 0, -0.3);
+        group.add(abdomen);
+        const thorax = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 10), mat);
+        thorax.position.set(0, 0.02, 0.08);
+        group.add(thorax);
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.075, 10, 8), mat);
+        head.position.set(0, 0.05, 0.24);
+        group.add(head);
+        const proboscis = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.0015, 0.34, 5), mat);
+        proboscis.position.set(0, -0.08, 0.33);
+        proboscis.rotation.x = 0.7;
+        group.add(proboscis);
+        const wingMat = new THREE.MeshBasicMaterial({ color: 0xdfeaf2, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false });
+        const mkWing = (side) => {
+          const pivot = new THREE.Group();
+          pivot.position.set(0.05 * side, 0.1, 0.1);
+          const wing = new THREE.Mesh(new THREE.PlaneGeometry(0.52, 0.17), wingMat);
+          wing.position.x = 0.27 * side;
+          wing.rotation.x = -Math.PI / 2 + 0.25;
+          pivot.add(wing);
+          group.add(pivot);
+          return pivot;
+        };
+        const wingL = mkWing(1);
+        const wingR = mkWing(-1);
+        for (let s = -1; s <= 1; s += 2) {
+          for (let i = 0; i < 3; i++) {
+            const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.004, 0.36, 4), mat);
+            leg.position.set(0.1 * s, -0.14, 0.12 - i * 0.1);
+            leg.rotation.z = 0.7 * s;
+            leg.rotation.x = (i - 1) * 0.3;
+            group.add(leg);
+          }
+        }
+        group.scale.setScalar(1.35);
+        return { group, abdomen, abdomenMat, abdomenBase: abdomen.scale.clone(), wingL, wingR };
+      }
+
+      const ABDOMEN_EMPTY = new THREE.Color(0x6b6257);
+      const ABDOMEN_FULL = new THREE.Color(0xc01818);
+      function applyAbdomen(mq) {
+        const ab = mq.parts.abdomen;
+        if (!ab) return;
+        const f = mq.fedLevel;
+        if (mq.parts.abdomenBase) {
+          ab.scale.set(
+            mq.parts.abdomenBase.x * (1 + f * 0.45),
+            mq.parts.abdomenBase.y * (1 + f * 0.6),
+            mq.parts.abdomenBase.z * (1 + f * 0.25),
+          );
+        }
+        if (mq.parts.abdomenMat) {
+          mq.parts.abdomenMat.color.copy(ABDOMEN_EMPTY).lerp(ABDOMEN_FULL, f);
+        }
+      }
+
+      async function placeMosquitos() {
+        const entry = EARTH2_MODEL_BY_SLUG.get('giant-mosquito');
+        for (let i = 0; i < MOSQUITO_CONFIG.count; i++) {
+          let group = null;
+          let parts = {};
+          if (entry && entry.file) {
+            try {
+              const modelScene = await loadModel(entry);
+              group = normalize(modelScene, entry);
+              modelScene.traverse((o) => {
+                if (!parts.abdomen && /abdomen|belly/i.test(o.name || '')) {
+                  parts.abdomen = o;
+                  parts.abdomenBase = o.scale ? o.scale.clone() : null;
+                  parts.abdomenMat = o.material && o.material.color ? o.material : null;
+                }
+              });
+            } catch (err) {
+              group = null;
+            }
+          }
+          if (!group) {
+            const s = buildMosquitoStandIn();
+            group = s.group;
+            parts = s;
+          }
+          const proxy = new THREE.Mesh(
+            new THREE.SphereGeometry(0.85, 8, 8),
+            new THREE.MeshBasicMaterial({ visible: false }),
+          );
+          group.add(proxy);
+          scene.add(group);
+          const mq = {
+            group, proxy, parts,
+            phase: 'cruising',
+            a: rng() * Math.PI * 2,
+            r: 26 + rng() * 30,
+            h: MOSQUITO_CONFIG.cruiseHeight + rng() * 3,
+            cx: (rng() - 0.5) * 30, cz: (rng() - 0.5) * 30,
+            speed: MOSQUITO_CONFIG.cruiseSpeed * (0.85 + rng() * 0.3),
+            feedT: 0, fedLevel: 0, target: null,
+            cruiseT: 0,
+            nextFeedIn: MOSQUITO_CONFIG.firstFeedDelay[0]
+              + rng() * (MOSQUITO_CONFIG.firstFeedDelay[1] - MOSQUITO_CONFIG.firstFeedDelay[0]),
+            vy: 0, goneT: 0, willDropSac: false,
+          };
+          proxy.userData.mosquito = mq;
+          group.position.set(
+            mq.cx + Math.cos(mq.a) * mq.r, mq.h,
+            mq.cz + Math.sin(mq.a) * mq.r,
+          );
+          mosquitos.push(mq);
+        }
+        // Even as stand-ins the mosquitos are HERE — the loop is live.
+        setStatusFor('giant-mosquito', 'placed');
+      }
+
+      // PLACEHOLDER — a caped silhouette for the Count, at
+      // placeholder fidelity (no faked detail). The rigged Tripo
+      // Dracula (manifest 'dracula') replaces it when its GLB lands.
+      function buildDraculaStandIn() {
+        const group = new THREE.Group();
+        const black = new THREE.MeshStandardMaterial({ color: 0x17121c, roughness: 0.85 });
+        const crimson = new THREE.MeshStandardMaterial({ color: 0x6d0f1d, roughness: 0.7 });
+        const cape = new THREE.Mesh(new THREE.ConeGeometry(0.62, 1.7, 14, 1, true), black);
+        cape.position.set(0, 0.9, -0.06);
+        group.add(cape);
+        const body = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.26, 1.25, 10), black);
+        body.position.y = 0.78;
+        group.add(body);
+        const chest = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.16, 0.7, 8), crimson);
+        chest.position.set(0, 1.0, 0.05);
+        group.add(chest);
+        const headM = new THREE.Mesh(
+          new THREE.SphereGeometry(0.17, 14, 12),
+          new THREE.MeshStandardMaterial({ color: 0xe9ddc9, roughness: 0.6 }),
+        );
+        headM.position.y = 1.66;
+        group.add(headM);
+        const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff2a1a });
+        for (const s of [-1, 1]) {
+          const eye = new THREE.Mesh(new THREE.SphereGeometry(0.02, 6, 6), eyeMat);
+          eye.position.set(0.06 * s, 1.7, 0.15);
+          group.add(eye);
+        }
+        return { group };
+      }
+
+      // PLACEHOLDER — a simple bat silhouette (body, ears, two
+      // flapping wing planes). The rigged Tripo bat (manifest
+      // 'vampire-bat') becomes Dracula's own bat form when it
+      // lands; the castle swarm keeps these silhouettes until then.
+      function buildBatStandIn() {
+        const group = new THREE.Group();
+        const mat = new THREE.MeshStandardMaterial({ color: 0x241a20, roughness: 0.9 });
+        const bodyM = new THREE.Mesh(new THREE.SphereGeometry(0.13, 10, 8), mat);
+        bodyM.scale.set(0.8, 0.8, 1.5);
+        group.add(bodyM);
+        const headM = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 8), mat);
+        headM.position.set(0, 0.04, 0.17);
+        group.add(headM);
+        for (const s of [-1, 1]) {
+          const ear = new THREE.Mesh(new THREE.ConeGeometry(0.025, 0.09, 5), mat);
+          ear.position.set(0.045 * s, 0.12, 0.17);
+          group.add(ear);
+        }
+        const wingMat = new THREE.MeshBasicMaterial({ color: 0x2c2129, side: THREE.DoubleSide });
+        const mkWing = (side) => {
+          const pivot = new THREE.Group();
+          const wing = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.26), wingMat);
+          wing.position.x = 0.33 * side;
+          wing.rotation.x = -Math.PI / 2;
+          pivot.add(wing);
+          group.add(pivot);
+          return pivot;
+        };
+        return { group, wingL: mkWing(1), wingR: mkWing(-1) };
+      }
+
+      function flapBat(parts, t, rate) {
+        if (!parts || !parts.wingL || !parts.wingR) return;
+        const f = Math.sin(t * rate) * 0.65;
+        parts.wingL.rotation.z = 0.25 + f;
+        parts.wingR.rotation.z = -0.25 - f;
+      }
+
+      const dracProxy = new THREE.Mesh(
+        new THREE.CylinderGeometry(1.2, 1.2, 2.6, 8),
+        new THREE.MeshBasicMaterial({ visible: false }),
+      );
+      dracProxy.position.set(DRACULA_SPOT.x, DRACULA_SPOT.y + 1.2, DRACULA_SPOT.z);
+      dracProxy.userData.dracula = true;
+      scene.add(dracProxy);
+
+      async function placeDracula() {
+        // His plinth + a violet court light on the rim.
+        const plinth = new THREE.Mesh(
+          new THREE.CircleGeometry(2.4, 24),
+          new THREE.MeshStandardMaterial({ color: 0x211d2a, roughness: 1 }),
+        );
+        plinth.rotation.x = -Math.PI / 2;
+        plinth.position.set(DRACULA_SPOT.x, DRACULA_SPOT.y - 0.02, DRACULA_SPOT.z);
+        scene.add(plinth);
+        const courtLight = new THREE.PointLight(0x8a5adf, 60, 30, 1.8);
+        courtLight.position.set(DRACULA_SPOT.x, DRACULA_SPOT.y + 2.6, DRACULA_SPOT.z);
+        scene.add(courtLight);
+
+        const dEntry = EARTH2_MODEL_BY_SLUG.get('dracula');
+        let countGroup = null;
+        if (dEntry && dEntry.file) {
+          try {
+            countGroup = normalize(await loadModel(dEntry), dEntry);
+          } catch (err) {
+            countGroup = null;
+          }
+        }
+        if (!countGroup) countGroup = buildDraculaStandIn().group;
+        countGroup.position.copy(DRACULA_SPOT);
+        countGroup.rotation.y = Math.atan2(-DRACULA_SPOT.x, -DRACULA_SPOT.z); // face the Bay
+        scene.add(countGroup);
+        drac.countForm = countGroup;
+
+        const bEntry = EARTH2_MODEL_BY_SLUG.get('vampire-bat');
+        let batGroup = null;
+        let batParts = {};
+        if (bEntry && bEntry.file) {
+          try {
+            batGroup = normalize(await loadModel(bEntry), bEntry);
+          } catch (err) {
+            batGroup = null;
+          }
+        }
+        if (!batGroup) {
+          const s = buildBatStandIn();
+          batGroup = s.group;
+          batParts = s;
+        }
+        batGroup.position.set(DRACULA_SPOT.x, DRACULA_SPOT.y + 1.2, DRACULA_SPOT.z);
+        batGroup.visible = false;
+        scene.add(batGroup);
+        drac.batForm = batGroup;
+        drac.batParts = batParts;
+
+        // His transformation smoke: one dark particle cloud, reused
+        // for both bursts, swelling and fading with the phase.
+        const N = 70;
+        const positions = new Float32Array(N * 3);
+        for (let i = 0; i < N; i++) {
+          const th = rng() * Math.PI * 2;
+          const ph = Math.acos(2 * rng() - 1);
+          const rr = 0.25 + rng() * 0.55;
+          positions[i * 3] = Math.sin(ph) * Math.cos(th) * rr;
+          positions[i * 3 + 1] = Math.abs(Math.cos(ph)) * rr * 1.6;
+          positions[i * 3 + 2] = Math.sin(ph) * Math.sin(th) * rr;
+        }
+        const smokeGeo = new THREE.BufferGeometry();
+        smokeGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        const smokeMat = new THREE.PointsMaterial({
+          color: 0x352c3d, size: 0.34, transparent: true, opacity: 0, depthWrite: false,
+        });
+        const smoke = new THREE.Points(smokeGeo, smokeMat);
+        smoke.position.set(DRACULA_SPOT.x, DRACULA_SPOT.y + 0.2, DRACULA_SPOT.z);
+        scene.add(smoke);
+        track(smoke);
+        drac.smoke = smoke;
+        setStatusFor('dracula', 'placed');
+        setStatusFor('vampire-bat', 'placed');
+      }
+
+      function placeBatSwarm() {
+        for (let i = 0; i < BAT_SWARM.count; i++) {
+          const s = buildBatStandIn();
+          scene.add(s.group);
+          swarmBats.push({
+            group: s.group, wingL: s.wingL, wingR: s.wingR,
+            a: rng() * Math.PI * 2,
+            r: BAT_SWARM.radius[0] + rng() * (BAT_SWARM.radius[1] - BAT_SWARM.radius[0]),
+            h: BAT_SWARM.height[0] + rng() * (BAT_SWARM.height[1] - BAT_SWARM.height[0]),
+            speed: BAT_SWARM.speed[0] + rng() * (BAT_SWARM.speed[1] - BAT_SWARM.speed[0]),
+            ph: rng() * Math.PI * 2,
+          });
+        }
+      }
+
+      await placeCompySwarm();
+      if (cancelled) return;
+      await placeMosquitos();
+      if (cancelled) return;
+      await placeDracula();
+      if (cancelled) return;
+      placeBatSwarm();
+
+      // ── Behaviour: mosquitos feed, sacs drop, Dracula turns ──
+      function moveToward(obj, target, speed, dt) {
+        const pos = obj.position;
+        tmpMove.copy(target).sub(pos);
+        const len = tmpMove.length();
+        if (len < 1e-4) return true;
+        tmpMove.normalize();
+        pos.addScaledVector(tmpMove, Math.min(len, speed * dt));
+        obj.rotation.y = Math.atan2(tmpMove.x, tmpMove.z);
+        return len <= speed * dt + 0.05;
+      }
+
+      function hostAnchor(animal, out) {
+        out.copy(animal.root.position);
+        out.y = animal.root.position.y + Math.max(0.7, animal.entry.scaleM * 0.5);
+        return out;
+      }
+
+      function spawnBurst(at, colorHex) {
+        const N = 26;
+        const positions = new Float32Array(N * 3);
+        const vels = [];
+        for (let i = 0; i < N; i++) {
+          positions[i * 3] = at.x; positions[i * 3 + 1] = at.y; positions[i * 3 + 2] = at.z;
+          const th = rng() * Math.PI * 2;
+          const ph = Math.acos(2 * rng() - 1);
+          const sp = 1.5 + rng() * 2.5;
+          vels.push([Math.sin(ph) * Math.cos(th) * sp, Math.cos(ph) * sp + 0.8, Math.sin(ph) * Math.sin(th) * sp]);
+        }
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        const mat = new THREE.PointsMaterial({ color: colorHex, size: 0.22, transparent: true, opacity: 1, depthWrite: false });
+        const points = new THREE.Points(geo, mat);
+        scene.add(points);
+        track(points);
+        bursts.push({ points, vels, life: 0 });
+      }
+
+      function spawnSac(at) {
+        const group = new THREE.Group();
+        const core = new THREE.Mesh(
+          new THREE.SphereGeometry(0.3, 18, 14),
+          new THREE.MeshStandardMaterial({ color: 0xc01414, emissive: 0x8a0a0a, emissiveIntensity: 0.9, roughness: 0.35 }),
+        );
+        core.scale.y = 1.25;
+        group.add(core);
+        const spr = glowSprite('rgba(255,60,40,0.9)', 'rgba(200,10,10,0)');
+        spr.scale.setScalar(2.2);
+        group.add(spr);
+        group.position.set(at.x, 0.55, at.z);
+        scene.add(group);
+        const sac = { group, core };
+        group.traverse((o) => { o.userData.sacRef = sac; });
+        sacs.push(sac);
+      }
+
+      function collectSac(sac) {
+        const i = sacs.indexOf(sac);
+        if (i < 0) return;
+        sacs.splice(i, 1);
+        scene.remove(sac.group);
+        collectSacRef.current();
+        noticeRef.current('🩸 Blood sac collected — Dracula trades sacs for gifts.');
+      }
+
+      function resetMosquito(mq) {
+        mq.phase = 'cruising';
+        mq.fedLevel = 0;
+        mq.feedT = 0;
+        mq.target = null;
+        mq.cruiseT = 0;
+        mq.nextFeedIn = MOSQUITO_CONFIG.refuelDelay[0]
+          + rng() * (MOSQUITO_CONFIG.refuelDelay[1] - MOSQUITO_CONFIG.refuelDelay[0]);
+        mq.group.visible = true;
+        mq.group.rotation.set(0, 0, 0);
+        mq.group.position.set(
+          mq.cx + Math.cos(mq.a) * mq.r, mq.h,
+          mq.cz + Math.sin(mq.a) * mq.r,
+        );
+        applyAbdomen(mq);
+      }
+
+      function landMosquito(mq) {
+        mq.group.position.y = 0.25;
+        if (mq.willDropSac) spawnSac(mq.group.position);
+        spawnBurst(mq.group.position, mq.willDropSac ? 0xd42a2a : 0x9a958c);
+        mq.group.visible = false;
+        mq.phase = 'gone';
+        mq.goneT = 0;
+      }
+
+      function shootMosquito(mq) {
+        if (mq.phase === 'falling' || mq.phase === 'gone') return;
+        // The rule (lib/earth2/creatures.js): only a mosquito that
+        // has drunk — feeding now, or full — drops a blood sac.
+        mq.willDropSac = mosquitoDropsSac(mq.phase);
+        spawnBurst(mq.group.position, mq.willDropSac ? 0xd42a2a : 0x9a958c);
+        if (!mq.willDropSac) {
+          noticeRef.current("It hadn't drunk yet — no sac. Shoot the swollen red ones.");
+        }
+        mq.phase = 'falling';
+        mq.vy = 0;
+      }
+
+      function updateMosquito(mq, t, dt) {
+        const pos = mq.group.position;
+        if (mq.parts.wingL && mq.parts.wingR && mq.phase !== 'gone') {
+          const flap = Math.sin(t * 42 + mq.a * 7) * 0.75;
+          mq.parts.wingL.rotation.z = 0.5 + flap;
+          mq.parts.wingR.rotation.z = -0.5 - flap;
+        }
+        switch (mq.phase) {
+          case 'cruising': {
+            mq.cruiseT += dt;
+            mq.a += dt * mq.speed * (mq.fedLevel > 0 ? MOSQUITO_CONFIG.fullSpeedFactor : 1);
+            pos.set(
+              mq.cx + Math.cos(mq.a) * mq.r,
+              mq.h + Math.sin(t * 1.3 + mq.a * 3) * 0.5,
+              mq.cz + Math.sin(mq.a) * mq.r,
+            );
+            mq.group.rotation.y = -mq.a;
+            if (mq.fedLevel === 0 && mq.cruiseT > mq.nextFeedIn) {
+              const targets = animals.filter((an) => !an.flyer);
+              if (targets.length) {
+                mq.target = targets[Math.floor(rng() * targets.length)];
+                mq.phase = 'seeking';
+              }
+            }
+            break;
+          }
+          case 'seeking': {
+            if (!mq.target) { mq.phase = 'cruising'; break; }
+            hostAnchor(mq.target, anchorV);
+            if (moveToward(mq.group, anchorV, MOSQUITO_CONFIG.seekSpeed, dt)) {
+              mq.phase = 'feeding';
+              mq.feedT = 0;
+            }
+            break;
+          }
+          case 'feeding': {
+            if (!mq.target) { mq.phase = 'cruising'; break; }
+            hostAnchor(mq.target, anchorV);
+            pos.copy(anchorV);
+            mq.group.rotation.y = Math.atan2(
+              mq.target.root.position.x - pos.x,
+              mq.target.root.position.z - pos.z,
+            );
+            mq.feedT += dt;
+            mq.fedLevel = Math.min(1, mq.feedT / MOSQUITO_CONFIG.feedSeconds);
+            applyAbdomen(mq);
+            if (mq.feedT >= MOSQUITO_CONFIG.feedSeconds) {
+              mq.phase = 'full';
+              mq.cruiseT = 0;
+            }
+            break;
+          }
+          case 'full': {
+            tmpTarget.set(
+              mq.cx + Math.cos(mq.a) * mq.r, mq.h,
+              mq.cz + Math.sin(mq.a) * mq.r,
+            );
+            if (moveToward(mq.group, tmpTarget, 2.4, dt)) mq.phase = 'cruising';
+            break;
+          }
+          case 'falling': {
+            mq.vy -= 22 * dt;
+            pos.y += mq.vy * dt;
+            mq.group.rotation.z += dt * 7;
+            mq.group.rotation.x += dt * 3;
+            if (pos.y <= 0.25) landMosquito(mq);
+            break;
+          }
+          case 'gone': {
+            mq.goneT += dt;
+            if (mq.goneT >= MOSQUITO_CONFIG.respawnSeconds) resetMosquito(mq);
+            break;
+          }
+          default:
+            break;
+        }
+      }
+
+      function updateDracula(t, dt) {
+        const ev = greetRef.current ? 'greet' : null;
+        if (ev) greetRef.current = false;
+        const prevPhase = drac.machine.phase;
+        drac.machine = stepDracula(drac.machine, dt, ev);
+        const m = drac.machine;
+        if (prevPhase !== m.phase && m.phase === 'return' && drac.batForm) {
+          drac.returnFrom.copy(drac.batForm.position);
+        }
+        // Transformation smoke — swells and fades across both bursts.
+        if (drac.smoke) {
+          let op = 0;
+          let sc = 1;
+          if (m.phase === 'smoke-out' || m.phase === 'smoke-in') {
+            const p = Math.min(1, m.t / DRACULA_TIMINGS.smokeSeconds);
+            op = Math.sin(p * Math.PI) * 0.85;
+            sc = 1 + p * 2.4;
+          }
+          drac.smoke.material.opacity = op;
+          drac.smoke.scale.setScalar(sc);
+          drac.smoke.rotation.y += dt * 1.5;
+        }
+        if (drac.countForm) {
+          drac.countForm.visible =
+            m.phase === 'count'
+            || (m.phase === 'smoke-out' && m.t < DRACULA_TIMINGS.smokeSeconds * 0.55)
+            || (m.phase === 'smoke-in' && m.t > DRACULA_TIMINGS.smokeSeconds * 0.45);
+          if (m.phase === 'count') {
+            drac.countForm.position.y = DRACULA_SPOT.y + Math.sin(t * 0.8) * 0.04;
+          }
+        }
+        if (drac.batForm) {
+          drac.batForm.visible = m.phase === 'bat' || m.phase === 'return';
+          if (m.phase === 'bat') {
+            drac.batAngle += dt * 1.15;
+            const x = CASTLE_AT[0] + Math.cos(drac.batAngle) * 24;
+            const z = CASTLE_AT[1] + Math.sin(drac.batAngle) * 24;
+            const nx = CASTLE_AT[0] + Math.cos(drac.batAngle + 0.06) * 24;
+            const nz = CASTLE_AT[1] + Math.sin(drac.batAngle + 0.06) * 24;
+            drac.batForm.position.set(x, 13 + Math.sin(t * 2.1) * 1.2, z);
+            drac.batForm.rotation.y = Math.atan2(nx - x, nz - z);
+            flapBat(drac.batParts, t, 16);
+          } else if (m.phase === 'return') {
+            const p = Math.min(1, m.t / DRACULA_TIMINGS.returnSeconds);
+            const e = p * p * (3 - 2 * p);
+            tmpTarget.set(DRACULA_SPOT.x, DRACULA_SPOT.y + 1.2, DRACULA_SPOT.z);
+            drac.batForm.position.lerpVectors(drac.returnFrom, tmpTarget, e);
+            flapBat(drac.batParts, t, 16);
+          }
+        }
+        // The castle swarm: lazy circuits — scattering outward
+        // whenever the Count transforms, then regrouping.
+        const scatter = m.scatter;
+        for (const b of swarmBats) {
+          b.a += dt * b.speed * (1 + scatter * 1.8);
+          const r = b.r * (1 + scatter * 1.15);
+          const x = CASTLE_AT[0] + Math.cos(b.a) * r;
+          const z = CASTLE_AT[1] + Math.sin(b.a) * r;
+          const nx = CASTLE_AT[0] + Math.cos(b.a + 0.05) * r;
+          const nz = CASTLE_AT[1] + Math.sin(b.a + 0.05) * r;
+          b.group.position.set(x, b.h + Math.sin(t * 0.9 + b.ph) * 0.8, z);
+          b.group.rotation.y = Math.atan2(nx - x, nz - z);
+          flapBat(b, t + b.ph, 11);
+        }
+      }
+
+      // ── Tap-to-shoot (the test-build interaction): a tap — not
+      // a drag — raycasts against the mosquito proxies, the sac
+      // pickups and Dracula himself.
+      const raycaster = new THREE.Raycaster();
+      const ndc = new THREE.Vector2();
+      let downX = 0;
+      let downY = 0;
+      function onPointerDown(e) {
+        downX = e.clientX;
+        downY = e.clientY;
+      }
+      function onPointerUp(e) {
+        if (Math.hypot(e.clientX - downX, e.clientY - downY) > 7) return; // it was a drag
+        const rect = renderer.domElement.getBoundingClientRect();
+        if (!rect.width || !rect.height) return;
+        ndc.set(
+          ((e.clientX - rect.left) / rect.width) * 2 - 1,
+          -((e.clientY - rect.top) / rect.height) * 2 + 1,
+        );
+        raycaster.setFromCamera(ndc, camera);
+        const targets = [
+          ...mosquitos.map((mq) => mq.proxy),
+          ...sacs.map((s) => s.group),
+          dracProxy,
+        ];
+        const hits = raycaster.intersectObjects(targets, true);
+        if (!hits.length) return;
+        let obj = hits[0].object;
+        while (obj && !obj.userData.mosquito && !obj.userData.sacRef && !obj.userData.dracula) {
+          obj = obj.parent;
+        }
+        if (!obj) return;
+        if (obj.userData.mosquito) shootMosquito(obj.userData.mosquito);
+        else if (obj.userData.sacRef) collectSac(obj.userData.sacRef);
+        else if (obj.userData.dracula) openExchangeRef.current();
+      }
+      renderer.domElement.addEventListener('pointerdown', onPointerDown);
+      renderer.domElement.addEventListener('pointerup', onPointerUp);
+      removePointer = () => {
+        renderer.domElement.removeEventListener('pointerdown', onPointerDown);
+        renderer.domElement.removeEventListener('pointerup', onPointerUp);
+      };
+
       // ── The life driver ────────────────────────────────────────
       const clock = new THREE.Clock();
       const tmpQ = new THREE.Quaternion();
@@ -419,21 +1142,77 @@ export default function DinosaurBay() {
       };
       const V = new THREE.Vector3();
 
+      // Leg swing for one stride phase — shared by the walkers and
+      // the compy swarm (which computes its stride from its own
+      // scurry distance).
+      function swingLegs(a, stride) {
+        const R = a.roles;
+        const quad = a.entry.posture === 'quadruped';
+        for (const leg of R.legs) {
+          const isFront = leg.pair === 'front';
+          const diag = (leg.side === 'left') === (isFront === false);
+          const phLeg = stride + (diag ? 0 : Math.PI);
+          const amp = isFront && !quad ? 0.1 : 0.34;
+          if (leg.thigh) bend(leg.thigh, a.bind, AXIS_X, Math.sin(phLeg) * amp);
+          if (leg.calf) bend(leg.calf, a.bind, AXIS_X, Math.max(0, Math.sin(phLeg - 0.7)) * amp * 1.15);
+          if (leg.foot) bend(leg.foot, a.bind, AXIS_X, Math.sin(phLeg - 1.4) * amp * 0.5);
+        }
+      }
+
+      // Compy steering: scurry between waypoints around the swarm
+      // center; when a walker dinosaur passes close, scatter —
+      // burst away, then regroup (the next waypoint pulls them back).
+      function updateCompy(a, dt) {
+        const c = a.compy;
+        const px = a.root.position.x, pz = a.root.position.z;
+        for (const other of animals) {
+          if (!other.walker) continue;
+          const d = Math.hypot(other.root.position.x - px, other.root.position.z - pz);
+          if (d < COMPY_SWARM.scatterRadius) {
+            c.scatterT = COMPY_SWARM.scatterSeconds;
+            const away = Math.atan2(px - other.root.position.x, pz - other.root.position.z);
+            c.wx = px + Math.sin(away) * 11;
+            c.wz = pz + Math.cos(away) * 11;
+          }
+        }
+        let dx = c.wx - px, dz = c.wz - pz;
+        if (Math.hypot(dx, dz) < 0.9) {
+          const ang = rng() * Math.PI * 2;
+          const rad = rng() * COMPY_SWARM.radius;
+          c.wx = COMPY_SWARM.center[0] + Math.cos(ang) * rad;
+          c.wz = COMPY_SWARM.center[1] + Math.sin(ang) * rad;
+          dx = c.wx - px; dz = c.wz - pz;
+        }
+        const distW = Math.hypot(dx, dz) || 1;
+        c.scatterT = Math.max(0, c.scatterT - dt);
+        const speed = c.baseSpeed * (c.scatterT > 0 ? COMPY_SWARM.scatterSpeedMultiplier : 1);
+        const vx = (dx / distW) * speed, vz = (dz / distW) * speed;
+        a.root.position.x += vx * dt;
+        a.root.position.z += vz * dt;
+        const targetYaw = Math.atan2(vx, vz);
+        let dyaw = targetYaw - a.root.rotation.y;
+        dyaw = Math.atan2(Math.sin(dyaw), Math.cos(dyaw));
+        a.root.rotation.y += dyaw * Math.min(1, dt * 9);
+        a.dist += speed * dt;
+        swingLegs(a, (a.dist / Math.max(0.2, a.entry.scaleM * 0.16)) * Math.PI);
+      }
+
       function driveAnimal(a, t, dt) {
         const R = a.roles;
         const ph = a.phase;
+        const tempo = a.tempo || 1;
         // Breathing — a slow swell down the spine.
         const br = Math.sin(t * a.breathRate + ph) * 0.02;
         R.spine.forEach((b, i) => bend(b, a.bind, AXIS_X, br * (0.6 + i * 0.3)));
         // Look-arounds — lazy noise from summed sines.
-        const yaw = (Math.sin(t * 0.23 + ph) * 0.6 + Math.sin(t * 0.117 + ph * 1.7) * 0.4) * 0.16;
-        const pitch = Math.sin(t * 0.31 + ph) * 0.045;
+        const yaw = (Math.sin(t * 0.23 * tempo + ph) * 0.6 + Math.sin(t * 0.117 * tempo + ph * 1.7) * 0.4) * 0.16;
+        const pitch = Math.sin(t * 0.31 * tempo + ph) * 0.045;
         const neckShare = R.neck.length ? 0.45 / R.neck.length : 0;
         R.neck.forEach((b) => bend(b, a.bind, AXIS_Y, yaw * neckShare));
         // Grazer dips: herbivores lower their heads in a slow cycle.
         let dip = 0;
         if (a.entry.diet === 'herbivore') {
-          const cyc = (t * 0.045 + ph) % 1;
+          const cyc = (t * 0.045 * tempo + ph) % 1;
           if (cyc > 0.55 && cyc < 0.85) dip = Math.sin(((cyc - 0.55) / 0.3) * Math.PI) * 0.38;
         }
         R.neck.forEach((b, i) => bend(b, a.bind, AXIS_X, dip * (0.25 + i * 0.12)));
@@ -443,9 +1222,14 @@ export default function DinosaurBay() {
         }
         // Tail sway — phase runs down the chain.
         R.tail.forEach((b, i) => {
-          bend(b, a.bind, AXIS_Y, Math.sin(t * 1.05 - i * 0.55 + ph) * 0.055);
-          bend(b, a.bind, AXIS_X, Math.sin(t * 0.7 - i * 0.3 + ph) * 0.015);
+          bend(b, a.bind, AXIS_Y, Math.sin(t * 1.05 * tempo - i * 0.55 + ph) * 0.055);
+          bend(b, a.bind, AXIS_X, Math.sin(t * 0.7 * tempo - i * 0.3 + ph) * 0.015);
         });
+
+        if (a.compy) {
+          updateCompy(a, dt);
+          return;
+        }
 
         if (a.flyer && a.fly) {
           const f = a.fly;
@@ -476,16 +1260,7 @@ export default function DinosaurBay() {
           if (Math.abs(vx) + Math.abs(vz) > 1e-6) a.root.rotation.y = Math.atan2(vx, vz);
           a.dist += Math.hypot(vx, vz);
           const stride = (a.dist / Math.max(0.5, a.entry.scaleM * 0.16)) * Math.PI;
-          const quad = a.entry.posture === 'quadruped';
-          for (const leg of R.legs) {
-            const isFront = leg.pair === 'front';
-            const diag = (leg.side === 'left') === (isFront === false);
-            const phLeg = stride + (diag ? 0 : Math.PI);
-            const amp = isFront && !quad ? 0.1 : 0.34;
-            if (leg.thigh) bend(leg.thigh, a.bind, AXIS_X, Math.sin(phLeg) * amp);
-            if (leg.calf) bend(leg.calf, a.bind, AXIS_X, Math.max(0, Math.sin(phLeg - 0.7)) * amp * 1.15);
-            if (leg.foot) bend(leg.foot, a.bind, AXIS_X, Math.sin(phLeg - 1.4) * amp * 0.5);
-          }
+          swingLegs(a, stride);
           a.root.position.y = Math.abs(Math.sin(stride)) * 0.02 * Math.sqrt(a.entry.scaleM);
           a.root.rotation.x = Math.sin(stride * 2) * 0.008;
         }
@@ -499,6 +1274,35 @@ export default function DinosaurBay() {
         const t = clock.elapsedTime;
         const windAmp = windRef.current;
         for (const a of animals) driveAnimal(a, t, dt);
+        for (const mq of mosquitos) updateMosquito(mq, t, dt);
+        updateDracula(t, dt);
+        // Blood sacs pulse on the ground; walking the camera close
+        // picks one up (a tap collects it too).
+        for (let i = sacs.length - 1; i >= 0; i--) {
+          const s = sacs[i];
+          s.group.position.y = 0.55 + Math.sin(t * 2.4 + i) * 0.08;
+          const pulse = 1 + Math.sin(t * 3.2 + i * 1.7) * 0.08;
+          s.core.scale.set(pulse, 1.25 * pulse, pulse);
+          if (camera.position.distanceTo(s.group.position) < 8) collectSac(s);
+        }
+        // Shot bursts: a quick puff, then gone.
+        for (let i = bursts.length - 1; i >= 0; i--) {
+          const b = bursts[i];
+          b.life += dt;
+          const attr = b.points.geometry.attributes.position;
+          for (let j = 0; j < b.vels.length; j++) {
+            b.vels[j][1] -= 4 * dt;
+            attr.array[j * 3] += b.vels[j][0] * dt;
+            attr.array[j * 3 + 1] += b.vels[j][1] * dt;
+            attr.array[j * 3 + 2] += b.vels[j][2] * dt;
+          }
+          attr.needsUpdate = true;
+          b.points.material.opacity = Math.max(0, 1 - b.life / 0.45);
+          if (b.life > 0.45) {
+            scene.remove(b.points);
+            bursts.splice(i, 1);
+          }
+        }
         for (const s of sway) {
           s.obj.rotation.z = Math.sin(t * 0.85 + s.phase) * s.amp * (0.35 + windAmp);
           s.obj.rotation.x = Math.cos(t * 0.6 + s.phase) * s.amp * 0.6 * (0.35 + windAmp);
@@ -534,6 +1338,7 @@ export default function DinosaurBay() {
       cleanup = () => {
         cancelAnimationFrame(raf);
         ro.disconnect();
+        removePointer();
         controls.dispose();
         for (const l of labels) l.el.remove();
         scene.traverse((o) => {
@@ -572,13 +1377,37 @@ export default function DinosaurBay() {
         ground — herds in the west meadow, the pack in the east, the solo hunters keeping
         their distance, and the Pteranodon on the wing. Their motion is procedural life
         wired onto the rigs here (breathing, looking around, grazing dips, slow walks);
-        eating, hunting, sleeping and the egg cycle come in a later round. Drag to look
-        around, scroll to zoom.
+        eating, hunting, sleeping and the egg cycle come in a later round. New this
+        round: a swarm of compies scurries the west meadow, giant mosquitos hunt the
+        herds for blood, and at the far south rim Dracula holds court before Castle
+        Transylvania — shoot his mosquitos full and trade him the sacs. Drag to look
+        around, scroll to zoom, tap a mosquito to shoot it.
       </p>
 
       <div className="relative mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#0a1410]">
         <div ref={mountRef} className="aspect-[16/10] w-full sm:aspect-[16/9]" />
         <div ref={labelsRef} className="pointer-events-none absolute inset-0 overflow-hidden" />
+        <div className="absolute left-2 top-2 flex max-w-[88%] flex-col items-start gap-1.5">
+          <div className="flex flex-wrap items-center gap-2 rounded-full border border-red-300/25 bg-black/50 py-1.5 pl-3 pr-1.5 text-[11px] text-zinc-100">
+            <span>🩸 Blood sacs: <strong className="text-red-200">{sacsShown}</strong></span>
+            <button
+              type="button"
+              onClick={() => openExchangeRef.current()}
+              className="rounded-full border border-purple-300/40 bg-purple-500/20 px-2.5 py-1 font-bold text-purple-100 transition hover:bg-purple-500/35"
+            >
+              🧛 Bring sacs to Dracula
+            </button>
+          </div>
+          <p className="rounded-lg border border-white/10 bg-black/45 px-2.5 py-1.5 text-[11px] leading-snug text-zinc-300">
+            🦟 Tap a mosquito to shoot it — only the swollen red ones drop a blood sac.
+            Unfed ones drop nothing.
+          </p>
+          {bayNotice && (
+            <p className="rounded-lg border border-amber-300/30 bg-amber-400/15 px-2.5 py-1.5 text-[11px] font-semibold leading-snug text-amber-100">
+              {bayNotice}
+            </p>
+          )}
+        </div>
         <div className="absolute bottom-2 left-2 flex items-center gap-2 rounded-full border border-white/15 bg-black/45 px-3 py-1.5 text-[11px] text-zinc-200">
           <span aria-hidden="true">🌬️</span>
           <span className="tracking-widest">WIND</span>
@@ -621,8 +1450,11 @@ export default function DinosaurBay() {
         ))}
       </div>
       <p className="mt-3 text-[11px] leading-relaxed text-zinc-500">
-        {earth2PendingModels().length} still outstanding: Pachycephalosaurus was never
-        uploaded from the Studio, so his slot waits empty rather than faking a stand-in.
+        {earth2PendingModels().length} still outstanding:{' '}
+        {earth2PendingModels().map((m) => m.name).join(', ')} — their slots wait rather
+        than faking a model. Until their GLBs land, the mosquito, the Count and his
+        bats fly clearly-labelled placeholder stand-ins so the blood-sac loop is
+        playable today; the castle itself rises the day its model arrives.
       </p>
     </section>
   );

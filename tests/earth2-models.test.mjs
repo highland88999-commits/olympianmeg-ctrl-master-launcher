@@ -38,23 +38,59 @@ function parseGlb(buf) {
 }
 
 describe('the Bay manifest', () => {
-  it('holds 35 entries: 34 placed + Pachycephalosaurus awaiting upload', () => {
-    assert.equal(EARTH2_MODELS.length, 35);
+  it('holds 42 entries: 34 placed files, the compy swarm riding its source model, 7 awaiting upload', () => {
+    assert.equal(EARTH2_MODELS.length, 42);
     assert.equal(earth2PlacedModels().length, 34);
     const pending = earth2PendingModels();
-    assert.equal(pending.length, 1);
-    assert.equal(pending[0].slug, 'pachycephalosaurus');
-    assert.equal(pending[0].file, null);
-    assert.equal(pending[0].status, 'awaiting-upload');
+    assert.equal(pending.length, 7);
+    assert.deepEqual(
+      pending.map((m) => m.slug).sort(),
+      [
+        'castle-transylvania',
+        'dracula',
+        'giant-mosquito',
+        'indominus-rex',
+        'pachycephalosaurus',
+        'spinosaurus-rex',
+        'vampire-bat',
+      ],
+    );
+    for (const m of pending) {
+      assert.equal(m.file, null, m.slug);
+      assert.equal(m.status, 'awaiting-upload', m.slug);
+    }
+  });
+
+  it('the blood-sac cast waits in the Studio honestly (Merlin, 2026-10-22)', () => {
+    const bySlug = Object.fromEntries(EARTH2_MODELS.map((m) => [m.slug, m]));
+    // The exchange's host, his bat, his castle, his mosquitos, and
+    // the two apex hybrids — all manifest slots, no fake files.
+    assert.equal(bySlug['dracula'].kind, 'character');
+    assert.equal(bySlug['vampire-bat'].kind, 'flyer');
+    assert.equal(bySlug['giant-mosquito'].kind, 'insect');
+    assert.equal(bySlug['castle-transylvania'].kind, 'landform');
+    assert.equal(bySlug['indominus-rex'].kind, 'dinosaur');
+    assert.equal(bySlug['spinosaurus-rex'].kind, 'dinosaur');
+    // The compy swarm is a presence entry: placed, file-less, and
+    // honest about riding the compsognathus model.
+    const swarm = bySlug['compy-swarm'];
+    assert.equal(swarm.kind, 'swarm');
+    assert.equal(swarm.status, 'placed');
+    assert.equal(swarm.file, null);
+    assert.equal(swarm.sourceSlug, 'compsognathus');
+    assert.equal(swarm.scaleM, 0.4);
   });
 
   it('slugs are unique and kind counts match the foundry roster', () => {
-    assert.equal(new Set(EARTH2_MODELS.map((m) => m.slug)).size, 35);
+    assert.equal(new Set(EARTH2_MODELS.map((m) => m.slug)).size, 42);
     const by = (k) => EARTH2_MODELS.filter((m) => m.kind === k).length;
-    assert.equal(by('dinosaur'), 16);
-    assert.equal(by('flyer'), 1);
+    assert.equal(by('dinosaur'), 18);
+    assert.equal(by('flyer'), 2);
     assert.equal(by('plant'), 10);
-    assert.equal(by('landform'), 8);
+    assert.equal(by('landform'), 9);
+    assert.equal(by('insect'), 1);
+    assert.equal(by('character'), 1);
+    assert.equal(by('swarm'), 1);
   });
 
   it('every entry carries a real-world scale; creatures carry diet, social, posture', () => {
@@ -176,7 +212,11 @@ describe('the chamber wiring', () => {
   it('the Earth 2 page mounts the Bay and keeps its owner gate', () => {
     const page = read('app/earth-2/page.jsx');
     assert.ok(page.includes("import('@/components/earth2/DinosaurBay')"), 'page lazy-loads the Bay');
-    assert.ok(page.includes('<DinosaurBay />'), 'page renders the Bay');
+    assert.ok(page.includes('<DinosaurBay'), 'page renders the Bay');
+    assert.ok(page.includes('bloodSacs={blood.sacs}'), 'page feeds the Bay the sac count');
+    assert.ok(page.includes('onBloodSac={collectSacFromBay}'), 'page collects the Bay sacs');
+    assert.ok(page.includes("id=\"draculas-exchange\""), "Dracula's Exchange panel is in the chamber");
+    assert.ok(page.includes("DRACULA'S EXCHANGE") || page.includes('DRACULA&rsquo;S EXCHANGE'), 'the exchange names its host');
     assert.ok(page.includes('isOwnerEmail'), 'owner gate intact');
     assert.ok(page.includes('This page could not be found.'), 'plain 404 intact');
     assert.ok(!page.includes('This bay fills when the real assets land'), 'the empty state is gone');
@@ -188,8 +228,22 @@ describe('the chamber wiring', () => {
     assert.ok(bay.includes('resolveBones'), 'life is driven off the resolver');
     assert.ok(bay.includes('setMeshoptDecoder'), 'loader matches the optimized files');
   });
+  it('the Bay runs the blood-sac loop: swarm, mosquitos, Dracula', () => {
+    const bay = read('components/earth2/DinosaurBay.jsx');
+    assert.ok(bay.includes('COMPY_SWARM'), 'compy swarm config wired');
+    assert.ok(bay.includes('placeCompySwarm'), 'swarm placement wired');
+    assert.ok(bay.includes('MOSQUITO_CONFIG'), 'mosquito config wired');
+    assert.ok(bay.includes('mosquitoDropsSac'), 'the sac rule wired');
+    assert.ok(bay.includes('stepDracula'), 'the transformation wired');
+    assert.ok(bay.includes('PLACEHOLDER'), 'stand-ins labelled honestly');
+    assert.ok(bay.includes('Raycaster'), 'tap-to-shoot wired');
+    assert.ok(bay.includes('Bring sacs to Dracula'), 'the exchange is reachable from the Bay');
+  });
   it('the manifest and resolver stay three-free (pure data + names)', () => {
     assert.ok(!read('lib/earth2/models.js').includes("from 'three'"));
     assert.ok(!read('lib/earth2/bones.js').includes("from 'three'"));
+    assert.ok(!read('lib/earth2/creatures.js').includes("from 'three'"));
+    assert.ok(!read('lib/earth2/gifts.js').includes("from 'three'"));
+    assert.ok(!read('lib/earth2/blood-sacs.js').includes("from 'three'"));
   });
 });

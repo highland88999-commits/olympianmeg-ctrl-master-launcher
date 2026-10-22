@@ -31,7 +31,16 @@ import {
   PARCEL_OWNABLE_COUNT,
   PARCEL_COMMONS_COUNT,
   parcelById,
+  isCastleParcel,
 } from '@/lib/earth2/parcels';
+import {
+  emptyBloodSacState,
+  loadBloodSacState,
+  saveBloodSacState,
+  collectBloodSac,
+  offerBloodSac,
+} from '@/lib/earth2/blood-sacs';
+import { rollGift } from '@/lib/earth2/gifts';
 import {
   resolveHomeBase,
   ownedRowsFor,
@@ -67,6 +76,13 @@ const DinosaurBay = dynamic(() => import('@/components/earth2/DinosaurBay'), {
 
 const TIER_LABEL = { standard: 'Standard', prime: 'Prime', landmark: 'Landmark' };
 const KIND_LABEL = { buy: 'Parcel bought', rent: 'Rent', forge: 'Forge claim' };
+const RARITY_CHIP = {
+  common: 'border-white/20 bg-white/5 text-zinc-200',
+  uncommon: 'border-emerald-300/40 bg-emerald-400/10 text-emerald-100',
+  rare: 'border-sky-300/40 bg-sky-400/10 text-sky-100',
+  epic: 'border-purple-300/40 bg-purple-400/10 text-purple-100',
+  legendary: 'border-amber-300/60 bg-amber-300/15 text-amber-100',
+};
 
 const fmtDeg = (n) => `${Number(n).toFixed(1)}°`;
 
@@ -85,6 +101,12 @@ export default function Earth2Page() {
   // they go live with the Earth 2 tables; see lib/earth2/land-sale.js.
   const [landListings, setLandListings] = useState([]);
   const [listPrice, setListPrice] = useState('');
+  // The blood-sac loop (2026-10-22): sacs shot down in the Bay,
+  // Dracula's gift tallies + history. Local preview state —
+  // lib/earth2/blood-sacs.js.
+  const [blood, setBlood] = useState(() => emptyBloodSacState());
+  const [lastGift, setLastGift] = useState(null);
+  const [greetSignal, setGreetSignal] = useState(0);
   const homeFocusRef = useRef(false);
   // Preview mode (database tables not landed yet): the forge clock
   // runs locally from page open so the math is visible; nothing is
@@ -191,6 +213,50 @@ export default function Earth2Page() {
   useEffect(() => {
     if (gate === 'open') setHomeChoice(loadHomeBaseChoice());
   }, [gate]);
+
+  // Read the stored blood-sac tallies once we are in.
+  useEffect(() => {
+    if (gate === 'open') setBlood(loadBloodSacState());
+  }, [gate]);
+
+  // A sac collected down in the Bay.
+  const collectSacFromBay = useCallback(() => {
+    setBlood((prev) => {
+      const next = collectBloodSac(prev);
+      saveBloodSacState(next);
+      return next;
+    });
+  }, []);
+
+  // Offer one sac to Dracula: consume it, roll his gift table,
+  // apply the gift to the preview tallies, keep the reveal on show.
+  const offerSac = () => {
+    if (blood.sacs < 1) return;
+    const gift = rollGift();
+    const res = offerBloodSac(blood, gift, Date.now());
+    if (res.ok) {
+      setBlood(res.state);
+      saveBloodSacState(res.state);
+      setLastGift(gift);
+    }
+  };
+
+  // The Bay's "Bring sacs to Dracula" / clicking the Count himself
+  // opens the exchange.
+  const openExchange = useCallback(() => {
+    document
+      .getElementById('draculas-exchange')
+      ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
+  // Summon the Count in the Bay (he greets by transforming) and
+  // bring the Bay into view.
+  const summonDracula = () => {
+    setGreetSignal((n) => n + 1);
+    document
+      .getElementById('dinosaur-bay')
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
 
   // Entry focus: entering Earth 2 starts at the home base — the map
   // focuses it (and the spawn banner names it) the first time the
@@ -329,7 +395,8 @@ export default function Earth2Page() {
   const cellClass = (parcel) => {
     const row = owners.get(parcel.id);
     let base = 'bg-white/10';
-    if (!parcel.ownable) base = 'bg-emerald-300/[0.14]'; // Free Commons
+    if (isCastleParcel(parcel)) base = 'bg-purple-500/70'; // 🏰 Castle Transylvania
+    else if (!parcel.ownable) base = 'bg-emerald-300/[0.14]'; // Free Commons
     else if (parcel.tier === 'landmark') base = 'bg-white/30';
     else if (parcel.tier === 'prime') base = 'bg-emerald-200/25';
     if (row && row.owner_email === myEmail) base = 'bg-amber-300';
@@ -421,7 +488,7 @@ export default function Earth2Page() {
                 <button
                   key={parcel.id}
                   type="button"
-                  title={`${parcel.id} · ${parcel.name}`}
+                  title={`${parcel.id} · ${parcel.name}${isCastleParcel(parcel) ? ' 🏰' : ''}`}
                   aria-label={`${parcel.id} ${parcel.name}`}
                   onClick={() => setSelectedId(parcel.id)}
                   className={cellClass(parcel)}
@@ -437,6 +504,7 @@ export default function Earth2Page() {
               <span><span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-[2px] bg-white/10" />Open land</span>
               <span><span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-[2px] bg-emerald-300/[0.14]" />🌿 Free Commons — never sold, never rented</span>
               <span><span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-[2px] ring-2 ring-amber-300 ring-inset" />🏠 Home base (spawn)</span>
+              <span><span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-[2px] bg-purple-500/70" />🏰 Castle Transylvania — Dracula&rsquo;s seat (Free Commons)</span>
             </div>
           </section>
 
@@ -459,6 +527,31 @@ export default function Earth2Page() {
                       {fmtDeg(selected.latMin)} to {fmtDeg(selected.latMax)} latitude ·{' '}
                       {fmtDeg(selected.lonMin)} to {fmtDeg(selected.lonMax)} longitude
                     </p>
+                    {isCastleParcel(selected) && (
+                      <div className="rounded-xl border border-purple-300/30 bg-purple-400/10 px-3 py-2.5">
+                        <p>
+                          🏰 <span className="font-semibold text-purple-100">Castle Transylvania</span>{' '}
+                          — Dracula&rsquo;s seat at the South Pole. Free Commons forever: even
+                          the Count&rsquo;s castle is nobody&rsquo;s property. Bring him blood
+                          sacs from the Bay&rsquo;s mosquitos and he trades them for gifts.
+                        </p>
+                        <div className="mt-2.5 flex flex-wrap gap-2">
+                          <a
+                            href="#draculas-exchange"
+                            className="rounded-full border border-purple-300/50 bg-purple-400/15 px-3 py-1.5 text-xs font-bold text-purple-100 transition hover:bg-purple-400/25"
+                          >
+                            🧛 Dracula&rsquo;s Exchange
+                          </a>
+                          <button
+                            type="button"
+                            onClick={summonDracula}
+                            className="rounded-full border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-semibold text-zinc-100 transition hover:border-purple-300/50"
+                          >
+                            🦇 Summon Dracula in the Bay
+                          </button>
+                        </div>
+                      </div>
+                    )}
                     {!selected.ownable ? (
                       <p>
                         🌿 <span className="font-semibold text-emerald-200">Free Commons</span>{' '}
@@ -750,8 +843,145 @@ export default function Earth2Page() {
           </section>
         )}
 
+        {/* Dracula's Exchange — the blood-sac loop's trading post
+            (2026-10-22). The Count presides from the Bay below;
+            this panel is where his gifts change hands. */}
+        <section
+          id="draculas-exchange"
+          className="mt-5 scroll-mt-6 rounded-[1.5rem] border border-purple-300/25 bg-purple-400/[0.05] p-4 backdrop-blur-md sm:p-5"
+        >
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-sm font-black tracking-[0.25em] text-purple-100">
+              🧛 DRACULA&rsquo;S EXCHANGE
+            </h2>
+            <span className="text-xs text-zinc-400">
+              Castle Transylvania · the South Pole parcel · E2-2476
+            </span>
+          </div>
+          <p className="mt-2 max-w-3xl text-sm leading-relaxed text-zinc-300">
+            Giant mosquitos drink from the dinosaurs in the Bay below. Shoot one while
+            it feeds — or after, while it drifts heavy and red — and it drops a{' '}
+            <span className="font-semibold text-red-200">blood sac</span>. Bring your
+            sacs to the Count and he trades each one for a gift of his choosing: gold,
+            aether shards, or a weapon from the castle armoury. He greets visitors in
+            the Bay by transforming — watch for the smoke.
+          </p>
+
+          <div className="mt-4 flex flex-wrap gap-2 text-[11px] font-semibold">
+            <span className="rounded-full border border-red-300/30 bg-red-400/10 px-3 py-1.5 text-red-100">
+              🩸 Blood sacs: {blood.sacs}
+            </span>
+            <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-3 py-1.5 text-amber-100">
+              🪙 Gifts paid: {formatGold(blood.gold)}
+            </span>
+            <span className="rounded-full border border-cyan-300/30 bg-cyan-300/10 px-3 py-1.5 text-cyan-100">
+              ◆ Aether shards: {blood.aether}
+            </span>
+            <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-zinc-200">
+              ⚔️ Weapons gifted: {blood.weapons.length}
+            </span>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={offerSac}
+              disabled={blood.sacs < 1}
+              className="rounded-full border border-purple-300/60 bg-purple-400/20 px-5 py-3 text-sm font-bold tracking-wide text-purple-50 transition hover:bg-purple-400/30 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              🧛 Offer a blood sac
+            </button>
+            <button
+              type="button"
+              onClick={summonDracula}
+              className="rounded-full border border-white/20 bg-white/5 px-4 py-3 text-sm font-semibold text-zinc-100 transition hover:border-purple-300/50"
+            >
+              🦇 Summon Dracula in the Bay
+            </button>
+            {blood.sacs < 1 && (
+              <span className="text-xs text-zinc-400">
+                No sacs to offer — hunt a full mosquito in the Bay first.
+              </span>
+            )}
+          </div>
+
+          {lastGift && (
+            <div className="mt-4 rounded-2xl border border-purple-300/40 bg-black/30 px-4 py-3">
+              <div className="text-[11px] font-bold tracking-[0.25em] text-zinc-400">
+                THE COUNT GIVES YOU
+              </div>
+              <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                <span className="text-lg font-black text-zinc-50">{lastGift.label}</span>
+                <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest ${RARITY_CHIP[lastGift.rarity] || RARITY_CHIP.common}`}>
+                  {lastGift.rarity}
+                </span>
+                {lastGift.kind === 'jackpot' && <span aria-hidden="true">🦇</span>}
+              </div>
+              <p className="mt-1 text-xs text-zinc-400">
+                {lastGift.gold > 0 ? `+${formatGold(lastGift.gold)} ` : ''}
+                {lastGift.aether > 0 ? `+${lastGift.aether} aether shard${lastGift.aether > 1 ? 's' : ''} ` : ''}
+                {lastGift.weapon ? `The ${lastGift.weapon} joins your gifted weapons.` : ''}
+              </p>
+            </div>
+          )}
+
+          {blood.weapons.length > 0 && (
+            <div className="mt-4">
+              <div className="text-[11px] font-bold tracking-[0.25em] text-zinc-400">
+                GIFTED WEAPONS
+              </div>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {blood.weapons.map((w, i) => (
+                  <span
+                    key={`${w}-${i}`}
+                    className="rounded-full border border-white/15 bg-black/25 px-2.5 py-1 text-[11px] font-semibold text-zinc-200"
+                  >
+                    ⚔️ {w}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {blood.history.length > 0 && (
+            <div className="mt-4 border-t border-white/10 pt-3">
+              <div className="text-[11px] font-bold tracking-[0.25em] text-zinc-400">
+                EXCHANGE HISTORY
+              </div>
+              <ul className="mt-2 space-y-1 text-xs text-zinc-300">
+                {blood.history.slice(0, 8).map((h, i) => (
+                  <li key={`${h.at || 0}-${i}`} className="flex flex-wrap items-baseline gap-x-2">
+                    <span aria-hidden="true">🩸</span>
+                    <span className="font-semibold text-zinc-100">{h.label}</span>
+                    <span className="capitalize text-zinc-500">{h.rarity}</span>
+                    {h.at ? (
+                      <span className="text-zinc-500">
+                        {new Date(h.at).toLocaleString('en-CA')}
+                      </span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <p className="mt-4 text-[11px] leading-relaxed text-zinc-500">
+            Preview tallies, kept on this device: no server crediting happens until the
+            Earth 2 tables land. The aether shards are an Earth 2 counter — Earth
+            1&rsquo;s aether is a set of collected interior placements and stays its own
+            thing. Gift rolls are true chance from the Count&rsquo;s weighted table.
+          </p>
+        </section>
+
         {/* Dinosaur Bay — the foundry's dinosaurs, live (2026-10-22). */}
-        <DinosaurBay />
+        <div id="dinosaur-bay" className="scroll-mt-6">
+          <DinosaurBay
+            bloodSacs={blood.sacs}
+            onBloodSac={collectSacFromBay}
+            onOpenExchange={openExchange}
+            greetSignal={greetSignal}
+          />
+        </div>
       </div>
     </main>
   );
