@@ -8,6 +8,7 @@
 import {
   isDesignUploadPath,
   designUploadPath,
+  printfulFilePayload,
   DESIGN_UPLOAD_BUCKET,
 } from '../lib/store/design-upload.js';
 import {
@@ -54,6 +55,23 @@ t('our own message passes through verbatim',
 t('unknown error falls back',
   friendlyDesignerError(new Error('something exotic'), 'Plain fallback.') === 'Plain fallback.');
 t('null error falls back', friendlyDesignerError(null, 'Plain fallback.') === 'Plain fallback.');
+
+// --- Printful hand-off (2026-10-22): by URL whenever one exists -------
+// Printful rejects the base64 `data` body with a bare HTTP 500 once a
+// print PNG passes ~30MB (verified live: 28.5MB accepted, 34.2MB and
+// 43.6MB rejected as data, both accepted by URL) — a size a detailed
+// hoodie graphic composited at 4500x5400 routinely reaches. The
+// payload builder is the single place that choice is made.
+const byUrl = printfulFilePayload({
+  fileName: 'custom-hoodie-1.png',
+  signedUrl: 'https://example.supabase.co/storage/v1/object/sign/custom-design-uploads/uploads/x/front.png?token=t',
+  dataBase64: 'AAAA',
+});
+t('signed URL is preferred over base64 data', byUrl.url && byUrl.url.includes('token=t') && !('data' in byUrl));
+t('URL payload keeps the file name', byUrl.file_name === 'custom-hoodie-1.png');
+const byData = printfulFilePayload({ fileName: 'custom-hoodie-1.png', dataBase64: 'AAAA' });
+t('base64 fallback carries data and no URL', byData.data === 'AAAA' && !('url' in byData));
+t('base64 fallback keeps the file name', byData.file_name === 'custom-hoodie-1.png');
 
 console.log(`store-design-upload: ${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

@@ -1,10 +1,19 @@
 // app/api/store/custom/create/route.js
 // POST /api/store/custom/create — Custom Product Designer backend.
 //
-// Takes user-designed print files (base64 PNGs, already composited at
-// each placement's print resolution by the /store/custom designer
-// canvas) and:
-//   1. Uploads each distinct graphic to Printful Files (POST /files)
+// Takes user-designed print files (PNGs already composited at each
+// placement's print resolution by the /store/custom designer canvas;
+// current clients stage them in Supabase Storage as binary uploads —
+// see lib/store/design-upload.js — older clients send base64) and:
+//   1. Uploads each distinct graphic to Printful Files (POST /files).
+//      Staged files go by signed URL, never as a base64 `data` body:
+//      Printful rejects the base64 request with a bare HTTP 500 once
+//      the PNG passes ~30MB, which a detailed hoodie graphic
+//      composited at 4500x5400 routinely does (verified live
+//      2026-10-22 — 28.5MB accepted, 34.2MB and 43.6MB rejected as
+//      data, both accepted by URL). That was the "Create My Hoodie
+//      doesn't work" report of 2026-10-13: the Oct 15 transport fix
+//      repaired the browser→server leg but left this leg broken.
 //   2. Creates a real sync product in Omega Store (POST /store/products)
 //      on the blank template the user picked — see
 //      lib/store/custom-products.js for the templates (the original
@@ -62,6 +71,8 @@ import {
   isDesignUploadPath,
   downloadDesignUpload,
   deleteDesignUploads,
+  signedDesignDownloadUrl,
+  printfulFilePayload,
 } from '@/lib/store/design-upload';
 import { isRealImageUrl } from '@/lib/store-printful';
 
@@ -101,14 +112,43 @@ async function pf(method, path, body) {
 // Width/height from a PNG's IHDR header (bytes 16-24), or null when the
 // payload isn't a PNG. Used to confirm the client exported at the chosen
 // product's print resolution before anything is created.
-function pngDimensions(base64) {
+function pngDimensions(buf) {
   try {
-    const buf = Buffer.from(base64.slice(0, 64), 'base64');
-    if (buf.length < 24) return null;
+    if (!buf || buf.length < 24) return null;
     const sig = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
     for (let i = 0; i < 8; i++) if (buf[i] !== sig[i]) return null;
     return { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) };
   } catch { return null; }
+}
+
+// Header bytes of a base64 PNG submission (legacy clients), for
+// pngDimensions — only the first bytes are decoded, never the whole
+// multi-MB string.
+function pngHeaderFromBase64(base64) {
+  try { return Buffer.from(String(base64).slice(0, 64), 'base64'); } catch { return null; }
+}
+
+// Poll a Printful file until Printful has fetched/processed it
+// (status leaves 'waiting'). URL-submitted files are fetched
+// asynchronously by Printful; in live checks that took ~5-10s even
+// at 43.6MB. Returns 'ok' | 'failed' | 'waiting' (still pending when
+// the poll budget ran out — the caller decides; attaching a pending
+// file is the pre-2026-10-22 behaviour for base64 submissions, whose
+// status also starts at 'waiting', so proceeding is safe, but the
+// staged source file must then be left in place for Printful's
+// fetch). A failed poll read counts as 'waiting', never as failure.
+async function waitForPrintfulFile(fileId, attempts = 8, delayMs = 4000) {
+  for (let i = 0; i < attempts; i++) {
+    if (i > 0) await new Promise((r) => setTimeout(r, delayMs));
+    let status = null;
+    try {
+      const f = await pf('GET', `/files/${fileId}`);
+      status = f && f.status;
+    } catch { /* unreadable — treat as still waiting */ }
+    if (status === 'ok') return 'ok';
+    if (status === 'failed') return 'failed';
+  }
+  return 'waiting';
 }
 
 export const POST = apiGuard(async (req) => {
@@ -210,15 +250,19 @@ export const POST = apiGuard(async (req) => {
   }
   const placementByKey = new Map(placementsFor(product).map((p) => [p.key, p]));
 
-  // Pull any staged print files down now that the plan is known-good.
-  // From here they flow through the exact same path as a base64
-  // submission: PNG + print-size validation, then Printful.
+  // Pull any staged print files down now that the plan is known-good —
+  // for validation only (PNG + exact print size, from the raw bytes).
+  // The bytes themselves are NOT what Printful receives: staged files
+  // are handed over by signed URL (step 1), because the base64 `data`
+  // body dies at Printful past ~30MB of PNG (see the header). Buffers
+  // are kept per placement key so the URL mint has a base64 fallback
+  // for a file small enough that the fallback can actually work.
   const stagedPaths = [...storageByKey.values()];
+  const bufferByKey = new Map();
   if (stagedPaths.length) {
     try {
       for (const [k, p] of storageByKey) {
-        const buf = await downloadDesignUpload(p);
-        payloadByKey.set(k, buf.toString('base64'));
+        bufferByKey.set(k, await downloadDesignUpload(p));
       }
     } catch {
       await deleteDesignUploads(stagedPaths);
@@ -239,33 +283,94 @@ export const POST = apiGuard(async (req) => {
 
   // 1. Upload each distinct graphic to Printful Files, once. Every
   //    payload is confirmed against its placement's print spec first.
+  //    Staged files (the current designer) are handed over by signed
+  //    URL — Printful fetches the bytes itself — because the base64
+  //    `data` body is rejected by Printful with a bare HTTP 500 once
+  //    the PNG passes ~30MB (see the header). Legacy base64
+  //    submissions keep the `data` body: their bytes arrive inline, so
+  //    there is no staged file to point Printful at.
   const fileIdBySource = {};
+  // Staged paths Printful has confirmed fetched (safe to clean up).
+  // A path whose file is still 'waiting' when the poll budget runs
+  // out is deliberately LEFT in storage on the success path —
+  // deleting it first would starve Printful's pending fetch and
+  // break the product's print file. It sits in a private bucket,
+  // inert; the failure paths below still remove everything.
+  const fetchedOkPaths = new Set();
+  let step1Done = false;
+  // Largest staged PNG (bytes) the base64 fallback may carry when a
+  // signed URL cannot be minted. Proven accepted by Printful as a
+  // `data` body at 28.5MB (2026-10-22); the cap keeps a margin.
+  const BASE64_FALLBACK_MAX_BYTES = 25 * 1024 * 1024;
   try {
     for (let i = 0; i < plan.uploads.length; i++) {
       const sourceKey = plan.uploads[i];
+      const stagedPath = hasImages ? storageByKey.get(sourceKey) : undefined;
+      const stagedBuf = stagedPath ? bufferByKey.get(sourceKey) : undefined;
       const raw = hasImages ? payloadByKey.get(sourceKey) : imageBase64;
-      if (!raw) {
+      if (!stagedBuf && !raw) {
         return NextResponse.json({ ok: false, error: 'Invalid design images.' }, { status: 400 });
       }
-      const stripped = raw.replace(/^data:image\/\w+;base64,/, '');
       const placement = placementByKey.get(sourceKey);
       const spec = (placement && placement.print) || product.print;
-      const dims = pngDimensions(stripped);
+      const dims = stagedBuf
+        ? pngDimensions(stagedBuf)
+        : pngDimensions(pngHeaderFromBase64(String(raw).replace(/^data:image\/\w+;base64,/, '')));
       if (dims && (dims.w !== spec.w || dims.h !== spec.h)) {
         return NextResponse.json(
           { ok: false, error: 'Design image has the wrong print size for this product.' },
           { status: 400 }
         );
       }
-      const file = await pf('POST', '/files', { file_name: fileNameFor(sourceKey, i), data: stripped });
+      const fileName = fileNameFor(sourceKey, i);
+      let payload;
+      if (stagedBuf) {
+        let signedUrl = null;
+        try { signedUrl = await signedDesignDownloadUrl(stagedPath); } catch { signedUrl = null; }
+        if (signedUrl) {
+          payload = printfulFilePayload({ fileName, signedUrl });
+        } else if (stagedBuf.length <= BASE64_FALLBACK_MAX_BYTES) {
+          payload = printfulFilePayload({ fileName, dataBase64: stagedBuf.toString('base64') });
+        } else {
+          return NextResponse.json(
+            { ok: false, error: 'We could not hand your design to the printer — please try creating it again.' },
+            { status: 502 }
+          );
+        }
+      } else {
+        const stripped = String(raw).replace(/^data:image\/\w+;base64,/, '');
+        payload = printfulFilePayload({ fileName, dataBase64: stripped });
+      }
+      const file = await pf('POST', '/files', payload);
       const fileId = file && file.id;
       if (!fileId) throw new Error('Printful file upload failed.');
       fileIdBySource[sourceKey] = fileId;
+      if (stagedBuf && payload.url) {
+        // Printful fetches URL submissions asynchronously — wait
+        // until it actually has the file before the staged copy may
+        // be cleaned up, and fail honestly if it cannot process it.
+        const fetchState = await waitForPrintfulFile(fileId);
+        if (fetchState === 'failed') {
+          return NextResponse.json(
+            { ok: false, error: 'The printer could not process your design file — please try creating it again.' },
+            { status: 502 }
+          );
+        }
+        if (fetchState === 'ok') fetchedOkPaths.add(stagedPath);
+      }
     }
+    step1Done = true;
   } finally {
-    // Printful has the files (or the create failed) — the staged copies
-    // in storage have served their purpose either way.
-    if (stagedPaths.length) await deleteDesignUploads(stagedPaths);
+    if (stagedPaths.length) {
+      // Aborted (validation error, Printful failure): the creation is
+      // not continuing, so every staged copy can go. Completed: only
+      // the copies Printful confirmed it fetched — a still-pending
+      // fetch keeps its source (see fetchedOkPaths above).
+      const toDelete = step1Done
+        ? stagedPaths.filter((p) => fetchedOkPaths.has(p))
+        : stagedPaths;
+      if (toDelete.length) await deleteDesignUploads(toDelete);
+    }
   }
 
   // 2. Create the sync product with the template's variants. The
