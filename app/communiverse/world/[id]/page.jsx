@@ -5,6 +5,8 @@
 // "Descend to street level" for the ground view of the same world.
 //
 // If you OWN the planet, this page is also its control room:
+// - World seed: the seed the planet is derived from — edit it (or roll
+//   a random one) and the world is re-derived from the new seed.
 // - Direct with Muse: describe the world you want; the synthesis AI
 //   re-forges the planet from your words (World Engine billing applies).
 // - Publish / unpublish it in the Communiverse.
@@ -20,6 +22,7 @@ import { useParams } from 'next/navigation';
 import MiniViewport from '@/components/world-engine/MiniViewport';
 import StreetLevel from '@/components/communiverse/StreetLevel';
 import { supabase } from '@/lib/supabase';
+import { mintWorldSeed } from '@/lib/world-engine/world-seed';
 
 async function authHeader() {
   try {
@@ -51,6 +54,7 @@ export default function WorldPage() {
   const [error, setError] = useState(null);
   const [mode, setMode] = useState('orbit'); // orbit | street
   const [prompt, setPrompt] = useState('');
+  const [seedInput, setSeedInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(null);
 
@@ -58,6 +62,7 @@ export default function WorldPage() {
     try {
       const data = await apiCall('/api/communiverse/world/' + encodeURIComponent(id));
       setWorld(data.world);
+      setSeedInput(data.world.seed || '');
       setIsOwner(!!data.is_owner);
       setState('ok');
     } catch (err) {
@@ -84,6 +89,34 @@ export default function WorldPage() {
     } finally {
       setBusy(false);
     }
+  };
+
+  // Set a new seed: the planet is re-derived from it server-side
+  // (POST /api/communiverse/world/:id) and the returned world replaces
+  // this one everywhere — here, in the profile, in the Communiverse.
+  const applySeed = async (value) => {
+    const seed = String(value || '').trim();
+    if (!seed || busy) return;
+    setBusy(true); setNotice(null);
+    try {
+      const data = await apiCall('/api/communiverse/world/' + encodeURIComponent(id), {
+        method: 'POST',
+        body: { seed },
+      });
+      setWorld(data.world);
+      setSeedInput(data.world.seed || seed);
+      setNotice('World seed set — this planet has been re-derived from “' + (data.world.seed || seed) + '”. Same seed, same world.');
+    } catch (err) {
+      setNotice(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const randomSeed = () => {
+    const seed = mintWorldSeed();
+    setSeedInput(seed);
+    applySeed(seed);
   };
 
   const directWithMuse = async (e) => {
@@ -168,8 +201,59 @@ export default function WorldPage() {
               </p>
             )}
 
+            {world.seed && (
+              <p className="text-xs text-neutral-500">
+                🌱 World seed: <span className="font-mono text-cyan-200">{world.seed}</span>
+                <span className="text-neutral-600"> — same seed, same planet, everywhere.</span>
+              </p>
+            )}
+
             {isOwner ? (
               <section aria-label="Owner controls" className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 flex flex-col gap-5">
+                <div id="world-seed">
+                  <h2 className="text-sm font-bold tracking-[0.3em] uppercase text-neutral-100 mb-1">World seed</h2>
+                  <p className="text-xs text-neutral-500 mb-3">
+                    Every world grows out of a seed — terrain, sun, air and weather all
+                    derive from it, so the same seed always makes the same planet.
+                    Change it and the world is re-derived from the new seed, everywhere
+                    at once.
+                    {world.seed ? (
+                      <> Current seed: <span className="font-mono text-cyan-200">{world.seed}</span></>
+                    ) : (
+                      <> This world predates seeds — give it one to lock in its identity.</>
+                    )}
+                  </p>
+                  <form
+                    onSubmit={(e) => { e.preventDefault(); applySeed(seedInput); }}
+                    className="flex flex-wrap gap-2"
+                  >
+                    <label htmlFor="world-seed-input" className="sr-only">World seed</label>
+                    <input
+                      id="world-seed-input"
+                      value={seedInput}
+                      onChange={(e) => setSeedInput(e.target.value)}
+                      maxLength={64}
+                      placeholder="e.g. Amber-Lagoon-742"
+                      className="min-h-[44px] flex-1 min-w-[180px] rounded-lg bg-white/5 border border-white/15 px-3 py-2 text-sm font-mono text-neutral-100 outline-none focus:border-cyan-300/70"
+                    />
+                    <button
+                      type="submit"
+                      disabled={busy || !seedInput.trim()}
+                      className="min-h-[44px] px-4 rounded-lg bg-cyan-300/90 text-black text-sm font-bold hover:bg-cyan-200 disabled:opacity-50"
+                    >
+                      {busy ? 'Seeding…' : 'Apply seed'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={randomSeed}
+                      disabled={busy}
+                      className="min-h-[44px] px-4 rounded-lg border border-white/15 text-sm text-neutral-200 hover:bg-white/10 disabled:opacity-50"
+                    >
+                      🎲 Random
+                    </button>
+                  </form>
+                </div>
+
                 <div>
                   <h2 className="text-sm font-bold tracking-[0.3em] uppercase text-neutral-100 mb-1">Direct it with Muse</h2>
                   <p className="text-xs text-neutral-500 mb-3">

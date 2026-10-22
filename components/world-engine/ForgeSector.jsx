@@ -18,6 +18,7 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { useEngineStore } from '@/lib/world-engine/useEngineStore';
 import { costFor } from '@/lib/world-engine/economy';
+import { mintWorldSeed, readSeed, stampSeed } from '@/lib/world-engine/world-seed';
 import MiniViewport from '@/components/world-engine/MiniViewport';
 import ResourceToolkit from '@/components/world-engine/ResourceToolkit';
 
@@ -61,7 +62,16 @@ export default function ForgeSector({ config }) {
       const aiData = await res.json();
       if (!aiData.success) throw new Error(aiData.error || 'Synthesis failed.');
 
-      applyParams(category, aiData.parameters);
+      // Worlds are born with a seed (lib/world-engine/world-seed.js):
+      // minted here when the synthesis did not carry one. stampSeed only
+      // fills fields the AI left out — the forged look stays the AI's;
+      // the seed becomes the world's identity and its re-derivation key.
+      let finalParams = aiData.parameters;
+      if (category === 'world' && !readSeed(finalParams)) {
+        finalParams = stampSeed(finalParams, mintWorldSeed());
+      }
+
+      applyParams(category, finalParams);
 
       const chosenName = creationName.trim().slice(0, 60);
       const displayName = chosenName || `${sectorName} creation`;
@@ -72,7 +82,7 @@ export default function ForgeSector({ config }) {
           display_name: displayName,
           category,
           asset_url: assetUrl || 'procedural_generation',
-          generation_params: aiData.parameters,
+          generation_params: finalParams,
           prompt: prompt.trim().slice(0, 2000) || null,
         },
       ]);

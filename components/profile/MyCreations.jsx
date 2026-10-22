@@ -359,6 +359,14 @@ function CreationCard({ asset, listingId, busy, onRename, onList, onUnlist, onTo
               : 'Starts at: ' + formatMoney(asset.starting_bid_cents)}
           </p>
         )}
+        {isWorld && (
+          <p className="text-[11px] text-neutral-500 truncate" title={asset.seed || 'No seed yet'}>
+            🌱 Seed:{' '}
+            {asset.seed
+              ? <span className="font-mono text-cyan-200">{asset.seed}</span>
+              : <span className="text-neutral-600">none yet — give it one on the world page</span>}
+          </p>
+        )}
         {editing ? (
           <>
             <RenameForm formKey={asset.id} initial={asset.display_name} busy={busy} onSave={handleRename} onCancel={() => { setEditing(false); setRenameError(null); }} />
@@ -374,6 +382,14 @@ function CreationCard({ asset, listingId, busy, onRename, onList, onUnlist, onTo
                 className="min-h-[44px] px-3 rounded-lg bg-cyan-300/90 text-black text-xs font-bold hover:bg-cyan-200 inline-flex items-center"
               >
                 Enter world
+              </Link>
+            )}
+            {isWorld && (
+              <Link
+                href={'/communiverse/world/' + asset.id + '#world-seed'}
+                className="min-h-[44px] px-3 rounded-lg border border-white/15 text-xs text-neutral-200 hover:bg-white/10 inline-flex items-center"
+              >
+                🌱 Edit seed
               </Link>
             )}
             {isWorld && (
