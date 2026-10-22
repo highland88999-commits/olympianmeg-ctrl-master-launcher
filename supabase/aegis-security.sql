@@ -51,11 +51,13 @@ CREATE INDEX IF NOT EXISTS idx_aegis_incidents_area ON aegis_incidents(area_prog
 CREATE INDEX IF NOT EXISTS idx_aegis_incidents_reported ON aegis_incidents(reported_at DESC);
 
 -- Grid status snapshots (for dashboard history)
+-- active_agents default = the standing baseline: 10,000,000,000 since
+-- the 2026-10-21 expansion (was 1,000,000 at first build).
 CREATE TABLE IF NOT EXISTS aegis_agent_status (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   mode TEXT NOT NULL DEFAULT 'watchdog',
-  active_agents BIGINT NOT NULL DEFAULT 1000000,
+  active_agents BIGINT NOT NULL DEFAULT 10000000000,
   reserve_agents BIGINT NOT NULL DEFAULT 0,
   threat_level INTEGER NOT NULL DEFAULT 0,
   attackers_detected BIGINT NOT NULL DEFAULT 0
