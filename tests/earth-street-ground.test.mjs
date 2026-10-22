@@ -70,6 +70,11 @@ check('street recenter threshold fires at street scale', () => {
   assert.ok(Math.abs(deg / discDeg - 0.4) < 1e-9, 'threshold must be 40% of disc radius');
 });
 
+check('street patch radius tripled under the player (Merlin, 2026-10-22: render range ×3)', () => {
+  // 1.8 → 5.4 hub units (≈112 m → ≈338 m of detail ground).
+  assert.strictEqual(STREET_PATCH_RADIUS, 1.8 * 3);
+});
+
 check('street patch: vertex count, drape, color range, index sanity', () => {
   const rings = 8, sectors = 12;
   const g = buildStreetPatchGeometryData(

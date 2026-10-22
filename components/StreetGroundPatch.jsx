@@ -22,9 +22,9 @@ import {
 //
 // The traveler walks on the fallback globe's 160×120 sphere: facets
 // ~135 display metres wide, so at 1.62 m eye height the ground read
-// as giant broken black shards. The ESRI lens covers only a 21 m
+// as giant broken black shards. The ESRI lens covers a 90 m
 // photographic disc. This mesh is the middle ground: a
-// high-resolution heightmap-draped disc (~75 m radius) that follows
+// high-resolution heightmap-draped disc (~338 m radius) that follows
 // the traveler, vertex-colored with the hypsometric ramp plus fine
 // grain. It rebuilds on the same throttled recenter beat as the
 // street lens (the parent passes its roamCenter), floats just above

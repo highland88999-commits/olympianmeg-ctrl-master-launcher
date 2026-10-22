@@ -47,10 +47,15 @@ import { roamState } from '@/lib/earth/roam';
 // has rendered, it stays rendered"). Recentering used to dispose
 // the previous sheet, so the photographic ground behind the
 // traveler vanished back to bare globe. Now the last few sheets
-// stay mounted; only beyond the cap is the oldest disposed. The
-// cap is a GPU-memory call: each sheet is a 2048² canvas texture
-// (~17 MB), so 4 sheets ≈ 67 MB worst case — the current area plus
-// the ground just walked, without unbounded growth on an iPhone.
+// stay mounted; beyond the cap the sheet FARTHEST from the current
+// centre is disposed (distance eviction — the ground under and
+// behind the traveler outlives a far-away sheet from an earlier
+// focus). The cap is a GPU-memory call: each street sheet is a
+// 2160² canvas texture (~19 MB; it was 2048² ≈ 17 MB before the
+// 2026-10-22 range tripling), so 4 sheets ≈ 75 MB worst case —
+// the cap deliberately did NOT grow with the ×3 radius: per-sheet
+// memory is ≈ unchanged, and 4 sheets at the tripled radius
+// already cover ×9 the ground the old 4 did.
 const MAX_LENS_SHEETS = 4;
 
 // The globe's centre in world space (this component's outer group
@@ -229,7 +234,10 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
         hd.data, hd.w, hd.h, lensCenter.lat, lensCenter.lon,
         preset.radiusUnits, plan,
         {
-          rings: presetName === 'street' ? 12 : 22,
+          // Street rings 12 → 24 (2026-10-22, with the radius
+          // tripling): the wider disc gets a denser drape so
+          // relief still hugs the terrain out at the 90 m rim.
+          rings: presetName === 'street' ? 24 : 22,
           sectors: 48,
           lift: preset.lift ?? LENS_LIFT,
         },
@@ -254,8 +262,23 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
       const key = centerKey;
       const replaced = sheetsRef.current.find((s) => s.key === key);
       if (replaced) disposeSheet(replaced);
-      const next = [...sheetsRef.current.filter((s) => s.key !== key), { key, mesh }];
-      while (next.length > MAX_LENS_SHEETS) disposeSheet(next.shift());
+      const next = [...sheetsRef.current.filter((s) => s.key !== key),
+        { key, mesh, lat: lensCenter.lat, lon: lensCenter.lon }];
+      // Distance eviction (see MAX_LENS_SHEETS): beyond the cap,
+      // dispose the sheet whose centre is farthest from the sheet
+      // just built — never the one the traveler is standing on.
+      while (next.length > MAX_LENS_SHEETS) {
+        let farIdx = 0;
+        let farDist = -1;
+        for (let i = 0; i < next.length - 1; i++) {
+          const dLat = next[i].lat - lensCenter.lat;
+          const dLon = next[i].lon - lensCenter.lon;
+          const d = dLat * dLat + dLon * dLon;
+          if (d > farDist) { farDist = d; farIdx = i; }
+        }
+        disposeSheet(next[farIdx]);
+        next.splice(farIdx, 1);
+      }
       sheetsRef.current = next;
       setLensSheets(next);
       // The device record of rendered ground — this cell has been

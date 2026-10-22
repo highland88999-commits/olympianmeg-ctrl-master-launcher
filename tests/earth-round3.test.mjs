@@ -354,8 +354,8 @@ check('E: street patch rides at/above BOTH the true surface and the globe grid',
     `worst clearance ${minClear} hub units (lift ${streetPatch.PATCH_LIFT})`);
 });
 
-check('E: patch coverage widened to ~112 m with centre-dense rings', () => {
-  assert.ok(near(streetPatch.STREET_PATCH_RADIUS, 1.8), `radius ${streetPatch.STREET_PATCH_RADIUS}`);
+check('E: patch coverage tripled to ~338 m with centre-dense rings (Merlin, 2026-10-22: render range ×3)', () => {
+  assert.ok(near(streetPatch.STREET_PATCH_RADIUS, 5.4), `radius ${streetPatch.STREET_PATCH_RADIUS}`);
   const geo = streetPatch.buildStreetPatchGeometryData(landHD.data, 64, 32, 53.63, -113.41);
   // vertex budget stays phone-sane (one geometry, no textures)
   assert.ok(geo.vertexCount < 8000, `vertices ${geo.vertexCount}`);

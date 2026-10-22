@@ -51,6 +51,20 @@ check('presets: the tile grid covers the disc at both ranges', () => {
   }
 });
 
+check('street range tripled around the player (Merlin, 2026-10-22: render range ×3)', () => {
+  const s = LENS_PRESETS.street;
+  // 0.48 → 1.44 hub units (≈30 m → ≈90 m photographic radius).
+  assert.ok(near(s.radiusUnits, 0.48 * 3), `street radius ${s.radiusUnits}`);
+  // The wider disc keeps FULL grid coverage (not just the 90%
+  // floor): 36 × 0.088° (z12) = 3.16° ≥ the 3.0° disc diameter.
+  const tileDeg = 360 / 2 ** s.zoom;
+  const discDeg = (2 * s.radiusUnits / EARTH_RADIUS) * (180 / Math.PI);
+  assert.ok(tileDeg * s.grid >= discDeg, `street covers ${tileDeg * s.grid} vs disc ${discDeg}`);
+  // The overlook sheet is the orbital focus, not a per-player
+  // range: deliberately NOT tripled.
+  assert.ok(near(LENS_PRESETS.overlook.radiusUnits, 5.2), 'overlook radius must stay 5.2');
+});
+
 check('tile plan: row-major tiles that exactly tile the canvas', () => {
   const plan = lensTilePlan(48.8584, 2.2945, 8, 8, 2048);
   assert.equal(plan.tiles.length, 64);
