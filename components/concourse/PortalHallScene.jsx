@@ -2,11 +2,13 @@
 
 // PortalHallScene — the 3D hall inside the Concourse's Portals 3D
 // panel: a gently curved wall of MINIMIZED portals (one per program
-// in the active section, paged 42 at a time), each nothing but a ring
-// + a swirling disc. Tap one and it EXPANDS — a true Omega arch grows
-// to center stage wearing that program's own video, ready to step
-// through. This is Merlin's spec: the 3D objects (portals) live
-// inside the Concourse, minimized until the user expands them.
+// in the active section, paged 42 at a time), each a mini Omega arch
+// (the 288° torus + bottom gap of lib/omega-arch.js, Merlin
+// 2026-10-21) cradling a swirling disc. Tap one and it EXPANDS — a
+// true Omega arch grows to center stage wearing that program's own
+// video, ready to step through. This is Merlin's spec: the 3D
+// objects (portals) live inside the Concourse, minimized until the
+// user expands them.
 //
 // Phone-first rendering discipline:
 //   · the whole crowd is TWO instanced meshes (rings + discs) sharing
@@ -247,7 +249,11 @@ function WallGroup({ pageItems, expanded, swirlTex, failedKeysRef, orbitRef, onT
       const live = !!item && (!expanded || item.key !== expanded.key);
       const slot = wallSlot(i);
       dummy.position.copy(slot.pos);
-      dummy.rotation.set(0, slot.rotY, 0);
+      // Mini Omega arch orientation: spin the arc in its own plane so
+      // the gap sits at the bottom (OMEGA_ARCH.rotationZ, the same
+      // tilt the expanded arch wears), then yaw to the wall slot.
+      // Default Euler order applies the Z spin before the Y yaw.
+      dummy.rotation.set(0, slot.rotY, OMEGA_ARCH.rotationZ);
       if (live) dummy.scale.set(1, 1.25, 1);
       else dummy.scale.set(0.0001, 0.0001, 0.0001);
       dummy.updateMatrix();
@@ -298,7 +304,7 @@ function WallGroup({ pageItems, expanded, swirlTex, failedKeysRef, orbitRef, onT
         onPointerDown={onPointerDown}
         onPointerUp={onPointerUp}
       >
-        <torusGeometry args={[0.82, 0.13, 12, 40]} />
+        <torusGeometry args={[0.82, 0.13, 12, 40, OMEGA_ARCH.arc]} />
         <meshStandardMaterial
           color="#2a1b4d"
           emissive="#6d4bd8"

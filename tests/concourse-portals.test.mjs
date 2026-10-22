@@ -229,6 +229,11 @@ describe('the panel + hall (static)', () => {
     assert.ok(panel.includes('probeWebGL()'), 'the probe decides the initial mode');
   });
 
+  it('the minimized portals are mini Omega arches (arc + bottom gap)', () => {
+    assert.ok(scene.includes('OMEGA_ARCH.arc'), 'instanced torus carries the Omega arc');
+    assert.ok(scene.includes('OMEGA_ARCH.rotationZ'), 'instances wear the gap-at-bottom tilt');
+  });
+
   it('the hall is two instanced meshes over one shared swirl texture', () => {
     const instanced = scene.match(/args=\{\[null, null, WALL_PAGE_SIZE\]\}/g) || [];
     assert.equal(instanced.length, 2, 'rings + discs instanced meshes');
