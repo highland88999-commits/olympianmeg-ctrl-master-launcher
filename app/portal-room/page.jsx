@@ -25,7 +25,7 @@ import { BackButton } from '@/components/ui';
 import { SATELLITES } from '@/lib/i18n/satellites';
 import en from '@/lib/i18n/locales/en.json';
 import { buildPortalRoster } from '@/lib/portal-roster';
-import PortalRoom from '@/components/portal-room/PortalRoom';
+import PortalRoomGate from '@/components/portal-room/PortalRoomGate';
 
 export const metadata = {
   title: 'Portal Room — Olympus',
@@ -55,7 +55,10 @@ export default function PortalRoomPage() {
         <div className="mx-auto w-full max-w-6xl px-4 pt-4">
           <BackButton />
         </div>
-        <PortalRoom programs={PROGRAMS} />
+        {/* The gate appends the owner-only portals (Earth 2) when the
+            signed-in session is the owner's; the base roster above is
+            what everyone else sees, unchanged. */}
+        <PortalRoomGate basePrograms={PROGRAMS} />
       </div>
     </main>
   );

@@ -25,11 +25,14 @@ import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { SATELLITES } from '@/lib/i18n/satellites';
 import { useI18n } from '@/lib/i18n';
+import { supabase } from '@/lib/supabase';
+import { isOwnerEmail } from '@/lib/owner';
 import {
   SECTION_ORDER,
   buildPortalRoster,
   filterPortals,
   paginateWall,
+  withOwnerPortals,
 } from '@/lib/portal-roster';
 import { probeWebGL } from '@/lib/webgl-support';
 import PortalCard, { PortalStyles } from './portal-room/PortalCard';
@@ -50,6 +53,30 @@ export default function ConcoursePortals({ open, onClose }) {
   const [expandedKey, setExpandedKey] = useState(null);
   const [entering, setEntering] = useState(null);
 
+  // Owner-only portals (Earth 2, the Phase 2 test build) join the
+  // roster only when the signed-in session is the owner's — the same
+  // gate the Portal Room wears (PortalRoomGate). Everyone else's wall
+  // is the registry roster untouched.
+  const [isOwner, setIsOwner] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (alive) setIsOwner(isOwnerEmail(data?.session?.user?.email));
+      } catch {
+        if (alive) setIsOwner(false);
+      }
+    })();
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (alive) setIsOwner(isOwnerEmail(session?.user?.email));
+    });
+    return () => {
+      alive = false;
+      if (sub && sub.subscription) sub.subscription.unsubscribe();
+    };
+  }, []);
+
   // The roster: the registry + live i18n lookups (the SatelliteMenu
   // pattern). t() echoes the key itself for a missing string, so a
   // lookup treats an echoed key as "absent" and the builder applies
@@ -60,8 +87,11 @@ export default function ConcoursePortals({ open, onClose }) {
       const v = t(full);
       return v && v !== full ? v : '';
     };
-    return buildPortalRoster(SATELLITES, lookup('title'), lookup('subtitle'));
-  }, [t]);
+    return withOwnerPortals(
+      buildPortalRoster(SATELLITES, lookup('title'), lookup('subtitle')),
+      isOwner
+    );
+  }, [t, isOwner]);
 
   const counts = useMemo(() => {
     const map = new Map();
