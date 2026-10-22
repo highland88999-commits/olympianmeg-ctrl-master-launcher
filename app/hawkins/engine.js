@@ -4,6 +4,8 @@
 
 import * as THREE from 'three';
 import { guardCanvasContext } from '../../lib/scene-context-guard.js';
+import { hawkinsModel, HAWKINS_PLAYER_CHARACTERS } from '../../lib/hawkins/models.js';
+import { instantiateHawkins, prefetchHawkins } from '../../lib/hawkins/loader.js';
 
 const EYE = 7;
 const TRACES_NEEDED = 5;
@@ -44,6 +46,10 @@ export function createEngine(canvas, hooks) {
     hudTimer: 0,
     perspective: 'first', // 'first' | 'third' — camera perspective toggle
     playerAvatar: null,
+    // Tripo GLB characters (lib/hawkins): the selected player character
+    // and its pose handle. _glbAlive gates async loads after dispose.
+    playerCharacter: 'eleven', avatarPose: null, _avatarLoadSeq: 0,
+    _glbAlive: true,
   };
 
   /* ---------------- boot ---------------- */
@@ -77,8 +83,34 @@ export function createEngine(canvas, hooks) {
     E.buildLights(); E.buildGround(); E.buildRoad(); E.buildHawkins();
     E.buildAsh(); E.buildSpores(); E.buildFlashlight(); E.buildMuzzle();
     E.buildPlayerAvatar();
+    // The placeholder above is the stand-in only until the selected
+    // Tripo character GLB lands (async); the GLB then takes the slot.
+    E.setPlayerCharacter(E.playerCharacter);
+    // Warm the other character downloads while the menu is up.
+    for (const c of HAWKINS_PLAYER_CHARACTERS) prefetchHawkins(c.id);
     E.bindInput();
     E.resize();
+  };
+
+  // Load (or switch) the player's Tripo character. The placeholder
+  // figure holds the slot until the GLB is ready; if the load fails
+  // the placeholder simply stays — the game never waits on it.
+  engine.setPlayerCharacter = function (id) {
+    const E = engine;
+    const entry = hawkinsModel(id);
+    if (!entry || entry.role !== 'player') return;
+    E.playerCharacter = id;
+    const seq = ++E._avatarLoadSeq;
+    instantiateHawkins(id).then((handle) => {
+      if (!E._glbAlive || !handle || seq !== E._avatarLoadSeq) {
+        if (handle) handle.dispose();
+        return;
+      }
+      if (E.avatarPose && E.avatarPose !== handle) E.avatarPose.dispose();
+      E.avatarPose = handle;
+      E.setPlayerAvatarModel(handle.group);
+      E.hooks.feed('you are ' + entry.name.toUpperCase());
+    });
   };
 
   /* ---------------- player avatar (3rd person) ---------------- */
@@ -593,51 +625,25 @@ export function createEngine(canvas, hooks) {
   engine.spawnVecna = function () {
     const E = engine, c = E.creel;
     const g = new THREE.Group();
-    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x1c1216, roughness: 0.7 });
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(2.6, 4.2, 42, 10), bodyMat);
-    body.position.y = 21; body.castShadow = true; g.add(body);
-    for (let i = 0; i < 5; i++) {
-      const rib = new THREE.Mesh(new THREE.TorusGeometry(3.4 - i * 0.25, 0.5, 6, 12),
-        new THREE.MeshStandardMaterial({ color: 0x2c1a20, roughness: 0.8 }));
-      rib.position.y = 30 - i * 4; rib.rotation.x = Math.PI / 2; g.add(rib);
-    }
-    const head = new THREE.Mesh(new THREE.SphereGeometry(4.2, 14, 16),
-      new THREE.MeshStandardMaterial({ color: 0x241a1e, roughness: 0.55,
-        emissive: 0x330011, emissiveIntensity: 0.5 }));
-    head.scale.set(0.85, 1.5, 0.95); head.position.y = 46; head.castShadow = true; g.add(head);
-    for (const s of [-1, 1]) {
-      const e = new THREE.Mesh(new THREE.SphereGeometry(0.7, 8, 8),
-        new THREE.MeshBasicMaterial({ color: 0xff66ff }));
-      e.position.set(s * 1.6, 47, 3.4); g.add(e);
-    }
-    for (const s of [-1, 1]) {
-      const arm = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 0.9, 30, 6), bodyMat);
-      arm.position.set(s * 6, 26, 0); arm.rotation.z = s * 0.35; g.add(arm);
-      for (let f = 0; f < 4; f++) {
-        const fin = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.3, 9, 5),
-          new THREE.MeshStandardMaterial({ color: 0x3a2028, roughness: 0.6 }));
-        fin.position.set(s * (11 + (f - 1.5) * 1.4), 9, 1);
-        fin.rotation.x = 0.5; g.add(fin);
-      }
-    }
-    const tendrils = [];
-    const tMat = new THREE.MeshStandardMaterial({ color: 0x2c1420, roughness: 0.9 });
-    for (let i = 0; i < 10; i++) {
-      const td = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 1.6, 30, 6), tMat);
-      const a = (i / 10) * Math.PI * 2;
-      td.position.set(Math.cos(a) * 5.5, 12, Math.sin(a) * 5.5);
-      td.rotation.z = Math.cos(a) * 0.9; td.rotation.x = -Math.sin(a) * 0.9;
-      td.castShadow = true;
-      g.add(td); tendrils.push({ m: td, phase: Math.random() * 6 });
-    }
+    // The body is Merlin's Tripo Vecna GLB now (lib/hawkins manifest);
+    // it attaches async into this group. The violet aura is an effect,
+    // not a body — it stays, exactly as authored.
     const aura = new THREE.Sprite(new THREE.SpriteMaterial({
       map: GLOW_TEX(), color: 0xaa33ff, transparent: true, opacity: 0.55,
       blending: THREE.AdditiveBlending, depthWrite: false }));
     aura.scale.set(64, 84, 1); aura.position.y = 24; g.add(aura);
     g.position.set(c.x, 0, c.z - 90);
     E.scene.add(g);
-    E.vecna = { mesh: g, head, tendrils, aura, hp: 100, maxHp: 100,
+    E.vecna = { mesh: g, aura, pose: null, castAt: -99, hp: 100, maxHp: 100,
       teleportCd: 6, blastCd: 3, summonCd: 9, captureWeak: false, finishTimer: 0, dead: false };
+    instantiateHawkins('vecna').then((handle) => {
+      if (!E._glbAlive || !handle || !E.vecna || E.vecna.mesh !== g) {
+        if (handle) handle.dispose();
+        return;
+      }
+      g.add(handle.group);
+      E.vecna.pose = handle;
+    });
     E.hooks.onBossHp(1);
   };
 
@@ -660,9 +666,15 @@ export function createEngine(canvas, hooks) {
     const toPlayer = new THREE.Vector3().subVectors(E.player.pos, m.position);
     toPlayer.y = 0;
     const dist = toPlayer.length();
-    for (const td of v.tendrils) {
-      td.m.rotation.y = Math.sin(t * 2 + td.phase) * 0.8;
-      td.m.scale.y = 1 + Math.sin(t * 3 + td.phase) * 0.18;
+    if (v.pose) {
+      // The GLB body is posed by its skeleton: hovering menace, arms
+      // and fingers flaring off a fresh cast; slumped when weakened.
+      const sinceCast = t - v.castAt;
+      v.pose.update(t, {
+        mode: v.captureWeak ? 'weakened' : 'hover',
+        phase: 0,
+        flare: v.captureWeak ? 0 : Math.max(0.35, 1 - sinceCast * 0.5),
+      });
     }
     m.position.y = Math.sin(t * 1.2) * 2 + 2;
     v.aura.material.opacity = 0.4 + Math.sin(t * 2.4) * 0.2;
@@ -717,6 +729,7 @@ export function createEngine(canvas, hooks) {
 
   engine.psychicBlast = function () {
     const E = engine;
+    if (E.vecna) E.vecna.castAt = E.clock.getElapsedTime();
     const from = E.vecna.mesh.position.clone(); from.y = 40;
     const dir = new THREE.Vector3().subVectors(E.player.pos, from).normalize();
     const orb = new THREE.Mesh(new THREE.SphereGeometry(2.4, 10, 10),
@@ -780,9 +793,47 @@ export function createEngine(canvas, hooks) {
   };
 
   /* ---------------- mind flayer ---------------- */
-  engine.spawnMindflayer = function () {
+  // Routed through the manifest (lib/hawkins/models.js): while the
+  // Flayer's GLB is still in Studio rigging the procedural silhouette
+  // below IS the body; the day its file lands in the manifest, this
+  // same spawn builds the GLB instead — no other code changes. The
+  // Hybrid is the same routing with variantId 'mind-flayer-hybrid'
+  // (red aura, speedMul on its attacks, per the manifest entry).
+  engine.spawnMindflayer = function (variantId) {
     const E = engine;
+    const entry = hawkinsModel(variantId || 'mind-flayer') || hawkinsModel('mind-flayer');
     const g = new THREE.Group();
+    g.position.set(E.player.pos.x, 0, E.player.pos.z - 900);
+    E.scene.add(g);
+    const speedMul = entry.speedMul || 1;
+    if (entry.file) {
+      E.mindflayer = { mesh: g, legs: [], core: null, pose: null, attackCd: 8 / speedMul, speedMul };
+      instantiateHawkins(entry.id).then((handle) => {
+        if (!E._glbAlive || !handle || !E.mindflayer || E.mindflayer.mesh !== g) {
+          if (handle) handle.dispose();
+          return;
+        }
+        handle.group.position.y = 600; // it looms in the sky, as the silhouette did
+        g.add(handle.group);
+        E.mindflayer.pose = handle;
+        const core = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: GLOW_TEX(), color: entry.aura || 0xff2222, transparent: true, opacity: 0.5,
+          blending: THREE.AdditiveBlending, depthWrite: false }));
+        const cs = 220 * (entry.auraScale || 1);
+        core.scale.set(cs, cs * 0.72, 1); core.position.set(0, 660, 0); g.add(core);
+        E.mindflayer.core = core;
+      });
+    } else {
+      E.buildProceduralMindflayer(g, entry);
+    }
+    E.hooks.banner('THE MIND FLAYER WATCHES');
+    E.hooks.feed('it has found you');
+  };
+
+  // The original procedural silhouette — now ONLY the fallback body
+  // for the Flayer slots whose GLBs have not landed yet.
+  engine.buildProceduralMindflayer = function (g, entry) {
+    const E = engine;
     const mat = new THREE.MeshBasicMaterial({ color: 0x050508, transparent: true, opacity: 0.92 });
     const mass = new THREE.Mesh(new THREE.SphereGeometry(120, 16, 12), mat);
     mass.scale.set(1.6, 0.75, 1); mass.position.y = 700; g.add(mass);
@@ -797,14 +848,10 @@ export function createEngine(canvas, hooks) {
       g.add(leg); legs.push({ m: leg, phase: Math.random() * 6 });
     }
     const core = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: GLOW_TEX(), color: 0xff2222, transparent: true, opacity: 0.5,
+      map: GLOW_TEX(), color: (entry && entry.aura) || 0xff2222, transparent: true, opacity: 0.5,
       blending: THREE.AdditiveBlending, depthWrite: false }));
     core.scale.set(220, 160, 1); core.position.set(0, 640, 90); g.add(core);
-    g.position.set(E.player.pos.x, 0, E.player.pos.z - 900);
-    E.scene.add(g);
-    E.mindflayer = { mesh: g, legs, core, attackCd: 8 };
-    E.hooks.banner('THE MIND FLAYER WATCHES');
-    E.hooks.feed('it has found you');
+    E.mindflayer = { mesh: g, legs, core, pose: null, attackCd: 8, speedMul: 1 };
   };
 
   engine.updateMindflayer = function (dt, t) {
@@ -817,10 +864,11 @@ export function createEngine(canvas, hooks) {
       l.m.rotation.y = Math.sin(t * 0.9 + l.phase) * 0.3;
       l.m.scale.y = 1 + Math.sin(t * 1.4 + l.phase) * 0.08;
     }
-    mf.core.material.opacity = 0.35 + Math.sin(t * 2) * 0.2;
+    if (mf.pose) mf.pose.update(t, { phase: 0 });
+    if (mf.core) mf.core.material.opacity = 0.35 + Math.sin(t * 2) * 0.2;
     mf.attackCd -= dt;
     if (mf.attackCd <= 0) {
-      mf.attackCd = 14 + Math.random() * 6;
+      mf.attackCd = (14 + Math.random() * 6) / (mf.speedMul || 1);
       E.hooks.feed('THE SKY MOVES — RUN');
       E.triggerLightningAt(E.player.pos.x + (Math.random() - 0.5) * 120,
         E.player.pos.z + (Math.random() - 0.5) * 120);
@@ -832,23 +880,41 @@ export function createEngine(canvas, hooks) {
   };
 
   /* ---------------- demo-bats ---------------- */
+  // Manifest-routed like the Flayer: the procedural bat below is the
+  // fallback body while the Demo-bat GLB is still being rigged; when
+  // its file lands in the manifest, swarms are born as GLBs (flapped
+  // by their wing bones when the rig has them, by whole-mesh flap
+  // when it doesn't) and this builder retires.
   engine.spawnBatSwarm = function (n) {
     const E = engine;
+    const entry = hawkinsModel('demobats');
     const batMat = new THREE.MeshStandardMaterial({ color: 0x191014, roughness: 0.9, side: THREE.DoubleSide });
     for (let i = 0; i < n; i++) {
       const g = new THREE.Group();
-      const body = new THREE.Mesh(new THREE.ConeGeometry(1.6, 7, 5), batMat);
-      body.rotation.x = Math.PI / 2; g.add(body);
-      const wl = new THREE.Mesh(new THREE.PlaneGeometry(9, 4), batMat); wl.position.x = -4.5; g.add(wl);
-      const wr = new THREE.Mesh(new THREE.PlaneGeometry(9, 4), batMat); wr.position.x = 4.5; g.add(wr);
-      const tail = new THREE.Mesh(new THREE.ConeGeometry(0.7, 6, 4), batMat);
-      tail.position.z = 5; tail.rotation.x = -Math.PI / 2; g.add(tail);
       const a = Math.random() * Math.PI * 2;
       g.position.set(E.player.pos.x + Math.cos(a) * 120, 60 + Math.random() * 50, E.player.pos.z + Math.sin(a) * 120);
       E.scene.add(g);
-      E.bats.push({ mesh: g, wl, wr, state: 'circle',
+      const bat = { mesh: g, wl: null, wr: null, pose: null, state: 'circle',
         phase: Math.random() * 6, speed: 34 + Math.random() * 10,
-        diveCd: 2 + Math.random() * 4, dead: 0 });
+        diveCd: 2 + Math.random() * 4, dead: 0 };
+      E.bats.push(bat);
+      if (entry && entry.file) {
+        instantiateHawkins('demobats').then((handle) => {
+          if (!E._glbAlive || !handle) { if (handle) handle.dispose(); return; }
+          if (!E.bats.includes(bat)) { handle.dispose(); return; }
+          g.add(handle.group);
+          if (handle.animated) bat.pose = handle;
+          else bat.glbStatic = true; // rig gave nothing to move — mesh-flap
+        });
+      } else {
+        const body = new THREE.Mesh(new THREE.ConeGeometry(1.6, 7, 5), batMat);
+        body.rotation.x = Math.PI / 2; g.add(body);
+        const wl = new THREE.Mesh(new THREE.PlaneGeometry(9, 4), batMat); wl.position.x = -4.5; g.add(wl);
+        const wr = new THREE.Mesh(new THREE.PlaneGeometry(9, 4), batMat); wr.position.x = 4.5; g.add(wr);
+        const tail = new THREE.Mesh(new THREE.ConeGeometry(0.7, 6, 4), batMat);
+        tail.position.z = 5; tail.rotation.x = -Math.PI / 2; g.add(tail);
+        bat.wl = wl; bat.wr = wr;
+      }
     }
   };
 
@@ -865,8 +931,13 @@ export function createEngine(canvas, hooks) {
         if (b.dead > 1 || m.position.y < 0) { E.scene.remove(m); E.bats.splice(i, 1); }
         continue;
       }
-      const flap = Math.sin(t * 16 + b.phase) * 0.75;
-      b.wl.rotation.y = flap; b.wr.rotation.y = -flap;
+      if (b.pose) b.pose.update(t, { phase: b.phase });
+      else if (b.wl && b.wr) {
+        const flap = Math.sin(t * 16 + b.phase) * 0.75;
+        b.wl.rotation.y = flap; b.wr.rotation.y = -flap;
+      } else if (b.glbStatic) {
+        m.rotation.z = Math.sin(t * 16 + b.phase) * 0.4;
+      }
       const toP = new THREE.Vector3().subVectors(E.player.pos, m.position);
       const dist = toP.length();
       b.diveCd -= dt;
@@ -906,46 +977,25 @@ export function createEngine(canvas, hooks) {
   engine.spawnDemogorgonNear = function (center, dist, ang) {
     const E = engine;
     const a = ang !== undefined ? ang : Math.random() * Math.PI * 2;
-    const dgMat = new THREE.MeshStandardMaterial({ color: 0x141114, roughness: 0.85 });
-    const dgHeadMat = new THREE.MeshStandardMaterial({ color: 0x3a0d0d, roughness: 0.7,
-      emissive: 0x550000, emissiveIntensity: 0.35 });
-    const dgEyeMat = new THREE.MeshBasicMaterial({ color: 0xff2222 });
     const g = new THREE.Group();
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 4.2, 30, 8), dgMat);
-    body.position.y = 15; body.castShadow = true; g.add(body);
-    const legs = [];
-    for (const s of [-1, 1]) {
-      const leg = new THREE.Mesh(new THREE.CylinderGeometry(1.3, 1, 16, 6), dgMat);
-      leg.position.set(s * 2.2, 7, 0); g.add(leg); legs.push(leg);
-    }
-    for (const s of [-1, 1]) {
-      const arm = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 0.8, 22, 6), dgMat);
-      arm.position.set(s * 4.5, 18, 0); arm.rotation.z = s * 0.5; arm.castShadow = true; g.add(arm);
-      const claw = new THREE.Mesh(new THREE.ConeGeometry(1.4, 6, 5), dgHeadMat);
-      claw.position.set(s * 9, 7, 0); claw.rotation.x = Math.PI; g.add(claw);
-    }
-    const head = new THREE.Group();
-    for (let i = 0; i < 5; i++) {
-      const petal = new THREE.Mesh(new THREE.ConeGeometry(3.2, 11, 4), dgHeadMat);
-      const pa = (i / 5) * Math.PI * 2;
-      petal.position.set(Math.cos(pa) * 3.4, 2, Math.sin(pa) * 3.4);
-      petal.rotation.z = -Math.cos(pa) * 0.85; petal.rotation.x = Math.sin(pa) * 0.85;
-      petal.castShadow = true;
-      head.add(petal);
-    }
-    head.add(new THREE.Mesh(new THREE.SphereGeometry(2.6, 10, 10), dgEyeMat));
-    head.position.y = 32; g.add(head);
-    for (const s of [-1, 1]) {
-      const e = new THREE.Mesh(new THREE.SphereGeometry(0.5, 6, 6), dgEyeMat);
-      e.position.set(s * 1.4, 24, 3.4); g.add(e);
-    }
     g.position.set(center.x + Math.cos(a) * dist, 0, center.z + Math.sin(a) * dist);
     E.scene.add(g);
     const upsideBonus = E.dimension === 'upside' ? 1.25 : 1;
-    E.demogorgons.push({ mesh: g, head, legs, hp: 3, state: 'stalk',
+    // The body is Merlin's Tripo Demogorgon GLB (manifest-routed,
+    // attached async — spawns happen 140+ units out in fog, and every
+    // gameplay system reads the group position, so the pack is live
+    // from the first frame). The old procedural build is gone.
+    const d = { mesh: g, pose: null, hp: 3, state: 'stalk',
       speed: (13 + E.wave * 1.6 + Math.random() * 4) * upsideBonus,
       phase: Math.random() * Math.PI * 2, attackCd: 0, stun: 0,
-      dead: 0, lastKnown: g.position.clone() });
+      dead: 0, lastKnown: g.position.clone() };
+    E.demogorgons.push(d);
+    instantiateHawkins('demogorgon').then((handle) => {
+      if (!E._glbAlive || !handle) { if (handle) handle.dispose(); return; }
+      if (!E.demogorgons.includes(d)) { handle.dispose(); return; }
+      g.add(handle.group);
+      d.pose = handle;
+    });
   };
 
   engine.killDemogorgon = function (d) {
@@ -988,7 +1038,6 @@ export function createEngine(canvas, hooks) {
           m.position.z += (dz / dd) * d.speed * 0.45 * dt + Math.sin(t + d.phase) * 2 * dt;
           m.rotation.y = Math.atan2(dx, dz); moving = true;
         } else m.rotation.y += dt * 1.2;
-        m.position.y = Math.abs(Math.sin(t * 3 + d.phase)) * 1.2;
         if (dist < 48 || d.heardShot) d.state = 'chase';
       } else if (d.state === 'chase') {
         if (dist > 7) {
@@ -1003,8 +1052,6 @@ export function createEngine(canvas, hooks) {
           m.rotation.y = Math.atan2(toPlayer.x, toPlayer.z);
           moving = true;
         }
-        m.position.y = Math.abs(Math.sin(t * 7 + d.phase)) * 2.4;
-        m.rotation.z = Math.sin(t * 7 + d.phase) * 0.09;
         if (dist < 9) d.state = 'attack';
         else if (dist > 140) d.state = 'stalk';
       } else if (d.state === 'attack') {
@@ -1012,7 +1059,6 @@ export function createEngine(canvas, hooks) {
         const lunge = Math.max(0, Math.sin(t * 9 + d.phase));
         m.position.x += toPlayer.x * dt * 10 * lunge;
         m.position.z += toPlayer.z * dt * 10 * lunge;
-        m.position.y = lunge * 3;
         moving = lunge > 0.3;
         d.attackCd -= dt;
         if (d.attackCd <= 0 && dist < 11) {
@@ -1021,10 +1067,15 @@ export function createEngine(canvas, hooks) {
         }
         if (dist > 14) d.state = 'chase';
       }
-      const sw = moving ? Math.sin(t * 10 + d.phase) * 0.55 : 0;
-      d.legs[0].rotation.x = sw; d.legs[1].rotation.x = -sw;
-      d.head.rotation.y = Math.sin(t * 2.2 + d.phase) * 0.7;
-      d.head.rotation.x = Math.sin(t * 3.1 + d.phase) * 0.35;
+      // The skeleton does the acting now: prowl / chase / lunge read
+      // off the AI state, with the attack flare driving the arms.
+      if (d.pose) {
+        d.pose.update(t, {
+          mode: d.state === 'attack' ? 'attack' : moving ? (d.state === 'chase' ? 'chase' : 'stalk') : 'idle',
+          phase: d.phase,
+          flare: d.state === 'attack' ? 1 : d.state === 'chase' ? 0.45 : 0.1,
+        });
+      }
     }
   };
 
@@ -1367,8 +1418,20 @@ export function createEngine(canvas, hooks) {
         P.pos.z + Math.cos(P.yaw) * Math.cos(P.pitch) * 120);
       E.camera.lookAt(aim);
       if (E.playerAvatar) {
-        E.playerAvatar.position.set(P.pos.x, Math.abs(Math.sin(t * 11)) * 0.4 * ((mx || mz) ? 1 : 0), P.pos.z);
-        E.playerAvatar.rotation.y = P.yaw;
+        if (E.avatarPose) {
+          // GLB character: the pose driver owns the bob; the group
+          // just carries position + facing.
+          E.playerAvatar.position.set(P.pos.x, 0, P.pos.z);
+          E.playerAvatar.rotation.y = P.yaw;
+          const ridingNow = !!(E.bike && E.bike.mounted);
+          E.avatarPose.update(t, {
+            mode: ridingNow ? 'ride' : (mx || mz) ? 'run' : 'idle',
+            phase: 0,
+          });
+        } else {
+          E.playerAvatar.position.set(P.pos.x, Math.abs(Math.sin(t * 11)) * 0.4 * ((mx || mz) ? 1 : 0), P.pos.z);
+          E.playerAvatar.rotation.y = P.yaw;
+        }
       }
     } else {
       E.camera.rotation.order = 'YXZ';
@@ -1518,6 +1581,7 @@ export function createEngine(canvas, hooks) {
 
   engine.dispose = function () {
     const E = engine;
+    E._glbAlive = false; // pending GLB loads retire themselves
     E.stop();
     if (E.contextGuard) E.contextGuard.dispose();
     E.scene.traverse((o) => {

@@ -7,6 +7,13 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { createEngine } from './engine';
+import { HAWKINS_PLAYER_CHARACTERS } from '../../lib/hawkins/models.js';
+
+const CHARACTER_BLURBS = {
+  eleven: 'THE HUNTER — small, quick, psychokinetic',
+  eddie: 'THE METALHEAD — lanky, loose, fearless',
+  hopper: 'THE CHIEF — heavy, broad, unbreakable',
+};
 
 const BANNER_CLEAR = 'max(3.5rem, calc(env(safe-area-inset-top) + 3rem))';
 const BOTTOM_CLEAR = 'max(1.5rem, calc(env(safe-area-inset-bottom) + 1rem))';
@@ -24,6 +31,7 @@ export default function HawkinsPage() {
   });
   const [banner, setBanner] = useState('');
   const [chime, setChime] = useState('');
+  const [charId, setCharId] = useState('eleven');
   const [finishHim, setFinishHim] = useState(false);
   const [fatality, setFatality] = useState(false);
   const [objective, setObjective] = useState('');
@@ -122,6 +130,15 @@ export default function HawkinsPage() {
     if (!e) return;
     setPhase('playing');
     e.start();
+  }, []);
+
+  // Character select — Merlin's Tripo GLBs are the cast now. Picking
+  // swaps the third-person body (and its gait personality) in the
+  // engine; the hunt itself is identical for all three.
+  const pickCharacter = useCallback((id) => {
+    setCharId(id);
+    const e = engineRef.current;
+    if (e) e.setPlayerCharacter(id);
   }, []);
 
   const restart = useCallback(() => window.location.reload(), []);
@@ -254,9 +271,25 @@ export default function HawkinsPage() {
               When the bell tolls… <b style={{ color: '#ff4444' }}>he waits in the Upside Down.</b><br />
               <span style={{ color: '#555' }}>To die is to wake in Hawkins. It won't save you from him.</span>
             </div>
+            <div style={styles.charrow} onClick={(e) => e.stopPropagation()}>
+              <div style={styles.charlabel}>— WHO HUNTS? —</div>
+              <div style={styles.charbtns}>
+                {HAWKINS_PLAYER_CHARACTERS.map((c) => (
+                  <button
+                    key={c.id}
+                    style={charId === c.id ? { ...styles.charbtn, ...styles.charbtnOn } : styles.charbtn}
+                    onClick={() => pickCharacter(c.id)}
+                  >
+                    <div style={styles.charname}>{c.name.toUpperCase()}</div>
+                    <div style={styles.charblurb}>{CHARACTER_BLURBS[c.id] || ''}</div>
+                  </button>
+                ))}
+              </div>
+              <div style={styles.charnote}>your body in third person (V) — the hunt is the same</div>
+            </div>
             <div style={styles.keys}>
               WASD — move · mouse — look · click — fire · R — reload<br />
-              E — ride / dismount bike · E (hold, near weak Vecna) — capture
+              E — ride / dismount bike · E (hold, near weak Vecna) — capture · V — 1st/3rd person
             </div>
             <p style={styles.cta}>( CLICK TO ENTER HAWKINS )</p>
           </div>
@@ -434,6 +467,21 @@ const styles = {
   subtitle: { color: '#888', fontSize: 14, letterSpacing: 2 },
   lore: { color: '#773333', fontSize: 12, marginTop: 16, maxWidth: 560, lineHeight: 1.7 },
   keys: { color: '#aaa', fontSize: 13, marginTop: 20, lineHeight: 2 },
+  charrow: { marginTop: 22 },
+  charlabel: { color: '#aa6666', fontSize: 11, letterSpacing: 4, marginBottom: 10 },
+  charbtns: { display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' },
+  charbtn: {
+    background: 'rgba(20,4,8,0.8)', color: '#cc8888', cursor: 'pointer',
+    border: '1px solid rgba(255,80,100,0.35)', borderRadius: 10,
+    padding: '10px 14px', minWidth: 150, fontFamily: "'Courier New', monospace",
+  },
+  charbtnOn: {
+    color: '#ffd9d9', borderColor: '#ff4455',
+    boxShadow: '0 0 16px rgba(255,30,50,0.45)', background: 'rgba(60,6,14,0.9)',
+  },
+  charname: { fontSize: 14, letterSpacing: 2, fontWeight: 'bold' },
+  charblurb: { fontSize: 10, color: '#997777', marginTop: 4, letterSpacing: 1 },
+  charnote: { fontSize: 10, color: '#555', marginTop: 8, letterSpacing: 1 },
   cta: { fontSize: 13, marginTop: 18, color: '#888' },
   stick: {
     position: 'fixed', left: 30, bottom: 110, width: 120, height: 120,
