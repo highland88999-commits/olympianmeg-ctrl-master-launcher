@@ -1,13 +1,16 @@
 // tests/earth2-models.test.mjs
 // Earth 2 — Dinosaur Bay (Merlin, 2026-10-22):
-// - the models manifest: 34 placed foundry models + Pachycephalosaurus
-//   honestly pending (never uploaded — file null, no stand-in)
+// - the models manifest: 39 placed foundry models + Indominus Rex
+//   and Pachycephalosaurus honestly pending (never uploaded —
+//   file null, no stand-in)
 // - every placed file exists under public/models/earth2, parses as a
 //   GLB, stayed game-weight (<= 5 MB), and kept its rig (skins >= 1
-//   for creatures) through the optimization pass
-// - the bone-role resolver against BOTH real rig dialects, using the
+//   for creatures) through the optimization pass — the five
+//   Transylvania arrivals pin their exact joint counts
+// - the bone-role resolver against the real rig dialects, using the
 //   actual joint lists measured off the Studio files (humanoid
-//   retarget + Tripo-native, raw and three-sanitized name forms)
+//   retarget, Tripo-native, Mixamo, and the measured unnamed-rig
+//   resolvers for the mosquito and the bat)
 // - the chamber wiring: the Bay is mounted, the owner gate is intact
 //
 // Run: node --test tests/earth2-models.test.mjs   (from the repo root)
@@ -23,7 +26,7 @@ import {
   earth2PlacedModels,
   earth2PendingModels,
 } from '../lib/earth2/models.js';
-import { resolveBones, normalizeJointName } from '../lib/earth2/bones.js';
+import { resolveBones, normalizeJointName, resolveMosquitoRig, resolveBatWings } from '../lib/earth2/bones.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, '..');
@@ -38,21 +41,16 @@ function parseGlb(buf) {
 }
 
 describe('the Bay manifest', () => {
-  it('holds 42 entries: 34 placed files, the compy swarm riding its source model, 7 awaiting upload', () => {
+  it('holds 42 entries: 39 placed files, the compy swarm riding its source model, 2 awaiting upload', () => {
     assert.equal(EARTH2_MODELS.length, 42);
-    assert.equal(earth2PlacedModels().length, 34);
+    assert.equal(earth2PlacedModels().length, 39);
     const pending = earth2PendingModels();
-    assert.equal(pending.length, 7);
+    assert.equal(pending.length, 2);
     assert.deepEqual(
       pending.map((m) => m.slug).sort(),
       [
-        'castle-transylvania',
-        'dracula',
-        'giant-mosquito',
         'indominus-rex',
         'pachycephalosaurus',
-        'spinosaurus-rex',
-        'vampire-bat',
       ],
     );
     for (const m of pending) {
@@ -61,16 +59,22 @@ describe('the Bay manifest', () => {
     }
   });
 
-  it('the blood-sac cast waits in the Studio honestly (Merlin, 2026-10-22)', () => {
+  it('the Transylvania cast has landed — real files, real kinds (Merlin, 2026-10-22)', () => {
     const bySlug = Object.fromEntries(EARTH2_MODELS.map((m) => [m.slug, m]));
     // The exchange's host, his bat, his castle, his mosquitos, and
-    // the two apex hybrids — all manifest slots, no fake files.
+    // the landed apex hybrid — placed, with the files to prove it.
     assert.equal(bySlug['dracula'].kind, 'character');
     assert.equal(bySlug['vampire-bat'].kind, 'flyer');
     assert.equal(bySlug['giant-mosquito'].kind, 'insect');
     assert.equal(bySlug['castle-transylvania'].kind, 'landform');
     assert.equal(bySlug['indominus-rex'].kind, 'dinosaur');
     assert.equal(bySlug['spinosaurus-rex'].kind, 'dinosaur');
+    for (const slug of ['dracula', 'vampire-bat', 'giant-mosquito', 'castle-transylvania', 'spinosaurus-rex']) {
+      assert.equal(bySlug[slug].status, 'placed', slug);
+      assert.equal(bySlug[slug].file, `/models/earth2/${slug}.glb`, slug);
+    }
+    // The Rex stands noticeably past its round-1 cousin.
+    assert.ok(bySlug['spinosaurus-rex'].scaleM > bySlug['spinosaurus'].scaleM, 'rex outscales spinosaurus');
     // The compy swarm is a presence entry: placed, file-less, and
     // honest about riding the compsognathus model.
     const swarm = bySlug['compy-swarm'];
@@ -131,6 +135,32 @@ describe('the optimized files on disk', () => {
         assert.ok((json.nodes || []).some((n) => n.skin !== undefined), `${m.slug} has a skinned node`);
       }
       assert.equal(statSync(p).size, buf.length);
+    });
+  }
+});
+
+describe('the Transylvania arrivals kept their skeletons through the weight pass', () => {
+  // Joint counts measured off the raw Studio exports; the
+  // optimized files in public/ must match them EXACTLY — a lost
+  // joint is a lost motion in the Bay.
+  const EXPECTED_JOINTS = {
+    'dracula': 65,
+    'vampire-bat': 32,
+    'giant-mosquito': 79,
+    'spinosaurus-rex': 78,
+    'castle-transylvania': 0, // generate-only set piece — no skeleton, by design
+  };
+  for (const [slug, joints] of Object.entries(EXPECTED_JOINTS)) {
+    it(`${slug}.glb carries exactly ${joints} joints`, () => {
+      const buf = readFileSync(join(repo, 'public', 'models', 'earth2', `${slug}.glb`));
+      const json = parseGlb(buf);
+      const skins = json.skins || [];
+      if (joints === 0) {
+        assert.equal(skins.length, 0, 'the castle has no skin');
+      } else {
+        assert.equal(skins.length, 1, `${slug} has one skin`);
+        assert.equal(skins[0].joints.length, joints, `${slug} joint count`);
+      }
     });
   }
 });
@@ -208,6 +238,79 @@ describe('the bone resolver — Tripo-native dialect', () => {
   });
 });
 
+const DRACULA_JOINTS = 'mixamorig:Hips|mixamorig:LeftUpLeg|mixamorig:LeftLeg|mixamorig:LeftFoot|mixamorig:LeftToeBase|mixamorig:LeftToe_End|mixamorig:RightUpLeg|mixamorig:RightLeg|mixamorig:RightFoot|mixamorig:RightToeBase|mixamorig:RightToe_End|mixamorig:Spine|mixamorig:Spine1|mixamorig:Spine2|mixamorig:LeftShoulder|mixamorig:LeftArm|mixamorig:LeftForeArm|mixamorig:LeftHand|mixamorig:LeftHandIndex1|mixamorig:LeftHandIndex2|mixamorig:LeftHandIndex3|mixamorig:LeftHandIndex4|mixamorig:LeftHandMiddle1|mixamorig:LeftHandMiddle2|mixamorig:LeftHandMiddle3|mixamorig:LeftHandMiddle4|mixamorig:LeftHandPinky1|mixamorig:LeftHandPinky2|mixamorig:LeftHandPinky3|mixamorig:LeftHandPinky4|mixamorig:LeftHandRing1|mixamorig:LeftHandRing2|mixamorig:LeftHandRing3|mixamorig:LeftHandRing4|mixamorig:LeftHandThumb1|mixamorig:LeftHandThumb2|mixamorig:LeftHandThumb3|mixamorig:LeftHandThumb4|mixamorig:Neck|mixamorig:Head|mixamorig:HeadTop_End|mixamorig:RightShoulder|mixamorig:RightArm|mixamorig:RightForeArm|mixamorig:RightHand|mixamorig:RightHandIndex1|mixamorig:RightHandIndex2|mixamorig:RightHandIndex3|mixamorig:RightHandIndex4|mixamorig:RightHandMiddle1|mixamorig:RightHandMiddle2|mixamorig:RightHandMiddle3|mixamorig:RightHandMiddle4|mixamorig:RightHandPinky1|mixamorig:RightHandPinky2|mixamorig:RightHandPinky3|mixamorig:RightHandPinky4|mixamorig:RightHandRing1|mixamorig:RightHandRing2|mixamorig:RightHandRing3|mixamorig:RightHandRing4|mixamorig:RightHandThumb1|mixamorig:RightHandThumb2|mixamorig:RightHandThumb3|mixamorig:RightHandThumb4'.split('|');
+// The mosquito: Root + bone_1 + Spine_0 + bone_3…bone_78 (no bone_2 exists).
+const MOSQUITO_JOINTS = ['tripo::Root', 'bone_1', 'tripo::Spine_0',
+  ...Array.from({ length: 76 }, (_, i) => `bone_${i + 3}`)];
+// The bat: bone_6…bone_23 are the wing chains; bone_3/4/5 do not exist.
+const BAT_JOINTS = ['tripo::Root', 'bone_1', 'bone_2', 'tripo::Spine_0', 'tripo::Spine_1', 'tripo::Spine_2',
+  ...Array.from({ length: 18 }, (_, i) => `bone_${i + 6}`),
+  'tripo::0_Left_Limb_0', 'tripo::0_Left_Limb_1', 'tripo::0_Left_Limb_2', 'tripo::0_Left_Limb_3',
+  'tripo::0_Right_Limb_0', 'tripo::0_Right_Limb_1', 'tripo::0_Right_Limb_2', 'tripo::0_Right_Limb_3'];
+
+describe('the bone resolver — Mixamo dialect (Dracula)', () => {
+  it('the measured lists carry the counts the Studio exported', () => {
+    assert.equal(DRACULA_JOINTS.length, 65);
+    assert.equal(MOSQUITO_JOINTS.length, 79);
+    assert.equal(BAT_JOINTS.length, 32);
+  });
+  it('reads the Count’s spine, neck, head, legs and arms', () => {
+    const r = resolveBones(DRACULA_JOINTS);
+    assert.equal(r.dialect, 'mixamo');
+    assert.equal(r.pelvis, 'mixamorig:Hips');
+    assert.deepEqual(r.spine, ['mixamorig:Spine', 'mixamorig:Spine1', 'mixamorig:Spine2']);
+    assert.deepEqual(r.neck, ['mixamorig:Neck']);
+    assert.equal(r.head, 'mixamorig:Head');
+    assert.equal(r.jaw, null);
+    assert.deepEqual(r.tail, []);
+    const hindL = r.legs.find((l) => l.pair === 'hind' && l.side === 'left');
+    assert.deepEqual([hindL.thigh, hindL.calf, hindL.foot],
+      ['mixamorig:LeftUpLeg', 'mixamorig:LeftLeg', 'mixamorig:LeftFoot']);
+    const frontR = r.legs.find((l) => l.pair === 'front' && l.side === 'right');
+    assert.deepEqual([frontR.thigh, frontR.calf, frontR.foot],
+      ['mixamorig:RightArm', 'mixamorig:RightForeArm', 'mixamorig:RightHand']);
+    assert.equal(r.legs.length, 4);
+    assert.equal(r.wings.length, 2);
+  });
+  it('survives three-sanitized names (GLTFLoader strips the colons)', () => {
+    const sanitized = DRACULA_JOINTS.map((n) => n.replace(/:/g, ''));
+    const r = resolveBones(sanitized);
+    assert.equal(r.dialect, 'mixamo');
+    assert.equal(r.head, 'mixamorigHead');
+    assert.equal(normalizeJointName('mixamorig:Hips'), 'Hips');
+    assert.equal(normalizeJointName('mixamorigHips'), 'Hips');
+  });
+});
+
+describe('the measured resolvers — the unnamed Transylvania rigs', () => {
+  it('the mosquito’s abdomen is the rear chain off the thorax; its wings the rising pair', () => {
+    const rig = resolveMosquitoRig(MOSQUITO_JOINTS);
+    assert.deepEqual(rig.abdomen, ['bone_5', 'bone_6', 'bone_7', 'bone_8']);
+    assert.deepEqual(
+      rig.wingRoots.map((w) => [w.name, w.sign]),
+      [['bone_26', 1], ['bone_32', -1]],
+    );
+  });
+  it('the bat’s wings are the unnamed Spine_1 chains — its named limbs are legs', () => {
+    const wings = resolveBatWings(BAT_JOINTS);
+    assert.equal(wings.length, 2);
+    assert.deepEqual(wings[0].chain, ['bone_6', 'bone_7', 'bone_8', 'bone_9']);
+    assert.deepEqual(wings[1].chain, ['bone_15', 'bone_16', 'bone_17', 'bone_18']);
+    assert.equal(wings[0].sign, -wings[1].sign, 'flap signs oppose');
+    // …and the generic resolver agrees the named limb chains are
+    // legs, with no head bone to measure a facing from.
+    const r = resolveBones(BAT_JOINTS);
+    assert.equal(r.dialect, 'tripo');
+    assert.equal(r.head, null);
+    assert.equal(r.legs.length, 2);
+  });
+  it('missing bones resolve empty, never throw', () => {
+    assert.deepEqual(resolveMosquitoRig(['SomeBone']).abdomen, []);
+    assert.deepEqual(resolveMosquitoRig(null).wingRoots, []);
+    assert.deepEqual(resolveBatWings([]), []);
+  });
+});
+
 describe('the chamber wiring', () => {
   it('the Earth 2 page mounts the Bay and keeps its owner gate', () => {
     const page = read('app/earth-2/page.jsx');
@@ -235,9 +338,17 @@ describe('the chamber wiring', () => {
     assert.ok(bay.includes('MOSQUITO_CONFIG'), 'mosquito config wired');
     assert.ok(bay.includes('mosquitoDropsSac'), 'the sac rule wired');
     assert.ok(bay.includes('stepDracula'), 'the transformation wired');
-    assert.ok(bay.includes('PLACEHOLDER'), 'stand-ins labelled honestly');
     assert.ok(bay.includes('Raycaster'), 'tap-to-shoot wired');
     assert.ok(bay.includes('Bring sacs to Dracula'), 'the exchange is reachable from the Bay');
+  });
+  it('the Transylvania cast is real in the Bay — no stand-ins remain for the five', () => {
+    const bay = read('components/earth2/DinosaurBay.jsx');
+    assert.ok(!bay.includes('PLACEHOLDER'), 'no placeholder labels remain');
+    assert.ok(!bay.includes('StandIn'), 'no stand-in builders remain');
+    assert.ok(bay.includes('resolveMosquitoRig'), 'the mosquito rides its measured rig');
+    assert.ok(bay.includes('resolveBatWings'), 'the bats flap their measured wing chains');
+    assert.ok(bay.includes('SkeletonUtils.clone'), 'bat and mosquito clones share their base loads');
+    assert.ok(bay.includes("'spinosaurus-rex': { at: [10, 2]"), 'the Rex holds the tar pit edge');
   });
   it('the manifest and resolver stay three-free (pure data + names)', () => {
     assert.ok(!read('lib/earth2/models.js').includes("from 'three'"));

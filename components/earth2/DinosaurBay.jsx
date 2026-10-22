@@ -4,10 +4,15 @@
 // DINOSAUR BAY — the foundry's real Tripo3D dinosaurs, live in the
 // Earth 2 owner chamber (Merlin, 2026-10-22).
 //
-// The models (lib/earth2/models.js → public/models/earth2/*.glb) are
-// Merlin's own Studio generations: rigged skeletons, game-weight
-// textures, and NO animation clips — Tripo's presets never ride the
-// export. So the life here is in-engine and procedural, driven off
+// The models (manifest: lib/earth2/models.js) are Merlin's own
+// Studio generations: rigged skeletons, game-weight textures, and NO
+// animation clips — Tripo's presets never ride the export. Delivery
+// is locked (Merlin's isolation rule): the GLBs live in the private
+// earth2-models bucket and reach this scene only as short-lived
+// signed URLs minted for the owner's session by
+// /api/earth2/model-urls, resolved through lib/earth2/models.js —
+// see EARTH2_PUBLIC_FALLBACK there for the migration bridge. So the
+// life here is in-engine and procedural, driven off
 // the rigs by lib/earth2/bones.js: breathing, head look-arounds,
 // tail sway, grazer head-dips, a few animals walking slow circuits
 // on their own legs, and the Pteranodon circling overhead. Eating,
@@ -20,8 +25,9 @@
 // its name in the roster as failed instead of breaking the scene.
 
 import { useEffect, useRef, useState } from 'react';
-import { EARTH2_MODELS, EARTH2_MODEL_BY_SLUG, earth2PlacedModels, earth2PendingModels } from '@/lib/earth2/models';
-import { resolveBones, normalizeJointName } from '@/lib/earth2/bones';
+import { EARTH2_MODELS, EARTH2_MODEL_BY_SLUG, earth2PlacedModels, earth2PendingModels, earth2ModelUrl, fetchEarth2ModelUrls } from '@/lib/earth2/models';
+import { supabase } from '@/lib/supabase';
+import { resolveBones, normalizeJointName, resolveMosquitoRig, resolveBatWings } from '@/lib/earth2/bones';
 import {
   COMPY_SWARM,
   MOSQUITO_CONFIG,
@@ -59,6 +65,9 @@ const SPOTS = {
   'iguanodon': { at: [-17, -13], head: 1.8 },
   'tyrannosaurus-rex': { at: [-40, 15], head: 2.4 },
   'spinosaurus': { at: [16, 9], head: -2.2 },
+  // The Rex: apex semi-aquatic stalker at the tar pit's north
+  // edge, facing the water — clear of every walker's circuit.
+  'spinosaurus-rex': { at: [10, 2], head: 0.18 },
   'allosaurus': { at: [31, -3], head: -1.8 },
   'dilophosaurus': { at: [22, 13], head: -2.6 },
   'carnotaurus': { at: [36, -19], head: -2.4 },
@@ -148,6 +157,18 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
       const { MeshoptDecoder } = await import('three/examples/jsm/libs/meshopt_decoder.module.js');
       const { OrbitControls } = await import('three/examples/jsm/controls/OrbitControls.js');
       const SkeletonUtils = await import('three/examples/jsm/utils/SkeletonUtils.js');
+      if (cancelled || !mountRef.current) return;
+
+      // Earth 2 asset lock: fetch the owner-signed model URLs once,
+      // before anything loads. Signed out, not the owner, or the
+      // vault not set up yet → null, and earth2ModelUrl() falls back
+      // per EARTH2_PUBLIC_FALLBACK (lib/earth2/models.js).
+      let signedModelUrls = null;
+      try {
+        const { data } = await supabase.auth.getSession();
+        const token = data && data.session && data.session.access_token;
+        if (token) signedModelUrls = await fetchEarth2ModelUrls({ token });
+      } catch { signedModelUrls = null; }
       if (cancelled || !mountRef.current) return;
 
       const mount = mountRef.current;
@@ -261,7 +282,11 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
       }
 
       async function loadModel(entry) {
-        const gltf = await loader.loadAsync(entry.file);
+        // Locked delivery: the signed URL for this entry's key, or
+        // the documented public fallback — never a hard-coded path.
+        const url = earth2ModelUrl(entry, signedModelUrls);
+        if (!url) throw new Error(`No delivery URL for ${entry.slug}`);
+        const gltf = await loader.loadAsync(url);
         track(gltf.scene);
         return gltf.scene;
       }
@@ -458,6 +483,10 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
       }
       for (const e of placed.filter((m) => m.kind === 'dinosaur' || m.kind === 'flyer')) {
         if (cancelled) return;
+        // The vampire bat is not a free flyer here — its Bay
+        // presence is Dracula's own form and his castle swarm,
+        // placed by the Transylvania section below.
+        if (e.slug === BAT_SWARM.sourceSlug) continue;
         await placeCreature(e);
       }
 
@@ -466,21 +495,69 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
       // swarm config, the feeding cycle, the transformation — live
       // in lib/earth2/creatures.js; this section is their body.)
       const CASTLE_AT = LANDFORM_SPOTS['castle-transylvania'].at;
-      // The Count stands before his castle on the south rim (the
-      // ground rises toward the rim, hence the plinth height).
-      const DRACULA_SPOT = new THREE.Vector3(-19, 2.6, -93);
+      // The Count stands before his castle's front face on the
+      // south rim. With the real castle placed (40 m tall, ~39 m
+      // across), the seat moved out from the old placeholder-era
+      // spot — that point is inside the castle's walls now. The
+      // height is the Bay ground's actual surface there, measured
+      // off the ground geometry (the valley cone reaches ≈8.8 m
+      // at this radius); the old seat's plinth height left him
+      // sunk beneath it.
+      const DRACULA_SPOT = new THREE.Vector3(-18, 8.7, -74);
       const mosquitos = [];
       const sacs = []; // { group, core }
       const bursts = []; // { points, vels, life }
       const swarmBats = [];
       const drac = {
         machine: createDraculaMachine(),
-        countForm: null, batForm: null, batParts: {},
+        countForm: null, batForm: null, batWings: null,
+        countRig: null, // { roles, bind } — the Count's Mixamo rig, for his idle life
         smoke: null, batAngle: 0, returnFrom: new THREE.Vector3(),
       };
+      // The bat model loads once (in placeDracula); his own bat
+      // form and every swarm bat are SkeletonUtils clones of it.
+      let dracBatBase = null;
       const tmpMove = new THREE.Vector3();
       const tmpTarget = new THREE.Vector3();
       const anchorV = new THREE.Vector3();
+
+      // Bone lookup + bind-relative bending for the Transylvania
+      // cast (shared by the mosquitos, the bats and the Count).
+      function boneByName(bonesMap, name) {
+        return name ? bonesMap.get(normalizeJointName(name)) || null : null;
+      }
+      const bendQ = new THREE.Quaternion();
+      const BEND_X = new THREE.Vector3(1, 0, 0);
+      const BEND_Y = new THREE.Vector3(0, 1, 0);
+      function bendBoneTo(bone, bindQuat, axis, angle) {
+        if (!bone || !bindQuat) return;
+        bendQ.setFromAxisAngle(axis, angle);
+        bone.quaternion.copy(bindQuat).multiply(bendQ);
+      }
+
+      // Wing bones for one bat clone, from the measured resolver.
+      function batWingsOf(modelScene) {
+        const bones = bonesOf(modelScene);
+        return resolveBatWings([...bones.keys()])
+          .map((w) => ({
+            sign: w.sign,
+            bones: w.chain
+              .map((n) => boneByName(bones, n))
+              .filter(Boolean)
+              .map((bone) => ({ bone, bind: bone.quaternion.clone() })),
+          }))
+          .filter((w) => w.bones.length);
+      }
+
+      // One flap cycle across a bat's wing chains — root leads,
+      // the rest of the chain follows at half strength.
+      function flapWings(wings, t, rate, amp = 0.55) {
+        if (!wings || !wings.length) return;
+        const f = Math.sin(t * rate) * amp;
+        for (const w of wings) {
+          w.bones.forEach((b, i) => bendBoneTo(b.bone, b.bind, BEND_X, f * w.sign * (i === 0 ? 1 : 0.5)));
+        }
+      }
 
       function glowSprite(inner, outer) {
         const c = document.createElement('canvas'); c.width = 128; c.height = 128;
@@ -537,100 +614,73 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
         }
       }
 
-      // PLACEHOLDER — a stylized giant mosquito built from
-      // primitives (body, wings, proboscis, dangling legs). The
-      // real Tripo model (manifest 'giant-mosquito') is still in
-      // production; when its GLB lands at
-      // public/models/earth2/giant-mosquito.glb the loader path in
-      // placeMosquitos uses it instead. This stand-in is NOT that
-      // model and does not pretend to be.
-      function buildMosquitoStandIn() {
-        const group = new THREE.Group();
-        const mat = new THREE.MeshStandardMaterial({ color: 0x4a4238, roughness: 0.7 });
-        const abdomenMat = new THREE.MeshStandardMaterial({ color: 0x6b6257, roughness: 0.55 });
-        const abdomen = new THREE.Mesh(new THREE.SphereGeometry(0.17, 14, 10), abdomenMat);
-        abdomen.scale.set(1, 1, 1.9);
-        abdomen.position.set(0, 0, -0.3);
-        group.add(abdomen);
-        const thorax = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 10), mat);
-        thorax.position.set(0, 0.02, 0.08);
-        group.add(thorax);
-        const head = new THREE.Mesh(new THREE.SphereGeometry(0.075, 10, 8), mat);
-        head.position.set(0, 0.05, 0.24);
-        group.add(head);
-        const proboscis = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.0015, 0.34, 5), mat);
-        proboscis.position.set(0, -0.08, 0.33);
-        proboscis.rotation.x = 0.7;
-        group.add(proboscis);
-        const wingMat = new THREE.MeshBasicMaterial({ color: 0xdfeaf2, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false });
-        const mkWing = (side) => {
-          const pivot = new THREE.Group();
-          pivot.position.set(0.05 * side, 0.1, 0.1);
-          const wing = new THREE.Mesh(new THREE.PlaneGeometry(0.52, 0.17), wingMat);
-          wing.position.x = 0.27 * side;
-          wing.rotation.x = -Math.PI / 2 + 0.25;
-          pivot.add(wing);
-          group.add(pivot);
-          return pivot;
-        };
-        const wingL = mkWing(1);
-        const wingR = mkWing(-1);
-        for (let s = -1; s <= 1; s += 2) {
-          for (let i = 0; i < 3; i++) {
-            const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.004, 0.36, 4), mat);
-            leg.position.set(0.1 * s, -0.14, 0.12 - i * 0.1);
-            leg.rotation.z = 0.7 * s;
-            leg.rotation.x = (i - 1) * 0.3;
-            group.add(leg);
-          }
-        }
-        group.scale.setScalar(1.35);
-        return { group, abdomen, abdomenMat, abdomenBase: abdomen.scale.clone(), wingL, wingR };
-      }
-
-      const ABDOMEN_EMPTY = new THREE.Color(0x6b6257);
+      // The feeding tell on the real rig (lib/earth2/bones.js,
+      // resolveMosquitoRig — measured off the file): the abdomen
+      // chain fattens across its width as it fills (a true local
+      // swell on the skinned bones), and the mosquito's own
+      // material instance takes a subtle whole-body redden — the
+      // rig has no abdomen-NAMED bone and the model is a single
+      // skinned mesh, so the colour cue cannot isolate the
+      // abdomen; the swell is the precise half of the tell.
       const ABDOMEN_FULL = new THREE.Color(0xc01818);
       function applyAbdomen(mq) {
-        const ab = mq.parts.abdomen;
-        if (!ab) return;
         const f = mq.fedLevel;
-        if (mq.parts.abdomenBase) {
-          ab.scale.set(
-            mq.parts.abdomenBase.x * (1 + f * 0.45),
-            mq.parts.abdomenBase.y * (1 + f * 0.6),
-            mq.parts.abdomenBase.z * (1 + f * 0.25),
-          );
+        for (const ab of mq.parts.abdomenBones || []) {
+          const s = 1 + f * ab.swell;
+          ab.bone.scale.set(ab.base.x * s, ab.base.y * s, ab.base.z);
         }
-        if (mq.parts.abdomenMat) {
-          mq.parts.abdomenMat.color.copy(ABDOMEN_EMPTY).lerp(ABDOMEN_FULL, f);
+        if (mq.parts.bodyMat && mq.parts.bodyMatBase) {
+          mq.parts.bodyMat.color.copy(mq.parts.bodyMatBase).lerp(ABDOMEN_FULL, f * 0.38);
         }
       }
 
       async function placeMosquitos() {
         const entry = EARTH2_MODEL_BY_SLUG.get('giant-mosquito');
+        let baseScene = null;
+        if (entry && entry.file) {
+          try {
+            baseScene = await loadModel(entry);
+          } catch (err) {
+            baseScene = null;
+          }
+        }
+        if (!baseScene) {
+          setStatusFor('giant-mosquito', 'failed');
+          return;
+        }
         for (let i = 0; i < MOSQUITO_CONFIG.count; i++) {
-          let group = null;
-          let parts = {};
-          if (entry && entry.file) {
-            try {
-              const modelScene = await loadModel(entry);
-              group = normalize(modelScene, entry);
-              modelScene.traverse((o) => {
-                if (!parts.abdomen && /abdomen|belly/i.test(o.name || '')) {
-                  parts.abdomen = o;
-                  parts.abdomenBase = o.scale ? o.scale.clone() : null;
-                  parts.abdomenMat = o.material && o.material.color ? o.material : null;
-                }
-              });
-            } catch (err) {
-              group = null;
+          const modelScene = i === 0 ? baseScene : SkeletonUtils.clone(baseScene);
+          // Each mosquito reddens on its own schedule, so each
+          // carries its own material instance.
+          let bodyMat = null;
+          modelScene.traverse((o) => {
+            if (o.isSkinnedMesh) {
+              o.material = o.material.clone();
+              if (!bodyMat) bodyMat = o.material;
             }
-          }
-          if (!group) {
-            const s = buildMosquitoStandIn();
-            group = s.group;
-            parts = s;
-          }
+          });
+          const bones = bonesOf(modelScene);
+          const rig = resolveMosquitoRig([...bones.keys()]);
+          const abdomenBones = rig.abdomen
+            .map((n) => boneByName(bones, n))
+            .filter(Boolean)
+            .map((bone, idx, arr) => ({
+              bone,
+              base: bone.scale.clone(),
+              // the swell grows toward the abdomen's tip
+              swell: 0.3 + (arr.length > 1 ? (idx / (arr.length - 1)) * 0.45 : 0),
+            }));
+          const wingRoots = rig.wingRoots
+            .map((w) => ({ bone: boneByName(bones, w.name), sign: w.sign }))
+            .filter((w) => w.bone)
+            .map((w) => ({ ...w, bind: w.bone.quaternion.clone() }));
+          const parts = {
+            abdomenBones,
+            wingRoots,
+            bodyMat,
+            bodyMatBase: bodyMat && bodyMat.color ? bodyMat.color.clone() : null,
+          };
+          const group = normalize(modelScene, entry);
           const proxy = new THREE.Mesh(
             new THREE.SphereGeometry(0.85, 8, 8),
             new THREE.MeshBasicMaterial({ visible: false }),
@@ -658,77 +708,7 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
           );
           mosquitos.push(mq);
         }
-        // Even as stand-ins the mosquitos are HERE — the loop is live.
         setStatusFor('giant-mosquito', 'placed');
-      }
-
-      // PLACEHOLDER — a caped silhouette for the Count, at
-      // placeholder fidelity (no faked detail). The rigged Tripo
-      // Dracula (manifest 'dracula') replaces it when its GLB lands.
-      function buildDraculaStandIn() {
-        const group = new THREE.Group();
-        const black = new THREE.MeshStandardMaterial({ color: 0x17121c, roughness: 0.85 });
-        const crimson = new THREE.MeshStandardMaterial({ color: 0x6d0f1d, roughness: 0.7 });
-        const cape = new THREE.Mesh(new THREE.ConeGeometry(0.62, 1.7, 14, 1, true), black);
-        cape.position.set(0, 0.9, -0.06);
-        group.add(cape);
-        const body = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.26, 1.25, 10), black);
-        body.position.y = 0.78;
-        group.add(body);
-        const chest = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.16, 0.7, 8), crimson);
-        chest.position.set(0, 1.0, 0.05);
-        group.add(chest);
-        const headM = new THREE.Mesh(
-          new THREE.SphereGeometry(0.17, 14, 12),
-          new THREE.MeshStandardMaterial({ color: 0xe9ddc9, roughness: 0.6 }),
-        );
-        headM.position.y = 1.66;
-        group.add(headM);
-        const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff2a1a });
-        for (const s of [-1, 1]) {
-          const eye = new THREE.Mesh(new THREE.SphereGeometry(0.02, 6, 6), eyeMat);
-          eye.position.set(0.06 * s, 1.7, 0.15);
-          group.add(eye);
-        }
-        return { group };
-      }
-
-      // PLACEHOLDER — a simple bat silhouette (body, ears, two
-      // flapping wing planes). The rigged Tripo bat (manifest
-      // 'vampire-bat') becomes Dracula's own bat form when it
-      // lands; the castle swarm keeps these silhouettes until then.
-      function buildBatStandIn() {
-        const group = new THREE.Group();
-        const mat = new THREE.MeshStandardMaterial({ color: 0x241a20, roughness: 0.9 });
-        const bodyM = new THREE.Mesh(new THREE.SphereGeometry(0.13, 10, 8), mat);
-        bodyM.scale.set(0.8, 0.8, 1.5);
-        group.add(bodyM);
-        const headM = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 8), mat);
-        headM.position.set(0, 0.04, 0.17);
-        group.add(headM);
-        for (const s of [-1, 1]) {
-          const ear = new THREE.Mesh(new THREE.ConeGeometry(0.025, 0.09, 5), mat);
-          ear.position.set(0.045 * s, 0.12, 0.17);
-          group.add(ear);
-        }
-        const wingMat = new THREE.MeshBasicMaterial({ color: 0x2c2129, side: THREE.DoubleSide });
-        const mkWing = (side) => {
-          const pivot = new THREE.Group();
-          const wing = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.26), wingMat);
-          wing.position.x = 0.33 * side;
-          wing.rotation.x = -Math.PI / 2;
-          pivot.add(wing);
-          group.add(pivot);
-          return pivot;
-        };
-        return { group, wingL: mkWing(1), wingR: mkWing(-1) };
-      }
-
-      function flapBat(parts, t, rate) {
-        if (!parts || !parts.wingL || !parts.wingR) return;
-        const f = Math.sin(t * rate) * 0.65;
-        parts.wingL.rotation.z = 0.25 + f;
-        parts.wingR.rotation.z = -0.25 - f;
       }
 
       const dracProxy = new THREE.Mesh(
@@ -752,41 +732,53 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
         courtLight.position.set(DRACULA_SPOT.x, DRACULA_SPOT.y + 2.6, DRACULA_SPOT.z);
         scene.add(courtLight);
 
+        // The Count himself — the real rigged model (Mixamo
+        // dialect, resolved like every other rig in the Bay);
+        // his bones drive a quiet idle life while he holds court.
         const dEntry = EARTH2_MODEL_BY_SLUG.get('dracula');
         let countGroup = null;
         if (dEntry && dEntry.file) {
           try {
-            countGroup = normalize(await loadModel(dEntry), dEntry);
+            const modelScene = await loadModel(dEntry);
+            const roles = resolveRoles(modelScene);
+            drac.countRig = { roles, bind: bindQuats(roles) };
+            countGroup = normalize(modelScene, dEntry);
           } catch (err) {
             countGroup = null;
           }
         }
-        if (!countGroup) countGroup = buildDraculaStandIn().group;
-        countGroup.position.copy(DRACULA_SPOT);
-        countGroup.rotation.y = Math.atan2(-DRACULA_SPOT.x, -DRACULA_SPOT.z); // face the Bay
-        scene.add(countGroup);
-        drac.countForm = countGroup;
+        if (countGroup) {
+          countGroup.position.copy(DRACULA_SPOT);
+          countGroup.rotation.y = Math.atan2(-DRACULA_SPOT.x, -DRACULA_SPOT.z); // face the Bay
+          scene.add(countGroup);
+          drac.countForm = countGroup;
+          setStatusFor('dracula', 'placed');
+        } else {
+          setStatusFor('dracula', 'failed');
+        }
 
+        // His bat form — the real vampire bat, cloned per flyer
+        // (his own form now; the swarm clones in placeBatSwarm).
         const bEntry = EARTH2_MODEL_BY_SLUG.get('vampire-bat');
-        let batGroup = null;
-        let batParts = {};
         if (bEntry && bEntry.file) {
           try {
-            batGroup = normalize(await loadModel(bEntry), bEntry);
+            dracBatBase = await loadModel(bEntry);
           } catch (err) {
-            batGroup = null;
+            dracBatBase = null;
           }
         }
-        if (!batGroup) {
-          const s = buildBatStandIn();
-          batGroup = s.group;
-          batParts = s;
+        if (dracBatBase) {
+          const batScene = SkeletonUtils.clone(dracBatBase);
+          const batGroup = normalize(batScene, bEntry);
+          drac.batWings = batWingsOf(batScene);
+          batGroup.position.set(DRACULA_SPOT.x, DRACULA_SPOT.y + 1.2, DRACULA_SPOT.z);
+          batGroup.visible = false;
+          scene.add(batGroup);
+          drac.batForm = batGroup;
+          setStatusFor('vampire-bat', 'placed');
+        } else {
+          setStatusFor('vampire-bat', 'failed');
         }
-        batGroup.position.set(DRACULA_SPOT.x, DRACULA_SPOT.y + 1.2, DRACULA_SPOT.z);
-        batGroup.visible = false;
-        scene.add(batGroup);
-        drac.batForm = batGroup;
-        drac.batParts = batParts;
 
         // His transformation smoke: one dark particle cloud, reused
         // for both bursts, swelling and fading with the phase.
@@ -810,16 +802,18 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
         scene.add(smoke);
         track(smoke);
         drac.smoke = smoke;
-        setStatusFor('dracula', 'placed');
-        setStatusFor('vampire-bat', 'placed');
       }
 
-      function placeBatSwarm() {
+      async function placeBatSwarm() {
+        const entry = EARTH2_MODEL_BY_SLUG.get(BAT_SWARM.sourceSlug);
+        if (!dracBatBase || !entry) return;
         for (let i = 0; i < BAT_SWARM.count; i++) {
-          const s = buildBatStandIn();
-          scene.add(s.group);
+          const modelScene = SkeletonUtils.clone(dracBatBase);
+          const group = normalize(modelScene, entry);
+          scene.add(group);
           swarmBats.push({
-            group: s.group, wingL: s.wingL, wingR: s.wingR,
+            group,
+            wings: batWingsOf(modelScene),
             a: rng() * Math.PI * 2,
             r: BAT_SWARM.radius[0] + rng() * (BAT_SWARM.radius[1] - BAT_SWARM.radius[0]),
             h: BAT_SWARM.height[0] + rng() * (BAT_SWARM.height[1] - BAT_SWARM.height[0]),
@@ -835,7 +829,7 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
       if (cancelled) return;
       await placeDracula();
       if (cancelled) return;
-      placeBatSwarm();
+      await placeBatSwarm();
 
       // ── Behaviour: mosquitos feed, sacs drop, Dracula turns ──
       function moveToward(obj, target, speed, dt) {
@@ -943,10 +937,14 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
 
       function updateMosquito(mq, t, dt) {
         const pos = mq.group.position;
-        if (mq.parts.wingL && mq.parts.wingR && mq.phase !== 'gone') {
-          const flap = Math.sin(t * 42 + mq.a * 7) * 0.75;
-          mq.parts.wingL.rotation.z = 0.5 + flap;
-          mq.parts.wingR.rotation.z = -0.5 - flap;
+        // Wing roots beat at mosquito tempo (the measured rig —
+        // resolveMosquitoRig); a small angle, since the local
+        // axis convention is assumed, not seen.
+        if (mq.parts.wingRoots && mq.phase !== 'gone') {
+          const flap = Math.sin(t * 42 + mq.a * 7) * 0.16;
+          for (const w of mq.parts.wingRoots) {
+            bendBoneTo(w.bone, w.bind, BEND_X, flap * w.sign);
+          }
         }
         switch (mq.phase) {
           case 'cruising': {
@@ -1048,25 +1046,44 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
             || (m.phase === 'smoke-in' && m.t > DRACULA_TIMINGS.smokeSeconds * 0.45);
           if (m.phase === 'count') {
             drac.countForm.position.y = DRACULA_SPOT.y + Math.sin(t * 0.8) * 0.04;
+            // The Count's idle life on his real rig: a slow
+            // breath down the spine, and his gaze drifting
+            // across the Bay he is about to feed on.
+            const rig = drac.countRig;
+            if (rig) {
+              const br = Math.sin(t * 0.85) * 0.016;
+              rig.roles.spine.forEach((b, i) => bendBoneTo(b, rig.bind.get(b.uuid), BEND_X, br * (0.6 + i * 0.3)));
+              const yaw = (Math.sin(t * 0.21) * 0.6 + Math.sin(t * 0.131) * 0.4) * 0.22;
+              const neckShare = rig.roles.neck.length ? 0.4 / rig.roles.neck.length : 0;
+              rig.roles.neck.forEach((b) => bendBoneTo(b, rig.bind.get(b.uuid), BEND_Y, yaw * neckShare));
+              if (rig.roles.head) {
+                bendBoneTo(rig.roles.head, rig.bind.get(rig.roles.head.uuid), BEND_Y, yaw * 0.6);
+                bendQ.setFromAxisAngle(BEND_X, Math.sin(t * 0.37) * 0.045);
+                rig.roles.head.quaternion.multiply(bendQ);
+              }
+            }
           }
         }
         if (drac.batForm) {
           drac.batForm.visible = m.phase === 'bat' || m.phase === 'return';
           if (m.phase === 'bat') {
             drac.batAngle += dt * 1.15;
-            const x = CASTLE_AT[0] + Math.cos(drac.batAngle) * 24;
-            const z = CASTLE_AT[1] + Math.sin(drac.batAngle) * 24;
-            const nx = CASTLE_AT[0] + Math.cos(drac.batAngle + 0.06) * 24;
-            const nz = CASTLE_AT[1] + Math.sin(drac.batAngle + 0.06) * 24;
-            drac.batForm.position.set(x, 13 + Math.sin(t * 2.1) * 1.2, z);
+            // The circuit rings the castle OUTSIDE its walls
+            // (radius 30 > the footprint's half-diagonal ≈ 27).
+            const x = CASTLE_AT[0] + Math.cos(drac.batAngle) * 30;
+            const z = CASTLE_AT[1] + Math.sin(drac.batAngle) * 30;
+            const nx = CASTLE_AT[0] + Math.cos(drac.batAngle + 0.06) * 30;
+            const nz = CASTLE_AT[1] + Math.sin(drac.batAngle + 0.06) * 30;
+            drac.batForm.position.set(x, 20 + Math.sin(t * 2.1) * 1.2, z);
             drac.batForm.rotation.y = Math.atan2(nx - x, nz - z);
-            flapBat(drac.batParts, t, 16);
+            drac.batForm.rotation.z = 0.28; // bank into the circle
+            flapWings(drac.batWings, t, 16);
           } else if (m.phase === 'return') {
             const p = Math.min(1, m.t / DRACULA_TIMINGS.returnSeconds);
             const e = p * p * (3 - 2 * p);
             tmpTarget.set(DRACULA_SPOT.x, DRACULA_SPOT.y + 1.2, DRACULA_SPOT.z);
             drac.batForm.position.lerpVectors(drac.returnFrom, tmpTarget, e);
-            flapBat(drac.batParts, t, 16);
+            flapWings(drac.batWings, t, 16);
           }
         }
         // The castle swarm: lazy circuits — scattering outward
@@ -1081,7 +1098,8 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
           const nz = CASTLE_AT[1] + Math.sin(b.a + 0.05) * r;
           b.group.position.set(x, b.h + Math.sin(t * 0.9 + b.ph) * 0.8, z);
           b.group.rotation.y = Math.atan2(nx - x, nz - z);
-          flapBat(b, t + b.ph, 11);
+          b.group.rotation.z = 0.28; // bank into the circle
+          flapWings(b.wings, t + b.ph, 11);
         }
       }
 
@@ -1379,9 +1397,10 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
         wired onto the rigs here (breathing, looking around, grazing dips, slow walks);
         eating, hunting, sleeping and the egg cycle come in a later round. New this
         round: a swarm of compies scurries the west meadow, giant mosquitos hunt the
-        herds for blood, and at the far south rim Dracula holds court before Castle
-        Transylvania — shoot his mosquitos full and trade him the sacs. Drag to look
-        around, scroll to zoom, tap a mosquito to shoot it.
+        herds for blood, Spinosaurus Rex stalks the tar pit's edge, and at the far
+        south rim the real Dracula holds court before the real Castle Transylvania,
+        his bats on the wing — shoot his mosquitos full and trade him the sacs.
+        Drag to look around, scroll to zoom, tap a mosquito to shoot it.
       </p>
 
       <div className="relative mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#0a1410]">
@@ -1452,9 +1471,10 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
       <p className="mt-3 text-[11px] leading-relaxed text-zinc-500">
         {earth2PendingModels().length} still outstanding:{' '}
         {earth2PendingModels().map((m) => m.name).join(', ')} — their slots wait rather
-        than faking a model. Until their GLBs land, the mosquito, the Count and his
-        bats fly clearly-labelled placeholder stand-ins so the blood-sac loop is
-        playable today; the castle itself rises the day its model arrives.
+        than faking a model. The Transylvania cast is all real now: the Count, his
+        castle, his bats and his mosquitos are the actual Studio models, driven by
+        the same feeding, shooting and transformation systems that ran their
+        stand-ins — no placeholders remain among them.
       </p>
     </section>
   );
