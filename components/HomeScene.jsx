@@ -813,6 +813,7 @@ function HubScene({
   planetFocusReq,
   onPlanetSelect,
   planetSelectedId,
+  planetPosRef,
   onParachute,
   onTileSelect,
   onLaunchExternal,
@@ -909,6 +910,7 @@ function HubScene({
               focusReq={planetFocusReq}
               onSelect={onPlanetSelect}
               selectedId={planetSelectedId}
+              posRef={planetPosRef}
             />
           ) : (
           <>

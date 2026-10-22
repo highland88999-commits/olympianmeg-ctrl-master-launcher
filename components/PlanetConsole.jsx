@@ -16,10 +16,11 @@
 // HomeScene, and walk/fly TouchControls are the Mars scene's own,
 // rendered here as DOM — one implementation, no drift.
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { TouchControls } from '@/components/mars/MarsScene';
 import { IcSunrise, IcSun, IcSunset, IcMoon, IcWings, IcClose, IcRoute } from "@/app/artemis-ui/icons";
 import { lifeTypeLabel } from '@/lib/planets/planet-seeds';
+import { getLandscape } from '@/lib/planets/landscape';
 
 const PRESET_ICONS = [IcSunrise, IcSun, IcSunset, IcMoon];
 const ELEMENT_LABELS = [
@@ -39,6 +40,40 @@ function timeLabel(t) {
 function timeString(t) {
   const mins = Math.floor((((t % 1) + 1) % 1) * 24 * 60);
   return String(Math.floor(mins / 60)).padStart(2, "0") + ":" + String(mins % 60).padStart(2, "0");
+}
+
+// The region underfoot (Merlin, 2026-10-22: regions with invisible
+// lines and organic transitions). The planet's surface is five soft
+// regions blended by continuous weights (lib/planets/landscape.js)
+// — there is no line to cross, so this readout names the DOMINANT
+// region, and inside a blend band it says so honestly: "BETWEEN X
+// AND Y". Polls the scene-fed position ref a few times a second.
+function RegionReadout({ profile, posRef }) {
+  const landscape = useMemo(() => getLandscape(profile), [profile]);
+  const [label, setLabel] = useState(null);
+  useEffect(() => {
+    if (!posRef) return undefined;
+    const read = () => {
+      const p = posRef.current || { x: 10, z: 26 };
+      const b = landscape.blendAt(p.x, p.z);
+      setLabel({
+        text: b.between
+          ? `BETWEEN ${b.top.name.toUpperCase()} AND ${b.second.name.toUpperCase()}`
+          : b.top.name.toUpperCase(),
+        color: b.top.colorHex,
+      });
+    };
+    read();
+    const id = setInterval(read, 300);
+    return () => clearInterval(id);
+  }, [landscape, posRef]);
+  if (!posRef || !label) return null;
+  return (
+    <div className="regionline">
+      <span className="dot" style={{ background: label.color }} aria-hidden="true" />
+      <span>REGION&nbsp;·&nbsp;{label.text}</span>
+    </div>
+  );
 }
 
 function PlanetConsoleStyles({ accent, deep }) {
@@ -74,6 +109,12 @@ function PlanetConsoleStyles({ accent, deep }) {
       .planet .world .biome { color: #d7dfe5; font-size: 0.85rem; letter-spacing: 1px; margin-bottom: 6px; }
       .planet .world .life { color: #aeb9c2; font-size: 0.82rem; letter-spacing: 0.5px; margin-bottom: 10px; line-height: 1.45; }
       .planet .world .life b { color: ${accent}; }
+      .planet .regionline { display: flex; align-items: center; gap: 8px; font-size: 0.78rem; letter-spacing: 1px; color: #e6edf2; margin-bottom: 10px; }
+      .planet .regionline .dot { width: 10px; height: 10px; border-radius: 999px; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.35); }
+      .planet .regions { margin-bottom: 10px; display: flex; flex-direction: column; gap: 5px; }
+      .planet .regions .rrow { display: flex; align-items: center; gap: 8px; font-size: 0.78rem; letter-spacing: 0.5px; color: #d7dfe5; }
+      .planet .regions .rdot { width: 9px; height: 9px; border-radius: 999px; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.3); }
+      .planet .regions .rform { color: #aeb9c2; text-transform: uppercase; font-size: 0.68rem; letter-spacing: 1px; }
       .planet .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
       .planet .chip { border: 1px solid rgba(255,255,255,0.22); border-radius: 999px; padding: 5px 12px; font-size: 0.75rem; letter-spacing: 1px; color: #e6edf2; background: rgba(8,12,16,0.85); }
       .planet .chip b { color: ${accent}; }
@@ -104,8 +145,9 @@ function PlanetConsoleStyles({ accent, deep }) {
 
 export default function PlanetConsole({
   profile, seedEntry, time, setTime, mode, onToggleMode,
-  selected, onSelect, inputRef, onExit,
+  selected, onSelect, inputRef, onExit, posRef,
 }) {
+  const landscape = useMemo(() => getLandscape(profile), [profile]);
   // Minimize state for the two overlay windows — same pattern and
   // rationale as MarsConsole (Merlin bug report, 2026-10-22: overlay
   // windows must minimize on a phone), remembered on-device.
@@ -154,6 +196,19 @@ export default function PlanetConsole({
           <button className="minbtn" onClick={() => toggleWorldMin(true)} aria-label="Minimize world information" title="Minimize">—</button>
         </div>
         <div className="life">🌱 <b>{lifeTypeLabel(seedEntry.lifeType)}</b> — {seedEntry.lifeLabel}</div>
+        <RegionReadout profile={profile} posRef={posRef} />
+        <div className="regions" aria-label="Surface regions">
+          {landscape.biomes.map((b) => {
+            const topArch = Object.entries(b.archetypeWeights).sort((x, y) => y[1] - x[1])[0];
+            return (
+              <div key={b.id} className="rrow">
+                <span className="rdot" style={{ background: b.colorHex }} aria-hidden="true" />
+                <span>{b.name}</span>
+                <span className="rform">{b.floraForm} · {topArch ? topArch[0] : 'wild'}</span>
+              </div>
+            );
+          })}
+        </div>
         <div className="chips">
           {ELEMENT_LABELS.map(([key, label]) => (
             <span key={key} className="chip">{label} <b>{profile.elements[key]}%</b></span>

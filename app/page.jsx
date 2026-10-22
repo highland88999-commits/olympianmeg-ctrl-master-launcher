@@ -218,6 +218,10 @@ function NexusHub() {
   // state to edit — the profile is derived from the active planet.
   // Mars and Earth keep their own doors, untouched.
   const planetInputRef = useRef({ keys: { fwd: false, back: false, left: false, right: false, up: false, down: false } });
+  // Walker's ground position on the planet surface, fed by the
+  // scene's CameraGroundTracker; PlanetConsole reads it to name the
+  // region underfoot (lib/planets/landscape.js soft biome field).
+  const planetPosRef = useRef({ x: 10, z: 26 });
   const [activePlanet, setActivePlanet] = useState(null);
   const [planetTime, setPlanetTime] = useState(0.32);
   const [planetMode, setPlanetMode] = useState('orbit');
@@ -236,6 +240,7 @@ function NexusHub() {
     // have their own doors and are refused here even if called.
     if (!PLANETS.some((p) => p.key === key)) return;
     if (!planetSeedFor(key)) return;
+    planetPosRef.current = { x: 10, z: 26 };
     setActivePlanet(key);
     setPlanetSelected(null);
     setPlanetFocusReq(null);
@@ -775,6 +780,7 @@ function NexusHub() {
           onSelect={selectPlanet}
           inputRef={planetInputRef}
           onExit={exitPlanet}
+          posRef={planetPosRef}
         />
       )}
 
@@ -835,6 +841,7 @@ function NexusHub() {
         planetFocusReq={planetFocusReq}
         onPlanetSelect={selectPlanet}
         planetSelectedId={planetSelected ? planetSelected.id : null}
+        planetPosRef={planetPosRef}
         onParachute={parachuteTo}
         onTileSelect={appState === 'earth_surface' ? handleTileSelect : null}
         onBikeDismount={handleBikeDismount}
