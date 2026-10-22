@@ -7,10 +7,13 @@
 //   Layer 3 · the panels & programs the tiles fire
 //
 // Named parts, for directing edits:
-//   Concourse Orb  — main button (bottom right by default). Hold 2s
-//                    to drag it anywhere; its spot is remembered per
-//                    account (localStorage instantly, /api/ui-state
-//                    across logins and devices).
+//   Concourse Orb  — main button (bottom right by default). Drag
+//                    it anywhere — press and move, no hold (the
+//                    Muse FAB model, lib/concourse-icon.js); a tap
+//                    still opens the Concourse. Its spot is
+//                    remembered per account INDEFINITELY
+//                    (localStorage instantly, /api/ui-state across
+//                    logins and devices; no expiry anywhere).
 //   The Concourse  — transparent glass box; click the Orb to
 //                    expand/minimize. Drag the box by its title bar
 //                    to put it ANYWHERE on the screen (Merlin,
@@ -18,11 +21,12 @@
 //                    exactly like the Orb's (localStorage instantly,
 //                    /api/ui-state across logins and devices).
 //   Tiles          — ALL the same 56×56, in composed order:
-//                    Portals, Tour, Intro, Guide, Portals 3D (the 3D
-//                    portal hall), Night Grid, Bike, Renewal
-//                    (hub-only set), Muse, Phone, Calls
-//                    (Holographic Calls → /order-67), Radio, Store,
-//                    Alerts, Profile, Settings, Bug.
+//                    Hub (→ /, every page — the way home, Merlin
+//                    2026-10-22), Portals, Tour, Intro, Guide,
+//                    Portals 3D (the 3D portal hall), Night Grid,
+//                    Bike, Renewal (hub-only set), Muse, Phone,
+//                    Calls (Holographic Calls → /order-67), Radio,
+//                    Store, Alerts, Profile, Settings, Bug.
 //   Pins           — hold a tile 2s to pop it out onto the hub as its
 //                    own floating button; drop it on the Orb (or hold
 //                    it again and drop it home) to unpin. Pins are
@@ -51,6 +55,7 @@ import { SeasonBadge } from './SeasonalDecor';
 import ConcourseSettings from './ConcourseSettings';
 import { CONCOURSE_BG_ART, resolveConcourseBg } from '@/lib/concourse-bg';
 import { resolveUiSettings, readUiSettingsCache, writeUiSettingsCache, UI_SETTINGS_EVENT } from '@/lib/ui-settings';
+import { isIconDrag, clampIconPx, iconFracToPx, iconPxToFrac, dragIconTopLeft, resolveIconPosition } from '@/lib/concourse-icon';
 
 // Layer 3 · Portals 3D — loaded only when its tile is first tapped,
 // so three.js never enters the layout's eager bundle (Concourse
@@ -71,14 +76,21 @@ export function fireConcourseTile(tile) {
 
 // Tile order is composed in four visual movements (Merlin,
 // 2026-10-20 — "reorder the icons for best aesthetic pleasure"):
-//   Journey · Portals, Tour, Intro, Guide — the way in
+//   Journey · Hub, Portals, Tour, Intro, Guide — the way in
 //   Hub     · Night, Bike, Renew, Muse — life on the hub
 //   Connect · Phone, Calls, Radio, Store — reach out & trade
 //   You     · Alerts, Profile, Bug — the personal corner
 // Off the hub the hub-only tiles drop out and the same order
 // collapses into two clean rows (Muse/Phone/Calls/Radio, then
 // Store/Alerts/Profile/Bug).
+// The HUB tile leads (Merlin, bug report 2026-10-22: "In concourse
+// Add a hub button"): it is deliberately NOT hubOnly — its whole
+// job is to be there on every OTHER page as the one-tap way back
+// to the hub (and it can be pinned out as a floating home button).
+// On the hub itself it simply closes the box and stays home. Its
+// face is the Orb artwork — the hub's own emblem.
 const TILES = [
+  { id: 'hub', label: 'Hub', icon: '⌂', art: '/concourse-icons/orb.webp' },
   { id: 'portals', label: 'Portals', icon: '🎃', art: '/concourse-icons/portals.webp', hubOnly: true },
   { id: 'tour', label: 'Tour', icon: '🗺️', art: '/concourse-icons/tour.webp', soon: true },
   { id: 'intro', label: 'Intro', icon: '↺', art: '/concourse-icons/intro.webp', hubOnly: true },
@@ -237,6 +249,7 @@ export default function Concourse() {
   const [uiSettings, setUiSettings] = useState({ sound: true });
 
   const dragRef = useRef(null);
+  const orbDragRef = useRef(null);
   const suppressClickRef = useRef(0);
   const orbRef = useRef(null);
   const boxRef = useRef(null);
@@ -331,8 +344,12 @@ export default function Concourse() {
         const data = await res.json().catch(() => null);
         const prefs = data?.preferences || {};
         if (cancelled) return;
-        if (isFrac(prefs.concourse_orb)) {
-          setOrbFrac({ x: clamp01(prefs.concourse_orb.x), y: clamp01(prefs.concourse_orb.y) });
+        // Restore precedence (lib/concourse-icon.js): the account
+        // copy wins over the device cache applied above — that is
+        // what carries the icon's spot to a new device at login.
+        const serverOrb = resolveIconPosition({ server: prefs.concourse_orb });
+        if (serverOrb) {
+          setOrbFrac({ x: clamp01(serverOrb.x), y: clamp01(serverOrb.y) });
           setOrbCustom(true);
         }
         if (isFrac(prefs.concourse_box)) {
@@ -387,7 +404,8 @@ export default function Concourse() {
         return;
       }
       setNote('');
-      if (tile.id === 'store') router.push('/store');
+      if (tile.id === 'hub') router.push('/');
+      else if (tile.id === 'store') router.push('/store');
       else if (tile.id === 'renewal') router.push('/renewal-plan');
       else if (tile.id === 'calls') router.push('/order-67'); // Holographic Calls
       else if (tile.id === 'settings') { setSettingsOpen(true); setOpen(false); return; }
@@ -446,7 +464,85 @@ export default function Concourse() {
     }, SAVE_DEBOUNCE_MS);
   }, []);
 
-  // --- press & hold drag engine -------------------------------------
+  // --- Orb drag engine ------------------------------------------------
+  // The icon moves exactly like the old Muse button (Merlin,
+  // 2026-10-22): press and MOVE — travel past the 8px threshold
+  // (lib/concourse-icon.js) turns the press into a drag; no hold,
+  // no timer, so any user can discover it. A press that never
+  // crosses the threshold stays a tap and the click opens the
+  // Concourse; a real drag swallows its click, so the two never
+  // mix. The grab offset is kept (the icon never jumps to center
+  // under the finger) and the top-left is clamped live, so the
+  // icon stays fully on screen with an 8px margin at every
+  // moment of the drag — and because the stored spot is a viewport
+  // fraction, resize/rotation keeps it on screen too. The button
+  // is touch-none, so a touch-drag never fights page scroll.
+  // On drop the spot persists through the same path as always:
+  // localStorage instantly + debounced /api/ui-state
+  // (concourse_orb), per account, no expiry.
+  const beginOrbDrag = (e) => {
+    if (e.isPrimary === false) return;
+    if (e.button != null && e.button !== 0) return;
+    const el = orbRef.current;
+    if (!el || !orbFrac) return;
+    try { el.setPointerCapture(e.pointerId); } catch {}
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const origin = clampIconPx(iconFracToPx(orbFrac, vw, vh, SIZE), vw, vh, SIZE);
+    const info = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      origX: origin.x,
+      origY: origin.y,
+      x: origin.x,
+      y: origin.y,
+      moved: false,
+    };
+    orbDragRef.current = info;
+
+    const onMove = (ev) => {
+      if (ev.pointerId !== info.pointerId) return;
+      const dx = ev.clientX - info.startX;
+      const dy = ev.clientY - info.startY;
+      if (!info.moved && !isIconDrag(dx, dy)) return; // still a tap
+      info.moved = true;
+      const tl = dragIconTopLeft(
+        { x: info.origX, y: info.origY },
+        { x: info.startX, y: info.startY },
+        { x: ev.clientX, y: ev.clientY },
+        window.innerWidth,
+        window.innerHeight,
+        SIZE
+      );
+      info.x = tl.x;
+      info.y = tl.y;
+      // For the Orb, drag x/y carry the clamped TOP-LEFT px (tiles
+      // below carry pointer px for their ghost instead).
+      setDrag({ kind: 'orb', id: null, x: tl.x, y: tl.y, active: true });
+    };
+    const onUp = (ev) => {
+      if (ev.pointerId !== info.pointerId) return;
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      try { el.releasePointerCapture(info.pointerId); } catch {}
+      orbDragRef.current = null;
+      setDrag(null);
+      if (!info.moved) return; // plain tap — the click handler runs
+      suppressClickRef.current = Date.now();
+      const next = iconPxToFrac({ x: info.x, y: info.y }, window.innerWidth, window.innerHeight, SIZE);
+      setOrbFrac(next);
+      setOrbCustom(true);
+      const { pins, box } = stateRef.current;
+      persist(next, pins, box);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  };
+
+  // --- press & hold drag engine (tiles) -------------------------------
   // Tap = action. Hold 2s (without wandering) = lift & drag.
   const beginPress = (kind, id, e) => {
     const startX = e.clientX;
@@ -487,12 +583,7 @@ export default function Concourse() {
         && ev.clientY >= orbRect.top - 8 && ev.clientY <= orbRect.bottom + 8;
       const { orb, pins, box } = stateRef.current;
 
-      if (kind === 'orb') {
-        const next = toFrac(dropPx);
-        setOrbFrac(next);
-        setOrbCustom(true);
-        persist(next, pins, box);
-      } else if (id) {
+      if (id) {
         const nextPins = { ...pins };
         if (onOrb) delete nextPins[id]; // dropped home
         else nextPins[id] = toFrac(dropPx);
@@ -580,7 +671,12 @@ export default function Concourse() {
   const boxedTiles = visibleTiles.filter((t) => !pinsFrac[t.id]);
   const orbPx = toPx(orbFrac);
   const yieldLift = bikeOut && !orbCustom ? 270 : 0;
-  const orbRenderY = drag?.active && drag.kind === 'orb' ? drag.y - SIZE / 2 : orbPx.y - yieldLift;
+  // While the Orb is being dragged, drag x/y are its clamped
+  // top-left px (see beginOrbDrag); otherwise it renders at its
+  // remembered fractions, lifted clear of the bike controls when
+  // the user has never placed it themselves.
+  const orbDragPx = drag?.active && drag.kind === 'orb' ? { x: drag.x, y: drag.y } : null;
+  const orbRenderY = orbDragPx ? orbDragPx.y : orbPx.y - yieldLift;
 
   const boxW = 4 * SIZE + 3 * 10 + 28; // 4 tiles per row + gaps + padding
   const boxX = Math.max(10, Math.min(orbPx.x + SIZE - boxW, viewport.w - boxW - 10));
@@ -693,7 +789,7 @@ export default function Concourse() {
               <>
                 <span className="block">Drag the title bar → put the Concourse anywhere. It stays where you leave it.</span>
                 <span className="block">Hold a tile 2s → pin it out on the hub. Drop it on the Orb to send it home.</span>
-                <span className="block">Hold the Orb 2s → move it.</span>
+                <span className="block">Drag the Orb → put it anywhere. It stays where you leave it.</span>
               </>
             )}
           </div>
@@ -756,8 +852,8 @@ export default function Concourse() {
         ref={orbRef}
         type="button"
         aria-label={open ? 'Minimize the Concourse' : 'Open the Concourse'}
-        title="The Concourse — hold to move"
-        onPointerDown={(e) => beginPress('orb', null, e)}
+        title="The Concourse — drag to move"
+        onPointerDown={beginOrbDrag}
         onClick={() => { if (!tapGuard()) { setNote(''); setOpen((o) => !o); } }}
         className={`ui-element pointer-events-auto fixed z-[58] flex items-center justify-center rounded-full border backdrop-blur-xl transition-shadow select-none touch-none ${
           drag?.active && drag.kind === 'orb'
@@ -765,7 +861,7 @@ export default function Concourse() {
             : 'border-cyan-200/40 bg-zinc-950/70 shadow-[0_10px_30px_rgba(0,0,0,0.5),0_0_22px_rgba(0,242,255,0.22)] hover:shadow-[0_10px_30px_rgba(0,0,0,0.5),0_0_30px_rgba(0,242,255,0.4)]'
         }`}
         style={{
-          left: drag?.active && drag.kind === 'orb' ? drag.x - SIZE / 2 : orbPx.x,
+          left: orbDragPx ? orbDragPx.x : orbPx.x,
           top: orbRenderY,
           width: SIZE,
           height: SIZE,

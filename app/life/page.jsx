@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import PassageLink from '@/components/styx/PassageLink';
 import {
-  createMatrix,
+  createProceduralMatrix,
   monthProgress,
   orbitStatus,
   sysStatus,
@@ -47,7 +47,12 @@ export default function LifePage() {
         : null;
     const rm = !!(mq && mq.matches);
     setReducedMotion(rm);
-    stateRef.current = createMatrix(20260927);
+    // Procedural generation (Merlin, bug report 2026-10-22: "make
+    // life procedurally generate"): a fresh seed is minted on every
+    // visit and the orbital matrix is generated from it — no two
+    // visits replay the same fixed system. The seed is shown in the
+    // HUD (SEED line) so any generated system can be named.
+    stateRef.current = createProceduralMatrix();
     if (canvasRef.current) {
       pilotRef.current = createPilot(canvasRef.current, stateRef.current, {
         reducedMotion: rm,
@@ -137,6 +142,11 @@ export default function LifePage() {
           <div className="text-[11px] sm:text-xs text-neutral-400 mt-0.5 tracking-wider">
             ORBIT:{' '}
             <span className="text-amber-300 font-bold">{s ? orbitStatus(s) : '—'}</span>
+          </div>
+          <div className="text-[11px] sm:text-xs text-neutral-400 mt-0.5 tracking-wider">
+            SEED:{' '}
+            <span className="text-violet-300 font-bold">{s ? s.seed : '—'}</span>
+            <span className="text-neutral-500"> · generated on arrival</span>
           </div>
           <div className="mt-2">
             <div className="text-[10px] sm:text-[11px] text-neutral-500 tracking-wider flex justify-between">

@@ -422,7 +422,21 @@ function NexusHub() {
   }, []);
 
   useEffect(() => {
+    // Text entry on the hub (the bug report form, Muse chat, search
+    // boxes) owns the keyboard while it has focus: the hub's WASD
+    // flight keys must never react to letters being typed into a
+    // field, and typing must never skip the intro / steer the rig
+    // behind the form (text-entry integrity, bug report 2026-10-22).
+    const isFormTarget = (e) => {
+      const t = e && e.target;
+      return !!(
+        t &&
+        typeof t.closest === 'function' &&
+        t.closest('input, textarea, select, [contenteditable]')
+      );
+    };
     const handleKeyDown = (e) => {
+      if (isFormTarget(e)) return;
       if (appState === 'hub_intro') setAppState('hub_freeroam');
       if(e.key.toLowerCase()==='w') controlsRef.current.keyW = 1;
       if(e.key.toLowerCase()==='s') controlsRef.current.keyS = 1;
@@ -430,6 +444,7 @@ function NexusHub() {
       if(e.key.toLowerCase()==='d') controlsRef.current.keyD = 1;
     };
     const handleKeyUp = (e) => {
+      if (isFormTarget(e)) return;
       if(e.key.toLowerCase()==='w') controlsRef.current.keyW = 0;
       if(e.key.toLowerCase()==='s') controlsRef.current.keyS = 0;
       if(e.key.toLowerCase()==='a') controlsRef.current.keyA = 0;

@@ -325,6 +325,18 @@ describe('hub circle buttons (static wiring)', () => {
     assert.ok(concourse.indexOf("id: 'portals'") < concourse.indexOf("id: 'tour'"), 'portals leads the Journey row');
   });
 
+  it('HUB lives in the Concourse as the lead tile — the way home from every page (bug report 2026-10-22)', () => {
+    assert.ok(concourse.includes("{ id: 'hub', label: 'Hub', icon: '⌂', art: '/concourse-icons/orb.webp' }"), 'hub tile in the Concourse');
+    assert.ok(!concourse.includes("{ id: 'hub', label: 'Hub', icon: '⌂', art: '/concourse-icons/orb.webp', hubOnly: true }"), 'hub tile is NOT hub-only — it must exist on other pages');
+    assert.ok(concourse.indexOf("id: 'hub'") < concourse.indexOf("id: 'portals'"), 'hub leads the tile order');
+    assert.ok(concourse.includes("tile.id === 'hub'") && concourse.includes("router.push('/')"), 'hub tile routes home to /');
+  });
+
+  it('hub flight keys stand down while typing in a form field (bug report 2026-10-22)', () => {
+    assert.ok(page.includes("t.closest('input, textarea, select, [contenteditable]')"), 'hub key handlers check for form targets');
+    assert.ok(page.includes('if (isFormTarget(e)) return;'), 'keydown and keyup both stand down for form fields');
+  });
+
   it('SETTINGS lives in the Concourse as a tile in the You row (2026-10-21)', () => {
     assert.ok(concourse.includes("{ id: 'settings', label: 'Settings', icon: '⚙️' }"), 'settings tile in the Concourse');
     assert.ok(concourse.indexOf("id: 'profile'") < concourse.indexOf("id: 'settings'"), 'settings sits after profile');

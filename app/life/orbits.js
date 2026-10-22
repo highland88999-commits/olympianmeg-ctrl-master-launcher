@@ -1,8 +1,12 @@
 // orbits.js — pure orbital-matrix model for the Life module.
 //
 // A clean procedural visualization: concentric orbit rings, bodies in sync,
-// a month-cycle meter, and a periodic alignment event. No network, no DOM,
-// no browser globals — fully testable in plain Node.
+// a month-cycle meter, and a periodic alignment event. The matrix is
+// generated from a seed (createMatrix); the page mints a fresh seed on
+// every visit (mintLifeSeed / createProceduralMatrix, 2026-10-22) so
+// Life procedurally generates a new system each time instead of
+// replaying one fixed matrix. No network, no DOM, no browser globals
+// — fully testable in plain Node.
 
 export const MONTH_SECONDS = 180; // one full month cycle, in real seconds
 export const ORBIT_COUNT = 6;
@@ -43,6 +47,29 @@ export function clampZoom(z) {
 
 export function clampTilt(t) {
   return clamp(t, MIN_TILT, MAX_TILT);
+}
+
+/**
+ * mintLifeSeed(random) -> uint32 seed for a brand-new matrix.
+ * This is the ONE place randomness belongs (the same law as
+ * mintWorldSeed in lib/world-engine/world-seed.js): the matrix
+ * itself stays a pure function of its seed — same seed in, same
+ * rings out, every time. Merlin, bug report 2026-10-22: "make
+ * life procedurally generate" — the Life page used to boot the
+ * same fixed seed (20260927) on every visit, so the "procedural"
+ * matrix was identical forever. Now each visit mints a fresh
+ * seed and generates its matrix from it.
+ */
+export function mintLifeSeed(random = Math.random) {
+  const r = typeof random === 'function' ? random() : NaN;
+  const unit = Number.isFinite(r) ? Math.min(Math.max(r, 0), 0.999999999) : 0;
+  return Math.floor(unit * 0x100000000) >>> 0;
+}
+
+/** createProceduralMatrix(random) -> a fresh matrix generated
+ *  from a freshly minted seed. */
+export function createProceduralMatrix(random = Math.random) {
+  return createMatrix(mintLifeSeed(random));
 }
 
 export function createMatrix(seed) {

@@ -158,6 +158,33 @@ function approx(a, b, eps = 1e-9) {
   t('dead game stays dead', g.gameOver === true && g.blockers.length === before);
 }
 
+// --- procedural generation (bug report 2026-10-22: "make life
+// procedurally generate") ------------------------------------------------------
+// The matrix was booted from one fixed seed (20260927) on every
+// visit, so the "procedural" system never actually varied. Now the
+// page mints a fresh seed per visit and generates from it; the
+// generator itself stays a pure function of the seed.
+{
+  const { createMatrix, mintLifeSeed, createProceduralMatrix } = await import('../app/life/orbits.js');
+
+  const s1 = mintLifeSeed(() => 0.123456);
+  const s2 = mintLifeSeed(() => 0.654321);
+  t('minted seeds differ per random draw', s1 !== s2);
+  t('minted seeds are uint32', Number.isInteger(s1) && s1 >= 0 && s1 <= 0xffffffff);
+  t('mint clamps a 1.0 draw into range', mintLifeSeed(() => 1) <= 0xffffffff);
+  t('mint survives a broken random source', Number.isInteger(mintLifeSeed(() => NaN)));
+
+  const a = createProceduralMatrix(() => 0.42);
+  const b = createProceduralMatrix(() => 0.42);
+  t('same minted seed regenerates the same matrix', JSON.stringify(a.orbits) === JSON.stringify(b.orbits) && a.seed === b.seed);
+  const c = createProceduralMatrix(() => 0.43);
+  t('a different seed generates a different matrix', JSON.stringify(c.orbits) !== JSON.stringify(a.orbits));
+
+  const m1 = createMatrix(7);
+  const m2 = createMatrix(7);
+  t('createMatrix stays deterministic per seed', JSON.stringify(m1) === JSON.stringify(m2));
+}
+
 // --- source-level checks ---------------------------------------------------------------
 function stripComments(src) {
   return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
@@ -175,6 +202,9 @@ function stripComments(src) {
   t('canvas: pilot gates camera drag', /state\.playing/.test(canvasSrc));
 
   const pageSrc = readFileSync('app/life/page.jsx', 'utf8');
+  t('page: procedurally generates its matrix per visit', /createProceduralMatrix\(\)/.test(pageSrc));
+  t('page: the old fixed seed is gone', !/createMatrix\(20260927\)/.test(pageSrc));
+  t('page: generated seed is shown in the HUD', /SEED:/.test(pageSrc) && /s\.seed/.test(pageSrc));
   t('page: pilot wired', /createPilot/.test(pageSrc));
   t('page: play button', /Pilot the spark/.test(pageSrc));
   t('page: game-over panel', /Fly again/.test(pageSrc));

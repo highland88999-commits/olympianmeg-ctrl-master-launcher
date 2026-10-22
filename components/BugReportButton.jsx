@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
+import { spacelessField } from '@/lib/bug-report-text';
 
 // Global "Report a bug" floating button — mounted once in the root layout so
 // it exists on every page. Reports go straight into the bug_reports table
@@ -16,6 +17,11 @@ export default function BugReportButton({ concourse = false } = {}) {
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState('');
+  // Space-integrity guard (bug report 2026-10-22): the field whose
+  // text arrived with essentially no spaces between words, once the
+  // reporter has been warned about it. Editing either field re-arms
+  // the guard; a second Send tap sends the text exactly as written.
+  const [spacelessWarnedFor, setSpacelessWarnedFor] = useState(null);
   const panelRef = useRef(null);
 
   // The Concourse rehoused this button's launcher: its Bug tile
@@ -44,6 +50,17 @@ export default function BugReportButton({ concourse = false } = {}) {
 
   const send = async () => {
     if (!description.trim() || sending) return;
+    // Spaces check first: if the text came through with no spaces
+    // between words (a keyboard that ate the spacebar — the exact
+    // failure in the 2026-10-22 report), warn once and let the
+    // reporter fix it or confirm. Never silently store a blob the
+    // build team cannot read back.
+    const smashed = spacelessField({ description, steps });
+    if (smashed && spacelessWarnedFor !== smashed) {
+      setSpacelessWarnedFor(smashed);
+      setError('');
+      return;
+    }
     setSending(true);
     setError('');
     try {
@@ -76,6 +93,7 @@ export default function BugReportButton({ concourse = false } = {}) {
         setSent(false);
         setDescription('');
         setSteps('');
+        setSpacelessWarnedFor(null);
       }, 1600);
     } catch (e) {
       setError(e.message || 'Could not send the report.');
@@ -85,7 +103,7 @@ export default function BugReportButton({ concourse = false } = {}) {
   };
 
   return (
-    <div className="fixed left-3 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] z-[60]">
+    <div className="ui-element fixed left-3 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] z-[60]">
       {open && (
         <div
           ref={panelRef}
@@ -111,20 +129,34 @@ export default function BugReportButton({ concourse = false } = {}) {
           </p>
           <textarea
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={(e) => { setDescription(e.target.value); setSpacelessWarnedFor(null); }}
             rows={3}
             placeholder="Describe the bug…"
             aria-label="Bug description"
+            autoCapitalize="sentences"
+            autoCorrect="on"
+            spellCheck
             className="mb-2 w-full resize-none rounded-xl border border-white/10 bg-black/60 p-2.5 text-sm text-white placeholder:text-zinc-600 focus:border-teal-300/60 focus:outline-none"
           />
           <textarea
             value={steps}
-            onChange={(e) => setSteps(e.target.value)}
+            onChange={(e) => { setSteps(e.target.value); setSpacelessWarnedFor(null); }}
             rows={2}
             placeholder="What were you doing? (optional)"
             aria-label="What you were doing"
+            autoCapitalize="sentences"
+            autoCorrect="on"
+            spellCheck
             className="mb-3 w-full resize-none rounded-xl border border-white/10 bg-black/60 p-2.5 text-sm text-white placeholder:text-zinc-600 focus:border-teal-300/60 focus:outline-none"
           />
+          {spacelessWarnedFor && !error && (
+            <p role="alert" className="mb-2 text-xs leading-relaxed text-amber-300">
+              Your {spacelessWarnedFor === 'steps' ? '“what you were doing” text' : 'description'} came
+              through with almost no spaces between words — some phone keyboards drop the
+              spacebar in this small panel. Please check it above and add the spaces, or tap
+              Send again to send it exactly as written.
+            </p>
+          )}
           {error && (
             <p className="mb-2 text-xs leading-relaxed text-red-300">{error}</p>
           )}
@@ -134,7 +166,7 @@ export default function BugReportButton({ concourse = false } = {}) {
             disabled={sending || !description.trim()}
             className="w-full rounded-xl bg-teal-300/90 px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-teal-200 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {sending ? 'Sending…' : sent ? 'Report sent — thank you!' : 'Send bug report'}
+            {sending ? 'Sending…' : sent ? 'Report sent — thank you!' : spacelessWarnedFor ? 'Send anyway — as written' : 'Send bug report'}
           </button>
           <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
             Goes straight to the build team. No email needed.
