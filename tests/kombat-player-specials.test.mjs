@@ -160,6 +160,22 @@ t('raptor heavy connects at point blank through the player path',
       connected = events(m, 'specialUsed', 0).some((e) => e.idx === idx)
         && before - m.hud().p2 > EPS
         && (m.hud().spcds[idx] || 0) > 0;
+      // TEMPERAMENT ERA: Fang presses now — his combo chain stays
+      // live through the 0.6s lull and an in-flight strike can stuff
+      // the 0.35s startup (the cooldown refund asserted above is what
+      // makes that survivable). A player whose special was stuffed
+      // simply presses it again — the same re-press discipline the
+      // roster sweep (section 8) uses. A special that RESOLVED
+      // (cooldown running — hit or honest whiff) is never re-pressed:
+      // its outcome already happened, and `before` still judges it.
+      for (let rp = 0; rp < 2 && !connected && (m.hud().spcds[idx] || 0) === 0; rp++) {
+        reclose(m, 10);
+        m.engine.press(`sp${idx + 1}`);
+        step(86);
+        connected = events(m, 'specialUsed', 0).some((e) => e.idx === idx)
+          && before - m.hud().p2 > EPS
+          && (m.hud().spcds[idx] || 0) > 0;
+      }
       m.engine.dispose();
     }
     t(`swift sp${idx + 1} (${swift.specials[idx].name}) fired, connected, cooldown running after resolution`, connected);
@@ -234,7 +250,12 @@ t('humanoid heavy connects at point blank',
 {
   // During HITSTUN: eat a CPU hit on normal difficulty, tap light as
   // the stun lands — the buffered bite must answer once the stun ends.
-  const m = await freshDuel('raptor-swift', 'raptor-fang', 'normal', 60606);
+  // Seed choreographed for the temperament era: Fang (fury .92, the
+  // roster's hottest CPU) usually disengages or re-chains on his own
+  // terms after a hit, and the buffered bite snaps at air; this seeded
+  // exchange is one where he stays in the pocket, so the bite meets
+  // him when the stun ends — the buffer invariant is what is tested.
+  const m = await freshDuel('raptor-swift', 'raptor-fang', 'normal', 55555);
   walkIn(m, 90);
   // wait for the CPU to actually hit the player (p1 drops)
   let hitFrame = -1;

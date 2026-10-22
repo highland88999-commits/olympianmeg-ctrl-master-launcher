@@ -17,6 +17,7 @@ import {
   statusDamageMul, statusSpeedMul, KIND_FX, BUFF_SECONDS, DEBUFF_SECONDS,
 } from '../../lib/kombat/specials.js';
 import { resolvePose } from '../../lib/kombat/pose-state.js';
+import { temperamentFor, composeAiProfile, bloodlust } from '../../lib/kombat/temperament.js';
 import { applyFloorClamp, solveFloorY } from '../../lib/kombat/floor.js';
 import { duelFraming } from '../../lib/kombat/framing.js';
 import { buildArena } from './arenas.js';
@@ -171,6 +172,10 @@ function makeFighter(scene, fighterId, x, facing, specialIdxs, isPlayer, diff) {
   return {
     data, rig, params, glb,
     id: fighterId,
+    // Per-fighter combat temperament (lib/kombat/temperament.js):
+    // attached to every fighter; only the AI consumes it — player
+    // input handling never reads it.
+    temperament: temperamentFor(fighterId),
     isPlayer,
     x, facing, // facing: +1 (toward +X) | -1
     health: MAX_HEALTH, rounds: 0,
@@ -264,6 +269,9 @@ export function createKombatEngine(canvas, config) {
   const bursts = makeBurstPool(scene);
   const player = makeFighter(scene, playerId, -2.2, 1, playerSpecials, true, diff);
   const cpu = makeFighter(scene, cpuId, 2.2, -1, cpuSpecials, false, diff);
+  // The CPU's concrete decision profile: difficulty x ITS fighter's
+  // temperament, composed once (both are constant for the match).
+  const cpuProfile = composeAiProfile(diff, cpu.temperament);
 
   // input (player)
   const input = { move: 0, block: false };
@@ -342,10 +350,11 @@ export function createKombatEngine(canvas, config) {
     f.attack = { kind, phase: 'startup', t: 0, didHit: false, spec: null, specIdx: -1 };
     setPoseState(f, atk.pose);
     // The CPU only ever learns about this after its reaction delay — no input reading.
+    // The delay is the DEFENDER's own: difficulty base x its temperament.
     const foe = f.isPlayer ? cpu : player;
     if (!foe.isPlayer && foe.ai) {
       foe.ai.reactArmed = true;
-      foe.ai.reactT = diff.reactionMs / 1000;
+      foe.ai.reactT = (diff.reactionMs * foe.temperament.reactionMul) / 1000;
     }
     if (f.isPlayer) sfx.whiff();
     return true;
@@ -383,7 +392,7 @@ export function createKombatEngine(canvas, config) {
     const foe = f.isPlayer ? cpu : player;
     if (!foe.isPlayer && foe.ai) {
       foe.ai.reactArmed = true;
-      foe.ai.reactT = diff.reactionMs / 1000;
+      foe.ai.reactT = (diff.reactionMs * foe.temperament.reactionMul) / 1000;
     }
     if (f.isPlayer) sfx.special();
     H('onSpecialUsed', f.isPlayer ? 0 : 1, idx);
@@ -632,10 +641,10 @@ export function createKombatEngine(canvas, config) {
     H('onFinishHim', true, FINISH_HIM_SECONDS, winner.isPlayer);
     sfx.announce();
     // CPU winners sometimes perform their own fatality — scaled by
-    // difficulty (rare on easy, common on hard). Pure chance, never
-    // reads the player's inputs.
+    // difficulty (rare on easy, common on hard) and by the winner's
+    // own brutality. Pure chance, never reads the player's inputs.
     if (!winner.isPlayer) {
-      const p = diff.fatalityChance ?? 0;
+      const p = Math.min(0.95, (diff.fatalityChance ?? 0) * winner.temperament.fatalityMul);
       cpuFatalityAt = Math.random() < p ? 1 + Math.random() * (FINISH_HIM_SECONDS - 1.6) : -1;
     } else {
       cpuFatalityAt = -1;
@@ -729,20 +738,27 @@ export function createKombatEngine(canvas, config) {
   // ---------------- AI ----------------
   function aiThink() {
     const f = cpu, foe = player;
+    const t = f.temperament;
     const dist = Math.abs(f.x - foe.x);
     const toward = foe.x > f.x ? 1 : -1;
     const inRange = dist <= 2.2;
+    // Temperament x difficulty, heated by bloodlust when the foe is
+    // nearly finished and by a live combo chain (ferocity presses).
+    let prof = bloodlust(cpuProfile, t, foe.health / MAX_HEALTH);
+    if (f.chain.count > 0 && f.chain.t < COMBO_WINDOW) {
+      prof = { ...prof, aggression: Math.min(0.97, prof.aggression + t.ferocity * 0.15) };
+    }
 
     if (inRange) {
       const r = Math.random();
-      if (r < diff.aggression) {
+      if (r < prof.aggression) {
         // attack: maybe a special, else heavy/light — the AI picks
         // from the SAME full kit the player holds (Step 5 parity),
         // and since Step 6 the pick is LOGIC, not uniform-random:
         // chooseSpecial weighs kind, range band, both health totals
         // and live status effects (lib/kombat/specials.js).
         let acted = false;
-        if (Math.random() < diff.specialChance) {
+        if (Math.random() < prof.specialChance) {
           const idx = chooseSpecial(f.specials, f.specKinds, f.cooldowns, {
             dist, selfHealth: f.health, foeHealth: foe.health,
             selfWardT: f.wardT, selfBuffT: f.buffT, foeDebuffT: foe.debuffT,
@@ -750,11 +766,11 @@ export function createKombatEngine(canvas, config) {
           if (idx >= 0) acted = trySpecial(f, idx);
         }
         if (!acted) {
-          if (Math.random() < diff.heavyChance) tryAttack(f, 'heavy');
+          if (Math.random() < prof.heavyChance) tryAttack(f, 'heavy');
           else tryAttack(f, 'light');
         }
-        if (Math.random() < diff.retreatChance) f.ai.retreatT = 0.45;
-      } else if (r < diff.aggression + 0.18) {
+        if (Math.random() < prof.retreatChance) f.ai.retreatT = 0.45;
+      } else if (r < prof.aggression + 0.18) {
         f.ai.blockUntil = elapsed + 0.35 + Math.random() * 0.3;
       } else {
         f.ai.retreatT = 0.4;
@@ -764,7 +780,7 @@ export function createKombatEngine(canvas, config) {
       // approach; from range, logic may still fire — a projectile, a
       // buff, a heal, or a dash-in special beats walking into range
       let acted = false;
-      if (Math.random() < diff.specialChance) {
+      if (Math.random() < prof.specialChance) {
         const idx = chooseSpecial(f.specials, f.specKinds, f.cooldowns, {
           dist, selfHealth: f.health, foeHealth: foe.health,
           selfWardT: f.wardT, selfBuffT: f.buffT, foeDebuffT: foe.debuffT,
@@ -772,8 +788,11 @@ export function createKombatEngine(canvas, config) {
         if (idx >= 0) acted = trySpecial(f, idx);
       }
       f.ai.moveDir = acted ? 0 : toward;
-      if (!acted && dist > 4.2 && Math.random() < diff.dashChance) tryDash(f, toward);
-      if (dist < 3.2 && Math.random() < 0.3) f.ai.blockUntil = elapsed + 0.25; // cautious approach
+      // dash in from far — or, for a pressure fighter already inside
+      // its pressure range, dash the last gap instead of strolling
+      if (!acted && (dist > 4.2 || (dist > 3 && dist <= t.pressureRange)) && Math.random() < prof.dashChance) tryDash(f, toward);
+      // cautious approach — a vicious fighter barely guards while closing
+      if (dist < 3.2 && Math.random() < 0.3 * (1 - t.fury)) f.ai.blockUntil = elapsed + 0.25;
     }
   }
 
@@ -781,9 +800,14 @@ export function createKombatEngine(canvas, config) {
     const f = cpu, a = f.ai;
     if (!a || phase !== 'fight') { f.moveDir = 0; f.blockHeld = false; return; }
     a.thinkT -= dt;
+    // ferocity: while a combo chain is live, the next decision
+    // comes sooner — pressure fighters keep swinging.
+    if (f.chain.count > 0 && f.chain.t < COMBO_WINDOW) {
+      a.thinkT -= dt * f.temperament.ferocity * 1.5;
+    }
     if (a.thinkT <= 0) {
       aiThink();
-      a.thinkT = (diff.thinkMs / 1000) * (0.7 + Math.random() * 0.6);
+      a.thinkT = (cpuProfile.thinkMs / 1000) * (0.7 + Math.random() * 0.6);
     }
     // delayed reaction to the player's visible attack — fair, difficulty-scaled
     if (a.reactArmed) {
@@ -792,7 +816,7 @@ export function createKombatEngine(canvas, config) {
         a.reactArmed = false;
         const dist = Math.abs(f.x - player.x);
         const playerAttacking = player.attack && player.attack.phase !== 'recovery';
-        if (playerAttacking && dist < 2.9 && Math.random() < diff.blockChance) {
+        if (playerAttacking && dist < 2.9 && Math.random() < cpuProfile.blockChance) {
           a.blockUntil = elapsed + 0.4 + Math.random() * 0.35;
         }
       }

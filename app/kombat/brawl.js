@@ -19,6 +19,7 @@ import {
   statusDamageMul, statusSpeedMul, KIND_FX, BUFF_SECONDS, DEBUFF_SECONDS,
 } from '../../lib/kombat/specials.js';
 import { resolvePose } from '../../lib/kombat/pose-state.js';
+import { temperamentFor, composeAiProfile, bloodlust } from '../../lib/kombat/temperament.js';
 import { applyFloorClamp, stepVertical, solveFloorY } from '../../lib/kombat/floor.js';
 import { brawlFraming } from '../../lib/kombat/framing.js';
 import { buildBrawlArena, clampToArena, brawlSpawns, createBrawlCamera } from './arena3d.js';
@@ -171,10 +172,17 @@ function makeBrawlFighter(scene, fighterId, x, z, specialIdxs, isPlayer, diff) {
       }
     });
   }
+  // Per-fighter combat temperament (lib/kombat/temperament.js) and
+  // its composition with this match's difficulty. Player fighters
+  // carry the temperament unused; only the AI profile is consumed,
+  // and only by AI fighters.
+  const temperament = temperamentFor(fighterId);
   return {
     data, rig, params, glb,
     id: fighterId,
     isPlayer,
+    temperament,
+    aiProfile: isPlayer ? null : composeAiProfile(diff, temperament),
     pos: new THREE.Vector3(x, 0, z),
     yaw: Math.atan2(-x, -z), // face the arena center
     vel: new THREE.Vector3(),
@@ -392,12 +400,13 @@ export function createBrawlEngine(canvas, config) {
     f.attack = { kind, phase: 'startup', t: 0, didHit: false, spec: null, specIdx: -1 };
     setPoseState(f, atk.pose);
     // Every nearby enemy may notice the visible attack after its own
-    // difficulty-scaled delay — nobody reads inputs.
+    // delay — difficulty base x the DEFENDER's temperament. Nobody
+    // reads inputs.
     for (const o of fighters) {
       if (o === f || !o.alive || !o.ai) continue;
       if (distXZ(f, o) < 4.2) {
         o.ai.reactArmed = true;
-        o.ai.reactT = diff.reactionMs / 1000;
+        o.ai.reactT = (diff.reactionMs * o.temperament.reactionMul) / 1000;
         o.ai.reactFrom = f;
       }
     }
@@ -436,7 +445,7 @@ export function createBrawlEngine(canvas, config) {
       if (o === f || !o.alive || !o.ai) continue;
       if (distXZ(f, o) < 4.2) {
         o.ai.reactArmed = true;
-        o.ai.reactT = diff.reactionMs / 1000;
+        o.ai.reactT = (diff.reactionMs * o.temperament.reactionMul) / 1000;
         o.ai.reactFrom = f;
       }
     }
@@ -798,10 +807,10 @@ export function createBrawlEngine(canvas, config) {
     H('onFinishHim', true, FINISH_HIM_SECONDS, winner.isPlayer);
     sfx.announce();
     // CPU champions sometimes perform their own fatality — scaled by
-    // difficulty (rare on easy, common on hard). Pure chance, never
-    // reads the player's inputs.
+    // difficulty (rare on easy, common on hard) and by the winner's
+    // own brutality. Pure chance, never reads the player's inputs.
     if (!winner.isPlayer) {
-      const p = diff.fatalityChance ?? 0;
+      const p = Math.min(0.95, (diff.fatalityChance ?? 0) * winner.temperament.fatalityMul);
       cpuFatalityAt = Math.random() < p ? 1 + Math.random() * (FINISH_HIM_SECONDS - 1.6) : -1;
     } else {
       cpuFatalityAt = -1;
@@ -841,10 +850,19 @@ export function createBrawlEngine(canvas, config) {
     const dx = (foe.pos.x - f.pos.x) / (d || 1);
     const dz = (foe.pos.z - f.pos.z) / (d || 1);
 
+    // This fighter's own decision profile (difficulty x temperament),
+    // heated by bloodlust against a nearly-finished target and by a
+    // live combo chain (ferocity presses the advantage).
+    const t = f.temperament;
+    let prof = bloodlust(f.aiProfile, t, foe.health / MAX_HEALTH);
+    if (f.chain.count > 0 && f.chain.t < COMBO_WINDOW) {
+      prof = { ...prof, aggression: Math.min(0.97, prof.aggression + t.ferocity * 0.15) };
+    }
+
     if (d > 2.6) {
       // from range, logic may fire first — projectile, buff, heal or
       // a dash-in special (Step 6 AI policy, lib/kombat/specials.js)
-      if (Math.random() < diff.specialChance) {
+      if (Math.random() < prof.specialChance) {
         const idx = chooseSpecial(f.specials, f.specKinds, f.cooldowns, {
           dist: d, selfHealth: f.health, foeHealth: foe.health,
           selfWardT: f.wardT, selfBuffT: f.buffT, foeDebuffT: foe.debuffT,
@@ -852,7 +870,7 @@ export function createBrawlEngine(canvas, config) {
         if (idx >= 0 && trySpecial(f, idx)) { f.moveX = 0; f.moveZ = 0; return; }
       }
       // approach with a wandering strafe so brawls don't conga-line
-      a.strafeT -= diff.thinkMs / 1000;
+      a.strafeT -= prof.thinkMs / 1000;
       if (a.strafeT <= 0) {
         a.strafeDir = Math.random() < 0.5 ? 1 : -1;
         a.strafeT = 0.6 + Math.random() * 1.2;
@@ -861,16 +879,18 @@ export function createBrawlEngine(canvas, config) {
       f.moveZ = dz * 0.92 + dx * 0.45 * a.strafeDir;
       const l = Math.hypot(f.moveX, f.moveZ) || 1;
       f.moveX /= l; f.moveZ /= l;
-      if (d > 5 && Math.random() < diff.dashChance) tryDash(f, dx, dz);
+      // dash in from far — a pressure fighter inside its pressure
+      // range dashes the last gap instead of strolling
+      if ((d > 5 || (d > 3 && d <= t.pressureRange)) && Math.random() < prof.dashChance) tryDash(f, dx, dz);
       if (d > 3.5 && Math.random() < 0.05) tryJump(f); // hop while closing in
-      if (d < 3.4 && Math.random() < 0.25) a.blockUntil = elapsed + 0.25; // cautious approach
+      if (d < 3.4 && Math.random() < 0.25 * (1 - t.fury)) a.blockUntil = elapsed + 0.25; // cautious approach
     } else {
       const r = Math.random();
-      if (r < diff.aggression) {
+      if (r < prof.aggression) {
         // same full kit as the player (Step 5 parity), picked by
         // LOGIC since Step 6 — kind, band, health, status (specials.js)
         let acted = false;
-        if (Math.random() < diff.specialChance) {
+        if (Math.random() < prof.specialChance) {
           const idx = chooseSpecial(f.specials, f.specKinds, f.cooldowns, {
             dist: d, selfHealth: f.health, foeHealth: foe.health,
             selfWardT: f.wardT, selfBuffT: f.buffT, foeDebuffT: foe.debuffT,
@@ -878,13 +898,13 @@ export function createBrawlEngine(canvas, config) {
           if (idx >= 0) acted = trySpecial(f, idx);
         }
         if (!acted) {
-          if (Math.random() < diff.heavyChance) tryAttack(f, 'heavy', ATTACKS.heavy.range + 1.2);
+          if (Math.random() < prof.heavyChance) tryAttack(f, 'heavy', ATTACKS.heavy.range + 1.2);
           else tryAttack(f, 'light', ATTACKS.light.range + 1.2);
         }
-        if (Math.random() < diff.retreatChance) {
+        if (Math.random() < prof.retreatChance) {
           f.moveX = -dx; f.moveZ = -dz; // back off after attacking
         } else { f.moveX = 0; f.moveZ = 0; }
-      } else if (r < diff.aggression + 0.18) {
+      } else if (r < prof.aggression + 0.18) {
         a.blockUntil = elapsed + 0.35 + Math.random() * 0.3;
         f.moveX = 0; f.moveZ = 0;
       } else {
@@ -900,9 +920,14 @@ export function createBrawlEngine(canvas, config) {
     if (!a || !f.alive) { f.moveX = 0; f.moveZ = 0; f.blockHeld = false; return; }
     if (phase !== 'fight') { f.moveX = 0; f.moveZ = 0; f.blockHeld = false; return; }
     a.thinkT -= dt;
+    // ferocity: while a combo chain is live, the next decision
+    // comes sooner — pressure fighters keep swinging.
+    if (f.chain.count > 0 && f.chain.t < COMBO_WINDOW) {
+      a.thinkT -= dt * f.temperament.ferocity * 1.5;
+    }
     if (a.thinkT <= 0) {
       aiThink(f);
-      a.thinkT = (diff.thinkMs / 1000) * (0.7 + Math.random() * 0.6);
+      a.thinkT = (f.aiProfile.thinkMs / 1000) * (0.7 + Math.random() * 0.6);
     }
     // delayed reaction to a NEARBY visible attack — fair, difficulty-scaled
     if (a.reactArmed) {
@@ -912,7 +937,7 @@ export function createBrawlEngine(canvas, config) {
         const from = a.reactFrom;
         if (from && from.alive && from.attack && from.attack.phase !== 'recovery') {
           const d = distXZ(f, from);
-          if (d < 3.0 && Math.random() < diff.blockChance) {
+          if (d < 3.0 && Math.random() < f.aiProfile.blockChance) {
             a.blockUntil = elapsed + 0.4 + Math.random() * 0.35;
           }
         }

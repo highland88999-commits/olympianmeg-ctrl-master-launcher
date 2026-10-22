@@ -19,6 +19,7 @@ import { resolvePose } from '../../lib/kombat/pose-state.js';
 import { probeWebGL } from '../../lib/webgl-support.js';
 import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 import { BRAWL_COUNTS, BRAWL_BEST_OF } from '../../lib/kombat/brawl-rules.js';
+import { temperamentBars } from '../../lib/kombat/temperament.js';
 import {
   getSelectEntry, isFighterSelectable, selectableFighters,
   resolveProfileFighter, LOCKED_LABEL,
@@ -718,6 +719,16 @@ function SelectScreen({ mode, setMode, onFight }) {
               {statBar('TOUGH', highlight.stats.toughness)}
               {statBar('RANGE', highlight.stats.range)}
             </div>
+            {(() => { const tb = temperamentBars(highlight.id); return (
+              <>
+                <p className="mt-3 text-[10px] font-black tracking-[0.25em] text-white/40">TEMPERAMENT — HOW THEY FIGHT</p>
+                <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-1">
+                  {statBar('PACE', tb.speed)}
+                  {statBar('FURY', tb.fury)}
+                  {statBar('BRUTAL', tb.brutality)}
+                </div>
+              </>
+            ); })()}
             <p className="mt-2 text-[11px] text-white/50"><span className="font-black text-red-400">FATALITY:</span> {highlight.fatality.name}</p>
           </div>
         </div>
@@ -956,6 +967,16 @@ function BrawlSetupScreen({ mode, setMode, onFight }) {
               {statBar('TOUGH', highlight.stats.toughness)}
               {statBar('RANGE', highlight.stats.range)}
             </div>
+            {(() => { const tb = temperamentBars(highlight.id); return (
+              <>
+                <p className="mt-3 text-[10px] font-black tracking-[0.25em] text-white/40">TEMPERAMENT — HOW THEY FIGHT</p>
+                <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-1">
+                  {statBar('PACE', tb.speed)}
+                  {statBar('FURY', tb.fury)}
+                  {statBar('BRUTAL', tb.brutality)}
+                </div>
+              </>
+            ); })()}
             <p className="mt-2 text-[11px] text-white/50"><span className="font-black text-red-400">FATALITY:</span> {highlight.fatality.name}</p>
           </div>
         </div>
