@@ -72,6 +72,17 @@ export async function POST(req) {
     if (!parcel) {
       return NextResponse.json({ ok: false, error: 'Unknown parcel.' }, { status: 400 });
     }
+    // Free Commons are open land for everyone — no owner can ever
+    // exist for them, so no rent can ever be charged. Answered from
+    // the grid itself, before any table is touched.
+    if (!parcel.ownable) {
+      return NextResponse.json({
+        ok: true,
+        charged: 0,
+        reason: 'free-commons',
+        message: 'Free Commons — open land for everyone, no rent ever.',
+      });
+    }
 
     const db = await getServiceClient();
     if (!db) return NextResponse.json({ ok: false, setupRequired: true });

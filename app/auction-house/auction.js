@@ -24,6 +24,10 @@ export const CATEGORIES = [
   { value: 'vehicle', label: 'Vehicles' },
   { value: 'weather', label: 'Weather' },
   { value: 'object', label: 'Objects' },
+  // Earth 2 land resale (lib/earth2/land-sale.js). Land titles are
+  // not forge assets, so this tab renders the house's Land Tiles
+  // panel instead of querying the listings API.
+  { value: 'land_tiles', label: 'Land Tiles' },
 ];
 
 export function categoryLabel(value) {

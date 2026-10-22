@@ -50,6 +50,7 @@ const CATEGORY_ICONS = {
   vehicle: 'vehicle',
   weather: 'weather',
   object: 'object',
+  land_tiles: 'world',
 };
 
 function Glyph({ d, className, outline }) {
@@ -961,6 +962,40 @@ function SellModal({ session, onClose, onChanged }) {
   );
 }
 
+// --- Land Tiles (Earth 2 land resale) ---------------------------------------
+// Land parcels are not World Engine assets: titles live in the Earth 2
+// state layer (lib/earth2/land-sale.js), priced in gold, and transfer
+// title + rent rights on sale. The first round of land sales runs in
+// the Earth 2 chamber; peer-to-peer Land Tiles listings open here
+// when the Earth 2 land tables land (supabase/earth2.sql — owner's
+// green light). Until then this panel says exactly that, and points
+// at the chamber where land actually changes hands today.
+function LandTilesPanel() {
+  return (
+    <section className="mt-8 rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-8 text-center" aria-label="Land Tiles">
+      <Glyph d={PATHS.world} outline className="w-9 h-9 mx-auto text-emerald-400/70" />
+      <p className="mt-3 text-emerald-100 font-bold uppercase text-sm tracking-[0.2em]">Land Tiles — Earth 2</p>
+      <p className="mt-2 text-zinc-400 text-sm max-w-xl mx-auto">
+        Earth 2 land trades in gold, never dollars: 1,000 ownable parcels (and 1,500 Free Commons
+        that can never be sold). Buying a Land Tile transfers the parcel&apos;s title — and its
+        rent rights — to you.
+      </p>
+      <p className="mt-2 text-zinc-500 text-sm max-w-xl mx-auto">
+        The first round is on now in the Earth 2 chamber. Peer-to-peer resale listings open on
+        this page the moment the Earth 2 land tables go live; until then, land changes hands
+        in the chamber.
+      </p>
+      <a
+        href="/earth-2"
+        className="mt-5 inline-flex items-center gap-2 px-5 py-2.5 rounded border border-emerald-400/60 text-emerald-100 text-xs font-bold uppercase tracking-widest hover:bg-emerald-500/20 transition-colors"
+      >
+        <Glyph d={PATHS.tag} className="w-3.5 h-3.5" />
+        Go to the Earth 2 chamber
+      </a>
+    </section>
+  );
+}
+
 export default function AuctionHousePage() {
   const [category, setCategory] = useState('all');
   const [listings, setListings] = useState([]);
@@ -976,6 +1011,15 @@ export default function AuctionHousePage() {
   const openLotRef = useRef(null);
 
   const loadListings = async (cat) => {
+    // Land Tiles are not forge listings — the tab renders its own
+    // panel and never queries the listings API (which would 400:
+    // 'land_tiles' is not a world_engine_assets category).
+    if (cat === 'land_tiles') {
+      setLoading(false);
+      setLoadError('');
+      setListings([]);
+      return;
+    }
     setLoading(true);
     setLoadError('');
     try {
@@ -999,6 +1043,12 @@ export default function AuctionHousePage() {
 
   useEffect(() => {
     setWatchlist(loadWatchlist());
+    // Deep link: /auction-house?category=land_tiles (the Earth 2
+    // chamber's sold-out card sends buyers here).
+    try {
+      const wanted = new URLSearchParams(window.location.search).get('category');
+      if (wanted && CATEGORIES.some((c) => c.value === wanted)) setCategory(wanted);
+    } catch { /* no query string to honour */ }
     supabase.auth.getSession().then(({ data }) => setSession(data.session || null));
     const t = setInterval(() => setNowMs(Date.now()), 1000);
     const onKey = (e) => {
@@ -1095,7 +1145,9 @@ export default function AuctionHousePage() {
           </span>
         </nav>
 
-        {loading ? (
+        {category === 'land_tiles' ? (
+          <LandTilesPanel />
+        ) : loading ? (
           <section className="mt-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" aria-label="Loading lots">
             {[0, 1, 2, 3, 4, 5].map((i) => (
               <div key={i} className="rounded-lg border border-amber-500/15 p-4 animate-pulse" style={cardTile}>

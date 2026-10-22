@@ -1,7 +1,11 @@
 // tests/earth2.test.mjs
 // Earth 2 — Phase 2 foundation (owner-locked test build, Merlin
-// 2026-10-21):
-// - the deterministic 1000-parcel grid (ids, tiers, point lookups)
+// 2026-10-21; land rules 2026-10-22):
+// - the deterministic 2,500-parcel grid (ids, tiers, point lookups)
+//   split by Merlin's land rule into exactly 1,000 ownable parcels
+//   and 1,500 Free Commons (more free tiles than owned tiles)
+// - home-base resolution (first acquired by default, owner's choice
+//   when set), the First Round land sale + Land Tiles resale layer
 // - the gold forge's accrual math and daily cap
 // - the owner lock's static wiring: OWNER_PORTALS + withOwnerPortals
 //   in the shared roster, verifyOwnerSession in every Earth 2 API
@@ -18,10 +22,31 @@ import { dirname, join } from 'node:path';
 
 import {
   PARCEL_COUNT,
+  PARCEL_OWNABLE_COUNT,
+  PARCEL_COMMONS_COUNT,
   PARCELS,
   parcelAt,
   parcelById,
+  isOwnableIndex,
+  buyRefusal,
 } from '../lib/earth2/parcels.js';
+import {
+  resolveHomeBase,
+  ownedRowsFor,
+} from '../lib/earth2/home-base.js';
+import {
+  firstRoundListings,
+  firstRoundRemaining,
+  firstRoundSoldOut,
+  createLandListing,
+  transferLandTitle,
+} from '../lib/earth2/land-sale.js';
+import {
+  AUCTION_CATEGORIES,
+  LAND_TILES_CATEGORY,
+  LAND_TILES_LABEL,
+  isLandTilesCategory,
+} from '../lib/auction/helpers.js';
 import {
   FORGE_RATE_GOLD_PER_HOUR,
   FORGE_DAILY_CAP_GOLD,
@@ -38,23 +63,24 @@ const repo = join(here, '..');
 const read = (p) => readFileSync(join(repo, p), 'utf8');
 
 describe('the parcel grid', () => {
-  it('holds exactly 1000 parcels with unique, well-formed ids', () => {
-    assert.equal(PARCEL_COUNT, 1000);
-    assert.equal(PARCELS.length, 1000);
+  it('holds exactly 2500 parcels with unique, well-formed ids', () => {
+    assert.equal(PARCEL_COUNT, 2500);
+    assert.equal(PARCELS.length, 2500);
     const ids = new Set(PARCELS.map((p) => p.id));
-    assert.equal(ids.size, 1000);
+    assert.equal(ids.size, 2500);
     assert.equal(PARCELS[0].id, 'E2-0001');
-    assert.equal(PARCELS[999].id, 'E2-1000');
+    assert.equal(PARCELS[2499].id, 'E2-2500');
     for (const p of PARCELS) assert.match(p.id, /^E2-\d{4}$/);
   });
 
-  it('every parcel carries bounds, a name, a tier and its tier price', () => {
+  it('every parcel carries bounds and a name; prices live on ownable parcels only', () => {
     const prices = { standard: 10000, prime: 50000, landmark: 250000 };
     for (const p of PARCELS) {
       assert.ok(p.latMin < p.latMax && p.lonMin < p.lonMax, p.id);
       assert.ok(p.name.length > 0, p.id);
       assert.ok(Object.hasOwn(prices, p.tier), `${p.id} tier ${p.tier}`);
-      assert.equal(p.priceGold, prices[p.tier], p.id);
+      if (p.ownable) assert.equal(p.priceGold, prices[p.tier], p.id);
+      else assert.equal(p.priceGold, null, `${p.id} — Free Commons carry no price`);
       assert.ok(p.centerLat >= p.latMin && p.centerLat < p.latMax, p.id);
       assert.ok(p.centerLon >= p.lonMin && p.centerLon < p.lonMax, p.id);
     }
@@ -63,7 +89,8 @@ describe('the parcel grid', () => {
   it('parcelById round-trips and rejects strangers', () => {
     assert.equal(parcelById('E2-0001'), PARCELS[0]);
     assert.equal(parcelById('e2-1000'), PARCELS[999]);
-    assert.equal(parcelById('E2-1001'), null);
+    assert.equal(parcelById('E2-2500'), PARCELS[2499]);
+    assert.equal(parcelById('E2-2501'), null);
     assert.equal(parcelById('nope'), null);
     assert.equal(parcelById(null), null);
     assert.equal(parcelById(42), null);
@@ -82,10 +109,224 @@ describe('the parcel grid', () => {
 
   it('parcelAt clamps the poles and wraps the antimeridian', () => {
     assert.equal(parcelAt(90, 0).row, 0);
-    assert.equal(parcelAt(-90, 0).row, 24);
+    assert.equal(parcelAt(-90, 0).row, 49);
     assert.equal(parcelAt(10, 181).id, parcelAt(10, -179).id);
     assert.equal(parcelAt(10, -540).id, parcelAt(10, -180).id);
     assert.equal(parcelAt(10, 180).id, parcelAt(10, -180).id);
+  });
+});
+
+describe("Merlin's land rule — more free tiles than owned tiles", () => {
+  it('splits the globe into exactly 1,000 ownable and 1,500 Free Commons', () => {
+    assert.equal(PARCEL_OWNABLE_COUNT, 1000);
+    assert.equal(PARCEL_COMMONS_COUNT, 1500);
+    assert.ok(PARCEL_COMMONS_COUNT > PARCEL_OWNABLE_COUNT, 'more free than owned');
+    const ownable = PARCELS.filter((p) => p.ownable);
+    const commons = PARCELS.filter((p) => !p.ownable);
+    assert.equal(ownable.length, 1000);
+    assert.equal(commons.length, 1500);
+    for (const p of PARCELS) {
+      assert.equal(p.kind, p.ownable ? 'ownable' : 'commons', p.id);
+    }
+  });
+
+  it('the ownable interleave is the decided formula, evenly spread', () => {
+    for (let i = 0; i < PARCELS.length; i++) {
+      assert.equal(PARCELS[i].ownable, (i * 2) % 5 < 2, `index ${i}`);
+      assert.equal(isOwnableIndex(i), PARCELS[i].ownable, `index ${i}`);
+    }
+    // No row is all-owned or all-free: the interleave spreads both.
+    for (let row = 0; row < 50; row++) {
+      const cells = PARCELS.slice(row * 50, row * 50 + 50);
+      const owned = cells.filter((p) => p.ownable).length;
+      assert.equal(owned, 20, `row ${row}`);
+    }
+  });
+
+  it('the split is deterministic across a fresh module load', async () => {
+    const again = await import('../lib/earth2/parcels.js?fresh=land');
+    assert.equal(again.PARCELS.length, PARCELS.length);
+    for (let i = 0; i < PARCELS.length; i++) {
+      assert.equal(again.PARCELS[i].id, PARCELS[i].id);
+      assert.equal(again.PARCELS[i].kind, PARCELS[i].kind);
+      assert.equal(again.PARCELS[i].ownable, PARCELS[i].ownable);
+    }
+  });
+
+  it('the lib-level buy guard refuses Free Commons and nothing else', () => {
+    const commons = PARCELS.find((p) => !p.ownable);
+    const ownable = PARCELS.find((p) => p.ownable);
+    assert.match(buyRefusal(commons), /Free Commons/);
+    assert.equal(buyRefusal(ownable), null);
+    assert.equal(buyRefusal(null), 'Unknown parcel.');
+    // And the buy + rent routes enforce the grid's word.
+    const buy = read('app/api/earth2/buy/route.js');
+    assert.ok(buy.includes('buyRefusal'), 'buy route checks the lib guard');
+    const rent = read('app/api/earth2/rent/route.js');
+    assert.ok(rent.includes('free-commons'), 'rent route answers Free Commons for free');
+  });
+});
+
+describe('home base (spawn rule)', () => {
+  const rows = [
+    { parcel_id: 'E2-0001', owner_id: 'u1', owner_email: 'a@x.io', acquired_at: '2026-10-22T00:00:00Z' },
+    { parcel_id: 'E2-0006', owner_id: 'u1', owner_email: 'a@x.io', acquired_at: '2026-10-23T00:00:00Z' },
+  ];
+
+  it('defaults to the first parcel acquired', () => {
+    assert.equal(resolveHomeBase(rows, null), 'E2-0001');
+    assert.equal(resolveHomeBase(rows, ''), 'E2-0001');
+  });
+
+  it('honours a stored choice that is still owned', () => {
+    assert.equal(resolveHomeBase(rows, 'E2-0006'), 'E2-0006');
+    assert.equal(resolveHomeBase(rows, 'e2-0006'), 'E2-0006');
+  });
+
+  it('falls back when the choice was sold on, and to null with no land', () => {
+    assert.equal(resolveHomeBase(rows, 'E2-0999'), 'E2-0001');
+    assert.equal(resolveHomeBase([rows[1]], 'E2-0001'), 'E2-0006');
+    assert.equal(resolveHomeBase([], 'E2-0001'), null);
+    assert.equal(resolveHomeBase(null, null), null);
+  });
+
+  it("ownedRowsFor picks one user's rows out of the full list, in order", () => {
+    const mixed = [
+      { parcel_id: 'E2-0002', owner_email: 'b@x.io' },
+      rows[0],
+      { parcel_id: 'E2-0003', owner_email: 'B@x.io' },
+      rows[1],
+    ];
+    assert.deepEqual(ownedRowsFor(mixed, 'A@X.io').map((r) => r.parcel_id), ['E2-0001', 'E2-0006']);
+    assert.deepEqual(ownedRowsFor(mixed, ''), []);
+    assert.deepEqual(ownedRowsFor(null, 'a@x.io'), []);
+  });
+});
+
+describe('land sales — first round and Land Tiles resale', () => {
+  const seller = 'seller@x.io';
+  const ownableParcel = PARCELS.find((p) => p.ownable);
+  const commonsParcel = PARCELS.find((p) => !p.ownable);
+  const sellerRow = {
+    parcel_id: ownableParcel.id,
+    owner_id: 'u-seller',
+    owner_email: seller,
+    price_gold: ownableParcel.priceGold,
+    acquired_at: '2026-10-22T00:00:00Z',
+  };
+
+  it('the first round lists exactly the ownable, unsold parcels', () => {
+    assert.equal(firstRoundListings([]).length, 1000);
+    assert.ok(firstRoundListings([]).every((p) => p.ownable));
+    const after = firstRoundListings([sellerRow]);
+    assert.equal(after.length, 999);
+    assert.ok(!after.some((p) => p.id === ownableParcel.id));
+    assert.equal(firstRoundRemaining([sellerRow]), 999);
+    assert.equal(firstRoundSoldOut([sellerRow]), false);
+  });
+
+  it('the sold-out flip happens at exactly all 1,000 ownable owned', () => {
+    const allRows = PARCELS.filter((p) => p.ownable).map((p) => ({
+      parcel_id: p.id,
+      owner_id: 'u-x',
+      owner_email: 'x@x.io',
+    }));
+    assert.equal(allRows.length, 1000);
+    assert.equal(firstRoundSoldOut(allRows), true);
+    assert.equal(firstRoundRemaining(allRows), 0);
+    assert.equal(firstRoundSoldOut(allRows.slice(1)), false);
+  });
+
+  it('a resale listing is created for an owned ownable parcel', () => {
+    const res = createLandListing(ownableParcel, [sellerRow], 42000, seller, 1700000000000);
+    assert.equal(res.ok, true);
+    assert.equal(res.listing.category, 'land_tiles');
+    assert.equal(res.listing.parcelId, ownableParcel.id);
+    assert.equal(res.listing.name, ownableParcel.name);
+    assert.equal(res.listing.tier, ownableParcel.tier);
+    assert.equal(res.listing.askingGold, 42000);
+    assert.equal(res.listing.sellerEmail, seller);
+    assert.equal(res.listing.status, 'live');
+  });
+
+  it('Free Commons can never be listed — refused at the lib level', () => {
+    const res = createLandListing(commonsParcel, [], 1000, seller, 0);
+    assert.equal(res.ok, false);
+    assert.match(res.error, /Free Commons/);
+  });
+
+  it('only the owner can list, and the asking price must be real gold', () => {
+    assert.equal(createLandListing(ownableParcel, [], 1000, seller, 0).ok, false);
+    assert.match(
+      createLandListing(ownableParcel, [sellerRow], 1000, 'other@x.io', 0).error,
+      /only list a parcel you own/
+    );
+    assert.equal(createLandListing(ownableParcel, [sellerRow], 0, seller, 0).ok, false);
+    assert.equal(createLandListing(ownableParcel, [sellerRow], -5, seller, 0).ok, false);
+  });
+
+  it('buying a listing transfers title (and rent rights) in the state layer', () => {
+    const rows = [sellerRow];
+    const at = 1700003600000;
+    const res = transferLandTitle(rows, ownableParcel.id, { id: 'u-buyer', email: 'buyer@x.io' }, at);
+    assert.equal(res.ok, true);
+    assert.equal(res.rows[0].owner_id, 'u-buyer');
+    assert.equal(res.rows[0].owner_email, 'buyer@x.io');
+    assert.equal(res.rows[0].acquired_at, new Date(at).toISOString());
+    // The input layer is untouched — the transfer returns a new array.
+    assert.equal(rows[0].owner_email, seller);
+    // Rent reads the owner row, so the new owner now collects rent:
+    // the parcel also leaves the seller's home-base resolution.
+    assert.equal(resolveHomeBase(ownedRowsFor(res.rows, seller), null), null);
+    assert.equal(resolveHomeBase(ownedRowsFor(res.rows, 'buyer@x.io'), null), ownableParcel.id);
+  });
+
+  it('title transfer refuses commons, strangers and self-buys', () => {
+    assert.equal(transferLandTitle([], commonsParcel.id, { id: 'u2', email: 'b@x.io' }, 0).ok, false);
+    assert.match(
+      transferLandTitle([], commonsParcel.id, { id: 'u2', email: 'b@x.io' }, 0).error,
+      /Free Commons/
+    );
+    assert.equal(transferLandTitle([], ownableParcel.id, { id: 'u2', email: 'b@x.io' }, 0).ok, false);
+    assert.equal(
+      transferLandTitle([sellerRow], ownableParcel.id, { id: 'u-seller', email: seller }, 0).ok,
+      false
+    );
+    assert.equal(transferLandTitle([sellerRow], 'E2-9999', { id: 'u2', email: 'b@x.io' }, 0).ok, false);
+  });
+});
+
+describe("the Auction House 'Land Tiles' category", () => {
+  it("is registered under Merlin's exact naming", () => {
+    assert.equal(LAND_TILES_CATEGORY, 'land_tiles');
+    assert.equal(LAND_TILES_LABEL, 'Land Tiles');
+    assert.equal(isLandTilesCategory('land_tiles'), true);
+    assert.equal(isLandTilesCategory(' LAND_TILES '), true);
+    assert.equal(isLandTilesCategory('world'), false);
+  });
+
+  it('stays OUT of the forge-asset categories (that list mirrors the DB check)', () => {
+    assert.equal(AUCTION_CATEGORIES.length, 8);
+    assert.ok(!AUCTION_CATEGORIES.includes('land_tiles'));
+  });
+
+  it('the house UI carries the Land Tiles tab and its own panel', () => {
+    const logic = read('app/auction-house/auction.js');
+    assert.ok(logic.includes("{ value: 'land_tiles', label: 'Land Tiles' }"));
+    const page = read('app/auction-house/page.jsx');
+    assert.ok(page.includes('LandTilesPanel'), 'land tab renders the land panel');
+    assert.ok(page.includes("cat === 'land_tiles'"), 'land tab never queries the listings API');
+    assert.ok(page.includes('/earth-2'), 'land panel points at the Earth 2 chamber');
+  });
+
+  it('the chamber carries the First Round frame, the sold-out flip and home base', () => {
+    const page = read('app/earth-2/page.jsx');
+    assert.ok(page.includes('FIRST ROUND LAND SALE'));
+    assert.ok(page.includes('THE FIRST ROUND IS SOLD OUT'));
+    assert.ok(page.includes('/auction-house?category=land_tiles'));
+    assert.ok(page.includes('Set as home base'));
+    assert.ok(page.includes('resolveHomeBase'));
+    assert.ok(page.includes('Free Commons'), 'chamber labels the commons plainly');
   });
 });
 

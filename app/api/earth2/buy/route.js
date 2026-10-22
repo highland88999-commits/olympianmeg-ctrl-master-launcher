@@ -11,7 +11,7 @@ import { NextResponse } from 'next/server';
 import { verifyOwnerSession } from '@/lib/owner';
 import { getServiceClient } from '@/lib/economy/supabase';
 import { debitGold, creditGold, InsufficientGoldError } from '@/lib/economy/ledger';
-import { parcelById } from '@/lib/earth2/parcels';
+import { parcelById, buyRefusal } from '@/lib/earth2/parcels';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,6 +41,13 @@ export async function POST(req) {
     const parcel = parcelById(body && body.parcelId);
     if (!parcel) {
       return NextResponse.json({ ok: false, error: 'Unknown parcel.' }, { status: 400 });
+    }
+    // Merlin's land rule: Free Commons can never be bought. The
+    // refusal is a lib-level property of the parcel itself, checked
+    // before any gold moves or any table is touched.
+    const refusal = buyRefusal(parcel);
+    if (refusal) {
+      return NextResponse.json({ ok: false, error: refusal }, { status: 400 });
     }
 
     const db = await getServiceClient();

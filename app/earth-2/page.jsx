@@ -13,21 +13,57 @@
 // entries that lead here (Portal Room + Concourse Portals 3D) only
 // exist for the owner too — lib/portal-roster.js withOwnerPortals.
 //
-// Inside: the 1000-parcel map of the new world (buy with gold), the
-// Gold Forge (claim what time pours), the rent rule and its ledger,
-// and Dinosaur Bay — honestly empty until the Tripo3D foundry
-// delivers the real assets for inspection.
+// Inside: the parcel map of the new world — 2,500 parcels, of which
+// exactly 1,000 are ownable and 1,500 are Free Commons (Merlin's
+// rule: more free tiles than owned tiles) — with buying in gold, the
+// First Round Land Sale frame, home-base spawn, the Gold Forge
+// (claim what time pours), the rent rule and its ledger, and
+// Dinosaur Bay — the Tripo3D foundry's real rigged dinosaurs,
+// placed and breathing for inspection (2026-10-22).
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { supabase } from '@/lib/supabase';
 import { isOwnerEmail, OWNER_EMAIL } from '@/lib/owner';
-import { PARCELS, PARCEL_COLS, parcelById } from '@/lib/earth2/parcels';
+import {
+  PARCELS,
+  PARCEL_COLS,
+  PARCEL_OWNABLE_COUNT,
+  PARCEL_COMMONS_COUNT,
+  parcelById,
+} from '@/lib/earth2/parcels';
+import {
+  resolveHomeBase,
+  ownedRowsFor,
+  loadHomeBaseChoice,
+  saveHomeBaseChoice,
+} from '@/lib/earth2/home-base';
+import {
+  firstRoundListings,
+  firstRoundSoldOut,
+  createLandListing,
+} from '@/lib/earth2/land-sale';
 import {
   forgeAccrued,
   FORGE_RATE_GOLD_PER_HOUR,
   FORGE_DAILY_CAP_GOLD,
 } from '@/lib/earth2/forge';
 import { formatGold } from '@/lib/economy/config';
+
+// The Bay is a three.js scene — load it lazily, client-side only, so
+// the chamber's gate never waits on (or leaks) the 3D chunk.
+const DinosaurBay = dynamic(() => import('@/components/earth2/DinosaurBay'), {
+  ssr: false,
+  loading: () => (
+    <section className="mt-5 rounded-[1.5rem] border border-dashed border-emerald-300/30 bg-emerald-400/[0.04] p-6 text-center backdrop-blur-md">
+      <div aria-hidden="true" className="text-4xl">🦕</div>
+      <h2 className="mt-2 text-sm font-black tracking-[0.25em] text-emerald-100">
+        DINOSAUR BAY
+      </h2>
+      <p className="mt-2 text-sm text-zinc-400">Waking the dinosaurs…</p>
+    </section>
+  ),
+});
 
 const TIER_LABEL = { standard: 'Standard', prime: 'Prime', landmark: 'Landmark' };
 const KIND_LABEL = { buy: 'Parcel bought', rent: 'Rent', forge: 'Forge claim' };
@@ -42,6 +78,14 @@ export default function Earth2Page() {
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState('');
   const [now, setNow] = useState(() => Date.now());
+  // Home base (Merlin's rule): the stored "Set as home base" choice
+  // for this device; resolution against live ownership happens below.
+  const [homeChoice, setHomeChoice] = useState(null);
+  // Preview resale listings (Land Tiles) created from the inspector —
+  // they go live with the Earth 2 tables; see lib/earth2/land-sale.js.
+  const [landListings, setLandListings] = useState([]);
+  const [listPrice, setListPrice] = useState('');
+  const homeFocusRef = useRef(false);
   // Preview mode (database tables not landed yet): the forge clock
   // runs locally from page open so the math is visible; nothing is
   // written anywhere until the real tables exist.
@@ -120,9 +164,52 @@ export default function Earth2Page() {
     return map;
   }, [state]);
 
+  // Home base: my ownership rows (state order = acquisition order),
+  // my stored choice, and the parcel I spawn at. No land → null →
+  // the default entry, unchanged.
+  const myRows = useMemo(
+    () => ownedRowsFor(state?.parcels, myEmail),
+    [state, myEmail]
+  );
+  const homeBaseId = useMemo(
+    () => resolveHomeBase(myRows, homeChoice),
+    [myRows, homeChoice]
+  );
+  const homeParcel = homeBaseId ? parcelById(homeBaseId) : null;
+
+  // The First Round Land Sale frame's data.
+  const saleListings = useMemo(
+    () => firstRoundListings(state?.parcels || []),
+    [state]
+  );
+  const soldOut = useMemo(
+    () => firstRoundSoldOut(state?.parcels || []),
+    [state]
+  );
+
+  // Read the stored home-base choice once we are in.
+  useEffect(() => {
+    if (gate === 'open') setHomeChoice(loadHomeBaseChoice());
+  }, [gate]);
+
+  // Entry focus: entering Earth 2 starts at the home base — the map
+  // focuses it (and the spawn banner names it) the first time the
+  // ownership state resolves one.
+  useEffect(() => {
+    if (homeBaseId && !homeFocusRef.current) {
+      homeFocusRef.current = true;
+      setSelectedId(homeBaseId);
+    }
+  }, [homeBaseId]);
+
   const setupRequired = !!(state && state.setupRequired);
   const selected = selectedId ? parcelById(selectedId) : null;
   const selectedRow = selectedId ? owners.get(selectedId) || null : null;
+  const selectedIsMine = !!(selectedRow && selectedRow.owner_email === myEmail);
+  const selectedIsHome = !!(selected && selected.id === homeBaseId);
+  const selectedListing = selected
+    ? landListings.find((l) => l.parcelId === selected.id) || null
+    : null;
 
   const forgeLastClaim = setupRequired
     ? previewStart
@@ -141,16 +228,53 @@ export default function Earth2Page() {
     [authHeaders]
   );
 
-  const buy = async () => {
-    if (!selected || busy) return;
+  const buyParcel = async (parcel) => {
+    if (!parcel || busy) return;
     setBusy('buy');
     setNotice('');
-    const data = await post('/api/earth2/buy', { parcelId: selected.id });
+    const data = await post('/api/earth2/buy', { parcelId: parcel.id });
     if (data?.setupRequired) setNotice('Database setup is still pending — buying switches on when the earth2 tables land.');
-    else if (data?.ok) setNotice(`${selected.id} is yours — ${selected.name} joins your titles.`);
+    else if (data?.ok) setNotice(`${parcel.id} is yours — ${parcel.name} joins your titles.`);
     else setNotice(data?.error || 'That purchase did not go through.');
     await loadState();
     setBusy('');
+  };
+
+  const buy = () => {
+    if (selected) return buyParcel(selected);
+    return undefined;
+  };
+
+  const setHome = () => {
+    if (!selected) return;
+    saveHomeBaseChoice(selected.id);
+    setHomeChoice(selected.id);
+    setNotice(
+      `🏠 ${selected.id} · ${selected.name} is your home base — you enter Earth 2 here.`
+    );
+  };
+
+  const listForResale = () => {
+    if (!selected) return;
+    const res = createLandListing(
+      selected,
+      state?.parcels || [],
+      Number(listPrice),
+      myEmail,
+      Date.now()
+    );
+    if (!res.ok) {
+      setNotice(res.error);
+      return;
+    }
+    setLandListings((prev) => [
+      ...prev.filter((l) => l.parcelId !== selected.id),
+      res.listing,
+    ]);
+    setListPrice('');
+    setNotice(
+      `Listed ${selected.id} for resale at ${res.listing.askingGold} gold under Land Tiles (preview — listings go live with the Earth 2 tables).`
+    );
   };
 
   const claimForge = async () => {
@@ -205,12 +329,18 @@ export default function Earth2Page() {
   const cellClass = (parcel) => {
     const row = owners.get(parcel.id);
     let base = 'bg-white/10';
-    if (parcel.tier === 'landmark') base = 'bg-white/30';
+    if (!parcel.ownable) base = 'bg-emerald-300/[0.14]'; // Free Commons
+    else if (parcel.tier === 'landmark') base = 'bg-white/30';
     else if (parcel.tier === 'prime') base = 'bg-emerald-200/25';
     if (row && row.owner_email === myEmail) base = 'bg-amber-300';
     else if (row && row.owner_email === OWNER_EMAIL) base = 'bg-violet-400';
     else if (row) base = 'bg-cyan-300';
-    const ring = parcel.id === selectedId ? ' ring-2 ring-white ring-inset z-10' : '';
+    const ring =
+      parcel.id === selectedId
+        ? ' ring-2 ring-white ring-inset z-10'
+        : parcel.id === homeBaseId
+          ? ' ring-2 ring-amber-300 ring-inset'
+          : '';
     return `h-3 w-full rounded-[2px] transition hover:brightness-150 sm:h-3.5 ${base}${ring}`;
   };
 
@@ -261,6 +391,13 @@ export default function Earth2Page() {
             {notice}
           </div>
         )}
+        {homeParcel && (
+          <div className="mt-5 rounded-2xl border border-emerald-300/40 bg-emerald-300/10 px-4 py-3 text-sm leading-relaxed text-emerald-100">
+            🏠 You enter Earth 2 at your home base —{' '}
+            <span className="font-bold">{homeParcel.name}</span> ({homeParcel.id}).
+            It is focused on the map below: that is your spawn point.
+          </div>
+        )}
 
         <div className="mt-6 grid gap-5 lg:grid-cols-[1fr_360px]">
           {/* The parcel map */}
@@ -269,7 +406,10 @@ export default function Earth2Page() {
               <h2 className="text-sm font-black tracking-[0.25em] text-zinc-100">
                 THE PARCEL MAP
               </h2>
-              <span className="text-xs text-zinc-400">1,000 parcels · tap one to see it</span>
+              <span className="text-xs text-zinc-400">
+                2,500 parcels · {PARCEL_OWNABLE_COUNT.toLocaleString('en-US')} ownable ·{' '}
+                {PARCEL_COMMONS_COUNT.toLocaleString('en-US')} Free Commons · tap one to see it
+              </span>
             </div>
             <div
               className="mt-4 grid gap-[2px]"
@@ -295,6 +435,8 @@ export default function Earth2Page() {
               <span><span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-[2px] bg-white/30" />Landmark land</span>
               <span><span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-[2px] bg-emerald-200/25" />Prime land</span>
               <span><span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-[2px] bg-white/10" />Open land</span>
+              <span><span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-[2px] bg-emerald-300/[0.14]" />🌿 Free Commons — never sold, never rented</span>
+              <span><span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-[2px] ring-2 ring-amber-300 ring-inset" />🏠 Home base (spawn)</span>
             </div>
           </section>
 
@@ -306,23 +448,45 @@ export default function Earth2Page() {
                 <div className="mt-3">
                   <div className="text-2xl font-bold text-zinc-50">{selected.name}</div>
                   <div className="mt-0.5 text-xs tracking-widest text-zinc-400">
-                    {selected.id} · {TIER_LABEL[selected.tier]} land
+                    {selected.id} ·{' '}
+                    {selected.ownable
+                      ? `${TIER_LABEL[selected.tier]} land`
+                      : 'Free Commons'}
+                    {selectedIsHome ? ' · 🏠 HOME BASE' : ''}
                   </div>
                   <div className="mt-3 space-y-1 text-sm text-zinc-300">
                     <p>
                       {fmtDeg(selected.latMin)} to {fmtDeg(selected.latMax)} latitude ·{' '}
                       {fmtDeg(selected.lonMin)} to {fmtDeg(selected.lonMax)} longitude
                     </p>
-                    <p>
-                      {selectedRow
-                        ? selectedRow.owner_email === myEmail
+                    {!selected.ownable ? (
+                      <p>
+                        🌿 <span className="font-semibold text-emerald-200">Free Commons</span>{' '}
+                        — open land for everyone. It can never be bought, sold, listed, or
+                        rented.
+                      </p>
+                    ) : selectedRow ? (
+                      <p>
+                        {selectedIsMine
                           ? 'Owned by you — the title is in your name.'
-                          : `Owned by ${selectedRow.owner_email}.`
-                        : 'Unowned — open land, waiting for a title.'}
-                    </p>
-                    <p className="text-amber-100">{formatGold(selected.priceGold)}</p>
+                          : `Owned by ${selectedRow.owner_email}.`}
+                        {selectedIsHome
+                          ? ' This is your home base — you spawn here when you enter Earth 2.'
+                          : ''}
+                      </p>
+                    ) : (
+                      <p>
+                        <span className="font-semibold text-amber-100">For sale</span> —{' '}
+                        {TIER_LABEL[selected.tier]} land, unowned, waiting for a title.
+                      </p>
+                    )}
+                    {selected.ownable ? (
+                      <p className="text-amber-100">{formatGold(selected.priceGold)}</p>
+                    ) : (
+                      <p className="text-zinc-400">No price — Free Commons are never for sale.</p>
+                    )}
                   </div>
-                  {!selectedRow && (
+                  {!selectedRow && selected.ownable && (
                     <button
                       type="button"
                       onClick={buy}
@@ -332,18 +496,62 @@ export default function Earth2Page() {
                       {busy === 'buy' ? 'Buying…' : `Buy for ${formatGold(selected.priceGold)}`}
                     </button>
                   )}
-                  <button
-                    type="button"
-                    onClick={testEntry}
-                    disabled={!!busy || setupRequired}
-                    className="mt-2 w-full rounded-full border border-white/15 bg-white/5 px-4 py-3 text-sm font-semibold text-zinc-200 transition hover:border-cyan-300/50 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    {busy === 'rent' ? 'Stepping…' : 'Test stepping onto this land'}
-                  </button>
-                  <p className="mt-3 text-[11px] leading-relaxed text-zinc-500">
-                    Prices are placeholders from the plan — final tile pricing is still
-                    Merlin&rsquo;s call.
-                  </p>
+                  {selectedIsMine && !selectedIsHome && (
+                    <button
+                      type="button"
+                      onClick={setHome}
+                      className="mt-4 w-full rounded-full border border-emerald-300/60 bg-emerald-300/10 px-4 py-3 text-sm font-bold tracking-wide text-emerald-100 transition hover:bg-emerald-300/20"
+                    >
+                      🏠 Set as home base
+                    </button>
+                  )}
+                  {selectedIsMine && (
+                    <div className="mt-3">
+                      {selectedListing ? (
+                        <p className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-xs text-zinc-300">
+                          🏷️ Listed for resale under Land Tiles at{' '}
+                          {formatGold(selectedListing.askingGold)} (preview — goes live
+                          with the Earth 2 tables).
+                        </p>
+                      ) : (
+                        <div className="flex gap-2">
+                          <input
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={listPrice}
+                            onChange={(e) => setListPrice(e.target.value)}
+                            placeholder="Asking price (gold)"
+                            aria-label="Asking price in gold"
+                            className="min-w-0 flex-1 rounded-full border border-white/15 bg-black/30 px-4 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={listForResale}
+                            className="shrink-0 rounded-full border border-white/20 bg-white/5 px-4 py-2.5 text-sm font-semibold text-zinc-100 transition hover:border-amber-300/50"
+                          >
+                            List for resale
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {selected.ownable && (
+                    <button
+                      type="button"
+                      onClick={testEntry}
+                      disabled={!!busy || setupRequired}
+                      className="mt-2 w-full rounded-full border border-white/15 bg-white/5 px-4 py-3 text-sm font-semibold text-zinc-200 transition hover:border-cyan-300/50 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {busy === 'rent' ? 'Stepping…' : 'Test stepping onto this land'}
+                    </button>
+                  )}
+                  {selected.ownable && (
+                    <p className="mt-3 text-[11px] leading-relaxed text-zinc-500">
+                      Prices are placeholders from the plan — final tile pricing is still
+                      Merlin&rsquo;s call.
+                    </p>
+                  )}
                 </div>
               ) : (
                 <p className="mt-3 text-sm leading-relaxed text-zinc-400">
@@ -395,7 +603,8 @@ export default function Earth2Page() {
               <p className="mt-2 text-sm leading-relaxed text-zinc-300">
                 Step onto someone else&rsquo;s land and rent is charged the moment your
                 foot lands: <span className="font-bold text-zinc-100">2 gold</span> — one
-                gold to the owner, one gold to the house. Your own land is always free.
+                gold to the owner, one gold to the house. Your own land is always free,
+                and the Free Commons never charge anyone anything.
               </p>
               <div className="mt-4">
                 <div className="text-[11px] font-bold tracking-[0.25em] text-zinc-500">
@@ -435,18 +644,114 @@ export default function Earth2Page() {
           </div>
         </div>
 
-        {/* Dinosaur Bay — honest empty state until the foundry delivers. */}
-        <section className="mt-5 rounded-[1.5rem] border border-dashed border-emerald-300/30 bg-emerald-400/[0.04] p-6 text-center backdrop-blur-md">
-          <div aria-hidden="true" className="text-4xl">🦕</div>
-          <h2 className="mt-2 text-sm font-black tracking-[0.25em] text-emerald-100">
-            DINOSAUR BAY
-          </h2>
-          <p className="mx-auto mt-2 max-w-xl text-sm leading-relaxed text-zinc-300">
-            Tripo3D assets are in the foundry. The dinosaurs arrive here first — walking,
-            eating, sleeping — for inspection before they set foot in Phase 2. This bay
-            fills when the real assets land; nothing here is a stand-in.
-          </p>
-        </section>
+        {/* First Round Land Sale — its own frame: while any of the
+            1,000 ownable parcels remain unsold, they sell here at
+            tier price. Once every one has an owner, the frame flips
+            to a sold-out card that sends buyers to the Auction
+            House's Land Tiles category for peer-to-peer resale. */}
+        {state && (
+          <section className="mt-5 rounded-[1.5rem] border border-amber-300/25 bg-amber-300/[0.05] p-5 backdrop-blur-md">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-sm font-black tracking-[0.25em] text-amber-100">
+                🏷️ FIRST ROUND LAND SALE
+              </h2>
+              <span className="text-xs text-zinc-400">
+                {soldOut
+                  ? 'First round complete'
+                  : `${saleListings.length} of ${PARCEL_OWNABLE_COUNT.toLocaleString('en-US')} ownable parcels still for sale`}
+              </span>
+            </div>
+            {soldOut ? (
+              <div className="mt-4 rounded-2xl border border-emerald-300/40 bg-emerald-300/10 p-5 text-center">
+                <p className="font-black tracking-[0.2em] text-emerald-100">
+                  🎉 THE FIRST ROUND IS SOLD OUT
+                </p>
+                <p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-zinc-300">
+                  All {PARCEL_OWNABLE_COUNT.toLocaleString('en-US')} ownable parcels have
+                  owners. From here, land changes hands peer-to-peer — owners list parcels
+                  in the Auction House under Land Tiles, title and rent rights included.
+                </p>
+                <a
+                  href="/auction-house?category=land_tiles"
+                  className="mt-4 inline-block rounded-full border border-emerald-300/70 bg-emerald-300/15 px-5 py-2.5 text-sm font-bold tracking-wide text-emerald-100 transition hover:bg-emerald-300/25"
+                >
+                  Browse Land Tiles in the Auction House →
+                </a>
+              </div>
+            ) : (
+              <>
+                <p className="mt-2 text-sm leading-relaxed text-zinc-300">
+                  Every ownable parcel still waiting for its first owner, at its tier
+                  price. The {PARCEL_COMMONS_COUNT.toLocaleString('en-US')} Free Commons
+                  are never in this list — they belong to everyone.
+                </p>
+                <ul className="mt-4 grid max-h-96 gap-2 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-3">
+                  {saleListings.slice(0, 90).map((p) => (
+                    <li
+                      key={p.id}
+                      className="flex items-center justify-between gap-3 rounded-xl border border-white/8 bg-black/25 px-3 py-2"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setSelectedId(p.id)}
+                        className="min-w-0 text-left"
+                      >
+                        <span className="block truncate text-sm font-semibold text-zinc-100">
+                          {p.name}
+                        </span>
+                        <span className="text-[11px] text-zinc-400">
+                          {p.id} · {TIER_LABEL[p.tier]}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => buyParcel(p)}
+                        disabled={!!busy || setupRequired}
+                        className="shrink-0 rounded-full border border-amber-300/60 bg-amber-300/10 px-3 py-1.5 text-xs font-bold text-amber-100 transition hover:bg-amber-300/25 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        {formatGold(p.priceGold)}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                {saleListings.length > 90 && (
+                  <p className="mt-2 text-xs text-zinc-500">
+                    Showing the first 90 — tap any square on the map above to inspect
+                    and buy any other parcel.
+                  </p>
+                )}
+              </>
+            )}
+            {landListings.length > 0 && (
+              <div className="mt-4 border-t border-white/10 pt-4">
+                <div className="text-[11px] font-bold tracking-[0.25em] text-zinc-400">
+                  YOUR LAND TILES LISTINGS (PREVIEW)
+                </div>
+                <ul className="mt-2 space-y-2">
+                  {landListings.map((l) => (
+                    <li
+                      key={l.id}
+                      className="flex items-baseline justify-between gap-3 rounded-xl border border-white/8 bg-black/25 px-3 py-2 text-xs"
+                    >
+                      <span className="text-zinc-200">
+                        <span className="font-semibold">{l.name}</span>
+                        <span className="text-zinc-400"> · {l.parcelId} · {TIER_LABEL[l.tier]}</span>
+                      </span>
+                      <span className="font-bold text-amber-100">{formatGold(l.askingGold)}</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
+                  Preview listings — they go live in the Auction House&rsquo;s Land Tiles
+                  category when the Earth 2 tables land.
+                </p>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* Dinosaur Bay — the foundry's dinosaurs, live (2026-10-22). */}
+        <DinosaurBay />
       </div>
     </main>
   );
