@@ -65,6 +65,16 @@ check('B: the Quantum button at street level no longer needs a selected tile', (
   assert.match(consoleSrc, /selectedTile \|\| \{ lat: roamState\.lat, lon: roamState\.lon \}/);
 });
 
+check('B2: the Quantum door is gated OFF by the master flag (Merlin, 2026-10-22)', () => {
+  // The Quantum Realm is off "for now": the door renders only when
+  // QUANTUM_ENABLED is on, and the flag itself ships false — the
+  // button's drop behavior (check B above) is preserved verbatim
+  // behind the gate so re-enabling is a one-line flip.
+  assert.match(consoleSrc, /\{QUANTUM_ENABLED && onDropToTile && \(/);
+  const quantumSrc = readFileSync(new URL('../lib/earth/quantum.js', import.meta.url), 'utf8');
+  assert.match(quantumSrc, /export const QUANTUM_ENABLED = false;/);
+});
+
 check('B: the console shows the size state (micro is visible in the size row)', () => {
   assert.match(consoleSrc, /Quantum Realm — Ant-Man scale/);
 });

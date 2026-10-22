@@ -17,6 +17,7 @@ import { tileCellKey, recordRenderedTileKey } from '@/lib/earth/lens-cache';
 import { HUB_UNITS_PER_DEGREE, DISPLAY_UNITS_PER_METRE } from '@/lib/earth/placements';
 import { loadHeightData, getHeightData } from '@/lib/earth/heightmap';
 import { parachuteState } from '@/lib/earth/parachute';
+import { QUANTUM_ENABLED } from '@/lib/earth/quantum';
 import { roamState } from '@/lib/earth/roam';
 
 // The hub Earth: Google's photorealistic 3D tiles when they stream, a real
@@ -326,13 +327,17 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
           <StreetGroundPatch center={patchCenter} />
         )}
         {/* The Quantum Realm's own floor: a small opaque disc that
-            follows the tiny walker in every direction. */}
-        {effectiveLayer === 'terrain' && roaming && (
+            follows the tiny walker in every direction. QUANTUM OFF
+            (Merlin, 2026-10-22, "for now"): not mounted at all while
+            QUANTUM_ENABLED is false (lib/earth/quantum.js) — the
+            component itself is untouched and returns with the flag. */}
+        {effectiveLayer === 'terrain' && roaming && QUANTUM_ENABLED && (
           <MicroGroundDisc />
         )}
         {/* The Quantum Realm's own sky: renders only below 0.5x —
-            from normal size it does not exist at all. */}
-        {effectiveLayer === 'terrain' && roaming && (
+            from normal size it does not exist at all. Also unmounted
+            while the Quantum Realm is off (same flag, same note). */}
+        {effectiveLayer === 'terrain' && roaming && QUANTUM_ENABLED && (
           <QuantumSkyDome />
         )}
         {/* Underwater ambience for swimming: a clear bright-blue

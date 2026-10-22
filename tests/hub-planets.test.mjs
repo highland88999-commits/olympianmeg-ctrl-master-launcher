@@ -51,7 +51,10 @@ test("Saturn's rings clear its own sphere and carry the strip texture", () => {
 
 test('HomeScene renders the planets, collides them, and re-skins Mars', () => {
   const src = readFileSync('components/HomeScene.jsx', 'utf8');
-  assert.match(src, /<BackdropPlanets \/>/);
+  // Planet Program (2026-10-22): BackdropPlanets now receives the
+  // freeroam-gated dive handler — planets are clickable into their
+  // realms, so the old prop-less pin became this wired form.
+  assert.match(src, /<BackdropPlanets onPlanetSelect=\{appState === 'hub_freeroam' \? beginPlanetDive : null\} \/>/);
   assert.match(src, /registerCollider\('planet-' \+ p\.key/);
   assert.match(src, /'\/planets\/mars\.jpg'/);
 });

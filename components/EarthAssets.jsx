@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { EARTH_ASSETS } from '@/lib/earth/assets';
 import {
@@ -8,9 +9,29 @@ import {
   DISPLAY_UNITS_PER_METRE,
   HUB_UNITS_PER_DEGREE,
 } from '@/lib/earth/placements';
-import { loadHeightData } from '@/lib/earth/heightmap';
+import { loadHeightData, surfaceRadiusOrBase } from '@/lib/earth/heightmap';
 import { publishColliders } from '@/lib/earth/collision';
 import { tameTripoMaterials } from '@/lib/characters/tame-materials';
+import {
+  interiorById,
+  interiorAt,
+  nearestInterior,
+  interiorLocal,
+  liftPadAt,
+  floorAltM,
+  interiorState,
+  haversineM,
+} from '@/lib/earth/interiors';
+import { isAetherCollected, collectAether } from '@/lib/earth/aether';
+import {
+  registerVertexAnimation,
+  stepVertexAnimations,
+  clearVertexAnimations,
+} from '@/lib/earth/asset-anim';
+import { buildInteriorRoom, registerRoom, getRooms, clearRooms } from '@/components/EarthInteriorRoom';
+import { roamState } from '@/lib/earth/roam';
+import { latLonToVec3 } from '@/lib/geo';
+import { fx } from '@/lib/fx';
 
 // EarthAssets — the generated-asset layer for the fallback terrain
 // globe (TERRAFORM_PLAN.md §6). Renders the Tripo-generated Earth
@@ -221,6 +242,33 @@ export default function EarthAssets() {
             holder.add(inner);
             place(holder, placements[0]);
             nodes.push(holder);
+            // ANIMATION (Merlin, 2026-10-22): the farm windmill's
+            // fan — vertex-level, the GLB is one fused mesh (see
+            // lib/earth/asset-anim.js). Registered on the model's
+            // own geometry; the shared-clock driver spins it.
+            if (asset.id === 'e024-farm-windmill') {
+              let fm = null;
+              gltf.scene.traverse((c) => { if (!fm && c.isMesh) fm = c; });
+              if (fm) registerVertexAnimation(fm.geometry, 'rotor');
+            }
+            // INTERIORS (Merlin, 2026-10-22): an enterable
+            // construct gets its parametric room, placed on the
+            // same surface point and registered for the driver
+            // (shell swap at the door, lift, light, aether).
+            const interior = interiorById(asset.id);
+            if (interior) {
+              const room = buildInteriorRoom(interior, placements[0]);
+              nodes.push(room.group);
+              disposables.current.push(room.group);
+              registerRoom(interior.id, {
+                shell: holder,
+                group: room.group,
+                aetherMeshes: room.aetherMeshes,
+              });
+              room.aetherMeshes.forEach((mesh, id) => {
+                if (isAetherCollected(id)) mesh.visible = false;
+              });
+            }
           } else {
             // Instanced: bake the GLB node transform into a cloned
             // geometry so instances share the singles' world-space
@@ -235,6 +283,12 @@ export default function EarthAssets() {
             const geo = mesh.geometry.clone();
             geo.applyMatrix4(mesh.matrixWorld);
             disposables.current.push(geo);
+            // ANIMATION (Merlin, 2026-10-22): wind turbines spin,
+            // oil pumpjacks stroke — vertex-level on this shared
+            // baked geometry, so every instance works together
+            // (lib/earth/asset-anim.js).
+            if (asset.id === 'e068-wind-turbine') registerVertexAnimation(geo, 'rotor');
+            if (asset.id === 'e069-oil-pumpjack') registerVertexAnimation(geo, 'beam');
             const inst = new THREE.InstancedMesh(
               geo, mesh.material, placements.length,
             );
@@ -260,6 +314,8 @@ export default function EarthAssets() {
     })();
     return () => {
       alive = false;
+      clearRooms();
+      clearVertexAnimations();
       disposables.current.forEach((d) => {
         try {
           d.traverse?.((c) => {
@@ -280,10 +336,158 @@ export default function EarthAssets() {
 
   if (!built) return null;
   return (
-    <group>
-      {built.map((node, i) => (
-        <primitive key={i} object={node} />
-      ))}
-    </group>
+    <>
+      <AssetAnimDriver />
+      <InteriorsDriver />
+      <group>
+        {built.map((node, i) => (
+          <primitive key={i} object={node} />
+        ))}
+      </group>
+    </>
   );
+}
+
+// AssetAnimDriver — the shared clock for construct animation
+// (windmill fans, turbine rotors, pumpjack strokes). One useFrame
+// for every registered geometry; no per-mesh state anywhere.
+function AssetAnimDriver() {
+  useFrame((state, dt) => {
+    stepVertexAnimations(state.clock.elapsedTime, Math.min(dt, 0.05));
+  });
+  return null;
+}
+
+// InteriorsDriver — the interior experience, per frame:
+// - shell swap: a construct's GLB shell hides while the walker is
+//   inside it or on its door approach, so the lit parametric room
+//   is what the threshold shows (the GLB is a closed solid; the
+//   room lives inset within it).
+// - the lift: standing on an interior's up/down pad rides the
+//   walker's interior altitude (interiorState.altM — read by
+//   EarthWalker + the street camera like the climb channel).
+// - the light: ONE shared point light follows the walker into
+//   whichever interior is occupied/approached, tinted by class.
+// - aether: shards idle-spin; walking into one (same floor)
+//   collects it with the standard pickup feedback (fx.coin).
+const AETHER_COLLECT_RADIUS_M = 1.6;
+const PAD_DWELL_S = 0.7;
+
+function InteriorsDriver() {
+  const lightRef = useRef();
+  const dwellRef = useRef({ key: null, t: 0 });
+
+  useFrame((state, dtRaw) => {
+    const dt = Math.min(dtRaw, 0.05);
+    const t = state.clock.elapsedTime;
+    const rooms = getRooms();
+
+    // Shard idle motion — every uncollected shard, everywhere.
+    rooms.forEach((room) => {
+      room.aetherMeshes.forEach((mesh) => {
+        if (!mesh.visible) return;
+        mesh.rotation.y += dt * 1.4;
+        mesh.position.y = mesh.userData.baseY + Math.sin(t * 2 + mesh.position.x * 3) * 0.08;
+      });
+    });
+
+    const light = lightRef.current;
+
+    if (!roamState.active) {
+      // Not roaming: every shell back on, altitude home, light out.
+      rooms.forEach((room) => { if (room.shell && !room.shell.visible) room.shell.visible = true; });
+      interiorState.activeId = null;
+      interiorState.floor = 0;
+      interiorState.altM = 0;
+      if (light) light.intensity = 0;
+      dwellRef.current.key = null;
+      return;
+    }
+
+    const inside = interiorAt(roamState.lat, roamState.lon);
+    const near = inside || nearestInterior(roamState.lat, roamState.lon);
+
+    // Shell swap on inside / door approach.
+    rooms.forEach((room, id) => {
+      if (!room.shell) return;
+      const spec = interiorById(id);
+      if (!spec) return;
+      const d = interiorLocal(spec, roamState.lat, roamState.lon).d;
+      const approach = d < spec.radiusM + Math.max(2, spec.radiusM * 0.9);
+      room.shell.visible = !approach;
+    });
+
+    // Lift + altitude.
+    let targetAlt = 0;
+    if (inside) {
+      const spec = inside.spec;
+      interiorState.activeId = spec.id;
+      const settled = Math.abs(interiorState.altM - floorAltM(spec, interiorState.floor)) < 0.3;
+      const pad = settled
+        ? liftPadAt(spec, inside.local.eastM, inside.local.northM)
+        : null;
+      const dwell = dwellRef.current;
+      const padUsable = pad === 'up'
+        ? interiorState.floor < spec.floors - 1
+        : pad === 'down'
+          ? interiorState.floor > 0
+          : false;
+      if (pad && padUsable) {
+        const key = spec.id + ':' + pad + ':' + interiorState.floor;
+        if (dwell.key !== key) { dwell.key = key; dwell.t = 0; }
+        dwell.t += dt;
+        if (dwell.t > PAD_DWELL_S) {
+          interiorState.floor += pad === 'up' ? 1 : -1;
+          dwell.key = null;
+          dwell.t = 0;
+          try { fx.tap(); } catch { /* audio is garnish */ }
+        }
+      } else {
+        dwell.key = null;
+        dwell.t = 0;
+      }
+      targetAlt = floorAltM(spec, interiorState.floor);
+
+      // Aether collect: same interior, same floor, within reach.
+      const room = rooms.get(spec.id);
+      if (room) {
+        for (const a of spec.aether) {
+          if (a.floor !== interiorState.floor) continue;
+          if (isAetherCollected(a.id)) continue;
+          if (haversineM(roamState.lat, roamState.lon, a.lat, a.lon) < AETHER_COLLECT_RADIUS_M) {
+            if (collectAether(a.id)) {
+              const mesh = room.aetherMeshes.get(a.id);
+              if (mesh) mesh.visible = false;
+              try { fx.coin(); } catch { /* audio is garnish */ }
+            }
+          }
+        }
+      }
+    } else {
+      interiorState.activeId = null;
+      interiorState.floor = 0;
+      dwellRef.current.key = null;
+    }
+    interiorState.altM += (targetAlt - interiorState.altM) * Math.min(1, dt * 3.2);
+    if (!inside && interiorState.altM < 0.02) interiorState.altM = 0;
+
+    // The one shared interior light.
+    if (light) {
+      if (near && near.local.d < near.spec.radiusM * 1.6) {
+        const spec = near.spec;
+        const r = surfaceRadiusOrBase(roamState.lat, roamState.lon)
+          + (interiorState.altM + 2.2) * DISPLAY_UNITS_PER_METRE;
+        const p = latLonToVec3(roamState.lat, roamState.lon, r);
+        light.position.set(p.x, p.y, p.z);
+        light.color.set(spec.lightColor);
+        light.distance = Math.max(spec.widthM, spec.depthM) * DISPLAY_UNITS_PER_METRE * 1.6;
+        const goal = inside ? 0.012 : 0.005;
+        light.intensity += (goal - light.intensity) * Math.min(1, dt * 5);
+      } else {
+        light.intensity += (0 - light.intensity) * Math.min(1, dt * 5);
+      }
+    }
+  });
+
+  return <pointLight ref={lightRef} intensity={0} distance={0.4} decay={1.4} />;
 }

@@ -30,6 +30,7 @@ import {
   globeGridSurfaceRadius,
 } from '@/lib/earth/placements';
 import { effectiveEarthViewMode } from '@/lib/earth/view-mode';
+import { getInteriorAltM } from '@/lib/earth/interiors';
 
 export const EARTH_CENTER = new THREE.Vector3(0, -60, -120);
 const HUB_HOME = new THREE.Vector3(0, 75, 20);
@@ -95,7 +96,7 @@ export default function EarthFlightController({
     // the mesh at altM × scale). Without this the camera stayed
     // glued to the ground while the bike flew above it.
     const bikeLiftM = bikeState.mounted ? bikeState.altM * scale : 0;
-    const altU = (getClimbAltM() + bikeLiftM) * DISPLAY_UNITS_PER_METRE;
+    const altU = (getClimbAltM() + getInteriorAltM() + bikeLiftM) * DISPLAY_UNITS_PER_METRE;
     const n = new THREE.Vector3(rig.normal.x, rig.normal.y, rig.normal.z);
     const ground = new THREE.Vector3(rig.ground.x, rig.ground.y, rig.ground.z);
 
@@ -319,7 +320,7 @@ export default function EarthFlightController({
     // (the Christ the Redeemer shake). While a ladder/elevator climb is
     // active the authored climb path owns altitude, so the clamp stands
     // down entirely.
-    if ((launchState === 'diving_to_street' || launchState === 'earth_roam') && getClimbAltM() <= 0.05) {
+    if ((launchState === 'diving_to_street' || launchState === 'earth_roam') && getClimbAltM() <= 0.05 && getInteriorAltM() <= 0.05) {
       const camPos = camera.position;
       // Earth center in world space
       const ex = 0, ey = -60, ez = -120;

@@ -16,6 +16,7 @@ import GodOrbitRings from './GodOrbitRings';
 import BikeRig, { BIKE_PARK_POS, RIDER_OFFSET, BIKE_LOOK_AHEAD } from './BikeRig';
 import NexusEarth from './NexusEarth';
 import { MarsRealmContent } from './mars/MarsScene';
+import { PlanetRealmContent } from './planets/PlanetRealmContent';
 import HubMoon from './HubMoon';
 import AsteroidField from './AsteroidField';
 import NavBeacons from './NavBeacons';
@@ -31,6 +32,7 @@ import { GOD_TOWER_SPOTS } from '../lib/home-positions';
 import { probeWebGL, resetWebGLProbeCache, diagnoseWebGL } from '../lib/webgl-support';
 import { panelsForTower } from '../lib/tower-panels';
 import { parachuteState } from '../lib/earth/parachute';
+import { QUANTUM_ENABLED } from '../lib/earth/quantum';
 import GodTower from './GodTower';
 import OmegaHubGate from './OmegaHubGate';
 
@@ -53,6 +55,14 @@ function QuantumGate({ children }) {
     const m = (parachuteState?.scale || 1) < 0.5;
     if (m !== micro) setMicro(m);
   });
+  // QUANTUM OFF (Merlin, 2026-10-22, "for now"): while
+  // QUANTUM_ENABLED is false (lib/earth/quantum.js) the seal can
+  // never engage — children render straight through, unwrapped, so
+  // no stale micro state could ever hide the hub. The flag is a
+  // module constant, so this branch is stable across renders and
+  // the hooks above keep their order. Flip the flag and the seal
+  // returns exactly as it was.
+  if (!QUANTUM_ENABLED) return <>{children}</>;
   return <group visible={!micro}>{children}</group>;
 }
 
@@ -141,7 +151,15 @@ function MarsBackground({ onSelect }) {
 // remap (RingGeometry's stock UVs are planar — the strip's width is
 // the radial axis, sampled at v = 0.5).
 // ---------------------------------------------------------------------------
-function PlanetBody({ planet, map, ringMap }) {
+// Clickable (Merlin, 2026-10-22 — the Planet Program): tapping a
+// planet body in freeroam dives INTO it, exactly like Mars and Earth
+// — its seeded surface renders inside this same Canvas
+// (PlanetRealmContent at the origin, appState 'planet_surface').
+// onSelect is gated by the parent to hub_freeroam and arrives as
+// null everywhere else; the handler sits on the outer group so the
+// sphere AND Saturn's rings deliver the tap, and hover gets the
+// same pointer-cursor affordance the realms' creatures use.
+function PlanetBody({ planet, map, ringMap, onSelect }) {
   const spinRef = useRef();
   useFrame((state, delta) => { if (spinRef.current) spinRef.current.rotation.y += delta * planet.spin; });
   const ringGeo = useMemo(() => {
@@ -159,7 +177,12 @@ function PlanetBody({ planet, map, ringMap }) {
   }, [planet]);
   useEffect(() => () => { if (ringGeo) ringGeo.dispose(); }, [ringGeo]);
   return (
-    <group position={[planet.center.x, planet.center.y, planet.center.z]}>
+    <group
+      position={[planet.center.x, planet.center.y, planet.center.z]}
+      onClick={onSelect ? (e) => { e.stopPropagation(); onSelect(planet.key); } : undefined}
+      onPointerOver={onSelect ? (e) => { e.stopPropagation(); document.body.style.cursor = 'pointer'; } : undefined}
+      onPointerOut={onSelect ? () => { document.body.style.cursor = ''; } : undefined}
+    >
       <group rotation={[0, 0, planet.tilt || 0]}>
         <mesh ref={spinRef}>
           <sphereGeometry args={[planet.radius, 48, 48]} />
@@ -175,7 +198,7 @@ function PlanetBody({ planet, map, ringMap }) {
   );
 }
 
-function BackdropPlanets() {
+function BackdropPlanets({ onPlanetSelect }) {
   const [maps, setMaps] = useState({});
   useEffect(() => {
     let live = true;
@@ -193,7 +216,7 @@ function BackdropPlanets() {
   return (
     <>
       {PLANETS.map((p) => (
-        <PlanetBody key={p.key} planet={p} map={maps[p.key] || null} ringMap={maps[p.key + ':rings'] || null} />
+        <PlanetBody key={p.key} planet={p} map={maps[p.key] || null} ringMap={maps[p.key + ':rings'] || null} onSelect={onPlanetSelect} />
       ))}
     </>
   );
@@ -782,6 +805,14 @@ function HubScene({
   marsFocusReq,
   onMarsSelect,
   marsSelectedId,
+  beginPlanetDive,
+  planetProfile,
+  planetTime,
+  planetMode,
+  planetInputRef,
+  planetFocusReq,
+  onPlanetSelect,
+  planetSelectedId,
   onParachute,
   onTileSelect,
   onLaunchExternal,
@@ -819,6 +850,15 @@ function HubScene({
   // rig (OrbitControls / FirstPerson) owns the camera here, exactly
   // as EarthWalker owns it in earth_roam.
   const inMars = appState === 'mars_surface';
+  // Planet realms (Merlin, 2026-10-22): 'planet_surface' is the same
+  // realm pattern with the active planet's profile — hub visuals
+  // stand down, the seeded surface renders at the origin, and the
+  // camera controllers idle (verified: SequenceController and
+  // EarthFlightController branch only on their own named states, so
+  // 'planet_surface' — like 'mars_surface' — leaves the camera to
+  // the realm's own rig).
+  const inPlanet = appState === 'planet_surface';
+  const inRealm = inMars || inPlanet;
 
   return (
       <Canvas shadows="soft" gl={{ alpha: true, antialias: false, powerPreference: 'default' }} camera={{ position: [ORBIT_CENTER.x, ORBIT_CENTER.y, ORBIT_CENTER.z], fov: 52, far: 2000 }} style={{ pointerEvents: 'auto' }} onCreated={({ gl }) => {
@@ -830,12 +870,12 @@ function HubScene({
           if (onContextLost) onContextLost();
         });
       }}>
-        {!bgVideoOk && !inMars && <color attach="background" args={['#050505']} />}
+        {!bgVideoOk && !inRealm && <color attach="background" args={['#050505']} />}
         {/* Thin fog: the tower field (~180 out) must read clearly from
-            spawn, not vanish into haze. The Mars realm attaches its
-            own fog, so the hub's stands down while it is mounted. */}
-        {!inMars && <fogExp2 attach="fog" args={['#050505', 0.0016]} />}
-        {!inMars && (
+            spawn, not vanish into haze. The realms attach their own
+            fog, so the hub's stands down while one is mounted. */}
+        {!inRealm && <fogExp2 attach="fog" args={['#050505', 0.0016]} />}
+        {!inRealm && (
           <QuantumGate>
             <Stars radius={100} depth={50} count={7000} factor={4} saturation={0} fade speed={1} />
 
@@ -845,7 +885,7 @@ function HubScene({
           </QuantumGate>
         )}
 
-        {!inMars && <ambientLight intensity={0.4} color="#222233" />}
+        {!inRealm && <ambientLight intensity={0.4} color="#222233" />}
 
         <Suspense fallback={null}>
           {inMars ? (
@@ -858,6 +898,17 @@ function HubScene({
               focusReq={marsFocusReq}
               onSelect={onMarsSelect}
               selectedId={marsSelectedId}
+            />
+          ) : inPlanet ? (
+            <PlanetRealmContent
+              key={planetProfile.seed}
+              profile={planetProfile}
+              timeOfDay={planetTime}
+              mode={planetMode}
+              inputRef={planetInputRef}
+              focusReq={planetFocusReq}
+              onSelect={onPlanetSelect}
+              selectedId={planetSelectedId}
             />
           ) : (
           <>
@@ -879,7 +930,7 @@ function HubScene({
           />
           <QuantumGate>
             <MarsBackground onSelect={appState === 'hub_freeroam' ? beginMarsDive : null} />
-            <BackdropPlanets />
+            <BackdropPlanets onPlanetSelect={appState === 'hub_freeroam' ? beginPlanetDive : null} />
             {/* The planetary system's grand rainbow rings — fixed frame
                 around the planets, outside the satellite hollow. */}
             <SystemRings />

@@ -8,7 +8,7 @@ import { LanguageProvider, useI18n } from '@/lib/i18n';
 import { SATELLITES } from '@/lib/i18n/satellites';
 import SatelliteMenu from '@/components/SatelliteMenu';
 import { MenuHeaderDecor } from '@/components/PortalSeasonalDecor';
-import { orbitTime, orbitPositionFor } from '@/lib/god-orbits';
+import { orbitTime, orbitPositionFor, PLANETS } from '@/lib/god-orbits';
 import { GOD_TOWER_SPOTS, GOD_TOWER_POS, BABEL_POS, ARTEMIS_POS } from '@/lib/home-positions';
 import SettingsGear from '@/components/SettingsGear';
 import { fetchRiderState, saveRiderState, DISMOUNT_EYE } from '@/lib/rider-state';
@@ -18,9 +18,12 @@ import EntranceSequence from '@/components/EntranceSequence';
 import { createEntranceMachine } from '@/lib/entrance-sequence';
 import EarthConsole from '@/components/EarthConsole';
 import { generateMarsProfile } from '@/lib/mars/engine';
+import { planetSeedFor } from '@/lib/planets/planet-seeds';
+import { generatePlanetProfile } from '@/lib/planets/profiles';
 import { getUserPosition, FALLBACK_POSITION } from '@/lib/geo';
 import { roamState, beginRoam, endRoam, landmarkSpawns } from '@/lib/earth/roam';
 import { beginParachuteDive } from '@/lib/earth/parachute';
+import { QUANTUM_ENABLED } from '@/lib/earth/quantum';
 import { fx, unlockFx } from '@/lib/fx';
 import { shadowRealmUrl } from '@/app/shadow-realm/launch';
 import { useTilt } from '@/lib/use-tilt';
@@ -43,6 +46,12 @@ const HomeScene = dynamic(() => import('@/components/HomeScene'), {
 // rides the same client-only dynamic path as HomeScene — the three.js
 // stack stays out of the page's static bundle.
 const MarsConsole = dynamic(() => import('@/components/MarsConsole'), {
+  ssr: false,
+});
+
+// PlanetConsole rides the same client-only path (it also pulls in
+// the Mars scene module for TouchControls).
+const PlanetConsole = dynamic(() => import('@/components/PlanetConsole'), {
   ssr: false,
 });
 
@@ -199,6 +208,54 @@ function NexusHub() {
     setMarsMode((prev) => (prev === m ? 'orbit' : m));
   };
 
+  // Planet realms (Merlin, 2026-10-22 — the Planet Program): every
+  // outer planet is clickable into its own in-hub surface realm,
+  // following the Mars architecture exactly — this page owns the
+  // realm state, HomeScene swaps the hub fragment for
+  // PlanetRealmContent on 'planet_surface', and PlanetConsole is the
+  // DOM shell. The difference from Mars: a planet's seed is
+  // CANONICAL (lib/planets/planet-seeds.js), so there is no seed
+  // state to edit — the profile is derived from the active planet.
+  // Mars and Earth keep their own doors, untouched.
+  const planetInputRef = useRef({ keys: { fwd: false, back: false, left: false, right: false, up: false, down: false } });
+  const [activePlanet, setActivePlanet] = useState(null);
+  const [planetTime, setPlanetTime] = useState(0.32);
+  const [planetMode, setPlanetMode] = useState('orbit');
+  const [planetSelected, setPlanetSelected] = useState(null);
+  const [planetFocusReq, setPlanetFocusReq] = useState(null);
+  const planetSeedEntry = activePlanet ? planetSeedFor(activePlanet) : null;
+  const planetProfile = useMemo(() => {
+    if (!activePlanet || !planetSeedEntry) return null;
+    const planet = PLANETS.find((p) => p.key === activePlanet);
+    return planet ? generatePlanetProfile(planetSeedEntry, planet) : null;
+  }, [activePlanet, planetSeedEntry]);
+
+  const beginPlanetDive = (key) => {
+    if (appState !== 'hub_freeroam') return;
+    // Only the eight outer planets dive this way — Mars and Earth
+    // have their own doors and are refused here even if called.
+    if (!PLANETS.some((p) => p.key === key)) return;
+    if (!planetSeedFor(key)) return;
+    setActivePlanet(key);
+    setPlanetSelected(null);
+    setPlanetFocusReq(null);
+    setPlanetMode('orbit');
+    setAppState('planet_surface');
+  };
+
+  const exitPlanet = () => { setActivePlanet(null); setAppState('hub_freeroam'); };
+
+  const selectPlanet = (sel) => {
+    setPlanetSelected(sel || null);
+    if (sel && planetMode === 'orbit') {
+      setPlanetFocusReq({ pos: sel.pos, nonce: Date.now() });
+    }
+  };
+
+  const togglePlanetMode = (m) => {
+    setPlanetMode((prev) => (prev === m ? 'orbit' : m));
+  };
+
   const travelToEarth = (dest) => { setPendingDest(dest); setAppState('earth_travel'); };
   
   const arriveEarth = (dest) => {
@@ -234,7 +291,15 @@ function NexusHub() {
   // Double-click parachute: user double-clicks a tile → parachute down
   // to street level at that exact lat/lon. The character starts at
   // orbital scale and shrinks during the descent (lib/earth/parachute).
+  // QUANTUM OFF (Merlin, 2026-10-22, "for now"): this function is the
+  // funnel for EVERY shrink entry — the EarthConsole 🔬 Quantum door
+  // (onDropToTile) and the globe's double-click / double-tap handlers
+  // (onParachute) both land here — so refusing here closes the realm
+  // completely while leaving normal street dives (beginStreetDive,
+  // which never parachutes) untouched. One line in lib/earth/
+  // quantum.js re-opens it.
   const parachuteTo = ({ lat, lon }) => {
+    if (!QUANTUM_ENABLED) return;
     const allowed = ['hub_intro', 'hub_freeroam', 'earth_surface', 'earth_roam'];
     if (!allowed.includes(appState)) return;
     fx.earthDive();
@@ -453,7 +518,9 @@ function NexusHub() {
     // Inside the Mars realm the hub's flight stick/look stand down —
     // the realm's own rig (orbit / drag-look / TouchControls) owns
     // pointer input there, like EarthWalker's does in earth_roam.
+    // Same stand-down inside a planet realm ('planet_surface').
     if (appState === 'mars_surface') return;
+    if (appState === 'planet_surface') return;
     if (appState === 'hub_intro') setAppState('hub_freeroam');
     
     const clientX = e.clientX;
@@ -681,6 +748,21 @@ function NexusHub() {
         />
       )}
 
+      {(user || cloudOffline) && appState === 'planet_surface' && planetProfile && planetSeedEntry && (
+        <PlanetConsole
+          profile={planetProfile}
+          seedEntry={planetSeedEntry}
+          time={planetTime}
+          setTime={setPlanetTime}
+          mode={planetMode}
+          onToggleMode={togglePlanetMode}
+          selected={planetSelected}
+          onSelect={selectPlanet}
+          inputRef={planetInputRef}
+          onExit={exitPlanet}
+        />
+      )}
+
       {/* Character picker now lives inside EarthConsole menu (not floating) */}
 
       {(user || cloudOffline) && appState === 'hub_freeroam' && (
@@ -730,6 +812,14 @@ function NexusHub() {
         marsFocusReq={marsFocusReq}
         onMarsSelect={selectMars}
         marsSelectedId={marsSelected ? marsSelected.id : null}
+        beginPlanetDive={beginPlanetDive}
+        planetProfile={planetProfile}
+        planetTime={planetTime}
+        planetMode={planetMode}
+        planetInputRef={planetInputRef}
+        planetFocusReq={planetFocusReq}
+        onPlanetSelect={selectPlanet}
+        planetSelectedId={planetSelected ? planetSelected.id : null}
         onParachute={parachuteTo}
         onTileSelect={appState === 'earth_surface' ? handleTileSelect : null}
         onBikeDismount={handleBikeDismount}

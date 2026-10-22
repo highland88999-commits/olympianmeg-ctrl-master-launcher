@@ -5,6 +5,9 @@ import { searchPlaces, formatCoords } from '@/lib/geo';
 import { summonBike, dismissBike, toggleMount } from '@/components/EarthBike';
 import EarthViewToggle from '@/components/EarthViewToggle';
 import { beginReanimate, isAtStreetScale, parachuteState, bikeState } from '@/lib/earth/parachute';
+import { QUANTUM_ENABLED } from '@/lib/earth/quantum';
+import { aetherState, totalAether } from '@/lib/earth/aether';
+import { planetSeedFor } from '@/lib/planets/planet-seeds';
 import { roamState } from '@/lib/earth/roam';
 import { getEmbodimentForSurface } from '@/lib/gta/walker-embodiment';
 import CharacterPicker from '@/components/characters/CharacterPicker';
@@ -18,6 +21,13 @@ const QUICK = [
 ];
 
 const MIN_KEY = 'earth-console-minimized';
+
+// Earth's canonical seed (lib/planets/planet-seeds.js) — DISPLAY
+// ONLY. Earth is special: its seed is descriptive harmony, and
+// nothing in the Earth dive/roam path reads it to regenerate or
+// alter terrain or behavior. It is shown here so the hub's Earth
+// carries its seed name like every other world.
+const EARTH_SEED_ENTRY = planetSeedFor('earth');
 
 export default function EarthConsole({ focus, phase, onTravel, onReturn, onStreet, onAscend, onSpawnPick, spawns, selectedTile, onDropToTile, controlsRef }) {
   const { t } = useI18n();
@@ -35,6 +45,9 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
   // set only by buttons would desync.
   const [sizeUi, setSizeUi] = useState({ micro: false });
   const [swimUi, setSwimUi] = useState({ active: false, submergeM: 0, depthM: 0 });
+  // Aether collection, polled from the aether singleton like the
+  // others (collection happens inside EarthAssets' driver).
+  const [aetherUi, setAetherUi] = useState({ count: 0, total: 0 });
   useEffect(() => {
     const id = setInterval(() => {
       setBikeUi((prev) => {
@@ -54,6 +67,10 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
         };
         return prev.active === next.active && prev.submergeM === next.submergeM
           && prev.depthM === next.depthM ? prev : next;
+      });
+      setAetherUi((prev) => {
+        const next = { count: aetherState.count || 0, total: totalAether() };
+        return prev.count === next.count && prev.total === next.total ? prev : next;
       });
     }, 250);
     return () => clearInterval(id);
@@ -182,6 +199,11 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
               ◉ {focus.label} · {formatCoords(focus.lat, focus.lon)}
             </div>
           )}
+          {EARTH_SEED_ENTRY && (
+            <div className="text-[10px] text-zinc-500 mt-1 truncate">
+              🌱 World seed · {EARTH_SEED_ENTRY.seed} — {EARTH_SEED_ENTRY.lifeLabel}
+            </div>
+          )}
           {busy && (
             <div className="text-[10px] text-cyan-400 mt-1 animate-pulse">
               {phase === 'earth_travel' ? t('earth.traveling')
@@ -196,9 +218,17 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
                 : 'On foot — left thumb to walk, drag the right side to look around.'}
             </div>
           )}
-          {/* Parachute / climb / elevator hints */}
+          {atStreet && aetherUi.total > 0 && (
+            <div className="text-[10px] text-[#aef4ff] mt-1">
+              ◆ Aether {aetherUi.count} / {aetherUi.total} — hidden inside Earth&rsquo;s buildings. Walk in and find them.
+            </div>
+          )}
+          {/* Parachute / climb / elevator hints. The parachute
+              clause only shows while the Quantum Realm is enabled —
+              with the realm off (lib/earth/quantum.js) a double-click
+              no longer shrinks, and the hint must not promise it. */}
           <div className="text-[10px] text-zinc-500 mt-1 leading-relaxed">
-            Double-click any tile to parachute down · Double-click ladders to climb · Double-click monuments for the elevator
+            {QUANTUM_ENABLED ? 'Double-click any tile to parachute down · ' : ''}Double-click ladders to climb · Double-click monuments for the elevator
           </div>
         </div>
 
@@ -298,15 +328,20 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
                 door at all). With a tile selected it drops there;
                 without one it shrinks HERE, into the tile under
                 the walker's feet — same parachuteTo path either
-                way (beginRoam + beginParachuteDive in page.jsx). */}
-            <div className="grid grid-cols-2 gap-2">
+                way (beginRoam + beginParachuteDive in page.jsx).
+                QUANTUM OFF (Merlin, 2026-10-22, "for now"): the
+                door is hidden while QUANTUM_ENABLED is false
+                (lib/earth/quantum.js) and parachuteTo refuses the
+                shrink besides; Normal View stays — it is the
+                harmless way back and a no-op at normal scale. */}
+            <div className={QUANTUM_ENABLED ? 'grid grid-cols-2 gap-2' : 'grid grid-cols-1 gap-2'}>
               <button
                 onClick={() => beginReanimate()}
                 className="py-2 text-[10px] font-bold tracking-[0.15em] uppercase text-amber-200 border border-amber-600/60 bg-amber-950/50 rounded hover:border-amber-400 hover:text-white transition-all"
               >
                 ✦ Normal View
               </button>
-              {onDropToTile && (
+              {QUANTUM_ENABLED && onDropToTile && (
                 <button
                   onClick={() => onDropToTile(selectedTile || { lat: roamState.lat, lon: roamState.lon })}
                   className="py-2 text-[10px] font-bold tracking-[0.15em] uppercase text-cyan-200 border border-cyan-600/60 bg-cyan-950/50 rounded hover:border-cyan-400 hover:text-white transition-all animate-pulse"

@@ -8,6 +8,7 @@ import { surfaceRadiusOrBase, globeGridRadiusOrBase } from '@/lib/earth/heightma
 import { latLonToVec3 } from '@/lib/geo';
 import { DISPLAY_UNITS_PER_METRE } from '@/lib/earth/placements';
 import { parachuteState, bikeState, getClimbAltM } from '@/lib/earth/parachute';
+import { getInteriorAltM } from '@/lib/earth/interiors';
 import { effectiveEarthViewMode } from '@/lib/earth/view-mode';
 import { tameTripoMaterials } from '@/lib/characters/tame-materials';
 
@@ -84,7 +85,10 @@ export default function EarthWalker() {
         swimAltU += Math.sin(state.clock.elapsedTime * 2.2) * 0.06 * UPM;
       }
     }
-    const altU = getClimbAltM() * UPM + bikeAltU + swimAltU;
+    // Interior altitude (lib/earth/interiors.js): inside a
+    // construct, the lift rides the walker between floors — same
+    // display-metre channel discipline as climb/bike/swim.
+    const altU = (getClimbAltM() + getInteriorAltM()) * UPM + bikeAltU + swimAltU;
     // Never sink under the DRAWN world (placements law, joined
     // 2026-10-21): ride the higher of the true sampled surface and
     // the coarse globe grid's drawn surface. On steep facets the
