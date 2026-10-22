@@ -56,7 +56,17 @@ async function authedFetch(token, url, body) {
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify(body),
   });
-  return res.json();
+  // Never throw on an unparseable body: a platform timeout page is HTML,
+  // and throwing here buries the real failure behind the generic catch
+  // message. Answer with an honest error object instead.
+  const text = await res.text().catch(() => '');
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { ok: false, error: res.status === 504 || res.status === 503
+      ? 'The forge timed out — the engine is overloaded right now. Give it a minute and try again.'
+      : `The forge could not be reached (HTTP ${res.status}). Try again.` };
+  }
 }
 
 /* ---------------- Landing ---------------- */

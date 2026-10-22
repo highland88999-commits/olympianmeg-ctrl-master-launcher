@@ -10,6 +10,11 @@
 // GEMINI_API_KEY is read from the environment, server-side only.
 
 export const dynamic = 'force-dynamic';
+// Forging (VIDEO especially) asks the model for a whole self-contained
+// HTML experience — the longest generation of the six types. Give the
+// function the platform's full window (clamped to the plan's max) so a
+// slow-but-alive generation is not cut off mid-flight.
+export const maxDuration = 300;
 
 import { NextResponse } from 'next/server';
 import { apiGuard } from '@/lib/api-guard';
