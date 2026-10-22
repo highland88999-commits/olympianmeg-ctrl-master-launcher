@@ -17,7 +17,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -32,6 +32,7 @@ import {
   filterPortals,
 } from '../lib/portal-roster.js';
 import { paintPortalSwirl, PORTAL_SWIRL_SIZE } from '../lib/portal-swirl.js';
+import { PORTAL_VIDEO_KEYS, portalHasVideo, portalVideoCoverFit } from '../lib/portal-videos.js';
 import { SATELLITES } from '../lib/i18n/satellites.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -254,5 +255,84 @@ describe('the panel + hall (static)', () => {
     assert.ok(scene.includes("gl={{ alpha: true, antialias: false, powerPreference: 'default' }}"), 'GL props');
     assert.ok(scene.includes('dpr={[1, 1.75]}'), 'dpr clamp');
     assert.ok(scene.includes('webglcontextlost'), 'context loss reported to the panel');
+  });
+});
+
+describe('portal video presence (lib/portal-videos.js — the file-presence list)', () => {
+  const onDisk = readdirSync(join(repo, 'public/videos/portals'))
+    .filter((f) => f.endsWith('.mp4'))
+    .map((f) => f.replace(/\.mp4$/, ''))
+    .sort();
+
+  it('the data source carries exactly the videos on disk — no drift either way', () => {
+    assert.deepEqual([...PORTAL_VIDEO_KEYS].sort(), onDisk);
+    assert.equal(onDisk.length, 11, 'eleven portal videos wired today');
+  });
+
+  it('every video key on disk resolves as video-present from the data source', () => {
+    for (const key of onDisk) {
+      assert.ok(portalHasVideo(key), `${key} has its video`);
+    }
+  });
+
+  it('roster portals without a video on disk resolve as still waiting', () => {
+    const waiting = enRoster().filter((p) => !onDisk.includes(p.key));
+    assert.ok(waiting.length > 100, 'most portals still await their video');
+    for (const p of waiting.slice(0, 12)) {
+      assert.equal(portalHasVideo(p.key), false, `${p.key} has no video yet`);
+    }
+    assert.equal(portalHasVideo('earth-2'), false, 'owner portal has no portal video');
+    assert.equal(portalHasVideo('no-such-key'), false, 'unknown keys have no video');
+  });
+
+  it('portrait sources get a cover fit; landscape keeps the raw mapping', () => {
+    // astra.mp4 is the one portrait portal video: 720x1280.
+    assert.deepEqual(portalVideoCoverFit(720, 1280), {
+      repeat: [1, 0.5625],
+      offset: [0, 0.21875],
+    });
+    assert.equal(portalVideoCoverFit(1280, 720), null, 'landscape untouched');
+    assert.equal(portalVideoCoverFit(512, 512), null, 'square untouched');
+    assert.equal(portalVideoCoverFit(0, 1280), null, 'no dimensions, no fit');
+    assert.equal(portalVideoCoverFit(720, 0), null, 'no dimensions, no fit');
+  });
+});
+
+describe('standing vs turning in the 3D hall (Merlin, 2026-10-22)', () => {
+  it('the hall reads video presence from the data source, never a key list of its own', () => {
+    assert.ok(
+      scene.includes("from '@/lib/portal-videos'"),
+      'scene imports the file-presence module'
+    );
+    assert.ok(scene.includes('portalHasVideo(item.key)'), 'standing state derives per portal');
+    for (const key of PORTAL_VIDEO_KEYS) {
+      assert.ok(!scene.includes(`'${key}'`), `no hard-coded '${key}' in the scene`);
+      assert.ok(!scene.includes(`"${key}"`), `no hard-coded "${key}" in the scene`);
+    }
+  });
+
+  it('a video card does not turn: no shared-texture spin remains to turn it', () => {
+    assert.ok(!scene.includes('swirlTex.rotation'), 'the global texture spin is gone');
+    assert.ok(scene.includes('discSpin'), 'the spin lives in each disc instance rotation');
+    assert.ok(scene.includes('SWIRL_SPIN_SPEED'), 'turning cards keep the attract spin rate');
+  });
+
+  it('a video card stands straight up and down: yaw settles to square, spin unwinds', () => {
+    assert.ok(scene.includes('settleRef'), 'standing cards carry a settle state');
+    assert.ok(scene.includes('SETTLE_SECONDS'), 'the settle has the expand’s pace');
+    assert.ok(
+      scene.includes('THREE.MathUtils.lerp(s.fromRotY, 0, e)'),
+      'yaw eases from the wall slot to square (rotY 0)'
+    );
+    assert.ok(
+      scene.includes('Math.round(s.fromSpin / (Math.PI * 2)) * Math.PI * 2'),
+      'spin unwinds to the nearest full turn — the face lands upright'
+    );
+  });
+
+  it('the expanded portal cover-fits a portrait video instead of stretching it', () => {
+    assert.ok(scene.includes('portalVideoCoverFit'), 'fit helper consulted on canplay');
+    assert.ok(scene.includes('tex.repeat.set'), 'repeat cropped for portrait sources');
+    assert.ok(scene.includes('tex.offset.set'), 'crop centered for portrait sources');
   });
 });

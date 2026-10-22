@@ -18,6 +18,15 @@
 //     Minimized portals never create a <video> element;
 //   · the Canvas exists only while the panel is open (the parent
 //     unmounts it on close), with HomeScene's tuned GL props.
+//
+// Standing vs turning (Merlin, 2026-10-22): a portal whose program
+// HAS its video (lib/portal-videos.js — the file-presence list) does
+// not turn: its card settles upright and stands straight up and
+// down, face square to the viewer. Portals still waiting for their
+// video keep turning — the swirl spin is their attract state. The
+// spin therefore lives in each disc's instance rotation, not in the
+// shared texture (one texture rotation could never stop for a
+// single card).
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
@@ -31,6 +40,7 @@ import {
 } from '@/lib/omega-arch';
 import { SECTION_HUES, DEFAULT_SECTION_HUE, WALL_PAGE_SIZE } from '@/lib/portal-roster';
 import { paintPortalSwirl, PORTAL_SWIRL_SIZE } from '@/lib/portal-swirl';
+import { portalHasVideo, portalVideoCoverFit } from '@/lib/portal-videos';
 
 const WALL_COLS = Math.ceil(Math.sqrt(WALL_PAGE_SIZE)); // 7
 const WALL_ROWS = Math.ceil(WALL_PAGE_SIZE / WALL_COLS); // 6
@@ -40,6 +50,8 @@ const WALL_HALF_W = ((WALL_COLS - 1) / 2) * CELL_W;
 const EXPAND_CENTER = new THREE.Vector3(0, 0, 3.4);
 const ARCH_SCALE = 0.021; // OMEGA_ARCH proportions -> ~3.7 units tall
 const TAP_SLOP_PX = 6; // tap-vs-drag threshold (the Concourse's discipline)
+const SWIRL_SPIN_SPEED = 0.04; // rad/s — the turning cards' attract spin
+const SETTLE_SECONDS = 0.45; // a video card easing upright (the expand's pace)
 
 const easeOutCubic = (x) => 1 - Math.pow(1 - x, 3);
 
@@ -145,6 +157,15 @@ function ExpandedPortal({ program, fromPos, fromRotY, swirlTex, failedKeysRef })
     };
     const onCanPlay = () => {
       if (disposed) return;
+      // A portrait video (astra is 720x1280) would stretch sideways
+      // on the square disc if mapped raw — crop it to cover instead,
+      // per lib/portal-videos.js. Landscape sources keep the raw
+      // mapping they have always worn here.
+      const fit = portalVideoCoverFit(vid.videoWidth, vid.videoHeight);
+      if (fit) {
+        tex.repeat.set(fit.repeat[0], fit.repeat[1]);
+        tex.offset.set(fit.offset[0], fit.offset[1]);
+      }
       vid.play().catch(() => {});
       setVideoTex(tex);
     };
@@ -235,49 +256,103 @@ function WallGroup({ pageItems, expanded, swirlTex, failedKeysRef, orbitRef, onT
   const ringsRef = useRef(null);
   const discsRef = useRef(null);
   const downRef = useRef(null);
+  // Per-slot layout for the frame loop: null for an empty or
+  // collapsed slot, else the slot transform + whether this portal
+  // stands (has its video) or turns (still waiting for one).
+  const layoutRef = useRef([]);
+  // A standing card's settle, per slot: where its yaw and its spin
+  // were caught when the layout landed, so it eases upright from
+  // there instead of snapping. Cleared on every layout.
+  const settleRef = useRef(new Map());
+  const lastTRef = useRef(0);
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const tmpColor = useMemo(() => new THREE.Color(), []);
 
-  // Lay out the page's instances. The expanded program's slot is
-  // collapsed to nothing — its real arch stands in its place.
-  useEffect(() => {
+  // Compose every instance matrix for time t. Turning cards wear the
+  // shared spin phase in their disc's own rotation; standing cards
+  // unwind that spin to the nearest full turn and ease their yaw to
+  // square (rotY 0) — face to the viewer, straight up and down, in
+  // the slot they already hold. Rings never spin (the Omega gap
+  // stays at the bottom); they only share the standing yaw.
+  const composeInstances = (t) => {
     const rings = ringsRef.current;
     const discs = discsRef.current;
     if (!rings || !discs) return;
+    const spin = (t * SWIRL_SPIN_SPEED) % (Math.PI * 2);
     for (let i = 0; i < WALL_PAGE_SIZE; i += 1) {
-      const item = pageItems[i] || null;
-      const live = !!item && (!expanded || item.key !== expanded.key);
-      const slot = wallSlot(i);
-      dummy.position.copy(slot.pos);
+      const cell = layoutRef.current[i] || null;
+      if (!cell) {
+        dummy.position.set(0, 0, 0);
+        dummy.rotation.set(0, 0, 0);
+        dummy.scale.set(0.0001, 0.0001, 0.0001);
+        dummy.updateMatrix();
+        rings.setMatrixAt(i, dummy.matrix);
+        discs.setMatrixAt(i, dummy.matrix);
+        continue;
+      }
+      let rotY = cell.slot.rotY;
+      let discSpin = spin;
+      if (cell.stands) {
+        let s = settleRef.current.get(i);
+        if (!s) {
+          s = { t0: t, fromSpin: spin, fromRotY: cell.slot.rotY };
+          settleRef.current.set(i, s);
+        }
+        const e = easeOutCubic(Math.min(1, Math.max(0, (t - s.t0) / SETTLE_SECONDS)));
+        rotY = THREE.MathUtils.lerp(s.fromRotY, 0, e);
+        const upright = Math.round(s.fromSpin / (Math.PI * 2)) * Math.PI * 2;
+        discSpin = THREE.MathUtils.lerp(s.fromSpin, upright, e);
+      }
       // Mini Omega arch orientation: spin the arc in its own plane so
       // the gap sits at the bottom (OMEGA_ARCH.rotationZ, the same
       // tilt the expanded arch wears), then yaw to the wall slot.
       // Default Euler order applies the Z spin before the Y yaw.
-      dummy.rotation.set(0, slot.rotY, OMEGA_ARCH.rotationZ);
-      if (live) dummy.scale.set(1, 1.25, 1);
-      else dummy.scale.set(0.0001, 0.0001, 0.0001);
+      dummy.position.copy(cell.slot.pos);
+      dummy.rotation.set(0, rotY, OMEGA_ARCH.rotationZ);
+      dummy.scale.set(1, 1.25, 1);
       dummy.updateMatrix();
       rings.setMatrixAt(i, dummy.matrix);
       dummy.position.z += 0.04; // the disc rides just inside its ring
+      dummy.rotation.set(0, rotY, OMEGA_ARCH.rotationZ + discSpin);
       dummy.updateMatrix();
       discs.setMatrixAt(i, dummy.matrix);
-      tmpColor.copy(item ? hueFor(item.section) : hueFor(null));
-      discs.setColorAt(i, tmpColor);
     }
     rings.instanceMatrix.needsUpdate = true;
     discs.instanceMatrix.needsUpdate = true;
-    if (discs.instanceColor) discs.instanceColor.needsUpdate = true;
-  }, [pageItems, expanded, dummy, tmpColor]);
+  };
 
-  // The living wall: a slow sway over the user's drag orbit, and the
-  // shared swirl turning beneath every disc at once.
+  // Lay out the page: record each slot's transform and standing
+  // state, set the per-instance section hues, and paint the first
+  // frame. The expanded program's slot is collapsed to nothing —
+  // its real arch stands in its place.
+  useEffect(() => {
+    const discs = discsRef.current;
+    if (!discs) return;
+    settleRef.current.clear();
+    const layout = [];
+    for (let i = 0; i < WALL_PAGE_SIZE; i += 1) {
+      const item = pageItems[i] || null;
+      const live = !!item && (!expanded || item.key !== expanded.key);
+      layout.push(live ? { slot: wallSlot(i), stands: portalHasVideo(item.key) } : null);
+      tmpColor.copy(item ? hueFor(item.section) : hueFor(null));
+      discs.setColorAt(i, tmpColor);
+    }
+    layoutRef.current = layout;
+    if (discs.instanceColor) discs.instanceColor.needsUpdate = true;
+    composeInstances(lastTRef.current);
+  }, [pageItems, expanded, tmpColor]);
+
+  // The living wall: a slow sway over the user's drag orbit, and
+  // every turning disc carrying the swirl's spin (standing cards
+  // settle out of it inside composeInstances).
   useFrame((state) => {
     const t = state.clock.getElapsedTime();
+    lastTRef.current = t;
     if (groupRef.current) {
       groupRef.current.rotation.y = orbitRef.current.yaw + Math.sin(t * 0.5) * 0.02;
       groupRef.current.rotation.x = orbitRef.current.pitch;
     }
-    swirlTex.rotation = (t * 0.04) % (Math.PI * 2);
+    composeInstances(t);
   });
 
   const onPointerDown = (e) => {
