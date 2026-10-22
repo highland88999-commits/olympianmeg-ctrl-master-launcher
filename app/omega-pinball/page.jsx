@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import PageBack from '@/components/PageBack';
 import { fx, unlockFx, throttle } from '@/lib/fx';
 import {
   createGame,
@@ -67,6 +69,7 @@ function makeAudio() {
 }
 
 export default function OmegaPinballPage() {
+  const router = useRouter();
   const canvasRef = useRef(null);
   const wrapRef = useRef(null);
   const gameRef = useRef(null);
@@ -105,6 +108,19 @@ export default function OmegaPinballPage() {
       fx.gameWin(); // table conquered: full fanfare
     }
   }, []);
+
+  // Exit — same behavior as the shared PageBack button below (back when
+  // there is history, otherwise the hub), so Esc and the button agree.
+  const exitGame = useCallback(() => {
+    try {
+      if (window.history.length > 1) router.back();
+      else router.push('/');
+    } catch {
+      router.push('/');
+    }
+  }, [router]);
+  const exitRef = useRef(exitGame);
+  exitRef.current = exitGame;
 
   const begin = useCallback(() => {
     audioRef.current?.unlock();
@@ -229,6 +245,9 @@ export default function OmegaPinballPage() {
         }
       } else if (e.code === 'Enter' && phaseRef.current !== 'playing') {
         begin();
+      } else if (e.code === 'Escape') {
+        e.preventDefault();
+        exitRef.current();
       }
     };
     const keyUp = (e) => {
@@ -307,6 +326,14 @@ export default function OmegaPinballPage() {
     >
       {/* ARES interior art: page backdrop behind menus/HUD (never over gameplay) */}
       <AresBackdrop src="/images/omega-pinball/omega-pinball-bg.webp" strength={0.4} />
+      {/* Exit — shared PageBack affordance, top-left corner above the HUD
+          row (play area untouched). Esc does the same thing. */}
+      <div
+        className="absolute z-30 rounded-[10px] bg-black/55 backdrop-blur-sm"
+        style={{ top: 'calc(env(safe-area-inset-top) + 0.75rem)', left: '0.75rem' }}
+      >
+        <PageBack label="Exit" href="/" />
+      </div>
       {/* HUD */}
       <div className="absolute left-0 right-0 z-10 flex items-start justify-between px-4 pt-3 pointer-events-none" style={{ top: 'max(3.5rem, calc(env(safe-area-inset-top) + 3rem))' }}>
         <div>
@@ -386,7 +413,7 @@ export default function OmegaPinballPage() {
             <p>Light all 3 star targets to climb to the next level. 99 levels to the top.</p>
             <p>
               <strong className="text-white">Desktop:</strong> ←/→ or Z/M for flippers, hold Space to charge the
-              plunger.
+              plunger. Esc or the Exit button (top-left) leaves the table.
             </p>
             <p>
               <strong className="text-white">Mobile:</strong> tap left/right half of the table for flippers, hold the
