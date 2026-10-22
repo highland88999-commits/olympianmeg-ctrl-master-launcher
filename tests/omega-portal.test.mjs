@@ -168,7 +168,12 @@ describe('hub wiring', () => {
   it('the page builds its roster from the registry and skips itself', () => {
     const page = read('app/portal-room/page.jsx');
     assert.ok(page.includes("from '@/lib/i18n/satellites'"));
-    assert.ok(page.includes("sat.key === 'portal-room'"));
+    assert.ok(page.includes('buildPortalRoster'), 'page derives via the shared builder');
     assert.ok(page.includes('/videos/portals/'));
+    // The skip itself lives in the shared derivation
+    // (lib/portal-roster.js) since the Concourse's Portals 3D panel
+    // joined the room as a second surface — one builder, no drift.
+    const roster = read('lib/portal-roster.js');
+    assert.ok(roster.includes("sat.key === 'portal-room'"), 'builder skips the room itself');
   });
 });

@@ -14,10 +14,11 @@
 //   The Concourse  — transparent glass box; click the Orb to
 //                    expand/minimize.
 //   Tiles          — ALL the same 56×56, in composed order:
-//                    Portals, Tour, Intro, Guide, Night Grid, Bike,
-//                    Renewal (hub-only set), Muse, Phone, Calls
+//                    Portals, Tour, Intro, Guide, Portals 3D (the 3D
+//                    portal hall), Night Grid, Bike, Renewal
+//                    (hub-only set), Muse, Phone, Calls
 //                    (Holographic Calls → /order-67), Radio, Store,
-//                    Alerts, Profile, Bug.
+//                    Alerts, Profile, Settings, Bug.
 //   Pins           — hold a tile 2s to pop it out onto the hub as its
 //                    own floating button; drop it on the Orb (or hold
 //                    it again and drop it home) to unpin. Pins are
@@ -38,6 +39,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import { bikeState } from '@/lib/earth/parachute';
 import { DoomsdayStrip } from './DoomsdayBanner';
 import PhoneFrame from './PhoneFrame';
@@ -45,6 +47,11 @@ import { SeasonBadge } from './SeasonalDecor';
 import ConcourseSettings from './ConcourseSettings';
 import { CONCOURSE_BG_ART, resolveConcourseBg } from '@/lib/concourse-bg';
 import { resolveUiSettings, readUiSettingsCache, writeUiSettingsCache, UI_SETTINGS_EVENT } from '@/lib/ui-settings';
+
+// Layer 3 · Portals 3D — loaded only when its tile is first tapped,
+// so three.js never enters the layout's eager bundle (Concourse
+// ships on every page).
+const ConcoursePortals = dynamic(() => import('./ConcoursePortals'), { ssr: false });
 
 const LS_KEY = 'olympus.concourse.v1';
 const SIZE = 56;
@@ -72,6 +79,7 @@ const TILES = [
   { id: 'tour', label: 'Tour', icon: '🗺️', art: '/concourse-icons/tour.webp', soon: true },
   { id: 'intro', label: 'Intro', icon: '↺', art: '/concourse-icons/intro.webp', hubOnly: true },
   { id: 'guide', label: 'Guide', icon: '?', art: '/concourse-icons/guide.webp', hubOnly: true },
+  { id: 'portalroom', label: 'Portals 3D', icon: 'Ω' },
   { id: 'night', label: 'Night', icon: '🌑', art: '/concourse-icons/night.webp', hubOnly: true },
   { id: 'bike', label: 'Bike', icon: '🏍️', art: '/concourse-icons/bike.webp', hubOnly: true },
   { id: 'renewal', label: 'Renew', icon: '◈', art: '/concourse-icons/renew.webp', hubOnly: true },
@@ -217,6 +225,7 @@ export default function Concourse() {
   const [phoneOpen, setPhoneOpen] = useState(false);
   const [bgPref, setBgPref] = useState({ kind: 'default' });
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [portal3dOpen, setPortal3dOpen] = useState(false);
   const [uiSettings, setUiSettings] = useState({ sound: true });
 
   const dragRef = useRef(null);
@@ -364,6 +373,7 @@ export default function Concourse() {
       else if (tile.id === 'calls') router.push('/order-67'); // Holographic Calls
       else if (tile.id === 'settings') { setSettingsOpen(true); setOpen(false); return; }
       else if (tile.id === 'phone') { setPhoneOpen(true); setOpen(false); return; }
+      else if (tile.id === 'portalroom') { setPortal3dOpen(true); setOpen(false); return; }
       else fireConcourseTile(tile.id);
       setOpen(false);
     },
@@ -624,6 +634,10 @@ export default function Concourse() {
 
       {/* Layer 3 · Concourse Settings sheet */}
       <ConcourseSettings open={settingsOpen} onClose={() => setSettingsOpen(false)} bg={bgPref} onApplyBg={applyBg} settings={uiSettings} onApplySettings={applySettings} />
+
+      {/* Layer 3 · Portals 3D — the 3D portal hall (minimized
+          portals, expanded on tap) */}
+      <ConcoursePortals open={portal3dOpen} onClose={() => setPortal3dOpen(false)} />
 
       {/* Layer 1 · Concourse Orb */}
       <button

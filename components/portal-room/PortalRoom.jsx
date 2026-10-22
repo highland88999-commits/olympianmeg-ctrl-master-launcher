@@ -4,110 +4,33 @@
 //
 // One portal for every program in the menu (the list arrives from the
 // server page, built from the same satellite registry the hub menu
-// reads). Each portal is an arch-shaped frame labeled UNDERNEATH with
-// its program, per Merlin's spec. A portal plays its own looping video
-// (/videos/portals/<key>.mp4, produced through the Omega Portal Videos
-// queue); a portal whose video has not arrived yet turns with a living
-// violet swirl instead — never a broken frame. Videos load lazily as
-// they approach the screen and pause when they leave it, so the whole
-// hall stays light on a phone.
+// reads — via lib/portal-roster.js, the one derivation every portal
+// surface shares). Each portal is an arch-shaped frame labeled
+// UNDERNEATH with its program, per Merlin's spec. A portal plays its
+// own looping video (/videos/portals/<key>.mp4, produced through the
+// Omega Portal Videos queue); a portal whose video has not arrived
+// yet turns with a living violet swirl instead — never a broken
+// frame. Videos load lazily as they approach the screen and pause
+// when they leave it, so the whole hall stays light on a phone.
 //
-// Entering is a step-through: tap a portal and the view rushes into it
-// (a short zoom through the vortex), then the realm's own page opens.
+// Entering is a step-through: tap a portal and the view rushes into
+// it (a short zoom through the vortex), then the realm's own page
+// opens. The card and the step-through live in PortalCard.jsx and
+// PortalEnterOverlay.jsx — the Concourse's Portals 3D panel renders
+// the same pieces.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { OMEGA_VORTEX_VIDEO, OMEGA_WRAP_VIDEO } from '@/lib/omega-arch';
-
-const SECTION_ORDER = [
-  'SANCTUM',
-  'GAMES',
-  'OBSERVATORY',
-  'AI PROGRAMS',
-  'TOOLS',
-  'UTILITIES',
-  'THERAPY',
-  'WISDOM',
-  'SHOPPING',
-];
-
-function PortalCard({ program, onEnter }) {
-  const frameRef = useRef(null);
-  const videoRef = useRef(null);
-  const [failed, setFailed] = useState(false);
-
-  // Lazy video: only fetch/play when the portal nears the screen; pause
-  // when it leaves, so 165 portals never stream at once.
-  useEffect(() => {
-    const frame = frameRef.current;
-    const video = videoRef.current;
-    if (!frame || !video || failed) return undefined;
-    const io = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            if (!video.src) video.src = `/videos/portals/${program.key}.mp4`;
-            video.play().catch(() => {});
-          } else {
-            video.pause();
-          }
-        });
-      },
-      { rootMargin: '320px 0px' }
-    );
-    io.observe(frame);
-    return () => io.disconnect();
-  }, [failed, program.key]);
-
-  return (
-    <button
-      type="button"
-      onClick={() => onEnter(program)}
-      className="group block w-full text-left focus:outline-none"
-      aria-label={`Enter ${program.title}`}
-    >
-      <div
-        ref={frameRef}
-        className="portal-arch relative aspect-[3/4] w-full overflow-hidden border border-cyan-300/25 bg-[#0a0618] shadow-[0_0_24px_rgba(80,60,220,0.25)] transition duration-300 group-hover:border-amber-300/60 group-hover:shadow-[0_0_36px_rgba(255,180,60,0.35)] group-focus-visible:border-amber-300/80"
-      >
-        {!failed ? (
-          <video
-            ref={videoRef}
-            className="absolute inset-0 h-full w-full object-cover"
-            muted
-            loop
-            playsInline
-            preload="none"
-            onError={() => setFailed(true)}
-          />
-        ) : (
-          <div className="portal-swirl absolute inset-0" aria-hidden="true">
-            <span className="absolute inset-0 flex items-center justify-center text-6xl text-amber-200/70">
-              Ω
-            </span>
-          </div>
-        )}
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/45" />
-      </div>
-      {/* The label lives under the portal, as specced. */}
-      <div className="px-1 pt-2.5 pb-1 text-center">
-        <div className="truncate text-[15px] font-semibold tracking-wide text-zinc-100">
-          {program.title}
-        </div>
-        {program.subtitle ? (
-          <div className="truncate text-xs text-zinc-400">{program.subtitle}</div>
-        ) : null}
-      </div>
-    </button>
-  );
-}
+import { OMEGA_WRAP_VIDEO } from '@/lib/omega-arch';
+import { SECTION_ORDER, filterPortals, groupBySection } from '@/lib/portal-roster';
+import PortalCard, { PortalStyles } from './PortalCard';
+import PortalEnterOverlay from './PortalEnterOverlay';
 
 export default function PortalRoom({ programs }) {
   const router = useRouter();
   const [query, setQuery] = useState('');
   const [section, setSection] = useState('ALL');
   const [entering, setEntering] = useState(null);
-  const timerRef = useRef(null);
 
   const counts = useMemo(() => {
     const map = new Map();
@@ -115,30 +38,12 @@ export default function PortalRoom({ programs }) {
     return map;
   }, [programs]);
 
-  const visible = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return programs.filter((p) => {
-      if (section !== 'ALL' && p.section !== section) return false;
-      if (!q) return true;
-      return (
-        p.title.toLowerCase().includes(q) ||
-        (p.subtitle || '').toLowerCase().includes(q) ||
-        p.key.toLowerCase().includes(q)
-      );
-    });
-  }, [programs, query, section]);
+  const visible = useMemo(
+    () => filterPortals(programs, { section, query }),
+    [programs, section, query]
+  );
 
-  const grouped = useMemo(() => {
-    const bySection = new Map();
-    visible.forEach((p) => {
-      if (!bySection.has(p.section)) bySection.set(p.section, []);
-      bySection.get(p.section).push(p);
-    });
-    return SECTION_ORDER.filter((s) => bySection.has(s)).map((s) => ({
-      section: s,
-      items: bySection.get(s),
-    }));
-  }, [visible]);
+  const grouped = useMemo(() => groupBySection(visible), [visible]);
 
   const enter = (program) => {
     const reduced =
@@ -150,34 +55,11 @@ export default function PortalRoom({ programs }) {
       return;
     }
     setEntering(program);
-    timerRef.current = setTimeout(() => router.push(program.route), 460);
   };
-
-  useEffect(
-    () => () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    },
-    []
-  );
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 pb-24">
-      <style>{`
-        .portal-arch { border-radius: 999px 999px 22px 22px; }
-        .portal-swirl {
-          background:
-            radial-gradient(circle at 50% 62%, rgba(0,229,255,0.20), transparent 55%),
-            conic-gradient(from 0deg at 50% 55%, #160b33, #3b1d78, #0d2a4a, #6d28d9, #160b33);
-          animation: portal-spin 14s linear infinite;
-        }
-        @keyframes portal-spin { to { transform: rotate(360deg); } }
-        .portal-enter { animation: portal-zoom 0.46s ease-in forwards; }
-        @keyframes portal-zoom {
-          0% { opacity: 0; transform: scale(0.82); }
-          18% { opacity: 1; }
-          100% { opacity: 1; transform: scale(1.9); }
-        }
-      `}</style>
+      <PortalStyles />
 
       {/* The Arch itself, wearing its wrap video — the room's front door. */}
       <div className="mx-auto mt-2 max-w-md">
@@ -257,28 +139,12 @@ export default function PortalRoom({ programs }) {
 
       {/* Step-through rush: the vortex swallows the screen, then the
           realm's own page opens. */}
-      {entering ? (
-        <div className="fixed inset-0 z-[90] overflow-hidden bg-black">
-          <video
-            className="portal-enter absolute inset-0 h-full w-full object-cover"
-            src={OMEGA_VORTEX_VIDEO}
-            autoPlay
-            muted
-            loop
-            playsInline
-          />
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-center">
-              <div className="text-5xl text-amber-200 drop-shadow-[0_0_18px_rgba(255,190,80,0.9)]">
-                Ω
-              </div>
-              <div className="mt-3 text-sm tracking-[0.3em] text-zinc-100">
-                {entering.title.toUpperCase()}
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <PortalEnterOverlay
+        program={entering}
+        onDone={() => {
+          if (entering) router.push(entering.route);
+        }}
+      />
     </div>
   );
 }

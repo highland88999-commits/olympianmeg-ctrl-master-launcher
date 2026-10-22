@@ -8,16 +8,23 @@
 //   2. The portal menu: this room is itself a registered satellite
 //      (key "portal-room", claimed by HERMES in lib/god-menus.js).
 //   3. This page directly: olympusverse.com/portal-room.
+//   4. The Concourse's Portals 3D tile — the same roster as a wall of
+//      3D portals, minimized until expanded (components/
+//      ConcoursePortals.jsx).
 //
-// The roster is built from the satellite registry + the en dictionary —
-// the same sources the hub menu renders — deduped by route, so the room
-// can never drift from the menu. Portal videos are produced through the
-// Omega Portal Videos queue and land at /videos/portals/<key>.mp4; a
-// portal without a video yet shows the living swirl, never a gap.
+// The roster is built from the satellite registry + the en dictionary
+// — the same sources the hub menu renders — deduped by route, so the
+// room can never drift from the menu. The derivation itself lives in
+// lib/portal-roster.js (buildPortalRoster), shared with the
+// Concourse panel: one roster, every surface. Portal videos are
+// produced through the Omega Portal Videos queue and land at
+// /videos/portals/<key>.mp4; a portal without a video yet shows the
+// living swirl, never a gap.
 
 import { BackButton } from '@/components/ui';
 import { SATELLITES } from '@/lib/i18n/satellites';
 import en from '@/lib/i18n/locales/en.json';
+import { buildPortalRoster } from '@/lib/portal-roster';
 import PortalRoom from '@/components/portal-room/PortalRoom';
 
 export const metadata = {
@@ -26,23 +33,11 @@ export const metadata = {
     'Every realm in Olympus, one room of portals. Step through the Omega Arch and choose your world.',
 };
 
-const PROGRAMS = (() => {
-  const seen = new Set();
-  const list = [];
-  for (const sat of SATELLITES) {
-    if (sat.key === 'portal-room') continue; // the room does not portal to itself
-    if (seen.has(sat.route)) continue;
-    seen.add(sat.route);
-    list.push({
-      key: sat.key,
-      route: sat.route,
-      section: sat.section,
-      title: en[`sat.${sat.key}.title`] || sat.key,
-      subtitle: en[`sat.${sat.key}.subtitle`] || '',
-    });
-  }
-  return list;
-})();
+const PROGRAMS = buildPortalRoster(
+  SATELLITES,
+  (key) => en[`sat.${key}.title`],
+  (key) => en[`sat.${key}.subtitle`]
+);
 
 export default function PortalRoomPage() {
   return (
