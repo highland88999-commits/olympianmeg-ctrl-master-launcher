@@ -135,6 +135,86 @@ function FirstPerson({ inputRef, fly }) {
   return null;
 }
 
+// Touch movement for walk/fly. On a touchscreen there are no WASD keys —
+// before this existed, drag-look was the ONLY touch input in these modes,
+// and it died whenever the browser claimed the gesture as a page scroll
+// (the page CSS now keeps touch-action: none on the canvas in all modes).
+// The stick writes into the same inputRef.keys the keyboard fills, so the
+// FirstPerson rig cannot tell the two apart. Keys are cleared on release,
+// cancel, and unmount — a stuck key would be its own controls bug.
+function TouchControls({ inputRef, fly }) {
+  const stickRef = useRef(null);
+  const knobRef = useRef(null);
+  const activeId = useRef(null);
+
+  const setKey = (name, v) => { if (inputRef.current) inputRef.current.keys[name] = v; };
+  const clearStick = () => {
+    setKey('fwd', false); setKey('back', false); setKey('left', false); setKey('right', false);
+    if (knobRef.current) knobRef.current.style.transform = 'translate(0px, 0px)';
+  };
+  useEffect(() => () => { clearStick(); setKey('up', false); setKey('down', false); }, []);
+
+  const moveStick = (e) => {
+    const el = stickRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    let dx = e.clientX - (r.left + r.width / 2);
+    let dy = e.clientY - (r.top + r.height / 2);
+    const max = r.width / 2;
+    const len = Math.hypot(dx, dy);
+    if (len > max) { dx *= max / len; dy *= max / len; }
+    if (knobRef.current) knobRef.current.style.transform = `translate(${dx}px, ${dy}px)`;
+    const T = 12;
+    setKey('fwd', dy < -T); setKey('back', dy > T);
+    setKey('left', dx < -T); setKey('right', dx > T);
+  };
+  const onDown = (e) => { activeId.current = e.pointerId; e.currentTarget.setPointerCapture(e.pointerId); moveStick(e); };
+  const onMove = (e) => { if (activeId.current === e.pointerId) moveStick(e); };
+  const onUp = (e) => { if (activeId.current === e.pointerId) { activeId.current = null; clearStick(); } };
+
+  const holdBtn = (name) => ({
+    onPointerDown: (e) => { e.currentTarget.setPointerCapture(e.pointerId); setKey(name, true); },
+    onPointerUp: () => setKey(name, false),
+    onPointerCancel: () => setKey(name, false),
+    onLostPointerCapture: () => setKey(name, false),
+  });
+
+  const zone = {
+    position: 'absolute', bottom: 16, width: 104, height: 104, borderRadius: '50%',
+    border: '1px solid rgba(125,223,154,0.55)', background: 'rgba(6,12,8,0.38)',
+    touchAction: 'none', zIndex: 6,
+  };
+  return (
+    <>
+      <div
+        ref={stickRef}
+        role="application" aria-label="Move"
+        onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
+        style={{ ...zone, left: 16 }}
+      >
+        <div ref={knobRef} style={{
+          position: 'absolute', left: '50%', top: '50%', width: 46, height: 46,
+          marginLeft: -23, marginTop: -23, borderRadius: '50%',
+          background: 'rgba(125,223,154,0.35)', border: '1px solid rgba(125,223,154,0.8)',
+          pointerEvents: 'none',
+        }} />
+      </div>
+      {fly && (
+        <div style={{ position: 'absolute', right: 16, bottom: 16, display: 'flex', flexDirection: 'column', gap: 10, zIndex: 6 }}>
+          <button type="button" aria-label="Fly up" {...holdBtn('up')} style={{
+            width: 52, height: 52, borderRadius: '50%', touchAction: 'none',
+            border: '1px solid rgba(125,223,154,0.55)', background: 'rgba(6,12,8,0.38)', color: '#dff2df', fontSize: 18,
+          }}>▲</button>
+          <button type="button" aria-label="Fly down" {...holdBtn('down')} style={{
+            width: 52, height: 52, borderRadius: '50%', touchAction: 'none',
+            border: '1px solid rgba(125,223,154,0.55)', background: 'rgba(6,12,8,0.38)', color: '#dff2df', fontSize: 18,
+          }}>▼</button>
+        </div>
+      )}
+    </>
+  );
+}
+
 // Smooth fly-to for hotspot focus (orbit mode).
 function FocusRig({ focusReq, orbitRef }) {
   const anim = useRef(null);
@@ -245,7 +325,7 @@ function SceneContent({ mode, timeOfDay, seasonIdx, inputRef, focusReq, onHotspo
           <FocusRig focusReq={focusReq} orbitRef={orbitRef} />
         </>
       )}
-      {mode !== 'orbit' && <FirstPerson inputRef={inputRef} fly={mode === 'fly'} />}
+      {mode !== 'orbit' && <FirstPerson key={mode} inputRef={inputRef} fly={mode === 'fly'} />}
     </>
   );
 }
@@ -284,9 +364,10 @@ export default function RainforestScene({
           background: 'rgba(0,0,0,0.35)', padding: '6px 14px', borderRadius: 8,
           pointerEvents: 'none', whiteSpace: 'nowrap',
         }}>
-          {mode === 'walk' ? 'WASD MOVE · DRAG LOOK' : 'WASD MOVE · SPACE/C UP/DOWN · DRAG LOOK'}
+          {mode === 'walk' ? 'STICK / WASD MOVE · DRAG LOOK' : 'STICK / WASD MOVE · ▲▼ / SPACE / C · DRAG LOOK'}
         </div>
       )}
+      {mode !== 'orbit' && <TouchControls inputRef={inputRef} fly={mode === 'fly'} />}
     </div>
   );
 }

@@ -62,6 +62,7 @@ export default function AethelgardPage() {
         .argus h1 { margin: 4px 0 2px; font-size: clamp(1.6rem, 5vw, 2.6rem); letter-spacing: 6px; font-weight: 800; }
         .argus .sub { color: #a8b89a; font-size: 0.9rem; max-width: 60ch; }
         .argus .stage { position: relative; margin: 10px 16px 0; border: 1px solid #3a4432; border-radius: 14px; overflow: hidden; height: min(62dvh, 560px); min-height: 320px; background: #000; }
+        .argus .stage canvas { touch-action: none; }
         .argus .panel { position: absolute; left: 12px; bottom: 12px; right: 12px; max-width: 430px; z-index: 5;
           background-image: linear-gradient(rgba(8,10,6,0.92), rgba(8,10,6,0.92)), url(/images/aethelgard/tile.webp);
           background-size: auto, 160px; border: 1px solid ${ACCENT}; border-radius: 10px; padding: 14px 16px; }
