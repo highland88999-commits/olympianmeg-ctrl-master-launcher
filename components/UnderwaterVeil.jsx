@@ -63,6 +63,16 @@ export default function UnderwaterVeil() {
     if (matRef.current) matRef.current.opacity = opacity;
     const { lat, lon } = roamState;
     const p = latLonToVec3(lat, lon, surfaceRadiusOrBase(lat, lon));
+    // The wash is a BackSide sphere: from OUTSIDE it paints its far
+    // hemisphere as a hard-edged disc — the diagonal slice that cut
+    // across Merlin's swim footage whenever the boom camera rode
+    // high while the swimmer was under. The veil only exists for a
+    // camera inside the volume; from outside, the water is the
+    // swimmer's, not the lens's (2026-10-21).
+    if (tmp.current.distanceTo(p) > VEIL_RADIUS_U) {
+      mesh.visible = false;
+      return;
+    }
     mesh.position.set(p.x, p.y, p.z);
     mesh.visible = true;
   });

@@ -4,7 +4,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { createWalkerEmbodiment } from '@/lib/gta/walker-embodiment';
 import { roamState, tangentFrame, headingVector } from '@/lib/earth/roam';
-import { surfaceRadiusOrBase } from '@/lib/earth/heightmap';
+import { surfaceRadiusOrBase, globeGridRadiusOrBase } from '@/lib/earth/heightmap';
 import { latLonToVec3 } from '@/lib/geo';
 import { DISPLAY_UNITS_PER_METRE } from '@/lib/earth/placements';
 import { parachuteState, bikeState, getClimbAltM } from '@/lib/earth/parachute';
@@ -85,7 +85,15 @@ export default function EarthWalker() {
       }
     }
     const altU = getClimbAltM() * UPM + bikeAltU + swimAltU;
-    const r = surfaceRadiusOrBase(roamState.lat, roamState.lon);
+    // Never sink under the DRAWN world (placements law, joined
+    // 2026-10-21): ride the higher of the true sampled surface and
+    // the coarse globe grid's drawn surface. On steep facets the
+    // true sampler alone read lower than the ground on screen and
+    // the traveler walked waist-deep in the slope.
+    const r = Math.max(
+      surfaceRadiusOrBase(roamState.lat, roamState.lon),
+      globeGridRadiusOrBase(roamState.lat, roamState.lon),
+    );
     const p = latLonToVec3(roamState.lat, roamState.lon, r + altU);
     rig.position.set(p.x, p.y, p.z);
     const frame = tangentFrame(roamState.lat, roamState.lon);
