@@ -3,7 +3,7 @@
 // the 3D portal objects live inside the Concourse, minimized until
 // the user expands them):
 // - the shared roster derivation (lib/portal-roster.js): the real
-//   registry yields exactly the Portal Room's 166, deduped by route,
+//   registry yields exactly the Portal Room's 169, deduped by route,
 //   the room itself skipped, title/subtitle fallbacks honored
 // - wall paging (42 per wall; GAMES' 51 -> 2 pages), section hues,
 //   the shared section/search filtering and grouping
@@ -49,8 +49,8 @@ const enRoster = () =>
   buildPortalRoster(SATELLITES, (k) => en[`sat.${k}.title`], (k) => en[`sat.${k}.subtitle`]);
 
 describe('buildPortalRoster (the shared derivation)', () => {
-  it('yields exactly 166 portals from the real registry — the Portal Room count', () => {
-    assert.equal(enRoster().length, 166);
+  it('yields exactly 169 portals from the real registry — the Portal Room count', () => {
+    assert.equal(enRoster().length, 169);
   });
 
   it('skips the Portal Room itself', () => {
@@ -144,7 +144,7 @@ describe('filterPortals + groupBySection (room/panel shared semantics)', () => {
   it('grouping follows SECTION_ORDER and drops empty sections', () => {
     const grouped = groupBySection(roster);
     assert.deepEqual(grouped.map((g) => g.section), SECTION_ORDER);
-    assert.equal(grouped.reduce((n, g) => n + g.items.length, 0), 166);
+    assert.equal(grouped.reduce((n, g) => n + g.items.length, 0), 169);
     assert.deepEqual(groupBySection([]), []);
   });
 });

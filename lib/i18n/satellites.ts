@@ -205,6 +205,12 @@ export const SATELLITES: SatelliteEntry[] = [
   // other UTILITIES everyday tools (notepad / calculator / calendar):
   // ARES/UTILITIES.
   { key: "journal", route: "/journal", pos: "UTILITIES", section: "UTILITIES", constellation: "ARES" },
+  // COMPASS (live device heading, coordinates, and global bearings)
+  // and WEATHER (Open-Meteo conditions and forecasts for the user's
+  // location or any searched place) join the UTILITIES everyday tools:
+  // ARES/UTILITIES.
+  { key: "compass", route: "/compass", pos: "UTILITIES", section: "UTILITIES", constellation: "ARES" },
+  { key: "weather", route: "/weather", pos: "UTILITIES", section: "UTILITIES", constellation: "ARES" },
 ];
 
 export interface SectionDef { name: string; key: string; constellation: string; }
