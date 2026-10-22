@@ -73,6 +73,18 @@ export const POST = noCache(
       }
       patch.concourse_orb = sane;
     }
+    if ('concourse_box' in prefs) {
+      // The Concourse glass box's own top-left position (Merlin,
+      // 2026-10-22: the box itself must be movable anywhere on
+      // screen, not just anchored to the Orb). Same fraction shape
+      // and validation as concourse_orb.
+      const v = prefs.concourse_box;
+      const sane = v && typeof v === 'object' ? sanitizeFractions({ x: v.x, y: v.y }) : null;
+      if (!sane) {
+        return NextResponse.json({ error: 'concourse_box must be { x, y } with 0..1 numbers.' }, { status: 400 });
+      }
+      patch.concourse_box = sane;
+    }
     if ('concourse_pins' in prefs) {
       // Map of Concourse tile id -> viewport fractions. Tile ids are
       // whitelisted; malformed entries are dropped, never stored.

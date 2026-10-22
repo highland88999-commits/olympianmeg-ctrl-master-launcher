@@ -80,6 +80,11 @@ function MarsConsoleStyles() {
       .mars-console .hint { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); color: #ffe3cc; font-size: 11px; letter-spacing: 2px;
         text-shadow: 0 1px 4px #000; background: rgba(0,0,0,0.35); padding: 6px 14px; border-radius: 8px; pointer-events: none; white-space: nowrap; }
       .mars-console .touchwrap div, .mars-console .touchwrap button { pointer-events: auto; }
+      .mars .worldhead { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+      .mars .minbtn { min-height: 32px; min-width: 32px; padding: 4px 8px; font-size: 0.9rem; line-height: 1; flex-shrink: 0; }
+      .mars .worldchip { position: absolute; top: calc(env(safe-area-inset-top, 0px) + 14px); right: 16px; z-index: 5; border-radius: 999px; border-color: ${ACCENT}; color: #ffe3cc; font-size: 0.75rem; letter-spacing: 1px; background: rgba(20,9,4,0.85); }
+      .mars .dockchip { position: absolute; left: 50%; transform: translateX(-50%); bottom: 10px; z-index: 5; border-radius: 999px; border-color: ${ACCENT}; color: #ffe3cc; font-size: 0.75rem; letter-spacing: 1px; background: rgba(20,9,4,0.85); white-space: nowrap; }
+      .mars-console.walking .dockchip { bottom: 136px; }
       @media (max-width: 760px) {
         .mars-console header { max-width: 46vw; }
         .mars .sub { display: none; }
@@ -96,6 +101,27 @@ export default function MarsConsole({
   selected, onSelect, inputRef, onExit,
 }) {
   const [seedInput, setSeedInput] = useState(seed);
+  // Minimize state for the two overlay windows (Merlin bug report,
+  // 2026-10-22: "the planetary information window is also not
+  // minimizable" — the world-profile panel had NO minimize or close
+  // control at all, and neither did the control dock; on a phone the
+  // panel permanently covers the top-right of the scene). Both
+  // collapse to a small chip that brings them back, and the choice
+  // is remembered on-device like the Earth console's.
+  const [worldMin, setWorldMin] = useState(() => {
+    try { return localStorage.getItem('mars-world-minimized') === '1'; } catch { return false; }
+  });
+  const [dockMin, setDockMin] = useState(() => {
+    try { return localStorage.getItem('mars-dock-minimized') === '1'; } catch { return false; }
+  });
+  const toggleWorldMin = (v) => {
+    setWorldMin(v);
+    try { localStorage.setItem('mars-world-minimized', v ? '1' : '0'); } catch {}
+  };
+  const toggleDockMin = (v) => {
+    setDockMin(v);
+    try { localStorage.setItem('mars-dock-minimized', v ? '1' : '0'); } catch {}
+  };
 
   function applySeed() {
     const clean = seedInput.trim();
@@ -122,9 +148,19 @@ export default function MarsConsole({
         <div className="sub">{profile.worldName} — {profile.biomeClass}. One seed grows the whole region: terrain, brine and quicksilver basins, flora, and five niches of seeded life. Drag to orbit, walk the regolith, or fly the basin — tap a creature for its exobiology.</div>
       </header>
 
+      {worldMin ? (
+        <button className="worldchip" onClick={() => toggleWorldMin(false)} aria-label="Show world information">
+          🪐 {profile.worldName} · INFO ＋
+        </button>
+      ) : (
       <section className="world" aria-label="World profile">
-        <h3>{profile.worldName}</h3>
-        <div className="biome">{profile.biomeClass} · Seed {profile.seed}</div>
+        <div className="worldhead">
+          <div>
+            <h3>{profile.worldName}</h3>
+            <div className="biome">{profile.biomeClass} · Seed {profile.seed}</div>
+          </div>
+          <button className="minbtn" onClick={() => toggleWorldMin(true)} aria-label="Minimize world information" title="Minimize">—</button>
+        </div>
         <div className="chips">
           {ELEMENT_LABELS.map(([key, label]) => (
             <span key={key} className="chip">{label} <b>{profile.elements[key]}%</b></span>
@@ -147,6 +183,7 @@ export default function MarsConsole({
           })}
         </div>
       </section>
+      )}
 
       {selected && (
         <div className="panel" role="dialog" aria-label={selected.name}>
@@ -158,6 +195,11 @@ export default function MarsConsole({
         </div>
       )}
 
+      {dockMin ? (
+        <button className="dockchip" onClick={() => toggleDockMin(false)} aria-label="Show Mars controls">
+          ⚙ CONTROLS ＋
+        </button>
+      ) : (
       <div className="dock">
         <div className="controls">
           <div className="ctl">
@@ -180,6 +222,7 @@ export default function MarsConsole({
           <button className={mode === "fly" ? "on" : ""} onClick={() => onToggleMode("fly")} aria-pressed={mode === "fly"}>
             <IcWings /><span>{mode === "fly" ? "FLYING" : "FLY"}</span>
           </button>
+          <button className="minbtn" onClick={() => toggleDockMin(true)} aria-label="Minimize Mars controls" title="Minimize">—</button>
         </div>
 
         <div className="controls" style={{ paddingTop: 0 }}>
@@ -195,6 +238,7 @@ export default function MarsConsole({
           <button className="returnbtn" onClick={onExit} aria-label="Return to orbit">RETURN TO ORBIT</button>
         </div>
       </div>
+      )}
 
       {mode !== 'orbit' && (
         <div className="hint">

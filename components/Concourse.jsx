@@ -12,7 +12,11 @@
 //                    account (localStorage instantly, /api/ui-state
 //                    across logins and devices).
 //   The Concourse  — transparent glass box; click the Orb to
-//                    expand/minimize.
+//                    expand/minimize. Drag the box by its title bar
+//                    to put it ANYWHERE on the screen (Merlin,
+//                    2026-10-22); its spot is remembered per account
+//                    exactly like the Orb's (localStorage instantly,
+//                    /api/ui-state across logins and devices).
 //   Tiles          — ALL the same 56×56, in composed order:
 //                    Portals, Tour, Intro, Guide, Portals 3D (the 3D
 //                    portal hall), Night Grid, Bike, Renewal
@@ -100,7 +104,7 @@ const isFrac = (v) => v && typeof v === 'object' && Number.isFinite(v.x) && Numb
 function loadLocal() {
   try {
     const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return { orb: null, pins: {}, bg: null };
+    if (!raw) return { orb: null, pins: {}, bg: null, box: null };
     const parsed = JSON.parse(raw);
     const orb = isFrac(parsed?.orb) ? parsed.orb : null;
     const pins = {};
@@ -108,18 +112,19 @@ function loadLocal() {
       for (const [id, v] of Object.entries(parsed.pins)) if (isFrac(v)) pins[id] = v;
     }
     const bg = parsed?.bg && typeof parsed.bg === 'object' ? parsed.bg : null;
-    return { orb, pins, bg };
+    const box = isFrac(parsed?.box) ? parsed.box : null;
+    return { orb, pins, bg, box };
   } catch {
-    return { orb: null, pins: {}, bg: null };
+    return { orb: null, pins: {}, bg: null, box: null };
   }
 }
 
 // Merge a new backdrop into the local cache without disturbing the
-// orb/pins the drag engine owns.
+// orb/pins/box the drag engines own.
 function writeLocalBg(bg) {
   try {
     const l = loadLocal();
-    localStorage.setItem(LS_KEY, JSON.stringify({ orb: l.orb, pins: l.pins, bg }));
+    localStorage.setItem(LS_KEY, JSON.stringify({ orb: l.orb, pins: l.pins, bg, box: l.box }));
   } catch {}
 }
 
@@ -220,6 +225,9 @@ export default function Concourse() {
   const [orbFrac, setOrbFrac] = useState(null); // {x, y} fractions
   const [orbCustom, setOrbCustom] = useState(false);
   const [pinsFrac, setPinsFrac] = useState({}); // tileId -> {x, y}
+  const [boxFrac, setBoxFrac] = useState(null); // box top-left {x, y} fractions
+  const [boxDrag, setBoxDrag] = useState(null); // box top-left px while dragging
+  const [boxH, setBoxH] = useState(0); // measured box height (position math)
   const [drag, setDrag] = useState(null); // {kind, id, x, y, active} px
   const [bikeOut, setBikeOut] = useState(false);
   const [phoneOpen, setPhoneOpen] = useState(false);
@@ -231,11 +239,12 @@ export default function Concourse() {
   const dragRef = useRef(null);
   const suppressClickRef = useRef(0);
   const orbRef = useRef(null);
+  const boxRef = useRef(null);
   const saveTimerRef = useRef(null);
   const saveBgTimerRef = useRef(null);
   const saveSettingsTimerRef = useRef(null);
   const stateRef = useRef({ orb: null, pins: {}, custom: false });
-  stateRef.current = { orb: orbFrac, pins: pinsFrac, custom: orbCustom, bg: bgPref };
+  stateRef.current = { orb: orbFrac, pins: pinsFrac, custom: orbCustom, bg: bgPref, box: boxFrac };
 
   const toPx = useCallback(
     (frac) => ({
@@ -252,9 +261,9 @@ export default function Concourse() {
     [viewport]
   );
 
-  const persist = useCallback((orb, pins) => {
+  const persist = useCallback((orb, pins, box) => {
     try {
-      localStorage.setItem(LS_KEY, JSON.stringify({ orb, pins, bg: stateRef.current.bg }));
+      localStorage.setItem(LS_KEY, JSON.stringify({ orb, pins, bg: stateRef.current.bg, box: box || null }));
     } catch {}
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
@@ -264,7 +273,13 @@ export default function Concourse() {
         await fetch('/api/ui-state', {
           method: 'POST',
           headers: { 'content-type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ preferences: { concourse_orb: orb, concourse_pins: pins } }),
+          body: JSON.stringify({
+            preferences: {
+              concourse_orb: orb,
+              concourse_pins: pins,
+              ...(box ? { concourse_box: box } : {}),
+            },
+          }),
         });
       } catch {
         // offline — localStorage already holds it; next drag retries
@@ -301,6 +316,7 @@ export default function Concourse() {
       });
     }
     setPinsFrac(pins);
+    if (local.box) setBoxFrac(local.box);
     if (local.bg) setBgPref(resolveConcourseBg(local.bg));
     const cachedSettings = readUiSettingsCache(window.localStorage);
     if (cachedSettings) setUiSettings(cachedSettings);
@@ -318,6 +334,9 @@ export default function Concourse() {
         if (isFrac(prefs.concourse_orb)) {
           setOrbFrac({ x: clamp01(prefs.concourse_orb.x), y: clamp01(prefs.concourse_orb.y) });
           setOrbCustom(true);
+        }
+        if (isFrac(prefs.concourse_box)) {
+          setBoxFrac({ x: clamp01(prefs.concourse_box.x), y: clamp01(prefs.concourse_box.y) });
         }
         if (prefs.settings) {
           const r = resolveUiSettings(prefs.settings);
@@ -466,25 +485,92 @@ export default function Concourse() {
       const onOrb = orbRect
         && ev.clientX >= orbRect.left - 8 && ev.clientX <= orbRect.right + 8
         && ev.clientY >= orbRect.top - 8 && ev.clientY <= orbRect.bottom + 8;
-      const { orb, pins } = stateRef.current;
+      const { orb, pins, box } = stateRef.current;
 
       if (kind === 'orb') {
         const next = toFrac(dropPx);
         setOrbFrac(next);
         setOrbCustom(true);
-        persist(next, pins);
+        persist(next, pins, box);
       } else if (id) {
         const nextPins = { ...pins };
         if (onOrb) delete nextPins[id]; // dropped home
         else nextPins[id] = toFrac(dropPx);
         setPinsFrac(nextPins);
-        persist(orb, nextPins);
+        persist(orb, nextPins, box);
       }
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onUp);
   };
+
+  // --- box drag engine ------------------------------------------------
+  // The glass box itself is movable (Merlin, 2026-10-22: "concourse
+  // should be able to be moved to any place on the screen by any
+  // user"). Before this, only the Orb could move — and only via a
+  // 2-second hold nobody could discover — while the box stayed
+  // welded above it. Now: press the box's title bar and drag, no
+  // hold required; a sub-4px press is still a tap (the minimize
+  // button and the Doomsday strip keep their own tap targets — the
+  // handler stands down over buttons and links). The drop spot is
+  // stored as viewport fractions of the box's top-left corner over
+  // its free span, persisted through the same path as the Orb, so
+  // the box follows the user across sessions and devices.
+  const beginBoxDrag = (e) => {
+    if (e.button != null && e.button !== 0) return;
+    if (e.target.closest('button, a')) return;
+    const el = boxRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startLeft = rect.left;
+    const startTop = rect.top;
+    const w = rect.width;
+    const h = rect.height;
+    setBoxH(h);
+    let cur = { x: startLeft, y: startTop };
+    let moved = false;
+    const clampBox = (x, y) => ({
+      x: Math.min(Math.max(4, x), Math.max(4, window.innerWidth - w - 4)),
+      y: Math.min(Math.max(4, y), Math.max(4, window.innerHeight - h - 4)),
+    });
+    const onMove = (ev) => {
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (!moved && Math.hypot(dx, dy) < 4) return;
+      moved = true;
+      cur = clampBox(startLeft + dx, startTop + dy);
+      setBoxDrag(cur);
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      setBoxDrag(null);
+      if (!moved) return;
+      const frac = {
+        x: clamp01(cur.x / Math.max(1, window.innerWidth - w)),
+        y: clamp01(cur.y / Math.max(1, window.innerHeight - h)),
+      };
+      setBoxFrac(frac);
+      const { orb, pins } = stateRef.current;
+      persist(orb, pins, frac);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  };
+
+  // Keep the box's measured height current while it is open — the
+  // fraction math needs it, and the box's height changes with the
+  // tile count and the season strip.
+  useEffect(() => {
+    if (!open || !boxRef.current) return;
+    const h = boxRef.current.offsetHeight;
+    setBoxH((prev) => (Math.abs(prev - h) > 1 ? h : prev));
+  });
 
   const tapGuard = () => Date.now() - suppressClickRef.current < 350;
 
@@ -502,6 +588,17 @@ export default function Concourse() {
   // is whatever the tiles need, and it can never slide down over the
   // Orb or its own footer text (Merlin's screenshot, 2026-10-20).
   const boxBottom = viewport.h - (orbPx.y - yieldLift) + 12;
+  // A user-placed box (dragged by its title bar) overrides the Orb
+  // anchor entirely: it renders at its stored fractions, clamped
+  // fully on screen, and stays there until dragged again.
+  const boxEffH = boxH || 220;
+  const boxPx = boxDrag || (boxFrac ? {
+    x: Math.min(Math.max(4, boxFrac.x * Math.max(0, viewport.w - boxW)), Math.max(4, viewport.w - boxW - 4)),
+    y: Math.min(Math.max(4, boxFrac.y * Math.max(0, viewport.h - boxEffH)), Math.max(4, viewport.h - boxEffH - 4)),
+  } : null);
+  const boxStyle = boxPx
+    ? { left: boxPx.x, top: boxPx.y, width: boxW }
+    : { left: boxX, bottom: boxBottom, width: boxW };
 
   const dragTile = drag?.active && drag.kind === 'tile' && drag.id ? TILES.find((t) => t.id === drag.id) : null;
 
@@ -543,13 +640,17 @@ export default function Concourse() {
 
   return (
     <>
-      {/* Layer 2 · The Concourse (glass box) */}
+      {/* Layer 2 · The Concourse (glass box) — the header (title +
+          minimize) is PINNED above the tile scroll area, so the
+          minimize control can never scroll out of reach on a small
+          phone, and the title bar doubles as the box's drag handle. */}
       {open && (
         <div
+          ref={boxRef}
           role="dialog"
           aria-label="The Concourse"
-          className="ui-element fixed z-[58] max-h-[calc(100dvh-110px)] overflow-y-auto rounded-3xl border border-cyan-200/25 bg-zinc-950/55 p-3.5 shadow-[0_18px_50px_rgba(0,0,0,0.55),0_0_35px_rgba(0,242,255,0.10)] backdrop-blur-xl"
-          style={{ left: boxX, bottom: boxBottom, width: boxW }}
+          className="ui-element fixed z-[58] flex max-h-[calc(100dvh-110px)] flex-col overflow-hidden rounded-3xl border border-cyan-200/25 bg-zinc-950/55 p-3.5 shadow-[0_18px_50px_rgba(0,0,0,0.55),0_0_35px_rgba(0,242,255,0.10)] backdrop-blur-xl"
+          style={boxStyle}
         >
           {/* Backdrop: the user's chosen Concourse background under
               a scrim of the glass's own darkness. */}
@@ -557,21 +658,30 @@ export default function Concourse() {
             <ConcourseBackdrop bg={bgPref} />
             <div className="absolute inset-0 bg-zinc-950/55" />
           </div>
-          <div className="relative">
+          <div className="relative flex min-h-0 flex-col">
+          <div className="shrink-0">
           {/* The golden Doomsday countdown crowns the Concourse
               (Merlin, 2026-10-20) — hub-only, self-removing Dec 11. */}
           <DoomsdayStrip />
-          <div className="mb-2.5 flex items-center justify-between px-0.5">
-            <div className="text-[10px] font-black tracking-[0.3em] uppercase text-cyan-200">The Concourse</div>
+          <div
+            onPointerDown={beginBoxDrag}
+            title="Drag to move the Concourse"
+            className="mb-2.5 flex cursor-grab touch-none select-none items-center justify-between px-0.5 active:cursor-grabbing"
+          >
+            <div className="text-[10px] font-black tracking-[0.3em] uppercase text-cyan-200">
+              <span aria-hidden="true" className="mr-1.5 tracking-normal text-cyan-400/70">⠿</span>The Concourse
+            </div>
             <button
               type="button"
               aria-label="Minimize the Concourse"
               onClick={() => setOpen(false)}
-              className="ui-element pointer-events-auto flex h-6 w-6 items-center justify-center rounded-full border border-white/15 text-zinc-300 hover:text-white hover:border-cyan-300/60 transition-all"
+              className="ui-element pointer-events-auto flex h-7 w-7 items-center justify-center rounded-full border border-white/15 text-zinc-300 hover:text-white hover:border-cyan-300/60 transition-all"
             >
               <span aria-hidden="true" className="text-xs leading-none">—</span>
             </button>
           </div>
+          </div>
+          <div className="min-h-0 overflow-y-auto">
           <div className="grid grid-cols-4 gap-2.5">
             {boxedTiles.map((t) => tileButton(t))}
             {boxedTiles.length === 0 && (
@@ -581,6 +691,7 @@ export default function Concourse() {
           <div className="mt-2.5 px-0.5 text-[9.5px] leading-relaxed text-zinc-500">
             {note || (
               <>
+                <span className="block">Drag the title bar → put the Concourse anywhere. It stays where you leave it.</span>
                 <span className="block">Hold a tile 2s → pin it out on the hub. Drop it on the Orb to send it home.</span>
                 <span className="block">Hold the Orb 2s → move it.</span>
               </>
@@ -594,6 +705,7 @@ export default function Concourse() {
               <SeasonBadge inline />
             </div>
           )}
+          </div>
           </div>
         </div>
       )}

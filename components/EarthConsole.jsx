@@ -83,12 +83,15 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
   const atStreet = phase === 'earth_roam';
   const canWalk = phase === 'earth_surface' || atStreet;
 
-  // If a dive/travel starts while minimized, pop the console back open so the
-  // traveling indicator is visible instead of failing silently.
-  useEffect(() => {
-    if (busy) setMin(false);
-  }, [busy]);
-
+  // MINIMIZE IS LAW (Merlin bug report, 2026-10-22: "the controls are
+  // not minimizing"): an earlier version force-reopened the console
+  // whenever a dive/travel phase began — tapping a tile to parachute,
+  // or any travel kicked off while the console was minimized, popped
+  // it straight back open over the scene. That auto-reopen is GONE:
+  // only the user opens this console. Travel is not silent while
+  // minimized — the docked globe pulses and carries a traveling
+  // label until the phase settles (see the minimized branch below).
+  //
   // Minimized: a floating globe icon docked on the right edge. Tap to open
   // the console in the middle of the screen. The bike controls overlay
   // renders in BOTH branches — riding with the menu closed must still
@@ -98,12 +101,17 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
       <>
         <button
           onClick={() => setMin(false)}
-          aria-label="Open Earth console"
+          aria-label={busy ? 'Open Earth console (traveling)' : 'Open Earth console'}
           title={t('earth.consoleTitle')}
-          className="absolute right-4 top-[32%] z-[80] w-14 h-14 rounded-full bg-zinc-950/90 border border-cyan-500/50 shadow-[0_0_25px_rgba(0,242,255,0.25)] backdrop-blur-md flex items-center justify-center text-2xl hover:scale-105 active:scale-95 transition-all ui-element pointer-events-auto"
+          className={`absolute right-4 top-[32%] z-[80] w-14 h-14 rounded-full bg-zinc-950/90 border border-cyan-500/50 shadow-[0_0_25px_rgba(0,242,255,0.25)] backdrop-blur-md flex items-center justify-center text-2xl hover:scale-105 active:scale-95 transition-all ui-element pointer-events-auto ${busy ? 'animate-pulse' : ''}`}
         >
           <span aria-hidden="true">🌍</span>
         </button>
+        {busy && (
+          <div aria-live="polite" className="absolute right-4 top-[32%] z-[80] mt-[4.25rem] rounded-full border border-cyan-500/40 bg-zinc-950/90 px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.18em] text-cyan-300 ui-element pointer-events-none">
+            {phase === 'earth_travel' ? t('earth.traveling') : t('earth.locating')}
+          </div>
+        )}
         {atStreet && bikeUi.out && (
           <BikeControls mounted={bikeUi.mounted} controlsRef={controlsRef} />
         )}
@@ -143,10 +151,19 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
         row copies; the card is now a near-opaque solid (no blur).
         (2) The search-results and landmark lists were NESTED
         scrollers inside the card's scroller; they now flow in the
-        card's single scroll surface. */}
+        card's single scroll surface.
+        MINIMIZE REACHABILITY (Merlin bug report, 2026-10-22): the
+        header — minimize button included — used to live INSIDE that
+        one scroll surface, so on a phone the card's content pushed
+        it off the top and scrolling buried it: the console looked
+        like it would not minimize because its minimize button was
+        no longer on screen. The header is now PINNED above the
+        scroll body (the card clips, the body is still the single
+        scroll surface), so minimize is always visible and tappable
+        no matter how far the destination list is scrolled. */}
     <div className="absolute inset-0 z-[80] flex items-center justify-center pointer-events-none ui-element">
-      <div className="bg-zinc-950/95 border border-cyan-500/30 rounded-xl p-4 shadow-[0_0_30px_rgba(0,242,255,0.12)] flex flex-col gap-3 max-h-[70dvh] overflow-y-auto custom-scrollbar w-[min(92vw,20rem)] pointer-events-auto [transform:translateZ(0)]">
-        <div className="border-b border-zinc-800 pb-2">
+      <div className="bg-zinc-950/95 border border-cyan-500/30 rounded-xl p-4 shadow-[0_0_30px_rgba(0,242,255,0.12)] flex flex-col max-h-[70dvh] overflow-hidden w-[min(92vw,20rem)] pointer-events-auto [transform:translateZ(0)]">
+        <div className="shrink-0 border-b border-zinc-800 pb-2">
           <div className="flex items-center justify-between gap-2">
             <div className="text-xs font-black tracking-[0.25em] uppercase text-cyan-300">
               {t('earth.consoleTitle')}
@@ -155,7 +172,7 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
               onClick={() => setMin(true)}
               aria-label="Minimize Earth console"
               title="Minimize"
-              className="w-7 h-7 shrink-0 rounded-full border border-zinc-700 text-zinc-400 hover:text-white hover:border-cyan-500/60 flex items-center justify-center text-sm leading-none transition-all"
+              className="w-9 h-9 shrink-0 rounded-full border border-zinc-700 text-zinc-400 hover:text-white hover:border-cyan-500/60 flex items-center justify-center text-base leading-none transition-all"
             >
               <span aria-hidden="true">—</span>
             </button>
@@ -185,6 +202,9 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
           </div>
         </div>
 
+        {/* The card's ONE scroll surface — everything below the pinned
+            header flows in here (see the scroll-ghost note above). */}
+        <div className="flex min-h-0 flex-col gap-3 overflow-y-auto custom-scrollbar pt-3">
         <form onSubmit={submit} className="flex gap-2">
           <input
             value={input}
@@ -335,6 +355,7 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
         >
           {t('earth.returnToOrbit')}
         </button>
+        </div>
       </div>
     </div>
     {atStreet && bikeUi.out && (
