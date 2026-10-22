@@ -17,6 +17,7 @@ import NotificationsWindow from '@/components/NotificationsWindow';
 import EntranceSequence from '@/components/EntranceSequence';
 import { createEntranceMachine } from '@/lib/entrance-sequence';
 import EarthConsole from '@/components/EarthConsole';
+import { generateMarsProfile } from '@/lib/mars/engine';
 import { getUserPosition, FALLBACK_POSITION } from '@/lib/geo';
 import { roamState, beginRoam, endRoam, landmarkSpawns } from '@/lib/earth/roam';
 import { beginParachuteDive } from '@/lib/earth/parachute';
@@ -36,6 +37,13 @@ import {
 const HomeScene = dynamic(() => import('@/components/HomeScene'), {
   ssr: false,
   loading: () => <div className="absolute inset-0 bg-[#050505]" aria-hidden="true" />,
+});
+
+// MarsConsole pulls in the Mars scene module (TouchControls), so it
+// rides the same client-only dynamic path as HomeScene — the three.js
+// stack stays out of the page's static bundle.
+const MarsConsole = dynamic(() => import('@/components/MarsConsole'), {
+  ssr: false,
 });
 
 function NexusHub() {
@@ -140,7 +148,39 @@ function NexusHub() {
       else setEarthFocus({ ...FALLBACK_POSITION });
     });
   };
-  
+
+  // Mars realm (Merlin, 2026-10-21): the seeded exobiology surface
+  // lives INSIDE the hub's Mars planet — tap the planet in freeroam
+  // and dive in without leaving this page, exactly like Earth. The
+  // standalone /mars page stays as a second door. Realm state is
+  // owned here and passed to both the DOM console (MarsConsole) and
+  // the scene (HomeScene renders MarsRealmContent in the hub Canvas).
+  const marsInputRef = useRef({ keys: { fwd: false, back: false, left: false, right: false, up: false, down: false } });
+  const [marsSeed, setMarsSeed] = useState('MARS-PRIME');
+  const [marsTime, setMarsTime] = useState(0.32);
+  const [marsMode, setMarsMode] = useState('orbit');
+  const [marsSelected, setMarsSelected] = useState(null);
+  const [marsFocusReq, setMarsFocusReq] = useState(null);
+  const marsProfile = useMemo(() => generateMarsProfile(marsSeed), [marsSeed]);
+
+  const beginMarsDive = () => {
+    if (appState !== 'hub_freeroam') return;
+    setAppState('mars_surface');
+  };
+
+  const exitMars = () => { setAppState('hub_freeroam'); };
+
+  const selectMars = (sel) => {
+    setMarsSelected(sel || null);
+    if (sel && marsMode === 'orbit') {
+      setMarsFocusReq({ pos: sel.pos, nonce: Date.now() });
+    }
+  };
+
+  const toggleMarsMode = (m) => {
+    setMarsMode((prev) => (prev === m ? 'orbit' : m));
+  };
+
   const travelToEarth = (dest) => { setPendingDest(dest); setAppState('earth_travel'); };
   
   const arriveEarth = (dest) => {
@@ -391,7 +431,11 @@ function NexusHub() {
   };
 
   const handlePointerDown = (e) => {
-    if (e.target.closest('.ui-element')) return; 
+    if (e.target.closest('.ui-element')) return;
+    // Inside the Mars realm the hub's flight stick/look stand down —
+    // the realm's own rig (orbit / drag-look / TouchControls) owns
+    // pointer input there, like EarthWalker's does in earth_roam.
+    if (appState === 'mars_surface') return;
     if (appState === 'hub_intro') setAppState('hub_freeroam');
     
     const clientX = e.clientX;
@@ -603,6 +647,22 @@ function NexusHub() {
         />
       )}
 
+      {(user || cloudOffline) && appState === 'mars_surface' && (
+        <MarsConsole
+          profile={marsProfile}
+          seed={marsSeed}
+          setSeed={setMarsSeed}
+          time={marsTime}
+          setTime={setMarsTime}
+          mode={marsMode}
+          onToggleMode={toggleMarsMode}
+          selected={marsSelected}
+          onSelect={selectMars}
+          inputRef={marsInputRef}
+          onExit={exitMars}
+        />
+      )}
+
       {/* Character picker now lives inside EarthConsole menu (not floating) */}
 
       {(user || cloudOffline) && appState === 'hub_freeroam' && (
@@ -644,6 +704,14 @@ function NexusHub() {
         pendingDest={pendingDest}
         arriveEarth={arriveEarth}
         beginEarthDive={beginEarthDive}
+        beginMarsDive={beginMarsDive}
+        marsProfile={marsProfile}
+        marsTime={marsTime}
+        marsMode={marsMode}
+        marsInputRef={marsInputRef}
+        marsFocusReq={marsFocusReq}
+        onMarsSelect={selectMars}
+        marsSelectedId={marsSelected ? marsSelected.id : null}
         onParachute={parachuteTo}
         onTileSelect={appState === 'earth_surface' ? handleTileSelect : null}
         onBikeDismount={handleBikeDismount}

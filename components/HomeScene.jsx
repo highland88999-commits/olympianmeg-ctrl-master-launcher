@@ -15,6 +15,7 @@ import { useRouter } from 'next/navigation';
 import GodOrbitRings from './GodOrbitRings';
 import BikeRig, { BIKE_PARK_POS, RIDER_OFFSET, BIKE_LOOK_AHEAD } from './BikeRig';
 import NexusEarth from './NexusEarth';
+import { MarsRealmContent } from './mars/MarsScene';
 import HubMoon from './HubMoon';
 import AsteroidField from './AsteroidField';
 import NavBeacons from './NavBeacons';
@@ -70,11 +71,13 @@ function MarsBackground({ onSelect }) {
   // — the single source of truth that also feeds its collider in
   // StaticColliders and the Mars-centered SYSTEM RINGS, so the three
   // can never drift apart. Earth stays exactly where it is.
-  // Clickable (Merlin, 2026-10-21): tapping the hub's Mars body now
-  // enters the Mars surface, mirroring how clicking Earth begins the
-  // dive. onSelect is gated by the parent to hub_freeroam (same gate
-  // as NexusEarth's onSelect); the handler sits on the group so both
-  // the planet mesh and its atmosphere shell deliver the tap.
+  // Clickable (Merlin, 2026-10-21): tapping the hub's Mars body dives
+  // INTO the planet — the seeded surface renders inside this same
+  // Canvas (MarsRealmContent at the origin, appState 'mars_surface'),
+  // mirroring how clicking Earth begins the dive. onSelect is gated
+  // by the parent to hub_freeroam (same gate as NexusEarth's
+  // onSelect); the handler sits on the group so both the planet mesh
+  // and its atmosphere shell deliver the tap.
   return (
     <group
       position={[MARS_CENTER.x, MARS_CENTER.y, MARS_CENTER.z]}
@@ -690,6 +693,14 @@ function HubScene({
   pendingDest,
   arriveEarth,
   beginEarthDive,
+  beginMarsDive,
+  marsProfile,
+  marsTime,
+  marsMode,
+  marsInputRef,
+  marsFocusReq,
+  onMarsSelect,
+  marsSelectedId,
   onParachute,
   onTileSelect,
   onLaunchExternal,
@@ -718,6 +729,16 @@ function HubScene({
     setPayloadTex(loadEffectVideo('/gemini_generated_video_65272AD7.mp4'));
   }, []);
 
+  // Mars realm (Merlin, 2026-10-21): while appState is 'mars_surface'
+  // the hub's visuals stand down entirely and the seeded Mars surface
+  // (MarsRealmContent, self-lit with its own sky/fog) renders at the
+  // origin instead — the same in-Canvas realm pattern as Earth. The
+  // camera controllers need no branch for it: SequenceController and
+  // EarthFlightController only act on their own states, so the Mars
+  // rig (OrbitControls / FirstPerson) owns the camera here, exactly
+  // as EarthWalker owns it in earth_roam.
+  const inMars = appState === 'mars_surface';
+
   return (
       <Canvas shadows="soft" gl={{ alpha: true, antialias: false, powerPreference: 'default' }} camera={{ position: [ORBIT_CENTER.x, ORBIT_CENTER.y, ORBIT_CENTER.z], fov: 52, far: 2000 }} style={{ pointerEvents: 'auto' }} onCreated={({ gl }) => {
         // Live context loss (GPU reset, driver hiccup, OS sleep): hand it
@@ -728,21 +749,37 @@ function HubScene({
           if (onContextLost) onContextLost();
         });
       }}>
-        {!bgVideoOk && <color attach="background" args={['#050505']} />}
+        {!bgVideoOk && !inMars && <color attach="background" args={['#050505']} />}
         {/* Thin fog: the tower field (~180 out) must read clearly from
-            spawn, not vanish into haze. */}
-        <fogExp2 attach="fog" args={['#050505', 0.0016]} />
-        <QuantumGate>
-          <Stars radius={100} depth={50} count={7000} factor={4} saturation={0} fade speed={1} />
+            spawn, not vanish into haze. The Mars realm attaches its
+            own fog, so the hub's stands down while it is mounted. */}
+        {!inMars && <fogExp2 attach="fog" args={['#050505', 0.0016]} />}
+        {!inMars && (
+          <QuantumGate>
+            <Stars radius={100} depth={50} count={7000} factor={4} saturation={0} fade speed={1} />
 
-          {/* Seasonal decoration cycle: date-driven holiday decor + Merlin's
-              Christmas tree (Nov 22 - Twelfth Night). Renders nothing off-season. */}
-          <SeasonalDecor />
-        </QuantumGate>
+            {/* Seasonal decoration cycle: date-driven holiday decor + Merlin's
+                Christmas tree (Nov 22 - Twelfth Night). Renders nothing off-season. */}
+            <SeasonalDecor />
+          </QuantumGate>
+        )}
 
-        <ambientLight intensity={0.4} color="#222233" />
+        {!inMars && <ambientLight intensity={0.4} color="#222233" />}
 
         <Suspense fallback={null}>
+          {inMars ? (
+            <MarsRealmContent
+              key={marsProfile.seed}
+              profile={marsProfile}
+              timeOfDay={marsTime}
+              mode={marsMode}
+              inputRef={marsInputRef}
+              focusReq={marsFocusReq}
+              onSelect={onMarsSelect}
+              selectedId={marsSelectedId}
+            />
+          ) : (
+          <>
           <QuantumGate>
             <SunBackground />
             {/* THE OMEGA ARCH — just beyond the Sun. The Portal Room's
@@ -760,7 +797,7 @@ function HubScene({
             controls={controlsRef}
           />
           <QuantumGate>
-            <MarsBackground onSelect={appState === 'hub_freeroam' ? () => router.push('/mars') : null} />
+            <MarsBackground onSelect={appState === 'hub_freeroam' ? beginMarsDive : null} />
             {/* The planetary system's grand rainbow rings — fixed frame
                 around the planets, outside the satellite hollow. */}
             <SystemRings />
@@ -785,6 +822,8 @@ function HubScene({
           <QuantumGate>
             <BikeRig bikeRef={bikeRef} />
           </QuantumGate>
+          </>
+          )}
         </Suspense>
 
         <SequenceController

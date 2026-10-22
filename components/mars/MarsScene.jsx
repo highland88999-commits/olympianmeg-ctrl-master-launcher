@@ -139,8 +139,10 @@ function FirstPerson({ inputRef, fly, groundHeight }) {
 
 // Touch movement for walk/fly — same hardened pattern as the rainforest:
 // the stick writes into the same inputRef.keys the keyboard fills, and
-// every key is cleared on release, cancel, and unmount.
-function TouchControls({ inputRef, fly }) {
+// every key is cleared on release, cancel, and unmount. Exported so the
+// hub's MarsConsole can render the same DOM controls when the surface
+// lives inside the hub Canvas (no second implementation to drift).
+export function TouchControls({ inputRef, fly }) {
   const stickRef = useRef(null);
   const knobRef = useRef(null);
   const activeId = useRef(null);
@@ -833,11 +835,27 @@ function SceneContent({ profile, timeOfDay, mode, inputRef, focusReq, onSelect, 
   );
 }
 
+// MarsRealmContent — the surface as pure in-Canvas content (no Canvas
+// of its own), for mounting inside another scene. The hub uses this:
+// tapping the hub's Mars body dives INTO the planet and HomeScene
+// renders this at the origin of the hub Canvas, the same way Earth
+// renders inside the hub. Keyboard input (useKeys) rides along here so
+// both doors — this and the standalone /mars page below — get it.
+export function MarsRealmContent({ profile, timeOfDay, mode, inputRef, focusReq, onSelect, selectedId }) {
+  useKeys(inputRef);
+  return (
+    <SceneContent
+      profile={profile} timeOfDay={timeOfDay} mode={mode}
+      inputRef={inputRef} focusReq={focusReq}
+      onSelect={onSelect} selectedId={selectedId}
+    />
+  );
+}
+
 export default function MarsScene({
   profile, worldKey, timeOfDay = 0.32, mode = 'orbit',
   inputRef, focusReq, onSelect, selectedId,
 }) {
-  useKeys(inputRef);
   const [ready, setReady] = useState(false);
 
   return (
@@ -848,7 +866,7 @@ export default function MarsScene({
         gl={{ antialias: true, powerPreference: 'high-performance' }}
         onCreated={() => setReady(true)}
       >
-        <SceneContent
+        <MarsRealmContent
           key={worldKey || profile.seed}
           profile={profile} timeOfDay={timeOfDay} mode={mode}
           inputRef={inputRef} focusReq={focusReq}
