@@ -20,7 +20,7 @@ import HubMoon from './HubMoon';
 import AsteroidField from './AsteroidField';
 import NavBeacons from './NavBeacons';
 import EarthFlightController from './EarthFlightController';
-import { ORBIT_CENTER, EARTH_CENTER, EARTH_RADIUS, GOD_BANDS, MARS_CENTER, MARS_RADIUS, SYSTEM_RING_RADII, SYSTEM_RING_TILTS } from '../lib/god-orbits';
+import { ORBIT_CENTER, EARTH_CENTER, EARTH_RADIUS, GOD_BANDS, MARS_CENTER, MARS_RADIUS, PLANETS, SYSTEM_RING_RADII, SYSTEM_RING_TILTS } from '../lib/god-orbits';
 import { FREE_FLY_SPEED, BIKE_TUNING } from '../lib/hub-layout';
 import { registerCollider, unregisterCollider, resolveFlightCollision } from '../lib/hub-collision';
 import { createBikeFlightState, stepBikeFlight, rotateOffsetByYaw, bikeForward } from '../lib/bike-flight';
@@ -59,6 +59,19 @@ function QuantumGate({ children }) {
 function MarsBackground({ onSelect }) {
   const marsRef = useRef();
   useFrame((state, delta) => { if (marsRef.current) marsRef.current.rotation.y += delta * 0.05; });
+  // The real Mars map (Merlin's graphic, 2026-10-21) re-skins the
+  // planet; the flat rust color stays as the pre-load fallback and is
+  // dropped the moment the texture lands (a map multiplies the color,
+  // so a loaded map renders against white).
+  const [marsMap, setMarsMap] = useState(null);
+  useEffect(() => {
+    let live = true;
+    new THREE.TextureLoader().load('/planets/mars.jpg', (tex) => {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      if (live) setMarsMap(tex);
+    });
+    return () => { live = false; };
+  }, []);
   
   // Mars rides the far side of the satellites (Merlin, 2026-10-20):
   // the whole planetary system expanded outward from ORBIT_CENTER by
@@ -85,7 +98,7 @@ function MarsBackground({ onSelect }) {
     >
       <mesh ref={marsRef} receiveShadow castShadow>
         <sphereGeometry args={[MARS_RADIUS, 64, 64]} />
-        <meshStandardMaterial color="#b33900" roughness={0.9} metalness={0.1} />
+        <meshStandardMaterial map={marsMap || undefined} color={marsMap ? '#ffffff' : '#b33900'} roughness={0.9} metalness={0.1} />
       </mesh>
 
       <pointLight color="#ff4500" intensity={0.8} distance={150} position={[0, 0, 52.5]} />
@@ -116,6 +129,73 @@ function MarsBackground({ onSelect }) {
         />
       </mesh>
     </group>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The outer planets (Merlin, 2026-10-21): eight worlds wrapped in his
+// graphics, expanded outward past the existing system — data lives in
+// lib/god-orbits.js PLANETS (single source for mesh + collider).
+// PlanetBody spins its world on its own axis inside an axial-tilt
+// group; Saturn's strip texture becomes its rings via a radial UV
+// remap (RingGeometry's stock UVs are planar — the strip's width is
+// the radial axis, sampled at v = 0.5).
+// ---------------------------------------------------------------------------
+function PlanetBody({ planet, map, ringMap }) {
+  const spinRef = useRef();
+  useFrame((state, delta) => { if (spinRef.current) spinRef.current.rotation.y += delta * planet.spin; });
+  const ringGeo = useMemo(() => {
+    if (!planet.rings) return null;
+    const geo = new THREE.RingGeometry(planet.rings.inner, planet.rings.outer, 128, 1);
+    const pos = geo.attributes.position;
+    const uv = geo.attributes.uv;
+    const v = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i);
+      uv.setXY(i, (v.length() - planet.rings.inner) / (planet.rings.outer - planet.rings.inner), 0.5);
+    }
+    uv.needsUpdate = true;
+    return geo;
+  }, [planet]);
+  useEffect(() => () => { if (ringGeo) ringGeo.dispose(); }, [ringGeo]);
+  return (
+    <group position={[planet.center.x, planet.center.y, planet.center.z]}>
+      <group rotation={[0, 0, planet.tilt || 0]}>
+        <mesh ref={spinRef}>
+          <sphereGeometry args={[planet.radius, 48, 48]} />
+          <meshStandardMaterial map={map || undefined} color={map ? '#ffffff' : '#777777'} roughness={0.95} metalness={0.05} />
+        </mesh>
+        {planet.rings && ringGeo && (
+          <mesh geometry={ringGeo} rotation={[-Math.PI / 2, 0, 0]}>
+            <meshStandardMaterial map={ringMap || undefined} color={ringMap ? '#ffffff' : '#b8a88f'} roughness={1} metalness={0} side={THREE.DoubleSide} />
+          </mesh>
+        )}
+      </group>
+    </group>
+  );
+}
+
+function BackdropPlanets() {
+  const [maps, setMaps] = useState({});
+  useEffect(() => {
+    let live = true;
+    const loader = new THREE.TextureLoader();
+    const load = (url, key) => loader.load(url, (tex) => {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      if (live) setMaps((m) => ({ ...m, [key]: tex }));
+    });
+    PLANETS.forEach((p) => {
+      load(p.texture, p.key);
+      if (p.rings) load(p.rings.texture, p.key + ':rings');
+    });
+    return () => { live = false; };
+  }, []);
+  return (
+    <>
+      {PLANETS.map((p) => (
+        <PlanetBody key={p.key} planet={p} map={maps[p.key] || null} ringMap={maps[p.key + ':rings'] || null} />
+      ))}
+    </>
   );
 }
 
@@ -660,8 +740,9 @@ function StaticColliders() {
     registerCollider('earth', () => ({ ...EARTH_CENTER }), EARTH_RADIUS + 1);
     registerCollider('sun', () => ({ x: 0, y: 158.75, z: 662.5 }), 68);
     registerCollider('mars', () => ({ ...MARS_CENTER }), MARS_RADIUS);
+    PLANETS.forEach((p) => registerCollider('planet-' + p.key, () => ({ ...p.center }), p.radius));
     return () => {
-      ['earth', 'sun', 'mars'].forEach(unregisterCollider);
+      ['earth', 'sun', 'mars', ...PLANETS.map((p) => 'planet-' + p.key)].forEach(unregisterCollider);
     };
   }, []);
   return null;
@@ -798,6 +879,7 @@ function HubScene({
           />
           <QuantumGate>
             <MarsBackground onSelect={appState === 'hub_freeroam' ? beginMarsDive : null} />
+            <BackdropPlanets />
             {/* The planetary system's grand rainbow rings — fixed frame
                 around the planets, outside the satellite hollow. */}
             <SystemRings />
