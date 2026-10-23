@@ -79,13 +79,17 @@ import { isCastleParcel, parcelById } from '@/lib/earth2/parcels';
 import { HAMMOND_NPC, museumSiteParcel } from '@/lib/earth2/museum';
 import { AIRPORT_CENTER, AIRPORT_HEADING } from '@/lib/earth2/airport';
 import {
-  VEHICLE_SLUGS,
-  vehicleSpec,
+  modelSpec,
+  vehicleSpecForInstance,
+  boatColliders,
   stepVehicle,
   groundPose,
   loadVehicleStates,
   saveVehicleStates,
 } from '@/lib/earth2/vehicles';
+import { vehicleInstanceById } from '@/lib/earth2/fleet';
+import { bridgeHeightAt, bridgeDeckYAt, stepBridgeWalker, BRIDGE_DECK_WIDTH_M } from '@/lib/earth2/bridges';
+import { dressingColliders } from '@/lib/earth2/scatter';
 import {
   loadFossilInventory,
   saveFossilInventory,
@@ -120,6 +124,7 @@ import {
   draculaCourt,
   worldColliders,
   waterDepthAt,
+  MAX_WADE_DEPTH_M,
   stepWorldWalker,
   applyWorldLook,
 } from '@/lib/earth2/world';
@@ -1015,6 +1020,37 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         return gltf.scene;
       }
 
+      // A session-wide base cache for the Commons dressing
+      // (Terrain Wave B): a parcel's trees clone the ONE decoded
+      // base for their species instead of decoding the GLB per
+      // parcel. Scatter records are keepShared — teardown never
+      // disposes what the cache owns. A failed load evicts
+      // itself so a later parcel can retry honestly.
+      const modelBaseCache = new Map();
+      function loadModelCached(entry) {
+        if (!modelBaseCache.has(entry.slug)) {
+          modelBaseCache.set(entry.slug, loadModel(entry).catch((err) => {
+            modelBaseCache.delete(entry.slug);
+            throw err;
+          }));
+        }
+        return modelBaseCache.get(entry.slug);
+      }
+
+      // The dressing's procedural assets, shared by every
+      // scatter unit for the session (keepShared bookkeeping):
+      // rock geometry by size class, the crater bowl, rim stones.
+      const rockScatterMat = new THREE.MeshStandardMaterial({ color: 0x8d8578, roughness: 1 });
+      const craterBowlMat = new THREE.MeshStandardMaterial({ color: 0x4a3b2c, roughness: 1 });
+      const craterBowlGeo = new THREE.CircleGeometry(1, 20);
+      const rimStoneGeo = new THREE.IcosahedronGeometry(0.42, 0);
+      const rockGeoCache = new Map();
+      function rockGeoFor(r) {
+        const k = Math.max(1, Math.round(r * 4));
+        if (!rockGeoCache.has(k)) rockGeoCache.set(k, new THREE.IcosahedronGeometry(k / 4, 0));
+        return rockGeoCache.get(k);
+      }
+
       function bonesOf(modelScene) {
         const bones = new Map();
         modelScene.traverse((o) => {
@@ -1747,9 +1783,14 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       // craft tilt and hover-bob.
       async function placeVehicle(unit) {
         const entry = EARTH2_MODEL_BY_SLUG.get(unit.slug);
-        const spec = vehicleSpec(unit.slug);
+        const spec = modelSpec(unit.slug);
         if (!entry || !entry.file || !spec) return null;
-        setStatusFor(entry.slug, 'loading');
+        // The foundry status belongs to the MODEL and is carried
+        // by its first instance (the unit's own slug claim, set
+        // by vehicleStreamUnits); the other instances of the
+        // same model claim nothing.
+        const drivesStatus = (unit.slugs || []).includes(unit.slug);
+        if (drivesStatus) setStatusFor(entry.slug, 'loading');
         try {
           const modelScene = await loadModel(entry);
           let legs = [];
@@ -1777,19 +1818,38 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           const root = new THREE.Group();
           root.rotation.order = 'YXZ';
           root.add(spin);
-          const st = vehicleStatesRef.current[unit.slug] || unit.state;
-          root.position.set(st.x, heightAt(st.x, st.z) + (st.alt || 0), st.z);
+          const st = vehicleStatesRef.current[unit.instanceId] || unit.state;
+          root.position.set(
+            st.x,
+            spec.water ? WATER_Y - spec.draft : heightAt(st.x, st.z) + (st.alt || 0),
+            st.z,
+          );
           root.rotation.y = st.heading || 0;
           scene.add(root);
+          // The River Runner's wake: a simple speed-read plane
+          // astern, owned by this boat's own record (three boats
+          // planet-wide — per-boat geometry is honest bookkeeping).
+          let wake = null;
+          if (spec.water) {
+            wake = new THREE.Mesh(
+              new THREE.PlaneGeometry(3.6, 8),
+              new THREE.MeshBasicMaterial({
+                color: 0xdff4ff, transparent: true, opacity: 0, depthWrite: false,
+              }),
+            );
+            wake.rotation.x = -Math.PI / 2;
+            wake.position.set(0, spec.draft + 0.04, -5.5);
+            root.add(wake);
+          }
           const proxy = new THREE.Mesh(
             new THREE.SphereGeometry(Math.max(1.7, spec.radius), 8, 8),
             new THREE.MeshBasicMaterial({ visible: false }),
           );
           proxy.position.y = 1;
-          proxy.userData.vehicle = unit.slug;
+          proxy.userData.vehicle = unit.instanceId;
           root.add(proxy);
           const rec = {
-            slug: unit.slug, spec, root, proxy, legs,
+            slug: unit.slug, key: unit.instanceId, spec, root, proxy, legs, wake,
             phase: rng() * Math.PI * 2, owner: unit.key,
           };
           // Leg gait phases from the bind pose: a leg's offset
@@ -1810,11 +1870,12 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             }
           }
           vehicles.push(rec);
-          makeLabel(spec.name, root, spec.eyeHeight + 0.9, 130, unit.key);
-          setStatusFor(entry.slug, 'placed');
+          const inst = vehicleInstanceById(unit.instanceId);
+          makeLabel(inst && inst.label ? inst.label : spec.name, root, spec.eyeHeight + 0.9, 130, unit.key);
+          if (drivesStatus) setStatusFor(entry.slug, 'placed');
           return { roots: [root] };
         } catch (err) {
-          setStatusFor(entry.slug, 'failed');
+          if (drivesStatus) setStatusFor(entry.slug, 'failed');
           return null;
         }
       }
@@ -1828,7 +1889,16 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         rec.root.position.set(st.x, st.y != null ? st.y : heightAt(st.x, st.z), st.z);
         rec.root.rotation.set(st.pitch || 0, st.heading || 0, st.roll || 0);
         const sp = Math.abs(st.speed || 0);
-        if (rec.slug === 'scarab' && rec.legs.length) {
+        if (rec.spec.water) {
+          // Afloat: a gentle bob on the waterline, and the wake
+          // reads the speed — opacity and length astern.
+          rec.root.position.y += Math.sin(t * 1.15 + rec.phase) * 0.05;
+          if (rec.wake) {
+            const ratio = Math.min(1, sp / rec.spec.maxSpeed);
+            rec.wake.material.opacity = 0.26 * ratio;
+            rec.wake.scale.set(1, 0.4 + ratio * 1.1, 1);
+          }
+        } else if (rec.slug === 'scarab' && rec.legs.length) {
           if (sp > 0.05) rec.phase += dt * (1.4 + sp * 1.05);
           const amp = 0.075 * Math.min(1, sp / 4);
           for (const l of rec.legs) {
@@ -1849,9 +1919,9 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       // driving. Stepping out sets the walker on the machine's
       // right, settled by the walker's own push-out, and the
       // machine stays exactly where it was left — saved.
-      function boardVehicle(slug) {
-        const spec = vehicleSpec(slug);
-        const st = vehicleStatesRef.current[slug];
+      function boardVehicle(id) {
+        const spec = vehicleSpecForInstance(id);
+        const st = vehicleStatesRef.current[id];
         if (!spec || !st || drivingRef.current) return;
         if (buildModeRef.current.active) {
           noticeRef.current('🔨 Finish building first — then drive.');
@@ -1859,12 +1929,28 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         }
         const d = Math.hypot(walker.x - st.x, walker.z - st.z);
         if (d > 8.5) {
-          noticeRef.current(`🛩️ The ${spec.name} waits at Tyrrell Field — walk up to it to ${spec.verb.toLowerCase()} it.`);
+          const inst = vehicleInstanceById(id);
+          noticeRef.current(inst && inst.label
+            ? `🚗 The ${inst.label} is parked out in the wilds — walk up to it to ${spec.verb.toLowerCase()} it.`
+            : `🛩️ The ${spec.name} waits at Tyrrell Field — walk up to it to ${spec.verb.toLowerCase()} it.`);
           return;
         }
-        drivingRef.current = slug;
+        // Stamp the machine's display height into its state: the
+        // drive step's deck gate reads it (a machine boarded on a
+        // bridge over deep water starts ON the deck, not under it).
+        const deckY = bridgeHeightAt(st.x, st.z);
+        const onDeck = deckY != null && waterDepthAt(st.x, st.z) > MAX_WADE_DEPTH_M;
+        vehicleStatesRef.current[id] = {
+          ...st,
+          y: spec.water
+            ? WATER_Y - spec.draft
+            : spec.air
+              ? heightAt(st.x, st.z) + (st.alt || 0)
+              : onDeck ? deckY : heightAt(st.x, st.z),
+        };
+        drivingRef.current = id;
         if (!cancelled) {
-          setDriving(slug);
+          setDriving(id);
           setDriveInfo({ speed: 0, alt: st.alt || 0 });
           setNearVehicle(null);
         }
@@ -1874,41 +1960,73 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         walker.pitch = 0;
         noticeRef.current(spec.air
           ? '🛩️ VTOL Scout — W/S throttle, A/D turn, Space climbs, C settles her down. Land her flat before stepping out.'
-          : `🚗 ${spec.name} — W/S to move, A/D to steer. E or Esc to step out.`);
+          : spec.water
+            ? '⛵ River Runner — W/S to sail, A/D to steer her. Shallows stop the bow, and bridge piers are solid — take the arch centre. E or Esc to step ashore.'
+            : `🚗 ${spec.name} — W/S to move, A/D to steer. E or Esc to step out.`);
       }
 
       function exitVehicle() {
-        const slug = drivingRef.current;
-        if (!slug) return;
-        const spec = vehicleSpec(slug);
-        const st = vehicleStatesRef.current[slug];
+        const id = drivingRef.current;
+        if (!id) return;
+        const spec = vehicleSpecForInstance(id);
+        const st = vehicleStatesRef.current[id];
         if (spec && spec.air && st && (st.alt || 0) > 0.02) {
           noticeRef.current('🛬 Land the VTOL before stepping out.');
           return;
         }
         if (spec && st) {
           st.speed = 0;
-          const dOut = spec.radius + 1.3;
-          const ex = st.x - Math.cos(st.heading || 0) * dOut;
-          const ez = st.z + Math.sin(st.heading || 0) * dOut;
-          const cols = staticColliders.slice();
+          const cols = currentColliders().slice();
           cols.push({ x: DRACULA_SPOT.x, z: DRACULA_SPOT.z, r: 1.3 });
           if (hammondNpc.group) cols.push({ x: HAMMOND_NPC.stand.x, z: HAMMOND_NPC.stand.z, r: 1.0 });
           if (museumStanding) cols.push({ x: MUSEUM_CENTER.x, z: MUSEUM_CENTER.z - 3.5, r: 9 });
           if (airportStanding) cols.push({ x: AIRPORT_CENTER.x, z: AIRPORT_CENTER.z, r: 13 });
           for (const v of vehicles) {
-            const vst = vehicleStatesRef.current[v.slug];
+            const vst = vehicleStatesRef.current[v.key];
             if (vst) cols.push({ x: vst.x, z: vst.z, r: v.spec.radius });
           }
-          const settled = stepWorldWalker({ x: ex, z: ez }, 0, { fwd: 0, strafe: 0 }, 0, cols, false);
-          walker.x = settled.x;
-          walker.z = settled.z;
-          walker.yaw = (st.heading || 0) + Math.PI;
+          if (spec.water) {
+            // Step ashore: the nearest footing — dry bank
+            // preferred, wading shallows accepted; mid-water
+            // with no shore in reach refuses (you cannot step
+            // out into the deep).
+            let dry = null;
+            let wade = null;
+            for (const r of [6, 10, 14, 20, 30, 45]) {
+              for (let s = 0; s < 16; s++) {
+                const a = (s / 16) * Math.PI * 2;
+                const fx = st.x + Math.cos(a) * r;
+                const fz = st.z + Math.sin(a) * r;
+                if (!dry && heightAt(fx, fz) > WATER_Y + 0.05) dry = { x: fx, z: fz };
+                else if (!wade && waterDepthAt(fx, fz) <= 1.2) wade = { x: fx, z: fz };
+              }
+              if (dry) break;
+            }
+            const shore = dry || wade;
+            if (!shore) {
+              noticeRef.current('🌊 No shore in reach — sail closer to the bank to step out.');
+              return;
+            }
+            const settled = stepWorldWalker(shore, 0, { fwd: 0, strafe: 0 }, 0, cols, false);
+            walker.x = settled.x;
+            walker.z = settled.z;
+            walker.yaw = (st.heading || 0) + Math.PI;
+          } else {
+            const dOut = spec.radius + 1.3;
+            const ex = st.x - Math.cos(st.heading || 0) * dOut;
+            const ez = st.z + Math.sin(st.heading || 0) * dOut;
+            const settled = stepWorldWalker({ x: ex, z: ez }, 0, { fwd: 0, strafe: 0 }, 0, cols, false);
+            walker.x = settled.x;
+            walker.z = settled.z;
+            walker.yaw = (st.heading || 0) + Math.PI;
+          }
         }
         drivingRef.current = null;
         saveVehicleStates(vehicleStatesRef.current);
         if (!cancelled) setDriving(null);
-        noticeRef.current('🚶 Stepped out — the machine stays where you left it.');
+        noticeRef.current(spec && spec.water
+          ? '⛵ Stepped ashore — the River Runner rides where you left her.'
+          : '🚶 Stepped out — the machine stays where you left it.');
       }
       boardVehicleRef.current = (slug) => boardVehicle(slug);
       exitVehicleRef.current = () => exitVehicle();
@@ -2676,7 +2794,33 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         yaw: Math.atan2(spawn.x, spawn.z), // face the world's heart
         pitch: 0,
       };
-      const staticColliders = worldColliders();
+      // The solid world: the landforms' own colliders plus the
+      // Commons dressing's (Terrain Wave B — rocks, boulders,
+      // crater discs and tree trunks are solid, per Merlin).
+      // A parcel carrying a player's build lends its ground to
+      // the build instead: its dressing colliders step aside
+      // for as long as the build stands (currentColliders,
+      // cached on the build signature).
+      const staticColliders = worldColliders().concat(dressingColliders());
+      let colliderCache = { sig: '', list: staticColliders };
+      function currentColliders() {
+        const builds = (buildPropsRef.current && buildPropsRef.current.builds) || [];
+        let sig = '';
+        const builtOn = new Set();
+        for (const b of builds) {
+          if (!b || b.groundType !== 'earth2-parcel' || !Array.isArray(b.pieces) || !b.pieces.length) continue;
+          builtOn.add(b.groundId);
+          sig += `${b.groundId}:${b.pieces.length}|`;
+        }
+        if (!builtOn.size) return staticColliders;
+        if (sig !== colliderCache.sig) {
+          colliderCache = {
+            sig,
+            list: staticColliders.filter((c) => !c.parcelId || !builtOn.has(c.parcelId)),
+          };
+        }
+        return colliderCache.list;
+      }
       const reducedMotion = typeof window !== 'undefined'
         && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       let bobT = 0;
@@ -3024,14 +3168,21 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       function teardownStreamUnit(unit, record) {
         if (!record) return;
         const seen = new Set();
+        // keepShared records (the Commons dressing) are built
+        // entirely from session-shared assets — the model cache's
+        // bases, shared geometries and materials — so their
+        // roots leave the scene WITHOUT disposal: the cache owns
+        // the resources for the session's whole walk.
         for (const root of record.roots || []) {
           scene.remove(root);
-          disposeGraph(root, seen);
+          if (!record.keepShared) disposeGraph(root, seen);
         }
         // Detached bases a unit owns but never added to the
         // scene (the court's shared bat base) free their graphs
         // through the same seen set.
-        for (const base of record.bases || []) disposeGraph(base, seen);
+        if (!record.keepShared) {
+          for (const base of record.bases || []) disposeGraph(base, seen);
+        }
         for (const a of animals) if (a.owner === unit.key && a.id) lifecycle.forget(a.id);
         removeWhere(animals, (a) => a.owner === unit.key);
         removeWhere(swimmers, (s) => s.owner === unit.key);
@@ -3212,6 +3363,135 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         ghostGroup.rotation.y = (bm.ghostPlacement.rotY * Math.PI) / 180;
       }
 
+      // ── Placement: a crossing (Terrain Wave B) ──────────────
+      // The mesh is built FROM the bridge law's own data
+      // (lib/earth2/bridges.js): segmented deck slabs follow the
+      // profile the walker and the wheels ride, parapets line
+      // the edges, side walls hang below the deck — except at
+      // the centre, where they stop high and leave the arch
+      // opening the River Runner passes through. Abutments
+      // found the ends on the banks. Every geometry and material
+      // is this unit's own, so teardown disposes them honestly.
+      function placeBridge(unit) {
+        const b = unit.bridge;
+        if (!b) return null;
+        const stoneMat = new THREE.MeshStandardMaterial({ color: 0x8a8175, roughness: 1 });
+        const stoneDarkMat = new THREE.MeshStandardMaterial({ color: 0x6f675c, roughness: 1 });
+        const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+        const group = new THREE.Group();
+        const W = BRIDGE_DECK_WIDTH_M;
+        const segs = Math.max(6, Math.round(b.lengthM / 3));
+        const segLen = b.lengthM / segs;
+        const archHalf = b.lengthM * 0.2;
+        for (let i = 0; i < segs; i++) {
+          const t0 = i / segs;
+          const t1 = (i + 1) / segs;
+          const tm = (t0 + t1) / 2;
+          const xm = b.from + (b.to - b.from) * tm;
+          const y0 = bridgeDeckYAt(b, t0);
+          const y1 = bridgeDeckYAt(b, t1);
+          const ym = bridgeDeckYAt(b, tm);
+          const tilt = Math.atan2(y1 - y0, segLen);
+          const slab = new THREE.Mesh(boxGeo, stoneDarkMat);
+          slab.scale.set(segLen + 0.12, 0.45, W);
+          slab.position.set(xm, ym - 0.225, b.z);
+          slab.rotation.z = tilt;
+          group.add(slab);
+          for (const side of [-1, 1]) {
+            const par = new THREE.Mesh(boxGeo, stoneMat);
+            par.scale.set(segLen + 0.12, 0.55, 0.35);
+            par.position.set(xm, ym + 0.28, b.z + side * (W / 2 - 0.18));
+            par.rotation.z = tilt;
+            group.add(par);
+            const groundY = Math.max(heightAt(xm, b.z + side * (W / 2 - 0.3)), WATER_Y - 1.2);
+            let wallTop = ym - 0.45;
+            if (Math.abs(xm - b.centerX) < archHalf) wallTop = Math.min(wallTop, WATER_Y + 1.15);
+            if (wallTop - groundY > 0.15) {
+              const wall = new THREE.Mesh(boxGeo, stoneMat);
+              wall.scale.set(segLen + 0.12, wallTop - groundY, 0.6);
+              wall.position.set(xm, (wallTop + groundY) / 2, b.z + side * (W / 2 - 0.3));
+              group.add(wall);
+            }
+          }
+        }
+        for (const [endX, tt] of [[b.from + 0.8, 0.02], [b.to - 0.8, 0.98]]) {
+          const gy = heightAt(endX, b.z) - 1;
+          const dy = bridgeDeckYAt(b, tt);
+          const ab = new THREE.Mesh(boxGeo, stoneMat);
+          ab.scale.set(2.2, Math.max(1, dy - gy), W + 1.6);
+          ab.position.set(endX, (dy + gy) / 2, b.z);
+          group.add(ab);
+        }
+        scene.add(group);
+        return { roots: [group] };
+      }
+
+      // ── Placement: Commons dressing (Terrain Wave B) ────────
+      // One parcel's dressing (lib/earth2/scatter.js): foliage
+      // cloned from the session model cache, procedural rocks
+      // and crater sets from the shared dressing assets — the
+      // record is keepShared, so teardown removes the group
+      // without disposing anything shared. A parcel under a
+      // player's build renders nothing: the build owns the
+      // ground while it stands.
+      async function placeScatterUnit(unit) {
+        const d = unit.dressing;
+        if (!d || (!d.foliage.length && !d.rocks.length && !d.craters.length)) {
+          return { roots: [], keepShared: true };
+        }
+        const built = ((buildPropsRef.current && buildPropsRef.current.builds) || [])
+          .some((bb) => bb && bb.groundType === 'earth2-parcel' && bb.groundId === unit.parcel.id
+            && Array.isArray(bb.pieces) && bb.pieces.length);
+        if (built) return { roots: [], keepShared: true };
+        const group = new THREE.Group();
+        try {
+          for (const f of d.foliage) {
+            const entry = EARTH2_MODEL_BY_SLUG.get(f.slug);
+            if (!entry || !entry.file) continue;
+            const base = await loadModelCached(entry);
+            const holder = normalize(base.clone(), entry);
+            const root = new THREE.Group();
+            root.add(holder);
+            root.position.set(f.x, heightAt(f.x, f.z) - 0.1, f.z);
+            root.rotation.y = f.heading;
+            root.scale.setScalar(f.scale);
+            group.add(root);
+            if (f.role !== 'cover') {
+              sway.push({ obj: root, phase: rng() * 6.28, amp: entry.scaleM > 4 ? 0.016 : 0.03, x: f.x, z: f.z, owner: unit.key });
+            }
+          }
+        } catch (err) { /* a species that fails leaves the parcel bare, never broken */ }
+        for (const r of d.rocks) {
+          const baseR = Math.max(1, Math.round(r.r * 4)) / 4; // rockGeoFor's size class
+          const mesh = new THREE.Mesh(rockGeoFor(r.r), rockScatterMat);
+          mesh.position.set(r.x, heightAt(r.x, r.z) + r.h * 0.3, r.z);
+          mesh.scale.set(r.r / baseR, r.h / r.r, r.r / baseR);
+          mesh.rotation.set(0, (r.seed % 628) / 100, 0);
+          group.add(mesh);
+        }
+        for (const c of d.craters) {
+          const gy = heightAt(c.x, c.z);
+          const bowl = new THREE.Mesh(craterBowlGeo, craterBowlMat);
+          bowl.rotation.x = -Math.PI / 2;
+          bowl.position.set(c.x, gy + 0.06, c.z);
+          bowl.scale.set(c.rimR, c.rimR, 1);
+          group.add(bowl);
+          const stoneCount = Math.max(6, Math.round(c.rimR * 2.2));
+          for (let i = 0; i < stoneCount; i++) {
+            const a = (i / stoneCount) * Math.PI * 2;
+            const sx = c.x + Math.cos(a) * c.rimR;
+            const sz = c.z + Math.sin(a) * c.rimR;
+            const s = new THREE.Mesh(rimStoneGeo, rockScatterMat);
+            s.position.set(sx, heightAt(sx, sz) + 0.18, sz);
+            s.scale.setScalar(0.7 + ((i * 37) % 10) / 14);
+            s.rotation.y = a;
+            group.add(s);
+          }
+        }
+        scene.add(group);
+        return { roots: [group], keepShared: true };
+      }
+
       async function placeStreamUnit(unit) {
         const entryOf = (slug) => EARTH2_MODEL_BY_SLUG.get(slug);
         switch (unit.kind) {
@@ -3247,6 +3527,10 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             return placeVehicle(unit);
           case 'build':
             return placeBuildUnit(unit);
+          case 'bridge':
+            return placeBridge(unit);
+          case 'scatter':
+            return placeScatterUnit(unit);
           case 'court': {
             const roots = [];
             const castleEntry = entryOf('castle-transylvania');
@@ -3320,6 +3604,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       // emptied) releases outright. The parcel being built on is
       // PINNED — it never releases mid-build.
       let buildSigs = new Map();
+      let scatterBuilt = new Map();
       function updateStreaming() {
         const bUnits = buildStreamUnits(buildPropsRef.current.builds || []);
         const sigNow = new Map();
@@ -3352,6 +3637,27 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           }
         }
         buildSigs = sigNow;
+        // Commons dressing steps aside for builds the same way:
+        // a resident scatter parcel whose built-state flipped
+        // (a build landed, or packed up and returned the parcel
+        // to the commons) is released; the plan re-places it and
+        // placeScatterUnit renders per the current truth.
+        {
+          const builtNow = new Set();
+          for (const b of (buildPropsRef.current.builds || [])) {
+            if (b && b.groundType === 'earth2-parcel' && Array.isArray(b.pieces) && b.pieces.length) {
+              builtNow.add(b.groundId);
+            }
+          }
+          for (const key of [...streamState.keys()]) {
+            if (!key.startsWith('scatter:')) continue;
+            const is = builtNow.has(key.slice('scatter:'.length));
+            if ((scatterBuilt.get(key) === true) !== is) {
+              releaseStreamUnit({ key, kind: 'scatter', slugs: [] });
+            }
+            scatterBuilt.set(key, is);
+          }
+        }
         const bm = buildModeRef.current;
         const pinnedKey = bm.active && bm.parcelId ? `build:${bm.parcelId}` : null;
         // Vehicle units are dynamic like builds: computed fresh
@@ -3487,8 +3793,8 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         // Parked machines are solid; the one being driven is
         // the walker, and never collides with itself.
         for (const v of vehicles) {
-          if (v.slug === drivingRef.current) continue;
-          const vst = vehicleStatesRef.current[v.slug];
+          if (v.key === drivingRef.current) continue;
+          const vst = vehicleStatesRef.current[v.key];
           if (vst) dyn.push({ x: vst.x, z: vst.z, r: v.spec.radius });
         }
         for (const a of animals) {
@@ -3499,9 +3805,9 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             dyn.push({ x: a.root.position.x, z: a.root.position.z, r: Math.max(1.0, a.entry.scaleM * 0.36) });
           }
         }
-        const drivingSlug = drivingRef.current;
-        const dSpec = drivingSlug ? vehicleSpec(drivingSlug) : null;
-        const dState = drivingSlug ? vehicleStatesRef.current[drivingSlug] : null;
+        const drivingId = drivingRef.current;
+        const dSpec = drivingId ? vehicleSpecForInstance(drivingId) : null;
+        const dState = drivingId ? vehicleStatesRef.current[drivingId] : null;
         if (dSpec && dState && !buildModeRef.current.active) {
           // ── Driving: the pure step law (lib/earth2/vehicles.js)
           // owns the motion — terrain following, slope pitch/roll,
@@ -3509,18 +3815,44 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           // lifts on Space/C, tilts into its motion, crosses water
           // and refuses steep landings (reported once per refusal).
           const lift = dSpec.air ? (inp.keys.up ? 1 : 0) - (inp.keys.down ? 1 : 0) : 0;
+          let dEnv;
+          if (dSpec.water) {
+            // Afloat: the water-depth read and the obstacles —
+            // bridge piers plus the static solid world.
+            dEnv = { waterDepthAt, colliders: boatColliders(currentColliders()) };
+          } else if (dSpec.air) {
+            dEnv = { heightAt, waterDepthAt, colliders: currentColliders().concat(dyn) };
+          } else {
+            // A ground machine rides the crossings: the height
+            // read is the deck while the machine is deck-borne
+            // (deep water beneath it, or its last step's height
+            // says so), and the depth read treats any candidate
+            // ON a deck as dry — so the wading wall guards the
+            // deck's sides exactly as it guards a shoreline.
+            const deckHere = bridgeHeightAt(dState.x, dState.z);
+            const onDeck = deckHere != null
+              && (waterDepthAt(dState.x, dState.z) > MAX_WADE_DEPTH_M
+                || Math.abs((dState.y != null ? dState.y : heightAt(dState.x, dState.z)) - deckHere) < 0.9);
+            dEnv = {
+              heightAt: onDeck
+                ? (x, z) => { const d = bridgeHeightAt(x, z); return d == null ? heightAt(x, z) : d; }
+                : heightAt,
+              waterDepthAt: (x, z) => (bridgeHeightAt(x, z) != null ? 0 : waterDepthAt(x, z)),
+              colliders: currentColliders().concat(dyn),
+            };
+          }
           const stepped = stepVehicle(dState, dSpec, {
             throttle: Math.max(-1, Math.min(1, fwdIn)),
             steer: -strafeIn,
             lift,
-          }, dt, { heightAt, waterDepthAt, colliders: staticColliders.concat(dyn) });
+          }, dt, dEnv);
           if (stepped.landingRefused && !dState.landingRefused) {
             noticeRef.current('🛬 Too steep to set down here — the VTOL needs flatter ground.');
           }
-          vehicleStatesRef.current[drivingSlug] = stepped;
+          vehicleStatesRef.current[drivingId] = stepped;
           walker.x = stepped.x;
           walker.z = stepped.z;
-          const rec = vehicles.find((v) => v.slug === drivingSlug);
+          const rec = vehicles.find((v) => v.key === drivingId);
           if (rec) poseVehicle(rec, stepped, t, dt);
           camera.position.set(stepped.x, stepped.y + dSpec.eyeHeight, stepped.z);
           camera.rotation.set(walker.pitch, walker.yaw, 0);
@@ -3529,11 +3861,24 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           }
           if (frameNo % 120 === 0) saveVehicleStates(vehicleStatesRef.current);
         } else {
-          const next = stepWorldWalker(walker, walker.yaw, { fwd: fwdIn, strafe: strafeIn }, dt, staticColliders.concat(dyn), travelNow);
+          // On a crossing — or one step from its deck — the
+          // bridge walker law owns the step (Terrain Wave B):
+          // the deck is ground, its sides are guarded by the
+          // same wading wall that guards every shore, and the
+          // ends are the only way off.
+          const walkCols = currentColliders().concat(dyn);
+          const deckNear = bridgeHeightAt(walker.x, walker.z) != null
+            || bridgeHeightAt(walker.x - Math.sin(walker.yaw) * 1.4, walker.z - Math.cos(walker.yaw) * 1.4) != null;
+          const next = deckNear
+            ? stepBridgeWalker(walker, walker.yaw, { fwd: fwdIn, strafe: strafeIn }, dt, {
+              heightAt, waterDepthAt, bridgeHeightAt, colliders: walkCols, travel: travelNow,
+            })
+            : stepWorldWalker(walker, walker.yaw, { fwd: fwdIn, strafe: strafeIn }, dt, walkCols, travelNow);
           const movedDist = Math.hypot(next.x - walker.x, next.z - walker.z);
           walker.x = next.x;
           walker.z = next.z;
-          const groundY = heightAt(walker.x, walker.z);
+          const deckY = bridgeHeightAt(walker.x, walker.z);
+          const groundY = deckY != null ? deckY : heightAt(walker.x, walker.z);
           const depth = Math.max(0, WATER_Y - groundY);
           let bob = 0;
           if (!reducedMotion && movedDist > 1e-4 && depth < 0.2) {
@@ -3572,11 +3917,11 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           let best = null;
           let bestD = 3.5;
           if (!drivingRef.current && !buildModeRef.current.active) {
-            for (const slug of VEHICLE_SLUGS) {
-              const vst = vehicleStatesRef.current[slug];
+            for (const id of Object.keys(vehicleStatesRef.current)) {
+              const vst = vehicleStatesRef.current[id];
               if (!vst) continue;
               const d = Math.hypot(walker.x - vst.x, walker.z - vst.z);
-              if (d <= bestD) { bestD = d; best = slug; }
+              if (d <= bestD) { bestD = d; best = id; }
             }
           }
           if (best !== nearVehicleRef.current) {
@@ -3587,13 +3932,23 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
 
         // Parked machines hold their pose on the terrain (a
         // machine left on a slope sits on the slope); the driven
-        // one was posed by the drive step above.
+        // one was posed by the drive step above. A boat rides
+        // its waterline; a machine parked on a crossing sits ON
+        // the deck (deep water beneath it is the tell).
         for (const v of vehicles) {
-          if (v.slug === drivingRef.current) continue;
-          const vst = vehicleStatesRef.current[v.slug];
+          if (v.key === drivingRef.current) continue;
+          const vst = vehicleStatesRef.current[v.key];
           if (!vst) continue;
-          const pose = groundPose(vst, v.spec, heightAt);
-          poseVehicle(v, { ...vst, y: pose.y + (vst.alt || 0), pitch: pose.pitch, roll: pose.roll }, t, dt);
+          if (v.spec.water) {
+            poseVehicle(v, { ...vst, y: WATER_Y - v.spec.draft, pitch: 0, roll: 0 }, t, dt);
+            continue;
+          }
+          const deckY = bridgeHeightAt(vst.x, vst.z);
+          const onDeck = deckY != null && !v.spec.air && waterDepthAt(vst.x, vst.z) > MAX_WADE_DEPTH_M;
+          const pose = groundPose(vst, v.spec, onDeck
+            ? (x, z) => { const d = bridgeHeightAt(x, z); return d == null ? heightAt(x, z) : d; }
+            : heightAt);
+          poseVehicle(v, { ...vst, y: onDeck ? pose.y : pose.y + (vst.alt || 0), pitch: pose.pitch, roll: pose.roll }, t, dt);
         }
 
         // Life, by proximity: land animals animate within 260 m
@@ -3837,13 +4192,13 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         )}
         {nearVehicle && !driving && !buildMode && (
           <div className="pointer-events-auto flex flex-wrap items-center gap-2 rounded-full border border-sky-300/30 bg-black/50 py-1.5 pl-3 pr-1.5 text-[11px] text-zinc-100">
-            <span>🛩️ <strong className="text-sky-100">{vehicleSpec(nearVehicle)?.name}</strong> is ready</span>
+            <span>{vehicleSpecForInstance(nearVehicle)?.air ? '🛩️' : vehicleSpecForInstance(nearVehicle)?.water ? '⛵' : '🚗'} <strong className="text-sky-100">{vehicleSpecForInstance(nearVehicle)?.name}</strong> is ready</span>
             <button
               type="button"
               onClick={() => boardVehicleRef.current(nearVehicle)}
               className="rounded-full border border-sky-300/50 bg-sky-400/20 px-2.5 py-1 font-bold text-sky-50 transition hover:bg-sky-400/35"
             >
-              {vehicleSpec(nearVehicle)?.verb} it
+              {vehicleSpecForInstance(nearVehicle)?.verb} it
             </button>
           </div>
         )}
@@ -4261,14 +4616,14 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="text-[10px] font-black tracking-[0.25em] text-sky-200">
-                  {vehicleSpec(driving)?.air ? '🛩️ IN THE AIR' : '🚗 DRIVING'}
+                  {vehicleSpecForInstance(driving)?.air ? '🛩️ IN THE AIR' : vehicleSpecForInstance(driving)?.water ? '⛵ UNDER WAY' : '🚗 DRIVING'}
                 </div>
                 <div className="mt-0.5 text-lg font-black leading-tight text-white">
-                  {vehicleSpec(driving)?.name}
+                  {vehicleSpecForInstance(driving)?.name}
                 </div>
                 <p className="mt-1 text-[11px] leading-snug text-zinc-400">
                   {(driveInfo.speed * 3.6).toFixed(0)} km/h
-                  {vehicleSpec(driving)?.air ? ` · ${(driveInfo.alt || 0).toFixed(0)} m up` : ''}
+                  {vehicleSpecForInstance(driving)?.air ? ` · ${(driveInfo.alt || 0).toFixed(0)} m up` : ''}
                   {' '}· W/S move · A/D steer · drag looks around
                 </p>
               </div>
@@ -4280,7 +4635,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
                 🚶 Step out
               </button>
             </div>
-            {vehicleSpec(driving)?.air && (
+            {vehicleSpecForInstance(driving)?.air && (
               <div className="flex gap-2">
                 <button
                   type="button"

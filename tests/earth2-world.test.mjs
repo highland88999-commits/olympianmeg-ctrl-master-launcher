@@ -82,7 +82,7 @@ import {
   planStreamActions,
   vehicleStreamUnits,
 } from '../lib/earth2/streaming.js';
-import { defaultVehicleStates } from '../lib/earth2/vehicles.js';
+import { defaultVehicleStates, defaultInstanceStates } from '../lib/earth2/vehicles.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, '..');
@@ -281,8 +281,12 @@ describe('the population — placed by habitat', () => {
       // vehicle stream units (vehicleStreamUnits), merged into
       // the coverage test below exactly as the scene merges
       // them. Placement is pinned by
-      // tests/earth2-vehicles.test.mjs.
-      'airport', 'rover', 'speed-bike', 'scarab', 'vtol',
+      // tests/earth2-vehicles.test.mjs. Terrain Wave B
+      // (2026-10-23) adds the River Runner: a fleet model like
+      // the four — its homes are the moorings in
+      // lib/earth2/fleet.js, pinned by
+      // tests/earth2-terrain-wave-b.test.mjs.
+      'airport', 'rover', 'speed-bike', 'scarab', 'vtol', 'boat',
     ]);
     for (const m of earth2PlacedModels()) {
       assert.ok(planned.has(m.slug), `${m.slug} has no world placement`);
@@ -542,10 +546,14 @@ describe('proximity streaming — the memory contract (Safari killed the all-at-
 
   it('the stream plan covers the whole cast exactly once — and nothing else', () => {
     // The scene's merged plan: the static world units plus the
-    // fleet's live units (Vehicles Phase 1) — a machine's anchor
-    // moves with it, so its unit is computed from state, exactly
-    // like a build's.
-    const units = worldStreamUnits().concat(vehicleStreamUnits(defaultVehicleStates()));
+    // fleet's live units — a machine's anchor moves with it, so
+    // its unit is computed from state, exactly like a build's.
+    // Since Terrain Wave B the fleet is per-INSTANCE (fleet.js):
+    // the merged plan is computed from the instance state map,
+    // and a scattered instance of a model claims no slug — the
+    // Tyrrell Field machine carries its model's coverage, so the
+    // cast is still covered exactly once.
+    const units = worldStreamUnits().concat(vehicleStreamUnits(defaultInstanceStates()));
     const covered = units.flatMap((u) => u.slugs);
     assert.equal(new Set(covered).size, covered.length, 'no slug is streamed by two units');
     for (const m of earth2PlacedModels()) {

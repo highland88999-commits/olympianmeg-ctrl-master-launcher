@@ -45,9 +45,11 @@ function parseGlb(buf) {
 }
 
 describe('the Bay manifest', () => {
-  it('holds 65 entries: 63 placed files, the compy swarm riding its source model, 1 awaiting upload', () => {
-    assert.equal(EARTH2_MODELS.length, 65);
-    assert.equal(earth2PlacedModels().length, 63);
+  it('holds 66 entries: 64 placed files, the compy swarm riding its source model, 1 awaiting upload', () => {
+    // Terrain Wave B (2026-10-23) landed the River Runner:
+    // 65 → 66 entries, 63 → 64 placed.
+    assert.equal(EARTH2_MODELS.length, 66);
+    assert.equal(earth2PlacedModels().length, 64);
     const pending = earth2PendingModels();
     assert.equal(pending.length, 1);
     assert.deepEqual(
@@ -89,7 +91,7 @@ describe('the Bay manifest', () => {
   });
 
   it('slugs are unique and kind counts match the foundry roster', () => {
-    assert.equal(new Set(EARTH2_MODELS.map((m) => m.slug)).size, 65);
+    assert.equal(new Set(EARTH2_MODELS.map((m) => m.slug)).size, 66);
     const by = (k) => EARTH2_MODELS.filter((m) => m.kind === k).length;
     assert.equal(by('dinosaur'), 18);
     assert.equal(by('flyer'), 10);
@@ -100,7 +102,7 @@ describe('the Bay manifest', () => {
     assert.equal(by('character'), 2);
     assert.equal(by('swarm'), 1);
     assert.equal(by('structure'), 2);
-    assert.equal(by('vehicle'), 4);
+    assert.equal(by('vehicle'), 5); // the four field machines + the River Runner (Wave B)
   });
 
   it('the museum mount has landed — the building and the founder, world-only (Phase 2, 2026-10-23)', () => {
@@ -128,10 +130,11 @@ describe('the Bay manifest', () => {
     // museum pair, and — since Vehicles Phase 1 (2026-10-23) —
     // Tyrrell Field and its fleet, which the Bay diorama also
     // never picks up (their homes are pinned by
-    // tests/earth2-vehicles.test.mjs).
+    // tests/earth2-vehicles.test.mjs). Terrain Wave B adds the
+    // River Runner to the same world-only fleet.
     assert.deepEqual(
       EARTH2_MODELS.filter((m) => m.worldOnly).map((m) => m.slug).sort(),
-      ['airport', 'hammond', 'museum', 'rover', 'scarab', 'speed-bike', 'vtol'],
+      ['airport', 'boat', 'hammond', 'museum', 'rover', 'scarab', 'speed-bike', 'vtol'],
     );
   });
 

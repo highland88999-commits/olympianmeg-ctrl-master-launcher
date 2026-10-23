@@ -36,6 +36,8 @@ import {
   planStreamActions,
 } from '../lib/earth2/streaming.js';
 import { HAMMOND_NPC, MUSEUM_EXCHANGE_POINT } from '../lib/earth2/museum.js';
+import { worldBridges } from '../lib/earth2/bridges.js';
+import { scatterParcelIds } from '../lib/earth2/scatter.js';
 import {
   resolveSpawnParcel,
   spawnPointFor,
@@ -103,8 +105,18 @@ describe('the stream plan — one museum unit, anchored at the counter', () => {
   it('the unit exists exactly once, with both slugs and landform-class hysteresis', () => {
     const units = worldStreamUnits();
     // 55 cast units + the museum unit + (since Vehicles
-    // Phase 1) the Tyrrell Field unit.
-    assert.equal(units.length, 57, 'the plan: the cast, the museum unit, the airfield unit');
+    // Phase 1) the Tyrrell Field unit. Terrain Wave B
+    // (2026-10-23) grows the plan by the crossings and the
+    // Commons dressing — counted by kind, so this pin still
+    // guards the original 57 exactly.
+    const byKind = (k) => units.filter((u) => u.kind === k);
+    assert.equal(
+      units.length - byKind('bridge').length - byKind('scatter').length,
+      57,
+      'the plan: the cast, the museum unit, the airfield unit',
+    );
+    assert.equal(byKind('bridge').length, worldBridges().length, 'one unit per crossing');
+    assert.equal(byKind('scatter').length, scatterParcelIds().length, 'one unit per dressed parcel');
     const museumUnits = units.filter((u) => u.kind === 'museum');
     assert.equal(museumUnits.length, 1);
     const unit = museumUnits[0];

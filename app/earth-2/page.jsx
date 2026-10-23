@@ -68,7 +68,9 @@ import {
 } from '@/lib/earth2/forge';
 import { formatGold } from '@/lib/economy/config';
 import { AIRPORT_NAME, AIRPORT_TOWN, airportGroundsIds } from '@/lib/earth2/airport';
-import { VEHICLE_SPECS, VEHICLE_SLUGS } from '@/lib/earth2/vehicles';
+import { VEHICLE_SPECS, VEHICLE_SLUGS, BOAT_SPEC } from '@/lib/earth2/vehicles';
+import { worldBridges } from '@/lib/earth2/bridges';
+import { scatteredVehicleSpots, boatMoorings } from '@/lib/earth2/fleet';
 import { earth2BuildContext, validateEarth2Build } from '@/lib/earth2/building';
 import {
   claimHomestead,
@@ -856,6 +858,76 @@ export default function Earth2Page() {
             Ground machines follow the terrain and stop at deep water — no swimming
             vehicles. The VTOL climbs on Space and settles on C, and needs flat
             ground to land. E or Esc steps you out, wherever you are.
+          </p>
+        </section>
+
+        {/* Terrain Wave B (2026-10-23): the crossings, the wild
+            fleet and the River Runners — the planet got its
+            bridges, its scattered machines and its boats, and the
+            Free Commons got their dressing. All of it lives out
+            on the walkable planet like everything else here. */}
+        <section className="mt-5 rounded-[1.5rem] border border-emerald-300/30 bg-emerald-400/[0.06] p-4 backdrop-blur-md sm:p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="text-sm font-black tracking-[0.25em] text-emerald-100">
+                🌉 THE CROSSINGS &amp; THE WILD FLEET
+              </h2>
+              <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-zinc-300">
+                {worldBridges().length} stone-arch bridges now cross Earth 2&rsquo;s rivers
+                and its lake — a crossing roughly every six parcels, so no stretch of
+                shoreline is far from a deck. Walk them or drive them; the River Runner
+                passes beneath the arch. The two shallow ponds need no bridge (they never
+                stop a walker), and the west-edge river has no far bank to reach. Nine
+                more machines sleep out in the wilds on Free Commons, and three River
+                Runner boats ride at anchor — walk up to any of them and take the controls.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setWalking(true)}
+              className="rounded-full border border-emerald-300/60 bg-emerald-400/25 px-5 py-3 text-sm font-black tracking-widest text-emerald-50 transition hover:bg-emerald-400/40"
+            >
+              🌉 WALK THE PLANET
+            </button>
+          </div>
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            {scatteredVehicleSpots().map((s) => (
+              <div key={s.id} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/25 px-3.5 py-2.5">
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-bold text-zinc-50">
+                    {s.slug === 'speed-bike' ? '🏍️' : s.slug === 'scarab' ? '🪲' : '🛻'} {s.label}
+                  </span>
+                  <span className="block text-[11px] text-zinc-400">
+                    {VEHICLE_SPECS[s.slug].name} · parked on {s.parcelId}
+                  </span>
+                </span>
+                <span className="shrink-0 rounded-full border border-emerald-300/40 bg-emerald-400/15 px-2.5 py-1 text-[11px] font-bold text-emerald-100">
+                  In the wilds
+                </span>
+              </div>
+            ))}
+            {boatMoorings().map((m) => (
+              <div key={m.id} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/25 px-3.5 py-2.5">
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-bold text-zinc-50">
+                    ⛵ {m.label}
+                  </span>
+                  <span className="block text-[11px] text-zinc-400">
+                    {BOAT_SPEC.name} · moored off {m.parcelId} · top speed {Math.round(BOAT_SPEC.maxSpeed * 3.6)} km/h on open water
+                  </span>
+                </span>
+                <span className="shrink-0 rounded-full border border-emerald-300/40 bg-emerald-400/15 px-2.5 py-1 text-[11px] font-bold text-emerald-100">
+                  At anchor
+                </span>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-[11px] leading-relaxed text-zinc-500">
+            The Free Commons are dressed now, too — extra trees and shrubs, boulders,
+            and the odd crater out on the steppe — and all of it is solid: rocks,
+            craters and tree trunks stop a walker and a machine alike. Ownable and
+            owned parcels stay clean; the dressing belongs to the commons, and it
+            steps aside wherever a build stands.
           </p>
         </section>
 
