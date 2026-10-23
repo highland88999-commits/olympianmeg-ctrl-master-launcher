@@ -12,6 +12,7 @@ import { verifyOwnerSession } from '@/lib/owner';
 import { getServiceClient } from '@/lib/economy/supabase';
 import { debitGold, creditGold, InsufficientGoldError } from '@/lib/economy/ledger';
 import { parcelById, buyRefusal } from '@/lib/earth2/parcels';
+import { evictHomesteadOnSaleDb } from '@/lib/earth2/building';
 
 export const dynamic = 'force-dynamic';
 
@@ -127,7 +128,25 @@ export async function POST(req) {
       counterparty: 'house',
     });
 
-    return NextResponse.json({ ok: true, parcel: ins.data, gold: debit.balanceAfter });
+    // HOMESTEAD EVICTION (building design, 2026-10-22): this sale
+    // ends any homestead claim standing on the parcel — the
+    // claimant's build is packed up for them and they are notified
+    // (lib/building/rights.js onParcelSold, at the DB level).
+    // Best-effort: until supabase/earth2-buildings.sql runs it
+    // answers setupRequired, and the sale stands regardless.
+    const eviction = await evictHomesteadOnSaleDb(
+      db,
+      parcel.id,
+      { id: user.id, email: user.email },
+      ins.data && ins.data.acquired_at
+    ).catch(() => null);
+
+    return NextResponse.json({
+      ok: true,
+      parcel: ins.data,
+      gold: debit.balanceAfter,
+      ...(eviction && eviction.evicted ? { eviction: eviction.evicted } : {}),
+    });
   } catch {
     return NextResponse.json({ ok: false, error: 'Something went wrong.' }, { status: 500 });
   }
