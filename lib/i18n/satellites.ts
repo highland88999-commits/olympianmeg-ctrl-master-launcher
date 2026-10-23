@@ -211,6 +211,10 @@ export const SATELLITES: SatelliteEntry[] = [
   // ARES/UTILITIES.
   { key: "compass", route: "/compass", pos: "UTILITIES", section: "UTILITIES", constellation: "ARES" },
   { key: "weather", route: "/weather", pos: "UTILITIES", section: "UTILITIES", constellation: "ARES" },
+  // OMEGA COMMS (the Communications Array — Global / Direct / Squad
+  // messaging) sits with HERMES' message routes beside PHONE HOME,
+  // its fellow comms tool: ARES/TOOLS.
+  { key: "omega-comms", route: "/omega-comms", pos: "HERMES", section: "TOOLS", constellation: "ARES" },
 ];
 
 export interface SectionDef { name: string; key: string; constellation: string; }

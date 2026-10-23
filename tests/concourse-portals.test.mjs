@@ -3,7 +3,7 @@
 // the 3D portal objects live inside the Concourse, minimized until
 // the user expands them):
 // - the shared roster derivation (lib/portal-roster.js): the real
-//   registry yields exactly the Portal Room's 169, deduped by route,
+//   registry yields exactly the Portal Room's 170, deduped by route,
 //   the room itself skipped, title/subtitle fallbacks honored
 // - wall paging (42 per wall; GAMES' 51 -> 2 pages), section hues,
 //   the shared section/search filtering and grouping
@@ -50,8 +50,8 @@ const enRoster = () =>
   buildPortalRoster(SATELLITES, (k) => en[`sat.${k}.title`], (k) => en[`sat.${k}.subtitle`]);
 
 describe('buildPortalRoster (the shared derivation)', () => {
-  it('yields exactly 169 portals from the real registry — the Portal Room count', () => {
-    assert.equal(enRoster().length, 169);
+  it('yields exactly 170 portals from the real registry — the Portal Room count', () => {
+    assert.equal(enRoster().length, 170);
   });
 
   it('skips the Portal Room itself', () => {
@@ -131,7 +131,7 @@ describe('filterPortals + groupBySection (room/panel shared semantics)', () => {
 
   it('section filter keeps only that section', () => {
     const tools = filterPortals(roster, { section: 'TOOLS' });
-    assert.equal(tools.length, 22);
+    assert.equal(tools.length, 23);
     assert.ok(tools.every((p) => p.section === 'TOOLS'));
   });
 
@@ -145,7 +145,7 @@ describe('filterPortals + groupBySection (room/panel shared semantics)', () => {
   it('grouping follows SECTION_ORDER and drops empty sections', () => {
     const grouped = groupBySection(roster);
     assert.deepEqual(grouped.map((g) => g.section), SECTION_ORDER);
-    assert.equal(grouped.reduce((n, g) => n + g.items.length, 0), 169);
+    assert.equal(grouped.reduce((n, g) => n + g.items.length, 0), 170);
     assert.deepEqual(groupBySection([]), []);
   });
 });
@@ -266,7 +266,7 @@ describe('portal video presence (lib/portal-videos.js — the file-presence list
 
   it('the data source carries exactly the videos on disk — no drift either way', () => {
     assert.deepEqual([...PORTAL_VIDEO_KEYS].sort(), onDisk);
-    assert.equal(onDisk.length, 11, 'eleven portal videos wired today');
+    assert.equal(onDisk.length, 14, 'fourteen portal videos wired today (batch 5: rogers-arena, persephone, hive)');
   });
 
   it('every video key on disk resolves as video-present from the data source', () => {
