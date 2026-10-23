@@ -8,10 +8,11 @@
 // day." The foundry GLBs therefore live in the PRIVATE Supabase
 // Storage bucket 'earth2-models' (supabase/earth2-models-bucket.sql),
 // addressed by relative keys ('tyrannosaurus-rex.glb'). This route is
-// the only door: it verifies the owner's session server-side
-// (lib/owner.js, like every /api/earth2/* route — non-owners get a
-// 404, this surface does not admit it exists), then mints short-lived
-// signed URLs with the service role.
+// the only door: it verifies the session server-side against the
+// Earth 2 access law (lib/earth2/access.js — the owner, plus since
+// the 2026-10-23 proof of concept the one named guest; everyone
+// else gets a 404, this surface does not admit it exists), then
+// mints short-lived signed URLs with the service role.
 //
 // The request can only ever narrow the set: keys are filtered
 // against the manifest allowlist (lib/earth2/models.js), unknown keys
@@ -21,7 +22,7 @@
 // while EARTH2_PUBLIC_FALLBACK holds (see lib/earth2/models.js).
 
 import { NextResponse } from 'next/server';
-import { verifyOwnerSession } from '@/lib/owner';
+import { verifyEarth2AccessSession } from '@/lib/earth2/access';
 import { getServiceClient } from '@/lib/economy/supabase';
 import { apiGuard } from '@/lib/api-guard';
 import { noCache } from '@/lib/no-cache';
@@ -40,7 +41,7 @@ function notFound() {
 
 export const POST = noCache(apiGuard(async function POST(req) {
   const token = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
-  const { user } = await verifyOwnerSession(token).catch(() => ({ user: null }));
+  const { user } = await verifyEarth2AccessSession(token).catch(() => ({ user: null }));
   if (!user) return notFound();
 
   let body = null;

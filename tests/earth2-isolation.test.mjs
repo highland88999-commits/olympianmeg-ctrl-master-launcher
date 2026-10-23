@@ -123,12 +123,13 @@ describe('the lock — bucket, keys, resolver', () => {
   });
 });
 
-describe('the model-urls route — owner or nothing', () => {
+describe('the model-urls route — Earth 2 access or nothing', () => {
   const src = read('app/api/earth2/model-urls/route.js');
 
-  it('verifies the owner session server-side and 404s everyone else', () => {
-    assert.ok(src.includes('verifyOwnerSession'), 'owner session check');
-    assert.ok(src.includes('status: 404'), 'non-owners get a 404');
+  it('verifies an Earth 2 access session server-side and 404s everyone else', () => {
+    assert.ok(src.includes('verifyEarth2AccessSession'), 'access session check (owner or POC guest)');
+    assert.ok(src.includes("from '@/lib/earth2/access'"), 'the access law is the one source of truth');
+    assert.ok(src.includes('status: 404'), 'accounts without access get a 404');
   });
 
   it('signs only manifest keys, from the private bucket, for one hour', () => {
@@ -212,5 +213,27 @@ describe('isolation — the multiverse stays clean', () => {
     assert.ok(bay.includes('earth2ModelUrl'), 'Bay resolves every load');
     assert.ok(!bay.includes('loadAsync(entry.file)'), 'no direct public-path loads remain');
     assert.ok(!bay.includes('/models/earth2'), 'no hard-coded public path');
+  });
+});
+
+describe('the proof-of-concept guest — one name, one home (2026-10-23)', () => {
+  it("the guest email appears ONLY in lib/earth2/access.js across the app sources", () => {
+    const hits = ALL_SOURCES.filter((rel) => read(rel).includes('fishstart@hotmail.com'));
+    assert.deepEqual(hits, ['lib/earth2/access.js'],
+      'every surface defers to the access module; no gate copies the guest email');
+  });
+
+  it('the guest opens no write surface: buy, forge, rent and builds stay owner-only', () => {
+    for (const route of [
+      'app/api/earth2/buy/route.js',
+      'app/api/earth2/forge/route.js',
+      'app/api/earth2/rent/route.js',
+      'app/api/earth2/builds/route.js',
+      'app/api/earth2/builds/claims/route.js',
+    ]) {
+      const src = read(route);
+      assert.ok(src.includes('verifyOwnerSession'), `${route} still verifies the owner`);
+      assert.ok(!src.includes('verifyEarth2AccessSession'), `${route} does not admit the guest`);
+    }
   });
 });

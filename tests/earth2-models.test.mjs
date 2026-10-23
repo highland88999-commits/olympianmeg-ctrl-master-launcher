@@ -741,7 +741,7 @@ describe('the chamber wiring', () => {
     assert.ok(page.includes('onBloodSac={collectSacFromBay}'), 'page collects the Bay sacs');
     assert.ok(page.includes("id=\"draculas-exchange\""), "Dracula's Exchange panel is in the chamber");
     assert.ok(page.includes("DRACULA'S EXCHANGE") || page.includes('DRACULA&rsquo;S EXCHANGE'), 'the exchange names its host');
-    assert.ok(page.includes('isOwnerEmail'), 'owner gate intact');
+    assert.ok(page.includes('hasEarth2Access'), 'access gate intact (owner or POC guest)');
     assert.ok(page.includes('This page could not be found.'), 'plain 404 intact');
     assert.ok(!page.includes('This bay fills when the real assets land'), 'the empty state is gone');
   });

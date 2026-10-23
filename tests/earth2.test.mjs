@@ -7,10 +7,14 @@
 // - home-base resolution (first acquired by default, owner's choice
 //   when set), the First Round land sale + Land Tiles resale layer
 // - the gold forge's accrual math and daily cap
-// - the owner lock's static wiring: OWNER_PORTALS + withOwnerPortals
-//   in the shared roster, verifyOwnerSession in every Earth 2 API
-//   route, and NO 'earth-2' entry in the satellite registry (a
-//   registry entry would raise a hub tower in front of everyone)
+// - the access lock's static wiring: OWNER_PORTALS + withOwnerPortals
+//   in the shared roster, a verified session in every Earth 2 API
+//   route (owner-only writes; the access law of lib/earth2/access.js
+//   for the model door and the read-only state), and NO 'earth-2'
+//   entry in the satellite registry (a registry entry would raise a
+//   hub tower in front of everyone)
+// - the proof of concept (2026-10-23): owner + one named guest, one
+//   granted parcel each with one parcel between, spawn follows title
 //
 // Run: node --test tests/earth2.test.mjs   (from the repo root)
 
@@ -86,6 +90,23 @@ import {
   buildPortalRoster,
   withOwnerPortals,
 } from '../lib/portal-roster.js';
+import {
+  EARTH2_GUEST_EMAIL,
+  POC_GAP_PARCEL_ID,
+  POC_GUEST_PARCEL_ID,
+  POC_OWNER_PARCEL_ID,
+  hasEarth2Access,
+  isEarth2GuestEmail,
+} from '../lib/earth2/access.js';
+import {
+  climateForParcel,
+  familyForParcel,
+  heightAt,
+  parcelCenterWorld,
+  resolveSpawnParcel,
+  spawnPointFor,
+} from '../lib/earth2/world.js';
+import { protectedParcelIds } from '../lib/earth2/building.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, '..');
@@ -395,7 +416,7 @@ describe('the gold forge', () => {
   });
 });
 
-describe('the owner lock (static wiring)', () => {
+describe('the access lock (static wiring)', () => {
   it('OWNER_PORTALS holds exactly the Earth 2 entry', () => {
     assert.equal(OWNER_PORTALS.length, 1);
     assert.deepEqual(OWNER_PORTALS[0], {
@@ -426,17 +447,26 @@ describe('the owner lock (static wiring)', () => {
     assert.equal(again.filter((p) => p.route === '/earth-2').length, 1);
   });
 
-  it('every Earth 2 API route verifies the owner session', () => {
-    for (const route of ['state', 'buy', 'forge', 'rent']) {
+  it('every Earth 2 write route verifies the OWNER session — the guest gets no keys', () => {
+    for (const route of ['buy', 'forge', 'rent']) {
       const src = read(`app/api/earth2/${route}/route.js`);
       assert.ok(src.includes('verifyOwnerSession'), `${route} must call verifyOwnerSession`);
+      assert.ok(!src.includes('verifyEarth2AccessSession'), `${route} must NOT admit the guest`);
       assert.ok(src.includes("status: 404"), `${route} must 404 for non-owners`);
     }
   });
 
-  it('the Earth 2 page gates on the session before rendering', () => {
+  it('the read surfaces (state, model door) verify Earth 2 access — owner or the POC guest', () => {
+    for (const route of ['state', 'model-urls']) {
+      const src = read(`app/api/earth2/${route}/route.js`);
+      assert.ok(src.includes('verifyEarth2AccessSession'), `${route} must call verifyEarth2AccessSession`);
+      assert.ok(src.includes("status: 404"), `${route} must 404 for accounts without access`);
+    }
+  });
+
+  it('the Earth 2 page gates on Earth 2 access before rendering', () => {
     const page = read('app/earth-2/page.jsx');
-    assert.ok(page.includes('isOwnerEmail'), 'page checks the owner email');
+    assert.ok(page.includes('hasEarth2Access'), 'page checks Earth 2 access');
     assert.ok(page.includes('getSession'), 'page reads the browser session');
     assert.ok(page.includes('This page could not be found.'), 'locked screen is a plain 404');
   });
@@ -451,6 +481,127 @@ describe('the owner lock (static wiring)', () => {
     const satellites = read('lib/i18n/satellites.ts');
     assert.ok(!satellites.includes('earth-2'), 'registry must not name earth-2');
     assert.ok(!satellites.includes('/earth-2'), 'registry must not route /earth-2');
+  });
+});
+
+// ── The proof of concept (Merlin, 2026-10-23): two accounts hold
+// one granted parcel each, with exactly one parcel between them,
+// and each spawns on their own land. The titles are written by
+// supabase/earth2-poc-grants.sql into earth2_parcels; everything
+// below pins the shape those rows must satisfy — access, parcels,
+// counting, and spawn — against the same pure layers the app runs.
+
+describe('the proof of concept — two accounts, two parcels (2026-10-23)', () => {
+  const OWNER = 'olympiannexus@gmail.com';
+  const GUEST = EARTH2_GUEST_EMAIL;
+
+  it('access is the owner or the one named guest — nobody else, ever', () => {
+    assert.equal(GUEST, 'fishstart@hotmail.com');
+    assert.ok(hasEarth2Access(OWNER));
+    assert.ok(hasEarth2Access(GUEST));
+    assert.ok(isEarth2GuestEmail('  FishStart@Hotmail.com '), 'house email rule (trim + case)');
+    assert.ok(!hasEarth2Access('olympianmeg@gmail.com'), "Merlin's personal account has no Earth 2 access");
+    assert.ok(!hasEarth2Access('someone.else@example.com'));
+    assert.ok(!hasEarth2Access('fishstart@hotmail.com.evil.com'), 'no suffix tricks');
+    assert.ok(!hasEarth2Access(null) && !hasEarth2Access('') && !hasEarth2Access(undefined));
+    assert.ok(!isEarth2GuestEmail(OWNER), 'the owner is not the guest');
+  });
+
+  it('the granted parcels are ownable, dry, unprotected meadow — with exactly one parcel between', () => {
+    const owner = parcelById(POC_OWNER_PARCEL_ID);
+    const gap = parcelById(POC_GAP_PARCEL_ID);
+    const guest = parcelById(POC_GUEST_PARCEL_ID);
+    assert.ok(owner && gap && guest, 'all three parcels exist');
+    for (const p of [owner, guest]) {
+      assert.equal(p.ownable, true, `${p.id} is ownable-class`);
+      assert.equal(p.kind, 'ownable', p.id);
+      assert.ok(!protectedParcelIds().has(p.id), `${p.id} is not protected ground`);
+      assert.equal(familyForParcel(p), 'Meadows', `${p.id} is grassland`);
+      assert.equal(climateForParcel(p), 'temperate', `${p.id} is temperate`);
+      const c = parcelCenterWorld(p);
+      assert.ok(heightAt(c.x, c.z) > 0.45, `${p.id} centre stands dry (${heightAt(c.x, c.z).toFixed(2)} m)`);
+    }
+    // Exactly one parcel between: a single column run — owner,
+    // gap, guest two rows apart, centres 56 m from each other.
+    assert.equal(gap.index, owner.index + 50, 'the gap sits directly between');
+    assert.equal(guest.index, owner.index + 100, 'the guest parcel is two rows on');
+    assert.equal(owner.col, gap.col);
+    assert.equal(gap.col, guest.col);
+    const co = parcelCenterWorld(owner);
+    const cg = parcelCenterWorld(guest);
+    assert.equal(Math.hypot(cg.x - co.x, cg.z - co.z), 56, 'the two homes stand 56 m apart');
+    // The gap is NOT granted: it stays an ownable, unowned parcel
+    // in the first-round sale pool.
+    assert.equal(gap.ownable, true, 'the gap parcel remains saleable');
+    assert.ok(!protectedParcelIds().has(gap.id), 'the gap parcel is not protected ground');
+  });
+
+  it('grant-shaped rows count as 2 of the 1,000 taken — through the normal land-sale source', () => {
+    const rows = [
+      { parcel_id: POC_OWNER_PARCEL_ID, owner_id: 'owner-uuid', owner_email: OWNER, price_gold: 0, acquired_at: '2026-10-23T00:00:00.000Z' },
+      { parcel_id: POC_GUEST_PARCEL_ID, owner_id: 'guest-uuid', owner_email: GUEST, price_gold: 0, acquired_at: '2026-10-23T00:00:01.000Z' },
+    ];
+    assert.equal(firstRoundRemaining(rows), 998, 'two of the 1,000 ownable are taken');
+    assert.equal(firstRoundSoldOut(rows), false);
+    const listings = firstRoundListings(rows);
+    assert.ok(!listings.some((p) => p.id === POC_OWNER_PARCEL_ID), 'the owner parcel leaves the sale');
+    assert.ok(!listings.some((p) => p.id === POC_GUEST_PARCEL_ID), 'the guest parcel leaves the sale');
+    assert.ok(listings.some((p) => p.id === POC_GAP_PARCEL_ID), 'the gap parcel stays for sale');
+  });
+
+  it('spawn follows the title: each account lands on its own parcel, server rows over any stored choice', () => {
+    const rows = [
+      { parcel_id: POC_OWNER_PARCEL_ID, owner_id: 'owner-uuid', owner_email: OWNER, price_gold: 0, acquired_at: '2026-10-23T00:00:00.000Z' },
+      { parcel_id: POC_GUEST_PARCEL_ID, owner_id: 'guest-uuid', owner_email: GUEST, price_gold: 0, acquired_at: '2026-10-23T00:00:01.000Z' },
+    ];
+    // The guest's home base is HIS parcel — derived from the server
+    // rows alone (no stored choice), and a stored choice naming the
+    // OWNER's parcel can never pull him across: titles win.
+    const guestRows = ownedRowsFor(rows, GUEST);
+    assert.deepEqual(guestRows.map((r) => r.parcel_id), [POC_GUEST_PARCEL_ID]);
+    assert.equal(resolveHomeBase(guestRows, null), POC_GUEST_PARCEL_ID);
+    assert.equal(resolveHomeBase(guestRows, POC_OWNER_PARCEL_ID), POC_GUEST_PARCEL_ID,
+      'a foreign stored choice falls back to the account’s own title');
+    assert.equal(resolveHomeBase(guestRows, POC_GAP_PARCEL_ID), POC_GUEST_PARCEL_ID,
+      'an unowned stored choice falls back to the account’s own title');
+    const guestSpawn = resolveSpawnParcel(resolveHomeBase(guestRows, null));
+    assert.equal(guestSpawn.id, POC_GUEST_PARCEL_ID);
+    const gp = spawnPointFor(guestSpawn);
+    assert.equal(gp.parcel.id, POC_GUEST_PARCEL_ID, 'the guest physically stands on his own parcel');
+
+    const ownerRows = ownedRowsFor(rows, OWNER);
+    assert.deepEqual(ownerRows.map((r) => r.parcel_id), [POC_OWNER_PARCEL_ID]);
+    assert.equal(resolveHomeBase(ownerRows, POC_GUEST_PARCEL_ID), POC_OWNER_PARCEL_ID,
+      'the owner likewise cannot be pulled onto the guest’s land');
+    const ownerSpawn = resolveSpawnParcel(resolveHomeBase(ownerRows, null));
+    assert.equal(ownerSpawn.id, POC_OWNER_PARCEL_ID);
+    assert.equal(spawnPointFor(ownerSpawn).parcel.id, POC_OWNER_PARCEL_ID);
+
+    // Accounts owning nothing keep today's behaviour: no home base,
+    // the landing meadow.
+    assert.equal(resolveHomeBase(ownedRowsFor(rows, 'nobody@example.com'), null), null);
+    assert.equal(resolveSpawnParcel(null).id, 'E2-1225', 'the Cinder Grove landing, unchanged');
+  });
+
+  it('the grant SQL is staged, idempotent, loud on a missing account, and shaped like the buy route', () => {
+    const sql = read('supabase/earth2-poc-grants.sql');
+    assert.ok(sql.includes('NOT RUN'), 'marked not run — SQL needs the green light');
+    assert.ok(sql.includes(POC_OWNER_PARCEL_ID), 'names the owner parcel');
+    assert.ok(sql.includes(POC_GUEST_PARCEL_ID), 'names the guest parcel');
+    assert.ok(sql.includes(POC_GAP_PARCEL_ID), 'the gap parcel is documented');
+    assert.ok(!sql.includes(`'${POC_GAP_PARCEL_ID}'`), 'the gap parcel never appears as a granted value');
+    assert.ok(sql.includes(GUEST), 'resolves the guest by email');
+    assert.ok(sql.includes('olympiannexus@gmail.com'), 'resolves the owner by email');
+    assert.ok(sql.includes('auth.users'), 'ids come from auth.users');
+    assert.ok(sql.includes('raise exception'), 'fails loudly');
+    assert.ok(sql.includes('no auth account'), 'a missing account is obvious, never a silent skip');
+    assert.ok(sql.includes('on conflict (parcel_id) do nothing'), 'idempotent titles');
+    assert.ok(
+      sql.includes('insert into public.earth2_parcels (parcel_id, owner_id, owner_email, price_gold)'),
+      'the buy route’s exact title columns'
+    );
+    assert.ok(sql.includes("'buy'") && sql.includes('poc-grant'), 'ledger rows mark the POC grant');
+    assert.ok(sql.includes('amount_gold') || sql.includes('0, \'poc-grant\''), 'zero-gold diary rows');
   });
 });
 

@@ -9,9 +9,16 @@
 // browser session before it renders anything at all: signed-out
 // visitors and every other account get a plain not-found screen with
 // no Earth 2 branding and no content, and every /api/earth2/* route
-// re-verifies the owner server-side (and 404s) besides. The portal
+// re-verifies access server-side (and 404s) besides. The portal
 // entries that lead here (Portal Room + Concourse Portals 3D) only
 // exist for the owner too — lib/portal-roster.js withOwnerPortals.
+//
+// PROOF OF CONCEPT (Merlin, 2026-10-23): exactly one more account is
+// admitted beside the owner — the named guest in
+// lib/earth2/access.js, the one source of truth for Earth 2 access —
+// so the two of them can hold one granted parcel each and land on
+// their own land. Access here is about rendering and spawning; the
+// write routes (buy / forge / rent / builds) stay owner-only.
 //
 // Inside: the parcel map of the new world — 2,500 parcels, of which
 // exactly 1,000 are ownable and 1,500 are Free Commons (Merlin's
@@ -24,7 +31,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { supabase } from '@/lib/supabase';
-import { isOwnerEmail, OWNER_EMAIL } from '@/lib/owner';
+import { OWNER_EMAIL } from '@/lib/owner';
+import { hasEarth2Access } from '@/lib/earth2/access';
 import {
   PARCELS,
   PARCEL_COLS,
@@ -156,7 +164,9 @@ export default function Earth2Page() {
     }
   }, [authHeaders]);
 
-  // The gate: whose session is this? Only the owner's opens the door.
+  // The gate: whose session is this? Only an account with Earth 2
+  // access opens the door — the owner, or the one named POC guest
+  // (lib/earth2/access.js is the one definition).
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -164,7 +174,7 @@ export default function Earth2Page() {
         const { data } = await supabase.auth.getSession();
         const email = data?.session?.user?.email || '';
         if (!alive) return;
-        if (isOwnerEmail(email)) {
+        if (hasEarth2Access(email)) {
           setMyEmail(email);
           setGate('open');
           loadState();
@@ -178,7 +188,7 @@ export default function Earth2Page() {
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!alive) return;
       const email = session?.user?.email || '';
-      if (isOwnerEmail(email)) {
+      if (hasEarth2Access(email)) {
         setMyEmail(email);
         setGate('open');
         loadState();
@@ -471,7 +481,7 @@ export default function Earth2Page() {
           </div>
           <div className="flex items-center gap-2">
             <span className="rounded-full border border-amber-300/50 bg-amber-300/10 px-3 py-1.5 text-[11px] font-bold tracking-widest text-amber-100">
-              🔒 OWNER ONLY
+              🔒 PROOF OF CONCEPT
             </span>
             <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-[11px] font-semibold tracking-wide text-zinc-200">
               🪙 {state && state.gold != null ? formatGold(state.gold) : '—'}

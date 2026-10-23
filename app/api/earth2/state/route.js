@@ -3,23 +3,28 @@
 // parcel ownership rows, the owner's gold balance, the gold forge's
 // accrual, and the recent Phase 2 ledger.
 //
-// OWNER-LOCKED (Merlin, 2026-10-21): Phase 2 is visible to the owner
-// account alone while it is a test build. Anyone else — signed out or
-// signed in as anyone else — gets a 404: this surface does not admit
-// it exists. Verification is server-side on a validated session
-// (lib/owner.js), never a client-side claim.
+// ACCESS (Merlin, 2026-10-21; proof of concept 2026-10-23): while
+// Earth 2 is a test build this read-only state answers accounts
+// with Earth 2 access — the owner, plus the one named POC guest
+// (lib/earth2/access.js). The chamber cannot render, and no walker
+// can be placed on their own parcel, without this picture, so the
+// guest's session is admitted HERE and nowhere else new: the write
+// routes (buy / forge / rent / builds) stay owner-only. Anyone else
+// — signed out or signed in as anyone else — gets a 404: this
+// surface does not admit it exists. Verification is server-side on
+// a validated session, never a client-side claim.
 
 import { NextResponse } from 'next/server';
-import { verifyOwnerSession } from '@/lib/owner';
+import { verifyEarth2AccessSession } from '@/lib/earth2/access';
 import { getServiceClient } from '@/lib/economy/supabase';
 import { getBalance } from '@/lib/economy/ledger';
 import { forgeAccrued } from '@/lib/earth2/forge';
 
 export const dynamic = 'force-dynamic';
 
-async function requireOwner(req) {
+async function requireAccess(req) {
   const token = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
-  const { user } = await verifyOwnerSession(token).catch(() => ({ user: null }));
+  const { user } = await verifyEarth2AccessSession(token).catch(() => ({ user: null }));
   return user;
 }
 
@@ -46,7 +51,7 @@ function setupState(gold) {
 }
 
 export async function GET(req) {
-  const user = await requireOwner(req);
+  const user = await requireAccess(req);
   if (!user) return notFound();
   try {
     const db = await getServiceClient();

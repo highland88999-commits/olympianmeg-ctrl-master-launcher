@@ -1,11 +1,14 @@
 // tests/earth2-hub-portal.test.mjs
 // THE EARTH 2 DOOR IN THE MAIN HUB (Merlin, 2026-10-22): "Put the
 // portal to earth 2 in the main hub, but only my account can open it."
+// Amended 2026-10-23 by the proof-of-concept order: the door also
+// renders for the one named POC guest (lib/earth2/access.js).
 //
 // Pins:
-// - the gate decision is pure (lib/earth2-hub-portal.js): the owner
-//   email — and only the owner email — makes the portal exist;
-//   signed-out, still-resolving, and every other account get nothing
+// - the gate decision is pure (lib/earth2-hub-portal.js): an account
+//   with Earth 2 access — the owner, or the one named POC guest —
+//   makes the portal exist; signed-out, still-resolving, and every
+//   other account get nothing
 // - the door routes to /earth-2 (the chamber's own server-side gate
 //   stays the second lock) and carries no Earth 2 content at all
 // - the placement law: flanking the Omega Arch on its own plane
@@ -43,16 +46,19 @@ const repo = join(here, '..');
 const read = (p) => readFileSync(join(repo, p), 'utf8');
 
 const OWNER = 'olympiannexus@gmail.com';
+const GUEST = 'fishstart@hotmail.com';
 
 describe('the gate — a pure decision (lib/earth2-hub-portal.js)', () => {
-  it('the owner email, and only the owner email, makes the portal exist', () => {
+  it('accounts with Earth 2 access — owner and POC guest — make the portal exist', () => {
     assert.equal(earth2HubPortalVisible(OWNER), true);
+    assert.equal(earth2HubPortalVisible(GUEST), true, 'the POC guest sees the door (Merlin, 2026-10-23)');
     assert.equal(earth2HubPortalVisible('someone.else@example.com'), false);
     assert.equal(earth2HubPortalVisible('olympianmeg@gmail.com'), false, "Merlin's personal account is not the owner account");
   });
 
-  it('matching follows the house rule (trim + case-insensitive, via lib/owner.js)', () => {
+  it('matching follows the house rule (trim + case-insensitive, via lib/earth2/access.js)', () => {
     assert.equal(earth2HubPortalVisible('  OlympianNexus@Gmail.com '), true);
+    assert.equal(earth2HubPortalVisible('  FishStart@Hotmail.com '), true);
   });
 
   it('absent sessions get nothing — signed out or still resolving', () => {
@@ -62,13 +68,22 @@ describe('the gate — a pure decision (lib/earth2-hub-portal.js)', () => {
     assert.equal(earth2HubPortalVisible('   '), false);
   });
 
-  it('the module defers to lib/owner.js and holds no second copy of the email', () => {
+  it('the module defers to lib/earth2/access.js and holds no copy of either email', () => {
     const src = read('lib/earth2-hub-portal.js');
-    assert.ok(src.includes("from './owner.js'"), 'imports the owner source of truth');
-    assert.ok(src.includes('isOwnerEmail'), 'the decision runs through isOwnerEmail');
-    assert.ok(!src.includes(OWNER), 'the email string is never copied here');
+    assert.ok(src.includes("from './earth2/access.js'"), 'imports the access source of truth');
+    assert.ok(src.includes('hasEarth2Access'), 'the decision runs through hasEarth2Access');
+    assert.ok(!src.includes(OWNER), 'the owner email string is never copied here');
+    assert.ok(!src.includes(GUEST), 'the guest email string is never copied here');
     assert.ok(!src.includes("from 'three'"), 'pure module — no three');
     assert.ok(!src.includes('document.'), 'pure module — no DOM');
+  });
+
+  it('the access module is the one home of the guest email and defers to lib/owner.js for the owner', () => {
+    const src = read('lib/earth2/access.js');
+    assert.ok(src.includes(GUEST), 'the guest email lives in the access module');
+    assert.ok(src.includes("from '../owner.js'"), 'imports the owner source of truth');
+    assert.ok(src.includes('isOwnerEmail'), 'owner access runs through isOwnerEmail');
+    assert.ok(!src.includes(OWNER), 'the owner email string is never copied here either');
   });
 });
 
@@ -181,8 +196,9 @@ describe('the hub wiring (static)', () => {
     assert.ok(gate.includes('EARTH2_SWIRL_PALETTE'), 'the door paints its own colours');
   });
 
-  it('the gate holds no owner email and no Earth 2 content', () => {
-    assert.ok(!gate.includes(OWNER), 'the email string lives only in lib/owner.js');
+  it('the gate holds no access email and no Earth 2 content', () => {
+    assert.ok(!gate.includes(OWNER), 'the owner email string lives only in lib/owner.js');
+    assert.ok(!gate.includes(GUEST), 'the guest email string lives only in lib/earth2/access.js');
     assert.ok(!gate.includes('/models/earth2'), 'no Earth 2 model paths in the hub');
     assert.ok(!gate.includes('DinosaurBay'), 'no Bay in the hub');
     assert.ok(!gate.includes('lib/earth2/'), 'nothing imported from the chamber territory');
