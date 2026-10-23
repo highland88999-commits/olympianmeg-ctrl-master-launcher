@@ -35,6 +35,7 @@ import { parachuteState } from '../lib/earth/parachute';
 import { QUANTUM_ENABLED } from '../lib/earth/quantum';
 import GodTower from './GodTower';
 import OmegaHubGate from './OmegaHubGate';
+import Earth2HubGate from './Earth2HubGate';
 
 // QuantumGate — the Quantum Realm seal (Earth round 4, defect 1;
 // Merlin's layer law: the realm has its own floor and sky, fully
@@ -919,6 +920,11 @@ function HubScene({
             {/* THE OMEGA ARCH — just beyond the Sun. The Portal Room's
                 showpiece door: click it or fly through it in freeroam. */}
             <OmegaHubGate freeroam={appState === 'hub_freeroam'} />
+            {/* THE EARTH 2 DOOR — flanking the Omega Arch on the same
+                plane beyond the Sun (Merlin, 2026-10-22). Owner-only:
+                Earth2HubGate renders nothing at all unless the
+                signed-in session is Merlin's own account. */}
+            <Earth2HubGate freeroam={appState === 'hub_freeroam'} />
           </QuantumGate>
           <NexusEarth
             onSelect={appState === 'hub_freeroam' ? beginEarthDive : null}
