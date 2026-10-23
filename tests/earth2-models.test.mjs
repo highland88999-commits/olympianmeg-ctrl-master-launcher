@@ -1,16 +1,18 @@
 // tests/earth2-models.test.mjs
 // Earth 2 — Dinosaur Bay (Merlin, 2026-10-22):
-// - the models manifest: 39 placed foundry models + Indominus Rex
-//   and Pachycephalosaurus honestly pending (never uploaded —
+// - the models manifest: 48 placed foundry models + only
+//   Pachycephalosaurus honestly pending (never uploaded —
 //   file null, no stand-in)
 // - every placed file exists under public/models/earth2, parses as a
 //   GLB, stayed game-weight (<= 5 MB), and kept its rig (skins >= 1
 //   for creatures) through the optimization pass — the five
-//   Transylvania arrivals pin their exact joint counts
+//   Transylvania arrivals and the nine aquatic-round arrivals pin
+//   their exact joint counts
 // - the bone-role resolver against the real rig dialects, using the
 //   actual joint lists measured off the Studio files (humanoid
 //   retarget, Tripo-native, Mixamo, and the measured unnamed-rig
-//   resolvers for the mosquito and the bat)
+//   resolvers for the mosquito and the bat), plus the swim
+//   resolver against the sea cast's measured joint trees
 // - the chamber wiring: the Bay is mounted, the owner gate is intact
 //
 // Run: node --test tests/earth2-models.test.mjs   (from the repo root)
@@ -26,7 +28,8 @@ import {
   earth2PlacedModels,
   earth2PendingModels,
 } from '../lib/earth2/models.js';
-import { resolveBones, normalizeJointName, resolveMosquitoRig, resolveBatWings } from '../lib/earth2/bones.js';
+import { resolveBones, normalizeJointName, resolveMosquitoRig, resolveBatWings, resolveSwimRig } from '../lib/earth2/bones.js';
+import { LAKE, SWIMMERS, lakeBedDepthAt, lakeBedYAt, surfacePhase } from '../lib/earth2/creatures.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, '..');
@@ -41,15 +44,14 @@ function parseGlb(buf) {
 }
 
 describe('the Bay manifest', () => {
-  it('holds 42 entries: 39 placed files, the compy swarm riding its source model, 2 awaiting upload', () => {
-    assert.equal(EARTH2_MODELS.length, 42);
-    assert.equal(earth2PlacedModels().length, 39);
+  it('holds 50 entries: 48 placed files, the compy swarm riding its source model, 1 awaiting upload', () => {
+    assert.equal(EARTH2_MODELS.length, 50);
+    assert.equal(earth2PlacedModels().length, 48);
     const pending = earth2PendingModels();
-    assert.equal(pending.length, 2);
+    assert.equal(pending.length, 1);
     assert.deepEqual(
       pending.map((m) => m.slug).sort(),
       [
-        'indominus-rex',
         'pachycephalosaurus',
       ],
     );
@@ -86,10 +88,11 @@ describe('the Bay manifest', () => {
   });
 
   it('slugs are unique and kind counts match the foundry roster', () => {
-    assert.equal(new Set(EARTH2_MODELS.map((m) => m.slug)).size, 42);
+    assert.equal(new Set(EARTH2_MODELS.map((m) => m.slug)).size, 50);
     const by = (k) => EARTH2_MODELS.filter((m) => m.kind === k).length;
     assert.equal(by('dinosaur'), 18);
     assert.equal(by('flyer'), 2);
+    assert.equal(by('marine'), 8);
     assert.equal(by('plant'), 10);
     assert.equal(by('landform'), 9);
     assert.equal(by('insect'), 1);
@@ -106,6 +109,13 @@ describe('the Bay manifest', () => {
         assert.ok(['carnivore', 'herbivore', 'omnivore'].includes(m.diet), m.slug);
         assert.ok(['herd', 'solo', 'pack', 'flock'].includes(m.social), m.slug);
         assert.ok(['biped', 'quadruped'].includes(m.posture), m.slug);
+      }
+      if (m.kind === 'marine') {
+        assert.ok(['carnivore', 'herbivore', 'omnivore'].includes(m.diet), m.slug);
+        assert.ok(['herd', 'solo', 'pack', 'flock'].includes(m.social), m.slug);
+        assert.equal(m.posture, 'swimmer', m.slug);
+        // Water-zone placement data: the sea cast lives in the lake.
+        assert.equal(m.habitat, 'water', m.slug);
       }
       if (m.file) assert.equal(m.file, `/models/earth2/${m.slug}.glb`, m.slug);
     }
@@ -130,7 +140,7 @@ describe('the optimized files on disk', () => {
         (json.extensionsUsed || []).includes('EXT_meshopt_compression'),
         `${m.slug} carries meshopt geometry`
       );
-      if (m.kind === 'dinosaur' || m.kind === 'flyer') {
+      if (m.kind === 'dinosaur' || m.kind === 'flyer' || m.kind === 'marine') {
         assert.ok((json.skins || []).length >= 1, `${m.slug} kept its rig (skins >= 1)`);
         assert.ok((json.nodes || []).some((n) => n.skin !== undefined), `${m.slug} has a skinned node`);
       }
@@ -163,6 +173,204 @@ describe('the Transylvania arrivals kept their skeletons through the weight pass
       }
     });
   }
+});
+
+describe('the aquatic-round arrivals kept their skeletons through the weight pass', () => {
+  // Same law as the Transylvania pins: joint counts measured off
+  // the raw Studio exports must survive EXACTLY. The four big
+  // bodies ride the 78-joint humanoid-retarget template; the
+  // Tripo-native spine chains keep their measured counts
+  // (plesiosaurus 29, liopleurodon 23, tylosaurus 14, megalodon
+  // 14) — their swim motion is spine undulation, so a dropped
+  // spine joint is a dropped wave segment.
+  const EXPECTED_JOINTS = {
+    'mosasaurus': 78,
+    'kronosaurus': 78,
+    'elasmosaurus': 78,
+    'ichthyosaurus': 78,
+    'indominus-rex': 78,
+    'plesiosaurus': 29,
+    'liopleurodon': 23,
+    'tylosaurus': 14,
+    'megalodon': 14,
+  };
+  for (const [slug, joints] of Object.entries(EXPECTED_JOINTS)) {
+    it(`${slug}.glb carries exactly ${joints} joints`, () => {
+      const buf = readFileSync(join(repo, 'public', 'models', 'earth2', `${slug}.glb`));
+      const json = parseGlb(buf);
+      const skins = json.skins || [];
+      assert.equal(skins.length, 1, `${slug} has one skin`);
+      assert.equal(skins[0].joints.length, joints, `${slug} joint count`);
+    });
+  }
+});
+
+// The sea cast's joint trees, measured off the raw Studio files
+// 2026-10-22 (names in skin order, parents aligned by index —
+// a non-joint parent is the armature). These pin the TREE walk
+// in resolveSwimRig: names alone cannot find a plesiosaur's
+// flippers (its front pair is named Spine_3/Spine_4).
+const TYLOSAURUS_JOINTS = 'tripo::Root|tripo::Spine_0|tripo::Spine_1|tripo::Spine_2|tripo::Tail_0|tripo::Tail_1|bone_6|tripo::Head_0|bone_8|bone_9|bone_10|bone_11|bone_12|bone_13'.split('|');
+const TYLOSAURUS_PARENTS = 'Armature|tripo::Root|tripo::Spine_0|tripo::Spine_1|tripo::Spine_2|tripo::Tail_0|tripo::Root|bone_6|tripo::Root|bone_8|bone_9|tripo::Root|bone_11|bone_12'.split('|');
+const MEGALODON_JOINTS = 'tripo::Root|tripo::Spine_0|tripo::Spine_1|bone_3|bone_4|tripo::Tail_0|tripo::Tail_1|bone_7|tripo::Head_0|bone_9|bone_10|bone_11|bone_12|bone_13'.split('|');
+const MEGALODON_PARENTS = 'Armature|tripo::Root|tripo::Spine_0|tripo::Spine_1|bone_3|bone_3|tripo::Tail_0|tripo::Root|tripo::Root|tripo::Head_0|bone_9|tripo::Head_0|bone_11|tripo::Root'.split('|');
+const PLESIOSAURUS_JOINTS = 'tripo::Root|tripo::Spine_0|tripo::Spine_1|tripo::Spine_2|tripo::Head_0|tripo::Head_1|bone_6|bone_7|bone_8|bone_9|tripo::Spine_3|tripo::Spine_4|bone_12|bone_13|bone_14|bone_15|tripo::Tail_0|tripo::Tail_1|tripo::Tail_2|tripo::Tail_3|bone_20|tripo::0_Right_Limb_0|tripo::0_Right_Limb_1|tripo::0_Right_Limb_2|bone_24|tripo::0_Left_Limb_0|tripo::0_Left_Limb_1|bone_27|tripo::0_Left_Limb_2'.split('|');
+const PLESIOSAURUS_PARENTS = 'Armature|tripo::Root|tripo::Spine_0|tripo::Spine_1|tripo::Spine_2|tripo::Head_0|tripo::Spine_2|bone_6|bone_7|bone_8|tripo::Spine_2|tripo::Spine_3|tripo::Spine_4|bone_12|tripo::Root|bone_14|bone_15|tripo::Tail_0|tripo::Tail_1|tripo::Tail_2|tripo::Root|bone_20|tripo::0_Right_Limb_0|tripo::0_Right_Limb_1|tripo::Root|bone_24|tripo::0_Left_Limb_0|tripo::0_Left_Limb_1|tripo::0_Left_Limb_1'.split('|');
+const LIOPLEURODON_JOINTS = 'tripo::Root|bone_1|bone_2|tripo::Tail_0|tripo::Tail_1|tripo::Tail_2|tripo::Tail_3|tripo::Spine_0|tripo::Spine_1|tripo::Head_0|bone_10|bone_11|bone_12|bone_13|bone_14|bone_15|tripo::Head_1|bone_17|bone_18|bone_19|bone_20|bone_21|bone_22'.split('|');
+const LIOPLEURODON_PARENTS = 'Armature|tripo::Root|bone_1|bone_2|tripo::Tail_0|tripo::Tail_1|tripo::Tail_2|tripo::Root|tripo::Spine_0|tripo::Spine_1|tripo::Head_0|bone_10|bone_11|tripo::Head_0|bone_13|bone_14|tripo::Head_0|tripo::Spine_0|bone_17|bone_18|tripo::Spine_0|bone_20|bone_21'.split('|');
+
+describe('the aquatic wing — manifest, lake and swim profiles', () => {
+  const bySlug = Object.fromEntries(EARTH2_MODELS.map((m) => [m.slug, m]));
+  const SEA = ['mosasaurus', 'kronosaurus', 'elasmosaurus', 'ichthyosaurus', 'plesiosaurus', 'liopleurodon', 'tylosaurus', 'megalodon'];
+
+  it('all eight swimmers are placed marine entries at their natural scales', () => {
+    for (const slug of SEA) {
+      assert.equal(bySlug[slug].kind, 'marine', slug);
+      assert.equal(bySlug[slug].status, 'placed', slug);
+      assert.equal(bySlug[slug].file, `/models/earth2/${slug}.glb`, slug);
+      assert.ok(SWIMMERS[slug], `${slug} carries a swim profile`);
+    }
+    assert.equal(bySlug['mosasaurus'].scaleM, 15);
+    assert.equal(bySlug['megalodon'].scaleM, 15);
+    assert.equal(bySlug['tylosaurus'].scaleM, 14);
+    assert.equal(bySlug['elasmosaurus'].scaleM, 14);
+    assert.equal(bySlug['kronosaurus'].scaleM, 10);
+    assert.equal(bySlug['plesiosaurus'].scaleM, 7);
+    assert.equal(bySlug['liopleurodon'].scaleM, 6.5);
+    assert.equal(bySlug['ichthyosaurus'].scaleM, 5);
+  });
+
+  it('Indominus Rex is placed — the second apex, at a natural 16 m', () => {
+    assert.equal(bySlug['indominus-rex'].status, 'placed');
+    assert.equal(bySlug['indominus-rex'].file, '/models/earth2/indominus-rex.glb');
+    assert.equal(bySlug['indominus-rex'].scaleM, 16);
+  });
+
+  it('every swim profile keeps its circuit inside the lake and its body off the bed', () => {
+    for (const slug of SEA) {
+      const P = SWIMMERS[slug];
+      const reach = Math.max(P.rx, P.rz);
+      assert.ok(reach < LAKE.radius, `${slug} circuit inside the lake`);
+      assert.ok(P.shallow > P.deep, `${slug} surfaces above its cruise`);
+      assert.ok(P.shallow < LAKE.waterY + 0.3, `${slug} never beaches`);
+      assert.ok(P.deep > -LAKE.depth, `${slug} cruises above the deepest bed`);
+      assert.ok(P.duty > 0 && P.duty < 1, `${slug} duty is a fraction`);
+      assert.ok(P.period > 0 && P.speed > 0, slug);
+    }
+  });
+
+  it('the lake bed is a dish: full depth at the centre, grade at the rim', () => {
+    const [cx, cz] = LAKE.center;
+    assert.equal(lakeBedDepthAt(cx, cz), LAKE.depth);
+    assert.equal(lakeBedYAt(cx, cz), -LAKE.depth);
+    assert.equal(lakeBedDepthAt(cx + LAKE.radius, cz), 0);
+    assert.equal(lakeBedDepthAt(cx + LAKE.radius + 10, cz), 0);
+    // Monotonic from rim to centre.
+    let prev = -1;
+    for (let d = LAKE.radius; d >= 0; d -= 2) {
+      const v = lakeBedDepthAt(cx + d, cz);
+      assert.ok(v >= prev, `depth eases in at ${d}`);
+      prev = v;
+    }
+    // The lake sits inside the flat grounds, clear of the castle
+    // rim and the tar pit.
+    assert.ok(Math.hypot(cx, cz) + LAKE.radius < 66, 'lake inside the flat valley');
+  });
+
+  it('surfacePhase rises, holds and sinks inside the duty window only', () => {
+    assert.equal(surfacePhase(0, 0.5), 0);
+    assert.equal(surfacePhase(0.25, 0.5), 1); // mid-window: fully surfaced
+    assert.equal(surfacePhase(0.5, 0.5), 0);  // window over
+    assert.equal(surfacePhase(0.9, 0.5), 0);
+    assert.ok(surfacePhase(0.05, 0.5) > 0 && surfacePhase(0.05, 0.5) < 1, 'easing up');
+    assert.equal(surfacePhase(-0.75, 0.5), 1); // phases wrap
+  });
+
+  it('the Bay wires the swimmers, the lake and the second apex', () => {
+    const bay = read('components/earth2/DinosaurBay.jsx');
+    assert.ok(bay.includes('placeSwimmer'), 'swimmers are placed');
+    assert.ok(bay.includes('updateSwimmer'), 'swimmers are driven');
+    assert.ok(bay.includes('resolveSwimRig'), 'swim rigs resolve off the real skeletons');
+    assert.ok(bay.includes('lakeBedDepthAt'), 'the ground is carved with the lake dish');
+    assert.ok(bay.includes('lakeBedYAt'), 'swimmers clamp against the same bed');
+    assert.ok(bay.includes('0x2f9fd8'), 'the water is clear bright blue, never murky');
+    assert.ok(bay.includes("'indominus-rex': { walk:"), 'Indominus prowls on a stalker circuit');
+    const spot = bay.match(/'indominus-rex': \{ walk: \{ cx: (-?[\d.]+), cz: (-?[\d.]+)/);
+    assert.ok(spot, 'Indominus circuit parses');
+    // Opposite territory from the tar pit (12, 13): the circuit
+    // centre is west of the lake and never dips into it.
+    const icx = Number(spot[1]), icz = Number(spot[2]);
+    assert.ok(icx < LAKE.center[0], 'west of the lake');
+    assert.ok(Math.hypot(icx - LAKE.center[0], icz - LAKE.center[1]) > LAKE.radius + 8, 'clear of the water');
+  });
+});
+
+describe('the swim resolver — measured trees', () => {
+  it('tylosaurus (14j): axis runs Head_0 → Root → tail; both flipper fans sit on the root', () => {
+    const r = resolveSwimRig(TYLOSAURUS_JOINTS, TYLOSAURUS_PARENTS);
+    assert.equal(r.dialect, 'tripo');
+    assert.deepEqual(r.axial, ['tripo::Head_0', 'bone_6', 'tripo::Root', 'tripo::Spine_0', 'tripo::Spine_1', 'tripo::Spine_2', 'tripo::Tail_0', 'tripo::Tail_1']);
+    assert.equal(r.flippers.length, 2);
+    assert.deepEqual(r.flippers[0].chain, ['bone_8', 'bone_9', 'bone_10']);
+    assert.deepEqual(r.flippers[1].chain, ['bone_11', 'bone_12', 'bone_13']);
+    assert.deepEqual(r.extras, []);
+  });
+
+  it('megalodon (14j): pectoral chains off the head joint paddle; fin singles sway as extras', () => {
+    const r = resolveSwimRig(MEGALODON_JOINTS, MEGALODON_PARENTS);
+    assert.deepEqual(r.axial, ['tripo::Head_0', 'tripo::Root', 'tripo::Spine_0', 'tripo::Spine_1', 'bone_3', 'tripo::Tail_0', 'tripo::Tail_1']);
+    assert.equal(r.flippers.length, 2);
+    assert.deepEqual(r.flippers[0].chain, ['bone_9', 'bone_10']);
+    assert.deepEqual(r.flippers[1].chain, ['bone_11', 'bone_12']);
+    // bone_7 (a lone fin bone), bone_13 (the snout mass) and
+    // bone_4 (rear extra) must never paddle.
+    const flat = r.extras.flat();
+    assert.deepEqual(flat.sort(), ['bone_13', 'bone_4', 'bone_7']);
+  });
+
+  it('plesiosaurus (29j): the tree finds all four flippers — including the pair NAMED Spine_3/Spine_4', () => {
+    const r = resolveSwimRig(PLESIOSAURUS_JOINTS, PLESIOSAURUS_PARENTS);
+    assert.deepEqual(r.axial, ['tripo::Head_1', 'tripo::Head_0', 'tripo::Spine_2', 'tripo::Spine_1', 'tripo::Spine_0', 'tripo::Root', 'bone_14', 'bone_15', 'tripo::Tail_0', 'tripo::Tail_1', 'tripo::Tail_2', 'tripo::Tail_3']);
+    assert.equal(r.flippers.length, 4);
+    const chains = r.flippers.map((f) => f.chain.join(','));
+    assert.ok(chains.includes('bone_6,bone_7,bone_8,bone_9'), 'front-right flipper');
+    assert.ok(chains.includes('tripo::Spine_3,tripo::Spine_4,bone_12,bone_13'), 'front-left flipper hides in Spine names');
+    assert.ok(chains.some((c) => c.startsWith('bone_20,tripo::0_Right_Limb_0')), 'hind-right flipper');
+    assert.ok(chains.some((c) => c.startsWith('bone_24,tripo::0_Left_Limb_0')), 'hind-left flipper');
+    assert.deepEqual(r.extras, [['tripo::0_Left_Limb_2']]);
+  });
+
+  it('liopleurodon (23j): head at the far end — axis and four flippers still resolve', () => {
+    const r = resolveSwimRig(LIOPLEURODON_JOINTS, LIOPLEURODON_PARENTS);
+    assert.deepEqual(r.axial, ['tripo::Head_1', 'tripo::Head_0', 'tripo::Spine_1', 'tripo::Spine_0', 'tripo::Root', 'bone_1', 'bone_2', 'tripo::Tail_0', 'tripo::Tail_1', 'tripo::Tail_2', 'tripo::Tail_3']);
+    assert.equal(r.flippers.length, 4);
+    const chains = r.flippers.map((f) => f.chain.join(','));
+    assert.ok(chains.includes('bone_10,bone_11,bone_12'));
+    assert.ok(chains.includes('bone_17,bone_18,bone_19'));
+  });
+
+  it('the 78-joint swimmers resolve from names alone (humanoid dialect)', () => {
+    const r = resolveSwimRig(TREX_JOINTS, TREX_JOINTS.map(() => null));
+    assert.equal(r.dialect, 'humanoid');
+    assert.deepEqual(r.axial, ['Head', 'NeckTwist02', 'NeckTwist01', 'Spine02', 'Spine01', 'Waist', 'Pelvis']);
+    assert.equal(r.flippers.length, 4);
+    const front = r.flippers.filter((f) => f.pair === 'front');
+    const hind = r.flippers.filter((f) => f.pair === 'hind');
+    assert.deepEqual(front.find((f) => f.side === 'left').chain, ['L_Upperarm', 'L_Forearm', 'L_Hand']);
+    assert.deepEqual(hind.find((f) => f.side === 'right').chain, ['R_Thigh', 'R_Calf', 'R_Foot']);
+  });
+
+  it('survives sanitized tripo names and empty input', () => {
+    const san = TYLOSAURUS_JOINTS.map((n) => n.replace(/:/g, ''));
+    const sanP = TYLOSAURUS_PARENTS.map((n) => n.replace(/:/g, ''));
+    const r = resolveSwimRig(san, sanP);
+    assert.equal(r.axial[0], 'tripoHead_0');
+    assert.equal(r.axial.length, 8);
+    assert.equal(r.flippers.length, 2);
+    const empty = resolveSwimRig([], []);
+    assert.deepEqual(empty.axial, []);
+    assert.deepEqual(empty.flippers, []);
+  });
 });
 
 // The real joint lists, measured off the Studio files 2026-10-22.

@@ -15,7 +15,11 @@
 // life here is in-engine and procedural, driven off
 // the rigs by lib/earth2/bones.js: breathing, head look-arounds,
 // tail sway, grazer head-dips, a few animals walking slow circuits
-// on their own legs, and the Pteranodon circling overhead. Eating,
+// on their own legs, and the Pteranodon circling overhead. Round 2
+// adds the aquatic wing: a carved lake in the south-west with the
+// eight sea creatures swimming it on their measured spine chains
+// (bones.js resolveSwimRig), surfacing on their own periods — and
+// Indominus Rex prowling the west rim as the second apex. Eating,
 // hunting, sleeping and the egg cycle are NOT this round — presence
 // and idle life only, honestly labelled as such on the page.
 //
@@ -27,12 +31,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { EARTH2_MODELS, EARTH2_MODEL_BY_SLUG, earth2PlacedModels, earth2PendingModels, earth2ModelUrl, fetchEarth2ModelUrls } from '@/lib/earth2/models';
 import { supabase } from '@/lib/supabase';
-import { resolveBones, normalizeJointName, resolveMosquitoRig, resolveBatWings } from '@/lib/earth2/bones';
+import { resolveBones, normalizeJointName, resolveMosquitoRig, resolveBatWings, resolveSwimRig } from '@/lib/earth2/bones';
 import {
   COMPY_SWARM,
   MOSQUITO_CONFIG,
   BAT_SWARM,
   DRACULA_TIMINGS,
+  LAKE,
+  SWIMMERS,
+  lakeBedDepthAt,
+  lakeBedYAt,
+  surfacePhase,
   mosquitoDropsSac,
   createDraculaMachine,
   stepDracula,
@@ -68,6 +77,12 @@ const SPOTS = {
   // The Rex: apex semi-aquatic stalker at the tar pit's north
   // edge, facing the water — clear of every walker's circuit.
   'spinosaurus-rex': { at: [10, 2], head: 0.18 },
+  // Indominus Rex: the second apex (round 2). Where the
+  // Spinosaurus Rex holds the tar pit in the north-east, the
+  // Indominus prowls the WEST rim on a slow stalker circuit,
+  // opposite territory across the whole Bay — its easternmost
+  // reach just sights the lake's north shore, never entering.
+  'indominus-rex': { walk: { cx: -50, cz: -28, r: 8, speed: 0.45, a0: 2.6 } },
   'allosaurus': { at: [31, -3], head: -1.8 },
   'dilophosaurus': { at: [22, 13], head: -2.6 },
   'carnotaurus': { at: [36, -19], head: -2.4 },
@@ -209,7 +224,17 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
       scene.add(sun);
 
       // ── Ground: a mottled valley disc, flat in the middle where
-      // the animals live, rising gently toward the rim.
+      // the animals live, rising gently toward the rim — with the
+      // round-2 lake carved into the south-west. The disc is a
+      // polar grid (rings × sectors), not a fan: a CircleGeometry
+      // has no interior vertices to carve a bowl with. The height
+      // field is the original lift + seeded bumps, minus the lake
+      // dish from lib/earth2/creatures.js (the same pure function
+      // the swim drivers clamp against). Vertex colours paint the
+      // lake bed: bright sand at the shore easing to a deep bed
+      // tone at full depth, with a pale beach band around the rim.
+      let waterMat = null;
+      let waterTex = null;
       {
         const c = document.createElement('canvas'); c.width = 512; c.height = 512;
         const g = c.getContext('2d');
@@ -226,12 +251,41 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
         const tex = new THREE.CanvasTexture(c);
         tex.colorSpace = THREE.SRGBColorSpace;
         tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(6, 6);
-        const geo = new THREE.CircleGeometry(150, 72);
+        const SEG = 128, RINGS = 72;
+        const positions = [0, 0, 0];
+        const uvs = [0.5, 0.5];
+        for (let i = 1; i <= RINGS; i++) {
+          const rr = 150 * Math.pow(i / RINGS, 1.12);
+          for (let j = 0; j < SEG; j++) {
+            const a = (j / SEG) * Math.PI * 2;
+            positions.push(Math.cos(a) * rr, Math.sin(a) * rr, 0);
+            uvs.push(0.5 + (Math.cos(a) * rr) / 300, 0.5 + (Math.sin(a) * rr) / 300);
+          }
+        }
+        const indices = [];
+        for (let j = 0; j < SEG; j++) indices.push(0, 1 + j, 1 + ((j + 1) % SEG));
+        for (let i = 0; i < RINGS - 1; i++) {
+          const inner0 = 1 + i * SEG, outer0 = 1 + (i + 1) * SEG;
+          for (let j = 0; j < SEG; j++) {
+            const j1 = (j + 1) % SEG;
+            indices.push(inner0 + j, outer0 + j, outer0 + j1);
+            indices.push(inner0 + j, outer0 + j1, inner0 + j1);
+          }
+        }
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+        geo.setIndex(indices);
         const posA = geo.attributes.position;
+        const colors = new Float32Array(posA.count * 3);
         const rngR = mulberry32(31);
         const bumps = Array.from({ length: 26 }, () => ({ x: (rngR() - 0.5) * 2, z: (rngR() - 0.5) * 2, h: 1 + rngR() * 3.2, w: 0.25 + rngR() * 0.5 }));
         for (let i = 0; i < posA.count; i++) {
           const x = posA.getX(i), y = posA.getY(i);
+          // Local (x, y) maps to world (x, −y) once the disc is
+          // laid flat — the carve and the colours work in world
+          // coordinates so they agree with creatures.js.
+          const wz = -y;
           const r = Math.hypot(x, y);
           const lift = Math.max(0, (r - 62) / 88);
           let z = lift * lift * 15;
@@ -239,12 +293,59 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
             const d = Math.hypot(x / 150 - b.x, y / 150 - b.z);
             z += Math.max(0, 1 - d / b.w) * b.h * lift;
           }
+          z -= lakeBedDepthAt(x, wz);
           posA.setZ(i, z);
+          const dLake = Math.hypot(x - LAKE.center[0], wz - LAKE.center[1]);
+          let cr = 1, cg = 1, cb = 1;
+          if (z < -0.3) {
+            const f = Math.min(1, -z / LAKE.depth);
+            cr = 0.92 + (0.36 - 0.92) * f;
+            cg = 0.84 + (0.47 - 0.84) * f;
+            cb = 0.62 + (0.42 - 0.62) * f;
+          } else if (dLake < LAKE.radius + 6) {
+            cr = 1.03; cg = 0.98; cb = 0.83; // the pale beach band
+          }
+          colors[i * 3] = cr; colors[i * 3 + 1] = cg; colors[i * 3 + 2] = cb;
         }
+        geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
         geo.computeVertexNormals();
-        const ground = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: tex, roughness: 1 }));
+        const ground = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: tex, roughness: 1, vertexColors: true }));
         ground.rotation.x = -Math.PI / 2;
         scene.add(ground);
+
+        // ── The lake surface: clear bright blue (Merlin's water
+        // law — never murky), translucent so the swimmers read
+        // beneath it, with a slow-drifting light-blotch texture
+        // for surface motion. It spans just past the carved rim
+        // so the waterline always meets the beach, never air.
+        const wc = document.createElement('canvas'); wc.width = 256; wc.height = 256;
+        const wg = wc.getContext('2d');
+        const rngW = mulberry32(97);
+        for (let i = 0; i < 46; i++) {
+          wg.fillStyle = `rgba(255,255,255,${0.04 + rngW() * 0.07})`;
+          wg.beginPath();
+          wg.ellipse(rngW() * 256, rngW() * 256, 12 + rngW() * 42, 5 + rngW() * 12, rngW() * 3.2, 0, 7);
+          wg.fill();
+        }
+        for (let i = 0; i < 22; i++) {
+          wg.fillStyle = `rgba(190,235,255,${0.05 + rngW() * 0.06})`;
+          wg.beginPath();
+          wg.ellipse(rngW() * 256, rngW() * 256, 8 + rngW() * 26, 4 + rngW() * 9, rngW() * 3.2, 0, 7);
+          wg.fill();
+        }
+        waterTex = new THREE.CanvasTexture(wc);
+        waterTex.colorSpace = THREE.SRGBColorSpace;
+        waterTex.wrapS = waterTex.wrapT = THREE.RepeatWrapping;
+        waterTex.repeat.set(2.5, 2.5);
+        waterMat = new THREE.MeshStandardMaterial({
+          color: 0x2f9fd8, map: waterTex, transparent: true, opacity: 0.5,
+          roughness: 0.12, metalness: 0, depthWrite: false,
+        });
+        const water = new THREE.Mesh(new THREE.CircleGeometry(LAKE.radius + 1.5, 64), waterMat);
+        water.rotation.x = -Math.PI / 2;
+        water.position.set(LAKE.center[0], LAKE.waterY, LAKE.center[1]);
+        scene.add(water);
+        track(water);
       }
 
       const loader = new GLTFLoader();
@@ -252,6 +353,8 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
 
       const rng = mulberry32(20261022);
       const animals = []; // life-driven creatures
+      const swimmers = []; // the lake's cast (round 2) — driven apart:
+      // mosquitos never hunt them and the compies never scatter for them
       const sway = [];    // plant instances { obj, phase, amp }
       const labels = [];  // { el, obj, h }
       const disposables = [];
@@ -399,6 +502,73 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
         }
       }
 
+      // ── Swimmers: the lake's cast ──────────────────────────────
+      // Each sea creature resolves its swim rig off the loaded
+      // skeleton (bones.js resolveSwimRig — names for the
+      // humanoid-retarget bodies, the joint TREE for the Tripo
+      // spine chains), then swims the lake on its SWIMMERS
+      // profile (creatures.js): an elliptical circuit, a spine
+      // wave, flipper paddling, a surfacing rhythm.
+      async function placeSwimmer(entry) {
+        setStatusFor(entry.slug, 'loading');
+        try {
+          const modelScene = await loadModel(entry);
+          const profile = SWIMMERS[entry.slug];
+          if (!profile) throw new Error(`No swim profile for ${entry.slug}`);
+          const jointNames = [];
+          const jointParents = [];
+          modelScene.traverse((o) => {
+            if (!o.isBone) return;
+            jointNames.push(o.name);
+            let p = o.parent;
+            while (p && !p.isBone) p = p.parent;
+            jointParents.push(p ? p.name : null);
+          });
+          const bones = bonesOf(modelScene);
+          const rig = resolveSwimRig(jointNames, jointParents);
+          const boneFor = (name) => (name ? bones.get(normalizeJointName(name)) || null : null);
+          const axial = rig.axial.map(boneFor).filter(Boolean);
+          const flippers = rig.flippers
+            .map((f) => ({ pair: f.pair, side: f.side, chain: f.chain.map(boneFor).filter(Boolean) }))
+            .filter((f) => f.chain.length);
+          const extras = rig.extras
+            .map((ch) => ch.map(boneFor).filter(Boolean))
+            .filter((ch) => ch.length);
+          const bind = new Map();
+          for (const b of [...axial, ...flippers.flatMap((f) => f.chain), ...extras.flat()]) {
+            if (b && !bind.has(b.uuid)) bind.set(b.uuid, b.quaternion.clone());
+          }
+          // Facing off the bind pose like the land creatures:
+          // head against the TAIL end of the measured axis.
+          const facingYaw = measureFacing(modelScene, {
+            head: boneFor(rig.head),
+            spine: axial.length ? [axial[axial.length - 1]] : [],
+          });
+          const spin = normalize(modelScene, entry);
+          spin.rotation.y = facingYaw;
+          const root = new THREE.Group();
+          root.add(spin);
+          const theta0 = rng() * Math.PI * 2;
+          root.position.set(
+            LAKE.center[0] + Math.cos(theta0) * profile.rx,
+            profile.deep,
+            LAKE.center[1] + Math.sin(theta0) * profile.rz,
+          );
+          scene.add(root);
+          swimmers.push({
+            entry, root, profile, axial, flippers, extras, bind,
+            theta: theta0,
+            phase: rng() * Math.PI * 2,
+            phaseOff: rng(),
+            y: profile.deep,
+          });
+          makeLabel(entry.name, root, entry.scaleM * 0.3 + 2.4);
+          setStatusFor(entry.slug, 'placed');
+        } catch (err) {
+          setStatusFor(entry.slug, 'failed');
+        }
+      }
+
       // ── Plants & landforms ─────────────────────────────────────
       async function placeSimple(entry, spot, scaleJitter) {
         setStatusFor(entry.slug, 'loading');
@@ -445,9 +615,17 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
             const holder = normalize(inst, entry);
             const root = new THREE.Group();
             root.add(holder);
-            const ang = rng() * Math.PI * 2;
-            const rad = entry.scaleM > 12 ? 62 + rng() * 30 : 14 + rng() * 62;
-            root.position.set(Math.cos(ang) * rad, 0, Math.sin(ang) * rad);
+            // Seeded scatter — with the lake's shore kept clear
+            // (round 2): nothing roots in the water or the beach,
+            // so a candidate inside the shore band is re-rolled.
+            let px = 0, pz = 0;
+            for (let tries = 0; tries < 8; tries++) {
+              const ang = rng() * Math.PI * 2;
+              const rad = entry.scaleM > 12 ? 62 + rng() * 30 : 14 + rng() * 62;
+              px = Math.cos(ang) * rad; pz = Math.sin(ang) * rad;
+              if (Math.hypot(px - LAKE.center[0], pz - LAKE.center[1]) > LAKE.radius + 3) break;
+            }
+            root.position.set(px, 0, pz);
             root.rotation.y = rng() * Math.PI * 2;
             root.scale.setScalar(0.8 + rng() * 0.5);
             scene.add(root);
@@ -488,6 +666,10 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
         // placed by the Transylvania section below.
         if (e.slug === BAT_SWARM.sourceSlug) continue;
         await placeCreature(e);
+      }
+      for (const e of placed.filter((m) => m.kind === 'marine')) {
+        if (cancelled) return;
+        await placeSwimmer(e);
       }
 
       // ── The compy swarm, the mosquitos, Dracula & his bats ────
@@ -1215,6 +1397,59 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
         swingLegs(a, (a.dist / Math.max(0.2, a.entry.scaleM * 0.16)) * Math.PI);
       }
 
+      // ── The swim driver ────────────────────────────────────────
+      // Circuit + surfacing + the spine wave. The animal rides an
+      // ellipse around the lake centre; its depth eases between
+      // the profile's deep cruise and shallow pass on its own
+      // period (surfacePhase), and the bed clamp — the same pure
+      // lakeBedYAt the ground was carved with — keeps the belly
+      // off the lake floor wherever the circuit shallows, while
+      // the cap just above the waterline lets backs and fins
+      // break the surface without beaching the body. The wave is
+      // a lateral bend about each axial bone's local Y (the
+      // land driver's tail-sway axis), travelling head → tail
+      // with amplitude growing to the tail end; flippers paddle
+      // about local X (the leg-swing axis) — front pair leading,
+      // hind pair lagging, both sides in phase like a
+      // plesiosaur's underwater flight.
+      function updateSwimmer(s, t, dt) {
+        const P = s.profile;
+        s.theta += dt * P.speed * P.dir;
+        const th = s.theta;
+        const x = LAKE.center[0] + Math.cos(th) * P.rx;
+        const z = LAKE.center[1] + Math.sin(th) * P.rz;
+        const vx = -Math.sin(th) * P.rx * P.dir;
+        const vz = Math.cos(th) * P.rz * P.dir;
+        const surf = surfacePhase(t / P.period + s.phaseOff, P.duty);
+        let y = P.deep + (P.shallow - P.deep) * surf;
+        const minY = lakeBedYAt(x, z) + s.entry.scaleM * 0.16 + 0.3;
+        if (y < minY) y = minY;
+        if (y > LAKE.waterY + 0.3) y = LAKE.waterY + 0.3;
+        const vy = dt > 0 ? (y - s.y) / dt : 0;
+        s.y = y;
+        s.root.position.set(x, y, z);
+        s.root.rotation.set(0, 0, 0);
+        s.root.rotation.y = Math.atan2(vx, vz);
+        s.root.rotation.x = THREE.MathUtils.clamp(-vy * 0.1, -0.16, 0.16);
+        s.root.rotation.z = 0.05 * P.dir;
+        const wave = t * P.waveHz * Math.PI * 2 + s.phase;
+        const n = s.axial.length;
+        s.axial.forEach((b, i) => {
+          const f = n > 1 ? i / (n - 1) : 0;
+          const amp = 0.03 + (P.ampTail - 0.03) * f * f;
+          bend(b, s.bind, AXIS_Y, Math.sin(wave - f * P.waveSpan) * amp);
+        });
+        const pw = t * P.paddleHz * Math.PI * 2 + s.phase;
+        for (const fl of s.flippers) {
+          const lag = fl.pair === 'hind' ? 1.4 : fl.pair === 'mid' ? 0.7 : 0;
+          const a = Math.sin(pw - lag) * P.paddleAmp;
+          fl.chain.forEach((b, i) => bend(b, s.bind, AXIS_X, a * (i === 0 ? 1 : 0.45)));
+        }
+        for (const chain of s.extras) {
+          chain.forEach((b, i) => bend(b, s.bind, AXIS_Y, Math.sin(wave - 1.2 - i * 0.4) * 0.05));
+        }
+      }
+
       function driveAnimal(a, t, dt) {
         const R = a.roles;
         const ph = a.phase;
@@ -1292,6 +1527,10 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
         const t = clock.elapsedTime;
         const windAmp = windRef.current;
         for (const a of animals) driveAnimal(a, t, dt);
+        for (const s of swimmers) updateSwimmer(s, t, dt);
+        // The lake surface drifts and breathes (gentle motion).
+        if (waterTex) waterTex.offset.set((t * 0.008) % 1, (t * 0.005) % 1);
+        if (waterMat) waterMat.opacity = 0.48 + Math.sin(t * 0.6) * 0.04;
         for (const mq of mosquitos) updateMosquito(mq, t, dt);
         updateDracula(t, dt);
         // Blood sacs pulse on the ground; walking the camera close
@@ -1400,6 +1639,11 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
         herds for blood, Spinosaurus Rex stalks the tar pit's edge, and at the far
         south rim the real Dracula holds court before the real Castle Transylvania,
         his bats on the wing — shoot his mosquitos full and trade him the sacs.
+        New this round: the west lake fills — mosasaurus, tylosaurus and a
+        megalodon cruise its bright blue on spine-wave power, plesiosaurs paddle
+        above the deep, and their backs and fins break the surface as they
+        circle — and Indominus Rex prowls the west rim opposite the tar pit,
+        the Bay's second apex.
         Drag to look around, scroll to zoom, tap a mosquito to shoot it.
       </p>
 
