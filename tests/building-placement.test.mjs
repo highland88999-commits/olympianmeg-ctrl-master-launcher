@@ -1,0 +1,310 @@
+// tests/building-placement.test.mjs
+// Earth 2 BUILDING — the placement engine (lib/building/placement.js):
+// snap math (including the curved wall's 22.5° arc closure), the
+// support law's accept/reject cases, frame bounds, overlap, and
+// terrain planting with caller-supplied heights.
+//
+// Run: node --test tests/building-placement.test.mjs
+
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+
+import { pieceById } from '../lib/building/catalog.js';
+import {
+  GRID_SNAP_M,
+  ROTATION_SNAP_DEG,
+  CURVED_ROTATION_SNAP_DEG,
+  DEFAULT_FRAME,
+  snapToStep,
+  gridStepFor,
+  rotationStepFor,
+  snapRotation,
+  snapPlacement,
+  spanEnds,
+  supportInfo,
+  checkBounds,
+  checkOverlaps,
+  terrainPlanting,
+  validatePlacementSet,
+} from '../lib/building/placement.js';
+
+const at = (pieceId, x, y, z, rotY = 0) => ({ pieceId, x, y, z, rotY, finish: 'stone' });
+const approx = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps;
+
+describe('snap math', () => {
+  it('snaps values to the half-metre grid by default', () => {
+    assert.equal(GRID_SNAP_M, 0.5);
+    assert.equal(snapToStep(1.3, 0.5), 1.5);
+    assert.equal(snapToStep(1.24, 0.5), 1);
+    assert.equal(snapToStep(-0.3, 0.5), -0.5);
+    assert.equal(gridStepFor('wall'), 0.5);
+    assert.equal(gridStepFor('door-panel'), 0.25, 'fittings place finer');
+    assert.equal(gridStepFor('no-such-piece'), 0.5);
+  });
+
+  it('snaps rotation to 15° — and to 22.5° for the curved wall', () => {
+    assert.equal(ROTATION_SNAP_DEG, 15);
+    assert.equal(CURVED_ROTATION_SNAP_DEG, 22.5);
+    assert.equal(rotationStepFor('wall'), 15);
+    assert.equal(rotationStepFor('wall-curved'), 22.5);
+    assert.equal(snapRotation(47, 'wall'), 45);
+    assert.equal(snapRotation(47, 'wall-curved'), 45);
+    assert.equal(snapRotation(50, 'wall-curved'), 45);
+    assert.equal(snapRotation(57, 'wall-curved'), 67.5);
+    assert.equal(snapRotation(-10, 'wall'), 345);
+    assert.equal(snapRotation(370, 'wall'), 15);
+  });
+
+  it('snapPlacement pulls x/z and rotation onto the grid, leaves height and the input alone', () => {
+    const raw = { pieceId: 'wall', x: 1.3, y: 0.6, z: 2.24, rotY: 47, finish: 'timber' };
+    const snapped = snapPlacement(raw);
+    assert.deepEqual(snapped, { pieceId: 'wall', x: 1.5, y: 0.6, z: 2, rotY: 45, finish: 'timber' });
+    assert.equal(raw.x, 1.3, 'the input is never mutated');
+  });
+
+  it('a ring of sixteen curved walls closes exactly', () => {
+    // Walk the ring the way a builder would: each segment advances
+    // one chord (the piece's width) along its heading, then turns
+    // by one snapped step. 22.5° × 16 = 360°, so the walk must end
+    // where it began — the arc closes.
+    const chord = pieceById('wall-curved').size.w;
+    let x = 0;
+    let z = 0;
+    let heading = 0;
+    for (let k = 0; k < 16; k++) {
+      const rot = snapRotation(heading, 'wall-curved');
+      assert.equal(rot % 22.5, 0, `step ${k} is a whole number of arc steps`);
+      const rad = (rot * Math.PI) / 180;
+      x += Math.cos(rad) * chord;
+      z += -Math.sin(rad) * chord;
+      heading += 22.5;
+    }
+    assert.ok(approx(x, 0, 1e-9), `ring closes on x (got ${x})`);
+    assert.ok(approx(z, 0, 1e-9), `ring closes on z (got ${z})`);
+    assert.equal(snapRotation(heading, 'wall-curved'), 0, 'and the heading comes home too');
+  });
+});
+
+describe('span ends', () => {
+  it('sit a hand\u2019s breadth inside each end of the long axis', () => {
+    const bridge = pieceById('bridge-plank'); // 8 m long on local X
+    const ends = spanEnds(bridge, at('bridge-plank', 14, 2, 14));
+    assert.equal(ends.length, 2);
+    assert.ok(approx(ends[0].x, 10.25) && approx(ends[0].z, 14));
+    assert.ok(approx(ends[1].x, 17.75) && approx(ends[1].z, 14));
+    const turned = spanEnds(bridge, at('bridge-plank', 14, 2, 14, 90));
+    assert.ok(approx(turned[0].x, 14) && approx(turned[0].z, 17.75));
+    assert.ok(approx(turned[1].x, 14) && approx(turned[1].z, 10.25));
+  });
+});
+
+describe('the support law — accepts', () => {
+  it('terrain, self-supporting ground pieces, and floaters all stand', () => {
+    const info = supportInfo([
+      at('wall', 14, 0, 14),              // planted on the datum
+      at('fountain-base', 8, 3, 8),       // self-supporting: stands on its own
+      at('sky-walkway', 14, 10, 20),      // floating: exempt
+      at('elevator-pad', 20, 8, 20),      // floating: exempt
+      at('stairs-floating', 5, 5, 20),    // floating: exempt
+    ]);
+    assert.equal(info.ok, true);
+    assert.deepEqual(info.results.map((r) => r.via),
+      ['terrain', 'self-supporting', 'floating', 'floating', 'floating']);
+  });
+
+  it('a wall rests on a foundation, and a roof rests on the wall', () => {
+    const info = supportInfo([
+      at('foundation-block', 14, 0, 14),       // 0 → 0.6
+      at('wall', 14, 0.6, 14),                 // 0.6 → 3.6, resting
+      at('roof-pitched', 14, 3.6, 14),         // on the wall's top
+    ]);
+    assert.equal(info.ok, true);
+    assert.equal(info.results[1].via, 'resting');
+    assert.equal(info.results[1].supporter, 0);
+    assert.equal(info.results[2].via, 'resting');
+    assert.equal(info.results[2].supporter, 1);
+  });
+
+  it('a window pane hangs attached within a wall\u2019s height', () => {
+    const info = supportInfo([
+      at('wall', 14, 0, 14),
+      at('window-pane', 14, 1, 14),
+    ]);
+    assert.equal(info.ok, true);
+    assert.equal(info.results[1].via, 'attached');
+    assert.equal(info.results[1].supporter, 0);
+  });
+
+  it('a bridge anchors both ends on banks the caller describes', () => {
+    // A 6 m gorge between x 11 and x 17; the banks stand at h 2.
+    const terrainHeightAt = (x) => (x > 11 && x < 17 ? 0 : 2);
+    const info = supportInfo([at('bridge-plank', 14, 2, 14)], { terrainHeightAt });
+    assert.equal(info.ok, true);
+    assert.equal(info.results[0].via, 'span-anchors');
+    assert.deepEqual(info.results[0].ends, [true, true]);
+  });
+
+  it('a bridge anchors on pillars when the ground stays flat', () => {
+    const info = supportInfo([
+      at('pillar', 10.25, 0, 14),
+      at('pillar', 17.75, 0, 14),
+      at('bridge-plank', 14, 3, 14),
+    ]);
+    assert.equal(info.ok, true);
+    assert.equal(info.results[2].via, 'span-anchors');
+  });
+});
+
+describe('the support law — rejects, and says exactly why', () => {
+  it('a roof with nothing beneath it hangs in the air', () => {
+    const info = supportInfo([at('roof-flat', 14, 3, 14)]);
+    assert.equal(info.ok, false);
+    assert.equal(info.results[0].supported, false);
+    assert.equal(info.results[0].reason, 'no-support');
+    assert.equal(info.unsupported.length, 1);
+    assert.equal(info.unsupported[0].index, 0);
+  });
+
+  it('a floating wall (not a floating PIECE) is refused', () => {
+    const info = supportInfo([at('wall', 14, 2, 14)]);
+    assert.equal(info.ok, false);
+    assert.equal(info.results[0].reason, 'no-support');
+  });
+
+  it('a span with one end over the gorge reports the unanchored end', () => {
+    // Bank at h 2 only west of x 11; east is all gorge floor.
+    const terrainHeightAt = (x) => (x < 11 ? 2 : 0);
+    const info = supportInfo([at('bridge-plank', 14, 2, 14)], { terrainHeightAt });
+    assert.equal(info.ok, false);
+    assert.equal(info.results[0].reason, 'span-end-unanchored');
+    assert.deepEqual(info.results[0].ends, [true, false]);
+  });
+
+  it('unknown and malformed pieces are reported, never thrown', () => {
+    const info = supportInfo([
+      at('castle', 1, 0, 1),
+      { pieceId: 'wall', x: 'east', y: 0, z: 1, rotY: 0 },
+      null,
+    ]);
+    assert.equal(info.ok, false);
+    assert.deepEqual(info.results.map((r) => r.reason),
+      ['unknown-piece', 'malformed', 'unknown-piece']);
+  });
+
+  it('in a mixed set, exactly the unsupported pieces are named', () => {
+    const info = supportInfo([
+      at('foundation-block', 14, 0, 14),
+      at('wall', 14, 0.6, 14),
+      at('chimney', 20, 5, 20), // up in the air, nothing under it
+    ]);
+    assert.equal(info.ok, false);
+    assert.deepEqual(info.unsupported.map((r) => r.index), [2]);
+    assert.equal(info.results[0].supported, true);
+    assert.equal(info.results[1].supported, true);
+  });
+});
+
+describe('frame bounds and overlap', () => {
+  it('the default frame is one 28 m parcel, 60 m of sky', () => {
+    assert.deepEqual(DEFAULT_FRAME, { width: 28, depth: 28, maxY: 60 });
+  });
+
+  it('reports outside-frame, below-ground, too-tall and unknown pieces', () => {
+    const bounds = checkBounds([
+      at('wall', 27, 0, 14),        // footprint spills past x 28
+      at('pillar', 4, -1, 4),       // below the datum
+      at('pillar', 8, 61, 8),       // above the ceiling
+      at('castle', 14, 0, 14),      // not a piece
+      at('wall', 14, 0, 14),        // fine
+    ]);
+    assert.equal(bounds.ok, false);
+    assert.deepEqual(bounds.violations.map((v) => v.reason),
+      ['outside-frame', 'below-ground', 'too-tall', 'unknown-piece']);
+  });
+
+  it('accepts a build inside the frame', () => {
+    assert.equal(checkBounds([at('wall', 14, 0, 14), at('pillar', 1, 0, 1)]).ok, true);
+  });
+
+  it('overlap pairs name both pieces; honest stacking is no collision', () => {
+    const clash = checkOverlaps([at('wall', 14, 0, 14), at('wall', 14, 0, 14)]);
+    assert.equal(clash.ok, false);
+    assert.deepEqual(clash.collisions, [{ a: 0, b: 1, pieceA: 'wall', pieceB: 'wall' }]);
+    const stacked = checkOverlaps([
+      at('foundation-block', 14, 0, 14),
+      at('wall', 14, 0.6, 14),
+      at('roof-flat', 14, 3.6, 14),
+    ]);
+    assert.equal(stacked.ok, true);
+  });
+});
+
+describe('terrain planting — heights in, clearances out', () => {
+  // A hillside the caller describes: flat west, 3 m up east.
+  const hill = (x) => (x >= 14 ? 3 : 0);
+
+  it('reads planted, buried and raised off the caller\u2019s heights', () => {
+    const planting = terrainPlanting([
+      at('foundation-block', 7, 0, 14),   // on the flat: planted
+      at('foundation-block', 21, 0, 14),  // base under the hill: buried
+      at('foundation-block', 7, 2, 14),   // hovering over the flat: raised
+    ], hill);
+    assert.equal(planting.ok, false, 'a buried piece fails planting');
+    assert.deepEqual(planting.results.map((r) => r.status), ['planted', 'buried', 'raised']);
+    assert.equal(planting.results[1].terrainHeight, 3);
+    assert.equal(planting.results[1].clearance, -3);
+    assert.equal(planting.buried.length, 1);
+    assert.equal(planting.raised.length, 1);
+  });
+
+  it('defaults to a flat datum when no heights are given', () => {
+    const planting = terrainPlanting([at('wall', 14, 0, 14)]);
+    assert.equal(planting.ok, true);
+    assert.equal(planting.results[0].status, 'planted');
+  });
+});
+
+describe('validatePlacementSet — the whole judgement in one call', () => {
+  it('passes a sound little house', () => {
+    const verdict = validatePlacementSet([
+      at('foundation-block', 14, 0, 14),
+      at('wall', 14, 0.6, 14),
+      at('roof-pitched', 14, 3.6, 14),
+      at('chimney', 14, 5.4, 14),
+    ]);
+    assert.equal(verdict.ok, true);
+    assert.equal(verdict.count, 4);
+    assert.equal(verdict.overBudget, false);
+    assert.equal(verdict.terrain, null, 'no height function, no terrain verdict');
+  });
+
+  it('fails on the unsupported piece alone and names it', () => {
+    const verdict = validatePlacementSet([
+      at('foundation-block', 14, 0, 14),
+      at('roof-flat', 20, 3, 20),
+    ]);
+    assert.equal(verdict.ok, false);
+    assert.equal(verdict.support.unsupported.length, 1);
+    assert.equal(verdict.support.unsupported[0].pieceId, 'roof-flat');
+  });
+
+  it('carries the terrain verdict when heights are supplied', () => {
+    const verdict = validatePlacementSet(
+      [at('foundation-block', 21, 0, 14)],
+      { terrainHeightAt: (x) => (x >= 14 ? 3 : 0) }
+    );
+    assert.equal(verdict.ok, false);
+    assert.equal(verdict.terrain.buried.length, 1);
+  });
+
+  it('the 400-piece budget binds the engine exactly as it binds storage', () => {
+    const pieces = [];
+    for (let i = 0; i < 401; i++) {
+      pieces.push(at('pillar', 0.5 + (i % 28), 0, 0.5 + Math.floor(i / 28)));
+    }
+    const over = validatePlacementSet(pieces);
+    assert.equal(over.overBudget, true);
+    assert.equal(over.ok, false);
+    assert.equal(validatePlacementSet(pieces.slice(0, 400)).ok, true);
+  });
+});

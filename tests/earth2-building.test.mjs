@@ -92,7 +92,11 @@ const ctx = (parcel, row, claim, prot) => ({
 
 describe('the parts catalog', () => {
   it('carries a sane NMS-style starter set with unique ids', () => {
-    assert.ok(BUILDING_PIECES.length >= 12 && BUILDING_PIECES.length <= 16);
+    // Phase 1 shipped 16 pieces; the Phase 2 expansion (Merlin,
+    // 2026-10-23) grows the same catalog to 62 — the originals and
+    // their ids are untouched (tests/building-expansion.test.mjs
+    // pins the full roster).
+    assert.equal(BUILDING_PIECES.length, 62);
     const ids = new Set(BUILDING_PIECES.map((p) => p.id));
     assert.equal(ids.size, BUILDING_PIECES.length);
     for (const id of ['foundation-block', 'floor-panel', 'wall', 'wall-door', 'wall-window',
