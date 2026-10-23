@@ -21,19 +21,25 @@
 // Commons/ownable, lat/lon, biome) and syncs the chamber map's
 // selection; rent and buying stay with the chamber panels.
 //
-// Perf discipline (honest): the whole cast exists world-wide, but
-// only the near population animates — land animals drive their
-// rigs within 260 m and hide past 520 m, plants sway within
-// 200 m and hide past it, labels show within 140 m. Swimmers,
-// flyers, mosquitos and Dracula always run (they are few), with
-// distance visibility caps. One static terrain draw (103k verts)
-// + one water plane carry the ground.
+// Perf discipline (honest): the cast STREAMS by proximity
+// (lib/earth2/streaming.js) — a species' model is decoded only
+// when the walker comes within its load radius of its habitat,
+// and is released (scene removal + GPU disposal) beyond its
+// release radius, so the resident set stays bounded on a phone:
+// at spawn only the landing neighbourhood loads, not all 56
+// foundry models at once (the original all-at-entry build got
+// Merlin's tab killed by Safari's memory ceiling at ~36 s).
+// Resident life still animates by range — land animals drive
+// their rigs within 260 m and hide past 520 m, plants sway
+// within 200 m and hide past it, labels show within 140 m.
+// One static terrain draw (66k verts) + one water plane carry
+// the ground.
 //
 // Delivery stays locked exactly as the Bay's: owner-signed URLs
 // via /api/earth2/model-urls, resolved through lib/earth2/models.js.
 
 import { useEffect, useRef, useState } from 'react';
-import { EARTH2_MODEL_BY_SLUG, earth2PlacedModels, earth2ModelUrl, fetchEarth2ModelUrls } from '@/lib/earth2/models';
+import { EARTH2_MODEL_BY_SLUG, earth2ModelUrl, fetchEarth2ModelUrls } from '@/lib/earth2/models';
 import { supabase } from '@/lib/supabase';
 import { resolveBones, normalizeJointName, resolveMosquitoRig, resolveBatWings, resolveSwimRig, resolveFlyerWings } from '@/lib/earth2/bones';
 import {
@@ -60,11 +66,6 @@ import {
   biomeForParcel,
   resolveSpawnParcel,
   spawnPointFor,
-  worldLandforms,
-  worldCreatures,
-  worldSwimmers,
-  worldFlyers,
-  worldPlants,
   worldMosquitoCenters,
   compySwarmCenter,
   draculaCourt,
@@ -72,6 +73,13 @@ import {
   stepWorldWalker,
   applyWorldLook,
 } from '@/lib/earth2/world';
+import {
+  STREAM_RADII,
+  worldStreamUnits,
+  streamEntryUnits,
+  streamDistance,
+  planStreamActions,
+} from '@/lib/earth2/streaming';
 import WalkJoystick from '@/components/world/WalkJoystick';
 
 // Deterministic layout RNG (mulberry32) — the same generator the
@@ -101,6 +109,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   const [travel, setTravel] = useState(false);
   const [localSacs, setLocalSacs] = useState(0);
   const [status, setStatus] = useState({});
+  const [bootSlugs, setBootSlugs] = useState(null);
 
   // The walk input, in the platform's shape (babel's inputRef):
   // the page shell (keyboard, pointer, joystick) writes, the scene
@@ -136,8 +145,15 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
     return () => clearTimeout(id);
   }, [notice]);
   const sacsShown = typeof bloodSacs === 'number' ? bloodSacs : localSacs;
-  const totalModels = earth2PlacedModels().length;
-  const placedCount = earth2PlacedModels().filter((m) => status[m.slug] === 'placed').length;
+  // The loading pill counts the SPAWN neighbourhood's model set
+  // (bootSlugs) — the only models that stream in before the
+  // first step. Far species arrive as the walker roams; they are
+  // not part of "placing the foundry" any more.
+  const bootTotal = bootSlugs ? bootSlugs.length : 0;
+  const bootPlaced = bootSlugs
+    ? bootSlugs.filter((s) => status[s] === 'placed' || status[s] === 'failed').length
+    : 0;
+  const bootDone = bootSlugs !== null && bootPlaced >= bootTotal;
 
   useEffect(() => {
     let cancelled = false;
@@ -161,7 +177,12 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
 
       const mount = mountRef.current;
       const renderer = new THREE.WebGLRenderer({ antialias: true });
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      // 1.75, not the house 2: this is the one full-screen scene
+      // that walks a kilometre of skinned cast over a full terrain
+      // mesh, on the phone class whose tab Safari already killed
+      // once — the smaller framebuffer (~23% fewer pixels than
+      // DPR 2, MSAA included) is memory the models need more.
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       mount.appendChild(renderer.domElement);
       renderer.domElement.style.display = 'block';
@@ -197,7 +218,52 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       const labels = [];    // { el, obj, h, maxDist }
       const disposables = [];
       const track = (o) => { disposables.push(o); return o; };
-      const setStatusFor = (slug, s) => { if (!cancelled) setStatus((prev) => ({ ...prev, [slug]: s })); };
+      const setStatusFor = (slug, s) => {
+        if (cancelled) return;
+        setStatus((prev) => {
+          if (s === null) {
+            if (!(slug in prev)) return prev;
+            const next = { ...prev };
+            delete next[slug];
+            return next;
+          }
+          return { ...prev, [slug]: s };
+        });
+      };
+      // Remove every entry matching pred from a shared array, in
+      // place (the arrays are const and the frame loop reads them;
+      // streaming releases splice at the top of a frame, never
+      // mid-iteration).
+      const removeWhere = (arr, pred) => {
+        for (let i = arr.length - 1; i >= 0; i--) {
+          if (pred(arr[i])) arr.splice(i, 1);
+        }
+      };
+      // Dispose a detached object graph's GPU resources, each
+      // exactly once: herd copies and swarm clones SHARE the base
+      // model's geometry, materials and textures, so one `seen`
+      // set walks every root a released unit owns and frees each
+      // unique resource a single time. Anything a root merely
+      // references but the unit does not own is never in its
+      // graphs, so shared assets of resident units are untouched.
+      const disposeGraph = (root, seen) => {
+        if (!root || !root.traverse) return;
+        root.traverse((o) => {
+          if (o.geometry && !seen.has(o.geometry)) { seen.add(o.geometry); o.geometry.dispose(); }
+          if (o.material) {
+            const mats = Array.isArray(o.material) ? o.material : [o.material];
+            for (const m of mats) {
+              if (seen.has(m)) continue;
+              seen.add(m);
+              for (const k of Object.keys(m)) {
+                const v = m[k];
+                if (v && v.isTexture && !seen.has(v)) { seen.add(v); v.dispose(); }
+              }
+              m.dispose();
+            }
+          }
+        });
+      };
 
       // ── Terrain: ONE static mesh sampled from world.js — the
       // same heightAt/groundColorAt the walker, the drivers and
@@ -220,7 +286,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         const tex = new THREE.CanvasTexture(c);
         tex.colorSpace = THREE.SRGBColorSpace;
         tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(46, 46);
-        const geo = new THREE.PlaneGeometry(WORLD_SIZE_M, WORLD_SIZE_M, 320, 320);
+        const geo = new THREE.PlaneGeometry(WORLD_SIZE_M, WORLD_SIZE_M, 256, 256);
         geo.rotateX(-Math.PI / 2);
         const posA = geo.attributes.position;
         const colors = new Float32Array(posA.count * 3);
@@ -341,14 +407,14 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         return bones;
       }
 
-      function makeLabel(text, obj, h, maxDist = 140) {
+      function makeLabel(text, obj, h, maxDist = 140, owner = null) {
         const el = document.createElement('div');
         el.textContent = text;
         el.className = 'pointer-events-none absolute left-0 top-0 whitespace-nowrap rounded-full border border-black/25 bg-black/45 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-white/90';
         el.style.willChange = 'transform';
         el.style.display = 'none';
         labelsRef.current && labelsRef.current.appendChild(el);
-        labels.push({ el, obj, h, maxDist });
+        labels.push({ el, obj, h, maxDist, owner });
       }
 
       function resolveRoles(modelScene) {
@@ -442,8 +508,13 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       }
 
       // ── Placement: landforms & plants (the set) ──────────────
-      async function placeLandform(entry, rec) {
+      // Every placement function returns a stream record
+      // ({ roots }) on success or null on failure: the roots are
+      // the top-level objects it added to the scene, which is
+      // what a release removes and disposes.
+      async function placeLandform(entry, rec, owner) {
         setStatusFor(entry.slug, 'loading');
+        const added = [];
         try {
           const modelScene = await loadModel(entry);
           const holder = normalize(modelScene, entry);
@@ -453,10 +524,12 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           root.position.set(rec.x, gy - (rec.sink || 0), rec.z);
           root.rotation.y = rec.heading || 0;
           scene.add(root);
+          added.push(root);
           if (entry.slug === 'active-volcano') {
             const light = new THREE.PointLight(0xff6a22, 900, 90, 1.8);
             light.position.set(rec.x, gy + entry.scaleM * 0.94, rec.z);
             scene.add(light);
+            added.push(light);
             const c = document.createElement('canvas'); c.width = 128; c.height = 128;
             const g = c.getContext('2d');
             const grad = g.createRadialGradient(64, 64, 2, 64, 64, 64);
@@ -468,6 +541,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             spr.position.set(rec.x, gy + entry.scaleM * 0.97, rec.z);
             scene.add(spr);
             track(spr);
+            added.push(spr);
           }
           if (rec.extras) {
             for (const e of rec.extras) {
@@ -476,19 +550,21 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
               cloneRoot.position.set(e.x, heightAt(e.x, e.z), e.z);
               cloneRoot.scale.setScalar(e.scale);
               scene.add(cloneRoot);
+              added.push(cloneRoot);
             }
           }
-          makeLabel(entry.name, root, entry.scaleM * 0.8 + 2, 320);
+          makeLabel(entry.name, root, entry.scaleM * 0.8 + 2, 320, owner);
           setStatusFor(entry.slug, 'placed');
-          return root;
+          return { roots: added };
         } catch (err) {
           setStatusFor(entry.slug, 'failed');
           return null;
         }
       }
 
-      async function placePlantSpecies(entry, instances) {
+      async function placePlantSpecies(entry, instances, owner) {
         setStatusFor(entry.slug, 'loading');
+        const added = [];
         try {
           const modelScene = await loadModel(entry);
           instances.forEach((rec, i) => {
@@ -500,11 +576,14 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             root.rotation.y = rec.heading;
             root.scale.setScalar(rec.scale);
             scene.add(root);
-            sway.push({ obj: root, phase: rng() * 6.28, amp: entry.scaleM > 4 ? 0.016 : 0.03, x: rec.x, z: rec.z });
+            added.push(root);
+            sway.push({ obj: root, phase: rng() * 6.28, amp: entry.scaleM > 4 ? 0.016 : 0.03, x: rec.x, z: rec.z, owner });
           });
           setStatusFor(entry.slug, 'placed');
+          return { roots: added };
         } catch (err) {
           setStatusFor(entry.slug, 'failed');
+          return null;
         }
       }
 
@@ -512,8 +591,9 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       // One load per species; herd copies are clones of the
       // foundry model, exactly as the compy swarm and the bat
       // swarm clone theirs.
-      async function placeLandSpecies(entry, recs) {
+      async function placeLandSpecies(entry, recs, owner) {
         setStatusFor(entry.slug, 'loading');
+        const added = [];
         try {
           const baseScene = await loadModel(entry);
           for (let i = 0; i < recs.length; i++) {
@@ -528,24 +608,27 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             root.position.set(rec.x, heightAt(rec.x, rec.z), rec.z);
             root.rotation.y = rec.heading;
             scene.add(root);
+            added.push(root);
             animals.push({
               entry, root, roles: resolved, bind: bindQuats(resolved),
               phase: rng() * Math.PI * 2,
               breathRate: 0.75 + rng() * 0.35,
               tempo: 1,
               walker: rec.walk ? { ...rec.walk, theta: rec.walk.a0 } : null,
-              flyer: false, dist: 0,
+              flyer: false, dist: 0, owner,
             });
-            if (i === 0) makeLabel(entry.name, root, entry.scaleM * 0.72 + 1.2);
+            if (i === 0) makeLabel(entry.name, root, entry.scaleM * 0.72 + 1.2, 140, owner);
           }
           setStatusFor(entry.slug, 'placed');
+          return { roots: added };
         } catch (err) {
           setStatusFor(entry.slug, 'failed');
+          return null;
         }
       }
 
       // ── Placement: flyers ────────────────────────────────────
-      async function placeFlyer(entry, rec) {
+      async function placeFlyer(entry, rec, owner) {
         setStatusFor(entry.slug, 'loading');
         try {
           const modelScene = await loadModel(entry);
@@ -562,19 +645,21 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             phase: rng() * Math.PI * 2,
             breathRate: 0.75 + rng() * 0.35,
             tempo: 1,
-            walker: null, flyer: true, dist: 0,
+            walker: null, flyer: true, dist: 0, owner,
             fly: { ...rec, a: rng() * 6.28 },
             glideOff: rng(),
           });
-          makeLabel(entry.name, root, entry.scaleM * 0.5 + 1.5, 260);
+          makeLabel(entry.name, root, entry.scaleM * 0.5 + 1.5, 260, owner);
           setStatusFor(entry.slug, 'placed');
+          return { roots: [root] };
         } catch (err) {
           setStatusFor(entry.slug, 'failed');
+          return null;
         }
       }
 
       // ── Placement: swimmers (the sea's cast) ─────────────────
-      async function placeSwimmer(entry, rec) {
+      async function placeSwimmer(entry, rec, owner) {
         setStatusFor(entry.slug, 'loading');
         try {
           const modelScene = await loadModel(entry);
@@ -617,58 +702,23 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             theta: theta0,
             phase: rng() * Math.PI * 2,
             phaseOff: rng(),
-            y: rec.deep,
+            y: rec.deep, owner,
           });
-          makeLabel(entry.name, root, entry.scaleM * 0.3 + 2.4, 300);
+          makeLabel(entry.name, root, entry.scaleM * 0.3 + 2.4, 300, owner);
           setStatusFor(entry.slug, 'placed');
+          return { roots: [root] };
         } catch (err) {
           setStatusFor(entry.slug, 'failed');
+          return null;
         }
       }
 
-      // ── Build the population from the world plan ─────────────
-      const landformRecs = worldLandforms();
-      for (const rec of landformRecs) {
-        if (cancelled) return;
-        const entry = EARTH2_MODEL_BY_SLUG.get(rec.slug);
-        if (entry && entry.file) await placeLandform(entry, rec);
-      }
-      const plantRecs = worldPlants();
-      {
-        const bySlug = new Map();
-        for (const rec of plantRecs) {
-          if (!bySlug.has(rec.slug)) bySlug.set(rec.slug, []);
-          bySlug.get(rec.slug).push(rec);
-        }
-        for (const [slug, instances] of bySlug) {
-          if (cancelled) return;
-          const entry = EARTH2_MODEL_BY_SLUG.get(slug);
-          if (entry && entry.file) await placePlantSpecies(entry, instances);
-        }
-      }
-      {
-        const bySlug = new Map();
-        for (const rec of worldCreatures()) {
-          if (!bySlug.has(rec.slug)) bySlug.set(rec.slug, []);
-          bySlug.get(rec.slug).push(rec);
-        }
-        for (const [slug, recs] of bySlug) {
-          if (cancelled) return;
-          const entry = EARTH2_MODEL_BY_SLUG.get(slug);
-          if (entry && entry.file) await placeLandSpecies(entry, recs);
-        }
-      }
-      for (const rec of worldFlyers()) {
-        if (cancelled) return;
-        if (rec.slug === BAT_SWARM.sourceSlug) continue; // the bat belongs to the castle
-        const entry = EARTH2_MODEL_BY_SLUG.get(rec.slug);
-        if (entry && entry.file) await placeFlyer(entry, rec);
-      }
-      for (const rec of worldSwimmers()) {
-        if (cancelled) return;
-        const entry = EARTH2_MODEL_BY_SLUG.get(rec.slug);
-        if (entry && entry.file) await placeSwimmer(entry, rec);
-      }
+      // ── The population is NOT built here any more ───────────
+      // It streams by proximity around the walker (the manager
+      // below the input section drives the placement functions
+      // from the plan in lib/earth2/streaming.js). Only the
+      // Transylvania state — cheap objects, no models — is set
+      // up eagerly, because the frame loop reads it every tick.
 
       // ── Transylvania & the blood-sac loop, at planet scale ───
       const court = draculaCourt();
@@ -691,9 +741,10 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       const tmpTarget = new THREE.Vector3();
       const anchorV = new THREE.Vector3();
 
-      async function placeCompySwarm() {
+      async function placeCompySwarm(owner) {
         const source = EARTH2_MODEL_BY_SLUG.get(COMPY_SWARM.sourceSlug);
-        if (!source || !source.file) { setStatusFor('compy-swarm', 'failed'); return; }
+        if (!source || !source.file) { setStatusFor('compy-swarm', 'failed'); return null; }
+        const added = [];
         try {
           const baseScene = await loadModel(source);
           const pseudo = { ...source, scaleM: COMPY_SWARM.bodyLengthM };
@@ -714,12 +765,13 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             root.position.y = heightAt(root.position.x, root.position.z);
             root.rotation.y = rng() * Math.PI * 2;
             scene.add(root);
+            added.push(root);
             animals.push({
               entry: pseudo, root, roles: resolved, bind: bindQuats(resolved),
               phase: rng() * Math.PI * 2,
               breathRate: 1.5 + rng() * 0.7,
               tempo: COMPY_SWARM.tempo,
-              walker: null, flyer: false, dist: 0,
+              walker: null, flyer: false, dist: 0, owner,
               compy: {
                 wx: root.position.x, wz: root.position.z,
                 baseSpeed: COMPY_SWARM.baseSpeed * (0.8 + rng() * 0.5),
@@ -728,8 +780,10 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             });
           }
           setStatusFor('compy-swarm', 'placed');
+          return { roots: added };
         } catch (err) {
           setStatusFor('compy-swarm', 'failed');
+          return null;
         }
       }
 
@@ -751,7 +805,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         if (entry && entry.file) {
           try { baseScene = await loadModel(entry); } catch (err) { baseScene = null; }
         }
-        if (!baseScene) { setStatusFor('giant-mosquito', 'failed'); return; }
+        if (!baseScene) { setStatusFor('giant-mosquito', 'failed'); return null; }
         const centers = worldMosquitoCenters();
         for (let i = 0; i < MOSQUITO_CONFIG.count; i++) {
           const modelScene = i === 0 ? baseScene : SkeletonUtils.clone(baseScene);
@@ -813,6 +867,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           mosquitos.push(mq);
         }
         setStatusFor('giant-mosquito', 'placed');
+        return { roots: mosquitos.map((mq) => mq.group) };
       }
 
       const dracProxy = new THREE.Mesh(
@@ -824,6 +879,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       scene.add(dracProxy);
 
       async function placeDracula() {
+        const added = [];
         const plinth = new THREE.Mesh(
           new THREE.CircleGeometry(2.4, 24),
           new THREE.MeshStandardMaterial({ color: 0x211d2a, roughness: 1 }),
@@ -831,9 +887,11 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         plinth.rotation.x = -Math.PI / 2;
         plinth.position.set(DRACULA_SPOT.x, DRACULA_SPOT.y - 0.02, DRACULA_SPOT.z);
         scene.add(plinth);
+        added.push(plinth);
         const courtLight = new THREE.PointLight(0x8a5adf, 60, 30, 1.8);
         courtLight.position.set(DRACULA_SPOT.x, DRACULA_SPOT.y + 2.6, DRACULA_SPOT.z);
         scene.add(courtLight);
+        added.push(courtLight);
 
         const dEntry = EARTH2_MODEL_BY_SLUG.get('dracula');
         let countGroup = null;
@@ -851,6 +909,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           countGroup.position.copy(DRACULA_SPOT);
           countGroup.rotation.y = court.facing; // face the world's heart
           scene.add(countGroup);
+          added.push(countGroup);
           drac.countForm = countGroup;
           setStatusFor('dracula', 'placed');
         } else {
@@ -868,6 +927,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           batGroup.position.set(DRACULA_SPOT.x, DRACULA_SPOT.y + 1.2, DRACULA_SPOT.z);
           batGroup.visible = false;
           scene.add(batGroup);
+          added.push(batGroup);
           drac.batForm = batGroup;
           setStatusFor('vampire-bat', 'placed');
         } else {
@@ -893,16 +953,20 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         smoke.position.set(DRACULA_SPOT.x, DRACULA_SPOT.y + 0.2, DRACULA_SPOT.z);
         scene.add(smoke);
         track(smoke);
+        added.push(smoke);
         drac.smoke = smoke;
+        return { roots: added };
       }
 
       async function placeBatSwarm() {
         const entry = EARTH2_MODEL_BY_SLUG.get(BAT_SWARM.sourceSlug);
-        if (!dracBatBase || !entry) return;
+        if (!dracBatBase || !entry) return { roots: [] };
+        const added = [];
         for (let i = 0; i < BAT_SWARM.count; i++) {
           const modelScene = SkeletonUtils.clone(dracBatBase);
           const group = normalize(modelScene, entry);
           scene.add(group);
+          added.push(group);
           swarmBats.push({
             group,
             wings: batWingsOf(modelScene),
@@ -913,15 +977,8 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             ph: rng() * Math.PI * 2,
           });
         }
+        return { roots: added };
       }
-
-      await placeCompySwarm();
-      if (cancelled) return;
-      await placeMosquitos();
-      if (cancelled) return;
-      await placeDracula();
-      if (cancelled) return;
-      await placeBatSwarm();
 
       // ── Behaviour: mosquitos feed, sacs drop, Dracula turns ──
       function moveToward(obj, target, speed, dt) {
@@ -1474,11 +1531,185 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       renderer.domElement.addEventListener('pointerup', onPointerUp);
       renderer.domElement.addEventListener('pointercancel', onPointerCancel);
 
+      // ── Proximity streaming (the plan: lib/earth2/streaming.js)
+      // Units load nearest-first through a serial queue — one
+      // decode at a time bounds the transient memory spike — when
+      // the walker enters a unit's load radius, and release
+      // beyond its release radius. The boot set (the spawn
+      // neighbourhood) is computed once, here, from the walker's
+      // start position; it is all the "Placing the foundry" pill
+      // ever counts.
+      const streamUnits = worldStreamUnits();
+      const streamState = new Map(); // key -> { status: 'loading' | 'resident' | 'failed', record }
+      let loadChain = Promise.resolve();
+
+      function teardownStreamUnit(unit, record) {
+        if (!record) return;
+        const seen = new Set();
+        for (const root of record.roots || []) {
+          scene.remove(root);
+          disposeGraph(root, seen);
+        }
+        // Detached bases a unit owns but never added to the
+        // scene (the court's shared bat base) free their graphs
+        // through the same seen set.
+        for (const base of record.bases || []) disposeGraph(base, seen);
+        removeWhere(animals, (a) => a.owner === unit.key);
+        removeWhere(swimmers, (s) => s.owner === unit.key);
+        removeWhere(sway, (s) => s.owner === unit.key);
+        removeWhere(labels, (l) => {
+          if (l.owner !== unit.key) return false;
+          l.el.remove();
+          return true;
+        });
+        if (unit.kind === 'mosquito') mosquitos.length = 0;
+        if (unit.kind === 'court') {
+          swarmBats.length = 0;
+          drac.countForm = null;
+          drac.batForm = null;
+          drac.batWings = null;
+          drac.countRig = null;
+          drac.smoke = null;
+          dracBatBase = null;
+        }
+        // A mosquito feeding on a host that just streamed out
+        // goes back to cruising; its sacs and bursts are
+        // independent scene citizens and stay.
+        for (const mq of mosquitos) {
+          if (mq.target && mq.target.owner === unit.key) {
+            mq.target = null;
+            if (mq.phase === 'seeking' || mq.phase === 'feeding') mq.phase = 'cruising';
+          }
+        }
+        for (const s of unit.slugs) setStatusFor(s, null);
+      }
+
+      async function placeStreamUnit(unit) {
+        const entryOf = (slug) => EARTH2_MODEL_BY_SLUG.get(slug);
+        switch (unit.kind) {
+          case 'land': {
+            const entry = entryOf(unit.slug);
+            return entry && entry.file ? placeLandSpecies(entry, unit.recs, unit.key) : null;
+          }
+          case 'flyer': {
+            const entry = entryOf(unit.slug);
+            return entry && entry.file ? placeFlyer(entry, unit.rec, unit.key) : null;
+          }
+          case 'swimmer': {
+            const entry = entryOf(unit.slug);
+            return entry && entry.file ? placeSwimmer(entry, unit.rec, unit.key) : null;
+          }
+          case 'plant': {
+            const entry = entryOf(unit.slug);
+            return entry && entry.file ? placePlantSpecies(entry, unit.instances, unit.key) : null;
+          }
+          case 'landform': {
+            const entry = entryOf(unit.slug);
+            return entry && entry.file ? placeLandform(entry, unit.rec, unit.key) : null;
+          }
+          case 'swarm':
+            return placeCompySwarm(unit.key);
+          case 'mosquito':
+            return placeMosquitos();
+          case 'court': {
+            const roots = [];
+            const castleEntry = entryOf('castle-transylvania');
+            if (castleEntry && castleEntry.file && unit.castleRec) {
+              const r = await placeLandform(castleEntry, unit.castleRec, unit.key);
+              if (r) roots.push(...r.roots);
+            }
+            const d = await placeDracula();
+            if (d) roots.push(...d.roots);
+            const b = await placeBatSwarm();
+            if (b) roots.push(...b.roots);
+            return { roots, bases: dracBatBase ? [dracBatBase] : [] };
+          }
+          default:
+            return null;
+        }
+      }
+
+      async function runStreamLoad(unit) {
+        let record = null;
+        try {
+          record = await placeStreamUnit(unit);
+        } catch (err) {
+          record = null;
+        }
+        if (cancelled) {
+          if (record) teardownStreamUnit(unit, record);
+          streamState.delete(unit.key);
+          return;
+        }
+        if (record) {
+          // The walker may have crossed the unit's whole release
+          // radius while its model decoded — never register a
+          // resident nobody is near; free it straight away.
+          if (streamDistance(unit, walker.x, walker.z) > STREAM_RADII[unit.kind].release) {
+            teardownStreamUnit(unit, record);
+            streamState.delete(unit.key);
+            return;
+          }
+          streamState.set(unit.key, { status: 'resident', record });
+        } else {
+          // Total failure: any slug the placement left stuck at
+          // 'loading' reads 'failed' — honestly, and the boot
+          // pill can complete.
+          setStatus((prev) => {
+            let next = prev;
+            for (const s of unit.slugs) {
+              if (next[s] === 'loading') {
+                if (next === prev) next = { ...prev };
+                next[s] = 'failed';
+              }
+            }
+            return next;
+          });
+          streamState.set(unit.key, { status: 'failed', record: null });
+        }
+      }
+
+      function releaseStreamUnit(unit) {
+        const st = streamState.get(unit.key);
+        if (!st) return;
+        if (st.status === 'resident') teardownStreamUnit(unit, st.record);
+        streamState.delete(unit.key);
+      }
+
+      function updateStreaming() {
+        const actions = planStreamActions(streamUnits, new Set(streamState.keys()), walker.x, walker.z);
+        for (const u of actions.release) releaseStreamUnit(u);
+        for (const u of actions.load) {
+          streamState.set(u.key, { status: 'loading', record: null });
+          loadChain = loadChain.then(() => runStreamLoad(u));
+        }
+      }
+
+      {
+        const entryUnits = streamEntryUnits(walker.x, walker.z);
+        const slugs = [];
+        for (const u of entryUnits) {
+          for (const s of u.slugs) {
+            const e = EARTH2_MODEL_BY_SLUG.get(s);
+            if (e && e.file) slugs.push(s);
+          }
+        }
+        if (!cancelled) setBootSlugs(slugs);
+      }
+      updateStreaming();
+
       // ── The frame ────────────────────────────────────────────
       let raf = 0;
+      let frameNo = 0;
       const labelV = new THREE.Vector3();
       function tick() {
         raf = requestAnimationFrame(tick);
+        frameNo += 1;
+        // Streaming decisions a few times a second — loads queue
+        // through the serial chain, releases land here at the
+        // top of the frame, before any life loop iterates the
+        // shared arrays.
+        if (frameNo % 15 === 1) updateStreaming();
         const dt = Math.min(clock.getDelta(), 0.05);
         const t = clock.elapsedTime;
         const inp = inputRef.current;
@@ -1711,9 +1942,9 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         >
           ✕ Leave the planet
         </button>
-        {placedCount < totalModels && (
+        {!bootDone && bootSlugs && (
           <div className="rounded-full border border-white/15 bg-black/45 px-3 py-1.5 text-[11px] text-zinc-200">
-            Placing the foundry… {placedCount}/{totalModels}
+            Placing the foundry… {bootPlaced}/{bootTotal}
           </div>
         )}
       </div>

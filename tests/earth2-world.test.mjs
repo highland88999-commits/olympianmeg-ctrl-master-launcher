@@ -23,6 +23,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -73,6 +74,13 @@ import {
   stepWorldWalker,
   parcelBorderPoints,
 } from '../lib/earth2/world.js';
+import {
+  STREAM_RADII,
+  worldStreamUnits,
+  streamEntryUnits,
+  streamDistance,
+  planStreamActions,
+} from '../lib/earth2/streaming.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, '..');
@@ -487,5 +495,111 @@ describe('the gate — the world lives behind the same lock as the Bay', () => {
     assert.ok(!world.includes('/models/earth2'), 'no hard-coded public path');
     assert.ok(world.includes('stepWorldWalker'), 'walking runs on the pure step');
     assert.ok(world.includes('heightAt'), 'feet read the shared heightfield');
+  });
+});
+
+describe('proximity streaming — the memory contract (Safari killed the all-at-entry world)', () => {
+  it('the planet itself is bit-identical to the one Merlin walked (generation fingerprint)', () => {
+    const samples = [];
+    for (let x = -700; x <= 700; x += 37.3) {
+      for (let z = -700; z <= 700; z += 41.7) {
+        samples.push(heightAt(x, z).toFixed(5));
+        samples.push(groundColorAt(x, z).map((v) => v.toFixed(4)).join(','));
+      }
+    }
+    const hash = createHash('sha256').update(samples.join('|')).digest('hex');
+    assert.equal(hash, '8e2fd6296c03c439e27a2635b11fcd87fb8dfdbfa00e522e96b51ec5ef80e27d',
+      'heightfield + ground colours unchanged by the streaming pass');
+    assert.equal(worldCreatures().length, 30, 'placement plan unchanged');
+    assert.equal(worldLandforms().length, 9, 'placement plan unchanged');
+    assert.equal(worldPlants().length, 109, 'placement plan unchanged');
+    assert.equal(landingParcel().id, 'E2-1225', 'the landing meadow is the same parcel');
+  });
+
+  it('every kind keeps a hysteresis band: release radius strictly beyond load radius', () => {
+    for (const [kind, r] of Object.entries(STREAM_RADII)) {
+      assert.ok(r.load > 0, `${kind} loads at a real distance`);
+      assert.ok(r.release > r.load, `${kind}: release ${r.release} > load ${r.load} — border-walking cannot thrash`);
+    }
+  });
+
+  it('the stream plan covers the whole cast exactly once — and nothing else', () => {
+    const units = worldStreamUnits();
+    const covered = units.flatMap((u) => u.slugs);
+    assert.equal(new Set(covered).size, covered.length, 'no slug is streamed by two units');
+    for (const m of earth2PlacedModels()) {
+      assert.ok(covered.includes(m.slug), `${m.slug} has a stream unit`);
+    }
+    assert.ok(covered.includes('compy-swarm'), 'the swarm streams with the cast');
+    assert.equal(covered.length, earth2PlacedModels().length + 1, 'the cast + the swarm, no more');
+  });
+
+  it('at spawn only the landing neighbourhood streams in — a strict subset of the cast', () => {
+    const spawn = spawnPointFor(resolveSpawnParcel(null));
+    const entry = streamEntryUnits(spawn.x, spawn.z);
+    const entrySlugs = new Set(entry.flatMap((u) => u.slugs));
+    const allSlugs = new Set(worldStreamUnits().flatMap((u) => u.slugs));
+    assert.ok(entry.length > 0, 'the neighbourhood is populated');
+    assert.ok(entrySlugs.size < allSlugs.size, 'the entry set is a strict subset of the cast');
+    // The welcome party Merlin's recording showed: herds on the
+    // plains around the landing, the heartland flyers overhead.
+    for (const slug of ['gallimimus', 'triceratops', 'compsognathus', 'compy-swarm', 'giant-mosquito', 'pteranodon', 'quetzalcoatlus']) {
+      assert.ok(entrySlugs.has(slug), `${slug} greets the walker at spawn`);
+    }
+    // Everything far stays out of memory: the whole sea cast,
+    // both apexes, the volcanoes and the mountain range, and the
+    // entire Transylvania court at the south pole.
+    for (const slug of ['mosasaurus', 'kronosaurus', 'elasmosaurus', 'ichthyosaurus', 'plesiosaurus', 'liopleurodon', 'tylosaurus', 'megalodon']) {
+      assert.ok(!entrySlugs.has(slug), `${slug} waits in the sea, unloaded`);
+    }
+    for (const slug of ['tyrannosaurus-rex', 'spinosaurus-rex', 'active-volcano', 'mountain-range', 'castle-transylvania', 'dracula', 'vampire-bat']) {
+      assert.ok(!entrySlugs.has(slug), `${slug} is not resident at spawn`);
+    }
+    // Of the 56 foundry model files, the spawn step-on loads 31.
+    const entryModels = [...entrySlugs].filter((s) => {
+      const e = EARTH2_MODEL_BY_SLUG.get(s);
+      return e && e.file;
+    });
+    assert.equal(entryModels.length, 31, `entry loads ${entryModels.length} of 56 model files`);
+  });
+
+  it('the plan honours hysteresis: inside the band nothing loads and nothing releases', () => {
+    const units = worldStreamUnits();
+    const court = units.find((u) => u.key === 'court');
+    const [cx, cz] = [court.anchors[0].x, court.anchors[0].z];
+    // 700 m north of the castle: beyond the court load radius
+    // (560) but inside its release radius (800).
+    const band = { x: cx, z: cz - 700 };
+    assert.equal(streamDistance(court, band.x, band.z), 700);
+    const idle = planStreamActions(units, new Set(), band.x, band.z);
+    assert.ok(!idle.load.some((u) => u.key === 'court'), 'inactive in the band: no load');
+    const held = planStreamActions(units, new Set(['court']), band.x, band.z);
+    assert.ok(!held.release.some((u) => u.key === 'court'), 'resident in the band: no release');
+    // 500 m out: inside load — an inactive court loads.
+    const near = planStreamActions(units, new Set(), cx, cz - 500);
+    assert.ok(near.load.some((u) => u.key === 'court'), 'inside load radius: the court streams in');
+    // 900 m out: beyond release — a resident court is freed.
+    const far = planStreamActions(units, new Set(['court']), cx, cz - 900);
+    assert.ok(far.release.some((u) => u.key === 'court'), 'beyond release radius: the court is freed');
+  });
+
+  it('loads are ordered nearest-first, so the closest cast arrives first', () => {
+    const spawn = spawnPointFor(resolveSpawnParcel(null));
+    const { load } = planStreamActions(worldStreamUnits(), new Set(), spawn.x, spawn.z);
+    assert.ok(load.length > 0);
+    const dists = load.map((u) => streamDistance(u, spawn.x, spawn.z));
+    for (let i = 1; i < dists.length; i++) {
+      assert.ok(dists[i] >= dists[i - 1], 'non-decreasing distance order');
+    }
+    assert.equal(dists[0], 0, 'the pteranodon circles the landing itself');
+  });
+
+  it('the scene wires the streaming plan: loads through it, frees through disposal', () => {
+    const world = read('components/earth2/Earth2World.jsx');
+    assert.ok(world.includes("from '@/lib/earth2/streaming'"), 'the plan is imported');
+    assert.ok(world.includes('worldStreamUnits'), 'units come from the plan');
+    assert.ok(world.includes('planStreamActions'), 'per-frame decisions come from the plan');
+    assert.ok(world.includes('disposeGraph'), 'releases dispose GPU resources');
+    assert.ok(world.includes('256, 256'), 'the terrain mesh took the diet (256×256 segments)');
   });
 });
