@@ -86,8 +86,13 @@ import {
   groundPose,
   loadVehicleStates,
   saveVehicleStates,
+  applyShotToVehicle,
+  tickVehicleRespawn,
 } from '@/lib/earth2/vehicles';
-import { vehicleInstanceById } from '@/lib/earth2/fleet';
+import { vehicleInstanceById, homeStateForInstance } from '@/lib/earth2/fleet';
+import {
+  ensureSfx, sfxImpact, sfxExplosion, sfxClang, sfxSplash, sfxWarningTick, sfxShimmer, vibrateFor,
+} from '@/lib/earth2/sfx';
 import { bridgeHeightAt, bridgeDeckYAt, stepBridgeWalker, BRIDGE_DECK_WIDTH_M } from '@/lib/earth2/bridges';
 import { dressingColliders } from '@/lib/earth2/scatter';
 import {
@@ -673,7 +678,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   // doors on the buildExitRef pattern.
   const [nearVehicle, setNearVehicle] = useState(null);
   const [driving, setDriving] = useState(null);
-  const [driveInfo, setDriveInfo] = useState({ speed: 0, alt: 0 });
+  const [driveInfo, setDriveInfo] = useState({ speed: 0, alt: 0, integrity: 100 });
   const vehicleStatesRef = useRef(null);
   if (vehicleStatesRef.current === null) vehicleStatesRef.current = loadVehicleStates();
   const drivingRef = useRef(null);
@@ -1608,6 +1613,14 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       // the airfield's standing flag seats its collider, like the
       // museum's.
       const vehicles = [];
+      // Vehicles Phase 2: the floating integrity bars ride the
+      // label layer (one small DOM bar per resident machine,
+      // shown only while she's hurt), and the drive feel keeps
+      // two scene clocks — the camera shake's amplitude and the
+      // low-integrity warning's cadence.
+      const vehicleBars = []; // { el, fill, rec, owner, h, lastPct, flashUntil, outline }
+      let shakeAmp = 0;
+      let warnTickAt = 0;
       let airportStanding = false;
       const COMPY_CENTER = compySwarmCenter();
       const mosquitos = [];
@@ -2060,6 +2073,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             }
           }
           vehicles.push(rec);
+          makeVehicleBar(rec, unit.key);
           const inst = vehicleInstanceById(unit.instanceId);
           makeLabel(inst && inst.label ? inst.label : spec.name, root, spec.eyeHeight + 0.9, 130, unit.key);
           if (drivesStatus) setStatusFor(entry.slug, 'placed');
@@ -2117,6 +2131,18 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           noticeRef.current('🔨 Finish building first — then drive.');
           return;
         }
+        // Phase 2 boarding law: a wreck is scrap until her
+        // replacement lands, and a ditched VTOL is sinking —
+        // neither takes a helm. (A beached boat still boards:
+        // the helm simply won't answer, and E steps ashore.)
+        if (st.wrecked) {
+          noticeRef.current(`💥 The ${spec.name} is a wreck — a fresh machine replaces her at home shortly.`);
+          return;
+        }
+        if (st.ditched) {
+          noticeRef.current('🛩️ She ditched and is taking on water — no flying her out of that.');
+          return;
+        }
         const d = Math.hypot(walker.x - st.x, walker.z - st.z);
         if (d > 8.5) {
           const inst = vehicleInstanceById(id);
@@ -2138,10 +2164,11 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
               ? heightAt(st.x, st.z) + (st.alt || 0)
               : onDeck ? deckY : heightAt(st.x, st.z),
         };
+        ensureSfx();
         drivingRef.current = id;
         if (!cancelled) {
           setDriving(id);
-          setDriveInfo({ speed: 0, alt: st.alt || 0 });
+          setDriveInfo({ speed: 0, alt: st.alt || 0, integrity: st.integrity ?? 100 });
           setNearVehicle(null);
         }
         nearVehicleRef.current = null;
@@ -2257,6 +2284,338 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         scene.add(points);
         track(points);
         bursts.push({ points, vels, life: 0 });
+      }
+
+      // ── Vehicles Phase 2: explosion FX, integrity bars, the
+      // shot path, and the driven machine's damage feedback ────
+      // One pooled burst rig serves every explosion and every
+      // respawn shimmer: four slots built once, reused forever —
+      // fireball sprite, gold glow, three smoke sprites, a debris
+      // Points cloud, a shockwave ring, and ONE point light the
+      // slots share. Nothing allocates per frame; an explosion
+      // just re-arms a slot. The law decides WHEN (a wreck whose
+      // last bill is not a submersion — Phase A's applyDamage
+      // stamps exploded on every wreck, sinkings included, so
+      // the scene reads the bill's kind: kind 'submersion' sinks
+      // quiet, everything else burns); this rig only plays it.
+      const FX_SLOTS = 4;
+      let fxPool = null; // { slots: [...], light, next }
+      function radialTexture(stops) {
+        const c = document.createElement('canvas');
+        c.width = 128; c.height = 128;
+        const ctx = c.getContext('2d');
+        const g = ctx.createRadialGradient(64, 64, 2, 64, 64, 64);
+        for (const [o, col] of stops) g.addColorStop(o, col);
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, 128, 128);
+        const tex = new THREE.CanvasTexture(c);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        return tex;
+      }
+      function ensureFx() {
+        if (fxPool) return fxPool;
+        try {
+          const fireTex = radialTexture([[0, 'rgba(255,246,200,1)'], [0.35, 'rgba(255,166,48,0.85)'], [0.7, 'rgba(226,72,20,0.35)'], [1, 'rgba(120,20,0,0)']]);
+          const goldTex = radialTexture([[0, 'rgba(255,240,190,0.95)'], [0.5, 'rgba(255,205,90,0.45)'], [1, 'rgba(255,180,60,0)']]);
+          const smokeTex = radialTexture([[0, 'rgba(88,84,80,0.55)'], [0.6, 'rgba(70,66,62,0.32)'], [1, 'rgba(60,56,52,0)']]);
+          const slots = [];
+          for (let i = 0; i < FX_SLOTS; i++) {
+            const group = new THREE.Group();
+            group.visible = false;
+            const fire = new THREE.Sprite(new THREE.SpriteMaterial({ map: fireTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+            const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: goldTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+            group.add(glow);
+            group.add(fire);
+            const smokes = [];
+            for (let s = 0; s < 3; s++) {
+              const sm = new THREE.Sprite(new THREE.SpriteMaterial({ map: smokeTex, depthWrite: false, transparent: true }));
+              smokes.push(sm);
+              group.add(sm);
+            }
+            const dGeo = new THREE.BufferGeometry();
+            dGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(30 * 3), 3));
+            const debris = new THREE.Points(dGeo, new THREE.PointsMaterial({ color: 0x2e2a26, size: 0.34, transparent: true, depthWrite: false }));
+            group.add(debris);
+            const ring = new THREE.Mesh(
+              new THREE.RingGeometry(0.86, 1, 48),
+              new THREE.MeshBasicMaterial({ color: 0xffd9a0, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false }),
+            );
+            ring.rotation.x = -Math.PI / 2;
+            group.add(ring);
+            scene.add(group);
+            slots.push({
+              group, fire, glow, smokes, debris, ring,
+              debrisVel: new Float32Array(30 * 3),
+              age: 99, mode: 'boom', baseScale: 6,
+            });
+          }
+          const light = new THREE.PointLight(0xffa050, 0, 90, 1.6);
+          scene.add(light);
+          fxPool = { slots, light, next: 0, lightAge: 99 };
+        } catch { fxPool = null; }
+        return fxPool;
+      }
+      function fireExplosion(x, y, z, distToWalker) {
+        const fx = ensureFx();
+        const d = Math.max(0, distToWalker || 0);
+        sfxExplosion(d);
+        if (d < 90) vibrateFor({ kind: 'explosion' });
+        shakeAmp = Math.min(1, shakeAmp + Math.max(0.12, Math.min(1, 15 / (d + 5))));
+        if (!fx) return;
+        const s = fx.slots[fx.next];
+        fx.next = (fx.next + 1) % fx.slots.length;
+        s.mode = 'boom';
+        s.age = 0;
+        s.baseScale = 5 + rng() * 3;
+        s.group.position.set(x, y, z);
+        s.group.visible = true;
+        s.fire.material.color.setHex(0xffffff);
+        s.fire.material.opacity = 1;
+        s.glow.material.color.setHex(0xffffff);
+        s.ring.material.color.setHex(0xffd9a0);
+        for (let i = 0; i < s.smokes.length; i++) {
+          s.smokes[i].position.set((rng() - 0.5) * 2.4, 0.4 + i * 0.5, (rng() - 0.5) * 2.4);
+          s.smokes[i].material.opacity = 0.5;
+        }
+        const attr = s.debris.geometry.attributes.position;
+        for (let i = 0; i < 30; i++) {
+          attr.array[i * 3] = 0; attr.array[i * 3 + 1] = 0; attr.array[i * 3 + 2] = 0;
+          const th = rng() * Math.PI * 2;
+          const sp = 3 + rng() * 8;
+          s.debrisVel[i * 3] = Math.cos(th) * sp;
+          s.debrisVel[i * 3 + 1] = 4 + rng() * 8;
+          s.debrisVel[i * 3 + 2] = Math.sin(th) * sp;
+        }
+        attr.needsUpdate = true;
+        s.debris.material.opacity = 1;
+        s.ring.position.y = -y + heightAt(x, z) + 0.25;
+        s.ring.material.opacity = 0.75;
+        fx.light.position.set(x, y + 1.5, z);
+        fx.light.color.setHex(0xffa050);
+        fx.light.intensity = 220;
+        fx.lightAge = 0;
+      }
+      // The replacement's arrival: a gold ring and a soft glow —
+      // a shimmer, never a pop.
+      function fireShimmer(x, y, z) {
+        const fx = ensureFx();
+        sfxShimmer();
+        if (!fx) return;
+        const s = fx.slots[fx.next];
+        fx.next = (fx.next + 1) % fx.slots.length;
+        s.mode = 'shimmer';
+        s.age = 0;
+        s.baseScale = 4;
+        s.group.position.set(x, y, z);
+        s.group.visible = true;
+        s.fire.material.opacity = 0;
+        s.glow.material.color.setHex(0xffe9a8);
+        for (const sm of s.smokes) sm.material.opacity = 0;
+        s.debris.material.opacity = 0;
+        s.ring.material.color.setHex(0xffe9a8);
+        s.ring.position.y = -y + heightAt(x, z) + 0.25;
+        s.ring.material.opacity = 0.6;
+        fx.light.position.set(x, y + 1, z);
+        fx.light.color.setHex(0xffd777);
+        fx.light.intensity = 60;
+        fx.lightAge = 0;
+      }
+      function updateExplosions(dt) {
+        const fx = fxPool;
+        if (!fx) return;
+        if (fx.lightAge < 0.6) {
+          fx.lightAge += dt;
+          fx.light.intensity *= Math.exp(-7 * dt);
+          if (fx.lightAge >= 0.6) fx.light.intensity = 0;
+        }
+        for (const s of fx.slots) {
+          if (s.age > 3 || !s.group.visible) continue;
+          s.age += dt;
+          if (s.mode === 'boom') {
+            const ft = Math.min(1, s.age / 0.55);
+            const fs = s.baseScale * (0.35 + ft * 1.15);
+            s.fire.scale.set(fs, fs, 1);
+            s.fire.material.opacity = Math.max(0, 1 - ft);
+            s.fire.position.y = ft * 0.8;
+            const gt = Math.min(1, s.age / 0.8);
+            const gs = s.baseScale * (0.8 + gt * 1.6);
+            s.glow.scale.set(gs, gs, 1);
+            s.glow.material.opacity = Math.max(0, 0.85 * (1 - gt));
+            for (let i = 0; i < s.smokes.length; i++) {
+              const sm = s.smokes[i];
+              const st2 = Math.min(1, s.age / 2.8);
+              const ss = 3 + st2 * 9 + i * 1.5;
+              sm.scale.set(ss, ss, 1);
+              sm.position.y = 0.4 + i * 0.5 + s.age * (1.1 + i * 0.35);
+              sm.material.opacity = Math.max(0, 0.5 * (1 - st2));
+            }
+            if (s.age < 1.1) {
+              const attr = s.debris.geometry.attributes.position;
+              for (let i = 0; i < 30; i++) {
+                s.debrisVel[i * 3 + 1] -= 11 * dt;
+                attr.array[i * 3] += s.debrisVel[i * 3] * dt;
+                attr.array[i * 3 + 1] += s.debrisVel[i * 3 + 1] * dt;
+                attr.array[i * 3 + 2] += s.debrisVel[i * 3 + 2] * dt;
+              }
+              attr.needsUpdate = true;
+              s.debris.material.opacity = Math.max(0, 1 - s.age / 1.1);
+            } else s.debris.material.opacity = 0;
+            const rt = Math.min(1, s.age / 0.7);
+            const rr = 1 + rt * 19;
+            s.ring.scale.set(rr, rr, 1);
+            s.ring.material.opacity = Math.max(0, 0.75 * (1 - rt));
+            if (s.age > 2.8) s.group.visible = false;
+          } else {
+            const rt = Math.min(1, s.age / 1.2);
+            const rr = 1 + rt * 7;
+            s.ring.scale.set(rr, rr, 1);
+            s.ring.material.opacity = Math.max(0, 0.6 * (1 - rt));
+            const gs = 3 + rt * 3;
+            s.glow.scale.set(gs, gs, 1);
+            s.glow.material.opacity = Math.max(0, 0.7 * (1 - rt));
+            if (s.age > 1.2) s.group.visible = false;
+          }
+        }
+      }
+
+      // The floating integrity bar: makeLabel's DOM pattern, one
+      // per resident machine, projected in the frame loop beside
+      // the labels. It exists from placement (cheap, hidden) and
+      // shows only while the machine is hurt and in view.
+      function makeVehicleBar(rec, owner) {
+        const el = document.createElement('div');
+        el.className = 'pointer-events-none absolute left-0 top-0 h-[7px] w-12 overflow-hidden rounded-full border border-black/50 bg-black/55';
+        el.style.willChange = 'transform';
+        el.style.display = 'none';
+        const fill = document.createElement('div');
+        fill.style.height = '100%';
+        fill.style.width = '100%';
+        fill.style.background = '#4ade80';
+        el.appendChild(fill);
+        labelsRef.current && labelsRef.current.appendChild(el);
+        vehicleBars.push({
+          el, fill, rec, owner, h: rec.spec.eyeHeight + 1.55,
+          lastPct: -1, flashUntil: 0, outline: '',
+        });
+      }
+      function flashVehicleBar(id) {
+        const until = performance.now() + 400;
+        for (const b of vehicleBars) if (b.rec.key === id) b.flashUntil = until;
+      }
+
+      // A tap on a machine is a SHOT now (boarding lives on the
+      // walk-up prompt): the law's shot path bills the bar, the
+      // hit sparks, the metal rings — and a machine shot to zero
+      // goes the way of every wreck: fire where the water is
+      // shallow, a pale boil where she sinks.
+      function shootVehicle(id, point) {
+        const spec = vehicleSpecForInstance(id);
+        const st = vehicleStatesRef.current[id];
+        if (!spec || !st) return;
+        const at = point || { x: st.x, y: (st.y != null ? st.y : heightAt(st.x, st.z)) + 1, z: st.z };
+        if (st.wrecked) {
+          spawnBurst(at, 0x8a8f96);
+          sfxClang();
+          vibrateFor({ kind: 'shot' });
+          return;
+        }
+        const inst = vehicleInstanceById(id);
+        const name = inst && inst.label ? inst.label : spec.name;
+        const next = applyShotToVehicle(st, spec);
+        vehicleStatesRef.current[id] = next;
+        spawnBurst(at, 0xffc766);
+        sfxClang();
+        vibrateFor({ kind: 'shot' });
+        flashVehicleBar(id);
+        if (next.wrecked) {
+          saveVehicleStates(vehicleStatesRef.current);
+          const wy = next.y != null ? next.y : heightAt(next.x, next.z);
+          if (waterDepthAt(next.x, next.z) > 1.2) {
+            spawnBurst({ x: next.x, y: WATER_Y + 0.3, z: next.z }, 0xbfd9e2);
+            noticeRef.current(`💥 Shot through — the ${name} goes down in the deep. A fresh one replaces her at home.`);
+          } else {
+            fireExplosion(next.x, wy + 1, next.z, Math.hypot(walker.x - next.x, walker.z - next.z));
+            noticeRef.current(`💥 Shot through — the ${name} is wrecked! A fresh one replaces her at home.`);
+          }
+        } else {
+          noticeRef.current(`🔫 Hit the ${name} — integrity ${Math.round(next.integrity)}%.`);
+        }
+      }
+
+      // The driven machine just wrecked: the law's eject outcome
+      // seats the walker (unharmed, beside the wreck or on the
+      // nearest wadeable shore), the helm lets go, and the moment
+      // plays by the bill — a submersion sinks quiet; anything
+      // else burns.
+      function handleDrivenWreck(id, spec, st) {
+        const inst = vehicleInstanceById(id);
+        const name = inst && inst.label ? inst.label : spec.name;
+        const cols = currentColliders().slice();
+        cols.push({ x: DRACULA_SPOT.x, z: DRACULA_SPOT.z, r: 1.3 });
+        if (hammondNpc.group) cols.push({ x: HAMMOND_NPC.stand.x, z: HAMMOND_NPC.stand.z, r: 1.0 });
+        if (museumStanding) cols.push({ x: MUSEUM_CENTER.x, z: MUSEUM_CENTER.z - 3.5, r: 9 });
+        if (airportStanding) cols.push({ x: AIRPORT_CENTER.x, z: AIRPORT_CENTER.z, r: 13 });
+        for (const v of vehicles) {
+          if (v.key === id) continue;
+          const vst = vehicleStatesRef.current[v.key];
+          if (vst) cols.push({ x: vst.x, z: vst.z, r: v.spec.radius });
+        }
+        cols.push({ x: st.x, z: st.z, r: spec.radius });
+        const from = st.eject && typeof st.eject.x === 'number'
+          ? { x: st.eject.x, z: st.eject.z }
+          : { x: st.x, z: st.z };
+        const settled = stepWorldWalker(from, 0, { fwd: 0, strafe: 0 }, 0, cols, false);
+        walker.x = settled.x;
+        walker.z = settled.z;
+        walker.yaw = (st.heading || 0) + Math.PI;
+        drivingRef.current = null;
+        if (!cancelled) setDriving(null);
+        saveVehicleStates(vehicleStatesRef.current);
+        const kind = st.lastDamage && st.lastDamage.kind;
+        if (kind === 'submersion') {
+          sfxSplash(5);
+          vibrateFor({ kind: 'sinking' });
+          noticeRef.current(`🌊 The ${name} drowned — you step out unharmed. A fresh one replaces her at home.`);
+        } else {
+          fireExplosion(st.x, (st.y != null ? st.y : heightAt(st.x, st.z)) + 1, st.z, 0);
+          noticeRef.current(`💥 The ${name} is wrecked! You step out unharmed — a fresh one replaces her at home.`);
+        }
+      }
+
+      // The driven machine's per-step feedback: the step law
+      // stamps lastDamage fresh on every billed event (the same
+      // object rides along on quiet steps), so a new reference
+      // with a real amount IS the impact — sound scaled by the
+      // bill, the haptic, the shake. Plus the ditch call, the
+      // shoreline splash, the low-bar warning, and the wreck.
+      function drivePhaseB(prev, stepped, spec, id, t) {
+        const dmg = stepped.lastDamage;
+        const fresh = dmg && dmg !== prev.lastDamage && dmg.amount > 0;
+        if (fresh && (dmg.kind === 'impact' || dmg.kind === 'grounding' || dmg.kind === 'landing')) {
+          sfxImpact(dmg.amount);
+          vibrateFor({ kind: 'impact', amount: dmg.amount });
+          shakeAmp = Math.min(1, shakeAmp + Math.min(0.45, dmg.amount / 110));
+          if (dmg.kind === 'landing' && dmg.amount >= 8) {
+            noticeRef.current('🛬 Hard landing — the airframe felt that one. Watch her integrity bar.');
+          }
+        }
+        if (stepped.ditched && !prev.ditched) {
+          sfxSplash(Math.abs(prev.speed || 0) + 7);
+          sfxImpact(16);
+          vibrateFor({ kind: 'impact', amount: 30 });
+          noticeRef.current('🌊 Ditched! She is taking on water — step out while you can.');
+        }
+        if (!spec.water && !spec.air
+          && (prev.depthHere || 0) <= 0.02 && (stepped.depthHere || 0) > 0.05
+          && Math.abs(stepped.speed || 0) >= 3.5) {
+          sfxSplash(Math.abs(stepped.speed));
+        }
+        if (!stepped.wrecked && (stepped.integrity ?? 100) < 30 && t >= warnTickAt) {
+          warnTickAt = t + 1.4;
+          sfxWarningTick();
+          vibrateFor({ kind: 'warning' });
+        }
+        if (stepped.wrecked && !prev.wrecked) handleDrivenWreck(id, spec, stepped);
       }
 
       function spawnSac(at) {
@@ -3202,6 +3561,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right',
       };
       function onKeyDown(e) {
+        ensureSfx();
         if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') { inputRef.current.keys.shift = true; return; }
         if (e.code === 'Escape') {
           // Build mode closes first; a vehicle is stepped out of
@@ -3372,7 +3732,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           obj = obj.parent;
         }
         if (!obj) return;
-        if (obj.userData.vehicle) boardVehicle(obj.userData.vehicle);
+        if (obj.userData.vehicle) shootVehicle(obj.userData.vehicle, hits[0].point);
         else if (obj.userData.mosquito) shootMosquito(obj.userData.mosquito);
         else if (obj.userData.sacRef) collectSac(obj.userData.sacRef);
         else if (obj.userData.dracula) openExchangeRef.current();
@@ -3391,6 +3751,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       let downT = 0;
       let dragMoved = 0;
       function onPointerDown(e) {
+        ensureSfx();
         dragId = e.pointerId;
         lastPX = e.clientX;
         lastPY = e.clientY;
@@ -3456,6 +3817,11 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         removeWhere(labels, (l) => {
           if (l.owner !== unit.key) return false;
           l.el.remove();
+          return true;
+        });
+        removeWhere(vehicleBars, (b) => {
+          if (b.owner !== unit.key) return false;
+          b.el.remove();
           return true;
         });
         if (unit.kind === 'mosquito') {
@@ -4086,9 +4452,12 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         if (dSpec && dState && !buildModeRef.current.active) {
           // ── Driving: the pure step law (lib/earth2/vehicles.js)
           // owns the motion — terrain following, slope pitch/roll,
-          // the wading wall, colliders, the world's edge; the VTOL
-          // lifts on Space/C, tilts into its motion, crosses water
-          // and refuses steep landings (reported once per refusal).
+          // colliders, the world's edge; the VTOL lifts on
+          // Space/C and tilts into its motion. Phase 2: there are
+          // no walls and no refused landings — deep water fades a
+          // ground machine's power and drowns her, and every
+          // arrival is JUDGED by the damage law (descent, tilt,
+          // slope) and billed to the integrity bar.
           const lift = dSpec.air ? (inp.keys.up ? 1 : 0) - (inp.keys.down ? 1 : 0) : 0;
           let dEnv;
           if (dSpec.water) {
@@ -4096,7 +4465,22 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             // bridge piers plus the static solid world.
             dEnv = { waterDepthAt, colliders: boatColliders(currentColliders()) };
           } else if (dSpec.air) {
-            dEnv = { heightAt, waterDepthAt, colliders: currentColliders().concat(dyn) };
+            // Phase 2 (Phase A's deck flag): the VTOL reads the
+            // crossings too — over a deck the water reads DRY, so
+            // a good deck landing is judged a landing and never
+            // a ditch; and once she's down at deck height, the
+            // deck is her ground, so the touchdown's tilt is
+            // judged against the deck, not the riverbed below.
+            const deckHereV = bridgeHeightAt(dState.x, dState.z);
+            const yNowV = heightAt(dState.x, dState.z) + (dState.alt || 0);
+            const nearDeckV = deckHereV != null && Math.abs(yNowV - deckHereV) < 1.2;
+            dEnv = {
+              heightAt: nearDeckV
+                ? (x, z) => { const d = bridgeHeightAt(x, z); return d == null ? heightAt(x, z) : d; }
+                : heightAt,
+              waterDepthAt: (x, z) => (bridgeHeightAt(x, z) != null ? 0 : waterDepthAt(x, z)),
+              colliders: currentColliders().concat(dyn),
+            };
           } else {
             // A ground machine rides the crossings: the height
             // read is the deck while the machine is deck-borne
@@ -4121,9 +4505,6 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             steer: -strafeIn,
             lift,
           }, dt, dEnv);
-          if (stepped.landingRefused && !dState.landingRefused) {
-            noticeRef.current('🛬 Too steep to set down here — the VTOL needs flatter ground.');
-          }
           vehicleStatesRef.current[drivingId] = stepped;
           walker.x = stepped.x;
           walker.z = stepped.z;
@@ -4132,9 +4513,10 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           camera.position.set(stepped.x, stepped.y + dSpec.eyeHeight, stepped.z);
           camera.rotation.set(walker.pitch, walker.yaw, 0);
           if (frameNo % 10 === 0 && !cancelled) {
-            setDriveInfo({ speed: Math.abs(stepped.speed || 0), alt: stepped.alt || 0 });
+            setDriveInfo({ speed: Math.abs(stepped.speed || 0), alt: stepped.alt || 0, integrity: stepped.integrity ?? 100 });
           }
           if (frameNo % 120 === 0) saveVehicleStates(vehicleStatesRef.current);
+          drivePhaseB(dState, stepped, dSpec, drivingId, t);
         } else {
           // On a crossing — or one step from its deck — the
           // bridge walker law owns the step (Terrain Wave B):
@@ -4194,7 +4576,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           if (!drivingRef.current && !buildModeRef.current.active) {
             for (const id of Object.keys(vehicleStatesRef.current)) {
               const vst = vehicleStatesRef.current[id];
-              if (!vst) continue;
+              if (!vst || vst.wrecked) continue;
               const d = Math.hypot(walker.x - vst.x, walker.z - vst.z);
               if (d <= bestD) { bestD = d; best = id; }
             }
@@ -4203,6 +4585,33 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             nearVehicleRef.current = best;
             if (!cancelled) setNearVehicle(best);
           }
+        }
+
+        // Wrecks count down to their replacement (the law's
+        // 5-second timer): tick every wrecked instance, and when
+        // the fresh home state lands within sight, a gold shimmer
+        // marks the swap so the new machine never just pops in.
+        {
+          let respawnDirty = false;
+          for (const id of Object.keys(vehicleStatesRef.current)) {
+            const vst = vehicleStatesRef.current[id];
+            if (!vst || !vst.wrecked) continue;
+            const home = homeStateForInstance(id);
+            if (!home) continue;
+            const next = tickVehicleRespawn(vst, home, dt);
+            if (next !== vst) {
+              vehicleStatesRef.current[id] = next;
+              respawnDirty = true;
+              if (!next.wrecked) {
+                const nd = Math.hypot(walker.x - next.x, walker.z - next.z);
+                if (nd < 320) {
+                  const spec2 = vehicleSpecForInstance(id);
+                  fireShimmer(next.x, spec2 && spec2.water ? WATER_Y + 0.8 : heightAt(next.x, next.z) + 1.2, next.z);
+                }
+              }
+            }
+          }
+          if (respawnDirty) saveVehicleStates(vehicleStatesRef.current);
         }
 
         // Parked machines hold their pose on the terrain (a
@@ -4223,7 +4632,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           const pose = groundPose(vst, v.spec, onDeck
             ? (x, z) => { const d = bridgeHeightAt(x, z); return d == null ? heightAt(x, z) : d; }
             : heightAt);
-          poseVehicle(v, { ...vst, y: onDeck ? pose.y : pose.y + (vst.alt || 0), pitch: pose.pitch, roll: pose.roll }, t, dt);
+          poseVehicle(v, { ...vst, y: onDeck ? pose.y : pose.y + (vst.alt || 0), pitch: pose.pitch, roll: pose.roll + (vst.wrecked ? 0.38 : 0) }, t, dt);
         }
 
         // Life, by proximity: land animals animate within 260 m
@@ -4310,6 +4719,13 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             s.obj.rotation.x = Math.cos(swayClock * 0.6 + s.phase) * s.amp * 0.5;
           }
         }
+        updateExplosions(dt);
+        if (shakeAmp > 0.003) {
+          camera.position.x += (rng() - 0.5) * shakeAmp * 0.55;
+          camera.position.y += (rng() - 0.5) * shakeAmp * 0.42;
+          camera.rotation.z += (rng() - 0.5) * shakeAmp * 0.05;
+          shakeAmp *= Math.exp(-5 * dt);
+        } else shakeAmp = 0;
         renderer.render(scene, camera);
         // Labels: near creatures only, projected each frame.
         const w = mount.clientWidth, h = mount.clientHeight;
@@ -4325,6 +4741,45 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           const x = (labelV.x * 0.5 + 0.5) * w;
           const y = (-labelV.y * 0.5 + 0.5) * h;
           l.el.style.transform = `translate(-50%, -100%) translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
+        }
+        // Phase 2 integrity bars: a hurt machine in view wears
+        // her bar under her name — projected like the labels,
+        // with DOM writes only when the rounded percent moves
+        // (or the shot-flash outline toggles).
+        for (const b of vehicleBars) {
+          const bst = vehicleStatesRef.current[b.rec.key];
+          const pct = bst ? (bst.integrity ?? 100) : 100;
+          const show = !!bst && pct < 100 && drivingRef.current !== b.rec.key
+            && b.rec.root.visible
+            && (walker.x - bst.x) ** 2 + (walker.z - bst.z) ** 2 < 130 * 130;
+          if (!show) {
+            if (b.el.style.display !== 'none') b.el.style.display = 'none';
+            continue;
+          }
+          b.rec.root.getWorldPosition(labelV);
+          labelV.y += b.h;
+          labelV.project(camera);
+          if (labelV.z > 1 || labelV.z < -1) {
+            if (b.el.style.display !== 'none') b.el.style.display = 'none';
+            continue;
+          }
+          b.el.style.display = '';
+          const bx = (labelV.x * 0.5 + 0.5) * w;
+          const by = (-labelV.y * 0.5 + 0.5) * h;
+          b.el.style.transform = `translate(-50%, -100%) translate(${bx.toFixed(1)}px, ${by.toFixed(1)}px)`;
+          const rp = Math.round(pct);
+          if (rp !== b.lastPct) {
+            b.lastPct = rp;
+            b.fill.style.width = `${rp}%`;
+            b.fill.style.background = integrityColor(rp);
+          }
+          const outline = performance.now() < b.flashUntil
+            ? '0 0 0 2px rgba(255,220,130,0.95), 0 0 10px rgba(255,190,80,0.8)'
+            : '';
+          if (outline !== b.outline) {
+            b.outline = outline;
+            b.el.style.boxShadow = outline;
+          }
         }
       }
 
@@ -4350,6 +4805,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         renderer.domElement.removeEventListener('pointerup', onPointerUp);
         renderer.domElement.removeEventListener('pointercancel', onPointerCancel);
         for (const l of labels) l.el.remove();
+        for (const b of vehicleBars) b.el.remove();
         scene.traverse((o) => {
           if (o.geometry) o.geometry.dispose();
           if (o.material) {
@@ -4980,6 +5436,20 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
               >
                 🚶 Step out
               </button>
+            </div>
+            <div>
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-[9px] font-black tracking-[0.22em] text-zinc-400">INTEGRITY</span>
+                <span className="text-[11px] font-black" style={{ color: integrityColor(driveInfo.integrity ?? 100) }}>
+                  {Math.round(driveInfo.integrity ?? 100)}%
+                </span>
+              </div>
+              <div className={`mt-1 h-2.5 w-full overflow-hidden rounded-full bg-white/10 ${(driveInfo.integrity ?? 100) < 30 ? 'animate-pulse' : ''}`}>
+                <div
+                  className="h-full rounded-full transition-[width] duration-200"
+                  style={{ width: `${Math.max(0, Math.min(100, driveInfo.integrity ?? 100))}%`, background: integrityColor(driveInfo.integrity ?? 100) }}
+                />
+              </div>
             </div>
             {vehicleSpecForInstance(driving)?.air && (
               <div className="flex gap-2">

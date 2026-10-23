@@ -20,9 +20,13 @@
 //     — whole-body articulation, pinned as a fact, not a hope);
 //   - the pure drive/fly law (lib/earth2/vehicles.js): accel and
 //     speed clamps in Merlin's ordering, steering authority and
-//     its reverse flip, the wading wall, colliders, the world's
-//     edge, slope pitch/roll, and the VTOL's lift, water
-//     crossing and flat-ground landing rule;
+//     its reverse flip, colliders, the world's edge, slope
+//     pitch/roll, the VTOL's lift and water crossing — and,
+//     since Phase 2, the physics that replaced every wall:
+//     fording and drowning, impacts billed by energy, landings
+//     judged by descent rate and tilt, ditches, wrecks, and
+//     replacement at home. (The damage path itself is pinned
+//     in earth2-vehicle-damage.);
 //   - device persistence: states sanitize to the apron, motion
 //     never survives a reload;
 //   - streaming: the field as one static unit, the fleet as live
@@ -67,6 +71,7 @@ import {
   heightAt,
   waterDepthAt,
   WORLD_HALF_M,
+  WATER_Y,
   MAX_WADE_DEPTH_M,
 } from '../lib/earth2/world.js';
 import {
@@ -79,13 +84,21 @@ import {
   VEHICLE_SPECS,
   VEHICLE_SLUGS,
   vehicleSpec,
+  modelSpec,
   defaultVehicleStates,
   sanitizeVehicleStates,
+  defaultInstanceStates,
+  sanitizeInstanceStates,
   loadVehicleStates,
   saveVehicleStates,
   isParkedAtHome,
   stepVehicle,
   groundPose,
+  boatColliders,
+  tickVehicleRespawn,
+  vehicleRespawnDue,
+  respawnVehicleNow,
+  RESPAWN_DELAY_S,
 } from '../lib/earth2/vehicles.js';
 import { resolveScarabLegs } from '../lib/earth2/bones.js';
 
@@ -323,15 +336,53 @@ describe('the drive law — ground machines', () => {
     assert.ok(back.heading < 0, 'in reverse the same steer swings the other way');
   });
 
-  it('deep water is a wall: the axis slide, never a swim', () => {
+  it('shallow water is a ford: drag, no damage, out the far side', () => {
+    // A 24 m band of 0.5 m water between dry banks — Phase 2:
+    // under SHALLOW_DRIVE_DEPTH_M there is no wall at all, just
+    // drag on the target speed.
+    const env = { heightAt: () => 2, waterDepthAt: (x) => (x > 0 && x < 24 ? 0.5 : 0), colliders: [] };
+    const spec = vehicleSpec('rover');
+    const st = run({ x: -30, z: -600, heading: Math.PI / 2, speed: 0 }, spec, { throttle: 1, steer: 0 }, 12, env);
+    assert.ok(st.x > 24, `the rover forded the shallows (x=${st.x.toFixed(1)})`);
+    assert.equal(st.integrity, 100, 'a ford costs nothing');
+    assert.equal(st.wrecked, false);
+  });
+
+  it('deep water is no wall: a land vehicle drives in, drowns, and wrecks where it sank', () => {
     const env = { heightAt: () => 2, waterDepthAt: (x) => (x > 0 ? MAX_WADE_DEPTH_M + 1 : 0), colliders: [] };
     const spec = vehicleSpec('scarab');
-    const st = run({ x: -30, z: -600, heading: Math.PI / 2, speed: 0 }, spec, { throttle: 1, steer: 0 }, 6, env);
-    assert.ok(st.x <= 0.001, `the scarab stopped at the shore (x=${st.x.toFixed(2)})`);
-    // Angled at the shore it slides along it rather than stopping dead.
-    const slide = run({ x: -30, z: -600, heading: Math.PI / 3, speed: 0 }, spec, { throttle: 1, steer: 0 }, 6, env);
-    assert.ok(slide.x <= 0.001, 'still no crossing');
-    assert.ok(Math.abs(slide.z - -600) > 5, 'but it travelled along the shore');
+    const st = run({ x: -30, z: -600, heading: Math.PI / 2, speed: 0 }, spec, { throttle: 1, steer: 0 }, 25, env);
+    assert.ok(st.x > 1, `it crossed the shoreline — there is no wall (x=${st.x.toFixed(1)})`);
+    assert.equal(st.speed, 0, 'the drowned drive gives nothing');
+    assert.equal(st.wrecked, true, 'sitting submerged drains the bar to a wreck');
+    assert.equal(st.integrity, 0);
+    assert.equal(st.exploded, true);
+    assert.ok(st.eject && st.eject.x <= 0.001, 'the driver steps out on the shore side of the wreck');
+    // A wreck refuses the helm: more throttle changes nothing.
+    const after = run(st, spec, { throttle: 1, steer: 0 }, 2, env);
+    assert.equal(after.x, st.x);
+    assert.equal(after.wrecked, true);
+  });
+
+  it('momentum is real: a fast bike coasts across a narrow deep cut', () => {
+    const env = { heightAt: () => 2, waterDepthAt: (x) => (x > 0 && x < 8 ? 2.2 : 0), colliders: [] };
+    const spec = vehicleSpec('speed-bike');
+    const st = run({ x: -60, z: -600, heading: Math.PI / 2, speed: 0 }, spec, { throttle: 1, steer: 0 }, 8, env);
+    assert.ok(st.x > 8, `it came out the far side (x=${st.x.toFixed(1)})`);
+    assert.equal(st.wrecked, false, 'a dash of water costs a little bar, not the bike');
+    assert.ok(st.integrity < 100 && st.integrity > 80, `submersion billed the crossing (${st.integrity.toFixed(1)})`);
+  });
+
+  it('a collider strike bills by impact energy — and resting contact bills nothing more', () => {
+    const rock = { x: 0, z: -600, r: 2 };
+    const env = { heightAt: () => 2, waterDepthAt: () => 0, colliders: [rock] };
+    const spec = vehicleSpec('rover');
+    const hit = run({ x: -30, z: -600, heading: Math.PI / 2, speed: 0 }, spec, { throttle: 1, steer: 0 }, 6, env);
+    assert.ok(hit.x < -1.5, 'the rock stopped the rover');
+    assert.ok(hit.integrity < 95 && hit.integrity > 75, `a full-speed strike costs (integrity ${hit.integrity.toFixed(1)})`);
+    assert.equal(hit.wrecked, false);
+    const resting = run(hit, spec, { throttle: 1, steer: 0 }, 4, env);
+    assert.equal(resting.integrity, hit.integrity, 'leaning on the rock is free — the impact billed once');
   });
 
   it('structures push out by radius, and the world edge is a wall', () => {
@@ -377,15 +428,177 @@ describe('the fly law — the VTOL', () => {
     assert.ok(flown.pitch < 0, 'it leans into its motion');
   });
 
-  it('it lands on flat ground — and refuses a steep slope', () => {
+  it('it lands on flat ground — a held descent sets down firmly, at a small cost', () => {
     const flat10 = { heightAt: () => 2, waterDepthAt: () => 0, colliders: [] };
     const landed = run({ x: 0, z: -600, heading: 0, speed: 0, alt: 5 }, spec, { throttle: 0, steer: 0, lift: -1 }, 3, flat10);
     assert.equal(landed.alt, 0);
-    assert.equal(landed.landingRefused, false);
+    assert.equal(landed.landingRefused, false, 'Phase 2: landings are judged, never refused');
+    assert.equal(landed.wrecked, false);
+    assert.ok(landed.integrity < 100 && landed.integrity > 80,
+      `a full-rate descent is a firm arrival (integrity ${landed.integrity.toFixed(1)})`);
+    assert.equal(landed.lastDamage.kind, 'landing');
+  });
+
+  it('a feathered descent — short pulses, never a held drop — lands for free', () => {
+    const flat10 = { heightAt: () => 2, waterDepthAt: () => 0, colliders: [] };
+    let st = { x: 0, z: -600, heading: 0, speed: 0, alt: 1.6, vspeed: 0 };
+    const dt = 1 / 60;
+    for (let i = 0; i < 60 * 15 && st.alt > 0; i++) {
+      // Twelve frames of descent in every thirty: the vertical
+      // speed never builds past a gentle settle.
+      const lift = (i % 30) < 12 ? -1 : 0;
+      st = stepVehicle(st, spec, { throttle: 0, steer: 0, lift }, dt, flat10);
+    }
+    assert.equal(st.alt, 0, 'it settled');
+    assert.equal(st.integrity, 100, 'a gentle settle costs nothing');
+    assert.equal(st.wrecked, false);
+  });
+
+  it('a steep slope is no longer refused — it is a hard, damaging arrival', () => {
     const steep = { heightAt: (x) => x * 0.5, waterDepthAt: () => 0, colliders: [] };
-    const refused = run({ x: 0, z: -600, heading: 0, speed: 0, alt: 5 }, spec, { throttle: 0, steer: 0, lift: -1 }, 3, steep);
-    assert.equal(refused.landingRefused, true, 'the refusal is reported on the state');
-    assert.ok(Math.abs(refused.alt - 0.6) < 1e-6, 'it holds the hover instead of settling');
+    const st = run({ x: 0, z: -600, heading: 0, speed: 0, alt: 5 }, spec, { throttle: 0, steer: 0, lift: -1 }, 3, steep);
+    assert.equal(st.alt, 0, 'it comes down — physics, not permission');
+    assert.equal(st.landingRefused, false);
+    assert.ok(st.integrity < 75 && st.integrity > 0, `tilt bills hard (integrity ${st.integrity.toFixed(1)})`);
+    assert.equal(st.wrecked, false, 'a ~27° arrival is survivable — barely');
+  });
+});
+
+describe('the fly law, Phase 2 — judged, never refused', () => {
+  const spec = vehicleSpec('vtol');
+  const FLAT = { heightAt: () => 2, waterDepthAt: () => 0, colliders: [] };
+
+  it('a dive into the ground is catastrophic: flown in fast, it explodes', () => {
+    const end = run({ x: 0, z: -600, heading: 0, speed: 30, alt: 1.2, vspeed: -3 }, spec, { throttle: 1, steer: 0, lift: -1 }, 2, FLAT);
+    assert.equal(end.wrecked, true);
+    assert.equal(end.exploded, true);
+    assert.equal(end.integrity, 0);
+    assert.ok(end.eject, 'the driver gets out of the wreck');
+    assert.equal(end.lastDamage.kind, 'landing');
+  });
+
+  it('a landing leaned past 30° — on its side — is catastrophic', () => {
+    const cliff = { heightAt: (x) => x * 0.75, waterDepthAt: () => 0, colliders: [] };
+    const end = run({ x: 0, z: -600, heading: 0, speed: 0, alt: 4 }, spec, { throttle: 0, steer: 0, lift: -1 }, 3, cliff);
+    assert.equal(end.wrecked, true, 'a ~37° arrival is past the catastrophe line');
+    assert.equal(end.exploded, true);
+    assert.equal(end.lastDamage.kind, 'landing');
+  });
+
+  it('flying into rising ground is a strike, billed at horizontal speed', () => {
+    const hill = { heightAt: (x) => (x > 0 ? x * 0.9 : 0), waterDepthAt: () => 0, colliders: [] };
+    const fast = run({ x: -40, z: -600, heading: Math.PI / 2, speed: 25, alt: 2 }, spec, { throttle: 1, steer: 0, lift: 0 }, 3, hill);
+    assert.equal(fast.wrecked, true, '25 m/s into a hillside is a wreck');
+    assert.equal(fast.exploded, true);
+    assert.equal(fast.alt, 0, 'it ends on the ground where it struck');
+    const slow = run({ x: -10, z: -600, heading: Math.PI / 2, speed: 5, alt: 2 }, spec, { throttle: 0.15, steer: 0, lift: 0 }, 6, hill);
+    assert.equal(slow.wrecked, false, 'a 5 m/s brush with the slope is survivable');
+    assert.ok(slow.integrity < 100 && slow.integrity > 80, `billed, not destroyed (${slow.integrity.toFixed(1)})`);
+  });
+
+  it('water is not a landing: a touchdown on the sea ditches, floods, and sinks the craft', () => {
+    const sea = { heightAt: () => -3, waterDepthAt: () => 3, colliders: [] };
+    const ditched = run({ x: 0, z: -600, heading: 0, speed: 0, alt: 6 }, spec, { throttle: 0, steer: 0, lift: -1 }, 4, sea);
+    assert.equal(ditched.ditched, true, 'it floats, briefly — it is not a boat');
+    assert.ok(ditched.integrity < 50 && ditched.integrity > 0, `the ditch itself bills hard (${ditched.integrity.toFixed(1)})`);
+    const sunk = run(ditched, spec, { throttle: 0, steer: 0, lift: 1 }, 8, sea);
+    assert.equal(sunk.wrecked, true, 'full lift cannot save a flooding hull');
+    assert.ok(sunk.eject, 'the driver steps out — onto the water, a swim from shore');
+  });
+});
+
+describe('the sail law, Phase 2 — grounding is physics', () => {
+  const spec = modelSpec('boat');
+  const groundAt = (x) => (x - 80) / 10; // the Wave B shallows ramp
+  const env = {
+    heightAt: groundAt,
+    waterDepthAt: (x, z) => Math.max(0, WATER_Y - groundAt(x, z)),
+    colliders: [],
+  };
+
+  it('a gentle touch on the shallows beaches the boat — unharmed, and stuck fast', () => {
+    const st = run({ x: 70, z: 0, heading: Math.PI / 2, speed: 0 }, spec, { throttle: 0.2, steer: 0 }, 4, env);
+    assert.equal(st.beached, true, 'the bow found the bottom');
+    assert.equal(st.wrecked, false);
+    assert.ok(st.integrity > 90, `a gentle grounding costs little (${st.integrity.toFixed(1)})`);
+    assert.equal(st.speed, 0);
+    const stuck = run(st, spec, { throttle: 1, steer: 0 }, 4, env);
+    assert.equal(stuck.x, st.x, 'no driving off a beach, at any throttle');
+    assert.equal(stuck.beached, true);
+    const reverse = run(st, spec, { throttle: -1, steer: 0 }, 4, env);
+    assert.equal(reverse.x, st.x, '…and no reversing off either');
+  });
+
+  it('a full-speed grounding tears the hull out: wrecked, and the driver ashore', () => {
+    const st = run({ x: 40, z: 0, heading: Math.PI / 2, speed: 0 }, spec, { throttle: 1, steer: 0 }, 12, env);
+    assert.equal(st.wrecked, true);
+    assert.equal(st.integrity, 0);
+    assert.equal(st.exploded, true);
+    assert.equal(st.lastDamage.kind, 'grounding');
+    assert.ok(st.eject, 'an eject outcome rides the wrecking step');
+    assert.ok(env.waterDepthAt(st.eject.x, st.eject.z) <= 1.36, 'the driver steps out somewhere wadeable');
+  });
+
+  it('a pier strike bills by energy — and leaning on the pier bills nothing more', () => {
+    const pierEnv = {
+      heightAt: () => -3,
+      waterDepthAt: () => 3,
+      colliders: boatColliders([{ x: 0, z: 0, r: 2.2 }]),
+    };
+    const hit = run({ x: -12, z: 0, heading: Math.PI / 2, speed: 0 }, spec, { throttle: 0.5, steer: 0 }, 6, pierEnv);
+    assert.ok(hit.integrity < 90 && hit.integrity > 50, `the strike billed (${hit.integrity.toFixed(1)})`);
+    assert.equal(hit.wrecked, false);
+    const resting = run(hit, spec, { throttle: 0.5, steer: 0 }, 4, pierEnv);
+    assert.equal(resting.integrity, hit.integrity, 'resting contact is a scrape, not a second impact');
+  });
+});
+
+describe('wrecks & replacement — a new one spawns in its place', () => {
+  it('integrity and the wrecked flag persist through the sanitizers', () => {
+    const hurt = sanitizeVehicleStates({ rover: { x: 5, z: -7, heading: 1, speed: 9, integrity: 37 } }).rover;
+    assert.equal(hurt.integrity, 37, 'a damaged bar survives the round-trip');
+    assert.equal(hurt.wrecked, false);
+    assert.equal(hurt.speed, 0, 'a saved machine still sheds its motion');
+    const wreck = sanitizeVehicleStates({ rover: { x: 5, z: -7, heading: 1, integrity: 37, wrecked: true } }).rover;
+    assert.equal(wreck.wrecked, true);
+    assert.equal(wreck.integrity, 0, 'a wreck reads as an empty bar — the flag is the fact');
+    const zeroed = sanitizeVehicleStates({ rover: { x: 5, z: -7, integrity: 0 } }).rover;
+    assert.equal(zeroed.wrecked, true, 'a zero bar IS a wreck, flag or no flag');
+    assert.equal(zeroed.integrity, 0);
+    const garbage = sanitizeVehicleStates({ rover: { x: 5, z: -7, integrity: 'lots' } }).rover;
+    assert.equal(garbage.integrity, 100);
+    assert.equal(garbage.wrecked, false);
+    const id = Object.keys(defaultInstanceStates())[0];
+    const inst = sanitizeInstanceStates({ [id]: { x: 1, z: 2, integrity: 12 } })[id];
+    assert.equal(inst.integrity, 12, 'instance states carry the bar too');
+    assert.equal(inst.wrecked, false);
+    const instWreck = sanitizeInstanceStates({ [id]: { x: 1, z: 2, integrity: 12, wrecked: true } })[id];
+    assert.equal(instWreck.wrecked, true);
+    assert.equal(instWreck.respawnIn > 0, true, 'a loaded wreck carries its replacement timer');
+    const defaults = defaultInstanceStates();
+    assert.ok(Object.values(defaults).every((s) => s.integrity === 100 && s.wrecked === false),
+      'a fresh fleet starts whole-barred');
+  });
+
+  it('the replacement timer counts down, then a fresh machine stands at home', () => {
+    const home = { x: -484, z: -300, heading: Math.PI / 2 };
+    const wreck = { x: 300, z: 400, heading: 0, speed: 0, integrity: 0, wrecked: true, exploded: true, respawnIn: RESPAWN_DELAY_S };
+    assert.equal(vehicleRespawnDue(wreck), false, 'not yet — the delay is the law');
+    const ticking = tickVehicleRespawn(wreck, home, 2);
+    assert.equal(ticking.wrecked, true);
+    assert.ok(Math.abs(ticking.respawnIn - (RESPAWN_DELAY_S - 2)) < 1e-9);
+    const fresh = tickVehicleRespawn(ticking, home, RESPAWN_DELAY_S);
+    assert.equal(fresh.wrecked, false);
+    assert.equal(fresh.integrity, 100);
+    assert.equal(fresh.x, home.x);
+    assert.equal(fresh.z, home.z);
+    assert.equal(fresh.speed, 0);
+    assert.equal(vehicleRespawnDue({ wrecked: true, respawnIn: 0 }), true);
+    const alive = { x: 1, z: 2, integrity: 80, wrecked: false };
+    assert.equal(tickVehicleRespawn(alive, home, 3), alive, 'a living machine is never touched by the timer');
+    const now = respawnVehicleNow(wreck, home);
+    assert.equal(now.wrecked, false);
+    assert.equal(now.x, home.x);
   });
 });
 
