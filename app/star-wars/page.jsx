@@ -6,7 +6,7 @@
 // zone -> buildZone(THREE, PLANETS[id], T): walk or fly per planet kind,
 //         with beat detection (checkpoints -> target) wired to data.js progress.
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
 import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 import { buildGalaxy } from './galaxy';
@@ -23,6 +23,45 @@ import WalkJoystick from '@/components/world/WalkJoystick';
 
 const BANNER_CLEAR = 'max(3.5rem, calc(env(safe-area-inset-top) + 3rem))';
 const BOTTOM_CLEAR = 'max(1.5rem, calc(env(safe-area-inset-bottom) + 1rem))';
+// The planet card floats well clear of the global Concourse Orb
+// (bottom-right) so its buttons never hide behind it.
+const CARD_CLEAR = 'max(7.5rem, calc(env(safe-area-inset-bottom) + 6.5rem))';
+
+/* Deterministic CSS starfield + nebula wash for the DOM screens
+ * (menu / crawl) — the canvas only renders in map and zone modes. */
+function StarBackdrop() {
+  const stars = useMemo(() => {
+    let a = 987654321;
+    const rnd = () => {
+      a |= 0; a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    return Array.from({ length: 110 }, (_, i) => ({
+      key: i,
+      left: (rnd() * 100).toFixed(2) + '%',
+      top: (rnd() * 100).toFixed(2) + '%',
+      size: rnd() < 0.85 ? 1.5 : 2.6,
+      delay: (rnd() * 5).toFixed(2) + 's',
+      dur: (3 + rnd() * 4).toFixed(2) + 's',
+    }));
+  }, []);
+  return (
+    <div style={styles.starWrap} aria-hidden="true">
+      <div style={{ ...styles.nebula, ...styles.nebulaA }} />
+      <div style={{ ...styles.nebula, ...styles.nebulaB }} />
+      {stars.map((s) => (
+        <span key={s.key} style={{
+          position: 'absolute', left: s.left, top: s.top,
+          width: s.size, height: s.size, borderRadius: '50%',
+          background: '#dfe8ff',
+          animation: `swTwinkle ${s.dur} ease-in-out ${s.delay} infinite`,
+        }} />
+      ))}
+    </div>
+  );
+}
 
 // A beat counts as done. data.js stores it as progress.beatsDone[planetId].
 function beatDone(progress, planetId) {
@@ -389,6 +428,7 @@ export default function StarWarsPage() {
 
   return (
     <div style={styles.root}>
+      <style>{'@keyframes swTwinkle{0%,100%{opacity:.22}50%{opacity:.95}}'}</style>
       <canvas ref={canvasRef} style={styles.canvas} />
 
       {/* Exit to lobby — always visible, top left, in every mode */}
@@ -405,6 +445,7 @@ export default function StarWarsPage() {
       {/* ================= MENU ================= */}
       {mode === 'menu' && (
         <div style={styles.menu}>
+          <StarBackdrop />
           <div style={styles.menuInner}>
             <h1 style={styles.swTitle}>Star Wars</h1>
             <p style={styles.swSub}>An open-world saga · Episodes I–IX</p>
@@ -418,6 +459,7 @@ export default function StarWarsPage() {
       {/* ================= CRAWL ================= */}
       {mode === 'crawl' && (
         <div style={styles.menu}>
+          <StarBackdrop />
           <div style={{ ...styles.menuInner, maxWidth: 640, textAlign: 'left' }}>
             <div style={styles.crawlEp}>{crawl.ep}</div>
             <h2 style={styles.crawlTitle}>{crawl.title}</h2>
@@ -541,10 +583,21 @@ const styles = {
     background: 'radial-gradient(ellipse at 50% 30%, #0b1030 0%, #04040c 60%, #000 100%)',
     overflowY: 'auto',
   },
-  menuInner: { textAlign: 'center', maxWidth: 480 },
+  menuInner: { textAlign: 'center', maxWidth: 480, position: 'relative', zIndex: 1 },
+  starWrap: { position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none' },
+  nebula: { position: 'absolute', borderRadius: '50%', filter: 'blur(46px)' },
+  nebulaA: {
+    width: '72vw', height: '72vw', left: '-14vw', top: '-20vh', opacity: 0.5,
+    background: 'radial-gradient(circle, rgba(64,44,168,0.5) 0%, rgba(64,44,168,0) 68%)',
+  },
+  nebulaB: {
+    width: '64vw', height: '64vw', right: '-12vw', bottom: '-16vh', opacity: 0.42,
+    background: 'radial-gradient(circle, rgba(24,84,150,0.5) 0%, rgba(24,84,150,0) 68%)',
+  },
   swTitle: {
     fontSize: 'min(18vw, 84px)', fontWeight: 700, letterSpacing: 14, margin: '0 0 10px',
-    color: '#ffe81f', textShadow: '0 0 34px rgba(255,232,31,0.45)',
+    color: '#ffe81f',
+    textShadow: '0 0 16px rgba(255,232,31,0.35), 0 0 46px rgba(255,196,32,0.32), 0 0 110px rgba(122,84,255,0.28)',
   },
   swSub: { color: '#9fb4d8', fontSize: 15, letterSpacing: 2, margin: '0 0 18px' },
   swProg: { color: '#66779a', fontSize: 13, letterSpacing: 1, margin: '0 0 30px' },
@@ -553,8 +606,13 @@ const styles = {
     fontSize: 15, letterSpacing: 2, color: '#0a0a12', background: '#ffe81f',
     border: 'none', borderRadius: 10, cursor: 'pointer', fontWeight: 700,
     pointerEvents: 'auto',
+    boxShadow: '0 6px 26px rgba(255,232,31,0.28), inset 0 1px 0 rgba(255,255,255,0.55)',
   },
-  btnGhost: { background: 'transparent', color: '#ffe81f', border: '1px solid #ffe81f' },
+  btnGhost: {
+    background: 'rgba(255,232,31,0.06)', color: '#ffe81f',
+    border: '1px solid rgba(255,232,31,0.75)',
+    boxShadow: '0 4px 18px rgba(0,0,0,0.45)',
+  },
   smallBtn: {
     padding: '10px 18px', fontSize: 13, letterSpacing: 1, color: '#ffe81f',
     background: 'rgba(10,10,20,0.55)', border: '1px solid rgba(255,232,31,0.5)',
@@ -581,24 +639,31 @@ const styles = {
   },
   // map HUD
   mapTop: {
-    position: 'absolute', top: 'calc(' + BANNER_CLEAR + ' + 54px)', left: 20, right: 20,
+    position: 'absolute', top: 'calc(' + BANNER_CLEAR + ' + 44px)', left: 12, right: 12,
     display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-    pointerEvents: 'none',
+    pointerEvents: 'none', padding: '12px 10px 30px', borderRadius: 14,
+    // scrim: 3D planet labels drifting behind the header can no
+    // longer clash with the title / progress lines
+    background: 'linear-gradient(180deg, rgba(2,2,10,0.8) 0%, rgba(2,2,10,0.45) 62%, rgba(2,2,10,0) 100%)',
   },
   mapTitle: { color: '#ffe81f', fontSize: 17, letterSpacing: 3, fontWeight: 700 },
   mapProg: { color: '#9fb4d8', fontSize: 12, letterSpacing: 1, marginTop: 6 },
   card: {
-    position: 'absolute', left: 16, right: 16, bottom: BOTTOM_CLEAR,
-    background: 'rgba(8,10,22,0.88)', border: '1px solid rgba(255,232,31,0.35)',
+    position: 'absolute', left: 16, right: 16, bottom: CARD_CLEAR,
+    // near-opaque + blur: planet labels behind the card (the "YAVIN 4"
+    // bleed-through) can no longer ghost through it
+    background: 'rgba(6,8,18,0.97)', backdropFilter: 'blur(12px)',
+    border: '1px solid rgba(255,232,31,0.45)',
     borderRadius: 14, padding: 18, pointerEvents: 'auto', maxWidth: 440, margin: '0 auto',
+    boxShadow: '0 18px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4)',
   },
   cardName: { color: '#fff', fontSize: 20, fontWeight: 700, letterSpacing: 1 },
   cardMeta: { color: '#9fb4d8', fontSize: 12, letterSpacing: 2, marginTop: 4, textTransform: 'uppercase' },
   cardBeat: { color: '#ffe81f', fontSize: 14, marginTop: 10 },
   cardRow: { display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' },
   toast: {
-    position: 'absolute', left: '50%', bottom: 'calc(' + BOTTOM_CLEAR + ' + 170px)',
-    transform: 'translateX(-50%)', background: 'rgba(10,10,20,0.9)',
+    position: 'absolute', left: '50%', bottom: 'calc(' + CARD_CLEAR + ' + 190px)',
+    transform: 'translateX(-50%)', background: 'rgba(10,10,20,0.94)',
     border: '1px solid rgba(255,232,31,0.4)', color: '#ffe81f',
     padding: '10px 18px', borderRadius: 10, fontSize: 13, letterSpacing: 1,
     whiteSpace: 'nowrap', maxWidth: '92vw', overflow: 'hidden', textOverflow: 'ellipsis',

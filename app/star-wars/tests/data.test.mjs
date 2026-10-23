@@ -29,6 +29,7 @@ const LANDMARK_TYPES = [
   'shield-generator', 'ewok-village', 'niima-outpost', 'maz-castle',
   'starkiller-cannon', 'jedi-village', 'salt-arch', 'sith-citadel',
   'sith-throne', 'death-star', 'debris-field', 'star-destroyer',
+  'cantina', 'landspeeder',
 ];
 const AMBIENT_TYPES = [
   'bantha', 'jawa', 'bird', 'wampa', 'tauntaun',
@@ -228,6 +229,29 @@ test('loadProgress/saveProgress round-trip with localStorage stub', () => {
     if (real === undefined) delete globalThis.localStorage;
     else globalThis.localStorage = real;
   }
+});
+
+test('tatooine: ever-expanding world def + GLB seats wired', () => {
+  const t = PLANETS.tatooine;
+  // seeded procedural foundation on the zone.js template
+  assert.equal(typeof t.seed, 'number');
+  assert.ok(t.worldRadius > 300, 'terrain extends well beyond the old 130 m disc');
+  assert.ok(t.boundsRadius > 250, 'playable bounds match the bigger world');
+  assert.ok(t.canyon && Array.isArray(t.canyon.path) && t.canyon.path.length > 3, 'canyon path carved');
+  // the podrace gates sit ON the canyon line
+  for (const cp of t.beat.checkpoints) {
+    const onPath = t.canyon.path.some(([px, pz]) => Math.hypot(cp.x - px, cp.z - pz) < 1e-6);
+    assert.ok(onPath, `checkpoint '${cp.label}' is a canyon path point`);
+  }
+  assert.ok(Array.isArray(t.scatter) && t.scatter.length >= 3, 'seeded scatter present');
+  assert.ok(t.horizon && t.horizon.radius > t.worldRadius, 'horizon silhouettes beyond the terrain');
+  // the terrain is the canyon now — the block-wall landmark is retired here
+  assert.ok(!t.landmarks.some((lm) => lm.type === 'beggars-canyon'));
+  // the three finished Tripo assets are seated as GLB landmarks
+  const byType = Object.fromEntries(t.landmarks.map((lm) => [lm.type, lm]));
+  assert.equal(byType['moisture-farm'].model, 'homestead');
+  assert.equal(byType['cantina'].model, 'cantina');
+  assert.equal(byType['landspeeder'].model, 'landspeeder');
 });
 
 test('loadProgress/saveProgress work when localStorage is undefined', () => {

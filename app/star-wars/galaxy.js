@@ -4,8 +4,11 @@
 //   { group, update(t, dt), dispose(), refresh(newProgress) }
 //
 // One sphere per planet on a deterministic spiral ordered by saga
-// (chapter index -> angle/radius). Locked planets render dark gray with a
-// padlock sprite and a dimmed label; finished beats get a gold ring.
+// (chapter index -> angle/radius). Spheres carry seeded per-planet
+// surface textures (textures.js planetSurfaceTexture) plus a fresnel
+// atmosphere rim; locked planets show the same world under a dim
+// hologram tint with a slate-blue rim, padlock sprite and dimmed
+// label; finished beats get a gold ring.
 // Tap/click (with tap-vs-drag detection) raycasts planet meshes and calls
 // onPick(planetId) — including locked planets, so the page can show a
 // "finish the previous episode first" hint. No document/window access at
@@ -15,9 +18,47 @@ import * as T from './textures';
 import { isPlanetUnlocked } from './data';
 
 const TAU = Math.PI * 2;
-const LOCKED_COLOR = 0x2b2b33;
+const LOCKED_TINT = 0x565664; // multiplies the surface texture -> dim monochrome world
+const LOCKED_RIM = 0x3a5a8a; // hologram-blue rim for locked worlds
 const TAP_MAX_PX = 10;
 const TAP_MAX_MS = 500;
+
+/* Fresnel atmosphere shell (classic view-space glow, BackSide + additive). */
+function makeRimMaterial(THREE, colorHex, intensity) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: new THREE.Color(colorHex) },
+      uIntensity: { value: intensity },
+    },
+    vertexShader: [
+      'varying vec3 vNormal;',
+      'void main() {',
+      '  vNormal = normalize(normalMatrix * normal);',
+      '  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);',
+      '}',
+    ].join('\n'),
+    fragmentShader: [
+      'uniform vec3 uColor;',
+      'uniform float uIntensity;',
+      'varying vec3 vNormal;',
+      'void main() {',
+      '  float f = pow(max(0.0, 0.68 - dot(vNormal, vec3(0.0, 0.0, 1.0))), 3.0);',
+      '  gl_FragColor = vec4(uColor, 1.0) * f * uIntensity;',
+      '}',
+    ].join('\n'),
+    side: THREE.BackSide,
+    blending: THREE.AdditiveBlending,
+    transparent: true,
+    depthWrite: false,
+  });
+}
+
+/* Lighten a hex colour toward white by amt (0..1) — for rim tinting. */
+function lighten(hex, amt) {
+  const r = (hex >> 16) & 255, g = (hex >> 8) & 255, b = hex & 255;
+  const f = (v) => Math.round(v + (255 - v) * amt);
+  return (f(r) << 16) | (f(g) << 8) | f(b);
+}
 
 function beatIsDone(progress, planetId) {
   if (!progress) return false;
@@ -137,6 +178,24 @@ export function buildGalaxy(THREE, canvas, PLANETS, CHAPTERS, progress, onPick, 
   });
   group.add(new THREE.Points(starGeo, starMat));
 
+  // --- near star layer: bigger, softer, counter-rotating for parallax ---
+  const nearGeo = new THREE.BufferGeometry();
+  const NEAR_COUNT = 240;
+  const nearPos = new Float32Array(NEAR_COUNT * 3);
+  for (let i = 0; i < NEAR_COUNT; i++) {
+    const r = 120 + Math.random() * 90;
+    const th = Math.random() * TAU;
+    const ph = Math.acos(2 * Math.random() - 1);
+    nearPos[i * 3] = r * Math.sin(ph) * Math.cos(th);
+    nearPos[i * 3 + 1] = r * Math.cos(ph);
+    nearPos[i * 3 + 2] = r * Math.sin(ph) * Math.sin(th);
+  }
+  nearGeo.setAttribute('position', new THREE.BufferAttribute(nearPos, 3));
+  const nearStars = new THREE.Points(nearGeo, new THREE.PointsMaterial({
+    size: 5.2, map: starTex, transparent: true, opacity: 0.5, depthWrite: false,
+  }));
+  group.add(nearStars);
+
   // --- nebulae ---
   const nebColors = ['96,44,168', '168,44,96', '44,96,184', '128,64,208'];
   nebColors.forEach((rgb, i) => {
@@ -176,16 +235,35 @@ export function buildGalaxy(THREE, canvas, PLANETS, CHAPTERS, progress, onPick, 
     const z = Math.sin(angle) * dist;
     const y = Math.sin(i * 1.31) * 3.5;
 
+    // Per-planet rendered surface (seeded canvas texture in the
+    // planet's own colours); the scene's directional light gives the
+    // terminator. Falls back to the flat colour if the maker is absent.
+    let surfaceTex = null;
+    if (T && typeof T.planetSurfaceTexture === 'function') {
+      const made = T.planetSurfaceTexture(def);
+      surfaceTex = made && made.isTexture ? made : (made ? toTexture(THREE, made) : null);
+    }
     const mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(radius, 28, 20),
+      new THREE.SphereGeometry(radius, 36, 24),
       new THREE.MeshStandardMaterial({
-        color: def.color || '#888888', roughness: 0.85, metalness: 0.15,
+        color: surfaceTex ? 0xffffff : (def.color || '#888888'),
+        map: surfaceTex || undefined,
+        roughness: 0.9, metalness: 0.08,
       })
     );
     mesh.position.set(x, y, z);
+    mesh.rotation.z = Math.sin(i * 2.7) * 0.28; // a little axial personality
     mesh.userData.planetId = id;
     group.add(mesh);
     meshes.push(mesh);
+
+    // Atmosphere rim — soft fresnel shell just above the surface.
+    const rim = new THREE.Mesh(
+      new THREE.SphereGeometry(radius * 1.22, 32, 20),
+      makeRimMaterial(THREE, lighten(def.color || 0x888888, 0.35), 0.85)
+    );
+    rim.position.set(x, y, z);
+    group.add(rim);
 
     const label = new THREE.Sprite(
       new THREE.SpriteMaterial({
@@ -193,8 +271,8 @@ export function buildGalaxy(THREE, canvas, PLANETS, CHAPTERS, progress, onPick, 
         transparent: true, depthWrite: false,
       })
     );
-    label.scale.set(9, 2.25, 1);
-    label.position.set(x, y + radius + 2.0, z);
+    label.scale.set(8.4, 2.1, 1);
+    label.position.set(x, y + radius + 2.3, z);
     group.add(label);
 
     const lock = new THREE.Sprite(
@@ -213,7 +291,7 @@ export function buildGalaxy(THREE, canvas, PLANETS, CHAPTERS, progress, onPick, 
     group.add(ring);
 
     planets.push({
-      id, def, mesh, label, lock, ring,
+      id, def, mesh, label, lock, ring, rim,
       baseColor: new THREE.Color(def.color || '#888888'),
     });
   });
@@ -221,9 +299,17 @@ export function buildGalaxy(THREE, canvas, PLANETS, CHAPTERS, progress, onPick, 
   function applyProgress(p) {
     for (const pl of planets) {
       const locked = !isPlanetUnlocked(p, pl.id);
-      pl.mesh.material.color.copy(locked ? new THREE.Color(LOCKED_COLOR) : pl.baseColor);
-      pl.mesh.material.emissive.setHex(0x000000);
-      pl.label.material.opacity = locked ? 0.35 : 1;
+      // Unlocked: full-colour textured world. Locked: the same world
+      // seen through a dim hologram tint (surface still reads), with a
+      // slate-blue rim and the padlock on top.
+      pl.mesh.material.color.setHex(locked ? LOCKED_TINT : 0xffffff);
+      if (!pl.mesh.material.map) pl.mesh.material.color.copy(locked ? new THREE.Color(LOCKED_TINT) : pl.baseColor);
+      pl.mesh.material.emissive.setHex(locked ? 0x05080f : 0x000000);
+      pl.rim.material.uniforms.uColor.value.setHex(
+        locked ? LOCKED_RIM : lighten(pl.def.color || 0x888888, 0.35)
+      );
+      pl.rim.material.uniforms.uIntensity.value = locked ? 0.5 : 0.85;
+      pl.label.material.opacity = locked ? 0.4 : 1;
       pl.lock.visible = locked;
       pl.ring.visible = beatIsDone(p, pl.id);
       pl.mesh.userData.locked = locked;
@@ -275,6 +361,7 @@ export function buildGalaxy(THREE, canvas, PLANETS, CHAPTERS, progress, onPick, 
 
   function update(t, dt) {
     group.rotation.y += dt * 0.02;
+    nearStars.rotation.y -= dt * 0.006; // parallax against the far field
     for (const pl of planets) pl.mesh.rotation.y += dt * 0.12;
     for (let i = 0; i < nebulae.length; i++) {
       nebulae[i].material.rotation += dt * 0.008 * (i % 2 ? 1 : -1);

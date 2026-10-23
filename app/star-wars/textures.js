@@ -244,6 +244,127 @@ export const TEXTURE_NAMES = [
 ];
 
 /* ------------------------------------------------------------------
+ * Galaxy-map planet surfaces (NOT in TEXTURE_NAMES — like starTexture
+ * below, these are map-sprite/surface art, not terrain tiles). Painted
+ * with flat fill/stroke calls only, seeded per planet so a world looks
+ * the same on every visit. galaxy.js probes for this maker and falls
+ * back to the planet's flat colour when absent.
+ * ------------------------------------------------------------------ */
+
+function hexCss(n) {
+  return '#' + (n >>> 0).toString(16).padStart(6, '0');
+}
+
+/* Scale a hex colour's brightness by f (0..~1.6). */
+function shade(n, f) {
+  const r = Math.min(255, Math.round(((n >> 16) & 255) * f));
+  const g = Math.min(255, Math.round(((n >> 8) & 255) * f));
+  const b = Math.min(255, Math.round((n & 255) * f));
+  return 'rgb(' + r + ',' + g + ',' + b + ')';
+}
+
+/** Stable numeric seed from a planet id string. */
+export function planetSeed(id) {
+  let h = 2166136261;
+  const s = String(id || 'planet');
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+/**
+ * A 256px equirect-ish surface for one galaxy-map planet sphere:
+ * type-true base colour with the biome's signature features (dune
+ * bands, ice cracks, lava fissures, city lights, ocean streaks,
+ * canopy speckle...). Terminator shading is left to the scene light.
+ */
+export function planetSurfaceTexture(def) {
+  const d = def || {};
+  const base = d.color != null ? d.color : 0x888888;
+  const alt = d.ground2 != null ? d.ground2 : base;
+  const biome = String(d.biome || '').toLowerCase();
+  const seed = d.seed != null ? d.seed : planetSeed(d.id);
+  return makeCanvasTexture(256, (ctx, size) => {
+    const rand = mulberry32(seed);
+    ctx.fillStyle = hexCss(base);
+    ctx.fillRect(0, 0, size, size);
+    // broad latitude variation in the secondary tone
+    for (let i = 0; i < 9; i++) {
+      ctx.fillStyle = shade(alt, 0.85 + rand() * 0.3);
+      ctx.globalAlpha = 0.16 + rand() * 0.14;
+      const y = rand() * size;
+      ctx.fillRect(0, y, size, 6 + rand() * 26);
+    }
+    ctx.globalAlpha = 1;
+
+    if (biome.includes('desert')) {
+      // wind-streaked dune bands
+      for (let i = 0; i < 12; i++) {
+        ctx.fillStyle = i % 2 ? shade(base, 1.14) : shade(alt, 0.92);
+        ctx.globalAlpha = 0.20;
+        ctx.fillRect(0, rand() * size, size, 3 + rand() * 7);
+      }
+      ctx.globalAlpha = 1;
+      speckle(ctx, size, 700, [shade(base, 1.18), shade(alt, 0.85), shade(base, 0.9)], rand);
+    } else if (biome.includes('ice') || biome.includes('salt')) {
+      for (let i = 0; i < 22; i++) blob(ctx, rand() * size, rand() * size, 12 + rand() * 30, 'rgba(255,255,255,A)', 3);
+      cracks(ctx, size, 10, biome.includes('salt') ? 'rgba(176,58,46,0.65)' : 'rgba(127,178,221,0.6)', rand, 1.6);
+      speckle(ctx, size, 260, [shade(base, 1.06), shade(alt, 0.95)], rand, 1, 2);
+    } else if (biome.includes('volcanic')) {
+      speckle(ctx, size, 500, [shade(alt, 0.5), shade(base, 0.55), shade(alt, 0.75)], rand, 2, 6);
+      cracks(ctx, size, 15, '#ff7a1f', rand, 2.5);
+      cracks(ctx, size, 7, '#ffc23d', rand, 1.2);
+      speckle(ctx, size, 70, ['#ff9a3d', '#ff5a1a'], rand, 1, 2);
+    } else if (biome.includes('city') || biome.includes('trench')) {
+      ctx.fillStyle = shade(alt, 0.55);
+      ctx.fillRect(0, 0, size, size);
+      speckle(ctx, size, 420, [shade(base, 0.8), shade(base, 1.1), shade(alt, 0.8)], rand, 1, 3);
+      // lit windows / surface lights
+      for (let i = 0; i < 380; i++) {
+        ctx.fillStyle = rand() < 0.8 ? '#ffd98a' : '#bfe3ff';
+        ctx.globalAlpha = 0.35 + rand() * 0.6;
+        ctx.fillRect(rand() * size, rand() * size, 1.6, 1.6);
+      }
+      ctx.globalAlpha = 1;
+    } else if (biome.includes('ocean')) {
+      for (let i = 0; i < 46; i++) {
+        ctx.fillStyle = 'rgba(255,255,255,' + (0.04 + rand() * 0.09).toFixed(3) + ')';
+        ctx.fillRect(rand() * size, rand() * size, 12 + rand() * 44, 1.5 + rand() * 2);
+      }
+      speckle(ctx, size, 320, [shade(base, 1.15), shade(alt, 0.9)], rand, 1, 3);
+      for (let i = 0; i < 7; i++) blob(ctx, rand() * size, rand() * size, 10 + rand() * 22, 'rgba(240,248,255,A)', 3);
+    } else if (biome.includes('swamp')) {
+      for (let i = 0; i < 22; i++) blob(ctx, rand() * size, rand() * size, 14 + rand() * 30, 'rgba(24,32,16,A)', 3);
+      speckle(ctx, size, 650, [shade(base, 1.2), shade(alt, 0.9), shade(base, 0.85)], rand, 1, 3);
+    } else if (biome.includes('debris')) {
+      speckle(ctx, size, 800, [shade(base, 0.7), shade(base, 1.15), shade(alt, 0.8)], rand, 1, 4);
+      cracks(ctx, size, 8, 'rgba(10,14,22,0.6)', rand, 2);
+    } else if (biome.includes('spires')) {
+      speckle(ctx, size, 700, [shade(base, 1.25), shade(alt, 0.8), shade(base, 0.7)], rand, 1, 3);
+      for (let i = 0; i < 26; i++) {
+        ctx.fillStyle = '#ff2a1a';
+        ctx.globalAlpha = 0.5 + rand() * 0.5;
+        ctx.fillRect(rand() * size, rand() * size, 1.6, 2.6);
+      }
+      ctx.globalAlpha = 1;
+    } else {
+      // grassland / forest / jungle / sky city / island / default:
+      // soft canopy-and-cloud mottling
+      for (let i = 0; i < 20; i++) blob(ctx, rand() * size, rand() * size, 12 + rand() * 28, 'rgba(255,255,255,A)', 3);
+      for (let i = 0; i < 16; i++) {
+        ctx.fillStyle = shade(alt, 0.9);
+        ctx.globalAlpha = 0.16;
+        ctx.beginPath(); ctx.arc(rand() * size, rand() * size, 8 + rand() * 20, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      speckle(ctx, size, 650, [shade(base, 1.16), shade(alt, 0.9), shade(base, 0.88)], rand, 1, 3);
+    }
+  });
+}
+
+/* ------------------------------------------------------------------
  * Galaxy-map sprite textures (NOT in TEXTURE_NAMES — they're UI/skybox
  * sprites, not terrain surfaces, and they use gradients which need a
  * real canvas 2d context). galaxy.js probes for these with typeof

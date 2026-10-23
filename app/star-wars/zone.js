@@ -6,9 +6,15 @@
  * object shaped like:
  *   { id, sky, fog, fogDensity, ground, ground2, tex, groundAmp, seed,
  *     kind: 'walk' | 'fly',
- *     landmarks: [{ type, x, z, s, ry? }],
+ *     landmarks: [{ type, x, z, s, ry?, model? }],
  *     ambient:   [{ type, count }],
- *     beat: { checkpoints?: [{ x, z, r, label }], target?: { x, z, r, label } } }
+ *     beat: { checkpoints?: [{ x, z, r, label }], target?: { x, z, r, label } },
+ *     // ever-expanding world template (all optional, defaults = the
+ *     // original pocket disc):
+ *     worldRadius, boundsRadius, ambientRadius,
+ *     canyon:  { path: [[x,z],...], width, depth },
+ *     scatter: [{ kind: 'rock'|'mesa'|'vaporator', count, cx?, cz?, minR?, maxR?, size? }],
+ *     horizon: { radius, count, color } }
  *
  * Returns:
  *   { group, colliders, spawn, bounds, groundHeight, checkpoints, target,
@@ -20,7 +26,7 @@
  *   - sky / fog are extras for the page shell (scene.background + FogExp2).
  */
 import * as ThreeJS from 'three';
-import { buildLandmark, buildAmbient } from './landmarks.js';
+import { buildLandmark, buildAmbient, GLB_MODELS, attachGlbModel } from './landmarks.js';
 
 function R3(THREE) { return THREE || ThreeJS; }
 
@@ -56,6 +62,56 @@ function fbm2(x, y, seed) {
     + vnoise(x * 4.41 + 9.1, y * 4.41 + 3.7, seed + 202) * 0.17;
 }
 
+/* Distance from (px,pz) to the segment (ax,az)-(bx,bz). */
+function distToSeg(px, pz, ax, az, bx, bz) {
+  const dx = bx - ax, dz = bz - az;
+  const len2 = dx * dx + dz * dz;
+  let t = len2 > 0 ? ((px - ax) * dx + (pz - az) * dz) / len2 : 0;
+  t = Math.max(0, Math.min(1, t));
+  const cx = ax + dx * t, cz = az + dz * t;
+  return Math.hypot(px - cx, pz - cz);
+}
+
+/** Distance from (x,z) to a canyon path (array of [x,z] points). */
+export function distToPath(x, z, path) {
+  let d = Infinity;
+  for (let i = 0; i < path.length - 1; i++) {
+    d = Math.min(d, distToSeg(x, z, path[i][0], path[i][1], path[i + 1][0], path[i + 1][1]));
+  }
+  return d;
+}
+
+/**
+ * TEMPLATE (terrain): the pure height function for a walk world —
+ * seeded fbm dunes, with an optional carved canyon along def.canyon
+ * ({ path: [[x,z],...], width, depth }). Shared verbatim by the
+ * terrain geometry and the returned groundHeight, so what you see is
+ * exactly what you walk on. Every world reuses this; only the def
+ * (seed / amp / canyon) is world-specific.
+ */
+export function createHeightFunction(def) {
+  const d = def || {};
+  const seed = (d.seed >>> 0) || 1337;
+  const amp = d.groundAmp != null ? d.groundAmp : 2.5;
+  const canyon = d.canyon && Array.isArray(d.canyon.path) && d.canyon.path.length > 1
+    ? d.canyon : null;
+  return function heightAt(x, z) {
+    let h = (fbm2(x * 0.018, z * 0.018, seed) - 0.5) * 2 * amp;
+    if (canyon) {
+      const dist = distToPath(x, z, canyon.path);
+      const half = canyon.width / 2;
+      if (dist < half) {
+        const t = (half - dist) / (half * 0.55);
+        const s = sstep(Math.max(0, Math.min(1, t)));
+        // carve down, and damp the dune chop on the canyon floor so a
+        // race line reads as a track bed, not a rollercoaster
+        h = h * (1 - 0.3 * s) - canyon.depth * s;
+      }
+    }
+    return h;
+  };
+}
+
 /* Radial disc geometry (CircleGeometry has no interior verts for displacement). */
 function makeDiscGeometry(R, radius, rings, segs, heightAt) {
   const positions = [], uvs = [], indices = [];
@@ -89,6 +145,188 @@ const TEX_BY_NAME = {
   swamp: 'swampTexture', city: 'cityTexture',
 };
 
+/**
+ * TEMPLATE (scatter): seeded instanced dressing for a walk world.
+ * def.scatter entries: { kind: 'rock'|'mesa'|'vaporator', count,
+ *   cx?, cz?, minR?, maxR?, size?: [min, max] } — sampled in an annulus
+ * around (cx, cz), seated on heightAt, kept clear of every collider
+ * (landmarks + `avoid` circles: checkpoints / target / spawn) and out
+ * of the canyon cut. Instances that matter get colliders appended to
+ * the shared `colliders` array. One InstancedMesh per kind (three for
+ * the vaporator's parts) — no per-frame cost.
+ */
+export function buildWorldScatter(R, def, T, heightAt, colliders, avoid) {
+  const group = new R.Group();
+  const entries = Array.isArray(def.scatter) ? def.scatter : [];
+  if (!entries.length) return group;
+  const seed = (def.seed >>> 0) || 1337;
+  const rand = mulberry32(seed ^ 0x5ca7);
+  const canyon = def.canyon && Array.isArray(def.canyon.path) ? def.canyon : null;
+  const avoidList = Array.isArray(avoid) ? avoid : [];
+
+  function clearOf(x, z, pad) {
+    for (const c of colliders) {
+      const dx = x - c.x, dz = z - c.z, rr = c.r + pad;
+      if (dx * dx + dz * dz < rr * rr) return false;
+    }
+    for (const c of avoidList) {
+      const dx = x - c.x, dz = z - c.z, rr = c.r + pad;
+      if (dx * dx + dz * dz < rr * rr) return false;
+    }
+    return true;
+  }
+  function sample(entry, s) {
+    const cx = entry.cx || 0, cz = entry.cz || 0;
+    const minR = entry.minR || 0, maxR = entry.maxR || 100;
+    for (let tries = 0; tries < 16; tries++) {
+      const a = rand() * Math.PI * 2;
+      const r = minR + rand() * (maxR - minR);
+      const x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r;
+      if (canyon && distToPath(x, z, canyon.path) < canyon.width / 2 + s + 2) continue;
+      if (!clearOf(x, z, Math.max(1.5, s * 0.6))) continue;
+      return { x, z };
+    }
+    return null;
+  }
+
+  const dummy = new R.Object3D();
+  const local = new R.Object3D();
+  const m4 = new R.Matrix4();
+  function setInst(inst, k, x, y, z, ry, sx, sy, sz, lx, ly, lz, lry, lsx, lsy, lsz) {
+    dummy.position.set(x, y, z);
+    dummy.rotation.set(0, ry, 0);
+    dummy.scale.set(sx, sy, sz);
+    dummy.updateMatrix();
+    local.position.set(lx, ly, lz);
+    local.rotation.set(0, lry || 0, 0);
+    local.scale.set(lsx == null ? 1 : lsx, lsy == null ? 1 : lsy, lsz == null ? 1 : lsz);
+    local.updateMatrix();
+    m4.multiplyMatrices(dummy.matrix, local.matrix);
+    inst.setMatrixAt(k, m4);
+  }
+
+  for (const entry of entries) {
+    const count = entry.count | 0;
+    if (count <= 0) continue;
+    const size = Array.isArray(entry.size) ? entry.size : [1, 1];
+    const placed = [];
+    for (let i = 0; i < count; i++) {
+      const s = size[0] + rand() * (size[1] - size[0]);
+      const p = sample(entry, s);
+      if (p) placed.push({ x: p.x, z: p.z, s: s, ry: rand() * Math.PI * 2 });
+    }
+    if (!placed.length) continue;
+
+    if (entry.kind === 'rock') {
+      const tex = T.rockTexture();
+      const inst = new R.InstancedMesh(
+        new R.IcosahedronGeometry(1, 0),
+        new R.MeshStandardMaterial({ map: tex, color: 0xcbb28a, flatShading: true, roughness: 1 }),
+        placed.length
+      );
+      placed.forEach((p, k) => {
+        const gy = heightAt(p.x, p.z);
+        setInst(inst, k, p.x, gy + p.s * 0.18, p.z, p.ry, p.s, p.s * 0.72, p.s, 0, 0, 0);
+        if (p.s >= 1.8) colliders.push({ x: p.x, z: p.z, r: p.s * 0.85 });
+      });
+      inst.instanceMatrix.needsUpdate = true;
+      inst.castShadow = false; inst.receiveShadow = false;
+      group.add(inst);
+    } else if (entry.kind === 'mesa') {
+      const tex = T.rockTexture();
+      const inst = new R.InstancedMesh(
+        new R.CylinderGeometry(1, 1.28, 1, 7),
+        new R.MeshStandardMaterial({ map: tex, color: 0xd8ab6d, flatShading: true, roughness: 1 }),
+        placed.length
+      );
+      placed.forEach((p, k) => {
+        const gy = heightAt(p.x, p.z);
+        const h = p.s * 0.55;
+        setInst(inst, k, p.x, gy + h / 2 - p.s * 0.1, p.z, p.ry, p.s, h, p.s, 0, 0, 0);
+        colliders.push({ x: p.x, z: p.z, r: p.s * 1.02 });
+      });
+      inst.instanceMatrix.needsUpdate = true;
+      inst.castShadow = false; inst.receiveShadow = false;
+      group.add(inst);
+    } else if (entry.kind === 'vaporator') {
+      const metal = new R.MeshStandardMaterial({
+        color: 0x9aa0a6, metalness: 0.6, roughness: 0.5, flatShading: true,
+      });
+      const pole = new R.InstancedMesh(new R.CylinderGeometry(0.09, 0.14, 1, 6), metal, placed.length);
+      const bar = new R.InstancedMesh(new R.BoxGeometry(1.9, 0.16, 0.16), metal, placed.length);
+      const head = new R.InstancedMesh(new R.BoxGeometry(0.66, 0.66, 0.66), metal, placed.length);
+      placed.forEach((p, k) => {
+        const gy = heightAt(p.x, p.z);
+        setInst(pole, k, p.x, gy, p.z, p.ry, p.s, 1, p.s, 0, 3.5, 0, 0, 1, 7, 1);
+        setInst(bar, k, p.x, gy, p.z, p.ry, p.s, 1, p.s, 0, 6.1, 0);
+        setInst(head, k, p.x, gy, p.z, p.ry, p.s, 1, p.s, 0, 6.6, 0);
+        colliders.push({ x: p.x, z: p.z, r: 0.7 });
+      });
+      for (const inst of [pole, bar, head]) {
+        inst.instanceMatrix.needsUpdate = true;
+        inst.castShadow = false; inst.receiveShadow = false;
+        group.add(inst);
+      }
+    }
+  }
+  return group;
+}
+
+/**
+ * TEMPLATE (horizon): two seeded rings of far silhouettes — flat-top
+ * mesas, then wider dune cones behind them — so a big world's edge
+ * reads as distance and haze instead of a disc rim. No colliders;
+ * pure backdrop. def.horizon: { radius, count, color }.
+ */
+export function buildHorizon(R, def, heightAt) {
+  const group = new R.Group();
+  const hz = def.horizon;
+  if (!hz) return group;
+  const seed = (def.seed >>> 0) || 1337;
+  const rand = mulberry32(seed ^ 0xbeef);
+  const radius = hz.radius || 430;
+  const count = hz.count || 16;
+
+  const mesaMat = new R.MeshStandardMaterial({
+    color: hz.color || 0xc79a58, flatShading: true, roughness: 1,
+  });
+  const mesas = new R.InstancedMesh(new R.CylinderGeometry(1, 1.3, 1, 7), mesaMat, count);
+  const dummy = new R.Object3D();
+  for (let i = 0; i < count; i++) {
+    const a = (i / count) * Math.PI * 2 + rand() * 0.22;
+    const r = radius + (rand() - 0.5) * 70;
+    const x = Math.cos(a) * r, z = Math.sin(a) * r;
+    const w = 30 + rand() * 42, h = 11 + rand() * 17;
+    dummy.position.set(x, heightAt(x, z) + h / 2 - 3, z);
+    dummy.rotation.set(0, rand() * Math.PI, 0);
+    dummy.scale.set(w, h, w * (0.7 + rand() * 0.5));
+    dummy.updateMatrix();
+    mesas.setMatrixAt(i, dummy.matrix);
+  }
+  mesas.instanceMatrix.needsUpdate = true;
+  mesas.castShadow = false; mesas.receiveShadow = false;
+  group.add(mesas);
+
+  const haze = new R.Color(hz.color || 0xc79a58).lerp(new R.Color(0xffffff), 0.25);
+  const duneMat = new R.MeshStandardMaterial({ color: haze, flatShading: true, roughness: 1 });
+  const dunes = new R.InstancedMesh(new R.ConeGeometry(1, 1, 7), duneMat, count);
+  for (let i = 0; i < count; i++) {
+    const a = ((i + 0.5) / count) * Math.PI * 2 + rand() * 0.2;
+    const r = radius * 1.45 + (rand() - 0.5) * 80;
+    const x = Math.cos(a) * r, z = Math.sin(a) * r;
+    const w = 60 + rand() * 55, h = 8 + rand() * 10;
+    dummy.position.set(x, heightAt(x, z) + h / 2 - 2.5, z);
+    dummy.rotation.set(0, rand() * Math.PI, 0);
+    dummy.scale.set(w, h, w * 0.8);
+    dummy.updateMatrix();
+    dunes.setMatrixAt(i, dummy.matrix);
+  }
+  dunes.instanceMatrix.needsUpdate = true;
+  dunes.castShadow = false; dunes.receiveShadow = false;
+  group.add(dunes);
+  return group;
+}
+
 export function buildZone(THREE, planetDef, T) {
   const R = R3(THREE);
   const def = planetDef || {};
@@ -99,12 +337,11 @@ export function buildZone(THREE, planetDef, T) {
   const updaters = [];
   const extraTextures = [];
 
-  const amp = def.groundAmp != null ? def.groundAmp : 2.5;
-  /* Pure height function — shared by geometry displacement and groundHeight. */
-  const heightAt = function (x, z) {
-    if (kind !== 'walk') return 0;
-    return (fbm2(x * 0.018, z * 0.018, seed) - 0.5) * 2 * amp;
-  };
+  /* Pure height function — shared by geometry displacement and
+   * groundHeight (template: createHeightFunction — dunes + optional
+   * carved canyon). Fly zones stay flat. */
+  const rawHeight = createHeightFunction(def);
+  const heightAt = kind === 'walk' ? rawHeight : function () { return 0; };
 
   /* ---------- atmosphere: fog + hemisphere/directional per zone ---------- */
   const skyHex = def.sky != null ? def.sky : (kind === 'walk' ? 0x87b5e0 : 0x05070f);
@@ -123,13 +360,17 @@ export function buildZone(THREE, planetDef, T) {
   }
 
   /* ---------- terrain (walk) / starfield (fly) ---------- */
+  const worldRadius = kind === 'walk' ? (def.worldRadius || 130) : 130;
   if (kind === 'walk') {
     const makerName = TEX_BY_NAME[def.tex] || 'sandTexture';
     const gtex = T[makerName]();
     extraTextures.push(gtex);
-    gtex.repeat.set(28, 28);
+    const reps = Math.max(4, Math.round(28 * worldRadius / 130));
+    gtex.repeat.set(reps, reps);
+    const rings = Math.max(22, Math.round(worldRadius / 6));
+    const segs = Math.max(48, Math.round(worldRadius * 0.38));
     const terrain = new R.Mesh(
-      makeDiscGeometry(R, 130, 22, 48, heightAt),
+      makeDiscGeometry(R, worldRadius, rings, segs, heightAt),
       new R.MeshStandardMaterial({
         color: def.ground != null ? def.ground : 0xc9a06a,
         map: gtex, roughness: 1, metalness: 0,
@@ -137,6 +378,8 @@ export function buildZone(THREE, planetDef, T) {
     );
     terrain.castShadow = false; terrain.receiveShadow = false;
     group.add(terrain);
+    /* Far silhouettes so a big world reads as distance, not a rim. */
+    group.add(buildHorizon(R, def, heightAt));
   } else {
     const N = 1600, pos = new Float32Array(N * 3), rand = mulberry32(seed ^ 0x9e37);
     for (let i = 0; i < N; i++) {
@@ -164,14 +407,34 @@ export function buildZone(THREE, planetDef, T) {
     built.group.rotation.y = ry;
     built.group.scale.setScalar(s);
     group.add(built.group);
+    /* GLB seat: the entry names a real model — the registry supplies
+     * the colliders (the model's true footprint) and the model swaps
+     * in over the procedural stand-in when it loads. */
+    const glb = ld.model ? GLB_MODELS[ld.model] : null;
+    if (glb) {
+      try { attachGlbModel(R, built.group, ld.model); } catch (e) { /* stand-in stays */ }
+    }
+    const localColliders = glb ? glb.colliders : built.colliders;
     const cos = Math.cos(ry), sin = Math.sin(ry);
-    for (const c of built.colliders) {
+    for (const c of localColliders) {
       colliders.push({
         x: (ld.x || 0) + (c.x * cos + c.z * sin) * s,
         z: (ld.z || 0) + (-c.x * sin + c.z * cos) * s,
         r: c.r * s,
       });
     }
+  }
+
+  /* ---------- world scatter (seeded instanced dressing) ---------- */
+  if (kind === 'walk' && Array.isArray(def.scatter) && def.scatter.length) {
+    const beat0 = def.beat || {};
+    const avoid = [];
+    for (const cp of (Array.isArray(beat0.checkpoints) ? beat0.checkpoints : [])) {
+      avoid.push({ x: cp.x, z: cp.z, r: (cp.r || 5) + 3 });
+    }
+    if (beat0.target) avoid.push({ x: beat0.target.x, z: beat0.target.z, r: (beat0.target.r || 6) + 3 });
+    avoid.push({ x: 0, z: 95, r: 9 }); // spawn clearing
+    group.add(buildWorldScatter(R, def, T, heightAt, colliders, avoid));
   }
 
   /* ---------- ambient creatures (seeded scatter, clear of landmarks) ---------- */
@@ -184,12 +447,13 @@ export function buildZone(THREE, planetDef, T) {
     }
     return true;
   }
+  const ambientMaxR = def.ambientRadius || 100;
   for (const ad of ambientDefs) {
     const n = ad.count | 0;
     for (let i = 0; i < n; i++) {
       let px = 0, pz = 0, ok = false;
       for (let tries = 0; tries < 14 && !ok; tries++) {
-        const a = arand() * Math.PI * 2, r = 14 + arand() * 86;
+        const a = arand() * Math.PI * 2, r = 14 + arand() * (ambientMaxR - 14);
         px = Math.cos(a) * r; pz = Math.sin(a) * r;
         ok = clearOfLandmarks(px, pz, 4);
       }
@@ -297,7 +561,7 @@ export function buildZone(THREE, planetDef, T) {
     ? { x: 0, z: 95, yaw: Math.PI }
     : { x: 0, z: 120, yaw: Math.PI };
   const bounds = kind === 'walk'
-    ? { kind: 'circle', max: 115 }
+    ? { kind: 'circle', max: def.boundsRadius || 115 }
     : { kind: 'circle', max: 150 };
 
   function update(t, dt) {

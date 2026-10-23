@@ -69,8 +69,82 @@ export const LANDMARK_TYPES = [
   'mustafar-fortress', 'lava-falls', 'yavin-temple', 'echo-base', 'swamp-hut',
   'cloud-city', 'shield-generator', 'ewok-village', 'niima-outpost', 'maz-castle',
   'starkiller-cannon', 'jedi-village', 'salt-arch', 'sith-citadel', 'sith-throne',
-  'death-star', 'debris-field', 'star-destroyer',
+  'death-star', 'debris-field', 'star-destroyer', 'cantina', 'landspeeder',
 ];
+
+/* ------------------------------------------------------------------
+ * GLB seats — real Tripo models that REPLACE a landmark's procedural
+ * stand-in when they arrive. A data.js landmark entry opts in with
+ * `model: '<key>'`; zone.js then uses the registry colliders (local
+ * space, after the metres fit below) and calls attachGlbModel.
+ *
+ * The files are meshopt-compressed + WebP (unrigged pipeline), so the
+ * loader carries the MeshoptDecoder — the house pattern from
+ * lib/hawkins/loader.js. Loading is async and best-effort: if it
+ * fails (or there is no window, e.g. node tests), the procedural
+ * stand-in simply stays.
+ * ------------------------------------------------------------------ */
+export const GLB_MODELS = {
+  homestead: {
+    url: '/models/star-wars/homestead.glb',
+    meters: 17, // largest horizontal extent after fitting
+    colliders: [{ x: 0, z: 0, r: 8.5 }],
+  },
+  cantina: {
+    url: '/models/star-wars/cantina.glb',
+    meters: 15,
+    colliders: [{ x: 0, z: 0, r: 8 }],
+  },
+  landspeeder: {
+    url: '/models/star-wars/landspeeder.glb',
+    meters: 5.6,
+    colliders: [{ x: 0, z: 0, r: 2.4 }],
+  },
+};
+
+/**
+ * Load GLB_MODELS[key] into a slot inside `holder` (the landmark's
+ * group), normalised: largest horizontal extent -> def.meters, base
+ * on y=0, centred on x/z. On arrival the holder's other children (the
+ * procedural stand-in) are hidden. Returns the slot group, or null
+ * when loading can't happen here. Never throws.
+ */
+export function attachGlbModel(R, holder, key) {
+  const def = GLB_MODELS[key];
+  if (!def || !holder || typeof window === 'undefined') return null;
+  const slot = new R.Group();
+  slot.name = 'glb:' + key;
+  holder.add(slot);
+  (async () => {
+    try {
+      const [{ GLTFLoader }, { MeshoptDecoder }] = await Promise.all([
+        import('three/examples/jsm/loaders/GLTFLoader.js'),
+        import('three/examples/jsm/libs/meshopt_decoder.module.js'),
+      ]);
+      const loader = new GLTFLoader();
+      loader.setMeshoptDecoder(MeshoptDecoder);
+      const gltf = await loader.loadAsync(def.url);
+      const model = gltf.scene;
+      const box = new R.Box3().setFromObject(model);
+      const size = new R.Vector3(); box.getSize(size);
+      const center = new R.Vector3(); box.getCenter(center);
+      const fit = def.meters / Math.max(size.x, size.z, 1e-6);
+      model.scale.setScalar(fit);
+      model.position.set(-center.x * fit, -box.min.y * fit, -center.z * fit);
+      model.traverse((o) => {
+        if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; }
+      });
+      slot.add(model);
+      for (const child of [...holder.children]) {
+        if (child !== slot) child.visible = false;
+      }
+      holder.userData.glbModel = key;
+    } catch (e) {
+      /* the procedural stand-in stays — by design */
+    }
+  })();
+  return slot;
+}
 
 const BUILDERS = {
   /* Tatooine — cluster of 5-7 domes + one tall tower. */
@@ -530,6 +604,45 @@ const BUILDERS = {
       g.add(mesh(R, new R.BoxGeometry(1, 0.5, 1), E(R, 0xffe9b0), -30 + i * 5.5, -3.6, 10 + (i % 3) * 20));
     g.position.y = 90;
     return done(R, g, []);
+  },
+  /* Tatooine — the cantina: one big ring-domed hall + annex domes +
+   * a glowing doorway. Procedural stand-in for the GLB seat. */
+  'cantina': function (R) {
+    const g = new R.Group(), rand = mulberry32(41);
+    const sand = M(R, 0xd9b57c), dark = M(R, 0xb08d58);
+    g.add(mesh(R, new R.CylinderGeometry(7.5, 8.2, 3.2, 18), dark, 0, 1.6, 0));
+    g.add(mesh(R, dome(R, 7.5, 18, 10), sand, 0, 3.2, 0));
+    g.add(mesh(R, new R.CylinderGeometry(0.5, 0.7, 3.4, 6), dark, 0, 9.4, 0));
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * Math.PI * 2 + 0.7, x = Math.cos(a) * 10.5, z = Math.sin(a) * 10.5;
+      g.add(mesh(R, dome(R, 2.4 + rand() * 0.8, 10, 7), i % 2 ? sand : dark, x, 0, z));
+    }
+    const door = mesh(R, new R.BoxGeometry(2.2, 3, 0.4), E(R, 0xffc98a), 0, 1.5, 8.15);
+    g.add(door);
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2 + 0.2;
+      g.add(mesh(R, new R.BoxGeometry(0.7, 0.7, 0.3), E(R, 0x9fd8ff),
+        Math.cos(a) * 7.9, 2.2, Math.sin(a) * 7.9, -a));
+    }
+    return done(R, g, [{ x: 0, z: 0, r: 8 }]);
+  },
+  /* Tatooine — a parked landspeeder: rounded hull, twin intakes,
+   * windshield, hover skirt. Procedural stand-in for the GLB seat. */
+  'landspeeder': function (R) {
+    const g = new R.Group();
+    const hull = M(R, 0xc9a06a, { metalness: 0.35, roughness: 0.5 });
+    const dark = M(R, 0x2b2f35, { metalness: 0.5, roughness: 0.4 });
+    const body = mesh(R, new R.SphereGeometry(1.5, 12, 9), hull, 0, 0.85, 0);
+    body.scale.set(0.85, 0.5, 1.85); g.add(body);
+    for (const s of [-1, 1]) {
+      const intake = mesh(R, new R.CylinderGeometry(0.42, 0.5, 1.6, 10), dark, s * 0.95, 1.05, -1.7);
+      intake.rotation.x = Math.PI / 2; g.add(intake);
+      g.add(mesh(R, new R.BoxGeometry(0.16, 0.5, 1.1), hull, s * 1.28, 0.95, 0.7));
+    }
+    const shield = mesh(R, new R.SphereGeometry(0.62, 10, 7), dark, 0, 1.45, -0.15);
+    shield.scale.set(0.9, 0.62, 1.1); g.add(shield);
+    g.add(mesh(R, new R.BoxGeometry(1.7, 0.22, 3.4), M(R, 0x8a6f42, { metalness: 0.3, roughness: 0.6 }), 0, 0.32, 0));
+    return done(R, g, [{ x: 0, z: 0, r: 2.4 }]);
   },
 };
 

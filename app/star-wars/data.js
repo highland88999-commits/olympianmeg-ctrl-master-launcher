@@ -108,8 +108,10 @@ export const CHAPTERS = [
 /* Shape per entry:                                                    */
 /*   { id, name, ep, kind: 'walk'|'fly', biome,                        */
 /*     color, sky, fog, fogDensity, ground, ground2,                   */
-/*     landmarks: [{ type, x, z, s, ry? }],                            */
+/*     landmarks: [{ type, x, z, s, ry?, model? }],                     */
 /*     ambient:   [{ type, count }],                                    */
+/*     world (optional): seed, tex, groundAmp, worldRadius,            */
+/*       boundsRadius, ambientRadius, canyon, scatter, horizon         */
 /*     beat: { id, title, text, objective,                              */
 /*             checkpoints?: [{x,z,r,label}] | target?: {x,z,r,label} } }*/
 /* ------------------------------------------------------------------ */
@@ -127,13 +129,39 @@ export const PLANETS = {
     fogDensity: 0.0018,
     ground: 0xd9a441,
     ground2: 0xb57f2a,
+    /* Ever-expanding world (Earth 2 spirit, zone.js template):
+     * a 340 m seeded dune sea instead of the old 130 m disc, a real
+     * carved Beggar's Canyon under the podrace gates, instanced
+     * rock/mesa/vaporator scatter, and mesa silhouettes on the
+     * horizon. The old 'beggars-canyon' block walls are gone — the
+     * terrain itself is the canyon now. */
+    seed: 4242,
+    tex: 'sand',
+    groundAmp: 4,
+    worldRadius: 340,
+    boundsRadius: 295,
+    ambientRadius: 150,
+    canyon: {
+      width: 26,
+      depth: 6.5,
+      path: [[52, 128], [25, 55], [-20, 75], [-50, 40], [20, 35], [-14, -36]],
+    },
+    scatter: [
+      { kind: 'rock', count: 150, minR: 18, maxR: 300, size: [0.8, 3.4] },
+      { kind: 'rock', count: 40, minR: 120, maxR: 300, size: [2, 5] },
+      { kind: 'mesa', count: 30, minR: 60, maxR: 290, size: [6, 16] },
+      { kind: 'vaporator', count: 22, cx: 45, cz: 20, minR: 13, maxR: 30 },
+      { kind: 'vaporator', count: 8, cx: 0, cz: -40, minR: 16, maxR: 34 },
+    ],
+    horizon: { radius: 430, count: 18, color: 0xc79a58 },
     landmarks: [
       { type: 'mos-eisley', x: 0, z: -40, s: 1.2, ry: 0.4 },
-      { type: 'moisture-farm', x: 45, z: 20, s: 1 },
+      { type: 'moisture-farm', x: 45, z: 20, s: 1, model: 'homestead' },
+      { type: 'cantina', x: 10, z: -28, s: 1, ry: 0.8, model: 'cantina' },
       { type: 'podrace-arch', x: -50, z: 30, s: 1.4, ry: 0.9 },
-      { type: 'beggars-canyon', x: 0, z: 70, s: 2 },
       { type: 'podracer', x: 18, z: -12, s: 1.2, ry: 0.6 },
       { type: 'podracer', x: -20, z: -8, s: 1.2, ry: -0.4 },
+      { type: 'landspeeder', x: 60, z: 26, s: 1, ry: -0.7, model: 'landspeeder' },
     ],
     ambient: [
       { type: 'bantha', count: 4 },

@@ -26,7 +26,8 @@ globalThis.document = {
 const THREE = await import('three');
 const T = await import('../textures.js');
 const LM = await import('../landmarks.js');
-const { buildZone } = await import('../zone.js');
+const { buildZone, createHeightFunction, distToPath } = await import('../zone.js');
+const { PLANETS } = await import('../data.js');
 
 const approx = (a, b, eps) => Math.abs(a - b) < (eps == null ? 1e-6 : eps);
 
@@ -53,8 +54,12 @@ describe('textures', () => {
 });
 
 describe('landmarks', () => {
-  it('exports 29 landmark types', () => {
-    assert.equal(LM.LANDMARK_TYPES.length, 29);
+  it('exports 31 landmark types', () => {
+    // 29 + 'cantina' + 'landspeeder' (procedural stand-ins for the
+    // Tatooine GLB seats, added with the ever-expanding Tatooine build)
+    assert.equal(LM.LANDMARK_TYPES.length, 31);
+    assert.ok(LM.LANDMARK_TYPES.includes('cantina'));
+    assert.ok(LM.LANDMARK_TYPES.includes('landspeeder'));
   });
 
   for (const type of LM.LANDMARK_TYPES) {
@@ -254,6 +259,99 @@ describe('zone (fly)', () => {
     assert.ok(beacon, 'beacon collider missing');
     assert.equal(beacon.r, 4);
     assert.doesNotThrow(() => z.update(3, 0.016));
+    z.dispose();
+  });
+});
+
+describe('GLB seats (landmarks.js)', () => {
+  it('registry covers the three finished Tatooine assets', () => {
+    assert.deepEqual(Object.keys(LM.GLB_MODELS).sort(), ['cantina', 'homestead', 'landspeeder']);
+    for (const [key, def] of Object.entries(LM.GLB_MODELS)) {
+      assert.ok(def.url.startsWith('/models/star-wars/') && def.url.endsWith('.glb'), key);
+      assert.ok(def.meters > 0, key);
+      assert.ok(Array.isArray(def.colliders) && def.colliders.length >= 1, key);
+      for (const c of def.colliders) {
+        assert.equal(typeof c.x, 'number'); assert.equal(typeof c.z, 'number');
+        assert.ok(c.r > 0);
+      }
+    }
+  });
+
+  it('attachGlbModel is a no-op without a window (node) and for unknown keys', () => {
+    const holder = new THREE.Group();
+    assert.equal(LM.attachGlbModel(THREE, holder, 'homestead'), null);
+    assert.equal(LM.attachGlbModel(THREE, holder, 'nope'), null);
+    assert.equal(holder.children.length, 0);
+  });
+});
+
+describe('planet surfaces (textures.js)', () => {
+  it('planetSurfaceTexture renders a CanvasTexture per biome', () => {
+    for (const def of Object.values(PLANETS)) {
+      const tex = T.planetSurfaceTexture(def);
+      assert.ok(tex && tex.isTexture, def.id);
+    }
+  });
+  it('is deterministic per planet and distinct across planets', () => {
+    const a = T.planetSurfaceTexture(PLANETS.tatooine);
+    const b = T.planetSurfaceTexture(PLANETS.hoth);
+    assert.equal(a.image.width, b.image.width);
+    assert.notEqual(a, b);
+  });
+  it('stays out of TEXTURE_NAMES (galaxy-only, pin unchanged)', () => {
+    assert.equal(T.TEXTURE_NAMES.length, 12);
+  });
+});
+
+describe('ever-expanding template + Tatooine (zone.js)', () => {
+  it('createHeightFunction: canyon carves below the same-seed dunes', () => {
+    const plain = createHeightFunction({ seed: 4242, groundAmp: 4 });
+    const carved = createHeightFunction(PLANETS.tatooine);
+    assert.equal(carved(25, 55), carved(25, 55), 'deterministic');
+    // (25,55) is a canyon path vertex: s = 1 there
+    assert.ok(carved(25, 55) < plain(25, 55) - 4, 'canyon floor is carved down');
+    // far off-path the two agree exactly
+    assert.equal(carved(200, -200), plain(200, -200));
+    assert.equal(distToPath(25, 55, PLANETS.tatooine.canyon.path), 0);
+    assert.ok(distToPath(200, -200, PLANETS.tatooine.canyon.path) > 100);
+  });
+
+  it('tatooine zone: big bounds, canyon under the gates, scatter + GLB colliders', () => {
+    const z = buildZone(THREE, PLANETS.tatooine, T);
+    assert.deepEqual(z.bounds, { kind: 'circle', max: 295 });
+    assert.deepEqual(z.spawn, { x: 0, z: 95, yaw: Math.PI });
+    // the podrace circuit is untouched — gates re-seated on the canyon
+    assert.deepEqual(z.checkpoints, PLANETS.tatooine.beat.checkpoints);
+    for (const cp of z.checkpoints) {
+      assert.equal(distToPath(cp.x, cp.z, PLANETS.tatooine.canyon.path), 0,
+        `gate '${cp.label}' sits on the canyon run`);
+    }
+    assert.equal(z.target, null);
+    // GLB seats contribute the REGISTRY colliders, not the stand-ins'
+    const cantina = z.colliders.find((c) => approx(c.x, 10) && approx(c.z, -28));
+    assert.ok(cantina && approx(cantina.r, 8), 'cantina registry collider');
+    const speeder = z.colliders.find((c) => approx(c.x, 60) && approx(c.z, 26));
+    assert.ok(speeder && approx(speeder.r, 2.4), 'landspeeder registry collider');
+    // seeded scatter produced instanced dressing
+    let instanced = 0;
+    z.group.traverse((o) => { if (o.isInstancedMesh) instanced++; });
+    assert.ok(instanced >= 4, `expected instanced scatter, got ${instanced}`);
+    // scatter colliders exist and stay out of the spawn clearing
+    assert.ok(z.colliders.length > 40, 'scatter added colliders');
+    for (const c of z.colliders) {
+      assert.ok(!(Math.hypot(c.x - 0, c.z - 95) < 4), 'nothing parked on the spawn');
+    }
+    // ground follows the new dunes, not the old disc chop
+    assert.notEqual(z.groundHeight(120, 40), 0);
+    assert.doesNotThrow(() => z.update(4, 0.016));
+    z.dispose();
+  });
+
+  it('worlds without the new fields keep the original pocket disc', () => {
+    const z = buildZone(THREE, PLANETS.naboo, T);
+    assert.deepEqual(z.bounds, { kind: 'circle', max: 115 });
+    assert.deepEqual(z.checkpoints, []); // Naboo's beat is a target
+    assert.deepEqual(z.target, PLANETS.naboo.beat.target);
     z.dispose();
   });
 });
