@@ -11,11 +11,15 @@ import data, {
   PROGRESS_KEY,
   CHAPTERS,
   PLANETS,
+  DIFFICULTY_LABELS,
   createProgress,
   chapterIndexOf,
   isChapterUnlocked,
   isPlanetUnlocked,
   completeBeat,
+  completeMission,
+  isMissionDone,
+  planetMissionsDone,
   chapterBeatsDone,
   loadProgress,
   saveProgress,
@@ -97,14 +101,16 @@ test('planet shape: required fields and valid values', () => {
     assert.equal(typeof p.fogDensity, 'number');
     assert.ok(p.fogDensity > 0, `${id}.fogDensity positive`);
 
-    // landmarks
+    // landmarks — radius pin grew with the worlds (was 110 on the old
+    // pocket discs; expanded worlds seat landmarks out to their bounds)
+    const limit = p.boundsRadius || 115;
     assert.ok(Array.isArray(p.landmarks) && p.landmarks.length > 0, `${id} has landmarks`);
     p.landmarks.forEach((lm) => {
       assert.ok(LANDMARK_TYPES.includes(lm.type), `${id}: landmark type '${lm.type}' in allowlist`);
       assert.equal(typeof lm.x, 'number');
       assert.equal(typeof lm.z, 'number');
       assert.equal(typeof lm.s, 'number');
-      assert.ok(Math.hypot(lm.x, lm.z) <= 110, `${id}: landmark '${lm.type}' within radius 110`);
+      assert.ok(Math.hypot(lm.x, lm.z) <= limit, `${id}: landmark '${lm.type}' within world bounds`);
       if (lm.ry !== undefined) assert.equal(typeof lm.ry, 'number');
     });
 
@@ -115,27 +121,87 @@ test('planet shape: required fields and valid values', () => {
       assert.ok(Number.isInteger(a.count) && a.count > 0, `${id}: ambient count positive int`);
     });
 
-    // beat
-    const b = p.beat;
-    assert.equal(b.id, `${id}-beat`, `${id} beat id convention`);
-    for (const f of ['title', 'text', 'objective']) {
-      assert.equal(typeof b[f], 'string', `${id}.beat.${f}`);
-      assert.ok(b[f].length > 0, `${id}.beat.${f} non-empty`);
-    }
-    const hasCheckpoints = Array.isArray(b.checkpoints);
-    const hasTarget = b.target !== undefined && b.target !== null;
-    assert.ok(hasCheckpoints !== hasTarget, `${id}: beat has checkpoints XOR target`);
-    if (hasCheckpoints) {
-      assert.ok(b.checkpoints.length >= 3 && b.checkpoints.length <= 5, `${id}: 3-5 checkpoints`);
-      b.checkpoints.forEach((c) => {
-        for (const f of ['x', 'z', 'r', 'label']) assert.ok(c[f] !== undefined, `${id} checkpoint has ${f}`);
-        assert.ok(Math.hypot(c.x, c.z) <= 110, `${id}: checkpoint within radius 110`);
-      });
+    // missions (multi-mission expansion): every world carries a list;
+    // the first entry IS the original beat (same id, same content,
+    // hardened), and beat stays aliased to it.
+    assert.ok(Array.isArray(p.missions) && p.missions.length >= 2, `${id} has >= 2 missions`);
+    assert.equal(p.beat, p.missions[0], `${id}: beat aliases missions[0]`);
+    assert.equal(p.missions[0].id, `${id}-beat`, `${id} first mission keeps the beat id`);
+    const seenIds = new Set();
+    let lastDifficulty = 0;
+    p.missions.forEach((m, mi) => {
+      assert.ok(m.id.startsWith(`${id}-`), `${id}: mission id '${m.id}' prefixed`);
+      assert.ok(!seenIds.has(m.id), `${id}: mission id '${m.id}' unique`);
+      seenIds.add(m.id);
+      for (const f of ['title', 'text', 'objective']) {
+        assert.equal(typeof m[f], 'string', `${id}.${m.id}.${f}`);
+        assert.ok(m[f].length > 0, `${id}.${m.id}.${f} non-empty`);
+      }
+      assert.ok(Number.isInteger(m.difficulty) && m.difficulty >= 1 && m.difficulty <= 3,
+        `${id}.${m.id} difficulty 1..3`);
+      assert.ok(m.difficulty >= lastDifficulty, `${id}: missions ordered by difficulty`);
+      lastDifficulty = m.difficulty;
+      if (m.par !== undefined) assert.ok(typeof m.par === 'number' && m.par >= 30, `${id}.${m.id} sane par`);
+      if (m.extraAmbient !== undefined) {
+        assert.ok(Array.isArray(m.extraAmbient), `${id}.${m.id} extraAmbient is a list`);
+        m.extraAmbient.forEach((a) => {
+          assert.ok(AMBIENT_TYPES.includes(a.type), `${id}.${m.id}: extra ambient '${a.type}' in allowlist`);
+          assert.ok(Number.isInteger(a.count) && a.count > 0, `${id}.${m.id}: extra ambient count positive`);
+        });
+      }
+      const hasCheckpoints = Array.isArray(m.checkpoints) && m.checkpoints.length > 0;
+      const hasTarget = m.target !== undefined && m.target !== null;
+      assert.ok(hasCheckpoints || hasTarget, `${id}.${m.id}: mission has gates or a target`);
+      if (hasCheckpoints) {
+        assert.ok(m.checkpoints.length >= 1 && m.checkpoints.length <= 8, `${id}.${m.id}: 1-8 checkpoints`);
+        m.checkpoints.forEach((c) => {
+          for (const f of ['x', 'z', 'r', 'label']) assert.ok(c[f] !== undefined, `${id}.${m.id} checkpoint has ${f}`);
+          assert.ok(c.r >= 4 && c.r <= 14, `${id}.${m.id} checkpoint ring sane`);
+          assert.ok(Math.hypot(c.x, c.z) <= limit - 5, `${id}.${m.id}: checkpoint inside world bounds`);
+        });
+      }
+      if (hasTarget) {
+        for (const f of ['x', 'z', 'r', 'label']) assert.ok(m.target[f] !== undefined, `${id}.${m.id} target has ${f}`);
+        assert.ok(m.target.r >= 4 && m.target.r <= 14, `${id}.${m.id} target ring sane`);
+        assert.ok(Math.hypot(m.target.x, m.target.z) <= limit - 5, `${id}.${m.id}: target inside world bounds`);
+      }
+      void mi;
+    });
+  }
+});
+
+test('saga expansion: every world is expanded to the Tatooine template class', () => {
+  // signature foliage/dressing kind per world — what grows there must
+  // belong there (lore accuracy is the design rule)
+  const SIGNATURE = {
+    naboo: 'garden-tree', coruscant: 'spire', kamino: 'pylon', geonosis: 'obsidian',
+    mustafar: 'lava-rock', 'yavin-4': 'canopy-tree', hoth: 'ice-crag',
+    dagobah: 'swamp-tree', bespin: 'spire', endor: 'canopy-tree', jakku: 'wreck',
+    takodana: 'canopy-tree', starkiller: 'ice-crag', 'ahch-to': 'scrub',
+    crait: 'salt-crystal', exegol: 'dark-spire',
+  };
+  for (const [id, p] of Object.entries(PLANETS)) {
+    assert.ok(Number.isInteger(p.seed), `${id} has a seed`);
+    if (p.kind === 'walk') {
+      assert.ok(p.worldRadius >= 300, `${id} worldRadius in Tatooine class`);
+      assert.ok(p.boundsRadius >= 280, `${id} boundsRadius in Tatooine class`);
+      assert.ok(p.ambientRadius >= 140, `${id} ambientRadius expanded`);
+      assert.equal(typeof p.tex, 'string', `${id} has a biome texture`);
+      assert.ok(p.tex !== 'sand' || id === 'tatooine' || id === 'jakku', `${id}: no default-sand biome`);
+      assert.ok(Array.isArray(p.scatter) && p.scatter.length >= 1, `${id} has scatter`);
+      const total = p.scatter.reduce((n, s) => n + s.count, 0);
+      assert.ok(total >= 30, `${id} scatter is a real dressing (${total})`);
+      if (SIGNATURE[id]) {
+        assert.ok(p.scatter.some((s) => s.kind === SIGNATURE[id]),
+          `${id} grows its signature kind '${SIGNATURE[id]}'`);
+      }
+      assert.ok(p.horizon && p.horizon.radius > p.worldRadius, `${id} has a horizon treatment`);
     } else {
-      for (const f of ['x', 'z', 'r', 'label']) assert.ok(hasTarget && b.target[f] !== undefined, `${id} target has ${f}`);
-      assert.ok(Math.hypot(b.target.x, b.target.z) <= 110, `${id}: target within radius 110`);
+      assert.ok(p.boundsRadius >= 160, `${id} fly volume expanded`);
+      assert.ok(p.landmarks.length >= 2, `${id} fly zone gained dressing landmarks`);
     }
   }
+  assert.deepEqual(DIFFICULTY_LABELS, { 1: 'Story', 2: 'Standard', 3: 'Heroic' });
 });
 
 test('landmarks are >= 15 units apart on every planet', () => {
@@ -154,7 +220,8 @@ test('landmarks are >= 15 units apart on every planet', () => {
 
 test('progression: fresh progress unlocks only chapter 0', () => {
   const p = createProgress();
-  assert.deepEqual(p, { beatsDone: {}, chaptersDone: [] });
+  // shape grew missionsDone with the multi-mission expansion
+  assert.deepEqual(p, { beatsDone: {}, chaptersDone: [], missionsDone: {} });
   assert.ok(isChapterUnlocked(p, 0));
   for (let i = 1; i < 9; i++) assert.ok(!isChapterUnlocked(p, i));
   assert.ok(isPlanetUnlocked(p, 'tatooine'));
@@ -217,18 +284,50 @@ test('loadProgress/saveProgress round-trip with localStorage stub', () => {
   const real = globalThis.localStorage;
   globalThis.localStorage = stub;
   try {
-    assert.deepEqual(loadProgress(), { beatsDone: {}, chaptersDone: [] }, 'empty store -> fresh');
+    assert.deepEqual(loadProgress(), { beatsDone: {}, chaptersDone: [], missionsDone: {} }, 'empty store -> fresh');
     const p = completeBeat(completeBeat(createProgress(), 'tatooine'), 'naboo');
     saveProgress(p);
     assert.deepEqual(loadProgress(), p, 'round-trip matches');
     stub.setItem(PROGRESS_KEY, 'not-json{{{');
-    assert.deepEqual(loadProgress(), { beatsDone: {}, chaptersDone: [] }, 'corrupt json -> fresh');
+    assert.deepEqual(loadProgress(), { beatsDone: {}, chaptersDone: [], missionsDone: {} }, 'corrupt json -> fresh');
     stub.setItem(PROGRESS_KEY, JSON.stringify({ bogus: true }));
-    assert.deepEqual(loadProgress(), { beatsDone: {}, chaptersDone: [] }, 'wrong shape -> fresh');
+    assert.deepEqual(loadProgress(), { beatsDone: {}, chaptersDone: [], missionsDone: {} }, 'wrong shape -> fresh');
+    // a pre-mission legacy save loads with missionsDone filled in, and
+    // its beatsDone entries imply first-mission completion
+    stub.setItem(PROGRESS_KEY, JSON.stringify({ beatsDone: { hoth: true }, chaptersDone: [] }));
+    const legacy = loadProgress();
+    assert.deepEqual(legacy.missionsDone, {}, 'legacy save gains empty missionsDone');
+    assert.ok(isMissionDone(legacy, 'hoth', PLANETS.hoth.missions[0]), 'legacy beat counts as first mission done');
+    assert.ok(!isMissionDone(legacy, 'hoth', PLANETS.hoth.missions[1]), 'legacy beat does not fake later missions');
   } finally {
     if (real === undefined) delete globalThis.localStorage;
     else globalThis.localStorage = real;
   }
+});
+
+test('completeMission: per-mission progress, chapter rules only via the first mission', () => {
+  const p0 = createProgress();
+  // a later mission alone: recorded, but no beat, no chapter movement
+  const p1 = completeMission(p0, 'hoth', 'hoth-tauntaun-patrol');
+  assert.deepEqual(p0, { beatsDone: {}, chaptersDone: [], missionsDone: {} }, 'input not mutated');
+  assert.deepEqual(p1.beatsDone, {}, 'side mission does not mark the world beat');
+  assert.deepEqual(p1.chaptersDone, []);
+  assert.ok(isMissionDone(p1, 'hoth', PLANETS.hoth.missions[1]));
+  assert.ok(!isMissionDone(p1, 'hoth', PLANETS.hoth.missions[0]));
+  assert.deepEqual(planetMissionsDone(p1, 'hoth'), { done: 1, total: 3 });
+  // the first mission marks the beat (chapter 4 has 3 planets: not done)
+  const p2 = completeMission(p1, 'hoth', 'hoth-beat');
+  assert.deepEqual(p2.beatsDone, { hoth: true });
+  assert.deepEqual(p2.chaptersDone, [], 'episode V still has dagobah + bespin');
+  assert.deepEqual(planetMissionsDone(p2, 'hoth'), { done: 2, total: 3 });
+  // completeBeat still works and records the first mission too
+  const p3 = completeBeat(createProgress(), 'tatooine');
+  assert.ok(isMissionDone(p3, 'tatooine', PLANETS.tatooine.missions[0]));
+  assert.deepEqual(planetMissionsDone(p3, 'tatooine'), { done: 1, total: 3 });
+  // idempotent
+  const p4 = completeMission(p2, 'hoth', 'hoth-beat');
+  assert.deepEqual(p4.beatsDone, { hoth: true });
+  assert.deepEqual(p4.chaptersDone, []);
 });
 
 test('tatooine: ever-expanding world def + GLB seats wired', () => {
@@ -258,7 +357,7 @@ test('loadProgress/saveProgress work when localStorage is undefined', () => {
   const real = globalThis.localStorage;
   delete globalThis.localStorage;
   try {
-    assert.deepEqual(loadProgress(), { beatsDone: {}, chaptersDone: [] });
+    assert.deepEqual(loadProgress(), { beatsDone: {}, chaptersDone: [], missionsDone: {} });
     assert.doesNotThrow(() => saveProgress(createProgress()));
   } finally {
     if (real !== undefined) globalThis.localStorage = real;

@@ -326,7 +326,11 @@ describe('ever-expanding template + Tatooine (zone.js)', () => {
       assert.equal(distToPath(cp.x, cp.z, PLANETS.tatooine.canyon.path), 0,
         `gate '${cp.label}' sits on the canyon run`);
     }
-    assert.equal(z.target, null);
+    // the expanded podrace finishes at a target on the mesa circuit —
+    // also a canyon path point, so the pillar stands in the carve
+    assert.deepEqual(z.target, PLANETS.tatooine.beat.target);
+    assert.equal(distToPath(z.target.x, z.target.z, PLANETS.tatooine.canyon.path), 0,
+      'finish target sits on the canyon run');
     // GLB seats contribute the REGISTRY colliders, not the stand-ins'
     const cantina = z.colliders.find((c) => approx(c.x, 10) && approx(c.z, -28));
     assert.ok(cantina && approx(cantina.r, 8), 'cantina registry collider');
@@ -347,11 +351,115 @@ describe('ever-expanding template + Tatooine (zone.js)', () => {
     z.dispose();
   });
 
-  it('worlds without the new fields keep the original pocket disc', () => {
-    const z = buildZone(THREE, PLANETS.naboo, T);
+  it('defs without the expansion fields keep the original pocket disc', () => {
+    // Naboo itself is expanded now — the legacy shape is pinned on a
+    // synthetic field-less def, byte-identical behaviour as before.
+    const z = buildZone(THREE, {
+      id: 'legacy-test', kind: 'walk', sky: 0x8fd3f4, fog: 0xcfe8d8, fogDensity: 0.0012,
+      ground: 0x5dbb63, ground2: 0x2e7d44,
+      landmarks: [{ type: 'theed-palace', x: 0, z: -50, s: 1.3 }],
+      ambient: [],
+      beat: { target: { x: 0, z: -30, r: 10, label: 'Plaza' } },
+    }, T);
     assert.deepEqual(z.bounds, { kind: 'circle', max: 115 });
-    assert.deepEqual(z.checkpoints, []); // Naboo's beat is a target
-    assert.deepEqual(z.target, PLANETS.naboo.beat.target);
+    assert.deepEqual(z.checkpoints, []); // target-only beat
+    assert.deepEqual(z.target, { x: 0, z: -30, r: 10, label: 'Plaza' });
     z.dispose();
+  });
+
+  it('naboo zone: expanded to the full template (bounds, foliage, horizon)', () => {
+    const z = buildZone(THREE, PLANETS.naboo, T);
+    assert.deepEqual(z.bounds, { kind: 'circle', max: 295 });
+    assert.deepEqual(z.checkpoints, []); // Naboo's first mission is a target
+    assert.deepEqual(z.target, PLANETS.naboo.beat.target);
+    let instanced = 0;
+    z.group.traverse((o) => { if (o.isInstancedMesh) instanced++; });
+    assert.ok(instanced >= 4, `foliage + horizon instancing present, got ${instanced}`);
+    assert.doesNotThrow(() => z.update(4, 0.016));
+    z.dispose();
+  });
+});
+
+describe('saga expansion: modes + missions in the zone builder', () => {
+  it('every world builds in mission mode, free roam, and per-mission', () => {
+    for (const def of Object.values(PLANETS)) {
+      // default build = first mission, as before the expansion
+      const z0 = buildZone(THREE, def, T);
+      assert.equal(z0.checkpoints.length, (def.beat.checkpoints || []).length, def.id);
+      if (def.beat.target) assert.ok(z0.target, def.id + ' target');
+      assert.equal(z0.bounds.max, def.boundsRadius || (def.kind === 'fly' ? 150 : 115), def.id);
+      assert.doesNotThrow(() => z0.update(2, 0.016), def.id);
+      z0.dispose();
+      // free roam: same world, NO beat furniture at all
+      const zr = buildZone(THREE, def, T, { freeRoam: true });
+      assert.deepEqual(zr.checkpoints, [], def.id + ' roam has no checkpoints');
+      assert.equal(zr.target, null, def.id + ' roam has no target');
+      assert.ok(zr.colliders.length > 0, def.id + ' roam world is still dressed/solid');
+      assert.doesNotThrow(() => zr.update(2, 0.016), def.id);
+      zr.dispose();
+      // every mission is individually buildable and drives the gates
+      for (const m of def.missions) {
+        const zm = buildZone(THREE, def, T, { mission: m });
+        assert.equal(zm.checkpoints.length, (m.checkpoints || []).length, `${def.id}/${m.id}`);
+        if (m.target) assert.deepEqual(zm.target, { x: m.target.x, z: m.target.z, r: m.target.r, label: m.target.label }, `${def.id}/${m.id} target`);
+        else assert.equal(zm.target, null, `${def.id}/${m.id} no target`);
+        zm.dispose();
+      }
+    }
+  });
+
+  it('walk worlds carry instanced foliage/scatter dressing', () => {
+    for (const def of Object.values(PLANETS)) {
+      if (def.kind !== 'walk') continue;
+      const z = buildZone(THREE, def, T);
+      let instanced = 0;
+      z.group.traverse((o) => { if (o.isInstancedMesh) instanced++; });
+      assert.ok(instanced >= 3, `${def.id}: expected instanced scatter + horizon, got ${instanced}`);
+      z.dispose();
+    }
+  });
+
+  it('every mission gate can actually be stood in (no collider seals a ring)', () => {
+    for (const def of Object.values(PLANETS)) {
+      for (const m of def.missions) {
+        const z = buildZone(THREE, def, T, { mission: m });
+        const gates = [...(m.checkpoints || []), ...(m.target ? [m.target] : [])];
+        for (const g of gates) {
+          // sample the centre and two rings of stand-points; at least
+          // one must be outside every collider (the walker is pushed
+          // out to a collider's radius, so >= is standable)
+          let standable = false;
+          const samples = [[g.x, g.z]];
+          for (const rr of [g.r * 0.5, g.r * 0.85]) {
+            for (let k = 0; k < 12; k++) {
+              const a = (k / 12) * Math.PI * 2;
+              samples.push([g.x + Math.cos(a) * rr, g.z + Math.sin(a) * rr]);
+            }
+          }
+          for (const [sx, sz] of samples) {
+            if (z.colliders.every((c) => Math.hypot(sx - c.x, sz - c.z) >= c.r - 1e-6)) {
+              standable = true; break;
+            }
+          }
+          assert.ok(standable, `${def.id}/${m.id}: gate '${g.label}' is sealed by colliders`);
+        }
+        z.dispose();
+      }
+    }
+  });
+
+  it('tatooine: pod grid staged on the canyon floor at Canyon Gate', () => {
+    const t = PLANETS.tatooine;
+    const pods = t.landmarks.filter((lm) => lm.type === 'podracer');
+    assert.equal(pods.length, 3, 'three pods staged');
+    for (const p of pods) {
+      assert.ok(distToPath(p.x, p.z, t.canyon.path) < t.canyon.width / 2,
+        `pod at (${p.x},${p.z}) sits in the canyon carve`);
+    }
+    // and the gauntlet mission really is the tighter, meaner run
+    const g = t.missions[2];
+    assert.equal(g.id, 'tatooine-tusken-gauntlet');
+    assert.ok(g.checkpoints.every((cp) => cp.r <= t.missions[0].checkpoints[0].r), 'gauntlet rings tighter');
+    assert.ok(g.extraAmbient.some((a) => a.type === 'tuskan'), 'gauntlet adds Tuskens');
   });
 });

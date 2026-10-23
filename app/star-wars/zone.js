@@ -1,20 +1,26 @@
 /*
  * STAR WARS pocket universe — zone builder.
  *
- * buildZone(THREE, planetDef, T) assembles a full zone scene graph from a
- * plain-data planet definition. Decoupled from data.js: planetDef is just an
- * object shaped like:
+ * buildZone(THREE, planetDef, T, opts?) assembles a full zone scene graph
+ * from a plain-data planet definition. Decoupled from data.js: planetDef
+ * is just an object shaped like:
  *   { id, sky, fog, fogDensity, ground, ground2, tex, groundAmp, seed,
  *     kind: 'walk' | 'fly',
  *     landmarks: [{ type, x, z, s, ry?, model? }],
  *     ambient:   [{ type, count }],
  *     beat: { checkpoints?: [{ x, z, r, label }], target?: { x, z, r, label } },
+ *     missions: [beat, ...] — when present, def.beat is missions[0],
  *     // ever-expanding world template (all optional, defaults = the
  *     // original pocket disc):
  *     worldRadius, boundsRadius, ambientRadius,
  *     canyon:  { path: [[x,z],...], width, depth },
- *     scatter: [{ kind: 'rock'|'mesa'|'vaporator', count, cx?, cz?, minR?, maxR?, size? }],
- *     horizon: { radius, count, color } }
+ *     scatter: [{ kind, count, cx?, cz?, minR?, maxR?, size?, tint? }],
+ *     horizon: { radius, count, color, style? } }
+ *
+ * opts: { mission?, freeRoam? } — `mission` overrides def.beat as the
+ * active beat (its checkpoints/target/extraAmbient are honoured);
+ * `freeRoam` builds the world with NO beat at all (no rings, no target,
+ * no completion gating) — the same world, landmarks, life and models.
  *
  * Returns:
  *   { group, colliders, spawn, bounds, groundHeight, checkpoints, target,
@@ -155,6 +161,173 @@ const TEX_BY_NAME = {
  * the shared `colliders` array. One InstancedMesh per kind (three for
  * the vaporator's parts) — no per-frame cost.
  */
+/*
+ * Generic scatter kinds — the biome vocabulary beyond Tatooine's
+ * rock/mesa/vaporator: jungle canopy + undergrowth, swamp trees + knees,
+ * ice crags + drifts, lava rock + obsidian, salt crystals, city spires,
+ * ocean pylons + reeds, wreckage, dark spires, island scrub. Each kind
+ * is a list of instanced parts; part.at(size, ry) gives the part's
+ * local transform (y = base offset in metres, sx/sy/sz = scale, optional
+ * tilt). `collider(size)` -> radius or 0: trunks, crags and wrecks are
+ * solid; soft dressing (ferns, knees, drifts, crystals, reeds) is
+ * walk-through. An entry may override the part colour with `tint`.
+ */
+const SCATTER_KINDS = {
+  'canopy-tree': { // Yavin 4 / Endor / Takodana jungle
+    collider: (s) => (s >= 1.6 ? 0.8 : 0),
+    parts: [
+      { geo: (R) => new R.CylinderGeometry(0.32, 0.55, 7, 6), color: 0x6b4a2f,
+        at: (s) => ({ y: 3.5 * s, sx: s, sy: s, sz: s }) },
+      { geo: (R) => new R.SphereGeometry(3.1, 8, 6), color: 0x3e7d32,
+        at: (s) => ({ y: 8.4 * s, sx: s * 1.15, sy: s * 0.8, sz: s * 1.15 }) },
+    ],
+  },
+  'garden-tree': { // Naboo / Ahch-To round tree
+    collider: (s) => (s >= 1.6 ? 0.7 : 0),
+    parts: [
+      { geo: (R) => new R.CylinderGeometry(0.26, 0.44, 5, 6), color: 0x7a5a36,
+        at: (s) => ({ y: 2.5 * s, sx: s, sy: s, sz: s }) },
+      { geo: (R) => new R.SphereGeometry(2.6, 8, 6), color: 0x5da24a,
+        at: (s) => ({ y: 6.2 * s, sx: s, sy: s * 0.9, sz: s }) },
+    ],
+  },
+  'swamp-tree': { // Dagobah gnarlwood
+    collider: (s) => (s >= 1.6 ? 0.9 : 0),
+    parts: [
+      { geo: (R) => new R.CylinderGeometry(0.5, 0.95, 9, 6), color: 0x4a4238,
+        at: (s, ry) => ({ y: 4.4 * s, sx: s, sy: s, sz: s, tilt: 0.16, tiltDir: ry }) },
+      { geo: (R) => new R.SphereGeometry(3.0, 7, 5), color: 0x39543c,
+        at: (s) => ({ y: 9.6 * s, sx: s * 1.25, sy: s * 0.62, sz: s * 1.25 }) },
+    ],
+  },
+  undergrowth: { // low foliage clump, walk-through
+    parts: [
+      { geo: (R) => new R.SphereGeometry(1.1, 6, 5), color: 0x4c8a3f,
+        at: (s) => ({ y: 0.5 * s, sx: s, sy: s * 0.62, sz: s }) },
+    ],
+  },
+  'swamp-knee': { // cypress knees, walk-through
+    parts: [
+      { geo: (R) => new R.ConeGeometry(0.42, 1.6, 5), color: 0x5a4c3a,
+        at: (s) => ({ y: 0.7 * s, sx: s, sy: s, sz: s }) },
+    ],
+  },
+  'ice-crag': { // Hoth / Starkiller
+    collider: (s) => (s >= 1.8 ? s * 0.8 : 0),
+    parts: [
+      { geo: (R) => new R.ConeGeometry(1, 3.4, 5), color: 0xdceef8, flat: true,
+        at: (s) => ({ y: 1.6 * s, sx: s, sy: s, sz: s }) },
+    ],
+  },
+  'snow-drift': { // soft, walk-through
+    parts: [
+      { geo: (R) => new R.SphereGeometry(1.6, 7, 5), color: 0xf4f9fc,
+        at: (s) => ({ y: 0.1 * s, sx: s, sy: s * 0.34, sz: s * 0.7 }) },
+    ],
+  },
+  'lava-rock': { // Mustafar / Exegol basalt
+    collider: (s) => (s >= 1.8 ? s * 0.85 : 0),
+    parts: [
+      { geo: (R) => new R.IcosahedronGeometry(1, 0), color: 0x35303a, flat: true,
+        at: (s) => ({ y: s * 0.55, sx: s, sy: s * 0.8, sz: s }) },
+    ],
+  },
+  obsidian: { // Mustafar spikes; tinted = Geonosis hive spikes
+    collider: (s) => (s >= 1.8 ? s * 0.6 : 0),
+    parts: [
+      { geo: (R) => new R.ConeGeometry(0.55, 3.4, 4), color: 0x17141c, flat: true,
+        at: (s) => ({ y: 1.6 * s, sx: s, sy: s, sz: s }) },
+    ],
+  },
+  'salt-crystal': { // Crait, walk-through
+    parts: [
+      { geo: (R) => new R.OctahedronGeometry(1), color: 0xf6ecec, flat: true,
+        at: (s) => ({ y: 0.8 * s, sx: s * 0.6, sy: s, sz: s * 0.6 }) },
+    ],
+  },
+  spire: { // Coruscant blocks / Bespin platform towers
+    collider: (s) => s * 0.95,
+    parts: [
+      { geo: (R) => new R.BoxGeometry(1.6, 11, 1.6), color: 0x9aa4b4, tex: 'metalTexture',
+        at: (s) => ({ y: 5.5 * s, sx: s, sy: s, sz: s }) },
+      { geo: (R) => new R.BoxGeometry(0.5, 2.6, 0.5), color: 0xffca7a, emissive: 0xcf8a2e,
+        at: (s) => ({ y: 12.2 * s, sx: s, sy: s, sz: s }) },
+    ],
+  },
+  pylon: { // Kamino stilt platforms
+    collider: (s) => (s >= 1.6 ? 0.8 : 0),
+    parts: [
+      { geo: (R) => new R.CylinderGeometry(0.42, 0.62, 8, 6), color: 0xb9c6cf, tex: 'metalTexture',
+        at: (s) => ({ y: 4 * s, sx: s, sy: s, sz: s }) },
+      { geo: (R) => new R.SphereGeometry(1.15, 7, 5), color: 0xd7e3ea,
+        at: (s) => ({ y: 8.6 * s, sx: s, sy: s * 0.6, sz: s }) },
+    ],
+  },
+  reed: { // shallows dressing, walk-through
+    parts: [
+      { geo: (R) => new R.CylinderGeometry(0.09, 0.13, 2.8, 4), color: 0x6f9a52,
+        at: (s) => ({ y: 1.3 * s, sx: s, sy: s, sz: s }) },
+    ],
+  },
+  wreck: { // Jakku hull chunks
+    collider: (s) => s * 1.5,
+    parts: [
+      { geo: (R) => new R.BoxGeometry(2.3, 1.25, 4.6), color: 0x8a7a63, tex: 'metalTexture',
+        at: (s, ry) => ({ y: 0.5 * s, sx: s, sy: s, sz: s, tilt: 0.35, tiltDir: ry + 1.2 }) },
+    ],
+  },
+  'dark-spire': { // Exegol lightning spires
+    collider: (s) => (s >= 1.8 ? s * 0.6 : 0),
+    parts: [
+      { geo: (R) => new R.ConeGeometry(0.85, 6.5, 4), color: 0x23222e, flat: true,
+        at: (s) => ({ y: 3.1 * s, sx: s, sy: s, sz: s }) },
+    ],
+  },
+  scrub: { // Ahch-To island scrub, walk-through
+    parts: [
+      { geo: (R) => new R.SphereGeometry(0.95, 6, 5), color: 0x71835c,
+        at: (s) => ({ y: 0.42 * s, sx: s, sy: s * 0.66, sz: s }) },
+    ],
+  },
+};
+
+function buildScatterKind(R, entry, placed, T, heightAt, colliders) {
+  const kind = SCATTER_KINDS[entry.kind];
+  const group = new R.Group();
+  const dummy = new R.Object3D();
+  for (const part of kind.parts) {
+    const matOpts = {
+      color: entry.tint != null ? entry.tint : part.color,
+      roughness: 0.95, flatShading: !!part.flat,
+    };
+    if (part.tex && T && typeof T[part.tex] === 'function') matOpts.map = T[part.tex]();
+    if (part.emissive) { matOpts.emissive = part.emissive; matOpts.emissiveIntensity = 0.7; }
+    const inst = new R.InstancedMesh(part.geo(R), new R.MeshStandardMaterial(matOpts), placed.length);
+    placed.forEach((p, k) => {
+      const tr = part.at(p.s, p.ry);
+      dummy.position.set(p.x, heightAt(p.x, p.z) + (tr.y || 0) - 0.12, p.z);
+      dummy.rotation.set(
+        tr.tilt ? Math.cos(tr.tiltDir || 0) * tr.tilt : 0,
+        p.ry,
+        tr.tilt ? Math.sin(tr.tiltDir || 0) * tr.tilt : 0
+      );
+      dummy.scale.set(tr.sx || 1, tr.sy || 1, tr.sz || 1);
+      dummy.updateMatrix();
+      inst.setMatrixAt(k, dummy.matrix);
+    });
+    inst.instanceMatrix.needsUpdate = true;
+    inst.castShadow = false; inst.receiveShadow = false;
+    group.add(inst);
+  }
+  if (kind.collider) {
+    for (const p of placed) {
+      const r = kind.collider(p.s);
+      if (r > 0) colliders.push({ x: p.x, z: p.z, r });
+    }
+  }
+  return group;
+}
+
 export function buildWorldScatter(R, def, T, heightAt, colliders, avoid) {
   const group = new R.Group();
   const entries = Array.isArray(def.scatter) ? def.scatter : [];
@@ -267,6 +440,8 @@ export function buildWorldScatter(R, def, T, heightAt, colliders, avoid) {
         inst.castShadow = false; inst.receiveShadow = false;
         group.add(inst);
       }
+    } else if (SCATTER_KINDS[entry.kind]) {
+      group.add(buildScatterKind(R, entry, placed, T, heightAt, colliders));
     }
   }
   return group;
@@ -290,13 +465,24 @@ export function buildHorizon(R, def, heightAt) {
   const mesaMat = new R.MeshStandardMaterial({
     color: hz.color || 0xc79a58, flatShading: true, roughness: 1,
   });
-  const mesas = new R.InstancedMesh(new R.CylinderGeometry(1, 1.3, 1, 7), mesaMat, count);
+  /* Horizon style picks the silhouette vocabulary: flat-top mesas
+   * (default), mountain 'peaks', city 'spires', jungle 'trees', pale
+   * 'ice'. Only the first ring changes; the hazed cone ring behind it
+   * stays the distance cue for every style. */
+  const style = hz.style || 'mesa';
+  const ringGeo = style === 'spires'
+    ? new R.CylinderGeometry(0.55, 0.8, 1, 6)
+    : (style === 'mesa' ? new R.CylinderGeometry(1, 1.3, 1, 7) : new R.ConeGeometry(1, 1, 7));
+  const mesas = new R.InstancedMesh(ringGeo, mesaMat, count);
   const dummy = new R.Object3D();
   for (let i = 0; i < count; i++) {
     const a = (i / count) * Math.PI * 2 + rand() * 0.22;
     const r = radius + (rand() - 0.5) * 70;
     const x = Math.cos(a) * r, z = Math.sin(a) * r;
-    const w = 30 + rand() * 42, h = 11 + rand() * 17;
+    let w = 30 + rand() * 42, h = 11 + rand() * 17;
+    if (style === 'peaks' || style === 'ice') { w = 34 + rand() * 40; h = 20 + rand() * 26; }
+    if (style === 'trees') { w = 16 + rand() * 14; h = 15 + rand() * 12; }
+    if (style === 'spires') { w = 7 + rand() * 6; h = 34 + rand() * 34; }
     dummy.position.set(x, heightAt(x, z) + h / 2 - 3, z);
     dummy.rotation.set(0, rand() * Math.PI, 0);
     dummy.scale.set(w, h, w * (0.7 + rand() * 0.5));
@@ -327,9 +513,15 @@ export function buildHorizon(R, def, heightAt) {
   return group;
 }
 
-export function buildZone(THREE, planetDef, T) {
+export function buildZone(THREE, planetDef, T, opts) {
   const R = R3(THREE);
   const def = planetDef || {};
+  const options = opts || {};
+  /* The active beat: an explicit mission (multi-mission worlds), the
+   * def's own beat, or — in free roam — nothing at all: no rings, no
+   * target pillar, nothing to complete. */
+  const freeRoam = !!options.freeRoam;
+  const beat = freeRoam ? {} : (options.mission || def.beat || {});
   const kind = def.kind === 'fly' ? 'fly' : 'walk';
   const seed = (def.seed >>> 0) || 1337;
   const group = new R.Group();
@@ -427,18 +619,28 @@ export function buildZone(THREE, planetDef, T) {
 
   /* ---------- world scatter (seeded instanced dressing) ---------- */
   if (kind === 'walk' && Array.isArray(def.scatter) && def.scatter.length) {
-    const beat0 = def.beat || {};
+    /* Scatter stays clear of EVERY mission's gates (not just the one
+     * being played) — a world is dressed once, then roamed and raced
+     * in any mode. */
     const avoid = [];
-    for (const cp of (Array.isArray(beat0.checkpoints) ? beat0.checkpoints : [])) {
-      avoid.push({ x: cp.x, z: cp.z, r: (cp.r || 5) + 3 });
+    const missionList = Array.isArray(def.missions) && def.missions.length
+      ? def.missions : [def.beat || {}];
+    for (const m of missionList) {
+      for (const cp of (Array.isArray(m.checkpoints) ? m.checkpoints : [])) {
+        avoid.push({ x: cp.x, z: cp.z, r: (cp.r || 5) + 3 });
+      }
+      if (m.target) avoid.push({ x: m.target.x, z: m.target.z, r: (m.target.r || 6) + 3 });
     }
-    if (beat0.target) avoid.push({ x: beat0.target.x, z: beat0.target.z, r: (beat0.target.r || 6) + 3 });
     avoid.push({ x: 0, z: 95, r: 9 }); // spawn clearing
     group.add(buildWorldScatter(R, def, T, heightAt, colliders, avoid));
   }
 
   /* ---------- ambient creatures (seeded scatter, clear of landmarks) ---------- */
-  const ambientDefs = Array.isArray(def.ambient) ? def.ambient : [];
+  /* The active mission may add hazard/flavour ambient life on top of
+   * the world's baseline (mission.extraAmbient) — e.g. more Tuskens in
+   * the gauntlet. Free roam and other missions keep the baseline. */
+  const ambientDefs = (Array.isArray(def.ambient) ? def.ambient : [])
+    .concat(!freeRoam && Array.isArray(beat.extraAmbient) ? beat.extraAmbient : []);
   const arand = mulberry32(seed ^ 0x51f7);
   function clearOfLandmarks(x, z, pad) {
     for (const c of colliders) {
@@ -469,7 +671,6 @@ export function buildZone(THREE, planetDef, T) {
 
   /* ---------- checkpoint rings ---------- */
   const checkpoints = [];
-  const beat = def.beat || {};
   const cpDefs = Array.isArray(beat.checkpoints) ? beat.checkpoints : [];
   function makeLabel(text) {
     const cv = document.createElement('canvas');
@@ -562,7 +763,7 @@ export function buildZone(THREE, planetDef, T) {
     : { x: 0, z: 120, yaw: Math.PI };
   const bounds = kind === 'walk'
     ? { kind: 'circle', max: def.boundsRadius || 115 }
-    : { kind: 'circle', max: 150 };
+    : { kind: 'circle', max: def.boundsRadius || 150 };
 
   function update(t, dt) {
     for (const u of updaters) u(t, dt);

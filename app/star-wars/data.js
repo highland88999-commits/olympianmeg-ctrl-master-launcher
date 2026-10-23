@@ -114,6 +114,8 @@ export const CHAPTERS = [
 /*       boundsRadius, ambientRadius, canyon, scatter, horizon         */
 /*     beat: { id, title, text, objective,                              */
 /*             checkpoints?: [{x,z,r,label}] | target?: {x,z,r,label} } }*/
+/*     missions: [mission, ...] — every planet carries a mission list;  */
+/*       beat is kept as the alias of missions[0]. See SAGA EXPANSION. */
 /* ------------------------------------------------------------------ */
 
 export const PLANETS = {
@@ -144,7 +146,13 @@ export const PLANETS = {
     canyon: {
       width: 26,
       depth: 6.5,
-      path: [[52, 128], [25, 55], [-20, 75], [-50, 40], [20, 35], [-14, -36]],
+      /* The original six points run the classic gates; the extension
+       * (from [-14,-36] on) carves a mesa circuit — a long drop south,
+       * a far turn, and the loop home past the jagged mesa — so the
+       * podrace course more than doubles without moving a single
+       * original gate. */
+      path: [[52, 128], [25, 55], [-20, 75], [-50, 40], [20, 35], [-14, -36],
+        [-64, -78], [-118, -64], [-146, -6], [-128, 52], [-84, 44]],
     },
     scatter: [
       { kind: 'rock', count: 150, minR: 18, maxR: 300, size: [0.8, 3.4] },
@@ -159,8 +167,14 @@ export const PLANETS = {
       { type: 'moisture-farm', x: 45, z: 20, s: 1, model: 'homestead' },
       { type: 'cantina', x: 10, z: -28, s: 1, ry: 0.8, model: 'cantina' },
       { type: 'podrace-arch', x: -50, z: 30, s: 1.4, ry: 0.9 },
-      { type: 'podracer', x: 18, z: -12, s: 1.2, ry: 0.6 },
-      { type: 'podracer', x: -20, z: -8, s: 1.2, ry: -0.4 },
+      /* THE POD GRID — staged ON the canyon floor at Canyon Gate, the
+       * first thing a racer sees. (They used to be parked behind Mos
+       * Eisley, 135 m off the course and out of the race entirely —
+       * the pods never loaded into the podrace. Fixed 2026-10-23.)
+       * A third pod waits at the mesa-circuit finish. */
+      { type: 'podracer', x: 31, z: 64, s: 1.2, ry: -0.55 },
+      { type: 'podracer', x: 13, z: 70, s: 1.2, ry: -0.55 },
+      { type: 'podracer', x: -92, z: 58, s: 1.2, ry: 2.4 },
       { type: 'landspeeder', x: 60, z: 26, s: 1, ry: -0.7, model: 'landspeeder' },
     ],
     ambient: [
@@ -168,18 +182,59 @@ export const PLANETS = {
       { type: 'jawa', count: 5 },
       { type: 'tuskan', count: 3 },
     ],
-    beat: {
-      id: 'tatooine-beat',
-      title: 'Beggar\u2019s Canyon Run',
-      text: 'Anakin\u2019s old podrace circuit is still marked through the canyon. Run the full loop.',
-      objective: 'Run the Beggar\u2019s Canyon podrace circuit',
-      checkpoints: [
-        { x: 25, z: 55, r: 8, label: 'Canyon Gate' },
-        { x: -20, z: 75, r: 8, label: 'Canyon Spine' },
-        { x: -50, z: 40, r: 8, label: 'Arch Turn' },
-        { x: 20, z: 35, r: 8, label: 'Home Straight' },
-      ],
-    },
+    missions: [
+      {
+        id: 'tatooine-beat',
+        title: 'Beggar\u2019s Canyon Run',
+        text: 'Anakin\u2019s old podrace circuit is still marked through the canyon — and it has grown. The pods are staged on the grid at Canyon Gate. Run the canyon, then the full mesa circuit extension.',
+        objective: 'Run the expanded Beggar\u2019s Canyon podrace circuit',
+        difficulty: 2,
+        par: 210,
+        checkpoints: [
+          { x: 25, z: 55, r: 7, label: 'Canyon Gate' },
+          { x: -20, z: 75, r: 7, label: 'Canyon Spine' },
+          { x: -50, z: 40, r: 7, label: 'Arch Turn' },
+          { x: 20, z: 35, r: 7, label: 'Home Straight' },
+          { x: -64, z: -78, r: 7, label: 'Mesa Drop' },
+          { x: -118, z: -64, r: 7, label: 'Far Turn' },
+          { x: -146, z: -6, r: 7, label: 'Mesa Loop' },
+        ],
+        target: { x: -84, z: 44, r: 8, label: 'Finish \u2014 Jagged Mesa' },
+      },
+      {
+        id: 'tatooine-moisture-run',
+        title: 'The Moisture Run',
+        text: 'The Lars homestead needs its vaporator yield in Mos Eisley before the suns climb. Load up at the farm, thread the market square, out through the canyon mouth and under the podrace arch — then home again.',
+        objective: 'Delivery circuit: farm \u2192 Mos Eisley \u2192 canyon mouth \u2192 arch \u2192 home',
+        difficulty: 2,
+        par: 240,
+        checkpoints: [
+          { x: 38, z: 34, r: 7, label: 'Lars Homestead \u2014 load up' },
+          { x: 0, z: -16, r: 7, label: 'Mos Eisley \u2014 market square' },
+          { x: -14, z: -36, r: 7, label: 'Canyon Mouth' },
+          { x: -50, z: 30, r: 7, label: 'Podrace Arch' },
+        ],
+        target: { x: 45, z: 8, r: 8, label: 'Back at the farm' },
+      },
+      {
+        id: 'tatooine-tusken-gauntlet',
+        title: 'Tusken Gauntlet',
+        text: 'Sand People have claimed the canyon narrows. Thread every gate at speed, out the mesa drop and around the far turn to Ambush Hollow. They shoot straighter than stormtroopers — keep moving.',
+        objective: 'Run the Tusken gauntlet through the canyon narrows',
+        difficulty: 3,
+        par: 260,
+        extraAmbient: [{ type: 'tuskan', count: 4 }],
+        checkpoints: [
+          { x: 25, z: 55, r: 5, label: 'Canyon Gate' },
+          { x: -20, z: 75, r: 5, label: 'Canyon Spine' },
+          { x: -50, z: 40, r: 5, label: 'Arch Turn' },
+          { x: 20, z: 35, r: 5, label: 'Home Straight' },
+          { x: -64, z: -78, r: 5, label: 'Mesa Drop' },
+          { x: -118, z: -64, r: 5, label: 'Far Turn' },
+        ],
+        target: { x: -146, z: -6, r: 6, label: 'Ambush Hollow' },
+      },
+    ],
   },
 
   naboo: {
@@ -693,15 +748,527 @@ export const PLANETS = {
 };
 
 /* ------------------------------------------------------------------ */
+/* SAGA EXPANSION (2026-10-23)                                         */
+/*                                                                     */
+/* Every world grows to the Tatooine template class and gains a        */
+/* mission list. Worlds that shipped with a single `beat` keep it as   */
+/* their first mission (same id, same content — one notch harder:      */
+/* tighter rings, an extra gate where the route earns it), and gain   */
+/* at least one more lore-true mission authored below. Tatooine       */
+/* authors its missions inline (above).                                */
+/*                                                                     */
+/* Mission shape: { id, title, text, objective, difficulty: 1..3,      */
+/*   par?: seconds, extraAmbient?: [{type, count}],                    */
+/*   checkpoints?: [...], target?: {...} } — checkpoints run in order, */
+/*   then the target (a mission may carry either or both). The engine  */
+/*   honours: gate count/spacing, ring radii, extraAmbient density,   */
+/*   and the par (shown as a soft clock in Mission mode).              */
+/*                                                                     */
+/* Walk worlds are SPREAD x1.6: landmarks and first-mission gates move */
+/* out together so every route keeps threading the same landmarks on   */
+/* the bigger terrain. Extra missions are authored in spread coords.   */
+/* ------------------------------------------------------------------ */
+
+export const DIFFICULTY_LABELS = { 1: 'Story', 2: 'Standard', 3: 'Heroic' };
+
+const EXPANSIONS = {
+  naboo: {
+    seed: 1101, tex: 'leaf', groundAmp: 3, spread: true, par: 120,
+    scatter: [
+      { kind: 'garden-tree', count: 55, minR: 20, maxR: 290, size: [0.9, 1.7] },
+      { kind: 'scrub', count: 45, minR: 16, maxR: 280, size: [0.8, 1.8] },
+      { kind: 'rock', count: 36, minR: 24, maxR: 290, size: [0.8, 2.6] },
+      { kind: 'reed', count: 30, minR: 18, maxR: 260, size: [0.8, 1.4] },
+    ],
+    horizon: { radius: 430, count: 16, color: 0x86b06a, style: 'peaks' },
+  },
+  coruscant: {
+    seed: 2202, tex: 'city', groundAmp: 1.2, spread: true, par: 150,
+    scatter: [
+      { kind: 'spire', count: 64, minR: 30, maxR: 290, size: [0.8, 2.2] },
+    ],
+    horizon: { radius: 430, count: 20, color: 0x8a93a8, style: 'spires' },
+  },
+  kamino: {
+    seed: 3303, tex: 'water', groundAmp: 1.5, spread: true, par: 150,
+    scatter: [
+      { kind: 'pylon', count: 38, minR: 24, maxR: 280, size: [0.9, 1.6] },
+      { kind: 'reed', count: 55, minR: 18, maxR: 260, size: [0.8, 1.5] },
+    ],
+    horizon: { radius: 430, count: 10, color: 0x5f7f9e, style: 'peaks' },
+  },
+  geonosis: {
+    seed: 4404, tex: 'rock', groundAmp: 4, spread: true, par: 120,
+    scatter: [
+      { kind: 'rock', count: 150, minR: 18, maxR: 300, size: [0.8, 3.4] },
+      { kind: 'mesa', count: 26, minR: 60, maxR: 290, size: [6, 15] },
+      { kind: 'obsidian', count: 40, minR: 20, maxR: 280, size: [1, 2.6], tint: 0x9a6a44 },
+    ],
+    horizon: { radius: 430, count: 18, color: 0xb06a3f },
+  },
+  mustafar: {
+    seed: 5505, tex: 'lava', groundAmp: 4.5, spread: true, par: 120,
+    scatter: [
+      { kind: 'lava-rock', count: 160, minR: 18, maxR: 300, size: [0.8, 3.2] },
+      { kind: 'obsidian', count: 55, minR: 20, maxR: 280, size: [1, 2.8] },
+    ],
+    horizon: { radius: 430, count: 16, color: 0x6e3a2a, style: 'peaks' },
+  },
+  'yavin-4': {
+    seed: 6606, tex: 'leaf', groundAmp: 3, spread: true, par: 120,
+    scatter: [
+      { kind: 'canopy-tree', count: 120, minR: 18, maxR: 290, size: [0.9, 1.8] },
+      { kind: 'undergrowth', count: 85, minR: 14, maxR: 280, size: [0.8, 2] },
+      { kind: 'rock', count: 28, minR: 24, maxR: 290, size: [0.8, 2.4] },
+    ],
+    horizon: { radius: 430, count: 16, color: 0x4a7a44, style: 'trees' },
+  },
+  alderaan: { // fly — no spread; a wider patrol volume + more dressing
+    seed: 7707, par: 120, boundsRadius: 190,
+    extraLandmarks: [
+      { type: 'debris-field', x: 90, z: -70, s: 2, ry: 1.1 },
+      { type: 'star-destroyer', x: 150, z: 60, s: 1.2, ry: -0.6 },
+    ],
+  },
+  'death-star': { // fly — trench volume + drifting debris off the trench
+    seed: 8808, par: 150, boundsRadius: 170, firstDifficulty: 2,
+    extraLandmarks: [
+      { type: 'debris-field', x: 120, z: 90, s: 1.5, ry: 0.9 },
+    ],
+  },
+  hoth: {
+    seed: 9909, tex: 'ice', groundAmp: 3.5, spread: true, par: 120,
+    scatter: [
+      { kind: 'ice-crag', count: 110, minR: 18, maxR: 300, size: [0.9, 2.6] },
+      { kind: 'snow-drift', count: 75, minR: 14, maxR: 280, size: [1, 2.4] },
+    ],
+    horizon: { radius: 430, count: 16, color: 0xcfe4f2, style: 'ice' },
+  },
+  dagobah: {
+    seed: 10110, tex: 'swamp', groundAmp: 2.5, spread: true, par: 90,
+    scatter: [
+      { kind: 'swamp-tree', count: 100, minR: 16, maxR: 290, size: [0.9, 1.7] },
+      { kind: 'swamp-knee', count: 85, minR: 12, maxR: 270, size: [0.8, 1.8] },
+      { kind: 'undergrowth', count: 45, minR: 14, maxR: 270, size: [0.8, 1.8], tint: 0x3c5c34 },
+    ],
+    horizon: { radius: 430, count: 14, color: 0x39543c, style: 'trees' },
+  },
+  bespin: {
+    seed: 11121, tex: 'metal', groundAmp: 1.2, spread: true, par: 120,
+    scatter: [
+      { kind: 'spire', count: 42, minR: 26, maxR: 280, size: [0.7, 1.6] },
+    ],
+    horizon: { radius: 430, count: 18, color: 0xd8c9a8, style: 'spires' },
+  },
+  endor: {
+    seed: 12131, tex: 'leaf', groundAmp: 3, spread: true, par: 240, firstDifficulty: 2,
+    scatter: [
+      { kind: 'canopy-tree', count: 140, minR: 18, maxR: 295, size: [0.9, 1.9] },
+      { kind: 'undergrowth', count: 80, minR: 14, maxR: 280, size: [0.8, 2] },
+      { kind: 'rock', count: 22, minR: 24, maxR: 290, size: [0.8, 2.4] },
+    ],
+    horizon: { radius: 430, count: 16, color: 0x3f7040, style: 'trees' },
+  },
+  jakku: {
+    seed: 13141, tex: 'sand', groundAmp: 4, spread: true, par: 120,
+    scatter: [
+      { kind: 'wreck', count: 55, minR: 20, maxR: 290, size: [0.9, 1.9] },
+      { kind: 'rock', count: 85, minR: 18, maxR: 300, size: [0.8, 3] },
+      { kind: 'mesa', count: 14, minR: 70, maxR: 290, size: [6, 14] },
+    ],
+    horizon: { radius: 430, count: 16, color: 0xc79a58 },
+  },
+  takodana: {
+    seed: 14151, tex: 'leaf', groundAmp: 3, spread: true, par: 120,
+    scatter: [
+      { kind: 'canopy-tree', count: 105, minR: 18, maxR: 290, size: [0.9, 1.8] },
+      { kind: 'undergrowth', count: 65, minR: 14, maxR: 280, size: [0.8, 2] },
+      { kind: 'scrub', count: 28, minR: 16, maxR: 270, size: [0.8, 1.8] },
+    ],
+    horizon: { radius: 430, count: 16, color: 0x4a7a44, style: 'trees' },
+  },
+  starkiller: {
+    seed: 15161, tex: 'ice', groundAmp: 3.5, spread: true, par: 150,
+    scatter: [
+      { kind: 'ice-crag', count: 75, minR: 18, maxR: 295, size: [0.9, 2.6] },
+      { kind: 'snow-drift', count: 65, minR: 14, maxR: 280, size: [1, 2.4] },
+      { kind: 'canopy-tree', count: 38, minR: 24, maxR: 290, size: [0.9, 1.6], tint: 0x8fa89b },
+    ],
+    horizon: { radius: 430, count: 16, color: 0xd4e6f0, style: 'ice' },
+  },
+  'ahch-to': {
+    seed: 16171, tex: 'rock', groundAmp: 4, spread: true, par: 90,
+    scatter: [
+      { kind: 'scrub', count: 65, minR: 14, maxR: 280, size: [0.8, 1.9] },
+      { kind: 'rock', count: 55, minR: 18, maxR: 295, size: [0.8, 3] },
+      { kind: 'garden-tree', count: 15, minR: 26, maxR: 260, size: [0.9, 1.5] },
+    ],
+    horizon: { radius: 430, count: 14, color: 0x7a8a94, style: 'peaks' },
+  },
+  crait: {
+    seed: 17181, tex: 'salt', groundAmp: 2, spread: true, par: 150,
+    scatter: [
+      { kind: 'salt-crystal', count: 100, minR: 14, maxR: 290, size: [0.7, 1.8] },
+      { kind: 'rock', count: 18, minR: 30, maxR: 290, size: [0.8, 2.2] },
+    ],
+    horizon: { radius: 430, count: 16, color: 0xd8cfc4, style: 'peaks' },
+  },
+  exegol: {
+    seed: 18191, tex: 'rock', groundAmp: 4, spread: true, par: 150,
+    scatter: [
+      { kind: 'dark-spire', count: 85, minR: 18, maxR: 295, size: [0.9, 2.2] },
+      { kind: 'lava-rock', count: 55, minR: 18, maxR: 290, size: [0.8, 2.8] },
+      { kind: 'rock', count: 36, minR: 22, maxR: 290, size: [0.8, 2.6] },
+    ],
+    horizon: { radius: 430, count: 16, color: 0x3a3f52, style: 'peaks' },
+  },
+};
+
+/* First-mission hardening (one notch, Merlin 2026-10-23): tighter
+ * rings everywhere; an extra gate where the route earns one. Applied
+ * to the beat-derived first mission only — authored missions carry
+ * their own numbers. Coordinates are post-spread. */
+const HARDEN = {
+  naboo: { targetR: 8 },
+  coruscant: { targetR: 8, add: { x: -72, z: -8, r: 8, label: 'Undercity Gate' } },
+  kamino: { cpR: 7, add: { x: 0, z: 88, r: 7, label: 'South Platform' } },
+  geonosis: { targetR: 8 },
+  mustafar: { targetR: 8 },
+  'yavin-4': { targetR: 8 },
+  alderaan: { targetR: 10 },
+  'death-star': { cpR: 9 },
+  hoth: { targetR: 8 },
+  dagobah: { targetR: 7 },
+  bespin: { targetR: 8 },
+  endor: { cpR: 7 },
+  jakku: { targetR: 8 },
+  takodana: { targetR: 8 },
+  starkiller: { targetR: 8 },
+  'ahch-to': { targetR: 7 },
+  crait: { cpR: 7 },
+  exegol: { targetR: 8 },
+};
+
+/* Additional missions, one or more per world, lore-true to the place.
+ * Coordinates are post-spread for walk worlds (see SPREAD note above);
+ * fly worlds keep their native scale. */
+const MORE_MISSIONS = {
+  naboo: [
+    {
+      id: 'naboo-lake-country', title: 'Lake Country Crossing',
+      text: 'Beyond Theed\u2019s avenues lie the lake retreats and waterfall meadows of the Lake Country. Cross the green hills and come home to the palace plaza.',
+      objective: 'Cross the Lake Country to the palace plaza',
+      difficulty: 2, par: 200,
+      checkpoints: [
+        { x: -64, z: 32, r: 8, label: 'Lake Retreat' },
+        { x: 48, z: 64, r: 8, label: 'Waterfall Meadow' },
+      ],
+      target: { x: 0, z: -48, r: 9, label: 'Theed Palace plaza' },
+    },
+  ],
+  coruscant: [
+    {
+      id: 'coruscant-senate-sprint', title: 'Senate Sprint',
+      text: 'A courier\u2019s run across the Senate District: touch the Rotunda steps, dive past the skylane markets, and deliver to the Temple before the session opens.',
+      objective: 'Courier run: Senate Rotunda \u2192 skylane markets \u2192 Jedi Temple',
+      difficulty: 2, par: 220,
+      checkpoints: [
+        { x: 80, z: 22, r: 9, label: 'Senate Rotunda' },
+        { x: -96, z: 32, r: 9, label: 'Skylane Markets' },
+      ],
+      target: { x: 0, z: -56, r: 8, label: 'Jedi Temple steps' },
+    },
+  ],
+  kamino: [
+    {
+      id: 'kamino-storm-circuit', title: 'Storm Circuit',
+      text: 'The aiwha trainers run the full platform ring in the teeth of the storm. Four outer platforms, in order, then home to Tipoca\u2019s landing deck.',
+      objective: 'Run the outer platform ring and return to Tipoca',
+      difficulty: 3, par: 200,
+      checkpoints: [
+        { x: 96, z: -32, r: 7, label: 'East Platform' },
+        { x: 96, z: 64, r: 7, label: 'South-East Platform' },
+        { x: -96, z: 64, r: 7, label: 'South-West Platform' },
+        { x: -96, z: -32, r: 7, label: 'West Platform' },
+      ],
+      target: { x: 0, z: -16, r: 7, label: 'Tipoca Landing' },
+    },
+  ],
+  geonosis: [
+    {
+      id: 'geonosis-foundry-run', title: 'Foundry Run',
+      text: 'The droid foundry never sleeps. Slip in past the casting lines, out through the hive spires, and reach the arena gates before the next shift of guards.',
+      objective: 'Foundry \u2192 hive spires \u2192 arena gates',
+      difficulty: 2, par: 220,
+      checkpoints: [
+        { x: -72, z: 52, r: 8, label: 'Droid Foundry' },
+        { x: -40, z: -10, r: 8, label: 'Hive Spires' },
+      ],
+      target: { x: 0, z: -40, r: 9, label: 'Arena gate' },
+    },
+  ],
+  mustafar: [
+    {
+      id: 'mustafar-lava-bank', title: 'Lava Bank Run',
+      text: 'Along the lava banks where the mining platforms harvest the flows. Falls, cooling fields and the mining shelf — mind the heat shimmer and keep to the route.',
+      objective: 'Run the lava bank route to the fortress approach',
+      difficulty: 3, par: 200,
+      checkpoints: [
+        { x: 60, z: 36, r: 8, label: 'Lava Falls' },
+        { x: 36, z: -24, r: 7, label: 'Cooling Fields' },
+        { x: -48, z: -4, r: 7, label: 'Mining Shelf' },
+      ],
+      target: { x: 0, z: -48, r: 8, label: 'Fortress approach' },
+    },
+  ],
+  'yavin-4': [
+    {
+      id: 'yavin-4-jungle-patrol', title: 'Jungle Patrol',
+      text: 'Rebel patrol route through the Massassi jungle: the west ruins, the river stones, the south clearing — then report at the Great Temple.',
+      objective: 'Patrol the jungle waypoints and report at the temple',
+      difficulty: 2, par: 220,
+      checkpoints: [
+        { x: -88, z: 40, r: 8, label: 'West Ruins' },
+        { x: 88, z: 40, r: 8, label: 'River Stones' },
+        { x: 0, z: 104, r: 9, label: 'South Clearing' },
+      ],
+      target: { x: 0, z: -48, r: 8, label: 'Great Temple' },
+    },
+  ],
+  alderaan: [
+    {
+      id: 'alderaan-memorial-circuit', title: 'Memorial Circuit',
+      text: 'A full circuit of the Graveyard in silence: three far beacons of the debris field, then the memorial itself. No chatter on the comm.',
+      objective: 'Fly the memorial circuit of the debris field',
+      difficulty: 2, par: 150,
+      checkpoints: [
+        { x: 60, z: -40, r: 14, label: 'Outer Beacon' },
+        { x: -60, z: -40, r: 14, label: 'Far Beacon' },
+        { x: -60, z: 50, r: 14, label: 'Home Beacon' },
+      ],
+      target: { x: 20, z: 20, r: 10, label: 'Memorial beacon' },
+    },
+  ],
+  'death-star': [
+    {
+      id: 'death-star-hangar-escape', title: 'Hangar Escape Run',
+      text: 'Your ship is impounded in Docking Bay 327 and the tractor beam is cycling. Thread the bay, the beam projector and the detention level — then dive for the reactor shaft.',
+      objective: 'Escape run: docking bay \u2192 tractor beam \u2192 reactor shaft',
+      difficulty: 3, par: 180,
+      checkpoints: [
+        { x: 30, z: 60, r: 12, label: 'Docking Bay 327' },
+        { x: -30, z: 30, r: 12, label: 'Tractor Beam' },
+        { x: 30, z: -30, r: 12, label: 'Detention Level' },
+      ],
+      target: { x: 0, z: -75, r: 10, label: 'Reactor Shaft' },
+    },
+  ],
+  hoth: [
+    {
+      id: 'hoth-tauntaun-patrol', title: 'Tauntaun Patrol',
+      text: 'Deck Officer\u2019s patrol: ride the ridges around Echo Base \u2014 north ridge, ice field, generator ridge \u2014 and check every sensor before the cold kills them.',
+      objective: 'Patrol the ridge waypoints around Echo Base',
+      difficulty: 2, par: 240,
+      checkpoints: [
+        { x: -96, z: -16, r: 8, label: 'North Ridge' },
+        { x: -40, z: 72, r: 8, label: 'Ice Field' },
+        { x: 72, z: 40, r: 8, label: 'Generator Ridge' },
+      ],
+      target: { x: 0, z: -48, r: 9, label: 'Echo Base gate' },
+    },
+    {
+      id: 'hoth-generator-defence', title: 'Generator Defence',
+      text: 'Imperial probes are mapping the power grid. Reach both generator stations and fall back to the hangar before the walkers crest the north ridge.',
+      objective: 'Check both generators, then fall back to the hangar',
+      difficulty: 3, par: 200,
+      checkpoints: [
+        { x: 56, z: -40, r: 7, label: 'Power Generator' },
+        { x: 96, z: 8, r: 7, label: 'Shield Generator' },
+      ],
+      target: { x: 0, z: -64, r: 8, label: 'Echo Base hangar' },
+    },
+  ],
+  dagobah: [
+    {
+      id: 'dagobah-dark-cave', title: 'The Dark Side Cave',
+      text: 'Under the gnarl tree, past the sunken pool, a cave mouth breathes cold air in the middle of the swamp heat. Strong with the dark side it is. Careful, you must be.',
+      objective: 'Find the cave under the great gnarl tree',
+      difficulty: 2, par: 180,
+      checkpoints: [
+        { x: -64, z: 16, r: 7, label: 'Gnarl Tree' },
+        { x: 40, z: 56, r: 7, label: 'Sunken Pool' },
+      ],
+      target: { x: -24, z: -48, r: 8, label: 'Cave Mouth' },
+    },
+  ],
+  bespin: [
+    {
+      id: 'bespin-platform-circuit', title: 'Platform Circuit',
+      text: 'The Tibanna platforms ring the city. East platform, the carbon-freezing dock, the west landing — a full circuit above the clouds at golden hour.',
+      objective: 'Run the platform circuit around Cloud City',
+      difficulty: 2, par: 200,
+      checkpoints: [
+        { x: 88, z: -24, r: 8, label: 'East Platform' },
+        { x: 64, z: 72, r: 8, label: 'Carbon-Freezing Dock' },
+        { x: -80, z: 40, r: 8, label: 'West Landing' },
+      ],
+      target: { x: 0, z: -45, r: 8, label: 'Cloud City plaza' },
+    },
+  ],
+  endor: [
+    {
+      id: 'endor-bunker-assault', title: 'Bunker Assault Approach',
+      text: 'Han\u2019s strike team moves at first light: rally at the Ewok village, cross the deep forest and the lake shore, and form up at the bunker approach — then hit the shield generator.',
+      objective: 'Strike-team approach: village \u2192 forest \u2192 lake \u2192 bunker \u2192 generator',
+      difficulty: 3, par: 240,
+      checkpoints: [
+        { x: 80, z: 40, r: 9, label: 'Ewok Village' },
+        { x: 40, z: 110, r: 7, label: 'Deep Forest' },
+        { x: -72, z: 80, r: 7, label: 'Lake Shore' },
+        { x: -96, z: -16, r: 7, label: 'Bunker Approach' },
+      ],
+      target: { x: 0, z: -76, r: 8, label: 'Shield Generator' },
+    },
+  ],
+  jakku: [
+    {
+      id: 'jakku-wreck-runner', title: 'Wreck Runner',
+      text: 'A scavenger\u2019s circuit of the Graveyard: the fallen walker, the starship wrecks, the sinking fields — and back to Niima before Unkar\u2019s thugs close the gates.',
+      objective: 'Run the scavenger circuit of the Graveyard',
+      difficulty: 2, par: 220,
+      checkpoints: [
+        { x: 96, z: -40, r: 8, label: 'Fallen Walker' },
+        { x: 72, z: 64, r: 8, label: 'Starship Graveyard' },
+        { x: -88, z: 24, r: 8, label: 'Sinking Fields' },
+      ],
+      target: { x: 0, z: -45, r: 9, label: 'Niima Outpost' },
+    },
+  ],
+  takodana: [
+    {
+      id: 'takodana-forest-lake', title: 'Forest & Lake Run',
+      text: 'Maz\u2019s guests arrive by every path: along the lakeshore, through the forest shrine, and up to the castle courtyard. Walk the greeters\u2019 route.',
+      objective: 'Walk the lakeside and forest route to the castle',
+      difficulty: 2, par: 200,
+      checkpoints: [
+        { x: -88, z: -8, r: 8, label: 'Lakeside' },
+        { x: 72, z: 48, r: 8, label: 'Forest Shrine' },
+      ],
+      target: { x: 0, z: -48, r: 8, label: 'Castle courtyard' },
+    },
+  ],
+  starkiller: [
+    {
+      id: 'starkiller-oscillator-run', title: 'Oscillator Run',
+      text: 'The thermal oscillator is the base\u2019s beating heart — and its weakness. Cross to the oscillator, sweep the forest battery, and reach the cannon approach.',
+      objective: 'Oscillator \u2192 forest battery \u2192 cannon approach',
+      difficulty: 3, par: 220,
+      checkpoints: [
+        { x: 80, z: -32, r: 8, label: 'Thermal Oscillator' },
+        { x: -88, z: 16, r: 8, label: 'Forest Battery' },
+      ],
+      target: { x: 0, z: -56, r: 8, label: 'Cannon approach' },
+    },
+  ],
+  'ahch-to': [
+    {
+      id: 'ahch-to-pilgrimage', title: 'Island Pilgrimage',
+      text: 'The island\u2019s old path: the tree that holds the first texts, the steps of the first temple, and down to the village of stone huts. A thousand generations live in you now — walk like it.',
+      objective: 'Walk the pilgrimage path of the first Jedi',
+      difficulty: 2, par: 180,
+      checkpoints: [
+        { x: 56, z: 32, r: 7, label: 'The Tree Library' },
+        { x: -64, z: 48, r: 7, label: 'First Temple Steps' },
+      ],
+      target: { x: 0, z: -40, r: 8, label: 'Jedi Village' },
+    },
+  ],
+  crait: [
+    {
+      id: 'crait-salt-gauntlet', title: 'Salt Flat Gauntlet',
+      text: 'Under the salt arch, along the north trenches and out over the crystal flats to the great door. The white hides the red — and the First Order is coming.',
+      objective: 'Run the gauntlet: arch \u2192 trenches \u2192 crystal flats \u2192 the door',
+      difficulty: 3, par: 200,
+      checkpoints: [
+        { x: -64, z: 48, r: 8, label: 'Salt Arch' },
+        { x: 16, z: 88, r: 7, label: 'North Trenches' },
+        { x: 88, z: 24, r: 7, label: 'Crystal Flats' },
+      ],
+      target: { x: 48, z: -40, r: 8, label: 'The Great Door' },
+    },
+  ],
+  exegol: [
+    {
+      id: 'exegol-throne-descent', title: 'Throne Descent',
+      text: 'Past the lightning spires and the fleet monoliths, the citadel floor gives way to the descent. At the bottom waits a throne no one was meant to sit. End this.',
+      objective: 'Descend to the Sith throne',
+      difficulty: 3, par: 220,
+      checkpoints: [
+        { x: -64, z: -48, r: 7, label: 'Lightning Spires' },
+        { x: 56, z: -80, r: 7, label: 'Fleet Monoliths' },
+      ],
+      target: { x: 0, z: -128, r: 10, label: 'The Sith Throne' },
+    },
+  ],
+};
+
+const SPREAD = 1.6;
+for (const def of Object.values(PLANETS)) {
+  const ex = EXPANSIONS[def.id];
+  if (ex) {
+    if (ex.spread && def.kind === 'walk') {
+      for (const lm of def.landmarks) { lm.x *= SPREAD; lm.z *= SPREAD; }
+      const b = def.beat;
+      if (b) {
+        if (Array.isArray(b.checkpoints)) for (const cp of b.checkpoints) { cp.x *= SPREAD; cp.z *= SPREAD; }
+        if (b.target) { b.target.x *= SPREAD; b.target.z *= SPREAD; }
+      }
+      def.worldRadius = 340;
+      def.boundsRadius = 295;
+      def.ambientRadius = 150;
+    }
+    for (const f of ['seed', 'tex', 'groundAmp', 'scatter', 'horizon', 'boundsRadius']) {
+      if (ex[f] !== undefined) def[f] = ex[f];
+    }
+    if (Array.isArray(ex.extraLandmarks)) def.landmarks.push(...ex.extraLandmarks);
+  }
+  if (!Array.isArray(def.missions) || !def.missions.length) {
+    const first = { ...def.beat };
+    const hz = HARDEN[def.id];
+    if (hz) {
+      if (Array.isArray(first.checkpoints)) {
+        first.checkpoints = first.checkpoints.map((cp) => ({ ...cp }));
+        if (hz.cpR) for (const cp of first.checkpoints) cp.r = hz.cpR;
+      }
+      if (hz.add) first.checkpoints = [...(first.checkpoints || []), { ...hz.add }];
+      if (first.target && hz.targetR) first.target = { ...first.target, r: hz.targetR };
+    }
+    first.difficulty = (ex && ex.firstDifficulty) || 1;
+    if (ex && ex.par) first.par = ex.par;
+    def.missions = [first, ...(MORE_MISSIONS[def.id] || [])];
+  }
+  /* def.beat stays as the canonical alias of the first mission —
+   * existing readers (galaxy card, crawl list, zone default) keep
+   * working unchanged. */
+  def.beat = def.missions[0];
+}
+
+/* ------------------------------------------------------------------ */
 /* Progression helpers (pure functions)                                */
 /* ------------------------------------------------------------------ */
 
 /**
  * Fresh progress state.
- * beatsDone: { [planetId]: true } ; chaptersDone: [epIdx, ...] in completion order.
+ * beatsDone: { [planetId]: true } — the planet's FIRST mission is done
+ *   (this is what chapter progression has always keyed on);
+ * chaptersDone: [epIdx, ...] in completion order;
+ * missionsDone: { [missionId]: true } — every individual mission.
+ * Saves written before missions existed simply lack missionsDone;
+ * loadProgress fills it in, and a beatsDone entry implies the first
+ * mission is done (see isMissionDone).
  */
 export function createProgress() {
-  return { beatsDone: {}, chaptersDone: [] };
+  return { beatsDone: {}, chaptersDone: [], missionsDone: {} };
 }
 
 /** Index into CHAPTERS for the chapter containing planetId, or -1 if unknown. */
@@ -722,11 +1289,48 @@ export function isPlanetUnlocked(progress, planetId) {
   return isChapterUnlocked(progress, epIdx);
 }
 
+/** The first mission of a planet (its original beat), or null. */
+export function firstMissionOf(planetId) {
+  const def = PLANETS[planetId];
+  return def && Array.isArray(def.missions) && def.missions.length ? def.missions[0] : null;
+}
+
+/** Is this mission complete? A legacy beatsDone entry counts as the
+ * planet's first mission being done. */
+export function isMissionDone(progress, planetId, mission) {
+  if (!progress || !mission) return false;
+  if (progress.missionsDone && progress.missionsDone[mission.id]) return true;
+  const first = firstMissionOf(planetId);
+  if (first && mission.id === first.id && progress.beatsDone && progress.beatsDone[planetId]) return true;
+  return false;
+}
+
+/** { done, total } missions completed for a planet. */
+export function planetMissionsDone(progress, planetId) {
+  const def = PLANETS[planetId];
+  const missions = def && Array.isArray(def.missions) ? def.missions : [];
+  return {
+    done: missions.filter((m) => isMissionDone(progress, planetId, m)).length,
+    total: missions.length,
+  };
+}
+
 /**
- * Mark a planet's beat complete. Returns a NEW progress object (no mutation).
- * If every planet in the planet's chapter is now done, appends epIdx to chaptersDone.
+ * Mark one mission complete. Returns a NEW progress object (no mutation).
+ * Completing a planet's FIRST mission also marks the planet's beat done —
+ * and if every planet in the chapter is now done, appends epIdx to
+ * chaptersDone. Later missions never touch chapter progression.
  */
-export function completeBeat(progress, planetId) {
+export function completeMission(progress, planetId, missionId) {
+  const missionsDone = { ...(progress.missionsDone || {}), [missionId]: true };
+  const first = firstMissionOf(planetId);
+  if (!first || missionId !== first.id) {
+    return {
+      beatsDone: { ...(progress.beatsDone || {}) },
+      chaptersDone: [...(progress.chaptersDone || [])],
+      missionsDone,
+    };
+  }
   const beatsDone = { ...progress.beatsDone, [planetId]: true };
   let chaptersDone = progress.chaptersDone;
   const epIdx = chapterIndexOf(planetId);
@@ -736,7 +1340,16 @@ export function completeBeat(progress, planetId) {
       chaptersDone = [...chaptersDone, epIdx];
     }
   }
-  return { beatsDone, chaptersDone };
+  return { beatsDone, chaptersDone, missionsDone };
+}
+
+/**
+ * Mark a planet's beat complete (= its first mission). Kept for every
+ * existing caller; see completeMission for the full contract.
+ */
+export function completeBeat(progress, planetId) {
+  const first = firstMissionOf(planetId);
+  return completeMission(progress, planetId, first ? first.id : `${planetId}-beat`);
 }
 
 /** { done, total } beats completed for chapter epIdx. */
@@ -761,6 +1374,10 @@ export function loadProgress() {
     ) {
       return createProgress();
     }
+    // Pre-mission saves have no missionsDone — fill it in, don't reset.
+    if (!parsed.missionsDone || typeof parsed.missionsDone !== 'object') {
+      parsed.missionsDone = {};
+    }
     return parsed;
   } catch {
     return createProgress();
@@ -781,11 +1398,16 @@ export default {
   PROGRESS_KEY,
   CHAPTERS,
   PLANETS,
+  DIFFICULTY_LABELS,
   createProgress,
   chapterIndexOf,
   isChapterUnlocked,
   isPlanetUnlocked,
   completeBeat,
+  completeMission,
+  isMissionDone,
+  planetMissionsDone,
+  firstMissionOf,
   chapterBeatsDone,
   loadProgress,
   saveProgress,

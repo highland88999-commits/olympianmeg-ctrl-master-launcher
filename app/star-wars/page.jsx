@@ -14,8 +14,9 @@ import { buildZone } from './zone';
 import * as T from './textures';
 import {
   CHAPTERS, PLANETS, createProgress, chapterIndexOf,
-  isChapterUnlocked, isPlanetUnlocked, completeBeat, chapterBeatsDone,
-  loadProgress, saveProgress,
+  isChapterUnlocked, isPlanetUnlocked, completeBeat, completeMission,
+  isMissionDone, planetMissionsDone, DIFFICULTY_LABELS,
+  chapterBeatsDone, loadProgress, saveProgress,
 } from './data';
 import { createWalker, stepWalker, applyLook, walkerCamera } from '@/lib/world/walk-controls';
 import { createKeyInput, attachDragLook } from '@/lib/world/walk-input';
@@ -87,6 +88,13 @@ export default function StarWarsPage() {
 
   const [mode, setMode] = useState('menu'); // menu | crawl | map | zone
   const [planetId, setPlanetId] = useState(null);
+  // How the current world was entered: { kind: 'mission', missionId } or
+  // { kind: 'roam' }. Null outside a zone.
+  const [entry, setEntry] = useState(null);
+  const [cardView, setCardView] = useState('main'); // planet card: main | missions
+  const [elapsed, setElapsed] = useState(0); // mission clock, seconds
+  const [finishInfo, setFinishInfo] = useState(null); // { seconds, par } at completion
+  const missionStartRef = useRef(0);
   const [progress, setProgress] = useState(() => {
     try {
       const p = loadProgress();
@@ -130,14 +138,38 @@ export default function StarWarsPage() {
     }
   }, [progress]);
 
-  const travelTo = useCallback((id) => {
+  // Enter a world. kind: 'mission' (with missionId) or 'roam'.
+  // Progress and unlocks only ever change in mission mode.
+  const travelTo = useCallback((id, kind, missionId) => {
     setSelectedId(null);
+    setCardView('main');
     setBeatOverlay(false);
     setBeatState(null);
+    setFinishInfo(null);
+    setElapsed(0);
+    missionStartRef.current = 0;
+    setEntry(kind === 'roam' ? { kind: 'roam' } : { kind: 'mission', missionId: missionId || null });
     setPlanetId(id);
     setIntro(true);
     setMode('zone');
   }, []);
+
+  const startExploring = useCallback(() => {
+    missionStartRef.current = performance.now();
+    setIntro(false);
+  }, []);
+
+  // Mission clock: ticks while a mission is live (intro dismissed, not
+  // yet complete). Drives the par display in the HUD.
+  useEffect(() => {
+    if (mode !== 'zone' || !entry || entry.kind !== 'mission' || intro || beatOverlay) return;
+    const iv = setInterval(() => {
+      if (missionStartRef.current) {
+        setElapsed(Math.floor((performance.now() - missionStartRef.current) / 1000));
+      }
+    }, 500);
+    return () => clearInterval(iv);
+  }, [mode, entry, intro, beatOverlay]);
 
   // ---------- one render loop, keyed by mode + planet ----------
   useEffect(() => {
@@ -194,6 +226,7 @@ export default function StarWarsPage() {
         (id) => {
           if (isPlanetUnlocked(progress, id)) {
             setSelectedId(id);
+            setCardView('main');
           } else {
             // The blocking chapter is the earliest unlocked-but-incomplete one.
             const blocking = (CHAPTERS || []).find((c, i) => {
@@ -230,7 +263,11 @@ export default function StarWarsPage() {
     // ================= ZONE =================
     if (mode === 'zone' && planetId && PLANETS[planetId]) {
       const def = PLANETS[planetId];
-      const zone = buildZone(THREE, def, T);
+      const roam = !!entry && entry.kind === 'roam';
+      const mission = !roam
+        ? ((def.missions || []).find((m) => m.id === (entry && entry.missionId)) || def.beat || null)
+        : null;
+      const zone = buildZone(THREE, def, T, roam ? { freeRoam: true } : { mission });
       scene.add(zone.group);
       if (def.sky) scene.background = new THREE.Color(def.sky);
       if (def.fog) scene.fog = new THREE.FogExp2(new THREE.Color(def.fog), def.fogDensity || 0.015);
@@ -264,9 +301,17 @@ export default function StarWarsPage() {
       const complete = () => {
         if (done || cancelled) return;
         done = true;
-        const np = completeBeat(progress, planetId);
+        // Mission mode only — free roam never reaches here (the zone
+        // was built with no beat), and never writes progress.
+        const np = mission
+          ? completeMission(progress, planetId, mission.id)
+          : completeBeat(progress, planetId);
         try { saveProgress(np); } catch (e) { /* storage may be unavailable */ }
         setProgress(np);
+        const secs = missionStartRef.current
+          ? Math.floor((performance.now() - missionStartRef.current) / 1000)
+          : 0;
+        setFinishInfo({ seconds: secs, par: mission && mission.par ? mission.par : null });
         setBeatOverlay(true);
       };
 
@@ -399,7 +444,7 @@ export default function StarWarsPage() {
       if (cleanup) cleanup();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, planetId]);
+  }, [mode, planetId, entry]);
 
   // ---------- derived view data ----------
   const activeChapterIdx = (CHAPTERS || []).findIndex((c, i) => {
@@ -417,6 +462,12 @@ export default function StarWarsPage() {
   const crawl = CHAPTERS[crawlIdx] || { ep: '', title: '', crawl: '', planets: [] };
   const sel = selectedId ? PLANETS[selectedId] : null;
   const def = planetId ? PLANETS[planetId] : null;
+  const inRoam = !!entry && entry.kind === 'roam';
+  const activeMission = def && !inRoam
+    ? ((def.missions || []).find((m) => m.id === (entry && entry.missionId)) || def.beat || null)
+    : null;
+  const selMissionCount = sel ? planetMissionsDone(progress, sel.id) : null;
+  const fmtClock = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
   const nextId = (() => {
     const i = SAGA.indexOf(planetId);
@@ -497,14 +548,52 @@ export default function StarWarsPage() {
             <button style={styles.smallBtn} onClick={() => { setSelectedId(null); setMode('menu'); }}>Back</button>
           </div>
 
-          {sel && (
+          {sel && cardView === 'main' && (
             <div style={styles.card}>
               <div style={styles.cardName}>{sel.name}</div>
               <div style={styles.cardMeta}>{sel.biome}</div>
-              {sel.beat && <div style={styles.cardBeat}>{sel.beat.title}</div>}
+              {selMissionCount && (
+                <div style={styles.cardBeat}>
+                  Missions {selMissionCount.done}/{selMissionCount.total}
+                  {sel.beat ? ` · ${sel.beat.title}` : ''}
+                </div>
+              )}
+              <div style={styles.cardHint}>How do you want to visit?</div>
               <div style={styles.cardRow}>
-                <button style={styles.btn} onClick={() => travelTo(selectedId)}>Travel</button>
+                <button style={styles.btn} onClick={() => setCardView('missions')}>🎯 Missions</button>
+                <button style={{ ...styles.btn, ...styles.btnGhost }} onClick={() => travelTo(selectedId, 'roam')}>🧭 Free Roam</button>
                 <button style={{ ...styles.btn, ...styles.btnGhost }} onClick={() => setSelectedId(null)}>Close</button>
+              </div>
+            </div>
+          )}
+
+          {sel && cardView === 'missions' && (
+            <div style={styles.card}>
+              <div style={styles.cardName}>{sel.name}</div>
+              <div style={styles.cardMeta}>Missions · progress counts here</div>
+              <div style={styles.missionList}>
+                {(sel.missions || []).map((m) => {
+                  const doneM = isMissionDone(progress, sel.id, m);
+                  return (
+                    <button
+                      key={m.id}
+                      style={styles.missionRow}
+                      onClick={() => travelTo(selectedId, 'mission', m.id)}
+                    >
+                      <span style={styles.missionTitle}>
+                        {doneM ? '✓ ' : ''}{m.title}
+                      </span>
+                      <span style={styles.missionMeta}>
+                        {DIFFICULTY_LABELS[m.difficulty] || 'Story'}
+                        {m.par ? ` · par ${fmtClock(m.par)}` : ''}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={styles.cardRow}>
+                <button style={{ ...styles.btn, ...styles.btnGhost }} onClick={() => setCardView('main')}>Back</button>
+                <button style={{ ...styles.btn, ...styles.btnGhost }} onClick={() => travelTo(selectedId, 'roam')}>🧭 Free Roam instead</button>
               </div>
             </div>
           )}
@@ -521,12 +610,23 @@ export default function StarWarsPage() {
             <button style={styles.smallBtn} onClick={() => { setIntro(false); setMode('map'); }}>Map</button>
           </div>
 
-          {def.beat && beatState && (
+          {activeMission && beatState && (
             <div style={styles.objective}>
-              <div style={styles.objText}>{def.beat.objective}</div>
+              <div style={styles.objText}>{activeMission.objective}</div>
               {beatState.total > 0 && (
                 <div style={styles.pips}>{beatState.reached}/{beatState.total}</div>
               )}
+              {activeMission.par ? (
+                <div style={styles.pips}>
+                  ⏱ {fmtClock(elapsed)} · par {fmtClock(activeMission.par)}
+                </div>
+              ) : null}
+            </div>
+          )}
+
+          {inRoam && (
+            <div style={styles.objective}>
+              <div style={styles.objText}>🧭 Free Roam — no objectives. The world is yours.</div>
             </div>
           )}
 
@@ -536,29 +636,64 @@ export default function StarWarsPage() {
             </div>
           )}
 
-          {/* beat intro */}
-          {intro && def.beat && (
+          {/* mission intro */}
+          {intro && activeMission && (
             <div style={styles.overlay}>
               <div style={styles.panel}>
                 <div style={styles.panelName}>{def.name}</div>
                 <div style={styles.panelMeta}>{def.biome}</div>
-                <div style={styles.panelBeat}>{def.beat.title}</div>
-                <p style={styles.panelText}>{def.beat.text}</p>
-                <button style={styles.btn} onClick={() => setIntro(false)}>Start exploring</button>
+                <div style={styles.panelBeat}>{activeMission.title}</div>
+                <div style={styles.panelMeta}>
+                  {DIFFICULTY_LABELS[activeMission.difficulty] || 'Story'}
+                  {activeMission.par ? ` · par ${fmtClock(activeMission.par)}` : ''}
+                </div>
+                <p style={styles.panelText}>{activeMission.text}</p>
+                <button style={styles.btn} onClick={startExploring}>Start exploring</button>
               </div>
             </div>
           )}
 
-          {/* beat complete */}
-          {beatOverlay && def.beat && (
+          {/* free-roam intro: no objectives, no gating — just the place */}
+          {intro && inRoam && (
             <div style={styles.overlay}>
               <div style={styles.panel}>
-                <div style={styles.panelBeat}>Beat complete</div>
-                <div style={styles.panelName}>{def.beat.title}</div>
+                <div style={styles.panelName}>{def.name}</div>
+                <div style={styles.panelMeta}>{def.biome}</div>
+                <div style={styles.panelBeat}>🧭 Free Roam</div>
+                <p style={styles.panelText}>
+                  No objectives, no clock, nothing to complete — just {def.name},
+                  its landmarks and its life. Progress only changes in Missions.
+                </p>
+                <button style={styles.btn} onClick={startExploring}>Start exploring</button>
+              </div>
+            </div>
+          )}
+
+          {/* mission complete */}
+          {beatOverlay && activeMission && (
+            <div style={styles.overlay}>
+              <div style={styles.panel}>
+                <div style={styles.panelBeat}>Mission complete</div>
+                <div style={styles.panelName}>{activeMission.title}</div>
+                {finishInfo && (
+                  <div style={styles.panelMeta}>
+                    ⏱ {fmtClock(finishInfo.seconds)}
+                    {finishInfo.par
+                      ? (finishInfo.seconds <= finishInfo.par
+                        ? ` · under the ${fmtClock(finishInfo.par)} par — nice run`
+                        : ` · par was ${fmtClock(finishInfo.par)}`)
+                      : ''}
+                  </div>
+                )}
                 <div style={styles.cardRow}>
                   <button style={styles.btn} onClick={() => { setBeatOverlay(false); setMode('map'); }}>Galaxy map</button>
                   {nextAvailable && (
-                    <button style={{ ...styles.btn, ...styles.btnGhost }} onClick={() => travelTo(nextId)}>Next world</button>
+                    <button
+                      style={{ ...styles.btn, ...styles.btnGhost }}
+                      onClick={() => { setBeatOverlay(false); setSelectedId(nextId); setCardView('main'); setMode('map'); }}
+                    >
+                      Next world
+                    </button>
                   )}
                 </div>
               </div>
@@ -660,6 +795,17 @@ const styles = {
   cardName: { color: '#fff', fontSize: 20, fontWeight: 700, letterSpacing: 1 },
   cardMeta: { color: '#9fb4d8', fontSize: 12, letterSpacing: 2, marginTop: 4, textTransform: 'uppercase' },
   cardBeat: { color: '#ffe81f', fontSize: 14, marginTop: 10 },
+  cardHint: { color: '#9fb4d8', fontSize: 12, letterSpacing: 1, marginTop: 12 },
+  missionList: { display: 'flex', flexDirection: 'column', gap: 8, marginTop: 14 },
+  missionRow: {
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12,
+    width: '100%', textAlign: 'left', padding: '12px 14px', minHeight: 48,
+    background: 'rgba(255,232,31,0.05)', color: '#eee',
+    border: '1px solid rgba(255,232,31,0.35)', borderRadius: 10,
+    cursor: 'pointer', pointerEvents: 'auto', fontSize: 14,
+  },
+  missionTitle: { color: '#ffe81f', fontWeight: 600, letterSpacing: 0.5 },
+  missionMeta: { color: '#9fb4d8', fontSize: 12, letterSpacing: 1, whiteSpace: 'nowrap' },
   cardRow: { display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' },
   toast: {
     position: 'absolute', left: '50%', bottom: 'calc(' + CARD_CLEAR + ' + 190px)',
