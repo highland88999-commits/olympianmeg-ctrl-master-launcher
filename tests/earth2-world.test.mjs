@@ -29,6 +29,8 @@ import { dirname, join } from 'node:path';
 
 import {
   PARCELS,
+  PARCEL_ROWS,
+  PARCEL_COLS,
   parcelById,
   parcelAt,
   castleParcel,
@@ -43,6 +45,12 @@ import {
   WALK_EYE_M,
   TRAVEL_SPEED_MPS,
   MAX_WADE_DEPTH_M,
+  WADE_FULL_SPEED_DEPTH_M,
+  SWIM_FULL_DEPTH_M,
+  SWIM_SPEED_FACTOR,
+  swimSpeedFactor,
+  swimDraftMargin,
+  RIM_BAND_M,
   parcelCenterWorld,
   parcelWorldRect,
   parcelAtWorld,
@@ -230,6 +238,45 @@ describe('the heightfield — deterministic, blended, lawful', () => {
   });
 });
 
+describe('the coastline — the rim is ocean (Merlin, 2026-10-23)', () => {
+  it('every map edge descends below the waterline — the castle headland excepted', () => {
+    const cc = parcelCenterWorld(castleParcel());
+    for (let t = -WORLD_HALF_M; t <= WORLD_HALF_M; t += 3.5) {
+      for (const [x, z] of [[t, -WORLD_HALF_M], [t, WORLD_HALF_M], [-WORLD_HALF_M, t], [WORLD_HALF_M, t]]) {
+        // The Count's terrace is re-pinned after the apron: his
+        // stretch of the south rim meets the sea as a headland.
+        if (z === WORLD_HALF_M && Math.abs(x - cc.x) < 58) continue;
+        assert.ok(heightAt(x, z) < WATER_Y, `rim at ${x}, ${z} meets the sea (${heightAt(x, z).toFixed(2)})`);
+      }
+    }
+  });
+
+  it('no rim parcel is drowned by the apron — each keeps dry ground', () => {
+    for (const p of PARCELS) {
+      const rim = p.row === 0 || p.col === 0 || p.row === PARCEL_ROWS - 1 || p.col === PARCEL_COLS - 1;
+      if (!rim) continue;
+      const c = parcelCenterWorld(p);
+      // Parcels whose centres are water (basin ponds, the sea's
+      // own edge) were ponds before the apron and stay ponds.
+      if (heightAt(c.x, c.z) < WATER_Y - 0.25) continue;
+      const r = parcelWorldRect(p);
+      let mx = -Infinity;
+      for (let x = r.minX + 1; x < r.maxX; x += 2) {
+        for (let z = r.minZ + 1; z < r.maxZ; z += 2) mx = Math.max(mx, heightAt(x, z));
+      }
+      assert.ok(mx > 0.3, `${p.id} keeps a dry strip (max ${mx.toFixed(2)} m)`);
+    }
+  });
+
+  it('the apron lives only in the border ring — the interior is untouched', () => {
+    // Well inside the band, rim-ward ground keeps its native
+    // height: the cap there sits above the world's highest peak.
+    assert.ok(RIM_BAND_M < WORLD_CELL_M, 'the band fits inside the border ring');
+    const c = parcelCenterWorld(parcelById('E2-1225'));
+    assert.ok(heightAt(c.x, c.z) > 0.8, 'the landing meadow stands as before');
+  });
+});
+
 describe('spawn — home base when set, else the landing meadow', () => {
   it('resolveSpawnParcel honours a set home base, falls back cleanly', () => {
     const someParcel = PARCELS[100];
@@ -293,22 +340,38 @@ describe('the population — placed by habitat', () => {
     }
   });
 
-  it('swimmers live only in the largest water body, circuits in the water', () => {
+  it('swimmers live only in the largest water body, circuits fitted to the bed', () => {
     const sea = largestWaterBody();
     const swimmers = worldSwimmers();
     assert.equal(swimmers.length, 8, 'all eight sea creatures swim the world sea');
     for (const s of swimmers) {
+      const scaleM = EARTH2_MODEL_BY_SLUG.get(s.slug).scaleM;
       assert.ok(EARTH2_MODEL_BY_SLUG.get(s.slug).habitat === 'water', s.slug);
       assert.equal(s.bodySize, sea.size, `${s.slug} swims the largest body`);
       assert.ok(heightAt(s.cx, s.cz) < WATER_Y - 0.25, `${s.slug} centre is wet`);
-      // The whole circuit stays off dry land.
-      for (let k = 0; k < 24; k++) {
-        const a = (k / 24) * Math.PI * 2;
+      // The fitted-circuit law (Wave C — the beached-tylosaurus
+      // fix): at 72 samples the bed along the whole ellipse keeps
+      // the animal's full draft below its surfacing line, so the
+      // scene's bed clamp can never lift it; and the body-swept
+      // ring 3 m outside the path stays over submerged bed — a
+      // swimmer never renders where the terrain is above water.
+      const bedLimit = s.shallow - swimDraftMargin(scaleM) - 0.6;
+      let worst = -Infinity;
+      for (let k = 0; k < 72; k++) {
+        const a = (k / 72) * Math.PI * 2;
         const h = heightAt(s.cx + Math.cos(a) * s.rx, s.cz + Math.sin(a) * s.rz);
-        assert.ok(h < WATER_Y + 0.4, `${s.slug} circuit point ${k} on land (${h})`);
+        if (h > worst) worst = h;
+        assert.ok(h <= bedLimit + 1e-9,
+          `${s.slug} circuit point ${k}: bed ${h.toFixed(2)} breaks its draft (limit ${bedLimit.toFixed(2)})`);
+        const hr = heightAt(s.cx + Math.cos(a) * (s.rx + 3), s.cz + Math.sin(a) * (s.rz + 3));
+        assert.ok(hr < WATER_Y, `${s.slug} body-swept ring point ${k} over dry land (${hr.toFixed(2)})`);
       }
       assert.ok(s.deep < s.shallow, `${s.slug} deep below shallow`);
       assert.ok(s.shallow < WATER_Y, `${s.slug} surfaces under the waterline cap`);
+      // The dive band is set from the worst bed on the path: at
+      // its deepest the belly still clears that bed by the draft.
+      assert.ok(s.deep >= worst + swimDraftMargin(scaleM) - 1e-9,
+        `${s.slug} dive band clears the worst bed on its circuit`);
     }
   });
 
@@ -427,14 +490,21 @@ describe('the walker — Earth laws in the step', () => {
     assert.ok(Math.hypot(next.x - 10, next.z) >= 5.5, `pushed out (${next.x}, ${next.z})`);
   });
 
-  it('the wading law: shallows yes, deep water no', () => {
+  it('the river law: on foot, deep water slows the walker but never stops it', () => {
+    // The pace curve: full speed through the shallows, easing to
+    // the swim factor once fully swimming (Merlin, 2026-10-23:
+    // rivers crossable on foot). Ground vehicles keep the old
+    // wading wall — pinned in tests/earth2-vehicles.test.mjs.
+    assert.equal(swimSpeedFactor(0), 1, 'dry land is full pace');
+    assert.equal(swimSpeedFactor(WADE_FULL_SPEED_DEPTH_M), 1, 'shallows are full pace');
+    assert.equal(swimSpeedFactor(SWIM_FULL_DEPTH_M), SWIM_SPEED_FACTOR, 'full depth is the swim factor');
+    assert.equal(swimSpeedFactor(9), SWIM_SPEED_FACTOR, 'deeper stays at the swim factor');
+    const mid = swimSpeedFactor((WADE_FULL_SPEED_DEPTH_M + SWIM_FULL_DEPTH_M) / 2);
+    assert.ok(mid < 1 && mid > SWIM_SPEED_FACTOR, 'the slowdown eases in between');
+
     const sea = largestWaterBody();
-    // The step must refuse to move INTO deeper water — from the
-    // shore side, a walker wading in stops at chest depth — while
-    // walking toward the shallows is always allowed.
+    // Walking OUT of the deep toward the shallows always works.
     let pos = { x: sea.deepestX, z: sea.deepestZ };
-    // The nearest dry parcel centre is the shore we walk for.
-    // Forward is (−sin yaw, −cos yaw), so yaw = atan2(−dx, −dz).
     let shore = null;
     let shoreD = Infinity;
     for (const p of PARCELS) {
@@ -450,15 +520,30 @@ describe('the walker — Earth laws in the step', () => {
       pos = stepWorldWalker(pos, yaw, { fwd: 1, strafe: 0 }, 0.25, [], false);
     }
     assert.ok(waterDepthAt(pos.x, pos.z) <= 0.21, `walked out of the sea (guard ${guard})`);
-    // Now try to walk back into the deep: depth may never exceed
-    // the wading limit by more than one step's grace.
-    let maxSeen = 0;
-    for (let i = 0; i < 40; i++) {
-      const yaw = Math.atan2(-(sea.deepestX - pos.x), -(sea.deepestZ - pos.z));
-      pos = stepWorldWalker(pos, yaw, { fwd: 1, strafe: 0 }, 0.25, [], false);
-      maxSeen = Math.max(maxSeen, waterDepthAt(pos.x, pos.z));
+
+    // And walking back IN crosses the whole channel, bank to
+    // bank, through water far deeper than the old wading wall —
+    // slower in the deep, but never refused.
+    pos = { x: sea.deepestX, z: sea.deepestZ };
+    const yawEast = Math.atan2(-1, 0); // forward = (−sin, −cos) → +x
+    let maxDepth = 0;
+    let crossed = false;
+    for (let i = 0; i < 400; i++) {
+      pos = stepWorldWalker(pos, yawEast, { fwd: 1, strafe: 0 }, 0.25, [], false);
+      const d = waterDepthAt(pos.x, pos.z);
+      if (d > 0.3) maxDepth = Math.max(maxDepth, d);
+      if (i > 4 && d <= 0.02) { crossed = true; break; }
     }
-    assert.ok(maxSeen <= MAX_WADE_DEPTH_M + 0.6, `never swims (saw ${maxSeen})`);
+    assert.ok(crossed, 'the walker reached the far bank on foot');
+    assert.ok(maxDepth > MAX_WADE_DEPTH_M + 1,
+      `the crossing truly swam (deepest ${maxDepth.toFixed(2)} m, wall was ${MAX_WADE_DEPTH_M})`);
+
+    // The swim is slower than the wade: 2 s from the deepest
+    // point covers well under the 12 m a dry 2 s walk covers.
+    let deep = { x: sea.deepestX, z: sea.deepestZ };
+    for (let i = 0; i < 8; i++) deep = stepWorldWalker(deep, yawEast, { fwd: 1, strafe: 0 }, 0.25, [], false);
+    const swum = Math.hypot(deep.x - sea.deepestX, deep.z - sea.deepestZ);
+    assert.ok(swum > 2 && swum < 9, `2 s of swimming covers ${swum.toFixed(1)} m, not a walk's 12`);
   });
 
   it("the world's edge is a wall", () => {
@@ -520,7 +605,13 @@ describe('the gate — the world lives behind the same lock as the Bay', () => {
 });
 
 describe('proximity streaming — the memory contract (Safari killed the all-at-entry world)', () => {
-  it('the planet itself is bit-identical to the one Merlin walked (generation fingerprint)', () => {
+  it('the planet matches the pinned generation fingerprint (coastline rework)', () => {
+    // The fingerprint moved ONCE, deliberately: Merlin's
+    // 2026-10-23 coastline order ("the world edge must be
+    // ocean") added the rim apron in heightAt. The interior is
+    // bit-identical to the planet Merlin walked; only the outer
+    // band of the border ring changed. Any FURTHER drift of this
+    // hash is a generation change nobody ordered.
     const samples = [];
     for (let x = -700; x <= 700; x += 37.3) {
       for (let z = -700; z <= 700; z += 41.7) {
@@ -529,8 +620,8 @@ describe('proximity streaming — the memory contract (Safari killed the all-at-
       }
     }
     const hash = createHash('sha256').update(samples.join('|')).digest('hex');
-    assert.equal(hash, '8e2fd6296c03c439e27a2635b11fcd87fb8dfdbfa00e522e96b51ec5ef80e27d',
-      'heightfield + ground colours unchanged by the streaming pass');
+    assert.equal(hash, 'bacfb9fcba2689a0b18bf58a0f4b37a0db6abe54f61c548828ddb2e0cfd07028',
+      'heightfield + ground colours match the coastline-reworked planet');
     assert.equal(worldCreatures().length, 30, 'placement plan unchanged');
     assert.equal(worldLandforms().length, 9, 'placement plan unchanged');
     assert.equal(worldPlants().length, 109, 'placement plan unchanged');

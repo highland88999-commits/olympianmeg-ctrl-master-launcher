@@ -344,7 +344,7 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
         waterTex.wrapS = waterTex.wrapT = THREE.RepeatWrapping;
         waterTex.repeat.set(2.5, 2.5);
         waterMat = new THREE.MeshStandardMaterial({
-          color: 0x2f9fd8, map: waterTex, transparent: true, opacity: 0.5,
+          color: 0x14608c, map: waterTex, transparent: true, opacity: 0.5,
           roughness: 0.12, metalness: 0, depthWrite: false,
         });
         const water = new THREE.Mesh(new THREE.CircleGeometry(LAKE.radius + 1.5, 64), waterMat);

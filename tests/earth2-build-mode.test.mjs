@@ -128,7 +128,7 @@ test('material spec: glass is translucent, glow emits, water is the planet blue'
   const glow = finishMaterialSpec('copper', null, 'glow');
   assert.equal(glow.emissive, glow.color);
   assert.ok(glow.emissiveIntensity > 0);
-  assert.equal(finishMaterialSpec('timber', null, 'water').color, 0x2f9fd8);
+  assert.equal(finishMaterialSpec('timber', null, 'water').color, 0x14608c);
   assert.equal(finishMaterialSpec('iron', null).metalness, 0.85);
   const fallback = finishMaterialSpec('no-such-finish', null);
   assert.ok(Number.isFinite(fallback.color), 'unknown finish still yields a material spec');

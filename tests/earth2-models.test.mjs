@@ -514,7 +514,7 @@ describe('the aquatic wing — manifest, lake and swim profiles', () => {
     assert.ok(bay.includes('resolveSwimRig'), 'swim rigs resolve off the real skeletons');
     assert.ok(bay.includes('lakeBedDepthAt'), 'the ground is carved with the lake dish');
     assert.ok(bay.includes('lakeBedYAt'), 'swimmers clamp against the same bed');
-    assert.ok(bay.includes('0x2f9fd8'), 'the water is clear bright blue, never murky');
+    assert.ok(bay.includes('0x14608c'), 'the water is the darker deep blue of the 2026-10-23 order, never murky');
     assert.ok(bay.includes("'indominus-rex': { walk:"), 'Indominus prowls on a stalker circuit');
     const spot = bay.match(/'indominus-rex': \{ walk: \{ cx: (-?[\d.]+), cz: (-?[\d.]+)/);
     assert.ok(spot, 'Indominus circuit parses');

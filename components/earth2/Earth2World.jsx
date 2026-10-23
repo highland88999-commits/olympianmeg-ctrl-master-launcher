@@ -125,6 +125,7 @@ import {
   worldColliders,
   waterDepthAt,
   MAX_WADE_DEPTH_M,
+  swimDraftMargin,
   stepWorldWalker,
   applyWorldLook,
 } from '@/lib/earth2/world';
@@ -735,6 +736,18 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
     ? bootSlugs.filter((s) => status[s] === 'placed' || status[s] === 'failed').length
     : 0;
   const bootDone = bootSlugs !== null && bootPlaced >= bootTotal;
+  // Fail-soft (Wave C): a spawn-set slug whose stream unit never
+  // reports placed/failed (e.g. a unit whose place step returns
+  // early) must not pin the pill on screen forever — after a
+  // generous bound the pill dismisses itself, treating the
+  // unresolved as settled for display. The streaming itself is
+  // untouched; late models still arrive as their units resolve.
+  const [bootExpired, setBootExpired] = useState(false);
+  useEffect(() => {
+    if (!bootSlugs || bootDone) return undefined;
+    const id = setTimeout(() => setBootExpired(true), 45000);
+    return () => clearTimeout(id);
+  }, [bootSlugs, bootDone]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1081,10 +1094,14 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         track(ground);
       }
 
-      // ── The water: one bright-blue plane at the waterline
-      // (Merlin's water law — clear, never murky), translucent so
+      // ── The water: one deep-blue plane at the waterline
+      // (Merlin's Earth 2 order, 2026-10-23 — darker than the old
+      // bright blue, still clean, never murky), translucent so
       // the swimmers read beneath it. Terrain below WATER_Y is
-      // wet; everywhere else the ground covers the plane.
+      // wet; everywhere else the ground covers the plane. A broad
+      // ring at the same waterline runs the sea on to the horizon,
+      // so the coast reads as coast — open water beyond the rim,
+      // never land standing against the sky.
       let waterMat = null;
       let waterTex = null;
       {
@@ -1108,7 +1125,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         waterTex.wrapS = waterTex.wrapT = THREE.RepeatWrapping;
         waterTex.repeat.set(30, 30);
         waterMat = new THREE.MeshStandardMaterial({
-          color: 0x2f9fd8, map: waterTex, transparent: true, opacity: 0.5,
+          color: 0x14608c, map: waterTex, transparent: true, opacity: 0.5,
           roughness: 0.12, metalness: 0, depthWrite: false,
         });
         const water = new THREE.Mesh(new THREE.PlaneGeometry(WORLD_SIZE_M, WORLD_SIZE_M), waterMat);
@@ -1116,15 +1133,32 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         water.position.y = WATER_Y;
         scene.add(water);
         track(water);
+        // The horizon sea: a ring from just under the terrain's
+        // edge out to the camera's reach, a breath below the
+        // fitted plane so the two never z-fight at the shore.
+        const horizonSea = new THREE.Mesh(
+          new THREE.RingGeometry(WORLD_SIZE_M / 2 - 12, 2300, 64, 1),
+          new THREE.MeshStandardMaterial({
+            color: 0x14608c, transparent: true, opacity: 0.5,
+            roughness: 0.12, metalness: 0, depthWrite: false,
+          }),
+        );
+        horizonSea.rotation.x = -Math.PI / 2;
+        horizonSea.position.y = WATER_Y - 0.04;
+        scene.add(horizonSea);
+        track(horizonSea);
       }
 
       // ── The current-parcel highlight: an amber outline hugging
       // the terrain along the parcel's border, rebuilt whenever
-      // the walker crosses into a new parcel.
+      // the walker crosses into a new parcel. The border is
+      // sampled densely (24 per edge, ~1.2 m apart) so the line
+      // follows the ground instead of chording across slopes
+      // (Wave C — the floating-line fix).
       const highlightMat = new THREE.LineBasicMaterial({ color: 0xffd97a, transparent: true, opacity: 0.95 });
       let highlight = null;
       function setHighlight(parcel) {
-        const pts = parcelBorderPoints(parcel, 8);
+        const pts = parcelBorderPoints(parcel, 24);
         const verts = new Float32Array((pts.length + 1) * 3);
         pts.forEach(([x, z], i) => {
           verts[i * 3] = x;
@@ -2544,9 +2578,18 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         const vz = Math.cos(th) * P.rz * P.dir;
         const surf = surfacePhase(t / P.period + s.phaseOff, P.duty);
         let y = P.deep + (P.shallow - P.deep) * surf;
-        const minY = heightAt(x, z) + s.entry.scaleM * 0.16 + 0.3;
-        if (y < minY) y = minY;
-        if (y > WATER_Y + 0.3) y = WATER_Y + 0.3;
+        // Belly clearance over the bed — with a hard cap at the
+        // surfacing line (Wave C, the beached-tylosaurus fix).
+        // The old clamp lifted the animal to bed + 16% of its
+        // length with no cap but the surface +0.3, so over the
+        // shoals at a circuit's edge the whole body rode OUT of
+        // the water. Circuits are now fitted in world.js so the
+        // bed keeps the full draft everywhere on the path (this
+        // clamp should never bind), and if it ever does, the
+        // animal is never lifted above its shallow line.
+        const minY = heightAt(x, z) + swimDraftMargin(s.entry.scaleM);
+        if (y < minY) y = Math.min(minY, P.shallow);
+        if (y > WATER_Y - 0.2) y = WATER_Y - 0.2;
         const vy = dt > 0 ? (y - s.y) / dt : 0;
         s.y = y;
         s.root.position.set(x, y, z);
@@ -4419,7 +4462,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           </span>
         )}
       >
-        {!bootDone && bootSlugs && (
+        {!bootDone && !bootExpired && bootSlugs && (
           <div className="rounded-full border border-white/15 bg-black/45 px-3 py-1.5 text-[11px] text-zinc-200">
             Placing the foundry… {bootPlaced}/{bootTotal}
           </div>
