@@ -9,15 +9,17 @@ export function newState() {
   return {
     crude: 0, // liters of crude gold in the silo
     purity: 0.12, // 0..1
-    bars: 0, // refined bars in inventory
-    credits: 0,
+    bars: 0, // refined bars in inventory — the refinery's upgrade currency
+    credits: 0, // legacy mining-claim currency (kept for lib/economy/mining.js)
+    output: 'bars', // conversion output: 'bars' | 'aether' (Merlin, 2026-10-22)
     pouring: false,
     surgeUntil: 0,
     surgeCooldownUntil: 0,
     upgrades: { pump: 0, filter: 0, vat: 0 },
     now: 0,
     pouredTotal: 0,
-    barsMinted: 0,
+    barsMinted: 0, // lifetime batches converted (either output)
+    aetherMinted: 0, // lifetime batches converted to aether
     lastMintAt: -Infinity, // game-time of the most recent mint (for UI flash)
   };
 }
@@ -71,8 +73,16 @@ export function refineTick(state, dt = TICK) {
   let minted = 0;
   if (state.purity >= 0.98) {
     minted = 1;
-    state.bars += 1;
     state.barsMinted += 1;
+    // The conversion output decides where the batch lands: bars go to
+    // inventory (they are the upgrade currency); aether batches leave
+    // the refinery — the server credits the aether balance from the
+    // replay, and aetherMinted is the local lifetime tally of them.
+    if (state.output === 'aether') {
+      state.aetherMinted = (state.aetherMinted || 0) + 1;
+    } else {
+      state.bars += 1;
+    }
     state.crude = 0; // batch fully refined into the bar
     state.purity = 0.12; // fresh batch starts at base purity
     state.lastMintAt = state.now;
@@ -145,6 +155,35 @@ export function buyUpgrade(state, kind) {
   const cost = upgradeCost(kind, level);
   if (state.credits < cost) return false;
   state.credits -= cost;
+  state.upgrades[kind] = level + 1;
+  return true;
+}
+
+/**
+ * Set the conversion output: 'bars' (batches land in inventory) or
+ * 'aether' (batches convert to the true currency). Returns the output
+ * now in effect. Unknown values are ignored — the current output holds.
+ */
+export function setOutput(state, out) {
+  if (out === 'bars' || out === 'aether') state.output = out;
+  return state.output;
+}
+
+/**
+ * Upgrade cost in BARS (Merlin's model: bars are the upgrade currency).
+ * The credit cost curve divided by a base bar's credit value (72),
+ * floored at 1 bar — the same geometric ramp, denominated in bars.
+ */
+export function upgradeBarCost(kind, level) {
+  return Math.max(1, Math.round(upgradeCost(kind, level) / 72));
+}
+
+/** Buy an upgrade spending bars. Mirrors buyUpgrade's contract. */
+export function buyUpgradeWithBars(state, kind) {
+  const level = state.upgrades[kind];
+  const cost = upgradeBarCost(kind, level);
+  if (state.bars < cost) return false;
+  state.bars -= cost;
   state.upgrades[kind] = level + 1;
   return true;
 }
