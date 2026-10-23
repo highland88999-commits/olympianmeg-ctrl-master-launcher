@@ -71,9 +71,9 @@ describe('the lock — bucket, keys, resolver', () => {
     assert.equal(EARTH2_SIGNED_URL_TTL_SECONDS, 3600);
   });
 
-  it('EARTH2_PUBLIC_FALLBACK exists and defaults ON until the migration is verified', () => {
+  it('EARTH2_PUBLIC_FALLBACK is OFF — the bucket migration is verified (56/56 objects uploaded 2026-10-22, stranger route 404 + unsigned object denied; models live only behind signed URLs)', () => {
     assert.equal(typeof EARTH2_PUBLIC_FALLBACK, 'boolean');
-    assert.equal(EARTH2_PUBLIC_FALLBACK, true);
+    assert.equal(EARTH2_PUBLIC_FALLBACK, false);
   });
 
   it('every placed model is addressed by its relative key (<slug>.glb)', () => {
@@ -92,13 +92,13 @@ describe('the lock — bucket, keys, resolver', () => {
     assert.equal(isEarth2ModelKey(''), false);
   });
 
-  it('earth2ModelUrl prefers the signed URL, falls back only behind the flag', () => {
+  it('earth2ModelUrl prefers the signed URL; with the fallback OFF there is no public path', () => {
     const entry = earth2PlacedModels()[0];
     const key = earth2ModelKey(entry);
     const signed = { [key]: 'https://signed.example/abc?token=x' };
     assert.equal(earth2ModelUrl(entry, signed), signed[key]);
-    assert.equal(earth2ModelUrl(entry, null), entry.file, 'public fallback while the flag holds');
-    assert.equal(earth2ModelUrl(entry, {}), entry.file);
+    assert.equal(earth2ModelUrl(entry, null), null, 'no signed URL, no load — the public copies are retired');
+    assert.equal(earth2ModelUrl(entry, {}), null);
     assert.equal(earth2ModelUrl({ file: null, slug: 'ghost' }, signed), null);
   });
 
