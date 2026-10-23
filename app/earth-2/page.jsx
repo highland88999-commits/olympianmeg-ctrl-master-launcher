@@ -74,6 +74,20 @@ const DinosaurBay = dynamic(() => import('@/components/earth2/DinosaurBay'), {
   ),
 });
 
+// The walkable planet — same rule as the Bay: lazy, client-side
+// only, mounted only behind this page's owner gate, so the 3D
+// chunk never loads for anyone the gate turns away.
+const Earth2World = dynamic(() => import('@/components/earth2/Earth2World'), {
+  ssr: false,
+  loading: () => (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-[#0a1410]">
+      <p className="text-sm font-bold tracking-[0.25em] text-emerald-100">
+        🚶 STEPPING ONTO EARTH 2…
+      </p>
+    </div>
+  ),
+});
+
 const TIER_LABEL = { standard: 'Standard', prime: 'Prime', landmark: 'Landmark' };
 const KIND_LABEL = { buy: 'Parcel bought', rent: 'Rent', forge: 'Forge claim' };
 const RARITY_CHIP = {
@@ -88,6 +102,10 @@ const fmtDeg = (n) => `${Number(n).toFixed(1)}°`;
 
 export default function Earth2Page() {
   const [gate, setGate] = useState('checking'); // 'checking' | 'locked' | 'open'
+  // Walking the planet (2026-10-22): the full-screen world mounts
+  // over the chamber and the Bay unmounts while it is up, so the
+  // device only ever runs one 3D scene.
+  const [walking, setWalking] = useState(false);
   const [myEmail, setMyEmail] = useState('');
   const [state, setState] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
@@ -249,10 +267,12 @@ export default function Earth2Page() {
       ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, []);
 
-  // Summon the Count in the Bay (he greets by transforming) and
-  // bring the Bay into view.
+  // Summon the Count (he greets by transforming) and bring his
+  // stage into view — the Bay normally; while walking the planet,
+  // the world itself receives the greeting.
   const summonDracula = () => {
     setGreetSignal((n) => n + 1);
+    if (walking) return;
     document
       .getElementById('dinosaur-bay')
       ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -465,6 +485,38 @@ export default function Earth2Page() {
             It is focused on the map below: that is your spawn point.
           </div>
         )}
+
+        {/* Walk the planet (Merlin, 2026-10-22): the parcel map
+            below IS the ground — step onto it and walk it, long
+            before Earth 1 is mapped. Display-only on foot: no
+            rent, no buying out there. */}
+        <section className="mt-5 rounded-[1.5rem] border border-emerald-300/35 bg-emerald-400/[0.07] p-4 backdrop-blur-md sm:p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-black tracking-[0.25em] text-emerald-100">
+                🚶 WALK THE PLANET
+              </h2>
+              <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-zinc-300">
+                The whole map below, as ground under your feet: 1.4 km of Earth 2 —
+                herds on the plains, swimmers in the great sea, flyers overhead, and
+                Castle Transylvania at the south pole. You spawn at{' '}
+                {homeParcel ? (
+                  <>your home base, <span className="font-bold text-emerald-100">{homeParcel.name}</span> ({homeParcel.id})</>
+                ) : (
+                  <>the landing meadow at the world&rsquo;s heart</>
+                )}
+                . Stepping on a parcel just reads it out — no rent, no buying on foot.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setWalking(true)}
+              className="rounded-full border border-emerald-300/60 bg-emerald-400/25 px-5 py-3 text-sm font-black tracking-widest text-emerald-50 transition hover:bg-emerald-400/40"
+            >
+              🚶 WALK THE PLANET
+            </button>
+          </div>
+        </section>
 
         <div className="mt-6 grid gap-5 lg:grid-cols-[1fr_360px]">
           {/* The parcel map */}
@@ -973,16 +1025,38 @@ export default function Earth2Page() {
           </p>
         </section>
 
-        {/* Dinosaur Bay — the foundry's dinosaurs, live (2026-10-22). */}
-        <div id="dinosaur-bay" className="scroll-mt-6">
-          <DinosaurBay
-            bloodSacs={blood.sacs}
-            onBloodSac={collectSacFromBay}
-            onOpenExchange={openExchange}
-            greetSignal={greetSignal}
-          />
-        </div>
+        {/* Dinosaur Bay — the foundry's dinosaurs, live (2026-10-22).
+            Unmounted while the planet is being walked, so the device
+            only ever runs one 3D scene at a time. */}
+        {!walking && (
+          <div id="dinosaur-bay" className="scroll-mt-6">
+            <DinosaurBay
+              bloodSacs={blood.sacs}
+              onBloodSac={collectSacFromBay}
+              onOpenExchange={openExchange}
+              greetSignal={greetSignal}
+            />
+          </div>
+        )}
       </div>
+
+      {/* The walkable planet, full-screen over the chamber. The
+          chamber map's selection follows the walker (onParcelChange),
+          so where you stand out there is what the map shows here. */}
+      {walking && (
+        <Earth2World
+          spawnParcelId={homeBaseId}
+          bloodSacs={blood.sacs}
+          onBloodSac={collectSacFromBay}
+          onOpenExchange={() => {
+            setWalking(false);
+            openExchange();
+          }}
+          greetSignal={greetSignal}
+          onParcelChange={setSelectedId}
+          onExit={() => setWalking(false)}
+        />
+      )}
     </main>
   );
 }
