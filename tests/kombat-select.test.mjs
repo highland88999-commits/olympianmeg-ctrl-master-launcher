@@ -42,8 +42,8 @@ t('locked count matches the bridge (0 pending at this snapshot — full roster g
   lockedFighterIds().length === bridgeUnavailable.length && bridgeUnavailable.length === 0);
 t('selectable ids are exactly the bridge-available fighters',
   eq(sorted(selectableFighterIds()), sorted(bridgeAvailable.map((l) => l.kombatId))));
-t('locked and selectable partition the 43 fighters',
-  lockedFighterIds().length + selectableFighterIds().length === 43
+t('locked and selectable partition the 59 fighters',
+  lockedFighterIds().length + selectableFighterIds().length === 59
   && !lockedFighterIds().some((id) => selectableFighterIds().includes(id)));
 for (const l of LOADOUTS) {
   t(`${l.kombatId} selectable iff bridge-available`,
@@ -75,14 +75,19 @@ for (const l of LOADOUTS) {
       existsSync(new URL(`../public${l.preview}`, import.meta.url)));
   }
 }
-t('preview count matches the published roster (43)',
-  LOADOUTS.filter((l) => l.preview !== null).length === CHARACTERS.length
-  && CHARACTERS.length === 43);
+// 43 preview PNGs are published today; the 16 wave fighters join the
+// roster (59) with preview: null until their stills are published.
+t('preview count matches the published previews (43 of 59)',
+  LOADOUTS.filter((l) => l.preview !== null).length === 43
+  && CHARACTERS.length === 59);
 t('locked fighters never carry a preview',
   bridgeUnavailable.every((l) => l.preview === null && fighterPreview(l.kombatId) === null));
-t('available-without-preview is exactly nobody (every available fighter is published)',
+t('available-without-preview is exactly the 16 wave fighters (previews unpublished)',
   eq(sorted(bridgeAvailable.filter((l) => l.preview === null).map((l) => l.kombatId)),
-    []));
+    sorted(['eddie-munson', 'eleven', 'jim-hopper', 'vecna', 'demogorgon', 'demobats',
+      'mind-flayer', 'mind-flayer-hybrid', 'bounty-hunter', 'cybernetic-soldier',
+      'cyberpunk-operative', 'futuristic-female-operative', 'post-apocalyptic',
+      'space-marine', 'tactical-hitman', 'tactical-soldier'])));
 t('fighterPreview of unknown id is null', fighterPreview('nobody') === null);
 
 // --- selectable pool (random / CPU / brawl fill draw from this) ---------------

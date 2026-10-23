@@ -28,8 +28,8 @@ const inRange = (v, lo, hi) => Number.isFinite(v) && v >= lo && v <= hi;
 const all = allTemperaments();
 
 // --- every fighter resolves a sane temperament -------------------
-t('roster has 43 fighters', FIGHTERS.length === 43);
-t('allTemperaments covers the roster', all.length === 43);
+t('roster has 59 fighters', FIGHTERS.length === 59);
+t('allTemperaments covers the roster', all.length === 59);
 const FIELDS_01 = ['pace', 'fury', 'savagery', 'ferocity', 'brutality', 'finisherPressure'];
 for (const f of FIGHTERS) {
   const tp = temperamentFor(f.id);
@@ -60,16 +60,18 @@ for (const f of FIGHTERS) {
 t('temperament is frozen', Object.isFrozen(temperamentFor('hulk')));
 
 // --- kinds (independent expectation from the bridge records) -------
-const CREATURES = ['xenomorph', 't-rex', 'raptor-swift', 'raptor-claw', 'raptor-fang'];
+const CREATURES = ['xenomorph', 't-rex', 'raptor-swift', 'raptor-claw', 'raptor-fang',
+  // Hawkins wave (2026-10-22): creature-kind via rigClass in the bridge.
+  'demobats', 'mind-flayer', 'mind-flayer-hybrid'];
 const RIGLESS = ['slimer', 'bob-blob'];
 for (const f of FIGHTERS) {
   const want = CREATURES.includes(f.id) ? 'creature' : RIGLESS.includes(f.id) ? 'rigless' : 'humanoid';
   t(`${f.id}: kind ${want}`, temperamentFor(f.id).kind === want);
   t(`${f.id}: kind agrees with bridge`, temperamentKind(getLoadout(f.id)) === want);
 }
-t('36 humanoids / 5 creatures / 2 rigless',
-  all.filter((x) => x.kind === 'humanoid').length === 36 &&
-  all.filter((x) => x.kind === 'creature').length === 5 &&
+t('49 humanoids / 8 creatures / 2 rigless',
+  all.filter((x) => x.kind === 'humanoid').length === 49 &&
+  all.filter((x) => x.kind === 'creature').length === 8 &&
   all.filter((x) => x.kind === 'rigless').length === 2);
 
 // --- dual id namespaces: key through the bridge, never by name -----

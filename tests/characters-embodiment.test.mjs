@@ -31,10 +31,10 @@ function t(name, cond) {
 }
 
 // ==================================================================
-// 1. Read model: the join is total for all 43
+// 1. Read model: the join is total for all 59
 // ==================================================================
-t('roster carries 43 characters', CHARACTERS.length === 43);
-t('bridge carries 43 loadouts', LOADOUTS.length === 43);
+t('roster carries 59 characters', CHARACTERS.length === 59);
+t('bridge carries 59 loadouts', LOADOUTS.length === 59);
 t('one embodiment per roster character', EMBODIMENTS.length === CHARACTERS.length);
 t('listEmbodiments is the roster listing', listEmbodiments() === EMBODIMENTS);
 t('listing is in roster (queue) order',
@@ -47,8 +47,11 @@ for (const c of CHARACTERS) {
   t(`${c.id} id joins`, e.id === c.id);
   t(`${c.id} name joins`, e.name === c.name && e.name === getCharacterById(c.id).name);
   t(`${c.id} preview non-null`, e.preview === `/characters/${c.id}.png`);
+  // Hosted fighters resolve to a model URL: the Step 4 bucket URL
+  // (q001-q043) or the local wave path (q044+, bucket uploads blocked).
   t(`${c.id} glbUrl non-null`, typeof e.glbUrl === 'string'
-    && e.glbUrl.endsWith(`/fighter-models/${c.id}.glb`));
+    && (e.glbUrl.endsWith(`/fighter-models/${c.id}.glb`)
+      || e.glbUrl === `/models/kombat/${e.kombatId}.glb`));
   t(`${c.id} available`, e.available === true);
   t(`${c.id} rigClass present`, typeof e.rigClass === 'string' && e.rigClass.length > 0);
   t(`${c.id} motionClass present`, typeof e.motionClass === 'string' && e.motionClass.length > 0);
@@ -56,7 +59,7 @@ for (const c of CHARACTERS) {
   t(`${c.id} kombatId present`, typeof e.kombatId === 'string' && e.kombatId.length > 0);
   t(`${c.id} powers carried`, Array.isArray(e.powers) && e.powers.length >= 5);
 }
-t('kombatIds are unique', new Set(EMBODIMENTS.map((e) => e.kombatId)).size === 43);
+t('kombatIds are unique', new Set(EMBODIMENTS.map((e) => e.kombatId)).size === 59);
 for (const e of EMBODIMENTS) {
   t(`${e.id} kombat round-trip`,
     kombatIdForCharacter(e.id) === e.kombatId

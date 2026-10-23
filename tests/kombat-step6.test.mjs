@@ -21,6 +21,7 @@ import { LOADOUTS, getLoadout } from '../lib/kombat/loadouts.js';
 import { RIG_MANIFEST, rigManifestFor } from '../lib/kombat/rig-manifest.js';
 import {
   HUMANOID_BONE_MAP, HUMANOID_REQUIRED_ROLES, CREATURE_TABLES,
+  MIXAMO_BONE_MAP, MIXAMO_REQUIRED_ROLES,
   rigKindFor, movementProfile, createPoseDriver, koLiftFor, FALL_ANGLE,
   sanitizeBoneName,
 } from '../lib/kombat/pose-driver.js';
@@ -61,8 +62,13 @@ for (const lo of available) {
   t(`${lo.kombatId}: manifest rigKind matches driver dispatch`, man.rigKind === kind);
   const jointSet = new Set(man.joints);
   if (kind === 'humanoid') {
-    for (const role of HUMANOID_REQUIRED_ROLES) {
-      t(`${lo.kombatId}: humanoid role ${role} resolves`, jointSet.has(HUMANOID_BONE_MAP[role]));
+    // Dialect coverage: Tripo-template skeletons prove the template
+    // map; Mixamo skeletons (manifest rigDialect) prove the Mixamo map.
+    const isMixamo = man.rigDialect === 'mixamo';
+    const map = isMixamo ? MIXAMO_BONE_MAP : HUMANOID_BONE_MAP;
+    const roles = isMixamo ? MIXAMO_REQUIRED_ROLES : HUMANOID_REQUIRED_ROLES;
+    for (const role of roles) {
+      t(`${lo.kombatId}: humanoid role ${role} resolves`, jointSet.has(map[role]));
     }
   } else if (kind === 'creature') {
     const table = CREATURE_TABLES[lo.characterId];

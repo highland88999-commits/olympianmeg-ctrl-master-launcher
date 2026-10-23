@@ -14,7 +14,7 @@ function t(name, cond) {
 }
 
 // --- roster shape ---
-t('roster has the 43 sprint-complete characters', CHARACTERS.length === 43);
+t('roster has the 59 characters (43 sprint + 16 Hawkins/Operatives wave)', CHARACTERS.length === 59);
 t('ids are unique', new Set(CHARACTERS.map((c) => c.id)).size === CHARACTERS.length);
 t('queue numbers are unique', new Set(CHARACTERS.map((c) => c.queueNumber)).size === CHARACTERS.length);
 for (const c of CHARACTERS) {

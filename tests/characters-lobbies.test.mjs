@@ -101,8 +101,8 @@ function fakeStorage(seed) {
 // ==================================================================
 {
   const options = rosterNpcOptions();
-  t('the shelf offers all 43 fighters', options.length === 43);
-  t('option ids are unique', new Set(options.map((o) => o.id)).size === 43);
+  t('the shelf offers all 59 fighters', options.length === 59);
+  t('option ids are unique', new Set(options.map((o) => o.id)).size === 59);
   t('every option resolves through getAnyNpc',
     options.every((o) => getAnyNpc(o.id) && getAnyNpc(o.id).characterId === o.characterId));
   t('every difficulty is an integer on the 1-10 scale',

@@ -36,6 +36,9 @@ const DUAL_WIELDERS = sorted([
 ]);
 const WEAPONLESS = sorted([
   'bob-blob', 'emperor-palpatine', 'hulk', 'missing-link', 'neo', 'samara-morgan', 'slimer', 'stay-puft',
+  // Hawkins wave (2026-10-22): the unarmed six — Eleven and Vecna fight
+  // with psyche and curse, the creatures with their own bodies.
+  'demobats', 'demogorgon', 'eleven', 'mind-flayer', 'mind-flayer-hybrid', 'vecna',
 ]);
 const CREATURES = sorted(['raptor-claw', 'raptor-fang', 'raptor-swift', 't-rex', 'xenomorph']);
 const RIG_NONE = sorted(['bob-blob', 'slimer']);
@@ -53,6 +56,12 @@ const AVAILABLE_IDS = sorted([
   'q035-wolverine', 'q036-thanos', 'q037-iron-man', 'q038-cloud-strife',
   'q039-sephiroth', 'q040-tifa-lockhart', 'q041-b-o-b', 'q042-the-missing-link',
   'q043-dr-cockroach',
+  // Hawkins + Operatives wave (2026-10-22): all 16 available on arrival.
+  'q044-eddie-munson', 'q045-eleven', 'q046-jim-hopper', 'q047-vecna',
+  'q048-demogorgon', 'q049-demobats', 'q050-mind-flayer', 'q051-mind-flayer-hybrid',
+  'q052-bounty-hunter', 'q053-cybernetic-soldier', 'q054-cyberpunk-operative',
+  'q055-futuristic-female-operative', 'q056-post-apocalyptic', 'q057-space-marine',
+  'q058-tactical-hitman', 'q059-tactical-soldier',
 ]);
 // Step 4 hosting snapshot: every available fighter's optimized GLB was
 // uploaded to the public Supabase Storage bucket 'fighter-models' and
@@ -74,6 +83,17 @@ const HOSTED_IDS = sorted([
   'q039-sephiroth', 'q040-tifa-lockhart', 'q041-b-o-b', 'q042-the-missing-link',
   'q043-dr-cockroach',
 ]);
+// Hawkins + Operatives hosting (2026-10-22): bucket uploads are
+// blocked (connector 401), so the wave is hosted locally under
+// public/models/kombat/<kombatId>.glb — same availability, other shelf.
+const LOCAL_HOSTED_IDS = sorted([
+  'q044-eddie-munson', 'q045-eleven', 'q046-jim-hopper', 'q047-vecna',
+  'q048-demogorgon', 'q049-demobats', 'q050-mind-flayer', 'q051-mind-flayer-hybrid',
+  'q052-bounty-hunter', 'q053-cybernetic-soldier', 'q054-cyberpunk-operative',
+  'q055-futuristic-female-operative', 'q056-post-apocalyptic', 'q057-space-marine',
+  'q058-tactical-hitman', 'q059-tactical-soldier',
+]);
+const localGlbUrlFor = (l) => `/models/kombat/${l.kombatId}.glb`;
 // Dual-wield audit — the tracked gap set is EMPTY. Step 2 fixed
 // Pennywise (claw-glove pair), Predator (claws pair, plasma caster
 // kept) and T-1000 (knife pair); Step 3 closed the last two with the
@@ -86,16 +106,16 @@ const HOSTED_IDS = sorted([
 const KNOWN_VISUAL_GAPS = {};
 
 // --- coverage: one record per roster fighter -------------------------------
-t('bridge carries all 43 fighters', LOADOUTS.length === 43 && LOADOUT_COUNT === 43);
-t('kombatIds are unique', new Set(LOADOUTS.map((l) => l.kombatId)).size === 43);
+t('bridge carries all 59 fighters', LOADOUTS.length === 59 && LOADOUT_COUNT === 59);
+t('kombatIds are unique', new Set(LOADOUTS.map((l) => l.kombatId)).size === 59);
 t('bridge ids == roster ids', eq(sorted(LOADOUTS.map((l) => l.kombatId)), sorted(FIGHTERS.map((f) => f.id))));
 t('bridge ids == visuals ids', eq(sorted(LOADOUTS.map((l) => l.kombatId)), sorted(FIGHTER_IDS)));
 t('characterIds are unique sprint ids',
-  new Set(LOADOUTS.map((l) => l.characterId)).size === 43
+  new Set(LOADOUTS.map((l) => l.characterId)).size === 59
   && LOADOUTS.every((l) => /^q\d{3}-[a-z0-9]+(-[a-z0-9]+)*$/.test(l.characterId)));
 t('records sorted by queue number',
   LOADOUTS.every((l, i) => i === 0 || LOADOUTS[i - 1].queueNumber < l.queueNumber));
-t('LOADOUT_BY_ID indexes every record', LOADOUT_BY_ID.size === 43);
+t('LOADOUT_BY_ID indexes every record', LOADOUT_BY_ID.size === 59);
 
 // --- per-record shape + roster parity --------------------------------------
 const rosterById = new Map(FIGHTERS.map((f) => [f.id, f]));
@@ -112,8 +132,10 @@ for (const l of LOADOUTS) {
     ['humanoid', 'creature', 'floater', 'other'].includes(l.motionClass));
   t(`${l.kombatId} rig class in domain`,
     ['humanoid', 'creature', 'none'].includes(l.rigClass));
-  t(`${l.kombatId} glbUrl is its Step 4 hosted URL or null`,
-    l.glbUrl === (HOSTED_IDS.includes(l.characterId) ? glbUrlFor(l.characterId) : null));
+  t(`${l.kombatId} glbUrl is its hosted URL (bucket or local) or null`,
+    l.glbUrl === (HOSTED_IDS.includes(l.characterId) ? glbUrlFor(l.characterId)
+      : LOCAL_HOSTED_IDS.includes(l.characterId) ? localGlbUrlFor(l)
+      : null));
   if (l.weapon === null) {
     t(`${l.kombatId} weaponless is a fingerprint fighter`, WEAPONLESS.includes(l.kombatId));
   } else {
@@ -146,8 +168,9 @@ t('weapon spot check: Chucky grips ONE knife (no false dual-wield)',
 // --- availability + previews --------------------------------------------------
 t('available set matches the sprint snapshot',
   eq(sorted(LOADOUTS.filter((l) => l.available).map((l) => l.characterId)), AVAILABLE_IDS));
-t('hosted GLB set matches the Step 4 hosting snapshot',
-  eq(sorted(LOADOUTS.filter((l) => l.glbUrl !== null).map((l) => l.characterId)), HOSTED_IDS));
+t('hosted GLB set matches the hosting snapshot (Step 4 bucket + local wave)',
+  eq(sorted(LOADOUTS.filter((l) => l.glbUrl !== null).map((l) => l.characterId)),
+    sorted([...HOSTED_IDS, ...LOCAL_HOSTED_IDS])));
 t('hosted GLBs are a subset of available fighters',
   LOADOUTS.every((l) => l.glbUrl === null || l.available === true));
 const publishedById = new Map(CHARACTERS.map((c) => [c.id, c]));
