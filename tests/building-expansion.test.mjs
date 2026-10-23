@@ -4,6 +4,9 @@
 // build"):
 // - the catalog grows 16 → 62 pieces and 6 → 12 finishes, with the
 //   Phase 1 pieces and their ids behaving exactly as before
+// - the Phase 3 materials expansion (Merlin, 2026-10-23: "~400
+//   pieces… no limits") grows it again: 62 → 418 pieces, 12 → 15
+//   finishes (gold, ice, thatch join), fifteen spans, twelve floaters
 // - every piece declares its support-law flags (providesSupport /
 //   needsSupport / floating, span where it crosses a gap)
 // - per-piece TINT: an optional hue shift on a placement,
@@ -58,11 +61,11 @@ const PHASE2_IDS = [
 ];
 
 describe('the expanded catalog', () => {
-  it('holds exactly 62 pieces with unique ids — the original 16 untouched', () => {
-    assert.equal(BUILDING_PIECES.length, 62);
+  it('holds exactly 418 pieces with unique ids — the original 16 untouched', () => {
+    assert.equal(BUILDING_PIECES.length, 418);
     assert.equal(PHASE2_IDS.length, 46);
     const ids = new Set(BUILDING_PIECES.map((p) => p.id));
-    assert.equal(ids.size, 62);
+    assert.equal(ids.size, 418);
     for (const id of [...PHASE1_IDS, ...PHASE2_IDS]) assert.ok(pieceById(id), `missing ${id}`);
     // Phase 1 shapes are pinned: same sizes, same finish lists.
     assert.deepEqual(pieceById('wall').size, { w: 4, h: 3, d: 0.3 });
@@ -87,11 +90,11 @@ describe('the expanded catalog', () => {
     }
   });
 
-  it('the support cast is exactly as designed: five spans, four floaters', () => {
+  it('the support cast is exactly as designed: fifteen spans, twelve floaters', () => {
     const spans = BUILDING_PIECES.filter((p) => p.span).map((p) => p.id).sort();
-    assert.deepEqual(spans, ['beam-long', 'bridge-plank', 'bridge-rope', 'bridge-stone-arch', 'sky-walkway']);
+    assert.deepEqual(spans, ['aqueduct', 'beam-causeway', 'beam-long', 'bridge-arch-double', 'bridge-covered', 'bridge-foot', 'bridge-plank', 'bridge-rope', 'bridge-stone-arch', 'bridge-suspension', 'drawbridge', 'log-bridge', 'sky-bridge', 'sky-walkway', 'truss-gantry']);
     const floaters = BUILDING_PIECES.filter((p) => p.floating).map((p) => p.id).sort();
-    assert.deepEqual(floaters, ['elevator-pad', 'mushroom-platform', 'sky-walkway', 'stairs-floating']);
+    assert.deepEqual(floaters, ['buoy', 'cloud-platform', 'elevator-pad', 'floating-crystal', 'floating-island', 'floating-runes-ring', 'glow-orb', 'levitating-stones', 'mushroom-platform', 'sky-bridge', 'sky-walkway', 'stairs-floating']);
     for (const id of ['chimney', 'crystal-cluster', 'rune-pillar', 'lantern-post']) {
       assert.ok(pieceById(id), id);
     }
@@ -109,12 +112,12 @@ describe('the expanded catalog', () => {
   });
 });
 
-describe('the twelve finishes', () => {
-  it('keeps the original six and adds marble, brick, sandstone, copper, crystal-glass, mossy-stone', () => {
-    assert.equal(FINISHES.length, 12);
+describe('the fifteen finishes', () => {
+  it('keeps the original six and adds marble, brick, sandstone, copper, crystal-glass, mossy-stone, gold, ice, thatch', () => {
+    assert.equal(FINISHES.length, 15);
     const ids = FINISHES.map((f) => f.id);
     assert.deepEqual(ids.slice(0, 6), ['timber', 'stone', 'iron', 'glass', 'porcelain', 'obsidian']);
-    for (const id of ['marble', 'brick', 'sandstone', 'copper', 'crystal-glass', 'mossy-stone']) {
+    for (const id of ['marble', 'brick', 'sandstone', 'copper', 'crystal-glass', 'mossy-stone', 'gold', 'ice', 'thatch']) {
       assert.ok(isFinishId(id), id);
       assert.equal(typeof finishById(id).tint, 'number', id);
     }

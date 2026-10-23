@@ -93,10 +93,11 @@ const ctx = (parcel, row, claim, prot) => ({
 describe('the parts catalog', () => {
   it('carries a sane NMS-style starter set with unique ids', () => {
     // Phase 1 shipped 16 pieces; the Phase 2 expansion (Merlin,
-    // 2026-10-23) grows the same catalog to 62 — the originals and
-    // their ids are untouched (tests/building-expansion.test.mjs
-    // pins the full roster).
-    assert.equal(BUILDING_PIECES.length, 62);
+    // 2026-10-23) grew the same catalog to 62, and the Phase 3
+    // materials expansion the same day grew it to 418 — the
+    // originals and their ids are untouched
+    // (tests/building-expansion.test.mjs pins the full roster).
+    assert.equal(BUILDING_PIECES.length, 418);
     const ids = new Set(BUILDING_PIECES.map((p) => p.id));
     assert.equal(ids.size, BUILDING_PIECES.length);
     for (const id of ['foundation-block', 'floor-panel', 'wall', 'wall-door', 'wall-window',
