@@ -483,7 +483,7 @@ describe('the gate — the world lives behind the same lock as the Bay', () => {
     assert.ok(page.includes("import('@/components/earth2/Earth2World')"), 'dynamic import');
     assert.ok(/Earth2World = dynamic\([\s\S]*?ssr: false/.test(page), 'ssr off — no server leak');
     assert.ok(page.includes('walking &&'), 'mounted only in the walking state');
-    assert.ok(page.includes('spawnParcelId={homeBaseId}'), 'spawn follows the home base');
+    assert.ok(page.includes('spawnParcelId={buildSpawnId || homeBaseId}'), 'spawn follows the home base (or the parcel a Build-here press targeted)');
     assert.ok(page.includes('onParcelChange={setSelectedId}'), 'the map selection follows the walker');
   });
 

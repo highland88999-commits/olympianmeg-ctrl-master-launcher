@@ -67,6 +67,29 @@ import {
   FORGE_DAILY_CAP_GOLD,
 } from '@/lib/earth2/forge';
 import { formatGold } from '@/lib/economy/config';
+import { earth2BuildContext, validateEarth2Build } from '@/lib/earth2/building';
+import {
+  claimHomestead,
+  releaseClaim,
+  activeClaimFor,
+} from '@/lib/building/rights';
+import {
+  buildModeGate,
+  loadLocalBuilds,
+  saveLocalBuilds,
+  loadLocalClaims,
+  saveLocalClaims,
+  loadLocalPackups,
+  saveLocalPackups,
+  upsertBuild,
+  removeBuild,
+  myBuildFor,
+  settleLocalClaims,
+  pushBuildToApi,
+  fetchBuildFromApi,
+  postClaimToApi,
+  deleteClaimFromApi,
+} from '@/lib/earth2/build-store';
 
 // The Bay is a three.js scene — load it lazily, client-side only, so
 // the chamber's gate never waits on (or leaks) the 3D chunk.
@@ -116,6 +139,21 @@ export default function Earth2Page() {
   // device only ever runs one 3D scene.
   const [walking, setWalking] = useState(false);
   const [myEmail, setMyEmail] = useState('');
+  const [myId, setMyId] = useState('');
+  // Building (Phase 2): my builds, my homestead claims, and the
+  // blueprint shelf (pack-ups from sold claims). The device store
+  // is the truth while supabase/earth2-buildings.sql is unrun;
+  // the API sync is opportunistic (lib/earth2/build-store.js).
+  const [buildDataLoaded, setBuildDataLoaded] = useState(false);
+  const [myBuilds, setMyBuilds] = useState([]);
+  const [myClaims, setMyClaims] = useState([]);
+  const [packups, setPackups] = useState([]);
+  const [buildSpawnId, setBuildSpawnId] = useState(null);
+  const [buildRequest, setBuildRequest] = useState(null);
+  const buildUser = useMemo(
+    () => ({ id: myId || null, email: myEmail || null }),
+    [myId, myEmail]
+  );
   const [state, setState] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
   const [busy, setBusy] = useState('');
@@ -176,6 +214,7 @@ export default function Earth2Page() {
         if (!alive) return;
         if (hasEarth2Access(email)) {
           setMyEmail(email);
+          setMyId(data?.session?.user?.id || '');
           setGate('open');
           loadState();
         } else {
@@ -190,6 +229,7 @@ export default function Earth2Page() {
       const email = session?.user?.email || '';
       if (hasEarth2Access(email)) {
         setMyEmail(email);
+        setMyId(session?.user?.id || '');
         setGate('open');
         loadState();
       } else {
@@ -247,6 +287,80 @@ export default function Earth2Page() {
   useEffect(() => {
     if (gate === 'open') setBlood(loadBloodSacState());
   }, [gate]);
+
+  // Building state: read the device store once we are in, then
+  // keep it written back on every change (the Phase 1 pattern —
+  // the localStorage ledger in lib/earth2/build-store.js).
+  useEffect(() => {
+    if (gate !== 'open') return;
+    setMyBuilds(loadLocalBuilds());
+    setMyClaims(loadLocalClaims());
+    setPackups(loadLocalPackups());
+    setBuildDataLoaded(true);
+  }, [gate]);
+  useEffect(() => {
+    if (buildDataLoaded) saveLocalBuilds(myBuilds);
+  }, [myBuilds, buildDataLoaded]);
+  useEffect(() => {
+    if (buildDataLoaded) saveLocalClaims(myClaims);
+  }, [myClaims, buildDataLoaded]);
+  useEffect(() => {
+    if (buildDataLoaded) saveLocalPackups(packups);
+  }, [packups, buildDataLoaded]);
+
+  // The pack-up law, locally: whenever fresh ownership lands, any
+  // claimed parcel of mine that now has an owner is settled —
+  // bought by me (claim converts to title, build stays) or by
+  // someone else (build packs up onto the blueprint shelf).
+  useEffect(() => {
+    if (!buildDataLoaded || !state?.parcels || !myClaims.length) return;
+    const res = settleLocalClaims({
+      claims: myClaims,
+      builds: myBuilds,
+      ownerRows: state.parcels,
+      user: buildUser,
+      atMs: Date.now(),
+    });
+    if (!res.changed) return;
+    setMyClaims(res.claims);
+    if (res.builds !== myBuilds) setMyBuilds(res.builds);
+    if (res.packUps.length) {
+      setPackups((prev) => [...prev, ...res.packUps]);
+      setNotice(
+        `📦 ${res.packUps[0].parcelId} sold — your homestead build there packed itself up, pieces intact. It waits on your blueprint shelf below.`
+      );
+    } else if (res.claims.some((c, i) => myClaims[i] && c !== myClaims[i] && c.status === 'purchased')) {
+      setNotice('🏠 You bought a parcel you had claimed — the claim became title, and your build stays exactly where it stands.');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, buildDataLoaded]);
+
+  // Opportunistic server merge: once per visit, ask the builds
+  // API for my parcels' builds. While it answers setupRequired
+  // (or 404s for this account) the device store stands; when the
+  // tables land, server builds merge over local ones.
+  const buildSyncTriedRef = useRef(false);
+  useEffect(() => {
+    if (!buildDataLoaded || !state || buildSyncTriedRef.current) return;
+    buildSyncTriedRef.current = true;
+    (async () => {
+      const headers = await authHeaders();
+      const token = headers.Authorization
+        ? headers.Authorization.replace('Bearer ', '')
+        : null;
+      const fetchImpl = (p, init) => fetch(p, init);
+      const targets = new Set();
+      for (const row of myRows) targets.add(row.parcel_id);
+      for (const c of myClaims) if (c.status === 'active') targets.add(c.parcelId);
+      for (const parcelId of targets) {
+        const data = await fetchBuildFromApi({ token, fetchImpl }, parcelId);
+        if (data && data.ok && data.build) {
+          setMyBuilds((prev) => upsertBuild(prev, data.build));
+        }
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [buildDataLoaded, state]);
 
   // A sac collected down in the Bay.
   const collectSacFromBay = useCallback(() => {
@@ -319,6 +433,18 @@ export default function Earth2Page() {
   const selectedListing = selected
     ? landListings.find((l) => l.parcelId === selected.id) || null
     : null;
+  // Building on the selected parcel: the rights engine's verdict
+  // (with its sentence), my claim there, and my build there.
+  const selectedClaim = selected ? activeClaimFor(myClaims, selected.id) : null;
+  const selectedGate = selected
+    ? buildModeGate(buildUser, selected, selectedRow, selectedClaim)
+    : null;
+  const selectedBuild = selected ? myBuildFor(myBuilds, selected.id, buildUser) : null;
+  const selectedClaimIsMine = !!(
+    selectedClaim &&
+    myEmail &&
+    String(selectedClaim.builderEmail || '').toLowerCase() === myEmail.toLowerCase()
+  );
 
   const forgeLastClaim = setupRequired
     ? previewStart
@@ -413,6 +539,134 @@ export default function Earth2Page() {
     else setNotice(data?.error || 'That step did not register.');
     await loadState();
     setBusy('');
+  };
+
+  // ── Building (Phase 2) ──────────────────────────────────────
+  // A build changed out on the planet (or a blueprint re-placed
+  // here): the device store takes it immediately, and the API
+  // gets its copy opportunistically — while it answers
+  // setupRequired the local save is the whole story.
+  const handleBuildChange = useCallback(
+    (build) => {
+      if (!build) return;
+      setMyBuilds((prev) =>
+        build.pieces && build.pieces.length
+          ? upsertBuild(prev, build)
+          : removeBuild(prev, build.groundId, { id: build.ownerId, email: build.ownerEmail })
+      );
+      (async () => {
+        const headers = await authHeaders();
+        const token = headers.Authorization
+          ? headers.Authorization.replace('Bearer ', '')
+          : null;
+        await pushBuildToApi({ token, fetchImpl: (p, init) => fetch(p, init) }, build);
+      })();
+    },
+    [authHeaders]
+  );
+
+  // Enter the planet aimed at one parcel with build mode opening
+  // on arrival (the world spawns the walker on the parcel; the
+  // build request fires the moment the HUD confirms it).
+  const openBuildOnParcel = (parcel) => {
+    if (!parcel) return;
+    setBuildSpawnId(parcel.id);
+    setBuildRequest({ parcelId: parcel.id, nonce: Date.now() });
+    setWalking(true);
+  };
+
+  const exitWorld = useCallback(() => {
+    setWalking(false);
+    setBuildSpawnId(null);
+    setBuildRequest(null);
+  }, []);
+
+  const apiToken = useCallback(async () => {
+    const headers = await authHeaders();
+    return headers.Authorization ? headers.Authorization.replace('Bearer ', '') : null;
+  }, [authHeaders]);
+
+  const claimSelected = async () => {
+    if (!selected) return;
+    const ctx = earth2BuildContext(
+      selected,
+      selectedRow,
+      activeClaimFor(myClaims, selected.id)
+    );
+    const res = claimHomestead(myClaims, buildUser, ctx, Date.now());
+    if (!res.ok) {
+      setNotice(res.error);
+      return;
+    }
+    setMyClaims(res.claims);
+    setNotice(
+      `🏕️ Homestead claimed on ${selected.id} · ${selected.name}. Walk there and build — if this parcel sells, your build packs itself up and returns to you as a blueprint.`
+    );
+    const token = await apiToken();
+    await postClaimToApi({ token, fetchImpl: (p, init) => fetch(p, init) }, selected.id);
+  };
+
+  const releaseSelected = async () => {
+    if (!selected) return;
+    const res = releaseClaim(myClaims, buildUser, selected.id, Date.now());
+    if (!res.ok) {
+      setNotice(res.error);
+      return;
+    }
+    setMyClaims(res.claims);
+    setNotice(
+      `Homestead claim on ${selected.id} released — the ground is open again. Any build you left there stays in your records.`
+    );
+    const token = await apiToken();
+    await deleteClaimFromApi({ token, fetchImpl: (p, init) => fetch(p, init) }, selected.id);
+  };
+
+  // Re-place a packed-up blueprint on the selected parcel: the
+  // builder must hold rights there, and the blueprint must pass
+  // the Earth 2 validator (catalog law + castle exclusion)
+  // before a single piece lands.
+  const applyBlueprint = (packup) => {
+    if (!packup || !selected) return;
+    const gate = buildModeGate(
+      buildUser,
+      selected,
+      selectedRow,
+      activeClaimFor(myClaims, selected.id)
+    );
+    if (!gate.ok) {
+      setNotice(`📦 ${gate.text}`);
+      return;
+    }
+    const existing = myBuildFor(myBuilds, selected.id, buildUser);
+    if (existing && existing.pieces && existing.pieces.length) {
+      setNotice('📦 You already have a build standing on that parcel — the blueprint waits until the ground is empty.');
+      return;
+    }
+    const v = validateEarth2Build({
+      groundType: 'earth2-parcel',
+      groundId: selected.id,
+      pieces: (packup.pieces || []).map((p) => ({ ...p })),
+    });
+    if (!v.ok) {
+      setNotice(`📦 That blueprint does not fit here: ${v.errors[0]}`);
+      return;
+    }
+    handleBuildChange({
+      ...v.build,
+      ownerId: buildUser.id,
+      ownerEmail: buildUser.email,
+      updatedAt: new Date().toISOString(),
+    });
+    setPackups((prev) => prev.filter((p) => p.id !== packup.id));
+    setNotice(
+      `📦 Blueprint re-placed on ${selected.id} — ${(packup.pieces || []).length} pieces stand again. Walk there to see it.`
+    );
+  };
+
+  const discardBlueprint = (packup) => {
+    if (!packup) return;
+    setPackups((prev) => prev.filter((p) => p.id !== packup.id));
+    setNotice('📦 Blueprint discarded.');
   };
 
   if (gate === 'checking') {
@@ -531,6 +785,9 @@ export default function Earth2Page() {
                   <>the landing meadow at the world&rsquo;s heart</>
                 )}
                 . Stepping on a parcel just reads it out — no rent, no buying on foot.
+                Building is the exception: on land you own (or hold a homestead claim
+                on), the 🔨 button out there opens the workbench — 62 pieces, 12
+                finishes, builds that stream in as you approach.
               </p>
             </div>
             <button
@@ -656,6 +913,51 @@ export default function Earth2Page() {
                       <p className="text-zinc-400">No price — Free Commons are never for sale.</p>
                     )}
                   </div>
+                  {selectedGate && (
+                    <div className="mt-4 rounded-xl border border-emerald-300/25 bg-emerald-400/[0.06] px-3 py-3">
+                      <div className="text-[11px] font-bold tracking-[0.25em] text-emerald-200">
+                        🔨 BUILDING
+                      </div>
+                      <p className="mt-1.5 text-xs leading-relaxed text-zinc-300">
+                        {selectedGate.text}
+                        {selectedBuild && selectedBuild.pieces.length > 0
+                          ? ` Your build here stands at ${selectedBuild.pieces.length} piece${selectedBuild.pieces.length > 1 ? 's' : ''}.`
+                          : ''}
+                        {selectedClaim && !selectedClaimIsMine
+                          ? ' Another builder holds the homestead claim here.'
+                          : ''}
+                      </p>
+                      <div className="mt-2.5 flex flex-wrap gap-2">
+                        {selectedGate.ok && (
+                          <button
+                            type="button"
+                            onClick={() => openBuildOnParcel(selected)}
+                            className="rounded-full border border-emerald-300/60 bg-emerald-400/20 px-4 py-2 text-xs font-bold text-emerald-50 transition hover:bg-emerald-400/35"
+                          >
+                            🔨 Build here — walk &amp; build
+                          </button>
+                        )}
+                        {selectedGate.reason === 'unclaimed' && (
+                          <button
+                            type="button"
+                            onClick={claimSelected}
+                            className="rounded-full border border-amber-300/60 bg-amber-300/10 px-4 py-2 text-xs font-bold text-amber-100 transition hover:bg-amber-300/20"
+                          >
+                            🏕️ Claim a homestead
+                          </button>
+                        )}
+                        {selectedClaimIsMine && (
+                          <button
+                            type="button"
+                            onClick={releaseSelected}
+                            className="rounded-full border border-white/20 bg-white/5 px-4 py-2 text-xs font-semibold text-zinc-200 transition hover:border-red-300/50"
+                          >
+                            Release my claim
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
                   {!selectedRow && selected.ownable && (
                     <button
                       type="button"
@@ -920,6 +1222,68 @@ export default function Earth2Page() {
           </section>
         )}
 
+        {/* The blueprint shelf (Building Phase 2): when a parcel
+            you homesteaded sells, your build packs itself up and
+            lands here, pieces intact — re-place it on any parcel
+            where you hold title or a claim. */}
+        {packups.length > 0 && (
+          <section className="mt-5 rounded-[1.5rem] border border-sky-300/25 bg-sky-400/[0.05] p-5 backdrop-blur-md">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-sm font-black tracking-[0.25em] text-sky-100">
+                📦 YOUR BLUEPRINT SHELF
+              </h2>
+              <span className="text-xs text-zinc-400">
+                {packups.length} packed build{packups.length > 1 ? 's' : ''}
+              </span>
+            </div>
+            <p className="mt-2 max-w-3xl text-sm leading-relaxed text-zinc-300">
+              A homestead is a promise the land market can break: when a parcel you
+              claimed sells, your build packs itself up and waits here — every piece,
+              exactly as you placed it. Tap a parcel you own (or hold a claim on) in
+              the map above, then re-place the blueprint there.
+            </p>
+            <ul className="mt-4 space-y-2">
+              {packups.map((pk) => (
+                <li
+                  key={pk.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/8 bg-black/25 px-3 py-2.5"
+                >
+                  <span className="min-w-0 text-sm text-zinc-200">
+                    <span className="font-semibold text-sky-100">
+                      {(pk.pieces || []).length} pieces
+                    </span>
+                    <span className="text-zinc-400">
+                      {' '}· packed from {pk.parcelId}
+                      {pk.packedAt
+                        ? ` · ${new Date(pk.packedAt).toLocaleDateString('en-CA')}`
+                        : ''}
+                    </span>
+                  </span>
+                  <span className="flex shrink-0 flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => applyBlueprint(pk)}
+                      disabled={!selected}
+                      className="rounded-full border border-sky-300/60 bg-sky-400/15 px-3.5 py-1.5 text-xs font-bold text-sky-100 transition hover:bg-sky-400/30 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {selected
+                        ? `Re-place on ${selected.id}`
+                        : 'Pick a parcel above first'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => discardBlueprint(pk)}
+                      className="rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-xs font-semibold text-zinc-300 transition hover:border-red-300/50"
+                    >
+                      Discard
+                    </button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
         {/* Dracula's Exchange — the blood-sac loop's trading post
             (2026-10-22). The Count presides from the Bay below;
             this panel is where his gifts change hands. */}
@@ -1070,17 +1434,23 @@ export default function Earth2Page() {
           so where you stand out there is what the map shows here. */}
       {walking && (
         <Earth2World
-          spawnParcelId={homeBaseId}
+          spawnParcelId={buildSpawnId || homeBaseId}
           bloodSacs={blood.sacs}
           onBloodSac={collectSacFromBay}
           onFossilExchange={applyFossilPayout}
           onOpenExchange={() => {
-            setWalking(false);
+            exitWorld();
             openExchange();
           }}
           greetSignal={greetSignal}
           onParcelChange={setSelectedId}
-          onExit={() => setWalking(false)}
+          onExit={exitWorld}
+          buildUser={buildUser}
+          ownersByParcel={owners}
+          claims={myClaims}
+          builds={myBuilds}
+          onBuildChange={handleBuildChange}
+          buildRequest={buildRequest}
         />
       )}
     </main>

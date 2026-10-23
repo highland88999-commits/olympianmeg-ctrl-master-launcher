@@ -63,7 +63,7 @@ import {
   createDraculaMachine,
   stepDracula,
 } from '@/lib/earth2/creatures';
-import { isCastleParcel } from '@/lib/earth2/parcels';
+import { isCastleParcel, parcelById } from '@/lib/earth2/parcels';
 import { HAMMOND_NPC, museumSiteParcel } from '@/lib/earth2/museum';
 import {
   loadFossilInventory,
@@ -86,6 +86,7 @@ import {
   groundColorAt,
   parcelAtWorld,
   parcelCenterWorld,
+  parcelWorldRect,
   parcelBorderPoints,
   worldToLatLon,
   biomeForParcel,
@@ -101,11 +102,54 @@ import {
 import {
   STREAM_RADII,
   worldStreamUnits,
+  buildStreamUnits,
   streamEntryUnits,
   streamDistance,
   planStreamActions,
 } from '@/lib/earth2/streaming';
+import {
+  BUILDING_PIECES,
+  PIECE_CATEGORIES,
+  FINISHES,
+  MAX_PIECES_PER_BUILD,
+  pieceById,
+  pieceFootprint,
+  finishAllowed,
+} from '@/lib/building/catalog';
+import { snapPlacement, snapRotation, judgeGhost, validatePlacementSet } from '@/lib/building/placement';
+import { buildPieceGroup, buildGhostGroup, setGhostValidity } from '@/lib/building/piece-render';
+import { PARCEL_BUILD_FRAME } from '@/lib/earth2/building';
+import { activeClaimFor } from '@/lib/building/rights';
+import { buildModeGate, myBuildFor } from '@/lib/earth2/build-store';
 import WalkJoystick from '@/components/world/WalkJoystick';
+
+// The palette's family labels (catalog category ids → the names
+// a builder reads).
+const BUILD_CAT_LABEL = {
+  foundations: 'Foundations', floors: 'Floors', walls: 'Walls & Openings',
+  roofs: 'Roofs & Crowns', access: 'Access', structure: 'Structure',
+  fittings: 'Fittings', spans: 'Spans & Sky', climb: 'Climb',
+  water: 'Water & Edge', life: 'Life & Whimsy', organic: 'Organic',
+};
+
+// The first problem of a whole-set judgement, as one sentence —
+// used when an edit (rotate / raise / remove) would break the
+// set's own law and is refused.
+function firstSetProblem(v) {
+  if (v.overBudget) return `Over the ${MAX_PIECES_PER_BUILD}-piece limit.`;
+  if (v.bounds && v.bounds.violations && v.bounds.violations.length) {
+    return 'A piece would sit outside the parcel or past the height cap.';
+  }
+  if (v.overlaps && v.overlaps.collisions && v.overlaps.collisions.length) {
+    return 'Pieces would overlap.';
+  }
+  if (v.support && v.support.results) {
+    const s = v.support.results.find((r) => !r.supported);
+    if (s) return 'A piece would be left with nothing holding it up.';
+  }
+  if (v.terrain && !v.terrain.ok) return 'A piece would sink into the ground.';
+  return 'That change does not hold together.';
+}
 
 // Deterministic layout RNG (mulberry32) — the same generator the
 // Bay arranges itself with; the world strikes the same poses on
@@ -126,7 +170,7 @@ const CLIMATE_LABEL = {
   subtropical: 'Subtropical', tropical: 'Tropical',
 };
 
-export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOpenExchange, onFossilExchange, greetSignal, onParcelChange, onExit } = {}) {
+export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOpenExchange, onFossilExchange, greetSignal, onParcelChange, onExit, buildUser, ownersByParcel, claims, builds, onBuildChange, buildRequest } = {}) {
   const mountRef = useRef(null);
   const labelsRef = useRef(null);
   const [hud, setHud] = useState(null); // { parcel, biome, lat, lon }
@@ -144,6 +188,249 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   const [hammondCurrency, setHammondCurrency] = useState('gold');
   const [hammondPicks, setHammondPicks] = useState(() => new Set());
   const [hammondResults, setHammondResults] = useState([]);
+
+  // ── Build mode (Building Phase 2) ─────────────────────────────
+  // The scene effect reads the live build state through refs
+  // (mirrored during render, like travelRef); React owns the
+  // panel state. Builds themselves live with the page (device
+  // store + opportunistic API sync in lib/earth2/build-store.js);
+  // this component receives them as props and reports changes
+  // back through onBuildChange.
+  const [buildMode, setBuildMode] = useState(false);
+  const [buildParcelId, setBuildParcelId] = useState(null);
+  const [buildTool, setBuildTool] = useState('place'); // 'place' | 'edit'
+  const [buildCat, setBuildCat] = useState('walls');
+  const [selPieceId, setSelPieceId] = useState('wall');
+  const [selFinish, setSelFinish] = useState('timber');
+  const [selTint, setSelTint] = useState(''); // '' = natural; else degrees
+  const [buildRot, setBuildRot] = useState(0);
+  const [buildLift, setBuildLift] = useState(0);
+  const [ghostState, setGhostState] = useState(null); // { ok, reasons }
+  const [editIndex, setEditIndex] = useState(null);
+  const [buildMsg, setBuildMsg] = useState('');
+  const buildModeRef = useRef({
+    active: false, parcelId: null, tool: 'place',
+    pieceId: 'wall', finish: 'timber', tint: null, rotY: 0,
+    yLift: 0, seatKey: '', seatY: 0, verdictKey: '',
+    ghostPlacement: null, verdict: null, editIndex: -1, carried: null,
+  });
+  const buildPropsRef = useRef({});
+  buildPropsRef.current = {
+    user: buildUser || null,
+    owners: ownersByParcel || null,
+    claims: claims || [],
+    builds: builds || [],
+    onBuildChange: typeof onBuildChange === 'function' ? onBuildChange : null,
+  };
+  const buildSceneRef = useRef({ refreshBuilds: null });
+
+  const gateForParcel = (parcel) => {
+    const p = buildPropsRef.current;
+    const ownerRow = p.owners && typeof p.owners.get === 'function' ? p.owners.get(parcel.id) : null;
+    const claim = activeClaimFor(p.claims, parcel.id);
+    return buildModeGate(p.user, parcel, ownerRow, claim);
+  };
+
+  const commitBuildPieces = (parcelId, pieces) => {
+    const p = buildPropsRef.current;
+    if (!p.user || !p.onBuildChange) return;
+    p.onBuildChange({
+      groundType: 'earth2-parcel',
+      groundId: parcelId,
+      ownerId: p.user.id || null,
+      ownerEmail: p.user.email || null,
+      pieces,
+      updatedAt: new Date().toISOString(),
+    });
+  };
+
+  const enterBuildMode = (parcel) => {
+    if (!parcel) return false;
+    const gate = gateForParcel(parcel);
+    if (!gate.ok) {
+      setNotice(`🔨 ${gate.text}`);
+      return false;
+    }
+    const bm = buildModeRef.current;
+    bm.parcelId = parcel.id;
+    bm.tool = 'place';
+    bm.editIndex = -1;
+    bm.carried = null;
+    bm.seatKey = '';
+    bm.verdictKey = '';
+    setBuildParcelId(parcel.id);
+    setBuildTool('place');
+    setEditIndex(null);
+    setBuildMsg(gate.text);
+    setBuildMode(true);
+    return true;
+  };
+
+  const exitBuildMode = () => {
+    const bm = buildModeRef.current;
+    bm.carried = null; // a carried piece never left the build — nothing to restore
+    bm.editIndex = -1;
+    setBuildMode(false);
+    setEditIndex(null);
+    setGhostState(null);
+  };
+
+  // A chamber "Build here" press arrives as buildRequest; the
+  // world spawns the walker on that parcel, and build mode opens
+  // the moment the HUD confirms the walker stands on it.
+  const pendingBuildRef = useRef(null);
+  useEffect(() => {
+    if (buildRequest && buildRequest.parcelId) {
+      pendingBuildRef.current = buildRequest.parcelId;
+    }
+  }, [buildRequest]);
+  useEffect(() => {
+    const want = pendingBuildRef.current;
+    if (!want || !hud || !hud.parcel) return;
+    if (hud.parcel.id === want) {
+      pendingBuildRef.current = null;
+      enterBuildMode(hud.parcel);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hud, buildRequest]);
+
+  // Keep the stream plan honest as builds change or build mode
+  // opens (the parcel being built on is pinned resident).
+  useEffect(() => {
+    const r = buildSceneRef.current;
+    if (r && typeof r.refreshBuilds === 'function') r.refreshBuilds();
+  }, [builds, buildMode]);
+
+  const pickPiece = (id) => {
+    const piece = pieceById(id);
+    if (!piece) return;
+    const bm = buildModeRef.current;
+    bm.pieceId = id;
+    bm.carried = null;
+    bm.seatKey = '';
+    bm.verdictKey = '';
+    setSelPieceId(id);
+    if (!finishAllowed(piece, selFinish)) {
+      const f = piece.finishes === 'all' ? 'timber' : piece.finishes[0];
+      bm.finish = f;
+      setSelFinish(f);
+    }
+  };
+
+  const pickFinish = (f) => {
+    buildModeRef.current.finish = f;
+    buildModeRef.current.verdictKey = '';
+    setSelFinish(f);
+  };
+
+  const pickTint = (v) => {
+    buildModeRef.current.tint = v === '' ? null : Number(v);
+    buildModeRef.current.verdictKey = '';
+    setSelTint(v);
+  };
+
+  const rotateGhost = (dir) => {
+    const bm = buildModeRef.current;
+    bm.rotY = snapRotation(bm.rotY + dir * 15, bm.pieceId);
+    bm.verdictKey = '';
+    bm.seatKey = '';
+    setBuildRot(bm.rotY);
+  };
+
+  const liftGhost = (dir) => {
+    const bm = buildModeRef.current;
+    bm.yLift = Math.min(20, Math.max(0, Math.round((bm.yLift + dir * 0.25) * 100) / 100));
+    bm.verdictKey = '';
+    setBuildLift(bm.yLift);
+  };
+
+  // Edit-mode actions on the selected placed piece. Every change
+  // is judged as a whole set first (validatePlacementSet): an
+  // edit that would strand, overlap or bury a piece is refused
+  // with the reason, and nothing is committed.
+  const editSelected = (action) => {
+    const p = buildPropsRef.current;
+    const bm = buildModeRef.current;
+    if (!buildParcelId || editIndex === null) return;
+    const mine = myBuildFor(p.builds, buildParcelId, p.user);
+    if (!mine || !mine.pieces[editIndex]) return;
+    const original = mine.pieces[editIndex];
+    if (action === 'move') {
+      // Pick the piece up into the ghost WITHOUT removing it: the
+      // original stays in the build until the ghost is placed
+      // somewhere new (the placement commit splices it out), so
+      // abandoning a move can never lose the piece.
+      bm.carried = { piece: { ...original }, index: editIndex };
+      bm.pieceId = original.pieceId;
+      bm.finish = original.finish;
+      bm.tint = original.tint == null ? null : original.tint;
+      bm.rotY = original.rotY || 0;
+      bm.seatKey = '';
+      bm.verdictKey = '';
+      setSelPieceId(original.pieceId);
+      setSelFinish(original.finish);
+      setSelTint(original.tint == null ? '' : String(original.tint));
+      setBuildRot(bm.rotY);
+      setEditIndex(null);
+      bm.editIndex = -1;
+      setBuildTool('place');
+      bm.tool = 'place';
+      setBuildMsg(`Moving the ${pieceById(original.pieceId)?.name || 'piece'} — aim and tap to set it down.`);
+      return;
+    }
+    const pieces = mine.pieces.slice();
+    const piece = { ...original };
+    if (action === 'remove') pieces.splice(editIndex, 1);
+    else if (action === 'rotate') {
+      piece.rotY = snapRotation((piece.rotY || 0) + 15, piece.pieceId);
+      pieces[editIndex] = piece;
+    } else if (action === 'raise') {
+      piece.y = Math.round(((piece.y || 0) + 0.25) * 100) / 100;
+      pieces[editIndex] = piece;
+    } else if (action === 'lower') {
+      piece.y = Math.max(0, Math.round(((piece.y || 0) - 0.25) * 100) / 100);
+      pieces[editIndex] = piece;
+    } else return;
+    const verdict = validatePlacementSet(pieces, {
+      frame: PARCEL_BUILD_FRAME,
+      terrainHeightAt: () => 0,
+    });
+    if (!verdict.ok) {
+      setBuildMsg(`🔨 ${firstSetProblem(verdict)}`);
+      return;
+    }
+    if (action === 'remove') {
+      setEditIndex(null);
+      bm.editIndex = -1;
+    }
+    setBuildMsg('');
+    commitBuildPieces(buildParcelId, pieces);
+  };
+
+  // The scene reads build state through the ref; React state is
+  // the panel. Mirror the two switches every render (the file's
+  // travelRef pattern), and give the scene a door to close build
+  // mode (Escape) through the same ref-door pattern.
+  buildModeRef.current.active = buildMode;
+  buildModeRef.current.tool = buildTool;
+  const buildExitRef = useRef(() => {});
+  buildExitRef.current = () => exitBuildMode();
+  const buildSelectRef = useRef(() => {});
+  buildSelectRef.current = (i) => setEditIndex(i == null || i < 0 ? null : i);
+  const buildLiftSyncRef = useRef(() => {});
+  buildLiftSyncRef.current = (v) => setBuildLift(v);
+  const buildRotSyncRef = useRef(() => {});
+  buildRotSyncRef.current = (v) => setBuildRot(v);
+  const buildCommitRef = useRef(() => {});
+  buildCommitRef.current = (parcelId, pieces) => commitBuildPieces(parcelId, pieces);
+  const ghostInfoRef = useRef(() => {});
+  ghostInfoRef.current = (verdict) => {
+    setGhostState((prev) => {
+      const next = verdict ? { ok: verdict.ok, reasons: verdict.reasons } : null;
+      if (JSON.stringify(prev) === JSON.stringify(next)) return prev;
+      return next;
+    });
+  };
 
   // The walk input, in the platform's shape (babel's inputRef):
   // the page shell (keyboard, pointer, joystick) writes, the scene
@@ -1608,7 +1895,20 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       };
       function onKeyDown(e) {
         if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') { inputRef.current.keys.shift = true; return; }
-        if (e.code === 'Escape') { exitRef.current(); return; }
+        if (e.code === 'Escape') {
+          // Build mode closes first; the planet exit keeps the
+          // second Escape.
+          if (buildModeRef.current.active) { buildExitRef.current(); return; }
+          exitRef.current();
+          return;
+        }
+        const bm = buildModeRef.current;
+        if (bm.active) {
+          if (e.code === 'KeyR') { bm.rotY = snapRotation(bm.rotY + 15, bm.pieceId); bm.verdictKey = ''; bm.seatKey = ''; buildRotSyncRef.current(bm.rotY); return; }
+          if (e.code === 'KeyQ') { bm.rotY = snapRotation(bm.rotY - 15, bm.pieceId); bm.verdictKey = ''; bm.seatKey = ''; buildRotSyncRef.current(bm.rotY); return; }
+          if (e.code === 'PageUp') { bm.yLift = Math.min(20, Math.round((bm.yLift + 0.25) * 100) / 100); bm.verdictKey = ''; buildLiftSyncRef.current(bm.yLift); e.preventDefault(); return; }
+          if (e.code === 'PageDown') { bm.yLift = Math.max(0, Math.round((bm.yLift - 0.25) * 100) / 100); bm.verdictKey = ''; buildLiftSyncRef.current(bm.yLift); e.preventDefault(); return; }
+        }
         const k = KEYMAP[e.code];
         if (k) {
           inputRef.current.keys[k] = true;
@@ -1628,7 +1928,54 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       // pickups and Dracula himself.
       const raycaster = new THREE.Raycaster();
       const ndc = new THREE.Vector2();
+      // Build-mode taps: in Place tool a lawful ghost commits;
+      // in Edit tool the tap selects the placed piece it lands
+      // on (or clears the selection on empty ground).
+      function buildTap(e) {
+        const bm = buildModeRef.current;
+        const rect = renderer.domElement.getBoundingClientRect();
+        if (!rect.width || !rect.height) return;
+        ndc.set(
+          ((e.clientX - rect.left) / rect.width) * 2 - 1,
+          -((e.clientY - rect.top) / rect.height) * 2 + 1,
+        );
+        raycaster.setFromCamera(ndc, camera);
+        if (bm.tool === 'place') {
+          if (bm.verdict && bm.verdict.ok && bm.ghostPlacement) {
+            const pieces = myParcelPieces(bm.parcelId).slice();
+            // Completing a move: splice the carried original out
+            // first (appends never shifted its index this
+            // session), then the ghost lands as the moved piece.
+            if (bm.carried && pieces[bm.carried.index]
+              && pieces[bm.carried.index].pieceId === bm.carried.piece.pieceId
+              && pieces[bm.carried.index].x === bm.carried.piece.x
+              && pieces[bm.carried.index].z === bm.carried.piece.z) {
+              pieces.splice(bm.carried.index, 1);
+            }
+            bm.carried = null;
+            pieces.push(bm.ghostPlacement);
+            buildCommitRef.current(bm.parcelId, pieces);
+            bm.verdictKey = ''; // the set changed — judge fresh
+          } else if (bm.verdict && bm.verdict.reasons && bm.verdict.reasons.length) {
+            noticeRef.current(`🔨 ${bm.verdict.reasons[0]}`);
+          }
+          return;
+        }
+        const st = streamState.get(`build:${bm.parcelId}`);
+        if (!st || st.status !== 'resident' || !st.record) {
+          bm.editIndex = -1;
+          buildSelectRef.current(-1);
+          return;
+        }
+        const hits = raycaster.intersectObjects(st.record.roots, true);
+        let obj = hits.length ? hits[0].object : null;
+        while (obj && !obj.userData.buildPiece) obj = obj.parent;
+        const idx = obj ? obj.userData.buildPiece.index : -1;
+        bm.editIndex = idx;
+        buildSelectRef.current(idx);
+      }
       function handleTap(e) {
+        if (buildModeRef.current.active) { buildTap(e); return; }
         const rect = renderer.domElement.getBoundingClientRect();
         if (!rect.width || !rect.height) return;
         ndc.set(
@@ -1741,6 +2088,10 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           drac.smoke = null;
           dracBatBase = null;
         }
+        if (unit.kind === 'build' && unit.build && buildModeRef.current.parcelId === unit.build.groundId) {
+          buildModeRef.current.editIndex = -1;
+          buildSelectRef.current(-1);
+        }
         // A mosquito feeding on a host that just streamed out
         // goes back to cruising; its sacs and bursts are
         // independent scene citizens and stay.
@@ -1751,6 +2102,141 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           }
         }
         for (const s of unit.slugs) setStatusFor(s, null);
+      }
+
+      // ── Build units (Building Phase 2) ──────────────────────
+      // A build renders as one group of procedural piece meshes
+      // (lib/building/piece-render.js) seated by the same datum
+      // law as everything else: a piece's world seat is the
+      // terrain height at its own centre plus its stored y. Each
+      // piece group carries userData.buildPiece { parcelId,
+      // index } so edit-mode taps can find it.
+      function placeBuildUnit(unit) {
+        const build = unit.build;
+        const parcel = parcelById(build.groundId);
+        if (!parcel) return null;
+        const rect = parcelWorldRect(parcel);
+        const group = new THREE.Group();
+        build.pieces.forEach((piece, i) => {
+          const g = buildPieceGroup(THREE, piece.pieceId, piece.finish, piece.tint);
+          const wx = rect.minX + piece.x;
+          const wz = rect.minZ + piece.z;
+          g.position.set(wx, heightAt(wx, wz) + (piece.y || 0), wz);
+          g.rotation.y = ((piece.rotY || 0) * Math.PI) / 180;
+          g.userData.buildPiece = { parcelId: build.groundId, index: i };
+          group.add(g);
+        });
+        scene.add(group);
+        return { roots: [group] };
+      }
+
+      // ── The build-mode ghost ────────────────────────────────
+      // A translucent copy of the selected piece follows the
+      // walker's aim across the parcel being built on, seated on
+      // the tallest top under its footprint (stacking), snapped
+      // by the placement engine, and judged live by judgeGhost —
+      // green when the placement is lawful, red with the first
+      // reason when it is not. The verdict recomputes only when
+      // the snapped cell, rotation, lift or the parcel's build
+      // signature changes, never blindly per frame.
+      let ghostGroup = null;
+      let ghostPieceId = null;
+
+      function myParcelPieces(parcelId) {
+        const p = buildPropsRef.current;
+        const mine = myBuildFor(p.builds, parcelId, p.user);
+        return mine ? mine.pieces : [];
+      }
+
+      function updateBuildGhost() {
+        const bm = buildModeRef.current;
+        if (!bm.active || !bm.parcelId) {
+          if (ghostGroup) {
+            scene.remove(ghostGroup);
+            ghostGroup = null;
+            ghostPieceId = null;
+          }
+          return;
+        }
+        if (bm.tool !== 'place') {
+          if (ghostGroup) ghostGroup.visible = false;
+          return;
+        }
+        if (!ghostGroup || ghostPieceId !== bm.pieceId) {
+          if (ghostGroup) scene.remove(ghostGroup);
+          ghostGroup = buildGhostGroup(THREE, bm.pieceId);
+          ghostPieceId = bm.pieceId;
+          scene.add(ghostGroup);
+        }
+        const parcel = parcelById(bm.parcelId);
+        if (!parcel) { ghostGroup.visible = false; return; }
+        const rect = parcelWorldRect(parcel);
+        // Aim: march the camera ray down to the terrain.
+        const dir = new THREE.Vector3();
+        camera.getWorldDirection(dir);
+        let ax = camera.position.x + dir.x * 9;
+        let az = camera.position.z + dir.z * 9;
+        for (let s = 1.5; s <= 18; s += 0.4) {
+          const px = camera.position.x + dir.x * s;
+          const pz = camera.position.z + dir.z * s;
+          const py = camera.position.y + dir.y * s;
+          ax = px; az = pz;
+          if (py <= heightAt(px, pz) + 0.05) break;
+        }
+        const candidate = {
+          pieceId: bm.pieceId,
+          x: Math.min(27.9, Math.max(0.1, ax - rect.minX)),
+          y: 0,
+          z: Math.min(27.9, Math.max(0.1, az - rect.minZ)),
+          rotY: bm.rotY,
+          finish: bm.finish,
+        };
+        if (bm.tint !== null && bm.tint !== undefined) candidate.tint = bm.tint;
+        const snapped = snapPlacement(candidate);
+        const existing = myParcelPieces(bm.parcelId);
+        const cellKey = `${bm.parcelId}|${snapped.x}|${snapped.z}|${snapped.rotY}|${bm.pieceId}`;
+        if (cellKey !== bm.seatKey) {
+          bm.seatKey = cellKey;
+          bm.yLift = 0;
+          buildLiftSyncRef.current(0);
+          // Stacking seat: the tallest top whose plan overlaps
+          // the ghost's footprint — pieces rest on pieces.
+          let seat = 0;
+          const piece = pieceById(snapped.pieceId);
+          const ghostFp = piece ? pieceFootprint(piece, snapped) : null;
+          if (ghostFp) {
+            for (const p of existing) {
+              const pp = pieceById(p.pieceId);
+              const fp = pp ? pieceFootprint(pp, p) : null;
+              if (!fp) continue;
+              const overlap =
+                fp.minX < ghostFp.maxX - 0.01 && ghostFp.minX < fp.maxX - 0.01 &&
+                fp.minZ < ghostFp.maxZ - 0.01 && ghostFp.minZ < fp.maxZ - 0.01;
+              if (overlap && fp.topY > seat) seat = fp.topY;
+            }
+          }
+          bm.seatY = seat;
+        }
+        const existingBuild = (buildPropsRef.current.builds || []).find(
+          (b) => b && b.groundType === 'earth2-parcel' && b.groundId === bm.parcelId
+        );
+        const sig = existingBuild ? `${existingBuild.updatedAt || ''}|${existing.length}` : 'none';
+        const verdictKey = `${cellKey}|${bm.seatY + bm.yLift}|${sig}|${bm.finish}|${bm.tint ?? ''}`;
+        if (verdictKey !== bm.verdictKey) {
+          bm.verdictKey = verdictKey;
+          const placed = { ...snapped, y: Math.round((bm.seatY + bm.yLift) * 100) / 100 };
+          const verdict = judgeGhost(existing, placed, { frame: PARCEL_BUILD_FRAME });
+          bm.ghostPlacement = verdict.placement;
+          bm.verdict = verdict;
+          setGhostValidity(THREE, ghostGroup, verdict.ok);
+          ghostInfoRef.current(verdict);
+        }
+        if (!bm.ghostPlacement) { ghostGroup.visible = false; return; }
+        const wx = rect.minX + bm.ghostPlacement.x;
+        const wz = rect.minZ + bm.ghostPlacement.z;
+        ghostGroup.visible = true;
+        ghostGroup.position.set(wx, heightAt(wx, wz) + bm.ghostPlacement.y, wz);
+        ghostGroup.rotation.y = (bm.ghostPlacement.rotY * Math.PI) / 180;
       }
 
       async function placeStreamUnit(unit) {
@@ -1782,6 +2268,8 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             return placeMosquitos();
           case 'museum':
             return placeMuseum(unit);
+          case 'build':
+            return placeBuildUnit(unit);
           case 'court': {
             const roots = [];
             const castleEntry = entryOf('castle-transylvania');
@@ -1847,14 +2335,61 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         streamState.delete(unit.key);
       }
 
+      // Build units are dynamic: their plan is recomputed from
+      // the current builds prop on every evaluation, merged with
+      // the static world plan. A build whose pieces changed while
+      // resident is released and re-placed fresh (its signature is
+      // pieces + updatedAt); a build that vanished (packed up, or
+      // emptied) releases outright. The parcel being built on is
+      // PINNED — it never releases mid-build.
+      let buildSigs = new Map();
       function updateStreaming() {
-        const actions = planStreamActions(streamUnits, new Set(streamState.keys()), walker.x, walker.z);
-        for (const u of actions.release) releaseStreamUnit(u);
+        const bUnits = buildStreamUnits(buildPropsRef.current.builds || []);
+        const sigNow = new Map();
+        for (const u of bUnits) {
+          sigNow.set(u.key, `${(u.build.pieces || []).length}|${u.build.updatedAt || ''}|${JSON.stringify(u.build.pieces)}`);
+        }
+        const bmNow = buildModeRef.current;
+        const pinnedNow = bmNow.active && bmNow.parcelId ? `build:${bmNow.parcelId}` : null;
+        for (const [key, sig] of sigNow) {
+          if (streamState.has(key) && buildSigs.has(key) && buildSigs.get(key) !== sig) {
+            const unit = bUnits.find((x) => x.key === key);
+            if (!unit) continue;
+            const st = streamState.get(key);
+            if (key === pinnedNow && st && st.status === 'resident') {
+              // The parcel under the builder's feet: swap the
+              // group in place (synchronous) so a placement never
+              // flickers the build out for a frame.
+              teardownStreamUnit(unit, st.record);
+              const record = placeBuildUnit(unit);
+              if (record) streamState.set(key, { status: 'resident', record });
+              else streamState.delete(key);
+            } else {
+              releaseStreamUnit(unit);
+            }
+          }
+        }
+        for (const key of [...streamState.keys()]) {
+          if (key.startsWith('build:') && !sigNow.has(key)) {
+            releaseStreamUnit({ key, kind: 'build', slugs: [], build: null });
+          }
+        }
+        buildSigs = sigNow;
+        const bm = buildModeRef.current;
+        const pinnedKey = bm.active && bm.parcelId ? `build:${bm.parcelId}` : null;
+        const actions = planStreamActions(
+          streamUnits.concat(bUnits), new Set(streamState.keys()), walker.x, walker.z
+        );
+        for (const u of actions.release) {
+          if (u.key === pinnedKey) continue;
+          releaseStreamUnit(u);
+        }
         for (const u of actions.load) {
           streamState.set(u.key, { status: 'loading', record: null });
           loadChain = loadChain.then(() => runStreamLoad(u));
         }
       }
+      buildSceneRef.current.refreshBuilds = () => updateStreaming();
 
       {
         const entryUnits = streamEntryUnits(walker.x, walker.z);
@@ -1933,6 +2468,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         );
         camera.rotation.set(walker.pitch, walker.yaw, 0);
         syncParcel(false);
+        updateBuildGhost();
         castleNear = Math.hypot(walker.x - CASTLE_AT[0], walker.z - CASTLE_AT[1]) < 800;
 
         // Hammond's counter range: the trade prompt lives within
@@ -2092,6 +2628,17 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   }, []);
 
   const parcel = hud ? hud.parcel : null;
+  const buildParcel = buildParcelId ? parcelById(buildParcelId) : null;
+  const myParcelBuild = buildParcelId
+    ? myBuildFor(builds || [], buildParcelId, buildUser || null)
+    : null;
+  const buildPieceCount = myParcelBuild ? myParcelBuild.pieces.length : 0;
+  const selPieceDef = pieceById(selPieceId);
+  const allowedFinishes = FINISHES.filter((f) => !selPieceDef || finishAllowed(selPieceDef, f.id));
+  const categoryPieces = BUILDING_PIECES.filter((p) => p.category === buildCat);
+  const selectedPlaced = editIndex !== null && myParcelBuild
+    ? myParcelBuild.pieces[editIndex] || null
+    : null;
 
   return (
     <div className="fixed inset-0 z-[80] overflow-hidden bg-[#0a1410]">
@@ -2136,6 +2683,15 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             🧛 Bring sacs to Dracula
           </button>
         </div>
+        {parcel && !buildMode && (
+          <button
+            type="button"
+            onClick={() => enterBuildMode(parcel)}
+            className="rounded-full border border-emerald-300/40 bg-emerald-500/20 px-3.5 py-2 text-[12px] font-bold text-emerald-50 backdrop-blur-sm transition hover:bg-emerald-500/35"
+          >
+            🔨 Build on this parcel
+          </button>
+        )}
         {nearHammond && !hammondOpen && (
           <div className="flex flex-wrap items-center gap-2 rounded-full border border-amber-300/30 bg-black/50 py-1.5 pl-3 pr-1.5 text-[11px] text-zinc-100">
             <span>🏛️ <strong className="text-amber-100">John Hammond</strong> is at his counter</span>
@@ -2174,7 +2730,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           layout throughout (no overlaps, per the house CSS law):
           header, currency choice, the pack as tappable rows, the
           last trade's receipts, and the settle button. */}
-      {hammondOpen && (
+      {hammondOpen && !buildMode && (
         <div className="absolute inset-x-2 bottom-2 sm:inset-x-auto sm:bottom-5 sm:left-1/2 sm:w-[430px] sm:-translate-x-1/2">
           <div className="flex max-h-[64vh] flex-col gap-3 overflow-y-auto rounded-[1.25rem] border border-amber-300/35 bg-[#12100a]/95 p-4 text-zinc-100 shadow-2xl backdrop-blur-md">
             <div className="flex items-start justify-between gap-3">
@@ -2304,6 +2860,249 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
               Payouts land in the same tallies as Dracula&rsquo;s gifts — check the
               chamber&rsquo;s Exchange panel for the running count.
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* Build mode — the builder's workbench. Flow layout, no
+          overlaps: header, tool switch, then the Place workbench
+          (families → pieces → finishes → tint → aim controls →
+          the ghost's live verdict) or the Edit bench (the tapped
+          piece and its actions). */}
+      {buildMode && buildParcel && (
+        <div className="absolute inset-x-2 bottom-2 sm:inset-x-auto sm:bottom-5 sm:left-1/2 sm:w-[470px] sm:-translate-x-1/2">
+          <div className="flex max-h-[62vh] flex-col gap-3 overflow-y-auto rounded-[1.25rem] border border-emerald-300/35 bg-[#0a120c]/95 p-4 text-zinc-100 shadow-2xl backdrop-blur-md">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[10px] font-black tracking-[0.25em] text-emerald-200">
+                  🔨 BUILDING — {buildParcel.id}
+                </div>
+                <div className="mt-0.5 text-lg font-black leading-tight text-white">
+                  {buildParcel.name}
+                </div>
+                <p className="mt-1 text-[11px] leading-snug text-zinc-400">
+                  {buildPieceCount} / {MAX_PIECES_PER_BUILD} pieces · {buildMsg}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={exitBuildMode}
+                className="shrink-0 rounded-full border border-emerald-300/50 bg-emerald-400/20 px-3 py-2 text-[12px] font-bold text-emerald-50 transition hover:bg-emerald-400/35"
+              >
+                ✓ Done
+              </button>
+            </div>
+
+            <div className="flex gap-2" role="group" aria-label="Build tool">
+              {[
+                ['place', '🧱 Place pieces'],
+                ['edit', '🛠️ Edit placed'],
+              ].map(([tool, label]) => (
+                <button
+                  key={tool}
+                  type="button"
+                  aria-pressed={buildTool === tool}
+                  onClick={() => { buildModeRef.current.tool = tool; setBuildTool(tool); }}
+                  className={`flex-1 rounded-full border px-3 py-2.5 text-sm font-bold transition ${
+                    buildTool === tool
+                      ? 'border-emerald-300/70 bg-emerald-400/25 text-emerald-50'
+                      : 'border-white/20 bg-white/5 text-zinc-300 hover:bg-white/10'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {buildTool === 'place' ? (
+              <>
+                <div className="flex flex-wrap gap-1.5">
+                  {PIECE_CATEGORIES.map((cat) => (
+                    <button
+                      key={cat}
+                      type="button"
+                      aria-pressed={buildCat === cat}
+                      onClick={() => setBuildCat(cat)}
+                      className={`rounded-full border px-2.5 py-1.5 text-[11px] font-bold transition ${
+                        buildCat === cat
+                          ? 'border-emerald-300/70 bg-emerald-400/25 text-emerald-50'
+                          : 'border-white/15 bg-white/5 text-zinc-300 hover:bg-white/10'
+                      }`}
+                    >
+                      {BUILD_CAT_LABEL[cat] || cat}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-2 gap-1.5">
+                  {categoryPieces.map((piece) => (
+                    <button
+                      key={piece.id}
+                      type="button"
+                      aria-pressed={selPieceId === piece.id}
+                      onClick={() => pickPiece(piece.id)}
+                      className={`min-w-0 rounded-xl border px-2.5 py-2 text-left transition ${
+                        selPieceId === piece.id
+                          ? 'border-emerald-300/70 bg-emerald-400/15'
+                          : 'border-white/12 bg-black/30 hover:bg-black/50'
+                      }`}
+                    >
+                      <span className="block truncate text-[12px] font-semibold text-zinc-50">{piece.name}</span>
+                      <span className="block text-[10px] text-zinc-400">
+                        {piece.size.w} × {piece.size.d} m{piece.span ? ' · span' : ''}{piece.floating ? ' · floats' : ''}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] font-bold text-zinc-400">Finish</span>
+                  {allowedFinishes.map((f) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      aria-pressed={selFinish === f.id}
+                      onClick={() => pickFinish(f.id)}
+                      className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-bold transition ${
+                        selFinish === f.id
+                          ? 'border-emerald-300/70 bg-emerald-400/25 text-emerald-50'
+                          : 'border-white/15 bg-white/5 text-zinc-300 hover:bg-white/10'
+                      }`}
+                    >
+                      <span
+                        aria-hidden="true"
+                        className="inline-block h-3 w-3 shrink-0 rounded-full border border-white/30"
+                        style={{ background: `#${f.tint.toString(16).padStart(6, '0')}` }}
+                      />
+                      {f.name}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[11px] font-bold text-zinc-400">Tint</span>
+                  <input
+                    type="range"
+                    min={-180}
+                    max={180}
+                    step={5}
+                    value={selTint === '' ? 0 : Number(selTint)}
+                    onChange={(e) => pickTint(e.target.value)}
+                    className="min-w-0 flex-1 accent-emerald-400"
+                    aria-label="Tint hue shift in degrees"
+                  />
+                  <span className="text-[11px] text-zinc-300">
+                    {selTint === '' ? 'natural' : `${Number(selTint) > 0 ? '+' : ''}${selTint}°`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => pickTint('')}
+                    className="rounded-full border border-white/15 bg-white/5 px-2.5 py-1.5 text-[11px] font-bold text-zinc-300 transition hover:bg-white/10"
+                  >
+                    Natural
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => rotateGhost(-1)}
+                    className="flex-1 rounded-full border border-white/20 bg-white/5 px-3 py-2 text-[12px] font-bold text-zinc-100 transition hover:bg-white/10"
+                  >
+                    ⟲ Turn
+                  </button>
+                  <span className="flex items-center rounded-full border border-white/10 bg-black/30 px-3 text-[12px] font-bold text-zinc-200">
+                    {buildRot}°
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => rotateGhost(1)}
+                    className="flex-1 rounded-full border border-white/20 bg-white/5 px-3 py-2 text-[12px] font-bold text-zinc-100 transition hover:bg-white/10"
+                  >
+                    Turn ⟳
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => liftGhost(1)}
+                    className="flex-1 rounded-full border border-white/20 bg-white/5 px-3 py-2 text-[12px] font-bold text-zinc-100 transition hover:bg-white/10"
+                  >
+                    ▲ Raise{buildLift > 0 ? ` +${buildLift}` : ''}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => liftGhost(-1)}
+                    className="flex-1 rounded-full border border-white/20 bg-white/5 px-3 py-2 text-[12px] font-bold text-zinc-100 transition hover:bg-white/10"
+                  >
+                    ▼ Lower
+                  </button>
+                </div>
+
+                {ghostState ? (
+                  <p className={`rounded-xl border px-3 py-2.5 text-xs leading-snug ${
+                    ghostState.ok
+                      ? 'border-emerald-300/40 bg-emerald-400/10 text-emerald-100'
+                      : 'border-red-300/40 bg-red-400/10 text-red-100'
+                  }`}>
+                    {ghostState.ok
+                      ? '✓ That fits — tap the world to place it.'
+                      : `✗ ${ghostState.reasons[0] || 'That placement does not work.'}`}
+                  </p>
+                ) : (
+                  <p className="rounded-xl border border-white/10 bg-black/30 px-3 py-2.5 text-xs leading-snug text-zinc-400">
+                    Aim at the ground of your parcel — the ghost follows.
+                  Pieces stack on pieces; R / Q turn it, PgUp / PgDn lift it.
+                  Tap or click to place.
+                  </p>
+                )}
+              </>
+            ) : (
+              <>
+                {selectedPlaced ? (
+                  <div className="flex flex-col gap-2">
+                    <p className="text-sm text-zinc-200">
+                      Selected: <strong className="text-emerald-100">
+                        {pieceById(selectedPlaced.pieceId)?.name || selectedPlaced.pieceId}
+                      </strong>{' '}
+                      <span className="text-zinc-400">
+                        ({FINISHES.find((f) => f.id === selectedPlaced.finish)?.name || selectedPlaced.finish})
+                      </span>
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        ['move', '✥ Move'],
+                        ['rotate', '⟳ Rotate 15°'],
+                        ['raise', '▲ Raise'],
+                        ['lower', '▼ Lower'],
+                        ['remove', '🗑 Remove'],
+                      ].map(([action, label]) => (
+                        <button
+                          key={action}
+                          type="button"
+                          onClick={() => editSelected(action)}
+                          className={`rounded-full border px-3 py-2 text-[12px] font-bold transition ${
+                            action === 'remove'
+                              ? 'border-red-300/50 bg-red-400/15 text-red-100 hover:bg-red-400/30'
+                              : 'border-white/20 bg-white/5 text-zinc-100 hover:bg-white/10'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-[11px] leading-snug text-zinc-500">
+                      Every edit is judged by the same law as the ghost — an edit that
+                      would strand or overlap a piece is refused, with the reason.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="rounded-xl border border-white/10 bg-black/30 px-3 py-2.5 text-xs leading-relaxed text-zinc-400">
+                    Tap one of your placed pieces to select it — then move it,
+                    turn it, raise or lower it, or take it away. Pieces on other
+                    people&rsquo;s parcels are never yours to edit.
+                  </p>
+                )}
+              </>
+            )}
           </div>
         </div>
       )}
