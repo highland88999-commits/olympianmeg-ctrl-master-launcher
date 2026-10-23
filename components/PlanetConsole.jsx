@@ -21,6 +21,7 @@ import { TouchControls } from '@/components/mars/MarsScene';
 import { IcSunrise, IcSun, IcSunset, IcMoon, IcWings, IcClose, IcRoute } from "@/app/artemis-ui/icons";
 import { lifeTypeLabel } from '@/lib/planets/planet-seeds';
 import { getLandscape } from '@/lib/planets/landscape';
+import { planetMorphology, bauplanSignature } from '@/lib/planets/creatures';
 
 const PRESET_ICONS = [IcSunrise, IcSun, IcSunset, IcMoon];
 const ELEMENT_LABELS = [
@@ -148,6 +149,10 @@ export default function PlanetConsole({
   selected, onSelect, inputRef, onExit, posRef,
 }) {
   const landscape = useMemo(() => getLandscape(profile), [profile]);
+  // The planet's bauplan in plain words — derived from the same
+  // morphology params the fauna are built from, so the line can
+  // never describe a different animal than the one on the ground.
+  const bauplan = useMemo(() => bauplanSignature(planetMorphology(profile)), [profile]);
   // Minimize state for the two overlay windows — same pattern and
   // rationale as MarsConsole (Merlin bug report, 2026-10-22: overlay
   // windows must minimize on a phone), remembered on-device.
@@ -196,6 +201,7 @@ export default function PlanetConsole({
           <button className="minbtn" onClick={() => toggleWorldMin(true)} aria-label="Minimize world information" title="Minimize">—</button>
         </div>
         <div className="life">🌱 <b>{lifeTypeLabel(seedEntry.lifeType)}</b> — {seedEntry.lifeLabel}</div>
+        <div className="life">🧬 {bauplan}</div>
         <RegionReadout profile={profile} posRef={posRef} />
         <div className="regions" aria-label="Surface regions">
           {landscape.biomes.map((b) => {

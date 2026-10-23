@@ -199,10 +199,14 @@ test('every creature derives from the biome blend at its spawn anchor', () => {
       // two regions it stands between.
       const support = (b.top.archetypeWeights[c.archetype] || 0) + (b.second.archetypeWeights[c.archetype] || 0);
       assert.ok(support > 0, `${key} ${c.id}: ${c.archetype} unsupported by its regions`);
-      // Body-plan params stay inside the archetype ranges (scaled by
-      // the regions' size biases, which live in [0.92, 1.18]).
+      // Body-plan params stay inside the archetype ranges scaled by
+      // the full biology envelope: region size biases [0.92, 1.18]
+      // × the planet bauplan's elongation (family envelopes span
+      // [0.85, 1.40]) × the species' lenMul [0.93, 1.07] — total
+      // [0.73, 1.77]. (Widened 2026-10-22 with the morphology layer:
+      // proportions are now planet property, not archetype property.)
       const arch = ARCHETYPES[c.archetype];
-      assert.ok(c.params.bodyLen >= arch.bodyLen[0] * 0.9 && c.params.bodyLen <= arch.bodyLen[1] * 1.2);
+      assert.ok(c.params.bodyLen >= arch.bodyLen[0] * 0.7 && c.params.bodyLen <= arch.bodyLen[1] * 1.8);
       assert.ok(c.params.tempo >= arch.tempo[0] && c.params.tempo <= arch.tempo[1]);
       assert.ok(/^#[0-9a-f]{6}$/.test(c.params.colorHex), `${key} ${c.id} colour`);
     }
