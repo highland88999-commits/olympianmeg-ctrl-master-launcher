@@ -19,7 +19,12 @@
 // adds the aquatic wing: a carved lake in the south-west with the
 // eight sea creatures swimming it on their measured spine chains
 // (bones.js resolveSwimRig), surfacing on their own periods — and
-// Indominus Rex prowling the west rim as the second apex. Eating,
+// Indominus Rex prowling the west rim as the second apex. Round 3
+// adds the aerial wing: eight more flyers on per-species circuits
+// (creatures.js FLYERS) — giants high and slow over the grounds,
+// skimmers low over the lake — flapping in bursts and flattening
+// into glides, their wings driven off each rig's measured chains
+// (bones.js resolveFlyerWings). Eating,
 // hunting, sleeping and the egg cycle are NOT this round — presence
 // and idle life only, honestly labelled as such on the page.
 //
@@ -31,7 +36,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { EARTH2_MODELS, EARTH2_MODEL_BY_SLUG, earth2PlacedModels, earth2PendingModels, earth2ModelUrl, fetchEarth2ModelUrls } from '@/lib/earth2/models';
 import { supabase } from '@/lib/supabase';
-import { resolveBones, normalizeJointName, resolveMosquitoRig, resolveBatWings, resolveSwimRig } from '@/lib/earth2/bones';
+import { resolveBones, normalizeJointName, resolveMosquitoRig, resolveBatWings, resolveSwimRig, resolveFlyerWings } from '@/lib/earth2/bones';
 import {
   COMPY_SWARM,
   MOSQUITO_CONFIG,
@@ -39,6 +44,7 @@ import {
   DRACULA_TIMINGS,
   LAKE,
   SWIMMERS,
+  FLYERS,
   lakeBedDepthAt,
   lakeBedYAt,
   surfacePhase,
@@ -419,6 +425,13 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
         const bones = bonesOf(modelScene);
         const roles = resolveBones([...bones.keys()]);
         const roleBone = (name) => (name ? bones.get(normalizeJointName(name)) || null : null);
+        // Wings: the generic resolver reads the humanoid template's
+        // arm chains; the Tripo-native flyers carry theirs in
+        // unnamed fans only the measured table knows — so the
+        // flyer resolver (which itself passes the humanoid arms
+        // through) wins whenever it finds a pair.
+        const flyerWings = resolveFlyerWings([...bones.keys()]);
+        const wingSource = flyerWings.length ? flyerWings : roles.wings;
         return {
           dialect: roles.dialect,
           spine: roles.spine.map(roleBone).filter(Boolean),
@@ -429,7 +442,7 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
             side: l.side, pair: l.pair,
             thigh: roleBone(l.thigh), calf: roleBone(l.calf), foot: roleBone(l.foot),
           })).filter((l) => l.thigh),
-          wings: roles.wings.map((w) => ({ side: w.side, chain: w.chain.map(roleBone).filter(Boolean) })).filter((w) => w.chain.length),
+          wings: wingSource.map((w) => ({ side: w.side, chain: w.chain.map(roleBone).filter(Boolean) })).filter((w) => w.chain.length),
         };
       }
 
@@ -482,7 +495,13 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
           };
           const spot = SPOTS[entry.slug];
           if (entry.kind === 'flyer') {
-            animal.fly = { cx: 0, cz: -8, r: 58, h: 30, speed: 0.055, a: rng() * 6.28 };
+            // Per-species circuit (creatures.js FLYERS) — the
+            // Pteranodon's profile is its round-1 circle verbatim
+            // (same centre, radius, height, pace). The fallback
+            // mirrors it for any flyer without a profile.
+            const fp = FLYERS[entry.slug] || { cx: 0, cz: -8, r: 58, h: 30, speed: 0.055, dir: 1, flapHz: 0.38, flapAmp: 0.22, cycle: 14, glideDuty: 0.3, bob: 1.6 };
+            animal.fly = { ...fp, a: rng() * 6.28 };
+            animal.glideOff = rng();
             root.position.set(animal.fly.cx + animal.fly.r, animal.fly.h, animal.fly.cz);
           } else if (spot && spot.walk) {
             animal.walker = { ...spot.walk, theta: spot.walk.a0 };
@@ -1486,15 +1505,24 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
 
         if (a.flyer && a.fly) {
           const f = a.fly;
-          f.a += dt * f.speed;
+          f.a += dt * f.speed * f.dir;
           const x = f.cx + Math.cos(f.a) * f.r;
           const z = f.cz + Math.sin(f.a) * f.r;
-          const nx = f.cx + Math.cos(f.a + 0.05) * f.r;
-          const nz = f.cz + Math.sin(f.a + 0.05) * f.r;
-          a.root.position.set(x, f.h + Math.sin(t * 0.5 + ph) * 1.6, z);
+          const nx = f.cx + Math.cos(f.a + 0.05 * f.dir) * f.r;
+          const nz = f.cz + Math.sin(f.a + 0.05 * f.dir) * f.r;
+          a.root.position.set(x, f.h + Math.sin(t * 0.5 + ph) * f.bob, z);
           a.root.rotation.y = Math.atan2(nx - x, nz - z);
-          a.root.rotation.z = 0.28; // bank into the circle
-          const flap = Math.sin(t * 2.4 + ph) * 0.22;
+          a.root.rotation.z = 0.28 * f.dir; // bank into the circle
+          // Wingbeat in bursts, then a flat-winged glide: the
+          // envelope eases on surfacePhase — the same window the
+          // swimmers surface on — with the species' glide share;
+          // in the glide the wings settle to a slight dihedral.
+          // The wing chains themselves come from the rig
+          // (resolveFlyerWings via resolveRoles): arm chains on
+          // the humanoid template, measured fans on the
+          // Tripo-native three.
+          const glide = surfacePhase(t / f.cycle + (a.glideOff || 0), f.glideDuty);
+          const flap = Math.sin(t * f.flapHz * Math.PI * 2 + ph) * f.flapAmp * (1 - glide) + glide * 0.05;
           for (const w of R.wings) {
             const sgn = w.side === 'left' ? 1 : -1;
             w.chain.forEach((b, i) => bend(b, a.bind, AXIS_Z, flap * sgn * (i === 0 ? 1 : 0.45)));
@@ -1644,6 +1672,12 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
         above the deep, and their backs and fins break the surface as they
         circle — and Indominus Rex prowls the west rim opposite the tar pit,
         the Bay's second apex.
+        New this round: wings over the lake — a Quetzalcoatlus and a
+        Hatzegopteryx circle high and slow above the grounds, Tapejara and
+        Nyctosaurus ride the middle air, little Pterodactylus and
+        Archaeopteryx flutter below them, and Dimorphodon and
+        Rhamphorhynchus skim the water on quick wings, every flyer
+        flapping in bursts and flattening into glides on its own rhythm.
         Drag to look around, scroll to zoom, tap a mosquito to shoot it.
       </p>
 

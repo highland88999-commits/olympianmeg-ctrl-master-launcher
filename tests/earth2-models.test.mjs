@@ -1,18 +1,19 @@
 // tests/earth2-models.test.mjs
 // Earth 2 — Dinosaur Bay (Merlin, 2026-10-22):
-// - the models manifest: 48 placed foundry models + only
+// - the models manifest: 56 placed foundry models + only
 //   Pachycephalosaurus honestly pending (never uploaded —
 //   file null, no stand-in)
 // - every placed file exists under public/models/earth2, parses as a
 //   GLB, stayed game-weight (<= 5 MB), and kept its rig (skins >= 1
 //   for creatures) through the optimization pass — the five
-//   Transylvania arrivals and the nine aquatic-round arrivals pin
-//   their exact joint counts
+//   Transylvania arrivals, the nine aquatic-round arrivals and the
+//   eight aerial-round arrivals pin their exact joint counts
 // - the bone-role resolver against the real rig dialects, using the
 //   actual joint lists measured off the Studio files (humanoid
 //   retarget, Tripo-native, Mixamo, and the measured unnamed-rig
 //   resolvers for the mosquito and the bat), plus the swim
-//   resolver against the sea cast's measured joint trees
+//   resolver against the sea cast's measured joint trees and the
+//   flyer wing resolver against each dialect family
 // - the chamber wiring: the Bay is mounted, the owner gate is intact
 //
 // Run: node --test tests/earth2-models.test.mjs   (from the repo root)
@@ -28,8 +29,8 @@ import {
   earth2PlacedModels,
   earth2PendingModels,
 } from '../lib/earth2/models.js';
-import { resolveBones, normalizeJointName, resolveMosquitoRig, resolveBatWings, resolveSwimRig } from '../lib/earth2/bones.js';
-import { LAKE, SWIMMERS, lakeBedDepthAt, lakeBedYAt, surfacePhase } from '../lib/earth2/creatures.js';
+import { resolveBones, normalizeJointName, resolveMosquitoRig, resolveBatWings, resolveSwimRig, resolveFlyerWings } from '../lib/earth2/bones.js';
+import { LAKE, SWIMMERS, FLYERS, lakeBedDepthAt, lakeBedYAt, surfacePhase } from '../lib/earth2/creatures.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, '..');
@@ -44,9 +45,9 @@ function parseGlb(buf) {
 }
 
 describe('the Bay manifest', () => {
-  it('holds 50 entries: 48 placed files, the compy swarm riding its source model, 1 awaiting upload', () => {
-    assert.equal(EARTH2_MODELS.length, 50);
-    assert.equal(earth2PlacedModels().length, 48);
+  it('holds 58 entries: 56 placed files, the compy swarm riding its source model, 1 awaiting upload', () => {
+    assert.equal(EARTH2_MODELS.length, 58);
+    assert.equal(earth2PlacedModels().length, 56);
     const pending = earth2PendingModels();
     assert.equal(pending.length, 1);
     assert.deepEqual(
@@ -88,10 +89,10 @@ describe('the Bay manifest', () => {
   });
 
   it('slugs are unique and kind counts match the foundry roster', () => {
-    assert.equal(new Set(EARTH2_MODELS.map((m) => m.slug)).size, 50);
+    assert.equal(new Set(EARTH2_MODELS.map((m) => m.slug)).size, 58);
     const by = (k) => EARTH2_MODELS.filter((m) => m.kind === k).length;
     assert.equal(by('dinosaur'), 18);
-    assert.equal(by('flyer'), 2);
+    assert.equal(by('flyer'), 10);
     assert.equal(by('marine'), 8);
     assert.equal(by('plant'), 10);
     assert.equal(by('landform'), 9);
@@ -203,6 +204,176 @@ describe('the aquatic-round arrivals kept their skeletons through the weight pas
       assert.equal(skins[0].joints.length, joints, `${slug} joint count`);
     });
   }
+});
+
+describe('the aerial-round arrivals kept their skeletons through the weight pass', () => {
+  // Same law as the earlier rounds: joint counts measured off the
+  // raw Studio exports must survive EXACTLY — a lost joint is a
+  // lost wing segment. Six ride the 78-joint humanoid-retarget
+  // template (arm chains skin the wings); the three Tripo-native
+  // flyers keep their measured counts (quetzalcoatlus 12,
+  // tapejara 42, pterodactylus 38) — their wings are unnamed
+  // bone_N fans the flyer resolver reads from its table.
+  const EXPECTED_JOINTS = {
+    'hatzegopteryx': 78,
+    'rhamphorhynchus': 78,
+    'nyctosaurus': 78,
+    'dimorphodon': 78,
+    'archaeopteryx': 78,
+    'quetzalcoatlus': 12,
+    'tapejara': 42,
+    'pterodactylus': 38,
+  };
+  for (const [slug, joints] of Object.entries(EXPECTED_JOINTS)) {
+    it(`${slug}.glb carries exactly ${joints} joints`, () => {
+      const buf = readFileSync(join(repo, 'public', 'models', 'earth2', `${slug}.glb`));
+      const json = parseGlb(buf);
+      const skins = json.skins || [];
+      assert.equal(skins.length, 1, `${slug} has one skin`);
+      assert.equal(skins[0].joints.length, joints, `${slug} joint count`);
+    });
+  }
+});
+
+// The three Tripo-native flyers' joint lists, measured off the
+// raw Studio files 2026-10-22 (skin order). Their wings live in
+// unnamed bone_N chains — these lists pin the measured table in
+// resolveFlyerWings (bones.js): quetzalcoatlus's only side chains
+// off bone_1, tapejara's two Spine_2 fans, pterodactylus's two
+// bone_8 forks, with sides read off the skin-weight centroids
+// (head end + up define the animal's left and right).
+const QUETZALCOATLUS_JOINTS = 'tripo::Root|bone_1|tripo::Spine_0|tripo::Spine_1|tripo::Head_0|bone_5|bone_6|bone_7|bone_8|tripo::0_Left_Limb_0|tripo::0_Left_Limb_1|tripo::0_Left_Limb_2'.split('|');
+const TAPEJARA_JOINTS = 'tripo::Root|tripo::Spine_0|tripo::Spine_1|tripo::Spine_2|tripo::Spine_3|tripo::Spine_4|tripo::Head_0|bone_7|bone_8|bone_9|bone_10|bone_11|bone_12|bone_13|bone_14|bone_15|bone_16|bone_17|bone_18|bone_19|bone_20|bone_21|bone_22|bone_23|bone_24|bone_25|bone_26|bone_27|bone_28|bone_29|tripo::0_Left_Limb_0|tripo::0_Left_Limb_1|tripo::0_Left_Limb_2|tripo::0_Left_Limb_3|tripo::0_Right_Limb_0|tripo::0_Right_Limb_1|tripo::0_Right_Limb_2|tripo::0_Right_Limb_3|tripo::Tail_0|bone_39|bone_40|tripo::Tail_1'.split('|');
+const PTERODACTYLUS_JOINTS = 'tripo::Root|bone_1|bone_2|tripo::Tail_0|tripo::Tail_1|tripo::Spine_0|bone_6|bone_7|bone_8|bone_9|tripo::Head_0|tripo::Head_1|bone_12|bone_13|bone_14|bone_15|bone_16|bone_17|bone_18|bone_19|bone_20|bone_21|bone_22|bone_23|bone_24|tripo::0_Left_Limb_0|tripo::0_Left_Limb_1|tripo::0_Left_Limb_2|tripo::0_Left_Limb_3|bone_29|tripo::0_Right_Limb_0|tripo::0_Right_Limb_1|tripo::0_Right_Limb_2|tripo::0_Right_Limb_3|tripo::Spine_1|bone_35|bone_36|bone_37'.split('|');
+
+describe('the aerial wing — manifest, flight profiles and the castle law', () => {
+  const bySlug = Object.fromEntries(EARTH2_MODELS.map((m) => [m.slug, m]));
+  const SKY = ['quetzalcoatlus', 'hatzegopteryx', 'tapejara', 'nyctosaurus', 'pterodactylus', 'dimorphodon', 'rhamphorhynchus', 'archaeopteryx'];
+  const CASTLE = [-24, -100]; // LANDFORM_SPOTS in the Bay
+
+  it('all eight new flyers are placed flyer entries at their natural wingspans', () => {
+    for (const slug of SKY) {
+      assert.equal(bySlug[slug].kind, 'flyer', slug);
+      assert.equal(bySlug[slug].status, 'placed', slug);
+      assert.equal(bySlug[slug].file, `/models/earth2/${slug}.glb`, slug);
+      assert.equal(bySlug[slug].scaleBasis, 'length', `${slug} spans on the flyer convention`);
+      assert.ok(FLYERS[slug], `${slug} carries a flight profile`);
+    }
+    assert.equal(bySlug['quetzalcoatlus'].scaleM, 10.5);
+    assert.equal(bySlug['hatzegopteryx'].scaleM, 10);
+    assert.equal(bySlug['tapejara'].scaleM, 5);
+    assert.equal(bySlug['nyctosaurus'].scaleM, 2.8);
+    assert.equal(bySlug['pterodactylus'].scaleM, 1.5);
+    assert.equal(bySlug['dimorphodon'].scaleM, 1.5);
+    assert.equal(bySlug['rhamphorhynchus'].scaleM, 1.8);
+    assert.equal(bySlug['archaeopteryx'].scaleM, 0.6);
+  });
+
+  it('the Pteranodon keeps its round-1 circuit verbatim as its profile', () => {
+    const p = FLYERS['pteranodon'];
+    assert.deepEqual(
+      { cx: p.cx, cz: p.cz, r: p.r, h: p.h, speed: p.speed },
+      { cx: 0, cz: -8, r: 58, h: 30, speed: 0.055 },
+    );
+  });
+
+  it('every flight profile is flyable: real circuit, real wingbeat, a glide share', () => {
+    for (const slug of [...SKY, 'pteranodon']) {
+      const P = FLYERS[slug];
+      assert.ok(P.r > 0 && P.h > 0 && P.speed > 0, slug);
+      assert.ok(P.flapHz > 0 && P.flapAmp > 0, slug);
+      assert.ok(P.glideDuty > 0 && P.glideDuty < 1, `${slug} glide share is a fraction`);
+      assert.ok(P.cycle > 0 && P.bob > 0, slug);
+      assert.ok(P.dir === 1 || P.dir === -1, slug);
+    }
+  });
+
+  it('no circuit passes through Castle Transylvania — clear of its walls or above its towers', () => {
+    // The castle stands 40 m tall on a ~39 m footprint
+    // (half-diagonal ≈ 27 m): a circuit is lawful when its
+    // closest approach to the castle's centre stays beyond the
+    // walls, or when it cruises above 45 m across the south.
+    for (const slug of [...SKY, 'pteranodon']) {
+      const P = FLYERS[slug];
+      const closest = Math.hypot(P.cx - CASTLE[0], P.cz - CASTLE[1]) - P.r;
+      assert.ok(closest > 28 || P.h > 45, `${slug} clears the castle (closest ${closest.toFixed(1)} m at ${P.h} m)`);
+    }
+  });
+
+  it('the giants ride high and slow; the skimmers own the lake surface', () => {
+    assert.ok(FLYERS['quetzalcoatlus'].h >= 45, 'quetzalcoatlus rides highest');
+    assert.ok(FLYERS['hatzegopteryx'].h >= 40, 'hatzegopteryx rides high');
+    assert.ok(FLYERS['archaeopteryx'].flapHz > FLYERS['hatzegopteryx'].flapHz, 'the little wings beat faster');
+    for (const slug of ['dimorphodon', 'rhamphorhynchus']) {
+      const P = FLYERS[slug];
+      assert.deepEqual([P.cx, P.cz], LAKE.center, `${slug} circles the lake itself`);
+      assert.ok(P.h <= 8, `${slug} skims — never climbs`);
+      assert.ok(P.r < LAKE.radius, `${slug} stays over the water`);
+    }
+  });
+
+  it('the Bay wires the aerial wing: profiles in, wings resolved, glide shared', () => {
+    const bay = read('components/earth2/DinosaurBay.jsx');
+    assert.ok(bay.includes('FLYERS'), 'flight profiles drive the circuits');
+    assert.ok(bay.includes('resolveFlyerWings'), 'wings resolve off the measured tables');
+    assert.ok(bay.includes('glideDuty'), 'the flap/glide envelope is per-species');
+    assert.ok(bay.includes('wings over the lake'), 'the intro names the filled sky');
+  });
+});
+
+describe('the flyer wing resolver — one pin per dialect family', () => {
+  it('humanoid retarget: the arm chains are the wings (the Pteranodon template)', () => {
+    const wings = resolveFlyerWings(TREX_JOINTS);
+    assert.equal(wings.length, 2);
+    assert.deepEqual(wings.find((w) => w.side === 'left').chain, ['L_Upperarm', 'L_Forearm', 'L_Hand']);
+    assert.deepEqual(wings.find((w) => w.side === 'right').chain, ['R_Upperarm', 'R_Forearm', 'R_Hand']);
+  });
+
+  it('quetzalcoatlus (12j sparse Tripo): the two bone_1 side chains, folded wings', () => {
+    const wings = resolveFlyerWings(QUETZALCOATLUS_JOINTS);
+    assert.deepEqual(wings, [
+      { side: 'left', chain: ['bone_7', 'bone_8'] },
+      { side: 'right', chain: ['bone_5', 'bone_6'] },
+    ]);
+  });
+
+  it('tapejara (42j): the two Spine_2 spar fans — the bone_23 rear fan stays undriven', () => {
+    const wings = resolveFlyerWings(TAPEJARA_JOINTS);
+    assert.deepEqual(wings, [
+      { side: 'left', chain: ['bone_7', 'bone_8', 'bone_9', 'bone_10', 'bone_11', 'bone_12'] },
+      { side: 'right', chain: ['bone_15', 'bone_16', 'bone_17', 'bone_18', 'bone_19', 'bone_20'] },
+    ]);
+    assert.ok(!wings.flatMap((w) => w.chain).includes('bone_23'), 'the trailing-edge fan is not a spar');
+  });
+
+  it('pterodactylus (38j): the two bone_8 forks — the lone claw fingers stay undriven', () => {
+    const wings = resolveFlyerWings(PTERODACTYLUS_JOINTS);
+    assert.deepEqual(wings, [
+      { side: 'left', chain: ['bone_12', 'bone_13', 'bone_14', 'bone_15', 'bone_16'] },
+      { side: 'right', chain: ['bone_18', 'bone_19', 'bone_20', 'bone_21', 'bone_22'] },
+    ]);
+    const driven = wings.flatMap((w) => w.chain);
+    assert.ok(!driven.includes('bone_17') && !driven.includes('bone_23'), 'claw fingers are not wings');
+  });
+
+  it('survives three-sanitized names (GLTFLoader strips the colons)', () => {
+    const san = TAPEJARA_JOINTS.map((n) => n.replace(/:/g, ''));
+    const wings = resolveFlyerWings(san);
+    assert.equal(wings.length, 2);
+    assert.equal(wings[0].chain[0], 'bone_7');
+    const sanQ = QUETZALCOATLUS_JOINTS.map((n) => n.replace(/:/g, ''));
+    assert.equal(resolveFlyerWings(sanQ).length, 2);
+  });
+
+  it('non-flyers and empty input resolve empty, never throw', () => {
+    assert.deepEqual(resolveFlyerWings(TRICERATOPS_JOINTS), []);
+    // The mosquito has bone_5…bone_8 AND bone_9 (and 79 joints):
+    // the quetzalcoatlus table must refuse it twice over.
+    assert.deepEqual(resolveFlyerWings(MOSQUITO_JOINTS), []);
+    assert.deepEqual(resolveFlyerWings(BAT_JOINTS), []);
+    assert.deepEqual(resolveFlyerWings([]), []);
+    assert.deepEqual(resolveFlyerWings(null), []);
+  });
 });
 
 // The sea cast's joint trees, measured off the raw Studio files
