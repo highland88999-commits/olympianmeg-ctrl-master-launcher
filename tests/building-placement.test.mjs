@@ -9,7 +9,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { pieceById } from '../lib/building/catalog.js';
+import { pieceById, pieceFootprint } from '../lib/building/catalog.js';
 import {
   GRID_SNAP_M,
   ROTATION_SNAP_DEG,
@@ -20,6 +20,9 @@ import {
   rotationStepFor,
   snapRotation,
   snapPlacement,
+  clampPlacementToFrame,
+  stackingSeat,
+  deriveBuildCandidate,
   spanEnds,
   supportInfo,
   checkBounds,
@@ -306,5 +309,103 @@ describe('validatePlacementSet — the whole judgement in one call', () => {
     assert.equal(over.overBudget, true);
     assert.equal(over.ok, false);
     assert.equal(validatePlacementSet(pieces.slice(0, 400)).ok, true);
+  });
+});
+
+describe('frame fitting — the build-mode aim (clampPlacementToFrame)', () => {
+  it('leaves a placement that already fits exactly where it stands, and never mutates', () => {
+    const raw = at('foundation-block', 14, 0, 14);
+    const fitted = clampPlacementToFrame(raw);
+    assert.equal(fitted.x, 14);
+    assert.equal(fitted.z, 14);
+    assert.equal(raw.x, 14, 'the input is never mutated');
+  });
+
+  it('a 6 × 6 foundation aimed at the corner slides to (3, 3) and fits', () => {
+    const fitted = clampPlacementToFrame(at('foundation-slab-wide', 0.5, 0, 0.5));
+    assert.equal(fitted.x, 3);
+    assert.equal(fitted.z, 3);
+    assert.equal(checkBounds([fitted]).ok, true);
+  });
+
+  it('a 4 × 4 block aimed past mid-parcel is pulled back inside the frame', () => {
+    const fitted = clampPlacementToFrame(at('foundation-block', 27, 0, 14));
+    assert.equal(fitted.x, 26, 'footprint comes to rest at [24, 28]');
+    assert.equal(checkBounds([fitted]).ok, true);
+  });
+
+  it('clamps by the ROTATED footprint (a long span turned across the edge)', () => {
+    // bridge-plank runs 8 m on local X; turned 90° its length
+    // lies along Z, so the z axis is the one that must give.
+    const fitted = clampPlacementToFrame(at('bridge-plank', 14, 0, 26, 90));
+    const fp = pieceFootprint(pieceById('bridge-plank'), fitted);
+    assert.ok(fp.minZ >= 0 && fp.maxZ <= DEFAULT_FRAME.depth, `z footprint ${fp.minZ}..${fp.maxZ} sits inside`);
+    assert.equal(checkBounds([fitted]).ok, true);
+  });
+
+  it('a piece wider than the frame is centred — and the bounds judge still refuses it honestly', () => {
+    const narrow = { width: 5, depth: 28, maxY: 60 };
+    const fitted = clampPlacementToFrame(at('foundation-slab-wide', 0.5, 0, 14), narrow);
+    assert.equal(fitted.x, 2.5, 'centred on the too-narrow frame');
+    assert.equal(checkBounds([fitted], narrow).ok, false, 'no silent pass for an impossible fit');
+  });
+
+  it('unknown pieces pass through untouched, for the judge to report', () => {
+    const fitted = clampPlacementToFrame(at('no-such-piece', 99, 0, 99));
+    assert.equal(fitted.x, 99);
+    assert.equal(fitted.z, 99);
+  });
+});
+
+describe('stacking seat + the tap-to-aim derivation (deriveBuildCandidate)', () => {
+  it('the seat is the tallest top under the footprint — or open ground', () => {
+    const base = [at('foundation-block', 14, 0, 14)]; // top at 0.6
+    assert.equal(stackingSeat([], at('wall', 14, 0, 14)), 0);
+    assert.equal(stackingSeat(base, at('wall', 14, 0, 14)), 0.6);
+    assert.equal(stackingSeat(base, at('wall', 24, 0, 24)), 0, 'no plan overlap, no seat');
+    const tower = [...base, at('wall', 14, 0.6, 14)]; // the wall's top is 3.6
+    assert.equal(stackingSeat(tower, at('roof-pitched', 14, 0, 14)), 3.6);
+  });
+
+  it('a 6 × 6 aimed at the corner derives to a lawful placement at (3, 0, 3)', () => {
+    const d = deriveBuildCandidate([], { pieceId: 'foundation-slab-wide', x: 0.4, y: 0, z: 0.4, rotY: 0, finish: 'stone' });
+    assert.equal(d.verdict.ok, true, d.verdict.reasons.join(' | '));
+    assert.equal(d.placement.x, 3);
+    assert.equal(d.placement.z, 3);
+    assert.equal(d.placement.y, 0);
+    assert.equal(d.seat, 0);
+    assert.equal(checkBounds([d.placement]).ok, true, 'the derived placement is in frame');
+  });
+
+  it('a wall tapped onto a foundation seats on its top and is lawful', () => {
+    const d = deriveBuildCandidate(
+      [at('foundation-block', 14, 0, 14)],
+      { pieceId: 'wall', x: 14.2, y: 0, z: 13.8, rotY: 0, finish: 'timber' },
+    );
+    assert.equal(d.verdict.ok, true, d.verdict.reasons.join(' | '));
+    assert.equal(d.seat, 0.6);
+    assert.equal(d.placement.y, 0.6);
+  });
+
+  it('lift rides on top of the seat', () => {
+    const d = deriveBuildCandidate(
+      [],
+      { pieceId: 'foundation-block', x: 14, y: 0, z: 14, rotY: 0, finish: 'stone' },
+      { lift: 0.5 },
+    );
+    assert.equal(d.placement.y, 0.5);
+    assert.equal(d.verdict.ok, true, d.verdict.reasons.join(' | '));
+  });
+
+  it('the judge still refuses what no clamp can save', () => {
+    // A roof derived into empty air: clamping fixes frames,
+    // not gravity — the support law still says no.
+    const d = deriveBuildCandidate(
+      [],
+      { pieceId: 'roof-pitched', x: 14, y: 0, z: 14, rotY: 0, finish: 'timber' },
+      { lift: 3 },
+    );
+    assert.equal(d.verdict.ok, false);
+    assert.ok(d.verdict.reasons.some((r) => /holds it up/.test(r)), d.verdict.reasons.join(' | '));
   });
 });

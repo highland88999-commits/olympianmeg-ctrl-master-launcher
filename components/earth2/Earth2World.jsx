@@ -175,7 +175,7 @@ import {
   pieceFootprint,
   finishAllowed,
 } from '@/lib/building/catalog';
-import { snapPlacement, snapRotation, judgeGhost, validatePlacementSet } from '@/lib/building/placement';
+import { snapPlacement, snapRotation, judgeGhost, validatePlacementSet, clampPlacementToFrame, deriveBuildCandidate } from '@/lib/building/placement';
 import { buildPieceGroup, buildGhostGroup, setGhostValidity } from '@/lib/building/piece-render';
 import { PARCEL_BUILD_FRAME } from '@/lib/earth2/building';
 import { activeClaimFor } from '@/lib/building/rights';
@@ -229,6 +229,110 @@ const CLIMATE_LABEL = {
   subtropical: 'Subtropical', tropical: 'Tropical',
 };
 
+// ── The Earth 2 concourse (Merlin's design order, 2026-10-23) ──
+// The standing in-world HUD lives in PANELS, like the main hub's
+// Concourse: each panel drags by its header, shrinks to just its
+// header, and remembers where it was left — positions and
+// collapsed states persist on the device (localStorage). A panel
+// takes pointer events only on its own box; everywhere else the
+// screen belongs to the world. Dragging follows the Concourse
+// box-drag pattern: press the header (never a button on it),
+// move, drop — the header handle always stays reachable, so a
+// panel can never be lost off-screen.
+const PANEL_LS_KEY = 'earth2:panels:v1';
+const PANEL_IDS = ['parcel', 'actions', 'build'];
+
+function loadPanelLayout() {
+  try {
+    const raw = localStorage.getItem(PANEL_LS_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch { return {}; }
+}
+
+function defaultPanelPos(id) {
+  const vw = typeof window !== 'undefined' ? window.innerWidth : 1280;
+  const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
+  if (id === 'actions') {
+    // Wide screens: top-right, beside the parcel panel, like the
+    // old HUD row. Narrow screens can't fit both across, so the
+    // controls stack under the parcel panel instead of over it.
+    return vw >= 660 ? { x: Math.max(8, vw - 308), y: 10 } : { x: 10, y: 176 };
+  }
+  if (id === 'build') return { x: Math.max(8, Math.round((vw - 470) / 2)), y: Math.max(10, vh - 560) };
+  return { x: 10, y: 10 };
+}
+
+// A panel may roam almost anywhere, but its header — the handle
+// it is dragged and un-shrunk by — must stay on the screen.
+function clampPanelXY(x, y) {
+  const vw = typeof window !== 'undefined' ? window.innerWidth : 1280;
+  const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
+  return {
+    x: Math.min(Math.max(4, x), Math.max(4, vw - 72)),
+    y: Math.min(Math.max(4, y), Math.max(4, vh - 44)),
+  };
+}
+
+function E2Panel({ layout, onMove, onToggle, panelClass = '', headerClass = '', bodyClass = '', header, children }) {
+  const elRef = useRef(null);
+  const beginDrag = (e) => {
+    if (e.button != null && e.button !== 0) return;
+    // Buttons, links and inputs on the header keep their own
+    // taps — the drag stands down over them (the Concourse law).
+    if (e.target.closest('button, a, input, select, textarea, label')) return;
+    const el = elRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startLeft = rect.left;
+    const startTop = rect.top;
+    let cur = { x: startLeft, y: startTop };
+    let moved = false;
+    const onMoveEv = (ev) => {
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (!moved && Math.hypot(dx, dy) < 4) return;
+      moved = true;
+      cur = clampPanelXY(startLeft + dx, startTop + dy);
+      onMove(cur);
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMoveEv);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    };
+    window.addEventListener('pointermove', onMoveEv);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  };
+  return (
+    <div
+      ref={elRef}
+      className={`pointer-events-auto absolute z-20 ${panelClass}`}
+      style={{ left: layout.x, top: layout.y }}
+    >
+      <div
+        onPointerDown={beginDrag}
+        className={`flex cursor-grab touch-none select-none items-center gap-2 ${headerClass}`}
+      >
+        <div className="min-w-0 flex-1">{header}</div>
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-label={layout.collapsed ? 'Expand panel' : 'Shrink panel'}
+          aria-expanded={!layout.collapsed}
+          className="shrink-0 rounded-full border border-white/20 bg-white/5 px-2 py-0.5 text-[11px] font-black leading-none text-zinc-200 transition hover:bg-white/15"
+        >
+          {layout.collapsed ? '＋' : '－'}
+        </button>
+      </div>
+      {!layout.collapsed && <div className={bodyClass}>{children}</div>}
+    </div>
+  );
+}
+
 export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOpenExchange, onFossilExchange, greetSignal, onParcelChange, onExit, buildUser, ownersByParcel, claims, builds, onBuildChange, buildRequest } = {}) {
   const mountRef = useRef(null);
   const labelsRef = useRef(null);
@@ -250,6 +354,31 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   const [hammondCurrency, setHammondCurrency] = useState('gold');
   const [hammondPicks, setHammondPicks] = useState(() => new Set());
   const [hammondResults, setHammondResults] = useState([]);
+
+  // ── The concourse panels' layout (drag + shrink, persisted) ──
+  const [panelLayout, setPanelLayout] = useState(() => {
+    const stored = loadPanelLayout();
+    const out = {};
+    for (const id of PANEL_IDS) {
+      const s = stored[id] && typeof stored[id] === 'object' ? stored[id] : {};
+      const d = defaultPanelPos(id);
+      const pos = clampPanelXY(
+        Number.isFinite(s.x) ? s.x : d.x,
+        Number.isFinite(s.y) ? s.y : d.y,
+      );
+      out[id] = { x: pos.x, y: pos.y, collapsed: !!s.collapsed };
+    }
+    return out;
+  });
+  useEffect(() => {
+    try { localStorage.setItem(PANEL_LS_KEY, JSON.stringify(panelLayout)); } catch { /* storage unavailable */ }
+  }, [panelLayout]);
+  const movePanel = (id, pos) => {
+    setPanelLayout((prev) => ({ ...prev, [id]: { ...prev[id], x: pos.x, y: pos.y } }));
+  };
+  const togglePanel = (id) => {
+    setPanelLayout((prev) => ({ ...prev, [id]: { ...prev[id], collapsed: !prev[id].collapsed } }));
+  };
 
   // ── Build mode (Building Phase 2) ─────────────────────────────
   // The scene effect reads the live build state through refs
@@ -813,13 +942,40 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       // Precipitation: one points cloud in a box around the
       // walker, recycled as it falls — rain fast and sparse-
       // bright, snow slow and fat, set by the weather mapping.
+      // Each kind wears a CRISP canvas sprite (rain: a thin
+      // hard-edged streak; snow: a small sharp disc with a
+      // one-step falloff — no soft blur). A bare PointsMaterial
+      // has no map and draws every point as a raw SQUARE; at
+      // the old sizes (1.6 / 2.6 world units) a drop near the
+      // camera became an enormous pale slab filling the screen
+      // (Merlin's drizzle video, 2026-10-23). The points now
+      // stay small — fine sharp weather, never blobs.
       const PRECIP_COUNT = 650;
       const precipGeo = new THREE.BufferGeometry();
       const precipPos = new Float32Array(PRECIP_COUNT * 3);
       precipGeo.setAttribute('position', new THREE.BufferAttribute(precipPos, 3));
-      const precipMat = new THREE.PointsMaterial({
-        color: 0xcfe4ff, size: 1.7, transparent: true, opacity: 0, depthWrite: false, sizeAttenuation: true,
+      const makePrecipTexture = (w, h, draw) => {
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        draw(c.getContext('2d'), w, h);
+        return new THREE.CanvasTexture(c);
+      };
+      const rainTex = makePrecipTexture(16, 64, (g, w, h) => {
+        g.fillStyle = 'rgba(255,255,255,0.5)';
+        g.fillRect(w / 2 - 2, 3, 4, h - 6);
+        g.fillStyle = 'rgba(255,255,255,1)';
+        g.fillRect(w / 2 - 1, 0, 2, h);
       });
+      const snowTex = makePrecipTexture(32, 32, (g, w, h) => {
+        g.fillStyle = 'rgba(255,255,255,0.35)';
+        g.beginPath(); g.arc(w / 2, h / 2, 9, 0, Math.PI * 2); g.fill();
+        g.fillStyle = 'rgba(255,255,255,1)';
+        g.beginPath(); g.arc(w / 2, h / 2, 6.5, 0, Math.PI * 2); g.fill();
+      });
+      const precipMat = new THREE.PointsMaterial({
+        color: 0xcfe4ff, size: 0.32, map: rainTex, transparent: true, opacity: 0, depthWrite: false, sizeAttenuation: true,
+      });
+      let precipKind = 'rain';
       const precip = new THREE.Points(precipGeo, precipMat);
       precip.frustumCulled = false;
       precip.visible = false;
@@ -2944,9 +3100,16 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         const pk = env.wx.precip;
         precip.visible = pk.kind !== 'none' && pk.intensity > 0.03;
         if (precip.visible) {
+          if (pk.kind !== precipKind) {
+            // The sprite swaps with the kind (streak ↔ disc);
+            // a map change needs the material recompiled once.
+            precipKind = pk.kind;
+            precipMat.map = precipKind === 'snow' ? snowTex : rainTex;
+            precipMat.needsUpdate = true;
+          }
           precipMat.color.setHex(pk.kind === 'snow' ? 0xffffff : 0xafc8e8);
-          precipMat.size = pk.kind === 'snow' ? 2.6 : 1.6;
-          precipMat.opacity = pk.kind === 'snow' ? 0.85 : 0.55;
+          precipMat.size = pk.kind === 'snow' ? 0.5 : 0.32;
+          precipMat.opacity = pk.kind === 'snow' ? 0.8 : 0.5;
         }
         // Wind (meteorological FROM bearing → world motion).
         if (env.wxRaw && Number.isFinite(env.wxRaw.windDirDeg)) {
@@ -3036,9 +3199,70 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       // pickups and Dracula himself.
       const raycaster = new THREE.Raycaster();
       const ndc = new THREE.Vector2();
-      // Build-mode taps: in Place tool a lawful ghost commits;
-      // in Edit tool the tap selects the placed piece it lands
-      // on (or clears the selection on empty ground).
+      // Commit a judged placement into the parcel's build. A
+      // carried (moving) piece's original is spliced out first,
+      // then the new placement lands as the moved piece. Shared
+      // by the camera-ghost tap and the tap-to-aim tap.
+      function commitBuildPlacement(placement) {
+        const bm = buildModeRef.current;
+        const pieces = myParcelPieces(bm.parcelId).slice();
+        // Completing a move: splice the carried original out
+        // first (appends never shifted its index this
+        // session), then the ghost lands as the moved piece.
+        if (bm.carried && pieces[bm.carried.index]
+          && pieces[bm.carried.index].pieceId === bm.carried.piece.pieceId
+          && pieces[bm.carried.index].x === bm.carried.piece.x
+          && pieces[bm.carried.index].z === bm.carried.piece.z) {
+          pieces.splice(bm.carried.index, 1);
+        }
+        bm.carried = null;
+        pieces.push(placement);
+        buildCommitRef.current(bm.parcelId, pieces);
+        bm.verdictKey = ''; // the set changed — judge fresh
+        bm.seatKey = '';
+      }
+      // Tap-to-aim ("tap where you want it"): march the TAP's
+      // own ray — set from the tap's screen position, not the
+      // camera's centre — down to the terrain. The hit, pulled
+      // to the nearest point of the build parcel when it lands
+      // outside it, becomes the candidate the pure deriver
+      // snaps, footprint-clamps, seats and judges. Returns null
+      // when the ray finds no ground at all (the tap fell on
+      // sky), so the caller can fall back to the camera ghost.
+      function tapAimCandidate() {
+        const bm = buildModeRef.current;
+        const parcel = bm.parcelId ? parcelById(bm.parcelId) : null;
+        if (!parcel) return null;
+        const rect = parcelWorldRect(parcel);
+        const ray = raycaster.ray;
+        let hx = null;
+        let hz = null;
+        for (let s = 0.5; s <= 120; s += 0.4) {
+          const px = ray.origin.x + ray.direction.x * s;
+          const py = ray.origin.y + ray.direction.y * s;
+          const pz = ray.origin.z + ray.direction.z * s;
+          if (py <= heightAt(px, pz) + 0.05) { hx = px; hz = pz; break; }
+        }
+        if (hx === null) return null;
+        const candidate = {
+          pieceId: bm.pieceId,
+          x: Math.min(PARCEL_BUILD_FRAME.width, Math.max(0, hx - rect.minX)),
+          y: 0,
+          z: Math.min(PARCEL_BUILD_FRAME.depth, Math.max(0, hz - rect.minZ)),
+          rotY: bm.rotY,
+          finish: bm.finish,
+        };
+        if (bm.tint !== null && bm.tint !== undefined) candidate.tint = bm.tint;
+        return deriveBuildCandidate(myParcelPieces(bm.parcelId), candidate, {
+          frame: PARCEL_BUILD_FRAME,
+          lift: bm.yLift,
+        });
+      }
+      // Build-mode taps: in Place tool the tap aims and commits
+      // (see tapAimCandidate; a groundless tap commits the
+      // camera-aimed ghost, as taps always did); in Edit tool
+      // the tap selects the placed piece it lands on (or clears
+      // the selection on empty ground).
       function buildTap(e) {
         const bm = buildModeRef.current;
         const rect = renderer.domElement.getBoundingClientRect();
@@ -3049,21 +3273,20 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         );
         raycaster.setFromCamera(ndc, camera);
         if (bm.tool === 'place') {
-          if (bm.verdict && bm.verdict.ok && bm.ghostPlacement) {
-            const pieces = myParcelPieces(bm.parcelId).slice();
-            // Completing a move: splice the carried original out
-            // first (appends never shifted its index this
-            // session), then the ghost lands as the moved piece.
-            if (bm.carried && pieces[bm.carried.index]
-              && pieces[bm.carried.index].pieceId === bm.carried.piece.pieceId
-              && pieces[bm.carried.index].x === bm.carried.piece.x
-              && pieces[bm.carried.index].z === bm.carried.piece.z) {
-              pieces.splice(bm.carried.index, 1);
+          const tapped = tapAimCandidate();
+          if (tapped) {
+            if (tapped.verdict.ok) {
+              commitBuildPlacement(tapped.placement);
+              bm.ghostPlacement = tapped.placement;
+              bm.verdict = tapped.verdict;
+              ghostInfoRef.current(tapped.verdict);
+            } else if (tapped.verdict.reasons && tapped.verdict.reasons.length) {
+              noticeRef.current(`🔨 ${tapped.verdict.reasons[0]}`);
             }
-            bm.carried = null;
-            pieces.push(bm.ghostPlacement);
-            buildCommitRef.current(bm.parcelId, pieces);
-            bm.verdictKey = ''; // the set changed — judge fresh
+            return;
+          }
+          if (bm.verdict && bm.verdict.ok && bm.ghostPlacement) {
+            commitBuildPlacement(bm.ghostPlacement);
           } else if (bm.verdict && bm.verdict.reasons && bm.verdict.reasons.length) {
             noticeRef.current(`🔨 ${bm.verdict.reasons[0]}`);
           }
@@ -3307,16 +3530,25 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           ax = px; az = pz;
           if (py <= heightAt(px, pz) + 0.05) break;
         }
+        // The aim in the parcel's own frame. A hit that lands
+        // outside the parcel — or no hit at all (the march ran
+        // into sky and left the aim floating past the edge) —
+        // falls back to the NEAREST point of the parcel itself.
+        // Then the footprint clamp seats the WHOLE piece inside
+        // the frame: the old centre-only clamp let any piece
+        // with real width overflow the edge whenever it was
+        // aimed past mid-parcel, and the judge refused it
+        // forever (Merlin's build video, 2026-10-23).
         const candidate = {
           pieceId: bm.pieceId,
-          x: Math.min(27.9, Math.max(0.1, ax - rect.minX)),
+          x: Math.min(PARCEL_BUILD_FRAME.width, Math.max(0, ax - rect.minX)),
           y: 0,
-          z: Math.min(27.9, Math.max(0.1, az - rect.minZ)),
+          z: Math.min(PARCEL_BUILD_FRAME.depth, Math.max(0, az - rect.minZ)),
           rotY: bm.rotY,
           finish: bm.finish,
         };
         if (bm.tint !== null && bm.tint !== undefined) candidate.tint = bm.tint;
-        const snapped = snapPlacement(candidate);
+        const snapped = clampPlacementToFrame(snapPlacement(candidate), PARCEL_BUILD_FRAME);
         const existing = myParcelPieces(bm.parcelId);
         const cellKey = `${bm.parcelId}|${snapped.x}|${snapped.z}|${snapped.rotY}|${bm.pieceId}`;
         if (cellKey !== bm.seatKey) {
@@ -4112,22 +4344,36 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       <div ref={mountRef} className="absolute inset-0" />
       <div ref={labelsRef} className="pointer-events-none absolute inset-0 overflow-hidden" />
 
-      {/* The top HUD is ONE flex row (the no-overlap law): the
-          left column flexes and shrinks with min-w-0, the right
-          column never shrinks — the boot pill can no longer run
-          underneath the parcel card the way it did in Merlin's
-          walk video. The row itself takes no pointer events; the
-          interactive children opt back in one by one. */}
-      <div className="pointer-events-none absolute inset-x-2 top-2 flex items-start gap-2 sm:inset-x-3 sm:top-3">
-      {/* The parcel readout — the chamber map, read from the ground. */}
-      <div className="flex min-w-0 flex-1 flex-col items-start gap-1.5">
-        <div className={`rounded-2xl border bg-black/55 px-3.5 py-2.5 text-zinc-100 backdrop-blur-sm ${hud && hud.mine ? 'border-sky-300/50' : 'border-amber-300/30'}`}>
-          <div className="text-[10px] font-black tracking-[0.25em] text-amber-200">
-            🚶 EARTH 2 — ON FOOT
+      {/* The Earth 2 concourse: the standing HUD lives in
+          draggable, shrinkable panels (Merlin's order — "all
+          controls should live in a concourse just like the main
+          hub ... and be shrinkable and moveable"). The parcel
+          readout and the controls each get a panel, the build
+          workbench below is the third; positions and shrunk
+          states persist per device (earth2:panels:v1). Panels
+          take pointer events only on their own box — the rest
+          of the screen belongs to the world. */}
+      <E2Panel
+        layout={panelLayout.parcel}
+        onMove={(pos) => movePanel('parcel', pos)}
+        onToggle={() => togglePanel('parcel')}
+        panelClass={`w-[320px] max-w-[calc(100vw-1rem)] rounded-2xl border bg-black/55 text-zinc-100 backdrop-blur-sm ${hud && hud.mine ? 'border-sky-300/50' : 'border-amber-300/30'}`}
+        headerClass="px-3.5 pt-2.5"
+        bodyClass="px-3.5 pb-2.5 pt-1"
+        header={(
+          <div className="flex min-w-0 items-baseline gap-2">
+            <span className="shrink-0 text-[10px] font-black tracking-[0.25em] text-amber-200">
+              🚶 EARTH 2 — ON FOOT
+            </span>
+            {panelLayout.parcel.collapsed && parcel && (
+              <span className="truncate text-[11px] font-bold text-white">{parcel.name}</span>
+            )}
           </div>
+        )}
+      >
           {parcel ? (
             <>
-              <div className="mt-0.5 text-lg font-black leading-tight text-white">
+              <div className="text-lg font-black leading-tight text-white">
                 {parcel.name}
                 {isCastleParcel(parcel) ? ' 🏰' : ''}
               </div>
@@ -4156,10 +4402,29 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
               </div>
             </>
           ) : (
-            <div className="mt-0.5 text-sm text-zinc-300">Stepping onto the planet…</div>
+            <div className="text-sm text-zinc-300">Stepping onto the planet…</div>
           )}
-        </div>
-        <div className="pointer-events-auto flex flex-wrap items-center gap-2 rounded-full border border-red-300/25 bg-black/50 py-1.5 pl-3 pr-1.5 text-[11px] text-zinc-100">
+      </E2Panel>
+
+      <E2Panel
+        layout={panelLayout.actions}
+        onMove={(pos) => movePanel('actions', pos)}
+        onToggle={() => togglePanel('actions')}
+        panelClass="w-[292px] max-w-[calc(100vw-1rem)] rounded-2xl border border-white/15 bg-black/55 text-zinc-100 backdrop-blur-sm"
+        headerClass="px-3.5 pt-2.5"
+        bodyClass="flex flex-col gap-2 px-3.5 pb-3 pt-1"
+        header={(
+          <span className="text-[10px] font-black tracking-[0.25em] text-zinc-300">
+            🎛️ CONTROLS
+          </span>
+        )}
+      >
+        {!bootDone && bootSlugs && (
+          <div className="rounded-full border border-white/15 bg-black/45 px-3 py-1.5 text-[11px] text-zinc-200">
+            Placing the foundry… {bootPlaced}/{bootTotal}
+          </div>
+        )}
+        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-red-300/25 bg-black/50 py-1.5 pl-3 pr-1.5 text-[11px] text-zinc-100">
           <span>🩸 Blood sacs: <strong className="text-red-200">{sacsShown}</strong></span>
           <button
             type="button"
@@ -4207,23 +4472,35 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             {notice}
           </p>
         )}
-      </div>
-
-      <div className="flex shrink-0 flex-col items-end gap-1.5">
+        <button
+          type="button"
+          aria-pressed={travel}
+          onClick={() => setTravel((v) => !v)}
+          className={`rounded-full border px-3.5 py-2 text-[12px] font-bold backdrop-blur-sm transition ${
+            travel
+              ? 'border-amber-300/60 bg-amber-400/30 text-amber-100'
+              : 'border-white/25 bg-black/55 text-white hover:bg-black/75'
+          }`}
+        >
+          🏃 TRAVEL {travel ? 'ON' : 'OFF'}
+        </button>
+        <p className="hidden rounded-lg border border-white/10 bg-black/45 px-2.5 py-1.5 text-[11px] leading-snug text-zinc-300 sm:block">
+          WASD / arrows to walk · drag to look · Shift = travel pace ·
+          tap a mosquito to shoot it · 🏛️ trade fossils at Hammond&rsquo;s
+          counter by the museum · 🛩️ the fleet waits at Tyrrell Field,
+          just west of it · Esc leaves
+        </p>
+        <p className="rounded-lg border border-white/10 bg-black/45 px-2.5 py-1.5 text-[11px] leading-snug text-zinc-300 sm:hidden">
+          🦟 Tap a mosquito to shoot it — only the swollen red ones drop a blood sac.
+        </p>
         <button
           type="button"
           onClick={() => { if (typeof onExit === 'function') onExit(); }}
-          className="pointer-events-auto rounded-full border border-white/25 bg-black/55 px-3.5 py-2 text-[12px] font-bold text-white backdrop-blur-sm transition hover:bg-black/75"
+          className="rounded-full border border-white/25 bg-black/55 px-3.5 py-2 text-[12px] font-bold text-white backdrop-blur-sm transition hover:bg-black/75"
         >
           ✕ Leave the planet
         </button>
-        {!bootDone && bootSlugs && (
-          <div className="rounded-full border border-white/15 bg-black/45 px-3 py-1.5 text-[11px] text-zinc-200">
-            Placing the foundry… {bootPlaced}/{bootTotal}
-          </div>
-        )}
-      </div>
-      </div>
+      </E2Panel>
 
       {/* Hammond's fossil exchange — the counter panel. Flow
           layout throughout (no overlaps, per the house CSS law):
@@ -4363,34 +4640,69 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         </div>
       )}
 
-      {/* Build mode — the builder's workbench. Flow layout, no
-          overlaps: header, tool switch, then the Place workbench
-          (families → pieces → finishes → tint → aim controls →
-          the ghost's live verdict) or the Edit bench (the tapped
-          piece and its actions). */}
+      {/* Build mode — the builder's workbench, the concourse's
+          third panel: it drags and shrinks like the others, and
+          its HEADER carries the selected piece's name and the
+          ghost's live verdict, so the reason a placement fails
+          stays visible even with the panel shrunk (in Merlin's
+          build video the verdict sat at the panel's bottom,
+          clipped under other overlays — he never saw it). Body
+          flow layout, no overlaps: tool switch, then the Place
+          workbench (families → pieces → finishes → tint → aim
+          controls) or the Edit bench (the tapped piece and its
+          actions). */}
       {buildMode && buildParcel && (
-        <div className="absolute inset-x-2 bottom-2 sm:inset-x-auto sm:bottom-5 sm:left-1/2 sm:w-[470px] sm:-translate-x-1/2">
-          <div className="flex max-h-[62vh] flex-col gap-3 overflow-y-auto rounded-[1.25rem] border border-emerald-300/35 bg-[#0a120c]/95 p-4 text-zinc-100 shadow-2xl backdrop-blur-md">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-[10px] font-black tracking-[0.25em] text-emerald-200">
-                  🔨 BUILDING — {buildParcel.id}
+        <E2Panel
+          layout={panelLayout.build}
+          onMove={(pos) => movePanel('build', pos)}
+          onToggle={() => togglePanel('build')}
+          panelClass="w-[470px] max-w-[calc(100vw-1rem)] rounded-[1.25rem] border border-emerald-300/35 bg-[#0a120c]/95 text-zinc-100 shadow-2xl backdrop-blur-md"
+          headerClass="px-4 pt-3"
+          bodyClass="flex max-h-[62vh] flex-col gap-3 overflow-y-auto px-4 pb-4 pt-2"
+          header={(
+            <div className="flex flex-col gap-1 pb-1">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-[10px] font-black tracking-[0.25em] text-emerald-200">
+                    🔨 BUILDING — {buildParcel.id}
+                  </div>
+                  <div className="truncate text-base font-black leading-tight text-white">
+                    {buildParcel.name}
+                  </div>
                 </div>
-                <div className="mt-0.5 text-lg font-black leading-tight text-white">
-                  {buildParcel.name}
-                </div>
-                <p className="mt-1 text-[11px] leading-snug text-zinc-400">
-                  {buildPieceCount} / {MAX_PIECES_PER_BUILD} pieces · {buildMsg}
-                </p>
+                <button
+                  type="button"
+                  onClick={exitBuildMode}
+                  className="shrink-0 rounded-full border border-emerald-300/50 bg-emerald-400/20 px-3 py-2 text-[12px] font-bold text-emerald-50 transition hover:bg-emerald-400/35"
+                >
+                  ✓ Done
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={exitBuildMode}
-                className="shrink-0 rounded-full border border-emerald-300/50 bg-emerald-400/20 px-3 py-2 text-[12px] font-bold text-emerald-50 transition hover:bg-emerald-400/35"
-              >
-                ✓ Done
-              </button>
+              {buildTool === 'place' ? (
+                <p className={`truncate text-[11px] font-bold leading-snug ${
+                  ghostState
+                    ? ghostState.ok ? 'text-emerald-200' : 'text-red-200'
+                    : 'text-zinc-400'
+                }`}>
+                  🧱 {selPieceDef ? selPieceDef.name : selPieceId} · {buildPieceCount}/{MAX_PIECES_PER_BUILD} pieces — {
+                    ghostState
+                      ? ghostState.ok
+                        ? '✓ Fits — tap the world to place it'
+                        : `✗ ${ghostState.reasons[0] || 'That placement does not work.'}`
+                      : 'aim at the ground — the ghost follows'
+                  }
+                </p>
+              ) : (
+                <p className="truncate text-[11px] font-bold leading-snug text-zinc-300">
+                  🛠️ {selectedPlaced ? (pieceById(selectedPlaced.pieceId)?.name || selectedPlaced.pieceId) : 'Nothing selected'} · {buildPieceCount}/{MAX_PIECES_PER_BUILD} pieces
+                </p>
+              )}
             </div>
+          )}
+        >
+            {buildMsg && (
+              <p className="text-[11px] leading-snug text-zinc-400">{buildMsg}</p>
+            )}
 
             <div className="flex gap-2" role="group" aria-label="Build tool">
               {[
@@ -4536,21 +4848,13 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
                   </button>
                 </div>
 
-                {ghostState ? (
-                  <p className={`rounded-xl border px-3 py-2.5 text-xs leading-snug ${
-                    ghostState.ok
-                      ? 'border-emerald-300/40 bg-emerald-400/10 text-emerald-100'
-                      : 'border-red-300/40 bg-red-400/10 text-red-100'
-                  }`}>
-                    {ghostState.ok
-                      ? '✓ That fits — tap the world to place it.'
-                      : `✗ ${ghostState.reasons[0] || 'That placement does not work.'}`}
-                  </p>
-                ) : (
+                {!ghostState && (
                   <p className="rounded-xl border border-white/10 bg-black/30 px-3 py-2.5 text-xs leading-snug text-zinc-400">
-                    Aim at the ground of your parcel — the ghost follows.
-                  Pieces stack on pieces; R / Q turn it, PgUp / PgDn lift it.
-                  Tap or click to place.
+                    Aim at the ground of your parcel — the ghost follows — or tap
+                    the ground where the piece should go; it lands where you tap.
+                    Pieces stack on pieces; R / Q turn it, PgUp / PgDn lift it.
+                    The verdict rides in this panel&rsquo;s header, so it stays
+                    in view even with the panel shrunk.
                   </p>
                 )}
               </>
@@ -4602,8 +4906,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
                 )}
               </>
             )}
-          </div>
-        </div>
+        </E2Panel>
       )}
 
       {/* Driving — the machine's panel. Flow layout: who you are
@@ -4661,35 +4964,14 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         </div>
       )}
 
-      {/* Touch controls: the shared walk joystick + travel toggle. */}
+      {/* Touch controls: the shared walk joystick — a fixed
+          control, never a panel (the TRAVEL toggle and the
+          hints live in the Controls panel above). */}
       <div className="absolute bottom-3 left-3 sm:bottom-5 sm:left-5">
         <WalkJoystick
           size={118}
           onMove={(x, y) => { inputRef.current.joy.x = x; inputRef.current.joy.y = y; }}
         />
-      </div>
-      <div className="absolute bottom-3 right-3 flex flex-col items-end gap-2 sm:bottom-5 sm:right-5">
-        <button
-          type="button"
-          aria-pressed={travel}
-          onClick={() => setTravel((v) => !v)}
-          className={`rounded-full border px-3.5 py-2 text-[12px] font-bold backdrop-blur-sm transition ${
-            travel
-              ? 'border-amber-300/60 bg-amber-400/30 text-amber-100'
-              : 'border-white/25 bg-black/55 text-white hover:bg-black/75'
-          }`}
-        >
-          🏃 TRAVEL {travel ? 'ON' : 'OFF'}
-        </button>
-        <p className="hidden max-w-[240px] rounded-lg border border-white/10 bg-black/45 px-2.5 py-1.5 text-right text-[11px] leading-snug text-zinc-300 sm:block">
-          WASD / arrows to walk · drag to look · Shift = travel pace ·
-          tap a mosquito to shoot it · 🏛️ trade fossils at Hammond&rsquo;s
-          counter by the museum · 🛩️ the fleet waits at Tyrrell Field,
-          just west of it · Esc leaves
-        </p>
-        <p className="max-w-[200px] rounded-lg border border-white/10 bg-black/45 px-2.5 py-1.5 text-right text-[11px] leading-snug text-zinc-300 sm:hidden">
-          🦟 Tap a mosquito to shoot it — only the swollen red ones drop a blood sac.
-        </p>
       </div>
     </div>
   );

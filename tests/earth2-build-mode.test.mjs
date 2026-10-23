@@ -34,7 +34,8 @@ import {
   buildGhostGroup,
   setGhostValidity,
 } from '../lib/building/piece-render.js';
-import { judgeGhost } from '../lib/building/placement.js';
+import { judgeGhost, clampPlacementToFrame, deriveBuildCandidate } from '../lib/building/placement.js';
+import { PARCEL_BUILD_FRAME } from '../lib/earth2/building.js';
 import { STREAM_RADII, buildStreamUnits, planStreamActions } from '../lib/earth2/streaming.js';
 import { parcelCenterWorld } from '../lib/earth2/world.js';
 import { PARCELS, CASTLE_PARCEL_ID, parcelById } from '../lib/earth2/parcels.js';
@@ -189,6 +190,45 @@ test('judgeGhost: a forbidden finish is refused by the catalog law', () => {
   const v = judgeGhost([], P('crystal-cluster', 4, 0, 4, { finish: 'timber' }));
   assert.equal(v.ok, false);
   assert.ok(v.reasons.some((r) => /cannot wear/.test(r)), v.reasons.join(' | '));
+});
+
+test('the footprint clamp: a 6 × 6 slab aimed at the corner fits the parcel frame', () => {
+  // The Merlin build-video failure: only the candidate's CENTRE
+  // was clamped, so a wide foundation aimed past mid-parcel
+  // overflowed the frame and the judge refused it forever. The
+  // clamp now seats the whole footprint inside the 28 m frame.
+  const fitted = clampPlacementToFrame(
+    { pieceId: 'foundation-slab-wide', x: 0.5, y: 0, z: 0.5, rotY: 0, finish: 'stone' },
+    PARCEL_BUILD_FRAME,
+  );
+  assert.equal(fitted.x, 3);
+  assert.equal(fitted.z, 3);
+  const v = judgeGhost([], fitted, { frame: PARCEL_BUILD_FRAME });
+  assert.equal(v.ok, true, v.reasons.join(' | '));
+});
+
+test('tap-to-aim derivation: a wide foundation tapped near the far corner lands lawful', () => {
+  // The same pipeline buildTap runs on the tap's own ground
+  // point: snap → footprint-clamp → seat → judge.
+  const d = deriveBuildCandidate(
+    [],
+    { pieceId: 'foundation-slab-wide', x: 1.2, y: 0, z: 26.8, rotY: 0, finish: 'stone' },
+    { frame: PARCEL_BUILD_FRAME },
+  );
+  assert.equal(d.verdict.ok, true, d.verdict.reasons.join(' | '));
+  assert.equal(d.placement.x, 3);
+  assert.equal(d.placement.z, 25);
+});
+
+test('tap-to-aim derivation: a piece tapped onto a stack seats on the stack', () => {
+  const d = deriveBuildCandidate(
+    [foundation(4, 4)],
+    { pieceId: 'wall', x: 4.3, y: 0, z: 3.7, rotY: 0, finish: 'timber' },
+    { frame: PARCEL_BUILD_FRAME },
+  );
+  assert.equal(d.verdict.ok, true, d.verdict.reasons.join(' | '));
+  assert.equal(d.seat, 0.6);
+  assert.equal(d.placement.y, 0.6);
 });
 
 test('judgeGhost: the 400-piece budget binds', () => {
