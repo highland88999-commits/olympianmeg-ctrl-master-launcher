@@ -3,17 +3,19 @@
 // - the five in-hand characters (Eleven, Eddie, Hopper, Vecna,
 //   Demogorgon) are placed as real GLBs in public/models/hawkins,
 //   each with its 65-joint Mixamo skeleton intact, no baked clips
-// - the manifest holds all 8 Hawkins bodies: 5 placed + the three
-//   'Other'-rig creatures honestly awaiting-rig (file null), with the
-//   Mind Flayer Hybrid as a variant entry (red aura, speedMul > 1)
-// - the joint resolver reads the REAL joint lists (raw file names and
-//   three-sanitized names), reports gaps instead of erroring, and
-//   finds NO jaw — the honest expression limit, pinned
+// - the three creatures landed the same day with their rigs: the
+//   Demobats (78 joints, humanoid-retarget template — arm chains skin
+//   the wings), the Mind Flayer (65) and its Hybrid (64) on
+//   Tripo-native 'Other' rigs. The manifest now holds all 8 bodies
+//   PLACED; the Hybrid stays a variant entry (red aura, speedMul > 1)
+// - the joint resolvers read the REAL joint lists (raw file names and
+//   three-sanitized names), report gaps instead of erroring, and find
+//   NO jaw — the honest expression limit, pinned
 // - the pose driver is deterministic and personality-shaped
 // - the engine source: the procedural bodies for the five are GONE
 //   from the spawn paths; Vecna/Demogorgon spawn GLBs; the bats and
-//   the Mind Flayer route through the manifest with their procedural
-//   fallbacks intact until their rigs land
+//   the Mind Flayer route through the manifest (entry.file decides),
+//   their procedural fallbacks retained for a missing file only
 //
 // Run: node --test tests/hawkins-glb.test.mjs   (from the repo root)
 
@@ -30,6 +32,7 @@ import {
 import {
   normalizeHawkinsJointName, boneLookupKey, resolveHawkinsJoints,
   resolveCreatureJoints, buildJointObjects, createPoseDriver,
+  pickBones, createFlapDriver, createSwayDriver,
   HAWKINS_PERSONALITIES,
 } from '../lib/hawkins/rig.js';
 
@@ -88,13 +91,27 @@ describe('the placed GLBs are real, rigged and game-weight', () => {
   });
 });
 
+const CREATURES = ['demobats', 'mind-flayer', 'mind-flayer-hybrid'];
+
 describe('the manifest holds all eight bodies', () => {
-  it('5 placed, 3 awaiting-rig with file null', () => {
+  it('8 placed, 0 awaiting-rig — every body has a real file', () => {
     assert.equal(HAWKINS_MODELS.length, 8);
-    assert.deepEqual(hawkinsPlacedModels().map((m) => m.id).sort(), [...PLACED].sort());
-    const pending = hawkinsPendingModels();
-    assert.deepEqual(pending.map((m) => m.id).sort(), ['demobats', 'mind-flayer', 'mind-flayer-hybrid']);
-    for (const m of pending) assert.equal(m.file, null, `${m.id} honestly has no file yet`);
+    assert.deepEqual(
+      hawkinsPlacedModels().map((m) => m.id).sort(),
+      [...PLACED, ...CREATURES].sort(),
+    );
+    assert.deepEqual(hawkinsPendingModels(), [], 'nothing is pending any more');
+    for (const m of HAWKINS_MODELS) {
+      assert.ok(m.file && m.file.startsWith('/models/hawkins/'), `${m.id} carries its file`);
+      assert.ok(existsSync(join(repo, 'public', m.file)), `${m.id} file exists on disk`);
+    }
+  });
+
+  it('creature scale reads kept the tune-on-arrival values', () => {
+    assert.equal(hawkinsModel('demobats').heightUnits, 7);
+    assert.equal(hawkinsModel('mind-flayer').scaleBasis, 'span');
+    assert.equal(hawkinsModel('mind-flayer').spanUnits, 820);
+    assert.equal(hawkinsModel('mind-flayer-hybrid').spanUnits, 780);
   });
 
   it('player characters are the three humans, Eleven first (default)', () => {
@@ -116,6 +133,42 @@ describe('the manifest holds all eight bodies', () => {
     assert.equal(dg.heightUnits, 36);
     assert.ok(Math.abs(dg.heightUnits * 0.87 - 32) < 9);
     assert.equal(hawkinsModel('vecna').heightUnits, 50);
+  });
+});
+
+describe('the creature GLBs are real, rigged and game-weight', () => {
+  const EXPECTED = { demobats: 78, 'mind-flayer': 65, 'mind-flayer-hybrid': 64 };
+  for (const [id, joints] of Object.entries(EXPECTED)) {
+    it(`${id}: file exists, exactly ${joints} joints survived the weight pass`, () => {
+      const entry = hawkinsModel(id);
+      assert.equal(entry.status, 'placed');
+      const { js, jointNames, tris, bytes } = inspect(entry.file.replace(/^\//, ''));
+      assert.equal((js.skins || []).length, 1, 'exactly one skin');
+      assert.equal(jointNames.length, joints, `${joints} joints — a lost joint is a lost motion`);
+      assert.equal(new Set(jointNames).size, joints, 'joint names unique');
+      assert.equal((js.animations || []).length, 0, 'no baked clips — all motion is code');
+      assert.ok((js.extensionsUsed || []).includes('EXT_meshopt_compression'), 'meshopt recipe applied');
+      assert.equal((js.materials || []).length, 0, 'no materials in the export — the tint dresses it');
+      assert.ok(entry.tint !== undefined, 'manifest carries a tint for it');
+      assert.ok(tris > 90000 && tris < 110000, `tri count sane (${tris}) — NOT simplified`);
+      assert.ok(bytes < 1024 * 1024, `under 1 MB (${bytes})`);
+    });
+  }
+
+  it('the demobats rig is the humanoid-retarget template (arm chains skin the wings)', () => {
+    const names = inspect(hawkinsModel('demobats').file.replace(/^\//, '')).jointNames;
+    for (const n of ['BoneRoot', 'Pelvis', 'Waist', 'Spine01', 'Spine02', 'L_Upperarm', 'R_Upperarm', 'L_Hand', 'R_Hand', 'Head']) {
+      assert.ok(names.includes(n), n);
+    }
+  });
+
+  it('the flayer rigs are tripo-native: Root + named limb chains', () => {
+    for (const id of ['mind-flayer', 'mind-flayer-hybrid']) {
+      const names = inspect(hawkinsModel(id).file.replace(/^\//, '')).jointNames;
+      assert.ok(names.includes('tripo::Root'), `${id} root`);
+      assert.ok(names.filter((n) => /_Limb_\d$/.test(n)).length >= 25, `${id} limb chains`);
+      assert.ok(names.includes('tripo::Spine_0'), `${id} spine`);
+    }
   });
 });
 
@@ -163,6 +216,75 @@ describe('the joint resolver', () => {
     assert.ok(r.sway.includes('tripo::Tail_0'));
     assert.ok(r.sway.includes('Leg_3'));
     assert.equal(r.wings.length, 2);
+  });
+
+  it('creature resolution reads the REAL demobats rig — upperarms are the wings', () => {
+    const names = inspect(hawkinsModel('demobats').file.replace(/^\//, '')).jointNames;
+    const r = resolveCreatureJoints(names);
+    assert.equal(r.dialect, 'humanoid');
+    assert.deepEqual(r.wings, ['L_Upperarm', 'R_Upperarm']);
+    assert.deepEqual(r.sway, ['Waist', 'Spine01', 'Spine02', 'NeckTwist01', 'NeckTwist02']);
+  });
+
+  it('creature resolution reads the REAL flayer rigs — limb chains sway, no wings', () => {
+    for (const [id, swayCount] of [['mind-flayer', 43], ['mind-flayer-hybrid', 31]]) {
+      const names = inspect(hawkinsModel(id).file.replace(/^\//, '')).jointNames;
+      const r = resolveCreatureJoints(names);
+      assert.equal(r.dialect, 'tripo', id);
+      assert.deepEqual(r.wings, [], `${id} has no wings — it hovers`);
+      assert.equal(r.sway.length, swayCount, `${id} sway chain count`);
+      assert.ok(r.sway.includes('tripo::Spine_0'), `${id} spine sways`);
+      assert.ok(r.sway.every((n) => /_Limb_\d$|Spine/.test(n)), `${id} sway is named chains only — bone_N fillers stay at bind`);
+    }
+  });
+
+  it('creature resolution survives unknown and empty rigs', () => {
+    const r = resolveCreatureJoints(['SomeBone', 'Another']);
+    assert.equal(r.dialect, 'generic');
+    assert.deepEqual(r.sway, []);
+    assert.deepEqual(r.wings, []);
+    assert.deepEqual(resolveCreatureJoints([]).all, []);
+    assert.deepEqual(resolveCreatureJoints(null).all, []);
+  });
+});
+
+describe('the creature drivers move the real rigs', () => {
+  const fakeBone = (name) => ({
+    name,
+    rotation: { x: 0, y: 0, z: 0, set(x, y, z) { this.x = x; this.y = y; this.z = z; } },
+  });
+  const rigFor = (id) => {
+    const names = inspect(hawkinsModel(id).file.replace(/^\//, '')).jointNames;
+    return { names, bones: names.map(fakeBone), resolved: resolveCreatureJoints(names) };
+  };
+
+  it('the demobats flap: both wing roots move, opposed', () => {
+    const { bones, resolved } = rigFor('demobats');
+    const flap = createFlapDriver(pickBones(bones, resolved.wings), { hz: 2.6, amp: 0.65 });
+    assert.ok(flap, 'a flap driver exists for the bat rig');
+    flap.update(0.31, 0);
+    const [l, r] = pickBones(bones, resolved.wings);
+    assert.ok(l.rotation.z !== 0 && r.rotation.z !== 0, 'both wings move');
+    assert.equal(Math.sign(l.rotation.z), -Math.sign(r.rotation.z), 'wings oppose');
+  });
+
+  it('the flayers get NO flap driver — sway only, all sway bones move', () => {
+    for (const id of ['mind-flayer', 'mind-flayer-hybrid']) {
+      const { bones, resolved } = rigFor(id);
+      assert.equal(createFlapDriver(pickBones(bones, resolved.wings)), null, `${id} flap is null`);
+      const swayBones = pickBones(bones, resolved.sway);
+      assert.equal(swayBones.length, resolved.sway.length, `${id} every sway name picks a bone`);
+      createSwayDriver(swayBones, { amp: 0.06, hz: 0.4 }).update(0.77);
+      assert.ok(swayBones.every((b) => b.rotation.x !== 0 || b.rotation.y !== 0), `${id} sway moves`);
+    }
+  });
+
+  it('the bat spine sways beneath the flap', () => {
+    const { bones, resolved } = rigFor('demobats');
+    const swayBones = pickBones(bones, resolved.sway);
+    assert.equal(swayBones.length, 5);
+    createSwayDriver(swayBones, { amp: 0.04, hz: 0.4 }).update(0.77);
+    assert.ok(swayBones.some((b) => b.rotation.x !== 0 || b.rotation.y !== 0), 'spine moves');
   });
 });
 
@@ -260,6 +382,16 @@ describe('the engine swap (source pins)', () => {
     assert.ok(engine.includes('buildProceduralMindflayer'), 'flayer fallback builder retained');
     assert.ok(engine.includes('hawkinsModel(variantId'), 'flayer spawn is manifest-routed');
     assert.ok(engine.includes('mf.speedMul'), 'variant speed reaches the attack cadence');
+  });
+
+  it('with files placed, both creature spawns take the GLB branch', () => {
+    // the branch condition is the manifest entry's file — placed
+    // entries (pinned above) make the GLB path the live one, and the
+    // procedural bodies remain only behind the else
+    assert.ok(engine.includes('if (entry.file)'), 'flayer spawn branches on the manifest file');
+    assert.ok(engine.includes('if (entry && entry.file)'), 'bat spawn branches on the manifest file');
+    assert.ok(engine.includes("instantiateHawkins('demobats')"), 'bat swarm instantiates the GLB');
+    assert.ok(engine.includes('instantiateHawkins(entry.id)'), 'flayer instantiates by manifest id (hybrid included)');
   });
 
   it('the page offers the three characters', () => {

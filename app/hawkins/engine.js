@@ -793,10 +793,10 @@ export function createEngine(canvas, hooks) {
   };
 
   /* ---------------- mind flayer ---------------- */
-  // Routed through the manifest (lib/hawkins/models.js): while the
-  // Flayer's GLB is still in Studio rigging the procedural silhouette
-  // below IS the body; the day its file lands in the manifest, this
-  // same spawn builds the GLB instead — no other code changes. The
+  // Routed through the manifest (lib/hawkins/models.js): both Flayer
+  // GLBs are placed (2026-10-22), so this spawn builds the GLB; the
+  // procedural silhouette below survives ONLY as the fallback if a
+  // file ever goes missing — no other code changes either way. The
   // Hybrid is the same routing with variantId 'mind-flayer-hybrid'
   // (red aura, speedMul on its attacks, per the manifest entry).
   engine.spawnMindflayer = function (variantId) {
@@ -830,8 +830,8 @@ export function createEngine(canvas, hooks) {
     E.hooks.feed('it has found you');
   };
 
-  // The original procedural silhouette — now ONLY the fallback body
-  // for the Flayer slots whose GLBs have not landed yet.
+  // The original procedural silhouette — now ONLY the fallback body,
+  // used if a Flayer slot's GLB file ever goes missing again.
   engine.buildProceduralMindflayer = function (g, entry) {
     const E = engine;
     const mat = new THREE.MeshBasicMaterial({ color: 0x050508, transparent: true, opacity: 0.92 });
@@ -880,11 +880,11 @@ export function createEngine(canvas, hooks) {
   };
 
   /* ---------------- demo-bats ---------------- */
-  // Manifest-routed like the Flayer: the procedural bat below is the
-  // fallback body while the Demo-bat GLB is still being rigged; when
-  // its file lands in the manifest, swarms are born as GLBs (flapped
-  // by their wing bones when the rig has them, by whole-mesh flap
-  // when it doesn't) and this builder retires.
+  // Manifest-routed like the Flayer: the Demo-bat GLB is placed
+  // (2026-10-22), so swarms are born as GLBs — flapped by their wing
+  // bones (the rig's arm chains) with whole-mesh flap as the fallback
+  // if a rig ever yields none. The procedural bat below is the
+  // fallback body if the file ever goes missing.
   engine.spawnBatSwarm = function (n) {
     const E = engine;
     const entry = hawkinsModel('demobats');
