@@ -307,11 +307,30 @@ export default function RadioBar() {
   }, [setMinimized, setExpanded]);
 
   // MINIMIZED — the dock chip retired 2026-10-20 (Merlin): the radio
-  // lives in the Concourse now; its Radio tile un-minimizes and opens
-  // the library. Minimized renders nothing (playback state unchanged —
-  // the embed was already unmounted in this state).
+  // lives in the Concourse now; its Radio tile (and the Concourse
+  // mini-player) un-minimize and open the library. The bar renders
+  // nothing VISIBLE — but the library sheet stays mounted in its
+  // parked 1px slot, because the sheet holds the SpotifyEmbed, the
+  // real playback engine: returning null here unmounted the embed and
+  // the music stopped (Merlin's round-3 report; fixed 2026-10-23).
+  // The slot is visibility:hidden, never display:none — the same
+  // rule as the closed sheet below: display:none can throttle the
+  // embed's audio.
   if (minimized) {
-    return null;
+    return (
+      <div
+        className="fixed inset-x-0 bottom-0 z-[70]"
+        role="region"
+        aria-label={`Nexus radio — ${station.shortName}`}
+      >
+        <div
+          aria-hidden="true"
+          className="invisible pointer-events-none fixed bottom-0 left-0 h-px w-px overflow-hidden opacity-0"
+        >
+          <LibrarySheet />
+        </div>
+      </div>
+    );
   }
 
   const sheetOpen = expanded;

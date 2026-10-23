@@ -288,7 +288,11 @@ function SeasonGlyph({ season, badge }) {
 // form floats over the hub; the `inline` form lives at the bottom of
 // the Concourse (Merlin, 2026-10-20 — the floating hub badge moved
 // into the Concourse; HomeScene no longer mounts the floating form).
-export function SeasonBadge({ inline = false } = {}) {
+// With an `onGuide` handler (the Concourse passes one, Merlin round
+// 3, 2026-10-23) the badge becomes the season GUIDE button: same
+// face, now tappable — the handler receives the season key. Without
+// a handler it renders exactly the display-only pill it always was.
+export function SeasonBadge({ inline = false, onGuide = null } = {}) {
   const season = useMemo(() => getSeason(new Date()), []);
   const { t } = useI18n();
   if (!season) return null;
@@ -308,21 +312,17 @@ export function SeasonBadge({ inline = false } = {}) {
     position: 'relative',
     overflow: 'hidden',
   };
-  return (
-    <div
-      aria-hidden="true"
-      style={
-        inline
-          ? { ...shared, display: 'inline-block' }
-          : {
-              ...shared,
-              position: 'fixed',
-              left: 12,
-              bottom: 'calc(env(safe-area-inset-bottom, 0px) + 84px)',
-              zIndex: 30,
-            }
-      }
-    >
+  const layout = inline
+    ? { ...shared, display: 'inline-block' }
+    : {
+        ...shared,
+        position: 'fixed',
+        left: 12,
+        bottom: 'calc(env(safe-area-inset-bottom, 0px) + 84px)',
+        zIndex: 30,
+      };
+  const face = (
+    <>
       {/* The Concourse TRON tile plate skins the pill too (Merlin,
           2026-10-21) — behind the season artwork + name. */}
       <img
@@ -341,6 +341,25 @@ export function SeasonBadge({ inline = false } = {}) {
       <span style={{ position: 'relative' }}>
         <SeasonGlyph season={season} badge={b.badge} /> {t(b.nameKey)}
       </span>
+    </>
+  );
+  if (typeof onGuide === 'function') {
+    return (
+      <button
+        type="button"
+        onClick={() => onGuide(season)}
+        aria-label={`${t(b.nameKey)} — season guide`}
+        title="Season guide"
+        className="transition-transform motion-reduce:transition-none active:scale-95"
+        style={{ ...layout, pointerEvents: 'auto', cursor: 'pointer' }}
+      >
+        {face}
+      </button>
+    );
+  }
+  return (
+    <div aria-hidden="true" style={layout}>
+      {face}
     </div>
   );
 }

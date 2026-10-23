@@ -29,6 +29,7 @@ export default function PumpkinHarvest({ built, onToast, onTrophy }) {
   const { gl, camera, scene } = useThree();
   const harvestedRef = useRef(new Set());
   const motesRef = useRef([]); // { mesh, age }
+  const beaconRef = useRef(null); // { group, column, ring, light, pid, age }
   const toastRef = useRef(onToast);
   toastRef.current = onToast;
   const trophyRef = useRef(onTrophy);
@@ -148,6 +149,82 @@ export default function PumpkinHarvest({ built, onToast, onTrophy }) {
     motesRef.current.push({ mesh, age: 0 });
   };
 
+  // --- Season guide beacon (Merlin, round 3, 2026-10-23) ---------
+  // The Concourse season badge fires 'olympus:season-guide' (see
+  // components/Concourse.jsx). The first UNHARVESTED pumpkin wears
+  // a golden light column + pulsing ground ring until it is
+  // harvested or ~20 seconds pass. A visual guide only: the camera
+  // never moves (the SequenceController owns it) and the
+  // tap-to-harvest flow above is untouched. Built in the harvest
+  // component's own idiom — additive gold, attached to the scene
+  // root like the motes, animated in the frame loop below.
+  const clearBeacon = () => {
+    const b = beaconRef.current;
+    if (!b) return;
+    beaconRef.current = null;
+    scene.remove(b.group);
+    b.group.traverse((o) => {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) o.material.dispose();
+    });
+  };
+
+  const spawnBeacon = (spot) => {
+    clearBeacon();
+    const idx = pidToIndex(spot.id);
+    const proxy = built.proxies?.[idx];
+    const pos = new THREE.Vector3();
+    if (proxy) {
+      proxy.getWorldPosition(pos);
+      pos.y -= 0.5; // the proxy floats half a metre over the pumpkin's centre
+    } else {
+      pos.set(spot.position[0], spot.position[1], spot.position[2]);
+    }
+    const group = new THREE.Group();
+    group.position.copy(pos);
+    const column = new THREE.Mesh(
+      new THREE.CylinderGeometry(1.1, 1.7, 30, 12, 1, true),
+      new THREE.MeshBasicMaterial({
+        color: 0xffc84d, transparent: true, opacity: 0.3,
+        blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+      })
+    );
+    column.position.y = 15;
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(2.4, 3.1, 40),
+      new THREE.MeshBasicMaterial({
+        color: 0xffd75e, transparent: true, opacity: 0.7,
+        blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+      })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.4;
+    const light = new THREE.PointLight(0xffc84d, 60, 70, 1.8);
+    light.position.y = 4;
+    group.add(column, ring, light);
+    scene.add(group);
+    beaconRef.current = { group, column, ring, light, pid: spot.id, age: 0 };
+  };
+
+  // Guide requests from the Concourse season badge. No spots (not
+  // the pumpkin season) or nothing left to find: no beacon — when
+  // every pumpkin is already harvested, say so honestly instead.
+  useEffect(() => {
+    const handler = () => {
+      const spots = built?.pumpkinSpots || [];
+      if (!spots.length) return;
+      const target = spots.find((sp) => !harvestedRef.current.has(sp.id));
+      if (!target) {
+        say('Every pumpkin is harvested — fresh ones next Halloween 🎃');
+        return;
+      }
+      spawnBeacon(target);
+    };
+    window.addEventListener('olympus:season-guide', handler);
+    return () => window.removeEventListener('olympus:season-guide', handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [built, scene]);
+
   useFrame((_, rawDt) => {
     const dt = Math.min(rawDt, 0.05);
     const motes = motesRef.current;
@@ -166,10 +243,25 @@ export default function PumpkinHarvest({ built, onToast, onTrophy }) {
         motes.splice(i, 1);
       }
     }
+    // Guide beacon: pulse the column, ring and light; retire it
+    // when its pumpkin is harvested or ~20 seconds pass.
+    const beacon = beaconRef.current;
+    if (beacon) {
+      beacon.age += dt;
+      const pulse = 0.5 + 0.5 * Math.sin(beacon.age * 4);
+      beacon.column.material.opacity = 0.2 + 0.18 * pulse;
+      beacon.ring.material.opacity = 0.45 + 0.4 * pulse;
+      const rs = 1 + 0.22 * pulse;
+      beacon.ring.scale.set(rs, rs, 1);
+      beacon.light.intensity = 40 + 40 * pulse;
+      if (beacon.age >= 20 || harvestedRef.current.has(beacon.pid)) clearBeacon();
+    }
   });
 
-  // Cleanup any stray motes on unmount (off-season teardown).
+  // Cleanup any stray motes (and a lit guide beacon) on unmount
+  // (off-season teardown).
   useEffect(() => () => {
+    clearBeacon();
     for (const m of motesRef.current) {
       scene.remove(m.mesh);
       m.mesh.geometry.dispose();
