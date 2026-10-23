@@ -21,6 +21,17 @@
 // Commons/ownable, lat/lon, biome) and syncs the chamber map's
 // selection; rent and buying stay with the chamber panels.
 //
+// The Royal Tyrrell Museum stands on its site parcel (E2-0510,
+// Earth 2's Drumheller) with John Hammond at his counter — the
+// fossil economy's trading post (Phase 2 mount, 2026-10-23): the
+// building and Hammond stream in by proximity as one 'museum'
+// unit (lib/earth2/streaming.js), and walking up to Hammond opens
+// the exchange: pick fossils from the pack (lib/earth2/fossils.js),
+// choose gold or aether, and lib/earth2/hammond.js settles the
+// trade — payouts landing in the same tallies as Dracula's gifts
+// (lib/earth2/blood-sacs.js), exactly the pattern the Count's
+// exchange set.
+//
 // Perf discipline (honest): the cast STREAMS by proximity
 // (lib/earth2/streaming.js) — a species' model is decoded only
 // when the walker comes within its load radius of its habitat,
@@ -53,6 +64,19 @@ import {
   stepDracula,
 } from '@/lib/earth2/creatures';
 import { isCastleParcel } from '@/lib/earth2/parcels';
+import { HAMMOND_NPC, museumSiteParcel } from '@/lib/earth2/museum';
+import {
+  loadFossilInventory,
+  saveFossilInventory,
+  removeFossil,
+  fossilConditionById,
+} from '@/lib/earth2/fossils';
+import { exchangeFossil, aetherForFossil } from '@/lib/earth2/hammond';
+import {
+  applyFossilExchange,
+  loadBloodSacState,
+  saveBloodSacState,
+} from '@/lib/earth2/blood-sacs';
 import {
   WORLD_SIZE_M,
   WORLD_HALF_M,
@@ -61,6 +85,7 @@ import {
   heightAt,
   groundColorAt,
   parcelAtWorld,
+  parcelCenterWorld,
   parcelBorderPoints,
   worldToLatLon,
   biomeForParcel,
@@ -101,7 +126,7 @@ const CLIMATE_LABEL = {
   subtropical: 'Subtropical', tropical: 'Tropical',
 };
 
-export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOpenExchange, greetSignal, onParcelChange, onExit } = {}) {
+export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOpenExchange, onFossilExchange, greetSignal, onParcelChange, onExit } = {}) {
   const mountRef = useRef(null);
   const labelsRef = useRef(null);
   const [hud, setHud] = useState(null); // { parcel, biome, lat, lon }
@@ -110,6 +135,15 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   const [localSacs, setLocalSacs] = useState(0);
   const [status, setStatus] = useState({});
   const [bootSlugs, setBootSlugs] = useState(null);
+  // Hammond's fossil exchange: the pack is the device store from
+  // lib/earth2/fossils.js (loaded once, saved on every trade);
+  // the panel state is plain React, opened by proximity or tap.
+  const [fossilPack, setFossilPack] = useState(() => loadFossilInventory());
+  const [nearHammond, setNearHammond] = useState(false);
+  const [hammondOpen, setHammondOpen] = useState(false);
+  const [hammondCurrency, setHammondCurrency] = useState('gold');
+  const [hammondPicks, setHammondPicks] = useState(() => new Set());
+  const [hammondResults, setHammondResults] = useState([]);
 
   // The walk input, in the platform's shape (babel's inputRef):
   // the page shell (keyboard, pointer, joystick) writes, the scene
@@ -133,6 +167,53 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   openExchangeRef.current = () => {
     greetRef.current = true;
     if (typeof onOpenExchange === 'function') onOpenExchange();
+  };
+  // One Hammond payout, applied: the page owns the tallies when
+  // it passes its handler (the same seat Dracula's gifts land in);
+  // standalone, the world writes the device tallies directly —
+  // the collectSac fallback pattern, one store either way.
+  const fossilPayoutRef = useRef(() => {});
+  fossilPayoutRef.current = (record) => {
+    if (typeof onFossilExchange === 'function') onFossilExchange(record);
+    else saveBloodSacState(applyFossilExchange(loadBloodSacState(), record, Date.now()));
+  };
+  const nearHammondRef = useRef(false);
+  const hammondOpenRef = useRef(false);
+  const setHammondPanel = (open) => {
+    hammondOpenRef.current = open;
+    setHammondOpen(open);
+  };
+
+  const toggleHammondPick = (id) => {
+    setHammondPicks((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  // Settle the picked fossils at Hammond's counter: each fossil
+  // is its own exchange (its own 8% substitution roll in
+  // lib/earth2/hammond.js), leaves the pack, and pays out through
+  // the tally path above. The records stay on show in the panel.
+  const doHammondExchange = () => {
+    const picks = fossilPack.filter((f) => hammondPicks.has(f.id));
+    if (!picks.length) return;
+    let pack = fossilPack;
+    const records = [];
+    for (const fossil of picks) {
+      const record = exchangeFossil(fossil, hammondCurrency);
+      if (!record) continue;
+      pack = removeFossil(pack, fossil.id);
+      records.push(record);
+      fossilPayoutRef.current(record);
+    }
+    if (!records.length) return;
+    setFossilPack(pack);
+    saveFossilInventory(pack);
+    setHammondPicks(new Set());
+    setHammondResults(records);
   };
   const parcelChangeRef = useRef(() => {});
   parcelChangeRef.current = (id) => { if (typeof onParcelChange === 'function') onParcelChange(id); };
@@ -725,6 +806,12 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       const CASTLE_AT = [court.castle.x, court.castle.z];
       const CASTLE_BASE_Y = heightAt(CASTLE_AT[0], CASTLE_AT[1]);
       const DRACULA_SPOT = new THREE.Vector3(court.spot.x, court.spot.y, court.spot.z);
+      // The museum site (lib/earth2/museum.js): its parcel centre
+      // seats the building; Hammond's stand point seats the man.
+      // Both arrive only through the 'museum' stream unit.
+      const MUSEUM_CENTER = parcelCenterWorld(museumSiteParcel());
+      const hammondNpc = { group: null, rig: null };
+      let museumStanding = false;
       const COMPY_CENTER = compySwarmCenter();
       const mosquitos = [];
       const sacs = []; // { group, core, baseY }
@@ -878,6 +965,18 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       dracProxy.userData.dracula = true;
       scene.add(dracProxy);
 
+      // Hammond's tap target, the Dracula-proxy pattern: an
+      // invisible cylinder at his stand point, live whether or
+      // not his model has streamed in (the tap handler checks
+      // distance before it opens anything).
+      const hammondProxy = new THREE.Mesh(
+        new THREE.CylinderGeometry(1.1, 1.1, 2.4, 8),
+        new THREE.MeshBasicMaterial({ visible: false }),
+      );
+      hammondProxy.position.set(HAMMOND_NPC.stand.x, HAMMOND_NPC.stand.y + 1.1, HAMMOND_NPC.stand.z);
+      hammondProxy.userData.hammond = true;
+      scene.add(hammondProxy);
+
       async function placeDracula() {
         const added = [];
         const plinth = new THREE.Mesh(
@@ -978,6 +1077,62 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           });
         }
         return { roots: added };
+      }
+
+      // ── The museum mount: the Royal Tyrrell Museum on its ────
+      // site parcel + John Hammond at his stand point (Phase 2,
+      // 2026-10-23). The building rides placeLandform (normalize,
+      // ground, label, status); Hammond rides the Dracula pattern
+      // — normalize, seat, idle rig — with one measured twist:
+      // his forward, read off the real GLB (head leaning +X of
+      // the hips, the shoulder line along Z), is his local +X, so
+      // a −90° spin puts his front on the group's +Z before the
+      // group itself turns. He faces +z (south): the entrance
+      // approach and the parking apron, per lib/earth2/museum.js's
+      // stated intent — its documented heading (π) reads as north
+      // under the world's (sin, cos) facing convention, so the
+      // mount turns him to greet arrivals instead; the on-device
+      // look is the verdict, as with every rig here.
+      async function placeMuseum(unit) {
+        const added = [];
+        const mEntry = EARTH2_MODEL_BY_SLUG.get('museum');
+        if (mEntry && mEntry.file) {
+          const r = await placeLandform(mEntry, {
+            x: MUSEUM_CENTER.x, z: MUSEUM_CENTER.z, heading: 0, sink: 0.3,
+          }, unit.key);
+          if (r) {
+            added.push(...r.roots);
+            museumStanding = true;
+          }
+        }
+        const hEntry = EARTH2_MODEL_BY_SLUG.get('hammond');
+        let hGroup = null;
+        if (hEntry && hEntry.file) {
+          setStatusFor('hammond', 'loading');
+          try {
+            const modelScene = await loadModel(hEntry);
+            const roles = resolveRoles(modelScene);
+            hammondNpc.rig = { roles, bind: bindQuats(roles) };
+            const spin = normalize(modelScene, hEntry);
+            spin.rotation.y = -Math.PI / 2; // measured forward (+X) → group +Z
+            hGroup = new THREE.Group();
+            hGroup.add(spin);
+          } catch (err) {
+            hGroup = null;
+          }
+        }
+        if (hGroup) {
+          hGroup.position.set(HAMMOND_NPC.stand.x, HAMMOND_NPC.stand.y, HAMMOND_NPC.stand.z);
+          hGroup.rotation.y = 0; // faces +z — the entrance approach
+          scene.add(hGroup);
+          added.push(hGroup);
+          hammondNpc.group = hGroup;
+          makeLabel('John Hammond', hGroup, 2.15, 140, unit.key);
+          setStatusFor('hammond', 'placed');
+        } else if (hEntry && hEntry.file) {
+          setStatusFor('hammond', 'failed');
+        }
+        return added.length ? { roots: added } : null;
       }
 
       // ── Behaviour: mosquitos feed, sacs drop, Dracula turns ──
@@ -1485,17 +1640,26 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           ...mosquitos.map((mq) => mq.proxy),
           ...sacs.map((s) => s.group),
           dracProxy,
+          hammondProxy,
         ];
         const hits = raycaster.intersectObjects(targets, true);
         if (!hits.length) return;
         let obj = hits[0].object;
-        while (obj && !obj.userData.mosquito && !obj.userData.sacRef && !obj.userData.dracula) {
+        while (obj && !obj.userData.mosquito && !obj.userData.sacRef && !obj.userData.dracula && !obj.userData.hammond) {
           obj = obj.parent;
         }
         if (!obj) return;
         if (obj.userData.mosquito) shootMosquito(obj.userData.mosquito);
         else if (obj.userData.sacRef) collectSac(obj.userData.sacRef);
         else if (obj.userData.dracula) openExchangeRef.current();
+        else if (obj.userData.hammond) {
+          // His counter is a conversation, not a drive-by: the
+          // panel opens at conversational range; from farther
+          // off the tap just points the way.
+          const d = Math.hypot(walker.x - HAMMOND_NPC.stand.x, walker.z - HAMMOND_NPC.stand.z);
+          if (d <= 8) setHammondPanel(true);
+          else noticeRef.current('🏛️ John Hammond waits at the Royal Tyrrell Museum — walk up to his counter to trade fossils.');
+        }
       }
       let dragId = null;
       let lastPX = 0;
@@ -1563,6 +1727,11 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           return true;
         });
         if (unit.kind === 'mosquito') mosquitos.length = 0;
+        if (unit.kind === 'museum') {
+          hammondNpc.group = null;
+          hammondNpc.rig = null;
+          museumStanding = false;
+        }
         if (unit.kind === 'court') {
           swarmBats.length = 0;
           drac.countForm = null;
@@ -1611,6 +1780,8 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             return placeCompySwarm(unit.key);
           case 'mosquito':
             return placeMosquitos();
+          case 'museum':
+            return placeMuseum(unit);
           case 'court': {
             const roots = [];
             const castleEntry = entryOf('castle-transylvania');
@@ -1729,6 +1900,13 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         const strafeIn = (inp.keys.right ? 1 : 0) - (inp.keys.left ? 1 : 0) + inp.joy.x;
         const travelNow = travelRef.current || inp.keys.shift;
         const dyn = [{ x: DRACULA_SPOT.x, z: DRACULA_SPOT.z, r: 1.3 }];
+        // Solid Earth law for the museum mount: Hammond himself,
+        // and the building — a circle seated a few metres north
+        // of the parcel centre, so its bulk blocks the walker
+        // while the south apron (and Hammond's counter, 8 m south
+        // of centre) stays reachable well inside trade range.
+        if (hammondNpc.group) dyn.push({ x: HAMMOND_NPC.stand.x, z: HAMMOND_NPC.stand.z, r: 1.0 });
+        if (museumStanding) dyn.push({ x: MUSEUM_CENTER.x, z: MUSEUM_CENTER.z - 3.5, r: 9 });
         for (const a of animals) {
           if (a.flyer || a.compy) continue;
           const dx = a.root.position.x - walker.x;
@@ -1756,6 +1934,20 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         camera.rotation.set(walker.pitch, walker.yaw, 0);
         syncParcel(false);
         castleNear = Math.hypot(walker.x - CASTLE_AT[0], walker.z - CASTLE_AT[1]) < 800;
+
+        // Hammond's counter range: the trade prompt lives within
+        // 4 m of his stand point, and an open panel closes when
+        // the walker drifts off — both checked on threshold
+        // crossings only, so the frame loop never spams React.
+        {
+          const hd = Math.hypot(walker.x - HAMMOND_NPC.stand.x, walker.z - HAMMOND_NPC.stand.z);
+          const near = hd <= 4;
+          if (near !== nearHammondRef.current) {
+            nearHammondRef.current = near;
+            if (!cancelled) setNearHammond(near);
+          }
+          if (hd > 9 && hammondOpenRef.current) setHammondPanel(false);
+        }
 
         // Life, by proximity: land animals animate within 260 m
         // and hide past 520 m; flyers and swimmers always run
@@ -1788,6 +1980,23 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           updateMosquito(mq, t, dt);
         }
         updateDracula(t, dt);
+        // Hammond's idle life at his counter — the Count's idle
+        // pattern on his own Mixamo rig: a slow breath through
+        // the spine, a founder's unhurried look around, a gentle
+        // weight-shift bob. Phases offset from Dracula's so the
+        // two elders never breathe in sync.
+        if (hammondNpc.group) {
+          hammondNpc.group.position.y = HAMMOND_NPC.stand.y + Math.sin(t * 0.8 + 1.7) * 0.02;
+          const rig = hammondNpc.rig;
+          if (rig) {
+            const br = Math.sin(t * 0.7 + 1.7) * 0.018;
+            rig.roles.spine.forEach((b, i) => bendBoneTo(b, rig.bind.get(b.uuid), BEND_X, br * (0.6 + i * 0.3)));
+            const yaw = (Math.sin(t * 0.19 + 1.7) * 0.6 + Math.sin(t * 0.113 + 0.6) * 0.4) * 0.2;
+            const neckShare = rig.roles.neck.length ? 0.4 / rig.roles.neck.length : 0;
+            rig.roles.neck.forEach((b) => bendBoneTo(b, rig.bind.get(b.uuid), BEND_Y, yaw * neckShare));
+            if (rig.roles.head) bendBoneTo(rig.roles.head, rig.bind.get(rig.roles.head.uuid), BEND_Y, yaw * 0.6);
+          }
+        }
         // Blood sacs pulse; stepping up to one picks it up.
         for (let i = sacs.length - 1; i >= 0; i--) {
           const s = sacs[i];
@@ -1927,6 +2136,18 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             🧛 Bring sacs to Dracula
           </button>
         </div>
+        {nearHammond && !hammondOpen && (
+          <div className="flex flex-wrap items-center gap-2 rounded-full border border-amber-300/30 bg-black/50 py-1.5 pl-3 pr-1.5 text-[11px] text-zinc-100">
+            <span>🏛️ <strong className="text-amber-100">John Hammond</strong> is at his counter</span>
+            <button
+              type="button"
+              onClick={() => setHammondPanel(true)}
+              className="rounded-full border border-amber-300/50 bg-amber-400/20 px-2.5 py-1 font-bold text-amber-50 transition hover:bg-amber-400/35"
+            >
+              🦴 Trade fossils{fossilPack.length ? ` (${fossilPack.length})` : ''}
+            </button>
+          </div>
+        )}
         {notice && (
           <p className="rounded-lg border border-amber-300/30 bg-amber-400/15 px-2.5 py-1.5 text-[11px] font-semibold leading-snug text-amber-100">
             {notice}
@@ -1948,6 +2169,144 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           </div>
         )}
       </div>
+
+      {/* Hammond's fossil exchange — the counter panel. Flow
+          layout throughout (no overlaps, per the house CSS law):
+          header, currency choice, the pack as tappable rows, the
+          last trade's receipts, and the settle button. */}
+      {hammondOpen && (
+        <div className="absolute inset-x-2 bottom-2 sm:inset-x-auto sm:bottom-5 sm:left-1/2 sm:w-[430px] sm:-translate-x-1/2">
+          <div className="flex max-h-[64vh] flex-col gap-3 overflow-y-auto rounded-[1.25rem] border border-amber-300/35 bg-[#12100a]/95 p-4 text-zinc-100 shadow-2xl backdrop-blur-md">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[10px] font-black tracking-[0.25em] text-amber-200">
+                  🏛️ ROYAL TYRRELL MUSEUM
+                </div>
+                <div className="mt-0.5 text-lg font-black leading-tight text-white">
+                  John Hammond&rsquo;s counter
+                </div>
+                <p className="mt-1 text-[11px] leading-snug text-zinc-400">
+                  He buys fossils for gold or aether — and now and then, on a whim,
+                  he hands you a weapon instead.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setHammondPanel(false)}
+                className="shrink-0 rounded-full border border-white/25 bg-black/40 px-3 py-2 text-[12px] font-bold text-white transition hover:bg-black/70"
+              >
+                ✕ Close
+              </button>
+            </div>
+
+            <div className="flex gap-2" role="group" aria-label="Payout currency">
+              <button
+                type="button"
+                aria-pressed={hammondCurrency === 'gold'}
+                onClick={() => setHammondCurrency('gold')}
+                className={`flex-1 rounded-full border px-3 py-2.5 text-sm font-bold transition ${
+                  hammondCurrency === 'gold'
+                    ? 'border-amber-300/70 bg-amber-400/25 text-amber-50'
+                    : 'border-white/20 bg-white/5 text-zinc-300 hover:bg-white/10'
+                }`}
+              >
+                🪙 Pay me in gold
+              </button>
+              <button
+                type="button"
+                aria-pressed={hammondCurrency === 'aether'}
+                onClick={() => setHammondCurrency('aether')}
+                className={`flex-1 rounded-full border px-3 py-2.5 text-sm font-bold transition ${
+                  hammondCurrency === 'aether'
+                    ? 'border-cyan-300/70 bg-cyan-400/25 text-cyan-50'
+                    : 'border-white/20 bg-white/5 text-zinc-300 hover:bg-white/10'
+                }`}
+              >
+                ◆ Refine to aether
+              </button>
+            </div>
+
+            {fossilPack.length ? (
+              <div className="flex flex-col gap-2">
+                {fossilPack.map((f) => {
+                  const picked = hammondPicks.has(f.id);
+                  const aether = aetherForFossil(f);
+                  const condition = fossilConditionById(f.condition);
+                  return (
+                    <button
+                      key={f.id}
+                      type="button"
+                      aria-pressed={picked}
+                      onClick={() => toggleHammondPick(f.id)}
+                      className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition ${
+                        picked
+                          ? 'border-amber-300/70 bg-amber-400/15'
+                          : 'border-white/12 bg-black/30 hover:bg-black/50'
+                      }`}
+                    >
+                      <span aria-hidden="true" className="text-base">{picked ? '☑️' : '⬜'}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-semibold text-zinc-50">{f.type}</span>
+                        <span className="block text-[11px] text-zinc-400">
+                          {f.speciesName} · {condition ? condition.label : f.condition}
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-right">
+                        <span className="block text-sm font-bold text-amber-100">{f.goldValue} gold</span>
+                        <span className="block text-[11px] text-cyan-200">
+                          {aether > 0 ? `◆ ${aether} aether` : 'too small to refine'}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="rounded-xl border border-white/10 bg-black/30 px-3 py-2.5 text-xs leading-relaxed text-zinc-400">
+                Your pack is empty. When the hunt brings a dinosaur down, it leaves
+                fossils behind — carry them here and Hammond will make you an offer.
+              </p>
+            )}
+
+            {hammondResults.length > 0 && (
+              <div className="flex flex-col gap-1.5 rounded-xl border border-white/10 bg-black/30 px-3 py-2.5">
+                <div className="text-[10px] font-bold tracking-[0.25em] text-zinc-400">
+                  THE FOUNDER SETTLES UP
+                </div>
+                {hammondResults.map((r, i) => (
+                  <p key={`${r.fossilId || 'fossil'}-${i}`} className="text-xs leading-snug text-zinc-200">
+                    {r.outcome === 'weapon' ? (
+                      <>⚔️ For the {r.type}, Hammond smiles and hands you the{' '}
+                        <strong className="text-amber-100">{r.weapon}</strong>{' '}
+                        <span className="capitalize text-zinc-400">({r.weaponRarity})</span> instead.</>
+                    ) : r.outcome === 'aether' ? (
+                      <>◆ +{r.amount} aether for the {r.type}.</>
+                    ) : (
+                      <>🪙 +{r.amount} gold for the {r.type}.
+                        {r.refinedFallback ? ' Too small to refine — he pays its gold.' : ''}</>
+                    )}
+                  </p>
+                ))}
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={doHammondExchange}
+              disabled={hammondPicks.size === 0}
+              className="w-full rounded-full border border-amber-300/70 bg-amber-400/25 px-4 py-3 text-sm font-black tracking-wide text-amber-50 transition hover:bg-amber-400/40 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {hammondPicks.size === 0
+                ? 'Pick a fossil to trade'
+                : `Trade ${hammondPicks.size} fossil${hammondPicks.size > 1 ? 's' : ''} for ${hammondCurrency === 'aether' ? 'aether' : 'gold'}`}
+            </button>
+            <p className="text-[11px] leading-relaxed text-zinc-500">
+              Payouts land in the same tallies as Dracula&rsquo;s gifts — check the
+              chamber&rsquo;s Exchange panel for the running count.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Touch controls: the shared walk joystick + travel toggle. */}
       <div className="absolute bottom-3 left-3 sm:bottom-5 sm:left-5">
@@ -1971,7 +2330,8 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         </button>
         <p className="hidden max-w-[240px] rounded-lg border border-white/10 bg-black/45 px-2.5 py-1.5 text-right text-[11px] leading-snug text-zinc-300 sm:block">
           WASD / arrows to walk · drag to look · Shift = travel pace ·
-          tap a mosquito to shoot it · Esc leaves
+          tap a mosquito to shoot it · 🏛️ trade fossils at Hammond&rsquo;s
+          counter by the museum · Esc leaves
         </p>
         <p className="max-w-[200px] rounded-lg border border-white/10 bg-black/45 px-2.5 py-1.5 text-right text-[11px] leading-snug text-zinc-300 sm:hidden">
           🦟 Tap a mosquito to shoot it — only the swollen red ones drop a blood sac.

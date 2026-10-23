@@ -39,6 +39,7 @@ import {
   saveBloodSacState,
   collectBloodSac,
   offerBloodSac,
+  applyFossilExchange,
 } from '@/lib/earth2/blood-sacs';
 import { rollGift } from '@/lib/earth2/gifts';
 import {
@@ -258,6 +259,18 @@ export default function Earth2Page() {
       setLastGift(gift);
     }
   };
+
+  // A fossil settled at Hammond's counter out on the planet: the
+  // record lands in the same tallies Dracula's gifts land in —
+  // gold, aether shards, gifted weapons, history — persisted the
+  // same way (lib/earth2/blood-sacs.js applyFossilExchange).
+  const applyFossilPayout = useCallback((record) => {
+    setBlood((prev) => {
+      const next = applyFossilExchange(prev, record, Date.now());
+      saveBloodSacState(next);
+      return next;
+    });
+  }, []);
 
   // The Bay's "Bring sacs to Dracula" / clicking the Count himself
   // opens the exchange.
@@ -498,8 +511,10 @@ export default function Earth2Page() {
               </h2>
               <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-zinc-300">
                 The whole map below, as ground under your feet: 1.4 km of Earth 2 —
-                herds on the plains, swimmers in the great sea, flyers overhead, and
-                Castle Transylvania at the south pole. You spawn at{' '}
+                herds on the plains, swimmers in the great sea, flyers overhead,
+                Castle Transylvania at the south pole — and the Royal Tyrrell Museum
+                in Earth 2&rsquo;s Drumheller, where John Hammond trades your hunted
+                fossils for gold, aether, or the occasional weapon. You spawn at{' '}
                 {homeParcel ? (
                   <>your home base, <span className="font-bold text-emerald-100">{homeParcel.name}</span> ({homeParcel.id})</>
                 ) : (
@@ -1048,6 +1063,7 @@ export default function Earth2Page() {
           spawnParcelId={homeBaseId}
           bloodSacs={blood.sacs}
           onBloodSac={collectSacFromBay}
+          onFossilExchange={applyFossilPayout}
           onOpenExchange={() => {
             setWalking(false);
             openExchange();

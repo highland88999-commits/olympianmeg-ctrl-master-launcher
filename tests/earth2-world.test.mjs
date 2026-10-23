@@ -266,6 +266,12 @@ describe('the population — placed by habitat', () => {
       ...worldFlyers().map((r) => r.slug),
       ...new Set(worldPlants().map((r) => r.slug)),
       'compy-swarm', 'giant-mosquito', 'dracula', 'vampire-bat',
+      // The museum pair (Phase 2 mount, 2026-10-23): their home
+      // is not a habitat scatter — it is the one designated site
+      // in lib/earth2/museum.js (parcel E2-0510 + Hammond's stand
+      // point), streamed as the 'museum' unit; placement there is
+      // pinned by tests/earth2-museum-mount.test.mjs.
+      'museum', 'hammond',
     ]);
     for (const m of earth2PlacedModels()) {
       assert.ok(planned.has(m.slug), `${m.slug} has no world placement`);
@@ -555,12 +561,17 @@ describe('proximity streaming — the memory contract (Safari killed the all-at-
     for (const slug of ['tyrannosaurus-rex', 'spinosaurus-rex', 'active-volcano', 'mountain-range', 'castle-transylvania', 'dracula', 'vampire-bat']) {
       assert.ok(!entrySlugs.has(slug), `${slug} is not resident at spawn`);
     }
-    // Of the 56 foundry model files, the spawn step-on loads 31.
+    // The museum + Hammond wait in Earth 2's Drumheller, ~600 m
+    // north-west — never resident at spawn (Phase 2 mount pin).
+    for (const slug of ['museum', 'hammond']) {
+      assert.ok(!entrySlugs.has(slug), `${slug} is not resident at spawn`);
+    }
+    // Of the 58 foundry model files, the spawn step-on loads 31.
     const entryModels = [...entrySlugs].filter((s) => {
       const e = EARTH2_MODEL_BY_SLUG.get(s);
       return e && e.file;
     });
-    assert.equal(entryModels.length, 31, `entry loads ${entryModels.length} of 56 model files`);
+    assert.equal(entryModels.length, 31, `entry loads ${entryModels.length} of 58 model files`);
   });
 
   it('the plan honours hysteresis: inside the band nothing loads and nothing releases', () => {

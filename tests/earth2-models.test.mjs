@@ -1,6 +1,6 @@
 // tests/earth2-models.test.mjs
 // Earth 2 — Dinosaur Bay (Merlin, 2026-10-22):
-// - the models manifest: 56 placed foundry models + only
+// - the models manifest: 58 placed foundry models + only
 //   Pachycephalosaurus honestly pending (never uploaded —
 //   file null, no stand-in)
 // - every placed file exists under public/models/earth2, parses as a
@@ -45,9 +45,9 @@ function parseGlb(buf) {
 }
 
 describe('the Bay manifest', () => {
-  it('holds 58 entries: 56 placed files, the compy swarm riding its source model, 1 awaiting upload', () => {
-    assert.equal(EARTH2_MODELS.length, 58);
-    assert.equal(earth2PlacedModels().length, 56);
+  it('holds 60 entries: 58 placed files, the compy swarm riding its source model, 1 awaiting upload', () => {
+    assert.equal(EARTH2_MODELS.length, 60);
+    assert.equal(earth2PlacedModels().length, 58);
     const pending = earth2PendingModels();
     assert.equal(pending.length, 1);
     assert.deepEqual(
@@ -89,7 +89,7 @@ describe('the Bay manifest', () => {
   });
 
   it('slugs are unique and kind counts match the foundry roster', () => {
-    assert.equal(new Set(EARTH2_MODELS.map((m) => m.slug)).size, 58);
+    assert.equal(new Set(EARTH2_MODELS.map((m) => m.slug)).size, 60);
     const by = (k) => EARTH2_MODELS.filter((m) => m.kind === k).length;
     assert.equal(by('dinosaur'), 18);
     assert.equal(by('flyer'), 10);
@@ -97,8 +97,37 @@ describe('the Bay manifest', () => {
     assert.equal(by('plant'), 10);
     assert.equal(by('landform'), 9);
     assert.equal(by('insect'), 1);
-    assert.equal(by('character'), 1);
+    assert.equal(by('character'), 2);
     assert.equal(by('swarm'), 1);
+    assert.equal(by('structure'), 1);
+  });
+
+  it('the museum mount has landed — the building and the founder, world-only (Phase 2, 2026-10-23)', () => {
+    const bySlug = Object.fromEntries(EARTH2_MODELS.map((m) => [m.slug, m]));
+    // The fossil economy's counter: the museum building (a
+    // structure, not Bay scenery) and John Hammond (a character
+    // like the Count) — placed, filed, and flagged worldOnly so
+    // the Dinosaur Bay diorama never picks them up.
+    assert.equal(bySlug['museum'].kind, 'structure');
+    assert.equal(bySlug['museum'].name, 'Royal Tyrrell Museum');
+    assert.equal(bySlug['hammond'].kind, 'character');
+    assert.equal(bySlug['hammond'].name, 'John Hammond');
+    for (const slug of ['museum', 'hammond']) {
+      assert.equal(bySlug[slug].status, 'placed', slug);
+      assert.equal(bySlug[slug].file, `/models/earth2/${slug}.glb`, slug);
+      assert.equal(bySlug[slug].worldOnly, true, `${slug} belongs to the walkable planet, not the Bay`);
+    }
+    // The building's frontage sits convincingly on its 28 m
+    // parcel; the founder stands at a natural 1.8 m.
+    assert.equal(bySlug['museum'].scaleM, 25);
+    assert.equal(bySlug['museum'].scaleBasis, 'length');
+    assert.equal(bySlug['hammond'].scaleM, 1.8);
+    assert.equal(bySlug['hammond'].scaleBasis, 'height');
+    // Nobody else is worldOnly — the flag is the museum's alone.
+    assert.deepEqual(
+      EARTH2_MODELS.filter((m) => m.worldOnly).map((m) => m.slug).sort(),
+      ['hammond', 'museum'],
+    );
   });
 
   it('every entry carries a real-world scale; creatures carry diet, social, posture', () => {
@@ -174,6 +203,19 @@ describe('the Transylvania arrivals kept their skeletons through the weight pass
       }
     });
   }
+});
+
+describe('the museum arrivals kept their shape through the weight pass', () => {
+  // The founder rides the 65-joint Mixamo template (measured off
+  // the Studio export, like Dracula's pin above); the museum is a
+  // generate-only structure — no skeleton, by design.
+  it('hammond.glb carries exactly 65 joints; museum.glb has no skin', () => {
+    const h = parseGlb(readFileSync(join(repo, 'public', 'models', 'earth2', 'hammond.glb')));
+    assert.equal((h.skins || []).length, 1, 'hammond has one skin');
+    assert.equal(h.skins[0].joints.length, 65, 'hammond joint count');
+    const m = parseGlb(readFileSync(join(repo, 'public', 'models', 'earth2', 'museum.glb')));
+    assert.equal((m.skins || []).length, 0, 'the museum has no skin');
+  });
 });
 
 describe('the aquatic-round arrivals kept their skeletons through the weight pass', () => {

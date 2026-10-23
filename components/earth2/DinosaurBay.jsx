@@ -1645,7 +1645,10 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const total = earth2PlacedModels().length;
+  // The museum + Hammond are worldOnly manifest entries: citizens
+  // of the walkable planet, never Bay cast — the Bay's totals and
+  // roster count only its own foundry.
+  const total = earth2PlacedModels().filter((m) => !m.worldOnly).length;
 
   return (
     <section className="mt-5 rounded-[1.5rem] border border-emerald-300/25 bg-emerald-400/[0.04] p-4 backdrop-blur-md sm:p-5">
@@ -1731,7 +1734,7 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
       )}
 
       <div className="mt-4 flex flex-wrap gap-1.5">
-        {EARTH2_MODELS.map((m) => (
+        {EARTH2_MODELS.filter((m) => !m.worldOnly).map((m) => (
           <span
             key={m.slug}
             className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${STATUS_CHIP[status[m.slug]] || STATUS_CHIP.queued}`}
