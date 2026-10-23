@@ -55,7 +55,6 @@ export const WORLDS = [
   { key: "geometry-engine", title: "Geometry Engine", route: "/geometry-engine", god: "HEPHAESTUS" },
   { key: "housing-architecture", title: "Home Designs", route: "/housing-architecture", god: "HEPHAESTUS" },
   { key: "new-earth", title: "New Earth", route: "/new-earth", god: "HEPHAESTUS" },
-  { key: "planet-tech", title: "Planet Tech", route: "/planet-tech", god: "HEPHAESTUS" },
   { key: "publisher-studio", title: "Publisher Studio", route: "/publisher-studio", god: "HEPHAESTUS" },
   { key: "resume", title: "Resume Builder", route: "/resume", god: "HEPHAESTUS" },
   { key: "prime", title: "Star Navigator", route: "/prime", god: "HEPHAESTUS" },

@@ -8,8 +8,10 @@
 // - registration: "portal-room" is a satellite exactly once, claimed by
 //   exactly one god menu (HERMES), titled in all 31 locales
 // - roster: the room's program list (registry deduped by route, minus
-//   the room itself) is 170 portals (the old 166 pin had gone stale —
-//   the true count was already 169 before omega-comms joined)
+//   the room itself) is 173 portals (was 170; the 2026-10-23 master
+//   portal seating added achievements/communiverse/education/wallet
+//   and removed planet-tech's duplicated dead seat: 174 unique
+//   routes in the registry, minus the room itself)
 // - wiring: HomeScene mounts the gate behind freeroam; the gate pushes
 //   OMEGA_ROUTE on click and on fly-through
 //
@@ -136,7 +138,7 @@ describe('registration — one satellite, one god, every language', () => {
     }
   });
 
-  it('the room roster (deduped by route, minus itself) is 170 portals', () => {
+  it('the room roster (deduped by route, minus itself) is 173 portals', () => {
     const seen = new Set();
     let count = 0;
     for (const e of entries) {
@@ -145,7 +147,7 @@ describe('registration — one satellite, one god, every language', () => {
       seen.add(e.route);
       count += 1;
     }
-    assert.equal(count, 170);
+    assert.equal(count, 173);
   });
 });
 

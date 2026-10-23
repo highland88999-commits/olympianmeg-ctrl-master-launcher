@@ -3,9 +3,9 @@
 // the 3D portal objects live inside the Concourse, minimized until
 // the user expands them):
 // - the shared roster derivation (lib/portal-roster.js): the real
-//   registry yields exactly the Portal Room's 170, deduped by route,
+//   registry yields exactly the Portal Room's 173, deduped by route,
 //   the room itself skipped, title/subtitle fallbacks honored
-// - wall paging (42 per wall; GAMES' 51 -> 2 pages), section hues,
+// - wall paging (42 per wall; GAMES' 52 -> 2 pages), section hues,
 //   the shared section/search filtering and grouping
 // - the swirl painter (lib/portal-swirl.js) is deterministic and
 //   drives a bare 2D-context stub without throwing
@@ -50,8 +50,8 @@ const enRoster = () =>
   buildPortalRoster(SATELLITES, (k) => en[`sat.${k}.title`], (k) => en[`sat.${k}.subtitle`]);
 
 describe('buildPortalRoster (the shared derivation)', () => {
-  it('yields exactly 170 portals from the real registry — the Portal Room count', () => {
-    assert.equal(enRoster().length, 170);
+  it('yields exactly 173 portals from the real registry — the Portal Room count', () => {
+    assert.equal(enRoster().length, 173);
   });
 
   it('skips the Portal Room itself', () => {
@@ -59,11 +59,11 @@ describe('buildPortalRoster (the shared derivation)', () => {
     assert.ok(!enRoster().some((p) => p.route === '/portal-room'));
   });
 
-  it('dedupes by route (planet-tech is registered twice, portaled once)', () => {
+  it('dedupes by route (planet-tech\'s duplicated dead seat was removed 2026-10-23; routes are unique)', () => {
     const roster = enRoster();
     const routes = roster.map((p) => p.route);
     assert.equal(new Set(routes).size, routes.length, 'every route appears once');
-    assert.equal(roster.filter((p) => p.key === 'planet-tech').length, 1);
+    assert.equal(roster.filter((p) => p.key === 'planet-tech').length, 0);
   });
 
   it('keeps registry order and carries key/route/section/title/subtitle', () => {
@@ -100,12 +100,12 @@ describe('buildPortalRoster (the shared derivation)', () => {
 });
 
 describe('wall paging + hues', () => {
-  it('WALL_PAGE_SIZE is 42 and GAMES (51) spans exactly 2 pages, 42 + 9', () => {
+  it('WALL_PAGE_SIZE is 42 and GAMES (52) spans exactly 2 pages, 42 + 10', () => {
     assert.equal(WALL_PAGE_SIZE, 42);
     const games = enRoster().filter((p) => p.section === 'GAMES');
-    assert.equal(games.length, 51);
+    assert.equal(games.length, 52);
     const pages = paginateWall(games);
-    assert.deepEqual(pages.map((pg) => pg.length), [42, 9]);
+    assert.deepEqual(pages.map((pg) => pg.length), [42, 10]);
   });
 
   it('paginateWall edge cases: empty -> no pages, exact fit -> one page', () => {
@@ -131,7 +131,7 @@ describe('filterPortals + groupBySection (room/panel shared semantics)', () => {
 
   it('section filter keeps only that section', () => {
     const tools = filterPortals(roster, { section: 'TOOLS' });
-    assert.equal(tools.length, 23);
+    assert.equal(tools.length, 24);
     assert.ok(tools.every((p) => p.section === 'TOOLS'));
   });
 
@@ -145,7 +145,7 @@ describe('filterPortals + groupBySection (room/panel shared semantics)', () => {
   it('grouping follows SECTION_ORDER and drops empty sections', () => {
     const grouped = groupBySection(roster);
     assert.deepEqual(grouped.map((g) => g.section), SECTION_ORDER);
-    assert.equal(grouped.reduce((n, g) => n + g.items.length, 0), 170);
+    assert.equal(grouped.reduce((n, g) => n + g.items.length, 0), 173);
     assert.deepEqual(groupBySection([]), []);
   });
 });
@@ -266,7 +266,7 @@ describe('portal video presence (lib/portal-videos.js — the file-presence list
 
   it('the data source carries exactly the videos on disk — no drift either way', () => {
     assert.deepEqual([...PORTAL_VIDEO_KEYS].sort(), onDisk);
-    assert.equal(onDisk.length, 17, 'seventeen portal videos wired today (batch 6: nova, abyssal-voyage, enyo)');
+    assert.equal(onDisk.length, 23, 'twenty-three portal videos wired today (batch 7: underworld, liquid-gold, guillotine; batch 8: hawkins, beehive, ice-dragon)');
   });
 
   it('every video key on disk resolves as video-present from the data source', () => {

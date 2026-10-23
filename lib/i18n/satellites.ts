@@ -98,7 +98,6 @@ export const SATELLITES: SatelliteEntry[] = [
   { key: "agora", route: "/agora", pos: "APHRODITE", section: "OBSERVATORY", constellation: "ARGUS" },
   { key: "auction-house", route: "/auction-house", pos: "PLUTUS", section: "OBSERVATORY", constellation: "ARGUS" },
   { key: "aetheris", route: "/aetheris", pos: "ARTEMIS", section: "OBSERVATORY", constellation: "ARGUS" },
-  { key: "planet-tech", route: "/planet-tech", pos: "ARTEMIS", section: "OBSERVATORY", constellation: "ARGUS" },
   { key: "olympus-b2b", route: "/olympus-b2b", pos: "PLUTUS", section: "OBSERVATORY", constellation: "ARGUS" },
   { key: "blueprint-protocol", route: "/blueprint-protocol", pos: "HEPHAESTUS", section: "OBSERVATORY", constellation: "ARGUS" },
   { key: "data-management", route: "/data-management", pos: "ATHENA", section: "OBSERVATORY", constellation: "ARGUS" },
@@ -190,8 +189,6 @@ export const SATELLITES: SatelliteEntry[] = [
   { key: "geometry-engine", route: "/geometry-engine", pos: "HEPHAESTUS", section: "TOOLS", constellation: "ARES" },
   // PUBLISHER-STUDIO (publishing studio) sits with the HEPHAESTUS forge tools: ARES/TOOLS.
   { key: "publisher-studio", route: "/publisher-studio", pos: "HEPHAESTUS", section: "TOOLS", constellation: "ARES" },
-  // PLANET-TECH (computing power for a cleaner world) sits with the HEPHAESTUS forge: ARES/TOOLS.
-  { key: "planet-tech", route: "/planet-tech", pos: "HEPHAESTUS", section: "TOOLS", constellation: "ARES" },
   // RENEWAL-PLAN (Olympus Meet The Gods renewal timeline) sits with ATHENA wisdom: THOTH/WISDOM.
   { key: "renewal-plan", route: "/renewal-plan", pos: "ATHENA", section: "WISDOM", constellation: "THOTH" },
   // LANGUAGES (every language on Earth, in its own words) sits with the
@@ -215,6 +212,22 @@ export const SATELLITES: SatelliteEntry[] = [
   // messaging) sits with HERMES' message routes beside PHONE HOME,
   // its fellow comms tool: ARES/TOOLS.
   { key: "omega-comms", route: "/omega-comms", pos: "HERMES", section: "TOOLS", constellation: "ARES" },
+  // MASTER PORTAL seating (Merlin, 2026-10-23: every function lives
+  // inside the one master portal). ACHIEVEMENTS — the global ledger
+  // of milestones across every game — sits with the ARES battle &
+  // competition games: ZEUS/GAMES.
+  { key: "achievements", route: "/achievements", pos: "ARES", section: "GAMES", constellation: "ZEUS" },
+  // COMMUNIVERSE — the shared universe of user-created worlds (My
+  // Worlds) — sits with the APHRODITE people & community worlds:
+  // ARGUS/OBSERVATORY.
+  { key: "communiverse", route: "/communiverse", pos: "APHRODITE", section: "OBSERVATORY", constellation: "ARGUS" },
+  // EDUCATION — every learning option in one place — sits with the
+  // ATHENA wisdom row beside LANGUAGES: THOTH/WISDOM.
+  { key: "education", route: "/education", pos: "ATHENA", section: "WISDOM", constellation: "THOTH" },
+  // WALLET — the in-house wallet (balance, history, withdrawals;
+  // every program's earnings land here) — sits with the PLUTUS
+  // wealth row beside AFFILIATES: ARES/TOOLS.
+  { key: "wallet", route: "/wallet", pos: "PLUTUS", section: "TOOLS", constellation: "ARES" },
 ];
 
 export interface SectionDef { name: string; key: string; constellation: string; }
