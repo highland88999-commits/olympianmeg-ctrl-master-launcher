@@ -9,7 +9,7 @@
 // daily cap. Nothing else in the economy is touched by this route.
 
 import { NextResponse } from 'next/server';
-import { getCurrentUser } from '@/lib/supabase-server';
+import { getUserFromRequest } from '@/lib/economy/auth';
 import { getServiceClient } from '@/lib/economy/supabase';
 import {
   processRefineryClaim, RefinerySetupError, RefineryResyncError,
@@ -19,8 +19,9 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(request) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: 'You must be signed in.' }, { status: 401 });
+  const auth = await getUserFromRequest(request);
+  if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
+  const user = auth.user;
 
   let body;
   try { body = await request.json(); } catch {

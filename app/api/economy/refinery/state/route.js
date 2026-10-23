@@ -14,7 +14,7 @@
 // preview with an honest notice — nothing pretends to be saved.
 
 import { NextResponse } from 'next/server';
-import { getCurrentUser } from '@/lib/supabase-server';
+import { getUserFromRequest } from '@/lib/economy/auth';
 import { getServiceClient } from '@/lib/economy/supabase';
 import {
   loadRefineryRow, saveRefinerySave, refinerySummary, RefinerySetupError,
@@ -34,8 +34,9 @@ async function summary(userId, client) {
 }
 
 export async function GET(request) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: 'You must be signed in.' }, { status: 401 });
+  const auth = await getUserFromRequest(request);
+  if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
+  const user = auth.user;
 
   try {
     const client = await getServiceClient();
@@ -72,8 +73,9 @@ export async function GET(request) {
 }
 
 export async function PUT(request) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: 'You must be signed in.' }, { status: 401 });
+  const auth = await getUserFromRequest(request);
+  if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
+  const user = auth.user;
 
   let body;
   try { body = await request.json(); } catch {
