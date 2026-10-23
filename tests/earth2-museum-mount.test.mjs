@@ -102,7 +102,9 @@ describe('the manifest — the museum and the founder behind the sealed door', (
 describe('the stream plan — one museum unit, anchored at the counter', () => {
   it('the unit exists exactly once, with both slugs and landform-class hysteresis', () => {
     const units = worldStreamUnits();
-    assert.equal(units.length, 56, 'the plan grew by exactly the museum unit');
+    // 55 cast units + the museum unit + (since Vehicles
+    // Phase 1) the Tyrrell Field unit.
+    assert.equal(units.length, 57, 'the plan: the cast, the museum unit, the airfield unit');
     const museumUnits = units.filter((u) => u.kind === 'museum');
     assert.equal(museumUnits.length, 1);
     const unit = museumUnits[0];

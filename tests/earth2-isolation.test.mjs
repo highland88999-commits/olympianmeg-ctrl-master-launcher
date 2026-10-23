@@ -186,12 +186,24 @@ describe('isolation — the multiverse stays clean', () => {
     // Whole-key match: the key must not be preceded by a word char
     // or '-' — Earth 1's own 'e001-rocky-outcrop.glb' (earth-models
     // bucket, a different file) is a substring lookalike, not a
-    // reference to the Earth 2 'rocky-outcrop.glb'.
+    // reference to the Earth 2 'rocky-outcrop.glb'. The same class:
+    // a key that is the basename of a DIFFERENT directory's path —
+    // the hub avatars' own survey rover at '/models/vehicles/
+    // rover.glb' (lib/glb/avatars.js) is not the Earth 2 fleet's
+    // 'rover.glb', however the basenames agree. A path occurrence
+    // counts only when its directory is an earth2 one (and the
+    // sibling test above already bans '/models/earth2' outright
+    // outside lib/earth2).
     const keyHit = (src, key) => {
       let i = src.indexOf(key);
       while (i !== -1) {
         const before = i === 0 ? '' : src[i - 1];
-        if (!/[A-Za-z0-9_-]/.test(before)) return true;
+        if (!/[A-Za-z0-9_-]/.test(before)) {
+          if (before !== '/') return true;
+          const segStart = src.lastIndexOf('/', i - 2);
+          const seg = src.slice(segStart + 1, i - 1);
+          if (seg === 'earth2') return true;
+        }
         i = src.indexOf(key, i + 1);
       }
       return false;

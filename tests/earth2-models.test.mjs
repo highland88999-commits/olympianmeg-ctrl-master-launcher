@@ -45,9 +45,9 @@ function parseGlb(buf) {
 }
 
 describe('the Bay manifest', () => {
-  it('holds 60 entries: 58 placed files, the compy swarm riding its source model, 1 awaiting upload', () => {
-    assert.equal(EARTH2_MODELS.length, 60);
-    assert.equal(earth2PlacedModels().length, 58);
+  it('holds 65 entries: 63 placed files, the compy swarm riding its source model, 1 awaiting upload', () => {
+    assert.equal(EARTH2_MODELS.length, 65);
+    assert.equal(earth2PlacedModels().length, 63);
     const pending = earth2PendingModels();
     assert.equal(pending.length, 1);
     assert.deepEqual(
@@ -89,7 +89,7 @@ describe('the Bay manifest', () => {
   });
 
   it('slugs are unique and kind counts match the foundry roster', () => {
-    assert.equal(new Set(EARTH2_MODELS.map((m) => m.slug)).size, 60);
+    assert.equal(new Set(EARTH2_MODELS.map((m) => m.slug)).size, 65);
     const by = (k) => EARTH2_MODELS.filter((m) => m.kind === k).length;
     assert.equal(by('dinosaur'), 18);
     assert.equal(by('flyer'), 10);
@@ -99,7 +99,8 @@ describe('the Bay manifest', () => {
     assert.equal(by('insect'), 1);
     assert.equal(by('character'), 2);
     assert.equal(by('swarm'), 1);
-    assert.equal(by('structure'), 1);
+    assert.equal(by('structure'), 2);
+    assert.equal(by('vehicle'), 4);
   });
 
   it('the museum mount has landed — the building and the founder, world-only (Phase 2, 2026-10-23)', () => {
@@ -123,10 +124,14 @@ describe('the Bay manifest', () => {
     assert.equal(bySlug['museum'].scaleBasis, 'length');
     assert.equal(bySlug['hammond'].scaleM, 1.8);
     assert.equal(bySlug['hammond'].scaleBasis, 'height');
-    // Nobody else is worldOnly — the flag is the museum's alone.
+    // The worldOnly flag is the walkable world's alone: the
+    // museum pair, and — since Vehicles Phase 1 (2026-10-23) —
+    // Tyrrell Field and its fleet, which the Bay diorama also
+    // never picks up (their homes are pinned by
+    // tests/earth2-vehicles.test.mjs).
     assert.deepEqual(
       EARTH2_MODELS.filter((m) => m.worldOnly).map((m) => m.slug).sort(),
-      ['hammond', 'museum'],
+      ['airport', 'hammond', 'museum', 'rover', 'scarab', 'speed-bike', 'vtol'],
     );
   });
 

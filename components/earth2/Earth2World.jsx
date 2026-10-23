@@ -32,6 +32,18 @@
 // (lib/earth2/blood-sacs.js), exactly the pattern the Count's
 // exchange set.
 //
+// Tyrrell Field, Earth 2's first airport, stands on its Free
+// Commons grounds west of the museum (lib/earth2/airport.js), and
+// its fleet — rover, speed bike, scarab, VTOL — sleeps on the
+// apron (Vehicles Phase 1, 2026-10-23). The field and each
+// machine stream by proximity like the museum (the fleet as live
+// units anchored wherever each machine was left); walk up to a
+// machine to board it, and the pure step law in
+// lib/earth2/vehicles.js drives it — terrain-following ground
+// machines with slope pitch/roll and the wading wall, a VTOL
+// that lifts, tilts, crosses water and lands only on flat
+// ground. Where a machine was left persists on-device.
+//
 // Perf discipline (honest): the cast STREAMS by proximity
 // (lib/earth2/streaming.js) — a species' model is decoded only
 // when the walker comes within its load radius of its habitat,
@@ -52,7 +64,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { EARTH2_MODEL_BY_SLUG, earth2ModelUrl, fetchEarth2ModelUrls } from '@/lib/earth2/models';
 import { supabase } from '@/lib/supabase';
-import { resolveBones, normalizeJointName, resolveMosquitoRig, resolveBatWings, resolveSwimRig, resolveFlyerWings } from '@/lib/earth2/bones';
+import { resolveBones, normalizeJointName, resolveMosquitoRig, resolveBatWings, resolveSwimRig, resolveFlyerWings, resolveScarabLegs } from '@/lib/earth2/bones';
 import {
   COMPY_SWARM,
   MOSQUITO_CONFIG,
@@ -65,6 +77,15 @@ import {
 } from '@/lib/earth2/creatures';
 import { isCastleParcel, parcelById } from '@/lib/earth2/parcels';
 import { HAMMOND_NPC, museumSiteParcel } from '@/lib/earth2/museum';
+import { AIRPORT_CENTER, AIRPORT_HEADING } from '@/lib/earth2/airport';
+import {
+  VEHICLE_SLUGS,
+  vehicleSpec,
+  stepVehicle,
+  groundPose,
+  loadVehicleStates,
+  saveVehicleStates,
+} from '@/lib/earth2/vehicles';
 import {
   loadFossilInventory,
   saveFossilInventory,
@@ -96,6 +117,7 @@ import {
   compySwarmCenter,
   draculaCourt,
   worldColliders,
+  waterDepthAt,
   stepWorldWalker,
   applyWorldLook,
 } from '@/lib/earth2/world';
@@ -103,6 +125,7 @@ import {
   STREAM_RADII,
   worldStreamUnits,
   buildStreamUnits,
+  vehicleStreamUnits,
   streamEntryUnits,
   streamDistance,
   planStreamActions,
@@ -246,6 +269,10 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
 
   const enterBuildMode = (parcel) => {
     if (!parcel) return false;
+    if (drivingRef.current) {
+      setNotice('🚗 Step out of the vehicle first.');
+      return false;
+    }
     const gate = gateForParcel(parcel);
     if (!gate.ok) {
       setNotice(`🔨 ${gate.text}`);
@@ -436,7 +463,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   // the page shell (keyboard, pointer, joystick) writes, the scene
   // consumes every frame.
   const inputRef = useRef({
-    keys: { fwd: false, back: false, left: false, right: false, shift: false },
+    keys: { fwd: false, back: false, left: false, right: false, shift: false, up: false, down: false },
     joy: { x: 0, y: 0 },
     look: { dx: 0, dy: 0 },
   });
@@ -466,6 +493,24 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   };
   const nearHammondRef = useRef(false);
   const hammondOpenRef = useRef(false);
+
+  // ── Vehicles (Vehicles Phase 1) ─────────────────────────────
+  // The fleet's positions live in the device store
+  // (lib/earth2/vehicles.js), loaded once into a ref the scene
+  // reads and the drive step rewrites; React state carries only
+  // what the HUD shows — the nearest machine's board prompt and
+  // the driving panel. Boarding and stepping out are scene-side
+  // (they move the walker), so the buttons call through ref
+  // doors on the buildExitRef pattern.
+  const [nearVehicle, setNearVehicle] = useState(null);
+  const [driving, setDriving] = useState(null);
+  const [driveInfo, setDriveInfo] = useState({ speed: 0, alt: 0 });
+  const vehicleStatesRef = useRef(null);
+  if (vehicleStatesRef.current === null) vehicleStatesRef.current = loadVehicleStates();
+  const drivingRef = useRef(null);
+  const nearVehicleRef = useRef(null);
+  const boardVehicleRef = useRef(() => {});
+  const exitVehicleRef = useRef(() => {});
   const setHammondPanel = (open) => {
     hammondOpenRef.current = open;
     setHammondOpen(open);
@@ -1099,6 +1144,13 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       const MUSEUM_CENTER = parcelCenterWorld(museumSiteParcel());
       const hammondNpc = { group: null, rig: null };
       let museumStanding = false;
+      // The fleet (Vehicles Phase 1): resident vehicle records
+      // { slug, spec, root, proxy, legs, phase, owner }, seated
+      // from the device state map and posed from it every frame;
+      // the airfield's standing flag seats its collider, like the
+      // museum's.
+      const vehicles = [];
+      let airportStanding = false;
       const COMPY_CENTER = compySwarmCenter();
       const mosquitos = [];
       const sacs = []; // { group, core, baseY }
@@ -1421,6 +1473,208 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         }
         return added.length ? { roots: added } : null;
       }
+
+      // ── Tyrrell Field: the terminal on its grounds ─────────
+      // (Vehicles Phase 1). The building rides placeLandform
+      // like the museum — normalize, ground, label, status —
+      // seated at the field's centre with its face east
+      // (AIRPORT_HEADING, lib/earth2/airport.js; the on-device
+      // look is the verdict, as with every mount here).
+      async function placeAirport(unit) {
+        const added = [];
+        const aEntry = EARTH2_MODEL_BY_SLUG.get('airport');
+        if (aEntry && aEntry.file) {
+          const r = await placeLandform(aEntry, {
+            x: AIRPORT_CENTER.x, z: AIRPORT_CENTER.z, heading: AIRPORT_HEADING, sink: 0.4,
+          }, unit.key);
+          if (r) {
+            added.push(...r.roots);
+            airportStanding = true;
+          }
+        }
+        return added.length ? { roots: added } : null;
+      }
+
+      // ── The fleet's mounts ─────────────────────────────────
+      // Each machine: normalize, spin its measured forward onto
+      // the group's +Z (VEHICLE_SPECS' spin — rover −X, bike
+      // −Z, scarab +X, VTOL native), seat from its device state.
+      // Articulation, honestly (the rigs were read joint by
+      // joint — lib/earth2/bones.js carries the full account):
+      // the scarab's seven leg chains resolve by tree structure
+      // and sway as it walks; the rover's quadruped-template rig
+      // has no wheel-hub bones and the bike's humanoid rig no
+      // wheel bones, so both articulate whole-body only —
+      // terrain pitch/roll from the step law, the bike with a
+      // speed tremble; the VTOL is one unrigged mesh, whole-
+      // craft tilt and hover-bob.
+      async function placeVehicle(unit) {
+        const entry = EARTH2_MODEL_BY_SLUG.get(unit.slug);
+        const spec = vehicleSpec(unit.slug);
+        if (!entry || !entry.file || !spec) return null;
+        setStatusFor(entry.slug, 'loading');
+        try {
+          const modelScene = await loadModel(entry);
+          let legs = [];
+          if (unit.slug === 'scarab') {
+            const jointNames = [];
+            const jointParents = [];
+            modelScene.traverse((o) => {
+              if (!o.isBone) return;
+              jointNames.push(o.name);
+              let bp = o.parent;
+              while (bp && !bp.isBone) bp = bp.parent;
+              jointParents.push(bp ? bp.name : null);
+            });
+            const bones = bonesOf(modelScene);
+            legs = resolveScarabLegs(jointNames, jointParents)
+              .map((l) => ({
+                root: boneByName(bones, l.chain[0]),
+                bind: null, off: 0,
+              }))
+              .filter((l) => l.root);
+            for (const l of legs) l.bind = l.root.quaternion.clone();
+          }
+          const spin = normalize(modelScene, entry);
+          spin.rotation.y = spec.spin;
+          const root = new THREE.Group();
+          root.rotation.order = 'YXZ';
+          root.add(spin);
+          const st = vehicleStatesRef.current[unit.slug] || unit.state;
+          root.position.set(st.x, heightAt(st.x, st.z) + (st.alt || 0), st.z);
+          root.rotation.y = st.heading || 0;
+          scene.add(root);
+          const proxy = new THREE.Mesh(
+            new THREE.SphereGeometry(Math.max(1.7, spec.radius), 8, 8),
+            new THREE.MeshBasicMaterial({ visible: false }),
+          );
+          proxy.position.y = 1;
+          proxy.userData.vehicle = unit.slug;
+          root.add(proxy);
+          const rec = {
+            slug: unit.slug, spec, root, proxy, legs,
+            phase: rng() * Math.PI * 2, owner: unit.key,
+          };
+          // Leg gait phases from the bind pose: a leg's offset
+          // along/across the body staggers it against its
+          // neighbours (tripod-flavoured, small amplitudes).
+          if (legs.length) {
+            root.updateMatrixWorld(true);
+            const fwd = { x: Math.sin(st.heading || 0), z: Math.cos(st.heading || 0) };
+            const rgt = { x: -Math.cos(st.heading || 0), z: Math.sin(st.heading || 0) };
+            const wp = new THREE.Vector3();
+            for (const l of legs) {
+              l.root.getWorldPosition(wp);
+              const ox = wp.x - root.position.x;
+              const oz = wp.z - root.position.z;
+              const along = ox * fwd.x + oz * fwd.z;
+              const side = ox * rgt.x + oz * rgt.z;
+              l.off = (along > 0 ? 0 : Math.PI) + (side > 0 ? Math.PI * 0.5 : 0);
+            }
+          }
+          vehicles.push(rec);
+          makeLabel(spec.name, root, spec.eyeHeight + 0.9, 130, unit.key);
+          setStatusFor(entry.slug, 'placed');
+          return { roots: [root] };
+        } catch (err) {
+          setStatusFor(entry.slug, 'failed');
+          return null;
+        }
+      }
+
+      // Pose a resident vehicle from a state: position + slope
+      // tilts from the step law's return (or groundPose for a
+      // parked machine), plus its articulation — the scarab's
+      // legs sway with speed (bind pose at rest), the bike
+      // trembles under way, the VTOL bobs in a hover.
+      function poseVehicle(rec, st, t, dt) {
+        rec.root.position.set(st.x, st.y != null ? st.y : heightAt(st.x, st.z), st.z);
+        rec.root.rotation.set(st.pitch || 0, st.heading || 0, st.roll || 0);
+        const sp = Math.abs(st.speed || 0);
+        if (rec.slug === 'scarab' && rec.legs.length) {
+          if (sp > 0.05) rec.phase += dt * (1.4 + sp * 1.05);
+          const amp = 0.075 * Math.min(1, sp / 4);
+          for (const l of rec.legs) {
+            bendBoneTo(l.root, l.bind, BEND_X, Math.sin(rec.phase + l.off) * amp);
+          }
+        } else if (rec.slug === 'speed-bike' && sp > 0.5) {
+          rec.root.position.y += Math.sin(t * 43 + rec.phase) * 0.008;
+        } else if (rec.slug === 'vtol' && (st.alt || 0) > 0.05) {
+          rec.root.position.y += Math.sin(t * 1.7 + rec.phase) * 0.12;
+        }
+      }
+
+      // ── Board / step out ───────────────────────────────────
+      // Boarding is a walk-up act (≤3.5 m prompt, taps forgiving
+      // to 8.5 m); the camera starts behind the machine
+      // (walker.yaw = heading + π under the world's (−sin,
+      // −cos) look convention) and drag-look stays free while
+      // driving. Stepping out sets the walker on the machine's
+      // right, settled by the walker's own push-out, and the
+      // machine stays exactly where it was left — saved.
+      function boardVehicle(slug) {
+        const spec = vehicleSpec(slug);
+        const st = vehicleStatesRef.current[slug];
+        if (!spec || !st || drivingRef.current) return;
+        if (buildModeRef.current.active) {
+          noticeRef.current('🔨 Finish building first — then drive.');
+          return;
+        }
+        const d = Math.hypot(walker.x - st.x, walker.z - st.z);
+        if (d > 8.5) {
+          noticeRef.current(`🛩️ The ${spec.name} waits at Tyrrell Field — walk up to it to ${spec.verb.toLowerCase()} it.`);
+          return;
+        }
+        drivingRef.current = slug;
+        if (!cancelled) {
+          setDriving(slug);
+          setDriveInfo({ speed: 0, alt: st.alt || 0 });
+          setNearVehicle(null);
+        }
+        nearVehicleRef.current = null;
+        setHammondPanel(false);
+        walker.yaw = (st.heading || 0) + Math.PI;
+        walker.pitch = 0;
+        noticeRef.current(spec.air
+          ? '🛩️ VTOL Scout — W/S throttle, A/D turn, Space climbs, C settles her down. Land her flat before stepping out.'
+          : `🚗 ${spec.name} — W/S to move, A/D to steer. E or Esc to step out.`);
+      }
+
+      function exitVehicle() {
+        const slug = drivingRef.current;
+        if (!slug) return;
+        const spec = vehicleSpec(slug);
+        const st = vehicleStatesRef.current[slug];
+        if (spec && spec.air && st && (st.alt || 0) > 0.02) {
+          noticeRef.current('🛬 Land the VTOL before stepping out.');
+          return;
+        }
+        if (spec && st) {
+          st.speed = 0;
+          const dOut = spec.radius + 1.3;
+          const ex = st.x - Math.cos(st.heading || 0) * dOut;
+          const ez = st.z + Math.sin(st.heading || 0) * dOut;
+          const cols = staticColliders.slice();
+          cols.push({ x: DRACULA_SPOT.x, z: DRACULA_SPOT.z, r: 1.3 });
+          if (hammondNpc.group) cols.push({ x: HAMMOND_NPC.stand.x, z: HAMMOND_NPC.stand.z, r: 1.0 });
+          if (museumStanding) cols.push({ x: MUSEUM_CENTER.x, z: MUSEUM_CENTER.z - 3.5, r: 9 });
+          if (airportStanding) cols.push({ x: AIRPORT_CENTER.x, z: AIRPORT_CENTER.z, r: 13 });
+          for (const v of vehicles) {
+            const vst = vehicleStatesRef.current[v.slug];
+            if (vst) cols.push({ x: vst.x, z: vst.z, r: v.spec.radius });
+          }
+          const settled = stepWorldWalker({ x: ex, z: ez }, 0, { fwd: 0, strafe: 0 }, 0, cols, false);
+          walker.x = settled.x;
+          walker.z = settled.z;
+          walker.yaw = (st.heading || 0) + Math.PI;
+        }
+        drivingRef.current = null;
+        saveVehicleStates(vehicleStatesRef.current);
+        if (!cancelled) setDriving(null);
+        noticeRef.current('🚶 Stepped out — the machine stays where you left it.');
+      }
+      boardVehicleRef.current = (slug) => boardVehicle(slug);
+      exitVehicleRef.current = () => exitVehicle();
 
       // ── Behaviour: mosquitos feed, sacs drop, Dracula turns ──
       function moveToward(obj, target, speed, dt) {
@@ -1896,12 +2150,16 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       function onKeyDown(e) {
         if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') { inputRef.current.keys.shift = true; return; }
         if (e.code === 'Escape') {
-          // Build mode closes first; the planet exit keeps the
-          // second Escape.
+          // Build mode closes first; a vehicle is stepped out of
+          // next; the planet exit keeps the last Escape.
           if (buildModeRef.current.active) { buildExitRef.current(); return; }
+          if (drivingRef.current) { exitVehicle(); return; }
           exitRef.current();
           return;
         }
+        if (e.code === 'Space') { inputRef.current.keys.up = true; e.preventDefault(); return; }
+        if (e.code === 'KeyC') { inputRef.current.keys.down = true; return; }
+        if (e.code === 'KeyE' && drivingRef.current) { exitVehicle(); return; }
         const bm = buildModeRef.current;
         if (bm.active) {
           if (e.code === 'KeyR') { bm.rotY = snapRotation(bm.rotY + 15, bm.pieceId); bm.verdictKey = ''; bm.seatKey = ''; buildRotSyncRef.current(bm.rotY); return; }
@@ -1917,6 +2175,8 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       }
       function onKeyUp(e) {
         if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') { inputRef.current.keys.shift = false; return; }
+        if (e.code === 'Space') { inputRef.current.keys.up = false; return; }
+        if (e.code === 'KeyC') { inputRef.current.keys.down = false; return; }
         const k = KEYMAP[e.code];
         if (k) inputRef.current.keys[k] = false;
       }
@@ -1976,6 +2236,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       }
       function handleTap(e) {
         if (buildModeRef.current.active) { buildTap(e); return; }
+        if (drivingRef.current) return;
         const rect = renderer.domElement.getBoundingClientRect();
         if (!rect.width || !rect.height) return;
         ndc.set(
@@ -1986,17 +2247,19 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         const targets = [
           ...mosquitos.map((mq) => mq.proxy),
           ...sacs.map((s) => s.group),
+          ...vehicles.map((v) => v.proxy),
           dracProxy,
           hammondProxy,
         ];
         const hits = raycaster.intersectObjects(targets, true);
         if (!hits.length) return;
         let obj = hits[0].object;
-        while (obj && !obj.userData.mosquito && !obj.userData.sacRef && !obj.userData.dracula && !obj.userData.hammond) {
+        while (obj && !obj.userData.mosquito && !obj.userData.sacRef && !obj.userData.dracula && !obj.userData.hammond && !obj.userData.vehicle) {
           obj = obj.parent;
         }
         if (!obj) return;
-        if (obj.userData.mosquito) shootMosquito(obj.userData.mosquito);
+        if (obj.userData.vehicle) boardVehicle(obj.userData.vehicle);
+        else if (obj.userData.mosquito) shootMosquito(obj.userData.mosquito);
         else if (obj.userData.sacRef) collectSac(obj.userData.sacRef);
         else if (obj.userData.dracula) openExchangeRef.current();
         else if (obj.userData.hammond) {
@@ -2079,6 +2342,8 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           hammondNpc.rig = null;
           museumStanding = false;
         }
+        if (unit.kind === 'airport') airportStanding = false;
+        if (unit.kind === 'vehicle') removeWhere(vehicles, (v) => v.owner === unit.key);
         if (unit.kind === 'court') {
           swarmBats.length = 0;
           drac.countForm = null;
@@ -2268,6 +2533,10 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             return placeMosquitos();
           case 'museum':
             return placeMuseum(unit);
+          case 'airport':
+            return placeAirport(unit);
+          case 'vehicle':
+            return placeVehicle(unit);
           case 'build':
             return placeBuildUnit(unit);
           case 'court': {
@@ -2377,11 +2646,18 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         buildSigs = sigNow;
         const bm = buildModeRef.current;
         const pinnedKey = bm.active && bm.parcelId ? `build:${bm.parcelId}` : null;
+        // Vehicle units are dynamic like builds: computed fresh
+        // from the live state map every evaluation, so a machine's
+        // anchor is wherever it currently sits. The machine being
+        // driven anchors on the walker itself (distance ~0) and
+        // is pinned besides — it never streams out mid-drive.
+        const vUnits = vehicleStreamUnits(vehicleStatesRef.current);
         const actions = planStreamActions(
-          streamUnits.concat(bUnits), new Set(streamState.keys()), walker.x, walker.z
+          streamUnits.concat(bUnits, vUnits), new Set(streamState.keys()), walker.x, walker.z
         );
         for (const u of actions.release) {
           if (u.key === pinnedKey) continue;
+          if (drivingRef.current && u.key === `vehicle:${drivingRef.current}`) continue;
           releaseStreamUnit(u);
         }
         for (const u of actions.load) {
@@ -2442,6 +2718,17 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         // of centre) stays reachable well inside trade range.
         if (hammondNpc.group) dyn.push({ x: HAMMOND_NPC.stand.x, z: HAMMOND_NPC.stand.z, r: 1.0 });
         if (museumStanding) dyn.push({ x: MUSEUM_CENTER.x, z: MUSEUM_CENTER.z - 3.5, r: 9 });
+        // The airfield terminal, seated at the field's centre —
+        // a generous circle, so the apron and the fleet's row
+        // east of it stay clear for walkers and machines alike.
+        if (airportStanding) dyn.push({ x: AIRPORT_CENTER.x, z: AIRPORT_CENTER.z, r: 13 });
+        // Parked machines are solid; the one being driven is
+        // the walker, and never collides with itself.
+        for (const v of vehicles) {
+          if (v.slug === drivingRef.current) continue;
+          const vst = vehicleStatesRef.current[v.slug];
+          if (vst) dyn.push({ x: vst.x, z: vst.z, r: v.spec.radius });
+        }
         for (const a of animals) {
           if (a.flyer || a.compy) continue;
           const dx = a.root.position.x - walker.x;
@@ -2450,23 +2737,54 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             dyn.push({ x: a.root.position.x, z: a.root.position.z, r: Math.max(1.0, a.entry.scaleM * 0.36) });
           }
         }
-        const next = stepWorldWalker(walker, walker.yaw, { fwd: fwdIn, strafe: strafeIn }, dt, staticColliders.concat(dyn), travelNow);
-        const movedDist = Math.hypot(next.x - walker.x, next.z - walker.z);
-        walker.x = next.x;
-        walker.z = next.z;
-        const groundY = heightAt(walker.x, walker.z);
-        const depth = Math.max(0, WATER_Y - groundY);
-        let bob = 0;
-        if (!reducedMotion && movedDist > 1e-4 && depth < 0.2) {
-          bobT += dt * (travelNow ? 13 : 8.5);
-          bob = Math.abs(Math.sin(bobT)) * 0.055;
+        const drivingSlug = drivingRef.current;
+        const dSpec = drivingSlug ? vehicleSpec(drivingSlug) : null;
+        const dState = drivingSlug ? vehicleStatesRef.current[drivingSlug] : null;
+        if (dSpec && dState && !buildModeRef.current.active) {
+          // ── Driving: the pure step law (lib/earth2/vehicles.js)
+          // owns the motion — terrain following, slope pitch/roll,
+          // the wading wall, colliders, the world's edge; the VTOL
+          // lifts on Space/C, tilts into its motion, crosses water
+          // and refuses steep landings (reported once per refusal).
+          const lift = dSpec.air ? (inp.keys.up ? 1 : 0) - (inp.keys.down ? 1 : 0) : 0;
+          const stepped = stepVehicle(dState, dSpec, {
+            throttle: Math.max(-1, Math.min(1, fwdIn)),
+            steer: -strafeIn,
+            lift,
+          }, dt, { heightAt, waterDepthAt, colliders: staticColliders.concat(dyn) });
+          if (stepped.landingRefused && !dState.landingRefused) {
+            noticeRef.current('🛬 Too steep to set down here — the VTOL needs flatter ground.');
+          }
+          vehicleStatesRef.current[drivingSlug] = stepped;
+          walker.x = stepped.x;
+          walker.z = stepped.z;
+          const rec = vehicles.find((v) => v.slug === drivingSlug);
+          if (rec) poseVehicle(rec, stepped, t, dt);
+          camera.position.set(stepped.x, stepped.y + dSpec.eyeHeight, stepped.z);
+          camera.rotation.set(walker.pitch, walker.yaw, 0);
+          if (frameNo % 10 === 0 && !cancelled) {
+            setDriveInfo({ speed: Math.abs(stepped.speed || 0), alt: stepped.alt || 0 });
+          }
+          if (frameNo % 120 === 0) saveVehicleStates(vehicleStatesRef.current);
+        } else {
+          const next = stepWorldWalker(walker, walker.yaw, { fwd: fwdIn, strafe: strafeIn }, dt, staticColliders.concat(dyn), travelNow);
+          const movedDist = Math.hypot(next.x - walker.x, next.z - walker.z);
+          walker.x = next.x;
+          walker.z = next.z;
+          const groundY = heightAt(walker.x, walker.z);
+          const depth = Math.max(0, WATER_Y - groundY);
+          let bob = 0;
+          if (!reducedMotion && movedDist > 1e-4 && depth < 0.2) {
+            bobT += dt * (travelNow ? 13 : 8.5);
+            bob = Math.abs(Math.sin(bobT)) * 0.055;
+          }
+          camera.position.set(
+            walker.x,
+            groundY + WALK_EYE_M - Math.min(depth, 1.1) * 0.3 + bob,
+            walker.z,
+          );
+          camera.rotation.set(walker.pitch, walker.yaw, 0);
         }
-        camera.position.set(
-          walker.x,
-          groundY + WALK_EYE_M - Math.min(depth, 1.1) * 0.3 + bob,
-          walker.z,
-        );
-        camera.rotation.set(walker.pitch, walker.yaw, 0);
         syncParcel(false);
         updateBuildGhost();
         castleNear = Math.hypot(walker.x - CASTLE_AT[0], walker.z - CASTLE_AT[1]) < 800;
@@ -2483,6 +2801,37 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             if (!cancelled) setNearHammond(near);
           }
           if (hd > 9 && hammondOpenRef.current) setHammondPanel(false);
+        }
+
+        // The fleet's board prompt: the nearest machine within
+        // 3.5 m offers its verb (Drive / Ride / Fly), on
+        // threshold crossings only — the Hammond pattern.
+        {
+          let best = null;
+          let bestD = 3.5;
+          if (!drivingRef.current && !buildModeRef.current.active) {
+            for (const slug of VEHICLE_SLUGS) {
+              const vst = vehicleStatesRef.current[slug];
+              if (!vst) continue;
+              const d = Math.hypot(walker.x - vst.x, walker.z - vst.z);
+              if (d <= bestD) { bestD = d; best = slug; }
+            }
+          }
+          if (best !== nearVehicleRef.current) {
+            nearVehicleRef.current = best;
+            if (!cancelled) setNearVehicle(best);
+          }
+        }
+
+        // Parked machines hold their pose on the terrain (a
+        // machine left on a slope sits on the slope); the driven
+        // one was posed by the drive step above.
+        for (const v of vehicles) {
+          if (v.slug === drivingRef.current) continue;
+          const vst = vehicleStatesRef.current[v.slug];
+          if (!vst) continue;
+          const pose = groundPose(vst, v.spec, heightAt);
+          poseVehicle(v, { ...vst, y: pose.y + (vst.alt || 0), pitch: pose.pitch, roll: pose.roll }, t, dt);
         }
 
         // Life, by proximity: land animals animate within 260 m
@@ -2683,7 +3032,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             🧛 Bring sacs to Dracula
           </button>
         </div>
-        {parcel && !buildMode && (
+        {parcel && !buildMode && !driving && (
           <button
             type="button"
             onClick={() => enterBuildMode(parcel)}
@@ -2701,6 +3050,18 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
               className="rounded-full border border-amber-300/50 bg-amber-400/20 px-2.5 py-1 font-bold text-amber-50 transition hover:bg-amber-400/35"
             >
               🦴 Trade fossils{fossilPack.length ? ` (${fossilPack.length})` : ''}
+            </button>
+          </div>
+        )}
+        {nearVehicle && !driving && !buildMode && (
+          <div className="flex flex-wrap items-center gap-2 rounded-full border border-sky-300/30 bg-black/50 py-1.5 pl-3 pr-1.5 text-[11px] text-zinc-100">
+            <span>🛩️ <strong className="text-sky-100">{vehicleSpec(nearVehicle)?.name}</strong> is ready</span>
+            <button
+              type="button"
+              onClick={() => boardVehicleRef.current(nearVehicle)}
+              className="rounded-full border border-sky-300/50 bg-sky-400/20 px-2.5 py-1 font-bold text-sky-50 transition hover:bg-sky-400/35"
+            >
+              {vehicleSpec(nearVehicle)?.verb} it
             </button>
           </div>
         )}
@@ -3107,6 +3468,61 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         </div>
       )}
 
+      {/* Driving — the machine's panel. Flow layout: who you are
+          driving, how fast (and how high, for the VTOL), the
+          lift buttons on touch, and the way out. The joystick
+          (bottom-left) drives throttle and steering. */}
+      {driving && (
+        <div className="absolute inset-x-2 bottom-24 sm:inset-x-auto sm:bottom-5 sm:left-1/2 sm:w-[400px] sm:-translate-x-1/2">
+          <div className="flex flex-col gap-2.5 rounded-[1.25rem] border border-sky-300/35 bg-[#081018]/95 p-4 text-zinc-100 shadow-2xl backdrop-blur-md">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[10px] font-black tracking-[0.25em] text-sky-200">
+                  {vehicleSpec(driving)?.air ? '🛩️ IN THE AIR' : '🚗 DRIVING'}
+                </div>
+                <div className="mt-0.5 text-lg font-black leading-tight text-white">
+                  {vehicleSpec(driving)?.name}
+                </div>
+                <p className="mt-1 text-[11px] leading-snug text-zinc-400">
+                  {(driveInfo.speed * 3.6).toFixed(0)} km/h
+                  {vehicleSpec(driving)?.air ? ` · ${(driveInfo.alt || 0).toFixed(0)} m up` : ''}
+                  {' '}· W/S move · A/D steer · drag looks around
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => exitVehicleRef.current()}
+                className="shrink-0 rounded-full border border-sky-300/50 bg-sky-400/20 px-3 py-2 text-[12px] font-bold text-sky-50 transition hover:bg-sky-400/35"
+              >
+                🚶 Step out
+              </button>
+            </div>
+            {vehicleSpec(driving)?.air && (
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onPointerDown={() => { inputRef.current.keys.up = true; }}
+                  onPointerUp={() => { inputRef.current.keys.up = false; }}
+                  onPointerLeave={() => { inputRef.current.keys.up = false; }}
+                  className="flex-1 rounded-full border border-white/20 bg-white/5 px-3 py-2.5 text-sm font-bold text-zinc-100 transition hover:bg-white/10"
+                >
+                  ▲ Climb (Space)
+                </button>
+                <button
+                  type="button"
+                  onPointerDown={() => { inputRef.current.keys.down = true; }}
+                  onPointerUp={() => { inputRef.current.keys.down = false; }}
+                  onPointerLeave={() => { inputRef.current.keys.down = false; }}
+                  className="flex-1 rounded-full border border-white/20 bg-white/5 px-3 py-2.5 text-sm font-bold text-zinc-100 transition hover:bg-white/10"
+                >
+                  ▼ Settle (C)
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Touch controls: the shared walk joystick + travel toggle. */}
       <div className="absolute bottom-3 left-3 sm:bottom-5 sm:left-5">
         <WalkJoystick
@@ -3130,7 +3546,8 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         <p className="hidden max-w-[240px] rounded-lg border border-white/10 bg-black/45 px-2.5 py-1.5 text-right text-[11px] leading-snug text-zinc-300 sm:block">
           WASD / arrows to walk · drag to look · Shift = travel pace ·
           tap a mosquito to shoot it · 🏛️ trade fossils at Hammond&rsquo;s
-          counter by the museum · Esc leaves
+          counter by the museum · 🛩️ the fleet waits at Tyrrell Field,
+          just west of it · Esc leaves
         </p>
         <p className="max-w-[200px] rounded-lg border border-white/10 bg-black/45 px-2.5 py-1.5 text-right text-[11px] leading-snug text-zinc-300 sm:hidden">
           🦟 Tap a mosquito to shoot it — only the swollen red ones drop a blood sac.

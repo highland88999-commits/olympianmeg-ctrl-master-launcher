@@ -67,6 +67,8 @@ import {
   FORGE_DAILY_CAP_GOLD,
 } from '@/lib/earth2/forge';
 import { formatGold } from '@/lib/economy/config';
+import { AIRPORT_NAME, AIRPORT_TOWN, airportGroundsIds } from '@/lib/earth2/airport';
+import { VEHICLE_SPECS, VEHICLE_SLUGS } from '@/lib/earth2/vehicles';
 import { earth2BuildContext, validateEarth2Build } from '@/lib/earth2/building';
 import {
   claimHomestead,
@@ -798,6 +800,63 @@ export default function Earth2Page() {
               🚶 WALK THE PLANET
             </button>
           </div>
+        </section>
+
+        {/* Tyrrell Field & the fleet (Vehicles Phase 1,
+            2026-10-23): Earth 2's first airport, on Free Commons
+            ground west of the museum, and the four machines that
+            sleep on its apron — all of it lives out on the
+            walkable planet. */}
+        <section className="mt-5 rounded-[1.5rem] border border-sky-300/35 bg-sky-400/[0.07] p-4 backdrop-blur-md sm:p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="text-sm font-black tracking-[0.25em] text-sky-100">
+                🛩️ {AIRPORT_NAME.toUpperCase()} — THE FLEET
+              </h2>
+              <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-zinc-300">
+                Earth 2&rsquo;s first airport stands on Free Commons ground
+                ({airportGroundsIds().join(', ')}) a short walk west of the museum, in
+                Earth 2&rsquo;s {AIRPORT_TOWN} — public infrastructure on public
+                land, never sold, never built on. Four machines sleep on its apron.
+                Walk up to one out on the planet and it offers you the controls;
+                step out and it stays exactly where you left it.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setWalking(true)}
+              className="rounded-full border border-sky-300/60 bg-sky-400/25 px-5 py-3 text-sm font-black tracking-widest text-sky-50 transition hover:bg-sky-400/40"
+            >
+              🛩️ GO TO THE FIELD
+            </button>
+          </div>
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            {VEHICLE_SLUGS.map((slug) => {
+              const spec = VEHICLE_SPECS[slug];
+              return (
+                <div key={slug} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/25 px-3.5 py-2.5">
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-bold text-zinc-50">
+                      {spec.air ? '🛩️' : slug === 'speed-bike' ? '🏍️' : slug === 'scarab' ? '🪲' : '🛻'} {spec.name}
+                    </span>
+                    <span className="block text-[11px] text-zinc-400">
+                      {spec.verb} · top speed {Math.round(spec.maxSpeed * 3.6)} km/h
+                      {spec.air ? ' · flies — crosses water, lands on flat ground' : ''}
+                    </span>
+                  </span>
+                  <span className="shrink-0 rounded-full border border-sky-300/40 bg-sky-400/15 px-2.5 py-1 text-[11px] font-bold text-sky-100">
+                    On the apron
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          <p className="mt-3 text-[11px] leading-relaxed text-zinc-500">
+            On foot out there: W/S to move, A/D to steer, the joystick drives too.
+            Ground machines follow the terrain and stop at deep water — no swimming
+            vehicles. The VTOL climbs on Space and settles on C, and needs flat
+            ground to land. E or Esc steps you out, wherever you are.
+          </p>
         </section>
 
         <div className="mt-6 grid gap-5 lg:grid-cols-[1fr_360px]">

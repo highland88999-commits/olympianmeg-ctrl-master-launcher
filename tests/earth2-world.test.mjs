@@ -80,7 +80,9 @@ import {
   streamEntryUnits,
   streamDistance,
   planStreamActions,
+  vehicleStreamUnits,
 } from '../lib/earth2/streaming.js';
+import { defaultVehicleStates } from '../lib/earth2/vehicles.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, '..');
@@ -272,6 +274,15 @@ describe('the population — placed by habitat', () => {
       // point), streamed as the 'museum' unit; placement there is
       // pinned by tests/earth2-museum-mount.test.mjs.
       'museum', 'hammond',
+      // Tyrrell Field + the fleet (Vehicles Phase 1, 2026-10-23):
+      // the terminal's home is its designated site
+      // (lib/earth2/airport.js), streamed as the 'airport' unit;
+      // each machine's home is wherever it is parked — the live
+      // vehicle stream units (vehicleStreamUnits), merged into
+      // the coverage test below exactly as the scene merges
+      // them. Placement is pinned by
+      // tests/earth2-vehicles.test.mjs.
+      'airport', 'rover', 'speed-bike', 'scarab', 'vtol',
     ]);
     for (const m of earth2PlacedModels()) {
       assert.ok(planned.has(m.slug), `${m.slug} has no world placement`);
@@ -530,7 +541,11 @@ describe('proximity streaming — the memory contract (Safari killed the all-at-
   });
 
   it('the stream plan covers the whole cast exactly once — and nothing else', () => {
-    const units = worldStreamUnits();
+    // The scene's merged plan: the static world units plus the
+    // fleet's live units (Vehicles Phase 1) — a machine's anchor
+    // moves with it, so its unit is computed from state, exactly
+    // like a build's.
+    const units = worldStreamUnits().concat(vehicleStreamUnits(defaultVehicleStates()));
     const covered = units.flatMap((u) => u.slugs);
     assert.equal(new Set(covered).size, covered.length, 'no slug is streamed by two units');
     for (const m of earth2PlacedModels()) {
@@ -566,12 +581,12 @@ describe('proximity streaming — the memory contract (Safari killed the all-at-
     for (const slug of ['museum', 'hammond']) {
       assert.ok(!entrySlugs.has(slug), `${slug} is not resident at spawn`);
     }
-    // Of the 58 foundry model files, the spawn step-on loads 31.
+    // Of the 63 foundry model files, the spawn step-on loads 31.
     const entryModels = [...entrySlugs].filter((s) => {
       const e = EARTH2_MODEL_BY_SLUG.get(s);
       return e && e.file;
     });
-    assert.equal(entryModels.length, 31, `entry loads ${entryModels.length} of 58 model files`);
+    assert.equal(entryModels.length, 31, `entry loads ${entryModels.length} of 63 model files`);
   });
 
   it('the plan honours hysteresis: inside the band nothing loads and nothing releases', () => {
