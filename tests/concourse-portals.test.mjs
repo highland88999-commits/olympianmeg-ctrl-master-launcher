@@ -266,7 +266,7 @@ describe('portal video presence (lib/portal-videos.js — the file-presence list
 
   it('the data source carries exactly the videos on disk — no drift either way', () => {
     assert.deepEqual([...PORTAL_VIDEO_KEYS].sort(), onDisk);
-    assert.equal(onDisk.length, 14, 'fourteen portal videos wired today (batch 5: rogers-arena, persephone, hive)');
+    assert.equal(onDisk.length, 17, 'seventeen portal videos wired today (batch 6: nova, abyssal-voyage, enyo)');
   });
 
   it('every video key on disk resolves as video-present from the data source', () => {
