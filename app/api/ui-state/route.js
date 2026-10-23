@@ -16,6 +16,7 @@ import { noCache } from '@/lib/no-cache';
 import { sanitizeFractions } from '@/lib/muse-fab';
 import { sanitizeConcourseBg } from '@/lib/concourse-bg';
 import { sanitizeUiSettings } from '@/lib/ui-settings';
+import { sanitizeBackpackRecord } from '@/lib/backpack/backpack';
 
 function pickMuseFab(prefs) {
   if (!prefs || typeof prefs !== 'object') return null;
@@ -119,6 +120,18 @@ export const POST = noCache(
         return NextResponse.json({ error: 'settings must be { sound: boolean }.' }, { status: 400 });
       }
       patch.settings = sane;
+    }
+    if ('backpack' in prefs) {
+      // The Backpack record (Merlin, 2026-10-23): items, style,
+      // Earth 2 field tallies — sanitized by lib/backpack (the
+      // reticle law is enforced there: no weapon persists without
+      // a reticle). Size-guarded: a pack is hundreds of small
+      // entries, never megabytes.
+      const sane = sanitizeBackpackRecord(prefs.backpack);
+      if (JSON.stringify(sane).length > 131072) {
+        return NextResponse.json({ error: 'backpack record is too large.' }, { status: 400 });
+      }
+      patch.backpack = sane;
     }
     if (!Object.keys(patch).length) {
       return NextResponse.json({ error: 'Nothing to save.' }, { status: 400 });

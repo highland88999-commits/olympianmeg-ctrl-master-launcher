@@ -41,15 +41,14 @@ import {
   parcelById,
   isCastleParcel,
 } from '@/lib/earth2/parcels';
-import {
-  emptyBloodSacState,
-  loadBloodSacState,
-  saveBloodSacState,
-  collectBloodSac,
-  offerBloodSac,
-  applyFossilExchange,
-} from '@/lib/earth2/blood-sacs';
 import { rollGift } from '@/lib/earth2/gifts';
+import { useBackpack, updateBackpack } from '@/lib/backpack/store';
+import {
+  bloodStateFromRecord,
+  collectSacInRecord,
+  offerSacInRecord,
+  applyFossilExchangeInRecord,
+} from '@/lib/backpack/earth2-bridge';
 import {
   resolveHomeBase,
   ownedRowsFor,
@@ -171,9 +170,16 @@ export default function Earth2Page() {
   const [landListings, setLandListings] = useState([]);
   const [listPrice, setListPrice] = useState('');
   // The blood-sac loop (2026-10-22): sacs shot down in the Bay,
-  // Dracula's gift tallies + history. Local preview state —
-  // lib/earth2/blood-sacs.js.
-  const [blood, setBlood] = useState(() => emptyBloodSacState());
+  // Dracula's gift tallies + history. Since 2026-10-23 the tallies
+  // live in the BACKPACK (Merlin's order — the pack in the profile
+  // that follows the traveller): account-persisted via the
+  // backpack store, read here through the Earth 2 bridge in the
+  // engine's own state shape (lib/backpack/earth2-bridge.js).
+  const backpackRecord = useBackpack();
+  const blood = useMemo(
+    () => bloodStateFromRecord(backpackRecord),
+    [backpackRecord]
+  );
   const [lastGift, setLastGift] = useState(null);
   const [greetSignal, setGreetSignal] = useState(0);
   const homeFocusRef = useRef(false);
@@ -287,11 +293,6 @@ export default function Earth2Page() {
     if (gate === 'open') setHomeChoice(loadHomeBaseChoice());
   }, [gate]);
 
-  // Read the stored blood-sac tallies once we are in.
-  useEffect(() => {
-    if (gate === 'open') setBlood(loadBloodSacState());
-  }, [gate]);
-
   // Building state: read the device store once we are in, then
   // keep it written back on every change (the Phase 1 pattern —
   // the localStorage ledger in lib/earth2/build-store.js).
@@ -366,38 +367,31 @@ export default function Earth2Page() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [buildDataLoaded, state]);
 
-  // A sac collected down in the Bay.
+  // A sac collected down in the Bay — it lands in the backpack.
   const collectSacFromBay = useCallback(() => {
-    setBlood((prev) => {
-      const next = collectBloodSac(prev);
-      saveBloodSacState(next);
-      return next;
-    });
+    updateBackpack((rec) => collectSacInRecord(rec));
   }, []);
 
-  // Offer one sac to Dracula: consume it, roll his gift table,
-  // apply the gift to the preview tallies, keep the reveal on show.
+  // Offer one sac to Dracula: consume it from the pack, roll his
+  // gift table, apply the gift to the pack's field tallies (and a
+  // gifted weapon onto its shelves), keep the reveal on show.
   const offerSac = () => {
     if (blood.sacs < 1) return;
     const gift = rollGift();
-    const res = offerBloodSac(blood, gift, Date.now());
+    const res = offerSacInRecord(backpackRecord, gift, Date.now());
     if (res.ok) {
-      setBlood(res.state);
-      saveBloodSacState(res.state);
+      updateBackpack(() => res.record);
       setLastGift(gift);
     }
   };
 
   // A fossil settled at Hammond's counter out on the planet: the
   // record lands in the same tallies Dracula's gifts land in —
-  // gold, aether shards, gifted weapons, history — persisted the
-  // same way (lib/earth2/blood-sacs.js applyFossilExchange).
+  // gold, aether shards, gifted weapons, history — now kept in
+  // the backpack (bridge over lib/earth2/blood-sacs.js
+  // applyFossilExchange).
   const applyFossilPayout = useCallback((record) => {
-    setBlood((prev) => {
-      const next = applyFossilExchange(prev, record, Date.now());
-      saveBloodSacState(next);
-      return next;
-    });
+    updateBackpack((rec) => applyFossilExchangeInRecord(rec, record, Date.now()));
   }, []);
 
   // The Bay's "Bring sacs to Dracula" / clicking the Count himself

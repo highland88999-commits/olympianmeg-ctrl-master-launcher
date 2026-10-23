@@ -210,7 +210,7 @@ describe('the wiring — scene, plan, Bay guard, chamber page', () => {
     assert.ok(world.includes('museumSiteParcel'), 'the building seats on the site parcel');
     assert.ok(world.includes('HAMMOND_NPC'), 'Hammond stands at his Phase 1 stand point');
     assert.ok(world.includes('exchangeFossil'), 'trades settle on the Phase 1 engine');
-    assert.ok(world.includes('loadFossilInventory'), 'the pack is the fossils.js store');
+    assert.ok(world.includes('fossilItemsFromRecord'), 'the pack is the backpack (2026-10-23 — fossils live in the profile pack now)');
     assert.ok(world.includes('onFossilExchange'), 'payouts route to the chamber tallies');
     assert.ok(!world.includes('/models/earth2'), 'no hard-coded public path — the sealed door only');
   });
@@ -222,7 +222,7 @@ describe('the wiring — scene, plan, Bay guard, chamber page', () => {
 
   it('the chamber page receives the payouts into its tallies', () => {
     const page = read('app/earth-2/page.jsx');
-    assert.ok(page.includes('applyFossilExchange'), 'page applies records to the tallies');
+    assert.ok(page.includes('applyFossilExchangeInRecord'), 'page applies records to the backpack tallies');
     assert.ok(page.includes('onFossilExchange={applyFossilPayout}'), 'the world is handed the payout seat');
   });
 });

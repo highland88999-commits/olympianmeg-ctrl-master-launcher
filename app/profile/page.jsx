@@ -35,6 +35,7 @@ import {
 } from '@/lib/user-content/bridges';
 import DefaultAvatarPicker from '@/components/profile/DefaultAvatarPicker';
 import MyCreations from '@/components/profile/MyCreations';
+import BackpackSection from '@/components/profile/BackpackSection';
 import MyCharacters from '@/components/profile/MyCharacters';
 import MyStorefront from '@/components/profile/MyStorefront';
 import Achievements from '@/components/profile/Achievements';
@@ -481,6 +482,13 @@ export default function ProfilePage() {
             </>
           )}
         </section>
+
+        {/* The Backpack (Merlin, 2026-10-23) — the pack that follows
+            the traveller into every realm: forged weapons, Earth 2
+            field finds, the live currency header, and its chosen
+            style. Account-persisted via /api/ui-state when signed
+            in; device-local when not (the section says which). */}
+        <BackpackSection />
 
         {/* My Creations — server-backed forge items (the one section that
             talks to the network: your creations live on your account). */}

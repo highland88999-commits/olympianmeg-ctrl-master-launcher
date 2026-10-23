@@ -26,11 +26,11 @@
 // fossil economy's trading post (Phase 2 mount, 2026-10-23): the
 // building and Hammond stream in by proximity as one 'museum'
 // unit (lib/earth2/streaming.js), and walking up to Hammond opens
-// the exchange: pick fossils from the pack (lib/earth2/fossils.js),
+// the exchange: pick fossils from the pack — the BACKPACK now
+// (lib/backpack, the profile pack that follows the traveller) —
 // choose gold or aether, and lib/earth2/hammond.js settles the
-// trade — payouts landing in the same tallies as Dracula's gifts
-// (lib/earth2/blood-sacs.js), exactly the pattern the Count's
-// exchange set.
+// trade — payouts landing in the same backpack tallies as
+// Dracula's gifts, exactly the pattern the Count's exchange set.
 //
 // Tyrrell Field, Earth 2's first airport, stands on its Free
 // Commons grounds west of the museum (lib/earth2/airport.js), and
@@ -61,7 +61,7 @@
 // Delivery stays locked exactly as the Bay's: owner-signed URLs
 // via /api/earth2/model-urls, resolved through lib/earth2/models.js.
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { EARTH2_MODEL_BY_SLUG, earth2ModelUrl, fetchEarth2ModelUrls } from '@/lib/earth2/models';
 import { supabase } from '@/lib/supabase';
 import { resolveBones, normalizeJointName, resolveMosquitoRig, resolveBatWings, resolveSwimRig, resolveFlyerWings, resolveScarabLegs } from '@/lib/earth2/bones';
@@ -86,27 +86,29 @@ import {
   groundPose,
   loadVehicleStates,
   saveVehicleStates,
-  applyShotToVehicle,
   tickVehicleRespawn,
 } from '@/lib/earth2/vehicles';
-import { vehicleInstanceById, homeStateForInstance } from '@/lib/earth2/fleet';
 import {
-  ensureSfx, sfxImpact, sfxExplosion, sfxClang, sfxSplash, sfxWarningTick, sfxShimmer, vibrateFor,
+  vehicleInstanceById, homeStateForInstance, vehicleInstances,
+  claimKeyForUser, claimStateFor, isClaimed, noteDeparture,
+  stockDueForHome, nextStockId, freshStockState,
+} from '@/lib/earth2/fleet';
+import {
+  ensureSfx, sfxImpact, sfxExplosion, sfxSplash, sfxWarningTick, sfxShimmer, vibrateFor,
 } from '@/lib/earth2/sfx';
 import { bridgeHeightAt, bridgeDeckYAt, stepBridgeWalker, BRIDGE_DECK_WIDTH_M } from '@/lib/earth2/bridges';
 import { dressingColliders } from '@/lib/earth2/scatter';
-import {
-  loadFossilInventory,
-  saveFossilInventory,
-  removeFossil,
-  fossilConditionById,
-} from '@/lib/earth2/fossils';
+import { fossilConditionById } from '@/lib/earth2/fossils';
 import { exchangeFossil, aetherForFossil } from '@/lib/earth2/hammond';
+import { useBackpack, updateBackpack } from '@/lib/backpack/store';
 import {
-  applyFossilExchange,
-  loadBloodSacState,
-  saveBloodSacState,
-} from '@/lib/earth2/blood-sacs';
+  sacCount,
+  fossilItemsFromRecord,
+  addFossilsToRecord,
+  removeFossilFromRecord,
+  collectSacInRecord,
+  applyFossilExchangeInRecord,
+} from '@/lib/backpack/earth2-bridge';
 import {
   WORLD_SIZE_M,
   WORLD_HALF_M,
@@ -181,7 +183,7 @@ import {
   pieceFootprint,
   finishAllowed,
 } from '@/lib/building/catalog';
-import { snapPlacement, snapRotation, judgeGhost, validatePlacementSet, clampPlacementToFrame, deriveBuildCandidate } from '@/lib/building/placement';
+import { snapPlacement, snapRotation, judgeGhost, validatePlacementSet, clampPlacementToFrame, deriveBuildCandidate, proposePlacement, snapSeams } from '@/lib/building/placement';
 import { buildPieceGroup, buildGhostGroup, setGhostValidity } from '@/lib/building/piece-render';
 import { PARCEL_BUILD_FRAME } from '@/lib/earth2/building';
 import { activeClaimFor } from '@/lib/building/rights';
@@ -196,6 +198,15 @@ const BUILD_CAT_LABEL = {
   fittings: 'Fittings', spans: 'Spans & Sky', climb: 'Climb',
   water: 'Water & Edge', life: 'Life & Whimsy', organic: 'Organic',
 };
+
+// The stance cycle for a piece being aimed or edited (catalog
+// ORIENTATIONS): upright → laid flat → flipped flat → upright.
+const ORIENT_CYCLE = ['upright', 'flat', 'flat-flip'];
+function nextOrientation(o) {
+  const cur = ORIENT_CYCLE.includes(o) ? o : 'upright';
+  return ORIENT_CYCLE[(ORIENT_CYCLE.indexOf(cur) + 1) % ORIENT_CYCLE.length];
+}
+const ORIENT_LABEL = { upright: 'Upright', flat: 'Flat', 'flat-flip': 'Flat ↩' };
 
 // The first problem of a whole-set judgement, as one sentence —
 // used when an edit (rotate / raise / remove) would break the
@@ -348,13 +359,18 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   const [envHud, setEnvHud] = useState(null);
   const [notice, setNotice] = useState('');
   const [travel, setTravel] = useState(false);
-  const [localSacs, setLocalSacs] = useState(0);
   const [status, setStatus] = useState({});
   const [bootSlugs, setBootSlugs] = useState(null);
-  // Hammond's fossil exchange: the pack is the device store from
-  // lib/earth2/fossils.js (loaded once, saved on every trade);
-  // the panel state is plain React, opened by proximity or tap.
-  const [fossilPack, setFossilPack] = useState(() => loadFossilInventory());
+  // The pack is the BACKPACK now (Merlin, 2026-10-23): fossils and
+  // blood sacs live in the profile pack that follows the traveller
+  // (lib/backpack/store.js), read here through the Earth 2 bridge.
+  // The world renders counts from it; trades and finds write to it.
+  const backpackRecord = useBackpack();
+  const localSacs = sacCount(backpackRecord);
+  const fossilPack = useMemo(
+    () => fossilItemsFromRecord(backpackRecord),
+    [backpackRecord]
+  );
   const [nearHammond, setNearHammond] = useState(false);
   const [hammondOpen, setHammondOpen] = useState(false);
   const [hammondCurrency, setHammondCurrency] = useState('gold');
@@ -401,13 +417,15 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   const [selFinish, setSelFinish] = useState('timber');
   const [selTint, setSelTint] = useState(''); // '' = natural; else degrees
   const [buildRot, setBuildRot] = useState(0);
+  const [buildOrient, setBuildOrient] = useState('upright');
   const [buildLift, setBuildLift] = useState(0);
-  const [ghostState, setGhostState] = useState(null); // { ok, reasons }
+  const [ghostState, setGhostState] = useState(null); // { ok, reasons, proposal }
   const [editIndex, setEditIndex] = useState(null);
   const [buildMsg, setBuildMsg] = useState('');
   const buildModeRef = useRef({
     active: false, parcelId: null, tool: 'place',
     pieceId: 'wall', finish: 'timber', tint: null, rotY: 0,
+    orientation: 'upright', aim: null,
     yLift: 0, seatKey: '', seatY: 0, verdictKey: '',
     ghostPlacement: null, verdict: null, editIndex: -1, carried: null,
   });
@@ -457,6 +475,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
     bm.tool = 'place';
     bm.editIndex = -1;
     bm.carried = null;
+    bm.aim = null; // the ghost aims fresh from the camera once, then anchors
     bm.seatKey = '';
     bm.verdictKey = '';
     setBuildParcelId(parcel.id);
@@ -545,6 +564,59 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
     setBuildLift(bm.yLift);
   };
 
+  // Cycle the ghost's stance: upright → flat → flat-flip
+  // (Merlin: "allow orientation changing like vertical and
+  // horizontal rotation"). The anchor stays — only the stance
+  // and the judgement change.
+  const cycleOrientation = () => {
+    const bm = buildModeRef.current;
+    bm.orientation = nextOrientation(bm.orientation);
+    bm.verdictKey = '';
+    bm.seatKey = '';
+    setBuildOrient(bm.orientation);
+  };
+  const buildOrientSyncRef = useRef(() => {});
+  buildOrientSyncRef.current = (v) => setBuildOrient(v);
+
+  // Pick a placed piece up into the ghost (relocation): shared
+  // by the Edit bench's Move button and the scene's double-tap
+  // on a placed piece (Merlin, 2026-10-23: "tap the item twice
+  // to make it spawn somewhere else and be removed from its
+  // current location"). The original stays in the build until
+  // the ghost is set down somewhere new (the placement commit
+  // splices it out atomically), so abandoning the move — leaving
+  // build mode — returns it to EXACTLY its old transform, and
+  // the build's piece count never double-counts it.
+  const pickupPiece = (index) => {
+    const p = buildPropsRef.current;
+    const bm = buildModeRef.current;
+    if (!buildParcelId) return;
+    const mine = myBuildFor(p.builds, buildParcelId, p.user);
+    if (!mine || !mine.pieces[index]) return;
+    const original = mine.pieces[index];
+    bm.carried = { piece: { ...original }, index };
+    bm.pieceId = original.pieceId;
+    bm.finish = original.finish;
+    bm.tint = original.tint == null ? null : original.tint;
+    bm.rotY = original.rotY || 0;
+    bm.orientation = original.orientation || 'upright';
+    bm.aim = { parcelId: buildParcelId, x: original.x, z: original.z };
+    bm.seatKey = '';
+    bm.verdictKey = '';
+    setSelPieceId(original.pieceId);
+    setSelFinish(original.finish);
+    setSelTint(original.tint == null ? '' : String(original.tint));
+    setBuildRot(bm.rotY);
+    setBuildOrient(bm.orientation);
+    setEditIndex(null);
+    bm.editIndex = -1;
+    setBuildTool('place');
+    bm.tool = 'place';
+    setBuildMsg(`Moving the ${pieceById(original.pieceId)?.name || 'piece'} — tap where it should live; leave build mode to put it back untouched.`);
+  };
+  const buildPickupRef = useRef(() => {});
+  buildPickupRef.current = (index) => pickupPiece(index);
+
   // Edit-mode actions on the selected placed piece. Every change
   // is judged as a whole set first (validatePlacementSet): an
   // edit that would strand, overlap or bury a piece is refused
@@ -556,34 +628,17 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
     const mine = myBuildFor(p.builds, buildParcelId, p.user);
     if (!mine || !mine.pieces[editIndex]) return;
     const original = mine.pieces[editIndex];
-    if (action === 'move') {
-      // Pick the piece up into the ghost WITHOUT removing it: the
-      // original stays in the build until the ghost is placed
-      // somewhere new (the placement commit splices it out), so
-      // abandoning a move can never lose the piece.
-      bm.carried = { piece: { ...original }, index: editIndex };
-      bm.pieceId = original.pieceId;
-      bm.finish = original.finish;
-      bm.tint = original.tint == null ? null : original.tint;
-      bm.rotY = original.rotY || 0;
-      bm.seatKey = '';
-      bm.verdictKey = '';
-      setSelPieceId(original.pieceId);
-      setSelFinish(original.finish);
-      setSelTint(original.tint == null ? '' : String(original.tint));
-      setBuildRot(bm.rotY);
-      setEditIndex(null);
-      bm.editIndex = -1;
-      setBuildTool('place');
-      bm.tool = 'place';
-      setBuildMsg(`Moving the ${pieceById(original.pieceId)?.name || 'piece'} — aim and tap to set it down.`);
-      return;
-    }
+    if (action === 'move') { pickupPiece(editIndex); return; }
     const pieces = mine.pieces.slice();
     const piece = { ...original };
     if (action === 'remove') pieces.splice(editIndex, 1);
     else if (action === 'rotate') {
       piece.rotY = snapRotation((piece.rotY || 0) + 15, piece.pieceId);
+      pieces[editIndex] = piece;
+    } else if (action === 'flip') {
+      const next = nextOrientation(piece.orientation);
+      if (next === 'upright') delete piece.orientation;
+      else piece.orientation = next;
       pieces[editIndex] = piece;
     } else if (action === 'raise') {
       piece.y = Math.round(((piece.y || 0) + 0.25) * 100) / 100;
@@ -627,7 +682,9 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   const ghostInfoRef = useRef(() => {});
   ghostInfoRef.current = (verdict) => {
     setGhostState((prev) => {
-      const next = verdict ? { ok: verdict.ok, reasons: verdict.reasons } : null;
+      const next = verdict
+        ? { ok: verdict.ok, reasons: verdict.reasons, proposal: verdict.proposal || null }
+        : null;
       if (JSON.stringify(prev) === JSON.stringify(next)) return prev;
       return next;
     });
@@ -649,7 +706,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   const collectSacRef = useRef(() => {});
   collectSacRef.current = () => {
     if (typeof onBloodSac === 'function') onBloodSac();
-    else setLocalSacs((n) => n + 1);
+    else updateBackpack((rec) => collectSacInRecord(rec));
   };
   const openExchangeRef = useRef(() => {});
   openExchangeRef.current = () => {
@@ -658,12 +715,23 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   };
   // One Hammond payout, applied: the page owns the tallies when
   // it passes its handler (the same seat Dracula's gifts land in);
-  // standalone, the world writes the device tallies directly —
-  // the collectSac fallback pattern, one store either way.
+  // standalone, the world writes the backpack directly — the
+  // collectSac fallback pattern, one pack either way.
   const fossilPayoutRef = useRef(() => {});
-  fossilPayoutRef.current = (record) => {
-    if (typeof onFossilExchange === 'function') onFossilExchange(record);
-    else saveBloodSacState(applyFossilExchange(loadBloodSacState(), record, Date.now()));
+  fossilPayoutRef.current = (exchangeRecord) => {
+    if (typeof onFossilExchange === 'function') onFossilExchange(exchangeRecord);
+    else updateBackpack((rec) => applyFossilExchangeInRecord(rec, exchangeRecord, Date.now()));
+  };
+  // A carcass's fossil roll (the lifecycle's fossilHook) settles
+  // into the backpack as the carcass sinks away — the credit the
+  // hook always pointed at, wired to the pack that now exists.
+  const fossilCreditRef = useRef(() => {});
+  fossilCreditRef.current = (drops) => {
+    if (!Array.isArray(drops) || !drops.length) return;
+    updateBackpack((rec) => addFossilsToRecord(rec, drops));
+    noticeRef.current(
+      `🦴 Fossils recovered into your backpack: ${drops.map((d) => d.type).join(', ')}`
+    );
   };
   const nearHammondRef = useRef(false);
   const hammondOpenRef = useRef(false);
@@ -701,23 +769,21 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
 
   // Settle the picked fossils at Hammond's counter: each fossil
   // is its own exchange (its own 8% substitution roll in
-  // lib/earth2/hammond.js), leaves the pack, and pays out through
-  // the tally path above. The records stay on show in the panel.
+  // lib/earth2/hammond.js), leaves the backpack, and pays out
+  // through the tally path above. The records stay on show in
+  // the panel.
   const doHammondExchange = () => {
     const picks = fossilPack.filter((f) => hammondPicks.has(f.id));
     if (!picks.length) return;
-    let pack = fossilPack;
     const records = [];
     for (const fossil of picks) {
       const record = exchangeFossil(fossil, hammondCurrency);
       if (!record) continue;
-      pack = removeFossil(pack, fossil.id);
+      updateBackpack((rec) => removeFossilFromRecord(rec, fossil.id));
       records.push(record);
       fossilPayoutRef.current(record);
     }
     if (!records.length) return;
-    setFossilPack(pack);
-    saveFossilInventory(pack);
     setHammondPicks(new Set());
     setHammondResults(records);
   };
@@ -1254,14 +1320,14 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         return bones;
       }
 
-      function makeLabel(text, obj, h, maxDist = 140, owner = null) {
+      function makeLabel(text, obj, h, maxDist = 140, owner = null, kind = null) {
         const el = document.createElement('div');
         el.textContent = text;
         el.className = 'pointer-events-none absolute left-0 top-0 whitespace-nowrap rounded-full border border-black/25 bg-black/45 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-white/90';
         el.style.willChange = 'transform';
         el.style.display = 'none';
         labelsRef.current && labelsRef.current.appendChild(el);
-        labels.push({ el, obj, h, maxDist, owner });
+        labels.push({ el, obj, h, maxDist, owner, kind });
       }
 
       function resolveRoles(modelScene) {
@@ -1367,7 +1433,23 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           const holder = normalize(modelScene, entry);
           const root = new THREE.Group();
           root.add(holder);
-          const gy = heightAt(rec.x, rec.z);
+          let gy = heightAt(rec.x, rec.z);
+          // Ground-span seating (opt-in, Merlin's ground law,
+          // 2026-10-23 — "notice how the airfield is raised"): a
+          // wide building seated by its CENTRE floats at its
+          // downhill edge on any slope. With a span, the seat is
+          // the LOWEST ground sampled under the footprint, so
+          // the slab meets the earth everywhere — the high side
+          // beds in, the low side never hovers.
+          if (rec.groundSpan) {
+            const r = rec.groundSpan;
+            for (let k = 0; k < 8; k++) {
+              const a = (k / 8) * Math.PI * 2;
+              gy = Math.min(gy,
+                heightAt(rec.x + Math.cos(a) * r, rec.z + Math.sin(a) * r),
+                heightAt(rec.x + Math.cos(a) * r * 0.55, rec.z + Math.sin(a) * r * 0.55));
+            }
+          }
           root.position.set(rec.x, gy - (rec.sink || 0), rec.z);
           root.rotation.y = rec.heading || 0;
           scene.add(root);
@@ -1914,6 +1996,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         if (mEntry && mEntry.file) {
           const r = await placeLandform(mEntry, {
             x: MUSEUM_CENTER.x, z: MUSEUM_CENTER.z, heading: 0, sink: 0.3,
+            groundSpan: mEntry.scaleM * 0.46,
           }, unit.key);
           if (r) {
             added.push(...r.roots);
@@ -1962,6 +2045,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         if (aEntry && aEntry.file) {
           const r = await placeLandform(aEntry, {
             x: AIRPORT_CENTER.x, z: AIRPORT_CENTER.z, heading: AIRPORT_HEADING, sink: 0.4,
+            groundSpan: aEntry.scaleM * 0.46,
           }, unit.key);
           if (r) {
             added.push(...r.roots);
@@ -2075,7 +2159,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           vehicles.push(rec);
           makeVehicleBar(rec, unit.key);
           const inst = vehicleInstanceById(unit.instanceId);
-          makeLabel(inst && inst.label ? inst.label : spec.name, root, spec.eyeHeight + 0.9, 130, unit.key);
+          makeLabel(inst && inst.label ? inst.label : spec.name, root, spec.eyeHeight + 0.9, 130, unit.key, 'vehicle');
           if (drivesStatus) setStatusFor(entry.slug, 'placed');
           return { roots: [root] };
         } catch (err) {
@@ -2143,6 +2227,22 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           noticeRef.current('🛩️ She ditched and is taking on water — no flying her out of that.');
           return;
         }
+        // Ownership (Merlin, 2026-10-23): boarding CLAIMS the
+        // machine for this account — hers from then on, staying
+        // where she's left. A machine claimed by another account
+        // refuses the helm outright.
+        const myKey = claimKeyForUser(buildPropsRef.current && buildPropsRef.current.user);
+        let newlyClaimed = false;
+        if (isClaimed(st)) {
+          if (st.claimedBy !== myKey) {
+            noticeRef.current('🔒 Claimed by another driver — this machine is someone\'s personal ride.');
+            return;
+          }
+        } else {
+          vehicleStatesRef.current[id] = claimStateFor(st, myKey, Date.now());
+          saveVehicleStates(vehicleStatesRef.current);
+          newlyClaimed = true;
+        }
         const d = Math.hypot(walker.x - st.x, walker.z - st.z);
         if (d > 8.5) {
           const inst = vehicleInstanceById(id);
@@ -2157,7 +2257,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         const deckY = bridgeHeightAt(st.x, st.z);
         const onDeck = deckY != null && waterDepthAt(st.x, st.z) > MAX_WADE_DEPTH_M;
         vehicleStatesRef.current[id] = {
-          ...st,
+          ...vehicleStatesRef.current[id],
           y: spec.water
             ? WATER_Y - spec.draft
             : spec.air
@@ -2175,11 +2275,13 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         setHammondPanel(false);
         walker.yaw = (st.heading || 0) + Math.PI;
         walker.pitch = 0;
-        noticeRef.current(spec.air
-          ? '🛩️ VTOL Scout — W/S throttle, A/D turn, Space climbs, C settles her down. Land her flat before stepping out.'
-          : spec.water
-            ? '⛵ River Runner — W/S to sail, A/D to steer her. Shallows stop the bow, and bridge piers are solid — take the arch centre. E or Esc to step ashore.'
-            : `🚗 ${spec.name} — W/S to move, A/D to steer. E or Esc to step out.`);
+        noticeRef.current(newlyClaimed
+          ? `🔑 ${spec.name} claimed — she's yours now, and she stays where you leave her.`
+          : spec.air
+            ? '🛩️ VTOL Scout — W/S throttle, A/D turn, Space climbs, C settles her down. Land her flat before stepping out.'
+            : spec.water
+              ? '⛵ River Runner — W/S to sail, A/D to steer her. Shallows stop the bow, and bridge piers are solid — take the arch centre. E or Esc to step ashore.'
+              : `🚗 ${spec.name} — W/S to move, A/D to steer. E or Esc to step out.`);
       }
 
       function exitVehicle() {
@@ -2498,49 +2600,11 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           lastPct: -1, flashUntil: 0, outline: '',
         });
       }
-      function flashVehicleBar(id) {
-        const until = performance.now() + 400;
-        for (const b of vehicleBars) if (b.rec.key === id) b.flashUntil = until;
-      }
-
-      // A tap on a machine is a SHOT now (boarding lives on the
-      // walk-up prompt): the law's shot path bills the bar, the
-      // hit sparks, the metal rings — and a machine shot to zero
-      // goes the way of every wreck: fire where the water is
-      // shallow, a pale boil where she sinks.
-      function shootVehicle(id, point) {
-        const spec = vehicleSpecForInstance(id);
-        const st = vehicleStatesRef.current[id];
-        if (!spec || !st) return;
-        const at = point || { x: st.x, y: (st.y != null ? st.y : heightAt(st.x, st.z)) + 1, z: st.z };
-        if (st.wrecked) {
-          spawnBurst(at, 0x8a8f96);
-          sfxClang();
-          vibrateFor({ kind: 'shot' });
-          return;
-        }
-        const inst = vehicleInstanceById(id);
-        const name = inst && inst.label ? inst.label : spec.name;
-        const next = applyShotToVehicle(st, spec);
-        vehicleStatesRef.current[id] = next;
-        spawnBurst(at, 0xffc766);
-        sfxClang();
-        vibrateFor({ kind: 'shot' });
-        flashVehicleBar(id);
-        if (next.wrecked) {
-          saveVehicleStates(vehicleStatesRef.current);
-          const wy = next.y != null ? next.y : heightAt(next.x, next.z);
-          if (waterDepthAt(next.x, next.z) > 1.2) {
-            spawnBurst({ x: next.x, y: WATER_Y + 0.3, z: next.z }, 0xbfd9e2);
-            noticeRef.current(`💥 Shot through — the ${name} goes down in the deep. A fresh one replaces her at home.`);
-          } else {
-            fireExplosion(next.x, wy + 1, next.z, Math.hypot(walker.x - next.x, walker.z - next.z));
-            noticeRef.current(`💥 Shot through — the ${name} is wrecked! A fresh one replaces her at home.`);
-          }
-        } else {
-          noticeRef.current(`🔫 Hit the ${name} — integrity ${Math.round(next.integrity)}%.`);
-        }
-      }
+      // (Tap-to-shoot on vehicles lived here until 2026-10-23,
+      // when Merlin reversed it: taps board again, and shooting
+      // waits for guns with a reticle. The damage law's shot
+      // path — applyShotToVehicle in lib/earth2/vehicle-damage.js
+      // — stays untouched for that build to call.)
 
       // The driven machine just wrecked: the law's eject outcome
       // seats the walker (unharmed, beside the wreck or on the
@@ -3230,6 +3294,13 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           // The dead lie where they fell, then sink away on the
           // lifecycle's clock while their respawn counts down.
           const sink = carcassSink(a.carcass, t);
+          // As the carcass finishes sinking, its fossil roll (the
+          // lifecycle's fossilHook) is credited to the backpack —
+          // once per carcass.
+          if (sink >= 1 && a.carcass && a.carcass.fossilDrops && !a.carcass._packCredited) {
+            a.carcass._packCredited = true;
+            fossilCreditRef.current(a.carcass.fossilDrops);
+          }
           a.root.position.y = heightAt(a.root.position.x, a.root.position.z)
             - sink * (a.entry.scaleM * 0.16 + 0.35);
           a.root.rotation.z = sink * 0.4;
@@ -3484,9 +3555,15 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           colA.needsUpdate = true;
         }
         // Aurora: strength from latitude + darkness, dimmed by
-        // cloud; the ribbons fly poleward of the walker.
-        env.aurora = auroraIntensity(ll.lat, sol.elevationDeg) * (1 - cloud * 0.7);
-        auroraGroup.visible = env.aurora > 0.02;
+        // cloud; the ribbons fly poleward of the walker. The
+        // daylight gate is the palette's own night factor, not
+        // the intensity curve alone (Merlin's QA, 2026-10-23 —
+        // a rainbow speckle hanging in a daytime sky): the raw
+        // curve ramps in from sun-elevation −4°, while the sky
+        // at −4° still reads as evening day to the eye, so the
+        // curtains now also need real night before they show.
+        env.aurora = auroraIntensity(ll.lat, sol.elevationDeg) * (1 - cloud * 0.7) * pal.night;
+        auroraGroup.visible = env.aurora > 0.05;
         if (auroraGroup.visible) {
           const dirZ = ll.lat >= 0 ? -1 : 1;
           auroraGroup.position.set(walker.x, y0 + 235, walker.z + dirZ * 460);
@@ -3578,6 +3655,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         if (bm.active) {
           if (e.code === 'KeyR') { bm.rotY = snapRotation(bm.rotY + 15, bm.pieceId); bm.verdictKey = ''; bm.seatKey = ''; buildRotSyncRef.current(bm.rotY); return; }
           if (e.code === 'KeyQ') { bm.rotY = snapRotation(bm.rotY - 15, bm.pieceId); bm.verdictKey = ''; bm.seatKey = ''; buildRotSyncRef.current(bm.rotY); return; }
+          if (e.code === 'KeyF') { bm.orientation = nextOrientation(bm.orientation); bm.verdictKey = ''; bm.seatKey = ''; buildOrientSyncRef.current(bm.orientation); return; }
           if (e.code === 'PageUp') { bm.yLift = Math.min(20, Math.round((bm.yLift + 0.25) * 100) / 100); bm.verdictKey = ''; buildLiftSyncRef.current(bm.yLift); e.preventDefault(); return; }
           if (e.code === 'PageDown') { bm.yLift = Math.max(0, Math.round((bm.yLift - 0.25) * 100) / 100); bm.verdictKey = ''; buildLiftSyncRef.current(bm.yLift); e.preventDefault(); return; }
         }
@@ -3621,6 +3699,10 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         bm.carried = null;
         pieces.push(placement);
         buildCommitRef.current(bm.parcelId, pieces);
+        // The ghost anchors where the piece landed (the aim
+        // law): the next piece stacks from the same spot until
+        // a drag or a tap re-aims it — walking never drags it.
+        bm.aim = { parcelId: bm.parcelId, x: placement.x, z: placement.z };
         bm.verdictKey = ''; // the set changed — judge fresh
         bm.seatKey = '';
       }
@@ -3656,10 +3738,27 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           finish: bm.finish,
         };
         if (bm.tint !== null && bm.tint !== undefined) candidate.tint = bm.tint;
-        return deriveBuildCandidate(myParcelPieces(bm.parcelId), candidate, {
+        if (bm.orientation && bm.orientation !== 'upright') candidate.orientation = bm.orientation;
+        const primary = deriveBuildCandidate(ghostJudgePieces(bm.parcelId), candidate, {
           frame: PARCEL_BUILD_FRAME,
           lift: bm.yLift,
         });
+        if (primary.verdict.ok) return primary;
+        // Intelligent placement: the aimed transform is
+        // unlawful — propose the nearest lawful alternative
+        // (slide, quarter-turn, or a flip) instead of a refusal.
+        const prop = proposePlacement(ghostJudgePieces(bm.parcelId), candidate, {
+          frame: PARCEL_BUILD_FRAME,
+          lift: bm.yLift,
+        });
+        if (!prop) return primary;
+        return {
+          placement: prop.placement,
+          verdict: { ...prop.verdict, proposal: prop.change },
+          seat: prop.seat,
+          seamed: false,
+          proposal: prop.change,
+        };
       }
       // Build-mode taps: in Place tool the tap aims and commits
       // (see tapAimCandidate; a groundless tap commits the
@@ -3675,6 +3774,31 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           -((e.clientY - rect.top) / rect.height) * 2 + 1,
         );
         raycaster.setFromCamera(ndc, camera);
+        // Double-tap a placed piece = pick it up for relocation
+        // (Merlin, 2026-10-23). One raycast against the build's
+        // roots serves both tools: the same piece tapped twice
+        // within 350 ms lifts into the ghost (the React side
+        // carries it from there); any other tap re-arms.
+        {
+          const bst = streamState.get(`build:${bm.parcelId}`);
+          let hitIdx = -1;
+          if (bst && bst.status === 'resident' && bst.record) {
+            const bh = raycaster.intersectObjects(bst.record.roots, true);
+            let bo = bh.length ? bh[0].object : null;
+            while (bo && !bo.userData.buildPiece) bo = bo.parent;
+            if (bo) hitIdx = bo.userData.buildPiece.index;
+          }
+          const nowTap = performance.now();
+          if (hitIdx >= 0
+            && lastBuildTap.index === hitIdx
+            && lastBuildTap.parcelId === bm.parcelId
+            && nowTap - lastBuildTap.at < 350) {
+            lastBuildTap = { at: 0, index: -1, parcelId: null };
+            buildPickupRef.current(hitIdx);
+            return;
+          }
+          lastBuildTap = { at: nowTap, index: hitIdx, parcelId: bm.parcelId };
+        }
         if (bm.tool === 'place') {
           const tapped = tapAimCandidate();
           if (tapped) {
@@ -3683,6 +3807,9 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
               bm.ghostPlacement = tapped.placement;
               bm.verdict = tapped.verdict;
               ghostInfoRef.current(tapped.verdict);
+              if (tapped.proposal) {
+                noticeRef.current(`🧠 It wouldn't fit as aimed — ${tapped.proposal.charAt(0).toLowerCase()}${tapped.proposal.slice(1)} instead.`);
+              }
             } else if (tapped.verdict.reasons && tapped.verdict.reasons.length) {
               noticeRef.current(`🔨 ${tapped.verdict.reasons[0]}`);
             }
@@ -3690,6 +3817,9 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           }
           if (bm.verdict && bm.verdict.ok && bm.ghostPlacement) {
             commitBuildPlacement(bm.ghostPlacement);
+            if (bm.verdict.proposal) {
+              noticeRef.current(`🧠 It wouldn't fit as aimed — ${bm.verdict.proposal.charAt(0).toLowerCase()}${bm.verdict.proposal.slice(1)} instead.`);
+            }
           } else if (bm.verdict && bm.verdict.reasons && bm.verdict.reasons.length) {
             noticeRef.current(`🔨 ${bm.verdict.reasons[0]}`);
           }
@@ -3732,7 +3862,12 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           obj = obj.parent;
         }
         if (!obj) return;
-        if (obj.userData.vehicle) shootVehicle(obj.userData.vehicle, hits[0].point);
+        // Merlin's reversal (2026-10-23): a tap on a vehicle
+        // OPERATES it — boarding, with the walk-up prompt's own
+        // range law (boardVehicle refuses past 8.5 m with a
+        // pointer). Shooting belongs to guns with a reticle in
+        // a later build; the mosquito tap-to-shoot is untouched.
+        if (obj.userData.vehicle) boardVehicle(obj.userData.vehicle);
         else if (obj.userData.mosquito) shootMosquito(obj.userData.mosquito);
         else if (obj.userData.sacRef) collectSac(obj.userData.sacRef);
         else if (obj.userData.dracula) openExchangeRef.current();
@@ -3772,9 +3907,10 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       function onPointerUp(e) {
         if (e.pointerId !== dragId) return;
         dragId = null;
+        aimDrag = false;
         if (dragMoved < 7 && performance.now() - downT < 450) handleTap(e);
       }
-      function onPointerCancel() { dragId = null; }
+      function onPointerCancel() { dragId = null; aimDrag = false; }
       renderer.domElement.addEventListener('pointerdown', onPointerDown);
       renderer.domElement.addEventListener('pointermove', onPointerMove);
       renderer.domElement.addEventListener('pointerup', onPointerUp);
@@ -3874,7 +4010,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         const rect = parcelWorldRect(parcel);
         const group = new THREE.Group();
         build.pieces.forEach((piece, i) => {
-          const g = buildPieceGroup(THREE, piece.pieceId, piece.finish, piece.tint);
+          const g = buildPieceGroup(THREE, piece.pieceId, piece.finish, piece.tint, piece.orientation);
           const wx = rect.minX + piece.x;
           const wz = rect.minZ + piece.z;
           g.position.set(wx, heightAt(wx, wz) + (piece.y || 0), wz);
@@ -3887,21 +4023,48 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       }
 
       // ── The build-mode ghost ────────────────────────────────
-      // A translucent copy of the selected piece follows the
-      // walker's aim across the parcel being built on, seated on
-      // the tallest top under its footprint (stacking), snapped
-      // by the placement engine, and judged live by judgeGhost —
-      // green when the placement is lawful, red with the first
-      // reason when it is not. The verdict recomputes only when
-      // the snapped cell, rotation, lift or the parcel's build
-      // signature changes, never blindly per frame.
+      // A translucent copy of the selected piece stands at its
+      // ANCHORED aim point on the parcel being built on (the aim
+      // law: walking never drags it — see the aim block below),
+      // seated on the tallest top under its footprint (stacking),
+      // snapped and seam-connected by the placement engine, and
+      // judged live by judgeGhost — green when the placement is
+      // lawful, red with the first reason when it is not; when
+      // the aimed transform is unlawful, the intelligent placer
+      // proposes the nearest lawful one and the ghost stands
+      // there instead, the change named in the verdict. The
+      // verdict recomputes only when the snapped cell, rotation,
+      // stance, lift or the parcel's build signature changes,
+      // never blindly per frame.
       let ghostGroup = null;
       let ghostPieceId = null;
+      let ghostOrient = null;
 
       function myParcelPieces(parcelId) {
         const p = buildPropsRef.current;
         const mine = myBuildFor(p.builds, parcelId, p.user);
         return mine ? mine.pieces : [];
+      }
+
+      // The set the ghost is judged against: while a piece is
+      // carried (being relocated), its original is already
+      // spoken for — a move counts against the piece budget
+      // once, ever — so the judge sees the set without it, and
+      // the ghost may lawfully land where the original stands
+      // once the commit splices it out.
+      function ghostJudgePieces(parcelId) {
+        const bm = buildModeRef.current;
+        const pieces = myParcelPieces(parcelId);
+        if (bm.carried && bm.parcelId === parcelId
+          && pieces[bm.carried.index]
+          && pieces[bm.carried.index].pieceId === bm.carried.piece.pieceId
+          && pieces[bm.carried.index].x === bm.carried.piece.x
+          && pieces[bm.carried.index].z === bm.carried.piece.z) {
+          const out = pieces.slice();
+          out.splice(bm.carried.index, 1);
+          return out;
+        }
+        return pieces;
       }
 
       function updateBuildGhost() {
@@ -3911,6 +4074,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             scene.remove(ghostGroup);
             ghostGroup = null;
             ghostPieceId = null;
+            ghostOrient = null;
           }
           return;
         }
@@ -3920,24 +4084,37 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         }
         if (!ghostGroup || ghostPieceId !== bm.pieceId) {
           if (ghostGroup) scene.remove(ghostGroup);
-          ghostGroup = buildGhostGroup(THREE, bm.pieceId);
+          ghostGroup = buildGhostGroup(THREE, bm.pieceId, bm.orientation);
           ghostPieceId = bm.pieceId;
+          ghostOrient = bm.orientation;
           scene.add(ghostGroup);
         }
         const parcel = parcelById(bm.parcelId);
         if (!parcel) { ghostGroup.visible = false; return; }
         const rect = parcelWorldRect(parcel);
-        // Aim: march the camera ray down to the terrain.
-        const dir = new THREE.Vector3();
-        camera.getWorldDirection(dir);
-        let ax = camera.position.x + dir.x * 9;
-        let az = camera.position.z + dir.z * 9;
-        for (let s = 1.5; s <= 18; s += 0.4) {
-          const px = camera.position.x + dir.x * s;
-          const pz = camera.position.z + dir.z * s;
-          const py = camera.position.y + dir.y * s;
-          ax = px; az = pz;
-          if (py <= heightAt(px, pz) + 0.05) break;
+        // The aim, under the ANCHORED law (Merlin, 2026-10-23:
+        // "moving with the joystick should not be attached"):
+        // the ghost holds the aim point it was given — by the
+        // opening camera march, by a drag (an explicit re-aim),
+        // by a tap, or by the last piece placed — and walking
+        // never drags it. The camera march below therefore runs
+        // only while no anchor holds for this parcel, or while
+        // the pointer is down and dragging.
+        let aimLocal = bm.aim && bm.aim.parcelId === bm.parcelId && !aimDrag ? bm.aim : null;
+        if (!aimLocal) {
+          const dir = new THREE.Vector3();
+          camera.getWorldDirection(dir);
+          let ax = camera.position.x + dir.x * 9;
+          let az = camera.position.z + dir.z * 9;
+          for (let s = 1.5; s <= 18; s += 0.4) {
+            const px = camera.position.x + dir.x * s;
+            const pz = camera.position.z + dir.z * s;
+            const py = camera.position.y + dir.y * s;
+            ax = px; az = pz;
+            if (py <= heightAt(px, pz) + 0.05) break;
+          }
+          aimLocal = { parcelId: bm.parcelId, x: ax - rect.minX, z: az - rect.minZ };
+          bm.aim = aimLocal;
         }
         // The aim in the parcel's own frame. A hit that lands
         // outside the parcel — or no hit at all (the march ran
@@ -3947,19 +4124,25 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         // the frame: the old centre-only clamp let any piece
         // with real width overflow the edge whenever it was
         // aimed past mid-parcel, and the judge refused it
-        // forever (Merlin's build video, 2026-10-23).
+        // forever (Merlin's build video, 2026-10-23). Seams
+        // connect last: an edge within a hand's reach of a
+        // neighbour's edge slides flush against it.
         const candidate = {
           pieceId: bm.pieceId,
-          x: Math.min(PARCEL_BUILD_FRAME.width, Math.max(0, ax - rect.minX)),
+          x: Math.min(PARCEL_BUILD_FRAME.width, Math.max(0, aimLocal.x)),
           y: 0,
-          z: Math.min(PARCEL_BUILD_FRAME.depth, Math.max(0, az - rect.minZ)),
+          z: Math.min(PARCEL_BUILD_FRAME.depth, Math.max(0, aimLocal.z)),
           rotY: bm.rotY,
           finish: bm.finish,
         };
         if (bm.tint !== null && bm.tint !== undefined) candidate.tint = bm.tint;
-        const snapped = clampPlacementToFrame(snapPlacement(candidate), PARCEL_BUILD_FRAME);
-        const existing = myParcelPieces(bm.parcelId);
-        const cellKey = `${bm.parcelId}|${snapped.x}|${snapped.z}|${snapped.rotY}|${bm.pieceId}`;
+        if (bm.orientation && bm.orientation !== 'upright') candidate.orientation = bm.orientation;
+        const existing = ghostJudgePieces(bm.parcelId);
+        const snapped = clampPlacementToFrame(
+          snapSeams(existing, clampPlacementToFrame(snapPlacement(candidate), PARCEL_BUILD_FRAME)).placement,
+          PARCEL_BUILD_FRAME,
+        );
+        const cellKey = `${bm.parcelId}|${snapped.x}|${snapped.z}|${snapped.rotY}|${bm.pieceId}|${bm.orientation}`;
         if (cellKey !== bm.seatKey) {
           bm.seatKey = cellKey;
           bm.yLift = 0;
@@ -3990,13 +4173,37 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         if (verdictKey !== bm.verdictKey) {
           bm.verdictKey = verdictKey;
           const placed = { ...snapped, y: Math.round((bm.seatY + bm.yLift) * 100) / 100 };
-          const verdict = judgeGhost(existing, placed, { frame: PARCEL_BUILD_FRAME });
+          let verdict = judgeGhost(existing, placed, { frame: PARCEL_BUILD_FRAME });
+          if (!verdict.ok) {
+            // Intelligent placement: before the ghost shows a
+            // refusal, the proposer looks for the nearest lawful
+            // alternative — the ghost then stands THERE, green,
+            // with the change named in the verdict line.
+            const prop = proposePlacement(existing, snapped, {
+              frame: PARCEL_BUILD_FRAME,
+              lift: bm.yLift,
+            });
+            if (prop) verdict = { ...prop.verdict, proposal: prop.change };
+          }
           bm.ghostPlacement = verdict.placement;
           bm.verdict = verdict;
           setGhostValidity(THREE, ghostGroup, verdict.ok);
           ghostInfoRef.current(verdict);
         }
         if (!bm.ghostPlacement) { ghostGroup.visible = false; return; }
+        // The ghost wears the JUDGED stance: when the proposer
+        // turned or flipped the piece to make it fit, the
+        // preview shows that transform — never the one that
+        // failed. (Panel stance changes flow through the same
+        // sync, via the re-judged verdict.)
+        const shownOrient = bm.ghostPlacement.orientation || 'upright';
+        if (ghostOrient !== shownOrient) {
+          scene.remove(ghostGroup);
+          ghostGroup = buildGhostGroup(THREE, bm.pieceId, shownOrient);
+          ghostOrient = shownOrient;
+          scene.add(ghostGroup);
+          if (bm.verdict) setGhostValidity(THREE, ghostGroup, bm.verdict.ok);
+        }
         const wx = rect.minX + bm.ghostPlacement.x;
         const wz = rect.minZ + bm.ghostPlacement.z;
         ghostGroup.visible = true;
@@ -4432,11 +4639,16 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         // east of it stay clear for walkers and machines alike.
         if (airportStanding) dyn.push({ x: AIRPORT_CENTER.x, z: AIRPORT_CENTER.z, r: 13 });
         // Parked machines are solid; the one being driven is
-        // the walker, and never collides with itself.
+        // the walker, and never collides with itself. The
+        // radius carries a clearance margin past the hull
+        // (Merlin's build video, 2026-10-23: the camera clipped
+        // inside the Scarab's hull at closest approach — the
+        // spec radius is the hull's own half-extent, and the
+        // walker's eye needs its own room beyond it).
         for (const v of vehicles) {
           if (v.key === drivingRef.current) continue;
           const vst = vehicleStatesRef.current[v.key];
-          if (vst) dyn.push({ x: vst.x, z: vst.z, r: v.spec.radius });
+          if (vst) dyn.push({ x: vst.x, z: vst.z, r: v.spec.radius + 0.35 });
         }
         for (const a of animals) {
           if (a.flyer || a.compy) continue;
@@ -4574,9 +4786,11 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           let best = null;
           let bestD = 3.5;
           if (!drivingRef.current && !buildModeRef.current.active) {
+            const myKey = claimKeyForUser(buildPropsRef.current && buildPropsRef.current.user);
             for (const id of Object.keys(vehicleStatesRef.current)) {
               const vst = vehicleStatesRef.current[id];
               if (!vst || vst.wrecked) continue;
+              if (isClaimed(vst) && vst.claimedBy !== myKey) continue; // someone's personal machine
               const d = Math.hypot(walker.x - vst.x, walker.z - vst.z);
               if (d <= bestD) { bestD = d; best = id; }
             }
@@ -4612,6 +4826,40 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             }
           }
           if (respawnDirty) saveVehicleStates(vehicleStatesRef.current);
+        }
+
+        // Ownership upkeep (fleet.js): stamp departures of
+        // claimed machines (first exit of the home radius), and
+        // when a claimed machine has been away past the delay
+        // with its home standing empty, a fresh UNCLAIMED stock
+        // machine shimmers in at the home — the spot stays
+        // stocked for the next driver. The claimed machine
+        // itself is never touched by any of this.
+        {
+          const nowMs = Date.now();
+          let ownDirty = false;
+          for (const id of Object.keys(vehicleStatesRef.current)) {
+            const vst = vehicleStatesRef.current[id];
+            if (!vst || !isClaimed(vst)) continue;
+            const home = homeStateForInstance(id);
+            if (!home) continue;
+            const noted = noteDeparture(vst, home, nowMs);
+            if (noted !== vst) { vehicleStatesRef.current[id] = noted; ownDirty = true; }
+          }
+          for (const inst of vehicleInstances()) {
+            if (!stockDueForHome(vehicleStatesRef.current, inst.id, nowMs)) continue;
+            const stockId = nextStockId(vehicleStatesRef.current, inst.id);
+            const fresh = stockId && freshStockState(inst.id);
+            if (!stockId || !fresh) continue;
+            vehicleStatesRef.current[stockId] = fresh;
+            ownDirty = true;
+            const nd = Math.hypot(walker.x - fresh.x, walker.z - fresh.z);
+            if (nd < 320) {
+              const spec3 = vehicleSpecForInstance(stockId);
+              fireShimmer(fresh.x, spec3 && spec3.water ? WATER_Y + 0.8 : heightAt(fresh.x, fresh.z) + 1.2, fresh.z);
+            }
+          }
+          if (ownDirty) saveVehicleStates(vehicleStatesRef.current);
         }
 
         // Parked machines hold their pose on the terrain (a
@@ -4729,6 +4977,39 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         renderer.render(scene, camera);
         // Labels: near creatures only, projected each frame.
         const w = mount.clientWidth, h = mount.clientHeight;
+        // Vehicle nameplates de-collide (Merlin's build video:
+        // the apron row smeared into one unreadable line —
+        // "Speed BikeExpedition Rover"). The rule: among the
+        // vehicle plates on screen, the NEAREST machine keeps
+        // its place at full strength; a plate that would land
+        // on top of a nearer one stacks a step below it, dimmed;
+        // a plate with three nearer neighbours in its space
+        // waits hidden until the walker closes in and the pile
+        // thins. Integrity bars follow their plate's stack.
+        const vehStack = new Map(); // label -> stack level
+        const vehStackByRoot = new Map(); // vehicle root -> stack level
+        {
+          const plates = [];
+          for (const l of labels) {
+            if (l.kind !== 'vehicle' || !l.obj.visible) continue;
+            const d = Math.hypot(l.obj.position.x - walker.x, l.obj.position.z - walker.z);
+            if (d > l.maxDist) continue;
+            l.obj.getWorldPosition(labelV);
+            labelV.y += l.h;
+            labelV.project(camera);
+            if (labelV.z > 1 || labelV.z < -1) continue;
+            plates.push({ l, d, x: (labelV.x * 0.5 + 0.5) * w, y: (-labelV.y * 0.5 + 0.5) * h });
+          }
+          plates.sort((a, b) => a.d - b.d);
+          for (let i = 0; i < plates.length; i++) {
+            let level = 0;
+            for (let j = 0; j < i; j++) {
+              if (Math.abs(plates[j].x - plates[i].x) < 120 && Math.abs(plates[j].y - plates[i].y) < 30) level++;
+            }
+            vehStack.set(plates[i].l, Math.min(level, 3));
+            vehStackByRoot.set(plates[i].l.obj, Math.min(level, 3));
+          }
+        }
         for (const l of labels) {
           if (!l.obj.visible) { l.el.style.display = 'none'; continue; }
           const d = Math.hypot(l.obj.position.x - walker.x, l.obj.position.z - walker.z);
@@ -4737,9 +5018,18 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           labelV.y += l.h;
           labelV.project(camera);
           if (labelV.z > 1 || labelV.z < -1) { l.el.style.display = 'none'; continue; }
+          let stackLevel = 0;
+          if (l.kind === 'vehicle') {
+            stackLevel = vehStack.get(l) || 0;
+            if (stackLevel >= 3) { l.el.style.display = 'none'; continue; }
+          }
           l.el.style.display = '';
+          if (l.kind === 'vehicle') {
+            const op = stackLevel === 0 ? '' : '0.55';
+            if (l.el.style.opacity !== op) l.el.style.opacity = op;
+          }
           const x = (labelV.x * 0.5 + 0.5) * w;
-          const y = (-labelV.y * 0.5 + 0.5) * h;
+          const y = (-labelV.y * 0.5 + 0.5) * h + stackLevel * 16;
           l.el.style.transform = `translate(-50%, -100%) translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
         }
         // Phase 2 integrity bars: a hurt machine in view wears
@@ -4749,8 +5039,10 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         for (const b of vehicleBars) {
           const bst = vehicleStatesRef.current[b.rec.key];
           const pct = bst ? (bst.integrity ?? 100) : 100;
+          const stackLevel = vehStackByRoot.get(b.rec.root) || 0;
           const show = !!bst && pct < 100 && drivingRef.current !== b.rec.key
             && b.rec.root.visible
+            && stackLevel < 3
             && (walker.x - bst.x) ** 2 + (walker.z - bst.z) ** 2 < 130 * 130;
           if (!show) {
             if (b.el.style.display !== 'none') b.el.style.display = 'none';
@@ -4765,7 +5057,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           }
           b.el.style.display = '';
           const bx = (labelV.x * 0.5 + 0.5) * w;
-          const by = (-labelV.y * 0.5 + 0.5) * h;
+          const by = (-labelV.y * 0.5 + 0.5) * h + stackLevel * 16;
           b.el.style.transform = `translate(-50%, -100%) translate(${bx.toFixed(1)}px, ${by.toFixed(1)}px)`;
           const rp = Math.round(pct);
           if (rp !== b.lastPct) {
@@ -5178,7 +5470,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
                 </button>
               </div>
               {buildTool === 'place' ? (
-                <p className={`truncate text-[11px] font-bold leading-snug ${
+                <p className={`text-[11px] font-bold leading-snug ${
                   ghostState
                     ? ghostState.ok ? 'text-emerald-200' : 'text-red-200'
                     : 'text-zinc-400'
@@ -5186,9 +5478,11 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
                   🧱 {selPieceDef ? selPieceDef.name : selPieceId} · {buildPieceCount}/{MAX_PIECES_PER_BUILD} pieces — {
                     ghostState
                       ? ghostState.ok
-                        ? '✓ Fits — tap the world to place it'
+                        ? ghostState.proposal
+                          ? `✓ ${ghostState.proposal} — tap to place it there`
+                          : '✓ Fits — tap the world to place it'
                         : `✗ ${ghostState.reasons[0] || 'That placement does not work.'}`
-                      : 'aim at the ground — the ghost follows'
+                      : 'tap the ground to aim — the ghost stays where you put it'
                   }
                 </p>
               ) : (
@@ -5347,13 +5641,30 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
                   </button>
                 </div>
 
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={cycleOrientation}
+                    className="flex-1 rounded-full border border-white/20 bg-white/5 px-3 py-2 text-[12px] font-bold text-zinc-100 transition hover:bg-white/10"
+                  >
+                    🗃 Flip stance
+                  </button>
+                  <span className="flex items-center rounded-full border border-white/10 bg-black/30 px-3 text-[12px] font-bold text-zinc-200">
+                    {ORIENT_LABEL[buildOrient]}
+                  </span>
+                </div>
+
                 {!ghostState && (
                   <p className="rounded-xl border border-white/10 bg-black/30 px-3 py-2.5 text-xs leading-snug text-zinc-400">
-                    Aim at the ground of your parcel — the ghost follows — or tap
-                    the ground where the piece should go; it lands where you tap.
-                    Pieces stack on pieces; R / Q turn it, PgUp / PgDn lift it.
-                    The verdict rides in this panel&rsquo;s header, so it stays
-                    in view even with the panel shrunk.
+                    Tap the ground where the piece should go — the ghost anchors
+                    there and walking won&rsquo;t drag it; drag to look around
+                    re-aims it. If a spot won&rsquo;t work, the ghost finds the
+                    nearest spot that does and names the change in the header.
+                    Double-tap a placed piece to pick it up and move it. Pieces
+                    stack on pieces and their edges snap together; R / Q turn
+                    it, F flips its stance, PgUp / PgDn lift it. The verdict
+                    rides in this panel&rsquo;s header, so it stays in view
+                    even with the panel shrunk.
                   </p>
                 )}
               </>
@@ -5366,13 +5677,15 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
                         {pieceById(selectedPlaced.pieceId)?.name || selectedPlaced.pieceId}
                       </strong>{' '}
                       <span className="text-zinc-400">
-                        ({FINISHES.find((f) => f.id === selectedPlaced.finish)?.name || selectedPlaced.finish})
+                        ({FINISHES.find((f) => f.id === selectedPlaced.finish)?.name || selectedPlaced.finish}
+                        {selectedPlaced.orientation ? ` · ${ORIENT_LABEL[selectedPlaced.orientation] || selectedPlaced.orientation}` : ''})
                       </span>
                     </p>
                     <div className="flex flex-wrap gap-2">
                       {[
                         ['move', '✥ Move'],
                         ['rotate', '⟳ Rotate 15°'],
+                        ['flip', '🗃 Flip stance'],
                         ['raise', '▲ Raise'],
                         ['lower', '▼ Lower'],
                         ['remove', '🗑 Remove'],
@@ -5399,8 +5712,10 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
                 ) : (
                   <p className="rounded-xl border border-white/10 bg-black/30 px-3 py-2.5 text-xs leading-relaxed text-zinc-400">
                     Tap one of your placed pieces to select it — then move it,
-                    turn it, raise or lower it, or take it away. Pieces on other
-                    people&rsquo;s parcels are never yours to edit.
+                    turn it, flip its stance, raise or lower it, or take it
+                    away. A double-tap on a piece picks it straight up for
+                    moving. Pieces on other people&rsquo;s parcels are never
+                    yours to edit.
                   </p>
                 )}
               </>

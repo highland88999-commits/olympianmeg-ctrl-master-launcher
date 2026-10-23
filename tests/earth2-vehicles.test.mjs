@@ -101,6 +101,24 @@ import {
   RESPAWN_DELAY_S,
 } from '../lib/earth2/vehicles.js';
 import { resolveScarabLegs } from '../lib/earth2/bones.js';
+import {
+  homeStateForInstance,
+  claimKeyForUser,
+  claimStateFor,
+  isClaimed,
+  isClaimedBy,
+  isStockId,
+  homeIdForStock,
+  stockIdFor,
+  nextStockId,
+  noteDeparture,
+  stockDueForHome,
+  freshStockState,
+  vehicleInstanceById,
+  HOME_RADIUS_M,
+  REPLENISH_DELAY_S as REPLENISH_DELAY,
+  MAX_STOCK_PER_HOME,
+} from '../lib/earth2/fleet.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, '..');
@@ -645,6 +663,114 @@ describe('persistence — where a machine was left, on-device', () => {
       delete globalThis.localStorage;
     }
     assert.ok(isParkedAtHome(loadVehicleStates().rover, 'rover'), 'no store at all still parks the fleet');
+  });
+});
+
+describe('ownership — claims, departure, replenishment (2026-10-23)', () => {
+  const KEY = 'driver@example.com';
+  const home = homeStateForInstance('rover');
+
+  it('the claim key is the account email, else its id, else the device key', () => {
+    assert.equal(claimKeyForUser({ email: 'Driver@Example.com' }), KEY);
+    assert.equal(claimKeyForUser({ id: 42 }), '42');
+    assert.equal(claimKeyForUser(null), 'local-driver');
+  });
+
+  it('claiming stamps the state; only one claim ever holds', () => {
+    const st = { ...home, integrity: 88, wrecked: false };
+    const claimed = claimStateFor(st, KEY, 1000);
+    assert.equal(claimed.claimedBy, KEY);
+    assert.equal(claimed.claimedAt, 1000);
+    assert.ok(isClaimed(claimed) && isClaimedBy(claimed, KEY));
+    assert.ok(!isClaimedBy(claimed, 'someone@else.example'));
+    assert.equal(st.claimedBy, undefined, 'the input state is untouched');
+  });
+
+  it('a claimed machine\'s saved transform is authoritative through the ledger round-trip', () => {
+    const away = {
+      rover: { x: home.x + 300, z: home.z - 120, heading: 2.2, integrity: 41, claimedBy: KEY, claimedAt: 5, awaySince: 9 },
+    };
+    const back = sanitizeInstanceStates(away).rover;
+    assert.equal(back.x, home.x + 300, 'position survives — never reset home');
+    assert.equal(back.z, home.z - 120);
+    assert.equal(back.heading, 2.2);
+    assert.equal(back.integrity, 41);
+    assert.equal(back.claimedBy, KEY);
+    assert.equal(back.awaySince, 9);
+    const defaults = defaultInstanceStates().rover;
+    assert.equal(defaults.claimedBy, null, 'a fresh world starts unclaimed');
+  });
+
+  it('departure stamps on the first exit of the home radius and clears on return', () => {
+    const claimed = claimStateFor({ ...home, integrity: 100, wrecked: false }, KEY, 1);
+    const atHome = noteDeparture(claimed, home, 100);
+    assert.equal(atHome, claimed, 'parked at home: no stamp, same object');
+    const away = noteDeparture({ ...claimed, x: home.x + HOME_RADIUS_M + 5 }, home, 200);
+    assert.equal(away.awaySince, 200);
+    const back = noteDeparture({ ...away, x: home.x, z: home.z }, home, 300);
+    assert.equal(back.awaySince, null, 'returning home clears the stamp');
+    const wreck = { ...claimed, wrecked: true, x: home.x + 500 };
+    assert.equal(noteDeparture(wreck, home, 400), wreck, 'wrecks run on the replacement timer, not replenishment');
+  });
+
+  it('a claimed wreck is replaced at home — and the replacement stays claimed', () => {
+    const wreck = {
+      ...home, x: home.x + 90, integrity: 0, wrecked: true, respawnIn: 0.1,
+      claimedBy: KEY, claimedAt: 7, awaySince: 3,
+    };
+    const fresh = tickVehicleRespawn(wreck, home, 1);
+    assert.equal(fresh.wrecked, false);
+    assert.equal(fresh.x, home.x, 'the replacement lands at home');
+    assert.equal(fresh.claimedBy, KEY, 'the claim follows the replacement');
+    assert.equal(fresh.awaySince, null, 'the replacement starts its left-position law from home');
+    const again = respawnVehicleNow(wreck, home);
+    assert.equal(again.claimedBy, KEY);
+  });
+
+  it('stock ids resolve to their home instance and its fresh state', () => {
+    assert.ok(isStockId('rover~stock'));
+    assert.equal(homeIdForStock('rover~stock2'), 'rover');
+    assert.equal(homeIdForStock('rover'), null);
+    const desc = vehicleInstanceById('rover~stock');
+    assert.equal(desc.slug, 'rover');
+    assert.equal(desc.home.x, home.x);
+    const fresh = freshStockState('rover');
+    assert.equal(fresh.x, home.x);
+    assert.equal(fresh.claimedBy, null, 'stock is born unclaimed');
+    assert.equal(fresh.integrity, 100);
+  });
+
+  it('replenishment: due only when a claimed machine is long away and the home stands empty', () => {
+    const now = 100000;
+    const claimedAway = claimStateFor({ ...home, x: home.x + 200, integrity: 90, wrecked: false, awaySince: now - (REPLENISH_DELAY + 1) * 1000 }, KEY, 1);
+    assert.equal(stockDueForHome({ rover: claimedAway }, 'rover', now), true);
+    const justLeft = { ...claimedAway, awaySince: now - 1000 };
+    assert.equal(stockDueForHome({ rover: justLeft }, 'rover', now), false, 'the delay has not run');
+    const stocked = { rover: claimedAway, 'rover~stock': freshStockState('rover') };
+    assert.equal(stockDueForHome(stocked, 'rover', now), false, 'a stock machine on the spot blocks a duplicate');
+    const returned = { rover: { ...claimedAway, x: home.x, z: home.z, awaySince: null }, 'rover~stock': { ...freshStockState('rover'), x: home.x + 300, claimedBy: KEY, awaySince: now - 99999 } };
+    assert.equal(stockDueForHome(returned, 'rover', now), false, 'the owner\'s machine back on the spot occupies it');
+    assert.equal(stockDueForHome({ rover: { ...home, integrity: 100, wrecked: false } }, 'rover', now), false, 'unclaimed fleets never replenish');
+  });
+
+  it('stock generations are finite and ledger-safe', () => {
+    const states = { rover: { ...home } };
+    assert.equal(nextStockId(states, 'rover'), 'rover~stock');
+    states['rover~stock'] = freshStockState('rover');
+    assert.equal(nextStockId(states, 'rover'), 'rover~stock2');
+    for (let g = 2; g <= MAX_STOCK_PER_HOME; g++) states[stockIdFor('rover', g)] = freshStockState('rover');
+    assert.equal(nextStockId(states, 'rover'), null, 'the cap holds');
+    const round = sanitizeInstanceStates({ 'rover~stock': { x: home.x, z: home.z, integrity: 55 } });
+    assert.equal(round['rover~stock'].integrity, 55, 'stock states survive the sanitize round-trip');
+    assert.equal(round['rover~stock'].slug, 'rover');
+  });
+
+  it('the scene wires the claim into boarding and the upkeep into the frame', () => {
+    const scene = read('components/earth2/Earth2World.jsx');
+    assert.ok(scene.includes('claimStateFor'), 'boarding claims');
+    assert.ok(scene.includes('Claimed by another driver'), 'another account\'s machine refuses');
+    assert.ok(scene.includes('noteDeparture') && scene.includes('stockDueForHome'), 'departure + replenishment upkeep runs');
+    assert.ok(scene.includes('freshStockState') && scene.includes('nextStockId'), 'stock spawns from the fleet law');
   });
 });
 

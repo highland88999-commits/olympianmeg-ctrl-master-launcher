@@ -20,6 +20,7 @@ import {
   FINISHES,
   MAX_PIECES_PER_BUILD,
   pieceById,
+  pieceFootprint,
 } from '../lib/building/catalog.js';
 import {
   pieceMeshSpec,
@@ -33,6 +34,8 @@ import {
   buildPieceGroup,
   buildGhostGroup,
   setGhostValidity,
+  pieceHasFooting,
+  FOOTING_M,
 } from '../lib/building/piece-render.js';
 import { judgeGhost, clampPlacementToFrame, deriveBuildCandidate } from '../lib/building/placement.js';
 import { PARCEL_BUILD_FRAME } from '../lib/earth2/building.js';
@@ -79,11 +82,15 @@ test('every piece spec is well-formed: known shapes, finite offsets', () => {
 test('every piece builds a three.js group, one mesh per spec part', () => {
   for (const piece of BUILDING_PIECES) {
     const finish = piece.finishes === 'all' ? 'timber' : piece.finishes[0];
+    // Slab foundations carry one extra mesh: the footing skirt
+    // that grounds them on a slope (FOOTING_M deep, Merlin's
+    // ground law) — spec parts + footing, nothing else.
+    const extra = pieceHasFooting(piece, pieceMeshSpec(piece)) ? 1 : 0;
     const group = buildPieceGroup(THREE, piece, finish, null);
     assert.equal(
       group.children.length,
-      pieceMeshSpec(piece).parts.length,
-      `${piece.id}: mesh count matches its spec`
+      pieceMeshSpec(piece).parts.length + extra,
+      `${piece.id}: mesh count matches its spec (+ footing)`
     );
     for (const mesh of group.children) {
       assert.ok(mesh.isMesh, `${piece.id}: children are meshes`);
@@ -91,7 +98,7 @@ test('every piece builds a three.js group, one mesh per spec part', () => {
       assert.ok(mesh.material, `${piece.id}: mesh has a material`);
     }
     const ghost = buildGhostGroup(THREE, piece);
-    assert.equal(ghost.children.length, pieceMeshSpec(piece).parts.length, `${piece.id}: ghost matches`);
+    assert.equal(ghost.children.length, pieceMeshSpec(piece).parts.length + extra, `${piece.id}: ghost matches`);
   }
 });
 
@@ -495,5 +502,40 @@ test('hygiene: the palette families cover the catalog (labels exist per category
   assert.ok(PIECE_CATEGORIES.length >= 10);
   for (const cat of PIECE_CATEGORIES) {
     assert.ok(BUILDING_PIECES.some((p) => p.category === cat), `${cat} has pieces`);
+  }
+});
+
+test('orientation renders geometrically: a flat wall occupies its flipped footprint', () => {
+  const wall = pieceById('wall'); // 4 × 3 × 0.3 upright
+  const size = (g) => new THREE.Box3().setFromObject(g).getSize(new THREE.Vector3());
+  const up = size(buildPieceGroup(THREE, wall, 'stone', null));
+  assert.ok(Math.abs(up.x - 4) < 1e-6 && Math.abs(up.y - 3) < 1e-6 && Math.abs(up.z - 0.3) < 1e-6, 'upright is the spec box');
+  for (const stance of ['flat', 'flat-flip']) {
+    const g = buildPieceGroup(THREE, wall, 'stone', null, stance);
+    const s = size(g);
+    assert.ok(Math.abs(s.x - 4) < 1e-6, `${stance}: width holds`);
+    assert.ok(Math.abs(s.y - 0.3) < 1e-6, `${stance}: height is the old depth`);
+    assert.ok(Math.abs(s.z - 3) < 1e-6, `${stance}: depth is the old height`);
+    const box = new THREE.Box3().setFromObject(g);
+    assert.ok(Math.abs(box.min.y) < 1e-6, `${stance}: the laid piece sits on y=0, matching the footprint law`);
+    const fp = pieceFootprint(wall, { pieceId: 'wall', x: 0, y: 0, z: 0, rotY: 0, orientation: stance });
+    assert.ok(Math.abs(fp.topY - s.y) < 1e-6, `${stance}: render height equals footprint topY`);
+  }
+  const ghostFlat = size(buildGhostGroup(THREE, wall, 'flat'));
+  assert.ok(Math.abs(ghostFlat.y - 0.3) < 1e-6, 'the ghost previews the flipped stance too');
+});
+
+test('footing: slab foundations carry a skirt below grade; posts and rounds do not', () => {
+  assert.ok(FOOTING_M > 0 && FOOTING_M < 1, 'the footing depth is a named, sub-metre constant');
+  for (const id of ['foundation-block', 'foundation-slab-wide', 'foundation-pier', 'foundation-raft']) {
+    const piece = pieceById(id);
+    assert.equal(pieceHasFooting(piece, pieceMeshSpec(piece)), true, `${id} is grounded`);
+    const g = buildPieceGroup(THREE, piece, 'stone', null);
+    const box = new THREE.Box3().setFromObject(g);
+    assert.ok(Math.abs(box.min.y - -FOOTING_M) < 0.03, `${id}: the skirt reaches FOOTING_M below the seat`);
+  }
+  for (const id of ['foundation-post-grid', 'foundation-round', 'foundation-boulder', 'wall']) {
+    const piece = pieceById(id);
+    assert.equal(pieceHasFooting(piece, pieceMeshSpec(piece)), false, `${id} carries no skirt`);
   }
 });

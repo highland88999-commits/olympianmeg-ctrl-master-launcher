@@ -36,6 +36,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { EARTH2_MODELS, EARTH2_MODEL_BY_SLUG, earth2PlacedModels, earth2PendingModels, earth2ModelUrl, fetchEarth2ModelUrls } from '@/lib/earth2/models';
 import { supabase } from '@/lib/supabase';
+import { useBackpack, updateBackpack } from '@/lib/backpack/store';
+import { sacCount, collectSacInRecord } from '@/lib/backpack/earth2-bridge';
 import { resolveBones, normalizeJointName, resolveMosquitoRig, resolveBatWings, resolveSwimRig, resolveFlyerWings } from '@/lib/earth2/bones';
 import {
   COMPY_SWARM,
@@ -129,7 +131,10 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
   const labelsRef = useRef(null);
   const windRef = useRef(0.5);
   const [wind, setWind] = useState(25);
-  const [localSacs, setLocalSacs] = useState(0);
+  // Blood sacs live in the backpack now (Merlin, 2026-10-23): the
+  // standalone fallback reads/writes the pack, like the world.
+  const backpackRecord = useBackpack();
+  const localSacs = sacCount(backpackRecord);
   const [bayNotice, setBayNotice] = useState('');
   const [status, setStatus] = useState(() => {
     const init = {};
@@ -144,7 +149,7 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
   const collectSacRef = useRef(() => {});
   collectSacRef.current = () => {
     if (typeof onBloodSac === 'function') onBloodSac();
-    else setLocalSacs((n) => n + 1);
+    else updateBackpack((rec) => collectSacInRecord(rec));
   };
   const openExchangeRef = useRef(() => {});
   openExchangeRef.current = () => {

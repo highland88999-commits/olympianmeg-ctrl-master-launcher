@@ -9,7 +9,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { pieceById, pieceFootprint } from '../lib/building/catalog.js';
+import {
+  pieceById, pieceFootprint, ORIENTATIONS, normalizeOrientation,
+  orientedSize, normalizePlacement, validatePlacement,
+} from '../lib/building/catalog.js';
 import {
   GRID_SNAP_M,
   ROTATION_SNAP_DEG,
@@ -23,6 +26,10 @@ import {
   clampPlacementToFrame,
   stackingSeat,
   deriveBuildCandidate,
+  SEAM_SNAP_M,
+  snapSeams,
+  proposePlacement,
+  judgeGhost,
   spanEnds,
   supportInfo,
   checkBounds,
@@ -407,5 +414,117 @@ describe('stacking seat + the tap-to-aim derivation (deriveBuildCandidate)', () 
     );
     assert.equal(d.verdict.ok, false);
     assert.ok(d.verdict.reasons.some((r) => /holds it up/.test(r)), d.verdict.reasons.join(' | '));
+  });
+});
+
+describe('orientation — upright / flat / flat-flip (2026-10-23)', () => {
+  const wall = pieceById('wall'); // 4 × 3 × 0.3
+
+  it('the stance list is exactly the three documented stances', () => {
+    assert.deepEqual(ORIENTATIONS, ['upright', 'flat', 'flat-flip']);
+    assert.equal(normalizeOrientation('flat'), 'flat');
+    assert.equal(normalizeOrientation('junk'), 'upright', 'garbage reads as the default');
+    assert.equal(normalizeOrientation(undefined), 'upright', 'absent is upright — old records unchanged');
+  });
+
+  it('a flat stance swaps height and depth; width never moves', () => {
+    assert.deepEqual(orientedSize(wall, 'upright'), { w: 4, h: 3, d: 0.3 });
+    assert.deepEqual(orientedSize(wall, 'flat'), { w: 4, h: 0.3, d: 3 });
+    assert.deepEqual(orientedSize(wall, 'flat-flip'), { w: 4, h: 0.3, d: 3 });
+  });
+
+  it('the footprint math uses the flipped dims', () => {
+    const flat = pieceFootprint(wall, at('wall', 14, 0, 14, 0));
+    assert.equal(flat.topY, 3);
+    const laid = pieceFootprint(wall, { ...at('wall', 14, 0, 14, 0), orientation: 'flat' });
+    assert.equal(laid.topY, 0.3, 'a laid wall is 0.3 high');
+    assert.equal(laid.maxX - laid.minX, 4);
+    assert.equal(laid.maxZ - laid.minZ, 3, 'and 3 deep in plan');
+  });
+
+  it('records carry the stance only when it is not the default', () => {
+    const base = at('wall', 1, 0, 1, 0);
+    assert.equal(normalizePlacement({ ...base, orientation: 'flat' }).orientation, 'flat');
+    assert.equal(normalizePlacement({ ...base, orientation: 'flat-flip' }).orientation, 'flat-flip');
+    assert.equal('orientation' in normalizePlacement({ ...base, orientation: 'upright' }), false);
+    assert.equal('orientation' in normalizePlacement(base), false);
+  });
+
+  it('an impossible stance is a validation error; a flat one is not', () => {
+    const base = at('wall', 1, 0, 1, 0);
+    assert.deepEqual(validatePlacement({ ...base, orientation: 'flat' }), []);
+    const errs = validatePlacement({ ...base, orientation: 'sideways' });
+    assert.equal(errs.length, 1);
+    assert.match(errs[0], /impossible orientation/);
+  });
+});
+
+describe('seam snapping — pieces connect flush (2026-10-23)', () => {
+  const standing = [at('wall', 10, 0, 14)]; // plan x 8..12, z 13.85..14.15
+
+  it('an edge within the seam distance slides exactly flush', () => {
+    const { placement, seamed } = snapSeams(standing, at('wall', 14.3, 0, 14));
+    assert.equal(seamed, true);
+    assert.equal(placement.x, 14, 'minX 12 meets the standing maxX 12');
+  });
+
+  it('an edge beyond the seam distance is left alone', () => {
+    const { placement, seamed } = snapSeams(standing, at('wall', 14.6, 0, 14));
+    assert.equal(seamed, false);
+    assert.equal(placement.x, 14.6);
+    assert.ok(SEAM_SNAP_M > 0 && SEAM_SNAP_M < 0.5, 'the seam reach is a named, sub-grid constant');
+  });
+
+  it('no seam without a run alongside on the perpendicular axis', () => {
+    const { seamed } = snapSeams(standing, at('wall', 14.3, 0, 19));
+    assert.equal(seamed, false);
+  });
+
+  it('a near-aligned rotation snaps to the neighbour\'s facing', () => {
+    const { placement, seamed } = snapSeams(standing, at('wall', 14.3, 0, 14, 10));
+    assert.equal(seamed, true);
+    assert.equal(placement.rotY, 0);
+  });
+
+  it('the build pipeline reports a seam it made', () => {
+    const d = deriveBuildCandidate(standing, at('wall', 14, 0, 14, 10), { frame: DEFAULT_FRAME });
+    assert.equal(d.seamed, true);
+    assert.equal(d.placement.rotY, 0);
+    assert.equal(d.verdict.ok, true);
+  });
+});
+
+describe('intelligent placement — the proposer (2026-10-23)', () => {
+  it('a floating wall is offered laid flat where it was aimed', () => {
+    const aim = at('wall', 14, 2, 14);
+    assert.equal(judgeGhost([], aim, { frame: DEFAULT_FRAME }).ok, false, 'the aim itself is unlawful');
+    const prop = proposePlacement([], aim, { frame: DEFAULT_FRAME });
+    assert.ok(prop, 'a proposal exists');
+    assert.equal(prop.change, 'Laid flat');
+    assert.equal(prop.placement.orientation, 'flat');
+    assert.equal(prop.placement.y, 0);
+    assert.equal(prop.verdict.ok, true, 'the judge passes the proposal at full strength');
+  });
+
+  it('a wall aimed onto a non-supporting fitting is offered slid clear', () => {
+    const door = at('door-panel', 14, 0, 14);
+    const prop = proposePlacement([door], at('wall', 14, 0, 14), { frame: DEFAULT_FRAME });
+    assert.ok(prop);
+    assert.match(prop.change, /^Slid /);
+    assert.equal(prop.verdict.ok, true);
+  });
+
+  it('a wall that only fits turned is offered turned', () => {
+    const door = { ...at('door-panel', 15.2, 0, 14), rotY: 90 };
+    const prop = proposePlacement([door], at('wall', 14, 0, 14), { frame: DEFAULT_FRAME });
+    assert.ok(prop);
+    assert.equal(prop.change, 'Turned 90°');
+    assert.equal(prop.placement.rotY, 90);
+    assert.equal(prop.verdict.ok, true);
+  });
+
+  it('nothing lawful nearby — or no such piece — proposes nothing', () => {
+    assert.equal(proposePlacement([], { pieceId: 'no-such-piece', x: 14, y: 0, z: 14, rotY: 0 }, { frame: DEFAULT_FRAME }), null);
+    assert.equal(proposePlacement([], null, { frame: DEFAULT_FRAME }), null);
   });
 });

@@ -103,6 +103,8 @@
   "sat.ares.subtitle": "การตรวจจับและป้องกันภัยคุกคาม",
   "sat.forge.title": "ตัวแก้ไขโค้ด",
   "sat.forge.subtitle": "ตัวแก้ไขโค้ดบนเบราว์เซอร์",
+  "sat.weapons-forge.title": "โรงหลอมอาวุธ",
+  "sat.weapons-forge.subtitle": "Forge weapons into your backpack — every weapon leaves with its reticle set",
   "sat.prime.title": "เครื่องนำทางดาว",
   "sat.prime.subtitle": "เครื่องนำทางแผนที่ดาว",
   "sat.hephaestus.title": "ตัวสร้างจักรวาล",
