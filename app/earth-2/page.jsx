@@ -698,7 +698,7 @@ export default function Earth2Page() {
     else if (!parcel.ownable) base = 'bg-emerald-300/[0.14]'; // Free Commons
     else if (parcel.tier === 'landmark') base = 'bg-white/30';
     else if (parcel.tier === 'prime') base = 'bg-emerald-200/25';
-    if (row && row.owner_email === myEmail) base = 'bg-amber-300';
+    if (row && row.owner_email === myEmail) base = 'bg-sky-400'; // mine reads BLUE (Merlin, 2026-10-23)
     else if (row && row.owner_email === OWNER_EMAIL) base = 'bg-violet-400';
     else if (row) base = 'bg-cyan-300';
     const ring =
@@ -889,7 +889,7 @@ export default function Earth2Page() {
               ))}
             </div>
             <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1.5 text-[11px] text-zinc-400">
-              <span><span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-[2px] bg-amber-300" />Mine</span>
+              <span><span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-[2px] bg-sky-400" />Mine</span>
               <span><span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-[2px] bg-violet-400" />The house</span>
               <span><span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-[2px] bg-cyan-300" />Other owners</span>
               <span><span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-[2px] bg-white/30" />Landmark land</span>

@@ -111,8 +111,10 @@ import {
   parcelBorderPoints,
   worldToLatLon,
   biomeForParcel,
+  familyForParcel,
   resolveSpawnParcel,
   spawnPointFor,
+  worldCreatures,
   worldMosquitoCenters,
   compySwarmCenter,
   draculaCourt,
@@ -121,6 +123,35 @@ import {
   stepWorldWalker,
   applyWorldLook,
 } from '@/lib/earth2/world';
+import {
+  solarPosition,
+  sunVector,
+  moonPosition,
+  altAzToVector,
+  auroraIntensity,
+  skyPalette,
+  constellationStars,
+  CONSTELLATIONS,
+  fieldStars,
+  starVector,
+  solarClockLabel,
+} from '@/lib/earth2/sky';
+import { fetchCurrentWeather, weatherToWorld, shouldRefetchWeather } from '@/lib/earth2/conditions';
+import {
+  behaviourCaps,
+  createBehaviour,
+  stepBehaviour,
+  setBehaviourMode,
+  behaviourPose,
+  stepToward,
+  fleePoint,
+  intentSpeed,
+  pickPreyTarget,
+  rollChase,
+  HUNT,
+  seedFor,
+} from '@/lib/earth2/behaviour';
+import { createLifecycle, chooseRespawnAnchor, carcassSink } from '@/lib/earth2/lifecycle';
 import {
   STREAM_RADII,
   worldStreamUnits,
@@ -196,7 +227,10 @@ const CLIMATE_LABEL = {
 export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOpenExchange, onFossilExchange, greetSignal, onParcelChange, onExit, buildUser, ownersByParcel, claims, builds, onBuildChange, buildRequest } = {}) {
   const mountRef = useRef(null);
   const labelsRef = useRef(null);
-  const [hud, setHud] = useState(null); // { parcel, biome, lat, lon }
+  const [hud, setHud] = useState(null); // { parcel, biome, lat, lon, mine, home }
+  // The living sky's readout for the HUD card (solar clock +
+  // mirrored weather), refreshed by the scene's environment tick.
+  const [envHud, setEnvHud] = useState(null);
   const [notice, setNotice] = useState('');
   const [travel, setTravel] = useState(false);
   const [localSacs, setLocalSacs] = useState(0);
@@ -604,29 +638,198 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       renderer.domElement.style.touchAction = 'none';
 
       const scene = new THREE.Scene();
-      { // sky: soft vertical gradient (the Bay's sky)
-        const c = document.createElement('canvas'); c.width = 4; c.height = 512;
-        const g = c.getContext('2d');
+      // ── The living sky (Living Planet Wave A) ──────────────
+      // The dome is repainted from lib/earth2/sky.js's palette
+      // as the REAL sun moves over the parcel underfoot: day
+      // blues, sunset fire, a true night. The sun and moon are
+      // real lights on real bearings; the stars are Earth's
+      // constellations plotted from their real positions; the
+      // aurora burns over high latitudes after dark; clouds,
+      // precipitation and fog mirror the parcel's real Open-Meteo
+      // weather (lib/earth2/conditions.js). updateEnvironment()
+      // (below, beside the walker) drives all of it — failure
+      // anywhere leaves a clear local-time sky, never a broken
+      // world.
+      const skyCanvas = document.createElement('canvas');
+      skyCanvas.width = 4; skyCanvas.height = 512;
+      const skyTex = new THREE.CanvasTexture(skyCanvas);
+      skyTex.colorSpace = THREE.SRGBColorSpace;
+      scene.background = skyTex;
+      const rgbCss = (c) => `rgb(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)})`;
+      function paintSky(pal) {
+        const g = skyCanvas.getContext('2d');
         const grad = g.createLinearGradient(0, 0, 0, 512);
-        grad.addColorStop(0, '#7db4e6'); grad.addColorStop(0.55, '#bcd9ef'); grad.addColorStop(1, '#e8f0e4');
-        g.fillStyle = grad; g.fillRect(0, 0, 4, 512);
-        const tex = new THREE.CanvasTexture(c);
-        tex.colorSpace = THREE.SRGBColorSpace;
-        scene.background = tex;
+        grad.addColorStop(0, rgbCss(pal.top));
+        grad.addColorStop(0.55, rgbCss([
+          (pal.top[0] + pal.horizon[0]) / 2, (pal.top[1] + pal.horizon[1]) / 2, (pal.top[2] + pal.horizon[2]) / 2,
+        ]));
+        grad.addColorStop(1, rgbCss(pal.horizon));
+        g.fillStyle = grad;
+        g.fillRect(0, 0, 4, 512);
+        skyTex.needsUpdate = true;
       }
       scene.fog = new THREE.Fog(0xcfe0ea, 130, 980);
 
       const camera = new THREE.PerspectiveCamera(66, 16 / 10, 0.1, 2400);
       camera.rotation.order = 'YXZ';
 
-      scene.add(new THREE.HemisphereLight(0xd8ecff, 0x40543a, 1.05));
+      const hemi = new THREE.HemisphereLight(0xd8ecff, 0x40543a, 1.05);
+      scene.add(hemi);
       const sun = new THREE.DirectionalLight(0xfff1d6, 2.2);
       sun.position.set(60, 90, 40);
       scene.add(sun);
+      scene.add(sun.target);
+      const moonLight = new THREE.DirectionalLight(0x9db8e8, 0);
+      scene.add(moonLight);
+      scene.add(moonLight.target);
+
+      // The environment's shared state: the scene's frame loop
+      // and the environment tick both read it. wx is the mapped
+      // weather (clear-sky defaults until a fetch lands).
+      const env = {
+        wx: weatherToWorld(null), wxRaw: null, wxLast: null, fetchBusy: false,
+        night: 0, aurora: 0, phase: 'day', skyBucket: '', clock: '',
+      };
+
+      // Stars: pattern points + constellation lines + the faint
+      // field, all additive with per-star colours — a star below
+      // the horizon is coloured black, which additive blending
+      // makes invisible wherever it sits. Positions are written
+      // by the environment tick (real RA/Dec → local bearings).
+      const PATTERN_STARS = constellationStars();
+      const FIELD_STARS = fieldStars();
+      const starBrightness = (mag) => Math.max(0.18, Math.min(1, 1.30 - (mag - 0.1) * 0.20));
+      function makeStarPoints(stars, size) {
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(stars.length * 3), 3));
+        geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(stars.length * 3), 3));
+        const pts = new THREE.Points(geo, new THREE.PointsMaterial({
+          size, sizeAttenuation: false, vertexColors: true, transparent: true,
+          blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+        }));
+        pts.frustumCulled = false;
+        scene.add(pts);
+        return pts;
+      }
+      const patternPoints = makeStarPoints(PATTERN_STARS, 3.2);
+      const fieldPoints = makeStarPoints(FIELD_STARS, 1.6);
+      const linePairs = [];
+      for (const c of CONSTELLATIONS) {
+        const base = PATTERN_STARS.findIndex((s) => s.constellation === c.name);
+        for (const [a, b] of c.lines) linePairs.push([base + a, base + b]);
+      }
+      const lineGeo = new THREE.BufferGeometry();
+      lineGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(linePairs.length * 6), 3));
+      lineGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(linePairs.length * 6), 3));
+      const constellationLines = new THREE.LineSegments(lineGeo, new THREE.LineBasicMaterial({
+        vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+      }));
+      constellationLines.frustumCulled = false;
+      scene.add(constellationLines);
+
+      // The moon: a pale disc + a soft halo, flown to its real
+      // bearing by the environment tick.
+      const moonDisc = new THREE.Mesh(
+        new THREE.CircleGeometry(56, 32),
+        new THREE.MeshBasicMaterial({ color: 0xe9eff8, transparent: true, opacity: 0, depthWrite: false, fog: false }),
+      );
+      moonDisc.frustumCulled = false;
+      scene.add(moonDisc);
+      const moonGlow = (() => {
+        const c = document.createElement('canvas'); c.width = 128; c.height = 128;
+        const g = c.getContext('2d');
+        const grad = g.createRadialGradient(64, 64, 4, 64, 64, 64);
+        grad.addColorStop(0, 'rgba(190,210,245,0.55)'); grad.addColorStop(1, 'rgba(190,210,245,0)');
+        g.fillStyle = grad; g.fillRect(0, 0, 128, 128);
+        const tex = new THREE.CanvasTexture(c);
+        const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0, depthWrite: false, fog: false }));
+        spr.scale.setScalar(420);
+        scene.add(spr);
+        return spr;
+      })();
+
+      // Aurora curtains: three vertex-waved ribbons with a
+      // green-to-violet gradient, flown poleward by the tick.
+      const auroraGroup = new THREE.Group();
+      const auroraRibbons = [];
+      {
+        const c = document.createElement('canvas'); c.width = 8; c.height = 256;
+        const g = c.getContext('2d');
+        const grad = g.createLinearGradient(0, 0, 0, 256);
+        grad.addColorStop(0, 'rgba(150,120,255,0)');
+        grad.addColorStop(0.30, 'rgba(150,120,255,0.20)');
+        grad.addColorStop(0.62, 'rgba(90,240,200,0.30)');
+        grad.addColorStop(0.85, 'rgba(110,255,180,0.60)');
+        grad.addColorStop(1, 'rgba(110,255,180,0)');
+        g.fillStyle = grad; g.fillRect(0, 0, 8, 256);
+        const tex = new THREE.CanvasTexture(c);
+        for (let i = 0; i < 3; i++) {
+          const geo = new THREE.PlaneGeometry(1700, 150 + i * 36, 96, 1);
+          const mat = new THREE.MeshBasicMaterial({
+            map: tex, transparent: true, opacity: 0, blending: THREE.AdditiveBlending,
+            depthWrite: false, side: THREE.DoubleSide, fog: false,
+          });
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.position.set(0, i * 26, -i * 110);
+          mesh.frustumCulled = false;
+          auroraGroup.add(mesh);
+          auroraRibbons.push({ mesh, base: geo.attributes.position.array.slice() });
+        }
+      }
+      auroraGroup.visible = false;
+      scene.add(auroraGroup);
+
+      // Clouds: soft sprites on a slow drift, one shared
+      // material — the weather sets its opacity and its tint.
+      const cloudSprites = [];
+      {
+        const c = document.createElement('canvas'); c.width = 128; c.height = 128;
+        const g = c.getContext('2d');
+        const grad = g.createRadialGradient(64, 64, 4, 64, 64, 62);
+        grad.addColorStop(0, 'rgba(255,255,255,0.85)');
+        grad.addColorStop(0.6, 'rgba(255,255,255,0.38)');
+        grad.addColorStop(1, 'rgba(255,255,255,0)');
+        g.fillStyle = grad; g.fillRect(0, 0, 128, 128);
+        const tex = new THREE.CanvasTexture(c);
+        const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0, depthWrite: false });
+        const crng = mulberry32(4242);
+        for (let i = 0; i < 34; i++) {
+          const spr = new THREE.Sprite(mat);
+          const a = crng() * Math.PI * 2;
+          const r = crng() * 780;
+          spr.position.set(Math.cos(a) * r, 150 + crng() * 55, Math.sin(a) * r);
+          spr.scale.set(190 + crng() * 240, 52 + crng() * 42, 1);
+          scene.add(spr);
+          cloudSprites.push(spr);
+        }
+        env.cloudMaterial = mat;
+      }
+
+      // Precipitation: one points cloud in a box around the
+      // walker, recycled as it falls — rain fast and sparse-
+      // bright, snow slow and fat, set by the weather mapping.
+      const PRECIP_COUNT = 650;
+      const precipGeo = new THREE.BufferGeometry();
+      const precipPos = new Float32Array(PRECIP_COUNT * 3);
+      precipGeo.setAttribute('position', new THREE.BufferAttribute(precipPos, 3));
+      const precipMat = new THREE.PointsMaterial({
+        color: 0xcfe4ff, size: 1.7, transparent: true, opacity: 0, depthWrite: false, sizeAttenuation: true,
+      });
+      const precip = new THREE.Points(precipGeo, precipMat);
+      precip.frustumCulled = false;
+      precip.visible = false;
+      scene.add(precip);
 
       const rng = mulberry32(20261022);
       const animals = [];   // land creatures + flyers (life-driven)
       const swimmers = [];  // the sea's cast
+      // Death & respawn (lib/earth2/lifecycle.js): every kill —
+      // a predator's prey, a shot mosquito — registers here, and
+      // the tick stands the dead back up at a far anchor when
+      // their time comes, so the world never empties. Carcasses
+      // are the dead animals' own records (state 'carcass'),
+      // sinking on the lifecycle's clock where they fell.
+      const lifecycle = createLifecycle({ seed: 20261023 });
       const sway = [];      // plant instances { obj, phase, amp, x, z }
       const labels = [];    // { el, obj, h, maxDist }
       const disposables = [];
@@ -1022,6 +1225,9 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             root.rotation.y = rec.heading;
             scene.add(root);
             added.push(root);
+            const behCaps = behaviourCaps(entry);
+            const animalId = `${entry.slug}#${rec.copy != null ? rec.copy : i}`;
+            lifecycle.register(animalId, entry.slug);
             animals.push({
               entry, root, roles: resolved, bind: bindQuats(resolved),
               phase: rng() * Math.PI * 2,
@@ -1029,6 +1235,29 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
               tempo: 1,
               walker: rec.walk ? { ...rec.walk, theta: rec.walk.a0 } : null,
               flyer: false, dist: 0, owner,
+              // The behaviour machine (lib/earth2/behaviour.js):
+              // this creature is always DOING something — grazing,
+              // digging, drinking, sleeping, hunting — with a
+              // seeded life of its own. `creature: true` is the
+              // mark pickPreyTarget hunts by; the walker carries
+              // no such mark and can never be prey.
+              id: animalId,
+              creature: true,
+              caps: behCaps,
+              beh: createBehaviour(seedFor(entry.slug, rec.copy != null ? rec.copy : i), entry),
+              home: { x: rec.x, z: rec.z },
+              behDist: 0,
+              alive: true,
+              state: 'alive',
+              carcass: null,
+              deathPos: null,
+              huntTarget: null,
+              chase: null,
+              chaseT: 0,
+              fleeFrom: null,
+              fleePoint: null,
+              fleeT: 0,
+              drinkPoint: undefined,
             });
             if (i === 0) makeLabel(entry.name, root, entry.scaleM * 0.72 + 1.2, 140, owner);
           }
@@ -1061,6 +1290,9 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             walker: null, flyer: true, dist: 0, owner,
             fly: { ...rec, a: rng() * 6.28 },
             glideOff: rng(),
+            // Flyers roost at night (0 = on the wing, 1 = settled
+            // at the circuit's centre) — driven by env.night.
+            roostF: 0,
           });
           makeLabel(entry.name, root, entry.scaleM * 0.5 + 1.5, 260, owner);
           setStatusFor(entry.slug, 'placed');
@@ -1270,7 +1502,12 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           group.add(proxy);
           scene.add(group);
           const home = centers.length ? centers[i % centers.length] : { cx: 0, cz: 0 };
+          // Mosquito deaths route through the lifecycle like
+          // every other kill (see landMosquito) — the delay is
+          // the blood loop's own respawnSeconds.
+          lifecycle.register(`mosquito#${i}`, entry.slug);
           const mq = {
+            id: `mosquito#${i}`,
             group, proxy, parts,
             phase: 'cruising',
             a: rng() * Math.PI * 2,
@@ -1742,6 +1979,17 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         noticeRef.current('🩸 Blood sac collected — Dracula trades sacs for gifts.');
       }
 
+      function resetMosquitoAt(mq, center) {
+        // The lifecycle's respawn (Wave A): a dead mosquito
+        // returns at a DIFFERENT cruise centre — the anchor
+        // chooser picks a far one, so a kill visibly empties
+        // this corner of the sky for a while.
+        if (center && Number.isFinite(center.x) && Number.isFinite(center.z)) {
+          mq.cx = center.x + (rng() - 0.5) * 24;
+          mq.cz = center.z + (rng() - 0.5) * 24;
+        }
+        resetMosquito(mq);
+      }
       function resetMosquito(mq) {
         mq.phase = 'cruising';
         mq.fedLevel = 0;
@@ -1760,13 +2008,19 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         applyAbdomen(mq);
       }
 
-      function landMosquito(mq) {
+      function landMosquito(mq, t) {
         mq.group.position.y = heightAt(mq.group.position.x, mq.group.position.z) + 0.25;
         if (mq.willDropSac) spawnSac(mq.group.position);
         spawnBurst(mq.group.position, mq.willDropSac ? 0xd42a2a : 0x9a958c);
         mq.group.visible = false;
         mq.phase = 'gone';
         mq.goneT = 0;
+        // The kill routes through the lifecycle (Wave A): the
+        // tick respawns this mosquito at a far cruise centre
+        // after the blood loop's own respawn delay — the sac
+        // stays its only drop (fossils.js excludes the species,
+        // so the carcass record's fossil roll is null).
+        lifecycle.kill(mq.id, t, mq.group.position, MOSQUITO_CONFIG.respawnSeconds);
       }
 
       function shootMosquito(mq) {
@@ -1846,12 +2100,13 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             pos.y += mq.vy * dt;
             mq.group.rotation.z += dt * 7;
             mq.group.rotation.x += dt * 3;
-            if (pos.y <= heightAt(pos.x, pos.z) + 0.25) landMosquito(mq);
+            if (pos.y <= heightAt(pos.x, pos.z) + 0.25) landMosquito(mq, t);
             break;
           }
           case 'gone': {
-            mq.goneT += dt;
-            if (mq.goneT >= MOSQUITO_CONFIG.respawnSeconds) resetMosquito(mq);
+            // No local timer any more: the lifecycle's due
+            // respawns (processed in the tick) stand this
+            // mosquito back up at a far centre.
             break;
           }
           default:
@@ -2003,9 +2258,11 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         swingLegs(a, (a.dist / Math.max(0.2, a.entry.scaleM * 0.16)) * Math.PI);
       }
 
-      function updateSwimmer(s, t, dt) {
+      function updateSwimmer(s, t, dt, speedMul = 1) {
         const P = s.profile;
-        s.theta += dt * P.speed * P.dir;
+        // Night slows the cruise — the sea slow-drifts (×0.45
+        // from the frame loop) while the world sleeps.
+        s.theta += dt * P.speed * P.dir * speedMul;
         const th = s.theta;
         const x = P.cx + Math.cos(th) * P.rx;
         const z = P.cz + Math.sin(th) * P.rz;
@@ -2041,18 +2298,287 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         }
       }
 
+      // ── Behaviour helpers (Wave A) ──────────────────────────
+      // The nearest shoreline stand-point for a drinker: a ring
+      // scan for ground at the water's edge within ~200 m of
+      // home. Cached per creature (undefined until first scan,
+      // null when this corner of the world has no shore).
+      function shorelinePointFor(a) {
+        const hx = a.home.x, hz = a.home.z;
+        for (let r = 10; r <= 200; r += 8) {
+          for (let k = 0; k < 16; k++) {
+            const ang = (k / 16) * Math.PI * 2 + r * 0.13;
+            const x = hx + Math.cos(ang) * r;
+            const z = hz + Math.sin(ang) * r;
+            const h = heightAt(x, z);
+            if (h > -0.5 && h < 0.14 && waterDepthAt(x + Math.cos(ang) * 3, z + Math.sin(ang) * 3) > 0.12) {
+              return { x, z };
+            }
+          }
+        }
+        return null;
+      }
+
+      // A predator's kill, routed through the lifecycle: the
+      // prey's own record becomes the carcass (its fossil roll
+      // rides the lifecycle record — the future hunt build reads
+      // it from exactly here), and the predator settles to eat.
+      function killPrey(prey, predator, t) {
+        const carcass = lifecycle.kill(prey.id, t, prey.root.position);
+        prey.alive = false;
+        prey.state = 'carcass';
+        prey.carcass = carcass;
+        prey.deathPos = { x: prey.root.position.x, z: prey.root.position.z };
+        prey.huntTarget = null;
+        prey.fleeFrom = null;
+        if (prey.beh) setBehaviourMode(prey.beh, 'idle', Infinity);
+        predator.chase = null;
+        predator.huntTarget = null;
+        if (predator.beh) {
+          predator.beh.hunger = 0.08;
+          setBehaviourMode(predator.beh, 'eat', 16 + rng() * 14);
+        }
+      }
+
+      // Due respawns: stand the dead back up at a far anchor —
+      // the other side of the map from the death, away from the
+      // walker, in the same biome family. A creature whose
+      // stream unit is gone is simply released: the unit
+      // re-places a living copy when it next streams in.
+      function processRespawns(t) {
+        for (const due of lifecycle.dueRespawns(t)) {
+          if (due.id.startsWith('mosquito#')) {
+            const mq = mosquitos.find((m) => m.id === due.id);
+            if (mq) {
+              const anchors = worldMosquitoCenters().map((c) => ({ x: c.cx, z: c.cz }));
+              const anchor = chooseRespawnAnchor(anchors, {
+                deathPos: mq.group.position, playerPos: walker, rng,
+                minDeathDist: 120, minPlayerDist: 90,
+              });
+              resetMosquitoAt(mq, anchor);
+            }
+            lifecycle.completeRespawn(due.id);
+            continue;
+          }
+          const rec = animals.find((o) => o.id === due.id);
+          if (rec && rec.state === 'carcass') {
+            const fam = rec.deathPos
+              ? familyForParcel(parcelAtWorld(rec.deathPos.x, rec.deathPos.z))
+              : null;
+            const anchors = [];
+            for (const c of worldCreatures()) {
+              if (c.slug !== rec.entry.slug) continue;
+              anchors.push({ x: c.x, z: c.z, family: familyForParcel(parcelAtWorld(c.x, c.z)) });
+              if (c.walk) anchors.push({ x: c.walk.cx, z: c.walk.cz, family: familyForParcel(parcelAtWorld(c.walk.cx, c.walk.cz)) });
+            }
+            const anchor = chooseRespawnAnchor(anchors, {
+              deathPos: rec.deathPos || rec.home, playerPos: walker, family: fam, rng,
+            }) || rec.home;
+            rec.root.position.set(anchor.x, heightAt(anchor.x, anchor.z), anchor.z);
+            rec.root.rotation.set(0, rng() * Math.PI * 2, 0);
+            rec.root.visible = true;
+            rec.state = 'alive';
+            rec.alive = true;
+            rec.carcass = null;
+            rec.dist = 0;
+            if (rec.walker) {
+              rec.walker.cx = anchor.x;
+              rec.walker.cz = anchor.z;
+            }
+            rec.home = { x: anchor.x, z: anchor.z };
+            rec.drinkPoint = undefined;
+            rec.beh = createBehaviour(seedFor(rec.entry.slug, 0) + (rec.respawns = (rec.respawns || 0) + 1), rec.entry);
+          }
+          lifecycle.completeRespawn(due.id);
+        }
+      }
+
+      const OFF_CIRCUIT_MODES = new Set(['drink-go', 'drink', 'stalk', 'chase', 'flee']);
+      // Runs the creature's behaviour machine for one frame:
+      // steps the chooser, weaves hunts and drinks and flights,
+      // and MOVES the root for the locomoting modes. The bone
+      // posing in driveAnimal reads the resulting mode.
+      function driveBehaviour(a, t, dt) {
+        const beh = a.beh;
+        const caps = a.caps;
+        const wasMode = beh.mode;
+        if (caps.drinker && a.drinkPoint === undefined) a.drinkPoint = shorelinePointFor(a);
+        stepBehaviour(beh, caps, {
+          isNight: env.night > 0.45,
+          waterNear: a.drinkPoint != null,
+        }, dt);
+
+        // A circuit roamer that left its circuit (to drink, to
+        // hunt, to flee) re-anchors the circuit through the
+        // ground it stands on now — no teleport home, ever.
+        if (a.walker && OFF_CIRCUIT_MODES.has(wasMode) && !OFF_CIRCUIT_MODES.has(beh.mode)) {
+          const w = a.walker;
+          w.cx = a.root.position.x - Math.cos(w.theta) * w.r;
+          w.cz = a.root.position.z - Math.sin(w.theta) * w.r;
+          a.home = { x: a.root.position.x, z: a.root.position.z };
+        }
+
+        const pos = a.root.position;
+        const stepTo = (target, speed) => {
+          const next = stepToward({ x: pos.x, z: pos.z }, target, speed, dt);
+          pos.x = next.x;
+          pos.z = next.z;
+          return next.arrived;
+        };
+
+        switch (beh.mode) {
+          case 'wander':
+          case 'sated': {
+            const mul = beh.mode === 'sated' ? 0.55 : 1;
+            if (a.walker) {
+              const w = a.walker;
+              w.theta += (dt * w.speed * mul) / w.r;
+              pos.x = w.cx + Math.cos(w.theta) * w.r;
+              pos.z = w.cz + Math.sin(w.theta) * w.r;
+            } else {
+              // A stander strolls home if life took it away.
+              const dHome = Math.hypot(a.home.x - pos.x, a.home.z - pos.z);
+              if (dHome > 6) stepTo(a.home, intentSpeed(a.entry) * 0.6 * mul);
+            }
+            break;
+          }
+          case 'drink-go': {
+            if (!a.drinkPoint) { setBehaviourMode(beh, 'idle', 2); break; }
+            if (stepTo(a.drinkPoint, intentSpeed(a.entry))) {
+              setBehaviourMode(beh, 'drink', 7 + rng() * 6);
+            }
+            break;
+          }
+          case 'stalk': {
+            const prey = a.huntTarget;
+            if (!prey || prey.state === 'carcass' || !prey.alive) {
+              a.huntTarget = null;
+              setBehaviourMode(beh, 'winded', 4);
+              break;
+            }
+            const tp = prey.root.position;
+            const d = Math.hypot(tp.x - pos.x, tp.z - pos.z);
+            stepTo(tp, intentSpeed(a.entry) * HUNT.stalkSpeedFactor);
+            if (d < HUNT.chaseTriggerM) {
+              a.chase = rollChase(beh);
+              a.chaseT = 0;
+              setBehaviourMode(beh, 'chase', Infinity);
+              if (prey.beh) {
+                setBehaviourMode(prey.beh, 'flee', Infinity);
+                prey.fleeFrom = a;
+                prey.fleePoint = fleePoint(prey.root.position, pos, prey.home);
+                prey.fleeT = 0;
+              }
+            }
+            break;
+          }
+          case 'chase': {
+            const prey = a.huntTarget;
+            if (!prey || prey.state === 'carcass' || !prey.alive || !a.chase) {
+              a.chase = null;
+              a.huntTarget = null;
+              setBehaviourMode(beh, 'winded', 4);
+              break;
+            }
+            a.chaseT += dt;
+            const tp = prey.root.position;
+            stepTo(tp, intentSpeed(prey.entry) * HUNT.fleeSpeedFactor * a.chase.speedFactor);
+            const d = Math.hypot(tp.x - pos.x, tp.z - pos.z);
+            if (d < HUNT.killRangeM + prey.entry.scaleM * 0.22) {
+              killPrey(prey, a, t);
+            } else if (a.chaseT > a.chase.durationS) {
+              // The prey got away: it stands alert, heart
+              // hammering; the hunter is winded and will not
+              // hunt again until the cooldown runs out.
+              if (prey.beh) setBehaviourMode(prey.beh, 'alert', 4);
+              prey.fleeFrom = null;
+              a.chase = null;
+              a.huntTarget = null;
+              beh.huntCooldown = HUNT.postChaseCooldownS;
+              setBehaviourMode(beh, 'winded', 6);
+            }
+            break;
+          }
+          case 'flee': {
+            const pred = a.fleeFrom;
+            if (!pred || !pred.beh || pred.beh.mode !== 'chase') {
+              a.fleeFrom = null;
+              setBehaviourMode(beh, 'alert', 3);
+              break;
+            }
+            a.fleeT += dt;
+            if (a.fleeT > 1.1 || !a.fleePoint) {
+              a.fleeT = 0;
+              a.fleePoint = fleePoint(pos, pred.root.position, a.home);
+            }
+            stepTo(a.fleePoint, intentSpeed(a.entry) * HUNT.fleeSpeedFactor);
+            break;
+          }
+          default:
+            break;
+        }
+
+        // A hungry predator with its breath back picks a target:
+        // the nearest living prey CREATURE in stalk range.
+        // pickPreyTarget only ever sees creature records — the
+        // walker is not one, so the walker can never be hunted.
+        if (caps.predator
+          && beh.mode !== 'stalk' && beh.mode !== 'chase'
+          && beh.mode !== 'eat' && beh.mode !== 'sleep'
+          && beh.hunger >= HUNT.hungerThreshold && beh.huntCooldown <= 0) {
+          const views = [];
+          for (const o of animals) {
+            if (o === a || !o.creature) continue;
+            views.push({
+              id: o.id, creature: true, prey: !!(o.caps && o.caps.prey),
+              alive: o.alive, x: o.root.position.x, z: o.root.position.z,
+            });
+          }
+          const pick = pickPreyTarget({ id: a.id, x: pos.x, z: pos.z }, views, HUNT.stalkRangeM);
+          if (pick) {
+            const preyRec = animals.find((o) => o.id === pick.id);
+            if (preyRec) {
+              a.huntTarget = preyRec;
+              setBehaviourMode(beh, 'stalk', Infinity);
+            }
+          }
+        }
+      }
+
       function driveAnimal(a, t, dt) {
         const R = a.roles;
         const ph = a.phase;
         const tempo = a.tempo || 1;
-        const br = Math.sin(t * a.breathRate + ph) * 0.02;
-        R.spine.forEach((b, i) => bend(b, a.bind, AXIS_X, br * (0.6 + i * 0.3)));
-        const yaw = (Math.sin(t * 0.23 * tempo + ph) * 0.6 + Math.sin(t * 0.117 * tempo + ph * 1.7) * 0.4) * 0.16;
+
+        if (a.state === 'carcass') {
+          // The dead lie where they fell, then sink away on the
+          // lifecycle's clock while their respawn counts down.
+          const sink = carcassSink(a.carcass, t);
+          a.root.position.y = heightAt(a.root.position.x, a.root.position.z)
+            - sink * (a.entry.scaleM * 0.16 + 0.35);
+          a.root.rotation.z = sink * 0.4;
+          a.root.visible = sink < 1;
+          return;
+        }
+
+        // ── The behaviour machine decides; the bones pose it.
+        const prevX = a.root.position.x;
+        const prevZ = a.root.position.z;
+        const beh = a.beh || null;
+        const caps = a.caps || null;
+        if (beh && caps) driveBehaviour(a, t, dt);
+        const pose = beh ? behaviourPose(beh.mode, beh.mode === 'eat' ? t : beh.t) : null;
+
+        const br = Math.sin(t * a.breathRate * (pose ? pose.breathMul : 1) + ph) * 0.02 * (pose ? pose.breathAmp : 1);
+        R.spine.forEach((b, i) => bend(b, a.bind, AXIS_X, br * (0.6 + i * 0.3) + (pose ? pose.settle * 0.05 * (0.5 + i * 0.25) : 0)));
+        const scan = Math.sin(t * 0.23 * tempo + ph) * 0.6 + Math.sin(t * 0.117 * tempo + ph * 1.7) * 0.4;
+        const yaw = scan * (pose ? pose.yawAmp : 0.16);
         const pitch = Math.sin(t * 0.31 * tempo + ph) * 0.045;
         const neckShare = R.neck.length ? 0.45 / R.neck.length : 0;
         R.neck.forEach((b) => bend(b, a.bind, AXIS_Y, yaw * neckShare));
         let dip = 0;
-        if (a.entry.diet === 'herbivore') {
+        if (pose) dip = pose.dip;
+        else if (a.entry.diet === 'herbivore') {
           const cyc = (t * 0.045 * tempo + ph) % 1;
           if (cyc > 0.55 && cyc < 0.85) dip = Math.sin(((cyc - 0.55) / 0.3) * Math.PI) * 0.38;
         }
@@ -2060,6 +2586,15 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         if (R.head) {
           bend(R.head, a.bind, AXIS_Y, yaw * 0.55);
           bend(R.head, a.bind, AXIS_X, pitch + dip * 0.5);
+        }
+        // Digging: the front legs scrape the ground in turn.
+        if (pose && pose.scrape > 0) {
+          for (const l of R.legs) {
+            if (l.pair !== 'front') continue;
+            const sw = Math.sin(t * 6.4 + (l.side === 'left' ? 0 : Math.PI)) * 0.30 * pose.scrape;
+            bend(l.thigh, a.bind, AXIS_X, sw);
+            if (l.shin) bend(l.shin, a.bind, AXIS_X, Math.max(0, -sw) * 0.6);
+          }
         }
         R.tail.forEach((b, i) => {
           bend(b, a.bind, AXIS_Y, Math.sin(t * 1.05 * tempo - i * 0.55 + ph) * 0.055);
@@ -2073,20 +2608,31 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
 
         if (a.flyer && a.fly) {
           const f = a.fly;
-          f.a += dt * f.speed * f.dir;
-          const x = f.cx + Math.cos(f.a) * f.r;
-          const z = f.cz + Math.sin(f.a) * f.r;
+          // Night roost: as env.night rises the wing slows,
+          // sinks and settles at its circuit's centre instead of
+          // circling a dark sky; dawn lifts it again.
+          a.roostF = Math.max(0, Math.min(1, (a.roostF || 0) + (env.night > 0.45 ? dt / 5 : -dt / 3.5)));
+          const rf = a.roostF * a.roostF * (3 - 2 * a.roostF);
+          f.a += dt * f.speed * f.dir * (1 - rf);
+          let x = f.cx + Math.cos(f.a) * f.r;
+          let z = f.cz + Math.sin(f.a) * f.r;
           const nx = f.cx + Math.cos(f.a + 0.05 * f.dir) * f.r;
           const nz = f.cz + Math.sin(f.a + 0.05 * f.dir) * f.r;
           // Cruise height, but never through a ridge: the flyer
           // lifts over rising terrain as it comes.
           const floorY = heightAt(x, z) + a.entry.scaleM * 0.8 + 2.5;
-          const y = Math.max(f.h + Math.sin(t * 0.5 + ph) * f.bob, floorY);
+          let y = Math.max(f.h + Math.sin(t * 0.5 + ph) * f.bob, floorY);
+          if (rf > 0) {
+            const groundY = heightAt(f.cx, f.cz) + a.entry.scaleM * 0.12;
+            x += (f.cx - x) * rf;
+            z += (f.cz - z) * rf;
+            y += (groundY - y) * rf;
+          }
           a.root.position.set(x, y, z);
           a.root.rotation.y = Math.atan2(nx - x, nz - z);
-          a.root.rotation.z = 0.28 * f.dir;
+          a.root.rotation.z = 0.28 * f.dir * (1 - rf);
           const glide = surfacePhase(t / f.cycle + (a.glideOff || 0), f.glideDuty);
-          const flap = Math.sin(t * f.flapHz * Math.PI * 2 + ph) * f.flapAmp * (1 - glide) + glide * 0.05;
+          const flap = (Math.sin(t * f.flapHz * Math.PI * 2 + ph) * f.flapAmp * (1 - glide) + glide * 0.05) * (1 - rf);
           for (const w of R.wings) {
             const sgn = w.side === 'left' ? 1 : -1;
             w.chain.forEach((b, i) => bend(b, a.bind, AXIS_Z, flap * sgn * (i === 0 ? 1 : 0.45)));
@@ -2094,21 +2640,31 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           return;
         }
 
-        if (a.walker) {
+        // Land finish for every grounded creature: circuit
+        // roamers without the behaviour machine keep the legacy
+        // circuit (none today — the fallback stays honest), then
+        // everyone faces their motion, swings their legs by the
+        // distance actually travelled, and seats their feet on
+        // the terrain (the land-layer law) — minus the sleep
+        // settle, so a sleeping animal visibly sinks into rest.
+        if (a.walker && !beh) {
           const w = a.walker;
-          const prevX = a.root.position.x, prevZ = a.root.position.z;
           w.theta += (dt * w.speed) / w.r;
-          const x = w.cx + Math.cos(w.theta) * w.r;
-          const z = w.cz + Math.sin(w.theta) * w.r;
-          a.root.position.x = x; a.root.position.z = z;
-          const vx = x - prevX, vz = z - prevZ;
-          if (Math.abs(vx) + Math.abs(vz) > 1e-6) a.root.rotation.y = Math.atan2(vx, vz);
-          a.dist += Math.hypot(vx, vz);
+          a.root.position.x = w.cx + Math.cos(w.theta) * w.r;
+          a.root.position.z = w.cz + Math.sin(w.theta) * w.r;
+        }
+        {
+          const vx = a.root.position.x - prevX;
+          const vz = a.root.position.z - prevZ;
+          const moved = Math.hypot(vx, vz);
+          if (moved > 1e-6) a.root.rotation.y = Math.atan2(vx, vz);
+          a.dist += moved;
           const stride = (a.dist / Math.max(0.5, a.entry.scaleM * 0.16)) * Math.PI;
-          swingLegs(a, stride);
-          // Feet on the terrain, always (the land-layer law).
-          a.root.position.y = heightAt(x, z) + Math.abs(Math.sin(stride)) * 0.02 * Math.sqrt(a.entry.scaleM);
-          a.root.rotation.x = Math.sin(stride * 2) * 0.008;
+          if (moved > 1e-4) swingLegs(a, stride);
+          const settleDrop = pose ? pose.settle * a.entry.scaleM * 0.045 : 0;
+          a.root.position.y = heightAt(a.root.position.x, a.root.position.z) - settleDrop
+            + (moved > 1e-4 ? Math.abs(Math.sin(stride)) * 0.02 * Math.sqrt(a.entry.scaleM) : 0);
+          a.root.rotation.x = moved > 1e-4 ? Math.sin(stride * 2) * 0.008 : 0;
         }
       }
 
@@ -2132,15 +2688,163 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         if (!force && hudParcel && p.index === hudParcel.index) return;
         hudParcel = p;
         setHighlight(p);
+        // OWNED = BLUE (Merlin, 2026-10-23): the viewer's own
+        // parcels outline blue, not amber — in the world and in
+        // the chamber map alike. Home base keeps its identity
+        // through the HUD banner (🏠) on top of the blue.
+        const bp = buildPropsRef.current;
+        const row = bp.owners && bp.owners.get ? bp.owners.get(p.id) : null;
+        const mine = !!(row && bp.user && row.owner_email && bp.user.email
+          && String(row.owner_email).toLowerCase() === String(bp.user.email).toLowerCase());
+        const home = !!(spawnParcelId && p.id === spawnParcelId);
+        highlightMat.color.setHex(mine ? 0x59b7ff : 0xffd97a);
         const ll = worldToLatLon(walker.x, walker.z);
         if (!cancelled) {
-          setHud({ parcel: p, biome: biomeForParcel(p), lat: ll.lat, lon: ll.lon });
+          setHud({ parcel: p, biome: biomeForParcel(p), lat: ll.lat, lon: ll.lon, mine, home });
         }
         parcelChangeRef.current(p.id);
       }
       syncParcel(true);
       camera.position.set(walker.x, heightAt(walker.x, walker.z) + WALK_EYE_M, walker.z);
       camera.rotation.set(0, walker.yaw, 0);
+
+      // ── The environment tick: real time, real weather ──────
+      // Runs about once a second from the frame loop. Everything
+      // derives from the parcel underfoot: its real lat/lon gives
+      // the solar position for the REAL current time, and the
+      // mirrored Open-Meteo conditions for that spot.
+      const clamp01 = (v) => Math.max(0, Math.min(1, v));
+      function updateEnvironment(nowMs) {
+        const ll = worldToLatLon(walker.x, walker.z);
+        const y0 = heightAt(walker.x, walker.z) + WALK_EYE_M;
+        const sol = solarPosition(nowMs, ll.lat, ll.lon);
+        const pal = skyPalette(sol.elevationDeg);
+        env.night = pal.night;
+        env.phase = sol.phase;
+        env.clock = solarClockLabel(nowMs, ll.lat, ll.lon);
+        const cloud = env.wx.cloudCover;
+        const bucket = `${Math.round(sol.elevationDeg * 2)}|${Math.round(cloud * 8)}|${sol.phase}`;
+        if (bucket !== env.skyBucket) { env.skyBucket = bucket; paintSky(pal); }
+        scene.fog.color.setRGB(pal.fog[0], pal.fog[1], pal.fog[2]);
+        scene.fog.far = Math.min(980 - pal.night * 260, env.wx.fogFar);
+        scene.fog.near = scene.fog.far * 0.13;
+        hemi.intensity = pal.hemiIntensity * (1 - cloud * 0.30);
+        // The sun on its real bearing.
+        const sd = sunVector(nowMs, ll.lat, ll.lon);
+        sun.position.set(walker.x + sd.x * 200, y0 + sd.y * 200, walker.z + sd.z * 200);
+        sun.target.position.set(walker.x, y0, walker.z);
+        sun.intensity = pal.sunIntensity * (1 - cloud * 0.65);
+        sun.color.setRGB(pal.sunColor[0], pal.sunColor[1], pal.sunColor[2]);
+        // The moon: disc, halo and cool light on ITS bearing.
+        const mp = moonPosition(nowMs, ll.lat, ll.lon);
+        const md = altAzToVector(mp.altDeg, mp.azDeg);
+        const moonVis = pal.night * (mp.altDeg > -3 ? 1 : 0) * (1 - cloud * 0.8);
+        moonDisc.position.set(walker.x + md.x * 1850, y0 + md.y * 1850, walker.z + md.z * 1850);
+        moonDisc.lookAt(walker.x, y0, walker.z);
+        moonDisc.material.opacity = moonVis * (0.45 + 0.55 * mp.illum);
+        moonGlow.position.copy(moonDisc.position);
+        moonGlow.material.opacity = moonVis * 0.5;
+        moonLight.position.set(walker.x + md.x * 200, y0 + md.y * 200, walker.z + md.z * 200);
+        moonLight.target.position.set(walker.x, y0, walker.z);
+        moonLight.intensity = pal.night * clamp01(mp.illum) * clamp01(mp.altDeg / 20) * 0.85 * (1 - cloud * 0.5);
+        // Stars on the real dome (black = invisible, additive).
+        const writeStars = (points, stars, dim) => {
+          const posA = points.geometry.attributes.position;
+          const colA = points.geometry.attributes.color;
+          const vecs = [];
+          for (let i = 0; i < stars.length; i++) {
+            const v = starVector(stars[i], nowMs, ll.lat, ll.lon);
+            vecs.push(v);
+            posA.setXYZ(i, walker.x + v.x * 1950, y0 + v.y * 1950, walker.z + v.z * 1950);
+            const fade = clamp01((v.altDeg + 2) / 10);
+            const b = starBrightness(stars[i].mag) * fade * pal.night * (1 - cloud * 0.75) * dim;
+            colA.setXYZ(i, b * 0.92, b * 0.96, b);
+          }
+          posA.needsUpdate = true;
+          colA.needsUpdate = true;
+          return vecs;
+        };
+        const patternVecs = writeStars(patternPoints, PATTERN_STARS, 1);
+        writeStars(fieldPoints, FIELD_STARS, 0.8);
+        {
+          const posA = constellationLines.geometry.attributes.position;
+          const colA = constellationLines.geometry.attributes.color;
+          linePairs.forEach(([ai, bi], k) => {
+            for (const [j, si] of [[0, ai], [1, bi]]) {
+              const v = patternVecs[si];
+              posA.setXYZ(k * 2 + j, walker.x + v.x * 1950, y0 + v.y * 1950, walker.z + v.z * 1950);
+              const fade = clamp01((v.altDeg + 2) / 10);
+              const b = 0.30 * fade * pal.night * (1 - cloud * 0.75);
+              colA.setXYZ(k * 2 + j, b * 0.92, b * 0.96, b);
+            }
+          });
+          posA.needsUpdate = true;
+          colA.needsUpdate = true;
+        }
+        // Aurora: strength from latitude + darkness, dimmed by
+        // cloud; the ribbons fly poleward of the walker.
+        env.aurora = auroraIntensity(ll.lat, sol.elevationDeg) * (1 - cloud * 0.7);
+        auroraGroup.visible = env.aurora > 0.02;
+        if (auroraGroup.visible) {
+          const dirZ = ll.lat >= 0 ? -1 : 1;
+          auroraGroup.position.set(walker.x, y0 + 235, walker.z + dirZ * 460);
+          auroraGroup.lookAt(walker.x, y0 + 235, walker.z);
+          auroraRibbons.forEach((r, i) => { r.mesh.material.opacity = env.aurora * (0.55 - i * 0.13); });
+        }
+        // Clouds wear the sky's light; precipitation arms itself.
+        if (env.cloudMaterial) {
+          env.cloudMaterial.opacity = cloud * 0.85 * (1 - pal.night * 0.55);
+          const cw = 1 - pal.night * 0.78;
+          env.cloudMaterial.color.setRGB(cw, cw * 0.99, cw * 1.0);
+        }
+        const pk = env.wx.precip;
+        precip.visible = pk.kind !== 'none' && pk.intensity > 0.03;
+        if (precip.visible) {
+          precipMat.color.setHex(pk.kind === 'snow' ? 0xffffff : 0xafc8e8);
+          precipMat.size = pk.kind === 'snow' ? 2.6 : 1.6;
+          precipMat.opacity = pk.kind === 'snow' ? 0.85 : 0.55;
+        }
+        // Wind (meteorological FROM bearing → world motion).
+        if (env.wxRaw && Number.isFinite(env.wxRaw.windDirDeg)) {
+          const rad = (env.wxRaw.windDirDeg * Math.PI) / 180;
+          const sp = 0.6 + (env.wxRaw.windKmh || 0) * 0.06;
+          env.windVX = -Math.sin(rad) * sp;
+          env.windVZ = Math.cos(rad) * sp;
+        } else { env.windVX = 0.5; env.windVZ = 0.2; }
+        // The HUD's sky line (words/icons ride the mapped
+        // weather state; the temperature rides the raw read).
+        const hudKey = `${env.clock}|${env.phase}|${env.wx.code}|${env.wxRaw ? env.wxRaw.tempC : 'x'}`;
+        if (hudKey !== env.hudKey) {
+          env.hudKey = hudKey;
+          if (!cancelled) {
+            setEnvHud({
+              clock: env.clock, phase: sol.phase,
+              icon: env.wx.icon || null,
+              label: env.wx.label || null,
+              tempC: env.wxRaw ? env.wxRaw.tempC : null,
+            });
+          }
+        }
+      }
+
+      // Weather on a sane cadence: first read at once, then only
+      // when the cache says the parcel's weather is stale or the
+      // walker has roamed far. Any failure keeps the last sky.
+      function maybeFetchWeather(nowMs) {
+        if (env.fetchBusy) return;
+        const ll = worldToLatLon(walker.x, walker.z);
+        if (!shouldRefetchWeather(env.wxLast, ll.lat, ll.lon, nowMs)) return;
+        env.wxLast = { lat: ll.lat, lon: ll.lon, atMs: nowMs };
+        env.fetchBusy = true;
+        fetchCurrentWeather(ll.lat, ll.lon)
+          .then((wx) => {
+            env.fetchBusy = false;
+            if (cancelled || !wx) return;
+            env.wxRaw = wx;
+            env.wx = weatherToWorld(wx);
+          })
+          .catch(() => { env.fetchBusy = false; });
+      }
 
       // ── Input: keyboard (window), drag-look + tap (canvas) ──
       const KEYMAP = {
@@ -2328,6 +3032,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         // scene (the court's shared bat base) free their graphs
         // through the same seen set.
         for (const base of record.bases || []) disposeGraph(base, seen);
+        for (const a of animals) if (a.owner === unit.key && a.id) lifecycle.forget(a.id);
         removeWhere(animals, (a) => a.owner === unit.key);
         removeWhere(swimmers, (s) => s.owner === unit.key);
         removeWhere(sway, (s) => s.owner === unit.key);
@@ -2336,7 +3041,10 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           l.el.remove();
           return true;
         });
-        if (unit.kind === 'mosquito') mosquitos.length = 0;
+        if (unit.kind === 'mosquito') {
+          for (const mq of mosquitos) lifecycle.forget(mq.id);
+          mosquitos.length = 0;
+        }
         if (unit.kind === 'museum') {
           hammondNpc.group = null;
           hammondNpc.rig = null;
@@ -2683,6 +3391,8 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       // ── The frame ────────────────────────────────────────────
       let raf = 0;
       let frameNo = 0;
+      let envAgeS = 99; // due at once: the sky is right from frame one
+      let swayClock = 0; // plant-sway time, paced by the real wind
       const labelV = new THREE.Vector3();
       function tick() {
         raf = requestAnimationFrame(tick);
@@ -2695,6 +3405,58 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         const dt = Math.min(clock.getDelta(), 0.05);
         const t = clock.elapsedTime;
         const inp = inputRef.current;
+
+        // The living sky + weather refresh about once a second;
+        // the lifecycle's due respawns stand up with it.
+        envAgeS += dt;
+        if (envAgeS >= 1) {
+          envAgeS = 0;
+          updateEnvironment(Date.now());
+          maybeFetchWeather(Date.now());
+          processRespawns(t);
+        }
+        swayClock += dt * env.wx.windSway;
+        // Clouds ride the real wind, wrapping around the walker;
+        // aurora curtains ripple; precipitation falls through
+        // its box around the walker and recycles at the ground.
+        for (const spr of cloudSprites) {
+          spr.position.x += (env.windVX || 0) * dt;
+          spr.position.z += (env.windVZ || 0) * dt;
+          if (Math.abs(spr.position.x - walker.x) > 850) spr.position.x = walker.x - (spr.position.x - walker.x) * 0.92;
+          if (Math.abs(spr.position.z - walker.z) > 850) spr.position.z = walker.z - (spr.position.z - walker.z) * 0.92;
+        }
+        if (auroraGroup.visible) {
+          for (let ri = 0; ri < auroraRibbons.length; ri++) {
+            const { mesh, base } = auroraRibbons[ri];
+            const attr = mesh.geometry.attributes.position;
+            const arr = attr.array;
+            for (let vi = 0; vi < arr.length; vi += 3) {
+              const bx = base[vi];
+              arr[vi + 2] = Math.sin(bx * 0.011 + t * 0.7 + ri * 1.7) * 14 + Math.sin(bx * 0.023 - t * 0.43 + ri) * 7;
+              arr[vi + 1] = base[vi + 1] + Math.sin(bx * 0.017 + t * 0.5 + ri * 2.1) * 6;
+            }
+            attr.needsUpdate = true;
+          }
+        }
+        if (precip.visible) {
+          const pk = env.wx.precip;
+          const fall = pk.kind === 'snow' ? 2.4 : 26;
+          const gy = heightAt(walker.x, walker.z);
+          for (let pi = 0; pi < PRECIP_COUNT; pi++) {
+            let px = precipPos[pi * 3] + (env.windVX || 0) * dt * 2.2;
+            let py = precipPos[pi * 3 + 1] - fall * dt * (0.7 + pk.intensity * 0.6);
+            let pz = precipPos[pi * 3 + 2] + (env.windVZ || 0) * dt * 2.2;
+            if (py < gy - 1 || !Number.isFinite(py)) {
+              px = walker.x + (rng() - 0.5) * 72;
+              pz = walker.z + (rng() - 0.5) * 72;
+              py = gy + 26 + rng() * 10;
+            }
+            precipPos[pi * 3] = px;
+            precipPos[pi * 3 + 1] = py;
+            precipPos[pi * 3 + 2] = pz;
+          }
+          precipGeo.attributes.position.needsUpdate = true;
+        }
 
         // Look: consume the accumulated drag deltas.
         if (inp.look.dx !== 0 || inp.look.dy !== 0) {
@@ -2855,7 +3617,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         for (const s of swimmers) {
           const d = Math.hypot(s.root.position.x - walker.x, s.root.position.z - walker.z);
           s.root.visible = d < 750;
-          if (s.root.visible) updateSwimmer(s, t, dt);
+          if (s.root.visible) updateSwimmer(s, t, dt, env.night > 0.45 ? 0.45 : 1);
         }
         if (waterTex) waterTex.offset.set((t * 0.008) % 1, (t * 0.005) % 1);
         if (waterMat) waterMat.opacity = 0.48 + Math.sin(t * 0.6) * 0.04;
@@ -2913,8 +3675,9 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           const d2 = (s.x - walker.x) ** 2 + (s.z - walker.z) ** 2;
           s.obj.visible = d2 < 260 * 260;
           if (d2 < 200 * 200) {
-            s.obj.rotation.z = Math.sin(t * 0.85 + s.phase) * s.amp * 0.85;
-            s.obj.rotation.x = Math.cos(t * 0.6 + s.phase) * s.amp * 0.5;
+            // swayClock runs at the real wind's pace (env.wx).
+            s.obj.rotation.z = Math.sin(swayClock * 0.85 + s.phase) * s.amp * 0.85;
+            s.obj.rotation.x = Math.cos(swayClock * 0.6 + s.phase) * s.amp * 0.5;
           }
         }
         renderer.render(scene, camera);
@@ -2994,9 +3757,16 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       <div ref={mountRef} className="absolute inset-0" />
       <div ref={labelsRef} className="pointer-events-none absolute inset-0 overflow-hidden" />
 
+      {/* The top HUD is ONE flex row (the no-overlap law): the
+          left column flexes and shrinks with min-w-0, the right
+          column never shrinks — the boot pill can no longer run
+          underneath the parcel card the way it did in Merlin's
+          walk video. The row itself takes no pointer events; the
+          interactive children opt back in one by one. */}
+      <div className="pointer-events-none absolute inset-x-2 top-2 flex items-start gap-2 sm:inset-x-3 sm:top-3">
       {/* The parcel readout — the chamber map, read from the ground. */}
-      <div className="absolute left-2 top-2 flex max-w-[92%] flex-col items-start gap-1.5 sm:left-3 sm:top-3">
-        <div className="rounded-2xl border border-amber-300/30 bg-black/55 px-3.5 py-2.5 text-zinc-100 backdrop-blur-sm">
+      <div className="flex min-w-0 flex-1 flex-col items-start gap-1.5">
+        <div className={`rounded-2xl border bg-black/55 px-3.5 py-2.5 text-zinc-100 backdrop-blur-sm ${hud && hud.mine ? 'border-sky-300/50' : 'border-amber-300/30'}`}>
           <div className="text-[10px] font-black tracking-[0.25em] text-amber-200">
             🚶 EARTH 2 — ON FOOT
           </div>
@@ -3014,6 +3784,18 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
                 {hud.lat.toFixed(1)}° lat · {hud.lon.toFixed(1)}° lon ·{' '}
                 {hud.biome.family} · {CLIMATE_LABEL[hud.biome.climate] || hud.biome.climate}
               </div>
+              {hud.mine && (
+                <div className="text-[11px] font-bold leading-snug text-sky-300">
+                  {hud.home ? '🏠 Your home base — you spawn here' : '💙 Your land'}
+                </div>
+              )}
+              {envHud && (
+                <div className="text-[11px] leading-snug text-zinc-300">
+                  {envHud.phase === 'night' ? '🌙 ' : ''}🕐 {envHud.clock} solar
+                  {envHud.label ? <> · {envHud.icon} {envHud.label}</> : null}
+                  {envHud.tempC != null ? <> · {Math.round(envHud.tempC)}°C</> : null}
+                </div>
+              )}
               <div className="mt-1 text-[10px] leading-snug text-zinc-500">
                 Display only — no rent, no buying on foot. The chamber panels keep those jobs.
               </div>
@@ -3022,7 +3804,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             <div className="mt-0.5 text-sm text-zinc-300">Stepping onto the planet…</div>
           )}
         </div>
-        <div className="flex flex-wrap items-center gap-2 rounded-full border border-red-300/25 bg-black/50 py-1.5 pl-3 pr-1.5 text-[11px] text-zinc-100">
+        <div className="pointer-events-auto flex flex-wrap items-center gap-2 rounded-full border border-red-300/25 bg-black/50 py-1.5 pl-3 pr-1.5 text-[11px] text-zinc-100">
           <span>🩸 Blood sacs: <strong className="text-red-200">{sacsShown}</strong></span>
           <button
             type="button"
@@ -3036,13 +3818,13 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           <button
             type="button"
             onClick={() => enterBuildMode(parcel)}
-            className="rounded-full border border-emerald-300/40 bg-emerald-500/20 px-3.5 py-2 text-[12px] font-bold text-emerald-50 backdrop-blur-sm transition hover:bg-emerald-500/35"
+            className="pointer-events-auto rounded-full border border-emerald-300/40 bg-emerald-500/20 px-3.5 py-2 text-[12px] font-bold text-emerald-50 backdrop-blur-sm transition hover:bg-emerald-500/35"
           >
             🔨 Build on this parcel
           </button>
         )}
         {nearHammond && !hammondOpen && (
-          <div className="flex flex-wrap items-center gap-2 rounded-full border border-amber-300/30 bg-black/50 py-1.5 pl-3 pr-1.5 text-[11px] text-zinc-100">
+          <div className="pointer-events-auto flex flex-wrap items-center gap-2 rounded-full border border-amber-300/30 bg-black/50 py-1.5 pl-3 pr-1.5 text-[11px] text-zinc-100">
             <span>🏛️ <strong className="text-amber-100">John Hammond</strong> is at his counter</span>
             <button
               type="button"
@@ -3054,7 +3836,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           </div>
         )}
         {nearVehicle && !driving && !buildMode && (
-          <div className="flex flex-wrap items-center gap-2 rounded-full border border-sky-300/30 bg-black/50 py-1.5 pl-3 pr-1.5 text-[11px] text-zinc-100">
+          <div className="pointer-events-auto flex flex-wrap items-center gap-2 rounded-full border border-sky-300/30 bg-black/50 py-1.5 pl-3 pr-1.5 text-[11px] text-zinc-100">
             <span>🛩️ <strong className="text-sky-100">{vehicleSpec(nearVehicle)?.name}</strong> is ready</span>
             <button
               type="button"
@@ -3072,11 +3854,11 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         )}
       </div>
 
-      <div className="absolute right-2 top-2 flex flex-col items-end gap-1.5 sm:right-3 sm:top-3">
+      <div className="flex shrink-0 flex-col items-end gap-1.5">
         <button
           type="button"
           onClick={() => { if (typeof onExit === 'function') onExit(); }}
-          className="rounded-full border border-white/25 bg-black/55 px-3.5 py-2 text-[12px] font-bold text-white backdrop-blur-sm transition hover:bg-black/75"
+          className="pointer-events-auto rounded-full border border-white/25 bg-black/55 px-3.5 py-2 text-[12px] font-bold text-white backdrop-blur-sm transition hover:bg-black/75"
         >
           ✕ Leave the planet
         </button>
@@ -3085,6 +3867,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             Placing the foundry… {bootPlaced}/{bootTotal}
           </div>
         )}
+      </div>
       </div>
 
       {/* Hammond's fossil exchange — the counter panel. Flow
