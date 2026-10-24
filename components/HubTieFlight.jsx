@@ -8,9 +8,13 @@
 // takes a seeded-random heading from the proven-safe family in
 // lib/hub-flight.js, every ship leaves a short ion-blue trail, and
 // each pass carries the synthesized flyby roar ("that neooooo
-// sound") shaped per frame by the formation's real distance and
-// closing speed to the camera. Between passes the flight is GONE —
-// hidden, silent, not parked, not orbiting.
+// sound") shaped per frame by every ship's real distance, closing
+// speed and bearing to the camera. Merlin's verdict on the round-2
+// mix — "the sound isn't right" — brought a sound-only rework the
+// same night: distorted, fluttering per-ship voices, a near-octave
+// doppler arc, stereo travel, and real presence (see the audio
+// section below). Between passes the flight is GONE — hidden,
+// silent, not parked, not orbiting.
 //
 // The GLB loads once; the three ships are clones sharing its geometry
 // and materials. Trails are preallocated ribbon geometries fed by
@@ -24,6 +28,7 @@ import {
   FIGHTER_URL,
   FIGHTER_WINGSPAN,
   FIGHTER_YAW_FIX,
+  FLYBY_VOICE_DETUNE,
   SHIP_COUNT,
   TRAIL_CAPACITY,
   TRAIL_HALF_WIDTH,
@@ -31,12 +36,18 @@ import {
   createFlightClock,
   createTrailBuffer,
   flybyEnvelope,
+  flybyPan,
   poseAtInto,
 } from '../lib/hub-flight';
 
 const _pose = { x: 0, y: 0, z: 0, fx: 0, fy: 0, fz: 1, bank: 0 };
 const _sample = { x: 0, y: 0, z: 0, fx: 0, fy: 0, fz: 1 };
-const _leader = { x: 0, y: 0, z: 0 };
+// Per-ship audio frames for this tick: position + distance/closing
+// to the camera, filled in the pose loop, read by the audio drive.
+const _shipFrames = Array.from({ length: SHIP_COUNT }, () => ({
+  x: 0, y: 0, z: 0, distance: 0, closing: 0,
+}));
+const _camDir = new THREE.Vector3();
 const _xAxis = new THREE.Vector3();
 const _yAxis = new THREE.Vector3();
 const _zAxis = new THREE.Vector3();
@@ -101,21 +112,53 @@ function makeTrailMesh() {
 }
 
 // --- Flyby audio ------------------------------------------------------
-// A synthesized Web Audio roar: looped white noise through a
-// band-pass plus two detuned saws through a low-pass, one master
-// gain. The graph is created ONLY on a user gesture (browsers block
+// A synthesized Web Audio roar, REWORKED after Merlin's verdict on
+// the round-2 mix ("the sound isn't right" — too thin, too clean,
+// too quiet, glued to the centre). The voice now:
+// - GRIT: per ship, two detuned saws + a square sub run through a
+//   waveshaper (tanh drive) and a resonant band-pass, with a slow
+//   7-9 Hz tremolo flutter riding each voice — the roar pulses and
+//   snarls instead of humming.
+// - DOPPLER: the pure flybyEnvelope() in lib/hub-flight.js, its
+//   pitch law widened toward an octave of sweep, driven per ship
+//   by that ship's real distance / closing speed to the camera.
+// - PRESENCE: envelope peak 0.30, summed voices tamed by a
+//   DynamicsCompressor on the master so stacked layers can't clip.
+// - STEREO: every voice (and the noise bed) pans with the pure
+//   flybyPan() of its ship's bearing to the camera — a crossing
+//   pass travels across the listener's ears.
+// - CHORUS: the three ships are three voices, detuned ~1% apart
+//   (FLYBY_VOICE_DETUNE) with staggered envelope smoothing, so the
+//   formation sounds like three engines flying in loose time.
+// A shared noise bed (band-passed white noise) follows the loudest
+// ship. The graph is created ONLY on a user gesture (browsers block
 // autoplay; passes before the first tap stay silent, which is
-// fine). Per frame the component feeds it the pure flybyEnvelope()
-// of the formation's real distance / closing speed to the camera,
-// so the pitch and volume swell in, peak at closest approach, and
-// doppler away. Gain is capped in the module (FLYBY_MAX_GAIN).
+// fine). Master gain is a gate: 1 while any voice is in earshot,
+// 0 otherwise — silence() and tab-hidden ride it exactly as before.
+
+// Per-voice mix weights (the envelope's 0.30 peak is the leader's;
+// wingmen support, they don't triple the peak).
+const VOICE_WEIGHTS = [0.72, 0.45, 0.45];
+// Per-voice envelope smoothing — the wingmen's envelopes lag the
+// leader's a touch on top of their natural geometric lag.
+const VOICE_TC = [0.05, 0.09, 0.13];
+// Tremolo flutter rates, one per voice (Hz).
+const FLUTTER_HZ = [7.3, 8.2, 8.9];
+// Oscillator stack per voice: two saws (fundamental + fifth) and a
+// square sub an octave down, into the shared-per-voice waveshaper.
+const VOICE_PARTIALS = [
+  { type: 'sawtooth', freq: 78, level: 0.5 },
+  { type: 'sawtooth', freq: 117.4, level: 0.34 },
+  { type: 'square', freq: 39, level: 0.42 },
+];
+
 function createFlybyAudio() {
   let ctx = null;
   let master = null;
-  let bandpass = null;
-  let lowpass = null;
-  let sawA = null;
-  let sawB = null;
+  let noiseFilter = null;
+  let noiseGain = null;
+  let noisePan = null;
+  let voices = [];
   let disposed = false;
 
   function ensure() {
@@ -128,10 +171,76 @@ function createFlybyAudio() {
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return null;
       ctx = new AC();
+      // Master: gate gain → soft-limiter compressor → out. The
+      // compressor is the ceiling that lets three distorted voices
+      // + noise stack without clipping.
       master = ctx.createGain();
       master.gain.value = 0;
-      master.connect(ctx.destination);
-      // Noise leg: 2 s of looped white noise into a band-pass.
+      const limiter = ctx.createDynamicsCompressor();
+      limiter.threshold.value = -14;
+      limiter.knee.value = 24;
+      limiter.ratio.value = 12;
+      limiter.attack.value = 0.003;
+      limiter.release.value = 0.24;
+      master.connect(limiter);
+      limiter.connect(ctx.destination);
+
+      // Waveshaper drive curve, shared by every voice: a tanh
+      // saturation that grows harmonics as the stack pushes into it.
+      const curve = new Float32Array(256);
+      for (let i = 0; i < curve.length; i++) {
+        const x = (i / (curve.length - 1)) * 2 - 1;
+        curve[i] = Math.tanh(2.2 * x);
+      }
+
+      // Per-ship voices.
+      voices = [];
+      for (let i = 0; i < SHIP_COUNT; i++) {
+        const shaper = ctx.createWaveShaper();
+        shaper.curve = curve;
+        shaper.oversample = '2x';
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.value = 460;
+        filter.Q.value = 2.4;
+        // Flutter: an LFO wobbling a unity-gain node ±0.22 — a
+        // relative tremolo, so it scales with the envelope for free.
+        const flutter = ctx.createGain();
+        flutter.gain.value = 1;
+        const lfo = ctx.createOscillator();
+        lfo.type = 'sine';
+        lfo.frequency.value = FLUTTER_HZ[i];
+        const lfoDepth = ctx.createGain();
+        lfoDepth.gain.value = 0.22;
+        lfo.connect(lfoDepth);
+        lfoDepth.connect(flutter.gain);
+        lfo.start();
+        const gain = ctx.createGain();
+        gain.gain.value = 0;
+        const pan = ctx.createStereoPanner();
+        shaper.connect(filter);
+        filter.connect(flutter);
+        flutter.connect(gain);
+        gain.connect(pan);
+        pan.connect(master);
+        const detune = 1 + (FLYBY_VOICE_DETUNE[i] || 0);
+        const oscs = [];
+        for (const part of VOICE_PARTIALS) {
+          const osc = ctx.createOscillator();
+          osc.type = part.type;
+          osc.frequency.value = part.freq * detune;
+          const level = ctx.createGain();
+          level.gain.value = part.level;
+          osc.connect(level);
+          level.connect(shaper);
+          osc.start();
+          oscs.push({ osc, base: part.freq });
+        }
+        voices.push({ gain, pan, filter, oscs, detune });
+      }
+
+      // Noise bed: 2 s of looped white noise into a band-pass,
+      // gained + panned by the loudest ship each frame.
       const len = ctx.sampleRate * 2;
       const buffer = ctx.createBuffer(1, len, ctx.sampleRate);
       const data = buffer.getChannelData(0);
@@ -139,36 +248,21 @@ function createFlybyAudio() {
       const noise = ctx.createBufferSource();
       noise.buffer = buffer;
       noise.loop = true;
-      bandpass = ctx.createBiquadFilter();
-      bandpass.type = 'bandpass';
-      bandpass.frequency.value = 620;
-      bandpass.Q.value = 1.1;
-      const noiseLevel = ctx.createGain();
-      noiseLevel.gain.value = 0.75;
-      noise.connect(bandpass);
-      bandpass.connect(noiseLevel);
-      noiseLevel.connect(master);
+      noiseFilter = ctx.createBiquadFilter();
+      noiseFilter.type = 'bandpass';
+      noiseFilter.frequency.value = 620;
+      noiseFilter.Q.value = 1.6;
+      noiseGain = ctx.createGain();
+      noiseGain.gain.value = 0;
+      noisePan = ctx.createStereoPanner();
+      noise.connect(noiseFilter);
+      noiseFilter.connect(noiseGain);
+      noiseGain.connect(noisePan);
+      noisePan.connect(master);
       noise.start();
-      // Saw leg: two detuned saws into a low-pass.
-      sawA = ctx.createOscillator();
-      sawA.type = 'sawtooth';
-      sawA.frequency.value = 78;
-      sawB = ctx.createOscillator();
-      sawB.type = 'sawtooth';
-      sawB.frequency.value = 117.4;
-      lowpass = ctx.createBiquadFilter();
-      lowpass.type = 'lowpass';
-      lowpass.frequency.value = 900;
-      const sawLevel = ctx.createGain();
-      sawLevel.gain.value = 0.3;
-      sawA.connect(lowpass);
-      sawB.connect(lowpass);
-      lowpass.connect(sawLevel);
-      sawLevel.connect(master);
-      sawA.start();
-      sawB.start();
     } catch {
       ctx = null;
+      voices = [];
       return null;
     }
     return ctx;
@@ -183,20 +277,43 @@ function createFlybyAudio() {
       window.addEventListener('pointerdown', onGesture, { passive: true });
       window.addEventListener('keydown', onGesture);
     },
-    // Shape the roar for this frame. gain/pitch come from the pure
-    // envelope in lib/hub-flight.js; smoothing is the graph's own
-    // (setTargetAtTime time constants).
-    drive(distance, closingSpeed) {
+    // Shape the roar for this frame. frames[i] is ship i's
+    // { x, y, z, distance, closing } for this frame; camPos and
+    // camDir are the camera position and unit look direction.
+    // Envelopes and pans are the pure helpers in lib/hub-flight.js;
+    // smoothing is the graph's own (setTargetAtTime constants).
+    drive(frames, camPos, camDir) {
       if (!ctx || !master) return;
-      const env = flybyEnvelope(distance, closingSpeed);
       const t = ctx.currentTime;
-      master.gain.setTargetAtTime(env.gain, t, 0.09);
-      if (env.inRange) {
+      let anyAudible = false;
+      let loudest = null;
+      for (let i = 0; i < voices.length; i++) {
+        const f = frames[i];
+        if (!f) continue;
+        const env = flybyEnvelope(f.distance, f.closing);
+        const v = voices[i];
+        v.gain.gain.setTargetAtTime(env.gain * VOICE_WEIGHTS[i], t, VOICE_TC[i]);
+        if (!env.inRange) continue;
+        anyAudible = true;
         const p = env.pitch;
-        bandpass.frequency.setTargetAtTime(620 * Math.pow(p, 1.4), t, 0.05);
-        lowpass.frequency.setTargetAtTime(420 + 620 * p, t, 0.05);
-        sawA.frequency.setTargetAtTime(78 * p, t, 0.05);
-        sawB.frequency.setTargetAtTime(117.4 * p, t, 0.05);
+        for (const o of v.oscs) {
+          o.osc.frequency.setTargetAtTime(o.base * p * v.detune, t, 0.045);
+        }
+        v.filter.frequency.setTargetAtTime(460 * Math.pow(p, 1.6), t, 0.045);
+        v.pan.pan.setTargetAtTime(flybyPan(f, camPos, camDir), t, 0.06);
+        if (!loudest || env.gain > loudest.env.gain) loudest = { env, frame: f };
+      }
+      master.gain.setTargetAtTime(anyAudible ? 1 : 0, t, 0.09);
+      if (loudest) {
+        noiseFilter.frequency.setTargetAtTime(
+          620 * Math.pow(loudest.env.pitch, 1.4),
+          t,
+          0.05,
+        );
+        noiseGain.gain.setTargetAtTime(loudest.env.gain * 0.5, t, 0.07);
+        noisePan.pan.setTargetAtTime(flybyPan(loudest.frame, camPos, camDir), t, 0.06);
+      } else {
+        noiseGain.gain.setTargetAtTime(0, t, 0.07);
       }
     },
     silence() {
@@ -224,8 +341,12 @@ export default function HubTieFlight() {
   const audioRef = useRef(null);
   const elapsedRef = useRef(0);
   const lastPassRef = useRef(-1);
-  const prevDistRef = useRef(-1);
-  const closingRef = useRef(0);
+  // Per-ship distance history for the closing-speed differences
+  // (each voice's envelope is driven by its own ship's geometry).
+  const prevDistsRef = useRef(null);
+  const closingsRef = useRef(null);
+  if (!prevDistsRef.current) prevDistsRef.current = new Array(SHIP_COUNT).fill(-1);
+  if (!closingsRef.current) closingsRef.current = new Array(SHIP_COUNT).fill(0);
   const lastPushRef = useRef([]);
   const halfDepthRef = useRef(0);
   if (!clockRef.current) clockRef.current = createFlightClock();
@@ -372,8 +493,8 @@ export default function HubTieFlight() {
     if (!win) {
       if (lastPassRef.current !== -1) {
         lastPassRef.current = -1;
-        prevDistRef.current = -1;
-        closingRef.current = 0;
+        prevDistsRef.current.fill(-1);
+        closingsRef.current.fill(0);
         for (const buf of trailBuffersRef.current) buf.reset();
         for (const mesh of trailsRef.current) mesh.visible = false;
       }
@@ -385,8 +506,8 @@ export default function HubTieFlight() {
       // A new pass: trails start clean at the engine, never strung
       // across the sky from the previous pass's exit.
       lastPassRef.current = win.passIndex;
-      prevDistRef.current = -1;
-      closingRef.current = 0;
+      prevDistsRef.current.fill(-1);
+      closingsRef.current.fill(0);
       lastPushRef.current = [];
       for (const buf of trailBuffersRef.current) buf.reset();
     }
@@ -398,11 +519,12 @@ export default function HubTieFlight() {
     for (let i = 0; i < ships.length; i++) {
       const ship = ships[i];
       poseAtInto(win.passIndex, win.u, i, _pose);
-      if (i === 0) {
-        _leader.x = _pose.x;
-        _leader.y = _pose.y;
-        _leader.z = _pose.z;
-      }
+      // This ship's audio frame: position now, distance/closing
+      // filled after the loop (closing needs the frame's dt).
+      const frame = _shipFrames[i];
+      frame.x = _pose.x;
+      frame.y = _pose.y;
+      frame.z = _pose.z;
       ship.visible = true;
       ship.position.set(_pose.x, _pose.y, _pose.z);
       // Basis build with +Z as the nose: z = forward, x = up × z,
@@ -478,17 +600,27 @@ export default function HubTieFlight() {
       }
     }
 
-    // --- Flyby roar: driven by the leader's real distance to the
-    // camera and its closing speed (smoothed finite difference).
-    const dist = Math.hypot(_leader.x - cam.x, _leader.y - cam.y, _leader.z - cam.z);
-    if (prevDistRef.current >= 0 && dt > 0) {
-      const raw = (prevDistRef.current - dist) / dt;
-      closingRef.current += (raw - closingRef.current) * 0.35;
-    } else {
-      closingRef.current = 0;
+    // --- Flyby roar: each voice is driven by its own ship's real
+    // distance to the camera and closing speed (smoothed finite
+    // difference — responsive enough that the pitch drop tracks
+    // closest approach instead of trailing it), and panned by the
+    // ship's bearing to the camera.
+    for (let i = 0; i < ships.length; i++) {
+      const frame = _shipFrames[i];
+      const dist = Math.hypot(frame.x - cam.x, frame.y - cam.y, frame.z - cam.z);
+      const prev = prevDistsRef.current[i];
+      if (prev >= 0 && dt > 0) {
+        const raw = (prev - dist) / dt;
+        closingsRef.current[i] += (raw - closingsRef.current[i]) * 0.5;
+      } else {
+        closingsRef.current[i] = 0;
+      }
+      prevDistsRef.current[i] = dist;
+      frame.distance = dist;
+      frame.closing = closingsRef.current[i];
     }
-    prevDistRef.current = dist;
-    audioRef.current.drive(dist, closingRef.current);
+    state.camera.getWorldDirection(_camDir);
+    audioRef.current.drive(_shipFrames, cam, _camDir);
   });
 
   return <group ref={groupRef} />;

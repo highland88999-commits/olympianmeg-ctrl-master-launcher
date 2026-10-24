@@ -45,7 +45,11 @@ import {
   createTrailBuffer,
   FLYBY_RANGE,
   FLYBY_MAX_GAIN,
+  FLYBY_PITCH_MIN,
+  FLYBY_PITCH_MAX,
+  FLYBY_VOICE_DETUNE,
   flybyEnvelope,
+  flybyPan,
 } from '../lib/hub-flight.js';
 import { ORBIT_CENTER } from '../lib/god-orbits.js';
 
@@ -306,7 +310,7 @@ test('trail buffer: oldest-first ring, wraps by dropping the oldest, resets clea
   assert.ok(lengths >= 2 && lengths <= 3.5, 'trail reach is ' + lengths.toFixed(2) + ' ship lengths');
 });
 
-test('flyby envelope: silent beyond range, swells in, doppler pitch through the pass', () => {
+test('flyby envelope: silent beyond range, swells in, wide doppler arc through the pass', () => {
   const far = flybyEnvelope(FLYBY_RANGE + 50, 120);
   assert.equal(far.gain, 0, 'silent beyond earshot');
   assert.equal(far.inRange, false);
@@ -316,11 +320,73 @@ test('flyby envelope: silent beyond range, swells in, doppler pitch through the 
   const g300 = flybyEnvelope(300, 0).gain;
   const g500 = flybyEnvelope(500, 0).gain;
   assert.ok(g100 > g300 && g300 > g500 && g500 > 0, 'gain rises as the pass nears');
+  // Merlin's rework: presence. The peak is 0.30, not the old 0.16 whisper.
+  assert.equal(FLYBY_MAX_GAIN, 0.3, 'peak gain is the reworked 0.30');
   assert.ok(g100 <= FLYBY_MAX_GAIN, 'gain is capped at ' + FLYBY_MAX_GAIN);
-  // Pitch: >1 while closing, 1 at closest approach, <1 receding.
+  assert.ok(g100 > 0.2, 'a close pass is PRESENT (gain ' + g100.toFixed(2) + ' at 100 units)');
+  // Pitch: >1 while closing, 1 at closest approach, <1 receding —
+  // and the arc is WIDE: ±150 u/s of closing speed sweeps ~1.50
+  // down to the 0.55 floor, a ratio approaching an octave and a
+  // half (the "neooooo" bend has to be unmistakable).
   assert.ok(flybyEnvelope(200, 140).pitch > 1, 'pitch rises on approach');
   assert.equal(flybyEnvelope(200, 0).pitch, 1, 'pitch is neutral at closest approach');
   assert.ok(flybyEnvelope(200, -140).pitch < 1, 'pitch falls away after the pass');
-  assert.equal(flybyEnvelope(200, 100000).pitch, 1.42, 'pitch clamps high');
-  assert.equal(flybyEnvelope(200, -100000).pitch, 0.72, 'pitch clamps low');
+  assert.ok(Math.abs(flybyEnvelope(200, 150).pitch - 1.5) < 1e-9, 'closing 150 rides at 1.50');
+  assert.ok(Math.abs(flybyEnvelope(200, -120).pitch - 0.6) < 1e-9, 'receding 120 falls to 0.60');
+  const sweep =
+    flybyEnvelope(200, 150).pitch / flybyEnvelope(200, -150).pitch;
+  assert.ok(sweep > 2.5, 'total sweep ratio ' + sweep.toFixed(2) + ' — well past an octave');
+  assert.equal(flybyEnvelope(200, 100000).pitch, FLYBY_PITCH_MAX, 'pitch clamps high at 1.60');
+  assert.equal(flybyEnvelope(200, -100000).pitch, FLYBY_PITCH_MIN, 'pitch clamps low at 0.55');
+  assert.equal(FLYBY_PITCH_MAX, 1.6);
+  assert.equal(FLYBY_PITCH_MIN, 0.55);
+  // Peak-then-fall THROUGH the pass: as closing speed runs
+  // approach → closest → recede, pitch descends monotonically,
+  // crossing neutral in the middle — never a plateau, never a jump.
+  const arc = [150, 75, 0, -75, -150].map((c) => flybyEnvelope(200, c).pitch);
+  for (let i = 1; i < arc.length; i++) {
+    assert.ok(arc[i] < arc[i - 1], `pitch falls through the pass (${arc.join(' → ')})`);
+  }
+  assert.equal(arc[2], 1, 'the arc crosses neutral at closest approach');
+});
+
+test('flyby pan: the pass travels across the ears with the bearing', () => {
+  const cam = { x: 0, y: 0, z: 0 };
+  const ahead = { x: 0, y: 0, z: -1 }; // three.js look direction
+  const pan = (ship, fwd = ahead) => flybyPan(ship, cam, fwd);
+  assert.equal(pan({ x: 0, y: 0, z: -100 }), 0, 'dead ahead is centre');
+  assert.equal(pan({ x: 0, y: 40, z: -100 }), 0, 'high but centred is centre');
+  assert.ok(pan({ x: -100, y: 0, z: -100 }) < -0.8, 'hard left-front pans left');
+  assert.ok(pan({ x: 100, y: 0, z: -100 }) > 0.8, 'hard right-front pans right');
+  assert.equal(pan({ x: -1000, y: 0, z: -1 }), -1, 'abeam left clamps at -1');
+  assert.equal(pan({ x: 1000, y: 0, z: -1 }), 1, 'abeam right clamps at +1');
+  // Behind flips sensibly: centre stays centre, and the side sign
+  // stays on the ship's true side, so a crossing behind the
+  // listener still sweeps the correct way.
+  assert.equal(pan({ x: 0, y: 0, z: 100 }), 0, 'dead behind is centre');
+  assert.ok(pan({ x: -100, y: 0, z: 100 }) < -0.8, 'behind-left stays left');
+  assert.ok(pan({ x: 100, y: 0, z: 100 }) > 0.8, 'behind-right stays right');
+  // A left-to-right crossing sweeps monotonically through centre.
+  const sweep = [-300, -100, 0, 100, 300].map((x) => pan({ x, y: 0, z: -200 }));
+  for (let i = 1; i < sweep.length; i++) {
+    assert.ok(sweep[i] > sweep[i - 1], 'crossing pans L → R in order (' + sweep.join(', ') + ')');
+  }
+  // The bearing follows the CAMERA's facing, not the world's axes:
+  // facing +X (up +Y), camera right is world +Z (forward × up).
+  const east = { x: 1, y: 0, z: 0 };
+  assert.equal(pan({ x: 100, y: 0, z: 0 }, east), 0, 'dead ahead when facing +X is centre');
+  assert.ok(pan({ x: 100, y: 0, z: 100 }, east) > 0.8, 'right when facing +X is world +Z');
+  assert.ok(pan({ x: 100, y: 0, z: -100 }, east) < -0.8, 'left when facing +X is world -Z');
+  // Degenerate inputs centre rather than NaN.
+  assert.equal(pan({ x: 0, y: 0, z: 0 }), 0, 'ship on the camera is centre');
+  assert.equal(pan({ x: 10, y: 0, z: -10 }, { x: 0, y: 0, z: 0 }), 0, 'zero facing is centre');
+  assert.equal(pan({ x: 10, y: 0, z: -10 }, { x: 0, y: 1, z: 0 }), 0, 'straight-up facing is centre');
+  assert.ok(Number.isFinite(pan({ x: NaN, y: 0, z: 0 })), 'NaN geometry stays finite');
+});
+
+test('flyby chorus: three voices, leader true, wingmen detuned apart', () => {
+  assert.equal(FLYBY_VOICE_DETUNE.length, SHIP_COUNT, 'one detune per ship');
+  assert.equal(FLYBY_VOICE_DETUNE[0], 0, 'the leader is the reference voice');
+  assert.ok(FLYBY_VOICE_DETUNE[1] > 0.003 && FLYBY_VOICE_DETUNE[1] < 0.02, 'wingman 1 sharp by ~1%');
+  assert.ok(FLYBY_VOICE_DETUNE[2] < -0.003 && FLYBY_VOICE_DETUNE[2] > -0.02, 'wingman 2 flat by ~1%');
 });
