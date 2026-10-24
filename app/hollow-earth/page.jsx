@@ -2,9 +2,10 @@
 
 // OLYMPIAN MONSTERVERSE — the Hollow Earth world program.
 // Modes: menu | map | world.
-// menu  -> THE CONCOURSE ENTRY: the intro panel (gold "OLYMPIAN
-//          MONSTERVERSE" lettering over a desert-battlefield
-//          gradient, elemental orbs) + CHARACTER SELECTION first
+// menu  -> THE CONCOURSE ENTRY: the intro panel (Merlin's own
+//          uploaded "OLYMPIAN MONSTERVERSE" banner art, with the
+//          procedural gradient + elemental orbs as fallback only)
+//          + CHARACTER SELECTION first
 //          — the Monster Hunter by default, or any imported hero
 //          — and entering the realm happens as that character.
 //          There is no standalone picker page, by design.
@@ -84,6 +85,7 @@ export default function HollowEarthPage() {
   const [clusterId, setClusterId] = useState(null);
   const [entry, setEntry] = useState(null); // {kind:'mission',missionId} | {kind:'roam'}
   const [hud, setHud] = useState({ hp: PLAYER_MAX_HP, shield: 0, kills: 0, inBase: false, weapon: 'melee', sense: null, bossHp: null, bossAwake: false });
+  const [bannerFailed, setBannerFailed] = useState(false); // intro banner art; procedural orbs are the fallback
   const [toast, setToast] = useState('');
   const [korusDead, setKorusDead] = useState(false);
 
@@ -402,11 +404,18 @@ export default function HollowEarthPage() {
           <h1 style={{ fontSize: 'clamp(2rem, 7vw, 3.4rem)', margin: '0.4rem 0', background: 'linear-gradient(180deg,#ffe9a8,#d8b25c)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' }}>
             {DATA.INTRO.title}
           </h1>
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'center', margin: '0.6rem 0 0.2rem' }}>
-            {DATA.INTRO.orbs.map((o) => (
-              <span key={o.element} title={o.element} style={{ width: 22, height: 22, borderRadius: '50%', background: o.color, boxShadow: `0 0 14px ${o.color}`, display: 'inline-block' }} />
-            ))}
-          </div>
+          {/* Intro banner art (Merlin's own upload); the procedural orbs render only if the image fails to load. */}
+          {bannerFailed ? (
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center', margin: '0.6rem 0 0.2rem' }}>
+              {DATA.INTRO.orbs.map((o) => (
+                <span key={o.element} title={o.element} style={{ width: 22, height: 22, borderRadius: '50%', background: o.color, boxShadow: `0 0 14px ${o.color}`, display: 'inline-block' }} />
+              ))}
+            </div>
+          ) : (
+            <img src="/images/hollow-earth/intro-banner.jpg" alt="Olympian Monsterverse banner"
+              onError={() => setBannerFailed(true)}
+              style={{ width: '100%', maxWidth: 640, borderRadius: 16, margin: '0.8rem auto 0.2rem', display: 'block', boxShadow: '0 0 24px rgba(216,178,92,0.35)' }} />
+          )}
           <p style={{ opacity: 0.85 }}>{DATA.INTRO.tagline}</p>
           <h2 style={{ marginTop: '2rem' }}>Choose your hunter</h2>
           <p style={{ opacity: 0.7, fontSize: 14 }}>Tapping the Monsterverse Concourse icon opens here — pick first, then enter as that character.</p>
