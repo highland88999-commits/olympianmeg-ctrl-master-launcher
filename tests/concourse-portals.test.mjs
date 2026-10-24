@@ -5,7 +5,7 @@
 // - the shared roster derivation (lib/portal-roster.js): the real
 //   registry yields exactly the Portal Room's 174, deduped by route,
 //   the room itself skipped, title/subtitle fallbacks honored
-// - wall paging (42 per wall; GAMES' 52 -> 2 pages), section hues,
+// - wall paging (42 per wall; GAMES' 53 -> 2 pages), section hues,
 //   the shared section/search filtering and grouping
 // - the swirl painter (lib/portal-swirl.js) is deterministic and
 //   drives a bare 2D-context stub without throwing
@@ -50,8 +50,8 @@ const enRoster = () =>
   buildPortalRoster(SATELLITES, (k) => en[`sat.${k}.title`], (k) => en[`sat.${k}.subtitle`]);
 
 describe('buildPortalRoster (the shared derivation)', () => {
-  it('yields exactly 174 portals from the real registry — the Portal Room count', () => {
-    assert.equal(enRoster().length, 174);
+  it('yields exactly 175 portals from the real registry — the Portal Room count (Monsterverse seat adcdb3cd: 174→175)', () => {
+    assert.equal(enRoster().length, 175);
   });
 
   it('skips the Portal Room itself', () => {
@@ -100,12 +100,12 @@ describe('buildPortalRoster (the shared derivation)', () => {
 });
 
 describe('wall paging + hues', () => {
-  it('WALL_PAGE_SIZE is 42 and GAMES (52) spans exactly 2 pages, 42 + 10', () => {
+  it('WALL_PAGE_SIZE is 42 and GAMES (53) spans exactly 2 pages, 42 + 11', () => {
     assert.equal(WALL_PAGE_SIZE, 42);
     const games = enRoster().filter((p) => p.section === 'GAMES');
-    assert.equal(games.length, 52);
+    assert.equal(games.length, 53);
     const pages = paginateWall(games);
-    assert.deepEqual(pages.map((pg) => pg.length), [42, 10]);
+    assert.deepEqual(pages.map((pg) => pg.length), [42, 11]);
   });
 
   it('paginateWall edge cases: empty -> no pages, exact fit -> one page', () => {
@@ -145,7 +145,7 @@ describe('filterPortals + groupBySection (room/panel shared semantics)', () => {
   it('grouping follows SECTION_ORDER and drops empty sections', () => {
     const grouped = groupBySection(roster);
     assert.deepEqual(grouped.map((g) => g.section), SECTION_ORDER);
-    assert.equal(grouped.reduce((n, g) => n + g.items.length, 0), 174);
+    assert.equal(grouped.reduce((n, g) => n + g.items.length, 0), 175);
     assert.deepEqual(groupBySection([]), []);
   });
 });
@@ -266,7 +266,7 @@ describe('portal video presence (lib/portal-videos.js — the file-presence list
 
   it('the data source carries exactly the videos on disk — no drift either way', () => {
     assert.deepEqual([...PORTAL_VIDEO_KEYS].sort(), onDisk);
-    assert.equal(onDisk.length, 29, 'twenty-nine portal videos wired (batch 10: cloud-gaming, luge, middle-earth)');
+    assert.equal(onDisk.length, 32, 'thirty-two portal videos wired (batch 11: persymphony, neon-racer, neon-void)');
   });
 
   it('every video key on disk resolves as video-present from the data source', () => {
