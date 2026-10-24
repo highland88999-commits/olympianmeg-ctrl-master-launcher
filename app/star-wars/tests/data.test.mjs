@@ -27,7 +27,7 @@ import data, {
 
 const LANDMARK_TYPES = [
   'mos-eisley', 'moisture-farm', 'podrace-arch', 'beggars-canyon', 'podracer',
-  'theed-palace', 'jedi-temple', 'senate-dome', 'tipoca-city',
+  'theed-palace', 'jedi-temple', 'kyber-forge', 'senate-dome', 'tipoca-city',
   'geonosis-arena', 'droid-foundry', 'mustafar-fortress', 'lava-falls',
   'yavin-temple', 'echo-base', 'swamp-hut', 'cloud-city',
   'shield-generator', 'ewok-village', 'niima-outpost', 'maz-castle',

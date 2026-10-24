@@ -212,6 +212,14 @@ export default function BackpackSection() {
                         {RETICLE_GLYPH[e.meta.reticle.style] || '◎'} {e.meta.reticle.style}
                       </span>
                     )}
+                    {e.kind === 'weapon' && e.meta && e.meta.aiGenerated && e.meta.forgedBy && (
+                      <span
+                        className="rounded-full border border-amber-300/30 bg-amber-400/10 px-2 py-0.5 text-[10px] font-bold tracking-wider text-amber-100"
+                        title="AI-created by a patron smith at the Weapons Forge"
+                      >
+                        ✨ Forged by {({ hammond: 'John Hammond', dracula: 'Dracula', dwarf: 'the Dwarven Smith', kyber: 'the Kyber Smith' })[e.meta.forgedBy] || 'a patron smith'}
+                      </span>
+                    )}
                     {e.meta && e.meta.fossil && (
                       <span className="text-xs text-neutral-400">
                         {e.meta.fossil.speciesName || e.meta.fossil.species} · {e.meta.fossil.condition} · {e.meta.fossil.goldValue}g

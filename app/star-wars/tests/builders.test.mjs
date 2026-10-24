@@ -67,12 +67,14 @@ describe('textures', () => {
 });
 
 describe('landmarks', () => {
-  it('exports 31 landmark types', () => {
+  it('exports 32 landmark types', () => {
     // 29 + 'cantina' + 'landspeeder' (procedural stand-ins for the
     // Tatooine GLB seats, added with the ever-expanding Tatooine build)
-    assert.equal(LM.LANDMARK_TYPES.length, 31);
+    // + 'kyber-forge' (the Kyber Smith's seat at the Jedi Temple)
+    assert.equal(LM.LANDMARK_TYPES.length, 32);
     assert.ok(LM.LANDMARK_TYPES.includes('cantina'));
     assert.ok(LM.LANDMARK_TYPES.includes('landspeeder'));
+    assert.ok(LM.LANDMARK_TYPES.includes('kyber-forge'));
   });
 
   for (const type of LM.LANDMARK_TYPES) {

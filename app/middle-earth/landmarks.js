@@ -77,6 +77,30 @@ const BUILDERS = {
     return { group: g, colliders: [{ x: 0, z: 0, r: 4.2 }] };
   },
 
+  // The Dwarven Smith's forge (patron smith, 2026-10-24) — a stone
+  // smithy beside the dwarf of Erebor in the White City: walls,
+  // chimney, a glowing forge mouth, an anvil, and a rune-lit lintel.
+  'dwarf-forge'(R, T) {
+    const g = new R.Group();
+    const stone = mat(R, T, 'stoneTexture', 0x7d7a72);
+    const dark = mat(R, T, 'barkTexture', 0x3a332c);
+    g.add(box(R, 7, 3.4, 5.5, stone, 0, 1.7, 0));
+    const roof = new R.Mesh(new R.CylinderGeometry(0.02, 3.6, 5.2, 3, 1), mat(R, T, 'thatchTexture', 0x6b5a34));
+    roof.rotation.z = Math.PI / 2;
+    roof.rotation.x = Math.PI / 2;
+    roof.scale.set(1, 1, 1.5);
+    roof.position.y = 4.9;
+    g.add(roof);
+    g.add(cyl(R, 0.5, 0.65, 3.4, 8, stone, 2.6, 4.6, -1.6));
+    const mouth = box(R, 1.6, 1.1, 0.2, glow(R, 0xff7a1a, 1.6), -1.8, 0.9, 2.8);
+    g.add(mouth);
+    g.add(box(R, 1.2, 0.7, 0.8, dark, 0.4, 0.55, 2.2));
+    g.add(box(R, 1.5, 0.25, 0.5, mat(R, T, 'stoneTexture', 0x9a948a), 0.4, 1.0, 2.2));
+    const rune = box(R, 2.2, 0.4, 0.1, glow(R, 0x7fd8d0, 0.9), 0, 3.0, 2.8);
+    g.add(rune);
+    return { group: g, colliders: [{ x: 0, z: 0, r: 3.8 }] };
+  },
+
   'rivendell-terrace'(R, T) {
     const g = new R.Group();
     const marble = mat(R, T, 'marbleTexture', 0xe8e2d2);

@@ -5423,6 +5423,12 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
                 ? 'Pick a fossil to trade'
                 : `Trade ${hammondPicks.size} fossil${hammondPicks.size > 1 ? 's' : ''} for ${hammondCurrency === 'aether' ? 'aether' : 'gold'}`}
             </button>
+            <a
+              href="/weapons-forge"
+              className="block w-full rounded-full border border-amber-300/40 bg-black/30 px-4 py-3 text-center text-sm font-bold text-amber-100 transition hover:bg-amber-400/15"
+            >
+              ⚒️ Commission a weapon from Hammond at the Weapons Forge
+            </a>
             <p className="text-[11px] leading-relaxed text-zinc-500">
               Payouts land in the same tallies as Dracula&rsquo;s gifts — check the
               chamber&rsquo;s Exchange panel for the running count.

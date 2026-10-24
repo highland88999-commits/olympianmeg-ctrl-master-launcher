@@ -662,6 +662,11 @@ export default function MiddleEarthPage() {
                               : `🗼 Isengard stirs… the finale opens at ${gate.needed} campaign kills (${gate.total} so far).`}
                         </div>
                       )}
+                      {id === 'gondor' && (
+                        <a href="/weapons-forge" style={{ ...styles.roamBtn, display: 'block', marginTop: '0.5rem', textDecoration: 'none' }}>
+                          ⚒️ The Dwarven Smith keeps a forge by the White Tree — commission a weapon
+                        </a>
+                      )}
                     </div>
                   )}
                 </div>

@@ -294,6 +294,7 @@ export const PODS = {
       { type: 'gondor-tower', x: 74, z: -62, s: 1.1, ry: -0.4 },
       { type: 'white-tree', x: 0, z: -78, s: 1.2, ry: 0 },
       { type: 'city-gate', x: 0, z: 40, s: 1.2, ry: 0 },
+      { type: 'dwarf-forge', x: 30, z: -60, s: 1, ry: -0.3 },
     ],
     characters: [
       { id: 'dwarf', model: 'dwarf', name: 'A Dwarf of Erebor', at: [10, -66], faceYaw: 3.0, height: 1.35 },

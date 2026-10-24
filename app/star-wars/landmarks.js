@@ -65,7 +65,7 @@ function dome(R, r, ws, hs) {
 
 export const LANDMARK_TYPES = [
   'mos-eisley', 'moisture-farm', 'podrace-arch', 'beggars-canyon', 'podracer', 'theed-palace',
-  'jedi-temple', 'senate-dome', 'tipoca-city', 'geonosis-arena', 'droid-foundry',
+  'jedi-temple', 'kyber-forge', 'senate-dome', 'tipoca-city', 'geonosis-arena', 'droid-foundry',
   'mustafar-fortress', 'lava-falls', 'yavin-temple', 'echo-base', 'swamp-hut',
   'cloud-city', 'shield-generator', 'ewok-village', 'niima-outpost', 'maz-castle',
   'starkiller-cannon', 'jedi-village', 'salt-arch', 'sith-citadel', 'sith-throne',
@@ -301,6 +301,25 @@ const BUILDERS = {
       cols.push({ x: sx * 10.6, z: sz * 10.6, r: 8.2 });
     }
     return done(R, g, cols);
+  },
+  /* Coruscant — the Kyber Smith's forge (patron smith, 2026-10-24):
+   * a stone plinth at the temple's edge, a kyber crystal singing
+   * above an anvil. Sits clear of the temple's corner colliders
+   * (placed at 24,-30 in data.js — ~19 m from the nearest corner). */
+  'kyber-forge': function (R) {
+    const g = new R.Group();
+    const stone = M(R, 0xcfc39f);
+    g.add(mesh(R, new R.BoxGeometry(6, 1, 5), stone, 0, 0.5, 0));
+    g.add(mesh(R, new R.CylinderGeometry(0.5, 0.7, 2.6, 8), stone, -1.8, 2.3, -1.2));
+    g.add(mesh(R, new R.BoxGeometry(1.4, 0.3, 0.6), M(R, 0x3a3f52, { metalness: 0.6, roughness: 0.4 }), 1.2, 1.15, 0.8));
+    const crystal = new R.Mesh(new R.OctahedronGeometry(0.9), E(R, 0x7fe8ff));
+    crystal.position.set(0, 2.6, 0);
+    g.add(crystal);
+    const halo = new R.Mesh(new R.TorusGeometry(1.6, 0.08, 6, 24), E(R, 0x7fe8ff));
+    halo.rotation.x = Math.PI / 2;
+    halo.position.set(0, 1.1, 0);
+    g.add(halo);
+    return done(R, g, [{ x: 0, z: 0, r: 4 }]);
   },
   /* Coruscant — large hemisphere dome. */
   'senate-dome': function (R) {

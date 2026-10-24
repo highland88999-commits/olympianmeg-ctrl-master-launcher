@@ -685,6 +685,11 @@ export default function StarWarsPage() {
                 <button style={{ ...styles.btn, ...styles.btnGhost }} onClick={() => travelTo(selectedId, 'roam')}>🧭 Free Roam</button>
                 <button style={{ ...styles.btn, ...styles.btnGhost }} onClick={() => setSelectedId(null)}>Close</button>
               </div>
+              {selectedId === 'coruscant' && (
+                <a href="/weapons-forge" style={{ ...styles.btn, ...styles.btnGhost, display: 'block', marginTop: '0.5rem', textAlign: 'center', textDecoration: 'none' }}>
+                  💎 The Kyber Smith keeps a forge at the Jedi Temple — commission a weapon
+                </a>
+              )}
             </div>
           )}
 

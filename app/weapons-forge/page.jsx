@@ -25,6 +25,7 @@ import {
   forgeMaterialStock,
   forgeWeaponReticle,
 } from '@/lib/backpack/weapons';
+import { PATRONS, PATRON_IDS } from '@/lib/backpack/patrons';
 import {
   flushBackpack,
   replaceBackpackRecord,
@@ -74,6 +75,9 @@ export default function WeaponsForgePage() {
   const [signedIn, setSignedIn] = useState(false);
   const [busyId, setBusyId] = useState('');
   const [notice, setNotice] = useState('');
+  const [patronThemes, setPatronThemes] = useState(() => Object.fromEntries(PATRON_IDS.map((p) => [p, ''])));
+  const [patronBusy, setPatronBusy] = useState('');
+  const [patronDone, setPatronDone] = useState(() => Object.fromEntries(PATRON_IDS.map((p) => [p, false])));
 
   const loadBars = useCallback(async () => {
     const headers = await authHeaders();
@@ -94,6 +98,60 @@ export default function WeaponsForgePage() {
   }, []);
 
   useEffect(() => { void loadBars(); }, [loadBars]);
+
+  const loadCommissions = useCallback(async () => {
+    const headers = await authHeaders();
+    if (!headers) return;
+    try {
+      const res = await fetch('/api/weapons-forge/commission', { headers, cache: 'no-store' });
+      const data = await res.json().catch(() => null);
+      if (data && data.commissions) {
+        const next = {};
+        for (const p of PATRON_IDS) next[p] = data.commissions[p] === true;
+        setPatronDone(next);
+      }
+    } catch { /* the cards stay commissionable; the server guards the day */ }
+  }, []);
+
+  useEffect(() => { void loadCommissions(); }, [loadCommissions]);
+
+  const commission = useCallback(async (patronId) => {
+    setNotice('');
+    setPatronBusy(patronId);
+    try {
+      const headers = await authHeaders();
+      if (!headers) {
+        setNotice('Sign in to commission — the patrons forge for account holders.');
+        return;
+      }
+      await flushBackpack();
+      const res = await fetch('/api/weapons-forge/commission', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...headers },
+        body: JSON.stringify({ patron: patronId, theme: patronThemes[patronId] || '' }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data || !data.ok) {
+        if (data && data.backpack) replaceBackpackRecord(data.backpack);
+        if (data && data.alreadyCommissioned) {
+          setPatronDone((d) => ({ ...d, [patronId]: true }));
+        }
+        setNotice((data && data.error) || 'The patron could not forge that. Try again.');
+        return;
+      }
+      if (data.backpack) replaceBackpackRecord(data.backpack);
+      setPatronDone((d) => ({ ...d, [patronId]: true }));
+      setNotice(
+        `${PATRONS[patronId].glyph} ${PATRONS[patronId].name} forged you the ${data.weapon.name} ` +
+        `(${data.weapon.rarity}, ${data.weapon.weaponClass}, dmg ${data.weapon.damage}) — ` +
+        `it is shelved in your backpack.`
+      );
+    } catch {
+      setNotice('The forge could not be reached. Your pack is unchanged.');
+    } finally {
+      setPatronBusy('');
+    }
+  }, [patronThemes]);
 
   const stock = useMemo(() => forgeMaterialStock(record), [record]);
   const ownedNames = useMemo(
@@ -192,6 +250,71 @@ export default function WeaponsForgePage() {
             bars and pack.
           </p>
         )}
+
+        {/* Patron smiths — Hammond and Dracula commission
+            AI-created weapons and distribute them to travellers:
+            one commission per patron per day, free of bars and
+            materials; the scarcity is the day, not the price. */}
+        <section aria-label="Patron smiths" className="flex flex-col gap-3">
+          <div>
+            <h2 className="text-xl font-black tracking-tight">👑 Patron Smiths</h2>
+            <p className="mt-1 max-w-2xl text-sm leading-relaxed text-neutral-400">
+              Four old hands keep an anvil here. Each will invent a weapon for you —
+              once a day, shaped by their craft — and hand it straight to your
+              backpack. Give them a hint, or let them surprise you.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {PATRON_IDS.map((patronId) => {
+              const patron = PATRONS[patronId];
+              const done = patronDone[patronId];
+              const busy = patronBusy === patronId;
+              return (
+                <article
+                  key={patronId}
+                  className="flex flex-col gap-2 rounded-2xl border border-amber-200/20 bg-gradient-to-b from-white/[0.05] to-transparent p-4"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <h3 className="text-base font-bold leading-snug">
+                      {patron.glyph} {patron.name}, {patron.title}
+                    </h3>
+                  </div>
+                  <p className="text-sm italic text-neutral-300">“{patron.line}”</p>
+                  <p className="text-xs leading-relaxed text-neutral-400">
+                    📍 {patron.seat}
+                  </p>
+                  <p className="text-xs leading-relaxed text-neutral-400">
+                    Favours: {patron.favours.join(' · ')}
+                  </p>
+                  <label className="flex flex-col gap-1 text-xs text-neutral-400">
+                    A hint for the smith (optional)
+                    <input
+                      type="text"
+                      maxLength={120}
+                      value={patronThemes[patronId]}
+                      disabled={!signedIn || done || busy}
+                      onChange={(e) => setPatronThemes((t) => ({ ...t, [patronId]: e.target.value }))}
+                      placeholder="e.g. a spear that remembers the sea"
+                      className="min-h-[44px] rounded-xl border border-white/15 bg-black/30 px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-500 disabled:opacity-40"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    disabled={!signedIn || done || busy}
+                    onClick={() => void commission(patronId)}
+                    className="min-h-[44px] rounded-xl border border-amber-300/40 bg-amber-500/20 px-4 py-2 text-sm font-bold text-amber-50 transition hover:bg-amber-500/35 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {busy
+                      ? 'The patron is at the anvil…'
+                      : done
+                        ? 'Forged for you today — return tomorrow'
+                        : `✨ Commission a weapon from ${patron.name}`}
+                  </button>
+                </article>
+              );
+            })}
+          </div>
+        </section>
 
         {/* The shelf. */}
         <section aria-label="Forge catalogue" className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">

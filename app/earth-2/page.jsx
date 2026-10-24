@@ -1464,6 +1464,12 @@ export default function Earth2Page() {
             >
               🦇 Summon Dracula in the Bay
             </button>
+            <a
+              href="/weapons-forge"
+              className="rounded-full border border-purple-300/40 bg-purple-400/10 px-5 py-3 text-sm font-bold text-purple-100 transition hover:bg-purple-400/20"
+            >
+              ⚒️ Commission a weapon from the Count
+            </a>
             {blood.sacs < 1 && (
               <span className="text-xs text-zinc-400">
                 No sacs to offer — hunt a full mosquito in the Bay first.

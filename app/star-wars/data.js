@@ -300,6 +300,7 @@ export const PLANETS = {
     ground2: 0x3d4155,
     landmarks: [
       { type: 'jedi-temple', x: 0, z: -55, s: 1.2 },
+      { type: 'kyber-forge', x: 24, z: -30, s: 1, ry: 0.4 },
       { type: 'senate-dome', x: 50, z: 30, s: 1.1, ry: 0.7 },
     ],
     ambient: [
