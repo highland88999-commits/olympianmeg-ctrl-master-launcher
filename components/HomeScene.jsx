@@ -19,6 +19,7 @@ import { MarsRealmContent } from './mars/MarsScene';
 import { PlanetRealmContent } from './planets/PlanetRealmContent';
 import HubMoon from './HubMoon';
 import AsteroidField from './AsteroidField';
+import HubTieFlight from './HubTieFlight';
 import NavBeacons from './NavBeacons';
 import EarthFlightController from './EarthFlightController';
 import { ORBIT_CENTER, EARTH_CENTER, EARTH_RADIUS, GOD_BANDS, MARS_CENTER, MARS_RADIUS, PLANETS, SYSTEM_RING_RADII, SYSTEM_RING_TILTS } from '../lib/god-orbits';
@@ -950,6 +951,10 @@ function HubScene({
             {/* The Moon, the asteroid belt, and the waypoint beacons */}
             <HubMoon />
             <AsteroidField />
+            {/* Occasional twin-panel fighter fly-throughs across the
+                front vista (Merlin, 2026-10-23) — the lane, schedule
+                and clearance proof live in lib/hub-flight.js. */}
+            <HubTieFlight />
             {/* Hide waypoint beacons at street level (they're orbit navigation aids) */}
             {!['diving_to_street', 'earth_roam'].includes(appState) && <NavBeacons />}
           </QuantumGate>
