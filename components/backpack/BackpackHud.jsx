@@ -18,6 +18,7 @@ import {
   equippedDamageForSlot,
   equippedWeaponEntry,
   itemsOfKind,
+  lightsaberEntry,
   setActiveWeapon,
   weaponHand,
   weaponReticle,
@@ -63,6 +64,7 @@ export default function BackpackHud({ realm, realmLabel, combatApplies = false, 
   const [open, setOpen] = useState(false);
   const equipped = equippedWeaponEntry(record);
   const weapons = itemsOfKind(record, 'weapon');
+  const saber = lightsaberEntry(record);
   const totalQty = record.items.reduce((n, e) => n + e.qty, 0);
 
   const combatNote = (() => {
@@ -143,6 +145,37 @@ export default function BackpackHud({ realm, realmLabel, combatApplies = false, 
                 </>
               ) : 'No weapon equipped.'}
               <div style={{ opacity: 0.85, fontSize: 12, marginTop: 4 }}>{combatNote}</div>
+            </div>
+
+            {/* Lightsaber slot (Merlin, 2026-10-24): before the user
+                owns a saber this is a link to the crystal forge —
+                the Kyber Smith's commissions on the Weapons Forge
+                page. Once a saber is created it lives here in
+                place of the link, with the same Equip behaviour
+                as any other weapon. Flow layout, no overlap. */}
+            <div style={{ fontSize: 13, marginTop: 10, padding: '0.5rem 0.7rem', borderRadius: 10, background: 'rgba(103,232,249,0.10)', border: '1px solid rgba(103,232,249,0.35)' }}>
+              <div style={{ fontWeight: 700 }}>🔦 Lightsaber</div>
+              {!saber ? (
+                <div style={{ marginTop: 2 }}>
+                  <Link href="/weapons-forge" style={{ color: '#67e8f9', fontWeight: 700 }}>
+                    Forge your first saber →
+                  </Link>
+                  <span style={{ opacity: 0.7 }}> at the Kyber Smith&apos;s crystal forge</span>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginTop: 2 }}>
+                  <span style={{ minWidth: 0 }}>{weaponLine(saber)}</span>
+                  {equipped && equipped.uid === saber.uid ? (
+                    <span style={{ color: '#d8b25c', fontWeight: 700, flexShrink: 0 }}>Equipped</span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => updateBackpack((rec) => setActiveWeapon(rec, saber.uid, realm))}
+                      style={{ background: '#d8b25c', color: '#1a1426', border: 'none', borderRadius: 999, padding: '0.25rem 0.8rem', fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}
+                    >Equip</button>
+                  )}
+                </div>
+              )}
             </div>
 
             <div style={{ fontWeight: 700, fontSize: 13, marginTop: 12 }}>⚔️ Weapons</div>

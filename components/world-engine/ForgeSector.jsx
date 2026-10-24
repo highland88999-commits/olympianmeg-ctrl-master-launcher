@@ -17,6 +17,8 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { useEngineStore } from '@/lib/world-engine/useEngineStore';
+import { addItem } from '@/lib/backpack/backpack';
+import { updateBackpack } from '@/lib/backpack/store';
 import { costFor } from '@/lib/world-engine/economy';
 import { mintWorldSeed, readSeed, stampSeed } from '@/lib/world-engine/world-seed';
 import MiniViewport from '@/components/world-engine/MiniViewport';
@@ -90,11 +92,54 @@ export default function ForgeSector({ config }) {
 
       setSavedName(displayName);
 
+      // WEAPONS LIVE IN THE BACKPACK (Merlin, 2026-10-24): a
+      // weapon created here mints a backpack weapon entry at the
+      // moment its generation completes — the same record the
+      // profile and the realm panels read. Gated to the weapon
+      // sector only; other sectors never touch the pack. The
+      // builder makes firearms (rifle/smg/precision are all the
+      // backpack law's 'firearm' class); its Damage slider runs
+      // 1–100 AP, clamped into the backpack's [5, 40] damage
+      // band, and left unset when it carries no usable rating
+      // so the realms' native-damage fallback applies. A mint
+      // failure never breaks a paid generation — it is caught
+      // and the creation still stands, without the pack note.
+      let mintedToBackpack = false;
+      if (category === 'weapon') {
+        try {
+          const fresh = useEngineStore.getState().weapon || {};
+          const rawDmg = Math.floor(Number(fresh.damage));
+          const dmg = Number.isFinite(rawDmg) && rawDmg > 0
+            ? Math.min(40, Math.max(5, rawDmg))
+            : undefined;
+          const meta = {
+            weaponClass: 'firearm',
+            source: 'world-engine-weapon-builder',
+            aiGenerated: true,
+            createdAt: new Date().toISOString(),
+          };
+          if (dmg !== undefined) meta.damage = dmg;
+          if (typeof finalParams.weaponType === 'string' && finalParams.weaponType) {
+            meta.weaponBuilderType = finalParams.weaponType.slice(0, 40);
+          }
+          updateBackpack((rec) => addItem(rec, {
+            id: `world-engine-weapon-${Date.now().toString(36)}`,
+            kind: 'weapon',
+            name: displayName,
+            meta,
+          }));
+          mintedToBackpack = true;
+        } catch (mintErr) {
+          console.error('Backpack mint failed for a weapon-builder creation:', mintErr);
+        }
+      }
+
       const billing = aiData.billing || {};
       setNotice(
-        billing.paymentType === 'free_tier'
+        (billing.paymentType === 'free_tier'
           ? `Done — used one of your free monthly generations (${billing.freeGenerationsRemaining} left).`
-          : `Done — ${billing.cost} Aether used (${billing.tokensRemaining} remaining).`
+          : `Done — ${billing.cost} Aether used (${billing.tokensRemaining} remaining).`)
+        + (mintedToBackpack ? ' Added to your backpack 🎒.' : '')
       );
       setPrompt('');
       setAssetUrl('');

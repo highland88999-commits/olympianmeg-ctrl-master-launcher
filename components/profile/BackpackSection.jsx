@@ -24,6 +24,8 @@ import {
   backpackStyleById,
   equippedWeaponEntry,
   itemsOfKind,
+  lightsaberEntry,
+  setActiveWeapon,
   setBackpackStyle,
 } from '@/lib/backpack/backpack';
 import { useBackpack, updateBackpack } from '@/lib/backpack/store';
@@ -88,6 +90,8 @@ export default function BackpackSection() {
   const fossils = useMemo(() => fossilItemsFromRecord(record), [record]);
   const sacs = sacCount(record);
   const equipped = equippedWeaponEntry(record);
+  const saber = lightsaberEntry(record);
+  const saberEquipped = saber && equipped && equipped.uid === saber.uid;
   const REALM_LABELS = {
     hub: 'the hub', 'earth-2': 'Earth 2', 'star-wars': 'Star Wars',
     'middle-earth': 'Middle-earth', 'hollow-earth': 'the Monsterverse',
@@ -143,6 +147,45 @@ export default function BackpackSection() {
           <>⚔ No weapon equipped — open the 🎒 button in any realm to equip one.</>
         )}
       </p>
+
+      {/* Lightsaber slot (Merlin, 2026-10-24): a link to the
+          Kyber Smith's crystal forge until the first saber is
+          created, then the saber itself lives here, with the
+          same global Equip/Unequip as the realm panels. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-cyan-400/10 border border-cyan-300/25 px-3 py-2 text-sm mb-4">
+        <span className="font-bold">🔦 Lightsaber</span>
+        {!saber ? (
+          <Link href="/weapons-forge" className="text-cyan-100 underline font-bold">
+            Forge your first saber →
+          </Link>
+        ) : (
+          <>
+            <span className="font-semibold text-neutral-100">{saber.name}</span>
+            {typeof saber.meta.damage === 'number' && (
+              <span className="text-xs text-neutral-400">dmg {saber.meta.damage}</span>
+            )}
+            {saberEquipped ? (
+              <>
+                <span className="text-amber-200 font-bold text-xs">Equipped</span>
+                <button
+                  type="button"
+                  onClick={() => updateBackpack((rec) => setActiveWeapon(rec, null))}
+                  className="text-amber-200 underline text-xs"
+                >Unequip</button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => updateBackpack((rec) => setActiveWeapon(rec, saber.uid))}
+                className="rounded-full bg-amber-300 px-3 py-1 text-xs font-bold text-neutral-900"
+              >Equip</button>
+            )}
+          </>
+        )}
+        {!saber && (
+          <span className="text-xs text-neutral-400">at the Kyber Smith&apos;s crystal forge</span>
+        )}
+      </div>
 
       {/* Currency header — real server balances, read live. */}
       <div className="flex flex-wrap gap-2 mb-4" role="list" aria-label="Currency">

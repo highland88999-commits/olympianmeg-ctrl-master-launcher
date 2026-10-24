@@ -31,6 +31,8 @@ import {
   equippedDamageForSlot,
   equippedReticleForSlot,
   equippedWeaponEntry,
+  isLightsaberEntry,
+  lightsaberEntry,
   setActiveWeapon,
   weaponHand,
 } from '../lib/backpack/backpack.js';
@@ -335,5 +337,67 @@ describe('the equipped weapon (realms read record.activeWeaponUid)', () => {
     assert.equal(equippedDamageForSlot(giftBlade, 'melee'), null); // gift weapons carry no rating
     assert.equal(equippedReticleForSlot(bow, 'ranged'), 'chevron');
     assert.equal(equippedReticleForSlot(bow, 'melee'), null);
+  });
+});
+
+describe('the lightsaber slot (Merlin, 2026-10-24: v1 name/description rule)', () => {
+  function recordWith(...inputs) {
+    let rec = emptyBackpackRecord();
+    for (const input of inputs) rec = addItem(rec, input);
+    return rec;
+  }
+
+  it('name hit: a weapon named a saber counts, case-insensitive', () => {
+    const rec = recordWith(
+      { id: 'saber-1', kind: 'weapon', name: 'Azure LIGHTSABER', meta: { weaponClass: 'blade' } },
+    );
+    assert.equal(isLightsaberEntry(rec.items[0]), true);
+    assert.equal(lightsaberEntry(rec).uid, rec.items[0].uid);
+  });
+
+  it('description hit: "saber" in meta.description counts even when the name hides it', () => {
+    const rec = recordWith(
+      { id: 'crystal-blade', kind: 'weapon', name: 'Crystal Blade', meta: { weaponClass: 'blade', description: 'A humming energy saber of pure kyber light.' } },
+    );
+    assert.equal(isLightsaberEntry(rec.items[0]), true);
+    assert.equal(lightsaberEntry(rec).name, 'Crystal Blade');
+  });
+
+  it('non-saber excluded: ordinary weapons, materials, and nameless junk do not count', () => {
+    const rec = recordWith(
+      { id: 'bow-1', kind: 'weapon', name: 'Nightreaver Bow', meta: { weaponClass: 'bow' } },
+      { id: 'ore-1', kind: 'material', name: 'Lightsaber crystal ore' },
+    );
+    assert.equal(isLightsaberEntry(rec.items[0]), false);
+    assert.equal(isLightsaberEntry(rec.items[1]), false); // kind is not weapon
+    assert.equal(lightsaberEntry(rec), null);
+    assert.equal(isLightsaberEntry(null), false);
+  });
+
+  it('kyber-forged non-saber excluded unless named a saber', () => {
+    const rec = recordWith(
+      { id: 'ai-kyber-blade', kind: 'weapon', name: 'Crystal Edge', meta: { weaponClass: 'blade', source: 'patron-forge', aiGenerated: true, forgedBy: 'kyber', description: 'A fine blade, cold as starlight.' } },
+    );
+    assert.equal(isLightsaberEntry(rec.items[0]), false);
+    assert.equal(lightsaberEntry(rec), null);
+  });
+
+  it('slot shows the FIRST saber in record order', () => {
+    const rec = recordWith(
+      { id: 'bow-1', kind: 'weapon', name: 'Nightreaver Bow', meta: { weaponClass: 'bow' } },
+      { id: 'saber-a', kind: 'weapon', name: 'First Saber', meta: { weaponClass: 'blade' } },
+      { id: 'saber-b', kind: 'weapon', name: 'Second Saber', meta: { weaponClass: 'blade' } },
+    );
+    assert.equal(lightsaberEntry(rec).name, 'First Saber');
+    assert.equal(lightsaberEntry(emptyBackpackRecord()), null);
+  });
+
+  it('a saber equips through the same global activeWeaponUid as any weapon', () => {
+    const rec = recordWith(
+      { id: 'saber-1', kind: 'weapon', name: 'Jedi Saber', meta: { weaponClass: 'blade', damage: 30 } },
+    );
+    const eq = setActiveWeapon(rec, lightsaberEntry(rec).uid, 'star-wars');
+    assert.equal(equippedWeaponEntry(eq).name, 'Jedi Saber');
+    assert.equal(eq.activeWeaponRealm, 'star-wars');
   });
 });
