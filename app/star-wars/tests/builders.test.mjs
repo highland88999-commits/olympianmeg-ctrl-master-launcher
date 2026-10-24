@@ -26,7 +26,7 @@ globalThis.document = {
 const THREE = await import('three');
 const T = await import('../textures.js');
 const LM = await import('../landmarks.js');
-const { buildZone, createHeightFunction, distToPath, spanSeatY } = await import('../zone.js');
+const { buildZone, buildWorldScatter, createHeightFunction, distToPath, spanSeatY } = await import('../zone.js');
 const { PLANETS } = await import('../data.js');
 const {
   createSaberState, saberEase,
@@ -188,21 +188,24 @@ describe('zone (walk)', () => {
     const home = z.colliders.find((c) => approx(c.x, 0) && approx(c.z, 0));
     assert.ok(home, 'mos-eisley collider missing');
     assert.equal(home.r, 13.5);
-    // moisture-farm local {x:0,z:0,r:8} at (-40,-30) ry=0.7 -> world (-40,-30,8)
+    // moisture-farm centre {x:0,z:0,r:8.4} at (-40,-30) ry=0.7 -> world (-40,-30,8.4)
+    // (the dome's entrance drum reaches 8.2; the vaporator poles carry
+    // their own colliders — all-worlds QA, 2026-10-23)
     const farm = z.colliders.find((c) => approx(c.x, -40) && approx(c.z, -30));
     assert.ok(farm, 'moisture-farm collider missing');
-    assert.equal(farm.r, 8);
+    assert.equal(farm.r, 8.4);
     z.dispose();
   });
 
   it('rotates local colliders by ry (podrace-arch pillars)', () => {
     const z = buildZone(THREE, planetDef, T);
-    // local pillars (±6,0); ry=PI/2 at (10,10) -> world (10,4) and (10,16), r=2.4
+    // local pillars (±6,0); ry=PI/2 at (10,10) -> world (10,4) and (10,16), r=2.9
+    // (the pillar's 4 x 4 base has a 2.83 half-diagonal — all-worlds QA)
     const p1 = z.colliders.find((c) => approx(c.x, 10, 1e-4) && approx(c.z, 4, 1e-4));
     const p2 = z.colliders.find((c) => approx(c.x, 10, 1e-4) && approx(c.z, 16, 1e-4));
     assert.ok(p1, 'rotated pillar 1 missing: ' + JSON.stringify(z.colliders));
     assert.ok(p2, 'rotated pillar 2 missing');
-    assert.equal(p1.r, 2.4);
+    assert.equal(p1.r, 2.9);
     z.dispose();
   });
 
@@ -926,9 +929,12 @@ describe('QA items 4+5 — small label, holstered saber, measured mounts', () =>
 });
 
 describe('QA item 6 — rideable vehicles (vehicles.js + zone wiring)', () => {
-  it('tatooine stages three rideables; the winner pod stays dressing', () => {
+  it('tatooine stages four rideables, the winner pod included', () => {
     const z = buildZone(THREE, PLANETS.tatooine, T);
-    assert.deepEqual(z.vehicles.map((v) => v.id).sort(), ['landspeeder', 'pod-grid-a', 'pod-grid-b']);
+    // The QA round left the winner's pod as dressing; the all-worlds
+    // pass (2026-10-23) wires it — same type as its grid siblings.
+    assert.deepEqual(z.vehicles.map((v) => v.id).sort(),
+      ['landspeeder', 'pod-grid-a', 'pod-grid-b', 'pod-winner']);
     for (const v of z.vehicles) {
       assert.equal(v.state.mode, 'parked');
       assert.equal(v.state.speed, 0);
@@ -1030,5 +1036,418 @@ describe('QA item 6 — rideable vehicles (vehicles.js + zone wiring)', () => {
     assert.equal(gi, gates.length,
       `pod drove the whole circuit (${gi}/${gates.length} gates)`);
     z.dispose();
+  });
+});
+
+/* ================================================================== */
+/* ALL-WORLDS QA (2026-10-23, Merlin's order: "the other fixes        */
+/* should be applied to all Star Wars worlds"). The six Tatooine QA  */
+/* fixes, pinned across EVERY def / landmark type / scatter kind,    */
+/* so any future world inherits the audit instead of the bugs.       */
+/* ================================================================== */
+
+const fs = await import('node:fs');
+
+describe('ALL-WORLDS QA 1 — gravity + ground truth, every world', () => {
+  /* Rebuild the rendered terrain's height at (x, z) from the built
+   * geometry's own ring/sector grid — exactly what the triangles
+   * interpolate — instead of raycasting (a ray misses hole-punched
+   * cells, which is how the first fidelity probe under-read the
+   * canyon hairpins). The mesh's -90° Y rotation is detected from
+   * the vertices themselves, not assumed. */
+  function terrainSampler(z) {
+    let terrain = null, best = 0;
+    z.group.traverse((o) => {
+      if (o.isMesh && o.geometry?.attributes?.position) {
+        const n = o.geometry.attributes.position.count;
+        if (n > best) { best = n; terrain = o; }
+      }
+    });
+    assert.ok(terrain, 'terrain mesh present');
+    const pos = terrain.geometry.attributes.position;
+    let errA = 0, errB = 0, checked = 0;
+    for (let i = 0; i < pos.count; i += 977) {
+      const x = pos.getX(i), y = pos.getY(i), zz = pos.getZ(i);
+      errA += Math.abs(y - z.groundHeight(x, zz));
+      errB += Math.abs(y - z.groundHeight(-zz, x));
+      checked++;
+    }
+    const rot = errB < errA;
+    assert.ok(Math.min(errA, errB) / checked < 0.05,
+      'one frame matches the analytic surface at the vertices');
+    const radii = new Set();
+    for (let i = 0; i < pos.count; i++) {
+      /* 1 cm buckets: float32 vertex noise (~3e-5) must not split a
+       * ring into two phantom radii */
+      radii.add(Math.round(Math.hypot(pos.getX(i), pos.getZ(i)) * 1e2) / 1e2);
+    }
+    const ringR = [...radii].sort((a, b) => a - b);
+    const rings = ringR.length - 1;
+    const segs = Math.round(pos.count / (rings + 1)) - 1;
+    assert.equal((rings + 1) * (segs + 1), pos.count, 'regular ring/sector grid');
+    const R = ringR[rings];
+    const yAt = (j, i) => pos.getY(j * (segs + 1) + i);
+    const sample = (wx, wz) => {
+      const lx = rot ? wz : wx, lz = rot ? -wx : wz;
+      const r = Math.hypot(lx, lz);
+      if (r > R + 0.05) return null; // rim vertices carry float32 fuzz
+      let th = Math.atan2(lz, lx); if (th < 0) th += Math.PI * 2;
+      const jf = (Math.min(r, R) / R) * rings;
+      const j0 = Math.min(rings - 1, Math.floor(jf)), fr = jf - j0;
+      const tf = (th / (Math.PI * 2)) * segs;
+      const i0 = Math.floor(tf) % segs, fi = tf - Math.floor(tf);
+      /* interpolate the way the renderer draws: the quad's two
+       * triangles (a, b, c) and (b, d, c) from makeDiscGeometry's
+       * index order — bilinear across the quad would invent a
+       * smoother surface than the one on screen */
+      const ya = yAt(j0, i0), yb = yAt(j0, i0 + 1);
+      const yc = yAt(j0 + 1, i0), yd = yAt(j0 + 1, i0 + 1);
+      if (fr + fi <= 1) return ya + (yb - ya) * fi + (yc - ya) * fr;
+      return yd + (yb - yd) * (1 - fr) + (yc - yd) * (1 - fi);
+    };
+    for (let i = 0; i < pos.count; i += 613) {
+      const x = pos.getX(i), y = pos.getY(i), zz = pos.getZ(i);
+      const s = sample(rot ? -zz : x, rot ? x : zz);
+      assert.ok(s != null && Math.abs(s - y) < 0.02, 'sampler self-check at a vertex');
+    }
+    return sample;
+  }
+
+  for (const def of Object.values(PLANETS)) {
+    if (def.kind !== 'walk') continue;
+    it(`${def.id}: mesh tracks groundHeight within 0.2 m; snapY line-walks hold`, () => {
+      const z = buildZone(THREE, def, T);
+      const sample = terrainSampler(z);
+      let maxDev = 0, probes = 0;
+      const R = def.worldRadius - 3;
+      for (let x = -R; x <= R; x += 3) {
+        for (let zz = -R; zz <= R; zz += 3) {
+          if (Math.hypot(x, zz) > R) continue;
+          const mh = sample(x, zz);
+          if (mh == null) continue;
+          probes++;
+          const dev = Math.abs(mh - z.groundHeight(x, zz));
+          if (dev > maxDev) maxDev = dev;
+        }
+      }
+      assert.ok(probes > 1000, `${def.id}: probe grid covered (${probes} probes)`);
+      assert.ok(maxDev <= 0.2,
+        `${def.id}: worst mesh-vs-analytic deviation ${maxDev.toFixed(3)} m (bound 0.2)`);
+      /* snapY line-walks over the world's own features: the walker
+       * clearance invariant must hold on every step, wherever the
+       * line leads (colliders may stop the line; drifting may not). */
+      const world = {
+        groundHeight: z.groundHeight, colliders: z.colliders,
+        bounds: z.bounds, snapY: true, eye: WC.WALK_EYE,
+      };
+      const lines = [
+        { from: [-def.worldRadius + 8, 0], yaw: -Math.PI / 2, axis: 'x' },
+        { from: [0, -def.worldRadius + 8], yaw: Math.PI, axis: 'z' },
+      ];
+      for (const line of lines) {
+        const w = WC.createWalker({ x: line.from[0], z: line.from[1], yaw: line.yaw });
+        const start = line.axis === 'x' ? w.pos.x : w.pos.z;
+        let progress = 0;
+        const maxSteps = Math.ceil((def.worldRadius * 2 + 80) / (WC.WALK_SPEED / 60)) ;
+        for (let i = 0; i < maxSteps; i++) {
+          WC.stepWalker(w, { fwd: 1 }, 1 / 60, world);
+          const dev = Math.abs(w.pos.y - WC.WALK_EYE - z.groundHeight(w.pos.x, w.pos.z));
+          assert.ok(dev < 1e-6,
+            `${def.id}: clearance drifted ${dev} at (${w.pos.x.toFixed(1)}, ${w.pos.z.toFixed(1)})`);
+          const p = (line.axis === 'x' ? w.pos.x : w.pos.z) - start;
+          if (p > progress) progress = p;
+          if (p > def.worldRadius * 2 - 20) break;
+        }
+        assert.ok(progress > 30, `${def.id}: line-walk travelled ${progress.toFixed(0)} m`);
+      }
+      z.dispose();
+    });
+  }
+
+  for (const def of Object.values(PLANETS)) {
+    if (def.kind !== 'fly') continue;
+    it(`${def.id}: fly law — groundHeight is identically 0, placements sit at y=0`, () => {
+      const z = buildZone(THREE, def, T);
+      for (let x = -200; x <= 200; x += 25) {
+        for (let zz = -200; zz <= 200; zz += 25) {
+          assert.equal(z.groundHeight(x, zz), 0, `${def.id}: fly groundHeight`);
+        }
+      }
+      for (const child of z.group.children) {
+        if (child.name && child.name.startsWith('landmark:')) {
+          assert.equal(child.position.y, 0, `${def.id}: ${child.name} seatY`);
+        }
+      }
+      assert.deepEqual(z.vehicles, [], `${def.id}: no ground vehicles in a fly zone`);
+      z.dispose();
+    });
+  }
+});
+
+describe('ALL-WORLDS QA 3 — span seating recomputed for every landmark, every world', () => {
+  for (const def of Object.values(PLANETS)) {
+    it(`${def.id}: every landmark seat matches the span law`, () => {
+      const z = buildZone(THREE, def, T);
+      const groups = z.group.children.filter((c) => c.name && c.name.startsWith('landmark:'));
+      assert.equal(groups.length, (def.landmarks || []).length, `${def.id}: landmark groups`);
+      (def.landmarks || []).forEach((ld, idx) => {
+        const g = groups[idx];
+        assert.equal(g.name, 'landmark:' + ld.type);
+        if (def.kind === 'fly') {
+          assert.equal(g.position.y, 0, `${def.id}/${ld.type}: fly seatY law`);
+          return;
+        }
+        /* mirror buildZone's seating law exactly (same inputs, same
+         * branches) — the built seat must equal the law's output */
+        const glb = ld.model ? LM.GLB_MODELS[ld.model] : null;
+        const local = glb ? glb.colliders : LM.buildLandmark(ld.type, THREE, T).colliders;
+        const s = ld.s || 1;
+        let footprint = 0;
+        for (const c of local) {
+          footprint = Math.max(footprint, (Math.hypot(c.x, c.z) + c.r) * s);
+        }
+        if (glb) footprint = (glb.meters / 2) * s;
+        let expect;
+        if (glb) {
+          expect = spanSeatY(z.groundHeight, ld.x || 0, ld.z || 0,
+            Math.max(footprint, 1), { clampDrop: 3.5 }) - 0.3;
+        } else if (footprint >= 6) {
+          expect = spanSeatY(z.groundHeight, ld.x || 0, ld.z || 0,
+            footprint * 0.75, { clampDrop: 2 }) - 0.3;
+        } else {
+          expect = z.groundHeight(ld.x || 0, ld.z || 0) - 0.12;
+        }
+        assert.ok(approx(g.position.y, expect, 1e-6),
+          `${def.id}/${ld.type}: seat ${g.position.y} vs law ${expect}`);
+      });
+      z.dispose();
+    });
+  }
+});
+
+describe('ALL-WORLDS QA 2 — colliders cover hulls, every landmark type used on foot', () => {
+  /* Probe = the hull's own surface: geometry vertices in the walker
+   * band (y <= 2.6), plus AABB edge midpoints for axis-aligned parts
+   * (flat faces are where chains gap). A probe passes when it lies
+   * within some collider's disc + 0.35 m of triangulation slop — the
+   * walker is a point against these discs (resolveColliders), so
+   * anything further out is visual hull a walker can stand inside.
+   * Exempt by construction: Circle/Plane geometry (surface decals —
+   * the lava pool, the Theed plaza step, windows), Torus geometry
+   * (arch beams overhead + doorframes whose inner skin bounds a
+   * walk-through opening; their posts carry the colliders), and
+   * parts floating above the walker band. */
+  const SKIP_GEO = new Set(['CircleGeometry', 'PlaneGeometry', 'TorusGeometry']);
+  const walkTypes = new Set();
+  for (const def of Object.values(PLANETS)) {
+    if (def.kind !== 'walk') continue;
+    for (const ld of def.landmarks || []) walkTypes.add(ld.type);
+  }
+  for (const type of [...walkTypes].sort()) {
+    it(`${type}: no hull point in the walker band escapes collider reach`, () => {
+      const b = LM.buildLandmark(type, THREE, T);
+      b.group.updateMatrixWorld(true);
+      const probes = [];
+      b.group.traverse((o) => {
+        if (!o.isMesh || o.isInstancedMesh || o.isSprite) return;
+        if (SKIP_GEO.has(o.geometry && o.geometry.type)) return;
+        /* flat ground plates are steps, not hulls: the Theed plaza
+         * (r16, 1 m) and the Tipoca sea disc (r30, 1 m) */
+        if (o.geometry.type === 'CylinderGeometry'
+          && o.geometry.parameters.height <= 1.2
+          && o.geometry.parameters.radiusTop >= 8) return;
+        const pa = o.geometry.attributes.position;
+        const stride = Math.max(1, Math.floor(pa.count / 240));
+        const v = new THREE.Vector3();
+        for (let i = 0; i < pa.count; i += stride) {
+          v.fromBufferAttribute(pa, i).applyMatrix4(o.matrixWorld);
+          if (v.y <= 2.6) probes.push([v.x, v.z]);
+        }
+        const axisAligned = Math.abs(Math.sin(2 * (o.rotation.y || 0))) < 0.01
+          && Math.abs(o.rotation.x || 0) < 0.01 && Math.abs(o.rotation.z || 0) < 0.01;
+        if (axisAligned) {
+          const bb = new THREE.Box3().setFromObject(o);
+          if (bb.min.y <= 2.6) {
+            const cx = (bb.min.x + bb.max.x) / 2, cz = (bb.min.z + bb.max.z) / 2;
+            probes.push([bb.min.x, cz], [bb.max.x, cz], [cx, bb.min.z], [cx, bb.max.z]);
+          }
+        }
+      });
+      assert.ok(probes.length > 0, `${type}: probes sampled`);
+      for (const [px, pz] of probes) {
+        let best = Infinity;
+        for (const c of b.colliders) {
+          best = Math.min(best, Math.hypot(px - c.x, pz - c.z) - c.r);
+        }
+        assert.ok(best <= 0.35,
+          `${type}: hull point (${px.toFixed(1)}, ${pz.toFixed(1)}) sits ${best.toFixed(2)} m past the nearest collider`);
+      }
+    });
+  }
+
+  it('debris-field: every one of the 200 rocks carries its own flight collider', () => {
+    const b = LM.buildLandmark('debris-field', THREE, T);
+    assert.equal(b.colliders.length, 201, '200 rocks + the beacon pylon');
+    assert.ok(b.colliders.some((c) => c.x === 0 && c.z === 0 && c.r === 4), 'pylon collider');
+    assert.ok(b.colliders.every((c) => c.r >= 1), 'rock radii follow their instance scale');
+  });
+
+  it('star-destroyer: a distant silhouette by design — no colliders at all', () => {
+    const b = LM.buildLandmark('star-destroyer', THREE, T);
+    assert.equal(b.colliders.length, 0);
+  });
+});
+
+describe('ALL-WORLDS QA 2b — scatter colliders cover their hulls, every kind', () => {
+  const flat = () => 0;
+  function scatterFor(kind, size) {
+    const colliders = [];
+    const group = buildWorldScatter(THREE, {
+      seed: 99, worldRadius: 140,
+      scatter: [{ kind, count: 30, minR: 25, maxR: 110, size }],
+    }, T, flat, colliders, []);
+    return { group, colliders };
+  }
+  function firstInstanced(group) {
+    let mesh = null;
+    group.traverse((o) => { if (!mesh && o.isInstancedMesh) mesh = o; });
+    return mesh;
+  }
+  function instanceAt(mesh, i) {
+    const e = mesh.instanceMatrix.array, o = i * 16;
+    return {
+      x: e[o + 12], z: e[o + 14],
+      s: Math.hypot(e[o], e[o + 1], e[o + 2]),
+      zx: e[o + 8], zz: e[o + 10],
+    };
+  }
+  /* visual = the hull radius the kind's geometry actually reaches at
+   * scale s (from the builders in zone.js); min = the size below
+   * which the kind is dressing, not a hull */
+  const SOLID = {
+    rock: { visual: (s) => s, min: 1.8 },
+    mesa: { visual: (s) => 1.23 * s, min: 0 },
+    'canopy-tree': { visual: (s) => 0.55 * s, min: 1.6 },
+    'garden-tree': { visual: (s) => 0.44 * s, min: 1.6 },
+    'swamp-tree': { visual: (s) => 0.95 * s, min: 1.6 },
+    'ice-crag': { visual: (s) => s, min: 1.8 },
+    'lava-rock': { visual: (s) => s, min: 1.8 },
+    spire: { visual: (s) => 1.13 * s, min: 0 },
+    pylon: { visual: (s) => 0.62 * s, min: 1.6 },
+    'dark-spire': { visual: (s) => 0.85 * s, min: 1.8 },
+    obsidian: { visual: (s) => 0.55 * s, min: 1.8 },
+  };
+  for (const [kind, rule] of Object.entries(SOLID)) {
+    it(`${kind}: every placed instance carries a collider covering its hull`, () => {
+      const { group, colliders } = scatterFor(kind, [2.2, 3.2]);
+      const mesh = firstInstanced(group);
+      assert.ok(mesh && mesh.count > 0, `${kind}: instances built`);
+      for (let i = 0; i < mesh.count; i++) {
+        const p = instanceAt(mesh, i);
+        if (p.s < rule.min) continue;
+        const need = rule.visual(p.s);
+        const ok = colliders.some((c) =>
+          Math.hypot(c.x - p.x, c.z - p.z) <= 0.06 && c.r >= need - 0.02);
+        assert.ok(ok, `${kind} #${i} (s=${p.s.toFixed(2)}): no collider covering r=${need.toFixed(2)}`);
+      }
+    });
+  }
+
+  it('wreck: the two-circle chain follows each hull slab', () => {
+    const { group, colliders } = scatterFor('wreck', [2.2, 3.2]);
+    const mesh = firstInstanced(group);
+    assert.ok(mesh && mesh.count > 0, 'wreck instances built');
+    for (let i = 0; i < mesh.count; i++) {
+      const p = instanceAt(mesh, i);
+      const len = Math.hypot(p.zx, p.zz) || 1;
+      const ax = p.zx / len, az = p.zz / len; // the slab's long axis
+      for (const sgn of [-1, 1]) {
+        const ex = p.x + sgn * 1.15 * p.s * ax, ez = p.z + sgn * 1.15 * p.s * az;
+        const ok = colliders.some((c) =>
+          Math.hypot(c.x - ex, c.z - ez) <= 0.15 && c.r >= 1.75 * p.s);
+        assert.ok(ok, `wreck #${i}: chain circle missing at (${ex.toFixed(1)}, ${ez.toFixed(1)})`);
+      }
+    }
+  });
+
+  it('vaporator: the pole takes the flat r0.7 collider, which covers its base', () => {
+    const { group, colliders } = scatterFor('vaporator', [2.2, 3.2]);
+    const mesh = firstInstanced(group);
+    assert.ok(mesh && mesh.count > 0, 'vaporator instances built');
+    for (let i = 0; i < mesh.count; i++) {
+      const p = instanceAt(mesh, i);
+      const ok = colliders.some((c) =>
+        Math.hypot(c.x - p.x, c.z - p.z) <= 0.06 && c.r >= 0.14 * p.s);
+      assert.ok(ok, `vaporator #${i}: pole collider missing`);
+    }
+  });
+
+  for (const kind of ['undergrowth', 'swamp-knee', 'snow-drift', 'salt-crystal', 'reed', 'scrub']) {
+    it(`${kind}: soft dressing stays walk-through by design`, () => {
+      const { colliders } = scatterFor(kind, [2.2, 3.2]);
+      assert.equal(colliders.length, 0, `${kind} must not wall the walker`);
+    });
+  }
+});
+
+describe('ALL-WORLDS QA 4 — characters: measured anchors + holster law, every def', () => {
+  const withChars = Object.values(PLANETS)
+    .filter((d) => Array.isArray(d.characters) && d.characters.length);
+  it('the figure-bearing worlds are tatooine + mustafar (a new one must bring measured anchors)', () => {
+    assert.deepEqual(withChars.map((d) => d.id).sort(), ['mustafar', 'tatooine']);
+  });
+  for (const def of withChars) {
+    for (const cd of def.characters) {
+      it(`${def.id}/${cd.id}: hand + belt anchors present; the hilt spawns holstered ON the belt`, () => {
+        assert.ok(Array.isArray(cd.hand) && cd.hand.length === 3, 'measured fist anchor');
+        assert.ok(Array.isArray(cd.belt) && cd.belt.length === 3, 'measured belt anchor');
+        const ch = CH.buildCharacter(THREE, cd, () => 0);
+        let saberAtBelt = false, labels = 0;
+        ch.group.traverse((o) => {
+          if (o.isSprite) labels++;
+          if (o.isGroup && o.position
+            && approx(o.position.x, cd.belt[0], 1e-6)
+            && approx(o.position.y, cd.belt[1], 1e-6)
+            && approx(o.position.z, cd.belt[2], 1e-6)) saberAtBelt = true;
+        });
+        assert.ok(saberAtBelt, 'saber group mounted at the belt anchor (grip 0 = holstered)');
+        assert.ok(labels >= 1, 'the small name label exists (distance-faded by labelOpacity)');
+        ch.dispose();
+      });
+    }
+  }
+});
+
+describe('ALL-WORLDS QA 5+6 — rideable inventory per world + shared page laws', () => {
+  it('vehicle inventory: tatooine stages four rideables; every other world none (audited)', () => {
+    /* Audit basis (2026-10-23): Endor's "Speeder-Bike Run" beat, Crait's
+     * ski speeders, Hoth's tauntauns, Jakku's wreckage, Kamino's stilts
+     * and Coruscant's spires are narrative/ambient/dressing — no
+     * rideable-class prop exists in their landmark sets. The fly
+     * worlds need none (the player already flies). Tatooine is the
+     * only world with vehicle-class props, and all four are wired. */
+    const expect = { tatooine: ['landspeeder', 'pod-grid-a', 'pod-grid-b', 'pod-winner'] };
+    for (const def of Object.values(PLANETS)) {
+      const vids = (def.landmarks || []).filter((l) => l.vehicle).map((l) => l.vid).sort();
+      assert.deepEqual(vids, (expect[def.id] || []).slice().sort(), `${def.id} vehicle inventory`);
+      for (const l of def.landmarks || []) {
+        if (l.vehicle) {
+          assert.ok(VH.VEHICLE_TYPES[l.vehicle], `${def.id}: type ${l.vehicle} exists in vehicles.js`);
+        }
+      }
+    }
+  });
+
+  it('page laws hold for every world (single shared page, no per-world branches)', () => {
+    const src = fs.readFileSync(
+      fileURLToPath(new URL('../page.jsx', import.meta.url)), 'utf8');
+    assert.ok(/snapY:\s*true/.test(src), 'the walker world opts into exact ground follow');
+    assert.ok(src.includes('walker.pos.x = st.x') && src.includes('walker.pos.z = st.z'),
+      'while mounted, gates + saber observer read the VEHICLE position');
+    assert.ok(src.includes("entry.kind !== 'roam'"), 'roam fade keys on entry kind, not planet');
+    assert.ok(src.includes('setTimeout(() => setRoamCard(false), 6000)'),
+      'the Free Roam banner fades after 6 s');
+    assert.ok(src.includes('styles.modeChip') && src.includes('🧭 Free Roam'),
+      'the small mode chip remains after the fade');
   });
 });

@@ -178,13 +178,17 @@ const BUILDERS = {
     const wall = M(R, 0xe6ddc8), pole = M(R, 0x8f959c, { metalness: 0.6, roughness: 0.5 });
     g.add(mesh(R, dome(R, 6, 14, 10), wall, 0, 0, 0));
     g.add(mesh(R, new R.CylinderGeometry(1.2, 1.2, 1.5, 8), M(R, 0xb9ac8f), 0, 0.4, 7));
+    const cols = [{ x: 0, z: 0, r: 8.4 }]; // dome r6 + entrance drum at z7 (reaches 8.2)
     for (let i = 0; i < 3; i++) {
       const a = (i / 3) * Math.PI * 2 + 0.5, x = Math.cos(a) * 11, z = Math.sin(a) * 11;
       g.add(mesh(R, new R.CylinderGeometry(0.25, 0.35, 9, 6), pole, x, 4.5, z));
       g.add(mesh(R, new R.BoxGeometry(2.4, 0.25, 0.25), pole, x, 8.2, z, a));
       g.add(mesh(R, new R.BoxGeometry(0.9, 0.9, 0.9), pole, x, 9, z));
+      // the poles stand at ring 11, far outside the dome's circle —
+      // each carries its own collider (all-worlds QA, 2026-10-23)
+      cols.push({ x: x, z: z, r: 0.6 });
     }
-    return done(R, g, [{ x: 0, z: 0, r: 8 }]);
+    return done(R, g, cols);
   },
   /* Tatooine — two stone pillars + top beam (podrace start arch). */
   'podrace-arch': function (R) {
@@ -197,7 +201,8 @@ const BUILDERS = {
       g.add(mesh(R, new R.BoxGeometry(4, 1.5, 4), stone, s * 6, 0.7, 0));
     }
     g.add(mesh(R, new R.BoxGeometry(16, 2.5, 3.5), stone, 0, 17, 0));
-    return done(R, g, [{ x: -6, z: 0, r: 2.4 }, { x: 6, z: 0, r: 2.4 }]);
+    // r 2.9: the pillar's square base (4 x 4) has a 2.83 half-diagonal
+    return done(R, g, [{ x: -6, z: 0, r: 2.9 }, { x: 6, z: 0, r: 2.9 }]);
   },
   /* Tatooine — two long rock walls forming a gap. */
   'beggars-canyon': function (R) {
@@ -209,7 +214,9 @@ const BUILDERS = {
         const h = 10 + rand() * 6, z = -30 + i * 20;
         const geo = tintGeo(R, new R.BoxGeometry(8, h, 18), 0x8a6f52, 0.35, rand);
         g.add(mesh(R, geo, rockMat, s * 11, h / 2 - 1, z, (rand() - 0.5) * 0.2));
-        cols.push({ x: s * 11, z: z, r: 5.5 });
+        // one circle per wall block left the block's long ends open
+        // (18 m of wall, r 5.5) — a three-circle chain per block
+        for (const dz of [-5.8, 0, 5.8]) cols.push({ x: s * 11, z: z + dz, r: 5.8 });
       }
     }
     return done(R, g, cols);
@@ -261,7 +268,14 @@ const BUILDERS = {
     g.add(mesh(R, new R.SphereGeometry(0.9, 8, 6), gold, 0, 16.4, -4));
     for (let i = -2; i <= 2; i++) g.add(mesh(R, new R.CylinderGeometry(0.7, 0.8, 7, 8), cream, i * 5, 4, 4.5));
     g.add(mesh(R, new R.BoxGeometry(26, 1.2, 3), cream, 0, 8, 4.5)); // entablature
-    return done(R, g, [{ x: 0, z: -4, r: 13 }]);
+    /* The main block's half-diagonal is 13.04 (r 13 clipped its
+     * corners), and the two outer columns stand at (+/-10, 4.5) —
+     * 13.1 from the centre, OUTSIDE the old circle: each column now
+     * carries its own collider. The plaza disc (1 m) is a step, not
+     * a wall — deliberately uncollided, like the throne's tiers. */
+    const cols = [{ x: 0, z: -4, r: 13.2 }];
+    for (let i = -2; i <= 2; i++) cols.push({ x: i * 5, z: 4.5, r: 1 });
+    return done(R, g, cols);
   },
   /* Coruscant — stepped ziggurat + 5 spires. */
   'jedi-temple': function (R) {
@@ -279,7 +293,14 @@ const BUILDERS = {
       g.add(mesh(R, new R.ConeGeometry(1.6, 3, 6), M(R, 0x8f8468), x, top + 15.5, z));
     }
     g.add(mesh(R, new R.CylinderGeometry(2, 2.6, 10, 8), stone, 0, top + 5, 0));
-    return done(R, g, [{ x: 0, z: 0, r: 15 }]);
+    /* The base step is a 30 x 30 square: one r15 circle touches its
+     * faces but leaves the corners (21.2) wide open — corner circles
+     * complete the coverage (all-worlds QA, 2026-10-23). */
+    const cols = [{ x: 0, z: 0, r: 15.6 }];
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      cols.push({ x: sx * 10.6, z: sz * 10.6, r: 8.2 });
+    }
+    return done(R, g, cols);
   },
   /* Coruscant — large hemisphere dome. */
   'senate-dome': function (R) {
@@ -292,7 +313,9 @@ const BUILDERS = {
       const a = (i / 10) * Math.PI * 2;
       g.add(mesh(R, new R.BoxGeometry(1.6, 2.4, 0.5), E(R, 0x9fd8ff), Math.cos(a) * 18.4, 6, Math.sin(a) * 18.4, -a));
     }
-    return done(R, g, [{ x: 0, z: 0, r: 19 }]);
+    // the drum flares to r 20 at the ground — the collider meets the
+    // flare, not the r 19 top
+    return done(R, g, [{ x: 0, z: 0, r: 20.2 }]);
   },
   /* Kamino — 3 stilt platforms over a water disc + bridges. */
   'tipoca-city': function (R, T) {
@@ -321,13 +344,22 @@ const BUILDERS = {
     const rockMat = M(R, 0xffffff, { vertexColors: true });
     const wall = tintGeo(R, new R.CylinderGeometry(20, 23, 10, 18, 1, true), 0xa0663a, 0.3, rand);
     const wm = mesh(R, wall, rockMat, 0, 5, 0); wm.material.side = R.DoubleSide; g.add(wm);
+    const cols = [];
     for (let i = 0; i < 6; i++) {
       const a = (i / 6) * Math.PI * 2, h = 14 + rand() * 8;
       g.add(mesh(R, tintGeo(R, new R.ConeGeometry(2.5, h, 7), 0x96603a, 0.3, rand),
         rockMat, Math.cos(a) * 24, h / 2, Math.sin(a) * 24));
+      cols.push({ x: Math.cos(a) * 24, z: Math.sin(a) * 24, r: 2.7 });
     }
     g.add(mesh(R, tintGeo(R, new R.ConeGeometry(3, 12, 7), 0x8a5636, 0.3, rand), rockMat, 0, 6, 0));
-    return done(R, g, [{ x: 0, z: 0, r: 14 }]);
+    /* The wall stands at r 20–23 but the old collider was r 14 —
+     * the walker crossed the wall ring and stopped INSIDE the bowl
+     * wall's far side (all-worlds QA, 2026-10-23). The wall has no
+     * gate in its geometry, so the honest collider is the wall
+     * itself: one circle at the wall's ground flare (23). The
+     * mission gate completes at the wall face, outside. */
+    cols.push({ x: 0, z: 0, r: 23.4 });
+    return done(R, g, cols);
   },
   /* Geonosis — dark factory block + chimney stacks. */
   'droid-foundry': function (R) {
@@ -342,7 +374,14 @@ const BUILDERS = {
     }
     for (let i = 0; i < 5; i++)
       g.add(mesh(R, new R.BoxGeometry(1.4, 2, 0.4), E(R, 0xffc23d), -10 + i * 5, 5, 8.1));
-    return done(R, g, [{ x: 0, z: 0, r: 11 }]);
+    /* The block is 24 x 16 (half-diagonal 14.4): one r11 circle let
+     * the walker through its faces, let alone the corners — a
+     * four-circle chain covers the rectangle. */
+    const cols = [];
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      cols.push({ x: sx * 6, z: sz * 4, r: 8 });
+    }
+    return done(R, g, cols);
   },
   /* Mustafar — black angular fortress + red emissive slits. */
   'mustafar-fortress': function (R) {
@@ -355,7 +394,9 @@ const BUILDERS = {
       g.add(mesh(R, new R.BoxGeometry(0.5, 8, 0.5), E(R, 0xff2a1a), 8.1, 6 + i * 3.4, -2 + (i % 2) * 3, 0.3));
     for (let i = 0; i < 3; i++)
       g.add(mesh(R, new R.BoxGeometry(6, 0.5, 0.5), E(R, 0xff2a1a), -10, 4 + i * 3.5, 13.2, -0.4));
-    return done(R, g, [{ x: 0, z: 0, r: 12 }]);
+    /* The wing block (10 x 18, rotated) reaches 10.3 from its own
+     * centre at (-10, 4) — far outside the main block's circle. */
+    return done(R, g, [{ x: 0, z: 0, r: 12 }, { x: -10, z: 4, r: 10.5 }]);
   },
   /* Mustafar — rock cliff + emissive lava-fall strips. */
   'lava-falls': function (R, T) {
@@ -371,7 +412,9 @@ const BUILDERS = {
     const pool = mesh(R, new R.CircleGeometry(9, 20),
       new R.MeshBasicMaterial({ map: T.lavaTexture(), transparent: true, opacity: 0.95 }), 0, 0.3, 8);
     pool.rotation.x = -Math.PI / 2; pool.userData.pulse = true; g.add(pool);
-    return done(R, g, [{ x: 0, z: 0, r: 7 }]);
+    // the cliff block is 14 x 6 (half-diagonal 7.6); the lava pool
+    // is a ground decal — a surface, not a hull — and stays open
+    return done(R, g, [{ x: 0, z: 0, r: 7.7 }]);
   },
   /* Yavin 4 — stepped stone pyramid. */
   'yavin-temple': function (R) {
@@ -383,7 +426,14 @@ const BUILDERS = {
       w -= 4.4;
     }
     g.add(mesh(R, new R.BoxGeometry(4, 3, 6), M(R, 0x6e6a5c), 0, 18.4, 3));
-    return done(R, g, [{ x: 0, z: 0, r: 12 }]);
+    /* The base step is a 26 x 26 square (half-diagonal 18.4): one
+     * r12 circle covered neither its faces (13) nor its corners —
+     * centre + corner circles, the jedi-temple pattern. */
+    const cols = [{ x: 0, z: 0, r: 13.4 }];
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      cols.push({ x: sx * 9.2, z: sz * 9.2, r: 7 });
+    }
+    return done(R, g, cols);
   },
   /* Hoth — ice arch hangar entrance + trench walls. */
   'echo-base': function (R) {
@@ -396,8 +446,15 @@ const BUILDERS = {
       g.add(mesh(R, new R.BoxGeometry(3, 6, 26), ice, s * 8.5, 3, -14));
     }
     g.add(mesh(R, new R.BoxGeometry(4, 1.6, 0.6), E(R, 0x9fd8ff), 0, 8.6, 0.6));
-    const cols = [{ x: -8.5, z: 0, r: 3 }, { x: 8.5, z: 0, r: 3 },
-      { x: -8.5, z: -14, r: 3 }, { x: 8.5, z: -14, r: 3 }];
+    /* The trench walls run 26 m (z -1 to -27) but carried colliders
+     * only at their ends and middle — the walker entered the wall
+     * anywhere along its length. A chain per wall now. */
+    const cols = [];
+    for (const s of [-1, 1]) {
+      for (const z of [0, -5.5, -11, -16.5, -22, -26.5]) {
+        cols.push({ x: s * 8.5, z: z, r: 3.2 });
+      }
+    }
     return done(R, g, cols);
   },
   /* Dagobah — hut on stilts + roots. */
@@ -414,7 +471,14 @@ const BUILDERS = {
       root.rotation.z = Math.cos(a) * 0.5; root.rotation.x = -Math.sin(a) * 0.5; g.add(root);
     }
     g.add(mesh(R, new R.BoxGeometry(1.6, 2.2, 0.4), E(R, 0xffd98a), 0, 6.2, 3.1));
-    return done(R, g, [{ x: 0, z: 0, r: 5 }]);
+    /* The roots flare past the hut's r5 circle (their tips reach
+     * ~6.3): one small collider per root. */
+    const cols = [{ x: 0, z: 0, r: 5 }];
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      cols.push({ x: Math.cos(a) * 5, z: Math.sin(a) * 5, r: 1.2 });
+    }
+    return done(R, g, cols);
   },
   /* Bespin — wide disc + towers on a tapered repulsor column. */
   'cloud-city': function (R, T) {
@@ -432,7 +496,9 @@ const BUILDERS = {
     g.add(mesh(R, new R.CylinderGeometry(3, 4, 16, 10), white, 0, 50, 0));
     const glow = new R.Sprite(new R.SpriteMaterial({ map: T.glowSprite(), color: 0x9fd8ff, transparent: true, opacity: 0.85, depthWrite: false }));
     glow.scale.set(16, 16, 1); glow.position.set(0, 2, 0); glow.userData.pulse = true; g.add(glow);
-    return done(R, g, [{ x: 0, z: 0, r: 6 }]);
+    // the repulsor column flares to r 11 at the ground (10.5 at
+    // walker height) — the old r6 stopped walkers mid-air inside it
+    return done(R, g, [{ x: 0, z: 0, r: 11.2 }]);
   },
   /* Endor — bunker + big dish. */
   'shield-generator': function (R) {
@@ -446,7 +512,9 @@ const BUILDERS = {
       M(R, 0xd8d4c8, { metalness: 0.4, roughness: 0.4, side: R.DoubleSide }), 6.4, 13.4, -2);
     dish.rotation.z = -1.1; g.add(dish);
     g.add(mesh(R, new R.BoxGeometry(1.2, 1.2, 1.2), E(R, 0xff3b30), 6.4, 13.4, -2));
-    return done(R, g, [{ x: 0, z: 0, r: 7 }]);
+    /* The entrance block in front of the dome (10 x 6 at z 7) stood
+     * outside the dome's circle entirely — it has its own now. */
+    return done(R, g, [{ x: 0, z: 0, r: 7 }, { x: 0, z: 7, r: 5.9 }]);
   },
   /* Endor — 3 tall trees + rope platforms. */
   'ewok-village': function (R) {
@@ -469,17 +537,32 @@ const BUILDERS = {
   'niima-outpost': function (R) {
     const g = new R.Group(), rand = mulberry32(32);
     const junkCols = [0x8a7f6a, 0x6e6a5e, 0x9a8a70, 0x5d5a52];
+    const cols = [];
     for (let i = 0; i < 14; i++) {
       const w = 1.5 + rand() * 3, h = 1.5 + rand() * 4;
       const a = rand() * Math.PI * 2, r = 4 + rand() * 9;
-      g.add(mesh(R, new R.BoxGeometry(w, h, w * (0.6 + rand() * 0.8)),
-        M(R, junkCols[(rand() * junkCols.length) | 0], { metalness: 0.4, roughness: 0.6 }),
-        Math.cos(a) * r, h / 2, Math.sin(a) * r, rand() * Math.PI));
+      const d = w * (0.6 + rand() * 0.8);
+      const mat = M(R, junkCols[(rand() * junkCols.length) | 0],
+        { metalness: 0.4, roughness: 0.6 });
+      const x = Math.cos(a) * r, z = Math.sin(a) * r;
+      g.add(mesh(R, new R.BoxGeometry(w, h, d), mat, x, h / 2, z, rand() * Math.PI));
+      /* Every junk box carries its own collider at its true
+       * half-diagonal (rotation-invariant). The old single r9 at
+       * the centre left the outer ring of boxes (out to r 13)
+       * walk-through and walled the gaps between the inner ones. */
+      cols.push({ x: x, z: z, r: 0.5 * Math.hypot(w, d) });
     }
     const leg = mesh(R, new R.BoxGeometry(2.2, 16, 2.2), M(R, 0x4a4d52, { metalness: 0.5, roughness: 0.55 }), -8, 3, 6);
     leg.rotation.z = 1.25; leg.rotation.y = 0.4; g.add(leg);
     g.add(mesh(R, new R.BoxGeometry(5, 2, 4), M(R, 0x4a4d52), -13.5, 1.4, 7.5, 0.4));
-    return done(R, g, [{ x: 0, z: 0, r: 9 }]);
+    /* The downed leg lies along the (-0.92, 0.40) axis through
+     * (-8, 6): a five-circle chain follows the limb; the foot block
+     * takes its own half-diagonal. */
+    for (const t of [-7, -3.5, 0, 3.5, 7]) {
+      cols.push({ x: -8 - 0.918 * t, z: 6 + 0.397 * t, r: Math.abs(t) === 7 ? 2.2 : 2.6 });
+    }
+    cols.push({ x: -13.5, z: 7.5, r: 3.2 });
+    return done(R, g, cols);
   },
   /* Takodana — stone castle: keep + towers + flags. */
   'maz-castle': function (R) {
@@ -495,7 +578,14 @@ const BUILDERS = {
       g.add(flag);
     }
     g.add(mesh(R, new R.BoxGeometry(4, 5, 1), E(R, 0xffd98a), 0, 2.5, 6.1));
-    return done(R, g, [{ x: 0, z: 0, r: 11 }]);
+    /* The corner towers stand at (+/-8, +/-7), radius 2.8 — their
+     * outer halves reach 13.4 from the centre, past the keep's
+     * circle: one collider per tower. */
+    const cols = [{ x: 0, z: 0, r: 11 }];
+    for (const tx of [-8, 8]) for (const tz of [-7, 7]) {
+      cols.push({ x: tx, z: tz, r: 2.9 });
+    }
+    return done(R, g, cols);
   },
   /* Starkiller — huge cannon barrel angled skyward in an ice trench. */
   'starkiller-cannon': function (R) {
@@ -507,7 +597,19 @@ const BUILDERS = {
     const muzzle = mesh(R, new R.CylinderGeometry(3.2, 2.6, 3, 12), M(R, 0x2b2f35), 0, 26.4, -8.6);
     muzzle.rotation.x = -0.9; g.add(muzzle);
     g.add(mesh(R, new R.BoxGeometry(8, 6, 10), M(R, 0x4a5058), 0, 3, 10));
-    return done(R, g, [{ x: 0, z: 6, r: 8 }]);
+    /* The trench walls (4 x 44) carried ONE circle between them —
+     * now a chain per wall (the echo-base pattern), plus the base
+     * block and the barrel's low breech end, which lands at z ~19
+     * near the ground. */
+    const cols = [];
+    for (const s of [-1, 1]) {
+      for (const z of [-21, -14, -7, 0, 7, 14, 21]) {
+        cols.push({ x: s * 10, z: z, r: 4.4 });
+      }
+    }
+    cols.push({ x: 0, z: 10, r: 6.5 });
+    cols.push({ x: 0, z: 19.5, r: 3.6 });
+    return done(R, g, cols);
   },
   /* Ahch-To — 5 stone beehive huts. */
   'jedi-village': function (R) {
@@ -520,7 +622,10 @@ const BUILDERS = {
       const hut = tintGeo(R, new R.SphereGeometry(r, 10, 8), 0x9d968a, 0.25, rand);
       const m = mesh(R, hut, stoneMat, x, 0, z); m.scale.y = 1.25; g.add(m);
       g.add(mesh(R, new R.BoxGeometry(1.2, 1.8, 0.4), M(R, 0x4a4438), x, 0.9, z + r * 0.92, a));
-      cols.push({ x: x, z: z, r: r });
+      /* collider = hut radius + the door appliqué's protrusion
+       * (the door stands at r*0.92 with its face ~0.37 past the
+       * sphere — all-worlds QA, 2026-10-23) */
+      cols.push({ x: x, z: z, r: r + 0.45 });
     }
     return done(R, g, cols);
   },
@@ -535,21 +640,30 @@ const BUILDERS = {
     const beam = mesh(R, new R.TorusGeometry(5.5, 1.5, 8, 16, Math.PI), salt, 0, 13, 0);
     g.add(beam);
     g.add(mesh(R, new R.BoxGeometry(11.5, 0.7, 2.2), E(R, 0xc0392b), 0, 12.4, 0));
-    return done(R, g, [{ x: -5.5, z: 0, r: 2.2 }, { x: 5.5, z: 0, r: 2.2 }]);
+    // r 2.35: the red base blocks are 3.2 x 3.2 (half-diagonal
+    // 2.26) — r 2.2 left their corners' tips exposed
+    return done(R, g, [{ x: -5.5, z: 0, r: 2.35 }, { x: 5.5, z: 0, r: 2.35 }]);
   },
   /* Exegol — cluster of black spires + red emissive windows. */
   'sith-citadel': function (R) {
     const g = new R.Group(), rand = mulberry32(34);
     const obs = M(R, 0x0c0b0e, { metalness: 0.35, roughness: 0.45 });
+    const cols = [];
     for (let i = 0; i < 7; i++) {
       const a = (i / 7) * Math.PI * 2, x = Math.cos(a) * (4 + rand() * 8), z = Math.sin(a) * (4 + rand() * 8);
       const h = 18 + rand() * 22;
-      g.add(mesh(R, new R.ConeGeometry(2.2 + rand() * 1.6, h, 5), obs, x, h / 2, z, rand()));
+      const coneR = 2.2 + rand() * 1.6;
+      g.add(mesh(R, new R.ConeGeometry(coneR, h, 5), obs, x, h / 2, z, rand()));
+      /* Every spire carries its own collider at its true cone
+       * radius: the old single r12 sealed the walkable gaps between
+       * the spires while leaving the outer spires' far sides open
+       * (reach 12 + 3.8) — all-worlds QA, 2026-10-23. */
+      cols.push({ x: x, z: z, r: coneR + 0.3 });
       for (let w = 0; w < 3; w++)
         g.add(mesh(R, new R.PlaneGeometry(0.7, 1.4), E(R, 0xff2a1a),
           x + (rand() - 0.5) * 2, 6 + rand() * (h - 8), z + 2.2, rand() * Math.PI * 2));
     }
-    return done(R, g, [{ x: 0, z: 0, r: 12 }]);
+    return done(R, g, cols);
   },
   /* Exegol — dais + throne + statues. */
   'sith-throne': function (R) {
@@ -566,7 +680,12 @@ const BUILDERS = {
       g.add(mesh(R, new R.BoxGeometry(0.5, 0.9, 0.2), E(R, 0xff2a1a), s * 7.5 - 0.3, 7.7, -3));
       g.add(mesh(R, new R.BoxGeometry(0.5, 0.9, 0.2), E(R, 0xff2a1a), s * 7.5 + 0.3, 7.7, -3));
     }
-    return done(R, g, [{ x: 0, z: 0, r: 7 }]);
+    /* r 10.3: the lowest dais tier is r 10 at the ground and the
+     * statue plinths at (+/-7.5, -4) reach 9.6 — the old r7 let the
+     * walker stand inside both. The 'Throne' mission gate radius
+     * was widened to match (data.js), so the goal still reads as
+     * arriving at the dais edge. */
+    return done(R, g, [{ x: 0, z: 0, r: 10.3 }]);
   },
   /* Fly zone — long trench corridor segment along -z/+z. */
   'death-star': function (R) {
@@ -595,12 +714,17 @@ const BUILDERS = {
     const count = 200;
     const inst = new R.InstancedMesh(rockGeo, rockMat, count);
     const d = new R.Object3D();
+    const cols = [];
     for (let i = 0; i < count; i++) {
       const a = rand() * Math.PI * 2, r = 60 + rand() * 55;
-      d.position.set(Math.cos(a) * r, (rand() - 0.5) * 44, Math.sin(a) * r);
+      const x = Math.cos(a) * r, z = Math.sin(a) * r;
+      d.position.set(x, (rand() - 0.5) * 44, z);
       d.rotation.set(rand() * 6.28, rand() * 6.28, rand() * 6.28);
       const s = 1 + rand() * 4; d.scale.set(s, s * (0.6 + rand() * 0.8), s);
       d.updateMatrix(); inst.setMatrixAt(i, d.matrix);
+      /* Each rock is solid in flight too: its XZ hull is the
+       * icosahedron's radius s (all-worlds QA, 2026-10-23). */
+      cols.push({ x: x, z: z, r: s });
     }
     inst.instanceMatrix.needsUpdate = true;
     inst.castShadow = false; inst.receiveShadow = false;
@@ -610,7 +734,8 @@ const BUILDERS = {
     beacon.userData.pulse = true; g.add(beacon);
     const halo = new R.Sprite(new R.SpriteMaterial({ map: T.glowSprite(), color: 0x9fd8ff, transparent: true, opacity: 0.7, depthWrite: false }));
     halo.scale.set(18, 18, 1); halo.position.set(0, 42, 0); halo.userData.pulse = true; g.add(halo);
-    return done(R, g, [{ x: 0, z: 0, r: 4 }]);
+    cols.push({ x: 0, z: 0, r: 4 }); // the beacon pylon
+    return done(R, g, cols);
   },
   /* Distant wedge silhouette — no collider. */
   'star-destroyer': function (R) {
@@ -635,9 +760,14 @@ const BUILDERS = {
     g.add(mesh(R, new R.CylinderGeometry(7.5, 8.2, 3.2, 18), dark, 0, 1.6, 0));
     g.add(mesh(R, dome(R, 7.5, 18, 10), sand, 0, 3.2, 0));
     g.add(mesh(R, new R.CylinderGeometry(0.5, 0.7, 3.4, 6), dark, 0, 9.4, 0));
+    const cols = [{ x: 0, z: 0, r: 8.3 }]; // the drum flares to 8.2 at the ground
     for (let i = 0; i < 3; i++) {
       const a = (i / 3) * Math.PI * 2 + 0.7, x = Math.cos(a) * 10.5, z = Math.sin(a) * 10.5;
-      g.add(mesh(R, dome(R, 2.4 + rand() * 0.8, 10, 7), i % 2 ? sand : dark, x, 0, z));
+      const ar = 2.4 + rand() * 0.8;
+      g.add(mesh(R, dome(R, ar, 10, 7), i % 2 ? sand : dark, x, 0, z));
+      // the annex domes stand at ring 10.5, far outside the drum's
+      // circle — each carries its own collider
+      cols.push({ x: x, z: z, r: ar + 0.2 });
     }
     const door = mesh(R, new R.BoxGeometry(2.2, 3, 0.4), E(R, 0xffc98a), 0, 1.5, 8.15);
     g.add(door);
@@ -646,7 +776,7 @@ const BUILDERS = {
       g.add(mesh(R, new R.BoxGeometry(0.7, 0.7, 0.3), E(R, 0x9fd8ff),
         Math.cos(a) * 7.9, 2.2, Math.sin(a) * 7.9, -a));
     }
-    return done(R, g, [{ x: 0, z: 0, r: 8 }]);
+    return done(R, g, cols);
   },
   /* Tatooine — a parked landspeeder: rounded hull, twin intakes,
    * windshield, hover skirt. Procedural stand-in for the GLB seat. */
@@ -664,7 +794,9 @@ const BUILDERS = {
     const shield = mesh(R, new R.SphereGeometry(0.62, 10, 7), dark, 0, 1.45, -0.15);
     shield.scale.set(0.9, 0.62, 1.1); g.add(shield);
     g.add(mesh(R, new R.BoxGeometry(1.7, 0.22, 3.4), M(R, 0x8a6f42, { metalness: 0.3, roughness: 0.6 }), 0, 0.32, 0));
-    return done(R, g, [{ x: 0, z: 0, r: 2.4 }]);
+    // the hull (sphere scaled z 1.85 x 1.5) reaches 2.78 — the same
+    // stop radius the GLB registry uses in play
+    return done(R, g, [{ x: 0, z: 0, r: 2.9 }]);
   },
 };
 

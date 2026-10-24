@@ -94,6 +94,25 @@ export function distToPath(x, z, path) {
   return d;
 }
 
+/* Soft-min distance to a path: like distToPath, but where two legs
+ * of the path run close (the canyon's zigzag junctions), the hard
+ * minimum's ridge — a crease in the heightfield the terrain mesh
+ * cannot triangulate (measured 0.52 m of mesh-vs-analytic deviation
+ * at the Arch Turn hairpin) — is rounded over a k-metre blend. The
+ * walker and the mesh share this function, so rounding the function
+ * is the fix at the cause. Exported distToPath keeps its exact raw
+ * semantics for placement logic; this helper is carve-only. */
+export function distToPathSoft(x, z, path, k) {
+  let d = Infinity;
+  for (let i = 0; i < path.length - 1; i++) {
+    const sd = distToSeg(x, z, path[i][0], path[i][1], path[i + 1][0], path[i + 1][1]);
+    if (d === Infinity) { d = sd; continue; }
+    const h = Math.max(0, 1 - Math.abs(d - sd) / k);
+    d = Math.min(d, sd) - (k / 4) * h * h;
+  }
+  return d;
+}
+
 /* Catmull-Rom subdivision of a canyon path: the carve follows this
  * SMOOTH centreline, not the raw polyline. Distance to a polyline
  * has gradient creases along every joint's angle bisector, and the
@@ -102,22 +121,39 @@ export function distToPath(x, z, path) {
  * canyon rim. The spline passes through every authored point, so
  * gates staged on path vertices still sit at distance ~0 and the
  * full carve depth; distToPath (exported) keeps its exact raw
- * semantics for tests and placement logic. */
+ * semantics for tests and placement logic.
+ *
+ * CENTRIPETAL parameterisation (2026-10-23, all-worlds QA): the
+ * uniform spline overshot at the path's tight zigzag vertices (the
+ * Arch Turn hairpin), folding the carve wall into a crease the mesh
+ * missed by 0.52 m. Knot spacing by chord length (Barry–Goldman)
+ * keeps the centreline honest at unevenly spaced vertices; with the
+ * soft-min junction rounding in createHeightFunction and the denser
+ * canyon mesh, the worst mesh-vs-analytic deviation anywhere on
+ * Tatooine is now ~0.10 m (pinned by the fidelity suite). */
 function subdivideCanyonPath(path, per) {
   const pts = [];
   const P = (i) => path[Math.max(0, Math.min(path.length - 1, i))];
   for (let i = 0; i < path.length - 1; i++) {
     const p0 = P(i - 1), p1 = P(i), p2 = P(i + 1), p3 = P(i + 2);
+    const d01 = Math.max(1e-6, Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) ** 0.5);
+    const d12 = Math.max(1e-6, Math.hypot(p2[0] - p1[0], p2[1] - p1[1]) ** 0.5);
+    const d23 = Math.max(1e-6, Math.hypot(p3[0] - p2[0], p3[1] - p2[1]) ** 0.5);
+    const t0 = 0, t1 = t0 + d01, t2 = t1 + d12, t3 = t2 + d23;
     for (let j = 0; j < per; j++) {
-      const t = j / per, t2 = t * t, t3 = t2 * t;
-      pts.push([
-        0.5 * ((2 * p1[0]) + (-p0[0] + p2[0]) * t
-          + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2
-          + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3),
-        0.5 * ((2 * p1[1]) + (-p0[1] + p2[1]) * t
-          + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2
-          + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3),
-      ]);
+      const t = t1 + (j / per) * (t2 - t1);
+      const a1x = (p0[0] * (t1 - t) + p1[0] * (t - t0)) / (t1 - t0);
+      const a1z = (p0[1] * (t1 - t) + p1[1] * (t - t0)) / (t1 - t0);
+      const a2x = (p1[0] * (t2 - t) + p2[0] * (t - t1)) / (t2 - t1);
+      const a2z = (p1[1] * (t2 - t) + p2[1] * (t - t1)) / (t2 - t1);
+      const a3x = (p2[0] * (t3 - t) + p3[0] * (t - t2)) / (t3 - t2);
+      const a3z = (p2[1] * (t3 - t) + p3[1] * (t - t2)) / (t3 - t2);
+      const b1x = (a1x * (t2 - t) + a2x * (t - t0)) / (t2 - t0);
+      const b1z = (a1z * (t2 - t) + a2z * (t - t0)) / (t2 - t0);
+      const b2x = (a2x * (t3 - t) + a3x * (t - t1)) / (t3 - t1);
+      const b2z = (a2z * (t3 - t) + a3z * (t - t1)) / (t3 - t1);
+      pts.push([(b1x * (t2 - t) + b2x * (t - t1)) / (t2 - t1),
+        (b1z * (t2 - t) + b2z * (t - t1)) / (t2 - t1)]);
     }
   }
   pts.push(path[path.length - 1]);
@@ -142,7 +178,7 @@ export function createHeightFunction(def) {
   return function heightAt(x, z) {
     let h = (fbm2(x * 0.018, z * 0.018, seed) - 0.5) * 2 * amp;
     if (canyon) {
-      const dist = distToPath(x, z, carvePath);
+      const dist = distToPathSoft(x, z, carvePath, 5);
       const half = canyon.width / 2;
       if (dist < half) {
         const t = (half - dist) / (half * 0.85);
@@ -229,13 +265,15 @@ const TEX_BY_NAME = {
  * ocean pylons + reeds, wreckage, dark spires, island scrub. Each kind
  * is a list of instanced parts; part.at(size, ry) gives the part's
  * local transform (y = base offset in metres, sx/sy/sz = scale, optional
- * tilt). `collider(size)` -> radius or 0: trunks, crags and wrecks are
+ * tilt). `collider(size)` -> radius or 0 (trunks, crags and wrecks are
  * solid; soft dressing (ferns, knees, drifts, crystals, reeds) is
- * walk-through. An entry may override the part colour with `tint`.
+ * walk-through) — or, for elongated kinds, an array of [dx, dz, r]
+ * local circle offsets rotated by the instance heading. An entry may
+ * override the part colour with `tint`.
  */
 const SCATTER_KINDS = {
   'canopy-tree': { // Yavin 4 / Endor / Takodana jungle
-    collider: (s) => (s >= 1.6 ? 0.8 : 0),
+    collider: (s) => (s >= 1.6 ? s * 0.6 : 0), // trunk base radius is 0.55*s
     parts: [
       { geo: (R) => new R.CylinderGeometry(0.32, 0.55, 7, 6), color: 0x6b4a2f,
         at: (s) => ({ y: 3.5 * s, sx: s, sy: s, sz: s }) },
@@ -244,7 +282,7 @@ const SCATTER_KINDS = {
     ],
   },
   'garden-tree': { // Naboo / Ahch-To round tree
-    collider: (s) => (s >= 1.6 ? 0.7 : 0),
+    collider: (s) => (s >= 1.6 ? s * 0.5 : 0), // trunk base radius is 0.44*s
     parts: [
       { geo: (R) => new R.CylinderGeometry(0.26, 0.44, 5, 6), color: 0x7a5a36,
         at: (s) => ({ y: 2.5 * s, sx: s, sy: s, sz: s }) },
@@ -253,7 +291,7 @@ const SCATTER_KINDS = {
     ],
   },
   'swamp-tree': { // Dagobah gnarlwood
-    collider: (s) => (s >= 1.6 ? 0.9 : 0),
+    collider: (s) => (s >= 1.6 ? s * 0.98 : 0), // trunk base radius is 0.95*s
     parts: [
       { geo: (R) => new R.CylinderGeometry(0.5, 0.95, 9, 6), color: 0x4a4238,
         at: (s, ry) => ({ y: 4.4 * s, sx: s, sy: s, sz: s, tilt: 0.16, tiltDir: ry }) },
@@ -274,7 +312,7 @@ const SCATTER_KINDS = {
     ],
   },
   'ice-crag': { // Hoth / Starkiller
-    collider: (s) => (s >= 1.8 ? s * 0.8 : 0),
+    collider: (s) => (s >= 1.8 ? s * 1.02 : 0), // cone base radius is s
     parts: [
       { geo: (R) => new R.ConeGeometry(1, 3.4, 5), color: 0xdceef8, flat: true,
         at: (s) => ({ y: 1.6 * s, sx: s, sy: s, sz: s }) },
@@ -287,7 +325,7 @@ const SCATTER_KINDS = {
     ],
   },
   'lava-rock': { // Mustafar / Exegol basalt
-    collider: (s) => (s >= 1.8 ? s * 0.85 : 0),
+    collider: (s) => (s >= 1.8 ? s * 1.02 : 0), // icosahedron vertex radius is s
     parts: [
       { geo: (R) => new R.IcosahedronGeometry(1, 0), color: 0x35303a, flat: true,
         at: (s) => ({ y: s * 0.55, sx: s, sy: s * 0.8, sz: s }) },
@@ -307,7 +345,7 @@ const SCATTER_KINDS = {
     ],
   },
   spire: { // Coruscant blocks / Bespin platform towers
-    collider: (s) => s * 0.95,
+    collider: (s) => s * 1.15, // block half-diagonal is 1.13*s
     parts: [
       { geo: (R) => new R.BoxGeometry(1.6, 11, 1.6), color: 0x9aa4b4, tex: 'metalTexture',
         at: (s) => ({ y: 5.5 * s, sx: s, sy: s, sz: s }) },
@@ -316,7 +354,7 @@ const SCATTER_KINDS = {
     ],
   },
   pylon: { // Kamino stilt platforms
-    collider: (s) => (s >= 1.6 ? 0.8 : 0),
+    collider: (s) => (s >= 1.6 ? s * 0.68 : 0), // leg base radius is 0.62*s
     parts: [
       { geo: (R) => new R.CylinderGeometry(0.42, 0.62, 8, 6), color: 0xb9c6cf, tex: 'metalTexture',
         at: (s) => ({ y: 4 * s, sx: s, sy: s, sz: s }) },
@@ -330,15 +368,18 @@ const SCATTER_KINDS = {
         at: (s) => ({ y: 1.3 * s, sx: s, sy: s, sz: s }) },
     ],
   },
-  wreck: { // Jakku hull chunks
-    collider: (s) => s * 1.5,
+  wreck: { // Jakku hull chunks — a 2.3 x 4.6 slab: one circle leaves
+    // the long ends open (the podracer lesson), so a two-circle chain
+    // along the slab's long axis, returned as [dx, dz, r] local
+    // offsets that buildScatterKind rotates by the instance heading
+    collider: (s) => [[0, -1.15 * s, 1.8 * s], [0, 1.15 * s, 1.8 * s]],
     parts: [
       { geo: (R) => new R.BoxGeometry(2.3, 1.25, 4.6), color: 0x8a7a63, tex: 'metalTexture',
         at: (s, ry) => ({ y: 0.5 * s, sx: s, sy: s, sz: s, tilt: 0.35, tiltDir: ry + 1.2 }) },
     ],
   },
   'dark-spire': { // Exegol lightning spires
-    collider: (s) => (s >= 1.8 ? s * 0.6 : 0),
+    collider: (s) => (s >= 1.8 ? s * 0.9 : 0), // cone base radius is 0.85*s
     parts: [
       { geo: (R) => new R.ConeGeometry(0.85, 6.5, 4), color: 0x23222e, flat: true,
         at: (s) => ({ y: 3.1 * s, sx: s, sy: s, sz: s }) },
@@ -382,8 +423,24 @@ function buildScatterKind(R, entry, placed, T, heightAt, colliders) {
   }
   if (kind.collider) {
     for (const p of placed) {
-      const r = kind.collider(p.s);
-      if (r > 0) colliders.push({ x: p.x, z: p.z, r });
+      const spec = kind.collider(p.s);
+      if (Array.isArray(spec)) {
+        // elongated kind: a chain of circles in the instance's local
+        // frame, rotated by its heading (same convention zone.js uses
+        // for landmark-local colliders)
+        const cos = Math.cos(p.ry), sin = Math.sin(p.ry);
+        for (const c of spec) {
+          if (c[2] > 0) {
+            colliders.push({
+              x: p.x + (c[0] * cos + c[1] * sin),
+              z: p.z + (-c[0] * sin + c[1] * cos),
+              r: c[2],
+            });
+          }
+        }
+      } else if (spec > 0) {
+        colliders.push({ x: p.x, z: p.z, r: spec });
+      }
     }
   }
   return group;
@@ -461,7 +518,9 @@ export function buildWorldScatter(R, def, T, heightAt, colliders, avoid) {
       placed.forEach((p, k) => {
         const gy = heightAt(p.x, p.z);
         setInst(inst, k, p.x, gy + p.s * 0.18, p.z, p.ry, p.s, p.s * 0.72, p.s, 0, 0, 0);
-        if (p.s >= 1.8) colliders.push({ x: p.x, z: p.z, r: p.s * 0.85 });
+        // the icosahedron's vertices reach radius s — the collider
+        // covers the hull, not 0.85 of it
+        if (p.s >= 1.8) colliders.push({ x: p.x, z: p.z, r: p.s });
       });
       inst.instanceMatrix.needsUpdate = true;
       inst.castShadow = false; inst.receiveShadow = false;
@@ -477,7 +536,9 @@ export function buildWorldScatter(R, def, T, heightAt, colliders, avoid) {
         const gy = heightAt(p.x, p.z);
         const h = p.s * 0.55;
         setInst(inst, k, p.x, gy + h / 2 - p.s * 0.1, p.z, p.ry, p.s, h, p.s, 0, 0, 0);
-        colliders.push({ x: p.x, z: p.z, r: p.s * 1.02 });
+        // the mesa's skirt flares to 1.28*s at the base (~1.23*s at
+        // the exposed ground line after the sink) — cover the flare
+        colliders.push({ x: p.x, z: p.z, r: p.s * 1.3 });
       });
       inst.instanceMatrix.needsUpdate = true;
       inst.castShadow = false; inst.receiveShadow = false;
@@ -630,10 +691,19 @@ export function buildZone(THREE, planetDef, T, opts) {
      * below the analytic surface at the canyon rim — the walker
      * visibly floated over dips and clipped crests (Merlin's QA
      * video, 2026-10-23). ~1.5 m rings + the smoothed carve
-     * centreline hold the worst deviation (the canyon rim) to
-     * ~0.16 m, a few centimetres elsewhere (pinned by test). */
-    const rings = Math.max(26, Math.round(worldRadius / 1.5));
-    const segs = Math.max(64, Math.round(worldRadius * 0.95));
+     * centreline hold the worst deviation to ~0.17 m on every
+     * walk world (measured on a dense probe grid, pinned by the
+     * fidelity suite). Canyon worlds build denser still (x1.25
+     * rings / x1.5 sectors): the carve wall at the rim radius is
+     * where azimuthal spacing bites, and with the centripetal
+     * centreline + soft-min junctions Tatooine's worst cell is
+     * ~0.10 m. High-relief worlds scale up too: interpolation
+     * error grows with groundAmp, and at amp 4 the base grid read
+     * 0.204 m on Geonosis — the amp factor keeps every world
+     * inside the same 0.2 m bound (all-worlds QA, 2026-10-23). */
+    const ampFactor = 1 + Math.max(0, (def.groundAmp != null ? def.groundAmp : 2.5) - 2.5) * 0.125;
+    const rings = Math.max(26, Math.round(worldRadius / 1.5 * (def.canyon ? 1.25 : 1) * ampFactor));
+    const segs = Math.max(64, Math.round(worldRadius * 0.95 * (def.canyon ? 1.5 : 1) * ampFactor));
     const terrain = new R.Mesh(
       makeDiscGeometry(R, worldRadius, rings, segs, heightAt),
       new R.MeshStandardMaterial({

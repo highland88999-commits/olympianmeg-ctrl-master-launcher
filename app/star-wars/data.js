@@ -177,7 +177,11 @@ export const PLANETS = {
        * A third pod waits at the mesa-circuit finish. */
       { type: 'podracer', x: 31, z: 64, s: 1.2, ry: -0.55, vehicle: 'podracer', vid: 'pod-grid-a' },
       { type: 'podracer', x: 13, z: 70, s: 1.2, ry: -0.55, vehicle: 'podracer', vid: 'pod-grid-b' },
-      { type: 'podracer', x: -92, z: 58, s: 1.2, ry: 2.4 },
+      /* The winner's pod is rideable too (all-worlds QA, 2026-10-23):
+       * the QA round left it dressing while its two grid siblings
+       * drove, which read as a bug from the saddle. Same type, same
+       * law — a champion's machine you can actually take out. */
+      { type: 'podracer', x: -92, z: 58, s: 1.2, ry: 2.4, vehicle: 'podracer', vid: 'pod-winner' },
       { type: 'landspeeder', x: 60, z: 26, s: 1, ry: -0.7, model: 'landspeeder', vehicle: 'landspeeder', vid: 'landspeeder' },
     ],
     ambient: [
@@ -1238,7 +1242,11 @@ const MORE_MISSIONS = {
         { x: -64, z: -48, r: 7, label: 'Lightning Spires' },
         { x: 56, z: -80, r: 7, label: 'Fleet Monoliths' },
       ],
-      target: { x: 0, z: -128, r: 10, label: 'The Sith Throne' },
+      /* r 13, not the usual 10: the throne's dais collider is r 10.3
+       * (all-worlds QA, 2026-10-23), so an r10 gate would sit inside
+       * the collider and never complete. The band 10.3–13 reads as
+       * standing at the dais edge. */
+      target: { x: 0, z: -128, r: 13, label: 'The Sith Throne' },
     },
   ],
 };
