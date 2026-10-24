@@ -26,13 +26,16 @@ globalThis.document = {
 const THREE = await import('three');
 const T = await import('../textures.js');
 const LM = await import('../landmarks.js');
-const { buildZone, createHeightFunction, distToPath } = await import('../zone.js');
+const { buildZone, createHeightFunction, distToPath, spanSeatY } = await import('../zone.js');
 const { PLANETS } = await import('../data.js');
 const {
   createSaberState, saberEase,
   SABER_IGNITE_DIST, SABER_RETRACT_DIST, SABER_IGNITE_S, SABER_RETRACT_S,
+  SABER_DRAW_DIST, SABER_DRAW_S, SABER_HOLSTER_S,
 } = await import('../saber.js');
 const CH = await import('../characters.js');
+const VH = await import('../vehicles.js');
+const WC = await import('../../../lib/world/walk-controls.js');
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -181,10 +184,10 @@ describe('zone (walk)', () => {
 
   it('offsets landmark-local colliders to world space', () => {
     const z = buildZone(THREE, planetDef, T);
-    // mos-eisley local {x:0,z:0,r:13} at (0,0) -> world (0,0,13)
+    // mos-eisley local {x:0,z:0,r:13.5} at (0,0) -> world (0,0,13.5)
     const home = z.colliders.find((c) => approx(c.x, 0) && approx(c.z, 0));
     assert.ok(home, 'mos-eisley collider missing');
-    assert.equal(home.r, 13);
+    assert.equal(home.r, 13.5);
     // moisture-farm local {x:0,z:0,r:8} at (-40,-30) ry=0.7 -> world (-40,-30,8)
     const farm = z.colliders.find((c) => approx(c.x, -40) && approx(c.z, -30));
     assert.ok(farm, 'moisture-farm collider missing');
@@ -293,6 +296,13 @@ describe('GLB seats (landmarks.js)', () => {
     assert.equal(LM.attachGlbModel(THREE, holder, 'nope'), null);
     assert.equal(holder.children.length, 0);
   });
+
+  it('the landspeeder GLB turns its measured +Z nose to the drive heading', () => {
+    // z-slice profiles of landspeeder.glb: the nose tapers at +Z;
+    // vehicles drive toward the landmark group's -Z, so the fitted
+    // model carries a half-turn yawFix inside its slot.
+    assert.equal(LM.GLB_MODELS.landspeeder.yawFix, Math.PI);
+  });
 });
 
 describe('planet surfaces (textures.js)', () => {
@@ -343,9 +353,9 @@ describe('ever-expanding template + Tatooine (zone.js)', () => {
       'finish target sits on the canyon run');
     // GLB seats contribute the REGISTRY colliders, not the stand-ins'
     const cantina = z.colliders.find((c) => approx(c.x, 10) && approx(c.z, -28));
-    assert.ok(cantina && approx(cantina.r, 8), 'cantina registry collider');
+    assert.ok(cantina && approx(cantina.r, 8.4), 'cantina registry collider');
     const speeder = z.colliders.find((c) => approx(c.x, 60) && approx(c.z, 26));
-    assert.ok(speeder && approx(speeder.r, 2.4), 'landspeeder registry collider');
+    assert.ok(speeder && approx(speeder.r, 2.9), 'landspeeder registry collider');
     // seeded scatter produced instanced dressing
     let instanced = 0;
     z.group.traverse((o) => { if (o.isInstancedMesh) instanced++; });
@@ -475,35 +485,52 @@ describe('saga expansion: modes + missions in the zone builder', () => {
 });
 
 describe('lightsaber state machine (saber.js)', () => {
+  /* Drive a fresh state to a lit blade at close range: the draw
+   * (holster law) must complete before the blade can ignite. */
+  const lightBlade = (s, dist = 5) => {
+    s.update(SABER_DRAW_S, dist);
+    s.update(SABER_IGNITE_S, dist);
+    assert.equal(s.state, 'lit');
+  };
+
   it('thresholds: ignite at 12 m, retract only beyond 18 m (hysteresis)', () => {
     assert.equal(SABER_IGNITE_DIST, 12);
     assert.equal(SABER_RETRACT_DIST, 18);
     assert.ok(SABER_RETRACT_DIST > SABER_IGNITE_DIST);
+    assert.equal(SABER_DRAW_DIST, 24);
+    assert.ok(SABER_DRAW_DIST > SABER_RETRACT_DIST, 'the draw ring wraps the blade rings');
   });
 
-  it('starts retracted with zero blade; easing pins the endpoints', () => {
+  it('starts retracted AND holstered with zero blade; easing pins the endpoints', () => {
     const s = createSaberState();
     assert.equal(s.state, 'retracted');
     assert.equal(s.blade01(), 0);
+    assert.equal(s.grip, 'holstered');
+    assert.equal(s.grip01(), 0);
     assert.equal(saberEase(0), 0);
     assert.equal(saberEase(1), 1);
     assert.ok(saberEase(0.5) > 0.5, 'easeOutCubic runs ahead of linear');
   });
 
-  it('ignites inside 12 m and reaches full blade in SABER_IGNITE_S', () => {
+  it('draws inside 24 m first, then ignites inside 12 m', () => {
     const s = createSaberState();
     assert.deepEqual(s.update(0.01, 30), [], 'far away: nothing happens');
     assert.equal(s.state, 'retracted');
-    const ev = s.update(SABER_IGNITE_S, 11.9);
-    assert.deepEqual(ev, ['ignite', 'lit']);
+    assert.equal(s.grip, 'holstered');
+    const ev = s.update(SABER_DRAW_S, 11.9);
+    assert.deepEqual(ev, ['draw', 'inhand', 'ignite'],
+      'the draw completes, then ignition begins');
+    assert.equal(s.state, 'igniting');
+    assert.equal(s.blade01(), 0, 'the draw consumed the tick — no blade yet');
+    const ev2 = s.update(SABER_IGNITE_S, 11.9);
+    assert.deepEqual(ev2, ['lit']);
     assert.equal(s.state, 'lit');
     assert.equal(s.blade01(), 1);
   });
 
   it('hysteresis: a lit blade ignores the 12–18 m band, retracts past 18 m', () => {
     const s = createSaberState();
-    s.update(SABER_IGNITE_S, 5);
-    assert.equal(s.state, 'lit');
+    lightBlade(s);
     assert.deepEqual(s.update(0.05, 15), [], 'inside the band: still lit, no flicker');
     assert.equal(s.state, 'lit');
     assert.equal(s.blade01(), 1);
@@ -512,10 +539,12 @@ describe('lightsaber state machine (saber.js)', () => {
     assert.deepEqual(ev, ['dark']);
     assert.equal(s.state, 'retracted');
     assert.equal(s.blade01(), 0);
+    assert.equal(s.grip, 'hand', 'inside 24 m the hilt stays in hand');
   });
 
   it('mid-ignite reversal collapses from the current length, never teleports', () => {
     const s = createSaberState();
+    s.update(SABER_DRAW_S, 4); // drawn; ignition begins
     s.update(SABER_IGNITE_S / 2, 4);
     assert.equal(s.state, 'igniting');
     const mid = s.blade01();
@@ -526,19 +555,67 @@ describe('lightsaber state machine (saber.js)', () => {
     s.update(SABER_RETRACT_S, 40);
     assert.equal(s.state, 'retracted');
     assert.equal(s.blade01(), 0);
-    // and it can re-ignite cleanly afterwards
+    // and it can re-ignite cleanly afterwards (grip never holstered:
+    // the re-close lands before the holster tick)
     s.update(SABER_IGNITE_S, 2);
     assert.equal(s.state, 'lit');
   });
 
   it('a retracting blade re-ignites if the player closes again', () => {
     const s = createSaberState();
-    s.update(SABER_IGNITE_S, 5);
+    lightBlade(s);
     s.update(0.02, 30);
     assert.equal(s.state, 'retracting');
     const ev = s.update(0.01, 6);
     assert.deepEqual(ev, ['ignite']);
     assert.equal(s.state, 'igniting');
+  });
+
+  it('holster law: belt beyond 24 m, draw inside it, re-holster once dark + gone', () => {
+    const s = createSaberState();
+    assert.deepEqual(s.update(1, 40), [], 'far: no draw, no events');
+    assert.equal(s.grip, 'holstered');
+    // inside the draw ring but outside ignition: hilt travels, blade stays dark
+    assert.deepEqual(s.update(0.01, 20), ['draw']);
+    assert.equal(s.grip, 'drawing');
+    assert.deepEqual(s.update(SABER_DRAW_S, 20), ['inhand']);
+    assert.equal(s.grip, 'hand');
+    assert.equal(s.grip01(), 1);
+    assert.equal(s.state, 'retracted', 'no ignition at 20 m');
+    // light it, kill it inside the 18–24 m band: grip stays in hand
+    s.update(SABER_IGNITE_S, 5);
+    assert.equal(s.state, 'lit');
+    assert.deepEqual(s.update(0.01, 20), ['retract']);
+    assert.deepEqual(s.update(SABER_RETRACT_S, 20), ['dark']);
+    assert.equal(s.grip, 'hand');
+    // walk away beyond 24 m: the hilt returns to the belt
+    assert.deepEqual(s.update(0.01, 30), [], 'holstering starts silently');
+    assert.equal(s.grip, 'holstering');
+    assert.deepEqual(s.update(SABER_HOLSTER_S, 30), ['holster']);
+    assert.equal(s.grip, 'holstered');
+    assert.equal(s.grip01(), 0);
+  });
+
+  it('a draw reversed mid-way sends the hilt back toward the belt', () => {
+    const s = createSaberState();
+    s.update(SABER_DRAW_S / 2, 20);
+    assert.equal(s.grip, 'drawing');
+    const mid = s.grip01();
+    assert.ok(mid > 0 && mid < 1);
+    s.update(0.01, 40);
+    assert.equal(s.grip, 'holstering');
+    assert.ok(s.grip01() <= mid, 'grip travel only reverses, never teleports');
+    s.update(SABER_HOLSTER_S, 40);
+    assert.equal(s.grip, 'holstered');
+    assert.equal(s.grip01(), 0);
+  });
+
+  it('never ignites from the belt, even point-blank, before the draw lands', () => {
+    const s = createSaberState();
+    s.update(SABER_DRAW_S / 2, 2);
+    assert.equal(s.grip, 'drawing');
+    assert.equal(s.state, 'retracted', 'mid-draw at 2 m: blade still dark');
+    assert.equal(s.blade01(), 0);
   });
 });
 
@@ -588,6 +665,7 @@ describe('characters + sabers (characters.js)', () => {
         assert.ok(CH.CHARACTER_MODELS[c.model], `${def.id}/${c.id}: model registered`);
         assert.ok(Array.isArray(c.at) && c.at.length === 2, `${def.id}/${c.id}: at [x, z]`);
         assert.ok(Array.isArray(c.hand) && c.hand.length === 3, `${def.id}/${c.id}: hand anchor`);
+        assert.ok(Array.isArray(c.belt) && c.belt.length === 3, `${def.id}/${c.id}: belt anchor (holster law)`);
         assert.ok(Math.hypot(c.at[0], c.at[1]) < (def.boundsRadius || 115),
           `${def.id}/${c.id}: inside the world bounds`);
       }
@@ -606,7 +684,12 @@ describe('characters + sabers (characters.js)', () => {
       assert.ok(found, 'character group in the scene graph');
       let saber = null;
       found.traverse((o) => { if (o.name === 'saber') saber = o; });
-      assert.ok(saber, 'saber assembly hangs at the hand');
+      assert.ok(saber, 'saber assembly present');
+      // holster law: at spawn (observer far away) the hilt rides the
+      // BELT anchor, not the hand
+      const belt = PLANETS.tatooine.characters[0].belt;
+      assert.ok(approx(saber.position.x, belt[0]) && approx(saber.position.y, belt[1])
+        && approx(saber.position.z, belt[2]), 'hilt starts holstered at the belt');
       // proximity plumbing runs without throwing, near or far
       z.setObserver(33, 30);
       assert.doesNotThrow(() => { z.update(1, 0.016); z.update(1.2, 0.2); });
@@ -618,5 +701,334 @@ describe('characters + sabers (characters.js)', () => {
     assert.equal(m.characters.length, 1);
     assert.equal(m.characters[0].id, 'dark-lord');
     m.dispose();
+  });
+});
+
+describe('QA item 1 — walker gravity: exact ground follow + terrain fidelity', () => {
+  it('snapY pins walker y to groundHeight + eye on every step, dunes and canyon alike', () => {
+    const z = buildZone(THREE, PLANETS.tatooine, T);
+    const world = {
+      groundHeight: z.groundHeight, colliders: z.colliders,
+      bounds: z.bounds, snapY: true, eye: WC.WALK_EYE,
+    };
+    // a straight west->east line at z=40 crosses the canyon carve
+    const w = WC.createWalker({ x: -280, z: 40, yaw: -Math.PI / 2 });
+    let crossedCarve = false;
+    for (let i = 0; i < 60 * 70; i++) {
+      WC.stepWalker(w, { fwd: 1 }, 1 / 60, world);
+      const dev = Math.abs(w.pos.y - WC.WALK_EYE - z.groundHeight(w.pos.x, w.pos.z));
+      assert.ok(dev < 1e-6, `clearance drifted ${dev} at (${w.pos.x.toFixed(1)}, ${w.pos.z.toFixed(1)})`);
+      if (Math.abs(w.pos.x - (-84)) < 3) crossedCarve = true; // canyon path vertex country
+      if (w.pos.x > 270) break;
+    }
+    assert.ok(crossedCarve, 'the line really crossed the canyon');
+    z.dispose();
+  });
+
+  it('the rendered terrain mesh tracks the analytic heightfield (no visual float/clip)', () => {
+    const z = buildZone(THREE, PLANETS.tatooine, T);
+    z.group.updateMatrixWorld(true);
+    let terrain = null, best = 0;
+    z.group.traverse((o) => {
+      if (o.isMesh && o.geometry?.attributes?.position) {
+        const n = o.geometry.attributes.position.count;
+        if (n > best) { best = n; terrain = o; }
+      }
+    });
+    assert.ok(terrain && best > 30000, `dense terrain mesh, got ${best} verts`);
+    const ray = new THREE.Raycaster();
+    const down = new THREE.Vector3(0, -1, 0);
+    let maxDev = 0, samples = 0;
+    const probe = (x, zz) => {
+      ray.set(new THREE.Vector3(x, 200, zz), down);
+      const hits = ray.intersectObject(terrain, false);
+      if (!hits.length) return;
+      samples++;
+      const dev = Math.abs(hits[0].point.y - z.groundHeight(x, zz));
+      if (dev > maxDev) maxDev = dev;
+    };
+    for (let a = 0; a < 12; a++) {
+      const ang = (a / 12) * Math.PI * 2;
+      for (let r = 12; r <= 285; r += 13) probe(Math.cos(ang) * r, Math.sin(ang) * r);
+    }
+    // and a dense walk across the canyon carve itself
+    for (let x = -160; x <= 60; x += 4) probe(x, 40);
+    for (const [px, pz] of PLANETS.tatooine.canyon.path) {
+      probe(px + 3, pz + 2); probe(px - 4, pz - 3); probe(px, pz + 6);
+    }
+    assert.ok(samples > 200, `probed ${samples} points`);
+    assert.ok(maxDev <= 0.2, `mesh deviates ${maxDev.toFixed(3)} m from groundHeight (was 2.39 m)`);
+    z.dispose();
+  });
+});
+
+describe('QA item 3 — span seating: buildings meet the sand', () => {
+  it('spanSeatY takes the footprint-ring minimum and honours the drop clamp', () => {
+    const slope = (x) => x * 0.1;
+    assert.equal(spanSeatY(slope, 0, 0, 10, {}), -1); // ring min at x=-10
+    assert.equal(spanSeatY(slope, 0, 0, 10, { clampDrop: 0.4 }), -0.4);
+    assert.equal(spanSeatY(() => 3.3, 5, 5, 8, {}), 3.3); // flat stays flat
+  });
+
+  it('the Tatooine GLB seats sit at span-seat minus the footing sink', () => {
+    const z = buildZone(THREE, PLANETS.tatooine, T);
+    const find = (name) => z.group.children.find((c) => c.name === name);
+    const farm = find('landmark:moisture-farm');
+    assert.ok(farm, 'homestead landmark group named');
+    const expectFarm = spanSeatY(z.groundHeight, 45, 20, 8.5, { clampDrop: 3.5 }) - 0.3;
+    assert.ok(approx(farm.position.y, expectFarm, 1e-6),
+      `homestead seat ${farm.position.y} == span seat ${expectFarm}`);
+    assert.ok(farm.position.y <= z.groundHeight(45, 20) - 0.29,
+      'never seated above the centre sample (the old hover)');
+    // Mos Eisley + its minaret: one group, span-seated with the
+    // procedural clamp — grounded, not buried.
+    const eisley = find('landmark:mos-eisley');
+    assert.ok(eisley, 'mos-eisley landmark group named');
+    assert.ok(eisley.position.y <= z.groundHeight(0, -40) - 0.29, 'minaret base meets the sand');
+    assert.ok(eisley.position.y >= z.groundHeight(0, -40) - 2.31, 'clamp keeps it out of the ground');
+    z.dispose();
+  });
+});
+
+describe('QA item 2 — the podracer is solid from every approach', () => {
+  const pod = PLANETS.tatooine.landmarks.find((l) => l.type === 'podracer');
+  const pc = Math.cos(pod.ry), ps = Math.sin(pod.ry);
+  const toLocal = (wx, wz) => {
+    const dx = wx - pod.x, dz = wz - pod.z;
+    return { x: (dx * pc - dz * ps) / pod.s, z: (dx * ps + dz * pc) / pod.s };
+  };
+  const fromLocal = (lx, lz) => ({
+    x: pod.x + (lx * pc + lz * ps) * pod.s,
+    z: pod.z + (-lx * ps + lz * pc) * pod.s,
+  });
+  /* The visual hull in local plan view: engine cylinders + intake
+   * ball, and the pod ellipsoid. A walker point inside either means
+   * the player is standing inside the machine. */
+  const insideHull = (lx, lz) => {
+    for (const side of [-1, 1]) {
+      if (Math.abs(lx - side * 2.4) < 1.0 && lz > -3.4 && lz < 1.72) return 'engine cylinder';
+      if (Math.hypot(lx - side * 2.4, lz + 3.55) < 0.45) return 'intake ball';
+    }
+    if (Math.abs(lx) < 1.08 && lz > 1.2 && lz < 5.6) return 'pod body';
+    return null;
+  };
+  function walkInto(z, fromL, toL, seconds) {
+    const from = fromLocal(fromL[0], fromL[1]);
+    const to = fromLocal(toL[0], toL[1]);
+    const w = WC.createWalker({
+      x: from.x, z: from.z,
+      yaw: Math.atan2(-(to.x - from.x), -(to.z - from.z)),
+    });
+    const world = {
+      groundHeight: z.groundHeight, colliders: z.colliders,
+      bounds: z.bounds, snapY: true,
+    };
+    let violation = null;
+    for (let i = 0; i < seconds * 60; i++) {
+      WC.stepWalker(w, { fwd: 1 }, 1 / 60, world);
+      const l = toLocal(w.pos.x, w.pos.z);
+      const hit = insideHull(l.x, l.z);
+      if (hit && !violation) violation = `${hit} at local (${l.x.toFixed(2)}, ${l.z.toFixed(2)})`;
+    }
+    return { w, violation, end: toLocal(w.pos.x, w.pos.z) };
+  }
+
+  it('head-on into an engine: stopped before the intake, never inside the hull', () => {
+    const z = buildZone(THREE, PLANETS.tatooine, T);
+    const r = walkInto(z, [2.4, -16], [2.4, -0.6], 5);
+    assert.equal(r.violation, null);
+    assert.ok(r.end.z < -3.6, `stopped ahead of the engine (local z ${r.end.z.toFixed(2)})`);
+    z.dispose();
+  });
+
+  it('down the centre corridor: the beam/centre chain seals the gap between engines', () => {
+    const z = buildZone(THREE, PLANETS.tatooine, T);
+    const r = walkInto(z, [0, -16], [0, 3.4], 5);
+    assert.equal(r.violation, null);
+    assert.ok(r.end.z < -3.6, `corridor walk stopped at local z ${r.end.z.toFixed(2)}, before the machine`);
+    z.dispose();
+  });
+
+  it('into the pod from behind: the pod circle stops the walker at its skin', () => {
+    const z = buildZone(THREE, PLANETS.tatooine, T);
+    const r = walkInto(z, [0, 17], [0, 3.4], 5);
+    assert.equal(r.violation, null);
+    assert.ok(r.end.z > 5.6, `stopped behind the pod (local z ${r.end.z.toFixed(2)})`);
+    z.dispose();
+  });
+
+  it('the parked landspeeder stops the walker too (registry collider)', () => {
+    const z = buildZone(THREE, PLANETS.tatooine, T);
+    const w = WC.createWalker({ x: 60, z: 42, yaw: 0 }); // forward (0,-1): toward the speeder at (60,26)
+    const world = {
+      groundHeight: z.groundHeight, colliders: z.colliders, bounds: z.bounds, snapY: true,
+    };
+    for (let i = 0; i < 5 * 60; i++) WC.stepWalker(w, { fwd: 1 }, 1 / 60, world);
+    const d = Math.hypot(w.pos.x - 60, w.pos.z - 26);
+    assert.ok(d >= 2.85 && d <= 5.5, `stopped at the speeder skin (d=${d.toFixed(2)})`);
+    z.dispose();
+  });
+});
+
+describe('QA items 4+5 — small label, holstered saber, measured mounts', () => {
+  it('labelOpacity: gone in the face, gone on the horizon, full between', () => {
+    assert.equal(CH.labelOpacity(2), 0);
+    assert.equal(CH.labelOpacity(4), 0);
+    assert.ok(CH.labelOpacity(5.5) > 0 && CH.labelOpacity(5.5) < 0.95);
+    assert.equal(CH.labelOpacity(20), 0.95);
+    assert.equal(CH.labelOpacity(45), 0.95);
+    assert.ok(CH.labelOpacity(55) > 0 && CH.labelOpacity(55) < 0.95);
+    assert.equal(CH.labelOpacity(60), 0);
+    assert.equal(CH.labelOpacity(120), 0);
+  });
+
+  it('the built name label is a small tag (<= 2 m wide), not the old billboard', () => {
+    const def = PLANETS.tatooine.characters[0];
+    const ch = CH.buildCharacter(THREE, def, () => 0);
+    let sprite = null;
+    ch.group.traverse((o) => { if (o.isSprite) sprite = o; });
+    assert.ok(sprite, 'label sprite built');
+    assert.ok(sprite.scale.x <= 2.0, `label width ${sprite.scale.x} m`);
+    assert.ok(sprite.position.y > def.height, 'tag floats above the head');
+    ch.dispose();
+  });
+
+  it('saberMountPose pins the holster endpoints: belt at 0, fist at 1', () => {
+    const hand = [0.43, 0.54, 0.02], belt = [0.24, 0.92, 0.06];
+    const tilts = CH.saberTilts(hand);
+    const at0 = CH.saberMountPose(0, hand, belt, tilts);
+    assert.ok(at0.position.every((v, i) => approx(v, belt[i], 1e-9)), 'grip 0 = belt anchor');
+    assert.ok(approx(at0.rotation[0], tilts.belt.x) && approx(at0.rotation[2], tilts.belt.z), 'grip 0 = belt tilt');
+    const at1 = CH.saberMountPose(1, hand, belt, tilts);
+    assert.ok(at1.position.every((v, i) => approx(v, hand[i], 1e-9)), 'grip 1 = fist anchor');
+    assert.ok(approx(at1.rotation[0], tilts.hand.x) && approx(at1.rotation[2], tilts.hand.z), 'grip 1 = hand tilt');
+    const mid = CH.saberMountPose(0.5, hand, belt, tilts);
+    assert.ok(mid.position[1] > hand[1] && mid.position[1] < belt[1], 'travel is a true lerp');
+    // the roll mirrors with the hand side so the blade clears the leg
+    const leftTilts = CH.saberTilts([-0.4, 0.6, 0.1]);
+    assert.equal(leftTilts.hand.z, -tilts.hand.z);
+  });
+
+  it('findGripBones picks the right hand + pelvis out of a rig, nulls without one', () => {
+    const root = new THREE.Group();
+    const hips = new THREE.Group(); hips.name = 'mixamorig:Hips';
+    const spine = new THREE.Group(); spine.name = 'mixamorig:Spine';
+    const handR = new THREE.Group(); handR.name = 'mixamorig:RightHand';
+    const thumb = new THREE.Group(); thumb.name = 'mixamorig:RightHandThumb1';
+    const handL = new THREE.Group(); handL.name = 'mixamorig:LeftHand';
+    root.add(hips); hips.add(spine); spine.add(handR); handR.add(thumb); spine.add(handL);
+    const bones = CH.findGripBones(root);
+    assert.equal(bones.hand, handR);
+    assert.equal(bones.pelvis, hips);
+    assert.deepEqual(CH.findGripBones(new THREE.Group()), { hand: null, pelvis: null });
+    assert.deepEqual(CH.findGripBones(null), { hand: null, pelvis: null });
+  });
+});
+
+describe('QA item 6 — rideable vehicles (vehicles.js + zone wiring)', () => {
+  it('tatooine stages three rideables; the winner pod stays dressing', () => {
+    const z = buildZone(THREE, PLANETS.tatooine, T);
+    assert.deepEqual(z.vehicles.map((v) => v.id).sort(), ['landspeeder', 'pod-grid-a', 'pod-grid-b']);
+    for (const v of z.vehicles) {
+      assert.equal(v.state.mode, 'parked');
+      assert.equal(v.state.speed, 0);
+      assert.ok(v.colliders.length >= 1, 'parked colliders ride along for the ignore set');
+    }
+    const podA = z.vehicles.find((v) => v.id === 'pod-grid-a');
+    assert.equal(podA.state.x, 31); assert.equal(podA.state.z, 64);
+    assert.equal(podA.colliders.length, 7, 'the full pod collider chain');
+    z.update(0, 0.016); // parked render = seat transform, no pop
+    assert.equal(podA.group.position.x, 31);
+    assert.equal(podA.group.position.y, podA.state.y);
+    z.dispose();
+  });
+
+  it('mount/dismount state machine + prompt range', () => {
+    const st = VH.createVehicleState('landspeeder', { x: 10, z: 10, yaw: 0.5, seatY: 1 });
+    assert.equal(st.mode, 'parked');
+    assert.ok(VH.vehicleInPromptRange(st, 12, 10), '2 m away: prompt');
+    assert.ok(!VH.vehicleInPromptRange(st, 14, 10), '4 m away: no prompt');
+    assert.equal(VH.mountVehicle(st), true);
+    assert.equal(st.mode, 'mounted');
+    assert.equal(VH.mountVehicle(st), false, 'no double mount');
+    const pt = VH.dismountPoint(st);
+    const d = Math.hypot(pt.x - st.x, pt.z - st.z);
+    assert.ok(d > VH.VEHICLE_TYPES.landspeeder.radius, 'steps out clear of the hull');
+    VH.parkVehicle(st, () => 2.5);
+    assert.equal(st.mode, 'parked');
+    assert.equal(st.y, 2.5 + VH.VEHICLE_TYPES.landspeeder.rest);
+    assert.throws(() => VH.createVehicleState('x-wing', {}), /unknown vehicle type/);
+  });
+
+  it('driving: smooth accel to cruise, hover tracks the terrain', () => {
+    const z = buildZone(THREE, PLANETS.tatooine, T);
+    const st = VH.createVehicleState('landspeeder', { x: -100, z: 120, yaw: Math.PI, seatY: 0 });
+    VH.mountVehicle(st);
+    const world = { groundHeight: z.groundHeight, colliders: [], bounds: z.bounds, ignore: new Set() };
+    let hoverDev = 0;
+    for (let i = 0; i < 60 * 6; i++) {
+      VH.stepVehicle(st, { fwd: 1, turn: 0 }, 1 / 60, world);
+      if (i > 60 * 2) {
+        const dev = Math.abs(st.y - (z.groundHeight(st.x, st.z) + VH.VEHICLE_TYPES.landspeeder.hover));
+        if (dev > hoverDev) hoverDev = dev;
+      }
+    }
+    assert.ok(st.speed > VH.VEHICLE_TYPES.landspeeder.cruise * 0.9, `reached cruise (${st.speed.toFixed(1)})`);
+    assert.ok(hoverDev < 0.15, `hover held within ${hoverDev.toFixed(3)} m of groundHeight + hover`);
+    // throttle off: settles to a stop, never rolls backwards forever
+    for (let i = 0; i < 60 * 4; i++) VH.stepVehicle(st, { fwd: 0, turn: 0 }, 1 / 60, world);
+    assert.ok(Math.abs(st.speed) < 0.05, `coasted to a stop (${st.speed.toFixed(2)})`);
+    z.dispose();
+  });
+
+  it('a driven vehicle ignores ONLY its own colliders', () => {
+    const own = [{ x: 0, z: 0, r: 3 }];
+    const foreign = [{ x: 0, z: -30, r: 3 }];
+    const st = VH.createVehicleState('landspeeder', { x: 0, z: 6, yaw: 0, seatY: 0 });
+    VH.mountVehicle(st);
+    const world = {
+      groundHeight: () => 0, colliders: [...own, ...foreign],
+      bounds: { kind: 'circle', max: 115 }, ignore: new Set(own),
+    };
+    // drive north (-z) through the own circle: no push-out
+    for (let i = 0; i < 60 * 2; i++) VH.stepVehicle(st, { fwd: 1, turn: 0 }, 1 / 60, world);
+    assert.ok(st.z < -1, `drove out through its own parked circle (z=${st.z.toFixed(1)})`);
+    // keep driving into the foreign circle: it must stop the vehicle
+    let minD = Infinity;
+    for (let i = 0; i < 60 * 4; i++) {
+      VH.stepVehicle(st, { fwd: 1, turn: 0 }, 1 / 60, world);
+      minD = Math.min(minD, Math.hypot(st.x - 0, st.z + 30));
+    }
+    assert.ok(minD > 3, `foreign collider kept the hull out (minD=${minD.toFixed(2)})`);
+  });
+
+  it('the podrace completes ON a pod: gates read the vehicle position', () => {
+    const z = buildZone(THREE, PLANETS.tatooine, T); // default = first mission
+    const pod = z.vehicles.find((v) => v.id === 'pod-grid-a');
+    assert.ok(pod, 'grid pod rideable');
+    VH.mountVehicle(pod.state);
+    const ignore = new Set(pod.colliders);
+    const world = {
+      groundHeight: z.groundHeight, colliders: z.colliders,
+      bounds: z.bounds, ignore,
+    };
+    const gates = [...z.checkpoints, z.target];
+    assert.ok(gates.length >= 8, 'the expanded circuit');
+    let gi = 0;
+    const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+    for (let i = 0; i < 60 * 240 && gi < gates.length; i++) {
+      const g = gates[gi];
+      const dx = g.x - pod.state.x, dz = g.z - pod.state.z;
+      if (Math.hypot(dx, dz) <= g.r) { gi++; continue; }
+      const targetYaw = Math.atan2(-dx, -dz);
+      const err = wrap(targetYaw - pod.state.yaw);
+      VH.stepVehicle(pod.state, {
+        fwd: Math.abs(err) < 1.1 ? 1 : 0.25,
+        turn: -Math.max(-1, Math.min(1, err * 3)),
+      }, 1 / 60, world);
+    }
+    assert.equal(gi, gates.length,
+      `pod drove the whole circuit (${gi}/${gates.length} gates)`);
+    z.dispose();
   });
 });

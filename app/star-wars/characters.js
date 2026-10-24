@@ -22,12 +22,16 @@
  *
  * THE SABER: hilt (procedural metal) + blade (bright core + additive
  * glow shell + point light + synthesized hum). The pure state machine
- * in saber.js decides ignition by player proximity (ignite <= 12 m,
- * retract > 18 m, hysteresis between); this module renders its
- * progress: ~180 ms ease-out extension, a white emitter flare on
- * ignition, ±1.5% length shimmer while lit. The hum is Web Audio,
- * gesture-gated: the context only ever resumes after the user's
- * first pointer/key interaction (the house sfx pattern).
+ * in saber.js decides by player proximity: the hilt HOLSTERS at the
+ * belt beyond 24 m, DRAWS to the hand inside 24 m, and the blade
+ * ignites <= 12 m / retracts > 18 m (hysteresis between); this module
+ * renders its progress: the belt->hand hilt travel, ~180 ms ease-out
+ * blade extension, a white emitter flare on ignition, ±1.5% length
+ * shimmer while lit. If a rigged model replaces the GLB, the hilt's
+ * endpoints ride the right-hand and pelvis bones (findGripBones).
+ * The hum is Web Audio, gesture-gated: the context only ever resumes
+ * after the user's first pointer/key interaction (the house sfx
+ * pattern).
  */
 import { createSaberState } from './saber.js';
 
@@ -44,10 +48,72 @@ export const CHARACTER_MODELS = {
   'dark-lord': { url: '/models/star-wars/dark-lord.glb', yawFix: Math.PI },
 };
 
-/* Default right-hand anchor in body space (metres, figure facing
- * +Z, so the right hand sits at −X): hip height, slightly forward —
- * where a hanging hand grips a hilt. Defs override per character. */
-const DEFAULT_HAND = [-0.34, 0.98, 0.10];
+/* Default hand anchor in body space (metres, figure facing +Z, so
+ * the right hand sits at −X): a HANGING fist — mid-thigh height at
+ * the silhouette's edge. The original default sat at hip height
+ * (y 0.98), which left the hilt floating in the air beside the
+ * figure; measured fist positions from the shipped models live in
+ * data.js (knight / dark-lord `hand` + `belt`, derived from the GLB
+ * vertex clusters — see the QA note there). Defs override. */
+const DEFAULT_HAND = [-0.30, 0.58, 0.04];
+
+/**
+ * The saber's two rest poses, as euler tilts. In the hand: blade
+ * tipped forward off the fist, rolled slightly outward. At the
+ * belt: the hilt hangs near-vertical, emitter up, top tipped a
+ * touch away from the thigh. The roll mirrors with the hand's side
+ * so the blade never spears the figure's own leg.
+ */
+export function saberTilts(hand) {
+  const side = hand && hand[0] < 0 ? -1 : 1;
+  return {
+    hand: { x: -0.32, z: -side * 0.14 },
+    belt: { x: 0.10, z: -side * 0.18 },
+  };
+}
+
+/**
+ * Where the saber group sits for a given grip travel (0 = belt,
+ * 1 = hand): position lerps belt -> hand, tilt lerps belt -> hand.
+ * Pure — characters.js applies it, tests pin the endpoints.
+ */
+export function saberMountPose(grip01, hand, belt, tilts) {
+  const g = Math.max(0, Math.min(1, grip01));
+  const lerp = (a, b) => a + (b - a) * g;
+  return {
+    position: [
+      lerp(belt[0], hand[0]), lerp(belt[1], hand[1]), lerp(belt[2], hand[2]),
+    ],
+    rotation: [
+      lerp(tilts.belt.x, tilts.hand.x), 0, lerp(tilts.belt.z, tilts.hand.z),
+    ],
+  };
+}
+
+/**
+ * Find the grip bones in a loaded character model: the right hand
+ * (hilt parent when rigged) and the pelvis/hips (belt anchor
+ * parent). Name-based — Mixamo ('mixamorig:RightHand',
+ * 'mixamorig:Hips'), Tripo and generic rigs ('Hand_R', 'pelvis')
+ * all match. Returns { hand, pelvis } with either possibly null;
+ * body-space anchors stay the fallback when no skeleton is found.
+ */
+export function findGripBones(root) {
+  let hand = null;
+  let pelvis = null;
+  if (!root || typeof root.traverse !== 'function') return { hand, pelvis };
+  root.traverse((o) => {
+    const n = String((o && o.name) || '').toLowerCase();
+    if (!n) return;
+    if (!pelvis && /(hips|pelvis)/.test(n) && !/hand/.test(n)) pelvis = o;
+    if (!hand && n.includes('hand')
+      && !/thumb|index|middle|ring|pinky|finger/.test(n)
+      && /(right|hand_r|handr|_r\b|\br\b)/.test(n)) {
+      hand = o;
+    }
+  });
+  return { hand, pelvis };
+}
 
 /**
  * Load CHARACTER_MODELS[key] into `slot`, normalised by HEIGHT:
@@ -93,7 +159,29 @@ export function attachCharacterModel(R, slot, key, height, onArrive) {
   return slot;
 }
 
-/* Name label — the zone engine's canvas-sprite house style. */
+/* Name label — a SMALL tag above the head (max ~2 m wide), never
+ * the old 6.4 m billboard that filled the whole screen up close
+ * (Merlin walked through it on device, 2026-10-23). Sprites are
+ * camera-facing by construction; the fade law keeps it out of the
+ * player's face: gone inside 4 m, full through the mid-range,
+ * gone again beyond 60 m. */
+export const LABEL_FADE_NEAR = 4;
+export const LABEL_FULL_NEAR = 7;
+export const LABEL_FULL_FAR = 45;
+export const LABEL_FADE_FAR = 60;
+
+export function labelOpacity(dist) {
+  if (typeof dist !== 'number' || !Number.isFinite(dist)) return 0;
+  if (dist <= LABEL_FADE_NEAR || dist >= LABEL_FADE_FAR) return 0;
+  if (dist < LABEL_FULL_NEAR) {
+    return 0.95 * ((dist - LABEL_FADE_NEAR) / (LABEL_FULL_NEAR - LABEL_FADE_NEAR));
+  }
+  if (dist > LABEL_FULL_FAR) {
+    return 0.95 * (1 - (dist - LABEL_FULL_FAR) / (LABEL_FADE_FAR - LABEL_FULL_FAR));
+  }
+  return 0.95;
+}
+
 function makeNameLabel(R, text) {
   const cv = document.createElement('canvas');
   cv.width = 256; cv.height = 64;
@@ -113,7 +201,7 @@ function makeNameLabel(R, text) {
   const sp = new R.Sprite(new R.SpriteMaterial({
     map: tex, transparent: true, depthWrite: false, fog: false,
   }));
-  sp.scale.set(6.4, 1.6, 1);
+  sp.scale.set(2.0, 0.5, 1);
   return sp;
 }
 
@@ -266,9 +354,8 @@ function buildSaber(R, saberCfg) {
   light.position.y = 0.6;
   group.add(light);
 
-  /* A natural ready grip: blade tilted forward off the hand, rolled
-   * slightly outward — never spearing the figure's own leg. */
-  group.rotation.set(-0.32, 0, 0.14);
+  /* Pose (position + tilt) is driven per frame by buildCharacter:
+   * the hilt rides the belt <-> hand travel of the holster law. */
 
   return { group, bladeGroup, flare, light, length };
 }
@@ -310,17 +397,29 @@ export function buildCharacter(R, charDef, groundHeight) {
   /* Label + saber stay hidden until the model actually arrives —
    * a floating name or a hilt with nobody holding it reads broken. */
   const label = makeNameLabel(R, def.name || def.id || '');
-  label.position.y = height + 0.5;
+  label.position.y = height + 0.38;
   label.visible = false;
   group.add(label);
+  let arrived = false;
 
   let saber = null;
   let saberState = null;
   let audio = null;
+  let handAnchor = null;
+  let beltAnchor = null;
+  let tilts = null;
+  let gripBones = null; // { hand, pelvis } when a rigged model lands
   if (def.saber) {
     saber = buildSaber(R, def.saber);
-    const hand = Array.isArray(def.hand) ? def.hand : DEFAULT_HAND;
-    saber.group.position.set(hand[0], hand[1], hand[2]);
+    handAnchor = Array.isArray(def.hand) ? def.hand : DEFAULT_HAND;
+    const side = handAnchor[0] < 0 ? -1 : 1;
+    beltAnchor = Array.isArray(def.belt)
+      ? def.belt
+      : [side * 0.22, height * 0.51, 0.05];
+    tilts = saberTilts(handAnchor);
+    const pose = saberMountPose(0, handAnchor, beltAnchor, tilts);
+    saber.group.position.set(pose.position[0], pose.position[1], pose.position[2]);
+    saber.group.rotation.set(pose.rotation[0], pose.rotation[1], pose.rotation[2]);
     saber.group.visible = false;
     body.add(saber.group);
     saberState = createSaberState();
@@ -328,9 +427,19 @@ export function buildCharacter(R, charDef, groundHeight) {
   }
 
   attachCharacterModel(R, slot, def.model, height, () => {
-    label.visible = true;
+    arrived = true;
     if (saber) saber.group.visible = true;
+    /* RIG-READY: if the loaded file carries a skeleton, the hilt
+     * follows the right-hand bone (and holsters at the pelvis);
+     * unrigged files keep the body-space anchors. No fake limb
+     * animation either way — the bones move the hilt only if the
+     * skeleton itself moves. */
+    const bones = findGripBones(slot);
+    if (bones.hand && bones.pelvis) gripBones = bones;
   });
+
+  const _boneV = new R.Vector3();
+  const _boneV2 = new R.Vector3();
 
   function update(t, dt, dist) {
     /* Idle life for an unrigged figure: a breath, and a slow look
@@ -338,12 +447,45 @@ export function buildCharacter(R, charDef, groundHeight) {
     body.position.y = Math.sin(t * 1.35 + phase) * 0.012;
     body.rotation.y = Math.sin(t * 0.23 + phase * 1.3) * 0.13;
 
+    /* The name tag fades by distance (see labelOpacity): never in
+     * the player's face, never a billboard on the horizon. */
+    if (arrived) {
+      const op = labelOpacity(dist);
+      label.material.opacity = op;
+      label.visible = op > 0.02;
+    }
+
     if (saber && saberState) {
       const events = saberState.update(dt, dist);
       for (const ev of events) {
         if (ev === 'ignite') audio.ignite();
         else if (ev === 'retract') audio.retract();
       }
+      /* HOLSTER LAW, rendered: the hilt rides belt -> hand with
+       * the grip travel; its tilt blends from the belt hang to the
+       * ready grip. Rigged models: the ENDPOINTS ride the bones —
+       * hand bone for the grip, pelvis bone (offset to the hip on
+       * the hand's side) for the belt. */
+      const g01 = saberState.grip01();
+      const pose = saberMountPose(g01, handAnchor, beltAnchor, tilts);
+      if (gripBones) {
+        gripBones.hand.getWorldPosition(_boneV);
+        body.worldToLocal(_boneV);
+        gripBones.pelvis.getWorldPosition(_boneV2);
+        body.worldToLocal(_boneV2);
+        const side = handAnchor[0] < 0 ? -1 : 1;
+        _boneV2.x += side * 0.07;
+        _boneV2.y -= 0.05;
+        _boneV2.z += 0.03;
+        saber.group.position.set(
+          _boneV2.x + (_boneV.x - _boneV2.x) * g01,
+          _boneV2.y + (_boneV.y - _boneV2.y) * g01,
+          _boneV2.z + (_boneV.z - _boneV2.z) * g01
+        );
+      } else {
+        saber.group.position.set(pose.position[0], pose.position[1], pose.position[2]);
+      }
+      saber.group.rotation.set(pose.rotation[0], pose.rotation[1], pose.rotation[2]);
       const b = saberState.blade01();
       const lit = saberState.state === 'lit';
       const shimmer = lit ? 1 + 0.011 * Math.sin(t * 37 + phase) + 0.006 * Math.sin(t * 61) : 1;

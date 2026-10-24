@@ -88,17 +88,27 @@ export const GLB_MODELS = {
   homestead: {
     url: '/models/star-wars/homestead.glb',
     meters: 17, // largest horizontal extent after fitting
-    colliders: [{ x: 0, z: 0, r: 8.5 }],
+    // bounding radius (8.5) + a small stop margin so the camera
+    // never clips the wall skin
+    colliders: [{ x: 0, z: 0, r: 8.9 }],
   },
   cantina: {
     url: '/models/star-wars/cantina.glb',
     meters: 15,
-    colliders: [{ x: 0, z: 0, r: 8 }],
+    colliders: [{ x: 0, z: 0, r: 8.4 }],
   },
   landspeeder: {
     url: '/models/star-wars/landspeeder.glb',
     meters: 5.6,
-    colliders: [{ x: 0, z: 0, r: 2.4 }],
+    // The fitted hull spans +/-2.8 on its long axis; r 2.4 let the
+    // camera clip the nose/tail. 2.9 covers it with margin.
+    colliders: [{ x: 0, z: 0, r: 2.9 }],
+    /* Measured from the GLB geometry (z-slice profiles): the nose
+     * tapers at +Z. The drive system (vehicles.js) drives toward
+     * the landmark group's -Z, so the fitted model turns half a
+     * turn inside its slot. One constant to flip if it ever reads
+     * backward on device. */
+    yawFix: Math.PI,
   },
 };
 
@@ -114,6 +124,7 @@ export function attachGlbModel(R, holder, key) {
   if (!def || !holder || typeof window === 'undefined') return null;
   const slot = new R.Group();
   slot.name = 'glb:' + key;
+  if (def.yawFix) slot.rotation.y = def.yawFix;
   holder.add(slot);
   (async () => {
     try {
@@ -158,7 +169,8 @@ const BUILDERS = {
     g.add(mesh(R, dome(R, 4.5), sand, 0, 0, 0));
     g.add(mesh(R, new R.CylinderGeometry(1.6, 2.4, 22, 8), dark, 9, 11, -6));
     g.add(mesh(R, dome(R, 2.2), sand, 9, 22, -6));
-    return done(R, g, [{ x: 0, z: 0, r: 13 }]);
+    // r 13.5: the tower base at (9,-6) reaches 10.8 + 2.4 = 13.2.
+    return done(R, g, [{ x: 0, z: 0, r: 13.5 }]);
   },
   /* Tatooine — igloo dome + 3 vaporator poles. */
   'moisture-farm': function (R) {
@@ -225,8 +237,18 @@ const BUILDERS = {
     const canopy = mesh(R, new R.SphereGeometry(0.55, 9, 7), dark, 0, 1.55, 2.9);
     canopy.scale.set(0.9, 0.65, 1.3); g.add(canopy);
     g.add(mesh(R, new R.BoxGeometry(1.5, 0.16, 0.9), hull, 0, 0.55, 5.4));
+    /* Colliders must cover the VISUAL hull, not its centre points.
+     * The old three circles (one per engine centre, one for the pod)
+     * left the intake + glow ball (z to -3.97) and the pod nose
+     * (z to 1.22) poking past the stop radius, and an open corridor
+     * between the engines — Merlin walked straight through an engine
+     * block on device (2026-10-23). Now an overlapping chain: two
+     * circles per engine along its long axis, one on the beam, one
+     * amidships sealing the corridor, one on the pod. */
     return done(R, g, [
-      { x: -2.4, z: -0.6, r: 1.7 }, { x: 2.4, z: -0.6, r: 1.7 }, { x: 0, z: 3.4, r: 1.8 },
+      { x: -2.4, z: -2.3, r: 1.75 }, { x: -2.4, z: 0.7, r: 1.5 },
+      { x: 2.4, z: -2.3, r: 1.75 }, { x: 2.4, z: 0.7, r: 1.5 },
+      { x: 0, z: -3.1, r: 1.3 }, { x: 0, z: -0.4, r: 1.7 }, { x: 0, z: 3.4, r: 2.3 },
     ]);
   },
   /* Naboo — grand domed palace + columns + plaza disc. */

@@ -21,6 +21,10 @@ import {
 import { createWalker, stepWalker, applyLook, walkerCamera } from '@/lib/world/walk-controls';
 import { createKeyInput, attachDragLook } from '@/lib/world/walk-input';
 import WalkJoystick from '@/components/world/WalkJoystick';
+import {
+  mountVehicle, dismountPoint, parkVehicle, stepVehicle,
+  vehicleInPromptRange, chaseCameraPose,
+} from './vehicles';
 
 const BANNER_CLEAR = 'max(3.5rem, calc(env(safe-area-inset-top) + 3rem))';
 const BOTTOM_CLEAR = 'max(1.5rem, calc(env(safe-area-inset-bottom) + 1rem))';
@@ -64,6 +68,10 @@ function StarBackdrop() {
   );
 }
 
+/* Shortest signed arc between two headings, for drag-steering a
+ * mounted vehicle without a 2π snap. */
+const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+
 // A beat counts as done. data.js stores it as progress.beatsDone[planetId].
 function beatDone(progress, planetId) {
   if (!progress) return false;
@@ -85,6 +93,10 @@ export default function StarWarsPage() {
   const joyRef = useRef({ x: 0, y: 0 });
   const toastTimer = useRef(null);
   const introRef = useRef(false);
+  // Rideable vehicles: the zone effect owns the drive state and
+  // fills vehicleApiRef with mount/dismount for the HUD buttons.
+  const vehicleApiRef = useRef(null);
+  const ridePromptRef = useRef(null);
 
   const [mode, setMode] = useState('menu'); // menu | crawl | map | zone
   const [planetId, setPlanetId] = useState(null);
@@ -110,6 +122,9 @@ export default function StarWarsPage() {
   const [beatOverlay, setBeatOverlay] = useState(false);
   const [webglFail, setWebglFail] = useState(false);
   const [crawlIdx, setCrawlIdx] = useState(0);
+  const [ridePrompt, setRidePrompt] = useState(null); // vehicle id offering a ride
+  const [mountedId, setMountedId] = useState(null); // vehicle id being driven
+  const [roamCard, setRoamCard] = useState(true); // free-roam banner: full card -> chip
 
   const isTouch = typeof window !== 'undefined' && 'ontouchstart' in window;
 
@@ -120,6 +135,17 @@ export default function StarWarsPage() {
   }, []);
 
   useEffect(() => { introRef.current = intro; }, [intro]);
+
+  /* Free-roam banner law (Merlin QA 2026-10-23): the full "no
+   * objectives" card shows on entry, then fades after ~6 s of
+   * exploring to a small persistent mode chip — it never sits
+   * top-centre forever again. */
+  useEffect(() => {
+    if (mode !== 'zone' || !entry || entry.kind !== 'roam') return undefined;
+    if (intro) { setRoamCard(true); return undefined; }
+    const t = setTimeout(() => setRoamCard(false), 6000);
+    return () => clearTimeout(t);
+  }, [mode, entry, intro]);
 
   const doneCount = SAGA.filter((id) => beatDone(progress, id)).length;
 
@@ -342,6 +368,45 @@ export default function StarWarsPage() {
       let walker = null;
       const flight = { x: spawn.x, y: spawn.y != null ? spawn.y : 12, z: spawn.z, yaw: spawn.yaw || 0, pitch: 0 };
 
+      /* Rideable vehicles (zone.vehicles, from `vehicle:` landmark
+       * defs): `mounted` is the entry being driven; the HUD buttons
+       * reach mount/dismount through vehicleApiRef. The vehicle's
+       * own parked colliders are ignored by its drive step only —
+       * parked vehicles stay solid to the walker. */
+      let mounted = null;
+      const vehIgnore = new Set();
+      let lastYaw = spawn.yaw || 0;
+      vehicleApiRef.current = {
+        mount(id) {
+          const v = (zone.vehicles || []).find((e) => e.id === id);
+          if (!v || mounted || !walker) return;
+          if (!mountVehicle(v.state)) return;
+          mounted = v;
+          vehIgnore.clear();
+          for (const c of v.colliders) vehIgnore.add(c);
+          walker.yaw = v.state.yaw;
+          lastYaw = walker.yaw;
+          setMountedId(id);
+          ridePromptRef.current = null;
+          setRidePrompt(null);
+        },
+        dismount() {
+          if (!mounted || !walker) return;
+          const pt = dismountPoint(mounted.state);
+          parkVehicle(mounted.state, zone.groundHeight);
+          walker.pos.x = pt.x;
+          walker.pos.z = pt.z;
+          walker.yaw = pt.yaw;
+          walker.jumpY = 0;
+          walker.jumpV = 0;
+          walker.grounded = true;
+          lastYaw = walker.yaw;
+          mounted = null;
+          vehIgnore.clear();
+          setMountedId(null);
+        },
+      };
+
       if (!isFly) {
         walker = createWalker({ x: spawn.x, z: spawn.z, yaw: spawn.yaw || 0, pitch: 0 });
         keys = createKeyInput();
@@ -364,21 +429,67 @@ export default function StarWarsPage() {
         const t = now / 1000;
 
         if (!isFly && walker) {
+          /* Drag-look steers a mounted vehicle: capture the yaw
+           * delta the drag produced this frame before anything
+           * else consumes walker.yaw. */
+          const dragDelta = wrapAngle(walker.yaw - lastYaw);
+          lastYaw = walker.yaw;
           if (!introRef.current) {
-            const jump = keys.consumeJump();
-            stepWalker(walker, {
-              fwd: keys.state.fwd + joyRef.current.y,
-              strafe: keys.state.strafe + joyRef.current.x,
-              sprint: keys.state.sprint, jump,
-            }, dt, {
-              groundHeight: zone.groundHeight,
-              colliders: zone.colliders,
-              bounds: zone.bounds,
-            });
+            if (mounted) {
+              const st = mounted.state;
+              st.yaw += dragDelta;
+              stepVehicle(st, {
+                fwd: keys.state.fwd + joyRef.current.y,
+                turn: keys.state.strafe + joyRef.current.x,
+              }, dt, {
+                groundHeight: zone.groundHeight,
+                colliders: zone.colliders,
+                bounds: zone.bounds,
+                ignore: vehIgnore,
+              });
+              /* Rider, mission gates and saber proximity all read
+               * the VEHICLE's position while mounted — the podrace
+               * runs on the pod. */
+              walker.pos.x = st.x;
+              walker.pos.z = st.z;
+            } else {
+              const jump = keys.consumeJump();
+              stepWalker(walker, {
+                fwd: keys.state.fwd + joyRef.current.y,
+                strafe: keys.state.strafe + joyRef.current.x,
+                sprint: keys.state.sprint, jump,
+              }, dt, {
+                groundHeight: zone.groundHeight,
+                colliders: zone.colliders,
+                bounds: zone.bounds,
+                /* EXACT ground follow: walker y = groundHeight +
+                 * eye every frame (Merlin QA 2026-10-23). */
+                snapY: true,
+              });
+              /* Ride prompt: nearest parked vehicle in range. */
+              let promptId = null;
+              for (const v of zone.vehicles || []) {
+                if (v.state.mode === 'parked'
+                  && vehicleInPromptRange(v.state, walker.pos.x, walker.pos.z)) {
+                  promptId = v.id;
+                  break;
+                }
+              }
+              if (promptId !== ridePromptRef.current) {
+                ridePromptRef.current = promptId;
+                setRidePrompt(promptId);
+              }
+            }
           }
-          const cam = walkerCamera(walker, {});
-          camera.position.set(cam.x, cam.y, cam.z);
-          camera.rotation.set(walker.pitch, walker.yaw, 0);
+          if (mounted) {
+            const pose = chaseCameraPose(mounted.state);
+            camera.position.set(pose.x, pose.y, pose.z);
+            camera.lookAt(pose.lx, pose.ly, pose.lz);
+          } else {
+            const cam = walkerCamera(walker, {});
+            camera.position.set(cam.x, cam.y, cam.z);
+            camera.rotation.set(walker.pitch, walker.yaw, 0);
+          }
           checkBeat(walker.pos.x, walker.pos.z);
         } else if (isFly) {
           if (!introRef.current) {
@@ -448,6 +559,10 @@ export default function StarWarsPage() {
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', resize);
       if (cleanup) cleanup();
+      vehicleApiRef.current = null;
+      ridePromptRef.current = null;
+      setRidePrompt(null);
+      setMountedId(null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, planetId, entry]);
@@ -630,16 +745,38 @@ export default function StarWarsPage() {
             </div>
           )}
 
-          {inRoam && (
+          {inRoam && roamCard && (
             <div style={styles.objective}>
               <div style={styles.objText}>🧭 Free Roam — no objectives. The world is yours.</div>
             </div>
+          )}
+
+          {inRoam && !roamCard && (
+            <div style={styles.modeChip}>🧭 Free Roam</div>
           )}
 
           {isTouch && (
             <div style={styles.stickWrap}>
               <WalkJoystick onMove={onJoy} size={120} />
             </div>
+          )}
+
+          {/* rideable vehicles: walk-up prompt + exit control */}
+          {ridePrompt && !mountedId && !intro && (
+            <button
+              style={styles.rideBtn}
+              onClick={() => { if (vehicleApiRef.current) vehicleApiRef.current.mount(ridePrompt); }}
+            >
+              🛸 Tap to ride
+            </button>
+          )}
+          {mountedId && (
+            <button
+              style={styles.exitVehicleBtn}
+              onClick={() => { if (vehicleApiRef.current) vehicleApiRef.current.dismount(); }}
+            >
+              ⬇ Exit vehicle
+            </button>
           )}
 
           {/* mission intro */}
@@ -837,6 +974,30 @@ const styles = {
     padding: '8px 16px', borderRadius: 10,
   },
   pips: { color: '#9fb4d8', fontSize: 12, letterSpacing: 3, marginTop: 6, textShadow: '0 0 8px rgba(0,0,0,0.9)' },
+  // the free-roam banner's resting state: a small mode chip in the
+  // same top-centre slot, mission-HUD weight, never a full card
+  modeChip: {
+    position: 'absolute', top: 'calc(' + BANNER_CLEAR + ' + 100px)', left: '50%',
+    transform: 'translateX(-50%)', color: '#9fb4d8', fontSize: 11, letterSpacing: 2,
+    background: 'rgba(5,5,12,0.45)', padding: '4px 12px', borderRadius: 999,
+    textShadow: '0 0 8px rgba(0,0,0,0.9)', whiteSpace: 'nowrap',
+  },
+  rideBtn: {
+    position: 'absolute', left: '50%', bottom: 'calc(' + BOTTOM_CLEAR + ' + 132px)',
+    transform: 'translateX(-50%)', padding: '13px 26px', minHeight: 48,
+    fontSize: 15, letterSpacing: 1, fontWeight: 700, color: '#0a0a12',
+    background: '#ffe81f', border: 'none', borderRadius: 10, cursor: 'pointer',
+    pointerEvents: 'auto', boxShadow: '0 6px 26px rgba(255,232,31,0.35)',
+    whiteSpace: 'nowrap',
+  },
+  exitVehicleBtn: {
+    position: 'absolute', right: 20, bottom: BOTTOM_CLEAR,
+    padding: '12px 20px', minHeight: 48,
+    fontSize: 14, letterSpacing: 1, fontWeight: 700, color: '#ffe81f',
+    background: 'rgba(10,10,20,0.78)', border: '1px solid rgba(255,232,31,0.6)',
+    borderRadius: 10, cursor: 'pointer', pointerEvents: 'auto',
+    whiteSpace: 'nowrap',
+  },
   stickWrap: {
     position: 'absolute', left: 20, bottom: BOTTOM_CLEAR, pointerEvents: 'auto',
   },

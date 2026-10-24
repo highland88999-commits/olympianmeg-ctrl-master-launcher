@@ -175,10 +175,10 @@ export const PLANETS = {
        * Eisley, 135 m off the course and out of the race entirely —
        * the pods never loaded into the podrace. Fixed 2026-10-23.)
        * A third pod waits at the mesa-circuit finish. */
-      { type: 'podracer', x: 31, z: 64, s: 1.2, ry: -0.55 },
-      { type: 'podracer', x: 13, z: 70, s: 1.2, ry: -0.55 },
+      { type: 'podracer', x: 31, z: 64, s: 1.2, ry: -0.55, vehicle: 'podracer', vid: 'pod-grid-a' },
+      { type: 'podracer', x: 13, z: 70, s: 1.2, ry: -0.55, vehicle: 'podracer', vid: 'pod-grid-b' },
       { type: 'podracer', x: -92, z: 58, s: 1.2, ry: 2.4 },
-      { type: 'landspeeder', x: 60, z: 26, s: 1, ry: -0.7, model: 'landspeeder' },
+      { type: 'landspeeder', x: 60, z: 26, s: 1, ry: -0.7, model: 'landspeeder', vehicle: 'landspeeder', vid: 'landspeeder' },
     ],
     ambient: [
       { type: 'bantha', count: 4 },
@@ -187,10 +187,18 @@ export const PLANETS = {
     ],
     /* A Jedi keeps a quiet watch over the Lars homestead, standing
      * off the vaporator field and looking down the farm road toward
-     * Mos Eisley. Walk within 12 m and his saber answers. */
+     * Mos Eisley. Walk within 12 m and his saber answers.
+     * hand/belt anchors MEASURED from knight.glb (2026-10-23 QA):
+     * the old anchor (-0.37, 0.95) sat 17 cm OUTSIDE the silhouette
+     * at hip height — the floating hilt Merlin filmed. The model's
+     * defined arm hangs on its +X side; the fist cluster terminates
+     * at ~(0.44, 0.50, 0.02) and the waist band at y ~0.92 spans
+     * x -0.20..0.29, so the grip sits at (0.43, 0.54) and the belt
+     * clip at (0.24, 0.92). One-glance correctable like the facings. */
     characters: [
       { id: 'knight', model: 'knight', name: 'Jedi Knight', at: [33, 24], faceYaw: -2.45,
-        height: 1.8, hand: [-0.37, 0.95, 0.08], saber: { color: 0x3f9dff, length: 1.05 } },
+        height: 1.8, hand: [0.43, 0.54, 0.02], belt: [0.24, 0.92, 0.06],
+        saber: { color: 0x3f9dff, length: 1.05 } },
     ],
     missions: [
       {
@@ -382,10 +390,16 @@ export const PLANETS = {
     ],
     /* The Sith Lord waits on the fortress approach, off the road
      * before the gate — taller than any man has a right to be, and
-     * his red blade wakes when you close within 12 m. */
+     * his red blade wakes when you close within 12 m.
+     * hand/belt anchors MEASURED from dark-lord.glb (2026-10-23 QA),
+     * in body space (model faces -Z, yawFix pi flips x/z): the
+     * front-swept fist cluster sits at (0.40, 0.57, 0.13); the
+     * waist band at y ~0.98 spans x -0.30..0.30, belt clip at
+     * (0.26, 0.98). */
     characters: [
       { id: 'dark-lord', model: 'dark-lord', name: 'Sith Lord', at: [7, -20], faceYaw: 0.15,
-        height: 1.92, hand: [-0.40, 0.94, 0.08], saber: { color: 0xff2a1a, length: 1.1 } },
+        height: 1.92, hand: [0.40, 0.60, 0.10], belt: [0.26, 0.98, 0.05],
+        saber: { color: 0xff2a1a, length: 1.1 } },
     ],
     beat: {
       id: 'mustafar-beat',

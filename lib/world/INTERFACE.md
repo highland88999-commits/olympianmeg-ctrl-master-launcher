@@ -28,8 +28,12 @@ Advances one frame, mutates and returns `w`.
 - `input`: `{ fwd: -1..1, strafe: -1..1, sprint: bool, jump: bool }`
   (`jump` is edge-triggered — true for exactly one frame)
 - `dt`: seconds since last frame
-- `world`: `{ eye, speed, sprintMult, gravity, jumpV, groundHeight(x,z)->y, colliders: [{x,z,r}], bounds }`
+- `world`: `{ eye, speed, sprintMult, gravity, jumpV, groundHeight(x,z)->y, colliders: [{x,z,r}], bounds, snapY }`
   - `groundHeight` defaults to `() => 0` (flat plane)
+  - `snapY: true` (additive, 2026-10-23): `pos.y` = ground + eye + jumpY
+    EXACTLY each step — no settle lerp. For analytic-heightfield worlds
+    whose walker must track the surface metre-for-metre (Star Wars
+    zones); default off keeps the historical settle everywhere else.
   - `bounds`: `{ kind: 'circle'|'ring'|'box', max, min? }`
     - circle/ring: `max` (and `min` for ring) are numbers
     - box: `max` may be a number (`|x|,|z| <= max`) or an `{x, z}` object;

@@ -26,7 +26,10 @@
  *
  * Returns:
  *   { group, colliders, spawn, bounds, groundHeight, checkpoints, target,
- *     update, dispose, kind, sky, fog }
+ *     characters, vehicles, setObserver, update, dispose, kind, sky, fog }
+ *   - vehicles: [{ id, type, state, group, colliders }] for landmark
+ *     defs carrying `vehicle:` — drive states from vehicles.js; the
+ *     group renders from the state in update().
  *   - colliders: world-space [{x, z, r}] (landmark-local circles rotated by ry,
  *     scaled by s, offset by landmark x/z).
  *   - checkpoints / target: {x, z, r, label}. Fly-zone rings sit at y≈0 so a
@@ -36,6 +39,7 @@
 import * as ThreeJS from 'three';
 import { buildLandmark, buildAmbient, GLB_MODELS, attachGlbModel } from './landmarks.js';
 import { buildCharacter } from './characters.js';
+import { VEHICLE_TYPES, createVehicleState } from './vehicles.js';
 
 function R3(THREE) { return THREE || ThreeJS; }
 
@@ -90,6 +94,36 @@ export function distToPath(x, z, path) {
   return d;
 }
 
+/* Catmull-Rom subdivision of a canyon path: the carve follows this
+ * SMOOTH centreline, not the raw polyline. Distance to a polyline
+ * has gradient creases along every joint's angle bisector, and the
+ * terrain mesh (linear triangles over the analytic surface) cut
+ * those creases by up to ~0.7 m — a visible float/clip crossing the
+ * canyon rim. The spline passes through every authored point, so
+ * gates staged on path vertices still sit at distance ~0 and the
+ * full carve depth; distToPath (exported) keeps its exact raw
+ * semantics for tests and placement logic. */
+function subdivideCanyonPath(path, per) {
+  const pts = [];
+  const P = (i) => path[Math.max(0, Math.min(path.length - 1, i))];
+  for (let i = 0; i < path.length - 1; i++) {
+    const p0 = P(i - 1), p1 = P(i), p2 = P(i + 1), p3 = P(i + 2);
+    for (let j = 0; j < per; j++) {
+      const t = j / per, t2 = t * t, t3 = t2 * t;
+      pts.push([
+        0.5 * ((2 * p1[0]) + (-p0[0] + p2[0]) * t
+          + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2
+          + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3),
+        0.5 * ((2 * p1[1]) + (-p0[1] + p2[1]) * t
+          + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2
+          + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3),
+      ]);
+    }
+  }
+  pts.push(path[path.length - 1]);
+  return pts;
+}
+
 /**
  * TEMPLATE (terrain): the pure height function for a walk world —
  * seeded fbm dunes, with an optional carved canyon along def.canyon
@@ -104,13 +138,14 @@ export function createHeightFunction(def) {
   const amp = d.groundAmp != null ? d.groundAmp : 2.5;
   const canyon = d.canyon && Array.isArray(d.canyon.path) && d.canyon.path.length > 1
     ? d.canyon : null;
+  const carvePath = canyon ? subdivideCanyonPath(canyon.path, 6) : null;
   return function heightAt(x, z) {
     let h = (fbm2(x * 0.018, z * 0.018, seed) - 0.5) * 2 * amp;
     if (canyon) {
-      const dist = distToPath(x, z, canyon.path);
+      const dist = distToPath(x, z, carvePath);
       const half = canyon.width / 2;
       if (dist < half) {
-        const t = (half - dist) / (half * 0.55);
+        const t = (half - dist) / (half * 0.85);
         const s = sstep(Math.max(0, Math.min(1, t)));
         // carve down, and damp the dune chop on the canyon floor so a
         // race line reads as a track bed, not a rollercoaster
@@ -119,6 +154,29 @@ export function createHeightFunction(def) {
     }
     return h;
   };
+}
+
+/**
+ * SPAN SEATING (the Earth 2 groundSpan law, brought to the saga):
+ * the y a wide landmark must sit at so NO edge of its footprint
+ * floats — the MINIMUM terrain height over the footprint ring,
+ * with the drop from the centre height clamped so one low corner
+ * can't bury the whole building. Callers subtract a small footing
+ * sink: slight burial beats hovering, always.
+ */
+export function spanSeatY(heightAt, x, z, radius, opts) {
+  const o = opts || {};
+  const clampDrop = o.clampDrop != null ? o.clampDrop : Infinity;
+  const samples = o.samples || 12;
+  const centre = heightAt(x, z);
+  let min = centre;
+  for (let i = 0; i < samples; i++) {
+    const a = (i / samples) * Math.PI * 2;
+    const h = heightAt(x + Math.cos(a) * radius, z + Math.sin(a) * radius);
+    if (h < min) min = h;
+  }
+  if (centre - min > clampDrop) min = centre - clampDrop;
+  return min;
 }
 
 /* Radial disc geometry (CircleGeometry has no interior verts for displacement). */
@@ -566,8 +624,16 @@ export function buildZone(THREE, planetDef, T, opts) {
     extraTextures.push(gtex);
     const reps = Math.max(4, Math.round(28 * worldRadius / 130));
     gtex.repeat.set(reps, reps);
-    const rings = Math.max(22, Math.round(worldRadius / 6));
-    const segs = Math.max(48, Math.round(worldRadius * 0.38));
+    /* DENSE on purpose: the walker tracks the ANALYTIC heightAt
+     * exactly (page snapY), so the rendered mesh must track it too.
+     * At the old ~6 m radial spacing the mesh sagged up to 2.4 m
+     * below the analytic surface at the canyon rim — the walker
+     * visibly floated over dips and clipped crests (Merlin's QA
+     * video, 2026-10-23). ~1.5 m rings + the smoothed carve
+     * centreline hold the worst deviation (the canyon rim) to
+     * ~0.16 m, a few centimetres elsewhere (pinned by test). */
+    const rings = Math.max(26, Math.round(worldRadius / 1.5));
+    const segs = Math.max(64, Math.round(worldRadius * 0.95));
     const terrain = new R.Mesh(
       makeDiscGeometry(R, worldRadius, rings, segs, heightAt),
       new R.MeshStandardMaterial({
@@ -596,30 +662,80 @@ export function buildZone(THREE, planetDef, T, opts) {
   }
 
   /* ---------- landmarks (colliders -> world space) ---------- */
+  const vehicles = [];
   const landmarkDefs = Array.isArray(def.landmarks) ? def.landmarks : [];
   for (const ld of landmarkDefs) {
     let built;
     try { built = buildLandmark(ld.type, R, T); }
     catch (e) { continue; } // unknown type: skip, keep the zone alive
     const s = ld.s || 1, ry = ld.ry || 0;
-    built.group.position.set(ld.x || 0, kind === 'walk' ? heightAt(ld.x || 0, ld.z || 0) : 0, ld.z || 0);
-    built.group.rotation.y = ry;
-    built.group.scale.setScalar(s);
-    group.add(built.group);
     /* GLB seat: the entry names a real model — the registry supplies
      * the colliders (the model's true footprint) and the model swaps
      * in over the procedural stand-in when it loads. */
     const glb = ld.model ? GLB_MODELS[ld.model] : null;
+    const localColliders = glb ? glb.colliders : built.colliders;
+    /* SPAN SEATING: a landmark used to sit at its CENTRE point's
+     * terrain height, so on any slope the low edge hung in the air
+     * (the homestead visibly hovered; the Mos Eisley minaret read
+     * detached). Wide seats now sit at the minimum terrain height
+     * across their footprint ring (spanSeatY) minus a footing sink.
+     * GLB seats take the full footprint (a rigid model must meet
+     * the ground everywhere); procedural clusters take a 3/4 ring
+     * with a tighter drop clamp. Narrow props keep the centre
+     * sample with a hair of sink. */
+    let seatY = 0;
+    if (kind === 'walk') {
+      let footprint = 0;
+      for (const c of localColliders) {
+        footprint = Math.max(footprint, (Math.hypot(c.x, c.z) + c.r) * s);
+      }
+      // a GLB's physical footprint is its fitted bounding radius —
+      // the registry colliders carry a stop margin on top of it
+      if (glb) footprint = (glb.meters / 2) * s;
+      if (glb) {
+        seatY = spanSeatY(heightAt, ld.x || 0, ld.z || 0, Math.max(footprint, 1), { clampDrop: 3.5 }) - 0.3;
+      } else if (footprint >= 6) {
+        seatY = spanSeatY(heightAt, ld.x || 0, ld.z || 0, footprint * 0.75, { clampDrop: 2 }) - 0.3;
+      } else {
+        seatY = heightAt(ld.x || 0, ld.z || 0) - 0.12;
+      }
+    }
+    built.group.name = 'landmark:' + ld.type;
+    built.group.position.set(ld.x || 0, seatY, ld.z || 0);
+    built.group.rotation.y = ry;
+    built.group.scale.setScalar(s);
+    group.add(built.group);
     if (glb) {
       try { attachGlbModel(R, built.group, ld.model); } catch (e) { /* stand-in stays */ }
     }
-    const localColliders = glb ? glb.colliders : built.colliders;
     const cos = Math.cos(ry), sin = Math.sin(ry);
+    const pushed = [];
     for (const c of localColliders) {
-      colliders.push({
+      const wc = {
         x: (ld.x || 0) + (c.x * cos + c.z * sin) * s,
         z: (ld.z || 0) + (-c.x * sin + c.z * cos) * s,
         r: c.r * s,
+      };
+      colliders.push(wc);
+      pushed.push(wc);
+    }
+    /* RIDEABLE VEHICLES: a landmark def may opt in with
+     * `vehicle: '<type>'` (vehicles.js). The landmark group becomes
+     * the vehicle body; its state starts parked at the seat. The
+     * page drives the state; update() below renders it. Its own
+     * collider objects ride along so the drive step can ignore
+     * exactly them (parked vehicles stay solid to everyone else). */
+    if (ld.vehicle && VEHICLE_TYPES[ld.vehicle]) {
+      built.group.rotation.order = 'YXZ';
+      const st = createVehicleState(ld.vehicle, {
+        x: ld.x || 0, z: ld.z || 0, yaw: ry, seatY: seatY,
+      });
+      vehicles.push({
+        id: ld.vid || (ld.vehicle + '-' + vehicles.length),
+        type: ld.vehicle,
+        state: st,
+        group: built.group,
+        colliders: pushed,
       });
     }
   }
@@ -801,6 +917,14 @@ export function buildZone(THREE, planetDef, T, opts) {
 
   function update(t, dt) {
     for (const u of updaters) u(t, dt);
+    /* Vehicles render from their drive state every frame — parked
+     * states hold the seat transform, so this is a no-op until the
+     * page actually drives one. */
+    for (const v of vehicles) {
+      const st = v.state;
+      v.group.position.set(st.x, st.y, st.z);
+      v.group.rotation.set(st.pitch || 0, st.yaw, st.roll || 0);
+    }
   }
 
   function dispose() {
@@ -827,6 +951,7 @@ export function buildZone(THREE, planetDef, T, opts) {
     checkpoints: checkpoints,
     target: target,
     characters: characters,
+    vehicles: vehicles,
     setObserver: function (x, z) { observer.x = x; observer.z = z; },
     update: update,
     dispose: dispose,
