@@ -41,7 +41,7 @@ import {
 import { geminiGenerate, requireGeminiKey } from '@/lib/artemis/server';
 
 /** The one honest message for every AI-down path. */
-export const AI_UNAVAILABLE_MESSAGE = "The forge's AI is unavailable right now.";
+const AI_UNAVAILABLE_MESSAGE = "The forge's AI is unavailable right now.";
 
 async function loadRecord(userId, client) {
   const { data: stateRow, error: stateErr } = await client
