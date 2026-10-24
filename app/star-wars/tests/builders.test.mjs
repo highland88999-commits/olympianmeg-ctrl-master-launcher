@@ -28,6 +28,16 @@ const T = await import('../textures.js');
 const LM = await import('../landmarks.js');
 const { buildZone, createHeightFunction, distToPath } = await import('../zone.js');
 const { PLANETS } = await import('../data.js');
+const {
+  createSaberState, saberEase,
+  SABER_IGNITE_DIST, SABER_RETRACT_DIST, SABER_IGNITE_S, SABER_RETRACT_S,
+} = await import('../saber.js');
+const CH = await import('../characters.js');
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+const publicModel = (key) => fileURLToPath(
+  new URL(`../../../public/models/star-wars/${key}.glb`, import.meta.url));
 
 const approx = (a, b, eps) => Math.abs(a - b) < (eps == null ? 1e-6 : eps);
 
@@ -461,5 +471,152 @@ describe('saga expansion: modes + missions in the zone builder', () => {
     assert.equal(g.id, 'tatooine-tusken-gauntlet');
     assert.ok(g.checkpoints.every((cp) => cp.r <= t.missions[0].checkpoints[0].r), 'gauntlet rings tighter');
     assert.ok(g.extraAmbient.some((a) => a.type === 'tuskan'), 'gauntlet adds Tuskens');
+  });
+});
+
+describe('lightsaber state machine (saber.js)', () => {
+  it('thresholds: ignite at 12 m, retract only beyond 18 m (hysteresis)', () => {
+    assert.equal(SABER_IGNITE_DIST, 12);
+    assert.equal(SABER_RETRACT_DIST, 18);
+    assert.ok(SABER_RETRACT_DIST > SABER_IGNITE_DIST);
+  });
+
+  it('starts retracted with zero blade; easing pins the endpoints', () => {
+    const s = createSaberState();
+    assert.equal(s.state, 'retracted');
+    assert.equal(s.blade01(), 0);
+    assert.equal(saberEase(0), 0);
+    assert.equal(saberEase(1), 1);
+    assert.ok(saberEase(0.5) > 0.5, 'easeOutCubic runs ahead of linear');
+  });
+
+  it('ignites inside 12 m and reaches full blade in SABER_IGNITE_S', () => {
+    const s = createSaberState();
+    assert.deepEqual(s.update(0.01, 30), [], 'far away: nothing happens');
+    assert.equal(s.state, 'retracted');
+    const ev = s.update(SABER_IGNITE_S, 11.9);
+    assert.deepEqual(ev, ['ignite', 'lit']);
+    assert.equal(s.state, 'lit');
+    assert.equal(s.blade01(), 1);
+  });
+
+  it('hysteresis: a lit blade ignores the 12–18 m band, retracts past 18 m', () => {
+    const s = createSaberState();
+    s.update(SABER_IGNITE_S, 5);
+    assert.equal(s.state, 'lit');
+    assert.deepEqual(s.update(0.05, 15), [], 'inside the band: still lit, no flicker');
+    assert.equal(s.state, 'lit');
+    assert.equal(s.blade01(), 1);
+    assert.deepEqual(s.update(0.01, 18.5), ['retract']);
+    const ev = s.update(SABER_RETRACT_S, 18.5);
+    assert.deepEqual(ev, ['dark']);
+    assert.equal(s.state, 'retracted');
+    assert.equal(s.blade01(), 0);
+  });
+
+  it('mid-ignite reversal collapses from the current length, never teleports', () => {
+    const s = createSaberState();
+    s.update(SABER_IGNITE_S / 2, 4);
+    assert.equal(s.state, 'igniting');
+    const mid = s.blade01();
+    assert.ok(mid > 0 && mid < 1);
+    s.update(0.001, 40);
+    assert.equal(s.state, 'retracting');
+    assert.ok(s.blade01() <= mid, 'blade only shrinks from where it was');
+    s.update(SABER_RETRACT_S, 40);
+    assert.equal(s.state, 'retracted');
+    assert.equal(s.blade01(), 0);
+    // and it can re-ignite cleanly afterwards
+    s.update(SABER_IGNITE_S, 2);
+    assert.equal(s.state, 'lit');
+  });
+
+  it('a retracting blade re-ignites if the player closes again', () => {
+    const s = createSaberState();
+    s.update(SABER_IGNITE_S, 5);
+    s.update(0.02, 30);
+    assert.equal(s.state, 'retracting');
+    const ev = s.update(0.01, 6);
+    assert.deepEqual(ev, ['ignite']);
+    assert.equal(s.state, 'igniting');
+  });
+});
+
+describe('characters + sabers (characters.js)', () => {
+  it('registry covers the knight and the dark lord, files on disk', () => {
+    assert.deepEqual(Object.keys(CH.CHARACTER_MODELS).sort(), ['dark-lord', 'knight']);
+    for (const [key, def] of Object.entries(CH.CHARACTER_MODELS)) {
+      assert.equal(def.url, `/models/star-wars/${key}.glb`, key);
+      assert.ok(existsSync(publicModel(key)), `${key}.glb optimized into public/models/star-wars/`);
+    }
+  });
+
+  it('attachCharacterModel is a no-op without a window (node) and for unknown keys', () => {
+    const slot = new THREE.Group();
+    assert.equal(CH.attachCharacterModel(THREE, slot, 'knight', 1.8), null);
+    assert.equal(CH.attachCharacterModel(THREE, slot, 'nope', 1.8), null);
+  });
+
+  it('the Jedi stands on Tatooine with a blue saber; the Sith on Mustafar with red', () => {
+    const k = PLANETS.tatooine.characters;
+    assert.equal(k.length, 1);
+    assert.equal(k[0].id, 'knight');
+    assert.equal(k[0].name, 'Jedi Knight');
+    assert.equal(k[0].saber.color, 0x3f9dff, 'a Jedi blue');
+    assert.ok(k[0].saber.length >= 1 && k[0].saber.length <= 1.2);
+    // near the homestead landmark, clear of its GLB collider (r 8.5)
+    const home = PLANETS.tatooine.landmarks.find((l) => l.model === 'homestead');
+    const dHome = Math.hypot(k[0].at[0] - home.x, k[0].at[1] - home.z);
+    assert.ok(dHome > 9 && dHome < 20, `knight stands by the farm (d=${dHome.toFixed(1)})`);
+
+    const s = PLANETS.mustafar.characters;
+    assert.equal(s.length, 1);
+    assert.equal(s[0].id, 'dark-lord');
+    assert.equal(s[0].name, 'Sith Lord');
+    assert.equal(s[0].saber.color, 0xff2a1a, 'a Sith red');
+    assert.ok(s[0].height > k[0].height, 'the dark lord is the taller figure');
+    // on the fortress approach: between the gate target and the fortress
+    const fort = PLANETS.mustafar.landmarks.find((l) => l.type === 'mustafar-fortress');
+    assert.ok(s[0].at[1] > fort.z && s[0].at[1] < 0, 'between fortress and spawn road');
+    const dGate = Math.hypot(s[0].at[0] - 0, s[0].at[1] - (-30));
+    assert.ok(dGate > 10, 'outside the fortress-gate target ring');
+  });
+
+  it('every character def names a registered model and carries a hand anchor', () => {
+    for (const def of Object.values(PLANETS)) {
+      for (const c of def.characters || []) {
+        assert.ok(CH.CHARACTER_MODELS[c.model], `${def.id}/${c.id}: model registered`);
+        assert.ok(Array.isArray(c.at) && c.at.length === 2, `${def.id}/${c.id}: at [x, z]`);
+        assert.ok(Array.isArray(c.hand) && c.hand.length === 3, `${def.id}/${c.id}: hand anchor`);
+        assert.ok(Math.hypot(c.at[0], c.at[1]) < (def.boundsRadius || 115),
+          `${def.id}/${c.id}: inside the world bounds`);
+      }
+    }
+  });
+
+  it('zones build their characters in BOTH mission and free-roam modes', () => {
+    for (const opts of [undefined, { freeRoam: true }]) {
+      const z = buildZone(THREE, PLANETS.tatooine, T, opts);
+      assert.equal(z.characters.length, 1);
+      assert.equal(z.characters[0].id, 'knight');
+      const body = z.colliders.find((c) => approx(c.x, 33) && approx(c.z, 24));
+      assert.ok(body && approx(body.r, 0.45), 'small body collider at the knight');
+      let found = null;
+      z.group.traverse((o) => { if (o.name === 'character:knight') found = o; });
+      assert.ok(found, 'character group in the scene graph');
+      let saber = null;
+      found.traverse((o) => { if (o.name === 'saber') saber = o; });
+      assert.ok(saber, 'saber assembly hangs at the hand');
+      // proximity plumbing runs without throwing, near or far
+      z.setObserver(33, 30);
+      assert.doesNotThrow(() => { z.update(1, 0.016); z.update(1.2, 0.2); });
+      z.setObserver(-200, -200);
+      assert.doesNotThrow(() => z.update(2, 0.016));
+      z.dispose();
+    }
+    const m = buildZone(THREE, PLANETS.mustafar, T);
+    assert.equal(m.characters.length, 1);
+    assert.equal(m.characters[0].id, 'dark-lord');
+    m.dispose();
   });
 });

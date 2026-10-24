@@ -8,6 +8,8 @@
  *     kind: 'walk' | 'fly',
  *     landmarks: [{ type, x, z, s, ry?, model? }],
  *     ambient:   [{ type, count }],
+ *     characters: [{ id, model, name, at: [x, z], faceYaw, height?,
+ *                    hand?, saber: { color, length } | null }],
  *     beat: { checkpoints?: [{ x, z, r, label }], target?: { x, z, r, label } },
  *     missions: [beat, ...] — when present, def.beat is missions[0],
  *     // ever-expanding world template (all optional, defaults = the
@@ -33,6 +35,7 @@
  */
 import * as ThreeJS from 'three';
 import { buildLandmark, buildAmbient, GLB_MODELS, attachGlbModel } from './landmarks.js';
+import { buildCharacter } from './characters.js';
 
 function R3(THREE) { return THREE || ThreeJS; }
 
@@ -528,6 +531,10 @@ export function buildZone(THREE, planetDef, T, opts) {
   const colliders = [];
   const updaters = [];
   const extraTextures = [];
+  const disposers = [];
+  /* The player's position, fed by the page each frame via
+   * setObserver — proximity-driven dressing (lightsabers) reads it. */
+  const observer = { x: 0, z: 95 };
 
   /* Pure height function — shared by geometry displacement and
    * groundHeight (template: createHeightFunction — dunes + optional
@@ -614,6 +621,33 @@ export function buildZone(THREE, planetDef, T, opts) {
         z: (ld.z || 0) + (-c.x * sin + c.z * cos) * s,
         r: c.r * s,
       });
+    }
+  }
+
+  /* ---------- characters (named figures; dressing in EVERY mode) ----------
+   * Built before scatter and ambient life so their body colliders
+   * join the shared array and the dressing keeps clear of them.
+   * Never objectives: they exist identically in Free Roam and
+   * Mission modes. Sabers ignite on the player's proximity. */
+  const characters = [];
+  if (kind === 'walk' && Array.isArray(def.characters)) {
+    for (const cd of def.characters) {
+      if (!cd || !Array.isArray(cd.at)) continue;
+      try {
+        const ch = buildCharacter(R, cd, heightAt);
+        group.add(ch.group);
+        colliders.push({ x: cd.at[0], z: cd.at[1], r: 0.45 });
+        characters.push({
+          id: cd.id || cd.model || 'figure',
+          name: cd.name || cd.id || '',
+          x: cd.at[0], z: cd.at[1],
+        });
+        const cx = cd.at[0], cz = cd.at[1];
+        updaters.push(function (t, dt) {
+          ch.update(t, dt, Math.hypot(observer.x - cx, observer.z - cz));
+        });
+        disposers.push(function () { ch.dispose(); });
+      } catch (e) { /* a bad character def never kills the zone */ }
     }
   }
 
@@ -770,6 +804,7 @@ export function buildZone(THREE, planetDef, T, opts) {
   }
 
   function dispose() {
+    for (const d of disposers) { try { d(); } catch (e) { /* noop */ } }
     group.traverse(function (o) {
       if (o.isMesh || o.isPoints || o.isSprite) {
         if (o.geometry) o.geometry.dispose();
@@ -791,6 +826,8 @@ export function buildZone(THREE, planetDef, T, opts) {
     groundHeight: heightAt,
     checkpoints: checkpoints,
     target: target,
+    characters: characters,
+    setObserver: function (x, z) { observer.x = x; observer.z = z; },
     update: update,
     dispose: dispose,
     /* extras for the page shell (scene setup) */

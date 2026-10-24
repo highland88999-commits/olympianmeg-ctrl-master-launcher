@@ -110,6 +110,9 @@ export const CHAPTERS = [
 /*     color, sky, fog, fogDensity, ground, ground2,                   */
 /*     landmarks: [{ type, x, z, s, ry?, model? }],                     */
 /*     ambient:   [{ type, count }],                                    */
+/*     characters: [{ id, model, name, at: [x, z], faceYaw, height?,    */
+/*       hand?, saber: { color, length } | null }] — named figures,     */
+/*       dressing in every mode; sabers ignite on approach.            */
 /*     world (optional): seed, tex, groundAmp, worldRadius,            */
 /*       boundsRadius, ambientRadius, canyon, scatter, horizon         */
 /*     beat: { id, title, text, objective,                              */
@@ -181,6 +184,13 @@ export const PLANETS = {
       { type: 'bantha', count: 4 },
       { type: 'jawa', count: 5 },
       { type: 'tuskan', count: 3 },
+    ],
+    /* A Jedi keeps a quiet watch over the Lars homestead, standing
+     * off the vaporator field and looking down the farm road toward
+     * Mos Eisley. Walk within 12 m and his saber answers. */
+    characters: [
+      { id: 'knight', model: 'knight', name: 'Jedi Knight', at: [33, 24], faceYaw: -2.45,
+        height: 1.8, hand: [-0.37, 0.95, 0.08], saber: { color: 0x3f9dff, length: 1.05 } },
     ],
     missions: [
       {
@@ -369,6 +379,13 @@ export const PLANETS = {
     ],
     ambient: [
       { type: 'probe-droid', count: 3 },
+    ],
+    /* The Sith Lord waits on the fortress approach, off the road
+     * before the gate — taller than any man has a right to be, and
+     * his red blade wakes when you close within 12 m. */
+    characters: [
+      { id: 'dark-lord', model: 'dark-lord', name: 'Sith Lord', at: [7, -20], faceYaw: 0.15,
+        height: 1.92, hand: [-0.40, 0.94, 0.08], saber: { color: 0xff2a1a, length: 1.1 } },
     ],
     beat: {
       id: 'mustafar-beat',

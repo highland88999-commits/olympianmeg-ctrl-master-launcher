@@ -418,6 +418,12 @@ export default function StarWarsPage() {
           checkBeat(flight.x, flight.z);
         }
 
+        if (zone.setObserver) {
+          zone.setObserver(
+            !isFly && walker ? walker.pos.x : flight.x,
+            !isFly && walker ? walker.pos.z : flight.z
+          );
+        }
         zone.update(t, dt);
         for (const m of markers) m.rotation.z += dt * 0.6;
         renderer.render(scene, camera);
