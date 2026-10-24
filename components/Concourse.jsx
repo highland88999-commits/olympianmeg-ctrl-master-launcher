@@ -52,6 +52,7 @@ import { bikeState } from '@/lib/earth/parachute';
 import { DoomsdayStrip } from './DoomsdayBanner';
 import PhoneFrame from './PhoneFrame';
 import { SeasonBadge } from './SeasonalDecor';
+import BackpackHud from './backpack/BackpackHud';
 import { useRadio } from './radio/RadioProvider';
 import { Play, Pause, SkipBack, SkipForward, Music2 } from 'lucide-react';
 import ConcourseSettings from './ConcourseSettings';
@@ -892,6 +893,10 @@ export default function Concourse() {
           <div className="mt-2.5 flex flex-wrap items-center justify-center gap-2">
             {onHub && <SeasonBadge inline onGuide={handleSeasonGuide} />}
             <ConcourseRadio />
+            {/* The backpack, opened from the hub — a flow item in
+                this row, never overlapping the badge or radio. */}
+            <BackpackHud realm="hub" realmLabel="the hub"
+              displayNote="The hub keeps its own arms — the pack rides along." />
           </div>
           </div>
           </div>

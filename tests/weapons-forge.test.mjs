@@ -197,7 +197,7 @@ describe('the seating (master portal rule)', () => {
   it('the Portal Room roster includes the forge (roster = registry − the room)', () => {
     const en = JSON.parse(read('lib/i18n/locales/en.json'));
     const roster = buildPortalRoster(SATELLITES, (k) => en[`sat.${k}.title`], (k) => en[`sat.${k}.subtitle`]);
-    assert.equal(roster.length, 174);
+    assert.equal(roster.length, 175); // Monsterverse seat adcdb3cd: roster 174→175
     const seat = roster.find((p) => p.key === 'weapons-forge');
     assert.ok(seat);
     assert.equal(seat.title, 'Weapons Forge');

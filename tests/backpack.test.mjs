@@ -28,6 +28,11 @@ import {
   setBackpackStyle,
   weaponReticle,
   defaultReticleForClass,
+  equippedDamageForSlot,
+  equippedReticleForSlot,
+  equippedWeaponEntry,
+  setActiveWeapon,
+  weaponHand,
 } from '../lib/backpack/backpack.js';
 import {
   bloodStateFromRecord,
@@ -277,5 +282,58 @@ describe('the one-way migration', () => {
     const rec = migrateEarth2Tallies(emptyBackpackRecord(), { bloodRaw: '{nope', fossilsRaw: '[]' });
     assert.equal(rec.migratedE2, true);
     assert.equal(rec.items.length, 0);
+  });
+});
+
+describe('the equipped weapon (realms read record.activeWeaponUid)', () => {
+  function recordWithWeapons() {
+    let rec = emptyBackpackRecord();
+    rec = addItem(rec, { id: 'bronze-gladius', kind: 'weapon', name: 'Bronze Gladius', meta: { weaponClass: 'blade', damage: 15 } });
+    rec = addItem(rec, { id: 'nightreaver-bow', kind: 'weapon', name: 'Nightreaver Bow', meta: { weaponClass: 'bow', damage: 24 } });
+    rec = addItem(rec, { id: 'silverfang-dagger', kind: 'weapon', name: 'Silverfang Dagger', meta: { weaponClass: 'blade' } });
+    return rec;
+  }
+
+  it('starts unequipped and sanitize keeps the fields', () => {
+    const rec = sanitizeBackpackRecord({ ...emptyBackpackRecord(), activeWeaponUid: 'x', activeWeaponRealm: 'hub' });
+    assert.equal(rec.activeWeaponUid, 'x');
+    assert.equal(rec.activeWeaponRealm, 'hub');
+    assert.equal(equippedWeaponEntry(emptyBackpackRecord()), null);
+  });
+
+  it('equips by uid and records the realm; unknown uid changes nothing', () => {
+    const rec = recordWithWeapons();
+    const blade = rec.items[0];
+    const eq = setActiveWeapon(rec, blade.uid, 'hollow-earth');
+    assert.equal(equippedWeaponEntry(eq).uid, blade.uid);
+    assert.equal(eq.activeWeaponRealm, 'hollow-earth');
+    assert.equal(equippedWeaponEntry(setActiveWeapon(rec, 'no-such-uid', 'hub')), null);
+  });
+
+  it('unequip clears the uid but keeps the last-equipped realm note', () => {
+    const rec = recordWithWeapons();
+    const eq = setActiveWeapon(rec, rec.items[0].uid, 'middle-earth');
+    const off = setActiveWeapon(eq, null, 'middle-earth');
+    assert.equal(equippedWeaponEntry(off), null);
+    assert.equal(off.activeWeaponRealm, 'middle-earth');
+  });
+
+  it('hands: blade/blunt/spear/staff/cane arm melee, bow/firearm arm ranged', () => {
+    const rec = recordWithWeapons();
+    assert.equal(weaponHand(rec.items[0]), 'melee');
+    assert.equal(weaponHand(rec.items[1]), 'ranged');
+    assert.equal(weaponHand({ kind: 'material', meta: {} }), null);
+  });
+
+  it('damage applies only to the armed hand and only with a finite rating', () => {
+    const rec = recordWithWeapons();
+    const [blade, bow, giftBlade] = rec.items;
+    assert.equal(equippedDamageForSlot(blade, 'melee'), 15);
+    assert.equal(equippedDamageForSlot(blade, 'ranged'), null);
+    assert.equal(equippedDamageForSlot(bow, 'ranged'), 24);
+    assert.equal(equippedDamageForSlot(bow, 'melee'), null);
+    assert.equal(equippedDamageForSlot(giftBlade, 'melee'), null); // gift weapons carry no rating
+    assert.equal(equippedReticleForSlot(bow, 'ranged'), 'chevron');
+    assert.equal(equippedReticleForSlot(bow, 'melee'), null);
   });
 });

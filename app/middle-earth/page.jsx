@@ -30,8 +30,9 @@ import {
   mulberry32, PLAYER_MAX_HP, BLADE,
 } from './orcs';
 import { damageBoss, bossSlowFactor, bossPhase } from './boss';
-import { RETICLE_BY_CLASS } from '../../lib/backpack/backpack.js';
-import { updateBackpack } from '../../lib/backpack/store.js';
+import { RETICLE_BY_CLASS, equippedDamageForSlot, equippedReticleForSlot, equippedWeaponEntry } from '../../lib/backpack/backpack.js';
+import { updateBackpack, useBackpack } from '../../lib/backpack/store.js';
+import BackpackHud from '@/components/backpack/BackpackHud';
 import { createWalker, stepWalker, applyLook } from '@/lib/world/walk-controls';
 import { createKeyInput, attachDragLook } from '@/lib/world/walk-input';
 import WalkJoystick from '@/components/world/WalkJoystick';
@@ -58,6 +59,11 @@ export default function MiddleEarthPage() {
   const hunterRef = useRef(null);
   const weaponRef = useRef('melee');
   const heroRef = useRef(null);
+  // The backpack's equipped weapon, read at strike time (a ref so
+  // the zone's tap closure never goes stale on a mid-hunt equip).
+  const pack = useBackpack();
+  const equippedRef = useRef(null);
+  useEffect(() => { equippedRef.current = equippedWeaponEntry(pack); }, [pack]);
   const playerFigRef = useRef(null);
   const playerSwingRef = useRef(0);
   const senseFrameRef = useRef(0);
@@ -356,7 +362,11 @@ export default function MiddleEarthPage() {
       if (!hit) return;
       if (ranged) zone.hunt.noteLoud(walker.pos.x, walker.pos.z);
       if (playerBody) playerSwingRef.current = 0.25;
-      const dmg = ranged ? h.ranged.dmg : h.meleeDmg;
+      // The equipped backpack weapon arms its hand when it fits:
+      // its rating replaces the hero's native number, else native.
+      const dmg = ranged
+        ? (equippedDamageForSlot(equippedRef.current, 'ranged') ?? h.ranged.dmg)
+        : (equippedDamageForSlot(equippedRef.current, 'melee') ?? h.meleeDmg);
       if (hit.isBoss) {
         const events = damageBoss(hit, dmg);
         for (const ev of events) onBossEvent(ev);
@@ -522,10 +532,12 @@ export default function MiddleEarthPage() {
   const onJoy = useCallback((x, y) => { joyRef.current = { x, y }; }, []);
   const gate = gateProgress(campaign);
   /* reticle by the hand in use, from the backpack law's own table:
-   * melee blade -> dot; bow -> chevron; wizard staff -> dot. */
+   * melee blade -> dot; bow -> chevron; wizard staff -> dot.
+   * An equipped weapon lends its own reticle to the hand it arms. */
+  const equippedEntry = equippedWeaponEntry(pack);
   const reticle = weapon === 'ranged'
-    ? (RETICLE_BY_CLASS[hero.ranged.kind] || 'dot')
-    : 'dot';
+    ? (equippedReticleForSlot(equippedEntry, 'ranged') || RETICLE_BY_CLASS[hero.ranged.kind] || 'dot')
+    : (equippedReticleForSlot(equippedEntry, 'melee') || 'dot');
 
   return (
     <div style={styles.root}>
@@ -748,6 +760,7 @@ export default function MiddleEarthPage() {
               {hero.rangedLabel}
             </button>
             <span style={styles.killsChip}>⚔ {campaign.totalKills}</span>
+            <BackpackHud realm="middle-earth" realmLabel="Middle-earth" combatApplies />
           </div>
 
           <WalkJoystick onChange={onJoy} />

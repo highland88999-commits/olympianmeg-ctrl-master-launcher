@@ -37,8 +37,9 @@ import {
   createHunterState, onMonsterKilled, applyDamage, isInBase, canTeleport,
   SAFE_BASE, PLAYER_MAX_HP, KORUS_POS, damageMonster,
 } from './spawns.js';
-import { RETICLE_BY_CLASS } from '../../lib/backpack/backpack.js';
-import { updateBackpack } from '../../lib/backpack/store.js';
+import { RETICLE_BY_CLASS, equippedDamageForSlot, equippedReticleForSlot, equippedWeaponEntry } from '../../lib/backpack/backpack.js';
+import { updateBackpack, useBackpack } from '../../lib/backpack/store.js';
+import BackpackHud from '@/components/backpack/BackpackHud';
 import { createWalker, stepWalker, applyLook, walkerCamera } from '@/lib/world/walk-controls';
 import { createKeyInput, attachDragLook } from '@/lib/world/walk-input';
 import WalkJoystick from '@/components/world/WalkJoystick';
@@ -54,8 +55,10 @@ function readCampaign() {
 }
 
 function reticleFor(weaponClass) {
-  const entry = RETICLE_BY_CLASS[weaponClass];
-  return (entry && entry.style) || 'dot';
+  // RETICLE_BY_CLASS holds plain strings ('crosshair'/'chevron'/'dot'), not
+  // {style} objects — the old `.style` read always fell back to 'dot', so
+  // bows and firearms wore the wrong reticle. Fixed 2026-10-24.
+  return RETICLE_BY_CLASS[weaponClass] || 'dot';
 }
 
 export default function HollowEarthPage() {
@@ -72,6 +75,12 @@ export default function HollowEarthPage() {
   const missionKillsRef = useRef(0);
   const noiseRef = useRef(null);
   const weaponRef = useRef('melee');
+  // The backpack's equipped weapon, read at strike time (a ref so
+  // the zone effect's attack closure never goes stale when the
+  // traveller equips mid-hunt).
+  const pack = useBackpack();
+  const equippedRef = useRef(null);
+  useEffect(() => { equippedRef.current = equippedWeaponEntry(pack); }, [pack]);
   // The world effect mounts once per entry; campaign state keeps
   // moving under it (kills land mid-session), so the gate checks
   // read through this ref instead of the stale mount closure.
@@ -213,9 +222,11 @@ export default function HollowEarthPage() {
       },
     });
 
+    // The equipped backpack weapon arms its hand when it fits:
+    // its rating replaces the hero's native number, else native.
     const weaponSpec = () => (weaponRef.current === 'melee'
-      ? { dmg: hero.meleeDmg, range: 2.4, arcCos: Math.cos(1.22), cooldown: 0.45 }
-      : { dmg: hero.ranged.dmg, range: hero.ranged.range, arcCos: Math.cos(0.21), cooldown: 0.8 });
+      ? { dmg: equippedDamageForSlot(equippedRef.current, 'melee') ?? hero.meleeDmg, range: 2.4, arcCos: Math.cos(1.22), cooldown: 0.45 }
+      : { dmg: equippedDamageForSlot(equippedRef.current, 'ranged') ?? hero.ranged.dmg, range: hero.ranged.range, arcCos: Math.cos(0.21), cooldown: 0.8 });
     let lastStrike = 0;
     function attack() {
       const now = performance.now();
@@ -493,7 +504,11 @@ export default function HollowEarthPage() {
   }
 
   // ---- world ----
-  const weaponReticle = hud.weapon === 'melee' ? reticleFor(hero.meleeClass) : reticleFor(hero.ranged.kind);
+  // The equipped weapon lends its reticle to the hand it arms
+  // (the backpack law); otherwise the hero's native reticle.
+  const equippedEntry = equippedWeaponEntry(pack);
+  const weaponReticle = equippedReticleForSlot(equippedEntry, hud.weapon)
+    || (hud.weapon === 'melee' ? reticleFor(hero.meleeClass) : reticleFor(hero.ranged.kind));
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#000', overflow: 'hidden' }}>
       <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block', touchAction: 'none' }} />
@@ -552,7 +567,13 @@ export default function HollowEarthPage() {
           <button type="button" onClick={() => setHud((p) => { const w = p.weapon === 'melee' ? 'ranged' : 'melee'; weaponRef.current = w; return { ...p, weapon: w }; })}
             className="ui-element pointer-events-auto flex h-9 shrink-0 items-center rounded-full bg-white/10 px-3 text-white transition-all hover:bg-white/20 active:scale-95"
             style={{ fontSize: 13 }}>
-            {hud.weapon === 'melee' ? `${hero.meleeLabel} ${hero.meleeDmg}` : `${hero.rangedLabel} ${hero.ranged.dmg}`}
+            {hud.weapon === 'melee'
+              ? (equippedDamageForSlot(equippedEntry, 'melee') != null && equippedEntry
+                ? `🎒 ${equippedEntry.name} ${equippedDamageForSlot(equippedEntry, 'melee')}`
+                : `${hero.meleeLabel} ${hero.meleeDmg}`)
+              : (equippedDamageForSlot(equippedEntry, 'ranged') != null && equippedEntry
+                ? `🎒 ${equippedEntry.name} ${equippedDamageForSlot(equippedEntry, 'ranged')}`
+                : `${hero.rangedLabel} ${hero.ranged.dmg}`)}
           </button>
           <button type="button" onClick={() => worldRef.current && worldRef.current.attack && worldRef.current.attack()}
             className="ui-element pointer-events-auto flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-400 text-black transition-all hover:opacity-90 active:scale-95"
@@ -560,6 +581,7 @@ export default function HollowEarthPage() {
           <button type="button" onClick={() => setMode('map')}
             className="ui-element pointer-events-auto flex h-9 shrink-0 items-center rounded-full bg-white/10 px-3 text-white transition-all hover:bg-white/20 active:scale-95"
             style={{ fontSize: 13 }}>🗺️ Map</button>
+          <BackpackHud realm="hollow-earth" realmLabel="the Monsterverse" combatApplies />
         </div>
         <div style={{ position: 'absolute', bottom: '4.5rem', left: '0.75rem' }}>
           <WalkJoystick size={118} onMove={(x, y) => { joyRef.current.x = x; joyRef.current.y = y; }} />

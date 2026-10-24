@@ -15,6 +15,7 @@
 
 import { useState } from 'react';
 import { TouchControls } from '@/components/mars/MarsScene';
+import BackpackHud from '@/components/backpack/BackpackHud';
 import { IcSunrise, IcSun, IcSunset, IcMoon, IcWings, IcClose, IcRoute, IcRefresh, IcMeteor } from "@/app/artemis-ui/icons";
 
 const ACCENT = "#e07840";
@@ -236,6 +237,8 @@ export default function MarsConsole({
           <button onClick={applySeed} aria-label="Apply seed"><IcMeteor /><span>APPLY</span></button>
           <button onClick={randomSeed} aria-label="Random seed"><IcRefresh /><span>RANDOM</span></button>
           <button className="returnbtn" onClick={onExit} aria-label="Return to orbit">RETURN TO ORBIT</button>
+          <BackpackHud realm="mars" realmLabel="Mars"
+            displayNote="Mars keeps its own arms — the pack rides along." />
         </div>
       </div>
       )}

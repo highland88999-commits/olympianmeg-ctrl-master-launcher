@@ -22,6 +22,7 @@ import { supabase } from '@/lib/supabase';
 import {
   BACKPACK_STYLES,
   backpackStyleById,
+  equippedWeaponEntry,
   itemsOfKind,
   setBackpackStyle,
 } from '@/lib/backpack/backpack';
@@ -86,6 +87,15 @@ export default function BackpackSection() {
   const style = backpackStyleById(record.style) || BACKPACK_STYLES[0];
   const fossils = useMemo(() => fossilItemsFromRecord(record), [record]);
   const sacs = sacCount(record);
+  const equipped = equippedWeaponEntry(record);
+  const REALM_LABELS = {
+    hub: 'the hub', 'earth-2': 'Earth 2', 'star-wars': 'Star Wars',
+    'middle-earth': 'Middle-earth', 'hollow-earth': 'the Monsterverse',
+    mars: 'Mars', planet: 'a planet realm',
+  };
+  const equippedRealmLabel = record.activeWeaponRealm
+    ? (REALM_LABELS[record.activeWeaponRealm] || record.activeWeaponRealm)
+    : null;
   const groups = useMemo(
     () => KIND_GROUPS.map((g) => ({ ...g, items: itemsOfKind(record, g.kind) })),
     [record]
@@ -120,6 +130,18 @@ export default function BackpackSection() {
         rides in the header. {signedIn
           ? 'Saved to your account — it meets you on any device you sign in on.'
           : 'You are signed out, so this pack lives on this device only.'}
+      </p>
+
+      {/* Equipped weapon — the one the realms fight with, set from
+          any realm's backpack panel; the realm note names where
+          the last equip happened. */}
+      <p className="text-sm mb-4">
+        {equipped ? (
+          <>⚔ Equipped: <strong className="text-amber-200">{equipped.name}</strong>
+            {equippedRealmLabel ? <span className="text-neutral-400"> — last equipped in {equippedRealmLabel}</span> : null}</>
+        ) : (
+          <>⚔ No weapon equipped — open the 🎒 button in any realm to equip one.</>
+        )}
       </p>
 
       {/* Currency header — real server balances, read live. */}

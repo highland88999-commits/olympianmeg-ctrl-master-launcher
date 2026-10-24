@@ -4,6 +4,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { SeedRNG, getTerrainHeight } from '@/lib/mars/engine';
+import BackpackHud from '@/components/backpack/BackpackHud';
 import { SharedMaterials, buildFloraGroup, buildFaunaGroup } from '@/lib/mars/meshes';
 
 // MARS — seeded exobiology surface (ARES surface program).
@@ -890,6 +891,12 @@ export default function MarsScene({
         </div>
       )}
       {mode !== 'orbit' && <TouchControls inputRef={inputRef} fly={mode === 'fly'} />}
+      {/* The backpack, standalone Mars door — top-left inside this
+          scene's own container, clear of the top-centre hint bar. */}
+      <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 5 }}>
+        <BackpackHud realm="mars" realmLabel="Mars"
+          displayNote="Mars keeps its own arms — the pack rides along." />
+      </div>
     </div>
   );
 }

@@ -21,6 +21,7 @@ import {
 import { createWalker, stepWalker, applyLook, walkerCamera } from '@/lib/world/walk-controls';
 import { createKeyInput, attachDragLook } from '@/lib/world/walk-input';
 import WalkJoystick from '@/components/world/WalkJoystick';
+import BackpackHud from '@/components/backpack/BackpackHud';
 import {
   mountVehicle, dismountPoint, parkVehicle, stepVehicle,
   vehicleInPromptRange, chaseCameraPose,
@@ -734,6 +735,8 @@ export default function StarWarsPage() {
           <div style={styles.zoneTop}>
             <div style={styles.zoneName}>{def.name}</div>
             <button style={styles.smallBtn} onClick={() => { setIntro(false); setMode('map'); }}>Map</button>
+            <BackpackHud realm="star-wars" realmLabel="Star Wars"
+              displayNote="The saber stays — lightsaber encounters keep their own blades. The pack rides along." />
           </div>
 
           {activeMission && beatState && (

@@ -18,6 +18,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { TouchControls } from '@/components/mars/MarsScene';
+import BackpackHud from '@/components/backpack/BackpackHud';
 import { IcSunrise, IcSun, IcSunset, IcMoon, IcWings, IcClose, IcRoute } from "@/app/artemis-ui/icons";
 import { lifeTypeLabel } from '@/lib/planets/planet-seeds';
 import { getLandscape } from '@/lib/planets/landscape';
@@ -284,6 +285,8 @@ export default function PlanetConsole({
             🌱 SEED <b>{seedEntry.seed}</b> · {lifeTypeLabel(seedEntry.lifeType).toUpperCase()}
           </div>
           <button className="returnbtn" onClick={onExit} aria-label="Return to orbit">RETURN TO ORBIT</button>
+          <BackpackHud realm="planet" realmLabel="a planet realm"
+            displayNote="This world keeps its own arms — the pack rides along." />
         </div>
       </div>
       )}

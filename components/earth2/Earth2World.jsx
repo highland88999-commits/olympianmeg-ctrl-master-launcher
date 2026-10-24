@@ -101,6 +101,7 @@ import { dressingColliders } from '@/lib/earth2/scatter';
 import { fossilConditionById } from '@/lib/earth2/fossils';
 import { exchangeFossil, aetherForFossil } from '@/lib/earth2/hammond';
 import { useBackpack, updateBackpack } from '@/lib/backpack/store';
+import BackpackHud from '@/components/backpack/BackpackHud';
 import {
   sacCount,
   fossilItemsFromRecord,
@@ -5648,6 +5649,13 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           {gamepadPad.connected
             ? `🎮 ${GAMEPAD_PROFILE_NAMES[gamepadPad.profile] || 'Controller'} connected — ${gamepadLabel(gamepadPad.profile, 'CONFIRM')} confirms, ${gamepadLabel(gamepadPad.profile, 'CANCEL')} backs out`
             : '🎮 No controller connected'}
+        </div>
+        {/* BACKPACK: the one pack, opened from the world — a flow
+            row inside this panel, never absolute, never overlapping. */}
+        <div className="flex flex-wrap items-center gap-2 rounded-full border border-amber-300/30 bg-black/50 py-1.5 pl-3 pr-1.5 text-[11px] text-zinc-100">
+          <span>🎒 <strong className="text-amber-100">Backpack</strong> — your pack follows you here</span>
+          <BackpackHud realm="earth-2" realmLabel="Earth 2"
+            displayNote="Earth 2 keeps its own arms for now — the pack rides along." />
         </div>
         <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-red-300/25 bg-black/50 py-1.5 pl-3 pr-1.5 text-[11px] text-zinc-100">
           <span>🩸 Blood sacs: <strong className="text-red-200">{sacsShown}</strong></span>
