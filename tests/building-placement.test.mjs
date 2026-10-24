@@ -284,7 +284,6 @@ describe('validatePlacementSet — the whole judgement in one call', () => {
     ]);
     assert.equal(verdict.ok, true);
     assert.equal(verdict.count, 4);
-    assert.equal(verdict.overBudget, false);
     assert.equal(verdict.terrain, null, 'no height function, no terrain verdict');
   });
 
@@ -307,15 +306,17 @@ describe('validatePlacementSet — the whole judgement in one call', () => {
     assert.equal(verdict.terrain.buried.length, 1);
   });
 
-  it('the 400-piece budget binds the engine exactly as it binds storage', () => {
+  // Merlin, 2026-10-24: placements are UNLIMITED by default —
+  // the old 400-piece cap was lifted from the engine and from
+  // storage alike, so a 401-piece set validates clean.
+  it('no piece-count budget binds the engine any more', () => {
     const pieces = [];
     for (let i = 0; i < 401; i++) {
       pieces.push(at('pillar', 0.5 + (i % 28), 0, 0.5 + Math.floor(i / 28)));
     }
     const over = validatePlacementSet(pieces);
-    assert.equal(over.overBudget, true);
-    assert.equal(over.ok, false);
-    assert.equal(validatePlacementSet(pieces.slice(0, 400)).ok, true);
+    assert.equal(over.ok, true);
+    assert.equal(over.count, 401);
   });
 });
 

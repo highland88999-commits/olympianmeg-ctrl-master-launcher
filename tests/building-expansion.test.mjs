@@ -21,7 +21,7 @@ import {
   BUILDING_PIECES,
   FINISHES,
   PIECE_CATEGORIES,
-  MAX_PIECES_PER_BUILD,
+  BUILD_PIECE_COUNT_UNCAPPED,
   pieceById,
   finishById,
   finishAllowed,
@@ -186,7 +186,7 @@ describe('per-piece tint — a hue shift over the finish', () => {
     assert.equal(parsed.build.pieces[0].tint, -160, 'the stored tint is the normalized shift');
   });
 
-  it('the budget law did not move: 400 pieces, free in the lab', () => {
-    assert.equal(MAX_PIECES_PER_BUILD, 400);
+  it('the budget law moved on Merlin\'s order: placements are unlimited, not 400', () => {
+    assert.equal(BUILD_PIECE_COUNT_UNCAPPED, true);
   });
 });

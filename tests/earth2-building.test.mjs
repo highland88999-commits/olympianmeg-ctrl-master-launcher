@@ -29,7 +29,7 @@ import {
   BUILDING_PIECES,
   FINISHES,
   PIECE_CATEGORIES,
-  MAX_PIECES_PER_BUILD,
+  BUILD_PIECE_COUNT_UNCAPPED,
   pieceById,
   finishAllowed,
   validatePlacement,
@@ -154,9 +154,14 @@ describe('placement + build validation', () => {
     assert.equal(validateBuild({ ...base, pieces: [wallAt(14, 0, 20), twin] }, frame).ok, false);
   });
 
-  it('enforces the per-build piece budget exactly at the cap', () => {
+  // Merlin, 2026-10-24: placements are UNLIMITED by default — the
+  // old 400-piece cap was lifted everywhere it was enforced
+  // (client gate and server parse path alike). A 401-piece build
+  // validates clean; device rendering, not a number, is the limit.
+  it('placements are unlimited: no per-build piece cap', () => {
+    assert.equal(BUILD_PIECE_COUNT_UNCAPPED, true);
     const pieces = [];
-    for (let i = 0; i < MAX_PIECES_PER_BUILD + 1; i++) {
+    for (let i = 0; i < 401; i++) {
       pieces.push({
         pieceId: 'pillar',
         x: 0.5 + (i % 28),
@@ -167,10 +172,7 @@ describe('placement + build validation', () => {
       });
     }
     const build = { groundType: 'earth2-parcel', groundId: ownableParcel.id, pieces };
-    assert.equal(validateBuild({ ...build, pieces: pieces.slice(0, MAX_PIECES_PER_BUILD) }, frame).ok, true);
-    const over = validateBuild(build, frame);
-    assert.equal(over.ok, false);
-    assert.ok(over.errors.some((e) => /at most 400 pieces/.test(e)));
+    assert.equal(validateBuild(build, frame).ok, true);
   });
 
   it('serialize/parse round-trips, normalizing rotation', () => {

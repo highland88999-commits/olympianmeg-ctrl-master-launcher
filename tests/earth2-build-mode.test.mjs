@@ -18,7 +18,6 @@ import {
   BUILDING_PIECES,
   PIECE_CATEGORIES,
   FINISHES,
-  MAX_PIECES_PER_BUILD,
   pieceById,
   pieceFootprint,
 } from '../lib/building/catalog.js';
@@ -238,14 +237,16 @@ test('tap-to-aim derivation: a piece tapped onto a stack seats on the stack', ()
   assert.equal(d.placement.y, 0.6);
 });
 
-test('judgeGhost: the 400-piece budget binds', () => {
+test('judgeGhost: no piece-count budget binds any more (Merlin 2026-10-24 lifted the 400 cap)', () => {
+  // Rune-pillars are self-supporting on a 1 m grid, so 401 of
+  // them plus the ghost are lawful on every law except the one
+  // that no longer exists — the count itself.
   const existing = [];
-  for (let i = 0; i < MAX_PIECES_PER_BUILD; i++) {
-    existing.push(P('crystal-cluster', 0.7 + (i % 20) * 1.4, 0, 0.7 + Math.floor(i / 20) * 1.4, { finish: 'crystal-glass' }));
+  for (let i = 0; i < 401; i++) {
+    existing.push(P('rune-pillar', 0.5 + (i % 28), 0, 0.5 + Math.floor(i / 28), { finish: 'stone' }));
   }
-  const v = judgeGhost(existing, P('crystal-cluster', 0.7, 0, 0.7, { finish: 'crystal-glass' }));
-  assert.equal(v.ok, false);
-  assert.ok(v.reasons.some((r) => /400 pieces/.test(r)), v.reasons.join(' | '));
+  const v = judgeGhost(existing, P('rune-pillar', 0.5, 0, 15.5, { finish: 'stone' }));
+  assert.equal(v.ok, true, v.reasons.join(' | '));
 });
 
 // ── 4. Rights gating in build mode ───────────────────────────────
@@ -455,10 +456,10 @@ function exportedNames(file) {
 test('hygiene: every name the world imports from the build modules exists', () => {
   const src = readFileSync(new URL('../components/earth2/Earth2World.jsx', import.meta.url), 'utf8');
   const edges = [
-    ['../lib/building/catalog.js', ['BUILDING_PIECES', 'PIECE_CATEGORIES', 'FINISHES', 'MAX_PIECES_PER_BUILD', 'pieceById', 'pieceFootprint', 'finishAllowed']],
+    ['../lib/building/catalog.js', ['BUILDING_PIECES', 'PIECE_CATEGORIES', 'FINISHES', 'pieceById', 'pieceFootprint', 'finishAllowed']],
     ['../lib/building/placement.js', ['snapPlacement', 'snapRotation', 'judgeGhost', 'validatePlacementSet']],
     ['../lib/building/piece-render.js', ['buildPieceGroup', 'buildGhostGroup', 'setGhostValidity']],
-    ['../lib/earth2/building.js', ['PARCEL_BUILD_FRAME']],
+    ['../lib/earth2/building.js', ['PARCEL_BUILD_FRAME', 'BUILD_LEVEL_HEIGHT_M', 'BUILD_MAX_LEVEL', 'levelPlacementY', 'levelLabel', 'classifyTapGesture', 'stepOrbitPark', 'tapPointInGhostFootprint']],
     ['../lib/building/rights.js', ['activeClaimFor']],
     ['../lib/earth2/build-store.js', ['buildModeGate', 'myBuildFor']],
     ['../lib/earth2/streaming.js', ['buildStreamUnits']],

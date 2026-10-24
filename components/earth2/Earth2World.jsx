@@ -178,24 +178,45 @@ import {
   BUILDING_PIECES,
   PIECE_CATEGORIES,
   FINISHES,
-  MAX_PIECES_PER_BUILD,
   pieceById,
   pieceFootprint,
   finishAllowed,
 } from '@/lib/building/catalog';
 import { snapPlacement, snapRotation, judgeGhost, validatePlacementSet, clampPlacementToFrame, deriveBuildCandidate, proposePlacement, snapSeams } from '@/lib/building/placement';
 import { buildPieceGroup, buildGhostGroup, setGhostValidity } from '@/lib/building/piece-render';
-import { PARCEL_BUILD_FRAME } from '@/lib/earth2/building';
 import {
+  PARCEL_BUILD_FRAME,
   BUILD_ORBIT_JOY_DEADZONE,
   marchCameraGroundPoint,
   clampAimToParcel,
   orbitCameraPosition,
   initOrbitFromCamera,
   stepOrbitAngles,
-  stepOrbitWeight,
+  classifyTapGesture,
+  stepOrbitPark,
+  BUILD_LEVEL_HEIGHT_M,
+  BUILD_MAX_LEVEL,
+  levelPlacementY,
+  levelLabel,
+  tapPointInGhostFootprint,
   decideBuildTapAction,
 } from '@/lib/earth2/building';
+import {
+  GAMEPAD_BUTTONS,
+  GAMEPAD_PROFILE_NAMES,
+  applyDeadzone,
+  detectGamepadProfile,
+  gamepadLabel,
+  gamepadMove,
+  gamepadLook,
+  firstConnectedPad,
+  newlyPressedButtons,
+  pressedButtonSet,
+  triggerValue,
+  isAimHeld,
+  triggerRisingEdge,
+  stepBuildLevel,
+} from '@/lib/gamepad';
 import { activeClaimFor } from '@/lib/building/rights';
 import { buildModeGate, myBuildFor } from '@/lib/earth2/build-store';
 import WalkJoystick from '@/components/world/WalkJoystick';
@@ -222,7 +243,6 @@ const ORIENT_LABEL = { upright: 'Upright', flat: 'Flat', 'flat-flip': 'Flat ↩'
 // used when an edit (rotate / raise / remove) would break the
 // set's own law and is refused.
 function firstSetProblem(v) {
-  if (v.overBudget) return `Over the ${MAX_PIECES_PER_BUILD}-piece limit.`;
   if (v.bounds && v.bounds.violations && v.bounds.violations.length) {
     return 'A piece would sit outside the parcel or past the height cap.';
   }
@@ -429,6 +449,10 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   const [buildRot, setBuildRot] = useState(0);
   const [buildOrient, setBuildOrient] = useState('upright');
   const [buildLift, setBuildLift] = useState(0);
+  // v3 level: 0 = Ground, 1+ = L1, L2, … — one story (3 m) each.
+  // Mirrored into buildModeRef.current.level, which the scene's
+  // per-frame ghost sync reads; the state drives the toggle UI.
+  const [buildLevel, setBuildLevel] = useState(0);
   const [ghostState, setGhostState] = useState(null); // { ok, reasons, proposal }
   const [editIndex, setEditIndex] = useState(null);
   const [buildMsg, setBuildMsg] = useState('');
@@ -436,7 +460,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
     active: false, parcelId: null, tool: 'place',
     pieceId: 'wall', finish: 'timber', tint: null, rotY: 0,
     orientation: 'upright', aim: null,
-    yLift: 0, seatKey: '', seatY: 0, verdictKey: '',
+    yLift: 0, level: 0, seatKey: '', seatY: 0, verdictKey: '',
     ghostPlacement: null, verdict: null, editIndex: -1, carried: null,
   });
   const buildPropsRef = useRef({});
@@ -486,22 +510,36 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
     bm.editIndex = -1;
     bm.carried = null;
     bm.aim = null; // the ghost aims fresh from the camera every frame (camera-aim law)
+    bm.level = 0; // every build session starts on the ground
     bm.seatKey = '';
     bm.verdictKey = '';
     setBuildParcelId(parcel.id);
     setBuildTool('place');
     setEditIndex(null);
+    setBuildLevel(0);
     setBuildMsg(gate.text);
     setBuildMode(true);
     return true;
+  };
+
+  // Step the placement level up or down (v3 toggle, bottom-right).
+  // Both the ref (read per frame by the ghost sync) and the state
+  // (read by the toggle UI) move together; the verdict key picks
+  // the change up next frame and re-judges at the new height.
+  const setBuildLevelBoth = (next) => {
+    const n = Math.max(0, Math.min(BUILD_MAX_LEVEL, Math.round(next)));
+    buildModeRef.current.level = n;
+    setBuildLevel(n);
   };
 
   const exitBuildMode = () => {
     const bm = buildModeRef.current;
     bm.carried = null; // a carried piece never left the build — nothing to restore
     bm.editIndex = -1;
+    bm.level = 0;
     setBuildMode(false);
     setEditIndex(null);
+    setBuildLevel(0);
     setGhostState(null);
   };
 
@@ -802,6 +840,154 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   const noticeRef = useRef(() => {});
   noticeRef.current = (msg) => setNotice(msg);
   useEffect(() => { if (greetSignal) greetRef.current = true; }, [greetSignal]);
+
+  // ── GAMEPAD ADAPTER (Merlin, 2026-10-24) ─────────────────────
+  // PS5 + Xbox controls with smart detection. This block ONLY feeds
+  // existing input paths — it owns no movement, camera, or build
+  // logic of its own, so the v3 build-mode work is untouched:
+  //   left stick  → inputRef.joy (walk mode; the on-screen walk
+  //                 joystick's own axes)
+  //   right stick → inputRef.look (walk mode; the drag-look path)
+  //              → inputRef.joy (build mode; the build joystick's
+  //                 own orbit path — same axes, same deadzone)
+  //   ✕/A         → a centre-screen tap through handleTap (place
+  //                 in build mode, operate/board elsewhere)
+  //   ○/B         → exit build mode, else exit vehicle
+  //   L1/LB, L2/LT → build level down; R1/RB, R2/RT → level up
+  //                 (setBuildLevelBoth — the v3 toggle's shared
+  //                 setter, so ref and toggle UI move together)
+  //   L2/LT held  → AIM, walk/combat mode only (gamepadAimRef,
+  //                 the held modifier the future gun + reticle
+  //                 aiming system will read; no aim-down-sights
+  //                 visuals live here — that system is not built)
+  //   R2/RT pull  → FIRE, walk/combat mode only: one centre-
+  //                 screen tap per pull through the SAME path
+  //                 ✕/A uses (mosquito taps included); a held
+  //                 trigger never repeats. In BUILD MODE the
+  //                 triggers keep their level-step job, so the
+  //                 two mappings never fight — the mode gate
+  //                 below is the whole split.
+  // A stick writes only when its value CHANGES, so a centred pad
+  // never fights the touch joystick; disconnect zeroes every input
+  // the pad may have held, so nothing can stick. When no pad is
+  // attached this effect is a no-op and keyboard/touch behave
+  // exactly as before.
+  const [gamepadPad, setGamepadPad] = useState({ connected: false, profile: null });
+  const gamepadTapRef = useRef(null);
+  const gamepadButtonsRef = useRef(new Set());
+  const gamepadAimRef = useRef(false);
+  const gamepadPrevRtRef = useRef(0);
+  const gamepadLastJoyRef = useRef({ x: 0, y: 0 });
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || typeof navigator.getGamepads !== 'function') return undefined;
+    let raf = 0;
+    let stopped = false;
+    const syncState = (connected, profile) => {
+      setGamepadPad((prev) => (prev.connected === connected && prev.profile === profile
+        ? prev : { connected, profile }));
+    };
+    const releaseInputs = () => {
+      if (gamepadLastJoyRef.current.x !== 0 || gamepadLastJoyRef.current.y !== 0) {
+        inputRef.current.joy.x = 0;
+        inputRef.current.joy.y = 0;
+        gamepadLastJoyRef.current = { x: 0, y: 0 };
+      }
+      gamepadButtonsRef.current = new Set();
+      gamepadAimRef.current = false;
+      gamepadPrevRtRef.current = 0;
+    };
+    const applyPad = (pad) => {
+      if (!pad) { releaseInputs(); syncState(false, null); return; }
+      syncState(true, detectGamepadProfile(pad.id));
+      const axes = Array.isArray(pad.axes) ? pad.axes : [];
+      const inBuild = buildModeRef.current.active;
+      // Sticks. In build mode the right stick drives the orbit
+      // through the build joystick's own axes (same values, same
+      // deadzone law as the on-screen joystick); the left stick
+      // rests — the walker parks while building, as before.
+      const joy = inBuild
+        ? { x: applyDeadzone(axes[2]), y: applyDeadzone(axes[3]) }
+        : gamepadMove(axes);
+      if (joy.x !== gamepadLastJoyRef.current.x || joy.y !== gamepadLastJoyRef.current.y) {
+        inputRef.current.joy.x = joy.x;
+        inputRef.current.joy.y = joy.y;
+        gamepadLastJoyRef.current = joy;
+      }
+      if (!inBuild) {
+        const look = gamepadLook(axes);
+        if (look.dx !== 0 || look.dy !== 0) {
+          inputRef.current.look.dx += look.dx;
+          inputRef.current.look.dy += look.dy;
+        }
+      }
+      // Gun triggers, walk/combat mode ONLY (Merlin, 2026-10-24).
+      // The analog value is tracked every frame in both modes so
+      // a pull held across a mode change can never fire stale on
+      // the way back out — but the ACTIONS fire only out here:
+      // L2 held = aim (gamepadAimRef, held state for the future
+      // gun system), R2 crossing the half-pull = one centre tap
+      // through the same path ✕/A uses. In build mode the
+      // triggers keep their level-step job below, untouched.
+      const rtValue = triggerValue(Array.isArray(pad.buttons) ? pad.buttons[GAMEPAD_BUTTONS.RT] : null);
+      if (!inBuild) {
+        gamepadAimRef.current = isAimHeld(pad.buttons);
+        if (triggerRisingEdge(gamepadPrevRtRef.current, pad.buttons)
+          && gamepadTapRef.current && typeof window !== 'undefined') {
+          gamepadTapRef.current(window.innerWidth / 2, window.innerHeight / 2);
+        }
+      } else {
+        gamepadAimRef.current = false;
+      }
+      gamepadPrevRtRef.current = rtValue;
+      // Buttons: rising edge only — a held button fires once.
+      const pressed = newlyPressedButtons(gamepadButtonsRef.current, pad.buttons);
+      gamepadButtonsRef.current = pressedButtonSet(pad.buttons);
+      for (const b of pressed) {
+        if (b === GAMEPAD_BUTTONS.CONFIRM) {
+          if (gamepadTapRef.current && typeof window !== 'undefined') {
+            gamepadTapRef.current(window.innerWidth / 2, window.innerHeight / 2);
+          }
+        } else if (b === GAMEPAD_BUTTONS.CANCEL) {
+          if (buildModeRef.current.active) buildExitRef.current();
+          else if (drivingRef.current) exitVehicleRef.current();
+        } else if (b === GAMEPAD_BUTTONS.LB || b === GAMEPAD_BUTTONS.LT) {
+          if (buildModeRef.current.active) {
+            // Shared setter, not a raw ref write: it moves the
+            // ref (which the ghost reads) AND the toggle UI state
+            // together, so the toggle label never goes stale.
+            setBuildLevelBoth(stepBuildLevel(buildModeRef.current.level, -1, BUILD_MAX_LEVEL));
+          }
+        } else if (b === GAMEPAD_BUTTONS.RB || b === GAMEPAD_BUTTONS.RT) {
+          if (buildModeRef.current.active) {
+            setBuildLevelBoth(stepBuildLevel(buildModeRef.current.level, 1, BUILD_MAX_LEVEL));
+          }
+        }
+      }
+    };
+    const frame = () => {
+      if (stopped) return;
+      applyPad(firstConnectedPad(navigator.getGamepads()));
+      raf = requestAnimationFrame(frame);
+    };
+    // Polling finds a pad within one frame, but the events give an
+    // immediate sync on hot-swap — connect a second pad and the
+    // profile re-maps without a reload.
+    const onConnect = () => {
+      const pad = firstConnectedPad(navigator.getGamepads());
+      if (pad) syncState(true, detectGamepadProfile(pad.id));
+    };
+    const onDisconnect = () => { releaseInputs(); syncState(false, null); };
+    window.addEventListener('gamepadconnected', onConnect);
+    window.addEventListener('gamepaddisconnected', onDisconnect);
+    raf = requestAnimationFrame(frame);
+    return () => {
+      stopped = true;
+      cancelAnimationFrame(raf);
+      window.removeEventListener('gamepadconnected', onConnect);
+      window.removeEventListener('gamepaddisconnected', onDisconnect);
+      releaseInputs();
+    };
+  }, []);
   useEffect(() => {
     if (!notice) return undefined;
     const id = setTimeout(() => setNotice(''), 4200);
@@ -3471,8 +3657,11 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       // tells updateBuildGhost to hold the aim while orbiting.
       // driving flips the orbit on (first deflected frame seeds
       // yaw/pitch/dist from the camera's current pose).
+      // parked (v3) is the no-slingshot state: after release the
+      // camera stays exactly at the orbit pose until the next
+      // push, a walk step, or build-mode exit.
       const buildOrbit = {
-        yaw: 0, pitch: 0.6, dist: 16, weight: 0, driving: false, frozen: false,
+        yaw: 0, pitch: 0.6, dist: 16, weight: 0, driving: false, frozen: false, parked: false,
       };
       // The orbit's centre: the ghost's current judged spot when
       // there is one, else the last aim, else the walker's feet.
@@ -3747,6 +3936,19 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         bm.verdictKey = ''; // the set changed — judge fresh
         bm.seatKey = '';
       }
+      // The tap ray's terrain hit, in world coords — shared by
+      // tap-to-aim and by the ghost-footprint test below. Null
+      // when the ray finds no ground at all (the tap fell on sky).
+      function tapGroundPoint() {
+        const ray = raycaster.ray;
+        for (let s = 0.5; s <= 120; s += 0.4) {
+          const px = ray.origin.x + ray.direction.x * s;
+          const py = ray.origin.y + ray.direction.y * s;
+          const pz = ray.origin.z + ray.direction.z * s;
+          if (py <= heightAt(px, pz) + 0.05) return { x: px, z: pz };
+        }
+        return null;
+      }
       // Tap-to-aim ("tap where you want it"): march the TAP's
       // own ray — set from the tap's screen position, not the
       // camera's centre — down to the terrain. The hit, pulled
@@ -3760,16 +3962,10 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         const parcel = bm.parcelId ? parcelById(bm.parcelId) : null;
         if (!parcel) return null;
         const rect = parcelWorldRect(parcel);
-        const ray = raycaster.ray;
-        let hx = null;
-        let hz = null;
-        for (let s = 0.5; s <= 120; s += 0.4) {
-          const px = ray.origin.x + ray.direction.x * s;
-          const py = ray.origin.y + ray.direction.y * s;
-          const pz = ray.origin.z + ray.direction.z * s;
-          if (py <= heightAt(px, pz) + 0.05) { hx = px; hz = pz; break; }
-        }
-        if (hx === null) return null;
+        const ground = tapGroundPoint();
+        if (!ground) return null;
+        const hx = ground.x;
+        const hz = ground.z;
         const candidate = {
           pieceId: bm.pieceId,
           x: Math.min(PARCEL_BUILD_FRAME.width, Math.max(0, hx - rect.minX)),
@@ -3783,6 +3979,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         const primary = deriveBuildCandidate(ghostJudgePieces(bm.parcelId), candidate, {
           frame: PARCEL_BUILD_FRAME,
           lift: bm.yLift,
+          baseY: (bm.level || 0) * BUILD_LEVEL_HEIGHT_M,
         });
         if (primary.verdict.ok) return primary;
         // Intelligent placement: the aimed transform is
@@ -3791,6 +3988,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         const prop = proposePlacement(ghostJudgePieces(bm.parcelId), candidate, {
           frame: PARCEL_BUILD_FRAME,
           lift: bm.yLift,
+          baseY: (bm.level || 0) * BUILD_LEVEL_HEIGHT_M,
         });
         if (!prop) return primary;
         return {
@@ -3844,30 +4042,55 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           // Tapping the ghost itself places it exactly where it
           // stands (Merlin, 2026-10-24): the ghost is not a
           // placed piece, so the double-tap raycast above never
-          // catches it — without this branch a tap on the slab
-          // fell through to the tap-to-aim march, which could
-          // shift the spot under the finger. An unlawful ghost
-          // refuses with its reason, never silently.
+          // catches it. A tap counts as "on the ghost" two ways:
+          // the mesh raycast (v2), and — v3 — the tap's terrain
+          // point falling inside the ghost's plan footprint, so
+          // a flat slab still places at a glancing camera angle
+          // or when the mesh raycast misses for any other reason.
+          // v2 ALSO swallowed the tap entirely when no judged
+          // placement existed yet (the branch returned on every
+          // path) — a 'tap-aim' decision now falls through to
+          // tap-to-aim below instead of dying silently. An
+          // unlawful ghost refuses with its reason, never
+          // silently.
+          const ghostTap = () => {
+            const decision = decideBuildTapAction({
+              tool: bm.tool,
+              ghostHit: true,
+              ghostPlacement: bm.ghostPlacement,
+              verdict: bm.verdict,
+            });
+            if (decision.action === 'place-ghost') {
+              commitBuildPlacement(decision.placement);
+              bm.ghostPlacement = decision.placement;
+              if (bm.verdict) ghostInfoRef.current(bm.verdict);
+              if (bm.verdict && bm.verdict.proposal) {
+                noticeRef.current(`🧠 It wouldn't fit as aimed — ${bm.verdict.proposal.charAt(0).toLowerCase()}${bm.verdict.proposal.slice(1)} instead.`);
+              }
+              return true;
+            }
+            if (decision.action === 'refuse') {
+              noticeRef.current(`🔨 ${decision.reason}`);
+              return true;
+            }
+            return false; // 'tap-aim': no judged placement yet — fall through
+          };
           if (ghostGroup && ghostGroup.visible) {
             const ghostHits = raycaster.intersectObjects(ghostGroup.children, true);
-            if (ghostHits.length) {
-              const decision = decideBuildTapAction({
-                tool: bm.tool,
-                ghostHit: true,
-                ghostPlacement: bm.ghostPlacement,
-                verdict: bm.verdict,
-              });
-              if (decision.action === 'place-ghost') {
-                commitBuildPlacement(decision.placement);
-                bm.ghostPlacement = decision.placement;
-                if (bm.verdict) ghostInfoRef.current(bm.verdict);
-                if (bm.verdict && bm.verdict.proposal) {
-                  noticeRef.current(`🧠 It wouldn't fit as aimed — ${bm.verdict.proposal.charAt(0).toLowerCase()}${bm.verdict.proposal.slice(1)} instead.`);
-                }
-              } else if (decision.action === 'refuse') {
-                noticeRef.current(`🔨 ${decision.reason}`);
-              }
-              return;
+            if (ghostHits.length && ghostTap()) return;
+          }
+          // Footprint fallback: the tap's terrain point inside
+          // the ghost's plan footprint counts as tapping the
+          // slab itself, even when the mesh raycast missed.
+          if (bm.ghostPlacement) {
+            const ground = tapGroundPoint();
+            const parcel = bm.parcelId ? parcelById(bm.parcelId) : null;
+            if (ground && parcel) {
+              const rect2 = parcelWorldRect(parcel);
+              if (tapPointInGhostFootprint(
+                { x: ground.x - rect2.minX, z: ground.z - rect2.minZ },
+                bm.ghostPlacement,
+              ) && ghostTap()) return;
             }
           }
           const tapped = tapAimCandidate();
@@ -3954,14 +4177,16 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       let lastPX = 0;
       let lastPY = 0;
       let downT = 0;
-      let dragMoved = 0;
+      let downX = 0;
+      let downY = 0;
       function onPointerDown(e) {
         ensureSfx();
         dragId = e.pointerId;
         lastPX = e.clientX;
         lastPY = e.clientY;
         downT = performance.now();
-        dragMoved = 0;
+        downX = e.clientX;
+        downY = e.clientY;
         try { renderer.domElement.setPointerCapture(e.pointerId); } catch { /* noop */ }
       }
       function onPointerMove(e) {
@@ -3970,20 +4195,35 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         const dy = e.clientY - lastPY;
         lastPX = e.clientX;
         lastPY = e.clientY;
-        dragMoved += Math.abs(dx) + Math.abs(dy);
         inputRef.current.look.dx += dx;
         inputRef.current.look.dy += dy;
       }
       function onPointerUp(e) {
         if (e.pointerId !== dragId) return;
         dragId = null;
-        if (dragMoved < 7 && performance.now() - downT < 450) handleTap(e);
+        // v3: a tap is judged by ENDPOINT displacement (where the
+        // finger lifts versus where it landed), not by total path
+        // length — a jittery finger tap wanders past the old 7 px
+        // path budget while never leaving the spot, and v2
+        // silently reclassified those taps as drag-look. A real
+        // drag ends far from its start, so it still never taps.
+        if (classifyTapGesture({
+          downX, downY,
+          upX: e.clientX, upY: e.clientY,
+          durationMs: performance.now() - downT,
+        })) handleTap(e);
       }
       function onPointerCancel() { dragId = null; }
       renderer.domElement.addEventListener('pointerdown', onPointerDown);
       renderer.domElement.addEventListener('pointermove', onPointerMove);
       renderer.domElement.addEventListener('pointerup', onPointerUp);
       renderer.domElement.addEventListener('pointercancel', onPointerCancel);
+
+      // GAMEPAD ADAPTER: the confirm button taps at screen centre
+      // through the same handleTap every finger tap uses — place
+      // in build mode (the ghost sits at the camera ground point,
+      // so a centre tap lands on it), operate/board elsewhere.
+      gamepadTapRef.current = (x, y) => handleTap({ clientX: x, clientY: y });
 
       // ── Proximity streaming (the plan: lib/earth2/streaming.js)
       // Units load nearest-first through a serial queue — one
@@ -4239,10 +4479,15 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           (b) => b && b.groundType === 'earth2-parcel' && b.groundId === bm.parcelId
         );
         const sig = existingBuild ? `${existingBuild.updatedAt || ''}|${existing.length}` : 'none';
-        const verdictKey = `${cellKey}|${bm.seatY + bm.yLift}|${sig}|${bm.finish}|${bm.tint ?? ''}`;
+        // The level rides in the verdict key: stepping the
+        // toggle re-judges the ghost at the new height, and
+        // the ghost's base height is the level base unless
+        // something taller already stands under the footprint.
+        const levelY = Math.round(levelPlacementY(bm.level || 0, bm.seatY, bm.yLift) * 100) / 100;
+        const verdictKey = `${cellKey}|${levelY}|${sig}|${bm.finish}|${bm.tint ?? ''}`;
         if (verdictKey !== bm.verdictKey) {
           bm.verdictKey = verdictKey;
-          const placed = { ...snapped, y: Math.round((bm.seatY + bm.yLift) * 100) / 100 };
+          const placed = { ...snapped, y: levelY };
           let verdict = judgeGhost(existing, placed, { frame: PARCEL_BUILD_FRAME });
           if (!verdict.ok) {
             // Intelligent placement: before the ghost shows a
@@ -4252,6 +4497,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             const prop = proposePlacement(existing, snapped, {
               frame: PARCEL_BUILD_FRAME,
               lift: bm.yLift,
+              baseY: (bm.level || 0) * BUILD_LEVEL_HEIGHT_M,
             });
             if (prop) verdict = { ...prop.verdict, proposal: prop.change };
           }
@@ -4630,6 +4876,25 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         const t = clock.elapsedTime;
         const inp = inputRef.current;
 
+        // v3 NO SLINGSHOT: the orbit park machine runs FIRST,
+        // before the walker camera block — a release with the
+        // blend engaged parks the camera (see stepOrbitPark),
+        // and the walker block below must not re-assert the eye
+        // position while parked. orbitWasDriving is the
+        // pre-machine value the orbit block's seed logic needs
+        // (the machine itself already flipped driving by then).
+        const orbitWasDriving = buildOrbit.driving;
+        const parkStep = stepOrbitPark(buildOrbit, {
+          joyDeflected: buildModeRef.current.active
+            && Math.hypot(inp.joy.x, inp.joy.y) > BUILD_ORBIT_JOY_DEADZONE,
+          buildModeOn: buildModeRef.current.active,
+          drivingVehicle: !!drivingRef.current,
+        }, dt);
+        buildOrbit.weight = parkStep.weight;
+        buildOrbit.driving = parkStep.driving;
+        buildOrbit.parked = parkStep.parked;
+        buildOrbit.frozen = parkStep.frozen;
+
         // The living sky + weather refresh about once a second;
         // the lifecycle's due respawns stand up with it.
         envAgeS += dt;
@@ -4832,31 +5097,50 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             bobT += dt * (travelNow ? 13 : 8.5);
             bob = Math.abs(Math.sin(bobT)) * 0.055;
           }
-          camera.position.set(
-            walker.x,
-            groundY + WALK_EYE_M - Math.min(depth, 1.1) * 0.3 + bob,
-            walker.z,
-          );
+          // v3 NO SLINGSHOT: while the orbit is parked, the
+          // walker eye position does NOT re-assert — the camera
+          // stays exactly at the parked orbit pose. The eye
+          // position also stays out of the way while an orbit
+          // is driving, so a fresh push seeds from the parked
+          // pose instead of jumping back to the walker eye (the
+          // orbit block's blend owns the camera then). Walking
+          // while parked re-attaches the camera (the walker
+          // moved, so the parked pose no longer describes the
+          // view). Rotation still follows drag-look either way.
+          if (buildOrbit.parked && movedDist > 1e-4) buildOrbit.parked = false;
+          if (!buildOrbit.parked && !buildOrbit.driving) {
+            camera.position.set(
+              walker.x,
+              groundY + WALK_EYE_M - Math.min(depth, 1.1) * 0.3 + bob,
+              walker.z,
+            );
+          }
           camera.rotation.set(walker.pitch, walker.yaw, 0);
         }
         syncParcel(false);
-        // ── Build-mode orbit (Merlin, 2026-10-24) ─────────
+        // ── Build-mode orbit (Merlin, 2026-10-24; v3 NO SLINGSHOT)
         // In build mode the joystick swings the camera around
         // the ghost instead of walking the walker: left/right =
         // orbit yaw, up/down = orbit pitch. The blend weight
-        // eases in while held and eases out on release — and it
-        // keeps easing out after build mode exits, so the camera
-        // glides back to the walker eye view instead of jumping
-        // or stranding. While any blend is active the aim
-        // freezes (updateBuildGhost reads buildOrbit.frozen),
-        // so orbiting NEVER moves the tile. The camera never
-        // sinks under the ground (height + 1.5 m floor), and a
-        // vehicle camera always wins outright (weight forced 0).
+        // eases in while held; on release the camera PARKS —
+        // the pose freezes exactly where the user stopped, with
+        // no ease-back to the walker view (stepOrbitPark, run at
+        // the top of the frame, owns that state). A fresh push
+        // seeds a new orbit from the parked pose, so orbiting
+        // continues from where it stopped. Exiting build mode
+        // still glides back to the walker eye view — that is a
+        // deliberate mode change, not a slingshot. While the
+        // blend is moving the camera the aim freezes
+        // (updateBuildGhost reads buildOrbit.frozen), so
+        // orbiting NEVER moves the tile; a parked camera leaves
+        // the aim law alone. The camera never sinks under the
+        // ground (height + 1.5 m floor), and a vehicle camera
+        // always wins outright (weight forced 0).
         {
           const bmOn = buildModeRef.current.active;
           const joyDeflected = bmOn
             && Math.hypot(inp.joy.x, inp.joy.y) > BUILD_ORBIT_JOY_DEADZONE;
-          if (joyDeflected && !buildOrbit.driving) {
+          if (joyDeflected && !orbitWasDriving) {
             const seed = initOrbitFromCamera(
               { x: camera.position.x, y: camera.position.y, z: camera.position.z },
               buildOrbitCentre(),
@@ -4872,12 +5156,9 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             );
             buildOrbit.yaw = stepped.yaw;
             buildOrbit.pitch = stepped.pitch;
-          } else {
-            buildOrbit.driving = false;
           }
-          if (drivingRef.current) buildOrbit.weight = 0;
-          else buildOrbit.weight = stepOrbitWeight(buildOrbit.weight, joyDeflected, dt);
-          buildOrbit.frozen = buildOrbit.weight > 0.01;
+          // Weight, driving, parked and frozen were already
+          // stepped by stepOrbitPark at the top of the frame.
           if (buildOrbit.weight > 0.001 && !drivingRef.current) {
             const centre = buildOrbitCentre();
             const op = orbitCameraPosition(
@@ -5239,6 +5520,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         renderer.domElement.removeEventListener('pointermove', onPointerMove);
         renderer.domElement.removeEventListener('pointerup', onPointerUp);
         renderer.domElement.removeEventListener('pointercancel', onPointerCancel);
+        gamepadTapRef.current = null; // GAMEPAD ADAPTER: scene torn down.
         for (const l of labels) l.el.remove();
         for (const b of vehicleBars) b.el.remove();
         scene.traverse((o) => {
@@ -5358,6 +5640,15 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             Placing the foundry… {bootPlaced}/{bootTotal}
           </div>
         )}
+        {/* GAMEPAD ADAPTER: detected-controller pill — a flow row
+            inside this panel, never absolute, never overlapping.
+            Muted when no pad is attached so the adapter's own
+            liveness is visible at a glance. */}
+        <div className={`rounded-full border px-3 py-1.5 text-[11px] ${gamepadPad.connected ? 'border-emerald-300/40 bg-emerald-500/15 text-emerald-100' : 'border-white/15 bg-black/45 text-zinc-400'}`}>
+          {gamepadPad.connected
+            ? `🎮 ${GAMEPAD_PROFILE_NAMES[gamepadPad.profile] || 'Controller'} connected — ${gamepadLabel(gamepadPad.profile, 'CONFIRM')} confirms, ${gamepadLabel(gamepadPad.profile, 'CANCEL')} backs out`
+            : '🎮 No controller connected'}
+        </div>
         <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-red-300/25 bg-black/50 py-1.5 pl-3 pr-1.5 text-[11px] text-zinc-100">
           <span>🩸 Blood sacs: <strong className="text-red-200">{sacsShown}</strong></span>
           <button
@@ -5624,7 +5915,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
                     ? ghostState.ok ? 'text-emerald-200' : 'text-red-200'
                     : 'text-zinc-400'
                 }`}>
-                  🧱 {selPieceDef ? selPieceDef.name : selPieceId} · {buildPieceCount}/{MAX_PIECES_PER_BUILD} pieces — {
+                  🧱 {selPieceDef ? selPieceDef.name : selPieceId} · {buildPieceCount} pieces — {
                     ghostState
                       ? ghostState.ok
                         ? ghostState.proposal
@@ -5636,7 +5927,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
                 </p>
               ) : (
                 <p className="truncate text-[11px] font-bold leading-snug text-zinc-300">
-                  🛠️ {selectedPlaced ? (pieceById(selectedPlaced.pieceId)?.name || selectedPlaced.pieceId) : 'Nothing selected'} · {buildPieceCount}/{MAX_PIECES_PER_BUILD} pieces
+                  🛠️ {selectedPlaced ? (pieceById(selectedPlaced.pieceId)?.name || selectedPlaced.pieceId) : 'Nothing selected'} · {buildPieceCount} pieces
                 </p>
               )}
             </div>
@@ -5937,6 +6228,45 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* v3 level toggle — BOTTOM-RIGHT, right-thumb reachable,
+          clear of the bottom-left joystick and the piece panel
+          (a fixed control, never a panel, so nothing overlaps).
+          Steps the ghost's story: Ground, L1, L2, … — one story
+          is 3 m (BUILD_LEVEL_HEIGHT_M, the catalog's wall
+          height). The support law still applies at height: most
+          pieces must rest on something real — a foundation block
+          (self-supporting) is the lawful first piece at a new
+          level, then walls and floors stack on it; a piece
+          floating in mid-air is refused with "Nothing holds it
+          up." Floating and self-supporting pieces are exempt by
+          the same law that exempts them on the ground. */}
+      {buildMode && (
+        <div className="pointer-events-auto absolute bottom-3 right-3 z-20 flex flex-col items-center gap-1 rounded-2xl border border-white/15 bg-black/55 px-2 py-2 backdrop-blur">
+          <span className="text-[9px] font-black tracking-[0.22em] text-zinc-400">LEVEL</span>
+          <span className="text-sm font-black text-zinc-100" aria-live="polite">{levelLabel(buildLevel)}</span>
+          <div className="flex gap-1">
+            <button
+              type="button"
+              aria-label="Level down"
+              disabled={buildLevel <= 0}
+              onClick={() => setBuildLevelBoth(buildLevel - 1)}
+              className="h-11 w-11 rounded-xl border border-white/20 bg-white/5 text-lg font-black text-zinc-100 transition hover:bg-white/15 disabled:opacity-30"
+            >
+              ▼
+            </button>
+            <button
+              type="button"
+              aria-label="Level up"
+              disabled={buildLevel >= BUILD_MAX_LEVEL}
+              onClick={() => setBuildLevelBoth(buildLevel + 1)}
+              className="h-11 w-11 rounded-xl border border-white/20 bg-white/5 text-lg font-black text-zinc-100 transition hover:bg-white/15 disabled:opacity-30"
+            >
+              ▲
+            </button>
           </div>
         </div>
       )}

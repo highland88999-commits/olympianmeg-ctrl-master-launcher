@@ -28,8 +28,16 @@ import {
   initOrbitFromCamera,
   stepOrbitAngles,
   stepOrbitWeight,
+  stepOrbitPark,
+  classifyTapGesture,
+  BUILD_LEVEL_HEIGHT_M,
+  BUILD_MAX_LEVEL,
+  levelPlacementY,
+  levelLabel,
+  tapPointInGhostFootprint,
   decideBuildTapAction,
 } from '../lib/earth2/building.js';
+import { deriveBuildCandidate } from '../lib/building/placement.js';
 
 const flat = () => 10; // flat ground at y = 10
 const slope = (x) => 10 + x * 0.1; // rises with +x
@@ -144,4 +152,198 @@ test('tap gating: no ghost hit falls through to tap-to-aim; other tools pass thr
   assert.equal(decideBuildTapAction({
     tool: 'edit', ghostHit: true, ghostPlacement: { x: 1, z: 1 }, verdict: { ok: true },
   }).action, 'other-tool');
+});
+
+// ── E. v3 tap classification: endpoint displacement, not path ─
+// v2 called a tap "not a drag" when its total pointer PATH stayed
+// under 7 px — but a finger tap jitters, so genuine taps were
+// silently reclassified as drag-look (the view wiggled, nothing
+// placed, no feedback). A tap is now judged by where the finger
+// LIFTS versus where it LANDED.
+
+test('v3 tap: a jittery tap that never leaves the spot still counts', () => {
+  // The finger wandered (path well past 7 px) but lifted 4 px
+  // from where it landed, inside 500 ms: a tap.
+  assert.equal(classifyTapGesture({
+    downX: 100, downY: 100, upX: 103, upY: 97, durationMs: 300,
+  }), true);
+});
+
+test('v3 tap: a real drag ends far from its start and never taps', () => {
+  assert.equal(classifyTapGesture({
+    downX: 100, downY: 100, upX: 200, upY: 100, durationMs: 300,
+  }), false);
+  assert.equal(classifyTapGesture({
+    downX: 100, downY: 100, upX: 100, upY: 112, durationMs: 300,
+  }), false);
+});
+
+test('v3 tap: a slow press is not a tap, even on the spot', () => {
+  assert.equal(classifyTapGesture({
+    downX: 100, downY: 100, upX: 100, upY: 100, durationMs: 500,
+  }), false);
+  assert.equal(classifyTapGesture({
+    downX: 100, downY: 100, upX: 100, upY: 100, durationMs: 499,
+  }), true);
+});
+
+// ── F. v3 no-slingshot orbit park ─────────────────────────────
+// Release with the blend engaged PARKS the camera: weight
+// frozen, position untouched, aim unfrozen. A fresh push seeds
+// from the parked pose (the scene pins that by seeding from the
+// camera's current pose — the machine's job is only the state).
+
+test('v3 park: release mid-orbit parks with the weight frozen', () => {
+  const parked = stepOrbitPark(
+    { weight: 0.5, driving: true, parked: false },
+    { joyDeflected: false, buildModeOn: true, drivingVehicle: false },
+    0.016,
+  );
+  assert.equal(parked.parked, true);
+  assert.equal(parked.weight, 0.5, 'the blend stops exactly where it stopped');
+  assert.equal(parked.driving, false);
+  assert.equal(parked.frozen, false, 'a parked camera leaves the tile-aim law alone');
+});
+
+test('v3 park: a parked camera survives further idle frames unchanged', () => {
+  const again = stepOrbitPark(
+    { weight: 0.5, driving: false, parked: true },
+    { joyDeflected: false, buildModeOn: true, drivingVehicle: false },
+    0.016,
+  );
+  assert.equal(again.parked, true);
+  assert.equal(again.weight, 0.5);
+});
+
+test('v3 park: the next push unparks and drives from the kept pose', () => {
+  const driving = stepOrbitPark(
+    { weight: 0.5, driving: false, parked: true },
+    { joyDeflected: true, buildModeOn: true, drivingVehicle: false },
+    0.016,
+  );
+  assert.equal(driving.parked, false);
+  assert.equal(driving.driving, true);
+  assert.ok(driving.weight > 0.5, 'the blend resumes upward from the kept weight');
+});
+
+test('v3 park: exiting build mode unparks and glides the weight out', () => {
+  const out = stepOrbitPark(
+    { weight: 0.5, driving: false, parked: true },
+    { joyDeflected: false, buildModeOn: false, drivingVehicle: false },
+    0.2,
+  );
+  assert.equal(out.parked, false);
+  assert.equal(out.weight, 0, '2.5/s out over 0.2 s drains the 0.5 blend');
+  assert.equal(out.frozen, false);
+});
+
+test('v3 park: driving a vehicle always wins outright', () => {
+  const v = stepOrbitPark(
+    { weight: 0.8, driving: true, parked: true },
+    { joyDeflected: true, buildModeOn: true, drivingVehicle: true },
+    0.016,
+  );
+  assert.deepEqual(v, { weight: 0, driving: false, parked: false, frozen: false });
+});
+
+test('v3 park: a release with nothing blended does not park', () => {
+  const idle = stepOrbitPark(
+    { weight: 0.005, driving: false, parked: false },
+    { joyDeflected: false, buildModeOn: true, drivingVehicle: false },
+    0.016,
+  );
+  assert.equal(idle.parked, false);
+});
+
+// ── G. v3 vertical levels ──────────────────────────────────────
+// One story is 3 m (the catalog's wall height). Ground level
+// keeps today's stacking seat exactly; above ground, the level
+// base wins unless something taller already stands under the
+// footprint — a piece never sinks into what is beneath it.
+
+test('v3 level: the constant is one 3 m story, capped by the 60 m frame', () => {
+  assert.equal(BUILD_LEVEL_HEIGHT_M, 3);
+  assert.equal(BUILD_MAX_LEVEL, 20);
+  assert.equal(levelLabel(0), 'Ground');
+  assert.equal(levelLabel(1), 'L1');
+  assert.equal(levelLabel(3), 'L3');
+});
+
+test('v3 level: ground level is unchanged from today', () => {
+  assert.equal(levelPlacementY(0, 0.6, 0), 0.6);
+  assert.equal(levelPlacementY(0, 0, 0.5), 0.5);
+});
+
+test('v3 level: steps raise the ghost by exactly the constant', () => {
+  assert.equal(levelPlacementY(1, 0, 0), 3);
+  assert.equal(levelPlacementY(2, 0, 0), 6);
+  assert.equal(levelPlacementY(2, 0, 0.5), 6.5);
+});
+
+test('v3 level: a piece stacks on what stands under it, never sinks', () => {
+  // An L1 floor slab stands at 3 m; its top is 3.25 m. A wall
+  // aimed there at L1 seats on the slab top, not the level base.
+  assert.equal(levelPlacementY(1, 3.25, 0), 3.25);
+});
+
+test('v3 level: the support law still judges footing at height', () => {
+  const frame = PARCEL_BUILD_FRAME;
+  // A wall on an L1 floor slab: seats on the slab top (3.25 m)
+  // and rests there — lawful.
+  const onSlab = deriveBuildCandidate(
+    [{ pieceId: 'floor-panel', x: 14, y: 3, z: 14, rotY: 0, finish: 'stone' }],
+    { pieceId: 'wall', x: 14, y: 0, z: 14, rotY: 0, finish: 'stone' },
+    { frame, lift: 0, baseY: 3 },
+  );
+  assert.equal(onSlab.placement.y, 3.25);
+  assert.equal(onSlab.verdict.ok, true, onSlab.verdict.reasons.join(' | '));
+  // A floor panel in mid-air at L1, nothing beneath it: refused
+  // with the support law's own reason — the toggle lifts the
+  // base, it does not waive footing.
+  const floating = deriveBuildCandidate(
+    [],
+    { pieceId: 'floor-panel', x: 14, y: 0, z: 14, rotY: 0, finish: 'stone' },
+    { frame, lift: 0, baseY: 3 },
+  );
+  assert.equal(floating.placement.y, 3);
+  assert.equal(floating.verdict.ok, false);
+  assert.ok(floating.verdict.reasons.some((r) => /Nothing holds it up/.test(r)),
+    floating.verdict.reasons.join(' | '));
+  // A foundation block is self-supporting by the same law, so it
+  // is the lawful first piece at a new level.
+  const firstAtHeight = deriveBuildCandidate(
+    [],
+    { pieceId: 'foundation-block', x: 14, y: 0, z: 14, rotY: 0, finish: 'stone' },
+    { frame, lift: 0, baseY: 3 },
+  );
+  assert.equal(firstAtHeight.placement.y, 3);
+  assert.equal(firstAtHeight.verdict.ok, true, firstAtHeight.verdict.reasons.join(' | '));
+});
+
+// ── H. v3 ghost-footprint tap ──────────────────────────────────
+// A tap's terrain point inside the ghost's plan footprint counts
+// as tapping the slab itself, even when the mesh raycast missed
+// (a flat slab at a glancing camera angle). The footprint is the
+// catalog's axis-aligned plan box, so rotation is folded in.
+
+test('v3 footprint: taps on, near, and off the Wide Slab Foundation', () => {
+  const ghost = { pieceId: 'foundation-slab-wide', x: 14, y: 0, z: 14, rotY: 0 };
+  assert.equal(tapPointInGhostFootprint({ x: 14, z: 14 }, ghost), true);
+  assert.equal(tapPointInGhostFootprint({ x: 11.2, z: 16.8 }, ghost), true);
+  assert.equal(tapPointInGhostFootprint({ x: 17.4, z: 14 }, ghost), true, 'inside the 0.5 m margin');
+  assert.equal(tapPointInGhostFootprint({ x: 18, z: 14 }, ghost), false);
+  assert.equal(tapPointInGhostFootprint({ x: 14, z: 9 }, ghost), false);
+  assert.equal(tapPointInGhostFootprint(null, ghost), false);
+  assert.equal(tapPointInGhostFootprint({ x: 14, z: 14 }, null), false);
+});
+
+test('v3 footprint: rotation swaps the plan extents', () => {
+  const upright = { pieceId: 'wall', x: 14, y: 0, z: 14, rotY: 0 };
+  const turned = { pieceId: 'wall', x: 14, y: 0, z: 14, rotY: 90 };
+  // Upright wall: 4 m along x, 0.3 m along z.
+  assert.equal(tapPointInGhostFootprint({ x: 15.9, z: 14 }, upright), true);
+  assert.equal(tapPointInGhostFootprint({ x: 14, z: 15.9 }, upright), false);
+  // Turned 90°: 0.3 m along x, 4 m along z.
+  assert.equal(tapPointInGhostFootprint({ x: 14, z: 15.9 }, turned), true);
+  assert.equal(tapPointInGhostFootprint({ x: 15.9, z: 14 }, turned), false);
 });
