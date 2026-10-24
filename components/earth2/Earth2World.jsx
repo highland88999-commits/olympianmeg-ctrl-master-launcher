@@ -186,6 +186,16 @@ import {
 import { snapPlacement, snapRotation, judgeGhost, validatePlacementSet, clampPlacementToFrame, deriveBuildCandidate, proposePlacement, snapSeams } from '@/lib/building/placement';
 import { buildPieceGroup, buildGhostGroup, setGhostValidity } from '@/lib/building/piece-render';
 import { PARCEL_BUILD_FRAME } from '@/lib/earth2/building';
+import {
+  BUILD_ORBIT_JOY_DEADZONE,
+  marchCameraGroundPoint,
+  clampAimToParcel,
+  orbitCameraPosition,
+  initOrbitFromCamera,
+  stepOrbitAngles,
+  stepOrbitWeight,
+  decideBuildTapAction,
+} from '@/lib/earth2/building';
 import { activeClaimFor } from '@/lib/building/rights';
 import { buildModeGate, myBuildFor } from '@/lib/earth2/build-store';
 import WalkJoystick from '@/components/world/WalkJoystick';
@@ -475,7 +485,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
     bm.tool = 'place';
     bm.editIndex = -1;
     bm.carried = null;
-    bm.aim = null; // the ghost aims fresh from the camera once, then anchors
+    bm.aim = null; // the ghost aims fresh from the camera every frame (camera-aim law)
     bm.seatKey = '';
     bm.verdictKey = '';
     setBuildParcelId(parcel.id);
@@ -3453,6 +3463,36 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       const reducedMotion = typeof window !== 'undefined'
         && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       let bobT = 0;
+      // BUILD-MODE ORBIT (Merlin, 2026-10-24): in build mode the
+      // joystick swings the camera around the ghost instead of
+      // walking the walker. yaw/pitch/dist describe the orbit
+      // pose; weight blends walker-eye (0) to orbit (1) so
+      // entering, releasing and exiting never jump; frozen
+      // tells updateBuildGhost to hold the aim while orbiting.
+      // driving flips the orbit on (first deflected frame seeds
+      // yaw/pitch/dist from the camera's current pose).
+      const buildOrbit = {
+        yaw: 0, pitch: 0.6, dist: 16, weight: 0, driving: false, frozen: false,
+      };
+      // The orbit's centre: the ghost's current judged spot when
+      // there is one, else the last aim, else the walker's feet.
+      function buildOrbitCentre() {
+        const bm = buildModeRef.current;
+        const parcel = bm.parcelId ? parcelById(bm.parcelId) : null;
+        if (parcel) {
+          const rect = parcelWorldRect(parcel);
+          const gp = bm.ghostPlacement;
+          const spot = (gp && Number.isFinite(gp.x) && Number.isFinite(gp.z))
+            ? gp
+            : (bm.aim && bm.aim.parcelId === bm.parcelId ? bm.aim : null);
+          if (spot) {
+            const wx = rect.minX + spot.x;
+            const wz = rect.minZ + spot.z;
+            return { x: wx, y: heightAt(wx, wz) + (spot.y || 0), z: wz };
+          }
+        }
+        return { x: walker.x, y: heightAt(walker.x, walker.z), z: walker.z };
+      }
       let castleNear = false;
       let hudParcel = null;
 
@@ -3699,9 +3739,10 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         bm.carried = null;
         pieces.push(placement);
         buildCommitRef.current(bm.parcelId, pieces);
-        // The ghost anchors where the piece landed (the aim
-        // law): the next piece stacks from the same spot until
-        // a drag or a tap re-aims it — walking never drags it.
+        // The aim notes where the piece landed — but under the
+        // camera-aim law the next frame's march re-aims from the
+        // camera centre anyway, so this is a fallback seed for
+        // the orbit centre, not a frozen anchor.
         bm.aim = { parcelId: bm.parcelId, x: placement.x, z: placement.z };
         bm.verdictKey = ''; // the set changed — judge fresh
         bm.seatKey = '';
@@ -3800,6 +3841,35 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           lastBuildTap = { at: nowTap, index: hitIdx, parcelId: bm.parcelId };
         }
         if (bm.tool === 'place') {
+          // Tapping the ghost itself places it exactly where it
+          // stands (Merlin, 2026-10-24): the ghost is not a
+          // placed piece, so the double-tap raycast above never
+          // catches it — without this branch a tap on the slab
+          // fell through to the tap-to-aim march, which could
+          // shift the spot under the finger. An unlawful ghost
+          // refuses with its reason, never silently.
+          if (ghostGroup && ghostGroup.visible) {
+            const ghostHits = raycaster.intersectObjects(ghostGroup.children, true);
+            if (ghostHits.length) {
+              const decision = decideBuildTapAction({
+                tool: bm.tool,
+                ghostHit: true,
+                ghostPlacement: bm.ghostPlacement,
+                verdict: bm.verdict,
+              });
+              if (decision.action === 'place-ghost') {
+                commitBuildPlacement(decision.placement);
+                bm.ghostPlacement = decision.placement;
+                if (bm.verdict) ghostInfoRef.current(bm.verdict);
+                if (bm.verdict && bm.verdict.proposal) {
+                  noticeRef.current(`🧠 It wouldn't fit as aimed — ${bm.verdict.proposal.charAt(0).toLowerCase()}${bm.verdict.proposal.slice(1)} instead.`);
+                }
+              } else if (decision.action === 'refuse') {
+                noticeRef.current(`🔨 ${decision.reason}`);
+              }
+              return;
+            }
+          }
           const tapped = tapAimCandidate();
           if (tapped) {
             if (tapped.verdict.ok) {
@@ -3907,10 +3977,9 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       function onPointerUp(e) {
         if (e.pointerId !== dragId) return;
         dragId = null;
-        aimDrag = false;
         if (dragMoved < 7 && performance.now() - downT < 450) handleTap(e);
       }
-      function onPointerCancel() { dragId = null; aimDrag = false; }
+      function onPointerCancel() { dragId = null; }
       renderer.domElement.addEventListener('pointerdown', onPointerDown);
       renderer.domElement.addEventListener('pointermove', onPointerMove);
       renderer.domElement.addEventListener('pointerup', onPointerUp);
@@ -4092,28 +4161,29 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         const parcel = parcelById(bm.parcelId);
         if (!parcel) { ghostGroup.visible = false; return; }
         const rect = parcelWorldRect(parcel);
-        // The aim, under the ANCHORED law (Merlin, 2026-10-23:
-        // "moving with the joystick should not be attached"):
-        // the ghost holds the aim point it was given — by the
-        // opening camera march, by a drag (an explicit re-aim),
-        // by a tap, or by the last piece placed — and walking
-        // never drags it. The camera march below therefore runs
-        // only while no anchor holds for this parcel, or while
-        // the pointer is down and dragging.
-        let aimLocal = bm.aim && bm.aim.parcelId === bm.parcelId && !aimDrag ? bm.aim : null;
-        if (!aimLocal) {
+        // The aim, under the CAMERA-AIM law (Merlin, 2026-10-24
+        // — this SUPERSEDES the 2026-10-23 ANCHORED law, which
+        // froze the ghost at its first anchor while the
+        // joystick did nothing visible on his phone): the ghost
+        // follows the camera's centre ground point CONTINUOUSLY
+        // — march the centre ray down to the terrain every
+        // frame, clamped to the parcel frame. Drag-look moves
+        // the tile (the view's centre moves); the joystick
+        // orbits the view instead (see the orbit step in tick).
+        // The one exception: while the orbit blend is active,
+        // the aim FREEZES — orbiting must never move the tile.
+        let aimLocal = null;
+        if (buildOrbit.frozen && bm.aim && bm.aim.parcelId === bm.parcelId) {
+          aimLocal = bm.aim;
+        } else {
           const dir = new THREE.Vector3();
           camera.getWorldDirection(dir);
-          let ax = camera.position.x + dir.x * 9;
-          let az = camera.position.z + dir.z * 9;
-          for (let s = 1.5; s <= 18; s += 0.4) {
-            const px = camera.position.x + dir.x * s;
-            const pz = camera.position.z + dir.z * s;
-            const py = camera.position.y + dir.y * s;
-            ax = px; az = pz;
-            if (py <= heightAt(px, pz) + 0.05) break;
-          }
-          aimLocal = { parcelId: bm.parcelId, x: ax - rect.minX, z: az - rect.minZ };
+          const hit = marchCameraGroundPoint(
+            { x: camera.position.x, y: camera.position.y, z: camera.position.z },
+            { x: dir.x, y: dir.y, z: dir.z },
+            (x, z) => heightAt(x, z),
+          );
+          aimLocal = { parcelId: bm.parcelId, ...clampAimToParcel(hit.x, hit.z, rect) };
           bm.aim = aimLocal;
         }
         // The aim in the parcel's own frame. A hit that lands
@@ -4623,8 +4693,16 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
 
         // Move: keyboard + joystick, Earth laws enforced inside
         // stepWorldWalker (colliders, wading, the world's edge).
-        const fwdIn = (inp.keys.fwd ? 1 : 0) - (inp.keys.back ? 1 : 0) + inp.joy.y;
-        const strafeIn = (inp.keys.right ? 1 : 0) - (inp.keys.left ? 1 : 0) + inp.joy.x;
+        // In build mode the joystick NO LONGER walks — it orbits
+        // the build camera (see the orbit step before
+        // updateBuildGhost) — so its axes read zero here and the
+        // walker parks while building. Keyboard walking is
+        // untouched: WASD still repositions the walker (and with
+        // it the camera-aimed ghost) on desktop.
+        const joyX = buildModeRef.current.active ? 0 : inp.joy.x;
+        const joyY = buildModeRef.current.active ? 0 : inp.joy.y;
+        const fwdIn = (inp.keys.fwd ? 1 : 0) - (inp.keys.back ? 1 : 0) + joyY;
+        const strafeIn = (inp.keys.right ? 1 : 0) - (inp.keys.left ? 1 : 0) + joyX;
         const travelNow = travelRef.current || inp.keys.shift;
         const dyn = [{ x: DRACULA_SPOT.x, z: DRACULA_SPOT.z, r: 1.3 }];
         // Solid Earth law for the museum mount: Hammond himself,
@@ -4762,6 +4840,71 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           camera.rotation.set(walker.pitch, walker.yaw, 0);
         }
         syncParcel(false);
+        // ── Build-mode orbit (Merlin, 2026-10-24) ─────────
+        // In build mode the joystick swings the camera around
+        // the ghost instead of walking the walker: left/right =
+        // orbit yaw, up/down = orbit pitch. The blend weight
+        // eases in while held and eases out on release — and it
+        // keeps easing out after build mode exits, so the camera
+        // glides back to the walker eye view instead of jumping
+        // or stranding. While any blend is active the aim
+        // freezes (updateBuildGhost reads buildOrbit.frozen),
+        // so orbiting NEVER moves the tile. The camera never
+        // sinks under the ground (height + 1.5 m floor), and a
+        // vehicle camera always wins outright (weight forced 0).
+        {
+          const bmOn = buildModeRef.current.active;
+          const joyDeflected = bmOn
+            && Math.hypot(inp.joy.x, inp.joy.y) > BUILD_ORBIT_JOY_DEADZONE;
+          if (joyDeflected && !buildOrbit.driving) {
+            const seed = initOrbitFromCamera(
+              { x: camera.position.x, y: camera.position.y, z: camera.position.z },
+              buildOrbitCentre(),
+            );
+            buildOrbit.yaw = seed.yaw;
+            buildOrbit.pitch = seed.pitch;
+            buildOrbit.dist = seed.dist;
+            buildOrbit.driving = true;
+          }
+          if (joyDeflected) {
+            const stepped = stepOrbitAngles(
+              buildOrbit.yaw, buildOrbit.pitch, inp.joy.x, inp.joy.y, dt,
+            );
+            buildOrbit.yaw = stepped.yaw;
+            buildOrbit.pitch = stepped.pitch;
+          } else {
+            buildOrbit.driving = false;
+          }
+          if (drivingRef.current) buildOrbit.weight = 0;
+          else buildOrbit.weight = stepOrbitWeight(buildOrbit.weight, joyDeflected, dt);
+          buildOrbit.frozen = buildOrbit.weight > 0.01;
+          if (buildOrbit.weight > 0.001 && !drivingRef.current) {
+            const centre = buildOrbitCentre();
+            const op = orbitCameraPosition(
+              centre, buildOrbit.yaw, buildOrbit.pitch, buildOrbit.dist,
+            );
+            op.y = Math.max(op.y, heightAt(op.x, op.z) + 1.5);
+            const w = buildOrbit.weight;
+            const dir = new THREE.Vector3();
+            camera.getWorldDirection(dir);
+            const eyeX = camera.position.x;
+            const eyeY = camera.position.y;
+            const eyeZ = camera.position.z;
+            const tgtX = eyeX + dir.x * 10;
+            const tgtY = eyeY + dir.y * 10;
+            const tgtZ = eyeZ + dir.z * 10;
+            camera.position.set(
+              eyeX + (op.x - eyeX) * w,
+              eyeY + (op.y - eyeY) * w,
+              eyeZ + (op.z - eyeZ) * w,
+            );
+            camera.lookAt(
+              tgtX + (centre.x - tgtX) * w,
+              tgtY + (centre.y - tgtY) * w,
+              tgtZ + (centre.z - tgtZ) * w,
+            );
+          }
+        }
         updateBuildGhost();
         castleNear = Math.hypot(walker.x - CASTLE_AT[0], walker.z - CASTLE_AT[1]) < 800;
 
