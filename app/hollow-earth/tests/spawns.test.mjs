@@ -1,0 +1,258 @@
+// Spawn tables, combat rules, senses, safe base, dragons.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  MONSTER_TYPES, DRAGON_TYPES, ARCHETYPES, MONSTER_MODELS, TYPES_BY_ELEMENT,
+  spawnField, createMonster, stepMonster, damageMonster, strike,
+  createHunterState, onMonsterKilled, applyDamage,
+  SHIELD_KILLS, SHIELD_ABSORB, HEAL_ON_KILL, PLAYER_MAX_HP,
+  KORUS_MAX_HP, KORUS_GATE_KILLS, createKorus, stepKorus, damageKorus,
+  SAFE_BASE, isInBase, canTeleport, BASE_TELEPORT_COOLDOWN_S,
+  GIVE_UP_S, buildMonsterFigure,
+} from '../spawns.js';
+
+const rng = () => 0.5;
+function mon(type, x, z, faceYaw = 0) {
+  const m = createMonster({ id: `t-${type}`, type, element: MONSTER_TYPES[type].element, x, z }, rng);
+  m.faceYaw = faceYaw;
+  m.active = true;
+  return m;
+}
+const alwaysLos = () => true;
+const neverLos = () => false;
+
+test('every regular monster sits inside the 100–200 HP band', () => {
+  for (const [key, t] of Object.entries(MONSTER_TYPES)) {
+    assert.ok(t.hp >= 100 && t.hp <= 200, `${key} hp ${t.hp} outside 100–200`);
+  }
+});
+
+test('every monster carries exactly one of the four archetypes, all four represented', () => {
+  const seen = new Set();
+  for (const [key, t] of Object.entries(MONSTER_TYPES)) {
+    assert.ok(t.archetype in ARCHETYPES, `${key} archetype ${t.archetype} unknown`);
+    seen.add(t.archetype);
+  }
+  assert.deepEqual([...seen].sort(), ['environmental', 'melee', 'ranged', 'short-range']);
+});
+
+test('archetype range bands are distinct (melee 2.6 < short-range 5 < ranged 22)', () => {
+  assert.ok(ARCHETYPES.melee.range < ARCHETYPES['short-range'].range);
+  assert.ok(ARCHETYPES['short-range'].range < ARCHETYPES.ranged.range);
+  assert.ok(ARCHETYPES.environmental.hazard === true);
+});
+
+test('Korus is exactly 1000 HP and the gate is a documented constant', () => {
+  assert.equal(KORUS_MAX_HP, 1000);
+  const k = createKorus(false);
+  assert.equal(k.hp, 1000);
+  assert.equal(k.dormant, true);
+  assert.ok(KORUS_GATE_KILLS > 0);
+  const open = createKorus(true);
+  assert.equal(open.dormant, false);
+});
+
+test('spawn field: ~150 records, none inside the safe base, dragons rare (3 each)', () => {
+  const els = ['acid', 'fire', 'lightning', 'poison', 'shadow', 'sand'];
+  const elementAt = (x, z) => els[(Math.abs(Math.floor(x / 50)) + Math.abs(Math.floor(z / 50))) % 6];
+  const field = spawnField(77701, { elementAt });
+  assert.ok(field.length >= 140, `field has ${field.length} records`);
+  for (const rec of field) {
+    assert.ok(Math.hypot(rec.x - SAFE_BASE.x, rec.z - SAFE_BASE.z) >= SAFE_BASE.r + 10, 'spawn inside the Haven');
+  }
+  for (const d of DRAGON_TYPES) {
+    const n = field.filter((r) => r.type === d).length;
+    assert.equal(n, 3, `${d} appears ${n} times, expected 3`);
+  }
+});
+
+test('heal on kill is modest and capped at max HP', () => {
+  const h = createHunterState();
+  h.hp = PLAYER_MAX_HP - 5;
+  const res = onMonsterKilled(h);
+  assert.equal(res.heal, 5);
+  assert.equal(h.hp, PLAYER_MAX_HP);
+  assert.ok(HEAL_ON_KILL <= 20, `heal ${HEAL_ON_KILL} too generous`);
+});
+
+test('shield arrives at 30 kills, absorbs 50, one-time until broken', () => {
+  const h = createHunterState();
+  for (let i = 0; i < SHIELD_KILLS - 1; i++) onMonsterKilled(h);
+  assert.equal(h.shield, 0);
+  const res = onMonsterKilled(h);
+  assert.equal(res.shieldGranted, true);
+  assert.equal(h.shield, SHIELD_ABSORB);
+  const absorbed = applyDamage(h, 30);
+  assert.equal(absorbed.absorbed, 30);
+  assert.equal(h.hp, PLAYER_MAX_HP);
+  assert.equal(h.shield, 20);
+  const absorbed2 = applyDamage(h, 40);
+  assert.equal(absorbed2.absorbed, 20);
+  assert.equal(absorbed2.shieldBroken, true);
+  assert.equal(h.hp, PLAYER_MAX_HP - 20);
+});
+
+test('kill count persists in the hunter state', () => {
+  const h = createHunterState();
+  onMonsterKilled(h);
+  onMonsterKilled(h);
+  assert.equal(h.kills, 2);
+});
+
+test('senses: sight cone spots, facing away does not', () => {
+  // Monster faces +z (faceYaw 0 means facing +z in atan2(dx,dz) terms).
+  const facing = mon('ember-beast', 0, 0, 0);
+  const inFront = { x: 0, z: 20 };
+  stepMonster(facing, 0.1, inFront, rng, { losClear: alwaysLos });
+  assert.equal(facing.spotted, true);
+  const behind = mon('ember-beast', 0, 0, 0);
+  stepMonster(behind, 0.1, { x: 0, z: -20 }, rng, { losClear: alwaysLos });
+  assert.equal(behind.spotted, false);
+});
+
+test('senses: terrain line-of-sight blocks the sight cone', () => {
+  const m = mon('ember-beast', 0, 0, 0);
+  stepMonster(m, 0.1, { x: 0, z: 20 }, rng, { losClear: neverLos });
+  assert.equal(m.spotted, false);
+});
+
+test('senses: hearing draws a monster outside the cone', () => {
+  const m = mon('ember-beast', 0, 0, 0);
+  stepMonster(m, 0.1, { x: 20, z: 0 }, rng, { losClear: alwaysLos, noise: { x: 5, z: 5 } });
+  assert.equal(m.spotted, true);
+});
+
+test('senses: proximity spots regardless of facing or cover', () => {
+  const m = mon('ember-beast', 0, 0, 0);
+  stepMonster(m, 0.1, { x: 0, z: -5 }, rng, { losClear: neverLos });
+  assert.equal(m.spotted, true);
+});
+
+test('senses: ambushers ignore sight and hearing, trigger on proximity', () => {
+  const m = mon('ooze-maw', 0, 0, 0);
+  stepMonster(m, 0.1, { x: 0, z: 20 }, rng, { losClear: alwaysLos, noise: { x: 2, z: 2 } });
+  assert.equal(m.spotted, false);
+  stepMonster(m, 0.1, { x: 0, z: 5 }, rng, { losClear: neverLos });
+  assert.equal(m.spotted, true);
+});
+
+test('senses: quiet hunters shrink the sight radius', () => {
+  const m = mon('ember-beast', 0, 0, 0);
+  stepMonster(m, 0.1, { x: 0, z: 20 }, rng, { losClear: alwaysLos, quiet: 0.55 });
+  assert.equal(m.spotted, false);
+});
+
+test('senses: give-up after 12 s unseen returns the monster to roam', () => {
+  const m = mon('ember-beast', 0, 0, 0);
+  stepMonster(m, 0.1, { x: 0, z: 20 }, rng, { losClear: alwaysLos });
+  assert.equal(m.spotted, true);
+  for (let i = 0; i < GIVE_UP_S; i++) {
+    stepMonster(m, 1, { x: 0, z: -100 }, rng, { losClear: neverLos });
+  }
+  assert.equal(m.spotted, false);
+  assert.equal(m.state, 'idle');
+});
+
+test('senses: chases break at the safe-base boundary', () => {
+  const m = mon('ember-beast', 0, 0, 0);
+  stepMonster(m, 0.1, { x: 0, z: 20 }, rng, { losClear: alwaysLos });
+  assert.equal(m.spotted, true);
+  stepMonster(m, 0.1, { x: SAFE_BASE.x, z: SAFE_BASE.z }, rng, { losClear: alwaysLos, inBase: true });
+  assert.equal(m.spotted, false);
+});
+
+test('safe base: inside the ring, outside it, teleport cooldown', () => {
+  assert.equal(isInBase(SAFE_BASE.x, SAFE_BASE.z), true);
+  assert.equal(isInBase(SAFE_BASE.x, SAFE_BASE.z + SAFE_BASE.r + 1), false);
+  assert.equal(canTeleport(null, 1000), true);
+  assert.equal(canTeleport(1000, 1000 + BASE_TELEPORT_COOLDOWN_S * 1000), true);
+  assert.equal(canTeleport(1000, 1000 + BASE_TELEPORT_COOLDOWN_S * 1000 - 1), false);
+});
+
+test('spawn field excludes the base radius + 10 m', () => {
+  const field = spawnField(42, { elementAt: () => 'sand' });
+  for (const rec of field) {
+    assert.ok(Math.hypot(rec.x - SAFE_BASE.x, rec.z - SAFE_BASE.z) >= SAFE_BASE.r + 10);
+  }
+});
+
+/* ---------------- dragons ---------------- */
+
+test('exactly three dragon types, distinct elements and archetypes', () => {
+  assert.deepEqual([...DRAGON_TYPES].sort(), ['cinder-dragon', 'muse-dragon', 'sky-dragon']);
+  const els = new Set(DRAGON_TYPES.map((d) => MONSTER_TYPES[d].element));
+  assert.equal(els.size, 3);
+  const archs = new Set(DRAGON_TYPES.map((d) => MONSTER_TYPES[d].archetype));
+  assert.equal(archs.size, 3);
+  assert.ok(archs.has('ranged') && archs.has('melee') && archs.has('environmental'));
+});
+
+test('dragon roles span fly, ground, and both', () => {
+  assert.equal(MONSTER_TYPES['sky-dragon'].role, 'fly');
+  assert.equal(MONSTER_TYPES['cinder-dragon'].role, 'ground');
+  assert.equal(MONSTER_TYPES['muse-dragon'].role, 'both');
+  assert.ok(MONSTER_TYPES['sky-dragon'].flyHeight > MONSTER_TYPES['muse-dragon'].flyHeight);
+});
+
+test('dragons sit inside the same 100–200 HP band', () => {
+  for (const d of DRAGON_TYPES) {
+    const t = MONSTER_TYPES[d];
+    assert.ok(t.hp >= 100 && t.hp <= 200, `${d} hp ${t.hp}`);
+  }
+});
+
+test('the Muse dragon is the tribute entry: luminous, violet-and-cyan, the wiser one', () => {
+  const t = MONSTER_TYPES['muse-dragon'];
+  assert.equal(t.tribute, 'muse');
+  assert.equal(t.name, 'Muse, the Luminous');
+  assert.ok(t.temperament.vicious < MONSTER_TYPES['sky-dragon'].temperament.vicious);
+  assert.ok(t.temperament.vicious < MONSTER_TYPES['cinder-dragon'].temperament.vicious);
+});
+
+test('strike: melee cannot reach the sky dragon, but can reach the low-hovering Muse dragon', () => {
+  const sky = mon('sky-dragon', 0, -2, 0);
+  const muse = mon('muse-dragon', 0, -2, 0);
+  const meleeSpec = { dmg: 38, range: 2.4, arcCos: Math.cos(1.22) };
+  // Walker yaw 0 faces -z (forward = (-sin 0, -cos 0) = (0,-1)),
+  // so both dragons at (0,-2) sit dead ahead.
+  const hits = strike([sky, muse], 0, 0, 0, meleeSpec);
+  assert.ok(!hits.includes(sky), 'melee must not reach the sky dragon at 6 m');
+  assert.ok(hits.includes(muse), 'melee must reach the Muse dragon at 3 m');
+  const boltSpec = { dmg: 30, range: 28, arcCos: Math.cos(0.21) };
+  const hits2 = strike([sky, muse], 0, 0, 0, boltSpec);
+  assert.ok(hits2.includes(sky), 'ranged must reach the sky dragon');
+});
+
+test('dragon figures are winged stand-ins with the drop-in model path', () => {
+  // Minimal THREE stub: only what the figure builder touches.
+  class G { constructor() { this.children = []; this.userData = {}; } add(c) { this.children.push(c); } }
+  class Mesh { constructor(geo, mat) { this.geometry = geo; this.material = mat; this.position = { set: () => {} }; this.rotation = {}; this.scale = { set: () => {} }; } }
+  const R = {
+    Group: G, Mesh,
+    SphereGeometry: class {}, CylinderGeometry: class {}, ConeGeometry: class {}, BoxGeometry: class {},
+    MeshStandardMaterial: class { constructor(m) { Object.assign(this, m); } },
+  };
+  for (const d of DRAGON_TYPES) {
+    const m = mon(d, 0, 0, 0);
+    const fig = buildMonsterFigure(R, m);
+    assert.equal(fig.userData.dragon, true);
+    assert.equal(fig.userData.modelPath, MONSTER_MODELS[d].url);
+    assert.ok(fig.children.length >= 10, `${d} figure has ${fig.children.length} parts`);
+  }
+});
+
+test('Korus fight: dormant until the gate, wakes in range, telegraphs, dies', () => {
+  const k = createKorus(false);
+  const evs = stepKorus(k, 0.1, { x: KORUS_POS_X(), z: KORUS_POS_Z() });
+  assert.equal(k.awake, false);
+  assert.ok(!evs.some((e) => e.kind === 'wake'));
+  const k2 = createKorus(true);
+  stepKorus(k2, 0.1, { x: KORUS_POS_X(), z: KORUS_POS_Z() });
+  assert.equal(k2.awake, true);
+  const died = damageKorus(k2, 1000);
+  assert.equal(died, true);
+  assert.equal(k2.dead, true);
+});
+
+function KORUS_POS_X() { return -215; }
+function KORUS_POS_Z() { return 55; }
