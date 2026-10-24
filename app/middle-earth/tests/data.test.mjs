@@ -1,135 +1,115 @@
-// Headless tests for app/middle-earth/data.js
+// Headless tests for app/middle-earth/data.js — six pods, progress,
+// the hero pick. localStorage is stubbed BEFORE the dynamic import.
+const store = new Map();
+globalThis.localStorage = {
+  getItem: (k) => (store.has(k) ? store.get(k) : null),
+  setItem: (k, v) => { store.set(k, String(v)); },
+  removeItem: (k) => { store.delete(k); },
+};
+
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  PROGRESS_KEY,
-  REGIONS,
-  QUESTS,
-  createProgress,
-  isBeatUnlocked,
-  completeBeat,
-  loadProgress,
-  saveProgress,
-  regionOfX,
-} from '../data.js';
 
-const REGION_IDS = new Set(REGIONS.map((r) => r.id));
+const DATA = await import('../data.js');
+const { PLAYABLE, PLAYABLE_ORDER, DEFAULT_HERO } = await import('../characters.js');
 
-test('PROGRESS_KEY is the expected namespaced key', () => {
-  assert.equal(PROGRESS_KEY, 'olympus:middleearth:progress');
-});
-
-test('createProgress returns fresh empty shape', () => {
-  const a = createProgress();
-  assert.deepEqual(a, { beatsDone: {} });
-  const b = createProgress();
-  assert.notEqual(a.beatsDone, b.beatsDone);
-});
-
-test('isBeatUnlocked: quest 0 always unlocked; others gated on previous beat', () => {
-  const p = createProgress();
-  assert.equal(isBeatUnlocked(p, 0), true);
-  assert.equal(isBeatUnlocked(p, 1), false);
-  const p1 = completeBeat(p, QUESTS[0].id);
-  assert.equal(isBeatUnlocked(p1, 1), true);
-  assert.equal(isBeatUnlocked(p1, 2), false);
-});
-
-test('completeBeat is immutable and unlocks the chain', () => {
-  let p = createProgress();
-  const before = p;
-  for (let i = 0; i < QUESTS.length; i++) {
-    const np = completeBeat(p, QUESTS[i].id);
-    assert.notEqual(np, p, 'completeBeat must return a new object');
-    assert.equal(before.beatsDone[QUESTS[0].id], undefined, 'original must not be mutated');
-    assert.equal(np.beatsDone[QUESTS[i].id], true);
-    if (i + 1 < QUESTS.length) assert.equal(isBeatUnlocked(np, i + 1), true);
-    p = np;
-  }
-});
-
-test('loadProgress/saveProgress round-trip with localStorage stub', () => {
-  const store = {};
-  globalThis.localStorage = {
-    getItem: (k) => (k in store ? store[k] : null),
-    setItem: (k, v) => { store[k] = String(v); },
-    removeItem: (k) => { delete store[k]; },
-  };
-  try {
-    assert.deepEqual(loadProgress(), { beatsDone: {} });
-    const p = completeBeat(completeBeat(createProgress(), 'leave-shire'), 'council-rivendell');
-    saveProgress(p);
-    assert.deepEqual(loadProgress(), p);
-    store[PROGRESS_KEY] = 'not-json{{';
-    assert.deepEqual(loadProgress(), { beatsDone: {} });
-    store[PROGRESS_KEY] = JSON.stringify({ wrong: 'shape' });
-    assert.deepEqual(loadProgress(), { beatsDone: {} });
-  } finally {
-    delete globalThis.localStorage;
-  }
-});
-
-test('loadProgress without localStorage falls back safely', () => {
-  delete globalThis.localStorage;
-  assert.deepEqual(loadProgress(), { beatsDone: {} });
-  saveProgress(createProgress()); // must not throw
-});
-
-test('REGIONS: 8 regions west to east', () => {
-  assert.equal(REGIONS.length, 8);
-  assert.deepEqual(REGIONS.map((r) => r.id), [
-    'shire', 'rivendell', 'moria', 'lothlorien', 'mirkwood', 'rohan', 'gondor', 'mordor',
-  ]);
-  const xs = REGIONS.map((r) => r.x);
-  assert.deepEqual(xs, [...xs].sort((a, b) => a - b));
-  for (const r of REGIONS) {
-    assert.ok(typeof r.name === 'string' && r.name.length > 0);
-    assert.ok(typeof r.blurb === 'string' && r.blurb.length > 0);
-  }
-});
-
-test('regionOfX returns nearest x-center for each region', () => {
-  for (const r of REGIONS) {
-    assert.equal(regionOfX(r.x).id, r.id, `exact center of ${r.id}`);
-  }
-  assert.equal(regionOfX(-260).id, 'shire');
-  assert.equal(regionOfX(240).id, 'mordor');
-  assert.equal(regionOfX(500).id, 'mordor');
-  assert.equal(regionOfX(-500).id, 'shire');
-  // midpoint between shire (-260) and rivendell (-190) is -225: tie goes to the first (shire)
-  assert.equal(regionOfX(-225).id, 'shire');
-  assert.equal(regionOfX(55).id, 'mirkwood'); // between mirkwood 20 and rohan 90
-});
-
-test('QUESTS: 8 quests, valid regions, target or checkpoints each', () => {
-  assert.equal(QUESTS.length, 8);
-  assert.deepEqual(QUESTS.map((q) => q.id), [
-    'leave-shire', 'council-rivendell', 'cross-moria', 'mirror-galadriel',
-    'through-mirkwood', 'ride-rohan', 'stand-gondor', 'cast-ring',
-  ]);
-  for (const q of QUESTS) {
-    assert.ok(REGION_IDS.has(q.region), `quest ${q.id} has valid region`);
-    assert.ok(typeof q.title === 'string' && q.title.length > 0);
-    assert.ok(typeof q.text === 'string' && q.text.length > 0);
-    assert.ok(typeof q.objective === 'string' && q.objective.length > 0);
-    const hasTarget = q.target && typeof q.target.x === 'number' && typeof q.target.z === 'number';
-    const hasChecks = Array.isArray(q.checkpoints) && q.checkpoints.length > 0;
-    assert.ok(hasTarget || hasChecks, `quest ${q.id} needs target or checkpoints`);
-    if (hasTarget) {
-      assert.ok(typeof q.target.r === 'number');
-      assert.ok(typeof q.target.label === 'string');
-    }
-    for (const c of q.checkpoints || []) {
-      assert.ok(typeof c.x === 'number' && typeof c.z === 'number' && typeof c.r === 'number');
-      assert.ok(typeof c.label === 'string');
+test('six pods, in order, each a full world def', () => {
+  assert.deepEqual(DATA.POD_ORDER, ['shire', 'rivendell', 'rohan', 'gondor', 'mirkwood', 'mordor']);
+  for (const id of DATA.POD_ORDER) {
+    const d = DATA.PODS[id];
+    assert.equal(d.id, id);
+    assert.ok(Number.isFinite(d.seed), `${id} seed`);
+    assert.equal(d.worldRadius, 340);
+    assert.equal(d.boundsRadius, 295);
+    assert.ok(Array.isArray(d.landmarks) && d.landmarks.length >= 2, `${id} landmarks`);
+    assert.ok(Array.isArray(d.characters) && d.characters.length >= 1, `${id} characters`);
+    assert.ok(Array.isArray(d.scatter) && d.scatter.length >= 1, `${id} scatter`);
+    assert.ok(Array.isArray(d.missions) && d.missions.length >= 2 && d.missions.length <= 3, `${id} missions`);
+    for (const m of d.missions) {
+      assert.ok([1, 2, 3].includes(m.difficulty), `${id}/${m.id} difficulty`);
+      assert.ok(typeof m.title === 'string' && m.title.length > 0);
+      assert.ok(typeof m.objective === 'string' && m.objective.length > 0);
+      if (m.hunt) assert.ok(m.hunt.count >= 3, `${id}/${m.id} hunt count`);
     }
   }
 });
 
-test('spot-check quest coordinates', () => {
-  const q = Object.fromEntries(QUESTS.map((x) => [x.id, x]));
-  assert.deepEqual([q['leave-shire'].target.x, q['leave-shire'].target.z], [-215, 0]);
-  assert.deepEqual([q['cast-ring'].target.x, q['cast-ring'].target.z], [265, -20]);
-  assert.equal(q['cross-moria'].checkpoints.length, 3);
-  assert.equal(q['through-mirkwood'].checkpoints.length, 3);
+test('blanket orc configs: camps + rovers everywhere, density by pod character', () => {
+  const counts = {};
+  for (const id of DATA.POD_ORDER) {
+    const o = DATA.PODS[id].orcs;
+    assert.ok(o.camps >= 3 && o.rovers >= 4, `${id} has camps and rovers`);
+    assert.ok(Array.isArray(o.campSize) && o.campSize[0] >= 2, `${id} campSize`);
+    assert.ok(o.respawnS >= 40 && o.respawnS <= 60, `${id} respawnS`);
+    counts[id] = o.camps * o.campSize[1] + o.rovers;
+  }
+  // Mordor and Rohan thickest, Mirkwood heavy, the Shire lightest — but present.
+  assert.ok(counts.mordor >= counts.rohan, 'mordor >= rohan');
+  assert.ok(counts.rohan > counts.shire, 'rohan > shire');
+  assert.ok(counts.mirkwood > counts.shire, 'mirkwood > shire');
+  assert.ok(counts.shire >= 10, 'shire present, not empty');
+});
+
+test('SARUMAN_GATE_KILLS is tens, not hundreds', () => {
+  assert.equal(DATA.SARUMAN_GATE_KILLS, 30);
+});
+
+test('progress: missions, beats, and the hero pick', () => {
+  const p = DATA.createProgress();
+  assert.equal(p.hero, DEFAULT_HERO);
+  assert.equal(p.hero, 'ranger');
+  const p2 = DATA.setHero(p, 'dwarf');
+  assert.equal(p2.hero, 'dwarf');
+  assert.equal(p.hero, 'ranger', 'setHero is immutable');
+  assert.equal(DATA.setHero(p, 'dark-lord').hero, DEFAULT_HERO, 'unplayable key falls back');
+  assert.equal(DATA.heroOf(null), DEFAULT_HERO);
+  assert.equal(DATA.heroOf({ hero: 'halfling' }), 'halfling');
+  assert.equal(DATA.heroOf({ hero: 'nope' }), DEFAULT_HERO);
+});
+
+test('mission completion is immutable and marks the pod beat on first mission', () => {
+  let p = DATA.createProgress();
+  const first = DATA.firstMissionOf('shire');
+  assert.ok(first);
+  assert.equal(DATA.isMissionDone(p, 'shire', first), false);
+  const p2 = DATA.completeMission(p, 'shire', first.id);
+  assert.equal(DATA.isMissionDone(p2, 'shire', first), true);
+  assert.equal(DATA.isMissionDone(p, 'shire', first), false, 'original untouched');
+  assert.equal(p2.beatsDone.shire, true);
+  assert.equal(DATA.podMissionsDone(p2, 'shire'), 1);
+});
+
+test('loadProgress sanitizes a stored record, including the hero', () => {
+  store.set(DATA.PROGRESS_KEY, JSON.stringify({
+    beatsDone: { shire: true },
+    missionsDone: { shire: { 'leave-the-shire': true } },
+    hero: 'elf-archer',
+  }));
+  const p = DATA.loadProgress();
+  assert.equal(p.beatsDone.shire, true);
+  assert.equal(p.hero, 'elf-archer');
+  store.set(DATA.PROGRESS_KEY, JSON.stringify({ hero: 'dark-lord' }));
+  assert.equal(DATA.loadProgress().hero, DEFAULT_HERO);
+  store.set(DATA.PROGRESS_KEY, 'not json{{{');
+  assert.equal(DATA.loadProgress().hero, DEFAULT_HERO);
+});
+
+test('PLAYABLE covers exactly the fellowship five (dark lord excluded)', () => {
+  assert.deepEqual(PLAYABLE_ORDER, ['wizard', 'ranger', 'elf-archer', 'dwarf', 'halfling']);
+  assert.ok(!PLAYABLE['dark-lord'], 'dark lord is not playable');
+  assert.ok(!PLAYABLE['white-wizard'], 'white wizard is not playable');
+  for (const key of PLAYABLE_ORDER) {
+    const h = PLAYABLE[key];
+    assert.equal(h.key, key);
+    assert.ok(h.maxHp >= 90 && h.maxHp <= 135, `${key} hp`);
+    assert.ok(h.speedMult >= 0.95 && h.speedMult <= 1.12, `${key} speed`);
+    assert.ok(h.quiet >= 0.55 && h.quiet <= 1.1, `${key} quiet`);
+    assert.ok(h.meleeDmg >= 28 && h.meleeDmg <= 44, `${key} melee`);
+    assert.ok(h.ranged.dmg >= 20 && h.ranged.dmg <= 34, `${key} ranged dmg`);
+    assert.ok(h.ranged.range >= 24 && h.ranged.range <= 38, `${key} ranged range`);
+    assert.ok(['bow', 'staff'].includes(h.ranged.kind), `${key} ranged kind`);
+  }
+  // exactly one tracker, exactly one staff hand
+  assert.equal(PLAYABLE_ORDER.filter((k) => PLAYABLE[k].sense).length, 1);
+  assert.equal(PLAYABLE_ORDER.filter((k) => PLAYABLE[k].ranged.kind === 'staff').length, 1);
 });

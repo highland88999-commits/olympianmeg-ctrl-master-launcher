@@ -282,7 +282,206 @@ const BUILDERS = {
     });
     return { group: g, colliders: [{ x: -7, z: 0, r: 2.2 }, { x: 7, z: 0, r: 2.2 }] };
   },
+
+  /* ---- expansive-treatment additions (2026-10-23) ---- */
+
+  'shire-mound'(R, T) {
+    // A grassy dwelling mound with a round door in the side: the
+    // hobbit-hole's humbler cousin, no GLB seat.
+    const g = new R.Group();
+    const mound = new R.Mesh(new R.SphereGeometry(3, 12, 8), mat(R, T, 'grassTexture', 0x558f3e));
+    mound.scale.set(1.5, 0.7, 1.1);
+    mound.position.y = 0.3;
+    g.add(mound);
+    const door = cyl(R, 0.85, 0.85, 0.25, 14, mat(R, T, 'barkTexture', 0x7a4a22), 1.2, 0.95, 3.1);
+    door.rotation.x = Math.PI / 2;
+    g.add(door);
+    const win = new R.Mesh(new R.CircleGeometry(0.3, 10), glow(R, 0xffc86e));
+    win.position.set(-1.9, 1.25, 2.85);
+    win.rotation.y = -0.55;
+    g.add(win);
+    return { group: g, colliders: [{ x: 0, z: 0, r: 3.4 }] };
+  },
+
+  'elven-arch'(R, T) {
+    const g = new R.Group();
+    const marble = mat(R, T, 'marbleTexture', 0xe6e0d0);
+    g.add(cyl(R, 0.4, 0.55, 7, 8, marble, -3.4, 3.5, 0));
+    g.add(cyl(R, 0.4, 0.55, 7, 8, marble, 3.4, 3.5, 0));
+    const arc = new R.Mesh(new R.TorusGeometry(3.4, 0.34, 8, 16, Math.PI), marble);
+    arc.position.y = 7;
+    g.add(arc);
+    return { group: g, colliders: [{ x: -3.4, z: 0, r: 0.8 }, { x: 3.4, z: 0, r: 0.8 }] };
+  },
+
+  'ford-stones'(R, T) {
+    // Flat stepping rocks in the gorge shallows — walk-over dressing,
+    // deliberately NO colliders (they are the crossing).
+    const g = new R.Group();
+    const rock = mat(R, T, 'rockTexture', 0x7a766e);
+    [[-4, -1, 1.6], [-1.4, 0.6, 1.3], [1.2, -0.4, 1.5], [3.8, 0.8, 1.2], [0, 2.6, 1]].forEach(([x, z, r]) => {
+      const s = new R.Mesh(new R.SphereGeometry(r, 9, 6), rock);
+      s.scale.y = 0.35;
+      s.position.set(x, 0.1, z);
+      g.add(s);
+    });
+    return { group: g, colliders: [] };
+  },
+
+  'watch-rock'(R, T) {
+    const g = new R.Group();
+    const rock = mat(R, T, 'rockTexture', 0x75726b);
+    const base = new R.Mesh(new R.IcosahedronGeometry(3.4, 0), rock);
+    base.scale.y = 1.5;
+    base.position.y = 2.2;
+    g.add(base);
+    const top = new R.Mesh(new R.IcosahedronGeometry(1.8, 0), rock);
+    top.position.y = 6.4;
+    g.add(top);
+    return { group: g, colliders: [{ x: 0, z: 0, r: 3.6 }] };
+  },
+
+  'beacon-pyre'(R, T) {
+    const g = new R.Group();
+    const stone = mat(R, T, 'stoneTexture', 0x8b877e);
+    g.add(cyl(R, 3.2, 3.8, 1.2, 12, stone, 0, 0.6, 0));
+    const wood = mat(R, T, 'barkTexture', 0x4a3320);
+    for (let i = 0; i < 5; i++) {
+      const log = cyl(R, 0.28, 0.28, 3.6, 6, wood, (i % 3 - 1) * 0.8, 2.2, ((i / 2) | 0) * 0.8 - 0.8);
+      log.rotation.z = (i % 2 ? 0.5 : -0.5);
+      g.add(log);
+    }
+    const flame = new R.Mesh(new R.ConeGeometry(0.9, 2.2, 8), glow(R, 0xff7a1e, 1.5));
+    flame.position.y = 3.6;
+    flame.userData.pulse = true;
+    g.add(flame);
+    return { group: g, colliders: [{ x: 0, z: 0, r: 3.9 }] };
+  },
+
+  'gondor-tower'(R, T) {
+    const g = new R.Group();
+    const white = mat(R, T, 'stoneTexture', 0xe4ddc9);
+    g.add(cyl(R, 2.6, 3.4, 15, 10, white, 0, 7.5, 0));
+    g.add(cyl(R, 3.4, 3.4, 1.2, 10, white, 0, 15.4, 0));
+    const cap = new R.Mesh(new R.ConeGeometry(3.2, 3.4, 10), mat(R, T, 'stoneTexture', 0x9a958a));
+    cap.position.y = 17.6;
+    g.add(cap);
+    const win = box(R, 0.7, 1.1, 0.12, glow(R, 0xffc86e), 0, 12.5, 3.32);
+    g.add(win);
+    return { group: g, colliders: [{ x: 0, z: 0, r: 3.6 }] };
+  },
+
+  'white-tree'(R, T) {
+    const g = new R.Group();
+    const pale = new R.MeshStandardMaterial({ color: 0xd9d4c4, flatShading: true, roughness: 1 });
+    g.add(cyl(R, 0.45, 0.7, 5.5, 8, pale, 0, 2.75, 0));
+    const blossom = new R.MeshStandardMaterial({ color: 0xf2eee0, flatShading: true, roughness: 1 });
+    [[0, 7.4, 0, 2.6], [1.9, 6.4, 0.8, 1.8], [-1.8, 6.6, -0.7, 1.9]].forEach(([x, y, z, r]) => {
+      const s = new R.Mesh(new R.SphereGeometry(r, 9, 7), blossom);
+      s.position.set(x, y, z);
+      g.add(s);
+    });
+    const court = cyl(R, 4.6, 4.6, 0.35, 16, mat(R, T, 'marbleTexture', 0xd8d2c2), 0, 0.17, 0);
+    g.add(court);
+    return { group: g, colliders: [{ x: 0, z: 0, r: 1.1 }] };
+  },
+
+  'city-gate'(R, T) {
+    const g = new R.Group();
+    const white = mat(R, T, 'stoneTexture', 0xdfd8c6);
+    g.add(box(R, 3, 9, 2.6, white, -4.6, 4.5, 0));
+    g.add(box(R, 3, 9, 2.6, white, 4.6, 4.5, 0));
+    g.add(box(R, 12.2, 2.2, 2.6, white, 0, 9.8, 0));
+    const doorM = mat(R, T, 'barkTexture', 0x3d2c1c);
+    g.add(box(R, 2.8, 7, 0.4, doorM, -1.5, 3.5, 0));
+    g.add(box(R, 2.8, 7, 0.4, doorM, 1.5, 3.5, 0));
+    return { group: g, colliders: [{ x: -4.6, z: 0, r: 2.4 }, { x: 4.6, z: 0, r: 2.4 }, { x: 0, z: 0, r: 1.2 }] };
+  },
+
+  'elf-path-arch'(R, T) {
+    // Two leaning trunks + a lintel of woven branches over the path.
+    const g = new R.Group();
+    const dark = mat(R, T, 'barkTexture', 0x33291f);
+    const a = cyl(R, 0.5, 0.85, 10, 7, dark, -3.6, 5, 0);
+    a.rotation.z = 0.16;
+    g.add(a);
+    const b = cyl(R, 0.5, 0.85, 10, 7, dark, 3.6, 5, 0);
+    b.rotation.z = -0.16;
+    g.add(b);
+    const lintel = cyl(R, 0.3, 0.3, 8.6, 6, dark, 0, 10.1, 0);
+    lintel.rotation.z = Math.PI / 2;
+    g.add(lintel);
+    return { group: g, colliders: [{ x: -3.6, z: 0, r: 1.1 }, { x: 3.6, z: 0, r: 1.1 }] };
+  },
+
+  'ruined-watchtower'(R, T) {
+    // Procedural stand-in under the GLB seat (data names the model).
+    const g = new R.Group();
+    const stone = mat(R, T, 'stoneTexture', 0x8b877e);
+    g.add(cyl(R, 3, 3.9, 11, 9, stone, 0, 5.5, 0));
+    g.add(cyl(R, 3.9, 3.9, 1, 9, stone, 0, 11.2, 0));
+    const broken = box(R, 2.4, 2.6, 1.6, stone, 1.6, 12.4, 0);
+    broken.rotation.z = 0.24;
+    g.add(broken);
+    const rubble = new R.Mesh(new R.IcosahedronGeometry(1.5, 0), stone);
+    rubble.position.set(4.6, 0.7, 2.4);
+    g.add(rubble);
+    return { group: g, colliders: [{ x: 0, z: 0, r: 4.1 }, { x: 4.6, z: 2.4, r: 1.6 }] };
+  },
+
+  orthanc(R, T) {
+    // The black tower of Isengard: four fused shards of black stone
+    // rising to a forked crown. Procedural — the foundry delivered
+    // no Orthanc — and the boss arena's centrepiece.
+    const g = new R.Group();
+    const black = new R.MeshStandardMaterial({ color: 0x17171c, flatShading: true, roughness: 0.65, metalness: 0.25 });
+    const shaft = cyl(R, 3.4, 5.2, 34, 4, black, 0, 17, 0);
+    shaft.rotation.y = Math.PI / 4;
+    g.add(shaft);
+    [[3.1, 0], [-3.1, 0], [0, 3.1], [0, -3.1]].forEach(([x, z]) => {
+      const prong = cyl(R, 0.6, 1.5, 9, 4, black, x, 37, z);
+      g.add(prong);
+    });
+    const eye = box(R, 0.55, 1.5, 0.55, glow(R, 0xbfd8ff, 1.1), 0, 30, 3.2);
+    eye.userData.pulse = true;
+    g.add(eye);
+    const court = cyl(R, 9, 9.6, 1.1, 18, mat(R, T, 'rockTexture', 0x2a2a30), 0, 0.55, 0);
+    g.add(court);
+    return { group: g, colliders: [{ x: 0, z: 0, r: 6.2 }] };
+  },
+
+  'isengard-ring'(R, T) {
+    // The ring wall of Isengard: a broken circle of dark stone
+    // segments around Orthanc, with a south gate gap. Colliders are
+    // per-segment so the wall actually stops the walker everywhere
+    // except the gate arc (centred on local -z... the gate faces
+    // local +x after the def's ry; the gap is centred at angle 0).
+    const g = new R.Group();
+    const dark = mat(R, T, 'rockTexture', 0x2e2e34);
+    const colliders = [];
+    const RING_R = 44;
+    for (let i = 0; i < 28; i++) {
+      const a = (i / 28) * Math.PI * 2;
+      if (Math.abs(Math.atan2(Math.sin(a), Math.cos(a))) < 0.24) continue; // the gate gap
+      const x = Math.cos(a) * RING_R, z = Math.sin(a) * RING_R;
+      const seg = box(R, 10.4, 6.5, 2.2, dark, x, 3.25, z);
+      seg.rotation.y = -a + Math.PI / 2;
+      g.add(seg);
+      colliders.push({ x, z, r: 5.4 });
+    }
+    return { group: g, colliders };
+  },
 };
+
+/* Type aliases: pod defs name the place; an existing builder wears
+ * the name (the Green Dragon stands in for every roadside inn; the
+ * terrace serves as the elven pavilion until its GLB swaps in). */
+BUILDERS['roadside-inn'] = BUILDERS['green-dragon'];
+BUILDERS['elven-pavilion'] = BUILDERS['rivendell-terrace'];
+BUILDERS['rohan-hall'] = BUILDERS['edoras-hall'];
+BUILDERS['citadel'] = BUILDERS['minas-tirith'];
+BUILDERS['dark-tower'] = BUILDERS['barad-dur'];
+BUILDERS['spider-hollow'] = BUILDERS['mirkwood-web'];
 
 const LANDMARK_TYPES = Object.keys(BUILDERS);
 
@@ -292,6 +491,95 @@ export function buildLandmark(type, R, T = {}) {
   const result = builder(R, T);
   if (!result || !result.group) return { group: new R.Group(), colliders: [] };
   return { group: result.group, colliders: Array.isArray(result.colliders) ? result.colliders : [] };
+}
+
+/* ------------------------------------------------------------------
+ * GLB seats — the foundry's real constructs. A data.js landmark
+ * entry opts in with `model: '<key>'`; zone.js then uses the
+ * registry colliders (the model's true footprint) and calls
+ * attachGlbModel. The files are meshopt-compressed + WebP
+ * (unrigged pipeline — constructs are unrigged by design), so the
+ * loader carries the MeshoptDecoder, the house pattern from the
+ * Star Wars program. Loading is async and best-effort: if it fails
+ * (or there is no window, e.g. node tests), the procedural stand-in
+ * simply stays.
+ * ------------------------------------------------------------------ */
+export const GLB_MODELS = {
+  'hobbit-hole': {
+    url: '/models/middle-earth/hobbit-hole.glb',
+    meters: 13,
+    colliders: [{ x: 0, z: 0, r: 6.9 }],
+  },
+  'roadside-inn': {
+    url: '/models/middle-earth/roadside-inn.glb',
+    meters: 15,
+    colliders: [{ x: 0, z: 0, r: 8 }],
+  },
+  'elven-pavilion': {
+    url: '/models/middle-earth/elven-pavilion.glb',
+    meters: 15,
+    colliders: [{ x: 0, z: 0, r: 8 }],
+  },
+  'ruined-watchtower': {
+    url: '/models/middle-earth/ruined-watchtower.glb',
+    meters: 11,
+    colliders: [{ x: 0, z: 0, r: 5.9 }],
+  },
+  citadel: {
+    url: '/models/middle-earth/citadel.glb',
+    meters: 30,
+    colliders: [{ x: 0, z: 0, r: 15.6 }],
+  },
+  'black-gate': {
+    url: '/models/middle-earth/black-gate.glb',
+    meters: 26,
+    colliders: [{ x: -6.5, z: 0, r: 3.6 }, { x: 6.5, z: 0, r: 3.6 }, { x: 0, z: 0, r: 3 }],
+  },
+};
+
+/**
+ * Load GLB_MODELS[key] into a slot inside `holder`, normalised:
+ * largest horizontal extent -> def.meters, base on y=0, centred on
+ * x/z. On arrival the holder's other children (the procedural
+ * stand-in) are hidden. Returns the slot group, or null when
+ * loading can't happen here. Never throws.
+ */
+export function attachGlbModel(R, holder, key) {
+  const def = GLB_MODELS[key];
+  if (!def || !holder || typeof window === 'undefined') return null;
+  const slot = new R.Group();
+  slot.name = 'glb:' + key;
+  if (def.yawFix) slot.rotation.y = def.yawFix;
+  holder.add(slot);
+  (async () => {
+    try {
+      const [{ GLTFLoader }, { MeshoptDecoder }] = await Promise.all([
+        import('three/examples/jsm/loaders/GLTFLoader.js'),
+        import('three/examples/jsm/libs/meshopt_decoder.module.js'),
+      ]);
+      const loader = new GLTFLoader();
+      loader.setMeshoptDecoder(MeshoptDecoder);
+      const gltf = await loader.loadAsync(def.url);
+      const model = gltf.scene;
+      const box = new R.Box3().setFromObject(model);
+      const size = new R.Vector3(); box.getSize(size);
+      const center = new R.Vector3(); box.getCenter(center);
+      const fit = def.meters / Math.max(size.x, size.z, 1e-6);
+      model.scale.setScalar(fit);
+      model.position.set(-center.x * fit, -box.min.y * fit, -center.z * fit);
+      model.traverse((o) => {
+        if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; }
+      });
+      slot.add(model);
+      for (const child of [...holder.children]) {
+        if (child !== slot) child.visible = false;
+      }
+      holder.userData.glbModel = key;
+    } catch (e) {
+      /* the procedural stand-in stays — by design */
+    }
+  })();
+  return slot;
 }
 
 // ---- ambient critters ------------------------------------------------------
