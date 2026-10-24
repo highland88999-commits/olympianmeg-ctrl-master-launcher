@@ -86,6 +86,7 @@ export default function HollowEarthPage() {
   const [entry, setEntry] = useState(null); // {kind:'mission',missionId} | {kind:'roam'}
   const [hud, setHud] = useState({ hp: PLAYER_MAX_HP, shield: 0, kills: 0, inBase: false, weapon: 'melee', sense: null, bossHp: null, bossAwake: false });
   const [bannerFailed, setBannerFailed] = useState(false); // intro banner art; procedural orbs are the fallback
+  const [videoFailed, setVideoFailed] = useState(false); // intro video; falls back to the banner image, then the orbs
   const [toast, setToast] = useState('');
   const [korusDead, setKorusDead] = useState(false);
 
@@ -404,16 +405,21 @@ export default function HollowEarthPage() {
           <h1 style={{ fontSize: 'clamp(2rem, 7vw, 3.4rem)', margin: '0.4rem 0', background: 'linear-gradient(180deg,#ffe9a8,#d8b25c)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' }}>
             {DATA.INTRO.title}
           </h1>
-          {/* Intro banner art (Merlin's own upload); the procedural orbs render only if the image fails to load. */}
+          {/* Intro video (Merlin's own render from the banner); the banner image is the fallback, then the procedural orbs. */}
           {bannerFailed ? (
             <div style={{ display: 'flex', gap: 10, justifyContent: 'center', margin: '0.6rem 0 0.2rem' }}>
               {DATA.INTRO.orbs.map((o) => (
                 <span key={o.element} title={o.element} style={{ width: 22, height: 22, borderRadius: '50%', background: o.color, boxShadow: `0 0 14px ${o.color}`, display: 'inline-block' }} />
               ))}
             </div>
-          ) : (
+          ) : videoFailed ? (
             <img src="/images/hollow-earth/intro-banner.jpg" alt="Olympian Monsterverse banner"
               onError={() => setBannerFailed(true)}
+              style={{ width: '100%', maxWidth: 640, borderRadius: 16, margin: '0.8rem auto 0.2rem', display: 'block', boxShadow: '0 0 24px rgba(216,178,92,0.35)' }} />
+          ) : (
+            <video src="/videos/hollow-earth/intro.mp4" poster="/images/hollow-earth/intro-banner.jpg" alt="Olympian Monsterverse intro"
+              autoPlay muted loop playsInline
+              onError={() => setVideoFailed(true)}
               style={{ width: '100%', maxWidth: 640, borderRadius: 16, margin: '0.8rem auto 0.2rem', display: 'block', boxShadow: '0 0 24px rgba(216,178,92,0.35)' }} />
           )}
           <p style={{ opacity: 0.85 }}>{DATA.INTRO.tagline}</p>
