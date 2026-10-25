@@ -52,6 +52,43 @@ import {
   anomalyLabel,
   mulberry32,
 } from '@/lib/myriad-universes';
+import {
+  sitesFor,
+  landingSitesFor,
+  foundKey,
+} from '@/lib/myriad-wonders';
+import {
+  loadProgress,
+  saveProgress,
+  markVisited,
+  recordWormhole,
+  markFound,
+  markLanded,
+  markMissionDone,
+} from '@/lib/myriad-progress';
+import {
+  MISSIONS,
+  missionProgress,
+  newlyCompleted,
+  nextMission,
+} from '@/lib/myriad-missions';
+import {
+  AuroraVeil,
+  CometSwarm,
+  EchoReef,
+  DerelictStation,
+  SignalSource,
+  Phenomenon,
+  SiteGlow,
+  SiteProximity,
+  LandingGround,
+  WalkerFigure,
+  WalkRig,
+  createWalker,
+  applyLook,
+} from '@/components/myriad/MyriadExtras';
+import { createKeyInput, attachDragLook } from '@/lib/world/walk-input';
+import WalkJoystick from '@/components/world/WalkJoystick';
 
 const TITLE = 'MYRIAD — 100 Universes';
 
@@ -409,6 +446,8 @@ function BikeRig({ flightRef, inputRef, bikeKey, autopilotRef, reduced, snapCamR
     s.m.lookAt(s.h, s.zero, s.up);
     g.position.set(f.pos.x, f.pos.y, f.pos.z);
     g.quaternion.setFromRotationMatrix(s.m);
+    // Gentle bank into turns — the bike leans, it never snaps.
+    g.rotateZ(-(input.turn || 0) * 0.35);
 
     // Chase camera with smoothing — but snap instantly on universe entry /
     // wormhole ride so the tron bike loads right in front of the user.
@@ -438,7 +477,7 @@ function BikeRig({ flightRef, inputRef, bikeKey, autopilotRef, reduced, snapCamR
   );
 }
 
-function MyriadScene({ universe, scene, reduced, flightRef, inputRef, autopilotRef, bikeKey, snapCamRef, onPortal }) {
+function MyriadScene({ universe, scene, reduced, flightRef, inputRef, autopilotRef, bikeKey, snapCamRef, onPortal, sites, onFound }) {
   const tour = useMemo(() => tourFor(scene), [scene]);
   const starCount = (n) => Math.round(n * universe.starDensity);
   return (
@@ -450,6 +489,8 @@ function MyriadScene({ universe, scene, reduced, flightRef, inputRef, autopilotR
         <TintedStars seed={universe.seed + 1} count={starCount(1400)} radius={900} palette={[...universe.palette, '#ffffff']} size={1.6} />
         <TintedStars seed={universe.seed + 2} count={starCount(900)} radius={600} palette={universe.palette} size={2.2} />
         <TintedStars seed={universe.seed + 3} count={starCount(350)} radius={380} palette={[universe.palette[2], '#ffffff']} size={2.8} />
+        {/* near bright stars — an added layer only; the three layers above are untouched */}
+        <TintedStars seed={universe.seed + 4} count={starCount(140)} radius={260} palette={[universe.palette[2], '#ffffff']} size={3.4} />
         {scene.galaxies.map((gl, i) => (
           <SpiralGalaxy key={gl.key} galaxy={gl} reduced={reduced} seed={universe.seed + 100 + i * 77} />
         ))}
@@ -477,7 +518,22 @@ function MyriadScene({ universe, scene, reduced, flightRef, inputRef, autopilotR
         {scene.anomaly && scene.anomaly.type === 'crystalfield' && (
           <Crystalfield anomaly={scene.anomaly} seed={universe.seed + 900} reduced={reduced} />
         )}
+        {/* soft halo on the anomaly — added light, the anomaly itself is untouched */}
+        {scene.anomaly && scene.anomaly.type !== 'wormhole' && (
+          <SiteGlow position={[scene.anomaly.pos.x, scene.anomaly.pos.y, scene.anomaly.pos.z]} color={universe.palette[2]} size={44} />
+        )}
+        {/* new wonders + finds for this universe */}
+        {sites.map((s) => {
+          if (s.group === 'wonder' && s.kind === 'aurora-veil') return <AuroraVeil key={s.id} site={s} reduced={reduced} />;
+          if (s.group === 'wonder' && s.kind === 'comet-swarm') return <CometSwarm key={s.id} site={s} seed={universe.seed + 1100} reduced={reduced} />;
+          if (s.group === 'wonder' && s.kind === 'echo-reef') return <EchoReef key={s.id} site={s} seed={universe.seed + 1300} />;
+          if (s.kind === 'derelict') return <DerelictStation key={s.id} site={s} />;
+          if (s.kind === 'signal') return <SignalSource key={s.id} site={s} reduced={reduced} />;
+          if (s.kind === 'phenomenon') return <Phenomenon key={s.id} site={s} seed={universe.seed + 1500} reduced={reduced} />;
+          return null;
+        })}
       </group>
+      <SiteProximity sites={sites} flightRef={flightRef} universeId={universe.id} onEnter={onFound} />
       <BikeRig
         flightRef={flightRef}
         inputRef={inputRef}
@@ -650,6 +706,17 @@ export default function MyriadPage() {
   const [flash, setFlash] = useState(false);
   const [hudTick, setHudTick] = useState(0);
   const [showBikes, setShowBikes] = useState(false);
+  const [mode, setMode] = useState(null); // null = choose | 'missions' | 'roam'
+  const [progress, setProgress] = useState(() => loadProgress());
+  const [walkSite, setWalkSite] = useState(null);
+  const [notice, setNotice] = useState('');
+  const progressRef = useRef(progress);
+  const modeRef = useRef(mode);
+  const walkerRef = useRef(null);
+  const walkJoyRef = useRef({ x: 0, y: 0 });
+  const walkKeysRef = useRef(null);
+  const walkLookRef = useRef(null);
+  const noticeTimer = useRef(null);
 
   const flightRef = useRef({ pos: { ...MYRIAD_SPAWN }, yaw: Math.PI, pitch: 0, speed: 0, boosting: false });
   const inputRef = useRef({ thrust: 0, turn: 0, pitch: 0, boost: false, brake: false });
@@ -665,6 +732,10 @@ export default function MyriadPage() {
   useEffect(() => {
     document.title = view === 'explorer' ? `${universe.name} — MYRIAD` : TITLE;
   }, [view, universe]);
+
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
 
   useEffect(() => {
     try {
@@ -691,6 +762,37 @@ export default function MyriadPage() {
     return () => clearInterval(id);
   }, [view]);
 
+  const showNotice = useCallback((text) => {
+    setNotice(text);
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    noticeTimer.current = setTimeout(() => setNotice(''), 4200);
+  }, []);
+
+  // Single funnel for every progress change: save + mirror to state.
+  const updateProgress = useCallback((fn) => {
+    const next = fn(progressRef.current);
+    saveProgress(next);
+    progressRef.current = next;
+    setProgress(next);
+    return next;
+  }, []);
+
+  // Missions mode only: check off newly completed missions + celebrate.
+  const checkMissions = useCallback((np) => {
+    if (modeRef.current !== 'missions') return;
+    const fresh = newlyCompleted(np);
+    if (!fresh.length) return;
+    let p2 = np;
+    for (const m of fresh) p2 = markMissionDone(p2, m.id);
+    saveProgress(p2);
+    progressRef.current = p2;
+    setProgress(p2);
+    for (const m of fresh) {
+      fx.checkpoint();
+      showNotice(`Mission complete: ${m.title}`);
+    }
+  }, [showNotice]);
+
   const stopAutopilot = useCallback(() => {
     autopilotRef.current.active = false;
     autopilotRef.current.wpIndex = 0;
@@ -715,8 +817,10 @@ export default function MyriadPage() {
       setView('explorer');
       setFlash(true);
       setTimeout(() => setFlash(false), reduced ? 80 : 320);
+      const np = updateProgress((p) => markVisited(p, id));
+      checkMissions(np);
     },
-    [reduced, resetFlight]
+    [reduced, resetFlight, updateProgress, checkMissions]
   );
 
   // Wormhole anomaly: fly in, wake up in a different universe.
@@ -728,6 +832,8 @@ export default function MyriadPage() {
     while (next === universeId) next = 1 + Math.floor(Math.random() * UNIVERSES.length);
     resetFlight();
     setUniverseId(next);
+    const np = updateProgress((p) => markVisited(recordWormhole(p), next));
+    checkMissions(np);
     setFlash(true);
     setTimeout(() => setFlash(false), reduced ? 80 : 320);
     setTimeout(() => {
@@ -737,8 +843,43 @@ export default function MyriadPage() {
 
   const returnToAtlas = useCallback(() => {
     stopAutopilot();
+    setWalkSite(null);
     setView('atlas');
   }, [stopAutopilot]);
+
+  // Flying close to a site finds it.
+  const onFound = useCallback((site) => {
+    const key = foundKey(universeId, site.id);
+    if (progressRef.current.found.includes(key)) return;
+    const np = updateProgress((p) => markFound(p, key));
+    fx.checkpoint();
+    showNotice(`Found: ${site.label}`);
+    checkMissions(np);
+  }, [universeId, updateProgress, showNotice, checkMissions]);
+
+  // Land at a site: park the bike, walk on foot.
+  const landAt = useCallback((site) => {
+    stopAutopilot();
+    inputRef.current = { thrust: 0, turn: 0, pitch: 0, boost: false, brake: false };
+    walkerRef.current = createWalker({ x: 0, z: 0, yaw: Math.PI, pitch: 0 });
+    walkJoyRef.current = { x: 0, y: 0 };
+    setWalkSite(site);
+    const np = updateProgress((p) => markLanded(p, universeId, site.id));
+    showNotice(`Landed at ${site.label} — walk around, then take off.`);
+    checkMissions(np);
+  }, [universeId, stopAutopilot, updateProgress, showNotice, checkMissions]);
+
+  // Take off: back on the bike above the site.
+  const takeOff = useCallback(() => {
+    if (!walkSite) return;
+    flightRef.current = {
+      pos: { x: walkSite.pos.x, y: walkSite.pos.y + 10, z: walkSite.pos.z + 24 },
+      yaw: Math.PI, pitch: 0, speed: 0, boosting: false,
+    };
+    inputRef.current = { thrust: 0, turn: 0, pitch: 0, boost: false, brake: false };
+    snapCamRef.current = true;
+    setWalkSite(null);
+  }, [walkSite]);
 
   // --- keyboard ------------------------------------------------------------
   useEffect(() => {
@@ -776,6 +917,25 @@ export default function MyriadPage() {
     };
   }, [view, stopAutopilot]);
 
+  // Walk-mode input: keyboard + drag-look on the walk overlay.
+  useEffect(() => {
+    if (!walkSite) return undefined;
+    const keys = createKeyInput();
+    keys.attach();
+    walkKeysRef.current = keys;
+    const detachLook = attachDragLook(walkLookRef.current, {
+      onLook: (dx, dy) => {
+        const w = walkerRef.current;
+        if (w) applyLook(w, dx, dy);
+      },
+    });
+    return () => {
+      keys.detach();
+      walkKeysRef.current = null;
+      detachLook();
+    };
+  }, [walkSite]);
+
   // --- atlas filtering ------------------------------------------------------
   const counts = useMemo(() => {
     const c = { all: UNIVERSES.length };
@@ -799,6 +959,24 @@ export default function MyriadPage() {
   const bike = bikeByKey(bikeKey);
   const autopilot = autopilotRef.current.active;
   const canTour = tour.length > 0;
+  const sites = useMemo(() => sitesFor(universe), [universe]);
+  const landingSites = useMemo(() => landingSitesFor(universe), [universe]);
+  let nearestLanding = null;
+  let nearestLandingDist = Infinity;
+  for (const s of landingSites) {
+    const d = Math.hypot(f.pos.x - s.pos.x, f.pos.y - s.pos.y, f.pos.z - s.pos.z);
+    if (d < nearestLandingDist) { nearestLandingDist = d; nearestLanding = s; }
+  }
+  let nearestUnfound = null;
+  let nearestUnfoundDist = Infinity;
+  for (const s of sites) {
+    if (progress.found.includes(foundKey(universe.id, s.id))) continue;
+    const d = Math.hypot(f.pos.x - s.pos.x, f.pos.y - s.pos.y, f.pos.z - s.pos.z);
+    if (d < nearestUnfoundDist) { nearestUnfoundDist = d; nearestUnfound = s; }
+  }
+  const missionsDone = progress.completedMissions.length;
+  const next = mode === 'missions' ? nextMission(progress) : null;
+  const nextProgress = next ? missionProgress(progress, next) : null;
 
   // ============================ ATLAS ======================================
   if (view === 'atlas') {
@@ -815,6 +993,16 @@ export default function MyriadPage() {
             <p className="text-xs sm:text-sm text-zinc-400 mt-2 tracking-wide max-w-2xl">
               Every universe is generated from its own seed — the same seed always
               builds the same sky. Pick a tron bike, pick a universe, and fly it.
+            </p>
+          </div>
+
+          {/* your journey so far */}
+          <div className="relative mt-6 bg-zinc-950/90 border border-zinc-800 rounded-xl p-4">
+            <div className="text-[10px] tracking-[0.3em] uppercase text-cyan-300/80 mb-1">
+              Your journey
+            </div>
+            <p className="text-sm text-zinc-300 tracking-wide">
+              {progress.visited.length} of 100 universes visited · {missionsDone} of {MISSIONS.length} missions done · {progress.found.length} things found
             </p>
           </div>
 
@@ -854,6 +1042,28 @@ export default function MyriadPage() {
             </div>
           </div>
 
+          {/* missions */}
+          <details className="mt-6 bg-zinc-950/90 border border-zinc-800 rounded-xl p-4">
+            <summary className="cursor-pointer text-[10px] tracking-[0.3em] uppercase text-cyan-300/80">
+              Missions · {missionsDone} of {MISSIONS.length} done
+            </summary>
+            <div className="mt-3 flex flex-col gap-2">
+              {MISSIONS.map((m) => {
+                const done = progress.completedMissions.includes(m.id);
+                const mp = missionProgress(progress, m);
+                return (
+                  <div key={m.id} className="flex items-start justify-between gap-3 text-sm">
+                    <div>
+                      <div className="font-bold tracking-wide">{done ? '✓ ' : ''}{m.title}</div>
+                      <div className="text-[11px] text-zinc-400">{m.desc}</div>
+                    </div>
+                    <div className="text-[11px] text-zinc-400 shrink-0">{mp.current}/{mp.target}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </details>
+
           {/* the 10x10 grid */}
           {filtered.length > 0 ? (
             <div className="mt-6 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-10 gap-2">
@@ -887,6 +1097,11 @@ export default function MyriadPage() {
                     >
                       {anomalyLabel(u.anomaly)}
                     </span>
+                    {progress.visited.includes(u.id) && (
+                      <span className="inline-block text-[9px] font-bold tracking-[0.2em] uppercase border border-emerald-400/50 bg-emerald-400/10 text-emerald-300 rounded-full px-2 py-0.5 ml-1">
+                        Visited
+                      </span>
+                    )}
                   </div>
                 </button>
               ))}
@@ -928,21 +1143,39 @@ export default function MyriadPage() {
         className="absolute inset-0"
         camera={{ position: [14, 7, 20], fov: 55, near: 0.5, far: 4000 }}
         gl={{ antialias: true, powerPreference: 'high-performance' }}
-        dpr={[1, 2]}
+        dpr={[1, 1.75]}
       >
         <color attach="background" args={[universe.palette[0]]} />
-        <MyriadScene
-          universe={universe}
-          scene={scene}
-          reduced={reduced}
-          flightRef={flightRef}
-          inputRef={inputRef}
-          autopilotRef={autopilotRef}
-          bikeKey={bikeKey}
-          snapCamRef={snapCamRef}
-          onPortal={rideWormhole}
-        />
+        {walkSite ? (
+          <>
+            <ambientLight intensity={0.55} />
+            <directionalLight position={[60, 80, 40]} intensity={1.4} />
+            <TintedStars seed={universe.seed + 1} count={Math.round(1400 * universe.starDensity)} radius={900} palette={[...universe.palette, '#ffffff']} size={1.6} />
+            <TintedStars seed={universe.seed + 2} count={Math.round(900 * universe.starDensity)} radius={600} palette={universe.palette} size={2.2} />
+            <LandingGround site={walkSite} groundColor={universe.palette[0]} accent={universe.palette[2]} />
+            <WalkerFigure walkerRef={walkerRef} color={bike.color} />
+            <WalkRig site={walkSite} walkerRef={walkerRef} joyRef={walkJoyRef} keysRef={walkKeysRef} />
+          </>
+        ) : (
+          <MyriadScene
+            universe={universe}
+            scene={scene}
+            reduced={reduced}
+            flightRef={flightRef}
+            inputRef={inputRef}
+            autopilotRef={autopilotRef}
+            bikeKey={bikeKey}
+            snapCamRef={snapCamRef}
+            onPortal={rideWormhole}
+            sites={sites}
+            onFound={onFound}
+          />
+        )}
       </Canvas>
+      {/* walk-mode drag-look layer (under the HUD buttons) */}
+      {walkSite && (
+        <div ref={walkLookRef} className="absolute inset-0" style={{ touchAction: 'none' }} aria-label="Drag to look around" />
+      )}
 
       {/* arrival flash */}
       <div
@@ -970,12 +1203,25 @@ export default function MyriadPage() {
             {bike.name} tron bike ·{' '}
             <span className="text-cyan-300 font-bold">{speedLabel}</span>
             {autopilot && <span className="text-amber-300"> · autopilot</span>}
+            {walkSite && <span className="text-emerald-300"> · on foot at {walkSite.label}</span>}
+            {mode && <span className="text-zinc-300"> · {mode === 'missions' ? 'Missions' : 'Free Roam'}</span>}
           </div>
           <p className="hidden sm:block text-[11px] text-zinc-500 mt-1.5 leading-relaxed max-w-md">
             {universe.description}
           </p>
+          {mode === 'missions' && next && (
+            <p className="text-[11px] text-amber-200 mt-1.5 tracking-wide">
+              Mission: {next.title} — {nextProgress.current}/{nextProgress.target}
+            </p>
+          )}
+          {!walkSite && nearestUnfound && nearestUnfoundDist < 60 && (
+            <p className="text-[11px] text-emerald-200 mt-1 tracking-wide">
+              Something glimmers nearby — fly a little closer.
+            </p>
+          )}
         </div>
         <div className="flex flex-col gap-2 pointer-events-auto">
+          {!walkSite && (
           <button
             onClick={() => {
               if (autopilotRef.current.active) stopAutopilot();
@@ -997,12 +1243,38 @@ export default function MyriadPage() {
           >
             {autopilot ? (<HIcon><RadarIcon size={13} />Stop tour</HIcon>) : (<HIcon><RadarIcon size={13} />Autopilot tour</HIcon>)}
           </button>
+          )}
+          {!walkSite && (
           <button
             onClick={() => setShowBikes((s) => !s)}
             aria-expanded={showBikes}
             className="min-h-[44px] px-4 rounded-lg border border-zinc-700 bg-black/60 text-zinc-300 text-xs font-bold tracking-widest uppercase hover:bg-white/10"
           >
             <HIcon><BikeIcon size={14} />Tron bike</HIcon>
+          </button>
+          )}
+          {!walkSite && nearestLanding && (
+            <button
+              onClick={() => landAt(nearestLanding)}
+              disabled={nearestLandingDist >= 70}
+              className="min-h-[44px] px-4 rounded-lg border border-emerald-400/50 bg-black/60 text-emerald-200 text-xs font-bold tracking-widest uppercase hover:bg-white/10 disabled:opacity-40"
+            >
+              {nearestLandingDist < 70 ? `Land at ${nearestLanding.label}` : 'Land — fly closer'}
+            </button>
+          )}
+          {walkSite && (
+            <button
+              onClick={takeOff}
+              className="min-h-[44px] px-4 rounded-lg border border-emerald-400/50 bg-black/60 text-emerald-200 text-xs font-bold tracking-widest uppercase hover:bg-white/10"
+            >
+              Take off
+            </button>
+          )}
+          <button
+            onClick={() => setMode(null)}
+            className="min-h-[44px] px-4 rounded-lg border border-zinc-700 bg-black/60 text-zinc-300 text-xs font-bold tracking-widest uppercase hover:bg-white/10"
+          >
+            Mode
           </button>
           <button
             onClick={returnToAtlas}
@@ -1014,7 +1286,7 @@ export default function MyriadPage() {
       </div>
 
       {/* tron bike switcher */}
-      {showBikes && (
+      {showBikes && !walkSite && (
         <div className="absolute top-24 right-4 sm:right-5 w-64 pointer-events-auto">
           <div className="bg-zinc-950/92 border border-zinc-800 rounded-xl backdrop-blur-md p-4">
             <div className="text-[10px] tracking-[0.3em] uppercase text-cyan-300/80 mb-2">
@@ -1026,10 +1298,16 @@ export default function MyriadPage() {
       )}
 
       {/* touch controls */}
-      <TouchControls inputRef={inputRef} autopilotRef={autopilotRef} visible={touchUI} />
+      <TouchControls inputRef={inputRef} autopilotRef={autopilotRef} visible={touchUI && !walkSite} />
+      {/* walk-mode joystick */}
+      {walkSite && (
+        <div className="absolute left-4 bottom-24 z-20">
+          <WalkJoystick onMove={(x, y) => { walkJoyRef.current.x = x; walkJoyRef.current.y = y; }} />
+        </div>
+      )}
 
       {/* desktop hint */}
-      {!touchUI && (
+      {!touchUI && !walkSite && (
         <div className="absolute bottom-0 left-0 right-0 hidden md:flex justify-center pointer-events-none pb-[calc(4.5rem+env(safe-area-inset-bottom))]">
           <div className="text-[10px] tracking-[0.25em] uppercase text-white/40">
             WASD / arrows · R/F pitch · Shift boost · Space brake
@@ -1037,7 +1315,43 @@ export default function MyriadPage() {
           </div>
         </div>
       )}
+      {!touchUI && walkSite && (
+        <div className="absolute bottom-0 left-0 right-0 hidden md:flex justify-center pointer-events-none pb-[calc(4.5rem+env(safe-area-inset-bottom))]">
+          <div className="text-[10px] tracking-[0.25em] uppercase text-white/40">
+            WASD / arrows walk · drag to look · Space jumps · Shift runs
+          </div>
+        </div>
+      )}
 
+      {/* mode choice — missions or free roam */}
+      {mode === null && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-xl p-5">
+            <div className="text-[10px] tracking-[0.3em] uppercase text-cyan-300/80">How do you want to fly?</div>
+            <h2 className="text-xl font-bold tracking-widest mt-1">Missions or Free Roam</h2>
+            <p className="text-sm text-zinc-400 mt-2 leading-relaxed">
+              Missions gives you goals that check off as you fly, land, and find things — and your progress saves.
+              Free Roam is just flying: places you visit and things you find still save, but missions do not check off.
+            </p>
+            <div className="mt-4 flex flex-col gap-2">
+              <button onClick={() => setMode('missions')} className="min-h-[44px] px-4 rounded-lg border border-cyan-400/60 bg-cyan-400/10 text-cyan-200 text-sm font-bold tracking-widest uppercase hover:bg-cyan-400/20">
+                Missions
+              </button>
+              <button onClick={() => setMode('roam')} className="min-h-[44px] px-4 rounded-lg border border-zinc-700 bg-white/5 text-sm font-bold tracking-widest uppercase hover:bg-white/10">
+                Free Roam
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* notice pill */}
+      {notice && (
+        <div className="absolute bottom-24 left-0 right-0 flex justify-center pointer-events-none z-20">
+          <div className="bg-black/70 backdrop-blur-sm border border-cyan-400/40 rounded-full px-4 py-2 text-xs font-bold tracking-wide text-cyan-100">
+            {notice}
+          </div>
+        </div>
+      )}
       {/* Safari bottom-bar clearance */}
       <div aria-hidden="true" className="absolute bottom-0 left-0 right-0 h-[env(safe-area-inset-bottom)] pointer-events-none" />
     </div>
