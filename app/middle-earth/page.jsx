@@ -36,6 +36,9 @@ import BackpackHud from '@/components/backpack/BackpackHud';
 import { createWalker, stepWalker, applyLook } from '@/lib/world/walk-controls';
 import { followCameraPose } from '@/lib/world/follow-camera';
 import { goalArrowDeg } from './goal-compass';
+import {
+  heroMotionPose, shouldTuckMissionCard, MISSION_RETUCK_AFTER_S,
+} from './figure-motion';
 import { createKeyInput, attachDragLook } from '@/lib/world/walk-input';
 import WalkJoystick from '@/components/world/WalkJoystick';
 
@@ -62,7 +65,13 @@ export default function MiddleEarthPage() {
   /* The zone's strike, so the on-screen Strike button can call it:
    * assigned inside the zone effect, reset to a noop on cleanup. */
   const strikeRef = useRef(() => {});
-  const missionCollapseTimer = useRef(null);
+  /* Mission-card tuck, round 2: the tuck is a function of the mission
+   * clock (the one clock proven to advance in real play), not a
+   * one-shot timer — the round-1 timer never landed in production
+   * (the full card stayed up for a whole 3-minute session). This ref
+   * holds the mission seconds when the player last tapped the tucked
+   * chip open; -RETUCK means "never expanded". */
+  const missionHudExpandRef = useRef(-MISSION_RETUCK_AFTER_S);
   const goalHudRef = useRef('');
   const toastTimer = useRef(null);
   const introRef = useRef(false);
@@ -76,6 +85,12 @@ export default function MiddleEarthPage() {
   useEffect(() => { equippedRef.current = equippedWeaponEntry(pack); }, [pack]);
   const playerFigRef = useRef(null);
   const playerSwingRef = useRef(0);
+  /* Strike motion: which hand swung (the raise reads differently for
+   * a staff blast than for a blade), the walk-cycle phase, and the
+   * last frame's feet position for real travel speed. */
+  const playerSwingKindRef = useRef('melee');
+  const walkPhaseRef = useRef(0);
+  const prevPlayerRef = useRef(null);
   const senseFrameRef = useRef(0);
   const huntHudRef = useRef(-1);
   const missionKillsRef = useRef(0);
@@ -148,33 +163,42 @@ export default function MiddleEarthPage() {
     return () => clearTimeout(t);
   }, [mode, entry]);
 
-  /* Zone-entry HUD timers: the mission card tucks after ~6 s and
-   * the strike hint fades after ~8 s (or on the first strike). */
+  /* Zone-entry HUD timers: the strike hint fades after ~8 s (or on
+   * the first strike). The mission card's tuck is NOT timed here
+   * anymore — round 2 drives it from the mission clock (see the
+   * clock effect), because the round-1 one-shot tuck timer never
+   * landed in real play. */
   useEffect(() => {
     if (mode !== 'zone' || !entry) return undefined;
     setMissionHudCollapsed(false);
     setShowStrikeHint(true);
-    const t1 = setTimeout(() => setMissionHudCollapsed(true), 6000);
     const t2 = setTimeout(() => setShowStrikeHint(false), 8000);
     return () => {
-      clearTimeout(t1);
       clearTimeout(t2);
-      clearTimeout(missionCollapseTimer.current);
     };
   }, [mode, entry]);
 
-  /* Re-opening the tucked mission card re-tucks it after ~8 s. */
+  /* Re-opening the tucked mission card: the clock rule re-tucks it
+   * after the re-tuck window (see shouldTuckMissionCard). */
   const expandMissionHud = useCallback(() => {
     setMissionHudCollapsed(false);
-    clearTimeout(missionCollapseTimer.current);
-    missionCollapseTimer.current = setTimeout(() => setMissionHudCollapsed(true), 8000);
+    missionHudExpandRef.current = elapsedMirror.current;
   }, []);
 
-  /* Mission clock (par is a soft clock — a verdict, never a gate). */
+  /* Mission clock (par is a soft clock — a verdict, never a gate).
+   * The interval also owns the mission-card tuck (round 2): the
+   * card tucks once the clock passes the tuck time, and stays open
+   * for the re-tuck window after the player taps it open. Driven
+   * by the clock rather than a one-shot timer, the tuck cannot
+   * silently never fire again. */
   useEffect(() => {
     if (mode !== 'zone' || !entry || entry.kind !== 'mission' || intro || beatOverlay || fallen) return undefined;
     const started = Date.now() - elapsed * 1000;
-    const iv = setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 500);
+    const iv = setInterval(() => {
+      const s = Math.floor((Date.now() - started) / 1000);
+      setElapsed(s);
+      if (shouldTuckMissionCard(s, missionHudExpandRef.current)) setMissionHudCollapsed(true);
+    }, 500);
     return () => clearInterval(iv);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, entry, intro, beatOverlay, fallen]);
@@ -198,6 +222,7 @@ export default function MiddleEarthPage() {
     missionKillsRef.current = 0;
     hunterRef.current = createHunter(hero.maxHp);
     heroRef.current = hero;
+    missionHudExpandRef.current = -MISSION_RETUCK_AFTER_S;
     setHp(hero.maxHp);
     setIntro(ent.kind === 'mission');
     setMode('zone');
@@ -384,6 +409,34 @@ export default function MiddleEarthPage() {
       }
     };
 
+    /* Ranged-shot visuals: a short-lived glowing bolt that leaves
+     * the staff tip (or bow hand) along the aim. Cosmetic only —
+     * damage already landed (or missed) in strike(); the bolt never
+     * decides anything. Shared geometry, one material per bolt (so
+     * concurrent bolts fade independently); the frame loop flies
+     * and fades them, the effect cleanup removes stragglers. */
+    const blastGeo = new THREE.SphereGeometry(0.09, 10, 8);
+    const blasts = [];
+    const spawnBlast = () => {
+      const h = heroRef.current;
+      if (!h) return;
+      const fx = -Math.sin(walker.yaw), fz = -Math.cos(walker.yaw);
+      const rx = -fz, rz = fx; // right-hand side, walker facing convention
+      const gy = zone.groundHeight(walker.pos.x, walker.pos.z);
+      const mat = new THREE.MeshBasicMaterial({
+        color: h.ranged.kind === 'staff' ? 0xc084fc : 0xf5d67a,
+        transparent: true, fog: false,
+      });
+      const mesh = new THREE.Mesh(blastGeo, mat);
+      mesh.position.set(
+        walker.pos.x + fx * 0.4 + rx * 0.45,
+        gy + h.height * 0.85,
+        walker.pos.z + fz * 0.4 + rz * 0.45,
+      );
+      scene.add(mesh);
+      blasts.push({ mesh, vx: fx * 30, vz: fz * 30, life: 0.6 });
+    };
+
     /* Combat input: a tap strikes with the hand in use — on TAP
      * RELEASE, through drag-look's own onTap (quick tap, small
      * movement, short time). A press that turns into a drag is a
@@ -403,10 +456,20 @@ export default function MiddleEarthPage() {
       const spec = ranged
         ? { range: h.ranged.range, arcCos: Math.cos(0.21), cooldown: h.ranged.cooldown }
         : { range: BLADE.range, arcCos: BLADE.arcCos, cooldown: BLADE.cooldown };
+      // Motion plays on any strike the hand is READY for — hit or
+      // miss (a swing at air still swings; the old code only moved
+      // on a hit, so whiffed blows looked frozen). Damage, range,
+      // and cooldown are untouched: strike() still decides those.
+      const timer = ranged ? hunter.bowT : hunter.bladeT;
+      const wasReady = timer <= 0;
       const hit = strike(hunter, targets, walker.pos.x, walker.pos.z, aim, spec, ranged ? 'ranged' : 'melee');
+      if (wasReady) {
+        playerSwingRef.current = 0.25;
+        playerSwingKindRef.current = ranged ? 'ranged' : 'melee';
+        if (ranged) spawnBlast();
+      }
       if (!hit) return;
       if (ranged) zone.hunt.noteLoud(walker.pos.x, walker.pos.z);
-      if (playerBody) playerSwingRef.current = 0.25;
       // The equipped backpack weapon arms its hand when it fits:
       // its rating replaces the hero's native number, else native.
       const dmg = ranged
@@ -505,13 +568,38 @@ export default function MiddleEarthPage() {
       if (playerFig) {
         playerFig.group.position.set(walker.pos.x, zone.groundHeight(walker.pos.x, walker.pos.z), walker.pos.z);
         playerFig.group.rotation.y = walker.yaw + Math.PI;
+        /* Hero motion (round 2): the hero is an unrigged GLB, so the
+         * body group bobs, leans, rolls, and twists instead of legs
+         * swinging. Travel speed comes from real feet movement per
+         * frame (a teleport-sized jump reads as standing, never as
+         * a sprint). The figure's own breathing runs in update()
+         * first; this pose is ADDED on top of it, never fighting it. */
+        const prev = prevPlayerRef.current;
+        const moved = prev ? Math.hypot(walker.pos.x - prev.x, walker.pos.z - prev.z) : 0;
+        prevPlayerRef.current = { x: walker.pos.x, z: walker.pos.z };
+        let speed = dt > 0 ? moved / dt : 0;
+        if (moved > 2) speed = 0; // respawn/teleport, not a stride
+        if (speed > 0.5) walkPhaseRef.current += dt * speed * 4.4;
+        let swingP = 0;
         if (playerSwingRef.current > 0) {
           playerSwingRef.current = Math.max(0, playerSwingRef.current - dt);
-          if (playerBody) playerBody.rotation.x = -0.35 * (playerSwingRef.current / 0.25);
-        } else if (playerBody) {
-          playerBody.rotation.x = 0;
+          const p = 1 - playerSwingRef.current / 0.25;
+          swingP = Math.sin(p * Math.PI);
+        }
+        const pose = heroMotionPose({
+          speed, phase: walkPhaseRef.current, swingP, kind: playerSwingKindRef.current,
+        });
+        if (playerBody) {
+          playerBody.rotation.x = pose.leanX;
+          playerBody.rotation.z = pose.rollZ;
         }
         playerFig.update(t, dt, 6);
+        if (playerBody) {
+          // update() owns position.y (breath) and rotation.y (sway)
+          // absolutely — add the walk/swing pose on top of it.
+          playerBody.position.y += pose.bobY;
+          playerBody.rotation.y += pose.twistY;
+        }
       }
       zone.setObserver(walker.pos.x, walker.pos.z);
       if (!paused) checkBeat(walker.pos.x, walker.pos.z);
@@ -575,6 +663,21 @@ export default function MiddleEarthPage() {
         }
       }
 
+      /* ranged bolts: fly straight, fade out, then leave the scene */
+      for (let i = blasts.length - 1; i >= 0; i--) {
+        const b = blasts[i];
+        b.life -= dt;
+        if (b.life <= 0) {
+          scene.remove(b.mesh);
+          try { b.mesh.material.dispose(); } catch (e) { /* noop */ }
+          blasts.splice(i, 1);
+          continue;
+        }
+        b.mesh.position.x += b.vx * dt;
+        b.mesh.position.z += b.vz * dt;
+        b.mesh.material.opacity = Math.max(0, b.life / 0.6);
+      }
+
       zone.update(t, dt);
       renderer.render(scene, camera);
       raf = requestAnimationFrame(frame);
@@ -597,6 +700,11 @@ export default function MiddleEarthPage() {
       } catch (e) { /* noop */ }
       try { zone.dispose(); } catch (e) { /* noop */ }
       scene.remove(zone.group);
+      for (const b of blasts) {
+        scene.remove(b.mesh);
+        try { b.mesh.material.dispose(); } catch (e) { /* noop */ }
+      }
+      try { blastGeo.dispose(); } catch (e) { /* noop */ }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, podId, entry]);

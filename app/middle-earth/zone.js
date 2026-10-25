@@ -725,6 +725,11 @@ export function buildZone(THREE, podDef, T, opts) {
           const fig = orcFigures.get(orc);
           if (fig && wasSwingReady) fig.noteSwing();
           if (typeof options.onPlayerHit === 'function') options.onPlayerHit(ev.dmg, orc);
+        } else if (ev.type === 'windup') {
+          // The blow is coming: the figure's arm rises now, the hit
+          // lands one wind-up later (the AI owns that timing).
+          const fig = orcFigures.get(orc);
+          if (fig && fig.noteWindup) fig.noteWindup();
         } else if (ev.type === 'sighted') {
           seen = true;
           noteSightHeat(huntState, player.x, player.z, huntScale);

@@ -32,6 +32,8 @@ export function mulberry32(seed) {
   };
 }
 
+import { ORC_WINDUP_S, ORC_ARM_REST, orcLimbAngles } from './figure-motion.js';
+
 /* ---------------- numbers (the hunt's tuning) ---------------- */
 
 export const PLAYER_MAX_HP = 100;
@@ -180,7 +182,7 @@ export function createOrc(spec, bandId) {
     yaw: Math.atan2(spec.x, spec.z),
     hp: stats.hp, maxHp: stats.hp,
     state: 'idle', // idle | chase | dead
-    swingT: 0, wanderT: Math.random() * 2, wanderYaw: 0,
+    swingT: 0, windupT: 0, wanderT: Math.random() * 2, wanderYaw: 0,
     deathT: 0, flashT: 0,
     task: null, // hunting-party task: { type:'seek', x, z, phase, t, partyId }
     stats,
@@ -253,6 +255,13 @@ export function stepOrc(orc, dt, player, rng, senses) {
   const dist = Math.hypot(dx, dz);
   if (orc.flashT > 0) orc.flashT -= dt;
   if (orc.swingT > 0) orc.swingT -= dt;
+  // A wind-up only lives while the orc is still chasing, the player is
+  // still alive, and the player is still in reach — step out of range
+  // mid-wind-up and the blow is cancelled, not banked.
+  if (orc.windupT > 0 && !(orc.state === 'chase' && player.alive
+    && dist <= orc.stats.swingRange)) {
+    orc.windupT = 0;
+  }
   const quiet = player.quiet != null ? player.quiet : 1;
   const alertR = orc.stats.alertR * quiet;
 
@@ -317,9 +326,20 @@ export function stepOrc(orc, dt, player, rng, senses) {
       orc.yaw = Math.atan2(dx, dz);
     } else {
       orc.yaw = Math.atan2(dx, dz);
-      if (orc.swingT <= 0) {
-        orc.swingT = orc.stats.swingCooldown;
-        events.push({ type: 'hitPlayer', dmg: orc.stats.dmg });
+      if (orc.windupT > 0) {
+        // Winding up: stand and raise the blade. The hit lands only
+        // when the wind-up finishes, so the player SEES it coming.
+        // Damage, cooldown, and speed are untouched — the blow is
+        // delayed by the wind-up, never strengthened.
+        orc.windupT -= dt;
+        if (orc.windupT <= 0) {
+          orc.windupT = 0;
+          orc.swingT = orc.stats.swingCooldown;
+          events.push({ type: 'hitPlayer', dmg: orc.stats.dmg });
+        }
+      } else if (orc.swingT <= 0) {
+        orc.windupT = ORC_WINDUP_S;
+        events.push({ type: 'windup' });
       }
     }
   } else {
@@ -520,20 +540,36 @@ export function buildOrcFigure(R, orc) {
   const jaw = new R.Mesh(new R.BoxGeometry(0.3, 0.12, 0.3), skin);
   jaw.position.set(0, 1.42, 0.14);
   body.add(jaw);
+  /* Limbs hang from pivot groups at the shoulder/hip so they can
+   * swing. The offsets are counter-rotated so the REST pose is
+   * exactly the old static build: arm boxes centred at y 1.08 with
+   * the old -0.35 lean, legs centred at y 0.25, blade in the side
+   * -1 fist at its old spot with its old 0.9 tilt (the tilt is split
+   * between pivot rest and mesh so it survives the swing). */
+  const armPivots = {};
+  const legPivots = {};
   for (const side of [-1, 1]) {
+    const shoulder = new R.Group();
+    shoulder.position.set(side * 0.42, 1.44, 0.06);
+    shoulder.rotation.x = ORC_ARM_REST;
+    body.add(shoulder);
     const arm = new R.Mesh(new R.BoxGeometry(0.18, 0.72, 0.18), skin);
-    arm.position.set(side * 0.42, 1.08, 0.06);
-    arm.rotation.x = -0.35;
-    body.add(arm);
+    arm.position.set(0, -0.338, -0.123);
+    shoulder.add(arm);
+    const hip = new R.Group();
+    hip.position.set(side * 0.17, 0.5, 0);
+    g.add(hip);
     const leg = new R.Mesh(new R.BoxGeometry(0.2, 0.5, 0.2), dark);
-    leg.position.set(side * 0.17, 0.25, 0);
-    g.add(leg);
+    leg.position.set(0, -0.25, 0);
+    hip.add(leg);
+    if (side === -1) { armPivots.blade = shoulder; legPivots.left = hip; }
+    else { armPivots.free = shoulder; legPivots.right = hip; }
   }
-  /* the crude blade, in the right fist */
+  /* the crude blade, in the right fist — rides the blade-arm pivot */
   const blade = new R.Mesh(new R.BoxGeometry(0.05, 0.62, 0.14), iron);
-  blade.position.set(-0.44, 0.78, 0.34);
-  blade.rotation.x = 0.9;
-  body.add(blade);
+  blade.position.set(-0.02, -0.716, 0.037);
+  blade.rotation.x = 0.9 - ORC_ARM_REST;
+  armPivots.blade.add(blade);
   if (captain) {
     const crest = new R.Mesh(new R.BoxGeometry(0.08, 0.34, 0.4),
       new R.MeshStandardMaterial({ color: 0x8c2f1d, flatShading: true, roughness: 1 }));
@@ -570,8 +606,12 @@ export function buildOrcFigure(R, orc) {
   g.add(marker);
 
   /* Render state -> mesh: fall + fade on death, a hit flash,
-   * a lurch when it swings (the page reports swing events). */
+   * a lurch when it swings (the zone reports swing events), and
+   * procedural life — a walk cycle, an idle sway, a wind-up raise
+   * (the zone reports wind-up events before the hit lands). The
+   * orc has no skeleton: limbs swing on their pivot groups. */
   let swingAnim = 0;
+  let walkPhase = 0;
   function update(t, dt, dist) {
     marker.visible = orc.state !== 'dead' && (dist == null || dist > 25);
     marker.position.y = 2.5 + Math.sin(t * 2.1 + orc.home.x) * 0.08;
@@ -583,6 +623,23 @@ export function buildOrcFigure(R, orc) {
     }
     if (swingAnim > 0) swingAnim = Math.max(0, swingAnim - dt * 3.2);
     body.rotation.x = 0.16 + Math.sin(Math.min(1, swingAnim) * Math.PI) * 0.5;
+    if (orc.state !== 'dead') {
+      // Travel speed from state: chasing at full stride, task-marching
+      // faster, idle shuffling slowly, planted while winding up.
+      let moveSpeed = 0;
+      if (orc.state === 'chase' && orc.windupT <= 0
+        && (dist == null || dist > orc.stats.swingRange)) moveSpeed = orc.stats.speed;
+      else if (orc.task && orc.task.phase === 'go') moveSpeed = orc.stats.speed * 1.15;
+      else if (orc.state === 'idle') moveSpeed = 0.55;
+      if (moveSpeed > 0) walkPhase += dt * moveSpeed * 4.4;
+      const windupP = orc.windupT > 0 ? 1 - orc.windupT / ORC_WINDUP_S : 0;
+      const swingP = Math.sin(Math.min(1, swingAnim) * Math.PI);
+      const a = orcLimbAngles({ moveSpeed, phase: walkPhase, windupP, swingP, idleT: t });
+      armPivots.blade.rotation.x = a.armBlade;
+      armPivots.free.rotation.x = a.armFree;
+      legPivots.left.rotation.x = a.legL;
+      legPivots.right.rotation.x = a.legR;
+    }
     if (orc.state === 'dead') {
       const k = Math.min(1, orc.deathT / 0.7);
       g.rotation.x = -k * (Math.PI / 2) * 0.92;
@@ -596,5 +653,9 @@ export function buildOrcFigure(R, orc) {
     }
   }
   function noteSwing() { swingAnim = 1; }
-  return { group: g, update, noteSwing };
+  // Wind-up needs no latch: the pose reads orc.windupT directly, so
+  // the arm rises the moment the AI starts winding up and settles
+  // the moment the blow lands or is cancelled.
+  function noteWindup() { /* pose follows orc.windupT */ }
+  return { group: g, update, noteSwing, noteWindup };
 }

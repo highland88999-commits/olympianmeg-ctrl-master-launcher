@@ -178,3 +178,36 @@ test('hunter: hero HP, damage, death, revive', () => {
   assert.equal(h.alive, true);
   assert.equal(h.hp, 135);
 });
+
+test('orc wind-up: warning first, same hit after, dodgeable by stepping out', () => {
+  const o = orcAt('warrior', 0, 0);
+  o.state = 'chase';
+  const player = { x: 0, z: 1.5, alive: true }; // inside swing range
+  const first = O.stepOrc(o, 0.1, player, rng, flatLos);
+  assert.ok(first.some((e) => e.type === 'windup'), 'wind-up event first');
+  assert.equal(first.filter((e) => e.type === 'hitPlayer').length, 0, 'no hit during wind-up');
+  const ox = o.x, oz = o.z;
+  let hit = null;
+  for (let i = 0; i < 10 && !hit; i++) {
+    const evs = O.stepOrc(o, 0.1, player, rng, flatLos);
+    hit = evs.find((e) => e.type === 'hitPlayer') || null;
+    assert.equal(o.x, ox, 'planted while winding up');
+    assert.equal(o.z, oz, 'planted while winding up');
+  }
+  assert.ok(hit, 'hit lands after the wind-up');
+  assert.equal(hit.dmg, 8, 'warrior damage unchanged');
+  assert.ok(o.swingT > 0, 'cooldown spent on the landed blow');
+
+  // Stepping out of range mid-wind-up cancels the blow entirely.
+  const o2 = orcAt('warrior', 0, 0);
+  o2.state = 'chase';
+  O.stepOrc(o2, 0.1, { x: 0, z: 1.5, alive: true }, rng, flatLos);
+  assert.ok(o2.windupT > 0, 'winding up');
+  let cancelledHit = false;
+  for (let i = 0; i < 10; i++) {
+    const evs = O.stepOrc(o2, 0.1, { x: 0, z: 50, alive: true }, rng, flatLos);
+    if (evs.some((e) => e.type === 'hitPlayer')) cancelledHit = true;
+  }
+  assert.equal(cancelledHit, false, 'no hit after dodging out');
+  assert.equal(o2.windupT, 0, 'wind-up cleared');
+});

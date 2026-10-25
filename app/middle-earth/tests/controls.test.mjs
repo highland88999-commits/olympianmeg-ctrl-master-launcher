@@ -43,12 +43,15 @@ test('goal arrow: turning the walker turns the arrow the other way', () => {
 });
 
 /* ---- fix 7: the follow camera never dollies with pitch ---- */
+/* Round 2 corrects the sign this test pinned: pitch + looks UP (the
+ * walk-controls contract — drag up raises pitch). Round 1 asserted
+ * the opposite, which is why dragging up aimed down on the phone. */
 test('follow camera: pitch moves the look target, never the height', () => {
   const flat = () => 0;
   const level = followCameraPose({ x: 0, z: 95, yaw: 0, pitch: 0, headY: 1.7, groundHeight: flat });
   const pitched = followCameraPose({ x: 0, z: 95, yaw: 0, pitch: 0.8, headY: 1.7, groundHeight: flat });
   assert.equal(pitched.cy, level.cy);
-  assert.ok(pitched.lookY < level.lookY, 'looking down lowers the look target');
+  assert.ok(pitched.lookY > level.lookY, 'pitch up raises the look target');
   assert.equal(level.cy, 1.7 + 1.7, 'camera rides 1.7 m above the head');
   assert.equal(level.cz, 95 + 5.2, 'camera trails 5.2 m behind (facing north, behind is +z)');
   assert.equal(level.lookZ, 95 - 4, 'look target sits 4 m ahead');
@@ -100,7 +103,11 @@ test('pin: touch jump/sprint and the tucked mission card', () => {
   assert.ok(pageSrc.includes('touchRef.current.jump = true'), 'a Jump button feeds the walker');
   assert.ok(pageSrc.includes('touchRef.current.sprint = true'), 'a Sprint button feeds the walker');
   assert.ok(pageSrc.includes('missionHudCollapsed'), 'the mission card can tuck');
-  assert.ok(pageSrc.includes('setMissionHudCollapsed(true), 6000'), 'the card tucks after ~6 s');
+  // Round 2: the tuck is driven by the mission clock, not a one-shot
+  // timer — the round-1 timer never landed in real play (the full
+  // card stayed up for a whole 3-minute session).
+  assert.ok(pageSrc.includes('shouldTuckMissionCard(s, missionHudExpandRef.current)'), 'the clock interval owns the tuck');
+  assert.ok(pageSrc.includes('missionHudExpandRef.current = elapsedMirror.current'), 'expanding restarts the re-tuck window');
   assert.ok(pageSrc.includes('hideLabel: true'), 'the own tag is suppressed');
   assert.ok(pageSrc.includes('name: h.name'), 'the player figure carries the hero name');
   assert.ok(pageSrc.includes('followCameraPose({'), 'the frame loop uses the pitch-free camera');
