@@ -34,6 +34,8 @@ import { RETICLE_BY_CLASS, equippedDamageForSlot, equippedReticleForSlot, equipp
 import { updateBackpack, useBackpack } from '../../lib/backpack/store.js';
 import BackpackHud from '@/components/backpack/BackpackHud';
 import { createWalker, stepWalker, applyLook } from '@/lib/world/walk-controls';
+import { followCameraPose } from '@/lib/world/follow-camera';
+import { goalArrowDeg } from './goal-compass';
 import { createKeyInput, attachDragLook } from '@/lib/world/walk-input';
 import WalkJoystick from '@/components/world/WalkJoystick';
 
@@ -54,6 +56,14 @@ export default function MiddleEarthPage() {
   const rendererRef = useRef(null);
   const contextGuardRef = useRef(null);
   const joyRef = useRef({ x: 0, y: 0 });
+  /* Touch action buttons: sprint held + jump edge, read by the
+   * frame loop (keyboard state stays the desktop path). */
+  const touchRef = useRef({ sprint: false, jump: false });
+  /* The zone's strike, so the on-screen Strike button can call it:
+   * assigned inside the zone effect, reset to a noop on cleanup. */
+  const strikeRef = useRef(() => {});
+  const missionCollapseTimer = useRef(null);
+  const goalHudRef = useRef('');
   const toastTimer = useRef(null);
   const introRef = useRef(false);
   const hunterRef = useRef(null);
@@ -99,6 +109,15 @@ export default function MiddleEarthPage() {
   const [finaleOverlay, setFinaleOverlay] = useState(false);
   const [roamCard, setRoamCard] = useState(true);
   const [webglFail, setWebglFail] = useState(false);
+  /* Mission card law (fix, 2026-10-25): full card on entry, then it
+   * tucks to one line so it stops covering the hero's head and the
+   * hunt readout; tapping the tucked chip opens it again. */
+  const [missionHudCollapsed, setMissionHudCollapsed] = useState(false);
+  /* First-entry strike hint: shown until the first strike or 8 s. */
+  const [showStrikeHint, setShowStrikeHint] = useState(false);
+  /* Goal compass: the active travel goal's label, distance, arrow. */
+  const [goalHud, setGoalHud] = useState(null);
+  const [sprintHeld, setSprintHeld] = useState(false);
 
   const showToast = useCallback((msg) => {
     setToast(msg);
@@ -129,6 +148,28 @@ export default function MiddleEarthPage() {
     return () => clearTimeout(t);
   }, [mode, entry]);
 
+  /* Zone-entry HUD timers: the mission card tucks after ~6 s and
+   * the strike hint fades after ~8 s (or on the first strike). */
+  useEffect(() => {
+    if (mode !== 'zone' || !entry) return undefined;
+    setMissionHudCollapsed(false);
+    setShowStrikeHint(true);
+    const t1 = setTimeout(() => setMissionHudCollapsed(true), 6000);
+    const t2 = setTimeout(() => setShowStrikeHint(false), 8000);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(missionCollapseTimer.current);
+    };
+  }, [mode, entry]);
+
+  /* Re-opening the tucked mission card re-tucks it after ~8 s. */
+  const expandMissionHud = useCallback(() => {
+    setMissionHudCollapsed(false);
+    clearTimeout(missionCollapseTimer.current);
+    missionCollapseTimer.current = setTimeout(() => setMissionHudCollapsed(true), 8000);
+  }, []);
+
   /* Mission clock (par is a soft clock — a verdict, never a gate). */
   useEffect(() => {
     if (mode !== 'zone' || !entry || entry.kind !== 'mission' || intro || beatOverlay || fallen) return undefined;
@@ -152,6 +193,8 @@ export default function MiddleEarthPage() {
     setFallen(false);
     setHuntHud(null);
     setSenseHud('');
+    setGoalHud(null);
+    goalHudRef.current = '';
     missionKillsRef.current = 0;
     hunterRef.current = createHunter(hero.maxHp);
     heroRef.current = hero;
@@ -303,8 +346,8 @@ export default function MiddleEarthPage() {
       const h = heroRef.current;
       const sp = zone.spawn || { x: 0, z: 95 };
       playerFig = buildFigure(THREE, {
-        id: 'player', model: h.key, name: '', height: h.height,
-        at: [sp.x, sp.z],
+        id: 'player', model: h.key, name: h.name, height: h.height,
+        at: [sp.x, sp.z], hideLabel: true,
       }, zone.groundHeight);
       playerBody = playerFig.group.getObjectByName('figure-body');
       scene.add(playerFig.group);
@@ -317,7 +360,6 @@ export default function MiddleEarthPage() {
     const keys = createKeyInput();
     keys.attach();
     detachers.push(() => keys.detach());
-    detachers.push(attachDragLook(canvas, { onLook: (dx, dy) => applyLook(walker, dx, dy) }));
 
     /* Travel beats: sequential checkpoints, then the target. */
     const cps = mission && Array.isArray(mission.checkpoints) ? mission.checkpoints : [];
@@ -342,13 +384,16 @@ export default function MiddleEarthPage() {
       }
     };
 
-    /* Combat input: a tap/click strikes with the hand in use.
-     * Drag-look shares the pointer — a press that turns into a
-     * drag still counts as one swing; the cooldowns govern pace.
+    /* Combat input: a tap strikes with the hand in use — on TAP
+     * RELEASE, through drag-look's own onTap (quick tap, small
+     * movement, short time). A press that turns into a drag is a
+     * look, never a swing: the old canvas pointerdown strike fired
+     * on every touch-down, so looking around attacked by accident.
      * The hero's own numbers drive the strike (characters.js
      * PLAYABLE); a ranged shot is loud — the zone hears it. */
     const onTap = () => {
       if (introRef.current || !hunter.alive || !zone) return;
+      setShowStrikeHint(false);
       const h = heroRef.current;
       const aim = aimYawFromWalker(walker.yaw);
       const targets = [...zone.hunt.orcs];
@@ -380,8 +425,11 @@ export default function MiddleEarthPage() {
         }
       }
     };
-    canvas.addEventListener('pointerdown', onTap);
-    detachers.push(() => canvas.removeEventListener('pointerdown', onTap));
+    strikeRef.current = onTap;
+    detachers.push(attachDragLook(canvas, {
+      onLook: (dx, dy) => applyLook(walker, dx, dy),
+      onTap: () => onTap(),
+    }));
     const onKey = (e) => {
       if (e.key === '1') setWeapon('melee');
       if (e.key === '2') setWeapon('ranged');
@@ -424,11 +472,12 @@ export default function MiddleEarthPage() {
           const d = Math.hypot(walker.pos.x - boss.x, walker.pos.z - boss.z);
           speed = 10 * (h ? h.speedMult : 1) * bossSlowFactor(boss, d);
         }
-        const jump = keys.consumeJump();
+        const jump = keys.consumeJump() || touchRef.current.jump;
+        touchRef.current.jump = false;
         stepWalker(walker, {
           fwd: keys.state.fwd + joyRef.current.y,
           strafe: keys.state.strafe + joyRef.current.x,
-          sprint: keys.state.sprint, jump,
+          sprint: keys.state.sprint || touchRef.current.sprint, jump,
         }, dt, {
           groundHeight: zone.groundHeight,
           colliders: zone.colliders,
@@ -440,19 +489,19 @@ export default function MiddleEarthPage() {
       /* THIRD-PERSON FOLLOW (the honest nearest thing): the
        * walker's first-person eye is replaced by a camera that
        * trails the hero's body — drag-look turns hero and camera
-       * together, the house chase-cam idiom. The camera rides
-       * ~5 m behind, ~1.7 m above the head, terrain-clamped so it
-       * never dives under a hill. No collision-swept shoulder cam
-       * — that is a bigger camera system, not smuggled in here. */
+       * together, the house chase-cam idiom. The pose comes from
+       * lib/world/follow-camera.js: pitch turns the view, it never
+       * dollies the camera (the old pitch-coupled height swung the
+       * framing wildly on look-drag). No collision-swept shoulder
+       * cam — that is a bigger camera system, not smuggled in here. */
       const h2 = heroRef.current;
-      const fx = -Math.sin(walker.yaw), fz = -Math.cos(walker.yaw);
       const headY = zone.groundHeight(walker.pos.x, walker.pos.z) + (h2 ? h2.height * 0.9 : 1.6);
-      let cx = walker.pos.x - fx * 5.2;
-      let cz = walker.pos.z - fz * 5.2;
-      let cy = headY + 1.7 - walker.pitch * 2.5;
-      cy = Math.max(cy, zone.groundHeight(cx, cz) + 0.6);
-      camera.position.set(cx, cy, cz);
-      camera.lookAt(walker.pos.x + fx * 4, headY - walker.pitch * 2, walker.pos.z + fz * 4);
+      const cam = followCameraPose({
+        x: walker.pos.x, z: walker.pos.z, yaw: walker.yaw, pitch: walker.pitch,
+        headY, groundHeight: zone.groundHeight,
+      });
+      camera.position.set(cam.cx, cam.cy, cam.cz);
+      camera.lookAt(cam.lookX, cam.lookY, cam.lookZ);
       if (playerFig) {
         playerFig.group.position.set(walker.pos.x, zone.groundHeight(walker.pos.x, walker.pos.z), walker.pos.z);
         playerFig.group.rotation.y = walker.yaw + Math.PI;
@@ -504,6 +553,28 @@ export default function MiddleEarthPage() {
         }
       }
 
+      /* goal compass (travel missions only): the next checkpoint,
+       * else the target — every ~15 frames, state only when the
+       * reading actually changes (5° buckets, whole metres) */
+      if (mission && !mission.hunt && senseFrameRef.current % 15 === 0) {
+        let g = null;
+        if (reached < cps.length) g = cps[reached];
+        else if (tgt) g = tgt;
+        if (g) {
+          const dx = g.x - walker.pos.x, dz = g.z - walker.pos.z;
+          const dist = Math.round(Math.hypot(dx, dz));
+          const deg = goalArrowDeg(dx, dz, walker.yaw);
+          const key = `${g.label || ''}|${dist}|${Math.round(deg / 5)}`;
+          if (key !== goalHudRef.current) {
+            goalHudRef.current = key;
+            setGoalHud({ label: g.label || 'the goal', dist, deg });
+          }
+        } else if (goalHudRef.current !== '') {
+          goalHudRef.current = '';
+          setGoalHud(null);
+        }
+      }
+
       zone.update(t, dt);
       renderer.render(scene, camera);
       raf = requestAnimationFrame(frame);
@@ -515,6 +586,7 @@ export default function MiddleEarthPage() {
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', resize);
       detachers.forEach((d) => { try { d(); } catch (e) { /* noop */ } });
+      strikeRef.current = () => {};
       try { if (playerFig) playerFig.dispose(); } catch (e) { /* noop */ }
       /* carry the hunt meter back to the campaign store */
       try {
@@ -538,6 +610,25 @@ export default function MiddleEarthPage() {
   const reticle = weapon === 'ranged'
     ? (equippedReticleForSlot(equippedEntry, 'ranged') || RETICLE_BY_CLASS[hero.ranged.kind] || 'dot')
     : (equippedReticleForSlot(equippedEntry, 'melee') || 'dot');
+
+  /* mission state line, shared by the full card and the tucked chip:
+   * kills or gates, the par clock, and the goal compass */
+  const missionStateLine = activeMission && (
+    <>
+      {activeMission.hunt
+        ? `⚔ ${beatState ? beatState.kills : 0}/${activeMission.hunt.count} orcs`
+        : `Gates ${beatState ? beatState.reached : 0}/${beatState ? beatState.total : 0}`}
+      {activeMission.par ? ` · ⏱ ${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, '0')} / par ${Math.floor(activeMission.par / 60)}:${String(activeMission.par % 60).padStart(2, '0')}` : ''}
+      {goalHud ? (<> · 🧭 {goalHud.label} {goalHud.dist}m <span style={{ display: 'inline-block', transform: `rotate(${goalHud.deg}deg)` }}>↑</span></>) : null}
+    </>
+  );
+  /* hunt pill clearance: below the open mission card, below the
+   * tucked chip, in its old spot when no mission is active */
+  const huntTop = activeMission
+    ? (missionHudCollapsed
+      ? 'max(10.2rem, calc(env(safe-area-inset-top) + 9.7rem))'
+      : 'max(13.4rem, calc(env(safe-area-inset-top) + 12.9rem))')
+    : styles.huntChip.top;
 
   return (
     <div style={styles.root}>
@@ -700,9 +791,12 @@ export default function MiddleEarthPage() {
             </div>
           </div>
 
-          {/* the hunt meter: readable danger, always visible */}
+          {/* the hunt meter: readable danger, always visible.
+              It sits below the mission card when the card is open,
+              and below the tucked chip when it is not — never
+              half-hidden behind either. */}
           {huntHud && (
-            <div style={styles.huntChip}>
+            <div style={{ ...styles.huntChip, top: huntTop }}>
               🔥 The hunt: {huntHud.level} · {huntHud.heat}
               {senseHud ? <span style={styles.senseText}> · {senseHud}</span> : null}
             </div>
@@ -720,16 +814,17 @@ export default function MiddleEarthPage() {
           )}
 
           {activeMission && !intro && !beatOverlay && (
-            <div style={styles.missionHud}>
-              <div style={styles.missionHudTitle}>🎯 {activeMission.title}</div>
-              <div style={styles.missionHudObj}>{activeMission.objective}</div>
-              <div style={styles.missionHudState}>
-                {activeMission.hunt
-                  ? `⚔ ${beatState ? beatState.kills : 0}/${activeMission.hunt.count} orcs`
-                  : `Gates ${beatState ? beatState.reached : 0}/${beatState ? beatState.total : 0}`}
-                {activeMission.par ? ` · ⏱ ${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, '0')} / par ${Math.floor(activeMission.par / 60)}:${String(activeMission.par % 60).padStart(2, '0')}` : ''}
+            missionHudCollapsed ? (
+              <button style={styles.missionChip} onClick={expandMissionHud} title="Tap to open the mission card">
+                🎯 {activeMission.title} · {missionStateLine}
+              </button>
+            ) : (
+              <div style={{ ...styles.missionHud, cursor: 'pointer' }} onClick={() => setMissionHudCollapsed(true)} title="Tap to tuck away">
+                <div style={styles.missionHudTitle}>🎯 {activeMission.title} <span style={{ fontSize: '0.8rem' }}>▾</span></div>
+                <div style={styles.missionHudObj}>{activeMission.objective}</div>
+                <div style={styles.missionHudState}>{missionStateLine}</div>
               </div>
-            </div>
+            )
           )}
 
           {bossHud && bossHud.state !== 'ready' && (
@@ -763,7 +858,39 @@ export default function MiddleEarthPage() {
             <BackpackHud realm="middle-earth" realmLabel="Middle-earth" combatApplies />
           </div>
 
-          <WalkJoystick onChange={onJoy} />
+          {/* touch actions: the right-thumb column — strike, jump,
+              sprint — parked mid-right, clear of the weapon bar
+              below it and the top bar above it */}
+          {!intro && !fallen && (
+            <div style={styles.actionCol}>
+              <button style={styles.strikeBtn} onClick={() => strikeRef.current()} aria-label="Strike">
+                ⚔<span style={styles.strikeLabel}>Strike</span>
+              </button>
+              <button style={styles.actionBtn}
+                onPointerDown={() => { touchRef.current.jump = true; }}
+                aria-label="Jump">
+                ⤒<span style={styles.actionLabel}>Jump</span>
+              </button>
+              <button style={{ ...styles.actionBtn, ...(sprintHeld ? styles.actionBtnOn : null) }}
+                onPointerDown={() => { touchRef.current.sprint = true; setSprintHeld(true); }}
+                onPointerUp={() => { touchRef.current.sprint = false; setSprintHeld(false); }}
+                onPointerLeave={() => { touchRef.current.sprint = false; setSprintHeld(false); }}
+                onPointerCancel={() => { touchRef.current.sprint = false; setSprintHeld(false); }}
+                aria-label="Sprint">
+                »<span style={styles.actionLabel}>Sprint</span>
+              </button>
+            </div>
+          )}
+
+          {showStrikeHint && !intro && !fallen && (
+            <div style={styles.strikeHint}>Tap the world to strike · drag to look · left stick to walk</div>
+          )}
+
+          {/* the move stick, parked bottom-left in thumb reach —
+              never again bare in flow under the Map button */}
+          <div style={styles.stickWrap}>
+            <WalkJoystick onMove={onJoy} size={120} />
+          </div>
         </>
       )}
 
@@ -842,8 +969,8 @@ const styles = {
   ghostBtn: { background: 'rgba(16,20,12,0.75)', color: '#f0e6c8', border: `1px solid ${GOLD}`, borderRadius: 8, padding: '0.4rem 0.8rem', cursor: 'pointer', fontFamily: 'Georgia, serif' },
   ghostBtnBlock: { display: 'block', margin: '0.7rem auto 0', background: 'none', border: 'none', color: '#cfc49c', cursor: 'pointer', fontFamily: 'Georgia, serif', textDecoration: 'underline' },
   mapWrap: { position: 'absolute', inset: 0, overflowY: 'auto', padding: `calc(${BANNER_CLEAR}) 1rem calc(${CARD_CLEAR})`, background: 'radial-gradient(ellipse at 50% 30%, #243118 0%, #10130c 70%)', zIndex: 20 },
-  mapHead: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', maxWidth: 880, margin: '0 auto 1rem' },
-  mapTitle: { fontSize: '1.35rem', color: '#f5ecc9' },
+  mapHead: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', maxWidth: 880, margin: '0 auto 1rem' },
+  mapTitle: { flex: '1 1 auto', minWidth: 0, textAlign: 'center', fontSize: '1.15rem', color: '#f5ecc9', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
   campaignCard: { maxWidth: 880, margin: '0 auto 1rem', background: 'rgba(22,28,16,0.92)', border: `1px solid ${GOLD}`, borderRadius: 14, padding: '1rem 1.2rem' },
   campaignTitle: { fontSize: '1.05rem', color: '#f5ecc9', marginBottom: '0.5rem' },
   campaignPods: { display: 'flex', flexWrap: 'wrap', gap: '0.4rem 1rem', color: '#cfc49c', fontSize: '0.9rem' },
@@ -885,6 +1012,7 @@ const styles = {
   missionHudTitle: { color: '#f5ecc9', fontSize: '0.98rem' },
   missionHudObj: { color: '#cfc49c', fontSize: '0.85rem' },
   missionHudState: { color: GOLD, fontSize: '0.85rem', marginTop: '0.15rem' },
+  missionChip: { position: 'absolute', top: 'max(6.2rem, calc(env(safe-area-inset-top) + 5.7rem))', left: '50%', transform: 'translateX(-50%)', background: 'rgba(16,20,12,0.82)', border: '1px solid rgba(216,178,92,0.55)', borderRadius: 12, padding: '0.45rem 0.9rem', textAlign: 'center', zIndex: 9, maxWidth: 'calc(100% - 2rem)', color: '#f5ecc9', fontSize: '0.88rem', fontFamily: 'Georgia, serif', cursor: 'pointer', lineHeight: 1.45 },
   bossBar: { position: 'absolute', bottom: 'max(6rem, calc(env(safe-area-inset-bottom) + 5.5rem))', left: '50%', transform: 'translateX(-50%)', width: 'min(520px, calc(100% - 2rem))', zIndex: 9, textAlign: 'center' },
   bossName: { letterSpacing: '0.22em', fontSize: '0.8rem', color: '#dfe9ff', textShadow: '0 1px 4px rgba(0,0,0,0.9)', marginBottom: '0.3rem' },
   bossOuter: { height: 12, background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(191,216,255,0.6)', borderRadius: 6, overflow: 'hidden' },
@@ -897,5 +1025,16 @@ const styles = {
   weaponBtn: { background: 'rgba(16,20,12,0.8)', color: '#cfc49c', border: '1px solid rgba(216,178,92,0.5)', borderRadius: 999, padding: '0.45rem 0.9rem', cursor: 'pointer', fontFamily: 'Georgia, serif', fontSize: '0.9rem' },
   weaponBtnOn: { background: GOLD, color: '#221a08', border: `1px solid ${GOLD}` },
   killsChip: { background: 'rgba(16,20,12,0.8)', border: '1px solid rgba(216,178,92,0.4)', borderRadius: 999, padding: '0.45rem 0.75rem', fontSize: '0.9rem', color: '#e8d9a8' },
+  /* touch controls: the stick bottom-left, the action column
+   * mid-right, the hint above the stick — each its own cluster,
+   * none of them on top of another control */
+  stickWrap: { position: 'absolute', left: '0.8rem', bottom: BOTTOM_CLEAR, zIndex: 10 },
+  actionCol: { position: 'absolute', right: '0.8rem', top: '50%', transform: 'translateY(-50%)', display: 'flex', flexDirection: 'column', gap: '0.6rem', zIndex: 10, alignItems: 'center' },
+  strikeBtn: { width: 64, height: 64, borderRadius: '50%', background: 'rgba(216,178,92,0.92)', color: '#221a08', border: `1px solid ${GOLD}`, fontSize: '1.4rem', cursor: 'pointer', fontFamily: 'Georgia, serif', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', lineHeight: 1 },
+  strikeLabel: { fontSize: '0.6rem', marginTop: '0.1rem' },
+  actionBtn: { width: 52, height: 52, borderRadius: '50%', background: 'rgba(16,20,12,0.8)', color: '#f0e6c8', border: '1px solid rgba(216,178,92,0.5)', fontSize: '1.1rem', cursor: 'pointer', fontFamily: 'Georgia, serif', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', lineHeight: 1 },
+  actionBtnOn: { background: GOLD, color: '#221a08' },
+  actionLabel: { fontSize: '0.55rem', marginTop: '0.1rem' },
+  strikeHint: { position: 'absolute', left: '0.8rem', bottom: 'max(9.8rem, calc(env(safe-area-inset-bottom) + 9.3rem))', zIndex: 9, color: '#f5ecc9', background: 'rgba(16,20,12,0.75)', border: '1px solid rgba(216,178,92,0.5)', borderRadius: 999, padding: '0.3rem 0.8rem', fontSize: '0.82rem', pointerEvents: 'none', maxWidth: 'calc(100% - 2rem)' },
   toast: { position: 'absolute', bottom: 'max(10rem, calc(env(safe-area-inset-bottom) + 9.5rem))', left: '50%', transform: 'translateX(-50%)', background: 'rgba(16,20,12,0.92)', border: `1px solid ${GOLD}`, color: '#f5ecc9', borderRadius: 10, padding: '0.6rem 1rem', zIndex: 40, maxWidth: 'calc(100% - 2rem)', textAlign: 'center', animation: 'meFade 0.3s ease' },
 };

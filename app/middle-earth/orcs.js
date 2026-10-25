@@ -554,10 +554,27 @@ export function buildOrcFigure(R, orc) {
   g.add(slot);
   attachOrcModel(R, slot, orc.kind, () => { body.visible = false; });
 
+  /* The hunt marker (Middle-earth fix, 2026-10-25): a small, faint
+   * red diamond floating above a live orc. A ~1.8 m dark figure at
+   * ~95 m is only a few pixels tall on a phone screen, so distant
+   * orcs read as empty ground even though they render fine. The
+   * marker is fog-proof and small — a readability aid only: it
+   * changes no spawn, ecology, or hunt rule, and it hides once the
+   * orc is close enough to see (25 m) or dead. */
+  const marker = new R.Mesh(
+    new R.OctahedronGeometry(0.55),
+    new R.MeshBasicMaterial({ color: 0xff5540, transparent: true, opacity: 0.55, fog: false, depthWrite: false })
+  );
+  marker.name = 'orc-hunt-marker';
+  marker.position.y = 2.5;
+  g.add(marker);
+
   /* Render state -> mesh: fall + fade on death, a hit flash,
    * a lurch when it swings (the page reports swing events). */
   let swingAnim = 0;
-  function update(t, dt) {
+  function update(t, dt, dist) {
+    marker.visible = orc.state !== 'dead' && (dist == null || dist > 25);
+    marker.position.y = 2.5 + Math.sin(t * 2.1 + orc.home.x) * 0.08;
     if (orc.flashT > 0) {
       const f = Math.min(1, orc.flashT / 0.18);
       for (const m of mats) { if (m.emissive) m.emissive.setRGB(0.5 * f, 0.08 * f, 0.05 * f); }

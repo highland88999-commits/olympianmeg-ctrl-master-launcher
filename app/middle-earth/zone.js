@@ -741,7 +741,9 @@ export function buildZone(THREE, podDef, T, opts) {
           fig.group.userData.groundY = fig.group.position.y;
           fig.group.rotation.y = orc.yaw;
         }
-        fig.update(t, dt);
+        /* the figure gets its true distance so the hunt marker
+         * can hide once the orc is close enough to see */
+        fig.update(t, dt, Math.hypot(orc.x - player.x, orc.z - player.z));
         if (orc.state === 'dead' && orc.deathT > 2.6) deadToRemove.push(orc);
       }
     }

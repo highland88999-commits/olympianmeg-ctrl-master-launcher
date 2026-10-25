@@ -223,9 +223,18 @@ export function buildFigure(R, def, groundHeight) {
     body.position.y = Math.sin(t * (creature ? 0.7 : 1.35) + phase) * (creature ? 0.02 : 0.012);
     body.rotation.y = Math.sin(t * 0.23 + phase * 1.3) * (creature ? 0.05 : 0.13);
     if (arrived) {
-      const op = labelOpacity(dist);
-      label.material.opacity = op;
-      label.visible = op > 0.02;
+      /* The player's own tag never shows (hideLabel): the follow
+       * camera sits a fixed 5.2 m behind, inside the label law's
+       * fade ramp, so the own tag used to float over the header
+       * forever. You cannot read your own name tag — it is hidden,
+       * and every other figure keeps the shared law. */
+      if (d.hideLabel) {
+        label.visible = false;
+      } else {
+        const op = labelOpacity(dist);
+        label.material.opacity = op;
+        label.visible = op > 0.02;
+      }
     }
   }
 
