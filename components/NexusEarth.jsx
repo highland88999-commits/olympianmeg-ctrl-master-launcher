@@ -7,6 +7,7 @@ import ProceduralEarthGlobe from '@/components/ProceduralEarthGlobe';
 import EarthAssets from '@/components/EarthAssets';
 import EarthWalker from '@/components/EarthWalker';
 import EarthLadders from '@/components/EarthLadders';
+import RedwaterMount from '@/components/earth/RedwaterMount';
 import MonumentElevator from '@/components/MonumentElevator';
 import EarthBike from '@/components/EarthBike';
 import StreetGroundPatch, { StreetFillLight, MicroGroundDisc } from '@/components/StreetGroundPatch';
@@ -79,7 +80,7 @@ const SHELL_CAMERA_MIN_DIST = 57.5;
 // arriving inside the tile, not as the world blinking out.
 const DEEP_MICRO_SCALE = 0.05;
 
-export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRef, focus, phase, spinEnabled, controls }) {
+export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRef, focus, phase, spinEnabled, controls, onTeleportNYC }) {
   const spinRef = useRef();
   const sheetsRef = useRef([]); // [{ key, mesh }] — mirror of lensSheets for frame-loop access
   const roamCenterRef = useRef(null);
@@ -335,6 +336,11 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
         {effectiveLayer === 'terrain' && <EarthWalker />}
         {/* Climbable ladders on structures, monument elevators — street only, not in micro */}
         {effectiveLayer === 'terrain' && roaming && !microMode && <EarthLadders visible={roaming} />}
+        {/* The Redwater quicksand journey: proximity-gated to the
+            pit near Redwater, Alberta — same street gate as the
+            ladders. The NYC portal drops into /mega-city via
+            onTeleportNYC (HomeScene). */}
+        {effectiveLayer === 'terrain' && roaming && !microMode && <RedwaterMount onTeleportNYC={onTeleportNYC} />}
         {effectiveLayer === 'terrain' && roaming && !microMode && <MonumentElevator visible={roaming} />}
         {/* Summonable TRON bike — street only */}
         {effectiveLayer === 'terrain' && roaming && <EarthBike controls={controls} />}

@@ -3,6 +3,8 @@
 //
 // Merlin's rules (2026-10-17), enforced server-side:
 //   * GLOBAL CAP: only 5 gold bar collects, ever, across all users.
+//   * CAP SCOPE (Merlin, 2026-10-24): the 5-cap gates the gold bars ONLY.
+//     Post-cap completers still earn the achievement and the sniper.
 //   * EXEMPT: olympiannexus@gmail.com and olympianmeg@gmail.com can never collect.
 //   * Every completer earns the 'redwater-core-diver' achievement (server-granted,
 //     like cloud-phone-pioneer — NOT in CLIENT_GRANTABLE).
@@ -25,13 +27,18 @@ const ACHIEVEMENT_KEY = 'redwater-core-diver';
 const SNIPER_ASSET = {
   name: 'Diamond-Crusted Sniper',
   category: 'weapon',
-  asset_url: 'procedural_generation',
+  // The Tripo crystal sniper (Merlin, 2026-10-24): the optimized
+  // GLB is the visual for the claim — the same claim, cap, and
+  // exemptions as before, now pointing at a real model instead of
+  // the procedural placeholder.
+  asset_url: '/models/weapons/crystal-sniper-rifle.glb',
   generation_params: {
     weaponType: 'precision',
     finish: 'diamond_crusted',
     ammo: 'diamond_bullets',
     rarity: 'rare',
     source: 'redwater-core',
+    model: '/models/weapons/crystal-sniper-rifle.glb',
     description:
       'Rare diamond-crusted precision sniper with diamond bullets. Awarded for completing the Redwater journey to the center of the earth.',
   },
@@ -55,11 +62,16 @@ export const POST = apiGuard(async function POST(req) {
   });
   if (claimErr) throw claimErr;
   const claim = Array.isArray(claimRows) ? claimRows[0] : claimRows;
+  // Cap-scope correction (Merlin, 2026-10-24): 'exhausted' falls through to
+  // the grants below — the cap gates the gold bars only. Every other denial
+  // still returns here.
+  const reason = claim?.reason || 'denied';
   if (!claim || !claim.success) {
-    const reason = claim?.reason || 'denied';
-    const status = reason === 'exhausted' ? 410 : 403;
-    return Response.json({ ok: false, collected: false, reason }, { status });
+    if (reason !== 'exhausted') {
+      return Response.json({ ok: false, collected: false, reason }, { status: 403 });
+    }
   }
+  const collected = Boolean(claim && claim.success);
 
   // Achievement: server-granted, idempotent via unique(user_id, key).
   const def = getAchievement(ACHIEVEMENT_KEY);
@@ -106,7 +118,8 @@ export const POST = apiGuard(async function POST(req) {
 
   return Response.json({
     ok: true,
-    collected: true,
+    collected,
+    ...(collected ? {} : { reason }),
     portal: true,
     achievement,
     sniper,

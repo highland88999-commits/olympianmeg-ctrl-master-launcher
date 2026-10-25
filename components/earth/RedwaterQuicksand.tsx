@@ -24,9 +24,12 @@ import { fx } from '@/lib/fx';
 import AchievementBanner from '@/components/achievements/AchievementBanner';
 
 // ---------------------------------------------------------------- constants
-const PIT = { x: 100, z: -50, r: 3 };       // the ONE quicksand pit in Redwater
+// PIT is exported: the NexusEarth mount (RedwaterMount) maps the
+// walker's lat/lon into this local frame, so the trigger radius
+// and the pit position stay single-sourced here.
+export const PIT = { x: 100, z: -50, r: 3 };       // the ONE quicksand pit in Redwater
 const SINK_DEPTH = 100;                      // metres of slow quicksand sink
-const CORE_DEPTH = 2000;                     // metres down: the Earth's core
+export const CORE_DEPTH = 2000;              // metres down: the Earth's core (the mount's core camera reads it)
 const QUICKSAND_VIDEO = '/media/quicksand_texture.mp4';
 const CLAIM_URL = '/api/redwater/claim';
 const ACHIEVEMENT_KEY = 'redwater-core-diver';
@@ -120,7 +123,7 @@ function makeGemTexture(seed, hue) {
 
 const GEM_HUES = [0, 45, 120, 180, 210, 280, 320, 160]; // ruby, gold, emerald, aqua, sapphire, amethyst, rose, jade
 
-export default function RedwaterQuicksand({ playerPosition, onTeleportNYC }) {
+export default function RedwaterQuicksand({ playerPosition, onTeleportNYC, onPhaseChange, worldScale = 1 }) {
   const { camera } = useThree();
   const [phase, setPhase] = useState('surface'); // surface | quicksand | descent | core
   const [depth, setDepth] = useState(0);          // metres below the pit
@@ -129,6 +132,16 @@ export default function RedwaterQuicksand({ playerPosition, onTeleportNYC }) {
   const [showAchievement, setShowAchievement] = useState(false);
   const sandTexRef = useRef(null);
   const claimedRef = useRef(false);
+
+  // Mount bridges (NexusEarth): report phase changes so the hub
+  // can stand its street camera rig down while the journey owns
+  // the lens, and scale the journey's own camera nudges into the
+  // hub's display units (worldScale = DISPLAY_UNITS_PER_METRE
+  // there; 1 in a metre-scale scene). Both props are optional —
+  // standalone mounts behave exactly as before.
+  useEffect(() => {
+    onPhaseChange?.(phase);
+  }, [phase, onPhaseChange]);
 
   // Unique wraps for the tunnel walls + gems (built once).
   const wraps = useMemo(() => {
@@ -220,9 +233,9 @@ export default function RedwaterQuicksand({ playerPosition, onTeleportNYC }) {
     if (phase === 'quicksand') {
       // Slow compact sand rising past the camera = sinking slowly.
       if (sandTexRef.current) sandTexRef.current.offset.y += d * 0.55;
-      const shake = Math.sin(state.clock.elapsedTime * 14) * 0.06;
+      const shake = Math.sin(state.clock.elapsedTime * 14) * 0.06 * worldScale;
       camera.position.x += shake;
-      camera.position.y -= d * 0.35;
+      camera.position.y -= d * 0.35 * worldScale;
       setDepth((prev) => {
         const next = prev + d * 12; // ~8s to sink 100m
         if (next >= SINK_DEPTH) { setPhase('descent'); try { fx.playAudio('cavern_drop'); } catch { /* silent */ } }
@@ -233,7 +246,7 @@ export default function RedwaterQuicksand({ playerPosition, onTeleportNYC }) {
 
     if (phase === 'descent') {
       if (sandTexRef.current) sandTexRef.current.offset.y += d * 0.12;
-      const shake = Math.sin(state.clock.elapsedTime * 22) * 0.09;
+      const shake = Math.sin(state.clock.elapsedTime * 22) * 0.09 * worldScale;
       camera.position.x += shake;
       setDepth((prev) => {
         const next = prev + d * 160; // fast fall down the 2km tunnel
@@ -398,6 +411,9 @@ export default function RedwaterQuicksand({ playerPosition, onTeleportNYC }) {
                 </mesh>
               ))}
 
+              {/* The claim prize on display beside the bars. */}
+              <CoreSniperDisplay />
+
               {/* HUD hint */}
               {!claim && !claiming && (
                 <mesh position={[0, -10.5, 0]}>
@@ -452,9 +468,75 @@ export default function RedwaterQuicksand({ playerPosition, onTeleportNYC }) {
   );
 }
 
+// The claim prize, on display at the core: the optimized Tripo
+// crystal sniper, stood upright on the plinth beside the gold bars
+// and turning slowly. Loaded with the repo's GLTFLoader +
+// MeshoptDecoder pattern (the optimized GLB is meshopt-compressed);
+// a failed load simply shows nothing — the journey and the claim
+// never depend on the model. Native model space, measured from the
+// optimized GLB: ~0.98 m long on X, 0.32 m tall on Y, base at Y=0 —
+// so a +90° Z rotation stands it up, a +0.489 Y offset plants its
+// butt on the plinth top, and a +0.16 X offset centers it on the
+// turntable axis.
+const SNIPER_MODEL_URL = '/models/weapons/crystal-sniper-rifle.glb';
+const SNIPER_HALF_LENGTH_M = 0.489;
+const SNIPER_CENTER_OFFSET_M = 0.16;
+
+function CoreSniperDisplay() {
+  const spinRef = useRef(null);
+  const [scene, setScene] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    let loaded = null;
+    (async () => {
+      try {
+        const [{ GLTFLoader }, { MeshoptDecoder }] = await Promise.all([
+          import('three/examples/jsm/loaders/GLTFLoader.js'),
+          import('three/examples/jsm/libs/meshopt_decoder.module.js'),
+        ]);
+        const loader = new GLTFLoader();
+        loader.setMeshoptDecoder(MeshoptDecoder);
+        const gltf = await loader.loadAsync(SNIPER_MODEL_URL);
+        if (!alive) return;
+        loaded = gltf.scene;
+        setScene(loaded);
+      } catch {
+        // No sniper on display — the journey and the claim stand.
+      }
+    })();
+    return () => {
+      alive = false;
+      if (loaded) {
+        loaded.traverse((obj) => {
+          if (obj.geometry) obj.geometry.dispose();
+          const mats = Array.isArray(obj.material) ? obj.material : obj.material ? [obj.material] : [];
+          for (const m of mats) {
+            for (const v of Object.values(m)) {
+              if (v && v.isTexture) v.dispose();
+            }
+            m.dispose();
+          }
+        });
+      }
+    };
+  }, []);
+  useFrame((state, delta) => {
+    if (spinRef.current) spinRef.current.rotation.y += delta * 0.4;
+  });
+  if (!scene) return null;
+  return (
+    <group ref={spinRef} position={[3.4, -13.9, 0]}>
+      <primitive
+        object={scene}
+        rotation={[0, 0, Math.PI / 2]}
+        position={[SNIPER_CENTER_OFFSET_M, SNIPER_HALF_LENGTH_M, 0]}
+      />
+    </group>
+  );
+}
+
 // Minimal DOM overlay inside the R3F tree without pulling drei in.
-function HtmlOverlay({ children }) {
-  const { gl } = useThree();
+function HtmlOverlay({ children }) {  const { gl } = useThree();
   const [el] = useState(() => document.createElement('div'));
   useEffect(() => {
     const parent = gl.domElement.parentElement;

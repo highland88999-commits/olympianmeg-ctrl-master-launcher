@@ -258,16 +258,23 @@ export default function EarthFlightController({
       }
       if (!roamState.moving) roamState.faceDeg = roamState.yawDeg;
 
-      const { rig, camPos, look, up } = streetRigWorld();
-      camera.position.lerp(camPos, 1 - Math.exp(-20 * delta));
-      camera.quaternion.copy(lookAtQuat(camera.position, look, up));
-      tuneNear(Math.hypot(
-        rig.camPos.x - rig.ground.x,
-        rig.camPos.y - rig.ground.y,
-        rig.camPos.z - rig.ground.z,
-      ) * parachuteState.scale);
-      camera.fov = THREE.MathUtils.lerp(camera.fov, 55, delta * 2);
-      camera.updateProjectionMatrix();
+      // The Redwater journey owns the lens while journeyActive
+      // (RedwaterMount): the street camera block stands down so
+      // it never fights the journey's sink/descent/core shots —
+      // but the walk stepping above keeps running, so the walker
+      // can still reach the core's NYC portal on foot.
+      if (!roamState.journeyActive) {
+        const { rig, camPos, look, up } = streetRigWorld();
+        camera.position.lerp(camPos, 1 - Math.exp(-20 * delta));
+        camera.quaternion.copy(lookAtQuat(camera.position, look, up));
+        tuneNear(Math.hypot(
+          rig.camPos.x - rig.ground.x,
+          rig.camPos.y - rig.ground.y,
+          rig.camPos.z - rig.ground.z,
+        ) * parachuteState.scale);
+        camera.fov = THREE.MathUtils.lerp(camera.fov, 55, delta * 2);
+        camera.updateProjectionMatrix();
+      }
     } else if (launchState === 'earth_surface') {
       // Glide to the overlook when we are not there (arriving from
       // street level on ascend, or settling the dive's last
@@ -320,7 +327,11 @@ export default function EarthFlightController({
     // (the Christ the Redeemer shake). While a ladder/elevator climb is
     // active the authored climb path owns altitude, so the clamp stands
     // down entirely.
-    if ((launchState === 'diving_to_street' || launchState === 'earth_roam') && getClimbAltM() <= 0.05 && getInteriorAltM() <= 0.05) {
+    // The Redwater journey's core sits ~4,000 display metres
+    // below the surface — under every floor this clamp knows.
+    // While the journey owns the lens the clamp stands down
+    // entirely, or it would eject the core camera to the surface.
+    if ((launchState === 'diving_to_street' || launchState === 'earth_roam') && !roamState.journeyActive && getClimbAltM() <= 0.05 && getInteriorAltM() <= 0.05) {
       const camPos = camera.position;
       // Earth center in world space
       const ex = 0, ey = -60, ez = -120;

@@ -936,6 +936,7 @@ function HubScene({
             phase={appState}
             spinEnabled={appState === 'hub_intro' || appState === 'hub_freeroam'}
             controls={controlsRef}
+            onTeleportNYC={() => router.push('/mega-city')}
           />
           <QuantumGate>
             <MarsBackground onSelect={appState === 'hub_freeroam' ? beginMarsDive : null} />
