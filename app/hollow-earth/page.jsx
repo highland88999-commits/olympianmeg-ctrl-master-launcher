@@ -84,12 +84,11 @@ export default function HollowEarthPage() {
   // The world effect mounts once per entry; campaign state keeps
   // moving under it (kills land mid-session), so the gate checks
   // read through this ref instead of the stale mount closure.
-  const campaignRef = useRef(campaign);
-  campaignRef.current = campaign;
-
   const [mode, setMode] = useState('menu');
   const [progress, setProgress] = useState(readProgress);
   const [campaign, setCampaign] = useState(readCampaign);
+  const campaignRef = useRef(campaign);
+  campaignRef.current = campaign;
   const [heroKey, setHeroKey] = useState(() => readProgress().hero);
   const [clusterId, setClusterId] = useState(null);
   const [entry, setEntry] = useState(null); // {kind:'mission',missionId} | {kind:'roam'}
