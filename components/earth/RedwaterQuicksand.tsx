@@ -512,7 +512,10 @@ function CoreSniperDisplay() {
           const mats = Array.isArray(obj.material) ? obj.material : obj.material ? [obj.material] : [];
           for (const m of mats) {
             for (const v of Object.values(m)) {
-              if (v && v.isTexture) v.dispose();
+              // Object.values yields unknown under this tsconfig — narrow
+              // before touching isTexture, or the Next type check fails.
+              const tex = v as { isTexture?: boolean; dispose?: () => void } | null;
+              if (tex?.isTexture) tex.dispose?.();
             }
             m.dispose();
           }
