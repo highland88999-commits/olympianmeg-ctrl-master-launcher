@@ -30,10 +30,11 @@ test('mode contract: 3 clusters, 2–3 missions each, every mission has an objec
   }
 });
 
-test('intro panel: gold title, elemental orbs for all six elements', () => {
+test('intro panel: gold title, elemental orbs for all seven elements', () => {
   assert.equal(INTRO.title, 'OLYMPIAN MONSTERVERSE');
-  assert.equal(INTRO.orbs.length, 6);
+  assert.equal(INTRO.orbs.length, 7);
   for (const o of INTRO.orbs) assert.ok(o.element && o.color);
+  assert.ok(INTRO.orbs.some((o) => o.element === 'frost'), 'no frost orb');
 });
 
 test('hero persistence: default is the Monster Hunter, setHero validates', () => {

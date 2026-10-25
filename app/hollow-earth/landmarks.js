@@ -9,7 +9,7 @@
 
 export const LANDMARK_TYPES = [
   'ooze-pool', 'ember-spire', 'storm-pylon', 'mire-arch',
-  'gloom-monolith', 'wreck-hulk', 'peak-shrine',
+  'gloom-monolith', 'wreck-hulk', 'peak-shrine', 'frost-spire',
   'korus-throne', 'intro-arch', 'haven',
 ];
 
@@ -71,6 +71,14 @@ export function buildLandmark(type, R, T = {}) {
     M(new R.CylinderGeometry(1.5, 3.5, 2, 7), mat(0x6e6e78), 0, 1, 0);
     M(new R.CylinderGeometry(0.8, 2.2, 3, 6), mat(0x7a7a82), 0, 3, 0);
     M(new R.ConeGeometry(0.7, 4.5, 4), mat(0xd8d8e0, { emissive: 0x888899, emissiveIntensity: 0.4 }), 0, 6.5, 0);
+  } else if (type === 'frost-spire') {
+    // The Frozen Reaches marker: a pale ice crystal spire on a
+    // frost base — the yeti's band, visible from the wastes.
+    colliderR = 3;
+    M(new R.CylinderGeometry(2.6, 3, 0.8, 7), mat(0x8aa0b0), 0, 0.4, 0);
+    M(new R.ConeGeometry(1.2, 8, 6), mat(0x9fd8e8, { emissive: 0x4a7a8a, emissiveIntensity: 0.7 }), 0, 5, 0);
+    M(new R.ConeGeometry(0.6, 4, 5), mat(0xe8f4f8, { emissive: 0x9fd8e8, emissiveIntensity: 0.5 }), 1.4, 3, 0.8);
+    M(new R.ConeGeometry(0.6, 4, 5), mat(0xe8f4f8, { emissive: 0x9fd8e8, emissiveIntensity: 0.5 }), -1.4, 3, -0.8);
   } else if (type === 'korus-throne') {
     // The boss seat: a colossal dark throne under a storm arch.
     // Korus himself is a monster figure (spawns.js), not stone.

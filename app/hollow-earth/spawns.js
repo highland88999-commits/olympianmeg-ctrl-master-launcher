@@ -8,10 +8,20 @@
 // builder swaps the stand-in for the GLB with no code change —
 // the footprint and collider contract does not move.
 //
+// MONSTER-FIRST (Merlin, 2026-10-25): the type table is BUILT
+// from families.js — one family per unique monster slot, each
+// with its own element, attitude, habitat, stats and archetype.
+// The world spawns families in their habitat bands; the bands
+// exist because the roster lives in them, not the other way
+// round. Dragons keep their specced seats (see below).
+//
 // ATTITUDES (Merlin's words: scary, vicious, fast — varied):
 // stalkers circle and close in, chargers burst from range,
 // ambushers lie still until the hunter is close, then explode.
 // Temperament tags (0..1) ride each type for HUD/voice later.
+
+import { MONSTER_FAMILIES, FAMILIES_BY_HABITAT } from './families.js';
+import { BIOMES } from './biomes.js';
 
 export function mulberry32(seed) {
   let a = seed >>> 0;
@@ -23,7 +33,7 @@ export function mulberry32(seed) {
   };
 }
 
-export const ELEMENTS = ['acid', 'fire', 'lightning', 'poison', 'shadow', 'sand'];
+export const ELEMENTS = ['acid', 'fire', 'lightning', 'poison', 'shadow', 'sand', 'frost'];
 
 export const ATTITUDES = ['stalk', 'charge', 'ambush'];
 
@@ -34,25 +44,26 @@ export const DEACTIVATE_R = 135;
 export const RESPAWN_S = 45;
 export const PLAYER_MAX_HP = 100;
 
-/* Twelve types, two per element. HP BAND RULE (Merlin, 2026-10-24):
- * every regular monster sits between 100 and 200 HP — bigger
- * brutes near 200, skirmishers near 100. dmg/speed are the combat
- * contract the page's strike code and the boss gate both read.
- * Every entry also carries ONE primary attack archetype (see
- * ARCHETYPES): ranged, environmental, melee, short-range. */
-export const MONSTER_TYPES = {
-  'ooze-maw': { element: 'acid', attitude: 'ambush', archetype: 'environmental', hp: 140, dmg: 10, speed: 3.2, scaleM: 2.2, footprintR: 1.6, temperament: { scary: 0.8, vicious: 0.7, fast: 0.3 } },
-  'acid-spitter': { element: 'acid', attitude: 'stalk', archetype: 'ranged', hp: 100, dmg: 12, speed: 3.6, scaleM: 1.8, footprintR: 1.2, temperament: { scary: 0.6, vicious: 0.8, fast: 0.5 } },
-  'ember-beast': { element: 'fire', attitude: 'charge', archetype: 'melee', hp: 170, dmg: 14, speed: 4.6, scaleM: 2.6, footprintR: 1.8, temperament: { scary: 0.7, vicious: 0.9, fast: 0.7 } },
-  'magma-wurm': { element: 'fire', attitude: 'ambush', archetype: 'environmental', hp: 200, dmg: 16, speed: 2.8, scaleM: 3.4, footprintR: 2.2, temperament: { scary: 0.9, vicious: 0.8, fast: 0.2 } },
-  'storm-stalker': { element: 'lightning', attitude: 'stalk', archetype: 'short-range', hp: 120, dmg: 13, speed: 5.4, scaleM: 2.0, footprintR: 1.4, temperament: { scary: 0.8, vicious: 0.7, fast: 0.9 } },
-  'volt-hound': { element: 'lightning', attitude: 'charge', archetype: 'melee', hp: 110, dmg: 11, speed: 5.8, scaleM: 1.7, footprintR: 1.2, temperament: { scary: 0.5, vicious: 0.8, fast: 1.0 } },
-  'mire-lurker': { element: 'poison', attitude: 'ambush', archetype: 'environmental', hp: 130, dmg: 12, speed: 3.0, scaleM: 2.1, footprintR: 1.5, temperament: { scary: 0.9, vicious: 0.6, fast: 0.3 } },
-  'spore-beast': { element: 'poison', attitude: 'stalk', archetype: 'ranged', hp: 150, dmg: 9, speed: 3.4, scaleM: 2.4, footprintR: 1.7, temperament: { scary: 0.6, vicious: 0.5, fast: 0.4 } },
-  'gloom-reaper': { element: 'shadow', attitude: 'stalk', archetype: 'melee', hp: 190, dmg: 18, speed: 4.2, scaleM: 2.8, footprintR: 1.8, temperament: { scary: 1.0, vicious: 0.9, fast: 0.6 } },
-  'smoke-wraith': { element: 'shadow', attitude: 'ambush', archetype: 'short-range', hp: 100, dmg: 15, speed: 5.0, scaleM: 2.0, footprintR: 1.0, temperament: { scary: 1.0, vicious: 0.7, fast: 0.8 } },
-  'dune-ripper': { element: 'sand', attitude: 'charge', archetype: 'short-range', hp: 170, dmg: 14, speed: 5.2, scaleM: 2.5, footprintR: 1.7, temperament: { scary: 0.7, vicious: 0.9, fast: 0.8 } },
-  'wreck-scavenger': { element: 'sand', attitude: 'stalk', archetype: 'melee', hp: 100, dmg: 8, speed: 4.0, scaleM: 1.5, footprintR: 1.1, temperament: { scary: 0.4, vicious: 0.6, fast: 0.7 } },
+/* THIRTY-SEVEN FAMILIES, one per unique monster slot (HP BAND
+ * RULE, Merlin, 2026-10-24): every regular monster sits between
+ * 100 and 200 HP — bigger brutes near 200, skirmishers near
+ * 100. dmg/speed are the combat contract the page's strike code
+ * and the boss gate both read. Every entry also carries ONE
+ * primary attack archetype (see ARCHETYPES): ranged,
+ * environmental, melee, short-range — plus its family name (the
+ * HUD tracking sense shows the name, not the slot key), its
+ * habitat band, and its stand-in form. The table is built from
+ * families.js so the roster is the single source of truth. */
+export const MONSTER_TYPES = {};
+for (const [key, f] of Object.entries(MONSTER_FAMILIES)) {
+  MONSTER_TYPES[key] = {
+    name: f.name, element: f.element, attitude: f.attitude,
+    archetype: f.archetype, habitat: f.habitat, form: f.form,
+    sizeClass: f.sizeClass, hp: f.hp, dmg: f.dmg, speed: f.speed,
+    scaleM: f.scaleM, footprintR: f.footprintR,
+    temperament: { ...f.temperament },
+  };
+}
   /* DRAGONS — exactly three, spanning flying and ground roles
    * (Merlin, 2026-10-24). All three follow the same realm rules
    * as every other monster: the 100–200 HP band, kill rewards,
@@ -74,10 +85,9 @@ export const MONSTER_TYPES = {
    * rules — it hunts, it hurts, it pays health on kill like
    * any other. Its stand-in carries glow markings and a sleek
    * build so the later Tripo model brief can match it. */
-  'sky-dragon': { name: 'Stormwing', element: 'lightning', attitude: 'stalk', archetype: 'ranged', hp: 170, dmg: 16, speed: 6.5, scaleM: 3.2, footprintR: 3.5, role: 'fly', flyHeight: 6, dragon: true, temperament: { scary: 0.9, vicious: 0.7, fast: 1.0 } },
-  'cinder-dragon': { name: 'Cinder Maw', element: 'fire', attitude: 'charge', archetype: 'melee', hp: 200, dmg: 20, speed: 3.8, scaleM: 3.6, footprintR: 4.0, role: 'ground', dragon: true, temperament: { scary: 0.9, vicious: 1.0, fast: 0.4 } },
-  'muse-dragon': { name: 'Muse, the Luminous', element: 'shadow', attitude: 'stalk', archetype: 'environmental', hp: 150, dmg: 14, speed: 5.2, scaleM: 3.0, footprintR: 3.0, role: 'both', flyHeight: 3, dragon: true, tribute: 'muse', temperament: { scary: 0.6, vicious: 0.5, fast: 0.8 } },
-};
+MONSTER_TYPES['sky-dragon'] = { name: 'Stormwing', element: 'lightning', attitude: 'stalk', archetype: 'ranged', habitat: 'mountain', hp: 170, dmg: 16, speed: 6.5, scaleM: 3.2, footprintR: 3.5, role: 'fly', flyHeight: 6, dragon: true, temperament: { scary: 0.9, vicious: 0.7, fast: 1.0 } };
+MONSTER_TYPES['cinder-dragon'] = { name: 'Cinder Maw', element: 'fire', attitude: 'charge', archetype: 'melee', habitat: 'fire', hp: 200, dmg: 20, speed: 3.8, scaleM: 3.6, footprintR: 4.0, role: 'ground', dragon: true, temperament: { scary: 0.9, vicious: 1.0, fast: 0.4 } };
+MONSTER_TYPES['muse-dragon'] = { name: 'Muse, the Luminous', element: 'shadow', attitude: 'stalk', archetype: 'environmental', habitat: 'shadow', hp: 150, dmg: 14, speed: 5.2, scaleM: 3.0, footprintR: 3.0, role: 'both', flyHeight: 3, dragon: true, tribute: 'muse', temperament: { scary: 0.6, vicious: 0.5, fast: 0.8 } };
 
 export const DRAGON_TYPES = ['sky-dragon', 'cinder-dragon', 'muse-dragon'];
 
@@ -106,9 +116,13 @@ for (const [key, t] of Object.entries(MONSTER_TYPES)) {
 }
 
 /* THE DROP-IN CONTRACT. Tripo GLBs land at these public paths
- * (full-bodied, rigged). Until then the figure builder below
+ * (full-bodied, rigged) — one path per monster SLOT, so the
+ * mapping never assigns a model name to a slot: the slot key IS
+ * the path stem, and the separate Tripo matching task decides
+ * which model file fills it. Until then the figure builder below
  * stands in with the same footprint — the swap changes no code
- * and no collider. Korus has his own seat at the bottom. */
+ * and no collider. Dragons keep their named seats; Korus has
+ * his own seat at the bottom. */
 export const MONSTER_MODELS = {};
 for (const key of Object.keys(MONSTER_TYPES)) {
   MONSTER_MODELS[key] = { url: `/models/hollow-earth/${key}.glb`, height: MONSTER_TYPES[key].scaleM };
@@ -117,7 +131,7 @@ export const KORUS_MODEL = { url: '/models/hollow-earth/korus.glb', height: 12 }
 
 export const ELEMENT_COLORS = {
   acid: 0x8fd43a, fire: 0xff6a22, lightning: 0xffe14d,
-  poison: 0xc06ae0, shadow: 0x8a8a9a, sand: 0xe8c87a,
+  poison: 0xc06ae0, shadow: 0x8a8a9a, sand: 0xe8c87a, frost: 0x9fd8e8,
 };
 
 /* ---------------- THE SAFE BASE (Merlin, 2026-10-24) ----------------
@@ -147,45 +161,88 @@ export function canTeleport(lastTeleportMs, nowMs) {
   return nowMs - lastTeleportMs >= BASE_TELEPORT_COOLDOWN_S * 1000;
 }
 
-/* The monster element at a point follows the biome field. The
- * caller passes a biomeAt-style reader so this module stays pure
- * and the zone's field is the single source of truth. */
+/* HABITAT-DRIVEN SPAWN (monster-first): the field is built from
+ * the families, in their habitat bands — never the other way
+ * round. The caller passes opts.habitatAt, a reader returning
+ * the habitat band id at a point (zone.js passes the biome
+ * field's dominant band). Two passes over the blanket field:
+ *   PASS 1 — GUARANTEE: two of every regular family, sampled
+ *     inside its own habitat band, so no slot is ever missing
+ *     from the world by sampling luck.
+ *   PASS 2 — FILL: random points up to `count`, each filled
+ *     with a random family of the band it lands in.
+ * Dragons keep their own rare pass: exactly 3 of each, sampled
+ * inside the dragon's habitat band. The Haven exclusion and the
+ * spawn-clear radius apply to every pass. A legacy opts.elementAt
+ * reader is still honoured (mapped element → primary band) so
+ * older callers keep working; a family whose band never matches
+ * a degenerate reader falls back to its band's anchor, jittered
+ * — anchors sit far from spawn and the Haven by construction,
+ * so the guarantee still holds. */
+const ELEMENT_PRIMARY_HABITAT = {
+  acid: 'acid', fire: 'fire', lightning: 'lightning',
+  poison: 'poison', shadow: 'shadow', sand: 'sand', frost: 'frost',
+};
+
 export function spawnField(seed, opts = {}) {
   const rng = mulberry32(seed);
   const count = opts.count || 150;
   const radius = opts.radius || 280;
-  const elementAt = opts.elementAt || (() => ELEMENTS[(rng() * ELEMENTS.length) | 0]);
+  const habitatAt = opts.habitatAt
+    || (opts.elementAt
+      ? (x, z) => ELEMENT_PRIMARY_HABITAT[opts.elementAt(x, z)] || 'sand'
+      : () => Object.keys(FAMILIES_BY_HABITAT)[(rng() * Object.keys(FAMILIES_BY_HABITAT).length) | 0]);
   const records = [];
-  let guard = 0;
-  while (records.length < count && guard++ < count * 40) {
+  const clearOfSpawn = (x, z) => Math.hypot(x - WORLD_SPAWN.x, z - WORLD_SPAWN.z) >= SPAWN_CLEAR_R;
+  const clearOfBase = (x, z) => Math.hypot(x - SAFE_BASE.x, z - SAFE_BASE.z) >= SAFE_BASE.r + 10;
+  const samplePoint = () => {
     const a = rng() * Math.PI * 2;
     const r = Math.sqrt(rng()) * radius;
-    const x = Math.cos(a) * r;
-    const z = Math.sin(a) * r;
-    if (Math.hypot(x - WORLD_SPAWN.x, z - WORLD_SPAWN.z) < SPAWN_CLEAR_R) continue;
-    // The Haven is sanctuary: nothing spawns inside it, or near it.
-    if (Math.hypot(x - SAFE_BASE.x, z - SAFE_BASE.z) < SAFE_BASE.r + 10) continue;
-    const element = elementAt(x, z);
-    const types = TYPES_BY_ELEMENT[element] || TYPES_BY_ELEMENT.sand;
+    return { x: Math.cos(a) * r, z: Math.sin(a) * r };
+  };
+  // PASS 1 — guarantee: two of every regular family, in-band.
+  for (const key of Object.keys(MONSTER_FAMILIES)) {
+    const fam = MONSTER_FAMILIES[key];
+    let placed = 0;
+    let guard = 0;
+    while (placed < 2 && guard++ < 400) {
+      const { x, z } = samplePoint();
+      if (!clearOfSpawn(x, z) || !clearOfBase(x, z)) continue;
+      if (habitatAt(x, z) !== fam.habitat) continue;
+      records.push({ id: `m-${records.length}`, type: key, element: fam.element, x, z });
+      placed++;
+    }
+    // Degenerate reader fallback: the band's anchor, jittered.
+    while (placed < 2) {
+      const anchor = (BIOMES[fam.habitat] || {}).anchor || { x: 0, z: 0 };
+      records.push({
+        id: `m-${records.length}`, type: key, element: fam.element,
+        x: anchor.x + (rng() - 0.5) * 20, z: anchor.z + (rng() - 0.5) * 20,
+      });
+      placed++;
+    }
+  }
+  // PASS 2 — fill to count with band-local families.
+  let guard = 0;
+  while (records.length < count && guard++ < count * 40) {
+    const { x, z } = samplePoint();
+    if (!clearOfSpawn(x, z) || !clearOfBase(x, z)) continue;
+    const habitat = habitatAt(x, z);
+    const types = FAMILIES_BY_HABITAT[habitat] || Object.keys(MONSTER_FAMILIES);
     const type = types[(rng() * types.length) | 0];
-    records.push({ id: `m-${records.length}`, type, element, x, z });
+    records.push({ id: `m-${records.length}`, type, element: MONSTER_TYPES[type].element, x, z });
   }
   // DRAGON PASS — rare by design: exactly 3 of each dragon,
-  // each placed where its element holds the field (sampled
-  // until the element matches, same exclusions as above).
+  // each placed where its habitat band holds (same exclusions).
   for (const dtype of DRAGON_TYPES) {
-    const element = MONSTER_TYPES[dtype].element;
+    const habitat = MONSTER_TYPES[dtype].habitat;
     let placed = 0;
     let guard2 = 0;
     while (placed < 3 && guard2++ < 400) {
-      const a = rng() * Math.PI * 2;
-      const r = Math.sqrt(rng()) * radius;
-      const x = Math.cos(a) * r;
-      const z = Math.sin(a) * r;
-      if (Math.hypot(x - WORLD_SPAWN.x, z - WORLD_SPAWN.z) < SPAWN_CLEAR_R) continue;
-      if (Math.hypot(x - SAFE_BASE.x, z - SAFE_BASE.z) < SAFE_BASE.r + 10) continue;
-      if (elementAt(x, z) !== element) continue;
-      records.push({ id: `m-${records.length}`, type: dtype, element, x, z });
+      const { x, z } = samplePoint();
+      if (!clearOfSpawn(x, z) || !clearOfBase(x, z)) continue;
+      if (habitatAt(x, z) !== habitat) continue;
+      records.push({ id: `m-${records.length}`, type: dtype, element: MONSTER_TYPES[dtype].element, x, z });
       placed++;
     }
   }
@@ -572,6 +629,25 @@ export function buildMonsterFigure(R, monster) {
     g.userData.standIn = true;
     g.userData.dragon = true;
     g.userData.flyHeight = monster.stats.flyHeight || 0;
+    return g;
+  }
+  if (monster.stats.form === 'vortex') {
+    // VORTEX STAND-IN — a swirling funnel, not a quadruped: the
+    // sand, smoke and ooze funnels ARE vortices. Stacked cones
+    // narrow toward the ground, a head sphere with glowing eyes
+    // riding the top.
+    const funnel = M(new R.ConeGeometry(1.4 * s, 2.6 * s, 10), { color, roughness: 0.9 }, 0, 1.3 * s, 0);
+    funnel.rotation.x = Math.PI; // apex down, into the ground
+    const funnelTop = M(new R.ConeGeometry(0.9 * s, 1.8 * s, 10), { color, roughness: 0.9 }, 0, 2.6 * s, 0);
+    funnelTop.rotation.x = Math.PI;
+    M(new R.SphereGeometry(0.6, 10, 8), { color, roughness: 0.85 }, 0, 3.4 * s, 0);
+    M(new R.SphereGeometry(0.13, 8, 6), { color: 0xffe14d, emissive: 0xcc9900, emissiveIntensity: 1 }, -0.24, 3.5 * s, 0.55 * s);
+    M(new R.SphereGeometry(0.13, 8, 6), { color: 0xffe14d, emissive: 0xcc9900, emissiveIntensity: 1 }, 0.24, 3.5 * s, 0.55 * s);
+    g.userData.monsterId = monster.id;
+    g.userData.footprintR = monster.stats.footprintR;
+    g.userData.modelPath = (MONSTER_MODELS[monster.type] || {}).url || null;
+    g.userData.standIn = true;
+    g.userData.form = 'vortex';
     return g;
   }
   const body = M(new R.SphereGeometry(1, 12, 10), { color, roughness: 0.85 }, 0, 1.1 * s, 0);

@@ -52,6 +52,12 @@ test('the field blends everywhere: transitions are widespread, and every biome b
   }
 });
 
+test('eight habitat bands, frost among them', () => {
+  assert.equal(BIOME_IDS.length, 8);
+  assert.ok(BIOME_IDS.includes('frost'));
+  assert.equal(BIOMES.frost.element, 'frost');
+});
+
 test('transition mix constant is a real blend (not a switch)', () => {
   assert.ok(TRANSITION_MIX > 0 && TRANSITION_MIX <= 1);
 });

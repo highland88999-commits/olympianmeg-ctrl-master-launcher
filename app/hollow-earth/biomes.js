@@ -1,7 +1,7 @@
 // OLYMPIAN MONSTERVERSE — biome weight field (pure module, no THREE).
 //
 // The Hollow Earth world is ONE continuous disc, not a set of pods.
-// Seven elemental regions share it, and they NEVER meet at a hard
+// Eight habitat bands share it, and they NEVER meet at a hard
 // seam: every point on the ground carries a WEIGHT for every biome
 // (soft inverse-distance falloff around fixed anchors, stirred by a
 // deterministic noise field), and the ground colour, scatter and
@@ -39,15 +39,20 @@ function noise2(x, z) {
   return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
 }
 
-/* Seven regions. Anchors sit inside the 295 m bounds disc and clear
- * of the world spawn (0, 95) — the sand battlefield south of spawn
- * is the arrival ground, so the intro arch stands there. */
+/* Eight habitat bands, driven by the monster roster (monster-
+ * first, Merlin 2026-10-25). Anchors sit inside the 295 m bounds
+ * disc and clear of the world spawn (0, 95) — the sand
+ * battlefield south of spawn is the arrival ground, so the intro
+ * arch stands there. The shadow anchor sits on Korus's court
+ * (-215, 55) so the throne stands deep in its own band, and the
+ * frost anchor holds the far west rim for the roster's ice yeti
+ * — the seventh element the roster demanded. */
 export const BIOMES = {
   acid: {
-    id: 'acid', name: 'Acid Ooze Wastes', element: 'acid',
+    id: 'acid', name: 'Acid Ooze Pools', element: 'acid',
     anchor: { x: -160, z: 40 },
     ground: 0x6da83c, accent: 0xb6e33c, fog: 0x5a7a44,
-    blurb: 'Sickly green flats where the ground bubbles and hisses.',
+    blurb: 'Sickly green pools where the ground bubbles and hisses — home of the ooze families.',
   },
   fire: {
     id: 'fire', name: 'Volcanic Fire Lands', element: 'fire',
@@ -62,16 +67,16 @@ export const BIOMES = {
     blurb: 'Pale storm flats, charged — the sky cracks overhead.',
   },
   poison: {
-    id: 'poison', name: 'Poison Wilds', element: 'poison',
+    id: 'poison', name: 'Poison Groves', element: 'poison',
     anchor: { x: 180, z: 110 },
     ground: 0x4a3a5e, accent: 0xc06ae0, fog: 0x4a3a5e,
-    blurb: 'Violet mists over thorn and spore.',
+    blurb: 'Violet mists over thorn and spore — the poison families lurk here.',
   },
   shadow: {
     id: 'shadow', name: 'Shadow Smoke Wastes', element: 'shadow',
-    anchor: { x: -190, z: -20 },
+    anchor: { x: -225, z: 60 },
     ground: 0x3c3c40, accent: 0x8a8a9a, fog: 0x2e2e34,
-    blurb: 'Grey gloom that looms; something vast waits in it.',
+    blurb: 'Grey gloom that looms; something vast waits in it — Korus’s throne stands here.',
   },
   sand: {
     id: 'sand', name: 'Desert Battlefield', element: 'sand',
@@ -84,6 +89,12 @@ export const BIOMES = {
     anchor: { x: 210, z: -150 },
     ground: 0x7a7a82, accent: 0xd8d8e0, fog: 0x6a6a72,
     blurb: 'Jagged peaks where storms break — storm-charged heights.',
+  },
+  frost: {
+    id: 'frost', name: 'Frozen Reaches', element: 'frost',
+    anchor: { x: -230, z: 130 },
+    ground: 0xa8c8d8, accent: 0xe8f4f8, fog: 0x8aa0b0,
+    blurb: 'Ice-locked flats at the far rim — the yeti’s ground, and no one else’s.',
   },
 };
 

@@ -143,6 +143,15 @@ export function mountainGroundTexture() {
   });
 }
 
+export function frostGroundTexture() {
+  return makeCanvasTexture(256, (ctx, size) => {
+    const rand = mulberry32(8107);
+    groundBase(ctx, size, '#a8c8d8', rand);
+    cracks(ctx, size, 10, '#7a9ab0', rand, 2);
+    speckle(ctx, size, 280, ['#e8f4f8', '#6a8aa0'], rand, 1, 4);
+  });
+}
+
 /* The core-sun glow: concentric pale discs, flat calls only. */
 export function coreGlowTexture() {
   return makeCanvasTexture(256, (ctx, size) => {

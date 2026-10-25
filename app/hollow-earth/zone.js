@@ -18,8 +18,8 @@
  *     weight (> 0.35), so dressing follows the blends too.
  *   - the core-sun and inverted-horizon ambient that make the
  *     sky read as an inner world.
- *   - THE HUNT (spawns.js): a blanket spawn field (~150
- *     monsters, element from the biome field, none inside The
+ *   - THE HUNT (spawns.js): a habitat-band spawn field (~150
+ *     monsters, families in their own bands, none inside The
  *     Haven or near spawn) with proximity streaming — records
  *     are cheap data, only monsters inside the working radius
  *     get a figure. The zone steps their two-way-hunt AI against
@@ -39,7 +39,7 @@
  */
 import * as ThreeJS from 'three';
 import { createHeightFunction, spanSeatY } from '../star-wars/zone.js';
-import { biomeWeights, biomeAt, elementAt, BIOMES } from './biomes.js';
+import { biomeWeights, biomeAt, BIOMES } from './biomes.js';
 import { buildLandmark, buildAmbient } from './landmarks.js';
 import {
   spawnField, createMonster, stepMonster, damageMonster, strike,
@@ -57,11 +57,13 @@ function hexRgb(hex) {
 const SCATTER_SOLID = {
   'ooze-bubble': false, 'ember-rock': true, 'storm-crystal': true,
   'spore-cap': false, 'gloom-pillar': true, 'dune-bone': true, 'peak-rock': true,
+  'frost-shard': true,
 };
 
 const SCATTER_COLOR = {
   'ooze-bubble': 0xb6e33c, 'ember-rock': 0x3a2c26, 'storm-crystal': 0xffe14d,
   'spore-cap': 0xc06ae0, 'gloom-pillar': 0x3a3a40, 'dune-bone': 0xd8bc82, 'peak-rock': 0x7a7a82,
+  'frost-shard': 0x9fd8e8,
 };
 
 function losClear(heightAt, ax, az, bx, bz) {
@@ -167,10 +169,10 @@ export function buildWorld(THREE, def, T, opts = {}) {
           new R.MeshStandardMaterial({ color: SCATTER_COLOR[sc.kind] || 0x888888, roughness: 0.8 })
         );
         piece.position.set(x, y + 0.3 * s, z);
-      } else if (sc.kind === 'storm-crystal') {
+      } else if (sc.kind === 'storm-crystal' || sc.kind === 'frost-shard') {
         piece = new R.Mesh(
           new R.ConeGeometry(0.5 * s, 2.2 * s, 5),
-          new R.MeshStandardMaterial({ color: SCATTER_COLOR[sc.kind], emissive: 0x887a00, emissiveIntensity: 0.5 })
+          new R.MeshStandardMaterial({ color: SCATTER_COLOR[sc.kind], emissive: sc.kind === 'frost-shard' ? 0x4a7a8a : 0x887a00, emissiveIntensity: 0.5 })
         );
         piece.position.set(x, y + 1.1 * s, z);
       } else {
@@ -185,8 +187,11 @@ export function buildWorld(THREE, def, T, opts = {}) {
     }
   }
 
-  // --- monsters: blanket field, streamed figures ---
-  const records = spawnField(def.seed || 77701, { elementAt: (x, z) => elementAt(x, z) });
+  // --- monsters: habitat-band field, streamed figures ---
+  // The field is monster-first: families spawn in their own
+  // habitat bands (spawns.js), and the band reader here is the
+  // biome field's dominant band — the single source of truth.
+  const records = spawnField(def.seed || 77701, { habitatAt: (x, z) => biomeAt(x, z).dominant });
   const monsters = records.map((rec) => createMonster(rec, rng));
   const figures = new Map();
   const observer = { x: WORLD_SPAWN.x, z: WORLD_SPAWN.z, quiet: 1, noise: null, inBase: false };

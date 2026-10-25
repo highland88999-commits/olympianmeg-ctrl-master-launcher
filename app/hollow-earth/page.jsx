@@ -35,7 +35,7 @@ import * as DATA from './data';
 import { HEROES, HERO_ORDER, heroDef, buildHeroFigure } from './characters.js';
 import {
   createHunterState, onMonsterKilled, applyDamage, isInBase, canTeleport,
-  SAFE_BASE, PLAYER_MAX_HP, KORUS_POS, damageMonster,
+  SAFE_BASE, PLAYER_MAX_HP, KORUS_POS, damageMonster, MONSTER_TYPES,
 } from './spawns.js';
 import { RETICLE_BY_CLASS, equippedDamageForSlot, equippedReticleForSlot, equippedWeaponEntry } from '../../lib/backpack/backpack.js';
 import { updateBackpack, useBackpack } from '../../lib/backpack/store.js';
@@ -366,7 +366,7 @@ export default function HollowEarthPage() {
             const d = Math.hypot(m.x - walker.pos.x, m.z - walker.pos.z);
             if (d < bestD) { bestD = d; best = m; }
           }
-          if (best) sense = { type: best.type, element: best.element, dist: Math.round(bestD) };
+          if (best) sense = { type: (MONSTER_TYPES[best.type] && MONSTER_TYPES[best.type].name) || best.type, element: best.element, dist: Math.round(bestD) };
         }
         setHud((prev) => ({
           ...prev,

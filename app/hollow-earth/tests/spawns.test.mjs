@@ -8,8 +8,9 @@ import {
   SHIELD_KILLS, SHIELD_ABSORB, HEAL_ON_KILL, PLAYER_MAX_HP,
   KORUS_MAX_HP, KORUS_GATE_KILLS, createKorus, stepKorus, damageKorus,
   SAFE_BASE, isInBase, canTeleport, BASE_TELEPORT_COOLDOWN_S,
-  GIVE_UP_S, buildMonsterFigure,
+  GIVE_UP_S, buildMonsterFigure, ELEMENTS, ELEMENT_COLORS,
 } from '../spawns.js';
+import { MONSTER_FAMILIES, ALL_MONSTER_SLOTS, slotHome, slotKey, FAMILIES_BY_HABITAT } from '../families.js';
 
 const rng = () => 0.5;
 function mon(type, x, z, faceYaw = 0) {
@@ -53,9 +54,9 @@ test('Korus is exactly 1000 HP and the gate is a documented constant', () => {
 });
 
 test('spawn field: ~150 records, none inside the safe base, dragons rare (3 each)', () => {
-  const els = ['acid', 'fire', 'lightning', 'poison', 'shadow', 'sand'];
-  const elementAt = (x, z) => els[(Math.abs(Math.floor(x / 50)) + Math.abs(Math.floor(z / 50))) % 6];
-  const field = spawnField(77701, { elementAt });
+  const bands = ['acid', 'fire', 'lightning', 'poison', 'shadow', 'sand', 'mountain', 'frost'];
+  const habitatAt = (x, z) => bands[(Math.abs(Math.floor(x / 50)) + Math.abs(Math.floor(z / 50))) % 8];
+  const field = spawnField(77701, { habitatAt });
   assert.ok(field.length >= 140, `field has ${field.length} records`);
   for (const rec of field) {
     assert.ok(Math.hypot(rec.x - SAFE_BASE.x, rec.z - SAFE_BASE.z) >= SAFE_BASE.r + 10, 'spawn inside the Haven');
@@ -101,35 +102,35 @@ test('kill count persists in the hunter state', () => {
 
 test('senses: sight cone spots, facing away does not', () => {
   // Monster faces +z (faceYaw 0 means facing +z in atan2(dx,dz) terms).
-  const facing = mon('ember-beast', 0, 0, 0);
+  const facing = mon('slot-06', 0, 0, 0);
   const inFront = { x: 0, z: 20 };
   stepMonster(facing, 0.1, inFront, rng, { losClear: alwaysLos });
   assert.equal(facing.spotted, true);
-  const behind = mon('ember-beast', 0, 0, 0);
+  const behind = mon('slot-06', 0, 0, 0);
   stepMonster(behind, 0.1, { x: 0, z: -20 }, rng, { losClear: alwaysLos });
   assert.equal(behind.spotted, false);
 });
 
 test('senses: terrain line-of-sight blocks the sight cone', () => {
-  const m = mon('ember-beast', 0, 0, 0);
+  const m = mon('slot-06', 0, 0, 0);
   stepMonster(m, 0.1, { x: 0, z: 20 }, rng, { losClear: neverLos });
   assert.equal(m.spotted, false);
 });
 
 test('senses: hearing draws a monster outside the cone', () => {
-  const m = mon('ember-beast', 0, 0, 0);
+  const m = mon('slot-06', 0, 0, 0);
   stepMonster(m, 0.1, { x: 20, z: 0 }, rng, { losClear: alwaysLos, noise: { x: 5, z: 5 } });
   assert.equal(m.spotted, true);
 });
 
 test('senses: proximity spots regardless of facing or cover', () => {
-  const m = mon('ember-beast', 0, 0, 0);
+  const m = mon('slot-06', 0, 0, 0);
   stepMonster(m, 0.1, { x: 0, z: -5 }, rng, { losClear: neverLos });
   assert.equal(m.spotted, true);
 });
 
 test('senses: ambushers ignore sight and hearing, trigger on proximity', () => {
-  const m = mon('ooze-maw', 0, 0, 0);
+  const m = mon('slot-29', 0, 0, 0);
   stepMonster(m, 0.1, { x: 0, z: 20 }, rng, { losClear: alwaysLos, noise: { x: 2, z: 2 } });
   assert.equal(m.spotted, false);
   stepMonster(m, 0.1, { x: 0, z: 5 }, rng, { losClear: neverLos });
@@ -137,13 +138,13 @@ test('senses: ambushers ignore sight and hearing, trigger on proximity', () => {
 });
 
 test('senses: quiet hunters shrink the sight radius', () => {
-  const m = mon('ember-beast', 0, 0, 0);
+  const m = mon('slot-06', 0, 0, 0);
   stepMonster(m, 0.1, { x: 0, z: 20 }, rng, { losClear: alwaysLos, quiet: 0.55 });
   assert.equal(m.spotted, false);
 });
 
 test('senses: give-up after 12 s unseen returns the monster to roam', () => {
-  const m = mon('ember-beast', 0, 0, 0);
+  const m = mon('slot-06', 0, 0, 0);
   stepMonster(m, 0.1, { x: 0, z: 20 }, rng, { losClear: alwaysLos });
   assert.equal(m.spotted, true);
   for (let i = 0; i < GIVE_UP_S; i++) {
@@ -154,7 +155,7 @@ test('senses: give-up after 12 s unseen returns the monster to roam', () => {
 });
 
 test('senses: chases break at the safe-base boundary', () => {
-  const m = mon('ember-beast', 0, 0, 0);
+  const m = mon('slot-06', 0, 0, 0);
   stepMonster(m, 0.1, { x: 0, z: 20 }, rng, { losClear: alwaysLos });
   assert.equal(m.spotted, true);
   stepMonster(m, 0.1, { x: SAFE_BASE.x, z: SAFE_BASE.z }, rng, { losClear: alwaysLos, inBase: true });
@@ -170,7 +171,7 @@ test('safe base: inside the ring, outside it, teleport cooldown', () => {
 });
 
 test('spawn field excludes the base radius + 10 m', () => {
-  const field = spawnField(42, { elementAt: () => 'sand' });
+  const field = spawnField(42, { habitatAt: () => 'sand' });
   for (const rec of field) {
     assert.ok(Math.hypot(rec.x - SAFE_BASE.x, rec.z - SAFE_BASE.z) >= SAFE_BASE.r + 10);
   }

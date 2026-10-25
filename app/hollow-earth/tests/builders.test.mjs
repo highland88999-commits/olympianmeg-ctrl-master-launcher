@@ -47,10 +47,10 @@ const { buildWorld } = await import('../zone.js');
 const DATA = await import('../data.js');
 const SP = await import('../spawns.js');
 
-test('landmark registry covers all nine types incl. haven + korus-throne', () => {
+test('landmark registry covers all eleven types incl. haven + korus-throne + frost-spire', () => {
   assert.deepEqual(
     [...LANDMARK_TYPES].sort(),
-    ['ember-spire', 'gloom-monolith', 'haven', 'intro-arch', 'korus-throne', 'mire-arch', 'ooze-pool', 'peak-shrine', 'storm-pylon', 'wreck-hulk'].sort()
+    ['ember-spire', 'frost-spire', 'gloom-monolith', 'haven', 'intro-arch', 'korus-throne', 'mire-arch', 'ooze-pool', 'peak-shrine', 'storm-pylon', 'wreck-hulk'].sort()
   );
 });
 
@@ -74,7 +74,7 @@ test('ambient builds: core-sun above the world, inverted horizon ring', () => {
 });
 
 test('ground textures exist for the biome palette', () => {
-  for (const fn of ['acidGroundTexture', 'fireGroundTexture', 'lightningGroundTexture', 'poisonGroundTexture', 'shadowGroundTexture', 'sandGroundTexture', 'mountainGroundTexture']) {
+  for (const fn of ['acidGroundTexture', 'fireGroundTexture', 'lightningGroundTexture', 'poisonGroundTexture', 'shadowGroundTexture', 'sandGroundTexture', 'mountainGroundTexture', 'frostGroundTexture']) {
     assert.equal(typeof T[fn], 'function', `${fn} missing`);
     assert.ok(T[fn](), `${fn} returned nothing`);
   }

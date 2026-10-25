@@ -1,7 +1,7 @@
 // OLYMPIAN MONSTERVERSE — content data layer (pure module).
 //
 // ONE ever-expansive world, not pods: a single 340 m disc whose
-// seven biomes blend into each other (biomes.js). Modes follow
+// eight habitat bands blend into each other (biomes.js). Modes follow
 // the saga contract — on entry the player picks 🎯 Missions or
 // 🧭 Free Roam; roam writes no mission progress (kills still
 // count toward the realm's kill rewards — the hunt is the loop
@@ -54,6 +54,8 @@ export const WORLD = {
     { type: 'wreck-hulk', x: 60, z: 190, s: 1.3, ry: 0.5 },
     { type: 'wreck-hulk', x: 110, z: 210, s: 1, ry: -0.6 },
     { type: 'peak-shrine', x: 210, z: -150, s: 1.1, ry: 0 },
+    { type: 'frost-spire', x: -230, z: 130, s: 1.1, ry: 0 },
+    { type: 'frost-spire', x: -195, z: 175, s: 1, ry: 0.6 },
     { type: 'korus-throne', x: -215, z: 55, s: 1, ry: 0.4 },
   ],
   scatter: [
@@ -64,15 +66,20 @@ export const WORLD = {
     { kind: 'gloom-pillar', count: 50, minR: 20, maxR: 290, size: [1, 2.6], biome: 'shadow' },
     { kind: 'dune-bone', count: 70, minR: 20, maxR: 290, size: [0.8, 2.2], biome: 'sand' },
     { kind: 'peak-rock', count: 60, minR: 20, maxR: 290, size: [1, 3], biome: 'mountain' },
+    { kind: 'frost-shard', count: 50, minR: 20, maxR: 290, size: [0.8, 2.2], biome: 'frost' },
   ],
 };
 
 /* Three clusters, 2–3 starter missions each — missions are
- * per cluster, not per biome, so a hunt crosses blend bands. */
+ * per cluster, not per habitat, so a hunt crosses blend bands.
+ * Cluster bands follow the monster-first habitats: the Wilds
+ * hold the ooze and poison families, the Stormlands the ember
+ * and storm families, the Dark Reaches the gloom, dune and
+ * frozen families — and at the far edge, a throne. */
 export const CLUSTERS = {
   wilds: {
     id: 'wilds', name: 'The Wilds', biomes: ['acid', 'poison'],
-    blurb: 'Ooze and spore — the hunt starts where the ground hisses.',
+    blurb: 'Ooze pools and poison groves — the hunt starts where the ground hisses.',
     missions: [
       {
         id: 'wilds-ooze-crossing', title: 'Cross the Ooze', difficulty: 1, par: 240,
@@ -90,8 +97,8 @@ export const CLUSTERS = {
     ],
   },
   stormlands: {
-    id: 'stormlands', name: 'The Stormlands', biomes: ['fire', 'lightning'],
-    blurb: 'Ember and storm — fast monsters, faster sky.',
+    id: 'stormlands', name: 'The Stormlands', biomes: ['fire', 'lightning', 'mountain'],
+    blurb: 'Ember fields and storm ridges — fast monsters, faster sky.',
     missions: [
       {
         id: 'stormlands-pylon-run', title: 'The Pylon Run', difficulty: 2, par: 300,
@@ -109,8 +116,8 @@ export const CLUSTERS = {
     ],
   },
   'dark-reaches': {
-    id: 'dark-reaches', name: 'The Dark Reaches', biomes: ['shadow', 'sand', 'mountain'],
-    blurb: 'Gloom, dunes, peaks — and at the far edge, a throne.',
+    id: 'dark-reaches', name: 'The Dark Reaches', biomes: ['shadow', 'sand', 'frost'],
+    blurb: 'Gloom, dunes, frozen rim — and at the far edge, a throne.',
     missions: [
       {
         id: 'dark-wreck-field', title: 'The Wreck Field', difficulty: 2, par: 300,
@@ -166,6 +173,7 @@ export const INTRO = {
     { element: 'poison', color: '#c06ae0' },
     { element: 'shadow', color: '#8a8a9a' },
     { element: 'sand', color: '#e8c87a' },
+    { element: 'frost', color: '#9fd8e8' },
   ],
 };
 
