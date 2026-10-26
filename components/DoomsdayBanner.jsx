@@ -2,7 +2,7 @@
 // The financial-system-release countdown ("doomsday").
 // HUB-ONLY (Merlin, 2026-10-14): the countdown lives in the main hub
 // (route "/") and nowhere else — never inside a pocket universe or
-// program. Shown until the accumulative lock lifts (Dec 11, 2026) —
+// program. Shown until the accumulative lock lifts (Dec 11, 2027) —
 // then it removes itself. Never a modal: his no-popups law stands.
 // 2026-10-20 (Merlin): the countdown MOVED into the top of the
 // Concourse, styled gold — see DoomsdayStrip below. The old page-top

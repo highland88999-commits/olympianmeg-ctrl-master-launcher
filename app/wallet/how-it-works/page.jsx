@@ -121,7 +121,7 @@ export default function HowItWorks() {
           View wallet →
         </Link>
         <p style={{ textAlign: 'center', color: '#4a7d5f', fontSize: '0.85rem', marginTop: '1rem' }}>
-          Withdrawals unlock for everyone on December 11, 2026.
+          Withdrawals unlock for everyone on December 11, 2027.
         </p>
       </div>
     </main>

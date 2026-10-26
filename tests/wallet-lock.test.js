@@ -31,18 +31,19 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const mig = fs.readFileSync(path.join(__dirname, '..', 'supabase/migrations/20261004_wallet_ledger.sql'), 'utf8');
 
 // ---------------------------------------------------------------------------
-// The lock: Friday Dec 11, 2026 00:00 America/Edmonton = 07:00 UTC (MST).
+// The lock: Saturday Dec 11, 2027 00:00 America/Edmonton = 07:00 UTC (MST).
+// (Moved from Dec 11, 2026 on 2026-10-26, Merlin: regulatory runway.)
 // ---------------------------------------------------------------------------
 t('lock timestamp is Dec 11 07:00 UTC (00:00 MST)',
-  WITHDRAWALS_LOCKED_UNTIL_ISO === '2026-12-11T07:00:00Z');
+  WITHDRAWALS_LOCKED_UNTIL_ISO === '2027-12-11T07:00:00Z');
 t('locked well before (Oct 2026)', isWithdrawalsLocked(new Date('2026-10-04T12:00:00Z')));
-t('locked one second before unlock', isWithdrawalsLocked(new Date('2026-12-11T06:59:59Z')));
-t('unlocked exactly at the boundary', !isWithdrawalsLocked(new Date('2026-12-11T07:00:00Z')));
-t('unlocked after (Christmas)', !isWithdrawalsLocked(new Date('2026-12-25T00:00:00Z')));
+t('locked one second before unlock', isWithdrawalsLocked(new Date('2027-12-11T06:59:59Z')));
+t('unlocked exactly at the boundary', !isWithdrawalsLocked(new Date('2027-12-11T07:00:00Z')));
+t('unlocked after (Christmas)', !isWithdrawalsLocked(new Date('2027-12-25T00:00:00Z')));
 t('locked at 23:59 Edmonton Dec 10 (06:59 UTC Dec 11)',
-  isWithdrawalsLocked(new Date('2026-12-11T06:59:00Z')));
-t('msUntilUnlock positive before', msUntilUnlock(new Date('2026-12-10T07:00:00Z')) === 86400000);
-t('msUntilUnlock negative after', msUntilUnlock(new Date('2026-12-12T07:00:00Z')) < 0);
+  isWithdrawalsLocked(new Date('2027-12-11T06:59:00Z')));
+t('msUntilUnlock positive before', msUntilUnlock(new Date('2027-12-10T07:00:00Z')) === 86400000);
+t('msUntilUnlock negative after', msUntilUnlock(new Date('2027-12-12T07:00:00Z')) < 0);
 
 // ---------------------------------------------------------------------------
 // Countdown math for the banner.
@@ -117,6 +118,9 @@ t('summary buckets unknown as skipped', sum.skipped === 1);
 t('migration creates wallet_settings', mig.includes('create table if not exists public.wallet_settings'));
 t('migration seeds the Dec 11 lock',
   mig.includes(`'withdrawals_locked_until', '2026-12-11T07:00:00Z'`));
+const mig2027 = fs.readFileSync(path.join(__dirname, '..', 'supabase/migrations/20261026_wallet_lock_2027.sql'), 'utf8');
+t('2027 migration moves the live lock row to Dec 11, 2027',
+  mig2027.includes(`'withdrawals_locked_until'`) && mig2027.includes(`'2027-12-11T07:00:00Z'`));
 t('migration creates payout_releases', mig.includes('create table if not exists public.payout_releases'));
 t('migration adds paused-funds status',
   mig.includes("'paused-funds'") && mig.includes('wallet_withdrawals_status_check'));
