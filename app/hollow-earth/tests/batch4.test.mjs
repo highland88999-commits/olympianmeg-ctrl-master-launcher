@@ -1,21 +1,22 @@
 // Batch-4 Hollow Earth wiring: new families, placements, behavior,
-// Ghorrum. Pure-data + builder checks; no network, no GLB loads
-// (the loader's failure path keeps stand-ins, covered by design).
+// Ghorrum. Pure-data checks; no network, no GLB loads. GLB-ONLY
+// rework: there are no procedural figure builders anymore —
+// families without a placed GLB simply do not spawn.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-const THREE = await import('three');
 import {
   MONSTER_FAMILIES, EXTRA_FAMILIES, EXTRA_FAMILY_KEYS, FAMILY_KEYS,
   FAMILIES_BY_HABITAT,
 } from '../families.js';
 import {
   MONSTER_TYPES, MONSTER_MODELS, DRAGON_TYPES, ARCHETYPES, ELEMENTS,
-  spawnField, buildMonsterFigure, KORUS_MODEL,
+  spawnField, KORUS_MODEL,
 } from '../spawns.js';
 import { BIOME_IDS, biomeAt } from '../biomes.js';
 import {
   BATCH4_PLACEMENTS, TRUNCATED_AWAITING_RESEND, GHORRUM_MODEL,
+  PLACED_FIELD_KEYS,
   placementFor, placementStatus, modelUrlFor, RAINFOREST_STAGED,
 } from '../models.js';
 import {
@@ -25,9 +26,11 @@ import {
   ROAR_TONES, roarToneFor, GHORRUM_LAUGH_TONE, seedFor,
 } from '../behavior.js';
 import {
-  WATCHER, buildWatcherFigure, watcherGazeYaw, watcherBlinkOpen,
+  WATCHER, watcherGazeYaw, watcherBlinkOpen,
   watcherLaughing,
 } from '../watcher.js';
+import * as SpawnsModule from '../spawns.js';
+import * as WatcherModule from '../watcher.js';
 
 test('extra families are valid under the same rules as slot families', () => {
   assert.equal(EXTRA_FAMILY_KEYS.length, 11);
@@ -51,17 +54,23 @@ test('extra families are valid under the same rules as slot families', () => {
   for (const key of FAMILY_KEYS) assert.match(key, /^slot-\d\d$/);
 });
 
-test('spawn field: every extra family spawns in its own band, field stays sane', () => {
+test('spawn field: every PLACED extra family spawns in its own band, field stays sane', () => {
   const field = spawnField(77701, { habitatAt: (x, z) => biomeAt(x, z).dominant });
-  assert.ok(field.length >= 150, `field has ${field.length} records`);
+  assert.equal(field.length, 153, `field has ${field.length} records, expected 153`);
   assert.ok(field.length <= 200, `field has ${field.length} records — too many for performance`);
   const seen = new Set(field.map((r) => r.type));
-  for (const key of EXTRA_FAMILY_KEYS) assert.ok(seen.has(key), `extra family ${key} never spawns`);
+  const placed = new Set(PLACED_FIELD_KEYS);
+  for (const key of EXTRA_FAMILY_KEYS) {
+    if (placed.has(key)) assert.ok(seen.has(key), `placed extra family ${key} never spawns`);
+    else assert.ok(!seen.has(key), `unplaced extra family ${key} spawns`);
+  }
   for (const rec of field) {
     const band = biomeAt(rec.x, rec.z).dominant;
     assert.equal(band, MONSTER_TYPES[rec.type].habitat, `${rec.type} sits in ${band}, not ${MONSTER_TYPES[rec.type].habitat}`);
   }
-  for (const d of DRAGON_TYPES) assert.equal(field.filter((r) => r.type === d).length, 3);
+  assert.equal(field.filter((r) => r.type === 'sky-dragon').length, 3);
+  assert.equal(field.filter((r) => r.type === 'cinder-dragon').length, 0);
+  assert.equal(field.filter((r) => r.type === 'muse-dragon').length, 0);
 });
 
 test('placements: unique keys and artifact ids, urls follow the slot scheme', () => {
@@ -97,12 +106,13 @@ test('Ghorrum is wired once, and only once', () => {
   assert.equal(WATCHER.colliderR, 0);
 });
 
-test('watcher figure + gaze + blink + laugh behave', () => {
-  const fig = buildWatcherFigure(THREE);
-  assert.equal(fig.userData.watcher, true);
-  assert.equal(fig.userData.eyes.length, 2);
-  assert.ok(fig.userData.head);
-  assert.equal(fig.userData.modelPath, GHORRUM_MODEL.url);
+test('procedural figure builders are gone: no stand-in, vortex, or watcher figure exists', () => {
+  assert.equal(SpawnsModule.buildMonsterFigure, undefined, 'buildMonsterFigure must be removed');
+  assert.equal(SpawnsModule.buildKorusFigure, undefined, 'buildKorusFigure must be removed');
+  assert.equal(WatcherModule.buildWatcherFigure, undefined, 'buildWatcherFigure must be removed');
+});
+
+test('watcher gaze + blink + laugh helpers behave', () => {
   // Gaze: observer due east of the watcher faces +x => yaw ~+90°.
   const yaw = watcherGazeYaw({ x: 0, z: 0 }, { x: 10, z: 0 });
   assert.ok(Math.abs(yaw - Math.PI / 2) < 0.001, `east gaze yaw ${yaw}`);
@@ -113,13 +123,6 @@ test('watcher figure + gaze + blink + laugh behave', () => {
   }
   assert.equal(watcherLaughing(1), true, 'laugh window opens at period start');
   assert.equal(watcherLaughing(10), false);
-});
-
-test('monster stand-in figures carry tagged eyes for the blink pass', () => {
-  const beast = buildMonsterFigure(THREE, { id: 't-1', type: 'slot-01', stats: MONSTER_TYPES['slot-01'] });
-  assert.equal(beast.userData.eyes.length, 2);
-  assert.equal(beast.userData.modelPath, '/models/hollow-earth/slot-01.glb');
-  assert.equal(beast.userData.standIn, true);
 });
 
 test('roar tones: distinct (baseHz, waveform) per monster, every type covered', () => {

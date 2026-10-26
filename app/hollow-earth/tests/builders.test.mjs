@@ -86,7 +86,10 @@ test('buildWorld: terrain, landmarks, colliders, monsters, Korus — and dragons
   assert.ok(world.colliders.length > 0);
   assert.equal(world.monsters.length >= 140, true);
   assert.equal(world.korus.dormant, true);
-  // Activate one of each dragon and check its figure height.
+  // Activate the placed dragon and check it streams a figure.
+  // GLB-ONLY rework: only Stormwing spawns — cinder-dragon
+  // and muse-dragon GLBs are truncated, so they have no field
+  // presence until their Tripo re-sends land.
   const seen = new Set();
   for (const m of world.monsters) {
     if (!SP.DRAGON_TYPES.includes(m.type) || seen.has(m.type)) continue;
@@ -96,7 +99,7 @@ test('buildWorld: terrain, landmarks, colliders, monsters, Korus — and dragons
   }
   world.setObserver({ x: 0, z: 90 });
   world.update(0.1);
-  assert.deepEqual([...seen].sort(), ['cinder-dragon', 'muse-dragon', 'sky-dragon']);
+  assert.deepEqual([...seen].sort(), ['sky-dragon']);
   world.dispose();
 });
 

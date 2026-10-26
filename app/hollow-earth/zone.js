@@ -16,13 +16,19 @@
  *     never a wall).
  *   - seeded scatter that only grows where its biome holds
  *     weight (> 0.35), so dressing follows the blends too.
- *   - the core-sun and inverted-horizon ambient that make the
- *     sky read as an inner world.
- *   - THE HUNT (spawns.js): a habitat-band spawn field (~150
- *     monsters, families in their own bands, none inside The
- *     Haven or near spawn) with proximity streaming — records
- *     are cheap data, only monsters inside the working radius
- *     get a figure. The zone steps their two-way-hunt AI against
+ *   - the inverted-horizon ambient and the elemental light
+ *     systems (elemental.js: sun/moon cycle, acid rivers,
+ *     brimstone vents, poison veins, lightning storms, smoke
+ *     haze) that make each habitat band read as its families'
+ *     home — the world shipped with zero scene lights before
+ *     this rework, so no band could read at all.
+ *   - THE HUNT (spawns.js): a habitat-band spawn field (GLB
+ *     families only — no procedural stand-ins anywhere, no
+ *     record for a family with no placed GLB), with proximity
+ *     streaming — records are cheap data, only monsters inside
+ *     the working radius get a figure, and a figure is an empty
+ *     group until its GLB loads. The zone steps their
+ *     two-way-hunt AI against
  *     the observer the page feeds in (sight cone + terrain LOS,
  *     hearing, proximity, give-up, sanctuary break) and reports
  *     events through opts.
@@ -35,7 +41,7 @@
  *         onKorusEvent(ev), onSpotted(monster, via) }
  * Returns { group, colliders, spawn, bounds, groundHeight,
  *   biomeAt, monsters, korus, setObserver, update, dispose,
- *   strikeHunter, damageKorus, kind, sky, fog }.
+ *   strikeHunter, damageKorus, kind, sky, fog, cycleColors }.
  */
 import * as ThreeJS from 'three';
 import { createHeightFunction, spanSeatY } from '../star-wars/zone.js';
@@ -44,12 +50,14 @@ import { buildLandmark, buildAmbient } from './landmarks.js';
 import {
   spawnField, createMonster, stepMonster, damageMonster, strike,
   createKorus, stepKorus, damageKorus as damageKorusPure,
-  buildMonsterFigure, buildKorusFigure, KORUS_MODEL,
+  MONSTER_MODELS, KORUS_MODEL,
   WORLD_SPAWN, ACTIVATE_R, DEACTIVATE_R, mulberry32,
 } from './spawns.js';
-import { kickOffGlb } from './model-loader.js';
-import { WATCHER, buildWatcherFigure, watcherGazeYaw, watcherBlinkOpen, watcherLaughing } from './watcher.js';
-import { variantFor, seedFor, breatheScale, blinkOpen, clothSway } from './behavior.js';
+import { kickOffGlb, preloadGlb } from './model-loader.js';
+import { WATCHER, watcherGazeYaw, watcherBlinkOpen, watcherLaughing } from './watcher.js';
+import { buildElemental } from './elemental.js';
+import { PLACED_FIELD_KEYS } from './models.js';
+import { variantFor, seedFor, breatheScale, clothSway } from './behavior.js';
 
 function R3(THREE) { return THREE || ThreeJS; }
 
@@ -138,8 +146,19 @@ export function buildWorld(THREE, def, T, opts = {}) {
   const terrain = new R.Mesh(geo, new R.MeshStandardMaterial({ vertexColors: true, roughness: 1 }));
   group.add(terrain);
 
-  // --- ambient: the core-sun and the inverted horizon ---
-  group.add(buildAmbient('core-sun', R, T));
+  // --- elemental light + atmosphere (2026-10-26 rework): this
+  // module IS the world's lighting — the world shipped with
+  // zero scene lights, so no band could ever read as its
+  // families' home. Sun/moon cycle, acid rivers, brimstone
+  // vents, poison veins, lightning storms, smoke haze. The
+  // inverted horizon stays; the static core-sun is replaced
+  // by the cycling sun/moon (same sky role, now alive).
+  const elemental = buildElemental(R, {
+    heightAt,
+    biomeAt: (x, z) => biomeAt(x, z).dominant,
+    rng,
+  });
+  group.add(elemental.group);
   group.add(buildAmbient('inverted-horizon', R, T));
 
   // --- landmarks, seated, never hovering ---
@@ -194,10 +213,19 @@ export function buildWorld(THREE, def, T, opts = {}) {
   // The field is monster-first: families spawn in their own
   // habitat bands (spawns.js), and the band reader here is the
   // biome field's dominant band — the single source of truth.
+  // GLB-ONLY (2026-10-26 rework): spawnField emits records
+  // only for placed families, and figures are empty groups
+  // until their GLB loads — no procedural stand-in anywhere.
+  // Preload every placed URL up front so first activations
+  // swap from cache instead of waiting on a cold fetch.
   const records = spawnField(def.seed || 77701, { habitatAt: (x, z) => biomeAt(x, z).dominant });
   const monsters = records.map((rec) => createMonster(rec, rng));
   const figures = new Map();
   const observer = { x: WORLD_SPAWN.x, z: WORLD_SPAWN.z, quiet: 1, noise: null, inBase: false };
+  for (const key of new Set([
+    ...PLACED_FIELD_KEYS.map((k) => (MONSTER_MODELS[k] || {}).url).filter(Boolean),
+    KORUS_MODEL.url, WATCHER.model.url,
+  ])) preloadGlb(key);
 
   // Behavior clock (seconds) for breathe/blink/sway/watcher cycles.
   let elapsed = 0;
@@ -205,34 +233,40 @@ export function buildWorld(THREE, def, T, opts = {}) {
   function syncFigure(m) {
     let fig = figures.get(m.id);
     if (!fig) {
-      fig = buildMonsterFigure(R, m);
+      // GLB-only figure: an empty group until its model loads.
+      // A failed load leaves it empty — never a stand-in — and
+      // spawnField guarantees no record exists for a family
+      // with no placed GLB, so an empty figure has no monster
+      // behind it at all.
+      fig = new R.Group();
+      fig.userData.monsterId = m.id;
+      fig.userData.footprintR = m.stats.footprintR;
+      fig.userData.modelPath = (MONSTER_MODELS[m.type] || {}).url || null;
       figures.set(m.id, fig);
       group.add(fig);
+      kickOffGlb(fig, fig.userData.modelPath, m.stats.scaleM);
     }
     fig.position.set(m.x, heightAt(m.x, m.z) + (m.stats.flyHeight || 0), m.z);
     fig.rotation.y = m.faceYaw || 0;
     fig.visible = !m.dead;
     // Batch-4 behavior, applied to the figure group only — never
     // to the monster record, so colliders, stats, and spawn
-    // counts are untouched. Cheap per frame: a few sins, two
-    // eye scales, one WeakSet check for the GLB kick-off.
+    // counts are untouched. Cheap per frame: a few sins and one
+    // WeakSet check for the GLB kick-off. (Tagged-eye blinking
+    // was a stand-in feature: GLB figures carry no tagged eyes,
+    // and GLB eyelid mapping is still pending its pose test.)
     const seed = seedFor(m.id);
     const v = variantFor(m.id); // kin variant: visual scale only
     const br = breatheScale(elapsed, seed);
     fig.scale.set(v.scaleMul * br.x, v.scaleMul * br.y, v.scaleMul * br.z);
     fig.rotation.z = clothSway(elapsed, 0.5, seed).swayZ;
-    const eyes = fig.userData.eyes;
-    if (eyes && eyes.length) {
-      const open = Math.max(0.15, blinkOpen(elapsed, seed));
-      for (const e of eyes) e.scale.set(1, open, 1);
-    }
-    // The drop-in swap: first sync kicks off the GLB load for
-    // this figure's modelPath; failure keeps the stand-in.
-    kickOffGlb(fig, fig.userData.modelPath, m.stats.scaleM);
   }
 
   const korus = createKorus(!!opts.gateOpen);
-  const korusFig = buildKorusFigure(R);
+  const korusFig = new R.Group();
+  korusFig.userData.bossId = 'korus';
+  korusFig.userData.footprintR = 3;
+  korusFig.userData.modelPath = KORUS_MODEL.url;
   korusFig.position.set(korus.x, heightAt(korus.x, korus.z), korus.z);
   group.add(korusFig);
   kickOffGlb(korusFig, KORUS_MODEL.url, KORUS_MODEL.height);
@@ -240,8 +274,11 @@ export function buildWorld(THREE, def, T, opts = {}) {
   // Ghorrum, the Mountain's Grin: blended into the mountain
   // ranges, watching passersby. No collider — he never blocks
   // the path — and he is not a monster record, so he never
-  // enters combat, the hunt, or the reward flow.
-  const watcherFig = buildWatcherFigure(R);
+  // enters combat, the hunt, or the reward flow. GLB-only like
+  // everything else: an empty group until ghorrum.glb loads.
+  const watcherFig = new R.Group();
+  watcherFig.userData.watcher = true;
+  watcherFig.userData.modelPath = WATCHER.model.url;
   watcherFig.position.set(WATCHER.pos.x, heightAt(WATCHER.pos.x, WATCHER.pos.z), WATCHER.pos.z);
   group.add(watcherFig);
   kickOffGlb(watcherFig, WATCHER.model.url, WATCHER.model.height);
@@ -258,19 +295,16 @@ export function buildWorld(THREE, def, T, opts = {}) {
   function update(dt) {
     if (typeof dt === 'number' && dt > 0 && dt < 5) elapsed += dt;
     const player = { x: observer.x, z: observer.z };
-    // Ghorrum: gaze follows the observer, slow blink, and a deep
-    // laugh on a rising edge (the page plays the laugh tone).
+    // Ghorrum: gaze + blink need head/eyes the GLB does not map
+    // yet (pose test owed) — guarded no-ops on the GLB figure.
+    // The laugh tone is audio, not geometry: it plays on
+    // schedule regardless of figure type.
     if (watcherFig) {
       const head = watcherFig.userData.head;
       if (head) {
         const yaw = watcherGazeYaw(WATCHER.pos, observer);
         if (yaw != null) head.rotation.y = yaw;
-        const laughing = watcherLaughing(elapsed);
-        head.rotation.x = laughing ? Math.sin(elapsed * 20) * 0.05 : 0;
-        if (laughing && !watcherWasLaughing && opts.onWatcherLaugh) {
-          try { opts.onWatcherLaugh(); } catch { /* sound is optional */ }
-        }
-        watcherWasLaughing = laughing;
+        head.rotation.x = watcherLaughing(elapsed) ? Math.sin(elapsed * 20) * 0.05 : 0;
       }
       const wEyes = watcherFig.userData.eyes;
       if (wEyes && wEyes.length) {
@@ -278,6 +312,11 @@ export function buildWorld(THREE, def, T, opts = {}) {
         for (const e of wEyes) e.scale.set(1, open, 1);
       }
     }
+    const laughing = watcherLaughing(elapsed);
+    if (laughing && !watcherWasLaughing && opts.onWatcherLaugh) {
+      try { opts.onWatcherLaugh(); } catch { /* sound is optional */ }
+    }
+    watcherWasLaughing = laughing;
     for (const m of monsters) {
       if (m.dead) {
         if (figures.has(m.id)) { const f = figures.get(m.id); f.visible = false; }
@@ -310,6 +349,20 @@ export function buildWorld(THREE, def, T, opts = {}) {
       }
       syncFigure(m);
     }
+    // Elemental atmosphere: fighting a shadow (smoke) monster
+    // rolls smoke haze in around the hunter; it clears after.
+    let shadowCombat = false;
+    for (const m of monsters) {
+      if (m.active && !m.dead && m.stats.element === 'shadow' && m.spotted
+        && Math.hypot(m.x - observer.x, m.z - observer.z) < 40) { shadowCombat = true; break; }
+    }
+    elemental.update(dt, {
+      t: elapsed,
+      observerX: observer.x,
+      observerY: heightAt(observer.x, observer.z),
+      observerZ: observer.z,
+      shadowCombat,
+    });
     // Korus, on his throne.
     if (!korus.dead) {
       const evs = stepKorus(korus, dt, player);
@@ -346,5 +399,8 @@ export function buildWorld(THREE, def, T, opts = {}) {
     monsters, korus,
     setObserver, update, dispose, strikeHunter, damageKorus,
     kind: 'walk', sky: def.sky, fog: def.fog,
+    // Elemental sky/fog colors for the page to apply each frame
+    // (sun/moon cycle + smoke haze retint).
+    cycleColors: () => elemental.colors(),
   };
 }

@@ -9,9 +9,10 @@ import {
 } from '../families.js';
 import {
   MONSTER_TYPES, DRAGON_TYPES, ARCHETYPES, MONSTER_MODELS, KORUS_MODEL,
-  spawnField, createMonster, buildMonsterFigure, ELEMENTS, ELEMENT_COLORS,
+  spawnField, createMonster, ELEMENTS, ELEMENT_COLORS,
   SAFE_BASE, KORUS_POS,
 } from '../spawns.js';
+import { PLACED_FIELD_KEYS } from '../models.js';
 import { BIOMES, BIOME_IDS, biomeAt } from '../biomes.js';
 
 test('all 38 unique monster slots have a home: 37 families + Korus the boss', () => {
@@ -103,16 +104,21 @@ test('Korus’s court stands deep in the shadow band', () => {
   assert.equal(biomeAt(BIOMES.shadow.anchor.x, BIOMES.shadow.anchor.z).dominant, 'shadow');
 });
 
-test('spawn field with the real biome field: every family appears, in its own band', () => {
+test('spawn field with the real biome field: every PLACED family appears, in its own band', () => {
   const field = spawnField(77701, { habitatAt: (x, z) => biomeAt(x, z).dominant });
-  assert.ok(field.length >= 150, `field has ${field.length} records`);
+  assert.equal(field.length, 153, `field has ${field.length} records, expected 153`);
   const seen = new Set(field.map((r) => r.type));
-  for (const key of FAMILY_KEYS) {
-    assert.ok(seen.has(key), `family ${key} never spawns`);
+  const placed = new Set(PLACED_FIELD_KEYS);
+  for (const key of placed) {
+    assert.ok(seen.has(key), `placed family ${key} never spawns`);
   }
-  for (const d of DRAGON_TYPES) {
-    assert.equal(field.filter((r) => r.type === d).length, 3, `${d} count`);
+  // Unplaced families never spawn — the GLB-only rule.
+  for (const key of Object.keys(MONSTER_TYPES)) {
+    if (!placed.has(key)) assert.ok(!seen.has(key), `unplaced family ${key} spawns`);
   }
+  assert.equal(field.filter((r) => r.type === 'sky-dragon').length, 3, 'sky-dragon count');
+  assert.equal(field.filter((r) => r.type === 'cinder-dragon').length, 0);
+  assert.equal(field.filter((r) => r.type === 'muse-dragon').length, 0);
   for (const rec of field) {
     const band = biomeAt(rec.x, rec.z).dominant;
     assert.equal(band, MONSTER_TYPES[rec.type].habitat, `${rec.type} at ${rec.x},${rec.z} sits in ${band}, not its ${MONSTER_TYPES[rec.type].habitat} band`);
@@ -120,20 +126,16 @@ test('spawn field with the real biome field: every family appears, in its own ba
   }
 });
 
-test('vortex families get a funnel stand-in, not a quadruped', () => {
-  class G { constructor() { this.children = []; this.userData = {}; } add(c) { this.children.push(c); } }
-  class Mesh { constructor(geo, mat) { this.geometry = geo; this.material = mat; this.position = { set: () => {} }; this.rotation = {}; this.scale = { set: () => {} }; } }
-  const R = {
-    Group: G, Mesh,
-    SphereGeometry: class {}, CylinderGeometry: class {}, ConeGeometry: class {}, BoxGeometry: class {},
-    MeshStandardMaterial: class { constructor(m) { Object.assign(this, m); } },
-  };
-  const m = createMonster({ id: 't-vortex', type: 'slot-05', element: 'sand', x: 0, z: 0 }, () => 0.5);
-  const fig = buildMonsterFigure(R, m);
-  assert.equal(fig.userData.form, 'vortex');
-  assert.equal(fig.userData.modelPath, MONSTER_MODELS['slot-05'].url);
-  assert.ok(fig.children.length >= 4, `vortex figure has ${fig.children.length} parts`);
-  const beast = createMonster({ id: 't-beast', type: 'slot-06', element: 'fire', x: 0, z: 0 }, () => 0.5);
-  const beastFig = buildMonsterFigure(R, beast);
-  assert.equal(beastFig.userData.form, undefined);
+test('vortex families: placed ones spawn as records, unplaced ones never spawn (no funnel figures)', () => {
+  // Vortex is a body-plan tag in the data now, not a figure
+  // type — there is no funnel stand-in builder anymore.
+  const field = spawnField(77701, { habitatAt: (x, z) => biomeAt(x, z).dominant });
+  const seen = new Set(field.map((r) => r.type));
+  // Placed vortex families still spawn (as GLBs, not funnels).
+  assert.ok(seen.has('slot-23'), 'placed vortex slot-23 never spawns');
+  assert.ok(seen.has('slot-29'), 'placed vortex slot-29 never spawns');
+  // Unplaced vortex families vanish until their re-sends land.
+  for (const v of ['slot-05', 'slot-12', 'slot-28', 'slot-35']) {
+    assert.ok(!seen.has(v), `unplaced vortex ${v} spawns`);
+  }
 });

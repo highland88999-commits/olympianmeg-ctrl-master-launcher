@@ -380,6 +380,13 @@ export default function HollowEarthPage() {
       // re-entry.
       if (DATA.gateOpen(campaignRef.current) && world.korus.dormant) world.korus.dormant = false;
       world.update(dt);
+      // Elemental sky: the sun/moon cycle + smoke haze retint
+      // the sky and fog each frame (zone-owned colors).
+      const cyc = world.cycleColors && world.cycleColors();
+      if (cyc) {
+        scene.background.set(cyc.sky);
+        scene.fog.color.set(cyc.fog);
+      }
       // Resolve telegraphed hazards.
       const hzNow = Date.now();
       hazardsRef.current = hazardsRef.current.filter((hz) => {

@@ -8,9 +8,10 @@ import {
   SHIELD_KILLS, SHIELD_ABSORB, HEAL_ON_KILL, PLAYER_MAX_HP,
   KORUS_MAX_HP, KORUS_GATE_KILLS, createKorus, stepKorus, damageKorus,
   SAFE_BASE, isInBase, canTeleport, BASE_TELEPORT_COOLDOWN_S,
-  GIVE_UP_S, buildMonsterFigure, ELEMENTS, ELEMENT_COLORS,
+  GIVE_UP_S, ELEMENTS, ELEMENT_COLORS,
 } from '../spawns.js';
 import { MONSTER_FAMILIES, ALL_MONSTER_SLOTS, slotHome, slotKey, FAMILIES_BY_HABITAT } from '../families.js';
+import { PLACED_FIELD_KEYS } from '../models.js';
 
 const rng = () => 0.5;
 function mon(type, x, z, faceYaw = 0) {
@@ -53,18 +54,19 @@ test('Korus is exactly 1000 HP and the gate is a documented constant', () => {
   assert.equal(open.dormant, false);
 });
 
-test('spawn field: ~150 records, none inside the safe base, dragons rare (3 each)', () => {
+test('spawn field: 153 records (150 + 3 Stormwings), none inside the safe base, placed types only', () => {
   const bands = ['acid', 'fire', 'lightning', 'poison', 'shadow', 'sand', 'mountain', 'frost'];
   const habitatAt = (x, z) => bands[(Math.abs(Math.floor(x / 50)) + Math.abs(Math.floor(z / 50))) % 8];
   const field = spawnField(77701, { habitatAt });
-  assert.ok(field.length >= 140, `field has ${field.length} records`);
+  assert.equal(field.length, 153, `field has ${field.length} records, expected 153`);
   for (const rec of field) {
     assert.ok(Math.hypot(rec.x - SAFE_BASE.x, rec.z - SAFE_BASE.z) >= SAFE_BASE.r + 10, 'spawn inside the Haven');
   }
-  for (const d of DRAGON_TYPES) {
-    const n = field.filter((r) => r.type === d).length;
-    assert.equal(n, 3, `${d} appears ${n} times, expected 3`);
-  }
+  // GLB-ONLY: only Stormwing spawns among dragons — cinder
+  // and muse GLBs are truncated, so they have no field presence.
+  assert.equal(field.filter((r) => r.type === 'sky-dragon').length, 3, 'sky-dragon count');
+  assert.equal(field.filter((r) => r.type === 'cinder-dragon').length, 0, 'cinder-dragon must not spawn');
+  assert.equal(field.filter((r) => r.type === 'muse-dragon').length, 0, 'muse-dragon must not spawn');
 });
 
 test('heal on kill is modest and capped at max HP', () => {
@@ -224,22 +226,27 @@ test('strike: melee cannot reach the sky dragon, but can reach the low-hovering 
   assert.ok(hits2.includes(sky), 'ranged must reach the sky dragon');
 });
 
-test('dragon figures are winged stand-ins with the drop-in model path', () => {
-  // Minimal THREE stub: only what the figure builder touches.
-  class G { constructor() { this.children = []; this.userData = {}; } add(c) { this.children.push(c); } }
-  class Mesh { constructor(geo, mat) { this.geometry = geo; this.material = mat; this.position = { set: () => {} }; this.rotation = {}; this.scale = { set: () => {} }; } }
-  const R = {
-    Group: G, Mesh,
-    SphereGeometry: class {}, CylinderGeometry: class {}, ConeGeometry: class {}, BoxGeometry: class {},
-    MeshStandardMaterial: class { constructor(m) { Object.assign(this, m); } },
-  };
-  for (const d of DRAGON_TYPES) {
-    const m = mon(d, 0, 0, 0);
-    const fig = buildMonsterFigure(R, m);
-    assert.equal(fig.userData.dragon, true);
-    assert.equal(fig.userData.modelPath, MONSTER_MODELS[d].url);
-    assert.ok(fig.children.length >= 10, `${d} figure has ${fig.children.length} parts`);
+test('GLB-only field: every record is a placed family, and the vanish list is exact', () => {
+  // 51 type-table keys (37 slots + 11 extras + 3 dragons)
+  // minus 24 placed field keys = 27 vanished types.
+  const placed = new Set(PLACED_FIELD_KEYS);
+  assert.equal(placed.size, 24, `placed field keys ${placed.size}`);
+  const vanished = Object.keys(MONSTER_TYPES).filter((k) => !placed.has(k));
+  assert.equal(vanished.length, 27, `vanished ${vanished.length}: ${vanished.join(',')}`);
+  const expected = [
+    'slot-02', 'slot-03', 'slot-05', 'slot-06', 'slot-09', 'slot-12',
+    'slot-16', 'slot-18', 'slot-21', 'slot-24', 'slot-25', 'slot-27',
+    'slot-28', 'slot-33', 'slot-34', 'slot-35', 'slot-36', 'slot-37',
+    'slot-38', 'slot-39', 'slot-40',
+    'umbrax', 'frostbite-lizard', 'vice', 'wonder',
+    'cinder-dragon', 'muse-dragon',
+  ];
+  assert.deepEqual([...vanished].sort(), [...expected].sort());
+  const field = spawnField(77701, { habitatAt: () => 'sand' });
+  for (const rec of field) {
+    assert.ok(placed.has(rec.type), `${rec.type} spawns but has no placed GLB`);
   }
+  assert.ok(!field.some((r) => vanished.includes(r.type)), 'a vanished family spawns');
 });
 
 test('Korus fight: dormant until the gate, wakes in range, telegraphs, dies', () => {

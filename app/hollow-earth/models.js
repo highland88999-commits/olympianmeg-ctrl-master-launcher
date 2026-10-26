@@ -110,6 +110,28 @@ export function placementStatus(key) {
   return TRUNCATED_AWAITING_RESEND.some((t) => t.key === key) ? 'staged-truncated' : 'placed';
 }
 
+// PLACED MODEL KEYS — the single source of truth for which
+// monsters actually render. A placement counts as placed only
+// when its file is NOT in TRUNCATED_AWAITING_RESEND: 37
+// placements minus 12 truncated = 25 keys (16 slot families +
+// Korus + sky-dragon + 7 extra families). Ghorrum is NOT here
+// — he has his own watcher seat (GHORRUM_MODEL), not a monster
+// placement. spawns.js filters the field to PLACED_FIELD_KEYS,
+// so a family with no GLB on disk simply does not spawn — and
+// returns automatically the moment its re-send lands: removing
+// its TRUNCATED entry re-includes it with no other change.
+export const PLACED_MODEL_KEYS = BATCH4_PLACEMENTS
+  .filter((p) => !TRUNCATED_AWAITING_RESEND.some((t) => t.key === p.key))
+  .map((p) => p.key);
+
+// Field-spawnable placed keys: everything placed except Korus,
+// who is not a field monster (his own throne seat, spawns.js
+// KORUS_MODEL). 24 keys: 16 slot families + sky-dragon + 7
+// extra families. The 27 types NOT here (21 slot families + 4
+// extra families + cinder-dragon + muse-dragon) vanish from the
+// field until their Tripo re-sends arrive.
+export const PLACED_FIELD_KEYS = PLACED_MODEL_KEYS.filter((k) => k !== 'korus');
+
 export function modelUrlFor(key) {
   if (key === 'korus') return '/models/hollow-earth/korus.glb';
   return `/models/hollow-earth/${key}.glb`;

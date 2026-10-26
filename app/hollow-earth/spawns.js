@@ -1,12 +1,11 @@
-// OLYMPIAN MONSTERVERSE — monster spawn system (pure + figures).
-//
-// Monsters are FULL-BODIED by contract: every entry carries a
-// footprint collider, a scale, and a model path, and the figure
-// builder below makes a complete body (trunk, head, legs, tail)
-// in the element's colours. When the Tripo models land, they drop
-// into MONSTER_MODELS at the same public paths and the figure
-// builder swaps the stand-in for the GLB with no code change —
-// the footprint and collider contract does not move.
+// OLYMPIAN MONSTERVERSE — monster spawn system (pure data +
+// combat + senses). GLB-ONLY rendering (2026-10-26 rework):
+// monsters are FULL-BODIED rigged Tripo models, one path per
+// slot in MONSTER_MODELS — there is no procedural figure
+// builder anymore, and the field only spawns families whose
+// GLB is placed (models.js PLACED_FIELD_KEYS). The footprint
+// and collider contract never moves: a re-sent GLB lands at
+// the same path and the family returns with no code change.
 //
 // MONSTER-FIRST (Merlin, 2026-10-25): the type table is BUILT
 // from families.js — one family per unique monster slot, each
@@ -22,6 +21,15 @@
 
 import { MONSTER_FAMILIES, EXTRA_FAMILIES, FAMILIES_BY_HABITAT } from './families.js';
 import { BIOMES } from './biomes.js';
+import { PLACED_FIELD_KEYS } from './models.js';
+
+// PLACED-ONLY FIELD (2026-10-26 rework): only families with a
+// real rigged GLB on disk spawn on the field. The set comes
+// from models.js (placements minus truncated), so a family
+// returns automatically when its Tripo re-send lands — no code
+// change, just its TRUNCATED entry going away. Korus is not a
+// field key (his own throne seat); dragons filter the same way.
+const PLACED_FIELD = new Set(PLACED_FIELD_KEYS);
 
 export function mulberry32(seed) {
   let a = seed >>> 0;
@@ -52,8 +60,10 @@ export const PLAYER_MAX_HP = 100;
  * primary attack archetype (see ARCHETYPES): ranged,
  * environmental, melee, short-range — plus its family name (the
  * HUD tracking sense shows the name, not the slot key), its
- * habitat band, and its stand-in form. The table is built from
- * families.js so the roster is the single source of truth. */
+ * habitat band, and its body-plan form (beast or vortex, read
+ * from its reference image — data only now that rendering is
+ * GLB-only). The table is built from families.js so the roster
+ * is the single source of truth. */
 export const MONSTER_TYPES = {};
 for (const [key, f] of Object.entries({ ...MONSTER_FAMILIES, ...EXTRA_FAMILIES })) {
   MONSTER_TYPES[key] = {
@@ -88,8 +98,8 @@ for (const [key, f] of Object.entries({ ...MONSTER_FAMILIES, ...EXTRA_FAMILIES }
    * the wiser/cooler dragon (vicious 0.5, the lowest of the
    * three) while still a realm monster under the same combat
    * rules — it hunts, it hurts, it pays health on kill like
-   * any other. Its stand-in carries glow markings and a sleek
-   * build so the later Tripo model brief can match it. */
+   * any other. Its Tripo model carries the glow markings and
+   * sleek build the brief called for. */
 MONSTER_TYPES['sky-dragon'] = { name: 'Stormwing', element: 'lightning', attitude: 'stalk', archetype: 'ranged', habitat: 'mountain', hp: 170, dmg: 16, speed: 6.5, scaleM: 3.2, footprintR: 3.5, role: 'fly', flyHeight: 6, dragon: true, temperament: { scary: 0.9, vicious: 0.7, fast: 1.0 } };
 MONSTER_TYPES['cinder-dragon'] = { name: 'Cinder Maw', element: 'fire', attitude: 'charge', archetype: 'melee', habitat: 'fire', hp: 200, dmg: 20, speed: 3.8, scaleM: 3.6, footprintR: 4.0, role: 'ground', dragon: true, temperament: { scary: 0.9, vicious: 1.0, fast: 0.4 } };
 MONSTER_TYPES['muse-dragon'] = { name: 'Muse, the Luminous', element: 'shadow', attitude: 'stalk', archetype: 'environmental', habitat: 'shadow', hp: 150, dmg: 14, speed: 5.2, scaleM: 3.0, footprintR: 3.0, role: 'both', flyHeight: 3, dragon: true, tribute: 'muse', temperament: { scary: 0.6, vicious: 0.5, fast: 0.8 } };
@@ -124,10 +134,11 @@ for (const [key, t] of Object.entries(MONSTER_TYPES)) {
  * (full-bodied, rigged) — one path per monster SLOT, so the
  * mapping never assigns a model name to a slot: the slot key IS
  * the path stem, and the separate Tripo matching task decides
- * which model file fills it. Until then the figure builder below
- * stands in with the same footprint — the swap changes no code
- * and no collider. Dragons keep their named seats; Korus has
- * his own seat at the bottom. */
+ * which model file fills it. GLB-ONLY (2026-10-26 rework):
+ * there is no procedural figure builder anymore — a monster
+ * renders if and only if its GLB loads, and spawnField only
+ * spawns families whose GLB is placed (models.js). Dragons
+ * keep their named seats; Korus has his own seat at the bottom. */
 export const MONSTER_MODELS = {};
 for (const key of Object.keys(MONSTER_TYPES)) {
   MONSTER_MODELS[key] = { url: `/models/hollow-earth/${key}.glb`, height: MONSTER_TYPES[key].scaleM };
@@ -168,22 +179,32 @@ export function canTeleport(lastTeleportMs, nowMs) {
 
 /* HABITAT-DRIVEN SPAWN (monster-first): the field is built from
  * the families, in their habitat bands — never the other way
- * round. The caller passes opts.habitatAt, a reader returning
+ * round. PLACED-ONLY (2026-10-26 rework): the field contains
+ * ONLY families with a real rigged GLB on disk (models.js
+ * PLACED_FIELD_KEYS). A family with no GLB does not spawn at
+ * all — no stand-in, no borrowed band, no invisible attacker —
+ * and it returns automatically when its Tripo re-send lands.
+ * The caller passes opts.habitatAt, a reader returning
  * the habitat band id at a point (zone.js passes the biome
  * field's dominant band). Two passes over the blanket field:
- *   PASS 1 — GUARANTEE: two of every regular family, sampled
- *     inside its own habitat band, so no slot is ever missing
- *     from the world by sampling luck.
+ *   PASS 1 — GUARANTEE: two of every PLACED regular family,
+ *     sampled inside its own habitat band, so no placed family
+ *     is ever missing from the world by sampling luck.
  *   PASS 2 — FILL: random points up to `count`, each filled
- *     with a random family of the band it lands in.
- * Dragons keep their own rare pass: exactly 3 of each, sampled
- * inside the dragon's habitat band. The Haven exclusion and the
- * spawn-clear radius apply to every pass. A legacy opts.elementAt
- * reader is still honoured (mapped element → primary band) so
- * older callers keep working; a family whose band never matches
- * a degenerate reader falls back to its band's anchor, jittered
- * — anchors sit far from spawn and the Haven by construction,
- * so the guarantee still holds. */
+ *     with a random PLACED family of the band it lands in. A
+ *     band with no placed family (today: poison) is skipped
+ *     outright — that band stands empty of monsters, dressed
+ *     by its light and terrain, until its families land.
+ * Dragons keep their own rare pass: exactly 3 of each PLACED
+ * dragon, sampled inside the dragon's habitat band (today only
+ * Stormwing: cinder-dragon and muse-dragon GLBs are truncated).
+ * The Haven exclusion and the spawn-clear radius apply to every
+ * pass. A legacy opts.elementAt reader is still honoured
+ * (mapped element → primary band) so older callers keep
+ * working; a family whose band never matches a degenerate
+ * reader falls back to its band's anchor, jittered — anchors
+ * sit far from spawn and the Haven by construction, so the
+ * guarantee still holds. */
 const ELEMENT_PRIMARY_HABITAT = {
   acid: 'acid', fire: 'fire', lightning: 'lightning',
   poison: 'poison', shadow: 'shadow', sand: 'sand', frost: 'frost',
@@ -205,9 +226,10 @@ export function spawnField(seed, opts = {}) {
     const r = Math.sqrt(rng()) * radius;
     return { x: Math.cos(a) * r, z: Math.sin(a) * r };
   };
-  // PASS 1 — guarantee: two of every regular family, in-band.
+  // PASS 1 — guarantee: two of every PLACED regular family, in-band.
   // (Slot families + batch-4 extra families alike: same rule.)
-  for (const key of Object.keys({ ...MONSTER_FAMILIES, ...EXTRA_FAMILIES })) {
+  // Unplaced families are skipped entirely — no stand-in, no record.
+  for (const key of Object.keys({ ...MONSTER_FAMILIES, ...EXTRA_FAMILIES }).filter((k) => PLACED_FIELD.has(k))) {
     const fam = key in MONSTER_FAMILIES ? MONSTER_FAMILIES[key] : EXTRA_FAMILIES[key];
     let placed = 0;
     let guard = 0;
@@ -228,19 +250,25 @@ export function spawnField(seed, opts = {}) {
       placed++;
     }
   }
-  // PASS 2 — fill to count with band-local families.
+  // PASS 2 — fill to count with band-local PLACED families. A
+  // band with no placed family (today: poison) is skipped
+  // outright — that band stands empty of monsters rather than
+  // borrowing a family from another band.
   let guard = 0;
   while (records.length < count && guard++ < count * 40) {
     const { x, z } = samplePoint();
     if (!clearOfSpawn(x, z) || !clearOfBase(x, z)) continue;
     const habitat = habitatAt(x, z);
-    const types = FAMILIES_BY_HABITAT[habitat] || Object.keys(MONSTER_FAMILIES);
+    const types = (FAMILIES_BY_HABITAT[habitat] || []).filter((k) => PLACED_FIELD.has(k));
+    if (types.length === 0) continue;
     const type = types[(rng() * types.length) | 0];
     records.push({ id: `m-${records.length}`, type, element: MONSTER_TYPES[type].element, x, z });
   }
-  // DRAGON PASS — rare by design: exactly 3 of each dragon,
-  // each placed where its habitat band holds (same exclusions).
+  // DRAGON PASS — rare by design: exactly 3 of each PLACED
+  // dragon, each placed where its habitat band holds (same
+  // exclusions). Unplaced dragons (today: cinder, muse) skip.
   for (const dtype of DRAGON_TYPES) {
+    if (!PLACED_FIELD.has(dtype)) continue;
     const habitat = MONSTER_TYPES[dtype].habitat;
     let placed = 0;
     let guard2 = 0;
@@ -577,126 +605,16 @@ export function damageKorus(k, dmg) {
   return false;
 }
 
-/* ---------------- figures (procedural stand-ins) ----------------
- * Full-bodied by construction: trunk, head, four legs, tail, eyes
- * in the element colour. userData carries the footprint and the
- * model path the Tripo GLB will occupy — the swap is one loader
- * call, and the collider never moves. */
-export function buildMonsterFigure(R, monster) {
-  const s = monster.stats.scaleM;
-  const color = ELEMENT_COLORS[monster.element] || 0x888888;
-  const g = new R.Group();
-  const M = (geo, m, x, y, z) => {
-    const o = new R.Mesh(geo, new R.MeshStandardMaterial(m));
-    o.position.set(x, y, z);
-    g.add(o);
-    return o;
-  };
-  if (monster.stats.dragon) {
-    // DRAGON STAND-IN — winged quadruped, full-bodied: trunk,
-    // long neck, horned head, four legs, tail, spread wings.
-    // The Muse dragon is the sleek one: slimmer trunk, swept
-    // wings, violet body with CYAN glow markings (the Olympus
-    // light) — the Tripo brief is: match this, luminous, keen.
-    const isMuse = monster.type === 'muse-dragon';
-    const bodyColor = isMuse ? 0x6a4ac8 : color;
-    const glow = isMuse ? 0x22d8e8 : 0xffe14d;
-    const body = M(new R.SphereGeometry(1, 12, 10), { color: bodyColor, roughness: 0.8 }, 0, 1.4 * s, 0);
-    body.scale.set(1.0, 0.9, 1.7);
-    const neck = M(new R.CylinderGeometry(0.3, 0.45, 1.6 * s, 8), { color: bodyColor, roughness: 0.8 }, 0, 2.4 * s, 1.2 * s);
-    neck.rotation.x = 0.5;
-    M(new R.SphereGeometry(0.6, 10, 8), { color: bodyColor, roughness: 0.8 }, 0, 3.1 * s, 1.8 * s);
-    M(new R.ConeGeometry(0.12, 0.5, 6), { color: 0xe8e8e8 }, -0.25, 3.5 * s, 1.8 * s);
-    M(new R.ConeGeometry(0.12, 0.5, 6), { color: 0xe8e8e8 }, 0.25, 3.5 * s, 1.8 * s);
-    const dEyeL = M(new R.SphereGeometry(0.14, 8, 6), { color: glow, emissive: glow, emissiveIntensity: 1.4 }, -0.24, 3.2 * s, 2.3 * s);
-    const dEyeR = M(new R.SphereGeometry(0.14, 8, 6), { color: glow, emissive: glow, emissiveIntensity: 1.4 }, 0.24, 3.2 * s, 2.3 * s);
-    g.userData.eyes = [dEyeL, dEyeR];
-    for (const [lx, lz] of [[-0.6, 0.8], [0.6, 0.8], [-0.6, -0.8], [0.6, -0.8]]) {
-      M(new R.CylinderGeometry(0.18, 0.14, 1.4 * s, 6), { color: bodyColor, roughness: 0.9 }, lx * s, 0.7 * s, lz * s);
-    }
-    const tail = M(new R.ConeGeometry(0.25, 2.2 * s, 6), { color: bodyColor, roughness: 0.9 }, 0, 1.5 * s, -2.1 * s);
-    tail.rotation.x = -1.2;
-    // Spread wings — swept back on the Muse dragon, broad else.
-    const wingSpan = isMuse ? 2.2 : 2.8;
-    const wingSweep = isMuse ? -0.5 : 0;
-    for (const side of [-1, 1]) {
-      const wing = M(new R.BoxGeometry(wingSpan * s, 0.08, 1.2 * s), { color: bodyColor, roughness: 0.85 }, side * 1.4 * s, 2.2 * s, 0.2 * s);
-      wing.rotation.z = side * 0.25;
-      wing.rotation.y = side * wingSweep;
-    }
-    if (isMuse) {
-      // Cyan glow markings along the spine — the tribute tell.
-      for (let i = 0; i < 4; i++) {
-        M(new R.SphereGeometry(0.12, 8, 6), { color: glow, emissive: glow, emissiveIntensity: 1.6 }, 0, (1.9 + i * 0.35) * s, (0.6 - i * 0.45) * s);
-      }
-    }
-    g.userData.monsterId = monster.id;
-    g.userData.footprintR = monster.stats.footprintR;
-    g.userData.modelPath = (MONSTER_MODELS[monster.type] || {}).url || null;
-    g.userData.standIn = true;
-    g.userData.dragon = true;
-    g.userData.flyHeight = monster.stats.flyHeight || 0;
-    return g;
-  }
-  if (monster.stats.form === 'vortex') {
-    // VORTEX STAND-IN — a swirling funnel, not a quadruped: the
-    // sand, smoke and ooze funnels ARE vortices. Stacked cones
-    // narrow toward the ground, a head sphere with glowing eyes
-    // riding the top.
-    const funnel = M(new R.ConeGeometry(1.4 * s, 2.6 * s, 10), { color, roughness: 0.9 }, 0, 1.3 * s, 0);
-    funnel.rotation.x = Math.PI; // apex down, into the ground
-    const funnelTop = M(new R.ConeGeometry(0.9 * s, 1.8 * s, 10), { color, roughness: 0.9 }, 0, 2.6 * s, 0);
-    funnelTop.rotation.x = Math.PI;
-    M(new R.SphereGeometry(0.6, 10, 8), { color, roughness: 0.85 }, 0, 3.4 * s, 0);
-    const vEyeL = M(new R.SphereGeometry(0.13, 8, 6), { color: 0xffe14d, emissive: 0xcc9900, emissiveIntensity: 1 }, -0.24, 3.5 * s, 0.55 * s);
-    const vEyeR = M(new R.SphereGeometry(0.13, 8, 6), { color: 0xffe14d, emissive: 0xcc9900, emissiveIntensity: 1 }, 0.24, 3.5 * s, 0.55 * s);
-    g.userData.monsterId = monster.id;
-    g.userData.footprintR = monster.stats.footprintR;
-    g.userData.modelPath = (MONSTER_MODELS[monster.type] || {}).url || null;
-    g.userData.standIn = true;
-    g.userData.form = 'vortex';
-    g.userData.eyes = [vEyeL, vEyeR];
-    return g;
-  }
-  const body = M(new R.SphereGeometry(1, 12, 10), { color, roughness: 0.85 }, 0, 1.1 * s, 0);
-  body.scale.set(1.25, 0.95, 1.6);
-  M(new R.SphereGeometry(0.55, 10, 8), { color, roughness: 0.85 }, 0, 1.7 * s, 1.15 * s);
-  const bEyeL = M(new R.SphereGeometry(0.12, 8, 6), { color: 0xffe14d, emissive: 0xcc9900, emissiveIntensity: 1 }, -0.22, 1.85 * s, 1.6 * s);
-  const bEyeR = M(new R.SphereGeometry(0.12, 8, 6), { color: 0xffe14d, emissive: 0xcc9900, emissiveIntensity: 1 }, 0.22, 1.85 * s, 1.6 * s);
-  g.userData.eyes = [bEyeL, bEyeR];
-  for (const [lx, lz] of [[-0.55, 0.7], [0.55, 0.7], [-0.55, -0.7], [0.55, -0.7]]) {
-    M(new R.CylinderGeometry(0.16, 0.13, 1.1 * s, 6), { color, roughness: 0.9 }, lx * s, 0.55 * s, lz * s);
-  }
-  const tail = M(new R.ConeGeometry(0.22, 1.6 * s, 6), { color, roughness: 0.9 }, 0, 1.2 * s, -1.7 * s);
-  tail.rotation.x = -1.1;
-  g.userData.monsterId = monster.id;
-  g.userData.footprintR = monster.stats.footprintR;
-  g.userData.modelPath = (MONSTER_MODELS[monster.type] || {}).url || null;
-  g.userData.standIn = true;
-  return g;
-}
-
-export function buildKorusFigure(R) {
-  const g = new R.Group();
-  const M = (geo, m, x, y, z) => {
-    const o = new R.Mesh(geo, new R.MeshStandardMaterial(m));
-    o.position.set(x, y, z);
-    g.add(o);
-    return o;
-  };
-  M(new R.CylinderGeometry(1.4, 2.2, 7, 8), { color: 0x242428, roughness: 0.9 }, 0, 3.5, 0);
-  M(new R.SphereGeometry(1.6, 12, 10), { color: 0x1c1c20, roughness: 0.85 }, 0, 8.2, 0);
-  const kEyeL = M(new R.SphereGeometry(0.3, 8, 6), { color: 0xffe14d, emissive: 0xffe14d, emissiveIntensity: 2 }, -0.6, 8.5, 1.3);
-  const kEyeR = M(new R.SphereGeometry(0.3, 8, 6), { color: 0xffe14d, emissive: 0xffe14d, emissiveIntensity: 2 }, 0.6, 8.5, 1.3);
-  g.userData.eyes = [kEyeL, kEyeR];
-  for (const [lx, lz] of [[-1.1, 0.6], [1.1, 0.6], [-1.1, -0.6], [1.1, -0.6]]) {
-    M(new R.CylinderGeometry(0.5, 0.4, 3.4, 6), { color: 0x1c1c20, roughness: 0.9 }, lx, 1.7, lz);
-  }
-  M(new R.CylinderGeometry(0.14, 0.14, 9, 5), { color: 0xffe14d, emissive: 0xffe14d, emissiveIntensity: 1.6 }, -2.6, 6, 0.5);
-  M(new R.CylinderGeometry(0.14, 0.14, 9, 5), { color: 0x8a8a9a, emissive: 0x666670, emissiveIntensity: 1 }, 2.6, 6, 0.5);
-  g.userData.bossId = 'korus';
-  g.userData.footprintR = 3;
-  g.userData.modelPath = KORUS_MODEL.url;
-  g.userData.standIn = true;
-  return g;
-}
+/* ---------------- GLB-ONLY RENDERING (2026-10-26 rework) ----------------
+ * The procedural stand-in figure builders (buildMonsterFigure,
+ * buildKorusFigure) were REMOVED here: the world no longer
+ * renders any code-built monster, vortex, or dragon figure.
+ * A monster renders if and only if its rigged Tripo GLB loads
+ * (model-loader.js swapFigureToGlb); a failed load leaves an
+ * empty group, never a stand-in. Spawn data is untouched —
+ * MONSTER_TYPES, MONSTER_MODELS, and the family tables still
+ * describe every family — but spawnField only emits records for
+ * placed families (models.js PLACED_FIELD_KEYS), so no record
+ * exists for a family with no GLB, and no invisible attacker
+ * can ever hunt the player. A family returns automatically
+ * when its Tripo re-send lands. */

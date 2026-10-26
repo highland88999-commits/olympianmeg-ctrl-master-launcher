@@ -1,22 +1,28 @@
 // OLYMPIAN MONSTERVERSE — GLB drop-in loader (browser only).
 //
-// The spawns.js contract: a figure's userData.modelPath is the
-// public path its rigged Tripo GLB occupies, and "the swap is
-// one loader call". This module IS that call: given a figure
+// GLB-ONLY rendering (2026-10-26 rework): there is no
+// procedural stand-in anymore. A figure is an empty group until
+// its GLB loads; this module IS that load: given a figure
 // group, it loads the GLB (cached per URL, lazy GLTFLoader
 // import so the loader never enters the bundle until used),
-// scales the model to the figure's target height, and replaces
-// the stand-in children — WITHOUT moving the group, its
+// scales the model to the figure's target height, and places
+// the clone inside the group — WITHOUT moving the group, its
 // position/rotation, its userData (monster id, footprint,
 // collider contract), or anything the zone's update loop owns.
 // On ANY failure (404, parse error, no WebGL) it resolves
-// false and the stand-in simply stays: a missing model is
-// never a crash, never a blank monster.
+// false and the figure simply stays empty: a missing model is
+// never a crash, never a stand-in, never a blank monster that
+// can still fight — spawnField never emits records for
+// families with no placed GLB, so an empty figure has no
+// monster behind it at all.
 //
 // STABILITY: loads are cached (one network fetch per URL no
 // matter how many figures share it), in-flight loads are
 // de-duplicated, and a figure is only ever attempted once —
 // the zone's per-frame sync never re-triggers a load.
+// buildWorld preloads every placed URL up front (preloadGlb)
+// so the first activation of a family never waits on a cold
+// fetch mid-hunt.
 
 const urlCache = new Map(); // url -> Promise<scene|null> (master copy)
 const attempted = new WeakSet(); // figures already kicked off
@@ -71,7 +77,7 @@ export async function swapFigureToGlb(fig, url, targetHeightM) {
     fig.add(scene);
     fig.userData.standIn = false;
     fig.userData.glb = true;
-    fig.userData.eyes = null; // GLB eyes are not the tagged stand-in eyes
+    fig.userData.eyes = null; // GLB figures carry no tagged eyes
     fig.userData.head = null;
     return true;
   } catch {
@@ -87,6 +93,20 @@ export function kickOffGlb(fig, url, targetHeightM) {
     const p = swapFigureToGlb(fig, url, targetHeightM);
     if (p && typeof p.catch === 'function') p.catch(() => {});
   } catch {
-    // Stand-in stays. Loading is enhancement, never requirement.
+    // Figure stays empty. Loading is enhancement, never requirement.
+  }
+}
+
+// Warm the per-URL cache without a figure: buildWorld calls this
+// for every placed URL up front, so first activations swap from
+// cache instead of waiting on a cold fetch mid-hunt. Never throws.
+export function preloadGlb(url) {
+  if (!url) return;
+  try {
+    const p = loadScene(url);
+    if (p && typeof p.catch === 'function') p.catch(() => {});
+  } catch {
+    // A failed preload changes nothing — the figure path retries
+    // through kickOffGlb and stays empty on failure, as designed.
   }
 }
