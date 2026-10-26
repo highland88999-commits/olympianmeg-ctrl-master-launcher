@@ -622,8 +622,10 @@ export function stepKorus(k, dt, player) {
       const at = k.telegraphedAt;
       k.telegraphedAt = null;
       const d = Math.hypot(player.x - at.x, player.z - at.z);
-      if (d <= KORUS_BLAST.shadowR) events.push({ kind: 'hit', dmg: KORUS_BLAST.shadowDmg, from: 'korus-shadow' });
-      if (d <= KORUS_BLAST.boltR) events.push({ kind: 'hit', dmg: KORUS_BLAST.boltDmg, from: 'korus-bolt' });
+      // x/z ride along so the zone can draw the sky-bolt visual
+      // at the blast point (data only — timing/damage unchanged).
+      if (d <= KORUS_BLAST.shadowR) events.push({ kind: 'hit', dmg: KORUS_BLAST.shadowDmg, from: 'korus-shadow', x: at.x, z: at.z });
+      if (d <= KORUS_BLAST.boltR) events.push({ kind: 'hit', dmg: KORUS_BLAST.boltDmg, from: 'korus-bolt', x: at.x, z: at.z });
     }
     return events;
   }

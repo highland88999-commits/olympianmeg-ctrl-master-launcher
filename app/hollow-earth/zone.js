@@ -57,6 +57,7 @@ import {
 import { kickOffGlb, preloadGlb } from './model-loader.js';
 import { WATCHER, watcherGazeYaw, watcherBlinkOpen, watcherLaughing } from './watcher.js';
 import { buildElemental } from './elemental.js';
+import { createMonsterProjectiles } from './monster-projectiles.js';
 import { PLACED_FIELD_KEYS } from './models.js';
 import { variantFor, seedFor, breatheScale, clothSway, classifyLocomotionBones, locomotionPose } from './behavior.js';
 
@@ -161,6 +162,17 @@ export function buildWorld(THREE, def, T, opts = {}) {
   });
   group.add(elemental.group);
   group.add(buildAmbient('inverted-horizon', R, T));
+
+  // Monster ranged attacks are visible traveling projectiles
+  // (2026-10-26): a ranged 'hit' event launches one instead of
+  // dealing damage instantly — damage lands on arrival, so the
+  // attack is readable and sidesteppable. Numbers, cooldowns,
+  // ranges, and back-away behavior are untouched; melee and
+  // short-range keep instant damage + the attack lunge.
+  const monsterShots = createMonsterProjectiles(R, group, {
+    groundHeight: heightAt,
+    onArrive: (dmg, fromId) => { if (opts.onPlayerHit) opts.onPlayerHit(dmg, fromId, 'ranged'); },
+  });
 
   // --- landmarks, seated, never hovering ---
   for (const lm of def.landmarks || []) {
@@ -473,8 +485,16 @@ export function buildWorld(THREE, def, T, opts = {}) {
         quiet: observer.quiet,
       });
       for (const ev of evs) {
-        if (ev.kind === 'hit') m.attackT = elapsed; // drives the attack lunge
-        if (ev.kind === 'hit' && opts.onPlayerHit) opts.onPlayerHit(ev.dmg, ev.from, ev.archetype);
+        if (ev.kind === 'hit') m.attackT = elapsed; // throw motion at launch
+        if (ev.kind === 'hit' && m.stats.archetype === 'ranged') {
+          // Visible traveling projectile — damage lands on arrival.
+          const chestY = heightAt(m.x, m.z) + (m.stats.flyHeight || 0) + (m.stats.scaleM || 2.5) * 0.6;
+          monsterShots.spawn({
+            from: { x: m.x, y: chestY, z: m.z },
+            to: { x: observer.x, y: heightAt(observer.x, observer.z) + 1.2, z: observer.z },
+            element: m.stats.element, dmg: ev.dmg, fromId: m.id,
+          });
+        } else if (ev.kind === 'hit' && opts.onPlayerHit) opts.onPlayerHit(ev.dmg, ev.from, ev.archetype);
         if (ev.kind === 'hazard' && opts.onHazard) opts.onHazard(ev);
         if (ev.kind === 'spotted' && opts.onSpotted) opts.onSpotted(m, ev.via);
       }
@@ -490,6 +510,8 @@ export function buildWorld(THREE, def, T, opts = {}) {
       }
       syncFigure(m, dt);
     }
+    // Fly the monster projectiles against the hunter's live position.
+    monsterShots.update(dt, { x: observer.x, z: observer.z });
     // Elemental atmosphere: fighting a shadow (smoke) monster
     // rolls smoke haze in around the hunter; it clears after.
     let shadowCombat = false;
@@ -508,7 +530,17 @@ export function buildWorld(THREE, def, T, opts = {}) {
     if (!korus.dead) {
       const evs = stepKorus(korus, dt, player);
       for (const ev of evs) {
-        if (ev.kind === 'hit' && opts.onPlayerHit) opts.onPlayerHit(ev.dmg, 'korus', 'boss');
+        if (ev.kind === 'hit') {
+          // Sky-bolt visual at the blast point — cosmetic only,
+          // damage timing is unchanged (it lands with the bolt).
+          if (ev.x != null && ev.z != null) {
+            monsterShots.skyBolt({
+              x: ev.x, z: ev.z, groundY: heightAt(ev.x, ev.z),
+              color: ev.from === 'korus-bolt' ? 0xffe14d : 0x8a8a9a,
+            });
+          }
+          if (opts.onPlayerHit) opts.onPlayerHit(ev.dmg, 'korus', 'boss');
+        }
         if (opts.onKorusEvent) opts.onKorusEvent(ev);
       }
       korusFig.visible = !korus.dead;
@@ -528,6 +560,7 @@ export function buildWorld(THREE, def, T, opts = {}) {
 
   function dispose() {
     for (const id of [...barSprites.keys()]) removeBar(id);
+    monsterShots.dispose();
     group.clear();
     figures.clear();
   }
