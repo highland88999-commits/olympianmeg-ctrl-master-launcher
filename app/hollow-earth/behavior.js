@@ -212,3 +212,68 @@ export function roarToneFor(key, element) {
 
 // Ghorrum's laugh: deep, slow, stone-rolling — not a combat roar.
 export const GHORRUM_LAUGH_TONE = tone(32, 'sine', 2.8, 'deep mountain laugh, stone-rolling warmth — Ghorrum');
+
+// ---- procedural locomotion: walk cycles + arm swing on rigged GLBs ----
+// Batch-4 files carry skeletons but ZERO baked animations, so every
+// step and arm swing is computed here from the monster's speed and
+// phase, then applied to its bones by the zone's figure sync.
+// Bone names vary (Mixamo-style chains on most files, generic Tripo
+// names on the rest), so classification matches by name pattern and
+// reports what it found — a rig with no matchable leg/arm bones
+// falls back to whole-figure sway/bob, never a crash.
+export function classifyLocomotionBones(names) {
+  const list = (names || []).map((n) => String(n));
+  const sideOf = (n) => {
+    if (/left/i.test(n)) return 'L';
+    if (/right/i.test(n)) return 'R';
+    if (/(^|[._-])l$/i.test(n) || /^l[._-]/i.test(n)) return 'L';
+    if (/(^|[._-])r$/i.test(n) || /^r[._-]/i.test(n)) return 'R';
+    return null;
+  };
+  const isFoot = (n) => /foot|toe/i.test(n);
+  const isFore = (n) => /forearm|fore_arm|fore-arm|lowerarm|lower_arm/i.test(n);
+  const isUpperArm = (n) => /upperarm|upper_arm|upper-arm/i.test(n) || (/arm/i.test(n) && !isFore(n));
+  const isThigh = (n) => /upleg|thigh|upperleg|upper_leg/i.test(n);
+  const isShin = (n) => (/shin|calf|lowerleg|lower_leg/i.test(n)) || (/leg/i.test(n) && !isThigh(n) && !isFoot(n));
+  const out = { thighL: null, shinL: null, thighR: null, shinR: null, armL: null, foreL: null, armR: null, foreR: null };
+  const shoulder = { L: null, R: null };
+  for (const n of list) {
+    const side = sideOf(n);
+    if (!side) continue;
+    if (isFoot(n)) continue;
+    if (isFore(n)) { if (!out[`fore${side}`]) out[`fore${side}`] = n; continue; }
+    if (isThigh(n)) { if (!out[`thigh${side}`]) out[`thigh${side}`] = n; continue; }
+    if (isShin(n)) { if (!out[`shin${side}`]) out[`shin${side}`] = n; continue; }
+    if (isUpperArm(n)) { if (!out[`arm${side}`]) out[`arm${side}`] = n; continue; }
+    if (/shoulder/i.test(n)) { if (!shoulder[side]) shoulder[side] = n; }
+  }
+  // Shoulder bones stand in for upper arms when no arm bone matched.
+  for (const side of ['L', 'R']) {
+    if (!out[`arm${side}`] && shoulder[side]) out[`arm${side}`] = shoulder[side];
+  }
+  return out;
+}
+
+// Gait pose for one frame: leg/arm swings in radians, bob in metres.
+// phase advances with speed (the zone advances it); speedNorm 0..1
+// scales the whole motion down to a standstill, so a monster that
+// stops moving eases back to its rest pose instead of freezing
+// mid-stride. Legs oppose each other; each arm opposes its
+// same-side leg (natural gait). Shin bends only on the back half
+// of its side's swing, never past straight.
+export function locomotionPose(phase, speedNorm = 1) {
+  const a = Math.max(0, Math.min(1, speedNorm));
+  const s = Math.sin(phase);
+  const sOpp = Math.sin(phase + Math.PI);
+  return {
+    thighL: s * 0.55 * a,
+    thighR: sOpp * 0.55 * a,
+    shinL: Math.max(0, Math.sin(phase - 1.0)) * 0.6 * a,
+    shinR: Math.max(0, Math.sin(phase + Math.PI - 1.0)) * 0.6 * a,
+    armL: sOpp * 0.45 * a,
+    armR: s * 0.45 * a,
+    foreL: Math.max(0, Math.sin(phase + Math.PI - 0.6)) * 0.3 * a,
+    foreR: Math.max(0, Math.sin(phase - 0.6)) * 0.3 * a,
+    bob: Math.abs(Math.cos(phase)) * 0.07 * a,
+  };
+}

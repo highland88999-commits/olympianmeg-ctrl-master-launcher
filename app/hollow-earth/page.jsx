@@ -36,6 +36,7 @@ import { HEROES, HERO_ORDER, heroDef, buildHeroFigure } from './characters.js';
 import {
   createHunterState, onMonsterKilled, applyDamage, isInBase, canTeleport,
   SAFE_BASE, PLAYER_MAX_HP, KORUS_POS, damageMonster, MONSTER_TYPES,
+  monsterColliders,
 } from './spawns.js';
 import { RETICLE_BY_CLASS, equippedDamageForSlot, equippedReticleForSlot, equippedWeaponEntry } from '../../lib/backpack/backpack.js';
 import { boltKindFor, BOLT_STYLE, BOLT_SPEED, BOLT_MAX_LIFE } from './bolt-visual.js';
@@ -75,6 +76,7 @@ export default function HollowEarthPage() {
   const lastTeleportRef = useRef(null);
   const hazardsRef = useRef([]);
   const hazardMeshesRef = useRef([]);
+  const dmgFlashTimer = useRef(null);
   const missionKillsRef = useRef(0);
   const noiseRef = useRef(null);
   const weaponRef = useRef('melee');
@@ -96,6 +98,7 @@ export default function HollowEarthPage() {
   const [clusterId, setClusterId] = useState(null);
   const [entry, setEntry] = useState(null); // {kind:'mission',missionId} | {kind:'roam'}
   const [hud, setHud] = useState({ hp: PLAYER_MAX_HP, shield: 0, kills: 0, inBase: false, weapon: 'melee', sense: null, bossHp: null, bossAwake: false });
+  const [dmgFlash, setDmgFlash] = useState(0);
   const [bannerFailed, setBannerFailed] = useState(false); // intro banner art; procedural orbs are the fallback
   const [videoFailed, setVideoFailed] = useState(false); // intro video; falls back to the banner image, then the orbs
   const [toast, setToast] = useState('');
@@ -162,6 +165,15 @@ export default function HollowEarthPage() {
     missionKillsRef.current = 0;
     hazardsRef.current = [];
 
+    // Damage flash: a red vignette pulse whenever the hunter
+    // actually loses HP (monster hit or hazard) — the video
+    // showed deaths with no visible hit feedback at all.
+    const flashDamage = () => {
+      setDmgFlash(1);
+      if (dmgFlashTimer.current) clearTimeout(dmgFlashTimer.current);
+      dmgFlashTimer.current = setTimeout(() => setDmgFlash(0), 300);
+    };
+
     const world = buildWorld(THREE, DATA.WORLD, T, {
       gateOpen: DATA.gateOpen(campaign),
       onPlayerHit: (dmg, from, archetype) => {
@@ -169,6 +181,7 @@ export default function HollowEarthPage() {
         if (!h || h.hp <= 0) return;
         if (isInBase(walker.pos.x, walker.pos.z)) return; // sanctuary: no damage lands
         const res = applyDamage(h, dmg);
+        if (res.hpLost > 0) flashDamage();
         if (res.absorbed > 0) notice(`🛡️ Shield absorbed ${res.absorbed} damage${res.shieldBroken ? ' — shield broken!' : ''}.`);
         setCampaign((c) => { const nc = DATA.setShield(c, h.shield); DATA.saveCampaign(nc); return nc; });
         if (h.hp <= 0) {
@@ -238,6 +251,37 @@ export default function HollowEarthPage() {
      * throw a warm streak, bows a thin gold arrow, spells a fat
      * purple bolt (the Middle-earth staff-blast precedent). */
     const blasts = [];
+    /* Impact feedback: every landed hit pops a burst at the
+     * monster's chest (bigger + red on a kill), and every melee
+     * swing draws a slash arc — melee used to have NO visual
+     * at all, which is why hits in the video looked like
+     * nothing happened. Cosmetic only; damage numbers never
+     * change here. */
+    const impacts = [];
+    const spawnImpactAt = (x, y, z, lethal) => {
+      const mesh = new THREE.Mesh(
+        new THREE.SphereGeometry(lethal ? 0.5 : 0.28, 10, 8),
+        new THREE.MeshBasicMaterial({ color: lethal ? 0xff5544 : 0xffcc88, transparent: true, opacity: 0.95, fog: false }),
+      );
+      mesh.position.set(x, y, z);
+      scene.add(mesh);
+      impacts.push({ mesh, life: 0.3, maxLife: 0.3, kind: 'burst', grow: lethal ? 2.2 : 1.4 });
+    };
+    const spawnImpact = (m, lethal) => {
+      spawnImpactAt(m.x, world.groundHeight(m.x, m.z) + (m.stats?.flyHeight || 0) + (m.stats?.scaleM || 2.5) * 0.6, m.z, lethal);
+    };
+    const spawnSlash = () => {
+      const fx = -Math.sin(walker.yaw), fz = -Math.cos(walker.yaw);
+      const gy = world.groundHeight(walker.pos.x, walker.pos.z);
+      const mesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(2.2, 1.2),
+        new THREE.MeshBasicMaterial({ color: 0xfff2b0, transparent: true, opacity: 0.85, side: THREE.DoubleSide, fog: false }),
+      );
+      mesh.position.set(walker.pos.x + fx * 1.4, gy + hero.height * 0.7, walker.pos.z + fz * 1.4);
+      mesh.lookAt(walker.pos.x, gy + hero.height * 0.7, walker.pos.z);
+      scene.add(mesh);
+      impacts.push({ mesh, life: 0.18, maxLife: 0.18, kind: 'slash', grow: 0 });
+    };
     const spawnBolt = (endpoint) => {
       const fx = -Math.sin(walker.yaw), fz = -Math.cos(walker.yaw);
       const rx = -fz, rz = fx; // right-hand side, walker facing convention
@@ -268,6 +312,9 @@ export default function HollowEarthPage() {
       const spec = weaponSpec();
       if (now - lastStrike < spec.cooldown * 1000) return;
       lastStrike = now;
+      // Melee swings show even on a whiff: a slash arc in front
+      // of the hunter (ranged strikes already throw bolts).
+      if (weaponRef.current === 'melee') spawnSlash();
       const hits = world.strikeHunter(walker.pos.x, walker.pos.z, walker.yaw, spec);
       // Korus, in range of the throne.
       const kd = Math.hypot(walker.pos.x - KORUS_POS.x, walker.pos.z - KORUS_POS.z);
@@ -275,6 +322,7 @@ export default function HollowEarthPage() {
         && ((weaponRef.current === 'melee' && kd <= 6) || (weaponRef.current !== 'melee' && kd <= spec.range));
       if (korusInRange) {
         const died = world.damageKorus(spec.dmg);
+        spawnImpactAt(KORUS_POS.x, world.groundHeight(KORUS_POS.x, KORUS_POS.z) + 2.5, KORUS_POS.z, died);
         if (died) {
           setCampaign((c) => {
             const nc = DATA.completeKorus(c, Date.now());
@@ -308,7 +356,8 @@ export default function HollowEarthPage() {
       }
       for (const m of hits) {
         const died = damageMonster(m, spec.dmg);
-        if (!died) continue;
+        if (!died) { m.hitFlash = 1; spawnImpact(m, false); continue; }
+        spawnImpact(m, true);
         const h = hunterRef.current;
         const res = onMonsterKilled(h);
         missionKillsRef.current += 1;
@@ -364,7 +413,11 @@ export default function HollowEarthPage() {
         sprint: keys.state.sprint,
       }, dt, {
         groundHeight: world.groundHeight,
-        colliders: world.colliders,
+        // Solid characters: landmarks + scatter colliders PLUS
+        // every active monster and Korus, rebuilt each frame
+        // (monsters move; world.colliders itself is never
+        // mutated, so the zone's own data stays clean).
+        colliders: [...world.colliders, ...monsterColliders(world.monsters, world.korus)],
         bounds: world.bounds,
         snapY: true,
         speed: 10 * (hero.speedMult || 1),
@@ -396,6 +449,7 @@ export default function HollowEarthPage() {
           const h = hunterRef.current;
           if (h && h.hp > 0) {
             const res = applyDamage(h, hz.dmg);
+            if (res.hpLost > 0) flashDamage();
             setHud((prev) => ({ ...prev, hp: h.hp, shield: h.shield }));
             if (h.hp <= 0) {
               walker.pos.x = SAFE_BASE.x;
@@ -403,7 +457,6 @@ export default function HollowEarthPage() {
               h.hp = hero.maxHp;
               notice('💀 Slain — you wake at The Haven, whole.');
             }
-            void res;
           }
         }
         return false;
@@ -456,6 +509,21 @@ export default function HollowEarthPage() {
         b.mesh.position.z += b.vz * dt;
         b.mesh.material.opacity = Math.max(0, b.life / b.maxLife);
       }
+      /* impact bursts + melee slash arcs: pop, fade, leave */
+      for (let i = impacts.length - 1; i >= 0; i--) {
+        const fx = impacts[i];
+        fx.life -= dt;
+        if (fx.life <= 0) {
+          scene.remove(fx.mesh);
+          try { fx.mesh.geometry.dispose(); fx.mesh.material.dispose(); } catch (e) { /* noop */ }
+          impacts.splice(i, 1);
+          continue;
+        }
+        const t = fx.life / fx.maxLife;
+        fx.mesh.material.opacity = Math.max(0, t);
+        const s = fx.kind === 'burst' ? 1 + (1 - t) * fx.grow : 0.8 + (1 - t) * 0.35;
+        fx.mesh.scale.set(s, s, s);
+      }
       renderer.setSize(canvas.clientWidth || window.innerWidth, canvas.clientHeight || window.innerHeight, false);
       renderer.render(scene, camera);
     }
@@ -477,6 +545,9 @@ export default function HollowEarthPage() {
       world.dispose();
       for (const b of blasts) { try { scene.remove(b.mesh); b.mesh.geometry.dispose(); b.mesh.material.dispose(); } catch (e) { /* noop */ } }
       blasts.length = 0;
+      for (const fx of impacts) { try { scene.remove(fx.mesh); fx.mesh.geometry.dispose(); fx.mesh.material.dispose(); } catch (e) { /* noop */ } }
+      impacts.length = 0;
+      if (dmgFlashTimer.current) clearTimeout(dmgFlashTimer.current);
       renderer.dispose();
       worldRef.current = null;
       walkerRef.current = null;
@@ -595,32 +666,42 @@ export default function HollowEarthPage() {
       <div style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%,-50%)', color: '#fff', fontSize: 22, opacity: 0.85, pointerEvents: 'none' }}>
         {weaponReticle === 'crosshair' ? '✛' : weaponReticle === 'chevron' ? '⌃' : '•'}
       </div>
-      {/* HUD: health / shield / kills */}
-      <div style={{ position: 'absolute', top: 'max(0.75rem, env(safe-area-inset-top))', left: '1rem', right: '1rem', display: 'flex', gap: 8, pointerEvents: 'none' }}>
-        <span style={{ background: 'rgba(0,0,0,0.55)', borderRadius: 999, padding: '0.3rem 0.8rem', color: '#fff', fontSize: 14 }}>
-          ❤️ {hud.hp}/{hero.maxHp}{hud.shield > 0 ? ` · 🛡️ ${hud.shield}` : ''}
-        </span>
-        <span style={{ background: 'rgba(0,0,0,0.55)', borderRadius: 999, padding: '0.3rem 0.8rem', color: '#fff', fontSize: 14 }}>
-          ☠️ {hud.kills} kills{hud.shield <= 0 ? ` · shield in ${killsToShield}` : ''}
-        </span>
-        {hud.inBase && <span style={{ background: 'rgba(216,178,92,0.85)', borderRadius: 999, padding: '0.3rem 0.8rem', color: '#1a1426', fontSize: 14, fontWeight: 700 }}>🏠 The Haven — sanctuary</span>}
-      </div>
-      {hud.sense && (
-        <div style={{ position: 'absolute', top: '3.2rem', left: '1rem', background: 'rgba(0,0,0,0.55)', borderRadius: 999, padding: '0.3rem 0.8rem', color: '#ffe14d', fontSize: 13, pointerEvents: 'none' }}>
-          🔍 {hud.sense.type} · {hud.sense.element} · {hud.sense.dist} m
+      {/* Damage flash: red vignette pulse when the hunter loses HP */}
+      <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', background: 'radial-gradient(ellipse at center, transparent 42%, rgba(255,30,30,0.55) 100%)', opacity: dmgFlash ? 0.9 : 0, transition: 'opacity 0.28s' }} />
+      {/* HUD: health / shield / kills / sense / boss / toast — one
+          column in flow, so the pills can never stack over each
+          other or over the sense pill on a notched phone. The
+          old absolute sense pill at a fixed 3.2rem landed
+          squarely on the hearts pill whenever the safe-area
+          inset pushed the top bar down — that overlap is gone
+          by construction now: everything stacks, nothing floats. */}
+      <div style={{ position: 'absolute', top: 'max(0.75rem, env(safe-area-inset-top))', left: '1rem', right: '1rem', display: 'flex', flexDirection: 'column', gap: 8, pointerEvents: 'none' }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{ background: 'rgba(0,0,0,0.55)', borderRadius: 999, padding: '0.3rem 0.8rem', color: '#fff', fontSize: 14 }}>
+            ❤️ {hud.hp}/{hero.maxHp}{hud.shield > 0 ? ` · 🛡️ ${hud.shield}` : ''}
+          </span>
+          <span style={{ background: 'rgba(0,0,0,0.55)', borderRadius: 999, padding: '0.3rem 0.8rem', color: '#fff', fontSize: 14 }}>
+            ☠️ {hud.kills} kills{hud.shield <= 0 ? ` · shield in ${killsToShield}` : ''}
+          </span>
+          {hud.inBase && <span style={{ background: 'rgba(216,178,92,0.85)', borderRadius: 999, padding: '0.3rem 0.8rem', color: '#1a1426', fontSize: 14, fontWeight: 700 }}>🏠 The Haven — sanctuary</span>}
         </div>
-      )}
-      {hud.bossHp != null && (
-        <div style={{ position: 'absolute', top: '3.2rem', left: '50%', transform: 'translateX(-50%)', width: 'min(420px, 70vw)', pointerEvents: 'none' }}>
-          <div style={{ textAlign: 'center', color: '#ff5544', fontWeight: 800 }}>👑 KORUS {hud.bossAwake ? '— AWAKE' : ''}</div>
-          <div style={{ height: 10, borderRadius: 999, background: 'rgba(255,255,255,0.2)', overflow: 'hidden' }}>
-            <div style={{ width: `${Math.max(0, (hud.bossHp / 1000) * 100)}%`, height: '100%', background: '#ff5544' }} />
+        {hud.sense && (
+          <div style={{ alignSelf: 'flex-start', background: 'rgba(0,0,0,0.55)', borderRadius: 999, padding: '0.3rem 0.8rem', color: '#ffe14d', fontSize: 13 }}>
+            🔍 {hud.sense.type} · {hud.sense.element} · {hud.sense.dist} m
           </div>
-        </div>
-      )}
-      {toast && (
-        <div style={{ position: 'absolute', top: '5.2rem', left: '50%', transform: 'translateX(-50%)', background: 'rgba(0,0,0,0.7)', borderRadius: 999, padding: '0.4rem 1rem', color: '#fff', fontSize: 14, pointerEvents: 'none', textAlign: 'center', maxWidth: '90vw' }}>{toast}</div>
-      )}
+        )}
+        {hud.bossHp != null && (
+          <div style={{ width: 'min(420px, 70vw)', margin: '0 auto' }}>
+            <div style={{ textAlign: 'center', color: '#ff5544', fontWeight: 800 }}>👑 KORUS {hud.bossAwake ? '— AWAKE' : ''}</div>
+            <div style={{ height: 10, borderRadius: 999, background: 'rgba(255,255,255,0.2)', overflow: 'hidden' }}>
+              <div style={{ width: `${Math.max(0, (hud.bossHp / 1000) * 100)}%`, height: '100%', background: '#ff5544' }} />
+            </div>
+          </div>
+        )}
+        {toast && (
+          <div style={{ alignSelf: 'center', background: 'rgba(0,0,0,0.7)', borderRadius: 999, padding: '0.4rem 1rem', color: '#fff', fontSize: 14, textAlign: 'center', maxWidth: '90vw' }}>{toast}</div>
+        )}
+      </div>
       {korusDead && (
         <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)' }}>
           <div style={{ background: '#1a1426', border: `2px solid ${GOLD}`, borderRadius: 16, padding: '2rem', textAlign: 'center', color: '#fff', maxWidth: '90vw' }}>

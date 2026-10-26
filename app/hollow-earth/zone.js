@@ -52,12 +52,13 @@ import {
   createKorus, stepKorus, damageKorus as damageKorusPure,
   MONSTER_MODELS, KORUS_MODEL,
   WORLD_SPAWN, ACTIVATE_R, DEACTIVATE_R, mulberry32,
+  separateFromPlayer,
 } from './spawns.js';
 import { kickOffGlb, preloadGlb } from './model-loader.js';
 import { WATCHER, watcherGazeYaw, watcherBlinkOpen, watcherLaughing } from './watcher.js';
 import { buildElemental } from './elemental.js';
 import { PLACED_FIELD_KEYS } from './models.js';
-import { variantFor, seedFor, breatheScale, clothSway } from './behavior.js';
+import { variantFor, seedFor, breatheScale, clothSway, classifyLocomotionBones, locomotionPose } from './behavior.js';
 
 function R3(THREE) { return THREE || ThreeJS; }
 
@@ -221,6 +222,20 @@ export function buildWorld(THREE, def, T, opts = {}) {
   const records = spawnField(def.seed || 77701, { habitatAt: (x, z) => biomeAt(x, z).dominant });
   const monsters = records.map((rec) => createMonster(rec, rng));
   const figures = new Map();
+  // Floating HP bars: one sprite per damaged monster, drawn on a
+  // canvas only when its HP fraction changes. Shown while the
+  // monster is damaged, hidden at full health and on death —
+  // damage you can see, not just numbers in the strike code.
+  const bars = new R.Group();
+  group.add(bars);
+  const barSprites = new Map();
+  function removeBar(id) {
+    const bar = barSprites.get(id);
+    if (!bar) return;
+    bars.remove(bar.sprite);
+    try { bar.tex.dispose(); bar.sprite.material.dispose(); } catch { /* noop */ }
+    barSprites.delete(id);
+  }
   const observer = { x: WORLD_SPAWN.x, z: WORLD_SPAWN.z, quiet: 1, noise: null, inBase: false };
   for (const key of new Set([
     ...PLACED_FIELD_KEYS.map((k) => (MONSTER_MODELS[k] || {}).url).filter(Boolean),
@@ -230,7 +245,8 @@ export function buildWorld(THREE, def, T, opts = {}) {
   // Behavior clock (seconds) for breathe/blink/sway/watcher cycles.
   let elapsed = 0;
 
-  function syncFigure(m) {
+  function syncFigure(m, dt) {
+    const step = (typeof dt === 'number' && dt > 0) ? dt : 0.016;
     let fig = figures.get(m.id);
     if (!fig) {
       // GLB-only figure: an empty group until its model loads.
@@ -246,20 +262,138 @@ export function buildWorld(THREE, def, T, opts = {}) {
       group.add(fig);
       kickOffGlb(fig, fig.userData.modelPath, m.stats.scaleM);
     }
-    fig.position.set(m.x, heightAt(m.x, m.z) + (m.stats.flyHeight || 0), m.z);
-    fig.rotation.y = m.faceYaw || 0;
-    fig.visible = !m.dead;
-    // Batch-4 behavior, applied to the figure group only — never
-    // to the monster record, so colliders, stats, and spawn
-    // counts are untouched. Cheap per frame: a few sins and one
-    // WeakSet check for the GLB kick-off. (Tagged-eye blinking
-    // was a stand-in feature: GLB figures carry no tagged eyes,
-    // and GLB eyelid mapping is still pending its pose test.)
+    // --- procedural locomotion: speed from real movement ---
+    // Gait phase advances only while actually moving, and
+    // amplitude eases back to zero at rest so a monster never
+    // freezes mid-stride. Batch-4 files carry skeletons but
+    // ZERO baked animations, so the walk cycle + arm swing is
+    // computed here and applied to the rig's bones; a rig with
+    // no matchable leg/arm bones falls back to whole-figure
+    // bob/sway — never a crash.
+    const lastX = fig.userData.lastX;
+    const lastZ = fig.userData.lastZ;
+    let inst = 0;
+    if (lastX != null && lastZ != null) inst = Math.hypot(m.x - lastX, m.z - lastZ) / step;
+    fig.userData.lastX = m.x;
+    fig.userData.lastZ = m.z;
+    const speedSm = (fig.userData.speedSm || 0) * 0.8 + inst * 0.2;
+    fig.userData.speedSm = speedSm;
+    if (fig.userData.locoPhase == null) fig.userData.locoPhase = seedFor(m.id) * 6.28;
+    if (fig.userData.locoAmp == null) fig.userData.locoAmp = 0;
+    const targetAmp = Math.min(1, speedSm / 3);
+    fig.userData.locoAmp += (targetAmp - fig.userData.locoAmp) * Math.min(1, step * 8);
+    if (speedSm > 0.5) fig.userData.locoPhase += step * speedSm * 2.0;
+    const pose = locomotionPose(fig.userData.locoPhase, fig.userData.locoAmp);
+    // --- attack lunge: a brief forward jolt when this monster lands a hit ---
+    let lunge = 0;
+    if (m.attackT != null) {
+      const lt = elapsed - m.attackT;
+      if (lt >= 0 && lt < 0.3) lunge = Math.sin((lt / 0.3) * Math.PI);
+    }
+    // --- hit flinch: scale pop + recoil when the hunter's weapon lands ---
+    // Computed once per frame and decayed here, on the render path.
+    let flinch = 0;
+    if (m.hitFlash > 0) {
+      flinch = m.hitFlash;
+      m.hitFlash *= Math.exp(-step * 8);
+      if (m.hitFlash < 0.02) m.hitFlash = 0;
+    }
+    // --- bone discovery, once the GLB has landed ---
+    if (!fig.userData.locoScanned && fig.children.length > 0) {
+      try {
+        const bones = new Map();
+        fig.traverse((o) => {
+          if (o && o.isSkinnedMesh && o.skeleton && o.skeleton.bones) {
+            for (const b of o.skeleton.bones) if (!bones.has(b.name)) bones.set(b.name, b);
+          }
+        });
+        const map = classifyLocomotionBones([...bones.keys()]);
+        const base = new Map();
+        for (const name of Object.values(map)) {
+          if (name && bones.has(name)) base.set(name, bones.get(name).rotation.clone());
+        }
+        fig.userData.locoBones = { bones, map, base };
+      } catch { /* a bad rig never breaks the frame loop */ }
+      fig.userData.locoScanned = true;
+    }
     const seed = seedFor(m.id);
     const v = variantFor(m.id); // kin variant: visual scale only
     const br = breatheScale(elapsed, seed);
-    fig.scale.set(v.scaleMul * br.x, v.scaleMul * br.y, v.scaleMul * br.z);
+    const fl = 1 + flinch * 0.12;
+    fig.scale.set(v.scaleMul * br.x * fl, v.scaleMul * br.y * fl, v.scaleMul * br.z * fl);
     fig.rotation.z = clothSway(elapsed, 0.5, seed).swayZ;
+    fig.rotation.y = m.faceYaw || 0;
+    fig.visible = !m.dead;
+    const yaw = m.faceYaw || 0;
+    fig.position.set(
+      m.x + Math.sin(yaw) * flinch * 0.3 - Math.sin(yaw) * lunge * 0.35,
+      heightAt(m.x, m.z) + (m.stats.flyHeight || 0) + pose.bob,
+      m.z + Math.cos(yaw) * flinch * 0.3 - Math.cos(yaw) * lunge * 0.35,
+    );
+    // --- bone pose: walk swing + arm swing, or rest pose when idle ---
+    const lb = fig.userData.locoBones;
+    if (lb) {
+      const applyBone = (key, val) => {
+        try {
+          const name = lb.map[key];
+          if (!name || !lb.bones.has(name) || !lb.base.has(name)) return;
+          const b = lb.bones.get(name);
+          const br0 = lb.base.get(name);
+          b.rotation.set(br0.x + val, br0.y, br0.z);
+        } catch { /* one bad bone never breaks the frame loop */ }
+      };
+      applyBone('thighL', pose.thighL);
+      applyBone('thighR', pose.thighR);
+      applyBone('shinL', pose.shinL);
+      applyBone('shinR', pose.shinR);
+      applyBone('armL', pose.armL + lunge * 0.7);
+      applyBone('armR', pose.armR + lunge * 0.7);
+      applyBone('foreL', pose.foreL);
+      applyBone('foreR', pose.foreR);
+    }
+    // --- floating HP bar: only while damaged, never at full health ---
+    if (!m.dead && m.hp < m.stats.hp) {
+      let bar = barSprites.get(m.id);
+      if (!bar && typeof document !== 'undefined') {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = 128; canvas.height = 16;
+          const ctx = canvas.getContext('2d');
+          const tex = new R.CanvasTexture(canvas);
+          const mat = new R.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+          const sprite = new R.Sprite(mat);
+          sprite.scale.set(2.4, 0.3, 1);
+          sprite.renderOrder = 10;
+          bars.add(sprite);
+          bar = { sprite, canvas, ctx, tex, lastFrac: -1 };
+          barSprites.set(m.id, bar);
+        } catch { /* bars are enhancement, never requirement */ }
+      }
+      if (bar) {
+        const frac = Math.max(0, m.hp / m.stats.hp);
+        if (Math.abs(frac - bar.lastFrac) > 0.005) {
+          const { ctx } = bar;
+          ctx.clearRect(0, 0, 128, 16);
+          ctx.fillStyle = 'rgba(0,0,0,0.55)';
+          ctx.beginPath();
+          if (ctx.roundRect) ctx.roundRect(0, 0, 128, 16, 8); else ctx.rect(0, 0, 128, 16);
+          ctx.fill();
+          const rr = Math.round(255 * (1 - frac));
+          const gg = Math.round(160 * frac + 40);
+          ctx.fillStyle = `rgb(${rr},${gg},60)`;
+          const w = Math.max(0, 124 * frac);
+          ctx.beginPath();
+          if (ctx.roundRect) ctx.roundRect(2, 2, w, 12, 6); else ctx.rect(2, 2, w, 12);
+          ctx.fill();
+          bar.tex.needsUpdate = true;
+          bar.lastFrac = frac;
+        }
+        bar.sprite.position.set(fig.position.x, fig.position.y + (m.stats.scaleM || 2.5) + 0.9, fig.position.z);
+        bar.sprite.visible = true;
+      }
+    } else {
+      removeBar(m.id);
+    }
   }
 
   const korus = createKorus(!!opts.gateOpen);
@@ -320,6 +454,7 @@ export function buildWorld(THREE, def, T, opts = {}) {
     for (const m of monsters) {
       if (m.dead) {
         if (figures.has(m.id)) { const f = figures.get(m.id); f.visible = false; }
+        removeBar(m.id);
         continue;
       }
       const d = Math.hypot(m.x - observer.x, m.z - observer.z);
@@ -327,6 +462,7 @@ export function buildWorld(THREE, def, T, opts = {}) {
       if (m.active && d > DEACTIVATE_R) {
         m.active = false;
         if (figures.has(m.id)) { group.remove(figures.get(m.id)); figures.delete(m.id); }
+        removeBar(m.id);
         continue;
       }
       if (!m.active) continue;
@@ -337,17 +473,22 @@ export function buildWorld(THREE, def, T, opts = {}) {
         quiet: observer.quiet,
       });
       for (const ev of evs) {
+        if (ev.kind === 'hit') m.attackT = elapsed; // drives the attack lunge
         if (ev.kind === 'hit' && opts.onPlayerHit) opts.onPlayerHit(ev.dmg, ev.from, ev.archetype);
         if (ev.kind === 'hazard' && opts.onHazard) opts.onHazard(ev);
         if (ev.kind === 'spotted' && opts.onSpotted) opts.onSpotted(m, ev.via);
       }
+      // Solid characters: a ground monster may never stand inside
+      // the hunter's own circle — it is pushed out to its
+      // footprint + body radius (flyers ride above it, untouched).
+      if (!m.stats.flyHeight) separateFromPlayer(m, observer.x, observer.z);
       // Keep monsters out of the sanctuary ring and inside bounds.
       const bd = Math.hypot(m.x, m.z);
       if (bd > (def.boundsRadius || 295)) {
         m.x *= (def.boundsRadius || 295) / bd;
         m.z *= (def.boundsRadius || 295) / bd;
       }
-      syncFigure(m);
+      syncFigure(m, dt);
     }
     // Elemental atmosphere: fighting a shadow (smoke) monster
     // rolls smoke haze in around the hunter; it clears after.
@@ -386,6 +527,7 @@ export function buildWorld(THREE, def, T, opts = {}) {
   }
 
   function dispose() {
+    for (const id of [...barSprites.keys()]) removeBar(id);
     group.clear();
     figures.clear();
   }

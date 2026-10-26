@@ -9,6 +9,7 @@ import {
   KORUS_MAX_HP, KORUS_GATE_KILLS, createKorus, stepKorus, damageKorus,
   SAFE_BASE, isInBase, canTeleport, BASE_TELEPORT_COOLDOWN_S,
   GIVE_UP_S, ELEMENTS, ELEMENT_COLORS,
+  monsterColliders, separateFromPlayer, PLAYER_BODY_R,
 } from '../spawns.js';
 import { MONSTER_FAMILIES, ALL_MONSTER_SLOTS, slotHome, slotKey, FAMILIES_BY_HABITAT } from '../families.js';
 import { PLACED_FIELD_KEYS } from '../models.js';
@@ -264,3 +265,60 @@ test('Korus fight: dormant until the gate, wakes in range, telegraphs, dies', ()
 
 function KORUS_POS_X() { return -215; }
 function KORUS_POS_Z() { return 55; }
+
+/* ---- SOLID CHARACTERS (video QA, 2026-10-26) ---- */
+
+test('monsterColliders: active living monsters included at footprintR + body radius, dead/inactive excluded', () => {
+  const a = mon('slot-01', 10, 10);
+  const dead = mon('slot-01', 20, 20);
+  dead.dead = true;
+  const idle = mon('slot-01', 30, 30);
+  idle.active = false;
+  const out = monsterColliders([a, dead, idle], null);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].x, 10);
+  assert.equal(out[0].z, 10);
+  assert.equal(out[0].r, MONSTER_TYPES['slot-01'].footprintR + PLAYER_BODY_R);
+});
+
+test('monsterColliders: Korus included while alive at his throne radius, excluded when dead', () => {
+  const alive = monsterColliders([], { x: -215, z: 55, dead: false });
+  assert.equal(alive.length, 1);
+  assert.equal(alive[0].r, 3 + PLAYER_BODY_R);
+  assert.equal(monsterColliders([], { x: -215, z: 55, dead: true }).length, 0);
+  assert.equal(monsterColliders([], null).length, 0);
+});
+
+test('separation: a ground monster overlapping the hunter is pushed to exactly footprintR + body radius', () => {
+  const m = { x: 10.4, z: 0, dead: false, stats: { footprintR: 1.6 } };
+  assert.equal(separateFromPlayer(m, 10, 0), true);
+  assert.ok(Math.abs(Math.hypot(m.x - 10, m.z - 0) - 2.1) < 1e-9);
+});
+
+test('separation: already-separated, flying, and dead monsters are untouched', () => {
+  const far = { x: 20, z: 0, dead: false, stats: { footprintR: 1.6 } };
+  assert.equal(separateFromPlayer(far, 10, 0), false);
+  assert.equal(far.x, 20);
+  const flyer = { x: 10.1, z: 0, dead: false, stats: { footprintR: 1.6, flyHeight: 6 } };
+  assert.equal(separateFromPlayer(flyer, 10, 0), false);
+  const dead = { x: 10.1, z: 0, dead: true, stats: { footprintR: 1.6 } };
+  assert.equal(separateFromPlayer(dead, 10, 0), false);
+});
+
+test('separation: dead-center overlap falls back to +x instead of dividing by zero', () => {
+  const m = { x: 10, z: 0, dead: false, stats: { footprintR: 1.6 } };
+  assert.equal(separateFromPlayer(m, 10, 0), true);
+  assert.equal(m.x, 12.1);
+  assert.equal(m.z, 0);
+});
+
+test('solidity never breaks attack bands: separation stays inside range + footprintR for every type', () => {
+  // Melee hits land at dist <= range + footprintR (stepMonster),
+  // so the separation distance (footprintR + body radius) only
+  // needs the body radius to sit under the melee range itself.
+  assert.ok(PLAYER_BODY_R < ARCHETYPES.melee.range);
+  for (const [key, t] of Object.entries(MONSTER_TYPES)) {
+    assert.ok(t.footprintR + PLAYER_BODY_R < t.footprintR + ARCHETYPES.melee.range,
+      `${key} separation ${t.footprintR + PLAYER_BODY_R} would outrange melee ${ARCHETYPES.melee.range} + footprintR`);
+  }
+});

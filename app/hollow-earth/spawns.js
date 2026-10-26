@@ -536,6 +536,45 @@ export function strike(monsters, px, pz, yaw, spec) {
   return hits;
 }
 
+/* ---------------- SOLID CHARACTERS (video QA, 2026-10-26) ----------------
+ * The walker walks straight through monsters: world.colliders only
+ * ever covered landmarks + solid scatter, never monsters, and the
+ * first-person camera sits at the walker's eye, so overlapping a
+ * monster puts the camera inside its mesh. These pure helpers are
+ * the fix: monsterColliders() feeds the page's stepWalker call
+ * each frame (active, living monsters + Korus — Ghorrum is
+ * deliberately EXCLUDED, he never blocks the path), and
+ * separateFromPlayer() keeps ground monsters from walking into
+ * the hunter's own circle (flyers ride above it, so they skip
+ * the push). No numbers change: footprintR and attack ranges
+ * are untouched, and a monster at footprintR + body radius is
+ * still inside its own attack band (melee 2.6 m, short-range
+ * 5 m), so hunts still land. */
+export const PLAYER_BODY_R = 0.5; // hunter body radius, metres
+export function monsterColliders(monsters, korus) {
+  const out = [];
+  for (const m of monsters || []) {
+    if (!m || m.dead || !m.active) continue;
+    out.push({ x: m.x, z: m.z, r: (m.stats?.footprintR || 1) + PLAYER_BODY_R });
+  }
+  if (korus && !korus.dead) out.push({ x: korus.x, z: korus.z, r: 3 + PLAYER_BODY_R });
+  return out;
+}
+export function separateFromPlayer(m, px, pz) {
+  if (!m || m.dead) return false;
+  if (m.stats?.flyHeight) return false; // airborne: no ground circle
+  const minD = (m.stats?.footprintR || 1) + PLAYER_BODY_R;
+  const dx = m.x - px;
+  const dz = m.z - pz;
+  const d = Math.hypot(dx, dz);
+  if (d >= minD) return false;
+  if (d <= 1e-4) { m.x = px + minD; m.z = pz; return true; }
+  const push = (minD - d) / d;
+  m.x += dx * push;
+  m.z += dz * push;
+  return true;
+}
+
 /* ---------------- KORUS, the ultimate boss ----------------
  * A colossal shadow/lightning boss on his throne in the Shadow
  * Smoke Wastes. Dormant and untargetable until the campaign gate
