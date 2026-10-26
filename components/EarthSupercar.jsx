@@ -8,8 +8,8 @@ import { surfaceRadiusOrBase } from '@/lib/earth/heightmap';
 import { DISPLAY_UNITS_PER_METRE } from '@/lib/earth/placements';
 import { roamState, tangentFrame, headingVector } from '@/lib/earth/roam';
 import { carState } from '@/lib/earth/parachute';
+import { getCarModel, subscribeCarModel, ensureCarModel } from '@/lib/earth/car-model';
 import { moveWithCollision } from '@/lib/earth/collision';
-import { tameTripoMaterials } from '@/lib/characters/tame-materials';
 
 // EarthSupercar — the summonable Lamborghini Aventador for hub
 // Earth street view (Earth 1 expansion, 2026-10-26): Earth's
@@ -22,9 +22,14 @@ import { tameTripoMaterials } from '@/lib/characters/tame-materials';
 // (md5 03787337417f7891bdf5074e6a5b4ba7) to Merlin's own
 // "lamborghini aventador 3d model.glb" upload, so the Lambo IS
 // in the fleet. It is copied into the repo at
-// public/models/vehicles/wedge-supercar.glb and loaded here.
-// No car was invented: if that file were missing, this
-// component would simply render nothing.
+// public/models/vehicles/wedge-supercar.glb and loaded here —
+// OPTIMIZED 2026-10-26 (outage repair): the staged upload was
+// 23.6 MB / 1.95M triangles with an 8192×8192 texture, and its
+// main-thread decode killed the page on phones. The shipped file
+// is ~1.7 MB / ~234k triangles / WebP-1024, same bounding size,
+// and it loads LAZILY on summon only (lib/earth/car-model.js),
+// never at street entry. No car was invented: if that file were
+// missing, this component would simply render nothing.
 //
 // Drive pattern: the EarthBike pattern exactly — a shared
 // singleton (carState, separate from bikeState so the two rides
@@ -50,8 +55,6 @@ import { tameTripoMaterials } from '@/lib/characters/tame-materials';
 // rotation below, nothing structural.
 
 const UPM = DISPLAY_UNITS_PER_METRE;
-const CAR_GLB_URL = '/models/vehicles/wedge-supercar.glb';
-const CAR_LENGTH_M = 4.6;
 const CAR_RADIUS_M = 2.2;
 
 // Inverse of latLonToVec3 (same helper as EarthBike).
@@ -74,6 +77,11 @@ export function summonCar() {
   carState.altM = 0.35;
   carState.yawDeg = roamState.yawDeg;
   carState.speed = 0;
+  // LAZY LOAD (2026-10-26 outage repair): the model starts
+  // downloading only now, on the summon — never at street entry.
+  // The car appears when the load lands; a tap while loading
+  // simply waits. See lib/earth/car-model.js.
+  void ensureCarModel();
   // Nudge a few metres east so it sits beside the walker.
   const frame = tangentFrame(carState.lat, carState.lon);
   const r = surfaceRadiusOrBase(carState.lat, carState.lon);
@@ -118,43 +126,12 @@ export default function EarthSupercar({ controls }) {
   const { camera } = useThree();
   const tuning = useMemo(() => tuningFor('supercar'), []);
   const keys = useRef({});
-  const [model, setModel] = useState(null);
-
-  // Load the Aventador GLB once (same loader + meshopt pattern
-  // as EarthAssets). A missing file just leaves the car absent —
-  // never a crash, never a hole in the globe.
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
-        const { MeshoptDecoder } = await import('three/examples/jsm/libs/meshopt_decoder.module.js');
-        const loader = new GLTFLoader();
-        loader.setMeshoptDecoder(MeshoptDecoder);
-        const gltf = await loader.loadAsync(CAR_GLB_URL);
-        if (!alive) return;
-        tameTripoMaterials(gltf.scene);
-        gltf.scene.updateMatrixWorld(true);
-        const box = new THREE.Box3().setFromObject(gltf.scene);
-        const size = new THREE.Vector3();
-        box.getSize(size);
-        const longest = Math.max(size.x, size.z) || 1;
-        setModel({
-          scene: gltf.scene,
-          // Scale so the longest horizontal axis reads 4.6 m.
-          scale: (CAR_LENGTH_M * UPM) / longest,
-          // Align the longest horizontal axis to forward (+Z).
-          rotY: size.x > size.z ? Math.PI / 2 : 0,
-          // Origin-centred model: lift by half its height so the
-          // wheels sit on the ground, not its centre.
-          liftY: size.y / 2,
-        });
-      } catch {
-        if (alive) setModel(null);
-      }
-    })();
-    return () => { alive = false; };
-  }, []);
+  // The model arrives via subscription (lib/earth/car-model.js):
+  // nothing loads at street entry — only the summon starts the
+  // download, so descent never pays the car's cost. A missing or
+  // failed file just leaves the car absent — never a crash.
+  const [model, setModel] = useState(() => getCarModel());
+  useEffect(() => subscribeCarModel(setModel), []);
 
   // V = summon/dismiss, F = mount/dismount.
   useEffect(() => {

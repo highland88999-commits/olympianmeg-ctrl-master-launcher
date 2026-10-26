@@ -830,7 +830,13 @@ function HubScene({
   const inRealm = inMars || inPlanet;
 
   return (
-      <Canvas shadows="soft" gl={{ alpha: true, antialias: false, powerPreference: 'default' }} camera={{ position: [ORBIT_CENTER.x, ORBIT_CENTER.y, ORBIT_CENTER.z], fov: 52, far: 2000 }} style={{ pointerEvents: 'auto' }} onCreated={({ gl }) => {
+      <Canvas shadows="soft" dpr={[1, 1.75]} gl={{ alpha: true, antialias: false, powerPreference: 'default' }} camera={{ position: [ORBIT_CENTER.x, ORBIT_CENTER.y, ORBIT_CENTER.z], fov: 52, far: 2000 }} style={{ pointerEvents: 'auto' }} onCreated={({ gl }) => {
+        // Pixel-ratio cap (2026-10-26 outage repair): uncapped, a
+        // phone renders at its full device pixel ratio (up to 3x),
+        // tripling the shaded pixels every frame on top of a heavy
+        // scene — the "chunky, brutal" feel in Merlin's footage.
+        // 1.75 keeps the hub sharp on phones (the Myriad precedent)
+        // at roughly a third of the fill-rate cost.
         // Live context loss (GPU reset, driver hiccup, OS sleep): hand it
         // to the wrapper, which swaps in the 2D fallback — never a dead
         // canvas and never the global error screen.
@@ -910,8 +916,12 @@ function HubScene({
                 The floating video button's satellite menu is the single way
                 into programs; the rings no longer launch anything. */}
             <GodOrbitRings />
-            {/* The Moon, the asteroid belt, and the waypoint beacons */}
-            <HubMoon />
+            {/* The Moon, the asteroid belt, and the waypoint beacons.
+                The Moon hides at street level (2026-10-26 outage
+                repair): its Billboard label bled through the street
+                sky as a faint "MOON" in Merlin's footage — same gate
+                as NavBeacons below, orbit views keep it. */}
+            {!['diving_to_street', 'earth_roam'].includes(appState) && <HubMoon />}
             <AsteroidField />
             {/* Occasional twin-panel fighter fly-throughs across the
                 front vista (Merlin, 2026-10-23) — the lane, schedule
