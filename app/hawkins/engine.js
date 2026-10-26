@@ -1184,11 +1184,18 @@ export function createEngine(canvas, hooks) {
     const E = engine;
     const from = E.getShotOrigin().add(new THREE.Vector3(0.9, -1.1, 0))
       .add(E.getForward().multiplyScalar(3));
-    const line = new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints([from, to]),
-      new THREE.LineBasicMaterial({ color: 0xffdd88, transparent: true, opacity: 0.95 }));
-    E.scene.add(line);
-    E.tracers.push({ line, life: 0.09 });
+    // Thick streak, not a 1px line: the old THREE.Line at 0.09s was
+    // nearly invisible. Same gold color, same shot paths — only the
+    // rendering changed, never the hit logic.
+    const dir = new THREE.Vector3().subVectors(to, from);
+    const len = Math.max(dir.length(), 0.1);
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(0.35, 0.35, len),
+      new THREE.MeshBasicMaterial({ color: 0xffdd88, transparent: true, opacity: 0.95 }));
+    mesh.position.copy(from).addScaledVector(dir, 0.5);
+    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir.normalize());
+    E.scene.add(mesh);
+    E.tracers.push({ mesh, life: 0.3 });
   };
   engine.spawnBlood = function (at, color) {
     const E = engine;
@@ -1571,10 +1578,11 @@ export function createEngine(canvas, hooks) {
       if (E.neon) E.neon.material.color.setHex(Math.random() > 0.94 ? 0x551122 : 0xff2266);
       for (let i = E.tracers.length - 1; i >= 0; i--) {
         E.tracers[i].life -= dt;
-        E.tracers[i].line.material.opacity = Math.max(0, E.tracers[i].life * 10);
+        E.tracers[i].mesh.material.opacity = Math.max(0, 0.95 * (E.tracers[i].life / 0.3));
         if (E.tracers[i].life <= 0) {
-          E.scene.remove(E.tracers[i].line);
-          E.tracers[i].line.geometry.dispose();
+          E.scene.remove(E.tracers[i].mesh);
+          E.tracers[i].mesh.geometry.dispose();
+          E.tracers[i].mesh.material.dispose();
           E.tracers.splice(i, 1);
         }
       }

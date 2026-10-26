@@ -848,15 +848,22 @@ function createEngine(canvas, cfg, cb) {
   camera.add(vm);
 
   // --- tracers / impacts ------------------------------------------------------
+  // Tracer streaks: a short THICK mesh streak, not a 1px line — the old
+  // THREE.Line at 0.09s was nearly invisible on a phone. Ballistics
+  // are untouched: the streak spans the full path instantly and only
+  // shows where the shot went; damage still lands in fire().
   const fx = [];
   function addTracer(from, to, color = 0xffe08a) {
-    const geo = new THREE.BufferGeometry().setFromPoints([from, to]);
-    const line = new THREE.Line(
-      geo,
-      new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.9 })
+    const dir = new THREE.Vector3().subVectors(to, from);
+    const len = Math.max(dir.length(), 0.1);
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(0.07, 0.07, len),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95 })
     );
-    scene.add(line);
-    fx.push({ obj: line, t: 0, life: 0.09, kind: 'fade' });
+    mesh.position.copy(from).addScaledVector(dir, 0.5);
+    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir.normalize());
+    scene.add(mesh);
+    fx.push({ obj: mesh, t: 0, life: 0.32, kind: 'streak' });
   }
   function addImpact(p, color = 0xffcc88) {
     const s = new THREE.Mesh(
@@ -1482,6 +1489,7 @@ function createEngine(canvas, cfg, cb) {
         continue;
       }
       if (f.kind === 'fade') f.obj.material.opacity = 0.9 * (1 - k);
+      else if (f.kind === 'streak') f.obj.material.opacity = 0.95 * (1 - k);
       else {
         f.obj.scale.setScalar(1 + k * 3);
         f.obj.material.opacity = 1 - k;

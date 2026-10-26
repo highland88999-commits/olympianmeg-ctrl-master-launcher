@@ -38,6 +38,7 @@ import {
   SAFE_BASE, PLAYER_MAX_HP, KORUS_POS, damageMonster, MONSTER_TYPES,
 } from './spawns.js';
 import { RETICLE_BY_CLASS, equippedDamageForSlot, equippedReticleForSlot, equippedWeaponEntry } from '../../lib/backpack/backpack.js';
+import { boltKindFor, BOLT_STYLE, BOLT_SPEED, BOLT_MAX_LIFE } from './bolt-visual.js';
 import { updateBackpack, useBackpack } from '../../lib/backpack/store.js';
 import BackpackHud from '@/components/backpack/BackpackHud';
 import { roarToneFor, GHORRUM_LAUGH_TONE } from './behavior.js';
@@ -230,6 +231,38 @@ export default function HollowEarthPage() {
       ? { dmg: equippedDamageForSlot(equippedRef.current, 'melee') ?? hero.meleeDmg, range: 2.4, arcCos: Math.cos(1.22), cooldown: 0.45 }
       : { dmg: equippedDamageForSlot(equippedRef.current, 'ranged') ?? hero.ranged.dmg, range: hero.ranged.range, arcCos: Math.cos(0.21), cooldown: 0.8 });
     let lastStrike = 0;
+    /* Ranged-shot visuals: a visible bolt that flies from the
+     * shooter toward the hit point on every ranged strike.
+     * Cosmetic only — damage already landed in strikeHunter() /
+     * damageKorus(); the bolt never decides anything. Firearms
+     * throw a warm streak, bows a thin gold arrow, spells a fat
+     * purple bolt (the Middle-earth staff-blast precedent). */
+    const blasts = [];
+    const spawnBolt = (endpoint) => {
+      const fx = -Math.sin(walker.yaw), fz = -Math.cos(walker.yaw);
+      const rx = -fz, rz = fx; // right-hand side, walker facing convention
+      const gy = world.groundHeight(walker.pos.x, walker.pos.z);
+      const kind = boltKindFor(equippedRef.current, hero.ranged.kind);
+      const style = BOLT_STYLE[kind];
+      const origin = new THREE.Vector3(
+        walker.pos.x + fx * 0.4 + rx * 0.45,
+        gy + hero.height * 0.85,
+        walker.pos.z + fz * 0.4 + rz * 0.45,
+      );
+      const dir = new THREE.Vector3(endpoint.x - origin.x, endpoint.y - origin.y, endpoint.z - origin.z);
+      const dist = dir.length();
+      if (dist < 0.001) return;
+      dir.normalize();
+      const mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(style.thick, style.thick, style.len),
+        new THREE.MeshBasicMaterial({ color: style.color, transparent: true, fog: false }),
+      );
+      mesh.position.copy(origin);
+      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
+      scene.add(mesh);
+      const life = Math.min(dist / BOLT_SPEED, BOLT_MAX_LIFE);
+      blasts.push({ mesh, vx: dir.x * BOLT_SPEED, vy: dir.y * BOLT_SPEED, vz: dir.z * BOLT_SPEED, life, maxLife: life });
+    };
     function attack() {
       const now = performance.now();
       const spec = weaponSpec();
@@ -252,6 +285,26 @@ export default function HollowEarthPage() {
           setKorusDead(true);
           notice('👑 KORUS FALLS — Stormfang is yours. The Monsterverse remembers.');
         }
+      }
+      if (weaponRef.current !== 'melee') {
+        // Visible bolt to the nearest hit, else Korus, else max range.
+        let target = null;
+        let bestD = Infinity;
+        for (const m of hits) {
+          const d = Math.hypot(m.x - walker.pos.x, m.z - walker.pos.z);
+          if (d < bestD) { bestD = d; target = m; }
+        }
+        let endpoint;
+        if (target) {
+          endpoint = { x: target.x, y: world.groundHeight(target.x, target.z) + (target.stats?.flyHeight || 1.1), z: target.z };
+        } else if (korusInRange) {
+          endpoint = { x: KORUS_POS.x, y: world.groundHeight(KORUS_POS.x, KORUS_POS.z) + 2.5, z: KORUS_POS.z };
+        } else {
+          const fx = -Math.sin(walker.yaw), fz = -Math.cos(walker.yaw);
+          const ex = walker.pos.x + fx * spec.range, ez = walker.pos.z + fz * spec.range;
+          endpoint = { x: ex, y: world.groundHeight(ex, ez) + 1.1, z: ez };
+        }
+        spawnBolt(endpoint);
       }
       for (const m of hits) {
         const died = damageMonster(m, spec.dmg);
@@ -381,6 +434,21 @@ export default function HollowEarthPage() {
           bossAwake: world.korus.awake,
         }));
       }
+      /* ranged bolts: fly straight, fade out, then leave the scene */
+      for (let i = blasts.length - 1; i >= 0; i--) {
+        const b = blasts[i];
+        b.life -= dt;
+        if (b.life <= 0) {
+          scene.remove(b.mesh);
+          try { b.mesh.geometry.dispose(); b.mesh.material.dispose(); } catch (e) { /* noop */ }
+          blasts.splice(i, 1);
+          continue;
+        }
+        b.mesh.position.x += b.vx * dt;
+        b.mesh.position.y += b.vy * dt;
+        b.mesh.position.z += b.vz * dt;
+        b.mesh.material.opacity = Math.max(0, b.life / b.maxLife);
+      }
       renderer.setSize(canvas.clientWidth || window.innerWidth, canvas.clientHeight || window.innerHeight, false);
       renderer.render(scene, camera);
     }
@@ -400,6 +468,8 @@ export default function HollowEarthPage() {
       keys.detach && keys.detach();
       guard.dispose && guard.dispose();
       world.dispose();
+      for (const b of blasts) { try { scene.remove(b.mesh); b.mesh.geometry.dispose(); b.mesh.material.dispose(); } catch (e) { /* noop */ } }
+      blasts.length = 0;
       renderer.dispose();
       worldRef.current = null;
       walkerRef.current = null;

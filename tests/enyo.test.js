@@ -374,6 +374,10 @@ t('skill: recruit less accurate than veteran', BOT_SKILLS.recruit.accuracyMul < 
   t('page: no telemetry/fetch', !/fetch\(|central_telemetry|phone.?home|supabase|https?:\/\//i.test(page));
   t('page: no external assets', !/['"`]\S+\.(mp4|mov|glb|fbx|gltf)\b|https?:\/\/[^'"`\s]*\.(mp4|mov|glb|fbx)/i.test(page));
   t('page: bots not human-like', /armored figure|procedural combatant/i.test(page));
+  t('page: tracers are thick streaks, not 1px lines', /BoxGeometry\(0\.07, 0\.07/.test(page) && /kind: 'streak'/.test(page));
+  t('page: tracer life long enough to see', /life: 0\.32/.test(page));
+  t('page: tracer colors kept (player gold, bots red, bot-on-bot orange)', /0xffe08a/.test(page) && /0xff6666/.test(page) && /0xffaa66/.test(page));
+  t('page: impact pops still drawn', /addImpact/.test(page));
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
