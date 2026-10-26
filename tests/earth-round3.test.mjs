@@ -4,9 +4,9 @@
 //
 //   A. CharacterPicker containment in the Earth console (source
 //      contract: an `embedded` in-flow mode, console passes it).
-//   B. The Quantum Realm door at street level (source contract:
-//      the console's Quantum button no longer waits for an aerial
-//      tile selection — it drops at the walker's feet).
+//   B. The Quantum Realm is REMOVED (Merlin, 2026-10-26): no
+//      Quantum button, no size row, no tile-selection DROP flow,
+//      no master flag module — the console has one level only.
 //   C. Raptor scale class + 3rd-person framing: cameraRig's
 //      character-aware boom puts the whole body inside the
 //      frustum at rest, and the camera-local ground clamp keeps
@@ -59,24 +59,14 @@ check('A: EarthConsole mounts the picker embedded (inside the card)', () => {
   assert.match(consoleSrc, /<CharacterPicker\s+embedded/);
 });
 
-check('B: the Quantum button at street level no longer needs a selected tile', () => {
-  assert.ok(!consoleSrc.includes('{selectedTile && onDropToTile && ('),
-    'the old tile-gated Quantum button must be gone');
-  assert.match(consoleSrc, /selectedTile \|\| \{ lat: roamState\.lat, lon: roamState\.lon \}/);
-});
-
-check('B2: the Quantum door is gated OFF by the master flag (Merlin, 2026-10-22)', () => {
-  // The Quantum Realm is off "for now": the door renders only when
-  // QUANTUM_ENABLED is on, and the flag itself ships false — the
-  // button's drop behavior (check B above) is preserved verbatim
-  // behind the gate so re-enabling is a one-line flip.
-  assert.match(consoleSrc, /\{QUANTUM_ENABLED && onDropToTile && \(/);
-  const quantumSrc = readFileSync(new URL('../lib/earth/quantum.js', import.meta.url), 'utf8');
-  assert.match(quantumSrc, /export const QUANTUM_ENABLED = false;/);
-});
-
-check('B: the console shows the size state (micro is visible in the size row)', () => {
-  assert.match(consoleSrc, /Quantum Realm — Ant-Man scale/);
+check('B: the Quantum Realm is GONE from the console (no button, no size row, no drop flow)', () => {
+  assert.ok(!consoleSrc.includes('Quantum Realm'), 'no Quantum Realm text in the console');
+  assert.ok(!consoleSrc.includes('onDropToTile'), 'no drop-to-tile prop in the console');
+  assert.ok(!consoleSrc.includes('selectedTile'), 'no tile-selection state in the console');
+  assert.ok(!consoleSrc.includes('QUANTUM_ENABLED'), 'no quantum flag in the console');
+  assert.ok(!consoleSrc.includes('sizeUi'), 'no size row in the console');
+  assert.ok(!consoleSrc.includes('Normal View'), 'no Normal View button in the console');
+  assert.ok(!consoleSrc.includes('beginReanimate'), 'no reanimate call in the console');
 });
 
 // ------------------------------------------------------------ geo inverse

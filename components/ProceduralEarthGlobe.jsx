@@ -65,6 +65,16 @@ const FRAGMENT_SHADER = /* glsl */ `
     float h = texture2D(heightTexture, vUv).r;
     vec3 terrain = hypsometric(h);
     vec3 photo = texture2D(dayTexture, vUv).rgb;
+    // Dry Earth (2026-10-26, quantum-removal follow-up): the day
+    // photo still carries blue oceans — that is the "trace of
+    // water" in the orbit view (the globe's own texture, not a
+    // water system: game water was already removed). Any texel
+    // that reads ocean-blue (blue clearly above red AND green —
+    // land, cloud and ice never read that way) is repainted as
+    // dry seabed BEFORE the terrain mix, so no blue survives
+    // anywhere on the globe. Land photo detail is untouched.
+    float oceanness = smoothstep(0.05, 0.15, photo.b - max(photo.r, photo.g));
+    photo = mix(photo, terrain, oceanness);
     // Terrain tint carries the relief; the photo carries coastlines/deserts.
     vec3 dayColor = mix(photo, terrain, 0.55);
     vec3 nightColor = texture2D(nightTexture, vUv).rgb;
@@ -78,17 +88,16 @@ const FRAGMENT_SHADER = /* glsl */ `
     // the black slabs over former polar basins and the black
     // polygons seen from the overlook. Unlit terrain now keeps a
     // floor of its own day identity: shadow sides read deep
-    // blue-grey, never naked black. Night stays night (the floor
+    // brown-grey, never naked black. Night stays night (the floor
     // is dim and it vanishes on the day side).
     col += dayColor * 0.14 * (1.0 - dayMix);
     gl_FragColor = vec4(col, 1.0);
   }
 `;
 
-export default function ProceduralEarthGlobe({ onSelect, onParachute, onTileSelect, quatRef }) {
+export default function ProceduralEarthGlobe({ onSelect, quatRef }) {
   const [ready, setReady] = useState(null);
   const disposables = useRef([]);
-  const doubleTapRef = useRef({ time: 0, x: 0, y: 0 });
 
   useEffect(() => {
     let alive = true;
@@ -167,65 +176,6 @@ export default function ProceduralEarthGlobe({ onSelect, onParachute, onTileSele
       onClick={(e) => {
         e.stopPropagation();
         if (onSelect) onSelect();
-      }}
-      onDoubleClick={(e) => {
-        e.stopPropagation();
-        if (!onParachute) return;
-        const hit = e.intersections && e.intersections[0];
-        if (!hit) return;
-        // World → NexusEarth local → lat/lon (inverse of latLonToVec3)
-        const wp = hit.point.clone();
-        wp.y -= -60; wp.z -= -120;
-        const q = quatRef?.current;
-        if (q) wp.applyQuaternion(q.clone().invert());
-        const r = Math.hypot(wp.x, wp.y, wp.z) || 55;
-        const lat = 90 - (Math.acos(Math.max(-1, Math.min(1, wp.y / r))) * 180) / Math.PI;
-        let lon = (Math.atan2(wp.z, -wp.x) * 180) / Math.PI - 180;
-        while (lon > 180) lon -= 360;
-        while (lon < -180) lon += 360;
-        if (lat >= -85 && lat <= 85) onParachute({ lat, lon });
-      }}
-      onPointerDown={(e) => {
-        // Double-tap for touch devices (iOS doesn't fire onDoubleClick)
-        if (e.pointerType && e.pointerType !== 'touch') return;
-        const now = performance.now();
-        const last = doubleTapRef.current;
-        const cx = e.clientX ?? e.nativeEvent?.clientX ?? 0;
-        const cy = e.clientY ?? e.nativeEvent?.clientY ?? 0;
-        if (now - last.time < 350 && Math.hypot(cx - last.x, cy - last.y) < 40) {
-          doubleTapRef.current = { time: 0, x: 0, y: 0 };
-          // Reuse the double-click handler logic
-          e.stopPropagation();
-          if (!onParachute) return;
-          const hit = e.intersections && e.intersections[0];
-          if (!hit) return;
-          const wp = hit.point.clone();
-          wp.y -= -60; wp.z -= -120;
-          const q = quatRef?.current;
-          if (q) wp.applyQuaternion(q.clone().invert());
-          const r = Math.hypot(wp.x, wp.y, wp.z) || 55;
-          const lat = 90 - (Math.acos(Math.max(-1, Math.min(1, wp.y / r))) * 180) / Math.PI;
-          let lon = (Math.atan2(wp.z, -wp.x) * 180) / Math.PI - 180;
-          while (lon > 180) lon -= 360;
-          while (lon < -180) lon += 360;
-          if (lat >= -85 && lat <= 85) onParachute({ lat, lon });
-        } else {
-          doubleTapRef.current = { time: now, x: cx, y: cy };
-          // Single tap: select the tile (blue ring + DROP button via onTileSelect)
-          const hit = e.intersections && e.intersections[0];
-          if (hit && onTileSelect) {
-            const wp = hit.point.clone();
-            wp.y -= -60; wp.z -= -120;
-            const q = quatRef?.current;
-            if (q) wp.applyQuaternion(q.clone().invert());
-            const r = Math.hypot(wp.x, wp.y, wp.z) || 55;
-            const lat = 90 - (Math.acos(Math.max(-1, Math.min(1, wp.y / r))) * 180) / Math.PI;
-            let lon = (Math.atan2(wp.z, -wp.x) * 180) / Math.PI - 180;
-            while (lon > 180) lon -= 360;
-            while (lon < -180) lon += 360;
-            if (lat >= -85 && lat <= 85) onTileSelect({ lat, lon });
-          }
-        }
       }}
       onPointerOver={(e) => {
         e.stopPropagation();

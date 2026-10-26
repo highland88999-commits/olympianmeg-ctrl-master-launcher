@@ -32,41 +32,9 @@ import { applyCoverFit } from '../lib/texture-fit';
 import { GOD_TOWER_SPOTS } from '../lib/home-positions';
 import { probeWebGL, resetWebGLProbeCache, diagnoseWebGL } from '../lib/webgl-support';
 import { panelsForTower } from '../lib/tower-panels';
-import { parachuteState } from '../lib/earth/parachute';
-import { QUANTUM_ENABLED } from '../lib/earth/quantum';
 import GodTower from './GodTower';
 import OmegaHubGate from './OmegaHubGate';
 import Earth2HubGate from './Earth2HubGate';
-
-// QuantumGate — the Quantum Realm seal (Earth round 4, defect 1;
-// Merlin's layer law: the realm has its own floor and sky, fully
-// separate). In the footage, hub content rendered INSIDE the
-// realm — a satellite tower with its billboards, god-name labels,
-// Mars' rainbow rings streaking the violet sky. The mechanism:
-// the QuantumSkyDome is a transparent shell that writes no depth,
-// so every transparent hub object (rings at 0.85 opacity, drei
-// Text labels, glow sprites, billboard faces) draws OVER it, and
-// opaque hub bodies were never gated at all. The seal is
-// visibility, not blending: while the Ant-Man scale is below 0.5
-// every hub-only child of this gate is simply not in the scene.
-// NexusEarth (globe, walker, disc, dome) lives OUTSIDE the gate —
-// Earth is where the realm is; the hub is what it must not show.
-function QuantumGate({ children }) {
-  const [micro, setMicro] = useState(false);
-  useFrame(() => {
-    const m = (parachuteState?.scale || 1) < 0.5;
-    if (m !== micro) setMicro(m);
-  });
-  // QUANTUM OFF (Merlin, 2026-10-22, "for now"): while
-  // QUANTUM_ENABLED is false (lib/earth/quantum.js) the seal can
-  // never engage — children render straight through, unwrapped, so
-  // no stale micro state could ever hide the hub. The flag is a
-  // module constant, so this branch is stable across renders and
-  // the hooks above keep their order. Flip the flag and the seal
-  // returns exactly as it was.
-  if (!QUANTUM_ENABLED) return <>{children}</>;
-  return <group visible={!micro}>{children}</group>;
-}
 
 function MarsBackground({ onSelect }) {
   const marsRef = useRef();
@@ -816,8 +784,6 @@ function HubScene({
   onPlanetSelect,
   planetSelectedId,
   planetPosRef,
-  onParachute,
-  onTileSelect,
   onLaunchExternal,
   onBikeDismount,
   onContextLost,
@@ -879,13 +845,13 @@ function HubScene({
             fog, so the hub's stands down while one is mounted. */}
         {!inRealm && <fogExp2 attach="fog" args={['#050505', 0.0016]} />}
         {!inRealm && (
-          <QuantumGate>
+          <>
             <Stars radius={100} depth={50} count={7000} factor={4} saturation={0} fade speed={1} />
 
             {/* Seasonal decoration cycle: date-driven holiday decor + Merlin's
                 Christmas tree (Nov 22 - Twelfth Night). Renders nothing off-season. */}
             <SeasonalDecor />
-          </QuantumGate>
+          </>
         )}
 
         {!inRealm && <ambientLight intensity={0.4} color="#222233" />}
@@ -916,7 +882,6 @@ function HubScene({
             />
           ) : (
           <>
-          <QuantumGate>
             <SunBackground />
             {/* THE OMEGA ARCH — just beyond the Sun. The Portal Room's
                 showpiece door: click it or fly through it in freeroam. */}
@@ -926,11 +891,8 @@ function HubScene({
                 Earth2HubGate renders nothing at all unless the
                 signed-in session is Merlin's own account. */}
             <Earth2HubGate freeroam={appState === 'hub_freeroam'} />
-          </QuantumGate>
           <NexusEarth
             onSelect={appState === 'hub_freeroam' ? beginEarthDive : null}
-            onParachute={onParachute}
-            onTileSelect={onTileSelect}
             quatRef={earthQuatRef}
             focus={earthFocus}
             phase={appState}
@@ -938,7 +900,6 @@ function HubScene({
             controls={controlsRef}
             onTeleportNYC={() => router.push('/mega-city')}
           />
-          <QuantumGate>
             <MarsBackground onSelect={appState === 'hub_freeroam' ? beginMarsDive : null} />
             <BackdropPlanets onPlanetSelect={appState === 'hub_freeroam' ? beginPlanetDive : null} />
             {/* The planetary system's grand rainbow rings — fixed frame
@@ -958,7 +919,6 @@ function HubScene({
             <HubTieFlight />
             {/* Hide waypoint beacons at street level (they're orbit navigation aids) */}
             {!['diving_to_street', 'earth_roam'].includes(appState) && <NavBeacons />}
-          </QuantumGate>
           <StaticColliders />
           {/* NOTE (declutter, 2026-09-29): the persistent space-portal gate
               field was removed from the interface — too cluttered. The
@@ -966,9 +926,7 @@ function HubScene({
               SequenceController) are the original portals and stay. Every
               program remains reachable through the floating button's
               satellite menu. */}
-          <QuantumGate>
             <BikeRig bikeRef={bikeRef} />
-          </QuantumGate>
           </>
           )}
         </Suspense>

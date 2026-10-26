@@ -3,9 +3,9 @@
 // parachute into the Arctic tile at 84.82°N 118.47°W, swim,
 // Quantum Realm, grow back, dive, return to orbit).
 //
-//   A. Dry Earth × parachute: no swim state exists at any scale
-//      (water removed 2026-10-26) — the Quantum dive/shrink
-//      neither suspends nor restores anything.
+//   A. Dry Earth: no swim state exists, period (water removed
+//      2026-10-26) — and no scale exists to vary it by anymore
+//      (quantum removed 2026-10-26).
 //   B. Camera clamps read the DRAWN surface: the higher of the
 //      true sampled surface and the coarse globe-grid surface
 //      (defect 5).
@@ -14,10 +14,12 @@
 //      floor is dry seabed tan; the globe shader carries the
 //      same outright ice plus an ambient floor under the night
 //      side (defect 4, re-lawed 2026-10-26).
-//   D. The Quantum Realm seal (defect 1), the swim-controls
-//      removal (defect 2 UI, water gone), the atmosphere shell gate
-//      (defect 5), the micro disc texture work (defect 3), and
-//      the console ghost fix (defect 6) — source contracts.
+//   D. The Quantum Realm is REMOVED (Merlin, 2026-10-26): no gate,
+//      no deep-micro globe stand-down, no micro disc — the old
+//      defect-1/3 contracts are replaced by removal contracts.
+//      The swim-controls removal (defect 2 UI, water gone), the
+//      atmosphere shell gate (defect 5), and the console ghost
+//      fix (defect 6) stand unchanged.
 //   E. The underwater veil is gone: veilOpacityFor always reads
 //      0 on dry Earth (defect 7 retired 2026-10-26).
 import assert from 'node:assert';
@@ -33,7 +35,6 @@ globalThis.localStorage = {
 const { vec3ToLatLon, EARTH_RADIUS } = await import('../lib/geo.js');
 const roam = await import('../lib/earth/roam.js');
 const swim = await import('../lib/earth/swim.js');
-const parachute = await import('../lib/earth/parachute.js');
 const placements = await import('../lib/earth/placements.js');
 const streetPatch = await import('../lib/earth/street-patch.js');
 
@@ -51,12 +52,11 @@ const UPM = placements.DISPLAY_UNITS_PER_METRE;
 // as dry walkable seabed, depth always 0.
 const oceanHD = { data: new Uint8Array(64 * 32).fill(0), w: 64, h: 32 };
 
-// ------------------------------------------------------------ A. dry Earth × parachute (water removed 2026-10-26)
+// ------------------------------------------------------------ A. dry Earth (water removed 2026-10-26)
 //
-// No swim state exists at any scale: the Quantum dive/shrink
-// no longer suspends or restores anything, because there is no
-// water to swim in. The former Arctic ocean is dry walkable
-// seabed, and stepRoam walks it at full pace.
+// No swim state exists, period. (The old version of this check
+// varied a shrink scale; the scale is gone with the quantum
+// realm, so there is nothing left to vary.)
 check('A: water depth at the all-zero heightmap is 0 — the former Arctic ocean reads dry', () => {
   assert.equal(swim.waterDepthM(oceanHD.data, 64, 32, 84.82, -118.47), 0);
   assert.equal(swim.swimAltMFor(), 0);
@@ -84,24 +84,12 @@ check('A: stepSwim never activates, suspended or not', () => {
   assert.equal(s.swim.altM, 0);
 });
 
-check('A: stepRoam at any scale carries no swim state — shrink/grow-back changes nothing', () => {
+check('A: stepRoam carries no swim state, period', () => {
   const opts = { heightData: oceanHD, radius: EARTH_RADIUS };
   const s = roam.createRoamState();
-  try {
-    parachute.parachuteState.scale = 1;
-    roam.beginRoam(s, 84.82, -118.47, 90);
-    roam.stepRoam(s, { forward: 0, strafe: 0, dive: true }, 1 / 60, opts);
-    roam.stepRoam(s, { forward: 0, strafe: 0, dive: true }, 1 / 60, opts);
-    assert.equal(s.swim, undefined, 'no swim state at normal scale');
-    parachute.parachuteState.scale = 0.00001; // shrunk into the tile
-    for (let i = 0; i < 30; i++) roam.stepRoam(s, { forward: 0, strafe: 0, dive: true }, 1 / 60, opts);
-    assert.equal(s.swim, undefined, 'no swim state in the Quantum Realm either');
-    parachute.parachuteState.scale = 1; // REANIMATE
-    roam.stepRoam(s, { forward: 0, strafe: 0 }, 1 / 60, opts);
-    assert.equal(s.swim, undefined, 'grow-back restores no swim state');
-  } finally {
-    parachute.parachuteState.scale = 1;
-  }
+  roam.beginRoam(s, 84.82, -118.47, 90);
+  for (let i = 0; i < 30; i++) roam.stepRoam(s, { forward: 0, strafe: 0, dive: true }, 1 / 60, opts);
+  assert.equal(s.swim, undefined, 'no swim state, ever');
 });
 
 // ------------------------------------------------------------ B. camera clamps read the drawn surface
@@ -182,26 +170,21 @@ const consoleSrc = readFileSync(new URL('../components/EarthConsole.jsx', import
 const patchSrc = readFileSync(new URL('../components/StreetGroundPatch.jsx', import.meta.url), 'utf8');
 const flightSrc = readFileSync(new URL('../components/EarthFlightController.jsx', import.meta.url), 'utf8');
 
-check('D1: the QuantumGate seals the hub in HomeScene (towers, rings, labels, Mars, decor, stars)', () => {
-  assert.match(homeSrc, /function QuantumGate/);
-  assert.match(homeSrc, /visible=\{!micro\}/);
-  for (const sealed of ['GodOrbitRings', 'MarsBackground', 'SystemRings', 'SeasonalDecor', 'TextureProvider', 'BikeRig']) {
-    const gateOpen = homeSrc.indexOf('<QuantumGate>');
-    const inside = homeSrc.indexOf(`<${sealed}`); // the render site, not the import
-    const gateClose = homeSrc.indexOf('</QuantumGate>', inside);
-    assert.ok(gateOpen >= 0 && inside > gateOpen && gateClose > inside,
-      `${sealed} must render inside a QuantumGate`);
+check('D1: the QuantumGate is GONE from HomeScene — hub children render unconditionally', () => {
+  assert.ok(!homeSrc.includes('QuantumGate'), 'no gate component remains');
+  assert.ok(!homeSrc.includes('QUANTUM_ENABLED'), 'no quantum flag remains');
+  assert.ok(!homeSrc.includes('parachuteState'), 'no shrink state remains');
+  for (const kept of ['GodOrbitRings', 'MarsBackground', 'SystemRings', 'SeasonalDecor', 'TextureProvider', 'BikeRig']) {
+    assert.ok(homeSrc.includes(`<${kept}`), `${kept} still renders in the hub`);
   }
-  // NexusEarth (globe + realm) stays OUTSIDE the gates.
-  const nexusAt = homeSrc.indexOf('<NexusEarth');
-  const before = homeSrc.lastIndexOf('<QuantumGate>', nexusAt);
-  const closedBefore = homeSrc.lastIndexOf('</QuantumGate>', nexusAt);
-  assert.ok(closedBefore > before || before === -1, 'NexusEarth is not inside a QuantumGate');
+  assert.ok(homeSrc.includes('<NexusEarth'), 'NexusEarth still renders in the hub');
 });
 
-check('D1: at deep micro the globe itself stands down inside NexusEarth', () => {
-  assert.match(nexusSrc, /const DEEP_MICRO_SCALE = 0\.05;/);
-  assert.match(nexusSrc, /effectiveLayer === 'terrain' && !deepMicro && <ProceduralEarthGlobe/);
+check('D1: the globe NEVER stands down inside NexusEarth (no deep-micro condition)', () => {
+  assert.ok(!nexusSrc.includes('deepMicro'), 'no deep-micro state remains');
+  assert.ok(!nexusSrc.includes('DEEP_MICRO_SCALE'), 'no deep-micro threshold remains');
+  assert.ok(!nexusSrc.includes('microMode'), 'no micro-mode state remains');
+  assert.match(nexusSrc, /effectiveLayer === 'terrain' && <ProceduralEarthGlobe/);
 });
 
 check('D2: SwimControls are gone from BOTH console branches (water removed)', () => {
@@ -220,10 +203,13 @@ check('D5: the flight controller backstop reads the grid surface too', () => {
   assert.match(flightSrc, /globeGridSurfaceRadius\(hdClamp\.data, hdClamp\.w, hdClamp\.h, camLat, camLon\)/);
 });
 
-check('D3: the micro disc carries wide-contrast grain and vertex mottling on a ring grid', () => {
-  assert.match(patchSrc, /100 \+ Math\.floor\(rnd\(\) \* 140\)/);
-  assert.match(patchSrc, /<ringGeometry args=\{\[0, MICRO_DISC_RADIUS_U, 48, 6\]\} \/>/);
-  assert.match(patchSrc, /matRef\.current\.vertexColors = true;/);
+check('D3: the micro disc is GONE from StreetGroundPatch (quantum removed)', () => {
+  assert.ok(!patchSrc.includes('MicroGroundDisc'), 'no disc component remains');
+  assert.ok(!patchSrc.includes('microDiscLiftU'), 'no disc lift helper remains');
+  assert.ok(!patchSrc.includes('microGrainTileU'), 'no disc grain helper remains');
+  assert.ok(!patchSrc.includes('MICRO_DISC'), 'no disc constants remain');
+  assert.match(patchSrc, /export default function StreetGroundPatch/);
+  assert.match(patchSrc, /export function StreetFillLight/);
 });
 
 check('D6: the console card centers by flex, carries its own layer, no translate centering', () => {

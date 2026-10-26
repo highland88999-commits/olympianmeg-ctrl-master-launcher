@@ -8,7 +8,8 @@
 //  - door entry/exit round-trip at unit level (fair walks through
 //    moveWithCollision — destinations derive from the walker's
 //    actual position, small steps, like the real roam loop).
-//  - quantum stays OFF (Part 1's rule survives Part 4).
+//  - quantum is GONE (Part 1's rule replaced 2026-10-26: the
+//    realm was removed completely, not flagged off).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -34,7 +35,6 @@ import {
   stepVertexAnimations,
   clearVertexAnimations,
 } from '../lib/earth/asset-anim.js';
-import { QUANTUM_ENABLED } from '../lib/earth/quantum.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p) => readFileSync(join(root, p), 'utf8');
@@ -312,6 +312,9 @@ test('animation + interiors are wired into the Earth render path', () => {
   assert.match(consoleSrc, /◆ Aether \{aetherUi\.count\} \/ \{aetherUi\.total\}/, 'aether counter in the console');
 });
 
-test('Part 1 rule survives Part 4: quantum is still OFF', () => {
-  assert.equal(QUANTUM_ENABLED, false);
+test('Part 1 rule replaced 2026-10-26: quantum is GONE, not flagged off', () => {
+  assert.throws(() => read('lib/earth/quantum.js'), /ENOENT/);
+  for (const f of ['app/page.jsx', 'components/EarthConsole.jsx', 'components/NexusEarth.jsx', 'components/HomeScene.jsx']) {
+    assert.ok(!read(f).includes('QUANTUM_ENABLED'), `${f} must not reference the quantum flag`);
+  }
 });

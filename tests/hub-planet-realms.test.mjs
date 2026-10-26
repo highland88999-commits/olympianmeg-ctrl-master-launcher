@@ -23,7 +23,6 @@ import {
 } from '../lib/planets/planet-seeds.js';
 import { generatePlanetProfile, hasPlanetDesign } from '../lib/planets/profiles.js';
 import { generateWorldParams, DERIVED_KEYS } from '../lib/world-engine/world-seed.js';
-import { QUANTUM_ENABLED } from '../lib/earth/quantum.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p) => readFileSync(join(root, p), 'utf8');
@@ -102,41 +101,47 @@ test('lifeType derivation did NOT perturb the original derived fields (stability
   });
 });
 
-// ---------- Part 1: quantum OFF, by flag only ----------
+// ---------- Part 1: quantum REMOVED (Merlin, 2026-10-26) ----------
 
-test('QUANTUM_ENABLED ships false and the flag module is the single switch', () => {
-  assert.equal(QUANTUM_ENABLED, false);
-  const src = read('lib/earth/quantum.js');
-  assert.match(src, /export const QUANTUM_ENABLED = false;/);
+test('the quantum flag module is DELETED and nothing imports it', () => {
+  assert.throws(() => read('lib/earth/quantum.js'), /ENOENT/);
+  for (const f of ['app/page.jsx', 'components/EarthConsole.jsx', 'components/NexusEarth.jsx', 'components/HomeScene.jsx']) {
+    assert.ok(!read(f).includes('QUANTUM_ENABLED'), `${f} must not reference the quantum flag`);
+  }
 });
 
-test('quantum ENTRY points are gated on the flag (console door, parachute, scene mounts)', () => {
+test('quantum ENTRY points are GONE (console door, parachute, scene mounts, gate)', () => {
   const page = read('app/page.jsx');
-  assert.match(page, /import \{ QUANTUM_ENABLED \} from '@\/lib\/earth\/quantum';/);
-  assert.match(page, /const parachuteTo = \(\{ lat, lon \}\) => \{\s*if \(!QUANTUM_ENABLED\) return;/);
+  assert.ok(!page.includes('parachuteTo'), 'no parachute funnel in the page');
+  assert.ok(!page.includes('onDropToTile'), 'no drop-to-tile prop in the page');
 
   const consoleSrc = read('components/EarthConsole.jsx');
-  assert.match(consoleSrc, /\{QUANTUM_ENABLED && onDropToTile && \(/);
+  assert.ok(!consoleSrc.includes('onDropToTile'), 'no drop-to-tile prop in the console');
+  assert.ok(!consoleSrc.includes('Quantum Realm'), 'no Quantum Realm text in the console');
 
   const nexus = read('components/NexusEarth.jsx');
-  assert.match(nexus, /QUANTUM_ENABLED && \(\s*<QuantumSkyDome/);
-  assert.match(nexus, /QUANTUM_ENABLED && \(\s*<MicroGroundDisc/);
+  assert.ok(!nexus.includes('QuantumSkyDome'), 'no quantum sky mount in NexusEarth');
+  assert.ok(!nexus.includes('MicroGroundDisc'), 'no quantum floor mount in NexusEarth');
 
   const home = read('components/HomeScene.jsx');
-  assert.match(home, /if \(!QUANTUM_ENABLED\) return <>\{children\}<\/>;/);
+  assert.ok(!home.includes('QuantumGate'), 'no gate component in HomeScene');
 });
 
-test('quantum code is NOT deleted — the realm modules and gate internals survive', () => {
+test('quantum code IS deleted — the realm modules are gone, the street modules survive', () => {
+  assert.throws(() => read('components/QuantumSkyDome.jsx'), /ENOENT/);
   const parachute = read('lib/earth/parachute.js');
-  assert.ok(parachute.length > 1000, 'parachute module must survive the flag');
+  assert.ok(parachute.includes('bikeState'), 'bike state survives the removal');
+  assert.ok(parachute.includes('carState'), 'car state survives the removal');
+  assert.ok(parachute.includes('climbState'), 'climb state survives the removal');
+  assert.ok(!parachute.includes('parachuteState'), 'shrink state is gone');
+  assert.ok(!parachute.includes('beginParachuteDive'), 'shrink entry is gone');
   const nexus = read('components/NexusEarth.jsx');
-  assert.match(nexus, /import QuantumSkyDome from '@\/components\/QuantumSkyDome';/);
-  assert.match(nexus, /MicroGroundDisc/);
-  assert.ok(read('components/QuantumSkyDome.jsx').length > 500, 'QuantumSkyDome module survives');
-  assert.match(read('components/StreetGroundPatch.jsx'), /MicroGroundDisc/, 'MicroGroundDisc module survives');
-  const home = read('components/HomeScene.jsx');
-  assert.match(home, /function QuantumGate/);
-  assert.match(home, /visible=\{!micro\}/, 'enabled-path gate behavior unchanged');
+  assert.ok(nexus.includes('<ProceduralEarthGlobe'), 'the globe survives');
+  assert.ok(nexus.includes('<EarthWalker'), 'the walker survives');
+  assert.ok(read('components/StreetGroundPatch.jsx').includes('export default function StreetGroundPatch'),
+    'the street patch survives');
+  assert.ok(!read('components/StreetGroundPatch.jsx').includes('MicroGroundDisc'),
+    'MicroGroundDisc module is gone');
 });
 
 test('EARTH SEED ISOLATION: no Earth dive/roam file reads the planet seed registry', () => {

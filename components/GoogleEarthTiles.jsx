@@ -42,20 +42,16 @@ async function fetchSessionToken() {
   return data;
 }
 
-export default function GoogleEarthTiles({ onSelect, onActive, onInactive, onParachute, onTileSelect, quatRef }) {
+export default function GoogleEarthTiles({ onSelect, onActive, onInactive, quatRef }) {
   const { camera, gl, size, raycaster } = useThree();
   const [tiles, setTiles] = useState(null);
   const sessionRef = useRef(null);
   const stateRef = useRef({ tiles: null, timers: [], alive: true });
-  const cbRef = useRef({ onActive, onInactive, onParachute, onTileSelect, quatRef });
-  // Double-tap detection for touch devices (iOS Safari doesn't fire
-  // onDoubleClick for touch). MUST be above the `if (!tiles) return null`
-  // early return — React requires every hook to run on every render.
-  const lastTapRef = useRef({ time: 0, x: 0, y: 0 });
+  const cbRef = useRef({ onActive, onInactive, quatRef });
   // Blue tap-highlight marker: shows where a single tap landed (fades after 800ms).
   const [tapSpot, setTapSpot] = useState(null);
   const tapTimerRef = useRef(null);
-  cbRef.current = { onActive, onInactive, onParachute, onTileSelect, quatRef };
+  cbRef.current = { onActive, onInactive, quatRef };
 
   // Show a brief blue ring at the tapped 3D point for visual feedback.
   const flashTapSpot = (point) => {
@@ -200,103 +196,35 @@ export default function GoogleEarthTiles({ onSelect, onActive, onInactive, onPar
   // is attached (no hover handlers) so the tile meshes are raycast on click
   // only, never on every pointer move.
   //
-  // Double-click parachute: raycast the tile meshes, convert the hit
-  // point back to lat/lon, and hand it to the parent for the parachute
-  // dive. The tile group is ECEF meters (Z-up) scaled to hub units and
-  // rotated to Y-up, nested under NexusEarth's spin group at
-  // [0,-60,-120] with quatRef rotation.
-  const handleDoubleClick = (e) => {
-    e.stopPropagation();
-    const cb = cbRef.current;
-    if (!cb.onParachute) return;
-    const hit = e.intersections && e.intersections[0];
-    if (!hit) return;
-    // World → NexusEarth local: un-translate, un-rotate
-    const wp = hit.point.clone();
-    wp.x -= 0; wp.y -= -60; wp.z -= -120;
-    const q = cb.quatRef?.current;
-    if (q) wp.applyQuaternion(q.clone().invert());
-    // Globe-local Cartesian (55-unit Y-up sphere) → lat/lon.
-    // Inverse of latLonToVec3 (lib/geo.js).
-    const r = Math.hypot(wp.x, wp.y, wp.z) || 55;
-    const lat = 90 - (Math.acos(Math.max(-1, Math.min(1, wp.y / r))) * 180) / Math.PI;
-    let lon = (Math.atan2(wp.z, -wp.x) * 180) / Math.PI - 180;
-    while (lon > 180) lon -= 360;
-    while (lon < -180) lon += 360;
-    if (lat >= -85 && lat <= 85) cb.onParachute({ lat, lon });
-  };
-
-  // Double-tap handler uses lastTapRef declared above.
+  // REMOVED 2026-10-26 (Merlin: "Remove the quantum realm
+  // completely"): the double-click / double-tap tile shrink entry
+  // is gone. Taps only flash the blue ring (visual feedback);
+  // nothing shrinks, nothing selects a tile for a drop.
 
   const handlePointerDown = (e) => {
-    // Only for touch pointers; mouse uses onDoubleClick
+    // Only for touch pointers; mouse uses onClick.
     if (e.pointerType && e.pointerType !== 'touch') return;
-    const now = performance.now();
-    const last = lastTapRef.current;
-    const dt = now - last.time;
-    // e.nativeEvent gives us clientX/Y for position proximity check
-    const cx = e.nativeEvent?.clientX ?? 0;
-    const cy = e.nativeEvent?.clientY ?? 0;
-    const dist = Math.hypot(cx - last.x, cy - last.y);
-    if (dt < 350 && dist < 40) {
-      // Double-tap! Do a manual raycast (R3F doesn't populate intersections
-      // for onPointerDown on groups). Convert screen coords to NDC, raycast
-      // against the tile group, then run the parachute logic.
-      lastTapRef.current = { time: 0, x: 0, y: 0 }; // reset
-      try {
-        const rect = gl.domElement.getBoundingClientRect();
-        const nx = ((cx - rect.left) / rect.width) * 2 - 1;
-        const ny = -((cy - rect.top) / rect.height) * 2 + 1;
-        raycaster.setFromCamera({ x: nx, y: ny }, camera);
-        const tileGroup = tiles?.group;
-        if (tileGroup) {
-          const hits = raycaster.intersectObject(tileGroup, true);
-          if (hits.length > 0) {
-            // Synthesize an event with intersections for handleDoubleClick
-            handleDoubleClick({ ...e, intersections: hits, stopPropagation: () => {} });
-            return;
-          }
+    // Single tap: flash a blue ring where it landed (visual feedback).
+    try {
+      const rect = gl.domElement.getBoundingClientRect();
+      const cx = e.nativeEvent?.clientX ?? 0;
+      const cy = e.nativeEvent?.clientY ?? 0;
+      const nx = ((cx - rect.left) / rect.width) * 2 - 1;
+      const ny = -((cy - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera({ x: nx, y: ny }, camera);
+      const tileGroup = tiles?.group;
+      if (tileGroup) {
+        const hits = raycaster.intersectObject(tileGroup, true);
+        if (hits.length > 0) {
+          flashTapSpot(hits[0].point);
         }
-      } catch {}
-      // Fallback: try the original event (may have intersections)
-      handleDoubleClick(e);
-    } else {
-      lastTapRef.current = { time: now, x: cx, y: cy };
-      // Single tap: flash a blue ring where it landed (visual feedback).
-      try {
-        const rect = gl.domElement.getBoundingClientRect();
-        const nx = ((cx - rect.left) / rect.width) * 2 - 1;
-        const ny = -((cy - rect.top) / rect.height) * 2 + 1;
-        raycaster.setFromCamera({ x: nx, y: ny }, camera);
-        const tileGroup = tiles?.group;
-        if (tileGroup) {
-          const hits = raycaster.intersectObject(tileGroup, true);
-          if (hits.length > 0) {
-            flashTapSpot(hits[0].point);
-            // Also notify parent of the selected tile lat/lon for the DROP button
-            const cb = cbRef.current;
-            if (cb.onTileSelect) {
-              const wp = hits[0].point.clone();
-              wp.x -= 0; wp.y -= -60; wp.z -= -120;
-              const q = cb.quatRef?.current;
-              if (q) wp.applyQuaternion(q.clone().invert());
-              const r = Math.hypot(wp.x, wp.y, wp.z) || 55;
-              const lat = 90 - (Math.acos(Math.max(-1, Math.min(1, wp.y / r))) * 180) / Math.PI;
-              let lon = (Math.atan2(wp.z, -wp.x) * 180) / Math.PI - 180;
-              while (lon > 180) lon -= 360;
-              while (lon < -180) lon += 360;
-              if (lat >= -85 && lat <= 85) cb.onTileSelect({ lat, lon });
-            }
-          }
-        }
-      } catch {}
-    }
+      }
+    } catch {}
   };
 
   return (
     <group
       onClick={(e) => { e.stopPropagation(); if (onSelect) onSelect(); }}
-      onDoubleClick={handleDoubleClick}
       onPointerDown={handlePointerDown}
     >
       <primitive object={tiles.group} />

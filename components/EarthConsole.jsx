@@ -5,12 +5,10 @@ import { searchPlaces, formatCoords } from '@/lib/geo';
 import { summonBike, dismissBike, toggleMount } from '@/components/EarthBike';
 import { summonCar, dismissCar, toggleCarMount } from '@/components/EarthSupercar';
 import EarthViewToggle from '@/components/EarthViewToggle';
-import { beginReanimate, isAtStreetScale, parachuteState, bikeState, carState } from '@/lib/earth/parachute';
+import { bikeState, carState } from '@/lib/earth/parachute';
 import { EARTH_DEFAULT_CHARACTER_ID } from '@/lib/characters/embodiment';
-import { QUANTUM_ENABLED } from '@/lib/earth/quantum';
 import { aetherState, totalAether } from '@/lib/earth/aether';
 import { planetSeedFor } from '@/lib/planets/planet-seeds';
-import { roamState } from '@/lib/earth/roam';
 import { getEmbodimentForSurface } from '@/lib/gta/walker-embodiment';
 import CharacterPicker from '@/components/characters/CharacterPicker';
 
@@ -31,7 +29,7 @@ const MIN_KEY = 'earth-console-minimized';
 // carries its seed name like every other world.
 const EARTH_SEED_ENTRY = planetSeedFor('earth');
 
-export default function EarthConsole({ focus, phase, onTravel, onReturn, onStreet, onAscend, onSpawnPick, spawns, selectedTile, onDropToTile, controlsRef }) {
+export default function EarthConsole({ focus, phase, onTravel, onReturn, onStreet, onAscend, onSpawnPick, spawns, controlsRef }) {
   const { t } = useI18n();
   const [input, setInput] = useState('');
   const [results, setResults] = useState([]);
@@ -45,11 +43,6 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
   // the bike (Earth 1 expansion): the V / F keys mutate it
   // outside React, so buttons must poll, not guess.
   const [carUi, setCarUi] = useState({ out: false, mounted: false });
-  // Size UI state, polled from the same singletons for the
-  // same reason as the bike state: the parachute dive mutates
-  // it outside React, so a local useState set only by buttons
-  // would desync.
-  const [sizeUi, setSizeUi] = useState({ micro: false });
   // Aether collection, polled from the aether singleton like the
   // others (collection happens inside EarthAssets' driver).
   const [aetherUi, setAetherUi] = useState({ count: 0, total: 0 });
@@ -75,10 +68,6 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
       setCarUi((prev) => {
         const next = { out: !!carState.summoned, mounted: !!carState.mounted };
         return prev.out === next.out && prev.mounted === next.mounted ? prev : next;
-      });
-      setSizeUi((prev) => {
-        const next = { micro: (parachuteState?.scale || 1) < 0.5 };
-        return prev.micro === next.micro ? prev : next;
       });
       setAetherUi((prev) => {
         const next = { count: aetherState.count || 0, total: totalAether() };
@@ -114,8 +103,8 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
 
   // MINIMIZE IS LAW (Merlin bug report, 2026-10-22: "the controls are
   // not minimizing"): an earlier version force-reopened the console
-  // whenever a dive/travel phase began — tapping a tile to parachute,
-  // or any travel kicked off while the console was minimized, popped
+  // whenever a dive/travel phase began — starting a dive, or any
+  // travel kicked off while the console was minimized, popped
   // it straight back open over the scene. That auto-reopen is GONE:
   // only the user opens this console. Travel is not silent while
   // minimized — the docked globe pulses and carries a traveling
@@ -229,7 +218,7 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
           {busy && (
             <div className="text-[10px] text-cyan-400 mt-1 animate-pulse">
               {phase === 'earth_travel' ? t('earth.traveling')
-                : phase === 'diving_to_street' ? 'Shrinking into tile world…'
+                : phase === 'diving_to_street' ? 'Descending to street level…'
                 : t('earth.locating')}
             </div>
           )}
@@ -245,12 +234,9 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
               ◆ Aether {aetherUi.count} / {aetherUi.total} — hidden inside Earth&rsquo;s buildings. Walk in and find them.
             </div>
           )}
-          {/* Parachute / climb / elevator hints. The parachute
-              clause only shows while the Quantum Realm is enabled —
-              with the realm off (lib/earth/quantum.js) a double-click
-              no longer shrinks, and the hint must not promise it. */}
+          {/* Climb / elevator hints. */}
           <div className="text-[10px] text-zinc-500 mt-1 leading-relaxed">
-            {QUANTUM_ENABLED ? 'Double-click any tile to parachute down · ' : ''}Double-click ladders to climb · Double-click monuments for the elevator
+            Double-click ladders to climb · Double-click monuments for the elevator
           </div>
         </div>
 
@@ -361,43 +347,6 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
                 ⛏ Quicksand pit nearby — look for the gold beam ~100 m east of Redwater centre. Walk into it to sink.
               </div>
             )}
-            {/* Size state (polled from the parachute singleton like
-                the bike state above): which size world am I in? */}
-            <div className={`text-[10px] mt-1 ${sizeUi.micro ? 'text-violet-300' : 'text-zinc-500'}`}>
-              {sizeUi.micro
-                ? '🔬 Quantum Realm — Ant-Man scale · you are micrometres tall · third person locked'
-                : 'Size — normal view'}
-            </div>
-            {/* Size: Normal View vs Quantum Realm. The Quantum door
-                stands at street level ALWAYS (Merlin, 2026-10-20:
-                "the quantum realm isn't showing up" — the button
-                used to exist only when a tile had been selected in
-                the aerial view, so at street level there was no
-                door at all). With a tile selected it drops there;
-                without one it shrinks HERE, into the tile under
-                the walker's feet — same parachuteTo path either
-                way (beginRoam + beginParachuteDive in page.jsx).
-                QUANTUM OFF (Merlin, 2026-10-22, "for now"): the
-                door is hidden while QUANTUM_ENABLED is false
-                (lib/earth/quantum.js) and parachuteTo refuses the
-                shrink besides; Normal View stays — it is the
-                harmless way back and a no-op at normal scale. */}
-            <div className={QUANTUM_ENABLED ? 'grid grid-cols-2 gap-2' : 'grid grid-cols-1 gap-2'}>
-              <button
-                onClick={() => beginReanimate()}
-                className="py-2 text-[10px] font-bold tracking-[0.15em] uppercase text-amber-200 border border-amber-600/60 bg-amber-950/50 rounded hover:border-amber-400 hover:text-white transition-all"
-              >
-                ✦ Normal View
-              </button>
-              {QUANTUM_ENABLED && onDropToTile && (
-                <button
-                  onClick={() => onDropToTile(selectedTile || { lat: roamState.lat, lon: roamState.lon })}
-                  className="py-2 text-[10px] font-bold tracking-[0.15em] uppercase text-cyan-200 border border-cyan-600/60 bg-cyan-950/50 rounded hover:border-cyan-400 hover:text-white transition-all animate-pulse"
-                >
-                  🔬 Quantum Realm
-                </button>
-              )}
-            </div>
             {/* Character selection — in the menu, not floating */}
             <div className="mt-1">
               <div className="text-[9px] font-bold tracking-[0.2em] uppercase text-zinc-500 mb-1">Character</div>

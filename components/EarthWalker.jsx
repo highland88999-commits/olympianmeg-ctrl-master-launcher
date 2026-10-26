@@ -8,7 +8,7 @@ import { roamState, tangentFrame, headingVector } from '@/lib/earth/roam';
 import { surfaceRadiusOrBase, globeGridRadiusOrBase } from '@/lib/earth/heightmap';
 import { latLonToVec3 } from '@/lib/geo';
 import { DISPLAY_UNITS_PER_METRE } from '@/lib/earth/placements';
-import { parachuteState, bikeState, carState, getClimbAltM } from '@/lib/earth/parachute';
+import { bikeState, carState, getClimbAltM } from '@/lib/earth/parachute';
 import { getInteriorAltM } from '@/lib/earth/interiors';
 import { effectiveEarthViewMode } from '@/lib/earth/view-mode';
 import { tameTripoMaterials } from '@/lib/characters/tame-materials';
@@ -74,20 +74,23 @@ export default function EarthWalker() {
       rig.visible = false;
       return;
     }
-    rig.visible = true;
-    // Shrink scale: the avatar shrinks from normal size (1x) to micro
-    // size (0.00001x) into the tile world, grows back on reanimate.
-    rig.scale.setScalar(parachuteState.scale);
+    // Mount law (Merlin, 2026-10-26): while riding the bike or the
+    // car the character is HIDDEN — the vehicle is the body on
+    // screen. The moment they exit, the vehicle vanishes and the
+    // character reappears exactly where it was (the dismount
+    // handlers move roamState to the vehicle's position first).
+    rig.visible = !bikeState.mounted && !carState.mounted;
     // Climb altitude: ladders and monument elevators lift the walker.
     // Bike altitude: while mounted, the walker rides ON the bike —
-    // lifted by the same scaled hover height the bike mesh and the
+    // lifted by the same hover height the bike mesh and the
     // camera rig use, so all three agree (no more character standing
-    // on the ground under a flying bike).
-    const bikeAltU = bikeState.mounted ? bikeState.altM * parachuteState.scale * UPM : 0;
+    // on the ground under a flying bike). (Invisible while mounted
+    // — the lift only matters the frame the walker reappears.)
+    const bikeAltU = bikeState.mounted ? bikeState.altM * UPM : 0;
     // Supercar seat: while driving, the walker sits in the car
-    // (0.9 m seat height, scaled like the bike hover) instead of
-    // standing through its bodywork at ground level.
-    const carAltU = carState.mounted ? 0.9 * parachuteState.scale * UPM : 0;
+    // (0.9 m seat height) instead of standing through its
+    // bodywork at ground level.
+    const carAltU = carState.mounted ? 0.9 * UPM : 0;
     // No water on Earth 1 (2026-10-26): no swim lift, no surface
     // bob — the walker stands on the ground everywhere, seabed
     // included, at normal walk pace.
@@ -127,9 +130,7 @@ export default function EarthWalker() {
     // body leaves the frame entirely — the clean-view law. No
     // floating hands, no body parts hanging into the picture:
     // the embodiment's own hidden flag does the work, and the
-    // capsule obeys the same rule. In the Quantum Realm the
-    // effective mode is forced third person, so the shrunken
-    // character stays visible there (Merlin, 2026-10-20).
+    // capsule obeys the same rule.
     const firstPerson = effectiveEarthViewMode() === 'first';
     let showing = false;
     if (emb) {
@@ -188,15 +189,18 @@ export default function EarthWalker() {
         }
       }
     }
-    // Fill lantern: intensity/distance are WORLD-space quantities
-    // in three.js, so they scale with the Ant-Man shrink (the
-    // light's rig-local position already does) — otherwise the
-    // lamp that is gentle at street size becomes a supernova at
-    // micro size and a void at none.
+    // Fill lantern: keeps the character readable, not a
+    // silhouette. Rig-local units are HUB units (the whole
+    // avatar is 0.032 of them), so the lamp hovers ~3 display
+    // metres up on the camera side of the traveler — the old
+    // [0, 3, 2] / intensity 0.35 placement was authored as if
+    // the rig were metre-scale and sat ~190 m overhead,
+    // contributing almost nothing while the character read
+    // pitch black. (The lamp rides inside the rig, so it hides
+    // with the character while mounted.)
     if (lightRef.current) {
-      const s = parachuteState.scale || 1;
-      lightRef.current.intensity = 0.0012 * s * s;
-      lightRef.current.distance = 0.35 * s;
+      lightRef.current.intensity = 0.0012;
+      lightRef.current.distance = 0.35;
     }
   });
 
@@ -209,8 +213,7 @@ export default function EarthWalker() {
           [0, 3, 2] / intensity 0.35 placement was authored as if
           the rig were metre-scale and sat ~190 m overhead,
           contributing almost nothing while the character read
-          pitch black. Intensity + distance are compensated per
-          frame for the Ant-Man scale (see useFrame). */}
+          pitch black. */}
       <pointLight ref={lightRef} position={[0, 0.05, -0.035]} intensity={0.0012} distance={0.35} color="#ffffff" />
       {/* No capsule mesh on Earth, ever (video QA V2-1): the
           walker is always a real character (pick, profile, or

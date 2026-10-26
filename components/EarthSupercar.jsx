@@ -7,7 +7,7 @@ import { latLonToVec3 } from '@/lib/geo';
 import { surfaceRadiusOrBase } from '@/lib/earth/heightmap';
 import { DISPLAY_UNITS_PER_METRE } from '@/lib/earth/placements';
 import { roamState, tangentFrame, headingVector } from '@/lib/earth/roam';
-import { carState, parachuteState } from '@/lib/earth/parachute';
+import { carState } from '@/lib/earth/parachute';
 import { moveWithCollision } from '@/lib/earth/collision';
 import { tameTripoMaterials } from '@/lib/characters/tame-materials';
 
@@ -36,6 +36,11 @@ import { tameTripoMaterials } from '@/lib/characters/tame-materials';
 // the numbers), ground-hugging (no rise/sink — a car stays on
 // the ground), and its own keys (V summon/dismiss, F mount /
 // dismount) so it never collides with the bike's B / E.
+//
+// Dismount law (Merlin, 2026-10-26): exiting the car VANISHES it
+// and the walker takes its place — same law as the bike. The
+// character is hidden while driving (EarthWalker) and reappears
+// exactly where the car was.
 //
 // Model orientation note: the GLB's nose direction is not
 // encoded anywhere, so the longest horizontal axis is aligned
@@ -96,10 +101,14 @@ export function toggleCarMount() {
   if (carState.mounted) {
     carState.yawDeg = roamState.yawDeg;
   } else {
-    // Dismount: walker takes the car's position.
+    // Dismount: walker takes the car's position — and the car
+    // vanishes (Merlin, 2026-10-26). The walker reappears exactly
+    // where the car was; summoning again brings a fresh car.
     roamState.lat = carState.lat;
     roamState.lon = carState.lon;
     roamState.yawDeg = carState.yawDeg;
+    carState.summoned = false;
+    carState.speed = 0;
   }
   return carState.mounted;
 }
@@ -201,7 +210,7 @@ export default function EarthSupercar({ controls }) {
 
       // Great-circle step along the heading (same stepping as
       // the bike, so the car and the camera agree exactly).
-      const distM = next.speed * dt * 3 * (parachuteState.scale || 1);
+      const distM = next.speed * dt * 3;
       const distRad = (distM * UPM) / surfaceRadiusOrBase(carState.lat, carState.lon);
       const br = (carState.yawDeg * Math.PI) / 180;
       const p1 = (carState.lat * Math.PI) / 180;
@@ -218,7 +227,7 @@ export default function EarthSupercar({ controls }) {
       while (lonD < -180) lonD += 360;
       // Solid collision: mountains, large structures, oil rigs
       // block; vegetation pass-through, same rule as the bike.
-      const carRadiusM = CAR_RADIUS_M * (parachuteState.scale || 1);
+      const carRadiusM = CAR_RADIUS_M;
       const moved = moveWithCollision(carState.lat, carState.lon, newLat, lonD, carRadiusM, true);
       carState.lat = moved.lat;
       carState.lon = moved.lon;
@@ -231,11 +240,10 @@ export default function EarthSupercar({ controls }) {
       roamState.speed01 = Math.min(1, Math.abs(next.speed) / tuning.maxSpeed);
     }
 
-    // Position on the globe: ground-hugging, scaled with the
-    // walker (Ant-Man) like the bike.
+    // Position on the globe: ground-hugging, like the bike.
     const surfR = surfaceRadiusOrBase(carState.lat, carState.lon);
-    const scaledAltM = Math.max(0.05, carState.altM) * (parachuteState.scale || 1);
-    const r = surfR + scaledAltM * UPM;
+    const hoverM = Math.max(0.05, carState.altM);
+    const r = surfR + hoverM * UPM;
     const p = latLonToVec3(carState.lat, carState.lon, r);
     g.position.set(p.x, p.y, p.z);
 
@@ -248,8 +256,6 @@ export default function EarthSupercar({ controls }) {
     const zAxis = new THREE.Vector3().crossVectors(xAxis, normal).normalize();
     const basis = new THREE.Matrix4().makeBasis(xAxis, normal, zAxis);
     g.quaternion.setFromRotationMatrix(basis);
-
-    g.scale.setScalar(parachuteState.scale);
   });
 
   // Keep the camera variable referenced (the mount's frame loop

@@ -13,14 +13,11 @@ import MonumentElevator from '@/components/MonumentElevator';
 import EarthBike from '@/components/EarthBike';
 import EarthSupercar from '@/components/EarthSupercar';
 import EarthPitMarker from '@/components/EarthPitMarker';
-import StreetGroundPatch, { StreetFillLight, MicroGroundDisc } from '@/components/StreetGroundPatch';
-import QuantumSkyDome from '@/components/QuantumSkyDome';
+import StreetGroundPatch, { StreetFillLight } from '@/components/StreetGroundPatch';
 import { LENS_PRESETS, LENS_LIFT, lensTilePlan, buildLensGeometryData } from '@/lib/earth/lens';
 import { tileCellKey, recordRenderedTileKey } from '@/lib/earth/lens-cache';
 import { HUB_UNITS_PER_DEGREE, DISPLAY_UNITS_PER_METRE } from '@/lib/earth/placements';
 import { loadHeightData, getHeightData } from '@/lib/earth/heightmap';
-import { parachuteState } from '@/lib/earth/parachute';
-import { QUANTUM_ENABLED } from '@/lib/earth/quantum';
 import { roamState } from '@/lib/earth/roam';
 
 // The hub Earth: Google's photorealistic 3D tiles when they stream, a real
@@ -74,15 +71,8 @@ const EARTH_CENTER_WORLD = new THREE.Vector3(0, -60, -120);
 // phase left `roaming`, with the camera still at street level
 // inside it).
 const SHELL_CAMERA_MIN_DIST = 57.5;
-// Below this Ant-Man scale the Quantum Realm is sealed (round 4,
-// defect 1): the macro globe itself hands over to the realm's own
-// floor (MicroGroundDisc) and sky (QuantumSkyDome). The threshold
-// sits deep in the dive — by 0.05x the dome is already fully
-// opaque and the ground fills the view, so the handover reads as
-// arriving inside the tile, not as the world blinking out.
-const DEEP_MICRO_SCALE = 0.05;
 
-export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRef, focus, phase, spinEnabled, controls, onTeleportNYC }) {
+export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnabled, controls, onTeleportNYC }) {
   const spinRef = useRef();
   const sheetsRef = useRef([]); // [{ key, mesh }] — mirror of lensSheets for frame-loop access
   const roamCenterRef = useRef(null);
@@ -95,25 +85,10 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
   // 'terrain' = procedural 3D globe + ESRI lens (default, always 3D).
   // 'photorealistic' = Google 3D tiles, only after they really render.
   const [layer, setLayer] = useState('terrain');
-  // Micro mode: when shrunk to Ant-Man size (scale < 0.5), hide all 3D
-  // objects (trees, rocks, buildings). They reappear on REANIMATE.
-  const [microMode, setMicroMode] = useState(false);
-  // Deep micro (scale < 0.05): the Quantum Realm seal — even the
-  // globe itself stands down (see DEEP_MICRO_SCALE above).
-  const [deepMicro, setDeepMicro] = useState(false);
   const shellRef = useRef();
 
   const roaming = phase === 'diving_to_street' || phase === 'earth_roam';
   const effectiveLayer = roaming ? 'terrain' : layer;
-
-  // Track Ant-Man scale: hide objects at micro size
-  useFrame(() => {
-    const s = parachuteState?.scale || 1;
-    const isMicro = s < 0.5;
-    if (isMicro !== microMode) setMicroMode(isMicro);
-    const isDeep = s < DEEP_MICRO_SCALE;
-    if (isDeep !== deepMicro) setDeepMicro(isDeep);
-  });
 
   // Shared heightmap: one decode for globe, assets, lens, walker.
   useEffect(() => {
@@ -337,25 +312,25 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
         <group visible={!roaming}>
           <GoogleEarthTiles
             onSelect={onSelect}
-            onParachute={onParachute}
-            onTileSelect={onTileSelect}
             quatRef={quatRef}
             onActive={() => setLayer('photorealistic')}
             onInactive={() => setLayer('terrain')}
           />
         </group>
-        {effectiveLayer === 'terrain' && !deepMicro && <ProceduralEarthGlobe onSelect={onSelect} onParachute={onParachute} onTileSelect={onTileSelect} quatRef={quatRef} />}
-        {/* 3D objects hidden in micro (Ant-Man) mode — reappear on REANIMATE */}
-        {effectiveLayer === 'terrain' && !microMode && <EarthAssets />}
+        {effectiveLayer === 'terrain' && <ProceduralEarthGlobe onSelect={onSelect} quatRef={quatRef} />}
+        {/* 3D objects — always present on the terrain layer. Earth
+            has ONE level now (2026-10-26, quantum removed): nothing
+            ever hides the world for a second layer. */}
+        {effectiveLayer === 'terrain' && <EarthAssets />}
         {effectiveLayer === 'terrain' && <EarthWalker />}
-        {/* Climbable ladders on structures, monument elevators — street only, not in micro */}
-        {effectiveLayer === 'terrain' && roaming && !microMode && <EarthLadders visible={roaming} />}
+        {/* Climbable ladders on structures, monument elevators — street only */}
+        {effectiveLayer === 'terrain' && roaming && <EarthLadders visible={roaming} />}
         {/* The Redwater quicksand journey: proximity-gated to the
             pit near Redwater, Alberta — same street gate as the
             ladders. The NYC portal drops into /mega-city via
             onTeleportNYC (HomeScene). */}
-        {effectiveLayer === 'terrain' && roaming && !microMode && <RedwaterMount onTeleportNYC={onTeleportNYC} />}
-        {effectiveLayer === 'terrain' && roaming && !microMode && <MonumentElevator visible={roaming} />}
+        {effectiveLayer === 'terrain' && roaming && <RedwaterMount onTeleportNYC={onTeleportNYC} />}
+        {effectiveLayer === 'terrain' && roaming && <MonumentElevator visible={roaming} />}
         {/* Summonable TRON bike — street only */}
         {effectiveLayer === 'terrain' && roaming && <EarthBike controls={controls} />}
         {/* Summonable Lamborghini Aventador — street only, Earth's
@@ -366,44 +341,30 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
             ring + spinning diamond over the Redwater pit, so the
             journey is findable from the spawn. Visual only — it
             never blocks the pit, the sink, the tunnel or the core. */}
-        {effectiveLayer === 'terrain' && roaming && !microMode && <EarthPitMarker />}
+        {effectiveLayer === 'terrain' && roaming && <EarthPitMarker />}
         {/* Traveler-following dense props (Earth 1 expansion):
             street-level population everywhere, dry seabed included
-            — same gate as the street patch, never in micro. */}
-        {effectiveLayer === 'terrain' && roaming && !microMode && <EarthLocalScatter />}
+            — same gate as the street patch. */}
+        {effectiveLayer === 'terrain' && roaming && <EarthLocalScatter />}
 
-        {effectiveLayer === 'terrain' && !microMode && lensSheets.map((s) => (
+        {effectiveLayer === 'terrain' && lensSheets.map((s) => (
           <primitive key={s.key} object={s.mesh} />
         ))}
         {/* Street-level detail ground + lantern fill: only on the
             terrain layer while roaming (walkthrough flaw 2026-10-17:
             the 160×120 globe's ~135 m facets read as broken shards
             from 1.62 m up). */}
-        {effectiveLayer === 'terrain' && roaming && !microMode && (
+        {effectiveLayer === 'terrain' && roaming && (
           <StreetGroundPatch center={patchCenter} />
-        )}
-        {/* The Quantum Realm's own floor: a small opaque disc that
-            follows the tiny walker in every direction. QUANTUM OFF
-            (Merlin, 2026-10-22, "for now"): not mounted at all while
-            QUANTUM_ENABLED is false (lib/earth/quantum.js) — the
-            component itself is untouched and returns with the flag. */}
-        {effectiveLayer === 'terrain' && roaming && QUANTUM_ENABLED && (
-          <MicroGroundDisc />
-        )}
-        {/* The Quantum Realm's own sky: renders only below 0.5x —
-            from normal size it does not exist at all. Also unmounted
-            while the Quantum Realm is off (same flag, same note). */}
-        {effectiveLayer === 'terrain' && roaming && QUANTUM_ENABLED && (
-          <QuantumSkyDome />
         )}
         {effectiveLayer === 'terrain' && <StreetFillLight active={roaming} />}
         {/* Day sky dome at street level: blue during day, transparent at night.
             Uses sun direction to fade — day side gets blue sky, night side
             stays clear so stars show through. Replaces the atmosphere shell
             which saturates to white when the camera is inside it.
-            NORMAL LAYER ONLY: in the Quantum Realm this sky hands over
-            to the QuantumSkyDome — two skies, two layers, never mixed. */}
-        {effectiveLayer === 'terrain' && roaming && !microMode && (
+            The ONLY sky at street level: the old second sky for the
+            removed second layer is gone with it. */}
+        {effectiveLayer === 'terrain' && roaming && (
           <mesh scale={[1.5, 1.5, 1.5]}>
             <sphereGeometry args={[55, 32, 32]} />
             <shaderMaterial

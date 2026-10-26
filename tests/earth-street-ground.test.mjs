@@ -13,15 +13,12 @@ import {
 import {
   STREET_PATCH_RADIUS,
   PATCH_LIFT,
-  MICRO_DISC_LIFT_U,
   hypsometricColor,
   grainFor,
   buildStreetPatchGeometryData,
-  microDiscLiftU,
-  microGrainTileU,
 } from '../lib/earth/street-patch.js';
+import * as streetPatch from '../lib/earth/street-patch.js';
 import { surfaceRadiusAt, HUB_UNITS_PER_DEGREE, DISPLAY_UNITS_PER_METRE } from '../lib/earth/placements.js';
-import { ROAM_HEAD_M } from '../lib/earth/roam.js';
 import { TERRAIN_RADIUS } from '../lib/terrain.js';
 
 let passed = 0;
@@ -123,25 +120,16 @@ check('patch lift sits between globe and street lens', () => {
     'patch must stay below the street lens');
 });
 
-check('micro disc lift scales with the shrink (the inverted-world bug)', () => {
-  // At 1x the lift is exactly what it always was.
-  assert.strictEqual(microDiscLiftU(1), MICRO_DISC_LIFT_U);
-  // At quantum scale the lift must be FAR below the tiny eye line:
-  // eye height = head height × display scale × Ant-Man scale.
-  const micro = 0.00001;
-  const eyeU = ROAM_HEAD_M * DISPLAY_UNITS_PER_METRE * micro;
-  const liftU = microDiscLiftU(micro);
-  assert.ok(liftU > 0, 'micro lift must still clear the surface');
-  assert.ok(liftU < eyeU * 0.01,
-    `micro lift ${liftU} not underfoot vs eye ${eyeU} (was ~230x overhead unscaled)`);
-  // And proportional: halving the scale halves the lift.
-  assert.strictEqual(microDiscLiftU(0.5), MICRO_DISC_LIFT_U * 0.5);
-});
-
-check('micro grain tile is sized in walker metres at every scale', () => {
-  // One tile = 3 walker-metres, in hub units, at any scale.
-  assert.strictEqual(microGrainTileU(1), 3 * DISPLAY_UNITS_PER_METRE);
-  assert.strictEqual(microGrainTileU(0.00001), 3 * DISPLAY_UNITS_PER_METRE * 0.00001);
+check('micro disc helpers are GONE (quantum removed 2026-10-26)', () => {
+  // The street-patch module exports no micro-layer math anymore:
+  // the disc, its lift and its grain tile went with the realm.
+  assert.equal(streetPatch.microDiscLiftU, undefined);
+  assert.equal(streetPatch.microGrainTileU, undefined);
+  assert.equal(streetPatch.MICRO_DISC_RADIUS_U, undefined);
+  assert.equal(streetPatch.MICRO_DISC_LIFT_U, undefined);
+  assert.equal(streetPatch.MICRO_GRAIN_TILE_M, undefined);
+  assert.ok(typeof buildStreetPatchGeometryData === 'function');
+  assert.ok(PATCH_LIFT > 0);
 });
 
 console.log(`\n${passed} checks passed`);

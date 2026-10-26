@@ -8,7 +8,7 @@ import { latLonToVec3 } from '@/lib/geo';
 import { surfaceRadiusOrBase } from '@/lib/earth/heightmap';
 import { DISPLAY_UNITS_PER_METRE } from '@/lib/earth/placements';
 import { roamState, tangentFrame, headingVector } from '@/lib/earth/roam';
-import { bikeState, parachuteState } from '@/lib/earth/parachute';
+import { bikeState } from '@/lib/earth/parachute';
 import { moveWithCollision } from '@/lib/earth/collision';
 
 // EarthBike — summonable TRON Wisp bike for hub Earth street view.
@@ -24,7 +24,10 @@ import { moveWithCollision } from '@/lib/earth/collision';
 // terrain radius at the bike's lat/lon, and altM never drops below
 // the hover minimum.
 //
-// Dismount with E again (bike stays where it is, walker resumes).
+// Dismount with E again: the bike VANISHES and the walker takes
+// its place (Merlin, 2026-10-26) — the character is hidden while
+// riding (EarthWalker) and reappears exactly where the bike was.
+// Dismiss with B also clears it; summoning again brings a fresh bike.
 
 const UPM = DISPLAY_UNITS_PER_METRE;
 const HOVER_MIN_M = 0.6; // never below this altitude
@@ -78,10 +81,14 @@ export function toggleMount() {
   if (bikeState.mounted) {
     bikeState.yawDeg = roamState.yawDeg;
   } else {
-    // Dismount: walker takes the bike's position
+    // Dismount: walker takes the bike's position — and the bike
+    // vanishes (Merlin, 2026-10-26). The walker reappears exactly
+    // where the bike was; summoning again brings a fresh bike.
     roamState.lat = bikeState.lat;
     roamState.lon = bikeState.lon;
     roamState.yawDeg = bikeState.yawDeg;
+    bikeState.summoned = false;
+    bikeState.speed = 0;
   }
   return bikeState.mounted;
 }
@@ -119,10 +126,6 @@ export default function EarthBike({ controls }) {
 
   useFrame((state, rawDt) => {
     const g = groupRef.current;
-    // The bike exists at EVERY scale — it shrinks with the walker
-    // (scale set below), so it rides in the Quantum Realm too. It was
-    // previously hidden in micro mode, which made bike mode vanish
-    // exactly where Merlin rides smallest (2026-10-20).
     if (!g || !bikeState.summoned || !roamState.active) {
       if (g) g.visible = false;
       return;
@@ -161,9 +164,7 @@ export default function EarthBike({ controls }) {
       bikeState.yawDeg = ((next.yaw * 180) / Math.PI) % 360;
 
       // Move over the globe: great-circle step along the heading.
-      // Distance scales with the Ant-Man shrink (proportional at
-      // every size, same as walking).
-      const distM = next.speed * dt * 3 * (parachuteState.scale || 1); // tune: flight units → metres feel
+      const distM = next.speed * dt * 3; // tune: flight units → metres feel
       const distRad = (distM * UPM) / surfaceRadiusOrBase(bikeState.lat, bikeState.lon);
       const br = (bikeState.yawDeg * Math.PI) / 180;
       const p1 = (bikeState.lat * Math.PI) / 180;
@@ -189,8 +190,7 @@ export default function EarthBike({ controls }) {
       while (lonD < -180) lonD += 360;
       // Solid collision on bike: mountains, large structures, oil rigs block.
       // (Vegetation pass-through allowed on bike per Merlin's rule.)
-      // Bike radius scales with Ant-Man shrink.
-      const bikeRadiusM = 1.5 * (parachuteState.scale || 1);
+      const bikeRadiusM = 1.5;
       const moved = moveWithCollision(bikeState.lat, bikeState.lon, newLat, lonD, bikeRadiusM, true);
       bikeState.lat = moved.lat;
       bikeState.lon = moved.lon;
@@ -209,10 +209,9 @@ export default function EarthBike({ controls }) {
 
     // --- Position the bike mesh on the globe ---
     // Ground collision: radius is surface + altitude, never below surface.
-    // Altitude scales with the walker (Ant-Man): at 0.05x the hover is tiny too.
     const surfR = surfaceRadiusOrBase(bikeState.lat, bikeState.lon);
-    const scaledAltM = Math.max(HOVER_MIN_M, bikeState.altM) * parachuteState.scale;
-    const r = surfR + scaledAltM * UPM;
+    const hoverM = Math.max(HOVER_MIN_M, bikeState.altM);
+    const r = surfR + hoverM * UPM;
     const p = latLonToVec3(bikeState.lat, bikeState.lon, r);
     g.position.set(p.x, p.y, p.z);
 
@@ -230,9 +229,6 @@ export default function EarthBike({ controls }) {
     const c = controls?.current || {};
     const turn = (c.moveX || 0) + ((c.keyD ? 1 : 0) - (c.keyA ? 1 : 0));
     g.rotateZ(-turn * 0.25);
-
-    // Scale with the walker (Ant-Man): bike shrinks/grows in lockstep
-    g.scale.setScalar(parachuteState.scale);
   });
 
   return (

@@ -17,12 +17,8 @@ import {
   surfaceRadiusOrBase,
 } from '@/lib/earth/heightmap';
 import {
-  parachuteState,
   bikeState,
   carState,
-  beginParachuteDive,
-  stepParachute,
-  resetParachute,
   stepClimb,
   getClimbAltM,
 } from '@/lib/earth/parachute';
@@ -65,16 +61,15 @@ export default function EarthFlightController({
   // by the shared planet quaternion and centred on EARTH_CENTER —
   // the same transform the dive math has always used.
   //
-  // Shrink/reanimate scaling: when the character is scaled (shrinking
-  // into the tile or reanimating back), the camera offsets scale
-  // in lockstep so the relative framing stays identical. The climb
-  // altitude (ladders/elevators) lifts the whole rig along the normal.
+  // REMOVED 2026-10-26 (Merlin: "Remove the quantum realm
+  // completely"): the old shrink/reanimate scaling is gone. The
+  // camera offsets are used exactly as the rig computes them — one
+  // level, normal size, always. The climb altitude
+  // (ladders/elevators) lifts the whole rig along the normal.
   const streetRigWorld = () => {
     const hd = getHeightData();
     // View mode (lib/earth/view-mode.js): the traveler's first /
-    // third person choice — except in the Quantum Realm, where
-    // third person is forced so the shrunken character stays
-    // visible in the tile world for the whole micro stay.
+    // third person choice — it rules everywhere now.
     const rig = cameraRig(roamState, hd ? hd.data : null, hd ? hd.w : 0, hd ? hd.h : 0, {
       firstPerson: effectiveEarthViewMode() === 'first',
       // The embodied character's measured size (published by
@@ -87,21 +82,18 @@ export default function EarthFlightController({
     const q = quatRef.current;
     const toWorld = (p) => new THREE.Vector3(p.x, p.y, p.z).applyQuaternion(q).add(EARTH_CENTER);
 
-    const scale = parachuteState.scale;
     // Rig lift along the surface normal: climb altitude (ladders /
     // elevators, real metres) plus — while mounted — the bike's hover
-    // altitude. Bike altitude is in walker-metres, so it scales with
-    // the shrink exactly like the bike mesh itself (EarthBike places
-    // the mesh at altM × scale). Without this the camera stayed
-    // glued to the ground while the bike flew above it.
-    const bikeLiftM = bikeState.mounted ? bikeState.altM * scale : 0;
+    // altitude. Without this the camera stayed glued to the ground
+    // while the bike flew above it.
+    const bikeLiftM = bikeState.mounted ? bikeState.altM : 0;
     const altU = (getClimbAltM() + getInteriorAltM() + bikeLiftM) * DISPLAY_UNITS_PER_METRE;
     const n = new THREE.Vector3(rig.normal.x, rig.normal.y, rig.normal.z);
     const ground = new THREE.Vector3(rig.ground.x, rig.ground.y, rig.ground.z);
 
-    // Scale camera offsets from the ground point, then lift by climb altitude
-    const scaleFromGround = (p) => {
-      const v = new THREE.Vector3(p.x, p.y, p.z).sub(ground).multiplyScalar(scale).add(ground);
+    // Lift the rig points by climb altitude, then place in the world.
+    const liftFromGround = (p) => {
+      const v = new THREE.Vector3(p.x, p.y, p.z);
       v.addScaledVector(n, altU);
       return v;
     };
@@ -109,8 +101,8 @@ export default function EarthFlightController({
 
     return {
       rig,
-      camPos: toWorld(scaleFromGround(rig.camPos)),
-      look: toWorld(scaleFromGround(rig.lookTarget)),
+      camPos: toWorld(liftFromGround(rig.camPos)),
+      look: toWorld(liftFromGround(rig.lookTarget)),
       ground: toWorld(groundLifted),
       up: new THREE.Vector3(rig.normal.x, rig.normal.y, rig.normal.z).applyQuaternion(q),
     };
@@ -123,11 +115,8 @@ export default function EarthFlightController({
 
   // At street scale the default near plane (0.1) would clip the
   // ground at the traveler's feet; shrink it with altitude.
-  // CRITICAL: the distance passed in must be the SCALED (world-space)
-  // camera-to-ground distance. The unscaled rig distance at micro
-  // scale put the near plane ~5x beyond the actual ground, clipping
-  // the entire floor away in the Quantum Realm (sub-terrain
-  // bleed-through, Merlin 2026-10-20).
+  // CRITICAL: the distance passed in must be the world-space
+  // camera-to-ground distance.
   const tuneNear = (distToGround) => {
     const near = THREE.MathUtils.clamp(distToGround * 0.15, 1e-8, 0.06);
     if (Math.abs(camera.near - near) > 0.002) {
@@ -184,8 +173,13 @@ export default function EarthFlightController({
           beginRoam(roamState, focus.lat, focus.lon, roamState.yawDeg || 0);
         }
         loadHeightData();
-        // Shrink: character starts at normal size, shrinks into the tile
-        beginParachuteDive();
+        // Street dive (2026-10-26, quantum removed): a pure camera
+        // descent to the surface. The traveler lands at NORMAL size
+        // on the ground — no shrink, no second level. Spawning here
+        // used to start the parachute shrink, which emptied the
+        // world into a black void (the "quantum realm" in Merlin's
+        // footage); that call is gone, and the scale it drove is
+        // gone with it.
         streetDive.current = {
           t: 0,
           dur: 3.2,
@@ -196,8 +190,6 @@ export default function EarthFlightController({
       const dv = streetDive.current;
       dv.t += delta / dv.dur;
       const k = easeInOutCubic(Math.min(dv.t, 1));
-      // Step the parachute scale in lockstep with the camera dive
-      stepParachute(delta, dv.dur);
       const { rig, camPos, look, up } = streetRigWorld();
       camera.position.lerpVectors(dv.fromPos, camPos, k);
       camera.quaternion.slerpQuaternions(
@@ -207,7 +199,7 @@ export default function EarthFlightController({
         rig.camPos.x - rig.ground.x,
         rig.camPos.y - rig.ground.y,
         rig.camPos.z - rig.ground.z,
-      ) * parachuteState.scale);
+      ));
       camera.fov = THREE.MathUtils.lerp(camera.fov, 55, delta * 2);
       camera.updateProjectionMatrix();
       if (dv.t >= 1) {
@@ -216,11 +208,6 @@ export default function EarthFlightController({
       }
     } else if (launchState === 'earth_roam' && quatRef.current) {
       const c = controls.current;
-      // Reanimate: grow the character back to normal size (0.05 → 1),
-      // camera scaling up in lockstep via streetRigWorld.
-      if (parachuteState.mode === 'reanimating') {
-        stepParachute(delta, 2.5);
-      }
       // Climb: ladders and monument elevators (altitude in metres)
       stepClimb(delta);
       // Look: the page's right-side drag, in compass terms (drag
@@ -266,7 +253,7 @@ export default function EarthFlightController({
           rig.camPos.x - rig.ground.x,
           rig.camPos.y - rig.ground.y,
           rig.camPos.z - rig.ground.z,
-        ) * parachuteState.scale);
+        ));
         camera.fov = THREE.MathUtils.lerp(camera.fov, 55, delta * 2);
         camera.updateProjectionMatrix();
       }
@@ -333,7 +320,7 @@ export default function EarthFlightController({
       const dx = camPos.x - ex, dy = camPos.y - ey, dz = camPos.z - ez;
       const distFromCenter = Math.hypot(dx, dy, dz) || 1;
       // Minimum distance: the terrain surface UNDER THE CAMERA +
-      // 0.3m margin (scaled for Ant-Man). Round 3 (the black-band
+      // 0.3m margin. Round 3 (the black-band
       // shot): this clamp used to read the surface at the WALKER's
       // lat/lon — but the boom parks the lens metres behind him,
       // where a rising slope or a structure's side can stand higher
@@ -366,7 +353,7 @@ export default function EarthFlightController({
         );
       }
       const minDist = floorR
-        + 0.3 * DISPLAY_UNITS_PER_METRE * (parachuteState?.scale || 1);
+        + 0.3 * DISPLAY_UNITS_PER_METRE;
       if (distFromCenter < minDist) {
         const push = (minDist - distFromCenter) / distFromCenter;
         camPos.x += dx * push;

@@ -22,9 +22,8 @@ import { planetSeedFor } from '@/lib/planets/planet-seeds';
 import { generatePlanetProfile } from '@/lib/planets/profiles';
 import { getUserPosition, FALLBACK_POSITION } from '@/lib/geo';
 import { roamState, beginRoam, endRoam, landmarkSpawns } from '@/lib/earth/roam';
-import { beginParachuteDive, bikeState } from '@/lib/earth/parachute';
+import { bikeState } from '@/lib/earth/parachute';
 import WalkJoystick from '@/components/world/WalkJoystick';
-import { QUANTUM_ENABLED } from '@/lib/earth/quantum';
 import { fx, unlockFx } from '@/lib/fx';
 import { shadowRealmUrl } from '@/app/shadow-realm/launch';
 import { useTilt } from '@/lib/use-tilt';
@@ -145,8 +144,6 @@ function NexusHub() {
   const earthQuatRef = useRef(null);
   const [earthFocus, setEarthFocus] = useState(null);
   const [pendingDest, setPendingDest] = useState(null);
-  // Selected tile for the DROP button (tap a tile, then hit DROP to parachute)
-  const [selectedTile, setSelectedTile] = useState(null);
 
   const beginEarthDive = () => {
     if (appState !== 'hub_freeroam') return;
@@ -294,32 +291,12 @@ function NexusHub() {
     setAppState('diving_to_street');
   };
 
-  // Double-click parachute: user double-clicks a tile → parachute down
-  // to street level at that exact lat/lon. The character starts at
-  // orbital scale and shrinks during the descent (lib/earth/parachute).
-  // QUANTUM OFF (Merlin, 2026-10-22, "for now"): this function is the
-  // funnel for EVERY shrink entry — the EarthConsole 🔬 Quantum door
-  // (onDropToTile) and the globe's double-click / double-tap handlers
-  // (onParachute) both land here — so refusing here closes the realm
-  // completely while leaving normal street dives (beginStreetDive,
-  // which never parachutes) untouched. One line in lib/earth/
-  // quantum.js re-opens it.
-  const parachuteTo = ({ lat, lon }) => {
-    if (!QUANTUM_ENABLED) return;
-    const allowed = ['hub_intro', 'hub_freeroam', 'earth_surface', 'earth_roam'];
-    if (!allowed.includes(appState)) return;
-    fx.earthDive();
-    setEarthFocus({ lat, lon, label: 'Shrink into tile' });
-    setSelectedTile(null); // clear selection after dropping
-    beginRoam(roamState, lat, lon, roamState.yawDeg || 0);
-    beginParachuteDive(); // start the 1x → 0.05x shrink animation
-    setAppState('diving_to_street');
-  };
-
-  // Tile selection for the DROP button (tap a tile, then hit DROP)
-  const handleTileSelect = useCallback(({ lat, lon }) => {
-    setSelectedTile({ lat, lon });
-  }, []);
+  // REMOVED 2026-10-26 (Merlin: "Remove the quantum realm
+  // completely"): the double-click / double-tap tile shrink entry
+  // and the tile-selection DROP flow are gone with it. Street
+  // level is entered only via beginStreetDive, which lands the
+  // traveler at normal size on the surface — no shrink, no
+  // second level, no tile selection state.
   
   const pickSpawn = (dest) => {
     pendingRoamRef.current = true;
@@ -818,8 +795,6 @@ function NexusHub() {
           onAscend={() => setAppState('earth_surface')}
           onSpawnPick={pickSpawn}
           spawns={earthSpawns}
-          selectedTile={selectedTile}
-          onDropToTile={parachuteTo}
           controlsRef={controlsRef}
         />
       )}
@@ -914,8 +889,6 @@ function NexusHub() {
         onPlanetSelect={selectPlanet}
         planetSelectedId={planetSelected ? planetSelected.id : null}
         planetPosRef={planetPosRef}
-        onParachute={parachuteTo}
-        onTileSelect={appState === 'earth_surface' ? handleTileSelect : null}
         onBikeDismount={handleBikeDismount}
         onLaunchExternal={(url, id) => {
           adWindowRef.current = window.open('', '_blank');
