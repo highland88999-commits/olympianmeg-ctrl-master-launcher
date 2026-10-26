@@ -26,7 +26,10 @@
 //                    Portals 3D (the 3D portal hall), Night Grid,
 //                    Bike, Renewal (hub-only set), Muse, Phone,
 //                    Calls (Holographic Calls → /order-67), Radio,
-//                    Store, Alerts, Profile, Settings, Bug.
+//                    Store, Alerts, Profile, Settings, Bug, FINTRAC
+//                    (explanation modal — label reads FINTRAC on the
+//                    56px tile, full "FINTRAC explanation" title in
+//                    its tooltip, the Program menu, and the modal).
 //   Pins           — hold a tile 2s to pop it out onto the hub as its
 //                    own floating button; drop it on the Orb (or hold
 //                    it again and drop it home) to unpin. Pins are
@@ -56,6 +59,7 @@ import BackpackHud from './backpack/BackpackHud';
 import { useRadio } from './radio/RadioProvider';
 import { Play, Pause, SkipBack, SkipForward, Music2 } from 'lucide-react';
 import ConcourseSettings from './ConcourseSettings';
+import { fireFintracExplanation, FintracExplanationHost } from './FintracExplanation';
 import { CONCOURSE_BG_ART, resolveConcourseBg } from '@/lib/concourse-bg';
 import { resolveUiSettings, readUiSettingsCache, writeUiSettingsCache, UI_SETTINGS_EVENT } from '@/lib/ui-settings';
 import { isIconDrag, clampIconPx, iconFracToPx, iconPxToFrac, dragIconTopLeft, resolveIconPosition } from '@/lib/concourse-icon';
@@ -118,6 +122,7 @@ const TILES = [
   { id: 'profile', label: 'Profile', icon: '👤', art: '/concourse-icons/profile.webp' },
   { id: 'settings', label: 'Settings', icon: '⚙️' },
   { id: 'bug', label: 'Bug', icon: '🐛', art: '/concourse-icons/bug.webp' },
+  { id: 'fintrac', label: 'FINTRAC', title: 'FINTRAC explanation', icon: '⚠️', important: true },
 ];
 
 const clamp01 = (n) => Math.min(1, Math.max(0, n));
@@ -486,6 +491,7 @@ export default function Concourse() {
       else if (tile.id === 'settings') { setSettingsOpen(true); setOpen(false); return; }
       else if (tile.id === 'phone') { setPhoneOpen(true); setOpen(false); return; }
       else if (tile.id === 'portalroom') { setPortal3dOpen(true); setOpen(false); return; }
+      else if (tile.id === 'fintrac') { fireFintracExplanation(); setOpen(false); return; }
       else fireConcourseTile(tile.id);
       setOpen(false);
     },
@@ -794,8 +800,8 @@ export default function Concourse() {
       <button
         key={tile.id}
         type="button"
-        aria-label={`${tile.label}${pinned ? ' (pinned to hub)' : ''}`}
-        title={tile.label}
+        aria-label={`${tile.title || tile.label}${pinned ? ' (pinned to hub)' : ''}`}
+        title={tile.title || tile.label}
         onPointerDown={(e) => beginPress('tile', tile.id, e)}
         onClick={() => { if (!tapGuard()) fireTile(tile); }}
         className={`ui-element pointer-events-auto relative flex flex-col items-center justify-center gap-0.5 rounded-2xl border backdrop-blur-md transition-all active:scale-95 select-none touch-none ${pinned ? '' : 'w-full'} ${
@@ -819,6 +825,9 @@ export default function Concourse() {
         <span className="relative z-10 text-[8.5px] font-black tracking-[0.14em] uppercase text-zinc-200">{tile.label}</span>
         {tile.soon && (
           <span className="absolute -top-1.5 -right-1.5 rounded-full bg-amber-400 px-1.5 py-px text-[7.5px] font-black tracking-wider text-zinc-950">SOON</span>
+        )}
+        {tile.important && (
+          <span className="absolute -top-1.5 -right-1.5 rounded-full bg-red-500 px-1.5 py-px text-[7.5px] font-black tracking-wider text-white">IMPORTANT</span>
         )}
       </button>
     );
@@ -943,6 +952,12 @@ export default function Concourse() {
       {/* Layer 3 · Portals 3D — the 3D portal hall (minimized
           portals, expanded on tap) */}
       <ConcoursePortals open={portal3dOpen} onClose={() => setPortal3dOpen(false)} />
+
+      {/* Layer 3 · FINTRAC explanation — the host lives here so the
+          modal survives route changes for the whole app session
+          (one auto-show per load) and any menu entry can re-open
+          it via the event, from any page. */}
+      <FintracExplanationHost />
 
       {/* Layer 1 · Concourse Orb */}
       <button

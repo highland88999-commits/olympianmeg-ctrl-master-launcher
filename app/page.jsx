@@ -14,6 +14,7 @@ import SettingsGear from '@/components/SettingsGear';
 import { fetchRiderState, saveRiderState, DISMOUNT_EYE } from '@/lib/rider-state';
 import ProfileIcon from '@/components/ProfileIcon';
 import NotificationsWindow from '@/components/NotificationsWindow';
+import { FintracExplanationMenuButton } from '@/components/FintracExplanation';
 import EntranceSequence from '@/components/EntranceSequence';
 import { createEntranceMachine } from '@/lib/entrance-sequence';
 import EarthConsole from '@/components/EarthConsole';
@@ -697,6 +698,10 @@ function NexusHub() {
                         Personal AI &amp; Brain Sync
                       </span>
                     </button>
+                  </div>
+
+                  <div className="pt-2 shrink-0">
+                    <FintracExplanationMenuButton />
                   </div>
                 </div>
 

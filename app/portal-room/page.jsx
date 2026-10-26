@@ -26,6 +26,7 @@ import { SATELLITES } from '@/lib/i18n/satellites';
 import en from '@/lib/i18n/locales/en.json';
 import { buildPortalRoster } from '@/lib/portal-roster';
 import PortalRoomGate from '@/components/portal-room/PortalRoomGate';
+import { FintracExplanationMenuButton } from '@/components/FintracExplanation';
 
 export const metadata = {
   title: 'Portal Room — Olympus',
@@ -54,6 +55,13 @@ export default function PortalRoomPage() {
       <div className="relative">
         <div className="mx-auto w-full max-w-6xl px-4 pt-4">
           <BackButton />
+        </div>
+        {/* FINTRAC explanation entry (Merlin, 2026-10-26) — page
+            chrome ABOVE the roster, never a roster row: the roster
+            is derived from the satellite registry and must stay
+            program-only, or the room would drift from the menu. */}
+        <div className="mx-auto w-full max-w-6xl px-4 pt-4">
+          <FintracExplanationMenuButton />
         </div>
         {/* The gate appends the owner-only portals (Earth 2) when the
             signed-in session is the owner's; the base roster above is
