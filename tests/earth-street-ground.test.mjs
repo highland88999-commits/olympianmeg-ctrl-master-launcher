@@ -100,9 +100,9 @@ check('street patch: vertex count, drape, color range, index sanity', () => {
   assert.strictEqual(idx.length % 3, 0);
 });
 
-check('hypsometric ramp: ocean blue, highland white-ish', () => {
+check('hypsometric ramp: dry seabed tan, highland white-ish', () => {
   const [r1, g1, b1] = hypsometricColor(0.02, 0.5);
-  assert.ok(b1 > r1 && b1 > g1, `ocean ${[r1, g1, b1]} not blue`);
+  assert.ok(r1 > b1 && r1 > 0.4 && b1 < 0.35, `seabed ${[r1, g1, b1]} must be tan, not blue`);
   const [r2, g2, b2] = hypsometricColor(0.8, 0.5);
   assert.ok(r2 > 0.8 && g2 > 0.8 && b2 > 0.8, `snow ${[r2, g2, b2]} not white`);
   const [r3, g3, b3] = hypsometricColor(0.5, 0.95);

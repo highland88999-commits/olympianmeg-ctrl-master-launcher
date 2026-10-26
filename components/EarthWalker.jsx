@@ -3,11 +3,12 @@ import { useEffect, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { createWalkerEmbodiment } from '@/lib/gta/walker-embodiment';
+import { resolveSurfaceCharacter, EARTH_DEFAULT_CHARACTER_ID } from '@/lib/characters/embodiment';
 import { roamState, tangentFrame, headingVector } from '@/lib/earth/roam';
 import { surfaceRadiusOrBase, globeGridRadiusOrBase } from '@/lib/earth/heightmap';
 import { latLonToVec3 } from '@/lib/geo';
 import { DISPLAY_UNITS_PER_METRE } from '@/lib/earth/placements';
-import { parachuteState, bikeState, getClimbAltM } from '@/lib/earth/parachute';
+import { parachuteState, bikeState, carState, getClimbAltM } from '@/lib/earth/parachute';
 import { getInteriorAltM } from '@/lib/earth/interiors';
 import { effectiveEarthViewMode } from '@/lib/earth/view-mode';
 import { tameTripoMaterials } from '@/lib/characters/tame-materials';
@@ -24,18 +25,29 @@ import { tameTripoMaterials } from '@/lib/characters/tame-materials';
 // attaches the character GLB at the native figure's footprint,
 // and drives its walk/run/idle poses from the roam state.
 //
-// Fallback law, same as every walker surface: the native capsule
-// stands until the embodiment reports ready, and forever if there
-// is no pick or the load fails. The capsule is a hub-styled figure
-// at the same 2 display-metre stature.
+// Fallback law, EARTH ONLY (video QA V2-1, 2026-10-26): the
+// debug capsule NEVER renders on Earth. Other walker surfaces
+// keep their native-capsule law; Earth resolves the pick chain
+// and, when it yields nothing, spawns the Earth default
+// character (Neo — a humanoid, available, hosted in the same
+// fighter-models bucket as the proven Ghostface) instead of a
+// bare turquoise capsule. While a picked character streams in,
+// nothing shows briefly (the existing loading law) — never the
+// capsule. If the default itself never becomes ready, the walker
+// falls back once to Ghostface, which the QA footage proves
+// renders on a real phone; only if that too fails does the
+// walker stay invisible until the player picks a character —
+// still never a capsule.
 const UPM = DISPLAY_UNITS_PER_METRE;
 const PROC_SIZE = { x: 1 * UPM, y: 2 * UPM, z: 1 * UPM };
+const EARTH_FALLBACK_ID = 'q006-ghostface';
+const EARTH_FALLBACK_AFTER_S = 8;
 
 export default function EarthWalker() {
   const rigRef = useRef();
-  const capsuleRef = useRef();
   const lightRef = useRef();
   const embRef = useRef(null);
+  const fallbackRef = useRef({ t: 0, tried: false, lastId: null });
 
   useEffect(() => {
     const rig = rigRef.current;
@@ -44,6 +56,9 @@ export default function EarthWalker() {
       scene: rig,
       surface: 'earth',
       procSize: PROC_SIZE,
+      // Earth default: the pick chain first (surface override >
+      // profile character); only a null chain becomes Neo.
+      characterId: (resolveSurfaceCharacter('earth') || {}).id || EARTH_DEFAULT_CHARACTER_ID,
     });
     embRef.current = emb;
     return () => {
@@ -69,26 +84,17 @@ export default function EarthWalker() {
     // camera rig use, so all three agree (no more character standing
     // on the ground under a flying bike).
     const bikeAltU = bikeState.mounted ? bikeState.altM * parachuteState.scale * UPM : 0;
-    // Swim lift (lib/earth/swim.js): in water the body floats at
-    // the surface or hangs submerged above the seabed — the state
-    // machine publishes the lift in display metres and the rig
-    // rides it like the climb lift (the camera rig reads the same
-    // number, so lens and body agree). The bike keeps its own
-    // altitude story and never swims. A gentle bob while floating
-    // at the surface sells the water without touching the rig's
-    // pose (the pose driver has no swim gait — honest treading).
-    const swimming = !bikeState.mounted && !!(roamState.swim && roamState.swim.active);
-    let swimAltU = 0;
-    if (swimming) {
-      swimAltU = (roamState.swim.altM || 0) * UPM;
-      if ((roamState.swim.submergeM || 0) < 0.05) {
-        swimAltU += Math.sin(state.clock.elapsedTime * 2.2) * 0.06 * UPM;
-      }
-    }
+    // Supercar seat: while driving, the walker sits in the car
+    // (0.9 m seat height, scaled like the bike hover) instead of
+    // standing through its bodywork at ground level.
+    const carAltU = carState.mounted ? 0.9 * parachuteState.scale * UPM : 0;
+    // No water on Earth 1 (2026-10-26): no swim lift, no surface
+    // bob — the walker stands on the ground everywhere, seabed
+    // included, at normal walk pace.
     // Interior altitude (lib/earth/interiors.js): inside a
     // construct, the lift rides the walker between floors — same
-    // display-metre channel discipline as climb/bike/swim.
-    const altU = (getClimbAltM() + getInteriorAltM()) * UPM + bikeAltU + swimAltU;
+    // display-metre channel discipline as climb/bike.
+    const altU = (getClimbAltM() + getInteriorAltM()) * UPM + bikeAltU + carAltU;
     // Never sink under the DRAWN world (placements law, joined
     // 2026-10-21): ride the higher of the true sampled surface and
     // the coarse globe grid's drawn surface. On steep facets the
@@ -161,11 +167,26 @@ export default function EarthWalker() {
     if (emb && !emb.characterId() && roamState.charSizeM) {
       roamState.charSizeM = null; // back to the native figure
     }
-    // Only show the capsule when NO character is selected (not during loads).
-    // A selected-but-loading character shows nothing briefly — no flash.
-    const hasPick = !!(emb && emb.characterId());
-    if (capsuleRef.current) {
-      capsuleRef.current.visible = !showing && !hasPick && !firstPerson;
+    // Earth never shows the debug capsule (see header): a
+    // loading character shows nothing briefly, and a default
+    // that never becomes ready falls back once to Ghostface.
+    // First person is excluded — the body is hidden by design
+    // there, which is not a load failure.
+    if (emb) {
+      const cid = emb.characterId();
+      const fb = fallbackRef.current;
+      if (cid) {
+        if (fb.lastId !== cid) { fb.lastId = cid; fb.t = 0; fb.tried = false; }
+        if (!showing && !firstPerson && cid !== EARTH_FALLBACK_ID && !fb.tried) {
+          fb.t += Math.min(dt, 0.05);
+          if (fb.t > EARTH_FALLBACK_AFTER_S) {
+            fb.tried = true;
+            emb.setCharacter(EARTH_FALLBACK_ID);
+          }
+        } else if (showing) {
+          fb.t = 0;
+        }
+      }
     }
     // Fill lantern: intensity/distance are WORLD-space quantities
     // in three.js, so they scale with the Ant-Man shrink (the
@@ -191,17 +212,9 @@ export default function EarthWalker() {
           pitch black. Intensity + distance are compensated per
           frame for the Ant-Man scale (see useFrame). */}
       <pointLight ref={lightRef} position={[0, 0.05, -0.035]} intensity={0.0012} distance={0.35} color="#ffffff" />
-      {/* Native figure: a slim hub-cyan capsule, 2 display-metres. */}
-      <mesh ref={capsuleRef} position={[0, PROC_SIZE.y / 2, 0]}>
-        <capsuleGeometry args={[0.5 * UPM, 1.0 * UPM, 4, 12]} />
-        <meshStandardMaterial
-          color="#164e63"
-          emissive="#22d3ee"
-          emissiveIntensity={0.55}
-          roughness={0.4}
-          metalness={0.1}
-        />
-      </mesh>
+      {/* No capsule mesh on Earth, ever (video QA V2-1): the
+          walker is always a real character (pick, profile, or
+          the Earth default), or nothing while one loads. */}
     </group>
   );
 }

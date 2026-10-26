@@ -3,22 +3,23 @@
 // parachute into the Arctic tile at 84.82°N 118.47°W, swim,
 // Quantum Realm, grow back, dive, return to orbit).
 //
-//   A. Swim × parachute: the Quantum dive SUSPENDS the swim
-//      state (cleared, inputs inert), growing back restores a
-//      sane surface swim (defect 2).
+//   A. Dry Earth × parachute: no swim state exists at any scale
+//      (water removed 2026-10-26) — the Quantum dive/shrink
+//      neither suspends nor restores anything.
 //   B. Camera clamps read the DRAWN surface: the higher of the
 //      true sampled surface and the coarse globe-grid surface
 //      (defect 5).
-//   C. Polar color law: ice is a LAND color in the hypsometric
-//      ramp — open polar ocean stays clear bright blue; the
-//      globe shader carries the same gate plus an ambient floor
-//      under the night side (defect 4).
+//   C. Polar color law: with no water left, ice sits at polar
+//      latitudes outright (no land gate); the former polar ocean
+//      floor is dry seabed tan; the globe shader carries the
+//      same outright ice plus an ambient floor under the night
+//      side (defect 4, re-lawed 2026-10-26).
 //   D. The Quantum Realm seal (defect 1), the swim-controls
-//      stand-down (defect 2 UI), the atmosphere shell gate
+//      removal (defect 2 UI, water gone), the atmosphere shell gate
 //      (defect 5), the micro disc texture work (defect 3), and
 //      the console ghost fix (defect 6) — source contracts.
-//   E. The underwater veil answers to the swimmer, not only the
-//      camera (defect 7): veilOpacityFor's decision table.
+//   E. The underwater veil is gone: veilOpacityFor always reads
+//      0 on dry Earth (defect 7 retired 2026-10-26).
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
 
@@ -45,31 +46,36 @@ function check(name, fn) {
 const near = (a, b, eps = 1e-6) => Math.abs(a - b) <= eps;
 const UPM = placements.DISPLAY_UNITS_PER_METRE;
 
-// Open ocean everywhere: height 0 reads 7.65 m deep — the same
-// depth as Merlin's Arctic landing spot (7.6 m in his footage).
+// Former-ocean fixture: height 0 sat 7.65 m deep in Merlin's
+// Arctic footage — since the 2026-10-26 water removal it reads
+// as dry walkable seabed, depth always 0.
 const oceanHD = { data: new Uint8Array(64 * 32).fill(0), w: 64, h: 32 };
 
-// ------------------------------------------------------------ A. swim × parachute
-check('A: water depth at the all-zero heightmap matches the footage (7.6 m)', () => {
-  const d = swim.waterDepthM(oceanHD.data, 64, 32, 84.82, -118.47);
-  assert.ok(near(d, 7.65, 0.05), `depth ${d}`);
+// ------------------------------------------------------------ A. dry Earth × parachute (water removed 2026-10-26)
+//
+// No swim state exists at any scale: the Quantum dive/shrink
+// no longer suspends or restores anything, because there is no
+// water to swim in. The former Arctic ocean is dry walkable
+// seabed, and stepRoam walks it at full pace.
+check('A: water depth at the all-zero heightmap is 0 — the former Arctic ocean reads dry', () => {
+  assert.equal(swim.waterDepthM(oceanHD.data, 64, 32, 84.82, -118.47), 0);
+  assert.equal(swim.swimAltMFor(), 0);
+  assert.equal(swim.maxSubmergeM(), 0);
 });
 
-check('A: suspension clears the swim state but keeps the true depth', () => {
+check('A: stepSwim never activates, suspended or not', () => {
   const s = roam.createRoamState();
   roam.beginRoam(s, 84.82, -118.47, 90);
   for (let i = 0; i < 120; i++) swim.stepSwim(s, { dive: true }, 1 / 60, oceanHD.data, 64, 32);
-  assert.ok(s.swim.active && s.swim.submergeM > 2.5, `dived to ${s.swim.submergeM}`);
+  assert.equal(s.swim.active, false);
+  assert.equal(s.swim.submergeM, 0);
+  assert.equal(s.swim.altM, 0);
+  assert.equal(s.swim.depthM, 0);
+  // the old suspension option is ignored, never re-armed
   swim.stepSwim(s, {}, 1 / 60, oceanHD.data, 64, 32, { suspended: true });
   assert.equal(s.swim.active, false);
   assert.equal(s.swim.submergeM, 0);
   assert.equal(s.swim.altM, 0);
-  assert.ok(near(s.swim.depthM, 7.65, 0.05), `depth still tracked: ${s.swim.depthM}`);
-});
-
-check('A: dive/surface inputs are inert while suspended', () => {
-  const s = roam.createRoamState();
-  roam.beginRoam(s, 84.82, -118.47, 90);
   for (let i = 0; i < 120; i++) {
     swim.stepSwim(s, { dive: true }, 1 / 60, oceanHD.data, 64, 32, { suspended: true });
   }
@@ -78,18 +84,7 @@ check('A: dive/surface inputs are inert while suspended', () => {
   assert.equal(s.swim.altM, 0);
 });
 
-check('A: growing back restores a surface swim (dive reset, still in water)', () => {
-  const s = roam.createRoamState();
-  roam.beginRoam(s, 84.82, -118.47, 90);
-  for (let i = 0; i < 120; i++) swim.stepSwim(s, { dive: true }, 1 / 60, oceanHD.data, 64, 32);
-  swim.stepSwim(s, {}, 1 / 60, oceanHD.data, 64, 32, { suspended: true });
-  swim.stepSwim(s, {}, 1 / 60, oceanHD.data, 64, 32); // first normal frame back
-  assert.equal(s.swim.active, true);
-  assert.equal(s.swim.submergeM, 0);
-  assert.ok(s.swim.altM > 0, 'floating at the surface again');
-});
-
-check('A: stepRoam suspends the swim below Ant-Man scale and restores it on grow-back', () => {
+check('A: stepRoam at any scale carries no swim state — shrink/grow-back changes nothing', () => {
   const opts = { heightData: oceanHD, radius: EARTH_RADIUS };
   const s = roam.createRoamState();
   try {
@@ -97,15 +92,13 @@ check('A: stepRoam suspends the swim below Ant-Man scale and restores it on grow
     roam.beginRoam(s, 84.82, -118.47, 90);
     roam.stepRoam(s, { forward: 0, strafe: 0, dive: true }, 1 / 60, opts);
     roam.stepRoam(s, { forward: 0, strafe: 0, dive: true }, 1 / 60, opts);
-    assert.equal(s.swim.active, true, 'swimming at normal scale');
+    assert.equal(s.swim, undefined, 'no swim state at normal scale');
     parachute.parachuteState.scale = 0.00001; // shrunk into the tile
     for (let i = 0; i < 30; i++) roam.stepRoam(s, { forward: 0, strafe: 0, dive: true }, 1 / 60, opts);
-    assert.equal(s.swim.active, false, 'no swimming in the Quantum Realm');
-    assert.equal(s.swim.submergeM, 0);
+    assert.equal(s.swim, undefined, 'no swim state in the Quantum Realm either');
     parachute.parachuteState.scale = 1; // REANIMATE
     roam.stepRoam(s, { forward: 0, strafe: 0 }, 1 / 60, opts);
-    assert.equal(s.swim.active, true, 'surface swim restored on grow-back');
-    assert.equal(s.swim.submergeM, 0);
+    assert.equal(s.swim, undefined, 'grow-back restores no swim state');
   } finally {
     parachute.parachuteState.scale = 1;
   }
@@ -160,11 +153,12 @@ check('B: cameraRig lifts the lens over the DRAWN surface, not just the true one
 });
 
 // ------------------------------------------------------------ C. polar color law
-check('C: open polar ocean is bright blue, NOT ice white (hypsometric ramp)', () => {
+check('C: former polar ocean floor is dry seabed tan, and polar ice sits outright', () => {
   const vPolar = (84.82 + 90) / 180;
-  const c = streetPatch.hypsometricColor(0, vPolar); // h = 0: deep open water
-  assert.ok(c[0] < 0.05 && c[2] > 0.15, `ocean color [${c}] must be blue, not ice`);
-  assert.ok(c[2] > c[0] * 3, 'blue channel dominates');
+  const c = streetPatch.hypsometricColor(0, vPolar); // h = 0 at polar lat: ice outright
+  assert.ok(near(c[0], 0.93, 1e-9) && near(c[2], 0.98, 1e-9), `polar ice color [${c}]`);
+  const e = streetPatch.hypsometricColor(0, 0.5); // h = 0 at the equator: dry seabed
+  assert.ok(e[0] > e[2] && e[0] > 0.4 && e[2] < 0.35, `seabed color [${e}] must be tan, not blue`);
 });
 
 check('C: polar LAND still wears its ice cap', () => {
@@ -173,9 +167,11 @@ check('C: polar LAND still wears its ice cap', () => {
   assert.ok(near(c[0], 0.93, 1e-9) && near(c[2], 0.98, 1e-9), `ice color [${c}]`);
 });
 
-check('C: the globe shader carries the same land-gated ice and a night ambient floor', () => {
+check('C: the globe shader carries outright polar ice (no land gate) and a night ambient floor', () => {
   const src = readFileSync(new URL('../components/ProceduralEarthGlobe.jsx', import.meta.url), 'utf8');
-  assert.match(src, /float ice = smoothstep\(0\.80, 0\.88, lat\) \* landAmt;/);
+  assert.match(src, /float ice = smoothstep\(0\.80, 0\.88, lat\);/);
+  assert.ok(!src.match(/ice = smoothstep\(0\.80, 0\.88, lat\) \* landAmt/),
+    'the old land-gated ice must be gone');
   assert.match(src, /col \+= dayColor \* 0\.14 \* \(1\.0 - dayMix\);/);
 });
 
@@ -208,9 +204,10 @@ check('D1: at deep micro the globe itself stands down inside NexusEarth', () => 
   assert.match(nexusSrc, /effectiveLayer === 'terrain' && !deepMicro && <ProceduralEarthGlobe/);
 });
 
-check('D2: SwimControls stand down at micro in BOTH console branches', () => {
-  const gates = consoleSrc.match(/swimUi\.active && !sizeUi\.micro/g) || [];
-  assert.equal(gates.length, 2);
+check('D2: SwimControls are gone from BOTH console branches (water removed)', () => {
+  assert.ok(!consoleSrc.includes('<SwimControls'), 'no SwimControls mount remains');
+  assert.ok(!consoleSrc.includes('swimUi'), 'no swim UI state remains');
+  assert.match(consoleSrc, /SwimControls REMOVED 2026-10-26/);
 });
 
 check('D5: the atmosphere shell is camera-distance gated (no white transit)', () => {
@@ -236,17 +233,14 @@ check('D6: the console card centers by flex, carries its own layer, no translate
   assert.match(consoleSrc, /\[transform:translateZ\(0\)\]/);
 });
 
-// ------------------------------------------------------------ E. veil decision table
-check('E: veilOpacityFor — air reads air, water reads water at any camera seat', () => {
+// ------------------------------------------------------------ E. veil is gone (water removed 2026-10-26)
+check('E: veilOpacityFor always reads 0 on dry Earth — no veil at any camera seat or depth', () => {
   assert.equal(swim.veilOpacityFor({ camUnder: false, submergeM: 0 }), 0);
-  assert.ok(near(swim.veilOpacityFor({ camUnder: true, submergeM: 0 }), 0.3, 1e-9));
-  // Merlin's footage case: swimmer 6.4 m down, lens lifted out.
-  assert.ok(near(swim.veilOpacityFor({ camUnder: false, submergeM: 6.4 }), 0.52, 1e-9));
-  assert.ok(near(swim.veilOpacityFor({ camUnder: true, submergeM: 6.4 }), 0.52, 1e-9));
-  // Deepening is monotonic and caps.
-  const a = swim.veilOpacityFor({ camUnder: false, submergeM: 1 });
-  const b = swim.veilOpacityFor({ camUnder: false, submergeM: 3 });
-  assert.ok(b > a && b <= 0.52);
+  assert.equal(swim.veilOpacityFor({ camUnder: true, submergeM: 0 }), 0);
+  // Merlin's old footage case: a swimmer 6.4 m down, lens lifted out.
+  assert.equal(swim.veilOpacityFor({ camUnder: false, submergeM: 6.4 }), 0);
+  assert.equal(swim.veilOpacityFor({ camUnder: true, submergeM: 6.4 }), 0);
+  assert.equal(swim.veilOpacityFor(), 0);
 });
 
 console.log(`earth-round4: ${passed} checks passed`);

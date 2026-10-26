@@ -12,9 +12,9 @@
 //      frustum at rest, and the camera-local ground clamp keeps
 //      the lens above the terrain at ITS OWN lat/lon (the
 //      black-band fix).
-//   D. Swimming: the swim state machine (enter at wading depth,
-//      dive floor at the seabed, resurface, exit on rising
-//      ground), swim pace in stepRoam, the rig's swim lift.
+//   D. Dry Earth (water removed 2026-10-26): the swim stub
+//      always reports dry land — no swim, dive, lift, or pace
+//      penalty anywhere, seabed included.
 //   E. Street patch grid clearance: every patch vertex rides at
 //      or above the globe-grid surface (no facet can slice the
 //      foreground into flat green again).
@@ -89,8 +89,9 @@ check('geo: vec3ToLatLon inverts latLonToVec3 (Merlin’s spot)', () => {
 });
 
 // ------------------------------------------------------------ synthetic worlds
-// Ocean world: every sample 0 -> depth (TERRAIN_RADIUS - r)/UPM,
-// r = 55 + (0 - 12/255)*2.6 -> depth ~7.65 m everywhere.
+// Former-ocean world: every sample 0 -> below the old sea level
+// (r = 55 + (0 - 12/255)*2.6); since the 2026-10-26 water removal
+// this reads as dry walkable seabed, depth always 0.
 const oceanHD = { data: new Uint8Array(64 * 32).fill(0), w: 64, h: 32 };
 // Land world: every sample 200 -> well above sea level.
 const landHD = { data: new Uint8Array(64 * 32).fill(200), w: 64, h: 32 };
@@ -103,127 +104,70 @@ for (let y = 0; y < 4; y++) {
 }
 const shoreHD = { data: shoreData, w: 720, h: 4 };
 
-// ------------------------------------------------------------ D. swim machine
-check('D: water depth reads the heightmap against sea level', () => {
-  const dOcean = swim.waterDepthM(oceanHD.data, 64, 32, 53.63, -113.41);
-  assert.ok(dOcean > 7 && dOcean < 8.5, `ocean depth ${dOcean}`);
-  assert.ok(swim.waterDepthM(landHD.data, 64, 32, 53.63, -113.41) < 0);
+
+
+// ------------------------------------------------------------ D. dry Earth (water removed 2026-10-26)
+//
+// Earth 1 has no water: the swim state machine is gone, replaced
+// by an inert stub (lib/earth/swim.js) that always reports dry
+// land. The former ocean is ordinary walkable terrain — the
+// walker stands on the heightmap surface everywhere, at full
+// walk pace, with no lift off the ground.
+check('D: water depth is always 0 — the former ocean reads dry', () => {
+  assert.equal(swim.waterDepthM(oceanHD.data, 64, 32, 53.63, -113.41), 0);
+  assert.equal(swim.waterDepthM(landHD.data, 64, 32, 53.63, -113.41), 0);
   assert.equal(swim.waterDepthM(null, 0, 0, 0, 0), 0);
+  assert.equal(swim.swimAltMFor(), 0);
+  assert.equal(swim.maxSubmergeM(), 0);
+  assert.equal(swim.veilOpacityFor(), 0);
 });
 
-check('D: wading in past the threshold starts the swim, floating at the surface', () => {
+check('D: stepSwim clears to dry and never activates, even on the former ocean', () => {
   const s = roam.createRoamState();
-  roam.beginRoam(s, 10, -90, 0); // mid-ocean in the shore world? no: ocean world below
+  roam.beginRoam(s, 10, -90, 0);
   swim.stepSwim(s, {}, 1 / 60, oceanHD.data, 64, 32);
-  assert.equal(s.swim.active, true);
-  assert.ok(near(s.swim.submergeM, 0));
-  // floating: feet FLOAT_DRAFT_M under the waterline
-  assert.ok(near(s.swim.altM, s.swim.depthM - swim.FLOAT_DRAFT_M, 1e-9));
-});
-
-check('D: on dry land the swim never starts', () => {
-  const s = roam.createRoamState();
-  roam.beginRoam(s, 10, 90, 0);
-  swim.stepSwim(s, {}, 1 / 60, landHD.data, 64, 32);
   assert.equal(s.swim.active, false);
-  assert.equal(s.swim.altM, 0);
-});
-
-check('D: DIVE sinks to the seabed floor and no deeper (land layer is the cutoff)', () => {
-  const s = roam.createRoamState();
-  roam.beginRoam(s, 10, -90, 0);
-  for (let i = 0; i < 60 * 20; i++) swim.stepSwim(s, { dive: true }, 1 / 60, oceanHD.data, 64, 32);
-  assert.equal(s.swim.active, true);
-  assert.ok(near(s.swim.submergeM, swim.maxSubmergeM(s.swim.depthM), 1e-9));
-  // feet rest SEABED_CLEARANCE_M above the seabed
-  assert.ok(near(s.swim.altM, swim.SEABED_CLEARANCE_M, 1e-9), `altM ${s.swim.altM}`);
-});
-
-check('D: SURFACE rises back to a float; releasing mid-water holds depth', () => {
-  const s = roam.createRoamState();
-  roam.beginRoam(s, 10, -90, 0);
-  for (let i = 0; i < 60 * 3; i++) swim.stepSwim(s, { dive: true }, 1 / 60, oceanHD.data, 64, 32);
-  const dived = s.swim.submergeM;
-  assert.ok(dived > 2, `dived ${dived}`);
-  for (let i = 0; i < 60 * 10; i++) swim.stepSwim(s, { surface: true }, 1 / 60, oceanHD.data, 64, 32);
-  assert.ok(near(s.swim.submergeM, 0));
-  assert.ok(near(s.swim.altM, s.swim.depthM - swim.FLOAT_DRAFT_M, 1e-9));
-  const held = s.swim.altM;
-  for (let i = 0; i < 60; i++) swim.stepSwim(s, {}, 1 / 60, oceanHD.data, 64, 32);
-  assert.ok(near(s.swim.altM, held, 1e-9), 'no input = hold depth');
-});
-
-check('D: walking onto rising ground exits swim mode by itself', () => {
-  const s = roam.createRoamState();
-  roam.beginRoam(s, 0, -90, 0); // ocean side of the shore world
-  swim.stepSwim(s, {}, 1 / 60, shoreHD.data, 720, 4);
-  assert.equal(s.swim.active, true);
-  s.lon = 90; // the beach rose under him
-  swim.stepSwim(s, {}, 1 / 60, shoreHD.data, 720, 4);
-  assert.equal(s.swim.active, false);
-  assert.equal(s.swim.altM, 0);
   assert.equal(s.swim.submergeM, 0);
+  assert.equal(s.swim.altM, 0);
+  assert.equal(s.swim.depthM, 0);
+  // dive/surface inputs are ignored, never re-armed
+  for (let i = 0; i < 60; i++) swim.stepSwim(s, { dive: true }, 1 / 60, oceanHD.data, 64, 32);
+  assert.equal(s.swim.active, false);
+  assert.equal(s.swim.altM, 0);
+  for (let i = 0; i < 60; i++) swim.stepSwim(s, { surface: true }, 1 / 60, oceanHD.data, 64, 32);
+  assert.equal(s.swim.active, false);
 });
 
-check('D: hysteresis — the shallows between exit and enter depths keep the mode', () => {
-  // Near sea level one Uint8 sample step is ~0.64 m of depth, so a
-  // uniform world cannot express a 0.8 m depth — blend two samples
-  // bilinearly instead: columns 0..31 read 10 (depth ~1.27 m),
-  // columns 32..63 read 11 (depth ~0.64 m); a walker standing at
-  // x = 31.75 samples 10.75 -> ~0.80 m, inside the hysteresis band
-  // (WADE_EXIT_M 0.7 .. WADE_ENTER_M 0.9).
-  const W = 64; const H = 32;
-  const data = new Uint8Array(W * H);
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) data[y * W + x] = x < 32 ? 10 : 11;
-  }
-  const lonAtX = (x) => (x / (W - 1)) * 360 - 180;
-  const bandLon = lonAtX(31.75);
-  const depth = swim.waterDepthM(data, W, H, 10, bandLon);
-  assert.ok(depth > swim.WADE_EXIT_M && depth < swim.WADE_ENTER_M, `band depth ${depth}`);
-  // an active swimmer KEEPS swimming in the band
+check('D: a fresh roam state carries no swim sub-state', () => {
   const s = roam.createRoamState();
-  roam.beginRoam(s, 10, -90, 0);
-  swim.stepSwim(s, {}, 1 / 60, oceanHD.data, 64, 32);
-  assert.equal(s.swim.active, true);
-  s.lon = bandLon;
-  swim.stepSwim(s, {}, 1 / 60, data, W, H);
-  assert.equal(s.swim.active, true, 'still swimming in the band');
-  // a dry walker does NOT start in the band
-  const s2 = roam.createRoamState();
-  roam.beginRoam(s2, 10, bandLon, 0);
-  swim.stepSwim(s2, {}, 1 / 60, data, W, H);
-  assert.equal(s2.swim.active, false, 'not yet swimming in the band');
+  assert.equal(s.swim, undefined);
 });
 
-check('D: stepRoam swims at swim pace and freezes the state when told (bike)', () => {
+check('D: stepRoam walks the former seabed at full pace — no swim penalty', () => {
   const mk = () => { const s = roam.createRoamState(); roam.beginRoam(s, 10, -90, 0); return s; };
   const dry = mk();
   const wet = mk();
-  const hdOpt = { heightData: { data: oceanHD.data, w: 64, h: 32 }, radius: EARTH_RADIUS };
-  // one second of full-forward in both worlds (dry uses land map)
   roam.stepRoam(dry, { forward: 1, strafe: 0 }, 1, { heightData: { data: landHD.data, w: 64, h: 32 }, radius: EARTH_RADIUS });
-  roam.stepRoam(wet, { forward: 1, strafe: 0 }, 1, hdOpt);
+  roam.stepRoam(wet, { forward: 1, strafe: 0 }, 1, { heightData: { data: oceanHD.data, w: 64, h: 32 }, radius: EARTH_RADIUS });
   const dDry = Math.abs(dry.lat - 10);
   const dWet = Math.abs(wet.lat - 10);
   assert.ok(dWet > 0 && dDry > 0);
-  assert.ok(near(dWet / dDry, swim.SWIM_SPEED_FACTOR, 0.02), `pace ratio ${dWet / dDry}`);
-  assert.equal(wet.swim.active, true);
-  // frozen (bike mounted): the swim state is left alone
-  const frozen = mk();
-  roam.stepRoam(frozen, { forward: 1, strafe: 0, dive: true }, 1, { ...hdOpt, swimFrozen: true });
-  assert.equal(frozen.swim.active, false);
+  assert.ok(near(dWet / dDry, 1, 0.02), `pace ratio ${dWet / dDry} (was ${swim.SWIM_SPEED_FACTOR} when water existed)`);
+  // dive input is ignored: same distance with dive held
+  const diver = mk();
+  roam.stepRoam(diver, { forward: 1, strafe: 0, dive: true }, 1, { heightData: { data: oceanHD.data, w: 64, h: 32 }, radius: EARTH_RADIUS });
+  assert.ok(near(Math.abs(diver.lat - 10), dWet, 1e-9));
 });
 
-check('D: cameraRig rides the swim lift — avatar and head float together', () => {
+check('D: cameraRig stands the avatar on the ground — swimAltM accepted and ignored', () => {
   const s = roam.createRoamState();
   roam.beginRoam(s, 10, -90, 0);
-  const dry = roam.cameraRig(s, oceanHD.data, 64, 32, {});
-  const wet = roam.cameraRig(s, oceanHD.data, 64, 32, { swimAltM: 5 });
-  const liftDry = Math.hypot(dry.avatarPos.x - dry.ground.x, dry.avatarPos.y - dry.ground.y, dry.avatarPos.z - dry.ground.z);
-  const liftWet = Math.hypot(wet.avatarPos.x - wet.ground.x, wet.avatarPos.y - wet.ground.y, wet.avatarPos.z - wet.ground.z);
-  assert.ok(near(liftDry, 0));
-  assert.ok(near(liftWet, 5 * UPM, 1e-9), `swim lift ${liftWet / UPM} m`);
+  const plain = roam.cameraRig(s, oceanHD.data, 64, 32, {});
+  const lifted = roam.cameraRig(s, oceanHD.data, 64, 32, { swimAltM: 5 });
+  for (const rig of [plain, lifted]) {
+    const lift = Math.hypot(rig.avatarPos.x - rig.ground.x, rig.avatarPos.y - rig.ground.y, rig.avatarPos.z - rig.ground.z);
+    assert.ok(near(lift, 0), `avatar lift ${lift / UPM} m`);
+  }
 });
 
 // ------------------------------------------------------------ C. framing + clamps

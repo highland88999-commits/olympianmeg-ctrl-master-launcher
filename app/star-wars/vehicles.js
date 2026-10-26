@@ -37,6 +37,19 @@ export const VEHICLE_TYPES = {
     rest: 0.12,        // parked settle height above the terrain
     prompt: 'Tap to ride',
   },
+  /* The Tatooine rover: a six-wheeled ground rig, not a hovercraft —
+   * slower than the speeder, steadier, and it goes anywhere. Its
+   * hover is a small wheel clearance, not repulsor float. */
+  rover: {
+    hover: 0.25,       // metres above the terrain while driven
+    cruise: 15,        // m/s at full throttle
+    accel: 8,          // m/s^2 toward the throttle target
+    brake: 18,         // m/s^2 when braking / reversing
+    turnRate: 1.5,     // rad/s at full steering authority
+    radius: 3.2,       // body radius for its own collision push-out
+    rest: 0.15,        // parked settle height above the terrain
+    prompt: 'Tap to ride',
+  },
   /* The grid pods: the podrace fantasy — faster, twitchier. */
   podracer: {
     hover: 0.55,

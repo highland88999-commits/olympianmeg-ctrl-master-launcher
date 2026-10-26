@@ -40,25 +40,23 @@ const FRAGMENT_SHADER = /* glsl */ `
   varying vec3 vNormalWorld;
 
   // Hypsometric tint: real terrain colors by elevation.
+  // No water on Earth 1 (2026-10-26): the former ocean floor is
+  // dry seabed — dusty basin tones rising to shelf sand, then
+  // blending into the ordinary lowland ramp. Nothing renders blue.
   vec3 hypsometric(float h) {
-    // ocean: abyss -> continental shelf (clear blue, not murky)
-    vec3 ocean = mix(vec3(0.02, 0.15, 0.45), vec3(0.10, 0.45, 0.75), smoothstep(0.0, 0.047, h));
+    // seabed: deep basin -> shelf sand (dry, walkable terrain)
+    vec3 seabed = mix(vec3(0.42, 0.36, 0.26), vec3(0.55, 0.48, 0.33), smoothstep(0.0, 0.047, h));
     // land: lowland -> highland -> rock -> snow
     vec3 land = vec3(0.16, 0.35, 0.13);
     land = mix(land, vec3(0.45, 0.33, 0.20), smoothstep(0.09, 0.24, h));
     land = mix(land, vec3(0.48, 0.45, 0.42), smoothstep(0.24, 0.45, h));
     land = mix(land, vec3(0.93, 0.95, 0.98), smoothstep(0.55, 0.72, h));
     float landAmt = smoothstep(0.043, 0.051, h);
-    vec3 t = mix(ocean, land, landAmt);
-    // Polar ice caps — a LAND color (round 4): the latitude term
-    // used to whiten EVERYTHING past ~72 degrees, open Arctic
-    // ocean included, so the polar sea rendered as one flat white
-    // slab plain and polar relief read as giant naked facets.
-    // Ice now sits on land and shelves only; open polar water
-    // stays clear bright blue (Merlin's ocean law). Mirrored in
-    // hypsometricColor (lib/earth/street-patch.js) — keep in sync.
+    vec3 t = mix(seabed, land, landAmt);
+    // Polar ice caps: with no water left, the polar basins are dry
+    // land, so ice sits at polar latitudes outright (no land gate).
     float lat = abs(vUv.y * 2.0 - 1.0);
-    float ice = smoothstep(0.80, 0.88, lat) * landAmt;
+    float ice = smoothstep(0.80, 0.88, lat);
     return mix(t, vec3(0.93, 0.95, 0.98), ice);
   }
 
@@ -75,9 +73,9 @@ const FRAGMENT_SHADER = /* glsl */ `
     vec3 col = mix(nightColor * 1.1, dayColor, dayMix);
     // Gentle terminator shading only — the texture is never washed out.
     col *= mix(0.72, 1.0, dayMix);
-    // Ambient floor (round 4): over ocean the night texture is
-    // ~black, so any facet turned from the sun went PURE black —
-    // the black slabs floating on polar water and the black
+    // Ambient floor (round 4): over former ocean beds the night
+    // texture is ~black, so any facet turned from the sun went PURE black —
+    // the black slabs over former polar basins and the black
     // polygons seen from the overlook. Unlit terrain now keeps a
     // floor of its own day identity: shadow sides read deep
     // blue-grey, never naked black. Night stays night (the floor

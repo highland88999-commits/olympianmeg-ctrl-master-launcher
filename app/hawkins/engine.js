@@ -307,17 +307,36 @@ export function createEngine(canvas, hooks) {
         (Math.random() - 0.5) * 0.5);
       slab.rotation.z = (Math.random() - 0.5) * 0.25;
     }
-    // streetlights
+    // streetlights — a MIX, Hawkins-style: moody, uneven, lived-in.
+    // Deterministic by index, so the same lamps misbehave every load:
+    // 24 steady, 16 flickering (8 buzzing, 8 cutting out) of 40 total.
+    // Each lamp gets a visible fixture head and a halo sprite, so the
+    // light has a source you can see — and a pole collider, so the
+    // poles are solid like the rest of the town.
     E.lamps = [];
+    let lampIdx = 0;
     for (let z = 600; z > -4400; z -= 260) {
       for (const sx of [-42, 42]) {
         const pole = new THREE.Mesh(new THREE.CylinderGeometry(1, 1.4, 55, 6),
           new THREE.MeshStandardMaterial({ color: 0x0a0a0a }));
         pole.position.set(sx, 27, z); E.scene.add(pole);
-        const lamp = new THREE.PointLight(0xff2222, 1.2, 190);
+        const head = new THREE.Mesh(new THREE.BoxGeometry(4, 1.5, 2.5),
+          new THREE.MeshStandardMaterial({ color: 0x1a1a1a }));
+        head.position.set(sx, 54.8, z); E.scene.add(head);
+        const kind = (lampIdx * 7) % 5 < 2
+          ? (lampIdx % 2 === 0 ? 'buzz' : 'dropout')
+          : 'steady';
+        const lampColor = kind === 'steady' ? 0xff5533 : 0xff2222;
+        const lamp = new THREE.PointLight(lampColor, kind === 'steady' ? 1.1 : 1.2, 190);
         lamp.position.set(sx, 54, z); E.scene.add(lamp);
-        lamp.userData.flick = Math.random() * 10;
+        const glow = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: GLOW_TEX(), color: lampColor, transparent: true, opacity: 0.35,
+          blending: THREE.AdditiveBlending, depthWrite: false }));
+        glow.scale.set(26, 26, 1); glow.position.set(sx, 54, z); E.scene.add(glow);
+        lamp.userData = { kind, base: lamp.intensity, phase: Math.random() * 10, glow };
         E.lamps.push(lamp);
+        E.colliders.push({ x: sx, z, r: 3 });
+        lampIdx++;
       }
     }
     // Creel house — Vecna's concealed lair
@@ -1531,8 +1550,22 @@ export function createEngine(canvas, hooks) {
       E.spores.geometry.attributes.position.needsUpdate = true;
       if (Math.random() > (E.vecnaRevealed ? 0.955 : 0.968)) E.triggerLightning();
       for (const l of E.lamps) {
-        l.userData.flick += dt;
-        l.intensity = (Math.random() > 0.985 ? 7 : 1.1) + Math.sin(t * 9 + l.userData.flick) * 0.4;
+        // Steady lamps just breathe; flickering lamps misbehave in
+        // their own way — buzzers shiver fast, dropouts cut to near
+        // dark at random. The halo follows the light, so a dead lamp
+        // looks dead instead of glowing anyway.
+        const u = l.userData;
+        if (u.kind === 'steady') {
+          l.intensity = u.base + Math.sin(t * 1.3 + u.phase) * 0.05;
+        } else if (u.kind === 'buzz') {
+          l.intensity = Math.max(0.05,
+            u.base * (0.75 + Math.sin(t * 23 + u.phase) * 0.25) + (Math.random() > 0.97 ? -0.8 : 0));
+        } else { // dropout
+          l.intensity = Math.random() > 0.985
+            ? 0.05
+            : u.base + Math.sin(t * 9 + u.phase) * 0.3;
+        }
+        if (u.glow) u.glow.material.opacity = 0.08 + (l.intensity / 1.2) * 0.3;
       }
       if (E.beacon) E.beacon.material.color.setHex(Math.sin(t * 4) > 0 ? 0xff0000 : 0x440000);
       if (E.neon) E.neon.material.color.setHex(Math.random() > 0.94 ? 0x551122 : 0xff2266);

@@ -38,7 +38,7 @@ import CharacterToken from './CharacterToken';
 import {
   getEmbodiment, listEmbodiments, readProfileCharacterId,
   readSurfaceOverride, resolveSurfaceCharacterId, writeSurfaceOverride,
-  PROFILE_CHARACTER_LS_KEY,
+  PROFILE_CHARACTER_LS_KEY, EARTH_DEFAULT_CHARACTER_ID,
 } from '@/lib/characters/embodiment';
 import { isCharacterId } from '@/lib/characters/roster';
 
@@ -112,6 +112,14 @@ export default function CharacterPicker({ surface, onPick, accent = '#ffffff', s
 
   const effective = effectiveId ? getEmbodiment(effectiveId) : null;
   const profile = profileId ? getEmbodiment(profileId) : null;
+  // Earth display only (video QA V2-1): with no pick at all the
+  // walker on Earth is the Earth default, so the collapsed label
+  // must say so instead of "Native figure" — otherwise the picker
+  // promises a capsule the scene never shows. This changes no
+  // pick state: choosing "Profile default" still just clears the
+  // override, and EarthWalker resolves the same default.
+  const displayEmb = effective
+    || (surface === 'earth' ? getEmbodiment(EARTH_DEFAULT_CHARACTER_ID) : null);
   const border = accent === '#ffffff' ? 'rgba(255,255,255,0.2)' : accent;
 
   return (
@@ -133,9 +141,9 @@ export default function CharacterPicker({ surface, onPick, accent = '#ffffff', s
           boxSizing: 'border-box',
         }}
       >
-        {effective && effective.preview ? (
+        {displayEmb && displayEmb.preview ? (
           <img
-            src={effective.preview} alt=""
+            src={displayEmb.preview} alt=""
             style={{ width: 22, height: 22, borderRadius: 6, objectFit: 'cover', display: 'block', flexShrink: 0 }}
           />
         ) : null}
@@ -146,7 +154,7 @@ export default function CharacterPicker({ surface, onPick, accent = '#ffffff', s
           whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
           flex: '1 1 auto', minWidth: 0, textAlign: 'left',
         }}>
-          {effective ? effective.name : 'Native figure'}
+          {displayEmb ? displayEmb.name : 'Native figure'}
         </span>
         <span aria-hidden="true" style={{ opacity: 0.7, flexShrink: 0 }}>{open ? '▴' : '▾'}</span>
       </button>
@@ -193,7 +201,7 @@ export default function CharacterPicker({ surface, onPick, accent = '#ffffff', s
             <span>
               <span style={{ display: 'block', fontSize: 13, fontWeight: 700 }}>Profile default</span>
               <span style={{ display: 'block', fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>
-                {profile ? profile.name : 'No profile character — native figure'}
+                {profile ? profile.name : (surface === 'earth' ? 'No profile character — Earth default (Neo)' : 'No profile character — native figure')}
               </span>
             </span>
           </button>

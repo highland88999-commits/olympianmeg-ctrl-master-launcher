@@ -20,7 +20,7 @@
 // ambushers lie still until the hunter is close, then explode.
 // Temperament tags (0..1) ride each type for HUD/voice later.
 
-import { MONSTER_FAMILIES, FAMILIES_BY_HABITAT } from './families.js';
+import { MONSTER_FAMILIES, EXTRA_FAMILIES, FAMILIES_BY_HABITAT } from './families.js';
 import { BIOMES } from './biomes.js';
 
 export function mulberry32(seed) {
@@ -55,13 +55,18 @@ export const PLAYER_MAX_HP = 100;
  * habitat band, and its stand-in form. The table is built from
  * families.js so the roster is the single source of truth. */
 export const MONSTER_TYPES = {};
-for (const [key, f] of Object.entries(MONSTER_FAMILIES)) {
+for (const [key, f] of Object.entries({ ...MONSTER_FAMILIES, ...EXTRA_FAMILIES })) {
   MONSTER_TYPES[key] = {
     name: f.name, element: f.element, attitude: f.attitude,
     archetype: f.archetype, habitat: f.habitat, form: f.form,
     sizeClass: f.sizeClass, hp: f.hp, dmg: f.dmg, speed: f.speed,
     scaleM: f.scaleM, footprintR: f.footprintR,
     temperament: { ...f.temperament },
+    // Batch-4 extras only: flyers ride the generic flight ceiling
+    // in strike(); mounts are flagged, not ridden, until riding
+    // is built. Slot families carry neither field.
+    ...(f.flyHeight != null ? { flyHeight: f.flyHeight } : {}),
+    ...(f.mount ? { mount: true } : {}),
   };
 }
   /* DRAGONS — exactly three, spanning flying and ground roles
@@ -201,8 +206,9 @@ export function spawnField(seed, opts = {}) {
     return { x: Math.cos(a) * r, z: Math.sin(a) * r };
   };
   // PASS 1 — guarantee: two of every regular family, in-band.
-  for (const key of Object.keys(MONSTER_FAMILIES)) {
-    const fam = MONSTER_FAMILIES[key];
+  // (Slot families + batch-4 extra families alike: same rule.)
+  for (const key of Object.keys({ ...MONSTER_FAMILIES, ...EXTRA_FAMILIES })) {
+    const fam = key in MONSTER_FAMILIES ? MONSTER_FAMILIES[key] : EXTRA_FAMILIES[key];
     let placed = 0;
     let guard = 0;
     while (placed < 2 && guard++ < 400) {
@@ -602,8 +608,9 @@ export function buildMonsterFigure(R, monster) {
     M(new R.SphereGeometry(0.6, 10, 8), { color: bodyColor, roughness: 0.8 }, 0, 3.1 * s, 1.8 * s);
     M(new R.ConeGeometry(0.12, 0.5, 6), { color: 0xe8e8e8 }, -0.25, 3.5 * s, 1.8 * s);
     M(new R.ConeGeometry(0.12, 0.5, 6), { color: 0xe8e8e8 }, 0.25, 3.5 * s, 1.8 * s);
-    M(new R.SphereGeometry(0.14, 8, 6), { color: glow, emissive: glow, emissiveIntensity: 1.4 }, -0.24, 3.2 * s, 2.3 * s);
-    M(new R.SphereGeometry(0.14, 8, 6), { color: glow, emissive: glow, emissiveIntensity: 1.4 }, 0.24, 3.2 * s, 2.3 * s);
+    const dEyeL = M(new R.SphereGeometry(0.14, 8, 6), { color: glow, emissive: glow, emissiveIntensity: 1.4 }, -0.24, 3.2 * s, 2.3 * s);
+    const dEyeR = M(new R.SphereGeometry(0.14, 8, 6), { color: glow, emissive: glow, emissiveIntensity: 1.4 }, 0.24, 3.2 * s, 2.3 * s);
+    g.userData.eyes = [dEyeL, dEyeR];
     for (const [lx, lz] of [[-0.6, 0.8], [0.6, 0.8], [-0.6, -0.8], [0.6, -0.8]]) {
       M(new R.CylinderGeometry(0.18, 0.14, 1.4 * s, 6), { color: bodyColor, roughness: 0.9 }, lx * s, 0.7 * s, lz * s);
     }
@@ -641,20 +648,22 @@ export function buildMonsterFigure(R, monster) {
     const funnelTop = M(new R.ConeGeometry(0.9 * s, 1.8 * s, 10), { color, roughness: 0.9 }, 0, 2.6 * s, 0);
     funnelTop.rotation.x = Math.PI;
     M(new R.SphereGeometry(0.6, 10, 8), { color, roughness: 0.85 }, 0, 3.4 * s, 0);
-    M(new R.SphereGeometry(0.13, 8, 6), { color: 0xffe14d, emissive: 0xcc9900, emissiveIntensity: 1 }, -0.24, 3.5 * s, 0.55 * s);
-    M(new R.SphereGeometry(0.13, 8, 6), { color: 0xffe14d, emissive: 0xcc9900, emissiveIntensity: 1 }, 0.24, 3.5 * s, 0.55 * s);
+    const vEyeL = M(new R.SphereGeometry(0.13, 8, 6), { color: 0xffe14d, emissive: 0xcc9900, emissiveIntensity: 1 }, -0.24, 3.5 * s, 0.55 * s);
+    const vEyeR = M(new R.SphereGeometry(0.13, 8, 6), { color: 0xffe14d, emissive: 0xcc9900, emissiveIntensity: 1 }, 0.24, 3.5 * s, 0.55 * s);
     g.userData.monsterId = monster.id;
     g.userData.footprintR = monster.stats.footprintR;
     g.userData.modelPath = (MONSTER_MODELS[monster.type] || {}).url || null;
     g.userData.standIn = true;
     g.userData.form = 'vortex';
+    g.userData.eyes = [vEyeL, vEyeR];
     return g;
   }
   const body = M(new R.SphereGeometry(1, 12, 10), { color, roughness: 0.85 }, 0, 1.1 * s, 0);
   body.scale.set(1.25, 0.95, 1.6);
   M(new R.SphereGeometry(0.55, 10, 8), { color, roughness: 0.85 }, 0, 1.7 * s, 1.15 * s);
-  M(new R.SphereGeometry(0.12, 8, 6), { color: 0xffe14d, emissive: 0xcc9900, emissiveIntensity: 1 }, -0.22, 1.85 * s, 1.6 * s);
-  M(new R.SphereGeometry(0.12, 8, 6), { color: 0xffe14d, emissive: 0xcc9900, emissiveIntensity: 1 }, 0.22, 1.85 * s, 1.6 * s);
+  const bEyeL = M(new R.SphereGeometry(0.12, 8, 6), { color: 0xffe14d, emissive: 0xcc9900, emissiveIntensity: 1 }, -0.22, 1.85 * s, 1.6 * s);
+  const bEyeR = M(new R.SphereGeometry(0.12, 8, 6), { color: 0xffe14d, emissive: 0xcc9900, emissiveIntensity: 1 }, 0.22, 1.85 * s, 1.6 * s);
+  g.userData.eyes = [bEyeL, bEyeR];
   for (const [lx, lz] of [[-0.55, 0.7], [0.55, 0.7], [-0.55, -0.7], [0.55, -0.7]]) {
     M(new R.CylinderGeometry(0.16, 0.13, 1.1 * s, 6), { color, roughness: 0.9 }, lx * s, 0.55 * s, lz * s);
   }
@@ -677,8 +686,9 @@ export function buildKorusFigure(R) {
   };
   M(new R.CylinderGeometry(1.4, 2.2, 7, 8), { color: 0x242428, roughness: 0.9 }, 0, 3.5, 0);
   M(new R.SphereGeometry(1.6, 12, 10), { color: 0x1c1c20, roughness: 0.85 }, 0, 8.2, 0);
-  M(new R.SphereGeometry(0.3, 8, 6), { color: 0xffe14d, emissive: 0xffe14d, emissiveIntensity: 2 }, -0.6, 8.5, 1.3);
-  M(new R.SphereGeometry(0.3, 8, 6), { color: 0xffe14d, emissive: 0xffe14d, emissiveIntensity: 2 }, 0.6, 8.5, 1.3);
+  const kEyeL = M(new R.SphereGeometry(0.3, 8, 6), { color: 0xffe14d, emissive: 0xffe14d, emissiveIntensity: 2 }, -0.6, 8.5, 1.3);
+  const kEyeR = M(new R.SphereGeometry(0.3, 8, 6), { color: 0xffe14d, emissive: 0xffe14d, emissiveIntensity: 2 }, 0.6, 8.5, 1.3);
+  g.userData.eyes = [kEyeL, kEyeR];
   for (const [lx, lz] of [[-1.1, 0.6], [1.1, 0.6], [-1.1, -0.6], [1.1, -0.6]]) {
     M(new R.CylinderGeometry(0.5, 0.4, 3.4, 6), { color: 0x1c1c20, roughness: 0.9 }, lx, 1.7, lz);
   }

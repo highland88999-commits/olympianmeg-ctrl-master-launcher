@@ -15,6 +15,9 @@ import {
   botThink,
   resolveBotShot,
   damageBot,
+  markBotAttacked,
+  RETALIATE_WINDOW,
+  RETALIATE_RANGE,
   BOT_HP,
   BOT_RESPAWN_DELAY,
   BOT_SEEK_RANGE,
@@ -248,6 +251,111 @@ t('skill: recruit less accurate than veteran', BOT_SKILLS.recruit.accuracyMul < 
   const bot3 = createBot(2, 'red', { x: 0, z: 0 });
   const first = botThink(bot3, [{ id: 'p', team: 'blue', pos: { x: 0, z: 15 }, dead: false }], 0.016, rng);
   t('reaction: no instant fire on acquire', !first.some((x) => x.type === 'fire'));
+}
+
+// --- return fire: bots shoot back at whoever shot them ----------------------
+{
+  const rng = mulberry32(4242);
+  // markBotAttacked: records the attacker and hastens only the first
+  // return shot (fresh target); a bot already on that target keeps its
+  // normal timers — sustained cadence never rises.
+  const b = createBot(2, 'red', { x: 0, z: 0 }); // id 2 -> rifle
+  b.fireT = 5;
+  b.reactT = 5;
+  markBotAttacked(b, 'p');
+  t('retaliate: marks attacker + window', b.retaliateId === 'p' && b.retaliateT === RETALIATE_WINDOW);
+  t('retaliate: first shot hastened', b.fireT <= 0.1 + 1e-9 && b.reactT <= 0.15 + 1e-9);
+  b.targetId = 'p';
+  b.fireT = 5;
+  b.reactT = 5;
+  markBotAttacked(b, 'p');
+  t('retaliate: already-targeting timers untouched', b.fireT === 5 && b.reactT === 5);
+  // Dead bots do not retaliate.
+  const dead = createBot(3, 'red', { x: 0, z: 0 });
+  damageBot(dead, 9999);
+  markBotAttacked(dead, 'p');
+  t('retaliate: dead bot ignores marks', dead.retaliateId === null);
+
+  // Priority: a wounded bot answers its attacker, not a nearer enemy.
+  const rb = createBot(2, 'red', { x: 0, z: 0 });
+  markBotAttacked(rb, 'p');
+  const mixed = [
+    { id: 'e2', team: 'blue', pos: { x: 0, z: 10 }, dead: false },
+    { id: 'p', team: 'blue', pos: { x: 0, z: 20 }, dead: false },
+  ];
+  let sawFire = null;
+  for (let i = 0; i < 400 && !sawFire; i++) {
+    const ins = botThink(rb, mixed, 0.05, rng);
+    const f = ins.find((x) => x.type === 'fire');
+    if (f) sawFire = f;
+  }
+  t('retaliate: fires at attacker over nearer enemy', sawFire && sawFire.targetId === 'p');
+
+  // Reach: return fire answers a sniper beyond normal sight range.
+  t('retaliate: range exceeds sight range', RETALIATE_RANGE > 70);
+  const sb = createBot(2, 'red', { x: 0, z: 0 });
+  markBotAttacked(sb, 'p');
+  const far = [{ id: 'p', team: 'blue', pos: { x: 0, z: 100 }, dead: false }];
+  let firedFar = false;
+  for (let i = 0; i < 60; i++) {
+    const ins = botThink(sb, far, 0.05, rng);
+    if (ins.some((x) => x.type === 'fire')) firedFar = true;
+    const mv = ins.find((x) => x.type === 'move');
+    if (mv) {
+      sb.pos.x += mv.dx * 0.05;
+      sb.pos.z += mv.dz * 0.05;
+    }
+  }
+  t('retaliate: fires beyond sight range at attacker', firedFar);
+  t('retaliate: closes distance while answering', sb.pos.z > 1);
+
+  // Walls still block: no return fire through a tall obstacle, but the
+  // bot still turns and hunts toward its attacker.
+  const wb = createBot(2, 'red', { x: 0, z: 0 });
+  markBotAttacked(wb, 'p');
+  const wall = { x: 0, z: 10, w: 30, d: 2, h: 3 };
+  // 40 ticks: the bot covers ~8 m, still short of the wall, so line of
+  // sight stays blocked for the whole window (the live game additionally
+  // collision-blocks the bot at the wall itself).
+  let firedWall = false;
+  for (let i = 0; i < 40; i++) {
+    const ins = botThink(wb, far, 0.05, rng, { obstacles: [wall] });
+    if (ins.some((x) => x.type === 'fire')) firedWall = true;
+    const mv = ins.find((x) => x.type === 'move');
+    if (mv) {
+      wb.pos.x += mv.dx * 0.05;
+      wb.pos.z += mv.dz * 0.05;
+    }
+  }
+  t('retaliate: no fire through a wall', !firedWall);
+  t('retaliate: hunts attacker behind cover', wb.pos.z > 1);
+
+  // Expiry: once the window lapses, a far attacker is ignored again.
+  const eb = createBot(2, 'red', { x: 0, z: 0 });
+  markBotAttacked(eb, 'p');
+  eb.retaliateT = 0.01;
+  let firedExpired = false;
+  for (let i = 0; i < 200; i++) {
+    const ins = botThink(eb, far, 0.05, rng);
+    if (ins.some((x) => x.type === 'fire')) firedExpired = true;
+  }
+  t('retaliate: window expiry ends priority', !firedExpired);
+
+  // Teammate marks never turn an ally hostile: the bot still engages
+  // its real enemy.
+  const tb = createBot(2, 'red', { x: 0, z: 0 });
+  markBotAttacked(tb, 'mate');
+  const teamMixed = [
+    { id: 'mate', team: 'red', pos: { x: 0, z: 10 }, dead: false },
+    { id: 'e', team: 'blue', pos: { x: 0, z: 15 }, dead: false },
+  ];
+  let teamFire = null;
+  for (let i = 0; i < 400 && !teamFire; i++) {
+    const ins = botThink(tb, teamMixed, 0.05, rng);
+    const f = ins.find((x) => x.type === 'fire');
+    if (f) teamFire = f;
+  }
+  t('retaliate: teammate mark does not redirect fire', teamFire && teamFire.targetId === 'e');
 }
 
 // --- source-level checks ------------------------------------------------------------------

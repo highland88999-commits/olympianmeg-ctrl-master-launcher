@@ -40,6 +40,8 @@ import {
 import { RETICLE_BY_CLASS, equippedDamageForSlot, equippedReticleForSlot, equippedWeaponEntry } from '../../lib/backpack/backpack.js';
 import { updateBackpack, useBackpack } from '../../lib/backpack/store.js';
 import BackpackHud from '@/components/backpack/BackpackHud';
+import { roarToneFor, GHORRUM_LAUGH_TONE } from './behavior.js';
+import { playRoarTone } from './roar-audio.js';
 import { createWalker, stepWalker, applyLook, walkerCamera } from '@/lib/world/walk-controls';
 import { createKeyInput, attachDragLook } from '@/lib/world/walk-input';
 import WalkJoystick from '@/components/world/WalkJoystick';
@@ -193,7 +195,8 @@ export default function HollowEarthPage() {
         hazardsRef.current.push({ ...hz, at });
         setTimeout(() => { scene.remove(ring); }, hz.telegraph * 1000 + 300);
       },
-      onSpotted: () => {},
+      onSpotted: (m) => { if (m) playRoarTone(roarToneFor(m.type, m.element)); },
+      onWatcherLaugh: () => playRoarTone(GHORRUM_LAUGH_TONE),
       onKorusEvent: (ev) => {
         if (ev.kind === 'wake') notice('👑 KORUS WAKES — the throne empties!');
         if (ev.kind === 'telegraph') notice('⚡ Korus gathers storm — MOVE!');

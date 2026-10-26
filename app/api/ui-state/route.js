@@ -1,5 +1,5 @@
 // app/api/ui-state/route.js — per-account UI state (Muse FAB position,
-// Concourse Orb position + pinned tiles, …).
+// Concourse Orb position + pinned tiles, backpack circle position, …).
 //   GET  /api/ui-state -> { ok: true, preferences }
 //   POST /api/ui-state { preferences: { muse_fab: { x, y } } } -> { ok: true, preferences }
 //
@@ -73,6 +73,16 @@ export const POST = noCache(
         return NextResponse.json({ error: 'concourse_orb must be { x, y } with 0..1 numbers.' }, { status: 400 });
       }
       patch.concourse_orb = sane;
+    }
+    if ('backpack_icon' in prefs) {
+      // The draggable backpack circle's position (same fraction shape
+      // and validation as concourse_orb; see lib/backpack/icon.js).
+      const v = prefs.backpack_icon;
+      const sane = v && typeof v === 'object' ? sanitizeFractions({ x: v.x, y: v.y }) : null;
+      if (!sane) {
+        return NextResponse.json({ error: 'backpack_icon must be { x, y } with 0..1 numbers.' }, { status: 400 });
+      }
+      patch.backpack_icon = sane;
     }
     if ('concourse_box' in prefs) {
       // The Concourse glass box's own top-left position (Merlin,

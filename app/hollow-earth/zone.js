@@ -44,9 +44,12 @@ import { buildLandmark, buildAmbient } from './landmarks.js';
 import {
   spawnField, createMonster, stepMonster, damageMonster, strike,
   createKorus, stepKorus, damageKorus as damageKorusPure,
-  buildMonsterFigure, buildKorusFigure,
+  buildMonsterFigure, buildKorusFigure, KORUS_MODEL,
   WORLD_SPAWN, ACTIVATE_R, DEACTIVATE_R, mulberry32,
 } from './spawns.js';
+import { kickOffGlb } from './model-loader.js';
+import { WATCHER, buildWatcherFigure, watcherGazeYaw, watcherBlinkOpen, watcherLaughing } from './watcher.js';
+import { variantFor, seedFor, breatheScale, blinkOpen, clothSway } from './behavior.js';
 
 function R3(THREE) { return THREE || ThreeJS; }
 
@@ -196,6 +199,9 @@ export function buildWorld(THREE, def, T, opts = {}) {
   const figures = new Map();
   const observer = { x: WORLD_SPAWN.x, z: WORLD_SPAWN.z, quiet: 1, noise: null, inBase: false };
 
+  // Behavior clock (seconds) for breathe/blink/sway/watcher cycles.
+  let elapsed = 0;
+
   function syncFigure(m) {
     let fig = figures.get(m.id);
     if (!fig) {
@@ -206,12 +212,40 @@ export function buildWorld(THREE, def, T, opts = {}) {
     fig.position.set(m.x, heightAt(m.x, m.z) + (m.stats.flyHeight || 0), m.z);
     fig.rotation.y = m.faceYaw || 0;
     fig.visible = !m.dead;
+    // Batch-4 behavior, applied to the figure group only — never
+    // to the monster record, so colliders, stats, and spawn
+    // counts are untouched. Cheap per frame: a few sins, two
+    // eye scales, one WeakSet check for the GLB kick-off.
+    const seed = seedFor(m.id);
+    const v = variantFor(m.id); // kin variant: visual scale only
+    const br = breatheScale(elapsed, seed);
+    fig.scale.set(v.scaleMul * br.x, v.scaleMul * br.y, v.scaleMul * br.z);
+    fig.rotation.z = clothSway(elapsed, 0.5, seed).swayZ;
+    const eyes = fig.userData.eyes;
+    if (eyes && eyes.length) {
+      const open = Math.max(0.15, blinkOpen(elapsed, seed));
+      for (const e of eyes) e.scale.set(1, open, 1);
+    }
+    // The drop-in swap: first sync kicks off the GLB load for
+    // this figure's modelPath; failure keeps the stand-in.
+    kickOffGlb(fig, fig.userData.modelPath, m.stats.scaleM);
   }
 
   const korus = createKorus(!!opts.gateOpen);
   const korusFig = buildKorusFigure(R);
   korusFig.position.set(korus.x, heightAt(korus.x, korus.z), korus.z);
   group.add(korusFig);
+  kickOffGlb(korusFig, KORUS_MODEL.url, KORUS_MODEL.height);
+
+  // Ghorrum, the Mountain's Grin: blended into the mountain
+  // ranges, watching passersby. No collider — he never blocks
+  // the path — and he is not a monster record, so he never
+  // enters combat, the hunt, or the reward flow.
+  const watcherFig = buildWatcherFigure(R);
+  watcherFig.position.set(WATCHER.pos.x, heightAt(WATCHER.pos.x, WATCHER.pos.z), WATCHER.pos.z);
+  group.add(watcherFig);
+  kickOffGlb(watcherFig, WATCHER.model.url, WATCHER.model.height);
+  let watcherWasLaughing = false;
 
   function setObserver(o) {
     if (o.x != null) observer.x = o.x;
@@ -222,7 +256,28 @@ export function buildWorld(THREE, def, T, opts = {}) {
   }
 
   function update(dt) {
+    if (typeof dt === 'number' && dt > 0 && dt < 5) elapsed += dt;
     const player = { x: observer.x, z: observer.z };
+    // Ghorrum: gaze follows the observer, slow blink, and a deep
+    // laugh on a rising edge (the page plays the laugh tone).
+    if (watcherFig) {
+      const head = watcherFig.userData.head;
+      if (head) {
+        const yaw = watcherGazeYaw(WATCHER.pos, observer);
+        if (yaw != null) head.rotation.y = yaw;
+        const laughing = watcherLaughing(elapsed);
+        head.rotation.x = laughing ? Math.sin(elapsed * 20) * 0.05 : 0;
+        if (laughing && !watcherWasLaughing && opts.onWatcherLaugh) {
+          try { opts.onWatcherLaugh(); } catch { /* sound is optional */ }
+        }
+        watcherWasLaughing = laughing;
+      }
+      const wEyes = watcherFig.userData.eyes;
+      if (wEyes && wEyes.length) {
+        const open = Math.max(0.15, watcherBlinkOpen(elapsed));
+        for (const e of wEyes) e.scale.set(1, open, 1);
+      }
+    }
     for (const m of monsters) {
       if (m.dead) {
         if (figures.has(m.id)) { const f = figures.get(m.id); f.visible = false; }

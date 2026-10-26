@@ -27,7 +27,9 @@ test('walker rides the higher of true and drawn surface', () => {
   assert.match(hm, /globeGridSurfaceRadius\(cache\.data, cache\.w, cache\.h, lat, lon\)/);
 });
 
-test('veil hides when the camera is outside the wash volume', () => {
+test('veil is gone: UnderwaterVeil renders nothing on dry Earth', () => {
   const src = readFileSync('components/UnderwaterVeil.jsx', 'utf8');
-  assert.match(src, /tmp\.current\.distanceTo\(p\) > VEIL_RADIUS_U/);
+  assert.match(src, /REMOVED 2026-10-26/);
+  assert.match(src, /return null;/);
+  assert.ok(!src.includes('VEIL_RADIUS_U'), 'no wash volume remains');
 });

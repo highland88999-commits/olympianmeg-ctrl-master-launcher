@@ -3,8 +3,10 @@ import { memo, useEffect, useRef, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { searchPlaces, formatCoords } from '@/lib/geo';
 import { summonBike, dismissBike, toggleMount } from '@/components/EarthBike';
+import { summonCar, dismissCar, toggleCarMount } from '@/components/EarthSupercar';
 import EarthViewToggle from '@/components/EarthViewToggle';
-import { beginReanimate, isAtStreetScale, parachuteState, bikeState } from '@/lib/earth/parachute';
+import { beginReanimate, isAtStreetScale, parachuteState, bikeState, carState } from '@/lib/earth/parachute';
+import { EARTH_DEFAULT_CHARACTER_ID } from '@/lib/characters/embodiment';
 import { QUANTUM_ENABLED } from '@/lib/earth/quantum';
 import { aetherState, totalAether } from '@/lib/earth/aether';
 import { planetSeedFor } from '@/lib/planets/planet-seeds';
@@ -39,34 +41,44 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
   // set only by the button would desync (and did — Merlin, 2026-10-20:
   // bike controls never appeared). Polling keeps every surface honest.
   const [bikeUi, setBikeUi] = useState({ out: false, mounted: false });
-  // Size + swim UI state, polled from the same singletons for the
-  // same reason as the bike state: the parachute dive and the swim
-  // state machine mutate them outside React, so a local useState
-  // set only by buttons would desync.
+  // Supercar UI state, polled from carState on the same beat as
+  // the bike (Earth 1 expansion): the V / F keys mutate it
+  // outside React, so buttons must poll, not guess.
+  const [carUi, setCarUi] = useState({ out: false, mounted: false });
+  // Size UI state, polled from the same singletons for the
+  // same reason as the bike state: the parachute dive mutates
+  // it outside React, so a local useState set only by buttons
+  // would desync.
   const [sizeUi, setSizeUi] = useState({ micro: false });
-  const [swimUi, setSwimUi] = useState({ active: false, submergeM: 0, depthM: 0 });
   // Aether collection, polled from the aether singleton like the
   // others (collection happens inside EarthAssets' driver).
   const [aetherUi, setAetherUi] = useState({ count: 0, total: 0 });
+  // Auto-collapse (video QA V2-6, 2026-10-26): the console
+  // covers ~45% of the screen during descent, so the moment the
+  // traveler ARRIVES at street level it folds to its globe tab.
+  // Only the diving_to_street → earth_roam edge collapses: a
+  // traveler who reopens the console at street level is never
+  // folded again by this effect.
+  const prevPhaseRef = useRef(phase);
+  useEffect(() => {
+    const prev = prevPhaseRef.current;
+    prevPhaseRef.current = phase;
+    if (prev === 'diving_to_street' && phase === 'earth_roam') setMin(true);
+  }, [phase]);
+
   useEffect(() => {
     const id = setInterval(() => {
       setBikeUi((prev) => {
         const next = { out: !!bikeState.summoned, mounted: !!bikeState.mounted };
         return prev.out === next.out && prev.mounted === next.mounted ? prev : next;
       });
+      setCarUi((prev) => {
+        const next = { out: !!carState.summoned, mounted: !!carState.mounted };
+        return prev.out === next.out && prev.mounted === next.mounted ? prev : next;
+      });
       setSizeUi((prev) => {
         const next = { micro: (parachuteState?.scale || 1) < 0.5 };
         return prev.micro === next.micro ? prev : next;
-      });
-      setSwimUi((prev) => {
-        const sw = roamState.swim || {};
-        const next = {
-          active: !!sw.active,
-          submergeM: Math.round((sw.submergeM || 0) * 10) / 10,
-          depthM: Math.round((sw.depthM || 0) * 10) / 10,
-        };
-        return prev.active === next.active && prev.submergeM === next.submergeM
-          && prev.depthM === next.depthM ? prev : next;
       });
       setAetherUi((prev) => {
         const next = { count: aetherState.count || 0, total: totalAether() };
@@ -132,12 +144,22 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
         {atStreet && bikeUi.out && (
           <BikeControls mounted={bikeUi.mounted} controlsRef={controlsRef} />
         )}
-        {/* Water controls stand down in the Quantum Realm (round
-            4): the parachute dive suspends the swim state itself,
-            and this gate keeps the buttons out regardless — no
-            diving at micrometre scale. */}
-        {atStreet && swimUi.active && !sizeUi.micro && (
-          <SwimControls controlsRef={controlsRef} submergeM={swimUi.submergeM} depthM={swimUi.depthM} liftPx={bikeUi.out ? 196 : 0} />
+        {/* Supercar, minimized branch (Earth 1 expansion): one
+            button under the globe tab — summon, or ride/dismount
+            once it is out. Keys V / F do the same. */}
+        {atStreet && (
+          <button
+            onClick={() => {
+              if (!carUi.out) summonCar();
+              else toggleCarMount();
+            }}
+            aria-label={carUi.out ? (carUi.mounted ? 'Dismount supercar' : 'Ride supercar') : 'Summon supercar'}
+            title="Lamborghini Aventador — Earth's fastest vehicle (V · F to ride)"
+            className="absolute right-4 z-[80] w-14 h-14 rounded-full bg-zinc-950/90 border border-amber-500/50 shadow-[0_0_25px_rgba(251,191,36,0.25)] backdrop-blur-md flex items-center justify-center text-2xl hover:scale-105 active:scale-95 transition-all ui-element pointer-events-auto"
+            style={{ top: 'calc(32% + 6.25rem)' }}
+          >
+            <span aria-hidden="true">🏎</span>
+          </button>
         )}
         <EarthViewToggle phase={phase} />
       </>
@@ -313,6 +335,32 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
             >
               {bikeUi.out ? '✕ Dismiss bike' : '🏍 Summon bike'} <span className="text-zinc-500 normal-case tracking-normal">(B · E to ride)</span>
             </button>
+            {/* Summonable Lamborghini Aventador (V key) — Earth's
+                fastest vehicle for rapid exploration. */}
+            <button
+              onClick={() => {
+                if (carUi.out) dismissCar();
+                else summonCar();
+              }}
+              className="w-full py-2 text-[10px] font-bold tracking-[0.2em] uppercase text-amber-200 border border-amber-600/60 bg-amber-950/50 rounded hover:border-amber-400 hover:text-white transition-all"
+            >
+              {carUi.out ? '✕ Dismiss supercar' : '🏎 Summon supercar'} <span className="text-zinc-500 normal-case tracking-normal">(V · F to ride)</span>
+            </button>
+            {carUi.out && (
+              <button
+                onClick={() => toggleCarMount()}
+                className="w-full py-2 text-[10px] font-bold tracking-[0.2em] uppercase text-zinc-100 border border-zinc-500/60 bg-zinc-900/70 rounded hover:border-amber-400 hover:text-white transition-all"
+              >
+                {carUi.mounted ? '⏏ Dismount supercar' : '🏎 Ride supercar'}
+              </button>
+            )}
+            {/* Quicksand-pit hint (video QA V2-5): shown near
+                Redwater, where the gold-beam marker stands. */}
+            {focus && Math.abs(focus.lat - 53.9486) < 0.6 && Math.abs(focus.lon + 113.1067) < 0.6 && (
+              <div className="text-[10px] text-amber-200/90">
+                ⛏ Quicksand pit nearby — look for the gold beam ~100 m east of Redwater centre. Walk into it to sink.
+              </div>
+            )}
             {/* Size state (polled from the parachute singleton like
                 the bike state above): which size world am I in? */}
             <div className={`text-[10px] mt-1 ${sizeUi.micro ? 'text-violet-300' : 'text-zinc-500'}`}>
@@ -357,7 +405,12 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
                 embedded
                 surface="earth"
                 accent="#00f2ff"
-                onPick={(id) => getEmbodimentForSurface('earth')?.setCharacter(id)}
+                // Earth never falls back to the capsule (video QA
+                // V2-1): a null pick here means "no override, no
+                // profile", which is exactly when EarthWalker
+                // spawns the Earth default — so hand the adapter
+                // that default instead of null.
+                onPick={(id) => getEmbodimentForSurface('earth')?.setCharacter(id || EARTH_DEFAULT_CHARACTER_ID)}
               />
             </div>
           </>
@@ -395,9 +448,6 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
     </div>
     {atStreet && bikeUi.out && (
       <BikeControls mounted={bikeUi.mounted} controlsRef={controlsRef} />
-    )}
-    {atStreet && swimUi.active && !sizeUi.micro && (
-      <SwimControls controlsRef={controlsRef} submergeM={swimUi.submergeM} depthM={swimUi.depthM} liftPx={bikeUi.out ? 196 : 0} />
     )}
     <EarthViewToggle phase={phase} />
     </>
@@ -535,59 +585,7 @@ const BikeControls = memo(function BikeControls({ mounted, controlsRef }) {
   );
 });
 
-// SwimControls — the water controls (Merlin, 2026-10-20: "when in
-// water, enable swimming and diving and resurfacing"). While the
-// roam swim state is active (lib/earth/swim.js), the traveler swims
-// with the usual move stick; these two HOLD buttons are the
-// vertical axis: DIVE ▼ sinks while held (the seabed is the floor —
-// the state machine clamps it), SURFACE ▲ rises while held, and at
-// the surface the swimmer floats again. Same hold-to-press pattern
-// as BikeControls, writing swimDive / swimSurface into the shared
-// controls object the flight controller reads each frame. Rendered
-// by EarthConsole in both its branches, exactly like BikeControls,
-// so closing the menu never strands a diver without a way up.
-const SwimControls = memo(function SwimControls({ controlsRef, submergeM, depthM, liftPx = 0 }) {
-  const [held, setHeld] = useState({ dive: false, surface: false });
-  const setFlag = (name, on) => {
-    setHeld((h) => ({ ...h, [name]: on }));
-    if (controlsRef?.current) {
-      if (name === 'dive') controlsRef.current.swimDive = on;
-      if (name === 'surface') controlsRef.current.swimSurface = on;
-    }
-  };
-  const holdProps = (name) => ({
-    onPointerDown: (e) => { e.preventDefault(); setFlag(name, true); },
-    onPointerUp: () => setFlag(name, false),
-    onPointerLeave: () => setFlag(name, false),
-    onPointerCancel: () => setFlag(name, false),
-    onContextMenu: (e) => e.preventDefault(),
-  });
-  const btnBase = 'ui-element pointer-events-auto select-none touch-none flex items-center justify-center rounded-full border backdrop-blur-md font-black transition-all active:scale-95';
-  const submerged = (submergeM || 0) > 0.05;
-  return (
-    <div
-      className="fixed z-[70] ui-element flex flex-col items-end gap-2.5"
-      style={{ right: 'calc(env(safe-area-inset-right, 0px) + 18px)', bottom: `calc(env(safe-area-inset-bottom, 0px) + ${92 + (liftPx || 0)}px)` }}
-    >
-      <div className="px-3 py-1.5 rounded-full border border-sky-400/50 bg-sky-950/70 backdrop-blur-md text-[10px] font-bold tracking-[0.15em] uppercase text-sky-100">
-        🏊 {submerged ? `${submergeM.toFixed(1)} m down` : 'Swimming'} · water {depthM.toFixed(1)} m
-      </div>
-      <button
-        type="button"
-        aria-label="Surface — hold to rise"
-        {...holdProps('surface')}
-        className={`${btnBase} w-14 h-14 text-xl text-sky-100 border-sky-400/60 ${held.surface ? 'bg-sky-500/60' : 'bg-sky-950/60'} shadow-[0_0_20px_rgba(56,189,248,0.3)]`}
-      >
-        ▲
-      </button>
-      <button
-        type="button"
-        aria-label="Dive — hold to descend"
-        {...holdProps('dive')}
-        className={`${btnBase} w-[4.5rem] h-[4.5rem] text-[10px] tracking-[0.15em] text-sky-100 border-sky-400/70 ${held.dive ? 'bg-sky-500/60' : 'bg-sky-950/60'} shadow-[0_0_24px_rgba(56,189,248,0.35)]`}
-      >
-        ▼ DIVE
-      </button>
-    </div>
-  );
-});
+// SwimControls REMOVED 2026-10-26 (Earth 1 water removal):
+// Earth 1 has no water, so there are no dive/surface buttons and
+// no swimming readout. The walker walks the exposed seabed at
+// normal pace; nothing replaces these controls.

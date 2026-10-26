@@ -12,8 +12,21 @@
 // canvas when closed. Keyboard, touch and gamepad behaviour are
 // untouched while the panel is closed.
 
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import {
+  BACKPACK_ICON_SAVE_DEBOUNCE_MS,
+  BACKPACK_ICON_SIZE,
+  BACKPACK_ICON_STORAGE_KEY,
+  BACKPACK_ICON_UI_STATE_KEY,
+  backpackIconFracToPx,
+  backpackIconPxToFrac,
+  clampBackpackIconPx,
+  defaultBackpackIconFractions,
+  dragBackpackIconTopLeft,
+  isBackpackIconDrag,
+  resolveBackpackIconPosition,
+} from '@/lib/backpack/icon';
 import {
   equippedDamageForSlot,
   equippedWeaponEntry,
@@ -67,6 +80,168 @@ export default function BackpackHud({ realm, realmLabel, combatApplies = false, 
   const saber = lightsaberEntry(record);
   const totalQty = record.items.reduce((n, e) => n + e.qty, 0);
 
+  // --- Circle icon position (item 9b, Merlin 2026-10-26) ------------
+  // The trigger is a small draggable CIRCLE, exactly like the
+  // Concourse Orb (lib/backpack/icon.js mirrors
+  // lib/concourse-icon.js): press-and-move past 8px drags it, a
+  // still press taps it open; the spot is viewport fractions,
+  // written to localStorage instantly and to /api/ui-state
+  // (key `backpack_icon`) debounced, and the account copy wins
+  // on login. Signed out, the device copy stands alone. The icon
+  // is fixed-position inside this component only — the accepted
+  // exception to the no-overlap rule for user-draggable controls,
+  // same as the Concourse panels; nothing else here is absolutely
+  // positioned except the count badge inside the circle itself.
+  const [iconFrac, setIconFrac] = useState(null);
+  const [dragPx, setDragPx] = useState(null);
+  const [viewport, setViewport] = useState(null);
+  const iconRef = useRef(null);
+  const suppressClickRef = useRef(0);
+  const saveTimerRef = useRef(null);
+
+  const persistIcon = useCallback((frac) => {
+    try {
+      localStorage.setItem(BACKPACK_ICON_STORAGE_KEY, JSON.stringify(frac));
+    } catch {}
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(async () => {
+      let token = null;
+      try {
+        const { supabase } = await import('@/lib/supabase');
+        const { data: { session } } = await supabase.auth.getSession();
+        token = session?.access_token || null;
+      } catch {}
+      if (!token) return; // signed out: localStorage only
+      try {
+        await fetch('/api/ui-state', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ preferences: { [BACKPACK_ICON_UI_STATE_KEY]: frac } }),
+        });
+        // NOTE: until the route accepts `backpack_icon` (see
+        // lib/backpack/icon.js), this answers 400 and is ignored
+        // — localStorage already holds the spot, and the next
+        // drag retries.
+      } catch {
+        // offline — localStorage already holds it; next drag retries
+      }
+    }, BACKPACK_ICON_SAVE_DEBOUNCE_MS);
+  }, []);
+
+  // Hydrate: localStorage instantly; the account copy wins when
+  // signed in (the Concourse rule — that is what will carry the
+  // icon's spot to a new device at login, once the route accepts
+  // the key). A resize/rotation listener keeps fractions rendering
+  // back inside the viewport at every size.
+  useEffect(() => {
+    const applyViewport = () => setViewport({ w: window.innerWidth, h: window.innerHeight });
+    applyViewport();
+    window.addEventListener('resize', applyViewport);
+    let local = null;
+    try {
+      const raw = localStorage.getItem(BACKPACK_ICON_STORAGE_KEY);
+      local = raw ? JSON.parse(raw) : null;
+    } catch {}
+    const resolved = resolveBackpackIconPosition({
+      local,
+      fallback: defaultBackpackIconFractions(window.innerWidth, window.innerHeight, BACKPACK_ICON_SIZE),
+    });
+    setIconFrac(resolved);
+    let cancelled = false;
+    (async () => {
+      let token = null;
+      try {
+        const { supabase } = await import('@/lib/supabase');
+        const { data: { session } } = await supabase.auth.getSession();
+        token = session?.access_token || null;
+      } catch {}
+      if (!token || cancelled) return;
+      try {
+        const res = await fetch('/api/ui-state', { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
+        const data = await res.json().catch(() => null);
+        const server = resolveBackpackIconPosition({ server: data && data.preferences ? data.preferences[BACKPACK_ICON_UI_STATE_KEY] : null });
+        if (!cancelled && server) setIconFrac(server);
+      } catch {
+        // offline — the device copy stands
+      }
+    })();
+    return () => {
+      window.removeEventListener('resize', applyViewport);
+      cancelled = true;
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, []);
+
+  // Drag engine (the Concourse Orb's, via lib/backpack/icon.js):
+  // a press that never crosses 8px stays a tap and the click
+  // handler opens the panel; a real drag swallows its click, so
+  // the two never mix. The grab offset is kept and the top-left
+  // is clamped live, so the circle stays fully on screen.
+  // touch-none so a touch-drag never fights page scroll.
+  const beginIconDrag = (e) => {
+    if (e.isPrimary === false) return;
+    if (e.button != null && e.button !== 0) return;
+    const el = iconRef.current;
+    if (!el) return;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const origin = iconFrac
+      ? clampBackpackIconPx(backpackIconFracToPx(iconFrac, vw, vh, BACKPACK_ICON_SIZE), vw, vh, BACKPACK_ICON_SIZE)
+      : { x: 16, y: vh - BACKPACK_ICON_SIZE - 16 };
+    try { el.setPointerCapture(e.pointerId); } catch {}
+    const info = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      origX: origin.x,
+      origY: origin.y,
+      x: origin.x,
+      y: origin.y,
+      moved: false,
+    };
+    const onMove = (ev) => {
+      if (ev.pointerId !== info.pointerId) return;
+      if (!info.moved && !isBackpackIconDrag(ev.clientX - info.startX, ev.clientY - info.startY)) return; // still a tap
+      info.moved = true;
+      const tl = dragBackpackIconTopLeft(
+        { x: info.origX, y: info.origY },
+        { x: info.startX, y: info.startY },
+        { x: ev.clientX, y: ev.clientY },
+        window.innerWidth,
+        window.innerHeight,
+        BACKPACK_ICON_SIZE
+      );
+      info.x = tl.x;
+      info.y = tl.y;
+      setDragPx(tl);
+    };
+    const onUp = (ev) => {
+      if (ev.pointerId !== info.pointerId) return;
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      try { el.releasePointerCapture(info.pointerId); } catch {}
+      setDragPx(null);
+      if (!info.moved) return; // plain tap — the click handler runs
+      suppressClickRef.current = Date.now();
+      const next = backpackIconPxToFrac({ x: info.x, y: info.y }, window.innerWidth, window.innerHeight, BACKPACK_ICON_SIZE);
+      setIconFrac(next);
+      persistIcon(next);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  };
+
+  const iconPx = iconFrac && viewport
+    ? clampBackpackIconPx(backpackIconFracToPx(iconFrac, viewport.w, viewport.h, BACKPACK_ICON_SIZE), viewport.w, viewport.h, BACKPACK_ICON_SIZE)
+    : null;
+  const iconPosStyle = dragPx
+    ? { left: dragPx.x, top: dragPx.y }
+    : iconPx
+      ? { left: iconPx.x, top: iconPx.y }
+      : { left: 16, bottom: 16 };
+
   const combatNote = (() => {
     if (!combatApplies) {
       return displayNote || 'The pack rides along — this realm keeps its own arms.';
@@ -81,20 +256,42 @@ export default function BackpackHud({ realm, realmLabel, combatApplies = false, 
 
   return (
     <>
+      {/* The circle icon: a 56px round button (same size as the
+          Concourse Orb), fixed inside this component so its owner
+          can drag it anywhere on screen. The equipped weapon's
+          name no longer fits on the circle itself — it lives in
+          the title tooltip and in the panel header, as before.
+          The count badge sits inside the circle itself. */}
       <button
+        ref={iconRef}
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onPointerDown={beginIconDrag}
+        onClick={() => { if (Date.now() - suppressClickRef.current < 500) return; setOpen((v) => !v); }}
         aria-label={open ? 'Close backpack' : 'Open backpack'}
-        title={equipped ? `Backpack — equipped: ${equipped.name}` : 'Backpack'}
+        title={equipped ? `Backpack — drag to move · equipped: ${equipped.name}` : 'Backpack — drag to move'}
         style={{
-          minHeight: 36, padding: '0.3rem 0.7rem', borderRadius: 999,
-          border: '1px solid rgba(255,255,255,0.25)', background: 'rgba(0,0,0,0.45)',
-          color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 700,
-          display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap',
+          position: 'fixed', zIndex: 150,
+          width: BACKPACK_ICON_SIZE, height: BACKPACK_ICON_SIZE, borderRadius: '50%',
+          border: '2px solid #d8b25c', background: 'rgba(18,16,28,0.85)',
+          color: '#fff', cursor: dragPx ? 'grabbing' : 'grab', fontSize: 24,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          boxShadow: '0 10px 30px rgba(0,0,0,0.5), 0 0 22px rgba(216,178,92,0.22)',
+          touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none',
+          ...iconPosStyle,
         }}
       >
-        🎒 {totalQty > 0 ? totalQty : ''}
-        {equipped ? <span style={{ opacity: 0.8, fontWeight: 400, maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis' }}>{equipped.name}</span> : null}
+        <span aria-hidden="true">🎒</span>
+        {totalQty > 0 && (
+          <span
+            aria-hidden="true"
+            style={{
+              position: 'absolute', top: -4, right: -4,
+              minWidth: 20, height: 20, padding: '0 4px', borderRadius: '50%',
+              background: '#d8b25c', color: '#1a1426', fontSize: 11, fontWeight: 800,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >{totalQty > 99 ? '99+' : totalQty}</span>
+        )}
       </button>
 
       {open && (

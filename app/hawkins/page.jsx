@@ -7,6 +7,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { createEngine } from './engine';
+import BackpackHud from '@/components/backpack/BackpackHud';
 import { HAWKINS_PLAYER_CHARACTERS } from '../../lib/hawkins/models.js';
 
 const CHARACTER_BLURBS = {
@@ -153,6 +154,12 @@ export default function HawkinsPage() {
       <canvas ref={canvasRef} style={styles.canvas} />
 
       {/* ---------- HUD ---------- */}
+      {/* Flow layout: a top row, a middle column and a bottom row,
+          each laying its children out in sequence with gaps — no
+          two HUD pieces share coordinates any more, so nothing can
+          sit on top of another piece. The reticle / hitmarker /
+          damage and dimension flashes stay centred overlays inside
+          this HUD component, which is their own component. */}
       {phase === 'playing' && (
         <div style={styles.hud}>
           <div style={styles.reticle}>
@@ -169,83 +176,101 @@ export default function HawkinsPage() {
           {hud.dmgFlash > 0 && <div style={styles.dmgvin} />}
           {hud.dimFlash > 0 && <div style={styles.dimflash} />}
 
-          <div style={styles.objective} dangerouslySetInnerHTML={{ __html: '◈ ' + objective }} />
-
-          <div style={styles.tracemeter}>
-            <div style={styles.traceLabel}>VECNA TRACES</div>
-            <div style={styles.tracebg}>
-              <div style={{ ...styles.tracefill, width: `${(hud.traces / hud.tracesNeeded) * 100}%` }} />
-            </div>
-            <div style={styles.traceslots}>
-              {'● '.repeat(hud.traces)}{'○ '.repeat(hud.tracesNeeded - hud.traces)}
-            </div>
-          </div>
-
-          {hud.bossRevealed && (
-            <div style={styles.bossbar}>
-              <div style={styles.bossLabel}>V E C N A</div>
-              <div style={styles.bossbg}>
-                <div style={{ ...styles.bossfill, width: `${hud.bossHp * 100}%` }} />
+          {/* Top row: objective + feed | traces + boss + nav | stats + buttons.
+              Wraps on narrow screens instead of colliding. */}
+          <div style={styles.topRow}>
+            <div style={styles.topLeft}>
+              <div style={styles.objective} dangerouslySetInnerHTML={{ __html: '◈ ' + objective }} />
+              <div style={styles.killfeed}>
+                {feed.map((f) => <div key={f.id}>{f.msg}</div>)}
               </div>
             </div>
-          )}
-
-          <div style={{ ...styles.dimlabel, ...(dimClass ? styles['dim_' + dimClass] : {}) }}>{dimLabel}</div>
-
-          <div style={styles.healthbar}>
-            <div style={styles.barLabel}>VITALS</div>
-            <div style={styles.healthbg}>
-              <div style={{ ...styles.healthfill, width: `${hud.health * 100}%` }} />
-            </div>
-          </div>
-          <div style={styles.ammobar}>
-            <div style={styles.barLabel}>AMMO — R TO RELOAD</div>
-            <div style={styles.ammobg}>
-              <div style={{ ...styles.ammofill, width: `${(hud.ammo / hud.magSize) * 100}%` }} />
-            </div>
-          </div>
-
-          <div style={styles.stats}>
-            <div style={styles.kills}>{hud.kills} KILLS</div>
-            <div style={styles.wave}>WAVE {hud.wave}</div>
-          </div>
-
-          <button
-            style={styles.perspbtn}
-            onClick={() => engineRef.current && engineRef.current.togglePerspective()}
-          >
-            {(hud.perspective === 'third' ? '3RD' : '1ST') + ' PERSON · V'}
-          </button>
-
-          {banner && <div style={styles.wavebanner}>{banner}</div>}
-          {chime && <div style={styles.clockchime}>♱ {chime} ♱</div>}
-
-          <div style={styles.killfeed}>
-            {feed.map((f) => <div key={f.id}>{f.msg}</div>)}
-          </div>
-
-          {hud.reloading && <div style={styles.reloadtip}>RELOADING…</div>}
-          {hud.capturePrompt && (
-            <div style={styles.captureprompt}>
-              <div>FINISH HIM — HOLD E</div>
-              <div style={styles.finishbar}>
-                <div style={{ ...styles.finishfill, width: `${(hud.captureProgress || 0) * 100}%` }} />
+            <div style={styles.topCenter}>
+              <div style={styles.tracemeter}>
+                <div style={styles.traceLabel}>VECNA TRACES</div>
+                <div style={styles.tracebg}>
+                  <div style={{ ...styles.tracefill, width: `${(hud.traces / hud.tracesNeeded) * 100}%` }} />
+                </div>
+                <div style={styles.traceslots}>
+                  {'● '.repeat(hud.traces)}{'○ '.repeat(hud.tracesNeeded - hud.traces)}
+                </div>
               </div>
-              <div style={styles.finishtimer}>{Math.max(0, Math.ceil(hud.finishTimer || 0))}</div>
+              {hud.bossRevealed && (
+                <div style={styles.bossbar}>
+                  <div style={styles.bossLabel}>V E C N A</div>
+                  <div style={styles.bossbg}>
+                    <div style={{ ...styles.bossfill, width: `${hud.bossHp * 100}%` }} />
+                  </div>
+                </div>
+              )}
+              {hud.nav && (
+                <div style={styles.navwrap}>
+                  <div style={{ ...styles.navarrow, transform: `rotate(${(hud.nav.rel * 180) / Math.PI}deg)` }}>▲</div>
+                  <div style={styles.navlabel}>{hud.nav.label} · {Math.round(hud.nav.dist)}m</div>
+                </div>
+              )}
             </div>
-          )}
-          {hud.bikePrompt && (
-            <div style={styles.bikeprompt}>
-              {hud.bikePrompt === 'mount' ? 'E — RIDE BIKE' : 'E — DISMOUNT'}
+            <div style={styles.topRight}>
+              <div style={styles.stats}>
+                <div style={styles.kills}>{hud.kills} KILLS</div>
+                <div style={styles.wave}>WAVE {hud.wave}</div>
+              </div>
+              <div style={styles.topBtns}>
+                <button
+                  style={styles.perspbtn}
+                  onClick={() => engineRef.current && engineRef.current.togglePerspective()}
+                >
+                  {(hud.perspective === 'third' ? '3RD' : '1ST') + ' PERSON · V'}
+                </button>
+                <BackpackHud realm="hawkins" realmLabel="Hawkins"
+                  displayNote="The pack rides along — Hawkins keeps its own arms." />
+              </div>
             </div>
-          )}
+          </div>
 
-          {hud.nav && (
-            <div style={styles.navwrap}>
-              <div style={{ ...styles.navarrow, transform: `rotate(${(hud.nav.rel * 180) / Math.PI}deg)` }}>▲</div>
-              <div style={styles.navlabel}>{hud.nav.label} · {Math.round(hud.nav.dist)}m</div>
+          {/* Middle column: banners and the capture prompt stack in
+              order; the capture prompt sits below the reticle. */}
+          <div style={styles.midCol}>
+            {banner && <div style={styles.wavebanner}>{banner}</div>}
+            {chime && <div style={styles.clockchime}>♱ {chime} ♱</div>}
+            {hud.capturePrompt && (
+              <div style={styles.captureprompt}>
+                <div>FINISH HIM — HOLD E</div>
+                <div style={styles.finishbar}>
+                  <div style={{ ...styles.finishfill, width: `${(hud.captureProgress || 0) * 100}%` }} />
+                </div>
+                <div style={styles.finishtimer}>{Math.max(0, Math.ceil(hud.finishTimer || 0))}</div>
+              </div>
+            )}
+          </div>
+
+          {/* Bottom: reload / bike prompts, then the bottom row —
+              ammo + vitals on the left, dimension centred. */}
+          <div style={styles.bottomCol}>
+            {hud.reloading && <div style={styles.reloadtip}>RELOADING…</div>}
+            {hud.bikePrompt && (
+              <div style={styles.bikeprompt}>
+                {hud.bikePrompt === 'mount' ? 'E — RIDE BIKE' : 'E — DISMOUNT'}
+              </div>
+            )}
+            <div style={styles.bottomRow}>
+              <div style={styles.bottomLeft}>
+                <div style={styles.ammobar}>
+                  <div style={styles.barLabel}>AMMO — R TO RELOAD</div>
+                  <div style={styles.ammobg}>
+                    <div style={{ ...styles.ammofill, width: `${(hud.ammo / hud.magSize) * 100}%` }} />
+                  </div>
+                </div>
+                <div style={styles.healthbar}>
+                  <div style={styles.barLabel}>VITALS</div>
+                  <div style={styles.healthbg}>
+                    <div style={{ ...styles.healthfill, width: `${hud.health * 100}%` }} />
+                  </div>
+                </div>
+              </div>
+              <div style={{ ...styles.dimlabel, ...(dimClass ? styles['dim_' + dimClass] : {}) }}>{dimLabel}</div>
             </div>
-          )}
+          </div>
 
           {isTouch && (
             <>
@@ -260,7 +285,7 @@ export default function HawkinsPage() {
       {/* ---------- MENU ---------- */}
       {phase === 'menu' && (
         <div style={styles.overlay} onClick={begin}>
-          <div>
+          <div style={styles.menuInner}>
             <h1 style={styles.title}>HAWKINS</h1>
             <p style={styles.subtitle}>THE VECNA HUNT</p>
             <div style={styles.lore}>
@@ -316,7 +341,7 @@ export default function HawkinsPage() {
       {/* ---------- VICTORY ---------- */}
       {phase === 'won' && (
         <div style={styles.overlay} onClick={restart}>
-          <div>
+          <div style={styles.menuInner}>
             <h1 style={{ ...styles.title, color: '#66ff99', textShadow: '0 0 30px #00ff66' }}>VECNA CAPTURED</h1>
             <p style={{ ...styles.subtitle, color: '#aaffcc' }}>{hud.finalStats}</p>
             <p style={styles.cta}>( CLICK TO RETURN TO HAWKINS )</p>
@@ -330,7 +355,17 @@ export default function HawkinsPage() {
 const styles = {
   root: { position: 'fixed', inset: 0, background: '#050005', overflow: 'hidden' },
   canvas: { position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block' },
-  hud: { position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 50 },
+  hud: { position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 50, display: 'flex', flexDirection: 'column', gap: 12, paddingTop: BANNER_CLEAR, paddingBottom: BOTTOM_CLEAR, paddingLeft: 24, paddingRight: 24, boxSizing: 'border-box' },
+  topRow: { display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' },
+  topLeft: { flex: '1 1 220px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 8 },
+  topCenter: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, flexShrink: 0, minWidth: 0 },
+  topRight: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flexShrink: 0 },
+  topBtns: { display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', pointerEvents: 'auto' },
+  midCol: { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12 },
+  bottomCol: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 },
+  bottomRow: { width: '100%', display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' },
+  bottomLeft: { display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0 },
+  menuInner: { margin: 'auto', width: 'min(92vw, 600px)', minWidth: 0 },
   reticle: {
     position: 'absolute', left: '50%', top: '50%', width: 44, height: 44,
     transform: 'translate(-50%,-50%)', opacity: 0.95, pointerEvents: 'none',
@@ -349,7 +384,6 @@ const styles = {
     position: 'absolute', width: 2, height: 9, background: 'rgba(255,70,70,0.9)',
   },
   perspbtn: {
-    position: 'absolute', top: 76, right: 14, zIndex: 60,
     pointerEvents: 'auto', cursor: 'pointer',
     background: 'rgba(10,5,12,0.72)', color: '#ff8899',
     border: '1px solid rgba(255,80,100,0.5)', borderRadius: 8,
@@ -370,50 +404,50 @@ const styles = {
     transition: 'opacity 0.9s',
   },
   objective: {
-    position: 'absolute', left: 24, top: BANNER_CLEAR, color: '#ccaa66', fontSize: 13,
-    letterSpacing: 1, maxWidth: 330, lineHeight: 1.8,
+    color: '#ccaa66', fontSize: 13,
+    letterSpacing: 1, maxWidth: 360, minWidth: 0, lineHeight: 1.8,
     textShadow: '0 0 8px rgba(200,150,50,0.5)',
   },
-  tracemeter: { position: 'absolute', left: '50%', top: BANNER_CLEAR, transform: 'translateX(-50%)', textAlign: 'center' },
+  tracemeter: { textAlign: 'center', minWidth: 0 },
   traceLabel: { color: '#9944ff', fontSize: 12, letterSpacing: 4, textShadow: '0 0 10px #8833ff', marginBottom: 6 },
-  tracebg: { width: 300, height: 10, background: 'rgba(120,40,255,0.12)', border: '1px solid #7744cc', margin: '0 auto' },
+  tracebg: { width: 'min(300px, 55vw)', height: 10, background: 'rgba(120,40,255,0.12)', border: '1px solid #7744cc', margin: '0 auto' },
   tracefill: { height: '100%', background: 'linear-gradient(90deg, #6622cc, #bb88ff)', boxShadow: '0 0 12px #8833ff', transition: 'width 0.4s' },
   traceslots: { color: '#bb88ff', fontSize: 20, letterSpacing: 6, marginTop: 6 },
-  bossbar: { position: 'absolute', left: '50%', top: 110, transform: 'translateX(-50%)', width: 480, maxWidth: '80vw', textAlign: 'center' },
+  bossbar: { width: 'min(480px, 80vw)', textAlign: 'center' },
   bossLabel: { color: '#ff2222', fontSize: 16, letterSpacing: 8, textShadow: '0 0 16px #ff0000', marginBottom: 6 },
   bossbg: { height: 16, background: 'rgba(255,0,0,0.12)', border: '1px solid #ff2222' },
   bossfill: { height: '100%', background: 'linear-gradient(90deg, #880000, #ff2222)', boxShadow: '0 0 16px #ff0000', transition: 'width 0.3s' },
   dimlabel: {
-    position: 'absolute', left: '50%', bottom: BOTTOM_CLEAR, transform: 'translateX(-50%)',
+    flex: '1 1 160px', minWidth: 0, textAlign: 'center',
     fontSize: 15, letterSpacing: 6, color: '#8899bb', textShadow: '0 0 12px #4466aa',
   },
   dim_upside: { color: '#ff5555', textShadow: '0 0 12px #ff0000' },
   dim_converged: { color: '#cc66ff', textShadow: '0 0 16px #aa33ff' },
-  healthbar: { position: 'absolute', left: 24, bottom: BOTTOM_CLEAR, width: 260 },
+  healthbar: { width: 'min(260px, 62vw)' },
   barLabel: { color: '#ff4444', fontSize: 12, letterSpacing: 3, marginBottom: 6, textShadow: '0 0 8px #ff0000' },
   healthbg: { height: 14, background: 'rgba(255,0,0,0.15)', border: '1px solid #ff2222' },
   healthfill: { height: '100%', background: 'linear-gradient(90deg, #ff2222, #ff6666)', boxShadow: '0 0 12px #ff0000', transition: 'width 0.25s' },
-  ammobar: { position: 'absolute', left: 24, bottom: 'calc(' + BOTTOM_CLEAR + ' + 50px)', width: 180 },
+  ammobar: { width: 'min(180px, 45vw)' },
   ammobg: { height: 10, background: 'rgba(255,170,50,0.12)', border: '1px solid #cc8833' },
   ammofill: { height: '100%', background: 'linear-gradient(90deg, #cc8833, #ffcc66)', transition: 'width 0.2s' },
-  stats: { position: 'absolute', right: 24, top: BANNER_CLEAR, textAlign: 'right', color: '#ff4444' },
+  stats: { textAlign: 'right', color: '#ff4444' },
   kills: { fontSize: 30, textShadow: '0 0 12px #ff0000' },
   wave: { fontSize: 14, color: '#aa6666', letterSpacing: 2, marginTop: 4 },
   wavebanner: {
-    position: 'absolute', left: 0, right: 0, top: '32%', textAlign: 'center',
-    color: '#ff2222', fontSize: 40, letterSpacing: 10, textShadow: '0 0 30px #ff0000',
+    textAlign: 'center', maxWidth: '100%',
+    color: '#ff2222', fontSize: 'min(40px, 8vw)', letterSpacing: 10, textShadow: '0 0 30px #ff0000',
   },
   clockchime: {
-    position: 'absolute', left: 0, right: 0, top: '22%', textAlign: 'center',
-    color: '#bb88ff', fontSize: 26, letterSpacing: 6, textShadow: '0 0 24px #8833ff',
+    textAlign: 'center', maxWidth: '100%',
+    color: '#bb88ff', fontSize: 'min(26px, 6vw)', letterSpacing: 6, textShadow: '0 0 24px #8833ff',
   },
-  killfeed: { position: 'absolute', left: 24, top: 'calc(' + BANNER_CLEAR + ' + 100px)', color: '#ff8888', fontSize: 13 },
+  killfeed: { color: '#ff8888', fontSize: 13, display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 },
   reloadtip: {
-    position: 'absolute', left: '50%', bottom: 110, transform: 'translateX(-50%)',
+    textAlign: 'center',
     color: '#ffaa33', fontSize: 15, letterSpacing: 3, textShadow: '0 0 10px #ff8800',
   },
   captureprompt: {
-    position: 'absolute', left: '50%', top: '58%', transform: 'translateX(-50%)',
+    marginTop: 56, maxWidth: '100%',
     color: '#66ff99', fontSize: 20, letterSpacing: 4, textShadow: '0 0 16px #00ff66',
     textAlign: 'center',
   },
@@ -442,12 +476,11 @@ const styles = {
     textShadow: '0 0 18px #ff8800', fontFamily: "'Courier New', monospace",
   },
   bikeprompt: {
-    position: 'absolute', left: '50%', bottom: 150, transform: 'translateX(-50%)',
+    textAlign: 'center',
     color: '#ffcc44', fontSize: 16, letterSpacing: 3, textShadow: '0 0 10px #ffaa00',
   },
   navwrap: {
-    position: 'absolute', left: '50%', top: 'calc(' + BANNER_CLEAR + ' + 92px)',
-    transform: 'translateX(-50%)', textAlign: 'center', pointerEvents: 'none',
+    textAlign: 'center', pointerEvents: 'none',
   },
   navarrow: {
     fontSize: 30, color: '#aa66ff', textShadow: '0 0 14px #8833ff',
@@ -460,6 +493,7 @@ const styles = {
   overlay: {
     position: 'absolute', inset: 0, zIndex: 100, display: 'flex',
     justifyContent: 'center', alignItems: 'center', textAlign: 'center',
+    overflowY: 'auto', padding: '24px 16px', boxSizing: 'border-box',
     background: 'radial-gradient(circle, #1a0000 0%, #050005 100%)',
     color: '#ff2222', cursor: 'pointer', fontFamily: "'Courier New', monospace",
   },
@@ -484,7 +518,7 @@ const styles = {
   charnote: { fontSize: 10, color: '#555', marginTop: 8, letterSpacing: 1 },
   cta: { fontSize: 13, marginTop: 18, color: '#888' },
   stick: {
-    position: 'fixed', left: 30, bottom: 110, width: 120, height: 120,
+    position: 'absolute', left: 30, bottom: 110, width: 120, height: 120,
     border: '2px solid rgba(255,60,60,0.4)', borderRadius: '50%', zIndex: 60, pointerEvents: 'auto',
     touchAction: 'none',
   },
@@ -493,14 +527,14 @@ const styles = {
     background: 'rgba(255,60,60,0.35)', borderRadius: '50%',
   },
   firebtn: {
-    position: 'fixed', right: 34, bottom: 120, width: 96, height: 96,
+    position: 'absolute', right: 34, bottom: 120, width: 96, height: 96,
     border: '2px solid rgba(255,60,60,0.6)', borderRadius: '50%', zIndex: 60,
     color: '#ff4444', fontSize: 13, display: 'flex', alignItems: 'center',
     justifyContent: 'center', background: 'rgba(255,0,0,0.08)', pointerEvents: 'auto',
     touchAction: 'none',
   },
   actbtn: {
-    position: 'fixed', right: 150, bottom: 120, width: 76, height: 76,
+    position: 'absolute', right: 150, bottom: 120, width: 76, height: 76,
     border: '2px solid rgba(100,255,150,0.6)', borderRadius: '50%', zIndex: 60,
     color: '#66ff99', fontSize: 11, display: 'flex', alignItems: 'center',
     justifyContent: 'center', background: 'rgba(0,255,100,0.06)', pointerEvents: 'auto',

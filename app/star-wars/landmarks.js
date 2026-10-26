@@ -69,7 +69,7 @@ export const LANDMARK_TYPES = [
   'mustafar-fortress', 'lava-falls', 'yavin-temple', 'echo-base', 'swamp-hut',
   'cloud-city', 'shield-generator', 'ewok-village', 'niima-outpost', 'maz-castle',
   'starkiller-cannon', 'jedi-village', 'salt-arch', 'sith-citadel', 'sith-throne',
-  'death-star', 'debris-field', 'star-destroyer', 'cantina', 'landspeeder',
+  'death-star', 'debris-field', 'star-destroyer', 'cantina', 'landspeeder', 'rover',
 ];
 
 /* ------------------------------------------------------------------
@@ -96,6 +96,19 @@ export const GLB_MODELS = {
     url: '/models/star-wars/cantina.glb',
     meters: 15,
     colliders: [{ x: 0, z: 0, r: 8.4 }],
+  },
+  /* The Tatooine rover lives under /models/vehicles/ (the shared
+   * vehicle shelf, alongside the untouched rover.glb) — the one
+   * registry entry whose URL is not under /models/star-wars/.
+   * meters 6.0: the rigged file's own extent is ~1 unit, fitted to
+   * 6 m in-world; collider 3.3 covers the fitted footprint + margin. */
+  'tatooine-rover': {
+    url: '/models/vehicles/tatooine-rover.glb',
+    meters: 6.0,
+    colliders: [{ x: 0, z: 0, r: 3.3 }],
+    /* Facing is UNMEASURED (no device pass yet): if the rover drives
+     * tail-first on device, add yawFix: Math.PI here, as the
+     * landspeeder carries for its measured +Z nose. */
   },
   landspeeder: {
     url: '/models/star-wars/landspeeder.glb',
@@ -147,7 +160,10 @@ export function attachGlbModel(R, holder, key) {
       });
       slot.add(model);
       for (const child of [...holder.children]) {
-        if (child !== slot) child.visible = false;
+        /* keepVisible children (e.g. zone.js exhaust flames) ride on
+         * the group, not the stand-in — hiding them would kill the
+         * effect the moment the GLB arrives. */
+        if (child !== slot && !child.userData.keepVisible) child.visible = false;
       }
       holder.userData.glbModel = key;
     } catch (e) {
@@ -796,6 +812,27 @@ const BUILDERS = {
         Math.cos(a) * 7.9, 2.2, Math.sin(a) * 7.9, -a));
     }
     return done(R, g, cols);
+  },
+  /* Tatooine — a parked six-wheeled rover: long chassis, cab at the
+   * drive end (-Z, the direction vehicles drive), three wheel pairs.
+   * Procedural stand-in for the tatooine-rover GLB seat; hidden when
+   * the GLB arrives. */
+  'rover': function (R) {
+    const g = new R.Group();
+    const hull = M(R, 0xb08d58, { metalness: 0.35, roughness: 0.5 });
+    const dark = M(R, 0x2b2f35, { metalness: 0.5, roughness: 0.4 });
+    g.add(mesh(R, new R.BoxGeometry(2.2, 0.7, 5.2), hull, 0, 0.95, 0));
+    g.add(mesh(R, new R.BoxGeometry(1.8, 0.8, 1.4), hull, 0, 1.6, -1.9));
+    g.add(mesh(R, new R.BoxGeometry(1.4, 0.5, 0.2), dark, 0, 1.55, -2.65));
+    for (const s of [-1, 1]) {
+      for (const wz of [-2, 0, 2]) {
+        const wheel = mesh(R, new R.CylinderGeometry(0.48, 0.48, 0.32, 12), dark, s * 1.15, 0.48, wz);
+        wheel.rotation.z = Math.PI / 2;
+        g.add(wheel);
+      }
+    }
+    // the fitted GLB spans 6 m on its long axis; r 3.3 covers it
+    return done(R, g, [{ x: 0, z: 0, r: 3.3 }]);
   },
   /* Tatooine — a parked landspeeder: rounded hull, twin intakes,
    * windshield, hover skirt. Procedural stand-in for the GLB seat. */

@@ -5,14 +5,16 @@ import * as THREE from 'three';
 import GoogleEarthTiles from '@/components/GoogleEarthTiles';
 import ProceduralEarthGlobe from '@/components/ProceduralEarthGlobe';
 import EarthAssets from '@/components/EarthAssets';
+import EarthLocalScatter from '@/components/EarthLocalScatter';
 import EarthWalker from '@/components/EarthWalker';
 import EarthLadders from '@/components/EarthLadders';
 import RedwaterMount from '@/components/earth/RedwaterMount';
 import MonumentElevator from '@/components/MonumentElevator';
 import EarthBike from '@/components/EarthBike';
+import EarthSupercar from '@/components/EarthSupercar';
+import EarthPitMarker from '@/components/EarthPitMarker';
 import StreetGroundPatch, { StreetFillLight, MicroGroundDisc } from '@/components/StreetGroundPatch';
 import QuantumSkyDome from '@/components/QuantumSkyDome';
-import UnderwaterVeil from '@/components/UnderwaterVeil';
 import { LENS_PRESETS, LENS_LIFT, lensTilePlan, buildLensGeometryData } from '@/lib/earth/lens';
 import { tileCellKey, recordRenderedTileKey } from '@/lib/earth/lens-cache';
 import { HUB_UNITS_PER_DEGREE, DISPLAY_UNITS_PER_METRE } from '@/lib/earth/placements';
@@ -140,7 +142,19 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
       spinRef.current.quaternion.copy(quatRef.current);
     }
     if (sheetsRef.current.length) {
-      const target = (focus || roaming) && phase !== 'earth_travel' ? 0.96 : 0;
+      // UNMASKED (2026-10-26, Earth 1 expansion): a rendered tile
+      // STAYS rendered and visible. The old fade hid every sheet
+      // whenever focus cleared or during earth_travel, so ground
+      // the traveler had already revealed vanished back to bare
+      // globe — a mask in everything but name. Rendered sheets
+      // now hold at full opacity in every phase; the only thing
+      // that still removes a sheet is the MAX_LENS_SHEETS distance
+      // eviction (a GPU-memory cap, not a hide). The
+      // photorealistic layer's own gate (hidden while roaming, so
+      // the street layer can stand) is untouched — that layer is
+      // a product decision, not a mask, and disabling it is out
+      // of scope.
+      const target = 0.96;
       for (const s of sheetsRef.current) {
         const m = s.mesh.material;
         m.opacity += (target - m.opacity) * Math.min(1, delta * 3);
@@ -344,6 +358,19 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
         {effectiveLayer === 'terrain' && roaming && !microMode && <MonumentElevator visible={roaming} />}
         {/* Summonable TRON bike — street only */}
         {effectiveLayer === 'terrain' && roaming && <EarthBike controls={controls} />}
+        {/* Summonable Lamborghini Aventador — street only, Earth's
+            fastest vehicle (Earth 1 expansion). Same gate as the
+            bike; the car itself stays grounded. */}
+        {effectiveLayer === 'terrain' && roaming && <EarthSupercar controls={controls} />}
+        {/* Visible quicksand-pit marker (video QA V2-5): gold beam +
+            ring + spinning diamond over the Redwater pit, so the
+            journey is findable from the spawn. Visual only — it
+            never blocks the pit, the sink, the tunnel or the core. */}
+        {effectiveLayer === 'terrain' && roaming && !microMode && <EarthPitMarker />}
+        {/* Traveler-following dense props (Earth 1 expansion):
+            street-level population everywhere, dry seabed included
+            — same gate as the street patch, never in micro. */}
+        {effectiveLayer === 'terrain' && roaming && !microMode && <EarthLocalScatter />}
 
         {effectiveLayer === 'terrain' && !microMode && lensSheets.map((s) => (
           <primitive key={s.key} object={s.mesh} />
@@ -368,12 +395,6 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
             while the Quantum Realm is off (same flag, same note). */}
         {effectiveLayer === 'terrain' && roaming && QUANTUM_ENABLED && (
           <QuantumSkyDome />
-        )}
-        {/* Underwater ambience for swimming: a clear bright-blue
-            wash that exists only while the camera is under the
-            waterline (self-gating inside the component). */}
-        {effectiveLayer === 'terrain' && roaming && (
-          <UnderwaterVeil />
         )}
         {effectiveLayer === 'terrain' && <StreetFillLight active={roaming} />}
         {/* Day sky dome at street level: blue during day, transparent at night.
@@ -405,7 +426,17 @@ export default function NexusEarth({ onSelect, onParachute, onTileSelect, quatRe
                 void main() {
                   float dayness = smoothstep(-0.1, 0.3, dot(normalize(vWorldNormal), sunDirection));
                   vec3 skyBlue = vec3(0.53, 0.81, 0.92);
-                  gl_FragColor = vec4(skyBlue, dayness * 0.95);
+                  // Skybox fallback (video QA V2-4 hardening,
+                  // 2026-10-26): the sky never fades to fully
+                  // transparent — at night it holds a deep blue
+                  // floor instead of the void black behind the
+                  // canvas, so a camera clip never reads as a
+                  // solid black half-screen. The street camera's
+                  // floor clamp (EarthFlightController) is the
+                  // primary guard; this is the backstop.
+                  vec3 nightBlue = vec3(0.04, 0.06, 0.15);
+                  vec3 sky = mix(nightBlue, skyBlue, dayness);
+                  gl_FragColor = vec4(sky, 0.35 + dayness * 0.6);
                 }
               `}
             />

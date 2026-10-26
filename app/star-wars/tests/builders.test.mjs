@@ -67,14 +67,17 @@ describe('textures', () => {
 });
 
 describe('landmarks', () => {
-  it('exports 32 landmark types', () => {
+  it('exports 33 landmark types', () => {
     // 29 + 'cantina' + 'landspeeder' (procedural stand-ins for the
     // Tatooine GLB seats, added with the ever-expanding Tatooine build)
     // + 'kyber-forge' (the Kyber Smith's seat at the Jedi Temple)
-    assert.equal(LM.LANDMARK_TYPES.length, 32);
+    // + 'rover' (procedural stand-in for the Tatooine rover GLB seat,
+    // added 2026-10-26 with the batch-4 rover)
+    assert.equal(LM.LANDMARK_TYPES.length, 33);
     assert.ok(LM.LANDMARK_TYPES.includes('cantina'));
     assert.ok(LM.LANDMARK_TYPES.includes('landspeeder'));
     assert.ok(LM.LANDMARK_TYPES.includes('kyber-forge'));
+    assert.ok(LM.LANDMARK_TYPES.includes('rover'));
   });
 
   for (const type of LM.LANDMARK_TYPES) {
@@ -282,10 +285,16 @@ describe('zone (fly)', () => {
 });
 
 describe('GLB seats (landmarks.js)', () => {
-  it('registry covers the three finished Tatooine assets', () => {
-    assert.deepEqual(Object.keys(LM.GLB_MODELS).sort(), ['cantina', 'homestead', 'landspeeder']);
+  it('registry covers the finished Tatooine assets', () => {
+    assert.deepEqual(Object.keys(LM.GLB_MODELS).sort(), ['cantina', 'homestead', 'landspeeder', 'tatooine-rover']);
     for (const [key, def] of Object.entries(LM.GLB_MODELS)) {
-      assert.ok(def.url.startsWith('/models/star-wars/') && def.url.endsWith('.glb'), key);
+      // the rover is the one exception: it lives on the shared vehicle
+      // shelf (/models/vehicles/), not under /models/star-wars/
+      if (key === 'tatooine-rover') {
+        assert.equal(def.url, '/models/vehicles/tatooine-rover.glb', key);
+      } else {
+        assert.ok(def.url.startsWith('/models/star-wars/') && def.url.endsWith('.glb'), key);
+      }
       assert.ok(def.meters > 0, key);
       assert.ok(Array.isArray(def.colliders) && def.colliders.length >= 1, key);
       for (const c of def.colliders) {
@@ -343,7 +352,7 @@ describe('ever-expanding template + Tatooine (zone.js)', () => {
 
   it('tatooine zone: big bounds, canyon under the gates, scatter + GLB colliders', () => {
     const z = buildZone(THREE, PLANETS.tatooine, T);
-    assert.deepEqual(z.bounds, { kind: 'circle', max: 295 });
+    assert.deepEqual(z.bounds, { kind: 'circle', max: 460 });
     assert.deepEqual(z.spawn, { x: 0, z: 95, yaw: Math.PI });
     // the podrace circuit is untouched — gates re-seated on the canyon
     assert.deepEqual(z.checkpoints, PLANETS.tatooine.beat.checkpoints);
@@ -394,7 +403,7 @@ describe('ever-expanding template + Tatooine (zone.js)', () => {
 
   it('naboo zone: expanded to the full template (bounds, foliage, horizon)', () => {
     const z = buildZone(THREE, PLANETS.naboo, T);
-    assert.deepEqual(z.bounds, { kind: 'circle', max: 295 });
+    assert.deepEqual(z.bounds, { kind: 'circle', max: 460 });
     assert.deepEqual(z.checkpoints, []); // Naboo's first mission is a target
     assert.deepEqual(z.target, PLANETS.naboo.beat.target);
     let instanced = 0;
@@ -864,7 +873,11 @@ describe('QA item 2 — the podracer is solid from every approach', () => {
 
   it('the parked landspeeder stops the walker too (registry collider)', () => {
     const z = buildZone(THREE, PLANETS.tatooine, T);
-    const w = WC.createWalker({ x: 60, z: 42, yaw: 0 }); // forward (0,-1): toward the speeder at (60,26)
+    // start (60,36): the old (60,42) start now sits inside a seeded
+    // scatter mesa that the wider 460 m scatter ring placed there,
+    // which shoved the walker sideways past the speeder instead of
+    // into it. The lane from 36 is clear; the speeder still stops it.
+    const w = WC.createWalker({ x: 60, z: 36, yaw: 0 }); // forward (0,-1): toward the speeder at (60,26)
     const world = {
       groundHeight: z.groundHeight, colliders: z.colliders, bounds: z.bounds, snapY: true,
     };
@@ -931,12 +944,20 @@ describe('QA items 4+5 — small label, holstered saber, measured mounts', () =>
 });
 
 describe('QA item 6 — rideable vehicles (vehicles.js + zone wiring)', () => {
-  it('tatooine stages four rideables, the winner pod included', () => {
+  it('tatooine stages five rideables, the winner pod and the rover included', () => {
     const z = buildZone(THREE, PLANETS.tatooine, T);
     // The QA round left the winner's pod as dressing; the all-worlds
     // pass (2026-10-23) wires it — same type as its grid siblings.
+    // The batch-4 rover joins them (2026-10-26), parked in the
+    // vehicle area beside the speeder.
     assert.deepEqual(z.vehicles.map((v) => v.id).sort(),
-      ['landspeeder', 'pod-grid-a', 'pod-grid-b', 'pod-winner']);
+      ['landspeeder', 'pod-grid-a', 'pod-grid-b', 'pod-winner', 'tatooine-rover']);
+    const rover = z.vehicles.find((v) => v.id === 'tatooine-rover');
+    assert.equal(rover.type, 'rover');
+    assert.equal(rover.state.x, 76); assert.equal(rover.state.z, 40);
+    assert.ok(VH.VEHICLE_TYPES.rover, 'rover drive type exists');
+    assert.ok(VH.VEHICLE_TYPES.rover.cruise < VH.VEHICLE_TYPES.landspeeder.cruise,
+      'the rover is slower than the speeder');
     for (const v of z.vehicles) {
       assert.equal(v.state.mode, 'parked');
       assert.equal(v.state.speed, 0);
@@ -949,6 +970,45 @@ describe('QA item 6 — rideable vehicles (vehicles.js + zone wiring)', () => {
     assert.equal(podA.group.position.x, 31);
     assert.equal(podA.group.position.y, podA.state.y);
     z.dispose();
+  });
+
+  it('landspeeder blue exhaust flame: dark parked, lit while driving', () => {
+    const z = buildZone(THREE, PLANETS.tatooine, T);
+    const speeder = z.vehicles.find((v) => v.id === 'landspeeder');
+    assert.ok(speeder.flame, 'the speeder carries a flame entry');
+    assert.ok(speeder.flame.group.userData.keepVisible, 'the GLB arrival never hides the flame');
+    z.update(0, 0.016);
+    assert.equal(speeder.flame.group.visible, false, 'parked: no flame');
+    assert.equal(VH.mountVehicle(speeder.state), true);
+    speeder.state.speed = 12;
+    z.update(1, 0.016);
+    assert.equal(speeder.flame.group.visible, true, 'driving: blue flame on');
+    // the plume points out the back (+Z local: vehicles drive -Z)
+    let flameZ = null;
+    speeder.flame.group.traverse((o) => { if (o.isMesh) flameZ = o.position.z; });
+    assert.ok(flameZ > 2, 'flame sits behind the hull, not ahead of it');
+    VH.parkVehicle(speeder.state, () => 0);
+    z.update(2, 0.016);
+    assert.equal(speeder.flame.group.visible, false, 'parked again: flame off');
+    const rover = z.vehicles.find((v) => v.id === 'tatooine-rover');
+    assert.equal(rover.flame, null, 'the flame belongs to the speeder only');
+    z.dispose();
+  });
+
+  it('world expansion (2026-10-26): playable bounds well past the old edge', () => {
+    assert.equal(PLANETS.tatooine.worldRadius, 520);
+    assert.equal(PLANETS.tatooine.boundsRadius, 460);
+    for (const def of Object.values(PLANETS)) {
+      if (def.kind === 'walk') {
+        assert.ok(def.worldRadius >= 500, `${def.id} terrain pushed out`);
+        assert.ok(def.boundsRadius >= 400, `${def.id} playable bounds pushed out`);
+        assert.ok(def.horizon.radius > def.worldRadius, `${def.id} horizon beyond terrain`);
+      }
+    }
+    // missions and landmarks did NOT move with the expansion
+    const beat = PLANETS.tatooine.missions[0];
+    assert.equal(beat.checkpoints[0].label, 'Canyon Gate');
+    assert.deepEqual([beat.checkpoints[0].x, beat.checkpoints[0].z], [25, 55]);
   });
 
   it('mount/dismount state machine + prompt range', () => {
@@ -1077,13 +1137,18 @@ describe('ALL-WORLDS QA 1 — gravity + ground truth, every world', () => {
     const rot = errB < errA;
     assert.ok(Math.min(errA, errB) / checked < 0.05,
       'one frame matches the analytic surface at the vertices');
-    const radii = new Set();
-    for (let i = 0; i < pos.count; i++) {
-      /* 1 cm buckets: float32 vertex noise (~3e-5) must not split a
-       * ring into two phantom radii */
-      radii.add(Math.round(Math.hypot(pos.getX(i), pos.getZ(i)) * 1e2) / 1e2);
+    /* Cluster radii with a 0.02 m tolerance: at the expanded 520 m
+     * worlds a ring can straddle a 1 cm bucket boundary (float32
+     * rounding) and split into two phantom radii — the old bucket
+     * method read a clean 348-row disc as 349 rows. Ring spacing is
+     * ~1.5 m, so 0.02 m clustering can never merge two real rings. */
+    const rawR = [];
+    for (let i = 0; i < pos.count; i++) rawR.push(Math.hypot(pos.getX(i), pos.getZ(i)));
+    rawR.sort((a, b) => a - b);
+    const ringR = [];
+    for (const r of rawR) {
+      if (!ringR.length || r - ringR[ringR.length - 1] > 0.02) ringR.push(r);
     }
-    const ringR = [...radii].sort((a, b) => a - b);
     const rings = ringR.length - 1;
     const segs = Math.round(pos.count / (rings + 1)) - 1;
     assert.equal((rings + 1) * (segs + 1), pos.count, 'regular ring/sector grid');
@@ -1421,14 +1486,15 @@ describe('ALL-WORLDS QA 4 — characters: measured anchors + holster law, every 
 });
 
 describe('ALL-WORLDS QA 5+6 — rideable inventory per world + shared page laws', () => {
-  it('vehicle inventory: tatooine stages four rideables; every other world none (audited)', () => {
+  it('vehicle inventory: tatooine stages five rideables; every other world none (audited)', () => {
     /* Audit basis (2026-10-23): Endor's "Speeder-Bike Run" beat, Crait's
      * ski speeders, Hoth's tauntauns, Jakku's wreckage, Kamino's stilts
      * and Coruscant's spires are narrative/ambient/dressing — no
      * rideable-class prop exists in their landmark sets. The fly
      * worlds need none (the player already flies). Tatooine is the
-     * only world with vehicle-class props, and all four are wired. */
-    const expect = { tatooine: ['landspeeder', 'pod-grid-a', 'pod-grid-b', 'pod-winner'] };
+     * only world with vehicle-class props, and all five are wired
+     * (the rover joined 2026-10-26). */
+    const expect = { tatooine: ['landspeeder', 'pod-grid-a', 'pod-grid-b', 'pod-winner', 'tatooine-rover'] };
     for (const def of Object.values(PLANETS)) {
       const vids = (def.landmarks || []).filter((l) => l.vehicle).map((l) => l.vid).sort();
       assert.deepEqual(vids, (expect[def.id] || []).slice().sort(), `${def.id} vehicle inventory`);

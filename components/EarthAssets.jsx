@@ -6,9 +6,11 @@ import { EARTH_ASSETS } from '@/lib/earth/assets';
 import {
   placementsFor,
   displayScaleFor,
+  displayPlacement,
   DISPLAY_UNITS_PER_METRE,
   HUB_UNITS_PER_DEGREE,
 } from '@/lib/earth/placements';
+import { globalPlacementsFor } from '@/lib/earth/global-scatter';
 import { loadHeightData, surfaceRadiusOrBase } from '@/lib/earth/heightmap';
 import { publishColliders } from '@/lib/earth/collision';
 import { tameTripoMaterials } from '@/lib/characters/tame-materials';
@@ -113,9 +115,63 @@ const SEGMENT_COUNTS = {
   'e059-golden-gate-segment': 2,
 };
 
-// Terrain masks (audit §4.3): water species stay in the water,
-// shoreline species in the shoreline band, everything else on
-// land. Segments keep their anchor lines (no mask).
+// GLOBAL layer (2026-10-26, Earth 1 expansion): the anchor scatter
+// above only populates pockets, so these species ALSO get a coarse
+// planet-wide grid (lib/earth/global-scatter.js) — the same
+// InstancedMesh, no new draw calls, per-species caps holding the
+// total global layer at ~1,390 instances. Terrain: 'any' species
+// populate the dry seabed too (water is gone — the old ocean
+// floor is walkable land); trees stay on land above the old sea
+// level; former-water species keep the old seabed. Global props
+// are VISUAL ONLY (no colliders published): collision scans every
+// collider per step, and 1,390 far-away colliders would tax every
+// move for props the traveler is nowhere near. Singles and anchor
+// scatter keep their colliders exactly as before.
+const GLOBAL_SCATTER = {
+  'e001-rocky-outcrop': { stepDeg: 6, chance: 0.8, terrain: 'any', maxCount: 220 },
+  'e002-prairie-grass-tufts': { stepDeg: 5, chance: 0.6, terrain: 'any', maxCount: 220 },
+  'e020-shrub-cluster': { stepDeg: 6, chance: 0.7, terrain: 'any', maxCount: 200 },
+  'e009-lodgepole-pine': { stepDeg: 7, chance: 0.6, terrain: 'land', maxCount: 180 },
+  'e010-white-spruce': { stepDeg: 7, chance: 0.6, terrain: 'land', maxCount: 180 },
+  'e013-douglas-fir': { stepDeg: 8, chance: 0.5, terrain: 'land', maxCount: 150 },
+  'e032-iceberg': { stepDeg: 10, chance: 0.5, terrain: 'seabed', maxCount: 120 },
+  'e034-coral-reef-cluster': { stepDeg: 10, chance: 0.5, terrain: 'seabed', maxCount: 120 },
+};
+
+// REDWATER SPAWN FARMSTEAD (video QA V2-5, 2026-10-26): the
+// walked Redwater area had no buildings at all, while the
+// console promises aether "hidden inside Earth's buildings".
+// The Alberta farm kit's own anchor (53.45, -113.6) is ~50 km
+// from Redwater, so the kit is ALSO cloned at the Redwater
+// town centre — real buildings at the spawn the player actually
+// walks. Offsets are metres east/north of the town centre
+// (53.9486, -113.1067), kept southwest so the farmstead never
+// crowds the quicksand pit (100 m east, 50 m north of centre:
+// the nearest farm piece stands 300+ m from the pit). Clones
+// share the original GLB geometry/materials (no new downloads,
+// no new draw-call family beyond one node per piece); a cloned
+// farmhouse carries no interior room — its door does not open
+// like the original's would — which is stated here rather than
+// hidden, and is fine for a spawn-dressing farmstead.
+const REDWATER_TOWN = { lat: 53.9486, lon: -113.1067 };
+const REDWATER_FARM_OFFSETS = {
+  'e021-red-gambrel-barn': { eastM: -170, northM: -120 },
+  'e022-grain-silo': { eastM: -145, northM: -100 },
+  'e023-prairie-farmhouse': { eastM: -200, northM: -155 },
+  'e024-farm-windmill': { eastM: -130, northM: -175 },
+};
+function offsetLatLon(lat, lon, eastM, northM) {
+  return {
+    lat: lat + northM / 111320,
+    lon: lon + eastM / (111320 * Math.max(0.2, Math.cos((lat * Math.PI) / 180))),
+  };
+}
+
+// Terrain masks (audit §4.3): former-water species (iceberg,
+// coral reef) still select the old seabed sites — which are now
+// dry walkable terrain — shoreline species in the shoreline
+// band, everything else on land. Segments keep their anchor
+// lines (no mask).
 const WATER_SCATTER = new Set(['e032-iceberg', 'e034-coral-reef-cluster']);
 const SHORE_SCATTER = new Set(['e015-date-palm', 'e025-mangrove-cluster', 'e031-bald-cypress']);
 function terrainMaskFor(asset) {
@@ -179,7 +235,21 @@ export default function EarthAssets() {
             terrainMask: mode === 'instanced-scatter' ? terrainMaskFor(asset) : null,
             exclusions: mode === 'instanced-scatter' ? EXCLUSIONS : null,
           });
-          if (!placements.length) continue;
+          // Global layer (planet-wide grid, same species): lat/lon
+          // only here — grounded after the GLB loads, and AFTER
+          // the collider publish below, so global props stay
+          // visual-only (see GLOBAL_SCATTER).
+          const globalCfg = mode === 'instanced-scatter' ? GLOBAL_SCATTER[asset.id] : null;
+          const globalSpots = globalCfg
+            ? globalPlacementsFor(asset.id, gray, imgW, imgH, {
+              stepDeg: globalCfg.stepDeg,
+              chance: globalCfg.chance,
+              terrain: globalCfg.terrain,
+              maxCount: globalCfg.maxCount,
+              exclusions: EXCLUSIONS,
+            })
+            : [];
+          if (!placements.length && !globalSpots.length) continue;
           // Publish colliders for solid objects (trees, rocks, structures).
           // Scatter instances get small trunk/base radii; singles are
           // already covered by buildColliders() but we include them for
@@ -220,6 +290,27 @@ export default function EarthAssets() {
           }
           if (!alive) return;
           tameTripoMaterials(gltf.scene);
+          // Ground the global layer now (same display law as the
+          // anchor scatter, with its per-instance scale jitter).
+          for (const spot of globalSpots) {
+            const gp = displayPlacement(
+              asset, gray, imgW, imgH, spot.lat, spot.lon,
+              DISPLAY_UNITS_PER_METRE, DISPLAY_HEIGHT_CAPS_M[asset.id],
+            );
+            gp.lat = spot.lat;
+            gp.lon = spot.lon;
+            gp.headingDeg = spot.headingDeg;
+            gp.displayHeight = gp.displayHeight * spot.jitter;
+            gp.displayScale = gp.displayScale * spot.jitter;
+            const lift = gp.displayHeight / 2
+              - (asset.placement?.sinkFrac || 0) * gp.displayHeight;
+            gp.position = {
+              x: gp.surfacePoint.x + gp.normal.x * lift,
+              y: gp.surfacePoint.y + gp.normal.y * lift,
+              z: gp.surfacePoint.z + gp.normal.z * lift,
+            };
+            placements.push(gp);
+          }
           disposables.current.push(gltf.scene);
           const place = (obj, p) => {
             obj.position.set(p.position.x, p.position.y, p.position.z);
@@ -242,6 +333,21 @@ export default function EarthAssets() {
             holder.add(inner);
             place(holder, placements[0]);
             nodes.push(holder);
+            // Redwater spawn clone of the farm kit (see
+            // REDWATER_FARM_OFFSETS): the same building, a second
+            // siting at the spawn the player walks.
+            const farmOff = REDWATER_FARM_OFFSETS[asset.id];
+            if (farmOff) {
+              const at = offsetLatLon(REDWATER_TOWN.lat, REDWATER_TOWN.lon, farmOff.eastM, farmOff.northM);
+              const fp = displayPlacement(
+                asset, gray, imgW, imgH, at.lat, at.lon,
+                DISPLAY_UNITS_PER_METRE, DISPLAY_HEIGHT_CAPS_M[asset.id],
+              );
+              const clone = holder.clone(true);
+              place(clone, fp);
+              nodes.push(clone);
+              disposables.current.push(clone);
+            }
             // ANIMATION (Merlin, 2026-10-22): the farm windmill's
             // fan — vertex-level, the GLB is one fused mesh (see
             // lib/earth/asset-anim.js). Registered on the model's

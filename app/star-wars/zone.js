@@ -800,12 +800,45 @@ export function buildZone(THREE, planetDef, T, opts) {
       const st = createVehicleState(ld.vehicle, {
         x: ld.x || 0, z: ld.z || 0, yaw: ry, seatY: seatY,
       });
+      /* BLUE ENGINE FLAME (landspeeder only): an exhaust plume out
+       * the back (+Z local — vehicles drive toward -Z), built from
+       * two additive cones. It rides the vehicle group, so it follows
+       * every drive step; update() below shows it only while actually
+       * driving and flickers it with speed. keepVisible so the GLB
+       * arrival (landmarks.js hides the stand-in) never hides it. */
+      let flame = null;
+      if (ld.vehicle === 'landspeeder') {
+        const fg = new R.Group();
+        fg.name = 'exhaust-flame';
+        fg.userData.keepVisible = true;
+        const outerGeo = new R.ConeGeometry(0.38, 1.7, 10);
+        outerGeo.translate(0, 0.85, 0);
+        const outer = new R.Mesh(outerGeo, new R.MeshBasicMaterial({
+          color: 0x2a7bff, transparent: true, opacity: 0.75,
+          blending: R.AdditiveBlending, depthWrite: false, fog: false,
+        }));
+        outer.rotation.x = Math.PI / 2;
+        outer.position.set(0, 0.95, 2.4);
+        const innerGeo = new R.ConeGeometry(0.2, 1.1, 10);
+        innerGeo.translate(0, 0.55, 0);
+        const inner = new R.Mesh(innerGeo, new R.MeshBasicMaterial({
+          color: 0xbfe6ff, transparent: true, opacity: 0.9,
+          blending: R.AdditiveBlending, depthWrite: false, fog: false,
+        }));
+        inner.rotation.x = Math.PI / 2;
+        inner.position.set(0, 0.95, 2.5);
+        fg.add(outer); fg.add(inner);
+        fg.visible = false;
+        built.group.add(fg);
+        flame = { group: fg, outer: outer, inner: inner, phase: (ld.x || 0) * 1.7 + (ld.z || 0) };
+      }
       vehicles.push({
         id: ld.vid || (ld.vehicle + '-' + vehicles.length),
         type: ld.vehicle,
         state: st,
         group: built.group,
         colliders: pushed,
+        flame: flame,
       });
     }
   }
@@ -994,6 +1027,26 @@ export function buildZone(THREE, planetDef, T, opts) {
       const st = v.state;
       v.group.position.set(st.x, st.y, st.z);
       v.group.rotation.set(st.pitch || 0, st.yaw, st.roll || 0);
+      /* Exhaust flame: on only while driving, length growing with
+       * speed, width flickering — parked or idling, it is dark. */
+      if (v.flame) {
+        const driving = st.mode === 'mounted' && Math.abs(st.speed) > 1;
+        v.flame.group.visible = driving;
+        if (driving) {
+          /* Stability: a non-finite frame time must never NaN the
+           * flame scale (an invisible/NaN plume reads as a broken
+           * speeder). The page always passes a real t; this is the
+           * belt-and-braces fallback. */
+          const tt = Number.isFinite(t) ? t : 0;
+          const cruise = (VEHICLE_TYPES[st.type] && VEHICLE_TYPES[st.type].cruise) || 18;
+          const ratio = Math.min(1, Math.abs(st.speed) / cruise);
+          const flick = 0.85 + 0.25 * Math.sin(tt * 29 + v.flame.phase)
+            + 0.12 * Math.sin(tt * 47 + v.flame.phase * 1.3);
+          const w = Math.max(0.4, flick);
+          v.flame.outer.scale.set(w, (0.7 + 0.6 * ratio) * flick, w);
+          v.flame.inner.scale.set(w, (0.6 + 0.5 * ratio) * flick, w);
+        }
+      }
     }
   }
 

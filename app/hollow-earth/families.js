@@ -102,6 +102,38 @@ export const MONSTER_FAMILIES = {
 
 export const FAMILY_KEYS = Object.keys(MONSTER_FAMILIES);
 
+/* BATCH-4 NEW FAMILIES (2026-10-26, rigged Tripo arrivals).
+ * MONSTER_FAMILIES stays slot-pure — its keys are the 38 unique
+ * Monster Graphics slots, and the tests lock that contract — so
+ * the batch-4 creatures that match NO existing slot live here
+ * under name keys, not invented slot numbers. Squeezing them
+ * into ill-fitting slots would break the world-to-monsters rule
+ * (REQUIREMENTS.md: the world shapes around the monsters, never
+ * the reverse). spawns.js merges these into MONSTER_TYPES and
+ * guarantees two of each in-band, exactly like slot families, so
+ * they spawn, hunt, and pay rewards under the same rules — only
+ * their keys are names, and their model paths follow the same
+ * /models/hollow-earth/<key>.glb scheme. Stats honour the same
+ * 100–200 HP band. `mount: true` marks a rideable-mount
+ * candidate (riding itself is NOT built yet); `flyHeight`
+ * lifts a flyer the way the dragon seats already do (strike.js
+ * flight ceiling applies generically). */
+export const EXTRA_FAMILIES = {
+  'scarab-beetle': { key: 'scarab-beetle', name: 'Khepri the Jeweled', element: 'sand', attitude: 'stalk', archetype: 'short-range', habitat: 'sand', form: 'beast', sizeClass: 'hunter', hp: 120, dmg: 12, speed: 4.4, scaleM: 2.2, footprintR: 1.5, temperament: { scary: 0.7, vicious: 0.6, fast: 0.8 }, blurb: 'A jewel-shelled beetle rolling suns across the dark, collecting shiny secrets.' },
+  'embermane-horse': { key: 'embermane-horse', name: 'Embermane', element: 'fire', attitude: 'charge', archetype: 'short-range', habitat: 'mountain', form: 'beast', sizeClass: 'hunter', hp: 140, dmg: 13, speed: 5.6, scaleM: 2.4, footprintR: 1.6, mount: true, temperament: { scary: 0.5, vicious: 0.5, fast: 1.0 }, blurb: 'A horse that chose its rider, not the other way round — proud, warm, impatient with bad riders.' },
+  umbrax: { key: 'umbrax', name: 'Umbrax the Nightwing', element: 'shadow', attitude: 'stalk', archetype: 'ranged', habitat: 'shadow', form: 'beast', sizeClass: 'colossal', hp: 200, dmg: 18, speed: 4.6, scaleM: 4.0, footprintR: 2.6, flyHeight: 6, temperament: { scary: 1.0, vicious: 0.9, fast: 0.8 }, blurb: 'The dark between stars, with teeth — a subsonic rumble you feel in your ribs.' },
+  aureline: { key: 'aureline', name: 'Aureline the Dawnscale', element: 'lightning', attitude: 'stalk', archetype: 'ranged', habitat: 'mountain', form: 'beast', sizeClass: 'brute', hp: 180, dmg: 15, speed: 5.4, scaleM: 3.4, footprintR: 2.2, flyHeight: 6, temperament: { scary: 0.8, vicious: 0.6, fast: 1.0 }, blurb: 'Hoards sunrises, not gold — bright, brassy, laughter like breaking light.' },
+  'eagle-talon': { key: 'eagle-talon', name: "Liberty 'Lib' Talon", element: 'lightning', attitude: 'charge', archetype: 'short-range', habitat: 'mountain', form: 'beast', sizeClass: 'hunter', hp: 110, dmg: 11, speed: 6.0, scaleM: 1.8, footprintR: 1.2, flyHeight: 6, temperament: { scary: 0.6, vicious: 0.7, fast: 1.0 }, blurb: 'Sees everything, judges most of it, shares the good thermals.' },
+  oozealot: { key: 'oozealot', name: 'Sir Oozealot', element: 'acid', attitude: 'ambush', archetype: 'melee', habitat: 'acid', form: 'beast', sizeClass: 'brute', hp: 180, dmg: 14, speed: 2.2, scaleM: 2.8, footprintR: 1.9, temperament: { scary: 0.7, vicious: 0.5, fast: 0.2 }, blurb: 'Slow, unstoppable, mildly offended by salt — wet, glubbing, philosophical.' },
+  'fenris-warg': { key: 'fenris-warg', name: 'Fenris the Road-Shadow', element: 'shadow', attitude: 'charge', archetype: 'melee', habitat: 'shadow', form: 'beast', sizeClass: 'hunter', hp: 130, dmg: 13, speed: 5.8, scaleM: 2.2, footprintR: 1.5, temperament: { scary: 0.8, vicious: 0.9, fast: 1.0 }, blurb: 'Runs ahead of storms and bad news alike — low growls, wind-fast howls.' },
+  'frostbite-lizard': { key: 'frostbite-lizard', name: 'Frostbite the Patient', element: 'frost', attitude: 'stalk', archetype: 'short-range', habitat: 'frost', form: 'beast', sizeClass: 'brute', hp: 170, dmg: 14, speed: 3.4, scaleM: 3.0, footprintR: 2.0, mount: true, temperament: { scary: 0.6, vicious: 0.5, fast: 0.4 }, blurb: 'Carries riders across the white like it is no trouble at all — slow huffs, ice-cracking grumbles.' },
+  'dune-maw-2': { key: 'dune-maw-2', name: 'Dune Maw the Second', element: 'sand', attitude: 'charge', archetype: 'melee', habitat: 'sand', form: 'beast', sizeClass: 'brute', hp: 170, dmg: 15, speed: 4.6, scaleM: 3.0, footprintR: 2.0, temperament: { scary: 0.8, vicious: 0.9, fast: 0.8 }, blurb: 'The desert’s second opinion, equally sandy — grinding, whispering sandstorm.' },
+  vice: { key: 'vice', name: 'Vice', element: 'poison', attitude: 'stalk', archetype: 'ranged', habitat: 'poison', form: 'beast', sizeClass: 'hunter', hp: 130, dmg: 13, speed: 4.2, scaleM: 2.4, footprintR: 1.6, temperament: { scary: 0.9, vicious: 0.8, fast: 0.6 }, blurb: 'Temptation with claws — smooth, sinister, purring menace.' },
+  wonder: { key: 'wonder', name: 'The Unnamed Wonder', element: 'shadow', attitude: 'stalk', archetype: 'ranged', habitat: 'mountain', form: 'beast', sizeClass: 'hunter', hp: 120, dmg: 11, speed: 3.8, scaleM: 2.2, footprintR: 1.5, temperament: { scary: 0.5, vicious: 0.3, fast: 0.6 }, blurb: 'Strange, soft, and impossible to describe twice the same way — warbling, curious, gentle.' },
+};
+
+export const EXTRA_FAMILY_KEYS = Object.keys(EXTRA_FAMILIES);
+
 /* Where each family lives: slot → 'family' (a MONSTER_FAMILIES
  * entry) or 'boss' (slot 13, Korus, whose seat is the throne).
  * null for anything that is not a unique monster slot at all
@@ -115,8 +147,7 @@ export function slotHome(slot) {
 
 export const FAMILIES_BY_HABITAT = {};
 export const FAMILIES_BY_ELEMENT = {};
-for (const key of FAMILY_KEYS) {
-  const f = MONSTER_FAMILIES[key];
+for (const [key, f] of Object.entries({ ...MONSTER_FAMILIES, ...EXTRA_FAMILIES })) {
   (FAMILIES_BY_HABITAT[f.habitat] = FAMILIES_BY_HABITAT[f.habitat] || []).push(key);
   (FAMILIES_BY_ELEMENT[f.element] = FAMILIES_BY_ELEMENT[f.element] || []).push(key);
 }

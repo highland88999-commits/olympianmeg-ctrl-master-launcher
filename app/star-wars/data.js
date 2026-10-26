@@ -135,7 +135,10 @@ export const PLANETS = {
     ground: 0xd9a441,
     ground2: 0xb57f2a,
     /* Ever-expanding world (Earth 2 spirit, zone.js template):
-     * a 340 m seeded dune sea instead of the old 130 m disc, a real
+     * a 520 m seeded dune sea instead of the old 130 m disc (pushed
+     * out from 340 m on 2026-10-26 so the playable edge is no longer
+     * felt; missions and landmarks stay put — the new ring is open
+     * roaming ground, dressed with the same scatter out to 460 m), a real
      * carved Beggar's Canyon under the podrace gates, instanced
      * rock/mesa/vaporator scatter, and mesa silhouettes on the
      * horizon. The old 'beggars-canyon' block walls are gone — the
@@ -143,9 +146,9 @@ export const PLANETS = {
     seed: 4242,
     tex: 'sand',
     groundAmp: 4,
-    worldRadius: 340,
-    boundsRadius: 295,
-    ambientRadius: 150,
+    worldRadius: 520,
+    boundsRadius: 460,
+    ambientRadius: 230,
     canyon: {
       width: 26,
       depth: 6.5,
@@ -158,13 +161,13 @@ export const PLANETS = {
         [-64, -78], [-118, -64], [-146, -6], [-128, 52], [-84, 44]],
     },
     scatter: [
-      { kind: 'rock', count: 150, minR: 18, maxR: 300, size: [0.8, 3.4] },
-      { kind: 'rock', count: 40, minR: 120, maxR: 300, size: [2, 5] },
-      { kind: 'mesa', count: 30, minR: 60, maxR: 290, size: [6, 16] },
+      { kind: 'rock', count: 150, minR: 18, maxR: 460, size: [0.8, 3.4] },
+      { kind: 'rock', count: 40, minR: 120, maxR: 460, size: [2, 5] },
+      { kind: 'mesa', count: 30, minR: 60, maxR: 450, size: [6, 16] },
       { kind: 'vaporator', count: 22, cx: 45, cz: 20, minR: 13, maxR: 30 },
       { kind: 'vaporator', count: 8, cx: 0, cz: -40, minR: 16, maxR: 34 },
     ],
-    horizon: { radius: 430, count: 18, color: 0xc79a58 },
+    horizon: { radius: 650, count: 18, color: 0xc79a58 },
     landmarks: [
       { type: 'mos-eisley', x: 0, z: -40, s: 1.2, ry: 0.4 },
       { type: 'moisture-farm', x: 45, z: 20, s: 1, model: 'homestead' },
@@ -183,6 +186,12 @@ export const PLANETS = {
        * law — a champion's machine you can actually take out. */
       { type: 'podracer', x: -92, z: 58, s: 1.2, ry: 2.4, vehicle: 'podracer', vid: 'pod-winner' },
       { type: 'landspeeder', x: 60, z: 26, s: 1, ry: -0.7, model: 'landspeeder', vehicle: 'landspeeder', vid: 'landspeeder' },
+      /* THE ROVER — parked beside the speeder in the vehicle area,
+       * clear of the farm (37 m) and the speeder (21 m). Rideable
+       * (vehicle: 'rover'); its GLB is the rigged batch-4 rover,
+       * optimized, at /models/vehicles/tatooine-rover.glb — the old
+       * vehicles/rover.glb is untouched. */
+      { type: 'rover', x: 76, z: 40, s: 1, ry: 0.6, model: 'tatooine-rover', vehicle: 'rover', vid: 'tatooine-rover' },
     ],
     ambient: [
       { type: 'bantha', count: 4 },
@@ -811,63 +820,63 @@ const EXPANSIONS = {
   naboo: {
     seed: 1101, tex: 'leaf', groundAmp: 3, spread: true, par: 120,
     scatter: [
-      { kind: 'garden-tree', count: 55, minR: 20, maxR: 290, size: [0.9, 1.7] },
-      { kind: 'scrub', count: 45, minR: 16, maxR: 280, size: [0.8, 1.8] },
-      { kind: 'rock', count: 36, minR: 24, maxR: 290, size: [0.8, 2.6] },
-      { kind: 'reed', count: 30, minR: 18, maxR: 260, size: [0.8, 1.4] },
+      { kind: 'garden-tree', count: 55, minR: 20, maxR: 450, size: [0.9, 1.7] },
+      { kind: 'scrub', count: 45, minR: 16, maxR: 435, size: [0.8, 1.8] },
+      { kind: 'rock', count: 36, minR: 24, maxR: 450, size: [0.8, 2.6] },
+      { kind: 'reed', count: 30, minR: 18, maxR: 400, size: [0.8, 1.4] },
     ],
-    horizon: { radius: 430, count: 16, color: 0x86b06a, style: 'peaks' },
+    horizon: { radius: 650, count: 16, color: 0x86b06a, style: 'peaks' },
   },
   coruscant: {
     seed: 2202, tex: 'city', groundAmp: 1.2, spread: true, par: 150,
     scatter: [
-      { kind: 'spire', count: 64, minR: 30, maxR: 290, size: [0.8, 2.2] },
+      { kind: 'spire', count: 64, minR: 30, maxR: 450, size: [0.8, 2.2] },
     ],
-    horizon: { radius: 430, count: 20, color: 0x8a93a8, style: 'spires' },
+    horizon: { radius: 650, count: 20, color: 0x8a93a8, style: 'spires' },
   },
   kamino: {
     seed: 3303, tex: 'water', groundAmp: 1.5, spread: true, par: 150,
     scatter: [
-      { kind: 'pylon', count: 38, minR: 24, maxR: 280, size: [0.9, 1.6] },
-      { kind: 'reed', count: 55, minR: 18, maxR: 260, size: [0.8, 1.5] },
+      { kind: 'pylon', count: 38, minR: 24, maxR: 435, size: [0.9, 1.6] },
+      { kind: 'reed', count: 55, minR: 18, maxR: 400, size: [0.8, 1.5] },
     ],
-    horizon: { radius: 430, count: 10, color: 0x5f7f9e, style: 'peaks' },
+    horizon: { radius: 650, count: 10, color: 0x5f7f9e, style: 'peaks' },
   },
   geonosis: {
     seed: 4404, tex: 'rock', groundAmp: 4, spread: true, par: 120,
     scatter: [
-      { kind: 'rock', count: 150, minR: 18, maxR: 300, size: [0.8, 3.4] },
-      { kind: 'mesa', count: 26, minR: 60, maxR: 290, size: [6, 15] },
-      { kind: 'obsidian', count: 40, minR: 20, maxR: 280, size: [1, 2.6], tint: 0x9a6a44 },
+      { kind: 'rock', count: 150, minR: 18, maxR: 460, size: [0.8, 3.4] },
+      { kind: 'mesa', count: 26, minR: 60, maxR: 450, size: [6, 15] },
+      { kind: 'obsidian', count: 40, minR: 20, maxR: 435, size: [1, 2.6], tint: 0x9a6a44 },
     ],
-    horizon: { radius: 430, count: 18, color: 0xb06a3f },
+    horizon: { radius: 650, count: 18, color: 0xb06a3f },
   },
   mustafar: {
     seed: 5505, tex: 'lava', groundAmp: 4.5, spread: true, par: 120,
     scatter: [
-      { kind: 'lava-rock', count: 160, minR: 18, maxR: 300, size: [0.8, 3.2] },
-      { kind: 'obsidian', count: 55, minR: 20, maxR: 280, size: [1, 2.8] },
+      { kind: 'lava-rock', count: 160, minR: 18, maxR: 460, size: [0.8, 3.2] },
+      { kind: 'obsidian', count: 55, minR: 20, maxR: 435, size: [1, 2.8] },
     ],
-    horizon: { radius: 430, count: 16, color: 0x6e3a2a, style: 'peaks' },
+    horizon: { radius: 650, count: 16, color: 0x6e3a2a, style: 'peaks' },
   },
   'yavin-4': {
     seed: 6606, tex: 'leaf', groundAmp: 3, spread: true, par: 120,
     scatter: [
-      { kind: 'canopy-tree', count: 120, minR: 18, maxR: 290, size: [0.9, 1.8] },
-      { kind: 'undergrowth', count: 85, minR: 14, maxR: 280, size: [0.8, 2] },
-      { kind: 'rock', count: 28, minR: 24, maxR: 290, size: [0.8, 2.4] },
+      { kind: 'canopy-tree', count: 120, minR: 18, maxR: 450, size: [0.9, 1.8] },
+      { kind: 'undergrowth', count: 85, minR: 14, maxR: 435, size: [0.8, 2] },
+      { kind: 'rock', count: 28, minR: 24, maxR: 450, size: [0.8, 2.4] },
     ],
-    horizon: { radius: 430, count: 16, color: 0x4a7a44, style: 'trees' },
+    horizon: { radius: 650, count: 16, color: 0x4a7a44, style: 'trees' },
   },
   alderaan: { // fly — no spread; a wider patrol volume + more dressing
-    seed: 7707, par: 120, boundsRadius: 190,
+    seed: 7707, par: 120, boundsRadius: 290,
     extraLandmarks: [
       { type: 'debris-field', x: 90, z: -70, s: 2, ry: 1.1 },
       { type: 'star-destroyer', x: 150, z: 60, s: 1.2, ry: -0.6 },
     ],
   },
   'death-star': { // fly — trench volume + drifting debris off the trench
-    seed: 8808, par: 150, boundsRadius: 170, firstDifficulty: 2,
+    seed: 8808, par: 150, boundsRadius: 260, firstDifficulty: 2,
     extraLandmarks: [
       { type: 'debris-field', x: 120, z: 90, s: 1.5, ry: 0.9 },
     ],
@@ -875,88 +884,88 @@ const EXPANSIONS = {
   hoth: {
     seed: 9909, tex: 'ice', groundAmp: 3.5, spread: true, par: 120,
     scatter: [
-      { kind: 'ice-crag', count: 110, minR: 18, maxR: 300, size: [0.9, 2.6] },
-      { kind: 'snow-drift', count: 75, minR: 14, maxR: 280, size: [1, 2.4] },
+      { kind: 'ice-crag', count: 110, minR: 18, maxR: 460, size: [0.9, 2.6] },
+      { kind: 'snow-drift', count: 75, minR: 14, maxR: 435, size: [1, 2.4] },
     ],
-    horizon: { radius: 430, count: 16, color: 0xcfe4f2, style: 'ice' },
+    horizon: { radius: 650, count: 16, color: 0xcfe4f2, style: 'ice' },
   },
   dagobah: {
     seed: 10110, tex: 'swamp', groundAmp: 2.5, spread: true, par: 90,
     scatter: [
-      { kind: 'swamp-tree', count: 100, minR: 16, maxR: 290, size: [0.9, 1.7] },
-      { kind: 'swamp-knee', count: 85, minR: 12, maxR: 270, size: [0.8, 1.8] },
-      { kind: 'undergrowth', count: 45, minR: 14, maxR: 270, size: [0.8, 1.8], tint: 0x3c5c34 },
+      { kind: 'swamp-tree', count: 100, minR: 16, maxR: 450, size: [0.9, 1.7] },
+      { kind: 'swamp-knee', count: 85, minR: 12, maxR: 420, size: [0.8, 1.8] },
+      { kind: 'undergrowth', count: 45, minR: 14, maxR: 420, size: [0.8, 1.8], tint: 0x3c5c34 },
     ],
-    horizon: { radius: 430, count: 14, color: 0x39543c, style: 'trees' },
+    horizon: { radius: 650, count: 14, color: 0x39543c, style: 'trees' },
   },
   bespin: {
     seed: 11121, tex: 'metal', groundAmp: 1.2, spread: true, par: 120,
     scatter: [
-      { kind: 'spire', count: 42, minR: 26, maxR: 280, size: [0.7, 1.6] },
+      { kind: 'spire', count: 42, minR: 26, maxR: 435, size: [0.7, 1.6] },
     ],
-    horizon: { radius: 430, count: 18, color: 0xd8c9a8, style: 'spires' },
+    horizon: { radius: 650, count: 18, color: 0xd8c9a8, style: 'spires' },
   },
   endor: {
     seed: 12131, tex: 'leaf', groundAmp: 3, spread: true, par: 240, firstDifficulty: 2,
     scatter: [
-      { kind: 'canopy-tree', count: 140, minR: 18, maxR: 295, size: [0.9, 1.9] },
-      { kind: 'undergrowth', count: 80, minR: 14, maxR: 280, size: [0.8, 2] },
-      { kind: 'rock', count: 22, minR: 24, maxR: 290, size: [0.8, 2.4] },
+      { kind: 'canopy-tree', count: 140, minR: 18, maxR: 455, size: [0.9, 1.9] },
+      { kind: 'undergrowth', count: 80, minR: 14, maxR: 435, size: [0.8, 2] },
+      { kind: 'rock', count: 22, minR: 24, maxR: 450, size: [0.8, 2.4] },
     ],
-    horizon: { radius: 430, count: 16, color: 0x3f7040, style: 'trees' },
+    horizon: { radius: 650, count: 16, color: 0x3f7040, style: 'trees' },
   },
   jakku: {
     seed: 13141, tex: 'sand', groundAmp: 4, spread: true, par: 120,
     scatter: [
-      { kind: 'wreck', count: 55, minR: 20, maxR: 290, size: [0.9, 1.9] },
-      { kind: 'rock', count: 85, minR: 18, maxR: 300, size: [0.8, 3] },
-      { kind: 'mesa', count: 14, minR: 70, maxR: 290, size: [6, 14] },
+      { kind: 'wreck', count: 55, minR: 20, maxR: 450, size: [0.9, 1.9] },
+      { kind: 'rock', count: 85, minR: 18, maxR: 460, size: [0.8, 3] },
+      { kind: 'mesa', count: 14, minR: 70, maxR: 450, size: [6, 14] },
     ],
-    horizon: { radius: 430, count: 16, color: 0xc79a58 },
+    horizon: { radius: 650, count: 16, color: 0xc79a58 },
   },
   takodana: {
     seed: 14151, tex: 'leaf', groundAmp: 3, spread: true, par: 120,
     scatter: [
-      { kind: 'canopy-tree', count: 105, minR: 18, maxR: 290, size: [0.9, 1.8] },
-      { kind: 'undergrowth', count: 65, minR: 14, maxR: 280, size: [0.8, 2] },
-      { kind: 'scrub', count: 28, minR: 16, maxR: 270, size: [0.8, 1.8] },
+      { kind: 'canopy-tree', count: 105, minR: 18, maxR: 450, size: [0.9, 1.8] },
+      { kind: 'undergrowth', count: 65, minR: 14, maxR: 435, size: [0.8, 2] },
+      { kind: 'scrub', count: 28, minR: 16, maxR: 420, size: [0.8, 1.8] },
     ],
-    horizon: { radius: 430, count: 16, color: 0x4a7a44, style: 'trees' },
+    horizon: { radius: 650, count: 16, color: 0x4a7a44, style: 'trees' },
   },
   starkiller: {
     seed: 15161, tex: 'ice', groundAmp: 3.5, spread: true, par: 150,
     scatter: [
-      { kind: 'ice-crag', count: 75, minR: 18, maxR: 295, size: [0.9, 2.6] },
-      { kind: 'snow-drift', count: 65, minR: 14, maxR: 280, size: [1, 2.4] },
-      { kind: 'canopy-tree', count: 38, minR: 24, maxR: 290, size: [0.9, 1.6], tint: 0x8fa89b },
+      { kind: 'ice-crag', count: 75, minR: 18, maxR: 455, size: [0.9, 2.6] },
+      { kind: 'snow-drift', count: 65, minR: 14, maxR: 435, size: [1, 2.4] },
+      { kind: 'canopy-tree', count: 38, minR: 24, maxR: 450, size: [0.9, 1.6], tint: 0x8fa89b },
     ],
-    horizon: { radius: 430, count: 16, color: 0xd4e6f0, style: 'ice' },
+    horizon: { radius: 650, count: 16, color: 0xd4e6f0, style: 'ice' },
   },
   'ahch-to': {
     seed: 16171, tex: 'rock', groundAmp: 4, spread: true, par: 90,
     scatter: [
-      { kind: 'scrub', count: 65, minR: 14, maxR: 280, size: [0.8, 1.9] },
-      { kind: 'rock', count: 55, minR: 18, maxR: 295, size: [0.8, 3] },
-      { kind: 'garden-tree', count: 15, minR: 26, maxR: 260, size: [0.9, 1.5] },
+      { kind: 'scrub', count: 65, minR: 14, maxR: 435, size: [0.8, 1.9] },
+      { kind: 'rock', count: 55, minR: 18, maxR: 455, size: [0.8, 3] },
+      { kind: 'garden-tree', count: 15, minR: 26, maxR: 400, size: [0.9, 1.5] },
     ],
-    horizon: { radius: 430, count: 14, color: 0x7a8a94, style: 'peaks' },
+    horizon: { radius: 650, count: 14, color: 0x7a8a94, style: 'peaks' },
   },
   crait: {
     seed: 17181, tex: 'salt', groundAmp: 2, spread: true, par: 150,
     scatter: [
-      { kind: 'salt-crystal', count: 100, minR: 14, maxR: 290, size: [0.7, 1.8] },
-      { kind: 'rock', count: 18, minR: 30, maxR: 290, size: [0.8, 2.2] },
+      { kind: 'salt-crystal', count: 100, minR: 14, maxR: 450, size: [0.7, 1.8] },
+      { kind: 'rock', count: 18, minR: 30, maxR: 450, size: [0.8, 2.2] },
     ],
-    horizon: { radius: 430, count: 16, color: 0xd8cfc4, style: 'peaks' },
+    horizon: { radius: 650, count: 16, color: 0xd8cfc4, style: 'peaks' },
   },
   exegol: {
     seed: 18191, tex: 'rock', groundAmp: 4, spread: true, par: 150,
     scatter: [
-      { kind: 'dark-spire', count: 85, minR: 18, maxR: 295, size: [0.9, 2.2] },
-      { kind: 'lava-rock', count: 55, minR: 18, maxR: 290, size: [0.8, 2.8] },
-      { kind: 'rock', count: 36, minR: 22, maxR: 290, size: [0.8, 2.6] },
+      { kind: 'dark-spire', count: 85, minR: 18, maxR: 455, size: [0.9, 2.2] },
+      { kind: 'lava-rock', count: 55, minR: 18, maxR: 450, size: [0.8, 2.8] },
+      { kind: 'rock', count: 36, minR: 22, maxR: 450, size: [0.8, 2.6] },
     ],
-    horizon: { radius: 430, count: 16, color: 0x3a3f52, style: 'peaks' },
+    horizon: { radius: 650, count: 16, color: 0x3a3f52, style: 'peaks' },
   },
 };
 
@@ -1263,9 +1272,9 @@ for (const def of Object.values(PLANETS)) {
         if (Array.isArray(b.checkpoints)) for (const cp of b.checkpoints) { cp.x *= SPREAD; cp.z *= SPREAD; }
         if (b.target) { b.target.x *= SPREAD; b.target.z *= SPREAD; }
       }
-      def.worldRadius = 340;
-      def.boundsRadius = 295;
-      def.ambientRadius = 150;
+      def.worldRadius = 520;
+      def.boundsRadius = 460;
+      def.ambientRadius = 230;
     }
     for (const f of ['seed', 'tex', 'groundAmp', 'scatter', 'horizon', 'boundsRadius']) {
       if (ex[f] !== undefined) def[f] = ex[f];

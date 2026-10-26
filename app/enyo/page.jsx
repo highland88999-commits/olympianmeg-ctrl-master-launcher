@@ -19,12 +19,14 @@ import {
   botThink,
   resolveBotShot,
   damageBot,
+  markBotAttacked,
   BOT_HP,
   BOT_SKILLS,
   SKILL_KEYS,
   skillByKey,
   hasLineOfSight,
 } from '@/lib/enyo-bots';
+import BackpackHud from '@/components/backpack/BackpackHud';
 import { fx, unlockFx, setFxEnabled, isFxEnabled } from '@/lib/fx';
 import { AresBackdrop, AresButton, AresIcon, AresPanel, ARES } from '@/components/ares/ares-chrome';
 
@@ -431,6 +433,13 @@ function paintHealthBar(mesh, frac) {
   g.fillRect(0, 0, 64, 10);
   g.fillStyle = frac > 0.5 ? '#4ade80' : frac > 0.25 ? '#ffd700' : '#f87171';
   g.fillRect(2, 2, 60 * Math.max(0, frac), 6);
+  // Return-fire tell: a bot that is shooting back at its attacker gets a
+  // red frame on its health bar, so incoming fire reads as retaliation.
+  if (mesh.userData.healthAlert) {
+    g.strokeStyle = '#ef4444';
+    g.lineWidth = 2;
+    g.strokeRect(1, 1, 62, 8);
+  }
   tex.needsUpdate = true;
 }
 
@@ -858,6 +867,17 @@ function createEngine(canvas, cfg, cb) {
     scene.add(s);
     fx.push({ obj: s, t: 0, life: 0.25, kind: 'pop' });
   }
+  // Takedown burst: a small scatter of pops where a combatant falls, so a
+  // kill reads at a glance instead of the figure just vanishing.
+  function addDeathBurst(p, color = 0xff8888) {
+    for (let i = 0; i < 6; i++) {
+      const q = p.clone();
+      q.x += (rng() - 0.5) * 1.1;
+      q.y += rng() * 1.2;
+      q.z += (rng() - 0.5) * 1.1;
+      addImpact(q, color);
+    }
+  }
 
   const audio = createAudio();
   const raycaster = new THREE.Raycaster();
@@ -1075,6 +1095,8 @@ function createEngine(canvas, cfg, cb) {
       const dmg = damageAt(w, bestT);
       player.hits += 1;
       const killed = damageBot(bestBot, dmg);
+      // Return fire: a bot you shoot answers back at you (lib/enyo-bots).
+      if (!killed) markBotAttacked(bestBot, 'player');
       paintHealthBar(botMeshes.get(bestBot.id), bestBot.hp / BOT_HP);
       const to = new THREE.Vector3(
         bestBot.pos.x, 1.1, bestBot.pos.z
@@ -1084,6 +1106,7 @@ function createEngine(canvas, cfg, cb) {
       cb.hitmarker(killed);
       if (killed) {
         player.kills += 1;
+        addDeathBurst(to);
         if (mode === 'tdm') {
           if (bestBot.team === 'red') blueScore += 1;
           else redScore += 1;
@@ -1129,6 +1152,13 @@ function createEngine(canvas, cfg, cb) {
     }
     if (target.id === 'player') {
       if (!player.alive || player.protectT > 0) return;
+      // Return fire you can see: hits draw the same red tracer as misses,
+      // so a bot answering your shots always shows where it fired from.
+      addTracer(
+        new THREE.Vector3(bot.pos.x, 1.4, bot.pos.z),
+        new THREE.Vector3(target.pos.x, 1.2, target.pos.z),
+        0xff6666
+      );
       player.hp -= res.damage;
       fx.hit(); // central FX: dull thud + medium buzz for damage taken
       if (!reduced) player.shake = Math.min(1, player.shake + 0.5);
@@ -1150,12 +1180,15 @@ function createEngine(canvas, cfg, cb) {
       const tb = bots.find((b) => b.id === target.id);
       if (!tb || !tb.alive) return;
       const killed = damageBot(tb, res.damage);
+      // Bot-on-bot return fire: a surviving victim answers its attacker.
+      if (!killed) markBotAttacked(tb, bot.id);
       paintHealthBar(botMeshes.get(tb.id), tb.hp / BOT_HP);
       const from = new THREE.Vector3(bot.pos.x, 1.4, bot.pos.z);
       const to = new THREE.Vector3(tb.pos.x, 1.1, tb.pos.z);
       addTracer(from, to, 0xffaa66);
       if (killed) {
         bot.kills += 1;
+        addDeathBurst(to);
         if (mode === 'tdm') {
           if (tb.team === 'red') blueScore += 1;
           else redScore += 1;
@@ -1174,9 +1207,13 @@ function createEngine(canvas, cfg, cb) {
     b.pos.x = s.x + (rng() - 0.5) * 4;
     b.pos.z = s.z + (rng() - 0.5) * 4;
     b.hp = BOT_HP;
+    b.targetId = null;
+    b.retaliateId = null;
+    b.retaliateT = 0;
     const mesh = botMeshes.get(b.id);
     mesh.position.set(b.pos.x, 0, b.pos.z);
     mesh.visible = true;
+    mesh.userData.healthAlert = false;
     paintHealthBar(mesh, 1);
   }
 
@@ -1236,9 +1273,11 @@ function createEngine(canvas, cfg, cb) {
       hp: Math.ceil(player.hp),
       alive: player.alive,
       respawnIn: Math.ceil(player.respawnT),
+      protected: player.protectT > 0,
       mag: player.mag,
       reserve: player.reserve,
       reloading: player.reloading,
+      lowAmmo: player.alive && !player.reloading && player.mag > 0 && player.mag <= Math.ceil(w.magSize * 0.25),
       weaponKey: player.weaponKey,
       weaponName: w.name,
       blueScore,
@@ -1419,6 +1458,13 @@ function createEngine(canvas, cfg, cb) {
       collideCircle(b.pos, 0.5, obstacles);
       mesh.position.set(b.pos.x, 0, b.pos.z);
       mesh.rotation.y = b.yaw;
+      // Return-fire tell: repaint the health bar only when the bot's
+      // retaliation state flips, so the red frame tracks it exactly.
+      const alerting = b.retaliateT > 0 && b.retaliateId != null;
+      if (mesh.userData.healthAlert !== alerting) {
+        mesh.userData.healthAlert = alerting;
+        paintHealthBar(mesh, b.hp / BOT_HP);
+      }
       // Simple walk bob.
       mesh.position.y = Math.abs(Math.sin(clock.t * 9)) * 0.05;
     }
@@ -1720,7 +1766,8 @@ export default function EnyoPage() {
             <div className="text-[11px] tracking-[0.4em] uppercase text-red-400/90">Goddess of war</div>
             <h1 className="text-5xl font-black tracking-widest mt-1">ARENA SHOOTER</h1>
             <p className="text-neutral-400 mt-2 text-sm max-w-xl">
-              Arena shooter against AI combatants. Pick an arena and a way to fight, then deploy.
+              Arena shooter against AI combatants who shoot back — wound one and it
+              turns on you. Pick an arena and a way to fight, then deploy.
               Everything here is generated live — no downloads, no accounts.
             </p>
 
@@ -1825,12 +1872,20 @@ export default function EnyoPage() {
               <div><span className="text-neutral-200 font-bold">WASD</span> — move · <span className="text-neutral-200 font-bold">Shift</span> — sprint</div>
               <div><span className="text-neutral-200 font-bold">Click</span> — fire · <span className="text-neutral-200 font-bold">R</span> — reload</div>
               <div><span className="text-neutral-200 font-bold">Space</span> — jump · <span className="text-neutral-200 font-bold">1/2/3</span> — swap weapon</div>
-              <div className="sm:col-span-2"><span className="text-neutral-200 font-bold">Touch</span> — left stick moves, drag right side to look, FIRE button shoots</div>
+              <div><span className="text-neutral-200 font-bold">Touch</span> — left stick moves, drag right side to look, FIRE button shoots</div>
+              <div className="sm:col-span-2"><span className="text-neutral-200 font-bold">Esc</span> — pause (your backpack sits on the pause screen)</div>
             </div>
 
             <AresButton icon="rocket" tone="crimson" onClick={deploy} className="mt-10 w-full text-lg">
               DEPLOY
             </AresButton>
+            <div className="mt-3 flex justify-center">
+              <BackpackHud
+                realm="enyo"
+                realmLabel="Enyo"
+                displayNote="The pack rides along — Enyo keeps its own arsenal."
+              />
+            </div>
             <p className="text-center text-[11px] text-neutral-600 mt-3 tracking-wider">
               Bots are procedural combatants — armored figures, not people.
             </p>
@@ -1923,6 +1978,9 @@ export default function EnyoPage() {
             <div className="text-[11px] text-neutral-400 mt-1 tabular-nums">
               K {hud.kills} · D {hud.deaths}
             </div>
+            {hud.protected && (
+              <div className="text-[10px] tracking-widest uppercase text-sky-300 mt-1">Spawn shield</div>
+            )}
           </div>
 
           {/* ammo + weapons */}
@@ -1936,6 +1994,11 @@ export default function EnyoPage() {
                 </>
               )}
             </div>
+            {hud.lowAmmo && (
+              <div className="text-[11px] text-amber-400 font-bold mt-1">
+                {isTouch ? 'LOW AMMO — TAP RELOAD' : 'LOW AMMO — PRESS R'}
+              </div>
+            )}
             <div className="flex gap-1.5 justify-end mt-1.5">
               {WEAPON_KEYS.map((k, i) => (
                 <div
@@ -1950,15 +2013,22 @@ export default function EnyoPage() {
             </div>
           </div>
 
-          {/* mute */}
-          <button
-            onClick={toggleMute}
-            className="absolute top-3 left-3 px-3 py-2 rounded-lg bg-black/55 border border-white/10 text-[11px] tracking-widest uppercase text-neutral-300 inline-flex items-center gap-2"
-            aria-label={muted ? 'Unmute sound' : 'Mute sound'}
-          >
-            <AresIcon name={muted ? 'mute' : 'sound'} className="h-3.5 w-3.5" />
-            {muted ? 'Muted' : 'Sound on'}
-          </button>
+          {/* mute + backpack: the pack rides along — Enyo keeps its own arsenal */}
+          <div className="absolute top-3 left-3 flex items-start gap-2">
+            <button
+              onClick={toggleMute}
+              className="px-3 py-2 rounded-lg bg-black/55 border border-white/10 text-[11px] tracking-widest uppercase text-neutral-300 inline-flex items-center gap-2"
+              aria-label={muted ? 'Unmute sound' : 'Mute sound'}
+            >
+              <AresIcon name={muted ? 'mute' : 'sound'} className="h-3.5 w-3.5" />
+              {muted ? 'Muted' : 'Sound on'}
+            </button>
+            <BackpackHud
+              realm="enyo"
+              realmLabel="Enyo"
+              displayNote="The pack rides along — Enyo keeps its own arsenal."
+            />
+          </div>
 
           {/* respawn overlay */}
           {!hud.alive && phase === 'playing' && (
@@ -2022,9 +2092,9 @@ export default function EnyoPage() {
 
       {/* ================= PAUSED ================= */}
       {phase === 'playing' && paused && (
-        <button
-          onClick={() => engineRef.current?.resume()}
+        <div
           className="absolute inset-0 bg-black/70 flex items-center justify-center"
+          onClick={() => engineRef.current?.resume()}
         >
           <div className="text-center">
             <div className="mx-auto mb-3 flex justify-center" style={{ color: ARES.goldSoft }}>
@@ -2032,8 +2102,17 @@ export default function EnyoPage() {
             </div>
             <div className="text-2xl font-black tracking-widest">PAUSED</div>
             <div className="text-neutral-400 mt-2 text-sm">Click to jump back in</div>
+            {/* Backpack on the pause screen: opening it must not resume,
+                so its clicks stop here instead of bubbling to the overlay. */}
+            <div className="mt-5 flex justify-center" onClick={(e) => e.stopPropagation()}>
+              <BackpackHud
+                realm="enyo"
+                realmLabel="Enyo"
+                displayNote="The pack rides along — Enyo keeps its own arsenal."
+              />
+            </div>
           </div>
-        </button>
+        </div>
       )}
 
       {/* ================= GAME OVER ================= */}

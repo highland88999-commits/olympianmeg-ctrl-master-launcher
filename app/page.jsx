@@ -22,7 +22,8 @@ import { planetSeedFor } from '@/lib/planets/planet-seeds';
 import { generatePlanetProfile } from '@/lib/planets/profiles';
 import { getUserPosition, FALLBACK_POSITION } from '@/lib/geo';
 import { roamState, beginRoam, endRoam, landmarkSpawns } from '@/lib/earth/roam';
-import { beginParachuteDive } from '@/lib/earth/parachute';
+import { beginParachuteDive, bikeState } from '@/lib/earth/parachute';
+import WalkJoystick from '@/components/world/WalkJoystick';
 import { QUANTUM_ENABLED } from '@/lib/earth/quantum';
 import { fx, unlockFx } from '@/lib/fx';
 import { shadowRealmUrl } from '@/app/shadow-realm/launch';
@@ -350,6 +351,43 @@ function NexusHub() {
   const [joyBase, setJoyBase] = useState({ x: 0, y: 0 });
   const [joyStick, setJoyStick] = useState({ x: 0, y: 0 });
   const [joyActive, setJoyActive] = useState(false);
+  // Earth street joystick (video QA V2-2, 2026-10-26): the page's
+  // floating joystick only appears WHILE dragging, so a new
+  // player on Earth street level saw no movement control at all
+  // and had to guess the invisible left-half drag. During
+  // earth_roam a persistent walk stick now sits bottom-left
+  // (the same corner the bike's stick uses), writing the same
+  // moveX/moveY channels — it also steers the supercar, which
+  // reads those channels too. It stands down while the bike is
+  // out (the bike's own stick owns that corner then). The
+  // first-entry hint shows once, until dismissed or 8 s pass.
+  const [earthBikeOut, setEarthBikeOut] = useState(false);
+  const [earthMoveHint, setEarthMoveHint] = useState(false);
+  useEffect(() => {
+    const id = setInterval(() => {
+      setEarthBikeOut((prev) => {
+        const next = !!bikeState.summoned;
+        return prev === next ? prev : next;
+      });
+    }, 500);
+    return () => clearInterval(id);
+  }, []);
+  useEffect(() => {
+    if (appState !== 'earth_roam') return undefined;
+    let seen = false;
+    try { seen = localStorage.getItem('earth-move-hint-seen') === '1'; } catch { seen = true; }
+    if (seen) return undefined;
+    setEarthMoveHint(true);
+    const t = setTimeout(() => {
+      setEarthMoveHint(false);
+      try { localStorage.setItem('earth-move-hint-seen', '1'); } catch {}
+    }, 8000);
+    return () => clearTimeout(t);
+  }, [appState]);
+  const dismissEarthMoveHint = () => {
+    setEarthMoveHint(false);
+    try { localStorage.setItem('earth-move-hint-seen', '1'); } catch {}
+  };
   const lastLook = useRef({ x: 0, y: 0 });
   const isLooking = useRef(false);
 
@@ -726,6 +764,40 @@ function NexusHub() {
                 style={{ transform: `translate(${Math.max(-30, Math.min(30, joyStick.x - joyBase.x))}px, ${Math.max(-30, Math.min(30, joyStick.y - joyBase.y))}px)` }}
               />
             </div>
+          )}
+
+          {/* Persistent Earth street walk stick (video QA V2-2):
+              same corner as the bike stick, same channels. The
+              wrapper carries .ui-element so the page's own
+              drag-look handler ignores touches on the stick. */}
+          {(user || cloudOffline) && appState === 'earth_roam' && !earthBikeOut && (
+            <div
+              className="absolute z-[70] ui-element pointer-events-auto"
+              style={{ left: 'calc(env(safe-area-inset-left, 0px) + 18px)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 92px)' }}
+            >
+              <WalkJoystick
+                size={112}
+                onMove={(x, y) => {
+                  // WalkJoystick reports y fwd-positive (up); the
+                  // hub channels carry moveY down-positive (the
+                  // page drag convention the flight controller
+                  // negates), so flip y here.
+                  controlsRef.current.moveX = x;
+                  controlsRef.current.moveY = -y;
+                }}
+              />
+            </div>
+          )}
+
+          {/* First-entry Earth movement hint (video QA V2-2). */}
+          {(user || cloudOffline) && appState === 'earth_roam' && earthMoveHint && (
+            <button
+              type="button"
+              onClick={dismissEarthMoveHint}
+              className="absolute top-5 left-1/2 -translate-x-1/2 z-[70] ui-element pointer-events-auto rounded-full border border-cyan-500/40 bg-zinc-950/90 px-4 py-2 text-[11px] text-zinc-100 shadow-lg whitespace-nowrap"
+            >
+              👈 Left thumb to walk · drag the right side to look · tap to dismiss
+            </button>
           )}
         </>
       )}

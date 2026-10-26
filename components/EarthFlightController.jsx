@@ -19,6 +19,7 @@ import {
 import {
   parachuteState,
   bikeState,
+  carState,
   beginParachuteDive,
   stepParachute,
   resetParachute,
@@ -80,10 +81,8 @@ export default function EarthFlightController({
       // EarthWalker): the boom frames the whole body, raptor
       // included — not a human's 7.5 m default shot.
       charSizeM: roamState.charSizeM || null,
-      // Swimming: the rig rides the swimmer's lift above the
-      // seabed point (EarthWalker applies the same altM to the
-      // body, so lens and swimmer agree). The bike never swims.
-      swimAltM: bikeState.mounted ? 0 : (roamState.swim?.altM || 0),
+      // No water on Earth 1 (2026-10-26): no swim lift — the rig
+      // frames the walker standing on the ground, seabed included.
     });
     const q = quatRef.current;
     const toWorld = (p) => new THREE.Vector3(p.x, p.y, p.z).applyQuaternion(q).add(EARTH_CENTER);
@@ -238,19 +237,15 @@ export default function EarthFlightController({
       }
       // Walk: hub control convention — forward is the negated
       // moveY channel (joystick up / W), strafe is moveX (D / A).
-      // While the bike is mounted it owns roamState (EarthBike syncs
-      // it every frame) — stepping the walker too would double-move.
+      // While the bike OR the supercar is mounted it owns
+      // roamState (EarthBike / EarthSupercar sync it every frame)
+      // — stepping the walker too would double-move.
       const forward = -((c.moveY || 0) + ((c.keyS ? 1 : 0) - (c.keyW ? 1 : 0)));
       const strafe = (c.moveX || 0) + ((c.keyD ? 1 : 0) - (c.keyA ? 1 : 0));
-      if (!bikeState.mounted) {
+      if (!bikeState.mounted && !carState.mounted) {
         const hdNow = getHeightData();
         stepRoam(roamState, {
           forward, strafe,
-          // Water (lib/earth/swim.js): the console's hold buttons
-          // write these channels; the heightmap lets stepRoam run
-          // the swim state machine alongside the walk.
-          dive: !!c.swimDive,
-          surface: !!c.swimSurface,
         }, delta, {
           radius: surfaceRadiusOrBase(roamState.lat, roamState.lon),
           heightData: hdNow ? { data: hdNow.data, w: hdNow.w, h: hdNow.h } : null,
