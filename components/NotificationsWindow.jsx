@@ -19,6 +19,7 @@ import {
   respondToNotification,
 } from '@/lib/notifications';
 import { respondToFriendshipClient } from '@/lib/friends';
+import { panelAchievements } from '@/lib/achievements/panel';
 
 const HEADER_ART = '/images/ui/notifications-header.png';
 const BELL_ART = '/images/ui/icon-notifications.png';
@@ -84,6 +85,8 @@ export default function NotificationsWindow({ concourse = false } = {}) {
   const [items, setItems] = useState([]);
   const [unread, setUnread] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [earned, setEarned] = useState([]);
+  const [earnedLoading, setEarnedLoading] = useState(false);
   const [busyId, setBusyId] = useState(null);
   const [headerArt, setHeaderArt] = useState(true);
   const [bellArt, setBellArt] = useState(true);
@@ -109,10 +112,12 @@ export default function NotificationsWindow({ concourse = false } = {}) {
       setSignedIn(false);
       setItems([]);
       setUnread(0);
+      setEarned([]);
       return;
     }
     setSignedIn(true);
     setLoading(true);
+    setEarnedLoading(true);
     try {
       const data = await fetchNotifications(token);
       setItems(data.items || []);
@@ -126,6 +131,25 @@ export default function NotificationsWindow({ concourse = false } = {}) {
       /* keep last state; offline */
     } finally {
       setLoading(false);
+    }
+    // Earned achievements: the viewer's own rows from the same central
+    // record the /achievements ledger reads — never the placeholder.
+    try {
+      const achRes = await fetch('/api/achievements?mine=1', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const ach = await achRes.json().catch(() => ({}));
+      if (ach && ach.ok) {
+        setEarned(panelAchievements({
+          milestones: ach.milestones,
+          achievements: ach.achievements,
+          myUserId: ach.myUserId,
+        }));
+      }
+    } catch {
+      /* keep last state; offline */
+    } finally {
+      setEarnedLoading(false);
     }
   }, []);
 
@@ -176,7 +200,7 @@ export default function NotificationsWindow({ concourse = false } = {}) {
     }
   };
 
-  const sections = ['friend_request', 'group_invite', 'system', 'achievement'].map((type) => ({
+  const sections = ['friend_request', 'group_invite', 'system'].map((type) => ({
     type,
     rows: items.filter((n) => n.type === type),
   }));
@@ -291,18 +315,11 @@ export default function NotificationsWindow({ concourse = false } = {}) {
                 <section key={type} aria-label={SECTION_LABELS[type]}>
                   <h3 className="text-[11px] font-bold tracking-[0.2em] uppercase text-[#9dbfff]/70 mb-2">
                     {SECTION_LABELS[type]}
-                    {type !== 'achievement' && rows.length > 0 && (
+                    {rows.length > 0 && (
                       <span className="ml-2 text-zinc-500">{rows.length}</span>
                     )}
                   </h3>
-                  {type === 'achievement' ? (
-                    <div className="rounded-xl border border-dashed border-[#3a86ff]/30 px-4 py-5 text-center">
-                      <p className="text-sm text-[#dce7ff]/80 font-semibold">Achievements land here soon</p>
-                      <p className="text-xs text-zinc-500 mt-1 leading-relaxed">
-                        Your victories across the launcher will be honored here.
-                      </p>
-                    </div>
-                  ) : rows.length === 0 ? null : (
+                  {rows.length === 0 ? null : (
                     <ul className="flex flex-col gap-2">
                       {rows.map((n) => {
                         const actionable =
@@ -361,6 +378,53 @@ export default function NotificationsWindow({ concourse = false } = {}) {
                   )}
                 </section>
               ))}
+              {/* Achievements — the viewer's own earned achievements, each
+                  linked to the program where it was earned (or the ledger
+                  when the program has no route). No placeholder: an empty
+                  section means nothing earned yet, not "coming soon". */}
+              <section aria-label="Achievements">
+                <h3 className="text-[11px] font-bold tracking-[0.2em] uppercase text-[#9dbfff]/70 mb-2">
+                  Achievements
+                  {earned.length > 0 && (
+                    <span className="ml-2 text-zinc-500">{earned.length}</span>
+                  )}
+                </h3>
+                {signedIn && earnedLoading && earned.length === 0 && (
+                  <p className="text-sm text-zinc-500">Loading…</p>
+                )}
+                {signedIn && !earnedLoading && earned.length === 0 && (
+                  <div className="rounded-xl border border-dashed border-[#3a86ff]/30 px-4 py-5 text-center">
+                    <p className="text-sm text-[#dce7ff]/80 font-semibold">No achievements yet</p>
+                    <p className="text-xs text-zinc-500 mt-1 leading-relaxed">
+                      Your victories across the launcher will land here.
+                    </p>
+                  </div>
+                )}
+                {earned.length > 0 && (
+                  <ul className="flex flex-col gap-2">
+                    {earned.map((a) => (
+                      <li key={a.id}>
+                        <a
+                          href={a.href}
+                          data-ui="notification-achievement"
+                          data-achievement-key={a.key}
+                          className="flex items-center gap-3 min-h-[44px] rounded-xl border border-amber-300/20 bg-amber-300/[0.04] px-3.5 py-3 transition-all hover:border-amber-300/50"
+                        >
+                          <span aria-hidden="true" className="text-xl flex-none">🏆</span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-sm font-bold text-zinc-100 leading-snug">
+                              {a.title}
+                            </span>
+                            <span className="block text-[12px] text-zinc-400 leading-relaxed mt-0.5">
+                              {a.where} · {timeAgo(a.awardedAt)}
+                            </span>
+                          </span>
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
             </div>
           </div>
         </>
