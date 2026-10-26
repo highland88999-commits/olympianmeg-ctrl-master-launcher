@@ -4,12 +4,9 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import GoogleEarthTiles from '@/components/GoogleEarthTiles';
 import ProceduralEarthGlobe from '@/components/ProceduralEarthGlobe';
-import EarthAssets from '@/components/EarthAssets';
-import EarthLocalScatter from '@/components/EarthLocalScatter';
 import EarthWalker from '@/components/EarthWalker';
-import EarthLadders from '@/components/EarthLadders';
+import RedwaterFarmstead from '@/components/earth/RedwaterFarmstead';
 import RedwaterMount from '@/components/earth/RedwaterMount';
-import MonumentElevator from '@/components/MonumentElevator';
 import EarthBike from '@/components/EarthBike';
 import EarthSupercar from '@/components/EarthSupercar';
 import EarthPitMarker from '@/components/EarthPitMarker';
@@ -318,19 +315,22 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
           />
         </group>
         {effectiveLayer === 'terrain' && <ProceduralEarthGlobe onSelect={onSelect} quatRef={quatRef} />}
-        {/* 3D objects — always present on the terrain layer. Earth
-            has ONE level now (2026-10-26, quantum removed): nothing
-            ever hides the world for a second layer. */}
-        {effectiveLayer === 'terrain' && <EarthAssets />}
+        {/* Earth 1 simplification (2026-10-26): all placed 3D
+            objects are staged off the scene — the full record
+            lives in ~/workspace/earth1-staged-objects/inventory.json.
+            Only the Redwater spawn farmstead remains, as journey
+            dressing. Terrain, lens imagery, sky, ground, character
+            and vehicles are untouched. */}
+        {effectiveLayer === 'terrain' && <RedwaterFarmstead />}
         {effectiveLayer === 'terrain' && <EarthWalker />}
-        {/* Climbable ladders on structures, monument elevators — street only */}
-        {effectiveLayer === 'terrain' && roaming && <EarthLadders visible={roaming} />}
+        {/* Street-level journey + player systems only. Ladders,
+            monument elevators and traveler-following scatter were
+            staged with the rest of the placed objects. */}
         {/* The Redwater quicksand journey: proximity-gated to the
             pit near Redwater, Alberta — same street gate as the
             ladders. The NYC portal drops into /mega-city via
             onTeleportNYC (HomeScene). */}
         {effectiveLayer === 'terrain' && roaming && <RedwaterMount onTeleportNYC={onTeleportNYC} />}
-        {effectiveLayer === 'terrain' && roaming && <MonumentElevator visible={roaming} />}
         {/* Summonable TRON bike — street only */}
         {effectiveLayer === 'terrain' && roaming && <EarthBike controls={controls} />}
         {/* Summonable Lamborghini Aventador — street only, Earth's
@@ -342,10 +342,6 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
             journey is findable from the spawn. Visual only — it
             never blocks the pit, the sink, the tunnel or the core. */}
         {effectiveLayer === 'terrain' && roaming && <EarthPitMarker />}
-        {/* Traveler-following dense props (Earth 1 expansion):
-            street-level population everywhere, dry seabed included
-            — same gate as the street patch. */}
-        {effectiveLayer === 'terrain' && roaming && <EarthLocalScatter />}
 
         {effectiveLayer === 'terrain' && lensSheets.map((s) => (
           <primitive key={s.key} object={s.mesh} />

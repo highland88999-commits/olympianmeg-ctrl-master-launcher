@@ -124,17 +124,22 @@ test('aether placements are deterministic, unique, and INSIDE buildings only', (
 });
 
 // ---------- doors: collision + round-trip ----------
-
-test('every interior has a door collider; solids elsewhere keep theirs', () => {
+//
+// STAGED CONTRACT (Earth 1 simplification, 2026-10-26): every
+// interior's asset id is staged, so buildColliders() publishes
+// NO interior colliders while staged — otherwise the walker
+// would hit invisible walls where visible objects used to be.
+// The interior SPECS below (door bearings, room math, aether
+// placements) are unchanged and still pass; only the collider
+// contract is suspended. To restore an interior: remove its id
+// from lib/earth/staged-objects.js AND remount its renderer —
+// these tests must then be restored to the door-collider form.
+test('staged interiors publish no colliders (no invisible walls)', () => {
   const colliders = buildColliders();
-  const withDoor = colliders.filter((c) => c.door);
-  assert.equal(withDoor.length, getInteriors().length);
+  assert.deepEqual(colliders, []);
   for (const spec of getInteriors()) {
     const c = colliders.find((x) => x.id === spec.id);
-    assert.ok(c && c.door, `${spec.id} collider door`);
-    assert.equal(c.door.interiorId, spec.id);
-    assert.equal(c.lat, spec.lat);
-    assert.equal(c.lon, spec.lon);
+    assert.equal(c, undefined, `${spec.id} must publish no collider while staged`);
   }
 });
 
@@ -185,14 +190,12 @@ for (const id of ['e023-prairie-farmhouse', 'e065-lighthouse', 'e021-red-gambrel
     assert.equal(interiorAt(outward.lat, outward.lon), null, 'walker ends outside');
   });
 
-  test(`walls hold: ${id} — a non-door approach never enters`, () => {
+  test(`staged walls hold nothing: ${id} — a former wall approach is unblocked`, () => {
     const spec = interiorById(id);
     const R = spec.radiusM;
     for (const off of [90, 180, 270]) {
       const w = fairWalk(spec, (spec.doorBearingDeg + off) % 360, R + 6, 0.4);
-      assert.ok(w.blocked > 0, `approach at +${off}° must be blocked`);
-      assert.ok(w.endD >= R + 0.3, `walker stays outside the wall (endD ${w.endD.toFixed(2)} vs R ${R})`);
-      assert.equal(interiorAt(w.lat, w.lon), null, 'never inside through a wall');
+      assert.equal(w.blocked, 0, `staged wall at +${off}° must not block (blocked ${w.blocked}/${w.moves})`);
     }
   });
 }
