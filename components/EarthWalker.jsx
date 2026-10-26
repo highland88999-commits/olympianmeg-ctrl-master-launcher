@@ -6,6 +6,7 @@ import { createWalkerEmbodiment } from '@/lib/gta/walker-embodiment';
 import { resolveSurfaceCharacter, EARTH_DEFAULT_CHARACTER_ID } from '@/lib/characters/embodiment';
 import { roamState, tangentFrame, headingVector } from '@/lib/earth/roam';
 import { surfaceRadiusOrBase, globeGridRadiusOrBase } from '@/lib/earth/heightmap';
+import { patchFacetRadiusAt } from '@/lib/earth/street-patch';
 import { latLonToVec3 } from '@/lib/geo';
 import { DISPLAY_UNITS_PER_METRE } from '@/lib/earth/placements';
 import { bikeState, carState, getClimbAltM } from '@/lib/earth/parachute';
@@ -103,9 +104,14 @@ export default function EarthWalker() {
     // the coarse globe grid's drawn surface. On steep facets the
     // true sampler alone read lower than the ground on screen and
     // the traveler walked waist-deep in the slope.
+    // Street QA 3 (2026-10-26): the street patch's drawn facet
+    // joins the max — on concave ground the facet stands above
+    // both smooth samplers and buried the traveler and vehicles.
+    const facetR = patchFacetRadiusAt(roamState.lat, roamState.lon);
     const r = Math.max(
       surfaceRadiusOrBase(roamState.lat, roamState.lon),
       globeGridRadiusOrBase(roamState.lat, roamState.lon),
+      facetR != null ? facetR : -Infinity,
     );
     const p = latLonToVec3(roamState.lat, roamState.lon, r + altU);
     rig.position.set(p.x, p.y, p.z);

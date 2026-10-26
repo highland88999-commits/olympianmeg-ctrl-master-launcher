@@ -28,6 +28,7 @@ import {
 } from '@/lib/earth/placements';
 import { effectiveEarthViewMode } from '@/lib/earth/view-mode';
 import { getInteriorAltM } from '@/lib/earth/interiors';
+import { patchFacetRadiusAt } from '@/lib/earth/street-patch';
 
 export const EARTH_CENTER = new THREE.Vector3(0, -60, -120);
 const HUB_HOME = new THREE.Vector3(0, 75, 20);
@@ -247,7 +248,17 @@ export default function EarthFlightController({
       // can still reach the core's NYC portal on foot.
       if (!roamState.journeyActive) {
         const { rig, camPos, look, up } = streetRigWorld();
-        camera.position.lerp(camPos, 1 - Math.exp(-20 * delta));
+        // First person sits AT the head (2026-10-26, street QA 3):
+        // the old exponential lerp trailed the lens behind a fast
+        // car by speed/20 — at boost the "first person" view showed
+        // the car's rear from metres back, and as speed fell the
+        // lens closed onto the roof. Third person keeps the soft
+        // boom follow; first person snaps to the head exactly.
+        if (effectiveEarthViewMode() === 'first') {
+          camera.position.copy(camPos);
+        } else {
+          camera.position.lerp(camPos, 1 - Math.exp(-20 * delta));
+        }
         camera.quaternion.copy(lookAtQuat(camera.position, look, up));
         tuneNear(Math.hypot(
           rig.camPos.x - rig.ground.x,
@@ -352,6 +363,11 @@ export default function EarthFlightController({
           globeGridSurfaceRadius(hdClamp.data, hdClamp.w, hdClamp.h, camLat, camLon),
         );
       }
+      // Drawn-facet floor (2026-10-26, street QA 3): on concave
+      // ground the street patch's facet stands above both smooth
+      // samplers, and the lens went under terrain (black frames).
+      const facetR = patchFacetRadiusAt(camLat, camLon);
+      if (facetR != null) floorR = Math.max(floorR, facetR);
       const minDist = floorR
         + 0.3 * DISPLAY_UNITS_PER_METRE;
       if (distFromCenter < minDist) {

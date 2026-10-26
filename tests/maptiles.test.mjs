@@ -176,7 +176,7 @@ t('earth defaults to the 3D terrain layer', /useState\('terrain'\)/.test(nexus))
 t('earth only claims photorealistic after tiles render', /onActive=\{[^}]*'photorealistic'/.test(nexus));
 t('earth falls back to terrain on tile failure', /onInactive=\{[^}]*'terrain'/.test(nexus));
 t('earth keeps the ESRI lens as fallback', /lensTilePlan/.test(nexus) && /CanvasTexture/.test(nexus));
-t('earth hides the lens while photorealistic', /effectiveLayer === 'terrain' && !microMode && lensSheets/.test(nexus));
+t('earth hides the lens while photorealistic', /effectiveLayer === 'terrain' && lensSheets\.map/.test(nexus));
 t('earth does not render debug layer badges in 3D space',
   !/Terrain.*3D/.test(nexus) && !/Photorealistic.*Google/.test(nexus));
 

@@ -7,7 +7,6 @@ import { summonCar, dismissCar, toggleCarMount } from '@/components/EarthSuperca
 import EarthViewToggle from '@/components/EarthViewToggle';
 import { bikeState, carState } from '@/lib/earth/parachute';
 import { EARTH_DEFAULT_CHARACTER_ID } from '@/lib/characters/embodiment';
-import { aetherState, totalAether } from '@/lib/earth/aether';
 import { planetSeedFor } from '@/lib/planets/planet-seeds';
 import { getEmbodimentForSurface } from '@/lib/gta/walker-embodiment';
 import CharacterPicker from '@/components/characters/CharacterPicker';
@@ -43,9 +42,6 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
   // the bike (Earth 1 expansion): the V / F keys mutate it
   // outside React, so buttons must poll, not guess.
   const [carUi, setCarUi] = useState({ out: false, mounted: false });
-  // Aether collection, polled from the aether singleton like the
-  // others (collection happens inside EarthAssets' driver).
-  const [aetherUi, setAetherUi] = useState({ count: 0, total: 0 });
   // Auto-collapse (video QA V2-6, 2026-10-26): the console
   // covers ~45% of the screen during descent, so the moment the
   // traveler ARRIVES at street level it folds to its globe tab.
@@ -68,10 +64,6 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
       setCarUi((prev) => {
         const next = { out: !!carState.summoned, mounted: !!carState.mounted };
         return prev.out === next.out && prev.mounted === next.mounted ? prev : next;
-      });
-      setAetherUi((prev) => {
-        const next = { count: aetherState.count || 0, total: totalAether() };
-        return prev.count === next.count && prev.total === next.total ? prev : next;
       });
     }, 250);
     return () => clearInterval(id);
@@ -229,15 +221,6 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
                 : 'On foot — left thumb to walk, drag the right side to look around.'}
             </div>
           )}
-          {atStreet && aetherUi.total > 0 && (
-            <div className="text-[10px] text-[#aef4ff] mt-1">
-              ◆ Aether {aetherUi.count} / {aetherUi.total} — hidden inside Earth&rsquo;s buildings. Walk in and find them.
-            </div>
-          )}
-          {/* Climb / elevator hints. */}
-          <div className="text-[10px] text-zinc-500 mt-1 leading-relaxed">
-            Double-click ladders to climb · Double-click monuments for the elevator
-          </div>
         </div>
 
         {/* The card's ONE scroll surface — everything below the pinned

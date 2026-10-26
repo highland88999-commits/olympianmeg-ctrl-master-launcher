@@ -311,8 +311,12 @@ test('animation + interiors are wired into the Earth render path', () => {
   assert.match(flight, /getClimbAltM\(\) \+ getInteriorAltM\(\) \+ bikeLiftM/, 'street camera includes interior altitude');
   assert.match(flight, /getInteriorAltM\(\) <= 0\.05/, 'floor clamp stands down inside');
 
+  // Staged contract (2026-10-26, street QA 3): interiors are
+  // staged off Earth 1, so the console must NOT promise aether
+  // hidden in buildings — that copy was dead and is removed.
+  // The specs and driver code above stay for restoration.
   const consoleSrc = read('components/EarthConsole.jsx');
-  assert.match(consoleSrc, /◆ Aether \{aetherUi\.count\} \/ \{aetherUi\.total\}/, 'aether counter in the console');
+  assert.ok(!consoleSrc.includes('hidden inside Earth'), 'no dead aether-in-buildings copy in the console');
 });
 
 test('Part 1 rule replaced 2026-10-26: quantum is GONE, not flagged off', () => {

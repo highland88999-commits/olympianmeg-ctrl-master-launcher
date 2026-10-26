@@ -7,6 +7,10 @@ import { roamState, cameraRig } from '@/lib/earth/roam';
 import {
   buildStreetPatchGeometryData,
   STREET_PATCH_RADIUS,
+  PATCH_RINGS,
+  PATCH_SECTORS,
+  registerStreetPatch,
+  clearStreetPatch,
 } from '@/lib/earth/street-patch';
 
 // StreetGroundPatch — the street-level detail ground for the hub
@@ -38,6 +42,7 @@ export default function StreetGroundPatch({ center }) {
     if (!mesh) return undefined;
     if (!center) {
       mesh.visible = false;
+      clearStreetPatch();
       return undefined;
     }
     const hd = getHeightData();
@@ -54,10 +59,24 @@ export default function StreetGroundPatch({ center }) {
     geoRef.current = geo;
     mesh.geometry = geo;
     mesh.visible = true;
+    // Publish the DRAWN facet surface (2026-10-26, street QA 3):
+    // vehicles, the walker and the camera clamp ride the facet
+    // here, not just the smooth heightmap, so nothing sinks
+    // under the ground on screen.
+    registerStreetPatch({
+      positions: data.positions,
+      indices: data.indices,
+      centerLat: center.lat,
+      centerLon: center.lon,
+      rings: PATCH_RINGS,
+      sectors: PATCH_SECTORS,
+      radiusUnits: STREET_PATCH_RADIUS,
+    });
     return undefined;
   }, [center ? `${center.lat.toFixed(5)},${center.lon.toFixed(5)}` : null]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => () => {
+    clearStreetPatch();
     if (geoRef.current) {
       geoRef.current.dispose();
       geoRef.current = null;

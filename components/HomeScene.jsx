@@ -888,7 +888,7 @@ function HubScene({
             />
           ) : (
           <>
-            <SunBackground />
+            {!['diving_to_street', 'earth_roam'].includes(appState) && <SunBackground />}
             {/* THE OMEGA ARCH — just beyond the Sun. The Portal Room's
                 showpiece door: click it or fly through it in freeroam. */}
             <OmegaHubGate freeroam={appState === 'hub_freeroam'} />
@@ -906,27 +906,32 @@ function HubScene({
             controls={controlsRef}
             onTeleportNYC={() => router.push('/mega-city')}
           />
-            <MarsBackground onSelect={appState === 'hub_freeroam' ? beginMarsDive : null} />
-            <BackdropPlanets onPlanetSelect={appState === 'hub_freeroam' ? beginPlanetDive : null} />
+            {!['diving_to_street', 'earth_roam'].includes(appState) && <MarsBackground onSelect={appState === 'hub_freeroam' ? beginMarsDive : null} />}
+            {/* Hub vista hides at street level (2026-10-26, street
+                QA 3): god labels, towers, satellites and rainbow
+                rings bled through the street sky — same gate the
+                Moon and NavBeacons already used. NexusEarth itself
+                stays: it IS the street. */}
+            {!['diving_to_street', 'earth_roam'].includes(appState) && <BackdropPlanets onPlanetSelect={appState === 'hub_freeroam' ? beginPlanetDive : null} />}
             {/* The planetary system's grand rainbow rings — fixed frame
                 around the planets, outside the satellite hollow. */}
-            <SystemRings />
-            <TextureProvider onLaunchExternal={onLaunchExternal} />
+            {!['diving_to_street', 'earth_roam'].includes(appState) && <SystemRings />}
+            {!['diving_to_street', 'earth_roam'].includes(appState) && <TextureProvider onLaunchExternal={onLaunchExternal} />}
             {/* Hub satellite constellation — 10 physical textured satellites.
                 The floating video button's satellite menu is the single way
                 into programs; the rings no longer launch anything. */}
-            <GodOrbitRings />
+            {!['diving_to_street', 'earth_roam'].includes(appState) && <GodOrbitRings />}
             {/* The Moon, the asteroid belt, and the waypoint beacons.
                 The Moon hides at street level (2026-10-26 outage
                 repair): its Billboard label bled through the street
                 sky as a faint "MOON" in Merlin's footage — same gate
                 as NavBeacons below, orbit views keep it. */}
             {!['diving_to_street', 'earth_roam'].includes(appState) && <HubMoon />}
-            <AsteroidField />
+            {!['diving_to_street', 'earth_roam'].includes(appState) && <AsteroidField />}
             {/* Occasional twin-panel fighter fly-throughs across the
                 front vista (Merlin, 2026-10-23) — the lane, schedule
                 and clearance proof live in lib/hub-flight.js. */}
-            <HubTieFlight />
+            {!['diving_to_street', 'earth_roam'].includes(appState) && <HubTieFlight />}
             {/* Hide waypoint beacons at street level (they're orbit navigation aids) */}
             {!['diving_to_street', 'earth_roam'].includes(appState) && <NavBeacons />}
           <StaticColliders />

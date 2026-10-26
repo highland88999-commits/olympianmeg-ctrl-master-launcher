@@ -185,100 +185,161 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
   const centerKey = lensCenter
     ? `${presetName}:${lensCenter.lat.toFixed(4)},${lensCenter.lon.toFixed(4)}`
     : null;
-  useEffect(() => {
-    if (!lensCenter || !heightReady) { clearLensSheets(); return undefined; }
-    let alive = true;
-    const preset = LENS_PRESETS[presetName];
-    const plan = lensTilePlan(lensCenter.lat, lensCenter.lon, preset.zoom, preset.grid, preset.canvasPx);
+
+  // Lens build manager (2026-10-26, street-tiles fix). The old
+  // effect abandoned a build the moment the traveler walked to a
+  // new centre — and a street sheet needs 36×36 = 1,296 tile
+  // fetches while walking recenters every ~36 m, so in motion NO
+  // sheet ever finished and the ground stayed flat patch-colour
+  // forever (Merlin's footage; only a rare standstill sheet
+  // landed). Now builds run SERIALLY: a recenter while a build
+  // runs only queues the newest centre, and sheets mount
+  // PROGRESSIVELY — the mesh lands at once and tiles paint as
+  // they arrive (texture uploads throttled to 750 ms so a
+  // 2160² canvas isn't re-uploaded per tile), so photographic
+  // ground grows within seconds instead of all-or-nothing.
+  const lensBuildRef = useRef({ busy: false, pending: null, alive: true });
+  const lensGenRef = useRef(0);
+
+  const disposeLensSheet = (s) => {
+    s.mesh.geometry.dispose();
+    s.mesh.material.map?.dispose();
+    s.mesh.material.dispose();
+  };
+
+  // Persist a sheet alongside the recent ones (see
+  // MAX_LENS_SHEETS): a rebuilt cell replaces its old sheet;
+  // only sheets beyond the cap are disposed, farthest first —
+  // never the one the traveler is standing on.
+  const mountLensSheet = (key, mesh, lat, lon) => {
+    const replaced = sheetsRef.current.find((s) => s.key === key);
+    if (replaced) disposeLensSheet(replaced);
+    const next = [...sheetsRef.current.filter((s) => s.key !== key),
+      { key, mesh, lat, lon }];
+    while (next.length > MAX_LENS_SHEETS) {
+      let farIdx = 0;
+      let farDist = -1;
+      for (let i = 0; i < next.length - 1; i++) {
+        const dLat = next[i].lat - lat;
+        const dLon = next[i].lon - lon;
+        const d = dLat * dLat + dLon * dLon;
+        if (d > farDist) { farDist = d; farIdx = i; }
+      }
+      disposeLensSheet(next[farIdx]);
+      next.splice(farIdx, 1);
+    }
+    sheetsRef.current = next;
+    setLensSheets(next);
+  };
+
+  const removeLensSheet = (key) => {
+    const hit = sheetsRef.current.find((s) => s.key === key);
+    if (!hit) return;
+    disposeLensSheet(hit);
+    const next = sheetsRef.current.filter((s) => s.key !== key);
+    sheetsRef.current = next;
+    setLensSheets(next);
+  };
+
+  const pumpLensQueue = () => {
+    const mgr = lensBuildRef.current;
+    if (mgr.busy || !mgr.alive) return;
+    const job = mgr.pending;
+    mgr.pending = null;
+    if (job) startLensBuild(job);
+  };
+
+  const startLensBuild = (job) => {
+    const mgr = lensBuildRef.current;
+    const gen = lensGenRef.current;
+    mgr.busy = true;
+    const preset = LENS_PRESETS[job.presetName];
+    const plan = lensTilePlan(job.lat, job.lon, preset.zoom, preset.grid, preset.canvasPx);
     const S = preset.canvasPx / preset.grid;
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = preset.canvasPx;
     const ctx = canvas.getContext('2d');
+    const hd = getHeightData();
     // iPhone hardening (2026-10-01): iOS Safari returns null for 2D
-    // contexts under canvas memory pressure — skip the lens honestly
-    // instead of throwing into the React error boundary.
-    if (!ctx) return undefined;
+    // contexts under canvas memory pressure — skip the build
+    // honestly instead of throwing; the next recenter retries.
+    if (!ctx || !hd) { mgr.busy = false; pumpLensQueue(); return; }
+    const data = buildLensGeometryData(
+      hd.data, hd.w, hd.h, job.lat, job.lon,
+      preset.radiusUnits, plan,
+      {
+        // Street rings 12 → 24 (2026-10-22, with the radius
+        // tripling): the wider disc gets a denser drape so
+        // relief still hugs the terrain out at the 90 m rim.
+        rings: job.presetName === 'street' ? 24 : 22,
+        sectors: 48,
+        lift: preset.lift ?? LENS_LIFT,
+      },
+    );
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(data.uvs, 2));
+    geo.setIndex(new THREE.BufferAttribute(data.indices, 1));
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = 8;
+    const mat = new THREE.MeshBasicMaterial({
+      map: tex, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.renderOrder = 3;
+    // Progressive mount: the sheet is on screen at once (the
+    // frame loop animates its opacity 0 → 0.96) and tiles paint
+    // into it as they arrive — no more waiting on all 1,296
+    // tiles before ANY photographic ground shows.
+    mountLensSheet(job.key, mesh, job.lat, job.lon);
     let settledCount = 0;
     let okCount = 0;
+    let texTimer = null;
+    const queueTexUpload = () => {
+      if (texTimer) return;
+      texTimer = setTimeout(() => {
+        texTimer = null;
+        tex.needsUpdate = true;
+      }, 750);
+    };
     const finish = () => {
-      if (!alive || okCount === 0) return;
-      // Feather the rim into the globe: opaque through the middle,
-      // gone at the edge — no hard matte ring.
-      ctx.globalCompositeOperation = 'destination-in';
-      const c = preset.canvasPx / 2;
-      const grad = ctx.createRadialGradient(c, c, c * 0.68, c, c, c);
-      grad.addColorStop(0, 'rgba(0,0,0,1)');
-      grad.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, preset.canvasPx, preset.canvasPx);
-      ctx.globalCompositeOperation = 'source-over';
-      const tex = new THREE.CanvasTexture(canvas);
-      tex.colorSpace = THREE.SRGBColorSpace;
-      tex.anisotropy = 8;
-      const hd = getHeightData();
-      if (!hd) return;
-      const data = buildLensGeometryData(
-        hd.data, hd.w, hd.h, lensCenter.lat, lensCenter.lon,
-        preset.radiusUnits, plan,
-        {
-          // Street rings 12 → 24 (2026-10-22, with the radius
-          // tripling): the wider disc gets a denser drape so
-          // relief still hugs the terrain out at the 90 m rim.
-          rings: presetName === 'street' ? 24 : 22,
-          sectors: 48,
-          lift: preset.lift ?? LENS_LIFT,
-        },
-      );
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
-      geo.setAttribute('uv', new THREE.BufferAttribute(data.uvs, 2));
-      geo.setIndex(new THREE.BufferAttribute(data.indices, 1));
-      const mat = new THREE.MeshBasicMaterial({
-        map: tex, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide,
-      });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.renderOrder = 3;
-      // Persist this sheet alongside the recent ones (see
-      // MAX_LENS_SHEETS): a rebuilt cell replaces its old sheet;
-      // only sheets beyond the cap are disposed.
-      const disposeSheet = (s) => {
-        s.mesh.geometry.dispose();
-        s.mesh.material.map?.dispose();
-        s.mesh.material.dispose();
-      };
-      const key = centerKey;
-      const replaced = sheetsRef.current.find((s) => s.key === key);
-      if (replaced) disposeSheet(replaced);
-      const next = [...sheetsRef.current.filter((s) => s.key !== key),
-        { key, mesh, lat: lensCenter.lat, lon: lensCenter.lon }];
-      // Distance eviction (see MAX_LENS_SHEETS): beyond the cap,
-      // dispose the sheet whose centre is farthest from the sheet
-      // just built — never the one the traveler is standing on.
-      while (next.length > MAX_LENS_SHEETS) {
-        let farIdx = 0;
-        let farDist = -1;
-        for (let i = 0; i < next.length - 1; i++) {
-          const dLat = next[i].lat - lensCenter.lat;
-          const dLon = next[i].lon - lensCenter.lon;
-          const d = dLat * dLat + dLon * dLon;
-          if (d > farDist) { farDist = d; farIdx = i; }
-        }
-        disposeSheet(next[farIdx]);
-        next.splice(farIdx, 1);
+      if (texTimer) { clearTimeout(texTimer); texTimer = null; }
+      tex.needsUpdate = true;
+      if (gen !== lensGenRef.current || !mgr.alive) {
+        // Superseded (centre cleared) or unmounted: drop the sheet.
+        removeLensSheet(job.key);
+      } else if (okCount > 0) {
+        // Feather the rim into the globe: opaque through the
+        // middle, gone at the edge — no hard matte ring.
+        ctx.globalCompositeOperation = 'destination-in';
+        const c = preset.canvasPx / 2;
+        const grad = ctx.createRadialGradient(c, c, c * 0.68, c, c, c);
+        grad.addColorStop(0, 'rgba(0,0,0,1)');
+        grad.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, preset.canvasPx, preset.canvasPx);
+        ctx.globalCompositeOperation = 'source-over';
+        tex.needsUpdate = true;
+        // The device record of rendered ground — this cell has
+        // been mapped on this device, permanently (lens-cache.js).
+        recordRenderedTileKey(tileCellKey(job.presetName, plan));
+      } else {
+        // Every tile failed: leave no invisible sheet behind.
+        removeLensSheet(job.key);
       }
-      sheetsRef.current = next;
-      setLensSheets(next);
-      // The device record of rendered ground — this cell has been
-      // mapped on this device, permanently (lens-cache.js).
-      recordRenderedTileKey(tileCellKey(presetName, plan));
+      mgr.busy = false;
+      pumpLensQueue();
     };
     plan.tiles.forEach((t) => {
       if (!t.url) { settledCount += 1; if (settledCount === plan.tiles.length) finish(); return; }
       const img = new Image();
       img.crossOrigin = 'anonymous';
       img.onload = () => {
-        if (!alive) return;
-        ctx.drawImage(img, t.px, t.py, S, S);
+        if (gen === lensGenRef.current && mgr.alive) {
+          ctx.drawImage(img, t.px, t.py, S, S);
+          queueTexUpload();
+        }
         okCount += 1;
         settledCount += 1;
         if (settledCount === plan.tiles.length) finish();
@@ -289,12 +350,30 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
       };
       img.src = t.url;
     });
-    return () => { alive = false; };
+  };
+
+  useEffect(() => {
+    if (!lensCenter || !heightReady) {
+      // Leaving Earth / no focus: drop sheets AND any queued
+      // build, and invalidate in-flight builds (their finish
+      // disposes instead of mounting).
+      lensGenRef.current += 1;
+      lensBuildRef.current.pending = null;
+      clearLensSheets();
+      return undefined;
+    }
+    const mgr = lensBuildRef.current;
+    const job = { key: centerKey, lat: lensCenter.lat, lon: lensCenter.lon, presetName };
+    if (mgr.busy) { mgr.pending = job; return undefined; }
+    startLensBuild(job);
+    return undefined;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centerKey, heightReady]);
 
   // Dispose all lens sheets on unmount.
   useEffect(() => () => {
+    lensBuildRef.current.alive = false;
+    lensBuildRef.current.pending = null;
     for (const s of sheetsRef.current) {
       s.mesh.geometry.dispose();
       s.mesh.material.map?.dispose();
@@ -314,7 +393,7 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
             onInactive={() => setLayer('terrain')}
           />
         </group>
-        {effectiveLayer === 'terrain' && <ProceduralEarthGlobe onSelect={onSelect} quatRef={quatRef} />}
+        {effectiveLayer === 'terrain' && <ProceduralEarthGlobe onSelect={onSelect} quatRef={quatRef} waterInOrbit={!roaming} />}
         {/* Earth 1 simplification (2026-10-26): all placed 3D
             objects are staged off the scene — the full record
             lives in ~/workspace/earth1-staged-objects/inventory.json.

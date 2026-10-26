@@ -18,6 +18,7 @@ import { FintracExplanationMenuButton } from '@/components/FintracExplanation';
 import EntranceSequence from '@/components/EntranceSequence';
 import { createEntranceMachine } from '@/lib/entrance-sequence';
 import EarthConsole from '@/components/EarthConsole';
+import EarthOblivionPrompt from '@/components/EarthOblivionPrompt';
 import { generateMarsProfile } from '@/lib/mars/engine';
 import { planetSeedFor } from '@/lib/planets/planet-seeds';
 import { generatePlanetProfile } from '@/lib/planets/profiles';
@@ -802,6 +803,12 @@ function NexusHub() {
           spawns={earthSpawns}
           controlsRef={controlsRef}
         />
+      )}
+
+      {/* Oblivion advisory (Merlin, 2026-10-26): street level only,
+          top of screen — the component itself gates on earth_roam. */}
+      {(user || cloudOffline) && (
+        <EarthOblivionPrompt phase={appState} />
       )}
 
       {(user || cloudOffline) && appState === 'mars_surface' && (

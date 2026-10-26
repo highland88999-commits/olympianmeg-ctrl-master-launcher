@@ -36,6 +36,7 @@ const FRAGMENT_SHADER = /* glsl */ `
   uniform sampler2D nightTexture;
   uniform sampler2D heightTexture;
   uniform vec3 sunDirection;
+  uniform float orbitWater;
   varying vec2 vUv;
   varying vec3 vNormalWorld;
 
@@ -74,9 +75,14 @@ const FRAGMENT_SHADER = /* glsl */ `
     // dry seabed BEFORE the terrain mix, so no blue survives
     // anywhere on the globe. Land photo detail is untouched.
     float oceanness = smoothstep(0.05, 0.15, photo.b - max(photo.r, photo.g));
-    photo = mix(photo, terrain, oceanness);
+    photo = mix(photo, terrain, oceanness * (1.0 - orbitWater));
     // Terrain tint carries the relief; the photo carries coastlines/deserts.
     vec3 dayColor = mix(photo, terrain, 0.55);
+    // Orbit illusion of water (Merlin, 2026-10-26): clear bright
+    // blue oceans in ORBIT view only — visual only, no water
+    // system, no swimming, no collision. Street/roam keep dry
+    // seabed (orbitWater 0), exactly as before.
+    dayColor = mix(dayColor, vec3(0.05, 0.45, 0.95), oceanness * orbitWater);
     vec3 nightColor = texture2D(nightTexture, vUv).rgb;
     float sunOrientation = dot(n, sunDirection);
     float dayMix = smoothstep(-0.15, 0.25, sunOrientation);
@@ -95,9 +101,10 @@ const FRAGMENT_SHADER = /* glsl */ `
   }
 `;
 
-export default function ProceduralEarthGlobe({ onSelect, quatRef }) {
+export default function ProceduralEarthGlobe({ onSelect, quatRef, waterInOrbit }) {
   const [ready, setReady] = useState(null);
   const disposables = useRef([]);
+  const uniformsRef = useRef(null);
 
   useEffect(() => {
     let alive = true;
@@ -136,14 +143,17 @@ export default function ProceduralEarthGlobe({ onSelect, quatRef }) {
         const earthPos = new THREE.Vector3(0, -60, -120);
         const sunDirection = new THREE.Vector3().subVectors(sunPos, earthPos).normalize();
         if (alive) {
+          const uniforms = {
+            dayTexture: { value: dayTex },
+            nightTexture: { value: nightTex },
+            heightTexture: { value: heightTex },
+            sunDirection: { value: sunDirection },
+            orbitWater: { value: 0 },
+          };
+          uniformsRef.current = uniforms;
           setReady({
             geometry,
-            uniforms: {
-              dayTexture: { value: dayTex },
-              nightTexture: { value: nightTex },
-              heightTexture: { value: heightTex },
-              sunDirection: { value: sunDirection },
-            },
+            uniforms,
           });
         }
       } catch {
@@ -165,6 +175,16 @@ export default function ProceduralEarthGlobe({ onSelect, quatRef }) {
       disposables.current = [];
     };
   }, []);
+
+  // Orbit-water gate (2026-10-26): the shader uniform follows
+  // the view — bright blue oceans in orbit, dry seabed at
+  // street level. Mutating the uniform value is the standard
+  // three.js pattern; no material rebuild.
+  useEffect(() => {
+    if (uniformsRef.current) {
+      uniformsRef.current.orbitWater.value = waterInOrbit ? 1 : 0;
+    }
+  }, [waterInOrbit, ready]);
 
   if (!ready || ready.failed) return null;
 

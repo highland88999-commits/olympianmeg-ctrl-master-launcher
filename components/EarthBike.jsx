@@ -10,6 +10,7 @@ import { DISPLAY_UNITS_PER_METRE } from '@/lib/earth/placements';
 import { roamState, tangentFrame, headingVector } from '@/lib/earth/roam';
 import { bikeState } from '@/lib/earth/parachute';
 import { moveWithCollision } from '@/lib/earth/collision';
+import { patchFacetRadiusAt } from '@/lib/earth/street-patch';
 
 // EarthBike — summonable TRON Wisp bike for hub Earth street view.
 //
@@ -209,9 +210,14 @@ export default function EarthBike({ controls }) {
 
     // --- Position the bike mesh on the globe ---
     // Ground collision: radius is surface + altitude, never below surface.
+    // Never sink under the DRAWN world (2026-10-26, street QA 3):
+    // ride the higher of the smooth surface and the street patch's
+    // drawn facet, like the supercar.
     const surfR = surfaceRadiusOrBase(bikeState.lat, bikeState.lon);
+    const facetR = patchFacetRadiusAt(bikeState.lat, bikeState.lon);
+    const groundR = facetR != null ? Math.max(surfR, facetR) : surfR;
     const hoverM = Math.max(HOVER_MIN_M, bikeState.altM);
-    const r = surfR + hoverM * UPM;
+    const r = groundR + hoverM * UPM;
     const p = latLonToVec3(bikeState.lat, bikeState.lon, r);
     g.position.set(p.x, p.y, p.z);
 
@@ -241,9 +247,13 @@ export default function EarthBike({ controls }) {
       }}
     >
       <WispBike color="#00ffcc" />
-      {/* Mounted indicator ring */}
-      <mesh position={[0, 0.1, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <ringGeometry args={[1.6, 1.9, 32]} />
+      {/* Mounted indicator ring — display metres, not hub units
+          (2026-10-26, street QA 3): the old 1.6–1.9 raw radii were
+          ~100–119 display metres across and floated 6.25 m up,
+          reading as a giant line on the horizon. Now a small ring
+          at the bike's feet. */}
+      <mesh position={[0, 0.15 * UPM, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[1.4 * UPM, 1.8 * UPM, 48]} />
         <meshBasicMaterial
           color={bikeState.mounted ? '#00ffcc' : '#64748b'}
           transparent

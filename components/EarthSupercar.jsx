@@ -10,6 +10,8 @@ import { roamState, tangentFrame, headingVector } from '@/lib/earth/roam';
 import { carState } from '@/lib/earth/parachute';
 import { getCarModel, subscribeCarModel, ensureCarModel } from '@/lib/earth/car-model';
 import { moveWithCollision } from '@/lib/earth/collision';
+import { patchFacetRadiusAt } from '@/lib/earth/street-patch';
+import { effectiveEarthViewMode } from '@/lib/earth/view-mode';
 
 // EarthSupercar — the summonable Lamborghini Aventador for hub
 // Earth street view (Earth 1 expansion, 2026-10-26): Earth's
@@ -164,7 +166,12 @@ export default function EarthSupercar({ controls }) {
       if (g) g.visible = false;
       return;
     }
-    g.visible = true;
+    // First-person clean-view law (2026-10-26, street QA 3): the
+    // walker already leaves the frame in first person; the car
+    // does the same while mounted — its roof sits 0.44 m under
+    // the lens, so any downward look filled the screen with
+    // bodywork. Third person still shows the car.
+    g.visible = !(carState.mounted && effectiveEarthViewMode() === 'first');
     const dt = Math.min(0.05, rawDt || 0.016);
 
     if (carState.mounted) {
@@ -218,9 +225,16 @@ export default function EarthSupercar({ controls }) {
     }
 
     // Position on the globe: ground-hugging, like the bike.
+    // Never sink under the DRAWN world (2026-10-26, street QA 3):
+    // ride the higher of the smooth heightmap surface and the
+    // street patch's drawn facet — on concave ground the facet
+    // stands above the smooth sample and the car drove roof-deep
+    // into slopes. The facet is null off-patch; smooth stands.
     const surfR = surfaceRadiusOrBase(carState.lat, carState.lon);
+    const facetR = patchFacetRadiusAt(carState.lat, carState.lon);
+    const groundR = facetR != null ? Math.max(surfR, facetR) : surfR;
     const hoverM = Math.max(0.05, carState.altM);
-    const r = surfR + hoverM * UPM;
+    const r = groundR + hoverM * UPM;
     const p = latLonToVec3(carState.lat, carState.lon, r);
     g.position.set(p.x, p.y, p.z);
 
@@ -255,9 +269,14 @@ export default function EarthSupercar({ controls }) {
           <primitive object={model.scene} />
         </group>
       </group>
-      {/* Mounted indicator ring */}
-      <mesh position={[0, 0.1, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <ringGeometry args={[1.6, 1.9, 32]} />
+      {/* Mounted indicator ring — display metres, not hub units
+          (2026-10-26, street QA 3): the old 1.6–1.9 raw radii were
+          ~100–119 display metres across and floated 6.25 m up, so
+          edge-on it read as a giant gold line on the horizon and
+          a flattened "squashed car" frame. Now a ~6 m ring at
+          the car's feet, like the pit marker's UPM-scaled ring. */}
+      <mesh position={[0, 0.15 * UPM, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[2.8 * UPM, 3.2 * UPM, 48]} />
         <meshBasicMaterial
           color={carState.mounted ? '#fbbf24' : '#64748b'}
           transparent

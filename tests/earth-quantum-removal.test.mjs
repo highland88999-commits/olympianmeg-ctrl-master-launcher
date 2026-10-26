@@ -139,10 +139,14 @@ check('vehicle law: the walker hides its rig while mounted (bike or car)', () =>
 });
 
 // ------------------------------------------------------------ globe ocean fix
-check('globe: ocean-blue photo texels are neutralized to terrain before the day mix', () => {
+// (2026-10-26, street QA 3: the neutralization is now gated by
+// the orbitWater uniform — at street level orbitWater is 0 and
+// the line below neutralizes exactly as before; in orbit view
+// Merlin ordered the illusion of water back, bright blue.)
+check('globe: ocean-blue photo texels are neutralized to terrain before the day mix (street) / repainted blue (orbit)', () => {
   const globe = read('components/ProceduralEarthGlobe.jsx');
   assert.match(globe, /oceanness = smoothstep\(0\.05, 0\.15, photo\.b - max\(photo\.r, photo\.g\)\)/);
-  assert.match(globe, /photo = mix\(photo, terrain, oceanness\)/);
+  assert.match(globe, /photo = mix\(photo, terrain, oceanness \* \(1\.0 - orbitWater\)\)/);
   // The neutralization must run BEFORE the 0.55 photo/terrain mix.
   const oceIdx = globe.indexOf('oceanness = smoothstep');
   const mixIdx = globe.indexOf('mix(photo, terrain, 0.55)');
