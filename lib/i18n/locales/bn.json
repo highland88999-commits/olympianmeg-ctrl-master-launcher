@@ -227,7 +227,7 @@
   "sat.nova.subtitle": "ডিপ স্পেস",
   "sat.profile.title": "প্রোফাইল",
   "sat.profile.subtitle": "আপনার রাইডার পরিচয়",
-  "sat.myriad.title": "১০০ মহাবিশ্ব",
+  "sat.myriad.title": "Myriad",
   "sat.myriad.subtitle": "১০০ মহাবিশ্ব",
   "sat.erebus.title": "শূন্য মহাবিশ্ব",
   "sat.erebus.subtitle": "১৪০টি শূন্য মহাবিশ্ব",
@@ -390,5 +390,9 @@
   "sat.dodgeball.title": "Dodgeball",
   "sat.dodgeball.subtitle": "3D court dodgeball — throw, dodge, catch",
   "sat.request-billboard.title": "Request a Billboard",
-  "sat.request-billboard.subtitle": "Put your company on a tower billboard"
+  "sat.request-billboard.subtitle": "Put your company on a tower billboard",
+  "sat.star-wars.title": "Star Wars",
+  "sat.star-wars.subtitle": "An open-world saga · Episodes I–IX",
+  "sat.middle-earth.title": "Middle-earth",
+  "sat.middle-earth.subtitle": "Six lands to roam — the Shire to Mordor"
 }

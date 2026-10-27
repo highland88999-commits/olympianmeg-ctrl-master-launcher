@@ -511,6 +511,13 @@ export function createWorld(canvas, cb = {}) {
 
     for (const u of updaters) u(t);
 
+    // The frame is only ever seen because it is rendered here:
+    // without this call the loop updates player state forever
+    // but the canvas stays black (the tour's World Nexus finding:
+    // header, districts and stick all rendered, canvas black,
+    // district taps changing nothing visible).
+    renderer.render(scene, camera);
+
     if (firstFrame) {
       firstFrame = false;
       if (onReady) onReady({ portals: placements.length, assetsReady: () => assetsDone });

@@ -127,8 +127,6 @@ export default function StarWarsPage() {
   const [mountedId, setMountedId] = useState(null); // vehicle id being driven
   const [roamCard, setRoamCard] = useState(true); // free-roam banner: full card -> chip
 
-  const isTouch = typeof window !== 'undefined' && 'ontouchstart' in window;
-
   const showToast = useCallback((msg) => {
     setToast(msg);
     clearTimeout(toastTimer.current);
@@ -763,11 +761,9 @@ export default function StarWarsPage() {
             <div style={styles.modeChip}>🧭 Free Roam</div>
           )}
 
-          {isTouch && (
-            <div style={styles.stickWrap}>
-              <WalkJoystick onMove={onJoy} size={120} />
-            </div>
-          )}
+          <div style={styles.stickWrap}>
+            <WalkJoystick onMove={onJoy} size={120} />
+          </div>
 
           {/* rideable vehicles: walk-up prompt + exit control */}
           {ridePrompt && !mountedId && !intro && (
