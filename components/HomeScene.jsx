@@ -676,6 +676,22 @@ function TextureProvider({ onLaunchExternal }) {
     return () => { live = false; };
   }, []);
 
+  // Active solo billboards (whole-space purchases, Merlin's playlist
+  // rule 2026-10-27): the hub forces a solo board to the buyer's ad
+  // alone from live subscription state, so a solo takes its number
+  // immediately — even before the next manifest wire — and the house
+  // ad + rotating entries stay off that number for the solo term. A
+  // missing endpoint (or a failed fetch) just means no solo boards.
+  const [soloBillboards, setSoloBillboards] = useState([]);
+  useEffect(() => {
+    let live = true;
+    fetch('/api/billboards/solo')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => { if (live && json) setSoloBillboards(json.solo || []); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, []);
+
   // Deterministic ad panels per tower (panel 0 = Merlin's native stake.com
   // slot on every tower; panels 1–3 rotate the real billboard inventory).
   // Memoized so the memoized GodTower never sees a fresh array identity.
@@ -693,10 +709,13 @@ function TextureProvider({ onLaunchExternal }) {
   // base inventory slot instead of showing a dead ad.
   const towerPanels = useMemo(
     () => {
-      const overrides = dropPausedOverrides(manifestToOverrides(billboardManifest), stoppedBillboards);
+      const soloMap = new Map(
+        (soloBillboards || []).map((s) => [Number(s.billboardNumber), s])
+      );
+      const overrides = dropPausedOverrides(manifestToOverrides(billboardManifest, soloMap), stoppedBillboards);
       return GOD_TOWER_SPOTS.map((_, i) => applyOverridesToTowerPanels(panelsForTower(i), i, overrides));
     },
-    [billboardManifest, stoppedBillboards]
+    [billboardManifest, stoppedBillboards, soloBillboards]
   );
 
   // Panel videos preload in the BACKGROUND (Merlin, 2026-10-27 fix):
