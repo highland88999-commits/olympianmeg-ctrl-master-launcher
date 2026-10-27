@@ -18,6 +18,7 @@ import { sanitizeConcourseBg } from '@/lib/concourse-bg';
 import { sanitizeUiSettings } from '@/lib/ui-settings';
 import { sanitizeBackpackRecord } from '@/lib/backpack/backpack';
 import { sanitizeEarthMappedHex } from '@/lib/earth/mapping-progress';
+import { sanitizeCheatCodeChecks } from '@/lib/social-media-cheat-code/tracking';
 import { REGISTRY_TABLE, mergeRegistryHex } from '@/lib/earth/global-registry';
 
 function pickMuseFab(prefs) {
@@ -169,6 +170,18 @@ export const POST = noCache(
         return NextResponse.json({ error: 'earth_mapped must be a v1 mapped-coverage hex string.' }, { status: 400 });
       }
       patch.earth_mapped = sane;
+    }
+    if ('cheat_code_checks' in prefs) {
+      // Social Media Cheat Code room (Merlin, 2026-10-26):
+      // per-account, PER-PLATFORM piece checks, keyed
+      // platform + piece index (see lib/social-media-cheat-code/
+      // tracking.js). Unknown platforms and out-of-range pieces
+      // are dropped, never stored; a non-object is rejected.
+      const sane = sanitizeCheatCodeChecks(prefs.cheat_code_checks);
+      if (sane === null) {
+        return NextResponse.json({ error: 'cheat_code_checks must be an object of platform -> piece checks.' }, { status: 400 });
+      }
+      patch.cheat_code_checks = sane;
     }
     if (!Object.keys(patch).length) {
       return NextResponse.json({ error: 'Nothing to save.' }, { status: 400 });

@@ -22,6 +22,7 @@
 // living swirl, never a gap.
 
 import { BackButton } from '@/components/ui';
+import CheatCodeFeatured from '@/components/CheatCodeFeatured';
 import { SATELLITES } from '@/lib/i18n/satellites';
 import en from '@/lib/i18n/locales/en.json';
 import { buildPortalRoster } from '@/lib/portal-roster';
@@ -62,6 +63,14 @@ export default function PortalRoomPage() {
             program-only, or the room would drift from the menu. */}
         <div className="mx-auto w-full max-w-6xl px-4 pt-4">
           <FintracExplanationMenuButton />
+        </div>
+        {/* FEATURED — the Social Media Cheat Code room sits above
+            the roster (Merlin, 2026-10-26: featured on every
+            portal entry point), never buried as an ordinary card:
+            the roster below stays program-only, derived from the
+            registry, so the room can never drift from the menu. */}
+        <div className="mx-auto w-full max-w-6xl px-4 pt-4">
+          <CheatCodeFeatured />
         </div>
         {/* The gate appends the owner-only portals (Earth 2) when the
             signed-in session is the owner's; the base roster above is

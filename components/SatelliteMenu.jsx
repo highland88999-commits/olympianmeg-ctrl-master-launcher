@@ -92,6 +92,24 @@ function FeaturedArt() {
   );
 }
 
+// Featured Social Media Cheat Code art for its pinned top button.
+// Same contract: a missing image hides itself and the button falls
+// back to its dark gradient style — the room has no menu art yet.
+function FeaturedCheatCodeArt() {
+  const [imgOk, setImgOk] = useState(true);
+  if (!imgOk) return null;
+  return (
+    <img
+      src={menuArtFor('social-media-cheat-code')}
+      alt=""
+      aria-hidden="true"
+      className="absolute inset-0 h-full w-full object-cover"
+      loading="lazy"
+      onError={() => setImgOk(false)}
+    />
+  );
+}
+
 function programsFor(key, sat, t) {
   const title = t(`sat.${key}.title`);
   const subtitle = t(`sat.${key}.subtitle`);
@@ -172,6 +190,15 @@ export default function SatelliteMenu({ t, satIndex, onLaunch }) {
     onLaunch('/order-67', 'order-67', sat ? sat.pos : 'HERMES');
   };
 
+  // Featured Social Media Cheat Code launch — the second pinned top
+  // button (Merlin, 2026-10-26: featured on every portal entry
+  // point). Same onLaunch path as every other satellite.
+  const launchCheatCode = () => {
+    fx.menuOpen();
+    const sat = satIndex.get('social-media-cheat-code');
+    onLaunch('/social-media-cheat-code', 'social-media-cheat-code', sat ? sat.pos : 'HERMES');
+  };
+
   return (
     <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-zinc-950">
       <style>{`
@@ -228,6 +255,31 @@ export default function SatelliteMenu({ t, satIndex, onLaunch }) {
             </span>
           </div>
           <span aria-hidden="true" className="relative ml-auto pr-4 text-lg text-cyan-300/70">
+            ▸
+          </span>
+        </button>
+        {/* Featured: SOCIAL MEDIA CHEAT CODE — the second pinned top
+            button, beside Order 67 (Merlin, 2026-10-26: featured on
+            every portal entry point). */}
+        <button
+          onClick={launchCheatCode}
+          aria-label={`${tt('sat.social-media-cheat-code.title', 'Social Media Cheat Code')} — ${tt('sat.social-media-cheat-code.subtitle', 'Copy-ready city hashtags, room by room')}`}
+          className="relative mb-2 flex min-h-[64px] w-full items-center overflow-hidden rounded-xl border border-red-400/30 text-left transition-all motion-reduce:transition-none hover:border-red-300/60"
+        >
+          <FeaturedCheatCodeArt />
+          <div
+            className="pointer-events-none absolute inset-0 bg-gradient-to-r from-black/90 via-black/60 to-black/30"
+            aria-hidden="true"
+          />
+          <div className="relative flex flex-col justify-center px-4 py-2">
+            <span className="text-sm font-black uppercase tracking-[0.25em] text-white">
+              {tt('sat.social-media-cheat-code.title', 'SOCIAL MEDIA CHEAT CODE')}
+            </span>
+            <span className="mt-0.5 text-[10px] uppercase tracking-[0.18em] text-red-300/80">
+              {tt('sat.social-media-cheat-code.subtitle', 'Copy-ready city hashtags, room by room')}
+            </span>
+          </div>
+          <span aria-hidden="true" className="relative ml-auto pr-4 text-lg text-red-300/70">
             ▸
           </span>
         </button>

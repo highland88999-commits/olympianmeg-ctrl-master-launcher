@@ -55,6 +55,7 @@ import { bikeState } from '@/lib/earth/parachute';
 import { DoomsdayStrip } from './DoomsdayBanner';
 import PhoneFrame from './PhoneFrame';
 import { SeasonBadge } from './SeasonalDecor';
+import CheatCodeFeatured from './CheatCodeFeatured';
 import BackpackHud from './backpack/BackpackHud';
 import { useRadio } from './radio/RadioProvider';
 import { Play, Pause, SkipBack, SkipForward, Music2 } from 'lucide-react';
@@ -877,6 +878,14 @@ export default function Concourse() {
           </div>
           </div>
           <div className="min-h-0 overflow-y-auto">
+          {/* FEATURED — the Social Media Cheat Code room sits at
+              the top of the Concourse box (Merlin, 2026-10-26:
+              featured on every portal entry point), above the
+              ordinary tiles. Tapping it closes the box and walks
+              into the room. */}
+          <div className="mb-2.5" onClick={() => setOpen(false)}>
+            <CheatCodeFeatured />
+          </div>
           <div className="grid grid-cols-4 gap-2.5">
             {boxedTiles.map((t) => tileButton(t))}
             {boxedTiles.length === 0 && (

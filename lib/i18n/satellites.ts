@@ -214,6 +214,10 @@ export const SATELLITES: SatelliteEntry[] = [
   // messaging) sits with HERMES' message routes beside PHONE HOME,
   // its fellow comms tool: ARES/TOOLS.
   { key: "omega-comms", route: "/omega-comms", pos: "HERMES", section: "TOOLS", constellation: "ARES" },
+  // SOCIAL MEDIA CHEAT CODE (Merlin, 2026-10-26: featured on
+  // every portal entry point) — the hashtag room carousel sits
+  // with HERMES' message routes beside OMEGA COMMS: ARES/TOOLS.
+  { key: "social-media-cheat-code", route: "/social-media-cheat-code", pos: "HERMES", section: "TOOLS", constellation: "ARES" },
   // MASTER PORTAL seating (Merlin, 2026-10-23: every function lives
   // inside the one master portal). ACHIEVEMENTS — the global ledger
   // of milestones across every game — sits with the ARES battle &
