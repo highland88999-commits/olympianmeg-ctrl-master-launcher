@@ -50,7 +50,7 @@ export default function StorageTiers({ currentTier, usedBytes, quotaBytes, stack
   const pct = quotaBytes > 0 ? Math.min((usedBytes / quotaBytes) * 100, 100) : 0;
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 overflow-y-auto touch-auto">
+    <div className="fixed inset-0 z-40 flex items-start justify-center bg-black/70 backdrop-blur-sm p-4 overflow-y-auto touch-auto">
       <div className="glass-panel rounded-2xl w-full max-w-3xl p-6 md:p-8 relative my-8">
         <button
           onClick={onClose}

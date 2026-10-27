@@ -63,7 +63,7 @@ export default function FortressApp() {
   // Stripe returns) — only bucket readiness + the live cap are cached, since
   // those never change mid-session. A preparation failure surfaces HERE,
   // on load, in plain words — never mid-save.
-  const [vault, setVault] = useState<{ ready: boolean, bucket: string | null, fileSizeLimitBytes: number | null, capAligned: boolean, error: string | null } | null>(null);
+  const [vault, setVault] = useState<{ ready: boolean, bucket: string | null, fileSizeLimitBytes: number | null, capAligned: boolean, capFallback?: boolean, error: string | null } | null>(null);
   const vaultEnsureRef = useRef(false);
   const VAULT_STATE_KEY = 'fortress:vault-state:v1';
 
@@ -184,20 +184,20 @@ export default function FortressApp() {
         if (!vaultEnsureRef.current) {
           vaultEnsureRef.current = true;
           try {
-            let cached: { bucket: string, fileSizeLimitBytes: number } | null = null;
+            let cached: { bucket: string, fileSizeLimitBytes: number, capFallback?: boolean } | null = null;
             try {
               const raw = window.sessionStorage.getItem(VAULT_STATE_KEY);
               cached = raw ? JSON.parse(raw) : null;
             } catch { cached = null; }
             if (cached && cached.bucket && Number.isFinite(cached.fileSizeLimitBytes)) {
-              setVault({ ready: true, bucket: cached.bucket, fileSizeLimitBytes: cached.fileSizeLimitBytes, capAligned: false, error: null });
+              setVault({ ready: true, bucket: cached.bucket, fileSizeLimitBytes: cached.fileSizeLimitBytes, capAligned: false, capFallback: !!cached.capFallback, error: null });
             } else {
               const eres = await fetch('/api/fortress/vault/ensure', { method: 'POST', headers: await authHeaders() });
               const e = await eres.json();
               if (e.error) throw new Error(e.error);
               const limit = Number.isFinite(e.fileSizeLimitBytes) ? e.fileSizeLimitBytes : VAULT_PER_FILE_LIMIT_BYTES;
-              setVault({ ready: true, bucket: e.bucket, fileSizeLimitBytes: limit, capAligned: !!e.capAligned, error: null });
-              try { window.sessionStorage.setItem(VAULT_STATE_KEY, JSON.stringify({ bucket: e.bucket, fileSizeLimitBytes: limit })); } catch { /* private mode — the next load re-ensures */ }
+              setVault({ ready: true, bucket: e.bucket, fileSizeLimitBytes: limit, capAligned: !!e.capAligned, capFallback: !!e.capFallback, error: null });
+              try { window.sessionStorage.setItem(VAULT_STATE_KEY, JSON.stringify({ bucket: e.bucket, fileSizeLimitBytes: limit, capFallback: !!e.capFallback })); } catch { /* private mode — the next load re-ensures */ }
             }
           } catch (err: any) {
             setVault({ ready: false, bucket: null, fileSizeLimitBytes: null, capAligned: false, error: err?.message || 'Could not prepare your vault.' });
@@ -269,7 +269,9 @@ export default function FortressApp() {
     const contextGuard = guardCanvasContext(renderer.domElement, { label: 'FORTRESS OF SOLITUDE' });
 
     const carouselGroup = new THREE.Group();
-    scene.add(carouselGroup);
+    const floorGroup = new THREE.Group();
+    scene.add(floorGroup);
+    floorGroup.add(carouselGroup);
 
     const loader = new THREE.TextureLoader();
     
@@ -290,7 +292,7 @@ export default function FortressApp() {
       new THREE.MeshBasicMaterial({ color: 0x555555, transparent: true, opacity: 0.5, side: THREE.DoubleSide })
     );
     floorMesh.rotation.x = -Math.PI / 2;
-    scene.add(floorMesh);
+    floorGroup.add(floorMesh);
 
     const renderScene = new RenderPass(scene, camera);
     const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.8, 0.5, 0.85);
@@ -324,7 +326,7 @@ export default function FortressApp() {
         carouselGroup.add(node);
     });
 
-    engineRef.current = { scene, camera, renderer, composer, controls, carouselGroup, outerDome, floorMesh };
+    engineRef.current = { scene, camera, renderer, composer, controls, carouselGroup, outerDome, floorMesh, floorGroup };
 
     let rafId = 0;
     const animate = () => {
@@ -352,12 +354,44 @@ export default function FortressApp() {
     };
   };
 
+  // Floor drag: the floor disc + the crystal ring move as ONE platform
+  // (floorGroup), so dragging the floor moves the crystals with it. Armed
+  // only when the press starts on the floor itself (not on a crystal);
+  // OrbitControls is parked for the drag and restored on release.
+  const floorDragRef = useRef<{ armed: boolean, moved: boolean, startPoint: THREE.Vector3 | null, groupStart: THREE.Vector3 | null }>({ armed: false, moved: false, startPoint: null, groupStart: null });
+
+  // Tap math from the CANVAS rect, not the window: when the browser chrome
+  // shows or hides, window size drifts from the drawing surface and taps
+  // land off-target. The canvas rect is the surface the user actually sees.
+  const canvasMouse = (e: React.PointerEvent) => {
+    const dom = engineRef.current.renderer?.domElement;
+    if (dom) {
+      const rect = dom.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        return new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+      }
+    }
+    return new THREE.Vector2((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
+  };
+
+  // Where the pointer ray meets the ground plane (y = 0) — the floor drag
+  // moves the platform by the same delta the finger moves on the ground.
+  const floorPlanePoint = (e: React.PointerEvent) => {
+    const { camera } = engineRef.current;
+    if (!camera) return null;
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(canvasMouse(e), camera);
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    const point = new THREE.Vector3();
+    return raycaster.ray.intersectPlane(plane, point) ? point : null;
+  };
+
   const handlePointerDown = (e: React.PointerEvent) => {
     pointerDownPos.current = { x: e.clientX, y: e.clientY };
-    const { camera, carouselGroup } = engineRef.current;
+    const { camera, carouselGroup, floorMesh, controls } = engineRef.current;
     if(!camera || !carouselGroup) return;
 
-    const mouse = new THREE.Vector2((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
+    const mouse = canvasMouse(e);
     const raycaster = new THREE.Raycaster();
     raycaster.setFromCamera(mouse, camera);
     const hits = raycaster.intersectObjects(carouselGroup.children);
@@ -365,6 +399,21 @@ export default function FortressApp() {
     if (hits.length > 0) {
       const hit = hits[0].object as THREE.Mesh;
       pointerTimerRef.current = setTimeout(() => setLongPressedNode(hit.userData), 2000);
+      return;
+    }
+
+    // Press started on the floor itself (not a crystal): arm a floor drag.
+    // Controls park now so the drag moves the platform instead of orbiting
+    // the camera; a plain tap re-enables them on release, untouched.
+    if (floorMesh) {
+      const floorHits = raycaster.intersectObject(floorMesh);
+      if (floorHits.length > 0) {
+        const p = floorPlanePoint(e);
+        if (p && engineRef.current.floorGroup) {
+          floorDragRef.current = { armed: true, moved: false, startPoint: p, groupStart: engineRef.current.floorGroup.position.clone() };
+          if (controls) controls.enabled = false;
+        }
+      }
     }
   };
 
@@ -374,10 +423,32 @@ export default function FortressApp() {
       clearTimeout(pointerTimerRef.current);
       pointerTimerRef.current = null;
     }
+    // A floor drag in motion: move the whole platform (floor + crystals)
+    // by the finger's ground-plane delta, height unchanged.
+    if (floorDragRef.current.armed && engineRef.current.floorGroup && dist > 10) {
+      floorDragRef.current.moved = true;
+      const p = floorPlanePoint(e);
+      const { startPoint, groupStart } = floorDragRef.current;
+      if (p && startPoint && groupStart) {
+        engineRef.current.floorGroup.position.set(
+          groupStart.x + (p.x - startPoint.x), 0,
+          groupStart.z + (p.z - startPoint.z)
+        );
+      }
+    }
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
     if (pointerTimerRef.current) clearTimeout(pointerTimerRef.current);
+
+    // A floor drag ends here: restore camera control, and never run
+    // crystal selection for a drag (a tap is dist <= 10, below).
+    if (floorDragRef.current.armed) {
+      const wasMoved = floorDragRef.current.moved;
+      floorDragRef.current = { armed: false, moved: false, startPoint: null, groupStart: null };
+      if (engineRef.current.controls) engineRef.current.controls.enabled = true;
+      if (wasMoved) return;
+    }
     
     if (longPressedNode) {
        setLongPressedNode(null); 
@@ -390,7 +461,7 @@ export default function FortressApp() {
     const { camera, carouselGroup } = engineRef.current;
     if(!camera || !carouselGroup) return;
 
-    const mouse = new THREE.Vector2((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
+    const mouse = canvasMouse(e);
     const raycaster = new THREE.Raycaster();
     raycaster.setFromCamera(mouse, camera);
     const hits = raycaster.intersectObjects(carouselGroup.children);
@@ -833,7 +904,12 @@ export default function FortressApp() {
         />
       </div>
 
-      <button onClick={handleRecenter} aria-label="Recenter view" className="fixed top-20 right-6 z-10 w-12 h-12 rounded-full glass-panel flex items-center justify-center text-cyan-400 hover:bg-cyan-400 hover:text-black transition-all pointer-events-auto shadow-[0_0_15px_rgba(0,242,255,0.3)]"><Crosshair size={20} /></button>
+      {/* Top-right controls: Recenter + the menu toggle share one row
+          below the search bar. The menu used to live bottom-left, where
+          the browser's bottom bar pushed it off-screen on his phone and
+          its invisible collapsed box swallowed taps on the low crystals;
+          the top row stays visible in every view, and the cluster box
+          itself never takes taps — only its buttons do. */}
 
       {longPressedNode && (
         <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none bg-black/40 backdrop-blur-sm">
@@ -879,7 +955,7 @@ export default function FortressApp() {
                      <button className="btn flex-1 flex items-center justify-center gap-2 py-3" onClick={() => { setUploadTarget('crystal'); fileInputRef.current?.click(); }}><Upload size={16}/> Choose file</button>
                      <button className="btn flex-1 py-3 border-gray-400 text-gray-400 hover:bg-white/10" onClick={resetLockState}>Cancel</button>
                    </div>
-                   <p className="text-[10px] tracking-widest text-white/40 text-center">Files up to {formatBytes(vault?.fileSizeLimitBytes ?? VAULT_PER_FILE_LIMIT_BYTES)} each once locked</p>
+                   <p className="text-[10px] tracking-widest text-white/40 text-center">{vault?.capFallback ? 'Per-file size follows your Supabase plan' : `Files up to ${formatBytes(vault?.fileSizeLimitBytes ?? VAULT_PER_FILE_LIMIT_BYTES)} each once locked`}</p>
                  </div>
                ) : (
                  <button className="btn w-full flex items-center justify-center gap-2 py-4" onClick={() => setLockStep('store')}><Upload size={18}/> Store File Inside</button>
@@ -967,15 +1043,19 @@ export default function FortressApp() {
          </div>
       )}
 
-      <div className="fixed bottom-[max(1.5rem,env(safe-area-inset-bottom))] left-6 z-20 flex flex-col-reverse items-start gap-4 pointer-events-auto">
-        <button 
-            onClick={() => setIsMenuOpen(!isMenuOpen)}
-            className={`w-14 h-14 rounded-full glass-panel flex items-center justify-center text-cyan-400 transition-all duration-300 ${isMenuOpen ? 'rotate-45 shadow-[0_0_20px_#00f2ff]' : 'shadow-[0_0_15px_rgba(0,242,255,0.2)]'}`}
-        >
-            <Plus size={28} />
-        </button>
+      <div className="fixed top-20 right-6 z-20 flex flex-col items-end gap-3 pointer-events-none">
+        <div className="flex gap-3 pointer-events-auto">
+          <button onClick={handleRecenter} aria-label="Recenter view" className="w-12 h-12 rounded-full glass-panel flex items-center justify-center text-cyan-400 hover:bg-cyan-400 hover:text-black transition-all shadow-[0_0_15px_rgba(0,242,255,0.3)]"><Crosshair size={20} /></button>
+          <button
+              onClick={() => setIsMenuOpen(!isMenuOpen)}
+              aria-label="Fortress menu"
+              className={`w-12 h-12 rounded-full glass-panel flex items-center justify-center text-cyan-400 transition-all duration-300 ${isMenuOpen ? 'rotate-45 shadow-[0_0_20px_#00f2ff]' : 'shadow-[0_0_15px_rgba(0,242,255,0.2)]'}`}
+          >
+              <Plus size={28} />
+          </button>
+        </div>
 
-        <div className={`flex flex-col gap-3 transition-all duration-300 origin-bottom-left ${isMenuOpen ? 'scale-100 opacity-100' : 'scale-0 opacity-0 pointer-events-none'}`}>
+        <div className={`flex flex-col gap-3 transition-all duration-300 origin-top-right ${isMenuOpen ? 'scale-100 opacity-100 pointer-events-auto' : 'scale-0 opacity-0 pointer-events-none'}`}>
             <button className="btn flex items-center gap-2 py-3 px-5" onClick={handleAddCrystal}><Plus size={16}/> Generate Crystal</button>
             <button className="btn flex items-center gap-2 py-3 px-5" onClick={() => setTiersOpen(true)}><ArrowUpCircle size={16}/> Vault storage{quota ? ` — ${quota.tierLabel}` : ""}</button>
             <button className="btn flex items-center gap-2 py-3 px-5" onClick={() => setTempOpen(true)}><Upload size={16}/> Temporary upload</button>
@@ -995,7 +1075,8 @@ export default function FortressApp() {
                 </div>
                 {!quota && vault === null && <div className="text-[10px] text-white/40 tracking-wider mt-2 text-center">Connecting to your vault…</div>}
                 {vault !== null && !vault.ready && vault.error && <div className="text-[10px] text-red-300/90 tracking-wider mt-2 text-center leading-relaxed">Vault not ready: {vault.error}</div>}
-                {vault !== null && vault.ready && <div className="text-[10px] text-cyan-300/80 tracking-wider mt-2 text-center">Vault connected · Files up to {formatBytes(vault.fileSizeLimitBytes ?? VAULT_PER_FILE_LIMIT_BYTES)} each{vault.capAligned ? ' · vault cap updated' : ''}</div>}
+                {vault !== null && vault.ready && <div className="text-[10px] text-cyan-300/80 tracking-wider mt-2 text-center">{vault.capFallback ? 'Vault connected · per-file size follows your Supabase plan' : `Vault connected · Files up to ${formatBytes(vault.fileSizeLimitBytes ?? VAULT_PER_FILE_LIMIT_BYTES)} each${vault.capAligned ? ' · vault cap updated' : ''}`}</div>}
+                <div className="text-[10px] text-white/40 tracking-wider mt-2 text-center">Tip: drag the floor disc to move the whole platform.</div>
             </div>
         </div>
       </div>

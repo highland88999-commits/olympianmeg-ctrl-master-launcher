@@ -22,16 +22,27 @@ import { VAULT_PER_FILE_LIMIT_BYTES, formatBytes } from '../lib/fortress/tiers.j
 
 const MB = 1_000_000;
 
-function makeAdmin({ bucket = null, getError = null, createError = null, updateThrows = false, withUpdate = true } = {}) {
+function makeAdmin({ bucket = null, getError = null, createError = null, updateThrows = false, withUpdate = true, getSequence = null, createFailures = null } = {}) {
   const calls = { get: [], create: [], update: [] };
+  const getQueue = getSequence ? [...getSequence] : null;
+  const createQueue = createFailures ? [...createFailures] : null;
   const storage = {
     async getBucket(name) {
       calls.get.push(name);
+      if (getQueue) {
+        const next = getQueue.length > 1 ? getQueue.shift() : getQueue[0];
+        return next;
+      }
       if (getError) return { data: null, error: getError };
       return { data: bucket, error: null };
     },
     async createBucket(name, opts) {
       calls.create.push([name, opts]);
+      if (createQueue) {
+        const failure = createQueue.length > 0 ? createQueue.shift() : null;
+        if (failure) return { data: null, error: failure };
+        return { data: { name }, error: null };
+      }
       if (createError) return { data: null, error: createError };
       return { data: { name }, error: null };
     },
@@ -109,22 +120,56 @@ test('older client without updateBucket: no crash, bucket returned', async () =>
   assert.equal(out.fileSizeLimitBytes, 100 * MB);
 });
 
-test('failed creation throws the prepare error WITH the limit in plain words', async () => {
-  const admin = makeAdmin({ getError: { message: 'not found' }, createError: { message: 'The object exceeded the maximum allowed size' } });
+test('size-rejected cap creation retries WITHOUT a cap and flags the fallback', async () => {
+  // Supabase refuses a per-bucket cap above the plan-global limit (Free:
+  // 50 MB) with "The object exceeded the maximum allowed size". The vault
+  // must not stay broken over that: the bucket is created uncapped, size
+  // stays enforced in the app, and the fallback is flagged for honest UI.
+  const admin = makeAdmin({
+    getSequence: [
+      { data: null, error: { message: 'not found' } },
+      { data: { file_size_limit: null }, error: null },
+    ],
+    createFailures: [{ message: 'The object exceeded the maximum allowed size' }],
+  });
+  const out = await ensureUserBucketDetailed(admin, 'user-1');
+  assert.equal(out.bucket, 'fortress-user-1');
+  assert.equal(out.capFallback, true);
+  assert.equal(out.fileSizeLimitBytes, null);
+  assert.equal(admin.calls.create.length, 2);
+  assert.equal(admin.calls.create[0][1].fileSizeLimit, 500 * MB);
+  assert.equal('fileSizeLimit' in admin.calls.create[1][1], false);
+});
+
+test('size-rejected cap creation whose retry ALSO fails still throws honestly', async () => {
+  const admin = makeAdmin({
+    getError: { message: 'not found' },
+    createFailures: [
+      { message: 'The object exceeded the maximum allowed size' },
+      { message: 'storage unavailable' },
+    ],
+  });
   await assert.rejects(
     () => ensureUserBucketDetailed(admin, 'user-1'),
     (err) => {
       assert.match(err.message, /Could not prepare your vault/);
-      assert.match(err.message, /500 MB/);
+      assert.match(err.message, /storage unavailable/);
       return true;
     }
   );
 });
 
-test('creation racing an existing bucket ("already exists") is ignored', async () => {
-  const admin = makeAdmin({ getError: { message: 'not found' }, createError: { message: 'Bucket already exists' } });
+test('creation racing an existing bucket ("already exists") reports the LIVE cap', async () => {
+  const admin = makeAdmin({
+    getSequence: [
+      { data: null, error: { message: 'not found' } },
+      { data: { file_size_limit: 100 * MB }, error: null },
+    ],
+    createFailures: [{ message: 'Bucket already exists' }],
+  });
   const out = await ensureUserBucketDetailed(admin, 'user-1');
   assert.equal(out.bucket, 'fortress-user-1');
+  assert.equal(out.fileSizeLimitBytes, 100 * MB);
 });
 
 test('string form keeps the shape existing callers use', async () => {
