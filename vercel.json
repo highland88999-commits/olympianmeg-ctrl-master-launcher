@@ -1,40 +1,48 @@
 {
-  "crons": [
-    {
-      "path": "/api/store/products",
-      "schedule": "*/9 * * * *"
-    },
-    {
-      "path": "/api/hermes/cron-scrub",
-      "schedule": "0 4 * * *"
-    },
-    {
-      "path": "/api/trifold/cron/weekly",
-      "schedule": "0 9 * * 1"
-    },
-    {
-      "path": "/api/trifold/cron/pipeline",
-      "schedule": "0 * * * 1,2"
-    },
-    {
-      "path": "/api/wallet/cron/payout-queue",
-      "schedule": "*/15 * * * *"
-    },
-    {
-      "path": "/api/payouts/cron/etransfer-queue",
-      "schedule": "*/15 * * * *"
-    },
-    {
-      "path": "/api/payouts/cron/shakepay-queue",
-      "schedule": "*/15 * * * *"
-    },
-    {
-      "path": "/api/payouts/cron/shakepay-fund-queue",
-      "schedule": "*/15 * * * *"
-    },
-    {
-      "path": "/api/payouts/cron/shakepay-confirm-queue",
-      "schedule": "*/15 * * * *"
-    }
-  ]
+ "crons": [
+  {
+   "path": "/api/store/products",
+   "schedule": "*/9 * * * *"
+  },
+  {
+   "path": "/api/hermes/cron-scrub",
+   "schedule": "0 4 * * *"
+  },
+  {
+   "path": "/api/trifold/cron/weekly",
+   "schedule": "0 9 * * 1"
+  },
+  {
+   "path": "/api/trifold/cron/pipeline",
+   "schedule": "0 * * * 1,2"
+  },
+  {
+   "path": "/api/wallet/cron/payout-queue",
+   "schedule": "*/15 * * * *"
+  },
+  {
+   "path": "/api/payouts/cron/etransfer-queue",
+   "schedule": "*/15 * * * *"
+  },
+  {
+   "path": "/api/payouts/cron/shakepay-queue",
+   "schedule": "*/15 * * * *"
+  },
+  {
+   "path": "/api/payouts/cron/shakepay-fund-queue",
+   "schedule": "*/15 * * * *"
+  },
+  {
+   "path": "/api/payouts/cron/shakepay-confirm-queue",
+   "schedule": "*/15 * * * *"
+  },
+  {
+   "path": "/api/billboard-requests/price-check-cron",
+   "schedule": "0 7 * * *"
+  },
+  {
+   "path": "/api/billboard-requests/renew-cron",
+   "schedule": "0 8 * * *"
+  }
+ ]
 }

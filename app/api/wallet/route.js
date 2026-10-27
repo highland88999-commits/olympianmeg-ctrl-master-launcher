@@ -7,6 +7,7 @@ import { apiGuard } from '@/lib/api-guard';
 import { getServiceClient, requireUser } from '@/lib/wallet/server';
 import { getOrCreateWallet, availableCents } from '@/lib/wallet/ledger';
 import { getLockInfo } from '@/lib/wallet/lock';
+import { getOrCreateCreditBalance } from '@/lib/billboards/credit';
 
 export const GET = apiGuard(async function GET(req) {
   const admin = await getServiceClient();
@@ -22,6 +23,17 @@ export const GET = apiGuard(async function GET(req) {
     .order('created_at', { ascending: false })
     .limit(10);
 
+  // CAD credit for services (billboard ads) — a SEPARATE balance from
+  // the earnings wallet above and from gold/aether. Missing tables
+  // answer ready:false (the wallet shows "being set up"), never an error.
+  let credit = { balance_cents: 0, currency: 'cad', ready: false };
+  try {
+    const row = await getOrCreateCreditBalance(admin, user.id);
+    credit = { balance_cents: Math.round(Number(row.balance_cents) || 0), currency: 'cad', ready: true };
+  } catch {
+    credit = { balance_cents: 0, currency: 'cad', ready: false };
+  }
+
   return Response.json({
     ok: true,
     wallet: {
@@ -31,6 +43,7 @@ export const GET = apiGuard(async function GET(req) {
       currency: wallet.currency,
       payout_destination_set: !!String(wallet.payout_destination || '').trim(),
     },
+    credit,
     lock,
     recent: recent || [],
   });

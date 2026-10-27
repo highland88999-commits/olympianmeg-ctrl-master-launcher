@@ -206,7 +206,7 @@ describe('portal seating', () => {
     assert.equal(seat.pos, 'ARES');
     assert.equal(seat.section, 'GAMES');
     assert.equal(SATELLITES.filter((s) => s.route === '/dodgeball').length, 1);
-    assert.equal(SATELLITES.length, 178);
+    assert.equal(SATELLITES.length, 179); // Request a Billboard seat: 178→179
   });
 
   it('the ARES god menu claims dodgeball and the en locale titles it', async () => {

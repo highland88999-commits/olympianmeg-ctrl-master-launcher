@@ -50,8 +50,8 @@ const enRoster = () =>
   buildPortalRoster(SATELLITES, (k) => en[`sat.${k}.title`], (k) => en[`sat.${k}.subtitle`]);
 
 describe('buildPortalRoster (the shared derivation)', () => {
-  it('yields exactly 177 portals from the real registry — the Portal Room count (Monsterverse seat adcdb3cd: 174→175; Social Media Cheat Code seat: 175→176; Dodgeball seat: 176→177)', () => {
-    assert.equal(enRoster().length, 177);
+  it('yields exactly 178 portals from the real registry — the Portal Room count (Monsterverse seat adcdb3cd: 174→175; Social Media Cheat Code seat: 175→176; Dodgeball seat: 176→177; Request a Billboard seat: 177→178)', () => {
+    assert.equal(enRoster().length, 178);
   });
 
   it('skips the Portal Room itself', () => {
@@ -131,7 +131,7 @@ describe('filterPortals + groupBySection (room/panel shared semantics)', () => {
 
   it('section filter keeps only that section', () => {
     const tools = filterPortals(roster, { section: 'TOOLS' });
-    assert.equal(tools.length, 26); // Social Media Cheat Code seat (HERMES/TOOLS): 25→26
+    assert.equal(tools.length, 27); // Social Media Cheat Code seat (HERMES/TOOLS): 25→26; Request a Billboard seat (PLUTUS/TOOLS): 26→27
     assert.ok(tools.every((p) => p.section === 'TOOLS'));
   });
 
@@ -145,7 +145,7 @@ describe('filterPortals + groupBySection (room/panel shared semantics)', () => {
   it('grouping follows SECTION_ORDER and drops empty sections', () => {
     const grouped = groupBySection(roster);
     assert.deepEqual(grouped.map((g) => g.section), SECTION_ORDER);
-    assert.equal(grouped.reduce((n, g) => n + g.items.length, 0), 177); // Social Media Cheat Code seat: 175→176; Dodgeball seat: 176→177
+    assert.equal(grouped.reduce((n, g) => n + g.items.length, 0), 178); // Social Media Cheat Code seat: 175→176; Dodgeball seat: 176→177; Request a Billboard seat: 177→178
     assert.deepEqual(groupBySection([]), []);
   });
 });

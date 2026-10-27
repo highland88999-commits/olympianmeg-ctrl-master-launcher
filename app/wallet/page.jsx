@@ -6,6 +6,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
+import LoadWalletCard from '@/components/billboards/LoadWalletCard';
+import PriceNoticePopup from '@/components/billboards/PriceNoticePopup';
 
 async function authed(path, opts = {}) {
   const { data: { session } } = await supabase.auth.getSession();
@@ -85,6 +87,10 @@ export default function WalletPage() {
   const [release, setRelease] = useState(null);
   const [payoutDest, setPayoutDest] = useState('');
   const [destSaved, setDestSaved] = useState(false);
+  const [credit, setCredit] = useState(null);
+  const [creditTxns, setCreditTxns] = useState([]);
+  const [priceNotice, setPriceNotice] = useState(null);
+  const [popupBusy, setPopupBusy] = useState(false);
 
   const load = useCallback(async (prog, kind) => {
     setLoading(true);
@@ -94,6 +100,17 @@ export default function WalletPage() {
       setSummary(s.wallet);
       setLock(s.lock || null);
       setRelease(s.payout_release || null);
+      setCredit(s.credit || null);
+      // Wallet credit history + billboard price notice: best-effort —
+      // the wallet must load even when these tables are not set up.
+      try {
+        const l = await authed('/api/wallet/load');
+        setCreditTxns(l.transactions || []);
+      } catch { setCreditTxns([]); }
+      try {
+        const sub = await authed('/api/billboard-requests/subscription');
+        setPriceNotice(sub.priceNotice || null);
+      } catch { setPriceNotice(null); }
       const q = new URLSearchParams({ limit: '100' });
       if (prog) q.set('program', prog);
       if (kind) q.set('kind', kind);
@@ -137,6 +154,28 @@ export default function WalletPage() {
       setNotice(e2.message);
     }
     setBusy(false);
+  }
+
+  async function keepAds() {
+    setPopupBusy(true);
+    try {
+      await authed('/api/billboard-requests/acknowledge-notice', { method: 'POST' });
+      setPriceNotice(null);
+    } catch { /* pop-up stays so the user can retry */ }
+    setPopupBusy(false);
+  }
+
+  async function cancelAllAds() {
+    setPopupBusy(true);
+    try {
+      await authed('/api/billboard-requests/cancel', { method: 'POST', body: JSON.stringify({ all: true }) });
+      setPriceNotice(null);
+      setNotice('All billboard ads cancelled — nothing will renew at the new price.');
+      load(programFilter, kindFilter);
+    } catch (e) {
+      setNotice(e.message);
+    }
+    setPopupBusy(false);
   }
 
   async function requestWithdraw(e) {
@@ -259,6 +298,28 @@ export default function WalletPage() {
               <p style={{ color: '#8b91a8', fontSize: '0.8rem', margin: '0.6rem 0 0' }}>Minimum withdrawal is $5.00.</p>
             )}
           </div>
+
+          <div style={{ ...card, marginBottom: '1.2rem' }}>
+            <h3 style={{ margin: '0 0 0.4rem' }}>Wallet credit (CAD)</h3>
+            <p style={{ color: '#8b91a8', fontSize: '0.82rem', margin: '0 0 0.6rem' }}>
+              Stored value for services like billboard ads. This is separate from your
+              earnings balance above — it is not gold, not aether, and not cashable.
+            </p>
+            <p style={{ margin: '0 0 0.6rem' }}>
+              {credit?.ready ? <>Balance: <strong>{fmt(credit.balance_cents)} CAD</strong></> : 'Wallet credit is being set up.'}
+            </p>
+            {creditTxns.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                {creditTxns.slice(0, 5).map((t) => (
+                  <div key={t.id} style={{ color: '#8b91a8', fontSize: '0.82rem' }}>
+                    {t.kind === 'load' ? 'Loaded' : 'Spent'} {fmt(t.amount_cents)} CAD · {ts(t.created_at)}
+                    {t.reason ? ` · ${t.reason}` : ''}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <LoadWalletCard />
 
           <form onSubmit={saveDestination} style={{ ...card, marginBottom: '1.2rem' }}>
             <h3 style={{ margin: '0 0 0.4rem' }}>Payout destination</h3>
@@ -476,6 +537,7 @@ export default function WalletPage() {
           )}
         </>
       )}
+      <PriceNoticePopup notice={priceNotice} busy={popupBusy} onKeep={keepAds} onCancelAll={cancelAllAds} />
     </main>
   );
 }

@@ -33,6 +33,7 @@ import { GOD_TOWER_SPOTS } from '../lib/home-positions';
 import { probeWebGL, resetWebGLProbeCache, diagnoseWebGL } from '../lib/webgl-support';
 import { panelsForTower } from '../lib/tower-panels';
 import { manifestToOverrides, applyOverridesToTowerPanels } from '../lib/billboards/overrides';
+import { dropPausedOverrides } from '../lib/billboards/subscriptions';
 import GodTower from './GodTower';
 import OmegaHubGate from './OmegaHubGate';
 import Earth2HubGate from './Earth2HubGate';
@@ -661,6 +662,20 @@ function TextureProvider({ onLaunchExternal }) {
     return () => { live = false; };
   }, []);
 
+  // Stopped billboard ads (paused for short credit, or cancelled on
+  // opt-out): the hub drops their manifest entries so the ad stops
+  // showing without a manifest rewrite. A missing endpoint (or a
+  // failed fetch) just means nothing is stopped.
+  const [stoppedBillboards, setStoppedBillboards] = useState([]);
+  useEffect(() => {
+    let live = true;
+    fetch('/api/billboard-requests/paused')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => { if (live && json) setStoppedBillboards(json.stopped || []); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, []);
+
   // Deterministic ad panels per tower (panel 0 = Merlin's native stake.com
   // slot on every tower; panels 1–3 rotate the real billboard inventory).
   // Memoized so the memoized GodTower never sees a fresh array identity.
@@ -673,12 +688,15 @@ function TextureProvider({ onLaunchExternal }) {
   // Manager overrides (when the manifest lands) replace the slot for
   // their billboard number — including stake numbers Merlin explicitly
   // sets — and leave every other panel on the base assignment.
+  // Stopped ads (paused or cancelled) are dropped from the overrides
+  // first, so a billboard whose only ad stopped falls back to its
+  // base inventory slot instead of showing a dead ad.
   const towerPanels = useMemo(
     () => {
-      const overrides = manifestToOverrides(billboardManifest);
+      const overrides = dropPausedOverrides(manifestToOverrides(billboardManifest), stoppedBillboards);
       return GOD_TOWER_SPOTS.map((_, i) => applyOverridesToTowerPanels(panelsForTower(i), i, overrides));
     },
-    [billboardManifest]
+    [billboardManifest, stoppedBillboards]
   );
 
   if (!textures) return null;

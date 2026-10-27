@@ -235,6 +235,10 @@ export const SATELLITES: SatelliteEntry[] = [
   // wealth row beside AFFILIATES: ARES/TOOLS.
   { key: "wallet", route: "/wallet", pos: "PLUTUS", section: "TOOLS", constellation: "ARES" },
   { key: "dodgeball", route: "/dodgeball", pos: "ARES", section: "GAMES", constellation: "ZEUS" },
+  // REQUEST A BILLBOARD — the user-facing billboard space (request,
+  // wallet credit, subscription) — sits with the PLUTUS wealth row
+  // beside WALLET: ARES/TOOLS.
+  { key: "request-billboard", route: "/request-billboard", pos: "PLUTUS", section: "TOOLS", constellation: "ARES" },
 ];
 
 export interface SectionDef { name: string; key: string; constellation: string; }
