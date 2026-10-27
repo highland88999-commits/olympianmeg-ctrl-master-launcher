@@ -6,10 +6,8 @@ import * as THREE from 'three';
 function ZeusAdPanel({ onLaunchExternal, adTex }) {
   const [hovered, setHovered] = useState(false);
   const [btnHovered, setBtnHovered] = useState(false);
-  const [emailHovered, setEmailHovered] = useState(false);
   
   const stakeUrl = 'https://stake.com/?c=1FofAXWx';
-  const inquiriesEmail = 'olympianmeg@gmail.com';
 
   const handleStakeClick = (e) => {
     e.stopPropagation();
@@ -17,11 +15,6 @@ function ZeusAdPanel({ onLaunchExternal, adTex }) {
     onLaunchExternal(stakeUrl);
   };
 
-  const handleEmailClick = (e) => {
-    e.stopPropagation();
-    if (e.nativeEvent) e.nativeEvent.stopPropagation();
-    window.location.href = `mailto:${inquiriesEmail}`;
-  };
 
   return (
     <group>
@@ -58,18 +51,6 @@ function ZeusAdPanel({ onLaunchExternal, adTex }) {
         <Text position={[0, 0, 0.06]} fontSize={0.35} color="#000000" fontWeight="bold">ENTER NOW</Text>
       </group>
 
-      <group 
-        position={[0, -2.8, 0.11]}
-        onClick={handleEmailClick}
-        onPointerOver={() => { setEmailHovered(true); document.body.style.cursor = 'pointer'; }}
-        onPointerOut={() => { setEmailHovered(false); document.body.style.cursor = 'default'; }}
-      >
-        <mesh>
-          <planeGeometry args={[3.8, 0.6]} />
-          <meshBasicMaterial color="#000000" transparent opacity={0.6} />
-        </mesh>
-        <Text position={[0, 0, 0.01]} fontSize={0.25} color={emailHovered ? "#ffffff" : "#aaaaaa"}>Advertise Here: Email Us</Text>
-      </group>
     </group>
   );
 }

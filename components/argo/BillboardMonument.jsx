@@ -6,7 +6,7 @@
 // strip). The street monuments use that same design, scaled up twice:
 // first to 1.5x, then again 1.5x per Merlin (2026-09-30: "make the billboard
 // 1.5x bigger than they are right now") — frame 9.45×16.2, face 8.55×10.125
-// (portrait), magenta 9.0×10.575, CTA 8.55×1.8, email strip 8.55×1.35 —
+// (portrait), magenta 9.0×10.575 —
 // standing on a slim plinth. The old obelisk + gold-edge monument look is gone.
 //
 // Z-layers keep honest separation (tower-panel lesson, 2026-09-30): the frame
@@ -20,13 +20,12 @@
 // portrait canvas so partner logos never stretch, whatever their native
 // banner size.
 //
-// Tap/click the face or the CTA bar to open Merlin's affiliate tracking link
-// in a new tab. YOUR AD HERE slots have no link: the CTA opens the advertise
-// inquiry email instead.
+// Tap/click the face to open Merlin's affiliate tracking link
+// in a new tab. YOUR AD HERE slots have no link: the face tap falls back to
+// the advertise inquiry email instead.
 
 'use client';
 import { useEffect, useMemo, useState } from 'react';
-import { Text } from '@react-three/drei';
 import * as THREE from 'three';
 import { applyCoverFit } from '../../lib/texture-fit';
 import {
@@ -43,11 +42,6 @@ const FACE_W = 8.55;
 const FACE_H = 10.125;
 const MAG_W = 9.0;
 const MAG_H = 10.575;
-const CTA_W = 8.55;
-const CTA_H = 1.8;
-const CTA_D = 0.225;
-const MAIL_W = 8.55;
-const MAIL_H = 1.35;
 // Portrait canvas matched to the face aspect (8.55 / 10.125), 1.5x backing
 // store so the bigger face stays crisp. Drawing happens in the original
 // 1140×1350 logical space (ctx scaled up) — all draw code stays untouched.
@@ -65,8 +59,6 @@ const INQUIRIES_EMAIL = 'olympiannexus@gmail.com';
 export default function BillboardMonument({ slot, position, faceAngle, reduced }) {
   const [texture, setTexture] = useState(null);
   const [faceHover, setFaceHover] = useState(false);
-  const [ctaHover, setCtaHover] = useState(false);
-  const [mailHover, setMailHover] = useState(false);
 
   useEffect(() => {
     let disposed = false;
@@ -173,11 +165,6 @@ export default function BillboardMonument({ slot, position, faceAngle, reduced }
     }
   };
 
-  const openMail = (e) => {
-    if (e.delta > 10) return;
-    e.stopPropagation();
-    window.location.href = `mailto:${INQUIRIES_EMAIL}`;
-  };
 
   const setCursor = (on) => {
     document.body.style.cursor = on ? 'pointer' : '';
@@ -237,67 +224,6 @@ export default function BillboardMonument({ slot, position, faceAngle, reduced }
           <planeGeometry args={[FACE_W, FACE_H]} />
           <primitive object={faceMat} attach="material" />
         </mesh>
-        {/* CTA bar */}
-        <group
-          position={[0, -4.05, 0.32]}
-          onClick={openLink}
-          onPointerOver={(e) => {
-            e.stopPropagation();
-            setCtaHover(true);
-            setCursor(true);
-          }}
-          onPointerOut={() => {
-            setCtaHover(false);
-            setCursor(false);
-          }}
-        >
-          <mesh>
-            <boxGeometry args={[CTA_W, CTA_H, CTA_D]} />
-            <meshStandardMaterial
-              color={ctaHover ? '#ffffff' : '#ff00ff'}
-              emissive="#ff00ff"
-              emissiveIntensity={ctaHover ? 0.8 : 0.4}
-            />
-          </mesh>
-          <Text
-            position={[0, 0, 0.135]}
-            fontSize={0.79}
-            color="#000000"
-            fontWeight="bold"
-            anchorX="center"
-            anchorY="middle"
-          >
-            {slot.trackingUrl ? 'VISIT SITE' : 'ADVERTISE'}
-          </Text>
-        </group>
-        {/* Email strip */}
-        <group
-          position={[0, -6.3, 0.32]}
-          onClick={openMail}
-          onPointerOver={(e) => {
-            e.stopPropagation();
-            setMailHover(true);
-            setCursor(true);
-          }}
-          onPointerOut={() => {
-            setMailHover(false);
-            setCursor(false);
-          }}
-        >
-          <mesh>
-            <planeGeometry args={[MAIL_W, MAIL_H]} />
-            <meshBasicMaterial color="#000000" transparent opacity={0.6} />
-          </mesh>
-          <Text
-            position={[0, 0, 0.02]}
-            fontSize={0.56}
-            color={mailHover ? '#ffffff' : '#aaaaaa'}
-            anchorX="center"
-            anchorY="middle"
-          >
-            Advertise Here: Email Us
-          </Text>
-        </group>
       </group>
     </group>
   );

@@ -183,13 +183,14 @@ ok('partners: 7 partners + stake + betty + YOUR AD HERE', () => {
 ok('billboard monuments: tower-panel design at 1.5x of 1.5x (Merlin 2026-09-30)', () => {
   const src = SRC('../components/argo/BillboardMonument.jsx');
   // Monument dims = tower-panel x1.5 x1.5: frame [9.45,16.2,0.45],
-  // face [8.55,10.125], magenta [9.0,10.575], CTA [8.55,1.8,0.225],
-  // email strip [8.55,1.35].
+  // face [8.55,10.125], magenta [9.0,10.575]. The CTA bar + email
+  // strip were removed by the 2026-10-27 prompt sweep, so their dims
+  // no longer exist — the frame/face/magenta design is unchanged.
   for (const d of ['FRAME_W = 9.45', 'FRAME_H = 16.2', 'FRAME_D = 0.45',
-    'FACE_W = 8.55', 'FACE_H = 10.125', 'MAG_W = 9.0', 'MAG_H = 10.575',
-    'CTA_W = 8.55', 'CTA_H = 1.8', 'CTA_D = 0.225', 'MAIL_W = 8.55', 'MAIL_H = 1.35']) {
+    'FACE_W = 8.55', 'FACE_H = 10.125', 'MAG_W = 9.0', 'MAG_H = 10.575']) {
     assert.ok(src.includes(d), `missing ${d}`);
   }
+  assert.ok(!src.includes('VISIT SITE') && !src.includes('Advertise Here: Email Us'), 'prompt texts remain');
   // Old obelisk + gold-edge monument look is gone.
   assert.ok(!src.includes('11.6') && !src.includes('[13, 1, 3.4]'), 'old monument dims remain');
   assert.ok(!src.match(/name="edge"|gold edge/i), 'old gold-edge look remains');
