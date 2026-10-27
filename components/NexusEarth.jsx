@@ -12,6 +12,7 @@ import EarthSupercar from '@/components/EarthSupercar';
 import EarthPeers from '@/components/EarthPeers';
 import EarthPitMarker from '@/components/EarthPitMarker';
 import StreetGroundPatch, { StreetFillLight } from '@/components/StreetGroundPatch';
+import { EarthTronGrid, EarthOrbitGrid } from '@/components/earth/EarthTronGrid';
 import { LENS_PRESETS, LENS_LIFT, lensTilePlan, buildLensGeometryData, sortTilesCenterFirst, latLonFromDir, CENTRE_FLUSH_TILES } from '@/lib/earth/lens';
 import { tileCellKey, recordRenderedTileKey } from '@/lib/earth/lens-cache';
 import {
@@ -737,6 +738,12 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
           />
         </group>
         {effectiveLayer === 'terrain' && <ProceduralEarthGlobe onSelect={onSelect} quatRef={quatRef} waterInOrbit={!roaming} flatTarget={roaming} />}
+        {/* TRON grid over the orbit globe (2026-10-26): lat/lon
+            lines every 15°, same 10 s color cycle as the street
+            grid. A separate overlay — the globe shader (and its
+            orbit water illusion) is untouched, and it carries no
+            click handlers, so globe clicks pass through. */}
+        {effectiveLayer === 'terrain' && !roaming && <EarthOrbitGrid />}
         {/* Earth 1 simplification (2026-10-26): all placed 3D
             objects are staged off the scene — the full record
             lives in ~/workspace/earth1-staged-objects/inventory.json.
@@ -786,6 +793,12 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
         {effectiveLayer === 'terrain' && roaming && (
           <StreetGroundPatch center={patchCenter} />
         )}
+        {/* TRON grid at street level (2026-10-26): glowing lines
+            lying on the flat ground, reading as light through
+            cracks, plus a subtle color-cycling glow light. One
+            shader plane, recentered per frame, never rebuilt —
+            same street gate as the detail ground. */}
+        {effectiveLayer === 'terrain' && roaming && <EarthTronGrid />}
         {effectiveLayer === 'terrain' && <StreetFillLight active={roaming} />}
         {/* Day sky dome at street level: blue during day, transparent at night.
             Uses sun direction to fade — day side gets blue sky, night side

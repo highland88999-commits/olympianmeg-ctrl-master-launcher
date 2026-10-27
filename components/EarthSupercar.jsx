@@ -64,9 +64,13 @@ import { effectiveEarthViewMode } from '@/lib/earth/view-mode';
 // Model orientation note: a GLB's nose direction is not encoded
 // anywhere, so the longest horizontal axis is aligned to the
 // heading and the nose is assumed to face +Z after that
-// alignment. A 10-second device eyeball is still owed per craft:
-// if a craft drives nose-backward, the fix is a half-turn on the
-// inner rotation below, nothing structural.
+// alignment — EXCEPT the five craft the 2026-10-26 silhouette
+// audit proved backward (luxury-gt-1, teardrop-coupe, pickup-hd,
+// cruiser-bike, ghost-throttle): they carry noseReversed in the
+// roster and the loader adds a half-turn (lib/earth/vehicle-model.js
+// effectiveRotY). The jet flame rides the group at −Z regardless,
+// so a flipped craft's flame stays at its rear. Passers-by
+// (EarthPeers) apply the same rotY.
 
 const UPM = DISPLAY_UNITS_PER_METRE;
 

@@ -2,7 +2,7 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { searchPlaces, formatCoords } from '@/lib/geo';
-import { summonBike, dismissBike, toggleMount } from '@/components/EarthBike';
+import { toggleMount } from '@/components/EarthBike';
 import { summonCar, dismissCar, toggleCarMount, swapCarCraft } from '@/components/EarthSupercar';
 import EarthViewToggle from '@/components/EarthViewToggle';
 import { bikeState, carState } from '@/lib/earth/parachute';
@@ -307,16 +307,12 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
             >
               ↑ Back to overlook
             </button>
-            {/* Summonable TRON bike (B key) */}
-            <button
-              onClick={() => {
-                if (bikeUi.out) dismissBike();
-                else summonBike();
-              }}
-              className="w-full py-2 text-[10px] font-bold tracking-[0.2em] uppercase text-teal-200 border border-teal-600/60 bg-teal-950/50 rounded hover:border-teal-400 hover:text-white transition-all"
-            >
-              {bikeUi.out ? '✕ Dismiss bike' : '🏍 Summon bike'} <span className="text-zinc-500 normal-case tracking-normal">(B · E to ride)</span>
-            </button>
+            {/* TRON bike summoning is keyboard-only (B key, E to
+                ride — EarthBike owns that path independently):
+                the console's Summon bike button was removed
+                2026-10-26 by Merlin's order. The bike itself,
+                its ride controls (BikeControls, below) and the
+                craft picker are untouched. */}
             {/* Summonable craft (V key) — the craft picker
                 pattern, mirroring character selection: tapping
                 with no craft out opens the picker (below);
@@ -390,12 +386,13 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
             </div>
           </>
         )}
-        {/* Teams — optional mapping teams + garage (Merlin,
-            2026-10-26 evening orders). Same embedded pattern as
-            Character above. Shown whenever the console is open
-            (not street-only): teams are Earth-1-wide, and the
-            garage is this panel's room — never placed on Earth,
-            so no runway is ever touched. */}
+        {/* Teams — mandatory team joining + garage (Merlin,
+            2026-10-26 23:00 orders: Earth 2 entry is earned
+            through a team, solo team of one counts). Same
+            embedded pattern as Character above. Shown whenever
+            the console is open (not street-only): teams are
+            Earth-1-wide, and the garage is this panel's room —
+            never placed on Earth, so no runway is ever touched. */}
         <div className="mt-1">
           <div className="text-[9px] font-bold tracking-[0.2em] uppercase text-zinc-500 mb-1">Teams</div>
           <EarthTeamPanel />

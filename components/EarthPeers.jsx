@@ -154,6 +154,11 @@ function cloneModelInto(parent, model) {
   while (parent.children.length > 0) parent.remove(parent.children[0]);
   const holder = new THREE.Group();
   holder.scale.setScalar(model.scale);
+  // Same inner rotation as the player's own craft (EarthSupercar):
+  // without it, X-long models rode sideways on passers-by and
+  // noseReversed craft rode backward. The flip audit
+  // (lib/earth/vehicles.js, 2026-10-26) covers peers too.
+  holder.rotation.y = model.rotY || 0;
   const inner = new THREE.Group();
   inner.position.y = model.liftY;
   inner.add(model.scene.clone(true));

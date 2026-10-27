@@ -1,12 +1,19 @@
-// app/api/earth/teams/route.js — Earth 1 OPTIONAL mapping teams
-// (Merlin, 2026-10-26 evening orders).
+// app/api/earth/teams/route.js — Earth 1 mapping teams
+// (Merlin, 2026-10-26 evening orders; mandatory-team law
+// 2026-10-26 23:00 — this supersedes the "teams optional" law).
 //
 //   GET  /api/earth/teams -> my team + all teams + standings + garage
 //   POST /api/earth/teams { action: 'create', name }
+//                          { action: 'create-solo' }  (one tap:
+//                            server auto-names "<You>'s team")
 //                          { action: 'join', teamId }
 //                          { action: 'leave' }
 //                          { action: 'craft', craftId }
 //                          { action: 'finishes', floorFinish, wallFinish }
+//
+// Earth 2 entry is earned through a team — a solo team of one
+// counts. This route gates ELIGIBILITY only: Earth 2 stays
+// sealed until Oblivion, and no action here grants early entry.
 //
 // Auth: Bearer token (getUserFromRequest, same as ui-state).
 // All reads/writes use the service-role client (server-only);
@@ -33,6 +40,7 @@ import {
   TEAMS_TABLE,
   TEAM_MEMBERS_TABLE,
   sanitizeTeamName,
+  soloNameForUser,
   rankTeams,
   garageBays,
   sanitizeGarageFinish,
@@ -189,8 +197,10 @@ export const POST = noCache(
     }
     const myMembership = data.members.find((m) => String(m.user_id) === String(auth.user.id));
 
-    if (action === 'create') {
-      const name = sanitizeTeamName(body.name);
+    if (action === 'create' || action === 'create-solo') {
+      const name = action === 'create-solo'
+        ? soloNameForUser(auth.user)
+        : sanitizeTeamName(body.name);
       if (!name) {
         return NextResponse.json({ error: 'Team name must be 1–40 letters, numbers, spaces, apostrophes or hyphens.' }, { status: 400 });
       }
