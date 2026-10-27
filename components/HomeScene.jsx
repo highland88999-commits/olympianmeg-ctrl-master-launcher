@@ -653,13 +653,12 @@ function TextureProvider({ onLaunchExternal }) {
   // by the manager page. A missing manifest (or a failed fetch) just
   // means no overrides: the rotating inventory below stays as-is.
   const [billboardManifest, setBillboardManifest] = useState(null);
-  const [billboardManifestSettled, setBillboardManifestSettled] = useState(false);
   useEffect(() => {
     let live = true;
     fetch('/billboards/manifest.json')
       .then((res) => (res.ok ? res.json() : null))
-      .then((json) => { if (live) { setBillboardManifest(json); setBillboardManifestSettled(true); } })
-      .catch(() => { if (live) setBillboardManifestSettled(true); });
+      .then((json) => { if (live) setBillboardManifest(json); })
+      .catch(() => {});
     return () => { live = false; };
   }, []);
 
@@ -700,24 +699,23 @@ function TextureProvider({ onLaunchExternal }) {
     [billboardManifest, stoppedBillboards]
   );
 
-  // Panel video preload gate (Merlin, 2026-10-27): the ring's videos
-  // load in strict billboard-number order 1→44 BEFORE the towers
-  // present, so a panel never shows black or blank — video when
-  // loaded, honest branded face when failed. The gate never hangs:
-  // the preload settles on success, failure, or timeout alike.
-  // Later manifest updates re-run the preload cheaply (shared URLs
-  // resolve immediately) without hiding towers that are already up.
-  const [panelVideosReady, setPanelVideosReady] = useState(false);
+  // Panel videos preload in the BACKGROUND (Merlin, 2026-10-27 fix):
+  // towers render immediately on mount — NEVER gated on video load,
+  // manifest settle, or any list. The 2026-10-27 gate hid the whole
+  // satellite system on his phone: the manifest fetch has no timeout
+  // (a stall leaves the gate shut forever), and a detached video
+  // element on iOS may never fire canplay, so the 20s per-URL timeout
+  // path held towers back for the full window. The preload still
+  // runs in strict billboard-number order 1→44 whenever the tower
+  // panels change, so downloads start early; each panel swaps its
+  // video in the moment its URL is ready, and until then shows the
+  // honest branded face, never black or blank.
   useEffect(() => {
-    if (!billboardManifestSettled) return undefined;
-    let live = true;
-    preloadHubPanelVideos(towerPanels).then(() => {
-      if (live) setPanelVideosReady(true);
-    });
-    return () => { live = false; };
-  }, [billboardManifestSettled, towerPanels]);
+    preloadHubPanelVideos(towerPanels).catch(() => {});
+    return undefined;
+  }, [towerPanels]);
 
-  if (!textures || !panelVideosReady) return null;
+  if (!textures) return null;
 
   // One tower satellite per god-menu category (Merlin, 2026-09-30) —
   // the Zeus pattern with the name and color changed per category.

@@ -174,13 +174,25 @@ t(
     godTowerSrc.includes('toneMapped={false}')
 );
 t(
-  'hub load sequence preloads panel videos before towers present',
+  'hub load sequence preloads panel videos in the background, never gating towers',
   homeSceneSrc.includes('preloadHubPanelVideos(towerPanels)') &&
-    homeSceneSrc.includes('panelVideosReady')
+    !homeSceneSrc.includes('panelVideosReady') &&
+    !homeSceneSrc.includes('billboardManifestSettled')
 );
 t(
-  'towers wait for the preload gate',
-  homeSceneSrc.includes('if (!textures || !panelVideosReady) return null')
+  'towers present without waiting on video preload or manifest settle',
+  homeSceneSrc.includes('if (!textures) return null') &&
+    !homeSceneSrc.includes('!panelVideosReady')
+);
+t(
+  'videos swap in progressively: video face renders only once its URL is ready',
+  godTowerSrc.includes('videoState.ready ? (') &&
+    godTowerSrc.includes('map={videoState.texture}')
+);
+t(
+  'unloaded panel shows the honest branded face, never black or blank',
+  godTowerSrc.includes('map={faceTex || undefined}') &&
+    godTowerSrc.includes("color={faceTex ? (hovered ? '#dddddd' : '#ffffff') : '#0a0f1e'}")
 );
 
 console.log(`\nbillboard-panel-video: ${passed} passed, ${failed} failed`);
