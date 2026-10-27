@@ -32,6 +32,7 @@ import { applyCoverFit } from '../lib/texture-fit';
 import { GOD_TOWER_SPOTS } from '../lib/home-positions';
 import { probeWebGL, resetWebGLProbeCache, diagnoseWebGL } from '../lib/webgl-support';
 import { panelsForTower } from '../lib/tower-panels';
+import { manifestToOverrides, applyOverridesToTowerPanels } from '../lib/billboards/overrides';
 import GodTower from './GodTower';
 import OmegaHubGate from './OmegaHubGate';
 import Earth2HubGate from './Earth2HubGate';
@@ -646,6 +647,20 @@ function TextureProvider({ onLaunchExternal }) {
     return () => { isMounted = false; };
   }, []);
 
+  // Manager-wired billboards (Merlin, 2026-10-27): the live manifest
+  // is repo content written by the builder via the push path — never
+  // by the manager page. A missing manifest (or a failed fetch) just
+  // means no overrides: the rotating inventory below stays as-is.
+  const [billboardManifest, setBillboardManifest] = useState(null);
+  useEffect(() => {
+    let live = true;
+    fetch('/billboards/manifest.json')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => { if (live) setBillboardManifest(json); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, []);
+
   // Deterministic ad panels per tower (panel 0 = Merlin's native stake.com
   // slot on every tower; panels 1–3 rotate the real billboard inventory).
   // Memoized so the memoized GodTower never sees a fresh array identity.
@@ -655,9 +670,15 @@ function TextureProvider({ onLaunchExternal }) {
   // post-load render ran 3, throwing React error #310 and white-screening
   // the homepage (2026-10-01). panelsForTower is deterministic and does not
   // depend on `textures`, so hoisting is behavior-preserving.
+  // Manager overrides (when the manifest lands) replace the slot for
+  // their billboard number — including stake numbers Merlin explicitly
+  // sets — and leave every other panel on the base assignment.
   const towerPanels = useMemo(
-    () => GOD_TOWER_SPOTS.map((_, i) => panelsForTower(i)),
-    []
+    () => {
+      const overrides = manifestToOverrides(billboardManifest);
+      return GOD_TOWER_SPOTS.map((_, i) => applyOverridesToTowerPanels(panelsForTower(i), i, overrides));
+    },
+    [billboardManifest]
   );
 
   if (!textures) return null;

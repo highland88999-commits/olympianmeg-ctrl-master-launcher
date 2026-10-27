@@ -220,6 +220,12 @@ export default function ConsolePage() {
             </button>
           ))}
         </div>
+        <a
+          href="/ad-spaces"
+          className="mt-2 block min-h-[44px] rounded-xl border border-amber-300/40 bg-amber-500/10 px-3 py-3 text-center text-xs font-bold tracking-[0.2em] text-amber-200"
+        >
+          AD SPACES · BILLBOARD MANAGER
+        </a>
       </header>
 
       {notice && (

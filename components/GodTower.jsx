@@ -120,6 +120,63 @@ function usePanelFaceTexture(slot, stakeTex) {
     };
     const paintPlaceholder = () =>
       toTexture(createBillboardFaceCanvas(slot, FACE_PX_W, FACE_PX_H));
+    // Manager-wired video creative (Merlin, 2026-10-27): tower panels
+    // never autoplay video (forty autoplaying videos would melt phone
+    // GPUs), so a video ad paints its first frame as the static face —
+    // the creative still renders on the panel, and the tap still opens
+    // its link. On any failure the honest branded face paints instead.
+    if (slot.creativeType === 'video' && slot.creativeUrl) {
+      const video = document.createElement('video');
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = 'metadata';
+      video.crossOrigin = 'anonymous';
+      const onSeeked = () => {
+        if (cancelled) return;
+        const vw = video.videoWidth;
+        const vh = video.videoHeight;
+        if (!vw || !vh) {
+          paintPlaceholder();
+          return;
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = FACE_PX_W;
+        canvas.height = FACE_PX_H;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          toTexture(null);
+          return;
+        }
+        const s = Math.max(FACE_PX_W / vw, FACE_PX_H / vh);
+        const dw = vw * s;
+        const dh = vh * s;
+        ctx.drawImage(video, (FACE_PX_W - dw) / 2, (FACE_PX_H - dh) / 2, dw, dh);
+        toTexture(canvas);
+      };
+      const onError = () => {
+        if (!cancelled) paintPlaceholder();
+      };
+      const onLoaded = () => {
+        try {
+          video.currentTime = 0.1;
+        } catch {
+          onSeeked();
+        }
+      };
+      video.addEventListener('seeked', onSeeked);
+      video.addEventListener('error', onError);
+      video.addEventListener('loadeddata', onLoaded);
+      video.src = slot.creativeUrl;
+      return () => {
+        cancelled = true;
+        video.removeEventListener('seeked', onSeeked);
+        video.removeEventListener('error', onError);
+        video.removeEventListener('loadeddata', onLoaded);
+        video.removeAttribute('src');
+        if (owned) owned.dispose();
+        setTex(null);
+      };
+    }
     const creative = slot.creatives && slot.creatives[0];
     if (creative && creative.imageUrl) {
       const img = new Image();
@@ -142,8 +199,28 @@ function usePanelFaceTexture(slot, stakeTex) {
       if (owned) owned.dispose();
       setTex(null);
     };
-  }, [slot.key, stakeTex]);
+  }, [slot.key, slot.creativeUrl, slot.creatives?.[0]?.imageUrl, stakeTex]);
   return tex;
+}
+
+// Manager-wired rotation (Merlin, 2026-10-27): a billboard holding
+// more than one ad cycles its faces on its own timer, one panel at a
+// time — each panel instance runs its own interval, so rotation
+// state is per billboard and independent across billboards. A single
+// entry stays static (no timer). Removing an entry just shortens
+// the cycle: the index clamps back into range via the modulo.
+function useRotatingEntry(slot) {
+  const entries = slot.entries;
+  const count = Array.isArray(entries) ? entries.length : 0;
+  const [index, setIndex] = useState(0);
+  const intervalMs = (slot.intervalSeconds || 15) * 1000;
+  useEffect(() => {
+    if (count <= 1) return undefined;
+    const id = setInterval(() => setIndex((i) => (i + 1) % count), intervalMs);
+    return () => clearInterval(id);
+  }, [count, intervalMs, slot.key]);
+  if (count === 0) return null;
+  return entries[Math.min(index, count - 1)];
 }
 
 // Per-billboard number badge (Merlin, 2026-10-20): each panel face
@@ -186,22 +263,36 @@ function TowerAdPanel({ slot, stakeTex, color, onLaunchExternal, badgeNumber }) 
   // for the whole ring, not 40. Null when iOS reclaims the 2D context;
   // the material below falls back to the flat god color.
   const borderTex = getBorderTexture(color);
-  const faceTex = usePanelFaceTexture(slot, stakeTex);
+  // Rotation: the face, the CTA and the tap all follow the CURRENT
+  // entry — tapping a rotating billboard always opens the face you
+  // are looking at, never a stale one.
+  const rotatingEntry = useRotatingEntry(slot);
+  const effectiveSlot = rotatingEntry
+    ? {
+        ...slot,
+        name: rotatingEntry.company,
+        trackingUrl: rotatingEntry.link,
+        creativeType: rotatingEntry.creativeType,
+        creativeUrl: rotatingEntry.creativeUrl,
+        creatives: rotatingEntry.creativeType === 'image' ? [{ imageUrl: rotatingEntry.creativeUrl }] : [],
+      }
+    : slot;
+  const faceTex = usePanelFaceTexture(effectiveSlot, stakeTex);
 
   const isStake = slot.key === STAKE_SLOT.key;
   // Merlin's native slot keeps its ENTER NOW call-to-action; everyone else
   // is honest about what a tap does.
   const ctaLabel = isStake
     ? 'ENTER NOW'
-    : slot.trackingUrl
+    : effectiveSlot.trackingUrl
       ? 'VISIT SITE'
       : 'ADVERTISE';
 
   const handleFaceClick = (e) => {
     e.stopPropagation();
     if (e.nativeEvent) e.nativeEvent.stopPropagation();
-    if (slot.trackingUrl) {
-      onLaunchExternal(slot.trackingUrl);
+    if (effectiveSlot.trackingUrl) {
+      onLaunchExternal(effectiveSlot.trackingUrl);
     } else {
       window.location.href = `mailto:${INQUIRIES_EMAIL}`;
     }
