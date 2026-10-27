@@ -459,7 +459,7 @@ test('hygiene: every name the world imports from the build modules exists', () =
     ['../lib/building/catalog.js', ['BUILDING_PIECES', 'PIECE_CATEGORIES', 'FINISHES', 'pieceById', 'pieceFootprint', 'finishAllowed']],
     ['../lib/building/placement.js', ['snapPlacement', 'snapRotation', 'judgeGhost', 'validatePlacementSet']],
     ['../lib/building/piece-render.js', ['buildPieceGroup', 'buildGhostGroup', 'setGhostValidity']],
-    ['../lib/earth2/building.js', ['PARCEL_BUILD_FRAME', 'BUILD_LEVEL_HEIGHT_M', 'BUILD_MAX_LEVEL', 'levelPlacementY', 'levelLabel', 'classifyTapGesture', 'stepOrbitPark', 'tapPointInGhostFootprint']],
+    ['../lib/earth2/building.js', ['PARCEL_BUILD_FRAME', 'BUILD_LEVEL_HEIGHT_M', 'BUILD_MAX_LEVEL', 'levelPlacementY', 'levelLabel', 'classifyTapGesture', 'stepOrbitPark', 'tapPointInGhostFootprint', 'orbitBlendActive', 'EARTH2_PANEL_ORBS']],
     ['../lib/building/rights.js', ['activeClaimFor']],
     ['../lib/earth2/build-store.js', ['buildModeGate', 'myBuildFor']],
     ['../lib/earth2/streaming.js', ['buildStreamUnits']],

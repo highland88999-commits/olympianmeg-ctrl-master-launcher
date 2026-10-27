@@ -29,6 +29,8 @@ import {
   stepOrbitAngles,
   stepOrbitWeight,
   stepOrbitPark,
+  orbitBlendActive,
+  EARTH2_PANEL_ORBS,
   classifyTapGesture,
   BUILD_LEVEL_HEIGHT_M,
   BUILD_MAX_LEVEL,
@@ -346,4 +348,69 @@ test('v3 footprint: rotation swaps the plan extents', () => {
   // Turned 90°: 0.3 m along x, 4 m along z.
   assert.equal(tapPointInGhostFootprint({ x: 14, z: 15.9 }, turned), true);
   assert.equal(tapPointInGhostFootprint({ x: 15.9, z: 14 }, turned), false);
+});
+
+// ── I. Camera-move regression (Merlin's build video, 2026-10-26)
+// "As soon as I move the camera view, manipulating the piece
+// stops working." Two cooperating causes, both fixed:
+//   1. A parked orbit kept re-blending the camera toward the
+//      orbit pose every frame, overriding drag-look (at full
+//      blend weight the view — and the camera-aimed ghost —
+//      was pinned solid). The blend now runs only while driving
+//      or gliding out, never while parked.
+//   2. The camera-aim march capped at 18 m, so a shallow-down
+//      or level view never met the ground and the ghost jumped
+//      to the parcel edge. The march now reaches 400 m, and a
+//      ray that still finds no ground holds the last aim.
+
+test('march: the hit flag reports ground contact honestly', () => {
+  const down = marchCameraGroundPoint({ x: 0, y: 20, z: 0 }, { x: 0, y: -1, z: 0 }, flat);
+  assert.equal(down.hit, true);
+  const sky = marchCameraGroundPoint({ x: 0, y: 20, z: 0 }, { x: 0, y: 1, z: 0 }, flat);
+  assert.equal(sky.hit, false, 'a sky ray meets no ground');
+  assert.equal(sky.x, 0);
+  assert.equal(sky.z, 0, 'the far point is unchanged for old callers');
+});
+
+test('march: a shallow-down view misses at 18 m but hits at 400 m', () => {
+  // Eye 1.7 m over flat ground, pitched 3° down: the ground is
+  // ~33 m out — past the old cap, inside the new reach.
+  const dir = { x: 0, y: -0.05, z: Math.sqrt(1 - 0.0025) };
+  const capped = marchCameraGroundPoint({ x: 0, y: 11.7, z: 0 }, dir, flat);
+  assert.equal(capped.hit, false, 'the old 18 m cap never reached it');
+  const far = marchCameraGroundPoint({ x: 0, y: 11.7, z: 0 }, dir, flat, { maxS: 400 });
+  assert.equal(far.hit, true);
+  assert.ok(far.z > 30, `expected a ~33 m hit, got z=${far.z}`);
+});
+
+test('march: a level ray over flat ground never hits, at any reach', () => {
+  const level = marchCameraGroundPoint({ x: 0, y: 11.7, z: 0 }, { x: 0, y: 0, z: 1 }, flat, { maxS: 400 });
+  assert.equal(level.hit, false, 'a level ray stays above the ground forever');
+});
+
+test('orbit blend: parked never blends, driving and glide-out do', () => {
+  assert.equal(orbitBlendActive({ weight: 1, parked: true, drivingVehicle: false }), false,
+    'a parked camera already sits at the orbit pose — re-blending would pin drag-look and the ghost');
+  assert.equal(orbitBlendActive({ weight: 0.5, parked: false, drivingVehicle: false }), true,
+    'driving still blends toward the orbit pose');
+  assert.equal(orbitBlendActive({ weight: 0.5, parked: false, drivingVehicle: true }), false,
+    'a vehicle camera always wins outright');
+  assert.equal(orbitBlendActive({ weight: 0, parked: false, drivingVehicle: false }), false,
+    'nothing blended, nothing to blend');
+});
+
+test('panel orbs: three distinct boxes, each its own colour + glyph', () => {
+  const ids = Object.keys(EARTH2_PANEL_ORBS);
+  assert.deepEqual(ids.sort(), ['actions', 'build', 'parcel']);
+  const colors = new Set(ids.map((id) => EARTH2_PANEL_ORBS[id].color));
+  assert.equal(colors.size, 3, 'no two orbs share a colour');
+  const glyphs = new Set(ids.map((id) => EARTH2_PANEL_ORBS[id].glyph));
+  assert.equal(glyphs.size, 3, 'no two orbs share a glyph');
+  for (const id of ids) {
+    assert.ok(EARTH2_PANEL_ORBS[id].label, `${id} has a label`);
+    assert.ok(EARTH2_PANEL_ORBS[id].glyph, `${id} has a glyph`);
+  }
+  assert.equal(EARTH2_PANEL_ORBS.actions.color, 'amber');
+  assert.equal(EARTH2_PANEL_ORBS.build.color, 'emerald');
+  assert.equal(EARTH2_PANEL_ORBS.parcel.color, 'sky');
 });

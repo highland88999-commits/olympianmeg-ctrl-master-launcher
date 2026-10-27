@@ -195,6 +195,8 @@ import {
   stepOrbitAngles,
   classifyTapGesture,
   stepOrbitPark,
+  orbitBlendActive,
+  EARTH2_PANEL_ORBS,
   BUILD_LEVEL_HEIGHT_M,
   BUILD_MAX_LEVEL,
   levelPlacementY,
@@ -322,7 +324,7 @@ function clampPanelXY(x, y) {
   };
 }
 
-function E2Panel({ layout, onMove, onToggle, panelClass = '', headerClass = '', bodyClass = '', header, children }) {
+function E2Panel({ layout, onMove, onToggle, panelClass = '', headerClass = '', bodyClass = '', header, children, orb }) {
   const elRef = useRef(null);
   const beginDrag = (e) => {
     if (e.button != null && e.button !== 0) return;
@@ -355,28 +357,58 @@ function E2Panel({ layout, onMove, onToggle, panelClass = '', headerClass = '', 
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onUp);
   };
+  // Minimized form (Merlin, 2026-10-26): a colour-coded circle
+  // orb carrying the panel's glyph, instead of a wide dark pill
+  // — the three panels are distinguishable at a glance. Behaviour
+  // is exactly as before: the orb drags by its face (never by the
+  // ＋ badge, which keeps its own tap), ＋ expands, and the
+  // position persists. Expanded appearance is untouched.
+  const collapsed = layout.collapsed;
+  const orbClass = orb
+    ? { sky: 'border-sky-200/70 bg-sky-400/90', amber: 'border-amber-200/70 bg-amber-400/90', emerald: 'border-emerald-200/70 bg-emerald-500/90' }[orb.color] || 'border-white/25 bg-black/70'
+    : 'border-white/25 bg-black/70';
   return (
     <div
       ref={elRef}
-      className={`pointer-events-auto absolute z-20 ${panelClass}`}
+      className={`pointer-events-auto absolute z-20 ${collapsed ? 'h-14 w-14' : panelClass}`}
       style={{ left: layout.x, top: layout.y }}
     >
       <div
         onPointerDown={beginDrag}
-        className={`flex cursor-grab touch-none select-none items-center gap-2 ${headerClass}`}
+        title={collapsed && orb ? orb.label : undefined}
+        className={collapsed
+          ? `relative flex h-full w-full cursor-grab touch-none select-none items-center justify-center rounded-full border shadow-2xl backdrop-blur-md ${orbClass}`
+          : `flex cursor-grab touch-none select-none items-center gap-2 ${headerClass}`}
       >
-        <div className="min-w-0 flex-1">{header}</div>
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-label={layout.collapsed ? 'Expand panel' : 'Shrink panel'}
-          aria-expanded={!layout.collapsed}
-          className="shrink-0 rounded-full border border-white/20 bg-white/5 px-2 py-0.5 text-[11px] font-black leading-none text-zinc-200 transition hover:bg-white/15"
-        >
-          {layout.collapsed ? '＋' : '－'}
-        </button>
+        {collapsed ? (
+          <>
+            <span className="text-[22px] leading-none" aria-hidden="true">{orb ? orb.glyph : '▦'}</span>
+            <button
+              type="button"
+              onClick={onToggle}
+              aria-label="Expand panel"
+              aria-expanded={false}
+              className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full border border-white/30 bg-black/85 text-[14px] font-black leading-none text-white transition hover:bg-black/60"
+            >
+              ＋
+            </button>
+          </>
+        ) : (
+          <>
+            <div className="min-w-0 flex-1">{header}</div>
+            <button
+              type="button"
+              onClick={onToggle}
+              aria-label="Shrink panel"
+              aria-expanded
+              className="shrink-0 rounded-full border border-white/20 bg-white/5 px-2 py-0.5 text-[11px] font-black leading-none text-zinc-200 transition hover:bg-white/15"
+            >
+              －
+            </button>
+          </>
+        )}
       </div>
-      {!layout.collapsed && <div className={bodyClass}>{children}</div>}
+      {!collapsed && <div className={bodyClass}>{children}</div>}
     </div>
   );
 }
@@ -4411,27 +4443,41 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         // frame, clamped to the parcel frame. Drag-look moves
         // the tile (the view's centre moves); the joystick
         // orbits the view instead (see the orbit step in tick).
-        // The one exception: while the orbit blend is active,
-        // the aim FREEZES — orbiting must never move the tile.
+        // The exceptions: while the orbit blend is active,
+        // the aim FREEZES — orbiting must never move the tile;
+        // and when the centre ray finds no ground at all (a
+        // level or skyward view), the aim HOLDS its last spot
+        // instead of jumping to the parcel edge — moving the
+        // camera never strands the ghost at the frame.
         let aimLocal = null;
         if (buildOrbit.frozen && bm.aim && bm.aim.parcelId === bm.parcelId) {
           aimLocal = bm.aim;
         } else {
           const dir = new THREE.Vector3();
           camera.getWorldDirection(dir);
-          const hit = marchCameraGroundPoint(
+          const marched = marchCameraGroundPoint(
             { x: camera.position.x, y: camera.position.y, z: camera.position.z },
             { x: dir.x, y: dir.y, z: dir.z },
             (x, z) => heightAt(x, z),
+            // 400 m of reach: a shallow-down view needs tens of
+            // metres to meet the ground from eye height, and the
+            // old 18 m cap pinned the ghost to the parcel edge
+            // in exactly those views (Merlin's build video,
+            // 2026-10-26).
+            { maxS: 400 },
           );
-          aimLocal = { parcelId: bm.parcelId, ...clampAimToParcel(hit.x, hit.z, rect) };
-          bm.aim = aimLocal;
+          if (!marched.hit && bm.aim && bm.aim.parcelId === bm.parcelId) {
+            aimLocal = bm.aim;
+          } else {
+            aimLocal = { parcelId: bm.parcelId, ...clampAimToParcel(marched.x, marched.z, rect) };
+            bm.aim = aimLocal;
+          }
         }
         // The aim in the parcel's own frame. A hit that lands
-        // outside the parcel — or no hit at all (the march ran
-        // into sky and left the aim floating past the edge) —
-        // falls back to the NEAREST point of the parcel itself.
-        // Then the footprint clamp seats the WHOLE piece inside
+        // outside the parcel — or, with no previous aim at all,
+        // a ray that found no ground — falls back to the
+        // NEAREST point of the parcel itself, so a fresh session
+        // still shows a ghost. Then the footprint clamp seats the WHOLE piece inside
         // the frame: the old centre-only clamp let any piece
         // with real width overflow the edge whenever it was
         // aimed past mid-parcel, and the judge refused it
@@ -5107,8 +5153,11 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           // orbit block's blend owns the camera then). Walking
           // while parked re-attaches the camera (the walker
           // moved, so the parked pose no longer describes the
-          // view). Rotation still follows drag-look either way.
-          if (buildOrbit.parked && movedDist > 1e-4) buildOrbit.parked = false;
+          // view) — and the weight goes with it, or the park
+          // machine would re-park on the very next frame since
+          // the weight is still above its park threshold.
+          // Rotation still follows drag-look either way.
+          if (buildOrbit.parked && movedDist > 1e-4) { buildOrbit.parked = false; buildOrbit.weight = 0; }
           if (!buildOrbit.parked && !buildOrbit.driving) {
             camera.position.set(
               walker.x,
@@ -5160,7 +5209,15 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           }
           // Weight, driving, parked and frozen were already
           // stepped by stepOrbitPark at the top of the frame.
-          if (buildOrbit.weight > 0.001 && !drivingRef.current) {
+          // The blend runs only while driving or gliding out —
+          // NEVER while parked: a parked camera already sits
+          // exactly at the orbit pose, and re-blending every
+          // frame would override drag-look and pin the
+          // camera-aimed ghost, so after a joystick orbit the
+          // piece could no longer be aimed or placed (Merlin's
+          // build video, 2026-10-26). Parked, drag-look owns
+          // orientation again and the ghost follows the view.
+          if (orbitBlendActive({ weight: buildOrbit.weight, parked: buildOrbit.parked, drivingVehicle: !!drivingRef.current })) {
             const centre = buildOrbitCentre();
             const op = orbitCameraPosition(
               centre, buildOrbit.yaw, buildOrbit.pitch, buildOrbit.dist,
@@ -5574,6 +5631,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         layout={panelLayout.parcel}
         onMove={(pos) => movePanel('parcel', pos)}
         onToggle={() => togglePanel('parcel')}
+        orb={EARTH2_PANEL_ORBS.parcel}
         panelClass={`w-[320px] max-w-[calc(100vw-1rem)] rounded-2xl border bg-black/55 text-zinc-100 backdrop-blur-sm ${hud && hud.mine ? 'border-sky-300/50' : 'border-amber-300/30'}`}
         headerClass="px-3.5 pt-2.5"
         bodyClass="px-3.5 pb-2.5 pt-1"
@@ -5627,6 +5685,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         layout={panelLayout.actions}
         onMove={(pos) => movePanel('actions', pos)}
         onToggle={() => togglePanel('actions')}
+        orb={EARTH2_PANEL_ORBS.actions}
         panelClass="w-[292px] max-w-[calc(100vw-1rem)] rounded-2xl border border-white/15 bg-black/55 text-zinc-100 backdrop-blur-sm"
         headerClass="px-3.5 pt-2.5"
         bodyClass="flex flex-col gap-2 px-3.5 pb-3 pt-1"
@@ -5895,6 +5954,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           layout={panelLayout.build}
           onMove={(pos) => movePanel('build', pos)}
           onToggle={() => togglePanel('build')}
+          orb={EARTH2_PANEL_ORBS.build}
           panelClass="w-[470px] max-w-[calc(100vw-1rem)] rounded-[1.25rem] border border-emerald-300/35 bg-[#0a120c]/95 text-zinc-100 shadow-2xl backdrop-blur-md"
           headerClass="px-4 pt-3"
           bodyClass="flex max-h-[62vh] flex-col gap-3 overflow-y-auto px-4 pb-4 pt-2"
