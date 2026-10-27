@@ -225,9 +225,9 @@ describe('the panel + hall (static)', () => {
     assert.ok(panel.includes('Step through'), 'step-through action');
     assert.ok(panel.includes('>Back<') || panel.includes('Back'), 'back action');
     assert.ok(panel.includes('<PortalEnterOverlay'), 'shares the room step-through');
-    assert.ok(panel.includes('onGlFail'), 'WebGL failure falls back to List mode');
+    assert.ok(panel.includes('onGlFail'), 'WebGL failure reported to the panel (retry fallback, never a List mode)');
     assert.ok(panel.includes("from '@/lib/webgl-support'"), 'uses the shared WebGL probe');
-    assert.ok(panel.includes('probeWebGL()'), 'the probe decides the initial mode');
+    assert.ok(panel.includes('probeWebGL()'), 'the probe decides whether the hall mounts');
   });
 
   it('the minimized portals are mini Omega arches (arc + bottom gap)', () => {
