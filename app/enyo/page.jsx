@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { guardCanvasContext } from '../../lib/scene-context-guard.js';
+import { firstConnectedPad, isButtonPressed, GAMEPAD_BUTTONS } from '../../lib/gamepad.js';
 import {
   WEAPONS,
   WEAPON_KEYS,
@@ -1301,6 +1302,9 @@ function createEngine(canvas, cfg, cb) {
   let raf = 0;
   let lastT = 0;
   let hudT = 0;
+  // Gamepad FIRE state: held = FIRE button held, released on
+  // pause/over/death/disconnect so firing can never stick.
+  let gpConfirmHeld = false;
   let started = false;
   const clock = { t: 0 };
 
@@ -1321,6 +1325,21 @@ function createEngine(canvas, cfg, cb) {
     if (contextGuard.isLost()) return; // frozen while the context is gone
     const dt = Math.min(0.05, (t - lastT) / 1000 || 0.016);
     lastT = t;
+    // Gamepad: ✕/A (CONFIRM) held = FIRE button held — rising edge
+    // presses it, falling edge releases it, exactly like the touch
+    // FIRE button (semi fires once on press; autos fire while held).
+    // The else branch releases on pause/over/death/disconnect.
+    if (player.alive && !paused && !over && typeof navigator !== 'undefined' && typeof navigator.getGamepads === 'function') {
+      const pad = firstConnectedPad(navigator.getGamepads());
+      const held = pad ? isButtonPressed(pad.buttons[GAMEPAD_BUTTONS.CONFIRM]) : false;
+      if (held !== gpConfirmHeld) {
+        gpConfirmHeld = held;
+        api.setFiring(held);
+      }
+    } else if (gpConfirmHeld) {
+      gpConfirmHeld = false;
+      api.setFiring(false);
+    }
     if (paused || over) return;
     clock.t += dt;
 
@@ -1512,6 +1531,7 @@ function createEngine(canvas, cfg, cb) {
     start() {
       started = true;
       paused = false;
+      gpConfirmHeld = false;
       lastT = performance.now();
       cb.hud(snapshotHud());
       if (!isTouch) {

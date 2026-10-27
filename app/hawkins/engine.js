@@ -4,6 +4,7 @@
 
 import * as THREE from 'three';
 import { guardCanvasContext } from '../../lib/scene-context-guard.js';
+import { firstConnectedPad, newlyPressedButtons, pressedButtonSet, GAMEPAD_BUTTONS } from '../../lib/gamepad.js';
 import { hawkinsModel, HAWKINS_PLAYER_CHARACTERS } from '../../lib/hawkins/models.js';
 import { instantiateHawkins, prefetchHawkins } from '../../lib/hawkins/loader.js';
 
@@ -1335,21 +1336,21 @@ export function createEngine(canvas, hooks) {
     const nub = document.getElementById('hw-nub');
     const fire = document.getElementById('hw-fire');
     const act = document.getElementById('hw-act');
-    if (stick) {
-      stick.addEventListener('touchstart', (e) => {
-        const t = e.changedTouches[0]; sid = t.identifier;
-        const r = stick.getBoundingClientRect(); sx = r.left + 60; sy = r.top + 60;
-        e.preventDefault();
-      }, { passive: false });
-    }
-    window.addEventListener('touchstart', (e) => {
+    const onStickStart = (e) => {
+      const t = e.changedTouches[0]; sid = t.identifier;
+      const r = stick.getBoundingClientRect(); sx = r.left + 60; sy = r.top + 60;
+      e.preventDefault();
+    };
+    if (stick) stick.addEventListener('touchstart', onStickStart, { passive: false });
+    const onLookStart = (e) => {
       for (const t of e.changedTouches) {
         if (t.clientX > window.innerWidth * 0.4 && t.target !== fire && t.target !== act && lookId === null) {
           lookId = t.identifier; lx = t.clientX; ly = t.clientY;
         }
       }
-    }, { passive: true });
-    window.addEventListener('touchmove', (e) => {
+    };
+    window.addEventListener('touchstart', onLookStart, { passive: true });
+    const onTouchMove = (e) => {
       // Block page scroll while a game touch (stick or look) is active —
       // otherwise the drag scrolls the page instead of moving the player.
       let gameTouch = false;
@@ -1369,8 +1370,9 @@ export function createEngine(canvas, hooks) {
         }
       }
       if (gameTouch) e.preventDefault();
-    }, { passive: false });
-    window.addEventListener('touchend', (e) => {
+    };
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
+    const onTouchEnd = (e) => {
       for (const t of e.changedTouches) {
         if (t.identifier === sid) {
           sid = null; E.keys._tx = 0; E.keys._ty = 0;
@@ -1378,14 +1380,27 @@ export function createEngine(canvas, hooks) {
         }
         if (t.identifier === lookId) lookId = null;
       }
-    });
-    if (fire) fire.addEventListener('touchstart', (e) => { E.shoot(); e.preventDefault(); }, { passive: false });
+    };
+    window.addEventListener('touchend', onTouchEnd);
+    const onFireStart = (e) => { E.shoot(); e.preventDefault(); };
+    const onActStart = (e) => { E.keys._act = true; E.tryBikeToggle(); e.preventDefault(); };
+    const onActEnd = () => { E.keys._act = false; };
+    if (fire) fire.addEventListener('touchstart', onFireStart, { passive: false });
     if (act) {
-      act.addEventListener('touchstart', (e) => {
-        E.keys._act = true; E.tryBikeToggle(); e.preventDefault();
-      }, { passive: false });
-      act.addEventListener('touchend', () => { E.keys._act = false; });
+      act.addEventListener('touchstart', onActStart, { passive: false });
+      act.addEventListener('touchend', onActEnd);
     }
+    // Removable: unbindInput takes these down. The old anonymous
+    // listeners lived forever, and _touchBound stayed true after
+    // unbind — so a second game start could never re-bind touch.
+    E._touchHandlers = [
+      ...(stick ? [[stick, 'touchstart', onStickStart]] : []),
+      [window, 'touchstart', onLookStart],
+      [window, 'touchmove', onTouchMove],
+      [window, 'touchend', onTouchEnd],
+      ...(fire ? [[fire, 'touchstart', onFireStart]] : []),
+      ...(act ? [[act, 'touchstart', onActStart], [act, 'touchend', onActEnd]] : []),
+    ];
   };
 
   engine.unbindInput = function () {
@@ -1396,6 +1411,17 @@ export function createEngine(canvas, hooks) {
     document.removeEventListener('pointerlockchange', E._onLockChange);
     window.removeEventListener('mousemove', E._onMouseMove);
     window.removeEventListener('resize', E._onResize);
+    // Touch listeners come down too, and the bind guard resets so
+    // the next game start can bind touch again (the guard still
+    // prevents double-binding within one session: bindTouch sets
+    // _touchBound, only unbind clears it).
+    if (E._touchHandlers) {
+      for (const [target, type, fn] of E._touchHandlers) {
+        try { target.removeEventListener(type, fn); } catch (e) { /* element gone */ }
+      }
+      E._touchHandlers = null;
+    }
+    E._touchBound = false;
   };
 
   engine.movePlayer = function (dt) {
@@ -1526,10 +1552,23 @@ export function createEngine(canvas, hooks) {
     E.hooks.setObjective('Hunt demogorgons. Find the <b style="color:#bb88ff">clock traces</b> (' + TRACES_NEEDED + '). The <b style="color:#aa66ff">portal</b> at the center of town leads to the Upside Down — follow the arrow.');
     E.hooks.banner('HAWKINS — SOMETHING STIRS');
     if (!E.isTouch) E.canvas.requestPointerLock();
+    // Gamepad shoot state: rising-edge set, reset when no pad is
+    // attached so a held button can never fire stale on reconnect.
+    let gpButtons = new Set();
     const loop = () => {
       if (!E.running) return;
       E.raf = requestAnimationFrame(loop);
       if (E.contextGuard && E.contextGuard.isLost()) return; // frozen while the context is gone
+      // Gamepad: ✕/A (CONFIRM) shoots, exactly like a mouse click —
+      // rising edge only; shoot() itself guards cooldown/ammo/alive.
+      if (E.player.alive && typeof navigator !== 'undefined' && typeof navigator.getGamepads === 'function') {
+        const pad = firstConnectedPad(navigator.getGamepads());
+        if (pad) {
+          const pressed = newlyPressedButtons(gpButtons, pad.buttons);
+          gpButtons = pressedButtonSet(pad.buttons);
+          if (pressed.includes(GAMEPAD_BUTTONS.CONFIRM)) E.shoot();
+        } else { gpButtons = new Set(); }
+      }
       const dt = Math.min(E.clock.getDelta(), 0.05);
       const t = E.clock.getElapsedTime();
       if (E.player.alive) {

@@ -46,6 +46,7 @@ import { roarToneFor, GHORRUM_LAUGH_TONE } from './behavior.js';
 import { playRoarTone } from './roar-audio.js';
 import { createWalker, stepWalker, applyLook, walkerCamera } from '@/lib/world/walk-controls';
 import { createKeyInput, attachDragLook } from '@/lib/world/walk-input';
+import { firstConnectedPad, newlyPressedButtons, pressedButtonSet, triggerRisingEdge, triggerValue, GAMEPAD_BUTTONS } from '@/lib/gamepad';
 import WalkJoystick from '@/components/world/WalkJoystick';
 
 const GOLD = '#d8b25c';
@@ -402,11 +403,29 @@ export default function HollowEarthPage() {
     let raf = 0;
     let last = performance.now();
     let hudTick = 0;
+    // Gamepad strike state: rising-edge sets, reset when no pad is
+    // attached so a held button can never fire stale on reconnect.
+    let gpButtons = new Set();
+    let gpPrevRt = 0;
     function tick() {
       raf = requestAnimationFrame(tick);
       const now = performance.now();
       const dt = Math.min((now - last) / 1000, 0.05);
       last = now;
+      // Gamepad: ✕/A (CONFIRM) and R2 (RT) strike, exactly like a
+      // tap — rising edge only, so a held button never repeats.
+      // attack() itself guards cooldown, so a same-frame double
+      // edge is a no-op, not a double swing.
+      if (typeof navigator !== 'undefined' && typeof navigator.getGamepads === 'function') {
+        const pad = firstConnectedPad(navigator.getGamepads());
+        if (pad) {
+          if (triggerRisingEdge(gpPrevRt, pad.buttons)) attack();
+          const pressed = newlyPressedButtons(gpButtons, pad.buttons);
+          gpButtons = pressedButtonSet(pad.buttons);
+          if (pressed.includes(GAMEPAD_BUTTONS.CONFIRM)) attack();
+          gpPrevRt = triggerValue(Array.isArray(pad.buttons) ? pad.buttons[GAMEPAD_BUTTONS.RT] : null);
+        } else { gpButtons = new Set(); gpPrevRt = 0; }
+      }
       stepWalker(walker, {
         fwd: keys.state.fwd + joyRef.current.y,
         strafe: keys.state.strafe + joyRef.current.x,

@@ -40,6 +40,7 @@ import {
   heroMotionPose, shouldTuckMissionCard, MISSION_RETUCK_AFTER_S,
 } from './figure-motion';
 import { createKeyInput, attachDragLook } from '@/lib/world/walk-input';
+import { firstConnectedPad, newlyPressedButtons, pressedButtonSet, triggerRisingEdge, triggerValue, GAMEPAD_BUTTONS } from '@/lib/gamepad';
 import WalkJoystick from '@/components/world/WalkJoystick';
 
 const BANNER_CLEAR = 'max(3.5rem, calc(env(safe-area-inset-top) + 3rem))';
@@ -518,9 +519,27 @@ export default function MiddleEarthPage() {
 
     let raf = 0;
     let last = performance.now();
+    // Gamepad strike state: rising-edge sets, reset when no pad is
+    // attached so a held button can never fire stale on reconnect.
+    let gpButtons = new Set();
+    let gpPrevRt = 0;
     const frame = (now) => {
       if (cancelled) return;
       if (contextGuardRef.current && contextGuardRef.current.isLost()) { raf = requestAnimationFrame(frame); return; }
+      // Gamepad: ✕/A (CONFIRM) and R2 (RT) strike, exactly like a
+      // tap — rising edge only, so a held button never repeats.
+      // onTap() itself guards intro/death/no-zone, so polling here
+      // is safe during overlays.
+      if (typeof navigator !== 'undefined' && typeof navigator.getGamepads === 'function') {
+        const pad = firstConnectedPad(navigator.getGamepads());
+        if (pad) {
+          if (triggerRisingEdge(gpPrevRt, pad.buttons)) onTap();
+          const pressed = newlyPressedButtons(gpButtons, pad.buttons);
+          gpButtons = pressedButtonSet(pad.buttons);
+          if (pressed.includes(GAMEPAD_BUTTONS.CONFIRM)) onTap();
+          gpPrevRt = triggerValue(Array.isArray(pad.buttons) ? pad.buttons[GAMEPAD_BUTTONS.RT] : null);
+        } else { gpButtons = new Set(); gpPrevRt = 0; }
+      }
       const dt = Math.min((now - last) / 1000, 0.05);
       last = now;
       const t = now / 1000;
