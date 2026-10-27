@@ -296,12 +296,24 @@ check('ownership cap: manager page + route enforce it; migration stores is_house
   assert.ok(sql.includes('is_house boolean'), 'is_house column');
 });
 
-// --- prices are permanent (Merlin, 2026-10-27) ---
-check('prices: no launch-price or rises-later copy anywhere in the manager', () => {
+// --- prices: settled rule (Merlin, 2026-10-27) ---
+check('prices: manager note states the settled rule exactly, no other rise trigger', () => {
+  const page = read('app/ad-spaces/page.jsx');
+  assert.ok(page.includes('$10 CAD/month'), 'current rotating price');
+  assert.ok(page.includes('$25 CAD/month'), 'current solo price');
+  assert.ok(page.includes('1,000,000'), 'single override threshold');
+  assert.ok(page.includes('$50 rotating / $200 solo'), 'override prices');
+  assert.ok(page.includes('990,000'), 'notice threshold');
+  assert.ok(page.includes('in-app pop-up'), 'pop-up notice');
+  assert.ok(page.includes('opt out'), 'opt-out chance');
+  assert.ok(page.includes('house/demo ads never pay'), 'house ads exempt from paying');
+  assert.ok(page.toLowerCase().includes('permanent'), 'permanent except the one override');
+  assert.ok(page.includes('billing is not wired into this manager yet'), 'honest: no billing here');
   for (const rel of ['app/ad-spaces/page.jsx', 'app/api/billboards/queue/route.js', 'lib/billboards/validate.js', 'lib/billboards/overrides.js']) {
     const text = read(rel).toLowerCase();
     assert.ok(!text.includes('launch price'), `${rel} must not say launch price`);
-    assert.ok(!text.includes('rises later') && !text.includes('price rise'), `${rel} must not promise a rise`);
+    assert.ok(!text.includes('rises as users grow'), `${rel} must not carry the old rise wording`);
+    assert.ok(!text.includes('rises later') && !text.includes('price rise'), `${rel} must not promise another rise`);
   }
 });
 

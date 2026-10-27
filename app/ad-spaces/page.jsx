@@ -589,6 +589,18 @@ export default function AdSpacesPage() {
           </div>
         )}
       </section>
+
+      {/* Pricing reference — owner-only note, not a checkout. */}
+      <section className="mx-auto mt-4 max-w-3xl rounded-2xl border border-white/10 bg-zinc-900/60 p-4">
+        <h2 className="text-base font-black tracking-[0.15em] text-white">PRICING</h2>
+        <p className="mt-1 text-xs leading-relaxed text-zinc-400">
+          For reference — billing is not wired into this manager yet. Rotating face: $10 CAD/month. Solo billboard: $25 CAD/month.
+          These prices are permanent, with exactly one exception: when registered users reach 1,000,000, they become $50 rotating / $200 solo.
+          At 990,000 registered users, every paying advertiser gets an in-app pop-up and an email to their registered address about the change,
+          with a chance to opt out — cancelling stops the ad instead of renewing at the new price. The new price applies only to advertisers
+          who do not opt out, plus new subscribers after 1,000,000. Merlin's own house/demo ads never pay — they are manager-wired, not subscriptions.
+        </p>
+      </section>
     </main>
   );
 }
