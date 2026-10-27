@@ -23,8 +23,16 @@ import {
   pruneStaleQueue,
   capTrailQueue,
   lacksMountedCoverage,
+  centreDistanceHub,
   RENDER_QUEUE_RECONCILE_MS,
 } from '@/lib/earth/render-queue';
+import {
+  RENDERED_RECORD_PRESETS,
+  RENDERED_TILES_ROUTE,
+  RENDERED_RECORD_BATCH_MAX,
+  RESTORE_RADIUS_FACTOR,
+  buildRestoreJobs,
+} from '@/lib/earth/rendered-tiles';
 import {
   createBitset,
   REVEAL_RADIUS_DEG,
@@ -156,6 +164,19 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
   const lastMarkRef = useRef(null); // { lat, lon, t } — coverage cadence
   const mappedDirtyRef = useRef(false); // unsynced marks exist
   const mappedSyncRef = useRef(0); // last server-sync ms
+  // Rendered-tiles server record (2026-10-27, Merlin: a Supabase
+  // table tracking what tiles have been rendered, so tiles sent
+  // to it render again on load for that user). The device record
+  // (lens-cache) is one device only and never synced; this is
+  // the server half. Guests, offline, and a missing table degrade
+  // to device-only, silently — never an error surface.
+  const renderedServerRef = useRef(null); // fetched rows, or null when unloaded
+  const renderedServerKeysRef = useRef(new Set()); // keys already on the server (never re-sent)
+  const renderedStageRef = useRef([]); // staged tiles awaiting the flush beat
+  const renderedSentRef = useRef(new Set()); // keys flushed this session
+  const renderedSyncOffRef = useRef(false); // table not ready: stop trying this session
+  const renderedSyncRef = useRef(0); // last flush attempt ms
+  const restoreRef = useRef({ done: false, near: [], far: [] }); // per-pool restore jobs
   const getMappedBitset = () => {
     if (!mappedBitsetRef.current) {
       mappedBitsetRef.current = loadMappedBitset();
@@ -171,6 +192,7 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
   const [patchCenter, setPatchCenter] = useState(null);
   const [farCenter, setFarCenter] = useState(null);
   const [coarseCenter, setCoarseCenter] = useState(null);
+  const [renderedServerLoaded, setRenderedServerLoaded] = useState(false); // server tiles fetch settled (rows or none)
   const [driving, setDriving] = useState(false);
   // 'terrain' = procedural 3D globe + ESRI lens (default, always 3D).
   // 'photorealistic' = Google 3D tiles, only after they really render.
@@ -238,6 +260,43 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
     return () => { cancelled = true; };
   }, []);
 
+  // Rendered-tiles server record (2026-10-27): on mount, fetch
+  // the account's own recorded sheets, so the restore pass below
+  // can rebuild the explored ground near the traveler instead of
+  // starting from zero. Guests, offline, and a missing table
+  // (migration not run yet) degrade to device-only, silently —
+  // the loaded flag still settles so the restore pass runs its
+  // no-op instead of waiting forever.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getEarthUiToken();
+        if (cancelled) return;
+        if (!token) { if (!cancelled) setRenderedServerLoaded(true); return; }
+        const r = await fetch(RENDERED_TILES_ROUTE, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (cancelled) return;
+        if (r.ok) {
+          const body = await r.json().catch(() => null);
+          if (cancelled) return;
+          if (body && body.ok === true && Array.isArray(body.tiles)) {
+            renderedServerRef.current = body.tiles;
+            renderedServerKeysRef.current = new Set(
+              body.tiles.map((t) => t.tileKey).filter((k) => typeof k === 'string'));
+          } else if (body && body.error === 'not_ready') {
+            renderedSyncOffRef.current = true;
+          }
+        }
+        if (!cancelled) setRenderedServerLoaded(true);
+      } catch {
+        if (!cancelled) setRenderedServerLoaded(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   // Flush the mapped record to the server when roaming ends
   // (the 30 s beat covers long sessions; this covers short
   // ones). Fire-and-forget — never blocks unmount.
@@ -250,6 +309,32 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
   // with the full bitset — a failed flush must never eat marks.
   useEffect(() => {
     if (roaming) return undefined;
+    // Rendered-tiles flush on roam end (same fire-and-forget law
+    // as mapping): staged sheet records go up in one batch. A
+    // failure stays staged for the next session's beat; a
+    // not_ready answer disables sync for the session instead of
+    // spamming a table that does not exist yet.
+    if (renderedStageRef.current.length > 0 && !renderedSyncOffRef.current) {
+      const batch = renderedStageRef.current.slice(0, RENDERED_RECORD_BATCH_MAX);
+      (async () => {
+        try {
+          const token = await getEarthUiToken();
+          if (!token) return;
+          const r = await fetch(RENDERED_TILES_ROUTE, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ tiles: batch }),
+          });
+          const body = await r.json().catch(() => null);
+          if (body && body.error === 'not_ready') { renderedSyncOffRef.current = true; return; }
+          if (r.ok && body && body.ok) {
+            const sent = new Set(batch.map((t) => t.tile_key));
+            renderedStageRef.current = renderedStageRef.current.filter((t) => !sent.has(t.tile_key));
+            for (const k of sent) renderedSentRef.current.add(k);
+          }
+        } catch {}
+      })();
+    }
     if (!mappedDirtyRef.current || !mappedBitsetRef.current) return undefined;
     const hex = serializeBitset(mappedBitsetRef.current);
     (async () => {
@@ -444,6 +529,35 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
             })();
           }
         }
+      }
+      // Rendered-tiles server flush (same 30 s beat law as the
+      // mapping sync above): staged sheet records go up in one
+      // batch; a failure stays staged for the next beat; a
+      // not_ready answer disables sync for the session (the
+      // migration has not been run yet) instead of spamming.
+      // The throttle gates ATTEMPTS, not successes.
+      if (renderedStageRef.current.length > 0 && !renderedSyncOffRef.current
+        && nowMs - renderedSyncRef.current > 30000) {
+        renderedSyncRef.current = nowMs;
+        const batch = renderedStageRef.current.slice(0, RENDERED_RECORD_BATCH_MAX);
+        (async () => {
+          try {
+            const token = await getEarthUiToken();
+            if (!token) return;
+            const r = await fetch(RENDERED_TILES_ROUTE, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+              body: JSON.stringify({ tiles: batch }),
+            });
+            const body = await r.json().catch(() => null);
+            if (body && body.error === 'not_ready') { renderedSyncOffRef.current = true; return; }
+            if (r.ok && body && body.ok) {
+              const sent = new Set(batch.map((t) => t.tile_key));
+              renderedStageRef.current = renderedStageRef.current.filter((t) => !sent.has(t.tile_key));
+              for (const k of sent) renderedSentRef.current.add(k);
+            }
+          } catch {}
+        })();
       }
       // Far reveal centre: the player's position led along the
       // heading. Recenter when the led point leaves the far
@@ -667,7 +781,11 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
     if (mgr.busy || !mgr.alive) return;
     const job = mgr.pending;
     mgr.pending = null;
-    if (job) startLensBuild(job, NEAR_CTX);
+    if (job) { startLensBuild(job, NEAR_CTX); return; }
+    // Restore pickup: only while the pool is otherwise idle — a
+    // live centre always wins over a restored sheet.
+    const rj = nextRestoreJob(restoreRef.current.near);
+    if (rj) startLensBuild({ key: rj.key, lat: rj.lat, lon: rj.lon, presetName: rj.presetName }, NEAR_CTX);
   };
 
   const farPumpLensQueue = () => {
@@ -675,7 +793,25 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
     if (mgr.busy || !mgr.alive) return;
     const job = mgr.pending;
     mgr.pending = null;
-    if (job) startLensBuild(job, FAR_CTX);
+    if (job) { startLensBuild(job, FAR_CTX); return; }
+    // Restore pickup: same idle-only law as the near pool.
+    const rj = nextRestoreJob(restoreRef.current.far);
+    if (rj) startLensBuild({ key: rj.key, lat: rj.lat, lon: rj.lon, presetName: rj.presetName }, FAR_CTX);
+  };
+
+  // Next restore job for a pool that is still worth building:
+  // restore jobs the traveler has since left more than two
+  // preset radii behind are dropped, never built — live ground
+  // always beats restored ground. Consumes from the list.
+  const nextRestoreJob = (list) => {
+    while (list.length > 0) {
+      const j = list.shift();
+      const preset = LENS_PRESETS[j.presetName];
+      if (!preset) continue;
+      if (centreDistanceHub({ lat: roamState.lat, lon: roamState.lon }, j)
+        <= preset.radiusUnits * RESTORE_RADIUS_FACTOR) return j;
+    }
+    return null;
   };
 
   // Coarse pump (2026-10-27, render queue): unlike the near/far
@@ -811,7 +947,23 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
         tex.needsUpdate = true;
         // The device record of rendered ground — this cell has
         // been mapped on this device, permanently (lens-cache.js).
-        recordRenderedTileKey(tileCellKey(job.presetName, plan));
+        // The same build stages the same key for the server
+        // record (rendered-tiles table), so a reload on any
+        // device can rebuild it: the orbital overlook sheet is
+        // not roaming ground and is never staged. Staged keys
+        // ride the 30 s flush beat below; keys already on the
+        // server (restored this load) or flushed this session
+        // are never re-staged.
+        const cellKey = tileCellKey(job.presetName, plan);
+        recordRenderedTileKey(cellKey);
+        if (cellKey && RENDERED_RECORD_PRESETS.includes(job.presetName)
+          && !renderedServerKeysRef.current.has(cellKey)
+          && !renderedSentRef.current.has(cellKey)
+          && !renderedStageRef.current.some((t) => t.tile_key === cellKey)) {
+          renderedStageRef.current.push({
+            tile_key: cellKey, preset: job.presetName, center_lat: job.lat, center_lon: job.lon,
+          });
+        }
       } else {
         // Every tile failed: leave no invisible sheet behind.
         bctx.remove(job.key);
@@ -1051,6 +1203,44 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
     return undefined;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coarseCenterKey, heightReady, roaming, driving]);
+
+  // Rendered-tiles restore (2026-10-27, Merlin: tiles sent to
+  // the server table render again on load). Once per mount, when
+  // roaming with a real traveler position and the server fetch
+  // settled: the fetched rows near the traveler become build
+  // jobs — coarse jobs join the coarse queue (they drain through
+  // its pump like trail centres, and the trail effect's own
+  // prune/sort/cap laws still apply to them), near/far jobs
+  // wait in per-pool restore lists that the pumps pick up only
+  // while their pool is otherwise idle. Live ground always wins:
+  // a recenter overwrites a pending live job, a stale restore
+  // job is dropped by the pumps, and a running restore build
+  // yields to the next live centre on finish. Mounted-sheet caps
+  // (near 4 / far 2 / coarse 3) still bound what stays on screen;
+  // the restore is the visible neighbourhood, not the archive.
+  useEffect(() => {
+    if (!roaming || !heightReady || !coarseCenter || !renderedServerLoaded) return undefined;
+    if (restoreRef.current.done) return undefined;
+    const rows = renderedServerRef.current;
+    if (!rows || rows.length === 0) { restoreRef.current.done = true; return undefined; }
+    restoreRef.current.done = true;
+    const jobs = buildRestoreJobs(rows, { lat: roamState.lat, lon: roamState.lon });
+    const coarseMgr = coarseLensBuildRef.current;
+    for (const j of jobs) {
+      if (j.pool === 'coarse') {
+        if (coarseMgr.job && coarseMgr.job.key === j.key) continue;
+        if (coarseMgr.queue.some((q) => q.key === j.key)) continue;
+        coarseMgr.queue.push({ key: j.key, lat: j.lat, lon: j.lon, presetName: j.presetName });
+      } else if (j.pool === 'far') {
+        restoreRef.current.far.push(j);
+      } else {
+        restoreRef.current.near.push(j);
+      }
+    }
+    coarsePumpLensQueue();
+    return undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roaming, heightReady, coarseCenter, renderedServerLoaded]);
 
   // Recovery reconciler (2026-10-27, render queue): the void in
   // Merlin's second video never healed — not on foot, not after
