@@ -148,7 +148,10 @@ check('console: aether poll gone', !consoleSrc.includes('aetherState'));
 const prompt = read('../components/EarthOblivionPrompt.jsx');
 check('prompt: exact wording', prompt.includes('Map this world to trigger Oblivion and unlock Earth 2') && prompt.includes('ancient giants still walk here'));
 check('prompt: no franchise name', !prompt.includes('Jurassic'));
-check('prompt: street-level gate + non-blocking', prompt.includes("phase !== 'earth_roam'") && prompt.includes('pointer-events-none'));
+check('prompt: street-level gate', prompt.includes("phase !== 'earth_roam'"));
+check('prompt: wrapper non-blocking, pill itself tappable', prompt.includes('pointer-events-none') && prompt.includes('pointer-events-auto') && prompt.includes('onClick'));
+check('prompt: one tap dismisses for the rest of the load', prompt.includes('useState(false)') && prompt.includes('setDismissed(true)') && prompt.includes("|| dismissed"));
+check('prompt: no persistent dismissal (per-load only)', !prompt.includes('localStorage') && !prompt.includes('sessionStorage'));
 check('prompt: no Earth 2 link or button (advisory only)', !prompt.includes('href') && !prompt.includes('<a ') && !prompt.includes('<button'));
 
 const page = read('../app/page.jsx');
