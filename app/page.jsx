@@ -19,6 +19,7 @@ import EntranceSequence from '@/components/EntranceSequence';
 import { createEntranceMachine } from '@/lib/entrance-sequence';
 import EarthConsole from '@/components/EarthConsole';
 import EarthOblivionPrompt from '@/components/EarthOblivionPrompt';
+import EarthMappedTracker from '@/components/EarthMappedTracker';
 import { generateMarsProfile } from '@/lib/mars/engine';
 import { planetSeedFor } from '@/lib/planets/planet-seeds';
 import { generatePlanetProfile } from '@/lib/planets/profiles';
@@ -750,13 +751,17 @@ function NexusHub() {
           )}
 
           {/* Persistent Earth street walk stick (video QA V2-2):
-              same corner as the bike stick, same channels. The
-              wrapper carries .ui-element so the page's own
-              drag-look handler ignores touches on the stick. */}
+              bottom-right square (Merlin, 2026-10-26: steering
+              lives in a bottom-right square of the screen) —
+              same corner as the bike stick, same channels, and
+              the two never show together (walk when the bike is
+              stowed, bike stick when it is out). The wrapper
+              carries .ui-element so the page's own drag-look
+              handler ignores touches on the stick. */}
           {(user || cloudOffline) && appState === 'earth_roam' && !earthBikeOut && (
             <div
               className="absolute z-[70] ui-element pointer-events-auto"
-              style={{ left: 'calc(env(safe-area-inset-left, 0px) + 18px)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 92px)' }}
+              style={{ right: 'calc(env(safe-area-inset-right, 0px) + 18px)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 92px)' }}
             >
               <WalkJoystick
                 size={112}
@@ -779,7 +784,7 @@ function NexusHub() {
               onClick={dismissEarthMoveHint}
               className="absolute top-5 left-1/2 -translate-x-1/2 z-[70] ui-element pointer-events-auto rounded-full border border-cyan-500/40 bg-zinc-950/90 px-4 py-2 text-[11px] text-zinc-100 shadow-lg whitespace-nowrap"
             >
-              👈 Left thumb to walk · drag the right side to look · tap to dismiss
+              Bottom-right stick steers · drag the right side to look · tap to dismiss
             </button>
           )}
         </>
@@ -809,6 +814,13 @@ function NexusHub() {
           top of screen — the component itself gates on earth_roam. */}
       {(user || cloudOffline) && (
         <EarthOblivionPrompt phase={appState} />
+      )}
+
+      {/* Mapped percentage tracker (Merlin, 2026-10-26): very top
+          right of the street view; the component itself gates on
+          street phases and hides while the first-entry hint shows. */}
+      {(user || cloudOffline) && (
+        <EarthMappedTracker phase={appState} hintVisible={earthMoveHint} />
       )}
 
       {(user || cloudOffline) && appState === 'mars_surface' && (

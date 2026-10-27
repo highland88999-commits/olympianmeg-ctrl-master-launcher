@@ -229,8 +229,8 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
           {atStreet && (
             <div className="text-[10px] text-cyan-300 mt-1">
               {bikeUi.mounted
-                ? 'On the bike — left stick steers & thrusts · BOOST / ▲ / ▼ buttons on the right.'
-                : 'On foot — left thumb to walk, drag the right side to look around.'}
+                ? 'On the bike — bottom-right stick steers & thrusts · BOOST / ▲ / ▼ buttons on the left.'
+                : 'On foot — bottom-right stick walks, drag the right side to look around.'}
             </div>
           )}
         </div>
@@ -433,11 +433,15 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
 // Before this, Earth riding relied on the invisible touch-anywhere
 // joystick and keyboard keys that don't exist on a phone. Now, while
 // the bike is out, a persistent glass control cluster is on screen:
-//   - left: a steering + thrust stick (push up = thrust, left/right
-//     = steer) writing the same moveX/moveY channels everything uses
-//   - right: hold-to-press BOOST, RISE ▲ and SINK ▼ buttons writing
-//     bikeBoost / bikeUp / bikeDown into the shared controls object
-//     (EarthBike reads them alongside the keyboard)
+//   - bottom-right square: a steering + thrust stick (push up =
+//     thrust, left/right = steer) writing the same moveX/moveY
+//     channels everything uses — the walk stick lives in this
+//     same square when the bike is stowed, and the two never
+//     show together (Merlin, 2026-10-26: steering in a
+//     bottom-right square of the screen)
+//   - bottom-left: hold-to-press BOOST, RISE ▲ and SINK ▼ buttons
+//     writing bikeBoost / bikeUp / bikeDown into the shared
+//     controls object (EarthBike reads them alongside the keyboard)
 //   - a RIDE / DISMOUNT button so touch users can get on and off
 // Premium glass styling, big targets — a 7-year-old can ride it.
 // Memoized (round 4, defect 6): the console re-renders on every
@@ -490,10 +494,11 @@ const BikeControls = memo(function BikeControls({ mounted, controlsRef }) {
 
   return (
     <>
-      {/* Steering + thrust stick */}
+      {/* Steering + thrust stick — bottom-right square, shared
+          with the walk stick (never shown together). */}
       <div
         className="fixed z-[70] ui-element"
-        style={{ left: 'calc(env(safe-area-inset-left, 0px) + 18px)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 92px)' }}
+        style={{ right: 'calc(env(safe-area-inset-right, 0px) + 18px)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 92px)' }}
       >
         <div
           ref={padRef}
@@ -514,10 +519,11 @@ const BikeControls = memo(function BikeControls({ mounted, controlsRef }) {
         </div>
       </div>
 
-      {/* Boost / rise / sink + mount toggle */}
+      {/* Boost / rise / sink + mount toggle — bottom-left, the
+          freed side once steering moved to the bottom-right. */}
       <div
-        className="fixed z-[70] ui-element flex flex-col items-end gap-2.5"
-        style={{ right: 'calc(env(safe-area-inset-right, 0px) + 18px)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 92px)' }}
+        className="fixed z-[70] ui-element flex flex-col items-start gap-2.5"
+        style={{ left: 'calc(env(safe-area-inset-left, 0px) + 18px)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 92px)' }}
       >
         <button
           type="button"

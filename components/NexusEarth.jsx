@@ -12,8 +12,19 @@ import EarthSupercar from '@/components/EarthSupercar';
 import EarthPeers from '@/components/EarthPeers';
 import EarthPitMarker from '@/components/EarthPitMarker';
 import StreetGroundPatch, { StreetFillLight } from '@/components/StreetGroundPatch';
-import { LENS_PRESETS, LENS_LIFT, lensTilePlan, buildLensGeometryData, sortTilesCenterFirst, latLonFromDir } from '@/lib/earth/lens';
+import { LENS_PRESETS, LENS_LIFT, lensTilePlan, buildLensGeometryData, sortTilesCenterFirst, latLonFromDir, CENTRE_FLUSH_TILES } from '@/lib/earth/lens';
 import { tileCellKey, recordRenderedTileKey } from '@/lib/earth/lens-cache';
+import {
+  REVEAL_RADIUS_DEG,
+  markDisc,
+  unionInto,
+  coveragePercent,
+  serializeBitset,
+  parseBitset,
+  loadMappedBitset,
+  saveMappedBitset,
+  setMappedPercent,
+} from '@/lib/earth/mapping-progress';
 import { HUB_UNITS_PER_DEGREE, DISPLAY_UNITS_PER_METRE } from '@/lib/earth/placements';
 import { loadHeightData, getHeightData } from '@/lib/earth/heightmap';
 import { roamState, tangentFrame, headingVector, DRIVING_ENTER_MPS, DRIVING_EXIT_MPS, revealLeadHub } from '@/lib/earth/roam';
@@ -90,6 +101,21 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
   const lastRoamPosRef = useRef(null); // { lat, lon, t } — driving-speed sampling
   const speedSmoothRef = useRef(0); // display m/s, EMA
   const drivingRef = useRef(false);
+  // Mapped coverage (2026-10-26): the bitset of 2° cells the
+  // reveal disc has swept (see lib/earth/mapping-progress.js).
+  // Lazy from localStorage so the frame loop never pays for a
+  // parse; the server record unions in on mount (below).
+  const mappedBitsetRef = useRef(null);
+  const lastMarkRef = useRef(null); // { lat, lon, t } — coverage cadence
+  const mappedDirtyRef = useRef(false); // unsynced marks exist
+  const mappedSyncRef = useRef(0); // last server-sync ms
+  const getMappedBitset = () => {
+    if (!mappedBitsetRef.current) {
+      mappedBitsetRef.current = loadMappedBitset();
+      setMappedPercent(coveragePercent(mappedBitsetRef.current));
+    }
+    return mappedBitsetRef.current;
+  };
   const [lensSheets, setLensSheets] = useState([]);
   const [farSheets, setFarSheets] = useState([]);
   const [heightReady, setHeightReady] = useState(false);
@@ -120,6 +146,46 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
   useEffect(() => {
     setStreetFlatActive(roaming);
     return () => setStreetFlatActive(false);
+  }, [roaming]);
+
+  // Mapped-coverage server record (2026-10-26): on mount, union
+  // the account's server bitset into the device record, so a
+  // reload (or a second device) starts from the same mapped
+  // ground instead of zero. Guests, offline, and a missing key
+  // degrade to device-only, silently — never an error surface.
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/ui-state')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body) => {
+        if (cancelled) return;
+        const hex = body && body.preferences && body.preferences.earth_mapped;
+        const server = parseBitset(hex);
+        if (!server) return;
+        const bitset = getMappedBitset();
+        if (unionInto(bitset, server)) {
+          saveMappedBitset(bitset);
+          setMappedPercent(coveragePercent(bitset));
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  // Flush the mapped record to the server when roaming ends
+  // (the 30 s beat covers long sessions; this covers short
+  // ones). Fire-and-forget — never blocks unmount.
+  useEffect(() => {
+    if (roaming) return undefined;
+    if (!mappedDirtyRef.current || !mappedBitsetRef.current) return undefined;
+    mappedDirtyRef.current = false;
+    const hex = serializeBitset(mappedBitsetRef.current);
+    fetch('/api/ui-state', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ preferences: { earth_mapped: hex } }),
+    }).catch(() => {});
+    return undefined;
   }, [roaming]);
 
   // While roaming, recenter the street lens when the traveler has
@@ -244,6 +310,39 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
         }
       }
       lastRoamPosRef.current = { lat: roamState.lat, lon: roamState.lon, t: nowMs };
+      // Mapped coverage (2026-10-26): every position sweeps the
+      // 15× reveal disc into the mapped record — the tracker
+      // pill counts exactly this union. Marked at most every
+      // 0.5° of travel or 5 s, so the frame loop never pays
+      // per frame; the server record syncs on a 30 s beat
+      // while roaming and once more when roaming ends.
+      {
+        const lm = lastMarkRef.current;
+        const moved = !lm
+          || Math.abs(lm.lat - roamState.lat) > 0.5
+          || Math.abs(lm.lon - roamState.lon) > 0.5
+          || nowMs - lm.t > 5000;
+        if (moved) {
+          const bitset = getMappedBitset();
+          const added = markDisc(bitset, roamState.lat, roamState.lon, REVEAL_RADIUS_DEG);
+          lastMarkRef.current = { lat: roamState.lat, lon: roamState.lon, t: nowMs };
+          if (added > 0) {
+            saveMappedBitset(bitset);
+            setMappedPercent(coveragePercent(bitset));
+            mappedDirtyRef.current = true;
+          }
+          if (mappedDirtyRef.current && nowMs - mappedSyncRef.current > 30000) {
+            mappedSyncRef.current = nowMs;
+            mappedDirtyRef.current = false;
+            const hex = serializeBitset(bitset);
+            fetch('/api/ui-state', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ preferences: { earth_mapped: hex } }),
+            }).catch(() => {});
+          }
+        }
+      }
       // Far reveal centre: the player's position led along the
       // heading. Recenter when the led point leaves the far
       // sheet's middle (40% of its radius), throttled 500 ms —
@@ -515,8 +614,26 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
     // build. Centre-first paints the ground under and around
     // the traveler in the first fetches — at any speed, the
     // nearest ground is the first ground.
-    sortTilesCenterFirst(plan.tiles, preset.canvasPx, S).forEach((t) => {
-      if (!t.url) { settledCount += 1; if (settledCount === plan.tiles.length) finish(); return; }
+    //
+    // Centre-flush (2026-10-26, sharp-on-stop): the ground under
+    // the traveler's feet sharpens the moment its tiles resolve,
+    // instead of waiting out the 750 ms upload throttle. When
+    // all CENTRE_FLUSH_TILES centre tiles have settled (loaded
+    // or failed), the texture uploads at once, exactly once per
+    // build. Later tiles still ride the throttle.
+    const sortedTiles = sortTilesCenterFirst(plan.tiles, preset.canvasPx, S);
+    let centreRemaining = Math.min(CENTRE_FLUSH_TILES, sortedTiles.length);
+    let centreFlushed = false;
+    const settleCentre = (idx) => {
+      if (idx >= CENTRE_FLUSH_TILES || centreFlushed) return;
+      centreRemaining -= 1;
+      if (centreRemaining <= 0) {
+        centreFlushed = true;
+        tex.needsUpdate = true;
+      }
+    };
+    sortedTiles.forEach((t, idx) => {
+      if (!t.url) { settledCount += 1; settleCentre(idx); if (settledCount === plan.tiles.length) finish(); return; }
       const img = new Image();
       img.crossOrigin = 'anonymous';
       img.onload = () => {
@@ -526,10 +643,12 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
         }
         okCount += 1;
         settledCount += 1;
+        settleCentre(idx);
         if (settledCount === plan.tiles.length) finish();
       };
       img.onerror = () => {
         settledCount += 1;
+        settleCentre(idx);
         if (settledCount === plan.tiles.length) finish();
       };
       img.src = t.url;

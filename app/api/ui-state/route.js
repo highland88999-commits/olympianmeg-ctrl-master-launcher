@@ -17,6 +17,7 @@ import { sanitizeFractions } from '@/lib/muse-fab';
 import { sanitizeConcourseBg } from '@/lib/concourse-bg';
 import { sanitizeUiSettings } from '@/lib/ui-settings';
 import { sanitizeBackpackRecord } from '@/lib/backpack/backpack';
+import { sanitizeEarthMappedHex } from '@/lib/earth/mapping-progress';
 
 function pickMuseFab(prefs) {
   if (!prefs || typeof prefs !== 'object') return null;
@@ -154,6 +155,19 @@ export const POST = noCache(
         return NextResponse.json({ error: 'backpack record is too large.' }, { status: 400 });
       }
       patch.backpack = sane;
+    }
+    if ('earth_mapped' in prefs) {
+      // Earth 1 mapped-coverage record (Merlin, 2026-10-26):
+      // the v1 bitset hex for the reveal discs this account
+      // has swept (see lib/earth/mapping-progress.js). Exact-
+      // length hex only; anything else is rejected, never
+      // stored — an unknown key would be silently ignored, a
+      // malformed record must not be.
+      const sane = sanitizeEarthMappedHex(prefs.earth_mapped);
+      if (!sane) {
+        return NextResponse.json({ error: 'earth_mapped must be a v1 mapped-coverage hex string.' }, { status: 400 });
+      }
+      patch.earth_mapped = sane;
     }
     if (!Object.keys(patch).length) {
       return NextResponse.json({ error: 'Nothing to save.' }, { status: 400 });
