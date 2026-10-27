@@ -3,13 +3,16 @@ import { memo, useEffect, useRef, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { searchPlaces, formatCoords } from '@/lib/geo';
 import { summonBike, dismissBike, toggleMount } from '@/components/EarthBike';
-import { summonCar, dismissCar, toggleCarMount } from '@/components/EarthSupercar';
+import { summonCar, dismissCar, toggleCarMount, swapCarCraft } from '@/components/EarthSupercar';
 import EarthViewToggle from '@/components/EarthViewToggle';
 import { bikeState, carState } from '@/lib/earth/parachute';
 import { EARTH_DEFAULT_CHARACTER_ID } from '@/lib/characters/embodiment';
 import { planetSeedFor } from '@/lib/planets/planet-seeds';
 import { getEmbodimentForSurface } from '@/lib/gta/walker-embodiment';
 import CharacterPicker from '@/components/characters/CharacterPicker';
+import EarthCraftPicker from '@/components/EarthCraftPicker';
+import EarthExtensionPicker from '@/components/EarthExtensionPicker';
+import { writeExtensionCharacterPick } from '@/lib/earth/earth-extension-character';
 
 const QUICK = [
   { label: 'Redwater, Alberta', lat: 53.9486, lon: -113.1067 },
@@ -42,6 +45,12 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
   // the bike (Earth 1 expansion): the V / F keys mutate it
   // outside React, so buttons must poll, not guess.
   const [carUi, setCarUi] = useState({ out: false, mounted: false });
+  // Craft picker state (2026-10-26, craft expansion): the car
+  // buttons open the picker when no craft is out — the picker
+  // itself lives in the expanded card's Craft section, so a
+  // minimized tap un-minimizes first, then opens it. (The V key
+  // keeps its direct-summon fast path and never touches this.)
+  const [craftPickerOpen, setCraftPickerOpen] = useState(false);
   // Auto-collapse (video QA V2-6, 2026-10-26): the console
   // covers ~45% of the screen during descent, so the moment the
   // traveler ARRIVES at street level it folds to its globe tab.
@@ -125,17 +134,20 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
         {atStreet && bikeUi.out && (
           <BikeControls mounted={bikeUi.mounted} controlsRef={controlsRef} />
         )}
-        {/* Supercar, minimized branch (Earth 1 expansion): one
-            button under the globe tab — summon, or ride/dismount
-            once it is out. Keys V / F do the same. */}
+        {/* Craft, minimized branch (Earth 1 expansion): one
+            button under the globe tab — with no craft out it
+            opens the console and the craft picker (picking a
+            craft spawns it); once out, it rides/dismounts.
+            Keys V / F do the same, V summoning the chosen
+            craft directly. */}
         {atStreet && (
           <button
             onClick={() => {
-              if (!carUi.out) summonCar();
+              if (!carUi.out) { setMin(false); setCraftPickerOpen(true); }
               else toggleCarMount();
             }}
-            aria-label={carUi.out ? (carUi.mounted ? 'Dismount supercar' : 'Ride supercar') : 'Summon supercar'}
-            title="Lamborghini Aventador — Earth's fastest vehicle (V · F to ride)"
+            aria-label={carUi.out ? (carUi.mounted ? 'Dismount craft' : 'Ride craft') : 'Choose craft'}
+            title="Choose your craft — V summons it, F rides it"
             className="absolute right-4 z-[80] w-14 h-14 rounded-full bg-zinc-950/90 border border-amber-500/50 shadow-[0_0_25px_rgba(251,191,36,0.25)] backdrop-blur-md flex items-center justify-center text-2xl hover:scale-105 active:scale-95 transition-all ui-element pointer-events-auto"
             style={{ top: 'calc(32% + 6.25rem)' }}
           >
@@ -304,24 +316,42 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
             >
               {bikeUi.out ? '✕ Dismiss bike' : '🏍 Summon bike'} <span className="text-zinc-500 normal-case tracking-normal">(B · E to ride)</span>
             </button>
-            {/* Summonable Lamborghini Aventador (V key) — Earth's
-                fastest vehicle for rapid exploration. */}
+            {/* Summonable craft (V key) — the craft picker
+                pattern, mirroring character selection: tapping
+                with no craft out opens the picker (below);
+                picking a craft spawns it, auto-mounted. */}
             <button
               onClick={() => {
                 if (carUi.out) dismissCar();
-                else summonCar();
+                else setCraftPickerOpen(true);
               }}
               className="w-full py-2 text-[10px] font-bold tracking-[0.2em] uppercase text-amber-200 border border-amber-600/60 bg-amber-950/50 rounded hover:border-amber-400 hover:text-white transition-all"
             >
-              {carUi.out ? '✕ Dismiss supercar' : '🏎 Summon supercar'} <span className="text-zinc-500 normal-case tracking-normal">(V · F to ride)</span>
+              {carUi.out ? '✕ Dismiss craft' : '🏎 Choose craft'} <span className="text-zinc-500 normal-case tracking-normal">(V · F to ride)</span>
             </button>
             {carUi.out && (
               <button
                 onClick={() => toggleCarMount()}
                 className="w-full py-2 text-[10px] font-bold tracking-[0.2em] uppercase text-zinc-100 border border-zinc-500/60 bg-zinc-900/70 rounded hover:border-amber-400 hover:text-white transition-all"
               >
-                {carUi.mounted ? '⏏ Dismount supercar' : '🏎 Ride supercar'}
+                {carUi.mounted ? '⏏ Dismount craft' : '🏎 Ride craft'}
               </button>
+            )}
+            {/* Craft selection — in the menu, not floating.
+                Opens from the car buttons; a pick always puts
+                you in the craft (spawn when nothing is out,
+                swap in place while mounted). */}
+            {craftPickerOpen && (
+              <div className="mt-1">
+                <div className="text-[9px] font-bold tracking-[0.2em] uppercase text-zinc-500 mb-1">Craft</div>
+                <EarthCraftPicker
+                  embedded
+                  onPick={(id) => {
+                    if (carState.summoned) swapCarCraft(id);
+                    else summonCar(id);
+                  }}
+                />
+              </div>
             )}
             {/* Quicksand-pit hint (video QA V2-5): shown near
                 Redwater, where the gold-beam marker stands. */}
@@ -342,8 +372,20 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
                 // profile", which is exactly when EarthWalker
                 // spawns the Earth default — so hand the adapter
                 // that default instead of null.
-                onPick={(id) => getEmbodimentForSurface('earth')?.setCharacter(id || EARTH_DEFAULT_CHARACTER_ID)}
+                // Mutual exclusion (2026-10-26, full roster):
+                // a platform pick clears the extension pick, so
+                // the two pickers never disagree about the body.
+                onPick={(id) => { writeExtensionCharacterPick(''); getEmbodimentForSurface('earth')?.setCharacter(id || EARTH_DEFAULT_CHARACTER_ID); }}
               />
+            </div>
+            {/* Extra characters — the rest of the full roster
+                (Middle-earth heroes, Hawkins 8, batch-4 intact
+                16). Same embedded pattern as Character above;
+                picking here replaces the body live, picking a
+                platform character above clears it again. */}
+            <div className="mt-1">
+              <div className="text-[9px] font-bold tracking-[0.2em] uppercase text-zinc-500 mb-1">Extra characters</div>
+              <EarthExtensionPicker accent="#00f2ff" />
             </div>
           </>
         )}

@@ -26,7 +26,6 @@ import {
   isCarModelLoading,
   subscribeCarModel,
   resetCarModelForTests,
-  CAR_GLB_URL,
 } from '../lib/earth/car-model.js';
 import { DISPLAY_UNITS_PER_METRE } from '../lib/earth/placements.js';
 
@@ -93,14 +92,16 @@ check('car keeps its shape: extent ratios match the original', () => {
 check('EarthSupercar never loads the model at street entry', () => {
   const src = read('components/EarthSupercar.jsx');
   assert.ok(!src.includes('loadAsync'), 'component must not call loadAsync itself');
-  assert.ok(src.includes('subscribeCarModel'), 'component subscribes to the lazy loader');
+  assert.ok(src.includes('subscribeVehicleModel'), 'component subscribes to the lazy loader');
 });
-check('summoning the car is what starts the download', () => {
+check('summoning the craft is what starts the download', () => {
   const src = read('components/EarthSupercar.jsx');
-  const summon = src.slice(src.indexOf('export function summonCar()'));
-  assert.ok(summon.includes('ensureCarModel()'), 'summonCar must kick ensureCarModel');
-  const lib = read('lib/earth/car-model.js');
-  assert.ok(lib.includes(CAR_GLB_URL), 'loader points at the shipped car file');
+  const summon = src.slice(src.indexOf('export function summonCar('));
+  assert.ok(summon.includes('ensureVehicleModel'), 'summonCar must kick ensureVehicleModel');
+  // The loader is generalized (one loader for all 19 craft); the
+  // shipped wedge file is still the roster's wedge entry.
+  const roster = read('lib/earth/vehicles.js');
+  assert.ok(roster.includes('/models/vehicles/wedge-supercar.glb'), 'roster points at the shipped wedge file');
 });
 check('hub Canvas pixel ratio is capped', () => {
   const src = read('components/HomeScene.jsx');

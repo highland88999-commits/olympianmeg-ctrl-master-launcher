@@ -10,6 +10,16 @@
 -- This file folds into the final consolidated SQL once the Takeout mining
 -- freeze lifts. Until then the presence client (lib/presence.js) detects the
 -- missing table and no-ops cleanly: every page renders solo, zero errors.
+--
+-- 2026-10-26 (Earth 1 passers-by): the client has ALWAYS upserted and
+-- selected character_id (the sender's character pick, so peers can embody
+-- the sender) but this draft NEVER DECLARED the column — the upserts
+-- would have failed on an unknown column the moment the table existed.
+-- The column is added below (nullable: a peer with no pick sends null).
+-- Same round: the client gained opts.userId so a signed-in rider's row id
+-- IS auth.uid() (the RLS policies below demand it); the old sessionId-only
+-- row id would have been denied on every upsert. Editing this FILE is
+-- preparation only — RUNNING it still needs Merlin's explicit green light.
 -- ============================================================================
 
 create table if not exists public.presence (
@@ -26,6 +36,12 @@ create table if not exists public.presence (
   vehicle text not null default 'wisp',
   color text not null default '#22d3ee'
     check (color ~ '^#[0-9a-fA-F]{6}$'),
+  -- The sender's character pick (platform roster id like 'q020-neo',
+  -- or an Earth extension id like 'x-me-wizard'). Nullable: a peer
+  -- with no pick sends null and renders the neutral figure.
+  -- Added 2026-10-26 — the client already upserted/selected this
+  -- column, but the draft table never declared it.
+  character_id text,
   updated_at timestamptz not null default now()
 );
 

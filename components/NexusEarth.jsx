@@ -9,6 +9,7 @@ import RedwaterFarmstead from '@/components/earth/RedwaterFarmstead';
 import RedwaterMount from '@/components/earth/RedwaterMount';
 import EarthBike from '@/components/EarthBike';
 import EarthSupercar from '@/components/EarthSupercar';
+import EarthPeers from '@/components/EarthPeers';
 import EarthPitMarker from '@/components/EarthPitMarker';
 import StreetGroundPatch, { StreetFillLight } from '@/components/StreetGroundPatch';
 import { LENS_PRESETS, LENS_LIFT, lensTilePlan, buildLensGeometryData, sortTilesCenterFirst, latLonFromDir } from '@/lib/earth/lens';
@@ -639,6 +640,11 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
             fastest vehicle (Earth 1 expansion). Same gate as the
             bike; the car itself stays grounded. */}
         {effectiveLayer === 'terrain' && roaming && <EarthSupercar controls={controls} />}
+        {/* Passers-by (2026-10-26, see-each-other): other travelers
+            on Earth 1 near you — their character + their craft.
+            Same street gate as the vehicles; renders nothing and
+            claims no count while presence is unavailable. */}
+        {effectiveLayer === 'terrain' && roaming && <EarthPeers />}
         {/* Visible quicksand-pit marker (video QA V2-5): gold beam +
             ring + spinning diamond over the Redwater pit, so the
             journey is findable from the spawn. Visual only — it

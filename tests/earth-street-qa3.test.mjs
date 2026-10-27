@@ -1,6 +1,8 @@
 // tests/earth-street-qa3.test.mjs — Earth street QA round 3
-// (2026-10-26): street tiles, hub leak, rings, console copy,
-// first-person car camera, orbit water, Oblivion prompt.
+// (2026-10-26): street tiles, hub leak, rings REMOVED (Merlin
+// 2026-10-26 — the metre rings at vehicle feet are gone),
+// console copy, first-person car camera, orbit water,
+// Oblivion prompt.
 // Run: node tests/earth-street-qa3.test.mjs (from the repo root).
 import { readFileSync } from 'node:fs';
 import {
@@ -129,8 +131,8 @@ for (const comp of ['TextureProvider', 'GodOrbitRings', 'SystemRings', 'Backdrop
 
 const bike = read('../components/EarthBike.jsx');
 const car = read('../components/EarthSupercar.jsx');
-check('rings: bike ring in display metres', bike.includes('1.4 * UPM') && bike.includes('1.8 * UPM'));
-check('rings: car ring in display metres', car.includes('2.8 * UPM') && car.includes('3.2 * UPM'));
+check('rings: bike ring REMOVED (Merlin 2026-10-26 — visual only, no logic rode on it)', !bike.includes('ringGeometry'));
+check('rings: car ring REMOVED (Merlin 2026-10-26 — visual only, no logic rode on it)', !car.includes('ringGeometry'));
 check('rings: no raw 1.6–1.9 hub-unit rings left', !bike.includes('[1.6, 1.9') && !car.includes('[1.6, 1.9'));
 check('vehicles: facet grounding present', bike.includes('patchFacetRadiusAt') && car.includes('patchFacetRadiusAt'));
 check('walker: facet grounding present', read('../components/EarthWalker.jsx').includes('patchFacetRadiusAt'));

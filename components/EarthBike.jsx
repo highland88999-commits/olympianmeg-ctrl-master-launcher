@@ -247,20 +247,9 @@ export default function EarthBike({ controls }) {
       }}
     >
       <WispBike color="#00ffcc" />
-      {/* Mounted indicator ring — display metres, not hub units
-          (2026-10-26, street QA 3): the old 1.6–1.9 raw radii were
-          ~100–119 display metres across and floated 6.25 m up,
-          reading as a giant line on the horizon. Now a small ring
-          at the bike's feet. */}
-      <mesh position={[0, 0.15 * UPM, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <ringGeometry args={[1.4 * UPM, 1.8 * UPM, 48]} />
-        <meshBasicMaterial
-          color={bikeState.mounted ? '#00ffcc' : '#64748b'}
-          transparent
-          opacity={0.5}
-          side={THREE.DoubleSide}
-        />
-      </mesh>
+      {/* Gold ring REMOVED (Merlin, 2026-10-26): the QA3 metre
+          ring at the bike's feet is gone — visual only, no logic
+          rode on it (it was a mounted-state coloured mesh). */}
     </group>
   );
 }

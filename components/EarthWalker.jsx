@@ -13,6 +13,9 @@ import { bikeState, carState, getClimbAltM } from '@/lib/earth/parachute';
 import { getInteriorAltM } from '@/lib/earth/interiors';
 import { effectiveEarthViewMode } from '@/lib/earth/view-mode';
 import { tameTripoMaterials } from '@/lib/characters/tame-materials';
+import { readExtensionCharacterPick } from '@/lib/earth/earth-extension-character';
+import { getExtensionCharacter } from '@/lib/earth/earth-characters';
+import { getExtensionCharacterModel, ensureExtensionCharacterModel } from '@/lib/earth/extension-character-model';
 
 // EarthWalker — the traveler's body at street level (campaign
 // Day 2). Mounted inside NexusEarth's spin group, so everything
@@ -49,6 +52,14 @@ export default function EarthWalker() {
   const lightRef = useRef();
   const embRef = useRef(null);
   const fallbackRef = useRef({ t: 0, tried: false, lastId: null });
+  // Extension body (2026-10-26, full character roster): a second
+  // THREE group parented under the rig, holding the DIRECT-GLB
+  // extension character when one is picked. The adapter body is
+  // hidden while it is active (one body at a time, never two).
+  // Imperative, like the adapter itself — the rig is the parent
+  // and the frame loop owns placement, so no JSX mounts here.
+  const extGroupRef = useRef(null);
+  const extIdRef = useRef('');
 
   useEffect(() => {
     const rig = rigRef.current;
@@ -62,7 +73,12 @@ export default function EarthWalker() {
       characterId: (resolveSurfaceCharacter('earth') || {}).id || EARTH_DEFAULT_CHARACTER_ID,
     });
     embRef.current = emb;
+    const extGroup = new THREE.Group();
+    rig.add(extGroup);
+    extGroupRef.current = extGroup;
     return () => {
+      rig.remove(extGroup);
+      extGroupRef.current = null;
       emb.dispose();
       embRef.current = null;
     };
@@ -179,12 +195,18 @@ export default function EarthWalker() {
     // that never becomes ready falls back once to Ghostface.
     // First person is excluded — the body is hidden by design
     // there, which is not a load failure.
+    // Extension pick guard: while an extension body is live,
+    // the adapter's fallback timer must NOT fire — its body is
+    // hidden by design (extension active), not failing to load.
+    // Firing would silently rewrite the platform pick to
+    // Ghostface underneath the extension choice.
+    const extPickActive = !!getExtensionCharacter(readExtensionCharacterPick());
     if (emb) {
       const cid = emb.characterId();
       const fb = fallbackRef.current;
       if (cid) {
         if (fb.lastId !== cid) { fb.lastId = cid; fb.t = 0; fb.tried = false; }
-        if (!showing && !firstPerson && cid !== EARTH_FALLBACK_ID && !fb.tried) {
+        if (!showing && !firstPerson && !extPickActive && cid !== EARTH_FALLBACK_ID && !fb.tried) {
           fb.t += Math.min(dt, 0.05);
           if (fb.t > EARTH_FALLBACK_AFTER_S) {
             fb.tried = true;
@@ -194,6 +216,74 @@ export default function EarthWalker() {
           fb.t = 0;
         }
       }
+    }
+    // EXTENSION BODY (2026-10-26, full character roster): when
+    // an extension character is picked (device key
+    // olympus.earthCharacterExt), it REPLACES the adapter body
+    // for the frame — the adapter group is hidden AFTER its own
+    // update (which runs above and re-asserts its visibility
+    // every frame, so stopping the force restores it cleanly),
+    // and the extension group takes the rig origin. The model
+    // is the direct GLB (no kombat loadout, no bone posing):
+    // it moves as one rigid figure with procedural bob (walk),
+    // breathing (idle), forward lean, and sway — the same
+    // treatment ME round 2 gave its unrigged heroes. A pick
+    // whose file is still downloading shows nothing briefly
+    // (the existing loading law); a failed load stays absent
+    // and retries on the next pick. First person hides it, like
+    // the adapter body (clean-view law); the rig hides it
+    // while mounted (vehicle law).
+    const extGroup = extGroupRef.current;
+    const extId = readExtensionCharacterPick();
+    const extEntry = getExtensionCharacter(extId);
+    const extActive = !!(extGroup && extEntry);
+    if (extGroup && extId !== extIdRef.current) {
+      extIdRef.current = extId;
+      while (extGroup.children.length > 0) extGroup.remove(extGroup.children[0]);
+      const cached = extId ? getExtensionCharacterModel(extId) : null;
+      if (cached) {
+        const holder = new THREE.Group();
+        holder.scale.setScalar(cached.scale);
+        const inner = new THREE.Group();
+        inner.position.y = cached.liftY;
+        inner.add(cached.scene);
+        holder.add(inner);
+        extGroup.add(holder);
+      } else if (extId) {
+        void ensureExtensionCharacterModel(extId);
+      }
+    }
+    if (extGroup && extActive && extGroup.children.length === 0) {
+      const landed = getExtensionCharacterModel(extId);
+      if (landed) {
+        const holder = new THREE.Group();
+        holder.scale.setScalar(landed.scale);
+        const inner = new THREE.Group();
+        inner.position.y = landed.liftY;
+        inner.add(landed.scene);
+        holder.add(inner);
+        extGroup.add(holder);
+      }
+    }
+    if (extActive) {
+      if (emb && emb.group) emb.group.visible = false;
+      extGroup.visible = !firstPerson;
+      const t = state.clock.elapsedTime;
+      const moving = !!roamState.moving;
+      extGroup.position.y = (moving
+        ? Math.abs(Math.sin(t * 9)) * 0.05
+        : Math.sin(t * 1.5) * 0.015) * UPM;
+      extGroup.rotation.x = moving ? 0.06 : 0;
+      extGroup.rotation.z = moving ? Math.sin(t * 9) * 0.03 : Math.sin(t * 1.5) * 0.01;
+      // Frame the extension body for the street camera (same
+      // channel the adapter publishes through, overridden here
+      // because the adapter body is hidden this frame).
+      roamState.charSizeM = {
+        heightM: extEntry.heightM,
+        lengthM: extEntry.heightM * 0.5,
+      };
+    } else if (extGroup) {
+      extGroup.visible = false;
     }
     // Fill lantern: keeps the character readable, not a
     // silhouette. Rig-local units are HUB units (the whole
