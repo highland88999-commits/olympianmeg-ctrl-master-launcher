@@ -227,6 +227,12 @@ check('load limits are $5 minimum and $1,000 maximum per load', () => {
   assert.ok(src.includes("surface: 'wallet-load'"), 'wallet-load metadata');
 });
 
+check('load route exports no extra consts (Next route type rule)', () => {
+  const src = read('app/api/wallet/load/route.js');
+  assert.ok(!src.includes('export const LOAD_MIN_CENTS'), 'no exported min const');
+  assert.ok(!src.includes('export const LOAD_MAX_CENTS'), 'no exported max const');
+});
+
 check('webhook credits the full gross and is idempotent on session id', () => {
   const src = read('app/api/wallet/webhook/route.js');
   assert.ok(src.includes("reference: `wallet-load:${session.id}`"), 'session idempotency key');

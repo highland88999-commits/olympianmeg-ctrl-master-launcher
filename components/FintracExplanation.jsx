@@ -44,6 +44,11 @@ import {
   shouldAutoShowFintrac,
 } from '@/lib/fintrac-explanation';
 
+// Re-exported for the hub: components/Concourse.jsx imports
+// fireFintracExplanation from this module (it was imported here but
+// never re-exported, which failed the Next build).
+export { fireFintracExplanation };
+
 export function FintracExplanationModal({ open, step = 3, onNext, onClose }) {
   if (!open) return null;
   const currentStep = clampOnboardingStep(step);

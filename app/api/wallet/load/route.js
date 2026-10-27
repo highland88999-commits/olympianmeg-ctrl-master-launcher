@@ -18,8 +18,12 @@ import { apiGuard } from '@/lib/api-guard';
 import { getServiceClient, requireUser } from '@/lib/wallet/server';
 import { isMissingTable } from '@/lib/billboards/request-server';
 
-export const LOAD_MIN_CENTS = 500;
-export const LOAD_MAX_CENTS = 100000;
+// NOTE: these are deliberately NOT exported. Next.js route modules
+// may only export handlers (GET/POST) and route config (dynamic,
+// revalidate, …) — an extra exported const fails the build's route
+// type check on both Vercel projects.
+const LOAD_MIN_CENTS = 500;
+const LOAD_MAX_CENTS = 100000;
 
 async function stripeClient() {
   if (!process.env.STRIPE_SECRET_KEY) return null;
