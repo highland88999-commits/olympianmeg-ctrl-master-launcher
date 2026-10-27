@@ -218,7 +218,7 @@ t('bike is parked just outside the outermost band on the -Z view axis',
 t('rider offset sits above/behind the bike nose (sane mount point)',
   RIDER_OFFSET.y > 1 && RIDER_OFFSET.y < 4 && RIDER_OFFSET.z < 0 && BIKE_LOOK_AHEAD > 10);
 t('home renders the god orbit rings', sceneSrc.includes('GodOrbitRings'));
-t('home renders the parked bike rig', sceneSrc.includes('BikeRig'));
+t('home no longer renders the parked bike rig', !sceneSrc.includes('BikeRig'));
 t('spawn-to-bike button exists, fixed bottom-right with bar clearance',
   pageSrc.includes('SPAWN TO BIKE') && pageSrc.includes('bottom-[calc(8.75rem+env(safe-area-inset-bottom))] right-5 z-[80]'));
 t('camera controller handles to_bike and on_bike states',

@@ -174,9 +174,10 @@ check('D1: the QuantumGate is GONE from HomeScene — hub children render uncond
   assert.ok(!homeSrc.includes('QuantumGate'), 'no gate component remains');
   assert.ok(!homeSrc.includes('QUANTUM_ENABLED'), 'no quantum flag remains');
   assert.ok(!homeSrc.includes('parachuteState'), 'no shrink state remains');
-  for (const kept of ['GodOrbitRings', 'MarsBackground', 'SystemRings', 'SeasonalDecor', 'TextureProvider', 'BikeRig']) {
+  for (const kept of ['GodOrbitRings', 'MarsBackground', 'SystemRings', 'SeasonalDecor', 'TextureProvider']) {
     assert.ok(homeSrc.includes(`<${kept}`), `${kept} still renders in the hub`);
   }
+  assert.ok(!homeSrc.includes('<BikeRig'), 'parked hub bike display removed 2026-10-27');
   assert.ok(homeSrc.includes('<NexusEarth'), 'NexusEarth still renders in the hub');
 });
 

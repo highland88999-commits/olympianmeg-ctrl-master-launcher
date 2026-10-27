@@ -13,7 +13,6 @@ import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { useRouter } from 'next/navigation';
 import GodOrbitRings from './GodOrbitRings';
-import BikeRig, { BIKE_PARK_POS, RIDER_OFFSET, BIKE_LOOK_AHEAD } from './BikeRig';
 import NexusEarth from './NexusEarth';
 import { MarsRealmContent } from './mars/MarsScene';
 import { PlanetRealmContent } from './planets/PlanetRealmContent';
@@ -22,7 +21,7 @@ import AsteroidField from './AsteroidField';
 import HubTieFlight from './HubTieFlight';
 import NavBeacons from './NavBeacons';
 import EarthFlightController from './EarthFlightController';
-import { ORBIT_CENTER, EARTH_CENTER, EARTH_RADIUS, GOD_BANDS, MARS_CENTER, MARS_RADIUS, PLANETS, SYSTEM_RING_RADII, SYSTEM_RING_TILTS } from '../lib/god-orbits';
+import { ORBIT_CENTER, EARTH_CENTER, EARTH_RADIUS, GOD_BANDS, MARS_CENTER, MARS_RADIUS, PLANETS, SYSTEM_RING_RADII, SYSTEM_RING_TILTS, BIKE_PARK_POS, RIDER_OFFSET, BIKE_LOOK_AHEAD } from '../lib/god-orbits';
 import { FREE_FLY_SPEED, BIKE_TUNING } from '../lib/hub-layout';
 import { registerCollider, unregisterCollider, resolveFlightCollision } from '../lib/hub-collision';
 import { createBikeFlightState, stepBikeFlight, rotateOffsetByYaw, bikeForward } from '../lib/bike-flight';
@@ -465,8 +464,9 @@ function SequenceController({ launchState, setLaunchState, portalTex, payloadTex
 
       const t = state.clock.elapsedTime;
       if (bikeRef.current) {
-        // Controller owns the bike while mounted: pose + gentle hover bob +
-        // bank into turns. (BikeRig stands down via userData.flying.)
+        // Controller owns the mounted ride: pose + gentle hover bob +
+        // bank into turns. (No hub bike object anymore — this only runs
+        // if a bike ref is ever attached again.)
         bikeRef.current.position.set(
           st.pos.x,
           st.pos.y + Math.sin(t * 2.2) * 0.25,
@@ -980,7 +980,7 @@ function HubScene({
               SequenceController) are the original portals and stay. Every
               program remains reachable through the floating button's
               satellite menu. */}
-            <BikeRig bikeRef={bikeRef} />
+            {/* Parked hub bike display removed 2026-10-27 (Merlin: clutter). */}
           </>
           )}
         </Suspense>
