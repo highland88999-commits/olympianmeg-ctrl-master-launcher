@@ -459,7 +459,8 @@ test('hygiene: every name the world imports from the build modules exists', () =
     ['../lib/building/catalog.js', ['BUILDING_PIECES', 'PIECE_CATEGORIES', 'FINISHES', 'pieceById', 'pieceFootprint', 'finishAllowed']],
     ['../lib/building/placement.js', ['snapPlacement', 'snapRotation', 'judgeGhost', 'validatePlacementSet']],
     ['../lib/building/piece-render.js', ['buildPieceGroup', 'buildGhostGroup', 'setGhostValidity']],
-    ['../lib/earth2/building.js', ['PARCEL_BUILD_FRAME', 'BUILD_LEVEL_HEIGHT_M', 'BUILD_MAX_LEVEL', 'levelPlacementY', 'levelLabel', 'classifyTapGesture', 'stepOrbitPark', 'tapPointInGhostFootprint', 'orbitBlendActive', 'EARTH2_PANEL_ORBS']],
+    ['../lib/earth2/building.js', ['PARCEL_BUILD_FRAME', 'BUILD_LEVEL_HEIGHT_M', 'BUILD_MAX_LEVEL', 'levelPlacementY', 'levelLabel', 'classifyTapGesture', 'stepOrbitPark', 'tapPointInGhostFootprint', 'orbitBlendActive', 'EARTH2_PANEL_ORBS', 'collapsePanelLayout']],
+    ['../lib/earth2/vehicle-damage.js', ['integrityColor']],
     ['../lib/building/rights.js', ['activeClaimFor']],
     ['../lib/earth2/build-store.js', ['buildModeGate', 'myBuildFor']],
     ['../lib/earth2/streaming.js', ['buildStreamUnits']],
@@ -539,4 +540,18 @@ test('footing: slab foundations carry a skirt below grade; posts and rounds do n
     const piece = pieceById(id);
     assert.equal(pieceHasFooting(piece, pieceMeshSpec(piece)), false, `${id} carries no skirt`);
   }
+});
+
+// ── 8. Tap-to-place repair guards (Merlin, 2026-10-26) ───────
+// The double-tap arming state was read and written in buildTap
+// without ever being declared, so every build-mode tap threw a
+// ReferenceError before any placement logic ran. This pins the
+// declaration in the world source, next to the import hygiene
+// above (the same undefined-identifier class as integrityColor).
+
+test('hygiene: the world declares its double-tap arming state', () => {
+  const src = readFileSync(new URL('../components/earth2/Earth2World.jsx', import.meta.url), 'utf8');
+  assert.ok(src.includes('let lastBuildTap'), 'lastBuildTap is declared in the scene scope');
+  assert.ok(src.includes('integrityColor'), 'the world uses the integrity colour helper');
+  assert.ok(src.includes("from '@/lib/earth2/vehicle-damage'"), 'the helper is imported, not assumed');
 });

@@ -15,6 +15,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import {
   PARCEL_BUILD_FRAME,
   BUILD_ORBIT_PITCH_MIN,
@@ -31,7 +32,10 @@ import {
   stepOrbitPark,
   orbitBlendActive,
   EARTH2_PANEL_ORBS,
+  collapsePanelLayout,
   classifyTapGesture,
+  TAP_MAX_DISPLACEMENT_PX,
+  TAP_MAX_DURATION_MS,
   BUILD_LEVEL_HEIGHT_M,
   BUILD_MAX_LEVEL,
   levelPlacementY,
@@ -175,17 +179,24 @@ test('v3 tap: a real drag ends far from its start and never taps', () => {
   assert.equal(classifyTapGesture({
     downX: 100, downY: 100, upX: 200, upY: 100, durationMs: 300,
   }), false);
+  // 40 px away is a real drag; a 12 px slide is a shaky tap
+  // under the generous window (see section J), not a drag.
   assert.equal(classifyTapGesture({
-    downX: 100, downY: 100, upX: 100, upY: 112, durationMs: 300,
+    downX: 100, downY: 100, upX: 100, upY: 140, durationMs: 300,
   }), false);
 });
 
 test('v3 tap: a slow press is not a tap, even on the spot', () => {
+  // The window is 1000 ms now (section J): a deliberate 500 ms
+  // press still counts, but a full second held is a hold.
   assert.equal(classifyTapGesture({
-    downX: 100, downY: 100, upX: 100, upY: 100, durationMs: 500,
+    downX: 100, downY: 100, upX: 100, upY: 100, durationMs: 1000,
   }), false);
   assert.equal(classifyTapGesture({
-    downX: 100, downY: 100, upX: 100, upY: 100, durationMs: 499,
+    downX: 100, downY: 100, upX: 100, upY: 100, durationMs: 999,
+  }), true);
+  assert.equal(classifyTapGesture({
+    downX: 100, downY: 100, upX: 100, upY: 100, durationMs: 500,
   }), true);
 });
 
@@ -413,4 +424,54 @@ test('panel orbs: three distinct boxes, each its own colour + glyph', () => {
   assert.equal(EARTH2_PANEL_ORBS.actions.color, 'amber');
   assert.equal(EARTH2_PANEL_ORBS.build.color, 'emerald');
   assert.equal(EARTH2_PANEL_ORBS.parcel.color, 'sky');
+});
+
+// ── J. Tap-to-place repair (Merlin, 2026-10-26) ──────────────
+// The tap window is generous on purpose: a one-handed tap made
+// while holding a controller slides on lift and lands slowly.
+// A real drag still ends far from its start, so it never
+// places by accident.
+
+test('tap window: a shaky one-handed tap still counts, a real drag never does', () => {
+  assert.equal(TAP_MAX_DISPLACEMENT_PX, 24);
+  assert.equal(TAP_MAX_DURATION_MS, 1000);
+  // Slides 20 px on lift, 800 ms press: a genuine tap, not a drag.
+  assert.equal(classifyTapGesture({ downX: 100, downY: 200, upX: 118, upY: 210, durationMs: 800 }), true);
+  // Slow but steady: 950 ms on the spot still counts.
+  assert.equal(classifyTapGesture({ downX: 50, downY: 50, upX: 53, upY: 52, durationMs: 950 }), true);
+  // A real camera sweep ends far away: never a tap.
+  assert.equal(classifyTapGesture({ downX: 100, downY: 200, upX: 220, upY: 240, durationMs: 200 }), false);
+  // Boundaries stay exclusive: exactly at the window is not a tap.
+  assert.equal(classifyTapGesture({ downX: 0, downY: 0, upX: 24, upY: 0, durationMs: 100 }), false);
+  assert.equal(classifyTapGesture({ downX: 0, downY: 0, upX: 0, upY: 0, durationMs: 1000 }), false);
+});
+
+test('entering build mode collapses only the main controls', () => {
+  const before = {
+    parcel: { x: 10, y: 10, collapsed: false },
+    actions: { x: 10, y: 176, collapsed: false },
+    build: { x: 100, y: 200, collapsed: false },
+  };
+  const after = collapsePanelLayout(before, 'actions');
+  assert.equal(after.actions.collapsed, true, 'CONTROLS shrinks to its orb so the workbench never opens on top of it');
+  assert.equal(after.parcel.collapsed, false, 'the parcel panel is untouched');
+  assert.equal(after.build.collapsed, false, 'the workbench itself stays open');
+  assert.equal(after.actions.x, 10, 'position persists');
+  assert.equal(collapsePanelLayout(after, 'actions').actions.collapsed, true, 'idempotent');
+  assert.equal(collapsePanelLayout({}, 'actions').actions.collapsed, true, 'tolerates a missing entry');
+});
+
+test('panel orbs: each box carries its own served artwork, centred and uncropped', () => {
+  const arts = new Set();
+  for (const [id, orb] of Object.entries(EARTH2_PANEL_ORBS)) {
+    assert.ok(orb.art, `${id} has artwork`);
+    assert.ok(orb.art.startsWith('/earth2/controls/'), `${id} artwork is served from public/`);
+    assert.ok(orb.art.endsWith('.webp'), `${id} artwork is a still graphic, not a video`);
+    assert.ok(!arts.has(orb.art), `no two orbs share artwork`);
+    arts.add(orb.art);
+    assert.ok(existsSync(new URL(`../public${orb.art}`, import.meta.url)), `${orb.art} exists in the repo's served assets`);
+  }
+  assert.equal(EARTH2_PANEL_ORBS.actions.art, '/earth2/controls/main-controls.webp');
+  assert.equal(EARTH2_PANEL_ORBS.build.art, '/earth2/controls/building-controls.webp');
+  assert.equal(EARTH2_PANEL_ORBS.parcel.art, '/earth2/controls/environment.webp');
 });

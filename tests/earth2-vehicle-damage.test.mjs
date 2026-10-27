@@ -37,6 +37,7 @@ import {
   applyDamage,
   applyShotToVehicle,
   ejectPointFor,
+  integrityColor,
 } from '../lib/earth2/vehicle-damage.js';
 import { vehicleSpec, modelSpec } from '../lib/earth2/vehicles.js';
 
@@ -211,5 +212,29 @@ describe('the eject read — where the driver steps out', () => {
   it('the water law the steppers share: ford at 0.6, drown at the wading limit', () => {
     assert.equal(SHALLOW_DRIVE_DEPTH_M, 0.6);
     assert.equal(DROWN_DEPTH_M, 1.35);
+  });
+});
+
+describe('the integrity colour — the bar the driver reads', () => {
+  it('stays green while the machine is healthy', () => {
+    assert.equal(integrityColor(100), '#4ade80');
+    assert.equal(integrityColor(50), '#4ade80');
+  });
+
+  it('turns amber as she wears', () => {
+    assert.equal(integrityColor(49), '#fbbf24');
+    assert.equal(integrityColor(30), '#fbbf24');
+  });
+
+  it('turns red where the drive UI pulses', () => {
+    assert.equal(integrityColor(29), '#f87171');
+    assert.equal(integrityColor(0), '#f87171');
+  });
+
+  it('clamps and forgives bad input instead of throwing', () => {
+    assert.equal(integrityColor(150), '#4ade80');
+    assert.equal(integrityColor(-5), '#f87171');
+    assert.equal(integrityColor(undefined), '#4ade80');
+    assert.equal(integrityColor(NaN), '#4ade80');
   });
 });

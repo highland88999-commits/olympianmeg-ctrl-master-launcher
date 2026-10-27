@@ -220,3 +220,22 @@ test('mode split: build-mode level mapping is untouched by aim/fire', () => {
   assert.equal(stepBuildLevel(5, 1, 20), 6);
   assert.equal(isAimHeld(Array(8).fill({ value: 0 })), false);
 });
+
+test('tap equivalent: ✕/A is buttons[0] and fires exactly once per press', () => {
+  // Merlin, 2026-10-26: X (PlayStation) or A (Xbox) must be the
+  // equivalent of a screen tap — in build mode that places the
+  // ghost through the same centre-screen tap path a finger uses.
+  // Both pads report it as the same physical button, index 0,
+  // so one binding covers both controllers.
+  assert.equal(GAMEPAD_BUTTONS.CONFIRM, 0);
+  const btn = (pressed) => ({ pressed, value: pressed ? 1 : 0 });
+  const pad = (confirm) => [btn(confirm), btn(false)];
+  // Rising edge: one press is one tap.
+  assert.deepEqual(newlyPressedButtons(new Set(), pad(true)), [0]);
+  // Held: never repeats — a held ✕ must not place twice.
+  assert.deepEqual(newlyPressedButtons(new Set([0]), pad(true)), []);
+  // Released and pressed again: fires again.
+  assert.deepEqual(newlyPressedButtons(pressedButtonSet(pad(false)), pad(true)), [0]);
+  // Another button alone never masquerades as confirm.
+  assert.deepEqual(newlyPressedButtons(new Set(), [btn(false), btn(true)]), [1]);
+});

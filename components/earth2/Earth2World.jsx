@@ -88,6 +88,7 @@ import {
   saveVehicleStates,
   tickVehicleRespawn,
 } from '@/lib/earth2/vehicles';
+import { integrityColor } from '@/lib/earth2/vehicle-damage';
 import {
   vehicleInstanceById, homeStateForInstance, vehicleInstances,
   claimKeyForUser, claimStateFor, isClaimed, noteDeparture,
@@ -197,6 +198,7 @@ import {
   stepOrbitPark,
   orbitBlendActive,
   EARTH2_PANEL_ORBS,
+  collapsePanelLayout,
   BUILD_LEVEL_HEIGHT_M,
   BUILD_MAX_LEVEL,
   levelPlacementY,
@@ -358,15 +360,25 @@ function E2Panel({ layout, onMove, onToggle, panelClass = '', headerClass = '', 
     window.addEventListener('pointercancel', onUp);
   };
   // Minimized form (Merlin, 2026-10-26): a colour-coded circle
-  // orb carrying the panel's glyph, instead of a wide dark pill
-  // — the three panels are distinguishable at a glance. Behaviour
-  // is exactly as before: the orb drags by its face (never by the
-  // ＋ badge, which keeps its own tap), ＋ expands, and the
-  // position persists. Expanded appearance is untouched.
+  // orb carrying the panel's artwork, instead of a wide dark pill
+  // — the three panels are distinguishable at a glance. The
+  // graphic sits inset inside the circular crop (object-contain,
+  // centred) so the motif is never cropped at the edges; the
+  // glyph remains as the fallback when no artwork is set.
+  // Behaviour is exactly as before: the orb drags by its face
+  // (never by the ＋ badge, which keeps its own tap), ＋
+  // expands, and the position persists. The expanded form
+  // carries the same artwork as a small circular thumb in its
+  // header, so the whole control set reads as one family.
   const collapsed = layout.collapsed;
-  const orbClass = orb
-    ? { sky: 'border-sky-200/70 bg-sky-400/90', amber: 'border-amber-200/70 bg-amber-400/90', emerald: 'border-emerald-200/70 bg-emerald-500/90' }[orb.color] || 'border-white/25 bg-black/70'
-    : 'border-white/25 bg-black/70';
+  const orbStyle = orb
+    ? {
+      sky: { orb: 'border-sky-200/70 bg-sky-400/90', ring: 'border-sky-200/70' },
+      amber: { orb: 'border-amber-200/70 bg-amber-400/90', ring: 'border-amber-200/70' },
+      emerald: { orb: 'border-emerald-200/70 bg-emerald-500/90', ring: 'border-emerald-200/70' },
+    }[orb.color] || { orb: 'border-white/25 bg-black/70', ring: 'border-white/25' }
+    : { orb: 'border-white/25 bg-black/70', ring: 'border-white/25' };
+  const orbClass = orbStyle.orb;
   return (
     <div
       ref={elRef}
@@ -382,7 +394,17 @@ function E2Panel({ layout, onMove, onToggle, panelClass = '', headerClass = '', 
       >
         {collapsed ? (
           <>
-            <span className="text-[22px] leading-none" aria-hidden="true">{orb ? orb.glyph : '▦'}</span>
+            {orb && orb.art ? (
+              <img
+                src={orb.art}
+                alt=""
+                aria-hidden="true"
+                draggable={false}
+                className="pointer-events-none absolute inset-0 m-auto h-[86%] w-[86%] rounded-full object-contain"
+              />
+            ) : (
+              <span className="text-[22px] leading-none" aria-hidden="true">{orb ? orb.glyph : '▦'}</span>
+            )}
             <button
               type="button"
               onClick={onToggle}
@@ -395,6 +417,16 @@ function E2Panel({ layout, onMove, onToggle, panelClass = '', headerClass = '', 
           </>
         ) : (
           <>
+            {orb && orb.art && (
+              <span className={`relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border ${orbStyle.ring}`} aria-hidden="true">
+                <img
+                  src={orb.art}
+                  alt=""
+                  draggable={false}
+                  className="pointer-events-none h-[88%] w-[88%] rounded-full object-contain"
+                />
+              </span>
+            )}
             <div className="min-w-0 flex-1">{header}</div>
             <button
               type="button"
@@ -552,6 +584,12 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
     setBuildLevel(0);
     setBuildMsg(gate.text);
     setBuildMode(true);
+    // The workbench opens on top of the expanded main controls
+    // by default (the no-overlap rule) — so opening it shrinks
+    // CONTROLS to its gold orb. The user re-expands with the
+    // orb's ＋, drags either box anywhere, and the shrunk state
+    // persists like any other panel state.
+    setPanelLayout((prev) => collapsePanelLayout(prev, 'actions'));
     return true;
   };
 
@@ -883,8 +921,10 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   //   right stick → inputRef.look (walk mode; the drag-look path)
   //              → inputRef.joy (build mode; the build joystick's
   //                 own orbit path — same axes, same deadzone)
-  //   ✕/A         → a centre-screen tap through handleTap (place
-  //                 in build mode, operate/board elsewhere)
+  //   ✕/A         → the tap equivalent: a centre-screen tap
+  //                 through handleTap (place in build mode,
+  //                 operate/board elsewhere); outside build mode
+  //                 a focused UI control activates like a tap
   //   ○/B         → exit build mode, else exit vehicle
   //   L1/LB, L2/LT → build level down; R1/RB, R2/RT → level up
   //                 (setBuildLevelBoth — the v3 toggle's shared
@@ -977,6 +1017,23 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       gamepadButtonsRef.current = pressedButtonSet(pad.buttons);
       for (const b of pressed) {
         if (b === GAMEPAD_BUTTONS.CONFIRM) {
+          // ✕/A is the tap equivalent. In build mode it always
+          // takes the centre-screen tap path (the ghost sits at
+          // the camera aim, so the tap lands on it and places
+          // with the same validation and feedback as a finger
+          // tap). Outside build mode, a focused UI control
+          // activates like a tap instead, and anything else
+          // taps the world at screen centre (operate/board/
+          // shoot, as a finger tap would).
+          if (!buildModeRef.current.active && typeof document !== 'undefined') {
+            const focused = document.activeElement;
+            if (focused && focused !== document.body
+              && (focused.tagName === 'BUTTON' || focused.tagName === 'A')
+              && typeof focused.click === 'function') {
+              focused.click();
+              continue;
+            }
+          }
           if (gamepadTapRef.current && typeof window !== 'undefined') {
             gamepadTapRef.current(window.innerWidth / 2, window.innerHeight / 2);
           }
@@ -4037,6 +4094,13 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       // camera-aimed ghost, as taps always did); in Edit tool
       // the tap selects the placed piece it lands on (or clears
       // the selection on empty ground).
+      // Double-tap arming state: the last build tap's piece, parcel
+      // and time. Declared here, in the scene effect's own scope —
+      // it was read and written below without ever being declared,
+      // so every build-mode tap threw a ReferenceError before any
+      // placement logic ran, and tapping to place silently did
+      // nothing at all.
+      let lastBuildTap = { at: 0, index: -1, parcelId: null };
       function buildTap(e) {
         const bm = buildModeRef.current;
         const rect = renderer.domElement.getBoundingClientRect();
@@ -5632,12 +5696,12 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         onMove={(pos) => movePanel('parcel', pos)}
         onToggle={() => togglePanel('parcel')}
         orb={EARTH2_PANEL_ORBS.parcel}
-        panelClass={`w-[320px] max-w-[calc(100vw-1rem)] rounded-2xl border bg-black/55 text-zinc-100 backdrop-blur-sm ${hud && hud.mine ? 'border-sky-300/50' : 'border-amber-300/30'}`}
+        panelClass={`w-[320px] max-w-[calc(100vw-1rem)] rounded-[2rem] border bg-black/55 text-zinc-100 backdrop-blur-sm ${hud && hud.mine ? 'border-sky-300/50' : 'border-amber-300/30'}`}
         headerClass="px-3.5 pt-2.5"
         bodyClass="px-3.5 pb-2.5 pt-1"
         header={(
           <div className="flex min-w-0 items-baseline gap-2">
-            <span className="shrink-0 text-[10px] font-black tracking-[0.25em] text-amber-200">
+            <span className="shrink-0 text-[10px] font-black tracking-[0.25em] text-sky-200">
               🚶 EARTH 2 — ON FOOT
             </span>
             {panelLayout.parcel.collapsed && parcel && (
@@ -5686,11 +5750,11 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         onMove={(pos) => movePanel('actions', pos)}
         onToggle={() => togglePanel('actions')}
         orb={EARTH2_PANEL_ORBS.actions}
-        panelClass="w-[292px] max-w-[calc(100vw-1rem)] rounded-2xl border border-white/15 bg-black/55 text-zinc-100 backdrop-blur-sm"
+        panelClass="w-[292px] max-w-[calc(100vw-1rem)] rounded-[2rem] border border-amber-200/40 bg-black/55 text-zinc-100 backdrop-blur-sm"
         headerClass="px-3.5 pt-2.5"
         bodyClass="flex flex-col gap-2 px-3.5 pb-3 pt-1"
         header={(
-          <span className="text-[10px] font-black tracking-[0.25em] text-zinc-300">
+          <span className="text-[10px] font-black tracking-[0.25em] text-amber-200">
             🎛️ CONTROLS
           </span>
         )}
@@ -5955,7 +6019,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           onMove={(pos) => movePanel('build', pos)}
           onToggle={() => togglePanel('build')}
           orb={EARTH2_PANEL_ORBS.build}
-          panelClass="w-[470px] max-w-[calc(100vw-1rem)] rounded-[1.25rem] border border-emerald-300/35 bg-[#0a120c]/95 text-zinc-100 shadow-2xl backdrop-blur-md"
+          panelClass="w-[470px] max-w-[calc(100vw-1rem)] rounded-[2rem] border border-emerald-300/35 bg-[#0a120c]/95 text-zinc-100 shadow-2xl backdrop-blur-md"
           headerClass="px-4 pt-3"
           bodyClass="flex max-h-[62vh] flex-col gap-3 overflow-y-auto px-4 pb-4 pt-2"
           header={(
@@ -6066,6 +6130,41 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
                     </button>
                   ))}
                 </div>
+
+                {/* Piece preview — the selected piece at a glance,
+                    in the building panel's own circular, emerald
+                    language. No catalog images exist and a second
+                    live WebGL render would cost a whole context
+                    on the phone, so the preview is a styled tile:
+                    the piece's plan footprint drawn to scale,
+                    plus its name, category, dimensions and
+                    finish. It updates on every selection change
+                    and clears when nothing is selected. */}
+                {selPieceDef && (
+                  <div aria-live="polite" className="flex items-center gap-3 rounded-[1.5rem] border border-emerald-200/40 bg-emerald-400/10 px-3 py-2.5">
+                    <svg viewBox="0 0 64 44" className="h-11 w-16 shrink-0" aria-hidden="true">
+                      <rect
+                        x={(64 - selPieceDef.size.w * Math.min(56 / selPieceDef.size.w, 36 / selPieceDef.size.d)) / 2}
+                        y={(44 - selPieceDef.size.d * Math.min(56 / selPieceDef.size.w, 36 / selPieceDef.size.d)) / 2}
+                        width={selPieceDef.size.w * Math.min(56 / selPieceDef.size.w, 36 / selPieceDef.size.d)}
+                        height={selPieceDef.size.d * Math.min(56 / selPieceDef.size.w, 36 / selPieceDef.size.d)}
+                        rx="2"
+                        className="fill-emerald-400/30 stroke-emerald-200"
+                        strokeWidth="1"
+                      />
+                    </svg>
+                    <div className="min-w-0">
+                      <div className="truncate text-[13px] font-bold text-emerald-50">{selPieceDef.name}</div>
+                      <div className="truncate text-[11px] text-zinc-300">
+                        {BUILD_CAT_LABEL[selPieceDef.category] || selPieceDef.category} · {selPieceDef.size.w} × {selPieceDef.size.d} m · {selPieceDef.size.h} m tall
+                      </div>
+                      <div className="truncate text-[11px] text-zinc-400">
+                        {(allowedFinishes.find((f) => f.id === selFinish) || {}).name || selFinish} finish
+                        {selPieceDef.span ? ' · spans' : ''}{selPieceDef.floating ? ' · floats' : ''}
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className="text-[11px] font-bold text-zinc-400">Finish</span>
@@ -6237,7 +6336,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           (bottom-left) drives throttle and steering. */}
       {driving && (
         <div className="absolute inset-x-2 bottom-24 sm:inset-x-auto sm:bottom-5 sm:left-1/2 sm:w-[400px] sm:-translate-x-1/2">
-          <div className="flex flex-col gap-2.5 rounded-[1.25rem] border border-sky-300/35 bg-[#081018]/95 p-4 text-zinc-100 shadow-2xl backdrop-blur-md">
+          <div className="flex flex-col gap-2.5 rounded-[2rem] border border-sky-300/35 bg-[#081018]/95 p-4 text-zinc-100 shadow-2xl backdrop-blur-md">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="text-[10px] font-black tracking-[0.25em] text-sky-200">
@@ -6313,7 +6412,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           up." Floating and self-supporting pieces are exempt by
           the same law that exempts them on the ground. */}
       {buildMode && (
-        <div className="pointer-events-auto absolute bottom-3 right-3 z-20 flex flex-col items-center gap-1 rounded-2xl border border-white/15 bg-black/55 px-2 py-2 backdrop-blur">
+        <div className="pointer-events-auto absolute bottom-3 right-3 z-20 flex flex-col items-center gap-1 rounded-[1.5rem] border border-white/15 bg-black/55 px-2 py-2 backdrop-blur">
           <span className="text-[9px] font-black tracking-[0.22em] text-zinc-400">LEVEL</span>
           <span className="text-sm font-black text-zinc-100" aria-live="polite">{levelLabel(buildLevel)}</span>
           <div className="flex gap-1">
