@@ -257,7 +257,18 @@ export default function EarthFlightController({
         if (effectiveEarthViewMode() === 'first') {
           camera.position.copy(camPos);
         } else {
-          camera.position.lerp(camPos, 1 - Math.exp(-20 * delta));
+          // Third-person boom follow at speed (2026-10-27
+          // driving video: the chase camera pulled far back
+          // intermittently at boost). The old flat 20/s rate
+          // trailed a moving target by speed/20 — 27 display m
+          // at Aventador boost (540 display m/s), so the boom
+          // sat ~4× its 7.5 m design distance on every
+          // acceleration. Scale the rate with mounted speed so
+          // the lag stays under a metre at any speed; the
+          // walking rate (20) is untouched.
+          const speedMps = carState.mounted ? (carState.speed || 0) * 3 : 0;
+          const rate = 20 + speedMps * 1.5;
+          camera.position.lerp(camPos, 1 - Math.exp(-rate * delta));
         }
         camera.quaternion.copy(lookAtQuat(camera.position, look, up));
         tuneNear(Math.hypot(

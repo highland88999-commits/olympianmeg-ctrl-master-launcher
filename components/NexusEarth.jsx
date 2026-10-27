@@ -76,6 +76,10 @@ const MAX_LENS_SHEETS = 4;
 // stays small because the far sheet's job is coverage, and the
 // newest two already span ~2.7 km of travel.
 const MAX_FAR_LENS_SHEETS = 2;
+// Coarse fallback sheets are small canvases (640² ≈ 1.6 MB), so
+// two live coarse sheets are cheap — and two is what the driving
+// layer needs: the sheet under the car plus the one it just left.
+const MAX_COARSE_LENS_SHEETS = 2;
 
 // Lens-build watchdog (2026-10-27, Merlin's tolerance: tiles may
 // lag up to about a minute behind the traveler, but they MUST
@@ -122,11 +126,14 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
   const spinRef = useRef();
   const sheetsRef = useRef([]); // [{ key, mesh }] — mirror of lensSheets for frame-loop access
   const farSheetsRef = useRef([]); // [{ key, mesh }] — 15× reveal sheets
+  const coarseSheetsRef = useRef([]); // [{ key, mesh }] — always-on coarse fallback sheets
   const roamCenterRef = useRef(null);
   const patchCenterRef = useRef(null);
   const farCenterRef = useRef(null);
+  const coarseCenterRef = useRef(null);
   const lastLensBuildRef = useRef(0);
   const farLastBuildRef = useRef(0);
+  const coarseLastBuildRef = useRef(0);
   const lastRoamPosRef = useRef(null); // { lat, lon, t } — driving-speed sampling
   const speedSmoothRef = useRef(0); // display m/s, EMA
   const drivingRef = useRef(false);
@@ -147,10 +154,12 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
   };
   const [lensSheets, setLensSheets] = useState([]);
   const [farSheets, setFarSheets] = useState([]);
+  const [coarseSheets, setCoarseSheets] = useState([]);
   const [heightReady, setHeightReady] = useState(false);
   const [roamCenter, setRoamCenter] = useState(null);
   const [patchCenter, setPatchCenter] = useState(null);
   const [farCenter, setFarCenter] = useState(null);
+  const [coarseCenter, setCoarseCenter] = useState(null);
   const [driving, setDriving] = useState(false);
   // 'terrain' = procedural 3D globe + ESRI lens (default, always 3D).
   // 'photorealistic' = Google 3D tiles, only after they really render.
@@ -442,6 +451,24 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
         farCenterRef.current = leadPos;
         setFarCenter(leadPos);
       }
+      // Coarse fallback centre: the traveler's OWN position, not
+      // led ahead — this sheet's job is ground underfoot, always.
+      // Same 40%-of-radius recenter law as far, same 500 ms
+      // throttle: at full boost the cadence is ~1 s, and a
+      // 64-tile centre-first build paints the ground under the
+      // car in its first fetches, so the car never outruns
+      // photographic ground into bare dark globe again.
+      const coarsePreset = LENS_PRESETS.streetCoarse;
+      const coarseRecenterDeg = (coarsePreset.radiusUnits * 0.4) / HUB_UNITS_PER_DEGREE;
+      const cc = coarseCenterRef.current;
+      if ((!cc
+        || Math.abs(cc.lat - roamState.lat) > coarseRecenterDeg
+        || Math.abs(cc.lon - roamState.lon) > coarseRecenterDeg)
+        && nowMs - coarseLastBuildRef.current > 500) {
+        coarseLastBuildRef.current = nowMs;
+        coarseCenterRef.current = { lat: roamState.lat, lon: roamState.lon };
+        setCoarseCenter({ lat: roamState.lat, lon: roamState.lon });
+      }
     }
   });
 
@@ -479,6 +506,8 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
   const lensGenRef = useRef(0);
   const farLensBuildRef = useRef({ busy: false, pending: null, alive: true });
   const farLensGenRef = useRef(0);
+  const coarseLensBuildRef = useRef({ busy: false, pending: null, alive: true });
+  const coarseLensGenRef = useRef(0);
 
   const disposeLensSheet = (s) => {
     s.mesh.geometry.dispose();
@@ -564,6 +593,49 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
     setFarSheets([]);
   };
 
+  // Coarse fallback pool (2026-10-27, driving void): same persist
+  // + distance-eviction law as the far pool, but a SEPARATE pool
+  // — a coarse sheet must never evict a far or near sheet.
+  const mountCoarseLensSheet = (key, mesh, lat, lon) => {
+    const replaced = coarseSheetsRef.current.find((s) => s.key === key);
+    if (replaced) disposeLensSheet(replaced);
+    const next = [...coarseSheetsRef.current.filter((s) => s.key !== key),
+      { key, mesh, lat, lon }];
+    while (next.length > MAX_COARSE_LENS_SHEETS) {
+      let farIdx = 0;
+      let farDist = -1;
+      for (let i = 0; i < next.length - 1; i++) {
+        const dLat = next[i].lat - lat;
+        const dLon = next[i].lon - lon;
+        const d = dLat * dLat + dLon * dLon;
+        if (d > farDist) { farDist = d; farIdx = i; }
+      }
+      disposeLensSheet(next[farIdx]);
+      next.splice(farIdx, 1);
+    }
+    coarseSheetsRef.current = next;
+    setCoarseSheets(next);
+  };
+
+  const removeCoarseLensSheet = (key) => {
+    const hit = coarseSheetsRef.current.find((s) => s.key === key);
+    if (!hit) return;
+    disposeLensSheet(hit);
+    const next = coarseSheetsRef.current.filter((s) => s.key !== key);
+    coarseSheetsRef.current = next;
+    setCoarseSheets(next);
+  };
+
+  const clearCoarseSheets = () => {
+    for (const s of coarseSheetsRef.current) {
+      s.mesh.geometry.dispose();
+      s.mesh.material.map?.dispose();
+      s.mesh.material.dispose();
+    }
+    coarseSheetsRef.current = [];
+    setCoarseSheets([]);
+  };
+
   const pumpLensQueue = () => {
     const mgr = lensBuildRef.current;
     if (mgr.busy || !mgr.alive) return;
@@ -580,6 +652,14 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
     if (job) startLensBuild(job, FAR_CTX);
   };
 
+  const coarsePumpLensQueue = () => {
+    const mgr = coarseLensBuildRef.current;
+    if (mgr.busy || !mgr.alive) return;
+    const job = mgr.pending;
+    mgr.pending = null;
+    if (job) startLensBuild(job, COARSE_CTX);
+  };
+
   // Build contexts: one build routine serves both pools; the ctx
   // picks the manager, the mount/remove/pump set, and the draw
   // order (far below near — the near sheet's detail always wins
@@ -594,11 +674,17 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
     mount: mountFarLensSheet, remove: removeFarLensSheet, pump: farPumpLensQueue,
     renderOrder: 2,
   };
+  const COARSE_CTX = {
+    mgrRef: coarseLensBuildRef, genRef: coarseLensGenRef,
+    mount: mountCoarseLensSheet, remove: removeCoarseLensSheet, pump: coarsePumpLensQueue,
+    renderOrder: 1,
+  };
 
   const startLensBuild = (job, bctx) => {
     const mgr = bctx.mgrRef.current;
     const gen = bctx.genRef.current;
     mgr.busy = true;
+    mgr.job = job;
     const preset = LENS_PRESETS[job.presetName];
     const S = preset.canvasPx / preset.grid;
     const canvas = document.createElement('canvas');
@@ -614,7 +700,7 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
     // flag wedged forever: no later build in the session ever
     // started, which is exactly "new ground never paints."
     // Skip honestly; the next recenter retries.
-    if (!hd || !ctx) { mgr.busy = false; bctx.pump(); return; }
+    if (!hd || !ctx) { if (mgr.job === job) { mgr.job = null; mgr.busy = false; } bctx.pump(); return; }
     // Progressive mount: the sheet is on screen at once (the
     // frame loop animates its opacity 0 → 0.96) and tiles paint
     // into it as they arrive — no more waiting on all 1,296
@@ -656,7 +742,7 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
       // free the pool, and let the next recenter retry instead
       // of wedging the queue for the rest of the session.
       try { bctx.remove(job.key); } catch {}
-      mgr.busy = false;
+      if (mgr.job === job) { mgr.job = null; mgr.busy = false; }
       bctx.pump();
       return;
     }
@@ -700,7 +786,11 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
         // Every tile failed: leave no invisible sheet behind.
         bctx.remove(job.key);
       }
-      mgr.busy = false;
+      // Only the build that still owns the pool clears it: a
+      // build invalidated mid-flight (stale-drop below) must
+      // never clear the busy flag of the fresh build that
+      // replaced it — its own finish only drops its sheet.
+      if (mgr.job === job) { mgr.job = null; mgr.busy = false; }
       bctx.pump();
     };
     // Centre-first painting (2026-10-26, effective reveal): the
@@ -768,6 +858,28 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
     }, LENS_BUILD_WATCHDOG_MS);
   };
 
+  // Drop a stale running build (2026-10-27, driving void): a
+  // build whose centre the traveler has already left behind by
+  // a full recenter step can only ever mount ground kilometres
+  // behind the car, while blocking the pool for its whole
+  // duration. Invalidating it frees the pool for a fresh build
+  // at the current centre at once; the old build's in-flight
+  // tiles stop painting on the gen check, and its finish only
+  // drops its own sheet — it never clears the fresh build's
+  // busy flag (finish owns the pool only while mgr.job is its
+  // own job). Returns true when a build was dropped.
+  const dropStaleBuild = (bctx, curLat, curLon, staleDeg) => {
+    const mgr = bctx.mgrRef.current;
+    const running = mgr.job;
+    if (!mgr.busy || !running) return false;
+    if (Math.abs(running.lat - curLat) <= staleDeg
+      && Math.abs(running.lon - curLon) <= staleDeg) return false;
+    bctx.genRef.current += 1;
+    mgr.job = null;
+    mgr.busy = false;
+    return true;
+  };
+
   useEffect(() => {
     if (!lensCenter || !heightReady) {
       // Leaving Earth / no focus: drop sheets AND any queued
@@ -812,11 +924,60 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
     }
     const mgr = farLensBuildRef.current;
     const job = { key: farCenterKey, lat: farCenter.lat, lon: farCenter.lon, presetName: 'streetFar' };
-    if (mgr.busy) { mgr.pending = job; return undefined; }
+    // Driving: same freeze as the fine sheet — a 1296-tile far
+    // build started at boost can never finish before the car
+    // leaves its disc, so starting them only churns the queue
+    // while the coarse sheet carries the ground. Queue the
+    // newest centre; when driving ends this effect re-runs
+    // (driving is a dep) and builds the latest centre at once.
+    if (driving) { mgr.pending = job; return undefined; }
+    if (mgr.busy) {
+      // A running build the car has already left behind by a
+      // full recenter step is stale: drop it and start fresh
+      // instead of mounting ground kilometres behind the car.
+      const staleDeg = (LENS_PRESETS.streetFar.radiusUnits * 0.4) / HUB_UNITS_PER_DEGREE;
+      if (dropStaleBuild(FAR_CTX, farCenter.lat, farCenter.lon, staleDeg)) {
+        startLensBuild(job, FAR_CTX);
+      } else {
+        mgr.pending = job;
+      }
+      return undefined;
+    }
     startLensBuild(job, FAR_CTX);
     return undefined;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [farCenterKey, heightReady, roaming]);
+  }, [farCenterKey, heightReady, roaming, driving]);
+
+  // Coarse fallback sheet (2026-10-27, driving void): the
+  // always-on photographic layer. It runs while roaming with
+  // NO driving gate — it IS the driving layer — and its builds
+  // are cheap enough (64 tiles) that dropping a stale one for a
+  // fresh centre still leaves photographic ground under the car.
+  const coarseCenterKey = coarseCenter
+    ? `streetCoarse:${coarseCenter.lat.toFixed(4)},${coarseCenter.lon.toFixed(4)}`
+    : null;
+  useEffect(() => {
+    if (!roaming || !coarseCenter || !heightReady) {
+      coarseLensGenRef.current += 1;
+      coarseLensBuildRef.current.pending = null;
+      clearCoarseSheets();
+      return undefined;
+    }
+    const mgr = coarseLensBuildRef.current;
+    const job = { key: coarseCenterKey, lat: coarseCenter.lat, lon: coarseCenter.lon, presetName: 'streetCoarse' };
+    if (mgr.busy) {
+      const staleDeg = (LENS_PRESETS.streetCoarse.radiusUnits * 0.4) / HUB_UNITS_PER_DEGREE;
+      if (dropStaleBuild(COARSE_CTX, coarseCenter.lat, coarseCenter.lon, staleDeg)) {
+        startLensBuild(job, COARSE_CTX);
+      } else {
+        mgr.pending = job;
+      }
+      return undefined;
+    }
+    startLensBuild(job, COARSE_CTX);
+    return undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coarseCenterKey, heightReady, roaming]);
 
   // Dispose all lens sheets on unmount.
   useEffect(() => () => {
@@ -824,6 +985,8 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
     lensBuildRef.current.pending = null;
     farLensBuildRef.current.alive = false;
     farLensBuildRef.current.pending = null;
+    coarseLensBuildRef.current.alive = false;
+    coarseLensBuildRef.current.pending = null;
     for (const s of sheetsRef.current) {
       s.mesh.geometry.dispose();
       s.mesh.material.map?.dispose();
@@ -836,6 +999,12 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
       s.mesh.material.dispose();
     }
     farSheetsRef.current = [];
+    for (const s of coarseSheetsRef.current) {
+      s.mesh.geometry.dispose();
+      s.mesh.material.map?.dispose();
+      s.mesh.material.dispose();
+    }
+    coarseSheetsRef.current = [];
   }, []);
 
   return (
@@ -892,6 +1061,14 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
         {effectiveLayer === 'terrain' && roaming && <EarthPitMarker />}
 
         {effectiveLayer === 'terrain' && lensSheets.map((s) => (
+          <primitive key={s.key} object={s.mesh} />
+        ))}
+        {/* Coarse fallback sheets: always-on photographic ground
+            out to 1350 display m, drawn below the far sheets so
+            finer detail always wins where it exists — the layer
+            that keeps driving ground photographic instead of
+            bare dark globe. */}
+        {effectiveLayer === 'terrain' && coarseSheets.map((s) => (
           <primitive key={s.key} object={s.mesh} />
         ))}
         {/* 15× reveal sheets: coarser photographic ground out to
