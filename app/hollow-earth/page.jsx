@@ -760,8 +760,11 @@ export default function HollowEarthPage() {
           <button type="button" onClick={() => setMode('map')}
             className="ui-element pointer-events-auto flex h-9 shrink-0 items-center rounded-full bg-white/10 px-3 text-white transition-all hover:bg-white/20 active:scale-95"
             style={{ fontSize: 13 }}>🗺️ Map</button>
-          <BackpackHud realm="hollow-earth" realmLabel="the Monsterverse" combatApplies />
         </div>
+        {/* The backpack's home: docked NEXT TO the main bar (a
+            sibling of the pill, not inside it, so the 56px circle
+            never stretches the pill) — same row, same gap. */}
+        <BackpackHud realm="hollow-earth" realmLabel="the Monsterverse" combatApplies docked />
         <div style={{ position: 'absolute', bottom: '4.5rem', left: '0.75rem' }}>
           <WalkJoystick size={118} onMove={(x, y) => { joyRef.current.x = x; joyRef.current.y = y; }} />
         </div>

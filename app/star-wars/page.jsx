@@ -735,7 +735,7 @@ export default function StarWarsPage() {
           <div style={styles.zoneTop}>
             <div style={styles.zoneName}>{def.name}</div>
             <button style={styles.smallBtn} onClick={() => { setIntro(false); setMode('map'); }}>Map</button>
-            <BackpackHud realm="star-wars" realmLabel="Star Wars"
+            <BackpackHud realm="star-wars" realmLabel="Star Wars" docked
               displayNote="The saber stays — lightsaber encounters keep their own blades. The pack rides along." />
           </div>
 

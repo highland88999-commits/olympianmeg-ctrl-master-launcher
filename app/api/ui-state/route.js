@@ -84,6 +84,18 @@ export const POST = noCache(
       }
       patch.backpack_icon = sane;
     }
+    if ('backpack_icon_v2' in prefs) {
+      // The backpack HOME pair (Merlin, 2026-10-26): docked mounts
+      // persist their dragged spots under this separate key, so a
+      // pre-home parked spot under `backpack_icon` never wins over
+      // the home slot. Same fraction shape and validation.
+      const v = prefs.backpack_icon_v2;
+      const sane = v && typeof v === 'object' ? sanitizeFractions({ x: v.x, y: v.y }) : null;
+      if (!sane) {
+        return NextResponse.json({ error: 'backpack_icon_v2 must be { x, y } with 0..1 numbers.' }, { status: 400 });
+      }
+      patch.backpack_icon_v2 = sane;
+    }
     if ('concourse_box' in prefs) {
       // The Concourse glass box's own top-left position (Merlin,
       // 2026-10-22: the box itself must be movable anywhere on

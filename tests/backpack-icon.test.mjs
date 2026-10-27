@@ -18,7 +18,10 @@
 //     (import path + props), the circle shape, the pointer drag
 //     engine, and persistence via localStorage + /api/ui-state
 //     key `backpack_icon` (localStorage key
-//     `olympus:backpack-icon:v1`).
+//     `olympus:backpack-icon:v1`) for floating mounts — and the
+//     HOME pair (`backpack_icon_v2` / `olympus:backpack-icon:v2`)
+//     for docked mounts, so a pre-home parked spot never wins
+//     over the home slot.
 //
 // NOTE: the /api/ui-state route does not yet accept the
 // `backpack_icon` key (see lib/backpack/icon.js) — that block is
@@ -40,7 +43,10 @@ import {
   BACKPACK_ICON_EDGE_MARGIN,
   BACKPACK_ICON_SIZE,
   BACKPACK_ICON_STORAGE_KEY,
+  BACKPACK_ICON_STORAGE_KEY_V2,
   BACKPACK_ICON_UI_STATE_KEY,
+  BACKPACK_ICON_UI_STATE_KEY_V2,
+  backpackIconKeys,
   backpackIconFracToPx,
   backpackIconPxToFrac,
   clampBackpackIconPx,
@@ -130,19 +136,32 @@ describe('restore precedence and defaults', () => {
     assert.ok(px.x < PHONE.w / 2);
   });
 
-  it('the persistence keys are the documented ones', () => {
+  it('the persistence keys are the documented ones, v1 and the home v2 pair', () => {
     assert.equal(BACKPACK_ICON_UI_STATE_KEY, 'backpack_icon');
     assert.equal(BACKPACK_ICON_STORAGE_KEY, 'olympus:backpack-icon:v1');
+    assert.equal(BACKPACK_ICON_UI_STATE_KEY_V2, 'backpack_icon_v2');
+    assert.equal(BACKPACK_ICON_STORAGE_KEY_V2, 'olympus:backpack-icon:v2');
+    assert.deepEqual(backpackIconKeys(true), { storage: 'olympus:backpack-icon:v2', uiState: 'backpack_icon_v2' });
+    assert.deepEqual(backpackIconKeys(false), { storage: 'olympus:backpack-icon:v1', uiState: 'backpack_icon' });
+  });
+
+  it('a docked mount with no v2 spot renders in flow at home, never at the old spot', () => {
+    // The component resolves docked mounts with NO fallback: null
+    // fractions mean "home slot", so a pre-home parked spot (v1 or
+    // a v1 server value) is never picked up by a docked mount.
+    assert.deepEqual(resolveBackpackIconPosition({ local: null }), null);
+    assert.match(hud, /position: \(dragPx \|\| iconPx\) \? 'fixed' : \(docked \? 'relative' : 'fixed'\)/);
+    assert.match(hud, /: docked\n\s+\? \{\}\n\s+: \{ left: 16, bottom: 16 \}/);
   });
 });
 
 describe('component wiring (code inspection, like the Concourse tests)', () => {
-  it('preserves the BackpackHud API exactly: default export, same props', () => {
-    assert.match(hud, /export default function BackpackHud\(\{ realm, realmLabel, combatApplies = false, displayNote = null \}\)/);
+  it('preserves the BackpackHud API exactly: default export, same props plus docked', () => {
+    assert.match(hud, /export default function BackpackHud\(\{ realm, realmLabel, combatApplies = false, displayNote = null, docked = false \}\)/);
   });
 
-  it('renders a fixed 56px circle with a count badge inside it', () => {
-    assert.match(hud, /position: 'fixed'/);
+  it('renders a 56px circle with a count badge inside it — fixed when floating, in flow when docked at home', () => {
+    assert.match(hud, /position: \(dragPx \|\| iconPx\) \? 'fixed' : \(docked \? 'relative' : 'fixed'\)/);
     assert.match(hud, /borderRadius: '50%'/);
     assert.match(hud, /width: BACKPACK_ICON_SIZE, height: BACKPACK_ICON_SIZE/);
     assert.match(hud, /aria-label=\{open \? 'Close backpack' : 'Open backpack'\}/);
@@ -157,17 +176,23 @@ describe('component wiring (code inspection, like the Concourse tests)', () => {
     assert.match(hud, /touchAction: 'none'/);
   });
 
-  it('persists localStorage instantly + /api\/ui-state backpack_icon debounced, server wins on login', () => {
-    assert.match(hud, /localStorage\.setItem\(BACKPACK_ICON_STORAGE_KEY/);
-    assert.match(hud, /localStorage\.getItem\(BACKPACK_ICON_STORAGE_KEY/);
+  it('persists localStorage instantly + /api/ui-state debounced, server wins on login — via the mount\'s key pair', () => {
+    assert.match(hud, /localStorage\.setItem\(iconKeys\.storage/);
+    assert.match(hud, /localStorage\.getItem\(iconKeys\.storage/);
     assert.match(hud, /fetch\('\/api\/ui-state', \{\n\s+method: 'POST'/);
-    assert.match(hud, /\[BACKPACK_ICON_UI_STATE_KEY\]: frac/);
-    assert.match(hud, /data\.preferences\[BACKPACK_ICON_UI_STATE_KEY\]/);
+    assert.match(hud, /\[iconKeys\.uiState\]: frac/);
+    assert.match(hud, /data\.preferences\[iconKeys\.uiState\]/);
     assert.match(hud, /signed out: localStorage only/);
   });
 
-  it('the icon engine documents the outstanding route key', () => {
-    assert.match(iconLib, /backpack_icon/);
-    assert.match(iconLib, /does not yet\n\/\/ accept the `backpack_icon` key/);
+  it('a docked drag starts from the on-screen home box, never jumps to a corner', () => {
+    assert.match(hud, /getBoundingClientRect\(\)/);
+    assert.match(hud, /docked icon at home starts from its on-screen box/);
+  });
+
+  it('the icon engine documents both key pairs and the route accepting them', () => {
+    assert.match(iconLib, /BACKPACK_ICON_UI_STATE_KEY_V2 = 'backpack_icon_v2'/);
+    assert.match(iconLib, /BACKPACK_ICON_STORAGE_KEY_V2 = 'olympus:backpack-icon:v2'/);
+    assert.match(iconLib, /route accepts the `backpack_icon`\n\/\/ key \(and the v2 pair below\)/);
   });
 });

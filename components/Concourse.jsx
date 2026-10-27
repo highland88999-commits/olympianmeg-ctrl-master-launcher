@@ -903,8 +903,10 @@ export default function Concourse() {
             {onHub && <SeasonBadge inline onGuide={handleSeasonGuide} />}
             <ConcourseRadio />
             {/* The backpack, opened from the hub — a flow item in
-                this row, never overlapping the badge or radio. */}
-            <BackpackHud realm="hub" realmLabel="the hub"
+                this row, never overlapping the badge or radio.
+                Its home slot: docked in this row next to the
+                hub's main controls. */}
+            <BackpackHud realm="hub" realmLabel="the hub" docked
               displayNote="The hub keeps its own arms — the pack rides along." />
           </div>
           </div>

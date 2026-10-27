@@ -17,8 +17,7 @@ import Link from 'next/link';
 import {
   BACKPACK_ICON_SAVE_DEBOUNCE_MS,
   BACKPACK_ICON_SIZE,
-  BACKPACK_ICON_STORAGE_KEY,
-  BACKPACK_ICON_UI_STATE_KEY,
+  backpackIconKeys,
   backpackIconFracToPx,
   backpackIconPxToFrac,
   clampBackpackIconPx,
@@ -71,8 +70,28 @@ function weaponLine(entry) {
  *     realm's native arms and the panel says so (displayNote).
  *   displayNote: plain line for display-only realms (saber line
  *     for Star Wars, etc.). Defaults to the pack-rides-along line.
+ *   docked: true when the mount is the realm's backpack HOME —
+ *     the circle renders in flow next to that realm's main
+ *     controls (its home slot) instead of floating, and persists
+ *     under the separate v2 key pair so pre-home parked spots
+ *     never win. Dragging still lifts it out of flow to a fixed
+ *     spot, which then persists like any dragged spot.
+ *   homeFractions: opt-in FIXED home slot for this mount (Earth
+ *     2, Merlin 2026-10-26) — viewport fractions where the
+ *     circle sits next to the realm's main control buttons, on
+ *     screen whether or not any panel is expanded. While it is
+ *     set, the mount reads the v2 key pair, so a pre-home parked
+ *     spot never pulls it back, and the home is the fallback
+ *     until the user drags after the home change. The circle
+ *     stays draggable afterwards, like any user-movable control.
+ *     Mounts with neither docked nor homeFractions keep the v1
+ *     pair and today's behaviour exactly.
+ *   headerDeadSpaceMinimize: opt-in (Earth 2) — a click on the
+ *     blank area of the backpack dialog's header row closes it
+ *     (its minimized state); the close button and the title
+ *     text keep their own behaviour.
  */
-export default function BackpackHud({ realm, realmLabel, combatApplies = false, displayNote = null }) {
+export default function BackpackHud({ realm, realmLabel, combatApplies = false, displayNote = null, docked = false, homeFractions = null, headerDeadSpaceMinimize = false }) {
   const record = useBackpack();
   const [open, setOpen] = useState(false);
   const equipped = equippedWeaponEntry(record);
@@ -86,12 +105,32 @@ export default function BackpackHud({ realm, realmLabel, combatApplies = false, 
   // lib/concourse-icon.js): press-and-move past 8px drags it, a
   // still press taps it open; the spot is viewport fractions,
   // written to localStorage instantly and to /api/ui-state
-  // (key `backpack_icon`) debounced, and the account copy wins
-  // on login. Signed out, the device copy stands alone. The icon
-  // is fixed-position inside this component only — the accepted
+  // debounced, and the account copy wins on login. Signed out,
+  // the device copy stands alone.
+  //
+  // HOME (Merlin, 2026-10-26): a mount with docked={true} renders
+  // the circle IN FLOW inside its parent — its home slot next to
+  // that realm's main controls — instead of fixed-position. A
+  // docked mount persists under the SEPARATE v2 key pair, so it
+  // never reads a pre-home parked spot: while v2 is empty the
+  // circle sits in its home; once the user drags it (dragging
+  // lifts it out of flow to a fixed spot, exactly like the
+  // Concourse Orb), the dropped spot persists and later renders
+  // use it. A mount with homeFractions (Earth 2) keeps the fixed
+  // circle but homes it at those fractions under the same v2
+  // pair, so its pre-home parked spot is likewise superseded —
+  // and it stays on screen even when its host panel is shrunk,
+  // which an in-flow mount cannot do. Non-homed mounts (Mars/
+  // Planet consoles) keep the v1 pair and today's fixed behaviour
+  // exactly.
+  // The icon is fixed-position when floating — the accepted
   // exception to the no-overlap rule for user-draggable controls,
   // same as the Concourse panels; nothing else here is absolutely
   // positioned except the count badge inside the circle itself.
+  // When docked and at home, the button sets pointerEvents auto
+  // so it stays tappable inside rows that are pointer-events-none
+  // (e.g. Star Wars' zoneTop).
+  const iconKeys = backpackIconKeys(docked || homeFractions != null);
   const [iconFrac, setIconFrac] = useState(null);
   const [dragPx, setDragPx] = useState(null);
   const [viewport, setViewport] = useState(null);
@@ -101,7 +140,7 @@ export default function BackpackHud({ realm, realmLabel, combatApplies = false, 
 
   const persistIcon = useCallback((frac) => {
     try {
-      localStorage.setItem(BACKPACK_ICON_STORAGE_KEY, JSON.stringify(frac));
+      localStorage.setItem(iconKeys.storage, JSON.stringify(frac));
     } catch {}
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
@@ -116,36 +155,42 @@ export default function BackpackHud({ realm, realmLabel, combatApplies = false, 
         await fetch('/api/ui-state', {
           method: 'POST',
           headers: { 'content-type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ preferences: { [BACKPACK_ICON_UI_STATE_KEY]: frac } }),
+          body: JSON.stringify({ preferences: { [iconKeys.uiState]: frac } }),
         });
-        // NOTE: until the route accepts `backpack_icon` (see
-        // lib/backpack/icon.js), this answers 400 and is ignored
-        // — localStorage already holds the spot, and the next
-        // drag retries.
+        // NOTE: until the route accepts the key, this answers 400
+        // and is ignored — localStorage already holds the spot,
+        // and the next drag retries.
       } catch {
         // offline — localStorage already holds it; next drag retries
       }
     }, BACKPACK_ICON_SAVE_DEBOUNCE_MS);
-  }, []);
+  }, [iconKeys.storage, iconKeys.uiState]);
 
   // Hydrate: localStorage instantly; the account copy wins when
   // signed in (the Concourse rule — that is what will carry the
-  // icon's spot to a new device at login, once the route accepts
-  // the key). A resize/rotation listener keeps fractions rendering
-  // back inside the viewport at every size.
+  // icon's spot to a new device at login). A resize/rotation listener
+  // keeps fractions rendering back inside the viewport at every size.
+  // (Keys come from the first render's docked/homeFractions props,
+  // which never change for a mount — homed mounts read the v2 pair,
+  // so a pre-home parked spot is never picked up; with v2 empty a
+  // docked icon stays null here and renders in its in-flow home
+  // slot, while a homeFractions icon resolves to its home.)
   useEffect(() => {
     const applyViewport = () => setViewport({ w: window.innerWidth, h: window.innerHeight });
     applyViewport();
     window.addEventListener('resize', applyViewport);
     let local = null;
     try {
-      const raw = localStorage.getItem(BACKPACK_ICON_STORAGE_KEY);
+      const raw = localStorage.getItem(iconKeys.storage);
       local = raw ? JSON.parse(raw) : null;
     } catch {}
-    const resolved = resolveBackpackIconPosition({
-      local,
-      fallback: defaultBackpackIconFractions(window.innerWidth, window.innerHeight, BACKPACK_ICON_SIZE),
-    });
+    const resolved = docked
+      ? resolveBackpackIconPosition({ local })
+      : resolveBackpackIconPosition({
+        local,
+        fallback: homeFractions
+          || defaultBackpackIconFractions(window.innerWidth, window.innerHeight, BACKPACK_ICON_SIZE),
+      });
     setIconFrac(resolved);
     let cancelled = false;
     (async () => {
@@ -159,7 +204,7 @@ export default function BackpackHud({ realm, realmLabel, combatApplies = false, 
       try {
         const res = await fetch('/api/ui-state', { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
         const data = await res.json().catch(() => null);
-        const server = resolveBackpackIconPosition({ server: data && data.preferences ? data.preferences[BACKPACK_ICON_UI_STATE_KEY] : null });
+        const server = resolveBackpackIconPosition({ server: data && data.preferences ? data.preferences[iconKeys.uiState] : null });
         if (!cancelled && server) setIconFrac(server);
       } catch {
         // offline — the device copy stands
@@ -170,6 +215,7 @@ export default function BackpackHud({ realm, realmLabel, combatApplies = false, 
       cancelled = true;
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Drag engine (the Concourse Orb's, via lib/backpack/icon.js):
@@ -185,9 +231,14 @@ export default function BackpackHud({ realm, realmLabel, combatApplies = false, 
     if (!el) return;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
+    // Drag origin: a floating icon starts from its fractions; a
+    // docked icon at home starts from its on-screen box (its row
+    // slot), so it never jumps when the drag begins.
     const origin = iconFrac
       ? clampBackpackIconPx(backpackIconFracToPx(iconFrac, vw, vh, BACKPACK_ICON_SIZE), vw, vh, BACKPACK_ICON_SIZE)
-      : { x: 16, y: vh - BACKPACK_ICON_SIZE - 16 };
+      : docked
+        ? (() => { const r = el.getBoundingClientRect(); return { x: r.left, y: r.top }; })()
+        : { x: 16, y: vh - BACKPACK_ICON_SIZE - 16 };
     try { el.setPointerCapture(e.pointerId); } catch {}
     const info = {
       pointerId: e.pointerId,
@@ -236,11 +287,16 @@ export default function BackpackHud({ realm, realmLabel, combatApplies = false, 
   const iconPx = iconFrac && viewport
     ? clampBackpackIconPx(backpackIconFracToPx(iconFrac, viewport.w, viewport.h, BACKPACK_ICON_SIZE), viewport.w, viewport.h, BACKPACK_ICON_SIZE)
     : null;
+  // Floating (dragged, or a non-docked mount) renders fixed at
+  // its spot; a docked mount with no stored spot renders IN FLOW
+  // in its home slot — no left/top/bottom offsets at all.
   const iconPosStyle = dragPx
     ? { left: dragPx.x, top: dragPx.y }
     : iconPx
       ? { left: iconPx.x, top: iconPx.y }
-      : { left: 16, bottom: 16 };
+      : docked
+        ? {}
+        : { left: 16, bottom: 16 };
 
   const combatNote = (() => {
     if (!combatApplies) {
@@ -257,11 +313,14 @@ export default function BackpackHud({ realm, realmLabel, combatApplies = false, 
   return (
     <>
       {/* The circle icon: a 56px round button (same size as the
-          Concourse Orb), fixed inside this component so its owner
-          can drag it anywhere on screen. The equipped weapon's
-          name no longer fits on the circle itself — it lives in
-          the title tooltip and in the panel header, as before.
-          The count badge sits inside the circle itself. */}
+          Concourse Orb). When floating it is fixed-position, so
+          its owner can drag it anywhere on screen; when docked
+          and at home it renders in flow inside its parent row —
+          its home slot next to that realm's main controls. The
+          equipped weapon's name no longer fits on the circle
+          itself — it lives in the title tooltip and in the panel
+          header, as before. The count badge sits inside the
+          circle itself. */}
       <button
         ref={iconRef}
         type="button"
@@ -270,13 +329,15 @@ export default function BackpackHud({ realm, realmLabel, combatApplies = false, 
         aria-label={open ? 'Close backpack' : 'Open backpack'}
         title={equipped ? `Backpack — drag to move · equipped: ${equipped.name}` : 'Backpack — drag to move'}
         style={{
-          position: 'fixed', zIndex: 150,
+          position: (dragPx || iconPx) ? 'fixed' : (docked ? 'relative' : 'fixed'),
+          zIndex: 150,
           width: BACKPACK_ICON_SIZE, height: BACKPACK_ICON_SIZE, borderRadius: '50%',
           border: '2px solid #d8b25c', background: 'rgba(18,16,28,0.85)',
           color: '#fff', cursor: dragPx ? 'grabbing' : 'grab', fontSize: 24,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           boxShadow: '0 10px 30px rgba(0,0,0,0.5), 0 0 22px rgba(216,178,92,0.22)',
           touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none',
+          pointerEvents: 'auto', flexShrink: 0,
           ...iconPosStyle,
         }}
       >
@@ -313,8 +374,20 @@ export default function BackpackHud({ realm, realmLabel, combatApplies = false, 
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-              <div style={{ fontWeight: 800 }}>🎒 Backpack</div>
+            <div
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}
+              onClick={headerDeadSpaceMinimize ? (e) => {
+                // HEADER DEAD-SPACE MINIMIZE (Merlin, 2026-10-26):
+                // a click on the blank area of this header row
+                // closes the dialog (its minimized state). The
+                // close button and the title text keep their own
+                // behaviour — only dead space closes.
+                if (e.target.closest('button')) return;
+                if (e.target.closest('[data-backpack-title]')) return;
+                setOpen(false);
+              } : undefined}
+            >
+              <div style={{ fontWeight: 800 }} data-backpack-title>🎒 Backpack</div>
               <button
                 type="button" onClick={() => setOpen(false)} aria-label="Close backpack"
                 style={{ border: '1px solid rgba(255,255,255,0.25)', background: 'none', color: '#fff', borderRadius: 999, width: 32, height: 32, cursor: 'pointer' }}

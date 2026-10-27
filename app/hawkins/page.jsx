@@ -222,7 +222,7 @@ export default function HawkinsPage() {
                 >
                   {(hud.perspective === 'third' ? '3RD' : '1ST') + ' PERSON · V'}
                 </button>
-                <BackpackHud realm="hawkins" realmLabel="Hawkins"
+                <BackpackHud realm="hawkins" realmLabel="Hawkins" docked
                   displayNote="The pack rides along — Hawkins keeps its own arms." />
               </div>
             </div>

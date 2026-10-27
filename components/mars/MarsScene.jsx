@@ -894,7 +894,7 @@ export default function MarsScene({
       {/* The backpack, standalone Mars door — top-left inside this
           scene's own container, clear of the top-centre hint bar. */}
       <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 5 }}>
-        <BackpackHud realm="mars" realmLabel="Mars"
+        <BackpackHud realm="mars" realmLabel="Mars" docked
           displayNote="Mars keeps its own arms — the pack rides along." />
       </div>
     </div>

@@ -89,6 +89,7 @@ import {
 } from '@/components/myriad/MyriadExtras';
 import { createKeyInput, attachDragLook } from '@/lib/world/walk-input';
 import WalkJoystick from '@/components/world/WalkJoystick';
+import BackpackHud from '@/components/backpack/BackpackHud';
 
 const TITLE = 'MYRIAD — 100 Universes';
 
@@ -1282,6 +1283,13 @@ export default function MyriadPage() {
           >
             <HIcon><GridIcon size={13} />Return to atlas</HIcon>
           </button>
+          {/* The backpack's home: docked at the foot of the main
+              controls column, next to the realm's buttons — its
+              first mount in Myriad (the realm had no pack HUD). */}
+          <div className="flex justify-end">
+            <BackpackHud realm="myriad" realmLabel="Myriad" docked
+              displayNote="The pack rides along — Myriad keeps its own arms." />
+          </div>
         </div>
       </div>
 

@@ -1909,7 +1909,7 @@ export default function EnyoPage() {
             </AresButton>
             <div className="mt-3 flex justify-center">
               <BackpackHud
-                realm="enyo"
+                realm="enyo" docked
                 realmLabel="Enyo"
                 displayNote="The pack rides along — Enyo keeps its own arsenal."
               />
@@ -2052,7 +2052,7 @@ export default function EnyoPage() {
               {muted ? 'Muted' : 'Sound on'}
             </button>
             <BackpackHud
-              realm="enyo"
+              realm="enyo" docked
               realmLabel="Enyo"
               displayNote="The pack rides along — Enyo keeps its own arsenal."
             />
@@ -2134,7 +2134,7 @@ export default function EnyoPage() {
                 so its clicks stop here instead of bubbling to the overlay. */}
             <div className="mt-5 flex justify-center" onClick={(e) => e.stopPropagation()}>
               <BackpackHud
-                realm="enyo"
+                realm="enyo" docked
                 realmLabel="Enyo"
                 displayNote="The pack rides along — Enyo keeps its own arsenal."
               />

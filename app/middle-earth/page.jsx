@@ -982,7 +982,7 @@ export default function MiddleEarthPage() {
               {hero.rangedLabel}
             </button>
             <span style={styles.killsChip}>⚔ {campaign.totalKills}</span>
-            <BackpackHud realm="middle-earth" realmLabel="Middle-earth" combatApplies />
+            <BackpackHud realm="middle-earth" realmLabel="Middle-earth" combatApplies docked />
           </div>
 
           {/* touch actions: the right-thumb column — strike, jump,
