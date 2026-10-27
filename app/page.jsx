@@ -113,6 +113,22 @@ function NexusHub() {
     window.addEventListener('olympus:concourse-open', handler);
     return () => window.removeEventListener('olympus:concourse-open', handler);
   });
+
+  // Oblivion waiting link (Merlin, 2026-10-26): /oblivion's
+  // Concourse button lands here with ?concourse=1 so the traveler
+  // sees the Concourse scene itself, not the program menu (which
+  // is expanded by default on a fresh load). Runs once on mount;
+  // never fights a manual toggle afterward.
+  const concourseParamApplied = useRef(false);
+  useEffect(() => {
+    if (concourseParamApplied.current) return;
+    concourseParamApplied.current = true;
+    try {
+      if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('concourse') === '1') {
+        setIsMenuExpanded(false);
+      }
+    } catch {}
+  }, []);
   
   const introAutoPlayed = useRef(false);
   useEffect(() => {

@@ -212,6 +212,27 @@ export default function Earth2Page() {
     }
   }, [authHeaders]);
 
+  // Oblivion release (Merlin, 2026-10-26): once the 72-hour
+  // countdown ends, members of passing teams are released —
+  // decided server-side by /api/earth2/release, never claimed
+  // by the client. Fails closed: any error leaves the gate
+  // locked. Returns true when it opened the gate.
+  const checkReleaseGate = useCallback(async (email, id) => {
+    try {
+      const headers = await authHeaders();
+      const res = await fetch('/api/earth2/release', { headers, cache: 'no-store' });
+      const data = await res.json().catch(() => null);
+      if (data && data.released) {
+        setMyEmail(email);
+        setMyId(id || '');
+        setGate('open');
+        loadState();
+        return true;
+      }
+    } catch {}
+    return false;
+  }, [authHeaders, loadState]);
+
   // The gate: whose session is this? Only an account with Earth 2
   // access opens the door — the owner, or the one named POC guest
   // (lib/earth2/access.js is the one definition).
@@ -227,14 +248,14 @@ export default function Earth2Page() {
           setMyId(data?.session?.user?.id || '');
           setGate('open');
           loadState();
-        } else {
+        } else if (!(await checkReleaseGate(email, data?.session?.user?.id || ''))) {
           setGate('locked');
         }
       } catch {
         if (alive) setGate('locked');
       }
     })();
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (!alive) return;
       const email = session?.user?.email || '';
       if (hasEarth2Access(email)) {
@@ -242,7 +263,7 @@ export default function Earth2Page() {
         setMyId(session?.user?.id || '');
         setGate('open');
         loadState();
-      } else {
+      } else if (!(await checkReleaseGate(email, session?.user?.id || ''))) {
         setGate('locked');
       }
     });
