@@ -37,6 +37,10 @@ create table if not exists public.billboard_queue (
   creative_url text,
   rotation_interval_seconds integer not null default 15
     check (rotation_interval_seconds between 5 and 60),
+  -- Ownership-cap support (Merlin, 2026-10-27 — hard rule): one
+  -- billboard per satellite per advertiser. House/demo ads
+  -- (Merlin's own) are exempt and never count as holdings.
+  is_house boolean not null default false,
   status text not null default 'staged' check (status in ('staged', 'sent')),
   batch_id uuid,
   created_at timestamptz not null default now(),

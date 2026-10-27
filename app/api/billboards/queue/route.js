@@ -27,7 +27,10 @@ import {
   validateAdEntry,
   validateRemovalRow,
   normalizeRotationSeconds,
+  findOwnershipConflict,
 } from '@/lib/billboards/validate';
+import { manifestHoldings } from '@/lib/billboards/overrides';
+import { GOD_MENUS } from '@/lib/god-menus';
 
 const TABLE = 'billboard_queue';
 
@@ -64,11 +67,38 @@ function publicRow(r) {
     creativeType: r.creative_type,
     creativeUrl: r.creative_url,
     rotationIntervalSeconds: r.rotation_interval_seconds,
+    isHouse: r.is_house === true,
     status: r.status,
     batchId: r.batch_id,
     createdAt: r.created_at,
     sentAt: r.sent_at,
   };
+}
+
+function satelliteName(satellite) {
+  return GOD_MENUS[satellite]?.god || `satellite ${satellite + 1}`;
+}
+
+function capMessage(companyName, conflict) {
+  return `${companyName} already holds billboard ${conflict.billboardNumber} on the ${satelliteName(conflict.satellite)} satellite — one billboard per satellite per advertiser. Pick a different satellite, or remove the other ad first.`;
+}
+
+/**
+ * Live holdings from the repo manifest (best effort): the manifest
+ * is repo content, so the route reads it back over HTTP from its own
+ * deployment (VERCEL_URL) or the production site. A failed fetch
+ * just skips the live side — the queue-side check below still
+ * applies, and the manager page checks the manifest client-side too.
+ */
+async function liveHoldings() {
+  try {
+    const base = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://olympusverse.com';
+    const res = await fetch(`${base}/billboards/manifest.json`, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) return [];
+    return manifestHoldings(await res.json());
+  } catch {
+    return [];
+  }
 }
 
 export async function GET(req) {
@@ -146,6 +176,29 @@ export async function POST(req) {
     };
     const reasons = validateAdEntry(entry, prefix);
     if (reasons.length) return NextResponse.json({ ok: false, error: reasons[0] }, { status: 400 });
+    const isHouse = body?.isHouse === true;
+    if (!isHouse) {
+      // OWNERSHIP CAP, server side: same company, same satellite,
+      // different billboard — blocked, whether the existing holding
+      // sits in the queue or is already live on the hub.
+      const { data: queued } = await admin.from(TABLE)
+        .select('company_name, billboard_number, is_house')
+        .eq('kind', 'ad')
+        .in('status', ['staged', 'sent']);
+      const holdings = [
+        ...(queued || []).map((r) => ({ companyName: r.company_name, billboardNumber: r.billboard_number, house: r.is_house === true })),
+        ...(await liveHoldings()),
+      ];
+      const conflict = findOwnershipConflict({
+        companyName: entry.companyName,
+        billboardNumber: number,
+        holdings,
+        isHouse: false,
+      });
+      if (conflict) {
+        return NextResponse.json({ ok: false, error: capMessage(String(entry.companyName).trim(), conflict) }, { status: 400 });
+      }
+    }
     const { data, error } = await admin.from(TABLE).insert({
       kind: 'ad',
       billboard_number: number,
@@ -154,6 +207,7 @@ export async function POST(req) {
       creative_type: entry.creativeType,
       creative_url: entry.creativeUrl,
       rotation_interval_seconds: interval,
+      is_house: isHouse,
       status: 'staged',
     }).select('*').single();
     if (error) return NextResponse.json({ ok: false, error: 'Could not stage that ad.' }, { status: 502 });

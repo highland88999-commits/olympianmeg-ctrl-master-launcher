@@ -26,6 +26,9 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { satelliteForBillboard, findOwnershipConflict } from '@/lib/billboards/validate';
+import { manifestHoldings } from '@/lib/billboards/overrides';
+import { GOD_MENUS } from '@/lib/god-menus';
 
 const DRAFT_KEY = 'olympus.adSpacesDrafts.v1';
 const MANIFEST_URL = '/billboards/manifest.json';
@@ -37,6 +40,7 @@ function blankEntry() {
     linkUrl: '',
     creativeType: null,
     creativeUrl: '',
+    isHouse: false,
     uploading: false,
     error: '',
     queued: false,
@@ -244,6 +248,27 @@ export default function AdSpacesPage() {
   const addToQueue = async (entry) => {
     setBusy(true);
     setNotice('');
+    // OWNERSHIP CAP, client side (the server checks again): one
+    // billboard per satellite per advertiser. House/demo ads are
+    // exempt on both sides of the check.
+    if (!entry.isHouse) {
+      const holdings = [
+        ...manifestHoldings(manifest),
+        ...rows.filter((r) => r.kind === 'ad').map((r) => ({ companyName: r.companyName, billboardNumber: r.billboardNumber, house: r.isHouse === true })),
+      ];
+      const conflict = findOwnershipConflict({
+        companyName: entry.companyName,
+        billboardNumber: selected,
+        holdings,
+        isHouse: false,
+      });
+      if (conflict) {
+        const god = GOD_MENUS[conflict.satellite]?.god || `satellite ${conflict.satellite + 1}`;
+        setNotice(`${entry.companyName.trim()} already holds billboard ${conflict.billboardNumber} on the ${god} satellite — one billboard per satellite per advertiser. Pick a different satellite, or remove the other ad first.`);
+        setBusy(false);
+        return;
+      }
+    }
     const data = await queueCall('stage', {
       kind: 'ad',
       billboardNumber: selected,
@@ -252,6 +277,7 @@ export default function AdSpacesPage() {
       creativeType: entry.creativeType,
       creativeUrl: entry.creativeUrl,
       rotationIntervalSeconds: draft.intervalSeconds,
+      isHouse: entry.isHouse === true,
     });
     setBusy(false);
     if (data?.ok) {
@@ -358,7 +384,7 @@ export default function AdSpacesPage() {
 
       {/* Selected billboard editor. */}
       <section className="mx-auto mt-4 max-w-3xl rounded-2xl border border-white/10 bg-zinc-900/60 p-4">
-        <h2 className="text-base font-black tracking-[0.15em] text-white">BILLBOARD {selected}</h2>
+        <h2 className="text-base font-black tracking-[0.15em] text-white">BILLBOARD {selected} · {GOD_MENUS[satelliteForBillboard(selected)]?.god || ''} SATELLITE</h2>
         <p className="mt-1 text-xs text-zinc-400">
           {liveEntriesForSelected.length > 0
             ? `${liveEntriesForSelected.length} ad${liveEntriesForSelected.length === 1 ? '' : 's'} live on this billboard right now.`
@@ -439,6 +465,16 @@ export default function AdSpacesPage() {
                 />
               </label>
 
+              <label className="mt-3 flex min-h-[44px] items-start gap-2 text-xs text-zinc-300">
+                <input
+                  type="checkbox"
+                  checked={entry.isHouse === true}
+                  onChange={(e) => updateDraft((d) => { const x = d.entries.find((y) => y.key === entry.key); if (x) x.isHouse = e.target.checked; return d; })}
+                  className="mt-0.5"
+                />
+                <span>House / demo ad — Merlin's own, exempt from the one-billboard-per-satellite cap</span>
+              </label>
+
               <button
                 onClick={() => addToQueue(entry)}
                 disabled={busy || entry.uploading || entry.queued}
@@ -494,7 +530,7 @@ export default function AdSpacesPage() {
             {stagedRows.map((r) => (
               <div key={r.id} className="flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-black/40 px-3 py-2">
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-xs font-bold text-white">Billboard {r.billboardNumber} · {r.kind === 'remove' ? `Remove ${r.companyName}` : r.companyName}</span>
+                  <span className="block truncate text-xs font-bold text-white">Billboard {r.billboardNumber} · {r.kind === 'remove' ? `Remove ${r.companyName}` : r.companyName}{r.isHouse === true ? ' · HOUSE' : ''}</span>
                   <span className="block truncate text-xs text-zinc-500">{r.linkUrl}</span>
                 </span>
                 <button
@@ -534,7 +570,7 @@ export default function AdSpacesPage() {
                 return (
                   <div key={r.id} className="flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-black/40 px-3 py-2">
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-xs font-bold text-white">Billboard {r.billboardNumber} · {r.kind === 'remove' ? `Remove ${r.companyName}` : r.companyName}</span>
+                      <span className="block truncate text-xs font-bold text-white">Billboard {r.billboardNumber} · {r.kind === 'remove' ? `Remove ${r.companyName}` : r.companyName}{r.isHouse === true ? ' · HOUSE' : ''}</span>
                       <span className="block truncate text-xs text-zinc-500">{isLive ? 'Live ✓' : 'Sent to builder — awaiting application'}</span>
                     </span>
                   </div>

@@ -29,9 +29,13 @@ import {
   validateAdEntry,
   validateRemovalRow,
   ROTATION_DEFAULT_SECONDS,
+  satelliteForBillboard,
+  normalizeCompany,
+  findOwnershipConflict,
 } from '../lib/billboards/validate.js';
 import {
   manifestToOverrides,
+  manifestHoldings,
   overrideSlotFor,
   applyOverridesToTowerPanels,
   nextRotationIndex,
@@ -231,6 +235,74 @@ check('migration file exists: queue table + public bucket, no live table', () =>
   assert.ok(sql.includes('billboard_queue'), 'queue table');
   assert.ok(sql.includes('billboard-creatives'), 'creative bucket');
   assert.ok(!sql.includes('CREATE TABLE public.billboard_ads'), 'no live billboard table');
+});
+
+// --- ownership cap (Merlin, 2026-10-27 — hard rule) ---
+check('ownership cap: satellite mapping is 4 billboards per satellite', () => {
+  assert.equal(satelliteForBillboard(1), 0);
+  assert.equal(satelliteForBillboard(4), 0);
+  assert.equal(satelliteForBillboard(5), 1);
+  assert.equal(satelliteForBillboard(44), 10);
+  assert.equal(satelliteForBillboard(0), null);
+  assert.equal(satelliteForBillboard(45), null);
+  assert.equal(normalizeCompany('  Acme '), 'acme');
+});
+
+check('ownership cap: same company, same satellite, different billboard conflicts', () => {
+  const holdings = [{ companyName: 'Acme', billboardNumber: 6, house: false }];
+  const hit = findOwnershipConflict({ companyName: 'Acme', billboardNumber: 5, holdings, isHouse: false });
+  assert.deepEqual(hit, { billboardNumber: 6, satellite: 1 });
+});
+
+check('ownership cap: same billboard, different satellite, or house never conflicts', () => {
+  const holdings = [
+    { companyName: 'Acme', billboardNumber: 6, house: false },
+    { companyName: 'Beta', billboardNumber: 7, house: true },
+  ];
+  // Same billboard as the holding: fine (rotation list).
+  assert.equal(findOwnershipConflict({ companyName: 'Acme', billboardNumber: 6, holdings, isHouse: false }), null);
+  // Different satellite (billboard 9 is tower 2): fine.
+  assert.equal(findOwnershipConflict({ companyName: 'Acme', billboardNumber: 9, holdings, isHouse: false }), null);
+  // Placing a house ad never conflicts, even on the same satellite.
+  assert.equal(findOwnershipConflict({ companyName: 'Acme', billboardNumber: 7, holdings, isHouse: true }), null);
+  // A house holding never blocks a third-party placement.
+  assert.equal(findOwnershipConflict({ companyName: 'Beta', billboardNumber: 5, holdings, isHouse: false }), null);
+  // Company match is case-insensitive.
+  assert.ok(findOwnershipConflict({ companyName: 'ACME', billboardNumber: 5, holdings, isHouse: false }) !== null);
+});
+
+check('ownership cap: manifest holdings carry the house flag', () => {
+  const manifest = {
+    billboards: {
+      5: { intervalSeconds: 15, entries: [{ company: 'Acme', link: 'https://a.example', creativeType: 'image', creativeUrl: 'https://x.example/a.png', house: false }] },
+      6: { intervalSeconds: 15, entries: [{ company: 'Olympus', link: 'https://olympusverse.com', creativeType: 'image', creativeUrl: 'https://x.example/o.png', house: true }] },
+    },
+  };
+  const holdings = manifestHoldings(manifest);
+  assert.equal(holdings.length, 2);
+  assert.equal(holdings.find((h) => h.billboardNumber === 6).house, true);
+  assert.equal(holdings.find((h) => h.billboardNumber === 5).house, false);
+});
+
+check('ownership cap: manager page + route enforce it; migration stores is_house', () => {
+  const page = read('app/ad-spaces/page.jsx');
+  assert.ok(page.includes('House / demo ad'), 'house checkbox');
+  assert.ok(page.includes('one billboard per satellite per advertiser'), 'plain cap message');
+  assert.ok(page.includes('SATELLITE'), 'satellite named in the editor header');
+  const route = read('app/api/billboards/queue/route.js');
+  assert.ok(route.includes('findOwnershipConflict'), 'server cap check');
+  assert.ok(route.includes('is_house: isHouse'), 'house flag stored on stage');
+  const sql = read('supabase/migrations/20261027_billboard_ads.sql');
+  assert.ok(sql.includes('is_house boolean'), 'is_house column');
+});
+
+// --- prices are permanent (Merlin, 2026-10-27) ---
+check('prices: no launch-price or rises-later copy anywhere in the manager', () => {
+  for (const rel of ['app/ad-spaces/page.jsx', 'app/api/billboards/queue/route.js', 'lib/billboards/validate.js', 'lib/billboards/overrides.js']) {
+    const text = read(rel).toLowerCase();
+    assert.ok(!text.includes('launch price'), `${rel} must not say launch price`);
+    assert.ok(!text.includes('rises later') && !text.includes('price rise'), `${rel} must not promise a rise`);
+  }
 });
 
 console.log(`billboard-ads: ${passed} checks passed`);
