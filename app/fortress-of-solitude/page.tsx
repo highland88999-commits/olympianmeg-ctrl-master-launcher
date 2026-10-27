@@ -14,7 +14,7 @@ import { BackButton } from '@/components/ui';
 import { supabase } from '@/lib/supabase';
 import { guardCanvasContext } from '@/lib/scene-context-guard';
 import { lockBlob, unlockBlob, isLockedNode } from '@/lib/fortress/vault-crypto';
-import { formatBytes, FREE_QUOTA_BYTES } from '@/lib/fortress/tiers';
+import { formatBytes, FREE_QUOTA_BYTES, VAULT_PER_FILE_LIMIT_BYTES } from '@/lib/fortress/tiers';
 import { SHARE_PASSPHRASE_NOTE } from '@/lib/fortress/shares';
 
 import HoloframeViewer from "@/components/fortress/HoloframeViewer";
@@ -49,6 +49,18 @@ export default function FortressApp() {
   const [quota, setQuota] = useState<{ tier: string, tierLabel: string, quotaBytes: number, usedBytes: number } | null>(null);
   const [tiersOpen, setTiersOpen] = useState(false);
   const [ascending, setAscending] = useState(false);
+
+  // Vault readiness, ensured ONCE per session (never per render, never per
+  // save): the first load creates-or-loads the user's private bucket and
+  // caches the success for the session, so later visits skip the network
+  // call entirely. A failed ensure is never cached, so the next load
+  // retries. Quota stays live (fetched on load, refreshed on usage adds and
+  // Stripe returns) — only bucket readiness + the live cap are cached, since
+  // those never change mid-session. A preparation failure surfaces HERE,
+  // on load, in plain words — never mid-save.
+  const [vault, setVault] = useState<{ ready: boolean, bucket: string | null, fileSizeLimitBytes: number | null, capAligned: boolean, error: string | null } | null>(null);
+  const vaultEnsureRef = useRef(false);
+  const VAULT_STATE_KEY = 'fortress:vault-state:v1';
 
   // Real share links for the selected crystal's file.
   const [share, setShare] = useState<{ url: string, expiresAt: string, token: string } | null>(null);
@@ -129,11 +141,39 @@ export default function FortressApp() {
         setMounted(true);
 
         // The user's real storage position: tier, allowance, and used bytes.
+        // (The quota read creates the row on first read — free users get
+        // their 1 GB from the start; an existing row is never overwritten.)
         try {
           const qres = await fetch('/api/fortress/quota', { headers: await authHeaders() });
           const q = await qres.json();
           if (!q.error) setQuota({ tier: q.tier, tierLabel: q.tierLabel, quotaBytes: q.quotaBytes, usedBytes: q.usedBytes });
         } catch { /* the storage widget falls back to the crystal matrix */ }
+
+        // First-load vault ensure, once per session: create-or-load the
+        // private bucket (idempotent server-side). A cached success skips
+        // the network entirely; a failure is shown on load, never mid-save.
+        if (!vaultEnsureRef.current) {
+          vaultEnsureRef.current = true;
+          try {
+            let cached: { bucket: string, fileSizeLimitBytes: number } | null = null;
+            try {
+              const raw = window.sessionStorage.getItem(VAULT_STATE_KEY);
+              cached = raw ? JSON.parse(raw) : null;
+            } catch { cached = null; }
+            if (cached && cached.bucket && Number.isFinite(cached.fileSizeLimitBytes)) {
+              setVault({ ready: true, bucket: cached.bucket, fileSizeLimitBytes: cached.fileSizeLimitBytes, capAligned: false, error: null });
+            } else {
+              const eres = await fetch('/api/fortress/vault/ensure', { method: 'POST', headers: await authHeaders() });
+              const e = await eres.json();
+              if (e.error) throw new Error(e.error);
+              const limit = Number.isFinite(e.fileSizeLimitBytes) ? e.fileSizeLimitBytes : VAULT_PER_FILE_LIMIT_BYTES;
+              setVault({ ready: true, bucket: e.bucket, fileSizeLimitBytes: limit, capAligned: !!e.capAligned, error: null });
+              try { window.sessionStorage.setItem(VAULT_STATE_KEY, JSON.stringify({ bucket: e.bucket, fileSizeLimitBytes: limit })); } catch { /* private mode — the next load re-ensures */ }
+            }
+          } catch (err: any) {
+            setVault({ ready: false, bucket: null, fileSizeLimitBytes: null, capAligned: false, error: err?.message || 'Could not prepare your vault.' });
+          }
+        }
 
         // Return from Stripe: settle on the webhook's word, then refresh.
         try {
@@ -374,6 +414,19 @@ export default function FortressApp() {
         // The server only ever receives ciphertext — never the file, never the passphrase.
         const lockedBytes = await lockBlob(zipBytes, phrase);
         const lockedBlob = new Blob([lockedBytes as unknown as BlobPart], { type: 'application/octet-stream' });
+
+        // The vault's per-file cap applies to the STORED (locked) blob, not
+        // the original file — refuse up front in plain words instead of
+        // failing mid-save on a bare size error. Client-side only: no extra
+        // round trip; the server gate still runs on the upload-link call.
+        const vaultLimit = vault?.fileSizeLimitBytes ?? VAULT_PER_FILE_LIMIT_BYTES;
+        if (lockedBlob.size > vaultLimit) {
+          setStatusMsg(`That file is ${formatBytes(lockedBlob.size)} once locked — the vault allows files up to ${formatBytes(vaultLimit)} each.`);
+          setTimeout(() => setStatusMsg(""), 6000);
+          setUploadTarget(null);
+          if (fileInputRef.current) fileInputRef.current.value = "";
+          return;
+        }
 
         setStatusMsg("Getting your upload link...");
         const session = await supabase.auth.getSession();
@@ -797,6 +850,7 @@ export default function FortressApp() {
                      <button className="btn flex-1 flex items-center justify-center gap-2 py-3" onClick={() => { setUploadTarget('crystal'); fileInputRef.current?.click(); }}><Upload size={16}/> Choose file</button>
                      <button className="btn flex-1 py-3 border-gray-400 text-gray-400 hover:bg-white/10" onClick={resetLockState}>Cancel</button>
                    </div>
+                   <p className="text-[10px] tracking-widest text-white/40 text-center">Files up to {formatBytes(vault?.fileSizeLimitBytes ?? VAULT_PER_FILE_LIMIT_BYTES)} each once locked</p>
                  </div>
                ) : (
                  <button className="btn w-full flex items-center justify-center gap-2 py-4" onClick={() => setLockStep('store')}><Upload size={18}/> Store File Inside</button>
@@ -909,7 +963,9 @@ export default function FortressApp() {
                 <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
                     <div className="h-full bg-cyan-400 shadow-[0_0_10px_#00f2ff]" style={{ width: `${quota ? Math.min((quota.usedBytes / Math.max(quota.quotaBytes, 1)) * 100, 100) : Math.min((storageUsed / (2000 * 1024 * 1024)) * 100, 100)}%` }} />
                 </div>
-                {!quota && <div className="text-[10px] text-white/40 tracking-wider mt-2 text-center">Connecting to your vault…</div>}
+                {!quota && vault === null && <div className="text-[10px] text-white/40 tracking-wider mt-2 text-center">Connecting to your vault…</div>}
+                {vault !== null && !vault.ready && vault.error && <div className="text-[10px] text-red-300/90 tracking-wider mt-2 text-center leading-relaxed">Vault not ready: {vault.error}</div>}
+                {vault !== null && vault.ready && <div className="text-[10px] text-cyan-300/80 tracking-wider mt-2 text-center">Vault connected · Files up to {formatBytes(vault.fileSizeLimitBytes ?? VAULT_PER_FILE_LIMIT_BYTES)} each{vault.capAligned ? ' · vault cap updated' : ''}</div>}
             </div>
         </div>
       </div>

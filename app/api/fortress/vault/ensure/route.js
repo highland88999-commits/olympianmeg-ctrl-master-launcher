@@ -1,12 +1,14 @@
 // Fortress of Solitude — ensure the caller's private bucket exists.
-// POST /api/fortress/vault/ensure -> { bucket }
+// POST /api/fortress/vault/ensure -> { bucket, fileSizeLimitBytes, capAligned, previousFileSizeLimitBytes }
 // Creates `fortress-<user_id>` on first use (service role). Idempotent.
+// The live per-file cap is reported (and any upward alignment of an older
+// cap is flagged) so the UI always shows the truth — never a silent change.
 
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { getFortressUser, getFortressAdmin } from '@/lib/fortress/server';
-import { ensureUserBucket, vaultBucketName } from '@/lib/fortress/vault-storage';
+import { ensureUserBucketDetailed, vaultBucketName } from '@/lib/fortress/vault-storage';
 
 export async function POST(req) {
   const auth = await getFortressUser(req);
@@ -21,8 +23,8 @@ export async function POST(req) {
   }
 
   try {
-    const bucket = await ensureUserBucket(admin, auth.user.id);
-    return NextResponse.json({ bucket });
+    const state = await ensureUserBucketDetailed(admin, auth.user.id);
+    return NextResponse.json(state);
   } catch (err) {
     return NextResponse.json(
       { error: err.message || 'Could not prepare your vault.' },
