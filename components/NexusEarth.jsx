@@ -11,11 +11,14 @@ import EarthBike from '@/components/EarthBike';
 import EarthSupercar from '@/components/EarthSupercar';
 import EarthPitMarker from '@/components/EarthPitMarker';
 import StreetGroundPatch, { StreetFillLight } from '@/components/StreetGroundPatch';
-import { LENS_PRESETS, LENS_LIFT, lensTilePlan, buildLensGeometryData } from '@/lib/earth/lens';
+import { LENS_PRESETS, LENS_LIFT, lensTilePlan, buildLensGeometryData, sortTilesCenterFirst, latLonFromDir } from '@/lib/earth/lens';
 import { tileCellKey, recordRenderedTileKey } from '@/lib/earth/lens-cache';
 import { HUB_UNITS_PER_DEGREE, DISPLAY_UNITS_PER_METRE } from '@/lib/earth/placements';
 import { loadHeightData, getHeightData } from '@/lib/earth/heightmap';
-import { roamState } from '@/lib/earth/roam';
+import { roamState, tangentFrame, headingVector, DRIVING_ENTER_MPS, DRIVING_EXIT_MPS, revealLeadHub } from '@/lib/earth/roam';
+import { setStreetFlatActive } from '@/lib/earth/street-flat';
+import { PATCH_RECENTER_M, PATCH_RECENTER_DRIVING_M } from '@/lib/earth/street-patch';
+import { EARTH_RADIUS } from '@/lib/geo';
 
 // The hub Earth: Google's photorealistic 3D tiles when they stream, a real
 // procedural 3D terrain globe as the fallback — Earth is always 3D, never a
@@ -54,6 +57,11 @@ import { roamState } from '@/lib/earth/roam';
 // memory is ≈ unchanged, and 4 sheets at the tripled radius
 // already cover ×9 the ground the old 4 did.
 const MAX_LENS_SHEETS = 4;
+// Far (15× reveal) sheets are coarser canvases (1440² ≈ 8 MB), so
+// two live far sheets cost less than one near sheet — the cap
+// stays small because the far sheet's job is coverage, and the
+// newest two already span ~2.7 km of travel.
+const MAX_FAR_LENS_SHEETS = 2;
 
 // The globe's centre in world space (this component's outer group
 // position) — the atmosphere shell's camera-distance gate below
@@ -72,13 +80,22 @@ const SHELL_CAMERA_MIN_DIST = 57.5;
 export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnabled, controls, onTeleportNYC }) {
   const spinRef = useRef();
   const sheetsRef = useRef([]); // [{ key, mesh }] — mirror of lensSheets for frame-loop access
+  const farSheetsRef = useRef([]); // [{ key, mesh }] — 15× reveal sheets
   const roamCenterRef = useRef(null);
   const patchCenterRef = useRef(null);
+  const farCenterRef = useRef(null);
   const lastLensBuildRef = useRef(0);
+  const farLastBuildRef = useRef(0);
+  const lastRoamPosRef = useRef(null); // { lat, lon, t } — driving-speed sampling
+  const speedSmoothRef = useRef(0); // display m/s, EMA
+  const drivingRef = useRef(false);
   const [lensSheets, setLensSheets] = useState([]);
+  const [farSheets, setFarSheets] = useState([]);
   const [heightReady, setHeightReady] = useState(false);
   const [roamCenter, setRoamCenter] = useState(null);
   const [patchCenter, setPatchCenter] = useState(null);
+  const [farCenter, setFarCenter] = useState(null);
+  const [driving, setDriving] = useState(false);
   // 'terrain' = procedural 3D globe + ESRI lens (default, always 3D).
   // 'photorealistic' = Google 3D tiles, only after they really render.
   const [layer, setLayer] = useState('terrain');
@@ -93,6 +110,16 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
     loadHeightData().then((hd) => { if (alive && hd) setHeightReady(true); });
     return () => { alive = false; };
   }, []);
+
+  // Street-level flat mode (Merlin, 2026-10-26): while roaming,
+  // every ground sampler returns the constant sea-level radius —
+  // the globe component morphs its geometry flat on the same
+  // signal, so the visible world and the grounding agree. Cleared
+  // on phase change and unmount: orbit keeps real relief.
+  useEffect(() => {
+    setStreetFlatActive(roaming);
+    return () => setStreetFlatActive(false);
+  }, [roaming]);
 
   // While roaming, recenter the street lens when the traveler has
   // walked out of its middle (throttled: the composite is a real
@@ -113,7 +140,7 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
     if (spinRef.current && quatRef?.current) {
       spinRef.current.quaternion.copy(quatRef.current);
     }
-    if (sheetsRef.current.length) {
+    if (sheetsRef.current.length || farSheetsRef.current.length) {
       // UNMASKED (2026-10-26, Earth 1 expansion): a rendered tile
       // STAYS rendered and visible. The old fade hid every sheet
       // whenever focus cleared or during earth_travel, so ground
@@ -128,6 +155,11 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
       // of scope.
       const target = 0.96;
       for (const s of sheetsRef.current) {
+        const m = s.mesh.material;
+        m.opacity += (target - m.opacity) * Math.min(1, delta * 3);
+        s.mesh.visible = m.opacity > 0.02;
+      }
+      for (const s of farSheetsRef.current) {
         const m = s.mesh.material;
         m.opacity += (target - m.opacity) * Math.min(1, delta * 3);
         s.mesh.visible = m.opacity > 0.02;
@@ -155,15 +187,89 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
       // is pure geometry (no tile fetches), and at bike speed the
       // traveler crosses the lens's 900ms throttle in a blink — the
       // floor must already be there, all around and behind, before
-      // it's needed (Merlin, 2026-10-20). ~10 m threshold, no timer.
+      // it's needed (Merlin, 2026-10-20). ~10 m threshold on foot,
+      // no timer; 100 m while driving (the flat disc is identical
+      // wherever its centre sits inside its own radius, so the
+      // 10 m beat at full boost would rebuild it 54×/s for
+      // nothing).
       const pc = patchCenterRef.current;
-      const patchDeg = (10 * DISPLAY_UNITS_PER_METRE) / HUB_UNITS_PER_DEGREE;
+      const patchM = drivingRef.current ? PATCH_RECENTER_DRIVING_M : PATCH_RECENTER_M;
+      const patchDeg = (patchM * DISPLAY_UNITS_PER_METRE) / HUB_UNITS_PER_DEGREE;
       if (!pc
         || Math.abs(pc.lat - roamState.lat) > patchDeg
         || Math.abs(pc.lon - roamState.lon) > patchDeg) {
         const next = { lat: roamState.lat, lon: roamState.lon };
         patchCenterRef.current = next;
         setPatchCenter(next);
+      }
+
+      // Driving speed + the 15× reveal centre (2026-10-26, flat +
+      // reveal): speed comes from the traveler's own position
+      // delta, so it is true for walker, bike and car alike.
+      // Hysteresis keeps the driving flag from flapping at the
+      // boundary; the fine street sheet pauses while driving
+      // (see the lens effect) and the far sheet carries the
+      // ground, centred 1.5 s ahead of the heading so tiles
+      // paint where the traveler is GOING.
+      const nowMs = performance.now();
+      const last = lastRoamPosRef.current;
+      if (last) {
+        const dtSec = (nowMs - last.t) / 1000;
+        if (dtSec > 0.001 && dtSec < 1) {
+          const p1 = (last.lat * Math.PI) / 180;
+          const p2 = (roamState.lat * Math.PI) / 180;
+          const dLon = ((roamState.lon - last.lon) * Math.PI) / 180;
+          const cosC = Math.min(1, Math.max(-1,
+            Math.sin(p1) * Math.sin(p2) + Math.cos(p1) * Math.cos(p2) * Math.cos(dLon)));
+          const hubDist = Math.acos(cosC) * EARTH_RADIUS;
+          const inst = hubDist / dtSec / DISPLAY_UNITS_PER_METRE;
+          // Teleports (spawn jumps, journey portals) read as
+          // absurd speeds — ignore them instead of flipping
+          // driving mode and flinging the reveal centre.
+          if (inst <= 1200) {
+            speedSmoothRef.current = speedSmoothRef.current * 0.65 + inst * 0.35;
+            const spd = speedSmoothRef.current;
+            if (!drivingRef.current && spd > DRIVING_ENTER_MPS) {
+              drivingRef.current = true;
+              setDriving(true);
+            } else if (drivingRef.current && spd < DRIVING_EXIT_MPS) {
+              drivingRef.current = false;
+              setDriving(false);
+              // Stopping: recenter the fine sheet at once instead
+              // of waiting out the 900 ms throttle on stale ground.
+              lastLensBuildRef.current = 0;
+            }
+          }
+        }
+      }
+      lastRoamPosRef.current = { lat: roamState.lat, lon: roamState.lon, t: nowMs };
+      // Far reveal centre: the player's position led along the
+      // heading. Recenter when the led point leaves the far
+      // sheet's middle (40% of its radius), throttled 500 ms —
+      // at full boost that cadence is ~1 s, so the throttle
+      // never starves the build.
+      const farPreset = LENS_PRESETS.streetFar;
+      const farRecenterDeg = (farPreset.radiusUnits * 0.4) / HUB_UNITS_PER_DEGREE;
+      const leadHub = revealLeadHub(speedSmoothRef.current);
+      const leadAng = leadHub / EARTH_RADIUS;
+      const frame = tangentFrame(roamState.lat, roamState.lon);
+      const fwd = headingVector(frame, roamState.yawDeg);
+      const cosA = Math.cos(leadAng);
+      const sinA = Math.sin(leadAng);
+      const leadDir = {
+        x: frame.normal.x * cosA + fwd.x * sinA,
+        y: frame.normal.y * cosA + fwd.y * sinA,
+        z: frame.normal.z * cosA + fwd.z * sinA,
+      };
+      const leadPos = latLonFromDir(leadDir);
+      const fc = farCenterRef.current;
+      if ((!fc
+        || Math.abs(fc.lat - leadPos.lat) > farRecenterDeg
+        || Math.abs(fc.lon - leadPos.lon) > farRecenterDeg)
+        && nowMs - farLastBuildRef.current > 500) {
+        farLastBuildRef.current = nowMs;
+        farCenterRef.current = leadPos;
+        setFarCenter(leadPos);
       }
     }
   });
@@ -200,6 +306,8 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
   // ground grows within seconds instead of all-or-nothing.
   const lensBuildRef = useRef({ busy: false, pending: null, alive: true });
   const lensGenRef = useRef(0);
+  const farLensBuildRef = useRef({ busy: false, pending: null, alive: true });
+  const farLensGenRef = useRef(0);
 
   const disposeLensSheet = (s) => {
     s.mesh.geometry.dispose();
@@ -241,17 +349,84 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
     setLensSheets(next);
   };
 
+  // Far-sheet pool (15× reveal): same persist + distance-eviction
+  // law as the near pool, but a SEPARATE pool — a far sheet must
+  // never evict a near sheet or vice versa, and the far cap (2)
+  // reflects the coarser 1440² canvases.
+  const mountFarLensSheet = (key, mesh, lat, lon) => {
+    const replaced = farSheetsRef.current.find((s) => s.key === key);
+    if (replaced) disposeLensSheet(replaced);
+    const next = [...farSheetsRef.current.filter((s) => s.key !== key),
+      { key, mesh, lat, lon }];
+    while (next.length > MAX_FAR_LENS_SHEETS) {
+      let farIdx = 0;
+      let farDist = -1;
+      for (let i = 0; i < next.length - 1; i++) {
+        const dLat = next[i].lat - lat;
+        const dLon = next[i].lon - lon;
+        const d = dLat * dLat + dLon * dLon;
+        if (d > farDist) { farDist = d; farIdx = i; }
+      }
+      disposeLensSheet(next[farIdx]);
+      next.splice(farIdx, 1);
+    }
+    farSheetsRef.current = next;
+    setFarSheets(next);
+  };
+
+  const removeFarLensSheet = (key) => {
+    const hit = farSheetsRef.current.find((s) => s.key === key);
+    if (!hit) return;
+    disposeLensSheet(hit);
+    const next = farSheetsRef.current.filter((s) => s.key !== key);
+    farSheetsRef.current = next;
+    setFarSheets(next);
+  };
+
+  const clearFarSheets = () => {
+    for (const s of farSheetsRef.current) {
+      s.mesh.geometry.dispose();
+      s.mesh.material.map?.dispose();
+      s.mesh.material.dispose();
+    }
+    farSheetsRef.current = [];
+    setFarSheets([]);
+  };
+
   const pumpLensQueue = () => {
     const mgr = lensBuildRef.current;
     if (mgr.busy || !mgr.alive) return;
     const job = mgr.pending;
     mgr.pending = null;
-    if (job) startLensBuild(job);
+    if (job) startLensBuild(job, NEAR_CTX);
   };
 
-  const startLensBuild = (job) => {
-    const mgr = lensBuildRef.current;
-    const gen = lensGenRef.current;
+  const farPumpLensQueue = () => {
+    const mgr = farLensBuildRef.current;
+    if (mgr.busy || !mgr.alive) return;
+    const job = mgr.pending;
+    mgr.pending = null;
+    if (job) startLensBuild(job, FAR_CTX);
+  };
+
+  // Build contexts: one build routine serves both pools; the ctx
+  // picks the manager, the mount/remove/pump set, and the draw
+  // order (far below near — the near sheet's detail always wins
+  // where the two overlap).
+  const NEAR_CTX = {
+    mgrRef: lensBuildRef, genRef: lensGenRef,
+    mount: mountLensSheet, remove: removeLensSheet, pump: pumpLensQueue,
+    renderOrder: 3,
+  };
+  const FAR_CTX = {
+    mgrRef: farLensBuildRef, genRef: farLensGenRef,
+    mount: mountFarLensSheet, remove: removeFarLensSheet, pump: farPumpLensQueue,
+    renderOrder: 2,
+  };
+
+  const startLensBuild = (job, bctx) => {
+    const mgr = bctx.mgrRef.current;
+    const gen = bctx.genRef.current;
     mgr.busy = true;
     const preset = LENS_PRESETS[job.presetName];
     const plan = lensTilePlan(job.lat, job.lon, preset.zoom, preset.grid, preset.canvasPx);
@@ -263,7 +438,7 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
     // iPhone hardening (2026-10-01): iOS Safari returns null for 2D
     // contexts under canvas memory pressure — skip the build
     // honestly instead of throwing; the next recenter retries.
-    if (!ctx || !hd) { mgr.busy = false; pumpLensQueue(); return; }
+    if (!bctx || !hd) { mgr.busy = false; bctx.pump(); return; }
     const data = buildLensGeometryData(
       hd.data, hd.w, hd.h, job.lat, job.lon,
       preset.radiusUnits, plan,
@@ -271,7 +446,9 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
         // Street rings 12 → 24 (2026-10-22, with the radius
         // tripling): the wider disc gets a denser drape so
         // relief still hugs the terrain out at the 90 m rim.
-        rings: job.presetName === 'street' ? 24 : 22,
+        // The far sheet takes 24 too — over a 45° cap the UV
+        // registration across each triangle stays sub-tile.
+        rings: job.presetName === 'overlook' ? 22 : 24,
         sectors: 48,
         lift: preset.lift ?? LENS_LIFT,
       },
@@ -287,12 +464,12 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
       map: tex, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide,
     });
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.renderOrder = 3;
+    mesh.renderOrder = bctx.renderOrder;
     // Progressive mount: the sheet is on screen at once (the
     // frame loop animates its opacity 0 → 0.96) and tiles paint
     // into it as they arrive — no more waiting on all 1,296
     // tiles before ANY photographic ground shows.
-    mountLensSheet(job.key, mesh, job.lat, job.lon);
+    bctx.mount(job.key, mesh, job.lat, job.lon);
     let settledCount = 0;
     let okCount = 0;
     let texTimer = null;
@@ -306,9 +483,9 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
     const finish = () => {
       if (texTimer) { clearTimeout(texTimer); texTimer = null; }
       tex.needsUpdate = true;
-      if (gen !== lensGenRef.current || !mgr.alive) {
+      if (gen !== bctx.genRef.current || !mgr.alive) {
         // Superseded (centre cleared) or unmounted: drop the sheet.
-        removeLensSheet(job.key);
+        bctx.remove(job.key);
       } else if (okCount > 0) {
         // Feather the rim into the globe: opaque through the
         // middle, gone at the edge — no hard matte ring.
@@ -326,17 +503,23 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
         recordRenderedTileKey(tileCellKey(job.presetName, plan));
       } else {
         // Every tile failed: leave no invisible sheet behind.
-        removeLensSheet(job.key);
+        bctx.remove(job.key);
       }
       mgr.busy = false;
-      pumpLensQueue();
+      bctx.pump();
     };
-    plan.tiles.forEach((t) => {
+    // Centre-first painting (2026-10-26, effective reveal): the
+    // plan lists tiles row-major, which painted the north edge
+    // first and the traveler's own ground halfway through the
+    // build. Centre-first paints the ground under and around
+    // the traveler in the first fetches — at any speed, the
+    // nearest ground is the first ground.
+    sortTilesCenterFirst(plan.tiles, preset.canvasPx, S).forEach((t) => {
       if (!t.url) { settledCount += 1; if (settledCount === plan.tiles.length) finish(); return; }
       const img = new Image();
       img.crossOrigin = 'anonymous';
       img.onload = () => {
-        if (gen === lensGenRef.current && mgr.alive) {
+        if (gen === bctx.genRef.current && mgr.alive) {
           ctx.drawImage(img, t.px, t.py, S, S);
           queueTexUpload();
         }
@@ -364,22 +547,62 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
     }
     const mgr = lensBuildRef.current;
     const job = { key: centerKey, lat: lensCenter.lat, lon: lensCenter.lon, presetName };
+    // Driving: the fine sheet is crossed in under a second at
+    // vehicle speed, so starting builds for it would only churn
+    // the serial queue and paint ground the traveler already
+    // left. Queue the newest centre and let the far sheet carry
+    // the ground; when driving ends this effect re-runs
+    // (driving is a dep) and builds the latest centre at once.
+    if (driving) { mgr.pending = job; return undefined; }
     if (mgr.busy) { mgr.pending = job; return undefined; }
-    startLensBuild(job);
+    startLensBuild(job, NEAR_CTX);
     return undefined;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [centerKey, heightReady]);
+  }, [centerKey, heightReady, driving]);
+
+  // 15× reveal sheet (Merlin, 2026-10-26): a second, coarser
+  // sheet centred ahead of the traveler, carrying photographic
+  // ground out to 1350 display m. It has its own serial manager
+  // so a slow near build never blocks it, and its own pool so
+  // it never evicts a near sheet or vice versa. It only runs
+  // while roaming; leaving street clears it (the orbit view
+  // keeps its own overlook sheet, untouched).
+  const farCenterKey = farCenter
+    ? `streetFar:${farCenter.lat.toFixed(4)},${farCenter.lon.toFixed(4)}`
+    : null;
+  useEffect(() => {
+    if (!roaming || !farCenter || !heightReady) {
+      farLensGenRef.current += 1;
+      farLensBuildRef.current.pending = null;
+      clearFarSheets();
+      return undefined;
+    }
+    const mgr = farLensBuildRef.current;
+    const job = { key: farCenterKey, lat: farCenter.lat, lon: farCenter.lon, presetName: 'streetFar' };
+    if (mgr.busy) { mgr.pending = job; return undefined; }
+    startLensBuild(job, FAR_CTX);
+    return undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [farCenterKey, heightReady, roaming]);
 
   // Dispose all lens sheets on unmount.
   useEffect(() => () => {
     lensBuildRef.current.alive = false;
     lensBuildRef.current.pending = null;
+    farLensBuildRef.current.alive = false;
+    farLensBuildRef.current.pending = null;
     for (const s of sheetsRef.current) {
       s.mesh.geometry.dispose();
       s.mesh.material.map?.dispose();
       s.mesh.material.dispose();
     }
     sheetsRef.current = [];
+    for (const s of farSheetsRef.current) {
+      s.mesh.geometry.dispose();
+      s.mesh.material.map?.dispose();
+      s.mesh.material.dispose();
+    }
+    farSheetsRef.current = [];
   }, []);
 
   return (
@@ -393,7 +616,7 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
             onInactive={() => setLayer('terrain')}
           />
         </group>
-        {effectiveLayer === 'terrain' && <ProceduralEarthGlobe onSelect={onSelect} quatRef={quatRef} waterInOrbit={!roaming} />}
+        {effectiveLayer === 'terrain' && <ProceduralEarthGlobe onSelect={onSelect} quatRef={quatRef} waterInOrbit={!roaming} flatTarget={roaming} />}
         {/* Earth 1 simplification (2026-10-26): all placed 3D
             objects are staged off the scene — the full record
             lives in ~/workspace/earth1-staged-objects/inventory.json.
@@ -423,6 +646,12 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
         {effectiveLayer === 'terrain' && roaming && <EarthPitMarker />}
 
         {effectiveLayer === 'terrain' && lensSheets.map((s) => (
+          <primitive key={s.key} object={s.mesh} />
+        ))}
+        {/* 15× reveal sheets: coarser photographic ground out to
+            1350 display m, drawn below the fine sheets so near
+            detail always wins where the two overlap. */}
+        {effectiveLayer === 'terrain' && farSheets.map((s) => (
           <primitive key={s.key} object={s.mesh} />
         ))}
         {/* Street-level detail ground + lantern fill: only on the

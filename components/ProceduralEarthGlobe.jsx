@@ -1,8 +1,10 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import {
   TERRAIN_TEXTURES,
+  TERRAIN_RADIUS,
   buildTerrainGeometry,
 } from '@/lib/terrain';
 
@@ -101,10 +103,56 @@ const FRAGMENT_SHADER = /* glsl */ `
   }
 `;
 
-export default function ProceduralEarthGlobe({ onSelect, quatRef, waterInOrbit }) {
+export default function ProceduralEarthGlobe({ onSelect, quatRef, waterInOrbit, flatTarget = false }) {
   const [ready, setReady] = useState(null);
   const disposables = useRef([]);
   const uniformsRef = useRef(null);
+  // Street-flat morph (Merlin, 2026-10-26): while roaming, the
+  // globe's relief eases to a smooth sphere at TERRAIN_RADIUS
+  // over ~1.2 s — the descent masks the settle, and the flat
+  // ground samplers (placements.js) agree with the drawn globe
+  // at every step, so no hill ever pokes through the flat
+  // street patch or lens. Returning to orbit morphs relief
+  // back. Displacement is purely radial, so the morph is a
+  // per-vertex radius lerp: r(t) = 55 + (hillyR − 55) × t.
+  // Colours never change (the shader reads the height TEXTURE,
+  // not the vertices), and the orbit-water uniform is untouched.
+  const morphRef = useRef(null); // { geo, hilly, hillyR, t, target }
+  const flatTargetRef = useRef(flatTarget);
+  useEffect(() => {
+    flatTargetRef.current = flatTarget;
+    if (morphRef.current) morphRef.current.target = flatTarget ? 0 : 1;
+  }, [flatTarget]);
+  useFrame((_, delta) => {
+    const m = morphRef.current;
+    if (!m) return;
+    if (Math.abs(m.t - m.target) < 0.001) {
+      if (m.t !== m.target) {
+        m.t = m.target;
+        applyMorph(m);
+      }
+      return;
+    }
+    const step = Math.min(Math.abs(m.target - m.t), (delta || 0.016) / 1.2);
+    m.t += m.target > m.t ? step : -step;
+    applyMorph(m);
+  });
+
+  // Rewrite the geometry positions for the morph's current t.
+  function applyMorph(m) {
+    const pos = m.geo.attributes.position;
+    const arr = pos.array;
+    for (let i = 0; i < m.hillyR.length; i++) {
+      const hr = m.hillyR[i];
+      const r = TERRAIN_RADIUS + (hr - TERRAIN_RADIUS) * m.t;
+      const s = hr > 0 ? r / hr : 1;
+      arr[3 * i] = m.hilly[3 * i] * s;
+      arr[3 * i + 1] = m.hilly[3 * i + 1] * s;
+      arr[3 * i + 2] = m.hilly[3 * i + 2] * s;
+    }
+    pos.needsUpdate = true;
+    m.geo.computeVertexNormals();
+  }
 
   useEffect(() => {
     let alive = true;
@@ -139,6 +187,34 @@ export default function ProceduralEarthGlobe({ onSelect, quatRef, waterInOrbit }
         dayTex.colorSpace = THREE.SRGBColorSpace;
         nightTex.colorSpace = THREE.SRGBColorSpace;
         disposables.current = [geometry, heightTex, dayTex, nightTex];
+        // Capture the hilly positions for the street-flat morph.
+        // If the component mounts already roaming, start flat at
+        // once (no 1.2 s settle under the traveler's feet).
+        {
+          const arr = geometry.attributes.position.array;
+          const hilly = new Float32Array(arr);
+          const hillyR = new Float32Array(arr.length / 3);
+          for (let i = 0; i < hillyR.length; i++) {
+            hillyR[i] = Math.hypot(arr[3 * i], arr[3 * i + 1], arr[3 * i + 2]) || TERRAIN_RADIUS;
+          }
+          const startFlat = flatTargetRef.current === true;
+          morphRef.current = {
+            geo: geometry, hilly, hillyR,
+            t: startFlat ? 0 : 1, target: startFlat ? 0 : 1,
+          };
+          if (startFlat) {
+            const pos = geometry.attributes.position;
+            const p = pos.array;
+            for (let i = 0; i < hillyR.length; i++) {
+              const s = TERRAIN_RADIUS / hillyR[i];
+              p[3 * i] = hilly[3 * i] * s;
+              p[3 * i + 1] = hilly[3 * i + 1] * s;
+              p[3 * i + 2] = hilly[3 * i + 2] * s;
+            }
+            pos.needsUpdate = true;
+            geometry.computeVertexNormals();
+          }
+        }
         const sunPos = new THREE.Vector3(0, 90, 250);
         const earthPos = new THREE.Vector3(0, -60, -120);
         const sunDirection = new THREE.Vector3().subVectors(sunPos, earthPos).normalize();
@@ -165,6 +241,7 @@ export default function ProceduralEarthGlobe({ onSelect, quatRef, waterInOrbit }
 
     return () => {
       alive = false;
+      morphRef.current = null;
       disposables.current.forEach((d) => {
         try {
           d.dispose();
