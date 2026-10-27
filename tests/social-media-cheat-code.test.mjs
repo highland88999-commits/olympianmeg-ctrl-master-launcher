@@ -185,7 +185,7 @@ describe('master-portal seating + featured placement', () => {
     assert.equal(seat.pos, 'HERMES');
     assert.equal(seat.section, 'TOOLS');
     assert.equal(SATELLITES.filter((s) => s.route === '/social-media-cheat-code').length, 1);
-    assert.equal(SATELLITES.length, 177);
+    assert.equal(SATELLITES.length, 178);
   });
 
   it('the HERMES god menu carries the room (so search + menu rows find it)', () => {
@@ -196,7 +196,7 @@ describe('master-portal seating + featured placement', () => {
   it('the Portal Room roster includes the room (registry − the room itself)', () => {
     const en = JSON.parse(read('lib/i18n/locales/en.json'));
     const roster = buildPortalRoster(SATELLITES, (k) => en[`sat.${k}.title`], (k) => en[`sat.${k}.subtitle`]);
-    assert.equal(roster.length, 176);
+    assert.equal(roster.length, 177);
     const seat = roster.find((p) => p.key === 'social-media-cheat-code');
     assert.ok(seat);
     assert.equal(seat.title, 'Social Media Cheat Code');

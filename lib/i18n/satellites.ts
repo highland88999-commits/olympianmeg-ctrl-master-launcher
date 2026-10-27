@@ -234,6 +234,7 @@ export const SATELLITES: SatelliteEntry[] = [
   // every program's earnings land here) — sits with the PLUTUS
   // wealth row beside AFFILIATES: ARES/TOOLS.
   { key: "wallet", route: "/wallet", pos: "PLUTUS", section: "TOOLS", constellation: "ARES" },
+  { key: "dodgeball", route: "/dodgeball", pos: "ARES", section: "GAMES", constellation: "ZEUS" },
 ];
 
 export interface SectionDef { name: string; key: string; constellation: string; }
