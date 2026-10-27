@@ -19,6 +19,8 @@ import {
   removeUsedBytes,
   applyPurchase,
   applyCancellation,
+  applyStackPurchase,
+  applyStackCancellation,
   ensureQuotaFromMatrix,
 } from '../lib/fortress/quota-store.js';
 import { FREE_QUOTA_BYTES } from '../lib/fortress/tiers.js';
@@ -188,4 +190,50 @@ test('ensureQuotaFromMatrix seeds used_bytes from legacy stored files', async ()
   assert.equal(created, true);
   assert.equal(row.used_bytes, 3500);
   assert.equal(row.quota_bytes, FREE_QUOTA_BYTES);
+});
+
+// ---- Custom tiers + stacking (2026-10-26) ----
+
+test('a custom purchase ADDS to the allowance and never touches tier or used_bytes', async () => {
+  const db = makeFakeDb({ fortress_quotas: [{ user_id: UID, tier: 'free', quota_bytes: 1e9, used_bytes: 42_000 }] });
+  const row = await applyStackPurchase(db, { userId: UID, addedBytes: 100_000_000_000 });
+  assert.equal(row.quota_bytes, 101_000_000_000);
+  assert.equal(row.tier, 'free', 'a custom purchase never changes the base tier');
+  assert.equal(row.used_bytes, 42_000, 'used_bytes never moves on a purchase');
+});
+
+test('buying twice doubles the added room (genuinely additive stacking)', async () => {
+  const db = makeFakeDb({ fortress_quotas: [{ user_id: UID, tier: 'free', quota_bytes: 1e9, used_bytes: 0 }] });
+  let row = await applyStackPurchase(db, { userId: UID, addedBytes: 50_000_000_000 });
+  assert.equal(row.quota_bytes, 51_000_000_000);
+  row = await applyStackPurchase(db, { userId: UID, addedBytes: 50_000_000_000 });
+  assert.equal(row.quota_bytes, 101_000_000_000, 'twice the same purchase doubles the added room');
+});
+
+test('a cancelled custom purchase removes only its own room, never below free', async () => {
+  const db = makeFakeDb({ fortress_quotas: [{ user_id: UID, tier: 'free', quota_bytes: 101_000_000_000, used_bytes: 7_000 }] });
+  let row = await applyStackCancellation(db, { userId: UID, removedBytes: 50_000_000_000 });
+  assert.equal(row.quota_bytes, 51_000_000_000);
+  row = await applyStackCancellation(db, { userId: UID, removedBytes: 50_000_000_000 });
+  assert.equal(row.quota_bytes, FREE_QUOTA_BYTES, 'free allowance is the floor');
+  assert.equal(row.used_bytes, 7_000, 'stored files are never touched by a cancellation');
+});
+
+test('stacked room survives a fixed-tier change', async () => {
+  const db = makeFakeDb({ fortress_quotas: [{ user_id: UID, tier: 'free', quota_bytes: 101_000_000_000, used_bytes: 0 }] });
+  const row = await applyPurchase(db, {
+    userId: UID, tierId: '50gb', quotaBytes: 50_000_000_000,
+    stripeCustomerId: 'cus_x', stripeSubscriptionId: 'sub_x',
+  });
+  assert.equal(row.tier, '50gb');
+  assert.equal(row.quota_bytes, 150_000_000_000, '50 GB tier + 100 GB stacked room carried over');
+});
+
+test('stacked room survives a base-tier cancellation', async () => {
+  const db = makeFakeDb({
+    fortress_quotas: [{ user_id: UID, tier: '50gb', quota_bytes: 150_000_000_000, used_bytes: 0, stripe_subscription_id: 'sub_x' }],
+  });
+  const row = await applyCancellation(db, UID);
+  assert.equal(row.tier, 'free');
+  assert.equal(row.quota_bytes, 101_000_000_000, 'free allowance + 100 GB stacked room');
 });

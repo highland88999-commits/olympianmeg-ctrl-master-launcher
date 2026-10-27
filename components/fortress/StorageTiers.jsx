@@ -7,17 +7,41 @@
 // pipeline status instead of starting a checkout.
 
 import React, { useState } from "react";
-import { X, ShieldCheck, ArrowUpCircle } from "lucide-react";
-import { PAID_TIER_IDS, getTier, formatBytes } from "@/lib/fortress/tiers";
+import { X, ShieldCheck, ArrowUpCircle, PlusCircle } from "lucide-react";
+import {
+  PAID_TIER_IDS,
+  getTier,
+  formatBytes,
+  CUSTOM_TIER_MIN_GB,
+  CUSTOM_TIER_MAX_GB,
+  CUSTOM_TIER_RATE_CENTS_PER_GB,
+  customTierPriceCents,
+} from "@/lib/fortress/tiers";
 
-export default function StorageTiers({ currentTier, usedBytes, quotaBytes, onAscend, onClose }) {
+export default function StorageTiers({ currentTier, usedBytes, quotaBytes, stackedBytes = 0, onAscend, onAscendCustom, onClose }) {
   const [busyTier, setBusyTier] = useState(null);
   const [pipelineStatus, setPipelineStatus] = useState(null);
+  // Custom tier: any amount, priced proportionally, ADDED to the allowance
+  // (stacking). Rate default = the 50 GB tier's rate — Merlin has not set
+  // the custom rate yet, so the UI says so plainly.
+  const [customGb, setCustomGb] = useState(100);
+  const customGbValid = Number.isInteger(customGb) && customGb >= CUSTOM_TIER_MIN_GB && customGb <= CUSTOM_TIER_MAX_GB;
+  const customPriceCents = customGbValid ? customTierPriceCents(customGb) : 0;
 
   const ascend = async (tierId) => {
     setBusyTier(tierId);
     try {
       await onAscend(tierId);
+    } finally {
+      setBusyTier(null);
+    }
+  };
+
+  const ascendCustom = async () => {
+    if (!customGbValid || !onAscendCustom) return;
+    setBusyTier("custom");
+    try {
+      await onAscendCustom(customGb);
     } finally {
       setBusyTier(null);
     }
@@ -53,6 +77,11 @@ export default function StorageTiers({ currentTier, usedBytes, quotaBytes, onAsc
               style={{ width: `${pct}%` }}
             />
           </div>
+          {stackedBytes > 0 && (
+            <p className="text-[11px] tracking-widest text-cyan-300 mt-2">
+              STACKED ROOM: +{formatBytes(stackedBytes)} on top of your tier, from custom purchases.
+            </p>
+          )}
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -91,6 +120,57 @@ export default function StorageTiers({ currentTier, usedBytes, quotaBytes, onAsc
               </div>
             );
           })}
+
+          {/* Custom tier — any amount, stacked on top of the allowance. */}
+          <div className="rounded-xl p-5 border border-amber-400/50 bg-black/40 flex flex-col gap-3">
+            <div>
+              <div className="text-[10px] tracking-[0.25em] text-white/50 mb-1">YOUR SIZE, YOUR PRICE</div>
+              <div className="text-2xl font-bold text-white tracking-wide">Custom room</div>
+              <div className="text-cyan-400 text-sm font-bold tracking-wider mt-1">
+                {customGbValid ? `$${(customPriceCents / 100).toFixed(2)} CAD / month` : "Pick an amount"}
+              </div>
+            </div>
+            <p className="text-white/60 text-xs leading-relaxed">
+              Pick any amount from {CUSTOM_TIER_MIN_GB} GB to {CUSTOM_TIER_MAX_GB} GB. It ADDS to your
+              allowance — buying twice doubles the added room, and your stored files are never touched.
+              Priced at ${(CUSTOM_TIER_RATE_CENTS_PER_GB / 100).toFixed(2)} per GB per month (the 50 GB
+              tier&apos;s rate, used as the default until Merlin sets the custom rate).
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={CUSTOM_TIER_MIN_GB}
+                max={CUSTOM_TIER_MAX_GB}
+                value={customGb}
+                onChange={(e) => setCustomGb(Number(e.target.value))}
+                className="w-24 bg-black/60 border border-cyan-400/50 rounded-lg py-2 px-3 text-sm text-white outline-none"
+                aria-label="Custom storage amount in GB"
+              />
+              <span className="text-white/60 text-xs">GB</span>
+              <input
+                type="range"
+                min={CUSTOM_TIER_MIN_GB}
+                max={1000}
+                value={Math.min(customGb, 1000)}
+                onChange={(e) => setCustomGb(Number(e.target.value))}
+                className="flex-1 min-w-0 accent-cyan-400"
+                aria-label="Custom storage amount slider (up to 1000 GB; type more above)"
+              />
+            </div>
+            {!customGbValid && (
+              <p className="text-amber-300/90 text-[11px] tracking-wider">
+                Pick a whole number of GB between {CUSTOM_TIER_MIN_GB} and {CUSTOM_TIER_MAX_GB}.
+              </p>
+            )}
+            <button
+              className="btn w-full flex items-center justify-center gap-2 py-3"
+              disabled={busyTier === "custom" || !customGbValid}
+              onClick={ascendCustom}
+            >
+              <PlusCircle size={16} />
+              {busyTier === "custom" ? "Opening checkout…" : customGbValid ? `Add ${customGb} GB` : "Add room"}
+            </button>
+          </div>
 
           {/* Secure Pipeline — not a purchase. */}
           <div className="rounded-xl p-5 border border-fuchsia-500/40 bg-black/40 flex flex-col gap-3">

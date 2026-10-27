@@ -12,7 +12,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
-import { getTier, FREE_TIER_ID } from '@/lib/fortress/tiers';
+import { getTier, FREE_TIER_ID, stackedBytesForRow } from '@/lib/fortress/tiers';
 import { getFortressUser, getFortressAdmin } from '@/lib/fortress/server';
 import { addUsedBytes, removeUsedBytes, ensureQuotaFromMatrix } from '@/lib/fortress/quota-store';
 
@@ -52,6 +52,7 @@ export async function POST(req) {
       quotaBytes: Number(row.quota_bytes) || tier.bytes,
       tier: tier.id,
       tierLabel: tier.label,
+      stackedBytes: stackedBytesForRow(row, tier),
     });
   } catch (err) {
     return NextResponse.json(

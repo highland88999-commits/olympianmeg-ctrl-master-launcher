@@ -95,3 +95,48 @@ test('sumMatrixBytes totals rawSize for seeding legacy files', () => {
   assert.equal(sumMatrixBytes(null), 0);
   assert.equal(sumMatrixBytes([]), 0);
 });
+
+// ---- Custom tiers (2026-10-26) ----
+// The custom per-GB rate defaults to the 50 GB tier's rate ($2 / 50 GB =
+// $0.04/GB CAD). Merlin has NOT set the custom rate yet — these tests pin
+// the default so any change is deliberate and visible, not silent drift.
+
+import {
+  CUSTOM_TIER_RATE_CENTS_PER_GB,
+  CUSTOM_TIER_MIN_GB,
+  CUSTOM_TIER_MAX_GB,
+  customTierPriceCents,
+  customTierBytes,
+  isValidCustomGb,
+  stackedBytesForRow,
+} from '../lib/fortress/tiers.js';
+
+test('custom rate defaults to the 50 GB tier rate ($0.04/GB CAD)', () => {
+  assert.equal(CUSTOM_TIER_RATE_CENTS_PER_GB, 4);
+  assert.equal(customTierPriceCents(50), 200, '50 GB custom costs what the 50 GB fixed tier costs');
+  assert.equal(customTierPriceCents(100), 400);
+  assert.equal(customTierPriceCents(1), 4, "1 GB costs $0.04 at the default rate");
+});
+
+test('custom amounts validate as whole GB within 1–5000', () => {
+  assert.equal(isValidCustomGb(1), true);
+  assert.equal(isValidCustomGb(5000), true);
+  assert.equal(isValidCustomGb(0), false);
+  assert.equal(isValidCustomGb(5001), false);
+  assert.equal(isValidCustomGb(12.5), false, 'no fractional GB');
+  assert.equal(isValidCustomGb('100'), false, 'strings are not valid amounts');
+  assert.equal(CUSTOM_TIER_MIN_GB, 1);
+  assert.equal(CUSTOM_TIER_MAX_GB, 5000);
+});
+
+test('custom tier bytes use the same GB as the fixed tiers', () => {
+  assert.equal(customTierBytes(1), 1_000_000_000);
+  assert.equal(customTierBytes(250), 250_000_000_000);
+});
+
+test('stacked room is the allowance above the base tier, never negative', () => {
+  assert.equal(stackedBytesForRow({ quota_bytes: 101_000_000_000 }, { bytes: 1_000_000_000 }), 100_000_000_000);
+  assert.equal(stackedBytesForRow({ quota_bytes: 50_000_000_000 }, { bytes: 50_000_000_000 }), 0);
+  assert.equal(stackedBytesForRow({ quota_bytes: 500 }, { bytes: 1_000_000_000 }), 0, 'a shortfall is never negative stacked room');
+  assert.equal(stackedBytesForRow(null, null), 0);
+});

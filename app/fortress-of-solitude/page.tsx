@@ -19,6 +19,7 @@ import { SHARE_PASSPHRASE_NOTE } from '@/lib/fortress/shares';
 
 import HoloframeViewer from "@/components/fortress/HoloframeViewer";
 import StorageTiers from "@/components/fortress/StorageTiers";
+import TempUpload from "@/components/fortress/TempUpload";
 
 export default function FortressApp() {
   const router = useRouter();
@@ -46,9 +47,13 @@ export default function FortressApp() {
   const [pendingAction, setPendingAction] = useState<null | 'view' | 'download'>(null);
 
   // Storage tiers: the signed-in user's position in their vault allowance.
-  const [quota, setQuota] = useState<{ tier: string, tierLabel: string, quotaBytes: number, usedBytes: number } | null>(null);
+  const [quota, setQuota] = useState<{ tier: string, tierLabel: string, quotaBytes: number, usedBytes: number, stackedBytes?: number } | null>(null);
   const [tiersOpen, setTiersOpen] = useState(false);
   const [ascending, setAscending] = useState(false);
+
+  // Temporary upload lane: locked-in-browser copies on Litterbox, Catbox,
+  // Filegarden (manual), or the user's own Dropbox — pullable into the vault.
+  const [tempOpen, setTempOpen] = useState(false);
 
   // Vault readiness, ensured ONCE per session (never per render, never per
   // save): the first load creates-or-loads the user's private bucket and
@@ -104,6 +109,30 @@ export default function FortressApp() {
       setAscending(false);
     }
   };
+
+  // Start a real Stripe checkout for a CUSTOM amount (stacking): the
+  // purchased GB add to the allowance on webhook completion, monthly CAD.
+  // Rate default ($0.04/GB) lives in lib/fortress/tiers.js and needs
+  // Merlin's ratification — see the tiers overlay.
+  const handleAscendCustom = async (gb: number) => {
+    setAscending(true);
+    try {
+      const res = await fetch('/api/fortress/checkout', {
+        method: 'POST',
+        headers: await authHeaders(),
+        body: JSON.stringify({ customGb: gb })
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      if (data.url) window.location.href = data.url;
+    } catch (err: any) {
+      setTiersOpen(false);
+      setStatusMsg(err.message);
+      setTimeout(() => setStatusMsg(""), 6000);
+    } finally {
+      setAscending(false);
+    }
+  };
   
   const engineRef = useRef<any>({}); 
   const selectedMeshRef = useRef<THREE.Mesh | null>(null);
@@ -146,7 +175,7 @@ export default function FortressApp() {
         try {
           const qres = await fetch('/api/fortress/quota', { headers: await authHeaders() });
           const q = await qres.json();
-          if (!q.error) setQuota({ tier: q.tier, tierLabel: q.tierLabel, quotaBytes: q.quotaBytes, usedBytes: q.usedBytes });
+          if (!q.error) setQuota({ tier: q.tier, tierLabel: q.tierLabel, quotaBytes: q.quotaBytes, usedBytes: q.usedBytes, stackedBytes: q.stackedBytes ?? 0 });
         } catch { /* the storage widget falls back to the crystal matrix */ }
 
         // First-load vault ensure, once per session: create-or-load the
@@ -183,7 +212,7 @@ export default function FortressApp() {
             try {
               const qres = await fetch('/api/fortress/quota', { headers: await authHeaders() });
               const q = await qres.json();
-              if (!q.error) setQuota({ tier: q.tier, tierLabel: q.tierLabel, quotaBytes: q.quotaBytes, usedBytes: q.usedBytes });
+              if (!q.error) setQuota({ tier: q.tier, tierLabel: q.tierLabel, quotaBytes: q.quotaBytes, usedBytes: q.usedBytes, stackedBytes: q.stackedBytes ?? 0 });
             } catch { /* keep the earlier reading */ }
             setTimeout(() => setStatusMsg(""), 5000);
             window.history.replaceState({}, '', window.location.pathname);
@@ -452,7 +481,7 @@ export default function FortressApp() {
             body: JSON.stringify({ op: 'add', bytes: lockedBlob.size })
           });
           const u = await ures.json();
-          if (!u.error) setQuota({ tier: u.tier, tierLabel: u.tierLabel, quotaBytes: u.quotaBytes, usedBytes: u.usedBytes });
+          if (!u.error) setQuota({ tier: u.tier, tierLabel: u.tierLabel, quotaBytes: u.quotaBytes, usedBytes: u.usedBytes, stackedBytes: u.stackedBytes ?? 0 });
         } catch { /* accounting refreshes on the next visit; the file itself is stored */ }
         
         if(selectedMeshRef.current) {
@@ -665,7 +694,7 @@ export default function FortressApp() {
       setSelectedNodeData({ ...updatedNode });
       const newMatrix = matrixData.map((c: any) => c.id === updatedNode.id ? updatedNode : c);
       await syncDatabase(newMatrix);
-      setQuota({ tier: data.tier, tierLabel: data.tierLabel, quotaBytes: data.quotaBytes, usedBytes: data.usedBytes });
+      setQuota({ tier: data.tier, tierLabel: data.tierLabel, quotaBytes: data.quotaBytes, usedBytes: data.usedBytes, stackedBytes: data.stackedBytes ?? 0 });
 
       setConfirmRemove(false);
       resetLockState();
@@ -949,6 +978,7 @@ export default function FortressApp() {
         <div className={`flex flex-col gap-3 transition-all duration-300 origin-bottom-left ${isMenuOpen ? 'scale-100 opacity-100' : 'scale-0 opacity-0 pointer-events-none'}`}>
             <button className="btn flex items-center gap-2 py-3 px-5" onClick={handleAddCrystal}><Plus size={16}/> Generate Crystal</button>
             <button className="btn flex items-center gap-2 py-3 px-5" onClick={() => setTiersOpen(true)}><ArrowUpCircle size={16}/> Vault storage{quota ? ` — ${quota.tierLabel}` : ""}</button>
+            <button className="btn flex items-center gap-2 py-3 px-5" onClick={() => setTempOpen(true)}><Upload size={16}/> Temporary upload</button>
 
             <div className="flex gap-2">
               <button className="btn flex-1 flex justify-center py-3 border-gray-400 text-gray-400 hover:bg-white/10" onClick={() => { setUploadTarget('floor'); fileInputRef.current?.click(); }}><Grid size={16} className="mr-2"/> Set Floor</button>
@@ -992,8 +1022,19 @@ export default function FortressApp() {
           currentTier={quota?.tier || 'free'}
           usedBytes={quota?.usedBytes ?? storageUsed}
           quotaBytes={quota?.quotaBytes ?? FREE_QUOTA_BYTES}
+          stackedBytes={quota?.stackedBytes ?? 0}
           onAscend={handleAscend}
+          onAscendCustom={handleAscendCustom}
           onClose={() => setTiersOpen(false)}
+        />
+      )}
+
+      {tempOpen && (
+        <TempUpload
+          matrixData={matrixData}
+          syncDatabase={syncDatabase}
+          authHeaders={authHeaders}
+          onClose={() => setTempOpen(false)}
         />
       )}
 

@@ -9,7 +9,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
-import { getTier, FREE_TIER_ID } from '@/lib/fortress/tiers';
+import { getTier, FREE_TIER_ID, stackedBytesForRow } from '@/lib/fortress/tiers';
 import { getFortressUser, getFortressAdmin } from '@/lib/fortress/server';
 import { ensureQuotaFromMatrix } from '@/lib/fortress/quota-store';
 
@@ -33,6 +33,8 @@ export async function GET(req) {
       tierLabel: tier.label,
       quotaBytes: Number(row.quota_bytes) || tier.bytes,
       usedBytes: Math.max(0, Number(row.used_bytes) || 0),
+      // Room stacked on top of the base tier via custom purchases (0 when none).
+      stackedBytes: stackedBytesForRow(row, tier),
     });
   } catch (err) {
     return NextResponse.json(

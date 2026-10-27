@@ -12,9 +12,14 @@
 // and set STRIPE_FORTRESS_WEBHOOK_SECRET (or the shared STRIPE_WEBHOOK_SECRET)
 // in Vercel env vars.
 import Stripe from 'stripe';
-import { getTier, isPurchasableTier } from '@/lib/fortress/tiers';
+import { getTier, isPurchasableTier, customTierBytes, isValidCustomGb } from '@/lib/fortress/tiers';
 import { getFortressAdmin } from '@/lib/fortress/server';
-import { applyPurchase, applyCancellation } from '@/lib/fortress/quota-store';
+import {
+  applyPurchase,
+  applyCancellation,
+  applyStackPurchase,
+  applyStackCancellation,
+} from '@/lib/fortress/quota-store';
 import { accrueAffiliateCommission, stripeFeeCents } from '@/lib/affiliates/server';
 
 export async function POST(req) {
@@ -51,8 +56,32 @@ export async function POST(req) {
     }
 
     const userId = meta.user_id || session.client_reference_id;
+    if (!userId) {
+      console.error(`Fortress webhook: bad metadata on session ${session.id}.`);
+      return Response.json({ ok: true, received: true, ignored: true });
+    }
+
+    // CUSTOM-TIER purchase (stacking): ADD the purchased bytes to the
+    // existing allowance. The tier id never changes, used_bytes never
+    // moves, and buying twice doubles the added room.
+    if (meta.kind === 'custom') {
+      const gb = Number(meta.custom_gb);
+      if (!isValidCustomGb(gb)) {
+        console.error(`Fortress webhook: bad custom_gb on session ${session.id}.`);
+        return Response.json({ ok: true, received: true, ignored: true });
+      }
+      try {
+        await applyStackPurchase(admin, { userId, addedBytes: customTierBytes(gb) });
+        console.log(`Fortress webhook: ${userId} stacked +${gb} GB custom, session ${session.id}.`);
+        return Response.json({ ok: true });
+      } catch (err) {
+        console.error('Fortress webhook DB error:', err?.message || err);
+        return Response.json({ ok: false, error: 'Database update failed.' }, { status: 500 });
+      }
+    }
+
     const tier = getTier(meta.tier);
-    if (!userId || !tier || !isPurchasableTier(tier.id)) {
+    if (!tier || !isPurchasableTier(tier.id)) {
       console.error(`Fortress webhook: bad metadata on session ${session.id}.`);
       return Response.json({ ok: true, received: true, ignored: true });
     }
@@ -101,6 +130,16 @@ export async function POST(req) {
       return Response.json({ ok: true, received: true, ignored: true });
     }
     try {
+      // A cancelled CUSTOM subscription removes only its own added room;
+      // the free allowance is the floor and used_bytes never moves.
+      if (meta.kind === 'custom') {
+        const gb = Number(meta.custom_gb);
+        if (isValidCustomGb(gb)) {
+          await applyStackCancellation(admin, { userId: meta.user_id, removedBytes: customTierBytes(gb) });
+          console.log(`Fortress webhook: custom +${gb} GB removed for ${meta.user_id} — stacked room reduced.`);
+        }
+        return Response.json({ ok: true });
+      }
       // A cancelled subscription returns the vault to the free allowance.
       // What was already stored stays stored (used_bytes untouched).
       await applyCancellation(admin, meta.user_id);
