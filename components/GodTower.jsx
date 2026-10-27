@@ -26,15 +26,27 @@ import {
 } from '@/lib/billboard-face';
 import { STAKE_SLOT } from '@/lib/partners';
 import { panelsForTower, billboardNumberFor, PANEL_SCALE } from '@/lib/tower-panels';
+import {
+  videoCoverFit,
+  collectPanelVideoUrls,
+  preloadInOrder,
+} from '@/lib/billboards/panel-video';
 
-// Tower panel faces are static canvas textures — forty autoplaying
-// videos would melt phone GPUs. When a slot later ships a real image
-// creative, it paints cover-fit. The canvas is 570×675: the same
-// 38:45 aspect as the 3.8×4.5 face, at the same ≈100px per world unit
-// the face had before the panels grew 1.5× (PANEL_SCALE), so the
-// bigger screens stay just as crisp from the spawn.
+// Tower panel faces: a slot's real image creative paints cover-fit on
+// a 570×675 canvas — the same 38:45 aspect as the 3.8×4.5 face, at the
+// same ≈100px per world unit the face had before the panels grew 1.5×
+// (PANEL_SCALE), so the bigger screens stay just as crisp from the
+// spawn. Video slots play the real video instead (shared records
+// below, one decode per unique URL, in-view panels only) — the canvas
+// face is only the pre-load and failure fallback, never the video
+// itself.
 const FACE_PX_W = 570;
 const FACE_PX_H = 675;
+
+// The face plane itself, in world units — the aspect the video
+// cover-fit targets, and the geometry the video fills edge to edge.
+const FACE_PLANE_W = 3.8;
+const FACE_PLANE_H = 4.5;
 
 // Same advertise-inquiry address as the street monuments.
 const INQUIRIES_EMAIL = 'olympiannexus@gmail.com';
@@ -97,6 +109,9 @@ function makeBorderTexture(color) {
 // Static face texture for one panel's slot: the shared honest branded face,
 // or the slot's real image creative cover-fit when one has shipped. The
 // stake slot reuses the shared gold stake creative (never removed).
+// Video slots ALSO get this honest face — as the pre-load and failure
+// fallback only. The video itself plays through the shared records
+// below (usePanelVideoState), never through this canvas path.
 function usePanelFaceTexture(slot, stakeTex) {
   const [tex, setTex] = useState(null);
   useEffect(() => {
@@ -120,63 +135,6 @@ function usePanelFaceTexture(slot, stakeTex) {
     };
     const paintPlaceholder = () =>
       toTexture(createBillboardFaceCanvas(slot, FACE_PX_W, FACE_PX_H));
-    // Manager-wired video creative (Merlin, 2026-10-27): tower panels
-    // never autoplay video (forty autoplaying videos would melt phone
-    // GPUs), so a video ad paints its first frame as the static face —
-    // the creative still renders on the panel, and the tap still opens
-    // its link. On any failure the honest branded face paints instead.
-    if (slot.creativeType === 'video' && slot.creativeUrl) {
-      const video = document.createElement('video');
-      video.muted = true;
-      video.playsInline = true;
-      video.preload = 'metadata';
-      video.crossOrigin = 'anonymous';
-      const onSeeked = () => {
-        if (cancelled) return;
-        const vw = video.videoWidth;
-        const vh = video.videoHeight;
-        if (!vw || !vh) {
-          paintPlaceholder();
-          return;
-        }
-        const canvas = document.createElement('canvas');
-        canvas.width = FACE_PX_W;
-        canvas.height = FACE_PX_H;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          toTexture(null);
-          return;
-        }
-        const s = Math.max(FACE_PX_W / vw, FACE_PX_H / vh);
-        const dw = vw * s;
-        const dh = vh * s;
-        ctx.drawImage(video, (FACE_PX_W - dw) / 2, (FACE_PX_H - dh) / 2, dw, dh);
-        toTexture(canvas);
-      };
-      const onError = () => {
-        if (!cancelled) paintPlaceholder();
-      };
-      const onLoaded = () => {
-        try {
-          video.currentTime = 0.1;
-        } catch {
-          onSeeked();
-        }
-      };
-      video.addEventListener('seeked', onSeeked);
-      video.addEventListener('error', onError);
-      video.addEventListener('loadeddata', onLoaded);
-      video.src = slot.creativeUrl;
-      return () => {
-        cancelled = true;
-        video.removeEventListener('seeked', onSeeked);
-        video.removeEventListener('error', onError);
-        video.removeEventListener('loadeddata', onLoaded);
-        video.removeAttribute('src');
-        if (owned) owned.dispose();
-        setTex(null);
-      };
-    }
     const creative = slot.creatives && slot.creatives[0];
     if (creative && creative.imageUrl) {
       const img = new Image();
@@ -202,6 +160,151 @@ function usePanelFaceTexture(slot, stakeTex) {
   }, [slot.key, slot.creativeUrl, slot.creatives?.[0]?.imageUrl, stakeTex]);
   return tex;
 }
+
+// ---- Shared hub panel video playback (browser-only) ----
+// One video element + one VideoTexture per unique creative URL,
+// shared by every panel showing that URL. All 44 currently share one
+// file, so the ring decodes once, not 44 times. Panels subscribe for
+// ready/failed state and report in-view status; the guard below plays
+// a video only while at least one panel showing it is in view, and
+// pauses it when none is (the documented reason the old path used
+// static posters). A failed video never takes a panel down: the
+// panel keeps its honest branded canvas face.
+const panelVideoRecords = new Map();
+const PANEL_VIDEO_LOAD_TIMEOUT_MS = 20000;
+let panelVideoVisibilityWired = false;
+
+function refreshPanelVideoPlayback() {
+  const hidden = typeof document !== 'undefined' && document.hidden;
+  for (const rec of panelVideoRecords.values()) {
+    if (rec.viewers.size > 0 && !hidden) {
+      if (rec.video.paused) {
+        const p = rec.video.play();
+        if (p && p.catch) p.catch(() => {});
+      }
+    } else if (!rec.video.paused) {
+      rec.video.pause();
+    }
+  }
+}
+
+function getPanelVideoRecord(url) {
+  let rec = panelVideoRecords.get(url);
+  if (rec) return rec;
+  const video = document.createElement('video');
+  video.muted = true;
+  video.playsInline = true;
+  video.loop = true;
+  video.preload = 'auto';
+  video.crossOrigin = 'anonymous';
+  const texture = new THREE.VideoTexture(video);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  rec = {
+    url,
+    video,
+    texture,
+    ready: false,
+    failed: false,
+    viewers: new Set(),
+    listeners: new Set(),
+  };
+  const notify = () => {
+    for (const cb of [...rec.listeners]) {
+      try { cb(); } catch { /* a listener failure never breaks playback */ }
+    }
+  };
+  rec.notify = notify;
+  video.addEventListener('loadedmetadata', () => {
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    if (vw > 0 && vh > 0) {
+      const fit = videoCoverFit(FACE_PLANE_W, FACE_PLANE_H, vw, vh);
+      if (fit) {
+        texture.repeat.set(fit.repeat[0], fit.repeat[1]);
+        texture.offset.set(fit.offset[0], fit.offset[1]);
+      }
+    }
+  });
+  video.addEventListener('canplay', () => {
+    if (!rec.ready) { rec.ready = true; notify(); }
+  });
+  video.addEventListener('error', () => {
+    if (!rec.failed) { rec.failed = true; notify(); }
+  });
+  video.src = url;
+  panelVideoRecords.set(url, rec);
+  if (!panelVideoVisibilityWired && typeof document !== 'undefined' && document.addEventListener) {
+    panelVideoVisibilityWired = true;
+    document.addEventListener('visibilitychange', refreshPanelVideoPlayback);
+  }
+  return rec;
+}
+
+function setPanelVideoViewer(url, viewerId, inView) {
+  const rec = panelVideoRecords.get(url);
+  if (!rec) return;
+  if (inView) rec.viewers.add(viewerId);
+  else rec.viewers.delete(viewerId);
+  refreshPanelVideoPlayback();
+}
+
+// Resolve true once this URL can play, false on error or timeout.
+// A timeout never marks the record failed: a slow video may still
+// arrive later, and subscribed panels upgrade to it when it does.
+function ensurePanelVideo(url) {
+  const rec = getPanelVideoRecord(url);
+  if (rec.ready) return Promise.resolve(true);
+  if (rec.failed) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      rec.listeners.delete(onChange);
+      resolve(false);
+    }, PANEL_VIDEO_LOAD_TIMEOUT_MS);
+    const onChange = () => {
+      clearTimeout(timer);
+      rec.listeners.delete(onChange);
+      resolve(rec.ready);
+    };
+    rec.listeners.add(onChange);
+  });
+}
+
+// Preload the ring's panel videos in strict billboard-number order
+// 1→44 (see lib/billboards/panel-video.js). Used by the hub load
+// sequence before the towers present. Never rejects: failures
+// resolve false and those panels keep their honest face.
+export function preloadHubPanelVideos(towersPanels) {
+  const items = collectPanelVideoUrls(towersPanels, billboardNumberFor);
+  return preloadInOrder(items, ensurePanelVideo);
+}
+
+// Subscribe a panel to one video URL's ready/failed state. Returns
+// { texture, ready, failed }; texture is null until the URL is
+// known (no URL, no video). The honest canvas face covers the gap.
+function usePanelVideoState(creativeUrl) {
+  const [state, setState] = useState({ texture: null, ready: false, failed: false });
+  useEffect(() => {
+    if (!creativeUrl) {
+      setState({ texture: null, ready: false, failed: false });
+      return undefined;
+    }
+    const rec = getPanelVideoRecord(creativeUrl);
+    const sync = () => setState({ texture: rec.texture, ready: rec.ready, failed: rec.failed });
+    sync();
+    rec.listeners.add(sync);
+    return () => { rec.listeners.delete(sync); };
+  }, [creativeUrl]);
+  return state;
+}
+
+// Module temps for the per-frame in-view check (single-threaded
+// render loop, reused synchronously — never stored across frames).
+const _panelPos = new THREE.Vector3();
+const _panelNormal = new THREE.Vector3();
+const _panelToCam = new THREE.Vector3();
+const _panelQuat = new THREE.Quaternion();
+const _panelFrustum = new THREE.Frustum();
+const _panelProj = new THREE.Matrix4();
 
 // Manager-wired rotation (Merlin, 2026-10-27): a billboard holding
 // more than one ad cycles its faces on its own timer, one panel at a
@@ -256,14 +359,13 @@ function BillboardNumberBadge({ number }) {
 
 function TowerAdPanel({ slot, stakeTex, color, onLaunchExternal, badgeNumber }) {
   const [hovered, setHovered] = useState(false);
-  const [btnHovered, setBtnHovered] = useState(false);
-  const [emailHovered, setEmailHovered] = useState(false);
+  const faceRef = useRef(null);
 
   // One shared border texture per god color (module cache) — 10 canvases
   // for the whole ring, not 40. Null when iOS reclaims the 2D context;
   // the material below falls back to the flat god color.
   const borderTex = getBorderTexture(color);
-  // Rotation: the face, the CTA and the tap all follow the CURRENT
+  // Rotation: the face and the tap all follow the CURRENT
   // entry — tapping a rotating billboard always opens the face you
   // are looking at, never a stale one.
   const rotatingEntry = useRotatingEntry(slot);
@@ -279,14 +381,46 @@ function TowerAdPanel({ slot, stakeTex, color, onLaunchExternal, badgeNumber }) 
     : slot;
   const faceTex = usePanelFaceTexture(effectiveSlot, stakeTex);
 
-  const isStake = slot.key === STAKE_SLOT.key;
-  // Merlin's native slot keeps its ENTER NOW call-to-action; everyone else
-  // is honest about what a tap does.
-  const ctaLabel = isStake
-    ? 'ENTER NOW'
-    : effectiveSlot.trackingUrl
-      ? 'VISIT SITE'
-      : 'ADVERTISE';
+  // Real video playback for video slots: the shared record's texture
+  // when loaded, the honest canvas face until then (and forever if
+  // the video fails). Tapping the face still opens the entry's link;
+  // panels without a link keep the inquiry fallback.
+  const videoUrl = effectiveSlot.creativeType === 'video' ? effectiveSlot.creativeUrl : null;
+  const videoState = usePanelVideoState(videoUrl);
+  const viewerId = `panel-${badgeNumber ?? slot.key}`;
+  const inViewRef = useRef(false);
+
+  // GPU guard: a panel's video plays only while that panel is in
+  // view (front-facing AND inside the camera frustum); off-screen
+  // panels pause. The shared record plays while ANY of its panels
+  // is in view, so one shared file decodes once, not per panel.
+  useFrame(({ camera }) => {
+    if (!videoUrl || !faceRef.current) return;
+    const mesh = faceRef.current;
+    mesh.getWorldPosition(_panelPos);
+    mesh.getWorldQuaternion(_panelQuat);
+    _panelNormal.set(0, 0, 1).applyQuaternion(_panelQuat);
+    _panelToCam.copy(camera.position).sub(_panelPos).normalize();
+    const facing = _panelNormal.dot(_panelToCam) > 0;
+    _panelProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    _panelFrustum.setFromProjectionMatrix(_panelProj);
+    const inView = facing && _panelFrustum.intersectsObject(mesh);
+    if (inView !== inViewRef.current) {
+      inViewRef.current = inView;
+      setPanelVideoViewer(videoUrl, viewerId, inView);
+    }
+  });
+
+  // Leaving the view or unmounting releases this panel's viewer seat
+  // (and a rotation to a new entry moves it to the new video).
+  useEffect(() => {
+    const id = viewerId;
+    const url = videoUrl;
+    return () => {
+      inViewRef.current = false;
+      if (url) setPanelVideoViewer(url, id, false);
+    };
+  }, [videoUrl, viewerId]);
 
   const handleFaceClick = (e) => {
     e.stopPropagation();
@@ -296,12 +430,6 @@ function TowerAdPanel({ slot, stakeTex, color, onLaunchExternal, badgeNumber }) 
     } else {
       window.location.href = `mailto:${INQUIRIES_EMAIL}`;
     }
-  };
-
-  const handleEmailClick = (e) => {
-    e.stopPropagation();
-    if (e.nativeEvent) e.nativeEvent.stopPropagation();
-    window.location.href = `mailto:${INQUIRIES_EMAIL}`;
   };
 
   return (
@@ -322,18 +450,27 @@ function TowerAdPanel({ slot, stakeTex, color, onLaunchExternal, badgeNumber }) 
       )}
 
       <mesh
+        ref={faceRef}
         position={[0, 1, 0.24]}
         onClick={handleFaceClick}
         onPointerOver={() => { setHovered(true); document.body.style.cursor = 'pointer'; }}
         onPointerOut={() => { setHovered(false); document.body.style.cursor = 'default'; }}
       >
-        <planeGeometry args={[3.8, 4.5]} />
-        <meshStandardMaterial
-          map={faceTex || undefined}
-          color={faceTex ? (hovered ? '#dddddd' : '#ffffff') : '#0a0f1e'}
-          metalness={0.2}
-          roughness={0.8}
-        />
+        <planeGeometry args={[FACE_PLANE_W, FACE_PLANE_H]} />
+        {videoState.ready ? (
+          // True color: unlit, untinted, exactly the video's pixels —
+          // no hover shade, no scrim, nothing on top of the video.
+          // The video fills the full face, cover-cropped inside the
+          // frame (see the record's repeat/offset).
+          <meshBasicMaterial map={videoState.texture} color="#ffffff" toneMapped={false} />
+        ) : (
+          <meshStandardMaterial
+            map={faceTex || undefined}
+            color={faceTex ? (hovered ? '#dddddd' : '#ffffff') : '#0a0f1e'}
+            metalness={0.2}
+            roughness={0.8}
+          />
+        )}
       </mesh>
 
       {/* Textured border: 0.08 above the backing box face (was coplanar at
@@ -352,31 +489,6 @@ function TowerAdPanel({ slot, stakeTex, color, onLaunchExternal, badgeNumber }) 
         />
       </mesh>
 
-      <group
-        position={[0, -1.8, 0.11]}
-        onClick={handleFaceClick}
-        onPointerOver={() => { setBtnHovered(true); document.body.style.cursor = 'pointer'; }}
-        onPointerOut={() => { setBtnHovered(false); document.body.style.cursor = 'default'; }}
-      >
-        <mesh>
-          <boxGeometry args={[3.8, 0.8, 0.1]} />
-          <meshStandardMaterial color={btnHovered ? "#ffffff" : color} emissive={color} emissiveIntensity={btnHovered ? 0.8 : 0.4} />
-        </mesh>
-        <Text position={[0, 0, 0.06]} fontSize={0.35} color="#000000" fontWeight="bold">{ctaLabel}</Text>
-      </group>
-
-      <group
-        position={[0, -2.8, 0.16]}
-        onClick={handleEmailClick}
-        onPointerOver={() => { setEmailHovered(true); document.body.style.cursor = 'pointer'; }}
-        onPointerOut={() => { setEmailHovered(false); document.body.style.cursor = 'default'; }}
-      >
-        <mesh>
-          <planeGeometry args={[3.8, 0.6]} />
-          <meshBasicMaterial color="#000000" transparent opacity={0.6} polygonOffset polygonOffsetFactor={1} polygonOffsetUnits={1} />
-        </mesh>
-        <Text position={[0, 0, 0.01]} fontSize={0.25} color={emailHovered ? "#ffffff" : "#aaaaaa"}>Advertise Here: Email Us</Text>
-      </group>
     </group>
   );
 }

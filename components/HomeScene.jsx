@@ -33,7 +33,7 @@ import { probeWebGL, resetWebGLProbeCache, diagnoseWebGL } from '../lib/webgl-su
 import { panelsForTower } from '../lib/tower-panels';
 import { manifestToOverrides, applyOverridesToTowerPanels } from '../lib/billboards/overrides';
 import { dropPausedOverrides } from '../lib/billboards/subscriptions';
-import GodTower from './GodTower';
+import GodTower, { preloadHubPanelVideos } from './GodTower';
 import OmegaHubGate from './OmegaHubGate';
 import Earth2HubGate from './Earth2HubGate';
 
@@ -653,12 +653,13 @@ function TextureProvider({ onLaunchExternal }) {
   // by the manager page. A missing manifest (or a failed fetch) just
   // means no overrides: the rotating inventory below stays as-is.
   const [billboardManifest, setBillboardManifest] = useState(null);
+  const [billboardManifestSettled, setBillboardManifestSettled] = useState(false);
   useEffect(() => {
     let live = true;
     fetch('/billboards/manifest.json')
       .then((res) => (res.ok ? res.json() : null))
-      .then((json) => { if (live) setBillboardManifest(json); })
-      .catch(() => {});
+      .then((json) => { if (live) { setBillboardManifest(json); setBillboardManifestSettled(true); } })
+      .catch(() => { if (live) setBillboardManifestSettled(true); });
     return () => { live = false; };
   }, []);
 
@@ -699,7 +700,24 @@ function TextureProvider({ onLaunchExternal }) {
     [billboardManifest, stoppedBillboards]
   );
 
-  if (!textures) return null;
+  // Panel video preload gate (Merlin, 2026-10-27): the ring's videos
+  // load in strict billboard-number order 1→44 BEFORE the towers
+  // present, so a panel never shows black or blank — video when
+  // loaded, honest branded face when failed. The gate never hangs:
+  // the preload settles on success, failure, or timeout alike.
+  // Later manifest updates re-run the preload cheaply (shared URLs
+  // resolve immediately) without hiding towers that are already up.
+  const [panelVideosReady, setPanelVideosReady] = useState(false);
+  useEffect(() => {
+    if (!billboardManifestSettled) return undefined;
+    let live = true;
+    preloadHubPanelVideos(towerPanels).then(() => {
+      if (live) setPanelVideosReady(true);
+    });
+    return () => { live = false; };
+  }, [billboardManifestSettled, towerPanels]);
+
+  if (!textures || !panelVideosReady) return null;
 
   // One tower satellite per god-menu category (Merlin, 2026-09-30) —
   // the Zeus pattern with the name and color changed per category.
