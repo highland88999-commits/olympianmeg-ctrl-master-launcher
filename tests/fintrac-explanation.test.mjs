@@ -18,6 +18,17 @@ import {
   FINTRAC_EVENT,
   FINTRAC_EXPLANATION_TITLE,
   FINTRAC_EXPLANATION_PARAGRAPHS,
+  ONBOARDING_STEP_COUNT,
+  ONBOARDING_STEP1_CARDS,
+  ONBOARDING_STEP1_NOTE,
+  ONBOARDING_STEP1_TITLE,
+  ONBOARDING_STEP2_PARAGRAPHS,
+  ONBOARDING_STEP2_TITLE,
+  clampOnboardingStep,
+  onboardingNextButtonLabel,
+  onboardingNextStep,
+  onboardingStepLabel,
+  onboardingStepTitle,
   shouldAutoShowFintrac,
 } from '../lib/fintrac-explanation.js';
 
@@ -72,13 +83,13 @@ describe('wiring: modal, host, and menu entries', () => {
     assert.match(c, /important: true/);
     assert.match(c, /tile\.important/);
     assert.match(c, />IMPORTANT</);
-    assert.match(c, /tile\.id === 'fintrac'\) \{ fireFintracExplanation\(\); setOpen\(false\); return; \}/);
+    assert.match(c, /tile\.id === 'fintrac'\) \{ fireFintracExplanation\(3\); setOpen\(false\); return; \}/);
     assert.match(c, /<FintracExplanationHost \/>/);
   });
-  it('modal scrolls vertically and Skip dismisses for this load only', () => {
+  it('modal scrolls vertically and Skip/Close dismiss for this load only', () => {
     const f = src('components/FintracExplanation.jsx');
     assert.match(f, /overflow-y-auto/);
-    assert.match(f, />\s*Skip\s*</);
+    assert.match(f, /onboardingNextButtonLabel\(currentStep\)/);
     assert.match(f, /FintracExplanationModal/);
     // Skip is React state only: no persisted dismissal anywhere
     // (the word may appear in comments explaining exactly that).
@@ -110,5 +121,83 @@ describe('wiring: modal, host, and menu entries', () => {
   it('god submenus are untouched: no FINTRAC entry in SatelliteMenu or GodMenuPanel', () => {
     assert.equal(src('components/SatelliteMenu.jsx').includes('Fintrac'), false);
     assert.equal(src('components/GodMenuPanel.jsx').includes('Fintrac'), false);
+  });
+});
+
+describe('onboarding wizard: Skip, Skip, Close — one step at a time', () => {
+  it('has exactly 3 steps with the right titles', () => {
+    assert.equal(ONBOARDING_STEP_COUNT, 3);
+    assert.equal(ONBOARDING_STEP1_TITLE, 'Device controls');
+    assert.equal(ONBOARDING_STEP2_TITLE, 'Welcome to Olympus');
+    assert.equal(onboardingStepTitle(1), 'Device controls');
+    assert.equal(onboardingStepTitle(2), 'Welcome to Olympus');
+    assert.equal(onboardingStepTitle(3), 'FINTRAC explanation');
+  });
+  it('step navigation: Skip advances, Close ends the box', () => {
+    assert.equal(onboardingNextStep(1), 2);
+    assert.equal(onboardingNextStep(2), 3);
+    assert.equal(onboardingNextStep(3), 3);
+    assert.equal(onboardingNextButtonLabel(1), 'Skip');
+    assert.equal(onboardingNextButtonLabel(2), 'Skip');
+    assert.equal(onboardingNextButtonLabel(3), 'Close');
+  });
+  it('step clamping: out-of-range and unusable values land safely', () => {
+    assert.equal(clampOnboardingStep(0), 1);
+    assert.equal(clampOnboardingStep(1), 1);
+    assert.equal(clampOnboardingStep(2), 2);
+    assert.equal(clampOnboardingStep(3), 3);
+    assert.equal(clampOnboardingStep(4), 3);
+    assert.equal(clampOnboardingStep(NaN), 3);
+    assert.equal(clampOnboardingStep(undefined), 3);
+  });
+  it('step indicator reads "N of 3"', () => {
+    assert.equal(onboardingStepLabel(1), '1 of 3');
+    assert.equal(onboardingStepLabel(2), '2 of 3');
+    assert.equal(onboardingStepLabel(3), '3 of 3');
+  });
+  it('step 1: left side motion (joystick), right side camera, one at a time', () => {
+    assert.equal(ONBOARDING_STEP1_CARDS.length, 2);
+    const [left, right] = ONBOARDING_STEP1_CARDS;
+    assert.equal(left.side, 'Left side');
+    assert.equal(left.title, 'Motion');
+    assert.match(left.text, /joystick/);
+    assert.equal(right.side, 'Right side');
+    assert.equal(right.title, 'Camera');
+    assert.match(ONBOARDING_STEP1_NOTE, /one at a time/);
+  });
+  it('step 2: plain-English outline of everything Olympus offers', () => {
+    const text = ONBOARDING_STEP2_PARAGRAPHS.join(' ');
+    assert.match(text, /170/);
+    assert.match(text, /games/);
+    assert.match(text, /marketplace/);
+    assert.match(text, /Fortress/);
+    assert.match(text, /walk/);
+  });
+  it('step 2 money line: in-world credit only, no payout promise, no aether-as-money', () => {
+    const text = ONBOARDING_STEP2_PARAGRAPHS.join(' ').toLowerCase();
+    assert.match(text, /credit you can spend inside olympus/);
+    assert.match(text, /regulatory approvals/);
+    assert.equal(text.includes('aether'), false);
+    for (const banned of ['guarantee', 'promised', 'will pay', 'will be paid', 'payout', 'money owed']) {
+      assert.equal(text.includes(banned), false, `step 2 must not contain "${banned}"`);
+    }
+  });
+  it('modal: IMPORTANT badge and footer note belong to step 3 only', () => {
+    const f = src('components/FintracExplanation.jsx');
+    assert.match(f, /isFintracStep && \(\s*<span className="rounded-full bg-red-500/);
+    assert.match(f, /isFintracStep && \(\s*<p className="mt-2 text-center text-\[10px\] text-zinc-500">/);
+    assert.match(f, /onboardingStepLabel\(currentStep\)/);
+    assert.match(f, /onClick=\{isFintracStep \? onClose : onNext\}/);
+  });
+  it('host: auto-show starts at step 1, menu events carry their step', () => {
+    const f = src('components/FintracExplanation.jsx');
+    assert.match(f, /setStep\(1\);/);
+    assert.match(f, /event\?\.detail\?\.step/);
+    assert.match(f, /onClick=\{\(\) => fireFintracExplanation\(3\)\}/);
+  });
+  it('menu entries jump straight to step 3, never the tutorial', () => {
+    const lib = src('lib/fintrac-explanation.js');
+    assert.match(lib, /export function fireFintracExplanation\(step = 3\)/);
+    assert.match(src('components/Concourse.jsx'), /fireFintracExplanation\(3\)/);
   });
 });

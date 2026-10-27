@@ -491,7 +491,7 @@ export default function Concourse() {
       else if (tile.id === 'settings') { setSettingsOpen(true); setOpen(false); return; }
       else if (tile.id === 'phone') { setPhoneOpen(true); setOpen(false); return; }
       else if (tile.id === 'portalroom') { setPortal3dOpen(true); setOpen(false); return; }
-      else if (tile.id === 'fintrac') { fireFintracExplanation(); setOpen(false); return; }
+      else if (tile.id === 'fintrac') { fireFintracExplanation(3); setOpen(false); return; }
       else fireConcourseTile(tile.id);
       setOpen(false);
     },
