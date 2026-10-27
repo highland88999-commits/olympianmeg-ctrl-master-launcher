@@ -185,7 +185,8 @@ import {
   finishAllowed,
 } from '@/lib/building/catalog';
 import { snapPlacement, snapRotation, judgeGhost, validatePlacementSet, clampPlacementToFrame, deriveBuildCandidate, proposePlacement, snapSeams } from '@/lib/building/placement';
-import { buildPieceGroup, buildGhostGroup, setGhostValidity } from '@/lib/building/piece-render';
+import { buildPieceGroup, buildGhostGroup, setGhostValidity, shiftHue } from '@/lib/building/piece-render';
+import { backpackIconPxToFrac, BACKPACK_ICON_SIZE } from '@/lib/backpack/icon';
 import {
   PARCEL_BUILD_FRAME,
   BUILD_ORBIT_JOY_DEADZONE,
@@ -328,6 +329,10 @@ function clampPanelXY(x, y) {
 
 function E2Panel({ layout, onMove, onToggle, panelClass = '', headerClass = '', bodyClass = '', header, children, orb }) {
   const elRef = useRef(null);
+  // Swallows the click that follows a drag (Merlin, 2026-10-26):
+  // dragging a header must never minimize it by accident — the
+  // click lands on the same row the drag started from.
+  const dragEndRef = useRef(0);
   const beginDrag = (e) => {
     if (e.button != null && e.button !== 0) return;
     // Buttons, links and inputs on the header keep their own
@@ -354,10 +359,32 @@ function E2Panel({ layout, onMove, onToggle, panelClass = '', headerClass = '', 
       window.removeEventListener('pointermove', onMoveEv);
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onUp);
+      if (moved) {
+        dragEndRef.current = Date.now();
+        return;
+      }
+      // WHOLE-ORB TOGGLE (Merlin, 2026-10-26): a still press
+      // anywhere on the minimized orb expands it — the ＋ badge
+      // is no longer the only target. A real drag never toggles.
+      // The badge keeps its own tap (its pointerdown stands down
+      // above, so it can never double-toggle).
+      if (collapsed) onToggle();
     };
     window.addEventListener('pointermove', onMoveEv);
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onUp);
+  };
+  // HEADER DEAD-SPACE MINIMIZE (Merlin, 2026-10-26): a click on
+  // the blank area of an expanded panel's header bar minimizes
+  // that panel. Buttons keep their own actions, the title text
+  // keeps its own (no minimize), and a click that just ended a
+  // drag is swallowed — only a still press on dead space shrinks.
+  const onHeaderClick = (e) => {
+    if (collapsed) return;
+    if (Date.now() - dragEndRef.current < 150) return;
+    if (e.target.closest('button, a, input, select, textarea, label')) return;
+    if (e.target.closest('[data-e2-panel-title]')) return;
+    onToggle();
   };
   // Minimized form (Merlin, 2026-10-26): a colour-coded circle
   // orb carrying the panel's artwork, instead of a wide dark pill
@@ -365,9 +392,9 @@ function E2Panel({ layout, onMove, onToggle, panelClass = '', headerClass = '', 
   // graphic sits inset inside the circular crop (object-contain,
   // centred) so the motif is never cropped at the edges; the
   // glyph remains as the fallback when no artwork is set.
-  // Behaviour is exactly as before: the orb drags by its face
-  // (never by the ＋ badge, which keeps its own tap), ＋
-  // expands, and the position persists. The expanded form
+  // Behaviour: the orb drags by its face, a still press anywhere
+  // on the face expands it (the ＋ badge is a second target, not
+  // the only one), and the position persists. The expanded form
   // carries the same artwork as a small circular thumb in its
   // header, so the whole control set reads as one family.
   const collapsed = layout.collapsed;
@@ -387,6 +414,7 @@ function E2Panel({ layout, onMove, onToggle, panelClass = '', headerClass = '', 
     >
       <div
         onPointerDown={beginDrag}
+        onClick={onHeaderClick}
         title={collapsed && orb ? orb.label : undefined}
         className={collapsed
           ? `relative flex h-full w-full cursor-grab touch-none select-none items-center justify-center rounded-full border shadow-2xl backdrop-blur-md ${orbClass}`
@@ -427,7 +455,7 @@ function E2Panel({ layout, onMove, onToggle, panelClass = '', headerClass = '', 
                 />
               </span>
             )}
-            <div className="min-w-0 flex-1">{header}</div>
+            <div className="min-w-0 flex-1" data-e2-panel-title>{header}</div>
             <button
               type="button"
               onClick={onToggle}
@@ -5673,6 +5701,26 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   const selPieceDef = pieceById(selPieceId);
   const allowedFinishes = FINISHES.filter((f) => !selPieceDef || finishAllowed(selPieceDef, f.id));
   const categoryPieces = BUILDING_PIECES.filter((p) => p.category === buildCat);
+  // FINISH PREVIEW (Merlin, 2026-10-26): the preview tile wears
+  // the selected finish's real material colour — the catalog
+  // tint hue-shifted by the tint slider, exactly the colour the
+  // placed piece wears (same shiftHue the piece renderer uses).
+  // A second live WebGL render would cost a whole context on the
+  // phone, so the finish lands as a material swatch on the piece
+  // silhouette instead of a textured 3D render.
+  const selFinishDef = allowedFinishes.find((f) => f.id === selFinish) || null;
+  const previewFillHex = selFinishDef
+    ? shiftHue(selFinishDef.tint, selTint === '' ? null : Number(selTint))
+    : 0x9a8f7a;
+  const previewFillCss = `#${previewFillHex.toString(16).padStart(6, '0')}`;
+  // BACKPACK HOME (Merlin, 2026-10-26): the pack's own slot next
+  // to the main control buttons — right of the top-left orb
+  // (orb spans x 10–66; 12 px clear, same 10 px top line). The
+  // mount reads the v2 key pair while this home stands, so a
+  // pre-home parked spot never pulls it back.
+  const e2BackpackHome = typeof window !== 'undefined'
+    ? backpackIconPxToFrac({ x: 78, y: 10 }, window.innerWidth, window.innerHeight, BACKPACK_ICON_SIZE)
+    : null;
   const selectedPlaced = editIndex !== null && myParcelBuild
     ? myParcelBuild.pieces[editIndex] || null
     : null;
@@ -5773,13 +5821,11 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             ? `🎮 ${GAMEPAD_PROFILE_NAMES[gamepadPad.profile] || 'Controller'} connected — ${gamepadLabel(gamepadPad.profile, 'CONFIRM')} confirms, ${gamepadLabel(gamepadPad.profile, 'CANCEL')} backs out`
             : '🎮 No controller connected'}
         </div>
-        {/* BACKPACK: the one pack, opened from the world — a flow
-            row inside this panel, never absolute, never overlapping. */}
-        <div className="flex flex-wrap items-center gap-2 rounded-full border border-amber-300/30 bg-black/50 py-1.5 pl-3 pr-1.5 text-[11px] text-zinc-100">
-          <span>🎒 <strong className="text-amber-100">Backpack</strong> — your pack follows you here</span>
-          <BackpackHud realm="earth-2" realmLabel="Earth 2"
-            displayNote="Earth 2 keeps its own arms for now — the pack rides along." />
-        </div>
+        {/* BACKPACK: the one pack — it no longer rides inside this
+            panel (Merlin, 2026-10-26: it has its own home next to
+            the main control buttons). It renders at top level
+            below, so it stays on screen even when CONTROLS is
+            shrunk to its gold orb, which unmounts this body. */}
         <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-red-300/25 bg-black/50 py-1.5 pl-3 pr-1.5 text-[11px] text-zinc-100">
           <span>🩸 Blood sacs: <strong className="text-red-200">{sacsShown}</strong></span>
           <button
@@ -5857,6 +5903,15 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           ✕ Leave the planet
         </button>
       </E2Panel>
+
+      {/* BACKPACK HOME (Merlin, 2026-10-26): the pack's own slot
+          next to the main control buttons — the top-left orb
+          cluster — rendered at top level so it stays on screen
+          whether CONTROLS is expanded or shrunk to its orb. The
+          circle keeps its count badge, tap-to-open, and drag. */}
+      <BackpackHud realm="earth-2" realmLabel="Earth 2"
+        homeFractions={e2BackpackHome} headerDeadSpaceMinimize
+        displayNote="Earth 2 keeps its own arms for now — the pack rides along." />
 
       {/* Hammond's fossil exchange — the counter panel. Flow
           layout throughout (no overlaps, per the house CSS law):
@@ -6092,6 +6147,53 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
 
             {buildTool === 'place' ? (
               <>
+                {/* Piece preview — just above the object category
+                    chips and item selection (Merlin, 2026-10-26),
+                    so the builder sees the piece before choosing
+                    it. The silhouette wears the selected finish:
+                    the finish's material colour, hue-shifted by
+                    the tint slider — the look it will have once
+                    placed. It updates on every piece change and
+                    every finish/tint change, and clears when
+                    nothing is selected. No catalog images exist
+                    and a second live WebGL render would cost a
+                    whole context on the phone, so the finish is
+                    a material swatch on the silhouette, not a
+                    textured 3D render. */}
+                {selPieceDef && (
+                  <div aria-live="polite" className="flex items-center gap-3 rounded-[1.5rem] border border-emerald-200/40 bg-emerald-400/10 px-3 py-2.5">
+                    <svg viewBox="0 0 64 44" className="h-11 w-16 shrink-0" aria-hidden="true">
+                      <rect
+                        x={(64 - selPieceDef.size.w * Math.min(56 / selPieceDef.size.w, 36 / selPieceDef.size.d)) / 2}
+                        y={(44 - selPieceDef.size.d * Math.min(56 / selPieceDef.size.w, 36 / selPieceDef.size.d)) / 2}
+                        width={selPieceDef.size.w * Math.min(56 / selPieceDef.size.w, 36 / selPieceDef.size.d)}
+                        height={selPieceDef.size.d * Math.min(56 / selPieceDef.size.w, 36 / selPieceDef.size.d)}
+                        rx="2"
+                        fill={previewFillCss}
+                        fillOpacity="0.9"
+                        stroke={previewFillCss}
+                        strokeWidth="1"
+                      />
+                    </svg>
+                    <div className="min-w-0">
+                      <div className="truncate text-[13px] font-bold text-emerald-50">{selPieceDef.name}</div>
+                      <div className="truncate text-[11px] text-zinc-300">
+                        {BUILD_CAT_LABEL[selPieceDef.category] || selPieceDef.category} · {selPieceDef.size.w} × {selPieceDef.size.d} m · {selPieceDef.size.h} m tall
+                      </div>
+                      <div className="truncate text-[11px] text-zinc-400">
+                        <span
+                          aria-hidden="true"
+                          className="mr-1 inline-block h-2.5 w-2.5 shrink-0 rounded-full border border-white/30 align-middle"
+                          style={{ background: previewFillCss }}
+                        />
+                        {(selFinishDef || {}).name || selFinish} finish
+                        {selTint !== '' ? ` · ${Number(selTint) > 0 ? '+' : ''}${selTint}° tint` : ''}
+                        {selPieceDef.span ? ' · spans' : ''}{selPieceDef.floating ? ' · floats' : ''}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex flex-wrap gap-1.5">
                   {PIECE_CATEGORIES.map((cat) => (
                     <button
@@ -6130,41 +6232,6 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
                     </button>
                   ))}
                 </div>
-
-                {/* Piece preview — the selected piece at a glance,
-                    in the building panel's own circular, emerald
-                    language. No catalog images exist and a second
-                    live WebGL render would cost a whole context
-                    on the phone, so the preview is a styled tile:
-                    the piece's plan footprint drawn to scale,
-                    plus its name, category, dimensions and
-                    finish. It updates on every selection change
-                    and clears when nothing is selected. */}
-                {selPieceDef && (
-                  <div aria-live="polite" className="flex items-center gap-3 rounded-[1.5rem] border border-emerald-200/40 bg-emerald-400/10 px-3 py-2.5">
-                    <svg viewBox="0 0 64 44" className="h-11 w-16 shrink-0" aria-hidden="true">
-                      <rect
-                        x={(64 - selPieceDef.size.w * Math.min(56 / selPieceDef.size.w, 36 / selPieceDef.size.d)) / 2}
-                        y={(44 - selPieceDef.size.d * Math.min(56 / selPieceDef.size.w, 36 / selPieceDef.size.d)) / 2}
-                        width={selPieceDef.size.w * Math.min(56 / selPieceDef.size.w, 36 / selPieceDef.size.d)}
-                        height={selPieceDef.size.d * Math.min(56 / selPieceDef.size.w, 36 / selPieceDef.size.d)}
-                        rx="2"
-                        className="fill-emerald-400/30 stroke-emerald-200"
-                        strokeWidth="1"
-                      />
-                    </svg>
-                    <div className="min-w-0">
-                      <div className="truncate text-[13px] font-bold text-emerald-50">{selPieceDef.name}</div>
-                      <div className="truncate text-[11px] text-zinc-300">
-                        {BUILD_CAT_LABEL[selPieceDef.category] || selPieceDef.category} · {selPieceDef.size.w} × {selPieceDef.size.d} m · {selPieceDef.size.h} m tall
-                      </div>
-                      <div className="truncate text-[11px] text-zinc-400">
-                        {(allowedFinishes.find((f) => f.id === selFinish) || {}).name || selFinish} finish
-                        {selPieceDef.span ? ' · spans' : ''}{selPieceDef.floating ? ' · floats' : ''}
-                      </div>
-                    </div>
-                  </div>
-                )}
 
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className="text-[11px] font-bold text-zinc-400">Finish</span>

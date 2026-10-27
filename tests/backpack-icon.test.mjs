@@ -156,8 +156,8 @@ describe('restore precedence and defaults', () => {
 });
 
 describe('component wiring (code inspection, like the Concourse tests)', () => {
-  it('preserves the BackpackHud API exactly: default export, same props plus docked', () => {
-    assert.match(hud, /export default function BackpackHud\(\{ realm, realmLabel, combatApplies = false, displayNote = null, docked = false \}\)/);
+  it('preserves the BackpackHud API exactly: default export, same props plus docked, homeFractions, headerDeadSpaceMinimize', () => {
+    assert.match(hud, /export default function BackpackHud\(\{ realm, realmLabel, combatApplies = false, displayNote = null, docked = false, homeFractions = null, headerDeadSpaceMinimize = false \}\)/);
   });
 
   it('renders a 56px circle with a count badge inside it — fixed when floating, in flow when docked at home', () => {
