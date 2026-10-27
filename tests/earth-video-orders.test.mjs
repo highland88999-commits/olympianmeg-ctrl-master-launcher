@@ -4,9 +4,20 @@
 //   ORDER 1 — the SUMMON BIKE console button is gone; the B-key
 //     summon in EarthBike.jsx is untouched (the bike keeps a
 //     summon path, and no console control is removed with it).
-//   ORDER 2 — the TRON grid: one color cycle (a new color every
-//     10 s: 7.5 s hold + 2.5 s smooth fade), mounted on both the
-//     street scene and the orbit globe from NexusEarth.
+//   ORDER 2 — the TRON grid, REWORKED late 2026-10-26 after
+//     Merlin watched it on his phone: (a) the lines must NOT
+//     follow the car — the pattern is now a pure function of
+//     planet-fixed direction, world-locked; (b) no TRON look —
+//     jagged, irregular, branching cracks, not a grid; (c) the
+//     cracks are STATIC (his correction: they do not eat,
+//     spread, grow or move — the Earth cracked and waiting for
+//     Oblivion); (d) the glow is very subtle but clearly
+//     visible (sharp thin core, whisper halo, faint light).
+//     The 10 s color cycle (7.5 s hold + 2.5 s fade) is kept,
+//     mounted on both the street scene and the orbit globe
+//     from NexusEarth. Full pins live in
+//     tests/earth-cracks.test.mjs; this suite pins the mounts
+//     and the cycle.
 //   ORDER 3 — no craft drives backward: the 2026-10-26 filled-
 //     silhouette audit of all 19 shipped GLBs found exactly 5
 //     reversed craft (luxury-gt-1, teardrop-coupe, pickup-hd,
@@ -36,11 +47,11 @@ import { VEHICLES, listVehicles } from '../lib/earth/vehicles.js';
 import { effectiveRotY } from '../lib/earth/vehicle-model.js';
 import { soloNameForUser, sanitizeTeamName } from '../lib/earth/teams.js';
 import {
-  TRON_GRID_PALETTE,
-  TRON_COLOR_HOLD_SECONDS,
-  TRON_COLOR_FADE_SECONDS,
-  tronGridColorAt,
-} from '../lib/earth/tron-grid.js';
+  CRACK_PALETTE,
+  CRACK_COLOR_HOLD_SECONDS,
+  CRACK_COLOR_FADE_SECONDS,
+  crackColorAt,
+} from '../lib/earth/earth-cracks.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (rel) => readFileSync(join(root, rel), 'utf8');
@@ -73,42 +84,44 @@ check('ORDER 1: B-key summon + E-key ride survive independently in EarthBike.jsx
   assert.ok(src.includes('export function dismissBike'), 'dismissBike export must stay');
 });
 
-// ---- ORDER 2: TRON grid color cycle + mounts ----
+// ---- ORDER 2: crack color cycle + mounts (TRON grid reworked) ----
 check('ORDER 2: color cycle holds 7.5 s, fades 2.5 s, loops the palette', () => {
-  assert.equal(TRON_COLOR_HOLD_SECONDS + TRON_COLOR_FADE_SECONDS, 10, 'one color per 10 s');
-  assert.ok(TRON_GRID_PALETTE.length >= 4, 'a real progression, not a blink');
-  const at = (ms) => tronGridColorAt(ms);
+  assert.equal(CRACK_COLOR_HOLD_SECONDS + CRACK_COLOR_FADE_SECONDS, 10, 'one color per 10 s');
+  assert.ok(CRACK_PALETTE.length >= 4, 'a real progression, not a blink');
+  const at = (ms) => crackColorAt(ms);
   const hex = (c) => [c.r, c.g, c.b].map((v) => Math.round(v * 255).toString(16).padStart(2, '0')).join('');
-  assert.equal(hex(at(0)), TRON_GRID_PALETTE[0].slice(1), 't=0 is palette[0]');
-  assert.equal(hex(at(7400)), TRON_GRID_PALETTE[0].slice(1), 'still holding at 7.4 s');
-  assert.equal(hex(at(10000)), TRON_GRID_PALETTE[1].slice(1), 'fully faded to palette[1] at 10 s');
+  assert.equal(hex(at(0)), CRACK_PALETTE[0].slice(1), 't=0 is palette[0]');
+  assert.equal(hex(at(7400)), CRACK_PALETTE[0].slice(1), 'still holding at 7.4 s');
+  assert.equal(hex(at(10000)), CRACK_PALETTE[1].slice(1), 'fully faded to palette[1] at 10 s');
   const mid = at(8750);
   const first = at(0);
   const second = at(10000);
   assert.ok(Math.abs(mid.r - (first.r + second.r) / 2) < 0.02, 'mid-fade is the midpoint');
   assert.equal(
-    hex(at(10000 * TRON_GRID_PALETTE.length)),
-    TRON_GRID_PALETTE[0].slice(1),
+    hex(at(10000 * CRACK_PALETTE.length)),
+    CRACK_PALETTE[0].slice(1),
     'cycle loops back to palette[0]',
   );
 });
 
-check('ORDER 2: NexusEarth mounts the street grid and the orbit grid', () => {
+check('ORDER 2: NexusEarth mounts the street cracks and the orbit cracks', () => {
   const src = read('components/NexusEarth.jsx');
-  assert.ok(src.includes('EarthTronGrid'), 'street grid import + mount must exist');
-  assert.ok(src.includes('EarthOrbitGrid'), 'orbit grid import + mount must exist');
-  assert.ok(src.includes("roaming && <EarthTronGrid"), 'street grid is street-gated');
-  assert.ok(src.includes('!roaming && <EarthOrbitGrid'), 'orbit grid is orbit-gated');
+  assert.ok(src.includes('EarthCracks'), 'street crack import + mount must exist');
+  assert.ok(src.includes('EarthOrbitCracks'), 'orbit crack import + mount must exist');
+  assert.ok(src.includes('roaming && <EarthCracks'), 'street cracks are street-gated');
+  assert.ok(src.includes('!roaming && <EarthOrbitCracks'), 'orbit cracks are orbit-gated');
+  assert.ok(!src.includes('EarthTronGrid'), 'old TRON component must be gone');
+  assert.ok(!src.includes('EarthOrbitGrid'), 'old TRON orbit component must be gone');
 });
 
-check('ORDER 2: grid component uses a shader (no per-frame geometry rebuild)', () => {
-  const src = read('components/earth/EarthTronGrid.jsx');
+check('ORDER 2: crack component uses a shader (no per-frame geometry rebuild)', () => {
+  const src = read('components/earth/EarthCracks.jsx');
   assert.ok(src.includes('ShaderMaterial'), 'shader approach, not rebuilt geometry');
   assert.ok(src.includes('PlaneGeometry'), 'one static street plane');
   assert.ok(src.includes('SphereGeometry'), 'one static orbit sphere');
-  assert.ok(src.includes('tronGridColorAt'), 'shared color clock');
+  assert.ok(src.includes('crackColorAt'), 'shared color clock');
   assert.ok(src.includes('pointLight'), 'glow is also a light source');
-  assert.ok(!src.includes('earth2'), 'grid must not touch Earth 2 code');
+  assert.ok(!src.includes('earth2'), 'cracks must not touch Earth 2 code');
 });
 
 // ---- ORDER 3: nose-forward per craft ----
