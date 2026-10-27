@@ -12,6 +12,7 @@ import { getEmbodimentForSurface } from '@/lib/gta/walker-embodiment';
 import CharacterPicker from '@/components/characters/CharacterPicker';
 import EarthCraftPicker from '@/components/EarthCraftPicker';
 import EarthExtensionPicker from '@/components/EarthExtensionPicker';
+import EarthTeamPanel from '@/components/EarthTeamPanel';
 import { writeExtensionCharacterPick } from '@/lib/earth/earth-extension-character';
 
 const QUICK = [
@@ -389,6 +390,16 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
             </div>
           </>
         )}
+        {/* Teams — optional mapping teams + garage (Merlin,
+            2026-10-26 evening orders). Same embedded pattern as
+            Character above. Shown whenever the console is open
+            (not street-only): teams are Earth-1-wide, and the
+            garage is this panel's room — never placed on Earth,
+            so no runway is ever touched. */}
+        <div className="mt-1">
+          <div className="text-[9px] font-bold tracking-[0.2em] uppercase text-zinc-500 mb-1">Teams</div>
+          <EarthTeamPanel />
+        </div>
         {canWalk && spawns && spawns.length > 0 && (
           <div className="flex flex-col gap-1">
             <div className="text-[9px] font-bold tracking-[0.25em] uppercase text-zinc-500">
