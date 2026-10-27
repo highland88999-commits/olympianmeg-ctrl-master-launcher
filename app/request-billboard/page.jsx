@@ -31,6 +31,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import LoadWalletCard from '@/components/billboards/LoadWalletCard';
 import PriceNoticePopup from '@/components/billboards/PriceNoticePopup';
+import { SIZE_NOTICE, checkCreativeFit, fitRejectMessage, probeCreativeDimensions } from '@/lib/billboards/creative-fit';
 
 const BASE = { rotating: 1000, solo: 2500 };
 const MILLION = { rotating: 5000, solo: 20000 };
@@ -101,6 +102,13 @@ export default function RequestBillboardPage() {
     setBusy(true);
     setFormNotice('');
     try {
+      // Frame-fit requirement (Merlin, 2026-10-27): the creative must
+      // fit the tall portrait 4:7 frame, or it is rejected BEFORE any
+      // upload starts — a landscape or square graphic would crop to
+      // ruin on the panel.
+      const dims = await probeCreativeDimensions(file);
+      const fit = checkCreativeFit(dims.width, dims.height);
+      if (!fit.ok) throw new Error(fitRejectMessage(dims.width, dims.height, fit));
       const t = await token();
       const r = await fetch('/api/billboard-requests/upload-url', {
         method: 'POST',
@@ -331,7 +339,8 @@ export default function RequestBillboardPage() {
               </button>
             </div>
             <p style={{ color: '#8b91a8', fontSize: '0.82rem', margin: '0 0 0.8rem' }}>
-              Images up to 8 MB (JPEG, PNG, WebP, GIF) or videos up to 50 MB (MP4, WebM).
+              Images up to 8 MB (JPEG, PNG, WebP, GIF) or videos up to 50 MB (MP4, WebM).{' '}
+              {SIZE_NOTICE}
               {creativeUrl && <> Uploaded: {creativeType} — preview below.</>}
             </p>
             {creativeUrl && (creativeType === 'video'

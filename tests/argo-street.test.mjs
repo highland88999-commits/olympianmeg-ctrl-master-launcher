@@ -180,14 +180,15 @@ ok('partners: 7 partners + stake + betty + YOUR AD HERE', () => {
   assert.ok(src.includes('YOUR AD HERE'));
 });
 
-ok('billboard monuments: tower-panel design at 1.5x of 1.5x (Merlin 2026-09-30)', () => {
+ok('billboard monuments: tower-panel design at 2.25x (Merlin 2026-09-30, face widened 2026-10-27)', () => {
   const src = SRC('../components/argo/BillboardMonument.jsx');
-  // Monument dims = tower-panel x1.5 x1.5: frame [9.45,16.2,0.45],
-  // face [8.55,10.125], magenta [9.0,10.575]. The CTA bar + email
+  // Monument dims = tower-panel x2.25: frame [9.45,16.2,0.45],
+  // face [9.0,15.75], magenta [9.45,16.2] (the full frame face, so the
+  // creative sits 0.225 inside it on all sides). The CTA bar + email
   // strip were removed by the 2026-10-27 prompt sweep, so their dims
   // no longer exist — the frame/face/magenta design is unchanged.
   for (const d of ['FRAME_W = 9.45', 'FRAME_H = 16.2', 'FRAME_D = 0.45',
-    'FACE_W = 8.55', 'FACE_H = 10.125', 'MAG_W = 9.0', 'MAG_H = 10.575']) {
+    'FACE_W = 9.0', 'FACE_H = 15.75', 'MAG_W = 9.45', 'MAG_H = 16.2']) {
     assert.ok(src.includes(d), `missing ${d}`);
   }
   assert.ok(!src.includes('VISIT SITE') && !src.includes('Advertise Here: Email Us'), 'prompt texts remain');
@@ -196,9 +197,9 @@ ok('billboard monuments: tower-panel design at 1.5x of 1.5x (Merlin 2026-09-30)'
   assert.ok(!src.match(/name="edge"|gold edge/i), 'old gold-edge look remains');
   // Portrait canvas matched to the face aspect; creatives drawn cover-fit
   // (aspect preserved) so partner logos never stretch.
-  assert.ok(src.includes('CANVAS_W = 1710') && src.includes('CANVAS_H = 2025'), 'portrait canvas');
+  assert.ok(src.includes('CANVAS_W = 1800') && src.includes('CANVAS_H = 3150'), 'portrait canvas');
   assert.ok(src.includes('drawCover'), 'cover-fit creative draw missing');
-  // Tower ad panels themselves are untouched (still original size).
+  // Tower ad panels themselves keep their backing box (still original size).
   const ares = SRC('../components/Ares.jsx');
   assert.ok(ares.includes('[4.2, 7.2, 0.2]'), 'Ares tower panel changed');
 });

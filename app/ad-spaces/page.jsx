@@ -28,6 +28,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { satelliteForBillboard, findOwnershipConflict } from '@/lib/billboards/validate';
 import { manifestHoldings } from '@/lib/billboards/overrides';
+import { SIZE_NOTICE, checkCreativeFit, fitRejectMessage, probeCreativeDimensions } from '@/lib/billboards/creative-fit';
 import { GOD_MENUS } from '@/lib/god-menus';
 
 const DRAFT_KEY = 'olympus.adSpacesDrafts.v1';
@@ -208,6 +209,12 @@ export default function AdSpacesPage() {
       return d;
     });
     try {
+      // Frame-fit requirement (Merlin, 2026-10-27): same rule as the
+      // public request page — the creative must fit the tall portrait
+      // 4:7 frame, or it is rejected BEFORE any upload starts.
+      const dims = await probeCreativeDimensions(file);
+      const fit = checkCreativeFit(dims.width, dims.height);
+      if (!fit.ok) throw new Error(fitRejectMessage(dims.width, dims.height, fit));
       const up = await fetch('/api/billboards/upload-url', {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
@@ -438,6 +445,7 @@ export default function AdSpacesPage() {
                   className="mt-1 block w-full rounded-xl border border-white/10 bg-black/60 px-3 py-2.5 text-sm text-white"
                 />
               </label>
+              <p className="mt-1 text-xs text-zinc-500">{SIZE_NOTICE}</p>
               {entry.uploading && <p className="mt-1 text-xs text-zinc-400">Uploading…</p>}
               {entry.error && <p className="mt-1 text-xs text-red-300">{entry.error}</p>}
 

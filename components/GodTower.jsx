@@ -33,20 +33,24 @@ import {
 } from '@/lib/billboards/panel-video';
 
 // Tower panel faces: a slot's real image creative paints cover-fit on
-// a 570×675 canvas — the same 38:45 aspect as the 3.8×4.5 face, at the
-// same ≈100px per world unit the face had before the panels grew 1.5×
-// (PANEL_SCALE), so the bigger screens stay just as crisp from the
-// spawn. Video slots play the real video instead (shared records
+// a 400×700 canvas — the same 4:7 aspect as the 4.0×7.0 face, at the
+// same ≈100px per world unit the face had before. The face fills the
+// WHOLE panel frame edge to edge inside the border rim (Merlin,
+// 2026-10-27: widen it, full length, video edge to the border's inner
+// edge) — the old 3.8×4.5 face left a dark slab of backing box showing
+// below it. Video slots play the real video instead (shared records
 // below, one decode per unique URL, in-view panels only) — the canvas
 // face is only the pre-load and failure fallback, never the video
 // itself.
-const FACE_PX_W = 570;
-const FACE_PX_H = 675;
+const FACE_PX_W = 400;
+const FACE_PX_H = 700;
 
 // The face plane itself, in world units — the aspect the video
 // cover-fit targets, and the geometry the video fills edge to edge.
-const FACE_PLANE_W = 3.8;
-const FACE_PLANE_H = 4.5;
+// 4.0×7.0 sits 0.1 inside the 4.2×7.2 border plane on all four sides,
+// so the creative edge meets the border's inner edge exactly.
+const FACE_PLANE_W = 4.0;
+const FACE_PLANE_H = 7.0;
 
 // Same advertise-inquiry address as the street monuments.
 const INQUIRIES_EMAIL = 'olympiannexus@gmail.com';
@@ -451,7 +455,7 @@ function TowerAdPanel({ slot, stakeTex, color, onLaunchExternal, badgeNumber }) 
 
       <mesh
         ref={faceRef}
-        position={[0, 1, 0.24]}
+        position={[0, 0, 0.24]}
         onClick={handleFaceClick}
         onPointerOver={() => { setHovered(true); document.body.style.cursor = 'pointer'; }}
         onPointerOut={() => { setHovered(false); document.body.style.cursor = 'default'; }}
@@ -473,11 +477,13 @@ function TowerAdPanel({ slot, stakeTex, color, onLaunchExternal, badgeNumber }) 
         )}
       </mesh>
 
-      {/* Textured border: 0.08 above the backing box face (was coplanar at
-          0.1), 0.08 below the ad face (was 0.01), polygonOffset as a belt
-          on top so the rim never fights the creative on any GPU. */}
-      <mesh position={[0, 1, 0.16]}>
-        <planeGeometry args={[4.0, 4.7]} />
+      {/* Textured border: the full 4.2×7.2 box face, 0.08 above the
+          backing box face (was coplanar at 0.1), 0.08 below the ad face
+          (was 0.01), polygonOffset as a belt on top so the rim never
+          fights the creative on any GPU. The 4.0×7.0 face sits 0.1
+          inside it on all sides: creative edge to border inner edge. */}
+      <mesh position={[0, 0, 0.16]}>
+        <planeGeometry args={[4.2, 7.2]} />
         <meshStandardMaterial
           map={borderTex || undefined}
           color={borderTex ? '#ffffff' : color}

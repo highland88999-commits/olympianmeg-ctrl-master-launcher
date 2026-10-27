@@ -617,14 +617,14 @@ function TextureProvider({ onLaunchExternal }) {
             t.colorSpace = THREE.SRGBColorSpace;
           }
         });
-        // The ad creative maps onto portrait 3.8×4.5 panel faces: cover-fit
+        // The ad creative maps onto portrait 4.0×7.0 panel faces: cover-fit
         // it (center-crop, no stretch) instead of warping the source art.
         // The body/hull/prop/tail textures are cylinder wraps — tiling is
         // correct for those, so they keep plain repeat wrapping.
         try {
           const ad = loadedTextures.adTex;
           if (ad && ad.isTexture && ad.image && ad.image.width > 1) {
-            applyCoverFit(ad, ad.image.width, ad.image.height, 3.8, 4.5);
+            applyCoverFit(ad, ad.image.width, ad.image.height, 4.0, 7.0);
           }
         } catch { /* honest fallback: uncorrected mapping, never a crash */ }
         setTextures(loadedTextures);
@@ -706,7 +706,9 @@ function TextureProvider({ onLaunchExternal }) {
   // sets — and leave every other panel on the base assignment.
   // Stopped ads (paused or cancelled) are dropped from the overrides
   // first, so a billboard whose only ad stopped falls back to its
-  // base inventory slot instead of showing a dead ad.
+  // base inventory slot instead of showing a dead ad. Active solos
+  // resolve inside manifestToOverrides (solo entry alone on its
+  // number, even when the manifest is stale).
   const towerPanels = useMemo(
     () => {
       const soloMap = new Map(

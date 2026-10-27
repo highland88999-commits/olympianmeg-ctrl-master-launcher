@@ -3,11 +3,13 @@
 //
 // The original billboards were the constellation tower ad panels (AresAdPanel:
 // dark metal frame, magenta backing halo, creative face, CTA bar, email
-// strip). The street monuments use that same design, scaled up twice:
-// first to 1.5x, then again 1.5x per Merlin (2026-09-30: "make the billboard
-// 1.5x bigger than they are right now") — frame 9.45×16.2, face 8.55×10.125
-// (portrait), magenta 9.0×10.575 —
-// standing on a slim plinth. The old obelisk + gold-edge monument look is gone.
+// strip). The street monuments use that same design, scaled up 2.25x
+// (tower panel: frame [4.2,7.2,0.2], face [4.0,7.0], magenta [4.2,7.2]) —
+// frame 9.45×16.2, face 9.0×15.75 (portrait 4:7, same aspect as the tower
+// face, so one upload rule serves both), magenta 9.45×16.2 (the full
+// frame face, so the 9.0×15.75 creative sits 0.225 inside it on all
+// sides: creative edge to border inner edge) — standing on a slim
+// plinth. The old obelisk + gold-edge monument look is gone.
 //
 // Z-layers keep honest separation (tower-panel lesson, 2026-09-30): the frame
 // front sits at 0.225, magenta halo at 0.32, creative face at 0.40 — stacked
@@ -33,22 +35,22 @@ import {
   drawCoverFit,
 } from '../../lib/billboard-face';
 
-// Monument dims: tower-panel × 1.5 × 1.5 (tower panel: frame [4.2,7.2,0.2],
-// face [3.8,4.5], magenta [4.0,4.7], CTA [3.8,0.8,0.1], email strip [3.8,0.6]).
+// Monument dims: tower-panel × 2.25 (tower panel: frame [4.2,7.2,0.2],
+// face [4.0,7.0], magenta [4.2,7.2], CTA [3.8,0.8,0.1], email strip [3.8,0.6]).
 const FRAME_W = 9.45;
 const FRAME_H = 16.2;
 const FRAME_D = 0.45;
-const FACE_W = 8.55;
-const FACE_H = 10.125;
-const MAG_W = 9.0;
-const MAG_H = 10.575;
-// Portrait canvas matched to the face aspect (8.55 / 10.125), 1.5x backing
+const FACE_W = 9.0;
+const FACE_H = 15.75;
+const MAG_W = 9.45;
+const MAG_H = 16.2;
+// Portrait canvas matched to the face aspect (9.0 / 15.75 = 4:7), 2x backing
 // store so the bigger face stays crisp. Drawing happens in the original
-// 1140×1350 logical space (ctx scaled up) — all draw code stays untouched.
-const CANVAS_W = 1710;
-const CANVAS_H = 2025;
-const DRAW_W = 1140;
-const DRAW_H = 1350;
+// 900×1575 logical space (ctx scaled up) — all draw code stays untouched.
+const CANVAS_W = 1800;
+const CANVAS_H = 3150;
+const DRAW_W = 900;
+const DRAW_H = 1575;
 
 // Same advertise-inquiry address as the tower panels.
 const INQUIRIES_EMAIL = 'olympiannexus@gmail.com';
@@ -202,13 +204,13 @@ export default function BillboardMonument({ slot, position, faceAngle, reduced }
           />
         </mesh>
         {/* Magenta backing halo — 0.095 above the frame face: never fights it. */}
-        <mesh position={[0, 2.25, 0.32]}>
+        <mesh position={[0, 0, 0.32]}>
           <planeGeometry args={[MAG_W, MAG_H]} />
           <meshBasicMaterial color="#ff00ff" />
         </mesh>
         {/* Creative face — 0.08 above the halo: never fights it. */}
         <mesh
-          position={[0, 2.25, 0.4]}
+          position={[0, 0, 0.4]}
           onClick={openLink}
           onPointerOver={(e) => {
             e.stopPropagation();

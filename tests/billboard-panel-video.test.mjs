@@ -32,34 +32,40 @@ const approx = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps;
 
 // --- cover-fit math: video fills the face, cropped, never stretched ---
 {
-  // Landscape video (16:9) on the portrait 3.8×4.5 face: full height,
+  // Landscape video (16:9) on the portrait 4.0×7.0 face: full height,
   // sides cropped.
-  const fit = videoCoverFit(3.8, 4.5, 16, 9);
+  const fit = videoCoverFit(4.0, 7.0, 16, 9);
   t('landscape video: full height', approx(fit.repeat[1], 1));
-  t('landscape video: sides cropped', approx(fit.repeat[0], 3.8 / 8));
-  t('landscape video: crop centered', approx(fit.offset[0], (1 - 3.8 / 8) / 2) && approx(fit.offset[1], 0));
+  t('landscape video: sides cropped', approx(fit.repeat[0], 9 / 28));
+  t('landscape video: crop centered', approx(fit.offset[0], 19 / 56) && approx(fit.offset[1], 0));
 }
 {
   // Portrait video (9:16) on the portrait face: full width, top/bottom cropped.
-  const fit = videoCoverFit(3.8, 4.5, 9, 16);
+  const fit = videoCoverFit(4.0, 7.0, 9, 16);
   t('portrait video: full width', approx(fit.repeat[0], 1));
   t('portrait video: top/bottom cropped', fit.repeat[1] < 1 && fit.repeat[1] > 0);
   t('portrait video: crop centered', approx(fit.offset[0], 0) && fit.offset[1] > 0);
 }
 {
   // Square video on the portrait face: full height, sides cropped.
-  const fit = videoCoverFit(3.8, 4.5, 1, 1);
+  const fit = videoCoverFit(4.0, 7.0, 1, 1);
   t('square video: full height', approx(fit.repeat[1], 1));
-  t('square video: sides cropped', approx(fit.repeat[0], 3.8 / 4.5));
+  t('square video: sides cropped', approx(fit.repeat[0], 4.0 / 7.0));
 }
-t('cover-fit rejects zero width', videoCoverFit(0, 4.5, 16, 9) === null);
-t('cover-fit rejects zero video height', videoCoverFit(3.8, 4.5, 16, 0) === null);
-t('cover-fit rejects negative dims', videoCoverFit(-3.8, 4.5, 16, 9) === null);
-t('cover-fit rejects NaN', videoCoverFit(3.8, 4.5, NaN, 9) === null);
+{
+  // Exact 4:7 video on the 4.0×7.0 face: edge to edge, nothing cropped.
+  const fit = videoCoverFit(4.0, 7.0, 4, 7);
+  t('exact 4:7 video: no crop', approx(fit.repeat[0], 1) && approx(fit.repeat[1], 1));
+  t('exact 4:7 video: no offset', approx(fit.offset[0], 0) && approx(fit.offset[1], 0));
+}
+t('cover-fit rejects zero width', videoCoverFit(0, 7.0, 16, 9) === null);
+t('cover-fit rejects zero video height', videoCoverFit(4.0, 7.0, 16, 0) === null);
+t('cover-fit rejects negative dims', videoCoverFit(-4.0, 7.0, 16, 9) === null);
+t('cover-fit rejects NaN', videoCoverFit(4.0, 7.0, NaN, 9) === null);
 {
   // Bounds invariant across aspects: crop stays inside the frame and
   // exactly one axis touches edge to edge (true cover, no gaps).
-  const pairs = [[3.8, 4.5, 16, 9], [3.8, 4.5, 9, 16], [3.8, 4.5, 1, 1], [3.8, 4.5, 4, 3], [3.8, 4.5, 21, 9]];
+  const pairs = [[4.0, 7.0, 16, 9], [4.0, 7.0, 9, 16], [4.0, 7.0, 1, 1], [4.0, 7.0, 4, 3], [4.0, 7.0, 21, 9]];
   for (const [fw, fh, vw, vh] of pairs) {
     const fit = videoCoverFit(fw, fh, vw, vh);
     const [rx, ry] = fit.repeat;
