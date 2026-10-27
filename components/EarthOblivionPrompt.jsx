@@ -14,8 +14,12 @@ import { useState } from 'react';
 // state only, never stored anywhere (no device storage, no
 // account setting, no "don't show again"), so the next load
 // shows it again.
-// Placement: top-center, BELOW the first-entry movement hint's
-// slot (top-5), so the two never stack. The outer wrapper stays
+// Placement: top-center, BELOW the camera column (the 3rd
+// person / Reset camera buttons sit top-right from 3.25rem down
+// to ~8.75rem, so a pill at 4.25rem ran underneath them —
+// Merlin's 2026-10-27 video shows its text cut off behind the
+// buttons) and below the first-entry movement hint's slot
+// (top-5), so nothing stacks. The outer wrapper stays
 // pointer-events-none so nothing outside the pill can be blocked;
 // the pill itself is pointer-events-auto and is the tap target.
 // Street level ONLY (earth_roam): hidden in orbit, hub, and dive
@@ -30,7 +34,7 @@ export default function EarthOblivionPrompt({ phase }) {
   return (
     <div
       className="ui-element pointer-events-none fixed left-1/2 z-[60] -translate-x-1/2 px-3"
-      style={{ top: 'calc(env(safe-area-inset-top, 0px) + 4.25rem)' }}
+      style={{ top: 'calc(env(safe-area-inset-top, 0px) + 9.5rem)' }}
     >
       <div
         role="button"

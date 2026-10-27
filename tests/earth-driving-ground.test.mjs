@@ -60,9 +60,14 @@ function t(name, cond) {
   t('coarse sheets rendered in JSX', src.includes('coarseSheets.map((s)'));
   t('coarse centre follows the traveler (not led ahead)',
     src.includes('coarseCenterRef.current = { lat: roamState.lat, lon: roamState.lon }'));
+  // 2026-10-27 (render queue): the coarse job's preset now comes
+  // from coarsePresetFor(driving) — streetCoarse on foot,
+  // streetCoarseWide in a car — so the literal presetName pin
+  // moved to the selector. The intent stands: no driving freeze
+  // on the coarse pool; driving only doubles its radius.
   t('coarse effect has no driving gate (it IS the driving layer)',
-    /presetName: 'streetCoarse'/.test(src)
-    && !/if \(driving\) \{ mgr\.pending = job; return undefined; \}\n[\s\S]{0,400}streetCoarse/.test(src));
+    src.includes('coarsePresetFor(driving)')
+    && !/if \(driving\) \{ mgr\.pending = job; return undefined; \}\n[\s\S]{0,400}coarsePresetFor/.test(src));
   t('far builds freeze while driving (like the fine sheet)',
     /if \(driving\) \{ mgr\.pending = job; return undefined; \}\n[\s\S]{0,600}presetName: 'streetFar'/.test(src)
     || (src.includes("presetName: 'streetFar'") && src.includes('if (driving) { mgr.pending = job; return undefined; }')));
