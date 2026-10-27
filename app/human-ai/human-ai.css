@@ -103,12 +103,15 @@
 
 @media (max-width: 768px) {
   .human-ai-wrapper .header-bar { flex-direction: column; gap: 15px; padding: 15px; }
-  .human-ai-wrapper .header-controls { width: 100%; justify-content: space-between; }
+  .human-ai-wrapper .header-controls { width: 100%; flex-wrap: wrap; justify-content: flex-start; gap: 10px; }
+  .human-ai-wrapper .header-controls .mode-tab { padding: 8px 12px; }
+  .human-ai-wrapper .header-controls .export-btn { padding: 8px 12px; }
+  .human-ai-wrapper .header-controls .lang-selector { padding: 8px 8px; }
   .human-ai-wrapper .branding h1 { font-size: 1.4rem; }
   .human-ai-wrapper .chat-window { padding: 15px; }
   .human-ai-wrapper .message-bubble { max-width: 95%; font-size: 0.9rem; padding: 15px; }
   .human-ai-wrapper .council-verdict { max-width: 95%; }
-  .human-ai-wrapper .input-area { padding: 15px; }
+  .human-ai-wrapper .input-area { padding: 15px; padding-bottom: calc(15px + env(safe-area-inset-bottom)); }
   .human-ai-wrapper .input-area input { padding: 12px; font-size: 0.9rem; }
   .human-ai-wrapper .input-area button { padding: 0 15px; margin-left: 10px; font-size: 0.9rem; letter-spacing: 1px; }
 }

@@ -79,6 +79,23 @@ const cssSrc = read('app/human-ai/human-ai.css');
 t('css has council styles',
   /council-verdict/.test(cssSrc) && /verdict-card/.test(cssSrc) && /consensus-panel/.test(cssSrc) && /mode-tab/.test(cssSrc));
 
+// --- Mobile header overflow fix (2026-10-27: on phones the header row
+// clipped the language selector off the right edge, unreachable) -----------
+const mobileBlock = (() => {
+  const i = cssSrc.indexOf('@media (max-width: 768px)');
+  return i >= 0 ? cssSrc.slice(i) : '';
+})();
+t('mobile header-controls wraps instead of clipping',
+  /\.header-controls\s*\{[^}]*flex-wrap:\s*wrap/.test(mobileBlock));
+t('mobile header keeps tabs, export, language in DOM order',
+  /header-controls[\s\S]*?mode-tabs[\s\S]*?export-btn[\s\S]*?hai-lang-wrap[\s\S]*?lang-selector/.test(pageSrc));
+t('mobile input-area carries safe-area bottom padding',
+  /\.input-area\s*\{[^}]*env\(safe-area-inset-bottom\)/.test(mobileBlock));
+t('desktop header-controls row unchanged (no wrap on desktop)',
+  /\.header-controls\s*\{\s*display:\s*flex;\s*gap:\s*15px;\s*align-items:\s*center;\s*\}/.test(cssSrc));
+t('export-btn disabled state untouched (greyed with zero messages is by design)',
+  /\.export-btn:disabled\s*\{[^}]*opacity:\s*0\.3/.test(cssSrc));
+
 // --- summary --------------------------------------------------------------------------
 console.log(`\nhuman-ai-council: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
