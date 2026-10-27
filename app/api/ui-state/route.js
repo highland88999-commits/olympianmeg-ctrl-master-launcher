@@ -18,6 +18,7 @@ import { sanitizeConcourseBg } from '@/lib/concourse-bg';
 import { sanitizeUiSettings } from '@/lib/ui-settings';
 import { sanitizeBackpackRecord } from '@/lib/backpack/backpack';
 import { sanitizeEarthMappedHex } from '@/lib/earth/mapping-progress';
+import { REGISTRY_TABLE, mergeRegistryHex } from '@/lib/earth/global-registry';
 
 function pickMuseFab(prefs) {
   if (!prefs || typeof prefs !== 'object') return null;
@@ -178,6 +179,34 @@ export const POST = noCache(
       p_patch: patch,
     });
     if (error) throw error;
+
+    if (patch.earth_mapped) {
+      // Global team registry (Merlin, 2026-10-26): every personal
+      // sync OR-merges this account's FULL bitset into their one
+      // registry row, so the team total grows monotonically and a
+      // subset re-sync can never shrink it. Best-effort on
+      // purpose: before the registry migration has been run the
+      // table does not exist, and that must never fail the
+      // personal sync above (the personal record is the source
+      // of truth; the registry is additive). Guests never reach
+      // here — this route requires a signed-in user.
+      try {
+        const { data: row } = await admin
+          .from(REGISTRY_TABLE)
+          .select('mapped_hex')
+          .eq('user_id', auth.user.id)
+          .maybeSingle();
+        const merged = mergeRegistryHex(row && row.mapped_hex, patch.earth_mapped);
+        if (merged) {
+          await admin.from(REGISTRY_TABLE).upsert(
+            { user_id: auth.user.id, mapped_hex: merged, updated_at: new Date().toISOString() },
+            { onConflict: 'user_id' }
+          );
+        }
+      } catch {
+        // Registry not ready — personal record already saved.
+      }
+    }
 
     return NextResponse.json({ ok: true, preferences: data || {} });
   })
