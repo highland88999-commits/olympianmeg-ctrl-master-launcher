@@ -67,7 +67,7 @@ export default function HumanAI() {
   const [cloudOffline, setCloudOffline] = useState(false);
   
   const [input, setInput] = useState('');
-  const [messages, setMessages] = useState<{role: string, text: string, isError?: boolean, council?: {task: string, verdicts: {agent: string, focus: string, verdict: string}[], approved: boolean, nurture_score: number, consensus: string}}[]>([]);
+  const [messages, setMessages] = useState<{role: string, text: string, isError?: boolean, council?: {task: string, verdicts: {agent: string, focus: string, verdict: string, live?: boolean}[], approved: boolean, nurture_score: number, consensus: string, note?: string}}[]>([]);
   const [language, setLanguage] = useState('en');
   const [loading, setLoading] = useState(false);
   const [sandboxContent, setSandboxContent] = useState('');
@@ -306,7 +306,7 @@ export default function HumanAI() {
                 <div key={idx} className={`message-wrapper ${msg.role === 'council' ? 'ai' : msg.role}`}>
                   {msg.role === 'council' && msg.council ? (
                     <div className="council-verdict">
-                      <div className="council-note">SIMULATED COUNCIL — deliberation personas, not live model calls</div>
+                      <div className="council-note">{msg.council.note ?? 'LIVE COUNCIL — Muse + Gemini deliberation'}</div>
                       {msg.council.verdicts.map(v => (
                         <div key={v.agent} className="verdict-card">
                           <div className="verdict-agent"><GlyphShield />{v.agent}</div>
