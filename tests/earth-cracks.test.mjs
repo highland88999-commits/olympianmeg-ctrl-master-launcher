@@ -40,9 +40,13 @@ import {
   CRACK_PALETTE,
   CRACK_COLOR_HOLD_SECONDS,
   CRACK_COLOR_FADE_SECONDS,
+  CRACK_CORE_WIDTH,
+  CRACK_HALO_WIDTH,
   CRACK_CORE_ALPHA_STREET,
   CRACK_CORE_ALPHA_ORBIT,
   CRACK_HALO_ALPHA,
+  CRACK_ORBIT_FREQ,
+  CRACK_ORBIT_CORE_WIDTH,
   CRACK_GLOW_INTENSITY,
   crackColorAt,
   crackValueAt,
@@ -79,21 +83,24 @@ check('crack field is deterministic and takes only the fragment coords', () => {
 });
 
 check('cracks exist and vary — thin spaced lines, mostly clear ground', () => {
-  // Global grid: the core (ridge value above 0.98, the shader's
-  // core band at width 0.02) must cover a small fraction —
-  // spaced-out fractures, never a web — while most ground stays
-  // uncracked, and some field values fall far from any ridge.
+  // Global grid: the core band edge (ridge value above 0.95,
+  // the shader's core band at width 0.05, retuned 2026-10-27
+  // from 0.02 — the old hairlines vanished on a phone screen)
+  // must cover a minority — spaced-out fractures, never a web
+  // — while most ground stays uncracked, and some field values
+  // fall far from any ridge. Measured: band edge ~19%, mean
+  // core factor ~0.09, mean total glow alpha ~0.075.
   const values = [];
   for (let lat = -80; lat <= 80; lat += 2) {
     for (let lon = -180; lon < 180; lon += 4) values.push(crackValueAt(lat, lon));
   }
-  const coreFrac = values.filter((v) => v > 0.98).length / values.length;
+  const coreFrac = values.filter((v) => v > 0.95).length / values.length;
   const min = Math.min(...values);
   const max = Math.max(...values);
   assert.ok(max > 0.98, `ridge lines exist (max ${max.toFixed(3)})`);
   assert.ok(min < 0.35, `some field values fall far from ridges (min ${min.toFixed(3)})`);
-  assert.ok(coreFrac > 0.03 && coreFrac < 0.12, `core is spaced, not webby (core fraction ${coreFrac.toFixed(3)})`);
-  assert.ok(1 - coreFrac > 0.85, 'most ground stays uncracked');
+  assert.ok(coreFrac > 0.12 && coreFrac < 0.28, `core is spaced, not webby (core fraction ${coreFrac.toFixed(3)})`);
+  assert.ok(1 - coreFrac > 0.7, 'most ground stays uncracked');
 });
 
 check('crack field is NOT a grid — no periodicity at any small spacing', () => {
@@ -128,12 +135,21 @@ check('glow calibration: very subtle, but the core stays legible', () => {
   // and ~1/4 of the street lantern (0.0009). Barely-there seep.
   assert.equal(CRACK_GLOW_INTENSITY, 0.0002, 'glow light is a faint seep');
   assert.ok(CRACK_GLOW_INTENSITY > 0, 'glow light still exists (not dimmed away)');
-  // Crack core: 0.5 peak — low brightness, but a hard-edged
-  // core, so the cracks read clearly against dark ground.
-  assert.equal(CRACK_CORE_ALPHA_STREET, 0.5, 'street core is low but legible');
-  assert.equal(CRACK_CORE_ALPHA_ORBIT, 0.35, 'orbit core is fainter (whole globe visible)');
-  assert.equal(CRACK_HALO_ALPHA, 0.05, 'halo is a whisper');
+  // Crack core (retuned 2026-10-27, Merlin's "perfect glow"
+  // order): wider core + stronger alpha so the cracks read on
+  // a phone at arm's length — clearly cracked earth, never loud.
+  // Mean total glow alpha ~0.075 (was ~0.024): present, not a washout.
+  assert.equal(CRACK_CORE_WIDTH, 0.05, 'street core is readable, not a hairline');
+  assert.equal(CRACK_HALO_WIDTH, 0.10, 'halo hugs the line');
+  assert.equal(CRACK_CORE_ALPHA_STREET, 0.65, 'street core reads clearly');
+  assert.equal(CRACK_CORE_ALPHA_ORBIT, 0.5, 'orbit core reads against bright day oceans');
+  assert.equal(CRACK_HALO_ALPHA, 0.08, 'halo is a whisper');
   assert.ok(CRACK_CORE_ALPHA_STREET > CRACK_HALO_ALPHA, 'core dominates the halo (sharp definition)');
+  // Orbit scale: the street frequency (120) wrapped on the whole
+  // globe is sub-pixel mush — orbit reads its own lower frequency
+  // and wider core, the same jagged field at globe scale.
+  assert.equal(CRACK_ORBIT_FREQ, 14, 'orbit frequency survives globe zoom');
+  assert.equal(CRACK_ORBIT_CORE_WIDTH, 0.07, 'orbit core reads from orbit');
 });
 
 check('shader builds cracks from planet-local coords, never the player', () => {
@@ -156,6 +172,20 @@ check('orbit shader wraps the same crack field on the globe', () => {
   assert.ok(src.includes('normalize(vLocal)'), 'orbit reads its own local direction');
   assert.ok(!src.includes('TRON_ORBIT_SPACING_DEG'), 'no lat/lon grid spacing left');
   assert.ok(!src.includes('uSpacingRad'), 'no lat/lon grid uniform left');
+  // Orbit scale wiring (2026-10-27): the orbit sphere reads the
+  // orbit frequency + core width, not the street ones.
+  assert.ok(src.includes('CRACK_ORBIT_FREQ'), 'orbit shader uses the orbit frequency');
+  assert.ok(src.includes('CRACK_ORBIT_CORE_WIDTH'), 'orbit shader uses the orbit core width');
+});
+
+check('street glow draws over the photo sheets', () => {
+  // 2026-10-27: the street crack plane renders AFTER the lens
+  // sheets (far 2, near 3), so the light reads through seams
+  // even where tiles already painted — additive over photos is
+  // a tint, never a cover-up. Before this, sheets drew over the
+  // glow and tiled ground hid the cracks entirely.
+  const src = read('components/earth/EarthCracks.jsx');
+  assert.ok(src.includes('renderOrder={4}'), 'street crack plane draws after the lens sheets');
 });
 
 check('old TRON files are gone', () => {

@@ -16,6 +16,7 @@ import { EarthCracks, EarthOrbitCracks } from '@/components/earth/EarthCracks';
 import { LENS_PRESETS, LENS_LIFT, lensTilePlan, buildLensGeometryData, sortTilesCenterFirst, latLonFromDir, CENTRE_FLUSH_TILES } from '@/lib/earth/lens';
 import { tileCellKey, recordRenderedTileKey } from '@/lib/earth/lens-cache';
 import {
+  createBitset,
   REVEAL_RADIUS_DEG,
   markDisc,
   unionInto,
@@ -75,6 +76,33 @@ const MAX_LENS_SHEETS = 4;
 // stays small because the far sheet's job is coverage, and the
 // newest two already span ~2.7 km of travel.
 const MAX_FAR_LENS_SHEETS = 2;
+
+// Lens-build watchdog (2026-10-27, Merlin's tolerance: tiles may
+// lag up to about a minute behind the traveler, but they MUST
+// catch up inside that window). A build whose tiles stall —
+// throttled network, a hung fetch under Low Power Mode, a wedged
+// canvas — used to hold its pool's `busy` flag forever and kill
+// every later build in the session. Past this age a build is
+// force-finished (paints what it has, frees the pool, pumps the
+// queue) so the next centre rebuilds instead of starving.
+const LENS_BUILD_WATCHDOG_MS = 60000;
+
+// Session token for the account's own ui-state record — the
+// Concourse pattern (dynamic import, never a stored token). The
+// ui-state route requires a Bearer token; the three Earth sync
+// calls used to send none, so every one 401'd silently and no
+// mapped ground ever reached the server (2026-10-27: live
+// registry held zero cells across all users while the pill
+// read 0.0% all session).
+async function getEarthUiToken() {
+  try {
+    const { supabase } = await import('@/lib/supabase');
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token || null;
+  } catch {
+    return null;
+  }
+}
 
 // The globe's centre in world space (this component's outer group
 // position) — the atmosphere shell's camera-distance gate below
@@ -154,38 +182,67 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
   // reload (or a second device) starts from the same mapped
   // ground instead of zero. Guests, offline, and a missing key
   // degrade to device-only, silently — never an error surface.
+  //
+  // 2026-10-27 fix: this GET used to send no Authorization
+  // header, so it 401'd for every signed-in user (the route
+  // requires Bearer) and the union never ran. It now carries
+  // the session token like every other ui-state caller. The
+  // mount also flags local-ahead ground (device marks the
+  // server has never seen — e.g. after a failed flush) as
+  // dirty, so the next 30 s beat pushes the full bitset
+  // instead of leaving those marks stranded on the device.
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/ui-state')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((body) => {
+    (async () => {
+      try {
+        const token = await getEarthUiToken();
+        if (cancelled) return;
+        if (!token) return; // guest: device-only, as before
+        const r = await fetch('/api/ui-state', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (cancelled || !r.ok) return;
+        const body = await r.json();
         if (cancelled) return;
         const hex = body && body.preferences && body.preferences.earth_mapped;
         const server = parseBitset(hex);
-        if (!server) return;
         const bitset = getMappedBitset();
-        if (unionInto(bitset, server)) {
+        if (server && unionInto(bitset, server)) {
           saveMappedBitset(bitset);
           setMappedPercent(coveragePercent(bitset));
         }
-      })
-      .catch(() => {});
+        const probe = server ? server.slice() : createBitset();
+        if (unionInto(probe, bitset)) mappedDirtyRef.current = true;
+      } catch {}
+    })();
     return () => { cancelled = true; };
   }, []);
 
   // Flush the mapped record to the server when roaming ends
   // (the 30 s beat covers long sessions; this covers short
   // ones). Fire-and-forget — never blocks unmount.
+  //
+  // 2026-10-27 fix: this POST used to send no Authorization
+  // header, so it 401'd and the marks never landed. It now
+  // carries the session token. It deliberately does NOT clear
+  // the dirty flag: if the flush fails, the mount's
+  // local-ahead probe re-flags it and the next beat retries
+  // with the full bitset — a failed flush must never eat marks.
   useEffect(() => {
     if (roaming) return undefined;
     if (!mappedDirtyRef.current || !mappedBitsetRef.current) return undefined;
-    mappedDirtyRef.current = false;
     const hex = serializeBitset(mappedBitsetRef.current);
-    fetch('/api/ui-state', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ preferences: { earth_mapped: hex } }),
-    }).catch(() => {});
+    (async () => {
+      try {
+        const token = await getEarthUiToken();
+        if (!token) return;
+        await fetch('/api/ui-state', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ preferences: { earth_mapped: hex } }),
+        });
+      } catch {}
+    })();
     return undefined;
   }, [roaming]);
 
@@ -333,14 +390,27 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
             mappedDirtyRef.current = true;
           }
           if (mappedDirtyRef.current && nowMs - mappedSyncRef.current > 30000) {
+            // 2026-10-27 fix: this POST used to send no token
+            // (every sync 401'd) AND cleared the dirty flag
+            // before the fetch, so failed marks were never
+            // retried. Now the flag clears only on a confirmed
+            // ok response; a failure stays dirty and the next
+            // beat retries with the full bitset. The 30 s
+            // throttle still gates ATTEMPTS, not successes.
             mappedSyncRef.current = nowMs;
-            mappedDirtyRef.current = false;
             const hex = serializeBitset(bitset);
-            fetch('/api/ui-state', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ preferences: { earth_mapped: hex } }),
-            }).catch(() => {});
+            (async () => {
+              try {
+                const token = await getEarthUiToken();
+                if (!token) return;
+                const r = await fetch('/api/ui-state', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                  body: JSON.stringify({ preferences: { earth_mapped: hex } }),
+                });
+                if (r.ok) mappedDirtyRef.current = false;
+              } catch {}
+            })();
           }
         }
       }
@@ -530,50 +600,71 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
     const gen = bctx.genRef.current;
     mgr.busy = true;
     const preset = LENS_PRESETS[job.presetName];
-    const plan = lensTilePlan(job.lat, job.lon, preset.zoom, preset.grid, preset.canvasPx);
     const S = preset.canvasPx / preset.grid;
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = preset.canvasPx;
     const ctx = canvas.getContext('2d');
     const hd = getHeightData();
-    // iPhone hardening (2026-10-01): iOS Safari returns null for 2D
-    // contexts under canvas memory pressure — skip the build
-    // honestly instead of throwing; the next recenter retries.
-    if (!bctx || !hd) { mgr.busy = false; bctx.pump(); return; }
-    const data = buildLensGeometryData(
-      hd.data, hd.w, hd.h, job.lat, job.lon,
-      preset.radiusUnits, plan,
-      {
-        // Street rings 12 → 24 (2026-10-22, with the radius
-        // tripling): the wider disc gets a denser drape so
-        // relief still hugs the terrain out at the 90 m rim.
-        // The far sheet takes 24 too — over a 45° cap the UV
-        // registration across each triangle stays sub-tile.
-        rings: job.presetName === 'overlook' ? 22 : 24,
-        sectors: 48,
-        lift: preset.lift ?? LENS_LIFT,
-      },
-    );
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
-    geo.setAttribute('uv', new THREE.BufferAttribute(data.uvs, 2));
-    geo.setIndex(new THREE.BufferAttribute(data.indices, 1));
-    const tex = new THREE.CanvasTexture(canvas);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.anisotropy = 8;
-    const mat = new THREE.MeshBasicMaterial({
-      map: tex, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide,
-    });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.renderOrder = bctx.renderOrder;
+    // iPhone hardening (2026-10-01, extended 2026-10-27): iOS
+    // Safari returns null for 2D contexts under canvas memory
+    // pressure. The old guard checked the build context and the
+    // height data but NEVER the canvas context itself — a null
+    // ctx threw inside the first tile onload BEFORE the settle
+    // count moved, so finish() never ran and the pool's busy
+    // flag wedged forever: no later build in the session ever
+    // started, which is exactly "new ground never paints."
+    // Skip honestly; the next recenter retries.
+    if (!hd || !ctx) { mgr.busy = false; bctx.pump(); return; }
     // Progressive mount: the sheet is on screen at once (the
     // frame loop animates its opacity 0 → 0.96) and tiles paint
     // into it as they arrive — no more waiting on all 1,296
     // tiles before ANY photographic ground shows.
-    bctx.mount(job.key, mesh, job.lat, job.lon);
+    let tex;
+    let plan;
+    try {
+      plan = lensTilePlan(job.lat, job.lon, preset.zoom, preset.grid, preset.canvasPx);
+      const data = buildLensGeometryData(
+        hd.data, hd.w, hd.h, job.lat, job.lon,
+        preset.radiusUnits, plan,
+        {
+          // Street rings 12 → 24 (2026-10-22, with the radius
+          // tripling): the wider disc gets a denser drape so
+          // relief still hugs the terrain out at the 90 m rim.
+          // The far sheet takes 24 too — over a 45° cap the UV
+          // registration across each triangle stays sub-tile.
+          rings: job.presetName === 'overlook' ? 22 : 24,
+          sectors: 48,
+          lift: preset.lift ?? LENS_LIFT,
+        },
+      );
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
+      geo.setAttribute('uv', new THREE.BufferAttribute(data.uvs, 2));
+      geo.setIndex(new THREE.BufferAttribute(data.indices, 1));
+      tex = new THREE.CanvasTexture(canvas);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = 8;
+      const mat = new THREE.MeshBasicMaterial({
+        map: tex, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.renderOrder = bctx.renderOrder;
+      bctx.mount(job.key, mesh, job.lat, job.lon);
+    } catch {
+      // Setup threw after busy was set (bad geometry data, a
+      // canvas fault, a mount fault): drop any partial sheet,
+      // free the pool, and let the next recenter retry instead
+      // of wedging the queue for the rest of the session.
+      try { bctx.remove(job.key); } catch {}
+      mgr.busy = false;
+      bctx.pump();
+      return;
+    }
     let settledCount = 0;
     let okCount = 0;
     let texTimer = null;
+    let finished = false;
+    let watchTimer = null;
     const queueTexUpload = () => {
       if (texTimer) return;
       texTimer = setTimeout(() => {
@@ -582,6 +673,9 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
       }, 750);
     };
     const finish = () => {
+      if (finished) return;
+      finished = true;
+      if (watchTimer) { clearTimeout(watchTimer); watchTimer = null; }
       if (texTimer) { clearTimeout(texTimer); texTimer = null; }
       tex.needsUpdate = true;
       if (gen !== bctx.genRef.current || !mgr.alive) {
@@ -638,11 +732,20 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
       const img = new Image();
       img.crossOrigin = 'anonymous';
       img.onload = () => {
+        // Settle FIRST, paint second (2026-10-27): the old order
+        // drew before counting, so a throwing drawImage (torn
+        // canvas, zero-size tile) stranded the settle count and
+        // finish() never ran — the pool wedged. A tile that
+        // fails to paint still counts as settled (just not ok).
+        let painted = false;
         if (gen === bctx.genRef.current && mgr.alive) {
-          ctx.drawImage(img, t.px, t.py, S, S);
-          queueTexUpload();
+          try {
+            ctx.drawImage(img, t.px, t.py, S, S);
+            painted = true;
+            queueTexUpload();
+          } catch {}
         }
-        okCount += 1;
+        if (painted) okCount += 1;
         settledCount += 1;
         settleCentre(idx);
         if (settledCount === plan.tiles.length) finish();
@@ -654,6 +757,15 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
       };
       img.src = t.url;
     });
+    // Watchdog: a build whose tiles stall (throttled network, a
+    // hung fetch, a canvas that never settles) must not hold the
+    // pool past Merlin's ~1-minute lag tolerance. Force-finish:
+    // whatever painted stays, the pool frees, the queue pumps,
+    // and the next centre rebuilds. Never fires after a clean
+    // finish (finished guard + timer cleared there).
+    watchTimer = setTimeout(() => {
+      if (!finished) finish();
+    }, LENS_BUILD_WATCHDOG_MS);
   };
 
   useEffect(() => {

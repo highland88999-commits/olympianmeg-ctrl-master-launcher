@@ -28,10 +28,14 @@
 //     WAITING for Oblivion, nothing more. Only the glow COLOR
 //     cycles (7.5 s hold + 2.5 s fade = a new color every 10 s).
 //   - GLOW, VERY SUBTLE BUT CLEARLY VISIBLE: a thin,
-//     sharp-edged core at low brightness (legible contrast
-//     against dark ground) with only a whisper of halo, plus
-//     a scene light far dimmer than the street lantern. Never
-//     garish, never a washout, never dimmed into invisibility.
+//     sharp-edged core (legible contrast against dark ground)
+//     with only a whisper of halo, plus a scene light far
+//     dimmer than the street lantern. Retuned 2026-10-27
+//     (Merlin: the glow must be perfect — clearly readable on
+//     a phone, never loud): wider core, stronger alpha, and
+//     the street plane draws over the photo sheets so the
+//     light reads through tiled ground too. Never garish,
+//     never a washout, never dimmed into invisibility.
 //
 // Two pieces, one shared color clock (lib/earth/earth-cracks.js):
 //   - EarthCracks (street): a single shader plane on the flat
@@ -65,6 +69,8 @@ import {
   CRACK_GLOW_INTENSITY,
   CRACK_GLOW_DISTANCE,
   CRACK_FREQ,
+  CRACK_ORBIT_FREQ,
+  CRACK_ORBIT_CORE_WIDTH,
   CRACK_WARP,
   crackColorAt,
 } from '@/lib/earth/earth-cracks';
@@ -279,7 +285,11 @@ export function EarthCracks() {
 
   return (
     <group ref={groupRef} visible={false}>
-      <mesh geometry={geo} material={mat} renderOrder={2} />
+      {/* renderOrder 4: the glow draws AFTER the photo lens
+          sheets (far 2, near 3), so the light reads through the
+          seams even where tiles already painted — additive over
+          photos is a tint, never a cover-up. */}
+      <mesh geometry={geo} material={mat} renderOrder={4} />
       {/* The glow as a barely-there light source: tints the
           ground with the current crack color. Far dimmer than
           the street lantern — a seep, never a washout. */}
@@ -305,9 +315,9 @@ export function EarthOrbitCracks() {
     side: THREE.FrontSide,
     uniforms: {
       uColor: { value: new THREE.Color('#22d3ee') },
-      uFreq: { value: CRACK_FREQ },
+      uFreq: { value: CRACK_ORBIT_FREQ },
       uWarp: { value: CRACK_WARP },
-      uCoreWidth: { value: CRACK_CORE_WIDTH },
+      uCoreWidth: { value: CRACK_ORBIT_CORE_WIDTH },
       uHaloWidth: { value: CRACK_HALO_WIDTH },
       uCoreAlpha: { value: CRACK_CORE_ALPHA_ORBIT },
       uHaloAlpha: { value: CRACK_HALO_ALPHA },
