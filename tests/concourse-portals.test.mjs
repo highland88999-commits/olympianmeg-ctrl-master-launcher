@@ -225,7 +225,7 @@ describe('the panel + hall (static)', () => {
     assert.ok(panel.includes('Step through'), 'step-through action');
     assert.ok(panel.includes('>Back<') || panel.includes('Back'), 'back action');
     assert.ok(panel.includes('<PortalEnterOverlay'), 'shares the room step-through');
-    assert.ok(panel.includes('onGlFail'), 'WebGL failure reported to the panel (retry fallback, never a List mode)');
+    assert.ok(panel.includes('onGlFail'), 'WebGL failure reported to the panel (retry fallback in 3D mode; list always available)');
     assert.ok(panel.includes("from '@/lib/webgl-support'"), 'uses the shared WebGL probe');
     assert.ok(panel.includes('probeWebGL()'), 'the probe decides whether the hall mounts');
   });

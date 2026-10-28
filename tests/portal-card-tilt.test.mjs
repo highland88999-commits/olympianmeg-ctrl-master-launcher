@@ -1,7 +1,8 @@
 // tests/portal-card-tilt.test.mjs
 // Per-card tilt for the Portal Room's single card view (Merlin,
-// 2026-10-27: the 3D/List toggle is gone; the card view with
-// per-card rotation IS the standard):
+// 2026-10-27: the card view with per-card rotation IS the room's
+// standard; the PORTALS 3D panel separately opens on a list by
+// default with a List/3D switch since 2026-10-27):
 // - drag distance -> rotation angle + direction (right pull yaws
 //   the face screen-right, left pull the other way), clamped
 // - spring-back on release (exponential decay to rest)
@@ -10,7 +11,8 @@
 // - deviceorientation -> per-card tilt mapping (gamma -> yaw,
 //   beta -> pitch, ±8° dead-zone, full deflection at ±45°)
 // - motion-denied/unavailable -> drag-only, no crash, no nag
-// - static: no toggle control, no List branch, one view only
+// - static: the room card view is untouched; the panel opens on the
+//   list with a List/3D switch
 //
 // Run: node --test tests/portal-card-tilt.test.mjs (from the repo root)
 
@@ -128,24 +130,25 @@ describe('springTiltStep (release springs back to rest)', () => {
   });
 });
 
-describe('single card view (the toggle is gone)', () => {
-  it('the panel carries no toggle control and no mode state', () => {
-    assert.ok(!panel.includes('setMode'), 'no mode setter');
-    assert.ok(!panel.includes('aria-pressed'), 'no toggle button');
-    assert.ok(!panel.includes("mode === 'list'"), 'no list branch');
-    assert.ok(!panel.includes("mode === '3d'"), 'no 3d branch either — one view');
+describe('the panel view switch (list by default; the room card view is untouched)', () => {
+  it('the panel opens on the list, with a List/3D switch in the header', () => {
+    assert.ok(panel.includes("useState('list')"), 'list is the default view');
+    assert.ok(panel.includes("setMode('list')"), 'switch can select the list');
+    assert.ok(panel.includes("setMode('3d')"), 'switch can select the hall');
+    assert.ok(panel.includes('aria-label="View"'), 'switch is labeled');
   });
 
-  it('the panel renders the hall unconditionally, with a retry fallback for WebGL loss', () => {
-    assert.ok(panel.includes('<PortalHallScene'), 'the hall is the view');
+  it('the panel renders the hall in 3D mode, with a retry fallback for WebGL loss', () => {
+    assert.ok(panel.includes('<PortalHallScene'), 'the hall is the 3D view');
     assert.ok(panel.includes('glFailed'), 'GL failure state exists');
-    assert.ok(panel.includes('Retry 3D'), 'retry action, not a second mode');
+    assert.ok(panel.includes('Retry 3D'), 'retry action in 3D mode');
     assert.ok(panel.includes('onGlFail'), 'context loss still reported to the panel');
     assert.ok(panel.includes('probeWebGL()'), 'the probe decides whether the hall mounts');
   });
 
-  it('the panel renders no List-mode card grid', () => {
+  it('the panel list uses rows, not a card grid', () => {
     assert.ok(!panel.includes('<PortalCard '), 'no DOM card grid in the panel');
+    assert.ok(panel.includes('wallItems.map((p) => ('), 'rows iterate the wall');
   });
 
   it('the hall applies one shared tilt behavior, not two motion systems', () => {

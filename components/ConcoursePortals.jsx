@@ -14,13 +14,12 @@
 // version of our menu — or concourse."
 //
 // The 3D hall (components/concourse/PortalHallScene.jsx) loads
-// lazily and exists only while this sheet is open. The card view IS
-// the Portal Room's standard (Merlin, 2026-10-27): the old 3D/List
-// toggle and the List branch are gone — every card rotates
-// individually in place (hold-pull tilt, device-motion tilt), and a
-// tap expands it. If WebGL is unavailable or its context dies, the
-// sheet shows an honest retry fallback instead of a wall — never a
-// second mode, never a blank stage.
+// lazily and exists only while this sheet is open. The sheet opens
+// on the LIST (Merlin, 2026-10-27: "the list form is how I want
+// them, like list form was before, by default") — a header switch
+// reaches the 3D hall, which stays intact with its per-card tilt.
+// If WebGL is unavailable or its context dies while in 3D mode,
+// the sheet shows an honest retry fallback instead of a wall.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
@@ -48,9 +47,15 @@ export default function ConcoursePortals({ open, onClose }) {
   // The repo's shared WebGL probe (memoized; its throwaway context is
   // released, never counted against the live-context limit) decides
   // whether the hall can mount at all. A failed hall shows the retry
-  // fallback below — there is no second view to fall back to.
+  // fallback below; the list view is always available via the switch.
   const [glFailed, setGlFailed] = useState(() => !probeWebGL());
   const [hallKey, setHallKey] = useState(0);
+  // View: the list is the default on every open (Merlin, 2026-10-27);
+  // the 3D hall is one switch away, never the landing view.
+  const [mode, setMode] = useState('list');
+  useEffect(() => {
+    if (open) setMode('list');
+  }, [open]);
   const [query, setQuery] = useState('');
   const [section, setSection] = useState('GAMES');
   const [page, setPage] = useState(0);
@@ -182,8 +187,8 @@ export default function ConcoursePortals({ open, onClose }) {
         className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"
       />
       <div className="relative flex h-[min(640px,86dvh)] w-[min(680px,94vw)] flex-col overflow-hidden rounded-[2rem] border border-cyan-200/25 bg-[#070418]/92 shadow-[0_24px_70px_rgba(0,0,0,0.65),0_0_40px_rgba(0,229,255,0.10)] backdrop-blur-xl">
-        {/* Header: title + count, close. */}
-        <div className="flex items-center justify-between gap-2 px-5 pt-4">
+        {/* Header: title + count, the List/3D switch, close. */}
+        <div className="flex flex-wrap items-center justify-between gap-2 px-5 pt-4">
           <div className="flex items-baseline gap-2.5">
             <span aria-hidden="true" className="text-xl text-amber-200 drop-shadow-[0_0_10px_rgba(255,190,80,0.8)]">
               Ω
@@ -194,6 +199,32 @@ export default function ConcoursePortals({ open, onClose }) {
             <span className="text-[11px] tracking-widest text-zinc-500">{programs.length} realms</span>
           </div>
           <div className="flex items-center gap-2">
+            <div role="group" aria-label="View" className="flex items-center gap-1 rounded-full border border-white/15 bg-white/5 p-1">
+              <button
+                type="button"
+                aria-pressed={mode === 'list'}
+                onClick={() => setMode('list')}
+                className={`rounded-full px-3 py-1 text-[11px] font-semibold tracking-wide transition ${
+                  mode === 'list'
+                    ? 'bg-amber-300/20 text-amber-100'
+                    : 'text-zinc-300 hover:text-white'
+                }`}
+              >
+                List
+              </button>
+              <button
+                type="button"
+                aria-pressed={mode === '3d'}
+                onClick={() => setMode('3d')}
+                className={`rounded-full px-3 py-1 text-[11px] font-semibold tracking-wide transition ${
+                  mode === '3d'
+                    ? 'bg-amber-300/20 text-amber-100'
+                    : 'text-zinc-300 hover:text-white'
+                }`}
+              >
+                3D
+              </button>
+            </div>
             <button
               type="button"
               aria-label="Close Portals 3D"
@@ -237,9 +268,45 @@ export default function ConcoursePortals({ open, onClose }) {
           )}
         </div>
 
-        {/* The stage: the card hall — the one and only view. */}
+        {/* The stage: the realm list by default, or the 3D hall. */}
         <div className="relative mt-3 flex-1 overflow-hidden">
-          {glFailed ? (
+          {mode === 'list' ? (
+            <div className="absolute inset-0 overflow-y-auto px-5 pb-2">
+              {wallItems.length === 0 ? (
+                <p className="mt-14 text-center text-sm text-zinc-500">
+                  No realm matches that search yet.
+                </p>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {wallItems.map((p) => (
+                    <button
+                      key={p.key}
+                      type="button"
+                      onClick={() => setExpandedKey(p.key)}
+                      aria-pressed={expandedKey === p.key}
+                      className={`flex w-full items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left transition ${
+                        expandedKey === p.key
+                          ? 'border-amber-300/70 bg-amber-300/10'
+                          : 'border-white/10 bg-white/5 hover:border-cyan-300/40'
+                      }`}
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-[15px] font-semibold tracking-wide text-zinc-50">
+                          {p.title}
+                        </span>
+                        {p.subtitle ? (
+                          <span className="block truncate text-xs text-zinc-400">{p.subtitle}</span>
+                        ) : null}
+                      </span>
+                      <span className="shrink-0 text-[11px] font-medium tracking-wide text-zinc-400 uppercase">
+                        {p.section}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : glFailed ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
               <p className="text-sm leading-relaxed text-zinc-400">
                 The 3D hall needs WebGL, which this device isn&apos;t offering right now.
@@ -266,15 +333,15 @@ export default function ConcoursePortals({ open, onClose }) {
               />
             </div>
           )}
-          {!glFailed && wallItems.length === 0 && (
+          {mode === '3d' && !glFailed && wallItems.length === 0 && (
             <p className="absolute inset-0 flex items-center justify-center text-sm text-zinc-500">
               No realm matches that search yet.
             </p>
           )}
         </div>
 
-        {/* Wall pages. */}
-        {!glFailed && pages.length > 1 && (
+        {/* Wall pages (3D mode only — the list shows every match). */}
+        {mode === '3d' && !glFailed && pages.length > 1 && (
           <div className="flex items-center justify-center gap-1.5 pb-1 pt-1">
             {pages.map((_, i) => (
               <button
@@ -324,7 +391,9 @@ export default function ConcoursePortals({ open, onClose }) {
             </div>
           ) : (
             <p className="text-center text-xs leading-relaxed text-zinc-500">
-              Tap a portal to expand it — hold a card and pull to tilt it, or drag empty space to look around the hall.
+              {mode === 'list'
+                ? 'Tap a realm to view it.'
+                : 'Tap a portal to expand it — hold a card and pull to tilt it, or drag empty space to look around the hall.'}
             </p>
           )}
         </div>
