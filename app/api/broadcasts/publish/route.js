@@ -3,8 +3,11 @@
 //
 // Owner-only. Verifies the uploaded clip really exists under the keeper's
 // own clips folder, then points latest.json at it — that pointer is what
-// every open page polls. Only the newest broadcast is live; history is a
-// later step, not this one.
+// every open page polls, on every program, so every logged-in device
+// hears it. Only the newest broadcast is live; the broadcasts table
+// (supabase/broadcasts.sql) keeps the record and history. The table
+// insert is best-effort: publishing still succeeds through latest.json
+// before the SQL has run, and the record appears once it has.
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
@@ -52,5 +55,18 @@ export const POST = apiGuard(async function POST(req) {
     upsert: true, contentType: 'application/json',
   });
   if (put.error) return NextResponse.json({ error: 'Could not publish the broadcast.' }, { status: 503 });
+  // Record the broadcast in the system. Best-effort: if the broadcasts
+  // table does not exist yet (supabase/broadcasts.sql not run), the
+  // live pointer above already went out, so a missing table must never
+  // fail the send.
+  try {
+    await admin.from('broadcasts').insert({
+      audio_path: path,
+      audio_url: latest.audioUrl,
+      preset,
+      duration_ms: latest.durationMs,
+      created_by: auth.user.id,
+    });
+  } catch {}
   return NextResponse.json({ ok: true, latest });
 });

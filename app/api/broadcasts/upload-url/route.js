@@ -3,8 +3,11 @@
 //
 // Owner-only (the keeper's email, checked server-side). Mints a signed
 // upload URL so the clip goes straight from the phone to Supabase Storage.
-// The broadcasts bucket is created public on first use — no SQL, no
-// dashboard step — so announcements are fetchable by every listener.
+// Storage is set up by supabase/broadcasts.sql (public 'broadcasts'
+// bucket); creating the bucket on first use below is only a fallback,
+// because that fallback failed in production and every send died with
+// "Broadcast storage is not set up yet." The failure message now names
+// the SQL file so the keeper sees the fix, not just the failure.
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
@@ -56,8 +59,11 @@ export const POST = apiGuard(async function POST(req) {
   let signed;
   try {
     signed = await signedUpload(admin, path);
-  } catch {
-    return NextResponse.json({ error: 'Broadcast storage is not set up yet.' }, { status: 503 });
+  } catch (err) {
+    const detail = String((err && err.message) || '').trim();
+    return NextResponse.json({
+      error: `Broadcast storage is not set up yet (run supabase/broadcasts.sql).${detail ? ` Storage said: ${detail}` : ''}`,
+    }, { status: 503 });
   }
   const base = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '');
   return NextResponse.json({

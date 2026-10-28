@@ -81,8 +81,7 @@ test('listener polls latest.json site-wide and needs one tap for sound', () => {
   assert.match(worklet, /registerProcessor\('pitch-shift'/);
 });
 
-test('intercom duck: node-safe media helpers, wired on hold and on play', () => {
-  const mute = readFileSync('lib/broadcast/intercom-mute.js', 'utf8');
+test('intercom duck: node-safe media helpers, wired on hold and on play', () => {  const mute = readFileSync('lib/broadcast/intercom-mute.js', 'utf8');
   assert.match(mute, /collectPlayingMedia/);
   assert.match(mute, /resumeMedia/);
   const studio = readFileSync('components/broadcast/BroadcastStudio.jsx', 'utf8');
@@ -96,4 +95,47 @@ test('intercom duck: node-safe media helpers, wired on hold and on play', () => 
   const ares = readFileSync('app/ares/page.jsx', 'utf8');
   assert.ok(ares.indexOf('Defensive only') < ares.indexOf('<BroadcastStudio />'),
     'intercom section sits at the bottom of the console, after the footer');
+});
+
+test('broadcast storage SQL: public bucket, broadcasts record table, RLS', () => {
+  const sql = readFileSync('supabase/broadcasts.sql', 'utf8');
+  assert.match(sql, /insert into storage\.buckets/);
+  assert.match(sql, /'broadcasts', 'broadcasts', true/);
+  assert.match(sql, /create table if not exists public\.broadcasts/);
+  assert.match(sql, /audio_path/);
+  assert.match(sql, /enable row level security/);
+  assert.match(sql, /broadcasts public read/);
+  assert.match(sql, /broadcasts owner insert/);
+  assert.match(sql, /AWAITS MERLIN'S EXPLICIT GREEN LIGHT/);
+});
+
+test('upload-url failure names the SQL fix; publish records the broadcast', () => {
+  const up = readFileSync('app/api/broadcasts/upload-url/route.js', 'utf8');
+  assert.match(up, /supabase\/broadcasts\.sql/);
+  const pub = readFileSync('app/api/broadcasts/publish/route.js', 'utf8');
+  assert.match(pub, /from\('broadcasts'\)\.insert/);
+  assert.match(pub, /audio_path/);
+  assert.match(pub, /latest\.json/);
+});
+
+test('studio: cancel recording, monitor unlock, post-send playback', () => {
+  const studio = readFileSync('components/broadcast/BroadcastStudio.jsx', 'utf8');
+  assert.match(studio, /Cancel recording/);
+  assert.match(studio, /cancelSession/);
+  assert.match(studio, /discardRef\.current = true/);
+  assert.match(studio, /Escape/);
+  assert.match(studio, /ctx\.resume\(\)/);
+  assert.match(studio, /unlockAudioForPlayback/);
+  assert.match(studio, /broadcast-self-sent/);
+  assert.match(studio, /Hear it back/);
+  assert.match(studio, /sentAudioUrl/);
+});
+
+test('listener: self-sent never double-plays; fresh arrivals unlock on any tap', () => {
+  const listener = readFileSync('components/broadcast/BroadcastListener.jsx', 'utf8');
+  assert.match(listener, /broadcast-self-sent/);
+  assert.match(listener, /freshRef/);
+  assert.match(listener, /pointerdown/);
+  assert.match(listener, /keydown/);
+  assert.match(listener, /data-broadcast-banner/);
 });

@@ -41,6 +41,7 @@ export default function BroadcastStudio() {
   const [status, setStatus] = useState('idle');
   const [message, setMessage] = useState('');
   const [lastSent, setLastSent] = useState(null);
+  const [sentAudioUrl, setSentAudioUrl] = useState(null);
   const radio = useRadio();
   const playingRef = useRef(false);
   const duckRef = useRef(null);
@@ -89,11 +90,14 @@ export default function BroadcastStudio() {
   const meterRafRef = useRef(null);
   const meterRef = useRef(null);
   const analyserRef = useRef(null);
+  const unlockAudioRef = useRef(null);
+  const sentAudioRef = useRef(null);
 
   useEffect(() => () => {
     holdingRef.current = false;
     try { streamRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
     try { ctxRef.current?.close(); } catch {}
+    try { sentAudioRef.current?.pause(); } catch {}
     if (capTimerRef.current) clearTimeout(capTimerRef.current);
     if (meterRafRef.current) cancelAnimationFrame(meterRafRef.current);
   }, []);
@@ -113,6 +117,41 @@ export default function BroadcastStudio() {
     meterRafRef.current = requestAnimationFrame(drawMeter);
   }
 
+  // Audio unlock (the feedback fix): iOS Safari keeps a fresh
+  // AudioContext suspended until a user gesture resumes it, and a
+  // <audio> element will not play after async work until some audio
+  // has played inside a gesture. Both unlocks happen here, inside the
+  // press gesture, BEFORE any await — creating the context after
+  // getUserMedia resolves is too late, and that is why the monitor
+  // stayed silent even with the checkbox on.
+  function ensureAudioContext() {
+    try {
+      if (!ctxRef.current || ctxRef.current.state === 'closed') {
+        ctxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (ctxRef.current.state === 'suspended') {
+        const p = ctxRef.current.resume();
+        if (p && p.catch) p.catch(() => {});
+      }
+    } catch {}
+  }
+
+  function unlockAudioForPlayback() {
+    try {
+      if (!unlockAudioRef.current) {
+        const el = new Audio();
+        // 0.1s of silence: playing it inside the gesture unlocks this
+        // page's media playback, so the post-send playback below is
+        // allowed even though it runs after the async upload.
+        el.src = 'data:audio/wav;base64,UklGRiwAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQgAAACAgICAgICAgA==';
+        el.volume = 0;
+        unlockAudioRef.current = el;
+      }
+      const p = unlockAudioRef.current.play();
+      if (p && p.catch) p.catch(() => {});
+    } catch {}
+  }
+
   async function startSession() {
     if (holdingRef.current) return;
     holdingRef.current = true;
@@ -128,8 +167,14 @@ export default function BroadcastStudio() {
         return;
       }
       streamRef.current = stream;
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      ctxRef.current = ctx;
+      // Reuse the gesture-unlocked context when there is one; a closed
+      // context from a previous session can never resume, so replace it.
+      let ctx = ctxRef.current;
+      if (!ctx || ctx.state === 'closed') {
+        ctx = new (window.AudioContext || window.webkitAudioContext)();
+        ctxRef.current = ctx;
+      }
+      try { await ctx.resume(); } catch {}
       const source = ctx.createMediaStreamSource(stream);
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 2048;
@@ -204,6 +249,18 @@ export default function BroadcastStudio() {
     try { streamRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
   }
 
+  // Cancel recording and start over: discard this take entirely — the
+  // release handler must not send it. The discard flag was already
+  // wired into finishSession; cancel sets it, stops the session, and
+  // puts the panel back to idle so the next hold starts fresh.
+  function cancelSession() {
+    if (!holdingRef.current) return;
+    discardRef.current = true;
+    setStatus('idle');
+    setMessage('Recording cancelled — hold to speak when ready.');
+    stopSession();
+  }
+
   async function finishSession(session, alreadyStopped = false) {
     const durationMs = Date.now() - (startTimeRef.current || Date.now());
     try { ctxRef.current?.close(); } catch {}
@@ -242,6 +299,20 @@ export default function BroadcastStudio() {
       setStatus('done');
       setLastSent(pub.latest);
       setMessage('Broadcast sent — every user on the site will hear it.');
+      // Feedback after send: play the sent clip back on this device, so
+      // the keeper hears what went out. The listener on this page must
+      // not play it a second time, so the sent id is flagged for it.
+      try { localStorage.setItem('broadcast-self-sent', pub.latest.id); } catch {}
+      setSentAudioUrl(pub.latest.audioUrl);
+      duckSounds();
+      try {
+        const el = sentAudioRef.current;
+        if (el) {
+          el.src = pub.latest.audioUrl;
+          const p = el.play();
+          if (p && p.catch) p.catch(() => {});
+        }
+      } catch {}
     } catch (err) {
       setStatus('error');
       setMessage(err?.message || 'Broadcast failed. Try again.');
@@ -251,6 +322,8 @@ export default function BroadcastStudio() {
   function pressStart(e) {
     e.preventDefault();
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+    ensureAudioContext();
+    unlockAudioForPlayback();
     void startSession();
   }
 
@@ -289,11 +362,41 @@ export default function BroadcastStudio() {
         onPointerCancel={pressEnd}
         onPointerLeave={pressEnd}
         onContextMenu={(e) => e.preventDefault()}
-        onKeyDown={(e) => { if (e.key === ' ') { e.preventDefault(); void startSession(); } }}
+        onKeyDown={(e) => {
+          if (e.key === ' ') { e.preventDefault(); ensureAudioContext(); unlockAudioForPlayback(); void startSession(); }
+          if (e.key === 'Escape' && holding) { e.preventDefault(); cancelSession(); }
+        }}
         onKeyUp={(e) => { if (e.key === ' ') { e.preventDefault(); pressEnd(); } }}
         className={`touch-none select-none rounded-xl px-6 py-4 text-sm font-black uppercase tracking-widest ${holding ? 'bg-red-500 text-white' : 'bg-sky-400 text-black'}`}>
         {holding ? '● Speaking — release to send' : 'Hold to speak'}
       </button>
+      {holding && (
+        <button type="button" onClick={cancelSession}
+          className="rounded-lg border border-zinc-700 px-4 py-2 text-xs font-bold uppercase tracking-widest text-zinc-300">
+          Cancel recording
+        </button>
+      )}
+      <audio
+        ref={sentAudioRef}
+        preload="none"
+        className="hidden"
+        onEnded={() => restoreSounds()}
+        onPause={() => restoreSounds()}
+      />
+      {sentAudioUrl && (
+        <button type="button"
+          onClick={() => {
+            const el = sentAudioRef.current;
+            if (!el) return;
+            duckSounds();
+            el.src = sentAudioUrl;
+            const p = el.play();
+            if (p && p.catch) p.catch(() => {});
+          }}
+          className="rounded-lg border border-sky-700 bg-sky-950 px-4 py-2 text-xs font-bold uppercase tracking-widest text-sky-200">
+          Hear it back
+        </button>
+      )}
       <div className="h-2 overflow-hidden rounded-full bg-zinc-800">
         <div ref={meterRef} className="h-full rounded-full bg-sky-400" style={{ width: '0%' }} />
       </div>

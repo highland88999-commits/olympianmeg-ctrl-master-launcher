@@ -19,6 +19,7 @@ import { collectPlayingMedia, resumeMedia } from '@/lib/broadcast/intercom-mute'
 
 const LS_SOUND = 'broadcast-sound';
 const LS_LAST_ID = 'broadcast-last-id';
+const LS_SELF_SENT = 'broadcast-self-sent';
 
 export default function BroadcastListener() {
   const [enabled, setEnabled] = useState(false);
@@ -57,6 +58,7 @@ export default function BroadcastListener() {
     resumeMedia(d.media);
   }, [radio]);
   const seenRef = useRef(null);
+  const freshRef = useRef(false);
   const base = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '');
 
   const playLatest = useCallback((item) => {
@@ -83,6 +85,16 @@ export default function BroadcastListener() {
         if (!res.ok) return;
         const item = validateLatest(await res.json().catch(() => null));
         if (!item || !alive) return;
+        let selfSent = null;
+        try { selfSent = localStorage.getItem(LS_SELF_SENT); } catch {}
+        if (selfSent && item.id === selfSent) {
+          // This device sent it: the studio already plays it back, so
+          // the banner must not play it a second time over the top.
+          seenRef.current = item.id;
+          try { localStorage.setItem(LS_LAST_ID, item.id); } catch {}
+          setLatest(item);
+          return;
+        }
         if (seenRef.current === null) {
           // First sighting on this page: remember it, don't replay history.
           seenRef.current = item.id;
@@ -95,6 +107,7 @@ export default function BroadcastListener() {
         try { localStorage.setItem(LS_LAST_ID, item.id); } catch {}
         setLatest(item);
         setDismissedId(null);
+        freshRef.current = true;
         if (enabledRef.current) playLatest(item);
       } catch {}
     };
@@ -102,6 +115,33 @@ export default function BroadcastListener() {
     const timer = setInterval(poll, BROADCAST_POLL_MS);
     return () => { alive = false; clearInterval(timer); };
   }, [base, playLatest]);
+
+  // Fresh-arrival unlock: a broadcast that lands while the page is open
+  // should reach every logged-in device, not only devices whose owner
+  // already tapped the banner. So once a fresh broadcast is pending, the
+  // next tap or keypress anywhere on the page (outside the banner itself)
+  // enables sound and plays it. Nothing plays on first load for a
+  // broadcast that arrived while the user was away — that one still
+  // needs the banner's own button.
+  useEffect(() => {
+    if (!latest || enabled || dismissedId === latest.id || !freshRef.current) return undefined;
+    const unlock = (e) => {
+      try {
+        if (e.target && e.target.closest && e.target.closest('[data-broadcast-banner]')) return;
+      } catch {}
+      freshRef.current = false;
+      enabledRef.current = true;
+      setEnabled(true);
+      try { localStorage.setItem(LS_SOUND, '1'); } catch {}
+      playLatest(latest);
+    };
+    window.addEventListener('pointerdown', unlock);
+    window.addEventListener('keydown', unlock);
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
+  }, [latest, enabled, dismissedId, playLatest]);
 
   if (!base || !latest || dismissedId === latest.id) return null;
 
@@ -115,7 +155,7 @@ export default function BroadcastListener() {
   }
 
   return (
-    <div className="fixed bottom-24 right-4 z-50 w-[calc(100vw-2rem)] max-w-xs rounded-xl border border-sky-900/60 bg-zinc-950/95 p-4 shadow-2xl">
+    <div data-broadcast-banner className="fixed bottom-24 right-4 z-50 w-[calc(100vw-2rem)] max-w-xs rounded-xl border border-sky-900/60 bg-zinc-950/95 p-4 shadow-2xl">
       <audio
         ref={audioRef}
         preload="none"
@@ -139,7 +179,7 @@ export default function BroadcastListener() {
             {playing ? 'Playing…' : 'Play again'}
           </button>
         )}
-        <button type="button" onClick={() => { try { audioRef.current?.pause(); } catch {} restoreSounds(); setDismissedId(latest.id); }}
+        <button type="button" onClick={() => { try { audioRef.current?.pause(); } catch {} restoreSounds(); freshRef.current = false; setDismissedId(latest.id); }}
           className="rounded-lg border border-zinc-700 px-3 py-2 text-xs text-zinc-300">
           Dismiss
         </button>
