@@ -11,6 +11,7 @@ import ListsManager from '@/components/ares/ListsManager';
 import ModuleToggles from '@/components/ares/ModuleToggles';
 import LearningPanel from '@/components/ares/LearningPanel';
 import MollyPanel from '@/components/ares/MollyPanel';
+import BroadcastStudio from '@/components/broadcast/BroadcastStudio';
 
 // ATHENA interior treatment: inline SVG glyph set (zero image weight).
 function AresGlyph({ size = 14, children }) {
@@ -267,6 +268,7 @@ export default function AresConsole() {
             <div className="ares-panel"><LearningPanel events={events} authedFetch={authedFetch} /></div>
             <div className="ares-panel"><ListsManager authedFetch={authedFetch} whitelist={whitelist} blocks={blocks} onRefresh={load} /></div>
             <div className="ares-panel"><MollyPanel /></div>
+            <div className="ares-panel"><BroadcastStudio /></div>
             <footer className="pb-8 pt-2 text-center text-[11px] text-zinc-600">
               Defensive only. Ares logs and blocks; it never retaliates. Evidence older than 90 days is purged.
             </footer>

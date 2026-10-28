@@ -3,6 +3,7 @@ import './globals.css';
 import EconomyHeartbeat from '@/components/economy/EconomyHeartbeat';
 import { RadioProvider } from '@/components/radio/RadioProvider';
 import RadioBar from '@/components/radio/RadioBar';
+import BroadcastListener from '@/components/broadcast/BroadcastListener';
 import NativeBridge from '@/components/NativeBridge';
 import BugReportButton from '@/components/BugReportButton';
 import RealmCalloutGuard from '@/components/RealmCalloutGuard';
@@ -114,6 +115,7 @@ export default function RootLayout({ children }) {
               when the lock lifts on Dec 11. */}
           {children}
           <RadioBar />
+          <BroadcastListener />
           <BugReportButton concourse />
           <MusePortal concourse />
           {/* The Concourse: one glass holoframe housing every hub
