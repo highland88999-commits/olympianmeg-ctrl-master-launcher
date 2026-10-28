@@ -53,6 +53,10 @@ export default function BroadcastStudio() {
     try { return localStorage.getItem('broadcast-mic-ready') === '1'; } catch { return false; }
   });
   const [showPlayer, setShowPlayer] = useState(false);
+  // Playing indicator: the button reads "Playing…" while the clip is
+  // actually playing, so a press that lands is visible even if the
+  // sound itself ends up routed somewhere quiet.
+  const [playingBack, setPlayingBack] = useState(false);
   const radio = useRadio();
   const playingRef = useRef(false);
   const duckRef = useRef(null);
@@ -103,10 +107,12 @@ export default function BroadcastStudio() {
     const el = sentAudioRef.current;
     if (!el || !url) return;
     duckSounds();
+    setPlayingBack(true);
     try {
       try { el.currentTime = 0; } catch {}
       await el.play();
     } catch (err) {
+      setPlayingBack(false);
       restoreSounds();
       if (err && err.name === 'NotAllowedError') {
         setShowPlayer(true);
@@ -445,8 +451,11 @@ export default function BroadcastStudio() {
         Hear my changed voice while I speak (headphones recommended)
       </label>
       {!micReady && (
-        <button type="button" onClick={() => { void enableMic(); }}
-          className="rounded-xl border border-sky-700 bg-sky-950 px-6 py-3 text-sm font-bold uppercase tracking-widest text-sky-200">
+        <button type="button"
+          onPointerDown={(e) => { e.preventDefault(); void enableMic(); }}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void enableMic(); } }}
+          onContextMenu={(e) => e.preventDefault()}
+          className="touch-none select-none rounded-xl border border-sky-700 bg-sky-950 px-6 py-3 text-sm font-bold uppercase tracking-widest text-sky-200">
           Enable microphone
         </button>
       )}
@@ -475,14 +484,16 @@ export default function BroadcastStudio() {
         ref={sentAudioRef}
         preload="none"
         style={{ width: 1, height: 1, opacity: 0 }}
-        onEnded={() => restoreSounds()}
-        onPause={() => restoreSounds()}
+        onEnded={() => { setPlayingBack(false); restoreSounds(); }}
+        onPause={() => { setPlayingBack(false); restoreSounds(); }}
       />
       {sentAudioUrl && (
         <button type="button"
-          onClick={() => { void playSentClip(sentAudioUrl); }}
-          className="rounded-lg border border-sky-700 bg-sky-950 px-4 py-2 text-xs font-bold uppercase tracking-widest text-sky-200">
-          Hear it back
+          onPointerDown={(e) => { e.preventDefault(); void playSentClip(sentAudioUrl); }}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void playSentClip(sentAudioUrl); } }}
+          onContextMenu={(e) => e.preventDefault()}
+          className="touch-none select-none rounded-lg border border-sky-700 bg-sky-950 px-4 py-2 text-xs font-bold uppercase tracking-widest text-sky-200">
+          {playingBack ? 'Playing…' : 'Hear it back'}
         </button>
       )}
       {showPlayer && sentAudioUrl && (
