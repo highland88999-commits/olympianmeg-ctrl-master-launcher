@@ -303,7 +303,7 @@ export function DoomsdayStrip({ onVisibility }) {
       href="/wallet/how-it-works"
       role="status"
       aria-label={`Financial system releases in ${days} days`}
-      className="ui-element pointer-events-auto relative -mx-3.5 -mt-3.5 mb-3 flex items-center justify-center gap-2.5 overflow-hidden rounded-t-[1.35rem] border-b border-amber-300/40 px-3.5 py-2 no-underline shadow-[inset_0_1px_0_rgba(255,215,130,0.35),0_0_24px_rgba(245,197,66,0.15)]"
+      className="ui-element pointer-events-auto relative -mx-3.5 -mt-3.5 mb-3 flex flex-wrap items-center justify-center gap-2.5 overflow-hidden rounded-t-[1.5rem] border-b border-amber-300/40 px-3.5 py-2 no-underline shadow-[inset_0_1px_0_rgba(255,215,130,0.35),0_0_24px_rgba(245,197,66,0.15)]"
     >
       {/* The golden graphic (Merlin, 2026-10-21) replaces the flat
           gold gradient: sunburst over Olympus, cropped so the text

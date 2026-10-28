@@ -697,12 +697,20 @@ function NexusHub() {
                   </div>
                 </div>
 
-                <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar flex flex-col gap-4">
+                {/* Overlap repair (2026-10-27): this wrapper used to
+                    scroll AND SatelliteMenu scrolled inside it — nested
+                    scrollers smeared rows over each other on iPhone
+                    momentum scrolls. Now the wrapper is a plain flex
+                    column: SatelliteMenu takes the remaining height
+                    and its items list is the ONE scroller. */}
+                <div className="flex-1 min-h-0 flex flex-col gap-4">
+                  <div className="flex-1 min-h-0">
                   <SatelliteMenu
                     t={t}
                     satIndex={satIndex}
                     onLaunch={(route, key, pos) => launchPocketUniverse(route, key, pos)}
                   />
+                  </div>
 
                   <div className="pt-2 border-t border-zinc-800/80 shrink-0">
                     <button

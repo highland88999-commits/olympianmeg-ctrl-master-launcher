@@ -775,7 +775,14 @@ export default function Concourse() {
   const orbDragPx = drag?.active && drag.kind === 'orb' ? { x: drag.x, y: drag.y } : null;
   const orbRenderY = orbDragPx ? orbDragPx.y : orbPx.y - yieldLift;
 
-  const boxW = 4 * SIZE + 3 * 10 + 28; // 4 tiles per row + gaps + padding
+  // Phone overlap repair (2026-10-27): on narrow viewports the
+  // 282px floating box left page content showing beside it and
+  // its 55% glass let the page ghost through. On phones the full
+  // panel spans the viewport (10px margins) with a solid back so
+  // nothing shows through or beside it; the minimized Orb widget
+  // keeps floating. Desktop keeps the 4-tile glass box.
+  const isPhone = viewport.w > 0 && viewport.w < 640;
+  const boxW = isPhone ? viewport.w - 20 : 4 * SIZE + 3 * 10 + 28; // 4 tiles per row + gaps + padding
   const boxX = Math.max(10, Math.min(orbPx.x + SIZE - boxW, viewport.w - boxW - 10));
   // The box anchors by its BOTTOM edge, 12px above the Orb — height
   // is whatever the tiles need, and it can never slide down over the
@@ -825,10 +832,10 @@ export default function Concourse() {
         <TileGlyph tile={tile} />
         <span className="relative z-10 text-[8.5px] font-black tracking-[0.14em] uppercase text-zinc-200">{tile.label}</span>
         {tile.soon && (
-          <span className="absolute -top-1.5 -right-1.5 rounded-full bg-amber-400 px-1.5 py-px text-[7.5px] font-black tracking-wider text-zinc-950">SOON</span>
+          <span className="absolute top-1.5 right-1.5 rounded-full bg-amber-400 px-1.5 py-px text-[7.5px] font-black tracking-wider text-zinc-950">SOON</span>
         )}
         {tile.important && (
-          <span className="absolute -top-1.5 -right-1.5 rounded-full bg-red-500 px-1.5 py-px text-[7.5px] font-black tracking-wider text-white">IMPORTANT</span>
+          <span className="absolute top-1.5 right-1.5 rounded-full bg-red-500 px-1.5 py-px text-[7.5px] font-black tracking-wider text-white">IMPORTANT</span>
         )}
       </button>
     );
@@ -845,7 +852,7 @@ export default function Concourse() {
           ref={boxRef}
           role="dialog"
           aria-label="The Concourse"
-          className="ui-element fixed z-[58] flex max-h-[calc(100dvh-110px)] flex-col overflow-hidden rounded-3xl border border-cyan-200/25 bg-zinc-950/55 p-3.5 shadow-[0_18px_50px_rgba(0,0,0,0.55),0_0_35px_rgba(0,242,255,0.10)] backdrop-blur-xl"
+          className={`ui-element fixed z-[58] flex max-h-[calc(100dvh-110px)] flex-col overflow-hidden rounded-3xl border border-cyan-200/25 ${isPhone ? 'bg-zinc-950' : 'bg-zinc-950/55'} p-3.5 shadow-[0_18px_50px_rgba(0,0,0,0.55),0_0_35px_rgba(0,242,255,0.10)] backdrop-blur-xl`}
           style={boxStyle}
         >
           {/* Backdrop: the user's chosen Concourse background under

@@ -233,8 +233,11 @@ export default function SatelliteMenu({ t, satIndex, onLaunch }) {
       />
 
       {/* Category rail + search — pinned together at the top of the menu
-          window while the items slide vertically beneath. */}
-      <div className="sticky top-0 z-10 -mx-1 shrink-0 bg-zinc-950/95 px-1 pb-2 backdrop-blur-md">
+          window while the items slide vertically beneath. Overlap
+          repair (2026-10-27): solid background (no translucent blur
+          for scrolled rows to ghost through) and no negative margins
+          (the header used to stick out 4px past the rows on each side). */}
+      <div className="sticky top-0 z-10 shrink-0 bg-zinc-950 px-1 pb-2">
         {/* Featured: ORDER 67 — the first thing visible when the menu opens. */}
         <button
           onClick={launchOrder67}

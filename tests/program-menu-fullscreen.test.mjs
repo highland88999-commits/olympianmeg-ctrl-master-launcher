@@ -36,16 +36,21 @@ describe('program menu fullscreen layering', () => {
     assert.ok(Math.max(...inApp) <= 40000, 'menu is the topmost in-app layer');
   });
 
-  it('minimize collapses the menu back into the portal button', () => {
+  it('minimize collapses the menu; the Concourse PORTALS tile reopens it', () => {
     assert.ok(
       page.includes('onClick={() => { fx.menuClose(); setIsMenuExpanded(false); }}'),
       'minimize ([_]) still closes via fx.menuClose + setIsMenuExpanded(false)'
     );
+    // The old floating portal button is gone (2026-10-27): the menu
+    // now opens from the Concourse PORTALS tile via the
+    // olympus:concourse-open event, which toggles expanded state
+    // and plays fx.menuOpen() when opening.
+    assert.ok(page.includes('olympus:concourse-open'), 'menu opens via the Concourse tile event');
+    assert.ok(page.includes("tile === 'portals'"), 'PORTALS tile is the menu opener');
     assert.ok(
-      page.includes('onClick={() => { fx.menuOpen(); setIsMenuExpanded(true); }}'),
-      'portal button still reopens via fx.menuOpen + setIsMenuExpanded(true)'
+      page.includes('setIsMenuExpanded((expanded)'),
+      'PORTALS tile toggles menu expanded state'
     );
-    assert.ok(page.includes('aria-label="Open menu"'), 'portal button keeps its label');
   });
 
   it('all menu functionality is preserved in the overlay', () => {
