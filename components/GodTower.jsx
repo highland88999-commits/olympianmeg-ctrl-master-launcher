@@ -9,13 +9,16 @@
 // breaks between levels). Level 2 is the current 44 billboards
 // ("currently there" in his sketch): it reads the real billboard
 // inventory (lib/partners.js, assigned deterministically by
-// lib/tower-panels.js) and wears the single 1–44 billboard run
-// (billboardNumberFor). Levels 1 and 3 are house-only for now
-// (PROVISIONAL display numbers, code only, not a product
-// decision: top 45–88, bottom 89–132, for 3 × 44 = 132 faces):
-// every new face plays the same house video through the existing
-// panel video path, and the new levels are NOT wired into the
-// manager, manifest, queue, playlist, pricing, or cap. The god's
+// lib/tower-panels.js); its boards keep their 1–44 board numbers
+// (billboardNumberFor) for the manager and manifest, while the
+// badges visitors see run top to bottom (Merlin, 2026-10-27:
+// "Make sure you number them from top to bottom"): top 1–44,
+// middle 45–88, bottom 89–132, for 3 × 44 = 132 faces. Levels 1
+// and 3 are house-only for now (display badges only, code only,
+// not a product decision): every new face plays the same house
+// video through the existing panel video path, and the new
+// levels are NOT wired into the manager, manifest, queue,
+// playlist, pricing, or cap. The god's
 // name sits in the name levels BETWEEN the billboard levels — not
 // on the pillar surface (covered by the boxes) and not above the
 // box.
@@ -37,7 +40,7 @@ import {
   drawCoverFit,
 } from '@/lib/billboard-face';
 import { STAKE_SLOT } from '@/lib/partners';
-import { panelsForTower, billboardNumberFor, PANEL_SCALE, houseLevelSlot, topLevelBillboardNumberFor, bottomLevelBillboardNumberFor } from '@/lib/tower-panels';
+import { panelsForTower, billboardNumberFor, PANEL_SCALE, houseLevelSlot, topLevelBillboardNumberFor, middleLevelBillboardNumberFor, bottomLevelBillboardNumberFor } from '@/lib/tower-panels';
 import {
   videoCoverFit,
   collectPanelVideoUrls,
@@ -285,8 +288,9 @@ function ensurePanelVideo(url) {
   });
 }
 
-// Preload the ring's panel videos in strict billboard-number order
-// 1→44 (see lib/billboards/panel-video.js). Used by the hub load
+// Preload the ring's panel videos in strict board-number order
+// 1→44 (the middle level's inventory numbers — see
+// lib/billboards/panel-video.js). Used by the hub load
 // sequence before the towers present. Never rejects: failures
 // resolve false and those panels keep their honest face.
 export function preloadHubPanelVideos(towersPanels) {
@@ -342,9 +346,11 @@ function useRotatingEntry(slot) {
   return entries[Math.min(index, count - 1)];
 }
 
-// Per-billboard number badge (Merlin, 2026-10-20): each panel face
-// carries its OWN number from the single 1–44 run across the ring
-// (lib/tower-panels.js billboardNumberFor). White digits on a small
+// Per-billboard number badge (Merlin, 2026-10-20; renumbered
+// top to bottom 2026-10-27): each panel face carries its OWN
+// number from the single 1–132 run down the tower — top 1–44,
+// middle 45–88, bottom 89–132 (lib/tower-panels.js level badge
+// helpers). White digits on a small
 // black plate that only borders the number — the plate width follows
 // the digit count, so it hugs one-digit and two-digit numbers alike.
 // It sits proud of the panel's top area (no z-fighting) and rotates
@@ -631,8 +637,9 @@ function GodTower({ god, color, position, onLaunchExternal, textures, panels = p
             face/border/backing) and the same TowerAdPanel with
             house-only slots, so they play the same house video
             through the shared video record and keep their own
-            in-view guard seats (top badges 45–88, bottom 89–132,
-            both provisional, code only). */}
+            in-view guard seats (the seat id follows the badge, so
+            the ranges stay disjoint: top 1–44, middle 45–88,
+            bottom 89–132). */}
         {[0, Math.PI / 2, Math.PI, -Math.PI / 2].map((angle, i) => (
           <group key={`ad-top-${i}`} rotation={[0, angle, 0]}>
             <group position={[0, 14.2, 2.64]}>
@@ -659,8 +666,9 @@ function GodTower({ god, color, position, onLaunchExternal, textures, panels = p
           <cylinderGeometry args={[4.5, 4.5, 0.4, 32]} />
         </mesh>
 
-        {/* Level 2 MIDDLE — the current 44, position, badges, slots,
-            and video path all unchanged. */}
+        {/* Level 2 MIDDLE — the current 44 boards: position, slots,
+            and video path all unchanged; only the badges visitors
+            see move, to 45–88 (top-to-bottom numbering). */}
         {[0, Math.PI / 2, Math.PI, -Math.PI / 2].map((angle, i) => (
           <group key={`ad-${i}`} rotation={[0, angle, 0]}>
             <group position={[0, -1, 2.64]}>
@@ -669,7 +677,7 @@ function GodTower({ god, color, position, onLaunchExternal, textures, panels = p
                 stakeTex={adTex}
                 color={color}
                 onLaunchExternal={onLaunchExternal}
-                badgeNumber={billboardNumberFor(towerIndex, i)}
+                badgeNumber={middleLevelBillboardNumberFor(towerIndex, i)}
               />
             </group>
           </group>

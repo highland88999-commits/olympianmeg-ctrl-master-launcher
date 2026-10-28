@@ -17,6 +17,12 @@ import {
   PANELS_PER_TOWER,
   TOWER_COUNT,
   billboardNumberFor,
+  topLevelBillboardNumberFor,
+  middleLevelBillboardNumberFor,
+  bottomLevelBillboardNumberFor,
+  TOP_LEVEL_BADGE_BASE,
+  MIDDLE_LEVEL_BADGE_BASE,
+  BOTTOM_LEVEL_BADGE_BASE,
 } from '../lib/tower-panels.js';
 import { PARTNERS, STAKE_SLOT, BETTY_SLOT } from '../lib/partners.js';
 import { GOD_MENUS } from '../lib/god-menus.js';
@@ -99,10 +105,14 @@ for (let i = 0; i < TOWER_COUNT; i++) {
   }
 }
 
-// --- billboard numbering: ONE run 1–44 across the ring (Merlin,
-// 2026-10-20). The number lives on the panel, not under the satellite:
-// tower t in GOD_TOWER_SPOTS (band) order carries billboards
-// t*4+1 … t*4+4, panels in panelsForTower order 0–3. ---
+// --- billboard numbering: ONE board run 1–44 across the ring (Merlin,
+// 2026-10-20). The BOARD number lives on the inventory: tower t in
+// GOD_TOWER_SPOTS (band) order carries boards t*4+1 … t*4+4, panels
+// in panelsForTower order 0–3. The manager, manifest, overrides,
+// and video preload all address boards by this number (validated
+// to 1–44). The badges visitors SEE on the tower run top to
+// bottom (Merlin, 2026-10-27: "Make sure you number them from
+// top to bottom"): top 1–44, middle 45–88, bottom 89–132. ---
 const TOWER_TOTAL = GOD_MENUS.length; // 11 towers
 const allNumbers = [];
 for (let ti = 0; ti < TOWER_TOTAL; ti++) {
@@ -130,6 +140,51 @@ t(
   billboardNumberFor(5, 2) === 5 * 4 + 2 + 1
 );
 
+// --- display badges run top to bottom: top 1–44, middle 45–88,
+// bottom 89–132 (Merlin, 2026-10-27). Within each level the
+// rotational face order is unchanged (tower/panel order). ---
+t('top badge base is 0 (top badges equal board numbers)', TOP_LEVEL_BADGE_BASE === 0);
+t('middle badge base is 44', MIDDLE_LEVEL_BADGE_BASE === 44);
+t('bottom badge base is 88', BOTTOM_LEVEL_BADGE_BASE === 88);
+const topBadges = [];
+const middleBadges = [];
+const bottomBadges = [];
+for (let ti = 0; ti < TOWER_TOTAL; ti++) {
+  for (let pi = 0; pi < PANELS_PER_TOWER; pi++) {
+    topBadges.push(topLevelBillboardNumberFor(ti, pi));
+    middleBadges.push(middleLevelBillboardNumberFor(ti, pi));
+    bottomBadges.push(bottomLevelBillboardNumberFor(ti, pi));
+  }
+}
+t(
+  'top badges are exactly 1..44 in tower/panel order',
+  topBadges.length === 44 && topBadges.every((n, k) => n === k + 1)
+);
+t(
+  'middle badges are exactly 45..88 in tower/panel order',
+  middleBadges.length === 44 && middleBadges.every((n, k) => n === k + 45)
+);
+t(
+  'bottom badges are exactly 89..132 in tower/panel order',
+  bottomBadges.length === 44 && bottomBadges.every((n, k) => n === k + 89)
+);
+t(
+  'all 132 display badges are unique across the three levels',
+  new Set([...topBadges, ...middleBadges, ...bottomBadges]).size === 132
+);
+t(
+  'top-to-bottom order: tower 0 panel 0 reads 1 / 45 / 89 down the tower',
+  topLevelBillboardNumberFor(0, 0) === 1 &&
+    middleLevelBillboardNumberFor(0, 0) === 45 &&
+    bottomLevelBillboardNumberFor(0, 0) === 89
+);
+t(
+  'last tower reads 44 / 88 / 132 down the tower',
+  topLevelBillboardNumberFor(TOWER_TOTAL - 1, 3) === 44 &&
+    middleLevelBillboardNumberFor(TOWER_TOTAL - 1, 3) === 88 &&
+    bottomLevelBillboardNumberFor(TOWER_TOTAL - 1, 3) === 132
+);
+
 // --- static wiring guards (same grep style as the hub suites) ---
 const godTowerSrc = readFileSync(
   new URL('../components/GodTower.jsx', import.meta.url),
@@ -149,8 +204,16 @@ t(
 );
 t('god-name label kept in GodOrbitRings', ringsSrc.includes('band.label'));
 t(
-  'GodTower gives every panel a badge from billboardNumberFor',
-  godTowerSrc.includes('badgeNumber={billboardNumberFor(towerIndex, i)}')
+  'GodTower middle badges come from middleLevelBillboardNumberFor (45-88)',
+  godTowerSrc.includes('badgeNumber={middleLevelBillboardNumberFor(towerIndex, i)}')
+);
+t(
+  'GodTower top badges come from topLevelBillboardNumberFor (1-44)',
+  godTowerSrc.includes('badgeNumber={topLevelBillboardNumberFor(towerIndex, i)}')
+);
+t(
+  'GodTower bottom badges come from bottomLevelBillboardNumberFor (89-132)',
+  godTowerSrc.includes('badgeNumber={bottomLevelBillboardNumberFor(towerIndex, i)}')
 );
 t(
   'badge backing is a black plate',

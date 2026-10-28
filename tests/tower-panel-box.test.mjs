@@ -24,7 +24,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-import { PANEL_SCALE, billboardNumberFor, topLevelBillboardNumberFor, TOP_LEVEL_BADGE_BASE, bottomLevelBillboardNumberFor, BOTTOM_LEVEL_BADGE_BASE, houseLevelSlot, HOUSE_FALLBACK_ENTRY } from '../lib/tower-panels.js';
+import { PANEL_SCALE, billboardNumberFor, topLevelBillboardNumberFor, TOP_LEVEL_BADGE_BASE, middleLevelBillboardNumberFor, MIDDLE_LEVEL_BADGE_BASE, bottomLevelBillboardNumberFor, BOTTOM_LEVEL_BADGE_BASE, houseLevelSlot, HOUSE_FALLBACK_ENTRY } from '../lib/tower-panels.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, '..');
@@ -178,7 +178,7 @@ describe('tower panel box geometry', () => {
 // rotations, same face/border/backing). Levels 1 and 3 are
 // house-only: every new face plays the same house video through
 // the existing panel video path, with PROVISIONAL display numbers
-// (top 45–88, bottom 89–132, code only, not a product decision —
+// (top 1–44, middle 45–88, bottom 89–132, code only, not a product decision —
 // no manager/manifest/queue/pricing/cap wiring).
 describe('tower levels', () => {
   const close = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} ≈ ${b}`);
@@ -197,10 +197,10 @@ describe('tower levels', () => {
     }
     const top = tower.slice(tower.indexOf('ad-top-${i}'));
     assert.ok(top.includes('slot={houseLevelPanels[i]}'), 'top slots are the house-only derivations');
-    assert.ok(top.includes('badgeNumber={topLevelBillboardNumberFor(towerIndex, i)}'), 'top provisional badges');
+    assert.ok(top.includes('badgeNumber={topLevelBillboardNumberFor(towerIndex, i)}'), 'top badges 1–44');
     const bottom = tower.slice(tower.indexOf('ad-bottom-${i}'));
     assert.ok(bottom.includes('slot={houseLevelPanels[i]}'), 'bottom slots are the house-only derivations');
-    assert.ok(bottom.includes('badgeNumber={bottomLevelBillboardNumberFor(towerIndex, i)}'), 'bottom provisional badges');
+    assert.ok(bottom.includes('badgeNumber={bottomLevelBillboardNumberFor(towerIndex, i)}'), 'bottom badges 89–132');
   });
 
   it('new-level box corners coincide exactly like the middle level (same diameter)', () => {
@@ -290,21 +290,24 @@ describe('tower levels', () => {
     assert.ok(tower.includes('Multiverse = multi level one'), 'the private phrase is recorded in comments');
   });
 
-  it('middle level mount, badges, and video path are unchanged', () => {
-    assert.ok(tower.includes('badgeNumber={billboardNumberFor(towerIndex, i)}'), 'middle badges 1-44');
+  it('middle level mount, slots, and video path are unchanged; badges move to 45–88', () => {
+    assert.ok(tower.includes('badgeNumber={middleLevelBillboardNumberFor(towerIndex, i)}'), 'middle badges 45–88');
     assert.ok(tower.includes('slot={panels[i]}'), 'middle slots unchanged');
   });
 });
 
 describe('new-level house slots (lib/tower-panels.js, pure)', () => {
-  it('provisional numbers: middle keeps 1–44, top 45–88, bottom 89–132', () => {
+  it('display badges run top to bottom: top 1–44, middle 45–88, bottom 89–132 (board numbers stay 1–44)', () => {
     assert.equal(billboardNumberFor(0, 0), 1);
     assert.equal(billboardNumberFor(10, 3), 44);
-    assert.equal(topLevelBillboardNumberFor(0, 0), 45);
-    assert.equal(topLevelBillboardNumberFor(10, 3), 88);
+    assert.equal(topLevelBillboardNumberFor(0, 0), 1);
+    assert.equal(topLevelBillboardNumberFor(10, 3), 44);
+    assert.equal(middleLevelBillboardNumberFor(0, 0), 45);
+    assert.equal(middleLevelBillboardNumberFor(10, 3), 88);
     assert.equal(bottomLevelBillboardNumberFor(0, 0), 89);
     assert.equal(bottomLevelBillboardNumberFor(10, 3), 132);
-    assert.equal(TOP_LEVEL_BADGE_BASE, 44);
+    assert.equal(TOP_LEVEL_BADGE_BASE, 0);
+    assert.equal(MIDDLE_LEVEL_BADGE_BASE, 44);
     assert.equal(BOTTOM_LEVEL_BADGE_BASE, 88);
   });
 
