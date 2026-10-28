@@ -556,9 +556,20 @@ function GodTower({ god, color, position, onLaunchExternal, textures, panels = p
           <meshStandardMaterial map={tailTex} metalness={0.8} roughness={0.3} side={THREE.DoubleSide} color="#ffffff" emissive="#121214" emissiveIntensity={0.5} />
         </mesh>
 
+        {/* Merlin, 2026-10-27: the four panels form a closed horizontal
+            box around the tower axis — their vertical sides match each
+            other instead of standing apart with open corners (the old
+            5.0 mount left a 2.36-unit gap at every corner). Box math,
+            in this group's units (PANEL_SCALE 1.5): the video face is
+            4.0×1.5 = 6.0 wide, so its plane must sit 6.0/2 = 3.0 from
+            the axis; the face sits 0.24×1.5 = 0.36 in front of the
+            panel origin, so the origin mounts at 3.0 − 0.36 = 2.64.
+            Each face's edge then lands exactly on its neighbor's edge
+            at the corner (3.0, 3.0). The pillar (radius 2.5) stays
+            enclosed with 0.5 clearance to the face planes. */}
         {[0, Math.PI / 2, Math.PI, -Math.PI / 2].map((angle, i) => (
           <group key={`ad-${i}`} rotation={[0, angle, 0]}>
-            <group position={[0, -1, 5.0]}>
+            <group position={[0, -1, 2.64]}>
               <TowerAdPanel
                 slot={panels[i]}
                 stakeTex={adTex}
