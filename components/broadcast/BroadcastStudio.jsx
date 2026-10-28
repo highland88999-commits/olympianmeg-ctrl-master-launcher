@@ -35,6 +35,9 @@ function distortionCurve(amount = 40) {
   return curve;
 }
 
+// 0.1s of silence, used to unlock media playback inside a gesture.
+const SILENT_WAV = 'data:audio/wav;base64,UklGRiwAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQgAAACAgICAgICAgA==';
+
 export default function BroadcastStudio() {
   const [preset, setPreset] = useState('deep');
   const [monitor, setMonitor] = useState(false);
@@ -42,6 +45,14 @@ export default function BroadcastStudio() {
   const [message, setMessage] = useState('');
   const [lastSent, setLastSent] = useState(null);
   const [sentAudioUrl, setSentAudioUrl] = useState(null);
+  // Mic permission, asked once: true once this browser has granted the
+  // mic (remembered in localStorage), so the enable button does not
+  // reappear on reload. The live stream itself is cached in streamRef
+  // and reused across holds — no new prompt per hold.
+  const [micReady, setMicReady] = useState(() => {
+    try { return localStorage.getItem('broadcast-mic-ready') === '1'; } catch { return false; }
+  });
+  const [showPlayer, setShowPlayer] = useState(false);
   const radio = useRadio();
   const playingRef = useRef(false);
   const duckRef = useRef(null);
@@ -78,25 +89,31 @@ export default function BroadcastStudio() {
     resumeMedia(d.media);
   }
 
-  // Play the sent clip back, robustly on iOS. The old code set src and
-  // called play() on a preload="none" element that stays display:none,
-  // and swallowed a rejected play() — so on an iPhone the tap did
-  // nothing with no explanation. load() + a currentTime reset + a
-  // rendered (not display:none) element + a surfaced error fixes it,
-  // and both the post-send playback and the Hear-it-back button share
-  // this one path so they cannot drift apart again.
+  // Play the sent clip back, robustly on iOS. The clip is preloaded
+  // into the element when it is sent, so the tap path is only
+  // currentTime + play with nothing in between — the old path set src
+  // and called load() inside the tap, and the post-send auto-play
+  // after the async upload was never inside a tap at all, so the
+  // phone blocked it and wrote a scary error after every send.
+  //
+  // The tap path, kept synchronous: if the phone still blocks it, a
+  // player with its own play button appears below — pressing play on
+  // that player directly is always allowed.
   async function playSentClip(url) {
     const el = sentAudioRef.current;
     if (!el || !url) return;
     duckSounds();
     try {
-      el.src = url;
-      try { el.load(); } catch {}
       try { el.currentTime = 0; } catch {}
       await el.play();
     } catch (err) {
       restoreSounds();
-      setMessage(`Could not play that clip — ${err?.message || 'playback was blocked.'} Tap Hear it back again.`);
+      if (err && err.name === 'NotAllowedError') {
+        setShowPlayer(true);
+        setMessage('Playback was blocked — tap play on the player below.');
+      } else {
+        setMessage(`Could not play that clip — ${err?.message || 'playback was blocked.'} Tap Hear it back again.`);
+      }
     }
   }
 
@@ -123,6 +140,19 @@ export default function BroadcastStudio() {
     if (capTimerRef.current) clearTimeout(capTimerRef.current);
     if (meterRafRef.current) cancelAnimationFrame(meterRafRef.current);
   }, []);
+
+  // Preload the sent clip into the playback element as soon as it
+  // exists, so the Hear-it-back tap only does currentTime + play —
+  // nothing (no src change, no load) sits between the tap and play.
+  useEffect(() => {
+    const el = sentAudioRef.current;
+    if (!el || !sentAudioUrl) return;
+    setShowPlayer(false);
+    try {
+      el.src = sentAudioUrl;
+      el.load();
+    } catch {}
+  }, [sentAudioUrl]);
 
   function drawMeter() {
     const analyser = analyserRef.current;
@@ -163,15 +193,54 @@ export default function BroadcastStudio() {
       if (!unlockAudioRef.current) {
         const el = new Audio();
         // 0.1s of silence: playing it inside the gesture unlocks this
-        // page's media playback, so the post-send playback below is
-        // allowed even though it runs after the async upload.
-        el.src = 'data:audio/wav;base64,UklGRiwAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQgAAACAgICAgICAgA==';
+        // page's media playback for later taps.
+        el.src = SILENT_WAV;
         el.volume = 0;
         unlockAudioRef.current = el;
       }
       const p = unlockAudioRef.current.play();
       if (p && p.catch) p.catch(() => {});
     } catch {}
+  }
+
+  // Bless the real playback element inside the press gesture, before
+  // any clip exists, so its first real play is never its first play.
+  // Guarded to never overwrite a preloaded clip.
+  function blessSentElement() {
+    try {
+      const el = sentAudioRef.current;
+      if (!el || el.getAttribute('src')) return;
+      el.src = SILENT_WAV;
+      const p = el.play();
+      if (p && p.catch) p.catch(() => {});
+      el.pause();
+    } catch {}
+  }
+
+  // The mic, asked once: return the cached live stream when there is
+  // one, otherwise ask the browser once and cache the result. A cached
+  // stream is never stopped here — stopping it would make the next
+  // hold ask again. It is released only when the panel unmounts.
+  async function ensureMicStream() {
+    const cached = streamRef.current;
+    if (cached && cached.getTracks().some((t) => t.readyState === 'live')) return cached;
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    streamRef.current = stream;
+    setMicReady(true);
+    try { localStorage.setItem('broadcast-mic-ready', '1'); } catch {}
+    return stream;
+  }
+
+  async function enableMic() {
+    setMessage('');
+    try {
+      await ensureMicStream();
+      setMessage('Microphone ready — hold to speak.');
+    } catch {
+      setMicReady(false);
+      try { localStorage.removeItem('broadcast-mic-ready'); } catch {}
+      setMessage('The mic is blocked. Allow it for this site, then tap Enable microphone again.');
+    }
   }
 
   async function startSession() {
@@ -183,12 +252,12 @@ export default function BroadcastStudio() {
     setStatus('starting');
     setMessage('');
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await ensureMicStream();
       if (session !== sessionRef.current || !holdingRef.current) {
-        stream.getTracks().forEach((t) => t.stop());
+        // Hold lost while permission was asked: keep the cached stream
+        // (stopping it would make the next hold ask again) and return.
         return;
       }
-      streamRef.current = stream;
       // Reuse the gesture-unlocked context when there is one; a closed
       // context from a previous session can never resume, so replace it.
       let ctx = ctxRef.current;
@@ -252,7 +321,9 @@ export default function BroadcastStudio() {
       holdingRef.current = false;
       restoreSounds();
       setStatus('error');
-      setMessage('Microphone unavailable. Allow mic access and try again.');
+      setMicReady(false);
+      try { localStorage.removeItem('broadcast-mic-ready'); } catch {}
+      setMessage('Microphone unavailable. Tap Enable microphone above, allow it, then hold to speak.');
     }
   }
 
@@ -268,7 +339,8 @@ export default function BroadcastStudio() {
     } else {
       void finishSession(sessionRef.current, true);
     }
-    try { streamRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
+    // Mic stream stays cached for the next hold — stopping it here is
+    // what made every hold ask again. Released on unmount.
   }
 
   // Cancel recording and start over: discard this take entirely — the
@@ -320,13 +392,15 @@ export default function BroadcastStudio() {
       if (!pubRes.ok || !pub.ok) throw new Error(pub.error || 'Broadcast did not publish.');
       setStatus('done');
       setLastSent(pub.latest);
-      setMessage('Broadcast sent — every user on the site will hear it.');
-      // Feedback after send: play the sent clip back on this device, so
-      // the keeper hears what went out. The listener on this page must
+      setMessage('Broadcast sent — tap Hear it back to hear it.');
+      // No auto-playback here: this runs after the async upload, outside
+      // any tap, so the phone always blocks it — and that block wrote
+      // the scary "could not play" message after every send. The clip
+      // is preloaded into the playback element and the Hear-it-back
+      // button is the playback path. The listener on this page must
       // not play it a second time, so the sent id is flagged for it.
       try { localStorage.setItem('broadcast-self-sent', pub.latest.id); } catch {}
       setSentAudioUrl(pub.latest.audioUrl);
-      void playSentClip(pub.latest.audioUrl);
     } catch (err) {
       setStatus('error');
       setMessage(err?.message || 'Broadcast failed. Try again.');
@@ -338,6 +412,7 @@ export default function BroadcastStudio() {
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
     ensureAudioContext();
     unlockAudioForPlayback();
+    blessSentElement();
     void startSession();
   }
 
@@ -369,6 +444,12 @@ export default function BroadcastStudio() {
         <input type="checkbox" checked={monitor} onChange={(e) => setMonitor(e.target.checked)} disabled={holding} />
         Hear my changed voice while I speak (headphones recommended)
       </label>
+      {!micReady && (
+        <button type="button" onClick={() => { void enableMic(); }}
+          className="rounded-xl border border-sky-700 bg-sky-950 px-6 py-3 text-sm font-bold uppercase tracking-widest text-sky-200">
+          Enable microphone
+        </button>
+      )}
       <button
         type="button"
         onPointerDown={pressStart}
@@ -377,7 +458,7 @@ export default function BroadcastStudio() {
         onPointerLeave={pressEnd}
         onContextMenu={(e) => e.preventDefault()}
         onKeyDown={(e) => {
-          if (e.key === ' ') { e.preventDefault(); ensureAudioContext(); unlockAudioForPlayback(); void startSession(); }
+          if (e.key === ' ') { e.preventDefault(); ensureAudioContext(); unlockAudioForPlayback(); blessSentElement(); void startSession(); }
           if (e.key === 'Escape' && holding) { e.preventDefault(); cancelSession(); }
         }}
         onKeyUp={(e) => { if (e.key === ' ') { e.preventDefault(); pressEnd(); } }}
@@ -403,6 +484,9 @@ export default function BroadcastStudio() {
           className="rounded-lg border border-sky-700 bg-sky-950 px-4 py-2 text-xs font-bold uppercase tracking-widest text-sky-200">
           Hear it back
         </button>
+      )}
+      {showPlayer && sentAudioUrl && (
+        <audio controls src={sentAudioUrl} className="w-full" onEnded={() => restoreSounds()} />
       )}
       <div className="h-2 overflow-hidden rounded-full bg-zinc-800">
         <div ref={meterRef} className="h-full rounded-full bg-sky-400" style={{ width: '0%' }} />
