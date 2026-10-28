@@ -78,6 +78,28 @@ export default function BroadcastStudio() {
     resumeMedia(d.media);
   }
 
+  // Play the sent clip back, robustly on iOS. The old code set src and
+  // called play() on a preload="none" element that stays display:none,
+  // and swallowed a rejected play() — so on an iPhone the tap did
+  // nothing with no explanation. load() + a currentTime reset + a
+  // rendered (not display:none) element + a surfaced error fixes it,
+  // and both the post-send playback and the Hear-it-back button share
+  // this one path so they cannot drift apart again.
+  async function playSentClip(url) {
+    const el = sentAudioRef.current;
+    if (!el || !url) return;
+    duckSounds();
+    try {
+      el.src = url;
+      try { el.load(); } catch {}
+      try { el.currentTime = 0; } catch {}
+      await el.play();
+    } catch (err) {
+      restoreSounds();
+      setMessage(`Could not play that clip — ${err?.message || 'playback was blocked.'} Tap Hear it back again.`);
+    }
+  }
+
   const holdingRef = useRef(false);
   const sessionRef = useRef(0);
   const discardRef = useRef(false);
@@ -304,15 +326,7 @@ export default function BroadcastStudio() {
       // not play it a second time, so the sent id is flagged for it.
       try { localStorage.setItem('broadcast-self-sent', pub.latest.id); } catch {}
       setSentAudioUrl(pub.latest.audioUrl);
-      duckSounds();
-      try {
-        const el = sentAudioRef.current;
-        if (el) {
-          el.src = pub.latest.audioUrl;
-          const p = el.play();
-          if (p && p.catch) p.catch(() => {});
-        }
-      } catch {}
+      void playSentClip(pub.latest.audioUrl);
     } catch (err) {
       setStatus('error');
       setMessage(err?.message || 'Broadcast failed. Try again.');
@@ -379,20 +393,13 @@ export default function BroadcastStudio() {
       <audio
         ref={sentAudioRef}
         preload="none"
-        className="hidden"
+        style={{ width: 1, height: 1, opacity: 0 }}
         onEnded={() => restoreSounds()}
         onPause={() => restoreSounds()}
       />
       {sentAudioUrl && (
         <button type="button"
-          onClick={() => {
-            const el = sentAudioRef.current;
-            if (!el) return;
-            duckSounds();
-            el.src = sentAudioUrl;
-            const p = el.play();
-            if (p && p.catch) p.catch(() => {});
-          }}
+          onClick={() => { void playSentClip(sentAudioUrl); }}
           className="rounded-lg border border-sky-700 bg-sky-950 px-4 py-2 text-xs font-bold uppercase tracking-widest text-sky-200">
           Hear it back
         </button>
