@@ -15,6 +15,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { MOLLY_DEMO_LINES, mollyReplyFor } from '@/lib/molly/talk';
+import { speakMolly, speechSupported, stopMollySpeech } from '@/lib/molly/voice';
 
 // Digitized head — an original dot-matrix head in glowing blue, in the
 // spirit of the clip Merlin sent (particle head, more digitized, not a
@@ -70,9 +71,34 @@ export default function MollyPanel() {
     { from: 'molly', text: 'Hello. I am Molly — from inside ARES now. Ask me about my mission, or run a demo hunt and watch the tracking display light up.' },
   ]);
   const [draft, setDraft] = useState('');
+  const [voiceOn, setVoiceOn] = useState(() => {
+    try { return localStorage.getItem('molly-voice') === '1'; } catch { return false; }
+  });
+  const [voiceAvailable, setVoiceAvailable] = useState(false);
   const timers = useRef([]);
 
-  useEffect(() => () => { timers.current.forEach((t) => clearTimeout(t)); }, []);
+  useEffect(() => () => { timers.current.forEach((t) => clearTimeout(t)); stopMollySpeech(); }, []);
+
+  useEffect(() => { setVoiceAvailable(speechSupported()); }, []);
+
+  useEffect(() => {
+    if (!voiceOn) return;
+    const last = messages[messages.length - 1];
+    if (last && last.from === 'molly') speakMolly(last.text);
+  }, [messages, voiceOn]);
+
+  function toggleVoice() {
+    if (!voiceAvailable) return;
+    const next = !voiceOn;
+    setVoiceOn(next);
+    try { localStorage.setItem('molly-voice', next ? '1' : '0'); } catch {}
+    if (!next) {
+      stopMollySpeech();
+    } else {
+      const last = [...messages].reverse().find((m) => m.from === 'molly');
+      if (last) speakMolly(last.text);
+    }
+  }
 
   const huntDone = revealed >= MOLLY_DEMO_LINES.length;
 
@@ -155,7 +181,13 @@ export default function MollyPanel() {
       </div>
 
       <div className="rounded-xl border border-zinc-800 bg-black/30 p-4">
-        <p className="mb-2 text-xs font-bold uppercase tracking-[0.2em] text-zinc-400">Talk to her</p>
+        <div className="mb-2 flex items-center justify-between">
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-400">Talk to her</p>
+          <button type="button" onClick={toggleVoice} disabled={!voiceAvailable}
+            className={`rounded-lg border border-zinc-700 px-3 py-1.5 text-xs font-bold ${voiceOn ? 'bg-sky-900 text-sky-100' : 'bg-zinc-900 text-zinc-300'} disabled:opacity-50`}>
+            {voiceOn ? 'Voice: on' : 'Voice: off'}
+          </button>
+        </div>
         <div className="flex flex-col gap-2">
           {messages.map((m, i) => (
             <p key={i} className={`text-sm ${m.from === 'molly' ? 'text-zinc-100' : 'text-zinc-400'}`}>

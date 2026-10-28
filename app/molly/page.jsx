@@ -17,6 +17,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { MOLLY_DEMO_LINES, MOLLY_PARTS, mollyReplyFor } from '@/lib/molly/talk';
+import { speakMolly, speechSupported, stopMollySpeech } from '@/lib/molly/voice';
 
 const UNLOCK_KEY = 'molly-unlocked';
 
@@ -35,6 +36,10 @@ export default function MollySandboxPage() {
     { from: 'molly', text: 'Hello. I am Molly — a sandbox copy, here for testing. Ask me about my mission or my parts, or run a demo hunt.' },
   ]);
   const [draft, setDraft] = useState('');
+  const [voiceOn, setVoiceOn] = useState(() => {
+    try { return localStorage.getItem('molly-voice') === '1'; } catch { return false; }
+  });
+  const [voiceAvailable, setVoiceAvailable] = useState(false);
   const [log, setLog] = useState([]);
   const logEndRef = useRef(null);
 
@@ -48,6 +53,29 @@ export default function MollySandboxPage() {
   useEffect(() => {
     if (logEndRef.current) logEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }, [log]);
+
+  useEffect(() => { setVoiceAvailable(speechSupported()); }, []);
+
+  useEffect(() => () => stopMollySpeech(), []);
+
+  useEffect(() => {
+    if (!voiceOn) return;
+    const last = messages[messages.length - 1];
+    if (last && last.from === 'molly') speakMolly(last.text);
+  }, [messages, voiceOn]);
+
+  function toggleVoice() {
+    if (!voiceAvailable) return;
+    const next = !voiceOn;
+    setVoiceOn(next);
+    try { localStorage.setItem('molly-voice', next ? '1' : '0'); } catch {}
+    if (!next) {
+      stopMollySpeech();
+    } else {
+      const last = [...messages].reverse().find((m) => m.from === 'molly');
+      if (last) speakMolly(last.text);
+    }
+  }
 
   async function submitGate(event) {
     event.preventDefault();
@@ -143,7 +171,12 @@ export default function MollySandboxPage() {
         ))}
       </div>
 
-      <h2 style={{ fontSize: 18, margin: '24px 0 10px' }}>Talk to her</h2>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '24px 0 10px' }}>
+        <h2 style={{ fontSize: 18, margin: 0 }}>Talk to her</h2>
+        <button type="button" onClick={toggleVoice} disabled={!voiceAvailable} style={{ padding: '8px 14px', borderRadius: 10, border: '1px solid #3f3f46', background: voiceOn ? '#0c4a6e' : '#18181b', color: '#fafafa', cursor: voiceAvailable ? 'pointer' : 'default', opacity: voiceAvailable ? 1 : 0.5 }}>
+          {voiceOn ? 'Voice: on' : 'Voice: off'}
+        </button>
+      </div>
       <div style={{ border: '1px solid #27272a', borderRadius: 12, padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
         {messages.map((m, i) => (
           <p key={i} style={{ margin: 0, color: m.from === 'molly' ? '#fafafa' : '#a1a1aa' }}>
