@@ -62,7 +62,7 @@ export const POST = apiGuard(async function POST(req) {
   const base = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '');
   return NextResponse.json({
     ok: true,
-    token: <redacted>
+    token: signed.token,
     path,
     publicUrl: `${base}/storage/v1/object/public/${BROADCAST_BUCKET}/${path}`,
     contentType,

@@ -80,3 +80,20 @@ test('listener polls latest.json site-wide and needs one tap for sound', () => {
   const worklet = readFileSync('public/worklets/pitch-shift-processor.js', 'utf8');
   assert.match(worklet, /registerProcessor\('pitch-shift'/);
 });
+
+test('intercom duck: node-safe media helpers, wired on hold and on play', () => {
+  const mute = readFileSync('lib/broadcast/intercom-mute.js', 'utf8');
+  assert.match(mute, /collectPlayingMedia/);
+  assert.match(mute, /resumeMedia/);
+  const studio = readFileSync('components/broadcast/BroadcastStudio.jsx', 'utf8');
+  assert.match(studio, /Intercom \/\/ All systems/);
+  assert.match(studio, /duckSounds\(\)/);
+  assert.match(studio, /restoreSounds\(\)/);
+  assert.match(studio, /Hold to speak/);
+  const listener = readFileSync('components/broadcast/BroadcastListener.jsx', 'utf8');
+  assert.match(listener, /duckSounds\(\)/);
+  assert.match(listener, /restoreSounds\(\)/);
+  const ares = readFileSync('app/ares/page.jsx', 'utf8');
+  assert.ok(ares.indexOf('Defensive only') < ares.indexOf('<BroadcastStudio />'),
+    'intercom section sits at the bottom of the console, after the footer');
+});

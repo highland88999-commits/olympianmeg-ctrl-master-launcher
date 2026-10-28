@@ -268,10 +268,10 @@ export default function AresConsole() {
             <div className="ares-panel"><LearningPanel events={events} authedFetch={authedFetch} /></div>
             <div className="ares-panel"><ListsManager authedFetch={authedFetch} whitelist={whitelist} blocks={blocks} onRefresh={load} /></div>
             <div className="ares-panel"><MollyPanel /></div>
-            <div className="ares-panel"><BroadcastStudio /></div>
             <footer className="pb-8 pt-2 text-center text-[11px] text-zinc-600">
               Defensive only. Ares logs and blocks; it never retaliates. Evidence older than 90 days is purged.
             </footer>
+            <div className="ares-panel"><BroadcastStudio /></div>
             <div aria-hidden="true" className="player-clear" />
           </>
         )}

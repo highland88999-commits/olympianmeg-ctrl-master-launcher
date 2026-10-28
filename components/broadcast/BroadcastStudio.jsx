@@ -15,6 +15,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { useRadio } from '@/components/radio/RadioProvider';
+import { isFxEnabled, setFxEnabled } from '@/lib/fx';
+import { collectPlayingMedia, resumeMedia } from '@/lib/broadcast/intercom-mute';
 import {
   BROADCAST_MAX_SECONDS,
   BROADCAST_PRESETS,
@@ -38,6 +41,41 @@ export default function BroadcastStudio() {
   const [status, setStatus] = useState('idle');
   const [message, setMessage] = useState('');
   const [lastSent, setLastSent] = useState(null);
+  const radio = useRadio();
+  const playingRef = useRef(false);
+  const duckRef = useRef(null);
+
+  useEffect(() => { playingRef.current = !!radio.playing; }, [radio.playing]);
+
+  // Intercom duck: quiet everything else while the keeper speaks, restore
+  // only what this duck changed when the voice ends.
+  function duckSounds() {
+    if (duckRef.current) return;
+    const fxWas = isFxEnabled();
+    try { setFxEnabled(false); } catch {}
+    const radioWasPlaying = playingRef.current;
+    if (radioWasPlaying) {
+      try { radio.togglePlay(); } catch {}
+    }
+    duckRef.current = {
+      fxWas,
+      radioWasPlaying,
+      media: collectPlayingMedia(null),
+    };
+  }
+
+  function restoreSounds() {
+    const d = duckRef.current;
+    if (!d) return;
+    duckRef.current = null;
+    try {
+      if (!isFxEnabled() && d.fxWas) setFxEnabled(true);
+    } catch {}
+    if (d.radioWasPlaying && !playingRef.current) {
+      try { radio.togglePlay(); } catch {}
+    }
+    resumeMedia(d.media);
+  }
 
   const holdingRef = useRef(false);
   const sessionRef = useRef(0);
@@ -78,6 +116,7 @@ export default function BroadcastStudio() {
   async function startSession() {
     if (holdingRef.current) return;
     holdingRef.current = true;
+    duckSounds();
     discardRef.current = false;
     const session = ++sessionRef.current;
     setStatus('starting');
@@ -144,6 +183,7 @@ export default function BroadcastStudio() {
       }, BROADCAST_MAX_SECONDS * 1000);
     } catch {
       holdingRef.current = false;
+      restoreSounds();
       setStatus('error');
       setMessage('Microphone unavailable. Allow mic access and try again.');
     }
@@ -151,6 +191,7 @@ export default function BroadcastStudio() {
 
   function stopSession() {
     holdingRef.current = false;
+    restoreSounds();
     if (capTimerRef.current) clearTimeout(capTimerRef.current);
     if (meterRafRef.current) cancelAnimationFrame(meterRafRef.current);
     if (meterRef.current) meterRef.current.style.width = '0%';
@@ -222,10 +263,12 @@ export default function BroadcastStudio() {
 
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-xs font-bold uppercase tracking-[0.2em] text-sky-300">Broadcast // All systems</p>
+      <p className="text-xs font-bold uppercase tracking-[0.2em] text-sky-300">Intercom // All systems</p>
       <p className="text-xs leading-relaxed text-zinc-400">
         Hold the mic button, speak, release — your voice, through the changer,
-        goes out to every user on the site. Only you can send; everyone hears.
+        goes out to every user on the site. While you hold, every other sound
+        on your page quiets; listeners hear your voice with their sounds
+        muted until it ends. Only you can send; everyone hears.
       </p>
       <div className="flex flex-wrap gap-2">
         {Object.entries(BROADCAST_PRESETS).map(([key, def]) => (
@@ -249,7 +292,7 @@ export default function BroadcastStudio() {
         onKeyDown={(e) => { if (e.key === ' ') { e.preventDefault(); void startSession(); } }}
         onKeyUp={(e) => { if (e.key === ' ') { e.preventDefault(); pressEnd(); } }}
         className={`touch-none select-none rounded-xl px-6 py-4 text-sm font-black uppercase tracking-widest ${holding ? 'bg-red-500 text-white' : 'bg-sky-400 text-black'}`}>
-        {holding ? '● Broadcasting — release to send' : 'Hold to broadcast'}
+        {holding ? '● Speaking — release to send' : 'Hold to speak'}
       </button>
       <div className="h-2 overflow-hidden rounded-full bg-zinc-800">
         <div ref={meterRef} className="h-full rounded-full bg-sky-400" style={{ width: '0%' }} />

@@ -13,6 +13,9 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BROADCAST_POLL_MS, BROADCAST_PRESETS, latestJsonUrl, validateLatest } from '@/lib/broadcast/voice-changer';
+import { useRadio } from '@/components/radio/RadioProvider';
+import { isFxEnabled, setFxEnabled } from '@/lib/fx';
+import { collectPlayingMedia, resumeMedia } from '@/lib/broadcast/intercom-mute';
 
 const LS_SOUND = 'broadcast-sound';
 const LS_LAST_ID = 'broadcast-last-id';
@@ -24,6 +27,35 @@ export default function BroadcastListener() {
   const [playing, setPlaying] = useState(false);
   const audioRef = useRef(null);
   const enabledRef = useRef(false);
+  const radio = useRadio();
+  const playingRef = useRef(false);
+  const duckRef = useRef(null);
+
+  useEffect(() => { playingRef.current = !!radio.playing; }, [radio.playing]);
+
+  const duckSounds = useCallback(() => {
+    if (duckRef.current) return;
+    const fxWas = isFxEnabled();
+    try { setFxEnabled(false); } catch {}
+    const radioWasPlaying = playingRef.current;
+    if (radioWasPlaying) {
+      try { radio.togglePlay(); } catch {}
+    }
+    duckRef.current = { fxWas, radioWasPlaying, media: collectPlayingMedia(audioRef.current) };
+  }, [radio]);
+
+  const restoreSounds = useCallback(() => {
+    const d = duckRef.current;
+    if (!d) return;
+    duckRef.current = null;
+    try {
+      if (!isFxEnabled() && d.fxWas) setFxEnabled(true);
+    } catch {}
+    if (d.radioWasPlaying && !playingRef.current) {
+      try { radio.togglePlay(); } catch {}
+    }
+    resumeMedia(d.media);
+  }, [radio]);
   const seenRef = useRef(null);
   const base = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '');
 
@@ -31,8 +63,8 @@ export default function BroadcastListener() {
     const el = audioRef.current;
     if (!el || !item) return;
     el.src = item.audioUrl;
-    el.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
-  }, []);
+    el.play().then(() => { setPlaying(true); duckSounds(); }).catch(() => setPlaying(false));
+  }, [duckSounds]);
 
   useEffect(() => {
     try {
@@ -87,8 +119,8 @@ export default function BroadcastListener() {
       <audio
         ref={audioRef}
         preload="none"
-        onEnded={() => setPlaying(false)}
-        onPause={() => setPlaying(false)}
+        onEnded={() => { setPlaying(false); restoreSounds(); }}
+        onPause={() => { setPlaying(false); restoreSounds(); }}
       />
       <p className="text-xs font-bold uppercase tracking-[0.2em] text-sky-300">Broadcast · {presetLabel} voice</p>
       <p className="mt-1 text-xs text-zinc-400">
@@ -107,7 +139,7 @@ export default function BroadcastListener() {
             {playing ? 'Playing…' : 'Play again'}
           </button>
         )}
-        <button type="button" onClick={() => setDismissedId(latest.id)}
+        <button type="button" onClick={() => { try { audioRef.current?.pause(); } catch {} restoreSounds(); setDismissedId(latest.id); }}
           className="rounded-lg border border-zinc-700 px-3 py-2 text-xs text-zinc-300">
           Dismiss
         </button>
