@@ -8,6 +8,8 @@ import ThreatGauge from '@/components/ares/ThreatGauge';
 import EventsFeed from '@/components/ares/EventsFeed';
 import TopLists from '@/components/ares/TopLists';
 import ListsManager from '@/components/ares/ListsManager';
+import UsersManager from '@/components/ares/UsersManager';
+import AttackSources from '@/components/ares/AttackSources';
 import ModuleToggles from '@/components/ares/ModuleToggles';
 import LearningPanel from '@/components/ares/LearningPanel';
 import MollyPanel from '@/components/ares/MollyPanel';
@@ -105,6 +107,9 @@ export default function AresConsole() {
   const [events, setEvents] = useState([]);
   const [blocks, setBlocks] = useState([]);
   const [whitelist, setWhitelist] = useState([]);
+  const [regUsers, setRegUsers] = useState([]);
+  const [trapped, setTrapped] = useState([]);
+  const [sources, setSources] = useState([]);
   const [settings, setSettings] = useState({ sentinelEnabled: true, phalanxEnabled: true });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -164,15 +169,20 @@ export default function AresConsole() {
     if (!token) return;
     setLoading(true);
     try {
-      const [ev, bl, wl, st] = await Promise.all([
+      const [ev, bl, wl, st, us, tr] = await Promise.all([
         authedFetch('/api/ares/events?limit=100').then((r) => r.json()),
         authedFetch('/api/ares/blocks').then((r) => r.json()),
         authedFetch('/api/ares/whitelist').then((r) => r.json()),
         authedFetch('/api/ares/settings').then((r) => r.json()),
+        authedFetch('/api/ares/users').then((r) => r.json()).catch(() => ({})),
+        authedFetch('/api/ares/trapped').then((r) => r.json()).catch(() => ({})),
       ]);
       setEvents(ev.events || []);
       setBlocks(bl.blocks || []);
       setWhitelist(wl.whitelist || []);
+      setRegUsers(us.users || []);
+      setTrapped(tr.trapped || []);
+      setSources(tr.sources || []);
       if (st.settings) setSettings(st.settings);
     } catch { /* keep whatever loaded */ }
     setLoading(false);
@@ -267,6 +277,8 @@ export default function AresConsole() {
             <div className="ares-panel"><EventsFeed events={events} /></div>
             <div className="ares-panel"><LearningPanel events={events} authedFetch={authedFetch} /></div>
             <div className="ares-panel"><ListsManager authedFetch={authedFetch} whitelist={whitelist} blocks={blocks} onRefresh={load} /></div>
+            <div className="ares-panel"><UsersManager authedFetch={authedFetch} users={regUsers} onRefresh={load} /></div>
+            <div className="ares-panel"><AttackSources authedFetch={authedFetch} trapped={trapped} sources={sources} onRefresh={load} /></div>
             <div className="ares-panel"><MollyPanel /></div>
             <footer className="pb-8 pt-2 text-center text-[11px] text-zinc-600">
               Defensive only. Ares logs and blocks; it never retaliates. Evidence older than 90 days is purged.

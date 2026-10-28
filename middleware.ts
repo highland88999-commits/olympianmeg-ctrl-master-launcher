@@ -5,7 +5,12 @@
 // What it does, per request:
 //   1. Whitelist bypass: Miles, home IPs, localhost never touched.
 //   2. Ban check: asks /api/ares/check (cached 60s) -> 403 if banned.
+//   2b. Abyss check: asks /api/ares/trap-check (cached 60s) -> a trapped
+//       source is rewritten into the sandbox on every later request.
 //   3. Bot heuristics: suspicious UA / scanner paths / missing headers.
+//      Ordinary bots get a 403; extra-malicious ones (score 75+, a
+//      flagged scanner UA on a scanner path) get rewritten into the
+//      abyss sandbox instead.
 //   4. Rate limiting: sliding window, per instance (see note below).
 // Violations are reported fire-and-forget to /api/ares/ingest; the
 // response is never delayed by logging.
@@ -63,23 +68,37 @@ function mlFingerprint({ userAgent, path, headers, windowHits, windowMax }: {
   return { features: vector, feature_version: version };
 }
 
-// Ban list, cached 60s in instance memory.
-let banCache = { at: 0, data: null };
-async function isBanned(req, ip) {
+// Ban + trap lists, cached 60s per IP in instance memory. The old cache
+// held one global result for every IP, so one visitor's verdict could
+// leak onto the next visitor within the window; a per-IP map keeps
+// each verdict on its own visitor.
+const checkCache = new Map();
+async function cachedCheck(req, endpoint, ip, pick) {
+  const key = `${endpoint}:${ip}`;
   const now = Date.now();
-  if (now - banCache.at > 60_000 || !banCache.data) {
-    try {
-      const res = await fetch(new URL('/api/ares/check', req.url), {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-ares-internal': INTERNAL },
-        body: JSON.stringify({ ip }),
-      });
-      banCache = { at: now, data: await res.json() };
-    } catch {
-      return false; // check failed: fail open on reads, never lock everyone out
-    }
+  const hit = checkCache.get(key);
+  if (hit && now - hit.at < 60_000) return pick(hit.data);
+  try {
+    const res = await fetch(new URL(endpoint, req.url), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-ares-internal': INTERNAL },
+      body: JSON.stringify({ ip }),
+    });
+    const data = await res.json();
+    if (checkCache.size > 1000) checkCache.delete(checkCache.keys().next().value);
+    checkCache.set(key, { at: now, data });
+    return pick(data);
+  } catch {
+    return false; // check failed: fail open on reads, never lock everyone out
   }
-  return banCache.data?.blocked === true;
+}
+
+async function isBanned(req, ip) {
+  return cachedCheck(req, '/api/ares/check', ip, (d) => d?.blocked === true);
+}
+
+async function isTrapped(req, ip) {
+  return cachedCheck(req, '/api/ares/trap-check', ip, (d) => d?.trapped === true);
 }
 
 export async function middleware(req) {
@@ -102,6 +121,12 @@ export async function middleware(req) {
     return new NextResponse('Forbidden', { status: 403 });
   }
 
+  // 2b. Trapped in the abyss? Every later request from a trapped source
+  // falls straight back into the sandbox until the keeper releases it.
+  if (sentinelOn && ip !== 'unknown' && (await isTrapped(req, ip))) {
+    return NextResponse.rewrite(new URL('/api/ares/abyss', req.url));
+  }
+
   // 3. Bot heuristics.
   if (sentinelOn) {
     const verdict = scoreRequest({
@@ -110,12 +135,21 @@ export async function middleware(req) {
       headers: req.headers,
     });
     if (verdict.isBot) {
+      // Extra-malicious tier: a flagged scanner UA on a scanner path
+      // (45 + 30 = 75) does not get a plain 403 — it gets the abyss.
+      const abyss = verdict.score >= 75;
       report(req.url, {
         ip, eventType: 'bot_blocked', path: url.pathname,
         userAgent: req.headers.get('user-agent'),
-        details: { score: verdict.score, reasons: verdict.reasons },
+        details: { score: verdict.score, reasons: verdict.reasons, abyss },
         ml: mlFingerprint({ userAgent: req.headers.get('user-agent'), path: url.pathname, headers: req.headers }),
       });
+      if (abyss) {
+        const dest = new URL('/api/ares/abyss', req.url);
+        dest.searchParams.set('from', url.pathname);
+        dest.searchParams.set('score', String(verdict.score));
+        return NextResponse.rewrite(dest);
+      }
       if (phalanxOn) return new NextResponse('Forbidden', { status: 403 });
     }
   }

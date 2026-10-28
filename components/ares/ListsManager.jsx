@@ -58,7 +58,7 @@ export default function ListsManager({ authedFetch, whitelist, blocks, onRefresh
     <div className="grid gap-4 md:grid-cols-2">
       <div className="rounded-xl border border-zinc-800 bg-zinc-950/90 p-5 backdrop-blur-md">
         <h2 className="text-xs font-bold uppercase tracking-[0.25em] text-zinc-400">Allowlist</h2>
-        <p className="mt-2 text-[11px] text-zinc-500">These visitors are never inspected or logged. Miles is already on the list via server settings.</p>
+        <p className="mt-2 text-[11px] text-zinc-500">These visitors are never inspected or logged. Miles is already on the list via server settings. Registered users are allowed automatically — see the registered-users panel below.</p>
         <div className="mt-4 flex flex-col gap-2">
           <input value={ip} onChange={(e) => setIp(e.target.value)} placeholder="IP address or range (1.2.3.4 or 1.2.3.0/24)"
             className="w-full rounded-lg border border-zinc-700 bg-black px-3 py-2 font-mono text-sm text-white outline-none placeholder:text-zinc-600 focus:border-emerald-500" />
