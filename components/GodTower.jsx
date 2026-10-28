@@ -3,10 +3,22 @@
 // parameterized the way Merlin described it: copy Zeus, change the name
 // and the color, one for each of the categories in the menu (2026-09-30).
 //
-// Each tower carries four ad panels reading the real billboard inventory
-// (lib/partners.js, assigned deterministically by lib/tower-panels.js).
-// Every panel also wears its own number badge from the single 1–44
-// billboard run (billboardNumberFor in lib/tower-panels.js).
+// Each tower carries three LEVELS of four ad panels (Merlin,
+// 2026-10-27: "It's levels" — Level 1 TOP (Merlin: "Multiverse = multi level one"),
+// Level 2 MIDDLE, Level 3 BOTTOM, with a name level and ring
+// breaks between levels). Level 2 is the current 44 billboards
+// ("currently there" in his sketch): it reads the real billboard
+// inventory (lib/partners.js, assigned deterministically by
+// lib/tower-panels.js) and wears the single 1–44 billboard run
+// (billboardNumberFor). Levels 1 and 3 are house-only for now
+// (PROVISIONAL display numbers, code only, not a product
+// decision: top 45–88, bottom 89–132, for 3 × 44 = 132 faces):
+// every new face plays the same house video through the existing
+// panel video path, and the new levels are NOT wired into the
+// manager, manifest, queue, playlist, pricing, or cap. The god's
+// name sits in the name levels BETWEEN the billboard levels — not
+// on the pillar surface (covered by the boxes) and not above the
+// box.
 // Panel 0 is ALWAYS Merlin's native stake.com placement — his own
 // inventory, never removed, never rotated out. Panels 1–3 rotate the
 // affiliate partners, Betty, and YOUR AD HERE fillers so the forty panels
@@ -25,7 +37,7 @@ import {
   drawCoverFit,
 } from '@/lib/billboard-face';
 import { STAKE_SLOT } from '@/lib/partners';
-import { panelsForTower, billboardNumberFor, PANEL_SCALE } from '@/lib/tower-panels';
+import { panelsForTower, billboardNumberFor, PANEL_SCALE, houseLevelSlot, topLevelBillboardNumberFor, bottomLevelBillboardNumberFor } from '@/lib/tower-panels';
 import {
   videoCoverFit,
   collectPanelVideoUrls,
@@ -514,14 +526,28 @@ function GodTower({ god, color, position, onLaunchExternal, textures, panels = p
   // Solid: generous sphere covering the body + the four ad panels.
   // Radius doubled with the tower (11 at group scale 0.8 → 22 at the
   // 1.6 scale Merlin ordered 2026-10-20), so flight clearance scales
-  // with the satellite itself.
+  // with the satellite itself. The new levels get their own
+  // spheres: level 1's centre sits 14.2 inner units above level 2
+  // (22.72 outer), level 3's 16.2 below (25.92 outer), and radius
+  // 13 covers each new level's box corners (11.2 outer) plus the
+  // ±0.8 outer bob, with margin to spare.
   useEffect(() => {
     registerCollider(`tower-${god}`, () => ({ x: position[0], y: position[1], z: position[2] }), 22);
-    return () => unregisterCollider(`tower-${god}`);
+    registerCollider(`tower-${god}-top`, () => ({ x: position[0], y: position[1] + 22.72, z: position[2] }), 13);
+    registerCollider(`tower-${god}-bottom`, () => ({ x: position[0], y: position[1] - 25.92, z: position[2] }), 13);
+    return () => {
+      unregisterCollider(`tower-${god}`);
+      unregisterCollider(`tower-${god}-top`);
+      unregisterCollider(`tower-${god}-bottom`);
+    };
   }, [god, position]);
 
   const { propTex, bodyTex, hullTex, tailTex, adTex } = textures;
   const darkMetal = useMemo(() => new THREE.MeshStandardMaterial({ color: '#222222', metalness: 0.9, roughness: 0.2, emissive: '#121214', emissiveIntensity: 0.5 }), []);
+  // New-level slots are derived from this tower's level-2 panels,
+  // one house entry each (lib/tower-panels.js houseLevelSlot).
+  // Memoized so the panel components never see a fresh slot identity.
+  const houseLevelPanels = useMemo(() => panels.map(houseLevelSlot), [panels]);
 
   return (
     <group position={position}>
@@ -532,26 +558,42 @@ function GodTower({ god, color, position, onLaunchExternal, textures, panels = p
           this group, so everything grows together, as ordered. */}
       <group ref={satelliteRef} scale={[1.6, 1.6, 1.6]}>
 
-        <Billboard position={[0, 16, 0]}>
+        {/* Floating god label, moved up with the pillar top (was
+            y=16 over the old 12 top; now 24.5 over the new 20.5
+            top, the same 4 above the pillar). It sits above the
+            level-1 box top (19.6), clear of every level. */}
+        <Billboard position={[0, 24.5, 0]}>
           <Text fontSize={1.6} color={color} letterSpacing={0.2} fontWeight="bold">
             {god}
           </Text>
         </Billboard>
 
-        <mesh position={[0, 0, 0]} receiveShadow>
-          <cylinderGeometry args={[2.5, 2.5, 24, 32]} />
+        {/* Pillar, extended the full three-level stack (Merlin,
+            2026-10-27: levels): the same 2.5-radius column, now
+            spanning top 20.5 (propellers) to -22.5, 0.9 below the
+            level-3 box bottom (-21.6). The old pillar-surface god
+            texts at y=2 are GONE: the boxes covered them, and the
+            name now lives in the name levels between the billboard
+            levels, not on the pillar and not above the box. */}
+        <mesh position={[0, -1, 0]} receiveShadow>
+          <cylinderGeometry args={[2.5, 2.5, 43, 32]} />
           <meshStandardMaterial map={bodyTex} color="#ffffff" metalness={0.6} roughness={0.4} emissive="#222222" emissiveIntensity={0.5} />
-
-          <Text position={[0, 2, 2.55]} fontSize={1.5} color={color} letterSpacing={0.3} anchorX="center" anchorY="middle" rotation={[0, 0, -Math.PI / 2]}>{god}</Text>
-          <Text position={[0, 2, -2.55]} fontSize={1.5} color={color} letterSpacing={0.3} anchorX="center" anchorY="middle" rotation={[0, Math.PI, Math.PI / 2]}>{god}</Text>
         </mesh>
 
+        {/* Translucent hull cone, UNCHANGED (Merlin's call still
+            open from the boxing round): radii 4.5/3.5 still pierce
+            the middle level's box faces in the panel band, but the
+            cone spans y -6..2 and never reaches level 3 (top
+            -10.8) or level 1 (bottom 8.8). */}
         <mesh position={[0, -2, 0]} receiveShadow>
           <cylinderGeometry args={[4.5, 3.5, 8, 8, 1, true]} />
           <meshStandardMaterial map={hullTex} metalness={0.9} roughness={0.1} side={THREE.DoubleSide} color="#ffffff" transparent={true} opacity={0.35} depthWrite={false} emissive="#121214" emissiveIntensity={0.5} />
         </mesh>
 
-        <mesh position={[0, -12, 0]} receiveShadow>
+        {/* Tail cone, moved down to cap the stack (was y=-12, which
+            would sit inside level 3): same geometry, now spanning
+            -24.5..-22.5, meeting the pillar bottom exactly. */}
+        <mesh position={[0, -23.5, 0]} receiveShadow>
           <cylinderGeometry args={[3.5, 4.5, 2, 8, 1, true]} />
           <meshStandardMaterial map={tailTex} metalness={0.8} roughness={0.3} side={THREE.DoubleSide} color="#ffffff" emissive="#121214" emissiveIntensity={0.5} />
         </mesh>
@@ -566,7 +608,59 @@ function GodTower({ god, color, position, onLaunchExternal, textures, panels = p
             panel origin, so the origin mounts at 3.0 − 0.36 = 2.64.
             Each face's edge then lands exactly on its neighbor's edge
             at the corner (3.0, 3.0). The pillar (radius 2.5) stays
-            enclosed with 0.5 clearance to the face planes. */}
+            enclosed with 0.5 clearance to the face planes. Every
+            level below uses this same box. */}
+
+        {/* LEVELS (Merlin, 2026-10-27: "It's levels"). Stack, inner
+            units, top to bottom — level 1 TOP (Merlin: "Multiverse = multi level one")
+            box band [8.8, 19.6] (centre 14.2), ring break, name
+            level, ring break, level 2 MIDDLE box band [-6.4, 4.4]
+            (centre -1, the current 44, unchanged), ring break,
+            name level, ring break, level 3 BOTTOM box band
+            [-21.6, -10.8] (centre -16.2). Every box band is 10.8
+            tall (7.2 × 1.5); every gap between a band and its
+            neighbour ring is 0.3; every name level is 2.4 tall;
+            every ring is a solid disc, radius 4.5 (past the box
+            corner radius 4.24, so it reads as a cap) in the
+            tower's dark metal — the existing metalwork language,
+            reused for the breaks. Name bands are camera-facing
+            Billboards, so the god's name reads from any angle
+            while the tower rotates; the name is NOT also written
+            on the pillar or above the box. Levels 1 and 3 reuse
+            the same box (mount 2.64, same rotations, same
+            face/border/backing) and the same TowerAdPanel with
+            house-only slots, so they play the same house video
+            through the shared video record and keep their own
+            in-view guard seats (top badges 45–88, bottom 89–132,
+            both provisional, code only). */}
+        {[0, Math.PI / 2, Math.PI, -Math.PI / 2].map((angle, i) => (
+          <group key={`ad-top-${i}`} rotation={[0, angle, 0]}>
+            <group position={[0, 14.2, 2.64]}>
+              <TowerAdPanel
+                slot={houseLevelPanels[i]}
+                stakeTex={adTex}
+                color={color}
+                onLaunchExternal={onLaunchExternal}
+                badgeNumber={topLevelBillboardNumberFor(towerIndex, i)}
+              />
+            </group>
+          </group>
+        ))}
+
+        <mesh position={[0, 8.3, 0]} material={darkMetal} receiveShadow>
+          <cylinderGeometry args={[4.5, 4.5, 0.4, 32]} />
+        </mesh>
+        <Billboard position={[0, 6.6, 0]}>
+          <Text fontSize={1.5} color={color} letterSpacing={0.3} fontWeight="bold">
+            {god}
+          </Text>
+        </Billboard>
+        <mesh position={[0, 4.9, 0]} material={darkMetal} receiveShadow>
+          <cylinderGeometry args={[4.5, 4.5, 0.4, 32]} />
+        </mesh>
+
+        {/* Level 2 MIDDLE — the current 44, position, badges, slots,
+            and video path all unchanged. */}
         {[0, Math.PI / 2, Math.PI, -Math.PI / 2].map((angle, i) => (
           <group key={`ad-${i}`} rotation={[0, angle, 0]}>
             <group position={[0, -1, 2.64]}>
@@ -581,8 +675,38 @@ function GodTower({ god, color, position, onLaunchExternal, textures, panels = p
           </group>
         ))}
 
+        <mesh position={[0, -6.9, 0]} material={darkMetal} receiveShadow>
+          <cylinderGeometry args={[4.5, 4.5, 0.4, 32]} />
+        </mesh>
+        <Billboard position={[0, -8.6, 0]}>
+          <Text fontSize={1.5} color={color} letterSpacing={0.3} fontWeight="bold">
+            {god}
+          </Text>
+        </Billboard>
+        <mesh position={[0, -10.3, 0]} material={darkMetal} receiveShadow>
+          <cylinderGeometry args={[4.5, 4.5, 0.4, 32]} />
+        </mesh>
+
+        {[0, Math.PI / 2, Math.PI, -Math.PI / 2].map((angle, i) => (
+          <group key={`ad-bottom-${i}`} rotation={[0, angle, 0]}>
+            <group position={[0, -16.2, 2.64]}>
+              <TowerAdPanel
+                slot={houseLevelPanels[i]}
+                stakeTex={adTex}
+                color={color}
+                onLaunchExternal={onLaunchExternal}
+                badgeNumber={bottomLevelBillboardNumberFor(towerIndex, i)}
+              />
+            </group>
+          </group>
+        ))}
+
+        {/* Propellers, moved up to the new pillar top (was y=12,
+            which would sit inside the level-1 box band [8.8,
+            19.6]): same geometry, now sweeping at 20.5, 0.9 above
+            the level-1 box top. */}
         {[0, (Math.PI * 2) / 3, (Math.PI * 4) / 3].map((rot, i) => (
-          <group key={`prop-${i}`} position={[0, 12, 0]} rotation={[0, rot, 0]}>
+          <group key={`prop-${i}`} position={[0, 20.5, 0]} rotation={[0, rot, 0]}>
             <mesh position={[0, 0, 5.5]} rotation={[Math.PI / 2, 0, 0]} receiveShadow>
               <boxGeometry args={[1.5, 9, 0.1]} />
               <meshStandardMaterial map={propTex} metalness={0.6} roughness={0.4} color="#ffffff" emissive="#222222" emissiveIntensity={0.5} />
