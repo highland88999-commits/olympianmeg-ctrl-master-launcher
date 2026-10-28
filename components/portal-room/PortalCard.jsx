@@ -34,7 +34,7 @@ export function PortalStyles() {
   );
 }
 
-export default function PortalCard({ program, onEnter }) {
+export default function PortalCard({ program, onEnter, selected = false, ariaLabel = null }) {
   const frameRef = useRef(null);
   const videoRef = useRef(null);
   const [failed, setFailed] = useState(false);
@@ -67,11 +67,13 @@ export default function PortalCard({ program, onEnter }) {
       type="button"
       onClick={() => onEnter(program)}
       className="group block w-full text-left focus:outline-none"
-      aria-label={`Enter ${program.title}`}
+      aria-label={ariaLabel || `Enter ${program.title}`}
     >
       <div
         ref={frameRef}
-        className="portal-arch relative aspect-[3/4] w-full overflow-hidden border border-cyan-300/25 bg-[#0a0618] shadow-[0_0_24px_rgba(80,60,220,0.25)] transition duration-300 group-hover:border-amber-300/60 group-hover:shadow-[0_0_36px_rgba(255,180,60,0.35)] group-focus-visible:border-amber-300/80"
+        className={`portal-arch relative aspect-[3/4] w-full overflow-hidden border border-cyan-300/25 bg-[#0a0618] shadow-[0_0_24px_rgba(80,60,220,0.25)] transition duration-300 group-hover:border-amber-300/60 group-hover:shadow-[0_0_36px_rgba(255,180,60,0.35)] group-focus-visible:border-amber-300/80${
+          selected ? ' border-amber-300/70 shadow-[0_0_30px_rgba(255,180,60,0.35)]' : ''
+        }`}
       >
         {!failed ? (
           <video

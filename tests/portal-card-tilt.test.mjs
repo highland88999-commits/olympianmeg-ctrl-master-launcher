@@ -146,9 +146,14 @@ describe('the panel view switch (list by default; the room card view is untouche
     assert.ok(panel.includes('probeWebGL()'), 'the probe decides whether the hall mounts');
   });
 
-  it('the panel list uses rows, not a card grid', () => {
-    assert.ok(!panel.includes('<PortalCard '), 'no DOM card grid in the panel');
-    assert.ok(panel.includes('wallItems.map((p) => ('), 'rows iterate the wall');
+  it('the panel list is a mini card grid, not rows', () => {
+    assert.ok(panel.includes('<PortalCard'), 'panel list renders the room cards');
+    assert.ok(panel.includes('groupBySection(wallItems)'), 'cards group under section headers');
+    assert.ok(panel.includes('grid grid-cols-2'), 'two-column mini grid');
+    assert.ok(
+      panel.includes('onEnter={() => setExpandedKey(p.key)}'),
+      'card tap opens the detail, never enters directly'
+    );
   });
 
   it('the hall applies one shared tilt behavior, not two motion systems', () => {

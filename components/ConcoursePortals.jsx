@@ -32,11 +32,12 @@ import {
   SECTION_ORDER,
   buildPortalRoster,
   filterPortals,
+  groupBySection,
   paginateWall,
   withOwnerPortals,
 } from '@/lib/portal-roster';
 import { probeWebGL } from '@/lib/webgl-support';
-import { PortalStyles } from './portal-room/PortalCard';
+import PortalCard, { PortalStyles } from './portal-room/PortalCard';
 import PortalEnterOverlay from './portal-room/PortalEnterOverlay';
 
 const PortalHallScene = dynamic(() => import('./concourse/PortalHallScene'), { ssr: false });
@@ -117,6 +118,10 @@ export default function ConcoursePortals({ open, onClose }) {
   }, [programs, searching, query, section]);
 
   const pages = useMemo(() => paginateWall(wallItems), [wallItems]);
+  // The list groups the same filtered wall under the room's section
+  // headers (mini card grid — Merlin, 2026-10-28: the panel list is
+  // a mini version of the Portal Room menu, same cards, smaller).
+  const grouped = useMemo(() => groupBySection(wallItems), [wallItems]);
   const safePage = Math.min(page, Math.max(0, pages.length - 1));
   const pageItems = pages[safePage] || [];
   const expanded = expandedKey
@@ -277,33 +282,24 @@ export default function ConcoursePortals({ open, onClose }) {
                   No realm matches that search yet.
                 </p>
               ) : (
-                <div className="flex flex-col gap-2">
-                  {wallItems.map((p) => (
-                    <button
-                      key={p.key}
-                      type="button"
-                      onClick={() => setExpandedKey(p.key)}
-                      aria-pressed={expandedKey === p.key}
-                      className={`flex w-full items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left transition ${
-                        expandedKey === p.key
-                          ? 'border-amber-300/70 bg-amber-300/10'
-                          : 'border-white/10 bg-white/5 hover:border-cyan-300/40'
-                      }`}
-                    >
-                      <span className="min-w-0">
-                        <span className="block truncate text-[15px] font-semibold tracking-wide text-zinc-50">
-                          {p.title}
-                        </span>
-                        {p.subtitle ? (
-                          <span className="block truncate text-xs text-zinc-400">{p.subtitle}</span>
-                        ) : null}
-                      </span>
-                      <span className="shrink-0 text-[11px] font-medium tracking-wide text-zinc-400 uppercase">
-                        {p.section}
-                      </span>
-                    </button>
-                  ))}
-                </div>
+                grouped.map(({ section: s, items }) => (
+                  <section key={s} className="mt-6 first:mt-1">
+                    <h2 className="mb-3 text-center text-xs font-semibold tracking-[0.35em] text-cyan-100/70">
+                      {s}
+                    </h2>
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-5">
+                      {items.map((p) => (
+                        <PortalCard
+                          key={p.key}
+                          program={p}
+                          selected={expandedKey === p.key}
+                          ariaLabel={`View ${p.title}`}
+                          onEnter={() => setExpandedKey(p.key)}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                ))
               )}
             </div>
           ) : glFailed ? (

@@ -1,24 +1,23 @@
 // tests/concourse-portals-list-default.test.mjs
-// PORTALS 3D panel — LIST BY DEFAULT (Merlin, 2026-10-27: "the list
-// form is how I want them, like list form was before, by default"):
-// - the panel opens on the realm list, not the 3D orb wall
+// PORTALS 3D panel — LIST BY DEFAULT, AS A MINI PORTAL ROOM MENU
+// (Merlin, 2026-10-27: "the list form is how I want them, like list
+// form was before, by default"; refined 2026-10-28: "how it is in
+// the first menu is how it should be in the second version, just a
+// little smaller (like a mini version)"):
+//
+// - the panel opens on the list, not the 3D orb wall
 // - a clearly labeled List/3D switch in the header reaches the hall,
 //   which stays intact (per-card tilt, retry fallback, wall pages)
-// - list rows carry name + category, tap opens the same detail
-//   (name, description, Back / Step through) the orb wall shows
+// - the list is a mini version of the Portal Room menu: the very
+//   same PortalCard (arched frame, artwork, title + subtitle under
+//   it), grouped under the room's section headers, in a two-column
+//   grid scaled down to the panel — NOT plain text rows, and NOT a
+//   new card design
+// - tapping a mini card opens the same detail (name, description,
+//   Back / Step through) the orb wall shows — never enter-directly
 // - search, pills, and counts are untouched by the view change
-// - NO OVERLAPPING: rows are contained flow-layout buttons, the
-//   list is the stage's single scroller, the header wraps
-//
-// What the list was before (history evidence): before commit
-// 97d26a77 (2026-10-27, "Portal Room single view + per-card tilt")
-// removed it, the panel at e064a348 had a mode toggle (header
-// button) and a list branch: a scrollable grid of PortalCards with
-// direct enter on tap. The restored form keeps that structure
-// (header switch, scrollable list, same wallItems/search/pills,
-// same caption-bar detail) but renders rows per the order — name +
-// category per row, tap opens the detail instead of entering
-// directly — and never renders a PortalCard grid in the panel.
+// - NO OVERLAPPING: the grid is flow layout, the list is the
+//   stage's single scroller, the header wraps
 //
 // Static source analysis (same pattern as concourse-portals).
 // Run: node --test tests/concourse-portals-list-default.test.mjs (from repo root)
@@ -32,6 +31,10 @@ import { dirname, join } from 'node:path';
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, '..');
 const panel = readFileSync(join(repo, 'components', 'ConcoursePortals.jsx'), 'utf8');
+const card = readFileSync(
+  join(repo, 'components', 'portal-room', 'PortalCard.jsx'),
+  'utf8'
+);
 
 describe('PORTALS 3D panel opens on the list by default', () => {
   it('the default view is the list', () => {
@@ -60,41 +63,59 @@ describe('PORTALS 3D panel opens on the list by default', () => {
   });
 });
 
-describe('the list view: rows, detail, no overlap', () => {
-  it('the list branch renders one row per realm in the current wall', () => {
+describe('the list view: a mini Portal Room menu', () => {
+  it('the list branch renders the room cards, grouped by section', () => {
     assert.ok(panel.includes("mode === 'list' ? ("), 'list branch exists');
-    assert.ok(panel.includes('wallItems.map((p) => ('), 'rows iterate the filtered wall');
+    assert.ok(panel.includes('groupBySection(wallItems)'), 'list groups the filtered wall');
+    assert.ok(panel.includes('<PortalCard'), 'list renders the room cards');
+    assert.ok(
+      panel.includes("from '@/lib/portal-roster'") && panel.includes('groupBySection,'),
+      'grouping comes from the shared roster'
+    );
   });
 
-  it('each row shows the realm name and its category', () => {
+  it('the mini grid is two columns under section headers, like the room', () => {
     const list = panel.slice(panel.indexOf("mode === 'list' ? ("));
-    assert.ok(list.includes('{p.title}'), 'row shows the name');
-    assert.ok(list.includes('{p.section}'), 'row shows the category');
-    assert.ok(list.includes('{p.subtitle}'), 'row shows the description line when present');
+    assert.ok(list.includes('grid grid-cols-2'), 'two-column grid');
+    assert.ok(list.includes('<h2'), 'section header per group');
+    assert.ok(list.includes('{s}'), 'header carries the section name');
   });
 
-  it('tapping a row opens the same detail the orb wall shows', () => {
+  it('the mini cards are the room cards, not a new design', () => {
+    assert.ok(card.includes('portal-arch'), 'card keeps the arched frame');
+    assert.ok(card.includes('aspect-[3/4]'), 'card keeps the room proportions');
+    assert.ok(card.includes('/videos/portals/'), 'card keeps the room artwork source');
+    assert.ok(card.includes('portal-swirl'), 'card keeps the swirl fallback');
+    assert.ok(card.includes('{program.title}'), 'card keeps the title under the frame');
+    assert.ok(card.includes('{program.subtitle}'), 'card keeps the subtitle under the frame');
+  });
+
+  it('tapping a mini card opens the same detail the orb wall shows', () => {
     const list = panel.slice(panel.indexOf("mode === 'list' ? ("));
-    assert.ok(list.includes('onClick={() => setExpandedKey(p.key)}'), 'row tap selects the realm');
+    assert.ok(
+      list.includes('onEnter={() => setExpandedKey(p.key)}'),
+      'card tap selects the realm instead of entering directly'
+    );
     assert.ok(panel.includes('{expanded.title}'), 'caption bar shows the selected name');
     assert.ok(panel.includes('Step through'), 'caption bar keeps Step through');
     assert.ok(panel.includes('Back'), 'caption bar keeps Back');
   });
 
-  it('rows are contained flow-layout buttons, never overlapping layers', () => {
-    const rows = panel.slice(panel.indexOf('wallItems.map((p) => ('), panel.indexOf(') : glFailed ? ('));
-    assert.ok(rows.includes('flex w-full items-center justify-between gap-3'), 'row is a full-width flex row');
-    assert.ok(rows.includes('min-w-0'), 'text block can shrink instead of spilling');
-    assert.ok(rows.includes('truncate'), 'long names/descriptions clip inside the row');
-    assert.ok(rows.includes('shrink-0'), 'category label cannot be squeezed out');
-    assert.ok(!rows.includes('absolute'), 'no absolutely positioned element inside the rows');
-    assert.ok(!panel.includes('<PortalCard '), 'no DOM card grid in the panel');
+  it('the selected mini card is highlighted, and its label names viewing', () => {
+    const list = panel.slice(panel.indexOf("mode === 'list' ? ("));
+    assert.ok(list.includes('selected={expandedKey === p.key}'), 'selected card is flagged');
+    assert.ok(list.includes('ariaLabel={`View ${p.title}`}'), 'card label says View, not Enter');
+    assert.ok(card.includes('selected = false'), 'selected defaults off for the room');
+    assert.ok(card.includes('border-amber-300/70'), 'selected card wears the amber frame');
+    assert.ok(card.includes('ariaLabel = null'), 'aria label defaults off for the room');
   });
 
-  it('the list is the stage single scroller', () => {
-    const stage = panel.slice(panel.indexOf('The stage:'));
-    assert.ok(stage.includes('absolute inset-0 overflow-y-auto'), 'list scrolls inside the stage');
-    assert.ok(stage.includes('flex flex-col gap-2'), 'rows stack with gaps, not overlays');
+  it('the mini grid is contained flow layout on the stage single scroller', () => {
+    const list = panel.slice(panel.indexOf("mode === 'list' ? ("), panel.indexOf(') : glFailed ? ('));
+    assert.ok(list.includes('grid grid-cols-2'), 'grid is flow layout, not overlays');
+    const scrollers = (list.match(/overflow-y-auto/g) || []).length;
+    assert.equal(scrollers, 1, 'exactly one scroller in the list branch');
+    assert.ok(list.includes('gap-x-3 gap-y-5'), 'cards sit in gutters, never overlapping');
   });
 });
 
@@ -123,5 +144,6 @@ describe('search, pills, counts, and the 3D hall are untouched', () => {
   it('the Portal Room card wall is not touched by this change', () => {
     const room = readFileSync(join(repo, 'components', 'portal-room', 'PortalRoom.jsx'), 'utf8');
     assert.ok(!room.includes("useState('list')"), 'room carries no list-default state');
+    assert.ok(room.includes('<PortalCard key={p.key} program={p} onEnter={enter} />'), 'room cards unchanged');
   });
 });
