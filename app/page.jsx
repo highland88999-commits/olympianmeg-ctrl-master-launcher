@@ -6,6 +6,8 @@ import Auth from '@/components/Auth';
 import { supabase } from '@/lib/supabase';
 import { LanguageProvider, useI18n } from '@/lib/i18n';
 import { SATELLITES } from '@/lib/i18n/satellites';
+import { isOwnerEmail } from '@/lib/owner';
+import { AGENT_FORGE_MENU } from '@/lib/god-menus';
 import SatelliteMenu from '@/components/SatelliteMenu';
 import { MenuHeaderDecor } from '@/components/PortalSeasonalDecor';
 import { orbitTime, orbitPositionFor, PLANETS } from '@/lib/god-orbits';
@@ -14,7 +16,6 @@ import SettingsGear from '@/components/SettingsGear';
 import { fetchRiderState, saveRiderState, DISMOUNT_EYE } from '@/lib/rider-state';
 import ProfileIcon from '@/components/ProfileIcon';
 import NotificationsWindow from '@/components/NotificationsWindow';
-import { FintracExplanationMenuButton } from '@/components/FintracExplanation';
 import EntranceSequence from '@/components/EntranceSequence';
 import { createEntranceMachine } from '@/lib/entrance-sequence';
 import EarthConsole from '@/components/EarthConsole';
@@ -70,6 +71,7 @@ function NexusHub() {
   const [appState, setAppState] = useState('hub_intro');
   const [isMenuExpanded, setIsMenuExpanded] = useState(true);
   const [user, setUser] = useState(null);
+  const [isOwner, setIsOwner] = useState(false);
   const [cloudOffline, setCloudOffline] = useState(false);
   const [cloudNoteDismissed, setCloudNoteDismissed] = useState(false);
 
@@ -328,21 +330,25 @@ function NexusHub() {
   });
 
   const bikeRef = useRef(null);
-  const satIndex = useMemo(() => new Map(SATELLITES.map((s) => [s.key, s])), []);
+  // Menu index: the 179 registry entries, plus Agent Forge for the owner
+  // only (2026-10-28: its home is the ATHENA menu row, not the old footer
+  // card). Non-owners never get the entry, so the menu's `if (!sat)` guard
+  // skips the row — and search — for them, exactly like OWNER_PORTALS.
+  const satIndex = useMemo(() => {
+    const map = new Map(SATELLITES.map((s) => [s.key, s]));
+    if (isOwner) {
+      map.set(AGENT_FORGE_MENU.key, {
+        key: AGENT_FORGE_MENU.key,
+        route: AGENT_FORGE_MENU.route,
+        pos: AGENT_FORGE_MENU.pos,
+        section: 'AI PROGRAMS',
+        constellation: 'ATHENA',
+      });
+    }
+    return map;
+  }, [isOwner]);
 
-  const aiSatMeta = useMemo(() => {
-    const match = SATELLITES.find(
-      (s) =>
-        s.key?.toLowerCase().includes('thoth') ||
-        s.key?.toLowerCase().includes('apollo') ||
-        s.key?.toLowerCase().includes('athena') ||
-        s.programs?.some((p) => p.route === '/human-ai' || p.route === '/alexandria')
-    );
-    return {
-      key: match?.key || 'thoth',
-      posKey: match?.pos || 'THOTH_POS',
-    };
-  }, []);
+
 
   const [joyBase, setJoyBase] = useState({ x: 0, y: 0 });
   const [joyStick, setJoyStick] = useState({ x: 0, y: 0 });
@@ -413,10 +419,12 @@ function NexusHub() {
           const callsign = session.user.user_metadata?.username || session.user.user_metadata?.callsign || localStorage.getItem('nexus_user') || session.user.email?.split('@')[0].toUpperCase();
           localStorage.setItem('nexus_user', callsign);
           setUser(callsign);
+          setIsOwner(isOwnerEmail(session.user.email));
           stashHubRegisteredAt(session.user.created_at);
         } else {
           const cached = localStorage.getItem('nexus_user');
           if (cached) setUser(cached);
+          setIsOwner(false);
         }
       });
 
@@ -425,10 +433,12 @@ function NexusHub() {
           const callsign = session.user.user_metadata?.username || session.user.user_metadata?.callsign || session.user.email?.split('@')[0].toUpperCase();
           localStorage.setItem('nexus_user', callsign);
           setUser(callsign);
+          setIsOwner(isOwnerEmail(session.user.email));
           stashHubRegisteredAt(session.user.created_at);
         } else {
           localStorage.removeItem('nexus_user');
           setUser(null);
+          setIsOwner(false);
         }
       });
 
@@ -712,23 +722,6 @@ function NexusHub() {
                   />
                   </div>
 
-                  <div className="pt-2 border-t border-zinc-800/80 shrink-0">
-                    <button
-                      onClick={() => launchPocketUniverse('/agent-forge', aiSatMeta.key, aiSatMeta.posKey)}
-                      className="w-full flex flex-col text-left px-4 py-3 bg-black/40 border border-emerald-500/30 rounded hover:bg-emerald-500/20 transition-all group"
-                    >
-                      <span className="text-sm font-black text-emerald-400 tracking-widest uppercase group-hover:text-white">
-                        Agent Forge
-                      </span>
-                      <span className="text-[10px] text-zinc-500 uppercase mt-1">
-                        Personal AI &amp; Brain Sync
-                      </span>
-                    </button>
-                  </div>
-
-                  <div className="pt-2 shrink-0">
-                    <FintracExplanationMenuButton />
-                  </div>
                 </div>
 
                 {user && (

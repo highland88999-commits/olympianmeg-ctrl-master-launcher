@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useMemo } from 'react';
-import { GOD_MENUS, menuArtFor, menuBannerFor } from '@/lib/god-menus';
+import { GOD_MENUS, AGENT_FORGE_MENU, menuArtFor, menuBannerFor } from '@/lib/god-menus';
 import { filterMenuIndex } from '@/lib/menu-search';
 import { FLOORS } from '@/lib/babel/floors';
 import { fx } from '@/lib/fx';
@@ -111,6 +111,20 @@ function FeaturedCheatCodeArt() {
 }
 
 function programsFor(key, sat, t) {
+  // Agent Forge (owner-only menu entry): no locale strings exist for it,
+  // so the row wears the shared display copy instead of an echoed key.
+  if (key === AGENT_FORGE_MENU.key) {
+    return {
+      title: AGENT_FORGE_MENU.title,
+      subtitle: AGENT_FORGE_MENU.subtitle,
+      programs: [{
+        key: `${key}-program`,
+        name: `Enter ${AGENT_FORGE_MENU.title}`,
+        sub: AGENT_FORGE_MENU.subtitle,
+        route: AGENT_FORGE_MENU.route,
+      }],
+    };
+  }
   const title = t(`sat.${key}.title`);
   const subtitle = t(`sat.${key}.subtitle`);
   if (key === 'babel') {

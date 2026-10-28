@@ -43,11 +43,22 @@ const orphaned = satKeys.filter((k) => !claimed.includes(k));
 t(`no orphaned satellites (${orphaned.length})`, orphaned.length === 0);
 if (orphaned.length) console.error('  orphaned:', orphaned.join(', '));
 
-const unknown = claimed.filter((k) => !satSet.has(k));
+// Owner-only menu keys (2026-10-28): in a god menu but NOT in the 179
+// registry — shown only when the caller's satIndex carries them (owner
+// sessions). The only such key today is Agent Forge, homed under ATHENA.
+const OWNER_MENU_KEYS = ['agent-forge'];
+const unknown = claimed.filter((k) => !satSet.has(k) && !OWNER_MENU_KEYS.includes(k));
 t(`no phantom keys in god menus (${unknown.length})`, unknown.length === 0);
 if (unknown.length) console.error('  phantom:', unknown.join(', '));
 
-t('god-menu satellite count matches satellites.ts', claimed.length === satKeys.length);
+// Count modulo the known orphans above (agent-engine, merlins-agent):
+// every non-orphan registry key is claimed, plus the owner-only keys.
+// The 'no orphaned satellites' assertion above still fails loudly for
+// those two — this line only isolates the count invariant from them.
+t('god-menu satellite count matches satellites.ts plus owner-only keys, modulo known orphans',
+  claimed.length + orphaned.length === satKeys.length + OWNER_MENU_KEYS.length);
+t('agent-forge lives in exactly one menu: ATHENA',
+  godMenuFor('agent-forge')?.god === 'ATHENA' && claimed.filter((k) => k === 'agent-forge').length === 1);
 
 // --- HERMES: the shopping god (2026-09-30, Merlin's direction) ---------------
 import { GOD_HEX } from '../lib/god-orbits.js';

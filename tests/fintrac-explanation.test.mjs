@@ -104,10 +104,9 @@ describe('wiring: modal, host, and menu entries', () => {
     assert.match(f, /shouldAutoShowFintrac\(\{ pathname, signedIn: !!session, dismissed \}\)/);
     assert.match(f, /window\.addEventListener\(FINTRAC_EVENT/);
   });
-  it('hub Program menu carries the full-title entry', () => {
+  it('hub Program menu no longer carries the footer entry (2026-10-28: removed from this placement)', () => {
     const p = src('app/page.jsx');
-    assert.match(p, /import \{ FintracExplanationMenuButton \} from '@\/components\/FintracExplanation';/);
-    assert.match(p, /<FintracExplanationMenuButton \/>/);
+    assert.equal(p.includes('FintracExplanationMenuButton'), false);
   });
   it('Portal Room carries the entry as page chrome, not a roster row', () => {
     const p = src('app/portal-room/page.jsx');
