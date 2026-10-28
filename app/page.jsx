@@ -7,7 +7,7 @@ import { supabase } from '@/lib/supabase';
 import { LanguageProvider, useI18n } from '@/lib/i18n';
 import { SATELLITES } from '@/lib/i18n/satellites';
 import { isOwnerEmail } from '@/lib/owner';
-import { AGENT_FORGE_MENU } from '@/lib/god-menus';
+import { AGENT_FORGE_MENU, AGENT_ENGINE_MENU } from '@/lib/god-menus';
 import SatelliteMenu from '@/components/SatelliteMenu';
 import { MenuHeaderDecor } from '@/components/PortalSeasonalDecor';
 import { orbitTime, orbitPositionFor, PLANETS } from '@/lib/god-orbits';
@@ -345,6 +345,11 @@ function NexusHub() {
         constellation: 'ATHENA',
       });
     }
+    // Agent Engine's page bounces non-owners home, so its row is
+    // owner-only too: without the entry the menu's `if (!sat)` guard
+    // skips the row — and search — for everyone else, instead of
+    // showing them a row they cannot open.
+    if (!isOwner) map.delete(AGENT_ENGINE_MENU.key);
     return map;
   }, [isOwner]);
 

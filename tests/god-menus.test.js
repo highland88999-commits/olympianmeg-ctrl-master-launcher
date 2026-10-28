@@ -39,8 +39,13 @@ const claimed = allGodMenuSatellites();
 t('no satellite claimed twice', new Set(claimed).size === claimed.length);
 
 const satSet = new Set(satKeys);
-const orphaned = satKeys.filter((k) => !claimed.includes(k));
-t(`no orphaned satellites (${orphaned.length})`, orphaned.length === 0);
+// Deliberately unhomed (Merlin, 2026-10-28: "leave merlins realm as it
+// is"): merlins-agent is his master agent inside the engine
+// (/agent-engine?agent=merlin), not a standalone menu program. It stays
+// out of every god menu by his order — a new orphan here is still a bug.
+const KNOWN_UNHOMED = ['merlins-agent'];
+const orphaned = satKeys.filter((k) => !claimed.includes(k) && !KNOWN_UNHOMED.includes(k));
+t(`no orphaned satellites besides known-unhomed (${orphaned.length})`, orphaned.length === 0);
 if (orphaned.length) console.error('  orphaned:', orphaned.join(', '));
 
 // Owner-only menu keys (2026-10-28): in a god menu but NOT in the 179
@@ -51,12 +56,14 @@ const unknown = claimed.filter((k) => !satSet.has(k) && !OWNER_MENU_KEYS.include
 t(`no phantom keys in god menus (${unknown.length})`, unknown.length === 0);
 if (unknown.length) console.error('  phantom:', unknown.join(', '));
 
-// Count modulo the known orphans above (agent-engine, merlins-agent):
-// every non-orphan registry key is claimed, plus the owner-only keys.
-// The 'no orphaned satellites' assertion above still fails loudly for
-// those two — this line only isolates the count invariant from them.
-t('god-menu satellite count matches satellites.ts plus owner-only keys, modulo known orphans',
-  claimed.length + orphaned.length === satKeys.length + OWNER_MENU_KEYS.length);
+// Count: every registry key is either claimed, owner-only, or
+// deliberately unhomed (merlins-agent) — nothing else may be missing.
+t('god-menu satellite count matches satellites.ts plus owner-only keys, modulo known-unhomed',
+  claimed.length + orphaned.length + KNOWN_UNHOMED.length === satKeys.length + OWNER_MENU_KEYS.length);
+t('agent-engine lives in exactly one menu: ATHENA',
+  godMenuFor('agent-engine')?.god === 'ATHENA' && claimed.filter((k) => k === 'agent-engine').length === 1);
+t('merlins-agent stays out of every menu by Merlin\'s order',
+  godMenuFor('merlins-agent') === null);
 t('agent-forge lives in exactly one menu: ATHENA',
   godMenuFor('agent-forge')?.god === 'ATHENA' && claimed.filter((k) => k === 'agent-forge').length === 1);
 
@@ -197,13 +204,16 @@ t('orbitPositionFor resolves through the program menu to its one satellite',
 
 const finite = (p) => p && Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z);
 const sampleTimes = [0, 7.5, 123.456];
+// KNOWN_UNHOMED (merlins-agent) has no orbit position by Merlin's order
+// above, so it is excluded here — a new null anywhere else still fails.
+const orbitKeys = satKeys.filter((k) => !KNOWN_UNHOMED.includes(k));
 for (const tt of sampleTimes) {
-  const bad = satKeys.filter((k) => !finite(orbitPositionFor(k, tt)));
+  const bad = orbitKeys.filter((k) => !finite(orbitPositionFor(k, tt)));
   t(`every satellite has a finite orbit position at t=${tt} (${bad.length} bad)`, bad.length === 0);
   if (bad.length) console.error('  bad:', bad.join(', '));
 }
 t('orbit lookup is deterministic for the same time',
-  satKeys.every((k) => {
+  orbitKeys.every((k) => {
     const a = orbitPositionFor(k, 42);
     const b = orbitPositionFor(k, 42);
     return a.x === b.x && a.y === b.y && a.z === b.z;
@@ -212,9 +222,9 @@ t('orbit lookup returns null for unknown keys', orbitPositionFor('nope-not-real'
 
 // Nodes must stay outside the Earth and inside the camera far plane.
 for (const tt of sampleTimes) {
-  const insideEarth = satKeys.filter((k) => dist3(orbitPositionFor(k, tt), EARTH_CENTER) < EARTH_RADIUS + 5);
+  const insideEarth = orbitKeys.filter((k) => dist3(orbitPositionFor(k, tt), EARTH_CENTER) < EARTH_RADIUS + 5);
   t(`no orbit node inside the Earth at t=${tt}`, insideEarth.length === 0);
-  const tooFar = satKeys.filter((k) => dist3(orbitPositionFor(k, tt), ORBIT_CENTER) > 400);
+  const tooFar = orbitKeys.filter((k) => dist3(orbitPositionFor(k, tt), ORBIT_CENTER) > 400);
   t(`no orbit node absurdly far from center at t=${tt}`, tooFar.length === 0);
 }
 
