@@ -1,7 +1,7 @@
 // tests/billboard-frame-fit.test.mjs
 // Billboard frame fit (Merlin, 2026-10-27): the creative fills the
 // WHOLE frame edge to edge inside the border rim — hub tower panels
-// (face 4.0×7.0) and street monuments (face 9.0×15.75) share the tall
+// (face 12.64×7.0) and street monuments (face 9.0×15.75) share the tall
 // portrait 4:7 aspect, and user uploads must fit it (enforced at both
 // upload points, with the size stated up front).
 // Run: node tests/billboard-frame-fit.test.mjs (from the repo root).
@@ -64,16 +64,16 @@ t('pixel rejection names the minimum and the file size',
 
 // --- wired source: hub face fills the whole frame, edge to edge ---
 const godTower = src('../components/GodTower.jsx');
-t('hub face plane is 4.0×7.0', godTower.includes('FACE_PLANE_W = 4.0') && godTower.includes('FACE_PLANE_H = 7.0'));
-t('hub face canvas is 400×700', godTower.includes('FACE_PX_W = 400') && godTower.includes('FACE_PX_H = 700'));
+t('hub face plane is 12.64×7.0', godTower.includes('FACE_PLANE_W = 12.64') && godTower.includes('FACE_PLANE_H = 7.0'));
+t('hub face canvas is 1264×700', godTower.includes('FACE_PX_W = 1264') && godTower.includes('FACE_PX_H = 700'));
 t('hub face is centered on the box (no dark slab below it)',
   godTower.includes('position={[0, 0, 0.24]}'));
-t('hub border covers the full box face (4.2×7.2), face 0.1 inside it',
-  godTower.includes('position={[0, 0, 0.16]}') && godTower.includes('args={[4.2, 7.2]}'));
-t('hub backing box unchanged (4.2×7.2)', godTower.includes('args={[4.2, 7.2, 0.2]}'));
+t('hub border covers the full box face (12.84×7.2), face 0.1 inside it',
+  godTower.includes('position={[0, 0, 0.16]}') && godTower.includes('args={[12.84, 7.2]}'));
+t('hub backing box is 12.84×7.2', godTower.includes('args={[12.84, 7.2, 0.2]}'));
 t('hub number badge stays overlaid on the face', godTower.includes('BillboardNumberBadge'));
 t('hub stake texture cover-fits to the new face',
-  src('../components/HomeScene.jsx').includes('applyCoverFit(ad, ad.image.width, ad.image.height, 4.0, 7.0)'));
+  src('../components/HomeScene.jsx').includes('applyCoverFit(ad, ad.image.width, ad.image.height, 12.64, 7.0)'));
 t('hub panels still carry no prompt texts',
   !godTower.includes('VISIT SITE') && !godTower.includes('Advertise Here: Email Us'));
 

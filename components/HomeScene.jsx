@@ -617,14 +617,17 @@ function TextureProvider({ onLaunchExternal }) {
             t.colorSpace = THREE.SRGBColorSpace;
           }
         });
-        // The ad creative maps onto portrait 4.0×7.0 panel faces: cover-fit
-        // it (center-crop, no stretch) instead of warping the source art.
+        // The ad creative maps onto the widened 12.64×7.0 panel faces:
+        // cover-fit it (center-crop, no stretch) instead of warping the
+        // source art. NOTE: this texture is shared with the god panels
+        // (whose planes are 3.8x4.5, never fit for themselves) — splitting
+        // their fit is a follow-up, not done here.
         // The body/hull/prop/tail textures are cylinder wraps — tiling is
         // correct for those, so they keep plain repeat wrapping.
         try {
           const ad = loadedTextures.adTex;
           if (ad && ad.isTexture && ad.image && ad.image.width > 1) {
-            applyCoverFit(ad, ad.image.width, ad.image.height, 4.0, 7.0);
+            applyCoverFit(ad, ad.image.width, ad.image.height, 12.64, 7.0);
           }
         } catch { /* honest fallback: uncorrected mapping, never a crash */ }
         setTextures(loadedTextures);

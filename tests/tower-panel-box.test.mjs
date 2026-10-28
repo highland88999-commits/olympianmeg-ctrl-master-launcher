@@ -8,13 +8,18 @@
 // which is the sliver-and-gap look in his HERMES screenshot.
 //
 // Box math, in the tower group's units (PANEL_SCALE 1.5):
-//   face width  = 4.0 * 1.5 = 6.0  -> half-width 3.0
+//   face width  = 12.64 * 1.5 = 18.96  -> half-width 9.48
 //   face offset = 0.24 * 1.5 = 0.36 in front of the panel origin
-//   origin mount = 3.0 - 0.36 = 2.64 from the axis
-// so each face plane sits exactly 3.0 from the axis and each face's
-// edge lands exactly on its neighbor's edge at the corner (3.0, 3.0).
-// The pillar (radius 2.5) stays enclosed with 0.5 clearance to the
+//   origin mount = 9.48 - 0.36 = 9.12 from the axis
+// so each face plane sits exactly 9.48 from the axis and each face's
+// edge lands exactly on its neighbor's edge at the corner (9.48, 9.48).
+// The pillar (radius 2.5) stays enclosed with 6.98 clearance to the
 // face planes.
+//
+// Widened 2026-10-27 (Merlin: "bring their corners out"): the old
+// 4.0-wide portrait face cover-fit the 1280x720 (16:9) house video
+// down to 32% of its width. Height stays 7.0; width 12.64 is the
+// exact 16:9 width at that height (12.4444) + ~0.2 overscan give.
 //
 // Run: node --test tests/tower-panel-box.test.mjs (from the repo root)
 
@@ -25,6 +30,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import { PANEL_SCALE, billboardNumberFor, topLevelBillboardNumberFor, TOP_LEVEL_BADGE_BASE, middleLevelBillboardNumberFor, MIDDLE_LEVEL_BADGE_BASE, bottomLevelBillboardNumberFor, BOTTOM_LEVEL_BADGE_BASE, houseLevelSlot, HOUSE_FALLBACK_ENTRY } from '../lib/tower-panels.js';
+import { videoCoverFit } from '../lib/billboards/panel-video.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, '..');
@@ -32,9 +38,9 @@ const read = (p) => readFileSync(join(repo, p), 'utf8');
 const tower = read('components/GodTower.jsx');
 
 // Constants straight from the component under test.
-const FACE_W = 4.0;
+const FACE_W = 12.64;
 const FACE_H = 7.0;
-const BORDER_W = 4.2;
+const BORDER_W = 12.84;
 const BORDER_H = 7.2;
 const FACE_OFFSET = 0.24; // face mesh z inside TowerAdPanel
 const PILLAR_RADIUS = 2.5;
@@ -55,13 +61,13 @@ const rotY = (angle, [x, y, z]) => [
 ];
 
 describe('tower panel box geometry', () => {
-  it('mounts the panel origin at 2.64 from the axis (face plane at 3.0)', () => {
-    assert.equal(MOUNT, 2.64);
-    assert.equal(facePlaneDistance, 3.0);
+  it('mounts the panel origin at 9.12 from the axis (face plane at 9.48)', () => {
+    assert.equal(MOUNT, 9.12);
+    assert.ok(Math.abs(facePlaneDistance - 9.48) < 1e-9, 'face plane distance 9.48');
   });
 
   it('face plane distance equals face half-width, so edges coincide', () => {
-    assert.equal(facePlaneDistance, faceHalfWidth);
+    assert.ok(Math.abs(facePlaneDistance - faceHalfWidth) < 1e-9, 'face plane distance = face half-width');
   });
 
   it('four panels at 0/90/180/-90 degrees, Y-rotation only', () => {
@@ -98,9 +104,9 @@ describe('tower panel box geometry', () => {
       assert.ok(Math.abs(front.right[k] - right.left[k]) < 1e-9,
         `front right edge meets right left edge (axis ${k})`);
     }
-    // Corner point is (3.0, 3.0) in (x, z).
-    assert.ok(Math.abs(front.right[0] - 3.0) < 1e-9);
-    assert.ok(Math.abs(front.right[2] - 3.0) < 1e-9);
+    // Corner point is (9.48, 9.48) in (x, z).
+    assert.ok(Math.abs(front.right[0] - 9.48) < 1e-9);
+    assert.ok(Math.abs(front.right[2] - 9.48) < 1e-9);
     // Every corner closes, not just the first.
     for (let i = 0; i < 4; i++) {
       const a = faces[i];
@@ -139,18 +145,31 @@ describe('tower panel box geometry', () => {
     assert.equal(-1 + 43 / 2, 20.5);
     assert.equal(-1 - 43 / 2, -22.5);
     assert.ok(PILLAR_RADIUS < facePlaneDistance, 'pillar radius < face plane distance');
-    assert.equal(facePlaneDistance - PILLAR_RADIUS, 0.5);
+    assert.ok(Math.abs(facePlaneDistance - PILLAR_RADIUS - 6.98) < 1e-9, 'pillar clearance 6.98');
   });
 
-  it('face, border, and backing sizes are untouched by the boxing', () => {
+  it('face, border, and backing sizes follow the widened box', () => {
     assert.equal(PANEL_SCALE, 1.5);
-    assert.ok(tower.includes('const FACE_PLANE_W = 4.0;'), 'face width 4.0');
+    assert.ok(tower.includes('const FACE_PLANE_W = 12.64;'), 'face width 12.64');
     assert.ok(tower.includes('const FACE_PLANE_H = 7.0;'), 'face height 7.0');
     assert.ok(tower.includes('<planeGeometry args={[FACE_PLANE_W, FACE_PLANE_H]} />'), 'face plane');
-    assert.ok(tower.includes('<boxGeometry args={[4.2, 7.2, 0.2]} />'), 'backing box 4.2x7.2x0.2');
-    assert.ok(tower.includes('<planeGeometry args={[4.2, 7.2]} />'), 'border plane 4.2x7.2');
+    assert.ok(tower.includes('<boxGeometry args={[12.84, 7.2, 0.2]} />'), 'backing box 12.84x7.2x0.2');
+    assert.ok(tower.includes('<planeGeometry args={[12.84, 7.2]} />'), 'border plane 12.84x7.2');
     assert.ok(tower.includes('position={[0, 0, 0.24]}'), 'face offset 0.24');
     assert.ok(tower.includes('position={[0, 0, 0.16]}'), 'border offset 0.16');
+  });
+
+  it('widened face fits the measured 16:9 house video edge to edge (no side crop)', () => {
+    // Measured 2026-10-27: public/billboards/house-ad-space.mp4 is
+    // 1280x720. The old 4.0-wide face showed 32% of its width.
+    const exactWidth = 7.0 * (1280 / 720);
+    assert.ok(Math.abs(FACE_W - exactWidth - 0.2) < 0.01,
+      `face ${FACE_W} = exact 16:9 width ${exactWidth.toFixed(4)} + ~0.2 overscan`);
+    const fit = videoCoverFit(FACE_W, FACE_H, 1280, 720);
+    assert.ok(Math.abs(fit.repeat[0] - 1) < 1e-9, 'full video width visible: no side crop');
+    assert.ok(fit.repeat[1] > 0.98, `vertical crop tiny: repeat y ${fit.repeat[1]}`);
+    const oldFit = videoCoverFit(4.0, 7.0, 1280, 720);
+    assert.ok(Math.abs(oldFit.repeat[0] - 0.3214) < 0.001, 'old portrait face showed ~32% of the width');
   });
 
   it('badges, tap-to-link, video, and the GPU guard ride along unchanged', () => {
@@ -174,19 +193,19 @@ describe('tower panel box geometry', () => {
 //   level 2 box band [-6.4, 4.4] (centre -1, the current 44)
 //   ring break at -6.9, name level at -8.6, ring break at -10.3
 //   level 3 box band [-21.6, -10.8] (centre -16.2)
-// Every level matches the same diameter (mount 2.64, same
+// Every level matches the same diameter (mount 9.12, same
 // rotations, same face/border/backing). Levels 1 and 3 are
 // house-only: every new face plays the same house video through
-// the existing panel video path, with PROVISIONAL display numbers
-// (top 1–44, middle 45–88, bottom 89–132, code only, not a product decision —
+// the existing panel video path, with display badges top to bottom
+// (top 1–44, middle 45–88, bottom 89–132, Merlin’s order —
 // no manager/manifest/queue/pricing/cap wiring).
 describe('tower levels', () => {
   const close = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} ≈ ${b}`);
 
-  it('three levels mount at the same 2.64 box distance: top 14.2, middle -1, bottom -16.2', () => {
-    assert.ok(tower.includes('<group position={[0, 14.2, 2.64]}>'), 'level 1 top mount');
-    assert.ok(tower.includes('<group position={[0, -1, 2.64]}>'), 'level 2 middle mount unchanged');
-    assert.ok(tower.includes('<group position={[0, -16.2, 2.64]}>'), 'level 3 bottom mount');
+  it('three levels mount at the same 9.12 box distance: top 14.2, middle -1, bottom -16.2', () => {
+    assert.ok(tower.includes('<group position={[0, 14.2, 9.12]}>'), 'level 1 top mount');
+    assert.ok(tower.includes('<group position={[0, -1, 9.12]}>'), 'level 2 middle mount');
+    assert.ok(tower.includes('<group position={[0, -16.2, 9.12]}>'), 'level 3 bottom mount');
     close(14.2 - -1, 15.2);
     close(-1 - -16.2, 15.2);
   });
@@ -239,8 +258,8 @@ describe('tower levels', () => {
     for (const y of ['8.3', '4.9', '-6.9', '-10.3']) {
       assert.ok(tower.includes(`<mesh position={[0, ${y}, 0]} material={darkMetal}`), `ring at ${y}`);
     }
-    assert.equal((tower.match(/cylinderGeometry args={\[4\.5, 4\.5, 0\.4, 32\]}/g) || []).length, 4,
-      'exactly four break discs, radius 4.5 past the 4.24 box corner radius');
+    assert.equal((tower.match(/cylinderGeometry args={\[13\.7, 13\.7, 0\.4, 32\]}/g) || []).length, 4,
+      'exactly four break discs, radius 13.7 past the 13.41 box corner radius');
   });
 
   it('both name bands are camera-facing Billboards, and the pillar texts are gone', () => {
@@ -264,16 +283,19 @@ describe('tower levels', () => {
     assert.equal(-23.5 + 1, -22.5, 'tail top meets the pillar bottom exactly');
   });
 
-  it('the hull cone is untouched (still pierces only the middle band)', () => {
+  it('the hull cone is untouched but no longer pierces (faces moved out past it)', () => {
     assert.ok(tower.includes('position={[0, -2, 0]}'), 'hull cone position unchanged');
+    assert.ok(4.5 < facePlaneDistance, 'cone max radius 4.5 < face plane distance 9.48: enclosed, not piercing');
   });
 
-  it('new levels get their own colliders above and below the tower collider', () => {
+  it('all three levels get colliders sized past the widened box corners', () => {
     assert.ok(tower.includes('tower-${god}-top'), 'top collider id');
     assert.ok(tower.includes('y: position[1] + 22.72'), 'top collider centre (14.2 x 1.6 outer)');
     assert.ok(tower.includes('tower-${god}-bottom'), 'bottom collider id');
     assert.ok(tower.includes('y: position[1] - 25.92'), 'bottom collider centre (16.2 x 1.6 outer)');
-    assert.ok(tower.includes('}), 13);'), 'new-level collider radius 13');
+    assert.equal(tower.split('}), 24);').length - 1, 3, 'all three collider radii are 24');
+    const cornerOuter = facePlaneDistance * Math.SQRT2 * 1.6;
+    assert.ok(cornerOuter + 0.8 < 24, `corner ${cornerOuter.toFixed(2)} outer + 0.8 bob < 24`);
   });
 
   it('level names are internal only: no rendered text names a level', () => {
@@ -290,7 +312,7 @@ describe('tower levels', () => {
     assert.ok(tower.includes('Multiverse = multi level one'), 'the private phrase is recorded in comments');
   });
 
-  it('middle level mount, slots, and video path are unchanged; badges move to 45–88', () => {
+  it('middle level slots and video path are unchanged (mount moves out with the wider box); badges 45–88', () => {
     assert.ok(tower.includes('badgeNumber={middleLevelBillboardNumberFor(towerIndex, i)}'), 'middle badges 45–88');
     assert.ok(tower.includes('slot={panels[i]}'), 'middle slots unchanged');
   });
