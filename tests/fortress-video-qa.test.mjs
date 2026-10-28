@@ -10,9 +10,12 @@
 //   2. Tier scroll: the StorageTiers overlay must NOT center its content
 //      (flex items-center + overflow-y-auto clips the TOP of a taller
 //      panel where no scroll can reach it). It starts at the top.
-//   3. Floor drag: the floor disc + crystal ring share one group and the
-//      drag path (ground-plane delta, controls parked during the drag)
-//      must stay wired.
+//   3. Floor motion restored (2026-10-27, Merlin: "how we had the
+//      motion before"): the Oct 27 video-QA change added a floor drag
+//      that parked OrbitControls and translated the whole platform.
+//      That is gone — all drags orbit the camera again, as before,
+//      and the floor disc never translates. The floor group still
+//      holds the disc + the crystal ring together, structurally.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -36,13 +39,19 @@ test('tier overlay starts at the top instead of centering (top-clip bug)', () =>
   assert.doesNotMatch(tiers, /fixed inset-0 z-40 flex items-center justify-center/);
 });
 
-test('floor disc + crystal ring share one group and the drag path is wired', () => {
+test('floor never translates; all drags orbit the camera (motion restored)', () => {
   assert.match(page, /floorGroup\.add\(carouselGroup\)/);
   assert.match(page, /floorGroup\.add\(floorMesh\)/);
-  assert.match(page, /floorDragRef/);
-  assert.match(page, /intersectPlane\(plane, point\)/);
-  assert.match(page, /controls\.enabled = false/);
-  assert.match(page, /floorGroup\.position\.set\(/);
+  // The Oct 27 floor drag is gone: no drag ref, no ground-plane point,
+  // no platform translate, no parking the camera controls, no tip.
+  assert.doesNotMatch(page, /floorDragRef/);
+  assert.doesNotMatch(page, /floorPlanePoint/);
+  assert.doesNotMatch(page, /floorGroup\.position\.set\(/);
+  assert.doesNotMatch(page, /controls\.enabled = false/);
+  assert.doesNotMatch(page, /drag the floor disc/);
+  // Camera orbit is still the only motion: damped OrbitControls.
+  assert.match(page, /controls\.enableDamping = true/);
+  assert.match(page, /controls\.dampingFactor = 0\.05/);
 });
 
 test('tap math uses the canvas rect, not the window', () => {

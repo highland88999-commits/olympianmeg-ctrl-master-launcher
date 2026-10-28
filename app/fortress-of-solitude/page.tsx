@@ -37,6 +37,11 @@ export default function FortressApp() {
   
   const [statusMsg, setStatusMsg] = useState("");
 
+  // Crystal-saved cue (Merlin, 2026-10-27): a short SAVED badge in the
+  // crystal's own panel, in flow — it clears itself after 4 seconds.
+  const [savedFlash, setSavedFlash] = useState(false);
+  const savedFlashTimerRef = useRef<any>(null);
+
   const [selectedNodeData, setSelectedNodeData] = useState<any>(null);
   const [activeFileData, setActiveFileData] = useState<{url: string, meta: any} | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -87,6 +92,27 @@ export default function FortressApp() {
     setPendingAction(null);
     setShare(null);
     setConfirmRemove(false);
+  };
+
+  // Crystal-saved pulse (Merlin, 2026-10-27): the saved crystal itself
+  // glows — its emissive intensity pulses through the bloom pass, then
+  // settles back to its resting glow — while the SAVED badge shows in
+  // its panel. A pulse must never break the save flow, so any failure
+  // here is swallowed. Call only on actual save success.
+  const flashCrystalSaved = (mesh: THREE.Mesh | null) => {
+    if (mesh) {
+      try {
+        const mat = mesh.material as THREE.MeshStandardMaterial;
+        if (mat && typeof mat.emissiveIntensity === 'number') {
+          gsap.fromTo(mat, { emissiveIntensity: 0.4 },
+            { emissiveIntensity: 1.8, duration: 0.35, yoyo: true, repeat: 5,
+              onComplete: () => { mat.emissiveIntensity = 0.4; } });
+        }
+      } catch { /* the save already succeeded; a missed pulse is cosmetic */ }
+    }
+    setSavedFlash(true);
+    if (savedFlashTimerRef.current) clearTimeout(savedFlashTimerRef.current);
+    savedFlashTimerRef.current = setTimeout(() => setSavedFlash(false), 4000);
   };
 
   // Start a real Stripe checkout for a storage tier (subscription, CAD/month).
@@ -237,6 +263,7 @@ export default function FortressApp() {
 
     return () => {
       subscription?.unsubscribe();
+      if (savedFlashTimerRef.current) clearTimeout(savedFlashTimerRef.current);
       // Stop the three.js engine loop + resize listener on unmount (Phase 2b).
       try { (engineRef.current as any)?.dispose?.(); } catch { /* noop */ }
     }
@@ -354,11 +381,11 @@ export default function FortressApp() {
     };
   };
 
-  // Floor drag: the floor disc + the crystal ring move as ONE platform
-  // (floorGroup), so dragging the floor moves the crystals with it. Armed
-  // only when the press starts on the floor itself (not on a crystal);
-  // OrbitControls is parked for the drag and restored on release.
-  const floorDragRef = useRef<{ armed: boolean, moved: boolean, startPoint: THREE.Vector3 | null, groupStart: THREE.Vector3 | null }>({ armed: false, moved: false, startPoint: null, groupStart: null });
+  // Motion restored (Merlin, 2026-10-27): all drags orbit the camera
+  // through OrbitControls, exactly as before the Oct 27 video-QA change
+  // added a floor drag — the floor disc never translates. The floor
+  // group still holds the disc + the crystal ring together (one
+  // platform, structurally), but its position never moves.
 
   // Tap math from the CANVAS rect, not the window: when the browser chrome
   // shows or hides, window size drifts from the drawing surface and taps
@@ -374,21 +401,9 @@ export default function FortressApp() {
     return new THREE.Vector2((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
   };
 
-  // Where the pointer ray meets the ground plane (y = 0) — the floor drag
-  // moves the platform by the same delta the finger moves on the ground.
-  const floorPlanePoint = (e: React.PointerEvent) => {
-    const { camera } = engineRef.current;
-    if (!camera) return null;
-    const raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(canvasMouse(e), camera);
-    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-    const point = new THREE.Vector3();
-    return raycaster.ray.intersectPlane(plane, point) ? point : null;
-  };
-
   const handlePointerDown = (e: React.PointerEvent) => {
     pointerDownPos.current = { x: e.clientX, y: e.clientY };
-    const { camera, carouselGroup, floorMesh, controls } = engineRef.current;
+    const { camera, carouselGroup } = engineRef.current;
     if(!camera || !carouselGroup) return;
 
     const mouse = canvasMouse(e);
@@ -401,20 +416,6 @@ export default function FortressApp() {
       pointerTimerRef.current = setTimeout(() => setLongPressedNode(hit.userData), 2000);
       return;
     }
-
-    // Press started on the floor itself (not a crystal): arm a floor drag.
-    // Controls park now so the drag moves the platform instead of orbiting
-    // the camera; a plain tap re-enables them on release, untouched.
-    if (floorMesh) {
-      const floorHits = raycaster.intersectObject(floorMesh);
-      if (floorHits.length > 0) {
-        const p = floorPlanePoint(e);
-        if (p && engineRef.current.floorGroup) {
-          floorDragRef.current = { armed: true, moved: false, startPoint: p, groupStart: engineRef.current.floorGroup.position.clone() };
-          if (controls) controls.enabled = false;
-        }
-      }
-    }
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
@@ -423,33 +424,11 @@ export default function FortressApp() {
       clearTimeout(pointerTimerRef.current);
       pointerTimerRef.current = null;
     }
-    // A floor drag in motion: move the whole platform (floor + crystals)
-    // by the finger's ground-plane delta, height unchanged.
-    if (floorDragRef.current.armed && engineRef.current.floorGroup && dist > 10) {
-      floorDragRef.current.moved = true;
-      const p = floorPlanePoint(e);
-      const { startPoint, groupStart } = floorDragRef.current;
-      if (p && startPoint && groupStart) {
-        engineRef.current.floorGroup.position.set(
-          groupStart.x + (p.x - startPoint.x), 0,
-          groupStart.z + (p.z - startPoint.z)
-        );
-      }
-    }
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
     if (pointerTimerRef.current) clearTimeout(pointerTimerRef.current);
 
-    // A floor drag ends here: restore camera control, and never run
-    // crystal selection for a drag (a tap is dist <= 10, below).
-    if (floorDragRef.current.armed) {
-      const wasMoved = floorDragRef.current.moved;
-      floorDragRef.current = { armed: false, moved: false, startPoint: null, groupStart: null };
-      if (engineRef.current.controls) engineRef.current.controls.enabled = true;
-      if (wasMoved) return;
-    }
-    
     if (longPressedNode) {
        setLongPressedNode(null); 
        return; 
@@ -568,6 +547,9 @@ export default function FortressApp() {
            await syncDatabase(newMatrix);
         }
         
+        // Crystal-saved cue: only here, after the PUT landed and the
+        // matrix persisted — never on attempt, never on failure.
+        flashCrystalSaved(selectedMeshRef.current);
         setStatusMsg("");
         resetLockState();
         alert("File encrypted and saved to your vault. Keep your passphrase — without it the file cannot be opened.");
@@ -929,6 +911,11 @@ export default function FortressApp() {
 
       {selectedNodeData && !longPressedNode && (
          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 glass-panel p-6 rounded-2xl flex flex-col gap-5 w-11/12 max-w-[320px] shadow-[0_0_50px_rgba(0,242,255,0.15)] pointer-events-auto">
+            {savedFlash && (
+              <div className="w-full rounded-xl border border-green-400/60 bg-green-500/15 px-3 py-2 text-center text-[11px] tracking-widest text-green-300">
+                ✓ SAVED TO THIS CRYSTAL
+              </div>
+            )}
             <input 
               type="text" 
               value={selectedNodeData.name} 
@@ -1076,7 +1063,6 @@ export default function FortressApp() {
                 {!quota && vault === null && <div className="text-[10px] text-white/40 tracking-wider mt-2 text-center">Connecting to your vault…</div>}
                 {vault !== null && !vault.ready && vault.error && <div className="text-[10px] text-red-300/90 tracking-wider mt-2 text-center leading-relaxed">Vault not ready: {vault.error}</div>}
                 {vault !== null && vault.ready && <div className="text-[10px] text-cyan-300/80 tracking-wider mt-2 text-center">{vault.capFallback ? 'Vault connected · per-file size follows your Supabase plan' : `Vault connected · Files up to ${formatBytes(vault.fileSizeLimitBytes ?? VAULT_PER_FILE_LIMIT_BYTES)} each${vault.capAligned ? ' · vault cap updated' : ''}`}</div>}
-                <div className="text-[10px] text-white/40 tracking-wider mt-2 text-center">Tip: drag the floor disc to move the whole platform.</div>
             </div>
         </div>
       </div>
