@@ -69,6 +69,7 @@ import { isIconDrag, clampIconPx, iconFracToPx, iconPxToFrac, dragIconTopLeft, r
 // so three.js never enters the layout's eager bundle (Concourse
 // ships on every page).
 const ConcoursePortals = dynamic(() => import('./ConcoursePortals'), { ssr: false });
+const Travelator = dynamic(() => import('./tour/Travelator'), { ssr: false });
 
 const LS_KEY = 'olympus.concourse.v1';
 const SIZE = 56;
@@ -328,6 +329,7 @@ export default function Concourse() {
   const [bgPref, setBgPref] = useState({ kind: 'default' });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [portal3dOpen, setPortal3dOpen] = useState(false);
+  const [travelatorOpen, setTravelatorOpen] = useState(false);
   const [uiSettings, setUiSettings] = useState({ sound: true });
 
   const dragRef = useRef(null);
@@ -482,7 +484,8 @@ export default function Concourse() {
   const fireTile = useCallback(
     (tile) => {
       if (tile.id === 'tour') {
-        setNote('The Travelator arrives in Phase 2 — the gates are being built.');
+        setTravelatorOpen(true);
+        setOpen(false);
         return;
       }
       setNote('');
@@ -972,6 +975,7 @@ export default function Concourse() {
       {/* Layer 3 · Portals 3D — the 3D portal hall (minimized
           portals, expanded on tap) */}
       <ConcoursePortals open={portal3dOpen} onClose={() => setPortal3dOpen(false)} />
+      <Travelator open={travelatorOpen} onClose={() => setTravelatorOpen(false)} />
 
       {/* Layer 3 · FINTRAC explanation — the host lives here so the
           modal survives route changes for the whole app session
