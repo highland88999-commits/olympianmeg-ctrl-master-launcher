@@ -71,6 +71,12 @@ test('preview URL tells the page to hide the announcement box', () => {
   assert.match(card, /previewSrc/);
 });
 
+test('riding frame is expanded near-fullscreen (2026-10-29)', () => {
+  const riding = card.slice(card.indexOf("mode === 'riding'"));
+  assert.match(riding, /h-\[94dvh\]/);
+  assert.match(card, /max-w-3xl/);
+});
+
 test('broadcast banner stays out of tour preview iframes only', () => {
   assert.match(listener, /get\('tourPreview'\) === '1'/);
   assert.match(listener, /if \(isTourPreview \|\| !base/);

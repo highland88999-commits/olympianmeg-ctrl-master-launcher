@@ -97,9 +97,9 @@ export default function Travelator({ open, onClose }) {
   const iconBtnPrimary = 'flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-sky-400 bg-sky-400 text-lg leading-none text-black backdrop-blur transition hover:bg-sky-300';
 
   return (
-    <div className="fixed inset-0 z-[90] flex flex-col items-center justify-center overflow-y-auto bg-black/90 p-4" role="dialog" aria-label="The Travelator tour">
+    <div className="fixed inset-0 z-[90] flex flex-col items-center justify-center overflow-y-auto bg-black/90 p-2" role="dialog" aria-label="The Travelator tour">
       <div
-        className="w-full max-w-lg rounded-2xl border border-zinc-800 bg-zinc-950 p-6 transition-all duration-500"
+        className="w-full max-w-3xl rounded-2xl border border-zinc-800 bg-zinc-950 p-3 transition-all duration-500"
         style={shrinking || mode === 'done'
           ? { transform: 'scale(0.1)', opacity: 0 }
           : { transform: 'scale(1)', opacity: 1 }}
@@ -131,7 +131,7 @@ export default function Travelator({ open, onClose }) {
         )}
 
         {mode === 'riding' && gate && (
-          <div className="relative flex h-[72dvh] flex-col overflow-hidden">
+          <div className="relative flex h-[94dvh] flex-col overflow-hidden">
             {/* The program itself is the background: live in an
                 iframe, full-bleed behind the tour chrome.
                 pointer-events-none keeps the glimpse from swallowing
