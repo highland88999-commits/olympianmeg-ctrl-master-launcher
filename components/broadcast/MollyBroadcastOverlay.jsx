@@ -16,7 +16,7 @@
 // shows her head without a second playthrough and dismisses on tap
 // (or after the clip's length).
 import { useEffect, useRef, useState } from 'react';
-import MollyHead from '@/components/molly/MollyHead2D';
+import MollyHead3D from '@/components/molly/MollyHead3D';
 
 export default function MollyBroadcastOverlay({ item, selfSent, presetLabel, onPlayingChange, onDone }) {
   const audioRef = useRef(null);
@@ -81,7 +81,18 @@ export default function MollyBroadcastOverlay({ item, selfSent, presetLabel, onP
           Molly · Announcement
         </p>
         <div className={state === 'speaking' ? 'molly-speaking' : ''}>
-          <MollyHead className="mt-3 max-w-[200px]" />
+          {/* Her real 3D head — never the 2D placeholder (Merlin, 2026-10-29).
+              While the model loads, the head shows its own loader; if it
+              fails, the announcement still plays — the voice is the point. */}
+          <MollyHead3D
+            showMotionToggle={false}
+            className="max-w-[200px]"
+            fallback={
+              <div className="mx-auto flex h-[220px] w-full max-w-[200px] items-center justify-center">
+                <div className="h-16 w-16 animate-pulse rounded-full bg-sky-400/30 blur-md" aria-hidden="true" />
+              </div>
+            }
+          />
         </div>
         <p className="mt-3 text-xs text-zinc-400">
           {state === 'speaking' && 'Molly is speaking…'}

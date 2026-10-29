@@ -90,10 +90,14 @@ export default function BroadcastListener() {
         try { selfSent = localStorage.getItem(LS_SELF_SENT); } catch {}
         if (selfSent && item.id === selfSent) {
           // This device sent it: the studio already played it back, so
-          // Molly shows her head but does not speak twice.
-          seenRef.current = item.id;
-          try { localStorage.setItem(LS_LAST_ID, item.id); } catch {}
-          setOverlay({ item, selfSent: true });
+          // Molly shows her head but does not speak twice — and the overlay
+          // itself pops up exactly once per broadcast (Merlin, 2026-10-29:
+          // it was re-appearing on every 5 s poll after being closed).
+          if (item.id !== seenRef.current) {
+            seenRef.current = item.id;
+            try { localStorage.setItem(LS_LAST_ID, item.id); } catch {}
+            setOverlay({ item, selfSent: true });
+          }
           return;
         }
         if (seenRef.current === null) {

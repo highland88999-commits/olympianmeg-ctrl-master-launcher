@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const head = readFileSync('components/molly/MollyHead2D.jsx', 'utf8');
+const head3d = readFileSync('components/molly/MollyHead3D.jsx', 'utf8');
 const panel = readFileSync('components/ares/MollyPanel.jsx', 'utf8');
 const overlay = readFileSync('components/broadcast/MollyBroadcastOverlay.jsx', 'utf8');
 const listener = readFileSync('components/broadcast/BroadcastListener.jsx', 'utf8');
@@ -22,10 +23,25 @@ test('shared dot-matrix head exists with a per-instance clip id', () => {
   assert.match(head, /molly-head-clip-\$\{uid\}/);
 });
 
-test('MollyPanel uses the shared head (no local copy)', () => {
-  assert.match(panel, /import MollyHead from '@\/components\/molly\/MollyHead2D'/);
-  assert.doesNotMatch(panel, /function MollyHead\(\)/);
-  assert.match(panel, /<MollyHead \/>/);
+test('MollyPanel uses the shared 3D head (no local copy), 2D kept as error fallback', () => {
+  assert.match(panel, /import MollyHead3D from '@\/components\/molly\/MollyHead3D'/);
+  assert.doesNotMatch(panel, /function MollyHead3D\(\)/);
+  assert.match(panel, /<MollyHead3D fallback=\{<MollyHead \/>\} \/>/);
+});
+
+test('shared 3D head exposes motion-toggle and fallback props', () => {
+  assert.match(head3d, /showMotionToggle = true/);
+  assert.match(head3d, /fallback = null/);
+  assert.match(head3d, /if \(status === 'error'\) return fallback;/);
+  assert.match(head3d, /showMotionToggle && status === 'ready'/);
+});
+
+test('overlay shows her real 3D head, never the 2D placeholder', () => {
+  assert.match(overlay, /import MollyHead3D from '@\/components\/molly\/MollyHead3D'/);
+  assert.match(overlay, /<MollyHead3D/);
+  assert.match(overlay, /showMotionToggle=\{false\}/);
+  assert.doesNotMatch(overlay, /MollyHead2D/);
+  assert.doesNotMatch(overlay, /<MollyHead[\s/>]/);
 });
 
 test('overlay tries autoplay, falls back to tap-to-hear, leaves on first end', () => {
@@ -56,6 +72,11 @@ test('listener still hides everything inside tour preview iframes', () => {
 test('listener tells the Concourse bell about each latest id', () => {
   assert.match(listener, /broadcast-latest/);
   assert.match(listener, /CustomEvent\('broadcast-latest'/);
+});
+
+test('self-sent overlay pops up exactly once per broadcast, never on later polls', () => {
+  assert.match(listener, /if \(item\.id !== seenRef\.current\) \{/);
+  assert.match(listener, /setOverlay\(\{ item, selfSent: true \}\)/);
 });
 
 test('history endpoint is signed-in readable and table-backed', () => {
