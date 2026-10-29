@@ -97,6 +97,80 @@ function LockedScreen({ reason }) {
   );
 }
 
+// Pin wall: the same passcode door as Molly's sandbox. The form posts
+// to /api/molly/gate — the exact same check, so the same pin opens both
+// doors. Tab-only: closing the tab locks it again. Like Molly's door,
+// this is a privacy screen on top of the keeper gate, not the vault:
+// the keeper check and the data routes still enforce who may see
+// anything, and no passcode value ever appears in this file.
+function PinWall({ onUnlock }) {
+  const [passcode, setPasscode] = useState('');
+  const [gateError, setGateError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function submitGate(event) {
+    event.preventDefault();
+    setGateError('');
+    setBusy(true);
+    try {
+      const res = await fetch('/api/molly/gate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ passcode }),
+      });
+      if (!res.ok) {
+        setGateError('That didn’t open it.');
+        setPasscode('');
+        return;
+      }
+      try { sessionStorage.setItem('ares-unlocked', '1'); } catch {}
+      onUnlock();
+    } catch {
+      setGateError('The door didn’t answer. Try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="flex min-h-dvh w-full items-center justify-center bg-[#050505] px-6 py-10 text-center">
+      <style>{ARES_CSS}</style>
+      <div className="ares-bg" aria-hidden="true" />
+      <div className="ares-shell flex w-full max-w-sm flex-col items-center gap-5">
+        <div>
+          <h1 className="bg-gradient-to-br from-fuchsia-400 to-red-500 bg-clip-text text-4xl font-black uppercase tracking-[0.2em] text-transparent">
+            Ares
+          </h1>
+          <p className="mt-2 text-[11px] uppercase tracking-[0.25em] text-zinc-500">
+            Autonomous Response and Evidence System
+          </p>
+        </div>
+        <div className="w-full rounded-2xl border border-fuchsia-500/25 bg-fuchsia-500/[0.04] px-6 py-6 text-left">
+          <p className="text-sm text-zinc-400">This console asks for a passcode before it opens — the same door as Molly&apos;s sandbox.</p>
+          <form onSubmit={submitGate} className="mt-4 flex flex-col gap-3">
+            <label htmlFor="ares-passcode" className="text-xs font-bold uppercase tracking-widest text-zinc-400">Passcode</label>
+            <input
+              id="ares-passcode"
+              type="password"
+              autoComplete="off"
+              value={passcode}
+              onChange={(e) => setPasscode(e.target.value)}
+              placeholder="Enter the passcode"
+              className="rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-base text-zinc-100"
+            />
+            {gateError && <p className="text-sm text-red-400">{gateError}</p>}
+            <button type="submit" disabled={busy || !passcode}
+              className="rounded-xl bg-fuchsia-400 px-4 py-3 text-sm font-bold text-black disabled:opacity-50">
+              {busy ? 'Checking…' : 'Open the door'}
+            </button>
+          </form>
+        </div>
+        <BackButton label="Exit" />
+      </div>
+    </main>
+  );
+}
+
 export default function AresConsole() {
   const [token, setToken] = useState(null);
   // Owner gate: 'checking' = verifying, 'locked' = sealed shut,
@@ -104,6 +178,14 @@ export default function AresConsole() {
   // sees only the locked screen, never the console.
   const [gate, setGate] = useState('checking');
   const [lockedReason, setLockedReason] = useState('signed-out'); // 'signed-out' | 'sealed'
+  // Pin wall state: same door as Molly's sandbox (same pin, same check
+  // endpoint), tab-only. Checked after the keeper gate opens.
+  const [pinUnlocked, setPinUnlocked] = useState(false);
+  const [pinChecking, setPinChecking] = useState(true);
+  useEffect(() => {
+    try { if (sessionStorage.getItem('ares-unlocked') === '1') setPinUnlocked(true); } catch {}
+    setPinChecking(false);
+  }, []);
   const [events, setEvents] = useState([]);
   const [blocks, setBlocks] = useState([]);
   const [whitelist, setWhitelist] = useState([]);
@@ -227,6 +309,22 @@ export default function AresConsole() {
         </div>
       </div>
     );
+  }
+
+  if (pinChecking) {
+    return (
+      <div className="h-dvh w-screen bg-black">
+        <style>{ARES_CSS}</style>
+        <div className="ares-veil h-full" role="status" aria-label="Verifying keeper credentials">
+          <GlyphShield size={38} />
+          <span>Approaching the watchtower…</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!pinUnlocked) {
+    return <PinWall onUnlock={() => setPinUnlocked(true)} />;
   }
 
   const summary = summarize(events);
