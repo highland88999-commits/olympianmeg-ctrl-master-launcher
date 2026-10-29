@@ -26,6 +26,7 @@ export const CREATURES = [
   { id: 'anglerfish', file: 'anglerfish-rigged.glb', style: 'angler', depth: [4500, 11000], scale: 1.1, count: 3 },
   { id: 'clownfish', file: 'clownfish-rigged.glb', style: 'fish', depth: [7800, 11000], scale: 0.7, count: 6 },
   { id: 'reef-fish', file: 'reef-fish-rigged.glb', style: 'fish', depth: [7800, 11000], scale: 0.8, count: 6 },
+  { id: 'blue-whale', file: 'blue-whale-rigged.glb', style: 'whale', depth: [1800, 5200], scale: 4.5, count: 1 },
 ];
 
 /** Classify bones by name into swim roles. */
@@ -65,6 +66,7 @@ export class Swimmer {
       fish: { freq: 2.2, amp: 0.4, speed: 2.4 },
       tuna: { freq: 3.0, amp: 0.3, speed: 5.0 },
       angler: { freq: 0.7, amp: 0.25, speed: 0.8 },
+      whale: { freq: 0.45, amp: 0.3, speed: 1.6 },
     };
     this.swim = styles[def.style] || styles.fish;
     this.swim.freq *= 0.85 + rng() * 0.3; // individual variation

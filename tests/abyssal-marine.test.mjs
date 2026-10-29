@@ -6,7 +6,7 @@ import { CREATURES, classifyBones, Swimmer } from '../app/abyssal-voyage/marine.
 
 test('registry covers every creature Merlin named', () => {
   const ids = CREATURES.map((c) => c.id);
-  for (const want of ['jellyfish', 'shark', 'blue-tang', 'tuna', 'anglerfish', 'clownfish', 'reef-fish']) {
+  for (const want of ['jellyfish', 'shark', 'blue-tang', 'tuna', 'anglerfish', 'clownfish', 'reef-fish', 'blue-whale']) {
     assert.ok(ids.includes(want), `missing ${want}`);
   }
 });
