@@ -940,6 +940,38 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
         tex.needsUpdate = true;
       }, 750);
     };
+    // Blank-canvas guard (2026-10-29, black ground): iOS Safari
+    // can reclaim a 2D canvas backing store under memory pressure
+    // (Low Power Mode makes it eager) WITHOUT drawImage throwing
+    // — the calls become silent no-ops. The build then "succeeds"
+    // with a blank canvas: okCount is up, the sheet mounts black,
+    // the rendered-record marks it painted, and BOTH safety nets
+    // are defeated at once — the mounted black sheet answers the
+    // coverage check (so the 10 s reconciler never fires) and the
+    // record answers the trail dedup (so the queue never rebuilds
+    // it). Permanent black ground until reload, exactly Merlin's
+    // video. Sample the canvas: if nothing painted, the build
+    // failed no matter what the counters say.
+    const canvasIsBlank = () => {
+      try {
+        const w = canvas.width, h = canvas.height;
+        // 4x4 grid of 1x1 samples — cheap, and centre-first
+        // painting means a real build always touches the middle.
+        for (let gx = 1; gx <= 4; gx++) {
+          for (let gy = 1; gy <= 4; gy++) {
+            const d = ctx.getImageData(
+              Math.floor((w * gx) / 5), Math.floor((h * gy) / 5), 1, 1).data;
+            if (d[3] !== 0) return false;
+          }
+        }
+        return true;
+      } catch {
+        // getImageData threw: the canvas is tainted, which only
+        // happens when cross-origin pixels WERE drawn — something
+        // painted, so it is not blank. Never block on this.
+        return false;
+      }
+    };
     const finish = () => {
       if (finished) return;
       finished = true;
@@ -949,7 +981,7 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
       if (gen !== bctx.genRef.current || !mgr.alive) {
         // Superseded (centre cleared) or unmounted: drop the sheet.
         bctx.remove(job.key);
-      } else if (okCount > 0) {
+      } else if (okCount > 0 && !canvasIsBlank()) {
         // Feather the rim into the globe: opaque through the
         // middle, gone at the edge — no hard matte ring.
         ctx.globalCompositeOperation = 'destination-in';
@@ -981,7 +1013,12 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
           });
         }
       } else {
-        // Every tile failed: leave no invisible sheet behind.
+        // Every tile failed, or the canvas went blank mid-build
+        // (iOS memory pressure: drawImage no-ops without throwing).
+        // Leave no black sheet behind and record nothing — the
+        // coverage check then honestly reports bare ground, so the
+        // 10 s reconciler retries, and the trail queue is free to
+        // rebuild it when memory pressure eases.
         bctx.remove(job.key);
       }
       // Only the build that still owns the pool clears it: a
