@@ -92,7 +92,12 @@ export default function Travelator({ open, onClose }) {
   const progress = gates.length ? Math.round(((index + 1) / gates.length) * 100) : 0;
   // The preview iframe carries ?tourPreview=1 so the page hides its
   // broadcast announcement box — the tour shows the program only.
-  const previewSrc = gate ? gate.route + (gate.route.includes('?') ? '&' : '?') + 'tourPreview=1' : '';
+  const srcFor = (g) => g.route + (g.route.includes('?') ? '&' : '?') + 'tourPreview=1';
+  // Preload the next gate: it renders hidden (visibility, so it still
+  // loads and paints) while the current gate shows. When the index
+  // advances, React keeps the already-loaded iframe — same key — and
+  // only flips its visibility, so the new gate appears instantly with
+  // no black reload flash (Merlin, 2026-10-29).
   const iconBtn = 'flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-zinc-600 bg-black/50 text-lg leading-none text-zinc-100 backdrop-blur transition hover:border-sky-400 disabled:opacity-40';
   const iconBtnPrimary = 'flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-sky-400 bg-sky-400 text-lg leading-none text-black backdrop-blur transition hover:bg-sky-300';
 
@@ -142,11 +147,22 @@ export default function Travelator({ open, onClose }) {
                 its 5 s gate ends — that is the live preview's cost. */}
             <iframe
               key={gate.key}
-              src={previewSrc}
+              src={srcFor(gate)}
               title={`${titleFor(gate.key)} preview`}
               sandbox="allow-scripts allow-same-origin"
               className="pointer-events-none absolute inset-0 block h-full w-full border-0 bg-black"
             />
+            {gates[index + 1] && (
+              <iframe
+                key={gates[index + 1].key}
+                src={srcFor(gates[index + 1])}
+                title={`${titleFor(gates[index + 1].key)} preview (preloading)`}
+                sandbox="allow-scripts allow-same-origin"
+                aria-hidden="true"
+                tabIndex={-1}
+                className="pointer-events-none invisible absolute inset-0 block h-full w-full border-0 bg-black"
+              />
+            )}
             {/* See-through card overtop: labels, symbols, borders
                 and buttons only — no solid fills. A faint bottom
                 shade keeps the labels readable over bright

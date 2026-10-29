@@ -68,7 +68,15 @@ test('symbols match the functions and buttons are circular', () => {
 
 test('preview URL tells the page to hide the announcement box', () => {
   assert.match(card, /tourPreview=1/);
-  assert.match(card, /previewSrc/);
+  assert.match(card, /srcFor/);
+});
+
+test('next gate preloads hidden so advancing never flashes black', () => {
+  const riding = card.slice(card.indexOf("mode === 'riding'"));
+  assert.match(riding, /gates\[index \+ 1\]/);
+  assert.match(riding, /preview \(preloading\)/);
+  assert.match(riding, /invisible absolute inset-0/);
+  assert.match(riding, /aria-hidden="true"/);
 });
 
 test('riding frame is expanded near-fullscreen (2026-10-29)', () => {
