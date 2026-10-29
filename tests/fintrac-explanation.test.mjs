@@ -199,8 +199,19 @@ describe('onboarding wizard: five steps, traffic light first', () => {
   it('step 1: character picker shows a preview above the roster grid', () => {
     const f = src('components/FintracExplanation.jsx');
     assert.match(f, /aria-label="Pick your character"/);
-    assert.match(f, /grid-cols-4/);
+    assert.match(f, /grid-cols-3/);
     assert.match(f, /preview/);
+    // Solid overlay: no ghost text bleeding through from the frame behind
+    assert.match(f, /rounded-3xl bg-zinc-950"/);
+    assert.equal(f.includes('bg-zinc-950/95'), false);
+  });
+  it('step 1: 3rd person shows the character in front, 1st person does not', () => {
+    const f = src('components/FintracExplanation.jsx');
+    assert.match(f, /perspective === '3rd' && character/);
+  });
+  it('all five frames render the same size card', () => {
+    const f = src('components/FintracExplanation.jsx');
+    assert.match(f, /h-\[min\(82dvh,680px\)\]/);
   });
   it('ui-state accepts the landing keys with validation', () => {
     const r = src('app/api/ui-state/route.js');

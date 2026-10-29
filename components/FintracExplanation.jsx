@@ -157,6 +157,23 @@ function LandingSetupFrame({ onContinue }) {
         </p>
       ))}
 
+      {/* 3rd person: your character stands in front of you.
+          1st person: through their eyes — no character shown. */}
+      {perspective === '3rd' && character && (
+        <div className="mt-4 flex flex-col items-center">
+          <img
+            src={character.preview}
+            alt={character.name}
+            draggable={false}
+            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+            className="h-28 w-28 rounded-2xl border border-amber-400/40 object-cover"
+          />
+          <span className="mt-1 text-center text-xs font-black uppercase tracking-widest text-amber-200">
+            {character.name}
+          </span>
+        </div>
+      )}
+
       {/* The street light: red / yellow / green, top to bottom. */}
       <div
         role="group"
@@ -199,7 +216,7 @@ function LandingSetupFrame({ onContinue }) {
               <span aria-hidden="true" className="text-2xl leading-none">❔</span>
             )}
           </button>
-          <span className="max-w-[7rem] truncate text-[10px] font-black uppercase tracking-widest text-yellow-300">
+          <span className="max-w-[7rem] text-center text-[10px] font-black uppercase leading-tight tracking-widest text-yellow-300">
             {character ? character.name : 'Character'}
           </span>
         </div>
@@ -227,7 +244,7 @@ function LandingSetupFrame({ onContinue }) {
           role="dialog"
           aria-modal="true"
           aria-label="Pick your character"
-          className="absolute inset-0 z-20 flex flex-col overflow-hidden rounded-3xl bg-zinc-950/95"
+          className="absolute inset-0 z-20 flex flex-col overflow-hidden rounded-3xl bg-zinc-950"
         >
           <div className="flex shrink-0 items-center justify-between border-b border-zinc-800 px-4 py-3">
             <span className="text-xs font-black uppercase tracking-widest text-amber-200">
@@ -262,7 +279,7 @@ function LandingSetupFrame({ onContinue }) {
               </span>
             )}
           </div>
-          <div className="grid min-h-0 flex-1 grid-cols-4 content-start gap-2 overflow-y-auto p-3">
+          <div className="grid min-h-0 flex-1 grid-cols-3 content-start gap-3 overflow-y-auto p-4">
             {CHARACTERS.map((c) => (
               <button
                 key={c.id}
@@ -324,7 +341,10 @@ export function FintracExplanationModal({ open, step = 4, onNext, onClose, onTak
           paddingRight: 'max(1rem, env(safe-area-inset-right))',
         }}
       >
-        <div className="relative flex max-h-full w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-amber-400/40 shadow-[0_18px_50px_rgba(0,0,0,0.55)]">
+        {/* Fixed height: every step of the load sequence renders
+            the same size card (Merlin, 2026-10-29) — the content
+            area scrolls, the header and button stay put. */}
+        <div className="relative flex h-[min(82dvh,680px)] w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-amber-400/40 shadow-[0_18px_50px_rgba(0,0,0,0.55)]">
           {/* Concourse backdrop behind every frame (Merlin 2026-10-29) */}
           <img src={bg} alt="" aria-hidden="true" draggable={false}
             className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
