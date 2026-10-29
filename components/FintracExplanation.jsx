@@ -6,7 +6,9 @@
 // Three pieces, one copy source (lib/fintrac-explanation.js):
 //   FintracExplanationModal      — the dialog itself, one step at
 //     a time: 1 Device controls, 2 Welcome to Olympus, 3 the
-//     FINTRAC explanation (verbatim). Buttons: Skip, Skip, Close.
+//     FINTRAC explanation (verbatim), 4 Take The Tour (opens the
+//     Travelator). Buttons: Skip, Skip, Skip, Close. All four
+//     frames wear the Concourse backdrop image.
 //   FintracExplanationHost       — mounted once inside the
 //     Concourse (layout level, so it lives for the whole app
 //     session): auto-shows the full sequence from step 1 on each
@@ -35,6 +37,8 @@ import {
   ONBOARDING_STEP1_CARDS,
   ONBOARDING_STEP1_NOTE,
   ONBOARDING_STEP2_PARAGRAPHS,
+  ONBOARDING_STEP4_PARAGRAPHS,
+  ONBOARDING_STEP_COUNT,
   clampOnboardingStep,
   fireFintracExplanation,
   onboardingNextButtonLabel,
@@ -43,17 +47,26 @@ import {
   onboardingStepTitle,
   shouldAutoShowFintrac,
 } from '@/lib/fintrac-explanation';
+import { CONCOURSE_BG_ART } from '@/lib/concourse-bg';
 
 // Re-exported for the hub: components/Concourse.jsx imports
 // fireFintracExplanation from this module (it was imported here but
 // never re-exported, which failed the Next build).
 export { fireFintracExplanation };
 
-export function FintracExplanationModal({ open, step = 3, onNext, onClose }) {
+export function FintracExplanationModal({ open, step = 3, onNext, onClose, onTakeTour, bgUrl }) {
   if (!open) return null;
   const currentStep = clampOnboardingStep(step);
   const isFintracStep = currentStep === 3;
+  const isLastStep = currentStep === ONBOARDING_STEP_COUNT;
   const title = onboardingStepTitle(currentStep);
+  // The frames wear the Concourse backdrop (Merlin, 2026-10-29);
+  // video backdrops fall back to the default image — the modal stays light.
+  const bg = bgUrl || CONCOURSE_BG_ART;
+  const takeTour = () => {
+    try { onClose(); } catch {}
+    try { if (onTakeTour) onTakeTour(); } catch {}
+  };
   return (
     <div
       role="dialog"
@@ -75,7 +88,12 @@ export function FintracExplanationModal({ open, step = 3, onNext, onClose }) {
           paddingRight: 'max(1rem, env(safe-area-inset-right))',
         }}
       >
-        <div className="flex max-h-full w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-amber-400/40 bg-zinc-950 shadow-[0_18px_50px_rgba(0,0,0,0.55)]">
+        <div className="relative flex max-h-full w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-amber-400/40 shadow-[0_18px_50px_rgba(0,0,0,0.55)]">
+          {/* Concourse backdrop behind every frame (Merlin 2026-10-29) */}
+          <img src={bg} alt="" aria-hidden="true" draggable={false}
+            className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
+          <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-zinc-950/55" />
+          <div className="relative flex min-h-0 flex-1 flex-col">
           <div className="flex shrink-0 items-start justify-between gap-3 border-b border-zinc-800 px-5 pb-3 pt-5">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <h2 className="text-base font-black uppercase tracking-widest text-amber-200">
@@ -140,11 +158,44 @@ export function FintracExplanationModal({ open, step = 3, onNext, onClose }) {
                 </p>
               ))
             )}
+            {currentStep === 4 && (
+              <>
+                {ONBOARDING_STEP4_PARAGRAPHS.map((p, i) => (
+                  <p key={i} className={i === 0 ? 'text-sm leading-relaxed text-zinc-200' : 'mt-3 text-sm leading-relaxed text-zinc-200'}>
+                    {p}
+                  </p>
+                ))}
+                {/* Circular tour button, matching the Concourse tour
+                    tile's artwork (Merlin, 2026-10-29) */}
+                <div className="mt-5 flex justify-center">
+                  <button
+                    type="button"
+                    onClick={takeTour}
+                    aria-label="Take the tour"
+                    title="Take the tour"
+                    className="ui-element pointer-events-auto relative flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border border-white/20 bg-white/[0.06] shadow-[0_4px_18px_rgba(0,0,0,0.35)] backdrop-blur-md transition-all hover:border-cyan-300/60 hover:scale-105 active:scale-95"
+                  >
+                    <img
+                      src="/concourse-icons/tour.webp"
+                      alt=""
+                      aria-hidden="true"
+                      draggable={false}
+                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                      className="absolute inset-0 h-full w-full object-cover"
+                    />
+                    <span aria-hidden="true" className="relative z-10 text-3xl leading-none">🗺️</span>
+                  </button>
+                </div>
+                <p className="mt-2 text-center text-[11px] font-bold uppercase tracking-widest text-zinc-400">
+                  Tap the map to start
+                </p>
+              </>
+            )}
           </div>
           <div className="shrink-0 border-t border-zinc-800 px-5 py-4">
             <button
               type="button"
-              onClick={isFintracStep ? onClose : onNext}
+              onClick={isLastStep ? onClose : onNext}
               className="ui-element pointer-events-auto w-full rounded-xl bg-amber-400 py-3 text-sm font-black uppercase tracking-widest text-zinc-950 hover:bg-amber-300"
             >
               {onboardingNextButtonLabel(currentStep)}
@@ -155,13 +206,14 @@ export function FintracExplanationModal({ open, step = 3, onNext, onClose }) {
               </p>
             )}
           </div>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-export function FintracExplanationHost() {
+export function FintracExplanationHost({ onTakeTour, bgUrl }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState(1);
@@ -213,7 +265,7 @@ export function FintracExplanationHost() {
     setStep((s) => onboardingNextStep(s));
   };
 
-  return <FintracExplanationModal open={open} step={step} onNext={next} onClose={close} />;
+  return <FintracExplanationModal open={open} step={step} onNext={next} onClose={close} onTakeTour={onTakeTour} bgUrl={bgUrl} />;
 }
 
 // Full-width menu entry, styled to match the Agent Forge block in

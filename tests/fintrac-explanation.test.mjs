@@ -24,6 +24,7 @@ import {
   ONBOARDING_STEP1_TITLE,
   ONBOARDING_STEP2_PARAGRAPHS,
   ONBOARDING_STEP2_TITLE,
+  ONBOARDING_STEP4_TITLE,
   clampOnboardingStep,
   onboardingNextButtonLabel,
   onboardingNextStep,
@@ -84,7 +85,7 @@ describe('wiring: modal, host, and menu entries', () => {
     assert.match(c, /tile\.important/);
     assert.match(c, />IMPORTANT</);
     assert.match(c, /tile\.id === 'fintrac'\) \{ fireFintracExplanation\(3\); setOpen\(false\); return; \}/);
-    assert.match(c, /<FintracExplanationHost \/>/);
+    assert.match(c, /<FintracExplanationHost/);
   });
   it('modal scrolls vertically and Skip/Close dismiss for this load only', () => {
     const f = src('components/FintracExplanation.jsx');
@@ -123,36 +124,42 @@ describe('wiring: modal, host, and menu entries', () => {
   });
 });
 
-describe('onboarding wizard: Skip, Skip, Close — one step at a time', () => {
-  it('has exactly 3 steps with the right titles', () => {
-    assert.equal(ONBOARDING_STEP_COUNT, 3);
+describe('onboarding wizard: Skip, Skip, Skip, Close — one step at a time', () => {
+  it('has exactly 4 steps with the right titles', () => {
+    assert.equal(ONBOARDING_STEP_COUNT, 4);
     assert.equal(ONBOARDING_STEP1_TITLE, 'Device controls');
     assert.equal(ONBOARDING_STEP2_TITLE, 'Welcome to Olympus');
+    assert.equal(ONBOARDING_STEP4_TITLE, 'Take The Tour');
     assert.equal(onboardingStepTitle(1), 'Device controls');
     assert.equal(onboardingStepTitle(2), 'Welcome to Olympus');
     assert.equal(onboardingStepTitle(3), 'FINTRAC explanation');
+    assert.equal(onboardingStepTitle(4), 'Take The Tour');
   });
   it('step navigation: Skip advances, Close ends the box', () => {
     assert.equal(onboardingNextStep(1), 2);
     assert.equal(onboardingNextStep(2), 3);
-    assert.equal(onboardingNextStep(3), 3);
+    assert.equal(onboardingNextStep(3), 4);
+    assert.equal(onboardingNextStep(4), 4);
     assert.equal(onboardingNextButtonLabel(1), 'Skip');
     assert.equal(onboardingNextButtonLabel(2), 'Skip');
-    assert.equal(onboardingNextButtonLabel(3), 'Close');
+    assert.equal(onboardingNextButtonLabel(3), 'Skip');
+    assert.equal(onboardingNextButtonLabel(4), 'Close');
   });
   it('step clamping: out-of-range and unusable values land safely', () => {
     assert.equal(clampOnboardingStep(0), 1);
     assert.equal(clampOnboardingStep(1), 1);
     assert.equal(clampOnboardingStep(2), 2);
     assert.equal(clampOnboardingStep(3), 3);
-    assert.equal(clampOnboardingStep(4), 3);
+    assert.equal(clampOnboardingStep(4), 4);
+    assert.equal(clampOnboardingStep(5), 4);
     assert.equal(clampOnboardingStep(NaN), 3);
     assert.equal(clampOnboardingStep(undefined), 3);
   });
-  it('step indicator reads "N of 3"', () => {
-    assert.equal(onboardingStepLabel(1), '1 of 3');
-    assert.equal(onboardingStepLabel(2), '2 of 3');
-    assert.equal(onboardingStepLabel(3), '3 of 3');
+  it('step indicator reads "N of 4"', () => {
+    assert.equal(onboardingStepLabel(1), '1 of 4');
+    assert.equal(onboardingStepLabel(2), '2 of 4');
+    assert.equal(onboardingStepLabel(3), '3 of 4');
+    assert.equal(onboardingStepLabel(4), '4 of 4');
   });
   it('step 1: left side motion (joystick), right side camera, one at a time', () => {
     assert.equal(ONBOARDING_STEP1_CARDS.length, 2);
@@ -186,13 +193,36 @@ describe('onboarding wizard: Skip, Skip, Close — one step at a time', () => {
     assert.match(f, /isFintracStep && \(\s*<span className="rounded-full bg-red-500/);
     assert.match(f, /isFintracStep && \(\s*<p className="mt-2 text-center text-\[10px\] text-zinc-500">/);
     assert.match(f, /onboardingStepLabel\(currentStep\)/);
-    assert.match(f, /onClick=\{isFintracStep \? onClose : onNext\}/);
+    assert.match(f, /onClick=\{isLastStep \? onClose : onNext\}/);
   });
   it('host: auto-show starts at step 1, menu events carry their step', () => {
     const f = src('components/FintracExplanation.jsx');
     assert.match(f, /setStep\(1\);/);
     assert.match(f, /event\?\.detail\?\.step/);
     assert.match(f, /onClick=\{\(\) => fireFintracExplanation\(3\)\}/);
+  });
+  it('step 4: Take The Tour frame with a circular Concourse-matching tour button', () => {
+    const f = src('components/FintracExplanation.jsx');
+    assert.match(f, /ONBOARDING_STEP4_PARAGRAPHS/);
+    assert.match(f, /\/concourse-icons\/tour\.webp/);
+    assert.match(f, /aria-label="Take the tour"/);
+    assert.match(f, /onTakeTour/);
+    assert.match(f, /Take The Tour/);
+  });
+  it('step 4 tour button opens the Travelator and closes the box', () => {
+    const f = src('components/FintracExplanation.jsx');
+    assert.match(f, /const takeTour = \(\) => \{/);
+    assert.match(f, /onTakeTour=\{onTakeTour\}/);
+    const c = src('components/Concourse.jsx');
+    assert.match(c, /<FintracExplanationHost/);
+    assert.match(c, /onTakeTour=\{\(\) => setTravelatorOpen\(true\)\}/);
+  });
+  it('all four frames wear the Concourse backdrop image', () => {
+    const f = src('components/FintracExplanation.jsx');
+    assert.match(f, /CONCOURSE_BG_ART/);
+    assert.match(f, /bgUrl/);
+    const c = src('components/Concourse.jsx');
+    assert.match(c, /bgUrl=\{bgPref\?\.kind === 'image' && bgPref\.url \? bgPref\.url : CONCOURSE_BG_ART\}/);
   });
   it('menu entries jump straight to step 3, never the tutorial', () => {
     const lib = src('lib/fintrac-explanation.js');

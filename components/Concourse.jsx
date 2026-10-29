@@ -993,7 +993,10 @@ export default function Concourse() {
           modal survives route changes for the whole app session
           (one auto-show per load) and any menu entry can re-open
           it via the event, from any page. */}
-      <FintracExplanationHost />
+      <FintracExplanationHost
+        onTakeTour={() => setTravelatorOpen(true)}
+        bgUrl={bgPref?.kind === 'image' && bgPref.url ? bgPref.url : CONCOURSE_BG_ART}
+      />
 
       {/* Layer 1 · Concourse Orb */}
       <button
