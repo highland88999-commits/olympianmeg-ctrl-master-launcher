@@ -183,6 +183,25 @@ export const POST = noCache(
       }
       patch.cheat_code_checks = sane;
     }
+    if ('landing_perspective' in prefs) {
+      // Onboarding landing setup (Merlin, 2026-10-29): the camera
+      // perspective for the initial landing sequence.
+      const v = prefs.landing_perspective;
+      if (v !== '1st' && v !== '3rd') {
+        return NextResponse.json({ error: "landing_perspective must be '1st' or '3rd'." }, { status: 400 });
+      }
+      patch.landing_perspective = v;
+    }
+    if ('landing_character' in prefs) {
+      // Onboarding landing setup (Merlin, 2026-10-29): the
+      // starting character's roster id. Stored as an opaque
+      // string; the roster lives in lib/characters/roster.js.
+      const v = prefs.landing_character;
+      if (typeof v !== 'string' || !v.trim() || v.length > 120) {
+        return NextResponse.json({ error: 'landing_character must be a non-empty string.' }, { status: 400 });
+      }
+      patch.landing_character = v.trim();
+    }
     if (!Object.keys(patch).length) {
       return NextResponse.json({ error: 'Nothing to save.' }, { status: 400 });
     }
