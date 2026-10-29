@@ -71,8 +71,9 @@ test('preview URL tells the page to hide the announcement box', () => {
   assert.match(card, /srcFor/);
 });
 
-test('next gate preloads hidden so advancing never flashes black', () => {
+test('one gate ahead and one behind preload hidden so moving either way never flashes black', () => {
   const riding = card.slice(card.indexOf("mode === 'riding'"));
+  assert.match(riding, /gates\[index - 1\]/);
   assert.match(riding, /gates\[index \+ 1\]/);
   assert.match(riding, /preview \(preloading\)/);
   assert.match(riding, /invisible absolute inset-0/);
