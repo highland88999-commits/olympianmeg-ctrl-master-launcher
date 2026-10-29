@@ -9,7 +9,7 @@
 //     perspective, yellow = starting character, green = continue),
 //     2 Device controls, 3 Welcome to Olympus, 4 the FINTRAC
 //     explanation (verbatim), 5 Take The Tour (opens the
-//     Travelator). Buttons: Skip, Skip, Skip, Skip, Close. All five
+//     Travelator). Buttons: Next, Next, Next, Next, Close. All five
 //     frames wear the Concourse backdrop image.
 //   FintracExplanationHost       — mounted once inside the
 //     Concourse (layout level, so it lives for the whole app
@@ -57,6 +57,12 @@ import {
   onboardingStepTitle,
   shouldAutoShowFintrac,
 } from '@/lib/fintrac-explanation';
+import {
+  TILT_CONTROLS_KEY,
+  LOCATION_ENABLED_KEY,
+  DEVICE_PREF_DEFAULTS,
+  resolveDevicePrefs,
+} from '@/lib/device-prefs';
 import { CONCOURSE_BG_ART } from '@/lib/concourse-bg';
 
 // Re-exported for the hub: components/Concourse.jsx imports
@@ -73,6 +79,148 @@ async function getLandingUiToken() {
   } catch {
     return null;
   }
+}
+
+// Step 2 — device controls with street-light toggles (Merlin, 2026-10-29).
+// Tilt/motion controls and location are both AUTO-ON; the user can tap
+// either light to turn it off. Green glowing = on, dim red = off.
+// Prefs persist per account via /api/ui-state (lib/device-prefs.js).
+function DeviceControlsFrame() {
+  const [tiltOn, setTiltOn] = useState(DEVICE_PREF_DEFAULTS[TILT_CONTROLS_KEY]);
+  const [locationOn, setLocationOn] = useState(DEVICE_PREF_DEFAULTS[LOCATION_ENABLED_KEY]);
+  const loadedRef = useRef(false);
+
+  useEffect(() => {
+    if (loadedRef.current) return;
+    loadedRef.current = true;
+    (async () => {
+      try {
+        const token = await getLandingUiToken();
+        if (!token) return;
+        const res = await fetch('/api/ui-state', {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: 'no-store',
+        });
+        if (!res.ok) return;
+        const body = await res.json().catch(() => null);
+        const prefs = resolveDevicePrefs(body && body.preferences);
+        setTiltOn(prefs[TILT_CONTROLS_KEY]);
+        setLocationOn(prefs[LOCATION_ENABLED_KEY]);
+      } catch {
+        /* auto-on defaults stand when the save can't load */
+      }
+    })();
+  }, []);
+
+  const savePref = async (patch) => {
+    try {
+      const token = await getLandingUiToken();
+      if (!token) return;
+      await fetch('/api/ui-state', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ preferences: patch }),
+      });
+    } catch {
+      /* never break onboarding over a save */
+    }
+  };
+
+  const toggleTilt = async () => {
+    const next = !tiltOn;
+    setTiltOn(next);
+    savePref({ [TILT_CONTROLS_KEY]: next });
+    if (next) {
+      // iOS asks for motion permission from a user gesture — this tap is it.
+      try {
+        const DOE = window.DeviceOrientationEvent;
+        if (DOE && typeof DOE.requestPermission === 'function') {
+          await DOE.requestPermission();
+        }
+      } catch {
+        /* permission prompt unavailable — the pref still stands */
+      }
+    }
+  };
+
+  const toggleLocation = () => {
+    const next = !locationOn;
+    setLocationOn(next);
+    savePref({ [LOCATION_ENABLED_KEY]: next });
+    // The browser asks for location itself the first time a feature
+    // (e.g. the wifi finder) needs it — never during onboarding.
+  };
+
+  const light = (on, color) =>
+    `ui-element pointer-events-auto flex h-12 w-12 shrink-0 items-center justify-center rounded-full border-4 transition-all active:scale-95 ${
+      on
+        ? color === 'green'
+          ? 'border-green-900 bg-green-600 shadow-[0_0_20px_rgba(22,163,74,0.6)]'
+          : 'border-yellow-900 bg-yellow-500 shadow-[0_0_20px_rgba(234,179,8,0.6)]'
+        : 'border-red-950 bg-red-950/40 shadow-none'
+    }`;
+
+  const row = (on, onToggle, emoji, title, text, color, label) => (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={on}
+      aria-label={`${title}: ${on ? 'on' : 'off'}. Tap to turn ${on ? 'off' : 'on'}.`}
+      className="flex w-full items-center gap-4 rounded-2xl border border-zinc-800 bg-zinc-900/60 px-4 py-3 text-left"
+    >
+      <span aria-hidden="true" className={light(on, color)}>
+        <span className="text-xl leading-none">{emoji}</span>
+      </span>
+      <span className="min-w-0">
+        <span className="block text-sm font-black uppercase tracking-widest text-zinc-100">
+          {title}
+        </span>
+        <span className="mt-0.5 block text-xs leading-relaxed text-zinc-400">
+          {text}
+        </span>
+        <span className={`mt-1 block text-[10px] font-black uppercase tracking-widest ${on ? 'text-green-400' : 'text-red-400'}`}>
+          {on ? label.on : label.off}
+        </span>
+      </span>
+    </button>
+  );
+
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-3">
+        {ONBOARDING_STEP2_CARDS.map((card) => (
+          <div key={card.side} className="min-w-0 rounded-2xl border border-zinc-800 bg-zinc-900/60 px-3 py-4 text-center">
+            <div aria-hidden="true" className="text-2xl leading-none">{card.icon}</div>
+            <div className="mt-2 text-[10px] font-black uppercase tracking-widest text-zinc-400">
+              {card.side}
+            </div>
+            <div className="mt-1 text-sm font-black text-zinc-100">
+              {card.title}
+            </div>
+            <p className="mt-1 text-xs leading-relaxed text-zinc-300">
+              {card.text}
+            </p>
+          </div>
+        ))}
+      </div>
+      <p className="mt-4 text-sm leading-relaxed text-zinc-200">
+        {ONBOARDING_STEP2_NOTE}
+      </p>
+      {/* Street-light toggles: both auto-on, tap to turn off. */}
+      <div className="mt-4 flex flex-col gap-3 rounded-[2rem] border border-zinc-700 bg-zinc-950/70 px-4 py-4">
+        {row(
+          tiltOn, toggleTilt, '📳', 'Tilt control',
+          'Tilt your phone to steer and look. On by default — tap the light to turn it off.',
+          'green', { on: 'On', off: 'Off' }
+        )}
+        {row(
+          locationOn, toggleLocation, '📍', 'Location',
+          'Background tracking for mapping — the wifi finder needs it to place networks on the map. On by default.',
+          'green', { on: 'On', off: 'Off' }
+        )}
+      </div>
+    </>
+  );
 }
 
 // Step 1 — the traffic light (Merlin, 2026-10-29). Three circular
@@ -157,23 +305,6 @@ function LandingSetupFrame({ onContinue }) {
         </p>
       ))}
 
-      {/* 3rd person: your character stands in front of you.
-          1st person: through their eyes — no character shown. */}
-      {perspective === '3rd' && character && (
-        <div className="mt-4 flex flex-col items-center">
-          <img
-            src={character.preview}
-            alt={character.name}
-            draggable={false}
-            onError={(e) => { e.currentTarget.style.display = 'none'; }}
-            className="h-28 w-28 rounded-2xl border border-amber-400/40 object-cover"
-          />
-          <span className="mt-1 text-center text-xs font-black uppercase tracking-widest text-amber-200">
-            {character.name}
-          </span>
-        </div>
-      )}
-
       {/* The street light: red / yellow / green, top to bottom. */}
       <div
         role="group"
@@ -236,6 +367,24 @@ function LandingSetupFrame({ onContinue }) {
           </span>
         </div>
       </div>
+
+      {/* 3rd person: your character stands in front of you, below the
+          light — compact so the whole frame fits the card (Merlin,
+          2026-10-29). 1st person: through their eyes, nothing shown. */}
+      {perspective === '3rd' && character && (
+        <div className="mt-4 flex flex-col items-center">
+          <img
+            src={character.preview}
+            alt={character.name}
+            draggable={false}
+            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+            className="h-20 w-20 rounded-2xl border border-amber-400/40 object-cover"
+          />
+          <span className="mt-1 text-center text-[10px] font-black uppercase tracking-widest text-amber-200">
+            {character.name}
+          </span>
+        </div>
+      )}
 
       {/* Character picker: preview above, the roster grid below —
           sized to land inside the card (Merlin, 2026-10-29). */}
@@ -378,29 +527,7 @@ export function FintracExplanationModal({ open, step = 4, onNext, onClose, onTak
               button stay put. */}
           <div className="relative min-h-0 flex-1 overflow-y-auto px-5 py-4">
             {currentStep === 1 && <LandingSetupFrame onContinue={onNext} />}
-            {currentStep === 2 && (
-              <>
-                <div className="grid grid-cols-2 gap-3">
-                  {ONBOARDING_STEP2_CARDS.map((card) => (
-                    <div key={card.side} className="min-w-0 rounded-2xl border border-zinc-800 bg-zinc-900/60 px-3 py-4 text-center">
-                      <div aria-hidden="true" className="text-2xl leading-none">{card.icon}</div>
-                      <div className="mt-2 text-[10px] font-black uppercase tracking-widest text-zinc-400">
-                        {card.side}
-                      </div>
-                      <div className="mt-1 text-sm font-black text-zinc-100">
-                        {card.title}
-                      </div>
-                      <p className="mt-1 text-xs leading-relaxed text-zinc-300">
-                        {card.text}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-                <p className="mt-4 text-sm leading-relaxed text-zinc-200">
-                  {ONBOARDING_STEP2_NOTE}
-                </p>
-              </>
-            )}
+            {currentStep === 2 && <DeviceControlsFrame />}
             {currentStep === 3 && (
               ONBOARDING_STEP3_PARAGRAPHS.map((p, i) => (
                 <p key={i} className={i === 0 ? 'text-sm leading-relaxed text-zinc-200' : 'mt-3 text-sm leading-relaxed text-zinc-200'}>

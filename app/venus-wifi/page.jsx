@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { MicIcon, RadarIcon, SatelliteIcon, EraseIcon, RouteIcon, PinIcon } from '@/lib/hermes-icons';
 import { supabase } from '@/lib/supabase';
+import { fetchDevicePrefs, LOCATION_ENABLED_KEY } from '@/lib/device-prefs';
 import {
   haversineKm,
   bearingDeg,
@@ -435,7 +436,7 @@ export default function VenusWifiPage() {
     return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', resize); };
   }, []);
 
-  const startGPS = () => {
+  const startGPS = async () => {
     if (!navigator.geolocation) { flash('GPS UNSUPPORTED'); return; }
     if (gpsOn) {
       if (watchId.current != null) navigator.geolocation.clearWatch(watchId.current);
@@ -444,6 +445,18 @@ export default function VenusWifiPage() {
       setGpsOn(false);
       setPos(null);
       flash('GPS DISENGAGED');
+      return;
+    }
+    // The onboarding location toggle is the master switch (Merlin, 2026-10-29).
+    const prefs = await fetchDevicePrefs(async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        return session?.access_token || null;
+      } catch { return null; }
+    });
+    if (!prefs[LOCATION_ENABLED_KEY]) {
+      flash('LOCATION IS OFF — TURN IT ON IN DEVICE CONTROLS');
+      speak('Location is turned off. Turn it on in Device Controls to log spots.');
       return;
     }
     flash('ACQUIRING FIX…');

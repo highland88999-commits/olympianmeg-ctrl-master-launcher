@@ -149,16 +149,16 @@ describe('onboarding wizard: five steps, traffic light first', () => {
     assert.equal(onboardingStepTitle(4), 'FINTRAC explanation');
     assert.equal(onboardingStepTitle(5), 'Take The Tour');
   });
-  it('step navigation: Skip advances, Close ends the box', () => {
+  it('step navigation: Next advances, Close ends the box', () => {
     assert.equal(onboardingNextStep(1), 2);
     assert.equal(onboardingNextStep(2), 3);
     assert.equal(onboardingNextStep(3), 4);
     assert.equal(onboardingNextStep(4), 5);
     assert.equal(onboardingNextStep(5), 5);
-    assert.equal(onboardingNextButtonLabel(1), 'Skip');
-    assert.equal(onboardingNextButtonLabel(2), 'Skip');
-    assert.equal(onboardingNextButtonLabel(3), 'Skip');
-    assert.equal(onboardingNextButtonLabel(4), 'Skip');
+    assert.equal(onboardingNextButtonLabel(1), 'Next');
+    assert.equal(onboardingNextButtonLabel(2), 'Next');
+    assert.equal(onboardingNextButtonLabel(3), 'Next');
+    assert.equal(onboardingNextButtonLabel(4), 'Next');
     assert.equal(onboardingNextButtonLabel(5), 'Close');
   });
   it('step clamping: out-of-range and unusable values land safely', () => {
