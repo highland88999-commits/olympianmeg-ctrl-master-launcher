@@ -38,6 +38,7 @@ import {
   REVEAL_RADIUS_DEG,
   markDisc,
   unionInto,
+  countBits,
   coveragePercent,
   serializeBitset,
   parseBitset,
@@ -45,6 +46,7 @@ import {
   saveMappedBitset,
   setMappedPercent,
 } from '@/lib/earth/mapping-progress';
+import { reportEarthSync } from '@/lib/earth/sync-status';
 import { HUB_UNITS_PER_DEGREE, DISPLAY_UNITS_PER_METRE } from '@/lib/earth/placements';
 import { loadHeightData, getHeightData } from '@/lib/earth/heightmap';
 import { roamState, tangentFrame, headingVector, DRIVING_ENTER_MPS, DRIVING_EXIT_MPS, revealLeadHub } from '@/lib/earth/roam';
@@ -239,7 +241,8 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
       try {
         const token = await getEarthUiToken();
         if (cancelled) return;
-        if (!token) return; // guest: device-only, as before
+        if (!token) { reportEarthSync({ token: false }); return; } // guest: device-only, as before
+        reportEarthSync({ token: true });
         const r = await fetch('/api/ui-state', {
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -337,16 +340,20 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
     }
     if (!mappedDirtyRef.current || !mappedBitsetRef.current) return undefined;
     const hex = serializeBitset(mappedBitsetRef.current);
+    reportEarthSync({ lastBeat: Date.now(), token: null, lastHttp: null, lastOk: null });
     (async () => {
       try {
         const token = await getEarthUiToken();
-        if (!token) return;
-        await fetch('/api/ui-state', {
+        if (!token) { reportEarthSync({ token: false, lastHttp: 'no-token', lastOk: false }); return; }
+        reportEarthSync({ token: true });
+        const r = await fetch('/api/ui-state', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({ preferences: { earth_mapped: hex } }),
         });
-      } catch {}
+        if (r.ok) { mappedDirtyRef.current = false; reportEarthSync({ lastHttp: r.status, lastOk: true, dirty: false }); }
+        else { reportEarthSync({ lastHttp: r.status, lastOk: false }); }
+      } catch { reportEarthSync({ lastHttp: 'network', lastOk: false }); }
     })();
     return undefined;
   }, [roaming]);
@@ -504,6 +511,9 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
             saveMappedBitset(bitset);
             setMappedPercent(coveragePercent(bitset));
             mappedDirtyRef.current = true;
+            // Sync telemetry: the console's SYNC line shows this
+            // device's marked cells and the waiting-to-send flag.
+            reportEarthSync({ cells: countBits(bitset), dirty: true });
           }
           if (mappedDirtyRef.current && nowMs - mappedSyncRef.current > 30000) {
             // 2026-10-27 fix: this POST used to send no token
@@ -515,17 +525,23 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
             // throttle still gates ATTEMPTS, not successes.
             mappedSyncRef.current = nowMs;
             const hex = serializeBitset(bitset);
+            // Sync telemetry: every attempt reports here so the
+            // console's SYNC line shows the real outcome instead
+            // of failing silently.
+            reportEarthSync({ lastBeat: Date.now(), token: null, lastHttp: null, lastOk: null });
             (async () => {
               try {
                 const token = await getEarthUiToken();
-                if (!token) return;
+                if (!token) { reportEarthSync({ token: false, lastHttp: 'no-token', lastOk: false }); return; }
+                reportEarthSync({ token: true });
                 const r = await fetch('/api/ui-state', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                   body: JSON.stringify({ preferences: { earth_mapped: hex } }),
                 });
-                if (r.ok) mappedDirtyRef.current = false;
-              } catch {}
+                if (r.ok) { mappedDirtyRef.current = false; reportEarthSync({ lastHttp: r.status, lastOk: true, dirty: false }); }
+                else { reportEarthSync({ lastHttp: r.status, lastOk: false }); }
+              } catch { reportEarthSync({ lastHttp: 'network', lastOk: false }); }
             })();
           }
         }

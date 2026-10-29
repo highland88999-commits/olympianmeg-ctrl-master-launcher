@@ -5,6 +5,7 @@ import { searchPlaces, formatCoords } from '@/lib/geo';
 import { toggleMount } from '@/components/EarthBike';
 import { summonCar, dismissCar, toggleCarMount, swapCarCraft } from '@/components/EarthSupercar';
 import EarthViewToggle from '@/components/EarthViewToggle';
+import EarthSyncLine from '@/components/earth/EarthSyncLine';
 import { bikeState, carState } from '@/lib/earth/parachute';
 import { EARTH_DEFAULT_CHARACTER_ID } from '@/lib/characters/embodiment';
 import { planetSeedFor } from '@/lib/planets/planet-seeds';
@@ -227,6 +228,11 @@ export default function EarthConsole({ focus, phase, onTravel, onReturn, onStree
                 : t('earth.locating')}
             </div>
           )}
+          {/* Mapped-coverage sync readout (Merlin, 2026-10-29): the
+              sync used to fail silently, so a 0-cell registry gave
+              no clue which link broke. This line shows the real
+              outcome — token, HTTP status, marked cells. */}
+          <EarthSyncLine />
           {atStreet && (
             <div className="text-[10px] text-cyan-300 mt-1">
               {bikeUi.mounted
