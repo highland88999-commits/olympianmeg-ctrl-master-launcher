@@ -14,9 +14,7 @@
 // aria-labels for screen readers). Tour Bar controls:
 // Previous («), Pause/Resume (❚❚/▶), Next Gate (»), Open (⬈ — leave
 // the ride and enter that program), End Tour (■). Ending shrinks the
-// card back down, the way the ride collapses back into the Orb. The
-// tile keeps its SOON badge: this is the preview ride — the full
-// hub-camera glide is a later step, not this one.
+// card back down, the way the ride collapses back into the Orb.
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -125,8 +123,7 @@ export default function Travelator({ open, onClose }) {
               Full tour — every program ({SATELLITES.length} gates)
             </button>
             <p className="text-[11px] text-zinc-600">
-              Preview ride — the tile keeps its SOON badge while the full
-              hub-camera glide is built. Nothing here is faked: every gate
+              Nothing here is faked: every gate
               is a real program from the registry.
             </p>
             <button type="button" onClick={onClose} className="text-sm text-zinc-400">Not now</button>

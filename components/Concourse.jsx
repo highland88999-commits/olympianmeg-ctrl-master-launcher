@@ -64,6 +64,7 @@ import { fireFintracExplanation, FintracExplanationHost } from './FintracExplana
 import { CONCOURSE_BG_ART, resolveConcourseBg } from '@/lib/concourse-bg';
 import { resolveUiSettings, readUiSettingsCache, writeUiSettingsCache, UI_SETTINGS_EVENT } from '@/lib/ui-settings';
 import { isIconDrag, clampIconPx, iconFracToPx, iconPxToFrac, dragIconTopLeft, resolveIconPosition } from '@/lib/concourse-icon';
+import { AnnouncementsBell, AnnouncementsMenu, useAnnouncementUnread } from './concourse/AnnouncementsPanel';
 
 // Layer 3 · Portals 3D — loaded only when its tile is first tapped,
 // so three.js never enters the layout's eager bundle (Concourse
@@ -108,7 +109,7 @@ export const SEASON_GUIDE_EVENT = 'olympus:season-guide';
 const TILES = [
   { id: 'hub', label: 'Hub', icon: '⌂', art: '/concourse-icons/orb.webp' },
   { id: 'portals', label: 'Portals', icon: '🎃', art: '/concourse-icons/portals.webp', hubOnly: true },
-  { id: 'tour', label: 'Tour', icon: '🗺️', art: '/concourse-icons/tour.webp', soon: true },
+  { id: 'tour', label: 'Tour', icon: '🗺️', art: '/concourse-icons/tour.webp' },
   { id: 'intro', label: 'Intro', icon: '↺', art: '/concourse-icons/intro.webp', hubOnly: true },
   { id: 'guide', label: 'Guide', icon: '?', art: '/concourse-icons/guide.webp', hubOnly: true },
   { id: 'portalroom', label: 'Portals 3D', icon: 'Ω' },
@@ -315,6 +316,11 @@ export default function Concourse() {
 
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
+  // Notifications (Merlin, 2026-10-29): the bell in the header opens
+  // the notifications menu; its Announcements portal button hosts
+  // every past keeper broadcast for replay.
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [hasUnread, markAnnouncementsSeen] = useAnnouncementUnread();
   const [note, setNote] = useState('');
   const [viewport, setViewport] = useState({ w: 0, h: 0 });
   const [orbFrac, setOrbFrac] = useState(null); // {x, y} fractions
@@ -879,14 +885,17 @@ export default function Concourse() {
             <div className="text-[10px] font-black tracking-[0.3em] uppercase text-cyan-200">
               <span aria-hidden="true" className="mr-1.5 tracking-normal text-cyan-400/70">⠿</span>The Concourse
             </div>
-            <button
-              type="button"
-              aria-label="Minimize the Concourse"
-              onClick={() => setOpen(false)}
-              className="ui-element pointer-events-auto flex h-7 w-7 items-center justify-center rounded-full border border-white/15 text-zinc-300 hover:text-white hover:border-cyan-300/60 transition-all"
-            >
-              <span aria-hidden="true" className="text-xs leading-none">—</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <AnnouncementsBell hasUnread={hasUnread} onOpen={() => setNotifOpen(true)} />
+              <button
+                type="button"
+                aria-label="Minimize the Concourse"
+                onClick={() => setOpen(false)}
+                className="ui-element pointer-events-auto flex h-7 w-7 items-center justify-center rounded-full border border-white/15 text-zinc-300 hover:text-white hover:border-cyan-300/60 transition-all"
+              >
+                <span aria-hidden="true" className="text-xs leading-none">—</span>
+              </button>
+            </div>
           </div>
           </div>
           <div className="min-h-0 overflow-y-auto">
@@ -976,6 +985,9 @@ export default function Concourse() {
           portals, expanded on tap) */}
       <ConcoursePortals open={portal3dOpen} onClose={() => setPortal3dOpen(false)} />
       <Travelator open={travelatorOpen} onClose={() => setTravelatorOpen(false)} />
+      {/* Notifications (Merlin, 2026-10-29): the bell's menu, whose
+          Announcements portal button hosts every past broadcast. */}
+      <AnnouncementsMenu open={notifOpen} onClose={() => setNotifOpen(false)} onSeen={markAnnouncementsSeen} />
 
       {/* Layer 3 · FINTRAC explanation — the host lives here so the
           modal survives route changes for the whole app session

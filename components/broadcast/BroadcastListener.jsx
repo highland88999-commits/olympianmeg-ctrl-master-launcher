@@ -1,48 +1,48 @@
 'use client';
 
-// Broadcast listener — every user's ear, on every page.
+// BroadcastListener — the site-wide ear for the keeper's announcements.
 //
-// Mounted once in the root layout, so a broadcast reaches users wherever
-// they are in Olympus. It polls the public latest.json pointer (same
-// polling pattern as presence — no websockets, no Realtime). A broadcast
-// that arrives while the page is open plays automatically once the user
-// has tapped "Turn on broadcast sound" (browsers block sound before any
-// tap on the page); before that, the banner offers a Play button per
-// broadcast. Nothing auto-plays on first load for a broadcast that
-// arrived while the user was away — the banner still offers it.
-
+// When Merlin presses send in the threat monitor console (/ares, where
+// Molly lives), every open page polls latest.json and — for anyone
+// online at that moment — Molly's head appears and speaks his words:
+// the broadcast audio plays once through the overlay, and when it
+// finishes playing the first time, her head disappears. The clip is
+// already stored by the publish flow, so past announcements stay
+// replayable from the Concourse notifications menu (the separate
+// Announcements portal button).
+//
+// Sound unlock: the overlay tries to play on mount; if the browser
+// blocks autoplay, Molly waits behind a "tap to hear" button — that
+// tap is the gesture that unlocks sound. On the sender's own device
+// the studio already played the clip back, so her head shows without
+// a second playthrough and dismisses on tap (or after its length).
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BROADCAST_POLL_MS, BROADCAST_PRESETS, latestJsonUrl, validateLatest } from '@/lib/broadcast/voice-changer';
 import { useRadio } from '@/components/radio/RadioProvider';
 import { isFxEnabled, setFxEnabled } from '@/lib/fx';
 import { collectPlayingMedia, resumeMedia } from '@/lib/broadcast/intercom-mute';
+import MollyBroadcastOverlay from './MollyBroadcastOverlay';
 
-const LS_SOUND = 'broadcast-sound';
 const LS_LAST_ID = 'broadcast-last-id';
 const LS_SELF_SENT = 'broadcast-self-sent';
 
 export default function BroadcastListener() {
-  const [enabled, setEnabled] = useState(false);
-  const [latest, setLatest] = useState(null);
-  const [dismissedId, setDismissedId] = useState(null);
-  const [playing, setPlaying] = useState(false);
-  // Tour preview iframes (Merlin, 2026-10-29): the tour shows the
-  // program itself as a live background preview — the announcement
-  // box would cover it, so the iframe URL carries ?tourPreview=1
-  // and the banner stays out of the way there. The main site is
-  // untouched: this only fires inside the tour's preview frames.
-  const [isTourPreview] = useState(() => {
-    try { return new URLSearchParams(window.location.search).get('tourPreview') === '1'; } catch { return false; }
-  });
-  const audioRef = useRef(null);
-  const enabledRef = useRef(false);
+  const [overlay, setOverlay] = useState(null); // { item, selfSent } | null
+  const seenRef = useRef(null);
   const radio = useRadio();
   const playingRef = useRef(false);
   const duckRef = useRef(null);
+  const base = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '');
+
+  // Tour preview iframes (Merlin, 2026-10-29): ?tourPreview=1 hides the
+  // announcement UI so the frame shows the program only.
+  const [isTourPreview] = useState(() => {
+    try { return new URLSearchParams(window.location.search).get('tourPreview') === '1'; } catch { return false; }
+  });
 
   useEffect(() => { playingRef.current = !!radio.playing; }, [radio.playing]);
 
-  const duckSounds = useCallback(() => {
+  const duckSounds = useCallback((excludeEl) => {
     if (duckRef.current) return;
     const fxWas = isFxEnabled();
     try { setFxEnabled(false); } catch {}
@@ -50,7 +50,7 @@ export default function BroadcastListener() {
     if (radioWasPlaying) {
       try { radio.togglePlay(); } catch {}
     }
-    duckRef.current = { fxWas, radioWasPlaying, media: collectPlayingMedia(audioRef.current) };
+    duckRef.current = { fxWas, radioWasPlaying, media: collectPlayingMedia(excludeEl) };
   }, [radio]);
 
   const restoreSounds = useCallback(() => {
@@ -65,27 +65,19 @@ export default function BroadcastListener() {
     }
     resumeMedia(d.media);
   }, [radio]);
-  const seenRef = useRef(null);
-  const freshRef = useRef(false);
-  const base = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '');
-
-  const playLatest = useCallback((item) => {
-    const el = audioRef.current;
-    if (!el || !item) return;
-    el.src = item.audioUrl;
-    el.play().then(() => { setPlaying(true); duckSounds(); }).catch(() => setPlaying(false));
-  }, [duckSounds]);
 
   useEffect(() => {
-    try {
-      enabledRef.current = localStorage.getItem(LS_SOUND) === '1';
-      setEnabled(enabledRef.current);
-      seenRef.current = localStorage.getItem(LS_LAST_ID) || null;
-    } catch {}
+    try { seenRef.current = localStorage.getItem(LS_LAST_ID) || null; } catch {}
   }, []);
 
+  // Tell the Concourse bell about every latest id we see, so its dot
+  // can mark announcements the user hasn't opened yet.
+  function noteLatest(id) {
+    try { window.dispatchEvent(new CustomEvent('broadcast-latest', { detail: { id } })); } catch {}
+  }
+
   useEffect(() => {
-    if (!base) return undefined;
+    if (!base || isTourPreview) return undefined;
     let alive = true;
     const poll = async () => {
       try {
@@ -93,105 +85,55 @@ export default function BroadcastListener() {
         if (!res.ok) return;
         const item = validateLatest(await res.json().catch(() => null));
         if (!item || !alive) return;
+        noteLatest(item.id);
         let selfSent = null;
         try { selfSent = localStorage.getItem(LS_SELF_SENT); } catch {}
         if (selfSent && item.id === selfSent) {
-          // This device sent it: the studio already plays it back, so
-          // the banner must not play it a second time over the top.
+          // This device sent it: the studio already played it back, so
+          // Molly shows her head but does not speak twice.
           seenRef.current = item.id;
           try { localStorage.setItem(LS_LAST_ID, item.id); } catch {}
-          setLatest(item);
+          setOverlay({ item, selfSent: true });
           return;
         }
         if (seenRef.current === null) {
           // First sighting on this page: remember it, don't replay history.
           seenRef.current = item.id;
           try { localStorage.setItem(LS_LAST_ID, item.id); } catch {}
-          setLatest(item);
           return;
         }
         if (item.id === seenRef.current) return;
         seenRef.current = item.id;
         try { localStorage.setItem(LS_LAST_ID, item.id); } catch {}
-        setLatest(item);
-        setDismissedId(null);
-        freshRef.current = true;
-        if (enabledRef.current) playLatest(item);
+        // Fresh arrival while the page is open: Molly appears and speaks.
+        setOverlay({ item, selfSent: false });
       } catch {}
     };
     void poll();
     const timer = setInterval(poll, BROADCAST_POLL_MS);
     return () => { alive = false; clearInterval(timer); };
-  }, [base, playLatest]);
+  }, [base, isTourPreview, duckSounds]);
 
-  // Fresh-arrival unlock: a broadcast that lands while the page is open
-  // should reach every logged-in device, not only devices whose owner
-  // already tapped the banner. So once a fresh broadcast is pending, the
-  // next tap or keypress anywhere on the page (outside the banner itself)
-  // enables sound and plays it. Nothing plays on first load for a
-  // broadcast that arrived while the user was away — that one still
-  // needs the banner's own button.
-  useEffect(() => {
-    if (!latest || enabled || dismissedId === latest.id || !freshRef.current) return undefined;
-    const unlock = (e) => {
-      try {
-        if (e.target && e.target.closest && e.target.closest('[data-broadcast-banner]')) return;
-      } catch {}
-      freshRef.current = false;
-      enabledRef.current = true;
-      setEnabled(true);
-      try { localStorage.setItem(LS_SOUND, '1'); } catch {}
-      playLatest(latest);
-    };
-    window.addEventListener('pointerdown', unlock);
-    window.addEventListener('keydown', unlock);
-    return () => {
-      window.removeEventListener('pointerdown', unlock);
-      window.removeEventListener('keydown', unlock);
-    };
-  }, [latest, enabled, dismissedId, playLatest]);
-
-  if (isTourPreview || !base || !latest || dismissedId === latest.id) return null;
-
-  const presetLabel = (BROADCAST_PRESETS[latest.preset] || {}).label || latest.preset;
-
-  function enableSound() {
-    enabledRef.current = true;
-    setEnabled(true);
-    try { localStorage.setItem(LS_SOUND, '1'); } catch {}
-    playLatest(latest);
+  function handlePlayingChange(on, audioEl) {
+    if (on) duckSounds(audioEl || null);
+    else restoreSounds();
   }
 
+  function handleDone() {
+    setOverlay(null);
+    restoreSounds();
+  }
+
+  if (isTourPreview || !base || !overlay) return null;
+
+  const presetLabel = (BROADCAST_PRESETS[overlay.item.preset] || {}).label || overlay.item.preset;
   return (
-    <div data-broadcast-banner className="fixed bottom-24 right-4 z-50 w-[calc(100vw-2rem)] max-w-xs rounded-xl border border-sky-900/60 bg-zinc-950/95 p-4 shadow-2xl">
-      <audio
-        ref={audioRef}
-        preload="none"
-        onEnded={() => { setPlaying(false); restoreSounds(); }}
-        onPause={() => { setPlaying(false); restoreSounds(); }}
-      />
-      <p className="text-xs font-bold uppercase tracking-[0.2em] text-sky-300">Broadcast · {presetLabel} voice</p>
-      <p className="mt-1 text-xs text-zinc-400">
-        A new announcement is live · {new Date(latest.createdAt).toLocaleTimeString()}
-        {latest.durationMs > 0 && ` · ${Math.round(latest.durationMs / 1000)}s`}
-      </p>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {!enabled ? (
-          <button type="button" onClick={enableSound}
-            className="rounded-lg bg-sky-400 px-3 py-2 text-xs font-bold text-black">
-            Turn on broadcast sound
-          </button>
-        ) : (
-          <button type="button" onClick={() => playLatest(latest)}
-            className="rounded-lg bg-sky-400 px-3 py-2 text-xs font-bold text-black">
-            {playing ? 'Playing…' : 'Play again'}
-          </button>
-        )}
-        <button type="button" onClick={() => { try { audioRef.current?.pause(); } catch {} restoreSounds(); freshRef.current = false; setDismissedId(latest.id); }}
-          className="rounded-lg border border-zinc-700 px-3 py-2 text-xs text-zinc-300">
-          Dismiss
-        </button>
-      </div>
-    </div>
+    <MollyBroadcastOverlay
+      item={overlay.item}
+      selfSent={overlay.selfSent}
+      presetLabel={presetLabel}
+      onPlayingChange={handlePlayingChange}
+      onDone={handleDone}
+    />
   );
 }
