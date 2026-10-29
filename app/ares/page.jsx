@@ -272,6 +272,23 @@ export default function AresConsole() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Registered-users list refreshes itself: a new registration lands in
+  // Supabase Auth at once, and this poll picks it up within ~15 seconds —
+  // no Refresh tap, no reload, no intervention. Users only; the other
+  // panels still refresh with the header Refresh button. A failed tick
+  // keeps the last good list and retries on the next tick.
+  useEffect(() => {
+    if (!token) return undefined;
+    const tick = async () => {
+      try {
+        const us = await authedFetch('/api/ares/users').then((r) => r.json()).catch(() => ({}));
+        if (Array.isArray(us.users)) setRegUsers(us.users);
+      } catch { /* next tick retries */ }
+    };
+    const id = setInterval(tick, 15000);
+    return () => clearInterval(id);
+  }, [token, authedFetch]);
+
   const saveSettings = async (next) => {
     setSettings(next);
     setSaving(true);
