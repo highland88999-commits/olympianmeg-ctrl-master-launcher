@@ -21,10 +21,27 @@ test('overtop card has no solid fills', () => {
   assert.doesNotMatch(riding, /bg-black\/40/);
 });
 
-test('gate label, progress, title and timer survive as labels', () => {
+test('gate label and timer survive; visible title, subtitle and route are gone (decluttered 2026-10-29)', () => {
+  const riding = card.slice(card.indexOf("mode === 'riding'"));
   assert.match(card, /Gate \{index \+ 1\} of \{gates\.length\}/);
   assert.match(card, /Moving on in \$\{GATE_SECONDS\} seconds/);
-  assert.match(card, /\{titleFor\(gate\.key\)\}/);
+  // No visible program title/subtitle/route in the tour chrome (the
+  // iframe's accessibility title attribute may still name the program).
+  assert.doesNotMatch(riding, /<h2[^>]*>\{titleFor\(gate\.key\)\}<\/h2>/);
+  assert.doesNotMatch(riding, /subtitleFor\(gate\.key\)/);
+  assert.doesNotMatch(riding, /<p[^>]*>\{gate\.route\}<\/p>/);
+});
+
+test('HUB button sits top-left above the gate label; timer sits below the buttons', () => {
+  const riding = card.slice(card.indexOf("mode === 'riding'"));
+  assert.match(riding, /← HUB/);
+  assert.match(riding, /aria-label="Back to the hub"/);
+  // HUB renders before the gate label in source order (top of the card).
+  assert.ok(riding.indexOf('← HUB') < riding.indexOf('Gate {index + 1}'));
+  // The moving-on line renders after the button row in source order.
+  const btnRow = riding.indexOf('aria-label="End tour"');
+  const timer = riding.indexOf('Moving on in ${GATE_SECONDS} seconds');
+  assert.ok(btnRow > 0 && timer > btnRow);
 });
 
 test('word buttons are gone; circular icon buttons carry aria-labels', () => {

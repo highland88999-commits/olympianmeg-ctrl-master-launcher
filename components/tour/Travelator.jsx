@@ -153,7 +153,15 @@ export default function Travelator({ open, onClose }) {
                 previews; the words live on as aria-labels. */}
             <div className="relative z-10 flex h-full flex-col justify-between p-5">
               <div>
-                <div className="flex items-center justify-between">
+                {/* HUB sits on its own at the top-left, clear of the gate
+                    label (Merlin, 2026-10-29 — it was overlapping
+                    "Gate X of 179"). Ends the ride back to the hub. */}
+                <button type="button" onClick={endTour}
+                  aria-label="Back to the hub" title="Back to the hub"
+                  className="rounded-full border border-zinc-600 bg-black/50 px-3 py-1.5 text-xs font-bold text-zinc-100 backdrop-blur transition hover:border-sky-400">
+                  ← HUB
+                </button>
+                <div className="mt-2 flex items-center justify-between">
                   <p className="text-xs font-bold uppercase tracking-[0.2em] text-sky-300 drop-shadow-[0_1px_6px_rgba(0,0,0,0.9)]">Gate {index + 1} of {gates.length}</p>
                   <p className="text-xs text-zinc-300 drop-shadow-[0_1px_6px_rgba(0,0,0,0.9)]">{gate.section}</p>
                 </div>
@@ -162,13 +170,11 @@ export default function Travelator({ open, onClose }) {
                 </div>
               </div>
               <div className="-mx-5 -mb-5 bg-gradient-to-t from-black/70 via-black/20 to-transparent px-5 pb-5 pt-10">
-                <h2 className="text-2xl font-black text-zinc-100 drop-shadow-[0_2px_8px_rgba(0,0,0,0.95)]">{titleFor(gate.key)}</h2>
-                {subtitleFor(gate.key) && <p className="mt-1 text-sm text-zinc-300 drop-shadow-[0_1px_6px_rgba(0,0,0,0.9)]">{subtitleFor(gate.key)}</p>}
-                <p className="mt-2 font-mono text-xs text-zinc-400 drop-shadow-[0_1px_6px_rgba(0,0,0,0.9)]">{gate.route}</p>
-                <p className="mt-2 text-xs text-zinc-300 drop-shadow-[0_1px_6px_rgba(0,0,0,0.9)]">
-                  {paused ? 'Paused — the walkway is holding.' : `Moving on in ${GATE_SECONDS} seconds — or skip ahead.`}
-                </p>
-                <div className="mt-3 flex items-center gap-3">
+                {/* Decluttered (Merlin, 2026-10-29): the program's own
+                    title, subtitle and route are gone from the tour
+                    chrome — the iframe already shows the program as
+                    itself. Buttons first, the moving-on line below. */}
+                <div className="flex items-center gap-3">
                   <button type="button" disabled={index === 0} onClick={() => setIndex((i) => Math.max(0, i - 1))}
                     aria-label="Previous gate" title="Previous gate" className={iconBtn}>
                     <span aria-hidden="true">«</span>
@@ -190,6 +196,9 @@ export default function Travelator({ open, onClose }) {
                     <span aria-hidden="true">■</span>
                   </button>
                 </div>
+                <p className="mt-3 text-xs text-zinc-300 drop-shadow-[0_1px_6px_rgba(0,0,0,0.9)]">
+                  {paused ? 'Paused — the walkway is holding.' : `Moving on in ${GATE_SECONDS} seconds — or skip ahead.`}
+                </p>
               </div>
             </div>
           </div>

@@ -439,6 +439,13 @@ export default function PrimePage() {
 
   const [selection, setSelection] = useState(null); // { kind:'node'|'cluster', key }
   const [query, setQuery] = useState('');
+  // Tour preview: the Travelator shows the program as itself, so the
+  // page's own back button hides — the tour carries its own HUB button
+  // (Merlin, 2026-10-29).
+  const [isTourPreview] = useState(() => {
+    try { return new URLSearchParams(window.location.search).get('tourPreview') === '1'; }
+    catch { return false; }
+  });
   const [searchOpen, setSearchOpen] = useState(false);
   const [status, setStatus] = useState('');
   const [pins, setPins] = useState([]);
@@ -626,7 +633,7 @@ export default function PrimePage() {
       <main className="prime-main">
         {/* top bar: back, title, search — everything else lives on the map */}
         <div className="prime-topbar">
-          <BackButton label="Hub" />
+          {!isTourPreview && <BackButton label="Hub" />}
           <div className="prime-title">
             <h1><span className="prime-emblem"><Glyph size={18}>{IC.compass}</Glyph></span>STAR NAVIGATOR</h1>
             <p>Star chart</p>

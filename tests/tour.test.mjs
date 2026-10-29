@@ -46,9 +46,10 @@ test('cadence is five seconds and keys prettify', () => {
   assert.equal(prettifyKey('medusa-lair'), 'Medusa Lair');
 });
 
-test('concourse: tour tile opens the ride and keeps its SOON badge', () => {
+test('concourse: tour tile opens the ride, SOON badge removed (Merlin 2026-10-29)', () => {
   const concourse = readFileSync('components/Concourse.jsx', 'utf8');
-  assert.match(concourse, /id: 'tour', label: 'Tour'[^}]*soon: true/);
+  assert.match(concourse, /id: 'tour', label: 'Tour', icon: '🗺️'/);
+  assert.doesNotMatch(concourse, /id: 'tour'[^}]*soon: true/);
   assert.match(concourse, /setTravelatorOpen\(true\)/);
   assert.match(concourse, /<Travelator open=\{travelatorOpen\}/);
   assert.doesNotMatch(concourse, /gates are being built/);
