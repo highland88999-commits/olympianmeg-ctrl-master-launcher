@@ -10,6 +10,8 @@
 import * as THREE from 'three';
 import { WORLD } from './engine.js';
 import { guardCanvasContext } from '../../lib/scene-context-guard.js';
+import { CoralField } from './coral.js';
+import { MarineLife } from './marine.js';
 
 // ---------------------------------------------------------------------------
 // Pure helpers (no DOM, headless-testable)
@@ -126,6 +128,13 @@ export function createDiveScene(canvas, options = {}) {
   const wallR = new THREE.Mesh(wallGeo, wallMat);
   wallR.position.set(38, -8, -60);
   scene.add(wallL, wallR);
+
+  // --- coral reef (Merlin 2026-10-29): the seafloor at the trench bottom ---
+  const reef = new CoralField(scene);
+
+  // --- marine life (Merlin 2026-10-29): rigged Tripo creatures ---
+  const marine = new MarineLife(scene);
+  marine.load(); // async; missing GLBs skip silently until they land
 
   // --- marine snow ---
   const snowGeo = new THREE.BufferGeometry();
@@ -260,6 +269,8 @@ export function createDiveScene(canvas, options = {}) {
 
     // environment follows depth
     const depth = game ? game.depth : 0;
+    reef.update(depth, t);
+    marine.update(t, dt, depth);
     const pal = zonePalette(depth);
     bgColor.setRGB(pal.bg[0], pal.bg[1], pal.bg[2]);
     scene.fog.color.copy(bgColor);
@@ -329,6 +340,17 @@ export function createDiveScene(canvas, options = {}) {
         sparkCol[si * 3 + 1] = 0.55 * k;
         sparkCol[si * 3 + 2] = 0.2 * k;
         si++;
+      } else if (b.kind === 'heal' && si < MAX_SPARKS) {
+        // clean-streak restore sparkles (2026-10-29): green-cyan,
+        // rising — the voyage rewarding clean diving.
+        sparkPos[si * 3] = bx;
+        sparkPos[si * 3 + 1] = 0;
+        sparkPos[si * 3 + 2] = bz;
+        const k = Math.min(1, b.life * 2);
+        sparkCol[si * 3] = 0.25 * k;
+        sparkCol[si * 3 + 1] = 1.0 * k;
+        sparkCol[si * 3 + 2] = 0.65 * k;
+        si++;
       }
     }
     for (let i = pi; i < MAX_PEARLS; i++) pearls[i].visible = false;
@@ -363,6 +385,8 @@ export function createDiveScene(canvas, options = {}) {
 
   function dispose() {
     disposed = true;
+    reef.dispose();
+    marine.dispose();
     contextGuard.dispose();
     scene.traverse((o) => {
       if (o.geometry) o.geometry.dispose();

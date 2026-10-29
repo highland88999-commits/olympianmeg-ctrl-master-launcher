@@ -36,6 +36,7 @@ export function createGame(difficultyKey = "abyssal", seed = 1) {
     pearls: 0,
     hull: 100,
     invuln: 0,
+    cleanStreak: 0, // gates cleared without damage (3 = full hull restore)
     player: { x: WORLD.width / 2, y: WORLD.height * 0.72, targetX: WORLD.width / 2, r: 22 },
     obstacles: [], // { x, w, gapY, gapH, passed }
     bits: [], // debris/pearl particles {x,y,vx,vy,kind,r,life}
@@ -51,7 +52,13 @@ function spawnObstacle(g) {
   const w = 90 + r() * 130;
   const x = 40 + r() * (WORLD.width - 80 - w);
   const gapH = d.gap * (0.9 + r() * 0.25);
-  const gapY = 120 + r() * (WORLD.height * 0.55 - gapH - 40);
+  // Fair spawn (2026-10-29, Merlin): gates used to spawn at gapY
+  // 120-428, already on screen at varying distances — at high
+  // speed a near spawn gave under a second of warning before the
+  // rock reached the sub. Now every gate starts fully off-screen
+  // and scrolls the full distance in, so the warning time is
+  // consistent and fair at every speed and depth.
+  const gapY = -120 - r() * 60;
   g.obstacles.push({ x, w, gapY, gapH, passed: false });
   // ambient debris around the gate
   const n = 4 + Math.floor(r() * 6);
@@ -145,6 +152,7 @@ export function stepGame(g, input, dt) {
       g.hull -= 17;
       g.invuln = 1.1;
       g.flash = 0.25;
+      g.cleanStreak = 0; // damage breaks the clean streak
       for (let i = 0; i < 14; i++) {
         g.bits.push({
           x: p.x,
@@ -166,6 +174,28 @@ export function stepGame(g, input, dt) {
     if (!o.passed && o.gapY + o.gapH / 2 > p.y + 60) {
       o.passed = true;
       g.score += 25;
+      // Clean streak (2026-10-29, Merlin): three gates cleared
+      // without taking damage restores the hull to full — the
+      // voyage rewards clean diving.
+      g.cleanStreak += 1;
+      if (g.cleanStreak >= 3) {
+        g.cleanStreak = 0;
+        if (g.hull < 100) {
+          g.hull = 100;
+          g.flash = 0; // no red flash on a heal
+          for (let i = 0; i < 10; i++) {
+            g.bits.push({
+              x: p.x + (g.rng() - 0.5) * 60,
+              y: p.y + (g.rng() - 0.5) * 60,
+              vx: (g.rng() - 0.5) * 60,
+              vy: -40 - g.rng() * 40,
+              kind: "heal",
+              r: 2 + g.rng() * 3,
+              life: 0.8 + g.rng() * 0.4,
+            });
+          }
+        }
+      }
     }
   }
 
