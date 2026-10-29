@@ -5,9 +5,9 @@
 // Tap the Tour tile and the ride begins: gate by gate through the program
 // registry, one Gate Card at a time, five seconds per gate. The travelator
 // never waits — doing nothing keeps riding. Each gate shows TWO stacked
-// frames in the one overlay: a preview frame on top (the program's own
-// portal video when it has one, else a title frame — never a gap) and
-// the tour controls + information frame below it. Tour Bar controls:
+// frames in the one overlay: a preview frame on top (the program itself,
+// live in an iframe — not a video of it) and the tour controls +
+// information frame below it. Tour Bar controls:
 // Previous, Pause, Next Gate, Open (leave the ride and enter that
 // program), End Tour. Ending shrinks the card back down, the way the
 // ride collapses back into the Orb. The tile keeps its SOON badge: this
@@ -20,7 +20,6 @@ import { SATELLITES } from '@/lib/i18n/satellites';
 import { useI18n } from '@/lib/i18n';
 import { SECTION_ORDER } from '@/lib/portal-roster';
 import { GATE_SECONDS, buildTour, prettifyKey } from '@/lib/tour/itinerary';
-import { portalHasVideo } from '@/lib/portal-videos';
 
 export default function Travelator({ open, onClose }) {
   const router = useRouter();
@@ -135,26 +134,21 @@ export default function Travelator({ open, onClose }) {
               <div className="h-full rounded-full bg-sky-400 transition-all duration-500" style={{ width: `${progress}%` }} />
             </div>
             {/* Preview frame (top of the two stacked frames): the
-                program's own portal video when it has one, else a
-                title frame — never a gap. Muted loop: a glimpse,
-                not a screening, and it never blocks the 5 s step. */}
+                program itself, live in an iframe — not a video of it.
+                pointer-events-none keeps the glimpse from swallowing
+                tour taps or scrolls; Open this program is how you
+                step inside. Sandboxed to scripts + same origin so the
+                page renders as itself, but it cannot navigate the
+                tour away. A heavy program may still be painting when
+                its 5 s gate ends — that is the live preview's cost. */}
             <div className="overflow-hidden rounded-xl border border-zinc-800 bg-black">
-              {portalHasVideo(gate.key) ? (
-                <video
-                  key={gate.key}
-                  src={`/videos/portals/${gate.key}.mp4`}
-                  autoPlay
-                  loop
-                  muted
-                  playsInline
-                  className="block aspect-video w-full object-cover"
-                />
-              ) : (
-                <div className="flex aspect-video w-full flex-col items-center justify-center gap-1 bg-zinc-900 p-4 text-center">
-                  <p className="text-lg font-black text-zinc-100">{titleFor(gate.key)}</p>
-                  <p className="text-xs text-zinc-500">{gate.section} · preview video coming</p>
-                </div>
-              )}
+              <iframe
+                key={gate.key}
+                src={gate.route}
+                title={`${titleFor(gate.key)} preview`}
+                sandbox="allow-scripts allow-same-origin"
+                className="pointer-events-none block aspect-video w-full border-0 bg-black"
+              />
             </div>
             <div className="rounded-xl border border-zinc-800 bg-black/40 p-5">
               <h2 className="text-2xl font-black text-zinc-100">{titleFor(gate.key)}</h2>
