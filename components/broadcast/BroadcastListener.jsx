@@ -26,6 +26,14 @@ export default function BroadcastListener() {
   const [latest, setLatest] = useState(null);
   const [dismissedId, setDismissedId] = useState(null);
   const [playing, setPlaying] = useState(false);
+  // Tour preview iframes (Merlin, 2026-10-29): the tour shows the
+  // program itself as a live background preview — the announcement
+  // box would cover it, so the iframe URL carries ?tourPreview=1
+  // and the banner stays out of the way there. The main site is
+  // untouched: this only fires inside the tour's preview frames.
+  const [isTourPreview] = useState(() => {
+    try { return new URLSearchParams(window.location.search).get('tourPreview') === '1'; } catch { return false; }
+  });
   const audioRef = useRef(null);
   const enabledRef = useRef(false);
   const radio = useRadio();
@@ -143,7 +151,7 @@ export default function BroadcastListener() {
     };
   }, [latest, enabled, dismissedId, playLatest]);
 
-  if (!base || !latest || dismissedId === latest.id) return null;
+  if (isTourPreview || !base || !latest || dismissedId === latest.id) return null;
 
   const presetLabel = (BROADCAST_PRESETS[latest.preset] || {}).label || latest.preset;
 

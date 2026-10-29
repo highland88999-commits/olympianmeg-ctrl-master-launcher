@@ -4,15 +4,19 @@
 //
 // Tap the Tour tile and the ride begins: gate by gate through the program
 // registry, one Gate Card at a time, five seconds per gate. The travelator
-// never waits — doing nothing keeps riding. Each gate shows TWO stacked
-// frames in the one overlay: a preview frame on top (the program itself,
-// live in an iframe — not a video of it) and the tour controls +
-// information frame below it. Tour Bar controls:
-// Previous, Pause, Next Gate, Open (leave the ride and enter that
-// program), End Tour. Ending shrinks the card back down, the way the
-// ride collapses back into the Orb. The tile keeps its SOON badge: this
-// is the preview ride — the full hub-camera glide is a later step,
-// not this one.
+// never waits — doing nothing keeps riding. Each gate card uses the
+// program itself as its background: the program live in an iframe,
+// full-bleed behind the tour chrome. The card overtop is see-through —
+// labels, symbols, borders and buttons only, no solid fills (a faint
+// bottom shade keeps the labels readable over bright previews). The
+// tour controls are circular icon buttons: the words are gone, a
+// symbol matching each function takes their place (words survive as
+// aria-labels for screen readers). Tour Bar controls:
+// Previous («), Pause/Resume (❚❚/▶), Next Gate (»), Open (⬈ — leave
+// the ride and enter that program), End Tour (■). Ending shrinks the
+// card back down, the way the ride collapses back into the Orb. The
+// tile keeps its SOON badge: this is the preview ride — the full
+// hub-camera glide is a later step, not this one.
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -88,6 +92,11 @@ export default function Travelator({ open, onClose }) {
 
   const gate = gates[index] || null;
   const progress = gates.length ? Math.round(((index + 1) / gates.length) * 100) : 0;
+  // The preview iframe carries ?tourPreview=1 so the page hides its
+  // broadcast announcement box — the tour shows the program only.
+  const previewSrc = gate ? gate.route + (gate.route.includes('?') ? '&' : '?') + 'tourPreview=1' : '';
+  const iconBtn = 'flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-zinc-600 bg-black/50 text-lg leading-none text-zinc-100 backdrop-blur transition hover:border-sky-400 disabled:opacity-40';
+  const iconBtnPrimary = 'flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-sky-400 bg-sky-400 text-lg leading-none text-black backdrop-blur transition hover:bg-sky-300';
 
   return (
     <div className="fixed inset-0 z-[90] flex flex-col items-center justify-center overflow-y-auto bg-black/90 p-4" role="dialog" aria-label="The Travelator tour">
@@ -125,60 +134,66 @@ export default function Travelator({ open, onClose }) {
         )}
 
         {mode === 'riding' && gate && (
-          <div className="flex flex-col gap-4">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-bold uppercase tracking-[0.2em] text-sky-300">Gate {index + 1} of {gates.length}</p>
-              <p className="text-xs text-zinc-500">{gate.section}</p>
-            </div>
-            <div className="h-2 overflow-hidden rounded-full bg-zinc-800">
-              <div className="h-full rounded-full bg-sky-400 transition-all duration-500" style={{ width: `${progress}%` }} />
-            </div>
-            {/* Preview frame (top of the two stacked frames): the
-                program itself, live in an iframe — not a video of it.
+          <div className="relative flex h-[72dvh] flex-col overflow-hidden">
+            {/* The program itself is the background: live in an
+                iframe, full-bleed behind the tour chrome.
                 pointer-events-none keeps the glimpse from swallowing
                 tour taps or scrolls; Open this program is how you
                 step inside. Sandboxed to scripts + same origin so the
                 page renders as itself, but it cannot navigate the
                 tour away. A heavy program may still be painting when
                 its 5 s gate ends — that is the live preview's cost. */}
-            <div className="overflow-hidden rounded-xl border border-zinc-800 bg-black">
-              <iframe
-                key={gate.key}
-                src={gate.route}
-                title={`${titleFor(gate.key)} preview`}
-                sandbox="allow-scripts allow-same-origin"
-                className="pointer-events-none block aspect-video w-full border-0 bg-black"
-              />
-            </div>
-            <div className="rounded-xl border border-zinc-800 bg-black/40 p-5">
-              <h2 className="text-2xl font-black text-zinc-100">{titleFor(gate.key)}</h2>
-              {subtitleFor(gate.key) && <p className="mt-1 text-sm text-zinc-400">{subtitleFor(gate.key)}</p>}
-              <p className="mt-3 font-mono text-xs text-zinc-500">{gate.route}</p>
-            </div>
-            <p className="text-xs text-zinc-500">
-              {paused ? 'Paused — the walkway is holding.' : `Moving on in ${GATE_SECONDS} seconds — or skip ahead.`}
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <button type="button" disabled={index === 0} onClick={() => setIndex((i) => Math.max(0, i - 1))}
-                className="rounded-lg border border-zinc-700 px-4 py-2 text-xs font-bold text-zinc-100 disabled:opacity-40">
-                Previous gate
-              </button>
-              <button type="button" onClick={() => setPaused((p) => !p)}
-                className="rounded-lg border border-zinc-700 px-4 py-2 text-xs font-bold text-zinc-100">
-                {paused ? 'Resume' : 'Pause'}
-              </button>
-              <button type="button" onClick={() => { if (index >= gates.length - 1) setMode('done'); else setIndex((i) => i + 1); }}
-                className="rounded-lg border border-zinc-700 px-4 py-2 text-xs font-bold text-zinc-100">
-                Next gate
-              </button>
-              <button type="button" onClick={openGate}
-                className="rounded-lg bg-sky-400 px-4 py-2 text-xs font-bold text-black">
-                Open this program
-              </button>
-              <button type="button" onClick={endTour}
-                className="rounded-lg border border-zinc-700 px-4 py-2 text-xs font-bold text-zinc-300">
-                End tour
-              </button>
+            <iframe
+              key={gate.key}
+              src={previewSrc}
+              title={`${titleFor(gate.key)} preview`}
+              sandbox="allow-scripts allow-same-origin"
+              className="pointer-events-none absolute inset-0 block h-full w-full border-0 bg-black"
+            />
+            {/* See-through card overtop: labels, symbols, borders
+                and buttons only — no solid fills. A faint bottom
+                shade keeps the labels readable over bright
+                previews; the words live on as aria-labels. */}
+            <div className="relative z-10 flex h-full flex-col justify-between p-5">
+              <div>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-sky-300 drop-shadow-[0_1px_6px_rgba(0,0,0,0.9)]">Gate {index + 1} of {gates.length}</p>
+                  <p className="text-xs text-zinc-300 drop-shadow-[0_1px_6px_rgba(0,0,0,0.9)]">{gate.section}</p>
+                </div>
+                <div className="mt-2 h-2 overflow-hidden rounded-full bg-black/50">
+                  <div className="h-full rounded-full bg-sky-400 transition-all duration-500" style={{ width: `${progress}%` }} />
+                </div>
+              </div>
+              <div className="-mx-5 -mb-5 bg-gradient-to-t from-black/70 via-black/20 to-transparent px-5 pb-5 pt-10">
+                <h2 className="text-2xl font-black text-zinc-100 drop-shadow-[0_2px_8px_rgba(0,0,0,0.95)]">{titleFor(gate.key)}</h2>
+                {subtitleFor(gate.key) && <p className="mt-1 text-sm text-zinc-300 drop-shadow-[0_1px_6px_rgba(0,0,0,0.9)]">{subtitleFor(gate.key)}</p>}
+                <p className="mt-2 font-mono text-xs text-zinc-400 drop-shadow-[0_1px_6px_rgba(0,0,0,0.9)]">{gate.route}</p>
+                <p className="mt-2 text-xs text-zinc-300 drop-shadow-[0_1px_6px_rgba(0,0,0,0.9)]">
+                  {paused ? 'Paused — the walkway is holding.' : `Moving on in ${GATE_SECONDS} seconds — or skip ahead.`}
+                </p>
+                <div className="mt-3 flex items-center gap-3">
+                  <button type="button" disabled={index === 0} onClick={() => setIndex((i) => Math.max(0, i - 1))}
+                    aria-label="Previous gate" title="Previous gate" className={iconBtn}>
+                    <span aria-hidden="true">«</span>
+                  </button>
+                  <button type="button" onClick={() => setPaused((p) => !p)}
+                    aria-label={paused ? 'Resume' : 'Pause'} title={paused ? 'Resume' : 'Pause'} className={iconBtn}>
+                    <span aria-hidden="true">{paused ? '▶' : '❚❚'}</span>
+                  </button>
+                  <button type="button" onClick={() => { if (index >= gates.length - 1) setMode('done'); else setIndex((i) => i + 1); }}
+                    aria-label="Next gate" title="Next gate" className={iconBtn}>
+                    <span aria-hidden="true">»</span>
+                  </button>
+                  <button type="button" onClick={openGate}
+                    aria-label="Open this program" title="Open this program" className={iconBtnPrimary}>
+                    <span aria-hidden="true">⬈</span>
+                  </button>
+                  <button type="button" onClick={endTour}
+                    aria-label="End tour" title="End tour" className={iconBtn}>
+                    <span aria-hidden="true">■</span>
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         )}
