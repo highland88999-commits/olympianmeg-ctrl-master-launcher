@@ -135,6 +135,8 @@ export default function BroadcastStudio() {
   const meterRafRef = useRef(null);
   const meterRef = useRef(null);
   const analyserRef = useRef(null);
+  const quietPeakRef = useRef(0);
+  const quietWarnedRef = useRef(false);
   const unlockAudioRef = useRef(null);
   const sentAudioRef = useRef(null);
 
@@ -172,6 +174,22 @@ export default function BroadcastStudio() {
     }
     const level = Math.min(1, Math.sqrt(sum / data.length) * 4);
     if (meterRef.current) meterRef.current.style.width = `${Math.round(level * 100)}%`;
+    // Quiet-hold warning (the silent-clip fix): speaking into a dead
+    // graph used to record full-length silence with no sign anything
+    // was wrong. If the hold passes 2.5 s with the level still at the
+    // noise floor, say so while he can still fix it; if voice appears
+    // later, the warning clears itself.
+    if (holdingRef.current) {
+      if (level > quietPeakRef.current) quietPeakRef.current = level;
+      const elapsed = Date.now() - (startTimeRef.current || Date.now());
+      if (elapsed > 2500 && quietPeakRef.current < 0.03 && !quietWarnedRef.current) {
+        quietWarnedRef.current = true;
+        setMessage('We can\'t hear you yet — if the mic is muted, release and hold again.');
+      } else if (quietWarnedRef.current && level > 0.1) {
+        quietWarnedRef.current = false;
+        setMessage('');
+      }
+    }
     meterRafRef.current = requestAnimationFrame(drawMeter);
   }
 
@@ -264,6 +282,18 @@ export default function BroadcastStudio() {
         // (stopping it would make the next hold ask again) and return.
         return;
       }
+      // Mic health (the silent-clip fix): a cached track can be live
+      // yet muted — the old code reused it forever and recorded
+      // silence. A muted, disabled, or ended track earns one fresh
+      // request; the level warning and the pre-send guard below are
+      // the safety net if even the fresh track is dead.
+      const healthy = (s) => s.getAudioTracks().some(
+        (t) => t.readyState === 'live' && t.enabled && !t.muted);
+      let liveStream = stream;
+      if (!healthy(liveStream)) {
+        streamRef.current = null;
+        liveStream = await ensureMicStream();
+      }
       // Reuse the gesture-unlocked context when there is one; a closed
       // context from a previous session can never resume, so replace it.
       let ctx = ctxRef.current;
@@ -272,7 +302,18 @@ export default function BroadcastStudio() {
         ctxRef.current = ctx;
       }
       try { await ctx.resume(); } catch {}
-      const source = ctx.createMediaStreamSource(stream);
+      // Context verification (the silent-clip fix): a graph built on a
+      // suspended or interrupted context records full-length silence
+      // with no error. If it will not run, say so and record nothing
+      // rather than sending another silent clip.
+      if (ctx.state !== 'running') {
+        holdingRef.current = false;
+        restoreSounds();
+        setStatus('error');
+        setMessage('The audio engine did not start — reload the page, then hold to speak again.');
+        return;
+      }
+      const source = ctx.createMediaStreamSource(liveStream);
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 2048;
       analyserRef.current = analyser;
@@ -316,6 +357,8 @@ export default function BroadcastStudio() {
       startTimeRef.current = Date.now();
       recorder.start(250);
       setStatus('holding');
+      quietPeakRef.current = 0;
+      quietWarnedRef.current = false;
       meterRafRef.current = requestAnimationFrame(drawMeter);
       capTimerRef.current = setTimeout(() => {
         if (holdingRef.current) {
@@ -361,6 +404,37 @@ export default function BroadcastStudio() {
     stopSession();
   }
 
+  // Silence guard (the silent-clip fix): decode the finished take and
+  // measure its peak. A take with no audible content is never sent —
+  // the user gets a plain message instead of a silent broadcast the
+  // whole site then hears nothing from. Undecodable audio (or no
+  // decoder at all) never blocks a send: it returns false and the
+  // take goes out as before.
+  async function clipIsSilent(blob) {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return false;
+      const ctx = new Ctx();
+      try {
+        const buf = await blob.arrayBuffer();
+        const decoded = await ctx.decodeAudioData(buf);
+        let peak = 0;
+        for (let c = 0; c < decoded.numberOfChannels; c += 1) {
+          const d = decoded.getChannelData(c);
+          for (let i = 0; i < d.length; i += 256) {
+            const a = Math.abs(d[i]);
+            if (a > peak) peak = a;
+          }
+        }
+        return peak < 0.01;
+      } finally {
+        try { await ctx.close(); } catch {}
+      }
+    } catch {
+      return false;
+    }
+  }
+
   async function finishSession(session, alreadyStopped = false) {
     const durationMs = Date.now() - (startTimeRef.current || Date.now());
     try { ctxRef.current?.close(); } catch {}
@@ -371,6 +445,11 @@ export default function BroadcastStudio() {
     if (alreadyStopped || durationMs < 500 || blob.size === 0) {
       setStatus('idle');
       if (durationMs < 500 && durationMs > 0) setMessage('Too short — hold the button while you speak.');
+      return;
+    }
+    if (await clipIsSilent(blob)) {
+      setStatus('idle');
+      setMessage('That recording came out silent — nothing was sent. Check the mic, then hold and speak again.');
       return;
     }
     setStatus('uploading');
