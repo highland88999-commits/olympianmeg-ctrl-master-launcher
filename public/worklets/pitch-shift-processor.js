@@ -28,8 +28,19 @@ class PitchShiftProcessor extends AudioWorkletProcessor {
     return 0.5 * (1 - Math.cos((2 * Math.PI * phase) / WINDOW));
   }
 
+  // Linear interpolation between ring samples: the read heads advance
+  // by the pitch (0.7 for Deep), so they land BETWEEN samples. Indexing
+  // the ring with a fractional index used to return undefined, which
+  // made every Deep/High sample NaN — the analyser read silence, the
+  // meter sat flat, and every Deep recording came out silent, while
+  // pitch 1.0 (integer steps) worked fine. Interpolating fixes the
+  // fractional pitches and improves the resampling quality.
   _at(index) {
-    return this.ring[((index % RING) + RING) % RING];
+    const i = ((index % RING) + RING) % RING;
+    const i0 = Math.floor(i);
+    const i1 = (i0 + 1) % RING;
+    const frac = i - i0;
+    return this.ring[i0] * (1 - frac) + this.ring[i1] * frac;
   }
 
   process(inputs, outputs, parameters) {
