@@ -1,29 +1,66 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { RocketIcon, RotateIcon } from "@/lib/hermes-icons";
+import { SATELLITES } from "@/lib/i18n/satellites";
+import { prettifyKey } from "@/lib/tour/itinerary";
 import {
   makeTunnel, streamParticle, projectParticle, coreState, flightProgress,
 } from './lib/vortex.js';
 
-// Nexus Vortex — "The Panning Core".
-// A cinematic flight through a particle vortex toward a gold core emblem.
-// Faithful to the source scene; the ending changed: the original loaded a
-// REMOTE site embedded at the end of the flight. This build opens a local
-// portal panel instead — zero external requests.
+// Nexus Vortex — fast travel for Olympus (Merlin, 2026-10-29).
+// Pick a destination (or let the vortex decide), fly the 8-second
+// particle tunnel, and step through on arrival. The flight used to
+// end at a dead-end panel; now the vortex is the journey and the
+// destination is the point.
 
 const FLIGHT_MS = 8000;
 
+// Every registered program is a destination, except the vortex
+// itself — flying to yourself is a circle.
+const DESTINATIONS = SATELLITES.filter((s) => s.key !== 'nexus-vortex')
+  .map((s) => ({ key: s.key, route: s.route, name: prettifyKey(s.key) }));
+
 export default function NexusVortexPage() {
+  const router = useRouter();
   const canvasRef = useRef(null);
-  const [phase, setPhase] = useState('intro'); // intro | flying | arrived
+  const [phase, setPhase] = useState('pick'); // pick | flying | arrived
   const [sway, setSway] = useState({ x: 0, y: 0 });
+  const [query, setQuery] = useState('');
+  const [destination, setDestination] = useState(null);
   const startRef = useRef(0);
   const reduceMotion = useRef(false);
 
-  const beginFlight = useCallback(() => {
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const pool = q
+      ? DESTINATIONS.filter((d) =>
+          d.name.toLowerCase().includes(q) || d.key.toLowerCase().includes(q))
+      : DESTINATIONS;
+    return pool.slice(0, 8);
+  }, [query]);
+
+  const beginFlight = useCallback((dest) => {
+    if (!dest) return;
+    setDestination(dest);
+    setQuery('');
     startRef.current = performance.now();
     setPhase('flying');
+  }, []);
+
+  const surpriseMe = useCallback(() => {
+    const pick = DESTINATIONS[Math.floor(Math.random() * DESTINATIONS.length)];
+    beginFlight(pick);
+  }, [beginFlight]);
+
+  const stepThrough = useCallback(() => {
+    if (destination) router.push(destination.route);
+  }, [destination, router]);
+
+  const pickAnother = useCallback(() => {
+    setDestination(null);
+    setPhase('pick');
   }, []);
 
   // Pointer sway (subtle camera drift); also gives touch users a steering feel.
@@ -153,14 +190,34 @@ export default function NexusVortexPage() {
     <main style={styles.page}>
       <canvas ref={canvasRef} style={styles.canvas} aria-label="Vortex flight visualization" />
 
-      {phase === 'intro' && (
+      {phase === 'pick' && (
         <div style={styles.intro}>
           <p style={styles.kicker}>Nexus Vortex</p>
-          <h1 style={styles.h1}>The Panning Core</h1>
-          <p style={styles.sub}>An 8-second flight through the vortex, toward the gold core.</p>
-          <button type="button" style={styles.cta} onClick={beginFlight}>
+          <h1 style={styles.h1}>Where to?</h1>
+          <p style={styles.sub}>Choose a destination — or let the vortex decide.</p>
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search programs…"
+            aria-label="Search destinations"
+            style={styles.search}
+          />
+          <div style={styles.list} role="listbox" aria-label="Destinations">
+            {matches.map((d) => (
+              <button key={d.key} type="button" role="option" aria-selected="false"
+                onClick={() => beginFlight(d)} style={styles.row}>
+                <span>{d.name}</span>
+                <span aria-hidden="true" style={styles.rowArrow}>→</span>
+              </button>
+            ))}
+            {matches.length === 0 && (
+              <p style={styles.noMatch}>No program matches that — try another word.</p>
+            )}
+          </div>
+          <button type="button" style={{ ...styles.cta, marginTop: 18 }} onClick={surpriseMe}>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
-              <RocketIcon size={18} />Begin the flight
+              <span aria-hidden="true">🎲</span>Surprise me
             </span>
           </button>
           <p style={styles.hint}>Move your pointer to steer the camera slightly.</p>
@@ -168,22 +225,30 @@ export default function NexusVortexPage() {
       )}
 
       {phase === 'flying' && (
-        <p style={styles.flying}>Flying…</p>
+        <p style={styles.flying}>
+          Flying{destination ? ` to ${destination.name}` : ''}…
+        </p>
       )}
 
-      {phase === 'arrived' && (
-        <div style={styles.portal} role="dialog" aria-label="Core arrival">
-          <p style={styles.kicker}>You reached the core</p>
-          <h2 style={styles.portalH}>The Vortex holds steady</h2>
+      {phase === 'arrived' && destination && (
+        <div style={styles.portal} role="dialog" aria-label="Arrival">
+          <p style={styles.kicker}>You arrived</p>
+          <h2 style={styles.portalH}>{destination.name}</h2>
           <p style={styles.portalP}>
-            In the original prototype, this flight ended by loading a remote site in a frame.
-            This build ends here, on this device: nothing external was loaded.
+            The vortex held steady all the way. Step through when you're ready.
           </p>
-          <button type="button" style={styles.cta} onClick={beginFlight}>
+          <button type="button" style={styles.cta} onClick={stepThrough}>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
-              <RotateIcon size={17} />Fly again
+              <RocketIcon size={18} />Step through
             </span>
           </button>
+          <p style={styles.hint}>
+            <button type="button" onClick={pickAnother} style={styles.linkBtn}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                <RotateIcon size={14} />Fly somewhere else
+              </span>
+            </button>
+          </p>
         </div>
       )}
       {/* Safari bottom-bar clearance */}
@@ -216,6 +281,27 @@ const styles = {
   flying: {
     position: 'absolute', bottom: '36px', left: 0, right: 0, textAlign: 'center',
     color: '#ffd700', letterSpacing: '4px', fontSize: '0.85rem', textTransform: 'uppercase',
+  },
+  search: {
+    width: 'min(92vw, 380px)', padding: '12px 18px', marginBottom: '12px',
+    background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,215,0,0.35)',
+    borderRadius: '999px', color: '#fff', fontSize: '1rem', outline: 'none',
+  },
+  list: {
+    width: 'min(92vw, 380px)', maxHeight: '38vh', overflowY: 'auto',
+    display: 'flex', flexDirection: 'column', gap: '6px',
+  },
+  row: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    width: '100%', padding: '12px 16px', background: 'rgba(0,0,0,0.55)',
+    border: '1px solid rgba(255,255,255,0.12)', borderRadius: '12px',
+    color: '#E0E0E0', fontSize: '0.95rem', cursor: 'pointer', textAlign: 'left',
+  },
+  rowArrow: { color: '#ffd700', fontSize: '1.1rem' },
+  noMatch: { color: '#777', fontSize: '0.9rem', textAlign: 'center', margin: '12px 0' },
+  linkBtn: {
+    background: 'none', border: 'none', color: '#9aa', fontSize: '0.85rem',
+    cursor: 'pointer', textDecoration: 'underline', padding: '4px',
   },
   portal: {
     position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
