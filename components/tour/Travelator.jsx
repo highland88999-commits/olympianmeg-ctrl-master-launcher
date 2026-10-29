@@ -4,11 +4,15 @@
 //
 // Tap the Tour tile and the ride begins: gate by gate through the program
 // registry, one Gate Card at a time, five seconds per gate. The travelator
-// never waits — doing nothing keeps riding. Tour Bar controls: Pause,
-// Next Gate, Open (leave the ride and enter that program), End Tour.
-// Ending shrinks the card back down, the way the ride collapses back into
-// the Orb. The tile keeps its SOON badge: this is the preview ride —
-// the full hub-camera glide is a later step, not this one.
+// never waits — doing nothing keeps riding. Each gate shows TWO stacked
+// frames in the one overlay: a preview frame on top (the program's own
+// portal video when it has one, else a title frame — never a gap) and
+// the tour controls + information frame below it. Tour Bar controls:
+// Previous, Pause, Next Gate, Open (leave the ride and enter that
+// program), End Tour. Ending shrinks the card back down, the way the
+// ride collapses back into the Orb. The tile keeps its SOON badge: this
+// is the preview ride — the full hub-camera glide is a later step,
+// not this one.
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -16,6 +20,7 @@ import { SATELLITES } from '@/lib/i18n/satellites';
 import { useI18n } from '@/lib/i18n';
 import { SECTION_ORDER } from '@/lib/portal-roster';
 import { GATE_SECONDS, buildTour, prettifyKey } from '@/lib/tour/itinerary';
+import { portalHasVideo } from '@/lib/portal-videos';
 
 export default function Travelator({ open, onClose }) {
   const router = useRouter();
@@ -86,7 +91,7 @@ export default function Travelator({ open, onClose }) {
   const progress = gates.length ? Math.round(((index + 1) / gates.length) * 100) : 0;
 
   return (
-    <div className="fixed inset-0 z-[90] flex flex-col items-center justify-center bg-black/90 p-4" role="dialog" aria-label="The Travelator tour">
+    <div className="fixed inset-0 z-[90] flex flex-col items-center justify-center overflow-y-auto bg-black/90 p-4" role="dialog" aria-label="The Travelator tour">
       <div
         className="w-full max-w-lg rounded-2xl border border-zinc-800 bg-zinc-950 p-6 transition-all duration-500"
         style={shrinking || mode === 'done'
@@ -99,7 +104,7 @@ export default function Travelator({ open, onClose }) {
             <h2 className="text-2xl font-black text-zinc-100">A ride through every program</h2>
             <p className="text-sm leading-relaxed text-zinc-400">
               The airport walkway of the Concourse: gate by gate, {GATE_SECONDS} seconds
-              each, and it never waits for you. Pause it, skip ahead, step off
+              each, and it never waits for you. Pause it, go back, skip ahead, step off
               into any program, or ride it to the end — ending shrinks you
               back down, the way the ride collapses into the Orb.
             </p>
@@ -129,6 +134,28 @@ export default function Travelator({ open, onClose }) {
             <div className="h-2 overflow-hidden rounded-full bg-zinc-800">
               <div className="h-full rounded-full bg-sky-400 transition-all duration-500" style={{ width: `${progress}%` }} />
             </div>
+            {/* Preview frame (top of the two stacked frames): the
+                program's own portal video when it has one, else a
+                title frame — never a gap. Muted loop: a glimpse,
+                not a screening, and it never blocks the 5 s step. */}
+            <div className="overflow-hidden rounded-xl border border-zinc-800 bg-black">
+              {portalHasVideo(gate.key) ? (
+                <video
+                  key={gate.key}
+                  src={`/videos/portals/${gate.key}.mp4`}
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  className="block aspect-video w-full object-cover"
+                />
+              ) : (
+                <div className="flex aspect-video w-full flex-col items-center justify-center gap-1 bg-zinc-900 p-4 text-center">
+                  <p className="text-lg font-black text-zinc-100">{titleFor(gate.key)}</p>
+                  <p className="text-xs text-zinc-500">{gate.section} · preview video coming</p>
+                </div>
+              )}
+            </div>
             <div className="rounded-xl border border-zinc-800 bg-black/40 p-5">
               <h2 className="text-2xl font-black text-zinc-100">{titleFor(gate.key)}</h2>
               {subtitleFor(gate.key) && <p className="mt-1 text-sm text-zinc-400">{subtitleFor(gate.key)}</p>}
@@ -138,6 +165,10 @@ export default function Travelator({ open, onClose }) {
               {paused ? 'Paused — the walkway is holding.' : `Moving on in ${GATE_SECONDS} seconds — or skip ahead.`}
             </p>
             <div className="flex flex-wrap gap-2">
+              <button type="button" disabled={index === 0} onClick={() => setIndex((i) => Math.max(0, i - 1))}
+                className="rounded-lg border border-zinc-700 px-4 py-2 text-xs font-bold text-zinc-100 disabled:opacity-40">
+                Previous gate
+              </button>
               <button type="button" onClick={() => setPaused((p) => !p)}
                 className="rounded-lg border border-zinc-700 px-4 py-2 text-xs font-bold text-zinc-100">
                 {paused ? 'Resume' : 'Pause'}

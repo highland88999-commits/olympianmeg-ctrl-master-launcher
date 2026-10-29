@@ -445,7 +445,7 @@ export default function DreamEnginePage() {
           position: absolute; top: 0; left: 0; right: 0; z-index: 10;
           display: flex; align-items: center; gap: 12px;
           padding: 12px 14px;
-          background: linear-gradient(180deg, rgba(7,5,15,0.85), rgba(7,5,15,0));
+          background: rgba(7,5,15,0.97);
         }
         .de-back {
           display: flex; align-items: center; justify-content: center;
@@ -531,7 +531,8 @@ export default function DreamEnginePage() {
 
         .de-intro-wrap {
           position: absolute; inset: 0; z-index: 8; display: flex;
-          align-items: center; justify-content: center; padding: 18px;
+          align-items: flex-start; justify-content: center;
+          padding: 76px 18px 18px;
           background: radial-gradient(ellipse at 50% 120%, rgba(30,20,80,0.25), rgba(4,2,10,0.55) 75%);
           overflow-y: auto;
         }

@@ -18,6 +18,7 @@ import { MOLLY_DEMO_LINES, mollyReplyFor } from '@/lib/molly/talk';
 import { speakMolly, speechSupported, stopMollySpeech } from '@/lib/molly/voice';
 import { tameTripoMaterials } from '@/lib/characters/tame-materials';
 import { guardCanvasContext } from '@/lib/scene-context-guard';
+import { tiltFromOrientation } from '@/lib/portal-card-tilt';
 
 // Digitized head — an original dot-matrix head in glowing blue, in the
 // spirit of the clip Merlin sent (particle head, more digitized, not a
@@ -56,13 +57,24 @@ function MollyHead() {
 // Rigged 3D head — Molly's real Tripo head (Batch #6, 17-joint rig),
 // shown in place of the dot-matrix placeholder. House GLB pattern:
 // lazy three + GLTFLoader, Tripo materials tamed so the model does not
-// render black, a slow turntable turn, full GPU disposal on unmount.
+// render black, full GPU disposal on unmount. Eyes forward, always:
+// the head faces the viewer (its +Z, jaw-verified in the GLB) instead
+// of turning away on a turntable, and with Follow motion on it tracks
+// the phone's tilt — same tilt law as the portal cards — easing back
+// to forward when motion is off. Reduced motion keeps forward-only.
 // If the model fails to load, the dot-matrix head above renders instead
 // — the panel never breaks. This is display only: the head does not
 // drive jaw or blink from her voice; that rig is a separate build.
 function MollyHead3D() {
   const mountRef = useRef(null);
   const [status, setStatus] = useState('loading'); // loading | ready | error
+  const [motionOn, setMotionOn] = useState(false);
+  const baseQuatRef = useRef(null);
+  const tiltRef = useRef({ yaw: 0, pitch: 0 });
+  const targetRef = useRef({ yaw: 0, pitch: 0 });
+  const baselineRef = useRef(null);
+  const reducedMotion = typeof window !== 'undefined'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   useEffect(() => {
     let cancelled = false;
@@ -118,14 +130,29 @@ function MollyHead3D() {
         scene.add(pivot);
         camera.position.set(center.x + maxDim * 0.4, center.y + maxDim * 0.35, center.z + maxDim * 1.9);
         camera.lookAt(center);
+        // Face-forward base: +Z toward the camera (the GLB's jaw sits
+        // further +Z than its crown, so +Z is the face side). Stored
+        // once — the camera never moves — and the tilt offset below
+        // rides on top of it each frame.
+        pivot.lookAt(camera.position);
+        baseQuatRef.current = pivot.quaternion.clone();
 
-        const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
         const tick = (t) => {
           raf = requestAnimationFrame(tick);
           if (contextGuard && contextGuard.isLost()) return;
           const dt = Math.min(0.05, (t - clockHolder.last) / 1000 || 0.016);
           clockHolder.last = t;
-          if (!reduced) pivot.rotation.y += dt * 0.4;
+          if (baseQuatRef.current) {
+            // Ease the tilt toward its target (and back to forward
+            // when the target is zeroed); base facing never moves.
+            const k = 1 - Math.exp(-9 * dt);
+            tiltRef.current.yaw += (targetRef.current.yaw - tiltRef.current.yaw) * k;
+            tiltRef.current.pitch += (targetRef.current.pitch - tiltRef.current.pitch) * k;
+            const tq = new THREE.Quaternion().setFromEuler(
+              new THREE.Euler(tiltRef.current.pitch, tiltRef.current.yaw, 0, 'YXZ'),
+            );
+            pivot.quaternion.copy(baseQuatRef.current).multiply(tq);
+          }
           renderer.render(scene, camera);
         };
         raf = requestAnimationFrame(tick);
@@ -161,13 +188,66 @@ function MollyHead3D() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Phone-tilt follow: calibrate the neutral hold on the first
+  // reading after enabling, then map tilt deltas through the
+  // portal-card tilt law. iOS needs a permission tap; other
+  // platforms fire the event without one. Reduced motion never
+  // listens — forward-only, always.
+  useEffect(() => {
+    if (!motionOn || reducedMotion) return undefined;
+    const onOrient = (e) => {
+      if (e.gamma == null || e.beta == null) return;
+      if (!baselineRef.current) {
+        baselineRef.current = { gamma: e.gamma, beta: e.beta };
+        return;
+      }
+      const { yaw, pitch } = tiltFromOrientation({
+        gammaDelta: e.gamma - baselineRef.current.gamma,
+        betaDelta: e.beta - baselineRef.current.beta,
+      });
+      targetRef.current = { yaw, pitch };
+    };
+    window.addEventListener('deviceorientation', onOrient);
+    return () => {
+      window.removeEventListener('deviceorientation', onOrient);
+      baselineRef.current = null;
+    };
+  }, [motionOn, reducedMotion]);
+
+  async function toggleMotion() {
+    if (motionOn) {
+      targetRef.current = { yaw: 0, pitch: 0 };
+      baselineRef.current = null;
+      setMotionOn(false);
+      return;
+    }
+    try {
+      const DOE = window.DeviceOrientationEvent;
+      if (DOE && typeof DOE.requestPermission === 'function') {
+        const res = await DOE.requestPermission();
+        if (res !== 'granted') return;
+      }
+    } catch {
+      return;
+    }
+    setMotionOn(true);
+  }
+
   if (status === 'error') return <MollyHead />;
   return (
-    <div ref={mountRef} style={{ width: '100%', maxWidth: 220, height: 220 }} className="mx-auto">
-      {status === 'loading' && (
-        <p className="flex h-full items-center justify-center text-center text-xs text-zinc-500">Loading Molly's head…</p>
+    <>
+      <div ref={mountRef} style={{ width: '100%', maxWidth: 220, height: 220 }} className="mx-auto">
+        {status === 'loading' && (
+          <p className="flex h-full items-center justify-center text-center text-xs text-zinc-500">Loading Molly's head…</p>
+        )}
+      </div>
+      {status === 'ready' && !reducedMotion && (
+        <button type="button" onClick={toggleMotion}
+          className="mx-auto mt-1 block rounded-lg border border-zinc-700 px-3 py-1 text-xs font-bold text-zinc-100">
+          {motionOn ? 'Follow motion: on' : 'Follow motion: off'}
+        </button>
       )}
-    </div>
+    </>
   );
 }
 
