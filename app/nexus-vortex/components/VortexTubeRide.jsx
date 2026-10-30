@@ -130,6 +130,12 @@ export default function VortexTubeRide({
     const showRider = perspective === '3rd' && characterPreview;
     let riderGroup = null;
     let riderMats = [];
+    // The medallion stays invisible until the portrait texture has
+    // actually arrived — otherwise the untextured sprites flash as
+    // squares inside the ring on slow connections (caught on video,
+    // 2026-10-29). The fade clock starts at load, not at ride start.
+    let portraitReady = false;
+    let portraitReadyAt = 0;
     if (showRider) {
       riderGroup = new THREE.Group();
       const portraitMat = new THREE.SpriteMaterial({ transparent: true, opacity: 0, depthTest: false });
@@ -199,6 +205,8 @@ export default function VortexTubeRide({
           haloMat.map = htex;
           haloMat.needsUpdate = true;
           tex.dispose();
+          portraitReady = true;
+          portraitReadyAt = performance.now();
         },
         undefined,
         () => { scene.remove(riderGroup); riderGroup = null; }
@@ -235,11 +243,13 @@ export default function VortexTubeRide({
 
       // The 3rd-person rider medallion: steady ahead of the camera,
       // gentle bob, gold ring slowly turning — never rolling with the tube.
-      // Fades in over the first second so it never pops.
+      // Fades in only after the portrait texture has arrived (never a
+      // square flash), over ~900ms from load, gentle bob, gold ring
+      // slowly turning — never rolling with the tube.
       if (riderGroup) {
         riderGroup.position.set(0, 0.2 + Math.sin(elapsed / 450) * 0.15, camera.position.z - 9);
         riderGroup.userData.ring.rotation.z = reduceMotion ? 0 : elapsed / 1400;
-        const fade = Math.min(1, elapsed / 900);
+        const fade = portraitReady ? Math.min(1, (now - portraitReadyAt) / 900) : 0;
         const targets = [0.95, 0.5, 0.85];
         riderMats.forEach((m, i) => { m.opacity = targets[i] * fade; });
       }

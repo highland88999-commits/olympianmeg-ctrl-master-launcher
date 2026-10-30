@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { RocketIcon, RotateIcon } from "@/lib/hermes-icons";
 import { SATELLITES } from "@/lib/i18n/satellites";

@@ -608,9 +608,11 @@ export default function VortexPage() {
           background: radial-gradient(ellipse at center, rgba(2,3,6,0.25) 0%, rgba(2,3,6,0.75) 100%); }
         .vtx-portal-title.vtx-visible { opacity: 1; pointer-events: auto; }
         .vtx-kicker { font-size: 0.72rem; letter-spacing: 5px; color: #8fa3b8; margin-bottom: 14px; }
-        .vtx-portal-title h1 { font-size: clamp(3rem, 12vw, 6.5rem); margin: 0 0 10px; letter-spacing: 14px;
+        .vtx-portal-title h1 { font-size: clamp(2.4rem, 11vw, 6.5rem); margin: 0 0 10px; letter-spacing: 0.14em;
+          text-indent: 0.14em; overflow-wrap: break-word; max-width: 100%;
           color: #fff; text-shadow: 0 0 24px rgba(123,47,247,0.8), 0 0 60px rgba(0,229,255,0.5); }
-        .vtx-h1-small { font-size: clamp(2rem, 8vw, 4rem) !important; letter-spacing: 8px !important; }
+        .vtx-h1-small { font-size: clamp(1.8rem, 7vw, 4rem) !important; letter-spacing: 0.14em !important;
+          text-indent: 0.14em !important; }
         .vtx-sub { font-size: clamp(0.7rem, 2.4vw, 0.9rem); letter-spacing: 3px; color: #9fb2c5;
           max-width: 560px; margin: 0 0 26px; line-height: 1.7; }
         .vtx-btn { font: 700 0.85rem ui-monospace, Menlo, monospace; letter-spacing: 2px;
@@ -631,7 +633,8 @@ export default function VortexPage() {
         .vtx-spiral { position: absolute; inset: 0; width: 100%; height: 100%; animation: vtxSpin 26s linear infinite; }
         @keyframes vtxSpin { to { transform: rotate(360deg); } }
         .vtx-sigil { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
-        .vtx-forge-head h2 { font-size: clamp(1.6rem, 6vw, 2.6rem); letter-spacing: 6px; margin: 6px 0 8px; color: #fff;
+        .vtx-forge-head h2 { font-size: clamp(1.4rem, 5.5vw, 2.6rem); letter-spacing: 0.2em; text-indent: 0.2em;
+          margin: 6px 0 8px; color: #fff; overflow-wrap: break-word;
           text-shadow: 0 0 18px rgba(0,229,255,0.45); }
         .vtx-steps { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; width: 100%;
           max-width: 520px; margin: 18px 0 26px; }

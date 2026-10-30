@@ -71,4 +71,9 @@ describe('tube ride component', () => {
     assert.match(src, /riderGroup\.position\.set\(0, 0\.2/);
     assert.doesNotMatch(src, /riderGroup\.rotation\.z/);
   });
+  it('the medallion stays invisible until its portrait texture arrives', () => {
+    // No square flash on slow connections: opacity ramps only after load.
+    assert.match(src, /portraitReady/);
+    assert.match(src, /portraitReady \? Math\.min\(1, \(now - portraitReadyAt\) \/ 900\) : 0/);
+  });
 });
