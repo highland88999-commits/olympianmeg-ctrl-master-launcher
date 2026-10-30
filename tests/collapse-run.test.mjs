@@ -155,6 +155,29 @@ describe('path', () => {
   });
 });
 
+describe('warp to victory (2026-10-30)', () => {
+  it('warping out of level 99 ascends to the Summit', () => {
+    const g = createGame(42);
+    runPastCountdown(g);
+    g.level = 99;
+    g.distance = 99 * LEVEL_EVERY_M - 10;
+    g.collapseD = g.distance + 5; // the floor catches the runner
+    step(g, 0.1);
+    assert.equal(g.level, 100);
+    assert.equal(g.phase, 'ascending');
+  });
+  it('warping out of an early level stays a normal warp', () => {
+    const g = createGame(42);
+    runPastCountdown(g);
+    g.level = 5;
+    g.distance = 5 * LEVEL_EVERY_M - 10;
+    g.collapseD = g.distance + 5;
+    step(g, 0.1);
+    assert.equal(g.level, 6);
+    assert.equal(g.phase, 'warping');
+  });
+});
+
 describe('reset', () => {
   it('runAgain restarts cleanly keeping best', () => {
     const g = createGame(5, 1234);

@@ -7,6 +7,7 @@ import {
   EVENT_WINDOWS,
   phaseAt,
   nextEventIn,
+  nextWindowStart,
   meteorShowerActive,
   bodyPositions,
   spawnMeteors,
@@ -66,7 +67,7 @@ export default function OlympusEclipsePage() {
   useEffect(syncSim, [playing, speedIdx, meteorsOn]);
 
   const jumpToNext = useCallback(() => {
-    sim.current.t += nextEventIn(sim.current.t) + 0.01;
+    sim.current.t += nextWindowStart(sim.current.t) + 0.01;
     setT(sim.current.t % CYCLE);
   }, []);
 

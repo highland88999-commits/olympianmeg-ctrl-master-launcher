@@ -154,6 +154,7 @@ export default function BigBangPage() {
         st.t = 0;
         setUi({ ...uiRef.current, playing: true });
       },
+      getT: () => st.t,
     };
 
     raf = requestAnimationFrame(frame);
@@ -174,9 +175,11 @@ export default function BigBangPage() {
 
   function togglePlay() {
     // Under reduced motion the exhibit is scrub-only; Play stays parked.
-    if (uiRef.current.t >= 1) window.bigbang && window.bigbang.scrub(0);
+    if (reduced) return;
+    // At the end of the timeline, Play restarts from the beginning.
+    if (window.bigbang && window.bigbang.getT() >= 1) window.bigbang.scrub(0);
     if (uiRef.current.playing) setUi({ ...ui, playing: false });
-    else if (!reduced) setUi({ ...ui, playing: true });
+    else setUi({ ...ui, playing: true });
   }
 
   return (

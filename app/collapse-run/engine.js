@@ -187,10 +187,12 @@ export function stepGame(g, dt, input = {}) {
 }
 
 function startWarp(g) {
-  g.phase = 'warping';
   g.warpFromLevel = g.level;
   // The warp IS the level transition: spit out into another realm.
   g.level = Math.min(MAX_LEVEL, g.level + 1);
+  // Warping out of the final realm ascends to the Summit (victory) —
+  // the distance-based level-up can never fire at the cap.
+  g.phase = g.level >= MAX_LEVEL ? 'ascending' : 'warping';
   return g;
 }
 

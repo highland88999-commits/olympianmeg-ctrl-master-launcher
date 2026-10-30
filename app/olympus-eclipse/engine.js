@@ -61,6 +61,21 @@ export function nextEventIn(t) {
   return EVENT_WINDOWS[0].start + CYCLE - cycleT;
 }
 
+/** Seconds from t until the start of the next window AFTER the current one:
+ *  if inside a window, skips to the following window (NEXT EVENT behavior). */
+export function nextWindowStart(t) {
+  const cycleT = ((t % CYCLE) + CYCLE) % CYCLE;
+  for (let i = 0; i < EVENT_WINDOWS.length; i++) {
+    const w = EVENT_WINDOWS[i];
+    if (cycleT < w.start) return w.start - cycleT;
+    if (cycleT < w.end) {
+      const nxt = EVENT_WINDOWS[(i + 1) % EVENT_WINDOWS.length];
+      return (nxt.start - cycleT + CYCLE) % CYCLE;
+    }
+  }
+  return EVENT_WINDOWS[0].start + CYCLE - cycleT;
+}
+
 /** Meteor showers run 8s every 45s, like the original. */
 export function meteorShowerActive(t) {
   return t % 45 < 8;
