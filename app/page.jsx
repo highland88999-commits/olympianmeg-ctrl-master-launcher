@@ -30,6 +30,11 @@ import { bikeState } from '@/lib/earth/parachute';
 import WalkJoystick from '@/components/world/WalkJoystick';
 import { fx, unlockFx } from '@/lib/fx';
 import { shadowRealmUrl } from '@/app/shadow-realm/launch';
+import { prettifyKey } from '@/lib/tour/itinerary';
+import VortexTubeRide from '@/app/nexus-vortex/components/VortexTubeRide.jsx';
+import { pickVortexWraps } from '@/lib/vortex/wraps';
+import { VORTEX_RIDE_MS } from '@/app/nexus-vortex/lib/tube.js';
+import { useRiderPrefs } from '@/lib/use-rider-prefs';
 import { useTilt } from '@/lib/use-tilt';
 import { useRadio } from '@/components/radio/RadioProvider';
 import HubTutorial from '@/components/HubTutorial';
@@ -157,6 +162,13 @@ function NexusHub() {
 
   const targetRouteRef = useRef('');
   const adWindowRef = useRef(null);
+  // Satellite drop → vortex tube (Merlin, 2026-10-29): when the 3D drop
+  // reaches the satellite's portal, the fullscreen tube ride carries the
+  // user the last stretch instead of the flat portal ring.
+  const [satTube, setSatTube] = useState(null); // { route, name } | null
+  const satTubeSkinsRef = useRef(null);
+  const targetNameRef = useRef('');
+  const riderPrefs = useRiderPrefs();
 
   const [activeSatTarget, setActiveSatTarget] = useState(GOD_TOWER_SPOTS[0].pos);
   const [flightAxis, setFlightAxis] = useState('horizontal');
@@ -555,9 +567,31 @@ function NexusHub() {
     }
     setActiveSatTarget(target);
     targetRouteRef.current = route;
+    // Display name for the tube ride's "Approaching …" overlay.
+    targetNameRef.current =
+      typeof satKey === 'string' && satKey
+        ? prettifyKey(satKey)
+        : prettifyKey(String(route).split('/').filter(Boolean).pop() || 'realm');
     setIsMenuExpanded(false);
     setAppState('returning_to_satellite');
   }, [POS_MAP]);
+
+  // The 3D drop reached the satellite's portal: ride the vortex tube the
+  // last stretch, then route. External links skip the tube.
+  const handleSatellitePortal = useCallback((route) => {
+    if (String(route).startsWith('http')) {
+      window.location.href = route;
+      return;
+    }
+    satTubeSkinsRef.current = pickVortexWraps(satTubeSkinsRef.current);
+    setSatTube({ route, name: targetNameRef.current || 'Realm' });
+  }, []);
+
+  const satTubeDone = useCallback(() => {
+    const route = satTube?.route;
+    setSatTube(null);
+    if (route) router.push(route);
+  }, [satTube, router]);
 
   const toggleBike = () => {
     if (appState === 'on_bike' || appState === 'to_bike') {
@@ -908,6 +942,7 @@ function NexusHub() {
         setAppState={setAppState}
         satIndex={satIndex}
         targetRoute={targetRouteRef.current}
+        onSatellitePortal={handleSatellitePortal}
         controlsRef={controlsRef}
         flightAxis={flightAxis}
         adWindowRef={adWindowRef}
@@ -941,6 +976,26 @@ function NexusHub() {
           launchPocketUniverse(url, null, null, id);
         }}
       />
+      {/* Satellite drop → vortex tube: the fullscreen ride carries the
+          user from the satellite's portal to the realm. */}
+      {satTube && satTubeSkinsRef.current && (
+        <div
+          className="fixed inset-0 overflow-hidden bg-black"
+          style={{ zIndex: 2147483000 }}
+          role="dialog"
+          aria-label={`Traveling to ${satTube.name}`}
+        >
+          <VortexTubeRide
+            outsideSkin={satTubeSkinsRef.current.outside}
+            insideSkin={satTubeSkinsRef.current.inside}
+            destinationName={satTube.name}
+            durationMs={VORTEX_RIDE_MS}
+            onDone={satTubeDone}
+            characterPreview={riderPrefs.characterPreview}
+            perspective={riderPrefs.perspective}
+          />
+        </div>
+      )}
     </main>
   );
 }

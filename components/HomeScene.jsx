@@ -285,7 +285,7 @@ function SunBackground() {
   );
 }
 
-function SequenceController({ launchState, setLaunchState, portalTex, payloadTex, targetRoute, controls, flightAxis, dropTarget, bikeRef, onBikeDismount }) {
+function SequenceController({ launchState, setLaunchState, portalTex, payloadTex, targetRoute, controls, flightAxis, dropTarget, bikeRef, onBikeDismount, onSatellitePortal }) {
   const { camera } = useThree();
   const router = useRouter(); 
   const bulletRef = useRef();
@@ -562,8 +562,13 @@ function SequenceController({ launchState, setLaunchState, portalTex, payloadTex
       
       if (camera.position.y < ATMOSPHERE_Y && !routed.current) {
         routed.current = true;
-        if (targetRoute.startsWith('http')) {
-          window.location.href = targetRoute; 
+        // The satellite drop now hands off to the vortex tube (Merlin,
+        // 2026-10-29) — the fullscreen ride carries the user the last
+        // stretch, then the caller routes. External links skip the tube.
+        if (onSatellitePortal) {
+          onSatellitePortal(targetRoute);
+        } else if (targetRoute.startsWith('http')) {
+          window.location.href = targetRoute;
         } else {
           router.push(targetRoute);
         }
@@ -1037,6 +1042,7 @@ function HubScene({
           dropTarget={activeSatTarget}
           bikeRef={bikeRef}
           onBikeDismount={onBikeDismount}
+          onSatellitePortal={props.onSatellitePortal}
         />
 
         <EarthFlightController
