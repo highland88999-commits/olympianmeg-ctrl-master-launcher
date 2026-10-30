@@ -55,4 +55,15 @@ describe('tube ride component', () => {
     assert.match(src, /Approaching/);
     assert.match(src, /onDone/);
   });
+  it('3rd person shows the rider\'s character in front of them in the tube', () => {
+    assert.match(src, /characterPreview/);
+    assert.match(src, /perspective === '3rd' && characterPreview/);
+    assert.match(src, /riderSprite/);
+  });
+  it('the rider sprite never spins with the tube', () => {
+    // The sprite is positioned ahead of the camera each frame; only
+    // tubeGroup.rotation.z spins.
+    assert.match(src, /riderSprite\.position\.set\(0, 0\.4/);
+    assert.doesNotMatch(src, /riderSprite\.rotation\.z/);
+  });
 });

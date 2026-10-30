@@ -34,6 +34,11 @@ export default function VortexTubeRide({
   destinationName,
   durationMs = VORTEX_RIDE_MS,
   onDone,
+  // 3rd person: the rider's character flies ahead of the camera, in front
+  // of them (Merlin, 2026-10-29). 1st person: through their eyes — no
+  // character shown, as before.
+  characterPreview = null,
+  perspective = '1st',
 }) {
   const mountRef = useRef(null);
   const doneRef = useRef(false);
@@ -117,6 +122,28 @@ export default function VortexTubeRide({
     ring.position.set(0, 0, -TUBE_LENGTH + 12);
     scene.add(ring);
 
+    // The rider's character in 3rd person: a steady sprite flying ahead
+    // of the camera — seen in front of them, never spinning with the tube.
+    const showRider = perspective === '3rd' && characterPreview;
+    let riderSprite = null;
+    if (showRider) {
+      const spriteMat = new THREE.SpriteMaterial({ transparent: true, opacity: 0.95, depthTest: false });
+      riderSprite = new THREE.Sprite(spriteMat);
+      riderSprite.scale.set(2.6, 2.6, 1);
+      riderSprite.renderOrder = 5;
+      scene.add(riderSprite);
+      loader.load(
+        characterPreview,
+        (tex) => {
+          tex.colorSpace = THREE.SRGBColorSpace;
+          spriteMat.map = tex;
+          spriteMat.needsUpdate = true;
+        },
+        undefined,
+        () => { scene.remove(riderSprite); riderSprite = null; }
+      );
+    }
+
     const start = performance.now();
     let raf = 0;
     const onResize = () => {
@@ -145,6 +172,12 @@ export default function VortexTubeRide({
       camera.position.z = tubeCameraZ(progress);
       lookForward(); // auto-fix, every frame
 
+      // The 3rd-person rider: steady ahead of the camera, gentle bob,
+      // never rolling with the tube.
+      if (riderSprite) {
+        riderSprite.position.set(0, 0.4 + Math.sin(elapsed / 450) * 0.15, camera.position.z - 9);
+      }
+
       // Destination renders ahead in the last stretch.
       if (progress > 0.72) setExitVisible(true);
 
@@ -164,6 +197,11 @@ export default function VortexTubeRide({
       outer.material.dispose();
       inner.material.dispose();
       ring.material.dispose();
+      if (riderSprite) {
+        scene.remove(riderSprite);
+        riderSprite.material.map?.dispose();
+        riderSprite.material.dispose();
+      }
       renderer.dispose();
       if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
     };

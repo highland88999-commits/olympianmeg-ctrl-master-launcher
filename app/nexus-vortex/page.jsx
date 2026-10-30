@@ -8,6 +8,13 @@ import { prettifyKey } from "@/lib/tour/itinerary";
 import { pickVortexWraps } from "@/lib/vortex/wraps";
 import { VORTEX_RIDE_MS } from './lib/tube.js';
 import VortexTubeRide from './components/VortexTubeRide.jsx';
+import { supabase } from "@/lib/supabase";
+import { CHARACTERS } from "@/lib/characters/roster";
+import {
+  LANDING_PERSPECTIVE_KEY,
+  LANDING_CHARACTER_KEY,
+  LANDING_DEFAULT_PERSPECTIVE,
+} from "@/lib/fintrac-explanation";
 
 // Nexus Vortex — fast travel for Olympus (Merlin, 2026-10-29).
 // Pick a destination (or let the vortex decide), drop into the spinning
@@ -30,6 +37,37 @@ export default function NexusVortexPage() {
   // The skin chain: each ride's pair bans the previous pair's files,
   // so no texture ever appears in back-to-back vortexes.
   const skinsRef = useRef(null);
+  // The rider's landing prefs: 3rd person shows their character in front
+  // of them in the tube; 1st person keeps the ride as-is.
+  const [riderPrefs, setRiderPrefs] = useState({
+    perspective: LANDING_DEFAULT_PERSPECTIVE,
+    characterPreview: null,
+  });
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        if (!token) return;
+        const res = await fetch('/api/ui-state', {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: 'no-store',
+        });
+        if (!res.ok) return;
+        const body = await res.json().catch(() => null);
+        const prefs = (body && body.preferences) || {};
+        const perspective =
+          prefs[LANDING_PERSPECTIVE_KEY] === '1st' || prefs[LANDING_PERSPECTIVE_KEY] === '3rd'
+            ? prefs[LANDING_PERSPECTIVE_KEY]
+            : LANDING_DEFAULT_PERSPECTIVE;
+        const character = CHARACTERS.find((c) => c.id === prefs[LANDING_CHARACTER_KEY]) || null;
+        setRiderPrefs({ perspective, characterPreview: character ? character.preview : null });
+      } catch {
+        /* defaults stand */
+      }
+    })();
+  }, []);
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -107,6 +145,8 @@ export default function NexusVortexPage() {
           destinationName={destination ? destination.name : ''}
           durationMs={VORTEX_RIDE_MS}
           onDone={rideDone}
+          characterPreview={riderPrefs.characterPreview}
+          perspective={riderPrefs.perspective}
         />
       )}
 
