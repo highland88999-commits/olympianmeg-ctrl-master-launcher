@@ -8,7 +8,7 @@ import {
 } from '../app/collapse-run/engine.js';
 import {
   paletteForLevel, LEVEL_COUNT, wrapForLevel,
-  WRAP_SLOT_FLOOR, WRAP_SLOT_OBSTRUCTION, WRAP_SLOT_SOLID,
+  WRAP_SLOT_FLOOR, WRAP_SLOT_OBSTRUCTION, WRAP_SLOT_SOLID, WRAP_SLOT_CEILING,
 } from '../app/collapse-run/textures.js';
 
 const step = (g, secs, input = {}) => {
@@ -180,8 +180,10 @@ describe('realm graphics (Merlin 2026-10-29)', () => {
     const f = wrapForLevel(5, WRAP_SLOT_FLOOR);
     const o = wrapForLevel(5, WRAP_SLOT_OBSTRUCTION);
     const s = wrapForLevel(5, WRAP_SLOT_SOLID);
-    assert.ok(f && o && s, 'all three slots resolve to a graphic');
+    const c = wrapForLevel(5, WRAP_SLOT_CEILING);
+    assert.ok(f && o && s && c, 'all four slots resolve to a graphic');
     assert.ok(f !== o || o !== s, 'cube types do not all share the floor graphic');
+    assert.ok(c !== f, 'ceiling wears a different graphic from the floor');
   });
   it('run3d exposes setCharacter for the selected-character runner', async () => {
     const { readFileSync } = await import('node:fs');

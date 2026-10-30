@@ -7,10 +7,12 @@ import { VORTEX_WRAP_FILES } from '../../lib/vortex/wraps-manifest.js';
 
 // One vortex graphic per realm per surface, deterministic so a realm
 // always wears the same skins (Merlin, 2026-10-29):
-//   slot 0 = floor tiles, slot 1 = obstruction cubes, slot 2 = solid cubes.
+//   slot 0 = floor tiles, slot 1 = obstruction cubes,
+//   slot 2 = solid cubes, slot 3 = ceiling (different from the floor).
 export const WRAP_SLOT_FLOOR = 0;
 export const WRAP_SLOT_OBSTRUCTION = 1;
 export const WRAP_SLOT_SOLID = 2;
+export const WRAP_SLOT_CEILING = 3;
 
 export function wrapForLevel(level, slot) {
   const pool = VORTEX_WRAP_FILES;

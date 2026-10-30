@@ -7,9 +7,11 @@ import * as THREE from 'three';
 import { pathCurve, TILE_M, TRACK_HALF } from './engine.js';
 import {
   wrapForLevel, WRAP_SLOT_FLOOR, WRAP_SLOT_OBSTRUCTION, WRAP_SLOT_SOLID,
+  WRAP_SLOT_CEILING,
 } from './textures.js';
 
 const TILE_W = 6.4;
+const CEILING_Y = 8; // tunnel roof height above the track
 
 // ---------------------------------------------------------------------------
 // Vortex-graphic texture cache (Merlin, 2026-10-29): one graphic per realm
@@ -120,6 +122,10 @@ export function createRunRenderer(mount, palette) {
   const tileMeshes = new Map(); // tileIndex -> { mesh, fallT }
   const tileMat = (color) => new THREE.MeshLambertMaterial({ color, transparent: true });
 
+  // Ceiling pool: one roof segment per tile, following the path curve.
+  const ceilGeo = new THREE.PlaneGeometry(TILE_W * 1.7, TILE_M + 0.1);
+  const ceilMeshes = new Map(); // tileIndex -> mesh
+
   // Obstacle pool.
   const obsGeo = new THREE.BoxGeometry(1.4, 1.6, 1.4);
   const solidGeo = new THREE.BoxGeometry(2.2, 2.4, 2.2);
@@ -175,6 +181,7 @@ export function createRunRenderer(mount, palette) {
   let floorTex = null;
   let obstructionTex = null;
   let solidTex = null;
+  let ceilingTex = null;
 
   // Paint every live tile / cube with the realm's graphics once loaded.
   // Stale guard: a slow load from a previous realm never overwrites the new one.
@@ -208,6 +215,14 @@ export function createRunRenderer(mount, palette) {
           }
         }
       } },
+      { url: wrapForLevel(lv, WRAP_SLOT_CEILING), apply: (tex) => {
+        ceilingTex = tex;
+        for (const m of ceilMeshes.values()) {
+          m.material.map = tex;
+          m.material.color.set(0xffffff);
+          m.material.needsUpdate = true;
+        }
+      } },
     ];
     for (const { url, apply } of jobs) {
       loadVortexTexture(url).then((tex) => {
@@ -227,11 +242,16 @@ export function createRunRenderer(mount, palette) {
     runnerMat.color.set(p.runner);
     glowMat.color.set(p.runner);
     // Reset to flat realm colors first; the graphics paint over when loaded.
-    floorTex = obstructionTex = solidTex = null;
+    floorTex = obstructionTex = solidTex = ceilingTex = null;
     for (const { mesh } of tileMeshes.values()) {
       mesh.material.map = null;
       mesh.material.color.copy(tileTopColor);
       mesh.material.needsUpdate = true;
+    }
+    for (const m of ceilMeshes.values()) {
+      m.material.map = null;
+      m.material.color.copy(tileTopColor).multiplyScalar(0.55);
+      m.material.needsUpdate = true;
     }
     for (const m of obsMeshes.values()) {
       m.material.map = null;
@@ -291,6 +311,19 @@ export function createRunRenderer(mount, palette) {
       const { mesh } = rec;
       mesh.position.x = x;
       mesh.position.z = z;
+      // Roof segment above this tile (stays put when the tile falls).
+      let cm = ceilMeshes.get(idx);
+      if (!cm) {
+        const cmat = new THREE.MeshBasicMaterial({ transparent: true });
+        if (ceilingTex) { cmat.map = ceilingTex; cmat.color.set(0xffffff); }
+        else cmat.color.copy(tileTopColor).multiplyScalar(0.55);
+        cm = new THREE.Mesh(ceilGeo, cmat);
+        cm.rotation.x = Math.PI / 2; // face down
+        scene.add(cm);
+        ceilMeshes.set(idx, cm);
+      }
+      cm.position.set(x, CEILING_Y, z);
+      cm.material.opacity = mesh.material.opacity;
       if (st === 'solid') {
         mesh.position.y = 0;
         mesh.rotation.set(0, 0, 0);
@@ -311,6 +344,12 @@ export function createRunRenderer(mount, palette) {
         scene.remove(rec.mesh);
         rec.mesh.material.dispose();
         tileMeshes.delete(idx);
+        const cm = ceilMeshes.get(idx);
+        if (cm) {
+          scene.remove(cm);
+          cm.material.dispose();
+          ceilMeshes.delete(idx);
+        }
       }
     }
 
@@ -373,6 +412,8 @@ export function createRunRenderer(mount, palette) {
     if (runnerSprite.material.map) runnerSprite.material.map.dispose();
     runnerSprite.material.dispose();
     for (const { mesh } of tileMeshes.values()) { scene.remove(mesh); mesh.material.dispose(); }
+    for (const mesh of ceilMeshes.values()) { scene.remove(mesh); mesh.material.dispose(); }
+    ceilGeo.dispose();
     for (const mesh of obsMeshes.values()) { scene.remove(mesh); mesh.material.dispose(); }
     renderer.dispose();
     if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
