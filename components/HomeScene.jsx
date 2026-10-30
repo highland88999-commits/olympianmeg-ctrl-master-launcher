@@ -870,6 +870,7 @@ function HubScene({
   planetPosRef,
   onLaunchExternal,
   onBikeDismount,
+  onSatellitePortal,
   onContextLost,
 }) {
   // Keep the quaternion ref initialized without the page needing three.js.
@@ -975,7 +976,7 @@ function HubScene({
             {!['diving_to_street', 'earth_roam'].includes(appState) && <SunBackground />}
             {/* THE OMEGA ARCH — just beyond the Sun. The Portal Room's
                 showpiece door: click it or fly through it in freeroam. */}
-            <OmegaHubGate freeroam={appState === 'hub_freeroam'} />
+            <OmegaHubGate freeroam={appState === 'hub_freeroam'} onEnterPortal={onSatellitePortal} />
             {/* THE EARTH 2 DOOR — flanking the Omega Arch on the same
                 plane beyond the Sun (Merlin, 2026-10-22). Owner-only:
                 Earth2HubGate renders nothing at all unless the
@@ -1042,7 +1043,7 @@ function HubScene({
           dropTarget={activeSatTarget}
           bikeRef={bikeRef}
           onBikeDismount={onBikeDismount}
-          onSatellitePortal={props.onSatellitePortal}
+          onSatellitePortal={onSatellitePortal}
         />
 
         <EarthFlightController
