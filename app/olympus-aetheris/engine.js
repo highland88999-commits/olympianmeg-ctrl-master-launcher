@@ -81,6 +81,11 @@ export function projectPoint(vec, rotY, cx, cy, scale, globeR) {
   return { sx: cx + x * scale, sy: cy - y * scale, visible };
 }
 
+/** Y-rotation that centers a longitude on screen (for fly-to). */
+export function rotYForLon(lon) {
+  return Math.PI / 2 - ((lon + 180) * Math.PI) / 180;
+}
+
 /** Solar-time day check: is it between 06:00 and 18:00 local at this longitude? */
 export function isDayAtLon(lon, date = new Date()) {
   const utcHour = date.getUTCHours() + date.getUTCMinutes() / 60;
@@ -133,6 +138,45 @@ export function simulatedWeather(cityName, date = new Date()) {
   const tempC = Math.round((rng() * 46 - 12) * 10) / 10;
   const windKmh = Math.round(rng() * 60 * 10) / 10;
   return { ...condition, tempC, windKmh };
+}
+
+/**
+ * Approximate land rectangles [latSouth, latNorth, lonWest, lonEast] for the
+ * dot-matrix continents. Stylized, not survey data — recognizable at a glance.
+ */
+export const LAND_RECTS = [
+  // North America
+  [58, 71, -168, -138], [42, 71, -132, -58], [25, 49, -125, -66],
+  [14, 26, -106, -86], [7, 16, -92, -78], [59, 84, -62, -19],
+  // South America
+  [5, 12, -76, -52], [-15, 5, -78, -38], [-40, -15, -72, -42], [-56, -40, -72, -64],
+  // Europe
+  [43, 71, -11, 40], [36, 46, -10, 28],
+  // Africa
+  [12, 36, -17, 52], [-12, 12, -17, 52], [-36, -12, 12, 41], [-26, -11, 43, 51],
+  // Asia
+  [50, 77, 40, 180], [35, 50, 48, 135], [18, 46, 98, 126],
+  [6, 36, 66, 92], [8, 42, 34, 62], [30, 46, 138, 146], [4, 22, 94, 111],
+  // Indonesia / Oceania
+  [-11, 6, 94, 142], [-40, -10, 112, 154], [-48, -34, 166, 179],
+  // Antarctica
+  [-90, -72, -180, 180],
+];
+
+/** True when (lat, lon) falls inside any land rectangle. */
+export function isLand(lat, lon) {
+  for (const [s, n, w, e] of LAND_RECTS) {
+    if (lat >= s && lat <= n && lon >= w && lon <= e) return true;
+  }
+  return false;
+}
+
+/** Dot-matrix continents: fixed {lat, lon} points, 4° grid. */
+export const LAND_DOTS = [];
+for (let lat = -84; lat <= 84; lat += 4) {
+  for (let lon = -180; lon < 180; lon += 4) {
+    if (isLand(lat, lon)) LAND_DOTS.push({ lat, lon });
+  }
 }
 
 /**

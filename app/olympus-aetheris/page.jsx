@@ -5,8 +5,10 @@ import RenewalPlanBadge from "@/components/RenewalPlanBadge";
 import { IcClose, IcTower, IcCharge } from "@/app/artemis-ui/icons";
 import {
   CITIES,
+  LAND_DOTS,
   latLonToVec,
   projectPoint,
+  rotYForLon,
   isDayAtLon,
   simulatedWeather,
   newChargeGame,
@@ -29,6 +31,8 @@ export default function OlympusAetherisPage() {
   const [game, setGame] = useState(null);
   const [gameMsg, setGameMsg] = useState("");
   const [hint, setHint] = useState("Drag to spin · Scroll to zoom · Click a node");
+  const [query, setQuery] = useState("");
+  const flyLon = useRef(null); // camera eases here when set
   const sim = useRef({
     rotY: 0.6,
     targetRotY: 0.6,
@@ -95,23 +99,42 @@ export default function OlympusAetherisPage() {
     resize();
     window.addEventListener("resize", resize);
 
+    const pointers = new Map();
     const onDown = (e) => {
-      s.dragging = true;
-      s.lastX = e.clientX ?? e.touches?.[0]?.clientX ?? 0;
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size === 1) {
+        s.dragging = true;
+        s.lastX = e.clientX ?? 0;
+        s.downX = e.clientX ?? 0;
+      } else if (pointers.size === 2) {
+        s.dragging = false; // pinch takes over
+        const [a, b] = [...pointers.values()];
+        s.pinchD = Math.hypot(a.x - b.x, a.y - b.y);
+      }
     };
     const onMove = (e) => {
+      if (!pointers.has(e.pointerId)) return;
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size === 2) {
+        const [a, b] = [...pointers.values()];
+        const d = Math.hypot(a.x - b.x, a.y - b.y);
+        if (s.pinchD > 0) {
+          s.targetZoom = Math.min(2.4, Math.max(0.7, s.targetZoom * (d / s.pinchD)));
+        }
+        s.pinchD = d;
+        return;
+      }
       if (!s.dragging) return;
-      const x = e.clientX ?? e.touches?.[0]?.clientX ?? 0;
+      const x = e.clientX ?? 0;
       s.targetRotY += (x - s.lastX) * 0.008;
       s.lastX = x;
     };
     const onUp = (e) => {
-      if (s.dragging) {
-        // treat as click if barely moved
-        const x = e.clientX ?? 0;
-        if (Math.abs(x - s.lastX) < 4) handleClick(e);
-      }
-      s.dragging = false;
+      const wasTap = pointers.size === 1 && Math.abs((e.clientX ?? 0) - (s.downX ?? 0)) < 6;
+      pointers.delete(e.pointerId);
+      if (pointers.size < 2) s.pinchD = 0;
+      if (wasTap && s.dragging) handleClick(e);
+      if (pointers.size === 0) s.dragging = false;
     };
     const onWheel = (e) => {
       e.preventDefault();
@@ -159,9 +182,17 @@ export default function OlympusAetherisPage() {
       const { cx, cy, R } = frame(w, h);
       const now = new Date();
 
+      // fly-to: ease the camera toward a searched city, then release
+      if (flyLon.current != null && !s.reduced) {
+        const target = rotYForLon(flyLon.current);
+        let d = target - s.targetRotY;
+        d = Math.atan2(Math.sin(d), Math.cos(d));
+        s.targetRotY += d * 0.07;
+        if (Math.abs(d) < 0.015) flyLon.current = null;
+      }
       if (!s.reduced) {
         s.rotY += (s.targetRotY - s.rotY) * 0.08;
-        if (!s.dragging) s.targetRotY += 0.0016;
+        if (!s.dragging && flyLon.current == null) s.targetRotY += 0.0016;
       } else {
         s.rotY = s.targetRotY;
       }
@@ -233,6 +264,17 @@ export default function OlympusAetherisPage() {
         ctx.stroke();
       }
 
+      // dot-matrix continents
+      ctx.fillStyle = "rgba(64,180,220,0.5)";
+      const dotR = Math.max(0.6, R * 0.004);
+      for (const dpt of LAND_DOTS) {
+        const p = projectPoint(latLonToVec(dpt.lat, dpt.lon, 5), s.rotY, cx, cy, scale, 5);
+        if (!p.visible) continue;
+        ctx.beginPath();
+        ctx.arc(p.sx, p.sy, dotR, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
       // night shading: dark gradient over the night hemisphere
       const sunLon = 180 - (now.getUTCHours() + now.getUTCMinutes() / 60) * 15;
       const sunVec = latLonToVec(0, sunLon, 5);
@@ -279,6 +321,30 @@ export default function OlympusAetherisPage() {
           ctx.lineWidth = 1.5;
           ctx.beginPath();
           ctx.arc(p.sx, p.sy, r + 4, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      }
+
+      // network arcs between deployed nodes (atmospheric links)
+      const builtCities = CITIES.filter((c) => built.has(c.name));
+      if (builtCities.length > 1 && !s.reduced) {
+        ctx.lineWidth = 1;
+        for (let i = 0; i < builtCities.length; i++) {
+          const a = builtCities[i];
+          const b = builtCities[(i + 1) % builtCities.length];
+          const pa = projectPoint(latLonToVec(a.lat, a.lon, 5), s.rotY, cx, cy, scale, 5);
+          const pb = projectPoint(latLonToVec(b.lat, b.lon, 5), s.rotY, cx, cy, scale, 5);
+          if (!pa.visible || !pb.visible) continue;
+          const mx = (pa.sx + pb.sx) / 2;
+          const my = (pa.sy + pb.sy) / 2;
+          const dx = pb.sx - pa.sx;
+          const dy = pb.sy - pa.sy;
+          const lift = Math.min(60, Math.hypot(dx, dy) * 0.25);
+          const pulse = 0.35 + 0.3 * Math.sin(t * 2 + i * 1.7);
+          ctx.strokeStyle = `rgba(0,255,136,${pulse.toFixed(3)})`;
+          ctx.beginPath();
+          ctx.moveTo(pa.sx, pa.sy);
+          ctx.quadraticCurveTo(mx, my - lift, pb.sx, pb.sy);
           ctx.stroke();
         }
       }
@@ -331,6 +397,20 @@ export default function OlympusAetherisPage() {
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [game !== null]);
+
+  const runSearch = () => {
+    const q = query.trim().toLowerCase();
+    if (!q) return;
+    const city = CITIES.find((c) => c.name.toLowerCase().includes(q));
+    if (city) {
+      selectCity(city);
+      flyLon.current = city.lon;
+      setQuery("");
+    } else {
+      setHint(`No node matching "${query.trim()}"`);
+      setTimeout(() => setHint("Drag to spin · Scroll to zoom · Click a node"), 2200);
+    }
+  };
 
   const startDeploy = () => {
     setGame({ ...newChargeGame(Date.now() % 100000), holding: false });
@@ -407,6 +487,30 @@ export default function OlympusAetherisPage() {
         <h1>OLYMPUS AETHERIS-7</h1>
         <p>Global Atmospheric Network · {built.size}/{CITIES.length} nodes online</p>
         <RenewalPlanBadge nodeId="node-2" />
+        <div style={{ pointerEvents: "auto", marginTop: 10, display: "flex", gap: 6 }}>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") runSearch(); }}
+            placeholder="Find a city…"
+            aria-label="Find a city"
+            style={{
+              background: "rgba(4,12,20,0.85)", border: "1px solid rgba(0,212,255,0.4)",
+              color: "#e8f6ff", borderRadius: 6, padding: "8px 10px", fontSize: "0.8rem",
+              width: 150, outline: "none",
+            }}
+          />
+          <button
+            onClick={runSearch}
+            aria-label="Search"
+            style={{
+              background: "rgba(0,212,255,0.15)", border: "1px solid #00d4ff", color: "#fff",
+              borderRadius: 6, padding: "8px 12px", fontSize: "0.8rem", cursor: "pointer",
+            }}
+          >
+            ⌕
+          </button>
+        </div>
       </div>
 
       {selected && weather && (
