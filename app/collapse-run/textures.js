@@ -3,6 +3,21 @@
 // is a visual event, not just a number.
 
 import { makeRng } from './engine.js';
+import { VORTEX_WRAP_FILES } from '../../lib/vortex/wraps-manifest.js';
+
+// One vortex graphic per realm per surface, deterministic so a realm
+// always wears the same skins (Merlin, 2026-10-29):
+//   slot 0 = floor tiles, slot 1 = obstruction cubes, slot 2 = solid cubes.
+export const WRAP_SLOT_FLOOR = 0;
+export const WRAP_SLOT_OBSTRUCTION = 1;
+export const WRAP_SLOT_SOLID = 2;
+
+export function wrapForLevel(level, slot) {
+  const pool = VORTEX_WRAP_FILES;
+  if (!pool || pool.length === 0) return null;
+  const r = makeRng(0x9e3779b9 + level * 131071 + slot * 104729);
+  return pool[Math.floor(r() * pool.length)];
+}
 
 function hsl(h, s, l) {
   return `hsl(${Math.round(h)}, ${Math.round(s)}%, ${Math.round(l)}%)`;

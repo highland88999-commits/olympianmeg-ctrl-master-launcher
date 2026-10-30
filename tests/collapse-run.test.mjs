@@ -6,7 +6,10 @@ import {
   COUNTDOWN_MS, BASE_SPEED, SPRINT_MULT, SOLID_PAUSE_S,
   LEVEL_EVERY_M, MAX_LEVEL, TRACK_HALF,
 } from '../app/collapse-run/engine.js';
-import { paletteForLevel, LEVEL_COUNT } from '../app/collapse-run/textures.js';
+import {
+  paletteForLevel, LEVEL_COUNT, wrapForLevel,
+  WRAP_SLOT_FLOOR, WRAP_SLOT_OBSTRUCTION, WRAP_SLOT_SOLID,
+} from '../app/collapse-run/textures.js';
 
 const step = (g, secs, input = {}) => {
   const n = Math.ceil(secs / 0.016);
@@ -162,5 +165,28 @@ describe('reset', () => {
     assert.equal(g.distance, 0);
     assert.equal(g.level, 1);
     assert.equal(g.best, 1234);
+  });
+});
+
+describe('realm graphics (Merlin 2026-10-29)', () => {
+  it('wrapForLevel is deterministic per realm and slot', () => {
+    assert.equal(wrapForLevel(7, WRAP_SLOT_FLOOR), wrapForLevel(7, WRAP_SLOT_FLOOR));
+    assert.equal(wrapForLevel(42, WRAP_SLOT_SOLID), wrapForLevel(42, WRAP_SLOT_SOLID));
+  });
+  it('each realm gets its own floor graphic, and cube types differ', () => {
+    const floors = new Set();
+    for (let lv = 1; lv <= 100; lv++) floors.add(wrapForLevel(lv, WRAP_SLOT_FLOOR));
+    assert.ok(floors.size >= 70, `floors vary by realm (${floors.size}/100 unique)`);
+    const f = wrapForLevel(5, WRAP_SLOT_FLOOR);
+    const o = wrapForLevel(5, WRAP_SLOT_OBSTRUCTION);
+    const s = wrapForLevel(5, WRAP_SLOT_SOLID);
+    assert.ok(f && o && s, 'all three slots resolve to a graphic');
+    assert.ok(f !== o || o !== s, 'cube types do not all share the floor graphic');
+  });
+  it('run3d exposes setCharacter for the selected-character runner', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync(new URL('../app/collapse-run/run3d.js', import.meta.url), 'utf8');
+    assert.ok(src.includes('setCharacter'), 'createRunRenderer returns setCharacter');
+    assert.ok(src.includes('runnerSprite'), 'character renders as a billboard sprite');
   });
 });

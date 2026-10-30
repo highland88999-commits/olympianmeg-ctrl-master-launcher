@@ -138,6 +138,7 @@ export default function CollapseRunPage() {
       return;
     }
     rendererRef.current = renderer;
+    if (riderPrefs.characterPreview) renderer.setCharacter(riderPrefs.characterPreview);
     startLoop();
     return () => {
       cancelAnimationFrame(loopRaf.current);
@@ -146,6 +147,13 @@ export default function CollapseRunPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // The runner wears the user's selected character (prefs load async).
+  useEffect(() => {
+    if (riderPrefs.characterPreview) {
+      rendererRef.current?.setCharacter(riderPrefs.characterPreview);
+    }
+  }, [riderPrefs.characterPreview]);
 
   const warpDone = useCallback(() => {
     const g = gameRef.current;

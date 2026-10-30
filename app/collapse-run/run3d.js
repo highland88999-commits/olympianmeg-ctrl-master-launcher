@@ -5,8 +5,77 @@
 
 import * as THREE from 'three';
 import { pathCurve, TILE_M, TRACK_HALF } from './engine.js';
+import {
+  wrapForLevel, WRAP_SLOT_FLOOR, WRAP_SLOT_OBSTRUCTION, WRAP_SLOT_SOLID,
+} from './textures.js';
 
 const TILE_W = 6.4;
+
+// ---------------------------------------------------------------------------
+// Vortex-graphic texture cache (Merlin, 2026-10-29): one graphic per realm
+// per surface — floor tiles, obstruction cubes, solid cubes. Loaded lazily
+// per level, LRU-capped so 100 realms don't bloat GPU memory.
+// ---------------------------------------------------------------------------
+const TEX_CACHE = new Map(); // url -> THREE.Texture
+const TEX_LOADING = new Map(); // url -> Promise<THREE.Texture|null>
+const TEX_CACHE_MAX = 40;
+
+function loadVortexTexture(url) {
+  if (!url) return Promise.resolve(null);
+  const hit = TEX_CACHE.get(url);
+  if (hit) return Promise.resolve(hit);
+  const inflight = TEX_LOADING.get(url);
+  if (inflight) return inflight;
+  const p = new Promise((resolve) => {
+    new THREE.TextureLoader().load(
+      url,
+      (tex) => {
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = 4;
+        TEX_CACHE.set(url, tex);
+        while (TEX_CACHE.size > TEX_CACHE_MAX) {
+          const oldest = TEX_CACHE.keys().next().value;
+          const t = TEX_CACHE.get(oldest);
+          TEX_CACHE.delete(oldest);
+          if (t) t.dispose();
+        }
+        resolve(tex);
+      },
+      undefined,
+      () => resolve(null)
+    );
+  }).finally(() => TEX_LOADING.delete(url));
+  TEX_LOADING.set(url, p);
+  return p;
+}
+
+// Circular character badge from a preview PNG (previews are RGB-on-black,
+// no alpha — the feathered circular clip handles that, same treatment as
+// the vortex rider medallion).
+function makeCharacterTexture(img) {
+  const S = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d');
+  g.save();
+  g.beginPath();
+  g.arc(S / 2, S / 2, S / 2 - 4, 0, Math.PI * 2);
+  g.clip();
+  const scale = Math.max(S / img.width, S / img.height);
+  const w = img.width * scale;
+  const h = img.height * scale;
+  g.drawImage(img, (S - w) / 2, (S - h) / 2, w, h);
+  g.restore();
+  g.globalCompositeOperation = 'destination-in';
+  const feather = g.createRadialGradient(S / 2, S / 2, S / 2 - 26, S / 2, S / 2, S / 2);
+  feather.addColorStop(0, 'rgba(0,0,0,1)');
+  feather.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = feather;
+  g.fillRect(0, 0, S, S);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
 
 export function createRunRenderer(mount, palette) {
   const W = () => mount.clientWidth || window.innerWidth;
@@ -56,12 +125,21 @@ export function createRunRenderer(mount, palette) {
   const solidGeo = new THREE.BoxGeometry(2.2, 2.4, 2.2);
   const obsMeshes = new Map(); // obstacle object -> mesh
 
-  // The runner: a glowing capsule.
+  // The runner: the user's selected character as a floating badge;
+  // falls back to the glowing capsule when no character is picked.
   const runnerGeo = new THREE.CapsuleGeometry(0.42, 0.9, 6, 14);
   const runnerMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(palette.runner) });
   const runner = new THREE.Mesh(runnerGeo, runnerMat);
   runner.position.y = 1.1;
   scene.add(runner);
+  const runnerSprite = new THREE.Sprite(
+    new THREE.SpriteMaterial({ transparent: true, depthWrite: false })
+  );
+  runnerSprite.scale.set(1.7, 1.7, 1);
+  runnerSprite.position.y = 1.1;
+  runnerSprite.visible = false;
+  scene.add(runnerSprite);
+  let characterUrl = null;
   // Soft glow disc under the runner.
   const glowGeo = new THREE.CircleGeometry(0.9, 24);
   const glowMat = new THREE.MeshBasicMaterial({
@@ -71,12 +149,76 @@ export function createRunRenderer(mount, palette) {
   glow.rotation.x = -Math.PI / 2;
   scene.add(glow);
 
+  /** Swap the runner to the user's selected character (preview URL). */
+  function setCharacter(previewUrl) {
+    if (!previewUrl || previewUrl === characterUrl) return;
+    characterUrl = previewUrl;
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const tex = makeCharacterTexture(img);
+        runnerSprite.material.map = tex;
+        runnerSprite.material.needsUpdate = true;
+        runnerSprite.visible = true;
+        runner.visible = false;
+      } catch { /* capsule stands */ }
+    };
+    img.onerror = () => { /* capsule stands */ };
+    img.src = previewUrl;
+  }
+
   let pal = palette;
+  let level = palette.level || 1;
   const tileTopColor = new THREE.Color(pal.tileTop);
   const tileSideColor = new THREE.Color(pal.tileSide);
+  // Live textures for this realm (null until the async load lands).
+  let floorTex = null;
+  let obstructionTex = null;
+  let solidTex = null;
+
+  // Paint every live tile / cube with the realm's graphics once loaded.
+  // Stale guard: a slow load from a previous realm never overwrites the new one.
+  function paintRealmGraphics(lv) {
+    const jobs = [
+      { url: wrapForLevel(lv, WRAP_SLOT_FLOOR), apply: (tex) => {
+        floorTex = tex;
+        for (const { mesh } of tileMeshes.values()) {
+          mesh.material.map = tex;
+          mesh.material.color.set(0xffffff);
+          mesh.material.needsUpdate = true;
+        }
+      } },
+      { url: wrapForLevel(lv, WRAP_SLOT_OBSTRUCTION), apply: (tex) => {
+        obstructionTex = tex;
+        for (const m of obsMeshes.values()) {
+          if (m.userData.kind !== 'solid') {
+            m.material.map = tex;
+            m.material.color.set(0xffffff);
+            m.material.needsUpdate = true;
+          }
+        }
+      } },
+      { url: wrapForLevel(lv, WRAP_SLOT_SOLID), apply: (tex) => {
+        solidTex = tex;
+        for (const m of obsMeshes.values()) {
+          if (m.userData.kind === 'solid') {
+            m.material.map = tex;
+            m.material.color.set(0xffffff);
+            m.material.needsUpdate = true;
+          }
+        }
+      } },
+    ];
+    for (const { url, apply } of jobs) {
+      loadVortexTexture(url).then((tex) => {
+        if (tex && lv === level) apply(tex);
+      });
+    }
+  }
 
   function setPalette(p) {
     pal = p;
+    level = p.level || 1;
     scene.background.set(p.skyTop);
     scene.fog.color.set(p.fog);
     starMat.color.set(p.star);
@@ -84,11 +226,20 @@ export function createRunRenderer(mount, palette) {
     tileSideColor.set(p.tileSide);
     runnerMat.color.set(p.runner);
     glowMat.color.set(p.runner);
-    for (const { mesh } of tileMeshes.values()) mesh.material.color.copy(tileTopColor);
+    // Reset to flat realm colors first; the graphics paint over when loaded.
+    floorTex = obstructionTex = solidTex = null;
+    for (const { mesh } of tileMeshes.values()) {
+      mesh.material.map = null;
+      mesh.material.color.copy(tileTopColor);
+      mesh.material.needsUpdate = true;
+    }
     for (const m of obsMeshes.values()) {
+      m.material.map = null;
       if (m.userData.kind === 'solid') m.material.color.set(p.solid);
       else m.material.color.set(p.obstacle);
+      m.material.needsUpdate = true;
     }
+    paintRealmGraphics(level);
   }
 
   function tileWorld(idx, runnerD) {
@@ -104,10 +255,14 @@ export function createRunRenderer(mount, palette) {
     const rd = g.distance;
     const rc = pathCurve(rd);
 
-    // Runner.
+    // Runner (character badge floats where the capsule did).
+    const bobY = 1.1 + Math.abs(Math.sin(time * 9)) * 0.12 * Math.min(1, g.speed / 9);
     runner.position.x = g.lateral;
-    runner.position.y = 1.1 + Math.abs(Math.sin(time * 9)) * 0.12 * Math.min(1, g.speed / 9);
+    runner.position.y = bobY;
     runner.rotation.z = -g.lateralVel * 0.03;
+    runnerSprite.position.x = g.lateral;
+    runnerSprite.position.y = bobY + 0.15;
+    runnerSprite.material.rotation = -g.lateralVel * 0.02;
     glow.position.set(g.lateral, 0.32, 0);
 
     // Camera: behind and above, swinging into the curves ahead.
@@ -126,7 +281,9 @@ export function createRunRenderer(mount, palette) {
       seen.add(idx);
       let rec = tileMeshes.get(idx);
       if (!rec) {
-        const mesh = new THREE.Mesh(tileGeo, tileMat(tileTopColor.clone()));
+        const mat = tileMat(tileTopColor.clone());
+        if (floorTex) { mat.map = floorTex; mat.color.set(0xffffff); }
+        const mesh = new THREE.Mesh(tileGeo, mat);
         scene.add(mesh);
         rec = { mesh, fallT: 0, shakeSeed: Math.random() * 10 };
         tileMeshes.set(idx, rec);
@@ -167,15 +324,15 @@ export function createRunRenderer(mount, palette) {
       let mesh = obsMeshes.get(o);
       if (!mesh) {
         const isSolid = o.kind === 'solid';
-        mesh = new THREE.Mesh(
-          isSolid ? solidGeo : obsGeo,
-          new THREE.MeshLambertMaterial({
-            color: new THREE.Color(isSolid ? pal.solid : pal.obstacle),
-            emissive: new THREE.Color(isSolid ? pal.solid : pal.obstacle),
-            emissiveIntensity: 0.35,
-            transparent: true,
-          })
-        );
+        const tex = isSolid ? solidTex : obstructionTex;
+        const mat = new THREE.MeshLambertMaterial({
+          color: new THREE.Color(isSolid ? pal.solid : pal.obstacle),
+          emissive: new THREE.Color(isSolid ? pal.solid : pal.obstacle),
+          emissiveIntensity: 0.35,
+          transparent: true,
+        });
+        if (tex) { mat.map = tex; mat.color.set(0xffffff); mat.emissive.set(0xffffff); mat.emissiveIntensity = 0.15; }
+        mesh = new THREE.Mesh(isSolid ? solidGeo : obsGeo, mat);
         mesh.userData.kind = o.kind;
         scene.add(mesh);
         obsMeshes.set(o, mesh);
@@ -213,11 +370,16 @@ export function createRunRenderer(mount, palette) {
     runnerGeo.dispose();
     glowGeo.dispose();
     starGeo.dispose();
+    if (runnerSprite.material.map) runnerSprite.material.map.dispose();
+    runnerSprite.material.dispose();
     for (const { mesh } of tileMeshes.values()) { scene.remove(mesh); mesh.material.dispose(); }
     for (const mesh of obsMeshes.values()) { scene.remove(mesh); mesh.material.dispose(); }
     renderer.dispose();
     if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
   }
 
-  return { update, setPalette, dispose };
+  // Paint realm 1's graphics on boot (setPalette covers later realms).
+  paintRealmGraphics(level);
+
+  return { update, setPalette, setCharacter, dispose };
 }
