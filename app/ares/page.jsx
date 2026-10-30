@@ -13,6 +13,7 @@ import AttackSources from '@/components/ares/AttackSources';
 import ModuleToggles from '@/components/ares/ModuleToggles';
 import LearningPanel from '@/components/ares/LearningPanel';
 import MollyPanel from '@/components/ares/MollyPanel';
+import DuoMathPanel from '@/components/ares/DuoMathPanel';
 import BroadcastStudio from '@/components/broadcast/BroadcastStudio';
 
 // ATHENA interior treatment: inline SVG glyph set (zero image weight).
@@ -395,6 +396,7 @@ export default function AresConsole() {
             <div className="ares-panel"><UsersManager authedFetch={authedFetch} users={regUsers} onRefresh={load} /></div>
             <div className="ares-panel"><AttackSources authedFetch={authedFetch} trapped={trapped} sources={sources} onRefresh={load} /></div>
             <div className="ares-panel"><MollyPanel /></div>
+            <div className="ares-panel"><DuoMathPanel /></div>
             <footer className="pb-8 pt-2 text-center text-[11px] text-zinc-600">
               Defensive only. Ares logs and blocks; it never retaliates. Evidence older than 90 days is purged.
             </footer>
