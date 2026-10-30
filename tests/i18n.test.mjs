@@ -75,7 +75,7 @@ t('POS_MAP covers the ten god-tower targets plus legacy points',
 // --- core module: fallback + language list ---
 const core = readFileSync('lib/i18n/index.tsx', 'utf8');
 t('English fallback for missing keys', /en\[key\]/.test(core));
-t('7 languages registered', (core.match(/code: '[a-z]+'/g) || []).length === 7);
+t('34 languages registered', (core.match(/code: '[a-z]+'/g) || []).length === 34);
 t('localStorage persistence', /nexus-language/.test(core));
 t('browser language auto-detect', /navigator\.language/.test(core));
 t('no fetch/XHR in i18n core (bundled dicts)', !/fetch\(|XMLHttpRequest/.test(core));

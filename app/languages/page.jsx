@@ -6,7 +6,7 @@ import ALL_LANGUAGES from '../../lib/i18n/all-languages.json';
 
 // ---------------------------------------------------------------------------
 // LANGUAGES — every language on Earth, shown in its own script.
-// Tapping one of the 31 supported app locales (7 human + 24 AI translations)
+// Tapping one of the 34 supported app locales (7 human + 27 AI translations)
 // switches the whole app to that language; anything else shows a friendly
 // "not yet translated" note — no dead ends.
 // ---------------------------------------------------------------------------
@@ -16,7 +16,8 @@ const MACHINE = new Set(LANGUAGES.filter((l) => l.machine).map((l) => l.code));
 const SUPPORTED_COUNT = SUPPORTED.size;
 
 // Most-spoken world languages NOT yet machine-translated, shown under supported.
-const POPULAR_CODES = ['jv', 'te', 'mr'];
+// (Javanese, Telugu and Marathi graduated to full support 2026-10-30.)
+const POPULAR_CODES = [];
 
 const byCode = new Map(ALL_LANGUAGES.map((l) => [l.code, l]));
 const langByCode = new Map(LANGUAGES.map((l) => [l.code, l]));
@@ -146,7 +147,7 @@ export default function LanguagesPage() {
     l.native.toLowerCase().includes(q) ||
     l.name.toLowerCase().includes(q);
 
-  // All 31 app languages first: 7 human translations, then 24 AI translations.
+  // All 34 app languages first: 7 human translations, then 27 AI translations.
   const supportedRows = useMemo(
     () =>
       LANGUAGES.map((l) => byCode.get(l.code))

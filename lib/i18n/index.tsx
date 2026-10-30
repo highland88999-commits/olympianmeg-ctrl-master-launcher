@@ -32,6 +32,9 @@ import yo from './locales/yo.json';
 import am from './locales/am.json';
 import ne from './locales/ne.json';
 import pa from './locales/pa.json';
+import jv from './locales/jv.json';
+import te from './locales/te.json';
+import mr from './locales/mr.json';
 
 // ---------------------------------------------------------------------------
 // Nexus i18n — zero-dependency, zero-network translation layer.
@@ -80,6 +83,9 @@ export const LANGUAGES: Language[] = [
   { code: 'am', native: 'አማርኛ', english: 'Amharic', machine: true },
   { code: 'ne', native: 'नेपाली', english: 'Nepali', machine: true },
   { code: 'pa', native: 'ਪੰਜਾਬੀ', english: 'Punjabi', machine: true },
+  { code: 'jv', native: 'Basa Jawa', english: 'Javanese', machine: true },
+  { code: 'te', native: 'తెలుగు', english: 'Telugu', machine: true },
+  { code: 'mr', native: 'मराठी', english: 'Marathi', machine: true },
 ];
 
 type Dict = Record<string, string>;
@@ -87,6 +93,7 @@ const DICTS: Record<string, Dict> = {
   en, el, es, fr, de, pt, it,
   zh, hi, ar, bn, ru, ur, id, ja, ms, tr, ko, vi,
   ta, fa, pl, uk, nl, th, sw, ha, yo, am, ne, pa,
+  jv, te, mr,
 };
 
 const STORAGE_KEY = 'nexus-language';
