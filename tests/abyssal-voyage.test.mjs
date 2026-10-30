@@ -21,8 +21,10 @@ import {
   SX,
   PLAYER_WY,
   GATE_DEPTH,
+  DIVE_TILT,
   sceneX,
   sceneY,
+  tiltPos,
   zonePalette,
   subRollFor,
   createDiveScene,
@@ -135,6 +137,17 @@ test('subRollFor clamps like the 2D tilt', () => {
 test('gate depth is a sane positive constant', () => {
   assert.ok(GATE_DEPTH > 0 && GATE_DEPTH < 40);
   assert.ok(SX > 0);
+});
+
+test('tiltPos leans the dive plane back: up goes far, down comes near', () => {
+  assert.ok(DIVE_TILT > 0 && DIVE_TILT < 1.2, 'tilt is a modest lean');
+  const up = tiltPos(10);
+  const down = tiltPos(-10);
+  assert.ok(up.z < 0, 'high gates sit farther (-Z)');
+  assert.ok(down.z > 0, 'low gates come nearer (+Z)');
+  assert.ok(Math.abs(up.y) < 10 && Math.abs(down.y) < 10, 'lean shortens Y slightly');
+  const zero = tiltPos(0);
+  assert.ok(Math.abs(zero.y) < 1e-9 && Math.abs(zero.z) < 1e-9, 'play plane stays at origin');
 });
 
 test('createDiveScene is exported as a factory function', () => {

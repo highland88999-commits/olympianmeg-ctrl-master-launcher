@@ -23,6 +23,9 @@ export const SX = 40 / WORLD.width; // world px -> scene units
 export const PLAYER_WY = WORLD.height * 0.72; // the sub's fixed 2D height
 export const GATE_DEPTH = 2.5; // rock wall thickness in Z (scene units) — thin
 export const GATE_HALF_H = 30; // rock columns extend this far above/below the slot
+export const DIVE_TILT = 0.5; // radians: the dive plane leans back, so gates
+// scroll down AND rush toward the camera — the trench-rush perspective —
+// while the slots stay visible gaps, exactly what the 2D collision checks.
 export const MAX_GATES = 16; // pooled rock gates
 export const MAX_PEARLS = 24;
 export const MAX_DEBRIS = 80;
@@ -72,6 +75,13 @@ export function subRollFor(vx) {
   return Math.max(-0.3, Math.min(0.3, vx * 0.004));
 }
 
+const _cosT = Math.cos(DIVE_TILT);
+const _sinT = Math.sin(DIVE_TILT);
+/** Lean a scene-Y position back along the dive tilt (rotation about X). */
+export function tiltPos(y) {
+  return { y: y * _cosT, z: -y * _sinT };
+}
+
 // ---------------------------------------------------------------------------
 // Scene
 // ---------------------------------------------------------------------------
@@ -116,7 +126,7 @@ export function createDiveScene(canvas, options = {}) {
   scene.background = bgColor;
   scene.fog = new THREE.FogExp2(0x06283f, 0.014);
 
-  const camera = new THREE.PerspectiveCamera(62, 3 / 4, 0.5, 400);
+  const camera = new THREE.PerspectiveCamera(68, 3 / 4, 0.5, 400);
 
   // --- lights: dim ambient + the sub's own lamps (localized) ---
   scene.add(new THREE.AmbientLight(0x2a4a66, 0.85));
@@ -209,19 +219,24 @@ export function createDiveScene(canvas, options = {}) {
   // --- rock gate pool: a rock column per gate, split into the rock ABOVE
   // the slot and the rock BELOW it, so the safe slot is a visible glowing
   // gap — exactly what the 2D collision checks (topRect / botRect).
+  // Each gate lives in a group leaned back by DIVE_TILT, so the columns
+  // rush toward the camera as they scroll down.
   const rockMat = new THREE.MeshStandardMaterial({ color: 0x18242f, roughness: 0.95, metalness: 0.05, flatShading: true });
   const rockGeo = new THREE.BoxGeometry(1, 1, 1);
-  const stripGeo = new THREE.BoxGeometry(1, 0.32, 0.9);
-  const stripMat = new THREE.MeshBasicMaterial({ color: 0x00f2ff, transparent: true, opacity: 0.7 });
+  const stripGeo = new THREE.BoxGeometry(1, 0.5, 1.2);
+  const stripMat = new THREE.MeshBasicMaterial({ color: 0x00f2ff, transparent: true, opacity: 0.85 });
   const gates = [];
   for (let i = 0; i < MAX_GATES; i++) {
+    const group = new THREE.Group();
+    group.rotation.x = -DIVE_TILT;
     const rockTop = new THREE.Mesh(rockGeo, rockMat);
     const rockBot = new THREE.Mesh(rockGeo, rockMat);
     const stripT = new THREE.Mesh(stripGeo, stripMat);
     const stripB = new THREE.Mesh(stripGeo, stripMat);
     rockTop.visible = rockBot.visible = stripT.visible = stripB.visible = false;
-    scene.add(rockTop, rockBot, stripT, stripB);
-    gates.push({ rockTop, rockBot, stripT, stripB });
+    group.add(rockTop, rockBot, stripT, stripB);
+    scene.add(group);
+    gates.push({ group, rockTop, rockBot, stripT, stripB });
   }
 
   // --- pearl pool ---
@@ -299,16 +314,17 @@ export function createDiveScene(canvas, options = {}) {
     const flick = reducedMotion ? 1.5 : 1.3 + Math.sin(t * 31) * 0.35 + Math.sin(t * 57) * 0.15;
     thrust.scale.set(flick, flick, 1);
 
-    // camera: side-view of the dive, following the sub loosely and
-    // tilted up so the incoming gates above stay in frame
-    camera.position.set(px * 0.45, -3.5, 26);
-    camera.lookAt(px * 0.55, 7, 0);
+    // camera: low, close, looking up into the dive — gates loom and
+    // rush toward the viewer while the slots stay readable
+    camera.position.set(px * 0.4, -6, 22);
+    camera.lookAt(px * 0.5, 8, -10);
     camera.getWorldDirection(_camDir);
     flashQuad.position.copy(camera.position).addScaledVector(_camDir, 5);
     flashQuad.lookAt(camera.position);
 
     // gates: rock above the slot + rock below the slot, thin in Z.
-    // The slot between them is the visible safe gap.
+    // The slot between them is the visible safe gap. The group lean
+    // sends each column rushing toward the camera as it scrolls down.
     const obstacles = game ? game.obstacles : [];
     for (let i = 0; i < MAX_GATES; i++) {
       const g = gates[i];
@@ -320,13 +336,14 @@ export function createDiveScene(canvas, options = {}) {
       const slotBotY = sceneY(o.gapY + o.gapH / 2);
       const cx = sceneX(o.x + o.w / 2);
       const w = Math.max(0.5, o.w * SX);
-      g.rockTop.position.set(cx, slotTopY + GATE_HALF_H / 2, 0);
+      g.group.position.set(cx, 0, 0);
+      g.rockTop.position.set(0, slotTopY + GATE_HALF_H / 2, 0);
       g.rockTop.scale.set(w, GATE_HALF_H, GATE_DEPTH);
-      g.rockBot.position.set(cx, slotBotY - GATE_HALF_H / 2, 0);
+      g.rockBot.position.set(0, slotBotY - GATE_HALF_H / 2, 0);
       g.rockBot.scale.set(w, GATE_HALF_H, GATE_DEPTH);
-      g.stripT.position.set(cx, slotTopY, 0);
+      g.stripT.position.set(0, slotTopY, 0);
       g.stripT.scale.set(w, 1, 1);
-      g.stripB.position.set(cx, slotBotY, 0);
+      g.stripB.position.set(0, slotBotY, 0);
       g.stripB.scale.set(w, 1, 1);
     }
 
@@ -335,13 +352,15 @@ export function createDiveScene(canvas, options = {}) {
     let pi = 0, di = 0, si = 0;
     for (const b of bits) {
       const bx = sceneX(b.x);
-      const by = sceneY(b.y);
+      const tp = tiltPos(sceneY(b.y)); // lean bits with the dive plane
+      const by = tp.y;
+      const bz = tp.z;
       if (b.kind === 'pearl' && pi < MAX_PEARLS) {
         const m = pearls[pi++];
         m.visible = true;
-        m.position.set(bx, by + (reducedMotion ? 0 : Math.sin(t * 3 + pi) * 0.5), 0);
+        m.position.set(bx, by + (reducedMotion ? 0 : Math.sin(t * 3 + pi) * 0.5), bz);
       } else if (b.kind === 'debris' && di < MAX_DEBRIS) {
-        dummy.position.set(bx, by, (b.r * 7) % 2 - 1);
+        dummy.position.set(bx, by, bz + (b.r * 7) % 2 - 1);
         dummy.rotation.set(b.r * 3, b.x * 0.05, 0);
         dummy.scale.setScalar(0.6 + b.r * 0.5);
         dummy.updateMatrix();
@@ -349,7 +368,7 @@ export function createDiveScene(canvas, options = {}) {
       } else if (b.kind === 'spark' && si < MAX_SPARKS) {
         sparkPos[si * 3] = bx;
         sparkPos[si * 3 + 1] = by;
-        sparkPos[si * 3 + 2] = 0;
+        sparkPos[si * 3 + 2] = bz;
         const k = Math.min(1, b.life * 2);
         sparkCol[si * 3] = 1.0 * k;
         sparkCol[si * 3 + 1] = 0.55 * k;
@@ -360,7 +379,7 @@ export function createDiveScene(canvas, options = {}) {
         // rising — the voyage rewarding clean diving.
         sparkPos[si * 3] = bx;
         sparkPos[si * 3 + 1] = by;
-        sparkPos[si * 3 + 2] = 0;
+        sparkPos[si * 3 + 2] = bz;
         const k = Math.min(1, b.life * 2);
         sparkCol[si * 3] = 0.25 * k;
         sparkCol[si * 3 + 1] = 1.0 * k;
