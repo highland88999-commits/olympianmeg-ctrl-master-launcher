@@ -21,6 +21,7 @@ import { useRouter } from 'next/navigation';
 import { BackButton } from '@/components/ui';
 import { SATELLITES } from '@/lib/i18n/satellites';
 import { fx } from '@/lib/fx';
+import { useVortexTravel } from '@/components/VortexTravel';
 import {
   buildChart,
   searchChart,
@@ -426,6 +427,9 @@ const CSS = `
 
 export default function PrimePage() {
   const router = useRouter();
+  // Node taps ride the vortex like every other entry point
+  // (Merlin, 2026-10-29). The local launcher fanfare stays.
+  const { travel: vortexTravel, overlay: vortexOverlay } = useVortexTravel();
   const chart = useMemo(() => buildChart(SATELLITES), []);
   const nodeMap = useMemo(() => {
     const m = new Map();
@@ -561,8 +565,9 @@ export default function PrimePage() {
 
   const travel = useCallback(
     (node) => {
-      // The launch fanfare lives in the central FX lib; the actual hop is a
-      // plain route push — the launcher shell's own module pattern.
+      // The launch fanfare lives in the central FX lib; the actual hop
+      // rides the vortex — the tube is the launcher shell's launch beat
+      // now (Merlin, 2026-10-29).
       showStatus(`Opening ${node.name}…`, 4000);
       const next = recordVisit(stateRef.current, node.key);
       setRecents(next.recents);
@@ -576,14 +581,13 @@ export default function PrimePage() {
         typeof window !== 'undefined' &&
         window.matchMedia &&
         window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      setTimeout(
-        () => {
-          router.push(node.route);
-        },
-        reduce ? 0 : 420
-      );
+      if (reduce) {
+        router.push(node.route);
+      } else {
+        vortexTravel(node.route, node.name);
+      }
     },
-    [persist, router, showStatus]
+    [persist, router, showStatus, vortexTravel]
   );
 
   const togglePinFor = useCallback(
@@ -831,6 +835,7 @@ export default function PrimePage() {
           </ul>
         </div>
       )}
+      {vortexOverlay}
     </div>
   );
 }

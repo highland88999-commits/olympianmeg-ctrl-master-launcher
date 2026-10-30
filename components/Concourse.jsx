@@ -65,6 +65,7 @@ import { CONCOURSE_BG_ART, resolveConcourseBg } from '@/lib/concourse-bg';
 import { resolveUiSettings, readUiSettingsCache, writeUiSettingsCache, UI_SETTINGS_EVENT } from '@/lib/ui-settings';
 import { isIconDrag, clampIconPx, iconFracToPx, iconPxToFrac, dragIconTopLeft, resolveIconPosition } from '@/lib/concourse-icon';
 import { AnnouncementsBell, AnnouncementsMenu, useAnnouncementUnread } from './concourse/AnnouncementsPanel';
+import { useVortexTravel } from './VortexTravel';
 
 // Layer 3 · Portals 3D — loaded only when its tile is first tapped,
 // so three.js never enters the layout's eager bundle (Concourse
@@ -313,6 +314,9 @@ export default function Concourse() {
   const router = useRouter();
   const pathname = usePathname();
   const onHub = pathname === '/';
+  // Concourse tiles ride the vortex like every other entry point
+  // (Merlin, 2026-10-29).
+  const { travel, overlay: vortexOverlay } = useVortexTravel();
 
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
@@ -495,11 +499,11 @@ export default function Concourse() {
         return;
       }
       setNote('');
-      if (tile.id === 'hub') router.push('/');
-      else if (tile.id === 'molly') router.push('/molly');
-      else if (tile.id === 'store') router.push('/store');
-      else if (tile.id === 'renewal') router.push('/renewal-plan');
-      else if (tile.id === 'calls') router.push('/order-67'); // Holographic Calls
+      if (tile.id === 'hub') travel('/', 'Hub');
+      else if (tile.id === 'molly') travel('/molly', 'Molly');
+      else if (tile.id === 'store') travel('/store', 'Store');
+      else if (tile.id === 'renewal') travel('/renewal-plan', 'Renew');
+      else if (tile.id === 'calls') travel('/order-67', 'Calls'); // Holographic Calls
       else if (tile.id === 'settings') { setSettingsOpen(true); setOpen(false); return; }
       else if (tile.id === 'phone') { setPhoneOpen(true); setOpen(false); return; }
       else if (tile.id === 'portalroom') { setPortal3dOpen(true); setOpen(false); return; }
@@ -507,7 +511,7 @@ export default function Concourse() {
       else fireConcourseTile(tile.id);
       setOpen(false);
     },
-    [router]
+    [router, travel]
   );
 
   // Season guide (Merlin, round 3): the badge in the bottom bar is
@@ -1020,6 +1024,7 @@ export default function Concourse() {
       >
         <OrbFace />
       </button>
+      {vortexOverlay}
     </>
   );
 }

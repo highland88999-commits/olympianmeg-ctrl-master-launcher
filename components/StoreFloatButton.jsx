@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { fx } from '@/lib/fx';
+import { useVortexTravel } from './VortexTravel';
 
 // StoreFloatButton — a floating circular shortcut to the Omega Store (/store)
 // pinned to the right edge of the hub viewport.
@@ -16,12 +16,14 @@ import { fx } from '@/lib/fx';
 //   (the same fallback the store cards use).
 // - prefers-reduced-motion: no cycling, the first image stays put.
 // - The button is a real <button> (keyboard accessible, aria-labelled) and
-//   navigates with router.push('/store'). No pop-ups, no badges, no spam.
+//   rides the vortex to the store. No pop-ups, no badges, no spam.
 const PREVIEW_COUNT = 5;
 const CYCLE_MS = 3000;
 
 export default function StoreFloatButton() {
-  const router = useRouter();
+  // The floating shortcut rides the vortex like every other entry
+  // point (Merlin, 2026-10-29).
+  const { travel, overlay: vortexOverlay } = useVortexTravel();
   const [images, setImages] = useState([]);
   const [active, setActive] = useState(0);
   const [reducedMotion, setReducedMotion] = useState(false);
@@ -69,7 +71,7 @@ export default function StoreFloatButton() {
     >
       <button
         type="button"
-        onClick={() => { fx.tap(); router.push('/store'); }}
+        onClick={() => { fx.tap(); travel('/store', 'Omega Store'); }}
         aria-label="Open the Omega Store"
         title="Omega Store"
         className="relative w-[68px] h-[68px] rounded-full overflow-hidden border-2 border-amber-400/70 bg-zinc-950 shadow-[0_0_24px_rgba(212,175,55,0.35)] hover:border-amber-300 hover:shadow-[0_0_32px_rgba(212,175,55,0.55)] hover:scale-105 active:scale-95 transition-all"
@@ -95,6 +97,7 @@ export default function StoreFloatButton() {
       <span className="text-[8px] font-bold tracking-[0.25em] uppercase text-amber-300/90 bg-black/60 px-2 py-0.5 rounded-full border border-amber-500/25">
         Store
       </span>
+      {vortexOverlay}
     </div>
   );
 }

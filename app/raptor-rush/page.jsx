@@ -270,6 +270,10 @@ export default function RaptorRushPage() {
       window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     const canvas = canvasRef.current;
+    // The menu screen renders no canvas (early return above) — this
+    // effect also runs on mount, so bail until the game screen mounts
+    // it. The effect re-runs on `screen` change.
+    if (!canvas) return;
     const renderer = createRenderer(canvas, {
       reducedMotion: reducedMotionRef.current,
       runner: runnerRef.current,

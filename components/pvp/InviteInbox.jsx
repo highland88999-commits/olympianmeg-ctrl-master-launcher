@@ -10,7 +10,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useVortexTravel } from '@/components/VortexTravel';
 import {
   listPendingInvites, respondInvite, subscribeInvites, isInviteFresh, sanitizeName,
 } from '@/lib/pvp/invites';
@@ -18,7 +18,9 @@ import {
 const POLL_MS = 12000;
 
 export default function InviteInbox({ supabase, userId }) {
-  const router = useRouter();
+  // Accepting a game invite rides the vortex into the match like
+  // every other entry point (Merlin, 2026-10-29).
+  const { travel, overlay: vortexOverlay } = useVortexTravel();
   const [invites, setInvites] = useState([]);
   const seenRef = useRef(new Set());
 
@@ -54,7 +56,7 @@ export default function InviteInbox({ supabase, userId }) {
     const row = await respondInvite(supabase, inv.id, userId, accept);
     dismiss(inv.id);
     if (accept && row) {
-      router.push(`/${row.game_slug}?code=${row.room_code}`);
+      travel(`/${row.game_slug}?code=${row.room_code}`, row.game_slug);
     }
   };
 
@@ -88,6 +90,7 @@ export default function InviteInbox({ supabase, userId }) {
           </div>
         </div>
       ))}
+      {vortexOverlay}
     </div>
   );
 }

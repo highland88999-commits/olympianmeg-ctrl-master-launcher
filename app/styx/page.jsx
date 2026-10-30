@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { LEGS, STORAGE_KEY, sanitizeLeg, advanceLeg, isComplete, stationUrl } from '@/lib/styx/journey';
 import { panelTileStyle } from '@/lib/hestia/ambience';
+import { useVortexTravel } from '@/components/VortexTravel';
 
 function Glyph({ size = 14, children }) {
   return (
@@ -17,6 +18,9 @@ function Glyph({ size = 14, children }) {
 
 export default function StyxPage() {
   const router = useRouter();
+  // Boarding a station rides the vortex like every other entry point
+  // (Merlin, 2026-10-29).
+  const { travel, overlay: vortexOverlay } = useVortexTravel();
   const [leg, setLeg] = useState(0);
   const [ready, setReady] = useState(false);
 
@@ -39,8 +43,11 @@ export default function StyxPage() {
 
   const enter = useCallback(() => {
     const url = stationUrl(leg);
-    if (url) router.push(url);
-  }, [leg, router]);
+    if (url) {
+      const l = LEGS[sanitizeLeg(leg)];
+      travel(url, l ? l.title : 'Station');
+    }
+  }, [leg, travel]);
 
   const reset = useCallback(() => {
     try {
@@ -169,6 +176,7 @@ export default function StyxPage() {
           ← Return to the hub
         </Link>
       </div>
+      {vortexOverlay}
     </main>
   );
 }

@@ -17,15 +17,17 @@
 // card back down, the way the ride collapses back into the Orb.
 
 import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { SATELLITES } from '@/lib/i18n/satellites';
 import { useI18n } from '@/lib/i18n';
 import { SECTION_ORDER } from '@/lib/portal-roster';
 import { GATE_SECONDS, buildTour, prettifyKey } from '@/lib/tour/itinerary';
+import { useVortexTravel } from '@/components/VortexTravel';
 
 export default function Travelator({ open, onClose }) {
-  const router = useRouter();
   const { t } = useI18n();
+  // Entering a program from the tour rides the vortex like every
+  // other entry point (Merlin, 2026-10-29).
+  const { travel, overlay } = useVortexTravel();
   const [mode, setMode] = useState('choose');
   const [gates, setGates] = useState([]);
   const [index, setIndex] = useState(0);
@@ -84,8 +86,11 @@ export default function Travelator({ open, onClose }) {
   function openGate() {
     const gate = gates[index];
     if (!gate) return;
-    onClose();
-    router.push(gate.route);
+    // The ride covers the tour; the tour's timers pause behind it.
+    // Routing happens when the tube ride ends (no onClose — the
+    // navigation unmounts the tour).
+    setPaused(true);
+    travel(gate.route, titleFor(gate.key));
   }
 
   const gate = gates[index] || null;
@@ -243,6 +248,7 @@ export default function Travelator({ open, onClose }) {
           </div>
         )}
       </div>
+      {overlay}
     </div>
   );
 }

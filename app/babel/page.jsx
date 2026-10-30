@@ -1,6 +1,5 @@
 'use client';
 import { Suspense, useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { Canvas } from '@react-three/fiber';
 import { useSceneContextGuard } from '@/components/SceneContextGuard';
 import { OrbitControls } from '@react-three/drei';
@@ -11,6 +10,7 @@ import FloorAvalon from '@/components/babel/FloorAvalon';
 import FloorHermes from '@/components/babel/FloorHermes';
 import WalkMode from '@/components/babel/WalkMode';
 import AquariumViewport from '@/components/babel/AquariumViewport';
+import { useVortexTravel } from '@/components/VortexTravel';
 import { FLOORS, getFloor } from '@/lib/babel/floors';
 import { GOLD_FOUND_EVENT } from '@/components/babel/SylvaGold';
 import { DuatArenaProvider, DuatHUD, DuatToasts } from '@/components/babel/DuatArena';
@@ -99,7 +99,9 @@ export default function BabelPage() {
   // Context-loss guard (fleet rollout 2026-10-15): freeze on loss, heal on
   // restore, recoverable FEED LOST fallback if the context stays gone.
   const sceneGuard = useSceneContextGuard({ label: 'BABEL' });
-  const router = useRouter();
+  // Route floors (the Vault) ride the vortex like every other entry
+  // point (Merlin, 2026-10-29).
+  const { travel, overlay: vortexOverlay } = useVortexTravel();
   const [view, setView] = useState('tower'); // 'tower' or a scene floor id
   const [mode, setMode] = useState('orbit'); // 'orbit' | 'walk' — orbit is the untouched default
   const [showAquarium, setShowAquarium] = useState(false);
@@ -259,7 +261,7 @@ export default function BabelPage() {
     const floor = getFloor(floorId);
     if (!floor) return;
     if (floor.kind === 'route') {
-      router.push(floor.route);
+      travel(floor.route, floor.name);
       return;
     }
     if (floor.kind === 'aquarium') {
@@ -496,6 +498,7 @@ export default function BabelPage() {
       )}
 
       {showAquarium && <AquariumViewport onClose={() => setShowAquarium(false)} />}
+      {vortexOverlay}
       </DuatArenaProvider>
     </div>
   );

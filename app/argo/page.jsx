@@ -22,6 +22,7 @@ import { OrbitControls, Line } from '@react-three/drei';
 import * as THREE from 'three';
 import StreetEarth from '@/components/argo/StreetEarth';
 import StreetScene from '@/components/argo/StreetScene';
+import { useVortexTravel } from '@/components/VortexTravel';
 import { getLiquidGold } from '@/lib/argo-street';
 import StylizedGlobe from '@/components/argo/StylizedGlobe';
 import { FLEET, fleetByKey } from '@/components/argo/VehicleArchetypes';
@@ -638,6 +639,9 @@ export default function ArgoPage() {
   const [sessionFinds, setSessionFinds] = useState(0);
   const controlsRef = useRef({ thrust: 0, strafe: 0, vertical: 0, lookDX: 0, lookDY: 0 });
   const lookDrag = useRef(null);
+  // Walking into a street portal rides the vortex like every other
+  // entry point (Merlin, 2026-10-29).
+  const { travel, overlay: vortexOverlay } = useVortexTravel();
   // Snap the follow camera on launch so the vehicle loads right in front.
   const snapCamRef = useRef(false);
 
@@ -765,6 +769,7 @@ export default function ArgoPage() {
           setGold(total);
           setSessionFinds(finds);
         },
+        onPortalEnter: (route, name) => travel(route, name),
       }
     : null;
 
@@ -1051,6 +1056,7 @@ export default function ArgoPage() {
 
       {/* Bottom clearance so content always clears Safari's browser bar */}
       <div aria-hidden="true" className="absolute bottom-0 left-0 right-0 h-[env(safe-area-inset-bottom)] pointer-events-none" />
+      {vortexOverlay}
     </div>
   );
 }

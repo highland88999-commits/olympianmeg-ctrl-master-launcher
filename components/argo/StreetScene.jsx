@@ -221,6 +221,9 @@ export default function StreetScene({
   autopilot,
   onAutopilotEnd,
   onGold,
+  // Called when the rider walks into a portal instead of pushing the
+  // route directly — the page rides the vortex (Merlin, 2026-10-29).
+  onPortalEnter,
 }) {
   const router = useRouter();
   const { camera, scene } = useThree();
@@ -457,7 +460,8 @@ export default function StreetScene({
         if (dx * dx + dz * dz < 49 && Math.abs(r.pos.y - (p.y + 4.5)) < 7) {
           r.portalCooldown = now + 3;
           try { fx.portal(); } catch { /* audio unavailable */ }
-          router.push(p.route);
+          if (onPortalEnter) onPortalEnter(p.route, p.name);
+          else router.push(p.route);
           break;
         }
       }

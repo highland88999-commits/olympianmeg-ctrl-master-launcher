@@ -232,3 +232,13 @@ t('rabbitBox bakes the hop into y', (() => {
 
 console.log(`\nraptor-rush: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
+
+// Regression (Merlin, 2026-10-29): the page crashed on load with
+// "null is not an object (evaluating 'e.getContext')" because the
+// renderer effect ran on the menu screen, where no canvas is mounted.
+// The effect must bail when canvasRef.current is null.
+{
+  const src = readFileSync('app/raptor-rush/page.jsx', 'utf8');
+  const guard = /const canvas = canvasRef\.current;\s*\n(\s*\/\/[^\n]*\n)*\s*if\s*\(\s*!canvas\s*\)\s*return;/;
+  check('renderer setup bails when the menu screen has no canvas', guard.test(src));
+}

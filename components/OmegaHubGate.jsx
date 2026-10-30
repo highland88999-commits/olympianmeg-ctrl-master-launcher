@@ -63,7 +63,7 @@ function makeLabelSprite() {
   return tex;
 }
 
-export default function OmegaHubGate({ freeroam = false }) {
+export default function OmegaHubGate({ freeroam = false, onEnterPortal }) {
   const router = useRouter();
   const bobRef = useRef(null);
   const enteredRef = useRef(false);
@@ -90,7 +90,11 @@ export default function OmegaHubGate({ freeroam = false }) {
   const enter = () => {
     if (!freeroam || enteredRef.current) return;
     enteredRef.current = true;
-    router.push(OMEGA_ROUTE);
+    // The Arch is a portal: ride the vortex like every other entry
+    // point (Merlin, 2026-10-29). Falls back to a plain push when no
+    // handler is wired (e.g. Portal Room's own arch).
+    if (onEnterPortal) onEnterPortal(OMEGA_ROUTE, 'Portal Room');
+    else router.push(OMEGA_ROUTE);
   };
 
   // Breathing bob (the original: sin(t * 1.5) * 2) + fly-through entry:
