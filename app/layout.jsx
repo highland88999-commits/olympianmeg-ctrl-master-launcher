@@ -10,6 +10,7 @@ import RealmCalloutGuard from '@/components/RealmCalloutGuard';
 import MusePortal from '@/components/MusePortal';
 import Concourse from '@/components/Concourse';
 import JsonLd from '@/components/JsonLd';
+import HalloweenOverlay from '@/components/HalloweenOverlay';
 import { LanguageProvider } from '@/lib/i18n';
 
 const inter = Inter({ subsets: ["latin"] });
@@ -95,6 +96,10 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en" className="dark">
       <body className={`${inter.className} bg-[#050505] antialiased text-white`}>
+        {/* Halloween 2026: the year-01 video plays once through, with sound,
+            as an overlay before anything else loads — then the usual process
+            continues. Removes itself when Halloween is done (Nov 1). */}
+        <HalloweenOverlay />
         <JsonLd />
         {/* iOS long-press callout + selection kill for realm/game views
             (auto-detects full-viewport game canvases; chat/forms/inputs
