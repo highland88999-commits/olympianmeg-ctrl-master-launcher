@@ -39,6 +39,7 @@ import {
 import { probeWebGL } from '@/lib/webgl-support';
 import PortalCard, { PortalStyles } from './portal-room/PortalCard';
 import PortalEnterOverlay from './portal-room/PortalEnterOverlay';
+import { useRiderPrefs } from '@/lib/use-rider-prefs';
 
 const PortalHallScene = dynamic(() => import('./concourse/PortalHallScene'), { ssr: false });
 
@@ -62,6 +63,9 @@ export default function ConcoursePortals({ open, onClose }) {
   const [page, setPage] = useState(0);
   const [expandedKey, setExpandedKey] = useState(null);
   const [entering, setEntering] = useState(null);
+  // Preloaded so the tube ride starts instantly on tap, with the
+  // rider's character in front of them in 3rd person.
+  const riderPrefs = useRiderPrefs();
 
   // Owner-only portals (Earth 2, the Phase 2 test build) join the
   // roster only when the signed-in session is the owner's — the same
@@ -395,9 +399,11 @@ export default function ConcoursePortals({ open, onClose }) {
         </div>
       </div>
 
-      {/* Step-through rush, shared with the Portal Room. */}
+      {/* Step-through: the vortex tube ride to the realm, shared with
+          the Portal Room. */}
       <PortalEnterOverlay
         program={entering}
+        riderPrefs={riderPrefs}
         onDone={() => {
           if (entering) router.push(entering.route);
           handleClose();

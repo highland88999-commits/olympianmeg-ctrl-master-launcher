@@ -25,12 +25,16 @@ import { OMEGA_WRAP_VIDEO } from '@/lib/omega-arch';
 import { SECTION_ORDER, filterPortals, groupBySection } from '@/lib/portal-roster';
 import PortalCard, { PortalStyles } from './PortalCard';
 import PortalEnterOverlay from './PortalEnterOverlay';
+import { useRiderPrefs } from '@/lib/use-rider-prefs';
 
 export default function PortalRoom({ programs }) {
   const router = useRouter();
   const [query, setQuery] = useState('');
   const [section, setSection] = useState('ALL');
   const [entering, setEntering] = useState(null);
+  // Preloaded so the tube ride starts instantly on tap, with the
+  // rider's character in front of them in 3rd person.
+  const riderPrefs = useRiderPrefs();
 
   const counts = useMemo(() => {
     const map = new Map();
@@ -137,10 +141,11 @@ export default function PortalRoom({ programs }) {
         ))
       )}
 
-      {/* Step-through rush: the vortex swallows the screen, then the
+      {/* Step-through: the vortex tube ride to the realm, then the
           realm's own page opens. */}
       <PortalEnterOverlay
         program={entering}
+        riderPrefs={riderPrefs}
         onDone={() => {
           if (entering) router.push(entering.route);
         }}

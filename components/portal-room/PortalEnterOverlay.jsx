@@ -1,61 +1,60 @@
 'use client';
 
-// PortalEnterOverlay — the step-through rush shared by every portal
-// surface (extracted from PortalRoom.jsx): tap a portal and the view
-// rushes into it — the vortex video zooms to fill the screen over
-// 460 ms — then onDone fires and the realm's own page opens.
+// PortalEnterOverlay — the step-through shared by every portal surface
+// (Portal Room page + Concourse Portals 3D panel): tap a portal and you
+// ride the vortex tube to the realm — the new transit system (Merlin,
+// 2026-10-29). Random skins every ride (never the same back-to-back),
+// the destination named ahead, and the rider's character flying in
+// front of them in 3rd person. When the ride ends, onDone fires and
+// the caller opens the realm's own page.
 //
 // The caller owns the reduced-motion decision: under
 // prefers-reduced-motion it navigates instantly and never mounts
 // this overlay. Mounting with program=null renders nothing.
 
-import { useEffect, useRef } from 'react';
-import { OMEGA_VORTEX_VIDEO } from '@/lib/omega-arch';
+import { useRef } from 'react';
+import { pickVortexWraps } from '@/lib/vortex/wraps';
+import { VORTEX_RIDE_MS } from '@/app/nexus-vortex/lib/tube.js';
+import VortexTubeRide from '@/app/nexus-vortex/components/VortexTubeRide.jsx';
 
-export const PORTAL_ENTER_MS = 460;
+// The skin chain lives module-level so back-to-back portal hops never
+// repeat a texture, even across separate overlay mounts.
+let prevSkins = null;
 
-export default function PortalEnterOverlay({ program, onDone }) {
-  const doneRef = useRef(onDone);
-  doneRef.current = onDone;
+export default function PortalEnterOverlay({ program, onDone, riderPrefs }) {
+  // Pick a fresh skin pair per entry (render-phase adjustment, the
+  // React-endorsed pattern — re-picks only when the program changes).
+  const pickedFor = useRef(null);
+  const skinsRef = useRef(null);
+  if (program && pickedFor.current !== program) {
+    pickedFor.current = program;
+    prevSkins = pickVortexWraps(prevSkins);
+    skinsRef.current = prevSkins;
+  }
+  if (!program) {
+    pickedFor.current = null;
+    skinsRef.current = null;
+  }
+  const skins = skinsRef.current;
 
-  useEffect(() => {
-    if (!program) return undefined;
-    const id = setTimeout(() => {
-      if (doneRef.current) doneRef.current();
-    }, PORTAL_ENTER_MS);
-    return () => clearTimeout(id);
-  }, [program]);
-
-  if (!program) return null;
+  if (!program || !skins) return null;
 
   return (
-    <div className="fixed inset-0 z-[90] overflow-hidden bg-black">
-      <style>{`
-        .portal-enter { animation: portal-zoom 0.46s ease-in forwards; }
-        @keyframes portal-zoom {
-          0% { opacity: 0; transform: scale(0.82); }
-          18% { opacity: 1; }
-          100% { opacity: 1; transform: scale(1.9); }
-        }
-      `}</style>
-      <video
-        className="portal-enter absolute inset-0 h-full w-full object-cover"
-        src={OMEGA_VORTEX_VIDEO}
-        autoPlay
-        muted
-        loop
-        playsInline
+    <div
+      className="fixed inset-0 overflow-hidden bg-black"
+      style={{ zIndex: 2147483000 }}
+      role="dialog"
+      aria-label={`Traveling to ${program.title}`}
+    >
+      <VortexTubeRide
+        outsideSkin={skins.outside}
+        insideSkin={skins.inside}
+        destinationName={program.title}
+        durationMs={VORTEX_RIDE_MS}
+        onDone={onDone}
+        characterPreview={riderPrefs?.characterPreview || null}
+        perspective={riderPrefs?.perspective || '1st'}
       />
-      <div className="absolute inset-0 flex items-center justify-center">
-        <div className="text-center">
-          <div className="text-5xl text-amber-200 drop-shadow-[0_0_18px_rgba(255,190,80,0.9)]">
-            Ω
-          </div>
-          <div className="mt-3 text-sm tracking-[0.3em] text-zinc-100">
-            {program.title.toUpperCase()}
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
