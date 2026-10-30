@@ -49,14 +49,17 @@ test('no telemetry or tracking strings in built files', () => {
 
 test('no external URLs, iframes, video tags, or mailto links', () => {
   assert.ok(!allCode.includes('https://'), 'no https URLs allowed');
-  assert.ok(!allCode.includes('http://'), 'no http URLs allowed');
+  // allow the SVG xmlns namespace inside data-URI textures (not a network fetch)
+  const noXmlns = allCode.replace(/xmlns='http:\/\/www\.w3\.org\/2000\/svg'/g, '');
+  assert.ok(!noXmlns.includes('http://'), 'no http URLs allowed');
   assert.ok(!/<iframe/i.test(allCode), 'no iframes allowed');
   assert.ok(!/<video/i.test(allCode), 'no video tags allowed');
   assert.ok(!allCode.includes('mailto:'), 'no mailto links allowed');
 });
 
 test('no CDN libraries (Quill, mammoth) or crypto/payment fields', () => {
-  const banned = ['unpkg', 'jsdelivr', 'cdnjs', 'quill', 'mammoth', 'wallet', 'price_btc', 'bitcoin'];
+  // 'quill' alone matches the feather-pen SVG icon key; match library paths instead
+  const banned = ['unpkg', 'jsdelivr', 'cdnjs', 'quill/dist', 'quill.min', 'mammoth', 'wallet', 'price_btc', 'bitcoin'];
   for (const s of banned) {
     assert.ok(!allCode.toLowerCase().includes(s), `banned string present: ${s}`);
   }

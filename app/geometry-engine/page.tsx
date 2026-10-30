@@ -98,7 +98,7 @@ export default function GeometryEngine() {
     }
     animate();
 
-    const panels = { cover: document.getElementById('panel-cover'), sculpt: document.getElementById('panel-sculpt'), shapes: document.getElementById('panel-shapes'), audio: document.getElementById('panel-audio'), ai: document.getElementById('panel-ai') };
+    const panels = { shapes: document.getElementById('panel-shapes') };
     window.togglePanel = function(key) {
         Object.keys(panels).forEach(k => { const active = k === key; panels[k]?.classList.toggle('active', active); document.getElementById(`icon-${k}`)?.classList.toggle('active', active); });
     };
