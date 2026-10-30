@@ -82,7 +82,7 @@ function makeBioluminescent(obj, hex, auraScale) {
         const cur = m.emissive ? m.emissive.getHex() : 0;
         if (cur === 0) {
           m.emissive = col.clone();
-          m.emissiveIntensity = 0.55;
+          m.emissiveIntensity = 0.85;
         } else {
           // already glowing (angler lure): push it brighter
           m.emissiveIntensity = Math.max(m.emissiveIntensity || 1, 1.6);
@@ -136,9 +136,13 @@ export class Swimmer {
 
   reset(initial = false) {
     const [d0, d1] = this.def.depth;
-    this.z = initial ? -20 - this.rng() * 100 : -120 - this.rng() * 40;
+    // Swim lanes cross the play plane (z near 0) so creatures pass by
+    // the sub where the player can see them — not a hundred units deep
+    // in the fog (2026-10-29, Merlin: "sea life should occasionally
+    // swim past users").
+    this.z = -10 + this.rng() * 20;
     this.x = (this.rng() * 2 - 1) * 26;
-    this.y = (this.rng() * 2 - 1) * 6 - 2;
+    this.y = (this.rng() - 0.5) * 26;
     this.dir = this.rng() < 0.5 ? -1 : 1;
     this.depthAnchor = d0 + this.rng() * (d1 - d0);
     if (this.school && initial) {

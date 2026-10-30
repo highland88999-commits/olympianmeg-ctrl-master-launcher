@@ -20,9 +20,9 @@ import {
 import {
   SX,
   PLAYER_WY,
-  GATE_BAR_LEN,
+  GATE_DEPTH,
   sceneX,
-  sceneZ,
+  sceneY,
   zonePalette,
   subRollFor,
   createDiveScene,
@@ -109,11 +109,11 @@ test('sceneX centers the world at x=0 spanning -20..20', () => {
   assert.ok(sceneX(100) < sceneX(600), 'monotonic');
 });
 
-test('sceneZ puts the player at 0 and spawns gates far ahead', () => {
-  assert.ok(Math.abs(sceneZ(PLAYER_WY)) < 1e-9, 'player plane is z=0');
-  assert.ok(sceneZ(-200) < -40, 'fresh gates spawn far ahead (-Z)');
-  assert.ok(sceneZ(WORLD.height + 120) > 20, 'culled gates are past the camera (+Z)');
-  assert.ok(sceneZ(100) < sceneZ(500), 'falling maps to +Z travel');
+test('sceneY puts the player at 0 and spawns gates high above', () => {
+  assert.ok(Math.abs(sceneY(PLAYER_WY)) < 1e-9, 'player plane is y=0');
+  assert.ok(sceneY(-200) > 40, 'fresh gates spawn high above (+Y)');
+  assert.ok(sceneY(WORLD.height + 120) < -20, 'culled gates are below the sub (-Y)');
+  assert.ok(sceneY(100) > sceneY(500), 'falling maps to -Y travel');
 });
 
 test('zonePalette darkens and thickens fog with depth', () => {
@@ -132,8 +132,8 @@ test('subRollFor clamps like the 2D tilt', () => {
   assert.equal(subRollFor(-100000), -0.3);
 });
 
-test('gate bar length is a sane positive constant', () => {
-  assert.ok(GATE_BAR_LEN > 0 && GATE_BAR_LEN < 40);
+test('gate depth is a sane positive constant', () => {
+  assert.ok(GATE_DEPTH > 0 && GATE_DEPTH < 40);
   assert.ok(SX > 0);
 });
 

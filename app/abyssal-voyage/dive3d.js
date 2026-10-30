@@ -2,8 +2,10 @@
  * Abyssal Voyage — three.js 3D trench-dive renderer.
  * The 2D game logic in engine.js is untouched. WORLD coordinates map to 3D:
  *   worldX (0..720) -> scene X (-20..20)
- *   worldY (the falling axis) -> scene Z, so rock gates rush toward the
- *     camera and the sub threads each gate's slot in true depth.
+ *   worldY (the falling axis) -> scene Y (vertical), so this is a true
+ *     side-view dive: rock columns scroll down past the sub, each with a
+ *     VISIBLE glowing slot the sub threads. What you see is exactly what
+ *     the 2D collision checks — damage only ever lands on a visible hit.
  * Zero network calls. No postprocessing: the only glows are the sub's
  * headlamp cone, pearl/thruster sprites, and gate rim strips — all local.
  */
@@ -19,7 +21,8 @@ import { MarineLife } from './marine.js';
 
 export const SX = 40 / WORLD.width; // world px -> scene units
 export const PLAYER_WY = WORLD.height * 0.72; // the sub's fixed 2D height
-export const GATE_BAR_LEN = 16; // visual length of each rock bar (scene units)
+export const GATE_DEPTH = 2.5; // rock wall thickness in Z (scene units) — thin
+export const GATE_HALF_H = 30; // rock columns extend this far above/below the slot
 export const MAX_GATES = 16; // pooled rock gates
 export const MAX_PEARLS = 24;
 export const MAX_DEBRIS = 80;
@@ -31,9 +34,10 @@ export function sceneX(wx) {
   return (wx - WORLD.width / 2) * SX;
 }
 
-/** worldY (falling axis) -> scene Z. Player sits at z = 0; gates start far. */
-export function sceneZ(wy) {
-  return (wy - PLAYER_WY) * SX;
+/** worldY (falling axis) -> scene Y (vertical). Player sits at y = 0;
+ *  gates spawn high above (+Y) and scroll down past the sub. */
+export function sceneY(wy) {
+  return (PLAYER_WY - wy) * SX;
 }
 
 /**
@@ -120,13 +124,13 @@ export function createDiveScene(canvas, options = {}) {
   topLight.position.set(0, 30, -10);
   scene.add(topLight);
 
-  // --- trench walls ---
+  // --- trench walls (frame the dive on both sides) ---
   const wallMat = new THREE.MeshStandardMaterial({ color: 0x0d1620, roughness: 1, metalness: 0 });
-  const wallGeo = new THREE.BoxGeometry(30, 60, 220);
+  const wallGeo = new THREE.BoxGeometry(30, 90, 34);
   const wallL = new THREE.Mesh(wallGeo, wallMat);
-  wallL.position.set(-38, -8, -60);
+  wallL.position.set(-38, 0, -4);
   const wallR = new THREE.Mesh(wallGeo, wallMat);
-  wallR.position.set(38, -8, -60);
+  wallR.position.set(38, 0, -4);
   scene.add(wallL, wallR);
 
   // --- coral reef (Merlin 2026-10-29): the seafloor at the trench bottom ---
@@ -145,8 +149,8 @@ export function createDiveScene(canvas, options = {}) {
   const srng = mulberry(777);
   for (let i = 0; i < SNOW_COUNT; i++) {
     snowBase[i * 3] = (srng() * 2 - 1) * 42;
-    snowBase[i * 3 + 1] = (srng() * 2 - 1) * 16;
-    snowBase[i * 3 + 2] = -115 + srng() * 150;
+    snowBase[i * 3 + 1] = (srng() * 2 - 1) * 34;
+    snowBase[i * 3 + 2] = (srng() * 2 - 1) * 14;
   }
   snowPos.set(snowBase);
   snowGeo.setAttribute('position', new THREE.BufferAttribute(snowPos, 3).setUsage(THREE.DynamicDrawUsage));
@@ -157,67 +161,67 @@ export function createDiveScene(canvas, options = {}) {
   snow.frustumCulled = false;
   scene.add(snow);
 
-  // --- the submersible (procedural, low-poly) ---
+  // --- the submersible (procedural, low-poly), diving head-first (-Y) ---
   const sub = new THREE.Group();
   const hullMat = new THREE.MeshStandardMaterial({ color: 0x1a86b8, metalness: 0.55, roughness: 0.4 });
   const hull = new THREE.Mesh(new THREE.CapsuleGeometry(1.05, 2.4, 4, 10), hullMat);
-  hull.rotation.x = Math.PI / 2;
-  sub.add(hull);
+  sub.add(hull); // capsule's long axis is Y by default: nose down
   const canopy = new THREE.Mesh(
     new THREE.SphereGeometry(0.5, 12, 10),
     new THREE.MeshStandardMaterial({ color: 0x0a2a3a, emissive: 0xbfefff, emissiveIntensity: 1.1, roughness: 0.2 })
   );
-  canopy.scale.set(1, 0.7, 1.3);
-  canopy.position.set(0, 0.78, -0.9);
+  canopy.scale.set(1, 1.3, 0.7);
+  canopy.position.set(0, -0.9, 0.78); // bubble toward the camera, near the nose
   sub.add(canopy);
   const tower = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.36, 0.7, 8), hullMat);
-  tower.position.set(0, 1.05, 0.5);
+  tower.rotation.x = Math.PI / 2;
+  tower.position.set(0, 0.5, -0.75); // sail on the far side
   sub.add(tower);
-  const finGeo = new THREE.BoxGeometry(0.12, 1.1, 0.9);
+  const finGeo = new THREE.BoxGeometry(0.12, 0.9, 1.1);
   const finL = new THREE.Mesh(finGeo, hullMat);
-  finL.position.set(-1.05, 0, 1.25);
+  finL.position.set(-1.05, 1.25, 0);
   finL.rotation.z = 0.25;
   const finR = new THREE.Mesh(finGeo, hullMat);
-  finR.position.set(1.05, 0, 1.25);
+  finR.position.set(1.05, 1.25, 0);
   finR.rotation.z = -0.25;
-  const finT = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.12, 0.8), hullMat);
-  finT.position.set(0, 1.0, 1.25);
+  const finT = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.8, 0.12), hullMat);
+  finT.position.set(0, 1.25, -1.0);
   sub.add(finL, finR, finT);
-  // thruster glow (localized sprite)
+  // thruster glow (localized sprite) at the tail, pointing up
   const thrustTex = makeSpriteTexture([[0, 'rgba(180,255,255,1)'], [0.4, 'rgba(0,242,255,0.6)'], [1, 'rgba(0,242,255,0)']]);
   const thrustMat = new THREE.SpriteMaterial({ map: thrustTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
   const thrust = new THREE.Sprite(thrustMat);
-  thrust.position.set(0, 0, 2.1);
+  thrust.position.set(0, 2.1, 0);
   sub.add(thrust);
-  // headlamp: one spotlight into the trench (localized)
+  // headlamp: one spotlight down into the trench (localized)
   const lamp = new THREE.SpotLight(0xbfefff, 90, 70, 0.48, 0.6, 1.4);
-  lamp.position.set(0, 0.3, -1.6);
+  lamp.position.set(0, -1.6, 0.5);
   const lampTarget = new THREE.Object3D();
-  lampTarget.position.set(0, -1, -30);
+  lampTarget.position.set(0, -30, 0);
   sub.add(lampTarget);
   lamp.target = lampTarget;
   sub.add(lamp);
   const subGlow = new THREE.PointLight(0x00f2ff, 12, 16, 1.8);
-  subGlow.position.set(0, 1, 2);
+  subGlow.position.set(0, 0, 2);
   sub.add(subGlow);
   scene.add(sub);
 
-  // --- rock gate pool: 2 bars + 2 rim strips per gate ---
+  // --- rock gate pool: a rock column per gate, split into the rock ABOVE
+  // the slot and the rock BELOW it, so the safe slot is a visible glowing
+  // gap — exactly what the 2D collision checks (topRect / botRect).
   const rockMat = new THREE.MeshStandardMaterial({ color: 0x18242f, roughness: 0.95, metalness: 0.05, flatShading: true });
-  const barGeo = new THREE.BoxGeometry(1, 13, 1);
-  const stripGeo = new THREE.BoxGeometry(1, 0.32, 0.6);
-  const stripMat = new THREE.MeshBasicMaterial({ color: 0x00f2ff, transparent: true, opacity: 0.55 });
+  const rockGeo = new THREE.BoxGeometry(1, 1, 1);
+  const stripGeo = new THREE.BoxGeometry(1, 0.32, 0.9);
+  const stripMat = new THREE.MeshBasicMaterial({ color: 0x00f2ff, transparent: true, opacity: 0.7 });
   const gates = [];
   for (let i = 0; i < MAX_GATES; i++) {
-    const barA = new THREE.Mesh(barGeo, rockMat);
-    const barB = new THREE.Mesh(barGeo, rockMat);
+    const rockTop = new THREE.Mesh(rockGeo, rockMat);
+    const rockBot = new THREE.Mesh(rockGeo, rockMat);
     const stripT = new THREE.Mesh(stripGeo, stripMat);
     const stripB = new THREE.Mesh(stripGeo, stripMat);
-    stripT.position.y = 6.4;
-    stripB.position.y = -6.4;
-    barA.visible = barB.visible = stripT.visible = stripB.visible = false;
-    scene.add(barA, barB, stripT, stripB);
-    gates.push({ barA, barB, stripT, stripB });
+    rockTop.visible = rockBot.visible = stripT.visible = stripB.visible = false;
+    scene.add(rockTop, rockBot, stripT, stripB);
+    gates.push({ rockTop, rockBot, stripT, stripB });
   }
 
   // --- pearl pool ---
@@ -263,6 +267,11 @@ export function createDiveScene(canvas, options = {}) {
 
   let disposed = false;
   let prevSubX = 0;
+  const _camDir = new THREE.Vector3();
+  const _raycaster = new THREE.Raycaster();
+  const _ndc = new THREE.Vector2();
+  const _hit = new THREE.Vector3();
+  const _playPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0); // z = 0
 
   function render(game, dt, nowMs) {
     if (disposed) return;
@@ -278,7 +287,7 @@ export function createDiveScene(canvas, options = {}) {
     scene.fog.color.copy(bgColor);
     scene.fog.density = pal.density;
 
-    // sub
+    // sub (dives head-first; banks with horizontal velocity)
     const px = game ? sceneX(game.player.x) : 0;
     const vx = dt > 0 ? (px - prevSubX) / Math.max(dt, 1e-3) : 0;
     prevSubX = px;
@@ -290,31 +299,35 @@ export function createDiveScene(canvas, options = {}) {
     const flick = reducedMotion ? 1.5 : 1.3 + Math.sin(t * 31) * 0.35 + Math.sin(t * 57) * 0.15;
     thrust.scale.set(flick, flick, 1);
 
-    // camera follows the sub loosely, looking into the trench
-    camera.position.set(px * 0.45, 7.5, 13.5);
-    camera.lookAt(px * 0.55, -1, -30);
-    flashQuad.position.set(camera.position.x, camera.position.y, camera.position.z - 5);
+    // camera: side-view of the dive, following the sub loosely and
+    // tilted up so the incoming gates above stay in frame
+    camera.position.set(px * 0.45, -3.5, 26);
+    camera.lookAt(px * 0.55, 7, 0);
+    camera.getWorldDirection(_camDir);
+    flashQuad.position.copy(camera.position).addScaledVector(_camDir, 5);
     flashQuad.lookAt(camera.position);
 
-    // gates
+    // gates: rock above the slot + rock below the slot, thin in Z.
+    // The slot between them is the visible safe gap.
     const obstacles = game ? game.obstacles : [];
     for (let i = 0; i < MAX_GATES; i++) {
       const g = gates[i];
       const o = obstacles[i];
       const show = !!o;
-      g.barA.visible = g.barB.visible = g.stripT.visible = g.stripB.visible = show;
+      g.rockTop.visible = g.rockBot.visible = g.stripT.visible = g.stripB.visible = show;
       if (!o) continue;
-      const slotZ = sceneZ(o.gapY);
+      const slotTopY = sceneY(o.gapY - o.gapH / 2);
+      const slotBotY = sceneY(o.gapY + o.gapH / 2);
       const cx = sceneX(o.x + o.w / 2);
       const w = Math.max(0.5, o.w * SX);
-      for (const [bar, zc] of [[g.barA, slotZ - GATE_BAR_LEN / 2], [g.barB, slotZ + GATE_BAR_LEN / 2]]) {
-        bar.position.set(cx, 0, zc);
-        bar.scale.set(w, 1, GATE_BAR_LEN);
-      }
-      for (const strip of [g.stripT, g.stripB]) {
-        strip.position.set(cx, strip.position.y, slotZ);
-        strip.scale.set(w, 1, 1);
-      }
+      g.rockTop.position.set(cx, slotTopY + GATE_HALF_H / 2, 0);
+      g.rockTop.scale.set(w, GATE_HALF_H, GATE_DEPTH);
+      g.rockBot.position.set(cx, slotBotY - GATE_HALF_H / 2, 0);
+      g.rockBot.scale.set(w, GATE_HALF_H, GATE_DEPTH);
+      g.stripT.position.set(cx, slotTopY, 0);
+      g.stripT.scale.set(w, 1, 1);
+      g.stripB.position.set(cx, slotBotY, 0);
+      g.stripB.scale.set(w, 1, 1);
     }
 
     // bits: pearls, debris, sparks
@@ -322,21 +335,21 @@ export function createDiveScene(canvas, options = {}) {
     let pi = 0, di = 0, si = 0;
     for (const b of bits) {
       const bx = sceneX(b.x);
-      const bz = sceneZ(b.y);
+      const by = sceneY(b.y);
       if (b.kind === 'pearl' && pi < MAX_PEARLS) {
         const m = pearls[pi++];
         m.visible = true;
-        m.position.set(bx, reducedMotion ? 0 : Math.sin(t * 3 + pi) * 0.5, bz);
+        m.position.set(bx, by + (reducedMotion ? 0 : Math.sin(t * 3 + pi) * 0.5), 0);
       } else if (b.kind === 'debris' && di < MAX_DEBRIS) {
-        dummy.position.set(bx, ((b.r * 7) % 3) - 1.5, bz);
+        dummy.position.set(bx, by, (b.r * 7) % 2 - 1);
         dummy.rotation.set(b.r * 3, b.x * 0.05, 0);
         dummy.scale.setScalar(0.6 + b.r * 0.5);
         dummy.updateMatrix();
         debrisMesh.setMatrixAt(di++, dummy.matrix);
       } else if (b.kind === 'spark' && si < MAX_SPARKS) {
         sparkPos[si * 3] = bx;
-        sparkPos[si * 3 + 1] = 0;
-        sparkPos[si * 3 + 2] = bz;
+        sparkPos[si * 3 + 1] = by;
+        sparkPos[si * 3 + 2] = 0;
         const k = Math.min(1, b.life * 2);
         sparkCol[si * 3] = 1.0 * k;
         sparkCol[si * 3 + 1] = 0.55 * k;
@@ -346,8 +359,8 @@ export function createDiveScene(canvas, options = {}) {
         // clean-streak restore sparkles (2026-10-29): green-cyan,
         // rising — the voyage rewarding clean diving.
         sparkPos[si * 3] = bx;
-        sparkPos[si * 3 + 1] = 0;
-        sparkPos[si * 3 + 2] = bz;
+        sparkPos[si * 3 + 1] = by;
+        sparkPos[si * 3 + 2] = 0;
         const k = Math.min(1, b.life * 2);
         sparkCol[si * 3] = 0.25 * k;
         sparkCol[si * 3 + 1] = 1.0 * k;
@@ -365,12 +378,12 @@ export function createDiveScene(canvas, options = {}) {
     // damage flash
     flashMat.opacity = game ? Math.min(0.35, Math.max(0, game.flash)) : 0;
 
-    // marine snow drift (frozen under reduced motion)
+    // marine snow drift, sinking downward (frozen under reduced motion)
     if (!reducedMotion && dt > 0) {
       for (let i = 0; i < SNOW_COUNT; i++) {
-        let z = snowPos[i * 3 + 2] + dt * 2.2;
-        if (z > 32) z -= 147;
-        snowPos[i * 3 + 2] = z;
+        let y = snowPos[i * 3 + 1] - dt * 2.2;
+        if (y < -34) y += 68;
+        snowPos[i * 3 + 1] = y;
       }
       snowGeo.attributes.position.needsUpdate = true;
     }
@@ -406,5 +419,23 @@ export function createDiveScene(canvas, options = {}) {
   // never blank on first paint
   render(null, 0, 0);
 
-  return { render, resize, dispose };
+  /**
+   * Map a pointer position to a worldX on the play plane (z = 0).
+   * Raycast, not a flat 0..720 lerp, so taps land where the player
+   * is actually pointing even with the camera's slight angle.
+   * Returns null if the ray misses the plane.
+   */
+  function pickWorldX(clientX, clientY) {
+    const r = canvas.getBoundingClientRect();
+    _ndc.set(
+      ((clientX - r.left) / r.width) * 2 - 1,
+      -((clientY - r.top) / r.height) * 2 + 1
+    );
+    _raycaster.setFromCamera(_ndc, camera);
+    if (!_raycaster.ray.intersectPlane(_playPlane, _hit)) return null;
+    const wx = _hit.x / SX + WORLD.width / 2;
+    return Math.max(0, Math.min(WORLD.width, wx));
+  }
+
+  return { render, resize, dispose, pickWorldX };
 }

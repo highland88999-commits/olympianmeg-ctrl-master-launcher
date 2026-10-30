@@ -64,15 +64,14 @@ export default function AbyssalVoyagePage() {
     resize();
     window.addEventListener("resize", resize);
 
-    const toWorldX = (clientX) => {
-      const r = canvas.getBoundingClientRect();
-      return ((clientX - r.left) / r.width) * WORLD.width;
-    };
-
     const onPointer = (e) => {
       const g = gameRef.current;
       if (!g || g.phase !== "playing") return;
-      inputRef.current.targetX = toWorldX(e.clientX);
+      // Raycast onto the play plane so taps steer exactly where
+      // the player points (2026-10-29: the flat lerp aimed wide of
+      // the visible gates, which read as phantom damage).
+      const wx = dive.pickWorldX(e.clientX, e.clientY);
+      if (wx !== null && wx !== undefined) inputRef.current.targetX = wx;
     };
     const onKeyDown = (e) => {
       if (e.key === "ArrowLeft" || e.key === "a") { inputRef.current.left = true; inputRef.current.keyboardAxis = -1; }
