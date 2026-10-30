@@ -89,23 +89,17 @@ describe('registry: compass + weather live in UTILITIES', () => {
     assert.equal(dionysus.satellites.includes('weather'), false);
   });
 
-  it('all 31 locales carry both translated titles and shared English subtitles', () => {
+  it('all 34 locales carry both translated titles and subtitles', () => {
     const files = readdirSync(join(repo, 'lib/i18n/locales')).filter((file) => file.endsWith('.json'));
-    assert.equal(files.length, 31);
+    assert.equal(files.length, 34);
     for (const file of files) {
       const dict = JSON.parse(read(`lib/i18n/locales/${file}`));
       assert.ok(dict['sat.compass.title']?.trim(), `${file} compass title`);
       assert.ok(dict['sat.weather.title']?.trim(), `${file} weather title`);
-      assert.equal(
-        dict['sat.compass.subtitle'],
-        'Live heading, coordinates, and bearings anywhere',
-        `${file} compass subtitle`
-      );
-      assert.equal(
-        dict['sat.weather.subtitle'],
-        'Conditions and forecasts for anywhere on Earth',
-        `${file} weather subtitle`
-      );
+      // Subtitles are translated too in the comprehensive dictionaries
+      // (jv/te/mr); older machine locales share the English subtitle.
+      assert.ok(dict['sat.compass.subtitle']?.trim(), `${file} compass subtitle`);
+      assert.ok(dict['sat.weather.subtitle']?.trim(), `${file} weather subtitle`);
     }
     const en = JSON.parse(read('lib/i18n/locales/en.json'));
     assert.equal(en['sat.compass.title'], 'Compass');

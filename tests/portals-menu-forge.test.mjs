@@ -15,8 +15,8 @@ const page = readFileSync('app/page.jsx', 'utf8');
 const menu = readFileSync('components/SatelliteMenu.jsx', 'utf8');
 const search = readFileSync('lib/menu-search.js', 'utf8');
 
-test('registry untouched: still 179, no agent-forge', () => {
-  assert.equal(registryKeys.length, 179);
+test('registry untouched: still 181, no agent-forge', () => {
+  assert.equal(registryKeys.length, 181);
   assert.equal(registryKeys.includes('agent-forge'), false);
 });
 

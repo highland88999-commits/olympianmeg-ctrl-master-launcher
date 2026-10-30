@@ -70,17 +70,15 @@ describe('registry: journal sits in the UTILITIES satellite + menu', () => {
     }
   });
 
-  it('all 31 locale files carry a journal title + the shared subtitle', () => {
+  it('all 34 locale files carry a journal title + subtitle', () => {
     const files = readdirSync(join(repo, 'lib/i18n/locales')).filter((f) => f.endsWith('.json'));
-    assert.equal(files.length, 31);
+    assert.equal(files.length, 34);
     for (const f of files) {
       const dict = JSON.parse(read(`lib/i18n/locales/${f}`));
       assert.ok(dict['sat.journal.title'] && dict['sat.journal.title'].trim(), `${f} title`);
-      assert.equal(
-        dict['sat.journal.subtitle'],
-        'Your private diary, every entry timestamped',
-        `${f} subtitle`
-      );
+      // Subtitles are translated too in the comprehensive dictionaries
+      // (jv/te/mr); older machine locales share the English subtitle.
+      assert.ok(dict['sat.journal.subtitle'] && dict['sat.journal.subtitle'].trim(), `${f} subtitle`);
     }
     const en = JSON.parse(read('lib/i18n/locales/en.json'));
     assert.equal(en['sat.journal.title'], 'Journal');

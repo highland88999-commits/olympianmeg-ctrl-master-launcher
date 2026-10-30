@@ -128,9 +128,9 @@ describe('registration — one satellite, one god, every language', () => {
     assert.ok(hermesBlock.includes("'portal-room'"));
   });
 
-  it('all 31 locales carry the portal-room title and subtitle', () => {
+  it('all 34 locales carry the portal-room title and subtitle', () => {
     const files = readdirSync(join(root, 'lib/i18n/locales')).filter((f) => f.endsWith('.json'));
-    assert.equal(files.length, 31);
+    assert.equal(files.length, 34);
     for (const f of files) {
       const dict = JSON.parse(read(`lib/i18n/locales/${f}`));
       assert.ok(dict['sat.portal-room.title'], `${f} missing title`);
@@ -138,7 +138,7 @@ describe('registration — one satellite, one god, every language', () => {
     }
   });
 
-  it('the room roster (deduped by route, minus itself) is 173 portals', () => {
+  it('the room roster (deduped by route, minus itself) is 180 portals', () => {
     const seen = new Set();
     let count = 0;
     for (const e of entries) {
@@ -147,7 +147,7 @@ describe('registration — one satellite, one god, every language', () => {
       seen.add(e.route);
       count += 1;
     }
-    assert.equal(count, 173);
+    assert.equal(count, 180);
   });
 });
 

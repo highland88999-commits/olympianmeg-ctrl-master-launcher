@@ -16,7 +16,7 @@ function t(name, cond) {
 // own words).
 {
   const files = readdirSync('lib/i18n/locales').filter((f) => f.endsWith('.json'));
-  t('31 locale files', files.length === 31);
+  t('34 locale files', files.length === 34);
   for (const f of files) {
     const d = JSON.parse(readFileSync(`lib/i18n/locales/${f}`, 'utf8'));
     t(`${f}: star-wars title+subtitle`, d['sat.star-wars.title'] === 'Star Wars' && !!d['sat.star-wars.subtitle']);

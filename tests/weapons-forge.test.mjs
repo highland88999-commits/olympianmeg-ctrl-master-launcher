@@ -180,9 +180,9 @@ describe('the seating (master portal rule)', () => {
     assert.ok(hep.satellites.length <= 24, 'within the per-god cap');
   });
 
-  it('all 31 locales carry a translated title and the house subtitle', () => {
+  it('all 34 locales carry a translated title and the house subtitle', () => {
     const files = readdirSync(join(repo, 'lib/i18n/locales')).filter((f) => f.endsWith('.json'));
-    assert.equal(files.length, 31);
+    assert.equal(files.length, 34);
     for (const f of files) {
       const dict = JSON.parse(read(`lib/i18n/locales/${f}`));
       assert.ok(dict['sat.weapons-forge.title'], `${f} title`);
@@ -197,7 +197,7 @@ describe('the seating (master portal rule)', () => {
   it('the Portal Room roster includes the forge (roster = registry − the room)', () => {
     const en = JSON.parse(read('lib/i18n/locales/en.json'));
     const roster = buildPortalRoster(SATELLITES, (k) => en[`sat.${k}.title`], (k) => en[`sat.${k}.subtitle`]);
-    assert.equal(roster.length, 179); // Monsterverse seat adcdb3cd: roster 174→175; Social Media Cheat Code seat: 175→176; Dodgeball seat: 176→177; Request a Billboard seat: 177→178; Collapse Run seat: 178→179
+    assert.equal(roster.length, 180); // Monsterverse seat adcdb3cd: roster 174→175; Social Media Cheat Code seat: 175→176; Dodgeball seat: 176→177; Request a Billboard seat: 177→178; Collapse Run seat: 178→179; Quidditch seat: 179→180
     const seat = roster.find((p) => p.key === 'weapons-forge');
     assert.ok(seat);
     assert.equal(seat.title, 'Weapons Forge');

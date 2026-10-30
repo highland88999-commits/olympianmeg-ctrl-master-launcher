@@ -185,7 +185,7 @@ describe('master-portal seating + featured placement', () => {
     assert.equal(seat.pos, 'HERMES');
     assert.equal(seat.section, 'TOOLS');
     assert.equal(SATELLITES.filter((s) => s.route === '/social-media-cheat-code').length, 1);
-    assert.equal(SATELLITES.length, 179); // Request a Billboard seat: 178→179
+    assert.equal(SATELLITES.length, 181); // Request a Billboard seat: 178→179; Collapse Run seat: 179→180; Quidditch seat: 180→181
   });
 
   it('the HERMES god menu carries the room (so search + menu rows find it)', () => {
@@ -196,16 +196,16 @@ describe('master-portal seating + featured placement', () => {
   it('the Portal Room roster includes the room (registry − the room itself)', () => {
     const en = JSON.parse(read('lib/i18n/locales/en.json'));
     const roster = buildPortalRoster(SATELLITES, (k) => en[`sat.${k}.title`], (k) => en[`sat.${k}.subtitle`]);
-    assert.equal(roster.length, 178); // Request a Billboard seat: 177→178
+    assert.equal(roster.length, 180); // Request a Billboard seat: 177→178; Collapse Run seat: 178→179; Quidditch seat: 179→180
     const seat = roster.find((p) => p.key === 'social-media-cheat-code');
     assert.ok(seat);
     assert.equal(seat.title, 'Social Media Cheat Code');
     assert.equal(seat.section, 'TOOLS');
   });
 
-  it('all 31 locale dictionaries carry the room title + subtitle', () => {
+  it('all 34 locale dictionaries carry the room title + subtitle', () => {
     const locales = readdirSync(join(repo, 'lib/i18n/locales')).filter((f) => f.endsWith('.json'));
-    assert.equal(locales.length, 31);
+    assert.equal(locales.length, 34);
     for (const f of locales) {
       const d = JSON.parse(read(`lib/i18n/locales/${f}`));
       assert.equal(d['sat.social-media-cheat-code.title'], 'Social Media Cheat Code', f);
