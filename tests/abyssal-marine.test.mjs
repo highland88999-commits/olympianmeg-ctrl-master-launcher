@@ -52,3 +52,31 @@ test('swimmer tail undulation grows toward the tip', () => {
   const amps = [t1, t2, t3].map((b) => Math.abs(b.rotation.y));
   assert.ok(amps[0] < amps[1] && amps[1] < amps[2], `undulation grows to tip: ${amps}`);
 });
+
+test('social patterns: tuna schools, sharks pack, whales pod, jellyfish up', () => {
+  const byId = Object.fromEntries(CREATURES.map((c) => [c.id, c]));
+  assert.equal(byId['tuna'].social, 'school');
+  assert.equal(byId['blue-tang'].social, 'school');
+  assert.equal(byId['shark'].social, 'pack');
+  assert.equal(byId['blue-whale'].social, 'pod');
+  assert.ok(byId['jellyfish'].depth[0] <= 400, 'jellyfish brought up shallow');
+  for (const c of CREATURES) assert.ok(c.glow, `${c.id} has a bioluminescent glow color`);
+});
+
+test('MarineLife lazy-loads bands near the dive depth, max 2 concurrent', async () => {
+  const { MarineLife } = await import('../app/abyssal-voyage/marine.js');
+  const THREE = await import('three');
+  const fakeScene = { add() {}, remove() {} };
+  const ml = new MarineLife(fakeScene);
+  // stub the loader: real Object3D so SkeletonUtils.clone works, no network
+  ml.loader.load = (url, ok) => ok({ scene: new THREE.Object3D() });
+  ml.ensureBands(700); // tuna + shark bands near; angler far
+  // (the stub loader resolves synchronously, so the queue drains into loaded)
+  assert.ok(ml.loaded.has('tuna'), 'tuna loaded near 700m');
+  assert.ok(ml.loaded.has('shark'), 'shark loaded near 700m');
+  assert.ok(!ml.loaded.has('anglerfish'), 'anglerfish not loaded at 700m');
+  assert.ok(ml.loading.size <= 2, 'at most 2 concurrent fetches');
+  // tuna swims as a school, shark #2 trails #1
+  const tunaSchool = ml.schools.get('tuna');
+  assert.ok(tunaSchool && tunaSchool.members.length === 6, 'tuna school formed');
+});

@@ -133,8 +133,10 @@ export function createDiveScene(canvas, options = {}) {
   const reef = new CoralField(scene);
 
   // --- marine life (Merlin 2026-10-29): rigged Tripo creatures ---
+  // Lazy band loading: species parse once, max 2 concurrent fetches,
+  // only when the dive nears their depth — the old 31-at-once storm
+  // is what killed the tab on phones.
   const marine = new MarineLife(scene);
-  marine.load(); // async; missing GLBs skip silently until they land
 
   // --- marine snow ---
   const snowGeo = new THREE.BufferGeometry();
