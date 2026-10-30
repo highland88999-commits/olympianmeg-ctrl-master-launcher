@@ -55,15 +55,20 @@ describe('tube ride component', () => {
     assert.match(src, /Approaching/);
     assert.match(src, /onDone/);
   });
-  it('3rd person shows the rider\'s character in front of them in the tube', () => {
+  it('3rd person shows the rider as a glowing medallion, never a card', () => {
     assert.match(src, /characterPreview/);
     assert.match(src, /perspective === '3rd' && characterPreview/);
-    assert.match(src, /riderSprite/);
+    assert.match(src, /riderGroup/);
+    // Circular feathered window — no square sprite.
+    assert.match(src, /destination-in/);
+    assert.match(src, /createRadialGradient/);
+    assert.doesNotMatch(src, /riderSprite/);
   });
-  it('the rider sprite never spins with the tube', () => {
-    // The sprite is positioned ahead of the camera each frame; only
-    // tubeGroup.rotation.z spins.
-    assert.match(src, /riderSprite\.position\.set\(0, 0\.4/);
-    assert.doesNotMatch(src, /riderSprite\.rotation\.z/);
+  it('the medallion never spins with the tube', () => {
+    // The group is positioned ahead of the camera each frame; only
+    // tubeGroup.rotation.z spins (the medallion's own gold ring turns
+    // gently on its own axis).
+    assert.match(src, /riderGroup\.position\.set\(0, 0\.2/);
+    assert.doesNotMatch(src, /riderGroup\.rotation\.z/);
   });
 });

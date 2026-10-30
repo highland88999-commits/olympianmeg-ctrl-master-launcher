@@ -122,25 +122,86 @@ export default function VortexTubeRide({
     ring.position.set(0, 0, -TUBE_LENGTH + 12);
     scene.add(ring);
 
-    // The rider's character in 3rd person: a steady sprite flying ahead
-    // of the camera — seen in front of them, never spinning with the tube.
+    // The rider's character in 3rd person: a glowing portrait medallion
+    // flying ahead of the camera — seen in front of them, never spinning
+    // with the tube. Circular with a soft feathered edge and a gold ring,
+    // so it reads as an in-world spirit orb, never a UI card
+    // (Merlin, 2026-10-29 — the square sprite looked like a card).
     const showRider = perspective === '3rd' && characterPreview;
-    let riderSprite = null;
+    let riderGroup = null;
+    let riderMats = [];
     if (showRider) {
-      const spriteMat = new THREE.SpriteMaterial({ transparent: true, opacity: 0.95, depthTest: false });
-      riderSprite = new THREE.Sprite(spriteMat);
-      riderSprite.scale.set(2.6, 2.6, 1);
-      riderSprite.renderOrder = 5;
-      scene.add(riderSprite);
+      riderGroup = new THREE.Group();
+      const portraitMat = new THREE.SpriteMaterial({ transparent: true, opacity: 0, depthTest: false });
+      const portrait = new THREE.Sprite(portraitMat);
+      portrait.scale.set(2.3, 2.3, 1);
+      portrait.renderOrder = 5;
+      riderGroup.add(portrait);
+      // Soft halo behind the portrait.
+      const haloMat = new THREE.SpriteMaterial({
+        transparent: true, opacity: 0, depthTest: false,
+        blending: THREE.AdditiveBlending, color: 0xffc860,
+      });
+      const halo = new THREE.Sprite(haloMat);
+      halo.scale.set(4.2, 4.2, 1);
+      halo.renderOrder = 4;
+      riderGroup.add(halo);
+      // Thin gold ring around the medallion, slowly turning.
+      const ringGeo = new THREE.RingGeometry(1.22, 1.34, 48);
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: 0xffd700, transparent: true, opacity: 0,
+        blending: THREE.AdditiveBlending, depthTest: false, side: THREE.DoubleSide,
+      });
+      const medallionRing = new THREE.Mesh(ringGeo, ringMat);
+      medallionRing.renderOrder = 6;
+      riderGroup.add(medallionRing);
+      riderMats = [portraitMat, haloMat, ringMat];
+      riderGroup.userData.ring = medallionRing;
+      scene.add(riderGroup);
+      const S = 512;
+      const medallionOf = (img) => {
+        const cv = document.createElement('canvas');
+        cv.width = cv.height = S;
+        const ctx = cv.getContext('2d');
+        ctx.drawImage(img, 0, 0, S, S);
+        // Punch a feathered circular window: opaque center, soft edge.
+        ctx.globalCompositeOperation = 'destination-in';
+        const g = ctx.createRadialGradient(S / 2, S / 2, S * 0.30, S / 2, S / 2, S * 0.5);
+        g.addColorStop(0, 'rgba(0,0,0,1)');
+        g.addColorStop(0.86, 'rgba(0,0,0,1)');
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, S, S);
+        // Halo texture: warm radial glow.
+        const hc = document.createElement('canvas');
+        hc.width = hc.height = 256;
+        const hctx = hc.getContext('2d');
+        const hg = hctx.createRadialGradient(128, 128, 10, 128, 128, 128);
+        hg.addColorStop(0, 'rgba(255,200,110,0.55)');
+        hg.addColorStop(0.5, 'rgba(255,170,80,0.18)');
+        hg.addColorStop(1, 'rgba(255,160,60,0)');
+        hctx.fillStyle = hg;
+        hctx.fillRect(0, 0, 256, 256);
+        return { portrait: cv, halo: hc };
+      };
       loader.load(
         characterPreview,
         (tex) => {
           tex.colorSpace = THREE.SRGBColorSpace;
-          spriteMat.map = tex;
-          spriteMat.needsUpdate = true;
+          const img = tex.image;
+          const { portrait: pcv, halo: hcv } = medallionOf(img);
+          const ptex = new THREE.CanvasTexture(pcv);
+          ptex.colorSpace = THREE.SRGBColorSpace;
+          portraitMat.map = ptex;
+          portraitMat.needsUpdate = true;
+          const htex = new THREE.CanvasTexture(hcv);
+          htex.colorSpace = THREE.SRGBColorSpace;
+          haloMat.map = htex;
+          haloMat.needsUpdate = true;
+          tex.dispose();
         },
         undefined,
-        () => { scene.remove(riderSprite); riderSprite = null; }
+        () => { scene.remove(riderGroup); riderGroup = null; }
       );
     }
 
@@ -172,10 +233,15 @@ export default function VortexTubeRide({
       camera.position.z = tubeCameraZ(progress);
       lookForward(); // auto-fix, every frame
 
-      // The 3rd-person rider: steady ahead of the camera, gentle bob,
-      // never rolling with the tube.
-      if (riderSprite) {
-        riderSprite.position.set(0, 0.4 + Math.sin(elapsed / 450) * 0.15, camera.position.z - 9);
+      // The 3rd-person rider medallion: steady ahead of the camera,
+      // gentle bob, gold ring slowly turning — never rolling with the tube.
+      // Fades in over the first second so it never pops.
+      if (riderGroup) {
+        riderGroup.position.set(0, 0.2 + Math.sin(elapsed / 450) * 0.15, camera.position.z - 9);
+        riderGroup.userData.ring.rotation.z = reduceMotion ? 0 : elapsed / 1400;
+        const fade = Math.min(1, elapsed / 900);
+        const targets = [0.95, 0.5, 0.85];
+        riderMats.forEach((m, i) => { m.opacity = targets[i] * fade; });
       }
 
       // Destination renders ahead in the last stretch.
@@ -197,10 +263,15 @@ export default function VortexTubeRide({
       outer.material.dispose();
       inner.material.dispose();
       ring.material.dispose();
-      if (riderSprite) {
-        scene.remove(riderSprite);
-        riderSprite.material.map?.dispose();
-        riderSprite.material.dispose();
+      if (riderGroup) {
+        scene.remove(riderGroup);
+        riderGroup.traverse((o) => {
+          if (o.material) {
+            o.material.map?.dispose();
+            o.material.dispose();
+          }
+          if (o.geometry) o.geometry.dispose();
+        });
       }
       renderer.dispose();
       if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
