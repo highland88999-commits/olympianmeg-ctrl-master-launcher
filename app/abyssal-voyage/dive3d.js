@@ -38,7 +38,7 @@ export function sceneX(wx) {
 }
 
 /** worldY (falling axis) -> scene Y (vertical). Player sits at y = 0;
- *  gates spawn high above (+Y) and scroll down past the sub. */
+ *  gates spawn deep below (-Y) and rush up past the sub on the dive. */
 export function sceneY(wy) {
   return (PLAYER_WY - wy) * SX;
 }
@@ -314,10 +314,11 @@ export function createDiveScene(canvas, options = {}) {
     const flick = reducedMotion ? 1.5 : 1.3 + Math.sin(t * 31) * 0.35 + Math.sin(t * 57) * 0.15;
     thrust.scale.set(flick, flick, 1);
 
-    // camera: low, close, looking up into the dive — gates loom and
-    // rush toward the viewer while the slots stay readable
-    camera.position.set(px * 0.4, -6, 22);
-    camera.lookAt(px * 0.5, 8, -10);
+    // camera: level with the sub, looking slightly down into the dive —
+    // gates rise from the depths below and rush up past the sub,
+    // the way the world streams past on a real nose-down dive
+    camera.position.set(px * 0.4, 5, 24);
+    camera.lookAt(px * 0.5, -8, -8);
     camera.getWorldDirection(_camDir);
     flashQuad.position.copy(camera.position).addScaledVector(_camDir, 5);
     flashQuad.lookAt(camera.position);

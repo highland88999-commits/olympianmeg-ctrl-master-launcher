@@ -13,7 +13,7 @@ function playingGame() {
   return g;
 }
 
-test('gates spawn off-screen (negative gapY), never mid-screen', () => {
+test('gates spawn off-screen (below in the depths), never mid-screen', () => {
   for (let seed = 1; seed <= 20; seed++) {
     const g = createGame('abyssal', seed);
     g.phase = 'playing';
@@ -23,7 +23,7 @@ test('gates spawn off-screen (negative gapY), never mid-screen', () => {
       stepGame(g, {}, 0.016);
     }
     for (const o of g.obstacles) {
-      assert.ok(o.gapY < 0, `seed ${seed}: gapY ${o.gapY} should be off-screen`);
+      assert.ok(o.gapY > WORLD.height, `seed ${seed}: gapY ${o.gapY} should be off-screen below`);
     }
   }
 });
@@ -32,10 +32,11 @@ test('three clean gates restore hull to full', () => {
   const g = playingGame();
   g.hull = 40;
   g.player.x = WORLD.width / 2;
-  // place three gates already past the player, unpassed, far from x
+  // place three gates already past the player (above, on the upward dive),
+  // unpassed, far from x
   for (let i = 0; i < 3; i++) {
     g.obstacles.push({
-      x: 0, w: 50, gapY: g.player.y + 200 + i * 10, gapH: 200, passed: false,
+      x: 0, w: 50, gapY: g.player.y - 200 - i * 10, gapH: 200, passed: false,
     });
   }
   // player at center (360), gates at x 0-50: no collision possible
@@ -64,7 +65,7 @@ test('two clean gates do not restore hull', () => {
   g.hull = 40;
   for (let i = 0; i < 2; i++) {
     g.obstacles.push({
-      x: 0, w: 50, gapY: g.player.y + 200 + i * 10, gapH: 200, passed: false,
+      x: 0, w: 50, gapY: g.player.y - 200 - i * 10, gapH: 200, passed: false,
     });
   }
   stepGame(g, {}, 0.016);

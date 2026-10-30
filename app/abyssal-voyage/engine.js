@@ -58,16 +58,19 @@ function spawnObstacle(g) {
   // rock reached the sub. Now every gate starts fully off-screen
   // and scrolls the full distance in, so the warning time is
   // consistent and fair at every speed and depth.
-  const gapY = -120 - r() * 60;
+  // Dive direction (2026-10-30, Merlin): the sub dives nose-down,
+  // so gates spawn BELOW in the depths and rush UP past the sub —
+  // the world rushes up as you fall, like a real dive.
+  const gapY = WORLD.height + 120 + r() * 60;
   g.obstacles.push({ x, w, gapY, gapH, passed: false });
   // ambient debris around the gate
   const n = 4 + Math.floor(r() * 6);
   for (let i = 0; i < n; i++) {
     g.bits.push({
       x: x + r() * w,
-      y: -20 - r() * 120,
+      y: WORLD.height + 20 + r() * 120,
       vx: (r() - 0.5) * 30,
-      vy: 40 + r() * 60,
+      vy: -(40 + r() * 60),
       kind: "debris",
       r: 1 + r() * 3,
       life: 3 + r() * 2,
@@ -77,9 +80,9 @@ function spawnObstacle(g) {
   if (r() < d.pearlRate) {
     g.bits.push({
       x: x + w / 2,
-      y: -30,
+      y: WORLD.height + 30,
       vx: 0,
-      vy: d.speed,
+      vy: -d.speed,
       kind: "pearl",
       r: 9,
       life: 30,
@@ -126,11 +129,11 @@ export function stepGame(g, input, dt) {
   if (g.invuln > 0) g.invuln -= dt;
   if (g.flash > 0) g.flash -= dt;
 
-  // obstacles fall toward viewer (downward scroll)
+  // obstacles rush upward past the sub (dive scroll — the sub falls nose-down)
   for (const o of g.obstacles) {
-    o.gapY += speed * dt;
+    o.gapY -= speed * dt;
   }
-  g.obstacles = g.obstacles.filter((o) => o.gapY - o.gapH / 2 < WORLD.height + 120);
+  g.obstacles = g.obstacles.filter((o) => o.gapY + o.gapH / 2 > -120);
 
   // pearls / debris drift
   for (const b of g.bits) {
@@ -138,7 +141,7 @@ export function stepGame(g, input, dt) {
     b.y += b.vy * dt;
     b.life -= dt;
   }
-  g.bits = g.bits.filter((b) => b.life > 0 && b.y < WORLD.height + 60);
+  g.bits = g.bits.filter((b) => b.life > 0 && b.y > -60);
 
   // collision with rock above/below the gap
   const top = { x: o => o.x, y: -200, w: o => o.w, h: o => o.gapY - o.gapH / 2 + 200 };
@@ -171,7 +174,7 @@ export function stepGame(g, input, dt) {
       }
     }
     // score when a gate is fully cleared
-    if (!o.passed && o.gapY + o.gapH / 2 > p.y + 60) {
+    if (!o.passed && o.gapY - o.gapH / 2 < p.y - 60) {
       o.passed = true;
       g.score += 25;
       // Clean streak (2026-10-29, Merlin): three gates cleared

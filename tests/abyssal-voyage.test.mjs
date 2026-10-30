@@ -57,7 +57,7 @@ test('stepGame scrolls gates and accrues depth/score', () => {
   assert.ok(g.obstacles.length > 0, 'a gate spawned');
   const y0 = g.obstacles[0].gapY;
   stepGame(g, { targetX: null, keyboardAxis: 0 }, 1.0);
-  assert.ok(g.obstacles[0].gapY >= y0, 'gates fall');
+  assert.ok(g.obstacles[0].gapY <= y0, 'gates rush upward on the dive');
 });
 
 test('collision with rock damages the hull', () => {
@@ -111,11 +111,11 @@ test('sceneX centers the world at x=0 spanning -20..20', () => {
   assert.ok(sceneX(100) < sceneX(600), 'monotonic');
 });
 
-test('sceneY puts the player at 0 and spawns gates high above', () => {
+test('sceneY puts the player at 0 and spawns gates deep below', () => {
   assert.ok(Math.abs(sceneY(PLAYER_WY)) < 1e-9, 'player plane is y=0');
-  assert.ok(sceneY(-200) > 40, 'fresh gates spawn high above (+Y)');
-  assert.ok(sceneY(WORLD.height + 120) < -20, 'culled gates are below the sub (-Y)');
-  assert.ok(sceneY(100) > sceneY(500), 'falling maps to -Y travel');
+  assert.ok(sceneY(WORLD.height + 120) < -20, 'fresh gates spawn deep below (-Y)');
+  assert.ok(sceneY(-200) > 40, 'cleared gates exit high above (+Y)');
+  assert.ok(sceneY(100) > sceneY(500), 'higher in 2D maps to higher in 3D');
 });
 
 test('zonePalette darkens and thickens fog with depth', () => {

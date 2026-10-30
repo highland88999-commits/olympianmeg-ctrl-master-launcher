@@ -18,6 +18,12 @@
  *    pulsing glow sprite — the deep lights itself.
  *
  * Creature registry (drop the rigged GLBs in to activate):
+ *
+ * ORIENTATION NOTE (2026-10-30, Merlin): the Tripo rigging bakes a 90°
+ * Y-rotation into the bind pose, so the creatures already face ±X at
+ * rest. Do NOT add another ±PI/2 when facing them along their swim
+ * direction — that turns them sideways. Face targets are 0 (moving
+ * +X/right) and PI (moving -X/left).
  */
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -210,7 +216,7 @@ export class Swimmer {
         this.y + (this.offset ? this.offset.y : 0) + Math.sin(t * 0.8 + phase) * 0.5,
         this.z
       );
-      const faceTarget = a.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+      const faceTarget = a.dir > 0 ? 0 : Math.PI;
       this.obj.rotation.y += (faceTarget - this.obj.rotation.y) * Math.min(1, dt * 3);
     } else if (this.follow && this.paired) {
       // pack/pod trailing: ease toward the leader's slot
@@ -221,14 +227,14 @@ export class Swimmer {
       this.y += (ty - this.y) * Math.min(1, dt * 1.2);
       this.dir = L.dir;
       this.obj.position.set(this.x, this.y + Math.sin(t * 0.8 + phase) * 0.6, this.z);
-      const faceTarget = this.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+      const faceTarget = this.dir > 0 ? 0 : Math.PI;
       this.obj.rotation.y += (faceTarget - this.obj.rotation.y) * Math.min(1, dt * 3);
     } else {
       // solo drift
       this.x += this.dir * s.speed * dt;
       if (this.x > 34 || this.x < -34) this.reset();
       this.obj.position.set(this.x, this.y + Math.sin(t * 0.8 + phase) * 0.8, this.z);
-      this.obj.rotation.y += ((this.dir > 0 ? Math.PI / 2 : -Math.PI / 2) - this.obj.rotation.y) * Math.min(1, dt * 2);
+      this.obj.rotation.y += ((this.dir > 0 ? 0 : Math.PI) - this.obj.rotation.y) * Math.min(1, dt * 2);
     }
 
     // pack/pod regroup rhythm: sometimes split up, sometimes regroup
