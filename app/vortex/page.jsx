@@ -686,7 +686,8 @@ export default function VortexPage() {
         .vtx-vault-item:hover { border-color: #00f2ff; }
         .vtx-vault-code { color: #00f2ff; letter-spacing: 3px; font-size: 0.85rem; }
         .vtx-vault-name { font-size: 0.68rem; letter-spacing: 1px; color: #8fa3b8; }
-        .vtx-foot { margin-top: 34px; font-size: 0.68rem; letter-spacing: 3px; color: #3d4f61; text-align: center; }
+        .vtx-foot { margin-top: 34px; font-size: 0.68rem; letter-spacing: 0.22em; text-indent: 0.22em;
+          color: #3d4f61; text-align: center; overflow-wrap: break-word; max-width: 100%; padding: 0 12px; }
         @media (prefers-reduced-motion: reduce) {
           .vtx-spiral { animation: none; }
           .vtx-cursor { animation: none; }
