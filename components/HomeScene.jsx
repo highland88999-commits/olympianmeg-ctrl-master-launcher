@@ -28,6 +28,7 @@ import { createBikeFlightState, stepBikeFlight, rotateOffsetByYaw, bikeForward }
 import { dismountPosition } from '../lib/rider-state';
 import SeasonalDecor, { SeasonToast, TrophyOverlay } from './SeasonalDecor';
 import { applyCoverFit } from '../lib/texture-fit';
+import { userPlanetDescriptor } from '../lib/communiverse/spiral';
 import { GOD_TOWER_SPOTS } from '../lib/home-positions';
 import { probeWebGL, resetWebGLProbeCache, diagnoseWebGL } from '../lib/webgl-support';
 import { panelsForTower } from '../lib/tower-panels';
@@ -157,7 +158,7 @@ function PlanetBody({ planet, map, ringMap, onSelect }) {
       <group rotation={[0, 0, planet.tilt || 0]}>
         <mesh ref={spinRef}>
           <sphereGeometry args={[planet.radius, 48, 48]} />
-          <meshStandardMaterial map={map || undefined} color={map ? '#ffffff' : '#777777'} roughness={0.95} metalness={0.05} />
+          <meshStandardMaterial map={map || undefined} color={map ? '#ffffff' : (planet.color || '#777777')} roughness={0.95} metalness={0.05} />
         </mesh>
         {planet.rings && ringGeo && (
           <mesh geometry={ringGeo} rotation={[-Math.PI / 2, 0, 0]}>
@@ -189,6 +190,62 @@ function BackdropPlanets({ onPlanetSelect }) {
       {PLANETS.map((p) => (
         <PlanetBody key={p.key} planet={p} map={maps[p.key] || null} ringMap={maps[p.key + ':rings'] || null} onSelect={onPlanetSelect} />
       ))}
+    </>
+  );
+}
+
+// User-forged planets (Merlin, 2026-10-30): every published world becomes
+// a planet in the hub, placed on the mathematical outward spiral
+// (lib/communiverse/spiral.js) — radial AND vertical, 25 billboard rows
+// of height, infinitely outward, never colliding. Color derives from the
+// world's seed so each planet is visually distinct. Clicking a planet
+// opens its world page.
+function UserPlanets() {
+  const [worlds, setWorlds] = useState([]);
+  useEffect(() => {
+    let live = true;
+    fetch('/api/communiverse')
+      .then((r) => r.json())
+      .then((d) => {
+        if (live && d && d.ok && Array.isArray(d.worlds)) setWorlds(d.worlds);
+      })
+      .catch(() => {});
+    return () => { live = false; };
+  }, []);
+  // Flight colliders for user planets — registered when worlds load,
+  // unregistered on unmount. Positions are static (spiral is deterministic).
+  useEffect(() => {
+    const keys = [];
+    worlds.forEach((w, i) => {
+      const desc = userPlanetDescriptor(i, w.id);
+      const key = 'user-planet-' + String(w.id);
+      keys.push(key);
+      registerCollider(key, () => ({ ...desc.center }), desc.radius);
+    });
+    return () => { keys.forEach(unregisterCollider); };
+  }, [worlds]);
+  return (
+    <>
+      {worlds.map((w, i) => {
+        const desc = userPlanetDescriptor(i, w.id);
+        // Seed-derived hue: hash the seed string to 0-360
+        let h = 0;
+        const s = String(w.seed || w.id || i);
+        for (let c = 0; c < s.length; c++) h = (h * 31 + s.charCodeAt(c)) % 360;
+        const planet = {
+          ...desc,
+          color: `hsl(${h}, 45%, 55%)`,
+        };
+        return (
+          <PlanetBody
+            key={planet.key}
+            planet={planet}
+            map={null}
+            ringMap={null}
+            onSelect={() => { window.location.href = w.enter_href || ('/communiverse/world/' + encodeURIComponent(w.id)); }}
+          />
+        );
+      })}
     </>
   );
 }
@@ -998,6 +1055,8 @@ function HubScene({
                 Moon and NavBeacons already used. NexusEarth itself
                 stays: it IS the street. */}
             {!['diving_to_street', 'earth_roam'].includes(appState) && <BackdropPlanets onPlanetSelect={appState === 'hub_freeroam' ? beginPlanetDive : null} />}
+            {/* User-forged planets on the outward spiral (Merlin, 2026-10-30) */}
+            {!['diving_to_street', 'earth_roam'].includes(appState) && <UserPlanets />}
             {/* The planetary system's grand rainbow rings — fixed frame
                 around the planets, outside the satellite hollow. */}
             {!['diving_to_street', 'earth_roam'].includes(appState) && <SystemRings />}
