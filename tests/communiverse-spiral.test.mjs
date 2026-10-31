@@ -63,6 +63,26 @@ describe('user planet spiral', () => {
     }
   });
 
+  it('leaves flyable gaps — min surface gap fits many bike widths', () => {
+    // Merlin, 2026-10-30: users must be able to get through and past.
+    // Bike is ~3-4 units wide; demand 10x that as the absolute minimum gap.
+    const N = 200;
+    const pts = [];
+    for (let i = 0; i < N; i++) {
+      pts.push({ pos: spiralPosition(i), r: userPlanetRadius(i) });
+    }
+    let minGap = Infinity;
+    for (let i = 0; i < N; i++) {
+      for (let j = i + 1; j < N; j++) {
+        const a = pts[i], b = pts[j];
+        const dx = a.pos.x - b.pos.x, dy = a.pos.y - b.pos.y, dz = a.pos.z - b.pos.z;
+        const gap = Math.sqrt(dx * dx + dy * dy + dz * dz) - a.r - b.r;
+        if (gap < minGap) minGap = gap;
+      }
+    }
+    assert.ok(minGap >= 40, `min flyable gap ${minGap.toFixed(1)} < 40 units`);
+  });
+
   it('descriptors carry what PlanetBody needs', () => {
     const d = userPlanetDescriptor(3, 'abc123');
     assert.equal(d.key, 'user-abc123');
