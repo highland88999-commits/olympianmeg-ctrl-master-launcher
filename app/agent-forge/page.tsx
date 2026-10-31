@@ -4,6 +4,7 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import MuseEngineChat from '@/components/muse/MuseEngineChat';
 
 const MASTER_OWNER_EMAIL = 'olympiannexus@gmail.com';
 
@@ -535,6 +536,12 @@ export default function AgentForgeAndBrainConsole() {
           </div>
         </div>
       )}
+      <MuseEngineChat
+        engine="agent-forge"
+        title="Agent Forge"
+        context={{ activeTab, agentCount: agents.length, selectedAgent: selectedAgent?.agent_name ?? null }}
+        accent="#6366f1"
+      />
     </div>
   );
 }

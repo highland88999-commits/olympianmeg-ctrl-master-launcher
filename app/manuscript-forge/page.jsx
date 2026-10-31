@@ -25,6 +25,7 @@ import {
   deserializeDoc,
   downloadFilename,
 } from './manuscript.js';
+import MuseEngineChat from '@/components/muse/MuseEngineChat';
 
 const BTN =
   'min-h-[44px] px-4 py-2 rounded font-bold tracking-widest text-xs uppercase transition-colors inline-flex items-center justify-center gap-2';
@@ -371,6 +372,8 @@ export default function ManuscriptForgePage() {
         <div aria-hidden="true" className="player-clear" />
       </div>
       </div>
+      <MuseEngineChat engine="manuscript-forge" title="Manuscript Forge"
+        context={{ title: doc.title, author: doc.author, activeChapter: active ? active.title : null, totalWords: words, chapterCount: doc.chapters.length }} accent="#f59e0b" />
     </div>
   );
 }

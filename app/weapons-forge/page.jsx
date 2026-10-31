@@ -31,6 +31,7 @@ import {
   replaceBackpackRecord,
   useBackpack,
 } from '@/lib/backpack/store';
+import MuseEngineChat from '@/components/muse/MuseEngineChat';
 
 const RETICLE_GLYPH = { crosshair: '✛', dot: '•', chevron: '»' };
 
@@ -380,6 +381,8 @@ export default function WeaponsForgePage() {
           Forged weapons ride in your backpack from realm to realm.
         </footer>
       </div>
+      <MuseEngineChat engine="weapons-forge" title="Weapons Forge"
+        context={{ signedIn, bars }} accent="#ef4444" />
     </main>
   );
 }

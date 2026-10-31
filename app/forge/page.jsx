@@ -20,6 +20,7 @@ import {
   MAX_TABS,
 } from './storage.js';
 import { sanitizeFilename, triggerDownload } from './download.js';
+import MuseEngineChat from '@/components/muse/MuseEngineChat';
 
 const LANGUAGES = [
   { id: 'javascript', label: 'JavaScript' },
@@ -659,6 +660,17 @@ export default function ForgePage() {
         </div>
       )}
       <div aria-hidden="true" className="player-clear" />
+      <MuseEngineChat
+        engine="forge"
+        title="Forge"
+        context={{
+          tabCount: tabs.length,
+          activeFile: activeTab ? activeTab.name + activeTab.ext : null,
+          language: activeTab ? activeTab.lang : null,
+          lineCount,
+        }}
+        accent="#f97316"
+      />
       </div>
     </main>
   );

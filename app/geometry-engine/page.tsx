@@ -8,6 +8,7 @@ import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { supabase } from '@/lib/supabase';
 import { BackButton } from '@/components/ui';
+import MuseEngineChat from '@/components/muse/MuseEngineChat';
 import { Orbitron, Rajdhani } from 'next/font/google';
 
 const orbitron = Orbitron({ subsets: ['latin'], weight: ['400', '700'] });
@@ -201,6 +202,7 @@ export default function GeometryEngine() {
             </div>
         </div>
       </div>
+      <MuseEngineChat engine="geometry-engine" title="Geometry Engine" context={{}} accent="#10b981" />
     </>
   );
 }

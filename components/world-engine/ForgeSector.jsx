@@ -23,6 +23,7 @@ import { costFor } from '@/lib/world-engine/economy';
 import { mintWorldSeed, readSeed, stampSeed } from '@/lib/world-engine/world-seed';
 import MiniViewport from '@/components/world-engine/MiniViewport';
 import ResourceToolkit from '@/components/world-engine/ResourceToolkit';
+import MuseEngineChat from '@/components/muse/MuseEngineChat';
 
 export default function ForgeSector({ config }) {
   const { sectorName, tagline, category, accent, sliders, showAssetUrl, promptLabel, promptPlaceholder } = config;
@@ -288,6 +289,13 @@ export default function ForgeSector({ config }) {
 
         <ResourceToolkit />
       </div>
+      {/* Muse lives inside the engine — contextual build help */}
+      <MuseEngineChat
+        engine="world-engine"
+        title={sectorName}
+        context={{ category, params, prompt: prompt.slice(0, 500) }}
+        accent={accent}
+      />
     </main>
   );
 }

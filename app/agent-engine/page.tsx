@@ -4,6 +4,7 @@
 import React, { Suspense, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import MuseEngineChat from '@/components/muse/MuseEngineChat';
 
 const MASTER_OWNER_EMAIL = 'olympiannexus@gmail.com';
 
@@ -385,6 +386,12 @@ function AgentEngineConsole() {
           </div>
         </div>
       </div>
+      <MuseEngineChat
+        engine="agent-engine"
+        title="Agent Engine"
+        context={{ selectedAgent: selectedAgent.agent_name, engineAgentCount: engineAgents.length }}
+        accent="#8b5cf6"
+      />
     </div>
   );
 }

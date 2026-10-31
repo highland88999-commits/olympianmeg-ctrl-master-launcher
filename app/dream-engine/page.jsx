@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { normalizeScene, DEFAULT_SCENE } from '@/lib/dream-engine/schema';
 import { EXAMPLE_DREAMS, randomSurprise } from '@/lib/dream-engine/examples';
+import MuseEngineChat from '@/components/muse/MuseEngineChat';
 
 const DreamCanvas = dynamic(() => import('@/components/dream-engine/DreamCanvas'), {
   ssr: false,
@@ -641,6 +642,8 @@ export default function DreamEnginePage() {
           .de-proj-note { bottom: 108px; }
         }
       `}</style>
+      <MuseEngineChat engine="dream-engine" title="Dream Engine"
+        context={{ dreamText, mode, projectionStatus: projection.status }} accent="#a855f7" />
     </main>
   );
 }

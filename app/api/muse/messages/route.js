@@ -47,6 +47,11 @@ export const POST = apiGuard(async function POST(req) {
   }
   const pageUrl = typeof body?.page_url === 'string' ? body.page_url.slice(0, 512) : '';
   const threadHint = typeof body?.thread_id === 'string' ? body.thread_id : null;
+  // Engine integration (Merlin, 2026-10-30): Muse lives inside the engines.
+  // `engine` names the engine (e.g. 'world-engine'); `engine_context` is a
+  // JSON string of the user's current build params, so Muse can see the work.
+  const engine = typeof body?.engine === 'string' ? body.engine.slice(0, 64) : '';
+  const engineContext = typeof body?.engine_context === 'string' ? body.engine_context.slice(0, 2000) : '';
 
   const admin = getAdminClient();
 
@@ -104,7 +109,7 @@ export const POST = apiGuard(async function POST(req) {
 
   if (mode === 'ai') {
     const history = await loadHistory(admin, threadId);
-    const text = await generateMuseReply({ message, history });
+    const text = await generateMuseReply({ message, history, engine, engineContext });
     if (text) {
       reply = text;
     } else {

@@ -7,6 +7,7 @@ import {
   stepParticle,
   particleColor,
 } from "./engine.js";
+import MuseEngineChat from '@/components/muse/MuseEngineChat';
 
 const TILE = "/images/apollo-shared/apollo-panel-tile.webp";
 const BG = "/images/light-particle-engine/light-particle-engine-bg.webp";
@@ -323,6 +324,8 @@ export default function LightParticleEnginePage() {
       </div>
       {/* Safari bottom-bar clearance */}
       <div aria-hidden="true" style={{ height: 'calc(4.5rem + env(safe-area-inset-bottom))' }} />
+      <MuseEngineChat engine="light-particle-engine" title="Light Particle Engine"
+        context={{ emitterType, fieldKind, colorMode, rate, speed, life, paused, seed, particleCount: stats.count, fps: stats.fps }} accent="#22d3ee" />
     </div>
   );
 }
