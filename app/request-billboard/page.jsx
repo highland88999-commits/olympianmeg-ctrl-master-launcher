@@ -102,9 +102,9 @@ export default function RequestBillboardPage() {
     setBusy(true);
     setFormNotice('');
     try {
-      // Frame-fit requirement (Merlin, 2026-10-27): the creative must
-      // fit the tall portrait 4:7 frame, or it is rejected BEFORE any
-      // upload starts — a landscape or square graphic would crop to
+      // Frame-fit requirement (Merlin, 2026-10-31): the creative must
+      // fit the landscape 16:9 frame, or it is rejected BEFORE any
+      // upload starts — a portrait or square graphic would crop to
       // ruin on the panel.
       const dims = await probeCreativeDimensions(file);
       const fit = checkCreativeFit(dims.width, dims.height);

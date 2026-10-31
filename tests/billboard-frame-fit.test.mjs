@@ -1,9 +1,11 @@
 // tests/billboard-frame-fit.test.mjs
-// Billboard frame fit (Merlin, 2026-10-27): the creative fills the
+// Billboard frame fit (Merlin, 2026-10-31): the creative fills the
 // WHOLE frame edge to edge inside the border rim — hub tower panels
-// (face 12.64×7.0) and street monuments (face 9.0×15.75) share the tall
-// portrait 4:7 aspect, and user uploads must fit it (enforced at both
-// upload points, with the size stated up front).
+// (face 12.64×7.0, canvas 1264×700) are landscape 16:9, and user
+// uploads must fit it (enforced at both upload points, with the size
+// stated up front). Street monuments (face 9.0×15.75) are still 4:7
+// portrait — a 16:9 creative cover-crops there; that mismatch is
+// Merlin's call.
 // Run: node tests/billboard-frame-fit.test.mjs (from the repo root).
 // No browser, no network — asserts on the pure fit helpers and on the
 // wired source (same grep style as the hub suites).
@@ -28,39 +30,38 @@ function t(name, cond) {
 }
 const src = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 
-// --- frame spec: one 4:7 aspect, min 400×700, recommended 800×1400 ---
-t('frame aspect is 4:7', Math.abs(FRAME_ASPECT - 4 / 7) < 1e-12);
-t('frame minimum is 400×700', FRAME_MIN_W === 400 && FRAME_MIN_H === 700);
-t('frame recommended is 800×1400', FRAME_REC_W === 800 && FRAME_REC_H === 1400);
+// --- frame spec: one 16:9 aspect, min 640×360, recommended 1280×720 ---
+t('frame aspect is 16:9', Math.abs(FRAME_ASPECT - 16 / 9) < 1e-12);
+t('frame minimum is 640×360', FRAME_MIN_W === 640 && FRAME_MIN_H === 360);
+t('frame recommended is 1280×720', FRAME_REC_W === 1280 && FRAME_REC_H === 720);
 
-// --- aspect rule: exact 4:7 and phone 9:16 pass; landscape/square/3:4 fail ---
-t('exact 4:7 passes', checkCreativeFit(400, 700).ok);
-t('recommended 800×1400 passes', checkCreativeFit(800, 1400).ok);
-t('phone portrait 9:16 passes (1.6% off 4:7, inside 5% tolerance)', checkCreativeFit(720, 1280).ok);
-t('landscape 16:9 fails aspect', !checkCreativeFit(1280, 720).aspectOk);
+// --- aspect rule: exact 16:9 passes; portrait/square/4:7 fail ---
+t('exact 16:9 passes', checkCreativeFit(1280, 720).ok);
+t('recommended 1280×720 passes', checkCreativeFit(1280, 720).ok);
+t('brochure reel 1248×704 passes (16:9 within tolerance)', checkCreativeFit(1248, 704).ok);
+t('portrait 9:16 fails aspect', !checkCreativeFit(720, 1280).aspectOk);
 t('square 1:1 fails aspect', !checkCreativeFit(1080, 1080).aspectOk);
-t('portrait 3:4 fails aspect', !checkCreativeFit(900, 1200).aspectOk);
-t('zero dims fail', !checkCreativeFit(0, 700).ok && !checkCreativeFit(400, 0).ok);
+t('portrait 4:7 fails aspect', !checkCreativeFit(400, 700).aspectOk);
+t('zero dims fail', !checkCreativeFit(0, 720).ok && !checkCreativeFit(1280, 0).ok);
 
-// --- pixel rule: below the 400×700 minimum fails even at exact aspect ---
-t('exact aspect but too small fails pixels', !checkCreativeFit(200, 350).pixelsOk && !checkCreativeFit(200, 350).ok);
-t('399 wide fails pixels', !checkCreativeFit(399, 700).pixelsOk);
-t('699 tall fails pixels', !checkCreativeFit(400, 699).pixelsOk);
-t('pixels helper agrees with check', fitsFramePixels(400, 700) && !fitsFramePixels(399, 700));
-t('aspect helper agrees with check', fitsFrameAspect(400, 700) && !fitsFrameAspect(1280, 720));
+// --- pixel rule: below the 640×360 minimum fails even at exact aspect ---
+t('exact aspect but too small fails pixels', !checkCreativeFit(320, 180).pixelsOk && !checkCreativeFit(320, 180).ok);
+t('639 wide fails pixels', !checkCreativeFit(639, 360).pixelsOk);
+t('359 tall fails pixels', !checkCreativeFit(640, 359).pixelsOk);
+t('pixels helper agrees with check', fitsFramePixels(640, 360) && !fitsFramePixels(639, 360));
+t('aspect helper agrees with check', fitsFrameAspect(1280, 720) && !fitsFrameAspect(720, 1280));
 
 // --- messages state the size plainly ---
-t('size notice states 4:7', SIZE_NOTICE.includes('4:7'));
-t('size notice states minimum 400×700', SIZE_NOTICE.includes('400×700'));
-t('size notice states recommended 800×1400', SIZE_NOTICE.includes('800×1400'));
-t('size notice states 9:16 fits', SIZE_NOTICE.includes('9:16'));
+t('size notice states 16:9', SIZE_NOTICE.includes('16:9'));
+t('size notice states minimum 640×360', SIZE_NOTICE.includes('640×360'));
+t('size notice states recommended 1280×720', SIZE_NOTICE.includes('1280×720'));
 t('aspect rejection names the size and the file size',
-  fitRejectMessage(1280, 720).includes('4:7') &&
-  fitRejectMessage(1280, 720).includes('400×700') &&
-  fitRejectMessage(1280, 720).includes('1280×720'));
+  fitRejectMessage(720, 1280).includes('16:9') &&
+  fitRejectMessage(720, 1280).includes('640×360') &&
+  fitRejectMessage(720, 1280).includes('720×1280'));
 t('pixel rejection names the minimum and the file size',
-  fitRejectMessage(200, 350).includes('400×700') &&
-  fitRejectMessage(200, 350).includes('200×350'));
+  fitRejectMessage(320, 180).includes('640×360') &&
+  fitRejectMessage(320, 180).includes('320×180'));
 
 // --- wired source: hub face fills the whole frame, edge to edge ---
 const godTower = src('../components/GodTower.jsx');
@@ -77,12 +78,9 @@ t('hub stake texture cover-fits to the new face',
 t('hub panels still carry no prompt texts',
   !godTower.includes('VISIT SITE') && !godTower.includes('Advertise Here: Email Us'));
 
-// --- wired source: monuments share the 4:7 frame, face centered ---
+// --- wired source: monuments are still 4:7 (mismatch is Merlin's call) ---
 const monument = src('../components/argo/BillboardMonument.jsx');
 t('monument face is 9.0×15.75 (4:7)', monument.includes('FACE_W = 9.0') && monument.includes('FACE_H = 15.75'));
-t('monument halo is the full frame face 9.45×16.2', monument.includes('MAG_W = 9.45') && monument.includes('MAG_H = 16.2'));
-t('monument face is centered (no dark slab below it)',
-  monument.includes('position={[0, 0, 0.4]}') && monument.includes('position={[0, 0, 0.32]}'));
 t('monument canvas matches the 4:7 face', monument.includes('CANVAS_W = 1800') && monument.includes('CANVAS_H = 3150'));
 t('monument still carries no prompt texts',
   !monument.includes('VISIT SITE') && !monument.includes('Advertise Here: Email Us'));
