@@ -165,7 +165,8 @@ function NexusHub() {
   // Satellite drop → vortex tube (Merlin, 2026-10-29): when the 3D drop
   // reaches the satellite's portal, the fullscreen tube ride carries the
   // user the last stretch instead of the flat portal ring.
-  const [satTube, setSatTube] = useState(null); // { route, name } | null
+  const [satTube, setSatTube] = useState(null); // { route, name, jumpTo? } | null
+  const [pendingJump, setPendingJump] = useState(null); // { x, y, z } | null — consumed by the Canvas
   const satTubeSkinsRef = useRef(null);
   const targetNameRef = useRef('');
   const riderPrefs = useRiderPrefs();
@@ -177,9 +178,17 @@ function NexusHub() {
   const earthQuatRef = useRef(null);
   const [earthFocus, setEarthFocus] = useState(null);
   const [pendingDest, setPendingDest] = useState(null);
+  const [showEarthChooser, setShowEarthChooser] = useState(false);
 
   const beginEarthDive = () => {
     if (appState !== 'hub_freeroam') return;
+    // Earth chooser (Merlin, 2026-10-31): tapping Earth now offers
+    // Earth 1 or Earth 2 — Earth 2 is unlocked for all users.
+    setShowEarthChooser(true);
+  };
+
+  const chooseEarth1 = () => {
+    setShowEarthChooser(false);
     fx.earthDive();
     setEarthFocus({ ...FALLBACK_POSITION, label: t('earth.locating') });
     setAppState('diving_to_earth');
@@ -187,6 +196,11 @@ function NexusHub() {
       if (pos) setEarthFocus({ lat: pos.lat, lon: pos.lon, label: t('earth.yourLocation') });
       else setEarthFocus({ ...FALLBACK_POSITION });
     });
+  };
+
+  const chooseEarth2 = () => {
+    setShowEarthChooser(false);
+    window.location.href = '/earth-2';
   };
 
   // Communiverse deep link (Merlin, 2026-10-22): Earth is the first planet
@@ -589,9 +603,29 @@ function NexusHub() {
 
   const satTubeDone = useCallback(() => {
     const route = satTube?.route;
+    const jumpTo = satTube?.jumpTo;
     setSatTube(null);
-    if (route) router.push(route);
+    if (jumpTo) {
+      // Planet jump: force free-fly (bike mode would overwrite the camera),
+      // then hand the position to the Canvas on the next frame.
+      setAppState('hub_freeroam');
+      setPendingJump(jumpTo);
+    } else if (route) {
+      router.push(route);
+    }
   }, [satTube, router]);
+
+  // Planet Portal: vortex ride to a 3D position (not a route).
+  // `destination` is { name, position: { x, y, z } }.
+  const handlePlanetJump = useCallback((destination) => {
+    if (!destination?.position) return;
+    satTubeSkinsRef.current = pickVortexWraps(satTubeSkinsRef.current);
+    setSatTube({
+      route: null,
+      name: destination.name || 'Planet',
+      jumpTo: destination.position,
+    });
+  }, []);
 
   const toggleBike = () => {
     if (appState === 'on_bike' || appState === 'to_bike') {
@@ -943,6 +977,9 @@ function NexusHub() {
         satIndex={satIndex}
         targetRoute={targetRouteRef.current}
         onSatellitePortal={handleSatellitePortal}
+        onPlanetJump={handlePlanetJump}
+        pendingJump={pendingJump}
+        onJumpConsumed={() => setPendingJump(null)}
         controlsRef={controlsRef}
         flightAxis={flightAxis}
         adWindowRef={adWindowRef}
@@ -978,6 +1015,44 @@ function NexusHub() {
       />
       {/* Satellite drop → vortex tube: the fullscreen ride carries the
           user from the satellite's portal to the realm. */}
+      {/* Earth chooser (Merlin, 2026-10-31): tapping the Earth planet
+          offers Earth 1 or Earth 2. Earth 2 is unlocked for all users. */}
+      {showEarthChooser && (
+        <div
+          className="fixed inset-0 flex items-center justify-center bg-black/70 p-6"
+          style={{ zIndex: 2147483001 }}
+          role="dialog"
+          aria-label="Choose your Earth"
+        >
+          <div className="w-full max-w-sm rounded-2xl bg-slate-900 p-6 text-center shadow-2xl">
+            <div className="mb-1 text-2xl font-extrabold text-white">Choose your Earth</div>
+            <div className="mb-5 text-sm text-slate-400">Two worlds. One tap.</div>
+            <button
+              type="button"
+              onClick={chooseEarth1}
+              className="mb-3 block w-full rounded-xl bg-blue-600 px-4 py-4 text-left text-white transition hover:bg-blue-500"
+            >
+              <div className="text-lg font-bold">🌍 Earth 1</div>
+              <div className="text-sm opacity-80">The world you know. Streets, driving, the grind.</div>
+            </button>
+            <button
+              type="button"
+              onClick={chooseEarth2}
+              className="mb-4 block w-full rounded-xl bg-purple-700 px-4 py-4 text-left text-white transition hover:bg-purple-600"
+            >
+              <div className="text-lg font-bold">🌑 Earth 2</div>
+              <div className="text-sm opacity-80">Monsters, gunplay, land, building — unlock what you want.</div>
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowEarthChooser(false)}
+              className="text-sm text-slate-400 underline"
+            >
+              Not now
+            </button>
+          </div>
+        </div>
+      )}
       {satTube && satTubeSkinsRef.current && (
         <div
           className="fixed inset-0 overflow-hidden bg-black"

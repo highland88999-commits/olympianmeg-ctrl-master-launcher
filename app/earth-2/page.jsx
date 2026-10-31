@@ -137,6 +137,10 @@ const fmtDeg = (n) => `${Number(n).toFixed(1)}°`;
 
 export default function Earth2Page() {
   const [gate, setGate] = useState('checking'); // 'checking' | 'locked' | 'open'
+  // Unlocking engine (Merlin, 2026-10-31): Earth 2's powers start
+  // locked — the user picks what to unlock, one at a time.
+  const [unlocks, setUnlocks] = useState(null);
+  const [unlocking, setUnlocking] = useState('');
   // Walking the planet (2026-10-22): the full-screen world mounts
   // over the chamber and the Bay unmounts while it is up, so the
   // device only ever runs one 3D scene.
@@ -197,6 +201,46 @@ export default function Earth2Page() {
       return {};
     }
   }, []);
+
+  // Unlocking engine: load the account's unlock state, unlock on tap.
+  const loadUnlocks = useCallback(async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data?.session?.access_token;
+      if (!token) return;
+      const res = await fetch('/api/earth2/unlocks', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json().catch(() => null);
+      if (json && json.ok && json.unlocks) setUnlocks(json.unlocks);
+    } catch {
+      /* unlocks stay null — the picker hides */
+    }
+  }, []);
+
+  const unlockOne = useCallback(async (id) => {
+    if (unlocking) return;
+    setUnlocking(id);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data?.session?.access_token;
+      if (!token) return;
+      const res = await fetch('/api/earth2/unlocks', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      const json = await res.json().catch(() => null);
+      if (json && json.ok && json.unlocks) setUnlocks(json.unlocks);
+    } finally {
+      setUnlocking('');
+    }
+  }, [unlocking]);
+
+  // Load unlocks when the gate opens.
+  useEffect(() => {
+    if (gate === 'open') loadUnlocks();
+  }, [gate, loadUnlocks]);
 
   const loadState = useCallback(async () => {
     try {
@@ -771,6 +815,51 @@ export default function Earth2Page() {
             </span>
           </div>
         </div>
+
+        {/* Unlocking engine (Merlin, 2026-10-31): pick what to unlock on Earth 2 */}
+        {unlocks && (
+          <div className="mt-5 rounded-2xl border border-purple-300/30 bg-purple-500/10 px-4 py-4">
+            <div className="mb-1 text-sm font-extrabold tracking-widest text-purple-100">
+              🔓 UNLOCK EARTH 2
+            </div>
+            <div className="mb-3 text-xs text-zinc-400">
+              Earth 2's powers start locked. Pick what to wake up — one tap each.
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {[
+                { id: 'monsters', name: 'Monsters', icon: '👹', blurb: 'The wild things roam. Hunt or be hunted.' },
+                { id: 'gunplay', name: 'Gunplay', icon: '🔫', blurb: 'Weapons hot. Defend your parcel.' },
+                { id: 'building', name: 'Base Building', icon: '🏠', blurb: 'Raise structures on your land.' },
+                { id: 'parcels', name: 'Land Ownership', icon: '🗺️', blurb: 'Buy parcels with gold.' },
+                { id: 'weather', name: 'Real Weather', icon: '🌦️', blurb: 'Live weather, mirrored in-world.' },
+                { id: 'exchange', name: "Dracula's Exchange", icon: '🩸', blurb: 'Trade blood sacs at the castle.' },
+              ].map((u) => {
+                const isOpen = !!unlocks[u.id];
+                const busy = unlocking === u.id;
+                return (
+                  <button
+                    key={u.id}
+                    type="button"
+                    disabled={isOpen || busy}
+                    onClick={() => unlockOne(u.id)}
+                    className={`rounded-xl border px-3 py-3 text-left transition ${
+                      isOpen
+                        ? 'border-emerald-300/50 bg-emerald-500/15'
+                        : 'border-white/15 bg-white/5 hover:border-purple-300/50 hover:bg-purple-500/20'
+                    }`}
+                  >
+                    <div className="text-xl">{u.icon}</div>
+                    <div className="mt-1 text-xs font-bold text-zinc-100">{u.name}</div>
+                    <div className="mt-0.5 text-[11px] leading-snug text-zinc-400">{u.blurb}</div>
+                    <div className={`mt-2 text-[11px] font-extrabold tracking-widest ${isOpen ? 'text-emerald-300' : 'text-purple-300'}`}>
+                      {isOpen ? '✓ UNLOCKED' : busy ? '…' : 'TAP TO UNLOCK'}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {setupRequired && (
           <div className="mt-5 rounded-2xl border border-amber-300/40 bg-amber-300/10 px-4 py-3 text-sm leading-relaxed text-amber-100">
