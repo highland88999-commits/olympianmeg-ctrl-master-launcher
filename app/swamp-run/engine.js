@@ -35,6 +35,13 @@ export const TUNING = {
   crocChaseSpeed: 9.7,
   crocHuntWaterSpeed: 8.3,
   crocHuntLandSpeed: 4.45,
+  // Alligator (ambush predator): lurks near banks, bursts when you're close.
+  gatorLurkSpeed: 0.4, // barely drifts while lurking
+  gatorBurstSpeed: 11.5, // explosive short sprint — faster than your sprint
+  gatorBurstRange: 13, // metres — triggers the ambush
+  gatorGiveUpSeconds: 6, // bursts are short; it tires fast
+  gatorCatchBody: 1.9,
+  boardRange: 4, // metres — click/tap the canoe within this to board
 };
 
 /** How far the croc can hear the player right now (metres). */
@@ -74,6 +81,16 @@ export function detectionRate(state) {
 
 export function createGame(seed = 1) {
   const world = generateWorld(seed);
+  // Player starts ON FOOT at the shore — the canoe floats parked nearby.
+  // Click/tap the canoe (or walk into the water beside it) to board.
+  // The player stands 2.5m from the canoe: inside tap-to-board range,
+  // on the nearest dry footing.
+  const shore = findShore(world.seed, world.spawn.x, world.spawn.z);
+  const sx = shore.x - world.spawn.x;
+  const sz = shore.z - world.spawn.z;
+  const sd = Math.hypot(sx, sz) || 1;
+  const startX = world.spawn.x + (sx / sd) * Math.min(sd, 2.5);
+  const startZ = world.spawn.z + (sz / sd) * Math.min(sd, 2.5);
   const state = {
     status: 'ready', // ready -> playing -> dead
     readyTimer: 1.1,
@@ -83,18 +100,18 @@ export function createGame(seed = 1) {
     seed: world.seed,
     world,
     player: {
-      x: world.spawn.x,
-      z: world.spawn.z,
+      x: startX,
+      z: startZ,
       heading: world.spawn.heading,
       speed: 0,
-      mode: 'canoe', // canoe | swim | foot
+      mode: 'foot', // foot | canoe | swim — you board the canoe to start
     },
     canoe: {
       x: world.spawn.x,
       z: world.spawn.z,
       heading: world.spawn.heading,
       alive: true,
-      parked: false, // beached on purpose, waiting for its paddler
+      parked: true, // waiting at the shore for its paddler
     },
     croc: {
       x: world.crocSpawn.x,
@@ -107,6 +124,16 @@ export function createGame(seed = 1) {
       circleAngle: 0,
       growlTimer: 4,
     },
+    gator: {
+      x: world.gatorSpawn.x,
+      z: world.gatorSpawn.z,
+      heading: 0,
+      speed: 0,
+      mode: 'lurk', // lurk | burst | rest — ambush predator near the banks
+      burstTimer: 0,
+      restTimer: 0,
+      growlTimer: 8,
+    },
     graceTimer: null, // seconds left of post-ram grace (null = not in grace)
     graceWhole: null, // last whole second announced (tick events)
     input: { thrust: 0, turn: 0, sprint: false },
@@ -116,6 +143,38 @@ export function createGame(seed = 1) {
     stepTimer: 0,
   };
   return state;
+}
+
+/**
+ * Click/tap-to-board: the player boards the parked canoe.
+ * Works when on foot within boardRange of the canoe. Emits 'board'.
+ * Returns true when boarding happened.
+ */
+export function tryBoardCanoe(state) {
+  const p = state.player;
+  if (state.status !== 'playing') return false;
+  if (p.mode !== 'foot') return false;
+  if (!state.canoe.alive || !state.canoe.parked) return false;
+  if (dist(p.x, p.z, state.canoe.x, state.canoe.z) > TUNING.boardRange) return false;
+  p.mode = 'canoe';
+  p.heading = state.canoe.heading;
+  p.speed = 0;
+  state.canoe.parked = false;
+  emit(state, 'board');
+  return true;
+}
+
+/** Nearest land point to (x,z) — the shore where the player starts on foot. */
+export function findShore(seed, x, z) {
+  for (let r = 0; r <= 120; r += 3) {
+    for (let a = 0; a < Math.PI * 2; a += Math.PI / 8) {
+      const nx = x + Math.cos(a) * r;
+      const nz = z + Math.sin(a) * r;
+      if (Math.abs(nx) > 305 || Math.abs(nz) > 305) continue;
+      if (terrainAt(seed, nx, nz) !== 'water') return { x: nx, z: nz };
+    }
+  }
+  return { x, z };
 }
 
 export function setInput(state, input) {
@@ -258,6 +317,93 @@ function stepPlayer(state, dt) {
   }
 }
 
+// --------------------------------------------------------------- gator --
+// The alligator is an AMBUSH predator — the crocodile's opposite.
+// It lurks motionless near the banks, all but invisible. Drift within
+// burst range and it EXPLODES: a short, terrifying sprint faster than
+// your paddle. But bursts are short — survive 6 seconds and it tires,
+// sinks back, and resettles to lurk again somewhere new.
+function stepGator(state, dt) {
+  const g = state.gator;
+  const p = state.player;
+  if (state.status === 'dead') return;
+  const d = dist(g.x, g.z, p.x, p.z);
+
+  if (g.mode === 'lurk') {
+    // Barely drifts. If you're close enough to see it, you're too close.
+    g.speed = TUNING.gatorLurkSpeed;
+    moveGator(state, dt);
+    g.growlTimer -= dt;
+    if (d < 18 && g.growlTimer <= 0) {
+      g.growlTimer = 9;
+      emit(state, 'gatorGrowl');
+    }
+    if (d < TUNING.gatorBurstRange && state.graceTimer === null) {
+      g.mode = 'burst';
+      g.burstTimer = TUNING.gatorGiveUpSeconds;
+      emit(state, 'gatorBurst');
+    }
+    return;
+  }
+
+  if (g.mode === 'burst') {
+    // Straight at you, no turning finesse — pure lunge.
+    turnToward(g, headingTo(g.x, g.z, p.x, p.z), 2.6, dt);
+    g.speed = TUNING.gatorBurstSpeed;
+    moveGator(state, dt);
+    g.burstTimer -= dt;
+    if (d < TUNING.gatorCatchBody && state.graceTimer === null) {
+      killPlayer(state, 'gator');
+      return;
+    }
+    if (g.burstTimer <= 0) {
+      g.mode = 'rest';
+      g.restTimer = 5;
+      emit(state, 'gatorTired');
+    }
+    return;
+  }
+
+  if (g.mode === 'rest') {
+    // Blown its burst. Sinks low, drifts, then picks a new lurk spot
+    // near a bank — never far from where the player might wander.
+    g.speed = 0.6;
+    moveGator(state, dt);
+    g.restTimer -= dt;
+    if (g.restTimer <= 0) {
+      const spot = gatorLurkSpot(state);
+      g.x = spot.x;
+      g.z = spot.z;
+      g.mode = 'lurk';
+      g.growlTimer = 6;
+    }
+  }
+}
+
+function moveGator(state, dt) {
+  const g = state.gator;
+  g.x = clampToWorld(g.x + Math.sin(g.heading) * g.speed * dt);
+  g.z = clampToWorld(g.z + Math.cos(g.heading) * g.speed * dt);
+}
+
+/** A new ambush spot: shallow water near a bank, safely away from the player. */
+function gatorLurkSpot(state) {
+  const p = state.player;
+  const g = state.gator;
+  // Try spots ringing the player at 40–90m; take the first in water
+  // AND at least 30m from the player — never resettle on top of them.
+  for (let i = 0; i < 24; i++) {
+    const a = (i / 24) * Math.PI * 2 + state.seed;
+    const r = 40 + ((i * 37) % 50);
+    const x = clampToWorld(p.x + Math.cos(a) * r);
+    const z = clampToWorld(p.z + Math.sin(a) * r);
+    if (dist(x, z, p.x, p.z) < 30) continue;
+    if (isWater(state.seed, x, z)) return { x, z };
+  }
+  // No good water found: stay where you are, don't teleport onto the player.
+  return { x: g.x, z: g.z };
+}
+
 // ------------------------------------------------------------------ croc --
 function stepCroc(state, dt) {
   const c = state.croc;
@@ -341,19 +487,24 @@ function ramPlayer(state) {
   emit(state, 'swimStart', { seconds: TUNING.graceSeconds });
 }
 
-function killPlayer(state) {
+function killPlayer(state, killer = 'croc') {
   state.status = 'dead';
+  const g = state.gator;
+  const killerPos = killer === 'gator'
+    ? { x: g.x, z: g.z, heading: g.heading }
+    : { x: state.croc.x, z: state.croc.z, heading: state.croc.heading };
   state.death = {
     x: state.player.x,
     z: state.player.z,
-    crocX: state.croc.x,
-    crocZ: state.croc.z,
-    crocHeading: state.croc.heading,
+    crocX: killerPos.x,
+    crocZ: killerPos.z,
+    crocHeading: killerPos.heading,
+    killer,
     seconds: Math.floor(state.survival),
     distance: Math.floor(state.distance),
     score: currentScore(state),
   };
-  emit(state, 'death');
+  emit(state, 'death', { killer });
 }
 
 // -------------------------------------------------------------- detection --
@@ -394,6 +545,7 @@ export function stepGame(state, dt) {
   state.survival += dt;
   stepPlayer(state, dt);
   stepDetection(state, dt);
+  stepGator(state, dt);
 
   // Grace countdown (post-ram): croc circles, ticks each second, and when
   // the count dies, the hunt begins.

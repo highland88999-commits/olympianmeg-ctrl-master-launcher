@@ -72,52 +72,224 @@ function Water() {
   );
 }
 
+function useCypressGeometry() {
+  // One cypress tree, merged: flared buttress trunk + three layered
+  // canopy puffs. Built once, instanced per tree. Slightly more
+  // realistic than the old blob — Merlin's words, don't overdo it.
+  return useMemo(() => {
+    const parts = [];
+    // Buttress trunk: flared at the base like a real cypress.
+    const trunk = new THREE.CylinderGeometry(0.42, 0.95, 3.6, 7);
+    trunk.translate(0, 1.8, 0);
+    parts.push(trunk);
+    // Three canopy puffs: wide low, medium mid, small top — Spanish-moss green.
+    const puff1 = new THREE.SphereGeometry(2.6, 8, 6);
+    puff1.scale(1.25, 0.62, 1.25);
+    puff1.translate(0, 4.4, 0);
+    parts.push(puff1);
+    const puff2 = new THREE.SphereGeometry(1.9, 8, 6);
+    puff2.scale(1.1, 0.6, 1.1);
+    puff2.translate(0.7, 5.9, -0.4);
+    parts.push(puff2);
+    const puff3 = new THREE.SphereGeometry(1.25, 7, 6);
+    puff3.scale(1, 0.65, 1);
+    puff3.translate(-0.5, 7.1, 0.5);
+    parts.push(puff3);
+    // Merge into one geometry. (BufferGeometryUtils not imported to keep
+    // the bundle lean — manual merge of position/normal/uv.)
+    let vCount = 0;
+    let iCount = 0;
+    for (const p of parts) {
+      vCount += p.attributes.position.count;
+      iCount += p.index.count;
+    }
+    const pos = new Float32Array(vCount * 3);
+    const nor = new Float32Array(vCount * 3);
+    const uv = new Float32Array(vCount * 2);
+    const idx = new Uint16Array(iCount);
+    let vo = 0;
+    let io = 0;
+    for (const p of parts) {
+      const n = p.attributes.position.count;
+      pos.set(p.attributes.position.array, vo * 3);
+      nor.set(p.attributes.normal.array, vo * 3);
+      uv.set(p.attributes.uv.array, vo * 2);
+      const pi = p.index.array;
+      for (let i = 0; i < pi.length; i++) idx[io + i] = pi[i] + vo;
+      vo += n;
+      io += pi.length;
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    g.setIndex(new THREE.BufferAttribute(idx, 1));
+    return g;
+  }, []);
+}
+
 function Trees({ stateRef }) {
-  const trunkRef = useRef(null);
-  const canopyRef = useRef(null);
+  const treeRef = useRef(null);
+  const mossRef = useRef(null);
   const builtFor = useRef('');
+  const geo = useCypressGeometry();
   const count = stateRef.current?.world.trees.length || 0;
+  // Moss strands: only trees with moss > 0.55 get them (3 strands each).
+  const mossCount = useMemo(() => {
+    const trees = stateRef.current?.world.trees || [];
+    return trees.filter((t) => (t.moss || 0) > 0.55).length * 3;
+  }, [count]);
   useFrame(() => {
     const s = stateRef.current;
-    const trunks = trunkRef.current;
-    const canopies = canopyRef.current;
-    if (!s || !trunks || !canopies) return;
+    const mesh = treeRef.current;
+    const moss = mossRef.current;
+    if (!s || !mesh) return;
     const sig = `seed:${s.seed}`;
     if (builtFor.current === sig) return;
     builtFor.current = sig;
+    let mi = 0;
     s.world.trees.forEach((t, i) => {
-      const baseY = t.water ? -0.4 : groundY(s.seed, t.x, t.z) - 0.2;
-      dummy.position.set(t.x, baseY + 1.6, t.z);
-      dummy.scale.set(t.r, 1, t.r);
-      dummy.rotation.set(0, 0, 0);
-      dummy.updateMatrix();
-      trunks.setMatrixAt(i, dummy.matrix);
-      dummy.position.set(t.x, baseY + 3 + t.h * 0.55, t.z);
-      dummy.scale.setScalar(t.water ? 0.7 : 1 + (t.h - 7) * 0.08);
+      const baseY = t.water ? -0.5 : groundY(s.seed, t.x, t.z) - 0.25;
+      dummy.position.set(t.x, baseY, t.z);
+      const sc = t.water ? 0.62 : 0.85 + (t.h - 7) * 0.09;
+      dummy.scale.set(t.r * 1.15, sc, t.r * 1.15);
       dummy.rotation.set(0, (t.x * 7 + t.z * 3) % Math.PI, 0);
       dummy.updateMatrix();
-      canopies.setMatrixAt(i, dummy.matrix);
-      tmpColor.setHSL(0.29 + ((i * 37) % 10) / 90, 0.42, 0.16 + ((i * 53) % 10) / 130);
-      canopies.setColorAt(i, tmpColor);
+      mesh.setMatrixAt(i, dummy.matrix);
+      tmpColor.setHSL(0.26 + ((i * 37) % 10) / 110, 0.38, 0.2 + ((i * 53) % 10) / 140);
+      mesh.setColorAt(i, tmpColor);
+      // Spanish moss: grey-green strands hanging from the low canopy.
+      if (moss && (t.moss || 0) > 0.55) {
+        for (let k = 0; k < 3; k++) {
+          const a = (k / 3) * Math.PI * 2 + i;
+          dummy.position.set(
+            t.x + Math.cos(a) * 1.7 * sc,
+            baseY + 4.1 * sc,
+            t.z + Math.sin(a) * 1.7 * sc
+          );
+          dummy.scale.set(1, 0.8 + ((i + k) % 3) * 0.35, 1);
+          dummy.rotation.set(0.08 * Math.sin(i + k), 0, 0.08 * Math.cos(i * 2 + k));
+          dummy.updateMatrix();
+          moss.setMatrixAt(mi++, dummy.matrix);
+        }
+      }
     });
-    trunks.count = s.world.trees.length;
-    canopies.count = s.world.trees.length;
-    trunks.instanceMatrix.needsUpdate = true;
-    canopies.instanceMatrix.needsUpdate = true;
-    if (canopies.instanceColor) canopies.instanceColor.needsUpdate = true;
+    mesh.count = s.world.trees.length;
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    if (moss) {
+      moss.count = mi;
+      moss.instanceMatrix.needsUpdate = true;
+    }
   });
   if (!count) return null;
   return (
     <group>
-      <instancedMesh ref={trunkRef} args={[undefined, undefined, count]} frustumCulled={false}>
-        <cylinderGeometry args={[0.45, 0.8, 3.4, 6]} />
-        <meshStandardMaterial color="#4b3a26" roughness={1} />
+      <instancedMesh ref={treeRef} args={[geo, undefined, count]} frustumCulled={false}>
+        <meshStandardMaterial color="#ffffff" roughness={1} flatShading={false} />
       </instancedMesh>
-      <instancedMesh ref={canopyRef} args={[undefined, undefined, count]} frustumCulled={false}>
-        <icosahedronGeometry args={[3.1, 1]} />
-        <meshStandardMaterial color="#ffffff" roughness={1} flatShading />
-      </instancedMesh>
+      {mossCount > 0 && (
+        <instancedMesh ref={mossRef} args={[undefined, undefined, mossCount]} frustumCulled={false}>
+          <cylinderGeometry args={[0.05, 0.015, 1.6, 4]} />
+          <meshStandardMaterial color="#8a9578" roughness={1} transparent opacity={0.85} />
+        </instancedMesh>
+      )}
     </group>
+  );
+}
+
+function Reeds({ stateRef }) {
+  const reedRef = useRef(null);
+  const tipRef = useRef(null);
+  const builtFor = useRef('');
+  const reeds = stateRef.current?.world.reeds || [];
+  const count = reeds.length;
+  const cattails = useMemo(() => reeds.filter((r) => r.kind === 'cattail').length, [count]);
+  useFrame(({ clock }) => {
+    const s = stateRef.current;
+    const mesh = reedRef.current;
+    if (!s || !mesh) return;
+    const sig = `seed:${s.seed}`;
+    if (builtFor.current !== sig) {
+      builtFor.current = sig;
+      let ci = 0;
+      s.world.reeds.forEach((r, i) => {
+        dummy.position.set(r.x, r.h / 2 - 0.1, r.z);
+        dummy.scale.set(1, r.h / 2.2, 1);
+        dummy.rotation.set(r.lean, r.rot, 0);
+        dummy.updateMatrix();
+        mesh.setMatrixAt(i, dummy.matrix);
+        tmpColor.setHSL(0.24 + (i % 5) / 90, 0.4, 0.3 + (i % 7) / 90);
+        mesh.setColorAt(i, tmpColor);
+      });
+      mesh.count = s.world.reeds.length;
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      // Cattail heads sit atop the cattail reeds.
+      const tips = tipRef.current;
+      if (tips) {
+        s.world.reeds.forEach((r) => {
+          if (r.kind !== 'cattail') return;
+          dummy.position.set(
+            r.x + Math.sin(r.lean) * r.h * 0.5,
+            r.h - 0.25,
+            r.z
+          );
+          dummy.scale.setScalar(1);
+          dummy.rotation.set(0, 0, 0);
+          dummy.updateMatrix();
+          tips.setMatrixAt(ci++, dummy.matrix);
+        });
+        tips.count = ci;
+        tips.instanceMatrix.needsUpdate = true;
+      }
+    }
+    // Gentle sway.
+    mesh.rotation.y = Math.sin(clock.elapsedTime * 0.5) * 0.01;
+  });
+  if (!count) return null;
+  return (
+    <group>
+      <instancedMesh ref={reedRef} args={[undefined, undefined, count]} frustumCulled={false}>
+        <cylinderGeometry args={[0.035, 0.06, 2.2, 5]} />
+        <meshStandardMaterial color="#ffffff" roughness={1} />
+      </instancedMesh>
+      {cattails > 0 && (
+        <instancedMesh ref={tipRef} args={[undefined, undefined, cattails]} frustumCulled={false}>
+          <capsuleGeometry args={[0.09, 0.32, 3, 8]} />
+          <meshStandardMaterial color="#5a3d22" roughness={1} />
+        </instancedMesh>
+      )}
+    </group>
+  );
+}
+
+function Knees({ stateRef }) {
+  const ref = useRef(null);
+  const builtFor = useRef('');
+  const count = stateRef.current?.world.knees.length || 0;
+  useFrame(() => {
+    const s = stateRef.current;
+    const mesh = ref.current;
+    if (!s || !mesh) return;
+    if (builtFor.current === `seed:${s.seed}`) return;
+    builtFor.current = `seed:${s.seed}`;
+    s.world.knees.forEach((k, i) => {
+      dummy.position.set(k.x, k.h / 2 - 0.15, k.z);
+      dummy.scale.set(k.r / 0.2, k.h / 0.7, k.r / 0.2);
+      dummy.rotation.set(0, (k.x * 3 + k.z * 5) % Math.PI, 0);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+    });
+    mesh.count = s.world.knees.length;
+    mesh.instanceMatrix.needsUpdate = true;
+  });
+  if (!count) return null;
+  return (
+    <instancedMesh ref={ref} args={[undefined, undefined, count]} frustumCulled={false}>
+      <coneGeometry args={[0.2, 0.7, 6]} />
+      <meshStandardMaterial color="#5c4a30" roughness={1} />
+    </instancedMesh>
   );
 }
 
@@ -152,10 +324,70 @@ function Lilies({ stateRef }) {
   );
 }
 
-function PlayerAndCanoe({ stateRef }) {
+function useDetailedCanoeGeometry() {
+  // A proper dugout canoe: carved hull (lathe-formed), gunwale rails,
+  // two thwart seats. Procedural stand-in until the Tripo detailed
+  // canoe lands in /models/swamp/canoe-detailed.glb (see lib/swamp-run/models.js).
+  return useMemo(() => {
+    const group = new THREE.Group();
+    const wood = new THREE.MeshStandardMaterial({ color: '#6e4f2a', roughness: 0.85 });
+    const darkWood = new THREE.MeshStandardMaterial({ color: '#54391c', roughness: 1 });
+    const railWood = new THREE.MeshStandardMaterial({ color: '#7d5a30', roughness: 0.8 });
+
+    // Hull: a stretched, hollowed half-capsule. Build from a lathe then
+    // scale — gives the curved dugout profile the old box hull lacked.
+    const pts = [];
+    for (let i = 0; i <= 10; i++) {
+      const t = i / 10; // 0 stern -> 1 bow
+      const y = Math.sin(t * Math.PI) * 0.32; // rocker curve
+      pts.push(new THREE.Vector2(0.42 * Math.sin(t * Math.PI * 0.92 + 0.08), y));
+    }
+    const hullGeo = new THREE.LatheGeometry(pts, 10, 0, Math.PI);
+    hullGeo.scale(1, 1, 4.4);
+    hullGeo.rotateY(Math.PI / 2);
+    // Lathe makes a half-pipe; flip so the opening faces up.
+    hullGeo.rotateZ(Math.PI);
+    const hull = new THREE.Mesh(hullGeo, wood);
+    hull.position.y = 0.1;
+    group.add(hull);
+
+    // Gunwale rails along both sheer lines.
+    for (const side of [-1, 1]) {
+      const railGeo = new THREE.BoxGeometry(0.09, 0.07, 3.5);
+      // Bend the rail: approximate the sheer with 3 segments.
+      for (let sgi = 0; sgi < 3; sgi++) {
+        const rail = new THREE.Mesh(railGeo, railWood);
+        const zt = (sgi - 1) * 1.15;
+        rail.position.set(side * 0.4 * Math.cos(zt * 0.5), 0.32 + Math.abs(zt) * 0.06, zt);
+        rail.rotation.x = -Math.sign(zt) * 0.1;
+        rail.scale.z = 0.36;
+        group.add(rail);
+      }
+    }
+
+    // Two thwart seats.
+    for (const zt of [-0.7, 0.7]) {
+      const seat = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.05, 0.28), darkWood);
+      seat.position.set(0, 0.22, zt);
+      group.add(seat);
+    }
+
+    // Bow and stern caps.
+    for (const zt of [1.78, -1.78]) {
+      const cap = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.16, 0.3), railWood);
+      cap.position.set(0, 0.3, zt);
+      cap.rotation.x = zt > 0 ? 0.45 : -0.45;
+      group.add(cap);
+    }
+    return group;
+  }, []);
+}
+
+function PlayerAndCanoe({ stateRef, onCanoeClick }) {
   const canoeRef = useRef(null);
   const figureRef = useRef(null);
   const paddleRef = useRef(null);
+  const canoeGroup = useDetailedCanoeGeometry();
   useFrame(({ clock }) => {
     const s = stateRef.current;
     if (!s || !canoeRef.current || !figureRef.current) return;
@@ -196,23 +428,25 @@ function PlayerAndCanoe({ stateRef }) {
   });
   return (
     <group>
-      <group ref={canoeRef}>
-        {/* hull */}
-        <mesh position={[0, 0, 0]}>
-          <boxGeometry args={[0.85, 0.32, 3.6]} />
-          <meshStandardMaterial color="#6e4f2a" roughness={0.85} />
-        </mesh>
-        <mesh position={[0, 0.14, 1.85]} rotation={[0.5, 0, 0]}>
-          <boxGeometry args={[0.7, 0.2, 0.7]} />
-          <meshStandardMaterial color="#7d5a30" roughness={0.85} />
-        </mesh>
-        <mesh position={[0, 0.14, -1.85]} rotation={[-0.5, 0, 0]}>
-          <boxGeometry args={[0.7, 0.2, 0.7]} />
-          <meshStandardMaterial color="#7d5a30" roughness={0.85} />
-        </mesh>
-        <mesh position={[0, 0.2, 0]}>
-          <boxGeometry args={[0.7, 0.08, 2.6]} />
-          <meshStandardMaterial color="#54391c" roughness={1} />
+      <group
+        ref={canoeRef}
+        onClick={(e) => {
+          e.stopPropagation();
+          onCanoeClick?.();
+        }}
+        onPointerOver={(e) => {
+          e.stopPropagation();
+          document.body.style.cursor = 'pointer';
+        }}
+        onPointerOut={() => {
+          document.body.style.cursor = 'auto';
+        }}
+      >
+        <primitive object={canoeGroup} />
+        {/* Invisible fat hitbox so taps land easily on phones. */}
+        <mesh visible={false}>
+          <boxGeometry args={[2.2, 1.6, 4.6]} />
+          <meshBasicMaterial transparent opacity={0} depthWrite={false} />
         </mesh>
       </group>
       <group ref={figureRef}>
@@ -386,6 +620,81 @@ function Fireflies() {
   );
 }
 
+function Gator({ stateRef }) {
+  // Procedural alligator stand-in — dark olive, broad U snout, low and
+  // lurking. Steps aside for /models/swamp/alligator-rigged.glb when
+  // Merlin drops the Tripo model in (see lib/swamp-run/models.js).
+  const groupRef = useRef(null);
+  const jawRef = useRef(null);
+  const eyeMat = useRef(null);
+  useFrame(({ clock }) => {
+    const s = stateRef.current;
+    const g = groupRef.current;
+    if (!s || !g || !s.gator) return;
+    const t = clock.elapsedTime;
+    const gt = s.gator;
+    const bursting = gt.mode === 'burst';
+    const y = -0.38 + (bursting ? Math.sin(t * 14) * 0.06 : Math.sin(t * 1.2) * 0.02);
+    g.position.set(gt.x, y, gt.z);
+    g.rotation.set(0, gt.heading, 0);
+    if (jawRef.current) {
+      jawRef.current.rotation.x = bursting
+        ? 0.5 + Math.sin(t * 6) * 0.18
+        : 0.04 + Math.sin(t * 0.8) * 0.02;
+    }
+    if (eyeMat.current) {
+      eyeMat.current.emissive.set(bursting ? '#ff2a1a' : '#c9a227');
+      eyeMat.current.emissiveIntensity = bursting ? 1.8 : 0.5;
+    }
+    // Lurking gators sit low — only eyes and snout break the surface.
+    g.scale.y = gt.mode === 'lurk' ? 0.82 : 1;
+  });
+  return (
+    <group ref={groupRef}>
+      {/* broad U-shaped snout — the alligator's tell vs the croc's V */}
+      <mesh position={[0, 0.14, 1.25]}>
+        <boxGeometry args={[0.78, 0.26, 1.3]} />
+        <meshStandardMaterial color="#3f4a26" roughness={0.95} />
+      </mesh>
+      <mesh position={[0, 0.18, 0.4]}>
+        <boxGeometry args={[0.9, 0.38, 0.85]} />
+        <meshStandardMaterial color="#46522c" roughness={0.95} />
+      </mesh>
+      <group ref={jawRef} position={[0, 0.08, 0.55]}>
+        <mesh position={[0, -0.05, 0.7]}>
+          <boxGeometry args={[0.68, 0.1, 1.3]} />
+          <meshStandardMaterial color="#55632f" roughness={0.95} />
+        </mesh>
+      </group>
+      {/* eyes — high on the skull, the lurker's periscope */}
+      <mesh position={[-0.3, 0.42, 0.62]}>
+        <sphereGeometry args={[0.1, 10, 8]} />
+        <meshStandardMaterial ref={eyeMat} color="#1a1408" emissive="#c9a227" emissiveIntensity={0.5} />
+      </mesh>
+      <mesh position={[0.3, 0.42, 0.62]}>
+        <sphereGeometry args={[0.1, 10, 8]} />
+        <meshStandardMaterial color="#1a1408" emissive="#c9a227" emissiveIntensity={0.5} />
+      </mesh>
+      {/* low armored back */}
+      <mesh position={[0, 0.12, -0.75]}>
+        <boxGeometry args={[1.0, 0.3, 1.7]} />
+        <meshStandardMaterial color="#3f4a26" roughness={1} />
+      </mesh>
+      {[0.05, -0.65, -1.35].map((zz, i) => (
+        <mesh key={i} position={[0, 0.32, zz]}>
+          <coneGeometry args={[0.14, 0.24, 5]} />
+          <meshStandardMaterial color="#333d1f" roughness={1} />
+        </mesh>
+      ))}
+      {/* thick tail */}
+      <mesh position={[0, 0.08, -2.3]} rotation={[Math.PI / 2.3, 0, 0]}>
+        <coneGeometry args={[0.42, 2.4, 6]} />
+        <meshStandardMaterial color="#3f4a26" roughness={1} />
+      </mesh>
+    </group>
+  );
+}
+
 function CameraRig({ stateRef }) {
   const { camera } = useThree();
   const target = useMemo(() => new THREE.Vector3(), []);
@@ -419,7 +728,7 @@ function CameraRig({ stateRef }) {
   return null;
 }
 
-export default function SwampRunScene({ stateRef }) {
+export default function SwampRunScene({ stateRef, onCanoeClick }) {
   return (
     <>
       <color attach="background" args={['#27351d']} />
@@ -430,9 +739,12 @@ export default function SwampRunScene({ stateRef }) {
       <Terrain stateRef={stateRef} />
       <Water />
       <Trees stateRef={stateRef} />
+      <Reeds stateRef={stateRef} />
+      <Knees stateRef={stateRef} />
       <Lilies stateRef={stateRef} />
-      <PlayerAndCanoe stateRef={stateRef} />
+      <PlayerAndCanoe stateRef={stateRef} onCanoeClick={onCanoeClick} />
       <Croc stateRef={stateRef} />
+      <Gator stateRef={stateRef} />
       <Fireflies />
       <CameraRig stateRef={stateRef} />
     </>

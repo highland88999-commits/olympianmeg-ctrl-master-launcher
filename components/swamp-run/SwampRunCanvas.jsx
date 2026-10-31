@@ -5,7 +5,7 @@
 import { Canvas } from '@react-three/fiber';
 import SwampRunScene from './SwampRunScene';
 
-export default function SwampRunCanvas({ stateRef }) {
+export default function SwampRunCanvas({ stateRef, onCanoeClick }) {
   return (
     <Canvas
       dpr={[1, 1.75]}
@@ -13,7 +13,7 @@ export default function SwampRunCanvas({ stateRef }) {
       gl={{ antialias: true, powerPreference: 'high-performance' }}
       style={{ background: '#27351d' }}
     >
-      <SwampRunScene stateRef={stateRef} />
+      <SwampRunScene stateRef={stateRef} onCanoeClick={onCanoeClick} />
     </Canvas>
   );
 }

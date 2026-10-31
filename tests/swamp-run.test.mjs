@@ -20,6 +20,8 @@ import {
   stepGame,
   setInput,
   drainEvents,
+  tryBoardCanoe,
+  findShore,
   detectionRate,
   noiseRadiusFor,
   currentScore,
@@ -42,6 +44,18 @@ function playGame(seed = 7) {
   const g = createGame(seed);
   runSeconds(g, 1.3); // ready -> playing
   assert.equal(g.status, 'playing');
+  drainEvents(g);
+  return g;
+}
+
+/** playGame + board the canoe (the player starts on foot at the shore). */
+function playBoated(seed = 7) {
+  const g = playGame(seed);
+  assert.equal(g.player.mode, 'foot', 'player starts on foot');
+  assert.equal(g.canoe.parked, true, 'canoe waits parked');
+  const ok = tryBoardCanoe(g);
+  assert.equal(ok, true, 'boarding the parked canoe works');
+  assert.equal(g.player.mode, 'canoe');
   drainEvents(g);
   return g;
 }
@@ -94,13 +108,17 @@ test('line of sight is blocked by a trunk and clear without one', () => {
 });
 
 // --------------------------------------------------------------- engine ---
-test('game starts ready, then plays, paddling accrues distance', () => {
+test('game starts ready, then plays; tap the canoe to board, paddling accrues distance', () => {
   const g = createGame(7);
   assert.equal(g.status, 'ready');
-  assert.equal(g.player.mode, 'canoe');
+  assert.equal(g.player.mode, 'foot', 'player starts on foot at the shore');
+  assert.equal(g.canoe.parked, true, 'canoe waits parked');
   assert.equal(g.canoe.alive, true);
   runSeconds(g, 1.3);
   assert.equal(g.status, 'playing');
+  // Board via the click-to-board path.
+  assert.equal(tryBoardCanoe(g), true);
+  assert.equal(g.player.mode, 'canoe');
   setInput(g, { thrust: 1, turn: 0, sprint: false });
   runSeconds(g, 2);
   assert.ok(g.distance > 4, `distance ${g.distance}`);
@@ -132,7 +150,7 @@ test('detection is silent when far away and still', () => {
 });
 
 test('spotting: loud sprinting in open water raises awareness to a chase', () => {
-  const g = playGame();
+  const g = playBoated();
   // Put the croc in clear view, 12 m BEHIND the canoe (the player sprints
   // north, away from it — this is a chase, not a head-on ram).
   g.croc.x = g.player.x;
@@ -150,7 +168,7 @@ test('spotting: loud sprinting in open water raises awareness to a chase', () =>
 });
 
 test('a caught canoe is rammed: swim mode, 10 s grace, circling croc', () => {
-  const g = playGame();
+  const g = playBoated();
   g.croc.mode = 'chase';
   g.croc.x = g.player.x + 1; // right on top of the canoe
   g.croc.z = g.player.z;
@@ -166,7 +184,7 @@ test('a caught canoe is rammed: swim mode, 10 s grace, circling croc', () => {
 });
 
 test('during grace the croc cannot eat you; after, it hunts and kills', () => {
-  const g = playGame();
+  const g = playBoated();
   // Force the ram, then drop the croc onto the swimmer mid-grace.
   g.croc.mode = 'chase';
   g.croc.x = g.player.x + 1;
@@ -204,7 +222,7 @@ test('the croc hunts on land too — beached players are not safe', () => {
 });
 
 test('driving the canoe into shore beaches it; walking off re-boards', () => {
-  const g = playGame();
+  const g = playBoated();
   const beach = findNear(g.seed, g.player.x, g.player.z, (t) => t === 'beach' || t === 'land');
   assert.ok(beach, 'expected a shore near spawn for seed 7');
   g.player.x = beach.x - 3;
@@ -259,4 +277,131 @@ test('topEntries sorts best-first and caps the board', () => {
   assert.equal(top.length, 2);
   assert.equal(top[0].username, 'high');
   assert.equal(top[1].username, 'mid');
+});
+
+// ------------------------------------------------- click-to-board --------
+test('click-to-board: tapping the parked canoe boards it', () => {
+  const g = playGame();
+  assert.equal(g.player.mode, 'foot');
+  // Too far: no board.
+  g.player.x = g.canoe.x + TUNING.boardRange + 5;
+  g.player.z = g.canoe.z;
+  assert.equal(tryBoardCanoe(g), false);
+  assert.equal(g.player.mode, 'foot');
+  // Walk up and tap: boarded.
+  g.player.x = g.canoe.x + 1;
+  g.player.z = g.canoe.z;
+  assert.equal(tryBoardCanoe(g), true);
+  assert.equal(g.player.mode, 'canoe');
+  assert.equal(g.canoe.parked, false);
+  const events = drainEvents(g);
+  assert.ok(events.some((e) => e.type === 'board'), 'expected a board event');
+  // Already in the canoe: tapping again does nothing.
+  assert.equal(tryBoardCanoe(g), false);
+});
+
+test('tryBoardCanoe refuses when the canoe is gone or the game is not playing', () => {
+  const g = playGame();
+  g.canoe.alive = false;
+  g.player.x = g.canoe.x;
+  g.player.z = g.canoe.z;
+  assert.equal(tryBoardCanoe(g), false);
+  const h = playGame();
+  h.status = 'ready';
+  h.player.x = h.canoe.x;
+  h.player.z = h.canoe.z;
+  assert.equal(tryBoardCanoe(h), false, 'no boarding before the run starts');
+});
+
+test('findShore lands on non-water near the spawn', () => {
+  for (const seed of [1, 7, 42]) {
+    const w = generateWorld(seed);
+    const shore = findShore(seed, w.spawn.x, w.spawn.z);
+    assert.notEqual(terrainAt(seed, shore.x, shore.z), 'water', `seed ${seed}`);
+  }
+});
+
+// ------------------------------------------------------- alligator --------
+test('the gator lurks until you drift into burst range, then it bursts', () => {
+  const g = playBoated();
+  assert.equal(g.gator.mode, 'lurk');
+  // Park the player just inside burst range.
+  g.player.x = g.gator.x + TUNING.gatorBurstRange - 2;
+  g.player.z = g.gator.z;
+  setInput(g, { thrust: 0, turn: 0, sprint: false });
+  runSeconds(g, 0.5);
+  assert.equal(g.gator.mode, 'burst', 'gator ambushes inside burst range');
+  const events = drainEvents(g);
+  assert.ok(events.some((e) => e.type === 'gatorBurst'), 'expected gatorBurst');
+});
+
+test('the gator gives up after its burst and resettles to lurk', () => {
+  const g = playBoated();
+  // Keep the player far so the burst never connects.
+  g.player.x = g.gator.x + 400;
+  g.player.z = g.gator.z;
+  g.gator.mode = 'burst';
+  g.gator.burstTimer = 0.2;
+  runSeconds(g, 0.5);
+  assert.equal(g.gator.mode, 'rest', 'burst expires into rest');
+  runSeconds(g, 6);
+  assert.equal(g.gator.mode, 'lurk', 'rest resettles into a new lurk');
+});
+
+test('the gator kills on contact during a burst', () => {
+  const g = playBoated();
+  g.gator.mode = 'burst';
+  g.gator.burstTimer = 5;
+  g.gator.x = g.player.x + 0.5;
+  g.gator.z = g.player.z;
+  runSeconds(g, 0.3);
+  assert.equal(g.status, 'dead');
+  assert.equal(g.death.killer, 'gator');
+  const events = drainEvents(g);
+  assert.ok(events.some((e) => e.type === 'death' && e.killer === 'gator'));
+});
+
+test('the croc still kills as the croc — killer is tracked', () => {
+  const g = playBoated();
+  g.croc.mode = 'hunt';
+  g.croc.x = g.player.x + 0.5;
+  g.croc.z = g.player.z;
+  // Keep the gator far away so it cannot interfere.
+  g.gator.x = g.player.x + 400;
+  g.gator.z = g.player.z;
+  runSeconds(g, 0.5);
+  assert.equal(g.status, 'dead');
+  assert.equal(g.death.killer, 'croc');
+});
+
+// ----------------------------------------------------- model slots --------
+test('model slots document the three Tripo drops with exact paths', async () => {
+  const { MODEL_SLOTS, slotRenderer } = await import('../lib/swamp-run/models.js');
+  assert.equal(MODEL_SLOTS.alligator.path, '/models/swamp/alligator-rigged.glb');
+  assert.equal(MODEL_SLOTS.crocodile.path, '/models/swamp/crocodile-rigged.glb');
+  assert.equal(MODEL_SLOTS.canoe.path, '/models/swamp/canoe-detailed.glb');
+  assert.equal(MODEL_SLOTS.alligator.rigged, true);
+  assert.equal(MODEL_SLOTS.crocodile.rigged, true);
+  assert.equal(MODEL_SLOTS.canoe.rigged, false);
+  // Headless: every slot reports procedural until a GLB lands.
+  assert.equal(slotRenderer('alligator'), 'procedural');
+  assert.equal(slotRenderer('crocodile'), 'procedural');
+  assert.equal(slotRenderer('canoe'), 'procedural');
+  assert.equal(slotRenderer('nope'), 'procedural');
+});
+
+test('world generates reeds, knees, and mossy trees deterministically', () => {
+  const a = generateWorld(7);
+  const b = generateWorld(7);
+  assert.deepEqual(a.reeds, b.reeds, 'reeds are seeded');
+  assert.deepEqual(a.knees, b.knees, 'knees are seeded');
+  assert.ok(a.reeds.length > 0, 'reeds exist');
+  assert.ok(a.knees.length > 0, 'knees exist');
+  assert.ok(a.trees.every((t) => typeof t.moss === 'number'), 'trees carry moss');
+  assert.ok(a.reeds.every((r) => r.kind === 'reed' || r.kind === 'cattail'));
+  // Reeds stand in the shallows.
+  for (const r of a.reeds.slice(0, 20)) {
+    const h = terrainAt(7, r.x, r.z);
+    assert.equal(h, 'water', 'reeds stand in shallow water');
+  }
 });

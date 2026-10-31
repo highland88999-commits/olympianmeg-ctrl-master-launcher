@@ -24,7 +24,7 @@ import {
   Waves,
   Sailboat,
 } from 'lucide-react';
-import { createGame, stepGame, drainEvents, setInput } from './engine';
+import { createGame, stepGame, drainEvents, setInput, tryBoardCanoe } from './engine';
 import { createSound } from '@/lib/swamp-run/sound';
 import { buzz } from '@/lib/swamp-run/haptics';
 import { computeScore } from '@/lib/swamp-run/board';
@@ -65,7 +65,7 @@ export default function SwampRunPage() {
   const [paused, setPaused] = useState(false);
   const [muted, setMuted] = useState(false);
   const [hud, setHud] = useState({
-    status: 'ready', mode: 'canoe', crocMode: 'patrol', awareness: 0,
+    status: 'ready', mode: 'foot', crocMode: 'patrol', awareness: 0,
     survival: 0, distance: 0, score: 0, grace: null, speed: 0,
   });
   const [huntFlash, setHuntFlash] = useState(false);
@@ -120,6 +120,9 @@ export default function SwampRunPage() {
         case 'splash': snd.splash(false); buzz('splash'); break;
         case 'ashore': snd.step(); break;
         case 'death': snd.chomp(); buzz('death'); snd.ambientStop(); break;
+        case 'gatorGrowl': snd.growl(); break;
+        case 'gatorBurst': snd.sting(); buzz('spotted'); break;
+        case 'gatorTired': break; // the exhale moment — silence is the relief
         default: break;
       }
     }
@@ -249,6 +252,17 @@ export default function SwampRunPage() {
     setStarted(true);
     syncHud();
   }, [syncHud]);
+
+  // Click/tap the canoe to board it — from the shore at the start,
+  // or after beaching mid-run.
+  const handleCanoeClick = useCallback(() => {
+    const s = stateRef.current;
+    if (!s || !started) return;
+    if (tryBoardCanoe(s)) {
+      soundRef.current.unlock();
+      syncHud();
+    }
+  }, [started, syncHud]);
 
   const togglePause = useCallback(() => {
     setPaused((p) => {
@@ -409,7 +423,7 @@ export default function SwampRunPage() {
 
         {/* Play field */}
         <div className="relative aspect-[4/5] w-full overflow-hidden rounded-3xl border border-lime-400/25 bg-black shadow-[0_0_45px_rgba(101,163,13,0.18)] sm:aspect-[16/10]">
-          <SwampRunCanvas stateRef={stateRef} />
+          <SwampRunCanvas stateRef={stateRef} onCanoeClick={handleCanoeClick} />
 
           {chased && started && hud.status !== 'dead' && <div className="swamp-vignette pointer-events-none absolute inset-0" />}
 
@@ -422,8 +436,9 @@ export default function SwampRunPage() {
                   SWAMP RUN
                 </h2>
                 <p className="mt-3 text-sm leading-relaxed text-zinc-300">
-                  Paddle the swamp. A crocodile hunts below the surface — move quiet,
-                  hide behind the cypress, and don't splash.
+                  Paddle the swamp. A crocodile hunts the deep water — and an
+                  alligator ambushes from the banks. Move quiet, hide behind
+                  the cypress, and don't splash.
                 </p>
                 <div className="mt-4 grid grid-cols-3 gap-2 text-[11px] leading-snug text-zinc-400">
                   <div className="rounded-xl border border-zinc-800 bg-black/50 px-2 py-2">
@@ -436,7 +451,7 @@ export default function SwampRunPage() {
                   </div>
                   <div className="rounded-xl border border-zinc-800 bg-black/50 px-2 py-2">
                     <Waves size={15} className="mx-auto mb-1 text-cyan-300" />
-                    Rammed? 10 seconds to swim
+                    Gator lurks at the banks — keep moving
                   </div>
                 </div>
                 <button type="button" onClick={startRun}
@@ -444,7 +459,8 @@ export default function SwampRunPage() {
                   ENTER THE SWAMP
                 </button>
                 <p className="mt-3 text-[11px] text-zinc-500">
-                  Joystick or WASD to paddle · hold PADDLE HARD (or Shift) to sprint · score = time × distance
+                  You start on foot at the shore — <b className="text-lime-300">tap the canoe to board</b>.
+                  Joystick or WASD to move · hold PADDLE HARD (or Shift) to sprint · score = time × distance
                 </p>
               </div>
             </div>
@@ -465,7 +481,7 @@ export default function SwampRunPage() {
             <div className="pointer-events-none absolute inset-x-0 top-4 text-center">
               <p className="font-['Orbitron'] text-sm font-bold tracking-[0.3em] text-lime-200"
                 style={{ textShadow: '0 0 14px rgba(163,230,53,0.6)' }}>
-                PADDLE QUIET…
+                {hud.mode === 'foot' ? 'TAP THE CANOE TO BOARD…' : 'PADDLE QUIET…'}
               </p>
             </div>
           )}
