@@ -5,11 +5,11 @@
       "intervalSeconds": 15,
       "entries": [
         {
-          "company": "Olympus",
-          "link": "https://olympusverse.com/request-billboard",
+          "company": "Mad Hatter Industries",
+          "link": "https://madhatterindustries.ca?sca_ref=12674019.iG5iz7XgM3",
           "creativeType": "video",
-          "creativeUrl": "/billboards/house-ad-space.mp4",
-          "house": true
+          "creativeUrl": "/billboards/mhi-moto-division.mp4",
+          "house": false
         }
       ]
     },
