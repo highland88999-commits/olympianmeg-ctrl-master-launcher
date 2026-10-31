@@ -952,19 +952,25 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
     // it). Permanent black ground until reload, exactly Merlin's
     // video. Sample the canvas: if nothing painted, the build
     // failed no matter what the counters say.
+    // Mostly-blank guard (Merlin, 2026-10-31, critical): the old
+    // check only caught FULLY blank canvases. A sheet with 3 tiles
+    // painted out of 1,296 passes the old check but renders as
+    // near-black void on screen. Count painted samples — fewer
+    // than 4 of 16 means the sheet is effectively void.
     const canvasIsBlank = () => {
       try {
         const w = canvas.width, h = canvas.height;
         // 4x4 grid of 1x1 samples — cheap, and centre-first
         // painting means a real build always touches the middle.
+        let painted = 0;
         for (let gx = 1; gx <= 4; gx++) {
           for (let gy = 1; gy <= 4; gy++) {
             const d = ctx.getImageData(
               Math.floor((w * gx) / 5), Math.floor((h * gy) / 5), 1, 1).data;
-            if (d[3] !== 0) return false;
+            if (d[3] !== 0) painted += 1;
           }
         }
-        return true;
+        return painted < 4;
       } catch {
         // getImageData threw: the canvas is tainted, which only
         // happens when cross-origin pixels WERE drawn — something
@@ -1310,13 +1316,27 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
     if (!roaming) return undefined;
     const id = setInterval(() => {
       if (!roamState.active) return;
-      const nearSheets = sheetsRef.current.map((s) => ({
+      // Visibility-aware coverage (Merlin, 2026-10-31, critical):
+      // a sheet that is mounted but transparent/invisible (opacity
+      // still fading in, or a black/blank sheet the guard missed)
+      // must NOT count as coverage — the screen is what matters,
+      // not the sheet record. Filter to sheets actually rendering.
+      const isVisiblyMounted = (s) => {
+        try {
+          const m = s.mesh;
+          if (!m || m.visible === false) return false;
+          const op = m.material && typeof m.material.opacity === 'number'
+            ? m.material.opacity : 1;
+          return op > 0.1;
+        } catch { return false; }
+      };
+      const nearSheets = sheetsRef.current.filter(isVisiblyMounted).map((s) => ({
         lat: s.lat, lon: s.lon, radiusUnits: LENS_PRESETS.street.radiusUnits,
       }));
-      const farSheets = farSheetsRef.current.map((s) => ({
+      const farSheets = farSheetsRef.current.filter(isVisiblyMounted).map((s) => ({
         lat: s.lat, lon: s.lon, radiusUnits: LENS_PRESETS.streetFar.radiusUnits,
       }));
-      const coarseSheets = coarseSheetsRef.current.map((s) => {
+      const coarseSheets = coarseSheetsRef.current.filter(isVisiblyMounted).map((s) => {
         const preset = LENS_PRESETS[s.key.split(':')[0]];
         return {
           lat: s.lat, lon: s.lon,
