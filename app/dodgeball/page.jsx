@@ -14,6 +14,9 @@ import {
   createMatch, step, autoAim,
   COURT_HALF_W, COURT_HALF_D, CATCH_PROMPT_DIST,
 } from '@/lib/dodgeball/rules.js';
+import {
+  createLobby, tickLobby, buildRoster, lobbyCounts, LOBBY_SECONDS,
+} from '@/lib/dodgeball/matchmaking.js';
 
 const TEAM_COLORS = { blue: '#3b82f6', red: '#ef4444' };
 
@@ -82,6 +85,10 @@ export default function DodgeballPage() {
   const padEdgeRef = useRef(false);
   const startedRef = useRef(false);
   const [started, setStarted] = useState(false);
+  const [inLobby, setInLobby] = useState(false);
+  const [lobby, setLobby] = useState(null);
+  const [camMode, setCamMode] = useState('third'); // 'third' | 'first'
+  const camModeRef = useRef('third');
   const [hud, setHud] = useState({ blue: 3, red: 3, carrying: false, catchPrompt: false, message: '', winner: null });
   const hudPrevRef = useRef('');
 
@@ -272,8 +279,21 @@ export default function DodgeballPage() {
         youRing.position.x = you.x;
         youRing.position.z = you.z;
         youRing.visible = you.alive;
-        camera.position.set(you.x * 0.55, 9.5, you.z + 8.5);
-        camera.lookAt(you.x * 0.55, 0.5, you.z - 3.5);
+        if (camModeRef.current === 'first' && you.alive) {
+          // First-person: camera at the player's head, looking where they face.
+          const dirX = Math.sin(you.facing);
+          const dirZ = Math.cos(you.facing);
+          camera.position.set(you.x, 1.7, you.z);
+          camera.lookAt(you.x + dirX * 10, 1.2, you.z + dirZ * 10);
+          // Hide the player's own mesh so it doesn't block the view.
+          const youMesh = playerMeshes[you.id];
+          if (youMesh) youMesh.visible = false;
+        } else {
+          const youMesh = playerMeshes[you.id];
+          if (youMesh && you.alive) youMesh.visible = true;
+          camera.position.set(you.x * 0.55, 9.5, you.z + 8.5);
+          camera.lookAt(you.x * 0.55, 0.5, you.z - 3.5);
+        }
       }
 
       // ---- HUD, only when something changed ----
@@ -325,7 +345,55 @@ export default function DodgeballPage() {
     startedRef.current = started;
   }, [started]);
 
+  // Keep the camera mode ref in sync for the frame loop.
+  useEffect(() => {
+    camModeRef.current = camMode;
+  }, [camMode]);
+
+  // Lobby countdown: 60s, then AI fills the gaps and the match starts.
+  useEffect(() => {
+    if (!inLobby || !lobby || started) return undefined;
+    const id = setInterval(() => {
+      setLobby((prev) => {
+        if (!prev) return prev;
+        const next = { ...prev, players: [...prev.players] };
+        if (tickLobby(next, 1)) {
+          // Time's up — build the roster and start.
+          const roster = buildRoster(next);
+          gameRef.current = createMatch(roster);
+          setHud({ blue: 3, red: 3, carrying: false, catchPrompt: false, message: '', winner: null });
+          setStarted(true);
+          setInLobby(false);
+          return { ...next, status: 'done' };
+        }
+        return next;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [inLobby, started]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const openLobby = () => {
+    try {
+      unlockFx();
+      fx.tap();
+    } catch (err) {
+      // Sound is garnish; a sound failure never blocks the match.
+    }
+    setLobby(createLobby('you', 'You'));
+    setInLobby(true);
+  };
+
+  const startNow = () => {
+    if (!lobby) return;
+    const roster = buildRoster(lobby);
+    gameRef.current = createMatch(roster);
+    setHud({ blue: 3, red: 3, carrying: false, catchPrompt: false, message: '', winner: null });
+    setStarted(true);
+    setInLobby(false);
+  };
+
   const startMatch = () => {
+    // Legacy direct start (kept for rematch): AI fills all non-human slots.
     try {
       unlockFx();
       fx.tap();
@@ -369,23 +437,71 @@ export default function DodgeballPage() {
         </div>
       )}
 
-      {/* Start overlay */}
-      {!started && (
+      {/* Start overlay -> matchmaking lobby */}
+      {!started && !inLobby && (
         <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, background: 'rgba(11, 17, 32, 0.72)', padding: 20, textAlign: 'center' }}>
           <div style={{ color: '#f8fafc', fontSize: 34, fontWeight: 800 }}>DODGEBALL</div>
           <div style={{ color: '#cbd5e1', fontSize: 15, maxWidth: 340, lineHeight: 1.5 }}>
-            You + 2 teammates vs 3 opponents on a 3D court.
-            Throw balls to hit opponents out. Tap THROW just as a ball
-            arrives to catch it — the thrower goes out. Last team standing wins.
+            3v3 PvP arena. Find a match — players join first, AI fills
+            the gaps after 60 seconds. Throw balls to hit opponents out.
+            Tap THROW just as a ball arrives to catch it. Last team standing wins.
           </div>
           <button
             type="button"
-            onClick={startMatch}
+            onClick={openLobby}
             style={{ marginTop: 8, background: '#f59e0b', color: '#111827', border: 'none', borderRadius: 999, padding: '14px 34px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}
           >
-            START MATCH
+            FIND MATCH
           </button>
           <div style={{ color: '#94a3b8', fontSize: 12 }}>Joystick or WASD to move · THROW button, Space, or controller X/A</div>
+        </div>
+      )}
+
+      {/* Matchmaking lobby */}
+      {!started && inLobby && lobby && (
+        <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, background: 'rgba(11, 17, 32, 0.85)', padding: 20, textAlign: 'center' }}>
+          <div style={{ color: '#f8fafc', fontSize: 28, fontWeight: 800 }}>FINDING MATCH</div>
+          <div style={{ color: '#fbbf24', fontSize: 42, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>
+            {Math.ceil(lobby.secondsLeft)}s
+          </div>
+          <div style={{ color: '#94a3b8', fontSize: 13, maxWidth: 320 }}>
+            Players join first — AI fills the gaps when the timer hits zero.
+          </div>
+          <div style={{ display: 'flex', gap: 16 }}>
+            <div>
+              <div style={{ color: '#60a5fa', fontWeight: 700, fontSize: 14, marginBottom: 6 }}>BLUE</div>
+              {[0, 1, 2].map((i) => {
+                const roster = buildRoster(lobby);
+                const slot = roster.filter((c) => c.team === 'blue')[i];
+                const isHuman = slot && slot.isHuman;
+                return (
+                  <div key={i} style={{ color: isHuman ? '#f8fafc' : '#475569', fontSize: 13, padding: '4px 0' }}>
+                    {slot ? (isHuman ? `● ${slot.name}` : '○ AI') : '○ Waiting...'}
+                  </div>
+                );
+              })}
+            </div>
+            <div>
+              <div style={{ color: '#f87171', fontWeight: 700, fontSize: 14, marginBottom: 6 }}>RED</div>
+              {[0, 1, 2].map((i) => {
+                const roster = buildRoster(lobby);
+                const slot = roster.filter((c) => c.team === 'red')[i];
+                const isHuman = slot && slot.isHuman;
+                return (
+                  <div key={i} style={{ color: isHuman ? '#f8fafc' : '#475569', fontSize: 13, padding: '4px 0' }}>
+                    {slot ? (isHuman ? `● ${slot.name}` : '○ AI') : '○ Waiting...'}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={startNow}
+            style={{ marginTop: 4, background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 999, padding: '12px 28px', fontSize: 16, fontWeight: 700, cursor: 'pointer' }}
+          >
+            START NOW WITH AI
+          </button>
         </div>
       )}
 
@@ -406,6 +522,22 @@ export default function DodgeballPage() {
             REMATCH
           </button>
         </div>
+      )}
+
+      {/* Camera toggle: third-person / first-person */}
+      {started && !hud.winner && (
+        <button
+          type="button"
+          onClick={() => setCamMode((m) => (m === 'third' ? 'first' : 'third'))}
+          style={{
+            position: 'absolute', top: 44, right: 12, zIndex: 6,
+            background: 'rgba(15, 23, 42, 0.8)', color: '#f8fafc',
+            border: '1px solid #475569', borderRadius: 999,
+            padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+          }}
+        >
+          {camMode === 'third' ? '🎥 1st Person' : '🎥 3rd Person'}
+        </button>
       )}
 
       {/* Controls: joystick bottom-left, THROW bottom-right */}
