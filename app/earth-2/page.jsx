@@ -816,14 +816,15 @@ export default function Earth2Page() {
           </div>
         </div>
 
-        {/* Unlocking engine (Merlin, 2026-10-31): pick what to unlock on Earth 2 */}
+        {/* Unlocking engine (Merlin, 2026-10-31): everything live is unlocked;
+            future Earth 2 powers will land here locked for users to pick. */}
         {unlocks && (
           <div className="mt-5 rounded-2xl border border-purple-300/30 bg-purple-500/10 px-4 py-4">
             <div className="mb-1 text-sm font-extrabold tracking-widest text-purple-100">
-              🔓 UNLOCK EARTH 2
+              🔓 EARTH 2 POWERS
             </div>
             <div className="mb-3 text-xs text-zinc-400">
-              Earth 2's powers start locked. Pick what to wake up — one tap each.
+              Everything below is yours. New powers will appear here locked — you pick what to wake up.
             </div>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {[
