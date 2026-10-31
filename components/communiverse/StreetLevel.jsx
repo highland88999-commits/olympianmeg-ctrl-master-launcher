@@ -18,6 +18,8 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { guardCanvasContext } from '@/lib/scene-context-guard';
+import { lifeSeedFromParams } from '@/lib/world-engine/life-seed';
+import { buildFloraSpecimen, buildFaunaSpecimen } from '@/lib/world-engine/life-render';
 
 // Terrain palettes mirror lib/world-engine/world-builder.js PALETTES:
 // [low, mid, high, accent].
@@ -143,6 +145,45 @@ export default function StreetLevel({ params }) {
         mesh.rotation.y = rand() * Math.PI;
       }
       scene.add(mesh);
+    }
+
+    // --- LIFE: the seed-grown flora + fauna ---
+    // Same life seed as the orbit view — the ground blooms with the
+    // same flora and roams with the same fauna the planet shows from space.
+    const life = lifeSeedFromParams(params);
+    if (life) {
+      const lifeRand = mulberry32((seed ^ 0x5bd1e995) >>> 0);
+      // Flora: scatter specimens
+      for (const flora of life.flora) {
+        const specimen = buildFloraSpecimen(THREE, flora);
+        const count = Math.round(8 + flora.density * 24);
+        for (let i = 0; i < count; i++) {
+          const inst = specimen.clone();
+          const x = (lifeRand() - 0.5) * (SIZE - 20);
+          const z = (lifeRand() - 0.5) * (SIZE - 20);
+          if (Math.hypot(x, z) < 8) continue; // keep landing clear
+          inst.position.set(x, groundH(x, z), z);
+          inst.rotation.y = lifeRand() * Math.PI * 2;
+          const s = 0.8 + lifeRand() * 0.7;
+          inst.scale.setScalar(s);
+          scene.add(inst);
+        }
+      }
+      // Fauna: a few wanderers (static poses — full animation is orbit-view)
+      for (const fauna of life.fauna.slice(0, 3)) {
+        const specimen = buildFaunaSpecimen(THREE, fauna);
+        const count = Math.min(4, fauna.count);
+        for (let i = 0; i < count; i++) {
+          const inst = specimen.clone(true);
+          const x = (lifeRand() - 0.5) * (SIZE - 30);
+          const z = (lifeRand() - 0.5) * (SIZE - 30);
+          if (Math.hypot(x, z) < 10) continue;
+          inst.position.set(x, groundH(x, z), z);
+          inst.rotation.y = lifeRand() * Math.PI * 2;
+          inst.scale.multiplyScalar(0.9);
+          scene.add(inst);
+        }
+      }
     }
 
     // --- first-person walk: drag to look, keys/pad to move ---
