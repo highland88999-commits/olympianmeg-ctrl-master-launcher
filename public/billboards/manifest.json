@@ -125,11 +125,11 @@
       "intervalSeconds": 15,
       "entries": [
         {
-          "company": "Olympus",
-          "link": "https://olympusverse.com/request-billboard",
-          "creativeType": "video",
-          "creativeUrl": "/billboards/house-ad-space.mp4",
-          "house": true
+          "company": "Muse",
+          "link": "https://olympusverse.com/muse-referral",
+          "creativeType": "image",
+          "creativeUrl": "/billboards/muse-referral.webp",
+          "house": false
         }
       ]
     },
