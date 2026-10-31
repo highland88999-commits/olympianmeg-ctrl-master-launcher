@@ -240,6 +240,8 @@ export const SATELLITES: SatelliteEntry[] = [
   { key: "rollercoaster", route: "/rollercoaster", pos: "ARES", section: "GAMES", constellation: "ZEUS" },
   { key: "merry-go-round", route: "/merry-go-round", pos: "ARES", section: "GAMES", constellation: "ZEUS" },
   { key: "water-slide", route: "/water-slide", pos: "ARES", section: "GAMES", constellation: "ZEUS" },
+  { key: "volleyball", route: "/volleyball", pos: "ARES", section: "GAMES", constellation: "ZEUS" },
+  { key: "hockey", route: "/hockey", pos: "ARES", section: "GAMES", constellation: "ZEUS" },
   // REQUEST A BILLBOARD — the user-facing billboard space (request,
   // wallet credit, subscription) — sits with the PLUTUS wealth row
   // beside WALLET: ARES/TOOLS.
