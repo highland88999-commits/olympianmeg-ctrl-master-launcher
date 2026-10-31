@@ -594,6 +594,16 @@ export default function Earth2Page() {
     setWalking(true);
   };
 
+  // Visit a parcel on foot (Merlin, 2026-10-31): walk the world
+  // starting at the parcel — no build mode, just arrival. Used by
+  // Castle Transylvania's visit button; the castle sits at the
+  // south pole, a walk nobody would finish on foot.
+  const visitParcel = (parcel) => {
+    if (!parcel) return;
+    setBuildSpawnId(parcel.id);
+    setWalking(true);
+  };
+
   const exitWorld = useCallback(() => {
     setWalking(false);
     setBuildSpawnId(null);
@@ -1016,6 +1026,13 @@ export default function Earth2Page() {
                           sacs from the Bay&rsquo;s mosquitos and he trades them for gifts.
                         </p>
                         <div className="mt-2.5 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => visitParcel(selected)}
+                            className="rounded-full border border-purple-300/50 bg-purple-400/15 px-3 py-1.5 text-xs font-bold text-purple-100 transition hover:bg-purple-400/25"
+                          >
+                            🏰 Visit the Castle
+                          </button>
                           <a
                             href="#draculas-exchange"
                             className="rounded-full border border-purple-300/50 bg-purple-400/15 px-3 py-1.5 text-xs font-bold text-purple-100 transition hover:bg-purple-400/25"

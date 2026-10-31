@@ -4473,6 +4473,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       let ghostGroup = null;
       let ghostPieceId = null;
       let ghostOrient = null;
+      let ghostFinishKey = null;
 
       function myParcelPieces(parcelId) {
         const p = buildPropsRef.current;
@@ -4509,6 +4510,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             ghostGroup = null;
             ghostPieceId = null;
             ghostOrient = null;
+            ghostFinishKey = null;
           }
           return;
         }
@@ -4516,11 +4518,13 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           if (ghostGroup) ghostGroup.visible = false;
           return;
         }
-        if (!ghostGroup || ghostPieceId !== bm.pieceId) {
+        const finishKey = `${bm.finish || 'timber'}|${bm.tint ?? ''}`;
+        if (!ghostGroup || ghostPieceId !== bm.pieceId || ghostFinishKey !== finishKey) {
           if (ghostGroup) scene.remove(ghostGroup);
-          ghostGroup = buildGhostGroup(THREE, bm.pieceId, bm.orientation);
+          ghostGroup = buildGhostGroup(THREE, bm.pieceId, bm.orientation, bm.finish, bm.tint);
           ghostPieceId = bm.pieceId;
           ghostOrient = bm.orientation;
+          ghostFinishKey = finishKey;
           scene.add(ghostGroup);
         }
         const parcel = parcelById(bm.parcelId);
@@ -4654,7 +4658,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         const shownOrient = bm.ghostPlacement.orientation || 'upright';
         if (ghostOrient !== shownOrient) {
           scene.remove(ghostGroup);
-          ghostGroup = buildGhostGroup(THREE, bm.pieceId, shownOrient);
+          ghostGroup = buildGhostGroup(THREE, bm.pieceId, shownOrient, bm.finish, bm.tint);
           ghostOrient = shownOrient;
           scene.add(ghostGroup);
           if (bm.verdict) setGhostValidity(THREE, ghostGroup, bm.verdict.ok);
