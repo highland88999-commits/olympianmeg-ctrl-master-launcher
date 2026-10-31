@@ -151,3 +151,15 @@ canvas, .no-select {
 @media (prefers-reduced-motion: reduce) {
   .kaleido-stage::before { animation: none; }
 }
+
+/* Van Gogh sky mode (Merlin, 2026-10-31): painterly letter shadowing
+   for hub UI text. Warm umber outlines + soft impasto depth, tuned
+   to sit on the cobalt/amber sky. Scoped to prominent display text
+   (dialog headings, section titles) so tiny UI copy stays crisp.
+   Toggled via body.vgogh-sky-active. */
+body.vgogh-sky-active [role="dialog"] [class*="tracking-"] {
+  text-shadow:
+    2px 3px 0 rgba(43, 22, 8, 0.85),
+    -1px 2px 0 rgba(90, 45, 12, 0.45),
+    0 6px 14px rgba(20, 10, 4, 0.55);
+}

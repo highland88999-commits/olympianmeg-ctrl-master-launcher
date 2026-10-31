@@ -9,7 +9,8 @@
 'use client';
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Text, Billboard } from '@react-three/drei';
+import { Billboard } from '@react-three/drei';
+import VanGoghText from './VanGoghText';
 import * as THREE from 'three';
 import { orbitTime } from '@/lib/god-orbits';
 import {
@@ -113,7 +114,7 @@ export default function HubMoon() {
         />
       </mesh>
       <Billboard position={[0, MOON_RADIUS + 128, 0]}>
-        <Text
+        <VanGoghText
           fontSize={13}
           color="#cfe8ff"
           anchorX="center"
@@ -122,7 +123,7 @@ export default function HubMoon() {
           outlineColor="#000000"
         >
           ◈ MOON
-        </Text>
+        </VanGoghText>
       </Billboard>
     </group>
   );

@@ -1,6 +1,7 @@
 import { useState, useRef, useMemo, memo } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Text, Billboard } from '@react-three/drei';
+import { Billboard } from '@react-three/drei';
+import VanGoghText from './VanGoghText';
 import * as THREE from 'three';
 
 function ZeusAdPanel({ onLaunchExternal, adTex }) {
@@ -48,7 +49,7 @@ function ZeusAdPanel({ onLaunchExternal, adTex }) {
           <boxGeometry args={[3.8, 0.8, 0.1]} />
           <meshStandardMaterial color={btnHovered ? "#ffffff" : "#00f2ff"} emissive="#00f2ff" emissiveIntensity={btnHovered ? 0.8 : 0.4} />
         </mesh>
-        <Text position={[0, 0, 0.06]} fontSize={0.35} color="#000000" fontWeight="bold">ENTER NOW</Text>
+        <VanGoghText position={[0, 0, 0.06]} fontSize={0.35} color="#000000" fontWeight="bold">ENTER NOW</VanGoghText>
       </group>
 
     </group>
@@ -72,17 +73,17 @@ function Zeus({ position, onLaunchExternal, textures }) {
       <group ref={satelliteRef} scale={[0.8, 0.8, 0.8]}>
         
         <Billboard position={[0, 16, 0]}>
-          <Text fontSize={1.6} color="#00f2ff" letterSpacing={0.2} fontWeight="bold">
+          <VanGoghText fontSize={1.6} color="#00f2ff" letterSpacing={0.2} fontWeight="bold">
             GAMES
-          </Text>
+          </VanGoghText>
         </Billboard>
 
         <mesh position={[0, 0, 0]} receiveShadow>
           <cylinderGeometry args={[2.5, 2.5, 24, 32]} />
           <meshStandardMaterial map={bodyTex} color="#ffffff" metalness={0.6} roughness={0.4} emissive="#222222" emissiveIntensity={0.5} />
           
-          <Text position={[0, 2, 2.55]} fontSize={1.5} color="#00f2ff" letterSpacing={0.3} anchorX="center" anchorY="middle" rotation={[0, 0, -Math.PI / 2]}>ZEUS</Text>
-          <Text position={[0, 2, -2.55]} fontSize={1.5} color="#00f2ff" letterSpacing={0.3} anchorX="center" anchorY="middle" rotation={[0, Math.PI, Math.PI / 2]}>ZEUS</Text>
+          <VanGoghText position={[0, 2, 2.55]} fontSize={1.5} color="#00f2ff" letterSpacing={0.3} anchorX="center" anchorY="middle" rotation={[0, 0, -Math.PI / 2]}>ZEUS</VanGoghText>
+          <VanGoghText position={[0, 2, -2.55]} fontSize={1.5} color="#00f2ff" letterSpacing={0.3} anchorX="center" anchorY="middle" rotation={[0, Math.PI, Math.PI / 2]}>ZEUS</VanGoghText>
         </mesh>
 
         <mesh position={[0, -2, 0]} receiveShadow>

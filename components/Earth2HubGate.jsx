@@ -9,9 +9,10 @@
 //
 // THE GATE IS THE POINT: this component watches the Supabase browser
 // session (the PortalRoomGate pattern) and runs every email through
-// lib/earth2-hub-portal.js's pure decision, which defers to
-// lib/owner.js — the one definition of the owner. For anyone who is
-// not Merlin — signed out, another account, or the session still
+// lib/earth2-hub-portal.js's pure decision, which defers to the
+// Earth 2 access module — the one definition of Earth 2 access
+// (the owner, plus the one named POC guest since 2026-10-23). For anyone
+// without access — signed out, another account, or the session still
 // resolving — the component returns null: the portal does not exist
 // in the scene at all. No mesh, no label, no click target, nothing to
 // inspect. The arch component below (and every texture it builds)
@@ -29,6 +30,7 @@ import { useRouter } from 'next/navigation';
 import * as THREE from 'three';
 import { supabase } from '@/lib/supabase';
 import { paintPortalSwirl } from '@/lib/portal-swirl';
+import { paintVanGoghText, isVanGoghActive, useVanGoghActive } from '@/lib/vangogh';
 import {
   EARTH2_HUB_ARCH,
   EARTH2_HUB_LABEL,
@@ -121,13 +123,21 @@ function makeLabelSprite() {
   canvas.height = 256;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.font = '700 118px Georgia, serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.shadowColor = 'rgba(46, 224, 160, 0.9)';
-  ctx.shadowBlur = 34;
-  ctx.fillStyle = '#d2f7dc';
-  ctx.fillText(EARTH2_HUB_LABEL, canvas.width / 2, canvas.height / 2);
+  if (isVanGoghActive()) {
+    // Painterly umber shadow instead of the digital glow.
+    paintVanGoghText(ctx, EARTH2_HUB_LABEL, canvas.width / 2, canvas.height / 2, {
+      font: '700 118px Georgia, serif',
+      fill: '#d2f7dc',
+    });
+  } else {
+    ctx.font = '700 118px Georgia, serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = 'rgba(46, 224, 160, 0.9)';
+    ctx.shadowBlur = 34;
+    ctx.fillStyle = '#d2f7dc';
+    ctx.fillText(EARTH2_HUB_LABEL, canvas.width / 2, canvas.height / 2);
+  }
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
@@ -141,6 +151,7 @@ function Earth2HubArch({ freeroam = false }) {
   const [swirlTex, setSwirlTex] = useState(null);
   const [ringTex, setRingTex] = useState(null);
   const [labelTex, setLabelTex] = useState(null);
+  const vgogh = useVanGoghActive();
 
   useEffect(() => {
     const swirl = makeSwirlTexture();
@@ -154,7 +165,8 @@ function Earth2HubArch({ freeroam = false }) {
       ring.dispose();
       label.dispose();
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vgogh]);
 
   const enter = () => {
     if (!freeroam || enteredRef.current) return;

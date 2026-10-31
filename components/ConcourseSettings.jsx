@@ -343,9 +343,25 @@ function SoundSection({ settings, onApply }) {
   );
 }
 
+// Sky: the Van Gogh background (Merlin, 2026-10-31) — a swirling
+// Starry-Night sky for the hub plus painterly shadowing on hub
+// letters. Separate option; default sky untouched when off.
+function SkySection({ settings, onApply }) {
+  return (
+    <div className="flex items-center gap-3">
+      <span className="min-w-0 flex-1">
+        <span className="block text-[12px] font-bold text-zinc-100">Van Gogh sky</span>
+        <span className="block text-[10px] text-zinc-400">Swirling starry-night hub sky + painterly letter shadows.</span>
+      </span>
+      <Switch on={!!settings.vgogh} onChange={(next) => onApply({ ...settings, vgogh: next })} label="Van Gogh sky" />
+    </div>
+  );
+}
+
 // Section seams: each entry renders one settings section.
 const SECTIONS = [
   { id: 'background', title: 'Background', render: ({ bg, onApplyBg }) => <BackgroundSection bg={bg} onApply={onApplyBg} /> },
+  { id: 'sky', title: 'Sky', render: ({ settings, onApplySettings }) => <SkySection settings={settings} onApply={onApplySettings} /> },
   { id: 'language', title: 'Language', render: () => <LanguageSection /> },
   { id: 'tilt', title: 'Tilt', render: () => <TiltSection /> },
   { id: 'sound', title: 'Sound', render: ({ settings, onApplySettings }) => <SoundSection settings={settings} onApply={onApplySettings} /> },

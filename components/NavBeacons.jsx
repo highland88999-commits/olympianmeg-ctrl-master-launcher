@@ -5,7 +5,8 @@
 // In-world 3D markers, not UI: beams punch through fog, labels billboard.
 
 'use client';
-import { Text, Billboard } from '@react-three/drei';
+import { Billboard } from '@react-three/drei';
+import VanGoghText from './VanGoghText';
 import * as THREE from 'three';
 import { BEACONS } from '@/lib/hub-layout';
 
@@ -44,7 +45,7 @@ function Beacon({ def }) {
         </>
       )}
       <Billboard position={[0, labelY, 0]}>
-        <Text
+        <VanGoghText
           fontSize={14}
           color={color}
           anchorX="center"
@@ -53,7 +54,7 @@ function Beacon({ def }) {
           outlineColor="#000000"
         >
           {label}
-        </Text>
+        </VanGoghText>
       </Billboard>
     </group>
   );

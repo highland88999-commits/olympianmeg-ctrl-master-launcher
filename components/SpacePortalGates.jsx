@@ -18,6 +18,7 @@ import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { fx } from '@/lib/fx';
+import { paintVanGoghText, useVanGoghActive } from '@/lib/vangogh';
 import {
   GATE_SIZE,
   GATE_CROSSING_RADIUS,
@@ -48,7 +49,10 @@ function makeLabelTexture(text, color) {
     size -= 2;
     ctx.font = `700 ${size}px system-ui, -apple-system, sans-serif`;
   }
-  ctx.fillText(text, 256, 50);
+  // Van Gogh mode paints the shadow painterly; plain when off.
+  paintVanGoghText(ctx, text, 256, 50, { font: ctx.font, fill: '#ffffff' });
+  // Van Gogh mode repaints the shadow painterly (lib/vangogh.js);
+  // paintVanGoghText draws plain when the mode is off.
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
@@ -74,9 +78,11 @@ function buildFrameGeometry() {
 }
 
 function Gate({ sat, spot, center, title, accent, res, onTravel }) {
+  const vgogh = useVanGoghActive();
   const labelTex = useMemo(
     () => makeLabelTexture(displayNameFor(sat.key, title), accent),
-    [sat.key, title, accent]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sat.key, title, accent, vgogh]
   );
   const yaw = useMemo(() => gateYawToCenter(spot, center), [spot, center]);
 

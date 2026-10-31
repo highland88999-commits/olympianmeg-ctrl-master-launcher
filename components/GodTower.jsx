@@ -32,7 +32,8 @@
 'use client';
 import { useState, useRef, useMemo, useEffect, memo } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Text, Billboard } from '@react-three/drei';
+import { Billboard } from '@react-three/drei';
+import VanGoghText from './VanGoghText';
 import * as THREE from 'three';
 import { registerCollider, unregisterCollider } from '@/lib/hub-collision';
 import {
@@ -375,7 +376,7 @@ function BillboardNumberBadge({ number }) {
         <planeGeometry args={[plateW, 0.74]} />
         <meshBasicMaterial color="#000000" />
       </mesh>
-      <Text
+      <VanGoghText
         position={[0, 0, 0.01]}
         fontSize={0.52}
         color="#ffffff"
@@ -384,7 +385,7 @@ function BillboardNumberBadge({ number }) {
         fontWeight="bold"
       >
         {label}
-      </Text>
+      </VanGoghText>
     </group>
   );
 }
@@ -577,9 +578,9 @@ function GodTower({ god, color, position, onLaunchExternal, textures, panels = p
             top, the same 4 above the pillar). It sits above the
             level-1 box top (19.6), clear of every level. */}
         <Billboard position={[0, 24.5, 0]}>
-          <Text fontSize={1.6} color={color} letterSpacing={0.2} fontWeight="bold">
+          <VanGoghText fontSize={1.6} color={color} letterSpacing={0.2} fontWeight="bold">
             {god}
-          </Text>
+          </VanGoghText>
         </Billboard>
 
         {/* Pillar, extended the full three-level stack (Merlin,
@@ -667,9 +668,9 @@ function GodTower({ god, color, position, onLaunchExternal, textures, panels = p
           <cylinderGeometry args={[13.7, 13.7, 0.4, 32]} />
         </mesh>
         <Billboard position={[0, 6.6, 0]}>
-          <Text fontSize={1.5} color={color} letterSpacing={0.3} fontWeight="bold">
+          <VanGoghText fontSize={1.5} color={color} letterSpacing={0.3} fontWeight="bold">
             {god}
-          </Text>
+          </VanGoghText>
         </Billboard>
         <mesh position={[0, 4.9, 0]} material={darkMetal} receiveShadow>
           <cylinderGeometry args={[13.7, 13.7, 0.4, 32]} />
@@ -697,9 +698,9 @@ function GodTower({ god, color, position, onLaunchExternal, textures, panels = p
           <cylinderGeometry args={[13.7, 13.7, 0.4, 32]} />
         </mesh>
         <Billboard position={[0, -8.6, 0]}>
-          <Text fontSize={1.5} color={color} letterSpacing={0.3} fontWeight="bold">
+          <VanGoghText fontSize={1.5} color={color} letterSpacing={0.3} fontWeight="bold">
             {god}
-          </Text>
+          </VanGoghText>
         </Billboard>
         <mesh position={[0, -10.3, 0]} material={darkMetal} receiveShadow>
           <cylinderGeometry args={[13.7, 13.7, 0.4, 32]} />

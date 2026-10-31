@@ -17,6 +17,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { useRouter } from 'next/navigation';
 import * as THREE from 'three';
+import { paintVanGoghText, isVanGoghActive, useVanGoghActive } from '@/lib/vangogh';
 import {
   OMEGA_ARCH,
   OMEGA_PORTAL_RADIUS,
@@ -51,13 +52,21 @@ function makeLabelSprite() {
   canvas.height = 256;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.font = '700 118px Georgia, serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.shadowColor = 'rgba(255, 190, 80, 0.9)';
-  ctx.shadowBlur = 34;
-  ctx.fillStyle = '#ffd98a';
-  ctx.fillText('Ω  OMEGA', canvas.width / 2, canvas.height / 2);
+  if (isVanGoghActive()) {
+    // Painterly umber shadow instead of the gold glow.
+    paintVanGoghText(ctx, 'Ω  OMEGA', canvas.width / 2, canvas.height / 2, {
+      font: '700 118px Georgia, serif',
+      fill: '#ffd98a',
+    });
+  } else {
+    ctx.font = '700 118px Georgia, serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = 'rgba(255, 190, 80, 0.9)';
+    ctx.shadowBlur = 34;
+    ctx.fillStyle = '#ffd98a';
+    ctx.fillText('Ω  OMEGA', canvas.width / 2, canvas.height / 2);
+  }
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
@@ -70,6 +79,7 @@ export default function OmegaHubGate({ freeroam = false, onEnterPortal }) {
   const [wrapTex, setWrapTex] = useState(null);
   const [vortexTex, setVortexTex] = useState(null);
   const [labelTex, setLabelTex] = useState(null);
+  const vgogh = useVanGoghActive();
 
   useEffect(() => {
     const wrap = makeVideoTexture(OMEGA_WRAP_VIDEO, 4, 1);
@@ -85,7 +95,8 @@ export default function OmegaHubGate({ freeroam = false, onEnterPortal }) {
       });
       label.dispose();
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vgogh]);
 
   const enter = () => {
     if (!freeroam || enteredRef.current) return;

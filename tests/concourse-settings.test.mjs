@@ -174,8 +174,17 @@ describe('Concourse Settings wiring (static)', () => {
 // ---------------------------------------------------------------------------
 describe('sanitizeUiSettings (the settings ui-state key)', () => {
   it('accepts a boolean sound flag and drops unknown keys', () => {
-    assert.deepEqual(sanitizeUiSettings({ sound: false }), { sound: false });
-    assert.deepEqual(sanitizeUiSettings({ sound: true, volume: 3, theme: 'x' }), { sound: true });
+    assert.deepEqual(sanitizeUiSettings({ sound: false }), { sound: false, vgogh: false });
+    assert.deepEqual(sanitizeUiSettings({ sound: true, volume: 3, theme: 'x' }), { sound: true, vgogh: false });
+  });
+
+  it('vgogh is lenient: only explicit true survives, defaulting false', () => {
+    assert.deepEqual(sanitizeUiSettings({ sound: true, vgogh: true }), { sound: true, vgogh: true });
+    assert.deepEqual(sanitizeUiSettings({ sound: true, vgogh: false }), { sound: true, vgogh: false });
+    assert.deepEqual(sanitizeUiSettings({ sound: true, vgogh: 'yes' }), { sound: true, vgogh: false });
+    assert.deepEqual(sanitizeUiSettings({ sound: true, vgogh: 1 }), { sound: true, vgogh: false });
+    // Old stored settings without vgogh keep working untouched.
+    assert.deepEqual(sanitizeUiSettings({ sound: false }), { sound: false, vgogh: false });
   });
 
   it('rejects junk: non-objects, arrays, a missing or non-boolean sound', () => {
@@ -184,18 +193,21 @@ describe('sanitizeUiSettings (the settings ui-state key)', () => {
     }
   });
 
-  it('resolveUiSettings defaults to sound ON with no stored value', () => {
-    assert.deepEqual(resolveUiSettings(undefined), { sound: true });
-    assert.deepEqual(resolveUiSettings({ sound: 'junk' }), { sound: true });
-    assert.deepEqual(resolveUiSettings({ sound: false }), { sound: false });
+  it('resolveUiSettings defaults to sound ON, Van Gogh OFF with no stored value', () => {
+    assert.deepEqual(resolveUiSettings(undefined), { sound: true, vgogh: false });
+    assert.deepEqual(resolveUiSettings({ sound: 'junk' }), { sound: true, vgogh: false });
+    assert.deepEqual(resolveUiSettings({ sound: false }), { sound: false, vgogh: false });
+    assert.deepEqual(resolveUiSettings({ sound: true, vgogh: true }), { sound: true, vgogh: true });
   });
 
   it('the localStorage cache round-trips through the injected store', () => {
     const st = memStore();
     assert.equal(readUiSettingsCache(st), null);
     writeUiSettingsCache(st, { sound: false });
-    assert.deepEqual(readUiSettingsCache(st), { sound: false });
+    assert.deepEqual(readUiSettingsCache(st), { sound: false, vgogh: false });
     assert.ok(st.getItem(UI_SETTINGS_CACHE_KEY).includes('"sound":false'));
+    writeUiSettingsCache(st, { sound: true, vgogh: true });
+    assert.deepEqual(readUiSettingsCache(st), { sound: true, vgogh: true });
   });
 
   it('the ui-state route validates the settings key server-side', () => {
@@ -270,10 +282,16 @@ describe('sound gate (Part 3)', () => {
     assert.ok(radioProvider.includes("typeof ctl.pause === 'function'"), 'turning off pauses the embed');
   });
 
-  it('panel order is Background, Language, Tilt, Sound', () => {
-    const order = ["id: 'background'", "id: 'language'", "id: 'tilt'", "id: 'sound'"].map((x) => panel.indexOf(x));
-    assert.ok(order.every((i) => i >= 0), 'all four sections present');
-    assert.ok(order[0] < order[1] && order[1] < order[2] && order[2] < order[3], 'in Merlin\'s order');
+  it('panel order is Background, Sky, Language, Tilt, Sound', () => {
+    const order = ["id: 'background'", "id: 'sky'", "id: 'language'", "id: 'tilt'", "id: 'sound'"].map((x) => panel.indexOf(x));
+    assert.ok(order.every((i) => i >= 0), 'all five sections present');
+    assert.ok(order[0] < order[1] && order[1] < order[2] && order[2] < order[3] && order[3] < order[4], 'in order');
+  });
+
+  it('the sky section toggles the Van Gogh background', () => {
+    assert.ok(panel.includes("id: 'sky'"), 'sky section seam');
+    assert.ok(panel.includes('Van Gogh sky'), 'section copy');
+    assert.ok(panel.includes('vgogh'), 'switch bound to the vgogh flag');
   });
 });
 

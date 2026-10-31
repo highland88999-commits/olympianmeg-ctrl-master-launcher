@@ -37,6 +37,9 @@ import { dropPausedOverrides } from '../lib/billboards/subscriptions';
 import GodTower, { preloadHubPanelVideos } from './GodTower';
 import OmegaHubGate from './OmegaHubGate';
 import Earth2HubGate from './Earth2HubGate';
+import VanGoghSky from './VanGoghSky';
+import { setVanGoghActive, VANGOGH_BODY_CLASS } from '../lib/vangogh';
+import { resolveUiSettings, readUiSettingsCache, UI_SETTINGS_EVENT } from '../lib/ui-settings';
 
 function MarsBackground({ onSelect }) {
   const marsRef = useRef();
@@ -929,6 +932,7 @@ function HubScene({
   onBikeDismount,
   onSatellitePortal,
   onContextLost,
+  vgogh,
 }) {
   // Keep the quaternion ref initialized without the page needing three.js.
   if (!earthQuatRef.current) earthQuatRef.current = new THREE.Quaternion();
@@ -987,14 +991,23 @@ function HubScene({
           if (onContextLost) onContextLost();
         });
       }}>
-        {!bgVideoOk && !inRealm && <color attach="background" args={['#050505']} />}
+        {!bgVideoOk && !inRealm && (
+          <color key={vgogh ? 'vgogh-bg' : 'std-bg'} attach="background" args={[vgogh ? '#0a1030' : '#050505']} />
+        )}
         {/* Thin fog: the tower field (~180 out) must read clearly from
             spawn, not vanish into haze. The realms attach their own
-            fog, so the hub's stands down while one is mounted. */}
-        {!inRealm && <fogExp2 attach="fog" args={['#050505', 0.0016]} />}
+            fog, so the hub's stands down while one is mounted.
+            Van Gogh mode fades to deep blue, not black. */}
+        {!inRealm && (
+          <fogExp2 key={vgogh ? 'vgogh-fog' : 'std-fog'} attach="fog" args={[vgogh ? '#101a4a' : '#050505', 0.0016]} />
+        )}
         {!inRealm && (
           <>
-            <Stars radius={100} depth={50} count={7000} factor={4} saturation={0} fade speed={1} />
+            {vgogh ? (
+              <VanGoghSky />
+            ) : (
+              <Stars radius={100} depth={50} count={7000} factor={4} saturation={0} fade speed={1} />
+            )}
 
             {/* Seasonal decoration cycle: date-driven holiday decor + Merlin's
                 Christmas tree (Nov 22 - Twelfth Night). Renders nothing off-season. */}
@@ -1270,6 +1283,30 @@ export default function HomeScene(props) {
   const [retryCount, setRetryCount] = useState(0);
   const reportedRef = useRef(false);
 
+  // Van Gogh sky (Merlin, 2026-10-31): separate background option,
+  // toggled in Concourse Settings → Sky. Syncs from the ui-settings
+  // cache + broadcast event; drives the module flag (canvas labels),
+  // the body class (DOM text shadows), and the sky/fog swap below.
+  const [vgogh, setVgogh] = useState(false);
+  useEffect(() => {
+    const apply = () => {
+      try {
+        const s = resolveUiSettings(readUiSettingsCache(window.localStorage));
+        const v = !!s.vgogh;
+        setVgogh(v);
+        setVanGoghActive(v);
+        document.body.classList.toggle(VANGOGH_BODY_CLASS, v);
+      } catch {}
+    };
+    apply();
+    window.addEventListener(UI_SETTINGS_EVENT, apply);
+    return () => {
+      window.removeEventListener(UI_SETTINGS_EVENT, apply);
+      try { document.body.classList.remove(VANGOGH_BODY_CLASS); } catch {}
+      setVanGoghActive(false);
+    };
+  }, []);
+
   // Retry the WebGL probe (iOS Safari transient failures). Reset the
   // memoized verdict, wait a beat for the GPU process to settle, re-probe.
   const retryWebGL = () => {
@@ -1310,7 +1347,7 @@ export default function HomeScene(props) {
         <ThreeDUnavailableNotice onRetry={retryWebGL} diagnosis={diagnosis} />
       ) : (
         <SceneErrorBoundary fallback={<ThreeDUnavailableNotice onRetry={retryWebGL} diagnosis={diagnosis} />}>
-          <HubScene {...sceneProps} onContextLost={handleContextLost} />
+          <HubScene {...sceneProps} vgogh={vgogh} onContextLost={handleContextLost} />
         </SceneErrorBoundary>
       )}
       <div
