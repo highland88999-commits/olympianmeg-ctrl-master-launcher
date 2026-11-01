@@ -87,6 +87,8 @@ import {
   loadVehicleStates,
   saveVehicleStates,
   tickVehicleRespawn,
+  parcelVehicleId,
+  BOAT_MIN_DEPTH_M,
 } from '@/lib/earth2/vehicles';
 import { integrityColor } from '@/lib/earth2/vehicle-damage';
 import {
@@ -475,7 +477,7 @@ function E2Panel({ layout, onMove, onToggle, panelClass = '', headerClass = '', 
   );
 }
 
-export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOpenExchange, onFossilExchange, greetSignal, onParcelChange, onExit, buildUser, ownersByParcel, claims, builds, onBuildChange, buildRequest, gunplayUnlocked = true } = {}) {
+export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOpenExchange, onFossilExchange, greetSignal, onParcelChange, onExit, buildUser, ownersByParcel, claims, builds, onBuildChange, buildRequest, gunplayUnlocked = true, vehiclePlacement = null, onVehiclePlaced = null } = {}) {
   const mountRef = useRef(null);
   const labelsRef = useRef(null);
   const [hud, setHud] = useState(null); // { parcel, biome, lat, lon, mine, home }
@@ -891,6 +893,12 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   // open — the engine's defaultUnlocked for gunplay is true.
   const gunplayUnlockedRef = useRef(true);
   gunplayUnlockedRef.current = gunplayUnlocked !== false;
+  // Parcel vehicle placement (Merlin, 2026-10-31): { parcelId, slug,
+  // nonce } while the buyer taps the parking spot on their land.
+  const vehiclePlacementRef = useRef(null);
+  vehiclePlacementRef.current = vehiclePlacement || null;
+  const onVehiclePlacedRef = useRef(null);
+  onVehiclePlacedRef.current = typeof onVehiclePlaced === 'function' ? onVehiclePlaced : null;
 
   // ── Vehicles (Vehicles Phase 1) ─────────────────────────────
   // The fleet's positions live in the device store
@@ -948,6 +956,16 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   const noticeRef = useRef(() => {});
   noticeRef.current = (msg) => setNotice(msg);
   useEffect(() => { if (greetSignal) greetRef.current = true; }, [greetSignal]);
+  // Parcel vehicle placement banner (Merlin, 2026-10-31): when the
+  // buyer enters to park their ride, say what the next tap does.
+  useEffect(() => {
+    if (vehiclePlacement && vehiclePlacement.slug) {
+      const spec = modelSpec(vehiclePlacement.slug);
+      noticeRef.current(
+        `🚗 Tap your parcel to park your ${spec ? spec.name : 'vehicle'} — ${spec && spec.water ? 'it needs the deep water.' : 'it needs dry ground.'}`
+      );
+    }
+  }, [vehiclePlacement]);
 
   // ── GAMEPAD ADAPTER (Merlin, 2026-10-24) ─────────────────────
   // PS5 + Xbox controls with smart detection. This block ONLY feeds
@@ -2539,8 +2557,10 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       // right, settled by the walker's own push-out, and the
       // machine stays exactly where it was left — saved.
       function boardVehicle(id) {
-        const spec = vehicleSpecForInstance(id);
+        // Parcel vehicles aren't in the fleet registry: fall back to
+        // the state's own slug for the spec (Merlin, 2026-10-31).
         const st = vehicleStatesRef.current[id];
+        const spec = vehicleSpecForInstance(id) || (st && st.slug ? modelSpec(st.slug) : null);
         if (!spec || !st || drivingRef.current) return;
         if (buildModeRef.current.active) {
           noticeRef.current('🔨 Finish building first — then drive.');
@@ -4484,8 +4504,79 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         bm.editIndex = idx;
         buildSelectRef.current(idx);
       }
+      // Parcel vehicle placement (Merlin, 2026-10-31): the buyer's tap
+      // parks their chosen ride on their own land. The tap's terrain
+      // point must fall inside the parcel's rect, on ground the
+      // vehicle can sit on — dry land for field machines, water deep
+      // enough to float for the River Runner. One vehicle per parcel:
+      // the ledger key carries the parcel id, so re-picking replaces.
+      function vehiclePlacementTap() {
+        const vp = vehiclePlacementRef.current;
+        if (!vp || !vp.parcelId || !vp.slug) return true;
+        const spec = modelSpec(vp.slug);
+        if (!spec) return true;
+        const parcel = parcelById(vp.parcelId);
+        if (!parcel) {
+          noticeRef.current('That parcel is gone — placement cancelled.');
+          vehiclePlacementRef.current = null;
+          return true;
+        }
+        const ground = tapGroundPoint();
+        if (!ground) {
+          noticeRef.current('Tap the ground on your parcel to park it.');
+          return true;
+        }
+        const rect = parcelWorldRect(parcel);
+        const inside = ground.x >= rect.minX && ground.x <= rect.maxX
+          && ground.z >= rect.minZ && ground.z <= rect.maxZ;
+        if (!inside) {
+          noticeRef.current('That\'s outside your parcel — tap inside its borders.');
+          return true;
+        }
+        const depth = waterDepthAt(ground.x, ground.z);
+        if (spec.water) {
+          if (depth < BOAT_MIN_DEPTH_M) {
+            noticeRef.current('The River Runner needs deeper water — tap the blue.');
+            return true;
+          }
+        } else if (depth > 0) {
+          noticeRef.current('Land vehicles need dry ground — tap the green.');
+          return true;
+        }
+        const id = parcelVehicleId(vp.parcelId);
+        vehicleStatesRef.current[id] = {
+          slug: vp.slug,
+          parcelId: vp.parcelId,
+          x: ground.x,
+          z: ground.z,
+          heading: walker.yaw,
+          speed: 0,
+          alt: 0,
+          integrity: INTEGRITY_MAX,
+          wrecked: false,
+          claimedBy: null,
+          claimedAt: null,
+          awaySince: null,
+        };
+        saveVehicleStates(vehicleStatesRef.current);
+        vehiclePlacementRef.current = null;
+        noticeRef.current(`🚗 Your ${spec.name} is parked on ${parcel.name} — walk up and board.`);
+        if (onVehiclePlacedRef.current) onVehiclePlacedRef.current(vp);
+        return true;
+      }
       function handleTap(e) {
         if (buildModeRef.current.active) { buildTap(e); return; }
+        if (vehiclePlacementRef.current) {
+          const rect = renderer.domElement.getBoundingClientRect();
+          if (!rect.width || !rect.height) return;
+          ndc.set(
+            ((e.clientX - rect.left) / rect.width) * 2 - 1,
+            -((e.clientY - rect.top) / rect.height) * 2 + 1,
+          );
+          raycaster.setFromCamera(ndc, camera);
+          vehiclePlacementTap();
+          return;
+        }
         if (drivingRef.current) return;
         const rect = renderer.domElement.getBoundingClientRect();
         if (!rect.width || !rect.height) return;

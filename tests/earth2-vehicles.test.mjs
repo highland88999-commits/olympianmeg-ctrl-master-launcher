@@ -98,6 +98,9 @@ import {
   tickVehicleRespawn,
   vehicleRespawnDue,
   respawnVehicleNow,
+  PARCEL_VEHICLE_PREFIX,
+  parcelVehicleId,
+  isParcelVehicleId,
   RESPAWN_DELAY_S,
 } from '../lib/earth2/vehicles.js';
 import { resolveScarabLegs } from '../lib/earth2/bones.js';
@@ -797,5 +800,67 @@ describe('the wiring — scene and chamber', () => {
     assert.ok(page.includes('AIRPORT_NAME'), 'the field is named from its module');
     assert.ok(page.includes('VEHICLE_SLUGS') && page.includes('VEHICLE_SPECS'), 'the fleet is listed from the specs');
     assert.ok(page.includes('airportGroundsIds'), 'the grounds are named in the chamber');
+  });
+});
+
+describe('parcel vehicles (Merlin, 2026-10-31)', () => {
+  it('ledger keys carry the parcel id; one vehicle per parcel', () => {
+    assert.equal(parcelVehicleId('E2-0619'), 'parcel-vehicle:E2-0619');
+    assert.ok(isParcelVehicleId('parcel-vehicle:E2-0619'));
+    assert.ok(!isParcelVehicleId('rover'));
+    assert.ok(!isParcelVehicleId('boat~stock'));
+  });
+  it('a buyer-chosen machine survives sanitize + reload', () => {
+    const id = parcelVehicleId('E2-0619');
+    const states = sanitizeInstanceStates({
+      [id]: { slug: 'rover', parcelId: 'E2-0619', x: 10, z: 20, heading: 1.5, integrity: 88 },
+    });
+    assert.ok(states[id], 'the entry is kept');
+    assert.equal(states[id].slug, 'rover');
+    assert.equal(states[id].parcelId, 'E2-0619');
+    assert.equal(states[id].x, 10);
+    assert.equal(states[id].z, 20);
+    assert.equal(states[id].speed, 0, 'motion never survives a reload');
+  });
+  it('the boat rides the same ledger', () => {
+    const id = parcelVehicleId('E2-0700');
+    const states = sanitizeInstanceStates({
+      [id]: { slug: 'boat', parcelId: 'E2-0700', x: -5, z: 30, heading: 0 },
+    });
+    assert.ok(states[id], 'the boat entry is kept');
+    assert.equal(states[id].slug, 'boat');
+  });
+  it('junk parcel-vehicle entries are dropped', () => {
+    const badSlug = sanitizeInstanceStates({
+      [parcelVehicleId('E2-0619')]: { slug: 'hovercraft', x: 1, z: 2 },
+    });
+    assert.ok(!badSlug[parcelVehicleId('E2-0619')], 'unknown slug is dropped');
+    const noCoords = sanitizeInstanceStates({
+      [parcelVehicleId('E2-0619')]: { slug: 'rover', x: 'far', z: NaN },
+    });
+    const kept = noCoords[parcelVehicleId('E2-0619')];
+    assert.ok(kept, 'bad coords fall back, entry survives');
+    assert.equal(typeof kept.x, 'number');
+  });
+  it('re-picking replaces: same key, new machine', () => {
+    const id = parcelVehicleId('E2-0619');
+    const first = sanitizeInstanceStates({ [id]: { slug: 'rover', x: 1, z: 1 } });
+    assert.equal(first[id].slug, 'rover');
+    const second = sanitizeInstanceStates({ [id]: { slug: 'speed-bike', x: 2, z: 2 } });
+    assert.equal(second[id].slug, 'speed-bike');
+    assert.equal(Object.keys(second).filter(isParcelVehicleId).length, 1, 'still one entry');
+  });
+  it('the chamber offers the picker after purchase and on owned parcels', () => {
+    const page = read('app/earth-2/page.jsx');
+    assert.ok(page.includes('vehiclePicker'), 'the picker state exists');
+    assert.ok(page.includes('parcelIsWaterfront'), 'waterfront detection exists');
+    assert.ok(page.includes('placeVehicleOnParcel'), 'the placement flow exists');
+    assert.ok(page.includes('Pick your parcel vehicle'), 'owned parcels can re-pick');
+  });
+  it('the world parks on tap and boards the parcel machine', () => {
+    const scene = read('components/earth2/Earth2World.jsx');
+    assert.ok(scene.includes('vehiclePlacementTap'), 'the placement tap exists');
+    assert.ok(scene.includes('parcelVehicleId('), 'the ledger key is used');
+    assert.ok(scene.includes('Tap your parcel to park'), 'the placement banner exists');
   });
 });

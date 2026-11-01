@@ -67,7 +67,8 @@ import {
 } from '@/lib/earth2/forge';
 import { formatGold } from '@/lib/economy/config';
 import { AIRPORT_NAME, AIRPORT_TOWN, airportGroundsIds } from '@/lib/earth2/airport';
-import { VEHICLE_SPECS, VEHICLE_SLUGS, BOAT_SPEC } from '@/lib/earth2/vehicles';
+import { VEHICLE_SPECS, VEHICLE_SLUGS, BOAT_SPEC, BOAT_SLUG, BOAT_MIN_DEPTH_M, parcelVehicleId } from '@/lib/earth2/vehicles';
+import { parcelWorldRect, waterDepthAt } from '@/lib/earth2/world';
 import { worldBridges } from '@/lib/earth2/bridges';
 import { scatteredVehicleSpots, boatMoorings } from '@/lib/earth2/fleet';
 import { earth2BuildContext, validateEarth2Build } from '@/lib/earth2/building';
@@ -147,6 +148,13 @@ export default function Earth2Page() {
   const [walking, setWalking] = useState(false);
   const [myEmail, setMyEmail] = useState('');
   const [myId, setMyId] = useState('');
+  // Parcel vehicle (Merlin, 2026-10-31): after buying land, the buyer
+  // picks one vehicle to live on their parcel — rover, speed bike or
+  // scarab on land, plus the River Runner when the parcel is
+  // waterfront. The picker names the parcel; the world then opens in
+  // placement mode and the buyer taps the exact parking spot.
+  const [vehiclePicker, setVehiclePicker] = useState(null); // { parcel } | null
+  const [vehiclePlacement, setVehiclePlacement] = useState(null); // { parcelId, slug, nonce } | null
   // Building (Phase 2): my builds, my homestead claims, and the
   // blueprint shelf (pack-ups from sold claims). The device store
   // is the truth while supabase/earth2-buildings.sql is unrun;
@@ -532,11 +540,55 @@ export default function Earth2Page() {
     setNotice('');
     const data = await post('/api/earth2/buy', { parcelId: parcel.id });
     if (data?.setupRequired) setNotice('Database setup is still pending — buying switches on when the earth2 tables land.');
-    else if (data?.ok) setNotice(`${parcel.id} is yours — ${parcel.name} joins your titles.`);
+    else if (data?.ok) {
+      setNotice(`${parcel.id} is yours — ${parcel.name} joins your titles.`);
+      // Fresh title, fresh ride (Merlin, 2026-10-31): offer the buyer
+      // a vehicle to live on their new parcel.
+      setVehiclePicker({ parcel });
+    }
     else setNotice(data?.error || 'That purchase did not go through.');
     await loadState();
     setBusy('');
   };
+
+  // Waterfront check (Merlin, 2026-10-31): sample the parcel's ground —
+  // when a real share of it is water deep enough to float the River
+  // Runner, the parcel counts as waterfront and the boat joins the
+  // vehicle picker.
+  const parcelIsWaterfront = (parcel) => {
+    if (!parcel) return false;
+    let wet = 0, total = 0;
+    const rect = parcelWorldRect(parcel);
+    const N = 8;
+    for (let i = 0; i < N; i++) {
+      for (let j = 0; j < N; j++) {
+        const x = rect.minX + ((i + 0.5) / N) * (rect.maxX - rect.minX);
+        const z = rect.minZ + ((j + 0.5) / N) * (rect.maxZ - rect.minZ);
+        total++;
+        if (waterDepthAt(x, z) >= BOAT_MIN_DEPTH_M) wet++;
+      }
+    }
+    return total > 0 && wet / total >= 0.12;
+  };
+
+  // The buyer's ride, parked where they tap it: open the world on the
+  // parcel in vehicle-placement mode (mirrors openBuildOnParcel).
+  const placeVehicleOnParcel = (parcel, slug) => {
+    if (!parcel || !slug) return;
+    setVehiclePicker(null);
+    setBuildSpawnId(parcel.id);
+    setVehiclePlacement({ parcelId: parcel.id, slug, nonce: Date.now() });
+    setWalking(true);
+  };
+
+  // The world reports the parking done: clear the request and confirm.
+  const handleVehiclePlaced = useCallback((req) => {
+    setVehiclePlacement(null);
+    if (req && req.parcelId) {
+      const parcel = parcelById(req.parcelId);
+      setNotice(`🚗 Your ride is parked on ${parcel ? parcel.name : req.parcelId} — it's there every time you enter.`);
+    }
+  }, []);
 
   const buy = () => {
     if (selected) return buyParcel(selected);
@@ -652,6 +704,7 @@ export default function Earth2Page() {
     setWalking(false);
     setBuildSpawnId(null);
     setBuildRequest(null);
+    setVehiclePlacement(null);
   }, []);
 
   const apiToken = useCallback(async () => {
@@ -1231,6 +1284,15 @@ export default function Earth2Page() {
                     </button>
                   )}
                   {selectedIsMine && (
+                    <button
+                      type="button"
+                      onClick={() => setVehiclePicker({ parcel: selected })}
+                      className="mt-2 w-full rounded-full border border-sky-300/50 bg-sky-400/10 px-4 py-3 text-sm font-bold tracking-wide text-sky-100 transition hover:bg-sky-400/20"
+                    >
+                      🚗 Pick your parcel vehicle
+                    </button>
+                  )}
+                  {selectedIsMine && (
                     <div className="mt-3">
                       {selectedListing ? (
                         <p className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-xs text-zinc-300">
@@ -1688,6 +1750,70 @@ export default function Earth2Page() {
         )}
       </div>
 
+      {/* Parcel vehicle picker (Merlin, 2026-10-31): after buying land,
+          pick one vehicle to live on the parcel — then the world opens
+          and the buyer taps the exact parking spot. */}
+      {vehiclePicker && vehiclePicker.parcel && (() => {
+        const parcel = vehiclePicker.parcel;
+        const waterfront = parcelIsWaterfront(parcel);
+        const options = ['rover', 'speed-bike', 'scarab'];
+        if (waterfront) options.push(BOAT_SLUG);
+        const vid = parcelVehicleId(parcel.id);
+        let currentSlug = null;
+        try {
+          const states = JSON.parse(localStorage.getItem('earth2:vehicles:v1') || '{}');
+          if (states && states[vid] && states[vid].slug) currentSlug = states[vid].slug;
+        } catch { /* no stored choice yet */ }
+        const specFor = (slug) => (slug === BOAT_SLUG ? BOAT_SPEC : VEHICLE_SPECS[slug]);
+        return (
+          <div
+            className="fixed inset-0 z-[90] flex items-center justify-center bg-black/70 p-6"
+            role="dialog"
+            aria-label="Pick your parcel vehicle"
+          >
+            <div className="w-full max-w-sm rounded-2xl bg-slate-900 p-6 text-center shadow-2xl">
+              <div className="text-xl font-extrabold text-white">🚗 Your land, your ride</div>
+              <div className="mt-1 text-sm text-slate-400">
+                {parcel.name} ({parcel.id}) is yours. Pick one vehicle to keep on it
+                {waterfront ? ' — waterfront, so the River Runner can moor here too' : ''}.
+                You&rsquo;ll tap the exact parking spot next.
+              </div>
+              <div className="mt-4 space-y-2">
+                {options.map((slug) => {
+                  const spec = specFor(slug);
+                  if (!spec) return null;
+                  return (
+                    <button
+                      key={slug}
+                      type="button"
+                      onClick={() => placeVehicleOnParcel(parcel, slug)}
+                      className="block w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-left text-white transition hover:bg-white/10"
+                    >
+                      <div className="font-bold">
+                        {spec.verb} the {spec.name}
+                        {currentSlug === slug ? ' ✓ parked' : ''}
+                      </div>
+                      <div className="text-xs text-slate-400">
+                        {slug === BOAT_SLUG
+                          ? 'Sails your waterfront — moor it in the deep water.'
+                          : 'Lives on your land, ready when you are.'}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                onClick={() => setVehiclePicker(null)}
+                className="mt-4 text-sm text-slate-400 underline"
+              >
+                {currentSlug ? 'Keep my current ride' : 'Skip for now'}
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* The walkable planet, full-screen over the chamber. The
           chamber map's selection follows the walker (onParcelChange),
           so where you stand out there is what the map shows here. */}
@@ -1711,6 +1837,8 @@ export default function Earth2Page() {
           builds={myBuilds}
           onBuildChange={handleBuildChange}
           buildRequest={buildRequest}
+          vehiclePlacement={vehiclePlacement}
+          onVehiclePlaced={handleVehiclePlaced}
         />
       )}
     </main>
