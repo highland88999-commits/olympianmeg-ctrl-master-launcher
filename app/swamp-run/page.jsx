@@ -428,7 +428,14 @@ export default function SwampRunPage() {
           {chased && started && hud.status !== 'dead' && <div className="swamp-vignette pointer-events-none absolute inset-0" />}
 
           {!started && (
-            <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-b from-black/60 via-black/45 to-black/75 p-4">
+            <div className="absolute inset-0 overflow-hidden">
+              {/* Swamp art wrap (Merlin, 2026-11-01): generated backdrop +
+                  readability scrim; the card and every control below are
+                  untouched. */}
+              <div className="absolute inset-0 bg-cover bg-center" aria-hidden="true"
+                style={{ backgroundImage: 'url(/images/swamp-run/swamp-intro-bg.webp)' }} />
+              <div className="absolute inset-0 bg-gradient-to-b from-black/70 via-black/55 to-black/85" aria-hidden="true" />
+              <div className="relative flex h-full items-center justify-center p-4">
               <div className="w-full max-w-md rounded-3xl border border-lime-300/25 bg-zinc-950/85 p-6 text-center shadow-[0_0_50px_rgba(101,163,13,0.25)] backdrop-blur-md">
                 <p className="mb-1 text-3xl" aria-hidden="true">🐊</p>
                 <h2 className="font-['Orbitron'] text-xl font-black tracking-[0.22em] text-lime-300"
@@ -462,6 +469,7 @@ export default function SwampRunPage() {
                   You start on foot at the shore — <b className="text-lime-300">tap the canoe to board</b>.
                   Joystick or WASD to move · hold PADDLE HARD (or Shift) to sprint · score = time × distance
                 </p>
+              </div>
               </div>
             </div>
           )}
@@ -519,7 +527,15 @@ export default function SwampRunPage() {
           )}
 
           {deathShown && (
-            <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-b from-red-950/50 via-black/70 to-black/85 p-4">
+            <div className="absolute inset-0 overflow-hidden">
+              {/* Swamp art wrap (Merlin, 2026-11-01): generated backdrop +
+                  readability scrim; the card and every control below are
+                  untouched. backgroundPosition keeps the gator eyes in
+                  frame on cropped aspect ratios. */}
+              <div className="absolute inset-0 bg-cover" aria-hidden="true"
+                style={{ backgroundImage: 'url(/images/swamp-run/swamp-death-bg.webp)', backgroundPosition: 'center 75%' }} />
+              <div className="absolute inset-0 bg-gradient-to-b from-red-950/60 via-black/75 to-black/90" aria-hidden="true" />
+              <div className="relative flex h-full items-center justify-center p-4">
               <div className="w-full max-w-md rounded-3xl border border-red-500/30 bg-zinc-950/90 p-6 text-center shadow-[0_0_50px_rgba(185,28,28,0.35)] backdrop-blur-md">
                 <p className="text-3xl" aria-hidden="true">🐊</p>
                 <h2 className="mt-1 font-['Orbitron'] text-xl font-black tracking-[0.22em] text-red-400"
@@ -566,6 +582,7 @@ export default function SwampRunPage() {
                     LEADERBOARD
                   </button>
                 </div>
+              </div>
               </div>
             </div>
           )}
