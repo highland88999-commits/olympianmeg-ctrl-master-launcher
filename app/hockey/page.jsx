@@ -1,23 +1,44 @@
-// app/hockey/page.jsx — Olympus Hockey: 3v3 ice hockey, NHL arcade style.
+// app/hockey/page.jsx — Olympus Hockey: true fundamentals (Merlin, 2026-10-31).
 //
-// You + 2 AI vs 3 AI. Two 3-minute periods. Rules in lib/sports/hockey.js.
+// 4v4 (3 skaters + goalie). Blue lines, offside, creases, goalies,
+// sticks, pass / check / steal, wrist / slap / backhand shots,
+// penalties, overtime, shootout. Rules in lib/sports/hockey.js.
 
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import WalkJoystick from '@/components/world/WalkJoystick';
-import { createHockey, stepHockey, faceoff, RINK_W, RINK_L, GOAL_W } from '@/lib/sports/hockey.js';
+import {
+  createHockey, stepHockey, faceoff,
+  RINK_W, RINK_L, GOAL_W, BLUE_LINE_Z, GOAL_LINE_Z, CREASE_R,
+} from '@/lib/sports/hockey.js';
 
 const TEAM_COLORS = { blue: '#3b82f6', red: '#ef4444' };
+
+function makeStick() {
+  const g = new THREE.Group();
+  const shaftMat = new THREE.MeshStandardMaterial({ color: '#8b5a2b', roughness: 0.6 });
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 1.3, 6), shaftMat);
+  shaft.position.y = 0.65;
+  shaft.rotation.z = 0.25;
+  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.08, 0.45), shaftMat);
+  blade.position.set(0.16, 0.04, 0.2);
+  g.add(shaft, blade);
+  g.position.set(0.45, 0, 0.15);
+  return g;
+}
 
 export default function HockeyPage() {
   const containerRef = useRef(null);
   const gameRef = useRef(null);
   const joyRef = useRef({ x: 0, y: 0 });
-  const actRef = useRef(false);
+  const shootRef = useRef(false);
+  const passRef = useRef(false);
+  const checkRef = useRef(false);
+  const slapTimerRef = useRef(0);
   const [started, setStarted] = useState(false);
-  const [hud, setHud] = useState({ blue: 0, red: 0, period: 1, clock: '3:00', message: '', winner: null });
+  const [hud, setHud] = useState({ blue: 0, red: 0, period: 1, clock: '3:00', message: '', winner: null, shootout: null });
   const hudPrevRef = useRef('');
   const startedRef = useRef(false);
 
@@ -40,18 +61,29 @@ export default function HockeyPage() {
     sun.position.set(0, 30, 0);
     scene.add(sun);
 
-    // Ice rink
+    // Ice
     const ice = new THREE.Mesh(
       new THREE.PlaneGeometry(RINK_W, RINK_L),
       new THREE.MeshStandardMaterial({ color: '#dbeafe', roughness: 0.15, metalness: 0.1 })
     );
     ice.rotation.x = -Math.PI / 2;
     scene.add(ice);
-    // Center line + circle
-    const lineMat = new THREE.MeshBasicMaterial({ color: '#ef4444' });
-    const centerLine = new THREE.Mesh(new THREE.BoxGeometry(RINK_W, 0.02, 0.3), lineMat);
-    centerLine.position.y = 0.01;
-    scene.add(centerLine);
+
+    // Lines: red center, BLUE offside lines, red goal lines
+    const redLineMat = new THREE.MeshBasicMaterial({ color: '#ef4444' });
+    const blueLineMat = new THREE.MeshBasicMaterial({ color: '#2563eb' });
+    const mkLine = (z, mat, w = 0.35) => {
+      const l = new THREE.Mesh(new THREE.BoxGeometry(RINK_W, 0.02, w), mat);
+      l.position.set(0, 0.01, z);
+      scene.add(l);
+    };
+    mkLine(0, redLineMat); // center
+    mkLine(BLUE_LINE_Z, blueLineMat, 0.5); // blue lines (offside)
+    mkLine(-BLUE_LINE_Z, blueLineMat, 0.5);
+    mkLine(GOAL_LINE_Z, redLineMat, 0.2); // goal lines
+    mkLine(-GOAL_LINE_Z, redLineMat, 0.2);
+
+    // Center circle + faceoff dots
     const circle = new THREE.Mesh(
       new THREE.RingGeometry(4, 4.3, 32),
       new THREE.MeshBasicMaterial({ color: '#3b82f6', side: THREE.DoubleSide })
@@ -59,6 +91,25 @@ export default function HockeyPage() {
     circle.rotation.x = -Math.PI / 2;
     circle.position.y = 0.01;
     scene.add(circle);
+    const dotGeo = new THREE.CircleGeometry(0.3, 12);
+    const dotMat = new THREE.MeshBasicMaterial({ color: '#ef4444' });
+    for (const [dx, dz] of [[-8, 14], [8, 14], [-8, -14], [8, -14], [0, 0]]) {
+      const dot = new THREE.Mesh(dotGeo, dotMat);
+      dot.rotation.x = -Math.PI / 2;
+      dot.position.set(dx, 0.01, dz);
+      scene.add(dot);
+    }
+
+    // Goal creases (light blue semicircles)
+    const creaseMat = new THREE.MeshBasicMaterial({ color: '#93c5fd', transparent: true, opacity: 0.45, side: THREE.DoubleSide });
+    for (const gz of [GOAL_LINE_Z, -GOAL_LINE_Z]) {
+      const crease = new THREE.Mesh(new THREE.CircleGeometry(CREASE_R, 20, 0, Math.PI), creaseMat);
+      crease.rotation.x = -Math.PI / 2;
+      crease.rotation.z = gz > 0 ? Math.PI : 0;
+      crease.position.set(0, 0.015, gz);
+      scene.add(crease);
+    }
+
     // Boards
     const boardMat = new THREE.MeshStandardMaterial({ color: '#f8fafc', roughness: 0.5 });
     const mkBoard = (w, d, x, z) => {
@@ -70,34 +121,67 @@ export default function HockeyPage() {
     mkBoard(RINK_W + 1, 0.4, 0, -RINK_L / 2 - 0.2);
     mkBoard(0.4, RINK_L + 1, -RINK_W / 2 - 0.2, 0);
     mkBoard(0.4, RINK_L + 1, RINK_W / 2 + 0.2, 0);
-    // Goals
+
+    // Nets IN the crease, on the goal line
     const goalMat = new THREE.MeshStandardMaterial({ color: '#ef4444', roughness: 0.4 });
-    for (const gz of [RINK_L / 2 - 0.5, -RINK_L / 2 + 0.5]) {
-      const post1 = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.5, 8), goalMat);
-      post1.position.set(-GOAL_W / 2, 0.75, gz);
-      const post2 = post1.clone();
-      post2.position.x = GOAL_W / 2;
-      const cross = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, GOAL_W, 8), goalMat);
+    const netMat = new THREE.MeshStandardMaterial({ color: '#ffffff', transparent: true, opacity: 0.3, side: THREE.DoubleSide });
+    for (const gz of [GOAL_LINE_Z, -GOAL_LINE_Z]) {
+      const dir = gz > 0 ? 1 : -1;
+      for (const gx of [-GOAL_W / 2, GOAL_W / 2]) {
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 1.6, 8), goalMat);
+        post.position.set(gx, 0.8, gz);
+        scene.add(post);
+      }
+      const cross = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, GOAL_W, 8), goalMat);
       cross.rotation.z = Math.PI / 2;
-      cross.position.set(0, 1.5, gz);
-      scene.add(post1, post2, cross);
+      cross.position.set(0, 1.6, gz);
+      scene.add(cross);
+      // Netting behind
+      const netBack = new THREE.Mesh(new THREE.PlaneGeometry(GOAL_W, 1.6), netMat);
+      netBack.position.set(0, 0.8, gz + dir * 1.1);
+      scene.add(netBack);
+      const netTop = new THREE.Mesh(new THREE.PlaneGeometry(GOAL_W, 1.2), netMat);
+      netTop.rotation.x = Math.PI / 2 - 0.5 * dir;
+      netTop.position.set(0, 1.3, gz + dir * 0.55);
+      scene.add(netTop);
     }
 
-    // Players (on skates — simple figures)
+    // Players with sticks; goalies bigger with leg pads
     const playerMeshes = {};
     for (const p of gameRef.current.players) {
       const g = new THREE.Group();
+      const isGoalie = p.role === 'G';
+      const bodyH = isGoalie ? 0.9 : 0.7;
       const body = new THREE.Mesh(
-        new THREE.CapsuleGeometry(0.35, 0.7, 4, 10),
+        new THREE.CapsuleGeometry(isGoalie ? 0.5 : 0.35, bodyH, 4, 10),
         new THREE.MeshStandardMaterial({ color: TEAM_COLORS[p.team], roughness: 0.5 })
       );
-      body.position.y = 0.9;
+      body.position.y = isGoalie ? 1.0 : 0.9;
       const head = new THREE.Mesh(
         new THREE.SphereGeometry(0.25, 12, 10),
         new THREE.MeshStandardMaterial({ color: '#1e293b', roughness: 0.4 })
       );
-      head.position.y = 1.65; // helmet
+      head.position.y = isGoalie ? 1.85 : 1.65;
       g.add(body, head);
+      if (isGoalie) {
+        // Leg pads
+        const padMat = new THREE.MeshStandardMaterial({ color: '#f8fafc', roughness: 0.5 });
+        for (const px of [-0.4, 0.4]) {
+          const pad = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.9, 0.35), padMat);
+          pad.position.set(px, 0.45, 0);
+          g.add(pad);
+        }
+        // Blocker + glove
+        const blocker = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.4, 0.12), padMat);
+        blocker.position.set(0.62, 0.9, 0.1);
+        g.add(blocker);
+      }
+      // Hockey stick!
+      const stick = makeStick();
+      if (isGoalie) stick.scale.set(1.15, 1.15, 1.15);
+      g.add(stick);
+      g.userData.stick = stick;
+      g.userData.isGoalie = isGoalie;
       scene.add(g);
       playerMeshes[p.id] = g;
     }
@@ -108,6 +192,9 @@ export default function HockeyPage() {
     youRing.rotation.x = -Math.PI / 2;
     youRing.position.y = 0.02;
     scene.add(youRing);
+
+    // Penalty box indicator (above each penalized player)
+    const penMeshes = {};
 
     // Puck
     const puck = new THREE.Mesh(
@@ -136,36 +223,81 @@ export default function HockeyPage() {
       const state = gameRef.current;
       const you = state.players.find((p) => p.isHuman);
 
-      if (startedRef.current && state.status === 'play' && you) {
-        stepHockey(state, dt, { mx: joyRef.current.x, mz: -joyRef.current.y, act: actRef.current }, Math.random);
-        actRef.current = false;
+      // Slap shot: hold SHOOT 600ms
+      let shotType = 'wrist';
+      if (shootRef.current) {
+        slapTimerRef.current += dt;
+        if (slapTimerRef.current > 0.6) shotType = 'slap';
+      }
+      // Backhand: auto when the puck is behind the shooting direction
+      if (you && state.puck.holder === you.id && shotType === 'wrist') {
+        const targetZ = -GOAL_LINE_Z;
+        const toGoal = targetZ - you.z;
+        // If moving away from the goal, it's a backhand
+        if (you.vz * Math.sign(toGoal) < -2) shotType = 'backhand';
+      }
+
+      if (startedRef.current && (state.status === 'play' || state.status === 'shootout') && you) {
+        const doShoot = shootRef.current && slapTimerRef.current > 0.08;
+        stepHockey(state, dt, {
+          mx: joyRef.current.x,
+          mz: -joyRef.current.y,
+          act: false,
+          shoot: doShoot,
+          shotType,
+          pass: passRef.current,
+          check: checkRef.current,
+        }, Math.random);
+        if (doShoot) { shootRef.current = false; slapTimerRef.current = 0; }
+        passRef.current = false;
+        checkRef.current = false;
         for (const ev of state.events) {
           if (ev.type === 'goal') msgRef.current = ev.team === 'blue' ? 'GOAL!' : 'They scored.';
-          if (ev.type === 'period') msgRef.current = 'Period 2';
+          if (ev.type === 'period') msgRef.current = ev.period === 'ot' ? 'OVERTIME — sudden death' : `Period ${ev.period}`;
+          if (ev.type === 'penalty') msgRef.current = `${ev.team === 'blue' ? 'Blue' : 'Red'} penalty: ${ev.reason} (2 min)`;
+          if (ev.type === 'offside') msgRef.current = 'Offside!';
+          if (ev.type === 'check') msgRef.current = ev.checker === 'you' ? 'Big hit!' : 'You got leveled.';
+          if (ev.type === 'save') msgRef.current = 'Saved!';
+          if (ev.type === 'shootout') msgRef.current = 'SHOOTOUT';
+          if (ev.type === 'shootoutResult') msgRef.current = ev.scored ? (ev.team === 'blue' ? 'Scores!' : 'They score.') : 'Stopped!';
         }
-        if (state.status === 'faceoff' && !frame.faceoffTimer) frame.faceoffTimer = now;
+        if (state.status === 'faceoff' && !frame.foTimer) frame.foTimer = now;
       } else if (startedRef.current && state.status === 'faceoff') {
-        if (!frame.faceoffTimer) frame.faceoffTimer = now;
-        if (now - frame.faceoffTimer > 1500) {
+        if (!frame.foTimer) frame.foTimer = now;
+        if (now - frame.foTimer > 1500) {
           faceoff(state);
-          frame.faceoffTimer = 0;
+          frame.foTimer = 0;
           msgRef.current = '';
         }
       }
 
+      // Sync meshes
       for (const p of state.players) {
         const m = playerMeshes[p.id];
-        if (m) m.position.set(p.x, 0, p.z);
+        if (!m) continue;
+        if (p.penalty > 0) {
+          // Penalty box: off to the side
+          m.position.set(p.team === 'blue' ? -RINK_W / 2 - 2 : RINK_W / 2 + 2, 0, 0);
+          m.visible = true;
+        } else {
+          m.position.set(p.x, 0, p.z);
+          m.visible = true;
+        }
+        // Face the play
+        const targetZ = p.team === 'blue' ? -GOAL_LINE_Z : GOAL_LINE_Z;
+        m.rotation.y = Math.atan2(0 - p.x, targetZ - p.z);
       }
-      if (you) {
+      if (you && you.penalty <= 0) {
         youRing.position.x = you.x;
         youRing.position.z = you.z;
+        youRing.visible = true;
+      } else {
+        youRing.visible = false;
       }
       puck.position.set(state.puck.x, 0.1, state.puck.z);
-      // Highlight puck holder
       if (state.puck.holder) {
         const holder = playerMeshes[state.puck.holder];
-        if (holder) puck.position.set(holder.position.x, 0.1, holder.position.z + 0.8);
+        if (holder) puck.position.set(holder.position.x + 0.5, 0.1, holder.position.z + 0.5);
       }
 
       if (you) {
@@ -175,7 +307,14 @@ export default function HockeyPage() {
 
       const mins = Math.floor(Math.max(0, state.clock) / 60);
       const secs = Math.floor(Math.max(0, state.clock) % 60).toString().padStart(2, '0');
-      const nextHud = { blue: state.score.blue, red: state.score.red, period: state.period, clock: `${mins}:${secs}`, message: msgRef.current, winner: state.winner };
+      const periodLabel = state.period === 'ot' ? 'OT' : state.period === 'shootout' ? 'SO' : `P${state.period}`;
+      const nextHud = {
+        blue: state.score.blue, red: state.score.red, period: periodLabel,
+        clock: state.period === 'shootout' ? '' : `${mins}:${secs}`,
+        message: msgRef.current, winner: state.winner,
+        shootout: state.period === 'shootout' ? state.shootout : null,
+        youPenalty: you ? Math.ceil(you.penalty) : 0,
+      };
       const key = JSON.stringify(nextHud);
       if (key !== hudPrevRef.current) {
         hudPrevRef.current = key;
@@ -194,29 +333,50 @@ export default function HockeyPage() {
     };
   }, []);
 
+  const periodColor = hud.period === 'OT' ? '#fbbf24' : hud.period === 'SO' ? '#f472b6' : '#f8fafc';
+
   return (
     <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100dvh', overflow: 'hidden', background: '#0a1628' }}>
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', pointerEvents: 'none' }}>
-        <div style={{ color: '#f8fafc', fontWeight: 800, fontSize: 16 }}>🏒 HOCKEY <span style={{ fontWeight: 600 }}>{hud.blue}-{hud.red}</span> <span style={{ fontSize: 13, color: '#94a3b8' }}>P{hud.period} {hud.clock}</span></div>
+        <div style={{ color: '#f8fafc', fontWeight: 800, fontSize: 16 }}>
+          🏒 HOCKEY <span style={{ fontWeight: 600 }}>{hud.blue}-{hud.red}</span>{' '}
+          <span style={{ fontSize: 13, color: periodColor }}>{hud.period} {hud.clock}</span>
+        </div>
         <a href="/" style={{ color: '#94a3b8', fontSize: 13, textDecoration: 'none', pointerEvents: 'auto' }}>✕ Leave</a>
       </div>
       {hud.message && !hud.winner && (
         <div style={{ position: 'absolute', top: 44, left: 0, right: 0, zIndex: 5, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
-          <div style={{ background: 'rgba(15,23,42,0.8)', color: '#fbbf24', padding: '6px 14px', borderRadius: 999, fontSize: 14, fontWeight: 700 }}>{hud.message}</div>
+          <div style={{ background: 'rgba(15,23,42,0.85)', color: '#fbbf24', padding: '6px 14px', borderRadius: 999, fontSize: 14, fontWeight: 700 }}>{hud.message}</div>
+        </div>
+      )}
+      {hud.youPenalty > 0 && (
+        <div style={{ position: 'absolute', top: 80, left: 0, right: 0, zIndex: 5, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
+          <div style={{ background: 'rgba(127,29,29,0.9)', color: '#fff', padding: '6px 14px', borderRadius: 999, fontSize: 13, fontWeight: 700 }}>
+            ⏱️ Penalty box: {hud.youPenalty}s
+          </div>
+        </div>
+      )}
+      {hud.shootout && !hud.winner && (
+        <div style={{ position: 'absolute', top: 80, left: 12, zIndex: 5, background: 'rgba(15,23,42,0.85)', color: '#f8fafc', padding: '8px 12px', borderRadius: 12, fontSize: 13, fontWeight: 600 }}>
+          SO: 🔵 {hud.shootout.blueMade} — 🔴 {hud.shootout.redMade}
         </div>
       )}
       {!started && !hud.winner && (
-        <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, background: 'rgba(10,22,40,0.7)', padding: 20, textAlign: 'center' }}>
+        <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, background: 'rgba(10,22,40,0.78)', padding: 20, textAlign: 'center' }}>
           <div style={{ fontSize: 56 }}>🏒</div>
           <div style={{ color: '#f8fafc', fontSize: 28, fontWeight: 800 }}>ICE HOCKEY</div>
-          <div style={{ color: '#cbd5e1', fontSize: 15, maxWidth: 320 }}>3v3, two 3-minute periods. Skate with the joystick, tap SHOOT to fire at their net.</div>
+          <div style={{ color: '#cbd5e1', fontSize: 14, maxWidth: 340, lineHeight: 1.6 }}>
+            4v4 with goalies. Real rules: offside, penalties, OT, shootout.<br />
+            <b>SHOOT</b> tap = wrist · hold = slap · backhand auto<br />
+            <b>PASS</b> feeds a teammate · <b>CHECK</b> levels the carrier
+          </div>
           <button type="button" onClick={() => { faceoff(gameRef.current); setStarted(true); }} style={{ marginTop: 8, background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 40px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>DROP THE PUCK</button>
         </div>
       )}
       {hud.winner && (
-        <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, background: 'rgba(15,23,42,0.8)', padding: 20, textAlign: 'center' }}>
-          <div style={{ color: '#f8fafc', fontSize: 34, fontWeight: 800 }}>{hud.winner === 'blue' ? 'YOU WIN!' : hud.winner === 'tie' ? 'TIE GAME' : 'They win.'}</div>
-          <button type="button" onClick={() => { gameRef.current = createHockey(); setHud({ blue: 0, red: 0, period: 1, clock: '3:00', message: '', winner: null }); setStarted(true); }} style={{ marginTop: 8, background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 34px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>REMATCH</button>
+        <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, background: 'rgba(15,23,42,0.85)', padding: 20, textAlign: 'center' }}>
+          <div style={{ color: '#f8fafc', fontSize: 34, fontWeight: 800 }}>{hud.winner === 'blue' ? 'YOU WIN!' : 'They win.'}</div>
+          <button type="button" onClick={() => { gameRef.current = createHockey(); setHud({ blue: 0, red: 0, period: 'P1', clock: '3:00', message: '', winner: null, shootout: null, youPenalty: 0 }); setStarted(true); }} style={{ marginTop: 8, background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 34px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>REMATCH</button>
         </div>
       )}
       {started && !hud.winner && (
@@ -224,13 +384,34 @@ export default function HockeyPage() {
           <div style={{ position: 'absolute', left: 16, bottom: 24, zIndex: 6 }}>
             <WalkJoystick onMove={(x, y) => { joyRef.current = { x, y }; }} size={120} />
           </div>
-          <button
-            type="button"
-            onPointerDown={() => { actRef.current = true; }}
-            style={{ position: 'absolute', right: 20, bottom: 32, zIndex: 6, width: 104, height: 104, borderRadius: '50%', border: '3px solid #fff', cursor: 'pointer', fontSize: 18, fontWeight: 800, background: '#3b82f6', color: '#fff' }}
-          >
-            SHOOT
-          </button>
+          <div style={{ position: 'absolute', right: 16, bottom: 24, zIndex: 6, display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                type="button"
+                onPointerDown={() => { passRef.current = true; }}
+                style={{ width: 72, height: 72, borderRadius: '50%', border: '2px solid #fff', cursor: 'pointer', fontSize: 13, fontWeight: 800, background: '#16a34a', color: '#fff' }}
+              >
+                PASS
+              </button>
+              <button
+                type="button"
+                onPointerDown={() => { checkRef.current = true; }}
+                style={{ width: 72, height: 72, borderRadius: '50%', border: '2px solid #fff', cursor: 'pointer', fontSize: 13, fontWeight: 800, background: '#dc2626', color: '#fff' }}
+              >
+                CHECK
+              </button>
+            </div>
+            <button
+              type="button"
+              onPointerDown={() => { shootRef.current = true; slapTimerRef.current = 0; }}
+              onPointerUp={() => { /* released in frame loop */ }}
+              onPointerLeave={() => { if (slapTimerRef.current < 0.08) { shootRef.current = false; slapTimerRef.current = 0; } }}
+              style={{ width: 104, height: 104, borderRadius: '50%', border: '3px solid #fff', cursor: 'pointer', fontSize: 17, fontWeight: 800, background: '#3b82f6', color: '#fff' }}
+            >
+              SHOOT
+            </button>
+            <div style={{ color: '#94a3b8', fontSize: 10 }}>tap=wrist · hold=slap</div>
+          </div>
         </>
       )}
     </div>
