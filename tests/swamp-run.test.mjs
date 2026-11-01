@@ -375,18 +375,23 @@ test('the croc still kills as the croc — killer is tracked', () => {
 });
 
 // ----------------------------------------------------- model slots --------
-test('model slots document the three Tripo drops with exact paths', async () => {
+test('model slots document the four Tripo drops with exact paths', async () => {
   const { MODEL_SLOTS, slotRenderer } = await import('../lib/swamp-run/models.js');
   assert.equal(MODEL_SLOTS.alligator.path, '/models/swamp/alligator-rigged.glb');
   assert.equal(MODEL_SLOTS.crocodile.path, '/models/swamp/crocodile-rigged.glb');
-  assert.equal(MODEL_SLOTS.canoe.path, '/models/swamp/canoe-detailed.glb');
+  // The heavy "detailed" models ship as decimated -low derivatives —
+  // the full-res masters stay in the folder untouched.
+  assert.equal(MODEL_SLOTS.canoe.path, '/models/swamp/canoe-detailed-low.glb');
+  assert.equal(MODEL_SLOTS.cypress.path, '/models/swamp/cypress-detailed-low.glb');
   assert.equal(MODEL_SLOTS.alligator.rigged, true);
   assert.equal(MODEL_SLOTS.crocodile.rigged, true);
   assert.equal(MODEL_SLOTS.canoe.rigged, false);
+  assert.equal(MODEL_SLOTS.cypress.rigged, false);
   // Headless: every slot reports procedural until a GLB lands.
   assert.equal(slotRenderer('alligator'), 'procedural');
   assert.equal(slotRenderer('crocodile'), 'procedural');
   assert.equal(slotRenderer('canoe'), 'procedural');
+  assert.equal(slotRenderer('cypress'), 'procedural');
   assert.equal(slotRenderer('nope'), 'procedural');
 });
 

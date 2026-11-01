@@ -5,10 +5,13 @@
 // hot loop). Murky Everglades: green-brown heightfield islands, cypress
 // canopy, lily pads, fog — under a low dusk sun.
 
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState, Component, Suspense } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
+import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
+import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { terrainHeight, WORLD_SIZE } from '@/lib/swamp-run/world';
+import { MODEL_SLOTS, markSlotLoaded } from '@/lib/swamp-run/models';
 
 const dummy = new THREE.Object3D();
 const tmpColor = new THREE.Color();
@@ -20,6 +23,95 @@ const DEEP_GRASS = new THREE.Color('#33491f');
 function groundY(seed, x, z) {
   const h = terrainHeight(seed, x, z);
   return h <= 0 ? h * 0.6 - 0.5 : h;
+}
+
+// ── GLB machinery ────────────────────────────────────────────────
+// The Batch 8 Tripo models (Merlin, 2026-11-01) step in for the
+// procedural stand-ins. Every slot degrades gracefully: a missing or
+// broken GLB renders the procedural stand-in — never a blank.
+
+// Catches GLB parse/load failures inside the canvas.
+class SwampGlbErrorBoundary extends Component {
+  constructor(p) {
+    super(p);
+    this.state = { failed: false };
+  }
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  render() {
+    return this.state.failed ? this.props.fallback : this.props.children;
+  }
+}
+
+// HEAD-checks a model slot; returns the URL when present, null when
+// the file is missing — the caller renders the procedural stand-in.
+function useSwampGlb(slotKey) {
+  const slot = MODEL_SLOTS[slotKey];
+  const [ok, setOk] = useState(false);
+  useEffect(() => {
+    let live = true;
+    setOk(false);
+    fetch(slot.path, { method: 'HEAD' })
+      .then((r) => {
+        if (live) setOk(r.ok);
+      })
+      .catch(() => {
+        if (live) setOk(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [slot.path]);
+  return ok ? slot.path : null;
+}
+
+// Fit a Tripo creature to the scene: head toward +z (the scene's
+// facing), longest horizontal extent scaled to targetLen, grounded
+// and centered. Returns { wrap, inner } — pitch inner for lunges.
+function fitCreature(model, headNames, tailNames, targetLen) {
+  const wrap = new THREE.Group();
+  const inner = new THREE.Group();
+  inner.add(model);
+  wrap.add(inner);
+  wrap.updateMatrixWorld(true);
+  const head = headNames.map((n) => model.getObjectByName(n)).find(Boolean);
+  const tail = tailNames.map((n) => model.getObjectByName(n)).find(Boolean);
+  if (head && tail) {
+    const hp = new THREE.Vector3();
+    const tp = new THREE.Vector3();
+    head.getWorldPosition(hp);
+    tail.getWorldPosition(tp);
+    // Rotation.y = α maps +z to (sin α, 0, cos α): to bring the
+    // head→tail vector onto +z, rotate by −its current yaw.
+    inner.rotation.y = -Math.atan2(hp.x - tp.x, hp.z - tp.z);
+  }
+  wrap.updateMatrixWorld(true);
+  // Exact fit: longest horizontal extent becomes targetLen.
+  const box = new THREE.Box3().setFromObject(wrap);
+  const size = box.getSize(new THREE.Vector3());
+  const k = targetLen / Math.max(size.x, size.z, 0.001);
+  inner.scale.multiplyScalar(k);
+  wrap.updateMatrixWorld(true);
+  const box2 = new THREE.Box3().setFromObject(wrap);
+  inner.position.x -= (box2.min.x + box2.max.x) / 2;
+  inner.position.z -= (box2.min.z + box2.max.z) / 2;
+  inner.position.y -= box2.min.y;
+  return { wrap, inner };
+}
+
+// All emissive-capable materials under a loaded model, for the
+// burst-time glow.
+function emissiveMats(root) {
+  const arr = [];
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    const ms = Array.isArray(o.material) ? o.material : [o.material];
+    for (const m of ms) {
+      if (m && m.emissive && !arr.includes(m)) arr.push(m);
+    }
+  });
+  return arr;
 }
 
 function Terrain({ stateRef }) {
@@ -128,7 +220,7 @@ function useCypressGeometry() {
   }, []);
 }
 
-function Trees({ stateRef }) {
+function TreesProcedural({ stateRef }) {
   const treeRef = useRef(null);
   const mossRef = useRef(null);
   const builtFor = useRef('');
@@ -195,6 +287,106 @@ function Trees({ stateRef }) {
         </instancedMesh>
       )}
     </group>
+  );
+}
+
+// The Batch 8 detailed cypress, decimated for instancing (Merlin,
+// 2026-11-01): the full 1.9M-triangle Tripo model would cost ~800M
+// triangles across 420 stands — the -low derivative keeps the look at
+// ~14.5K tris each, one draw call. Same placement, same moss.
+function TreesGlb({ stateRef, url }) {
+  const { scene } = useGLTF(url);
+  const treeRef = useRef(null);
+  const mossRef = useRef(null);
+  const builtFor = useRef('');
+  const count = stateRef.current?.world.trees.length || 0;
+  const { geo, mat, height, width } = useMemo(() => {
+    let g = null;
+    let m = null;
+    scene.traverse((o) => {
+      if (o.isMesh && !g) {
+        g = o.geometry;
+        m = o.material;
+      }
+    });
+    const box = new THREE.Box3().setFromObject(scene);
+    const size = box.getSize(new THREE.Vector3());
+    markSlotLoaded('cypress');
+    return { geo: g, mat: m, height: size.y || 8, width: Math.max(size.x, size.z, 0.001) };
+  }, [scene]);
+  const mossCount = useMemo(() => {
+    const trees = stateRef.current?.world.trees || [];
+    return trees.filter((t) => (t.moss || 0) > 0.55).length * 3;
+  }, [count]);
+  useFrame(() => {
+    const s = stateRef.current;
+    const mesh = treeRef.current;
+    const moss = mossRef.current;
+    if (!s || !mesh || !geo) return;
+    const sig = `seed:${s.seed}`;
+    if (builtFor.current === sig) return;
+    builtFor.current = sig;
+    let mi = 0;
+    s.world.trees.forEach((t, i) => {
+      const baseY = t.water ? -0.5 : groundY(s.seed, t.x, t.z) - 0.25;
+      // Height matches the old stands (t.h metres); footprint follows t.r.
+      const ky = t.h / height;
+      const kx = ((t.r * 2.3) / width) * ky;
+      dummy.position.set(t.x, baseY, t.z);
+      dummy.scale.set(kx, ky, kx);
+      dummy.rotation.set(0, (t.x * 7 + t.z * 3) % Math.PI, 0);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+      tmpColor.setHSL(0.26 + ((i * 37) % 10) / 110, 0.38, 0.2 + ((i * 53) % 10) / 140);
+      mesh.setColorAt(i, tmpColor);
+      if (moss && (t.moss || 0) > 0.55) {
+        for (let k = 0; k < 3; k++) {
+          const a = (k / 3) * Math.PI * 2 + i;
+          dummy.position.set(
+            t.x + Math.cos(a) * 1.7 * ky,
+            baseY + 4.1 * ky,
+            t.z + Math.sin(a) * 1.7 * ky
+          );
+          dummy.scale.set(1, 0.8 + ((i + k) % 3) * 0.35, 1);
+          dummy.rotation.set(0.08 * Math.sin(i + k), 0, 0.08 * Math.cos(i * 2 + k));
+          dummy.updateMatrix();
+          moss.setMatrixAt(mi++, dummy.matrix);
+        }
+      }
+    });
+    mesh.count = s.world.trees.length;
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    if (moss) {
+      moss.count = mi;
+      moss.instanceMatrix.needsUpdate = true;
+    }
+  });
+  if (!count || !geo) return null;
+  return (
+    <group>
+      <instancedMesh ref={treeRef} args={[geo, mat, count]} frustumCulled={false}>
+      </instancedMesh>
+      {mossCount > 0 && (
+        <instancedMesh ref={mossRef} args={[undefined, undefined, mossCount]} frustumCulled={false}>
+          <cylinderGeometry args={[0.05, 0.015, 1.6, 4]} />
+          <meshStandardMaterial color="#8a9578" roughness={1} transparent opacity={0.85} />
+        </instancedMesh>
+      )}
+    </group>
+  );
+}
+
+function Trees({ stateRef }) {
+  const url = useSwampGlb('cypress');
+  const fallback = <TreesProcedural stateRef={stateRef} />;
+  if (!url) return fallback;
+  return (
+    <SwampGlbErrorBoundary fallback={fallback}>
+      <Suspense fallback={fallback}>
+        <TreesGlb stateRef={stateRef} url={url} />
+      </Suspense>
+    </SwampGlbErrorBoundary>
   );
 }
 
@@ -383,11 +575,42 @@ function useDetailedCanoeGeometry() {
   }, []);
 }
 
+// The Batch 8 detailed canoe, decimated (Merlin, 2026-11-01): the
+// full 1.9M-triangle model becomes ~48K in the -low derivative — one
+// hero object, well within budget. Scaled to the old hull's 3.6 m,
+// longest axis along z.
+function CanoeGlb({ url }) {
+  const { scene } = useGLTF(url);
+  const fitted = useMemo(() => {
+    const m = scene.clone();
+    const wrap = new THREE.Group();
+    wrap.add(m);
+    wrap.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(wrap);
+    const size = box.getSize(new THREE.Vector3());
+    // Longest horizontal axis becomes the 3.6 m hull, along z.
+    if (size.x > size.z) wrap.rotation.y = Math.PI / 2;
+    const k = 3.6 / Math.max(size.x, size.z, 0.001);
+    m.scale.multiplyScalar(k);
+    wrap.updateMatrixWorld(true);
+    const box2 = new THREE.Box3().setFromObject(wrap);
+    const c = box2.getCenter(new THREE.Vector3());
+    m.position.x -= c.x;
+    m.position.z -= c.z;
+    m.position.y -= box2.min.y;
+    markSlotLoaded('canoe');
+    return wrap;
+  }, [scene]);
+  return <primitive object={fitted} />;
+}
+
 function PlayerAndCanoe({ stateRef, onCanoeClick }) {
   const canoeRef = useRef(null);
   const figureRef = useRef(null);
   const paddleRef = useRef(null);
   const canoeGroup = useDetailedCanoeGeometry();
+  const canoeUrl = useSwampGlb('canoe');
+  const canoeFallback = <primitive object={canoeGroup} />;
   useFrame(({ clock }) => {
     const s = stateRef.current;
     if (!s || !canoeRef.current || !figureRef.current) return;
@@ -442,7 +665,16 @@ function PlayerAndCanoe({ stateRef, onCanoeClick }) {
           document.body.style.cursor = 'auto';
         }}
       >
-        <primitive object={canoeGroup} />
+        {/* The Batch 8 hull when it loads; the procedural dugout until then. */}
+        {canoeUrl ? (
+          <SwampGlbErrorBoundary fallback={canoeFallback}>
+            <Suspense fallback={canoeFallback}>
+              <CanoeGlb url={canoeUrl} />
+            </Suspense>
+          </SwampGlbErrorBoundary>
+        ) : (
+          canoeFallback
+        )}
         {/* Invisible fat hitbox so taps land easily on phones. */}
         <mesh visible={false}>
           <boxGeometry args={[2.2, 1.6, 4.6]} />
@@ -476,7 +708,7 @@ function PlayerAndCanoe({ stateRef, onCanoeClick }) {
   );
 }
 
-function Croc({ stateRef }) {
+function CrocProcedural({ stateRef }) {
   const groupRef = useRef(null);
   const jawRef = useRef(null);
   const ripple1 = useRef(null);
@@ -584,6 +816,106 @@ function Croc({ stateRef }) {
   );
 }
 
+// The Batch 8 rigged crocodile (Merlin, 2026-11-01): 36 joints, no
+// embedded animation clips and no jaw bone, so the bite is a
+// procedural lunge-pitch plus an emissive blood-pulse on the burst —
+// the skeleton still swims it straight. Falls back to the box-built
+// hunter on any load failure.
+function CrocGlb({ stateRef, url }) {
+  const { scene } = useGLTF(url);
+  const groupRef = useRef(null);
+  const { wrap, inner } = useMemo(() => {
+    const m = cloneSkinned(scene);
+    const fitted = fitCreature(
+      m,
+      ['tripo::Head_2', 'tripo::Head_1'],
+      ['tripo::Tail_4', 'tripo::Tail_3'],
+      5
+    );
+    markSlotLoaded('crocodile');
+    return fitted;
+  }, [scene]);
+  const mats = useMemo(() => emissiveMats(wrap), [wrap]);
+  const ripple1 = useRef(null);
+  const ripple2 = useRef(null);
+  const deathAt = useRef(null);
+  useFrame(({ clock }) => {
+    const s = stateRef.current;
+    const g = groupRef.current;
+    if (!s || !g) return;
+    const t = clock.elapsedTime;
+    const c = s.croc;
+    const inWater = terrainHeight(s.seed, c.x, c.z) <= 0;
+    const hunting = c.mode === 'chase' || c.mode === 'hunt';
+
+    let y = inWater ? -0.32 : groundY(s.seed, c.x, c.z) + 0.12;
+    let x = c.x;
+    let z = c.z;
+    let heading = c.heading;
+
+    if (s.status === 'dead' && s.death) {
+      if (deathAt.current === null) deathAt.current = t;
+      const k = Math.min(1, (t - deathAt.current) / 0.45);
+      x = THREE.MathUtils.lerp(s.death.crocX, s.death.x, k);
+      z = THREE.MathUtils.lerp(s.death.crocZ, s.death.z, k);
+      y = 0.35 + Math.sin(k * Math.PI) * 0.5;
+      heading = s.death.crocHeading;
+    }
+
+    g.position.set(x, y, z);
+    g.rotation.set(0, heading, 0);
+    // Bite: dip the snout on the hunt, wide on the death lunge.
+    const bite =
+      s.status === 'dead' && s.death
+        ? 0.25 + Math.min(1, (t - (deathAt.current || t)) / 0.45) * 0.35
+        : hunting
+          ? 0.12 + Math.sin(t * 3.2) * 0.05
+          : 0.02 + Math.sin(t * 0.8) * 0.01;
+    inner.rotation.x = bite;
+    const angry = hunting || c.mode === 'circle';
+    for (const m of mats) {
+      m.emissive.set(angry ? '#ff2a1a' : '#1a0e00');
+      m.emissiveIntensity = angry ? 0.55 : 0.12;
+    }
+
+    const ripples = [ripple1.current, ripple2.current];
+    ripples.forEach((r, i) => {
+      if (!r) return;
+      r.visible = inWater && s.status !== 'dead';
+      const ph = (t * 0.55 + i * 0.5) % 1;
+      r.position.set(c.x, 0.06, c.z);
+      r.scale.setScalar(1 + ph * 5.5);
+      r.material.opacity = (1 - ph) * 0.4;
+    });
+  });
+  return (
+    <group>
+      <primitive ref={groupRef} object={wrap} />
+      <mesh ref={ripple1} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[0.9, 1.05, 28]} />
+        <meshBasicMaterial color="#cfe3b0" transparent opacity={0.3} side={THREE.DoubleSide} depthWrite={false} />
+      </mesh>
+      <mesh ref={ripple2} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[0.9, 1.05, 28]} />
+        <meshBasicMaterial color="#cfe3b0" transparent opacity={0.3} side={THREE.DoubleSide} depthWrite={false} />
+      </mesh>
+    </group>
+  );
+}
+
+function Croc({ stateRef }) {
+  const url = useSwampGlb('crocodile');
+  const fallback = <CrocProcedural stateRef={stateRef} />;
+  if (!url) return fallback;
+  return (
+    <SwampGlbErrorBoundary fallback={fallback}>
+      <Suspense fallback={fallback}>
+        <CrocGlb stateRef={stateRef} url={url} />
+      </Suspense>
+    </SwampGlbErrorBoundary>
+  );
+}
+
 function Fireflies() {
   const ref = useRef(null);
   const seeds = useMemo(
@@ -620,7 +952,7 @@ function Fireflies() {
   );
 }
 
-function Gator({ stateRef }) {
+function GatorProcedural({ stateRef }) {
   // Procedural alligator stand-in — dark olive, broad U snout, low and
   // lurking. Steps aside for /models/swamp/alligator-rigged.glb when
   // Merlin drops the Tripo model in (see lib/swamp-run/models.js).
@@ -692,6 +1024,60 @@ function Gator({ stateRef }) {
         <meshStandardMaterial color="#3f4a26" roughness={1} />
       </mesh>
     </group>
+  );
+}
+
+// The Batch 8 rigged alligator (Merlin, 2026-11-01): 29 joints, no
+// embedded animation clips and no jaw bone, so the burst bite is a
+// procedural snout-dip plus a red eye-glow pulse — the ambush
+// behavior (lurk low, explode at 13 m) is untouched.
+function GatorGlb({ stateRef, url }) {
+  const { scene } = useGLTF(url);
+  const groupRef = useRef(null);
+  const { wrap, inner } = useMemo(() => {
+    const m = cloneSkinned(scene);
+    const fitted = fitCreature(
+      m,
+      ['tripo::Head_3', 'tripo::Head_2', 'tripo::Head_1'],
+      ['tripo::Tail_3', 'tripo::Tail_2'],
+      4.5
+    );
+    markSlotLoaded('alligator');
+    return fitted;
+  }, [scene]);
+  const mats = useMemo(() => emissiveMats(wrap), [wrap]);
+  useFrame(({ clock }) => {
+    const s = stateRef.current;
+    const g = groupRef.current;
+    if (!s || !g || !s.gator) return;
+    const t = clock.elapsedTime;
+    const gt = s.gator;
+    const bursting = gt.mode === 'burst';
+    const y = -0.38 + (bursting ? Math.sin(t * 14) * 0.06 : Math.sin(t * 1.2) * 0.02);
+    g.position.set(gt.x, y, gt.z);
+    g.rotation.set(0, gt.heading, 0);
+    // Lurking gators sit low — only eyes and snout break the surface.
+    g.scale.y = gt.mode === 'lurk' ? 0.82 : 1;
+    // Bite: snap the snout down on the burst.
+    inner.rotation.x = bursting ? 0.28 + Math.sin(t * 6) * 0.1 : 0.02 + Math.sin(t * 0.8) * 0.01;
+    for (const m of mats) {
+      m.emissive.set(bursting ? '#ff2a1a' : '#201a00');
+      m.emissiveIntensity = bursting ? 0.6 : 0.1;
+    }
+  });
+  return <primitive ref={groupRef} object={wrap} />;
+}
+
+function Gator({ stateRef }) {
+  const url = useSwampGlb('alligator');
+  const fallback = <GatorProcedural stateRef={stateRef} />;
+  if (!url) return fallback;
+  return (
+    <SwampGlbErrorBoundary fallback={fallback}>
+      <Suspense fallback={fallback}>
+        <GatorGlb stateRef={stateRef} url={url} />
+      </Suspense>
+    </SwampGlbErrorBoundary>
   );
 }
 
