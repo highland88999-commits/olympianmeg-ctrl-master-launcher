@@ -1707,6 +1707,33 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         return bind;
       }
 
+      // Compute the true leg-swing axis per bone (Merlin, 2026-11-01):
+      // Tripo rigs have inconsistent bone orientations — a hardcoded
+      // local-X swing produces front-to-back motion on some models and
+      // a sideways shuffle on others. For each leg bone, we compute the
+      // local axis that corresponds to the model's lateral (X) axis, so
+      // the swing always moves the foot forward/backward in the model's
+      // sagittal plane, like a real animal (Jurassic Park reference).
+      // Must be called at bind pose, after the model is in the scene.
+      const _qSpin = new THREE.Quaternion();
+      const _qBone = new THREE.Quaternion();
+      const _vAxis = new THREE.Vector3();
+      function computeLegSwingAxes(spin, resolved) {
+        spin.updateMatrixWorld(true);
+        spin.getWorldQuaternion(_qSpin);
+        for (const leg of resolved.legs) {
+          for (const key of ['thigh', 'calf', 'foot']) {
+            const bone = leg[key];
+            if (!bone) continue;
+            bone.getWorldQuaternion(_qBone);
+            // Model-local X (lateral) -> bone-local axis:
+            // axis_local = Q_bone^-1 * Q_spin * (1,0,0)
+            _vAxis.set(1, 0, 0).applyQuaternion(_qSpin).applyQuaternion(_qBone.clone().invert());
+            leg[key + 'Axis'] = _vAxis.clone();
+          }
+        }
+      }
+
       function measureFacing(modelScene, resolved) {
         const holder = new THREE.Group();
         holder.add(modelScene);
@@ -1885,6 +1912,10 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             root.rotation.y = rec.heading;
             scene.add(root);
             added.push(root);
+            // True leg-swing axes from the bind-pose bone orientations
+            // (Merlin, 2026-11-01) — fixes the sideways shuffle on rigs
+            // whose local X isn't the lateral axis.
+            computeLegSwingAxes(spin, resolved);
             const behCaps = behaviourCaps(entry);
             const animalId = `${entry.slug}#${rec.copy != null ? rec.copy : i}`;
             lifecycle.register(animalId, entry.slug);
@@ -2100,6 +2131,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             root.rotation.y = rng() * Math.PI * 2;
             scene.add(root);
             added.push(root);
+            computeLegSwingAxes(spin, resolved);
             animals.push({
               entry: pseudo, root, roles: resolved, bind: bindQuats(resolved),
               phase: rng() * Math.PI * 2,
@@ -3400,22 +3432,21 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       function swingLegs(a, stride) {
         const R = a.roles;
         const quad = a.entry.posture === 'quadruped';
-        // Per-model leg swing axis, measured off the real GLB rigs
-        // (Merlin, 2026-11-01): most rigs swing front-to-back about
-        // local X, but stegosaurus, dilophosaurus, carnotaurus and
-        // compsognathus carry their thigh bones in a different
-        // orientation and need local Z — otherwise the legs shuffle
-        // side-to-side. The T-Rex (the reference) stays on X.
-        // entry.legAxis is 'z' for the Z models, undefined/X otherwise.
-        const swingAxis = a.entry.legAxis === 'z' ? AXIS_Z : AXIS_X;
         for (const leg of R.legs) {
           const isFront = leg.pair === 'front';
           const diag = (leg.side === 'left') === (isFront === false);
           const phLeg = stride + (diag ? 0 : Math.PI);
           const amp = isFront && !quad ? 0.1 : 0.34;
-          if (leg.thigh) bend(leg.thigh, a.bind, swingAxis, Math.sin(phLeg) * amp);
-          if (leg.calf) bend(leg.calf, a.bind, swingAxis, Math.max(0, Math.sin(phLeg - 0.7)) * amp * 1.15);
-          if (leg.foot) bend(leg.foot, a.bind, swingAxis, Math.sin(phLeg - 1.4) * amp * 0.5);
+          // True swing axes computed from the bind-pose bone orientations
+          // (Merlin, 2026-11-01) — guarantees front-to-back leg motion on
+          // every rig, no sideways shuffle. Falls back to the per-model
+          // legAxis flag, then AXIS_X, if the axes weren't computed.
+          const axT = leg.thighAxis || (a.entry.legAxis === 'z' ? AXIS_Z : AXIS_X);
+          const axC = leg.calfAxis || axT;
+          const axF = leg.footAxis || axT;
+          if (leg.thigh) bend(leg.thigh, a.bind, axT, Math.sin(phLeg) * amp);
+          if (leg.calf) bend(leg.calf, a.bind, axC, Math.max(0, Math.sin(phLeg - 0.7)) * amp * 1.15);
+          if (leg.foot) bend(leg.foot, a.bind, axF, Math.sin(phLeg - 1.4) * amp * 0.5);
         }
       }
 
@@ -3930,12 +3961,12 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         }
         // Digging: the front legs scrape the ground in turn.
         if (pose && pose.scrape > 0) {
-          const digAxis = a.entry.legAxis === 'z' ? AXIS_Z : AXIS_X;
           for (const l of R.legs) {
             if (l.pair !== 'front') continue;
             const sw = Math.sin(t * 6.4 + (l.side === 'left' ? 0 : Math.PI)) * 0.30 * pose.scrape;
-            bend(l.thigh, a.bind, digAxis, sw);
-            if (l.shin) bend(l.shin, a.bind, digAxis, Math.max(0, -sw) * 0.6);
+            const axT = l.thighAxis || (a.entry.legAxis === 'z' ? AXIS_Z : AXIS_X);
+            bend(l.thigh, a.bind, axT, sw);
+            if (l.shin) bend(l.shin, a.bind, l.calfAxis || axT, Math.max(0, -sw) * 0.6);
           }
         }
         R.tail.forEach((b, i) => {
