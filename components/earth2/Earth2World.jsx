@@ -3400,14 +3400,22 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       function swingLegs(a, stride) {
         const R = a.roles;
         const quad = a.entry.posture === 'quadruped';
+        // Per-model leg swing axis, measured off the real GLB rigs
+        // (Merlin, 2026-11-01): most rigs swing front-to-back about
+        // local X, but stegosaurus, dilophosaurus, carnotaurus and
+        // compsognathus carry their thigh bones in a different
+        // orientation and need local Z — otherwise the legs shuffle
+        // side-to-side. The T-Rex (the reference) stays on X.
+        // entry.legAxis is 'z' for the Z models, undefined/X otherwise.
+        const swingAxis = a.entry.legAxis === 'z' ? AXIS_Z : AXIS_X;
         for (const leg of R.legs) {
           const isFront = leg.pair === 'front';
           const diag = (leg.side === 'left') === (isFront === false);
           const phLeg = stride + (diag ? 0 : Math.PI);
           const amp = isFront && !quad ? 0.1 : 0.34;
-          if (leg.thigh) bend(leg.thigh, a.bind, AXIS_X, Math.sin(phLeg) * amp);
-          if (leg.calf) bend(leg.calf, a.bind, AXIS_X, Math.max(0, Math.sin(phLeg - 0.7)) * amp * 1.15);
-          if (leg.foot) bend(leg.foot, a.bind, AXIS_X, Math.sin(phLeg - 1.4) * amp * 0.5);
+          if (leg.thigh) bend(leg.thigh, a.bind, swingAxis, Math.sin(phLeg) * amp);
+          if (leg.calf) bend(leg.calf, a.bind, swingAxis, Math.max(0, Math.sin(phLeg - 0.7)) * amp * 1.15);
+          if (leg.foot) bend(leg.foot, a.bind, swingAxis, Math.sin(phLeg - 1.4) * amp * 0.5);
         }
       }
 
@@ -3922,11 +3930,12 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         }
         // Digging: the front legs scrape the ground in turn.
         if (pose && pose.scrape > 0) {
+          const digAxis = a.entry.legAxis === 'z' ? AXIS_Z : AXIS_X;
           for (const l of R.legs) {
             if (l.pair !== 'front') continue;
             const sw = Math.sin(t * 6.4 + (l.side === 'left' ? 0 : Math.PI)) * 0.30 * pose.scrape;
-            bend(l.thigh, a.bind, AXIS_X, sw);
-            if (l.shin) bend(l.shin, a.bind, AXIS_X, Math.max(0, -sw) * 0.6);
+            bend(l.thigh, a.bind, digAxis, sw);
+            if (l.shin) bend(l.shin, a.bind, digAxis, Math.max(0, -sw) * 0.6);
           }
         }
         R.tail.forEach((b, i) => {
