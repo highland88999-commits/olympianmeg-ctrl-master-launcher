@@ -245,7 +245,13 @@ export default function WaterSlidePage() {
         </div>
       )}
       {!sliding && (
-        <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, background: 'rgba(10,26,46,0.55)', padding: 20, textAlign: 'center' }}>
+        <div style={{ position: 'absolute', inset: 0, zIndex: 10, overflow: 'hidden' }}>
+          {/* Water-slide art wrap (Merlin, 2026-11-01): generated backdrop +
+              readability scrim; the card and every control below are
+              untouched. */}
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, backgroundSize: 'cover', backgroundPosition: 'center', backgroundImage: 'url(/images/water-slide/water-slide-menu-bg.webp)' }} />
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(8,20,38,0.72), rgba(8,20,38,0.5), rgba(8,20,38,0.85))' }} />
+          <div style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20, textAlign: 'center' }}>
           <div style={{ fontSize: 56 }}>🌊</div>
           <div style={{ color: '#f8fafc', fontSize: 28, fontWeight: 800 }}>WATER SLIDE</div>
           <div style={{ color: '#cbd5e1', fontSize: 15, maxWidth: 320 }}>
@@ -258,6 +264,7 @@ export default function WaterSlidePage() {
           >
             SLIDE
           </button>
+          </div>
         </div>
       )}
     </div>

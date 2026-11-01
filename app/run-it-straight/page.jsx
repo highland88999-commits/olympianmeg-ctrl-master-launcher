@@ -187,17 +187,25 @@ export default function RunItStraightPage() {
         </div>
       )}
       {!started && !hud.winner && (
-        <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, background: 'rgba(15,26,15,0.75)', padding: 20, textAlign: 'center' }}>
-          <div style={{ fontSize: 56 }}>💥</div>
-          <div style={{ color: '#f8fafc', fontSize: 26, fontWeight: 800 }}>RUN IT STRAIGHT</div>
-          <div style={{ color: '#cbd5e1', fontSize: 15, maxWidth: 320 }}>One lane. No sidestepping. Mash RUN to build power, then meet them head-on. Best of 5 — you attack, then defend.</div>
-          <button type="button" onClick={begin} style={{ marginTop: 8, background: '#ef4444', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 40px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>RUN</button>
+        <div style={{ position: 'absolute', inset: 0, zIndex: 10, overflow: 'hidden' }}>
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, backgroundImage: 'url(/images/run-it-straight/run-it-straight-menu-bg.webp)', backgroundSize: 'cover', backgroundPosition: 'center' }} />
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0.70), rgba(0,0,0,0.55), rgba(0,0,0,0.85))' }} />
+          <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20, textAlign: 'center' }}>
+            <div style={{ fontSize: 56 }}>💥</div>
+            <div style={{ color: '#f8fafc', fontSize: 26, fontWeight: 800 }}>RUN IT STRAIGHT</div>
+            <div style={{ color: '#cbd5e1', fontSize: 15, maxWidth: 320 }}>One lane. No sidestepping. Mash RUN to build power, then meet them head-on. Best of 5 — you attack, then defend.</div>
+            <button type="button" onClick={begin} style={{ marginTop: 8, background: '#ef4444', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 40px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>RUN</button>
+          </div>
         </div>
       )}
       {hud.winner && (
-        <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, background: 'rgba(15,23,42,0.85)', padding: 20, textAlign: 'center' }}>
-          <div style={{ color: hud.winner === 'you' ? '#4ade80' : '#f87171', fontSize: 34, fontWeight: 800 }}>{hud.winner === 'you' ? 'YOU WIN!' : 'THEY WIN.'}</div>
-          <button type="button" onClick={() => { gameRef.current = createRunItStraight(); setHud({ you: 0, ai: 0, round: 1, message: 'MASH TO RUN!', winner: null, phase: 'ready' }); begin(); }} style={{ marginTop: 8, background: '#ef4444', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 34px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>REMATCH</button>
+        <div style={{ position: 'absolute', inset: 0, zIndex: 10, overflow: 'hidden' }}>
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, backgroundImage: 'url(/images/run-it-straight/run-it-straight-menu-bg.webp)', backgroundSize: 'cover', backgroundPosition: 'center' }} />
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0.70), rgba(0,0,0,0.55), rgba(0,0,0,0.85))' }} />
+          <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20, textAlign: 'center' }}>
+            <div style={{ color: hud.winner === 'you' ? '#4ade80' : '#f87171', fontSize: 34, fontWeight: 800 }}>{hud.winner === 'you' ? 'YOU WIN!' : 'THEY WIN.'}</div>
+            <button type="button" onClick={() => { gameRef.current = createRunItStraight(); setHud({ you: 0, ai: 0, round: 1, message: 'MASH TO RUN!', winner: null, phase: 'ready' }); begin(); }} style={{ marginTop: 8, background: '#ef4444', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 34px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>REMATCH</button>
+          </div>
         </div>
       )}
       {started && !hud.winner && hud.phase === 'run' && (

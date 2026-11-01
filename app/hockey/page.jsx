@@ -361,8 +361,14 @@ export default function HockeyPage() {
           SO: 🔵 {hud.shootout.blueMade} — 🔴 {hud.shootout.redMade}
         </div>
       )}
+      {/* Pre-game menu card — art wrap (Merlin, 2026-11-01): generated
+          ice-rink backdrop + readability scrim; the card contents below
+          are untouched inside the relative wrapper. */}
       {!started && !hud.winner && (
-        <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, background: 'rgba(10,22,40,0.78)', padding: 20, textAlign: 'center' }}>
+        <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20, textAlign: 'center' }}>
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, backgroundSize: 'cover', backgroundPosition: 'center', backgroundImage: 'url(/images/hockey/hockey-menu-bg.webp)' }} />
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0.72), rgba(0,0,0,0.55), rgba(0,0,0,0.88))' }} />
+          <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, textAlign: 'center' }}>
           <div style={{ fontSize: 56 }}>🏒</div>
           <div style={{ color: '#f8fafc', fontSize: 28, fontWeight: 800 }}>ICE HOCKEY</div>
           <div style={{ color: '#cbd5e1', fontSize: 14, maxWidth: 340, lineHeight: 1.6 }}>
@@ -371,6 +377,7 @@ export default function HockeyPage() {
             <b>PASS</b> feeds a teammate · <b>CHECK</b> levels the carrier
           </div>
           <button type="button" onClick={() => { faceoff(gameRef.current); setStarted(true); }} style={{ marginTop: 8, background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 40px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>DROP THE PUCK</button>
+          </div>
         </div>
       )}
       {hud.winner && (

@@ -457,9 +457,14 @@ export default function DodgeballPage() {
         </div>
       )}
 
-      {/* Matchmaking lobby */}
+      {/* Matchmaking lobby — art wrap (Merlin, 2026-11-01): generated
+          arena backdrop + readability scrim; the roster and controls
+          below are untouched inside the relative wrapper. */}
       {!started && inLobby && lobby && (
-        <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, background: 'rgba(11, 17, 32, 0.85)', padding: 20, textAlign: 'center' }}>
+        <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, padding: 20, textAlign: 'center' }}>
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, backgroundSize: 'cover', backgroundPosition: 'center', backgroundImage: 'url(/images/dodgeball/dodgeball-menu-bg.webp)' }} />
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0.72), rgba(0,0,0,0.55), rgba(0,0,0,0.88))' }} />
+          <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, textAlign: 'center' }}>
           <div style={{ color: '#f8fafc', fontSize: 28, fontWeight: 800 }}>FINDING MATCH</div>
           <div style={{ color: '#fbbf24', fontSize: 42, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>
             {Math.ceil(lobby.secondsLeft)}s
@@ -502,6 +507,7 @@ export default function DodgeballPage() {
           >
             START NOW WITH AI
           </button>
+          </div>
         </div>
       )}
 

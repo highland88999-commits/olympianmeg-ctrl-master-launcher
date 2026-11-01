@@ -233,16 +233,24 @@ export default function MerryGoRoundPage() {
         <a href="/" style={{ color: '#94a3b8', fontSize: 13, textDecoration: 'none', pointerEvents: 'auto' }}>✕ Leave</a>
       </div>
       {!riding ? (
-        <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, background: 'rgba(13,10,31,0.55)', padding: 20, textAlign: 'center' }}>
-          <div style={{ fontSize: 56 }}>🎠</div>
-          <div style={{ color: '#f8fafc', fontSize: 28, fontWeight: 800 }}>MERRY-GO-ROUND</div>
-          <button
-            type="button"
-            onClick={() => { rideRef.current.riding = true; setRiding(true); }}
-            style={{ marginTop: 8, background: '#a01010', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 40px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}
-          >
-            RIDE
-          </button>
+        <div style={{ position: 'absolute', inset: 0, zIndex: 10, overflow: 'hidden' }}>
+          {/* Carousel art wrap (Merlin, 2026-11-01): generated night-carnival
+              backdrop + readability scrim; the card and every control below
+              are untouched. */}
+          <div className="absolute inset-0 bg-cover bg-center" aria-hidden="true"
+            style={{ backgroundImage: 'url(/images/merry-go-round/merry-go-round-menu-bg.webp)' }} />
+          <div className="absolute inset-0 bg-gradient-to-b from-indigo-950/55 via-black/55 to-black/85" aria-hidden="true" />
+          <div style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20, textAlign: 'center' }}>
+            <div style={{ fontSize: 56 }}>🎠</div>
+            <div style={{ color: '#f8fafc', fontSize: 28, fontWeight: 800 }}>MERRY-GO-ROUND</div>
+            <button
+              type="button"
+              onClick={() => { rideRef.current.riding = true; setRiding(true); }}
+              style={{ marginTop: 8, background: '#a01010', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 40px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}
+            >
+              RIDE
+            </button>
+          </div>
         </div>
       ) : (
         <button

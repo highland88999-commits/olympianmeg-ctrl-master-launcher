@@ -216,18 +216,32 @@ export default function HallOfMirrorsPage() {
         <a href="/" style={{ color: '#94a3b8', fontSize: 13, textDecoration: 'none', pointerEvents: 'auto' }}>✕ Leave</a>
       </div>
       {!started && !won && (
-        <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, background: 'rgba(10,10,26,0.75)', padding: 20, textAlign: 'center' }}>
+        <div style={{ position: 'absolute', inset: 0, zIndex: 10, overflow: 'hidden' }}>
+          {/* Mirror art wrap (Merlin, 2026-11-01): generated backdrop +
+              readability scrim; the card and every control below are
+              untouched. */}
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, backgroundImage: 'url(/images/hall-of-mirrors/hall-of-mirrors-menu-bg.webp)', backgroundSize: 'cover', backgroundPosition: 'center' }} />
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(4,9,20,0.72) 0%, rgba(4,9,20,0.55) 50%, rgba(4,9,20,0.88) 100%)' }} />
+          <div style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20, textAlign: 'center' }}>
           <div style={{ fontSize: 56 }}>🪞</div>
           <div style={{ color: '#f8fafc', fontSize: 28, fontWeight: 800 }}>HALL OF MIRRORS</div>
           <div style={{ color: '#cbd5e1', fontSize: 15, maxWidth: 320 }}>A maze of mirrors — some stretch, some squash. Find the green exit arch. Joystick to walk, A/D or arrows to turn.</div>
           <button type="button" onClick={() => setStarted(true)} style={{ marginTop: 8, background: '#a855f7', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 40px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>ENTER</button>
+          </div>
         </div>
       )}
       {won && (
-        <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, background: 'rgba(15,23,42,0.8)', padding: 20, textAlign: 'center' }}>
+        <div style={{ position: 'absolute', inset: 0, zIndex: 10, overflow: 'hidden' }}>
+          {/* Mirror art wrap (Merlin, 2026-11-01): same backdrop + scrim on
+              the escape screen; the card and every control below are
+              untouched. */}
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, backgroundImage: 'url(/images/hall-of-mirrors/hall-of-mirrors-menu-bg.webp)', backgroundSize: 'cover', backgroundPosition: 'center' }} />
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(4,9,20,0.72) 0%, rgba(4,9,20,0.55) 50%, rgba(4,9,20,0.88) 100%)' }} />
+          <div style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20, textAlign: 'center' }}>
           <div style={{ color: '#4ade80', fontSize: 34, fontWeight: 800 }}>ESCAPED!</div>
           <div style={{ color: '#cbd5e1', fontSize: 16 }}>You found the exit in {time} seconds.</div>
           <button type="button" onClick={() => window.location.reload()} style={{ marginTop: 8, background: '#a855f7', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 34px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>AGAIN</button>
+          </div>
         </div>
       )}
       {started && !won && (

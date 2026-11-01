@@ -206,19 +206,27 @@ export default function RollercoasterPage() {
       )}
 
       {!riding && (
-        <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, background: 'rgba(10,15,36,0.6)', padding: 20, textAlign: 'center' }}>
-          <div style={{ fontSize: 56 }}>🎢</div>
-          <div style={{ color: '#f8fafc', fontSize: 28, fontWeight: 800 }}>OLYMPUS COASTER</div>
-          <div style={{ color: '#cbd5e1', fontSize: 15, maxWidth: 320 }}>
-            Lift hill, big drop, banked turns and hills. Hold on.
+        <div style={{ position: 'absolute', inset: 0, zIndex: 10, overflow: 'hidden' }}>
+          {/* Coaster art wrap (Merlin, 2026-11-01): generated sunset backdrop +
+              readability scrim; the card and every control below are
+              untouched. */}
+          <div className="absolute inset-0 bg-cover bg-center" aria-hidden="true"
+            style={{ backgroundImage: 'url(/images/rollercoaster/rollercoaster-menu-bg.webp)' }} />
+          <div className="absolute inset-0 bg-gradient-to-b from-orange-950/50 via-black/55 to-black/85" aria-hidden="true" />
+          <div style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20, textAlign: 'center' }}>
+            <div style={{ fontSize: 56 }}>🎢</div>
+            <div style={{ color: '#f8fafc', fontSize: 28, fontWeight: 800 }}>OLYMPUS COASTER</div>
+            <div style={{ color: '#cbd5e1', fontSize: 15, maxWidth: 320 }}>
+              Lift hill, big drop, banked turns and hills. Hold on.
+            </div>
+            <button
+              type="button"
+              onClick={startRide}
+              style={{ marginTop: 8, background: '#e74c3c', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 40px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}
+            >
+              RIDE
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={startRide}
-            style={{ marginTop: 8, background: '#e74c3c', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 40px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}
-          >
-            RIDE
-          </button>
         </div>
       )}
     </div>

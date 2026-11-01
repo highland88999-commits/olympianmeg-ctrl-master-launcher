@@ -169,17 +169,25 @@ export default function TableTennisPage() {
         </div>
       )}
       {!started && !hud.winner && (
-        <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, background: 'rgba(15,23,42,0.7)', padding: 20, textAlign: 'center' }}>
-          <div style={{ fontSize: 56 }}>🏓</div>
-          <div style={{ color: '#f8fafc', fontSize: 28, fontWeight: 800 }}>TABLE TENNIS</div>
-          <div style={{ color: '#cbd5e1', fontSize: 15, maxWidth: 320 }}>Fast singles vs AI. First to 11, win by 2. Tap HIT to return.</div>
-          <button type="button" onClick={() => setStarted(true)} style={{ marginTop: 8, background: '#f97316', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 40px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>PLAY</button>
+        <div style={{ position: 'absolute', inset: 0, zIndex: 10, overflow: 'hidden' }}>
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, backgroundImage: 'url(/images/table-tennis/table-tennis-menu-bg.webp)', backgroundSize: 'cover', backgroundPosition: 'center' }} />
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0.70), rgba(0,0,0,0.55), rgba(0,0,0,0.85))' }} />
+          <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20, textAlign: 'center' }}>
+            <div style={{ fontSize: 56 }}>🏓</div>
+            <div style={{ color: '#f8fafc', fontSize: 28, fontWeight: 800 }}>TABLE TENNIS</div>
+            <div style={{ color: '#cbd5e1', fontSize: 15, maxWidth: 320 }}>Fast singles vs AI. First to 11, win by 2. Tap HIT to return.</div>
+            <button type="button" onClick={() => setStarted(true)} style={{ marginTop: 8, background: '#f97316', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 40px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>PLAY</button>
+          </div>
         </div>
       )}
       {hud.winner && (
-        <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, background: 'rgba(15,23,42,0.85)', padding: 20, textAlign: 'center' }}>
-          <div style={{ color: hud.winner === 'you' ? '#fdba74' : '#f87171', fontSize: 34, fontWeight: 800 }}>{hud.winner === 'you' ? 'YOU WIN!' : 'AI wins.'}</div>
-          <button type="button" onClick={() => { gameRef.current = createRacket('table'); setHud({ you: 0, ai: 0, message: '', winner: null }); setStarted(true); }} style={{ marginTop: 8, background: '#f97316', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 34px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>REMATCH</button>
+        <div style={{ position: 'absolute', inset: 0, zIndex: 10, overflow: 'hidden' }}>
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, backgroundImage: 'url(/images/table-tennis/table-tennis-menu-bg.webp)', backgroundSize: 'cover', backgroundPosition: 'center' }} />
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0.70), rgba(0,0,0,0.55), rgba(0,0,0,0.85))' }} />
+          <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20, textAlign: 'center' }}>
+            <div style={{ color: hud.winner === 'you' ? '#fdba74' : '#f87171', fontSize: 34, fontWeight: 800 }}>{hud.winner === 'you' ? 'YOU WIN!' : 'AI wins.'}</div>
+            <button type="button" onClick={() => { gameRef.current = createRacket('table'); setHud({ you: 0, ai: 0, message: '', winner: null }); setStarted(true); }} style={{ marginTop: 8, background: '#f97316', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 34px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>REMATCH</button>
+          </div>
         </div>
       )}
       {started && !hud.winner && (

@@ -212,17 +212,30 @@ export default function SoccerPage() {
         </div>
       )}
       {!started && !hud.winner && (
-        <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, background: 'rgba(10,31,10,0.7)', padding: 20, textAlign: 'center' }}>
+        // Menu art wrap (Merlin, 2026-11-01): generated floodlit-stadium
+        // backdrop + readability scrim; the intro card and every control
+        // below are untouched.
+        <div style={{ position: 'absolute', inset: 0, zIndex: 10, overflow: 'hidden' }}>
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, backgroundImage: 'url(/images/soccer/soccer-menu-bg.webp)', backgroundSize: 'cover', backgroundPosition: 'center' }} />
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(5,15,5,0.72), rgba(5,15,5,0.55) 50%, rgba(5,15,5,0.88))' }} />
+          <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20, textAlign: 'center' }}>
           <div style={{ fontSize: 56 }}>⚽</div>
           <div style={{ color: '#f8fafc', fontSize: 28, fontWeight: 800 }}>SOCCER</div>
           <div style={{ color: '#cbd5e1', fontSize: 15, maxWidth: 320 }}>5v5, two 4-minute halves. You're the striker — dribble with the joystick, tap SHOOT in range.</div>
           <button type="button" onClick={() => { kickoff(gameRef.current); setStarted(true); }} style={{ marginTop: 8, background: '#16a34a', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 40px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>KICK OFF</button>
+          </div>
         </div>
       )}
       {hud.winner && (
-        <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, background: 'rgba(15,23,42,0.8)', padding: 20, textAlign: 'center' }}>
+        // Win art wrap (Merlin, 2026-11-01): generated celebration
+        // backdrop + readability scrim; the result card below is untouched.
+        <div style={{ position: 'absolute', inset: 0, zIndex: 10, overflow: 'hidden' }}>
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, backgroundImage: 'url(/images/soccer/soccer-win-bg.webp)', backgroundSize: 'cover', backgroundPosition: 'center' }} />
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(10,10,10,0.72), rgba(10,10,10,0.6) 50%, rgba(10,10,10,0.9))' }} />
+          <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20, textAlign: 'center' }}>
           <div style={{ color: '#f8fafc', fontSize: 34, fontWeight: 800 }}>{hud.winner === 'blue' ? 'YOU WIN!' : hud.winner === 'tie' ? 'DRAW' : 'They win.'}</div>
           <button type="button" onClick={() => { gameRef.current = createSoccer(); setHud({ blue: 0, red: 0, half: 1, clock: '4:00', message: '', winner: null }); setStarted(true); }} style={{ marginTop: 8, background: '#16a34a', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 34px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>REMATCH</button>
+          </div>
         </div>
       )}
       {started && !hud.winner && (

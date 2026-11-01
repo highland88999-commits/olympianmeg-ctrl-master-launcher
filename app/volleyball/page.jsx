@@ -198,17 +198,32 @@ export default function VolleyballPage() {
         </div>
       )}
       {!started && !hud.winner && (
-        <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, background: 'rgba(135,206,235,0.7)', padding: 20, textAlign: 'center' }}>
+        <div style={{ position: 'absolute', inset: 0, zIndex: 10, overflow: 'hidden' }}>
+          {/* Volleyball art wrap (Merlin, 2026-11-01): generated backdrop +
+              readability scrim; the card and every control below are
+              untouched except text colors, which were dark-on-light for the
+              old flat overlay and are now light-on-art for readability. */}
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, backgroundSize: 'cover', backgroundPosition: 'center', backgroundImage: 'url(/images/volleyball/volleyball-menu-bg.webp)' }} />
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(15,23,42,0.65), rgba(15,23,42,0.45), rgba(15,23,42,0.8))' }} />
+          <div style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20, textAlign: 'center' }}>
           <div style={{ fontSize: 56 }}>🏐</div>
-          <div style={{ color: '#1e293b', fontSize: 28, fontWeight: 800 }}>BEACH VOLLEYBALL</div>
-          <div style={{ color: '#475569', fontSize: 15, maxWidth: 320 }}>You + AI vs 2 AI. First to 21, win by 2. Move with the joystick, tap HIT when the ball is close.</div>
+          <div style={{ color: '#f8fafc', fontSize: 28, fontWeight: 800 }}>BEACH VOLLEYBALL</div>
+          <div style={{ color: '#e2e8f0', fontSize: 15, maxWidth: 320 }}>You + AI vs 2 AI. First to 21, win by 2. Move with the joystick, tap HIT when the ball is close.</div>
           <button type="button" onClick={() => setStarted(true)} style={{ marginTop: 8, background: '#0284c7', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 40px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>PLAY</button>
+          </div>
         </div>
       )}
       {hud.winner && (
-        <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, background: 'rgba(15,23,42,0.75)', padding: 20, textAlign: 'center' }}>
+        <div style={{ position: 'absolute', inset: 0, zIndex: 10, overflow: 'hidden' }}>
+          {/* Volleyball win art wrap (Merlin, 2026-11-01): generated backdrop +
+              readability scrim; the card and every control below are
+              untouched. */}
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, backgroundSize: 'cover', backgroundPosition: 'center 30%', backgroundImage: 'url(/images/volleyball/volleyball-win-bg.webp)' }} />
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(15,23,42,0.6), rgba(15,23,42,0.55), rgba(15,23,42,0.85))' }} />
+          <div style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20, textAlign: 'center' }}>
           <div style={{ color: hud.winner === 'blue' ? '#60a5fa' : '#f87171', fontSize: 34, fontWeight: 800 }}>{hud.winner === 'blue' ? 'YOU WIN!' : 'They win.'}</div>
           <button type="button" onClick={() => { gameRef.current = createVolleyball(); setHud({ blue: 0, red: 0, message: '', winner: null }); setStarted(true); }} style={{ marginTop: 8, background: '#0284c7', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 34px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>REMATCH</button>
+          </div>
         </div>
       )}
       {started && !hud.winner && (

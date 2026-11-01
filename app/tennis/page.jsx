@@ -179,17 +179,30 @@ export default function TennisPage() {
         </div>
       )}
       {!started && !hud.winner && (
-        <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, background: 'rgba(26,77,26,0.7)', padding: 20, textAlign: 'center' }}>
+        // Menu art wrap (Merlin, 2026-11-01): generated storm-sky court
+        // backdrop + readability scrim; the intro card and every control
+        // below are untouched.
+        <div style={{ position: 'absolute', inset: 0, zIndex: 10, overflow: 'hidden' }}>
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, backgroundImage: 'url(/images/tennis/tennis-menu-bg.webp)', backgroundSize: 'cover', backgroundPosition: 'center' }} />
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(5,8,18,0.72), rgba(5,8,18,0.55) 50%, rgba(5,8,18,0.88))' }} />
+          <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20, textAlign: 'center' }}>
           <div style={{ fontSize: 56 }}>🎾</div>
           <div style={{ color: '#f8fafc', fontSize: 28, fontWeight: 800 }}>TENNIS</div>
           <div style={{ color: '#cbd5e1', fontSize: 15, maxWidth: 320 }}>Singles vs AI. First to 6, win by 2. Move with the joystick, tap HIT to swing.</div>
           <button type="button" onClick={() => setStarted(true)} style={{ marginTop: 8, background: '#ccff00', color: '#1a4d1a', border: 'none', borderRadius: 999, padding: '14px 40px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>PLAY</button>
+          </div>
         </div>
       )}
       {hud.winner && (
-        <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, background: 'rgba(15,23,42,0.8)', padding: 20, textAlign: 'center' }}>
+        // Win art wrap (Merlin, 2026-11-01): generated sunbreak court
+        // backdrop + readability scrim; the result card below is untouched.
+        <div style={{ position: 'absolute', inset: 0, zIndex: 10, overflow: 'hidden' }}>
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, backgroundImage: 'url(/images/tennis/tennis-win-bg.webp)', backgroundSize: 'cover', backgroundPosition: 'center' }} />
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(8,8,10,0.72), rgba(8,8,10,0.6) 50%, rgba(8,8,10,0.9))' }} />
+          <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20, textAlign: 'center' }}>
           <div style={{ color: hud.winner === 'you' ? '#ccff00' : '#f87171', fontSize: 34, fontWeight: 800 }}>{hud.winner === 'you' ? 'YOU WIN!' : 'AI wins.'}</div>
           <button type="button" onClick={() => { gameRef.current = createRacket('tennis'); setHud({ you: 0, ai: 0, message: '', winner: null }); setStarted(true); }} style={{ marginTop: 8, background: '#ccff00', color: '#1a4d1a', border: 'none', borderRadius: 999, padding: '14px 34px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>REMATCH</button>
+          </div>
         </div>
       )}
       {started && !hud.winner && (
