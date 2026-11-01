@@ -203,6 +203,16 @@ function NexusHub() {
     window.location.href = '/earth-2';
   };
 
+  // Omega portal street light (Merlin, 2026-10-31): the Omega Arch's
+  // portal now lives at the bottom of the Earth chooser instead of
+  // behind the Sun. Works exactly like the arch did — the same
+  // handleSatellitePortal('/portal-room') the OmegaHubGate called,
+  // vortex tube ride and all.
+  const chooseOmegaPortal = () => {
+    setShowEarthChooser(false);
+    handleSatellitePortal('/portal-room');
+  };
+
   // Communiverse deep link (Merlin, 2026-10-22): Earth is the first planet
   // of the Communiverse, and clicking it there lands here with
   // ?enter=earth — dive straight to Earth as soon as freeroam is live,
@@ -1065,10 +1075,35 @@ function NexusHub() {
             <button
               type="button"
               onClick={() => setShowEarthChooser(false)}
-              className="text-sm text-slate-300 underline"
+              className="mb-4 text-sm text-slate-300 underline"
             >
               Not now
             </button>
+            {/* Omega portal street light (Merlin, 2026-10-31): the one
+                portal that used to stand behind the Sun, now a glowing
+                lamp in a street-light housing at the bottom of the menu. */}
+            <div className="flex flex-col items-center">
+              <button
+                type="button"
+                onClick={chooseOmegaPortal}
+                aria-label="Omega Portal"
+                className="rounded-full p-2 transition hover:brightness-125"
+                style={{ background: '#0b0b14', boxShadow: '0 0 0 2px #3f3f4d, 0 0 24px rgba(251,191,36,0.35)' }}
+              >
+                <span
+                  className="block rounded-full"
+                  style={{
+                    width: 72,
+                    height: 72,
+                    backgroundImage: 'url(/images/omega-portal-lamp.webp)',
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center',
+                    boxShadow: '0 0 18px rgba(251,191,36,0.55), inset 0 0 12px rgba(0,0,0,0.45)',
+                  }}
+                />
+              </button>
+              <div className="mt-2 text-xs font-bold tracking-widest text-amber-200/90">Ω OMEGA PORTAL</div>
+            </div>
           </div>
         </div>
       )}

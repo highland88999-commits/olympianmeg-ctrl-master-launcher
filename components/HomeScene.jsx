@@ -35,8 +35,9 @@ import { panelsForTower } from '../lib/tower-panels';
 import { manifestToOverrides, applyOverridesToTowerPanels } from '../lib/billboards/overrides';
 import { dropPausedOverrides } from '../lib/billboards/subscriptions';
 import GodTower, { preloadHubPanelVideos } from './GodTower';
-import OmegaHubGate from './OmegaHubGate';
-import Earth2HubGate from './Earth2HubGate';
+// OmegaHubGate + Earth2HubGate imports retired 2026-10-31 (Merlin):
+// both portals were unmounted from hub space — the Omega portal now
+// lives in the Earth chooser street light, Earth 2 via the chooser.
 import VanGoghSky from './VanGoghSky';
 import { setVanGoghActive, VANGOGH_BODY_CLASS } from '../lib/vangogh';
 import { resolveUiSettings, readUiSettingsCache, UI_SETTINGS_EVENT } from '../lib/ui-settings';
@@ -1044,14 +1045,14 @@ function HubScene({
           ) : (
           <>
             {!['diving_to_street', 'earth_roam'].includes(appState) && <SunBackground />}
-            {/* THE OMEGA ARCH — just beyond the Sun. The Portal Room's
-                showpiece door: click it or fly through it in freeroam. */}
-            <OmegaHubGate freeroam={appState === 'hub_freeroam'} onEnterPortal={onSatellitePortal} />
-            {/* THE EARTH 2 DOOR — flanking the Omega Arch on the same
-                plane beyond the Sun (Merlin, 2026-10-22). Owner-only:
-                Earth2HubGate renders nothing at all unless the
-                signed-in session is Merlin's own account. */}
-            <Earth2HubGate freeroam={appState === 'hub_freeroam'} />
+            {/* THE OMEGA ARCH + EARTH 2 DOOR — REMOVED 2026-10-31 (Merlin):
+                both portals stood just beyond the Sun; the Omega portal
+                now lives as a street-light lamp at the bottom of the
+                Earth chooser (app/page.jsx chooseOmegaPortal — same
+                handleSatellitePortal('/portal-room') the arch called),
+                and Earth 2 is reached through the chooser's Earth 2
+                button. Components kept (OmegaHubGate, Earth2HubGate)
+                but no longer mounted in hub space. */}
           <NexusEarth
             onSelect={appState === 'hub_freeroam' ? beginEarthDive : null}
             quatRef={earthQuatRef}
