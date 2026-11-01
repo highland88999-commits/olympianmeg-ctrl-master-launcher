@@ -232,4 +232,10 @@ describe('the hunt — Merlin’s predator ecology', () => {
     assert.ok(Math.abs(half.x - 10) < 1e-9);
     assert.ok(intentSpeed(bySlug('tyrannosaurus-rex')) > intentSpeed(bySlug('compsognathus')));
   });
+
+  it('provocation range is a close encounter, inside stalk range', () => {
+    assert.ok(HUNT.provokeM > 0, 'provocation radius exists');
+    assert.ok(HUNT.provokeM < HUNT.chaseTriggerM + HUNT.stalkRangeM, 'provocation is close-range');
+    assert.ok(HUNT.provokeM <= 30, 'provocation is a walk-up, not a shout');
+  });
 });

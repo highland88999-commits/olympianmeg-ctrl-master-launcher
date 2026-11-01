@@ -2037,6 +2037,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       const COMPY_CENTER = compySwarmCenter();
       const mosquitos = [];
       const sacs = []; // { group, core, baseY }
+      const bones = []; // { group, drops, carcass, baseY } — dino kill bone piles (Merlin, 2026-10-31)
       const bursts = []; // { points, vels, life }
       const swarmBats = [];
       const drac = {
@@ -3040,6 +3041,49 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         noticeRef.current('🩸 Blood sac collected — Dracula trades sacs for gifts.');
       }
 
+      // Bone piles (Merlin, 2026-10-31): a dino kill drops its bones
+      // where it fell — a visible pile to tap or walk up to. The
+      // pile carries the carcass's fossil roll; collecting credits
+      // the backpack for Hammond's counter. Left lying, the sink's
+      // auto-credit still catches it as fallback (marked here so it
+      // never double-pays).
+      function spawnBones(at, carcass) {
+        const groundY = heightAt(at.x, at.z);
+        const group = new THREE.Group();
+        const boneMat = new THREE.MeshStandardMaterial({ color: 0xf5f0e6, roughness: 0.7 });
+        const boneGeo = new THREE.CylinderGeometry(0.07, 0.07, 0.9, 8);
+        const pile = [
+          { r: [0, 0, Math.PI / 2.3], p: [0, 0.12, 0] },
+          { r: [Math.PI / 2.5, 0, 0.2], p: [0.1, 0.1, 0.08] },
+          { r: [0.2, Math.PI / 3, Math.PI / 4], p: [-0.08, 0.14, -0.06] },
+          { r: [Math.PI / 3, 0, Math.PI / 5], p: [0.02, 0.2, -0.1] },
+        ];
+        for (const o of pile) {
+          const b = new THREE.Mesh(boneGeo, boneMat);
+          b.rotation.set(o.r[0], o.r[1], o.r[2]);
+          b.position.set(o.p[0], o.p[1], o.p[2]);
+          group.add(b);
+        }
+        const spr = glowSprite('rgba(255,250,235,0.85)', 'rgba(255,250,235,0)');
+        spr.scale.setScalar(2.4);
+        group.add(spr);
+        group.position.set(at.x, groundY + 0.15, at.z);
+        scene.add(group);
+        const bone = { group, drops: carcass.fossilDrops, carcass, baseY: groundY + 0.15 };
+        group.traverse((o) => { o.userData.boneRef = bone; });
+        bones.push(bone);
+      }
+
+      function collectBones(bone) {
+        const i = bones.indexOf(bone);
+        if (i < 0) return;
+        bones.splice(i, 1);
+        scene.remove(bone.group);
+        if (bone.carcass) bone.carcass._packCredited = true;
+        fossilCreditRef.current(bone.drops);
+        noticeRef.current('🦴 Bones collected — carry them to Hammond at the museum.');
+      }
+
       function resetMosquitoAt(mq, center) {
         // The lifecycle's respawn (Wave A): a dead mosquito
         // returns at a DIFFERENT cruise centre — the anchor
@@ -3123,6 +3167,12 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         a.alive = false;
         a.state = 'carcass';
         a.carcass = carcass;
+        // Bones for the taking (Merlin, 2026-10-31): the kill drops
+        // a collectible bone pile at the site — tap it or walk up
+        // to gather the fossils for Hammond's counter.
+        if (carcass.fossilDrops && carcass.fossilDrops.length) {
+          spawnBones(a.root.position, carcass);
+        }
         a.deathPos = { x: a.root.position.x, z: a.root.position.z };
         a.huntTarget = null;
         a.fleeFrom = null;
@@ -3693,6 +3743,22 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             break;
         }
 
+        // Provocation (Merlin, 2026-10-31): a vulnerable walker who
+        // walks right up to a predator gets a reaction — hunger and
+        // sleep don't matter when lunch delivers itself. Wakes
+        // sleepers; respects the post-chase cooldown so stepping back
+        // doesn't chain-aggro forever. Guardians never provoke — they
+        // hunt predators, not the user.
+        if (!caps.guardian && caps.predator
+          && beh.mode !== 'stalk' && beh.mode !== 'chase' && beh.mode !== 'eat'
+          && beh.huntCooldown <= 0 && !isWalkerImmune()) {
+          const dw = Math.hypot(walker.x - pos.x, walker.z - pos.z);
+          if (dw <= HUNT.provokeM) {
+            a.huntTarget = walkerPrey;
+            setBehaviourMode(beh, 'stalk', Infinity);
+            noticeRef.current(`🦖 You got too close — the ${a.entry.name} is coming for you!`);
+          }
+        }
         // A hungry predator with its breath back picks a target.
         // Guardians hunt PREDATORS (defending the walker first);
         // other predators hunt prey creatures — and the walker,
@@ -4445,7 +4511,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         const hits = raycaster.intersectObjects(targets, true);
         if (!hits.length) return;
         let obj = hits[0].object;
-        while (obj && !obj.userData.mosquito && !obj.userData.sacRef && !obj.userData.dracula && !obj.userData.hammond && !obj.userData.vehicle && !obj.userData.animalRef) {
+        while (obj && !obj.userData.mosquito && !obj.userData.sacRef && !obj.userData.boneRef && !obj.userData.dracula && !obj.userData.hammond && !obj.userData.vehicle && !obj.userData.animalRef) {
           obj = obj.parent;
         }
         if (!obj) return;
@@ -4468,6 +4534,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           else noticeRef.current('🔫 Gunplay is still locked — wake it in the unlock picker to hunt.');
         }
         else if (obj.userData.sacRef) collectSac(obj.userData.sacRef);
+        else if (obj.userData.boneRef) collectBones(obj.userData.boneRef);
         else if (obj.userData.dracula) openExchangeRef.current();
         else if (obj.userData.hammond) {
           // His counter is a conversation, not a drive-by: the
@@ -5698,6 +5765,14 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           const dx = s.group.position.x - walker.x;
           const dz = s.group.position.z - walker.z;
           if (dx * dx + dz * dz < 2.6 * 2.6) collectSac(s);
+        }
+        // Bone piles glint; stepping up to one gathers it.
+        for (let i = bones.length - 1; i >= 0; i--) {
+          const b = bones[i];
+          b.group.position.y = b.baseY + Math.sin(t * 2.1 + i * 2.3) * 0.07;
+          const dx = b.group.position.x - walker.x;
+          const dz = b.group.position.z - walker.z;
+          if (dx * dx + dz * dz < 2.6 * 2.6) collectBones(b);
         }
         for (let i = bursts.length - 1; i >= 0; i--) {
           const b = bursts[i];
