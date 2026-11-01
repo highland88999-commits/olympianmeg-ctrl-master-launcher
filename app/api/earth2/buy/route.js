@@ -13,6 +13,7 @@ import { getServiceClient } from '@/lib/economy/supabase';
 import { debitGold, creditGold, InsufficientGoldError } from '@/lib/economy/ledger';
 import { parcelById, buyRefusal } from '@/lib/earth2/parcels';
 import { evictHomesteadOnSaleDb } from '@/lib/earth2/building';
+import { syncParcelVehicleOwner } from '@/lib/earth2/parcel-vehicles';
 
 export const dynamic = 'force-dynamic';
 
@@ -140,6 +141,13 @@ export async function POST(req) {
       { id: user.id, email: user.email },
       ins.data && ins.data.acquired_at
     ).catch(() => null);
+
+    // PARCEL-VEHICLE TITLE SYNC (Merlin, 2026-11-01): the vehicle
+    // follows the land — if a vehicle row somehow stands on this
+    // parcel (re-sale after a title wipe, auction settlement), it
+    // changes hands with the title. Best-effort; the sale stands
+    // regardless.
+    await syncParcelVehicleOwner(db, parcel.id, user.email).catch(() => null);
 
     return NextResponse.json({
       ok: true,

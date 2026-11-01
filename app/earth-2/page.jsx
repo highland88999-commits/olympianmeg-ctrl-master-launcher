@@ -67,7 +67,8 @@ import {
 } from '@/lib/earth2/forge';
 import { formatGold } from '@/lib/economy/config';
 import { AIRPORT_NAME, AIRPORT_TOWN, airportGroundsIds } from '@/lib/earth2/airport';
-import { VEHICLE_SPECS, VEHICLE_SLUGS, BOAT_SPEC, BOAT_SLUG, BOAT_MIN_DEPTH_M, parcelVehicleId } from '@/lib/earth2/vehicles';
+import { VEHICLE_SPECS, VEHICLE_SLUGS, BOAT_SPEC, BOAT_SLUG, BOAT_MIN_DEPTH_M, parcelVehicleId, modelSpec } from '@/lib/earth2/vehicles';
+import { PARCEL_VEHICLE_CATALOG } from '@/lib/earth2/parcel-vehicle-catalog';
 import { parcelWorldRect, waterDepthAt } from '@/lib/earth2/world';
 import { worldBridges } from '@/lib/earth2/bridges';
 import { scatteredVehicleSpots, boatMoorings } from '@/lib/earth2/fleet';
@@ -155,6 +156,43 @@ export default function Earth2Page() {
   // placement mode and the buyer taps the exact parking spot.
   const [vehiclePicker, setVehiclePicker] = useState(null); // { parcel } | null
   const [vehiclePlacement, setVehiclePlacement] = useState(null); // { parcelId, slug, nonce } | null
+  // Parcel vehicles, server-side (Merlin, 2026-11-01): the durable
+  // truth lives in earth2_parcel_vehicles; the device ledger stays
+  // the runtime cache and the fallback until the SQL is pasted.
+  const [parcelVehicles, setParcelVehicles] = useState(null); // rows | null (not loaded)
+  const loadParcelVehicles = useCallback(async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data?.session?.access_token;
+      if (!token) return;
+      const res = await fetch('/api/earth2/parcel-vehicles', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json().catch(() => null);
+      if (!json || !json.ok || !Array.isArray(json.vehicles)) return; // setupRequired: ledger stands
+      setParcelVehicles(json.vehicles);
+      // Server wins: merge each row into the device ledger so the
+      // world spawns the titled vehicle on entry.
+      try {
+        const raw = localStorage.getItem('earth2:vehicles:v1') || '{}';
+        const states = JSON.parse(raw) || {};
+        for (const row of json.vehicles) {
+          const vid = parcelVehicleId(row.parcel_id);
+          states[vid] = {
+            ...(states[vid] || {}),
+            slug: row.vehicle_slug,
+            parcelId: row.parcel_id,
+            x: row.x,
+            z: row.z,
+            heading: row.heading || 0,
+            speed: 0,
+            alt: 0,
+          };
+        }
+        localStorage.setItem('earth2:vehicles:v1', JSON.stringify(states));
+      } catch { /* a blocked store never breaks the chamber */ }
+    } catch { /* vehicles stay ledger-local */ }
+  }, []);
   // Building (Phase 2): my builds, my homestead claims, and the
   // blueprint shelf (pack-ups from sold claims). The device store
   // is the truth while supabase/earth2-buildings.sql is unrun;
@@ -245,10 +283,13 @@ export default function Earth2Page() {
     }
   }, [unlocking]);
 
-  // Load unlocks when the gate opens.
+  // Load unlocks + parcel vehicles when the gate opens.
   useEffect(() => {
     if (gate === 'open') loadUnlocks();
   }, [gate, loadUnlocks]);
+  useEffect(() => {
+    if (gate === 'open') loadParcelVehicles();
+  }, [gate, loadParcelVehicles]);
 
   const loadState = useCallback(async () => {
     try {
@@ -581,14 +622,44 @@ export default function Earth2Page() {
     setWalking(true);
   };
 
-  // The world reports the parking done: clear the request and confirm.
+  // The world reports the parking done: clear the request, persist
+  // the choice server-side (the ledger already holds it as fallback),
+  // and confirm.
   const handleVehiclePlaced = useCallback((req) => {
     setVehiclePlacement(null);
     if (req && req.parcelId) {
       const parcel = parcelById(req.parcelId);
       setNotice(`🚗 Your ride is parked on ${parcel ? parcel.name : req.parcelId} — it's there every time you enter.`);
+      // Server persist, fire-and-forget: the scene already wrote the
+      // ledger, so a missing table changes nothing locally.
+      (async () => {
+        try {
+          const { data } = await supabase.auth.getSession();
+          const token = data?.session?.access_token;
+          if (!token) return;
+          let parked = null;
+          try {
+            const states = JSON.parse(localStorage.getItem('earth2:vehicles:v1') || '{}');
+            parked = states && states[parcelVehicleId(req.parcelId)];
+          } catch { /* fall through */ }
+          if (!parked) return;
+          const res = await fetch('/api/earth2/parcel-vehicles', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              parcelId: req.parcelId,
+              slug: parked.slug,
+              x: parked.x,
+              z: parked.z,
+              heading: parked.heading || 0,
+            }),
+          });
+          const json = await res.json().catch(() => null);
+          if (json && json.ok) loadParcelVehicles();
+        } catch { /* ledger stands */ }
+      })();
     }
-  }, []);
+  }, [loadParcelVehicles]);
 
   const buy = () => {
     if (selected) return buyParcel(selected);
@@ -1756,15 +1827,34 @@ export default function Earth2Page() {
       {vehiclePicker && vehiclePicker.parcel && (() => {
         const parcel = vehiclePicker.parcel;
         const waterfront = parcelIsWaterfront(parcel);
-        const options = ['rover', 'speed-bike', 'scarab'];
-        if (waterfront) options.push(BOAT_SLUG);
+        // The showroom (Merlin, 2026-11-01): any program's vehicle
+        // may live on bought land — the Earth 2 fleet plus Earth's
+        // whole garage. The River Runner only moors on waterfront.
+        const groups = [
+          {
+            label: 'Earth 2',
+            slugs: [...PARCEL_VEHICLE_CATALOG.earth2, ...(waterfront ? [BOAT_SLUG] : [])],
+          },
+          { label: 'Earth', slugs: [...PARCEL_VEHICLE_CATALOG.earth] },
+        ];
         const vid = parcelVehicleId(parcel.id);
         let currentSlug = null;
-        try {
-          const states = JSON.parse(localStorage.getItem('earth2:vehicles:v1') || '{}');
-          if (states && states[vid] && states[vid].slug) currentSlug = states[vid].slug;
-        } catch { /* no stored choice yet */ }
-        const specFor = (slug) => (slug === BOAT_SLUG ? BOAT_SPEC : VEHICLE_SPECS[slug]);
+        const serverRow = parcelVehicles && parcelVehicles.find((r) => r.parcel_id === parcel.id);
+        if (serverRow && serverRow.vehicle_slug) currentSlug = serverRow.vehicle_slug;
+        if (!currentSlug) {
+          try {
+            const states = JSON.parse(localStorage.getItem('earth2:vehicles:v1') || '{}');
+            if (states && states[vid] && states[vid].slug) currentSlug = states[vid].slug;
+          } catch { /* no stored choice yet */ }
+        }
+        const specFor = (slug) => modelSpec(slug);
+        const blurbFor = (slug) => {
+          if (slug === BOAT_SLUG) return 'Sails your waterfront — moor it in the deep water.';
+          const spec = specFor(slug);
+          if (spec && spec.air) return 'Flies from your land — needs flat, dry ground to land.';
+          if (spec && spec.earth1) return `Earth import — ${spec.name}, drives on dry ground.`;
+          return 'Lives on your land, ready when you are.';
+        };
         return (
           <div
             className="fixed inset-0 z-[90] flex items-center justify-center bg-black/70 p-6"
@@ -1778,29 +1868,36 @@ export default function Earth2Page() {
                 {waterfront ? ' — waterfront, so the River Runner can moor here too' : ''}.
                 You&rsquo;ll tap the exact parking spot next.
               </div>
-              <div className="mt-4 space-y-2">
-                {options.map((slug) => {
-                  const spec = specFor(slug);
-                  if (!spec) return null;
-                  return (
-                    <button
-                      key={slug}
-                      type="button"
-                      onClick={() => placeVehicleOnParcel(parcel, slug)}
-                      className="block w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-left text-white transition hover:bg-white/10"
-                    >
-                      <div className="font-bold">
-                        {spec.verb} the {spec.name}
-                        {currentSlug === slug ? ' ✓ parked' : ''}
-                      </div>
-                      <div className="text-xs text-slate-400">
-                        {slug === BOAT_SLUG
-                          ? 'Sails your waterfront — moor it in the deep water.'
-                          : 'Lives on your land, ready when you are.'}
-                      </div>
-                    </button>
-                  );
-                })}
+              <div className="mt-4 max-h-[46vh] space-y-3 overflow-y-auto">
+                {groups.map((group) => (
+                  <div key={group.label}>
+                    <div className="mb-1 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
+                      {group.label}
+                    </div>
+                    <div className="space-y-2">
+                      {group.slugs.map((slug) => {
+                        const spec = specFor(slug);
+                        if (!spec) return null;
+                        return (
+                          <button
+                            key={slug}
+                            type="button"
+                            onClick={() => placeVehicleOnParcel(parcel, slug)}
+                            className="block w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-left text-white transition hover:bg-white/10"
+                          >
+                            <div className="font-bold">
+                              {(spec.emoji ? `${spec.emoji} ` : '')}{spec.verb} the {spec.name}
+                              {currentSlug === slug ? ' ✓ parked' : ''}
+                            </div>
+                            <div className="text-xs text-slate-400">
+                              {blurbFor(slug)}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
               <button
                 type="button"

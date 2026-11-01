@@ -88,8 +88,11 @@ import {
   saveVehicleStates,
   tickVehicleRespawn,
   parcelVehicleId,
+  isParcelVehicleId,
+  PARCEL_VEHICLE_PREFIX,
   BOAT_MIN_DEPTH_M,
 } from '@/lib/earth2/vehicles';
+import { bridgedParcelModel, isEarth1ParcelSlug } from '@/lib/earth2/parcel-vehicle-catalog';
 import { integrityColor } from '@/lib/earth2/vehicle-damage';
 import {
   vehicleInstanceById, homeStateForInstance, vehicleInstances,
@@ -1615,7 +1618,10 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       }
 
       async function loadModel(entry) {
-        const url = earth2ModelUrl(entry, signedModelUrls);
+        // Earth-garage imports (Merlin, 2026-11-01) are public site
+        // files — no signed URL needed, serve them straight.
+        const url = earth2ModelUrl(entry, signedModelUrls)
+          || (isEarth1ParcelSlug(entry && entry.slug) && entry.file ? entry.file : null);
         if (!url) throw new Error(`No delivery URL for ${entry.slug}`);
         const gltf = await loader.loadAsync(url);
         track(gltf.scene);
@@ -2418,7 +2424,10 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       // speed tremble; the VTOL is one unrigged mesh, whole-
       // craft tilt and hover-bob.
       async function placeVehicle(unit) {
-        const entry = EARTH2_MODEL_BY_SLUG.get(unit.slug);
+        // Earth-garage imports aren't in the Earth 2 model registry —
+        // the parcel-vehicle catalog synthesizes their entries from
+        // their glbUrl (Merlin, 2026-11-01).
+        const entry = EARTH2_MODEL_BY_SLUG.get(unit.slug) || bridgedParcelModel(unit.slug);
         const spec = modelSpec(unit.slug);
         if (!entry || !entry.file || !spec) return null;
         // The foundry status belongs to the MODEL and is carried
@@ -2578,13 +2587,27 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           noticeRef.current('🛩️ She ditched and is taking on water — no flying her out of that.');
           return;
         }
-        // Ownership (Merlin, 2026-10-23): boarding CLAIMS the
-        // machine for this account — hers from then on, staying
-        // where she's left. A machine claimed by another account
-        // refuses the helm outright.
+        // Ownership (Merlin, 2026-11-01): a vehicle parked on bought
+        // land belongs to the LAND BUYER, full stop — no claim stamps,
+        // no boarding claims. Only the parcel's title holder may take
+        // the helm; anyone else is refused. Ownership moves with the
+        // land title, never with the helm.
+        //
+        // Fleet machines keep the old law (Merlin, 2026-10-23):
+        // boarding CLAIMS the machine for this account — hers from
+        // then on, staying where she's left. A machine claimed by
+        // another account refuses the helm outright.
         const myKey = claimKeyForUser(buildPropsRef.current && buildPropsRef.current.user);
         let newlyClaimed = false;
-        if (isClaimed(st)) {
+        if (isParcelVehicleId(id)) {
+          const parcelId = id.slice(PARCEL_VEHICLE_PREFIX.length);
+          if (!parcelVehicleIsMine(parcelId)) {
+            noticeRef.current('🔒 This ride belongs to the landowner.');
+            return;
+          }
+          // Title holder, cleared to board — and no claim stamp is
+          // written: the title IS the ownership.
+        } else if (isClaimed(st)) {
           if (st.claimedBy !== myKey) {
             noticeRef.current('🔒 Claimed by another driver — this machine is someone\'s personal ride.');
             return;
@@ -3507,6 +3530,18 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         const p = parcelAtWorld(walker.x, walker.z);
         const bp = buildPropsRef.current || {};
         const row = bp.owners && typeof bp.owners.get === 'function' ? bp.owners.get(p.id) : null;
+        return !!(row && bp.user && row.owner_email && bp.user.email
+          && String(row.owner_email).toLowerCase() === String(bp.user.email).toLowerCase());
+      }
+
+      // Parcel-vehicle ownership (Merlin, 2026-11-01): the ride
+      // belongs to whoever holds the land title — the owners map
+      // is the live truth, so a title change moves the helm with
+      // it, no claim stamps involved.
+      function parcelVehicleIsMine(parcelId) {
+        if (!parcelId) return false;
+        const bp = buildPropsRef.current || {};
+        const row = bp.owners && typeof bp.owners.get === 'function' ? bp.owners.get(parcelId) : null;
         return !!(row && bp.user && row.owner_email && bp.user.email
           && String(row.owner_email).toLowerCase() === String(bp.user.email).toLowerCase());
       }
@@ -4540,7 +4575,9 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             return true;
           }
         } else if (depth > 0) {
-          noticeRef.current('Land vehicles need dry ground — tap the green.');
+          noticeRef.current(spec.air
+            ? 'The VTOL needs dry ground to land — tap the green.'
+            : 'Land vehicles need dry ground — tap the green.');
           return true;
         }
         const id = parcelVehicleId(vp.parcelId);
@@ -4554,8 +4591,8 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           alt: 0,
           integrity: INTEGRITY_MAX,
           wrecked: false,
-          claimedBy: null,
-          claimedAt: null,
+          // No claim stamps on parcel vehicles (Merlin, 2026-11-01):
+          // the land title is the ownership.
           awaySince: null,
         };
         saveVehicleStates(vehicleStatesRef.current);
@@ -5707,6 +5744,9 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
               const vst = vehicleStatesRef.current[id];
               if (!vst || vst.wrecked) continue;
               if (isClaimed(vst) && vst.claimedBy !== myKey) continue; // someone's personal machine
+              // A parcel vehicle that isn't mine offers no prompt —
+              // the helm belongs to the landowner (Merlin, 2026-11-01).
+              if (isParcelVehicleId(id) && !parcelVehicleIsMine(vst && vst.parcelId)) continue;
               const d = Math.hypot(walker.x - vst.x, walker.z - vst.z);
               if (d <= bestD) { bestD = d; best = id; }
             }
