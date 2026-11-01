@@ -1019,34 +1019,53 @@ function NexusHub() {
           offers Earth 1 or Earth 2. Earth 2 is unlocked for all users. */}
       {showEarthChooser && (
         <div
-          className="fixed inset-0 flex items-center justify-center bg-black/70 p-6"
-          style={{ zIndex: 2147483001 }}
+          className="fixed inset-0 flex items-center justify-center p-6"
+          style={{
+            zIndex: 2147483001,
+            backgroundImage: 'url(/images/earth-chooser-bg.webp)',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          }}
           role="dialog"
           aria-label="Choose your Earth"
         >
-          <div className="w-full max-w-sm rounded-2xl bg-slate-900 p-6 text-center shadow-2xl">
+          <div className="w-full max-w-sm rounded-2xl bg-slate-900/80 p-6 text-center shadow-2xl backdrop-blur-sm">
             <div className="mb-1 text-2xl font-extrabold text-white">Choose your Earth</div>
-            <div className="mb-5 text-sm text-slate-400">Two worlds. One tap.</div>
+            <div className="mb-5 text-sm text-slate-300">Two worlds. One tap.</div>
             <button
               type="button"
               onClick={chooseEarth1}
-              className="mb-3 block w-full rounded-xl bg-blue-600 px-4 py-4 text-left text-white transition hover:bg-blue-500"
+              className="mb-3 block w-full overflow-hidden rounded-xl text-left text-white transition hover:brightness-110"
+              style={{
+                backgroundImage: 'url(/images/earth1-button-bg.webp)',
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+              }}
             >
-              <div className="text-lg font-bold">🌍 Earth 1</div>
-              <div className="text-sm opacity-80">The world you know. Streets, driving, the grind.</div>
+              <div className="px-4 py-4" style={{ background: 'linear-gradient(90deg, rgba(0,20,40,0.55) 0%, rgba(0,20,40,0.15) 60%, transparent 100%)' }}>
+                <div className="text-lg font-bold">🌍 Earth 1</div>
+                <div className="text-sm opacity-90">The world you know. Streets, driving, the grind.</div>
+              </div>
             </button>
             <button
               type="button"
               onClick={chooseEarth2}
-              className="mb-4 block w-full rounded-xl bg-purple-700 px-4 py-4 text-left text-white transition hover:bg-purple-600"
+              className="mb-4 block w-full overflow-hidden rounded-xl text-left text-white transition hover:brightness-110"
+              style={{
+                backgroundImage: 'url(/images/earth2-button-bg.webp)',
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+              }}
             >
-              <div className="text-lg font-bold">🌑 Earth 2</div>
-              <div className="text-sm opacity-80">Monsters, gunplay, land, building — unlock what you want.</div>
+              <div className="px-4 py-4" style={{ background: 'linear-gradient(90deg, rgba(20,0,30,0.6) 0%, rgba(20,0,30,0.2) 60%, transparent 100%)' }}>
+                <div className="text-lg font-bold">🌑 Earth 2</div>
+                <div className="text-sm opacity-90">Monsters, gunplay, land, building — unlock what you want.</div>
+              </div>
             </button>
             <button
               type="button"
               onClick={() => setShowEarthChooser(false)}
-              className="text-sm text-slate-400 underline"
+              className="text-sm text-slate-300 underline"
             >
               Not now
             </button>
