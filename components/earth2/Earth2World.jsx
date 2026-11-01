@@ -95,7 +95,7 @@ import {
   stockDueForHome, nextStockId, freshStockState,
 } from '@/lib/earth2/fleet';
 import {
-  ensureSfx, sfxImpact, sfxExplosion, sfxSplash, sfxWarningTick, sfxShimmer, vibrateFor,
+  ensureSfx, sfxImpact, sfxExplosion, sfxSplash, sfxWarningTick, sfxShimmer, sfxShot, vibrateFor,
 } from '@/lib/earth2/sfx';
 import { bridgeHeightAt, bridgeDeckYAt, stepBridgeWalker, BRIDGE_DECK_WIDTH_M } from '@/lib/earth2/bridges';
 import { dressingColliders } from '@/lib/earth2/scatter';
@@ -473,7 +473,7 @@ function E2Panel({ layout, onMove, onToggle, panelClass = '', headerClass = '', 
   );
 }
 
-export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOpenExchange, onFossilExchange, greetSignal, onParcelChange, onExit, buildUser, ownersByParcel, claims, builds, onBuildChange, buildRequest } = {}) {
+export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOpenExchange, onFossilExchange, greetSignal, onParcelChange, onExit, buildUser, ownersByParcel, claims, builds, onBuildChange, buildRequest, gunplayUnlocked = true } = {}) {
   const mountRef = useRef(null);
   const labelsRef = useRef(null);
   const [hud, setHud] = useState(null); // { parcel, biome, lat, lon, mine, home }
@@ -882,6 +882,12 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   };
   const nearHammondRef = useRef(false);
   const hammondOpenRef = useRef(false);
+  // The gunplay unlock gates dino hunting: the picker (app/earth-2/
+  // page.jsx) owns the state; the scene reads it through this ref
+  // so the tap handler always sees the current value. Defaults
+  // open — the engine's defaultUnlocked for gunplay is true.
+  const gunplayUnlockedRef = useRef(true);
+  gunplayUnlockedRef.current = gunplayUnlocked !== false;
 
   // ── Vehicles (Vehicles Phase 1) ─────────────────────────────
   // The fleet's positions live in the device store
@@ -1886,6 +1892,13 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
               fleeT: 0,
               drinkPoint: undefined,
             });
+            // The hunt build's tap target: the walk-up in handleTap
+            // climbs to this flag to find the animal record. Land
+            // dinos only — a felled flyer would snap to the ground
+            // on the carcass path, and the compy swarm is a
+            // presence entry, not a species (fossils.js excludes
+            // it from drops).
+            root.userData.animalRef = animals[animals.length - 1];
             if (i === 0) makeLabel(entry.name, root, entry.scaleM * 0.72 + 1.2, 140, owner);
           }
           setStatusFor(entry.slug, 'placed');
@@ -3072,11 +3085,46 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         if (mq.phase === 'falling' || mq.phase === 'gone') return;
         mq.willDropSac = mosquitoDropsSac(mq.phase);
         spawnBurst(mq.group.position, mq.willDropSac ? 0xd42a2a : 0x9a958c);
+        sfxShot();
         if (!mq.willDropSac) {
           noticeRef.current("It hadn't drunk yet — no sac. Shoot the swollen red ones.");
         }
         mq.phase = 'falling';
         mq.vy = 0;
+      }
+
+      // The hunt build (Merlin, 2026-10-31): exploration-mode dino
+      // hunting. A tap on a land dinosaur is a SHOT — one shot
+      // drops it, the mosquito tap's own law. The kill routes
+      // through the SAME lifecycle the predators use
+      // (lib/earth2/lifecycle.js): the carcass lingers, sinks on
+      // the lifecycle's clock, and its fossil roll settles into
+      // the backpack through the existing fossilCreditRef path —
+      // the hunter carries the bones to Hammond's counter, where
+      // the exchange UI already waits. Guns fire only outside
+      // build mode (handleTap returns before reaching here in
+      // build mode), and only when the gunplay unlock is open.
+      function shootDino(a) {
+        if (!a || a.state === 'carcass' || a.alive === false) return;
+        const carcass = lifecycle.kill(a.id, clock.elapsedTime, a.root.position);
+        // Unknown to the lifecycle (its stream unit cycled) — no
+        // carcass, no kill; the dino stands, nothing double-counts.
+        if (!carcass) return;
+        // Hit feedback: the gun's feel — burst at the shoulder,
+        // the shot's crack, the species named in the notice.
+        const hitAt = a.root.position.clone();
+        hitAt.y += (a.entry.scaleM || 2) * 0.55;
+        spawnBurst(hitAt, 0xd42a2a);
+        spawnBurst(hitAt, 0xf5f0e6);
+        sfxShot();
+        a.alive = false;
+        a.state = 'carcass';
+        a.carcass = carcass;
+        a.deathPos = { x: a.root.position.x, z: a.root.position.z };
+        a.huntTarget = null;
+        a.fleeFrom = null;
+        if (a.beh) setBehaviourMode(a.beh, 'idle', Infinity);
+        noticeRef.current(`🎯 ${a.entry.name} down — its bones will fossilise. Carry them to Hammond at the museum.`);
       }
 
       function updateMosquito(mq, t, dt) {
@@ -4270,13 +4318,20 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           ...mosquitos.map((mq) => mq.proxy),
           ...sacs.map((s) => s.group),
           ...vehicles.map((v) => v.proxy),
+          // The hunt build: living land dinos are tap targets in
+          // exploration mode (their roots carry userData.animalRef
+          // from placement). Carcasses, flyers and the compy swarm
+          // are never targets.
+          ...animals
+            .filter((a) => a.state !== 'carcass' && a.alive !== false && !a.flyer && !a.compy)
+            .map((a) => a.root),
           dracProxy,
           hammondProxy,
         ];
         const hits = raycaster.intersectObjects(targets, true);
         if (!hits.length) return;
         let obj = hits[0].object;
-        while (obj && !obj.userData.mosquito && !obj.userData.sacRef && !obj.userData.dracula && !obj.userData.hammond && !obj.userData.vehicle) {
+        while (obj && !obj.userData.mosquito && !obj.userData.sacRef && !obj.userData.dracula && !obj.userData.hammond && !obj.userData.vehicle && !obj.userData.animalRef) {
           obj = obj.parent;
         }
         if (!obj) return;
@@ -4287,6 +4342,14 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         // a later build; the mosquito tap-to-shoot is untouched.
         if (obj.userData.vehicle) boardVehicle(obj.userData.vehicle);
         else if (obj.userData.mosquito) shootMosquito(obj.userData.mosquito);
+        else if (obj.userData.animalRef) {
+          // The hunt build: a tap on a dino is a shot — but only
+          // when the gunplay unlock is open. (Build mode never
+          // reaches here: handleTap returns into buildTap first,
+          // so builders can't shoot — and nothing shoots back.)
+          if (gunplayUnlockedRef.current) shootDino(obj.userData.animalRef);
+          else noticeRef.current('🔫 Gunplay is still locked — wake it in the unlock picker to hunt.');
+        }
         else if (obj.userData.sacRef) collectSac(obj.userData.sacRef);
         else if (obj.userData.dracula) openExchangeRef.current();
         else if (obj.userData.hammond) {

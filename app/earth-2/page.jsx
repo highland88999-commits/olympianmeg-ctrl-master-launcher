@@ -1697,6 +1697,7 @@ export default function Earth2Page() {
           bloodSacs={blood.sacs}
           onBloodSac={collectSacFromBay}
           onFossilExchange={applyFossilPayout}
+          gunplayUnlocked={unlocks ? !!unlocks.gunplay : true}
           onOpenExchange={() => {
             exitWorld();
             openExchange();
