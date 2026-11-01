@@ -395,6 +395,35 @@ test('model slots document the four Tripo drops with exact paths', async () => {
   assert.equal(slotRenderer('nope'), 'procedural');
 });
 
+// ----------------------------------------------------- jaw hinges --------
+test('jaw hinge tuning is sane for both predators', async () => {
+  const { JAW_PARAMS } = await import('../lib/swamp-run/models.js');
+  for (const key of ['alligator', 'crocodile']) {
+    const p = JAW_PARAMS[key];
+    assert.ok(p, `${key} has jaw params`);
+    // Hinge sits inside the head, forward of the skull base.
+    assert.ok(p.hinge[0] > 0 && p.hinge[0] < 0.5, `${key}: hinge x in head`);
+    assert.ok(p.mouthA > 0 && p.mouthA < 0.2, `${key}: mouth line in head height`);
+    // Mouth line rises toward the snout tip.
+    assert.ok(p.mouthB > 0, `${key}: mouth line slopes up to the snout`);
+    // Feather smaller than the z half-width (smoothstep needs edge0 < edge1).
+    assert.ok(p.feather > 0 && p.feather < p.zHalf, `${key}: feather < zHalf`);
+    // Gape is dramatic but not a tear.
+    assert.ok(p.maxAngle > 0.2 && p.maxAngle <= 0.6, `${key}: gape angle sane`);
+    // Cavity tucked inside the head bounds.
+    assert.ok(
+      p.cavityPos[0] > p.hingeX && p.cavityPos[0] < 0.5,
+      `${key}: cavity between hinge and snout`
+    );
+    assert.ok(p.cavityScale.every((s) => s > 0), `${key}: cavity has volume`);
+  }
+  // The gator's hinge sits further back than the croc's longer snout.
+  assert.ok(
+    JAW_PARAMS.alligator.hingeX < JAW_PARAMS.crocodile.hingeX,
+    'gator hinge behind croc hinge (shorter snout)'
+  );
+});
+
 test('world generates reeds, knees, and mossy trees deterministically', () => {
   const a = generateWorld(7);
   const b = generateWorld(7);

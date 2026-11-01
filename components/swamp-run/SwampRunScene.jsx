@@ -11,7 +11,7 @@ import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { terrainHeight, WORLD_SIZE } from '@/lib/swamp-run/world';
-import { MODEL_SLOTS, markSlotLoaded } from '@/lib/swamp-run/models';
+import { MODEL_SLOTS, JAW_PARAMS, markSlotLoaded } from '@/lib/swamp-run/models';
 
 const dummy = new THREE.Object3D();
 const tmpColor = new THREE.Color();
@@ -112,6 +112,98 @@ function emissiveMats(root) {
     }
   });
   return arr;
+}
+
+// ── Jaw hinges (Merlin, 2026-11-01: "I want the jaws") ──────────
+// The Batch 8 Tripo rigs have no jaw bones and no animation clips,
+// so the bite is a vertex-shader hinge: jaw-region vertices rotate
+// about the jaw joint in BIND space (the `position` attribute), ahead
+// of the skinning chunk — the static skeleton then carries the opened
+// jaw rigidly into the posed mesh. Tuning lives in JAW_PARAMS
+// (lib/swamp-run/models.js), measured from the real bind geometry.
+// A dark mouth cavity rides inside the skull so the open mouth never
+// shows hollow backfaces.
+
+// Clones a creature's materials (never mutates the GLTF cache's),
+// injects the jaw hinge into each, and tucks a mouth cavity inside
+// the skull. Returns { jawUniform, cavityMat } for the frame loop.
+function addJawHinge(root, p) {
+  const jawUniform = { value: 0 };
+  const seen = new Map();
+  const hinge = new THREE.Vector3(p.hinge[0], p.hinge[1], p.hinge[2]);
+  let skinned = null;
+  root.traverse((o) => {
+    if (o.isSkinnedMesh && !skinned) skinned = o;
+    if (!o.isMesh) return;
+    const ms = Array.isArray(o.material) ? o.material : [o.material];
+    const repl = ms.map((m) => {
+      if (!m) return m;
+      if (!seen.has(m)) {
+        const c = m.clone();
+        c.onBeforeCompile = (shader) => {
+          shader.uniforms.uJawOpen = jawUniform;
+          shader.uniforms.uJawHinge = { value: hinge };
+          shader.uniforms.uJawMouth = {
+            value: new THREE.Vector4(p.mouthA, p.mouthB, p.hingeX, p.feather),
+          };
+          shader.uniforms.uJawZ = {
+            value: new THREE.Vector3(p.zc, p.zHalf, p.maxAngle),
+          };
+          shader.vertexShader = shader.vertexShader
+            .replace(
+              '#include <common>',
+              `#include <common>
+              uniform float uJawOpen;
+              uniform vec3 uJawHinge;
+              uniform vec4 uJawMouth;
+              uniform vec3 uJawZ;`
+            )
+            .replace(
+              '#include <begin_vertex>',
+              `#include <begin_vertex>
+              {
+                float mouthY = uJawMouth.x + uJawMouth.y * (transformed.x - uJawMouth.z);
+                float w = smoothstep(uJawHinge.x - uJawMouth.w, uJawHinge.x + uJawMouth.w * 0.5, transformed.x);
+                w *= 1.0 - smoothstep(mouthY - uJawMouth.w * 0.5, mouthY + uJawMouth.w * 0.5, transformed.y);
+                w *= 1.0 - smoothstep(uJawZ.y - uJawMouth.w, uJawZ.y + uJawMouth.w, abs(transformed.z - uJawZ.x));
+                float ang = -uJawOpen * uJawZ.z * w;
+                float jc = cos(ang);
+                float js = sin(ang);
+                vec2 jd = vec2(transformed.x - uJawHinge.x, transformed.y - uJawHinge.y);
+                transformed.x = uJawHinge.x + jd.x * jc - jd.y * js;
+                transformed.y = uJawHinge.y + jd.x * js + jd.y * jc;
+              }`
+            );
+        };
+        c.customProgramCacheKey = () => 'swamp-jaw-hinge';
+        seen.set(m, c);
+      }
+      return seen.get(m);
+    });
+    // eslint-disable-next-line no-param-reassign
+    o.material = Array.isArray(o.material) ? repl : repl[0];
+  });
+  const cavityMat = new THREE.MeshStandardMaterial({
+    color: 0x5a0f0f,
+    emissive: 0x2a0505,
+    roughness: 1,
+    transparent: true,
+    opacity: 0,
+  });
+  const cavity = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10), cavityMat);
+  cavity.scale.set(p.cavityScale[0], p.cavityScale[1], p.cavityScale[2]);
+  cavity.position.set(p.cavityPos[0], p.cavityPos[1], p.cavityPos[2]);
+  (skinned || root).add(cavity);
+  return { jawUniform, cavityMat };
+}
+
+// Eases a jaw value toward its target: snaps open fast, eases shut.
+function stepJaw(jaw, target, dt) {
+  const rate = target > jaw.value ? 1 / 0.15 : 1 / 0.6;
+  const d = Math.sign(target - jaw.value) * rate * Math.min(dt, 0.05);
+  jaw.value = THREE.MathUtils.clamp(jaw.value + d, 0, 1);
+  const e = jaw.value * jaw.value * (3 - 2 * jaw.value);
+  return e;
 }
 
 function Terrain({ stateRef }) {
@@ -817,14 +909,14 @@ function CrocProcedural({ stateRef }) {
 }
 
 // The Batch 8 rigged crocodile (Merlin, 2026-11-01): 36 joints, no
-// embedded animation clips and no jaw bone, so the bite is a
-// procedural lunge-pitch plus an emissive blood-pulse on the burst —
-// the skeleton still swims it straight. Falls back to the box-built
-// hunter on any load failure.
+// embedded animation clips and no jaw bone — the bite is a
+// vertex-shader jaw hinge (addJawHinge) driven by the hunt state,
+// plus the emissive blood-pulse. Falls back to the box-built hunter
+// on any load failure.
 function CrocGlb({ stateRef, url }) {
   const { scene } = useGLTF(url);
   const groupRef = useRef(null);
-  const { wrap, inner } = useMemo(() => {
+  const { wrap, inner, jaw } = useMemo(() => {
     const m = cloneSkinned(scene);
     const fitted = fitCreature(
       m,
@@ -832,14 +924,16 @@ function CrocGlb({ stateRef, url }) {
       ['tripo::Tail_4', 'tripo::Tail_3'],
       5
     );
+    const jaw = addJawHinge(m, JAW_PARAMS.crocodile);
     markSlotLoaded('crocodile');
-    return fitted;
+    return { ...fitted, jaw };
   }, [scene]);
   const mats = useMemo(() => emissiveMats(wrap), [wrap]);
+  const jawState = useRef({ value: 0 });
   const ripple1 = useRef(null);
   const ripple2 = useRef(null);
   const deathAt = useRef(null);
-  useFrame(({ clock }) => {
+  useFrame(({ clock }, dt) => {
     const s = stateRef.current;
     const g = groupRef.current;
     if (!s || !g) return;
@@ -864,14 +958,17 @@ function CrocGlb({ stateRef, url }) {
 
     g.position.set(x, y, z);
     g.rotation.set(0, heading, 0);
-    // Bite: dip the snout on the hunt, wide on the death lunge.
-    const bite =
+    // Jaws (Merlin, 2026-11-01): the bite is the jaw hinge, not the
+    // old snout-dip. Death lunge keeps a small rear-up for body
+    // language; the pulse still sells the aggression with the jaw.
+    const biting = hunting || (s.status === 'dead' && s.death);
+    const je = stepJaw(jawState.current, biting ? 1 : 0, dt);
+    jaw.jawUniform.value = je;
+    jaw.cavityMat.opacity = je * 0.95;
+    inner.rotation.x =
       s.status === 'dead' && s.death
-        ? 0.25 + Math.min(1, (t - (deathAt.current || t)) / 0.45) * 0.35
-        : hunting
-          ? 0.12 + Math.sin(t * 3.2) * 0.05
-          : 0.02 + Math.sin(t * 0.8) * 0.01;
-    inner.rotation.x = bite;
+        ? Math.min(1, (t - (deathAt.current || t)) / 0.45) * 0.3
+        : 0.02 + Math.sin(t * 0.8) * 0.01;
     const angry = hunting || c.mode === 'circle';
     for (const m of mats) {
       m.emissive.set(angry ? '#ff2a1a' : '#1a0e00');
@@ -1028,13 +1125,13 @@ function GatorProcedural({ stateRef }) {
 }
 
 // The Batch 8 rigged alligator (Merlin, 2026-11-01): 29 joints, no
-// embedded animation clips and no jaw bone, so the burst bite is a
-// procedural snout-dip plus a red eye-glow pulse — the ambush
-// behavior (lurk low, explode at 13 m) is untouched.
+// embedded animation clips and no jaw bone — the burst bite is a
+// vertex-shader jaw hinge (addJawHinge) plus the red pulse. The
+// ambush behavior (lurk low, explode at 13 m) is untouched.
 function GatorGlb({ stateRef, url }) {
   const { scene } = useGLTF(url);
   const groupRef = useRef(null);
-  const { wrap, inner } = useMemo(() => {
+  const { wrap, inner, jaw } = useMemo(() => {
     const m = cloneSkinned(scene);
     const fitted = fitCreature(
       m,
@@ -1042,11 +1139,13 @@ function GatorGlb({ stateRef, url }) {
       ['tripo::Tail_3', 'tripo::Tail_2'],
       4.5
     );
+    const jaw = addJawHinge(m, JAW_PARAMS.alligator);
     markSlotLoaded('alligator');
-    return fitted;
+    return { ...fitted, jaw };
   }, [scene]);
   const mats = useMemo(() => emissiveMats(wrap), [wrap]);
-  useFrame(({ clock }) => {
+  const jawState = useRef({ value: 0 });
+  useFrame(({ clock }, dt) => {
     const s = stateRef.current;
     const g = groupRef.current;
     if (!s || !g || !s.gator) return;
@@ -1058,8 +1157,12 @@ function GatorGlb({ stateRef, url }) {
     g.rotation.set(0, gt.heading, 0);
     // Lurking gators sit low — only eyes and snout break the surface.
     g.scale.y = gt.mode === 'lurk' ? 0.82 : 1;
-    // Bite: snap the snout down on the burst.
-    inner.rotation.x = bursting ? 0.28 + Math.sin(t * 6) * 0.1 : 0.02 + Math.sin(t * 0.8) * 0.01;
+    // Jaws (Merlin, 2026-11-01): snap open on the burst, ease shut
+    // after — the bite is the hinge now, the snout-dip is gone.
+    const je = stepJaw(jawState.current, bursting ? 1 : 0, dt);
+    jaw.jawUniform.value = je;
+    jaw.cavityMat.opacity = je * 0.95;
+    inner.rotation.x = 0.02 + Math.sin(t * 0.8) * 0.01;
     for (const m of mats) {
       m.emissive.set(bursting ? '#ff2a1a' : '#201a00');
       m.emissiveIntensity = bursting ? 0.6 : 0.1;
