@@ -4,14 +4,17 @@
 // something legible — grazing, digging, drinking, sleeping at
 // night — and that predators run Merlin's full ecology: hunt,
 // chase (losably), kill, eat, walk when full, thirst, repeat.
-// THE WALKER IS IMMUNE is pinned here as law.
+// THE WALKER IS PREY (Merlin, 2026-10-31 — the old immunity was
+// reversed): a vulnerable walker is pinned here as selectable
+// prey, an immune one as refused; the guardian's defense law is
+// pinned too.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
   behaviourCaps, createBehaviour, stepBehaviour, setBehaviourMode,
-  behaviourPose, pickPreyTarget, rollChase, fleePoint, stepToward,
+  behaviourPose, pickPreyTarget, pickGuardianTarget, rollChase, fleePoint, stepToward,
   intentSpeed, seedFor, HUNT,
 } from '../lib/earth2/behaviour.js';
 import { EARTH2_MODELS } from '../lib/earth2/models.js';
@@ -132,21 +135,59 @@ describe('the hunt — Merlin’s predator ecology', () => {
     assert.equal(pickPreyTarget(hunter, [out]), null);
   });
 
-  it('THE WALKER IS IMMUNE: no hunt state may ever select the player', () => {
+  it('THE WALKER IS PREY (Merlin, 2026-10-31): a vulnerable walker is selectable; an immune one is refused', () => {
     const hunter = { id: 'rex#0', x: 0, z: 0 };
-    // A walker-shaped record at point blank: not a creature,
-    // and flagged as the walker besides. It is refused twice.
-    const walker = { id: 'walker', isWalker: true, creature: false, prey: false, alive: true, x: 2, z: 0 };
-    assert.equal(pickPreyTarget(hunter, [walker]), null);
-    // Even a record that lies about being prey is refused when
-    // it carries the walker mark.
-    const lyingWalker = { id: 'walker', isWalker: true, creature: true, prey: true, alive: true, x: 2, z: 0 };
-    assert.equal(pickPreyTarget(hunter, [lyingWalker]), null);
+    // Vulnerable: the scene marks walkerImmune === false (not
+    // building, not on own parcel). The walker is prey.
+    const vulnerable = { id: 'walker', isWalker: true, creature: true, prey: true, alive: true, walkerImmune: false, x: 2, z: 0 };
+    assert.equal(pickPreyTarget(hunter, [vulnerable]).id, 'walker');
+    // Immune: building or on own parcel. Refused outright.
+    const immune = { id: 'walker', isWalker: true, creature: true, prey: true, alive: true, walkerImmune: true, x: 2, z: 0 };
+    assert.equal(pickPreyTarget(hunter, [immune]), null);
+    // A walker record that omits the flag defaults to immune —
+    // the scene must explicitly vouch for vulnerability.
+    const unflagged = { id: 'walker', isWalker: true, creature: true, prey: true, alive: true, x: 2, z: 0 };
+    assert.equal(pickPreyTarget(hunter, [unflagged]), null);
+    // A dead walker is not prey either.
+    const dead = { id: 'walker', isWalker: true, creature: true, prey: true, alive: false, walkerImmune: false, x: 2, z: 0 };
+    assert.equal(pickPreyTarget(hunter, [dead]), null);
     // Dead prey and fellow predators are not prey either.
     assert.equal(pickPreyTarget(hunter, [preyAt('d#0', 5, 0, { alive: false })]), null);
     assert.equal(pickPreyTarget(hunter, [preyAt('rex#1', 5, 0, { prey: false })]), null);
     // And a predator never selects itself.
     assert.equal(pickPreyTarget(hunter, [preyAt('rex#0', 1, 0)]), null);
+  });
+
+  it('THE GUARDIAN (Merlin, 2026-10-31): hunts predators, defends the walker, never hunts prey or the user', () => {
+    const guardian = { id: 'spino#0', x: 0, z: 0 };
+    const rexNear = { id: 'rex#1', predator: true, alive: true, x: 30, z: 0 };
+    const rexFar = { id: 'rex#2', predator: true, alive: true, x: 60, z: 0 };
+    const trike = { id: 'trike#0', creature: true, prey: true, alive: true, x: 5, z: 0 };
+    const walker = { id: 'walker', isWalker: true, creature: true, prey: true, alive: true, walkerImmune: false, x: 8, z: 0 };
+    // Nearest predator wins; prey and the walker are invisible to it.
+    assert.equal(pickGuardianTarget(guardian, [trike, walker, rexFar, rexNear]).id, 'rex#1');
+    assert.equal(pickGuardianTarget(guardian, [trike, walker]), null);
+    // DEFENSE FIRST: a predator hunting the walker outranks a nearer one.
+    const hunterRex = { id: 'rex#3', predator: true, alive: true, huntingWalker: true, x: 55, z: 0 };
+    assert.equal(pickGuardianTarget(guardian, [rexNear, hunterRex]).id, 'rex#3');
+    // Guardians don't hunt guardians, the dead, or themselves.
+    const spino2 = { id: 'spino#1', predator: true, guardian: true, alive: true, x: 10, z: 0 };
+    const deadRex = { id: 'rex#4', predator: true, alive: false, x: 10, z: 0 };
+    assert.equal(pickGuardianTarget(guardian, [spino2, deadRex]), null);
+    assert.equal(pickGuardianTarget({ id: 'spino#0', x: 0, z: 0 }, [{ id: 'spino#0', predator: true, alive: true, x: 1, z: 0 }]), null);
+  });
+
+  it('the Spinosaurus manifest entry carries the guardian flag', () => {
+    const spino = bySlug('spinosaurus');
+    assert.equal(spino.guardian, true);
+    assert.equal(behaviourCaps(spino).guardian, true);
+    assert.equal(behaviourCaps(spino).predator, true);
+    // No other land carnivore is a guardian.
+    for (const e of EARTH2_MODELS) {
+      if (e.kind === 'dinosaur' && e.diet === 'carnivore' && e.slug !== 'spinosaurus') {
+        assert.equal(behaviourCaps(e).guardian, false);
+      }
+    }
   });
 
   it('chases are losable: across many seeded hunts, prey escapes a real share', () => {

@@ -137,6 +137,7 @@ import {
   swimDraftMargin,
   stepWorldWalker,
   applyWorldLook,
+  WALK_SPEED_MPS,
 } from '@/lib/earth2/world';
 import {
   solarPosition,
@@ -162,6 +163,7 @@ import {
   fleePoint,
   intentSpeed,
   pickPreyTarget,
+  pickGuardianTarget,
   rollChase,
   HUNT,
   seedFor,
@@ -481,6 +483,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   // mirrored weather), refreshed by the scene's environment tick.
   const [envHud, setEnvHud] = useState(null);
   const [notice, setNotice] = useState('');
+  const [deathFlash, setDeathFlash] = useState(false); // red flash when a predator catches the walker
   const [travel, setTravel] = useState(false);
   const [status, setStatus] = useState({});
   const [bootSlugs, setBootSlugs] = useState(null);
@@ -3425,7 +3428,51 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       // prey's own record becomes the carcass (its fossil roll
       // rides the lifecycle record — the future hunt build reads
       // it from exactly here), and the predator settles to eat.
+      // Immunity law (Merlin, 2026-10-31): the walker is immune to
+      // predator hunts ONLY while building or standing on their own
+      // parcel. Everywhere else in the wild, the walker is prey.
+      // Mirrors syncParcel's ownership check below.
+      function isWalkerImmune() {
+        if (buildModeRef.current && buildModeRef.current.active) return true;
+        const p = parcelAtWorld(walker.x, walker.z);
+        const bp = buildPropsRef.current || {};
+        const row = bp.owners && typeof bp.owners.get === 'function' ? bp.owners.get(p.id) : null;
+        return !!(row && bp.user && row.owner_email && bp.user.email
+          && String(row.owner_email).toLowerCase() === String(bp.user.email).toLowerCase());
+      }
+
+      // Chomp chomp (Merlin, 2026-10-31): a predator that catches the
+      // walker eats, and the walker wakes up at home base — home
+      // ground is own parcel, so the respawn lands immune.
+      // (walkerPrey, the stalk/chase adapter, is defined beside the
+      // walker itself below — it needs the live walker reference.)
+      function killWalker(predator) {
+        predator.chase = null;
+        predator.huntTarget = null;
+        if (predator.beh) {
+          predator.beh.hunger = 0.08;
+          setBehaviourMode(predator.beh, 'eat', 16 + rng() * 14);
+        }
+        // Caught at the wheel: step out of the machine first so the
+        // drive state doesn't trail the walker to home base.
+        if (drivingRef.current && typeof exitVehicle === 'function') exitVehicle();
+        const name = predator.entry && predator.entry.name ? predator.entry.name : 'predator';
+        noticeRef.current(`🦖 The ${name} caught you! You wake up at your home base.`);
+        if (!cancelled) {
+          setDeathFlash(true);
+          setTimeout(() => { if (!cancelled) setDeathFlash(false); }, 1400);
+        }
+        const spawn = spawnPointFor(resolveSpawnParcel(spawnParcelId));
+        walker.x = spawn.x;
+        walker.z = spawn.z;
+        walker.yaw = Math.atan2(spawn.x, spawn.z);
+        if (typeof syncParcel === 'function') syncParcel(true);
+      }
+
       function killPrey(prey, predator, t) {
+        // The walker, caught: not a lifecycle kill — the player
+        // dies and wakes at home base instead.
+        if (prey.isWalker) { killWalker(predator); return; }
         const carcass = lifecycle.kill(prey.id, t, prey.root.position);
         prey.alive = false;
         prey.state = 'carcass';
@@ -3558,6 +3605,15 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
               setBehaviourMode(beh, 'winded', 4);
               break;
             }
+            // The walker reached safety mid-stalk (own parcel or
+            // build mode): the hunt breaks off, winded.
+            if (prey.isWalker && isWalkerImmune()) {
+              a.huntTarget = null;
+              beh.huntCooldown = HUNT.postChaseCooldownS;
+              setBehaviourMode(beh, 'winded', 4);
+              noticeRef.current('🛡️ You reached safety — the predator gives up.');
+              break;
+            }
             const tp = prey.root.position;
             const d = Math.hypot(tp.x - pos.x, tp.z - pos.z);
             stepTo(tp, intentSpeed(a.entry) * HUNT.stalkSpeedFactor);
@@ -3582,9 +3638,26 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
               setBehaviourMode(beh, 'winded', 4);
               break;
             }
+            // The walker reached safety mid-chase: the hunt breaks off.
+            if (prey.isWalker && isWalkerImmune()) {
+              a.chase = null;
+              a.huntTarget = null;
+              beh.huntCooldown = HUNT.postChaseCooldownS;
+              setBehaviourMode(beh, 'winded', 4);
+              noticeRef.current('🛡️ You reached safety — the predator gives up.');
+              break;
+            }
             a.chaseT += dt;
             const tp = prey.root.position;
-            stepTo(tp, intentSpeed(prey.entry) * HUNT.fleeSpeedFactor * a.chase.speedFactor);
+            // Against the walker the predator runs the walker's race:
+            // a touch faster than walking pace when the chase roll
+            // says caught, a touch slower when it says escaped — the
+            // hunt stays losable, and the counters are the parcel
+            // line, a gunshot, or the guardian.
+            const chaseSpeed = prey.isWalker
+              ? WALK_SPEED_MPS * 1.02 * a.chase.speedFactor
+              : intentSpeed(prey.entry) * HUNT.fleeSpeedFactor * a.chase.speedFactor;
+            stepTo(tp, chaseSpeed);
             const d = Math.hypot(tp.x - pos.x, tp.z - pos.z);
             if (d < HUNT.killRangeM + prey.entry.scaleM * 0.22) {
               killPrey(prey, a, t);
@@ -3620,10 +3693,10 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             break;
         }
 
-        // A hungry predator with its breath back picks a target:
-        // the nearest living prey CREATURE in stalk range.
-        // pickPreyTarget only ever sees creature records — the
-        // walker is not one, so the walker can never be hunted.
+        // A hungry predator with its breath back picks a target.
+        // Guardians hunt PREDATORS (defending the walker first);
+        // other predators hunt prey creatures — and the walker,
+        // when the walker is vulnerable (Merlin, 2026-10-31).
         if (caps.predator
           && beh.mode !== 'stalk' && beh.mode !== 'chase'
           && beh.mode !== 'eat' && beh.mode !== 'sleep'
@@ -3633,15 +3706,45 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             if (o === a || !o.creature) continue;
             views.push({
               id: o.id, creature: true, prey: !!(o.caps && o.caps.prey),
+              predator: !!(o.caps && o.caps.predator),
+              guardian: !!(o.caps && o.caps.guardian),
+              huntingWalker: !!(o.huntTarget && o.huntTarget.isWalker),
               alive: o.alive, x: o.root.position.x, z: o.root.position.z,
             });
           }
-          const pick = pickPreyTarget({ id: a.id, x: pos.x, z: pos.z }, views, HUNT.stalkRangeM);
-          if (pick) {
-            const preyRec = animals.find((o) => o.id === pick.id);
-            if (preyRec) {
-              a.huntTarget = preyRec;
-              setBehaviourMode(beh, 'stalk', Infinity);
+          // The walker, as a candidate: the scene vouches for
+          // vulnerability here (not building, not on own parcel).
+          views.push({
+            id: 'walker', isWalker: true, creature: true, prey: true,
+            alive: true, walkerImmune: isWalkerImmune(),
+            x: walker.x, z: walker.z,
+          });
+          if (caps.guardian) {
+            const pick = pickGuardianTarget({ id: a.id, x: pos.x, z: pos.z }, views, HUNT.stalkRangeM);
+            if (pick) {
+              const preyRec = animals.find((o) => o.id === pick.id);
+              if (preyRec) {
+                a.huntTarget = preyRec;
+                setBehaviourMode(beh, 'stalk', Infinity);
+                if (pick.huntingWalker) {
+                  noticeRef.current(`🛡️ Your Spinosaurus guardian moves on the ${preyRec.entry.name} hunting you!`);
+                }
+              }
+            }
+          } else {
+            const pick = pickPreyTarget({ id: a.id, x: pos.x, z: pos.z }, views, HUNT.stalkRangeM);
+            if (pick) {
+              if (pick.isWalker) {
+                a.huntTarget = walkerPrey;
+                setBehaviourMode(beh, 'stalk', Infinity);
+                noticeRef.current(`🦖 A ${a.entry.name} has your scent — run for your parcel, or shoot it!`);
+              } else {
+                const preyRec = animals.find((o) => o.id === pick.id);
+                if (preyRec) {
+                  a.huntTarget = preyRec;
+                  setBehaviourMode(beh, 'stalk', Infinity);
+                }
+              }
             }
           }
         }
@@ -3784,6 +3887,17 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         x: spawn.x, z: spawn.z,
         yaw: Math.atan2(spawn.x, spawn.z), // face the world's heart
         pitch: 0,
+      };
+      // The walker, as hunt prey (Merlin, 2026-10-31): a live adapter
+      // for the stalk/chase machine — root.position IS the walker, so
+      // hunts track the player in real time. No behaviour of its own
+      // (beh: null — the player flees with their own feet, and the
+      // machine's prey.beh branches skip null cleanly). Defined here,
+      // beside the walker, because it needs the live reference.
+      const walkerPrey = {
+        id: 'walker', isWalker: true, alive: true, state: 'roam',
+        entry: { scaleM: 1.8, name: 'you' },
+        root: { position: walker }, beh: null, huntTarget: null, fleeFrom: null,
       };
       // The solid world: the landforms' own colliders plus the
       // Commons dressing's (Terrain Wave B — rocks, boulders,
@@ -4343,11 +4457,14 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         if (obj.userData.vehicle) boardVehicle(obj.userData.vehicle);
         else if (obj.userData.mosquito) shootMosquito(obj.userData.mosquito);
         else if (obj.userData.animalRef) {
-          // The hunt build: a tap on a dino is a shot — but only
-          // when the gunplay unlock is open. (Build mode never
-          // reaches here: handleTap returns into buildTap first,
-          // so builders can't shoot — and nothing shoots back.)
-          if (gunplayUnlockedRef.current) shootDino(obj.userData.animalRef);
+          const target = obj.userData.animalRef;
+          // The guardian fights FOR the user — it can't be shot.
+          // (Build mode never reaches here: handleTap returns into
+          // buildTap first, so builders can't shoot.)
+          if (target.entry && target.entry.guardian) {
+            noticeRef.current('🛡️ The Spinosaurus is your guardian — it hunts the predators that hunt you.');
+          }
+          else if (gunplayUnlockedRef.current) shootDino(target);
           else noticeRef.current('🔫 Gunplay is still locked — wake it in the unlock picker to hunt.');
         }
         else if (obj.userData.sacRef) collectSac(obj.userData.sacRef);
@@ -5940,6 +6057,9 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           <p className="rounded-lg border border-amber-300/30 bg-amber-400/15 px-2.5 py-1.5 text-[11px] font-semibold leading-snug text-amber-100">
             {notice}
           </p>
+        )}
+        {deathFlash && (
+          <div className="pointer-events-none fixed inset-0 z-50 bg-red-600/45" aria-hidden="true" />
         )}
         <button
           type="button"
