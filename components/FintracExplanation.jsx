@@ -298,7 +298,7 @@ function LandingSetupFrame({ onContinue }) {
     'ui-element pointer-events-auto flex h-20 w-20 items-center justify-center rounded-full border-4 transition-all active:scale-95';
 
   return (
-    <div className="flex flex-col items-center">
+    <div className="relative flex flex-col items-center">
       {ONBOARDING_STEP1_PARAGRAPHS.map((p, i) => (
         <p key={i} className="text-center text-sm leading-relaxed text-zinc-200">
           {p}
