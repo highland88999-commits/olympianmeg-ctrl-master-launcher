@@ -107,6 +107,16 @@ import { dressingColliders } from '@/lib/earth2/scatter';
 import { fossilConditionById } from '@/lib/earth2/fossils';
 import { exchangeFossil, aetherForFossil } from '@/lib/earth2/hammond';
 import { useBackpack, updateBackpack } from '@/lib/backpack/store';
+import { equippedWeaponEntry } from '@/lib/backpack/backpack.js';
+import {
+  GRAPPLE_COOLDOWN_MS,
+  GRAPPLE_PULL_SECONDS,
+  GRAPPLE_ARC_LIFT_M,
+  isGrappleEquipped,
+  grappleRangeDecision,
+  grapplePullTarget,
+  grappleEase,
+} from '@/lib/earth2/grapple';
 import BackpackHud from '@/components/backpack/BackpackHud';
 import {
   sacCount,
@@ -498,6 +508,10 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   // The world renders counts from it; trades and finds write to it.
   const backpackRecord = useBackpack();
   const localSacs = sacCount(backpackRecord);
+  // Grappling hook (Merlin, 2026-11-01): the 🪝 button appears
+  // while his rusty hook is the equipped weapon — on foot only,
+  // never driving, never building.
+  const grappleEquipped = isGrappleEquipped(equippedWeaponEntry(backpackRecord));
   const fossilPack = useMemo(
     () => fossilItemsFromRecord(backpackRecord),
     [backpackRecord]
@@ -914,12 +928,25 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   const [nearVehicle, setNearVehicle] = useState(null);
   const [driving, setDriving] = useState(null);
   const [driveInfo, setDriveInfo] = useState({ speed: 0, alt: 0, integrity: 100 });
+  // Drive camera mode for the HUD toggle (mirrors driveCamRef).
+  const [driveCam, setDriveCam] = useState('third');
   const vehicleStatesRef = useRef(null);
   if (vehicleStatesRef.current === null) vehicleStatesRef.current = loadVehicleStates();
   const drivingRef = useRef(null);
+  // Drive camera: 'third' (behind + above, the default — Merlin,
+  // 2026-11-01) or 'first' (driver's eye). Toggled from the HUD.
+  const driveCamRef = useRef('third');
+  const toggleDriveCamRef = useRef(() => {});
   const nearVehicleRef = useRef(null);
   const boardVehicleRef = useRef(() => {});
   const exitVehicleRef = useRef(() => {});
+  // ── Grappling hook (Merlin, 2026-11-01) ──────────────────────
+  // The hook's fire lives in the scene (it moves the walker), so
+  // the HUD button calls through this ref door, on the
+  // boardVehicleRef pattern. Returns the throw's outcome:
+  // 'fired' | 'cooldown' | 'unavailable' | 'too-far' | 'nothing'.
+  const grappleFireRef = useRef(() => 'unavailable');
+  const [grappleCooling, setGrappleCooling] = useState(false);
   const setHammondPanel = (open) => {
     hammondOpenRef.current = open;
     setHammondOpen(open);
@@ -1839,8 +1866,12 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           // the LOWEST ground sampled under the footprint, so
           // the slab meets the earth everywhere — the high side
           // beds in, the low side never hovers.
-          if (rec.groundSpan) {
-            const r = rec.groundSpan;
+          // (2026-11-01: landform entries carry their own
+          // groundSpan in models.js — the volcano was hovering
+          // because its stream rec never set one.)
+          const span = rec.groundSpan || entry.groundSpan;
+          if (span) {
+            const r = span;
             for (let k = 0; k < 8; k++) {
               const a = (k / 8) * Math.PI * 2;
               gy = Math.min(gy,
@@ -1880,7 +1911,9 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
               added.push(cloneRoot);
             }
           }
-          makeLabel(entry.name, root, entry.scaleM * 0.8 + 2, 320, owner);
+          // Label rides the crown, not the belly (Merlin, 2026-11-01:
+          // the volcano's tag floated in mid-air at 0.8× height).
+          makeLabel(entry.name, root, entry.scaleM + 3, 320, owner);
           setStatusFor(entry.slug, 'placed');
           return { roots: added };
         } catch (err) {
@@ -2779,6 +2812,11 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       }
       boardVehicleRef.current = (slug) => boardVehicle(slug);
       exitVehicleRef.current = () => exitVehicle();
+      toggleDriveCamRef.current = () => {
+        const next = driveCamRef.current === 'third' ? 'first' : 'third';
+        driveCamRef.current = next;
+        setDriveCam(next);
+      };
 
       // ── Behaviour: mosquitos feed, sacs drop, Dracula turns ──
       function moveToward(obj, target, speed, dt) {
@@ -4084,6 +4122,119 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         entry: { scaleM: 1.8, name: 'you' },
         root: { position: walker }, beh: null, huntTarget: null, fleeFrom: null,
       };
+      // ── The grappling hook (Merlin, 2026-11-01) ──────────────
+      // His rusty hook fires from the camera's aim: the ray takes
+      // the nearest of a structure mesh hit (every resident
+      // streamed root — builds, landforms, the museum, the
+      // castle…) and the analytic terrain march (heightAt, the
+      // same ground the walker's feet read). Within 40 m the hook
+      // attaches and zips the walker to the attach point over
+      // about a second, with a slight arc; past 40 m it can't
+      // reach; on open sky there's nothing to grab. Foot only —
+      // never driving, never building.
+      const grapple = {
+        pulling: false,
+        fromX: 0, fromZ: 0, toX: 0, toZ: 0,
+        anchorX: 0, anchorY: 0, anchorZ: 0,
+        t: 0, arcLift: 0,
+        cooldownUntil: 0,
+        rope: null, ropeUntil: 0,
+      };
+      const GRAPPLE_MESH_FAR_M = 120; // structures are searched this far, so "too far" is honest
+      function hideGrappleRope() {
+        if (!grapple.rope) return;
+        scene.remove(grapple.rope);
+        grapple.rope.geometry.dispose();
+        grapple.rope.material.dispose();
+        grapple.rope = null;
+      }
+      function showGrappleRope() {
+        hideGrappleRope();
+        const geo = new THREE.BufferGeometry();
+        const groundY = heightAt(walker.x, walker.z);
+        geo.setAttribute('position', new THREE.Float32BufferAttribute([
+          walker.x, groundY + 1.5, walker.z,
+          grapple.anchorX, grapple.anchorY, grapple.anchorZ,
+        ], 3));
+        const mat = new THREE.LineBasicMaterial({ color: 0xd9a45b }); // rusty rope
+        grapple.rope = new THREE.Line(geo, mat);
+        grapple.rope.frustumCulled = false;
+        scene.add(grapple.rope);
+      }
+      function updateGrappleRope() {
+        if (!grapple.rope) return;
+        const p = grapple.rope.geometry.attributes.position;
+        const groundY = heightAt(walker.x, walker.z);
+        p.setXYZ(0, walker.x, groundY + 1.5, walker.z);
+        p.setXYZ(1, grapple.anchorX, grapple.anchorY, grapple.anchorZ);
+        p.needsUpdate = true;
+      }
+      // March the aim ray down to the terrain, analytically —
+      // the same march the build tap uses. Returns the nearest
+      // ground point within maxS metres, or null.
+      function grappleTerrainPoint(ray, maxS) {
+        for (let s = 0.5; s <= maxS; s += 0.3) {
+          const px = ray.origin.x + ray.direction.x * s;
+          const py = ray.origin.y + ray.direction.y * s;
+          const pz = ray.origin.z + ray.direction.z * s;
+          if (py <= heightAt(px, pz) + 0.05) return { x: px, y: heightAt(px, pz), z: pz, dist: s };
+        }
+        return null;
+      }
+      function fireGrapple() {
+        const now = performance.now();
+        if (grapple.pulling || now < grapple.cooldownUntil) return 'cooldown';
+        if (drivingRef.current || buildModeRef.current.active) return 'unavailable';
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(new THREE.Vector2(0, 0), camera); // dead centre of the aim
+        raycaster.far = GRAPPLE_MESH_FAR_M;
+        // Structures: every resident streamed root (streamState is
+        // declared below — this only runs on a button press, long
+        // after the world stands).
+        const roots = [];
+        for (const st of streamState.values()) {
+          if (st && st.status === 'resident' && st.record && Array.isArray(st.record.roots)) {
+            roots.push(...st.record.roots);
+          }
+        }
+        let bestDist = Infinity;
+        let bestPoint = null;
+        if (roots.length) {
+          const hits = raycaster.intersectObjects(roots, true);
+          if (hits.length && hits[0].distance < bestDist) {
+            bestDist = hits[0].distance;
+            bestPoint = hits[0].point;
+          }
+        }
+        // Terrain: the analytic march, same reach as the meshes.
+        const ground = grappleTerrainPoint(raycaster.ray, GRAPPLE_MESH_FAR_M);
+        if (ground && ground.dist < bestDist) {
+          bestDist = ground.dist;
+          bestPoint = new THREE.Vector3(ground.x, ground.y, ground.z);
+        }
+        const decision = grappleRangeDecision(bestDist);
+        if (decision === 'nothing') {
+          noticeRef.current('🪝 Nothing to grab — aim at the ground or a building.');
+          return 'nothing';
+        }
+        if (decision === 'too-far') {
+          noticeRef.current('🪝 Too far — get closer.');
+          return 'too-far';
+        }
+        // Attached: the hook owns the walker's feet until the zip lands.
+        const dest = grapplePullTarget(walker, bestPoint);
+        grapple.pulling = true;
+        grapple.fromX = walker.x; grapple.fromZ = walker.z;
+        grapple.toX = dest.x; grapple.toZ = dest.z;
+        grapple.anchorX = bestPoint.x; grapple.anchorY = bestPoint.y; grapple.anchorZ = bestPoint.z;
+        grapple.t = 0; grapple.arcLift = 0;
+        grapple.cooldownUntil = now + GRAPPLE_COOLDOWN_MS;
+        grapple.ropeUntil = 0;
+        showGrappleRope();
+        noticeRef.current('🪝 Hook attached!');
+        return 'fired';
+      }
+      grappleFireRef.current = fireGrapple;
       // The solid world: the landforms' own colliders plus the
       // Commons dressing's (Terrain Wave B — rocks, boulders,
       // crater discs and tree trunks are solid, per Merlin).
@@ -5548,8 +5699,12 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         // it the camera-aimed ghost) on desktop.
         const joyX = buildModeRef.current.active ? 0 : inp.joy.x;
         const joyY = buildModeRef.current.active ? 0 : inp.joy.y;
-        const fwdIn = (inp.keys.fwd ? 1 : 0) - (inp.keys.back ? 1 : 0) + joyY;
-        const strafeIn = (inp.keys.right ? 1 : 0) - (inp.keys.left ? 1 : 0) + joyX;
+        // GRAPPLING HOOK (Merlin, 2026-11-01): while the hook
+        // pulls, it owns the walker's feet — walk inputs rest
+        // until the zip lands.
+        const hookPulling = grapple.pulling && !drivingRef.current;
+        const fwdIn = hookPulling ? 0 : ((inp.keys.fwd ? 1 : 0) - (inp.keys.back ? 1 : 0) + joyY);
+        const strafeIn = hookPulling ? 0 : ((inp.keys.right ? 1 : 0) - (inp.keys.left ? 1 : 0) + joyX);
         const travelNow = travelRef.current || inp.keys.shift;
         const dyn = [{ x: DRACULA_SPOT.x, z: DRACULA_SPOT.z, r: 1.3 }];
         // Solid Earth law for the museum mount: Hammond himself,
@@ -5647,8 +5802,26 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           walker.z = stepped.z;
           const rec = vehicles.find((v) => v.key === drivingId);
           if (rec) poseVehicle(rec, stepped, t, dt);
-          camera.position.set(stepped.x, stepped.y + dSpec.eyeHeight, stepped.z);
-          camera.rotation.set(walker.pitch, walker.yaw, 0);
+          // Drive camera (Merlin, 2026-11-01): third-person by
+          // default — behind and above the machine, looking past
+          // it. First-person (driver's eye) is a HUD toggle.
+          if (driveCamRef.current === 'third') {
+            const h = stepped.heading || 0;
+            const fx = Math.sin(h), fz = Math.cos(h);
+            const dist = Math.max(7, (dSpec.radius || 3) * 2.6);
+            const height = Math.max(4, (dSpec.radius || 3) * 1.4);
+            const cx = stepped.x - fx * dist;
+            const cz = stepped.z - fz * dist;
+            const cy = Math.max(
+              stepped.y + height,
+              heightAt(cx, cz) + 2.2,
+            );
+            camera.position.set(cx, cy, cz);
+            camera.lookAt(stepped.x + fx * 6, stepped.y + 2, stepped.z + fz * 6);
+          } else {
+            camera.position.set(stepped.x, stepped.y + dSpec.eyeHeight, stepped.z);
+            camera.rotation.set(walker.pitch, walker.yaw, 0);
+          }
           if (frameNo % 10 === 0 && !cancelled) {
             setDriveInfo({ speed: Math.abs(stepped.speed || 0), alt: stepped.alt || 0, integrity: stepped.integrity ?? 100 });
           }
@@ -5671,6 +5844,34 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           const movedDist = Math.hypot(next.x - walker.x, next.z - walker.z);
           walker.x = next.x;
           walker.z = next.z;
+          // GRAPPLING HOOK (Merlin, 2026-11-01): the zip — the
+          // walker eases from the throw spot to the attach
+          // point over about a second, arcing slightly, while
+          // the rope draws taut from hand to hook. Landing
+          // hands the feet back to the walker.
+          if (grapple.pulling) {
+            grapple.t += dt / GRAPPLE_PULL_SECONDS;
+            const k = Math.min(1, grapple.t);
+            const e = grappleEase(k);
+            const px = walker.x, pz = walker.z;
+            walker.x = grapple.fromX + (grapple.toX - grapple.fromX) * e;
+            walker.z = grapple.fromZ + (grapple.toZ - grapple.fromZ) * e;
+            grapple.arcLift = Math.sin(Math.PI * k) * GRAPPLE_ARC_LIFT_M;
+            if (buildOrbit.parked && Math.hypot(walker.x - px, walker.z - pz) > 1e-4) {
+              buildOrbit.parked = false; buildOrbit.weight = 0;
+            }
+            if (k >= 1) {
+              grapple.pulling = false;
+              grapple.arcLift = 0;
+              grapple.ropeUntil = performance.now() + 350; // the rope lingers a beat, then goes
+            }
+          }
+          // The rope follows the zip; once landed it lingers a
+          // beat, then the scene lets it go.
+          if (grapple.rope) {
+            if (grapple.pulling) updateGrappleRope();
+            else if (grapple.ropeUntil && performance.now() > grapple.ropeUntil) hideGrappleRope();
+          }
           const deckY = bridgeHeightAt(walker.x, walker.z);
           const groundY = deckY != null ? deckY : heightAt(walker.x, walker.z);
           const depth = Math.max(0, WATER_Y - groundY);
@@ -5696,7 +5897,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           if (!buildOrbit.parked && !buildOrbit.driving) {
             camera.position.set(
               walker.x,
-              groundY + WALK_EYE_M - Math.min(depth, 1.1) * 0.3 + bob,
+              groundY + WALK_EYE_M - Math.min(depth, 1.1) * 0.3 + bob + (grapple.arcLift || 0),
               walker.z,
             );
           }
@@ -6125,6 +6326,8 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         renderer.domElement.removeEventListener('pointerup', onPointerUp);
         renderer.domElement.removeEventListener('pointercancel', onPointerCancel);
         gamepadTapRef.current = null; // GAMEPAD ADAPTER: scene torn down.
+        grappleFireRef.current = () => 'unavailable'; // GRAPPLE: the hook went with the scene.
+        hideGrappleRope();
         for (const l of labels) l.el.remove();
         for (const b of vehicleBars) b.el.remove();
         scene.traverse((o) => {
@@ -6872,16 +7075,25 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
                 <p className="mt-1 text-[11px] leading-snug text-zinc-400">
                   {(driveInfo.speed * 3.6).toFixed(0)} km/h
                   {vehicleSpecForInstance(driving)?.air ? ` · ${(driveInfo.alt || 0).toFixed(0)} m up` : ''}
-                  {' '}· W/S move · A/D steer · drag looks around
+                  {' '}· Joystick to drive · drag to look around
                 </p>
               </div>
+              <div className="flex shrink-0 flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => toggleDriveCamRef.current()}
+                className="rounded-full border border-sky-300/50 bg-sky-400/20 px-3 py-2 text-[12px] font-bold text-sky-50 transition hover:bg-sky-400/35"
+              >
+                {driveCam === 'third' ? '🎥 1st person' : '🎥 3rd person'}
+              </button>
               <button
                 type="button"
                 onClick={() => exitVehicleRef.current()}
-                className="shrink-0 rounded-full border border-sky-300/50 bg-sky-400/20 px-3 py-2 text-[12px] font-bold text-sky-50 transition hover:bg-sky-400/35"
+                className="rounded-full border border-sky-300/50 bg-sky-400/20 px-3 py-2 text-[12px] font-bold text-sky-50 transition hover:bg-sky-400/35"
               >
                 🚶 Step out
               </button>
+              </div>
             </div>
             <div>
               <div className="flex items-baseline justify-between gap-2">
@@ -6960,6 +7172,32 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             </button>
           </div>
         </div>
+      )}
+
+      {/* Grappling hook (Merlin, 2026-11-01): while his rusty hook
+          is the equipped weapon, a 🪝 button rides bottom-right —
+          right-thumb reachable, clear of the joystick — on foot
+          only (never driving, never building). One tap fires the
+          hook down the camera's aim; it needs 3 seconds to reel
+          back in between throws. */}
+      {grappleEquipped && !driving && !buildMode && (
+        <button
+          type="button"
+          aria-label="Fire grappling hook"
+          title="Fire the grappling hook"
+          disabled={grappleCooling}
+          onClick={() => {
+            const status = grappleFireRef.current();
+            if (status === 'fired') {
+              setGrappleCooling(true);
+              setTimeout(() => setGrappleCooling(false), GRAPPLE_COOLDOWN_MS);
+            }
+          }}
+          className="pointer-events-auto absolute bottom-3 right-3 z-20 flex h-16 w-16 flex-col items-center justify-center gap-0 rounded-full border-2 border-amber-300/60 bg-amber-400/25 text-2xl backdrop-blur transition active:scale-95 disabled:opacity-40"
+        >
+          <span aria-hidden="true">🪝</span>
+          <span className="text-[8px] font-black tracking-[0.18em] text-amber-100">HOOK</span>
+        </button>
       )}
 
       {/* Touch controls: the shared walk joystick — a fixed
