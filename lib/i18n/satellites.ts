@@ -248,6 +248,7 @@ export const SATELLITES: SatelliteEntry[] = [
   { key: "run-it-straight", route: "/run-it-straight", pos: "ARES", section: "GAMES", constellation: "ZEUS" },
   { key: "beer-pong", route: "/beer-pong", pos: "ARES", section: "GAMES", constellation: "ZEUS" },
   { key: "hall-of-mirrors", route: "/hall-of-mirrors", pos: "ARES", section: "GAMES", constellation: "ZEUS" },
+  { key: "monopoly", route: "/monopoly", pos: "ARES", section: "GAMES", constellation: "ZEUS" },
   { key: "sports-complex", route: "/sports-complex", pos: "ARES", section: "GAMES", constellation: "ZEUS" },
   { key: "attractions-complex", route: "/attractions-complex", pos: "ARES", section: "GAMES", constellation: "ZEUS" },
   // REQUEST A BILLBOARD — the user-facing billboard space (request,
