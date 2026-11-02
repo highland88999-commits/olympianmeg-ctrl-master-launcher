@@ -1718,17 +1718,41 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       const _qSpin = new THREE.Quaternion();
       const _qBone = new THREE.Quaternion();
       const _vAxis = new THREE.Vector3();
+      const _vLat = new THREE.Vector3();
+      const _vFwd = new THREE.Vector3();
+      const _vHp = new THREE.Vector3();
+      const _vPp = new THREE.Vector3();
       function computeLegSwingAxes(spin, resolved) {
         spin.updateMatrixWorld(true);
+        // True lateral axis in spin-local space (Merlin, 2026-11-01):
+        // the old code assumed local X was always sideways, but rigs
+        // authored facing ±X (like the T-Rex) got a sideways shuffle.
+        // Lateral = up × forward, measured from the head-pelvis axis.
+        _vLat.set(1, 0, 0); // fallback: assume facing ±Z
+        const headBone = resolved.head;
+        const pelvisBone = (resolved.spine && resolved.spine[0]) || null;
+        if (headBone && pelvisBone) {
+          headBone.getWorldPosition(_vHp);
+          pelvisBone.getWorldPosition(_vPp);
+          spin.worldToLocal(_vHp);
+          spin.worldToLocal(_vPp);
+          _vFwd.subVectors(_vHp, _vPp); _vFwd.y = 0;
+          if (_vFwd.lengthSq() > 1e-8) {
+            _vFwd.normalize();
+            _vLat.set(0, 1, 0).cross(_vFwd);
+            if (_vLat.lengthSq() < 1e-8) _vLat.set(1, 0, 0);
+            else _vLat.normalize();
+          }
+        }
         spin.getWorldQuaternion(_qSpin);
         for (const leg of resolved.legs) {
           for (const key of ['thigh', 'calf', 'foot']) {
             const bone = leg[key];
             if (!bone) continue;
             bone.getWorldQuaternion(_qBone);
-            // Model-local X (lateral) -> bone-local axis:
-            // axis_local = Q_bone^-1 * Q_spin * (1,0,0)
-            _vAxis.set(1, 0, 0).applyQuaternion(_qSpin).applyQuaternion(_qBone.clone().invert());
+            // Spin-local lateral -> bone-local axis:
+            // axis_local = Q_bone^-1 * Q_spin * lateral
+            _vAxis.copy(_vLat).applyQuaternion(_qSpin).applyQuaternion(_qBone.clone().invert());
             leg[key + 'Axis'] = _vAxis.clone();
           }
         }
