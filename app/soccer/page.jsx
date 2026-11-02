@@ -1,6 +1,6 @@
-// app/soccer/page.jsx — Olympus Soccer: 5v5, FIFA arcade style.
+// app/soccer/page.jsx — Olympus Soccer: 7v7, Olympus Cup rules.
 //
-// You (striker) + 4 AI vs 5 AI. Two 4-minute halves.
+// You (striker) + 6 AI vs 7 AI. Two 10-minute halves, FIFA Laws of the Game.
 // Rules in lib/sports/soccer.js.
 
 'use client';
@@ -8,7 +8,7 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import WalkJoystick from '@/components/world/WalkJoystick';
-import { createSoccer, stepSoccer, kickoff, PITCH_W, PITCH_L, GOAL_W } from '@/lib/sports/soccer.js';
+import { createSoccer, stepSoccer, kickoff, PITCH_W, PITCH_L, GOAL_W, FORMAT_SHORT } from '@/lib/sports/soccer.js';
 
 const TEAM_COLORS = { blue: '#3b82f6', red: '#ef4444' };
 
@@ -18,7 +18,7 @@ export default function SoccerPage() {
   const joyRef = useRef({ x: 0, y: 0 });
   const actRef = useRef(false);
   const [started, setStarted] = useState(false);
-  const [hud, setHud] = useState({ blue: 0, red: 0, half: 1, clock: '4:00', message: '', winner: null });
+  const [hud, setHud] = useState({ blue: 0, red: 0, half: 1, clock: '10:00', message: '', winner: null });
   const hudPrevRef = useRef('');
   const startedRef = useRef(false);
 
@@ -147,7 +147,17 @@ export default function SoccerPage() {
         actRef.current = false;
         for (const ev of state.events) {
           if (ev.type === 'goal') msgRef.current = ev.team === 'blue' ? 'GOAL!' : 'They scored.';
-          if (ev.type === 'half') msgRef.current = 'Second half';
+          if (ev.type === 'half') msgRef.current = 'Second half — ends changed';
+          if (ev.type === 'foul') msgRef.current = 'Foul! Free kick.';
+          if (ev.type === 'offside') msgRef.current = 'Offside!';
+          if (ev.type === 'penalty') msgRef.current = 'Penalty!';
+          if (ev.type === 'corner') msgRef.current = 'Corner';
+          if (ev.type === 'throwin') msgRef.current = 'Throw-in';
+          if (ev.type === 'goalkick') msgRef.current = 'Goal kick';
+          if (ev.type === 'freekick') msgRef.current = 'Free kick';
+          if (ev.type === 'kickoff') msgRef.current = '';
+          if (ev.type === 'card') msgRef.current = ev.color === 'red' ? 'Red card — sent off!' : 'Yellow card';
+          if (ev.type === 'abandoned') msgRef.current = 'Match abandoned — too few players.';
         }
         if (state.status === 'kickoff' && !frame.koTimer) frame.koTimer = now;
       } else if (startedRef.current && state.status === 'kickoff') {
@@ -203,7 +213,7 @@ export default function SoccerPage() {
   return (
     <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100dvh', overflow: 'hidden', background: '#0a1f0a' }}>
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', pointerEvents: 'none' }}>
-        <div style={{ color: '#f8fafc', fontWeight: 800, fontSize: 16 }}>⚽ SOCCER <span style={{ fontWeight: 600 }}>{hud.blue}-{hud.red}</span> <span style={{ fontSize: 13, color: '#94a3b8' }}>H{hud.half} {hud.clock}</span></div>
+        <div style={{ color: '#f8fafc', fontWeight: 800, fontSize: 16 }}>⚽ SOCCER <span style={{ fontWeight: 600 }}>{hud.blue}-{hud.red}</span> <span style={{ fontSize: 13, color: '#94a3b8' }}>H{hud.half} {hud.clock}</span> <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>{FORMAT_SHORT}</span></div>
         <a href="/" style={{ color: '#94a3b8', fontSize: 13, textDecoration: 'none', pointerEvents: 'auto' }}>✕ Leave</a>
       </div>
       {hud.message && !hud.winner && (
@@ -221,7 +231,7 @@ export default function SoccerPage() {
           <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20, textAlign: 'center' }}>
           <div style={{ fontSize: 56 }}>⚽</div>
           <div style={{ color: '#f8fafc', fontSize: 28, fontWeight: 800 }}>SOCCER</div>
-          <div style={{ color: '#cbd5e1', fontSize: 15, maxWidth: 320 }}>5v5, two 4-minute halves. You're the striker — dribble with the joystick, tap SHOOT in range.</div>
+          <div style={{ color: '#cbd5e1', fontSize: 15, maxWidth: 320 }}>7-a-side, two 10-minute halves per Olympus Cup rules. You're the striker — dribble with the joystick, tap SHOOT in range.</div>
           <button type="button" onClick={() => { kickoff(gameRef.current); setStarted(true); }} style={{ marginTop: 8, background: '#16a34a', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 40px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>KICK OFF</button>
           </div>
         </div>
@@ -234,7 +244,7 @@ export default function SoccerPage() {
           <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(10,10,10,0.72), rgba(10,10,10,0.6) 50%, rgba(10,10,10,0.9))' }} />
           <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20, textAlign: 'center' }}>
           <div style={{ color: '#f8fafc', fontSize: 34, fontWeight: 800 }}>{hud.winner === 'blue' ? 'YOU WIN!' : hud.winner === 'tie' ? 'DRAW' : 'They win.'}</div>
-          <button type="button" onClick={() => { gameRef.current = createSoccer(); setHud({ blue: 0, red: 0, half: 1, clock: '4:00', message: '', winner: null }); setStarted(true); }} style={{ marginTop: 8, background: '#16a34a', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 34px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>REMATCH</button>
+          <button type="button" onClick={() => { gameRef.current = createSoccer(); setHud({ blue: 0, red: 0, half: 1, clock: '10:00', message: '', winner: null }); setStarted(true); }} style={{ marginTop: 8, background: '#16a34a', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 34px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>REMATCH</button>
           </div>
         </div>
       )}

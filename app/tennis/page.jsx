@@ -1,13 +1,14 @@
 // app/tennis/page.jsx — Olympus Tennis: singles vs AI.
 //
-// First to 6 games, win by 2. Rules in lib/sports/tennis.js.
+// ITF scoring: 15/30/40, games, sets (best of 3), tie-break.
+// Rules in lib/sports/tennis.js.
 
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import WalkJoystick from '@/components/world/WalkJoystick';
-import { createRacket, stepRacket, serveRacket, courtDims } from '@/lib/sports/tennis.js';
+import { createRacket, stepRacket, serveRacket, courtDims, formatScore } from '@/lib/sports/tennis.js';
 
 export default function TennisPage() {
   const containerRef = useRef(null);
@@ -15,7 +16,7 @@ export default function TennisPage() {
   const joyRef = useRef({ x: 0, y: 0 });
   const actRef = useRef(false);
   const [started, setStarted] = useState(false);
-  const [hud, setHud] = useState({ you: 0, ai: 0, message: '', winner: null });
+  const [hud, setHud] = useState({ scoreText: '', message: '', winner: null });
   const hudPrevRef = useRef('');
   const startedRef = useRef(false);
 
@@ -129,6 +130,10 @@ export default function TennisPage() {
         actRef.current = false;
         for (const ev of state.events) {
           if (ev.type === 'point') msgRef.current = ev.winner === 'you' ? 'Point!' : 'Their point.';
+          else if (ev.type === 'let') msgRef.current = 'Let — replay the serve.';
+          else if (ev.type === 'fault') msgRef.current = ev.double ? 'Double fault.' : 'Fault — second serve.';
+          else if (ev.type === 'game') msgRef.current = ev.winner === 'you' ? 'Game!' : 'Game to AI.';
+          else if (ev.type === 'set') msgRef.current = ev.winner === 'you' ? 'Set!' : 'Set to AI.';
         }
       } else if (startedRef.current && state.status === 'serve') {
         if (!frame.serveTimer) frame.serveTimer = now;
@@ -148,7 +153,7 @@ export default function TennisPage() {
       camera.position.set(state.you.x * 0.5, 12, state.you.z + 12);
       camera.lookAt(0, 0.5, -2);
 
-      const nextHud = { you: state.score.you, ai: state.score.ai, message: msgRef.current, winner: state.winner };
+      const nextHud = { scoreText: formatScore(state), message: msgRef.current, winner: state.winner };
       const key = JSON.stringify(nextHud);
       if (key !== hudPrevRef.current) {
         hudPrevRef.current = key;
@@ -170,7 +175,7 @@ export default function TennisPage() {
   return (
     <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100dvh', overflow: 'hidden', background: '#1a4d1a' }}>
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', pointerEvents: 'none' }}>
-        <div style={{ color: '#f8fafc', fontWeight: 800, fontSize: 18 }}>🎾 TENNIS <span style={{ fontSize: 14 }}>{hud.you}-{hud.ai}</span></div>
+        <div style={{ color: '#f8fafc', fontWeight: 800, fontSize: 18 }}>🎾 TENNIS <span style={{ fontSize: 14 }}>{hud.scoreText}</span></div>
         <a href="/" style={{ color: '#94a3b8', fontSize: 13, textDecoration: 'none', pointerEvents: 'auto' }}>✕ Leave</a>
       </div>
       {hud.message && !hud.winner && (
@@ -188,7 +193,7 @@ export default function TennisPage() {
           <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20, textAlign: 'center' }}>
           <div style={{ fontSize: 56 }}>🎾</div>
           <div style={{ color: '#f8fafc', fontSize: 28, fontWeight: 800 }}>TENNIS</div>
-          <div style={{ color: '#cbd5e1', fontSize: 15, maxWidth: 320 }}>Singles vs AI. First to 6, win by 2. Move with the joystick, tap HIT to swing.</div>
+          <div style={{ color: '#cbd5e1', fontSize: 15, maxWidth: 320 }}>Singles vs AI. Real ITF scoring: 15-30-40, games, sets, tie-break. Move with the joystick, tap HIT to swing.</div>
           <button type="button" onClick={() => setStarted(true)} style={{ marginTop: 8, background: '#ccff00', color: '#1a4d1a', border: 'none', borderRadius: 999, padding: '14px 40px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>PLAY</button>
           </div>
         </div>
@@ -201,7 +206,8 @@ export default function TennisPage() {
           <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(8,8,10,0.72), rgba(8,8,10,0.6) 50%, rgba(8,8,10,0.9))' }} />
           <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20, textAlign: 'center' }}>
           <div style={{ color: hud.winner === 'you' ? '#ccff00' : '#f87171', fontSize: 34, fontWeight: 800 }}>{hud.winner === 'you' ? 'YOU WIN!' : 'AI wins.'}</div>
-          <button type="button" onClick={() => { gameRef.current = createRacket('tennis'); setHud({ you: 0, ai: 0, message: '', winner: null }); setStarted(true); }} style={{ marginTop: 8, background: '#ccff00', color: '#1a4d1a', border: 'none', borderRadius: 999, padding: '14px 34px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>REMATCH</button>
+          <div style={{ color: '#cbd5e1', fontSize: 15 }}>{hud.scoreText}</div>
+          <button type="button" onClick={() => { gameRef.current = createRacket('tennis'); setHud({ scoreText: '', message: '', winner: null }); setStarted(true); }} style={{ marginTop: 8, background: '#ccff00', color: '#1a4d1a', border: 'none', borderRadius: 999, padding: '14px 34px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>REMATCH</button>
           </div>
         </div>
       )}

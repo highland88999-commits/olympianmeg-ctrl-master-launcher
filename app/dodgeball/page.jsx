@@ -1,4 +1,7 @@
-// app/dodgeball/page.jsx — Dodgeball: full 3D arena, 3v3, you + 2 bots vs 3 bots.
+// app/dodgeball/page.jsx — Dodgeball: full 3D arena, official WDBF rules.
+//
+// 6v6 WDBF official (Rule 4.2) or 3v3 arcade, foam format (6 balls).
+// 18 m x 9 m court, opening rush, timed sets across 2 halves, shot clock.
 //
 // The scene is one self-contained component: the canvas, HUD, joystick,
 // and THROW button all live inside this container, so nothing here
@@ -11,48 +14,53 @@ import * as THREE from 'three';
 import WalkJoystick from '@/components/world/WalkJoystick';
 import { fx, unlockFx } from '@/lib/fx';
 import {
-  createMatch, step, autoAim,
-  COURT_HALF_W, COURT_HALF_D, CATCH_PROMPT_DIST,
+  createMatch, step, autoAim, incomingBallFor,
+  COURT_HALF_W, COURT_HALF_D, BLOCK_DIST, ATTACK_LINE_DIST,
+  FORMAT, DEFAULT_MODE, TEAM_SIZES,
 } from '@/lib/dodgeball/rules.js';
 import {
-  createLobby, tickLobby, buildRoster, lobbyCounts, LOBBY_SECONDS,
+  createLobby, tickLobby, buildRoster, LOBBY_SECONDS,
 } from '@/lib/dodgeball/matchmaking.js';
 
 const TEAM_COLORS = { blue: '#3b82f6', red: '#ef4444' };
 
 function makeCourtTexture() {
+  // 18 m x 9 m (WDBF 1.1): canvas is portrait, top = world -Z (red half).
   const canvas = document.createElement('canvas');
   canvas.width = 512;
-  canvas.height = 896;
+  canvas.height = 1024;
   const ctx = canvas.getContext('2d');
+  const W = 512;
+  const H = 1024;
+  const zToY = (z) => ((z + COURT_HALF_D) / (COURT_HALF_D * 2)) * H;
   ctx.fillStyle = '#1e293b';
-  ctx.fillRect(0, 0, 512, 896);
-  // Canvas top = world -Z (red half); bottom = world +Z (blue half).
+  ctx.fillRect(0, 0, W, H);
   ctx.fillStyle = 'rgba(239, 68, 68, 0.12)';
-  ctx.fillRect(0, 0, 512, 448);
+  ctx.fillRect(0, 0, W, H / 2);
   ctx.fillStyle = 'rgba(59, 130, 246, 0.12)';
-  ctx.fillRect(0, 448, 512, 448);
+  ctx.fillRect(0, H / 2, W, H / 2);
   ctx.strokeStyle = '#f8fafc';
   ctx.lineWidth = 6;
-  ctx.strokeRect(16, 16, 480, 864);
+  ctx.strokeRect(16, 16, W - 32, H - 32);
+  // Center line (red): touch it and you're out (WDBF 26.3).
   ctx.strokeStyle = '#ef4444';
   ctx.lineWidth = 8;
   ctx.beginPath();
-  ctx.moveTo(16, 448);
-  ctx.lineTo(496, 448);
+  ctx.moveTo(16, zToY(0));
+  ctx.lineTo(W - 16, zToY(0));
   ctx.stroke();
   ctx.strokeStyle = '#f8fafc';
   ctx.lineWidth = 4;
   ctx.beginPath();
-  ctx.arc(256, 448, 70, 0, Math.PI * 2);
+  ctx.arc(W / 2, zToY(0), 60, 0, Math.PI * 2);
   ctx.stroke();
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.moveTo(16, 224);
-  ctx.lineTo(496, 224);
-  ctx.moveTo(16, 672);
-  ctx.lineTo(496, 672);
-  ctx.stroke();
+  // Attack lines (white): rush balls go live behind these (WDBF 13.4).
+  for (const s of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(16, zToY(s * ATTACK_LINE_DIST));
+    ctx.lineTo(W - 16, zToY(s * ATTACK_LINE_DIST));
+    ctx.stroke();
+  }
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
@@ -76,6 +84,11 @@ function makePlayerMesh(team, isHuman) {
   return group;
 }
 
+const fmtClock = (s) => {
+  const t = Math.max(0, Math.ceil(s));
+  return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+};
+
 export default function DodgeballPage() {
   const containerRef = useRef(null);
   const gameRef = useRef(null);
@@ -84,12 +97,19 @@ export default function DodgeballPage() {
   const actRef = useRef(false);
   const padEdgeRef = useRef(false);
   const startedRef = useRef(false);
+  const modeRef = useRef(DEFAULT_MODE);
+  const messageRef = useRef('');
   const [started, setStarted] = useState(false);
   const [inLobby, setInLobby] = useState(false);
   const [lobby, setLobby] = useState(null);
+  const [mode, setMode] = useState(DEFAULT_MODE);
   const [camMode, setCamMode] = useState('third'); // 'third' | 'first'
   const camModeRef = useRef('third');
-  const [hud, setHud] = useState({ blue: 3, red: 3, carrying: false, catchPrompt: false, message: '', winner: null });
+  const [hud, setHud] = useState({
+    blue: 6, red: 6, carrying: false, catchPrompt: false, blockPrompt: false,
+    message: '', winner: null, clock: '', points: '0–0', setLabel: '',
+    mode: DEFAULT_MODE, teamSize: 6, rush: 0,
+  });
   const hudPrevRef = useRef('');
 
   if (!gameRef.current) gameRef.current = createMatch();
@@ -187,7 +207,6 @@ export default function DodgeballPage() {
     let raf = 0;
     let last = performance.now();
     let cancelled = false;
-    const messageRef = { current: '' };
 
     const frame = (now) => {
       if (cancelled) return;
@@ -227,12 +246,51 @@ export default function DodgeballPage() {
       const doAct = actRef.current || padAct;
       actRef.current = false;
 
-      if (startedRef.current && state.status === 'playing' && you) {
+      if (startedRef.current && (state.status === 'playing' || state.status === 'rush') && you) {
         const aim = autoAim(state, you);
         step(state, dt, { mx, mz, act: doAct, aimX: aim.x, aimZ: aim.z }, Math.random);
         for (const ev of state.events) {
           if (ev.type === 'threw' && ev.throwerId === 'you') fx.tap();
           if (ev.type === 'picked' && ev.playerId === 'you') fx.tap();
+          if (ev.type === 'whistle') messageRef.current = 'Whistle! Rush the center balls!';
+          if (ev.type === 'set-start') messageRef.current = `Set ${ev.set} — on the line, wait for the whistle…`;
+          if (ev.type === 'false-start' && ev.victimId === 'you') {
+            fx.menuClose();
+            messageRef.current = 'False start — you’re out!';
+          }
+          if (ev.type === 'center-line' && ev.victimId === 'you') {
+            fx.menuClose();
+            messageRef.current = 'You touched the center line — out!';
+          }
+          if (ev.type === 'blocked') {
+            fx.checkpoint();
+            messageRef.current = ev.blockerId === 'you' ? 'Blocked!' : 'Your throw was blocked!';
+          }
+          if (ev.type === 'returned') {
+            fx.checkpoint();
+            messageRef.current = ev.team === 'blue' ? 'Teammate back in!' : 'Red brings one back!';
+          }
+          if (ev.type === 'not-activated' && ev.playerId === 'you') {
+            messageRef.current = 'Carry it behind the attack line first!';
+          }
+          if (ev.type === 'invalid-attempt' && ev.throwerId === 'you') {
+            messageRef.current = 'Not a valid attempt — too far from anyone.';
+          }
+          if (ev.type === 'shot-clock-violation') {
+            fx.checkpoint();
+            messageRef.current = ev.team === 'blue'
+              ? 'Shot clock! Your team turns it over.'
+              : 'Shot clock! Red turns it over.';
+          }
+          if (ev.type === 'set-end') {
+            fx.checkpoint();
+            messageRef.current = ev.result === 'draw'
+              ? `Set ${ev.set} drawn — ${ev.points.blue}–${ev.points.red}.`
+              : `Set ${ev.set}: ${ev.result === 'blue' ? 'your team takes it' : 'red takes it'} — ${ev.points.blue}–${ev.points.red}.`;
+          }
+          if (ev.type === 'half-end') {
+            messageRef.current = `Half ${ev.half} done — ${ev.points.blue}–${ev.points.red}.`;
+          }
           if (ev.type === 'caught') {
             fx.checkpoint();
             messageRef.current = ev.catcherId === 'you'
@@ -246,17 +304,25 @@ export default function DodgeballPage() {
           }
           if (ev.type === 'win') {
             if (ev.winner === 'blue') fx.gameWin();
-            else fx.menuClose();
+            else if (ev.winner === 'red') fx.menuClose();
+            else fx.checkpoint();
           }
         }
       }
 
       // ---- sync meshes from state ----
       const benchX = { blue: -COURT_HALF_W - 2.5, red: COURT_HALF_W + 2.5 };
-      let benchIdx = { blue: 0, red: 0 };
+      const benchIdx = { blue: 0, red: 0 };
+      const liveIds = new Set();
       for (const p of state.players) {
-        const mesh = playerMeshes[p.id];
-        if (!mesh) continue;
+        liveIds.add(p.id);
+        let mesh = playerMeshes[p.id];
+        if (!mesh) {
+          // A new match (lobby roster, rematch) can bring new player ids.
+          mesh = makePlayerMesh(p.team, p.isHuman);
+          scene.add(mesh);
+          playerMeshes[p.id] = mesh;
+        }
         if (p.alive) {
           mesh.position.set(p.x, 0, p.z);
           mesh.rotation.y = p.facing;
@@ -271,9 +337,12 @@ export default function DodgeballPage() {
           mesh.visible = true;
         }
       }
+      for (const id of Object.keys(playerMeshes)) {
+        if (!liveIds.has(id)) playerMeshes[id].visible = false;
+      }
       for (let i = 0; i < state.balls.length; i++) {
         const b = state.balls[i];
-        ballMeshes[i].position.set(b.x, b.mode === 'carried' ? 0.9 : 0.35, b.z);
+        if (ballMeshes[i]) ballMeshes[i].position.set(b.x, b.mode === 'carried' ? 0.9 : 0.35, b.z);
       }
       if (you) {
         youRing.position.x = you.x;
@@ -298,26 +367,26 @@ export default function DodgeballPage() {
 
       // ---- HUD, only when something changed ----
       let catchPrompt = false;
-      if (you && you.alive && you.hasBall === null && state.status === 'playing') {
-        for (const b of state.balls) {
-          if (b.mode !== 'flying' || !b.throwerId) continue;
-          const thrower = state.players.find((p) => p.id === b.throwerId);
-          if (!thrower || thrower.team === you.team) continue;
-          const dx = you.x - b.x;
-          const dz = you.z - b.z;
-          if (Math.hypot(dx, dz) < CATCH_PROMPT_DIST && b.vx * dx + b.vz * dz > 0) {
-            catchPrompt = true;
-            break;
-          }
-        }
+      let blockPrompt = false;
+      if (you && you.alive && state.status === 'playing') {
+        if (you.hasBall !== null) blockPrompt = !!incomingBallFor(state, you, BLOCK_DIST);
+        else catchPrompt = !!incomingBallFor(state, you);
       }
+      const teamSize = TEAM_SIZES[state.mode] || 6;
       const nextHud = {
         blue: state.players.filter((p) => p.team === 'blue' && p.alive).length,
         red: state.players.filter((p) => p.team === 'red' && p.alive).length,
         carrying: !!(you && you.hasBall !== null),
         catchPrompt,
+        blockPrompt,
         message: messageRef.current,
         winner: state.winner,
+        clock: state.status === 'over' ? 'FT' : fmtClock(state.halfTimeLeft),
+        points: `${state.points.blue}–${state.points.red}`,
+        setLabel: `H${state.half} · Set ${state.set}`,
+        mode: state.mode,
+        teamSize,
+        rush: state.status === 'rush' ? Math.ceil(state.rushTimer) : 0,
       };
       const key = JSON.stringify(nextHud);
       if (key !== hudPrevRef.current) {
@@ -360,8 +429,8 @@ export default function DodgeballPage() {
         if (tickLobby(next, 1)) {
           // Time's up — build the roster and start.
           const roster = buildRoster(next);
-          gameRef.current = createMatch(roster);
-          setHud({ blue: 3, red: 3, carrying: false, catchPrompt: false, message: '', winner: null });
+          gameRef.current = createMatch(roster, { mode: next.mode || DEFAULT_MODE, format: FORMAT });
+          messageRef.current = '';
           setStarted(true);
           setInLobby(false);
           return { ...next, status: 'done' };
@@ -372,6 +441,16 @@ export default function DodgeballPage() {
     return () => clearInterval(id);
   }, [inLobby, started]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const pickMode = (m) => {
+    modeRef.current = m;
+    setMode(m);
+    try {
+      fx.tap();
+    } catch (err) {
+      // Sound is garnish; a sound failure never blocks the match.
+    }
+  };
+
   const openLobby = () => {
     try {
       unlockFx();
@@ -379,15 +458,15 @@ export default function DodgeballPage() {
     } catch (err) {
       // Sound is garnish; a sound failure never blocks the match.
     }
-    setLobby(createLobby('you', 'You'));
+    setLobby(createLobby('you', 'You', modeRef.current));
     setInLobby(true);
   };
 
   const startNow = () => {
     if (!lobby) return;
     const roster = buildRoster(lobby);
-    gameRef.current = createMatch(roster);
-    setHud({ blue: 3, red: 3, carrying: false, catchPrompt: false, message: '', winner: null });
+    gameRef.current = createMatch(roster, { mode: lobby.mode || DEFAULT_MODE, format: FORMAT });
+    messageRef.current = '';
     setStarted(true);
     setInLobby(false);
   };
@@ -400,12 +479,23 @@ export default function DodgeballPage() {
     } catch (err) {
       // Sound is garnish; a sound failure never blocks the match.
     }
-    gameRef.current = createMatch();
-    setHud({ blue: 3, red: 3, carrying: false, catchPrompt: false, message: '', winner: null });
+    gameRef.current = createMatch(null, { mode: modeRef.current, format: FORMAT });
+    messageRef.current = '';
     setStarted(true);
   };
 
-  const dots = (n) => '●'.repeat(n) + '○'.repeat(3 - n);
+  const dots = (n, max) => '●'.repeat(n) + '○'.repeat(Math.max(0, max - n));
+  const modeBtn = (m) => ({
+    background: mode === m ? '#f59e0b' : 'rgba(15, 23, 42, 0.8)',
+    color: mode === m ? '#111827' : '#f8fafc',
+    border: mode === m ? 'none' : '1px solid #475569',
+    borderRadius: 999,
+    padding: '10px 18px',
+    fontSize: 14,
+    fontWeight: 700,
+    cursor: 'pointer',
+  });
+  const lobbySlots = (lobby && (TEAM_SIZES[lobby.mode] || 6)) || 6;
   const you = gameRef.current.players.find((p) => p.isHuman);
   const out = !!(you && !you.alive && hud.winner === null);
 
@@ -414,9 +504,12 @@ export default function DodgeballPage() {
       {/* Top HUD bar */}
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', pointerEvents: 'none' }}>
         <div style={{ color: '#f8fafc', fontWeight: 700, fontSize: 15 }}>
-          <span style={{ color: '#60a5fa' }}>YOU {dots(hud.blue)}</span>
+          <span style={{ color: '#60a5fa' }}>YOU {dots(hud.blue, hud.teamSize)}</span>
           <span style={{ color: '#94a3b8', margin: '0 8px' }}>vs</span>
-          <span style={{ color: '#f87171' }}>{dots(hud.red)} FOES</span>
+          <span style={{ color: '#f87171' }}>{dots(hud.red, hud.teamSize)} FOES</span>
+        </div>
+        <div style={{ color: '#fbbf24', fontWeight: 700, fontSize: 14, fontVariantNumeric: 'tabular-nums' }}>
+          ⏱ {hud.clock} · {hud.setLabel} · {hud.points}
         </div>
         <a href="/" style={{ color: '#94a3b8', fontSize: 13, textDecoration: 'none', pointerEvents: 'auto' }}>✕ Leave</a>
       </div>
@@ -437,14 +530,32 @@ export default function DodgeballPage() {
         </div>
       )}
 
-      {/* Start overlay -> matchmaking lobby */}
+      {/* Opening-rush countdown */}
+      {started && !hud.winner && hud.rush > 0 && (
+        <div style={{ position: 'absolute', inset: 0, zIndex: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+          <div style={{ color: '#fbbf24', fontSize: 84, fontWeight: 800, textShadow: '0 2px 24px rgba(0,0,0,0.8)' }}>
+            {hud.rush}
+          </div>
+        </div>
+      )}
+
+      {/* Start overlay -> mode select -> matchmaking lobby */}
       {!started && !inLobby && (
         <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, background: 'rgba(11, 17, 32, 0.72)', padding: 20, textAlign: 'center' }}>
           <div style={{ color: '#f8fafc', fontSize: 34, fontWeight: 800 }}>DODGEBALL</div>
           <div style={{ color: '#cbd5e1', fontSize: 15, maxWidth: 340, lineHeight: 1.5 }}>
-            3v3 PvP arena. Find a match — players join first, AI fills
-            the gaps after 60 seconds. Throw balls to hit opponents out.
-            Tap THROW just as a ball arrives to catch it. Last team standing wins.
+            Official WDBF rules: 2 × 15-minute halves of timed sets. Back-line
+            start, whistle, rush the center balls — carry them behind the
+            attack line to go live. Block with a held ball, catch to bring a
+            teammate back.
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="button" onClick={() => pickMode('6v6')} style={modeBtn('6v6')}>
+              6v6 · WDBF Official
+            </button>
+            <button type="button" onClick={() => pickMode('3v3')} style={modeBtn('3v3')}>
+              3v3 · Arcade
+            </button>
           </div>
           <button
             type="button"
@@ -466,6 +577,9 @@ export default function DodgeballPage() {
           <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0.72), rgba(0,0,0,0.55), rgba(0,0,0,0.88))' }} />
           <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, textAlign: 'center' }}>
           <div style={{ color: '#f8fafc', fontSize: 28, fontWeight: 800 }}>FINDING MATCH</div>
+          <div style={{ color: '#94a3b8', fontSize: 13 }}>
+            {lobby.mode === '6v6' ? '6v6 · WDBF Official' : '3v3 · Arcade'}
+          </div>
           <div style={{ color: '#fbbf24', fontSize: 42, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>
             {Math.ceil(lobby.secondsLeft)}s
           </div>
@@ -475,7 +589,7 @@ export default function DodgeballPage() {
           <div style={{ display: 'flex', gap: 16 }}>
             <div>
               <div style={{ color: '#60a5fa', fontWeight: 700, fontSize: 14, marginBottom: 6 }}>BLUE</div>
-              {[0, 1, 2].map((i) => {
+              {Array.from({ length: lobbySlots }).map((_, i) => {
                 const roster = buildRoster(lobby);
                 const slot = roster.filter((c) => c.team === 'blue')[i];
                 const isHuman = slot && slot.isHuman;
@@ -488,7 +602,7 @@ export default function DodgeballPage() {
             </div>
             <div>
               <div style={{ color: '#f87171', fontWeight: 700, fontSize: 14, marginBottom: 6 }}>RED</div>
-              {[0, 1, 2].map((i) => {
+              {Array.from({ length: lobbySlots }).map((_, i) => {
                 const roster = buildRoster(lobby);
                 const slot = roster.filter((c) => c.team === 'red')[i];
                 const isHuman = slot && slot.isHuman;
@@ -514,11 +628,11 @@ export default function DodgeballPage() {
       {/* End overlay */}
       {started && hud.winner && (
         <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, background: 'rgba(11, 17, 32, 0.72)', padding: 20, textAlign: 'center' }}>
-          <div style={{ color: hud.winner === 'blue' ? '#60a5fa' : '#f87171', fontSize: 34, fontWeight: 800 }}>
-            {hud.winner === 'blue' ? 'YOU WIN!' : 'Red team wins.'}
+          <div style={{ color: hud.winner === 'blue' ? '#60a5fa' : hud.winner === 'draw' ? '#fbbf24' : '#f87171', fontSize: 34, fontWeight: 800 }}>
+            {hud.winner === 'blue' ? 'YOU WIN!' : hud.winner === 'draw' ? 'Draw.' : 'Red team wins.'}
           </div>
           <div style={{ color: '#cbd5e1', fontSize: 15 }}>
-            {hud.winner === 'blue' ? 'Last team standing. Nice throwing.' : 'They got the last of your team. Run it back.'}
+            Final: {hud.points} — {hud.winner === 'blue' ? 'nice throwing.' : hud.winner === 'draw' ? 'nobody takes it.' : 'they took the match. Run it back.'}
           </div>
           <button
             type="button"
@@ -558,12 +672,12 @@ export default function DodgeballPage() {
             style={{
               position: 'absolute', right: 20, bottom: 32, zIndex: 6, width: 104, height: 104, borderRadius: '50%',
               border: '3px solid #f8fafc', cursor: 'pointer', fontSize: 19, fontWeight: 800,
-              background: hud.catchPrompt ? '#ef4444' : hud.carrying ? '#f59e0b' : '#94a3b8',
-              color: hud.catchPrompt ? '#fff' : '#111827',
-              transform: hud.catchPrompt ? 'scale(1.08)' : 'none',
+              background: hud.blockPrompt ? '#38bdf8' : hud.catchPrompt ? '#ef4444' : hud.carrying ? '#f59e0b' : '#94a3b8',
+              color: hud.blockPrompt || hud.catchPrompt ? '#fff' : '#111827',
+              transform: hud.blockPrompt || hud.catchPrompt ? 'scale(1.08)' : 'none',
             }}
           >
-            {hud.catchPrompt ? 'CATCH!' : 'THROW'}
+            {hud.blockPrompt ? 'BLOCK!' : hud.catchPrompt ? 'CATCH!' : 'THROW'}
           </button>
         </>
       )}

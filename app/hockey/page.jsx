@@ -16,6 +16,12 @@ import {
 
 const TEAM_COLORS = { blue: '#3b82f6', red: '#ef4444' };
 
+// Penalty clocks are real 2:00 — display what the engine counts.
+function fmtClock(totalSeconds) {
+  const s = Math.max(0, Math.ceil(totalSeconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
 function makeStick() {
   const g = new THREE.Group();
   const shaftMat = new THREE.MeshStandardMaterial({ color: '#8b5a2b', roughness: 0.6 });
@@ -237,7 +243,7 @@ export default function HockeyPage() {
         if (you.vz * Math.sign(toGoal) < -2) shotType = 'backhand';
       }
 
-      if (startedRef.current && (state.status === 'play' || state.status === 'shootout') && you) {
+      if (startedRef.current && (state.status === 'play' || state.status === 'shootout' || state.status === 'penaltyshot') && you) {
         const doShoot = shootRef.current && slapTimerRef.current > 0.08;
         stepHockey(state, dt, {
           mx: joyRef.current.x,
@@ -254,8 +260,17 @@ export default function HockeyPage() {
         for (const ev of state.events) {
           if (ev.type === 'goal') msgRef.current = ev.team === 'blue' ? 'GOAL!' : 'They scored.';
           if (ev.type === 'period') msgRef.current = ev.period === 'ot' ? 'OVERTIME — sudden death' : `Period ${ev.period}`;
-          if (ev.type === 'penalty') msgRef.current = `${ev.team === 'blue' ? 'Blue' : 'Red'} penalty: ${ev.reason} (2 min)`;
+          if (ev.type === 'penalty') msgRef.current = `${ev.team === 'blue' ? 'Blue' : 'Red'} penalty: ${ev.reason} (${fmtClock(ev.seconds || 120)})`;
           if (ev.type === 'offside') msgRef.current = 'Offside!';
+          if (ev.type === 'delayedOffside') msgRef.current = 'Delayed offside — tag up!';
+          if (ev.type === 'delayedPenalty') msgRef.current = `Delayed penalty on ${ev.team === 'blue' ? 'Blue' : 'Red'}…`;
+          if (ev.type === 'penaltyWiped') msgRef.current = 'Goal wipes out the delayed penalty.';
+          if (ev.type === 'penaltyEnded') msgRef.current = 'Shorthanded goal — penalty over.';
+          if (ev.type === 'icing') msgRef.current = 'Icing! Faceoff deep in the zone.';
+          if (ev.type === 'icingWaved') msgRef.current = 'Icing waved off — play on.';
+          if (ev.type === 'penaltyShot') msgRef.current = 'PENALTY SHOT!';
+          if (ev.type === 'penaltyShotMiss') msgRef.current = 'Stopped! No goal.';
+          if (ev.type === 'creaseViolation') msgRef.current = 'No goal — crease violation!';
           if (ev.type === 'check') msgRef.current = ev.checker === 'you' ? 'Big hit!' : 'You got leveled.';
           if (ev.type === 'save') msgRef.current = 'Saved!';
           if (ev.type === 'shootout') msgRef.current = 'SHOOTOUT';
@@ -265,7 +280,8 @@ export default function HockeyPage() {
       } else if (startedRef.current && state.status === 'faceoff') {
         if (!frame.foTimer) frame.foTimer = now;
         if (now - frame.foTimer > 1500) {
-          faceoff(state);
+          faceoff(state, state.nextFaceoffZ || 0);
+          state.nextFaceoffZ = 0;
           frame.foTimer = 0;
           msgRef.current = '';
         }
@@ -352,7 +368,7 @@ export default function HockeyPage() {
       {hud.youPenalty > 0 && (
         <div style={{ position: 'absolute', top: 80, left: 0, right: 0, zIndex: 5, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
           <div style={{ background: 'rgba(127,29,29,0.9)', color: '#fff', padding: '6px 14px', borderRadius: 999, fontSize: 13, fontWeight: 700 }}>
-            ⏱️ Penalty box: {hud.youPenalty}s
+            ⏱️ Penalty box: {fmtClock(hud.youPenalty)}
           </div>
         </div>
       )}
@@ -372,9 +388,9 @@ export default function HockeyPage() {
           <div style={{ fontSize: 56 }}>🏒</div>
           <div style={{ color: '#f8fafc', fontSize: 28, fontWeight: 800 }}>ICE HOCKEY</div>
           <div style={{ color: '#cbd5e1', fontSize: 14, maxWidth: 340, lineHeight: 1.6 }}>
-            4v4 with goalies. Real rules: offside, penalties, OT, shootout.<br />
+            4v4 with goalies. Real NHL rules: icing, delayed offside, 2:00 penalties, OT, shootout.<br />
             <b>SHOOT</b> tap = wrist · hold = slap · backhand auto<br />
-            <b>PASS</b> feeds a teammate · <b>CHECK</b> levels the carrier
+            <b>PASS</b> feeds a teammate · <b>CHECK</b> levels the carrier — hitting anyone else is interference
           </div>
           <button type="button" onClick={() => { faceoff(gameRef.current); setStarted(true); }} style={{ marginTop: 8, background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 40px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>DROP THE PUCK</button>
           </div>

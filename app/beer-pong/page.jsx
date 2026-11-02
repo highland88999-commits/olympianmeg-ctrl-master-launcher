@@ -11,13 +11,14 @@ import * as THREE from 'three';
 const CUPS_PER_SIDE = 10;
 
 function cupPositions(side) {
-  // Triangle rack: 4-3-2-1 rows
+  // Triangle rack: apex (1 cup) faces the shooter, 4-cup row at the back
+  // (WSOBP: the point of the triangle aims at the shooter).
   const positions = [];
   const zBase = side === 'you' ? 4 : -4;
   const dir = side === 'you' ? 1 : -1;
   let row = 0;
   let count = 0;
-  for (let r = 4; r >= 1 && count < CUPS_PER_SIDE; r--) {
+  for (let r = 1; r <= 4 && count < CUPS_PER_SIDE; r++) {
     for (let i = 0; i < r && count < CUPS_PER_SIDE; i++) {
       positions.push({
         x: (i - (r - 1) / 2) * 0.55,
@@ -31,12 +32,36 @@ function cupPositions(side) {
   return positions;
 }
 
+// Tight triangle of n cups, apex facing the shooter.
+// Used for WSOBP re-racks (at 6/3/1 survivors) and 3-cup overtime.
+function formationPositions(side, n) {
+  const positions = [];
+  const zBase = side === 'you' ? 4 : -4;
+  const dir = side === 'you' ? 1 : -1;
+  let row = 0;
+  let placed = 0;
+  let r = 1;
+  while (placed < n) {
+    const inRow = Math.min(r, n - placed);
+    for (let i = 0; i < inRow; i++) {
+      positions.push({
+        x: (i - (inRow - 1) / 2) * 0.55,
+        z: zBase + dir * row * 0.5,
+      });
+      placed++;
+    }
+    row++;
+    r++;
+  }
+  return positions;
+}
+
 export default function BeerPongPage() {
   const containerRef = useRef(null);
   const videoRef = useRef(null);
   const [started, setStarted] = useState(false);
   const [callOn, setCallOn] = useState(false);
-  const [hud, setHud] = useState({ you: CUPS_PER_SIDE, ai: CUPS_PER_SIDE, message: 'Swipe up to toss!', winner: null, turn: 'you' });
+  const [hud, setHud] = useState({ you: CUPS_PER_SIDE, ai: CUPS_PER_SIDE, message: 'Opening toss — swipe up!', winner: null, turn: 'you', phase: 'toss', rebuttal: false });
   const gameRef = useRef(null);
 
   if (!gameRef.current) {
@@ -46,6 +71,10 @@ export default function BeerPongPage() {
       ball: { x: 0, y: 1, z: 6, vx: 0, vy: 0, vz: 0, flying: false },
       turn: 'you',
       winner: null,
+      mode: 'toss', // 'toss' | 'game' | 'rebuttal'
+      toss: { you: null, ai: null }, // opening toss results (make = true)
+      rebuttalWinner: null, // who cleared the last cup and awaits the rebuttal outcome
+      busy: false, // true during re-rack/overtime notices so no throws sneak in
     };
   }
 
@@ -132,7 +161,7 @@ export default function BeerPongPage() {
     const onPointerUp = (e) => {
       if (!swipeStart || !startedRef.current) return;
       const g = gameRef.current;
-      if (g.turn !== 'you' || g.ball.flying || g.winner) return;
+      if (g.turn !== 'you' || g.ball.flying || g.winner || g.busy) return;
       const dy = swipeStart.y - e.clientY; // upward swipe = positive
       const dx = e.clientX - swipeStart.x;
       const dt = Math.max(50, Date.now() - swipeStart.t);
@@ -187,28 +216,14 @@ export default function BeerPongPage() {
           const dz = b.z - cup.z;
           // Ball drops into cup mouth
           if (Math.hypot(dx, dz) < 0.24 && b.y < 1.35 && b.y > 0.9 && b.vy < 0) {
-            cup.alive = false;
-            meshes[i].visible = false;
             b.flying = false;
-            const remaining = targetCups.filter((c) => c.alive).length;
-            if (g.turn === 'you') {
-              setHud((h) => ({ ...h, ai: remaining, message: remaining === 0 ? '' : 'NICE SHOT!' }));
-              if (remaining === 0) {
-                g.winner = 'you';
-                setHud((h) => ({ ...h, winner: 'you', message: '' }));
-              } else {
-                g.turn = 'ai';
-                setTimeout(aiThrow, 1200);
-              }
+            if (g.mode === 'toss') {
+              // Opening toss: a make counts, but the cup stays racked
+              if (g.toss) handleTossResult(g.turn, true);
             } else {
-              setHud((h) => ({ ...h, you: remaining, message: 'They sank one.' }));
-              if (remaining === 0) {
-                g.winner = 'ai';
-                setHud((h) => ({ ...h, winner: 'ai', message: '' }));
-              } else {
-                g.turn = 'you';
-                setHud((h) => ({ ...h, message: 'Your turn — swipe up to toss!' }));
-              }
+              cup.alive = false;
+              meshes[i].visible = false;
+              onCupSunk(g.turn);
             }
             break;
           }
@@ -216,14 +231,7 @@ export default function BeerPongPage() {
         // Missed everything — ball lands
         if (b.flying && (b.y < 0.95 || Math.abs(b.z) > 8)) {
           b.flying = false;
-          if (g.turn === 'you') {
-            g.turn = 'ai';
-            setHud((h) => ({ ...h, message: 'Miss. Their turn.' }));
-            setTimeout(aiThrow, 1200);
-          } else {
-            g.turn = 'you';
-            setHud((h) => ({ ...h, message: 'They missed. Your turn!' }));
-          }
+          onThrowMissed(g.turn);
         }
       }
       ball.position.set(g.ball.x, g.ball.y, g.ball.z);
@@ -237,7 +245,7 @@ export default function BeerPongPage() {
 
     const aiThrow = () => {
       const g = gameRef.current;
-      if (g.winner || g.turn !== 'ai') return;
+      if (g.winner || g.turn !== 'ai' || g.busy) return;
       // AI aims at a random live cup
       const live = g.youCups.filter((c) => c.alive);
       if (!live.length) return;
@@ -252,6 +260,206 @@ export default function BeerPongPage() {
       g.ball.vx = (tx - g.ball.x) / airTime;
       g.ball.vz = (tz - g.ball.z) / airTime;
       g.ball.vy = 4.2;
+    };
+
+    // ---- WSOBP singles rules: opening toss, rebuttal, overtime, re-racks ----
+    const RERACK_AT = [6, 3, 1];
+
+    function rerackSide(side) {
+      // Reform survivors into a tight triangle (WSOBP re-rack at 6/3/1)
+      const g = gameRef.current;
+      const cups = side === 'you' ? g.youCups : g.aiCups;
+      const meshes = side === 'you' ? cupMeshes.you : cupMeshes.ai;
+      const aliveIdx = [];
+      for (let i = 0; i < cups.length; i++) if (cups[i].alive) aliveIdx.push(i);
+      const pos = formationPositions(side, aliveIdx.length);
+      for (let p = 0; p < aliveIdx.length; p++) {
+        const i = aliveIdx[p];
+        cups[i].x = pos[p].x;
+        cups[i].z = pos[p].z;
+        meshes[i].position.set(pos[p].x, 0.975, pos[p].z);
+      }
+    }
+
+    function afterSinkMaybeRerack(targetSide, remaining, next) {
+      const g = gameRef.current;
+      if (RERACK_AT.includes(remaining)) {
+        g.busy = true;
+        rerackSide(targetSide);
+        setHud((h) => ({ ...h, message: '🔺 RE-RACK! Tight triangle.' }));
+        setTimeout(() => { g.busy = false; next(); }, 1300);
+      } else {
+        next();
+      }
+    }
+
+    function onCupSunk(shooter) {
+      const g = gameRef.current;
+      const targetSide = shooter === 'you' ? 'ai' : 'you';
+      const targetCups = targetSide === 'you' ? g.youCups : g.aiCups;
+      const remaining = targetCups.filter((c) => c.alive).length;
+      const counts = shooter === 'you' ? { ai: remaining } : { you: remaining };
+
+      if (g.mode === 'rebuttal') {
+        // WSOBP singles rebuttal: the loser keeps shooting until they miss
+        if (remaining === 0) {
+          g.busy = true;
+          setHud((h) => ({ ...h, ...counts, message: 'REBUTTAL COMPLETE — OVERTIME!' }));
+          setTimeout(() => startOvertime(shooter), 1400);
+          return;
+        }
+        setHud((h) => ({ ...h, ...counts }));
+        afterSinkMaybeRerack(targetSide, remaining, () => {
+          g.turn = shooter;
+          setHud((h) => ({
+            ...h,
+            turn: shooter,
+            message: shooter === 'you'
+              ? `REDEMPTION! ${remaining} to go — shoot again!`
+              : `AI rebuttal… ${remaining} to clear.`,
+          }));
+          if (shooter === 'ai') setTimeout(aiThrow, 1200);
+        });
+        return;
+      }
+
+      // Normal play
+      setHud((h) => ({
+        ...h,
+        ...counts,
+        message: shooter === 'you' ? (remaining === 0 ? '' : 'NICE SHOT!') : 'They sank one.',
+      }));
+      if (remaining === 0) {
+        beginRebuttal(shooter);
+        return;
+      }
+      afterSinkMaybeRerack(targetSide, remaining, () => {
+        const next = shooter === 'you' ? 'ai' : 'you';
+        g.turn = next;
+        setHud((h) => ({
+          ...h,
+          turn: next,
+          message: next === 'you' ? 'Your turn — swipe up to toss!' : h.message,
+        }));
+        if (next === 'ai') setTimeout(aiThrow, 1200);
+      });
+    }
+
+    function onThrowMissed(shooter) {
+      const g = gameRef.current;
+      if (g.mode === 'toss') {
+        if (g.toss) handleTossResult(shooter, false);
+        return;
+      }
+      if (g.mode === 'rebuttal') {
+        // Rebuttal failed — the player who cleared the last cup wins
+        g.winner = g.rebuttalWinner;
+        g.mode = 'game';
+        g.rebuttalWinner = null;
+        setHud((h) => ({ ...h, winner: g.winner, rebuttal: false, message: '' }));
+        return;
+      }
+      const next = shooter === 'you' ? 'ai' : 'you';
+      g.turn = next;
+      setHud((h) => ({ ...h, turn: next, message: next === 'ai' ? 'Miss. Their turn.' : 'They missed. Your turn!' }));
+      if (next === 'ai') setTimeout(aiThrow, 1200);
+    }
+
+    function beginRebuttal(clearedBy) {
+      // WSOBP: always an opportunity for redemption — no lockouts
+      const g = gameRef.current;
+      const rebuttalShooter = clearedBy === 'you' ? 'ai' : 'you';
+      const victimCups = clearedBy === 'you' ? g.youCups : g.aiCups;
+      const toClear = victimCups.filter((c) => c.alive).length;
+      g.mode = 'rebuttal';
+      g.rebuttalWinner = clearedBy;
+      g.turn = rebuttalShooter;
+      setHud((h) => ({
+        ...h,
+        rebuttal: true,
+        turn: rebuttalShooter,
+        message: rebuttalShooter === 'ai'
+          ? `LAST CUP DOWN! AI gets rebuttal — ${toClear} to clear.`
+          : `LAST CUP DOWN! REDEMPTION — clear their ${toClear} to force overtime!`,
+      }));
+      if (rebuttalShooter === 'ai') setTimeout(aiThrow, 1500);
+    }
+
+    function startOvertime(firstShooter) {
+      // WSOBP: successful rebuttal → 3 cups per side in a tight triangle
+      const g = gameRef.current;
+      g.busy = false;
+      for (const side of ['you', 'ai']) {
+        const cups = side === 'you' ? g.youCups : g.aiCups;
+        const meshes = side === 'you' ? cupMeshes.you : cupMeshes.ai;
+        const pos = formationPositions(side, 3);
+        for (let i = 0; i < cups.length; i++) {
+          const alive = i < pos.length;
+          cups[i].alive = alive;
+          meshes[i].visible = alive;
+          if (alive) {
+            cups[i].x = pos[i].x;
+            cups[i].z = pos[i].z;
+            meshes[i].position.set(pos[i].x, 0.975, pos[i].z);
+          }
+        }
+      }
+      g.mode = 'game';
+      g.rebuttalWinner = null;
+      g.turn = firstShooter;
+      setHud((h) => ({
+        ...h,
+        you: 3,
+        ai: 3,
+        rebuttal: false,
+        turn: firstShooter,
+        message: firstShooter === 'you' ? 'OVERTIME! 3 cups each — your ball!' : 'OVERTIME! 3 cups each — AI shoots first.',
+      }));
+      if (firstShooter === 'ai') setTimeout(aiThrow, 1200);
+    }
+
+    function handleTossResult(shooter, made) {
+      // Opening toss (WSOBP): one ball each; winner shoots first
+      const g = gameRef.current;
+      g.toss[shooter] = made;
+      if (shooter === 'you') {
+        g.turn = 'ai';
+        setHud((h) => ({ ...h, turn: 'ai', message: made ? 'You made your toss! AI tosses…' : 'Your toss missed. AI tosses…' }));
+        setTimeout(aiThrow, 1000);
+        return;
+      }
+      const youMade = g.toss.you;
+      const aiMade = g.toss.ai;
+      if (youMade && !aiMade) {
+        startRealGame('you', 'You won the toss — you shoot first!');
+      } else if (aiMade && !youMade) {
+        startRealGame('ai', 'AI won the toss — they shoot first.');
+      } else {
+        // Tie (both made or both missed): toss again
+        g.toss = { you: null, ai: null };
+        g.turn = 'you';
+        setHud((h) => ({ ...h, turn: 'you', message: 'Toss tied! Swipe up to toss again.' }));
+      }
+    }
+
+    function startRealGame(first, message) {
+      const g = gameRef.current;
+      g.mode = 'game';
+      g.toss = null;
+      g.turn = first;
+      setHud((h) => ({ ...h, phase: 'play', turn: first, message }));
+      if (first === 'ai') setTimeout(aiThrow, 1000);
+    }
+
+    // Skippable toss (called from the SKIP TOSS button)
+    gameRef.current.skipToss = () => {
+      const g = gameRef.current;
+      if (!g || g.mode !== 'toss' || g.winner) return;
+      g.busy = false;
+      g.ball.flying = false;
+      g.ball.x = 0; g.ball.y = 1; g.ball.z = 6;
+      const first = Math.random() < 0.5 ? 'you' : 'ai';
+      startRealGame(first, first === 'you' ? 'Toss skipped — you shoot first!' : 'Toss skipped — AI shoots first.');
     };
 
     // Sync startedRef with React state via a small interval
@@ -296,6 +504,18 @@ export default function BeerPongPage() {
         </div>
       )}
 
+      {hud.rebuttal && !hud.winner && (
+        <div style={{ position: 'absolute', top: 86, left: 0, right: 0, zIndex: 5, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
+          <div style={{ background: 'rgba(220,38,38,0.9)', color: '#fff', padding: '4px 14px', borderRadius: 999, fontSize: 12, fontWeight: 800 }}>🔥 REBUTTAL</div>
+        </div>
+      )}
+
+      {started && hud.phase === 'toss' && !hud.winner && (
+        <div style={{ position: 'absolute', bottom: 28, left: 0, right: 0, zIndex: 5, display: 'flex', justifyContent: 'center' }}>
+          <button type="button" onClick={() => gameRef.current.skipToss && gameRef.current.skipToss()} style={{ background: 'rgba(15,23,42,0.8)', color: '#cbd5e1', border: '1px solid #475569', borderRadius: 999, padding: '10px 22px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>SKIP TOSS</button>
+        </div>
+      )}
+
       {!started && !hud.winner && (
         <div style={{ position: 'absolute', inset: 0, zIndex: 10, overflow: 'hidden' }}>
           {/* Beer art wrap (Merlin, 2026-11-01): generated backdrop +
@@ -306,7 +526,7 @@ export default function BeerPongPage() {
           <div style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20, textAlign: 'center' }}>
           <div style={{ fontSize: 56 }}>🍺</div>
           <div style={{ color: '#f8fafc', fontSize: 28, fontWeight: 800 }}>BEER PONG</div>
-          <div style={{ color: '#cbd5e1', fontSize: 15, maxWidth: 320 }}>10 cups each vs AI. Swipe UP on the table to toss. Turn on Call Cam to face-time while you play.</div>
+          <div style={{ color: '#cbd5e1', fontSize: 15, maxWidth: 320 }}>10 cups each vs AI — official WSOBP singles rules: opening toss, rebuttals, re-racks & overtime. Swipe UP on the table to toss.</div>
           <button type="button" onClick={() => setStarted(true)} style={{ marginTop: 8, background: '#f59e0b', color: '#1a0f2e', border: 'none', borderRadius: 999, padding: '14px 40px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>RACK 'EM</button>
           </div>
         </div>

@@ -1,14 +1,14 @@
 // app/volleyball/page.jsx — Olympus Volleyball: 2v2 beach volleyball.
 //
-// You + AI teammate vs 2 AI. Rally scoring, first to 21 win by 2.
-// Rules in lib/sports/volleyball.js (pure, node-tested).
+// You + AI teammate vs 2 AI. Rally scoring, best of 3 sets
+// (21/21/15, win by 2). Rules in lib/sports/volleyball.js (pure, node-tested).
 
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import WalkJoystick from '@/components/world/WalkJoystick';
-import { createVolleyball, stepVolleyball, serveBall, COURT_W, COURT_L, NET_H } from '@/lib/sports/volleyball.js';
+import { createVolleyball, stepVolleyball, serveBall, stepServe, beginServe, SERVE_WINDOW, SET_PAUSE, COURT_W, COURT_L, NET_H } from '@/lib/sports/volleyball.js';
 
 const TEAM_COLORS = { blue: '#3b82f6', red: '#ef4444' };
 
@@ -18,7 +18,7 @@ export default function VolleyballPage() {
   const joyRef = useRef({ x: 0, y: 0 });
   const actRef = useRef(false);
   const [started, setStarted] = useState(false);
-  const [hud, setHud] = useState({ blue: 0, red: 0, message: '', winner: null });
+  const [hud, setHud] = useState({ blue: 0, red: 0, setsBlue: 0, setsRed: 0, set: 1, message: '', prompt: '', winner: null });
   const hudPrevRef = useRef('');
   const startedRef = useRef(false);
 
@@ -136,14 +136,27 @@ export default function VolleyballPage() {
         actRef.current = false;
         for (const ev of state.events) {
           if (ev.type === 'point') msgRef.current = ev.team === 'blue' ? 'Point!' : 'Their point.';
+          if (ev.type === 'fault') msgRef.current = ev.team === 'blue' ? 'Too many touches!' : 'Their fault — point!';
+          if (ev.type === 'set') msgRef.current = `Set ${ev.set}: ${ev.winner === 'blue' ? 'yours!' : 'theirs.'}`;
           if (ev.type === 'win') msgRef.current = '';
         }
       } else if (startedRef.current && state.status === 'serve') {
-        // Auto-serve after a beat
-        if (!frame.serveTimer) frame.serveTimer = now;
-        if (now - frame.serveTimer > 1200) {
-          serveBall(state);
-          frame.serveTimer = 0;
+        // Serve window: the human server taps HIT to serve; AI serves after a
+        // beat; anyone still holding the ball at 8s gets an auto-serve.
+        const server = state.players.find((p) => p.id === state.lastServer[state.serving]);
+        const humanServing = !!(server && server.isHuman);
+        const expired = stepServe(state, dt, { mx: joyRef.current.x, mz: -joyRef.current.y, act: actRef.current });
+        let doServe = expired;
+        if (!doServe && actRef.current && humanServing) doServe = true;
+        if (!doServe && !humanServing && state.serveTimer >= 1.2) doServe = true;
+        actRef.current = false;
+        if (doServe) serveBall(state);
+      } else if (startedRef.current && state.status === 'setbreak') {
+        // Brief breather between sets, then the set winner serves first
+        if (!frame.setTimer) frame.setTimer = now;
+        if (now - frame.setTimer > SET_PAUSE * 1000) {
+          beginServe(state, state.serving);
+          frame.setTimer = 0;
         }
       }
 
@@ -167,7 +180,21 @@ export default function VolleyballPage() {
         camera.lookAt(0, 1, 0);
       }
 
-      const nextHud = { blue: state.score.blue, red: state.score.red, message: msgRef.current, winner: state.winner };
+      // Serve / set prompts
+      let prompt = '';
+      if (state.status === 'serve') {
+        const srv = state.players.find((p) => p.id === state.lastServer[state.serving]);
+        if (srv && srv.isHuman) {
+          const left = Math.max(0, Math.ceil(SERVE_WINDOW - state.serveTimer));
+          prompt = `Your serve — tap HIT (${left}s)`;
+        } else {
+          prompt = state.serving === 'blue' ? 'Teammate serving…' : 'Opponent serving…';
+        }
+      } else if (state.status === 'setbreak') {
+        prompt = `Set ${state.set} — get ready!`;
+      }
+
+      const nextHud = { blue: state.score.blue, red: state.score.red, setsBlue: state.sets.blue, setsRed: state.sets.red, set: state.set, message: msgRef.current, prompt, winner: state.winner };
       const key = JSON.stringify(nextHud);
       if (key !== hudPrevRef.current) {
         hudPrevRef.current = key;
@@ -189,12 +216,17 @@ export default function VolleyballPage() {
   return (
     <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100dvh', overflow: 'hidden', background: '#87ceeb' }}>
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', pointerEvents: 'none' }}>
-        <div style={{ color: '#1e293b', fontWeight: 800, fontSize: 18 }}>🏐 VOLLEYBALL <span style={{ fontSize: 14, fontWeight: 600 }}>{hud.blue} - {hud.red}</span></div>
+        <div style={{ color: '#1e293b', fontWeight: 800, fontSize: 18 }}>🏐 VOLLEYBALL <span style={{ fontSize: 14, fontWeight: 600 }}>{hud.blue} - {hud.red}</span> <span style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>Set {hud.set} · Sets {hud.setsBlue}-{hud.setsRed}</span></div>
         <a href="/" style={{ color: '#475569', fontSize: 13, textDecoration: 'none', pointerEvents: 'auto' }}>✕ Leave</a>
       </div>
       {hud.message && !hud.winner && (
         <div style={{ position: 'absolute', top: 44, left: 0, right: 0, zIndex: 5, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
           <div style={{ background: 'rgba(15,23,42,0.8)', color: '#fbbf24', padding: '6px 14px', borderRadius: 999, fontSize: 14, fontWeight: 600 }}>{hud.message}</div>
+        </div>
+      )}
+      {hud.prompt && !hud.message && !hud.winner && (
+        <div style={{ position: 'absolute', top: 44, left: 0, right: 0, zIndex: 5, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
+          <div style={{ background: 'rgba(2,132,199,0.85)', color: '#fff', padding: '6px 14px', borderRadius: 999, fontSize: 14, fontWeight: 600 }}>{hud.prompt}</div>
         </div>
       )}
       {!started && !hud.winner && (
@@ -208,7 +240,7 @@ export default function VolleyballPage() {
           <div style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20, textAlign: 'center' }}>
           <div style={{ fontSize: 56 }}>🏐</div>
           <div style={{ color: '#f8fafc', fontSize: 28, fontWeight: 800 }}>BEACH VOLLEYBALL</div>
-          <div style={{ color: '#e2e8f0', fontSize: 15, maxWidth: 320 }}>You + AI vs 2 AI. First to 21, win by 2. Move with the joystick, tap HIT when the ball is close.</div>
+          <div style={{ color: '#e2e8f0', fontSize: 15, maxWidth: 320 }}>You + AI vs 2 AI. Best of 3 sets — 21/21/15, win by 2. Move with the joystick, tap HIT when the ball is close, and tap HIT to serve within 8 seconds.</div>
           <button type="button" onClick={() => setStarted(true)} style={{ marginTop: 8, background: '#0284c7', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 40px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>PLAY</button>
           </div>
         </div>
@@ -222,7 +254,7 @@ export default function VolleyballPage() {
           <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(15,23,42,0.6), rgba(15,23,42,0.55), rgba(15,23,42,0.85))' }} />
           <div style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20, textAlign: 'center' }}>
           <div style={{ color: hud.winner === 'blue' ? '#60a5fa' : '#f87171', fontSize: 34, fontWeight: 800 }}>{hud.winner === 'blue' ? 'YOU WIN!' : 'They win.'}</div>
-          <button type="button" onClick={() => { gameRef.current = createVolleyball(); setHud({ blue: 0, red: 0, message: '', winner: null }); setStarted(true); }} style={{ marginTop: 8, background: '#0284c7', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 34px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>REMATCH</button>
+          <button type="button" onClick={() => { gameRef.current = createVolleyball(); setHud({ blue: 0, red: 0, setsBlue: 0, setsRed: 0, set: 1, message: '', prompt: '', winner: null }); setStarted(true); }} style={{ marginTop: 8, background: '#0284c7', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 34px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>REMATCH</button>
           </div>
         </div>
       )}

@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import WalkJoystick from '@/components/world/WalkJoystick';
-import { createRacket, stepRacket, serveRacket, courtDims } from '@/lib/sports/tennis.js';
+import { createRacket, stepRacket, serveRacket, courtDims, formatScore } from '@/lib/sports/tennis.js';
 
 export default function TableTennisPage() {
   const containerRef = useRef(null);
@@ -15,7 +15,7 @@ export default function TableTennisPage() {
   const joyRef = useRef({ x: 0, y: 0 });
   const actRef = useRef(false);
   const [started, setStarted] = useState(false);
-  const [hud, setHud] = useState({ you: 0, ai: 0, message: '', winner: null });
+  const [hud, setHud] = useState({ scoreText: '', message: '', winner: null });
   const hudPrevRef = useRef('');
   const startedRef = useRef(false);
 
@@ -121,6 +121,7 @@ export default function TableTennisPage() {
         actRef.current = false;
         for (const ev of state.events) {
           if (ev.type === 'point') msgRef.current = ev.winner === 'you' ? 'Point!' : 'Their point.';
+          else if (ev.type === 'let') msgRef.current = 'Let — re-serve.';
         }
       } else if (startedRef.current && state.status === 'serve') {
         if (!frame.serveTimer) frame.serveTimer = now;
@@ -138,7 +139,7 @@ export default function TableTennisPage() {
       camera.position.set(state.you.x * 0.6, 2.6, state.you.z + 2.2);
       camera.lookAt(0, 0.8, -0.5);
 
-      const nextHud = { you: state.score.you, ai: state.score.ai, message: msgRef.current, winner: state.winner };
+      const nextHud = { scoreText: formatScore(state), message: msgRef.current, winner: state.winner };
       const key = JSON.stringify(nextHud);
       if (key !== hudPrevRef.current) {
         hudPrevRef.current = key;
@@ -160,7 +161,7 @@ export default function TableTennisPage() {
   return (
     <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100dvh', overflow: 'hidden', background: '#0f172a' }}>
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', pointerEvents: 'none' }}>
-        <div style={{ color: '#f8fafc', fontWeight: 800, fontSize: 18 }}>🏓 TABLE TENNIS <span style={{ fontSize: 14 }}>{hud.you}-{hud.ai}</span></div>
+        <div style={{ color: '#f8fafc', fontWeight: 800, fontSize: 18 }}>🏓 TABLE TENNIS <span style={{ fontSize: 14 }}>{hud.scoreText}</span></div>
         <a href="/" style={{ color: '#94a3b8', fontSize: 13, textDecoration: 'none', pointerEvents: 'auto' }}>✕ Leave</a>
       </div>
       {hud.message && !hud.winner && (
@@ -186,7 +187,8 @@ export default function TableTennisPage() {
           <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0.70), rgba(0,0,0,0.55), rgba(0,0,0,0.85))' }} />
           <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20, textAlign: 'center' }}>
             <div style={{ color: hud.winner === 'you' ? '#fdba74' : '#f87171', fontSize: 34, fontWeight: 800 }}>{hud.winner === 'you' ? 'YOU WIN!' : 'AI wins.'}</div>
-            <button type="button" onClick={() => { gameRef.current = createRacket('table'); setHud({ you: 0, ai: 0, message: '', winner: null }); setStarted(true); }} style={{ marginTop: 8, background: '#f97316', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 34px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>REMATCH</button>
+            <div style={{ color: '#cbd5e1', fontSize: 15 }}>{hud.scoreText}</div>
+            <button type="button" onClick={() => { gameRef.current = createRacket('table'); setHud({ scoreText: '', message: '', winner: null }); setStarted(true); }} style={{ marginTop: 8, background: '#f97316', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 34px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>REMATCH</button>
           </div>
         </div>
       )}
