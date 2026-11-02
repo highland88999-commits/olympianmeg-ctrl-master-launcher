@@ -5,7 +5,7 @@
 
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   BOARD, GROUP_SPACES, START_CASH, GO_SALARY, JAIL_FINE,
   createGame, currentPlayer, humanPlayers, ownerOf, playerProperties, ownsGroup,
@@ -16,6 +16,7 @@ import {
   proposeTrade, respondTrade, aiRespondTrade, emptyTrade, validateTrade,
   payDebt, declareBankruptcy, raiseFundsLikeAI,
   aiPlayTurn, aiAuctionBid, aiWantsToBuy, fmt,
+  deserializeState,
 } from '@/lib/monopoly/engine.js';
 
 const DICE_FACES = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
@@ -106,27 +107,49 @@ export default function MonopolyPage() {
   const gameRef = useRef(null);
   const pumpRef = useRef(false);
   const [, setTick] = useState(0);
-  const [mode, setMode] = useState('ai'); // 'ai' = vs computer, 'pvp' = pass & play
+  const [mode, setMode] = useState('ai'); // 'ai' = vs computer, 'pvp' = pass & play, 'online' = room codes
   const [numAI, setNumAI] = useState(3);
   const [numHumans, setNumHumans] = useState(2);
   const [names, setNames] = useState(['', '', '', '']);
   const [selected, setSelected] = useState(null); // space idx for detail sheet
   const [showTrade, setShowTrade] = useState(false);
   const [bidInput, setBidInput] = useState('');
+  // ---- online rooms ----
+  const [onlinePhase, setOnlinePhase] = useState('menu'); // 'menu' | 'lobby' | 'game'
+  const [roomCode, setRoomCode] = useState('');
+  const [playerToken, setPlayerToken] = useState('');
+  const [mySeat, setMySeat] = useState(0);
+  const [isHost, setIsHost] = useState(false);
+  const [hostSeat, setHostSeat] = useState(null);
+  const [roomPlayers, setRoomPlayers] = useState([]); // { name, seat, online }
+  const [joinCode, setJoinCode] = useState('');
+  const [onlineError, setOnlineError] = useState('');
+  const [connected, setConnected] = useState(true);
+  const pollRef = useRef(null);
   const tick = () => setTick((t) => t + 1);
 
   const setName = (i, v) => setNames((ns) => ns.map((n, j) => (j === i ? v : n)));
 
   const g = gameRef.current;
+  const onlineRoom = mode === 'online' && onlinePhase === 'game';
+  const onlineLobby = mode === 'online' && onlinePhase === 'lobby';
   const cp = g ? currentPlayer(g) : null;
   // Who is acting right now: the debtor in a debt phase, else the turn player.
   const debtPid = g && g.phase === 'debt' && g.debt ? g.debt.playerId : null;
   const actorId = debtPid !== null ? debtPid : (g ? g.turn : 0);
   const actor = g ? g.players[actorId] : null;
-  const myTurn = !!(g && !g.winner && actor && !actor.isAI && !actor.bankrupt);
+  const myTurn = onlineRoom
+    ? (!!g && !g.winner && actorId === mySeat && actor && !actor.bankrupt)
+    : (!!(g && !g.winner && actor && !actor.isAI && !actor.bankrupt));
   const humans = g ? humanPlayers(g) : [];
-  const soloHuman = humans.length === 1 ? humans[0] : null;
-  const multiHuman = humans.length > 1;
+  const soloHuman = !onlineRoom && humans.length === 1 ? humans[0] : null;
+  const multiHuman = onlineRoom || humans.length > 1;
+  // In online games, "can this device act as pid" = it's my seat.
+  const canActAs = (pid) => {
+    if (!g) return false;
+    if (onlineRoom) return pid === mySeat && !g.players[pid].bankrupt;
+    return !g.players[pid].isAI && !g.players[pid].bankrupt;
+  };
 
   function startGame() {
     const seed = (Date.now() % 2147483647) >>> 0;
@@ -143,6 +166,141 @@ export default function MonopolyPage() {
     setBidInput('');
     tick();
   }
+
+  // ---- online rooms (authoritative server, poll every 2.5s) ----
+  async function onlineAct(action) {
+    setOnlineError('');
+    try {
+      const res = await fetch(`/api/monopoly/rooms/${encodeURIComponent(roomCode)}/action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: playerToken, action }),
+      });
+      const data = await res.json();
+      if (!data.ok) { setOnlineError(data.error || 'That move was rejected.'); return; }
+      gameRef.current = deserializeState(data.state);
+      tick();
+    } catch {
+      setOnlineError('Connection lost — check your signal and try again.');
+    }
+  }
+
+  async function createOnlineRoom() {
+    setOnlineError('');
+    const nm = (names[0] || '').trim() || 'Player 1';
+    try {
+      const res = await fetch('/api/monopoly/rooms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: nm }),
+      });
+      const data = await res.json();
+      if (!data.ok) { setOnlineError(data.error || 'Could not create the room.'); return; }
+      setRoomCode(data.code);
+      setPlayerToken(data.playerToken);
+      setMySeat(data.seat);
+      setIsHost(true);
+      setHostSeat(data.seat);
+      setOnlinePhase('lobby');
+    } catch {
+      setOnlineError('Connection failed. Try again.');
+    }
+  }
+
+  async function joinOnlineRoom() {
+    setOnlineError('');
+    const code = joinCode.trim().toUpperCase();
+    if (code.length !== 6) { setOnlineError('Enter the 6-character room code.'); return; }
+    const nm = (names[0] || '').trim() || 'Player';
+    try {
+      const res = await fetch('/api/monopoly/rooms/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, name: nm }),
+      });
+      const data = await res.json();
+      if (!data.ok) { setOnlineError(data.error || 'Could not join the room.'); return; }
+      setRoomCode(code);
+      setPlayerToken(data.playerToken);
+      setMySeat(data.seat);
+      setIsHost(false);
+      if (data.name) setNames((ns) => ns.map((n, i) => (i === 0 ? data.name : n)));
+      setOnlinePhase('lobby');
+    } catch {
+      setOnlineError('Connection failed. Try again.');
+    }
+  }
+
+  async function startOnlineGame() {
+    setOnlineError('');
+    try {
+      const res = await fetch(`/api/monopoly/rooms/${encodeURIComponent(roomCode)}/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: playerToken }),
+      });
+      const data = await res.json();
+      if (!data.ok) { setOnlineError(data.error || 'Could not start the game.'); return; }
+      if (data.state) {
+        gameRef.current = deserializeState(data.state);
+        setOnlinePhase('game');
+        tick();
+      }
+    } catch {
+      setOnlineError('Connection failed. Try again.');
+    }
+  }
+
+  function leaveOnline() {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    gameRef.current = null;
+    setOnlinePhase('menu');
+    setRoomCode('');
+    setPlayerToken('');
+    setMySeat(0);
+    setIsHost(false);
+    setHostSeat(null);
+    setRoomPlayers([]);
+    setJoinCode('');
+    setOnlineError('');
+    setConnected(true);
+    setSelected(null);
+    setShowTrade(false);
+    tick();
+  }
+
+  useEffect(() => {
+    if (mode !== 'online' || (onlinePhase !== 'lobby' && onlinePhase !== 'game')) return;
+    let stopped = false;
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/monopoly/rooms/${encodeURIComponent(roomCode)}?token=${encodeURIComponent(playerToken)}`);
+        const data = await res.json();
+        if (stopped) return;
+        if (!data.ok) {
+          setConnected(false);
+          if (data.error) setOnlineError(data.error);
+          return;
+        }
+        setConnected(true);
+        setRoomPlayers(data.players || []);
+        setIsHost(!!data.isHost);
+        if (data.hostSeat !== undefined && data.hostSeat !== null) setHostSeat(data.hostSeat);
+        if (typeof data.yourSeat === 'number') setMySeat(data.yourSeat);
+        if (data.status === 'playing' && data.state) {
+          gameRef.current = deserializeState(data.state);
+          if (onlinePhase === 'lobby') setOnlinePhase('game');
+          tick();
+        }
+      } catch {
+        if (!stopped) setConnected(false);
+      }
+    };
+    poll();
+    const id = setInterval(poll, 2500);
+    pollRef.current = id;
+    return () => { stopped = true; clearInterval(id); pollRef.current = null; };
+  }, [mode, onlinePhase, roomCode, playerToken]);
 
   // Run AI turns / AI auction bids until a human decision is needed.
   // Never touches a human turn — breaks the moment a human must act.
@@ -235,6 +393,7 @@ export default function MonopolyPage() {
   }
 
   function humanRoll() {
+    if (onlineRoom) { onlineAct({ type: 'roll' }); return; }
     const game = gameRef.current;
     if (!actingHuman(game) || game.phase !== 'roll') return;
     doRoll(game);
@@ -243,6 +402,7 @@ export default function MonopolyPage() {
   }
 
   function humanJail(choice) {
+    if (onlineRoom) { onlineAct({ type: 'jail', choice }); return; }
     const game = gameRef.current;
     const p = actingHuman(game);
     if (!p || game.phase !== 'jail' || !p.inJail) return;
@@ -252,6 +412,7 @@ export default function MonopolyPage() {
   }
 
   function humanBuy(buy) {
+    if (onlineRoom) { onlineAct({ type: 'buy', buy }); setSelected(null); return; }
     const game = gameRef.current;
     const p = actingHuman(game);
     if (!p || game.phase !== 'buy') return;
@@ -262,6 +423,7 @@ export default function MonopolyPage() {
   }
 
   function humanBid(amount) {
+    if (onlineRoom) { onlineAct({ type: 'bid', amount }); setBidInput(''); return; }
     const game = gameRef.current;
     const p = actingHuman(game);
     if (!p || !game.auction || auctionBidder(game) !== p.id) return;
@@ -272,6 +434,7 @@ export default function MonopolyPage() {
   }
 
   function humanPassAuction() {
+    if (onlineRoom) { onlineAct({ type: 'pass' }); return; }
     const game = gameRef.current;
     const p = actingHuman(game);
     if (!p || !game.auction || auctionBidder(game) !== p.id) return;
@@ -281,6 +444,7 @@ export default function MonopolyPage() {
   }
 
   function humanPayDebt() {
+    if (onlineRoom) { onlineAct({ type: 'payDebt' }); return; }
     const game = gameRef.current;
     const p = actingHuman(game);
     if (!p || game.phase !== 'debt' || !game.debt || game.debt.playerId !== p.id) return;
@@ -290,6 +454,7 @@ export default function MonopolyPage() {
   }
 
   function humanBankrupt() {
+    if (onlineRoom) { onlineAct({ type: 'bankrupt' }); setSelected(null); return; }
     const game = gameRef.current;
     const p = actingHuman(game);
     if (!p || game.phase !== 'debt' || !game.debt || game.debt.playerId !== p.id) return;
@@ -300,6 +465,7 @@ export default function MonopolyPage() {
   }
 
   function humanAutoRaise() {
+    if (onlineRoom) { onlineAct({ type: 'autoRaise' }); return; }
     const game = gameRef.current;
     const p = actingHuman(game);
     if (!p || game.phase !== 'debt' || !game.debt || game.debt.playerId !== p.id) return;
@@ -308,6 +474,14 @@ export default function MonopolyPage() {
   }
 
   function spaceAction(fn, idx) {
+    if (onlineRoom) {
+      const type = fn === buildHouse ? 'build'
+        : fn === sellHouse ? 'sell'
+        : fn === mortgage ? 'mortgage'
+        : fn === unmortgage ? 'unmortgage' : null;
+      if (type) onlineAct({ type, spaceIdx: idx });
+      return;
+    }
     const game = gameRef.current;
     if (!game) return;
     const pid = game.phase === 'debt' && game.debt ? game.debt.playerId : game.turn;
@@ -319,13 +493,50 @@ export default function MonopolyPage() {
 
   // ---- setup screen ----
   if (!g) {
+    if (onlineLobby) {
+      return (
+        <div className="min-h-screen bg-[#0a120c] text-[#f5f0e1] flex flex-col items-center justify-center p-6">
+          <div className="text-5xl mb-2">🌐</div>
+          <h1 className="text-2xl font-bold">Room</h1>
+          <div className="text-5xl font-mono font-bold tracking-[0.25em] my-3 text-[#ffd23f]">{roomCode}</div>
+          <p className="text-sm opacity-70 mb-5 text-center">Share this code —<br />friends enter it to join from their phones.</p>
+          <div className="w-full max-w-[280px] mb-5">
+            {roomPlayers.map((p) => (
+              <div key={p.seat} className="flex items-center justify-between bg-[#14241a] rounded-xl px-4 py-2 mb-2">
+                <span className="font-bold">{p.name}{p.seat === mySeat ? ' (you)' : ''}</span>
+                <span className="text-sm">{p.seat === hostSeat ? '👑 ' : ''}{p.online ? '🟢' : '⚪'}</span>
+              </div>
+            ))}
+            {roomPlayers.length === 0 && (
+              <p className="text-sm opacity-60 text-center">Waiting for players…</p>
+            )}
+          </div>
+          {isHost ? (
+            <button
+              onClick={startOnlineGame}
+              disabled={roomPlayers.length < 2}
+              className="bg-[#1fb25a] text-white font-bold px-10 py-3 rounded-xl text-lg disabled:opacity-40"
+            >
+              Start game ({roomPlayers.length}/4)
+            </button>
+          ) : (
+            <p className="text-sm opacity-70">Waiting for the host to start…</p>
+          )}
+          <p className={`text-xs mt-4 ${connected ? 'text-green-400' : 'text-red-400'}`}>
+            {connected ? '🟢 Connected' : '🔴 Reconnecting…'}
+          </p>
+          {onlineError && <p className="text-red-400 text-sm mt-2 max-w-[280px] text-center">{onlineError}</p>}
+          <button onClick={leaveOnline} className="mt-6 text-sm opacity-60 underline">Leave room</button>
+        </div>
+      );
+    }
     return (
       <div className="min-h-screen bg-[#0a120c] text-[#f5f0e1] flex flex-col items-center justify-center p-6">
         <div className="text-5xl mb-3">🎩</div>
         <h1 className="text-3xl font-bold mb-1">Monopoly</h1>
         <p className="text-sm opacity-70 mb-6 text-center">Official rules. Buy it all, build it up,<br />bankrupt everyone else.</p>
 
-        <div className="flex gap-2 mb-5">
+        <div className="flex gap-2 mb-5 flex-wrap justify-center">
           <button
             onClick={() => setMode('ai')}
             className={`px-5 py-2 rounded-xl font-bold border-2 ${mode === 'ai' ? 'bg-[#ffd23f] text-black border-[#ffd23f]' : 'border-[#3a5a40] text-[#f5f0e1]'}`}
@@ -337,6 +548,12 @@ export default function MonopolyPage() {
             className={`px-5 py-2 rounded-xl font-bold border-2 ${mode === 'pvp' ? 'bg-[#ffd23f] text-black border-[#ffd23f]' : 'border-[#3a5a40] text-[#f5f0e1]'}`}
           >
             👥 Pass &amp; Play
+          </button>
+          <button
+            onClick={() => setMode('online')}
+            className={`px-5 py-2 rounded-xl font-bold border-2 ${mode === 'online' ? 'bg-[#ffd23f] text-black border-[#ffd23f]' : 'border-[#3a5a40] text-[#f5f0e1]'}`}
+          >
+            🌐 Online
           </button>
         </div>
 
@@ -363,7 +580,7 @@ export default function MonopolyPage() {
               ))}
             </div>
           </>
-        ) : (
+        ) : mode === 'pvp' ? (
           <>
             <div className="mb-2 text-sm opacity-80">Players — one phone, pass it around</div>
             <div className="flex gap-2 mb-4">
@@ -390,18 +607,55 @@ export default function MonopolyPage() {
               ))}
             </div>
           </>
+        ) : (
+          <>
+            <div className="mb-2 text-sm opacity-80">Your name</div>
+            <input
+              value={names[0]}
+              onChange={(e) => setName(0, e.target.value)}
+              placeholder="You"
+              maxLength={16}
+              className="bg-[#14241a] border border-[#3a5a40] rounded-xl px-4 py-2 text-center text-[#f5f0e1] mb-4 w-48"
+            />
+            <button
+              onClick={createOnlineRoom}
+              className="bg-[#1fb25a] text-white font-bold px-8 py-3 rounded-xl mb-4"
+            >
+              🌐 Create room
+            </button>
+            <div className="text-sm opacity-70 mb-2">— or join a friend's room —</div>
+            <div className="flex gap-2 mb-4 items-center">
+              <input
+                value={joinCode}
+                onChange={(e) => setJoinCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6))}
+                placeholder="CODE"
+                maxLength={6}
+                className="bg-[#14241a] border border-[#3a5a40] rounded-xl px-4 py-2 text-center text-[#f5f0e1] w-32 uppercase tracking-[0.2em] font-mono"
+              />
+              <button
+                onClick={joinOnlineRoom}
+                className="bg-[#2a4a35] text-white font-bold px-6 py-2 rounded-xl"
+              >
+                Join
+              </button>
+            </div>
+            {onlineError && <p className="text-red-400 text-sm mb-4 max-w-[280px] text-center">{onlineError}</p>}
+          </>
         )}
 
-        <button
-          onClick={startGame}
-          className="bg-[#1fb25a] text-white font-bold px-10 py-3 rounded-xl text-lg"
-        >
-          Start game
-        </button>
+        {mode !== 'online' && (
+          <button
+            onClick={startGame}
+            className="bg-[#1fb25a] text-white font-bold px-10 py-3 rounded-xl text-lg"
+          >
+            Start game
+          </button>
+        )}
         <p className="text-xs opacity-50 mt-6 text-center max-w-[280px]">
           You start with {fmt(START_CASH)}. Pass Go to collect {fmt(GO_SALARY)}.
           Doubles roll again — three in a row sends you to Jail.
           {mode === 'pvp' && <><br />When the banner names you, take the phone.</>}
+          {mode === 'online' && <><br />Create a room and share the 6-character code — friends join from their own phones.</>}
         </p>
       </div>
     );
@@ -421,13 +675,23 @@ export default function MonopolyPage() {
             style={{ background: '#14241a' }}
           >
             <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: p.token }} />
-            <span className="font-bold">{p.name}{soloHuman && p.id === soloHuman.id ? ' (you)' : ''}{p.isAI ? ' 🤖' : ''}</span>
+            <span className="font-bold">{p.name}{soloHuman && p.id === soloHuman.id ? ' (you)' : ''}{onlineRoom && p.id === mySeat ? ' (you)' : ''}{p.isAI ? ' 🤖' : ''}</span>
             <span>{fmt(p.cash)}</span>
             {p.inJail && <span>🔒</span>}
             {p.gojf.length > 0 && <span>🃏{p.gojf.length}</span>}
+            {onlineRoom && <span>{roomPlayers.find((rp) => rp.seat === p.id)?.online ? '🟢' : '⚪'}</span>}
           </div>
         ))}
       </div>
+      {onlineRoom && (
+        <div className="flex items-center justify-between px-3 text-[11px] opacity-70">
+          <span>Room <b className="font-mono tracking-[0.2em]">{roomCode}</b></span>
+          <span className={connected ? 'text-green-400' : 'text-red-400'}>{connected ? '🟢 Connected' : '🔴 Reconnecting…'}</span>
+        </div>
+      )}
+      {onlineRoom && onlineError && (
+        <div className="text-red-400 text-xs text-center px-3 py-1">{onlineError}</div>
+      )}
 
       {/* board */}
       <div className="px-2">
@@ -443,6 +707,7 @@ export default function MonopolyPage() {
             <CenterPanel
               g={g} cp={cp} actor={actor} actorId={actorId} myTurn={myTurn} multiHuman={multiHuman}
               dice={dice}
+              online={onlineRoom} onlineSeat={onlineRoom ? mySeat : null} roomPlayers={roomPlayers}
               onRoll={humanRoll}
               onTrade={() => setShowTrade(true)}
               lastEvents={lastEvents}
@@ -457,39 +722,60 @@ export default function MonopolyPage() {
       <div className="h-2" />
 
       {/* modals & sheets */}
-      {g.phase === 'buy' && g.pendingBuy !== null && !cp.isAI && (
+      {g.phase === 'buy' && g.pendingBuy !== null && canActAs(g.turn) && (
         <BuyModal g={g} pid={g.turn} multiHuman={multiHuman} onBuy={() => humanBuy(true)} onDecline={() => humanBuy(false)} />
       )}
       {g.phase === 'auction' && g.auction && (
-        <AuctionModal g={g} bidInput={bidInput} setBidInput={setBidInput} onBid={humanBid} onPass={humanPassAuction} />
+        <AuctionModal g={g} bidInput={bidInput} setBidInput={setBidInput} onBid={humanBid} onPass={humanPassAuction} onlineSeat={onlineRoom ? mySeat : null} />
       )}
-      {g.phase === 'jail' && !cp.isAI && cp.inJail && (
+      {g.phase === 'jail' && canActAs(g.turn) && cp.inJail && (
         <JailModal g={g} pid={g.turn} multiHuman={multiHuman} onChoice={humanJail} />
       )}
       {selected !== null && (
         <SpaceSheet g={g} idx={selected} onClose={() => setSelected(null)} onAction={spaceAction} myTurn={myTurn} actorId={actorId} />
       )}
       {showTrade && (
-        <TradeModal g={g} actorId={actorId} onClose={() => setShowTrade(false)} onDone={() => { setShowTrade(false); tick(); pumpAi(); }} />
+        <TradeModal g={g} actorId={actorId} onClose={() => setShowTrade(false)} onDone={() => { setShowTrade(false); tick(); if (!onlineRoom) pumpAi(); }} online={onlineRoom} onOnlineAct={onlineAct} />
+      )}
+      {onlineRoom && g.phase === 'trade' && g.trade && g.trade.to === mySeat && (
+        <div className="fixed inset-0 bg-black/70 flex items-end justify-center z-50">
+          <div className="bg-[#f7f2df] text-[#1a2e1f] rounded-t-2xl p-4 w-full max-w-md max-h-[85vh] overflow-y-auto">
+            <h2 className="font-bold text-lg mb-1">🤝 {g.players[g.trade.from].name} offers you a trade</h2>
+            <p className="text-sm opacity-70 mb-1">They give you:</p>
+            <TradeSummary g={g} side={g.trade.offer} />
+            <p className="text-sm opacity-70 mt-2 mb-1">They want in return:</p>
+            <TradeSummary g={g} side={g.trade.request} />
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => onlineAct({ type: 'respondTrade', accept: true })} className="flex-1 bg-[#1fb25a] text-white font-bold py-3 rounded-xl">Accept</button>
+              <button onClick={() => onlineAct({ type: 'respondTrade', accept: false })} className="flex-1 bg-[#2a4a35] text-white font-bold py-3 rounded-xl">Decline</button>
+            </div>
+          </div>
+        </div>
       )}
       {g.winner !== null && (
-        <GameOverModal g={g} soloHuman={soloHuman} onRestart={startGame} />
+        <GameOverModal g={g} soloHuman={soloHuman} onRestart={onlineRoom ? leaveOnline : startGame} online={onlineRoom} onlineSeat={onlineRoom ? mySeat : null} />
       )}
     </div>
   );
 }
 
-function CenterPanel({ g, cp, actor, actorId, myTurn, multiHuman, dice, onRoll, onTrade, lastEvents, onPayDebt, onAutoRaise, onBankrupt }) {
+function CenterPanel({ g, cp, actor, actorId, myTurn, multiHuman, dice, online, onlineSeat, roomPlayers, onRoll, onTrade, lastEvents, onPayDebt, onAutoRaise, onBankrupt }) {
   const d = g.debt;
   const debtor = d && g.phase === 'debt' ? g.players[d.playerId] : null;
-  const inDebt = !!(debtor && !debtor.isAI && !debtor.bankrupt);
+  const inDebt = online
+    ? (!!(debtor && !debtor.bankrupt && d.playerId === onlineSeat))
+    : (!!(debtor && !debtor.isAI && !debtor.bankrupt));
+  const onlineDebtWaiting = online && d && g.phase === 'debt' && debtor && !inDebt && !debtor.bankrupt;
+  const turnPlayerOnline = online ? (roomPlayers.find((p) => p.seat === g.turn)?.online !== false) : true;
   return (
     <>
       <div className="text-[#1a2e1f]">
         <div className="font-bold text-sm">
           {g.winner !== null ? 'Game over'
             : inDebt ? `⚠️ ${debtor.name} owes ${fmt(d.amount)}`
-            : myTurn ? (multiHuman ? `📱 ${actor.name}'s turn — pass the phone` : 'Your turn')
+            : onlineDebtWaiting ? `⏳ ${debtor.name} is sorting out a debt…`
+            : myTurn ? (online ? `🎲 ${actor.name} — your move!` : (multiHuman ? `📱 ${actor.name}'s turn — pass the phone` : 'Your turn'))
+            : online ? `⏳ Waiting for ${cp.name}…${turnPlayerOnline ? '' : ' (away)'}`
             : `${cp.name}'s turn`}
         </div>
         <div className="text-2xl my-1 h-8">
@@ -519,10 +805,11 @@ function CenterPanel({ g, cp, actor, actorId, myTurn, multiHuman, dice, onRoll, 
               🤝 Trade
             </button>
           )}
-          {!myTurn && !inDebt && g.winner === null && (
+          {!myTurn && !inDebt && !onlineDebtWaiting && g.winner === null && (
             <div className="text-xs text-[#1a2e1f] opacity-70 mb-1">
               {g.phase === 'auction' ? 'Auction running…'
                 : g.phase === 'trade' ? 'Trade on the table…'
+                : online ? `Waiting for ${cp.name}…`
                 : `${cp.name} is thinking…`}
             </div>
           )}
@@ -569,12 +856,14 @@ function BuyModal({ g, pid, multiHuman, onBuy, onDecline }) {
   );
 }
 
-function AuctionModal({ g, bidInput, setBidInput, onBid, onPass }) {
+function AuctionModal({ g, bidInput, setBidInput, onBid, onPass, onlineSeat }) {
   const a = g.auction;
   const s = BOARD[a.spaceIdx];
   const bidder = a.order[a.idx];
   const bp = g.players[bidder];
-  const isHuman = !bp.isAI && !bp.bankrupt;
+  const isHuman = onlineSeat !== null && onlineSeat !== undefined
+    ? (bidder === onlineSeat && !bp.bankrupt)
+    : (!bp.isAI && !bp.bankrupt);
   const minBid = a.highBid + 1;
   return (
     <div className="fixed inset-0 bg-black/70 flex items-end justify-center z-50">
@@ -744,7 +1033,7 @@ function TradeSummary({ g, side }) {
   );
 }
 
-function TradeModal({ g, actorId, onClose, onDone }) {
+function TradeModal({ g, actorId, onClose, onDone, online, onOnlineAct }) {
   const me = g.players[actorId];
   const partners = g.players.filter((p) => p.id !== actorId && !p.bankrupt);
   const [to, setTo] = useState(partners[0] ? partners[0].id : null);
@@ -758,8 +1047,10 @@ function TradeModal({ g, actorId, onClose, onDone }) {
   const [awaiting, setAwaiting] = useState(false); // human partner is deciding
 
   // Never leave a proposed trade hanging with no way to answer it.
+  // (Online: the proposer closing their screen must NOT decline — the
+  // responder answers on their own phone.)
   const safeClose = () => {
-    if (g.trade && g.phase === 'trade') respondTrade(g, false);
+    if (!online && g.trade && g.phase === 'trade') respondTrade(g, false);
     onClose();
   };
 
@@ -786,6 +1077,12 @@ function TradeModal({ g, actorId, onClose, onDone }) {
     const request = { cash: Math.max(0, parseInt(reqCash || '0', 10)), properties: reqProps, gojf: reqGojf };
     const v = validateTrade(g, actorId, to, offer, request);
     if (!v.ok) { setResult('⚠️ ' + v.why); return; }
+    if (online) {
+      // Server-side trade: the responder answers on their own phone.
+      // The waiting screen below is driven by g.trade, so it clears itself.
+      onOnlineAct({ type: 'proposeTrade', to, offer, request });
+      return;
+    }
     proposeTrade(g, actorId, to, offer, request);
     if (them.isAI) {
       const accepted = aiRespondTrade(g);
@@ -803,6 +1100,26 @@ function TradeModal({ g, actorId, onClose, onDone }) {
     setResult(accept ? `✅ ${them.name} accepted the trade!` : `❌ ${them.name} turned it down.`);
     setTimeout(onDone, 1200);
   };
+
+  // Online: my proposal is on the table — the responder answers on their phone.
+  // This screen is driven by g.trade, so it appears and clears itself.
+  if (online && g.trade && g.trade.from === actorId) {
+    const t = g.trade;
+    const them = g.players[t.to];
+    return (
+      <div className="fixed inset-0 bg-black/70 flex items-end justify-center z-50">
+        <div className="bg-[#f7f2df] text-[#1a2e1f] rounded-t-2xl p-4 w-full max-w-md max-h-[85vh] overflow-y-auto">
+          <h2 className="font-bold text-lg mb-1">⏳ Waiting for {them.name}…</h2>
+          <p className="text-sm opacity-70 mb-1">They'll see your offer on their phone.</p>
+          <p className="text-sm opacity-70 mb-1">You offered:</p>
+          <TradeSummary g={g} side={t.offer} />
+          <p className="text-sm opacity-70 mt-2 mb-1">You asked for:</p>
+          <TradeSummary g={g} side={t.request} />
+          <button onClick={onClose} className="w-full mt-4 bg-[#2a4a35] text-white font-bold py-2 rounded-xl">Close</button>
+        </div>
+      </div>
+    );
+  }
 
   // Human-to-human: the receiving player confirms on this screen.
   if (awaiting && g.trade) {
@@ -881,9 +1198,9 @@ function TradeModal({ g, actorId, onClose, onDone }) {
   );
 }
 
-function GameOverModal({ g, soloHuman, onRestart }) {
+function GameOverModal({ g, soloHuman, onRestart, online, onlineSeat }) {
   const winner = g.players[g.winner];
-  const humanWon = soloHuman && g.winner === soloHuman.id;
+  const humanWon = online ? g.winner === onlineSeat : (soloHuman && g.winner === soloHuman.id);
   const standings = g.players
     .map((p) => ({ p, worth: p.bankrupt ? 0 : netWorth(g, p.id) }))
     .sort((a, b) => b.worth - a.worth);
@@ -900,13 +1217,13 @@ function GameOverModal({ g, soloHuman, onRestart }) {
         <div className="text-left text-sm mb-4">
           {standings.map(({ p, worth }, i) => (
             <div key={p.id} className="flex justify-between py-1 border-b border-[#d8d0b8]">
-              <span>{i + 1}. {p.name}{soloHuman && p.id === soloHuman.id ? ' (you)' : ''}{p.isAI ? ' 🤖' : ''} {p.bankrupt ? '💸' : ''}</span>
+              <span>{i + 1}. {p.name}{soloHuman && p.id === soloHuman.id ? ' (you)' : ''}{online && p.id === onlineSeat ? ' (you)' : ''}{p.isAI ? ' 🤖' : ''} {p.bankrupt ? '💸' : ''}</span>
               <span className="font-bold">{p.bankrupt ? 'bankrupt' : fmt(worth)}</span>
             </div>
           ))}
         </div>
         <button onClick={onRestart} className="bg-[#1fb25a] text-white font-bold px-10 py-3 rounded-xl">
-          Play again
+          {online ? 'Back to menu' : 'Play again'}
         </button>
       </div>
     </div>
