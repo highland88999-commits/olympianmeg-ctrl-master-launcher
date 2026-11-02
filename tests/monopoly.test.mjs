@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   BOARD, GROUP_SPACES, CHANCE_CARDS, COMMUNITY_CARDS,
-  createGame, currentPlayer, ownerOf, ownsGroup, rentFor, netWorth,
+  createGame, currentPlayer, humanPlayers, ownerOf, ownsGroup, rentFor, netWorth,
   doRoll, decideBuy, startAuction, auctionAct, auctionBidder,
   jailChoose, sendToJail, buildHouse, sellHouse, canBuild,
   mortgage, unmortgage, mortgageValue, unmortgageCost,
@@ -505,4 +505,126 @@ test('AI proposes a trade to complete its color group', () => {
 test('fmt formats dollars', () => {
   assert.equal(fmt(1500), '$1,500');
   assert.equal(fmt(200), '$200');
+});
+
+// --- Pass & Play (PvP) ---------------------------------------------------------
+test('createGame: human names assign isHuman seats, rest are AI', () => {
+  const g = createGame(4, 42, ['Merlin', 'Brooke']);
+  assert.deepEqual(g.players.map((p) => p.name), ['Merlin', 'Brooke', 'Ava', 'Rex']);
+  assert.deepEqual(g.players.map((p) => p.isHuman), [true, true, false, false]);
+  assert.deepEqual(g.players.map((p) => p.isAI), [false, false, true, true]);
+  assert.equal(humanPlayers(g).length, 2);
+});
+
+test('createGame: all-human pass-and-play game', () => {
+  const g = createGame(3, 42, ['Merlin', 'Brooke', 'Amber']);
+  assert.equal(humanPlayers(g).length, 3);
+  assert.ok(g.players.every((p) => p.isAI === false));
+  assert.equal(g.players[2].name, 'Amber');
+});
+
+test('createGame: single string name stays backwards compatible (1 human + AI)', () => {
+  const g = createGame(2, 42, 'Merlin');
+  assert.equal(g.players[0].name, 'Merlin');
+  assert.equal(g.players[0].isHuman, true);
+  assert.equal(g.players[1].isAI, true);
+});
+
+test('createGame: blank names fall back to Player N; too many names throws', () => {
+  const g = createGame(2, 42, ['  ', 'Brooke']);
+  assert.equal(g.players[0].name, 'Player 1');
+  assert.equal(g.players[1].name, 'Brooke');
+  assert.throws(() => createGame(2, 42, []), /at least 1 human/);
+  assert.throws(() => createGame(2, 42, ['A', 'B', 'C']), /More human names/);
+});
+
+test('PvP: 3 humans rotate turns and aiPlayTurn never fires on a human', () => {
+  const g = createGame(3, 42, ['Merlin', 'Brooke', 'Amber']);
+  // aiPlayTurn is a no-op whenever the current player is human.
+  for (const turn of [0, 1, 2]) {
+    g.turn = turn; g.phase = 'roll';
+    const ev = aiPlayTurn(g);
+    assert.deepEqual(ev, []);
+    assert.equal(g.turn, turn);
+  }
+  // Full turn for player 0: roll (forced), buy, turn passes to player 1.
+  g.turn = 0; g.phase = 'roll';
+  g.players[0].pos = 8; // Vermont Ave (unowned)
+  doRoll(g, [1, 2]); // -> 11 St. Charles Place, unowned -> buy phase
+  assert.equal(g.phase, 'buy');
+  decideBuy(g, true);
+  assert.equal(g.ownership[11], 0);
+  assert.equal(g.turn, 1);
+  assert.equal(currentPlayer(g).isHuman, true);
+  assert.equal(currentPlayer(g).name, 'Brooke');
+});
+
+test('PvP: human-to-human trade needs the receiver to accept', () => {
+  const g = createGame(2, 42, ['Merlin', 'Brooke']);
+  g.ownership[1] = 0; // Merlin: Mediterranean
+  g.ownership[5] = 1; // Brooke: Reading RR
+  const offer = { ...emptyTrade(), properties: [1] };
+  const request = { ...emptyTrade(), properties: [5] };
+  // Decline: nothing moves, turn flow resumes.
+  proposeTrade(g, 0, 1, offer, request);
+  assert.equal(g.phase, 'trade');
+  respondTrade(g, false);
+  assert.equal(g.ownership[1], 0);
+  assert.equal(g.ownership[5], 1);
+  assert.equal(g.trade, null);
+  // Accept: properties and cash swap.
+  const offer2 = { ...emptyTrade(), properties: [1], cash: 50 };
+  proposeTrade(g, 0, 1, offer2, request);
+  respondTrade(g, true);
+  assert.equal(g.ownership[1], 1);
+  assert.equal(g.ownership[5], 0);
+  assert.equal(g.players[0].cash, 1500 - 50);
+  assert.equal(g.players[1].cash, 1500 + 50);
+});
+
+test('PvP: aiRespondTrade refuses to answer for a human', () => {
+  const g = createGame(2, 42, ['Merlin', 'Brooke']);
+  g.ownership[1] = 0;
+  const offer = { ...emptyTrade(), properties: [1] };
+  proposeTrade(g, 0, 1, offer, emptyTrade());
+  assert.equal(aiRespondTrade(g), false); // must not auto-answer for Brooke
+  assert.equal(g.phase, 'trade'); // still waiting on the human
+  respondTrade(g, false); // clean up
+});
+
+test('PvP: aiAuctionBid returns null for human bidders', () => {
+  const g = createGame(3, 42, ['Merlin', 'Brooke', 'Amber']);
+  startAuction(g, 1, 0, []);
+  assert.equal(aiAuctionBid(g, 0), null);
+  assert.equal(aiAuctionBid(g, 1), null);
+});
+
+test('mixed: 2 humans + 1 AI — AI acts only on its own turns', () => {
+  const g = createGame(3, 99, ['Merlin', 'Brooke']);
+  assert.equal(g.players[2].isAI, true);
+  assert.equal(g.players[2].name, 'Ava');
+  // Human turns: aiPlayTurn is a no-op.
+  for (const turn of [0, 1]) {
+    g.turn = turn; g.phase = 'roll';
+    const posBefore = g.players[turn].pos;
+    aiPlayTurn(g);
+    assert.equal(g.players[turn].pos, posBefore);
+    assert.equal(g.turn, turn);
+  }
+  // AI turn: it really plays (rolls and moves).
+  g.turn = 2; g.phase = 'roll';
+  const posBefore = g.players[2].pos;
+  aiPlayTurn(g);
+  assert.ok(g.players[2].pos !== posBefore || g.turn !== 2, 'AI took its turn');
+});
+
+test('mixed: AI still declines bad trades from a human, accepts good ones', () => {
+  const g = createGame(3, 50, ['Merlin', 'Brooke']); // player 2 = Ava (AI)
+  g.ownership[1] = 2; g.ownership[3] = 0; // Ava has Med, Merlin has Baltic
+  const offer = { ...emptyTrade(), properties: [3] };
+  const request = { ...emptyTrade(), cash: 10 };
+  proposeTrade(g, 0, 2, offer, request);
+  assert.equal(aiRespondTrade(g), true); // completes Ava's monopoly
+  respondTrade(g, true);
+  assert.equal(g.ownership[3], 2);
 });

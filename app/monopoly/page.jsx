@@ -1,12 +1,14 @@
 // app/monopoly/page.jsx — Olympus Monopoly: official Hasbro rules.
-// Human vs 1-3 AI. Engine in lib/monopoly/engine.js (pure logic).
+// Vs Computer (1 human + 1-3 AI) or Pass & Play (2-4 humans, same phone).
+// Engine in lib/monopoly/engine.js (pure logic). Human turns are always
+// driven here; AI turns run through pumpAi(). AI logic never fires for humans.
 
 'use client';
 
 import { useRef, useState } from 'react';
 import {
   BOARD, GROUP_SPACES, START_CASH, GO_SALARY, JAIL_FINE,
-  createGame, currentPlayer, ownerOf, playerProperties, ownsGroup,
+  createGame, currentPlayer, humanPlayers, ownerOf, playerProperties, ownsGroup,
   houseLevel, isMortgaged, rentFor, mortgageValue, unmortgageCost, netWorth,
   doRoll, decideBuy, auctionAct, auctionBidder,
   jailChoose, buildHouse, sellHouse, canBuild, canSell,
@@ -104,24 +106,46 @@ export default function MonopolyPage() {
   const gameRef = useRef(null);
   const pumpRef = useRef(false);
   const [, setTick] = useState(0);
+  const [mode, setMode] = useState('ai'); // 'ai' = vs computer, 'pvp' = pass & play
   const [numAI, setNumAI] = useState(3);
+  const [numHumans, setNumHumans] = useState(2);
+  const [names, setNames] = useState(['', '', '', '']);
   const [selected, setSelected] = useState(null); // space idx for detail sheet
   const [showTrade, setShowTrade] = useState(false);
   const [bidInput, setBidInput] = useState('');
   const tick = () => setTick((t) => t + 1);
 
+  const setName = (i, v) => setNames((ns) => ns.map((n, j) => (j === i ? v : n)));
+
   const g = gameRef.current;
-  const me = g ? g.players[0] : null;
-  const myTurn = g && !g.winner && g.turn === 0 && !me.bankrupt;
+  const cp = g ? currentPlayer(g) : null;
+  // Who is acting right now: the debtor in a debt phase, else the turn player.
+  const debtPid = g && g.phase === 'debt' && g.debt ? g.debt.playerId : null;
+  const actorId = debtPid !== null ? debtPid : (g ? g.turn : 0);
+  const actor = g ? g.players[actorId] : null;
+  const myTurn = !!(g && !g.winner && actor && !actor.isAI && !actor.bankrupt);
+  const humans = g ? humanPlayers(g) : [];
+  const soloHuman = humans.length === 1 ? humans[0] : null;
+  const multiHuman = humans.length > 1;
 
   function startGame() {
-    gameRef.current = createGame(numAI + 1, (Date.now() % 2147483647) >>> 0);
+    const seed = (Date.now() % 2147483647) >>> 0;
+    if (mode === 'ai') {
+      const nm = (names[0] || '').trim() || 'You';
+      gameRef.current = createGame(numAI + 1, seed, [nm]);
+    } else {
+      const list = [];
+      for (let i = 0; i < numHumans; i++) list.push((names[i] || '').trim() || `Player ${i + 1}`);
+      gameRef.current = createGame(numHumans, seed, list);
+    }
     setSelected(null);
     setShowTrade(false);
+    setBidInput('');
     tick();
   }
 
   // Run AI turns / AI auction bids until a human decision is needed.
+  // Never touches a human turn — breaks the moment a human must act.
   async function pumpAi() {
     if (pumpRef.current) return;
     pumpRef.current = true;
@@ -142,7 +166,7 @@ export default function MonopolyPage() {
           auctionAct(game, bidder, aiAuctionBid(game, bidder));
           tick();
         } else {
-          break; // buy / debt / trade need the human (or are terminal)
+          break; // buy / debt / trade need a human (or are terminal)
         }
       }
     } finally {
@@ -151,7 +175,8 @@ export default function MonopolyPage() {
     }
   }
 
-  // After the human goes bankrupt, let the AIs finish the game fast.
+  // After a human goes bankrupt, let the AIs finish their turns fast.
+  // Stops the moment any living human must act.
   async function autoFinish() {
     const game = gameRef.current;
     for (let guard = 0; guard < 3000 && game && !game.winner; guard++) {
@@ -164,11 +189,13 @@ export default function MonopolyPage() {
         if (p.bankrupt || !p.isAI) break;
         aiPlayTurn(game);
       } else if (game.phase === 'buy' && game.pendingBuy !== null) {
-        const cp = game.players[game.turn];
-        if (!cp.isAI || cp.bankrupt) break;
-        decideBuy(game, aiWantsToBuy(game, cp, game.pendingBuy));
+        const cpr = game.players[game.turn];
+        if (!cpr.isAI || cpr.bankrupt) break;
+        decideBuy(game, aiWantsToBuy(game, cpr, game.pendingBuy));
       } else if (game.phase === 'auction' && game.auction) {
         const bidder = auctionBidder(game);
+        const bp = game.players[bidder];
+        if (!bp.isAI || bp.bankrupt) break; // a human bids in the UI
         auctionAct(game, bidder, aiAuctionBid(game, bidder));
       } else if (game.phase === 'debt' && game.debt) {
         const dp = game.players[game.debt.playerId];
@@ -178,7 +205,10 @@ export default function MonopolyPage() {
         if (dp.cash >= game.debt.amount) payDebt(game);
         else declareBankruptcy(game);
       } else if (game.phase === 'trade') {
-        respondTrade(game, false);
+        const t = game.trade;
+        if (!t) break;
+        if (!game.players[t.to].isAI) break; // a human answers in the UI
+        respondTrade(game, aiRespondTrade(game));
       } else {
         break;
       }
@@ -186,9 +216,27 @@ export default function MonopolyPage() {
     tick();
   }
 
+  function actingHuman(game) {
+    // The human currently expected to act, or null.
+    if (!game || game.winner) return null;
+    if (game.phase === 'roll' || game.phase === 'buy' || game.phase === 'jail') {
+      const p = currentPlayer(game);
+      return !p.isAI && !p.bankrupt ? p : null;
+    }
+    if (game.phase === 'auction' && game.auction) {
+      const bp = game.players[auctionBidder(game)];
+      return !bp.isAI && !bp.bankrupt ? bp : null;
+    }
+    if (game.phase === 'debt' && game.debt) {
+      const dp = game.players[game.debt.playerId];
+      return !dp.isAI && !dp.bankrupt ? dp : null;
+    }
+    return null;
+  }
+
   function humanRoll() {
     const game = gameRef.current;
-    if (!game || game.phase !== 'roll' || game.turn !== 0) return;
+    if (!actingHuman(game) || game.phase !== 'roll') return;
     doRoll(game);
     tick();
     pumpAi();
@@ -196,7 +244,8 @@ export default function MonopolyPage() {
 
   function humanJail(choice) {
     const game = gameRef.current;
-    if (!game || game.phase !== 'jail' || game.turn !== 0) return;
+    const p = actingHuman(game);
+    if (!p || game.phase !== 'jail' || !p.inJail) return;
     jailChoose(game, choice);
     tick();
     if (game.phase === 'roll' || game.phase === 'jail') pumpAi();
@@ -204,7 +253,8 @@ export default function MonopolyPage() {
 
   function humanBuy(buy) {
     const game = gameRef.current;
-    if (!game || game.phase !== 'buy') return;
+    const p = actingHuman(game);
+    if (!p || game.phase !== 'buy') return;
     decideBuy(game, buy);
     setSelected(null);
     tick();
@@ -213,9 +263,9 @@ export default function MonopolyPage() {
 
   function humanBid(amount) {
     const game = gameRef.current;
-    if (!game || !game.auction) return;
-    if (auctionBidder(game) !== 0) return;
-    auctionAct(game, 0, amount);
+    const p = actingHuman(game);
+    if (!p || !game.auction || auctionBidder(game) !== p.id) return;
+    auctionAct(game, p.id, amount);
     setBidInput('');
     tick();
     pumpAi();
@@ -223,16 +273,17 @@ export default function MonopolyPage() {
 
   function humanPassAuction() {
     const game = gameRef.current;
-    if (!game || !game.auction) return;
-    if (auctionBidder(game) !== 0) return;
-    auctionAct(game, 0, null);
+    const p = actingHuman(game);
+    if (!p || !game.auction || auctionBidder(game) !== p.id) return;
+    auctionAct(game, p.id, null);
     tick();
     pumpAi();
   }
 
   function humanPayDebt() {
     const game = gameRef.current;
-    if (!game || game.phase !== 'debt' || !game.debt || game.debt.playerId !== 0) return;
+    const p = actingHuman(game);
+    if (!p || game.phase !== 'debt' || !game.debt || game.debt.playerId !== p.id) return;
     payDebt(game);
     tick();
     if (!game.winner) pumpAi();
@@ -240,7 +291,8 @@ export default function MonopolyPage() {
 
   function humanBankrupt() {
     const game = gameRef.current;
-    if (!game || game.phase !== 'debt') return;
+    const p = actingHuman(game);
+    if (!p || game.phase !== 'debt' || !game.debt || game.debt.playerId !== p.id) return;
     declareBankruptcy(game);
     setSelected(null);
     tick();
@@ -249,19 +301,20 @@ export default function MonopolyPage() {
 
   function humanAutoRaise() {
     const game = gameRef.current;
-    if (!game || game.phase !== 'debt' || !game.debt || game.debt.playerId !== 0) return;
-    raiseFundsLikeAI(game, 0);
+    const p = actingHuman(game);
+    if (!p || game.phase !== 'debt' || !game.debt || game.debt.playerId !== p.id) return;
+    raiseFundsLikeAI(game, p.id);
     tick();
   }
 
   function spaceAction(fn, idx) {
     const game = gameRef.current;
     if (!game) return;
-    fn(game, 0, idx);
+    const pid = game.phase === 'debt' && game.debt ? game.debt.playerId : game.turn;
+    const pl = game.players[pid];
+    if (pl.isAI || pl.bankrupt) return;
+    fn(game, pid, idx);
     tick();
-    if (game.phase === 'debt' && game.debt && game.debt.playerId === 0) {
-      // still in debt — stay; the debt panel remains
-    }
   }
 
   // ---- setup screen ----
@@ -271,18 +324,74 @@ export default function MonopolyPage() {
         <div className="text-5xl mb-3">🎩</div>
         <h1 className="text-3xl font-bold mb-1">Monopoly</h1>
         <p className="text-sm opacity-70 mb-6 text-center">Official rules. Buy it all, build it up,<br />bankrupt everyone else.</p>
-        <div className="mb-2 text-sm opacity-80">Opponents</div>
-        <div className="flex gap-2 mb-6">
-          {[1, 2, 3].map((n) => (
-            <button
-              key={n}
-              onClick={() => setNumAI(n)}
-              className={`w-12 h-12 rounded-xl text-lg font-bold border-2 ${numAI === n ? 'bg-[#ffd23f] text-black border-[#ffd23f]' : 'border-[#3a5a40] text-[#f5f0e1]'}`}
-            >
-              {n}
-            </button>
-          ))}
+
+        <div className="flex gap-2 mb-5">
+          <button
+            onClick={() => setMode('ai')}
+            className={`px-5 py-2 rounded-xl font-bold border-2 ${mode === 'ai' ? 'bg-[#ffd23f] text-black border-[#ffd23f]' : 'border-[#3a5a40] text-[#f5f0e1]'}`}
+          >
+            🤖 Vs Computer
+          </button>
+          <button
+            onClick={() => setMode('pvp')}
+            className={`px-5 py-2 rounded-xl font-bold border-2 ${mode === 'pvp' ? 'bg-[#ffd23f] text-black border-[#ffd23f]' : 'border-[#3a5a40] text-[#f5f0e1]'}`}
+          >
+            👥 Pass &amp; Play
+          </button>
         </div>
+
+        {mode === 'ai' ? (
+          <>
+            <div className="mb-2 text-sm opacity-80">Your name</div>
+            <input
+              value={names[0]}
+              onChange={(e) => setName(0, e.target.value)}
+              placeholder="You"
+              maxLength={16}
+              className="bg-[#14241a] border border-[#3a5a40] rounded-xl px-4 py-2 text-center text-[#f5f0e1] mb-4 w-48"
+            />
+            <div className="mb-2 text-sm opacity-80">Computer opponents</div>
+            <div className="flex gap-2 mb-6">
+              {[1, 2, 3].map((n) => (
+                <button
+                  key={n}
+                  onClick={() => setNumAI(n)}
+                  className={`w-12 h-12 rounded-xl text-lg font-bold border-2 ${numAI === n ? 'bg-[#ffd23f] text-black border-[#ffd23f]' : 'border-[#3a5a40] text-[#f5f0e1]'}`}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="mb-2 text-sm opacity-80">Players — one phone, pass it around</div>
+            <div className="flex gap-2 mb-4">
+              {[2, 3, 4].map((n) => (
+                <button
+                  key={n}
+                  onClick={() => setNumHumans(n)}
+                  className={`w-12 h-12 rounded-xl text-lg font-bold border-2 ${numHumans === n ? 'bg-[#ffd23f] text-black border-[#ffd23f]' : 'border-[#3a5a40] text-[#f5f0e1]'}`}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+            <div className="flex flex-col gap-2 mb-6">
+              {Array.from({ length: numHumans }).map((_, i) => (
+                <input
+                  key={i}
+                  value={names[i]}
+                  onChange={(e) => setName(i, e.target.value)}
+                  placeholder={`Player ${i + 1}`}
+                  maxLength={16}
+                  className="bg-[#14241a] border border-[#3a5a40] rounded-xl px-4 py-2 text-center text-[#f5f0e1] w-48"
+                />
+              ))}
+            </div>
+          </>
+        )}
+
         <button
           onClick={startGame}
           className="bg-[#1fb25a] text-white font-bold px-10 py-3 rounded-xl text-lg"
@@ -292,12 +401,12 @@ export default function MonopolyPage() {
         <p className="text-xs opacity-50 mt-6 text-center max-w-[280px]">
           You start with {fmt(START_CASH)}. Pass Go to collect {fmt(GO_SALARY)}.
           Doubles roll again — three in a row sends you to Jail.
+          {mode === 'pvp' && <><br />When the banner names you, take the phone.</>}
         </p>
       </div>
     );
   }
 
-  const cp = currentPlayer(g);
   const lastEvents = g.log.slice(-8).reverse();
   const dice = g.lastDice;
 
@@ -312,7 +421,7 @@ export default function MonopolyPage() {
             style={{ background: '#14241a' }}
           >
             <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: p.token }} />
-            <span className="font-bold">{p.name}{p.id === 0 ? ' (you)' : ''}</span>
+            <span className="font-bold">{p.name}{soloHuman && p.id === soloHuman.id ? ' (you)' : ''}{p.isAI ? ' 🤖' : ''}</span>
             <span>{fmt(p.cash)}</span>
             {p.inJail && <span>🔒</span>}
             {p.gojf.length > 0 && <span>🃏{p.gojf.length}</span>}
@@ -332,7 +441,8 @@ export default function MonopolyPage() {
           <div className="absolute flex flex-col items-center justify-center text-center p-2"
             style={{ top: '9.5%', left: '9.5%', right: '9.5%', bottom: '9.5%', background: '#cfe3c8', borderRadius: 8 }}>
             <CenterPanel
-              g={g} cp={cp} dice={dice} myTurn={myTurn}
+              g={g} cp={cp} actor={actor} actorId={actorId} myTurn={myTurn} multiHuman={multiHuman}
+              dice={dice}
               onRoll={humanRoll}
               onTrade={() => setShowTrade(true)}
               lastEvents={lastEvents}
@@ -347,36 +457,40 @@ export default function MonopolyPage() {
       <div className="h-2" />
 
       {/* modals & sheets */}
-      {g.phase === 'buy' && g.turn === 0 && g.pendingBuy !== null && (
-        <BuyModal g={g} onBuy={() => humanBuy(true)} onDecline={() => humanBuy(false)} />
+      {g.phase === 'buy' && g.pendingBuy !== null && !cp.isAI && (
+        <BuyModal g={g} pid={g.turn} multiHuman={multiHuman} onBuy={() => humanBuy(true)} onDecline={() => humanBuy(false)} />
       )}
       {g.phase === 'auction' && g.auction && (
         <AuctionModal g={g} bidInput={bidInput} setBidInput={setBidInput} onBid={humanBid} onPass={humanPassAuction} />
       )}
-      {g.phase === 'jail' && g.turn === 0 && me.inJail && (
-        <JailModal g={g} onChoice={humanJail} />
+      {g.phase === 'jail' && !cp.isAI && cp.inJail && (
+        <JailModal g={g} pid={g.turn} multiHuman={multiHuman} onChoice={humanJail} />
       )}
       {selected !== null && (
-        <SpaceSheet g={g} idx={selected} onClose={() => setSelected(null)} onAction={spaceAction} myTurn={myTurn} />
+        <SpaceSheet g={g} idx={selected} onClose={() => setSelected(null)} onAction={spaceAction} myTurn={myTurn} actorId={actorId} />
       )}
       {showTrade && (
-        <TradeModal g={g} onClose={() => setShowTrade(false)} onDone={() => { setShowTrade(false); tick(); pumpAi(); }} />
+        <TradeModal g={g} actorId={actorId} onClose={() => setShowTrade(false)} onDone={() => { setShowTrade(false); tick(); pumpAi(); }} />
       )}
       {g.winner !== null && (
-        <GameOverModal g={g} onRestart={startGame} />
+        <GameOverModal g={g} soloHuman={soloHuman} onRestart={startGame} />
       )}
     </div>
   );
 }
 
-function CenterPanel({ g, cp, dice, myTurn, onRoll, onTrade, lastEvents, onPayDebt, onAutoRaise, onBankrupt }) {
+function CenterPanel({ g, cp, actor, actorId, myTurn, multiHuman, dice, onRoll, onTrade, lastEvents, onPayDebt, onAutoRaise, onBankrupt }) {
   const d = g.debt;
-  const inDebt = g.phase === 'debt' && d && d.playerId === 0;
+  const debtor = d && g.phase === 'debt' ? g.players[d.playerId] : null;
+  const inDebt = !!(debtor && !debtor.isAI && !debtor.bankrupt);
   return (
     <>
       <div className="text-[#1a2e1f]">
         <div className="font-bold text-sm">
-          {g.winner !== null ? 'Game over' : myTurn ? 'Your turn' : `${cp.name}'s turn`}
+          {g.winner !== null ? 'Game over'
+            : inDebt ? `⚠️ ${debtor.name} owes ${fmt(d.amount)}`
+            : myTurn ? (multiHuman ? `📱 ${actor.name}'s turn — pass the phone` : 'Your turn')
+            : `${cp.name}'s turn`}
         </div>
         <div className="text-2xl my-1 h-8">
           {dice ? <span>{DICE_FACES[dice[0] - 1]} {DICE_FACES[dice[1] - 1]}</span> : <span className="opacity-30">🎲🎲</span>}
@@ -385,9 +499,8 @@ function CenterPanel({ g, cp, dice, myTurn, onRoll, onTrade, lastEvents, onPayDe
 
       {inDebt ? (
         <div className="w-full bg-[#7a1f1f] text-white rounded-lg p-2 text-xs">
-          <div className="font-bold mb-1">⚠️ You owe {fmt(d.amount)}</div>
-          <div className="opacity-80 mb-2">{d.reason} → {d.creditor === 'bank' ? 'the bank' : g.players[d.creditor].name}. You have {fmt(g.players[0].cash)}.</div>
-          <div className="text-[11px] opacity-80 mb-2">Tap your properties on the board to mortgage or sell houses, then pay.</div>
+          <div className="opacity-80 mb-2">{d.reason} → {d.creditor === 'bank' ? 'the bank' : g.players[d.creditor].name}. {debtor.name} has {fmt(debtor.cash)}.</div>
+          <div className="text-[11px] opacity-80 mb-2">Tap {debtor.name}&rsquo;s properties on the board to mortgage or sell houses, then pay.</div>
           <div className="flex gap-1 justify-center flex-wrap">
             <button onClick={onAutoRaise} className="bg-[#3a5a40] px-2 py-1 rounded font-bold">Raise funds for me</button>
             <button onClick={onPayDebt} className="bg-[#1fb25a] px-2 py-1 rounded font-bold">Pay {fmt(d.amount)}</button>
@@ -406,9 +519,11 @@ function CenterPanel({ g, cp, dice, myTurn, onRoll, onTrade, lastEvents, onPayDe
               🤝 Trade
             </button>
           )}
-          {!myTurn && g.winner === null && (
+          {!myTurn && !inDebt && g.winner === null && (
             <div className="text-xs text-[#1a2e1f] opacity-70 mb-1">
-              {g.phase === 'auction' ? 'Auction running…' : `${cp.name} is thinking…`}
+              {g.phase === 'auction' ? 'Auction running…'
+                : g.phase === 'trade' ? 'Trade on the table…'
+                : `${cp.name} is thinking…`}
             </div>
           )}
         </>
@@ -423,15 +538,16 @@ function CenterPanel({ g, cp, dice, myTurn, onRoll, onTrade, lastEvents, onPayDe
   );
 }
 
-function BuyModal({ g, onBuy, onDecline }) {
+function BuyModal({ g, pid, multiHuman, onBuy, onDecline }) {
   const s = BOARD[g.pendingBuy];
-  const cash = g.players[0].cash;
+  const p = g.players[pid];
+  const cash = p.cash;
   return (
     <div className="fixed inset-0 bg-black/70 flex items-end justify-center z-50">
       <div className="bg-[#f7f2df] text-[#1a2e1f] rounded-t-2xl p-4 w-full max-w-md">
         <div className="h-2 rounded mb-2" style={{ background: s.color || '#999' }} />
-        <h2 className="font-bold text-lg">{s.name}</h2>
-        <p className="text-sm mb-1">Price: <b>{fmt(s.price)}</b> · You have {fmt(cash)}</p>
+        <h2 className="font-bold text-lg">{multiHuman ? `${p.name}: ` : ''}{s.name}</h2>
+        <p className="text-sm mb-1">Price: <b>{fmt(s.price)}</b> · {multiHuman ? `${p.name} has` : 'You have'} {fmt(cash)}</p>
         {s.rents && <p className="text-xs opacity-70 mb-3">Rent: {fmt(s.rents[0])} (double with full set) · Houses: {s.rents.slice(1, 5).map(fmt).join(' / ')} · Hotel: {fmt(s.rents[5])}</p>}
         {s.type === 'railroad' && <p className="text-xs opacity-70 mb-3">Rent: $25 / $50 / $100 / $200 with 1–4 railroads.</p>}
         {s.type === 'utility' && <p className="text-xs opacity-70 mb-3">Rent: 4× dice roll (one) or 10× (both).</p>}
@@ -457,7 +573,8 @@ function AuctionModal({ g, bidInput, setBidInput, onBid, onPass }) {
   const a = g.auction;
   const s = BOARD[a.spaceIdx];
   const bidder = a.order[a.idx];
-  const isMe = bidder === 0 && !g.players[0].bankrupt;
+  const bp = g.players[bidder];
+  const isHuman = !bp.isAI && !bp.bankrupt;
   const minBid = a.highBid + 1;
   return (
     <div className="fixed inset-0 bg-black/70 flex items-end justify-center z-50">
@@ -467,9 +584,9 @@ function AuctionModal({ g, bidInput, setBidInput, onBid, onPass }) {
         <p className="text-sm mb-3">
           {a.highBidder === null ? 'No bids yet.' : <>High bid: <b>{fmt(a.highBid)}</b> by {g.players[a.highBidder].name}</>}
         </p>
-        {isMe ? (
+        {isHuman ? (
           <>
-            <div className="text-sm mb-1">Your bid (min {fmt(minBid)}, you have {fmt(g.players[0].cash)}):</div>
+            <div className="text-sm mb-1">📱 {bp.name}&rsquo;s bid (min {fmt(minBid)}, {fmt(bp.cash)} available):</div>
             <div className="flex gap-2 mb-2">
               <input
                 type="number"
@@ -489,20 +606,20 @@ function AuctionModal({ g, bidInput, setBidInput, onBid, onPass }) {
             <button onClick={onPass} className="w-full bg-[#2a4a35] text-white font-bold py-2 rounded-xl">Pass</button>
           </>
         ) : (
-          <p className="text-sm opacity-70">Waiting for {g.players[bidder].name}…</p>
+          <p className="text-sm opacity-70">Waiting for {bp.name}…</p>
         )}
       </div>
     </div>
   );
 }
 
-function JailModal({ g, onChoice }) {
-  const p = g.players[0];
+function JailModal({ g, pid, multiHuman, onChoice }) {
+  const p = g.players[pid];
   return (
     <div className="fixed inset-0 bg-black/70 flex items-end justify-center z-50">
       <div className="bg-[#f7f2df] text-[#1a2e1f] rounded-t-2xl p-4 w-full max-w-md">
-        <h2 className="font-bold text-lg mb-1">🔒 You're in Jail</h2>
-        <p className="text-sm opacity-70 mb-3">You can still collect rent. Three ways out:</p>
+        <h2 className="font-bold text-lg mb-1">{multiHuman ? `🔒 ${p.name} is in Jail` : `🔒 You're in Jail`}</h2>
+        <p className="text-sm opacity-70 mb-3">{multiHuman ? 'Rent can still be collected. Three ways out:' : "You can still collect rent. Three ways out:"}</p>
         <div className="flex flex-col gap-2">
           <button
             onClick={() => onChoice('pay')}
@@ -527,17 +644,17 @@ function JailModal({ g, onChoice }) {
   );
 }
 
-function SpaceSheet({ g, idx, onClose, onAction, myTurn }) {
+function SpaceSheet({ g, idx, onClose, onAction, myTurn, actorId }) {
   const s = BOARD[idx];
   const owner = ownerOf(g, idx);
   const lvl = houseLevel(g, idx);
   const mort = isMortgaged(g, idx);
-  const mine = owner === 0;
-  const inDebt = g.phase === 'debt' && g.debt && g.debt.playerId === 0;
+  const mine = owner === actorId;
+  const inDebt = g.phase === 'debt' && g.debt && g.debt.playerId === actorId;
   const canManage = myTurn && mine && (g.phase === 'roll' || inDebt);
-  const buildCheck = mine ? canBuild(g, 0, idx) : null;
-  const sellCheck = mine ? canSell(g, 0, idx) : null;
-  const mortCheck = mine ? canMortgage(g, 0, idx) : null;
+  const buildCheck = mine ? canBuild(g, actorId, idx) : null;
+  const sellCheck = mine ? canSell(g, actorId, idx) : null;
+  const mortCheck = mine ? canMortgage(g, actorId, idx) : null;
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-end justify-center z-50" onClick={onClose}>
@@ -545,7 +662,7 @@ function SpaceSheet({ g, idx, onClose, onAction, myTurn }) {
         <div className="h-2 rounded mb-2" style={{ background: s.color || '#999' }} />
         <h2 className="font-bold text-lg">{s.name}</h2>
         {owner !== null && owner !== undefined && (
-          <p className="text-sm mb-1">Owned by <b style={{ color: g.players[owner].token === '#ffd23f' ? '#a07d00' : g.players[owner].token }}>{g.players[owner].name}</b>{mort ? ' (mortgaged 🔒)' : ''}</p>
+          <p className="text-sm mb-1">Owned by <b style={{ color: g.players[owner].token === '#ffd23f' ? '#a07d00' : g.players[owner].token }}>{g.players[owner].name}</b>{g.players[owner].isAI ? ' 🤖' : ''}{mort ? ' (mortgaged 🔒)' : ''}</p>
         )}
         {owner === null && s.price !== undefined && <p className="text-sm mb-1">Unowned · Price {fmt(s.price)}</p>}
         {s.type === 'tax' && <p className="text-sm mb-1">Pay {fmt(s.amount)} when you land here.</p>}
@@ -609,9 +726,27 @@ function SpaceSheet({ g, idx, onClose, onAction, myTurn }) {
   );
 }
 
-function TradeModal({ g, onClose, onDone }) {
-  const me = g.players[0];
-  const partners = g.players.filter((p) => p.id !== 0 && !p.bankrupt);
+function TradeSummary({ g, side }) {
+  return (
+    <div className="bg-white/60 rounded-lg p-2 text-sm">
+      {side.properties.map((i) => (
+        <div key={i} className="flex items-center gap-1 text-xs py-[1px]">
+          <span className="w-2 h-2 rounded-sm inline-block" style={{ background: BOARD[i].color || '#999' }} />
+          <span>{BOARD[i].short || BOARD[i].name}{isMortgaged(g, i) ? ' 🔒' : ''}</span>
+        </div>
+      ))}
+      {side.cash > 0 && <div className="text-xs">{fmt(side.cash)} cash</div>}
+      {side.gojf > 0 && <div className="text-xs">🃏 Get Out of Jail Free ×{side.gojf}</div>}
+      {side.properties.length === 0 && side.cash === 0 && side.gojf === 0 && (
+        <div className="text-xs opacity-60">nothing</div>
+      )}
+    </div>
+  );
+}
+
+function TradeModal({ g, actorId, onClose, onDone }) {
+  const me = g.players[actorId];
+  const partners = g.players.filter((p) => p.id !== actorId && !p.bankrupt);
   const [to, setTo] = useState(partners[0] ? partners[0].id : null);
   const [offerCash, setOfferCash] = useState('');
   const [offerProps, setOfferProps] = useState([]);
@@ -620,19 +755,26 @@ function TradeModal({ g, onClose, onDone }) {
   const [reqProps, setReqProps] = useState([]);
   const [reqGojf, setReqGojf] = useState(0);
   const [result, setResult] = useState(null);
+  const [awaiting, setAwaiting] = useState(false); // human partner is deciding
+
+  // Never leave a proposed trade hanging with no way to answer it.
+  const safeClose = () => {
+    if (g.trade && g.phase === 'trade') respondTrade(g, false);
+    onClose();
+  };
 
   if (to === null) {
     return (
       <div className="fixed inset-0 bg-black/70 flex items-end justify-center z-50">
         <div className="bg-[#f7f2df] text-[#1a2e1f] rounded-t-2xl p-4 w-full max-w-md">
           <p>No one left to trade with.</p>
-          <button onClick={onClose} className="mt-2 bg-[#2a4a35] text-white px-4 py-2 rounded-xl">Close</button>
+          <button onClick={safeClose} className="mt-2 bg-[#2a4a35] text-white px-4 py-2 rounded-xl">Close</button>
         </div>
       </div>
     );
   }
   const them = g.players[to];
-  const myProps = playerProperties(g, 0);
+  const myProps = playerProperties(g, actorId);
   const theirProps = playerProperties(g, to);
 
   const toggle = (list, setList, idx) => {
@@ -642,16 +784,47 @@ function TradeModal({ g, onClose, onDone }) {
   const propose = () => {
     const offer = { cash: Math.max(0, parseInt(offerCash || '0', 10)), properties: offerProps, gojf: offerGojf };
     const request = { cash: Math.max(0, parseInt(reqCash || '0', 10)), properties: reqProps, gojf: reqGojf };
-    const v = validateTrade(g, 0, to, offer, request);
+    const v = validateTrade(g, actorId, to, offer, request);
     if (!v.ok) { setResult('⚠️ ' + v.why); return; }
-    proposeTrade(g, 0, to, offer, request);
-    const accepted = aiRespondTrade(g);
-    respondTrade(g, accepted);
-    setResult(accepted ? `✅ ${them.name} accepted your trade!` : `❌ ${them.name} turned it down.`);
+    proposeTrade(g, actorId, to, offer, request);
+    if (them.isAI) {
+      const accepted = aiRespondTrade(g);
+      respondTrade(g, accepted);
+      setResult(accepted ? `✅ ${them.name} accepted your trade!` : `❌ ${them.name} turned it down.`);
+      setTimeout(onDone, 1200);
+    } else {
+      setAwaiting(true); // the other human answers on the next screen
+    }
+  };
+
+  const answerTrade = (accept) => {
+    respondTrade(g, accept);
+    setAwaiting(false);
+    setResult(accept ? `✅ ${them.name} accepted the trade!` : `❌ ${them.name} turned it down.`);
     setTimeout(onDone, 1200);
   };
 
-  const propRow = (idx, list, setList, ownerId) => (
+  // Human-to-human: the receiving player confirms on this screen.
+  if (awaiting && g.trade) {
+    const t = g.trade;
+    return (
+      <div className="fixed inset-0 bg-black/70 flex items-end justify-center z-50">
+        <div className="bg-[#f7f2df] text-[#1a2e1f] rounded-t-2xl p-4 w-full max-w-md max-h-[85vh] overflow-y-auto">
+          <h2 className="font-bold text-lg mb-1">📱 Pass the phone to {them.name}</h2>
+          <p className="text-sm opacity-70 mb-1">{me.name} offers you:</p>
+          <TradeSummary g={g} side={t.offer} />
+          <p className="text-sm opacity-70 mt-2 mb-1">In return, {me.name} wants:</p>
+          <TradeSummary g={g} side={t.request} />
+          <div className="flex gap-2 mt-4">
+            <button onClick={() => answerTrade(true)} className="flex-1 bg-[#1fb25a] text-white font-bold py-3 rounded-xl">Accept</button>
+            <button onClick={() => answerTrade(false)} className="flex-1 bg-[#2a4a35] text-white font-bold py-3 rounded-xl">Decline</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const propRow = (idx, list, setList) => (
     <label key={idx} className="flex items-center gap-1 text-xs py-[2px]">
       <input type="checkbox" checked={list.includes(idx)} onChange={() => toggle(list, setList, idx)} disabled={houseLevel(g, idx) > 0} />
       <span className="w-2 h-2 rounded-sm inline-block" style={{ background: BOARD[idx].color || '#999' }} />
@@ -662,19 +835,19 @@ function TradeModal({ g, onClose, onDone }) {
   return (
     <div className="fixed inset-0 bg-black/70 flex items-end justify-center z-50">
       <div className="bg-[#f7f2df] text-[#1a2e1f] rounded-t-2xl p-4 w-full max-w-md max-h-[85vh] overflow-y-auto">
-        <h2 className="font-bold text-lg mb-2">🤝 Trade</h2>
+        <h2 className="font-bold text-lg mb-2">🤝 Trade — {me.name}</h2>
         <div className="flex gap-2 mb-3">
           {partners.map((p) => (
             <button key={p.id} onClick={() => { setTo(p.id); setResult(null); }}
               className={`px-3 py-1 rounded-lg text-sm font-bold ${to === p.id ? 'bg-[#ffd23f] text-black' : 'bg-[#2a4a35] text-white'}`}>
-              {p.name}
+              {p.name}{p.isAI ? ' 🤖' : ''}
             </button>
           ))}
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <div className="font-bold text-sm mb-1">You give</div>
-            <div className="max-h-32 overflow-y-auto mb-1">{myProps.map((i) => propRow(i, offerProps, setOfferProps, 0))}</div>
+            <div className="max-h-32 overflow-y-auto mb-1">{myProps.map((i) => propRow(i, offerProps, setOfferProps))}</div>
             <input type="number" value={offerCash} onChange={(e) => setOfferCash(e.target.value)} placeholder="$ cash"
               className="w-full border rounded-lg px-2 py-1 text-sm text-black mb-1" />
             {me.gojf.length > 0 && (
@@ -686,7 +859,7 @@ function TradeModal({ g, onClose, onDone }) {
           </div>
           <div>
             <div className="font-bold text-sm mb-1">You get</div>
-            <div className="max-h-32 overflow-y-auto mb-1">{theirProps.map((i) => propRow(i, reqProps, setReqProps, to))}</div>
+            <div className="max-h-32 overflow-y-auto mb-1">{theirProps.map((i) => propRow(i, reqProps, setReqProps))}</div>
             <input type="number" value={reqCash} onChange={(e) => setReqCash(e.target.value)} placeholder="$ cash"
               className="w-full border rounded-lg px-2 py-1 text-sm text-black mb-1" />
             {them.gojf.length > 0 && (
@@ -700,7 +873,7 @@ function TradeModal({ g, onClose, onDone }) {
         {result && <p className="text-sm mt-2">{result}</p>}
         <div className="flex gap-2 mt-3">
           <button onClick={propose} className="flex-1 bg-[#1fb25a] text-white font-bold py-2 rounded-xl">Propose trade</button>
-          <button onClick={onClose} className="bg-[#2a4a35] text-white px-4 rounded-xl">Close</button>
+          <button onClick={safeClose} className="bg-[#2a4a35] text-white px-4 rounded-xl">Close</button>
         </div>
         <p className="text-[11px] opacity-60 mt-2">Properties with buildings can't be traded — sell the houses first.</p>
       </div>
@@ -708,24 +881,26 @@ function TradeModal({ g, onClose, onDone }) {
   );
 }
 
-function GameOverModal({ g, onRestart }) {
+function GameOverModal({ g, soloHuman, onRestart }) {
   const winner = g.players[g.winner];
-  const humanWon = g.winner === 0;
+  const humanWon = soloHuman && g.winner === soloHuman.id;
   const standings = g.players
     .map((p) => ({ p, worth: p.bankrupt ? 0 : netWorth(g, p.id) }))
     .sort((a, b) => b.worth - a.worth);
   return (
     <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
       <div className="bg-[#f7f2df] text-[#1a2e1f] rounded-2xl p-5 w-full max-w-md text-center">
-        <div className="text-5xl mb-2">{humanWon ? '🏆' : '💸'}</div>
-        <h2 className="font-bold text-2xl mb-1">{humanWon ? 'You win!' : `${winner.name} wins`}</h2>
+        <div className="text-5xl mb-2">{humanWon ? '🏆' : winner.isAI ? '🤖' : '🎉'}</div>
+        <h2 className="font-bold text-2xl mb-1">{humanWon ? 'You win!' : `${winner.name} wins!`}</h2>
         <p className="text-sm opacity-70 mb-4">
-          {humanWon ? 'Every rival bankrupt. The board is yours.' : 'You went bankrupt. Better luck next time.'}
+          {humanWon ? 'Every rival bankrupt. The board is yours.'
+            : soloHuman ? (soloHuman.bankrupt ? 'You went bankrupt. Better luck next time.' : `${winner.name} takes the board.`)
+            : `${winner.name} is the last player standing!`}
         </p>
         <div className="text-left text-sm mb-4">
           {standings.map(({ p, worth }, i) => (
             <div key={p.id} className="flex justify-between py-1 border-b border-[#d8d0b8]">
-              <span>{i + 1}. {p.name}{p.id === 0 ? ' (you)' : ''} {p.bankrupt ? '💸' : ''}</span>
+              <span>{i + 1}. {p.name}{soloHuman && p.id === soloHuman.id ? ' (you)' : ''}{p.isAI ? ' 🤖' : ''} {p.bankrupt ? '💸' : ''}</span>
               <span className="font-bold">{p.bankrupt ? 'bankrupt' : fmt(worth)}</span>
             </div>
           ))}
