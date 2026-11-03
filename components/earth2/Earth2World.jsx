@@ -4697,23 +4697,32 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         const raycaster = new THREE.Raycaster();
         raycaster.setFromCamera(new THREE.Vector2(0, 0), camera); // dead centre of the aim
         raycaster.far = GRAPPLE_MESH_FAR_M;
-        // Structures: every resident streamed root (streamState is
-        // declared below — this only runs on a button press, long
-        // after the world stands).
-        const roots = [];
-        for (const st of streamState.values()) {
-          if (st && st.status === 'resident' && st.record && Array.isArray(st.record.roots)) {
-            roots.push(...st.record.roots);
-          }
-        }
+        // GRAPPLE EVERYTHING (Merlin, 2026-11-03): the hook grabs
+        // whatever the crosshair touches — buildings, dinosaurs,
+        // staged objects, trees, vehicles, nests, anything solid.
+        // Raycast the whole scene (single shot on button press, not
+        // per frame, so the cost is fine).
         let bestDist = Infinity;
         let bestPoint = null;
-        if (roots.length) {
-          const hits = raycaster.intersectObjects(roots, true);
-          if (hits.length && hits[0].distance < bestDist) {
-            bestDist = hits[0].distance;
-            bestPoint = hits[0].point;
+        const hits = raycaster.intersectObjects(scene.children, true);
+        // Skip the walker's own body and any UI helpers: the ray
+        // starts at the camera (the walker's eye), so anything closer
+        // than 1m is the walker itself.
+        for (const h of hits) {
+          if (h.distance < 1) continue;
+          // Skip invisible helpers and the sky dome.
+          let o = h.object;
+          let skip = false;
+          while (o) {
+            if (o.userData && (o.userData.grappleSkip || o.userData.isSky)) { skip = true; break; }
+            o = o.parent;
           }
+          if (skip) continue;
+          if (h.distance < bestDist) {
+            bestDist = h.distance;
+            bestPoint = h.point;
+          }
+          break; // first valid hit is the closest
         }
         // Terrain: the analytic march, same reach as the meshes.
         const ground = grappleTerrainPoint(raycaster.ray, GRAPPLE_MESH_FAR_M);
