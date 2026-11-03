@@ -7,6 +7,7 @@ import {
   scaleForRealm,
   stagedPlacements,
   stagedPlacementCount,
+  stagedColliders,
   allOnFreeParcels,
 } from '../lib/earth2/staged-objects.js';
 import { STAGED_OBJECTS, STAGED_COUNT } from '../lib/earth2/staged-objects-data.js';
@@ -58,6 +59,16 @@ describe('stagedPlacements', () => {
   it('parcelIds are valid E2-XXXX', () => {
     for (const p of stagedPlacements().slice(0, 100)) {
       assert.match(p.parcelId, /^E2-\d{4}$/);
+    }
+  });
+  it('every non-aether object has a solid collider (SOLID LAW)', () => {
+    const colliders = stagedColliders();
+    const placements = stagedPlacements();
+    const solidCount = placements.filter((p) => p.category !== 'aether').length;
+    assert.equal(colliders.length, solidCount);
+    for (const c of colliders) {
+      assert.ok(Number.isFinite(c.x) && Number.isFinite(c.z), 'finite x/z');
+      assert.ok(Number.isFinite(c.r) && c.r > 0, 'positive radius');
     }
   });
 });

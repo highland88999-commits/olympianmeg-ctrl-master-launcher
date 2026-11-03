@@ -104,7 +104,7 @@ import {
 } from '@/lib/earth2/sfx';
 import { bridgeHeightAt, bridgeDeckYAt, stepBridgeWalker, BRIDGE_DECK_WIDTH_M } from '@/lib/earth2/bridges';
 import { dressingColliders } from '@/lib/earth2/scatter';
-import { stagedPlacements } from '@/lib/earth2/staged-objects';
+import { stagedPlacements, stagedColliders } from '@/lib/earth2/staged-objects';
 import { fossilConditionById } from '@/lib/earth2/fossils';
 import { exchangeFossil, aetherForFossil } from '@/lib/earth2/hammond';
 import { useBackpack, updateBackpack } from '@/lib/backpack/store';
@@ -4414,7 +4414,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       // the build instead: its dressing colliders step aside
       // for as long as the build stands (currentColliders,
       // cached on the build signature).
-      const staticColliders = worldColliders().concat(dressingColliders());
+      const staticColliders = worldColliders().concat(dressingColliders()).concat(stagedColliders());
       let colliderCache = { sig: '', list: staticColliders };
       function currentColliders() {
         const builds = (buildPropsRef.current && buildPropsRef.current.builds) || [];
