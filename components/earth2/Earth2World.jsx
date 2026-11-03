@@ -1786,16 +1786,23 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       // The 1,884 objects staged off Earth 1 live here now, on Free
       // Commons parcels only, sized proportionally to the realm
       // (lib/earth2/staged-objects.js). 73 unique GLBs are decoded
-      // once and cloned per placement — the GPU sees ~1,800 meshes
-      // but only 73 textures/geometries. Procedural entries
-      // (ladders, elevators, interior rooms) are skipped: they have
-      // no GLB to load. Aether shards are positioned; pickup comes
-      // later.
+      // once and cloned per placement — but only NEARBY placements
+      // enter the scene (150 m radius, refreshed every second).
+      // Loading all 1,793 at once crashed phones ~10 s in (Merlin,
+      // 2026-11-03) — the GPU can't hold that many draw calls.
       const stagedGroup = new THREE.Group();
       stagedGroup.name = 'staged-objects';
       scene.add(track(stagedGroup));
+      // Placement cache: base GLB + world position per placement,
+      // clones added/removed by distance. Keyed by placement index.
+      const stagedCache = {
+        bases: new Map(), // url -> normalized base scene (not in scene)
+        placements: [], // { p, x, z, url, clone: null }
+        activeKeys: new Set(),
+      };
+      const STAGED_VISIBLE_M = 150;
 
-      async function placeStagedObjects() {
+      async function loadStagedBases() {
         const placements = stagedPlacements().filter(
           (p) => p.sourceFile && p.sourceFile.startsWith('http')
         );
@@ -1830,20 +1837,43 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           base.position.z -= normCenter.z;
           base.position.y -= normBox2.min.y;
           base.updateMatrixWorld(true);
+          stagedCache.bases.set(url, base);
+          // Record each placement's world position (no clone yet).
           for (const p of group) {
-            if (cancelled) return;
-            const clone = base.clone(true);
-            // Realm-proportional scale (metres) from the placement law.
-            clone.scale.multiplyScalar(p.scaleM);
-            clone.rotation.y = (p.headingDeg * Math.PI) / 180;
-            // Parcel rect + jitter → world x/z; feet on the terrain.
             const parcel = { col: p.parcelIndex % 50, row: Math.floor(p.parcelIndex / 50) };
             const rect = parcelWorldRect(parcel);
             const x = rect.minX + p.jx * WORLD_CELL_M;
             const z = rect.minZ + p.jz * WORLD_CELL_M;
-            clone.position.set(x, heightAt(x, z), z);
+            stagedCache.placements.push({ p, x, z, url, clone: null });
+          }
+        }
+      }
+
+      // Distance cull: keep only nearby staged objects in the scene.
+      // Runs every second — cheap, and phones stay alive.
+      function updateStagedVisibility() {
+        if (!stagedCache.placements.length) return;
+        const px = walker.position.x;
+        const pz = walker.position.z;
+        const r2 = STAGED_VISIBLE_M * STAGED_VISIBLE_M;
+        for (let i = 0; i < stagedCache.placements.length; i++) {
+          const rec = stagedCache.placements[i];
+          const dx = rec.x - px;
+          const dz = rec.z - pz;
+          const near = dx * dx + dz * dz < r2;
+          if (near && !rec.clone) {
+            const base = stagedCache.bases.get(rec.url);
+            if (!base) continue;
+            const clone = base.clone(true);
+            clone.scale.multiplyScalar(rec.p.scaleM);
+            clone.rotation.y = (rec.p.headingDeg * Math.PI) / 180;
+            clone.position.set(rec.x, heightAt(rec.x, rec.z), rec.z);
             clone.updateMatrixWorld(true);
             stagedGroup.add(clone);
+            rec.clone = clone;
+          } else if (!near && rec.clone) {
+            stagedGroup.remove(rec.clone);
+            rec.clone = null;
           }
         }
       }
@@ -6180,9 +6210,9 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       }
       updateStreaming();
 
-      // Staged Earth 1 objects: load in the background so the world
-      // is walkable before all 73 GLBs finish decoding.
-      placeStagedObjects().catch(() => {});
+      // Staged Earth 1 objects: decode the 73 GLBs in the background;
+      // placements pop in by distance so the phone never chokes.
+      loadStagedBases().catch(() => {});
 
       // Dino nests: load in the background with the staged objects.
       placeNests().catch(() => {});
@@ -6201,6 +6231,9 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         // top of the frame, before any life loop iterates the
         // shared arrays.
         if (frameNo % 15 === 1) updateStreaming();
+        // Staged objects: refresh who's near enough to see, once a
+        // second (every 60th frame). Keeps the phone alive.
+        if (frameNo % 60 === 1) updateStagedVisibility();
         const dt = Math.min(clock.getDelta(), 0.05);
         const t = clock.elapsedTime;
         const inp = inputRef.current;
