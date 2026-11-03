@@ -114,6 +114,12 @@ export default function BeerPongPage() {
   const [hud, setHud] = useState({ you: CUPS_PER_SIDE, ai: CUPS_PER_SIDE, message: 'Opening toss — swipe up!', winner: null, turn: 'you', phase: 'toss', rebuttal: false });
   const [friendUI, setFriendUI] = useState({ open: false, loading: false, friends: [], error: '', sentTo: null, roomCode: '' });
   const gameRef = useRef(null);
+  // Syncs React `started` into the Three.js effect without a render or DOM poll
+  const startedRef = useRef(false);
+
+  useEffect(() => {
+    startedRef.current = started;
+  }, [started]);
 
   if (!gameRef.current) {
     gameRef.current = {
@@ -293,6 +299,8 @@ export default function BeerPongPage() {
     const dom = renderer.domElement;
     dom.addEventListener('pointerdown', onPointerDown);
     dom.addEventListener('pointerup', onPointerUp);
+    // Mobile: vertical swipes must reach the toss handler, not scroll/zoom the page
+    dom.style.touchAction = 'none';
 
     const onResize = () => {
       renderer.setSize(container.clientWidth, container.clientHeight);
@@ -304,7 +312,6 @@ export default function BeerPongPage() {
     let raf = 0;
     let last = performance.now();
     let cancelled = false;
-    const startedRef = { current: false };
 
     const frame = (now) => {
       if (cancelled) return;
@@ -577,17 +584,11 @@ export default function BeerPongPage() {
       startRealGame(first, first === 'you' ? 'Toss skipped — you shoot first!' : 'Toss skipped — AI shoots first.');
     };
 
-    // Sync startedRef with React state via a small interval
-    const syncId = setInterval(() => {
-      startedRef.current = document.querySelector('[data-beer-started]') !== null;
-    }, 200);
-
     raf = requestAnimationFrame(frame);
 
     return () => {
       cancelled = true;
       cancelAnimationFrame(raf);
-      clearInterval(syncId);
       dom.removeEventListener('pointerdown', onPointerDown);
       dom.removeEventListener('pointerup', onPointerUp);
       window.removeEventListener('resize', onResize);
@@ -597,24 +598,30 @@ export default function BeerPongPage() {
   }, []);
 
   return (
-    <div ref={containerRef} data-beer-started={started ? '1' : undefined} style={{ position: 'relative', width: '100%', height: '100dvh', overflow: 'hidden', backgroundColor: '#1a0f2e', backgroundImage: 'url(/images/beer-pong/beer-pong-menu-bg.webp)', backgroundSize: 'cover', backgroundPosition: 'center' }}>
+    <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100dvh', overflow: 'hidden', backgroundColor: '#1a0f2e', backgroundImage: 'url(/images/beer-pong/beer-pong-menu-bg.webp)', backgroundSize: 'cover', backgroundPosition: 'center' }}>
+      {/* Press feedback for every tappable control (taste-neutral, no art change) */}
+      <style>{`
+        .bp-btn { -webkit-tap-highlight-color: transparent; touch-action: manipulation; user-select: none; transition: transform .09s ease, filter .09s ease; }
+        .bp-btn:active { transform: scale(.93); filter: brightness(1.2); }
+        .bp-btn:disabled { opacity: .5; }
+      `}</style>
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', pointerEvents: 'none' }}>
         <div style={{ color: '#f8fafc', fontWeight: 800, fontSize: 16 }}>🍺 BEER PONG <span style={{ fontSize: 13 }}>{hud.you}v{hud.ai}</span></div>
         <div style={{ display: 'flex', gap: 8, pointerEvents: 'auto' }}>
-          <button type="button" onClick={openFriendPicker} style={{ background: 'rgba(15,23,42,0.8)', color: '#fff', border: '1px solid #475569', borderRadius: 999, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+          <button type="button" className="bp-btn" onClick={openFriendPicker} style={{ background: 'rgba(15,23,42,0.8)', color: '#fff', border: '1px solid #475569', borderRadius: 999, padding: '10px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
             📞 Call Friend
           </button>
-          <button type="button" onClick={toggleCall} style={{ background: callOn ? '#16a34a' : 'rgba(15,23,42,0.8)', color: '#fff', border: '1px solid #475569', borderRadius: 999, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+          <button type="button" className="bp-btn" onClick={toggleCall} style={{ background: callOn ? '#16a34a' : 'rgba(15,23,42,0.8)', color: '#fff', border: '1px solid #475569', borderRadius: 999, padding: '10px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
             {callOn ? '📹 Call On' : '📹 Call Cam'}
           </button>
-          <a href="/" style={{ color: '#94a3b8', fontSize: 13, textDecoration: 'none', alignSelf: 'center' }}>✕</a>
+          <a href="/" className="bp-btn" style={{ color: '#94a3b8', fontSize: 13, textDecoration: 'none', alignSelf: 'center' }}>✕</a>
         </div>
       </div>
 
-      {/* Call Cam video */}
-      {callOn && (
-        <video ref={videoRef} playsInline muted style={{ position: 'absolute', top: 48, right: 12, width: 110, height: 150, objectFit: 'cover', borderRadius: 12, border: '2px solid #16a34a', zIndex: 6, background: '#000' }} />
-      )}
+      {/* Call Cam video — one element only, shown/hidden with callOn.
+          (Fix 2026-11-02: a second duplicate <video> shared this ref, so the
+          stream landed on the hidden element and the PiP showed nothing.) */}
+      <video ref={videoRef} playsInline muted style={{ display: callOn ? 'block' : 'none', position: 'absolute', top: 48, right: 12, width: 110, height: 150, objectFit: 'cover', borderRadius: 12, border: '2px solid #16a34a', zIndex: 6, background: '#000' }} />
 
       {/* Call Friend picker */}
       {friendUI.open && (
@@ -622,7 +629,7 @@ export default function BeerPongPage() {
           <div style={{ width: '100%', maxWidth: 340, background: '#17102e', border: '1px solid #4c3a7a', borderRadius: 16, padding: 18 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
               <div style={{ color: '#f8fafc', fontWeight: 800, fontSize: 16 }}>📞 Call a friend</div>
-              <button type="button" onClick={() => setFriendUI((f) => ({ ...f, open: false }))} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 18, cursor: 'pointer' }}>✕</button>
+              <button type="button" className="bp-btn" onClick={() => setFriendUI((f) => ({ ...f, open: false }))} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 18, cursor: 'pointer' }}>✕</button>
             </div>
             {friendUI.loading && <div style={{ color: '#cbd5e1', fontSize: 14, padding: '12px 0' }}>Loading…</div>}
             {friendUI.error && !friendUI.loading && (
@@ -635,6 +642,8 @@ export default function BeerPongPage() {
               <button
                 key={fr.user_id}
                 type="button"
+                className="bp-btn"
+                disabled={friendUI.loading}
                 onClick={() => inviteFriend(fr)}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid #3b2d63', borderRadius: 12, padding: '10px 12px', marginBottom: 8, cursor: 'pointer', color: '#f8fafc', fontSize: 14, fontWeight: 600, textAlign: 'left' }}
               >
@@ -649,7 +658,8 @@ export default function BeerPongPage() {
                 <div style={{ color: '#fbbf24', fontWeight: 800, fontSize: 24, letterSpacing: 4, marginBottom: 12 }}>{friendUI.roomCode}</div>
                 <button
                   type="button"
-                  onClick={() => window.open('/order-67', '_blank', 'noopener')}
+                  className="bp-btn"
+                  onClick={() => window.open(`/order-67?code=${encodeURIComponent(friendUI.roomCode)}`, '_blank', 'noopener')}
                   style={{ background: '#f59e0b', color: '#1a0f2e', border: 'none', borderRadius: 999, padding: '12px 28px', fontSize: 15, fontWeight: 800, cursor: 'pointer' }}
                 >
                   Open Order 67 call
@@ -674,7 +684,7 @@ export default function BeerPongPage() {
 
       {started && hud.phase === 'toss' && !hud.winner && (
         <div style={{ position: 'absolute', bottom: 28, left: 0, right: 0, zIndex: 5, display: 'flex', justifyContent: 'center' }}>
-          <button type="button" onClick={() => gameRef.current.skipToss && gameRef.current.skipToss()} style={{ background: 'rgba(15,23,42,0.8)', color: '#cbd5e1', border: '1px solid #475569', borderRadius: 999, padding: '10px 22px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>SKIP TOSS</button>
+          <button type="button" className="bp-btn" onClick={() => gameRef.current.skipToss && gameRef.current.skipToss()} style={{ background: 'rgba(15,23,42,0.8)', color: '#cbd5e1', border: '1px solid #475569', borderRadius: 999, padding: '10px 22px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>SKIP TOSS</button>
         </div>
       )}
 
@@ -689,7 +699,7 @@ export default function BeerPongPage() {
           <div style={{ fontSize: 56 }}>🍺</div>
           <div style={{ color: '#f8fafc', fontSize: 28, fontWeight: 800 }}>BEER PONG</div>
           <div style={{ color: '#cbd5e1', fontSize: 15, maxWidth: 320 }}>9 cups each vs AI — official WSOBP singles rules: opening toss, rebuttals, re-racks & overtime. Triangles point at each other. Swipe UP on the table to toss.</div>
-          <button type="button" onClick={() => setStarted(true)} style={{ marginTop: 8, background: '#f59e0b', color: '#1a0f2e', border: 'none', borderRadius: 999, padding: '14px 40px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>RACK 'EM</button>
+          <button type="button" className="bp-btn" onClick={() => setStarted(true)} style={{ marginTop: 8, background: '#f59e0b', color: '#1a0f2e', border: 'none', borderRadius: 999, padding: '14px 40px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>RACK 'EM</button>
           </div>
         </div>
       )}
@@ -702,11 +712,10 @@ export default function BeerPongPage() {
           <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(12,6,22,0.72) 0%, rgba(12,6,22,0.55) 50%, rgba(12,6,22,0.85) 100%)' }} />
           <div style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20, textAlign: 'center' }}>
           <div style={{ color: hud.winner === 'you' ? '#fbbf24' : '#f87171', fontSize: 34, fontWeight: 800 }}>{hud.winner === 'you' ? 'YOU WIN!' : 'AI wins.'}</div>
-          <button type="button" onClick={() => window.location.reload()} style={{ marginTop: 8, background: '#f59e0b', color: '#1a0f2e', border: 'none', borderRadius: 999, padding: '14px 34px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>REMATCH</button>
+          <button type="button" className="bp-btn" onClick={() => window.location.reload()} style={{ marginTop: 8, background: '#f59e0b', color: '#1a0f2e', border: 'none', borderRadius: 999, padding: '14px 34px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>REMATCH</button>
           </div>
         </div>
       )}
-      <video ref={videoRef} playsInline muted style={{ display: 'none' }} />
     </div>
   );
 }

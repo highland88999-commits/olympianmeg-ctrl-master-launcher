@@ -12,6 +12,16 @@ import { createVolleyball, stepVolleyball, serveBall, stepServe, beginServe, SER
 
 const TEAM_COLORS = { blue: '#3b82f6', red: '#ef4444' };
 
+// Subtle press feedback for menu/action buttons: brief shrink on pointer
+// down, released on up/cancel/leave. No layout change.
+const pressable = {
+  onPointerDown: (e) => { e.currentTarget.style.transform = 'scale(0.95)'; },
+  onPointerUp: (e) => { e.currentTarget.style.transform = ''; },
+  onPointerCancel: (e) => { e.currentTarget.style.transform = ''; },
+  onPointerLeave: (e) => { e.currentTarget.style.transform = ''; },
+};
+const PRESS_TRANSITION = 'transform 0.08s ease';
+
 export default function VolleyballPage() {
   const containerRef = useRef(null);
   const gameRef = useRef(null);
@@ -76,18 +86,23 @@ export default function VolleyballPage() {
     net.position.set(0, NET_H / 2, 0);
     scene.add(net);
 
-    // Players
+    // Players (shared materials per team — built once, not once per player)
+    const bodyMats = {
+      blue: new THREE.MeshStandardMaterial({ color: TEAM_COLORS.blue, roughness: 0.6 }),
+      red: new THREE.MeshStandardMaterial({ color: TEAM_COLORS.red, roughness: 0.6 }),
+    };
+    const headMat = new THREE.MeshStandardMaterial({ color: '#e5e7eb', roughness: 0.5 });
     const playerMeshes = {};
     for (const p of gameRef.current.players) {
       const g = new THREE.Group();
       const body = new THREE.Mesh(
         new THREE.CapsuleGeometry(0.35, 0.7, 4, 10),
-        new THREE.MeshStandardMaterial({ color: TEAM_COLORS[p.team], roughness: 0.6 })
+        bodyMats[p.team]
       );
       body.position.y = 0.9;
       const head = new THREE.Mesh(
         new THREE.SphereGeometry(0.25, 12, 10),
-        new THREE.MeshStandardMaterial({ color: '#e5e7eb', roughness: 0.5 })
+        headMat
       );
       head.position.y = 1.65;
       g.add(body, head);
@@ -130,6 +145,13 @@ export default function VolleyballPage() {
       last = now;
       const state = gameRef.current;
       const you = state.players.find((p) => p.isHuman);
+
+      // REMATCH swaps in a fresh game object — drop any leftover message
+      // from the previous match.
+      if (frame.lastGame !== state) {
+        frame.lastGame = state;
+        msgRef.current = '';
+      }
 
       if (startedRef.current && state.status === 'rally' && you) {
         stepVolleyball(state, dt, { mx: joyRef.current.x, mz: -joyRef.current.y, act: actRef.current }, Math.random);
@@ -217,7 +239,7 @@ export default function VolleyballPage() {
     <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100dvh', overflow: 'hidden', background: '#87ceeb' }}>
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', pointerEvents: 'none' }}>
         <div style={{ color: '#1e293b', fontWeight: 800, fontSize: 18 }}>🏐 VOLLEYBALL <span style={{ fontSize: 14, fontWeight: 600 }}>{hud.blue} - {hud.red}</span> <span style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>Set {hud.set} · Sets {hud.setsBlue}-{hud.setsRed}</span></div>
-        <a href="/" style={{ color: '#475569', fontSize: 13, textDecoration: 'none', pointerEvents: 'auto' }}>✕ Leave</a>
+        <a href="/" style={{ color: '#475569', fontSize: 13, textDecoration: 'none', pointerEvents: 'auto', padding: '8px 10px', margin: '-8px -10px' }}>✕ Leave</a>
       </div>
       {hud.message && !hud.winner && (
         <div style={{ position: 'absolute', top: 44, left: 0, right: 0, zIndex: 5, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
@@ -241,7 +263,7 @@ export default function VolleyballPage() {
           <div style={{ fontSize: 56 }}>🏐</div>
           <div style={{ color: '#f8fafc', fontSize: 28, fontWeight: 800 }}>BEACH VOLLEYBALL</div>
           <div style={{ color: '#e2e8f0', fontSize: 15, maxWidth: 320 }}>You + AI vs 2 AI. Best of 3 sets — 21/21/15, win by 2. Move with the joystick, tap HIT when the ball is close, and tap HIT to serve within 8 seconds.</div>
-          <button type="button" onClick={() => setStarted(true)} style={{ marginTop: 8, background: '#0284c7', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 40px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>PLAY</button>
+          <button type="button" {...pressable} onClick={() => setStarted(true)} style={{ marginTop: 8, background: '#0284c7', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 40px', fontSize: 18, fontWeight: 800, cursor: 'pointer', transition: PRESS_TRANSITION }}>PLAY</button>
           </div>
         </div>
       )}
@@ -254,7 +276,7 @@ export default function VolleyballPage() {
           <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(15,23,42,0.6), rgba(15,23,42,0.55), rgba(15,23,42,0.85))' }} />
           <div style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20, textAlign: 'center' }}>
           <div style={{ color: hud.winner === 'blue' ? '#60a5fa' : '#f87171', fontSize: 34, fontWeight: 800 }}>{hud.winner === 'blue' ? 'YOU WIN!' : 'They win.'}</div>
-          <button type="button" onClick={() => { gameRef.current = createVolleyball(); setHud({ blue: 0, red: 0, setsBlue: 0, setsRed: 0, set: 1, message: '', prompt: '', winner: null }); setStarted(true); }} style={{ marginTop: 8, background: '#0284c7', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 34px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>REMATCH</button>
+          <button type="button" {...pressable} onClick={() => { gameRef.current = createVolleyball(); setHud({ blue: 0, red: 0, setsBlue: 0, setsRed: 0, set: 1, message: '', prompt: '', winner: null }); setStarted(true); }} style={{ marginTop: 8, background: '#0284c7', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 34px', fontSize: 18, fontWeight: 800, cursor: 'pointer', transition: PRESS_TRANSITION }}>REMATCH</button>
           </div>
         </div>
       )}
@@ -265,8 +287,11 @@ export default function VolleyballPage() {
           </div>
           <button
             type="button"
-            onPointerDown={() => { actRef.current = true; }}
-            style={{ position: 'absolute', right: 20, bottom: 32, zIndex: 6, width: 104, height: 104, borderRadius: '50%', border: '3px solid #fff', cursor: 'pointer', fontSize: 19, fontWeight: 800, background: '#0284c7', color: '#fff' }}
+            onPointerDown={(e) => { actRef.current = true; e.currentTarget.style.transform = 'scale(0.94)'; }}
+            onPointerUp={(e) => { e.currentTarget.style.transform = ''; }}
+            onPointerCancel={(e) => { e.currentTarget.style.transform = ''; }}
+            onPointerLeave={(e) => { e.currentTarget.style.transform = ''; }}
+            style={{ position: 'absolute', right: 20, bottom: 32, zIndex: 6, width: 104, height: 104, borderRadius: '50%', border: '3px solid #fff', cursor: 'pointer', fontSize: 19, fontWeight: 800, background: '#0284c7', color: '#fff', transition: PRESS_TRANSITION, touchAction: 'manipulation' }}
           >
             HIT
           </button>

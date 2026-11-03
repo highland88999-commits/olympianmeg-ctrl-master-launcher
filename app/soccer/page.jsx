@@ -12,6 +12,16 @@ import { createSoccer, stepSoccer, kickoff, PITCH_W, PITCH_L, GOAL_W, FORMAT_SHO
 
 const TEAM_COLORS = { blue: '#3b82f6', red: '#ef4444' };
 
+// Subtle press feedback for menu/action buttons: brief shrink on pointer
+// down, released on up/cancel/leave. No layout change.
+const pressable = {
+  onPointerDown: (e) => { e.currentTarget.style.transform = 'scale(0.95)'; },
+  onPointerUp: (e) => { e.currentTarget.style.transform = ''; },
+  onPointerCancel: (e) => { e.currentTarget.style.transform = ''; },
+  onPointerLeave: (e) => { e.currentTarget.style.transform = ''; },
+};
+const PRESS_TRANSITION = 'transform 0.08s ease';
+
 export default function SoccerPage() {
   const containerRef = useRef(null);
   const gameRef = useRef(null);
@@ -89,14 +99,20 @@ export default function SoccerPage() {
     }
 
     const playerMeshes = {};
+    // Shared materials per team (built once, not once per player)
+    const bodyMats = {
+      blue: new THREE.MeshStandardMaterial({ color: TEAM_COLORS.blue, roughness: 0.6 }),
+      red: new THREE.MeshStandardMaterial({ color: TEAM_COLORS.red, roughness: 0.6 }),
+    };
+    const headMat = new THREE.MeshStandardMaterial({ color: '#e5e7eb' });
     for (const p of gameRef.current.players) {
       const g = new THREE.Group();
       const body = new THREE.Mesh(
         new THREE.CapsuleGeometry(0.35, 0.7, 4, 10),
-        new THREE.MeshStandardMaterial({ color: TEAM_COLORS[p.team], roughness: 0.6 })
+        bodyMats[p.team]
       );
       body.position.y = 0.9;
-      const head = new THREE.Mesh(new THREE.SphereGeometry(0.25, 12, 10), new THREE.MeshStandardMaterial({ color: '#e5e7eb' }));
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.25, 12, 10), headMat);
       head.position.y = 1.65;
       g.add(body, head);
       scene.add(g);
@@ -142,6 +158,14 @@ export default function SoccerPage() {
       const state = gameRef.current;
       const you = state.players.find((p) => p.isHuman);
 
+      // REMATCH swaps in a fresh game object — drop any leftover message
+      // from the previous match (the initial kickoff pushes no 'kickoff'
+      // event, so the handler below never clears it).
+      if (frame.lastGame !== state) {
+        frame.lastGame = state;
+        msgRef.current = '';
+      }
+
       if (startedRef.current && state.status === 'play' && you) {
         stepSoccer(state, dt, { mx: joyRef.current.x, mz: -joyRef.current.y, act: actRef.current }, Math.random);
         actRef.current = false;
@@ -159,7 +183,6 @@ export default function SoccerPage() {
           if (ev.type === 'card') msgRef.current = ev.color === 'red' ? 'Red card — sent off!' : 'Yellow card';
           if (ev.type === 'abandoned') msgRef.current = 'Match abandoned — too few players.';
         }
-        if (state.status === 'kickoff' && !frame.koTimer) frame.koTimer = now;
       } else if (startedRef.current && state.status === 'kickoff') {
         if (!frame.koTimer) frame.koTimer = now;
         if (now - frame.koTimer > 1500) {
@@ -214,7 +237,7 @@ export default function SoccerPage() {
     <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100dvh', overflow: 'hidden', background: '#0a1f0a' }}>
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', pointerEvents: 'none' }}>
         <div style={{ color: '#f8fafc', fontWeight: 800, fontSize: 16 }}>⚽ SOCCER <span style={{ fontWeight: 600 }}>{hud.blue}-{hud.red}</span> <span style={{ fontSize: 13, color: '#94a3b8' }}>H{hud.half} {hud.clock}</span> <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>{FORMAT_SHORT}</span></div>
-        <a href="/" style={{ color: '#94a3b8', fontSize: 13, textDecoration: 'none', pointerEvents: 'auto' }}>✕ Leave</a>
+        <a href="/" style={{ color: '#94a3b8', fontSize: 13, textDecoration: 'none', pointerEvents: 'auto', padding: '8px 10px', margin: '-8px -10px' }}>✕ Leave</a>
       </div>
       {hud.message && !hud.winner && (
         <div style={{ position: 'absolute', top: 44, left: 0, right: 0, zIndex: 5, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
@@ -232,7 +255,7 @@ export default function SoccerPage() {
           <div style={{ fontSize: 56 }}>⚽</div>
           <div style={{ color: '#f8fafc', fontSize: 28, fontWeight: 800 }}>SOCCER</div>
           <div style={{ color: '#cbd5e1', fontSize: 15, maxWidth: 320 }}>7-a-side, two 10-minute halves per Olympus Cup rules. You're the striker — dribble with the joystick, tap SHOOT in range.</div>
-          <button type="button" onClick={() => { kickoff(gameRef.current); setStarted(true); }} style={{ marginTop: 8, background: '#16a34a', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 40px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>KICK OFF</button>
+          <button type="button" {...pressable} onClick={() => { kickoff(gameRef.current); setStarted(true); }} style={{ marginTop: 8, background: '#16a34a', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 40px', fontSize: 18, fontWeight: 800, cursor: 'pointer', transition: PRESS_TRANSITION }}>KICK OFF</button>
           </div>
         </div>
       )}
@@ -244,7 +267,7 @@ export default function SoccerPage() {
           <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(10,10,10,0.72), rgba(10,10,10,0.6) 50%, rgba(10,10,10,0.9))' }} />
           <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20, textAlign: 'center' }}>
           <div style={{ color: '#f8fafc', fontSize: 34, fontWeight: 800 }}>{hud.winner === 'blue' ? 'YOU WIN!' : hud.winner === 'tie' ? 'DRAW' : 'They win.'}</div>
-          <button type="button" onClick={() => { gameRef.current = createSoccer(); setHud({ blue: 0, red: 0, half: 1, clock: '10:00', message: '', winner: null }); setStarted(true); }} style={{ marginTop: 8, background: '#16a34a', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 34px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>REMATCH</button>
+          <button type="button" {...pressable} onClick={() => { gameRef.current = createSoccer(); setHud({ blue: 0, red: 0, half: 1, clock: '10:00', message: '', winner: null }); setStarted(true); }} style={{ marginTop: 8, background: '#16a34a', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 34px', fontSize: 18, fontWeight: 800, cursor: 'pointer', transition: PRESS_TRANSITION }}>REMATCH</button>
           </div>
         </div>
       )}
@@ -255,8 +278,11 @@ export default function SoccerPage() {
           </div>
           <button
             type="button"
-            onPointerDown={() => { actRef.current = true; }}
-            style={{ position: 'absolute', right: 20, bottom: 32, zIndex: 6, width: 104, height: 104, borderRadius: '50%', border: '3px solid #fff', cursor: 'pointer', fontSize: 18, fontWeight: 800, background: '#16a34a', color: '#fff' }}
+            onPointerDown={(e) => { actRef.current = true; e.currentTarget.style.transform = 'scale(0.94)'; }}
+            onPointerUp={(e) => { e.currentTarget.style.transform = ''; }}
+            onPointerCancel={(e) => { e.currentTarget.style.transform = ''; }}
+            onPointerLeave={(e) => { e.currentTarget.style.transform = ''; }}
+            style={{ position: 'absolute', right: 20, bottom: 32, zIndex: 6, width: 104, height: 104, borderRadius: '50%', border: '3px solid #fff', cursor: 'pointer', fontSize: 18, fontWeight: 800, background: '#16a34a', color: '#fff', transition: PRESS_TRANSITION, touchAction: 'manipulation' }}
           >
             SHOOT
           </button>

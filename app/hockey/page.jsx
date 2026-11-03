@@ -199,9 +199,6 @@ export default function HockeyPage() {
     youRing.position.y = 0.02;
     scene.add(youRing);
 
-    // Penalty box indicator (above each penalized player)
-    const penMeshes = {};
-
     // Puck
     const puck = new THREE.Mesh(
       new THREE.CylinderGeometry(0.3, 0.3, 0.15, 12),
@@ -276,7 +273,6 @@ export default function HockeyPage() {
           if (ev.type === 'shootout') msgRef.current = 'SHOOTOUT';
           if (ev.type === 'shootoutResult') msgRef.current = ev.scored ? (ev.team === 'blue' ? 'Scores!' : 'They score.') : 'Stopped!';
         }
-        if (state.status === 'faceoff' && !frame.foTimer) frame.foTimer = now;
       } else if (startedRef.current && state.status === 'faceoff') {
         if (!frame.foTimer) frame.foTimer = now;
         if (now - frame.foTimer > 1500) {
@@ -397,9 +393,13 @@ export default function HockeyPage() {
         </div>
       )}
       {hud.winner && (
-        <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, background: 'rgba(15,23,42,0.85)', padding: 20, textAlign: 'center' }}>
+        <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20, textAlign: 'center' }}>
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, backgroundSize: 'cover', backgroundPosition: 'center', backgroundImage: 'url(/images/hockey/hockey-menu-bg.webp)' }} />
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0.72), rgba(0,0,0,0.55), rgba(0,0,0,0.88))' }} />
+          <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, textAlign: 'center' }}>
           <div style={{ color: '#f8fafc', fontSize: 34, fontWeight: 800 }}>{hud.winner === 'blue' ? 'YOU WIN!' : 'They win.'}</div>
           <button type="button" onClick={() => { gameRef.current = createHockey(); setHud({ blue: 0, red: 0, period: 'P1', clock: '3:00', message: '', winner: null, shootout: null, youPenalty: 0 }); setStarted(true); }} style={{ marginTop: 8, background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 34px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>REMATCH</button>
+          </div>
         </div>
       )}
       {started && !hud.winner && (

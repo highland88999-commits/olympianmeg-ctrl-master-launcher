@@ -19,7 +19,7 @@ import {
   FORMAT, DEFAULT_MODE, TEAM_SIZES,
 } from '@/lib/dodgeball/rules.js';
 import {
-  createLobby, tickLobby, buildRoster, LOBBY_SECONDS,
+  createLobby, tickLobby, buildRoster,
 } from '@/lib/dodgeball/matchmaking.js';
 
 const TEAM_COLORS = { blue: '#3b82f6', red: '#ef4444' };
@@ -496,6 +496,10 @@ export default function DodgeballPage() {
     cursor: 'pointer',
   });
   const lobbySlots = (lobby && (TEAM_SIZES[lobby.mode] || 6)) || 6;
+  // Hoist: roster used to be rebuilt for every slot row (12x per render).
+  const lobbyRoster = lobby ? buildRoster(lobby) : [];
+  const lobbyBlue = lobbyRoster.filter((c) => c.team === 'blue');
+  const lobbyRed = lobbyRoster.filter((c) => c.team === 'red');
   const you = gameRef.current.players.find((p) => p.isHuman);
   const out = !!(you && !you.alive && hud.winner === null);
 
@@ -541,7 +545,10 @@ export default function DodgeballPage() {
 
       {/* Start overlay -> mode select -> matchmaking lobby */}
       {!started && !inLobby && (
-        <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, background: 'rgba(11, 17, 32, 0.72)', padding: 20, textAlign: 'center' }}>
+        <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20, textAlign: 'center' }}>
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, backgroundSize: 'cover', backgroundPosition: 'center', backgroundImage: 'url(/images/dodgeball/dodgeball-menu-bg.webp)' }} />
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0.72), rgba(0,0,0,0.55), rgba(0,0,0,0.88))' }} />
+          <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, textAlign: 'center' }}>
           <div style={{ color: '#f8fafc', fontSize: 34, fontWeight: 800 }}>DODGEBALL</div>
           <div style={{ color: '#cbd5e1', fontSize: 15, maxWidth: 340, lineHeight: 1.5 }}>
             Official WDBF rules: 2 × 15-minute halves of timed sets. Back-line
@@ -565,6 +572,7 @@ export default function DodgeballPage() {
             FIND MATCH
           </button>
           <div style={{ color: '#94a3b8', fontSize: 12 }}>Joystick or WASD to move · THROW button, Space, or controller X/A</div>
+          </div>
         </div>
       )}
 
@@ -590,8 +598,7 @@ export default function DodgeballPage() {
             <div>
               <div style={{ color: '#60a5fa', fontWeight: 700, fontSize: 14, marginBottom: 6 }}>BLUE</div>
               {Array.from({ length: lobbySlots }).map((_, i) => {
-                const roster = buildRoster(lobby);
-                const slot = roster.filter((c) => c.team === 'blue')[i];
+                const slot = lobbyBlue[i];
                 const isHuman = slot && slot.isHuman;
                 return (
                   <div key={i} style={{ color: isHuman ? '#f8fafc' : '#475569', fontSize: 13, padding: '4px 0' }}>
@@ -603,8 +610,7 @@ export default function DodgeballPage() {
             <div>
               <div style={{ color: '#f87171', fontWeight: 700, fontSize: 14, marginBottom: 6 }}>RED</div>
               {Array.from({ length: lobbySlots }).map((_, i) => {
-                const roster = buildRoster(lobby);
-                const slot = roster.filter((c) => c.team === 'red')[i];
+                const slot = lobbyRed[i];
                 const isHuman = slot && slot.isHuman;
                 return (
                   <div key={i} style={{ color: isHuman ? '#f8fafc' : '#475569', fontSize: 13, padding: '4px 0' }}>
@@ -627,7 +633,10 @@ export default function DodgeballPage() {
 
       {/* End overlay */}
       {started && hud.winner && (
-        <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, background: 'rgba(11, 17, 32, 0.72)', padding: 20, textAlign: 'center' }}>
+        <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20, textAlign: 'center' }}>
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, backgroundSize: 'cover', backgroundPosition: 'center', backgroundImage: 'url(/images/dodgeball/dodgeball-menu-bg.webp)' }} />
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0.72), rgba(0,0,0,0.55), rgba(0,0,0,0.88))' }} />
+          <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, textAlign: 'center' }}>
           <div style={{ color: hud.winner === 'blue' ? '#60a5fa' : hud.winner === 'draw' ? '#fbbf24' : '#f87171', fontSize: 34, fontWeight: 800 }}>
             {hud.winner === 'blue' ? 'YOU WIN!' : hud.winner === 'draw' ? 'Draw.' : 'Red team wins.'}
           </div>
@@ -641,6 +650,7 @@ export default function DodgeballPage() {
           >
             REMATCH
           </button>
+          </div>
         </div>
       )}
 

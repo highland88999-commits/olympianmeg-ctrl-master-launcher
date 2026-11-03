@@ -6,7 +6,7 @@
 
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { useRouter } from 'next/navigation';
 
@@ -26,6 +26,8 @@ export default function SportsComplexPage() {
   const router = useRouter();
   const routerRef = useRef(router);
   routerRef.current = router;
+  const [ready, setReady] = useState(false);
+  const readyRef = useRef(false);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -234,6 +236,10 @@ export default function SportsComplexPage() {
     const frame = (now) => {
       if (cancelled) return;
       raf = requestAnimationFrame(frame);
+      if (!readyRef.current) {
+        readyRef.current = true;
+        setReady(true);
+      }
       const t = now * 0.001;
       camera.position.set(Math.sin(now * 0.00035) * 34, 15, Math.cos(now * 0.00035) * 34);
       camera.lookAt(0, 2, 0);
@@ -263,6 +269,18 @@ export default function SportsComplexPage() {
       cancelAnimationFrame(raf);
       renderer.domElement.removeEventListener('click', onClick);
       window.removeEventListener('resize', onResize);
+      // Free scene resources (geometry, materials, textures) — renderer.dispose()
+      // alone does not release them, and this page mounts fresh on each visit.
+      scene.traverse((obj) => {
+        if (obj.geometry) obj.geometry.dispose();
+        if (obj.material) {
+          const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+          mats.forEach((m) => {
+            if (m.map) m.map.dispose();
+            m.dispose();
+          });
+        }
+      });
       renderer.dispose();
       if (renderer.domElement.parentNode === container) container.removeChild(renderer.domElement);
     };
@@ -270,6 +288,14 @@ export default function SportsComplexPage() {
 
   return (
     <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100dvh', overflow: 'hidden', background: '#060d18' }}>
+      <style>{`.hub-btn { transition: transform 120ms ease, opacity 120ms ease; } .hub-btn:active { transform: scale(0.94); opacity: 0.8; }`}</style>
+      {!ready && (
+        <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#060d18', pointerEvents: 'none' }}>
+          <div style={{ color: '#e2e8f0', fontSize: 14, background: 'rgba(15,23,42,0.85)', padding: '10px 20px', borderRadius: 999, border: '1px solid rgba(59,130,246,0.35)' }}>
+            🏟️ Warming up the stadium…
+          </div>
+        </div>
+      )}
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', pointerEvents: 'none' }}>
         <div style={{ color: '#f8fafc', fontWeight: 800, fontSize: 18 }}>🏟️ SPORTS COMPLEX</div>
         <a href="/" style={{ color: '#94a3b8', fontSize: 13, textDecoration: 'none', pointerEvents: 'auto' }}>✕ Leave</a>
@@ -284,8 +310,9 @@ export default function SportsComplexPage() {
           <button
             key={s.key}
             type="button"
+            className="hub-btn"
             onClick={() => router.push(`/${s.key}`)}
-            style={{ background: 'rgba(15,23,42,0.85)', color: '#f8fafc', border: `1px solid ${s.color}`, borderRadius: 999, padding: '6px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', textAlign: 'left' }}
+            style={{ background: 'rgba(15,23,42,0.85)', color: '#f8fafc', border: `1px solid ${s.color}`, borderRadius: 999, padding: '9px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', textAlign: 'left' }}
           >
             {s.icon} {s.name}
           </button>

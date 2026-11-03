@@ -64,7 +64,7 @@ export default function TennisPage() {
     mkLine(d.W, 0.1, 0, d.L / 2);
     mkLine(d.W, 0.1, 0, -d.L / 2);
     mkLine(0.1, d.L, -d.W / 2, 0);
-    mkLine(0.1, d.W / 2, d.W / 2, 0);
+    mkLine(0.1, d.L, d.W / 2, 0); // fixed 2026-11-02: was (0.1, d.W/2, d.W/2) — a 5.5m white slab instead of a full-length sideline
     mkLine(d.W, 0.1, 0, 0); // service line (simplified)
     // Net
     const net = new THREE.Mesh(
@@ -167,6 +167,12 @@ export default function TennisPage() {
       cancelled = true;
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', onResize);
+      scene.traverse((obj) => {
+        if (obj.geometry) obj.geometry.dispose();
+        const m = obj.material;
+        if (Array.isArray(m)) m.forEach((x) => x.dispose());
+        else if (m) m.dispose();
+      });
       renderer.dispose();
       if (renderer.domElement.parentNode === container) container.removeChild(renderer.domElement);
     };
@@ -218,8 +224,10 @@ export default function TennisPage() {
           </div>
           <button
             type="button"
-            onPointerDown={() => { actRef.current = true; }}
-            style={{ position: 'absolute', right: 20, bottom: 32, zIndex: 6, width: 104, height: 104, borderRadius: '50%', border: '3px solid #fff', cursor: 'pointer', fontSize: 19, fontWeight: 800, background: '#ccff00', color: '#1a4d1a' }}
+            onPointerDown={(e) => { actRef.current = true; e.currentTarget.style.transform = 'scale(0.92)'; }}
+            onPointerUp={(e) => { e.currentTarget.style.transform = ''; }}
+            onPointerLeave={(e) => { e.currentTarget.style.transform = ''; }}
+            style={{ position: 'absolute', right: 20, bottom: 32, zIndex: 6, width: 104, height: 104, borderRadius: '50%', border: '3px solid #fff', cursor: 'pointer', fontSize: 19, fontWeight: 800, background: '#ccff00', color: '#1a4d1a', transition: 'transform 90ms ease' }}
           >
             HIT
           </button>

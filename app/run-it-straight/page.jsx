@@ -14,6 +14,7 @@ export default function RunItStraightPage() {
   const containerRef = useRef(null);
   const gameRef = useRef(null);
   const mashRef = useRef(false);
+  const clashTimerRef = useRef(0);
   const [started, setStarted] = useState(false);
   const [hud, setHud] = useState({ you: 0, ai: 0, round: 1, message: 'MASH TO RUN!', winner: null, phase: 'ready' });
   const hudPrevRef = useRef('');
@@ -119,8 +120,14 @@ export default function RunItStraightPage() {
             msgRef.current = ev.winner === 'you' ? (ev.attackerWins && ev.youAttacking ? 'RAN THROUGH!' : 'STONEWALLED!') : 'THEY GOT YOU';
             flash.position.set(0, 1.2, (state.you.z + state.ai.z) / 2);
             flash.material.opacity = 0.9;
-            setTimeout(() => {
-              if (state.status === 'clash') nextRound(state);
+            // Fixed 2026-11-02: timer is tracked so unmount clears it, and the
+            // stale result message is reset when the next round starts.
+            if (clashTimerRef.current) window.clearTimeout(clashTimerRef.current);
+            clashTimerRef.current = window.setTimeout(() => {
+              if (state.status === 'clash') {
+                nextRound(state);
+                msgRef.current = 'MASH TO RUN!';
+              }
             }, 1400);
           }
         }
@@ -138,11 +145,6 @@ export default function RunItStraightPage() {
           legs[0].rotation.x = Math.sin(t) * 0.7;
           legs[1].rotation.x = Math.sin(t + Math.PI) * 0.7;
         }
-      }
-      // Clash knockback
-      if (state.status === 'clash') {
-        const lastEv = state.events.find((e) => e.type === 'clash');
-        // Simple: loser stumbles back
       }
       flash.material.opacity = Math.max(0, flash.material.opacity - dt * 2);
 
@@ -164,7 +166,14 @@ export default function RunItStraightPage() {
     return () => {
       cancelled = true;
       cancelAnimationFrame(raf);
+      if (clashTimerRef.current) window.clearTimeout(clashTimerRef.current);
       window.removeEventListener('resize', onResize);
+      scene.traverse((obj) => {
+        if (obj.geometry) obj.geometry.dispose();
+        const m = obj.material;
+        if (Array.isArray(m)) m.forEach((x) => x.dispose());
+        else if (m) m.dispose();
+      });
       renderer.dispose();
       if (renderer.domElement.parentNode === container) container.removeChild(renderer.domElement);
     };
@@ -181,7 +190,10 @@ export default function RunItStraightPage() {
         <div style={{ color: '#f8fafc', fontWeight: 800, fontSize: 16 }}>💥 RUN IT STRAIGHT <span style={{ fontSize: 14 }}>{hud.you}-{hud.ai}</span></div>
         <a href="/" style={{ color: '#94a3b8', fontSize: 13, textDecoration: 'none', pointerEvents: 'auto' }}>✕ Leave</a>
       </div>
-      {hud.message && !hud.winner && hud.phase === 'run' && (
+      {/* Fixed 2026-11-02: message was gated to phase==='run' only, so the
+          clash result ("RAN THROUGH!" etc.) never displayed — it is set while
+          phase==='clash'. Now shown during run and clash. */}
+      {hud.message && !hud.winner && (hud.phase === 'run' || hud.phase === 'clash') && (
         <div style={{ position: 'absolute', top: 44, left: 0, right: 0, zIndex: 5, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
           <div style={{ background: 'rgba(15,23,42,0.8)', color: '#fbbf24', padding: '6px 14px', borderRadius: 999, fontSize: 14, fontWeight: 700 }}>{hud.message}</div>
         </div>
@@ -211,10 +223,10 @@ export default function RunItStraightPage() {
       {started && !hud.winner && hud.phase === 'run' && (
         <button
           type="button"
-          onPointerDown={() => { mashRef.current = true; }}
-          onPointerUp={() => { mashRef.current = false; }}
-          onPointerLeave={() => { mashRef.current = false; }}
-          style={{ position: 'absolute', bottom: 40, left: '50%', transform: 'translateX(-50%)', zIndex: 6, width: 140, height: 140, borderRadius: '50%', border: '4px solid #fbbf24', cursor: 'pointer', fontSize: 22, fontWeight: 800, background: '#ef4444', color: '#fff', userSelect: 'none', touchAction: 'none' }}
+          onPointerDown={(e) => { mashRef.current = true; e.currentTarget.style.transform = 'translateX(-50%) scale(0.94)'; }}
+          onPointerUp={(e) => { mashRef.current = false; e.currentTarget.style.transform = 'translateX(-50%)'; }}
+          onPointerLeave={(e) => { mashRef.current = false; e.currentTarget.style.transform = 'translateX(-50%)'; }}
+          style={{ position: 'absolute', bottom: 40, left: '50%', transform: 'translateX(-50%)', zIndex: 6, width: 140, height: 140, borderRadius: '50%', border: '4px solid #fbbf24', cursor: 'pointer', fontSize: 22, fontWeight: 800, background: '#ef4444', color: '#fff', userSelect: 'none', touchAction: 'none', transition: 'transform 90ms ease' }}
         >
           RUN!
         </button>

@@ -6,7 +6,7 @@
 
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { useRouter } from 'next/navigation';
 
@@ -22,6 +22,8 @@ export default function AttractionsComplexPage() {
   const router = useRouter();
   const routerRef = useRef(router);
   routerRef.current = router;
+  const [ready, setReady] = useState(false);
+  const readyRef = useRef(false);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -220,6 +222,10 @@ export default function AttractionsComplexPage() {
     const frame = (now) => {
       if (cancelled) return;
       raf = requestAnimationFrame(frame);
+      if (!readyRef.current) {
+        readyRef.current = true;
+        setReady(true);
+      }
       const t = now * 0.001;
       camera.position.set(Math.sin(now * 0.0003) * 36, 14, Math.cos(now * 0.0003) * 36);
       camera.lookAt(0, 5, 0);
@@ -262,6 +268,18 @@ export default function AttractionsComplexPage() {
       cancelAnimationFrame(raf);
       renderer.domElement.removeEventListener('click', onClick);
       window.removeEventListener('resize', onResize);
+      // Free scene resources (geometry, materials, textures — including the
+      // nebula canvas sprites) — renderer.dispose() alone does not release them.
+      scene.traverse((obj) => {
+        if (obj.geometry) obj.geometry.dispose();
+        if (obj.material) {
+          const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+          mats.forEach((m) => {
+            if (m.map) m.map.dispose();
+            m.dispose();
+          });
+        }
+      });
       renderer.dispose();
       if (renderer.domElement.parentNode === container) container.removeChild(renderer.domElement);
     };
@@ -269,6 +287,14 @@ export default function AttractionsComplexPage() {
 
   return (
     <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100dvh', overflow: 'hidden', background: '#05030f' }}>
+      <style>{`.hub-btn { transition: transform 120ms ease, opacity 120ms ease; } .hub-btn:active { transform: scale(0.94); opacity: 0.8; }`}</style>
+      {!ready && (
+        <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#05030f', pointerEvents: 'none' }}>
+          <div style={{ color: '#e9d5ff', fontSize: 14, background: 'rgba(20,10,40,0.85)', padding: '10px 20px', borderRadius: 999, border: '1px solid rgba(168,85,247,0.45)' }}>
+            🎡 Raising the midway…
+          </div>
+        </div>
+      )}
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', pointerEvents: 'none' }}>
         <div style={{ color: '#f8fafc', fontWeight: 800, fontSize: 18, textShadow: '0 0 18px rgba(168,85,247,0.8)' }}>🎡 ATTRACTIONS COMPLEX</div>
         <a href="/" style={{ color: '#94a3b8', fontSize: 13, textDecoration: 'none', pointerEvents: 'auto' }}>✕ Leave</a>
@@ -283,8 +309,9 @@ export default function AttractionsComplexPage() {
           <button
             key={a.key}
             type="button"
+            className="hub-btn"
             onClick={() => router.push(`/${a.key}`)}
-            style={{ background: 'rgba(20,10,40,0.85)', color: '#f8fafc', border: `1px solid ${a.color}`, borderRadius: 999, padding: '6px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', textAlign: 'left' }}
+            style={{ background: 'rgba(20,10,40,0.85)', color: '#f8fafc', border: `1px solid ${a.color}`, borderRadius: 999, padding: '9px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', textAlign: 'left' }}
           >
             {a.icon} {a.name}
           </button>
