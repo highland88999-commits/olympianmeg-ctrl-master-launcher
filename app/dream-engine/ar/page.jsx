@@ -242,10 +242,412 @@ function orientationToQuaternion(alpha, beta, gamma, screenOrient) {
   return _targetQ;
 }
 
+// ---------------------------------------------------------------------------
+// WebXR true-AR mode (Merlin, 2026-11-02: "Pretend Apple doesn't exist").
+//
+// Real immersive-ar through three.js renderer.xr: viewer-space hit-testing
+// drops a reticle on real-world surfaces, a tap ('select') places the picked
+// dream object there, and XRAnchors pin it in space while the user walks.
+// XR light estimation refines the lighting when the browser grants it.
+// Where WebXR is unavailable the page falls back to the gyro mode above.
+// No paid services, no new dependencies.
+// ---------------------------------------------------------------------------
+
+async function isImmersiveARSupported() {
+  try {
+    if (typeof navigator === 'undefined' || !navigator.xr || typeof navigator.xr.isSessionSupported !== 'function') return false;
+    return await navigator.xr.isSessionSupported('immersive-ar');
+  } catch (e) {
+    return false;
+  }
+}
+
+function WebXRARView({ session, pickerRef, overlayHost, onExit, onFatal }) {
+  const mountRef = useRef(null);
+  const rtRef = useRef(null);
+  const [hint, setHint] = useState('Move your phone slowly to find a surface…');
+  const [selName, setSelName] = useState(null);
+  const [pickType, setPickType] = useState(pickerRef.current || 'crystal');
+
+  const setPicker = (t) => { setPickType(t); pickerRef.current = t; };
+
+  useEffect(() => {
+    const mount = mountRef.current;
+    if (!mount || !session) { onFatal('No AR session to start.'); return undefined; }
+
+    const rt = {
+      dead: false, selected: null, dreamObjs: [], anchors: [],
+      refSpace: null, hitSource: null, xrLightProbe: null,
+      latestFrame: null, latestHit: null,
+      viewerPos: new THREE.Vector3(), viewerQuat: new THREE.Quaternion(), viewerHas: false,
+    };
+    rtRef.current = rt;
+
+    const scene = new THREE.Scene();
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(0x000000, 0);
+    renderer.xr.enabled = true;
+    mount.appendChild(renderer.domElement);
+    const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 100);
+
+    // Lights: XR light estimation refines these when granted, else this setup stands.
+    const hemi = new THREE.HemisphereLight(0xdde4ff, 0x33244d, 0.9);
+    scene.add(hemi);
+    const dirL = new THREE.DirectionalLight(0xfff2dd, 1.2);
+    dirL.position.set(2, 4, 1);
+    scene.add(dirL);
+    const probe = new THREE.LightProbe();
+    scene.add(probe);
+
+    // Reticle: ring + dot snapped onto real surfaces by the hit test.
+    const reticle = new THREE.Group();
+    const retMat = new THREE.MeshBasicMaterial({ color: 0xc4b5fd, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthTest: false });
+    const retRing = new THREE.Mesh(new THREE.RingGeometry(0.09, 0.115, 40), retMat);
+    retRing.rotation.x = -Math.PI / 2;
+    const retDot = new THREE.Mesh(new THREE.CircleGeometry(0.022, 16), retMat);
+    retDot.rotation.x = -Math.PI / 2;
+    retDot.position.y = 0.001;
+    reticle.add(retRing, retDot);
+    reticle.visible = false;
+    reticle.renderOrder = 999;
+    scene.add(reticle);
+
+    const raycaster = new THREE.Raycaster();
+    const centerNDC = new THREE.Vector2(0, 0);
+    const tapCam = new THREE.PerspectiveCamera();
+    const sharedGeo = new Set(Object.values(GEO).filter((v) => v && v.isBufferGeometry));
+
+    const say = (msg, ms = 4500) => {
+      if (rt.dead) return;
+      setHint(msg);
+      setTimeout(() => { if (!rt.dead) setHint(''); }, ms);
+    };
+
+    const clearSelection = () => {
+      const s = rt.selected;
+      if (s) {
+        for (const n of ['selRing', 'btnPlus', 'btnMinus']) {
+          const o = s.grp.getObjectByName(n);
+          if (o) s.grp.remove(o);
+        }
+      }
+      rt.selected = null;
+      setSelName(null);
+    };
+    rt.clearSelection = clearSelection;
+
+    const selectObject = (grp) => {
+      clearSelection();
+      const ringM = new THREE.Mesh(
+        new THREE.TorusGeometry(0.34, 0.02, 8, 40),
+        new THREE.MeshBasicMaterial({ color: 0xc4b5fd, depthTest: false })
+      );
+      ringM.rotation.x = -Math.PI / 2;
+      ringM.position.y = 0.02;
+      ringM.name = 'selRing';
+      ringM.renderOrder = 998;
+      grp.add(ringM);
+      // In-3D resize buttons (work even where dom-overlay is unavailable).
+      const mkBtn = (color, name, x) => {
+        const b = new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 10), new THREE.MeshBasicMaterial({ color }));
+        b.position.set(x, 1.6, 0);
+        b.name = name;
+        b.userData.resizeBtn = name === 'btnPlus' ? 1 : -1;
+        grp.add(b);
+      };
+      mkBtn(0x22c55e, 'btnPlus', 0.28);
+      mkBtn(0xef4444, 'btnMinus', -0.28);
+      rt.selected = { grp };
+      setSelName(grp.userData.name);
+    };
+
+    const resizeSelected = (dir) => {
+      const s = rt.selected;
+      if (!s) return;
+      s.grp.scale.setScalar(THREE.MathUtils.clamp(s.grp.scale.x + dir * 0.15, 0.1, 2.5));
+    };
+    rt.resizeSelected = resizeSelected;
+
+    const anchorForHit = async (frame, hit) => {
+      try {
+        if (hit && typeof hit.createAnchor === 'function') return await hit.createAnchor();
+      } catch (e) { /* anchors not granted */ }
+      try {
+        if (frame && typeof frame.createAnchor === 'function' && hit && rt.refSpace) {
+          const pose = hit.getPose(rt.refSpace);
+          if (pose) return await frame.createAnchor(pose, rt.refSpace);
+        }
+      } catch (e) { /* anchors not granted */ }
+      return null;
+    };
+
+    const placeObject = async () => {
+      if (rt.dead || !reticle.visible || !rt.latestFrame) return;
+      const t = pickerRef.current || 'crystal';
+      const grp = buildDreamObject(t);
+      grp.scale.setScalar(0.5);
+      grp.position.copy(reticle.position);
+      grp.userData = {
+        type: t, name: TYPE_NAMES[t] || t,
+        phase: Math.random() * 6, baseY: reticle.position.y, spin: true, anchored: false,
+      };
+      scene.add(grp);
+      rt.dreamObjs.push(grp);
+      try {
+        const anchor = await anchorForHit(rt.latestFrame, rt.latestHit);
+        if (anchor && !rt.dead) {
+          rt.anchors.push({ anchor, obj: grp });
+          grp.userData.anchored = true;
+        }
+      } catch (e) { /* placed without an anchor */ }
+      if (!rt.dead) {
+        selectObject(grp);
+        say(`${grp.userData.name} placed — tap it to resize, aim elsewhere and tap to place another.`);
+      }
+    };
+
+    // Tap ('select'): resize buttons first, then objects, else place at reticle.
+    const onSelect = () => {
+      if (rt.dead || !rt.viewerHas) return;
+      tapCam.position.copy(rt.viewerPos);
+      tapCam.quaternion.copy(rt.viewerQuat);
+      tapCam.updateMatrixWorld();
+      raycaster.setFromCamera(centerNDC, tapCam);
+      const btns = [];
+      for (const g of rt.dreamObjs) {
+        const p = g.getObjectByName('btnPlus');
+        const m = g.getObjectByName('btnMinus');
+        if (p) btns.push(p);
+        if (m) btns.push(m);
+      }
+      const btnHits = raycaster.intersectObjects(btns, false);
+      if (btnHits.length) {
+        resizeSelected(btnHits[0].object.userData.resizeBtn);
+        return;
+      }
+      const objHits = raycaster.intersectObjects(rt.dreamObjs, true);
+      if (objHits.length) {
+        let g = objHits[0].object;
+        while (g && g !== scene && !(g.userData && g.userData.type)) g = g.parent;
+        if (g && g !== scene && g.userData && g.userData.type) {
+          if (rt.selected && rt.selected.grp === g) clearSelection();
+          else selectObject(g);
+          return;
+        }
+      }
+      clearSelection();
+      placeObject();
+    };
+
+    const controller = renderer.xr.getController(0);
+    controller.addEventListener('select', onSelect);
+    scene.add(controller);
+
+    const onResize = () => {
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+    };
+    window.addEventListener('resize', onResize);
+
+    // Taps on real buttons must not also fire an XR 'select'.
+    const onBeforeXRSelect = (e) => {
+      const t = e.target;
+      if (t && t.closest && t.closest('button')) e.preventDefault();
+    };
+    if (overlayHost) overlayHost.addEventListener('beforexrselect', onBeforeXRSelect);
+
+    const doCleanup = () => {
+      if (rt.dead) return;
+      rt.dead = true;
+      renderer.setAnimationLoop(null);
+      try { controller.removeEventListener('select', onSelect); } catch (e) {}
+      try { session.removeEventListener('end', onSessionEnd); } catch (e) {}
+      window.removeEventListener('resize', onResize);
+      if (overlayHost) overlayHost.removeEventListener('beforexrselect', onBeforeXRSelect);
+      scene.traverse((o) => {
+        if (o.geometry && !sharedGeo.has(o.geometry)) { try { o.geometry.dispose(); } catch (e) {} }
+        if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => { try { m.dispose(); } catch (e) {} });
+      });
+      renderer.dispose();
+      if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
+    };
+    rt.cleanup = doCleanup;
+
+    const onSessionEnd = () => { doCleanup(); onExit(); };
+    session.addEventListener('end', onSessionEnd);
+
+    (async () => {
+      try {
+        renderer.xr.setReferenceSpaceType('local-floor');
+        try {
+          await renderer.xr.setSession(session);
+        } catch (e) {
+          renderer.xr.setReferenceSpaceType('local');
+          await renderer.xr.setSession(session);
+        }
+        if (rt.dead) { try { await session.end(); } catch (e2) {} return; }
+        rt.refSpace = renderer.xr.getReferenceSpace();
+        const viewerSpace = await session.requestReferenceSpace('viewer');
+        rt.hitSource = await session.requestHitTestSource({ space: viewerSpace });
+        try {
+          if (typeof session.requestLightProbe === 'function') {
+            rt.xrLightProbe = await session.requestLightProbe({
+              reflectionFormat: session.preferredReflectionFormat || 'srgba8',
+            });
+          }
+        } catch (e) { rt.xrLightProbe = null; }
+        say('Point at your floor or a table — the ring shows where it lands. Tap to place.', 7000);
+      } catch (e) {
+        onFatal('AR would not start (' + (e && e.message ? e.message : 'unknown error') + ').');
+      }
+    })();
+
+    const clock = new THREE.Clock();
+    renderer.setAnimationLoop((animTime, frame) => {
+      if (rt.dead || !frame) return;
+      rt.latestFrame = frame;
+      // Viewer pose, for tap raycasts.
+      try {
+        const vp = frame.getViewerPose(rt.refSpace);
+        if (vp && vp.transform) {
+          const tr = vp.transform;
+          rt.viewerPos.set(tr.position.x, tr.position.y, tr.position.z);
+          rt.viewerQuat.set(tr.orientation.x, tr.orientation.y, tr.orientation.z, tr.orientation.w);
+          rt.viewerHas = true;
+        }
+      } catch (e) {}
+      // Hit test -> reticle follows real surfaces.
+      if (rt.hitSource && rt.refSpace) {
+        let hit = null;
+        try {
+          const results = frame.getHitTestResults(rt.hitSource);
+          if (results && results.length) hit = results[0];
+        } catch (e) {}
+        rt.latestHit = hit;
+        if (hit) {
+          let posed = false;
+          try {
+            const pose = hit.getPose(rt.refSpace);
+            if (pose) {
+              reticle.visible = true;
+              reticle.position.set(pose.transform.position.x, pose.transform.position.y, pose.transform.position.z);
+              reticle.quaternion.set(pose.transform.orientation.x, pose.transform.orientation.y, pose.transform.orientation.z, pose.transform.orientation.w);
+              posed = true;
+            }
+          } catch (e) {}
+          if (!posed) reticle.visible = false;
+        } else {
+          reticle.visible = false;
+        }
+      }
+      // Anchors keep placed objects pinned while the user walks.
+      if (rt.anchors.length && rt.refSpace) {
+        for (const a of rt.anchors) {
+          try {
+            const p = frame.getPose(a.anchor.anchorSpace, rt.refSpace);
+            if (p) {
+              a.obj.position.set(p.transform.position.x, p.transform.position.y, p.transform.position.z);
+              a.obj.userData.baseY = a.obj.position.y;
+            }
+          } catch (e) {}
+        }
+      }
+      // XR light estimation (three.js official mapping).
+      if (rt.xrLightProbe) {
+        try {
+          const est = frame.getLightEstimate(rt.xrLightProbe);
+          if (est && est.sphericalHarmonicsCoefficients) {
+            probe.sh.fromArray(est.sphericalHarmonicsCoefficients);
+            probe.intensity = 1.0;
+            const li = est.primaryLightIntensity;
+            const s = Math.max(1.0, Math.max(li.x, Math.max(li.y, li.z)));
+            dirL.color.setRGB(li.x / s, li.y / s, li.z / s);
+            dirL.intensity = s;
+            const ld = est.primaryLightDirection;
+            if (ld) dirL.position.set(ld.x, ld.y, ld.z);
+          }
+        } catch (e) {}
+      }
+      // Gentle dreamlike drift.
+      const t = clock.getElapsedTime();
+      for (const g of rt.dreamObjs) {
+        const u = g.userData;
+        g.position.y = u.baseY + Math.sin(t * 0.7 + u.phase) * 0.05;
+        if (u.spin) g.rotation.y += 0.004;
+      }
+      renderer.render(scene, camera);
+    });
+
+    return () => { doCleanup(); };
+  }, []);
+
+  const exitAR = () => {
+    try { session.end(); } catch (e) { onExit(); }
+  };
+
+  return (
+    <div ref={mountRef} style={{ position: 'absolute', inset: 0 }}>
+      {/* DOM overlay UI: shown where the browser grants dom-overlay, harmless elsewhere. */}
+      <div style={{ position: 'absolute', inset: 0, zIndex: 5, pointerEvents: 'none' }}>
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', pointerEvents: 'auto' }}>
+          <div style={{ color: '#fff', fontWeight: 800, fontSize: 15, textShadow: '0 1px 6px #000' }}>🥽 B.A.R.F. AR</div>
+          <button type="button" onClick={exitAR} style={{ background: 'rgba(15,23,42,0.75)', color: '#fff', border: '1px solid #475569', borderRadius: 999, padding: '8px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+            ✕ Exit AR
+          </button>
+        </div>
+        {hint && (
+          <div style={{ position: 'absolute', top: 52, left: 0, right: 0, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
+            <div style={{ background: 'rgba(15,23,42,0.8)', color: '#e9d5ff', padding: '8px 16px', borderRadius: 999, fontSize: 13, fontWeight: 600, maxWidth: '90%', textAlign: 'center' }}>{hint}</div>
+          </div>
+        )}
+        {selName && (
+          <div style={{ position: 'absolute', bottom: 86, left: 0, right: 0, display: 'flex', justifyContent: 'center', pointerEvents: 'auto' }}>
+            <div style={{ background: 'rgba(15,23,42,0.85)', border: '1px solid #475569', borderRadius: 16, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ color: '#f8fafc', fontWeight: 700, fontSize: 14 }}>{selName}</span>
+              <button type="button" onClick={() => rtRef.current && rtRef.current.resizeSelected(-1)} style={{ background: '#334155', color: '#fff', border: 'none', borderRadius: 999, width: 34, height: 34, fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>−</button>
+              <button type="button" onClick={() => rtRef.current && rtRef.current.resizeSelected(1)} style={{ background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: 999, width: 34, height: 34, fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>+</button>
+              <button type="button" onClick={() => rtRef.current && rtRef.current.clearSelection()} style={{ background: 'transparent', color: '#94a3b8', border: 'none', fontSize: 13, cursor: 'pointer' }}>done</button>
+            </div>
+          </div>
+        )}
+        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '10px 8px calc(10px + env(safe-area-inset-bottom))', background: 'linear-gradient(0deg, rgba(5,3,12,0.85), transparent)', pointerEvents: 'auto' }}>
+          <div style={{ color: '#c4b5fd', fontSize: 11, fontWeight: 700, textAlign: 'center', marginBottom: 6 }}>AIM THE RING AT A SURFACE, TAP TO PLACE ↓</div>
+          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4, scrollbarWidth: 'none' }}>
+            {ALL_TYPES.map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setPicker(t)}
+                style={{
+                  flex: '0 0 auto', width: 56, height: 56, borderRadius: 14, fontSize: 24,
+                  background: pickType === t ? '#8b5cf6' : 'rgba(30,27,50,0.8)',
+                  border: pickType === t ? '2px solid #c4b5fd' : '1px solid #475569',
+                  cursor: 'pointer',
+                }}
+                aria-label={TYPE_NAMES[t]}
+              >
+                {TYPE_EMOJI[t]}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function DreamARPage() {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
+  const rootRef = useRef(null);
+  const sessionRef = useRef(null);
+  const xrPickerRef = useRef('crystal');
   const [phase, setPhase] = useState('intro'); // intro | starting | denied | active
+  const [mode, setMode] = useState(null); // null | 'gyro' | 'webxr'
+  const [xrSupported, setXrSupported] = useState(null); // null = checking
   const [denyReason, setDenyReason] = useState('');
   const [gyroOn, setGyroOn] = useState(false);
   const [pickerType, setPickerType] = useState('crystal');
@@ -256,8 +658,16 @@ export default function DreamARPage() {
   // Fallback look-around when gyro is unavailable: touch drag offsets.
   const lookRef = useRef({ yaw: 0, pitch: 0, dragging: false, lx: 0, ly: 0 });
 
-  const startAR = async () => {
+  // WebXR support probe (runs once; the Enter AR button tries WebXR first).
+  useEffect(() => {
+    let alive = true;
+    isImmersiveARSupported().then((ok) => { if (alive) setXrSupported(ok); });
+    return () => { alive = false; };
+  }, []);
+
+  const startAR = async (fromFallback = false) => {
     setPhase('starting');
+    setMode('gyro');
     setDenyReason('');
     // 1. Camera
     try {
@@ -286,9 +696,11 @@ export default function DreamARPage() {
     } catch (e) { motionOK = false; }
     setGyroOn(motionOK);
     setPhase('active');
-    setHint(motionOK
-      ? 'Turn your phone to look around — dream objects float in your room.'
-      : 'Motion sensors off — drag to look around instead.');
+    setHint(fromFallback
+      ? "Your browser doesn't do full AR — using look-around mode instead."
+      : motionOK
+        ? 'Turn your phone to look around — dream objects float in your room.'
+        : 'Motion sensors off — drag to look around instead.');
     setTimeout(() => setHint(''), 5000);
   };
 
@@ -305,6 +717,37 @@ export default function DreamARPage() {
     stream?.getTracks().forEach((t) => t.stop());
     if (videoRef.current) videoRef.current.srcObject = null;
     window.location.href = '/dream-engine';
+  };
+
+  // WebXR-first entry: tries true AR in the tap gesture, falls back to gyro.
+  const enterAR = (forceGyro = false) => {
+    if (!forceGyro && xrSupported !== false && typeof navigator !== 'undefined' && navigator.xr) {
+      const init = {
+        requiredFeatures: ['hit-test'],
+        optionalFeatures: ['anchors', 'plane-detection', 'light-estimation', 'dom-overlay'],
+      };
+      if (rootRef.current) init.domOverlay = { root: rootRef.current };
+      try {
+        navigator.xr.requestSession('immersive-ar', init).then(
+          (session) => { sessionRef.current = session; setMode('webxr'); },
+          () => { startAR(true); }
+        );
+        return;
+      } catch (e) { /* fall through to gyro */ }
+    }
+    startAR(false);
+  };
+
+  const exitWebXR = () => {
+    sessionRef.current = null;
+    setMode(null);
+    setPhase('intro');
+  };
+
+  const webXRFatal = () => {
+    sessionRef.current = null;
+    setMode(null);
+    startAR(true);
   };
 
   useEffect(() => {
@@ -497,7 +940,7 @@ export default function DreamARPage() {
   };
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: '#000', overflow: 'hidden' }}>
+    <div ref={rootRef} style={{ position: 'fixed', inset: 0, background: '#000', overflow: 'hidden' }}>
       {/* Camera feed background */}
       <video
         ref={videoRef}
@@ -507,19 +950,30 @@ export default function DreamARPage() {
       {/* Transparent WebGL layer */}
       <canvas ref={canvasRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: phase === 'active' ? 'block' : 'none', touchAction: 'none' }} />
 
-      {phase !== 'active' && (
+      {phase !== 'active' && mode !== 'webxr' && (
         <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, padding: 24, textAlign: 'center', background: 'linear-gradient(180deg, #14102a, #0a0716)' }}>
           <div style={{ fontSize: 52 }}>🥽</div>
           <div style={{ color: '#f8fafc', fontSize: 24, fontWeight: 800 }}>Dream AR</div>
           <div style={{ color: '#cbd5e1', fontSize: 15, maxWidth: 320, lineHeight: 1.5 }}>
-            {phase === 'intro' && 'Your camera becomes the room. Dream objects float around you — turn your phone to look. Objects sit in your view, not pinned to walls.'}
+            {phase === 'intro' && (xrSupported
+              ? 'Full AR on this device — dream objects land on your real floor and tables, and stay pinned while you walk around them.'
+              : xrSupported === false
+                ? 'Your camera becomes the room. Dream objects float around you — turn your phone to look. Objects sit in your view, not pinned to walls.'
+                : 'Checking what your browser can do…')}
             {phase === 'starting' && 'Waking the camera…'}
             {phase === 'denied' && (denyReason || 'Something blocked AR.')}
           </div>
           {phase === 'intro' && (
-            <button type="button" onClick={startAR} style={{ marginTop: 6, background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 36px', fontSize: 17, fontWeight: 800, cursor: 'pointer' }}>
-              Enable Camera & Motion
-            </button>
+            <>
+              <button type="button" onClick={() => enterAR(false)} style={{ marginTop: 6, background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 36px', fontSize: 17, fontWeight: 800, cursor: 'pointer' }}>
+                Enter AR
+              </button>
+              {xrSupported && (
+                <button type="button" onClick={() => enterAR(true)} style={{ background: 'transparent', color: '#94a3b8', border: '1px solid #475569', borderRadius: 999, padding: '10px 22px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                  Use look-around mode instead
+                </button>
+              )}
+            </>
           )}
           {phase === 'denied' && (
             <button type="button" onClick={() => setPhase('intro')} style={{ marginTop: 6, background: '#334155', color: '#fff', border: 'none', borderRadius: 999, padding: '12px 28px', fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>
@@ -528,6 +982,16 @@ export default function DreamARPage() {
           )}
           <a href="/dream-engine" style={{ color: '#94a3b8', fontSize: 14, textDecoration: 'none', marginTop: 4 }}>← Back to Dream Engine</a>
         </div>
+      )}
+
+      {mode === 'webxr' && sessionRef.current && (
+        <WebXRARView
+          session={sessionRef.current}
+          pickerRef={xrPickerRef}
+          overlayHost={rootRef.current}
+          onExit={exitWebXR}
+          onFatal={webXRFatal}
+        />
       )}
 
       {phase === 'active' && (
