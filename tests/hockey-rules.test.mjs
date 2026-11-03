@@ -5,6 +5,7 @@ import {
   createHockey, stepHockey, faceoff, activeSkaters,
   RINK_W, RINK_L, GOAL_W, BLUE_LINE_Z, GOAL_LINE_Z, CREASE_R,
   PERIOD_SECONDS, PENALTY_SECONDS, MISCONDUCT_SECONDS, OT_SECONDS,
+  SHOT_TIMING, slapPower, pickPassTarget, passLeadPoint,
 } from '../lib/sports/hockey.js';
 
 const calm = () => 0.9; // deterministic rng: no AI steals/passes/shots, no misconduct
@@ -136,6 +137,7 @@ test('delayed minor wiped out when the non-offending team scores (NHL 15.1)', ()
   // Red scores → the minor is wiped, nobody sits
   byId(s, 'blue-g').x = 6;
   s.puck.x = 1.5; s.puck.z = 25.9; s.puck.vx = 0; s.puck.vz = 10; s.puck.holder = null;
+  s.lastShot = { team: 'red', z: 20 }; // simulated shot (goals require a shot)
   stepHockey(s, 0.1, { mx: 0, mz: 0 }, calm);
   assert.equal(s.score.red, 1);
   assert(!s.delayedPenalty, 'delayed minor wiped');
@@ -150,6 +152,7 @@ test('shorthanded goal ends the minor (NHL 26c); coincidental minors survive', (
   byId(s, 'blue-g').x = 6;
   // Red scores on shorthanded blue → blue's minor ends
   s.puck.x = 1.5; s.puck.z = 25.9; s.puck.vx = 0; s.puck.vz = 10; s.puck.holder = null;
+  s.lastShot = { team: 'red', z: 20 }; // simulated shot (goals require a shot)
   stepHockey(s, 0.1, { mx: 0, mz: 0 }, calm);
   assert.equal(s.score.red, 1);
   assert.equal(byId(s, 'blue-w1').penalty, 0, 'minor terminated by shorthanded goal');
@@ -162,6 +165,7 @@ test('shorthanded goal ends the minor (NHL 26c); coincidental minors survive', (
   byId(s2, 'red-c').penaltyType = 'minor';
   byId(s2, 'blue-g').x = 6;
   s2.puck.x = 1.5; s2.puck.z = 25.9; s2.puck.vx = 0; s2.puck.vz = 10; s2.puck.holder = null;
+  s2.lastShot = { team: 'red', z: 20 }; // simulated shot (goals require a shot)
   stepHockey(s2, 0.1, { mx: 0, mz: 0 }, calm);
   assert.equal(s2.score.red, 1);
   assert(byId(s2, 'blue-w1').penalty > 0, 'coincidental minor survives');
@@ -278,4 +282,82 @@ test('shootout: no shooter repeats until all eligible have shot (NHL 84.4)', () 
   so.turn = 'red'; so.phase = 'setup';
   stepHockey(s, 0.05, { mx: 0, mz: 0 }, calm);
   assert.equal(so.shooterId, 'red-w1', 'red does not repeat either');
+});
+
+test('skating the puck through the net is NO GOAL — whistle, faceoff (Merlin 2026-11-02)', () => {
+  const s = mk();
+  const you = byId(s, 'you');
+  // Carrier skates into the net with the puck held
+  you.x = 0; you.z = -27;
+  s.puck.holder = 'you';
+  s.puck.x = 0; s.puck.z = -27;
+  stepHockey(s, 0.05, { mx: 0, mz: 0 }, calm);
+  assert.equal(s.score.blue, 0, 'no goal for skating it in');
+  assert(hasEvent(s, 'creaseViolation'), 'crease violation whistled');
+  assert.equal(s.status, 'faceoff', 'play stopped for a faceoff');
+});
+
+test('a shot from inside the net does not count (Merlin 2026-11-02)', () => {
+  const s = mk();
+  byId(s, 'red-g').x = 6; // goalie out of the way
+  // Puck loose past the goal line with velocity but no valid shot
+  s.puck.x = 1; s.puck.z = -26.5; s.puck.vx = 0; s.puck.vz = -8; s.puck.holder = null;
+  s.lastShot = null; // carried across, never shot
+  stepHockey(s, 0.1, { mx: 0, mz: 0 }, calm);
+  assert.equal(s.score.blue, 0, 'no goal without a shot');
+  assert(hasEvent(s, 'creaseViolation'), 'whistled');
+  assert.equal(s.status, 'faceoff');
+});
+
+test('a real shot from outside the line still scores (Merlin 2026-11-02)', () => {
+  const s = mk();
+  byId(s, 'red-g').x = 6;
+  const you = byId(s, 'you');
+  you.x = 1; you.z = -20;
+  s.puck.holder = 'you';
+  s.puck.x = 1; s.puck.z = -20;
+  // Shoot via the engine (sets lastShot); centered rng so it aims at the net mouth
+  stepHockey(s, 0.05, { mx: 0, mz: 0, shoot: true, shotType: 'wrist', shotPower: 24 }, () => 0.5);
+  assert(!s.puck.holder, 'puck left the stick');
+  assert(s.lastShot && s.lastShot.team === 'blue', 'shot recorded');
+  // Let it fly into the net
+  for (let i = 0; i < 30 && s.status === 'play'; i++) {
+    stepHockey(s, 0.05, { mx: 0, mz: 0 }, () => 0.5);
+  }
+  assert.equal(s.score.blue, 1, 'the shot scores');
+});
+
+test('the shooter cannot re-catch their own shot (Merlin 2026-11-02)', () => {
+  const s = mk();
+  const you = byId(s, 'you');
+  you.x = 0; you.z = 0;
+  s.puck.holder = 'you';
+  s.puck.x = 0; s.puck.z = 0;
+  stepHockey(s, 0.05, { mx: 0, mz: 0, shoot: true, shotType: 'wrist', shotPower: 24 }, calm);
+  assert(!s.puck.holder, 'puck detached');
+  // Next frame: shooter is still within the old 1.5m pickup radius
+  stepHockey(s, 0.016, { mx: 0, mz: 0 }, calm);
+  assert.notEqual(s.puck.holder, 'you', 'shooter does not instantly re-catch');
+});
+
+test('slap power scales with hold duration (Merlin 2026-11-02)', () => {
+  assert(slapPower(0.6) < slapPower(0.9), 'power grows with hold');
+  assert(slapPower(0.9) < slapPower(1.2), 'power grows with hold');
+  assert.equal(slapPower(1.2), slapPower(5), 'caps at full power');
+  assert(slapPower(0.6) >= 26 && slapPower(1.2) <= 38, 'within the 26–38 band');
+});
+
+test('pass targeting picks the best-aligned teammate, never dumps it (Merlin 2026-11-02)', () => {
+  const s = mk();
+  const you = byId(s, 'you');
+  you.x = 0; you.z = 10;
+  // w1 is ahead-left, w2 is behind — aiming forward should pick w1
+  byId(s, 'blue-w1').x = -5; byId(s, 'blue-w1').z = 0;
+  byId(s, 'blue-w2').x = 5; byId(s, 'blue-w2').z = 20;
+  const pick = pickPassTarget(s, you, 0, -1); // aiming toward the red net
+  assert(pick, 'a teammate is always picked');
+  assert.equal(pick.id, 'blue-w1', 'best-aligned teammate wins over nearest-behind');
+  // No aim → defaults toward the goal, still picks someone
+  const pick2 = pickPassTarget(s, you, 0, 0);
+  assert(pick2, 'falls back instead of dumping');
 });

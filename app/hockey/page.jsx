@@ -12,6 +12,7 @@ import WalkJoystick from '@/components/world/WalkJoystick';
 import {
   createHockey, stepHockey, faceoff,
   RINK_W, RINK_L, GOAL_W, BLUE_LINE_Z, GOAL_LINE_Z, CREASE_R,
+  SHOT_TYPES, SHOT_TIMING, slapPower, pickPassTarget, passLeadPoint,
 } from '@/lib/sports/hockey.js';
 
 const TEAM_COLORS = { blue: '#3b82f6', red: '#ef4444' };
@@ -39,10 +40,16 @@ export default function HockeyPage() {
   const containerRef = useRef(null);
   const gameRef = useRef(null);
   const joyRef = useRef({ x: 0, y: 0 });
-  const shootRef = useRef(false);
   const passRef = useRef(false);
   const checkRef = useRef(false);
-  const slapTimerRef = useRef(0);
+  // SHOOT fires on RELEASE (Merlin 2026-11-02): hold duration picks the shot.
+  //   tap < 0.30s      → wrist shot (quick, accurate)
+  //   0.30 – 0.60s     → backhand (half-second hold)
+  //   > 0.60s          → slap shot, power scales with hold (power meter)
+  const shootHoldRef = useRef({ active: false, start: 0 });
+  const pendingShotRef = useRef(null); // { type, power } — consumed by the frame loop
+  const meterRef = useRef(-1);
+  const [shootMeter, setShootMeter] = useState(-1); // -1 = hidden, 0..1 = charge
   const [started, setStarted] = useState(false);
   const [hud, setHud] = useState({ blue: 0, red: 0, period: 1, clock: '3:00', message: '', winner: null, shootout: null });
   const hudPrevRef = useRef('');
@@ -50,6 +57,29 @@ export default function HockeyPage() {
 
   if (!gameRef.current) gameRef.current = createHockey();
   useEffect(() => { startedRef.current = started; }, [started]);
+
+  // SHOOT release: hold duration → shot type + power (Merlin 2026-11-02)
+  const releaseShoot = () => {
+    const h = shootHoldRef.current;
+    if (!h.active) return;
+    h.active = false;
+    const dur = (performance.now() - h.start) / 1000;
+    let type;
+    let power;
+    if (dur < SHOT_TIMING.wristMax) {
+      type = 'wrist';
+      power = SHOT_TYPES.wrist.power;
+    } else if (dur <= SHOT_TIMING.backhandMax) {
+      type = 'backhand';
+      power = SHOT_TYPES.backhand.power;
+    } else {
+      type = 'slap';
+      power = slapPower(dur);
+    }
+    pendingShotRef.current = { type, power };
+    meterRef.current = -1;
+    setShootMeter(-1);
+  };
 
   useEffect(() => {
     const container = containerRef.current;
@@ -206,6 +236,34 @@ export default function HockeyPage() {
     );
     scene.add(puck);
 
+    // Guidance lines (Merlin 2026-11-02): dotted, in the rink plane.
+    // Shot line (amber) while holding SHOOT — color shifts with the timing
+    // window (green=wrist, yellow=backhand, orange/red=slap charging).
+    // Pass line (green) while carrying — shows the current pass target.
+    function makeGuideLine(color, opacity) {
+      const geo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(), new THREE.Vector3(),
+      ]);
+      const mat = new THREE.LineDashedMaterial({
+        color, dashSize: 0.6, gapSize: 0.4, transparent: true, opacity,
+      });
+      const line = new THREE.Line(geo, mat);
+      line.visible = false;
+      line.frustumCulled = false;
+      scene.add(line);
+      return line;
+    }
+    const shotGuide = makeGuideLine(0xfbbf24, 0.75);
+    const passGuide = makeGuideLine(0x22c55e, 0.4);
+    function setGuide(line, x1, z1, x2, z2) {
+      const pos = line.geometry.attributes.position;
+      pos.setXYZ(0, x1, 0.12, z1);
+      pos.setXYZ(1, x2, 0.12, z2);
+      pos.needsUpdate = true;
+      line.computeLineDistances();
+      line.visible = true;
+    }
+
     const onResize = () => {
       renderer.setSize(container.clientWidth, container.clientHeight);
       camera.aspect = container.clientWidth / container.clientHeight;
@@ -225,33 +283,60 @@ export default function HockeyPage() {
       last = now;
       const state = gameRef.current;
       const you = state.players.find((p) => p.isHuman);
+      const carrying = you && state.puck.holder === you.id;
 
-      // Slap shot: hold SHOOT 600ms
-      let shotType = 'wrist';
-      if (shootRef.current) {
-        slapTimerRef.current += dt;
-        if (slapTimerRef.current > 0.6) shotType = 'slap';
+      // SHOOT charge meter + guidance (while held)
+      const hold = shootHoldRef.current;
+      if (hold.active) {
+        const dur = (now - hold.start) / 1000;
+        const m = Math.min(1, dur / SHOT_TIMING.slapFull);
+        if (Math.abs(m - meterRef.current) > 0.04) {
+          meterRef.current = m;
+          setShootMeter(m);
+        }
+        // Shot guidance line: puck → net mouth, colored by timing window
+        if (carrying) {
+          const targetZ = -GOAL_LINE_Z; // you attack the far net
+          const windowColor = dur < SHOT_TIMING.wristMax ? 0x22c55e
+            : dur <= SHOT_TIMING.backhandMax ? 0xfbbf24 : 0xfb7185;
+          shotGuide.material.color.setHex(windowColor);
+          setGuide(shotGuide, state.puck.x, state.puck.z, 0, targetZ);
+        } else {
+          shotGuide.visible = false;
+        }
+      } else {
+        if (meterRef.current !== -1) { meterRef.current = -1; setShootMeter(-1); }
+        shotGuide.visible = false;
       }
-      // Backhand: auto when the puck is behind the shooting direction
-      if (you && state.puck.holder === you.id && shotType === 'wrist') {
-        const targetZ = -GOAL_LINE_Z;
-        const toGoal = targetZ - you.z;
-        // If moving away from the goal, it's a backhand
-        if (you.vz * Math.sign(toGoal) < -2) shotType = 'backhand';
+
+      // Pass guidance: faint green line to the current pass target while carrying
+      if (carrying && state.status === 'play') {
+        const mate = pickPassTarget(state, you, joyRef.current.x, -joyRef.current.y);
+        if (mate) {
+          const lead = passLeadPoint(mate);
+          setGuide(passGuide, state.puck.x, state.puck.z, lead.x, lead.z);
+        } else {
+          passGuide.visible = false;
+        }
+      } else {
+        passGuide.visible = false;
       }
 
       if (startedRef.current && (state.status === 'play' || state.status === 'shootout' || state.status === 'penaltyshot') && you) {
-        const doShoot = shootRef.current && slapTimerRef.current > 0.08;
+        const pending = pendingShotRef.current;
+        pendingShotRef.current = null;
         stepHockey(state, dt, {
           mx: joyRef.current.x,
           mz: -joyRef.current.y,
           act: false,
-          shoot: doShoot,
-          shotType,
+          shoot: !!pending,
+          shotType: pending ? pending.type : 'wrist',
+          shotPower: pending ? pending.power : 0,
           pass: passRef.current,
           check: checkRef.current,
+          aimDx: joyRef.current.x,
+          aimDz: -joyRef.current.y,
         }, Math.random);
-        if (doShoot) { shootRef.current = false; slapTimerRef.current = 0; }
         passRef.current = false;
         checkRef.current = false;
         for (const ev of state.events) {
@@ -385,8 +470,8 @@ export default function HockeyPage() {
           <div style={{ color: '#f8fafc', fontSize: 28, fontWeight: 800 }}>ICE HOCKEY</div>
           <div style={{ color: '#cbd5e1', fontSize: 14, maxWidth: 340, lineHeight: 1.6 }}>
             4v4 with goalies. Real NHL rules: icing, delayed offside, 2:00 penalties, OT, shootout.<br />
-            <b>SHOOT</b> tap = wrist · hold = slap · backhand auto<br />
-            <b>PASS</b> feeds a teammate · <b>CHECK</b> levels the carrier — hitting anyone else is interference
+            <b>SHOOT</b> tap = wrist · 0.5s hold = backhand · longer hold = slap (power meter)<br />
+            <b>PASS</b> feeds the best-placed teammate · <b>CHECK</b> levels the carrier — hitting anyone else is interference
           </div>
           <button type="button" onClick={() => { faceoff(gameRef.current); setStarted(true); }} style={{ marginTop: 8, background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 999, padding: '14px 40px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>DROP THE PUCK</button>
           </div>
@@ -426,14 +511,27 @@ export default function HockeyPage() {
             </div>
             <button
               type="button"
-              onPointerDown={() => { shootRef.current = true; slapTimerRef.current = 0; }}
-              onPointerUp={() => { /* released in frame loop */ }}
-              onPointerLeave={() => { if (slapTimerRef.current < 0.08) { shootRef.current = false; slapTimerRef.current = 0; } }}
-              style={{ width: 104, height: 104, borderRadius: '50%', border: '3px solid #fff', cursor: 'pointer', fontSize: 17, fontWeight: 800, background: '#3b82f6', color: '#fff' }}
+              onPointerDown={() => { shootHoldRef.current = { active: true, start: performance.now() }; }}
+              onPointerUp={releaseShoot}
+              onPointerLeave={releaseShoot}
+              onPointerCancel={releaseShoot}
+              style={{ width: 104, height: 104, borderRadius: '50%', border: '3px solid #fff', cursor: 'pointer', fontSize: 17, fontWeight: 800, background: '#3b82f6', color: '#fff', touchAction: 'none', userSelect: 'none' }}
             >
               SHOOT
             </button>
-            <div style={{ color: '#94a3b8', fontSize: 10 }}>tap=wrist · hold=slap</div>
+            {/* Power meter: fills while SHOOT is held */}
+            {shootMeter >= 0 && (
+              <div style={{ width: 104, height: 10, borderRadius: 999, background: 'rgba(15,23,42,0.8)', border: '1px solid #475569', overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%',
+                  width: `${Math.round(shootMeter * 100)}%`,
+                  borderRadius: 999,
+                  background: shootMeter < 0.25 ? '#22c55e' : shootMeter < 0.5 ? '#fbbf24' : '#fb7185',
+                  transition: 'width 60ms linear',
+                }} />
+              </div>
+            )}
+            <div style={{ color: '#94a3b8', fontSize: 10 }}>tap=wrist · 0.5s=backhand · hold=slap</div>
           </div>
         </>
       )}
