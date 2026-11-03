@@ -616,6 +616,9 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   const [ghostState, setGhostState] = useState(null); // { ok, reasons, proposal }
   const [editIndex, setEditIndex] = useState(null);
   const [buildMsg, setBuildMsg] = useState('');
+  // ORBIT RESET (Merlin, 2026-11-03): the scene's camera orbit,
+  // reset when build mode exits so the joystick walks again.
+  const buildOrbitResetRef = useRef(null);
   // DINO SUMMON (Merlin, 2026-11-03): the scene's ally spawner,
   // exposed so backpack taps can summon dinos to the walker's side.
   const spawnAllyRef = useRef(null);
@@ -710,6 +713,9 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
     setEditIndex(null);
     setBuildLevel(0);
     setGhostState(null);
+    // ORBIT RESET (Merlin, 2026-11-03): leaving build mode drops
+    // the camera orbit — the joystick walks again, never orbits.
+    if (buildOrbitResetRef.current) buildOrbitResetRef.current();
   };
 
   // A chamber "Build here" press arrives as buildRequest; the
@@ -4911,6 +4917,13 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       // push, a walk step, or build-mode exit.
       const buildOrbit = {
         yaw: 0, pitch: 0.6, dist: 16, weight: 0, driving: false, frozen: false, parked: false,
+      };
+      // Expose the orbit reset for build-mode exit.
+      buildOrbitResetRef.current = () => {
+        buildOrbit.weight = 0;
+        buildOrbit.parked = false;
+        buildOrbit.frozen = false;
+        buildOrbit.driving = false;
       };
       // The orbit's centre: the ghost's current judged spot when
       // there is one, else the last aim, else the walker's feet.
