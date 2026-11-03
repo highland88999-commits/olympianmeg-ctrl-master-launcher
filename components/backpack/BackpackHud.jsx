@@ -91,7 +91,7 @@ function weaponLine(entry) {
  *     (its minimized state); the close button and the title
  *     text keep their own behaviour.
  */
-export default function BackpackHud({ realm, realmLabel, combatApplies = false, displayNote = null, docked = false, homeFractions = null, headerDeadSpaceMinimize = false }) {
+export default function BackpackHud({ realm, realmLabel, combatApplies = false, displayNote = null, docked = false, homeFractions = null, headerDeadSpaceMinimize = false, onDinoSummon = null }) {
   const record = useBackpack();
   const [open, setOpen] = useState(false);
   const equipped = equippedWeaponEntry(record);
@@ -474,11 +474,24 @@ export default function BackpackHud({ realm, realmLabel, combatApplies = false, 
               return (
                 <div key={g.kind} style={{ marginTop: 10 }}>
                   <div style={{ fontWeight: 700, fontSize: 13 }}>{g.icon} {g.label}</div>
-                  {items.map((it) => (
-                    <div key={it.uid} style={{ fontSize: 13, opacity: 0.85, padding: '0.15rem 0' }}>
-                      {it.name} × {it.qty}
-                    </div>
-                  ))}
+                  {items.map((it) => {
+                    // DINO SUMMON (Merlin, 2026-11-03): tapping a dino
+                    // in the backpack summons it to your side on the map.
+                    const isDino = it.kind === 'dino' && onDinoSummon;
+                    return (
+                      <div
+                        key={it.uid}
+                        style={{
+                          fontSize: 13, opacity: 0.85, padding: '0.15rem 0',
+                          ...(isDino ? { cursor: 'pointer', color: '#6ee7b7', fontWeight: 700 } : {}),
+                        }}
+                        onClick={isDino ? () => onDinoSummon(it) : undefined}
+                      >
+                        {isDino ? '🦖 ' : ''}{it.name} × {it.qty}
+                        {isDino && <span style={{ fontSize: 11, opacity: 0.7 }}> — tap to summon</span>}
+                      </div>
+                    );
+                  })}
                 </div>
               );
             })}

@@ -616,6 +616,9 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   const [ghostState, setGhostState] = useState(null); // { ok, reasons, proposal }
   const [editIndex, setEditIndex] = useState(null);
   const [buildMsg, setBuildMsg] = useState('');
+  // DINO SUMMON (Merlin, 2026-11-03): the scene's ally spawner,
+  // exposed so backpack taps can summon dinos to the walker's side.
+  const spawnAllyRef = useRef(null);
   const buildModeRef = useRef({
     active: false, parcelId: null, tool: 'place',
     pieceId: 'wall', finish: 'timber', tint: null, rotY: 0,
@@ -2376,6 +2379,8 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         noticeRef.current(`🐣 A baby ${entry ? entry.name : species} hatches — it follows you now.`);
         return ally;
       }
+      // Expose the spawner for backpack-tap summoning.
+      spawnAllyRef.current = spawnAlly;
 
       /** Growth tick: rig-scale allies, swap to adult at maturity. */
       async function growthTick() {
@@ -7424,7 +7429,22 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           circle keeps its count badge, tap-to-open, and drag. */}
       <BackpackHud realm="earth-2" realmLabel="Earth 2"
         homeFractions={e2BackpackHome} headerDeadSpaceMinimize
-        displayNote="Earth 2 keeps its own arms for now — the pack rides along." />
+        displayNote="Earth 2 keeps its own arms for now — the pack rides along."
+        onDinoSummon={(dinoItem) => {
+          // DINO SUMMON (Merlin, 2026-11-03): tap the dino in the
+          // backpack → it leaves the pack and spawns beside you.
+          const species = dinoItem?.meta?.species;
+          if (!species) return;
+          updateBackpack((r) => ({
+            ...r,
+            items: (r.items || []).filter((it) => it !== dinoItem),
+          }));
+          // Spawn via the scene's ally spawner (ref-held).
+          if (spawnAllyRef.current) {
+            spawnAllyRef.current(species, dinoItem.meta.bornAt || Date.now()).catch(() => {});
+            noticeRef.current(`🦖 ${species} joins you!`);
+          }
+        }} />
 
       {/* Hammond's fossil exchange — the counter panel. Flow
           layout throughout (no overlaps, per the house CSS law):
