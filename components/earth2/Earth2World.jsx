@@ -942,7 +942,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   // draggable orbs the user positions while flying. Positions persist
   // per device (localStorage, percentages of the viewport).
   const FLIGHT_ORBS_KEY = 'earth2:flight-orbs:v1';
-  const defaultOrbs = { climb: { x: 78, y: 62 }, settle: { x: 78, y: 74 } };
+  const defaultOrbs = { climb: { x: 70, y: 55 }, settle: { x: 70, y: 68 } };
   const [flightOrbs, setFlightOrbs] = useState(() => {
     try {
       const raw = localStorage.getItem(FLIGHT_ORBS_KEY);
@@ -7250,71 +7250,45 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         </E2Panel>
       )}
 
-      {/* Driving — the machine's panel. Flow layout: who you are
-          driving, how fast (and how high, for the VTOL), the
-          lift buttons on touch, and the way out. The joystick
-          (bottom-left) drives throttle and steering. */}
+      {/* Driving — compact status strip (Merlin, 2026-11-03: the old
+          panel ate 40% of the screen). One line: status, speed/alt,
+          mini integrity bar, camera toggle, step out. The joystick
+          (bottom-left, shifted up) drives throttle and steering. */}
       {driving && (
-        <div className="absolute inset-x-2 bottom-24 sm:inset-x-auto sm:bottom-5 sm:left-1/2 sm:w-[400px] sm:-translate-x-1/2">
-          <div className="flex flex-col gap-2.5 rounded-[2rem] border border-sky-300/35 bg-[#081018]/95 p-4 text-zinc-100 shadow-2xl backdrop-blur-md">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-[10px] font-black tracking-[0.25em] text-sky-200">
-                  {(() => {
-                    const spec = vehicleSpecForInstance(driving);
-                    // FLIGHT PANEL FIX (Merlin, 2026-11-03): "IN THE AIR"
-                    // only when actually airborne — a VTOL on the ground
-                    // at 0 km/h is not "in the air."
-                    if (spec?.air) return (driveInfo.alt || 0) > 2 ? '🛩️ IN THE AIR' : '🛩️ ON GROUND';
-                    if (spec?.water) return '⛵ UNDER WAY';
-                    return '🚗 DRIVING';
-                  })()}
-                </div>
-                <div className="mt-0.5 text-lg font-black leading-tight text-white">
-                  {vehicleSpecForInstance(driving)?.name}
-                </div>
-                <p className="mt-1 text-[11px] leading-snug text-zinc-400">
-                  {(driveInfo.speed * 3.6).toFixed(0)} km/h
-                  {vehicleSpecForInstance(driving)?.air ? ` · ${(driveInfo.alt || 0).toFixed(0)} m up` : ''}
-                  {' '}· Joystick to drive · drag to look around
-                </p>
-              </div>
-              <div className="flex shrink-0 flex-col gap-2">
-              <button
-                type="button"
-                onClick={() => toggleDriveCamRef.current()}
-                className="rounded-full border border-sky-300/50 bg-sky-400/20 px-3 py-2 text-[12px] font-bold text-sky-50 transition hover:bg-sky-400/35"
-              >
-                {driveCam === 'third' ? '🎥 1st person' : '🎥 3rd person'}
-              </button>
-              <button
-                type="button"
-                onClick={() => exitVehicleRef.current()}
-                className="rounded-full border border-sky-300/50 bg-sky-400/20 px-3 py-2 text-[12px] font-bold text-sky-50 transition hover:bg-sky-400/35"
-              >
-                🚶 Step out
-              </button>
-              </div>
+        <div className="absolute inset-x-2 bottom-2 sm:inset-x-auto sm:bottom-4 sm:left-1/2 sm:w-auto sm:-translate-x-1/2">
+          <div className="flex items-center gap-3 rounded-full border border-sky-300/35 bg-[#081018]/90 px-4 py-2 text-zinc-100 shadow-xl backdrop-blur-md">
+            <span className="text-[10px] font-black tracking-[0.18em] text-sky-200 whitespace-nowrap">
+              {(() => {
+                const spec = vehicleSpecForInstance(driving);
+                if (spec?.air) return (driveInfo.alt || 0) > 2 ? '🛩️ AIR' : '🛩️ GND';
+                if (spec?.water) return '⛵';
+                return '🚗';
+              })()}
+            </span>
+            <span className="text-[12px] font-bold text-white whitespace-nowrap">
+              {(driveInfo.speed * 3.6).toFixed(0)} km/h
+              {vehicleSpecForInstance(driving)?.air ? ` · ${(driveInfo.alt || 0).toFixed(0)}m` : ''}
+            </span>
+            <div className="h-1.5 w-16 overflow-hidden rounded-full bg-white/10">
+              <div
+                className="h-full rounded-full"
+                style={{ width: `${Math.max(0, Math.min(100, driveInfo.integrity ?? 100))}%`, background: integrityColor(driveInfo.integrity ?? 100) }}
+              />
             </div>
-            <div>
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="text-[9px] font-black tracking-[0.22em] text-zinc-400">INTEGRITY</span>
-                <span className="text-[11px] font-black" style={{ color: integrityColor(driveInfo.integrity ?? 100) }}>
-                  {Math.round(driveInfo.integrity ?? 100)}%
-                </span>
-              </div>
-              <div className={`mt-1 h-2.5 w-full overflow-hidden rounded-full bg-white/10 ${(driveInfo.integrity ?? 100) < 30 ? 'animate-pulse' : ''}`}>
-                <div
-                  className="h-full rounded-full transition-[width] duration-200"
-                  style={{ width: `${Math.max(0, Math.min(100, driveInfo.integrity ?? 100))}%`, background: integrityColor(driveInfo.integrity ?? 100) }}
-                />
-              </div>
-            </div>
-            {vehicleSpecForInstance(driving)?.air && (
-              <p className="text-[11px] leading-snug text-zinc-500">
-                🛩️ Drag the ▲ ▼ orbs anywhere while flying — they stay where you put them.
-              </p>
-            )}
+            <button
+              type="button"
+              onClick={() => toggleDriveCamRef.current()}
+              className="rounded-full border border-sky-300/50 bg-sky-400/20 px-2 py-1 text-[11px] font-bold text-sky-50"
+            >
+              {driveCam === 'third' ? '🎥 1st' : '🎥 3rd'}
+            </button>
+            <button
+              type="button"
+              onClick={() => exitVehicleRef.current()}
+              className="rounded-full border border-sky-300/50 bg-sky-400/20 px-2 py-1 text-[11px] font-bold text-sky-50"
+            >
+              🚶
+            </button>
           </div>
         </div>
       )}
@@ -7453,18 +7427,16 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
 
       {/* Touch controls: the shared walk joystick — a fixed
           control, never a panel (the TRAVEL toggle and the
-          hints live in the Controls panel above). JOYSTICK OVERLAP
-          FIX (Merlin, 2026-11-03): hidden while driving — the drive
-          panel owns the bottom of the screen then, and the walk
-          stick was overlapping the integrity bar and climb button. */}
-      {!driving && (
-      <div className="absolute bottom-3 left-3 sm:bottom-5 sm:left-5">
+          hints live in the Controls panel above). While driving,
+          it shifts up slightly to clear the compact status strip
+          (Merlin, 2026-11-03: the joystick drives the vehicle —
+          it must stay visible). */}
+      <div className={`absolute left-3 sm:left-5 ${driving ? 'bottom-16 sm:bottom-20' : 'bottom-3 sm:bottom-5'}`}>
         <WalkJoystick
           size={118}
           onMove={(x, y) => { inputRef.current.joy.x = x; inputRef.current.joy.y = y; }}
         />
       </div>
-      )}
     </div>
   );
 }
