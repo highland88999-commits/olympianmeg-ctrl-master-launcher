@@ -184,6 +184,7 @@ import {
   rollChase,
   HUNT,
   seedFor,
+  dinoHitPoints,
 } from '@/lib/earth2/behaviour';
 import { createLifecycle, chooseRespawnAnchor, carcassSink } from '@/lib/earth2/lifecycle';
 import {
@@ -935,6 +936,26 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   const [driveInfo, setDriveInfo] = useState({ speed: 0, alt: 0, integrity: 100 });
   // Drive camera mode for the HUD toggle (mirrors driveCamRef).
   const [driveCam, setDriveCam] = useState('third');
+  // Flight orbs (Merlin, 2026-11-02): the Climb/Settle controls are
+  // draggable orbs the user positions while flying. Positions persist
+  // per device (localStorage, percentages of the viewport).
+  const FLIGHT_ORBS_KEY = 'earth2:flight-orbs:v1';
+  const defaultOrbs = { climb: { x: 78, y: 62 }, settle: { x: 78, y: 74 } };
+  const [flightOrbs, setFlightOrbs] = useState(() => {
+    try {
+      const raw = localStorage.getItem(FLIGHT_ORBS_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed.climb && parsed.settle) return parsed;
+      }
+    } catch { /* fall through to defaults */ }
+    return defaultOrbs;
+  });
+  const orbDragRef = useRef(null); // { id, dx, dy } while dragging
+  const saveFlightOrbs = (orbs) => {
+    setFlightOrbs(orbs);
+    try { localStorage.setItem(FLIGHT_ORBS_KEY, JSON.stringify(orbs)); } catch { /* never breaks flight */ }
+  };
   const vehicleStatesRef = useRef(null);
   if (vehicleStatesRef.current === null) vehicleStatesRef.current = loadVehicleStates();
   const drivingRef = useRef(null);
@@ -3295,17 +3316,30 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       // build mode), and only when the gunplay unlock is open.
       function shootDino(a) {
         if (!a || a.state === 'carcass' || a.alive === false) return;
-        const carcass = lifecycle.kill(a.id, clock.elapsedTime, a.root.position);
-        // Unknown to the lifecycle (its stream unit cycled) — no
-        // carcass, no kill; the dino stands, nothing double-counts.
-        if (!carcass) return;
-        // Hit feedback: the gun's feel — burst at the shoulder,
-        // the shot's crack, the species named in the notice.
+        // Hit points (Merlin, 2026-11-02): dinosaurs take multiple
+        // shots — 3–8 by size, 2 for the tiny ones — never one-shot.
+        if (a.hp == null) a.hp = dinoHitPoints(a.entry);
+        a.hp -= 1;
+        // Hit feedback on EVERY shot: burst at the shoulder, the
+        // shot's crack — the gun's feel, kill or not.
         const hitAt = a.root.position.clone();
         hitAt.y += (a.entry.scaleM || 2) * 0.55;
         spawnBurst(hitAt, 0xd42a2a);
         spawnBurst(hitAt, 0xf5f0e6);
         sfxShot();
+        if (a.hp > 0) {
+          // Still standing: it knows it's been shot — a wounded
+          // animal goes alert, and a wounded predator gets angry.
+          if (a.beh) setBehaviourMode(a.beh, 'alert', 4);
+          noticeRef.current(`🎯 ${a.entry.name} hit — ${a.hp} more shot${a.hp === 1 ? '' : 's'} to drop it.`);
+          return;
+        }
+        // HP exhausted: the kill routes through the SAME lifecycle
+        // the predators use (lib/earth2/lifecycle.js).
+        const carcass = lifecycle.kill(a.id, clock.elapsedTime, a.root.position);
+        // Unknown to the lifecycle (its stream unit cycled) — no
+        // carcass, no kill; the dino stands, nothing double-counts.
+        if (!carcass) return;
         a.alive = false;
         a.state = 'carcass';
         a.carcass = carcass;
@@ -5807,22 +5841,35 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           walker.z = stepped.z;
           const rec = vehicles.find((v) => v.key === drivingId);
           if (rec) poseVehicle(rec, stepped, t, dt);
-          // Drive camera (Merlin, 2026-11-01): third-person by
-          // default — behind and above the machine, looking past
-          // it. First-person (driver's eye) is a HUD toggle.
+          // Drive camera (Merlin, 2026-11-01; chase refined 2026-11-02):
+          // third-person by default — behind and above the machine,
+          // looking past it. First-person (driver's eye) is a HUD
+          // toggle. AIR CHASE: centred directly behind the plane on
+          // its centreline, looking forward over the nose — the
+          // over-the-shoulder view Merlin asked for.
           if (driveCamRef.current === 'third') {
             const h = stepped.heading || 0;
             const fx = Math.sin(h), fz = Math.cos(h);
-            const dist = Math.max(7, (dSpec.radius || 3) * 2.6);
-            const height = Math.max(4, (dSpec.radius || 3) * 1.4);
-            const cx = stepped.x - fx * dist;
-            const cz = stepped.z - fz * dist;
-            const cy = Math.max(
-              stepped.y + height,
-              heightAt(cx, cz) + 2.2,
-            );
-            camera.position.set(cx, cy, cz);
-            camera.lookAt(stepped.x + fx * 6, stepped.y + 2, stepped.z + fz * 6);
+            if (dSpec.air) {
+              const dist = Math.max(9, (dSpec.halfLength || 5.5) * 2.2);
+              const height = 3.2;
+              const cx = stepped.x - fx * dist;
+              const cz = stepped.z - fz * dist;
+              const cy = Math.max(stepped.y + height, heightAt(cx, cz) + 2.2);
+              camera.position.set(cx, cy, cz);
+              camera.lookAt(stepped.x + fx * 14, stepped.y + 1.2, stepped.z + fz * 14);
+            } else {
+              const dist = Math.max(7, (dSpec.radius || 3) * 2.6);
+              const height = Math.max(4, (dSpec.radius || 3) * 1.4);
+              const cx = stepped.x - fx * dist;
+              const cz = stepped.z - fz * dist;
+              const cy = Math.max(
+                stepped.y + height,
+                heightAt(cx, cz) + 2.2,
+              );
+              camera.position.set(cx, cy, cz);
+              camera.lookAt(stepped.x + fx * 6, stepped.y + 2, stepped.z + fz * 6);
+            }
           } else {
             camera.position.set(stepped.x, stepped.y + dSpec.eyeHeight, stepped.z);
             camera.rotation.set(walker.pitch, walker.yaw, 0);
@@ -7115,29 +7162,74 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
               </div>
             </div>
             {vehicleSpecForInstance(driving)?.air && (
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onPointerDown={() => { inputRef.current.keys.up = true; }}
-                  onPointerUp={() => { inputRef.current.keys.up = false; }}
-                  onPointerLeave={() => { inputRef.current.keys.up = false; }}
-                  className="flex-1 rounded-full border border-white/20 bg-white/5 px-3 py-2.5 text-sm font-bold text-zinc-100 transition hover:bg-white/10"
-                >
-                  ▲ Climb (Space)
-                </button>
-                <button
-                  type="button"
-                  onPointerDown={() => { inputRef.current.keys.down = true; }}
-                  onPointerUp={() => { inputRef.current.keys.down = false; }}
-                  onPointerLeave={() => { inputRef.current.keys.down = false; }}
-                  className="flex-1 rounded-full border border-white/20 bg-white/5 px-3 py-2.5 text-sm font-bold text-zinc-100 transition hover:bg-white/10"
-                >
-                  ▼ Settle (C)
-                </button>
-              </div>
+              <p className="text-[11px] leading-snug text-zinc-500">
+                🛩️ Drag the ▲ ▼ orbs anywhere while flying — they stay where you put them.
+              </p>
             )}
           </div>
         </div>
+      )}
+
+      {/* Flight orbs (Merlin, 2026-11-02): draggable Climb/Settle
+          controls — orbs, not fixed buttons. Drag to reposition
+          (positions persist per device); tap-and-hold to climb
+          or settle. Rendered at viewport level so they can live
+          anywhere on screen. */}
+      {driving && vehicleSpecForInstance(driving)?.air && (
+        <>
+          {[
+            { id: 'climb', icon: '▲', label: 'Climb', key: 'up' },
+            { id: 'settle', icon: '▼', label: 'Settle', key: 'down' },
+          ].map((orb) => {
+            const pos = (flightOrbs && flightOrbs[orb.id]) || defaultOrbs[orb.id];
+            return (
+              <div
+                key={orb.id}
+                role="button"
+                aria-label={`${orb.label} (drag to move)`}
+                title={`${orb.label} — drag to reposition`}
+                className="pointer-events-auto absolute z-30 flex h-16 w-16 touch-none select-none flex-col items-center justify-center rounded-full border-2 border-sky-300/60 bg-sky-500/30 text-xl shadow-lg backdrop-blur-md active:scale-95"
+                style={{ left: `${pos.x}%`, top: `${pos.y}%`, transform: 'translate(-50%, -50%)' }}
+                onPointerDown={(e) => {
+                  e.currentTarget.setPointerCapture(e.pointerId);
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  orbDragRef.current = {
+                    id: orb.id,
+                    dx: e.clientX - rect.left - rect.width / 2,
+                    dy: e.clientY - rect.top - rect.height / 2,
+                    moved: false,
+                    key: orb.key,
+                  };
+                  inputRef.current.keys[orb.key] = true;
+                }}
+                onPointerMove={(e) => {
+                  const drag = orbDragRef.current;
+                  if (!drag || drag.id !== orb.id) return;
+                  const nx = ((e.clientX - drag.dx) / window.innerWidth) * 100;
+                  const ny = ((e.clientY - drag.dy) / window.innerHeight) * 100;
+                  const cx = Math.max(8, Math.min(92, nx));
+                  const cy = Math.max(8, Math.min(92, ny));
+                  const prev = (flightOrbs && flightOrbs[orb.id]) || defaultOrbs[orb.id];
+                  if (Math.hypot(cx - prev.x, cy - prev.y) > 1.5) drag.moved = true;
+                  saveFlightOrbs({ ...flightOrbs, [orb.id]: { x: cx, y: cy } });
+                }}
+                onPointerUp={(e) => {
+                  const drag = orbDragRef.current;
+                  if (drag && drag.key) inputRef.current.keys[drag.key] = false;
+                  orbDragRef.current = null;
+                }}
+                onPointerCancel={() => {
+                  const drag = orbDragRef.current;
+                  if (drag && drag.key) inputRef.current.keys[drag.key] = false;
+                  orbDragRef.current = null;
+                }}
+              >
+                <span aria-hidden="true">{orb.icon}</span>
+                <span className="text-[7px] font-black tracking-[0.14em] text-sky-100">{orb.label.toUpperCase()}</span>
+              </div>
+            );
+          })}
+        </>
       )}
 
       {/* v3 level toggle — BOTTOM-RIGHT, right-thumb reachable,

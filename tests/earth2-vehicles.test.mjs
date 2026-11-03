@@ -430,23 +430,37 @@ describe('the drive law — ground machines', () => {
 
 describe('the fly law — the VTOL', () => {
   const spec = vehicleSpec('vtol');
-  it('on the ground it only lifts — throttle and steer wait for air', () => {
-    const st = run({ x: 0, z: -600, heading: 0, speed: 0, alt: 0 }, spec, { throttle: 1, steer: 1, lift: 0 }, 2);
-    assert.equal(st.speed, 0);
-    assert.equal(st.alt, 0);
-    assert.equal(st.x, 0);
-    assert.equal(st.heading, 0);
+  it('on the ground it rolls like a plane — throttle taxis, lift waits for takeoff speed', () => {
+    // Merlin, 2026-11-02: the Scout takes off LIKE A PLANE.
+    // Throttle accelerates along the ground (runway roll);
+    // lift alone does nothing until takeoff speed.
+    const st = run({ x: 0, z: -600, heading: 0, speed: 0, alt: 0 }, spec, { throttle: 1, steer: 0, lift: 0 }, 2);
+    assert.ok(st.speed > 5, `rolling: ${st.speed.toFixed(1)} m/s`);
+    assert.equal(st.alt, 0, 'no lift without takeoff speed');
+    assert.ok(st.x !== 0 || st.z !== -600, 'it moved along the ground');
+    const noLift = run({ x: 0, z: -600, heading: 0, speed: 0, alt: 0 }, spec, { throttle: 0, steer: 0, lift: 1 }, 3);
+    assert.equal(noLift.alt, 0, 'lift from a standstill does nothing — she is a plane');
   });
 
-  it('it climbs to the ceiling, tilts into forward flight, and crosses water', () => {
-    let st = run({ x: 0, z: -600, heading: 0, speed: 0, alt: 0 }, spec, { throttle: 0, steer: 0, lift: 1 }, 3);
-    assert.ok(st.alt > 15, `climbed to ${st.alt.toFixed(1)} m`);
-    const capped = run(st, spec, { throttle: 0, steer: 0, lift: 1 }, 10);
+  it('at takeoff speed with lift she rotates and climbs to the ceiling', () => {
+    // Roll to takeoff speed, then lift: rotation, climb, ceiling.
+    let st = run({ x: 0, z: -600, heading: 0, speed: 0, alt: 0 }, spec, { throttle: 1, steer: 0, lift: 0 }, 4);
+    assert.ok(st.speed >= spec.takeoffSpeed, `reached rotation: ${st.speed.toFixed(1)} m/s`);
+    st = run(st, spec, { throttle: 1, steer: 0, lift: 1 }, 4);
+    assert.ok(st.alt > 10, `rotated and climbing: ${st.alt.toFixed(1)} m`);
+    const capped = run(st, spec, { throttle: 1, steer: 0, lift: 1 }, 10);
     assert.ok(capped.alt <= spec.maxAlt + 1e-6, 'the ceiling holds');
     const sea = { heightAt: () => -3, waterDepthAt: () => 3, colliders: [] };
-    const flown = run({ ...st, heading: Math.PI / 2 }, spec, { throttle: 1, steer: 0, lift: 0 }, 3, sea);
+    const flown = run({ ...capped, heading: Math.PI / 2 }, spec, { throttle: 1, steer: 0, lift: 0 }, 3, sea);
     assert.ok(flown.x > 30, 'deep water is no wall to a flying machine');
     assert.ok(flown.pitch < 0, 'it leans into its motion');
+  });
+
+  it('banking: steering rolls her into the turn, easing back to level', () => {
+    let st = run({ x: 0, z: -600, heading: 0, speed: 20, alt: 20 }, spec, { throttle: 0.6, steer: 1, lift: 0 }, 1);
+    assert.ok(st.roll < -0.2, `banked into the turn: ${st.roll.toFixed(2)} rad`);
+    st = run(st, spec, { throttle: 0.6, steer: 0, lift: 0 }, 2);
+    assert.ok(Math.abs(st.roll) < 0.08, `eased back to level: ${st.roll.toFixed(2)} rad`);
   });
 
   it('it lands on flat ground — a held descent sets down firmly, at a small cost', () => {

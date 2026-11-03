@@ -15,7 +15,7 @@ import assert from 'node:assert/strict';
 import {
   behaviourCaps, createBehaviour, stepBehaviour, setBehaviourMode,
   behaviourPose, pickPreyTarget, pickGuardianTarget, rollChase, fleePoint, stepToward,
-  intentSpeed, seedFor, HUNT,
+  intentSpeed, seedFor, HUNT, dinoHitPoints, DINO_HP,
 } from '../lib/earth2/behaviour.js';
 import { EARTH2_MODELS } from '../lib/earth2/models.js';
 
@@ -237,5 +237,37 @@ describe('the hunt — Merlin’s predator ecology', () => {
     assert.ok(HUNT.provokeM > 0, 'provocation radius exists');
     assert.ok(HUNT.provokeM < HUNT.chaseTriggerM + HUNT.stalkRangeM, 'provocation is close-range');
     assert.ok(HUNT.provokeM <= 30, 'provocation is a walk-up, not a shout');
+  });
+
+  it('USER FIRST (Merlin, 2026-11-02): a vulnerable walker outranks dino prey', () => {
+    const predator = { id: 'rex1', x: 0, z: 0 };
+    const dinoPrey = { id: 'tri1', creature: true, prey: true, alive: true, x: 10, z: 0 };
+    const walker = { isWalker: true, walkerImmune: false, alive: true, x: 50, z: 0 };
+    // The walker is FARTHER than the dino prey — still preferred.
+    assert.equal(pickPreyTarget(predator, [dinoPrey, walker]), walker);
+    // An immune walker is refused outright — the dino prey wins.
+    const immune = { isWalker: true, walkerImmune: true, alive: true, x: 50, z: 0 };
+    assert.equal(pickPreyTarget(predator, [dinoPrey, immune]), dinoPrey);
+    // No walker at all — nearest dino prey, as before.
+    assert.equal(pickPreyTarget(predator, [dinoPrey]), dinoPrey);
+  });
+
+  it('dino HP: tiny takes 2, the rest 3–8 scaled by size (Merlin, 2026-11-02)', () => {
+    const bySlug = (slug) => EARTH2_MODELS.find((m) => m.slug === slug);
+    assert.equal(dinoHitPoints(bySlug('compsognathus')), 2, 'compy: 2 shots');
+    assert.equal(dinoHitPoints(bySlug('compy-swarm')), 2, 'swarm compy: 2 shots');
+    assert.ok(dinoHitPoints(bySlug('velociraptor')) >= 3, 'raptor: at least 3');
+    assert.ok(dinoHitPoints(bySlug('tyrannosaurus-rex')) >= 6, 'rex: 6+');
+    assert.equal(dinoHitPoints(bySlug('indominus-rex')), 8, 'indominus: 8');
+    assert.equal(dinoHitPoints(bySlug('brachiosaurus')), 8, 'brachio: capped at 8');
+    assert.ok(dinoHitPoints(bySlug('gallimimus')) >= 3 && dinoHitPoints(bySlug('gallimimus')) <= 8, 'mid-size in range');
+    // Monotonic: bigger never takes fewer shots.
+    const sizes = ['compsognathus', 'velociraptor', 'dilophosaurus', 'carnotaurus', 'tyrannosaurus-rex', 'indominus-rex'];
+    let last = 0;
+    for (const slug of sizes) {
+      const hp = dinoHitPoints(bySlug(slug));
+      assert.ok(hp >= last, `${slug}: ${hp} >= ${last}`);
+      last = hp;
+    }
   });
 });
