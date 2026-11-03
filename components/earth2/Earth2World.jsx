@@ -4714,7 +4714,19 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       // released, nothing happens.
       function startGrappleThrow() {
         const now = performance.now();
-        if (grapple.flying || grapple.pulling || now < grapple.cooldownUntil) return 'cooldown';
+        // TAP TO RELEASE (Merlin, 2026-11-03): pressing the 🪝
+        // button mid-pull cuts the rope — the walker drops where
+        // they are, free to move again.
+        if (grapple.pulling) {
+          grapple.pulling = false;
+          grapple.velX = 0; grapple.velZ = 0;
+          grapple.attached = false;
+          grapple.standY = null; // drop to the ground where they are
+          hideGrappleRope();
+          noticeRef.current('🪝 Released.');
+          return 'released';
+        }
+        if (grapple.flying || now < grapple.cooldownUntil) return 'cooldown';
         if (drivingRef.current || buildModeRef.current.active) return 'unavailable';
         // The hook leaves from the walker's eye, along the aim.
         const dir = new THREE.Vector3();
