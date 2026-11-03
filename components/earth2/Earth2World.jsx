@@ -4776,8 +4776,15 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           noticeRef.current('🪝 Released.');
           return 'released';
         }
-        if (grapple.flying || now < grapple.cooldownUntil) return 'cooldown';
-        if (drivingRef.current || buildModeRef.current.active) return 'unavailable';
+        if (grapple.flying) return 'cooldown';
+        if (now < grapple.cooldownUntil) {
+          noticeRef.current('🪝 Reeling in…');
+          return 'cooldown';
+        }
+        if (drivingRef.current || buildModeRef.current.active) {
+          noticeRef.current('🪝 Not while driving or building.');
+          return 'unavailable';
+        }
         // The hook leaves from the walker's eye, along the aim.
         const dir = new THREE.Vector3();
         camera.getWorldDirection(dir);
