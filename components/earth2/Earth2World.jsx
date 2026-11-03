@@ -5591,6 +5591,13 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         // the resources for the session's whole walk.
         for (const root of record.roots || []) {
           scene.remove(root);
+          // Drop any fire lights leaving with this unit.
+          root.traverse((o) => {
+            if (o.isPointLight) {
+              const i = flickerLights.indexOf(o);
+              if (i >= 0) flickerLights.splice(i, 1);
+            }
+          });
           if (!record.keepShared) disposeGraph(root, seen);
         }
         // Detached bases a unit owns but never added to the
@@ -5669,6 +5676,12 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           g.position.set(wx, heightAt(wx, wz) + (piece.y || 0), wz);
           g.rotation.y = ((piece.rotY || 0) * Math.PI) / 180;
           g.userData.buildPiece = { parcelId: build.groundId, index: i };
+          // Collect fire lights for the flicker loop.
+          g.traverse((o) => {
+            if (o.isPointLight && o.userData.flicker && !flickerLights.includes(o)) {
+              flickerLights.push(o);
+            }
+          });
           group.add(g);
         });
         scene.add(group);
@@ -6131,6 +6144,9 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       // PINNED — it never releases mid-build.
       let buildSigs = new Map();
       let scatterBuilt = new Map();
+      // Fire lights that flicker (Merlin, 2026-11-03) — collected
+      // when buildings stream in, cleared when they stream out.
+      const flickerLights = [];
       function updateStreaming() {
         const bUnits = buildStreamUnits(buildPropsRef.current.builds || []);
         const sigNow = new Map();
@@ -6244,6 +6260,17 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         // Staged objects: refresh who's near enough to see, once a
         // second (every 60th frame). Keeps the phone alive.
         if (frameNo % 60 === 1) updateStagedVisibility();
+        // Fire flicker (Merlin, 2026-11-03): torch and fire lights
+        // breathe — their intensity wavers like real flame.
+        // (Flickering lights register in flickerLights when placed.)
+        if (frameNo % 3 === 1 && flickerLights.length) {
+          const t = clock.elapsedTime;
+          for (const l of flickerLights) {
+            if (!l.userData.flicker) continue;
+            const base = l.userData.baseIntensity || 10;
+            l.intensity = base * (0.88 + 0.12 * Math.sin(t * 11 + l.id) * Math.sin(t * 5.7 + l.id * 2));
+          }
+        }
         const dt = Math.min(clock.getDelta(), 0.05);
         const t = clock.elapsedTime;
         const inp = inputRef.current;
