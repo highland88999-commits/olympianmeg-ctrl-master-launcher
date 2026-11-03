@@ -6148,11 +6148,29 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           // orientation again and the ghost follows the view.
           if (orbitBlendActive({ weight: buildOrbit.weight, parked: buildOrbit.parked, drivingVehicle: !!drivingRef.current })) {
             const centre = buildOrbitCentre();
+            // GHOST LOCK (Merlin, 2026-11-03): while a piece is being
+            // placed (ghost active), the camera's view LOCKS onto the
+            // ghost — it stays framed no matter where the piece moves.
+            // The user can still orbit around it (yaw/pitch/dist via
+            // the joystick) for placement purposes; the lock only pins
+            // the lookAt target, never the orbit pose itself.
+            const ghostActive = !!(buildModeRef.current && buildModeRef.current.ghostPlacement);
             const op = orbitCameraPosition(
               centre, buildOrbit.yaw, buildOrbit.pitch, buildOrbit.dist,
             );
             op.y = Math.max(op.y, heightAt(op.x, op.z) + 1.5);
-            const w = buildOrbit.weight;
+            // When the ghost moves while locked, translate the camera
+            // with it so the relative orbit pose is preserved.
+            if (ghostActive && buildOrbit._lastCentre) {
+              const dx = centre.x - buildOrbit._lastCentre.x;
+              const dz = centre.z - buildOrbit._lastCentre.z;
+              if (Math.hypot(dx, dz) > 1e-4) {
+                camera.position.x += dx;
+                camera.position.z += dz;
+              }
+            }
+            buildOrbit._lastCentre = { x: centre.x, z: centre.z };
+            const w = ghostActive ? 1 : buildOrbit.weight;
             const dir = new THREE.Vector3();
             camera.getWorldDirection(dir);
             const eyeX = camera.position.x;
