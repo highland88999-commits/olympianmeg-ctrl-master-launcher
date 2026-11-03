@@ -907,6 +907,11 @@ export default function Earth2Page() {
 
   return (
     <main className="relative min-h-screen overflow-hidden bg-[#050310] text-zinc-100">
+      {/* GRAPHIC WRAP (Merlin, 2026-11-03): the Swamp Run template —
+          illustrated art behind the menus, content untouched. */}
+      <div className="absolute inset-0 bg-cover bg-center" aria-hidden="true"
+        style={{ backgroundImage: 'url(/images/earth2/earth2-menu-bg.webp)' }} />
+      <div className="absolute inset-0 bg-gradient-to-b from-black/70 via-black/55 to-black/85" aria-hidden="true" />
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-0"
