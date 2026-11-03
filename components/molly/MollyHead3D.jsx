@@ -11,10 +11,84 @@
 // Reduced motion keeps forward-only. This is display only: the
 // head does not drive jaw or blink from her voice; that rig is
 // a separate build.
+//
+// TESSERACT ROOM (Merlin, 2026-11-03): the head floats inside a
+// static 3D tesseract — a cube within a cube, wireframe, Marvel
+// blue. It does NOT rotate. A blue light burns behind her like
+// the Tesseract's glow, and a rainbow aura hugs her head. The
+// room replaces the head's old empty space only — the rest of
+// the card is untouched.
 import { useEffect, useRef, useState } from 'react';
 import { tameTripoMaterials } from '@/lib/characters/tame-materials';
 import { guardCanvasContext } from '@/lib/scene-context-guard';
 import { tiltFromOrientation } from '@/lib/portal-card-tilt';
+
+// The tesseract's 16 corners: 8 for the outer cube, 8 for the
+// inner cube (half the size, same centre). A tesseract is two
+// cubes with each outer corner joined to its inner twin.
+function tesseractGeometry(THREE, size) {
+  const s = size / 2;
+  const q = size / 4;
+  const outer = [];
+  const inner = [];
+  for (const x of [-s, s]) for (const y of [-s, s]) for (const z of [-s, s]) {
+    outer.push([x, y, z]);
+    inner.push([x / 2, y / 2, z / 2]);
+  }
+  // Order the corners so index i of outer pairs with index i of inner.
+  const pts = [];
+  const edge = (a, b) => { pts.push(...a, ...b); };
+  // Outer cube edges: corners differing in exactly one coordinate.
+  for (let i = 0; i < 8; i++) for (let j = i + 1; j < 8; j++) {
+    const d = (outer[i][0] !== outer[j][0]) + (outer[i][1] !== outer[j][1]) + (outer[i][2] !== outer[j][2]);
+    if (d === 1) edge(outer[i], outer[j]);
+  }
+  // Inner cube edges, same rule.
+  for (let i = 0; i < 8; i++) for (let j = i + 1; j < 8; j++) {
+    const d = (inner[i][0] !== inner[j][0]) + (inner[i][1] !== inner[j][1]) + (inner[i][2] !== inner[j][2]);
+    if (d === 1) edge(inner[i], inner[j]);
+  }
+  // The 8 struts joining each outer corner to its inner twin.
+  for (let i = 0; i < 8; i++) edge(outer[i], inner[i]);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+  return geo;
+}
+
+// Rainbow aura: a soft shell around the head whose colour drifts
+// through the spectrum. Fresnel falloff so it glows at the
+// silhouette, not over her face.
+function auraMaterial(THREE) {
+  return new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    side: THREE.FrontSide,
+    uniforms: { uTime: { value: 0 } },
+    vertexShader: `
+      varying vec3 vNormal;
+      varying vec3 vView;
+      void main() {
+        vNormal = normalize(normalMatrix * normal);
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vView = normalize(-mv.xyz);
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `
+      uniform float uTime;
+      varying vec3 vNormal;
+      varying vec3 vView;
+      vec3 hue(float h) {
+        vec3 p = abs(fract(h + vec3(0.0, 2.0/3.0, 1.0/3.0)) * 6.0 - 3.0);
+        return clamp(p - 1.0, 0.0, 1.0);
+      }
+      void main() {
+        float f = pow(1.0 - abs(dot(vNormal, vView)), 2.2);
+        vec3 rainbow = hue(uTime * 0.08);
+        gl_FragColor = vec4(rainbow * f * 0.9, f * 0.55);
+      }`,
+  });
+}
 
 export default function MollyHead3D({ showMotionToggle = true, fallback = null, className = '' }) {
   const mountRef = useRef(null);
@@ -34,6 +108,7 @@ export default function MollyHead3D({ showMotionToggle = true, fallback = null, 
     let raf = 0;
     let contextGuard = null;
     const clockHolder = { last: 0 };
+    const roomDisposables = [];
 
     (async () => {
       try {
@@ -60,9 +135,61 @@ export default function MollyHead3D({ showMotionToggle = true, fallback = null, 
         const rim = new THREE.DirectionalLight(0x88aaff, 0.5);
         rim.position.set(-4, 2, -3);
         scene.add(rim);
+        // TESSERACT BLUE (Merlin, 2026-11-03): a cold blue light
+        // burning behind her head, like the Marvel Tesseract's
+        // glow spilling past her silhouette.
+        const tessLight = new THREE.PointLight(0x2e9bff, 12, 12, 1.6);
+        tessLight.position.set(0, 0.4, -1.6);
+        scene.add(tessLight);
+        // The tesseract room itself: static wireframe, cube within
+        // a cube, Marvel blue. It never rotates — her head is the
+        // only thing that moves in here.
+        const tessGeo = tesseractGeometry(THREE, 2.6);
+        const tessLines = new THREE.LineSegments(
+          tessGeo,
+          new THREE.LineBasicMaterial({ color: 0x2e9bff, transparent: true, opacity: 0.75 }),
+        );
+        tessLines.position.set(0, 0.1, -0.4);
+        scene.add(tessLines);
+        roomDisposables.push(tessGeo, tessLines.material);
+        // A faint blue wash on the room's back wall, so the
+        // tesseract reads as a lit chamber, not floating lines.
+        const glowTex = (() => {
+          const c = document.createElement('canvas');
+          c.width = c.height = 128;
+          const g = c.getContext('2d');
+          const grad = g.createRadialGradient(64, 64, 4, 64, 64, 64);
+          grad.addColorStop(0, 'rgba(46,155,255,0.55)');
+          grad.addColorStop(1, 'rgba(46,155,255,0)');
+          g.fillStyle = grad;
+          g.fillRect(0, 0, 128, 128);
+          const t = new THREE.CanvasTexture(c);
+          return t;
+        })();
+        const glow = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: glowTex, transparent: true, depthWrite: false,
+          blending: THREE.AdditiveBlending, opacity: 0.8,
+        }));
+        glow.scale.set(3.2, 3.2, 1);
+        glow.position.set(0, 0.1, -1.2);
+        scene.add(glow);
+        roomDisposables.push(glowTex, glow.material);
 
+        // LOAD FIX (Merlin, 2026-11-03): the head sometimes hung
+        // on "Loading…" forever — a 12-second timeout plus one
+        // retry, then the fallback. Never a stuck spinner.
         const loader = new GLTFLoader();
-        const gltf = await loader.loadAsync('/models/molly-head.glb');
+        let gltf = null;
+        let lastErr = null;
+        for (let attempt = 0; attempt < 2 && !gltf; attempt++) {
+          try {
+            gltf = await Promise.race([
+              loader.loadAsync('/models/molly-head.glb'),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('head load timeout')), 12000)),
+            ]);
+          } catch (e) { lastErr = e; }
+        }
+        if (!gltf) throw lastErr || new Error('head failed to load');
         if (cancelled) return;
         model = gltf.scene;
         // Tripo GLBs ship metal defaults that render pitch black under
@@ -87,12 +214,27 @@ export default function MollyHead3D({ showMotionToggle = true, fallback = null, 
         // rides on top of it each frame.
         pivot.lookAt(camera.position);
         baseQuatRef.current = pivot.quaternion.clone();
+        // RAINBOW AURA (Merlin, 2026-11-03): a soft spectral shell
+        // hugging her head, drifting through the rainbow. It rides
+        // the pivot so it follows her tilt.
+        const auraMat = auraMaterial(THREE);
+        const aura = new THREE.Mesh(
+          new THREE.SphereGeometry(maxDim * 0.85, 32, 32),
+          auraMat,
+        );
+        pivot.add(aura);
+        roomDisposables.push(aura.geometry, auraMat);
 
         const tick = (t) => {
           raf = requestAnimationFrame(tick);
           if (contextGuard && contextGuard.isLost()) return;
           const dt = Math.min(0.05, (t - clockHolder.last) / 1000 || 0.016);
           clockHolder.last = t;
+          // The aura's rainbow drifts with time.
+          auraMat.uniforms.uTime.value = t / 1000;
+          // Her head's gentle float — the same quiet hover it
+          // always had, untouched by the room around it.
+          pivot.position.y = center.y + Math.sin(t / 1400) * maxDim * 0.03;
           if (baseQuatRef.current) {
             // Ease the tilt toward its target (and back to forward
             // when the target is zeroed); base facing never moves.
@@ -128,6 +270,10 @@ export default function MollyHead3D({ showMotionToggle = true, fallback = null, 
             mats.forEach((m) => m.dispose());
           }
         });
+      }
+      // The tesseract room's own pieces.
+      for (const d of roomDisposables) {
+        try { if (d && typeof d.dispose === 'function') d.dispose(); } catch {}
       }
       if (renderer) {
         renderer.dispose();
