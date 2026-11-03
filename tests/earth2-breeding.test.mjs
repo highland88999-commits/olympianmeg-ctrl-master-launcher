@@ -38,6 +38,8 @@ import {
   boneGroupFor,
   boneScalesAt,
   overallScaleAt,
+  uniformScaleAt,
+  UNIFORM_HATCH_SIZE_M,
   rigScalesFor,
   shouldSwapToAdult,
   allyMoveDecision,
@@ -266,5 +268,31 @@ describe('ally behaviour', () => {
     assert.equal(isAlliedDino({ isAlly: false }), false);
     assert.equal(isAlliedDino({}), false);
     assert.equal(isAlliedDino(null), false);
+  });
+});
+
+describe('uniform hatch size', () => {
+  it('all species hatch at the same size', () => {
+    // A baby T-Rex (adult ~12m) and baby raptor (adult ~2m)
+    // start at the same size — Merlin's rule.
+    const trex = uniformScaleAt(0, 12);
+    const raptor = uniformScaleAt(0, 2);
+    assert.equal(trex, UNIFORM_HATCH_SIZE_M);
+    assert.equal(raptor, UNIFORM_HATCH_SIZE_M);
+    assert.equal(trex, raptor);
+  });
+
+  it('growth converges on the adult size', () => {
+    assert.equal(uniformScaleAt(1, 12), 12);
+    assert.equal(uniformScaleAt(1, 2), 2);
+    // Mid-growth: between hatch size and adult.
+    const mid = uniformScaleAt(0.5, 12);
+    assert.ok(mid > UNIFORM_HATCH_SIZE_M && mid < 12);
+  });
+
+  it('defaults sanely for bad input', () => {
+    assert.equal(uniformScaleAt(0, 0), UNIFORM_HATCH_SIZE_M);
+    assert.equal(uniformScaleAt(-1, 12), UNIFORM_HATCH_SIZE_M);
+    assert.equal(uniformScaleAt(2, 12), 12);
   });
 });

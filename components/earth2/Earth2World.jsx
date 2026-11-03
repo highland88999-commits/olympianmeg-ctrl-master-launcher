@@ -105,10 +105,31 @@ import {
 import { bridgeHeightAt, bridgeDeckYAt, stepBridgeWalker, BRIDGE_DECK_WIDTH_M } from '@/lib/earth2/bridges';
 import { dressingColliders } from '@/lib/earth2/scatter';
 import { stagedPlacements, stagedColliders } from '@/lib/earth2/staged-objects';
+import {
+  NEST_SPECIES,
+  EGG_MODEL_PATH,
+  EGG_ITEM_ID,
+  NO_LAND_MESSAGE,
+  makeNest,
+  nestIsDangerous,
+  babyModelPath,
+  makeEggItem,
+  isEggItem,
+  eggReadyToHatch,
+  eggHatchInMs,
+  canRaiseDino,
+  growthT,
+  uniformScaleAt,
+  rigScalesFor,
+  shouldSwapToAdult,
+  allyMoveDecision,
+  allyAttackTarget,
+} from '@/lib/earth2/breeding';
 import { fossilConditionById } from '@/lib/earth2/fossils';
 import { exchangeFossil, aetherForFossil } from '@/lib/earth2/hammond';
-import { useBackpack, updateBackpack } from '@/lib/backpack/store';
+import { useBackpack, updateBackpack, getBackpackRecord } from '@/lib/backpack/store';
 import { equippedWeaponEntry, setActiveWeapon } from '@/lib/backpack/backpack.js';
+import { addItem } from '@/lib/backpack/backpack.js';
 import {
   GRAPPLE_COOLDOWN_MS,
   GRAPPLE_PULL_SECONDS,
@@ -503,6 +524,11 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   // mirrored weather), refreshed by the scene's environment tick.
   const [envHud, setEnvHud] = useState(null);
   const [notice, setNotice] = useState('');
+  // Breeding: the nearest stealable nest drives the steal prompt.
+  // { nestId, species, eggs, dangerous } or null.
+  const [stealPrompt, setStealPrompt] = useState(null);
+  // Breeding: hatched allies for the HUD (count + species names).
+  const [allyHud, setAllyHud] = useState([]);
   const [deathFlash, setDeathFlash] = useState(false); // red flash when a predator catches the walker
   const [travel, setTravel] = useState(false);
   const [status, setStatus] = useState({});
@@ -885,6 +911,58 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
     if (typeof onBloodSac === 'function') onBloodSac();
     else updateBackpack((rec) => collectSacInRecord(rec));
   };
+  // Breeding: steal an egg from the prompted nest (Merlin, 2026-11-03).
+  // The egg goes to the backpack; the parents are provoked; the
+  // claim is written to earth2_egg_claims (claimed → ally,
+  // unclaimed → wild).
+  const stealEggRef = useRef(() => {});
+  stealEggRef.current = async () => {
+    const prompt = stealPromptRef.current;
+    if (!prompt) return;
+    const nest = nestsRef.current.find((n) => n.id === prompt.nestId);
+    if (!nest || nest.raided || nest.eggs <= 0) return;
+    const now = Date.now();
+    // 1. The egg goes to the backpack.
+    updateBackpack((rec) => addItem(rec, makeEggItem(nest.species, now), 1));
+    // 2. The nest loses an egg; raided when empty.
+    nest.eggs -= 1;
+    if (nest.eggMeshes.length) {
+      const gone = nest.eggMeshes.pop();
+      if (gone) nest.group.remove(gone);
+    }
+    if (nest.eggs <= 0) {
+      nest.raided = true;
+      setStealPrompt(null);
+    } else {
+      setStealPrompt({ ...prompt, eggs: nest.eggs });
+    }
+    // 3. The parents are provoked — nearby creatures of this
+    //    species aggro the walker (set via the scene's aggro hook).
+    provokeParentsRef.current(nest.species, nest.x, nest.z);
+    // 4. The claim: claimed eggs hatch as allies.
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const email = session?.session?.user?.email || null;
+      if (email) {
+        await supabase.from('earth2_egg_claims').insert({
+          species: nest.species,
+          claimed_by: email,
+          parcel_id: nest.parcelIndex >= 0 ? `E2-${String(nest.parcelIndex + 1).padStart(4, '0')}` : null,
+          status: 'claimed',
+        });
+      }
+    } catch (err) { /* the steal stands; the claim is best-effort */ }
+    const dangerous = nestIsDangerous(nest.species);
+    noticeRef.current(
+      dangerous
+        ? `🥚 You stole a ${nest.species} egg — the parents saw you. RUN.`
+        : `🥚 You stole a ${nest.species} egg. It hatches in 10 minutes.`
+    );
+  };
+  const stealPromptRef = useRef(null);
+  stealPromptRef.current = stealPrompt;
+  const nestsRef = useRef([]);
+  const provokeParentsRef = useRef(() => {});
   const openExchangeRef = useRef(() => {});
   openExchangeRef.current = () => {
     greetRef.current = true;
@@ -2117,6 +2195,265 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           return null;
         }
       }
+
+      // ── Placement: dino nests (Merlin, 2026-11-03) ───────────
+      // Breeding: deterministic nests near herbivore herds, 1–3
+      // eggs each. The eggs are the Tripo dino-egg GLB; the nest
+      // itself is a procedural twig ring. Stealing provokes the
+      // parents (see the steal handler in the frame loop).
+      const nestsGroup = new THREE.Group();
+      nestsGroup.name = 'dino-nests';
+      scene.add(track(nestsGroup));
+      const nests = []; // { id, species, x, z, parcelIndex, eggs, raided, group, eggMeshes }
+
+      async function placeNests() {
+        // Herd anchors from worldCreatures: nests sit near the
+        // herds of their species (carnivore nests near their packs).
+        const creatures = worldCreatures();
+        let eggBase = null;
+        try {
+          const eggGltf = await loader.loadAsync(EGG_MODEL_PATH);
+          track(eggGltf.scene);
+          eggBase = eggGltf.scene;
+        } catch (err) {
+          // No egg GLB — nests render as mounds only.
+        }
+        for (const species of NEST_SPECIES) {
+          if (cancelled) return;
+          // Find the herd anchor for this species.
+          const herd = creatures.filter((c) => c.slug === species);
+          if (!herd.length) continue;
+          const anchor = herd[0];
+          // Offset the nest from the herd centre (not underfoot).
+          const nx = anchor.x + 8;
+          const nz = anchor.z + 6;
+          if (heightAt(nx, nz) < 0.3) continue; // dry land only
+          const nest = makeNest(`nest-${species}`, species, nx, nz, anchor.parcelIndex);
+          const group = new THREE.Group();
+          group.position.set(nx, heightAt(nx, nz), nz);
+          // Procedural twig ring (torus, brown).
+          const ringGeo = new THREE.TorusGeometry(1.2, 0.25, 8, 16);
+          const ringMat = new THREE.MeshStandardMaterial({ color: 0x5a3d1e, roughness: 0.9 });
+          const ring = new THREE.Mesh(ringGeo, ringMat);
+          ring.rotation.x = -Math.PI / 2;
+          ring.position.y = 0.15;
+          group.add(track(ring));
+          // Eggs: 1–3, arranged in the ring.
+          const eggMeshes = [];
+          if (eggBase) {
+            for (let i = 0; i < nest.eggs; i++) {
+              const egg = SkeletonUtils.clone(eggBase);
+              const a = (i / nest.eggs) * Math.PI * 2;
+              egg.position.set(Math.cos(a) * 0.5, 0.35, Math.sin(a) * 0.5);
+              egg.scale.setScalar(0.7); // egg ~0.7m
+              group.add(egg);
+              eggMeshes.push(egg);
+            }
+          }
+          nestsGroup.add(group);
+          nests.push({ ...nest, group, eggMeshes });
+        }
+        // Sync the ref so the steal handler (outside the effect)
+        // can find nests by id.
+        nestsRef.current = nests;
+      }
+
+      // ── Breeding: allies ─────────────────────────────────────
+      // Hatched babies that follow the walker as allies. Each ally
+      // carries its THREE.Group root, skeleton (for rig growth),
+      // species, bornAt, and behaviour state.
+      const allies = []; // { id, species, root, skeleton, bornAt, state }
+      const alliesGroup = new THREE.Group();
+      alliesGroup.name = 'dino-allies';
+      scene.add(track(alliesGroup));
+
+      /** Find the THREE.Skeleton in a loaded baby GLB. */
+      function findSkeleton(modelScene) {
+        let skeleton = null;
+        modelScene.traverse((obj) => {
+          if (!skeleton && obj.isSkinnedMesh && obj.skeleton) {
+            skeleton = obj.skeleton;
+          }
+        });
+        return skeleton;
+      }
+
+      /** Spawn a baby ally at the walker's side. */
+      async function spawnAlly(species, bornAtMs) {
+        const entry = EARTH2_MODEL_BY_SLUG.get(species);
+        const adultScaleM = entry && entry.scaleM ? entry.scaleM : 5;
+        const path = babyModelPath(species);
+        let modelScene = null;
+        try {
+          const gltf = await loader.loadAsync(path);
+          track(gltf.scene);
+          modelScene = gltf.scene;
+        } catch (err) {
+          // No baby GLB — fall back to the adult, scaled down.
+          if (entry && entry.file) {
+            try {
+              modelScene = await loadModel(entry);
+            } catch (e2) { /* no model at all */ }
+          }
+        }
+        if (!modelScene || cancelled) return null;
+        const skeleton = findSkeleton(modelScene);
+        const root = new THREE.Group();
+        const spin = new THREE.Group();
+        spin.add(modelScene);
+        root.add(spin);
+        // Uniform hatch size: every species starts at 1.2 m.
+        const t = growthT(bornAtMs, Date.now());
+        root.scale.setScalar(uniformScaleAt(t, adultScaleM) / adultScaleM);
+        // Apply rig bone scales for proportional growth.
+        if (skeleton) {
+          const names = skeleton.bones.map((b) => b.name);
+          const scales = rigScalesFor(names, t);
+          for (const bone of skeleton.bones) {
+            const s = scales[bone.name] || 1;
+            bone.scale.set(s, s, s);
+          }
+        }
+        root.position.set(walker.x + 2, heightAt(walker.x + 2, walker.z + 2), walker.z + 2);
+        scene.add(track(root));
+        alliesGroup.add(root);
+        const ally = {
+          id: `ally-${species}-${Date.now()}`,
+          species,
+          root,
+          skeleton,
+          bornAt: bornAtMs,
+          adultScaleM,
+          isAlly: true,
+          alive: true,
+          state: 'follow',
+        };
+        allies.push(ally);
+        setAllyHud(allies.map((a) => ({ id: a.id, species: a.species })));
+        noticeRef.current(`🐣 A baby ${entry ? entry.name : species} hatches — it follows you now.`);
+        return ally;
+      }
+
+      /** Growth tick: rig-scale allies, swap to adult at maturity. */
+      async function growthTick() {
+        const now = Date.now();
+        for (const ally of allies) {
+          if (!ally.alive) continue;
+          if (shouldSwapToAdult(ally.bornAt, now)) {
+            // Swap to the adult species GLB — the ally stays allied for life.
+            const entry = EARTH2_MODEL_BY_SLUG.get(ally.species);
+            if (entry && entry.file && !ally.swapped) {
+              ally.swapped = true;
+              try {
+                const adultScene = await loadModel(entry);
+                // Replace the baby model with the adult.
+                const oldSpin = ally.root.children[0];
+                if (oldSpin) ally.root.remove(oldSpin);
+                const spin = new THREE.Group();
+                spin.add(adultScene);
+                ally.root.add(spin);
+                ally.root.scale.setScalar(1); // adult at full scale
+                ally.skeleton = findSkeleton(adultScene);
+                noticeRef.current(`🦖 Your ${entry.name} is fully grown — an ally for life.`);
+              } catch (err) { /* keep the grown baby */ }
+            }
+          } else {
+            const t = growthT(ally.bornAt, now);
+            ally.root.scale.setScalar(uniformScaleAt(t, ally.adultScaleM) / ally.adultScaleM);
+            if (ally.skeleton) {
+              const names = ally.skeleton.bones.map((b) => b.name);
+              const scales = rigScalesFor(names, t);
+              for (const bone of ally.skeleton.bones) {
+                const s = scales[bone.name] || 1;
+                bone.scale.set(s, s, s);
+              }
+            }
+          }
+        }
+      }
+
+      /** Ally movement + combat: follow the walker per the breeding law,
+       *  and attack whatever is hunting the walker. */
+      function driveAllies(dt) {
+        // Who is hunting the walker? Allies defend against them.
+        let attacker = null;
+        for (const a of animals) {
+          if (a.huntTarget && a.huntTarget.isWalker && a.alive) {
+            attacker = a;
+            break;
+          }
+        }
+        for (const ally of allies) {
+          if (!ally.alive) continue;
+          const ax = ally.root.position.x;
+          const az = ally.root.position.z;
+          // Combat: if something is hunting the walker, the ally
+          // charges it (never the walker, never itself — the law).
+          const target = allyAttackTarget(ally, null, attacker, 'walker');
+          if (target && target.root) {
+            const tx = target.root.position.x;
+            const tz = target.root.position.z;
+            const dx = tx - ax;
+            const dz = tz - az;
+            const d = Math.hypot(dx, dz) || 1;
+            if (d > 2.5) {
+              // Charge the attacker.
+              const step = Math.min(d, 8 * dt);
+              const nx = ax + (dx / d) * step;
+              const nz = az + (dz / d) * step;
+              ally.root.position.set(nx, heightAt(nx, nz), nz);
+              ally.root.rotation.y = Math.atan2(dx, dz);
+              ally.state = 'attack';
+            } else {
+              // In range — the ally harries the attacker.
+              ally.state = 'attack';
+              // Nudge the attacker away (simple knockback).
+              const push = 3 * dt;
+              const px = target.root.position.x + (dx / d) * push;
+              const pz = target.root.position.z + (dz / d) * push;
+              target.root.position.set(px, heightAt(px, pz), pz);
+            }
+            continue;
+          }
+          // Follow the walker per the breeding law.
+          const decision = allyMoveDecision(ax, az, walker.x, walker.z);
+          if (decision === 'idle') {
+            ally.state = 'idle';
+            continue;
+          }
+          const dx = walker.x - ax;
+          const dz = walker.z - az;
+          const d = Math.hypot(dx, dz) || 1;
+          const speed = decision === 'return' ? 9 : 5; // hurry back, else trot
+          const step = Math.min(d, speed * dt);
+          const nx = ax + (dx / d) * step;
+          const nz = az + (dz / d) * step;
+          ally.root.position.set(nx, heightAt(nx, nz), nz);
+          ally.root.rotation.y = Math.atan2(dx, dz);
+          ally.state = decision;
+        }
+      }
+
+      // ── Breeding: provoke parents (Merlin, 2026-11-03) ──────
+      // Stealing an egg enrages nearby parents of that species —
+      // they chase the walker. Carnivore parents are relentless;
+      // herbivore parents chase briefly, then give up.
+      provokeParentsRef.current = (species, nestX, nestZ) => {
+        const dangerous = nestIsDangerous(species);
+        const range = dangerous ? 60 : 35;
+        for (const a of animals) {
+          if (!a.entry || a.entry.slug !== species) continue;
+          if (!a.alive || a.state !== 'alive') continue;
+          const d = Math.hypot(a.root.position.x - nestX, a.root.position.z - nestZ);
+          if (d > range) continue;
+          // Chase the walker.
+          a.huntTarget = { id: 'walker', root: { position: walker }, alive: true };
+          a.chase = { t: 0 };
+          if (a.beh) {
+            setBehaviourMode(a.beh, 'chase', dangerous ? Infinity : 20);
+          }
+        }
+      };
 
       // ── Placement: flyers ────────────────────────────────────
       async function placeFlyer(entry, rec, owner) {
@@ -5767,6 +6104,9 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       // is walkable before all 73 GLBs finish decoding.
       placeStagedObjects().catch(() => {});
 
+      // Dino nests: load in the background with the staged objects.
+      placeNests().catch(() => {});
+
       // ── The frame ────────────────────────────────────────────
       let raf = 0;
       let frameNo = 0;
@@ -6408,6 +6748,67 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           }
         }
         updateExplosions(dt);
+        // ── Breeding tick (Merlin, 2026-11-03) ───────────────
+        // Nests, stealing, hatching, allies, growth — the dino
+        // breeding law (lib/earth2/breeding.js) running in the scene.
+        if (frameNo % 15 === 1) {
+          // Steal detection: nearest nest with eggs in reach.
+          let nearest = null;
+          let nearestD = Infinity;
+          for (const nest of nests) {
+            if (nest.raided || nest.eggs <= 0) continue;
+            const d = Math.hypot(walker.x - nest.x, walker.z - nest.z);
+            if (d < 4 && d < nearestD) {
+              nearest = nest;
+              nearestD = d;
+            }
+          }
+          const prompt = nearest
+            ? {
+                nestId: nearest.id,
+                species: nearest.species,
+                eggs: nearest.eggs,
+                dangerous: nestIsDangerous(nearest.species),
+              }
+            : null;
+          // Update React state only when it changes.
+          setStealPrompt((prev) => {
+            const a = prev ? prev.nestId : null;
+            const b = prompt ? prompt.nestId : null;
+            return a === b ? prev : prompt;
+          });
+        }
+        // Allies follow the walker every frame.
+        if (allies.length) driveAllies(dt);
+        // Hatch check: every ~5 s, look for ready eggs in the backpack.
+        if (frameNo % 300 === 1) {
+          const rec = getBackpackRecord();
+          const eggs = (rec.items || []).filter(isEggItem);
+          for (const egg of eggs) {
+            if (!eggReadyToHatch(egg.meta, Date.now())) continue;
+            // The land gate: no land, no dino.
+            const owned = ownersByParcel || {};
+            const ownedRows = Object.values(owned);
+            const myEmail = (buildUser && buildUser.email) || '';
+            const hasLand = ownedRows.some(
+              (r) => r && String(r.owner_email || '').toLowerCase() === String(myEmail).toLowerCase()
+            ) || canRaiseDino(claims || [], myEmail);
+            if (!hasLand) {
+              noticeRef.current(`🥚 ${NO_LAND_MESSAGE}`);
+              continue;
+            }
+            // Hatch! Remove the egg, spawn the ally.
+            updateBackpack((r) => {
+              const items = (r.items || []).filter((it) => it !== egg);
+              return { ...r, items };
+            });
+            spawnAlly(egg.meta.species, Date.now()).catch(() => {});
+          }
+        }
+        // Growth tick: every ~10 s, rig-scale allies.
+        if (frameNo % 600 === 1 && allies.length) {
+          growthTick().catch(() => {});
+        }
         if (shakeAmp > 0.003) {
           camera.position.x += (rng() - 0.5) * shakeAmp * 0.55;
           camera.position.y += (rng() - 0.5) * shakeAmp * 0.42;
@@ -6740,6 +7141,21 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         {notice && (
           <p className="rounded-lg border border-amber-300/30 bg-amber-400/15 px-2.5 py-1.5 text-[11px] font-semibold leading-snug text-amber-100">
             {notice}
+          </p>
+        )}
+        {stealPrompt && (
+          <button
+            type="button"
+            onClick={() => stealEggRef.current()}
+            className="rounded-full border border-emerald-300/50 bg-emerald-500/25 px-4 py-2 text-[13px] font-bold text-emerald-100 backdrop-blur-sm transition hover:bg-emerald-500/40"
+          >
+            🥚 Steal {stealPrompt.species} egg
+            {stealPrompt.dangerous ? ' ⚠️' : ''}
+          </button>
+        )}
+        {allyHud.length > 0 && (
+          <p className="rounded-lg border border-sky-300/30 bg-sky-400/15 px-2.5 py-1.5 text-[11px] font-semibold leading-snug text-sky-100">
+            🦖 Allies: {allyHud.map((a) => a.species).join(', ')}
           </p>
         )}
         {deathFlash && (
