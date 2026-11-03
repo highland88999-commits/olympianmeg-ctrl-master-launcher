@@ -132,14 +132,15 @@ import { equippedWeaponEntry, setActiveWeapon } from '@/lib/backpack/backpack.js
 import { addItem } from '@/lib/backpack/backpack.js';
 import {
   GRAPPLE_COOLDOWN_MS,
-  GRAPPLE_PULL_SECONDS,
-  GRAPPLE_ARC_LIFT_M,
+  GRAPPLE_RANGE_M,
+  GRAPPLE_HOOK_SPEED_MPS,
+  GRAPPLE_ARRIVE_DIST_M,
   isGrappleEquipped,
   isGrappleOwned,
   grappleOwnedUid,
   grappleRangeDecision,
-  grapplePullTarget,
-  grappleEase,
+  grappleHookStep,
+  grapplePullStep,
 } from '@/lib/earth2/grapple';
 import BackpackHud from '@/components/backpack/BackpackHud';
 import {
@@ -176,6 +177,7 @@ import {
   MAX_WADE_DEPTH_M,
   swimDraftMargin,
   stepWorldWalker,
+  pushOutOfCircles,
   applyWorldLook,
   WALK_SPEED_MPS,
 } from '@/lib/earth2/world';
@@ -1049,9 +1051,11 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   // ── Grappling hook (Merlin, 2026-11-01) ──────────────────────
   // The hook's fire lives in the scene (it moves the walker), so
   // the HUD button calls through this ref door, on the
-  // boardVehicleRef pattern. Returns the throw's outcome:
-  // 'fired' | 'cooldown' | 'unavailable' | 'too-far' | 'nothing'.
+  // boardVehicleRef pattern. startGrappleThrow returns the
+  // throw's outcome: 'thrown' | 'cooldown' | 'unavailable'.
+  // releaseGrappleButton cancels a still-flying hook.
   const grappleFireRef = useRef(() => 'unavailable');
+  const grappleReleaseRef = useRef(() => {});
   const [grappleCooling, setGrappleCooling] = useState(false);
   const setHammondPanel = (open) => {
     hammondOpenRef.current = open;
@@ -4640,15 +4644,32 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       // about a second, with a slight arc; past 40 m it can't
       // reach; on open sky there's nothing to grab. Foot only —
       // never driving, never building.
+      // KINETIC GRAPPLE (Merlin, 2026-11-03): hold-to-fire with
+      // real physics. Press and hold the 🪝 button and the hook
+      // flies out as a projectile along the camera's aim; release
+      // before it attaches and the throw cancels; once it catches
+      // something, velocity + acceleration pull the walker to the
+      // anchor — real motion, not a scripted zip. The pull stops
+      // AT surfaces (never through them) and the walker lands ON
+      // TOP of whatever the hook caught (standY carries the
+      // perch height until the walker steps off).
       const grapple = {
-        pulling: false,
-        fromX: 0, fromZ: 0, toX: 0, toZ: 0,
-        anchorX: 0, anchorY: 0, anchorZ: 0,
-        t: 0, arcLift: 0,
+        // Throw state
+        flying: false,        // hook projectile in flight (button held)
+        hookX: 0, hookY: 0, hookZ: 0,       // hook position
+        hookVX: 0, hookVY: 0, hookVZ: 0,    // hook velocity (m/s)
+        throwOX: 0, throwOZ: 0,             // where the throw started (range check)
+        attached: false,      // hook has caught something
+        buttonHeld: false,    // the 🪝 button is currently held down
+        // Pull state
+        pulling: false,       // kinetic pull in progress
+        anchorX: 0, anchorY: 0, anchorZ: 0, // where the hook caught
+        velX: 0, velZ: 0,                   // walker's pull velocity (m/s)
+        // Shared
         cooldownUntil: 0,
-        rope: null, ropeUntil: 0,
+        rope: null, ropeUntil: 0, ropeBorn: 0,
+        standY: null,         // when set, the walker stands on this height (a perch)
       };
-      const GRAPPLE_MESH_FAR_M = 120; // structures are searched this far, so "too far" is honest
       function hideGrappleRope() {
         if (!grapple.rope) return;
         scene.remove(grapple.rope);
@@ -4673,44 +4694,91 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       function updateGrappleRope() {
         if (!grapple.rope) return;
         const p = grapple.rope.geometry.attributes.position;
-        const groundY = heightAt(walker.x, walker.z);
-        p.setXYZ(0, walker.x, groundY + 1.5, walker.z);
-        p.setXYZ(1, grapple.anchorX, grapple.anchorY, grapple.anchorZ);
+        const standY = grapple.standY != null ? grapple.standY : heightAt(walker.x, walker.z);
+        p.setXYZ(0, walker.x, standY + 1.5, walker.z);
+        // While the hook flies, the rope's far end is the hook
+        // itself; once attached, it's the anchor.
+        if (grapple.flying && !grapple.attached) {
+          p.setXYZ(1, grapple.hookX, grapple.hookY, grapple.hookZ);
+        } else {
+          p.setXYZ(1, grapple.anchorX, grapple.anchorY, grapple.anchorZ);
+        }
         p.needsUpdate = true;
       }
-      // March the aim ray down to the terrain, analytically —
-      // the same march the build tap uses. Returns the nearest
-      // ground point within maxS metres, or null.
-      function grappleTerrainPoint(ray, maxS) {
-        for (let s = 0.5; s <= maxS; s += 0.3) {
-          const px = ray.origin.x + ray.direction.x * s;
-          const py = ray.origin.y + ray.direction.y * s;
-          const pz = ray.origin.z + ray.direction.z * s;
-          if (py <= heightAt(px, pz) + 0.05) return { x: px, y: heightAt(px, pz), z: pz, dist: s };
-        }
-        return null;
-      }
-      function fireGrapple() {
+      // KINETIC GRAPPLE — HOLD TO FIRE (Merlin, 2026-11-03).
+      // Pointer down on the 🪝 button launches the hook as a
+      // projectile along the camera's aim. It flies until it
+      // catches something (attach → the pull begins) or runs out
+      // of range (it reels back, a miss). Releasing the button
+      // BEFORE it attaches cancels the throw — the walker is
+      // released, nothing happens.
+      function startGrappleThrow() {
         const now = performance.now();
-        if (grapple.pulling || now < grapple.cooldownUntil) return 'cooldown';
+        if (grapple.flying || grapple.pulling || now < grapple.cooldownUntil) return 'cooldown';
         if (drivingRef.current || buildModeRef.current.active) return 'unavailable';
-        const raycaster = new THREE.Raycaster();
-        raycaster.setFromCamera(new THREE.Vector2(0, 0), camera); // dead centre of the aim
-        raycaster.far = GRAPPLE_MESH_FAR_M;
-        // GRAPPLE EVERYTHING (Merlin, 2026-11-03): the hook grabs
-        // whatever the crosshair touches — buildings, dinosaurs,
-        // staged objects, trees, vehicles, nests, anything solid.
-        // Raycast the whole scene (single shot on button press, not
-        // per frame, so the cost is fine).
-        let bestDist = Infinity;
-        let bestPoint = null;
-        const hits = raycaster.intersectObjects(scene.children, true);
-        // Skip the walker's own body and any UI helpers: the ray
-        // starts at the camera (the walker's eye), so anything closer
-        // than 1m is the walker itself.
+        // The hook leaves from the walker's eye, along the aim.
+        const dir = new THREE.Vector3();
+        camera.getWorldDirection(dir);
+        grapple.hookX = walker.x;
+        grapple.hookY = heightAt(walker.x, walker.z) + WALK_EYE_M;
+        grapple.hookZ = walker.z;
+        grapple.hookVX = dir.x * GRAPPLE_HOOK_SPEED_MPS;
+        grapple.hookVY = dir.y * GRAPPLE_HOOK_SPEED_MPS;
+        grapple.hookVZ = dir.z * GRAPPLE_HOOK_SPEED_MPS;
+        grapple.throwOX = walker.x;
+        grapple.throwOZ = walker.z;
+        grapple.flying = true;
+        grapple.attached = false;
+        grapple.buttonHeld = true;
+        grapple.pulling = false;
+        grapple.velX = 0; grapple.velZ = 0;
+        grapple.cooldownUntil = now + GRAPPLE_COOLDOWN_MS;
+        grapple.ropeBorn = now;
+        grapple.ropeUntil = 0;
+        showGrappleRope();
+        return 'thrown';
+      }
+      // Pointer up (or the pointer leaving the button): if the
+      // hook is still flying and hasn't attached, the throw is
+      // cancelled — the walker is released. After attach, the
+      // pull is committed and releasing changes nothing.
+      function releaseGrappleButton() {
+        grapple.buttonHeld = false;
+        if (grapple.flying && !grapple.attached) {
+          grapple.flying = false;
+          hideGrappleRope();
+          noticeRef.current('🪝 Released.');
+        }
+      }
+      // One per-frame step of the flying hook: advance it, and
+      // see what it catches. Returns 'attached', 'miss' (out of
+      // range), or null (still flying).
+      function stepGrappleHook(dt) {
+        const prev = { x: grapple.hookX, y: grapple.hookY, z: grapple.hookZ };
+        const next = grappleHookStep(
+          { x: grapple.hookX, y: grapple.hookY, z: grapple.hookZ,
+            vx: grapple.hookVX, vy: grapple.hookVY, vz: grapple.hookVZ }, dt);
+        grapple.hookX = next.x; grapple.hookY = next.y; grapple.hookZ = next.z;
+        // Out of range: the hook reels back, a clean miss.
+        const thrown = Math.hypot(grapple.hookX - grapple.throwOX, grapple.hookZ - grapple.throwOZ);
+        if (thrown > GRAPPLE_RANGE_M) {
+          grapple.flying = false;
+          hideGrappleRope();
+          noticeRef.current('🪝 Too far — get closer.');
+          return 'miss';
+        }
+        // What did the hook's path cross? A short segment
+        // raycast from where it was to where it is now —
+        // GRAPPLE EVERYTHING: the whole scene is fair game.
+        const segDir = new THREE.Vector3(next.x - prev.x, next.y - prev.y, next.z - prev.z);
+        const segLen = segDir.length();
+        if (segLen < 1e-6) return null;
+        segDir.normalize();
+        const rc = new THREE.Raycaster(
+          new THREE.Vector3(prev.x, prev.y, prev.z), segDir, 0, segLen + 0.5);
+        const hits = rc.intersectObjects(scene.children, true);
         for (const h of hits) {
-          if (h.distance < 1) continue;
-          // Skip invisible helpers and the sky dome.
+          if (h.distance < 0.5) continue; // the walker's own body
           let o = h.object;
           let skip = false;
           while (o) {
@@ -4718,41 +4786,32 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             o = o.parent;
           }
           if (skip) continue;
-          if (h.distance < bestDist) {
-            bestDist = h.distance;
-            bestPoint = h.point;
-          }
-          break; // first valid hit is the closest
+          attachGrapple(h.point.x, h.point.y, h.point.z);
+          return 'attached';
         }
-        // Terrain: the analytic march, same reach as the meshes.
-        const ground = grappleTerrainPoint(raycaster.ray, GRAPPLE_MESH_FAR_M);
-        if (ground && ground.dist < bestDist) {
-          bestDist = ground.dist;
-          bestPoint = new THREE.Vector3(ground.x, ground.y, ground.z);
+        // Terrain along the hook's path.
+        const gy = heightAt(next.x, next.z);
+        if (next.y <= gy + 0.1 && prev.y > gy) {
+          attachGrapple(next.x, Math.max(gy, next.y), next.z);
+          return 'attached';
         }
-        const decision = grappleRangeDecision(bestDist);
-        if (decision === 'nothing') {
-          noticeRef.current('🪝 Nothing to grab — aim at the ground or a building.');
-          return 'nothing';
-        }
-        if (decision === 'too-far') {
-          noticeRef.current('🪝 Too far — get closer.');
-          return 'too-far';
-        }
-        // Attached: the hook owns the walker's feet until the zip lands.
-        const dest = grapplePullTarget(walker, bestPoint);
-        grapple.pulling = true;
-        grapple.fromX = walker.x; grapple.fromZ = walker.z;
-        grapple.toX = dest.x; grapple.toZ = dest.z;
-        grapple.anchorX = bestPoint.x; grapple.anchorY = bestPoint.y; grapple.anchorZ = bestPoint.z;
-        grapple.t = 0; grapple.arcLift = 0;
-        grapple.cooldownUntil = now + GRAPPLE_COOLDOWN_MS;
-        grapple.ropeUntil = 0;
-        showGrappleRope();
-        noticeRef.current('🪝 Hook attached!');
-        return 'fired';
+        return null;
       }
-      grappleFireRef.current = fireGrapple;
+      // The hook caught something: the pull begins. Real
+      // physics from here — velocity and acceleration, the
+      // logic of motion.
+      function attachGrapple(ax, ay, az) {
+        grapple.flying = false;
+        grapple.attached = true;
+        grapple.pulling = true;
+        grapple.anchorX = ax; grapple.anchorY = ay; grapple.anchorZ = az;
+        grapple.velX = 0; grapple.velZ = 0;
+        grapple.ropeUntil = 0;
+        updateGrappleRope();
+        noticeRef.current('🪝 Hook attached!');
+      }
+      grappleFireRef.current = startGrappleThrow;
+      grappleReleaseRef.current = releaseGrappleButton;
       // The solid world: the landforms' own colliders plus the
       // Commons dressing's (Terrain Wave B — rocks, boulders,
       // crater discs and tree trunks are solid, per Merlin).
@@ -6382,32 +6441,58 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           const movedDist = Math.hypot(next.x - walker.x, next.z - walker.z);
           walker.x = next.x;
           walker.z = next.z;
-          // GRAPPLING HOOK (Merlin, 2026-11-01): the zip — the
-          // walker eases from the throw spot to the attach
-          // point over about a second, arcing slightly, while
-          // the rope draws taut from hand to hook. Landing
-          // hands the feet back to the walker.
+          // KINETIC GRAPPLE (Merlin, 2026-11-03): the hook flies
+          // while the button is held; the walker is pulled by real
+          // physics — velocity and acceleration toward the anchor.
+          if (grapple.flying && !grapple.attached) {
+            const res = stepGrappleHook(dt);
+            if (res === 'attached' || res === 'miss') {
+              // attachGrapple / the miss path already handled it.
+            }
+            if (grapple.rope) updateGrappleRope();
+          }
+          // THE KINETIC PULL — the logic of motion. The walker
+          // accelerates toward the anchor; the world's colliders
+          // still push back (can't pass through); landing on a
+          // high anchor perches the walker on top (can stand upon).
           if (grapple.pulling) {
-            grapple.t += dt / GRAPPLE_PULL_SECONDS;
-            const k = Math.min(1, grapple.t);
-            const e = grappleEase(k);
             const px = walker.x, pz = walker.z;
-            walker.x = grapple.fromX + (grapple.toX - grapple.fromX) * e;
-            walker.z = grapple.fromZ + (grapple.toZ - grapple.fromZ) * e;
-            grapple.arcLift = Math.sin(Math.PI * k) * GRAPPLE_ARC_LIFT_M;
+            const step = grapplePullStep(
+              walker, { x: grapple.velX, z: grapple.velZ },
+              { x: grapple.anchorX, z: grapple.anchorZ }, dt);
+            // Can't pass through: the solid world pushes back.
+            const pushed = pushOutOfCircles(step.x, step.z, walkCols);
+            grapple.velX = step.vx; grapple.velZ = step.vz;
+            walker.x = pushed.x;
+            walker.z = pushed.z;
+            // Rise toward a high anchor (a rooftop, a back) so the
+            // walker lands ON it, not under it.
+            const groundY = heightAt(walker.x, walker.z);
+            const targetY = Math.max(groundY, grapple.anchorY);
+            if (grapple.standY == null) grapple.standY = groundY;
+            grapple.standY += (targetY - grapple.standY) * Math.min(1, dt * 6);
             if (buildOrbit.parked && Math.hypot(walker.x - px, walker.z - pz) > 1e-4) {
               buildOrbit.parked = false; buildOrbit.weight = 0;
             }
-            if (k >= 1) {
+            if (step.arrived) {
               grapple.pulling = false;
-              grapple.arcLift = 0;
+              grapple.velX = 0; grapple.velZ = 0;
+              // Landed: perch on the anchor's height if it's above
+              // the ground (a roof, a rock, a dinosaur's back).
+              // The perch holds until the walker walks off it.
+              const perchY = Math.max(groundY, grapple.anchorY - 0.2);
+              grapple.standY = perchY > groundY + 0.5 ? perchY : null;
               grapple.ropeUntil = performance.now() + 350; // the rope lingers a beat, then goes
             }
+            if (grapple.rope) updateGrappleRope();
           }
-          // The rope follows the zip; once landed it lingers a
-          // beat, then the scene lets it go. ROPE-STUCK FIX (Merlin,
-          // 2026-11-03): a hard 6-second cap — if the pull is
-          // interrupted the rope can never linger forever.
+          // While walking normally, a perch only holds while the
+          // walker stays near where they landed — stepping off
+          // drops them back to the ground.
+          // The rope follows the hook and the pull; once landed it
+          // lingers a beat, then the scene lets it go. ROPE-STUCK
+          // FIX (Merlin, 2026-11-03): a hard 6-second cap — if the
+          // pull is interrupted the rope can never linger forever.
           if (grapple.rope) {
             if (grapple.pulling) updateGrappleRope();
             else if (grapple.ropeUntil && performance.now() > grapple.ropeUntil) hideGrappleRope();
@@ -6416,6 +6501,21 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           }
           const deckY = bridgeHeightAt(walker.x, walker.z);
           const groundY = deckY != null ? deckY : heightAt(walker.x, walker.z);
+          // KINETIC GRAPPLE — STAND UPON (Merlin, 2026-11-03): a
+          // landed perch holds the walker's feet at the anchor's
+          // height until they walk away from it.
+          let eyeBase = groundY;
+          if (grapple.standY != null && !grapple.pulling) {
+            const stillNear = Math.hypot(walker.x - grapple.anchorX, walker.z - grapple.anchorZ) < 6;
+            const walkedOff = movedDist > 1e-4 && !stillNear;
+            if (walkedOff || grapple.standY <= groundY + 0.3) {
+              grapple.standY = null; // stepped off — back to the ground
+            } else {
+              eyeBase = grapple.standY;
+            }
+          } else if (grapple.pulling && grapple.standY != null) {
+            eyeBase = grapple.standY; // rising toward the perch mid-pull
+          }
           const depth = Math.max(0, WATER_Y - groundY);
           let bob = 0;
           if (!reducedMotion && movedDist > 1e-4 && depth < 0.2) {
@@ -6439,7 +6539,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           if (!buildOrbit.parked && !buildOrbit.driving) {
             camera.position.set(
               walker.x,
-              groundY + WALK_EYE_M - Math.min(depth, 1.1) * 0.3 + bob + (grapple.arcLift || 0),
+              eyeBase + WALK_EYE_M - Math.min(depth, 1.1) * 0.3 + bob,
               walker.z,
             );
           }
@@ -7837,31 +7937,39 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         </div>
       )}
 
-      {/* Grappling hook (Merlin, 2026-11-01; fixed 2026-11-02): while
+      {/* Grappling hook — KINETIC (Merlin, 2026-11-03): while
           his rusty hook is owned, a 🪝 button rides bottom-right —
           right-thumb reachable, clear of the joystick — on foot
-          only (never driving, never building). First tap auto-equips
-          the hook; one tap fires it down the camera's aim; it needs
+          only (never driving, never building). First press
+          auto-equips the hook. PRESS AND HOLD to throw: the hook
+          flies out along the camera's aim; RELEASE before it
+          catches something and the throw cancels; once it
+          attaches, real physics pulls the walker to it. It needs
           3 seconds to reel back in between throws. */}
       {grappleAvailable && !driving && !buildMode && (
         <button
           key="grapple-hook-btn"
           type="button"
-          aria-label="Fire grappling hook"
-          title="Fire the grappling hook"
+          aria-label="Hold to fire grappling hook"
+          title="Hold to fire the grappling hook"
           disabled={grappleCooling}
-          onClick={() => {
+          onPointerDown={(e) => {
+            e.preventDefault();
             if (!grappleEquipped) {
               const uid = grappleOwnedUid(backpackRecord);
               if (uid) updateBackpack((rec) => setActiveWeapon(rec, uid, 'earth2'));
             }
             const status = grappleFireRef.current();
-            if (status === 'fired') {
+            if (status === 'thrown') {
               setGrappleCooling(true);
               setTimeout(() => setGrappleCooling(false), GRAPPLE_COOLDOWN_MS);
             }
           }}
-          className="pointer-events-auto absolute bottom-3 right-3 z-20 flex h-16 w-16 flex-col items-center justify-center gap-0 rounded-full border-2 border-amber-300/60 bg-amber-400/25 text-2xl backdrop-blur transition active:scale-95 disabled:opacity-40"
+          onPointerUp={() => grappleReleaseRef.current()}
+          onPointerLeave={() => grappleReleaseRef.current()}
+          onPointerCancel={() => grappleReleaseRef.current()}
+          onContextMenu={(e) => e.preventDefault()}
+          className="pointer-events-auto absolute bottom-3 right-3 z-20 flex h-16 w-16 flex-col items-center justify-center gap-0 rounded-full border-2 border-amber-300/60 bg-amber-400/25 text-2xl backdrop-blur transition active:scale-95 disabled:opacity-40 select-none touch-none"
         >
           <span aria-hidden="true">🪝</span>
           <span className="text-[8px] font-black tracking-[0.18em] text-amber-100">HOOK</span>

@@ -1,7 +1,8 @@
 // tests/grapple.test.mjs
-// THE GRAPPLING HOOK (Merlin, 2026-11-01): the pure law in
-// lib/earth2/grapple.js — range decisions, the stop-short pull
-// target, and the zip's pacing.
+// THE GRAPPLING HOOK — KINETIC (Merlin, 2026-11-03): the pure
+// law in lib/earth2/grapple.js — range decisions, the hook's
+// flight step, and the kinetic pull step (real velocity and
+// acceleration, not a scripted zip).
 //
 // Run: node --test tests/grapple.test.mjs   (from the repo root)
 
@@ -11,19 +12,29 @@ import assert from 'node:assert/strict';
 import {
   GRAPPLE_RANGE_M,
   GRAPPLE_COOLDOWN_MS,
-  GRAPPLE_PULL_SECONDS,
+  GRAPPLE_HOOK_SPEED_MPS,
+  GRAPPLE_PULL_ACCEL,
+  GRAPPLE_PULL_MAX_SPEED,
+  GRAPPLE_ARRIVE_DIST_M,
   GRAPPLE_HOOK_ITEM_ID,
   isGrappleEquipped,
+  isGrappleOwned,
+  grappleOwnedUid,
   grappleRangeDecision,
-  grapplePullTarget,
-  grappleEase,
+  grappleHookStep,
+  grapplePullStep,
 } from '../lib/earth2/grapple.js';
 
 describe('grapple constants', () => {
-  it('reaches 40 m, rests 3 s between throws, zips in about a second', () => {
+  it('reaches 40 m, rests 3 s between throws', () => {
     assert.equal(GRAPPLE_RANGE_M, 40);
     assert.equal(GRAPPLE_COOLDOWN_MS, 3000);
-    assert.equal(GRAPPLE_PULL_SECONDS, 1.0);
+  });
+  it('has kinetic teeth: fast hook, strong pull, capped speed', () => {
+    assert.ok(GRAPPLE_HOOK_SPEED_MPS > 0);
+    assert.ok(GRAPPLE_PULL_ACCEL > 0);
+    assert.ok(GRAPPLE_PULL_MAX_SPEED > 0);
+    assert.ok(GRAPPLE_ARRIVE_DIST_M > 0);
   });
   it('names the seeded hook item id', () => {
     assert.equal(GRAPPLE_HOOK_ITEM_ID, 'rusty-grappling-hook');
@@ -42,6 +53,22 @@ describe('isGrappleEquipped', () => {
   });
 });
 
+describe('isGrappleOwned / grappleOwnedUid', () => {
+  const rec = { items: [
+    { uid: 'a1', kind: 'material', id: 'wood' },
+    { uid: 'h9', kind: 'weapon', id: 'rusty-grappling-hook' },
+  ] };
+  it('finds the hook anywhere in the backpack', () => {
+    assert.equal(isGrappleOwned(rec), true);
+    assert.equal(isGrappleOwned({ items: [] }), false);
+    assert.equal(isGrappleOwned(null), false);
+  });
+  it('returns the hook uid for auto-equip', () => {
+    assert.equal(grappleOwnedUid(rec), 'h9');
+    assert.equal(grappleOwnedUid({ items: [] }), null);
+  });
+});
+
 describe('grappleRangeDecision', () => {
   it('attaches at 40 m and under', () => {
     assert.equal(grappleRangeDecision(0), 'hit');
@@ -56,38 +83,58 @@ describe('grappleRangeDecision', () => {
   });
 });
 
-describe('grapplePullTarget', () => {
-  it('lands short of the attach point, on the line from the walker', () => {
-    const from = { x: 0, z: 0 };
-    const hit = { x: 10, z: 0 };
-    const t = grapplePullTarget(from, hit);
-    assert.ok(t.x < 10 && t.x > 8, `expected a stop short of 10, got ${t.x}`);
-    assert.equal(t.z, 0);
-  });
-  it('lands exactly on near hits (no overshoot past the walker)', () => {
-    const from = { x: 0, z: 0 };
-    const t = grapplePullTarget(from, { x: 0.5, z: 0 });
-    assert.ok(t.x >= 0 && t.x <= 0.5, `got ${t.x}`);
-  });
-  it('stays put when the hit is underfoot', () => {
-    const from = { x: 3, z: 4 };
-    const t = grapplePullTarget(from, { x: 3, z: 4 });
-    assert.deepEqual(t, { x: 3, z: 4 });
+describe('grappleHookStep', () => {
+  it('advances the hook along its velocity', () => {
+    const n = grappleHookStep({ x: 0, y: 2, z: 0, vx: 60, vy: 0, vz: 0 }, 0.5);
+    assert.equal(n.x, 30);
+    assert.equal(n.y, 2);
+    assert.equal(n.z, 0);
   });
 });
 
-describe('grappleEase', () => {
-  it('starts at 0 and lands at 1', () => {
-    assert.equal(grappleEase(0), 0);
-    assert.equal(grappleEase(1), 1);
+describe('grapplePullStep', () => {
+  it('arrives immediately when already at the anchor', () => {
+    const r = grapplePullStep({ x: 10, z: 5 }, { x: 0, z: 0 }, { x: 10, z: 5 }, 0.016);
+    assert.equal(r.arrived, true);
+    assert.equal(r.x, 10);
+    assert.equal(r.z, 5);
   });
-  it('launches fast and settles softly (monotonic, ahead of linear mid-zip)', () => {
-    let prev = -1;
-    for (let k = 0; k <= 1.001; k += 0.05) {
-      const e = grappleEase(k);
-      assert.ok(e >= prev, `not monotonic at k=${k}`);
-      prev = e;
+  it('accelerates toward the anchor and gains speed (kinetics, not a script)', () => {
+    const anchor = { x: 20, z: 0 };
+    const s1 = grapplePullStep({ x: 0, z: 0 }, { x: 0, z: 0 }, anchor, 0.016);
+    const s2 = grapplePullStep({ x: s1.x, z: s1.z }, { x: s1.vx, z: s1.vz }, anchor, 0.016);
+    assert.ok(!s1.arrived, 'should still be travelling');
+    assert.ok(s1.x > 0, 'should have moved toward the anchor');
+    const sp1 = Math.hypot(s1.vx, s1.vz);
+    const sp2 = Math.hypot(s2.vx, s2.vz);
+    assert.ok(sp2 >= sp1, `speed should grow: ${sp1} -> ${sp2}`);
+  });
+  it('never exceeds the max pull speed', () => {
+    const anchor = { x: 100, z: 0 };
+    let w = { x: 0, z: 0 };
+    let v = { x: 0, z: 0 };
+    for (let i = 0; i < 600 && !v.arrived; i++) {
+      const r = grapplePullStep(w, v, anchor, 0.016);
+      const sp = Math.hypot(r.vx, r.vz);
+      assert.ok(sp <= GRAPPLE_PULL_MAX_SPEED + 1e-9, `speed ${sp} over cap`);
+      w = { x: r.x, z: r.z };
+      v = { x: r.vx, z: r.vz };
+      if (r.arrived) break;
     }
-    assert.ok(grappleEase(0.5) > 0.5, 'mid-zip should be past halfway');
+  });
+  it('lands on the anchor without overshooting, even at full speed', () => {
+    const anchor = { x: 10, z: 0 };
+    let w = { x: 0, z: 0 };
+    let v = { x: 0, z: 0 };
+    let arrived = false;
+    for (let i = 0; i < 600; i++) {
+      const r = grapplePullStep(w, v, anchor, 0.016);
+      w = { x: r.x, z: r.z };
+      v = { x: r.vx, z: r.vz };
+      if (r.arrived) { arrived = true; break; }
+    }
+    assert.ok(arrived, 'should arrive');
+    assert.ok(Math.hypot(w.x - anchor.x, w.z - anchor.z) <= GRAPPLE_ARRIVE_DIST_M + 1e-9,
+      `landed at ${w.x},${w.z}, anchor at ${anchor.x},${anchor.z}`);
   });
 });
