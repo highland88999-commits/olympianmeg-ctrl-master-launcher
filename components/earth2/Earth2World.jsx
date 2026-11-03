@@ -230,6 +230,7 @@ import {
   finishAllowed,
 } from '@/lib/building/catalog';
 import { snapPlacement, snapRotation, judgeGhost, validatePlacementSet, clampPlacementToFrame, deriveBuildCandidate, proposePlacement, snapSeams } from '@/lib/building/placement';
+import PortalDestinationPicker, { isPortalPiece } from '@/components/earth2/PortalDestinationPicker';
 import { buildPieceGroup, buildGhostGroup, setGhostValidity, shiftHue } from '@/lib/building/piece-render';
 import { backpackIconPxToFrac, BACKPACK_ICON_SIZE } from '@/lib/backpack/icon';
 import {
@@ -600,6 +601,9 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   const [buildRot, setBuildRot] = useState(0);
   const [buildOrient, setBuildOrient] = useState('upright');
   const [buildLift, setBuildLift] = useState(0);
+  // PORTAL PICKER (Merlin, 2026-11-03): when a portal piece is
+  // placed, this holds the placement waiting for its destination.
+  const [portalPick, setPortalPick] = useState(null); // { parcelId, index } | null
   // v3 level: 0 = Ground, 1+ = L1, L2, … — one story (3 m) each.
   // Mirrored into buildModeRef.current.level, which the scene's
   // per-frame ghost sync reads; the state drives the toggle UI.
@@ -5163,6 +5167,12 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         bm.carried = null;
         pieces.push(placement);
         buildCommitRef.current(bm.parcelId, pieces);
+        // PORTAL PICKER (Merlin, 2026-11-03): a placed portal
+        // asks where it goes — the picker opens with the new
+        // piece's index so the destination lands on it.
+        if (isPortalPiece(placement.pieceId)) {
+          setPortalPick({ parcelId: bm.parcelId, index: pieces.length - 1 });
+        }
         // The aim notes where the piece landed — but under the
         // camera-aim law the next frame's march re-aims from the
         // camera centre anyway, so this is a fallback seed for
@@ -8033,6 +8043,26 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           onMove={(x, y) => { inputRef.current.joy.x = x; inputRef.current.joy.y = y; }}
         />
       </div>
+
+      {/* PORTAL PICKER (Merlin, 2026-11-03): a placed portal asks
+          where it goes. The pick lands on the placement as
+          placement.portalTo = { kind, id, label }. */}
+      {portalPick && (
+        <PortalDestinationPicker
+          onPick={(dest) => {
+            const pieces = myParcelPieces(portalPick.parcelId).slice();
+            if (pieces[portalPick.index]) {
+              pieces[portalPick.index] = {
+                ...pieces[portalPick.index],
+                portalTo: dest,
+              };
+              buildCommitRef.current(portalPick.parcelId, pieces);
+            }
+            setPortalPick(null);
+          }}
+          onClose={() => setPortalPick(null)}
+        />
+      )}
     </div>
   );
 }
