@@ -293,6 +293,9 @@ export default function DreamEnginePage() {
             <button className="de-chip-btn" onClick={newDream}>
               <RefreshCw size={15} /> New Dream
             </button>
+            <Link href="/dream-engine/ar" className="de-chip-btn" aria-label="View in AR">
+              🥽 AR
+            </Link>
           </div>
         )}
       </header>
