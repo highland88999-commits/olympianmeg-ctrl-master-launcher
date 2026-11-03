@@ -107,12 +107,14 @@ import { dressingColliders } from '@/lib/earth2/scatter';
 import { fossilConditionById } from '@/lib/earth2/fossils';
 import { exchangeFossil, aetherForFossil } from '@/lib/earth2/hammond';
 import { useBackpack, updateBackpack } from '@/lib/backpack/store';
-import { equippedWeaponEntry } from '@/lib/backpack/backpack.js';
+import { equippedWeaponEntry, setActiveWeapon } from '@/lib/backpack/backpack.js';
 import {
   GRAPPLE_COOLDOWN_MS,
   GRAPPLE_PULL_SECONDS,
   GRAPPLE_ARC_LIFT_M,
   isGrappleEquipped,
+  isGrappleOwned,
+  grappleOwnedUid,
   grappleRangeDecision,
   grapplePullTarget,
   grappleEase,
@@ -508,10 +510,13 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   // The world renders counts from it; trades and finds write to it.
   const backpackRecord = useBackpack();
   const localSacs = sacCount(backpackRecord);
-  // Grappling hook (Merlin, 2026-11-01): the 🪝 button appears
-  // while his rusty hook is the equipped weapon — on foot only,
-  // never driving, never building.
+  // Grappling hook (Merlin, 2026-11-01; fixed 2026-11-02): the 🪝 button
+  // appears while his rusty hook is OWNED (in the backpack) — not
+  // just when manually equipped. Tapping auto-equips on first use.
+  // On foot only, never driving, never building.
   const grappleEquipped = isGrappleEquipped(equippedWeaponEntry(backpackRecord));
+  const grappleOwned = isGrappleOwned(backpackRecord);
+  const grappleAvailable = grappleEquipped || grappleOwned;
   const fossilPack = useMemo(
     () => fossilItemsFromRecord(backpackRecord),
     [backpackRecord]
@@ -7174,19 +7179,23 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         </div>
       )}
 
-      {/* Grappling hook (Merlin, 2026-11-01): while his rusty hook
-          is the equipped weapon, a 🪝 button rides bottom-right —
+      {/* Grappling hook (Merlin, 2026-11-01; fixed 2026-11-02): while
+          his rusty hook is owned, a 🪝 button rides bottom-right —
           right-thumb reachable, clear of the joystick — on foot
-          only (never driving, never building). One tap fires the
-          hook down the camera's aim; it needs 3 seconds to reel
-          back in between throws. */}
-      {grappleEquipped && !driving && !buildMode && (
+          only (never driving, never building). First tap auto-equips
+          the hook; one tap fires it down the camera's aim; it needs
+          3 seconds to reel back in between throws. */}
+      {grappleAvailable && !driving && !buildMode && (
         <button
           type="button"
           aria-label="Fire grappling hook"
           title="Fire the grappling hook"
           disabled={grappleCooling}
           onClick={() => {
+            if (!grappleEquipped) {
+              const uid = grappleOwnedUid(backpackRecord);
+              if (uid) updateBackpack((rec) => setActiveWeapon(rec, uid, 'earth2'));
+            }
             const status = grappleFireRef.current();
             if (status === 'fired') {
               setGrappleCooling(true);
