@@ -248,9 +248,10 @@ export default function AresConsole() {
     return res;
   }, [token]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts = {}) => {
     if (!token) return;
-    setLoading(true);
+    const silent = !!opts.silent;
+    if (!silent) setLoading(true);
     try {
       const [ev, bl, wl, st, us, tr] = await Promise.all([
         authedFetch('/api/ares/events?limit=100').then((r) => r.json()),
@@ -268,27 +269,26 @@ export default function AresConsole() {
       setSources(tr.sources || []);
       if (st.settings) setSettings(st.settings);
     } catch { /* keep whatever loaded */ }
-    setLoading(false);
+    if (!silent) setLoading(false);
   }, [token, authedFetch]);
 
   useEffect(() => { load(); }, [load]);
 
-  // Registered-users list refreshes itself: a new registration lands in
-  // Supabase Auth at once, and this poll picks it up within ~15 seconds —
-  // no Refresh tap, no reload, no intervention. Users only; the other
-  // panels still refresh with the header Refresh button. A failed tick
-  // keeps the last good list and retries on the next tick.
+  // REAL-TIME (Merlin, 2026-11-03): everything auto-populates —
+  // threats, events, blocks, whitelist, users, trapped, sources,
+  // settings. Silent background refresh every 15 seconds; the
+  // header Refresh button is now just a manual nudge. A failed
+  // tick keeps the last good data and retries on the next tick.
   useEffect(() => {
     if (!token) return undefined;
     const tick = async () => {
       try {
-        const us = await authedFetch('/api/ares/users').then((r) => r.json()).catch(() => ({}));
-        if (Array.isArray(us.users)) setRegUsers(us.users);
+        await load({ silent: true });
       } catch { /* next tick retries */ }
     };
     const id = setInterval(tick, 15000);
     return () => clearInterval(id);
-  }, [token, authedFetch]);
+  }, [token, load]);
 
   const saveSettings = async (next) => {
     setSettings(next);
