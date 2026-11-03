@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import WalkJoystick from '@/components/world/WalkJoystick';
 import { createRacket, stepRacket, serveRacket, courtDims, formatScore } from '@/lib/sports/tennis.js';
+import { loadSportPlayer } from '@/lib/sports/player-models.js';
 
 export default function TennisPage() {
   const containerRef = useRef(null);
@@ -79,18 +80,24 @@ export default function TennisPage() {
       scene.add(post);
     }
 
-    // Players
+    // Players (TRIPO RIGGED, Merlin 2026-11-03 — racket stays procedural)
     const mkPlayer = (color) => {
       const g = new THREE.Group();
-      const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.35, 0.7, 4, 10), new THREE.MeshStandardMaterial({ color, roughness: 0.6 }));
-      body.position.y = 0.9;
-      const head = new THREE.Mesh(new THREE.SphereGeometry(0.25, 12, 10), new THREE.MeshStandardMaterial({ color: '#e5e7eb' }));
-      head.position.y = 1.65;
-      // Racket
+      // Racket (procedural prop, kept)
       const racket = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.05, 6, 12), new THREE.MeshStandardMaterial({ color: '#8b4513' }));
       racket.position.set(0.5, 1.1, 0.2);
-      g.add(body, head, racket);
+      g.add(racket);
       scene.add(g);
+      loadSportPlayer('tennis').then((model) => {
+        model.userData.setTeamColor(color);
+        g.add(model);
+      }).catch(() => {
+        const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.35, 0.7, 4, 10), new THREE.MeshStandardMaterial({ color, roughness: 0.6 }));
+        body.position.y = 0.9;
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.25, 12, 10), new THREE.MeshStandardMaterial({ color: '#e5e7eb' }));
+        head.position.y = 1.65;
+        g.add(body, head);
+      });
       return g;
     };
     const youMesh = mkPlayer('#3b82f6');

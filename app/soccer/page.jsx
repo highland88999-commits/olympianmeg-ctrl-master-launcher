@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import WalkJoystick from '@/components/world/WalkJoystick';
 import { createSoccer, stepSoccer, kickoff, PITCH_W, PITCH_L, GOAL_W, FORMAT_SHORT } from '@/lib/sports/soccer.js';
+import { loadSportPlayer } from '@/lib/sports/player-models.js';
 
 const TEAM_COLORS = { blue: '#3b82f6', red: '#ef4444' };
 
@@ -99,24 +100,31 @@ export default function SoccerPage() {
     }
 
     const playerMeshes = {};
-    // Shared materials per team (built once, not once per player)
-    const bodyMats = {
-      blue: new THREE.MeshStandardMaterial({ color: TEAM_COLORS.blue, roughness: 0.6 }),
-      red: new THREE.MeshStandardMaterial({ color: TEAM_COLORS.red, roughness: 0.6 }),
-    };
-    const headMat = new THREE.MeshStandardMaterial({ color: '#e5e7eb' });
+    // TRIPO RIGGED PLAYERS (Merlin, 2026-11-03): Batch 9 GLB models replace
+    // the procedural capsule players. Loaded async; placeholder groups hold
+    // positions until the GLBs arrive. Jerseys tint per team via setTeamColor.
     for (const p of gameRef.current.players) {
       const g = new THREE.Group();
-      const body = new THREE.Mesh(
-        new THREE.CapsuleGeometry(0.35, 0.7, 4, 10),
-        bodyMats[p.team]
-      );
-      body.position.y = 0.9;
-      const head = new THREE.Mesh(new THREE.SphereGeometry(0.25, 12, 10), headMat);
-      head.position.y = 1.65;
-      g.add(body, head);
       scene.add(g);
       playerMeshes[p.id] = g;
+      const isGoalie = p.role === 'gk';
+      loadSportPlayer('soccer', isGoalie).then((model) => {
+        model.userData.setTeamColor(TEAM_COLORS[p.team]);
+        g.add(model);
+      }).catch(() => {
+        // Fallback: procedural capsule if the GLB fails to load.
+        const body = new THREE.Mesh(
+          new THREE.CapsuleGeometry(0.35, 0.7, 4, 10),
+          new THREE.MeshStandardMaterial({ color: TEAM_COLORS[p.team], roughness: 0.6 })
+        );
+        body.position.y = 0.9;
+        const head = new THREE.Mesh(
+          new THREE.SphereGeometry(0.25, 12, 10),
+          new THREE.MeshStandardMaterial({ color: '#e5e7eb' })
+        );
+        head.position.y = 1.65;
+        g.add(body, head);
+      });
     }
     const youRing = new THREE.Mesh(new THREE.RingGeometry(0.6, 0.8, 20), new THREE.MeshBasicMaterial({ color: '#fbbf24', side: THREE.DoubleSide }));
     youRing.rotation.x = -Math.PI / 2;

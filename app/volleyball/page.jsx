@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import WalkJoystick from '@/components/world/WalkJoystick';
 import { createVolleyball, stepVolleyball, serveBall, stepServe, beginServe, SERVE_WINDOW, SET_PAUSE, COURT_W, COURT_L, NET_H } from '@/lib/sports/volleyball.js';
+import { loadSportPlayer } from '@/lib/sports/player-models.js';
 
 const TEAM_COLORS = { blue: '#3b82f6', red: '#ef4444' };
 
@@ -93,22 +94,28 @@ export default function VolleyballPage() {
     };
     const headMat = new THREE.MeshStandardMaterial({ color: '#e5e7eb', roughness: 0.5 });
     const playerMeshes = {};
+    // TRIPO RIGGED PLAYERS (Merlin, 2026-11-03): Batch 9 GLB models.
     for (const p of gameRef.current.players) {
       const g = new THREE.Group();
-      const body = new THREE.Mesh(
-        new THREE.CapsuleGeometry(0.35, 0.7, 4, 10),
-        bodyMats[p.team]
-      );
-      body.position.y = 0.9;
-      const head = new THREE.Mesh(
-        new THREE.SphereGeometry(0.25, 12, 10),
-        headMat
-      );
-      head.position.y = 1.65;
-      g.add(body, head);
       g.userData.isHuman = p.isHuman;
       scene.add(g);
       playerMeshes[p.id] = g;
+      loadSportPlayer('volleyball').then((model) => {
+        model.userData.setTeamColor(TEAM_COLORS[p.team]);
+        g.add(model);
+      }).catch(() => {
+        const body = new THREE.Mesh(
+          new THREE.CapsuleGeometry(0.35, 0.7, 4, 10),
+          bodyMats[p.team]
+        );
+        body.position.y = 0.9;
+        const head = new THREE.Mesh(
+          new THREE.SphereGeometry(0.25, 12, 10),
+          headMat
+        );
+        head.position.y = 1.65;
+        g.add(body, head);
+      });
     }
     // Highlight ring for you
     const youRing = new THREE.Mesh(

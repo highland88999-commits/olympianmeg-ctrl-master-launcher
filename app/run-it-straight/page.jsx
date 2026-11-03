@@ -13,9 +13,51 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { createRunItStraight, startRound, stepRunIt, tapYou, LANE_W, LANE_L, MAX_SPEED } from '@/lib/sports/run-it-straight.js';
+import { loadSportPlayer } from '@/lib/sports/player-models.js';
 
-/** Build a rigged humanoid runner. Returns { group, joints }. */
-function mkRiggedRunner(teamColor) {
+// Mixamo → game joint name mapping for the Tripo rugby player.
+const MIXAMO_JOINT_MAP = {
+  hips: 'mixamorig:Hips',
+  torso: 'mixamorig:Spine2',
+  head: 'mixamorig:Head',
+  shoulderL: 'mixamorig:LeftArm',
+  elbowL: 'mixamorig:LeftForeArm',
+  shoulderR: 'mixamorig:RightArm',
+  elbowR: 'mixamorig:RightForeArm',
+  hipL: 'mixamorig:LeftUpLeg',
+  kneeL: 'mixamorig:LeftLeg',
+  hipR: 'mixamorig:RightUpLeg',
+  kneeR: 'mixamorig:RightLeg',
+};
+
+/** Build a rigged humanoid runner. Returns { group, joints }.
+ *  Uses the Tripo rugby player GLB (Merlin, 2026-11-03); falls back to
+ *  the procedural rig if the GLB fails to load. */
+async function mkRiggedRunner(teamColor) {
+  try {
+    const model = await loadSportPlayer('run-it-straight', false);
+    model.userData.setTeamColor(teamColor);
+    const group = new THREE.Group();
+    group.add(model);
+    // Map Mixamo joints to the game's joint names.
+    const joints = {};
+    model.traverse((o) => {
+      if (!o.isBone) return;
+      for (const [gameName, mixamoName] of Object.entries(MIXAMO_JOINT_MAP)) {
+        if (o.name === mixamoName) joints[gameName] = o;
+      }
+    });
+    // The game expects hips at y≈0.95; the Tripo model is ~1.8m tall.
+    // Wrap in a group so the game's position/rotation logic works.
+    return { group, joints };
+  } catch (err) {
+    // Fallback: procedural rig (original implementation).
+    return mkProceduralRunner(teamColor);
+  }
+}
+
+/** Original procedural rigged runner (fallback). */
+function mkProceduralRunner(teamColor) {
   const group = new THREE.Group();
   const joints = {};
   const teamMat = new THREE.MeshStandardMaterial({ color: teamColor, roughness: 0.55 });
@@ -116,8 +158,13 @@ export default function RunItStraightPage() {
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return undefined;
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color('#0f1a0f');
+    let cancelled = false;
+    let cleanup = null;
+
+    // Async scene setup (Tripo runners load as GLBs).
+    (async () => {
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color('#0f1a0f');
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.setSize(container.clientWidth, container.clientHeight);
@@ -151,8 +198,11 @@ export default function RunItStraightPage() {
     scene.add(grass);
 
     // Rigged runners: you (blue) face -z, AI (red) face +z
-    const youRig = mkRiggedRunner('#3b82f6');
-    const aiRig = mkRiggedRunner('#ef4444');
+    // (Tripo GLBs load async; the scene starts when both arrive.)
+    const [youRig, aiRig] = await Promise.all([
+      mkRiggedRunner('#3b82f6'),
+      mkRiggedRunner('#ef4444'),
+    ]);
     youRig.group.rotation.y = Math.PI; // face -z (up the lane)
     scene.add(youRig.group, aiRig.group);
 
@@ -366,18 +416,26 @@ export default function RunItStraightPage() {
     };
     raf = requestAnimationFrame(frame);
 
+      // (onResize defined earlier in the effect; reused here.)
+
+      cleanup = () => {
+        cancelled = true;
+        cancelAnimationFrame(raf);
+        window.removeEventListener('resize', onResize);
+        scene.traverse((obj) => {
+          if (obj.geometry) obj.geometry.dispose();
+          const m = obj.material;
+          if (Array.isArray(m)) m.forEach((x) => x.dispose());
+          else if (m) m.dispose();
+        });
+        renderer.dispose();
+        if (renderer.domElement.parentNode === container) container.removeChild(renderer.domElement);
+      };
+    })();
+
     return () => {
       cancelled = true;
-      cancelAnimationFrame(raf);
-      window.removeEventListener('resize', onResize);
-      scene.traverse((obj) => {
-        if (obj.geometry) obj.geometry.dispose();
-        const m = obj.material;
-        if (Array.isArray(m)) m.forEach((x) => x.dispose());
-        else if (m) m.dispose();
-      });
-      renderer.dispose();
-      if (renderer.domElement.parentNode === container) container.removeChild(renderer.domElement);
+      if (cleanup) cleanup();
     };
   }, []);
 

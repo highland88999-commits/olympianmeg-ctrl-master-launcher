@@ -13,6 +13,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import WalkJoystick from '@/components/world/WalkJoystick';
 import { fx, unlockFx } from '@/lib/fx';
+import { loadSportPlayer } from '@/lib/sports/player-models.js';
 import {
   createMatch, step, autoAim, incomingBallFor,
   COURT_HALF_W, COURT_HALF_D, BLOCK_DIST, ATTACK_LINE_DIST,
@@ -68,6 +69,8 @@ function makeCourtTexture() {
 
 function makePlayerMesh(team, isHuman) {
   const group = new THREE.Group();
+  // TRIPO RIGGED PLAYER (Merlin, 2026-11-03): Batch 9 GLB loads async;
+  // procedural capsule is the fallback AND the instant placeholder.
   const bodyMat = new THREE.MeshStandardMaterial({ color: TEAM_COLORS[team], roughness: 0.6 });
   const headMat = new THREE.MeshStandardMaterial({ color: '#e5e7eb', roughness: 0.5 });
   const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.42, 0.75, 4, 12), bodyMat);
@@ -79,8 +82,15 @@ function makePlayerMesh(team, isHuman) {
     new THREE.MeshStandardMaterial({ color: '#111827', roughness: 0.4 }),
   );
   visor.position.set(0, 1.68, 0.28);
-  group.add(body, head, visor);
+  const fallback = new THREE.Group();
+  fallback.add(body, head, visor);
+  group.add(fallback);
   group.userData = { bodyMat, headMat, isHuman, benched: false };
+  loadSportPlayer('dodgeball').then((model) => {
+    model.userData.setTeamColor(TEAM_COLORS[team]);
+    group.remove(fallback);
+    group.add(model);
+  }).catch(() => { /* keep the procedural fallback */ });
   return group;
 }
 

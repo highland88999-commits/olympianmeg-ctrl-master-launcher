@@ -14,6 +14,7 @@ import {
   RINK_W, RINK_L, GOAL_W, BLUE_LINE_Z, GOAL_LINE_Z, CREASE_R,
   SHOT_TYPES, SHOT_TIMING, slapPower, pickPassTarget, passLeadPoint,
 } from '@/lib/sports/hockey.js';
+import { loadSportPlayer } from '@/lib/sports/player-models.js';
 
 const TEAM_COLORS = { blue: '#3b82f6', red: '#ef4444' };
 
@@ -184,35 +185,12 @@ export default function HockeyPage() {
 
     // Players with sticks; goalies bigger with leg pads
     const playerMeshes = {};
+    // TRIPO RIGGED PLAYERS (Merlin, 2026-11-03): Batch 9 GLB models replace
+    // the procedural capsule players. Sticks stay procedural (separate prop).
     for (const p of gameRef.current.players) {
       const g = new THREE.Group();
       const isGoalie = p.role === 'G';
-      const bodyH = isGoalie ? 0.9 : 0.7;
-      const body = new THREE.Mesh(
-        new THREE.CapsuleGeometry(isGoalie ? 0.5 : 0.35, bodyH, 4, 10),
-        new THREE.MeshStandardMaterial({ color: TEAM_COLORS[p.team], roughness: 0.5 })
-      );
-      body.position.y = isGoalie ? 1.0 : 0.9;
-      const head = new THREE.Mesh(
-        new THREE.SphereGeometry(0.25, 12, 10),
-        new THREE.MeshStandardMaterial({ color: '#1e293b', roughness: 0.4 })
-      );
-      head.position.y = isGoalie ? 1.85 : 1.65;
-      g.add(body, head);
-      if (isGoalie) {
-        // Leg pads
-        const padMat = new THREE.MeshStandardMaterial({ color: '#f8fafc', roughness: 0.5 });
-        for (const px of [-0.4, 0.4]) {
-          const pad = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.9, 0.35), padMat);
-          pad.position.set(px, 0.45, 0);
-          g.add(pad);
-        }
-        // Blocker + glove
-        const blocker = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.4, 0.12), padMat);
-        blocker.position.set(0.62, 0.9, 0.1);
-        g.add(blocker);
-      }
-      // Hockey stick!
+      // Hockey stick (procedural prop, kept)
       const stick = makeStick();
       if (isGoalie) stick.scale.set(1.15, 1.15, 1.15);
       g.add(stick);
@@ -220,6 +198,24 @@ export default function HockeyPage() {
       g.userData.isGoalie = isGoalie;
       scene.add(g);
       playerMeshes[p.id] = g;
+      loadSportPlayer('hockey', isGoalie).then((model) => {
+        model.userData.setTeamColor(TEAM_COLORS[p.team]);
+        g.add(model);
+      }).catch(() => {
+        // Fallback: procedural capsule if the GLB fails to load.
+        const bodyH = isGoalie ? 0.9 : 0.7;
+        const body = new THREE.Mesh(
+          new THREE.CapsuleGeometry(isGoalie ? 0.5 : 0.35, bodyH, 4, 10),
+          new THREE.MeshStandardMaterial({ color: TEAM_COLORS[p.team], roughness: 0.5 })
+        );
+        body.position.y = isGoalie ? 1.0 : 0.9;
+        const head = new THREE.Mesh(
+          new THREE.SphereGeometry(0.25, 12, 10),
+          new THREE.MeshStandardMaterial({ color: '#1e293b', roughness: 0.4 })
+        );
+        head.position.y = isGoalie ? 1.85 : 1.65;
+        g.add(body, head);
+      });
     }
     const youRing = new THREE.Mesh(
       new THREE.RingGeometry(0.6, 0.8, 20),
