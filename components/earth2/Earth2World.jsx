@@ -104,6 +104,7 @@ import {
 } from '@/lib/earth2/sfx';
 import { bridgeHeightAt, bridgeDeckYAt, stepBridgeWalker, BRIDGE_DECK_WIDTH_M } from '@/lib/earth2/bridges';
 import { dressingColliders } from '@/lib/earth2/scatter';
+import { stagedPlacements } from '@/lib/earth2/staged-objects';
 import { fossilConditionById } from '@/lib/earth2/fossils';
 import { exchangeFossil, aetherForFossil } from '@/lib/earth2/hammond';
 import { useBackpack, updateBackpack } from '@/lib/backpack/store';
@@ -131,6 +132,7 @@ import {
 import {
   WORLD_SIZE_M,
   WORLD_HALF_M,
+  WORLD_CELL_M,
   WATER_Y,
   WALK_EYE_M,
   heightAt,
@@ -1696,6 +1698,72 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           }));
         }
         return modelBaseCache.get(entry.slug);
+      }
+
+      // ── Staged Earth 1 objects (Merlin, 2026-11-03) ────────────
+      // The 1,884 objects staged off Earth 1 live here now, on Free
+      // Commons parcels only, sized proportionally to the realm
+      // (lib/earth2/staged-objects.js). 73 unique GLBs are decoded
+      // once and cloned per placement — the GPU sees ~1,800 meshes
+      // but only 73 textures/geometries. Procedural entries
+      // (ladders, elevators, interior rooms) are skipped: they have
+      // no GLB to load. Aether shards are positioned; pickup comes
+      // later.
+      const stagedGroup = new THREE.Group();
+      stagedGroup.name = 'staged-objects';
+      scene.add(track(stagedGroup));
+
+      async function placeStagedObjects() {
+        const placements = stagedPlacements().filter(
+          (p) => p.sourceFile && p.sourceFile.startsWith('http')
+        );
+        // Group by sourceFile so each unique GLB decodes once.
+        const byUrl = new Map();
+        for (const p of placements) {
+          if (!byUrl.has(p.sourceFile)) byUrl.set(p.sourceFile, []);
+          byUrl.get(p.sourceFile).push(p);
+        }
+        const stagedLoader = loader; // reuse the scene's GLTFLoader (meshopt already set)
+        for (const [url, group] of byUrl) {
+          if (cancelled) return;
+          let base = null;
+          try {
+            const gltf = await stagedLoader.loadAsync(url);
+            base = gltf.scene;
+            track(gltf.scene);
+          } catch (err) {
+            continue; // a missing GLB skips its placements honestly
+          }
+          // Normalize the base once: scale so its largest horizontal
+          // extent is 1 m, base sitting at y=0.
+          const normBox = new THREE.Box3().setFromObject(base);
+          const normSize = normBox.getSize(new THREE.Vector3());
+          const normExtent = Math.max(normSize.x, normSize.z, 0.001);
+          const normK = 1 / normExtent;
+          base.scale.multiplyScalar(normK);
+          base.updateMatrixWorld(true);
+          const normBox2 = new THREE.Box3().setFromObject(base);
+          const normCenter = normBox2.getCenter(new THREE.Vector3());
+          base.position.x -= normCenter.x;
+          base.position.z -= normCenter.z;
+          base.position.y -= normBox2.min.y;
+          base.updateMatrixWorld(true);
+          for (const p of group) {
+            if (cancelled) return;
+            const clone = base.clone(true);
+            // Realm-proportional scale (metres) from the placement law.
+            clone.scale.multiplyScalar(p.scaleM);
+            clone.rotation.y = (p.headingDeg * Math.PI) / 180;
+            // Parcel rect + jitter → world x/z; feet on the terrain.
+            const parcel = { col: p.parcelIndex % 50, row: Math.floor(p.parcelIndex / 50) };
+            const rect = parcelWorldRect(parcel);
+            const x = rect.minX + p.jx * WORLD_CELL_M;
+            const z = rect.minZ + p.jz * WORLD_CELL_M;
+            clone.position.set(x, heightAt(x, z), z);
+            clone.updateMatrixWorld(true);
+            stagedGroup.add(clone);
+          }
+        }
       }
 
       // The dressing's procedural assets, shared by every
@@ -5694,6 +5762,10 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         if (!cancelled) setBootSlugs(slugs);
       }
       updateStreaming();
+
+      // Staged Earth 1 objects: load in the background so the world
+      // is walkable before all 73 GLBs finish decoding.
+      placeStagedObjects().catch(() => {});
 
       // ── The frame ────────────────────────────────────────────
       let raf = 0;
