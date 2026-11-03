@@ -3667,6 +3667,9 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       // Mirrors syncParcel's ownership check below.
       function isWalkerImmune() {
         if (buildModeRef.current && buildModeRef.current.active) return true;
+        // In a vehicle (driving or flying) the walker can't be hunted —
+        // a T-Rex can't reach a plane in the air (Merlin, 2026-11-02).
+        if (drivingRef.current) return true;
         const p = parcelAtWorld(walker.x, walker.z);
         const bp = buildPropsRef.current || {};
         const row = bp.owners && typeof bp.owners.get === 'function' ? bp.owners.get(p.id) : null;
