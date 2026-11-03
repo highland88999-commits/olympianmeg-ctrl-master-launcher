@@ -231,6 +231,7 @@ import {
 } from '@/lib/building/catalog';
 import { snapPlacement, snapRotation, judgeGhost, validatePlacementSet, clampPlacementToFrame, deriveBuildCandidate, proposePlacement, snapSeams } from '@/lib/building/placement';
 import PortalDestinationPicker, { isPortalPiece } from '@/components/earth2/PortalDestinationPicker';
+import DinoSelectionMenu from '@/components/earth2/DinoSelectionMenu';
 import { buildPieceGroup, buildGhostGroup, setGhostValidity, shiftHue } from '@/lib/building/piece-render';
 import { backpackIconPxToFrac, BACKPACK_ICON_SIZE } from '@/lib/backpack/icon';
 import {
@@ -604,6 +605,10 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   // PORTAL PICKER (Merlin, 2026-11-03): when a portal piece is
   // placed, this holds the placement waiting for its destination.
   const [portalPick, setPortalPick] = useState(null); // { parcelId, index } | null
+  // DINO SELECTION (Merlin, 2026-11-03): clicking an egg opens the
+  // species picker. Holds the egg waiting for its species choice.
+  const [dinoPick, setDinoPick] = useState(null); // egg item | null
+  const dinoPickRef = useRef(null);
   // v3 level: 0 = Ground, 1+ = L1, L2, … — one story (3 m) each.
   // Mirrored into buildModeRef.current.level, which the scene's
   // per-frame ghost sync reads; the state drives the toggle UI.
@@ -5479,9 +5484,37 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             .map((a) => a.root),
           dracProxy,
           hammondProxy,
+          alliesGroup,
         ];
         const hits = raycaster.intersectObjects(targets, true);
         if (!hits.length) return;
+        // DINO DISMISS (Merlin, 2026-11-03): tapping your ally on
+        // the map sends it back to the backpack. Tap the dino in
+        // the backpack to summon it beside you again.
+        let tapObj = hits[0].object;
+        while (tapObj && !allies.find((al) => al.root === tapObj)) {
+          tapObj = tapObj.parent;
+        }
+        const tappedAlly = tapObj ? allies.find((al) => al.root === tapObj) : null;
+        if (tappedAlly) {
+          const idx = allies.indexOf(tappedAlly);
+          if (idx >= 0) allies.splice(idx, 1);
+          alliesGroup.remove(tappedAlly.root);
+          // The dino becomes a backpack item — tap it there to
+          // summon it back to your side.
+          updateBackpack((r) => ({
+            ...r,
+            items: [...(r.items || []), {
+              id: 'dino-companion',
+              kind: 'dino',
+              name: `${tappedAlly.species} (companion)`,
+              qty: 1,
+              meta: { species: tappedAlly.species, bornAt: tappedAlly.bornAt },
+            }],
+          }));
+          noticeRef.current(`🦖 ${tappedAlly.species} returns to your backpack.`);
+          return;
+        }
         let obj = hits[0].object;
         while (obj && !obj.userData.mosquito && !obj.userData.sacRef && !obj.userData.boneRef && !obj.userData.dracula && !obj.userData.hammond && !obj.userData.vehicle && !obj.userData.animalRef) {
           obj = obj.parent;
@@ -6989,11 +7022,13 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
               continue;
             }
             // Hatch! Remove the egg, spawn the ally.
-            updateBackpack((r) => {
-              const items = (r.items || []).filter((it) => it !== egg);
-              return { ...r, items };
-            });
-            spawnAlly(egg.meta.species, Date.now()).catch(() => {});
+            // DINO SELECTION (Merlin, 2026-11-03): don't auto-hatch —
+            // open the species picker. The user chooses what hatches.
+            if (!dinoPickRef.current) {
+              dinoPickRef.current = egg;
+              setDinoPick(egg);
+            }
+            break; // one egg at a time
           }
         }
         // Growth tick: every ~10 s, rig-scale allies.
@@ -8088,6 +8123,31 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             setPortalPick(null);
           }}
           onClose={() => setPortalPick(null)}
+        />
+      )}
+
+      {/* DINO SELECTION (Merlin, 2026-11-03): the egg hatches into
+          whatever species the user picks. The egg leaves the
+          backpack, the baby appears on the map. */}
+      {dinoPick && (
+        <DinoSelectionMenu
+          onPick={(dino) => {
+            const egg = dinoPickRef.current;
+            if (egg) {
+              updateBackpack((r) => {
+                const items = (r.items || []).filter((it) => it !== egg);
+                return { ...r, items };
+              });
+              spawnAlly(dino.id, Date.now()).catch(() => {});
+              noticeRef.current(`🥚 A baby ${dino.label} hatches!`);
+            }
+            dinoPickRef.current = null;
+            setDinoPick(null);
+          }}
+          onClose={() => {
+            dinoPickRef.current = null;
+            setDinoPick(null);
+          }}
         />
       )}
     </div>
