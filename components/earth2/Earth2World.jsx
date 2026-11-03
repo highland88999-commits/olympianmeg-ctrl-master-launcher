@@ -3614,10 +3614,44 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         const vy = dt > 0 ? (y - s.y) / dt : 0;
         s.y = y;
         s.root.position.set(x, y, z);
+        // MARINE-ON-LAND GUARD (Merlin, 2026-11-03): if the circuit
+        // ever carries a swimmer over dry land, hide it — a shark
+        // in a forest breaks the world. (Footage showed marine
+        // creatures on land.)
+        const bedH = heightAt(x, z);
+        s.root.visible = bedH < WATER_Y - 0.3;
         s.root.rotation.set(0, 0, 0);
         s.root.rotation.y = Math.atan2(vx, vz);
         s.root.rotation.x = THREE.MathUtils.clamp(-vy * 0.1, -0.16, 0.16);
         s.root.rotation.z = 0.05 * P.dir;
+        // MARINE HUNT (Merlin, 2026-11-03): "Megs should hunt anything
+        // that enters the water." Carnivorous swimmers chase a walker
+        // who swims — the sea is their hunting ground.
+        const isMarinePredator = s.entry && s.entry.diet === 'carnivore' && s.entry.kind === 'marine';
+        if (isMarinePredator && !isWalkerImmune()) {
+          const walkerInWater = heightAt(walker.x, walker.z) < WATER_Y - 0.3;
+          if (walkerInWater) {
+            const dwx = walker.x - x;
+            const dwz = walker.z - z;
+            const dw = Math.hypot(dwx, dwz);
+            // Hunt range: 45 m. The Meg turns off its circuit and
+            // swims straight at the swimmer.
+            if (dw < 45 && dw > 0.5) {
+              const huntSpeed = 8; // m/s — the Meg is fast
+              const nx = x + (dwx / dw) * huntSpeed * dt;
+              const nz = z + (dwz / dw) * huntSpeed * dt;
+              // Stay in water: only move if the target point is wet.
+              if (heightAt(nx, nz) < WATER_Y - 0.3) {
+                s.root.position.set(nx, y, nz);
+                s.root.rotation.y = Math.atan2(dwx, dwz);
+                // Caught: within 3.5 m the Meg takes the swimmer.
+                if (dw < 3.5) {
+                  killWalker({ entry: s.entry, beh: null, chase: null, huntTarget: null });
+                }
+              }
+            }
+          }
+        }
         const wave = t * P.waveHz * Math.PI * 2 + s.phase;
         const n = s.axial.length;
         s.axial.forEach((b, i) => {
@@ -4100,9 +4134,30 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           const floorY = heightAt(x, z) + a.entry.scaleM * 0.8 + 2.5;
           let y = Math.max(f.h + Math.sin(t * 0.5 + ph) * f.bob, floorY);
           if (rf > 0) {
-            const groundY = heightAt(f.cx, f.cz) + a.entry.scaleM * 0.12;
-            x += (f.cx - x) * rf;
-            z += (f.cz - z) * rf;
+            // ROOST-ON-WATER FIX (Merlin, 2026-11-03): birds nest in
+            // trees, not water. If the circuit centre is over water,
+            // spiral out to the nearest dry land for the roost.
+            let roostX = f.cx;
+            let roostZ = f.cz;
+            if (heightAt(roostX, roostZ) < WATER_Y) {
+              let found = false;
+              for (const rr of [10, 20, 35, 55, 85, 120]) {
+                for (let kk = 0; kk < 12 && !found; kk++) {
+                  const aa = (kk / 12) * Math.PI * 2;
+                  const tx = f.cx + Math.cos(aa) * rr;
+                  const tz = f.cz + Math.sin(aa) * rr;
+                  if (heightAt(tx, tz) > WATER_Y + 0.5) {
+                    roostX = tx;
+                    roostZ = tz;
+                    found = true;
+                  }
+                }
+                if (found) break;
+              }
+            }
+            const groundY = heightAt(roostX, roostZ) + a.entry.scaleM * 0.12;
+            x += (roostX - x) * rf;
+            z += (roostZ - z) * rf;
             y += (groundY - y) * rf;
           }
           a.root.position.set(x, y, z);
@@ -4201,6 +4256,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         const mat = new THREE.LineBasicMaterial({ color: 0xd9a45b }); // rusty rope
         grapple.rope = new THREE.Line(geo, mat);
         grapple.rope.frustumCulled = false;
+        grapple.ropeBorn = performance.now(); // for the stuck-rope failsafe
         scene.add(grapple.rope);
       }
       function updateGrappleRope() {
@@ -5922,10 +5978,14 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             }
           }
           // The rope follows the zip; once landed it lingers a
-          // beat, then the scene lets it go.
+          // beat, then the scene lets it go. ROPE-STUCK FIX (Merlin,
+          // 2026-11-03): a hard 6-second cap — if the pull is
+          // interrupted the rope can never linger forever.
           if (grapple.rope) {
             if (grapple.pulling) updateGrappleRope();
             else if (grapple.ropeUntil && performance.now() > grapple.ropeUntil) hideGrappleRope();
+            // Failsafe: rope older than 6 s goes, no matter what.
+            if (grapple.ropeBorn && performance.now() - grapple.ropeBorn > 6000) hideGrappleRope();
           }
           const deckY = bridgeHeightAt(walker.x, walker.z);
           const groundY = deckY != null ? deckY : heightAt(walker.x, walker.z);
@@ -7122,7 +7182,15 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="text-[10px] font-black tracking-[0.25em] text-sky-200">
-                  {vehicleSpecForInstance(driving)?.air ? '🛩️ IN THE AIR' : vehicleSpecForInstance(driving)?.water ? '⛵ UNDER WAY' : '🚗 DRIVING'}
+                  {(() => {
+                    const spec = vehicleSpecForInstance(driving);
+                    // FLIGHT PANEL FIX (Merlin, 2026-11-03): "IN THE AIR"
+                    // only when actually airborne — a VTOL on the ground
+                    // at 0 km/h is not "in the air."
+                    if (spec?.air) return (driveInfo.alt || 0) > 2 ? '🛩️ IN THE AIR' : '🛩️ ON GROUND';
+                    if (spec?.water) return '⛵ UNDER WAY';
+                    return '🚗 DRIVING';
+                  })()}
                 </div>
                 <div className="mt-0.5 text-lg font-black leading-tight text-white">
                   {vehicleSpecForInstance(driving)?.name}
@@ -7282,6 +7350,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           3 seconds to reel back in between throws. */}
       {grappleAvailable && !driving && !buildMode && (
         <button
+          key="grapple-hook-btn"
           type="button"
           aria-label="Fire grappling hook"
           title="Fire the grappling hook"
@@ -7306,13 +7375,18 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
 
       {/* Touch controls: the shared walk joystick — a fixed
           control, never a panel (the TRAVEL toggle and the
-          hints live in the Controls panel above). */}
+          hints live in the Controls panel above). JOYSTICK OVERLAP
+          FIX (Merlin, 2026-11-03): hidden while driving — the drive
+          panel owns the bottom of the screen then, and the walk
+          stick was overlapping the integrity bar and climb button. */}
+      {!driving && (
       <div className="absolute bottom-3 left-3 sm:bottom-5 sm:left-5">
         <WalkJoystick
           size={118}
           onMove={(x, y) => { inputRef.current.joy.x = x; inputRef.current.joy.y = y; }}
         />
       </div>
+      )}
     </div>
   );
 }

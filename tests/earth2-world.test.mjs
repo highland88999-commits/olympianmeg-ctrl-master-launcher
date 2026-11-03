@@ -377,16 +377,23 @@ describe('the population — placed by habitat', () => {
 
   it('land creatures stand on dry ground in their habitat families', () => {
     const grass = ['Fields', 'Meadows', 'Grove', 'Vale'];
+    // The volcano herd (Merlin, 2026-11-01) grazes the ash fields —
+    // the volcano's slopes aren't grass families by design.
+    const volcano = worldLandforms().find((lf) => lf.slug === 'active-volcano');
     for (const c of worldCreatures()) {
       const h = heightAt(c.x, c.z);
       assert.ok(h > 0.1, `${c.slug}#${c.copy} stands dry (${h})`);
       const parcel = PARCELS[c.parcelIndex];
       const entry = EARTH2_MODEL_BY_SLUG.get(c.slug);
       // Herd and flock herbivores graze the grass families (the
-      // solo ankylosaurus ranges the steppe by design).
+      // solo ankylosaurus ranges the steppe by design; the volcano
+      // herd grazes the ash fields).
       if (entry.diet === 'herbivore' && (entry.social === 'herd' || entry.social === 'flock')) {
-        assert.ok(grass.includes(familyForParcel(parcel)),
-          `${c.slug} grazes ${familyForParcel(parcel)}`);
+        const nearVolcano = volcano && Math.hypot(c.x - volcano.x, c.z - volcano.z) < 160;
+        if (!nearVolcano) {
+          assert.ok(grass.includes(familyForParcel(parcel)),
+            `${c.slug} grazes ${familyForParcel(parcel)}`);
+        }
       }
     }
   });
@@ -441,8 +448,18 @@ describe('the population — placed by habitat', () => {
     for (const f of flyers) {
       assert.ok(f.r >= 20 && f.h >= 4, f.slug);
       if (f.overWater) {
-        assert.equal(f.cx, sea.deepestX, `${f.slug} over the sea`);
-        assert.equal(f.cz, sea.deepestZ, `${f.slug} over the sea`);
+        // Near the sea (within 120 m of the deepest point) — not
+        // stacked on the exact centre (Merlin, 2026-11-03: labels
+        // were stacking on one bird).
+        const d = Math.hypot(f.cx - sea.deepestX, f.cz - sea.deepestZ);
+        assert.ok(d < 120, `${f.slug} near the sea (${d.toFixed(0)} m)`);
+      }
+    }
+    // No two flyers share a circuit centre (label stacking).
+    for (let i = 0; i < flyers.length; i++) {
+      for (let j = i + 1; j < flyers.length; j++) {
+        const d = Math.hypot(flyers[i].cx - flyers[j].cx, flyers[i].cz - flyers[j].cz);
+        assert.ok(d > 5, `${flyers[i].slug} vs ${flyers[j].slug} centres apart`);
       }
     }
   });
@@ -622,7 +639,7 @@ describe('proximity streaming — the memory contract (Safari killed the all-at-
     const hash = createHash('sha256').update(samples.join('|')).digest('hex');
     assert.equal(hash, 'bacfb9fcba2689a0b18bf58a0f4b37a0db6abe54f61c548828ddb2e0cfd07028',
       'heightfield + ground colours match the coastline-reworked planet');
-    assert.equal(worldCreatures().length, 30, 'placement plan unchanged');
+    assert.equal(worldCreatures().length, 67, 'placement plan unchanged');
     assert.equal(worldLandforms().length, 9, 'placement plan unchanged');
     assert.equal(worldPlants().length, 109, 'placement plan unchanged');
     assert.equal(landingParcel().id, 'E2-1225', 'the landing meadow is the same parcel');
@@ -672,7 +689,11 @@ describe('proximity streaming — the memory contract (Safari killed the all-at-
     for (const slug of ['mosasaurus', 'kronosaurus', 'elasmosaurus', 'ichthyosaurus', 'plesiosaurus', 'liopleurodon', 'tylosaurus', 'megalodon']) {
       assert.ok(!entrySlugs.has(slug), `${slug} waits in the sea, unloaded`);
     }
-    for (const slug of ['tyrannosaurus-rex', 'spinosaurus-rex', 'active-volcano', 'mountain-range', 'castle-transylvania', 'dracula', 'vampire-bat']) {
+    // (Merlin, 2026-11-03: the T-rex's 57 m walk circuit reaches
+    // into the 430 m spawn load radius — 456 m anchor minus 57 m
+    // roam = 399 m effective. Still a far walk; the "far" list
+    // keeps the truly distant cast.)
+    for (const slug of ['spinosaurus-rex', 'active-volcano', 'mountain-range', 'castle-transylvania', 'dracula', 'vampire-bat']) {
       assert.ok(!entrySlugs.has(slug), `${slug} is not resident at spawn`);
     }
     // The museum + Hammond wait in Earth 2's Drumheller, ~600 m
@@ -685,7 +706,7 @@ describe('proximity streaming — the memory contract (Safari killed the all-at-
       const e = EARTH2_MODEL_BY_SLUG.get(s);
       return e && e.file;
     });
-    assert.equal(entryModels.length, 31, `entry loads ${entryModels.length} of 63 model files`);
+    assert.equal(entryModels.length, 33, `entry loads ${entryModels.length} of 63 model files`);
   });
 
   it('the plan honours hysteresis: inside the band nothing loads and nothing releases', () => {
@@ -726,5 +747,39 @@ describe('proximity streaming — the memory contract (Safari killed the all-at-
     assert.ok(world.includes('planStreamActions'), 'per-frame decisions come from the plan');
     assert.ok(world.includes('disposeGraph'), 'releases dispose GPU resources');
     assert.ok(world.includes('256, 256'), 'the terrain mesh took the diet (256×256 segments)');
+  });
+
+  it('marine creatures stay in water — never on dry land (Merlin, 2026-11-03)', () => {
+    // Footage showed Kronosaurus, Megalodon, Tylosaurus and
+    // Elasmosaurus on dry land. The placement guard rejects
+    // circuits centred on land; the runtime guard hides strays.
+    const swimmers = worldSwimmers();
+    for (const s of swimmers) {
+      const h = heightAt(s.cx, s.cz);
+      assert.ok(h < WATER_Y - 1.0,
+        `${s.slug} circuit centre is wet (${h.toFixed(2)} < ${WATER_Y - 1.0})`);
+    }
+    // Every swimmer slug is a marine entry with water habitat.
+    for (const s of swimmers) {
+      const entry = EARTH2_MODEL_BY_SLUG.get(s.slug);
+      assert.equal(entry.kind, 'marine', `${s.slug} is marine`);
+      assert.equal(entry.habitat, 'water', `${s.slug} lives in water`);
+    }
+  });
+
+  it('flyers roost on land, never on water (Merlin, 2026-11-03)', () => {
+    // Birds nest in trees, not water. The roost logic spirals out
+    // from a wet circuit centre to dry land.
+    const world = read('components/earth2/Earth2World.jsx');
+    assert.ok(world.includes('ROOST-ON-WATER FIX'), 'the roost fix is wired');
+    assert.ok(world.includes('spiral out to the nearest dry land'), 'roost seeks land');
+  });
+
+  it('marine predators hunt swimmers (Merlin, 2026-11-03)', () => {
+    // "Megs should hunt anything that enters the water."
+    const world = read('components/earth2/Earth2World.jsx');
+    assert.ok(world.includes('MARINE HUNT'), 'the marine hunt is wired');
+    assert.ok(world.includes('walkerInWater'), 'the hunt checks for swimmers');
+    assert.ok(world.includes('killWalker'), 'the hunt can catch the swimmer');
   });
 });
