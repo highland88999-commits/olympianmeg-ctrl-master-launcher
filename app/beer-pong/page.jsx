@@ -1,42 +1,50 @@
-// app/beer-pong/page.jsx — Olympus Beer Pong with Call Cam.
+// app/beer-pong/page.jsx — Olympus Beer Pong with Call Cam + Call Friend.
 //
-// Classic 10-cup beer pong vs AI. Toss the ball with a swipe.
+// 9-cup beer pong vs AI (Merlin, 2026-11-02): both sides rack 9 red Solo cups
+// in a 1-2-3-3 triangle with the single-cup apexes POINTING AT EACH OTHER.
+// Cups are solid (red outside, white inside, white rim, closed bottom) with
+// the tops left open so the ball drops through.
 // Call Cam: optional face-to-face video while you play (getUserMedia).
+// Call Friend: summon an in-house friend to an Order 67 call from the header.
 
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { supabase } from '@/lib/supabase';
+import { fetchFriends } from '@/lib/friends';
 
-const CUPS_PER_SIDE = 10;
+const CUPS_PER_SIDE = 9;
+// Cup mouth sits at table-top (0.975) + cup height (0.35)
+const CUP_TOP_Y = 1.325;
+const TABLE_TOP_Y = 0.975;
 
 function cupPositions(side) {
-  // Triangle rack: apex (1 cup) faces the shooter, 4-cup row at the back
-  // (WSOBP: the point of the triangle aims at the shooter).
-  const positions = [];
-  const zBase = side === 'you' ? 4 : -4;
+  // 9-cup rack: rows of 1-2-3-3. The single-cup apex POINTS AT THE OPPONENT
+  // (Merlin, 2026-11-02): your apex at z=4.0 faces the AI side, the AI apex
+  // at z=-4.0 faces your side — the two points aim at each other.
+  const rows = [1, 2, 3, 3];
+  const zBase = side === 'you' ? 4.0 : -4.0;
   const dir = side === 'you' ? 1 : -1;
-  let row = 0;
-  let count = 0;
-  for (let r = 1; r <= 4 && count < CUPS_PER_SIDE; r++) {
-    for (let i = 0; i < r && count < CUPS_PER_SIDE; i++) {
+  const positions = [];
+  for (let r = 0; r < rows.length; r++) {
+    const inRow = rows[r];
+    for (let i = 0; i < inRow; i++) {
       positions.push({
-        x: (i - (r - 1) / 2) * 0.55,
-        z: zBase + dir * row * 0.5,
+        x: (i - (inRow - 1) / 2) * 0.55,
+        z: zBase + dir * r * 0.5,
         alive: true,
       });
-      count++;
     }
-    row++;
   }
   return positions;
 }
 
-// Tight triangle of n cups, apex facing the shooter.
+// Tight triangle of n cups, apex pointing at the opponent.
 // Used for WSOBP re-racks (at 6/3/1 survivors) and 3-cup overtime.
 function formationPositions(side, n) {
   const positions = [];
-  const zBase = side === 'you' ? 4 : -4;
+  const zBase = side === 'you' ? 4.0 : -4.0;
   const dir = side === 'you' ? 1 : -1;
   let row = 0;
   let placed = 0;
@@ -56,12 +64,55 @@ function formationPositions(side, n) {
   return positions;
 }
 
+// Solid red Solo cup: red outer shell, white inner shell, white closed
+// bottom, white rim. The top is left OPEN so the ball drops through.
+// Geometries/materials are shared across all cups (built once, reused).
+let soloCupAssets = null;
+function getSoloCupAssets() {
+  if (soloCupAssets) return soloCupAssets;
+  const outerGeo = new THREE.CylinderGeometry(0.22, 0.16, 0.35, 16, 1, true);
+  const outerMat = new THREE.MeshStandardMaterial({ color: '#d92626', roughness: 0.35, metalness: 0.05 });
+  const innerGeo = new THREE.CylinderGeometry(0.205, 0.148, 0.34, 16, 1, true);
+  const innerMat = new THREE.MeshStandardMaterial({ color: '#f8fafc', roughness: 0.5, side: THREE.BackSide });
+  const bottomGeo = new THREE.CircleGeometry(0.148, 16);
+  const bottomMat = new THREE.MeshStandardMaterial({ color: '#f8fafc', roughness: 0.5 });
+  const rimGeo = new THREE.TorusGeometry(0.22, 0.025, 8, 16);
+  const rimMat = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.3 });
+  soloCupAssets = { outerGeo, outerMat, innerGeo, innerMat, bottomGeo, bottomMat, rimGeo, rimMat };
+  return soloCupAssets;
+}
+
+function createSoloCup() {
+  const a = getSoloCupAssets();
+  const g = new THREE.Group();
+  const outer = new THREE.Mesh(a.outerGeo, a.outerMat);
+  outer.position.y = 0.175;
+  const inner = new THREE.Mesh(a.innerGeo, a.innerMat);
+  inner.position.y = 0.175;
+  const bottom = new THREE.Mesh(a.bottomGeo, a.bottomMat);
+  bottom.rotation.x = -Math.PI / 2;
+  bottom.position.y = 0.008;
+  const rim = new THREE.Mesh(a.rimGeo, a.rimMat);
+  rim.rotation.x = Math.PI / 2;
+  rim.position.y = 0.35;
+  g.add(outer, inner, bottom, rim);
+  return g;
+}
+
+function makeRoomCode() {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let code = '';
+  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  return code;
+}
+
 export default function BeerPongPage() {
   const containerRef = useRef(null);
   const videoRef = useRef(null);
   const [started, setStarted] = useState(false);
   const [callOn, setCallOn] = useState(false);
   const [hud, setHud] = useState({ you: CUPS_PER_SIDE, ai: CUPS_PER_SIDE, message: 'Opening toss — swipe up!', winner: null, turn: 'you', phase: 'toss', rebuttal: false });
+  const [friendUI, setFriendUI] = useState({ open: false, loading: false, friends: [], error: '', sentTo: null, roomCode: '' });
   const gameRef = useRef(null);
 
   if (!gameRef.current) {
@@ -78,7 +129,7 @@ export default function BeerPongPage() {
     };
   }
 
-  // Call Cam
+  // Call Cam (self view)
   const toggleCall = async () => {
     if (callOn) {
       const stream = videoRef.current?.srcObject;
@@ -99,21 +150,79 @@ export default function BeerPongPage() {
     }
   };
 
+  // Call Friend: pick an in-house friend, send them an Order 67 invite
+  const openFriendPicker = async () => {
+    setFriendUI({ open: true, loading: true, friends: [], error: '', sentTo: null, roomCode: '' });
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token || '';
+      if (!token) {
+        setFriendUI((f) => ({ ...f, loading: false, error: 'Sign in to call your friends.' }));
+        return;
+      }
+      const data = await fetchFriends(token);
+      setFriendUI((f) => ({ ...f, loading: false, friends: data.friends || [] }));
+    } catch (err) {
+      setFriendUI((f) => ({ ...f, loading: false, error: err?.message || 'Could not load friends.' }));
+    }
+  };
+
+  const inviteFriend = async (friend) => {
+    const friendId = friend.user_id;
+    const friendName = friend.display_name || friend.username || 'your friend';
+    setFriendUI((f) => ({ ...f, loading: true, error: '' }));
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token || '';
+      const roomCode = makeRoomCode();
+      const res = await fetch('/api/friends/invite', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ friend_id: friendId, room_code: roomCode }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Invite failed (${res.status}).`);
+      setFriendUI((f) => ({ ...f, loading: false, sentTo: friendName, roomCode }));
+    } catch (err) {
+      setFriendUI((f) => ({ ...f, loading: false, error: err?.message || 'Invite failed.' }));
+    }
+  };
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return undefined;
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color('#1a0f2e');
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    // Transparent canvas — the Olympus beer art shows through as the room
+    // backdrop (menu-dressing standard: art behind, gameplay untouched).
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.setSize(container.clientWidth, container.clientHeight);
+    renderer.setClearColor(0x000000, 0);
     container.appendChild(renderer.domElement);
     const camera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.1, 100);
 
-    scene.add(new THREE.AmbientLight(0xffffff, 0.65));
-    const sun = new THREE.DirectionalLight(0xffe0b3, 0.7);
+    // Lighting: ambient + warm key + two arena spotlights over the table
+    scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+    const sun = new THREE.DirectionalLight(0xffe0b3, 0.85);
     sun.position.set(0, 15, 5);
     scene.add(sun);
+    const spotA = new THREE.SpotLight(0xffffff, 350, 60, Math.PI / 5, 0.5, 1.6);
+    spotA.position.set(-7, 14, 5);
+    spotA.target.position.set(0, 1, 0);
+    scene.add(spotA, spotA.target);
+    const spotB = new THREE.SpotLight(0xffd9a0, 260, 60, Math.PI / 5, 0.5, 1.6);
+    spotB.position.set(7, 14, -5);
+    spotB.target.position.set(0, 1, 0);
+    scene.add(spotB, spotB.target);
+
+    // Arena floor — dark, semi-transparent so the backdrop art glows through
+    const floor = new THREE.Mesh(
+      new THREE.CircleGeometry(26, 40),
+      new THREE.MeshStandardMaterial({ color: '#1c0f38', roughness: 0.9, transparent: true, opacity: 0.78 })
+    );
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.y = 0;
+    scene.add(floor);
 
     // Table
     const table = new THREE.Mesh(
@@ -122,29 +231,34 @@ export default function BeerPongPage() {
     );
     table.position.y = 0.9;
     scene.add(table);
+    // White center line + edge trim (real-table polish)
+    const lineMat = new THREE.MeshStandardMaterial({ color: '#f8fafc', roughness: 0.5 });
+    const centerLine = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.012, 14), lineMat);
+    centerLine.position.set(0, TABLE_TOP_Y + 0.006, 0);
+    scene.add(centerLine);
+    for (const ex of [-1.47, 1.47]) {
+      const edge = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.012, 14), lineMat);
+      edge.position.set(ex, TABLE_TOP_Y + 0.006, 0);
+      scene.add(edge);
+    }
     for (const [lx, lz] of [[-1.3, -6.5], [1.3, -6.5], [-1.3, 6.5], [1.3, 6.5]]) {
       const leg = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.9, 0.12), new THREE.MeshStandardMaterial({ color: '#3a2a1a' }));
       leg.position.set(lx, 0.45, lz);
       scene.add(leg);
     }
 
-    // Cups
+    // Cups — solid red Solo cups, tops open.
+    // (Fix 2026-11-02: the old loop shadowed the position data with the mesh
+    // variable, so group positions were set from undefined mesh.x/mesh.z and
+    // every cup landed at NaN — invisible. Positions now come from the data.)
     const cupMeshes = { you: [], ai: [] };
-    const cupGeo = new THREE.CylinderGeometry(0.22, 0.16, 0.35, 12, 1, true);
-    const cupMat = new THREE.MeshStandardMaterial({ color: '#ef4444', roughness: 0.4, side: THREE.DoubleSide });
-    const rimGeo = new THREE.TorusGeometry(0.22, 0.02, 6, 12);
     for (const side of ['you', 'ai']) {
-      for (const cup of gameRef.current[side === 'you' ? 'youCups' : 'aiCups']) {
-        const g = new THREE.Group();
-        const cup = new THREE.Mesh(cupGeo, cupMat);
-        cup.position.y = 0.175;
-        const rim = new THREE.Mesh(rimGeo, new THREE.MeshStandardMaterial({ color: '#ffffff' }));
-        rim.rotation.x = Math.PI / 2;
-        rim.position.y = 0.35;
-        g.add(cup, rim);
-        g.position.set(cup.x, 0.975, cup.z);
-        scene.add(g);
-        cupMeshes[side].push(g);
+      const cupData = gameRef.current[side === 'you' ? 'youCups' : 'aiCups'];
+      for (const pos of cupData) {
+        const cupGroup = createSoloCup();
+        cupGroup.position.set(pos.x, TABLE_TOP_Y, pos.z);
+        scene.add(cupGroup);
+        cupMeshes[side].push(cupGroup);
       }
     }
 
@@ -214,8 +328,8 @@ export default function BeerPongPage() {
           if (!cup.alive) continue;
           const dx = b.x - cup.x;
           const dz = b.z - cup.z;
-          // Ball drops into cup mouth
-          if (Math.hypot(dx, dz) < 0.24 && b.y < 1.35 && b.y > 0.9 && b.vy < 0) {
+          // Ball drops into the open cup mouth
+          if (Math.hypot(dx, dz) < 0.24 && b.y < CUP_TOP_Y && b.y > 0.9 && b.vy < 0) {
             b.flying = false;
             if (g.mode === 'toss') {
               // Opening toss: a make counts, but the cup stays racked
@@ -266,7 +380,8 @@ export default function BeerPongPage() {
     const RERACK_AT = [6, 3, 1];
 
     function rerackSide(side) {
-      // Reform survivors into a tight triangle (WSOBP re-rack at 6/3/1)
+      // Reform survivors into a tight triangle, apex toward the opponent
+      // (WSOBP re-rack at 6/3/1)
       const g = gameRef.current;
       const cups = side === 'you' ? g.youCups : g.aiCups;
       const meshes = side === 'you' ? cupMeshes.you : cupMeshes.ai;
@@ -277,7 +392,7 @@ export default function BeerPongPage() {
         const i = aliveIdx[p];
         cups[i].x = pos[p].x;
         cups[i].z = pos[p].z;
-        meshes[i].position.set(pos[p].x, 0.975, pos[p].z);
+        meshes[i].position.set(pos[p].x, TABLE_TOP_Y, pos[p].z);
       }
     }
 
@@ -400,7 +515,7 @@ export default function BeerPongPage() {
           if (alive) {
             cups[i].x = pos[i].x;
             cups[i].z = pos[i].z;
-            meshes[i].position.set(pos[i].x, 0.975, pos[i].z);
+            meshes[i].position.set(pos[i].x, TABLE_TOP_Y, pos[i].z);
           }
         }
       }
@@ -482,10 +597,13 @@ export default function BeerPongPage() {
   }, []);
 
   return (
-    <div ref={containerRef} data-beer-started={started ? '1' : undefined} style={{ position: 'relative', width: '100%', height: '100dvh', overflow: 'hidden', background: '#1a0f2e' }}>
+    <div ref={containerRef} data-beer-started={started ? '1' : undefined} style={{ position: 'relative', width: '100%', height: '100dvh', overflow: 'hidden', backgroundColor: '#1a0f2e', backgroundImage: 'url(/images/beer-pong/beer-pong-menu-bg.webp)', backgroundSize: 'cover', backgroundPosition: 'center' }}>
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', pointerEvents: 'none' }}>
         <div style={{ color: '#f8fafc', fontWeight: 800, fontSize: 16 }}>🍺 BEER PONG <span style={{ fontSize: 13 }}>{hud.you}v{hud.ai}</span></div>
         <div style={{ display: 'flex', gap: 8, pointerEvents: 'auto' }}>
+          <button type="button" onClick={openFriendPicker} style={{ background: 'rgba(15,23,42,0.8)', color: '#fff', border: '1px solid #475569', borderRadius: 999, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+            📞 Call Friend
+          </button>
           <button type="button" onClick={toggleCall} style={{ background: callOn ? '#16a34a' : 'rgba(15,23,42,0.8)', color: '#fff', border: '1px solid #475569', borderRadius: 999, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
             {callOn ? '📹 Call On' : '📹 Call Cam'}
           </button>
@@ -496,6 +614,50 @@ export default function BeerPongPage() {
       {/* Call Cam video */}
       {callOn && (
         <video ref={videoRef} playsInline muted style={{ position: 'absolute', top: 48, right: 12, width: 110, height: 150, objectFit: 'cover', borderRadius: 12, border: '2px solid #16a34a', zIndex: 6, background: '#000' }} />
+      )}
+
+      {/* Call Friend picker */}
+      {friendUI.open && (
+        <div style={{ position: 'absolute', inset: 0, zIndex: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(8,4,18,0.78)', padding: 20 }}>
+          <div style={{ width: '100%', maxWidth: 340, background: '#17102e', border: '1px solid #4c3a7a', borderRadius: 16, padding: 18 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <div style={{ color: '#f8fafc', fontWeight: 800, fontSize: 16 }}>📞 Call a friend</div>
+              <button type="button" onClick={() => setFriendUI((f) => ({ ...f, open: false }))} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 18, cursor: 'pointer' }}>✕</button>
+            </div>
+            {friendUI.loading && <div style={{ color: '#cbd5e1', fontSize: 14, padding: '12px 0' }}>Loading…</div>}
+            {friendUI.error && !friendUI.loading && (
+              <div style={{ color: '#f87171', fontSize: 14, padding: '12px 0' }}>{friendUI.error}</div>
+            )}
+            {!friendUI.loading && !friendUI.error && !friendUI.sentTo && friendUI.friends.length === 0 && (
+              <div style={{ color: '#cbd5e1', fontSize: 14, padding: '12px 0' }}>No friends yet — add some from your profile, then call them into the game.</div>
+            )}
+            {!friendUI.loading && !friendUI.sentTo && friendUI.friends.map((fr) => (
+              <button
+                key={fr.user_id}
+                type="button"
+                onClick={() => inviteFriend(fr)}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid #3b2d63', borderRadius: 12, padding: '10px 12px', marginBottom: 8, cursor: 'pointer', color: '#f8fafc', fontSize: 14, fontWeight: 600, textAlign: 'left' }}
+              >
+                <span style={{ fontSize: 20 }}>👤</span>
+                <span>{fr.display_name || fr.username || 'Friend'}</span>
+              </button>
+            ))}
+            {!friendUI.loading && friendUI.sentTo && (
+              <div style={{ textAlign: 'center', padding: '8px 0' }}>
+                <div style={{ color: '#4ade80', fontWeight: 800, fontSize: 15, marginBottom: 6 }}>Invite sent to {friendUI.sentTo}!</div>
+                <div style={{ color: '#cbd5e1', fontSize: 13, marginBottom: 4 }}>Room code</div>
+                <div style={{ color: '#fbbf24', fontWeight: 800, fontSize: 24, letterSpacing: 4, marginBottom: 12 }}>{friendUI.roomCode}</div>
+                <button
+                  type="button"
+                  onClick={() => window.open('/order-67', '_blank', 'noopener')}
+                  style={{ background: '#f59e0b', color: '#1a0f2e', border: 'none', borderRadius: 999, padding: '12px 28px', fontSize: 15, fontWeight: 800, cursor: 'pointer' }}
+                >
+                  Open Order 67 call
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {hud.message && !hud.winner && (
@@ -526,7 +688,7 @@ export default function BeerPongPage() {
           <div style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20, textAlign: 'center' }}>
           <div style={{ fontSize: 56 }}>🍺</div>
           <div style={{ color: '#f8fafc', fontSize: 28, fontWeight: 800 }}>BEER PONG</div>
-          <div style={{ color: '#cbd5e1', fontSize: 15, maxWidth: 320 }}>10 cups each vs AI — official WSOBP singles rules: opening toss, rebuttals, re-racks & overtime. Swipe UP on the table to toss.</div>
+          <div style={{ color: '#cbd5e1', fontSize: 15, maxWidth: 320 }}>9 cups each vs AI — official WSOBP singles rules: opening toss, rebuttals, re-racks & overtime. Triangles point at each other. Swipe UP on the table to toss.</div>
           <button type="button" onClick={() => setStarted(true)} style={{ marginTop: 8, background: '#f59e0b', color: '#1a0f2e', border: 'none', borderRadius: 999, padding: '14px 40px', fontSize: 18, fontWeight: 800, cursor: 'pointer' }}>RACK 'EM</button>
           </div>
         </div>
