@@ -3701,9 +3701,15 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       // Mirrors syncParcel's ownership check below.
       function isWalkerImmune() {
         if (buildModeRef.current && buildModeRef.current.active) return true;
-        // In a vehicle (driving or flying) the walker can't be hunted —
-        // a T-Rex can't reach a plane in the air (Merlin, 2026-11-02).
-        if (drivingRef.current) return true;
+        // In a vehicle ON THE GROUND the walker can still be hunted —
+        // Merlin likes the T-Rex messing with his plane (2026-11-03).
+        // Only airborne vehicles (alt > 2m) grant immunity — a T-Rex
+        // can't reach a plane in the air.
+        if (drivingRef.current) {
+          const st = vehicleStatesRef.current[drivingRef.current];
+          const alt = st ? (st.alt || 0) : 0;
+          if (alt > 2) return true;
+        }
         const p = parcelAtWorld(walker.x, walker.z);
         const bp = buildPropsRef.current || {};
         const row = bp.owners && typeof bp.owners.get === 'function' ? bp.owners.get(p.id) : null;
