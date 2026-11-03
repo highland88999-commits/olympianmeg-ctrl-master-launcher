@@ -23,41 +23,69 @@ import { tameTripoMaterials } from '@/lib/characters/tame-materials';
 import { guardCanvasContext } from '@/lib/scene-context-guard';
 import { tiltFromOrientation } from '@/lib/portal-card-tilt';
 
-// The tesseract's 16 corners: 8 for the outer cube, 8 for the
-// inner cube (half the size, same centre). A tesseract is two
-// cubes with each outer corner joined to its inner twin.
-function tesseractGeometry(THREE, size) {
-  const s = size / 2;
-  const q = size / 4;
-  const outer = [];
-  const inner = [];
-  for (const x of [-s, s]) for (const y of [-s, s]) for (const z of [-s, s]) {
-    outer.push([x, y, z]);
-    inner.push([x / 2, y / 2, z / 2]);
-  }
-  // Order the corners so index i of outer pairs with index i of inner.
-  const pts = [];
-  const edge = (a, b) => { pts.push(...a, ...b); };
-  // Outer cube edges: corners differing in exactly one coordinate.
-  for (let i = 0; i < 8; i++) for (let j = i + 1; j < 8; j++) {
-    const d = (outer[i][0] !== outer[j][0]) + (outer[i][1] !== outer[j][1]) + (outer[i][2] !== outer[j][2]);
-    if (d === 1) edge(outer[i], outer[j]);
-  }
-  // Inner cube edges, same rule.
-  for (let i = 0; i < 8; i++) for (let j = i + 1; j < 8; j++) {
-    const d = (inner[i][0] !== inner[j][0]) + (inner[i][1] !== inner[j][1]) + (inner[i][2] !== inner[j][2]);
-    if (d === 1) edge(inner[i], inner[j]);
-  }
-  // The 8 struts joining each outer corner to its inner twin.
-  for (let i = 0; i < 8; i++) edge(outer[i], inner[i]);
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-  return geo;
-}
+// TESSERACT FLOW (Merlin, 2026-11-03): no wireframe — the whole
+// space IS the Tesseract's interior. A full-bleed shader plane
+// behind her head carries flowing blue energy: currents of light
+// drifting and pulsing like the Marvel Tesseract's power. The
+// head itself is untouched — same size, same float, same tilt.
 
-// Rainbow aura: a soft shell around the head whose colour drifts
-// through the spectrum. Fresnel falloff so it glows at the
-// silhouette, not over her face.
+// Flowing Tesseract energy: layered drifting noise in deep blue
+// to electric cyan, with bright currents that surge and fade.
+// This is the room's back wall — the whole space she floats in.
+function tesseractFlowMaterial(THREE) {
+  return new THREE.ShaderMaterial({
+    depthWrite: false,
+    uniforms: { uTime: { value: 0 }, uAspect: { value: 1 } },
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`,
+    fragmentShader: `
+      uniform float uTime;
+      uniform float uAspect;
+      varying vec2 vUv;
+      // Cheap hash + value noise + fbm — smooth enough for energy.
+      float hash(vec2 p) {
+        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+      }
+      float vnoise(vec2 p) {
+        vec2 i = floor(p), f = fract(p);
+        vec2 u = f * f * (3.0 - 2.0 * f);
+        return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x),
+                   mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y);
+      }
+      float fbm(vec2 p) {
+        float v = 0.0, a = 0.5;
+        for (int i = 0; i < 4; i++) { v += a * vnoise(p); p *= 2.03; a *= 0.5; }
+        return v;
+      }
+      void main() {
+        vec2 uv = vUv;
+        uv.x *= uAspect;
+        float t = uTime * 0.35;
+        // Two drifting noise fields, flowing in different directions —
+        // their interference makes the currents.
+        float n1 = fbm(uv * 3.0 + vec2(t * 0.7, -t * 0.4));
+        float n2 = fbm(uv * 5.0 - vec2(t * 0.5, t * 0.9) + n1 * 2.0);
+        float flow = fbm(uv * 2.0 + vec2(n2 * 3.0 - t, n1 * 2.0 + t * 0.6));
+        // Deep space blue base, electric cyan currents, white-hot cores.
+        vec3 deep = vec3(0.02, 0.08, 0.22);
+        vec3 mid = vec3(0.10, 0.45, 1.00);
+        vec3 hot = vec3(0.55, 0.95, 1.00);
+        vec3 col = mix(deep, mid, smoothstep(0.25, 0.75, flow));
+        col = mix(col, hot, smoothstep(0.72, 0.95, flow) * 0.85);
+        // Gentle pulse — the Tesseract breathes.
+        col *= 0.85 + 0.15 * sin(uTime * 1.4 + flow * 6.0);
+        // Vignette: darker at the edges, her head stays the focus.
+        vec2 c = vUv - 0.5;
+        c.x *= uAspect;
+        col *= smoothstep(0.85, 0.25, length(c));
+        gl_FragColor = vec4(col, 1.0);
+      }`,
+  });
+}
 function auraMaterial(THREE) {
   return new THREE.ShaderMaterial({
     transparent: true,
@@ -116,8 +144,12 @@ export default function MollyHead3D({ showMotionToggle = true, fallback = null, 
         const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
         if (cancelled || !mountRef.current) return;
         const mount = mountRef.current;
-        const w = mount.clientWidth || 220;
-        const h = 220;
+        // The space fills its container now — full card width, taller.
+        // The HEAD stays exactly the same size: the camera keeps its
+        // distance and field of view, so she renders at the same
+        // pixel size with more Tesseract around her.
+        const w = mount.clientWidth || 340;
+        const h = Math.round(w * 0.85);
 
         renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         renderer.setSize(w, h);
@@ -141,17 +173,18 @@ export default function MollyHead3D({ showMotionToggle = true, fallback = null, 
         const tessLight = new THREE.PointLight(0x2e9bff, 12, 12, 1.6);
         tessLight.position.set(0, 0.4, -1.6);
         scene.add(tessLight);
-        // The tesseract room itself: static wireframe, cube within
-        // a cube, Marvel blue. It never rotates — her head is the
-        // only thing that moves in here.
-        const tessGeo = tesseractGeometry(THREE, 2.6);
-        const tessLines = new THREE.LineSegments(
-          tessGeo,
-          new THREE.LineBasicMaterial({ color: 0x2e9bff, transparent: true, opacity: 0.75 }),
+        // FLOWING TESSERACT (Merlin, 2026-11-03): the wireframe is
+        // gone. The back wall is a living sheet of blue energy —
+        // currents drifting and surging like the Tesseract's power.
+        const flowMat = tesseractFlowMaterial(THREE);
+        flowMat.uniforms.uAspect.value = w / h;
+        const flowPlane = new THREE.Mesh(
+          new THREE.PlaneGeometry(8, 8),
+          flowMat,
         );
-        tessLines.position.set(0, 0.1, -0.4);
-        scene.add(tessLines);
-        roomDisposables.push(tessGeo, tessLines.material);
+        flowPlane.position.set(0, 0.1, -2.5);
+        scene.add(flowPlane);
+        roomDisposables.push(flowPlane.geometry, flowMat);
         // A faint blue wash on the room's back wall, so the
         // tesseract reads as a lit chamber, not floating lines.
         const glowTex = (() => {
@@ -230,8 +263,10 @@ export default function MollyHead3D({ showMotionToggle = true, fallback = null, 
           if (contextGuard && contextGuard.isLost()) return;
           const dt = Math.min(0.05, (t - clockHolder.last) / 1000 || 0.016);
           clockHolder.last = t;
-          // The aura's rainbow drifts with time.
+          // The aura's rainbow drifts with time; the Tesseract's
+          // blue currents flow behind her.
           auraMat.uniforms.uTime.value = t / 1000;
+          flowMat.uniforms.uTime.value = t / 1000;
           // Her head's gentle float — the same quiet hover it
           // always had, untouched by the room around it.
           pivot.position.y = center.y + Math.sin(t / 1400) * maxDim * 0.03;
@@ -333,7 +368,7 @@ export default function MollyHead3D({ showMotionToggle = true, fallback = null, 
   if (status === 'error') return fallback;
   return (
     <>
-      <div ref={mountRef} style={{ width: '100%', maxWidth: 220, height: 220 }} className={`mx-auto ${className}`}>
+      <div ref={mountRef} style={{ width: '100%', aspectRatio: '1 / 0.85' }} className={`mx-auto overflow-hidden rounded-xl ${className}`}>
         {status === 'loading' && (
           <p className="flex h-full items-center justify-center text-center text-xs text-zinc-500">Loading Molly's head…</p>
         )}
