@@ -4077,8 +4077,12 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         // ever carries a swimmer over dry land, hide it — a shark
         // in a forest breaks the world. (Footage showed marine
         // creatures on land.)
+        // BRIDGE GUARD (Merlin, 2026-11-03): swimmers stay in open
+        // water — never under a bridge deck where they'd clip
+        // through the structure.
         const bedH = heightAt(x, z);
-        s.root.visible = bedH < WATER_Y - 0.3;
+        const underBridge = bridgeHeightAt(x, z) != null;
+        s.root.visible = bedH < WATER_Y - 0.3 && !underBridge;
         s.root.rotation.set(0, 0, 0);
         s.root.rotation.y = Math.atan2(vx, vz);
         s.root.rotation.x = THREE.MathUtils.clamp(-vy * 0.1, -0.16, 0.16);
@@ -6537,6 +6541,27 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           if (driveCamRef.current === 'third') {
             const h = stepped.heading || 0;
             const fx = Math.sin(h), fz = Math.cos(h);
+            // LOOK AROUND IN FLIGHT (Merlin, 2026-11-03): the camera
+            // sits centred behind the plane looking forward down its
+            // nose — swipe/drag offsets the view, so the user can
+            // look around while flying. The offset eases back to
+            // centre when the user stops dragging.
+            if (!window.__driveLook) window.__driveLook = { yaw: 0, pitch: 0 };
+            const dl = window.__driveLook;
+            if (inp.look.dx !== 0 || inp.look.dy !== 0) {
+              dl.yaw -= inp.look.dx * 0.003;
+              dl.pitch -= inp.look.dy * 0.003;
+              dl.yaw = Math.max(-1.2, Math.min(1.2, dl.yaw));
+              dl.pitch = Math.max(-0.8, Math.min(0.8, dl.pitch));
+              inp.look.dx = 0;
+              inp.look.dy = 0;
+            } else {
+              // Ease back to centred forward when not looking around.
+              dl.yaw *= 0.95;
+              dl.pitch *= 0.95;
+              if (Math.abs(dl.yaw) < 0.01) dl.yaw = 0;
+              if (Math.abs(dl.pitch) < 0.01) dl.pitch = 0;
+            }
             if (dSpec.air) {
               const dist = Math.max(9, (dSpec.halfLength || 5.5) * 2.2);
               const height = 3.2;
@@ -6544,7 +6569,17 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
               const cz = stepped.z - fz * dist;
               const cy = Math.max(stepped.y + height, heightAt(cx, cz) + 2.2);
               camera.position.set(cx, cy, cz);
-              camera.lookAt(stepped.x + fx * 14, stepped.y + 1.2, stepped.z + fz * 14);
+              // Forward down the plane's nose, plus the look offset.
+              const lookDist = 14;
+              const ly = Math.tan(dl.pitch) * lookDist;
+              const lx = Math.tan(dl.yaw) * lookDist;
+              // Right vector for the yaw offset.
+              const rx = Math.cos(h), rz = -Math.sin(h);
+              camera.lookAt(
+                stepped.x + fx * lookDist + rx * lx,
+                stepped.y + 1.2 + ly,
+                stepped.z + fz * lookDist + rz * lx
+              );
             } else {
               const dist = Math.max(7, (dSpec.radius || 3) * 2.6);
               const height = Math.max(4, (dSpec.radius || 3) * 1.4);
@@ -6555,7 +6590,16 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
                 heightAt(cx, cz) + 2.2,
               );
               camera.position.set(cx, cy, cz);
-              camera.lookAt(stepped.x + fx * 6, stepped.y + 2, stepped.z + fz * 6);
+              // Ground vehicles get the look-around too.
+              const lookDist = 6;
+              const ly = Math.tan(dl.pitch) * lookDist;
+              const lx = Math.tan(dl.yaw) * lookDist;
+              const rx = Math.cos(h), rz = -Math.sin(h);
+              camera.lookAt(
+                stepped.x + fx * lookDist + rx * lx,
+                stepped.y + 2 + ly,
+                stepped.z + fz * lookDist + rz * lx
+              );
             }
           } else {
             camera.position.set(stepped.x, stepped.y + dSpec.eyeHeight, stepped.z);
