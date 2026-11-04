@@ -6302,7 +6302,9 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
 
       // Staged Earth 1 objects: decode the 73 GLBs in the background;
       // placements pop in by distance so the phone never chokes.
-      loadStagedBases().catch(() => {});
+      loadStagedBases().catch((err) => {
+        console.error('Staged objects failed to load:', err);
+      });
 
       // Dino nests: load in the background with the staged objects.
       placeNests().catch(() => {});
@@ -7235,7 +7237,10 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         renderer.domElement.removeEventListener('pointerup', onPointerUp);
         renderer.domElement.removeEventListener('pointercancel', onPointerCancel);
         gamepadTapRef.current = null; // GAMEPAD ADAPTER: scene torn down.
-        grappleFireRef.current = () => 'unavailable'; // GRAPPLE: the hook went with the scene.
+        grappleFireRef.current = () => {
+          noticeRef.current('🪝 Hook not ready — re-enter Earth 2.');
+          return 'unavailable';
+        }; // GRAPPLE: the hook went with the scene.
         hideGrappleRope();
         for (const l of labels) l.el.remove();
         for (const b of vehicleBars) b.el.remove();
