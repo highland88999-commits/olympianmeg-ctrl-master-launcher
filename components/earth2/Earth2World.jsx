@@ -4755,28 +4755,30 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         }
         p.needsUpdate = true;
       }
-      // KINETIC GRAPPLE — HOLD TO FIRE (Merlin, 2026-11-03).
-      // Pointer down on the 🪝 button launches the hook as a
-      // projectile along the camera's aim. It flies until it
-      // catches something (attach → the pull begins) or runs out
-      // of range (it reels back, a miss). Releasing the button
-      // BEFORE it attaches cancels the throw — the walker is
-      // released, nothing happens.
+      // GRAPPLE — TAP TO FIRE (Merlin, 2026-11-03): tap the 🪝
+      // button once and the hook flies along the camera's aim. It
+      // catches the first thing it hits (attach → the pull begins)
+      // or reels back on a miss. Tap again mid-pull to cut loose.
+      // Simple, no hold mechanic.
       function startGrappleThrow() {
         const now = performance.now();
-        // TAP TO RELEASE (Merlin, 2026-11-03): pressing the 🪝
-        // button mid-pull cuts the rope — the walker drops where
-        // they are, free to move again.
+        // Tap mid-pull: cut the rope, drop where you are.
         if (grapple.pulling) {
           grapple.pulling = false;
           grapple.velX = 0; grapple.velZ = 0;
           grapple.attached = false;
-          grapple.standY = null; // drop to the ground where they are
+          grapple.standY = null;
           hideGrappleRope();
           noticeRef.current('🪝 Released.');
           return 'released';
         }
-        if (grapple.flying) return 'cooldown';
+        if (grapple.flying) {
+          // Tap while flying: cancel the throw.
+          grapple.flying = false;
+          hideGrappleRope();
+          noticeRef.current('🪝 Released.');
+          return 'released';
+        }
         if (now < grapple.cooldownUntil) {
           noticeRef.current('🪝 Reeling in…');
           return 'cooldown';
@@ -8107,10 +8109,10 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         <button
           key="grapple-hook-btn"
           type="button"
-          aria-label="Hold to fire grappling hook"
-          title="Hold to fire the grappling hook"
+          aria-label="Fire grappling hook"
+          title="Tap to fire the grappling hook — tap again to release"
           disabled={grappleCooling}
-          onPointerDown={(e) => {
+          onClick={(e) => {
             e.preventDefault();
             if (!grappleEquipped) {
               const uid = grappleOwnedUid(backpackRecord);
@@ -8122,9 +8124,6 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
               setTimeout(() => setGrappleCooling(false), GRAPPLE_COOLDOWN_MS);
             }
           }}
-          onPointerUp={() => grappleReleaseRef.current()}
-          onPointerLeave={() => grappleReleaseRef.current()}
-          onPointerCancel={() => grappleReleaseRef.current()}
           onContextMenu={(e) => e.preventDefault()}
           className="pointer-events-auto absolute bottom-3 right-3 z-20 flex h-16 w-16 flex-col items-center justify-center gap-0 rounded-full border-2 border-amber-300/60 bg-amber-400/25 text-2xl backdrop-blur transition active:scale-95 disabled:opacity-40 select-none touch-none"
         >
