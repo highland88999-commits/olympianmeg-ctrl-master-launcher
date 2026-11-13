@@ -1,19 +1,22 @@
 // tests/tower-panel-box.test.mjs
-// Hub tower panels form a closed horizontal 4-sided box (Merlin,
-// 2026-10-27: "if we match the vertical sides of the billboards to
-// each other, forming a horizontal 4 sided box, the videos will
-// render right"). The old mount (panel origin 5.0 from the axis)
-// left a 2.36-unit open gap at every corner — the front face ended
-// at x = 3.0 while the neighbor's face plane stood at x = 5.36,
-// which is the sliver-and-gap look in his HERMES screenshot.
+// Hub tower panels stand apart with spaces between the billboards
+// (Merlin, 2026-11-13: "I still want spaces between the
+// billboards"). The 2026-10-27 closed box had the four panels
+// forming a horizontal 4-sided box — "if we match the vertical
+// sides of the billboards to each other, forming a horizontal 4
+// sided box, the videos will render right" — with each face's edge
+// landing exactly on its neighbor's edge at the corner (9.48,
+// 9.48). The old mount before that (panel origin 5.0 from the
+// axis) left a 2.36-unit open gap at every corner.
 //
 // Box math, in the tower group's units (PANEL_SCALE 1.5):
 //   face width  = 12.64 * 1.5 = 18.96  -> half-width 9.48
 //   face offset = 0.24 * 1.5 = 0.36 in front of the panel origin
-//   origin mount = 9.48 - 0.36 = 9.12 from the axis
-// so each face plane sits exactly 9.48 from the axis and each face's
-// edge lands exactly on its neighbor's edge at the corner (9.48, 9.48).
-// The pillar (radius 2.5) stays enclosed with 6.98 clearance to the
+//   origin mount = 10.48 - 0.36 = 10.12 from the axis
+// so each face plane sits 10.48 from the axis — 1.0 past the face
+// half-width — and each face's edge stops 1.0 short of the corner
+// (10.48, 10.48), leaving a 2.0-unit space at every corner.
+// The pillar (radius 2.5) stays enclosed with 7.98 clearance to the
 // face planes.
 //
 // Widened 2026-10-27 (Merlin: "bring their corners out"): the old
@@ -61,13 +64,13 @@ const rotY = (angle, [x, y, z]) => [
 ];
 
 describe('tower panel box geometry', () => {
-  it('mounts the panel origin at 9.12 from the axis (face plane at 9.48)', () => {
-    assert.equal(MOUNT, 9.12);
-    assert.ok(Math.abs(facePlaneDistance - 9.48) < 1e-9, 'face plane distance 9.48');
+  it('mounts the panel origin at 10.12 from the axis (face plane at 10.48)', () => {
+    assert.equal(MOUNT, 10.12);
+    assert.ok(Math.abs(facePlaneDistance - 10.48) < 1e-9, 'face plane distance 10.48');
   });
 
-  it('face plane distance equals face half-width, so edges coincide', () => {
-    assert.ok(Math.abs(facePlaneDistance - faceHalfWidth) < 1e-9, 'face plane distance = face half-width');
+  it('face plane distance exceeds face half-width by 1.0, so each face end stops short of the corner', () => {
+    assert.ok(Math.abs(facePlaneDistance - faceHalfWidth - 1.0) < 1e-9, 'face plane distance = face half-width + 1.0');
   });
 
   it('four panels at 0/90/180/-90 degrees, Y-rotation only', () => {
@@ -81,7 +84,7 @@ describe('tower panel box geometry', () => {
     );
   });
 
-  it('adjacent face edges meet exactly at the box corners', () => {
+  it('adjacent face edges stand apart at the corners (2.0-unit space)', () => {
     const angles = [0, Math.PI / 2, Math.PI, -Math.PI / 2];
     const faces = angles.map((a) => {
       const origin = rotY(a, [0, 0, MOUNT]);
@@ -97,22 +100,22 @@ describe('tower panel box geometry', () => {
         left: center.map((c, k) => c - tangent[k] * faceHalfWidth),
       };
     });
-    // Front face (angle 0) right edge == right face (angle 90deg) front edge.
+    // Front face (angle 0) right edge vs right face (angle 90deg) front edge:
+    // the two edges stand apart across the corner notch.
     const front = faces[0];
     const right = faces[1];
-    for (let k = 0; k < 3; k++) {
-      assert.ok(Math.abs(front.right[k] - right.left[k]) < 1e-9,
-        `front right edge meets right left edge (axis ${k})`);
-    }
-    // Corner point is (9.48, 9.48) in (x, z).
-    assert.ok(Math.abs(front.right[0] - 9.48) < 1e-9);
-    assert.ok(Math.abs(front.right[2] - 9.48) < 1e-9);
-    // Every corner closes, not just the first.
+    // Corner point is (10.48, 10.48) in (x, z); each face end stops 1.0 short of it.
+    assert.ok(Math.abs(front.right[0] - 9.48) < 1e-9, 'front right edge 1.0 short of the corner in x');
+    assert.ok(Math.abs(front.right[2] - 10.48) < 1e-9, 'front right edge on the face plane in z');
+    assert.ok(Math.abs(right.left[0] - 10.48) < 1e-9, 'right front edge on the face plane in x');
+    assert.ok(Math.abs(right.left[2] - 9.48) < 1e-9, 'right front edge 1.0 short of the corner in z');
+    // Every corner opens the same way, not just the first: the two edge
+    // endpoints sit 1.0 apart on each axis (diagonal gap sqrt(2)).
     for (let i = 0; i < 4; i++) {
       const a = faces[i];
       const b = faces[(i + 1) % 4];
       const gap = Math.hypot(...a.right.map((c, k) => c - b.left[k]));
-      assert.ok(gap < 1e-9, `corner ${i} closed (gap ${gap})`);
+      assert.ok(Math.abs(gap - Math.SQRT2) < 1e-9, `corner ${i} open (gap ${gap}, expected sqrt(2))`);
     }
   });
 
@@ -145,7 +148,7 @@ describe('tower panel box geometry', () => {
     assert.equal(-1 + 43 / 2, 20.5);
     assert.equal(-1 - 43 / 2, -22.5);
     assert.ok(PILLAR_RADIUS < facePlaneDistance, 'pillar radius < face plane distance');
-    assert.ok(Math.abs(facePlaneDistance - PILLAR_RADIUS - 6.98) < 1e-9, 'pillar clearance 6.98');
+    assert.ok(Math.abs(facePlaneDistance - PILLAR_RADIUS - 7.98) < 1e-9, 'pillar clearance 7.98');
   });
 
   it('face, border, and backing sizes follow the widened box', () => {
@@ -193,7 +196,7 @@ describe('tower panel box geometry', () => {
 //   level 2 box band [-6.4, 4.4] (centre -1, the current 44)
 //   ring break at -6.9, name level at -8.6, ring break at -10.3
 //   level 3 box band [-21.6, -10.8] (centre -16.2)
-// Every level matches the same diameter (mount 9.12, same
+// Every level matches the same diameter (mount 10.12, same
 // rotations, same face/border/backing). Levels 1 and 3 are
 // house-only: every new face plays the same house video through
 // the existing panel video path, with display badges top to bottom
@@ -202,10 +205,10 @@ describe('tower panel box geometry', () => {
 describe('tower levels', () => {
   const close = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} ≈ ${b}`);
 
-  it('three levels mount at the same 9.12 box distance: top 14.2, middle -1, bottom -16.2', () => {
-    assert.ok(tower.includes('<group position={[0, 14.2, 9.12]}>'), 'level 1 top mount');
-    assert.ok(tower.includes('<group position={[0, -1, 9.12]}>'), 'level 2 middle mount');
-    assert.ok(tower.includes('<group position={[0, -16.2, 9.12]}>'), 'level 3 bottom mount');
+  it('three levels mount at the same 10.12 box distance: top 14.2, middle -1, bottom -16.2', () => {
+    assert.ok(tower.includes('<group position={[0, 14.2, 10.12]}>'), 'level 1 top mount');
+    assert.ok(tower.includes('<group position={[0, -1, 10.12]}>'), 'level 2 middle mount');
+    assert.ok(tower.includes('<group position={[0, -16.2, 10.12]}>'), 'level 3 bottom mount');
     close(14.2 - -1, 15.2);
     close(-1 - -16.2, 15.2);
   });
@@ -222,7 +225,7 @@ describe('tower levels', () => {
     assert.ok(bottom.includes('badgeNumber={bottomLevelBillboardNumberFor(towerIndex, i)}'), 'bottom badges 89–132');
   });
 
-  it('new-level box corners coincide exactly like the middle level (same diameter)', () => {
+  it('new-level box corners open the same 2.0-unit space as the middle level (same diameter)', () => {
     const angles = [0, Math.PI / 2, Math.PI, -Math.PI / 2];
     const faces = angles.map((a) => {
       const origin = rotY(a, [0, 0, MOUNT]);
@@ -238,7 +241,7 @@ describe('tower levels', () => {
       const a = faces[i];
       const b = faces[(i + 1) % 4];
       const gap = Math.hypot(...a.right.map((c, k) => c - b.left[k]));
-      assert.ok(gap < 1e-9, `new-level corner ${i} closed (gap ${gap})`);
+      assert.ok(Math.abs(gap - Math.SQRT2) < 1e-9, `new-level corner ${i} open (gap ${gap}, expected sqrt(2))`);
     }
   });
 
@@ -258,8 +261,8 @@ describe('tower levels', () => {
     for (const y of ['8.3', '4.9', '-6.9', '-10.3']) {
       assert.ok(tower.includes(`<mesh position={[0, ${y}, 0]} material={darkMetal}`), `ring at ${y}`);
     }
-    assert.equal((tower.match(/cylinderGeometry args={\[13\.7, 13\.7, 0\.4, 32\]}/g) || []).length, 4,
-      'exactly four break discs, radius 13.7 past the 13.41 box corner radius');
+    assert.equal((tower.match(/cylinderGeometry args={\[15\.0, 15\.0, 0\.4, 32\]}/g) || []).length, 4,
+      'exactly four break discs, radius 15.0 past the 14.82 box corner radius');
   });
 
   it('both name bands are camera-facing Billboards, and the pillar texts are gone', () => {
@@ -285,7 +288,7 @@ describe('tower levels', () => {
 
   it('the hull cone is untouched but no longer pierces (faces moved out past it)', () => {
     assert.ok(tower.includes('position={[0, -2, 0]}'), 'hull cone position unchanged');
-    assert.ok(4.5 < facePlaneDistance, 'cone max radius 4.5 < face plane distance 9.48: enclosed, not piercing');
+    assert.ok(4.5 < facePlaneDistance, 'cone max radius 4.5 < face plane distance 10.48: enclosed, not piercing');
   });
 
   it('all three levels get colliders sized past the widened box corners', () => {
@@ -293,9 +296,9 @@ describe('tower levels', () => {
     assert.ok(tower.includes('y: position[1] + 22.72'), 'top collider centre (14.2 x 1.6 outer)');
     assert.ok(tower.includes('tower-${god}-bottom'), 'bottom collider id');
     assert.ok(tower.includes('y: position[1] - 25.92'), 'bottom collider centre (16.2 x 1.6 outer)');
-    assert.equal(tower.split('}), 24);').length - 1, 3, 'all three collider radii are 24');
+    assert.equal(tower.split('}), 26);').length - 1, 3, 'all three collider radii are 26');
     const cornerOuter = facePlaneDistance * Math.SQRT2 * 1.6;
-    assert.ok(cornerOuter + 0.8 < 24, `corner ${cornerOuter.toFixed(2)} outer + 0.8 bob < 24`);
+    assert.ok(cornerOuter + 0.8 < 26, `corner ${cornerOuter.toFixed(2)} outer + 0.8 bob < 26`);
   });
 
   it('level names are internal only: no rendered text names a level', () => {

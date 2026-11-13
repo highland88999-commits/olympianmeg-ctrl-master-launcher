@@ -541,15 +541,15 @@ function GodTower({ god, color, position, onLaunchExternal, textures, panels = p
   });
 
   // Solid: generous spheres covering the body + the four ad panels
-  // of every level. All three use radius 24: the widened box
-  // corners sit 21.45 outer, plus the ±0.8 outer bob, with margin
+  // of every level. All three use radius 26: the gapped box
+  // corners sit 23.71 outer, plus the ±0.8 outer bob, with margin
   // to spare — so flight clearance scales with the wider box.
   // Level 1's centre sits 14.2 inner units above level 2
   // (22.72 outer), level 3's 16.2 below (25.92 outer).
   useEffect(() => {
-    registerCollider(`tower-${god}`, () => ({ x: position[0], y: position[1], z: position[2] }), 24);
-    registerCollider(`tower-${god}-top`, () => ({ x: position[0], y: position[1] + 22.72, z: position[2] }), 24);
-    registerCollider(`tower-${god}-bottom`, () => ({ x: position[0], y: position[1] - 25.92, z: position[2] }), 24);
+    registerCollider(`tower-${god}`, () => ({ x: position[0], y: position[1], z: position[2] }), 26);
+    registerCollider(`tower-${god}-top`, () => ({ x: position[0], y: position[1] + 22.72, z: position[2] }), 26);
+    registerCollider(`tower-${god}-bottom`, () => ({ x: position[0], y: position[1] - 25.92, z: position[2] }), 26);
     return () => {
       unregisterCollider(`tower-${god}`);
       unregisterCollider(`tower-${god}-top`);
@@ -597,7 +597,7 @@ function GodTower({ god, color, position, onLaunchExternal, textures, panels = p
 
         {/* Translucent hull cone, UNCHANGED (Merlin's call still
             open from the boxing round): radii 4.5/3.5 no longer reach the widened box faces
-            (now at 9.48), so the cone sits enclosed inside the
+            (now at 10.48), so the cone sits enclosed inside the
             middle box instead of piercing it;
             cone spans y -6..2 and never reaches level 3 (top
             -10.8) or level 1 (bottom 8.8). */}
@@ -614,18 +614,18 @@ function GodTower({ god, color, position, onLaunchExternal, textures, panels = p
           <meshStandardMaterial map={tailTex} metalness={0.8} roughness={0.3} side={THREE.DoubleSide} color="#ffffff" emissive="#121214" emissiveIntensity={0.5} />
         </mesh>
 
-        {/* Merlin, 2026-10-27: the four panels form a closed horizontal
-            box around the tower axis — their vertical sides match each
-            other instead of standing apart with open corners (the old
-            5.0 mount left a 2.36-unit gap at every corner). Box math,
-            in this group's units (PANEL_SCALE 1.5): the video face is
-            12.64×1.5 = 18.96 wide, so its plane must sit 18.96/2 = 9.48 from
-            the axis; the face sits 0.24×1.5 = 0.36 in front of the
-            panel origin, so the origin mounts at 9.48 − 0.36 = 9.12.
-            Each face's edge then lands exactly on its neighbor's edge
-            at the corner (9.48, 9.48). The pillar (radius 2.5) stays
-            enclosed with 6.98 clearance to the face planes. Every
-            level below uses this same box. */}
+        {/* Merlin, 2026-11-13: spaces between the billboards — the four
+            panels stand apart with a 2.0-unit space at every corner
+            instead of closing into a box (the 2026-10-27 closed box
+            had each face's edge landing exactly on its neighbor's
+            edge at the corner). Box math, in this group's units
+            (PANEL_SCALE 1.5): the video face is 12.64×1.5 = 18.96
+            wide, half-width 9.48; its plane sits 10.48 from the axis
+            (9.48 + 1.0 of space per face end), and the face sits
+            0.24×1.5 = 0.36 in front of the panel origin, so the
+            origin mounts at 10.48 − 0.36 = 10.12. The pillar
+            (radius 2.5) stays enclosed with 7.98 clearance to the
+            face planes. Every level below uses this same box. */}
 
         {/* LEVELS (Merlin, 2026-10-27: "It's levels"). Stack, inner
             units, top to bottom — level 1 TOP (Merlin: "Multiverse = multi level one")
@@ -636,14 +636,14 @@ function GodTower({ god, color, position, onLaunchExternal, textures, panels = p
             [-21.6, -10.8] (centre -16.2). Every box band is 10.8
             tall (7.2 × 1.5); every gap between a band and its
             neighbour ring is 0.3; every name level is 2.4 tall;
-            every ring is a solid disc, radius 13.7 (past the box
-            corner radius 13.41, so it reads as a cap) in the
+            every ring is a solid disc, radius 15.0 (past the box
+            corner radius 14.82, so it reads as a cap) in the
             tower's dark metal — the existing metalwork language,
             reused for the breaks. Name bands are camera-facing
             Billboards, so the god's name reads from any angle
             while the tower rotates; the name is NOT also written
             on the pillar or above the box. Levels 1 and 3 reuse
-            the same box (mount 9.12, same rotations, same
+            the same box (mount 10.12, same rotations, same
             face/border/backing) and the same TowerAdPanel with
             house-only slots, so they play the same house video
             through the shared video record and keep their own
@@ -652,7 +652,7 @@ function GodTower({ god, color, position, onLaunchExternal, textures, panels = p
             bottom 89–132). */}
         {[0, Math.PI / 2, Math.PI, -Math.PI / 2].map((angle, i) => (
           <group key={`ad-top-${i}`} rotation={[0, angle, 0]}>
-            <group position={[0, 14.2, 9.12]}>
+            <group position={[0, 14.2, 10.12]}>
               <TowerAdPanel
                 slot={houseLevelPanels[i]}
                 stakeTex={adTex}
@@ -665,7 +665,7 @@ function GodTower({ god, color, position, onLaunchExternal, textures, panels = p
         ))}
 
         <mesh position={[0, 8.3, 0]} material={darkMetal} receiveShadow>
-          <cylinderGeometry args={[13.7, 13.7, 0.4, 32]} />
+          <cylinderGeometry args={[15.0, 15.0, 0.4, 32]} />
         </mesh>
         <Billboard position={[0, 6.6, 0]}>
           <VanGoghText fontSize={1.5} color={color} letterSpacing={0.3} fontWeight="bold">
@@ -673,16 +673,16 @@ function GodTower({ god, color, position, onLaunchExternal, textures, panels = p
           </VanGoghText>
         </Billboard>
         <mesh position={[0, 4.9, 0]} material={darkMetal} receiveShadow>
-          <cylinderGeometry args={[13.7, 13.7, 0.4, 32]} />
+          <cylinderGeometry args={[15.0, 15.0, 0.4, 32]} />
         </mesh>
 
         {/* Level 2 MIDDLE — the current 44 boards: slots and video
             path unchanged; the mount moves out with the wider box
-            (2.64 → 9.12), and only the badges visitors
+            (2.64 → 10.12), and only the badges visitors
             see move, to 45–88 (top-to-bottom numbering). */}
         {[0, Math.PI / 2, Math.PI, -Math.PI / 2].map((angle, i) => (
           <group key={`ad-${i}`} rotation={[0, angle, 0]}>
-            <group position={[0, -1, 9.12]}>
+            <group position={[0, -1, 10.12]}>
               <TowerAdPanel
                 slot={panels[i]}
                 stakeTex={adTex}
@@ -695,7 +695,7 @@ function GodTower({ god, color, position, onLaunchExternal, textures, panels = p
         ))}
 
         <mesh position={[0, -6.9, 0]} material={darkMetal} receiveShadow>
-          <cylinderGeometry args={[13.7, 13.7, 0.4, 32]} />
+          <cylinderGeometry args={[15.0, 15.0, 0.4, 32]} />
         </mesh>
         <Billboard position={[0, -8.6, 0]}>
           <VanGoghText fontSize={1.5} color={color} letterSpacing={0.3} fontWeight="bold">
@@ -703,12 +703,12 @@ function GodTower({ god, color, position, onLaunchExternal, textures, panels = p
           </VanGoghText>
         </Billboard>
         <mesh position={[0, -10.3, 0]} material={darkMetal} receiveShadow>
-          <cylinderGeometry args={[13.7, 13.7, 0.4, 32]} />
+          <cylinderGeometry args={[15.0, 15.0, 0.4, 32]} />
         </mesh>
 
         {[0, Math.PI / 2, Math.PI, -Math.PI / 2].map((angle, i) => (
           <group key={`ad-bottom-${i}`} rotation={[0, angle, 0]}>
-            <group position={[0, -16.2, 9.12]}>
+            <group position={[0, -16.2, 10.12]}>
               <TowerAdPanel
                 slot={houseLevelPanels[i]}
                 stakeTex={adTex}
