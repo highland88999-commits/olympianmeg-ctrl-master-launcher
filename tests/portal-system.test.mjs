@@ -47,7 +47,7 @@ test('heaven portal is a horizontal disc above the tower top', () => {
 });
 
 test('nether portal is a horizontal disc below Earth', () => {
-  const earthBottom = EARTH_CENTER.y - EARTH_RADIUS; // -115
+  const earthBottom = EARTH_CENTER.y - EARTH_RADIUS; // -85
   assert.equal(NETHER_PORTAL.center[0], EARTH_CENTER.x);
   assert.equal(NETHER_PORTAL.center[2], EARTH_CENTER.z);
   assert.ok(NETHER_PORTAL.center[1] < earthBottom, `nether disc y ${NETHER_PORTAL.center[1]} must sit below Earth's underside (${earthBottom})`);

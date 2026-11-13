@@ -132,7 +132,7 @@ async function getEarthUiToken() {
 // The globe's centre in world space (this component's outer group
 // position) — the atmosphere shell's camera-distance gate below
 // measures against it.
-const EARTH_CENTER_WORLD = new THREE.Vector3(0, -60, -120);
+const EARTH_CENTER_WORLD = new THREE.Vector3(0, -30, -80);
 // The atmosphere shell (radius 55 × 1.025 ≈ 56.4) only renders
 // while the camera is OUTSIDE this distance from the centre:
 // additive BackSide shading saturates to a naked white frame for
@@ -1395,7 +1395,7 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
   }, []);
 
   return (
-    <group position={[0, -60, -120]}>
+    <group position={[0, -30, -80]}>
       <group ref={spinRef}>
         <group visible={!roaming}>
           <GoogleEarthTiles

@@ -333,7 +333,7 @@ function SunBackground() {
         position={[0, 158.75, 662.5]}
         color="#fff5e6" 
         intensity={0.85} 
-        target-position={[0, -60, -120]} 
+        target-position={[0, -30, -80]} 
         castShadow 
         shadow-mapSize={[2048, 2048]} 
         shadow-camera-near={0.5}
@@ -1010,7 +1010,7 @@ function HubScene({
             {vgogh ? (
               <VanGoghSky />
             ) : (
-              <Stars radius={100} depth={50} count={7000} factor={4} saturation={0} fade speed={1} />
+              <Stars radius={400} depth={200} count={20000} factor={5} saturation={0} fade speed={1} />
             )}
 
             {/* Seasonal decoration cycle: date-driven holiday decor + Merlin's

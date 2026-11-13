@@ -30,7 +30,7 @@ import { effectiveEarthViewMode } from '@/lib/earth/view-mode';
 import { getInteriorAltM } from '@/lib/earth/interiors';
 import { patchFacetRadiusAt } from '@/lib/earth/street-patch';
 
-export const EARTH_CENTER = new THREE.Vector3(0, -60, -120);
+export const EARTH_CENTER = new THREE.Vector3(0, -30, -80);
 const HUB_HOME = new THREE.Vector3(0, 75, 20);
 
 // Cinematic Earth flights. The core idea (Merlin's walking experiment):

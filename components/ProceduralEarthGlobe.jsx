@@ -216,7 +216,7 @@ export default function ProceduralEarthGlobe({ onSelect, quatRef, waterInOrbit, 
           }
         }
         const sunPos = new THREE.Vector3(0, 90, 250);
-        const earthPos = new THREE.Vector3(0, -60, -120);
+        const earthPos = new THREE.Vector3(0, -30, -80);
         const sunDirection = new THREE.Vector3().subVectors(sunPos, earthPos).normalize();
         if (alive) {
           const uniforms = {
