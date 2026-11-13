@@ -360,6 +360,28 @@ export const POST = apiGuard(async function POST(req) {
           const e = new Error('Could not record your order. Your gold has been refunded — please try again.');
           e.status = 502; throw e;
         }
+        // Fulfillment gate: a gold-paid order has no shipping address (no
+        // Stripe session collected one). Mark it awaiting_address so the
+        // fulfillment path never submits it without one — an address must
+        // be put on file first (no collection UI yet; the buyer is told
+        // in the notice below and Merlin follows up). Best-effort: the
+        // columns come from migration 20261107; until then this is a
+        // no-op and the customer_notes flag above is the marker. Never
+        // throws — a failure here must not refund gold for a recorded order.
+        // Guarded by printful_order_id IS NULL so a duplicate callback can
+        // never clobber a fulfilled order's state.
+        try {
+          await admin
+            .from('store_orders')
+            .update({
+              fulfillment_status: 'awaiting_address',
+              fulfillment_error: 'No shipping address collected — gold-paid order. Awaiting buyer address before Printful fulfillment.',
+            })
+            .eq('id', orderId)
+            .is('printful_order_id', null);
+        } catch (markErr) {
+          console.log('Store checkout: could not mark gold order awaiting_address (non-fatal):', markErr?.message || markErr);
+        }
         return {
           orderId,
           notice: `Paid with ${goldSpentGold.toLocaleString('en-US')} gold — your order is recorded. No card charged. We'll be in touch for your shipping address.`,

@@ -124,6 +124,7 @@ export const WORLDS = [
   { key: "ice-monster", title: "Ice Monster", route: "/ice-monster", god: "DIONYSUS" },
   { key: "kombat", title: "Kombat Arena", route: "/kombat", god: "DIONYSUS" },
   { key: "luge", title: "Luge", route: "/luge", god: "DIONYSUS" },
+  { key: "omega-500", title: "Omega 500", route: "/omega-500", god: "DIONYSUS" },
   { key: "neon-racer", title: "Neon Racer", route: "/neon-racer", god: "DIONYSUS" },
   { key: "shadow-realm", title: "Shadow Realm", route: "/shadow-realm", god: "DIONYSUS" },
   { key: "atlantis", title: "Sunken City", route: "/atlantis", god: "DIONYSUS" },

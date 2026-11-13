@@ -1,24 +1,25 @@
 'use client';
 
 // app/earth-2/page.jsx
-// EARTH 2 — THE OWNER TEST CHAMBER (Phase 2 foundation, 2026-10-21).
+// EARTH 2 — THE OPEN WORLD (Phase 2 foundation, 2026-10-21; unlocked
+// for every signed-in account 2026-10-31).
 //
-// Merlin's order: Phase 2 begins now, locked behind his account alone
-// (olympiannexus@gmail.com) "for testing purposes — no other account
-// should be able to see it." So this page gates on the Supabase
-// browser session before it renders anything at all: signed-out
-// visitors and every other account get a plain not-found screen with
-// no Earth 2 branding and no content, and every /api/earth2/* route
-// re-verifies access server-side (and 404s) besides. The portal
-// entries that lead here (Portal Room + Concourse Portals 3D) only
-// exist for the owner too — lib/portal-roster.js withOwnerPortals.
+// This page gates on the Supabase browser session before it renders
+// anything at all: signed-out visitors get a plain not-found screen
+// with no Earth 2 branding and no content, and every /api/earth2/*
+// route re-verifies access server-side (and 404s) besides. The
+// portal entries that lead here (Portal Room + Concourse Portals 3D)
+// only exist for signed-in accounts too — lib/portal-roster.js
+// withSignedInPortals.
 //
-// PROOF OF CONCEPT (Merlin, 2026-10-23): exactly one more account is
-// admitted beside the owner — the named guest in
-// lib/earth2/access.js, the one source of truth for Earth 2 access —
-// so the two of them can hold one granted parcel each and land on
-// their own land. Access here is about rendering and spawning; the
-// write routes (buy / forge / rent / builds) stay owner-only.
+// PROOF OF CONCEPT (Merlin, 2026-10-23): the owner and one named
+// guest — fishstart@hotmail.com — hold one granted parcel each and
+// land on their own land. The grants live in lib/earth2/access.js,
+// the one source of truth for Earth 2 access. Access here is about
+// rendering and spawning; the write routes (buy / forge / rent /
+// builds) verify the same access and enforce their own rights checks
+// inside — owners write their own parcels, claimants their claims,
+// everyone else is refused.
 //
 // Inside: the parcel map of the new world — 2,500 parcels, of which
 // exactly 1,000 are ownable and 1,500 are Free Commons (Merlin's
@@ -327,7 +328,7 @@ export default function Earth2Page() {
   }, [authHeaders, loadState]);
 
   // The gate: whose session is this? Only an account with Earth 2
-  // access opens the door — the owner, or the one named POC guest
+  // access opens the door — any signed-in account
   // (lib/earth2/access.js is the one definition).
   useEffect(() => {
     let alive = true;

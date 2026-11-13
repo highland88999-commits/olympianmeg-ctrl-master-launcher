@@ -36,6 +36,7 @@ import {
   weaponReticle,
 } from '@/lib/backpack/backpack';
 import { useBackpack, updateBackpack } from '@/lib/backpack/store';
+import PortalGunCard from '@/components/PortalGunCard';
 
 const RETICLE_GLYPH = { crosshair: '✛', dot: '•', chevron: '»' };
 
@@ -447,6 +448,11 @@ export default function BackpackHud({ realm, realmLabel, combatApplies = false, 
                 </div>
               )}
             </div>
+
+            {/* Portal Gun (Merlin, 2026-11-13): earned at 10 portals,
+                fired from the pack — the same card rides in the
+                profile pack. Firing closes this panel first. */}
+            <PortalGunCard onClosePanel={() => setOpen(false)} />
 
             <div style={{ fontWeight: 700, fontSize: 13, marginTop: 12 }}>⚔️ Weapons</div>
             {weapons.length === 0 && <div style={{ fontSize: 13, opacity: 0.7 }}>No weapons yet — the Weapons Forge awaits.</div>}

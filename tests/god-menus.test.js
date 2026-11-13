@@ -1,4 +1,4 @@
-// tests/god-menus.test.js — Headless tests for the 11 god-menu navigation.
+// tests/god-menus.test.js — Headless tests for the 24 god-menu navigation.
 // Run: node tests/god-menus.test.js (from the repo root). No browser, no network.
 import { readFileSync } from 'fs';
 import { GOD_MENUS, godMenuFor, allGodMenuSatellites, menuArtFor, menuBannerFor } from '../lib/god-menus.js';
@@ -18,8 +18,15 @@ const satSrc = readFileSync('lib/i18n/satellites.ts', 'utf8');
 const satKeys = [...satSrc.matchAll(/\{ key: "([^"]+)", route: "([^"]+)", pos: "([^"]+)", section: "([^"]+)", constellation: "([^"]+)" \}/g)]
   .map((m) => m[1]);
 
-// --- shape: exactly 11 god menus -------------------------------------------
-t('exactly 11 god menus', GOD_MENUS.length === 11);
+// --- shape: exactly 24 god menus -------------------------------------------
+// HADES (nether-realm + styx) added 2026-11-12 on Merlin's order
+// (nether-realm base build). It is appended last so the 11 existing
+// bands keep their radii; only the phase spacing re-divides (360/12).
+// The 12 remaining nether-realms (HELHEIM, YOMI, ANNWN, DUAT, MICTLAN,
+// XIBALBA, HELL, NARAKA, DIYU, KUR, NAV, ORUN) added 2026-11-12 on
+// Merlin's order ("the rest of the worlds" build), appended after HADES
+// the same way: radii unchanged, phase spacing re-divides (360/24).
+t('exactly 24 god menus', GOD_MENUS.length === 24);
 
 const godNameRe = /^[A-Z][A-Z]+$/;
 for (const m of GOD_MENUS) {
@@ -27,7 +34,9 @@ for (const m of GOD_MENUS) {
   t(`${m.god}: plain-English category label`, typeof m.category === 'string' && m.category.length >= 4 && m.category.length <= 40);
   t(`${m.god}: tagline explains the contents`, typeof m.tagline === 'string' && m.tagline.length >= 20);
   t(`${m.god}: satellites is a non-empty array`, Array.isArray(m.satellites) && m.satellites.length > 0);
-  t(`${m.god}: menu size is sane (2..24; new categories start small)`, m.satellites.length >= 2 && m.satellites.length <= 24);
+  // Nether-Realms homes host a single world each, so the floor is 1;
+  // the old floor was 2 (HADES hosts nether-realm + styx).
+  t(`${m.god}: menu size is sane (1..24; new categories start small)`, m.satellites.length >= 1 && m.satellites.length <= 24);
   t(`${m.god}: texture is null or an honest menus texture path`,
     m.texture === null || (typeof m.texture === 'string' && m.texture.startsWith('/textures/menus/')));
   t(`${m.god}: gradient fallback is two hex colors`,
@@ -105,7 +114,11 @@ t('HEPHAESTUS carries world-nexus', hephaestusMenu && hephaestusMenu.satellites.
 t('godMenuFor routes world-nexus to HEPHAESTUS', godMenuFor('world-nexus')?.god === 'HEPHAESTUS');
 t('satellites.ts registers world-nexus at /world-nexus',
   satKeys.includes('world-nexus') && satSrc.includes('route: "/world-nexus"'));
-t('world-nexus manifest lists gate arches for all 11 god districts',
+// The world-nexus plaza still renders 11 districts (2026-11-12): the
+// 12th HADES district is a follow-up for Merlin's word — adding it
+// re-rings all 11 existing districts and moves the Styx portal. The
+// manifest still lists 11 gate arches until then.
+t('world-nexus manifest lists gate arches for all 11 rendered plaza districts',
   (() => {
     try {
       const m = JSON.parse(readFileSync('app/world-nexus/generation-manifest.json', 'utf8'));
@@ -119,6 +132,8 @@ t('world-nexus asset loader never throws without a GLB present',
 
 // --- helpers ----------------------------------------------------------------
 t('godMenuFor finds the right menu', godMenuFor('chess')?.god === 'ARES');
+t('godMenuFor routes nether-realm to HADES', godMenuFor('nether-realm')?.god === 'HADES');
+t('godMenuFor routes styx to HADES (moved from HESTIA, 2026-11-12)', godMenuFor('styx')?.god === 'HADES');
 t('godMenuFor finds plutus menu', godMenuFor('liquid-gold')?.god === 'PLUTUS');
 t('godMenuFor finds therapy menu', godMenuFor('grief-gully')?.god === 'HESTIA');
 t('godMenuFor returns null for unknown key', godMenuFor('nope-not-real') === null);
@@ -150,7 +165,10 @@ t('panel degrades honestly when a menu texture is missing (onError fallback)',
 t('satellites.ts still carries constellation + pos for the 3D layer',
   satSrc.includes('constellation:') && satSrc.includes('pos:'));
 
-// --- orbit rings: the 11 god bands around the constellation center ---------
+// --- orbit rings: the 24 god bands around the constellation center ---------
+// (12 original + HADES + the 12 nether-realms homes, Nov 12, 2026 —
+// radii unchanged, phase spacing re-divided 360/24; tilt variety cycles
+// every 12 bands so the projected spacing stays within tolerance.)
 import {
   GOD_BANDS,
   ORBIT_CENTER,
@@ -168,16 +186,16 @@ import {
   dist3,
 } from '../lib/god-orbits.js';
 
-t('exactly 11 orbit bands, one per god menu, in order',
-  GOD_BANDS.length === 11 && GOD_BANDS.every((b, i) => b.god === GOD_MENUS[i].god));
+t('exactly 24 orbit bands, one per god menu, in order',
+  GOD_BANDS.length === 24 && GOD_BANDS.every((b, i) => b.god === GOD_MENUS[i].god));
 t('band radii grow outward and clear the old tower ring (r~40)',
   GOD_BANDS.every((b, i) => b.radius >= 46 && (i === 0 || b.radius > GOD_BANDS[i - 1].radius)));
-t('exactly ONE physical satellite per band (11 total, not every program)',
+t('exactly ONE physical satellite per band (24 total, not every program)',
   GOD_BANDS.every((b) => b.count === 1));
 t('bandAngle advances with time (bands actually orbit)',
   GOD_BANDS.every((b) => bandAngle(b, 10) > bandAngle(b, 0)));
-t('the 11 satellites are evenly spaced: phases exactly 360/11° apart',
-  GOD_BANDS.every((b, i) => Math.abs(b.phase - (i * Math.PI * 2) / 11) < 1e-12));
+t('the 24 satellites are evenly spaced: phases exactly 360/24° apart',
+  GOD_BANDS.every((b, i) => Math.abs(b.phase - (i * Math.PI * 2) / GOD_BANDS.length) < 1e-12));
 t('world-space satellite spacing reads even (tilt perturbs < 1°)',
   [0, 30, 300, 1000].every((tt) => {
     const angs = GOD_BANDS.map((_, i) => {

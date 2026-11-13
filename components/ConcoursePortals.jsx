@@ -28,6 +28,7 @@ import { SATELLITES } from '@/lib/i18n/satellites';
 import { useI18n } from '@/lib/i18n';
 import { supabase } from '@/lib/supabase';
 import { isOwnerEmail } from '@/lib/owner';
+import { hasEarth2Access } from '@/lib/earth2/access';
 import {
   SECTION_ORDER,
   buildPortalRoster,
@@ -35,6 +36,7 @@ import {
   groupBySection,
   paginateWall,
   withOwnerPortals,
+  withSignedInPortals,
 } from '@/lib/portal-roster';
 import { probeWebGL } from '@/lib/webgl-support';
 import PortalCard, { PortalStyles } from './portal-room/PortalCard';
@@ -67,23 +69,36 @@ export default function ConcoursePortals({ open, onClose }) {
   // rider's character in front of them in 3rd person.
   const riderPrefs = useRiderPrefs();
 
-  // Owner-only portals (Earth 2, the Phase 2 test build) join the
-  // roster only when the signed-in session is the owner's — the same
-  // gate the Portal Room wears (PortalRoomGate). Everyone else's wall
-  // is the registry roster untouched.
+  // Signed-in portals (Earth 2, open to every signed-in account
+  // since Merlin's 2026-10-31 unlock) join the roster for any
+  // session, and owner-only portals join it for the owner — the same
+  // gate the Portal Room wears (PortalRoomGate). A signed-out
+  // visitor's wall is the registry roster untouched.
+  const [sessionEmail, setSessionEmail] = useState(null);
   const [isOwner, setIsOwner] = useState(false);
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
         const { data } = await supabase.auth.getSession();
-        if (alive) setIsOwner(isOwnerEmail(data?.session?.user?.email));
+        const email = data?.session?.user?.email || null;
+        if (alive) {
+          setSessionEmail(email);
+          setIsOwner(isOwnerEmail(email));
+        }
       } catch {
-        if (alive) setIsOwner(false);
+        if (alive) {
+          setSessionEmail(null);
+          setIsOwner(false);
+        }
       }
     })();
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (alive) setIsOwner(isOwnerEmail(session?.user?.email));
+      if (alive) {
+        const email = session?.user?.email || null;
+        setSessionEmail(email);
+        setIsOwner(isOwnerEmail(email));
+      }
     });
     return () => {
       alive = false;
@@ -102,10 +117,13 @@ export default function ConcoursePortals({ open, onClose }) {
       return v && v !== full ? v : '';
     };
     return withOwnerPortals(
-      buildPortalRoster(SATELLITES, lookup('title'), lookup('subtitle')),
+      withSignedInPortals(
+        buildPortalRoster(SATELLITES, lookup('title'), lookup('subtitle')),
+        hasEarth2Access(sessionEmail)
+      ),
       isOwner
     );
-  }, [t, isOwner]);
+  }, [t, sessionEmail, isOwner]);
 
   const counts = useMemo(() => {
     const map = new Map();

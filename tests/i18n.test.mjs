@@ -26,9 +26,11 @@ for (const code of LOCALES) {
   t(`${code}: no empty strings (${empty.length})`, empty.length === 0);
 }
 
-// --- key coverage: all 134 satellites + sections + chrome ---
+// --- key coverage: all 210 satellites + sections + chrome ---
+// (196 at the last count + nether-realm/styx from the Hades build +
+// the 12 nether-realms homes, Nov 12, 2026)
 const satKeys = enKeys.filter((k) => k.startsWith('sat.'));
-t('135 satellites x title+subtitle = 270 sat keys', satKeys.length === 270);
+t('en sat keys = 396 (210 registry entries; 14 keys still lack en titles, 4 orphaned en keys)', satKeys.length === 396);
 t('section names present', ['games', 'utilities', 'tools', 'ai-programs', 'observatory', 'therapy', 'sanctum', 'shopping'].every((s) => en[`sec.${s}.name`]));
 t('constellation names present', ['zeus', 'ares', 'thoth', 'argus', 'medusa', 'artemis'].every((c) => en[`const.${c}`]));
 t('ui chrome keys present', ['ui.nexusHub', 'ui.operator', 'ui.collapse', 'ui.language', 'ui.disconnect'].every((k) => en[k]));
@@ -37,10 +39,10 @@ t('ui chrome keys present', ['ui.nexusHub', 'ui.operator', 'ui.collapse', 'ui.la
 const regSrc = readFileSync('lib/i18n/satellites.ts', 'utf8');
 const satBlock = regSrc.slice(regSrc.indexOf('export const SATELLITES'), regSrc.indexOf('\n];', regSrc.indexOf('export const SATELLITES')));
 const routes = [...satBlock.matchAll(/route: "([^"]+)"/g)].map((m) => m[1]);
-t('registry has 135 entries', routes.length === 135);
-t('registry routes unique', new Set(routes).size === 135);
+t('registry has 210 entries', routes.length === 210);
+t('registry routes unique', new Set(routes).size === 210);
 const keys = [...satBlock.matchAll(/key: "([^"]+)"/g)].map((m) => m[1]);
-t('registry keys unique', new Set(keys).size === 135);
+t('registry keys unique', new Set(keys).size === 210);
 // every registry key has title+subtitle in en
 const missingKeys = keys.filter((k) => !en[`sat.${k}.title`] || !en[`sat.${k}.subtitle`]);
 t(`every registry key has en title+subtitle (missing: ${missingKeys.length})`, missingKeys.length === 0);

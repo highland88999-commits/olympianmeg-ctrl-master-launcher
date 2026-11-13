@@ -267,7 +267,7 @@ function Moons({ scene, reduced }) {
 }
 
 function Asteroids({ scene }) {
-  const { mesh, count } = useMemo(() => {
+  const { rocks, count } = useMemo(() => {
     const rocks = [];
     for (const fl of scene.fields) {
       for (const rk of fl.rocks) {
@@ -289,7 +289,7 @@ function Asteroids({ scene }) {
   useEffect(() => {
     const im = ref.current;
     if (!im) return;
-    mesh.forEach((rk, i) => {
+    rocks.forEach((rk, i) => {
       dummy.position.set(rk.x, rk.y, rk.z);
       dummy.rotation.set(rk.phase, rk.phase * 1.7, rk.phase * 0.6);
       dummy.scale.setScalar(rk.r);
@@ -301,7 +301,7 @@ function Asteroids({ scene }) {
     });
     im.instanceMatrix.needsUpdate = true;
     if (im.instanceColor) im.instanceColor.needsUpdate = true;
-  }, [mesh, dummy, col, scene]);
+  }, [rocks, dummy, col, scene]);
   return (
     <instancedMesh ref={ref} args={[undefined, undefined, count]} frustumCulled={false}>
       <dodecahedronGeometry args={[1, 0]} />

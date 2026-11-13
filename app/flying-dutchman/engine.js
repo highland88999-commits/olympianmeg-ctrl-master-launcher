@@ -405,10 +405,101 @@ export function stepAI(ai, player, wind, dt) {
 }
 
 // ---------------------------------------------------------------------------
+// Islands & treasure chests — the open world.
+// ---------------------------------------------------------------------------
+
+export const ISLAND = {
+  count: 8,
+  minR: 45, maxR: 95,       // island radius (m)
+  minH: 18, maxH: 42,       // peak height (m)
+  minDist: 320, maxDist: 1400, // from the spawn, in a ring
+  chestPickupR: 18,         // sail this close to claim a chest
+  chestSouls: 4,            // souls a chest pays
+  chestHull: 12,            // hull a chest repairs
+  shipClearance: 9,         // extra margin around an island for a hull
+};
+
+/** Deterministic island ring, seeded by the world. */
+export function makeIslands(rng) {
+  const islands = [];
+  for (let i = 0; i < ISLAND.count; i++) {
+    const a = (i / ISLAND.count) * TAU + rng() * 0.5;
+    const d = ISLAND.minDist + rng() * (ISLAND.maxDist - ISLAND.minDist);
+    islands.push({
+      id: `isle-${i}`,
+      x: Math.sin(a) * d,
+      z: Math.cos(a) * d,
+      r: ISLAND.minR + rng() * (ISLAND.maxR - ISLAND.minR),
+      h: ISLAND.minH + rng() * (ISLAND.maxH - ISLAND.minH),
+      seed: Math.floor(rng() * 1e9),
+    });
+  }
+  return islands;
+}
+
+/** 1–2 chests per island, on sandbars just off the beach. */
+export function makeChests(rng, islands) {
+  const chests = [];
+  let n = 0;
+  for (const isl of islands) {
+    const count = 1 + (rng() < 0.5 ? 1 : 0);
+    for (let k = 0; k < count; k++) {
+      const a = rng() * TAU;
+      const d = isl.r + 8 + rng() * 6;
+      chests.push({
+        id: `chest-${n++}`,
+        x: isl.x + Math.sin(a) * d,
+        z: isl.z + Math.cos(a) * d,
+        opened: false,
+        openT: 0,
+        islandId: isl.id,
+      });
+    }
+  }
+  return chests;
+}
+
+/** Push a ship out of island circles (simple radial collision). */
+export function collideIslands(ship, islands) {
+  if (!ship.alive) return;
+  for (const isl of islands) {
+    const dx = ship.x - isl.x, dz = ship.z - isl.z;
+    const d = Math.hypot(dx, dz);
+    const minD = isl.r + ISLAND.shipClearance;
+    if (d < minD && d > 0.001) {
+      const push = minD - d;
+      ship.x += (dx / d) * push;
+      ship.z += (dz / d) * push;
+      ship.speed *= 0.45; // grounding kills your way
+    }
+  }
+}
+
+/** The player claims unopened chests within pickup range. */
+export function stepChests(world, events) {
+  const p = world.player;
+  if (!p.alive) return;
+  for (const c of world.chests) {
+    if (c.opened) continue;
+    if (dist2(c.x, c.z, p.x, p.z) < ISLAND.chestPickupR * ISLAND.chestPickupR) {
+      c.opened = true;
+      c.openT = world.t;
+      p.souls += ISLAND.chestSouls;
+      p.hull = Math.min(p.maxHull, p.hull + ISLAND.chestHull);
+      if (p.crew < SHIP.maxCrew) p.crew += 1;
+      events.push({ type: 'chest', chestId: c.id, x: c.x, z: c.z, souls: ISLAND.chestSouls });
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // World
 // ---------------------------------------------------------------------------
 
 export function makeWorld(seed = 1234) {
+  const rng = makeRng(seed ^ 0x9e37);
+  const islands = makeIslands(rng);
+  const chests = makeChests(rng, islands);
   return {
     t: 0,
     wind: makeWind(seed),
@@ -417,7 +508,9 @@ export function makeWorld(seed = 1234) {
     balls: [],
     souls: [],
     events: [],
-    rng: makeRng(seed ^ 0x9e37),
+    rng,
+    islands,
+    chests,
     wave: 0, // difficulty wave
   };
 }
@@ -446,6 +539,7 @@ export function stepWorld(world, input, dt) {
   p.rudder = clamp(input.rudder || 0, -1, 1);
   if (input.sails) p.sails = input.sails;
   stepShip(p, dt, world.wind);
+  collideIslands(p, world.islands);
 
   if (input.fire && p.alive) {
     const { balls, fired } = fireBroadside(p, input.fire, world.t);
@@ -458,6 +552,7 @@ export function stepWorld(world, input, dt) {
   const ships = [p, ...world.enemies];
   for (const e of world.enemies) {
     const side = stepAI(e, p, world.wind, dt);
+    collideIslands(e, world.islands);
     if (side) {
       const { balls, fired } = fireBroadside(e, side, world.t);
       if (fired) {
@@ -469,6 +564,7 @@ export function stepWorld(world, input, dt) {
 
   stepBalls(world.balls, ships, world.souls, dt, world.t, ev, world.rng);
   stepSouls(world.souls, ships, dt, world.t, ev);
+  stepChests(world, ev);
 
   // Remove fully-sunk enemies after their sinking cinematic.
   for (let i = world.enemies.length - 1; i >= 0; i--) {

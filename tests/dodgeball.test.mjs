@@ -497,7 +497,7 @@ describe('portal seating', () => {
     assert.equal(seat.pos, 'ARES');
     assert.equal(seat.section, 'GAMES');
     assert.equal(SATELLITES.filter((s) => s.route === '/dodgeball').length, 1);
-    assert.equal(SATELLITES.length, 194); // registry has grown since the 179-seat count; dodgeball's own seat is what matters here
+    assert.equal(SATELLITES.length, 210); // registry has grown since the 179-seat count; dodgeball's own seat is what matters here; Omega 500 seat: 195→196; Hades seats: 196→198; nether-realms homes: 198→210 (Nov 12, 2026)
   });
 
   it('the ARES god menu claims dodgeball and the en locale titles it', async () => {

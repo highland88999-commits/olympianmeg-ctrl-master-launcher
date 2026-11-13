@@ -13,12 +13,14 @@ import {
   makeWorld, spawnWave, stepWorld, makeShip,
   fireBroadside, stepBalls, stepSouls, stepWind, stepShip,
   SHIP, SAILS, reloadTime, waveHeight, clamp, wrapAngle,
+  collideIslands, stepChests,
 } from './engine.js';
 import { buildShip, buildGhostShip, animateShip } from './ship3d.js';
 import {
   createOcean, createSky, poseShip,
   createBallPool, createFlashPool, createSplashPool, createSoulPool,
 } from './sea3d.js';
+import { createIslands, createChests } from './world3d.js';
 import {
   createDuelRoom, joinDuelRoom, getCaptainId, DuelSync,
   getRoom, setRoomStatus, ROOM_STATUS,
@@ -315,6 +317,10 @@ export default function DutchmanPage() {
     const sky = createSky();
     scene.add(sky.group);
 
+    // The open world: cursed isles + beached treasure.
+    const islands = createIslands(scene, world.islands);
+    const chests = createChests(scene, world.chests);
+
     const playerGroup = buildShip();
     playerGroup.userData.setCrew(Math.min(world.player.crew, 12));
     scene.add(playerGroup);
@@ -322,7 +328,7 @@ export default function DutchmanPage() {
     const G = {
       mode: gameMode,
       world,
-      renderer, scene, camera, ocean, sky,
+      renderer, scene, camera, ocean, sky, islands, chests,
       playerGroup,
       enemyGroups: new Map(),
       remote: extra.remote || null,
@@ -388,6 +394,9 @@ export default function DutchmanPage() {
             addToast(`☠ ${e.name || 'Enemy ship'} sunk — claim their souls!`);
             if (G.mode === 'duel') G.endDuel(true);
           }
+        } else if (e.type === 'chest') {
+          G.pools.flash.fire(e.x, waveHeight(e.x, e.z, world.t) + 3, e.z);
+          addToast(`💰 Treasure claimed! +${e.souls} souls, hull patched.`);
         }
       }
     };
@@ -438,6 +447,7 @@ export default function DutchmanPage() {
       p.rudder = clamp(rudder, -1, 1);
       p.sails = G.input.sails;
       stepShip(p, step, world.wind);
+      collideIslands(p, world.islands);
       if (fire && p.alive) {
         const r = fireBroadside(p, fire, world.t);
         if (r.fired) {
@@ -459,8 +469,10 @@ export default function DutchmanPage() {
       remote.reloadPort = Math.max(0, remote.reloadPort - step);
       remote.reloadStbd = Math.max(0, remote.reloadStbd - step);
       if (!remote.alive && remote.sinking) remote.sinkT += step;
+      collideIslands(remote, world.islands);
       stepBalls(world.balls, [p, remote], world.souls, step, world.t, ev, world.rng);
       stepSouls(world.souls, [p, remote], step, world.t, ev);
+      stepChests(world, ev);
       const out = ev.slice();
       ev.length = 0;
       G.handleEvents(out);
@@ -564,6 +576,8 @@ export default function DutchmanPage() {
       G.pools.splash.update(dt);
       G.ocean.update(t, p.x, p.z);
       G.sky.update(t, dt, p.x, p.z);
+      G.islands.update(t);
+      G.chests.sync(world.chests, t);
 
       // Chase camera with orbit offsets.
       const fx = Math.sin(p.heading), fz = Math.cos(p.heading);
@@ -661,9 +675,11 @@ export default function DutchmanPage() {
       window.removeEventListener('keydown', kd);
       window.removeEventListener('keyup', ku);
       window.removeEventListener('resize', onResize);
+      if (typeof window !== 'undefined' && window.__dutchman === G) window.__dutchman = null;
     };
 
     gameRef.current = G;
+    if (typeof window !== 'undefined') window.__dutchman = G;
     setHud(null);
     setGameOver(null);
     setPaused(false);
@@ -683,6 +699,8 @@ export default function DutchmanPage() {
       disposeGroup(G.playerGroup);
       for (const [, grp] of G.enemyGroups) disposeGroup(grp);
       if (G.remoteGroup) disposeGroup(G.remoteGroup);
+      if (G.islands) disposeGroup(G.islands.group);
+      if (G.chests) disposeGroup(G.chests.group);
       G.renderer.dispose();
       if (G.renderer.domElement.parentNode) G.renderer.domElement.parentNode.removeChild(G.renderer.domElement);
     } catch { /* teardown is best-effort */ }

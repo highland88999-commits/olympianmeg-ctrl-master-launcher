@@ -13,6 +13,7 @@ import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { useRouter } from 'next/navigation';
 import GodOrbitRings from './GodOrbitRings';
+import HubPortals from './HubPortals';
 import NexusEarth from './NexusEarth';
 import { MarsRealmContent } from './mars/MarsScene';
 import { PlanetRealmContent } from './planets/PlanetRealmContent';
@@ -932,6 +933,8 @@ function HubScene({
   onLaunchExternal,
   onBikeDismount,
   onSatellitePortal,
+  onHubPortal,
+  heavenUnlocked,
   onContextLost,
   vgogh,
 }) {
@@ -1079,6 +1082,13 @@ function HubScene({
                 The floating video button's satellite menu is the single way
                 into programs; the rings no longer launch anything. */}
             {!['diving_to_street', 'earth_roam'].includes(appState) && <GodOrbitRings />}
+            {/* THE HUB PORTALS (Merlin, 2026-11-13): two horizontal
+                nanite discs — Heaven above the tower top (locked
+                until 1 Nether Realm visit), Nether below Earth.
+                Same street-level gate as the rest of the vista. */}
+            {!['diving_to_street', 'earth_roam'].includes(appState) && (
+              <HubPortals heavenUnlocked={heavenUnlocked} onPortalClick={onHubPortal} />
+            )}
             {/* The Moon, the asteroid belt, and the waypoint beacons.
                 The Moon hides at street level (2026-10-26 outage
                 repair): its Billboard label bled through the street

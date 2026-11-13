@@ -3,9 +3,8 @@
 // WHOLE frame edge to edge inside the border rim — hub tower panels
 // (face 12.64×7.0, canvas 1264×700) are landscape 16:9, and user
 // uploads must fit it (enforced at both upload points, with the size
-// stated up front). Street monuments (face 9.0×15.75) are still 4:7
-// portrait — a 16:9 creative cover-crops there; that mismatch is
-// Merlin's call.
+// stated up front). Street monuments (face 28.0×15.75) went 16:9 on
+// Merlin's Nov 13 call — one frame spec serves every surface now.
 // Run: node tests/billboard-frame-fit.test.mjs (from the repo root).
 // No browser, no network — asserts on the pure fit helpers and on the
 // wired source (same grep style as the hub suites).
@@ -78,10 +77,10 @@ t('hub stake texture cover-fits to the new face',
 t('hub panels still carry no prompt texts',
   !godTower.includes('VISIT SITE') && !godTower.includes('Advertise Here: Email Us'));
 
-// --- wired source: monuments are still 4:7 (mismatch is Merlin's call) ---
+// --- wired source: monuments are 16:9 too (Merlin, 2026-11-13) ---
 const monument = src('../components/argo/BillboardMonument.jsx');
-t('monument face is 9.0×15.75 (4:7)', monument.includes('FACE_W = 9.0') && monument.includes('FACE_H = 15.75'));
-t('monument canvas matches the 4:7 face', monument.includes('CANVAS_W = 1800') && monument.includes('CANVAS_H = 3150'));
+t('monument face is 28.0×15.75 (16:9)', monument.includes('FACE_W = 28.0') && monument.includes('FACE_H = 15.75'));
+t('monument canvas matches the 16:9 face', monument.includes('CANVAS_W = 3200') && monument.includes('CANVAS_H = 1800'));
 t('monument still carries no prompt texts',
   !monument.includes('VISIT SITE') && !monument.includes('Advertise Here: Email Us'));
 

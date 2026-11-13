@@ -250,15 +250,15 @@ function RiderFigure() {
   );
 }
 
-function LugeTrack({ course, sled, tiltData, onFinish, pvp }) {
+function LugeTrack({ course, sled, tiltData, onFinish, pvp, onZoneFx }) {
   const { camera } = useThree();
   const sledRef = useRef(null);
 
   const [trackTex, setTrackTex] = useState(null);
   const [hullTex, setHullTex] = useState(null);
-  // HUD label for the zone the sled is currently in ('boost' | 'sand' | null).
+  // Zone FX is lifted to LugeEngine (onZoneFx prop) so the HUD can read it.
   // Set only on change — never at frame rate.
-  const [zoneFx, setZoneFx] = useState(null);
+  const setZoneFx = onZoneFx || (() => {});
   const progress = useRef(0);
   const speed = useRef(0);
   // Angular position around the tube interior: 0 = floor, PI/2 = right wall,
@@ -481,6 +481,10 @@ export default function LugeEngine() {
 
   // States: 'menu', 'store', 'pre_race_calibrate', 'racing', 'podium'
   const [gameState, setGameState] = useState('menu');
+
+  // HUD label for the zone the sled is currently in ('boost' | 'sand' | null).
+  // Lifted from LugeTrack so the HUD overlay in this component can read it.
+  const [zoneFx, setZoneFx] = useState(null);
 
   // Ambient menu backdrop: Video → Still → Off (persisted). Reduced-motion users get Still.
   const [ambience, setAmbience] = useState('video');
@@ -1728,6 +1732,7 @@ export default function LugeEngine() {
               sled={selectedSled}
               tiltData={tiltData}
               onFinish={handleFinish}
+              onZoneFx={setZoneFx}
               pvp={
                 gameState === 'racing' && pvpCodeInput && pvpMode === 'race'
                   ? { onProgress: handlePvpProgress, rivals: pvpRivals }

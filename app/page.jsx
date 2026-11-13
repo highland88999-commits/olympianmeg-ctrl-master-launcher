@@ -38,6 +38,8 @@ import { useRiderPrefs } from '@/lib/use-rider-prefs';
 import { useTilt } from '@/lib/use-tilt';
 import { useRadio } from '@/components/radio/RadioProvider';
 import HubTutorial from '@/components/HubTutorial';
+import PortalRoom from '@/components/PortalRoom';
+import { heavenUnlocked as portalHeavenUnlocked, usePortalProgress } from '@/lib/portal/progress';
 import {
   shouldShowHubTutorial,
   isHubTutorialSeen,
@@ -74,6 +76,20 @@ function NexusHub() {
   );
 
   const [appState, setAppState] = useState('hub_intro');
+  // Portal room (Merlin, 2026-11-13): clicking a hub portal opens
+  // the room (aurora boot, then the holographic carousel). Heaven
+  // stays locked until 1 Nether Realm visit.
+  const [portalRoomSide, setPortalRoomSide] = useState(null); // 'heaven' | 'nether' | null
+  const portalProgress = usePortalProgress();
+  const handleHubPortal = useCallback((side) => setPortalRoomSide(side), []);
+  // Headless probe hook (nether-realm pattern): window.__portalRoom.open
+  // lets a probe open the room and watch the boot → carousel without
+  // raycasting a 3D disc. Render state lives in window.__hubPortals.
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.__portalRoom = { open: (side) => setPortalRoomSide(side === 'heaven' ? 'heaven' : 'nether') };
+    }
+  }, []);
   const [isMenuExpanded, setIsMenuExpanded] = useState(true);
   const [user, setUser] = useState(null);
   const [isOwner, setIsOwner] = useState(false);
@@ -987,6 +1003,8 @@ function NexusHub() {
         satIndex={satIndex}
         targetRoute={targetRouteRef.current}
         onSatellitePortal={handleSatellitePortal}
+        onHubPortal={handleHubPortal}
+        heavenUnlocked={portalHeavenUnlocked(portalProgress)}
         onPlanetJump={handlePlanetJump}
         pendingJump={pendingJump}
         onJumpConsumed={() => setPendingJump(null)}
@@ -1023,6 +1041,13 @@ function NexusHub() {
           launchPocketUniverse(url, null, null, id);
         }}
       />
+      {/* Portal room (Merlin, 2026-11-13): the hub portals' room —
+          aurora boot sequence, then the holographic realm carousel. */}
+      <PortalRoom
+        side={portalRoomSide || 'nether'}
+        open={!!portalRoomSide}
+        onClose={() => setPortalRoomSide(null)}
+      />
       {/* Satellite drop → vortex tube: the fullscreen ride carries the
           user from the satellite's portal to the realm. */}
       {/* Earth chooser (Merlin, 2026-10-31): tapping the Earth planet
@@ -1042,7 +1067,7 @@ function NexusHub() {
         >
           <div className="w-full max-w-sm rounded-2xl bg-slate-900/80 p-6 text-center shadow-2xl backdrop-blur-sm">
             <div className="mb-1 text-2xl font-extrabold text-white">Choose your Earth</div>
-            <div className="mb-5 text-sm text-slate-300">Three worlds. One tap. One still being built.</div>
+            <div className="mb-5 text-sm text-slate-300">Four worlds. One tap. Two still being built.</div>
             <button
               type="button"
               onClick={chooseEarth1}
@@ -1086,6 +1111,22 @@ function NexusHub() {
               <div className="px-4 py-4" style={{ background: 'linear-gradient(90deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.15) 60%, transparent 100%)' }}>
                 <div className="text-lg font-bold">🚧 Earth 3 <span className="text-xs font-normal uppercase tracking-widest text-amber-300">Under construction</span></div>
                 <div className="text-sm opacity-90">The boundless world. 10 billion tiles. Still being built.</div>
+              </div>
+            </button>
+            {/* Earth 4 (Merlin, 2026-11-12): under construction —
+                visible but not enterable. Tapping it says so.
+                True Earth size, fully explorable, true textures. */}
+            <button
+              type="button"
+              onClick={() => alert('🚧 Earth 4 is under construction. True Earth size, fully explorable, true textures — check back soon.')}
+              className="mb-4 block w-full overflow-hidden rounded-xl text-left text-white opacity-60"
+              style={{
+                background: 'linear-gradient(135deg, #0f2a1a 0%, #14532d 50%, #166534 100%)',
+              }}
+            >
+              <div className="px-4 py-4" style={{ background: 'linear-gradient(90deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.15) 60%, transparent 100%)' }}>
+                <div className="text-lg font-bold">🚧 Earth 4 <span className="text-xs font-normal uppercase tracking-widest text-amber-300">Under construction</span></div>
+                <div className="text-sm opacity-90">True Earth size. Fully explorable. True textures. Still being built.</div>
               </div>
             </button>
             <button

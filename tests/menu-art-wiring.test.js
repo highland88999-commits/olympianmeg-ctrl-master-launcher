@@ -66,7 +66,12 @@ for (const k of sats) {
 }
 for (const m of GOD_MENUS) {
   const b = menuBannerFor(m.god);
-  t(`banner ${m.god}: resolves`, typeof b === 'string' && b.length > 0);
+  // Textured homes resolve to their banner; texture-less homes (UTILITIES,
+  // HADES, the 12 nether-realms homes) honestly return '' and the tab
+  // falls back to its plain style — that is menuBannerFor's documented
+  // graceful-fallback contract, not a missing banner.
+  t(`banner ${m.god}: resolves`, typeof b === 'string' && (b.length > 0 || m.texture === null));
+  if (m.texture) t(`banner ${m.god}: matches its texture`, b === m.texture);
 }
 
 // --- museum populated ---------------------------------------------------------

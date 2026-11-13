@@ -1,8 +1,6 @@
 // app/api/earth2/builds/route.js
 // GET  /api/earth2/builds?parcelId=E2-0001 — every build standing
-//      on a parcel (builds are visible to world visitors; in the
-//      lab phase the chamber admits the owner alone, so the read
-//      rides the same owner session as every Earth 2 surface).
+//      on a parcel (builds are visible to world visitors).
 // PUT  /api/earth2/builds { parcelId, pieces } — save the caller's
 //      build on a parcel. The write is RIGHTS-CHECKED server-side
 //      (lib/earth2/building.js → lib/building/rights.js): owners
@@ -10,13 +8,16 @@
 //      claimed parcels, everyone else is refused. Free Commons and
 //      protected ground refuse every write.
 //
-// OWNER-LOCKED like every /api/earth2/* route (Merlin, 2026-10-21):
-// non-owners get a 404 — this surface does not admit it exists.
+// Open to every signed-in account (Merlin, 2026-10-31: Earth 2
+// unlocked for all users). The session is verified through
+// lib/earth2/access.js verifyEarth2AccessSession — the one
+// definition of Earth 2 access. The rights check below is what
+// actually decides who may write; the gate only decides who may ask.
 // Until supabase/earth2-buildings.sql runs (Merlin's green light),
 // both verbs answer setupRequired and nothing pretends to persist.
 
 import { NextResponse } from 'next/server';
-import { verifyOwnerSession } from '@/lib/owner';
+import { verifyEarth2AccessSession } from '@/lib/earth2/access';
 import { getServiceClient } from '@/lib/economy/supabase';
 import { apiGuard } from '@/lib/api-guard';
 import { noCache } from '@/lib/no-cache';
@@ -45,9 +46,9 @@ function setupRequired(extra) {
   return NextResponse.json({ ok: false, setupRequired: true, ...(extra || {}) });
 }
 
-async function requireOwner(req) {
+async function requireEarth2Access(req) {
   const token = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
-  const { user } = await verifyOwnerSession(token).catch(() => ({ user: null }));
+  const { user } = await verifyEarth2AccessSession(token).catch(() => ({ user: null }));
   return user;
 }
 
@@ -79,7 +80,7 @@ async function loadActiveClaim(db, parcelId) {
 }
 
 export const GET = noCache(apiGuard(async function GET(req) {
-  const user = await requireOwner(req);
+  const user = await requireEarth2Access(req);
   if (!user) return notFound();
 
   const parcelId = new URL(req.url).searchParams.get('parcelId');
@@ -105,7 +106,7 @@ export const GET = noCache(apiGuard(async function GET(req) {
 }));
 
 export const PUT = noCache(apiGuard(async function PUT(req) {
-  const user = await requireOwner(req);
+  const user = await requireEarth2Access(req);
   if (!user) return notFound();
 
   let body = null;

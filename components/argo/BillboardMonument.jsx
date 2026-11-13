@@ -4,11 +4,11 @@
 // The original billboards were the constellation tower ad panels (AresAdPanel:
 // dark metal frame, magenta backing halo, creative face, CTA bar, email
 // strip). The street monuments use that same design, scaled up 2.25x
-// (tower panel: frame [4.2,7.2,0.2], face [4.0,7.0], magenta [4.2,7.2]) —
-// frame 9.45×16.2, face 9.0×15.75 (portrait 4:7, same aspect as the tower
-// face, so one upload rule serves both), magenta 9.45×16.2 (the full
-// frame face, so the 9.0×15.75 creative sits 0.225 inside it on all
-// sides: creative edge to border inner edge) — standing on a slim
+// (tower panel: frame [12.64,7.2,0.2], face [12.64,7.0] — 16:9, Merlin
+// 2026-11-13) — frame 28.45×16.2, face 28.0×15.75 (landscape 16:9, the
+// tower face at 2.25x, so one upload rule serves both), magenta 28.45×16.2
+// (the full frame face, so the 28.0×15.75 creative sits 0.225 inside it on
+// all sides: creative edge to border inner edge) — standing on a slim
 // plinth. The old obelisk + gold-edge monument look is gone.
 //
 // Z-layers keep honest separation (tower-panel lesson, 2026-09-30): the frame
@@ -19,7 +19,7 @@
 // lands (lib/partners.js `creatives[]`); until then it renders a branded
 // placeholder from name + tagline — honestly labeled, never a fake ad.
 // Creatives are drawn cover-fit (aspect preserved, center-cropped) onto the
-// portrait canvas so partner logos never stretch, whatever their native
+// landscape canvas so partner logos never stretch, whatever their native
 // banner size.
 //
 // Tap/click the face to open Merlin's affiliate tracking link
@@ -35,22 +35,22 @@ import {
   drawCoverFit,
 } from '../../lib/billboard-face';
 
-// Monument dims: tower-panel × 2.25 (tower panel: frame [4.2,7.2,0.2],
-// face [4.0,7.0], magenta [4.2,7.2], CTA [3.8,0.8,0.1], email strip [3.8,0.6]).
-const FRAME_W = 9.45;
+// Monument dims: tower-panel × 2.25 (tower panel: frame [12.64,7.2,0.2],
+// face [12.64,7.0], magenta [12.84,7.2], CTA [3.8,0.8,0.1], email strip [3.8,0.6]).
+const FRAME_W = 28.45;
 const FRAME_H = 16.2;
 const FRAME_D = 0.45;
-const FACE_W = 9.0;
+const FACE_W = 28.0;
 const FACE_H = 15.75;
-const MAG_W = 9.45;
+const MAG_W = 28.45;
 const MAG_H = 16.2;
-// Portrait canvas matched to the face aspect (9.0 / 15.75 = 4:7), 2x backing
+// Landscape canvas matched to the face aspect (28.0 / 15.75 = 16:9), 2x backing
 // store so the bigger face stays crisp. Drawing happens in the original
-// 900×1575 logical space (ctx scaled up) — all draw code stays untouched.
-const CANVAS_W = 1800;
-const CANVAS_H = 3150;
-const DRAW_W = 900;
-const DRAW_H = 1575;
+// 1600×900 logical space (ctx scaled up) — all draw code stays untouched.
+const CANVAS_W = 3200;
+const CANVAS_H = 1800;
+const DRAW_W = 1600;
+const DRAW_H = 900;
 
 // Same advertise-inquiry address as the tower panels.
 const INQUIRIES_EMAIL = 'olympiannexus@gmail.com';
@@ -69,7 +69,7 @@ export default function BillboardMonument({ slot, position, faceAngle, reduced }
     canvas.width = CANVAS_W;
     canvas.height = CANVAS_H;
     const ctx = canvas.getContext('2d');
-    // Draw in the 1140×1350 logical space; the 1.5x backing store keeps the
+    // Draw in the 1600×900 logical space; the 2x backing store keeps the
     // bigger face crisp without touching any draw code.
     ctx.scale(CANVAS_W / DRAW_W, CANVAS_H / DRAW_H);
     const creative = slot.creatives && slot.creatives[0];
@@ -100,7 +100,7 @@ export default function BillboardMonument({ slot, position, faceAngle, reduced }
     };
 
     // Real video creative (e.g. Betty's promo): map the live video onto the
-    // portrait face with cover-fit — aspect preserved, overflow cropped,
+    // landscape face with cover-fit — aspect preserved, overflow cropped,
     // never stretched. Falls back to the honest placeholder if the file is
     // missing; never a fake ad, never a crash.
     if (slot.videoSrc && !reduced) {
@@ -185,9 +185,9 @@ export default function BillboardMonument({ slot, position, faceAngle, reduced }
 
   return (
     <group position={position} rotation={[0, faceAngle, 0]}>
-      {/* Slim plinth */}
+      {/* Slim plinth — widened with the 16:9 face (frame + ~2) */}
       <mesh position={[0, 0.9, 0]}>
-        <boxGeometry args={[11.4, 1.8, 3.6]} />
+        <boxGeometry args={[30.4, 1.8, 3.6]} />
         <meshStandardMaterial color="#11141d" roughness={0.8} />
       </mesh>
       {/* Panel, standing on the plinth */}

@@ -5,10 +5,15 @@
 // final pricing), charged through the gold ledger, and the title is
 // recorded in earth2_parcels.
 //
-// OWNER-LOCKED like every /api/earth2/* route: non-owners get a 404.
+// Open to every signed-in account (Merlin, 2026-10-31: Earth 2
+// unlocked for all users). The session is verified through
+// lib/earth2/access.js verifyEarth2AccessSession — the one
+// definition of Earth 2 access — and the purchase itself is still
+// fully charged in gold (debitGold, idempotent); there is no free
+// path here.
 
 import { NextResponse } from 'next/server';
-import { verifyOwnerSession } from '@/lib/owner';
+import { verifyEarth2AccessSession } from '@/lib/earth2/access';
 import { getServiceClient } from '@/lib/economy/supabase';
 import { debitGold, creditGold, InsufficientGoldError } from '@/lib/economy/ledger';
 import { parcelById, buyRefusal } from '@/lib/earth2/parcels';
@@ -17,9 +22,9 @@ import { syncParcelVehicleOwner } from '@/lib/earth2/parcel-vehicles';
 
 export const dynamic = 'force-dynamic';
 
-async function requireOwner(req) {
+async function requireEarth2Access(req) {
   const token = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
-  const { user } = await verifyOwnerSession(token).catch(() => ({ user: null }));
+  const { user } = await verifyEarth2AccessSession(token).catch(() => ({ user: null }));
   return user;
 }
 
@@ -35,7 +40,7 @@ function isMissingTable(error) {
 }
 
 export async function POST(req) {
-  const user = await requireOwner(req);
+  const user = await requireEarth2Access(req);
   if (!user) return notFound();
   try {
     let body = null;

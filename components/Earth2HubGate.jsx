@@ -1,8 +1,9 @@
 'use client';
 
 // Earth2HubGate — THE EARTH 2 DOOR in the main hub (Merlin, 2026-10-22):
-// "Put the portal to earth 2 in the main hub, but only my account can
-// open it." It stands beyond the Sun on the Omega Arch's own plane,
+// "Put the portal to earth 2 in the main hub." Opened to every
+// signed-in account on 2026-10-31, when Merlin unlocked Earth 2 for
+// all users. It stands beyond the Sun on the Omega Arch's own plane,
 // flanking it to the east — a smaller sibling monument in the Ω family
 // form, skinned in earth tones, its swirl disc turning deep green and
 // ocean blue under a serif EARTH 2 crown.
@@ -11,17 +12,17 @@
 // session (the PortalRoomGate pattern) and runs every email through
 // lib/earth2-hub-portal.js's pure decision, which defers to the
 // Earth 2 access module — the one definition of Earth 2 access
-// (the owner, plus the one named POC guest since 2026-10-23). For anyone
-// without access — signed out, another account, or the session still
-// resolving — the component returns null: the portal does not exist
-// in the scene at all. No mesh, no label, no click target, nothing to
-// inspect. The arch component below (and every texture it builds)
-// only ever mounts behind a proven owner session.
+// (any signed-in account since 2026-10-31). For anyone without
+// access — signed out, or the session still resolving — the
+// component returns null: the portal does not exist in the scene at
+// all. No mesh, no label, no click target, nothing to inspect. The
+// arch component below (and every texture it builds) only ever
+// mounts behind a proven signed-in session.
 //
 // It is a door only: no Earth 2 models, characters, or content ride
-// along — the chamber at /earth-2 keeps its own server-side owner
-// gate as the second lock. Like the Omega Arch beside it, the door
-// has no collider (portals are the hub's one pass-through exception):
+// along — the chamber at /earth-2 keeps its own server-side gate as
+// the second lock. Like the Omega Arch beside it, the door has no
+// collider (portals are the hub's one pass-through exception):
 // click it, or fly through the swirl, to step through.
 
 import { useEffect, useRef, useState } from 'react';
@@ -319,7 +320,7 @@ function Earth2HubArch({ freeroam = false }) {
 
 export default function Earth2HubGate({ freeroam = false }) {
   // The session's email, or null while it resolves / when signed out.
-  // Null is not the owner — the door stays absent until the session
+  // Null is not signed in — the door stays absent until the session
   // proves whose it is.
   const [sessionEmail, setSessionEmail] = useState(null);
 

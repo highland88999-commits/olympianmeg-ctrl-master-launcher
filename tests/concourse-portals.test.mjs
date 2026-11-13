@@ -50,8 +50,8 @@ const enRoster = () =>
   buildPortalRoster(SATELLITES, (k) => en[`sat.${k}.title`], (k) => en[`sat.${k}.subtitle`]);
 
 describe('buildPortalRoster (the shared derivation)', () => {
-  it('yields exactly 178 portals from the real registry — the Portal Room count (Monsterverse seat adcdb3cd: 174→175; Social Media Cheat Code seat: 175→176; Dodgeball seat: 176→177; Request a Billboard seat: 177→178)', () => {
-    assert.equal(enRoster().length, 178);
+  it('yields exactly 209 portals from the real registry — the Portal Room count (Monsterverse seat adcdb3cd: 174→175; Social Media Cheat Code seat: 175→176; Dodgeball seat: 176→177; Request a Billboard seat: 177→178; Omega 500 seat: 194→195; Hades seats: 195→197; nether-realms homes: 197→209, Nov 12, 2026)', () => {
+    assert.equal(enRoster().length, 209);
   });
 
   it('skips the Portal Room itself', () => {
@@ -100,12 +100,12 @@ describe('buildPortalRoster (the shared derivation)', () => {
 });
 
 describe('wall paging + hues', () => {
-  it('WALL_PAGE_SIZE is 42 and GAMES (54) spans exactly 2 pages, 42 + 12', () => {
+  it('WALL_PAGE_SIZE is 42 and GAMES (84) spans exactly 2 pages, 42 + 42', () => {
     assert.equal(WALL_PAGE_SIZE, 42);
     const games = enRoster().filter((p) => p.section === 'GAMES');
-    assert.equal(games.length, 54);
+    assert.equal(games.length, 84); // Omega 500 seat: 70→71 (the old 54 pin was stale); Hades seat: 71→72; nether-realms homes: 72→84 (Nov 12, 2026)
     const pages = paginateWall(games);
-    assert.deepEqual(pages.map((pg) => pg.length), [42, 12]);
+    assert.deepEqual(pages.map((pg) => pg.length), [42, 42]);
   });
 
   it('paginateWall edge cases: empty -> no pages, exact fit -> one page', () => {
@@ -145,7 +145,7 @@ describe('filterPortals + groupBySection (room/panel shared semantics)', () => {
   it('grouping follows SECTION_ORDER and drops empty sections', () => {
     const grouped = groupBySection(roster);
     assert.deepEqual(grouped.map((g) => g.section), SECTION_ORDER);
-    assert.equal(grouped.reduce((n, g) => n + g.items.length, 0), 178); // Social Media Cheat Code seat: 175→176; Dodgeball seat: 176→177; Request a Billboard seat: 177→178
+    assert.equal(grouped.reduce((n, g) => n + g.items.length, 0), 209); // Social Media Cheat Code seat: 175→176; Dodgeball seat: 176→177; Request a Billboard seat: 177→178; Omega 500 seat: 194→195; Hades seats: 195→197; nether-realms homes: 197→209 (Nov 12, 2026)
     assert.deepEqual(groupBySection([]), []);
   });
 });

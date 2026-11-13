@@ -10,14 +10,19 @@
 // runs through the gold ledger with an idempotency key built from
 // the entry id, so a retried entry never double-charges.
 //
-// In this owner-locked test build the only possible visitor is the
-// owner himself; the engine is written for the real rule so the day
-// the gate opens, rent already works.
+// In this build any signed-in visitor can be charged rent; the
+// engine is written for the real rule, so the gate opening changes
+// nothing about the math — only who may walk in.
 //
-// OWNER-LOCKED like every /api/earth2/* route: non-owners get a 404.
+// Open to every signed-in account (Merlin, 2026-10-31: Earth 2
+// unlocked for all users). The session is verified through
+// lib/earth2/access.js verifyEarth2AccessSession — the one
+// definition of Earth 2 access. The visitor pays; the parcel owner
+// and the house split it; your own land is always free.
 
 import { NextResponse } from 'next/server';
-import { verifyOwnerSession, OWNER_EMAIL } from '@/lib/owner';
+import { verifyEarth2AccessSession } from '@/lib/earth2/access';
+import { OWNER_EMAIL } from '@/lib/owner';
 import { getServiceClient } from '@/lib/economy/supabase';
 import { debitGold, creditGold, InsufficientGoldError } from '@/lib/economy/ledger';
 import { parcelById } from '@/lib/earth2/parcels';
@@ -30,9 +35,9 @@ const RENT_FEE_GOLD = 2;
 const RENT_OWNER_SHARE_GOLD = 1;
 const RENT_HOUSE_SHARE_GOLD = 1;
 
-async function requireOwner(req) {
+async function requireEarth2Access(req) {
   const token = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
-  const { user } = await verifyOwnerSession(token).catch(() => ({ user: null }));
+  const { user } = await verifyEarth2AccessSession(token).catch(() => ({ user: null }));
   return user;
 }
 
@@ -63,7 +68,7 @@ async function resolveUserIdByEmail(db, email) {
 }
 
 export async function POST(req) {
-  const user = await requireOwner(req);
+  const user = await requireEarth2Access(req);
   if (!user) return notFound();
   try {
     let body = null;

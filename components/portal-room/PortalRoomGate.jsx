@@ -4,21 +4,24 @@
 //
 // The server page builds the base roster (every public realm, from
 // the satellite registry) and hands it here. This gate watches the
-// Supabase browser session and, only when the signed-in account is
-// the owner (lib/owner.js — the one definition), appends the
-// owner-only portals (lib/portal-roster.js OWNER_PORTALS: Earth 2,
-// the Phase 2 test build). For everyone else — signed out or any
-// other account — the roster is the base roster untouched, exactly as
-// the room has always rendered it. The owner entry simply appears
-// once the session loads and proves whose it is.
+// Supabase browser session and appends the signed-in portals
+// (lib/portal-roster.js SIGNED_IN_PORTALS: Earth 2, open to every
+// signed-in account since Merlin's 2026-10-31 unlock) for any
+// signed-in session, and the owner-only portals for the owner
+// (lib/owner.js — the one definition). For signed-out visitors the
+// roster is the base roster untouched, exactly as the room has always
+// rendered it. The Earth 2 entry simply appears once the session
+// loads and proves whose it is.
 
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { isOwnerEmail } from '@/lib/owner';
-import { withOwnerPortals } from '@/lib/portal-roster';
+import { hasEarth2Access } from '@/lib/earth2/access';
+import { withOwnerPortals, withSignedInPortals } from '@/lib/portal-roster';
 import PortalRoom from './PortalRoom';
 
 export default function PortalRoomGate({ basePrograms }) {
+  const [sessionEmail, setSessionEmail] = useState(null);
   const [isOwner, setIsOwner] = useState(false);
 
   useEffect(() => {
@@ -26,13 +29,24 @@ export default function PortalRoomGate({ basePrograms }) {
     (async () => {
       try {
         const { data } = await supabase.auth.getSession();
-        if (alive) setIsOwner(isOwnerEmail(data?.session?.user?.email));
+        const email = data?.session?.user?.email || null;
+        if (alive) {
+          setSessionEmail(email);
+          setIsOwner(isOwnerEmail(email));
+        }
       } catch {
-        if (alive) setIsOwner(false);
+        if (alive) {
+          setSessionEmail(null);
+          setIsOwner(false);
+        }
       }
     })();
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (alive) setIsOwner(isOwnerEmail(session?.user?.email));
+      if (alive) {
+        const email = session?.user?.email || null;
+        setSessionEmail(email);
+        setIsOwner(isOwnerEmail(email));
+      }
     });
     return () => {
       alive = false;
@@ -41,8 +55,12 @@ export default function PortalRoomGate({ basePrograms }) {
   }, []);
 
   const programs = useMemo(
-    () => withOwnerPortals(basePrograms, isOwner),
-    [basePrograms, isOwner]
+    () =>
+      withOwnerPortals(
+        withSignedInPortals(basePrograms, hasEarth2Access(sessionEmail)),
+        isOwner
+      ),
+    [basePrograms, sessionEmail, isOwner]
   );
 
   return <PortalRoom programs={programs} />;

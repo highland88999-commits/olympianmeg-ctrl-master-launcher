@@ -1,14 +1,14 @@
 // tests/earth2-hub-portal.test.mjs
 // THE EARTH 2 DOOR IN THE MAIN HUB (Merlin, 2026-10-22): "Put the
-// portal to earth 2 in the main hub, but only my account can open it."
-// Amended 2026-10-23 by the proof-of-concept order: the door also
-// renders for the one named POC guest (lib/earth2/access.js).
+// portal to earth 2 in the main hub." Amended 2026-10-23 by the
+// proof-of-concept order: the door also rendered for the one named
+// POC guest (lib/earth2/access.js). Amended 2026-10-31 by the
+// unlock: the door renders for EVERY signed-in account.
 //
 // Pins:
-// - the gate decision is pure (lib/earth2-hub-portal.js): an account
-//   with Earth 2 access — the owner, or the one named POC guest —
-//   makes the portal exist; signed-out, still-resolving, and every
-//   other account get nothing
+// - the gate decision is pure (lib/earth2-hub-portal.js): any
+//   signed-in account makes the portal exist; signed-out and
+//   still-resolving sessions get nothing
 // - the door routes to /earth-2 (the chamber's own server-side gate
 //   stays the second lock) and carries no Earth 2 content at all
 // - the placement law: flanking the Omega Arch on its own plane
@@ -49,14 +49,14 @@ const OWNER = 'olympiannexus@gmail.com';
 const GUEST = 'fishstart@hotmail.com';
 
 describe('the gate — a pure decision (lib/earth2-hub-portal.js)', () => {
-  it('accounts with Earth 2 access — owner and POC guest — make the portal exist', () => {
+  it('any signed-in account makes the portal exist — the unlock (Merlin, 2026-10-31)', () => {
     assert.equal(earth2HubPortalVisible(OWNER), true);
-    assert.equal(earth2HubPortalVisible(GUEST), true, 'the POC guest sees the door (Merlin, 2026-10-23)');
-    assert.equal(earth2HubPortalVisible('someone.else@example.com'), false);
-    assert.equal(earth2HubPortalVisible('olympianmeg@gmail.com'), false, "Merlin's personal account is not the owner account");
+    assert.equal(earth2HubPortalVisible(GUEST), true, 'the POC guest still sees the door');
+    assert.equal(earth2HubPortalVisible('someone.else@example.com'), true, 'any signed-in account gets in');
+    assert.equal(earth2HubPortalVisible('olympianmeg@gmail.com'), true, "Merlin's personal account is a signed-in account");
   });
 
-  it('matching follows the house rule (trim + case-insensitive, via lib/earth2/access.js)', () => {
+  it('padded emails still count as signed in (trim, via lib/earth2/access.js)', () => {
     assert.equal(earth2HubPortalVisible('  OlympianNexus@Gmail.com '), true);
     assert.equal(earth2HubPortalVisible('  FishStart@Hotmail.com '), true);
   });
@@ -171,21 +171,18 @@ describe('the hub wiring (static)', () => {
   const gate = read('components/Earth2HubGate.jsx');
   const scene = read('components/HomeScene.jsx');
 
-  it('the scene mounts the gate beside the Omega Arch', () => {
-    assert.ok(scene.includes("import Earth2HubGate from './Earth2HubGate';"), 'imported');
-    assert.ok(scene.includes('<Earth2HubGate'), 'mounted');
-    assert.ok(
-      scene.indexOf('<Earth2HubGate') > scene.indexOf('<OmegaHubGate'),
-      'mounted alongside the Omega Arch'
-    );
+  it('the hub scene retired the 3D door on 2026-10-31 — Earth 2 enters via the chooser', () => {
+    assert.ok(!scene.includes("import Earth2HubGate"), 'door import retired');
+    assert.ok(!scene.includes('<Earth2HubGate'), 'door unmounted from hub space');
+    assert.ok(scene.includes('Earth 2 is reached through the chooser'), 'the retirement note names the chooser entry');
   });
 
-  it('the gate watches the session and renders nothing for non-owners', () => {
+  it('the gate watches the session and renders nothing for signed-out visitors', () => {
     assert.ok(gate.includes("from '@/lib/supabase'"), 'the house session client');
     assert.ok(gate.includes('getSession'), 'reads the current session');
     assert.ok(gate.includes('onAuthStateChange'), 'follows sign-in changes');
     assert.ok(gate.includes('earth2HubPortalVisible(sessionEmail)'), 'the pure decision decides');
-    assert.ok(gate.includes('return null'), 'non-owners get no scene presence at all');
+    assert.ok(gate.includes('return null'), 'signed-out visitors get no scene presence at all');
   });
 
   it('the door opens onto the chamber route and names itself from the module', () => {

@@ -30,6 +30,7 @@ import {
 } from '@/lib/backpack/backpack';
 import { useBackpack, updateBackpack } from '@/lib/backpack/store';
 import { fossilItemsFromRecord, sacCount } from '@/lib/backpack/earth2-bridge';
+import PortalGunCard from '@/components/PortalGunCard';
 
 async function authHeaders() {
   try {
@@ -186,6 +187,10 @@ export default function BackpackSection() {
           <span className="text-xs text-neutral-400">at the Kyber Smith&apos;s crystal forge</span>
         )}
       </div>
+
+      {/* Portal Gun (Merlin, 2026-11-13): earned at 10 portals, fired
+          from the pack — the same card rides in the realm panels. */}
+      <PortalGunCard />
 
       {/* Currency header — real server balances, read live. */}
       <div className="flex flex-wrap gap-2 mb-4" role="list" aria-label="Currency">

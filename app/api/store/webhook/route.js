@@ -19,6 +19,16 @@ import { accrueAffiliateCommission, stripeFeeCents } from '@/lib/affiliates/serv
 import { parseStoreCogsLines, resolveStoreOrderCogs, storeOrderProductKey } from '@/lib/affiliates/costs';
 import { markBaselineOfferRedeemed } from '@/lib/store/custom-creations';
 import { creditCreatorSale, reverseCreatorSale, parseCreatorSale } from '@/lib/store/creator-payouts';
+import {
+  submitPrintfulOrder,
+  resolveFulfillmentItems,
+  parseFulfillmentLines,
+  recipientFromSession,
+  recipientFromStoredShipping,
+  mergeRecipients,
+  missingRecipientFields,
+  FulfillmentError,
+} from '@/lib/store-fulfillment';
 
 export const POST = apiGuard(async function POST(req) {
   const stripeKey = process.env.STRIPE_SECRET_KEY;
@@ -89,7 +99,12 @@ export const POST = apiGuard(async function POST(req) {
           amount_cents: typeof session.amount_total === 'number' ? session.amount_total : undefined,
           stripe_session_id: session.id,
           size: meta.size || undefined,
-          shipping: session.customer_details?.address || session.shipping_details || undefined,
+          // Shipping address for Printful: prefer shipping_details (the
+          // address the buyer gave FOR SHIPPING via
+          // shipping_address_collection) over the billing address in
+          // customer_details. The stored value may be either shape —
+          // lib/store-fulfillment.js reads both.
+          shipping: session.shipping_details || session.customer_details?.address || undefined,
         })
         .eq('stripe_session_id', session.id)
         .eq('status', 'pending_payment')
@@ -100,9 +115,6 @@ export const POST = apiGuard(async function POST(req) {
         console.log(`Store webhook: session ${session.id} already handled.`);
       } else {
         console.log(`Store webhook: order paid (${meta.product_name}${meta.size ? ` ${meta.size}` : ''}, session ${session.id}).`);
-        // NOTE: submitPrintfulOrder() is intentionally NOT called here yet.
-        // See the PRINTFUL FULFILLMENT section below for the chain and what
-        // must be true before it ever runs.
 
         // In-house affiliate hook: 10% of the house's net (revenue -
         // Stripe fees - true Printful COGS, resolved per line below).
@@ -180,6 +192,17 @@ export const POST = apiGuard(async function POST(req) {
           }
         } catch (payErr) {
           console.error('Store webhook: creator payout failed (non-fatal):', payErr?.message || payErr);
+        }
+
+        // Printful fulfillment: the order is paid, so submit it. Runs only
+        // in this branch — the pending->paid flip above is the claim, so a
+        // Stripe redelivery never reaches here and can never double-submit.
+        // Never fails the webhook: fulfillPaidOrder records every outcome
+        // on the order row and logs it; the order stays paid either way.
+        try {
+          await fulfillPaidOrder(admin, session, meta, data[0].id);
+        } catch (fulfillErr) {
+          console.error('Store webhook: fulfillment step threw (order stays paid):', fulfillErr?.message || fulfillErr);
         }
       }
       return Response.json({ ok: true });
@@ -271,44 +294,168 @@ async function handleCreatorReversal(stripe, event) {
 }
 
 // ============================================================================
-// PRINTFUL FULFILLMENT — connection chain (NOT live yet).
+// PRINTFUL FULFILLMENT — live since 2026-11-07 (Merlin's go-ahead).
 //
-// When an order is marked paid above, the NEXT link in the chain is
-// submitPrintfulOrder() — send the order (recipient address from the
-// Stripe shipping_address_collection, size from session metadata) to
-// Printful so the hoodie gets printed and shipped.
+// Runs once per order, only for the delivery that flipped pending -> paid
+// (that update is the claim; a Stripe redelivery never reaches this
+// code, so an order can never submit twice). The real submission lives
+// in lib/store-fulfillment.js: draft (free) then confirm (charges
+// Merlin's Printful account). Token scope note: PRINTFUL_API_KEY is set
+// on Vercel and catalog reads work; if the token lacks order-write
+// scope, POST /orders answers 401/403 and the order is recorded as
+// fulfillment 'failed' (stays paid, loudly logged) for manual follow-up
+// in the Printful dashboard (R.hightechindustries@gmail.com) — never
+// silently dropped, never retried blindly.
 //
-// submitPrintfulOrder() is a STUB and is never called — no real Printful
-// order can be submitted from this code. Wiring it requires ALL of:
-//   (1) a Printful token with order-write scope — PRINTFUL_API_KEY is set on
-//       Vercel (nexus, production + preview) and catalog READS work today,
-//       but order submission (POST /orders) needs the token's permission to
-//       cover order creation. Until that scope is confirmed, fulfillment
-//       stays manual via the Printful dashboard (R.hightechindustries@gmail.com);
-//   (2) Merlin's explicit go-ahead (the no-charges / no-surprise-fulfillment
-//       rule: Printful costs real money per order);
-//   (3) the size -> Printful variant mapping (e.g. hoodie size "L" maps to
-//       Printful's variant id for that product — NO variant ids are
-//       invented here; they come from Printful's catalog once connected).
-//
-// Chain readiness checklist (each link documented, none active):
-//   [x] Stripe Checkout collects the shipping address (checkout route)
-//   [x] webhook marks the order paid + stores the shipping address jsonb
-//   [ ] submitPrintfulOrder wired to the Printful API  <-- blocked on (1)(2)(3)
-//   [ ] store_orders.printful_order_id written back on success
-//   [ ] store_orders.status flipped to 'fulfilled'
-// NOTE (2026-09-29, google-auth agent): unexported — Next.js route files may
-// only export request handlers (GET/POST/...). Kept as a module-local stub
-// for the hoodie-store coordinator to wire up later.
+// Outcomes, all recorded on the store_orders row:
+//   fulfilled        Printful confirmed the order; status -> 'fulfilled',
+//                    printful_order_id + fulfilled_at written back.
+//   draft_only       draft created, confirm failed: the draft waits in
+//                    the Printful dashboard for manual confirmation;
+//                    printful_order_id holds the draft id, status stays
+//                    'paid'.
+//   awaiting_address no usable shipping address (gold-paid orders never
+//                    collect one; a card order with an incomplete address
+//                    lands here too). NOT submitted. Never invent one.
+//   failed           variant resolution or Printful submission failed;
+//                    status stays 'paid', error text on the row.
+// Gold-paid orders never reach this webhook; their awaiting_address mark
+// is set at insert in app/api/store/checkout/route.js, and fulfillment
+// for them starts only once an address is on file (no UI for that yet —
+// see the report note; the address-collection step is the follow-up).
 // ============================================================================
-async function submitPrintfulOrder({ session, meta, orderId } = {}) {
-  console.log(
-    'Printful fulfillment pending: API not connected.',
-    `Would fulfill order ${orderId || '(unknown)'} for session ${session?.id || '(unknown)'}.`
-  );
-  return {
-    ok: false,
-    pending: true,
-    reason: 'Printful API not connected. Needs: (1) Printful connector, (2) Merlin go-ahead, (3) size->variant mapping.',
-  };
+async function fulfillPaidOrder(admin, session, meta, orderId) {
+  // Defense in depth: never submit twice for one order row, even if this
+  // function is ever called from a retry path. Also re-reads the stored
+  // shipping address as a fallback when the session's is incomplete.
+  const { data: row, error: rowError } = await admin
+    .from('store_orders')
+    .select('id, printful_order_id, shipping, amount_cents, currency')
+    .eq('id', orderId)
+    .maybeSingle();
+  if (rowError || !row) {
+    console.error(`Store webhook: fulfillment cannot read order ${orderId}; NOT submitted.`, rowError?.message || '');
+    return;
+  }
+  if (row.printful_order_id) {
+    console.log(`Store webhook: order ${orderId} already has Printful order ${row.printful_order_id}; skipping fulfillment.`);
+    return;
+  }
+
+  // Recipient: session shipping address first, stored shipping fills gaps.
+  let recipient = recipientFromSession(session);
+  let missing = missingRecipientFields(recipient);
+  if (missing.length) {
+    const stored = recipientFromStoredShipping(row.shipping, {
+      name: session?.customer_details?.name || null,
+      email: session?.customer_details?.email || null,
+      phone: session?.customer_details?.phone || null,
+    });
+    if (stored) {
+      recipient = mergeRecipients(recipient, stored);
+      missing = missingRecipientFields(recipient);
+    }
+  }
+  if (missing.length) {
+    await markFulfillment(admin, orderId, {
+      fulfillmentStatus: 'awaiting_address',
+      fulfillmentError: `Missing shipping address (${missing.join(', ')}) — order paid, awaiting an address before Printful fulfillment. Never fulfilled without one.`,
+    });
+    console.error(`Store webhook: order ${orderId} paid but has no usable shipping address (${missing.join(', ')}). Marked awaiting_address; NOT submitted to Printful.`);
+    return;
+  }
+
+  const lines = parseFulfillmentLines(meta);
+  if (!lines) {
+    await markFulfillment(admin, orderId, {
+      fulfillmentStatus: 'failed',
+      fulfillmentError: 'Could not determine the ordered Printful variants from the session metadata.',
+    });
+    console.error(`Store webhook: order ${orderId} has no resolvable fulfillment lines. NOT submitted.`);
+    return;
+  }
+
+  let items;
+  try {
+    items = await resolveFulfillmentItems(lines);
+  } catch (err) {
+    await markFulfillment(admin, orderId, {
+      fulfillmentStatus: 'failed',
+      fulfillmentError: String(err?.message || err).slice(0, 500),
+    });
+    console.error(`Store webhook: order ${orderId} variant resolution failed:`, err?.message || err);
+    return;
+  }
+
+  try {
+    const { printfulOrderId } = await submitPrintfulOrder({
+      orderId,
+      items,
+      recipient,
+      retailCents:
+        typeof row.amount_cents === 'number'
+          ? row.amount_cents
+          : typeof session.amount_total === 'number'
+            ? session.amount_total
+            : 0,
+      currency: row.currency || session.currency || 'cad',
+    });
+    await markFulfillment(admin, orderId, {
+      fulfillmentStatus: 'fulfilled',
+      printfulOrderId,
+      markFulfilled: true,
+    });
+    console.log(`Store webhook: order ${orderId} fulfilled via Printful order ${printfulOrderId}.`);
+  } catch (err) {
+    const draftOnly = err instanceof FulfillmentError && err.draftOnly;
+    await markFulfillment(admin, orderId, {
+      fulfillmentStatus: draftOnly ? 'draft_only' : 'failed',
+      fulfillmentError: String(err?.message || err).slice(0, 500),
+      ...(err && err.printfulOrderId ? { printfulOrderId: String(err.printfulOrderId) } : {}),
+    });
+    console.error(
+      `Store webhook: Printful fulfillment ${draftOnly ? 'draft created, confirm failed' : 'failed'} for order ${orderId}:`,
+      err?.message || err
+    );
+  }
+}
+
+// Write fulfillment state back to the order row. Two updates, deliberately:
+//   (1) pre-existing columns only (status / printful_order_id /
+//       fulfilled_at) — this is the idempotency guard and must never fail
+//       because of a missing new column;
+//   (2) the fulfillment_status / fulfillment_error columns from migration
+//       20261107_store_fulfillment_status.sql — best-effort. Until that
+//       migration runs (Merlin's green-light SQL sequence, before the
+//       deploy goes live) this update fails and is swallowed; the order
+//       is still fulfilled and guarded by (1).
+async function markFulfillment(admin, orderId, { fulfillmentStatus, fulfillmentError, printfulOrderId, markFulfilled } = {}) {
+  try {
+    const patch = {};
+    if (printfulOrderId) patch.printful_order_id = String(printfulOrderId);
+    if (markFulfilled) {
+      patch.status = 'fulfilled';
+      patch.fulfilled_at = new Date().toISOString();
+    }
+    if (Object.keys(patch).length) {
+      const { error } = await admin.from('store_orders').update(patch).eq('id', orderId);
+      if (error) throw error;
+    }
+  } catch (err) {
+    console.error(`Store webhook: fulfillment writeback failed for order ${orderId}:`, err?.message || err);
+  }
+  try {
+    const patch = {};
+    if (fulfillmentStatus) patch.fulfillment_status = fulfillmentStatus;
+    if (fulfillmentError !== undefined) patch.fulfillment_error = fulfillmentError || null;
+    if (Object.keys(patch).length) {
+      const { error } = await admin.from('store_orders').update(patch).eq('id', orderId);
+      if (error) throw error;
+    }
+  } catch (err) {
+    console.log(
+      `Store webhook: fulfillment_status columns not provisioned yet for order ${orderId} (run migration 20261107_store_fulfillment_status.sql):`,
+      err?.message || err
+    );
+  }
 }

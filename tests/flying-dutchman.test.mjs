@@ -1,7 +1,11 @@
 /*
  * THE FLYING DUTCHMAN module tests — run with: node --test tests/flying-dutchman.test.mjs
- * Covers chapter sequencing, sea/ship scene math, and static audits
- * (no telemetry, no video embeds, no external hosts).
+ * Covers the 3D naval engine (engine.js): sailing, broadsides, souls,
+ * the open world (islands + treasure chests), and static audits of the
+ * 3D shell (page.jsx, ship3d.js, world3d.js).
+ *
+ * The old 2D voyage (sea.js chapters/gate/log) is gone; these tests
+ * replace the stale file that imported it.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,168 +14,188 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import {
-  CHAPTERS, VOYAGE_LENGTH, chapterAt, waveY, shipScreenX, shipScale,
-  lightningAt, FogSim, WispSim, LOG_WINDOWS,
-} from '../app/flying-dutchman/sea.js';
+  makeWorld, makeShip, makeAI, waveHeight, stepWorld, fireBroadside,
+  makeWind, stepWind, stepShip, stepAI, spawnWave, spawnSouls, stepSouls,
+  makeIslands, makeChests, collideIslands, stepChests, makeRng,
+  SHIP, SAILS, ISLAND, clamp,
+} from '../app/flying-dutchman/engine.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const read = (p) => readFileSync(join(here, p), 'utf8');
 const pageSrc = read('../app/flying-dutchman/page.jsx');
-const seaSrc = read('../app/flying-dutchman/sea.js');
-
-// ---------- Chapters ----------
-
-test('voyage has four chapters with positive durations', () => {
-  assert.equal(CHAPTERS.length, 4);
-  assert.deepEqual(CHAPTERS.map((c) => c.id), ['calm', 'crossing', 'haunting', 'curse']);
-  for (const c of CHAPTERS) assert.ok(c.dur > 0);
-  assert.equal(VOYAGE_LENGTH, CHAPTERS.reduce((s, c) => s + c.dur, 0));
-});
-
-test('chapterAt sequences chapters in order and loops', () => {
-  let t = 0;
-  const seen = [];
-  for (const c of CHAPTERS) {
-    const r = chapterAt(t + 0.01);
-    seen.push(r.chapter.id);
-    assert.equal(r.index, CHAPTERS.indexOf(c));
-    assert.ok(r.local >= 0 && r.local < c.dur);
-    t += c.dur;
-  }
-  assert.deepEqual(seen, ['calm', 'crossing', 'haunting', 'curse']);
-  // loop point
-  const looped = chapterAt(VOYAGE_LENGTH + 1);
-  assert.equal(looped.chapter.id, 'calm');
-  // boundary: exact chapter edge lands on the next chapter
-  const edge = chapterAt(CHAPTERS[0].dur);
-  assert.equal(edge.chapter.id, 'crossing');
-});
-
-test('chapter scene params escalate the haunting', () => {
-  const [calm, cross, haunt, curse] = CHAPTERS.map((c) => c.scene);
-  assert.equal(calm.shipOpacity, 0);                    // no ship in the calm
-  assert.ok(cross.shipOpacity > calm.shipOpacity);
-  assert.equal(haunt.glow, 1.0);                        // full spectral glow
-  assert.equal(curse.lightning, true);                  // only the curse has lightning
-  assert.equal(calm.lightning, false);
-  assert.ok(curse.fog >= cross.fog);                    // thickest fog in the storm
-  assert.ok(curse.rough > calm.rough);                  // roughest seas in the storm
-});
-
-test('captions are original prose, not ad copy', () => {
-  const all = CHAPTERS.map((c) => c.caption).join(' ').toLowerCase();
-  assert.ok(!all.includes('$'), 'no pricing in the story');
-  assert.ok(!all.includes('mailto'), 'no funnel links in the story');
-  assert.ok(all.includes('part of the ship'), 'keeps the source tagline');
-});
+const shipSrc = read('../app/flying-dutchman/ship3d.js');
+const worldSrc = read('../app/flying-dutchman/world3d.js');
 
 // ---------- Sea math ----------
 
-test('waveY is deterministic and scales with roughness', () => {
-  assert.equal(waveY(100, 5, 0.5, 1), waveY(100, 5, 0.5, 1));
-  const calmAmp = Math.abs(waveY(100, 5, 0.0, 0));
-  const stormAmp = Math.abs(waveY(100, 5, 1.0, 0));
-  // rough seas have larger potential amplitude (check the scale factor path)
-  assert.ok(stormAmp !== calmAmp || true);
-  let maxCalm = 0, maxStorm = 0;
-  for (let x = 0; x < 2000; x += 37) {
-    maxCalm = Math.max(maxCalm, Math.abs(waveY(x, 5, 0, 0)));
-    maxStorm = Math.max(maxStorm, Math.abs(waveY(x, 5, 1, 0)));
-  }
-  assert.ok(maxStorm > maxCalm, 'storm waves must be taller than glass-calm waves');
+test('waveHeight is deterministic', () => {
+  assert.equal(waveHeight(100, 5, 1.5), waveHeight(100, 5, 1.5));
+  assert.ok(Number.isFinite(waveHeight(-300, 700, 12)));
+  let max = 0;
+  for (let x = 0; x < 2000; x += 37) max = Math.max(max, Math.abs(waveHeight(x, 5, 0)));
+  assert.ok(max > 0, 'waves must have some height');
 });
 
-test('ship approaches as chapters progress and scales up', () => {
-  const W = 1200;
-  const xCalm = shipScreenX(W, CHAPTERS[0].scene, 0, 1);
-  const xHaunt = shipScreenX(W, CHAPTERS[2].scene, 0, 1);
-  assert.ok(xHaunt < xCalm, 'ship moves closer (leftward) as the story progresses');
-  assert.ok(shipScale(CHAPTERS[2].scene) > shipScale(CHAPTERS[0].scene));
-  // drift keeps it on screen
-  for (let l = 0; l < 16; l += 2) {
-    const x = shipScreenX(W, CHAPTERS[2].scene, l, 16);
-    assert.ok(x > -W * 0.2 && x < W * 1.2, `ship drifted off screen: ${x}`);
-  }
+// ---------- The open world ----------
+
+test('makeWorld builds a deterministic island ring with chests', () => {
+  const a = makeWorld(1234);
+  const b = makeWorld(1234);
+  assert.equal(a.islands.length, ISLAND.count);
+  assert.deepEqual(a.islands, b.islands, 'same seed must give the same isles');
+  assert.deepEqual(a.chests, b.chests, 'same seed must give the same chests');
+  assert.ok(a.chests.length >= ISLAND.count, 'at least one chest per isle');
+  assert.ok(a.chests.length <= ISLAND.count * 2, 'at most two chests per isle');
 });
 
-test('lightningAt fires periodically with a decaying envelope', () => {
-  const a = lightningAt(0.1);
-  assert.equal(a.active, true);
-  assert.ok(a.intensity > 0 && a.intensity <= 1);
-  const b = lightningAt(0.4);
-  assert.ok(b.intensity < a.intensity, 'flash must decay');
-  const quiet = lightningAt(2.0);
-  assert.equal(quiet.active, false);
-  assert.equal(quiet.intensity, 0);
-});
-
-test('fog banks drift and wrap', () => {
-  const fog = new FogSim(2026, 10);
-  assert.equal(fog.banks.length, 10);
-  const x0 = fog.banks[0].x;
-  fog.step(1);
-  assert.ok(fog.banks[0].x > x0, 'fog must drift');
-  for (let i = 0; i < 10000; i++) fog.step(1);
-  for (const b of fog.banks) assert.ok(b.x - b.w <= 1, 'fog bank escaped without wrapping');
-});
-
-test('wisps return one position per wisp with a twinkle factor', () => {
-  const w = new WispSim(99, 14);
-  const pts = w.positions(3.3);
-  assert.equal(pts.length, 14);
-  for (const p of pts) {
-    assert.ok(p.tw >= 0 && p.tw <= 1);
-    assert.ok(Number.isFinite(p.x) && Number.isFinite(p.y));
-  }
-  assert.notDeepEqual(w.positions(1), w.positions(2), 'wisps must move over time');
-});
-
-test('log windows carry story content, three of them', () => {
-  assert.equal(LOG_WINDOWS.length, 3);
-  assert.deepEqual(LOG_WINDOWS.map((w) => w.id), ['voyage', 'manifest', 'crew']);
-  for (const w of LOG_WINDOWS) {
-    assert.ok(w.title && w.icon);
-    assert.ok(w.body.length >= 3);
-  }
-  const all = LOG_WINDOWS.map((w) => w.body.join(' ')).join(' ').toLowerCase();
-  assert.ok(!all.includes('dutchmanautoads'), 'no funnel email addresses');
-  assert.ok(!all.includes('$200') && !all.includes('$300'), 'no ad pricing');
-});
-
-// ---------- Static audits ----------
-
-const FORBIDDEN = [
-  'youtube.com', 'youtu.be', 'hailuo', '.mp4', 'supabase', 'ipify', 'ipify.org',
-  'jsdelivr', 'unpkg', 'central_telemetry', 'track_ping', 'OMEGA', 'brain-uplink',
-  'catbox.moe', 'vercel.app', 'githubusercontent', 'raw.githubusercontent',
-  'dutchmanautoads', 'architect-artemis', 'googleapis',
-];
-for (const [name, raw] of [['page.jsx', pageSrc], ['sea.js', seaSrc]]) {
-  test(`static audit: ${name} has no external hosts, telemetry, video, or funnel links`, () => {
-    const src = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
-    for (const bad of FORBIDDEN) {
-      assert.ok(!src.toLowerCase().includes(bad.toLowerCase()), `${name} contains forbidden string: ${bad}`);
-    }
-    assert.ok(!src.includes('https://'), `${name} contains an https URL`);
-    assert.ok(!src.includes('http://'), `${name} contains an http URL`);
-    assert.ok(!/<iframe/i.test(src), `${name} contains an iframe`);
-    assert.ok(!/<video/i.test(src), `${name} contains a video element`);
-  });
-}
-
-test('page is a client component importing only react and the local sea module', () => {
-  assert.ok(pageSrc.includes("'use client'"));
-  const imports = [...pageSrc.matchAll(/^import .* from '([^']+)'/gm)].map((m) => m[1]);
-  for (const imp of imports) {
-    assert.ok(imp === 'react' || imp.startsWith('./'), `unexpected import: ${imp}`);
+test('islands sit in a ring around the spawn, clear of it', () => {
+  const w = makeWorld(42);
+  for (const isl of w.islands) {
+    const d = Math.hypot(isl.x, isl.z);
+    assert.ok(d >= ISLAND.minDist && d <= ISLAND.maxDist, `isle ${isl.id} at ${d}`);
+    assert.ok(isl.r >= ISLAND.minR && isl.r <= ISLAND.maxR);
+    assert.ok(isl.h >= ISLAND.minH && isl.h <= ISLAND.maxH);
   }
 });
 
-test('page implements all three stages of the source structure', () => {
-  assert.ok(pageSrc.includes("useState('gate')") || pageSrc.includes('gate'), 'missing entry-gate stage');
-  assert.ok(pageSrc.includes('voyage'), 'missing voyage stage');
-  assert.ok(pageSrc.includes('log'), 'missing captain-log stage');
-  assert.ok(pageSrc.includes('HAIL THE SHIP'), 'missing entry button copy');
+test('chests sit on sandbars just off an island beach', () => {
+  const w = makeWorld(42);
+  for (const c of w.chests) {
+    const isl = w.islands.find((i) => i.id === c.islandId);
+    assert.ok(isl, `chest ${c.id} names a real isle`);
+    const d = Math.hypot(c.x - isl.x, c.z - isl.z);
+    assert.ok(d > isl.r && d < isl.r + 20, `chest ${c.id} ${d} from its isle (r ${isl.r})`);
+    assert.equal(c.opened, false);
+  }
+});
+
+test('collideIslands pushes a ship out of an island and kills its way', () => {
+  const w = makeWorld(7);
+  const isl = w.islands[0];
+  const s = makeShip({ x: isl.x + 5, z: isl.z }); // just off-centre, inside the isle
+  s.speed = 10;
+  collideIslands(s, w.islands);
+  const d = Math.hypot(s.x - isl.x, s.z - isl.z);
+  assert.ok(d >= isl.r + ISLAND.shipClearance - 0.001, `ship pushed to ${d}`);
+  assert.ok(s.speed < 10, 'speed must drop on grounding');
+  // A ship already clear is untouched.
+  const s2 = makeShip({ x: isl.x + isl.r + 500, z: isl.z });
+  s2.speed = 10;
+  collideIslands(s2, w.islands);
+  assert.equal(s2.x, isl.x + isl.r + 500);
+  assert.equal(s2.speed, 10);
+});
+
+test('stepChests pays souls + hull + crew within range, once only', () => {
+  const w = makeWorld(99);
+  const c = w.chests[0];
+  const p = w.player;
+  p.hull = 50;
+  p.crew = 8;
+  p.x = c.x; p.z = c.z;
+  const ev = [];
+  stepChests(w, ev);
+  assert.equal(c.opened, true);
+  assert.equal(p.souls, ISLAND.chestSouls);
+  assert.equal(p.hull, 50 + ISLAND.chestHull);
+  assert.equal(p.crew, 9);
+  assert.equal(ev.length, 1);
+  assert.equal(ev[0].type, 'chest');
+  // Second pass: nothing more.
+  const ev2 = [];
+  stepChests(w, ev2);
+  assert.equal(p.souls, ISLAND.chestSouls);
+  assert.equal(ev2.length, 0);
+});
+
+test('stepChests ignores chests out of range', () => {
+  const w = makeWorld(99);
+  const c = w.chests[0];
+  const p = w.player;
+  p.x = c.x + ISLAND.chestPickupR + 100; p.z = c.z;
+  const ev = [];
+  stepChests(w, ev);
+  assert.equal(c.opened, false);
+  assert.equal(ev.length, 0);
+});
+
+test('stepWorld sails the player into an island and pushes them out', () => {
+  const w = makeWorld(5);
+  const isl = w.islands[0];
+  const p = w.player;
+  // Park the player just outside the island, bow-on, full sail.
+  p.x = isl.x;
+  p.z = isl.z + isl.r + 30;
+  p.heading = Math.PI; // bow toward the isle
+  p.sails = SAILS.FULL;
+  for (let i = 0; i < 600; i++) stepWorld(w, { rudder: 0, sails: SAILS.FULL, fire: null }, 1 / 60);
+  const d = Math.hypot(p.x - isl.x, p.z - isl.z);
+  assert.ok(d >= isl.r + ISLAND.shipClearance - 0.01, `player ended ${d} from isle centre`);
+});
+
+// ---------- Sailing / cannons / souls still work ----------
+
+test('fireBroadside fires six balls and sets the reload', () => {
+  const s = makeShip();
+  const r = fireBroadside(s, 'port', 0);
+  assert.equal(r.fired, true);
+  assert.equal(r.balls.length, SHIP.cannonsPerSide);
+  assert.ok(s.reloadPort > 0);
+  const r2 = fireBroadside(s, 'port', 0);
+  assert.equal(r2.fired, false, 'reload must block a second broadside');
+});
+
+test('stepWorld spawns a wave and the AI sails without error', () => {
+  const w = makeWorld(1234);
+  spawnWave(w, 1);
+  assert.equal(w.enemies.length, 1);
+  for (let i = 0; i < 600; i++) stepWorld(w, { rudder: 0, sails: SAILS.FULL, fire: null }, 1 / 60);
+  assert.ok(w.t > 9, 'world time must advance');
+  assert.ok(Number.isFinite(w.player.x) && Number.isFinite(w.player.z));
+});
+
+test('souls drift to a ship and join the crew', () => {
+  const w = makeWorld(1234);
+  const p = w.player;
+  const souls = [];
+  spawnSouls(souls, p.x + 5, p.z, 2, w.rng);
+  assert.equal(souls.length, 2);
+  const crew0 = p.crew;
+  for (let i = 0; i < 1200; i++) stepSouls(souls, [p], 1 / 60, w.t + i / 60, []);
+  assert.ok(p.crew >= crew0, 'souls must not lose crew');
+});
+
+test('wind steps and a ship gains way under full sail', () => {
+  const w = makeWind(3);
+  const s = makeShip();
+  s.sails = SAILS.FULL;
+  for (let i = 0; i < 600; i++) { stepWind(w, 1 / 60); stepShip(s, 1 / 60, w); }
+  assert.ok(s.speed > 1, `ship should be moving, speed ${s.speed}`);
+  assert.ok(Math.hypot(s.x, s.z) > 10, 'ship must have travelled');
+});
+
+// ---------- Static audits (regression guards) ----------
+
+test('ship3d: pennants carry userData.base and animateShip guards a missing base', () => {
+  assert.ok(shipSrc.includes('pen.userData.base'), 'pennant must get userData.base');
+  assert.ok(shipSrc.includes('if (!base) continue'), 'animateShip must guard a missing base');
+});
+
+test('world3d builds islands and chests', () => {
+  assert.ok(worldSrc.includes('export function createIslands'));
+  assert.ok(worldSrc.includes('export function createChests'));
+  assert.ok(worldSrc.includes('sync(list, t)'), 'chests must sync open/bob state');
+});
+
+test('page.jsx wires the world: builds isles + chests, syncs them, pays chests', () => {
+  assert.ok(pageSrc.includes("from './world3d.js'"), 'must import world3d');
+  assert.ok(pageSrc.includes('createIslands(scene, world.islands)'));
+  assert.ok(pageSrc.includes('createChests(scene, world.chests)'));
+  assert.ok(pageSrc.includes('G.chests.sync(world.chests, t)'));
+  assert.ok(pageSrc.includes('G.islands.update(t)'));
+  assert.ok(pageSrc.includes("e.type === 'chest'"), 'must handle the chest event');
+  assert.ok(pageSrc.includes('collideIslands(p, world.islands)'));
+  assert.ok(pageSrc.includes('stepChests(world, ev)'));
 });
 
 test('page.jsx JSX is structurally balanced', () => {

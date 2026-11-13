@@ -87,8 +87,10 @@ import {
 } from '../lib/earth2/forge.js';
 import {
   OWNER_PORTALS,
+  SIGNED_IN_PORTALS,
   buildPortalRoster,
   withOwnerPortals,
+  withSignedInPortals,
 } from '../lib/portal-roster.js';
 import {
   EARTH2_GUEST_EMAIL,
@@ -417,46 +419,57 @@ describe('the gold forge', () => {
 });
 
 describe('the access lock (static wiring)', () => {
-  it('OWNER_PORTALS holds exactly the Earth 2 entry', () => {
-    assert.equal(OWNER_PORTALS.length, 1);
-    assert.deepEqual(OWNER_PORTALS[0], {
+  it('SIGNED_IN_PORTALS holds exactly the Earth 2 entry; OWNER_PORTALS is empty now', () => {
+    assert.equal(SIGNED_IN_PORTALS.length, 1);
+    assert.deepEqual(SIGNED_IN_PORTALS[0], {
       key: 'earth-2',
       route: '/earth-2',
       section: 'OBSERVATORY',
       title: 'Earth 2',
-      subtitle: 'Phase 2 — owner test build',
+      subtitle: 'Open to all signed-in users',
     });
+    assert.equal(OWNER_PORTALS.length, 0, 'Earth 2 left the owner-only list on 2026-10-31');
   });
 
-  it('withOwnerPortals appends only for the owner', () => {
+  it('withSignedInPortals appends for any signed-in account, never for signed-out', () => {
     const base = buildPortalRoster(
       [{ key: 'mars', route: '/mars', section: 'OBSERVATORY' }],
       () => 'Mars',
       () => ''
     );
     assert.equal(base.length, 1);
-    const asGuest = withOwnerPortals(base, false);
-    assert.equal(asGuest, base); // untouched — the same array
-    assert.ok(!asGuest.some((p) => p.key === 'earth-2'));
-    const asOwner = withOwnerPortals(base, true);
-    assert.equal(asOwner.length, 2);
-    assert.equal(asOwner[1].key, 'earth-2');
-    assert.equal(asOwner[1].route, '/earth-2');
+    const signedOut = withSignedInPortals(base, null);
+    assert.equal(signedOut, base); // untouched — the same array
+    assert.ok(!signedOut.some((p) => p.key === 'earth-2'));
+    const asStranger = withSignedInPortals(base, 'someone.else@example.com');
+    assert.equal(asStranger.length, 2);
+    assert.equal(asStranger[1].key, 'earth-2');
+    assert.equal(asStranger[1].route, '/earth-2');
     // Never duplicated, even if the roster already carries the route.
-    const again = withOwnerPortals(asOwner, true);
+    const again = withSignedInPortals(asStranger, 'someone.else@example.com');
     assert.equal(again.filter((p) => p.route === '/earth-2').length, 1);
   });
 
-  it('every Earth 2 write route verifies the OWNER session — the guest gets no keys', () => {
-    for (const route of ['buy', 'forge', 'rent']) {
+  it('withOwnerPortals still works for the (currently empty) owner-only list', () => {
+    const base = buildPortalRoster(
+      [{ key: 'mars', route: '/mars', section: 'OBSERVATORY' }],
+      () => 'Mars',
+      () => ''
+    );
+    assert.equal(withOwnerPortals(base, false), base);
+    assert.equal(withOwnerPortals(base, true), base); // nothing owner-only right now
+  });
+
+  it('every Earth 2 write route verifies Earth 2 access — any signed-in account, rights-checked inside', () => {
+    for (const route of ['buy', 'forge', 'rent', 'builds', 'builds/claims']) {
       const src = read(`app/api/earth2/${route}/route.js`);
-      assert.ok(src.includes('verifyOwnerSession'), `${route} must call verifyOwnerSession`);
-      assert.ok(!src.includes('verifyEarth2AccessSession'), `${route} must NOT admit the guest`);
-      assert.ok(src.includes("status: 404"), `${route} must 404 for non-owners`);
+      assert.ok(src.includes('verifyEarth2AccessSession'), `${route} must call verifyEarth2AccessSession`);
+      assert.ok(!src.includes('verifyOwnerSession'), `${route} must NOT gate on the owner session`);
+      assert.ok(src.includes("status: 404"), `${route} must 404 for accounts without access`);
     }
   });
 
-  it('the read surfaces (state, model door) verify Earth 2 access — owner or the POC guest', () => {
+  it('the read surfaces (state, model door) verify Earth 2 access — any signed-in account', () => {
     for (const route of ['state', 'model-urls']) {
       const src = read(`app/api/earth2/${route}/route.js`);
       assert.ok(src.includes('verifyEarth2AccessSession'), `${route} must call verifyEarth2AccessSession`);
@@ -471,9 +484,9 @@ describe('the access lock (static wiring)', () => {
     assert.ok(page.includes('This page could not be found.'), 'locked screen is a plain 404');
   });
 
-  it('both portal surfaces feed their roster through withOwnerPortals', () => {
-    assert.ok(read('components/ConcoursePortals.jsx').includes('withOwnerPortals'));
-    assert.ok(read('components/portal-room/PortalRoomGate.jsx').includes('withOwnerPortals'));
+  it('both portal surfaces feed their roster through withSignedInPortals', () => {
+    assert.ok(read('components/ConcoursePortals.jsx').includes('withSignedInPortals'));
+    assert.ok(read('components/portal-room/PortalRoomGate.jsx').includes('withSignedInPortals'));
     assert.ok(read('app/portal-room/page.jsx').includes('PortalRoomGate'));
   });
 
@@ -495,14 +508,14 @@ describe('the proof of concept — two accounts, two parcels (2026-10-23)', () =
   const OWNER = 'olympiannexus@gmail.com';
   const GUEST = EARTH2_GUEST_EMAIL;
 
-  it('access is the owner or the one named guest — nobody else, ever', () => {
+  it('access is any signed-in account — the unlock (Merlin, 2026-10-31)', () => {
     assert.equal(GUEST, 'fishstart@hotmail.com');
     assert.ok(hasEarth2Access(OWNER));
     assert.ok(hasEarth2Access(GUEST));
     assert.ok(isEarth2GuestEmail('  FishStart@Hotmail.com '), 'house email rule (trim + case)');
-    assert.ok(!hasEarth2Access('olympianmeg@gmail.com'), "Merlin's personal account has no Earth 2 access");
-    assert.ok(!hasEarth2Access('someone.else@example.com'));
-    assert.ok(!hasEarth2Access('fishstart@hotmail.com.evil.com'), 'no suffix tricks');
+    assert.ok(hasEarth2Access('olympianmeg@gmail.com'), "Merlin's personal account is a signed-in account");
+    assert.ok(hasEarth2Access('someone.else@example.com'), 'any signed-in account gets in');
+    assert.ok(hasEarth2Access('fishstart@hotmail.com.evil.com'), 'a different signed-in account is still signed in');
     assert.ok(!hasEarth2Access(null) && !hasEarth2Access('') && !hasEarth2Access(undefined));
     assert.ok(!isEarth2GuestEmail(OWNER), 'the owner is not the guest');
   });

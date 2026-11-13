@@ -243,32 +243,6 @@ export function createRenderer(canvas, opts = {}) {
       ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
       ctx.fill();
       ctx.shadowBlur = 0;
-
-      // Tracking reticle — the ball is 8 units wide (~20px on a TV) and its
-      // glow alone washes out against the backdrop art, so until now there
-      // was no visible marker to aim/time flips by. A crisp crosshair ring
-      // rides the ball in serve + play: dark under-stroke for contrast on
-      // bright art, white ring + ticks on top, no shadowBlur dependence.
-      // Static radius under reduced motion; gentle pulse otherwise.
-      const pulse = reducedMotion ? 0 : Math.sin((game.time || 0) * 6) * 1.2;
-      const rr = b.r + 7 + pulse;
-      ctx.lineWidth = 3.4;
-      ctx.strokeStyle = 'rgba(0, 0, 0, 0.65)';
-      ctx.beginPath();
-      ctx.arc(b.x, b.y, rr, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = '#ffffff';
-      ctx.beginPath();
-      ctx.arc(b.x, b.y, rr, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.lineWidth = 2.4;
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-        ctx.beginPath();
-        ctx.moveTo(b.x + dx * (rr + 1.5), b.y + dy * (rr + 1.5));
-        ctx.lineTo(b.x + dx * (rr + 6.5), b.y + dy * (rr + 6.5));
-        ctx.stroke();
-      }
     }
 
     // Event flashes (floating score text)

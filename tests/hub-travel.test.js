@@ -1,6 +1,6 @@
 // tests/hub-travel.test.js — Headless tests for the hub scene rework
-// (2026-09-30): ten god towers RINGING SPAWN (Merlin: spawn must be IN THE
-// MIDDLE of the ten towers, ads visible from spawn), Moon, asteroid field,
+// (2026-09-30): god towers RINGING SPAWN — one per menu (Merlin: spawn must be IN THE
+// MIDDLE of the towers, ads visible from spawn), Moon, asteroid field,
 // travel tuning, nav beacons, cover-fit texture mapping, collision, bike flight.
 // Run: node tests/hub-travel.test.js (from the repo root).
 
@@ -67,27 +67,32 @@ function stripComments(src) {
 const P = (arr) => ({ x: arr[0], y: arr[1], z: arr[2] });
 
 // --- god towers ring spawn --------------------------------------------------------
-// Merlin, 2026-09-30: spawn must be IN THE MIDDLE of the ten Zeus-style
+// Merlin, 2026-09-30: spawn must be IN THE MIDDLE of the Zeus-style
 // category towers, with the ads visible from spawn. One tower per menu
 // category, ringed around ORBIT_CENTER itself — no separate field.
+// (2026-11-12: the towers derive from GOD_MENUS, so there were 10 when
+// this test was written, 12 after HADES landed, and 24 after the 12
+// nether-realms homes — the tests below count N, not 10, and the mean
+// divides by N. The old hardcoded /10 only passed at exactly 10.)
 const towerPositions = GOD_TOWER_SPOTS.map((s) => s.pos);
 t(
-  'spawn is in the middle of the ten towers (mean tower position ≈ spawn)',
+  'spawn is in the middle of the god towers (mean tower position ≈ spawn)',
   (() => {
+    const n = towerPositions.length;
     const mean = towerPositions.reduce(
-      (acc, p) => [acc[0] + p[0] / 10, acc[1] + p[1] / 10, acc[2] + p[2] / 10],
+      (acc, p) => [acc[0] + p[0] / n, acc[1] + p[1] / n, acc[2] + p[2] / n],
       [0, 0, 0]
     );
     return dist3(P(mean), ORBIT_CENTER) < 0.01;
   })()
 );
 t(
-  'exactly one tower per god menu (10), in GOD_MENUS order',
-  GOD_TOWER_SPOTS.length === 10 &&
+  'exactly one tower per god menu, in GOD_MENUS order',
+  GOD_TOWER_SPOTS.length === GOD_MENUS.length &&
     GOD_TOWER_SPOTS.every((s, i) => s.god === GOD_MENUS[i].god)
 );
 t(
-  'all ten towers ring spawn at the tower orbit radius',
+  'all towers ring spawn at the tower orbit radius',
   towerPositions.every(
     (p) => Math.abs(dist3(P(p), ORBIT_CENTER) - TOWER_ORBIT_RADIUS) < 0.01
   )
@@ -440,7 +445,7 @@ t('GodTower registers its own solid collider',
 t('GodTower is memoized around the ad inventory',
   gtSrc.includes('export default memo(GodTower)'));
 const hsSrc2 = stripComments(readFileSync('components/HomeScene.jsx', 'utf8'));
-t('HomeScene mounts 10 GodTowers from GOD_TOWER_SPOTS (one per menu)',
+t('HomeScene mounts GodTowers from GOD_TOWER_SPOTS (one per menu)',
   hsSrc2.includes('GOD_TOWER_SPOTS.map') && hsSrc2.includes('<GodTower'));
 t('HomeScene no longer mounts the five legacy towers',
   !hsSrc2.includes("from './Zeus'") && !hsSrc2.includes("from './Ares'") &&

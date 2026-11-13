@@ -225,11 +225,14 @@ export function buildShip({ ghost = false } = {}) {
         sails.push(sail);
       }
     }
-    // masthead pennant
+    // masthead pennant — a sail-like mesh, so it needs the same
+    // userData.base the ripple loop reads (a pennant without it
+    // black-screens the whole voyage: animateShip reads base[0]).
     const pen = new THREE.Mesh(
       new THREE.PlaneGeometry(1.6, 0.5, 6, 1),
       new THREE.MeshBasicMaterial({ color: ghost ? 0x66c2ff : 0x00ff9d, transparent: true, opacity: 0.85, side: THREE.DoubleSide })
     );
+    pen.userData.base = pen.geometry.attributes.position.array.slice();
     pen.position.set(0.8, 1.2 + md.h + 0.2, md.z);
     g.add(pen);
     sails.push(pen); // ripples like a sail
@@ -329,6 +332,9 @@ export function animateShip(g, t, dt) {
   for (const s of ud.sails) {
     const pos = s.geometry.attributes.position;
     const base = s.userData.base;
+    // A sail-like mesh without a base must never kill the whole frame
+    // (that black-screened the voyage). Skip it and keep sailing.
+    if (!base) continue;
     const deploy = s.userData.deploy ?? 1;
     s.userData.deployCur = (s.userData.deployCur ?? 1) + (deploy - (s.userData.deployCur ?? 1)) * Math.min(1, dt * 2);
     const d = s.userData.deployCur;

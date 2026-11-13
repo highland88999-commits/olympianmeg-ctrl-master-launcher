@@ -8,12 +8,14 @@
 // The decisions themselves are the pure engine's (claimHomestead /
 // releaseClaim run over the live rows), so the route and the
 // chamber's local preview can never disagree about the rules.
-// OWNER-LOCKED like every /api/earth2/* route in the lab phase:
-// non-owners get a 404. Until supabase/earth2-buildings.sql runs,
+// Open to every signed-in account (Merlin, 2026-10-31: Earth 2
+// unlocked for all users). The session is verified through
+// lib/earth2/access.js verifyEarth2AccessSession — the one
+// definition of Earth 2 access. Until supabase/earth2-buildings.sql runs,
 // both verbs answer setupRequired.
 
 import { NextResponse } from 'next/server';
-import { verifyOwnerSession } from '@/lib/owner';
+import { verifyEarth2AccessSession } from '@/lib/earth2/access';
 import { getServiceClient } from '@/lib/economy/supabase';
 import { apiGuard } from '@/lib/api-guard';
 import { noCache } from '@/lib/no-cache';
@@ -44,9 +46,9 @@ function setupRequired() {
   return NextResponse.json({ ok: false, setupRequired: true });
 }
 
-async function requireOwner(req) {
+async function requireEarth2Access(req) {
   const token = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
-  const { user } = await verifyOwnerSession(token).catch(() => ({ user: null }));
+  const { user } = await verifyEarth2AccessSession(token).catch(() => ({ user: null }));
   return user;
 }
 
@@ -78,7 +80,7 @@ async function loadActiveClaim(db, parcelId) {
 }
 
 export const POST = noCache(apiGuard(async function POST(req) {
-  const user = await requireOwner(req);
+  const user = await requireEarth2Access(req);
   if (!user) return notFound();
 
   let body = null;
@@ -131,7 +133,7 @@ export const POST = noCache(apiGuard(async function POST(req) {
 }));
 
 export const DELETE = noCache(apiGuard(async function DELETE(req) {
-  const user = await requireOwner(req);
+  const user = await requireEarth2Access(req);
   if (!user) return notFound();
 
   const parcel = parcelById(new URL(req.url).searchParams.get('parcelId'));
