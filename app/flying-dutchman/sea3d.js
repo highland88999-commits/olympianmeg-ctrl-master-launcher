@@ -7,7 +7,7 @@
 // - Pools: cannonballs, muzzle flashes, splashes, soul wisps.
 
 import * as THREE from 'three';
-import { waveHeight, SHIP } from './engine.js';
+import { waveHeight, SHIP, sinkDropK } from './engine.js';
 
 function radialTexture(inner, outer, size = 128) {
   const c = document.createElement('canvas');
@@ -185,9 +185,11 @@ export function poseShip(group, ship, t) {
   group.rotation.z = -roll * 0.7;
   if (ship.sinking) {
     const k = Math.min(1, ship.sinkT / SHIP.sinkTime);
-    group.position.y -= k * 9;
-    group.rotation.z += k * 0.55;
-    group.rotation.x -= k * 0.3;
+    // Accelerating drop (sinkDropK): the hull slips under early and
+    // the masthead goes last — at k = 1 the whole ship is under water.
+    group.position.y -= sinkDropK(k);
+    group.rotation.z += k * 0.95;
+    group.rotation.x -= k * 0.5;
   }
 }
 
@@ -377,7 +379,8 @@ export function createFirePool(scene, max = 4) {
         const sinkK = Math.min(1, b.k || 0);
         const fade = 1 - sinkK; // flames die as the hull goes under
         const wh = waveHeight(b.x, b.z, t);
-        slot.g.position.set(b.x, wh + 1.5 - sinkK * 9, b.z);
+        // The fire rides the deck down — same drop law as the hull.
+        slot.g.position.set(b.x, wh + 1.5 - sinkDropK(sinkK), b.z);
         for (const f of slot.flames) {
           const fl = 0.75 + 0.25 * Math.sin(t * 11 + f.phase) * Math.sin(t * 5.3 + f.phase * 2);
           const sc = f.base * fl * (0.4 + 0.6 * fade);

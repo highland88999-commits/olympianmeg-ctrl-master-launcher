@@ -25,6 +25,7 @@ export const SHIP = {
   accel: 6.0,
   drag: 0.55,
   maxSpeed: 15,        // m/s running before the wind, full sails
+  reverseMax: 4,       // m/s astern — the helm can back her, slowly
   ballSpeed: 64,       // fast enough that a shot reaches cannonRange
   ballGravity: 9.8,
   ballLife: 6,
@@ -40,11 +41,28 @@ export const SHIP = {
   soulLife: 180,       // seconds a floating soul lasts before fading
   maxFloatingSouls: 60, // cap — souls never accumulate without bound
   sinkTime: 6,
+  sinkDrop: 23,        // m a wreck drops while she goes down — past the
+                       // 20.4 m masthead, so a downed ship truly goes under
+  mastheadY: 20.6,     // m — tallest point of the rig (main-mast pennant);
+                       // the wreck is fully under once the drop passes this
+  anchorTurn: 2.2,     // turn-rate multiplier while anchored (pivot)
+  anchorStop: 12,      // m/s^2 — how fast the anchor kills her way
 };
 
 export const SAILS = { FULL: 'full', BATTLE: 'battle', FURLED: 'furled' };
 const SAIL_FACTOR = { full: 1.0, battle: 0.62, furled: 0.25 };
 const SAIL_TURN = { full: 0.8, battle: 1.0, furled: 1.35 };
+
+/**
+ * How far a wreck has dropped at sink progress k (0 fresh wreck → 1
+ * slipped under). Accelerating: the hull goes under early, the
+ * masthead slips under last. At k = 1 the drop clears the 20.4 m
+ * masthead, so nothing of the ship is left above the water.
+ */
+export function sinkDropK(k) {
+  const c = clamp(k, 0, 1);
+  return c * c * SHIP.sinkDrop;
+}
 
 // ---------------------------------------------------------------------------
 // Small helpers
@@ -124,6 +142,8 @@ export function makeShip({ name = 'Ship', isPlayer = false, x = 0, z = 0, headin
     souls: 0,          // total souls claimed (score)
     sails: SAILS.FULL,
     rudder: 0,         // -1 port .. 1 starboard
+    throttle: 1,       // -1 full astern .. 0 stop .. 1 full ahead
+    anchored: false,   // anchor down: way dies fast, she pivots in place
     reloadPort: 0,
     reloadStbd: 0,
     alive: true,
@@ -160,14 +180,32 @@ export function targetSpeed(ship, wind) {
 
 export function stepShip(ship, dt, wind) {
   if (!ship.alive) {
-    if (ship.sinking) ship.sinkT += dt;
+    if (ship.sinking) {
+      ship.sinkT += dt;
+      // A wreck keeps her way while she goes down — she glides to a
+      // stop instead of freezing dead in the water the moment she dies.
+      ship.speed += clamp(0 - ship.speed, -3 * dt, 3 * dt);
+      ship.vx = Math.sin(ship.heading) * ship.speed;
+      ship.vz = Math.cos(ship.heading) * ship.speed;
+      ship.x += ship.vx * dt;
+      ship.z += ship.vz * dt;
+    }
     return;
   }
-  const tgt = targetSpeed(ship, wind);
-  ship.speed += clamp(tgt - ship.speed, -SHIP.accel * dt, SHIP.accel * dt);
+  // Throttle: 1 = full ahead (the old always-sail behaviour — AI ships
+  // and callers that pass no throttle keep it), 0 = stop, -1 = full
+  // astern at reverseMax. Absent throttle means full ahead.
+  const th = ship.throttle == null ? 1 : clamp(ship.throttle, -1, 1);
+  let tgt;
+  if (ship.anchored) tgt = 0;
+  else if (th >= 0) tgt = targetSpeed(ship, wind) * th;
+  else tgt = th * SHIP.reverseMax;
+  const stop = ship.anchored ? SHIP.anchorStop : SHIP.accel;
+  ship.speed += clamp(tgt - ship.speed, -stop * dt, stop * dt);
   ship.speed *= (1 - SHIP.drag * 0.02 * dt);
-  const turnF = SAIL_TURN[ship.sails] || 1;
-  const spdF = clamp(Math.abs(ship.speed) / 6, 0.25, 1);
+  const turnF = (SAIL_TURN[ship.sails] || 1) * (ship.anchored ? SHIP.anchorTurn : 1);
+  // Anchored she pivots even at zero way; under way she needs way to turn.
+  const spdF = ship.anchored ? 1 : clamp(Math.abs(ship.speed) / 6, 0.25, 1);
   ship.heading = wrapAngle(ship.heading + ship.rudder * SHIP.turnBase * turnF * spdF * dt);
   ship.vx = Math.sin(ship.heading) * ship.speed;
   ship.vz = Math.cos(ship.heading) * ship.speed;
@@ -567,7 +605,7 @@ export function spawnWave(world, count) {
   }
 }
 
-/** One fixed-step tick. Input: { rudder, sails, fire }. */
+/** One fixed-step tick. Input: { rudder, sails, fire, throttle, anchored }. */
 export function stepWorld(world, input, dt) {
   world.t += dt;
   const ev = world.events;
@@ -575,6 +613,9 @@ export function stepWorld(world, input, dt) {
   const p = world.player;
   p.rudder = clamp(input.rudder || 0, -1, 1);
   if (input.sails) p.sails = input.sails;
+  // No throttle in the input means full ahead (the old behaviour).
+  p.throttle = input.throttle == null ? 1 : clamp(input.throttle, -1, 1);
+  p.anchored = !!input.anchored;
   stepShip(p, dt, world.wind);
   collideIslands(p, world.islands);
 

@@ -13,7 +13,7 @@ import {
   makeWorld, spawnWave, stepWorld, makeShip,
   fireBroadside, stepBalls, stepSouls, stepWind, stepShip,
   SHIP, SAILS, reloadTime, waveHeight, clamp, wrapAngle,
-  collideIslands, stepChests,
+  collideIslands, stepChests, sinkDropK,
 } from './engine.js';
 import { buildShip, buildGhostShip, animateShip } from './ship3d.js';
 import {
@@ -150,6 +150,7 @@ export default function DutchmanPage() {
   const [duelError, setDuelError] = useState('');
   const [waitingNote, setWaitingNote] = useState('');
   const [paused, setPaused] = useState(false);
+  const [anchored, setAnchored] = useState(false);
   const [webglFail, setWebglFail] = useState(false);
   const [best, setBest] = useState(0);
 
@@ -342,7 +343,7 @@ export default function DutchmanPage() {
         souls: createSoulPool(scene),
         fire: createFirePool(scene),
       },
-      input: { rudder: 0, joy: 0, keys: { left: false, right: false }, sails: SAILS.FULL, fire: null },
+      input: { rudder: 0, joy: 0, throttle: 0.5, anchored: false, keys: { left: false, right: false }, sails: SAILS.FULL, fire: null },
       cam: { yaw: 0, pitch: 0.34, dist: 36 },
       acc: 0,
       raf: 0,
@@ -362,6 +363,22 @@ export default function DutchmanPage() {
       G.remoteGroup.userData.setCrew(Math.min(G.remote.crew, 12));
       scene.add(G.remoteGroup);
     }
+
+    // Anchor marker: a ⚓ that rides over the bow while anchored, so the
+    // anchored state reads in the 3D view, not just on the button.
+    const anchorTex = (() => {
+      const c = document.createElement('canvas');
+      c.width = c.height = 128;
+      const g = c.getContext('2d');
+      g.font = '96px serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText('⚓', 64, 70);
+      return new THREE.CanvasTexture(c);
+    })();
+    const anchorMark = new THREE.Sprite(new THREE.SpriteMaterial({ map: anchorTex, transparent: true, depthWrite: false }));
+    anchorMark.scale.set(6, 6, 1);
+    anchorMark.visible = false;
+    scene.add(anchorMark);
+    G.anchorMark = anchorMark;
 
     // -- events ----------------------------------------------------------------
     G.handleEvents = (events) => {
@@ -388,14 +405,20 @@ export default function DutchmanPage() {
           if (e.shipId === world.player.id) {
             if (G.mode === 'duel') {
               if (G.sync) G.sync.sendSunk();
-              G.endDuel(false);
+              // The end screen waits until the wreck is under — the
+              // frame loop fires it (see duelEndAt below).
+              G.duelEndAt = world.t + SHIP.sinkTime + 1;
+              G.duelEndWon = false;
             } else {
               addToast('☠ The Dutchman went down with all hands…');
             }
           } else {
             G.sunkCount += 1;
             addToast(`☠ ${e.name || 'Enemy ship'} sunk — claim their souls!`);
-            if (G.mode === 'duel') G.endDuel(true);
+            if (G.mode === 'duel') {
+              G.duelEndAt = world.t + SHIP.sinkTime + 1;
+              G.duelEndWon = true;
+            }
           }
         } else if (e.type === 'soul') {
           // Floating souls pay the same way a chest does — one toast
@@ -443,7 +466,7 @@ export default function DutchmanPage() {
       const fire = input.fire;
       input.fire = null;
       if (G.mode === 'solo') {
-        const events = stepWorld(world, { rudder, sails: input.sails, fire }, step);
+        const events = stepWorld(world, { rudder, sails: input.sails, fire, throttle: input.throttle, anchored: input.anchored }, step);
         G.handleEvents(events);
       } else {
         stepDuel(step, rudder, fire);
@@ -458,6 +481,8 @@ export default function DutchmanPage() {
       const p = world.player;
       p.rudder = clamp(rudder, -1, 1);
       p.sails = G.input.sails;
+      p.throttle = clamp(G.input.throttle == null ? 1 : G.input.throttle, -1, 1);
+      p.anchored = !!G.input.anchored;
       stepShip(p, step, world.wind);
       collideIslands(p, world.islands);
       if (fire && p.alive) {
@@ -547,8 +572,9 @@ export default function DutchmanPage() {
             G.enemyGroups.delete(id);
           }
         }
-        // Solo game over once the wreck settles.
-        if (!p.alive && p.sinkT > 5 && !G.over) {
+        // Solo game over once the wreck has gone under — Merlin should
+        // watch her sink, not get the screen the moment she is holed.
+        if (!p.alive && p.sinkT > SHIP.sinkTime + 1 && !G.over) {
           G.over = true;
           const souls = p.souls;
           const prevBest = getBest();
@@ -595,6 +621,44 @@ export default function DutchmanPage() {
       }
       G.pools.fire.sync(burning, t);
 
+      // The gulp: the moment a wreck's masthead slips under, the sea
+      // swallows her with one last big splash. One per wreck.
+      const gulp = (s) => {
+        if (!s.sinking || s._gulped) return;
+        if (sinkDropK(s.sinkT / SHIP.sinkTime) >= SHIP.mastheadY) {
+          s._gulped = true;
+          G.pools.splash.splash(s.x, s.z, t, true);
+        }
+      };
+      gulp(p);
+      if (G.mode === 'solo') for (const e of world.enemies) gulp(e);
+      else if (G.remote) gulp(G.remote);
+
+      // Anchor marker over the bow, and a splash the moment it drops.
+      if (G.anchorMark) {
+        const show = p.anchored && p.alive;
+        G.anchorMark.visible = show;
+        if (show) {
+          const bx = p.x + Math.sin(p.heading) * 12, bz = p.z + Math.cos(p.heading) * 12;
+          G.anchorMark.position.set(bx, waveHeight(bx, bz, t) + 4 + Math.sin(t * 1.6) * 0.4, bz);
+        }
+      }
+      if (p.anchored && !G._anchorWas) {
+        const bx = p.x + Math.sin(p.heading) * 11, bz = p.z + Math.cos(p.heading) * 11;
+        G.pools.splash.splash(bx, bz, t, true);
+        addToast('⚓ Anchor down — she pivots in place.');
+      } else if (!p.anchored && G._anchorWas) {
+        addToast('⚓ Anchor weighed — under way.');
+      }
+      G._anchorWas = p.anchored;
+
+      // A duel ends once the wreck has gone under, not the instant she
+      // is holed — the loser watches her sink first.
+      if (G.duelEndAt != null && world.t >= G.duelEndAt && !G.over) {
+        G.duelEndAt = null;
+        G.endDuel(G.duelEndWon);
+      }
+
       // Effects.
       G.pools.balls.sync(world.balls, t);
       G.pools.souls.sync(world.souls, t);
@@ -638,6 +702,8 @@ export default function DutchmanPage() {
           windRel: wrapAngle(world.wind.dir - p.heading),
           windStr: world.wind.strength,
           speed: Math.abs(p.speed),
+          signedSpeed: p.speed,
+          anchored: p.anchored,
           sails: p.sails,
           reloadPort: p.reloadPort <= 0 ? 1 : 1 - p.reloadPort / rt,
           reloadStbd: p.reloadStbd <= 0 ? 1 : 1 - p.reloadStbd / rt,
@@ -690,12 +756,15 @@ export default function DutchmanPage() {
     const onKey = (down) => (ev) => {
       if (ev.key === 'ArrowLeft') G.input.keys.left = down;
       else if (ev.key === 'ArrowRight') G.input.keys.right = down;
+      else if (down && ev.key === 'ArrowUp') G.input.throttle = clamp(G.input.throttle + 0.25, -1, 1);
+      else if (down && ev.key === 'ArrowDown') G.input.throttle = clamp(G.input.throttle - 0.25, -1, 1);
+      else if (down && ev.key === ' ') G.input.throttle = 0;
       else if (down && (ev.key === 'q' || ev.key === 'Q')) G.input.fire = 'port';
       else if (down && (ev.key === 'e' || ev.key === 'E')) G.input.fire = 'stbd';
       else if (down && ev.key === '1') G.input.sails = SAILS.FULL;
       else if (down && ev.key === '2') G.input.sails = SAILS.BATTLE;
       else if (down && ev.key === '3') G.input.sails = SAILS.FURLED;
-      if (['ArrowLeft', 'ArrowRight', ' '].includes(ev.key)) ev.preventDefault();
+      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' '].includes(ev.key)) ev.preventDefault();
     };
     const kd = onKey(true), ku = onKey(false);
     window.addEventListener('keydown', kd);
@@ -721,6 +790,8 @@ export default function DutchmanPage() {
     setHud(null);
     setGameOver(null);
     setPaused(false);
+    setAnchored(false);
+    joyState.current = { id: null, dx: 0, dy: 0 }; // fresh helm: throttle back to rest
     G.raf = requestAnimationFrame(frame);
   }
 
@@ -782,12 +853,24 @@ export default function DutchmanPage() {
     setPaused(G.paused);
   }
 
-  // Joystick (helm).
+  // Anchor: drop it to stop dead and pivot in place; weigh it to sail on.
+  function toggleAnchor() {
+    const G = gameRef.current;
+    if (!G || G.paused || G.over || !G.world.player.alive) return;
+    G.input.anchored = !G.input.anchored;
+    setAnchored(G.input.anchored);
+  }
+
+  // Joystick (helm): left/right steers; up/down is the throttle — push
+  // up for way ahead, pull down to brake, stop, then back her astern.
+  // The rudder springs back to centre on release; the throttle stays
+  // where you leave it, like a real throttle lever, so letting go of
+  // the stick does not kill your way.
   const joyRef = useRef(null);
-  const joyState = useRef({ id: null, dx: 0 });
+  const joyState = useRef({ id: null, dx: 0, dy: 0 });
   const [, setJoyTick] = useState(0);
   function joyStart(e) {
-    joyState.current = { id: e.pointerId, dx: 0 };
+    joyState.current = { id: e.pointerId, dx: 0, dy: joyState.current.dy || 0 };
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
   }
   function joyMove(e) {
@@ -795,16 +878,21 @@ export default function DutchmanPage() {
     if (s.id !== e.pointerId || !joyRef.current) return;
     const rect = joyRef.current.getBoundingClientRect();
     const dx = e.clientX - (rect.left + rect.width / 2);
+    const dy = e.clientY - (rect.top + rect.height / 2);
     s.dx = clamp(dx / (rect.width / 2), -1, 1);
+    s.dy = clamp(dy / (rect.height / 2), -1, 1);
     const G = gameRef.current;
-    if (G) G.input.joy = s.dx;
+    if (G) {
+      G.input.joy = s.dx;
+      G.input.throttle = -s.dy; // up = ahead, down = astern
+    }
     setJoyTick((n) => n + 1);
   }
   function joyEnd(e) {
     if (joyState.current.id !== e.pointerId) return;
-    joyState.current = { id: null, dx: 0 };
+    joyState.current = { id: null, dx: 0, dy: joyState.current.dy || 0 };
     const G = gameRef.current;
-    if (G) G.input.joy = 0;
+    if (G) G.input.joy = 0; // throttle stays where the lever was left
     setJoyTick((n) => n + 1);
   }
 
@@ -834,120 +922,155 @@ export default function DutchmanPage() {
 
       {screen === 'game' && hud && (
         <>
-          {/* HUD top-left: hull, crew, souls */}
-          <div className="absolute left-3 top-3 z-10 w-44 rounded-xl border border-zinc-800 bg-black/55 p-2 backdrop-blur">
-            <div className="mb-1 flex items-center justify-between text-[10px] tracking-widest text-zinc-400">
-              <span>HULL</span><span>{hud.hull}/{hud.maxHull}</span>
-            </div>
-            <div className="h-2.5 overflow-hidden rounded-full bg-zinc-800">
-              <div
-                className={`h-full rounded-full ${hud.hull > 50 ? 'bg-emerald-400' : hud.hull > 25 ? 'bg-amber-400' : 'bg-red-500'}`}
-                style={{ width: `${(hud.hull / hud.maxHull) * 100}%` }}
-              />
-            </div>
-            <div className="mt-1.5 flex justify-between text-[11px] text-zinc-300">
-              <span>👻 {hud.crew} crew</span>
-              <span>💀 {hud.souls} souls</span>
-            </div>
-            <div className="mt-1.5 grid grid-cols-2 gap-1">
-              <div>
-                <p className="text-[9px] tracking-widest text-zinc-500">PORT</p>
-                <div className="h-1.5 rounded-full bg-zinc-800"><div className="h-full rounded-full bg-sky-400" style={{ width: `${hud.reloadPort * 100}%` }} /></div>
-              </div>
-              <div>
-                <p className="text-[9px] tracking-widest text-zinc-500">STBD</p>
-                <div className="h-1.5 rounded-full bg-zinc-800"><div className="h-full rounded-full bg-sky-400" style={{ width: `${hud.reloadStbd * 100}%` }} /></div>
-              </div>
-            </div>
-            {hud.enemyHull != null && (
-              <div className="mt-1.5">
-                <p className="text-[9px] tracking-widest text-red-300/80">RIVAL HULL {hud.enemyHull}</p>
-                <div className="h-1.5 rounded-full bg-zinc-800"><div className="h-full rounded-full bg-red-500" style={{ width: `${hud.enemyHull}%` }} /></div>
-              </div>
-            )}
-            {hud.foeHull && (
-              <div className="mt-1.5">
-                <p className="text-[9px] tracking-widest text-orange-300/80">FOE — {hud.foeHull.name.toUpperCase()} {hud.foeHull.hull}</p>
-                <div className="h-1.5 rounded-full bg-zinc-800"><div className="h-full rounded-full bg-orange-500" style={{ width: `${(hud.foeHull.hull / hud.foeHull.maxHull) * 100}%` }} /></div>
-              </div>
-            )}
-          </div>
-
-          {/* top-center: wave / duel + toasts */}
-          <div className="absolute left-1/2 top-3 z-10 -translate-x-1/2 text-center">
-            <p className="rounded-full border border-zinc-800 bg-black/55 px-4 py-1 text-[11px] font-black tracking-[0.3em] text-amber-200/90 backdrop-blur">
-              {mode === 'solo' ? (hud.wave > 0 ? `WAVE ${hud.wave}` : 'THE CURSED SEA') : '⚔ DUEL'}
-            </p>
-            <div className="mt-2 flex flex-col items-center gap-1">
-              {toasts.map((t) => (
-                <p key={t.id} className="rounded-full bg-black/70 px-3 py-1 text-xs text-emerald-200 backdrop-blur">{t.text}</p>
-              ))}
-            </div>
-          </div>
-
-          {/* pause */}
-          <button
-            type="button" onClick={togglePause} aria-label={paused ? 'Resume' : 'Pause'}
-            className="absolute right-3 top-3 z-10 flex h-11 w-11 items-center justify-center rounded-full border border-zinc-700 bg-black/55 text-lg backdrop-blur"
+          {/* Top bar: one flex row — hull panel, wave pill, pause.
+              Everything lives inside the row, so nothing can run off
+              the left or right edge on a phone. */}
+          <div
+            className="absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-2"
+            style={{
+              paddingLeft: 'max(8px, env(safe-area-inset-left))',
+              paddingRight: 'max(8px, env(safe-area-inset-right))',
+              paddingTop: 'max(8px, env(safe-area-inset-top))',
+            }}
           >
-            {paused ? '▶' : '❚❚'}
-          </button>
+            {/* hull, crew, souls */}
+            <div className="w-40 flex-none rounded-xl border border-zinc-800 bg-black/55 p-2 backdrop-blur">
+              <div className="mb-1 flex items-center justify-between text-[10px] tracking-widest text-zinc-400">
+                <span>HULL</span><span>{hud.hull}/{hud.maxHull}</span>
+              </div>
+              <div className="h-2.5 overflow-hidden rounded-full bg-zinc-800">
+                <div
+                  className={`h-full rounded-full ${hud.hull > 50 ? 'bg-emerald-400' : hud.hull > 25 ? 'bg-amber-400' : 'bg-red-500'}`}
+                  style={{ width: `${(hud.hull / hud.maxHull) * 100}%` }}
+                />
+              </div>
+              <div className="mt-1.5 flex justify-between text-[11px] text-zinc-300">
+                <span>👻 {hud.crew} crew</span>
+                <span>💀 {hud.souls} souls</span>
+              </div>
+              <div className="mt-1.5 grid grid-cols-2 gap-1">
+                <div>
+                  <p className="text-[9px] tracking-widest text-zinc-500">PORT</p>
+                  <div className="h-1.5 rounded-full bg-zinc-800"><div className="h-full rounded-full bg-sky-400" style={{ width: `${hud.reloadPort * 100}%` }} /></div>
+                </div>
+                <div>
+                  <p className="text-[9px] tracking-widest text-zinc-500">STBD</p>
+                  <div className="h-1.5 rounded-full bg-zinc-800"><div className="h-full rounded-full bg-sky-400" style={{ width: `${hud.reloadStbd * 100}%` }} /></div>
+                </div>
+              </div>
+              {hud.enemyHull != null && (
+                <div className="mt-1.5">
+                  <p className="text-[9px] tracking-widest text-red-300/80">RIVAL HULL {hud.enemyHull}</p>
+                  <div className="h-1.5 rounded-full bg-zinc-800"><div className="h-full rounded-full bg-red-500" style={{ width: `${hud.enemyHull}%` }} /></div>
+                </div>
+              )}
+              {hud.foeHull && (
+                <div className="mt-1.5">
+                  <p className="text-[9px] tracking-widest text-orange-300/80">FOE — {hud.foeHull.name.toUpperCase()} {hud.foeHull.hull}</p>
+                  <div className="h-1.5 rounded-full bg-zinc-800"><div className="h-full rounded-full bg-orange-500" style={{ width: `${(hud.foeHull.hull / hud.foeHull.maxHull) * 100}%` }} /></div>
+                </div>
+              )}
+            </div>
 
-          {/* helm joystick */}
-          <div className="absolute bottom-6 left-4 z-10">
-            <div
-              ref={joyRef}
-              onPointerDown={joyStart} onPointerMove={joyMove} onPointerUp={joyEnd} onPointerCancel={joyEnd}
-              className="relative h-28 w-28 rounded-full border border-zinc-700 bg-black/45 backdrop-blur"
-              style={{ touchAction: 'none' }} aria-label="Helm"
+            {/* wave / duel */}
+            <div className="flex min-w-0 flex-1 flex-col items-center pt-1">
+              <p className="rounded-full border border-zinc-800 bg-black/55 px-2 py-1 text-[10px] font-black tracking-[0.15em] text-amber-200/90 backdrop-blur">
+                {mode === 'solo' ? (hud.wave > 0 ? `WAVE ${hud.wave}` : 'THE CURSED SEA') : '⚔ DUEL'}
+              </p>
+            </div>
+
+            {/* pause */}
+            <button
+              type="button" onClick={togglePause} aria-label={paused ? 'Resume' : 'Pause'}
+              className="flex h-11 w-11 flex-none items-center justify-center rounded-full border border-zinc-700 bg-black/55 text-lg backdrop-blur"
             >
+              {paused ? '▶' : '❚❚'}
+            </button>
+          </div>
+
+          {/* toasts: centred above the bottom controls, clear of the HUD
+              (they used to stack over the hull panel). */}
+          <div className="pointer-events-none absolute inset-x-0 bottom-[188px] z-10 flex flex-col items-center gap-1 px-4">
+            {toasts.map((t) => (
+              <p key={t.id} className="max-w-full rounded-full bg-black/70 px-3 py-1 text-center text-xs text-emerald-200 backdrop-blur">{t.text}</p>
+            ))}
+          </div>
+
+          {/* Bottom bar: one flex row — helm, sails + anchor, cannons.
+              Sized to fit a 390 px phone: 96 + 88 fixed clusters, the
+              middle takes what is left, nothing runs off either edge. */}
+          <div
+            className="absolute inset-x-0 bottom-0 z-10 flex items-end justify-between gap-2"
+            style={{
+              paddingLeft: 'max(8px, env(safe-area-inset-left))',
+              paddingRight: 'max(8px, env(safe-area-inset-right))',
+              paddingBottom: 'max(8px, env(safe-area-inset-bottom))',
+            }}
+          >
+            {/* helm joystick */}
+            <div className="flex flex-none flex-col items-center gap-1">
               <div
-                className="absolute left-1/2 top-1/2 h-12 w-12 rounded-full bg-emerald-500/70"
-                style={{ transform: `translate(calc(-50% + ${joyState.current.dx * 32}px), -50%)` }}
-              />
-              <p className="absolute -bottom-5 w-full text-center text-[9px] tracking-[0.3em] text-zinc-500">HELM</p>
+                ref={joyRef}
+                onPointerDown={joyStart} onPointerMove={joyMove} onPointerUp={joyEnd} onPointerCancel={joyEnd}
+                className="relative h-24 w-24 rounded-full border border-zinc-700 bg-black/45 backdrop-blur"
+                style={{ touchAction: 'none' }} aria-label="Helm"
+              >
+                <div
+                  className="absolute left-1/2 top-1/2 h-10 w-10 rounded-full bg-emerald-500/70"
+                  style={{ transform: `translate(calc(-50% + ${joyState.current.dx * 28}px), calc(-50% + ${joyState.current.dy * 28}px))` }}
+                />
+              </div>
+              <p className="text-[9px] tracking-[0.3em] text-zinc-500">HELM</p>
             </div>
-          </div>
 
-          {/* sails + wind compass */}
-          <div className="absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 flex-col items-center gap-2">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full border border-zinc-700 bg-black/55 backdrop-blur" aria-label="Wind compass">
-              <svg width="52" height="52" viewBox="0 0 52 52">
-                <circle cx="26" cy="26" r="23" fill="none" stroke="#3f3f46" strokeWidth="1.5" />
-                <text x="26" y="10" textAnchor="middle" fill="#71717a" fontSize="8">N</text>
-                <g transform={`rotate(${windDeg} 26 26)`}>
-                  <line x1="26" y1="26" x2="26" y2="8" stroke="#34d399" strokeWidth="2.5" />
-                  <polygon points="26,4 22.5,10 29.5,10" fill="#34d399" />
-                </g>
-                <polygon points="26,20 22,32 30,32" fill="#e4e4e7" />
-                <text x="26" y="46" textAnchor="middle" fill="#52525b" fontSize="7">WIND</text>
-              </svg>
+            {/* sails + anchor + wind compass */}
+            <div className="flex min-w-0 flex-1 flex-col items-center gap-1.5">
+              <div className="flex h-14 w-14 items-center justify-center rounded-full border border-zinc-700 bg-black/55 backdrop-blur" aria-label="Wind compass">
+                <svg width="52" height="52" viewBox="0 0 52 52">
+                  <circle cx="26" cy="26" r="23" fill="none" stroke="#3f3f46" strokeWidth="1.5" />
+                  <text x="26" y="10" textAnchor="middle" fill="#71717a" fontSize="8">N</text>
+                  <g transform={`rotate(${windDeg} 26 26)`}>
+                    <line x1="26" y1="26" x2="26" y2="8" stroke="#34d399" strokeWidth="2.5" />
+                    <polygon points="26,4 22.5,10 29.5,10" fill="#34d399" />
+                  </g>
+                  <polygon points="26,20 22,32 30,32" fill="#e4e4e7" />
+                  <text x="26" y="46" textAnchor="middle" fill="#52525b" fontSize="7">WIND</text>
+                </svg>
+              </div>
+              <button
+                type="button" onClick={toggleAnchor} aria-pressed={anchored}
+                className={`rounded-xl border px-3 py-2.5 text-xs font-black tracking-[0.2em] backdrop-blur ${anchored ? 'border-amber-300 bg-amber-400/90 text-black' : 'border-amber-400/50 bg-black/55 text-amber-200'}`}
+              >
+                {anchored ? '⚓ WEIGH ANCHOR' : '⚓ ANCHOR'}
+              </button>
+              <button
+                type="button" onClick={cycleSails}
+                className="rounded-xl border border-amber-400/50 bg-black/55 px-3 py-2.5 text-xs font-black tracking-[0.2em] text-amber-200 backdrop-blur"
+              >
+                ⛵ {hud ? SAIL_LABEL[hud.sails] : ''}
+              </button>
+              <p className="text-[10px] text-zinc-500">
+                {anchored ? '⚓ ANCHORED' : hud ? `${Math.round(hud.speed)} kn${hud.signedSpeed < -0.5 ? ' ◂ ASTERN' : ''}` : ''}
+              </p>
             </div>
-            <button
-              type="button" onClick={cycleSails}
-              className="rounded-xl border border-amber-400/50 bg-black/55 px-4 py-2.5 text-xs font-black tracking-[0.2em] text-amber-200 backdrop-blur"
-            >
-              ⛵ {hud ? SAIL_LABEL[hud.sails] : ''}
-            </button>
-            <p className="text-[10px] text-zinc-500">{hud ? `${Math.round(hud.speed)} kn` : ''}</p>
-          </div>
 
-          {/* cannons */}
-          <div className="absolute bottom-6 right-4 z-10 flex flex-col gap-2">
-            <button
-              type="button" onPointerDown={() => fire('port')}
-              className="h-16 w-24 rounded-xl border border-sky-400/60 bg-sky-950/60 text-sm font-black tracking-widest text-sky-200 active:bg-sky-800/70"
-              style={{ touchAction: 'none' }}
-            >
-              ◀ PORT
-            </button>
-            <button
-              type="button" onPointerDown={() => fire('stbd')}
-              className="h-16 w-24 rounded-xl border border-sky-400/60 bg-sky-950/60 text-sm font-black tracking-widest text-sky-200 active:bg-sky-800/70"
-              style={{ touchAction: 'none' }}
-            >
-              STBD ▶
-            </button>
+            {/* cannons */}
+            <div className="flex flex-none flex-col gap-2">
+              <button
+                type="button" onPointerDown={() => fire('port')}
+                className="h-14 w-[88px] rounded-xl border border-sky-400/60 bg-sky-950/60 text-sm font-black tracking-widest text-sky-200 active:bg-sky-800/70"
+                style={{ touchAction: 'none' }}
+              >
+                ◀ PORT
+              </button>
+              <button
+                type="button" onPointerDown={() => fire('stbd')}
+                className="h-14 w-[88px] rounded-xl border border-sky-400/60 bg-sky-950/60 text-sm font-black tracking-widest text-sky-200 active:bg-sky-800/70"
+                style={{ touchAction: 'none' }}
+              >
+                STBD ▶
+              </button>
+            </div>
           </div>
 
           {/* pause overlay */}

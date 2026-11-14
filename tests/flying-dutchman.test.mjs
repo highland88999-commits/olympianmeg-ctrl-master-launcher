@@ -17,7 +17,7 @@ import {
   makeWorld, makeShip, makeAI, waveHeight, stepWorld, fireBroadside,
   makeWind, stepWind, stepShip, stepAI, spawnWave, spawnSouls, stepSouls,
   makeIslands, makeChests, collideIslands, stepChests, makeRng,
-  stepBalls, damageShip, distToCenterline2,
+  stepBalls, damageShip, distToCenterline2, targetSpeed, sinkDropK,
   SHIP, SAILS, ISLAND, clamp,
 } from '../app/flying-dutchman/engine.js';
 
@@ -287,6 +287,129 @@ test('a close fight wrecks an AI ship in about a minute of action', () => {
   assert.ok(broadsides >= 5, 'several broadsides, not one lucky shot');
 });
 
+// ---------- Helm: the joystick drives forwards and back (Merlin, 2026-11-14)
+//
+// The 35 s video showed the stick steering only — speed was fully
+// automatic. Now the stick's up/down axis is the throttle: push up for
+// way ahead, pull down to brake, stop, then back her astern. The
+// throttle stays where you leave it (a lever, not a spring) and the
+// rudder still springs back to centre.
+
+test('throttle drives the ship: full ahead, half at rest, astern in reverse', () => {
+  // Fixed running wind: dead astern, strength 1 — target is full speed.
+  const wind = { dir: 0, strength: 1, _t: 0 };
+  const tgt = targetSpeed(makeShip({ crew: 8 }), wind); // ~15.6 m/s
+  assert.ok(tgt > 14, `running target should be near max, got ${tgt}`);
+
+  const ahead = makeShip({ crew: 8 });
+  ahead.throttle = 1;
+  for (let i = 0; i < 600; i++) stepShip(ahead, 1 / 60, wind);
+  assert.ok(ahead.speed > 14, `full ahead should reach target, got ${ahead.speed}`);
+
+  const half = makeShip({ crew: 8 });
+  half.throttle = 0.5;
+  for (let i = 0; i < 600; i++) stepShip(half, 1 / 60, wind);
+  assert.ok(half.speed > 6.5 && half.speed < 9, `half throttle should hold half way, got ${half.speed}`);
+
+  const stopped = makeShip({ crew: 8 });
+  stopped.throttle = 0;
+  for (let i = 0; i < 600; i++) stepShip(stopped, 1 / 60, wind);
+  assert.ok(Math.abs(stopped.speed) < 0.1, `zero throttle should hold her still, got ${stopped.speed}`);
+
+  const astern = makeShip({ crew: 8 });
+  astern.throttle = -1;
+  for (let i = 0; i < 600; i++) stepShip(astern, 1 / 60, wind);
+  assert.ok(astern.speed < -3.5 && astern.speed > -4.5, `full astern should back at reverseMax, got ${astern.speed}`);
+});
+
+test('no throttle in the input keeps the old full-ahead behaviour', () => {
+  const w = makeWorld(5);
+  const isl = w.islands[0];
+  const p = w.player;
+  p.x = isl.x;
+  p.z = isl.z + isl.r + 30;
+  p.heading = Math.PI;
+  p.sails = SAILS.FULL;
+  for (let i = 0; i < 600; i++) stepWorld(w, { rudder: 0, sails: SAILS.FULL, fire: null }, 1 / 60);
+  const d = Math.hypot(p.x - isl.x, p.z - isl.z);
+  assert.ok(d >= isl.r + ISLAND.shipClearance - 0.01, `player must still reach the isle, ended ${d}`);
+});
+
+test('pulling the stick down brakes, then backs her', () => {
+  const wind = { dir: 0, strength: 1, _t: 0 };
+  const s = makeShip({ crew: 8 });
+  s.speed = 10;
+  s.throttle = -1;
+  for (let i = 0; i < 60; i++) stepShip(s, 1 / 60, wind);
+  assert.ok(s.speed < 5, `one second of reverse throttle should brake hard, got ${s.speed}`);
+  for (let i = 0; i < 240; i++) stepShip(s, 1 / 60, wind);
+  assert.ok(s.speed < -3, `she should be moving astern after 5 s, got ${s.speed}`);
+});
+
+// ---------- Anchor: drop it to pivot, weigh it to sail (Merlin, 2026-11-14)
+
+test('the anchor kills her way fast and lets her pivot at zero speed', () => {
+  const wind = { dir: 0, strength: 1, _t: 0 };
+  const s = makeShip({ crew: 8 });
+  s.speed = 12;
+  s.rudder = 1;
+  s.anchored = true;
+  s.throttle = 1;
+  for (let i = 0; i < 120; i++) stepShip(s, 1 / 60, wind);
+  assert.ok(Math.abs(s.speed) < 0.5, `anchored she should be dead in the water, got ${s.speed}`);
+  // Turn rate anchored: 0.55 * 0.8 (full sail) * 2.2 (anchor) * 1 (full
+  // authority at zero way) ≈ 0.97 rad/s — a sharp pivot, not a drift.
+  assert.ok(s.heading > 1.5, `anchored she should pivot sharply, turned ${s.heading} rad in 2 s`);
+});
+
+test('anchored she stays stopped even at full throttle', () => {
+  const wind = { dir: 0, strength: 1, _t: 0 };
+  const s = makeShip({ crew: 8 });
+  s.anchored = true;
+  s.throttle = 1;
+  for (let i = 0; i < 300; i++) stepShip(s, 1 / 60, wind);
+  assert.ok(Math.abs(s.speed) < 0.5, `anchored + full throttle must stay stopped, got ${s.speed}`);
+});
+
+test('firing while anchored is allowed', () => {
+  const s = makeShip({ crew: 8 });
+  s.anchored = true;
+  const r = fireBroadside(s, 'port', 0);
+  assert.equal(r.fired, true, 'the guns must still fire at anchor');
+  assert.equal(r.balls.length, SHIP.cannonsPerSide);
+});
+
+// ---------- Sinking: downed ships actually go under (Merlin, 2026-11-14)
+//
+// The old wreck dropped 9 m in 6 s, but the main masthead stands
+// 20.6 m above the water — the masts never went under, and the enemy
+// then popped out of existence. Now the drop clears the masthead,
+// the hull goes under early and the masthead last, and the wreck
+// keeps her way while she goes down.
+
+test('a wreck keeps her way while she goes down', () => {
+  const wind = { dir: 0, strength: 1, _t: 0 };
+  const s = makeShip({ crew: 8 });
+  s.speed = 10;
+  damageShip(s, 200, [], [], () => 0.5, 0, 0);
+  assert.equal(s.alive, false);
+  for (let i = 0; i < 60; i++) stepShip(s, 1 / 60, wind);
+  assert.ok(s.sinkT > 0.9, 'the wreck must settle over time');
+  assert.ok(s.z > 5, `a wreck should glide forward as she sinks, moved ${s.z} m`);
+  assert.ok(s.speed < 10 && s.speed > 0, `her way should decay, not freeze, speed ${s.speed}`);
+});
+
+test('sinkDropK puts the hull under early and the masthead under last', () => {
+  assert.equal(sinkDropK(0), 0);
+  // Deck and rails (~5 m) are under by 60% of the sink.
+  assert.ok(sinkDropK(0.6) > 5, `deck should be under by k=0.6, drop ${sinkDropK(0.6)}`);
+  // The masthead (20.6 m) is still up at k = 0.94 and under at k = 0.95.
+  assert.ok(sinkDropK(0.94) < SHIP.mastheadY, 'masthead must still stand at k=0.94');
+  assert.ok(sinkDropK(0.95) >= SHIP.mastheadY, 'masthead must be under by k=0.95');
+  assert.ok(sinkDropK(1) > SHIP.mastheadY, 'nothing of the ship may be left above water');
+  assert.equal(sinkDropK(1), SHIP.sinkDrop);
+});
+
 test('floating souls cap, last three minutes, and collect at chest range', () => {
   const souls = [];
   spawnSouls(souls, 0, 0, 100, () => 0.5);
@@ -391,6 +514,39 @@ test('page.jsx wires wreck fires, soul feedback, and the foe hull bar', () => {
   assert.ok(pageSrc.includes("e.type === 'soul'"), 'must handle the soul event');
   assert.ok(pageSrc.includes('foeHull'), 'must show the nearest foe hull in solo');
   assert.ok(pageSrc.includes('FOE —'), 'must label the foe hull bar');
+});
+
+test('page.jsx wires the helm throttle, the anchor, and the fitting HUD', () => {
+  // Joystick: two axes — rudder plus a sticky throttle lever.
+  assert.ok(pageSrc.includes('G.input.throttle = -s.dy'), 'stick up/down must drive the throttle');
+  assert.ok(pageSrc.includes('dy: joyState.current.dy'), 'the stick must keep its throttle setting on release');
+  assert.ok(pageSrc.includes('throttle: 0.5'), 'the stick at rest must mean half way, not dead stop');
+  assert.ok(pageSrc.includes("ev.key === 'ArrowUp'"), 'keyboard must trim the throttle too');
+  // Anchor: button, state, 3D marker, and the engine hookup.
+  assert.ok(pageSrc.includes('toggleAnchor'), 'must have an anchor toggle');
+  assert.ok(pageSrc.includes('⚓ ANCHOR'), 'must show an anchor button');
+  assert.ok(pageSrc.includes('aria-pressed={anchored}'), 'the anchor button must read its state');
+  assert.ok(pageSrc.includes('G.anchorMark'), 'the anchored state must read in the 3D view');
+  assert.ok(pageSrc.includes('anchored: input.anchored'), 'solo must pass the anchor to the engine');
+  assert.ok(pageSrc.includes('p.anchored = !!G.input.anchored'), 'duels must pass the anchor too');
+  assert.ok(pageSrc.includes("e.type === 'sunk'") && pageSrc.includes('duelEndAt'), 'a duel must end after the wreck goes under, not on the hit');
+  // Sinking: the game-over screen waits until the wreck is under.
+  assert.ok(pageSrc.includes('p.sinkT > SHIP.sinkTime + 1'), 'the solo game-over must wait for the ship to go under');
+  assert.ok(pageSrc.includes('sinkDropK(s.sinkT / SHIP.sinkTime) >= SHIP.mastheadY'), 'the gulp splash must fire as the masthead slips under');
+  // Layout: one flex row top, one flex row bottom, safe-area insets —
+  // and none of the old absolute clusters that ran off the phone edges.
+  assert.ok(!pageSrc.includes('absolute bottom-6 left-4'), 'the old clipped joystick cluster must be gone');
+  assert.ok(!pageSrc.includes('absolute bottom-6 right-4'), 'the old clipped cannon cluster must be gone');
+  assert.ok(!pageSrc.includes('absolute left-1/2 top-3'), 'the old centred pill that collided with the panel must be gone');
+  assert.ok(pageSrc.includes('env(safe-area-inset-left)'), 'the HUD must respect the phone safe area');
+  assert.ok(pageSrc.includes('bottom-[188px]'), 'toasts must sit clear of the bottom controls');
+});
+
+test('sea3d drops wrecks and their fires on the same law', () => {
+  const seaSrc = read('../app/flying-dutchman/sea3d.js');
+  assert.ok(seaSrc.includes('sinkDropK(k)'), 'poseShip must drop the wreck on the sink law');
+  assert.ok(seaSrc.includes('sinkDropK(sinkK)'), 'the wreck fire must ride the deck down on the same law');
+  assert.ok(!seaSrc.includes('sinkK * 9'), 'the old 9 m drop that left the masts standing must be gone');
 });
 
 test('page.jsx JSX is structurally balanced', () => {
