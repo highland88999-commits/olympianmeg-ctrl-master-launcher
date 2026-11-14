@@ -37,6 +37,7 @@ import {
 } from '@/lib/backpack/backpack';
 import { useBackpack, updateBackpack } from '@/lib/backpack/store';
 import { dinoStateOf, isEggItem } from '@/lib/earth2/breeding';
+import useEggHatch from '@/components/backpack/useEggHatch';
 import PortalGunCard from '@/components/PortalGunCard';
 
 const RETICLE_GLYPH = { crosshair: '✛', dot: '•', chevron: '»' };
@@ -101,17 +102,23 @@ function weaponLine(entry) {
  *     spawns the dino beside the walker). onDinoRecall: the
  *     matching send-back (the realm despawns it and the record
  *     flips to 'pack' — the backpack IS home, Merlin 2026-11-14).
- *   onEggHatch: tapping an egg in the pack hatches it RIGHT
- *     AWAY (no wait — the 10-minute timer is gone, Merlin
- *     2026-11-14): the realm opens the species picker and the
- *     baby hatches into the backpack. A realm that passes
- *     neither dino callback shows its dinos as plain rows — the
- *     record still travels with the pack, and the next realm
- *     with a spawner can summon them.
+ *   onEggHatch: OVERRIDE for the egg hatch (Earth 2 passes its
+ *     scene-owned hatch — titles leg + live-allies cap count).
+ *     A realm that passes none gets the shared hatch instead
+ *     (useEggHatch, the same law: tap the egg and it hatches
+ *     RIGHT AWAY, the species picker opens, the baby hatches
+ *     INTO the backpack) — so an egg is tappable in EVERY realm
+ *     the backpack lives in, not just Earth 2.
  */
 export default function BackpackHud({ realm, realmLabel, combatApplies = false, displayNote = null, docked = false, homeFractions = null, headerDeadSpaceMinimize = false, onDinoSummon = null, onDinoRecall = null, onEggHatch = null }) {
   const record = useBackpack();
   const [open, setOpen] = useState(false);
+  // THE SHARED HATCH (Merlin, 2026-11-14): an egg hatches from
+  // the backpack in EVERY realm, not just Earth 2. The hook owns
+  // the picker + the cold/cap answers; a realm that passes its
+  // own onEggHatch (Earth 2) keeps it and this hook stays idle.
+  const eggHatch = useEggHatch({});
+  const hatchEgg = onEggHatch || eggHatch.hatch;
   const equipped = equippedWeaponEntry(record);
   const weapons = itemsOfKind(record, 'weapon');
   const saber = lightsaberEntry(record);
@@ -330,6 +337,13 @@ export default function BackpackHud({ realm, realmLabel, combatApplies = false, 
 
   return (
     <>
+      {/* The shared egg-hatch picker + fallback toast (only
+          when no realm passed its own onEggHatch — Earth 2
+          renders its own picker and notice instead). They sit
+          outside the panel so the picker covers the screen
+          and the toast is never hidden behind it. */}
+      {!onEggHatch && eggHatch.picker}
+      {!onEggHatch && eggHatch.toast}
       {/* The circle icon: a 56px round button (same size as the
           Concourse Orb). When floating it is fixed-position, so
           its owner can drag it anywhere on screen; when docked
@@ -526,11 +540,12 @@ export default function BackpackHud({ realm, realmLabel, combatApplies = false, 
                     // taps the egg in the backpack and it hatches
                     // RIGHT AWAY — no wait. The tap opens the
                     // species picker; the baby hatches INTO the
-                    // backpack. A realm without onEggHatch shows
-                    // the egg as a plain row (it still travels
-                    // with the pack and hatches in Earth 2).
+                    // backpack. hatchEgg is the realm's own
+                    // override when it passes one (Earth 2) and
+                    // the shared hook otherwise — so the row is
+                    // tappable in every realm the pack lives in.
                     const isEgg = isEggItem(it);
-                    const canHatch = isEgg && typeof onEggHatch === 'function';
+                    const canHatch = isEgg && typeof hatchEgg === 'function';
                     const eggAction = canHatch ? 'hatch' : null;
                     const eggHint = eggAction === 'hatch' ? ' · tap to hatch 🐣' : '';
                     const rowAction = dinoAction || eggAction;
@@ -541,7 +556,7 @@ export default function BackpackHud({ realm, realmLabel, combatApplies = false, 
                           fontSize: 13, opacity: 0.85, padding: '0.15rem 0',
                           ...(rowAction ? { cursor: 'pointer', color: '#6ee7b7', fontWeight: 700 } : {}),
                         }}
-                        onClick={dinoAction === 'summon' ? () => onDinoSummon(it) : dinoAction === 'recall' ? () => onDinoRecall(it) : eggAction === 'hatch' ? () => onEggHatch(it) : undefined}
+                        onClick={dinoAction === 'summon' ? () => onDinoSummon(it) : dinoAction === 'recall' ? () => onDinoRecall(it) : eggAction === 'hatch' ? () => hatchEgg(it) : undefined}
                       >
                         {isDino ? '🦖 ' : ''}{it.name}{isDino ? '' : ` × ${it.qty}`}
                         {isDino && <span style={{ fontSize: 11, opacity: 0.7 }}>{dinoNote}{dinoHint}</span>}

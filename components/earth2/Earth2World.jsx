@@ -146,8 +146,6 @@ import {
   babyModelPath,
   makeEggItem,
   isEggItem,
-  eggIsCold,
-  canRaiseDino,
   isOwnParcel,
   makeDinoItem,
   isDinoItem,
@@ -155,8 +153,6 @@ import {
   dinoIdFor,
   dinoIdOf,
   dinoDisplayName,
-  canHatchMore,
-  raiseCapRefusal,
   homeParcelFor,
   homeCopiesFor,
   setDinoItemState,
@@ -169,11 +165,12 @@ import {
   allyMoveDecision,
   allyAttackTarget,
 } from '@/lib/earth2/breeding';
+import { hatchPrecheck, hatchEggRecord, isLandownerFor } from '@/lib/earth2/hatch';
 import { fossilConditionById } from '@/lib/earth2/fossils';
 import { exchangeFossil, aetherForFossil } from '@/lib/earth2/hammond';
 import { useBackpack, updateBackpack, getBackpackRecord } from '@/lib/backpack/store';
 import { equippedWeaponEntry, setActiveWeapon } from '@/lib/backpack/backpack.js';
-import { addItem, addDinoItem } from '@/lib/backpack/backpack.js';
+import { addItem } from '@/lib/backpack/backpack.js';
 import {
   GRAPPLE_COOLDOWN_MS,
   GRAPPLE_RANGE_M,
@@ -2874,16 +2871,23 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
       // landless — found Nov 14 while remodelling home).
       hatchEggRef.current = (eggItem) => {
         if (!eggItem || !isEggItem(eggItem)) return;
-        if (eggIsCold(eggItem.meta, Date.now())) {
-          noticeRef.current('🥚 This egg has gone cold — it won\'t hatch.');
-          return;
-        }
+        // THE SHARED HATCH (Merlin, 2026-11-14): the cold/cap
+        // law lives in lib/earth2/hatch.js — the same gate every
+        // backpack realm uses. The ownership list is a Map —
+        // pass it straight through; canRaiseDino reads Maps
+        // (Object.values of a Map is [] and silently made every
+        // landowner read as landless — found Nov 14 while
+        // remodelling home).
         const rec = getBackpackRecord();
         const myEmail = (buildUser && buildUser.email) || '';
-        const isLandowner = canRaiseDino(ownersByParcel, myEmail) || canRaiseDino(claims || [], myEmail);
-        const { ok: canHatch, cap, raised } = canHatchMore(rec.items || [], isLandowner, allies.map((a) => a.dinoId));
-        if (!canHatch) {
-          noticeRef.current(`🥚 ${raiseCapRefusal(raised, cap, isLandowner)}`);
+        const isLandowner = isLandownerFor(myEmail, ownersByParcel, claims || []);
+        const pre = hatchPrecheck(eggItem, {
+          items: rec.items || [],
+          isLandowner,
+          liveDinoIds: allies.map((a) => a.dinoId),
+        });
+        if (!pre.ok) {
+          if (pre.reason) noticeRef.current(pre.reason);
           return;
         }
         // DINO SELECTION (Merlin, 2026-11-03): don't auto-hatch —
@@ -10094,9 +10098,10 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
           onPick={(dino) => {
             const egg = dinoPickRef.current;
             if (egg) {
-              // The hatch mints the raised-dino record: it rides
-              // in the backpack (the cross-realm seat) with state
-              // 'pack' — the backpack IS home (Merlin,
+              // The hatch mints the raised-dino record through
+              // the shared law (lib/earth2/hatch.js): it rides
+              // in the backpack (the cross-realm seat) with
+              // state 'pack' — the backpack IS home (Merlin,
               // 2026-11-14). No spawn here: the baby waits in
               // the pack until the user taps it to summon.
               // Home parcel is kept on the record as a hint for
@@ -10107,15 +10112,14 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
               // The spawn now goes through the ref, like the
               // summon path — and the hatch itself spawns
               // nothing at all.)
-              const bornAt = Date.now();
-              const dinoId = dinoIdFor(dino.id, bornAt);
               const myEmail = (buildUser && buildUser.email) || '';
-              const owned = ownersByParcel || {};
-              const homeParcelId = homeParcelFor(owned, claims || [], myEmail);
-              const dinoItem = makeDinoItem(dino.id, bornAt, { dinoId, state: DINO_STATE_PACK, homeParcelId, travel: false });
               updateBackpack((r) => {
-                const withoutEgg = { ...r, items: (r.items || []).filter((it) => it !== egg) };
-                return addDinoItem(withoutEgg, dinoItem);
+                const items = hatchEggRecord(r.items || [], egg, dino.id, {
+                  email: myEmail,
+                  owners: ownersByParcel,
+                  claims: claims || [],
+                });
+                return { ...r, items };
               });
               noticeRef.current(`🥚 A baby ${dino.label} hatches — it lives in your backpack now. Tap it to summon.`);
             }

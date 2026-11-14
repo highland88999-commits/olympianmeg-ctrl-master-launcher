@@ -139,7 +139,13 @@ describe('eggs', () => {
     assert.ok(!scene.includes('EGG_HATCH_MS'), 'no hatch timer in the scene');
     assert.ok(scene.includes('hatchEggRef.current'), 'the backpack egg row hatches through a ref');
     assert.ok(scene.includes('onEggHatch='), 'the HUD wires the egg tap');
-    assert.ok(scene.includes('eggIsCold('), 'a cold egg still refuses to hatch');
+    // THE SHARED HATCH (Merlin, 2026-11-14): the cold check moved
+    // out of the scene into lib/earth2/hatch.js — the same gate
+    // every backpack realm uses. The scene gates through
+    // hatchPrecheck; the law still refuses a cold egg.
+    assert.ok(scene.includes('hatchPrecheck(eggItem, {'), 'the scene gates the hatch through the shared law');
+    const hatch = readFileSync(join(here, '..', 'lib', 'earth2', 'hatch.js'), 'utf8');
+    assert.ok(hatch.includes('eggIsCold(eggItem.meta, now)'), 'a cold egg still refuses to hatch');
   });
 
   it('eggs go cold after 24 hours', () => {
@@ -626,8 +632,14 @@ describe('raising rules are wired into the scene (Merlin, 2026-11-14)', () => {
 
   it('the hatch is a tap, not a timer — the cap still applies', () => {
     assert.ok(scene.includes('hatchEggRef.current'), 'the egg tap hatches through a ref');
-    assert.ok(scene.includes('canHatchMore('), 'hatch checks the cap');
-    assert.ok(scene.includes('raiseCapRefusal('), 'cap refusal is plain English');
+    // THE SHARED HATCH (Merlin, 2026-11-14): the cap check moved
+    // out of the scene into lib/earth2/hatch.js — the same gate
+    // every backpack realm uses. The scene gates through
+    // hatchPrecheck; the law still checks the cap in plain words.
+    assert.ok(scene.includes('hatchPrecheck(eggItem, {'), 'the hatch gates through the shared law');
+    const hatch = readFileSync(join(here, '..', 'lib', 'earth2', 'hatch.js'), 'utf8');
+    assert.ok(hatch.includes('canHatchMore('), 'hatch checks the cap');
+    assert.ok(hatch.includes('raiseCapRefusal('), 'cap refusal is plain English');
     assert.ok(!scene.includes('eggReadyToHatch'), 'no timer-gated hatch anywhere');
     assert.ok(!scene.includes('EGG_HATCH_MS'), 'the 10-minute timer is gone');
     assert.ok(!scene.includes('NO_LAND_MESSAGE'), 'the old no-land message is gone');
@@ -635,8 +647,16 @@ describe('raising rules are wired into the scene (Merlin, 2026-11-14)', () => {
   });
 
   it('hatching mints the backpack record in pack state — no spawn', () => {
-    assert.ok(scene.includes('makeDinoItem(dino.id, bornAt'), 'hatch mints the dino item');
-    assert.ok(scene.includes("state: DINO_STATE_PACK, homeParcelId, travel: false"), 'a hatch lands in the backpack, travelling nowhere');
+    // THE SHARED HATCH (Merlin, 2026-11-14): the mint moved out
+    // of the scene into lib/earth2/hatch.js — the same mint every
+    // backpack realm uses. The scene's picker calls hatchEggRecord
+    // inside its updateBackpack mutator; the law mints the dino
+    // item in the pack, travelling nowhere.
+    assert.ok(scene.includes('hatchEggRecord(r.items || [], egg, dino.id, {'), 'the hatch mints through the shared law');
+    const hatch = readFileSync(join(here, '..', 'lib', 'earth2', 'hatch.js'), 'utf8');
+    assert.ok(hatch.includes('makeDinoItem(species, bornAt'), 'hatch mints the dino item');
+    assert.ok(hatch.includes('state: DINO_STATE_PACK'), 'a hatch lands in the backpack');
+    assert.ok(hatch.includes('travel: false'), 'a hatch travels nowhere');
     assert.ok(!scene.includes('spawnAllyRef.current(dino.id, bornAt'), 'the hatch spawns nothing — summoning is the user\'s tap');
     assert.ok(scene.includes('lives in your backpack now'), 'the hatch notice says where the baby lives');
     assert.ok(!scene.includes('spawnAlly(dino.id, Date.now())'), 'the bare spawnAlly call that threw is gone');
