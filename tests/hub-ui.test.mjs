@@ -1,8 +1,10 @@
 // tests/hub-ui.test.mjs
 // Headless tests for the hub UI batch (circular buttons, phone-tilt
 // vertical control, Shadow Realm spawn button):
-// - FLIGHT AXIS passive readout (the toggle button was removed per Merlin;
-//   lib/rider-state.js keeps the pure nextFlightAxis helper as a unit)
+// - FLIGHT AXIS visible toggle (Merlin, 2026-11-13 — reverses the
+//   2026-10-20 removal: the toggle button is back, wired through the
+//   pure nextFlightAxis helper; tilt auto-select remains the default
+//   until the user taps it)
 // - tilt math: dead-zone, clamping, smoothing (lib/tilt-control.js)
 // - tilt permission state machine (granted/denied/unavailable/reduced)
 // - tilt preference storage round-trip (injected memory store)
@@ -56,12 +58,13 @@ function memStore() {
 }
 
 // ---------------------------------------------------------------------------
-// 1. FLIGHT AXIS — passive readout now (the toggle button was removed per
-//    Merlin; the axis is automatic). The pure nextFlightAxis helper survives
-//    in lib/rider-state.js as a tested unit; the page must NOT resurrect the
-//    manual toggle expression.
+// 1. FLIGHT AXIS — visible toggle (Merlin, 2026-11-13: the toggle button
+//    is back, reversing its 2026-10-20 removal). The pure nextFlightAxis
+//    helper drives it; the detailed mapping tests live in
+//    tests/hub-flight-axis.test.mjs. Tilt auto-select stays the default
+//    until the user taps the toggle (lib/use-tilt.js, manualAxisRef).
 // ---------------------------------------------------------------------------
-describe('flight axis (no toggle button)', () => {
+describe('flight axis (visible toggle button)', () => {
   it('nextFlightAxis still toggles horizontal <-> vertical as a pure helper', () => {
     assert.equal(nextFlightAxis('horizontal'), 'vertical');
     assert.equal(nextFlightAxis('vertical'), 'horizontal');
@@ -71,19 +74,24 @@ describe('flight axis (no toggle button)', () => {
     assert.equal(nextFlightAxis('sideways'), 'horizontal');
   });
 
-  it('the manual toggle expression stays out of page.jsx (Merlin killed the button)', () => {
+  it('the manual toggle is wired in page.jsx through nextFlightAxis', () => {
     assert.ok(
-      !page.includes("setFlightAxis(m => m === 'horizontal' ? 'vertical' : 'horizontal')"),
-      'page.jsx must not resurrect the manual flight-axis toggle'
+      page.includes('setFlightAxis((axis) => nextFlightAxis(axis))'),
+      'page.jsx must flip the axis through the pure helper on tap'
+    );
+    assert.ok(
+      page.includes('toggleFlightAxis'),
+      'the toggle handler must exist'
     );
   });
 
-  it('the readout is passive: role=status, no pointer events, no activation copy', () => {
-    assert.ok(page.includes('role="status"'), 'readout announces as status');
-    assert.ok(page.includes('pointer-events-none'), 'readout is not clickable');
+  it('the toggle is a real, labelled button — not a passive readout', () => {
+    assert.ok(page.includes('aria-pressed'), 'toggle announces its state');
+    assert.ok(page.includes('Flight axis:'), 'toggle names the current mode');
+    assert.ok(page.includes('FlightAxisStreaks'), 'toggle shows the axis streaks icon');
     assert.ok(
-      !page.includes('Activate to switch axis'),
-      'no toggle affordance copy may remain'
+      page.includes('pointer-events-auto'),
+      'the toggle accepts taps'
     );
   });
 });
@@ -152,9 +160,11 @@ describe('smoothTiltInput (lerp)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 2b. Auto flight-axis rule (Merlin: the phone's pitch IS the selector —
-//     no toggle button). Past the ±8° dead-zone → vertical; held level →
-//     horizontal. Pure and deterministic: same delta, same axis, no flicker.
+// 2b. Auto flight-axis rule (the phone's pitch IS the selector by default —
+//     until the user taps the FLIGHT AXIS toggle, which then owns the axis
+//     for the session: lib/use-tilt.js, manualAxisRef). Past the ±8°
+//     dead-zone → vertical; held level → horizontal. Pure and
+//     deterministic: same delta, same axis, no flicker.
 // ---------------------------------------------------------------------------
 describe('axisFromTiltDelta (auto flight-axis rule)', () => {
   it('switches to vertical past the +8° dead-zone', () => {
@@ -296,9 +306,11 @@ describe('shadowRealmUrl', () => {
 // 5. app/page.jsx static wiring — circles, labels, unchanged behaviors
 // ---------------------------------------------------------------------------
 describe('hub circle buttons (static wiring)', () => {
-  it('FLIGHT AXIS readout is deleted (Merlin 2026-10-20: it did nothing when tapped)', () => {
-    assert.ok(!page.includes('FlightAxisStreaks'), 'streak readout gone from the hub');
-    assert.ok(!page.includes('Flight axis:'), 'no passive flight-axis circle');
+  it('FLIGHT AXIS toggle is back (Merlin 2026-11-13: visible control, one tap to switch)', () => {
+    assert.ok(page.includes('FlightAxisStreaks'), 'streak icon renders in the toggle');
+    assert.ok(page.includes('Flight axis:'), 'toggle names the current mode');
+    assert.ok(page.includes('toggleFlightAxis'), 'toggle handler exists');
+    assert.ok(page.includes("(appState === 'hub_freeroam' || appState === 'on_bike')"), 'toggle shows in the hub movement states');
   });
 
   it('SPAWN TO BIKE lives in the Concourse as the Bike tile (2026-10-20)', () => {

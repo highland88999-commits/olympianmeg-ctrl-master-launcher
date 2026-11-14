@@ -27,6 +27,7 @@ import { FREE_FLY_SPEED, BIKE_TUNING } from '../lib/hub-layout';
 import { registerCollider, unregisterCollider, resolveFlightCollision } from '../lib/hub-collision';
 import { createBikeFlightState, stepBikeFlight, rotateOffsetByYaw, bikeForward } from '../lib/bike-flight';
 import { dismountPosition } from '../lib/rider-state';
+import { flightAxisMove, bikeAxisInput } from '../lib/flight-axis';
 import SeasonalDecor, { SeasonToast, TrophyOverlay } from './SeasonalDecor';
 import { applyCoverFit } from '../lib/texture-fit';
 import { userPlanetDescriptor } from '../lib/communiverse/spiral';
@@ -441,13 +442,17 @@ function SequenceController({ launchState, setLaunchState, portalTex, payloadTex
         const prevY = camera.position.y;
         const prevZ = camera.position.z;
 
-        if (flightAxis === 'horizontal') {
-          camera.position.addScaledVector(forward, -moveY * speed);
-          camera.position.addScaledVector(right, moveX * speed);
-        } else {
-          camera.position.y += -moveY * speed;
-          camera.position.addScaledVector(right, moveX * speed);
-        }
+        // Movement mapping lives in lib/flight-axis.js (one source of
+        // truth, headless-tested): horizontal = stick up/down drives
+        // forward/back on the hub plane; vertical = stick up/down drives
+        // climb/descend. Left/right always strafes. Tilt steers climb /
+        // descend through the same moveY channel, but only while the
+        // axis is vertical (lib/use-tilt.js) — in horizontal mode the
+        // phone can tilt freely without drifting up or down.
+        const m = flightAxisMove({ moveX, moveY, axis: flightAxis });
+        if (m.forward !== 0) camera.position.addScaledVector(forward, m.forward * speed);
+        if (m.strafe !== 0) camera.position.addScaledVector(right, m.strafe * speed);
+        if (m.climb !== 0) camera.position.y += m.climb * speed;
 
         resolveFlightCollision(
           { x: prevX, y: prevY, z: prevZ },
@@ -500,6 +505,10 @@ function SequenceController({ launchState, setLaunchState, portalTex, payloadTex
       // Mounted flight: W/S (or joystick) throttles, A/D steers, FLIGHT AXIS
       // switches W/S between forward/reverse and climb/descend. The camera
       // rides in the rider's seat, facing the bike's nose; drag looks around.
+      // Input mapping lives in lib/flight-axis.js (bikeAxisInput): in
+      // vertical mode the same stick/keys that throttle forward now climb
+      // and descend instead — tilt steers that channel too, but only
+      // while the axis is vertical (lib/use-tilt.js).
       const c = controls.current;
       if (!bikeFlight.current) {
         const p0 = bikeRef.current ? bikeRef.current.position : new THREE.Vector3(...BIKE_PARK_POS);
@@ -508,11 +517,15 @@ function SequenceController({ launchState, setLaunchState, portalTex, payloadTex
         if (bikeRef.current) bikeRef.current.userData.flying = true;
       }
       const st = bikeFlight.current;
-      const input = {
-        throttle: THREE.MathUtils.clamp((c.keyW - c.keyS) - c.moveY, -1, 1),
-        steer: THREE.MathUtils.clamp((c.keyD - c.keyA) + c.moveX, -1, 1),
-        vertical: flightAxis === 'vertical',
-      };
+      const input = bikeAxisInput({
+        keyW: c.keyW,
+        keyS: c.keyS,
+        keyA: c.keyA,
+        keyD: c.keyD,
+        moveX: c.moveX,
+        moveY: c.moveY,
+        axis: flightAxis,
+      });
 
       const step = Math.min(delta, 0.05);
       const prevPos = { x: st.pos.x, y: st.pos.y, z: st.pos.z };

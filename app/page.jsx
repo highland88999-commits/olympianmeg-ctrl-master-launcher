@@ -13,7 +13,9 @@ import { MenuHeaderDecor } from '@/components/PortalSeasonalDecor';
 import { orbitTime, orbitPositionFor, PLANETS } from '@/lib/god-orbits';
 import { GOD_TOWER_SPOTS, GOD_TOWER_POS, BABEL_POS, ARTEMIS_POS } from '@/lib/home-positions';
 import SettingsGear from '@/components/SettingsGear';
-import { fetchRiderState, saveRiderState, DISMOUNT_EYE } from '@/lib/rider-state';
+import { fetchRiderState, saveRiderState, DISMOUNT_EYE, nextFlightAxis } from '@/lib/rider-state';
+import { flightAxisLabel } from '@/lib/flight-axis';
+import FlightAxisStreaks from '@/components/FlightAxisStreaks';
 import ProfileIcon from '@/components/ProfileIcon';
 import NotificationsWindow from '@/components/NotificationsWindow';
 import EntranceSequence from '@/components/EntranceSequence';
@@ -189,6 +191,12 @@ function NexusHub() {
 
   const [activeSatTarget, setActiveSatTarget] = useState(GOD_TOWER_SPOTS[0].pos);
   const [flightAxis, setFlightAxis] = useState('horizontal');
+  // FLIGHT AXIS toggle (Merlin, 2026-11-13): once the user taps the
+  // visible toggle, the toggle owns the axis for the session — this ref
+  // tells lib/use-tilt.js to stop auto-flipping the axis from the
+  // phone's pitch. Tilt still steers climb/descend whenever the axis
+  // is vertical; only the axis SELECTION hands over to the tap.
+  const manualAxisRef = useRef(false);
   const savedSpawnRef = useRef(null);
 
   const earthQuatRef = useRef(null);
@@ -456,7 +464,22 @@ function NexusHub() {
     appState,
     joyActive,
     onAutoAxis: setFlightAxis,
+    manualAxisRef,
   });
+
+  // FLIGHT AXIS toggle (Merlin, 2026-11-13): one tap switches the hub
+  // movement mode between HORIZONTAL and VERTICAL. The tap also hands
+  // axis authority to the toggle for the session (manualAxisRef) so
+  // tilt stops auto-flipping the mode from the phone's pitch — the
+  // control never fights the user. Tilt steering itself is untouched:
+  // in vertical mode tilting the phone still climbs/descends, and in
+  // horizontal mode tilt steers nothing, so the phone can be held
+  // naturally without drifting up or down.
+  const toggleFlightAxis = () => {
+    try { fx.tap(); } catch {}
+    manualAxisRef.current = true;
+    setFlightAxis((axis) => nextFlightAxis(axis));
+  };
 
   const { expanded: radioSheetOpen } = useRadio();
   const chromeHiddenStyle = radioSheetOpen
@@ -904,6 +927,35 @@ function NexusHub() {
             </button>
           )}
         </>
+      )}
+
+      {/* FLIGHT AXIS toggle (Merlin, 2026-11-13): the visible control
+          for vertical/horizontal switching for movement within the hub.
+          One tap flips the mode; the streaks canvas always depicts the
+          CURRENT axis and the label names it, so the user always knows
+          which mode they are in. Bottom-center, one thumb's reach, out
+          of the look zone (right half) and the walk-stick corner.
+          .ui-element so the page's drag-look handler ignores taps on it.
+          Shown in hub_freeroam and on_bike — the two states where the
+          axis drives movement (freeroam flight + mounted bike flight).
+          In vertical mode tilt steering is the primary climb/descend
+          input; in horizontal mode tilt steers nothing. */}
+      {(user || cloudOffline) && (appState === 'hub_freeroam' || appState === 'on_bike') && (
+        <button
+          type="button"
+          onClick={toggleFlightAxis}
+          className="absolute left-1/2 -translate-x-1/2 z-[70] ui-element pointer-events-auto flex items-center gap-2 rounded-full border border-cyan-500/40 bg-zinc-950/90 pl-3 pr-4 py-1.5 shadow-lg backdrop-blur-md"
+          style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 18px)', ...chromeHiddenStyle }}
+          aria-pressed={flightAxis === 'vertical'}
+          aria-label={`Flight axis: ${flightAxisLabel(flightAxis)}. Tap to switch to ${flightAxis === 'vertical' ? 'horizontal' : 'vertical'} movement.`}
+          title="Switch flight axis"
+        >
+          <FlightAxisStreaks axis={flightAxis} />
+          <span className="flex flex-col items-start leading-none">
+            <span className="text-[8px] font-bold tracking-[0.2em] text-cyan-400/80 uppercase">Flight axis</span>
+            <span className="text-[11px] font-bold tracking-wider text-white uppercase">{flightAxisLabel(flightAxis)}</span>
+          </span>
+        </button>
       )}
 
       {/* NIGHT GRID retired 2026-10-20: lives in the Concourse (Night tile). */}
