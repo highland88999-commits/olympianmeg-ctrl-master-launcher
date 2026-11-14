@@ -1059,14 +1059,16 @@ export function createWorld(canvas, cb) {
   let renderer;
   try {
     renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-  // Context-loss guard (fleet rollout 2026-10-15): transient losses heal
-  // in place; a loss that stays gone surfaces the FEED LOST fallback,
-  // and the loop below freezes while the context is lost.
-  const contextGuard = guardCanvasContext(canvas, { label: 'NEW EARTH' });
   } catch (err) {
     throw new Error('New Earth: WebGL is unavailable in this browser (' +
       (err && err.message ? err.message : String(err)) + '). A WebGL-capable browser is required.');
   }
+  // Context-loss guard (fleet rollout 2026-10-15): transient losses heal
+  // in place; a loss that stays gone surfaces the FEED LOST fallback,
+  // and the loop below freezes while the context is lost. Kept OUT of
+  // the try above on purpose: a guard failure must never masquerade
+  // as "WebGL unavailable".
+  const contextGuard = guardCanvasContext(canvas, { label: 'NEW EARTH' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.1;

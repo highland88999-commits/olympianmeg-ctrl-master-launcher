@@ -93,6 +93,17 @@ export default function NewEarthPage() {
   const worldRef = useRef(null);
   const [booted, setBooted] = useState(false);
   const [failed, setFailed] = useState(false);
+  // WebGL retry (Merlin, 2026-11-14 — Earth 3 showed "needs
+  // WebGL" on his phone): the first failure retries once by
+  // itself after a short pause; if that fails too, the fail
+  // screen offers a manual retry instead of a dead end.
+  const autoRetried = useRef(false);
+  const [retryKey, setRetryKey] = useState(0);
+  const retryWorld = useCallback(() => {
+    setFailed(false);
+    setBooted(false);
+    setRetryKey((k) => k + 1);
+  }, []);
   const [mode, setMode] = useState("walk");
   const [caption, setCaption] = useState(null);
   const [tour, setTour] = useState({ active: false, index: 0 });
@@ -127,6 +138,15 @@ export default function NewEarthPage() {
       });
     } catch (err) {
       console.error("[new-earth] world failed:", err);
+      // One automatic retry after a short pause: a context that
+      // failed to start can succeed once the browser has had a
+      // moment to free a 3D slot. If the retry fails too, the
+      // fail screen (with its manual retry) takes over.
+      if (!autoRetried.current) {
+        autoRetried.current = true;
+        const t = setTimeout(() => setRetryKey((k) => k + 1), 1500);
+        return () => clearTimeout(t);
+      }
       setFailed(true);
       return;
     }
@@ -143,7 +163,7 @@ export default function NewEarthPage() {
     window.addEventListener("keydown", onKey);
     return () => { window.removeEventListener("keydown", onKey); world.destroy(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [retryKey]);
 
   const toggleFly = useCallback(() => {
     const w = worldRef.current;
@@ -378,7 +398,17 @@ export default function NewEarthPage() {
       <div className="stage">
         <canvas ref={canvasRef} aria-label="New Earth 3D world" />
         {!booted && !failed && <div className="ne-boot">Growing New Earth…</div>}
-        {failed && <div className="ne-fail">3D could not start on this device. New Earth needs WebGL.</div>}
+        {failed && (
+          <div className="ne-fail" style={{ flexDirection: "column", gap: 14 }}>
+            <div>3D could not start on this device. New Earth needs WebGL.</div>
+            <div style={{ fontSize: "0.8rem", color: "#8fb89a", maxWidth: 420 }}>
+              This usually means the browser has run out of 3D slots after hopping between worlds — closing this tab completely and reopening the site frees them.
+            </div>
+            <button type="button" onClick={retryWorld} style={{ minHeight: 48, padding: "10px 22px", borderRadius: 12, border: "1px solid rgba(125,223,154,0.5)", background: "rgba(8,26,17,0.82)", color: "#eef7ee", fontWeight: 700, letterSpacing: 2, cursor: "pointer" }}>
+              ↻ TRY AGAIN
+            </button>
+          </div>
+        )}
 
         <div className="ne-hud">
           {tour.active && (
