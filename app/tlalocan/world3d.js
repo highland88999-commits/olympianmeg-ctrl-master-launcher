@@ -29,6 +29,7 @@ import {
   right,
   stepPosition,
 } from '@/lib/tlalocan/world';
+import DayNightRig from '@/components/DayNightRig';
 
 const STONE = '#8a8378';
 const PALE_STONE = '#b8b0a0';
@@ -635,10 +636,7 @@ export function TlalocanScene({ playerRef, inputRef, onPortal, onRegion, reduced
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
-      <color attach="background" args={['#0a1f14']} />
-      <fogExp2 attach="fog" args={['#0d2b1a', 0.0022]} />
-      <ambientLight color="#2a4a3a" intensity={1.0} />
-      <directionalLight position={[50, 80, 40]} color="#fff2c0" intensity={1.2} />
+      <DayNightRig shade="earth" fogDensity={0.0022} />
       <Ground />
       <Pools pools={world.pools} />
       <River reduced={reduced} />

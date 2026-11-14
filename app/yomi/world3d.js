@@ -33,6 +33,8 @@ import {
   right,
   stepPosition,
 } from '@/lib/yomi/world';
+import DayNightRig from '@/components/DayNightRig';
+import { NETHER_REALM_SHADE } from '@/lib/day-night';
 
 const STONE = '#241f2e';
 const PALE_STONE = '#4a4258';
@@ -672,10 +674,7 @@ export function YomiScene({ playerRef, inputRef, onPortal, onRegion, reduced }) 
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
-      <color attach="background" args={['#060410']} />
-      <fogExp2 attach="fog" args={['#0d0818', 0.0035]} />
-      <ambientLight color="#241a33" intensity={0.9} />
-      <directionalLight position={[50, 80, 40]} color="#6a4a8a" intensity={0.7} />
+      <DayNightRig shade={NETHER_REALM_SHADE.yomi} storm={null} />
       <Ground />
       <DarkPools pools={world.darkPools} />
       <River reduced={reduced} />

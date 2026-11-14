@@ -31,6 +31,7 @@ import {
   right,
   stepPosition,
 } from '@/lib/takamagahara/world';
+import DayNightRig from '@/components/DayNightRig';
 
 const STONE = '#d8d0c0';
 const PALE_STONE = '#f0ead8';
@@ -658,10 +659,7 @@ export function TakamagaharaScene({ playerRef, inputRef, onPortal, onRegion, red
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
-      <color attach="background" args={['#cfe4ff']} />
-      <fogExp2 attach="fog" args={['#d6eaff', 0.0028]} />
-      <ambientLight color="#eaf4ff" intensity={1.2} />
-      <directionalLight position={[50, 80, 40]} color="#ffffff" intensity={1.1} />
+      <DayNightRig shade="earth" fogDensity={0.0028} />
       <Ground />
       <Pools pools={world.cloudPools} />
       <River reduced={reduced} />

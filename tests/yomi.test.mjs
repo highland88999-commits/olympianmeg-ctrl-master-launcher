@@ -317,7 +317,7 @@ test('scene builds the whole world shell, procedurally', () => {
     'DarkRoad', 'NeNoKuni', 'DeepDark', 'PortalArches', 'DescentPortal', 'Torches', 'GhostFire']) {
     assert.ok(sceneSrc.includes(piece), `scene contains ${piece}`);
   }
-  assert.ok(sceneSrc.includes('fogExp2'), 'fire-lit dark sky via fog');
+  assert.ok(sceneSrc.includes('DayNightRig'), 'day/night rig owns the sky + fog now (shared law, 2026-11-14)');
   assert.ok(sceneSrc.includes('makeWorld'), 'set dressing is seeded + deterministic');
   assert.ok(sceneSrc.includes('{p.label}'), 'arches carry their plain-words label');
   assert.ok(sceneSrc.includes('CameraRig'), 'first-person camera rig');

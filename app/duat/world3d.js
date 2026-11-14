@@ -29,6 +29,8 @@ import {
   right,
   stepPosition,
 } from '@/lib/duat/world';
+import DayNightRig from '@/components/DayNightRig';
+import { NETHER_REALM_SHADE } from '@/lib/day-night';
 
 const ROCK = '#141118';
 const STONE = '#2a2a32';
@@ -685,10 +687,7 @@ export function DuatScene({ playerRef, inputRef, onPortal, onRegion, reduced }) 
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
-      <color attach="background" args={['#070503']} />
-      <fogExp2 attach="fog" args={['#0d0803', 0.0035]} />
-      <ambientLight color="#3a2a1a" intensity={0.9} />
-      <directionalLight position={[50, 80, 40]} color="#8a6d2f" intensity={0.7} />
+      <DayNightRig shade={NETHER_REALM_SHADE.duat} storm={null} />
       <Ground />
       <DarkPools pools={world.darkPools} />
       <River reduced={reduced} />

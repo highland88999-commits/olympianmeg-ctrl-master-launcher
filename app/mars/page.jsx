@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { generateMarsProfile } from "@/lib/mars/engine";
+import { timeOfDay01, getDayNightPlace, requestDayNightPlace } from "@/lib/day-night";
 import { IcSunrise, IcSun, IcSunset, IcMoon, IcWings, IcClose, IcRoute, IcRefresh, IcMeteor } from "@/app/artemis-ui/icons";
 
 // R3F scene loads client-side only (WebGL).
@@ -39,6 +40,37 @@ function timeString(t) {
 export default function MarsPage() {
   const inputRef = useRef({ keys: { fwd: false, back: false, left: false, right: false, up: false, down: false } });
   const [time, setTime] = useState(0.32);
+  // Day/night (Merlin, 2026-11-14): the clock runs on REAL time
+  // by default — the shared law's timeOfDay01 for the walker's
+  // place (real location when granted, Sydney when not),
+  // refreshed every 10 s (time moves slowly). The slider and
+  // presets still work exactly as before: touching either one
+  // takes the clock manual, and REAL TIME hands it back.
+  const [liveTime, setLiveTime] = useState(true);
+  const liveTimeRef = useRef(true);
+  const setManualTime = (t) => {
+    liveTimeRef.current = false;
+    setLiveTime(false);
+    setTime(t);
+  };
+  const resumeLiveTime = () => {
+    liveTimeRef.current = true;
+    setLiveTime(true);
+  };
+
+  useEffect(() => {
+    requestDayNightPlace();
+    if (!liveTime) return undefined;
+    const applyRealTime = () => {
+      try {
+        const place = getDayNightPlace();
+        setTime(timeOfDay01(Date.now(), place.lat, place.lon));
+      } catch {}
+    };
+    applyRealTime();
+    const id = setInterval(applyRealTime, 10000);
+    return () => clearInterval(id);
+  }, [liveTime]);
   const [mode, setMode] = useState("orbit"); // orbit | walk | fly
   const [seed, setSeed] = useState("MARS-PRIME");
   const [seedInput, setSeedInput] = useState("MARS-PRIME");
@@ -149,17 +181,20 @@ export default function MarsPage() {
         <div className="ctl">
           <span>TIME</span>
           <input type="range" min="0" max="1000" value={Math.round(time * 1000)}
-            onChange={(e) => setTime(Number(e.target.value) / 1000)} aria-label="Time of day" />
-          <span className="clock">{timeString(time)} · {timeLabel(time)}</span>
+            onChange={(e) => setManualTime(Number(e.target.value) / 1000)} aria-label="Time of day" />
+          <span className="clock">{timeString(time)} · {timeLabel(time)}{liveTime ? " · LIVE" : " · MANUAL"}</span>
         </div>
         {presets.map(([label, t], i) => {
           const Icon = PRESET_ICONS[i % PRESET_ICONS.length];
           return (
-            <button key={label} onClick={() => setTime(t)} aria-label={`Set time to ${label}`}>
+            <button key={label} onClick={() => setManualTime(t)} aria-label={`Set time to ${label}`}>
               <Icon /><span>{label}</span>
             </button>
           );
         })}
+        <button className={liveTime ? "on" : ""} onClick={resumeLiveTime} aria-pressed={liveTime} aria-label="Follow real time">
+          <IcSun /><span>REAL TIME</span>
+        </button>
         <button className={mode === "walk" ? "on" : ""} onClick={() => toggleMode("walk")} aria-pressed={mode === "walk"}>
           <IcRoute /><span>{mode === "walk" ? "WALKING" : "WALK"}</span>
         </button>

@@ -36,6 +36,8 @@ import {
   right,
   stepPosition,
 } from '@/lib/annwn/world';
+import DayNightRig from '@/components/DayNightRig';
+import { NETHER_REALM_SHADE } from '@/lib/day-night';
 
 const STONE = '#2c3038';
 const PALE_STONE = '#6a7078';
@@ -671,10 +673,7 @@ export function AnnwnScene({ playerRef, inputRef, onPortal, onRegion, reduced })
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
-      <color attach="background" args={['#070a10']} />
-      <fogExp2 attach="fog" args={['#0c1118', 0.0035]} />
-      <ambientLight color="#1c2836" intensity={0.9} />
-      <directionalLight position={[50, 80, 40]} color="#7a8aa0" intensity={0.7} />
+      <DayNightRig shade={NETHER_REALM_SHADE.annwn} storm={null} />
       <Ground />
       <MistPools pools={world.mistPools} />
       <MistWall reduced={reduced} />

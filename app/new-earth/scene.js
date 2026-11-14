@@ -5,6 +5,7 @@
 
 import * as THREE from 'three';
 import { guardCanvasContext } from '../../lib/scene-context-guard.js';
+import { dayNightFor, getDayNightPlace, requestDayNightPlace, applyDayNightRig } from '../../lib/day-night.js';
 
 /* ============================================================
    Landmarks — the page shell builds against this exact shape
@@ -241,20 +242,28 @@ function buildSky(ctx) {
     colors[i * 3] = tmp.r; colors[i * 3 + 1] = tmp.g; colors[i * 3 + 2] = tmp.b;
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  scene.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+  // The dome material is kept on ctx: the day/night refresh tints
+  // it by the day factor (white = the built blue day, dark = night)
+  // because the baked vertex colours alone never change.
+  const skyDomeMat = new THREE.MeshBasicMaterial({
     vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false,
-  })));
+  });
+  scene.add(new THREE.Mesh(geo, skyDomeMat));
+  ctx.skyDomeMat = skyDomeMat;
 
-  // Sun disc + glow
+  // Sun disc + glow — kept on ctx: the day/night refresh rides
+  // them along the real sun vector at their built distance.
   const sun = new THREE.Mesh(new THREE.CircleGeometry(55, 32),
     new THREE.MeshBasicMaterial({ color: 0xfff6d8, fog: false }));
   sun.position.set(420, 400, -680); sun.lookAt(0, 0, 0);
   scene.add(sun);
+  ctx.sunDisc = sun;
   const glow = new THREE.Sprite(new THREE.SpriteMaterial({
     map: ctx.tex.soft, color: 0xfff2c0, transparent: true, opacity: 0.85, fog: false, depthWrite: false,
   }));
   glow.scale.set(340, 340, 1); glow.position.copy(sun.position);
   scene.add(glow);
+  ctx.sunGlow = glow;
 
   // Drifting clouds (billboard sprites)
   const clouds = [];
@@ -915,10 +924,18 @@ export function createWorld(canvas, cb) {
   const camera = new THREE.PerspectiveCamera(62, 1, 0.1, 2500);
 
   // Lights: hemisphere + directional only (+2 small accent point lights in builders)
-  scene.add(new THREE.HemisphereLight(0xbfe3ff, 0x6fae5f, 0.85));
+  // The hemisphere is kept: the day/night refresh drives its
+  // intensity from the shared law's palette.
+  const hemiLight = new THREE.HemisphereLight(0xbfe3ff, 0x6fae5f, 0.85);
+  scene.add(hemiLight);
   const sunLight = new THREE.DirectionalLight(0xfff2dd, 1.6);
   sunLight.position.set(220, 320, 140);
   scene.add(sunLight);
+
+  // Day/night (Merlin, 2026-11-14): ask once for the walker's
+  // place (real location when granted, Sydney when not — the
+  // shared law); the ~1 s refresh in tick() does the rest.
+  try { requestDayNightPlace(); } catch {}
 
   const ctx = {
     scene, camera, renderer,
@@ -1125,12 +1142,54 @@ export function createWorld(canvas, cb) {
     renderer.setSize(w, h, false);
   }
 
+  // Day/night refresh (Merlin, 2026-11-14): the SAME real-clock
+  // cycle Earth 2 runs, throttled to ~1 s — the sun moves slowly.
+  // applyDayNightRig drives background / fog / hemisphere / sun
+  // from the shared palette; the sun disc rides the real sun
+  // vector at its built distance (~894) and sets below the
+  // horizon instead of shining through the ground; the baked
+  // sky dome is tinted by the day factor so night actually
+  // falls while the blue-day look is untouched at noon.
+  const SUN_DISC_DIST = Math.hypot(420, 400, 680);
+  let lastCycleMs = 0;
+  function refreshDayNight(nowMs) {
+    if (nowMs - lastCycleMs < 1000) return;
+    lastCycleMs = nowMs;
+    try {
+      const place = getDayNightPlace();
+      const dn = dayNightFor(Date.now(), place.lat, place.lon);
+      applyDayNightRig(
+        { sunLight, hemiLight, fog: scene.fog, background: scene.background },
+        dn.palette, dn.sunVec, dn.moon, dn.moonVec,
+      );
+      const sunUp = dn.sun.elevationDeg > -2;
+      if (ctx.sunDisc) {
+        ctx.sunDisc.position.set(
+          dn.sunVec.x * SUN_DISC_DIST,
+          dn.sunVec.y * SUN_DISC_DIST,
+          dn.sunVec.z * SUN_DISC_DIST,
+        );
+        ctx.sunDisc.lookAt(0, 0, 0);
+        ctx.sunDisc.visible = sunUp;
+      }
+      if (ctx.sunGlow && ctx.sunDisc) {
+        ctx.sunGlow.position.copy(ctx.sunDisc.position);
+        ctx.sunGlow.visible = sunUp;
+      }
+      if (ctx.skyDomeMat) {
+        const dayF = 1 - dn.palette.night;
+        ctx.skyDomeMat.color.setRGB(0.08 + 0.92 * dayF, 0.10 + 0.90 * dayF, 0.22 + 0.78 * dayF);
+      }
+    } catch {}
+  }
+
   function tick() {
     if (destroyed) return;
     raf = requestAnimationFrame(tick);
     if (contextGuard.isLost()) return; // frozen while the context is gone
     const dt = Math.min(clock.getDelta(), 0.05);
     const t = clock.elapsedTime;
+    refreshDayNight(performance.now());
     updateTour(dt);
     updateMovement(dt);
     for (const u of ctx.anim) u(t, dt);

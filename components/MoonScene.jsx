@@ -17,7 +17,7 @@
 // around the Moon — and the step re-projects onto the sphere every
 // frame, so you can never fall through or drift off into space.
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Stars, Billboard } from '@react-three/drei';
 import * as THREE from 'three';
@@ -36,6 +36,7 @@ import {
   stepMoonWalker,
 } from '@/lib/moon';
 import { EARTH_RADIUS } from '@/lib/god-orbits';
+import { moonPhaseDaylight } from '@/lib/day-night';
 
 // Earth as seen from the Moon: radius 55 at 180 away.
 const EARTH_POS = {
@@ -234,6 +235,23 @@ export default function MoonScene({ moveRef, jumpRef, hudRef }) {
   const moonTex = useMemo(makeMoonTexture, []);
   const earthTex = useMemo(makeEarthTexture, []);
   const rocks = useMemo(rockPlacements, []);
+  // Day/night (Merlin, 2026-11-14): the hard sunlight scales by
+  // the moon's real illuminated fraction (the shared law) —
+  // full moon = the built 2.2 daylight on the Earth-facing
+  // side, new moon = night, floored at 0.05 so the scene never
+  // goes pitch black. Refreshed every 10 s; the sky stays black
+  // either way and Earth stays hanging where it was.
+  const [sunlight, setSunlight] = useState(2.2);
+  useEffect(() => {
+    const applyPhase = () => {
+      try {
+        setSunlight(0.05 + 2.15 * moonPhaseDaylight(Date.now()));
+      } catch {}
+    };
+    applyPhase();
+    const id = setInterval(applyPhase, 10000);
+    return () => clearInterval(id);
+  }, []);
   useEffect(
     () => () => {
       moonTex && moonTex.dispose();
@@ -244,9 +262,10 @@ export default function MoonScene({ moveRef, jumpRef, hudRef }) {
 
   return (
     <>
-      {/* Sunlight: hard and white, like real lunar daylight. */}
+      {/* Sunlight: hard and white, like real lunar daylight —
+          scaled by the real moon phase (see the effect above). */}
       <ambientLight intensity={0.12} />
-      <directionalLight position={[50, 80, 40]} intensity={2.2} color="#fff2dd" />
+      <directionalLight position={[50, 80, 40]} intensity={sunlight} color="#fff2dd" />
       <Stars radius={300} depth={50} count={5000} factor={4} fade speed={0.5} />
 
       {/* The Moon itself — the walker stands on this sphere. */}

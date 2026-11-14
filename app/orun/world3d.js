@@ -31,6 +31,8 @@ import {
   right,
   stepPosition,
 } from '@/lib/orun/world';
+import DayNightRig from '@/components/DayNightRig';
+import { NETHER_REALM_SHADE } from '@/lib/day-night';
 
 const ROCK = '#141118';
 const STONE = '#2a2a32';
@@ -655,10 +657,7 @@ export function OrunScene({ playerRef, inputRef, onPortal, onRegion, reduced }) 
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
-      <color attach="background" args={['#1a1206']} />
-      <fogExp2 attach="fog" args={['#191204', 0.0035]} />
-      <ambientLight color="#4a3416" intensity={1.0} />
-      <directionalLight position={[50, 80, 40]} color="#ffd98a" intensity={0.9} />
+      <DayNightRig shade={NETHER_REALM_SHADE.orun} storm={null} />
       <Ground />
       <GroveTrees trees={world.groveTrees} />
       <River reduced={reduced} />

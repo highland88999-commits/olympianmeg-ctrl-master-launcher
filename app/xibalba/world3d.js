@@ -17,10 +17,12 @@ import {
   GATES,
   PALACE,
   PORTALS,
+  RIVER,
   RUN_SPEED,
   TORCH_COLORS,
   TORCH_LIGHT,
   WALK_SPEED,
+  WORLD_RADIUS,
   forward,
   makeTorches,
   makeWorld,
@@ -29,6 +31,8 @@ import {
   right,
   stepPosition,
 } from '@/lib/xibalba/world';
+import DayNightRig from '@/components/DayNightRig';
+import { NETHER_REALM_SHADE } from '@/lib/day-night';
 
 const ROCK = '#141118';
 const STONE = '#2a2a32';
@@ -654,12 +658,37 @@ export function CameraRig({ playerRef, inputRef, onPortal, onRegion, reduced }) 
 
 export function XibalbaScene({ playerRef, inputRef, onPortal, onRegion, reduced }) {
   const world = useMemo(() => makeWorld(1337), []);
+
+  // DAY / NIGHT STORM (Merlin, 2026-11-14): a strike sometimes sets a
+  // ground fire — open ground only. Never on the walker (5 m), never
+  // in the river band, never on the Gates, the palace plaza, the
+  // Descent, a portal arch, or a blood pool. Visual only: no realm
+  // here has a hazard law for ground fire, so a fire never deals
+  // damage. The rig prunes each fire after its 20–45 s life.
+  const isOpenGround = (x, z) => {
+    const p = playerRef.current;
+    if (p && Math.hypot(x - p.x, z - p.z) < 5) return false;
+    if (Math.hypot(x, z) > WORLD_RADIUS - 20) return false;
+    if (z > RIVER.zMin - 2 && z < RIVER.zMax + 2) return false;
+    if (Math.hypot(x - GATES.x, z - GATES.z) < 12) return false;
+    if (Math.hypot(x - PALACE.x, z - PALACE.z) < 45) return false;
+    if (Math.hypot(x - DESCENT_PORTAL.x, z - DESCENT_PORTAL.z) < 16) return false;
+    if (PORTALS.some((portal) => Math.hypot(x - portal.x, z - portal.z) < 10)) return false;
+    if (world.bloodPools.some((pool) => Math.hypot(x - pool.x, z - pool.z) < pool.r + 3)) return false;
+    return true;
+  };
   return (
     <>
-      <color attach="background" args={['#030503']} />
-      <fogExp2 attach="fog" args={['#040d05', 0.0035]} />
-      <ambientLight color="#1a2a1a" intensity={0.9} />
-      <directionalLight position={[50, 80, 40]} color="#2a7a3a" intensity={0.7} />
+      <DayNightRig
+        shade={NETHER_REALM_SHADE.xibalba}
+        storm={{
+          hue: 'purple',
+          bounds: { xMin: -300, xMax: 300, zMin: -300, zMax: 300 },
+          isOpenGround,
+          realm: 'xibalba',
+          seed: 7106,
+        }}
+      />
       <Ground />
       <BloodPools pools={world.bloodPools} />
       <River reduced={reduced} />

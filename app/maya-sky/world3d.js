@@ -29,6 +29,7 @@ import {
   right,
   stepPosition,
 } from '@/lib/maya-sky/world';
+import DayNightRig from '@/components/DayNightRig';
 
 const STONE = '#8a8378';
 const PALE_STONE = '#b8b0a0';
@@ -635,10 +636,7 @@ export function MayaSkyScene({ playerRef, inputRef, onPortal, onRegion, reduced 
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
-      <color attach="background" args={['#8ecfee']} />
-      <fogExp2 attach="fog" args={['#a8d8f0', 0.0022]} />
-      <ambientLight color="#cfe8ff" intensity={1.1} />
-      <directionalLight position={[50, 80, 40]} color="#fff8d0" intensity={1.4} />
+      <DayNightRig shade="earth" fogDensity={0.0022} />
       <Ground />
       <Pools pools={world.pools} />
       <River reduced={reduced} />

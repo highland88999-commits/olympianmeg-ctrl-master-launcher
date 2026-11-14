@@ -32,6 +32,7 @@ import {
   right,
   stepPosition,
 } from '@/lib/valhalla/world';
+import DayNightRig from '@/components/DayNightRig';
 
 const STONE = '#5d4126';
 const PALE_STONE = '#8a8a92';
@@ -656,10 +657,7 @@ export function ValhallaScene({ playerRef, inputRef, onPortal, onRegion, reduced
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
-      <color attach="background" args={['#f0d48a']} />
-      <fogExp2 attach="fog" args={['#f0d48a', 0.0035]} />
-      <ambientLight color="#ffe9b8" intensity={0.9} />
-      <directionalLight position={[50, 80, 40]} color="#ffd98a" intensity={1.0} />
+      <DayNightRig shade="earth" />
       <Ground />
       <LightPools pools={world.pools} />
       <River reduced={reduced} />

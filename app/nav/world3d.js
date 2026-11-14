@@ -31,6 +31,8 @@ import {
   right,
   stepPosition,
 } from '@/lib/nav/world';
+import DayNightRig from '@/components/DayNightRig';
+import { NETHER_REALM_SHADE } from '@/lib/day-night';
 
 const ROCK = '#141118';
 const STONE = '#2a2a32';
@@ -642,10 +644,7 @@ export function NavScene({ playerRef, inputRef, onPortal, onRegion, reduced }) {
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
-      <color attach="background" args={['#04120c']} />
-      <fogExp2 attach="fog" args={['#04100a', 0.0035]} />
-      <ambientLight color="#12241c" intensity={0.9} />
-      <directionalLight position={[50, 80, 40]} color="#3a6a4a" intensity={0.6} />
+      <DayNightRig shade={NETHER_REALM_SHADE.nav} storm={null} />
       <Ground />
       <RootTangles tangles={world.rootTangles} />
       <River reduced={reduced} />

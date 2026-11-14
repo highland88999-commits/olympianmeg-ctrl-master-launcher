@@ -32,6 +32,7 @@ import {
   right,
   stepPosition,
 } from '@/lib/aaru/world';
+import DayNightRig from '@/components/DayNightRig';
 
 const STONE = '#c9a86a';
 const PALE_STONE = '#8a8a92';
@@ -653,10 +654,7 @@ export function AaruScene({ playerRef, inputRef, onPortal, onRegion, reduced }) 
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
-      <color attach="background" args={['#bfe3ff']} />
-      <fogExp2 attach="fog" args={['#bfe3ff', 0.0035]} />
-      <ambientLight color="#ffffff" intensity={1.0} />
-      <directionalLight position={[50, 80, 40]} color="#fff2b0" intensity={1.0} />
+      <DayNightRig shade="earth" />
       <Ground />
       <LightPools pools={world.pools} />
       <River reduced={reduced} />

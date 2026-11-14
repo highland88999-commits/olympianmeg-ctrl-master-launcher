@@ -29,6 +29,7 @@ import {
   right,
   stepPosition,
 } from '@/lib/tiangong/world';
+import DayNightRig from '@/components/DayNightRig';
 
 const STONE = '#8a8378';
 const PALE_STONE = '#b8b0a0';
@@ -642,10 +643,7 @@ export function TiangongScene({ playerRef, inputRef, onPortal, onRegion, reduced
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
-      <color attach="background" args={['#ffe9a8']} />
-      <fogExp2 attach="fog" args={['#ffedb0', 0.0022]} />
-      <ambientLight color="#fff3c4" intensity={1.1} />
-      <directionalLight position={[50, 80, 40]} color="#fff2b0" intensity={1.4} />
+      <DayNightRig shade="earth" fogDensity={0.0022} />
       <Ground />
       <Pools pools={world.pools} />
       <River reduced={reduced} />

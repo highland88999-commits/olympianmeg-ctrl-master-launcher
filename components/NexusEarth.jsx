@@ -53,6 +53,7 @@ import { roamState, tangentFrame, headingVector, DRIVING_ENTER_MPS, DRIVING_EXIT
 import { setStreetFlatActive } from '@/lib/earth/street-flat';
 import { PATCH_RECENTER_M, PATCH_RECENTER_DRIVING_M } from '@/lib/earth/street-patch';
 import { EARTH_RADIUS } from '@/lib/geo';
+import { sunVector, getDayNightPlace, requestDayNightPlace } from '@/lib/day-night';
 
 // The hub Earth: Google's photorealistic 3D tiles when they stream, a real
 // procedural 3D terrain globe as the fallback — Earth is always 3D, never a
@@ -196,6 +197,7 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
   const [coarseCenter, setCoarseCenter] = useState(null);
   const [renderedServerLoaded, setRenderedServerLoaded] = useState(false); // server tiles fetch settled (rows or none)
   const [driving, setDriving] = useState(false);
+  const skyMatRef = useRef(null); // street-level day-sky dome shader material
   // 'terrain' = procedural 3D globe + ESRI lens (default, always 3D).
   // 'photorealistic' = Google 3D tiles, only after they really render.
   const [layer, setLayer] = useState('terrain');
@@ -220,6 +222,30 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
     setStreetFlatActive(roaming);
     return () => setStreetFlatActive(false);
   }, [roaming]);
+
+  // Day/night (Merlin, 2026-11-14): the street-level sky dome's
+  // sunDirection follows the REAL sun for the walker's place
+  // (real location when granted, Sydney when not — the shared
+  // law, lib/day-night.js), refreshed ~once a second. The
+  // shader itself is untouched: day side still gets the blue
+  // sky, night side still holds the nightBlue floor so stars
+  // show through. The dome only mounts while roaming, so a
+  // missing material is a no-op, not an error.
+  useEffect(() => {
+    requestDayNightPlace();
+    const updateSun = () => {
+      const mat = skyMatRef.current;
+      if (!mat || !mat.uniforms || !mat.uniforms.sunDirection) return;
+      try {
+        const place = getDayNightPlace();
+        const v = sunVector(Date.now(), place.lat, place.lon);
+        mat.uniforms.sunDirection.value.set(v.x, v.y, v.z);
+      } catch {}
+    };
+    updateSun();
+    const id = setInterval(updateSun, 1000);
+    return () => clearInterval(id);
+  }, []);
 
   // Mapped-coverage server record (2026-10-26): on mount, union
   // the account's server bitset into the device record, so a
@@ -1492,6 +1518,7 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
           <mesh scale={[1.5, 1.5, 1.5]}>
             <sphereGeometry args={[55, 32, 32]} />
             <shaderMaterial
+              ref={skyMatRef}
               side={THREE.BackSide}
               transparent={true}
               depthWrite={false}

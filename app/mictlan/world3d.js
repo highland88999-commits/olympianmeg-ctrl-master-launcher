@@ -29,6 +29,8 @@ import {
   right,
   stepPosition,
 } from '@/lib/mictlan/world';
+import DayNightRig from '@/components/DayNightRig';
+import { NETHER_REALM_SHADE } from '@/lib/day-night';
 
 const ROCK = '#141118';
 const STONE = '#2a2a32';
@@ -649,10 +651,7 @@ export function MictlanScene({ playerRef, inputRef, onPortal, onRegion, reduced 
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
-      <color attach="background" args={['#050303']} />
-      <fogExp2 attach="fog" args={['#0d0404', 0.0035]} />
-      <ambientLight color="#2a1a1a" intensity={0.9} />
-      <directionalLight position={[50, 80, 40]} color="#7a2a1a" intensity={0.7} />
+      <DayNightRig shade={NETHER_REALM_SHADE.mictlan} storm={null} />
       <Ground />
       <ObsidianPools pools={world.obsidianPools} />
       <River reduced={reduced} />

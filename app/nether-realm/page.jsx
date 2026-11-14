@@ -133,6 +133,24 @@ export default function NetherRealmPage() {
     return () => clearInterval(id);
   }, [soundOn]);
 
+  // Thunder (Merlin, 2026-11-14): the day/night rig flashes lightning
+  // and dispatches window 'olympus:thunder' on a strike — this page
+  // owns the only sound engine, so it answers with a low rumble.
+  // No strike position rides the event, so the rumble is centred and
+  // full-volume; the engine's own gain still applies. Respects the
+  // sound toggle, like the growl does.
+  useEffect(() => {
+    const onThunder = (event) => {
+      if (event?.detail?.realm && event.detail.realm !== 'hades') return;
+      const engine = soundRef.current;
+      if (!engine || !engine.unlocked || !soundOn) return;
+      const p = playerRef.current;
+      engine.playSound('hades-thunder', 'thunder', null, { x: p.x, z: p.z, yaw: p.yaw });
+    };
+    window.addEventListener('olympus:thunder', onThunder);
+    return () => window.removeEventListener('olympus:thunder', onThunder);
+  }, [soundOn]);
+
   const applyKeys = useCallback(() => {
     const k = keysRef.current;
     const fwd = (k.has('w') || k.has('arrowup') ? 1 : 0) - (k.has('s') || k.has('arrowdown') ? 1 : 0);

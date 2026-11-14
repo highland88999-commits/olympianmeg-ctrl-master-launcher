@@ -31,6 +31,7 @@ import {
   right,
   stepPosition,
 } from '@/lib/tir-na-nog/world';
+import DayNightRig from '@/components/DayNightRig';
 
 const STONE = '#e8e8d8';
 const PALE_STONE = '#ffffff';
@@ -649,10 +650,7 @@ export function TirNaNogScene({ playerRef, inputRef, onPortal, onRegion, reduced
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
-      <color attach="background" args={['#d8f0d0']} />
-      <fogExp2 attach="fog" args={['#dcefd4', 0.0028]} />
-      <ambientLight color="#eef7e6" intensity={1.2} />
-      <directionalLight position={[50, 80, 40]} color="#fff8d8" intensity={1.1} />
+      <DayNightRig shade="earth" fogDensity={0.0028} />
       <Ground />
       <Pools pools={world.springPools} />
       <River reduced={reduced} />

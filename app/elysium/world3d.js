@@ -35,6 +35,7 @@ import {
   right,
   stepPosition,
 } from '@/lib/elysium/world';
+import DayNightRig from '@/components/DayNightRig';
 
 const STONE = '#f5f2ea';
 const PALE_STONE = '#8a8a92';
@@ -667,10 +668,7 @@ export function ElysiumScene({ playerRef, inputRef, onPortal, onRegion, reduced 
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
-      <color attach="background" args={['#dfe9f5']} />
-      <fogExp2 attach="fog" args={['#dfe9f5', 0.0035]} />
-      <ambientLight color="#ffffff" intensity={1.0} />
-      <directionalLight position={[50, 80, 40]} color="#ffffff" intensity={0.9} />
+      <DayNightRig shade="earth" />
       <Ground />
       <LightPools pools={world.pools} />
       <River reduced={reduced} />

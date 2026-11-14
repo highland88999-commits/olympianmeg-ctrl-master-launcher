@@ -31,6 +31,7 @@ import {
   right,
   stepPosition,
 } from '@/lib/svarga/world';
+import DayNightRig from '@/components/DayNightRig';
 
 const STONE = '#d9c08a';
 const PALE_STONE = '#f5e6c8';
@@ -651,10 +652,7 @@ export function SvargaScene({ playerRef, inputRef, onPortal, onRegion, reduced }
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
-      <color attach="background" args={['#ffe9c9']} />
-      <fogExp2 attach="fog" args={['#ffe9c9', 0.0028]} />
-      <ambientLight color="#fff3d6" intensity={1.2} />
-      <directionalLight position={[50, 80, 40]} color="#ffe9b0" intensity={1.1} />
+      <DayNightRig shade="earth" fogDensity={0.0028} />
       <Ground />
       <Pools pools={world.lotusPonds} />
       <River reduced={reduced} />

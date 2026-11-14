@@ -33,6 +33,8 @@ import {
   right,
   stepPosition,
 } from '@/lib/helheim/world';
+import DayNightRig from '@/components/DayNightRig';
+import { NETHER_REALM_SHADE } from '@/lib/day-night';
 
 const STONE = '#2a2f38';
 const PALE_STONE = '#5a6470';
@@ -666,10 +668,7 @@ export function HelheimScene({ playerRef, inputRef, onPortal, onRegion, reduced 
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
-      <color attach="background" args={['#04070c']} />
-      <fogExp2 attach="fog" args={['#0a1218', 0.0035]} />
-      <ambientLight color="#1a2a38" intensity={0.9} />
-      <directionalLight position={[50, 80, 40]} color="#5a7a9a" intensity={0.7} />
+      <DayNightRig shade={NETHER_REALM_SHADE.helheim} storm={null} />
       <Ground />
       <FrostPools pools={world.frostPools} />
       <River reduced={reduced} />

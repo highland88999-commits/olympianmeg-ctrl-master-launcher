@@ -319,7 +319,7 @@ test('scene builds the whole world shell, procedurally', () => {
     'WestRegion', 'EastRegion', 'NorthRegion', 'PortalArches', 'AscentPortal', 'Torches', 'Motes']) {
     assert.ok(sceneSrc.includes(piece), `scene contains ${piece}`);
   }
-  assert.ok(sceneSrc.includes('fogExp2'), 'bright sky via fog');
+  assert.ok(sceneSrc.includes('<DayNightRig shade="earth" />'), 'day/night sky via the shared rig (fog + light)');
   assert.ok(sceneSrc.includes('makeWorld'), 'set dressing is seeded + deterministic');
   assert.ok(sceneSrc.includes('{p.label}'), 'arches carry their plain-words label');
   assert.ok(sceneSrc.includes('CameraRig'), 'first-person camera rig');

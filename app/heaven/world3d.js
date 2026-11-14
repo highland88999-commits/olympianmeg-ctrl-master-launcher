@@ -31,6 +31,7 @@ import {
   right,
   stepPosition,
 } from '@/lib/heaven/world';
+import DayNightRig from '@/components/DayNightRig';
 
 const STONE = '#e8e2d0';
 const PALE_STONE = '#ffffff';
@@ -652,10 +653,7 @@ export function HeavenScene({ playerRef, inputRef, onPortal, onRegion, reduced }
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
-      <color attach="background" args={['#cfe8ff']} />
-      <fogExp2 attach="fog" args={['#d6ecff', 0.0028]} />
-      <ambientLight color="#fff8e0" intensity={1.2} />
-      <directionalLight position={[50, 80, 40]} color="#ffffff" intensity={1.1} />
+      <DayNightRig shade="earth" fogDensity={0.0028} />
       <Ground />
       <Pools pools={world.lightPools} />
       <River reduced={reduced} />
