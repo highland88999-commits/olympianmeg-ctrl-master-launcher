@@ -65,11 +65,24 @@ describe('the spawn law', () => {
     );
   });
 
-  it('spawns a handful at a time, never a crowd', () => {
+  it('spawns a real population in range, never more than the cap', () => {
     const list = creaturesNear(ORIGIN, 0, 0, 250, landGround);
-    assert.ok(list.length > 0, 'expected at least one creature at the anchor');
-    assert.ok(list.length <= WILD_CAP);
-    assert.ok(list.length < 40, `got ${list.length} — too crowded`);
+    // The old 222 m cells left ~3 creatures in range, all far
+    // away — the world read empty. The 55 m cells hold a real
+    // population: 45 at the Redwater anchor, 15–70 across
+    // latitudes on flat land.
+    assert.ok(list.length >= 10, `got ${list.length} — the world would read empty`);
+    assert.ok(list.length <= WILD_CAP, `got ${list.length} — over the cap`);
+  });
+
+  it('wildlife stands close by, not only at the far edge', () => {
+    // Nearest within 60 m at the anchor and nearby: Redwater
+    // 45.9 m, 500 m east 24.2 m, 1 km north 24.6 m (measured).
+    for (const [x, z] of [[0, 0], [500, 0], [0, -1000]]) {
+      const list = creaturesNear(ORIGIN, x, z, 250, landGround);
+      assert.ok(list.length > 0, `nothing at (${x}, ${z})`);
+      assert.ok(list[0].dist <= 60, `nearest at (${x}, ${z}) is ${list[0].dist.toFixed(1)} m away`);
+    }
   });
 
   it('nothing spawns beyond the 250 m spawn radius', () => {
