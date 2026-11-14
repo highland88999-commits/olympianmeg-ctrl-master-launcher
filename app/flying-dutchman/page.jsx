@@ -18,7 +18,7 @@ import {
 import { buildShip, buildGhostShip, animateShip } from './ship3d.js';
 import {
   createOcean, createSky, poseShip,
-  createBallPool, createFlashPool, createSplashPool, createSoulPool,
+  createBallPool, createFlashPool, createSplashPool, createSoulPool, createFirePool,
 } from './sea3d.js';
 import { createIslands, createChests } from './world3d.js';
 import {
@@ -340,6 +340,7 @@ export default function DutchmanPage() {
         flash: createFlashPool(scene),
         splash: createSplashPool(scene),
         souls: createSoulPool(scene),
+        fire: createFirePool(scene),
       },
       input: { rudder: 0, joy: 0, keys: { left: false, right: false }, sails: SAILS.FULL, fire: null },
       cam: { yaw: 0, pitch: 0.34, dist: 36 },
@@ -364,6 +365,8 @@ export default function DutchmanPage() {
 
     // -- events ----------------------------------------------------------------
     G.handleEvents = (events) => {
+      let soulsClaimed = 0;
+      let firstSoul = null;
       for (const e of events) {
         if (e.type === 'fire') {
           const grp = e.shipId === world.player.id ? G.playerGroup
@@ -394,10 +397,19 @@ export default function DutchmanPage() {
             addToast(`☠ ${e.name || 'Enemy ship'} sunk — claim their souls!`);
             if (G.mode === 'duel') G.endDuel(true);
           }
+        } else if (e.type === 'soul') {
+          // Floating souls pay the same way a chest does — one toast
+          // per batch, not one per wisp, so a wreck's souls don't spam.
+          soulsClaimed += 1;
+          if (!firstSoul) firstSoul = e;
         } else if (e.type === 'chest') {
           G.pools.flash.fire(e.x, waveHeight(e.x, e.z, world.t) + 3, e.z);
           addToast(`💰 Treasure claimed! +${e.souls} souls, hull patched.`);
         }
+      }
+      if (soulsClaimed > 0) {
+        if (firstSoul) G.pools.flash.fire(firstSoul.x, waveHeight(firstSoul.x, firstSoul.z, world.t) + 3, firstSoul.z);
+        addToast(`💀 +${soulsClaimed} soul${soulsClaimed === 1 ? '' : 's'} claimed — the crew grows.`);
       }
     };
 
@@ -569,6 +581,20 @@ export default function DutchmanPage() {
         }
       }
 
+      // Wreck fires: a wrecked ship burns (flame + smoke + orange glow)
+      // while it sinks, then the fire dies as the hull slips under.
+      // Player, enemies and the duel rival alike.
+      const burning = [];
+      if (p.sinking) burning.push({ x: p.x, z: p.z, k: p.sinkT / SHIP.sinkTime });
+      if (G.mode === 'solo') {
+        for (const e of world.enemies) {
+          if (e.sinking) burning.push({ x: e.x, z: e.z, k: e.sinkT / SHIP.sinkTime });
+        }
+      } else if (G.remote && G.remote.sinking) {
+        burning.push({ x: G.remote.x, z: G.remote.z, k: G.remote.sinkT / SHIP.sinkTime });
+      }
+      G.pools.fire.sync(burning, t);
+
       // Effects.
       G.pools.balls.sync(world.balls, t);
       G.pools.souls.sync(world.souls, t);
@@ -595,6 +621,17 @@ export default function DutchmanPage() {
       if (t - G.lastHud > 0.2) {
         G.lastHud = t;
         const rt = reloadTime(p);
+        // Nearest living foe, so damage you deal is visible in solo
+        // (duels already show the rival's hull below).
+        let foe = null;
+        if (G.mode === 'solo') {
+          let best = Infinity;
+          for (const e of world.enemies) {
+            if (!e.alive) continue;
+            const d = Math.hypot(e.x - p.x, e.z - p.z);
+            if (d < best) { best = d; foe = e; }
+          }
+        }
         setHud({
           hull: Math.max(0, Math.round(p.hull)), maxHull: p.maxHull,
           crew: p.crew, souls: p.souls, wave: world.wave,
@@ -606,6 +643,7 @@ export default function DutchmanPage() {
           reloadStbd: p.reloadStbd <= 0 ? 1 : 1 - p.reloadStbd / rt,
           enemies: G.mode === 'solo' ? world.enemies.filter((e) => e.alive).length : 1,
           enemyHull: G.mode === 'duel' && G.remote ? Math.max(0, Math.round(G.remote.hull)) : null,
+          foeHull: foe ? { name: foe.name, hull: Math.max(0, Math.round(foe.hull)), maxHull: foe.maxHull } : null,
         });
       }
 
@@ -825,6 +863,12 @@ export default function DutchmanPage() {
               <div className="mt-1.5">
                 <p className="text-[9px] tracking-widest text-red-300/80">RIVAL HULL {hud.enemyHull}</p>
                 <div className="h-1.5 rounded-full bg-zinc-800"><div className="h-full rounded-full bg-red-500" style={{ width: `${hud.enemyHull}%` }} /></div>
+              </div>
+            )}
+            {hud.foeHull && (
+              <div className="mt-1.5">
+                <p className="text-[9px] tracking-widest text-orange-300/80">FOE — {hud.foeHull.name.toUpperCase()} {hud.foeHull.hull}</p>
+                <div className="h-1.5 rounded-full bg-zinc-800"><div className="h-full rounded-full bg-orange-500" style={{ width: `${(hud.foeHull.hull / hud.foeHull.maxHull) * 100}%` }} /></div>
               </div>
             )}
           </div>

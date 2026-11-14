@@ -14,6 +14,7 @@ export const SHIP = {
   length: 22,
   beam: 6,
   deckY: 4.2,          // cannon muzzle height above water
+  hullTopY: 8,         // top of the hittable hull band (deck + lower masts)
   maxHull: 100,
   maxCrew: 24,
   cannonsPerSide: 6,
@@ -24,17 +25,20 @@ export const SHIP = {
   accel: 6.0,
   drag: 0.55,
   maxSpeed: 15,        // m/s running before the wind, full sails
-  ballSpeed: 58,
+  ballSpeed: 64,       // fast enough that a shot reaches cannonRange
   ballGravity: 9.8,
   ballLife: 6,
   cannonRange: 130,
   hitRadius: 4.2,      // direct-hit distance to ship center line
-  splashRadius: 9,
-  dmgDirect: 12,
+  splashRadius: 12,    // near-miss water blast, measured to the center line
+  dmgDirect: 5,
   dmgSplash: 4,
   crewPerHullLoss: 25, // every 25 hull damage kills 1 crew
+  repairRate: 0.15,    // hull/s repaired per full 6-crew complement
   soulHeal: 4,
-  soulPickupR: 9,
+  soulPickupR: 18,     // same reach as a treasure chest (ISLAND.chestPickupR)
+  soulLife: 180,       // seconds a floating soul lasts before fading
+  maxFloatingSouls: 60, // cap — souls never accumulate without bound
   sinkTime: 6,
 };
 
@@ -124,7 +128,9 @@ export function makeShip({ name = 'Ship', isPlayer = false, x = 0, z = 0, headin
     reloadStbd: 0,
     alive: true,
     sinking: false,
+    burning: false,    // wreck fire — set when the hull hits 0
     sinkT: 0,
+    _crewStart: crew,  // souls a wreck releases: one per crewman aboard
     _hullAtCrewLoss: SHIP.maxHull,
   };
 }
@@ -169,9 +175,10 @@ export function stepShip(ship, dt, wind) {
   ship.z += ship.vz * dt;
   ship.reloadPort = Math.max(0, ship.reloadPort - dt);
   ship.reloadStbd = Math.max(0, ship.reloadStbd - dt);
-  // Slow hull repair by a well-crewed ship.
+  // Slow hull repair by a well-crewed ship — kept slow on purpose, so
+  // damage taken in a fight sticks instead of washing straight out.
   if (ship.crew >= 6 && ship.hull < ship.maxHull) {
-    ship.hull = Math.min(ship.maxHull, ship.hull + (ship.crew / 6) * 0.5 * dt);
+    ship.hull = Math.min(ship.maxHull, ship.hull + (ship.crew / 6) * SHIP.repairRate * dt);
   }
 }
 
@@ -219,8 +226,16 @@ export function fireBroadside(ship, side, now = 0) {
 }
 
 /**
- * Step cannonballs: gravity, water hits, ship hits. Pushes events:
- * {type:'splash'|'hit'|'sunk', ...}. Mutates balls/ships/souls lists.
+ * Step cannonballs: gravity, hull hits, water hits, ship hits. Pushes
+ * events: {type:'splash'|'hit'|'sunk', ...}. Mutates balls/ships/souls
+ * lists.
+ *
+ * A ball counts a direct hit the moment it crosses a ship's hull band
+ * (waterline to deck + lower masts) within hitRadius of the center
+ * line — NOT only when it finally reaches the water past the ship.
+ * The old water-only test let balls fly straight through a hull and
+ * splash harmlessly beyond it, so a whole engagement could land
+ * nothing (Merlin, 2026-11-14: 147 s of broadsides, zero damage).
  */
 export function stepBalls(balls, ships, souls, dt, t, events, rng) {
   const range2 = SHIP.cannonRange * SHIP.cannonRange;
@@ -232,27 +247,35 @@ export function stepBalls(balls, ships, souls, dt, t, events, rng) {
     b.x += b.vx * dt; b.y += b.vy * dt; b.z += b.vz * dt;
     const wh = waveHeight(b.x, b.z, t);
     let dead = b.life <= 0;
+    // Hull crossing: the ball is inside the hittable band — test the
+    // center line now, while it is over the ship, not at the water.
+    if (!dead && b.y > wh - 1.5 && b.y < SHIP.hullTopY) {
+      for (const s of ships) {
+        if (!s.alive || s.id === b.fromId) continue;
+        if (distToCenterline2(b.x, b.z, s) < SHIP.hitRadius * SHIP.hitRadius) {
+          damageShip(s, SHIP.dmgDirect, events, souls, rng, b.x, b.z);
+          events.push({ type: 'hit', shipId: s.id, dmg: SHIP.dmgDirect, x: b.x, z: b.z });
+          dead = true;
+          break;
+        }
+      }
+    }
     if (!dead && b.y <= wh) {
       // Water impact — check ships first (near misses still splash).
       let hitShip = null;
       for (const s of ships) {
         if (!s.alive || s.id === b.fromId) continue;
-        // Distance to ship's center line segment.
-        const dx = b.x - s.x, dz = b.z - s.z;
-        const fx = Math.sin(s.heading), fz = Math.cos(s.heading);
-        const along = clamp(dx * fx + dz * fz, -SHIP.length / 2, SHIP.length / 2);
-        const px = s.x + fx * along, pz = s.z + fz * along;
-        const d2 = dist2(b.x, b.z, px, pz);
-        if (d2 < SHIP.hitRadius * SHIP.hitRadius) { hitShip = s; break; }
+        if (distToCenterline2(b.x, b.z, s) < SHIP.hitRadius * SHIP.hitRadius) { hitShip = s; break; }
       }
       if (hitShip) {
         damageShip(hitShip, SHIP.dmgDirect, events, souls, rng, b.x, b.z);
         events.push({ type: 'hit', shipId: hitShip.id, dmg: SHIP.dmgDirect, x: b.x, z: b.z });
       } else {
-        // Near splash can still chip a close ship.
+        // Near splash can still chip a close ship — a 22 m ship is a
+        // line, not a point, so measure to the center line.
         for (const s of ships) {
           if (!s.alive || s.id === b.fromId) continue;
-          if (dist2(b.x, b.z, s.x, s.z) < SHIP.splashRadius * SHIP.splashRadius) {
+          if (distToCenterline2(b.x, b.z, s) < SHIP.splashRadius * SHIP.splashRadius) {
             damageShip(s, SHIP.dmgSplash, events, souls, rng, b.x, b.z);
             events.push({ type: 'hit', shipId: s.id, dmg: SHIP.dmgSplash, x: b.x, z: b.z });
             break;
@@ -274,6 +297,15 @@ export function stepBalls(balls, ships, souls, dt, t, events, rng) {
   }
 }
 
+/** Squared distance from (x, z) to a ship's center-line segment. */
+export function distToCenterline2(x, z, ship) {
+  const dx = x - ship.x, dz = z - ship.z;
+  const fx = Math.sin(ship.heading), fz = Math.cos(ship.heading);
+  const along = clamp(dx * fx + dz * fz, -SHIP.length / 2, SHIP.length / 2);
+  const px = ship.x + fx * along, pz = ship.z + fz * along;
+  return dist2(x, z, px, pz);
+}
+
 export function damageShip(ship, dmg, events, souls, rng, x, z) {
   if (!ship.alive) return;
   ship.hull -= dmg;
@@ -289,10 +321,13 @@ export function damageShip(ship, dmg, events, souls, rng, x, z) {
     ship.hull = 0;
     ship.alive = false;
     ship.sinking = true;
+    ship.burning = true; // wreck fire — the 3D layer reads this
     ship.sinkT = 0;
     events.push({ type: 'sunk', shipId: ship.id, x: ship.x, z: ship.z, name: ship.name });
-    // The dead release their souls.
-    const n = 3 + Math.floor((rng ? rng() : Math.random()) * 4);
+    // The dead release their souls — one per crewman lost with the
+    // ship (everyone aboard, including those already lost to damage
+    // during the fight, surfaces with the wreck).
+    const n = Math.max(1, ship._crewStart || ship.crew);
     spawnSouls(souls, ship.x, ship.z, n, rng);
   }
 }
@@ -310,10 +345,12 @@ export function spawnSouls(souls, x, z, n, rng) {
       z: z + Math.cos(a) * d,
       vx: (r() - 0.5) * 1.5,
       vz: (r() - 0.5) * 1.5,
-      life: 45, // seconds before the soul fades back to the deep
+      life: SHIP.soulLife, // seconds before the soul fades back to the deep
       phase: r() * TAU,
     });
   }
+  // Never accumulate without bound — oldest wisps fade first.
+  while (souls.length > SHIP.maxFloatingSouls) souls.shift();
 }
 
 /** Souls drift; ships within pickup radius claim them. */

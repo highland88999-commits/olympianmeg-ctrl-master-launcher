@@ -303,7 +303,7 @@ export function createSplashPool(scene, max = 30) {
 // Soul wisps
 // ---------------------------------------------------------------------------
 
-export function createSoulPool(scene, max = 40) {
+export function createSoulPool(scene, max = 60) {
   const tex = radialTexture('rgba(140,255,210,1)', 'rgba(40,255,170,0)', 128);
   const items = [];
   for (let i = 0; i < max; i++) {
@@ -322,6 +322,73 @@ export function createSoulPool(scene, max = 40) {
         const sc = 2.6 + Math.sin(t * 3 + w.phase) * 0.5;
         m.scale.set(sc, sc, 1);
         m.material.opacity = Math.min(0.95, w.life / 6);
+      }
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Wreck fires — flame + smoke + orange glow on a burning ship.
+// ---------------------------------------------------------------------------
+
+/**
+ * One slot per ship that can burn at once (player + up to 3 enemies in
+ * solo, 2 in a duel). sync() takes burning ships as
+ * [{ x, z, k }] — k = 0 fresh wreck → 1 slipped under. Flames fade as
+ * the hull goes down; the light flickers like the nether torch lights.
+ */
+export function createFirePool(scene, max = 4) {
+  const flameTex = radialTexture('rgba(255,220,120,1)', 'rgba(255,90,10,0)', 128);
+  const smokeTex = radialTexture('rgba(40,40,44,0.55)', 'rgba(40,40,44,0)', 128);
+  const slots = [];
+  for (let i = 0; i < max; i++) {
+    const g = new THREE.Group();
+    const flames = [];
+    for (let k = 0; k < 3; k++) {
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: flameTex, transparent: true, opacity: 0.95, depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      }));
+      s.position.set((k - 1) * 2.4, 1.5 + (k % 2) * 1.4, (k % 2 ? -1.6 : 1.4));
+      s.scale.set(5, 7, 1);
+      g.add(s);
+      flames.push({ s, phase: k * 2.1 + i * 1.7, base: 5 + k * 1.6 });
+    }
+    const smoke = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: smokeTex, transparent: true, opacity: 0.4, depthWrite: false,
+    }));
+    smoke.position.set(0, 9, 0);
+    smoke.scale.set(10, 10, 1);
+    g.add(smoke);
+    const light = new THREE.PointLight(0xff7a1a, 0, 46, 1.8);
+    light.position.set(0, 4, 0);
+    g.add(light);
+    g.visible = false;
+    scene.add(g);
+    slots.push({ g, flames, smoke, light });
+  }
+  return {
+    sync(burning, t) {
+      for (let i = 0; i < slots.length; i++) {
+        const slot = slots[i];
+        const b = burning[i];
+        if (!b) { slot.g.visible = false; slot.light.intensity = 0; continue; }
+        slot.g.visible = true;
+        const sinkK = Math.min(1, b.k || 0);
+        const fade = 1 - sinkK; // flames die as the hull goes under
+        const wh = waveHeight(b.x, b.z, t);
+        slot.g.position.set(b.x, wh + 1.5 - sinkK * 9, b.z);
+        for (const f of slot.flames) {
+          const fl = 0.75 + 0.25 * Math.sin(t * 11 + f.phase) * Math.sin(t * 5.3 + f.phase * 2);
+          const sc = f.base * fl * (0.4 + 0.6 * fade);
+          f.s.scale.set(sc, sc * 1.5, 1);
+          f.s.material.opacity = 0.95 * fade;
+        }
+        slot.smoke.position.y = 9 + Math.sin(t * 0.8 + i) * 1.5;
+        slot.smoke.material.opacity = 0.4 * fade;
+        const sm = 10 + Math.sin(t * 0.9 + i * 2) * 2;
+        slot.smoke.scale.set(sm, sm * 1.3, 1);
+        slot.light.intensity = (26 + 12 * Math.sin(t * 13 + i * 3.1) * Math.sin(t * 5.7 + i)) * fade;
       }
     },
   };
