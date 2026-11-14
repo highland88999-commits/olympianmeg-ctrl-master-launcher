@@ -6,6 +6,9 @@
 import * as THREE from 'three';
 import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 import { dayNightFor, getDayNightPlace, requestDayNightPlace, applyDayNightRig } from '../../lib/day-night.js';
+import { dinosNear, stepDino, shouldDespawn, showcaseGround, SPAWN_RADIUS_M, REFRESH_SECONDS } from '../../lib/earth3/spawner.js';
+import { tileToWorld, TILE_M } from '../../lib/earth3/terrain.js';
+import { tileIndexFromId } from '../../lib/earth3/claims.js';
 
 /* ============================================================
    Landmarks — the page shell builds against this exact shape
@@ -862,6 +865,159 @@ function buildVegetation(ctx) {
   });
 }
 
+// The claim marker (Merlin, 2026-11-14): a gold 28 m square on
+// the ground — the outline of the tile the walker owns, drawn
+// where that tile really sits. Hidden until the page hands it a
+// tile (world.setClaimMarker), so an unclaimed visit shows none.
+function buildClaimMarker(ctx) {
+  const { scene } = ctx;
+  const group = new THREE.Group();
+  const fill = new THREE.Mesh(
+    new THREE.PlaneGeometry(TILE_M, TILE_M),
+    new THREE.MeshBasicMaterial({ color: 0xffd700, transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthWrite: false })
+  );
+  fill.rotation.x = -Math.PI / 2;
+  fill.position.y = 0.08;
+  group.add(fill);
+  const edgeMat = new THREE.MeshBasicMaterial({ color: 0xffd700 });
+  const edgeH = new THREE.BoxGeometry(TILE_M + 0.3, 0.12, 0.3);
+  const edgeV = new THREE.BoxGeometry(0.3, 0.12, TILE_M + 0.3);
+  const e1 = new THREE.Mesh(edgeH, edgeMat); e1.position.set(0, 0.1, -TILE_M / 2);
+  const e2 = new THREE.Mesh(edgeH, edgeMat); e2.position.set(0, 0.1, TILE_M / 2);
+  const e3 = new THREE.Mesh(edgeV, edgeMat); e3.position.set(-TILE_M / 2, 0.1, 0);
+  const e4 = new THREE.Mesh(edgeV, edgeMat); e4.position.set(TILE_M / 2, 0.1, 0);
+  group.add(e1, e2, e3, e4);
+  group.visible = false;
+  scene.add(group);
+  ctx.claimMarker = group;
+}
+
+// One procedural dinosaur, built from primitives in unit space
+// (about 1 m long, facing +Z) and scaled to the species' real
+// length (scaleM from Earth 2's registry). No GLB, no network —
+// the showcase loads nothing external, and a procedural animal
+// is honest about what it is. Hide by diet (herbivores green,
+// carnivores grey-red, omnivores tan); bipeds stand on two big
+// hind legs with tiny arms, quadrupeds on four.
+function makeDinoMesh(d) {
+  const g = new THREE.Group();
+  const hide = new THREE.MeshStandardMaterial({
+    color: d.diet === 'herbivore' ? 0x5f8f4a : d.diet === 'carnivore' ? 0x7d5a5a : 0xa08c5a,
+    roughness: 1,
+  });
+  const pale = new THREE.MeshStandardMaterial({ color: 0xd9cdb2, roughness: 1 });
+  const biped = d.posture === 'biped';
+  const bodyY = biped ? 0.34 : 0.30;
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.26, 12, 10), hide);
+  body.scale.set(0.85, 0.8, 1.7);
+  body.position.set(0, bodyY, 0);
+  g.add(body);
+  const belly = new THREE.Mesh(new THREE.SphereGeometry(0.24, 12, 10), pale);
+  belly.scale.set(0.7, 0.55, 1.5);
+  belly.position.set(0, bodyY - 0.08, 0.02);
+  g.add(belly);
+  // neck leans forward-up, head at the end of it
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.10, 0.34, 8), hide);
+  neck.position.set(0, bodyY + 0.22, 0.38);
+  neck.rotation.x = 0.7;
+  g.add(neck);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.12, 0.26), hide);
+  head.position.set(0, bodyY + 0.36, 0.52);
+  g.add(head);
+  // tail points back (-Z), slightly down
+  const tail = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.5, 8), hide);
+  tail.rotation.x = -Math.PI / 2 - 0.15;
+  tail.position.set(0, bodyY - 0.02, -0.55);
+  g.add(tail);
+  const legGeo = new THREE.CylinderGeometry(0.045, 0.055, 0.34, 8);
+  const legSpots = biped
+    ? [[-0.12, 0.17, 0.02], [0.12, 0.17, 0.02]]
+    : [[-0.14, 0.15, 0.18], [0.14, 0.15, 0.18], [-0.14, 0.15, -0.18], [0.14, 0.15, -0.18]];
+  for (const [lx, ly, lz] of legSpots) {
+    const leg = new THREE.Mesh(legGeo, hide);
+    leg.position.set(lx, ly, lz);
+    g.add(leg);
+  }
+  if (biped) {
+    const armGeo = new THREE.CylinderGeometry(0.025, 0.03, 0.16, 6);
+    for (const sx of [-1, 1]) {
+      const arm = new THREE.Mesh(armGeo, hide);
+      arm.position.set(sx * 0.14, bodyY + 0.02, 0.30);
+      arm.rotation.x = 0.5;
+      g.add(arm);
+    }
+  }
+  g.scale.setScalar(d.scaleM);
+  return g;
+}
+
+// The local dino spawner (Merlin, 2026-11-14): dinosaurs appear
+// around the walker from the seeded law in lib/earth3/spawner.js
+// — same spot, same dinosaur, for every visitor. The list
+// refreshes every second (Earth 2's cadence); a dino is only
+// DESPAWNED past 300 m, so between 150 m and 300 m it lingers
+// instead of flickering at the edge of sight. The walk is
+// stepped every frame from the pure law; the collider push-out
+// is applied to the MESH only (the circuit underneath never
+// bends), so a dino slides around a structure and rejoins its
+// path cleanly on the other side.
+function buildDinos(ctx, S) {
+  const { scene, anim } = ctx;
+  const group = new THREE.Group();
+  scene.add(group);
+  ctx.dinoGroup = group;
+  ctx.dinos = new Map(); // id -> { data, mesh }
+  const ground = showcaseGround();
+  let refreshIn = 0;
+
+  function removeDino(id) {
+    const live = ctx.dinos.get(id);
+    if (!live) return;
+    group.remove(live.mesh);
+    live.mesh.traverse((o) => {
+      if (o.geometry) o.geometry.dispose();
+      const m = o.material;
+      if (Array.isArray(m)) m.forEach((x) => x.dispose());
+      else if (m) m.dispose();
+    });
+    ctx.dinos.delete(id);
+  }
+
+  anim.push((t, dt) => {
+    refreshIn -= dt;
+    if (refreshIn <= 0) {
+      refreshIn = REFRESH_SECONDS;
+      const fresh = dinosNear(S.pos.x, S.pos.z, SPAWN_RADIUS_M, ground);
+      for (const d of fresh) {
+        if (ctx.dinos.has(d.id)) continue;
+        const mesh = makeDinoMesh(d);
+        mesh.position.set(d.x, d.y, d.z);
+        mesh.rotation.y = d.heading;
+        group.add(mesh);
+        ctx.dinos.set(d.id, { data: d, mesh });
+      }
+      for (const [id, live] of [...ctx.dinos]) {
+        if (shouldDespawn(live.data, S.pos.x, S.pos.z)) removeDino(id);
+      }
+    }
+    for (const live of ctx.dinos.values()) {
+      live.data = stepDino(live.data, dt, ground);
+      let mx = live.data.x, mz = live.data.z;
+      for (const c of COLLIDERS) {
+        if (live.data.y > (c.h || 40)) continue;
+        const dx = mx - c.x, dz = mz - c.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist < c.r && dist > 1e-4) {
+          const push = (c.r - dist) / dist;
+          mx += dx * push; mz += dz * push;
+        }
+      }
+      live.mesh.position.set(mx, live.data.y, mz);
+      live.mesh.rotation.y = live.data.heading;
+    }
+  });
+}
+
 function buildPlaques(ctx) {
   const { scene, anim } = ctx;
   const goldMat = new THREE.MeshStandardMaterial({
@@ -959,6 +1115,7 @@ export function createWorld(canvas, cb) {
   buildArctic(ctx);
   buildVegetation(ctx);
   buildPlaques(ctx);
+  buildClaimMarker(ctx);
 
   /* ---------------- state ---------------- */
   const lmById = {};
@@ -976,6 +1133,10 @@ export function createWorld(canvas, cb) {
   };
   const spawnLook = yawPitchFrom(new THREE.Vector3(...plaza.camPos), new THREE.Vector3(...plaza.camLook));
   S.yaw = spawnLook.yaw; S.pitch = spawnLook.pitch;
+
+  // Dinosaurs need the walker state, so their builder runs here
+  // (after S exists), not with the builders above.
+  buildDinos(ctx, S);
 
   const v3 = (a) => new THREE.Vector3(a[0], a[1], a[2]);
 
@@ -1225,6 +1386,7 @@ export function createWorld(canvas, cb) {
     });
     for (const k of Object.keys(ctx.tex)) ctx.tex[k].dispose();
     ctx.anim.length = 0; ctx.plaques.length = 0; ctx.gardens.length = 0;
+    if (ctx.dinos) ctx.dinos.clear();
     renderer.dispose();
     if (renderer.forceContextLoss) renderer.forceContextLoss();
   }
@@ -1232,6 +1394,16 @@ export function createWorld(canvas, cb) {
   return {
     destroy,
     resize,
+    getPosition() { return { x: S.pos.x, y: S.pos.y, z: S.pos.z }; },
+    getDinoCount() { return ctx.dinos ? ctx.dinos.size : 0; },
+    setClaimMarker(tileId) {
+      if (!ctx.claimMarker) return;
+      const idx = tileIndexFromId(tileId);
+      if (idx === null) { ctx.claimMarker.visible = false; return; }
+      const c = tileToWorld(idx);
+      ctx.claimMarker.position.set(c.x, 0, c.z);
+      ctx.claimMarker.visible = true;
+    },
     setMode(m) { if (m === 'walk' || m === 'fly') S.mode = m; },
     getMode() { return S.mode; },
     setMove(x, y) {
