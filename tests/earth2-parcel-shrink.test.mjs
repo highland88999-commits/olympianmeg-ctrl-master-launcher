@@ -27,6 +27,12 @@ import {
   walkerSpeedMps,
   walkerRadiusM,
   buildPieceScale,
+  miniatureScaleForParcel,
+  miniaturePositionForParcel,
+  vehicleScaleFor,
+  applyVehicleParcelScale,
+  migrateParcelVehicleScale,
+  walkerMotionSpeedScale,
   nextShrinkState,
 } from '../lib/earth2/parcel-shrink.js';
 import {
@@ -57,11 +63,16 @@ test('scale law: a quarter, and the walker numbers that follow from it', () => {
   // Eye: 1.7 m normal, 0.425 m shrunken — the parcel reads 4x bigger.
   assert.equal(walkerEyeM(1), WALK_EYE_M);
   assert.equal(walkerEyeM(0.25), 0.425);
-  // Speed: 6 m/s walk / 26 m/s travel normal; 1.5 / 6.5 shrunken.
+  // Speed (Merlin, 2026-11-14): miniature mode moves at NORMAL
+  // speed — 6 m/s walk / 26 m/s travel, whatever the scale. The
+  // small eye is what makes the parcel read big, not a slow walk.
+  // The eye stays small; the hunter-chase concern goes away too
+  // (a shrunken walker is no longer slower than what's hunting).
   assert.equal(walkerSpeedMps(1, false), WALK_SPEED_MPS);
-  assert.equal(walkerSpeedMps(0.25, false), 1.5);
+  assert.equal(walkerSpeedMps(0.25, false), WALK_SPEED_MPS);
   assert.equal(walkerSpeedMps(1, true), TRAVEL_SPEED_MPS);
-  assert.equal(walkerSpeedMps(0.25, true), 6.5);
+  assert.equal(walkerSpeedMps(0.25, true), TRAVEL_SPEED_MPS);
+  assert.equal(walkerMotionSpeedScale(), 1);
   // Radius: 0.55 m normal, 0.1375 m shrunken.
   assert.equal(walkerRadiusM(1), WALKER_RADIUS_M);
   assert.equal(walkerRadiusM(0.25), 0.1375);
@@ -169,34 +180,144 @@ test('exact restore: leaving an owned parcel returns normal size exactly — nev
   assert.equal(walkerRadiusM(out.scale), 0.55);
 });
 
-test('built pieces: only the parcel the walker is shrunk inside renders shrunken', () => {
-  const shrunk = { parcelId: 'E2-0619', scale: 0.25 };
-  // A piece on Merlin's base shrinks with him — including pieces
-  // placed before this law (the scale reads the live state).
-  assert.equal(buildPieceScale('E2-0619', shrunk), 0.25);
-  // The same piece on a neighbouring parcel stays full size.
-  assert.equal(buildPieceScale('E2-0669', shrunk), 1);
-  assert.equal(buildPieceScale('E2-0569', shrunk), 1);
-  // Outside any owned parcel, everything renders full size.
-  const normal = { parcelId: 'E2-0569', scale: 1 };
-  assert.equal(buildPieceScale('E2-0619', normal), 1);
+test('built pieces: on an owned parcel they render miniature to EVERYONE (Merlin, 2026-11-14)', () => {
+  // A passerby walking past an owned base sees its built stuff
+  // as a little miniature — not only the shrunken occupant.
+  // The scale reads the parcel's ownership, not the viewer.
+  assert.equal(buildPieceScale('E2-0619', owners), 0.25);
+  assert.equal(buildPieceScale('E2-0669', owners), 0.25);
+  assert.equal(miniatureScaleForParcel('E2-0619', owners), 0.25);
+  // Free Commons: nothing built there, nothing shrinks.
+  assert.equal(buildPieceScale('E2-0569', owners), 1);
+  assert.equal(miniatureScaleForParcel('E2-0569', owners), 1);
+  // Titles still loading (null / empty map) read as not owned:
+  // full size until proven owned — never shrink by default.
   assert.equal(buildPieceScale('E2-0619', null), 1);
-  assert.equal(buildPieceScale(null, shrunk), 1);
+  assert.equal(buildPieceScale('E2-0619', commonsOwners), 1);
+  assert.equal(buildPieceScale(null, owners), 1);
 });
 
-test('walker step: the shrunken walker walks at a quarter pace (world.js opts)', () => {
+test('miniature position: built stuff clusters at the parcel center (Merlin, 2026-11-14)', () => {
+  // A piece 8 m east of Merlin's parcel center (-182,-350) pulls
+  // to 2 m east: the whole base reads as a ~7 m model sitting in
+  // the middle of the 28 m parcel.
+  assert.deepEqual(miniaturePositionForParcel('E2-0619', -174, -350, owners), { x: -180, z: -350 });
+  assert.deepEqual(miniaturePositionForParcel('E2-0619', -182, -342, owners), { x: -182, z: -348 });
+  // The center itself does not move.
+  assert.deepEqual(miniaturePositionForParcel('E2-0619', -182, -350, owners), { x: -182, z: -350 });
+  // Commons: positions are never touched.
+  assert.deepEqual(miniaturePositionForParcel('E2-0569', -174, -378, owners), { x: -174, z: -378 });
+  // Titles loading: no rescale either.
+  assert.deepEqual(miniaturePositionForParcel('E2-0619', -174, -350, null), { x: -174, z: -350 });
+});
+
+test('stacked pieces seat at miniature scale: a roof at y=3 sits on a 0.75 m wall, not floating at 3 m', () => {
+  // The scene seats a piece at heightAt + piece.y * pieceScale:
+  // a roof 3 m up on Merlin's base renders at 0.75 m over the
+  // 0.75 m wall. The y law is piece.y * buildPieceScale.
+  const pieceScale = buildPieceScale('E2-0619', owners);
+  assert.equal(pieceScale, 0.25);
+  assert.equal(3 * pieceScale, 0.75);
+  // Commons: no scaling, the roof stays at 3 m.
+  assert.equal(3 * buildPieceScale('E2-0569', owners), 3);
+});
+
+test('vehicle parcel scale: a machine on an owned base renders miniature, and board-and-leave restores both', () => {
+  // Parked: miniature.
+  assert.equal(vehicleScaleFor({ miniature: true }), 0.25);
+  assert.equal(vehicleScaleFor({ miniature: false }), 1);
+  assert.equal(vehicleScaleFor({}), 1);
+  assert.equal(vehicleScaleFor(null), 1);
+  // Driving INTO Merlin's parcel from the Commons: the machine
+  // shrinks toward the parcel center as it crosses the line.
+  const entered = applyVehicleParcelScale(
+    { x: -182, z: -365, miniature: false }, // Commons, just north of the line
+    { x: -182, z: -363, miniature: false }, // one step south, inside E2-0619
+    owners,
+  );
+  assert.equal(entered.miniature, true);
+  // (-182,-363) is 13 m north of the center: at 0.25x it reads
+  // 3.25 m north of the center.
+  assert.equal(entered.x, -182);
+  assert.ok(Math.abs(entered.z - (-353.25)) < 1e-9, `entered z=${entered.z}, expected -353.25`);
+  // Driving OUT again: the machine grows back ×4 from the parcel
+  // it just left, exactly restoring the world position — the
+  // step that crosses the miniature line (-353.5) lands just
+  // past the full-size line (-364), no teleport.
+  const left = applyVehicleParcelScale(
+    { x: -182, z: -353.4, miniature: true }, // inside, near the miniature line
+    { x: -182, z: -353.6, miniature: true }, // one step north, past it
+    owners,
+  );
+  assert.equal(left.miniature, false);
+  assert.equal(left.x, -182);
+  assert.ok(Math.abs(left.z - (-364.4)) < 1e-9, `left z=${left.z}, expected -364.4`);
+  // The ride is a no-op while it stays in one scale's parcel.
+  const staying = applyVehicleParcelScale(
+    { x: -182, z: -353, miniature: true },
+    { x: -182, z: -352, miniature: true },
+    owners,
+  );
+  assert.deepEqual(staying, { x: -182, z: -352, miniature: true });
+  // Owned -> owned (E2-0619 into E2-0669): rebase through full
+  // size, staying miniature the whole time. The step crosses
+  // E2-0619's miniature south line (-346.5) and lands just
+  // inside E2-0669's miniature rect (north edge -325.5).
+  const rebased = applyVehicleParcelScale(
+    { x: -182, z: -346.4, miniature: true }, // inside E2-0619
+    { x: -182, z: -346.3, miniature: true }, // one step south, past the line
+    owners,
+  );
+  assert.equal(rebased.miniature, true);
+  // Full size the step lands at (-182,-335.2), 13.2 m north of
+  // E2-0669's center (-182,-322) — rebased, 3.3 m north of it.
+  assert.equal(rebased.x, -182);
+  assert.ok(Math.abs(rebased.z - (-325.3)) < 1e-9, `rebased z=${rebased.z}, expected -325.3`);
+  // A boat on an owned waterfront parcel follows the same rule
+  // (the helper is spec-agnostic — x/z and ownership only).
+  const boat = applyVehicleParcelScale(
+    { x: -182, z: -365, miniature: false, slug: 'river-runner' },
+    { x: -182, z: -363, miniature: false, slug: 'river-runner' },
+    owners,
+  );
+  assert.equal(boat.miniature, true);
+  assert.equal(boat.slug, 'river-runner');
+});
+
+test('vehicle migration: a pre-law parcel-vehicle save renders miniature on its home parcel', () => {
+  // Merlin's VTOL seed (full-size offsets, no miniature flag):
+  // the migration pulls it toward the center and marks it.
+  const migrated = migrateParcelVehicleScale({ parcelId: 'E2-0619', x: -182, z: -356, heading: 0 });
+  assert.deepEqual(migrated, { parcelId: 'E2-0619', x: -182, z: -351.5, heading: 0, miniature: true });
+  // A save that already carries the flag is untouched (no
+  // double-shrink, even if it is parked away from home).
+  assert.deepEqual(migrateParcelVehicleScale({ parcelId: 'E2-0619', x: -182, z: -350, miniature: true }), { parcelId: 'E2-0619', x: -182, z: -350, miniature: true });
+  assert.deepEqual(migrateParcelVehicleScale({ parcelId: 'E2-0619', x: -500, z: -500, miniature: false }), { parcelId: 'E2-0619', x: -500, z: -500, miniature: false });
+  // No flag, but parked away from its home parcel: untouched.
+  assert.deepEqual(migrateParcelVehicleScale({ parcelId: 'E2-0619', x: -500, z: -500, heading: 0 }), { parcelId: 'E2-0619', x: -500, z: -500, heading: 0 });
+  // No parcel id at all: nothing to migrate against.
+  assert.deepEqual(migrateParcelVehicleScale({ x: -182, z: -356, heading: 0 }), { x: -182, z: -356, heading: 0 });
+});
+
+test('walker step: miniature mode walks at normal speed (Merlin, 2026-11-14 — world.js opts)', () => {
   const centre = parcelCenterWorld(parcelAtWorld(-182, -350));
   assert.deepEqual({ x: centre.x, z: centre.z }, { x: -182, z: -350 });
   const input = { fwd: 1, strafe: 0 };
   // Full size: 1 s forward at 6 m/s, yaw 0 faces -z.
   const full = stepWorldWalker({ x: -182, z: -350 }, 0, input, 1, [], false);
   assert.equal(full.z, -356);
-  // Shrunken: the same second covers 1.5 m — the parcel feels 4x bigger.
-  const small = stepWorldWalker({ x: -182, z: -350 }, 0, input, 1, [], false, { speedScale: 0.25 });
-  assert.equal(small.z, -351.5);
-  // Travel mode scales the same way: 26 -> 6.5 m/s.
-  const travel = stepWorldWalker({ x: -182, z: -350 }, 0, input, 1, [], true, { speedScale: 0.25 });
-  assert.equal(travel.z, -356.5);
+  // Miniature: the scene passes walkerMotionSpeedScale() = 1, so
+  // the same second covers the same 6 m — the parcel reads big
+  // because the eye is small, not because the walk is slow.
+  const small = stepWorldWalker({ x: -182, z: -350 }, 0, input, 1, [], false, { speedScale: walkerMotionSpeedScale() });
+  assert.equal(small.z, -356);
+  // Travel mode the same: 26 m/s, whatever the scale.
+  const travel = stepWorldWalker({ x: -182, z: -350 }, 0, input, 1, [], true, { speedScale: walkerMotionSpeedScale() });
+  assert.equal(travel.z, -376);
+  // The stepper's speedScale option itself still works (the old
+  // quarter-pace is a caller choice now, not the law).
+  const quarter = stepWorldWalker({ x: -182, z: -350 }, 0, input, 1, [], false, { speedScale: 0.25 });
+  assert.equal(quarter.z, -351.5);
   // No opts: exactly the old behaviour (backwards compatible).
   const legacy = stepWorldWalker({ x: -182, z: -350 }, 0, input, 1, [], false);
   assert.equal(legacy.z, -356);
@@ -252,8 +373,11 @@ test('bridge walker: speed and radius scale the same way (bridges.js env)', () =
   const input = { fwd: 1, strafe: 0 };
   const full = stepBridgeWalker({ x: 0, z: 0 }, 0, input, 1, env);
   assert.equal(full.z, -6);
-  const small = stepBridgeWalker({ x: 0, z: 0 }, 0, input, 1, { ...env, speedScale: 0.25 });
-  assert.equal(small.z, -1.5);
+  // The scene passes speedScale = walkerMotionSpeedScale() = 1,
+  // so a shrunken walker crosses a bridge at normal speed; the
+  // stepper's option below still works when a caller asks for it.
+  const small = stepBridgeWalker({ x: 0, z: 0 }, 0, input, 1, { ...env, speedScale: walkerMotionSpeedScale() });
+  assert.equal(small.z, -6);
   // A collider just off the destination pushes the full-size
   // walker out but lets the shrunken one stand closer (its
   // 1.5 m step never reaches the collider at all).

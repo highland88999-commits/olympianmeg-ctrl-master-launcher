@@ -210,11 +210,18 @@ describe('garage — one sub-level per owned parcel', () => {
     assert.equal(home.slug, 'vtol', 'the home keeps its slug — the ledger drops a slug-less state');
     assert.equal(home.parcelId, 'E2-0619');
     assert.equal(home.garaged, true, 'the replacement seats on the garage floor');
-    assert.equal(home.x, SPEC.slots[0].x);
-    assert.equal(home.z, SPEC.slots[0].z);
+    // MINIATURE (Merlin, 2026-11-14): the garage sits under an
+    // owned parcel, so the replacement parks miniature — the slot
+    // (cx-5, cz+2) rescales toward the garage center: (-187,-348)
+    // becomes (-183.25,-349.5), and the home carries the flag.
+    assert.equal(home.miniature, true, 'the replacement renders miniature like the seeds');
+    assert.ok(Math.abs(home.x - (SPEC.cx + (SPEC.slots[0].x - SPEC.cx) * 0.25)) < 1e-9, `home x=${home.x}`);
+    assert.ok(Math.abs(home.z - (SPEC.cz + (SPEC.slots[0].z - SPEC.cz) * 0.25)) < 1e-9, `home z=${home.z}`);
     assert.equal(home.heading, 0);
     assert.equal(home.alt, 0);
-    assert.equal(garageRespawnHomeForVehicleKey('parcel-vehicle:E2-0619:earth1:wedge-supercar', SPEC, 1).x, SPEC.slots[1].x);
+    const lamboHome = garageRespawnHomeForVehicleKey('parcel-vehicle:E2-0619:earth1:wedge-supercar', SPEC, 1);
+    assert.equal(lamboHome.miniature, true);
+    assert.ok(Math.abs(lamboHome.x - (SPEC.cx + (SPEC.slots[1].x - SPEC.cx) * 0.25)) < 1e-9);
     assert.equal(garageRespawnHomeForVehicleKey('parcel-vehicle:E2-0719:vtol', SPEC, 0), null, 'another parcel, another garage');
     assert.equal(garageRespawnHomeForVehicleKey('rover-1', SPEC, 0), null, 'a public machine keeps its original spawn point');
     assert.equal(garageRespawnHomeForVehicleKey('parcel-vehicle:E2-0619:vtol', SPEC, 2), null, 'no third slot');
@@ -295,5 +302,58 @@ describe('garage — the meshes', () => {
     const { group, ring } = buildGarageWallPortal('E2-0619');
     assert.equal(group.userData.garageExit.parcelId, 'E2-0619');
     assert.equal(ring.material.color.getHex(), GARAGE_TRANSIT_GOLD);
+  });
+});
+
+describe('boarding — miniature scale (Merlin, 2026-11-14: board a shrunken machine as a shrunken walker)', () => {
+  it('the seeded base machines park miniature, toward the parcel center', async () => {
+    const { baseVehicleStates } = await import('../lib/earth2/base-vehicles.js');
+    const states = baseVehicleStates();
+    // Merlin's VTOL seed (0,-6) from the center parks at (0,-1.5);
+    // the Lambo (8,6) parks at (2,1.5) — the whole base reads as
+    // a ~7 m model in the middle of the 28 m parcel.
+    const vtol = states[parcelVehicleId('E2-0619', 'vtol')];
+    assert.equal(vtol.miniature, true);
+    assert.equal(vtol.x, -182);
+    assert.equal(vtol.z, -351.5);
+    const lambo = states[parcelVehicleId('E2-0619', 'earth1:wedge-supercar')];
+    assert.equal(lambo.miniature, true);
+    assert.equal(lambo.x, -180);
+    assert.equal(lambo.z, -348.5);
+    // Devan's base the same (his parcel center is (-182,-294)).
+    const devanVtol = states[parcelVehicleId('E2-0719', 'vtol')];
+    assert.equal(devanVtol.miniature, true);
+    assert.equal(devanVtol.x, -182);
+    assert.equal(devanVtol.z, -295.5);
+  });
+
+  it('decideBoarding scales its range with the walker: a shrunken walker boards at arm\'s reach', () => {
+    const base = { isParcel: true, isMine: true, ownersLoaded: true };
+    // Full size: the 8.5 m boarding range.
+    assert.equal(decideBoarding({ ...base, distanceM: 8, rangeM: BOARDING_RANGE_M }), 'ok');
+    assert.equal(decideBoarding({ ...base, distanceM: 9, rangeM: BOARDING_RANGE_M }), 'too-far');
+    // Shrunken (0.25x): the range is 8.5 * 0.25 = 2.125 m — the
+    // walker boards the little plane from beside it, not from
+    // across the whole miniature base.
+    assert.equal(decideBoarding({ ...base, distanceM: 2, rangeM: BOARDING_RANGE_M * 0.25 }), 'ok');
+    assert.equal(decideBoarding({ ...base, distanceM: 2.5, rangeM: BOARDING_RANGE_M * 0.25 }), 'too-far');
+    // The near-vehicle prompt (3.5 m full size) scales the same.
+    assert.ok(3.5 * 0.25 === 0.875, 'prompt range at miniature scale');
+  });
+
+  it('a destroyed owned machine respawns miniature in its garage', () => {
+    const home = garageRespawnHomeForVehicleKey('parcel-vehicle:E2-0619:vtol', SPEC, 0);
+    assert.ok(home, 'garage home exists');
+    assert.equal(home.miniature, true);
+    assert.equal(home.garaged, true);
+    assert.equal(home.slug, 'vtol');
+    assert.equal(home.parcelId, 'E2-0619');
+    // The garage slot (full-size offset -5,+2 from the center)
+    // rescales toward the garage center: (-187,-348) -> (-183.25,-349.5).
+    assert.ok(Math.abs(home.x - (-183.25)) < 1e-9, `home x=${home.x}, expected -183.25`);
+    assert.ok(Math.abs(home.z - (-349.5)) < 1e-9, `home z=${home.z}, expected -349.5`);
+    // The Lambo's slot the same.
+    const lamboHome = garageRespawnHomeForVehicleKey('parcel-vehicle:E2-0619:earth1:wedge-supercar', SPEC, 1);
+    assert.equal(lamboHome.miniature, true);
   });
 });

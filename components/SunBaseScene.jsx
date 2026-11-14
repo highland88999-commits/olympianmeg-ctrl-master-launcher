@@ -10,30 +10,33 @@
 //
 // THE USER IS SMALL HERE (Merlin, Nov 13, 2026 — "I want the
 // room to be huge for them"): the walker is one-fifth normal size
-// (lib/sun-base.js SUN_BASE_USER_SCALE 0.2 — eye 0.34 m, stride
-// 0.64 m/s), so the same room reads five times bigger — the
-// farmhouse reads as a 45 m hall, the barn as 60 m. The rig is
-// first-person and deliberately small: drag to look, WASD /
-// arrows / the shared WalkJoystick to walk, clamped to the room's
-// own walls. The door is a view, not an exit — leaving is the
-// page's "Back to hub" button, so nobody walks out of their base
-// into the void by accident.
+// (lib/sun-base.js SUN_BASE_USER_SCALE 0.2 — eye 0.34 m), so the
+// same room reads five times bigger — the farmhouse reads as a
+// 45 m hall, the barn as 60 m. The stride is NOT small, though
+// (Merlin, Nov 14, 2026: motion speed matches normal size —
+// 3.2 m/s, so the room reads huge but is still crossed at the
+// usual pace). The rig is first-person and deliberately small:
+// drag to look, WASD / arrows / the shared WalkJoystick to walk,
+// clamped to the room's own walls. The door is a view, not an
+// exit — leaving is the page's "Back to hub" button, so nobody
+// walks out of their base into the void by accident.
 //
 // BUILDING (Merlin, Nov 13, 2026): the sun base is a build
 // surface exactly like an Earth 2 parcel — the SAME catalog, the
 // SAME placement law, the SAME piece renderer (lib/building/*),
 // no copy. The build frame is the room's own inset floor and
-// placements live in ROOM space — (0, 0) one corner of the floor,
-// (width, depth) the opposite — so the placement law's 0..width
-// frame math holds unchanged; the build group is centred on the
-// origin by the room offset. Pieces stay FULL Earth 2 size (a 4 m
-// wall is a 4 m wall): to the shrunken user a wall reads 20 m
-// wide — the things they build are huge to them, exactly like
-// the room. The ghost follows the camera-centre ground point
-// (the Earth 2 camera-aim law), a tap places it, a double-tap
-// picks a placed piece back up, and a portal piece (frame-portal
-// / portal-frame) takes a destination from the shared
-// PortalDestinationPicker — walk through it and you travel.
+// placements live in USER METRES (lib/sun-base-build.js —
+// Nov 14: pieces render at the user's own 0.2 scale, so a 4 m
+// wall reads 4 m to the shrunken user, and the law judges that
+// world directly). The build group is centred on the origin by
+// the room offset. The ghost follows the camera-centre ground
+// point (the Earth 2 camera-aim law), a tap places it, a
+// double-tap picks a placed piece back up, and a portal piece
+// (frame-portal / portal-frame) takes a destination from the
+// shared PortalDestinationPicker — walk through it and you
+// travel. A freshly picked piece faces the placer (its front
+// turns toward the person placing it); the Turn button takes
+// over from there.
 
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
@@ -57,7 +60,14 @@ import {
   SUN_BASE_WALK_SPEED_MPS,
   SUN_BASE_WALL_MARGIN_M,
 } from '@/lib/sun-base';
-import { sunBaseBuildFrame, sunBaseBuildOffset } from '@/lib/sun-base-build';
+import {
+  SUN_BASE_PIECE_SCALE,
+  sunBaseAutoRotY,
+  sunBaseBuildFrame,
+  sunBaseBuildOffset,
+  sunBaseRoomPosition,
+  sunBaseToUserPoint,
+} from '@/lib/sun-base-build';
 
 function disposeGroup(group) {
   group.traverse((obj) => {
@@ -65,13 +75,6 @@ function disposeGroup(group) {
     const mats = Array.isArray(obj.material) ? obj.material : obj.material ? [obj.material] : [];
     mats.forEach((m) => m.dispose && m.dispose());
   });
-}
-
-// Room-space → world-space: the build group is centred on the
-// origin, so a room-space point (x, z) stands at (x + off.x, z +
-// off.z) in the scene.
-function toWorld(placement, off) {
-  return { x: placement.x + off.x, y: placement.y || 0, z: placement.z + off.z };
 }
 
 function BaseRig({ spec, moveRef, walkerRef }) {
@@ -214,18 +217,34 @@ function BuildLayer({
     (Array.isArray(pieces) ? pieces : []).forEach((piece, index) => {
       if (!piece || !pieceById(piece.pieceId)) return;
       const pg = buildPieceGroup(THREE, piece.pieceId, piece.finish, piece.tint, piece.orientation);
-      const w = toWorld(piece, off);
+      const w = sunBaseRoomPosition(piece, off);
       pg.position.set(w.x, w.y, w.z);
       pg.rotation.y = ((piece.rotY || 0) * Math.PI) / 180;
+      // USER SCALE (Merlin, Nov 14, 2026): the piece renders at
+      // the user's own 0.2 scale, so it reads the size it would
+      // at normal scale — and the position scales with it, so a
+      // stacked piece's base lands on the rendered top beneath
+      // it and a floor piece rests exactly on the floor.
+      pg.scale.setScalar(SUN_BASE_PIECE_SCALE);
       pg.userData.buildPiece = { index };
       pg.traverse((obj) => {
         obj.userData.buildPiece = { index };
+        // A lighting piece's glow is a distance, not a position
+        // — the group scale never touches it, so shrink it by
+        // hand or a torch would light the whole room from a
+        // fifth-size post.
+        if (obj.isPointLight) obj.distance *= SUN_BASE_PIECE_SCALE;
       });
       placedGroup.add(pg);
       if (piece.portalTo) {
         const p = pieceById(piece.pieceId);
         const fp = pieceFootprint(p, piece);
-        const r = Math.max(0.3, Math.min(1.5, Math.min(fp.maxX - fp.minX, fp.maxZ - fp.minZ) / 4));
+        // The footprint is in user metres; the ring is drawn on
+        // the room floor, so its radius scales down with the piece.
+        const r = Math.max(
+          0.06,
+          Math.min(0.35, (Math.min(fp.maxX - fp.minX, fp.maxZ - fp.minZ) / 4) * SUN_BASE_PIECE_SCALE)
+        );
         const ring = new THREE.Mesh(
           new THREE.RingGeometry(r * 0.7, r, 32),
           new THREE.MeshBasicMaterial({ color: 0xffd700, transparent: true, opacity: 0.9, side: THREE.DoubleSide })
@@ -268,14 +287,18 @@ function BuildLayer({
     }
     const p = pieceById(piece.pieceId);
     const fp = pieceFootprint(p, piece);
-    const w = toWorld(piece, off);
-    const topY = (piece.y || 0) + (p.size ? p.size.h : 1);
+    const w = sunBaseRoomPosition(piece, off);
+    // The footprint is in user metres; the marker is a room-space
+    // wire box, so its centre and size scale down with the piece.
+    // (The old centre math read y + topY/2, which sat a stacked
+    // piece's marker a full height too high — the centre is the
+    // midpoint of base and top.)
     m.visible = true;
-    m.position.set(w.x, (piece.y || 0) + topY / 2, w.z);
+    m.position.set(w.x, ((fp.baseY + fp.topY) / 2) * SUN_BASE_PIECE_SCALE, w.z);
     m.scale.set(
-      Math.max(0.2, fp.maxX - fp.minX + 0.15),
-      Math.max(0.2, topY + 0.15),
-      Math.max(0.2, fp.maxZ - fp.minZ + 0.15)
+      Math.max(0.04, (fp.maxX - fp.minX + 0.15) * SUN_BASE_PIECE_SCALE),
+      Math.max(0.04, (fp.topY - fp.baseY + 0.15) * SUN_BASE_PIECE_SCALE),
+      Math.max(0.04, (fp.maxZ - fp.minZ + 0.15) * SUN_BASE_PIECE_SCALE)
     );
     m.rotation.y = ((piece.rotY || 0) * Math.PI) / 180;
   });
@@ -294,7 +317,9 @@ function BuildLayer({
     raycaster.setFromCamera({ x: 0, y: 0 }, camera);
     const hit = raycaster.ray.intersectPlane(floorPlane, aimVec);
     if (hit) {
-      lastAimRef.current = { x: aimVec.x - off.x, z: aimVec.z - off.z };
+      // The aim ray lands in room metres; the placement law works
+      // in user metres, so the aim crosses into the user's scale.
+      lastAimRef.current = sunBaseToUserPoint(aimVec.x, aimVec.z, off);
     }
     const aim = lastAimRef.current;
     if (!aim) {
@@ -324,7 +349,14 @@ function BuildLayer({
       x: aim.x,
       z: aim.z,
       y: 0,
-      rotY: build.rotY || 0,
+      // A fresh piece faces the placer (rotY null until the Turn
+      // button sets one); a carried or turned piece keeps its own.
+      rotY:
+        build.rotY ??
+        sunBaseAutoRotY(
+          walkerRef && walkerRef.current ? walkerRef.current.yaw : Math.PI,
+          build.pieceId
+        ),
       // The placement law reads `finish` (normalizePlacement's
       // field), not `finishId` — the ghost's finishId is the menu
       // selection, the candidate carries it as `finish`.
@@ -337,10 +369,12 @@ function BuildLayer({
     const seat = stackingSeat(judgePieces, clamped);
     const seated = { ...clamped, y: Math.round(Math.max(0, seat) * 100) / 100 };
     const verdict = judgeGhost(judgePieces, seated, { frame });
-    const w = toWorld(verdict.placement, off);
+    const w = sunBaseRoomPosition(verdict.placement, off);
     ghost.visible = true;
     ghost.position.set(w.x, w.y, w.z);
     ghost.rotation.y = ((verdict.placement.rotY || 0) * Math.PI) / 180;
+    // The ghost shows the piece at the scale it will stand at.
+    ghost.scale.setScalar(SUN_BASE_PIECE_SCALE);
     setGhostValidity(THREE, ghost, verdict.ok);
     ghostPlacementRef.current = verdict.ok ? verdict.placement : null;
     const vkey = verdict.ok ? 'ok' : verdict.reasons[0] || 'bad';
@@ -357,8 +391,11 @@ function BuildLayer({
     if (!walkerRef || !walkerRef.current) return;
     if (build && build.active) return;
     const list = Array.isArray(pieces) ? pieces : [];
-    const wx = walkerRef.current.x - off.x;
-    const wz = walkerRef.current.z - off.z;
+    // The walker stands in room metres; the footprints are in
+    // user metres, so the walker crosses into the user's scale.
+    const here = sunBaseToUserPoint(walkerRef.current.x, walkerRef.current.z, off);
+    const wx = here.x;
+    const wz = here.z;
     let inside = null;
     for (let i = 0; i < list.length; i++) {
       const piece = list[i];

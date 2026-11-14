@@ -274,7 +274,27 @@ describe('armed aim tap law (Merlin, 2026-11-13 — the gun seemed dead on his p
     assert.ok(scene.includes('function onPointerCancel(e)'), 'pointercancel takes the event');
     assert.ok(scene.includes('PHONE TAP RESCUE'),
       'pointercancel rescue is labelled');
-    assert.ok(scene.includes("noticeRef.current('🪝 Grapple misfired"),
-      'a failed fire shows a notice instead of failing silently');
+    assert.ok(scene.includes('Grapple misfired — ${why}'),
+      'a failed fire shows a notice naming the reason instead of failing silently');
+  });
+});
+
+describe('grappleMinHitDistM — the shrunken eye (Merlin, 2026-11-14: third grapple report)', () => {
+  it('skips the leaves in a shrunken walker\'s face, not the world', async () => {
+    const { grappleMinHitDistM } = await import('../lib/earth2/grapple.js');
+    // Full size: the old 0.5 m skip (the walker's own body).
+    assert.equal(grappleMinHitDistM(1), 0.5);
+    // Shrunken (eye 0.425 m, inside the ground plants): the skip
+    // grows to 1.0 m, past the leaves — a tap on a tree past the
+    // plants reaches the tree instead of attaching to a leaf a
+    // hand's breadth away and pulling nowhere.
+    assert.equal(grappleMinHitDistM(0.25), 1.0);
+    // Between the two it grows toward the leaf skip (0.5 m at
+    // half size is 0.83 m — past the plants, short of the cap).
+    assert.ok(grappleMinHitDistM(0.5) > 0.5 && grappleMinHitDistM(0.5) < 1.0);
+    assert.ok(grappleMinHitDistM(0.5) > grappleMinHitDistM(0.75));
+    // Never below the body skip, never above the leaf skip.
+    assert.equal(grappleMinHitDistM(2), 0.5);
+    assert.equal(grappleMinHitDistM(0), 1.0);
   });
 });

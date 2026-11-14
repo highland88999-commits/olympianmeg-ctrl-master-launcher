@@ -72,3 +72,21 @@ describe('stagedPlacements', () => {
     }
   });
 });
+
+describe('headingDeg — a deliberate 0 is a heading, not a missing value (Merlin, 2026-11-14)', () => {
+  it('ladders and elevators face 0, every time (not randomized)', () => {
+    const placements = stagedPlacements();
+    const fixed = placements.filter((p) => p.key.includes(':ladder:') || p.key.includes(':elevator:'));
+    assert.ok(fixed.length > 0, 'there are ladder/elevator placements to check');
+    for (const p of fixed) {
+      assert.equal(p.headingDeg, 0, `${p.key} must face 0 (its door faces the monument entrance)`);
+    }
+    // And it is stable across calls — the old `||` code randomized
+    // a 0 (0 is falsy), so the same ladder faced a different way
+    // on every load.
+    const again = stagedPlacements();
+    for (let i = 0; i < placements.length; i++) {
+      assert.equal(again[i].headingDeg, placements[i].headingDeg, `${placements[i].key} heading must be deterministic`);
+    }
+  });
+});

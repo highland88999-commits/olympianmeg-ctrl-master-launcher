@@ -4,13 +4,22 @@
 // 1. "I want the room to be huge for them": inside the sun base the
 //    user is ONE-FIFTH size (scale 0.2), so the same room reads FIVE
 //    TIMES bigger — the farmhouse reads as a 45 m hall, the barn as
-//    60 m. Eye, stride and wall margin all scale with the walker.
+//    60 m. Eye height and wall margin scale with the walker; the
+//    stride does NOT (Merlin, Nov 14, 2026: motion speed in
+//    miniature mode matches normal size — 3.2 m/s, eye still 0.34 m).
 // 2. The Earth 2 build functions live in the sun base: the SAME
 //    catalog, the SAME placement law, the SAME piece renderer —
 //    judged against the room's own frame, pieces held up by the
 //    floor or by a piece beneath, never through a wall, never
-//    floating. Portal pieces take destinations from the shared
-//    picker and resolve to Olympus routes.
+//    floating. Pieces render at the user's own 0.2 scale (Merlin,
+//    Nov 14, 2026: "Objects in solar base are too big"), so
+//    placements live in USER METRES — the room divided by 0.2 —
+//    and the law judges that world directly. Round-1 builds stored
+//    in room metres convert on load (same shape, same spot, only
+//    smaller). Portal pieces take destinations from the shared
+//    picker and resolve to Olympus routes. A freshly picked piece
+//    faces the placer (Nov 14: "by default, objects should be
+//    oriented logically").
 // Run: node --test tests/sun-base-build.test.mjs (from the repo root).
 // No browser, no network — pure lib checks + wired-source audits
 // (same grep style as the sun-base suite).
@@ -26,15 +35,24 @@ import {
 } from '../lib/sun-base.js';
 import {
   SUN_BASE_BUILDS_KEY,
+  SUN_BASE_BUILD_UNITS,
+  SUN_BASE_PIECE_SCALE,
   loadSunBaseBuilds,
   resolveSunBasePortalDestination,
   saveSunBaseBuilds,
+  sunBaseAutoRotY,
   sunBaseBuildFrame,
   sunBaseBuildOffset,
   sunBaseClampPlacement,
+  sunBaseConvertLegacyBuild,
+  sunBaseFilterLawfulPieces,
+  sunBaseIsLegacyBuild,
   sunBaseMyBuildFor,
   sunBaseParseBuild,
+  sunBaseRoomFrame,
+  sunBaseRoomPosition,
   sunBaseSerializeBuild,
+  sunBaseToUserPoint,
   sunBaseUpsertBuild,
   sunBaseValidatePieces,
 } from '../lib/sun-base-build.js';
@@ -56,7 +74,9 @@ const windmill = () => sunBaseSpecFor('e024-farm-windmill');
 test('the user is one-fifth size inside the sun base (scale 0.2, not subtle)', () => {
   assert.equal(SUN_BASE_USER_SCALE, 0.2);
   assert.equal(SUN_BASE_EYE_HEIGHT_M, 0.34); // 1.7 m eye × 0.2
-  assert.equal(SUN_BASE_WALK_SPEED_MPS, 0.64); // 3.2 m/s stride × 0.2
+  // Nov 14, 2026: motion speed in miniature mode matches normal
+  // size — the stride does NOT scale, only the eye does.
+  assert.equal(SUN_BASE_WALK_SPEED_MPS, 3.2); // the normal-size stride
   assert.equal(SUN_BASE_WALL_MARGIN_M, 0.14); // 0.7 m margin × 0.2
 });
 
@@ -75,12 +95,25 @@ test('the scene rig uses the scaled constants, not full-size ones', () => {
   assert.ok(!scene.includes('WALK_SPEED = 3.2'), 'no full-size walk speed remains');
 });
 
-// --- 2. The build frame is the room itself ---
+// --- 2. The build frame is the room itself, in user metres ---
 
-test('the build frame is the room inset floor, capped at the room height', () => {
-  assert.deepEqual(sunBaseBuildFrame(farmhouse()), { width: 8.46, depth: 8.46, maxY: 9 });
-  assert.deepEqual(sunBaseBuildFrame(barn()), { width: 11.28, depth: 11.28, maxY: 12 });
-  assert.deepEqual(sunBaseBuildFrame(windmill()), { width: 9.4, depth: 9.4, maxY: 10 });
+test('the build frame is the room inset floor, in user metres (÷ 0.2)', () => {
+  // The room itself is 8.46 m across; the shrunken user sees it
+  // as 42.3 user-metres — the law judges the world they see.
+  assert.deepEqual(sunBaseBuildFrame(farmhouse()), { width: 42.3, depth: 42.3, maxY: 45 });
+  assert.deepEqual(sunBaseBuildFrame(barn()), { width: 56.4, depth: 56.4, maxY: 60 });
+  assert.deepEqual(sunBaseBuildFrame(windmill()), { width: 47, depth: 47, maxY: 50 });
+});
+
+test('the room frame underneath is still the room in room metres', () => {
+  assert.deepEqual(sunBaseRoomFrame(farmhouse()), { width: 8.46, depth: 8.46, maxY: 9 });
+  assert.deepEqual(sunBaseRoomFrame(barn()), { width: 11.28, depth: 11.28, maxY: 12 });
+  assert.deepEqual(sunBaseRoomFrame(windmill()), { width: 9.4, depth: 9.4, maxY: 10 });
+});
+
+test('pieces render at the user scale (0.2), not full size', () => {
+  assert.equal(SUN_BASE_PIECE_SCALE, 0.2);
+  assert.equal(SUN_BASE_PIECE_SCALE, SUN_BASE_USER_SCALE);
 });
 
 test('the build group sits centred on the origin (room-space offset)', () => {
@@ -95,23 +128,23 @@ test('a piece aimed past the wall slides inside the room, never through it', () 
   const clamped = sunBaseClampPlacement(wall, farmhouse());
   assert.equal(clamped.x, 2); // 4 m wall: footprint 0..4
   assert.equal(clamped.z, 4.23);
-  const far = sunBaseClampPlacement({ ...wall, x: 20 }, farmhouse());
-  assert.equal(far.x, 6.46); // footprint 4.46..8.46
+  const far = sunBaseClampPlacement({ ...wall, x: 50 }, farmhouse());
+  assert.equal(far.x, 40.3); // footprint 38.3..42.3
   assert.ok(far.x + 2 <= frame.width);
 });
 
 test('a floor panel on the bare floor is lawful; a floating wall is not', () => {
   const frame = sunBaseBuildFrame(farmhouse());
-  const floor = judgeGhost([], { pieceId: 'floor-panel', x: 4.23, z: 4.23, y: 0, rotY: 0, finish: 'timber' }, { frame });
+  const floor = judgeGhost([], { pieceId: 'floor-panel', x: 21.15, z: 21.15, y: 0, rotY: 0, finish: 'timber' }, { frame });
   assert.equal(floor.ok, true, floor.reasons.join('; '));
-  const floating = judgeGhost([], { pieceId: 'wall', x: 4.23, z: 4.23, y: 5, rotY: 0, finish: 'timber' }, { frame });
+  const floating = judgeGhost([], { pieceId: 'wall', x: 21.15, z: 21.15, y: 5, rotY: 0, finish: 'timber' }, { frame });
   assert.equal(floating.ok, false);
   assert.ok(floating.reasons.some((r) => /hold/i.test(r)), floating.reasons.join('; '));
 });
 
 test('two walls on the same spot overlap — the judge refuses the second', () => {
   const frame = sunBaseBuildFrame(farmhouse());
-  const first = { pieceId: 'wall', x: 4.23, z: 4.23, y: 0, rotY: 0, finish: 'timber' };
+  const first = { pieceId: 'wall', x: 21.15, z: 21.15, y: 0, rotY: 0, finish: 'timber' };
   const second = judgeGhost([first], { ...first }, { frame });
   assert.equal(second.ok, false);
   assert.ok(second.reasons.some((r) => /overlap/i.test(r)), second.reasons.join('; '));
@@ -119,7 +152,7 @@ test('two walls on the same spot overlap — the judge refuses the second', () =
 
 test('a wall aimed onto an existing wall is proposed a lawful spot nearby', () => {
   const frame = sunBaseBuildFrame(farmhouse());
-  const first = { pieceId: 'wall', x: 4.23, z: 4.23, y: 0, rotY: 0, finish: 'timber' };
+  const first = { pieceId: 'wall', x: 21.15, z: 21.15, y: 0, rotY: 0, finish: 'timber' };
   const proposal = proposePlacement([first], { ...first }, { frame });
   assert.ok(proposal, 'a lawful neighbour must exist in the room');
   assert.equal(proposal.verdict.ok, true);
@@ -132,14 +165,14 @@ test('a wall aimed onto an existing wall is proposed a lawful spot nearby', () =
 test('a whole sun-base build validates with the placement law (bounds, overlap, support)', () => {
   const spec = farmhouse();
   const good = [
-    { pieceId: 'floor-panel', x: 4.23, z: 4.23, y: 0, rotY: 0, finish: 'timber' },
+    { pieceId: 'floor-panel', x: 21.15, z: 21.15, y: 0, rotY: 0, finish: 'timber' },
     // The wall stands ON the panel (its base at the panel's top, 0.25).
-    { pieceId: 'wall', x: 4.23, z: 4.23, y: 0.25, rotY: 0, finish: 'stone' },
+    { pieceId: 'wall', x: 21.15, z: 21.15, y: 0.25, rotY: 0, finish: 'stone' },
   ];
   assert.equal(sunBaseValidatePieces(good, spec).ok, true);
   const bad = [
-    { pieceId: 'wall', x: 4.23, z: 4.23, y: 0, rotY: 0, finish: 'timber' },
-    { pieceId: 'wall', x: 4.23, z: 4.23, y: 0, rotY: 0, finish: 'timber' },
+    { pieceId: 'wall', x: 21.15, z: 21.15, y: 0, rotY: 0, finish: 'timber' },
+    { pieceId: 'wall', x: 21.15, z: 21.15, y: 0, rotY: 0, finish: 'timber' },
   ];
   assert.equal(sunBaseValidatePieces(bad, spec).ok, false);
 });
@@ -188,6 +221,7 @@ test('a build with a portal destination survives the serialize/parse round trip'
     ],
   };
   const serialized = sunBaseSerializeBuild(build);
+  assert.equal(serialized.units, 'user', 'saved builds carry the user-metre marker');
   assert.deepEqual(serialized.pieces[0].portalTo, { kind: 'programs', id: 'hawkins', label: 'Hawkins' });
   const parsed = sunBaseParseBuild(serialized, spec);
   assert.equal(parsed.ok, true, (parsed.errors || []).join('; '));
@@ -195,7 +229,116 @@ test('a build with a portal destination survives the serialize/parse round trip'
   assert.equal(parsed.build.pieces.length, 2);
 });
 
-// --- 5. Portals: the shared picker, resolved to Olympus routes ---
+// --- 4b. Round-1 builds convert on load: same shape, same spot, only smaller ---
+
+test('a round-1 build stored in room metres converts on load and stays lawful', () => {
+  const spec = farmhouse();
+  const legacy = {
+    groundType: 'sun-base',
+    groundId: 'e023-prairie-farmhouse',
+    ownerId: 'u1',
+    pieces: [
+      { pieceId: 'floor-panel', x: 4.23, z: 4.23, y: 0, rotY: 0, finish: 'timber' },
+      { pieceId: 'wall', x: 4.23, z: 4.23, y: 0.25, rotY: 0, finish: 'stone' },
+    ],
+  };
+  assert.equal(sunBaseIsLegacyBuild(legacy), true);
+  assert.equal(sunBaseIsLegacyBuild({ ...legacy, units: 'user' }), false);
+  const parsed = sunBaseParseBuild(legacy, spec);
+  assert.equal(parsed.ok, true, (parsed.errors || []).join('; '));
+  // The anchor (the pieces' centroid, 4.23) keeps its room spot
+  // (× 5 into user metres); the wall still stands on the panel
+  // (its base at the panel's 0.25 top — heights never scale).
+  assert.deepEqual(
+    parsed.build.pieces.map((p) => [p.x, p.y, p.z]),
+    [[21.15, 0, 21.15], [21.15, 0.25, 21.15]]
+  );
+  assert.equal(parsed.build.units, 'user');
+  // Parsing the converted build again converts nothing twice.
+  const again = sunBaseParseBuild(parsed.build, spec);
+  assert.equal(again.ok, true);
+  assert.deepEqual(
+    again.build.pieces.map((p) => [p.x, p.y, p.z]),
+    [[21.15, 0, 21.15], [21.15, 0.25, 21.15]]
+  );
+});
+
+test('conversion keeps a build whole: walls that touched still touch', () => {
+  const spec = farmhouse();
+  // Two walls side by side in room metres, touching at x 4.
+  const legacy = {
+    groundType: 'sun-base',
+    groundId: 'e023-prairie-farmhouse',
+    ownerId: 'u1',
+    pieces: [
+      { pieceId: 'wall', x: 2, z: 2, y: 0, rotY: 0, finish: 'timber' },
+      { pieceId: 'wall', x: 6, z: 2, y: 0, rotY: 0, finish: 'timber' },
+    ],
+  };
+  const converted = sunBaseConvertLegacyBuild(legacy);
+  // Anchor at the centroid (4, 2): the pair keeps its 4 m
+  // spacing in user metres, centred where it stood.
+  assert.deepEqual(
+    converted.pieces.map((p) => [p.x, p.z]),
+    [[18, 10], [22, 10]]
+  );
+  assert.equal(sunBaseParseBuild(legacy, spec).ok, true);
+  // A bare × 5 on every piece would have pulled them 20 m apart
+  // and torn the run open — the shape survives instead.
+  const gap = converted.pieces[1].x - converted.pieces[0].x;
+  assert.equal(gap, 4);
+});
+
+test('the load fallback converts a legacy build before filtering', () => {
+  const legacy = {
+    groundType: 'sun-base',
+    groundId: 'e023-prairie-farmhouse',
+    ownerId: 'u1',
+    pieces: [
+      { pieceId: 'wall', x: 4.23, z: 4.23, y: 0, rotY: 0, finish: 'timber' },
+      { pieceId: 'not-a-piece', x: 1, z: 1, y: 0, rotY: 0, finish: 'timber' },
+    ],
+  };
+  const kept = sunBaseFilterLawfulPieces(legacy);
+  assert.equal(kept.length, 1);
+  assert.deepEqual([kept[0].x, kept[0].z], [21.15, 21.15]);
+});
+
+// --- 4c. Room position: the scaled piece sits on the floor, and on its supporter ---
+
+test('a user-metre placement lands on the room floor, at the user scale', () => {
+  const off = sunBaseBuildOffset(farmhouse());
+  // The room centre in user metres renders at the room origin.
+  assert.deepEqual(sunBaseRoomPosition({ x: 21.15, y: 0, z: 21.15 }, off), { x: 0, y: 0, z: 0 });
+  // A wall stacked on a floor panel (base 0.25 user-m) renders at
+  // 0.05 room-m — exactly the top of the rendered 0.05 m panel.
+  assert.deepEqual(sunBaseRoomPosition({ x: 21.15, y: 0.25, z: 21.15 }, off), { x: 0, y: 0.05, z: 0 });
+  // A roof on a 3 m wall (base 3 user-m) renders at 0.6 room-m —
+  // the top of the rendered 0.6 m wall, never floating above it.
+  assert.deepEqual(sunBaseRoomPosition({ x: 21.15, y: 3, z: 21.15 }, off), { x: 0, y: 0.6, z: 0 });
+});
+
+test('room points cross into user metres for the aim and the portal walk', () => {
+  const off = sunBaseBuildOffset(farmhouse());
+  // The room corner (-4.23) is frame 0; the room centre (0) is
+  // frame 21.15 user-metres.
+  assert.deepEqual(sunBaseToUserPoint(-4.23, -4.23, off), { x: 0, z: 0 });
+  assert.deepEqual(sunBaseToUserPoint(0, 0, off), { x: 21.15, z: 21.15 });
+});
+
+// --- 4d. A fresh piece faces the placer ---
+
+test('the default turn faces the placer (rotY = walker yaw, snapped)', () => {
+  // Spawn: facing the door (+Z, yaw π) — the piece's front turns
+  // back toward the placer, 180°.
+  assert.equal(sunBaseAutoRotY(Math.PI, 'wall'), 180);
+  assert.equal(sunBaseAutoRotY(0, 'wall'), 0);
+  assert.equal(sunBaseAutoRotY(Math.PI / 2, 'wall'), 90);
+  // Snapped to the piece's own rotation step (15° for a wall).
+  assert.equal(sunBaseAutoRotY(2.4, 'wall'), 135);
+  // The curved wall turns in 22.5° steps, so its arcs still close.
+  assert.equal(sunBaseAutoRotY(2.4, 'wall-curved'), 135);
+});
 
 test('portal pieces exist in the catalog the sun base builds from', () => {
   assert.ok(pieceById('frame-portal'), 'frame-portal is a catalog piece');
@@ -237,6 +380,24 @@ test('the scene renders pieces with the Earth 2 piece renderer and judges with t
   assert.ok(scene.includes('onPortalWalk'), 'walking through a portal travels');
 });
 
+test('the scene scales pieces to the user — ghost, placed piece, ring, marker, walk-through', () => {
+  const scene = src('../components/SunBaseScene.jsx');
+  // Both the ghost and the placed piece carry the user scale.
+  assert.ok(scene.includes('ghost.scale.setScalar(SUN_BASE_PIECE_SCALE)'), 'the ghost shows the piece at its standing scale');
+  assert.ok(scene.includes('pg.scale.setScalar(SUN_BASE_PIECE_SCALE)'), 'a placed piece renders at the user scale');
+  // Positions cross into room metres through the one helper, so
+  // a stacked piece's base lands on its supporter's rendered top.
+  assert.ok(scene.includes('sunBaseRoomPosition'), 'placements land through the room-position helper');
+  assert.ok(!scene.includes('function toWorld'), 'no room-metre toWorld remains');
+  // The aim and the portal walk cross the other way, into user metres.
+  assert.ok(scene.includes('sunBaseToUserPoint'), 'the aim and the walker cross into user metres');
+  // A lighting piece's glow distance shrinks with the piece.
+  assert.ok(scene.includes('obj.distance *= SUN_BASE_PIECE_SCALE'), 'a torch lights its own corner, not the whole room');
+  // A fresh ghost faces the placer; an explicit turn sticks.
+  assert.ok(scene.includes('sunBaseAutoRotY'), 'a fresh piece faces the placer');
+  assert.ok(scene.includes('build.rotY ??'), 'an explicit turn is never overridden by the auto-facing');
+});
+
 test('the page opens the build menu from the same catalog and the shared portal picker', () => {
   const page = src('../app/sun-base/page.jsx');
   assert.ok(page.includes('BUILDING_PIECES'), 'the menu lists the Earth 2 catalog');
@@ -245,4 +406,13 @@ test('the page opens the build menu from the same catalog and the shared portal 
   assert.ok(page.includes('🔨 Build'), 'a Build button opens it');
   assert.ok(page.includes('sunBaseSerializeBuild'), 'builds persist with portal destinations kept');
   assert.ok(page.includes('resolveSunBasePortalDestination'), 'portal walks resolve to routes');
+});
+
+test('the page starts each fresh piece facing the placer, and Turn takes over', () => {
+  const page = src('../app/sun-base/page.jsx');
+  assert.ok(page.includes('const [rotY, setRotY] = useState(null)'), 'rotY starts null — face the placer');
+  assert.ok(page.includes('setRotY(null)'), 'picking a piece re-arms the facing');
+  assert.ok(page.includes('sunBaseAutoRotY'), 'Turn starts from the placer-facing turn');
+  assert.ok(page.includes('sunBaseFilterLawfulPieces'), 'the load fallback is legacy-aware');
+  assert.ok(!page.includes("validatePlacement(p, null)"), 'the old inline fallback is gone');
 });

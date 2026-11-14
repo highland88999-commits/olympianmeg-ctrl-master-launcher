@@ -529,3 +529,23 @@ describe('intelligent placement — the proposer (2026-10-23)', () => {
     assert.equal(proposePlacement([], null, { frame: DEFAULT_FRAME }), null);
   });
 });
+
+describe('facingRotYForYaw — a fresh piece faces the placer (Merlin, 2026-11-14: logical default orientation)', () => {
+  it('the piece\'s front (+Z) points back at the walker', async () => {
+    const { facingRotYForYaw } = await import('../lib/building/placement.js');
+    // Walker facing north (yaw 0, forward -z): the piece ahead
+    // faces south back at them — rotY 0.
+    assert.equal(facingRotYForYaw(0, 'wall'), 0);
+    // Walker facing west (yaw 90°, forward -x): the piece faces
+    // east back at them — rotY 90.
+    assert.equal(facingRotYForYaw(Math.PI / 2, 'wall'), 90);
+    // Walker facing south (yaw 180°): rotY 180.
+    assert.equal(facingRotYForYaw(Math.PI, 'wall'), 180);
+    // Walker facing east (yaw -90°): rotY 270 (the -90° facing,
+    // normalized to [0,360) like every manual turn).
+    assert.equal(facingRotYForYaw(-Math.PI / 2, 'wall'), 270);
+    // An in-between yaw snaps to the piece's rotation step, exactly
+    // like a manual 15° turn (wall step is 15°).
+    assert.equal(facingRotYForYaw(0.3, 'wall'), 15);
+  });
+});

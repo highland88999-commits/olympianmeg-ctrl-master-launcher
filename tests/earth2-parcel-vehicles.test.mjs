@@ -138,3 +138,42 @@ describe('parcel-vehicle ownership law (Merlin, 2026-11-01)', () => {
     assert.ok(!states[id], 'unknown slug dropped');
   });
 });
+
+describe('vehicleSpecForInstance — parcel-vehicle fallback (Merlin, 2026-11-14: boarding was broken)', () => {
+  it('resolves a slotted parcel vehicle through its slot, not the fleet registry', async () => {
+    const { vehicleSpecForInstance } = await import('../lib/earth2/vehicles.js');
+    // Merlin's VTOL + Lambo on E2-0619 are parcel vehicles — they
+    // are NOT in the fleet registry, so without the fallback the
+    // scene's driving branch saw null and the walker stepped on
+    // foot while the HUD stayed on (the third boarding report).
+    const vtol = vehicleSpecForInstance('parcel-vehicle:E2-0619:vtol');
+    assert.ok(vtol, 'VTOL spec resolves');
+    assert.equal(vtol.slug, 'vtol');
+    assert.equal(vtol.air, true);
+    // The Lambo's slot IS its slug ('earth1:wedge-supercar' —
+    // base-vehicles seeds slot === slug), so the same fallback
+    // resolves it through the bridged catalog.
+    const lambo = vehicleSpecForInstance('parcel-vehicle:E2-0619:earth1:wedge-supercar');
+    assert.ok(lambo, 'Lambo spec resolves');
+    assert.equal(lambo.slug, 'earth1:wedge-supercar');
+    // Devan's base the same.
+    assert.equal(vehicleSpecForInstance('parcel-vehicle:E2-0719:vtol').slug, 'vtol');
+    // A legacy unslotted key has no slot to resolve through.
+    assert.equal(vehicleSpecForInstance('parcel-vehicle:E2-0619'), null);
+    // An unknown slot resolves to nothing, not a crash.
+    assert.equal(vehicleSpecForInstance('parcel-vehicle:E2-0619:nope'), null);
+  });
+
+  it('the miniature flag survives the sanitizer as a tri-state (Merlin, 2026-11-14)', () => {
+    const id = parcelVehicleId('E2-0619', 'vtol');
+    // Present stays present (true or false) — the scene needs to
+    // tell a miniature machine from a full-size one.
+    assert.equal(sanitizeInstanceStates({ [id]: { slug: 'vtol', x: 1, z: 1, miniature: true } })[id].miniature, true);
+    assert.equal(sanitizeInstanceStates({ [id]: { slug: 'vtol', x: 1, z: 1, miniature: false } })[id].miniature, false);
+    // Absent stays absent (undefined) — a pre-law save with no
+    // flag must still migrate on load, not read as full-size.
+    assert.equal(sanitizeInstanceStates({ [id]: { slug: 'vtol', x: 1, z: 1 } })[id].miniature, undefined);
+    // Junk is not a flag.
+    assert.equal(sanitizeInstanceStates({ [id]: { slug: 'vtol', x: 1, z: 1, miniature: 'yes' } })[id].miniature, undefined);
+  });
+});

@@ -24,6 +24,12 @@ export const CATEGORIES = [
   { value: 'vehicle', label: 'Vehicles' },
   { value: 'weather', label: 'Weather' },
   { value: 'object', label: 'Objects' },
+  // Species databases (lib/auction/species.js). Like Land Tiles, this
+  // is a browse category of the house, NOT a forge category: the files
+  // are house products sold as repeatable downloads (first 20 free,
+  // then $5.00), not unique forge assets, so this tab renders its own
+  // panel instead of querying the listings API.
+  { value: 'species', label: 'Species' },
   // Earth 2 land resale (lib/earth2/land-sale.js). Land titles are
   // not forge assets, so this tab renders the house's Land Tiles
   // panel instead of querying the listings API.

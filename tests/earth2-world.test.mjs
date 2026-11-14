@@ -611,6 +611,24 @@ describe('the gate — the world lives behind the same lock as the Bay', () => {
     assert.ok(world.includes('Display only'), 'the HUD says so plainly');
   });
 
+  it('sanctuary rent: the world REPORTS the entry, the page charges it (Merlin, 2026-11-14)', () => {
+    // The display-only law above forbids the scene calling the
+    // rent route — so a sanctuary entry travels out through a
+    // callback and the page (which already owns the rent call)
+    // charges the passing rent. If either half is removed, the
+    // meter silently stops and sanctuary becomes free.
+    const world = read('components/earth2/Earth2World.jsx');
+    assert.ok(world.includes('onSanctuaryEntry'), 'the scene takes a sanctuary-entry callback');
+    assert.ok(world.includes('sanctuaryEntryRef.current(parcel.id, sanctuaryEntryId(parcel.id, Date.now()))'),
+      'the scene reports the entry with its idempotency key');
+    assert.ok(world.includes('sanctuaryRentOwed'), 'the scene only reports entries that owe rent');
+    const page = read('app/earth-2/page.jsx');
+    assert.ok(page.includes('onSanctuaryEntry={handleSanctuaryEntry}'), 'the page wires the callback into the world');
+    assert.ok(page.includes('handleSanctuaryEntry'), 'the page handler exists');
+    assert.ok(page.includes("post('/api/earth2/rent', { parcelId, entryId })"), 'the page charges the rent route');
+    assert.ok(page.includes('lastSanctuaryEntryRef'), 'one charge per entry — the page dedupes by entryId');
+  });
+
   it('the world loads models only through the signed-door resolver', () => {
     const world = read('components/earth2/Earth2World.jsx');
     assert.ok(world.includes('fetchEarth2ModelUrls'), 'signed URLs fetched once');

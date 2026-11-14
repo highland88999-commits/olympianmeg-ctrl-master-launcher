@@ -741,6 +741,31 @@ export default function Earth2Page() {
     setBusy('');
   };
 
+  // SANCTUARY RENT (Merlin, 2026-11-14): the walkable world is
+  // display-only — it never calls the rent route itself. It
+  // REPORTS a sanctuary entry (the walker stepped onto someone
+  // else's owned parcel) through onSanctuaryEntry, and this
+  // handler charges the passing rent: the existing 2 gold on
+  // entry, split 1 to the owner + 1 to the house. One charge per
+  // entry (the route is idempotent on entryId, and the ref
+  // below stops a second report of the same entry ever firing).
+  // A failed call never blocks the walk — it just is not
+  // announced — and only an actual charge shows a notice.
+  const lastSanctuaryEntryRef = useRef(null);
+  const handleSanctuaryEntry = useCallback(
+    async (parcelId, entryId) => {
+      if (!parcelId || !entryId) return;
+      if (lastSanctuaryEntryRef.current === entryId) return;
+      lastSanctuaryEntryRef.current = entryId;
+      const data = await post('/api/earth2/rent', { parcelId, entryId });
+      if (data?.ok && data.charged > 0) {
+        setNotice(data.message || `🪙 ${data.charged} gold — sanctuary rent to the landowner.`);
+        await loadState();
+      }
+    },
+    [post, loadState],
+  );
+
   // ── Building (Phase 2) ──────────────────────────────────────
   // A build changed out on the planet (or a blueprint re-placed
   // here): the device store takes it immediately, and the API
@@ -1948,6 +1973,7 @@ export default function Earth2Page() {
           }}
           greetSignal={greetSignal}
           onParcelChange={setSelectedId}
+          onSanctuaryEntry={handleSanctuaryEntry}
           onExit={exitWorld}
           buildUser={buildUser}
           ownersByParcel={owners}

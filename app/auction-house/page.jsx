@@ -25,6 +25,7 @@ import {
   hashString,
   friendlyAuctionError,
 } from './auction.js';
+import { formatSpeciesBytes } from '@/lib/auction/species';
 
 // Inline SVG glyph system (zero image weight) — PLUTUS batch.
 const PATHS = {
@@ -41,6 +42,7 @@ const PATHS = {
   vehicle: 'M3 15v-3l2-5a2 2 0 0 1 1.9-1.3h10.2A2 2 0 0 1 19 7l2 5v3M3 15h18M5.5 18.5v.01M18.5 18.5v.01M7 15v3.5M17 15v3.5',
   weather: 'M7 19a4.5 4.5 0 0 1-.4-9A6.5 6.5 0 0 1 19 12a4 4 0 0 1-.5 7.9L7 19z',
   object: 'M12 2l8 4.5v9L12 20l-8-4.5v-9L12 2zM12 11L4 6.5M12 11l8-4.5M12 11v9',
+  book: 'M5 3h11a2 2 0 0 1 2 2v16H7a2 2 0 0 1-2-2V3zM18 5v16M8 7.5h6M8 11.5h6',
 };
 
 const CATEGORY_ICONS = {
@@ -50,6 +52,7 @@ const CATEGORY_ICONS = {
   vehicle: 'vehicle',
   weather: 'weather',
   object: 'object',
+  species: 'book',
   land_tiles: 'world',
 };
 
@@ -996,6 +999,247 @@ function LandTilesPanel() {
   );
 }
 
+// --- Species databases (the Living Library) --------------------------------
+// House files, not forge assets: repeatable downloads, priced per file —
+// the first 20 downloads of each file are free, then $5.00. The panel
+// reads its catalogue from /api/auction/species (live free counts and
+// whether each file is actually in the vault yet) and buys through
+// /api/auction/species/download, which mints the signed URL. Anatomy
+// shows as coming soon until its files land in the vault — the API
+// flips it live on its own, no code change.
+function SpeciesPanel() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [busyKey, setBusyKey] = useState('');
+  const [notice, setNotice] = useState('');
+  const [error, setError] = useState('');
+
+  const loadSpecies = async () => {
+    try {
+      const res = await fetch('/api/auction/species');
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.ok) {
+        setLoadError(json.error || 'Could not load the species files.');
+      } else {
+        setData(json);
+        setLoadError('');
+      }
+    } catch {
+      setLoadError('Could not reach the auction house. Try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (cancelled) return;
+      await loadSpecies();
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const download = async (fileKey, payMethod) => {
+    setError('');
+    setNotice('');
+    const { data: { session: s } } = await supabase.auth.getSession();
+    if (!s?.access_token) {
+      setError('Sign in to download a species file.');
+      return;
+    }
+    setBusyKey(fileKey);
+    try {
+      const res = await fetch('/api/auction/species/download', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${s.access_token}`,
+        },
+        body: JSON.stringify({ file_key: fileKey, pay_method: payMethod }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.ok) {
+        setError(json.error || 'The download could not start.');
+        return;
+      }
+      setNotice(
+        json.free
+          ? `Your free download is ready — ${json.label}. It opens in a new tab.`
+          : `Paid $5.00 — your download is ready: ${json.label}. It opens in a new tab.`
+      );
+      window.open(json.downloadUrl, '_blank', 'noopener');
+      await loadSpecies();
+    } catch {
+      setError('Could not reach the auction house. Try again.');
+    } finally {
+      setBusyKey('');
+    }
+  };
+
+  if (loading) {
+    return (
+      <section className="mt-8 grid grid-cols-1 gap-4" aria-label="Loading species files">
+        {[0, 1].map((i) => (
+          <div key={i} className="rounded-lg border border-amber-500/15 p-4 animate-pulse" style={cardTile}>
+            <div className="h-4 w-1/2 rounded bg-zinc-800/80" />
+            <div className="mt-2 h-4 w-3/4 rounded bg-zinc-800/60" />
+          </div>
+        ))}
+        <span className="sr-only">Loading the species files…</span>
+      </section>
+    );
+  }
+
+  if (loadError || !data) {
+    return (
+      <div className="mt-8 rounded-2xl border border-red-500/30 bg-red-500/5 p-10 text-center" role="alert">
+        <Glyph d={PATHS.book} className="w-8 h-8 mx-auto text-red-400/60" />
+        <p className="mt-3 text-red-200 font-bold uppercase text-sm tracking-[0.2em]">The library is unreachable</p>
+        <p className="mt-1 text-zinc-400 text-sm">{loadError || 'Could not load the species files.'}</p>
+        <button
+          onClick={() => {
+            setLoading(true);
+            setLoadError('');
+            loadSpecies();
+          }}
+          className="mt-4 px-5 py-2 rounded border border-amber-400/60 text-amber-100 text-xs font-bold uppercase tracking-widest hover:bg-amber-500/20 transition-colors"
+        >
+          Try again
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <section className="mt-8" aria-label="Species databases">
+      <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-6 text-center" style={cardTile}>
+        <Glyph d={PATHS.book} outline className="w-9 h-9 mx-auto text-amber-400/70" />
+        <p className="mt-3 text-amber-100 font-bold uppercase text-sm tracking-[0.2em]">Species — The Living Library</p>
+        <p className="mt-2 text-zinc-400 text-sm max-w-xl mx-auto">
+          Every species on Earth, as databases — the same files that power what spawns in the
+          worlds. The first 20 downloads of each file are free, then $5.00 a download.
+        </p>
+        {!data.vaultReady && (
+          <p className="mt-2 text-amber-200/80 text-sm max-w-xl mx-auto">
+            The files are still being placed in the vault — the listings below are live, and
+            downloads open the moment each file lands.
+          </p>
+        )}
+        {!data.countersLive && (
+          <p className="mt-2 text-zinc-500 text-sm max-w-xl mx-auto">
+            Free-download counting starts when the house tables go live.
+          </p>
+        )}
+      </div>
+
+      {notice && (
+        <div className="mt-4 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100" role="status">
+          {notice}
+        </div>
+      )}
+      {error && (
+        <div className="mt-4 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100" role="alert">
+          {error}
+        </div>
+      )}
+
+      <div className="mt-6 grid grid-cols-1 gap-4">
+        {data.datasets.map((dataset) => (
+          <article
+            key={dataset.id}
+            className={`rounded-2xl border p-5 ${dataset.status === 'coming-soon' ? 'border-zinc-800 bg-zinc-950/60' : 'border-amber-500/25 bg-zinc-950/80'}`}
+            style={cardTile}
+          >
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div className="min-w-0">
+                <h2 className="text-amber-100 font-black text-lg leading-snug">{dataset.title}</h2>
+                <p className="mt-1 text-zinc-400 text-sm">{dataset.description}</p>
+                <p className="mt-2 text-xs text-zinc-500">
+                  {dataset.rows.toLocaleString('en-US')} species · {dataset.sheets} sheets · {dataset.coverage}
+                </p>
+              </div>
+              {dataset.status === 'coming-soon' && (
+                <span className="shrink-0 rounded-full border border-zinc-700 px-3 py-1 text-[11px] font-bold uppercase tracking-widest text-zinc-400">
+                  Coming soon
+                </span>
+              )}
+            </div>
+
+            <ul className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+              {dataset.files.map((file) => {
+                const busy = busyKey === file.key;
+                const free = file.priceCents === 0;
+                const canDownload = dataset.status === 'live' && file.available;
+                return (
+                  <li key={file.key} className="rounded-xl border border-zinc-800 bg-black/40 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-zinc-100 font-bold text-sm leading-snug">{file.label}</p>
+                        <p className="mt-1 text-xs text-zinc-500">
+                          {file.format} · {file.bytes ? formatSpeciesBytes(file.bytes) : 'Size coming with the files'} · {file.note}
+                        </p>
+                      </div>
+                      <span className="shrink-0 rounded border border-amber-500/40 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-amber-200/90">
+                        {file.format}
+                      </span>
+                    </div>
+                    <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
+                      <p className={`text-sm font-bold ${free ? 'text-emerald-300' : 'text-amber-100'}`}>
+                        {dataset.status !== 'live'
+                          ? 'Still being built'
+                          : !file.available
+                            ? 'Being placed in the vault'
+                            : free
+                              ? `Free — ${file.downloadsLeft} of 20 left`
+                              : '$5.00 a download'}
+                      </p>
+                      {dataset.status === 'live' && file.available && free && (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => download(file.key, 'wallet')}
+                          className="min-h-[40px] px-4 rounded-full border border-emerald-400/70 bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/35 text-xs font-bold uppercase tracking-widest disabled:opacity-50 transition-colors"
+                        >
+                          {busy ? 'Opening…' : 'Download free'}
+                        </button>
+                      )}
+                      {dataset.status === 'live' && file.available && !free && (
+                        <span className="inline-flex gap-2">
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => download(file.key, 'wallet')}
+                            className="min-h-[40px] px-4 rounded-full border border-amber-400/70 bg-amber-500/20 text-amber-100 hover:bg-amber-500/35 text-xs font-bold uppercase tracking-widest disabled:opacity-50 transition-colors"
+                          >
+                            {busy ? 'Opening…' : 'Wallet · $5.00'}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => download(file.key, 'stripe')}
+                            className="min-h-[40px] px-4 rounded-full border border-amber-200/40 text-amber-200/90 bg-amber-400/5 hover:bg-amber-300/15 text-xs font-bold uppercase tracking-widest disabled:opacity-50 transition-colors"
+                          >
+                            {busy ? 'Opening…' : 'Card · $5.00'}
+                          </button>
+                        </span>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export default function AuctionHousePage() {
   const [category, setCategory] = useState('all');
   const [listings, setListings] = useState([]);
@@ -1014,7 +1258,9 @@ export default function AuctionHousePage() {
     // Land Tiles are not forge listings — the tab renders its own
     // panel and never queries the listings API (which would 400:
     // 'land_tiles' is not a world_engine_assets category).
-    if (cat === 'land_tiles') {
+    // Species files are the same: house files, not forge listings —
+    // the Species tab renders its own panel from /api/auction/species.
+    if (cat === 'land_tiles' || cat === 'species') {
       setLoading(false);
       setLoadError('');
       setListings([]);
@@ -1147,6 +1393,8 @@ export default function AuctionHousePage() {
 
         {category === 'land_tiles' ? (
           <LandTilesPanel />
+        ) : category === 'species' ? (
+          <SpeciesPanel />
         ) : loading ? (
           <section className="mt-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" aria-label="Loading lots">
             {[0, 1, 2, 3, 4, 5].map((i) => (
@@ -1202,6 +1450,7 @@ export default function AuctionHousePage() {
         <footer className="mt-10 text-center text-xs text-zinc-600">
           Listings come from the World Engine forge and are sold by their makers.
           Bids and purchases move real money through your wallet or card.
+          Species databases are house files — the first 20 downloads of each file are free, then $5.00.
         </footer>
       </div>
 

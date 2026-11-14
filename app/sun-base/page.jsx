@@ -16,16 +16,23 @@
 // THE USER IS SMALL HERE (Merlin, Nov 13, 2026 — "I want the room
 // to be huge for them"): one-fifth size inside the base, so the
 // room reads five times bigger (lib/sun-base.js SUN_BASE_USER_SCALE).
+// The stride is normal size, though (Merlin, Nov 14, 2026: motion
+// speed matches normal size — 3.2 m/s).
 //
 // BUILDING (Merlin, Nov 13, 2026): the sun base is a build surface
 // exactly like an Earth 2 parcel — the same catalog, the same
 // placement law, the same piece renderer (lib/building/*), no copy.
 // The 🔨 Build button opens the build menu: pick a piece, tap the
 // floor to place it, double-tap a placed piece to pick it back up.
-// A portal piece (frame-portal / portal-frame) takes a destination
-// from the shared PortalDestinationPicker — walk through it and
-// you travel. Builds persist device-local per interior
-// (lib/sun-base-build.js — the interior-pick pattern).
+// Pieces render at the user's own 0.2 scale (Merlin, Nov 14, 2026:
+// "Objects in solar base are too big"), so they read the size they
+// would at normal scale; a freshly picked piece faces the placer
+// (Nov 14: "by default, objects should be oriented logically"),
+// and the ⟳ Turn button takes over from there. A portal piece
+// (frame-portal / portal-frame) takes a destination from the shared
+// PortalDestinationPicker — walk through it and you travel. Builds
+// persist device-local per interior (lib/sun-base-build.js — the
+// interior-pick pattern).
 //
 // THE GATE: signed-in accounts only (the Earth 2 rule, 2026-10-31:
 // signed-out visitors get a plain locked screen, never the room).
@@ -47,7 +54,6 @@ import {
   finishAllowed,
   normalizeOrientation,
   pieceById,
-  validatePlacement,
 } from '@/lib/building/catalog';
 import { snapRotation } from '@/lib/building/placement';
 import {
@@ -61,6 +67,8 @@ import {
   loadSunBaseBuilds,
   resolveSunBasePortalDestination,
   saveSunBaseBuilds,
+  sunBaseAutoRotY,
+  sunBaseFilterLawfulPieces,
   sunBaseMyBuildFor,
   sunBaseParseBuild,
   sunBaseSerializeBuild,
@@ -96,7 +104,10 @@ export default function SunBasePage() {
   const [pieceId, setPieceId] = useState('wall');
   const [orientation, setOrientation] = useState('upright');
   const [finishId, setFinishId] = useState('timber');
-  const [rotY, setRotY] = useState(0);
+  // rotY null = face the placer (a fresh piece turns its front
+  // toward the person placing it); the Turn button, or picking a
+  // piece back up, sets an explicit turn that sticks.
+  const [rotY, setRotY] = useState(null);
   const [selectedIndex, setSelectedIndex] = useState(null);
   const [carriedIndex, setCarriedIndex] = useState(null);
   const [portalPickIndex, setPortalPickIndex] = useState(null);
@@ -146,10 +157,9 @@ export default function SunBasePage() {
       else {
         // A stored build that no longer validates wholesale: keep
         // the pieces that are still lawful, drop the rest — never
-        // wipe the room over one bad piece.
-        next = mine.pieces.filter(
-          (p) => validatePlacement(p, null).length === 0 && pieceById(p.pieceId)
-        );
+        // wipe the room over one bad piece. (Legacy-aware: a
+        // round-1 build in room metres converts first.)
+        next = sunBaseFilterLawfulPieces(mine);
       }
     }
     setPieces(next);
@@ -436,7 +446,7 @@ export default function SunBasePage() {
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
             <button type="button" onClick={() => setBuildTool('place')} aria-pressed={buildTool === 'place'} style={{ padding: '7px 12px', borderRadius: 999, cursor: 'pointer', background: buildTool === 'place' ? GOLD : 'rgba(255,217,138,0.12)', color: buildTool === 'place' ? '#140c02' : '#ffe9c4', fontSize: 12, fontWeight: 800, border: `1px solid ${GOLD}55`, fontFamily: 'inherit' }}>Place</button>
             <button type="button" onClick={() => setBuildTool('edit')} aria-pressed={buildTool === 'edit'} style={{ padding: '7px 12px', borderRadius: 999, cursor: 'pointer', background: buildTool === 'edit' ? GOLD : 'rgba(255,217,138,0.12)', color: buildTool === 'edit' ? '#140c02' : '#ffe9c4', fontSize: 12, fontWeight: 800, border: `1px solid ${GOLD}55`, fontFamily: 'inherit' }}>Edit</button>
-            <button type="button" onClick={() => setRotY((r) => snapRotation(r + 15, pieceId))} style={{ padding: '7px 12px', borderRadius: 999, cursor: 'pointer', background: 'rgba(255,217,138,0.12)', color: '#ffe9c4', fontSize: 12, fontWeight: 800, border: `1px solid ${GOLD}55`, fontFamily: 'inherit' }}>⟳ Turn</button>
+            <button type="button" onClick={() => setRotY((r) => snapRotation((r ?? sunBaseAutoRotY(walkerRef.current?.yaw ?? Math.PI, pieceId)) + 15, pieceId))} style={{ padding: '7px 12px', borderRadius: 999, cursor: 'pointer', background: 'rgba(255,217,138,0.12)', color: '#ffe9c4', fontSize: 12, fontWeight: 800, border: `1px solid ${GOLD}55`, fontFamily: 'inherit' }}>⟳ Turn</button>
             <button type="button" onClick={cycleOrientation} style={{ padding: '7px 12px', borderRadius: 999, cursor: 'pointer', background: 'rgba(255,217,138,0.12)', color: '#ffe9c4', fontSize: 12, fontWeight: 800, border: `1px solid ${GOLD}55`, fontFamily: 'inherit' }}>
               {orientation === 'upright' ? 'Stand' : orientation === 'flat' ? 'Lay flat' : 'Lay flat (flipped)'}
             </button>
@@ -469,6 +479,10 @@ export default function SunBasePage() {
                   type="button"
                   onClick={() => {
                     setPieceId(p.id);
+                    // A freshly picked piece faces the placer —
+                    // the ghost derives its turn from the walker's
+                    // yaw until the Turn button sets one.
+                    setRotY(null);
                     if (!finishAllowed(p, finishId)) setFinishId(p.finishes && p.finishes !== 'all' ? p.finishes[0] : 'timber');
                   }}
                   aria-pressed={active}

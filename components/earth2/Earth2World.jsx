@@ -159,6 +159,7 @@ import {
   GRAPPLE_HOOK_SPEED_MPS,
   GRAPPLE_ARRIVE_DIST_M,
   GRAPPLE_ARMED_TAP_LIMITS,
+  grappleMinHitDistM,
   isGrappleEquipped,
   isGrappleOwned,
   grappleOwnedUid,
@@ -272,7 +273,7 @@ import {
   pieceFootprint,
   finishAllowed,
 } from '@/lib/building/catalog';
-import { snapPlacement, snapRotation, judgeGhost, validatePlacementSet, clampPlacementToFrame, deriveBuildCandidate, proposePlacement, snapSeams } from '@/lib/building/placement';
+import { snapPlacement, snapRotation, facingRotYForYaw, judgeGhost, validatePlacementSet, clampPlacementToFrame, deriveBuildCandidate, proposePlacement, snapSeams } from '@/lib/building/placement';
 import PortalDestinationPicker, { isPortalPiece } from '@/components/earth2/PortalDestinationPicker';
 import DinoSelectionMenu from '@/components/earth2/DinoSelectionMenu';
 import { buildPieceGroup, buildGhostGroup, setGhostValidity, shiftHue } from '@/lib/building/piece-render';
@@ -302,7 +303,18 @@ import {
   walkerEyeM,
   walkerRadiusM,
   buildPieceScale,
+  PARCEL_SHRINK_SCALE,
+  miniaturePositionForParcel,
+  vehicleScaleFor,
+  applyVehicleParcelScale,
+  migrateParcelVehicleScale,
+  walkerMotionSpeedScale,
 } from '@/lib/earth2/parcel-shrink';
+import {
+  stepBlockedByParcelLine,
+  sanctuaryRentOwed,
+  sanctuaryEntryId,
+} from '@/lib/earth2/parcel-sanctuary';
 import {
   GAMEPAD_BUTTONS,
   GAMEPAD_PROFILE_NAMES,
@@ -569,7 +581,7 @@ function E2Panel({ layout, onMove, onToggle, panelClass = '', headerClass = '', 
   );
 }
 
-export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLoaded = false, bloodSacs, onBloodSac, onOpenExchange, onFossilExchange, greetSignal, onParcelChange, onExit, buildUser, ownersByParcel, claims, builds, onBuildChange, buildRequest, gunplayUnlocked = true, vehiclePlacement = null, onVehiclePlaced = null } = {}) {
+export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLoaded = false, bloodSacs, onBloodSac, onOpenExchange, onFossilExchange, greetSignal, onParcelChange, onSanctuaryEntry, onExit, buildUser, ownersByParcel, claims, builds, onBuildChange, buildRequest, gunplayUnlocked = true, vehiclePlacement = null, onVehiclePlaced = null } = {}) {
   const mountRef = useRef(null);
   const labelsRef = useRef(null);
   const [hud, setHud] = useState(null); // { parcel, biome, lat, lon, mine, home }
@@ -842,6 +854,7 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
   const rotateGhost = (dir) => {
     const bm = buildModeRef.current;
     bm.rotY = snapRotation(bm.rotY + dir * 15, bm.pieceId);
+    bm.turned = true; // an explicit turn sticks — the facing default must not re-seed it
     bm.verdictKey = '';
     bm.seatKey = '';
     setBuildRot(bm.rotY);
@@ -1131,9 +1144,32 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
     // already exists, so a driven-away machine stays where its
     // driver left it, and the owner's own pick stands.
     vehicleStatesRef.current = seedBaseVehicleStates(loadVehicleStates());
+    // MINIATURE MIGRATION (Merlin, 2026-11-14): a parcel vehicle
+    // saved before the miniature law parks at full-size
+    // coordinates on its home parcel — shrink it onto the base
+    // (toward the parcel center, miniature: true) so it renders
+    // as a little model like the fresh seeds. A machine parked
+    // away from home, or already stamped, is never touched.
+    for (const [id, st] of Object.entries(vehicleStatesRef.current)) {
+      if (!isParcelVehicleId(id)) continue;
+      const migrated = migrateParcelVehicleScale(st);
+      if (migrated !== st) vehicleStatesRef.current[id] = migrated;
+    }
     saveVehicleStates(vehicleStatesRef.current);
   }
   const drivingRef = useRef(null);
+  // The spec of the machine being driven, for the HUD + flight
+  // orbs: the registry + slot lookups first, the ledger state's
+  // slug second (a parcel vehicle's slot is a role — 'lambo' —
+  // not a model slug; the state carries 'earth1:wedge-supercar').
+  // Without the second leg the Lambo's HUD reads as a car with
+  // no spec at all (Merlin, 2026-11-14).
+  const drivingSpec = driving
+    ? (vehicleSpecForInstance(driving)
+      || (vehicleStatesRef.current?.[driving]?.slug
+        ? modelSpec(vehicleStatesRef.current[driving].slug)
+        : null))
+    : null;
   // Drive camera: 'third' (behind + above, the default — Merlin,
   // 2026-11-01) or 'first' (driver's eye). Toggled from the HUD.
   const driveCamRef = useRef('third');
@@ -1219,6 +1255,12 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
   };
   const parcelChangeRef = useRef(() => {});
   parcelChangeRef.current = (id) => { if (typeof onParcelChange === 'function') onParcelChange(id); };
+  // SANCTUARY RENT (Merlin, 2026-11-14): the world is
+  // display-only — it never calls the rent route itself. It
+  // REPORTS a sanctuary entry (owned parcel, not the walker's
+  // own) to the page, and the page charges the passing rent.
+  const sanctuaryEntryRef = useRef(() => {});
+  sanctuaryEntryRef.current = (parcelId, entryId) => { if (typeof onSanctuaryEntry === 'function') onSanctuaryEntry(parcelId, entryId); };
   const noticeRef = useRef(() => {});
   noticeRef.current = (msg) => setNotice(msg);
   useEffect(() => { if (greetSignal) greetRef.current = true; }, [greetSignal]);
@@ -1946,6 +1988,11 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         activeKeys: new Set(),
         failures: createLoadFailureRegistry(), // failed base URLs — visible, not silent
       };
+      // INVISIBLE BARRIERS (Merlin, 2026-11-14): the staged
+      // colliders carry their load URL (fittings.js) — a URL in
+      // this set failed to load, so its placements never render
+      // and currentColliders drops their circles.
+      const failedStagedUrls = new Set();
       const STAGED_VISIBLE_M = 150;
 
       async function loadStagedBases() {
@@ -1974,6 +2021,9 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
             // object can be named and fixed. Its placements are
             // still skipped honestly.
             recordLoadFailure(stagedCache.failures, url, err);
+            // The placements never render — drop their colliders
+            // too, or the walker hits a wall around nothing.
+            failedStagedUrls.add(url);
             console.warn('[earth2] staged GLB failed to load, placements skipped:', url, err);
             if (typeof window !== 'undefined') {
               window.__earth2LoadFailures = loadFailureList(stagedCache.failures);
@@ -3271,6 +3321,10 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
             spec.water ? WATER_Y - spec.draft : (gY != null ? gY : heightAt(st.x, st.z)) + (st.alt || 0),
             st.z,
           );
+          // MINIATURE (Merlin, 2026-11-14): a machine parked on
+          // an owned parcel renders at 0.25x from the first frame
+          // (poseVehicle re-asserts it every frame after).
+          root.scale.setScalar(vehicleScaleFor(st));
           root.rotation.y = st.heading || 0;
           scene.add(root);
           // The River Runner's wake: a simple speed-read plane
@@ -3323,7 +3377,11 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
           vehicles.push(rec);
           makeVehicleBar(rec, unit.key);
           const inst = vehicleInstanceById(unit.instanceId);
-          makeLabel(inst && inst.label ? inst.label : spec.name, root, spec.eyeHeight + 0.9, 130, unit.key, 'vehicle');
+          // MINIATURE (Merlin, 2026-11-14): the label height
+          // reads the machine's scale — a little plane's name
+          // sits over the little plane, not 4 m above it.
+          makeLabel(inst && inst.label ? inst.label : spec.name, root,
+            (spec.eyeHeight + 0.9) * vehicleScaleFor(st), 130, unit.key, 'vehicle');
           if (drivesStatus) setStatusFor(entry.slug, 'placed');
           return { roots: [root] };
         } catch (err) {
@@ -3340,6 +3398,18 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
       function poseVehicle(rec, st, t, dt) {
         rec.root.position.set(st.x, st.y != null ? st.y : heightAt(st.x, st.z), st.z);
         rec.root.rotation.set(st.pitch || 0, st.heading || 0, st.roll || 0);
+        // MINIATURE (Merlin, 2026-11-14): a machine on an owned
+        // parcel renders at 0.25x — the root scale carries it, so
+        // the tap proxy (a child of the root) and the visible mesh
+        // shrink together, and the name label drops to the little
+        // machine's height instead of floating 4 m up.
+        const vScale = vehicleScaleFor(st);
+        rec.root.scale.setScalar(vScale);
+        for (const l of labels) {
+          if (l.obj === rec.root && l.kind === 'vehicle') {
+            l.h = (rec.spec.eyeHeight + 0.9) * vScale;
+          }
+        }
         const sp = Math.abs(st.speed || 0);
         if (rec.spec.water) {
           // Afloat: a gentle bob on the waterline, and the wake
@@ -3417,6 +3487,11 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
             isMine: parcelVehicleIsMine(parcelId),
             ownersLoaded: buildPropsRef.current.titlesLoaded === true,
             distanceM: Math.hypot(walker.x - st.x, walker.z - st.z),
+            // MINIATURE BOARDING (Merlin, 2026-11-14): a shrunken
+            // walker boards a miniature machine from miniature
+            // distance — the 8.5 m walk-up range reads in the
+            // walker's current scale.
+            rangeM: BOARDING_RANGE_M * shrinkRef.current.scale,
           });
           if (decision !== 'ok') {
             noticeRef.current(decision === 'titles-loading'
@@ -3439,7 +3514,9 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
           newlyClaimed = true;
         }
         const d = Math.hypot(walker.x - st.x, walker.z - st.z);
-        if (d > BOARDING_RANGE_M) {
+        // MINIATURE BOARDING (Merlin, 2026-11-14): the walk-up
+        // range reads in the walker's current scale, as above.
+        if (d > BOARDING_RANGE_M * shrinkRef.current.scale) {
           const inst = vehicleInstanceById(id);
           noticeRef.current(inst && inst.label
             ? `🚗 The ${inst.label} is parked out in the wilds — walk up to it to ${spec.verb.toLowerCase()} it.`
@@ -3497,7 +3574,9 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
           if (airportStanding) cols.push({ x: AIRPORT_CENTER.x, z: AIRPORT_CENTER.z, r: 13 });
           for (const v of vehicles) {
             const vst = vehicleStatesRef.current[v.key];
-            if (vst) cols.push({ x: vst.x, z: vst.z, r: v.spec.radius });
+            // MINIATURE (Merlin, 2026-11-14): a parked machine's
+            // solid circle shrinks with the machine.
+            if (vst) cols.push({ x: vst.x, z: vst.z, r: v.spec.radius * vehicleScaleFor(vst) });
           }
           if (spec.water) {
             // Step ashore: the nearest footing — dry bank
@@ -3526,7 +3605,11 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
             walker.z = settled.z;
             walker.yaw = (st.heading || 0) + Math.PI;
           } else {
-            const dOut = spec.radius + 1.3;
+            // MINIATURE (Merlin, 2026-11-14): the step-out lands
+            // beside the machine in ITS scale — 6.5 m out from a
+            // 2.75 m model plane would strand the walker across
+            // the whole little base.
+            const dOut = (spec.radius + 1.3) * vehicleScaleFor(st);
             const ex = st.x - Math.cos(st.heading || 0) * dOut;
             const ez = st.z + Math.sin(st.heading || 0) * dOut;
             const settled = stepWorldWalker({ x: ex, z: ez }, 0, { fwd: 0, strafe: 0 }, 0, cols, false);
@@ -3823,9 +3906,11 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         for (const v of vehicles) {
           if (v.key === id) continue;
           const vst = vehicleStatesRef.current[v.key];
-          if (vst) cols.push({ x: vst.x, z: vst.z, r: v.spec.radius });
+          // MINIATURE (Merlin, 2026-11-14): a parked machine's
+          // solid circle shrinks with the machine.
+          if (vst) cols.push({ x: vst.x, z: vst.z, r: v.spec.radius * vehicleScaleFor(vst) });
         }
-        cols.push({ x: st.x, z: st.z, r: spec.radius });
+        cols.push({ x: st.x, z: st.z, r: spec.radius * vehicleScaleFor(st) });
         const from = st.eject && typeof st.eject.x === 'number'
           ? { x: st.eject.x, z: st.eject.z }
           : { x: st.x, z: st.z };
@@ -4406,10 +4491,15 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
       // prey's own record becomes the carcass (its fossil roll
       // rides the lifecycle record — the future hunt build reads
       // it from exactly here), and the predator settles to eat.
-      // Immunity law (Merlin, 2026-10-31): the walker is immune to
-      // predator hunts ONLY while building or standing on their own
-      // parcel. Everywhere else in the wild, the walker is prey.
-      // Mirrors syncParcel's ownership check below.
+      // Immunity law (Merlin, 2026-10-31, extended 2026-11-14):
+      // the walker is immune to predator hunts while building,
+      // or standing on ANY owned parcel — their own or someone
+      // else's. An owned parcel is dino-free sanctuary: ducking
+      // onto it kills the hunt (the predator gives up at the
+      // boundary), and sheltering there costs the passing rental
+      // fee to the owner (charged on entry, see
+      // applyParcelShrink). Everywhere else in the wild, the
+      // walker is prey. Mirrors syncParcel's ownership check below.
       function isWalkerImmune() {
         if (buildModeRef.current && buildModeRef.current.active) return true;
         // In a vehicle ON THE GROUND the walker can still be hunted —
@@ -4423,9 +4513,7 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         }
         const p = parcelAtWorld(walker.x, walker.z);
         const bp = buildPropsRef.current || {};
-        const row = bp.owners && typeof bp.owners.get === 'function' ? bp.owners.get(p.id) : null;
-        return !!(row && bp.user && row.owner_email && bp.user.email
-          && String(row.owner_email).toLowerCase() === String(bp.user.email).toLowerCase());
+        return !!(bp.owners && typeof bp.owners.get === 'function' && bp.owners.get(p.id));
       }
 
       // Parcel-vehicle ownership (Merlin, 2026-11-01): the ride
@@ -4569,6 +4657,14 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         const pos = a.root.position;
         const stepTo = (target, speed) => {
           const next = stepToward({ x: pos.x, z: pos.z }, target, speed, dt);
+          // PARCEL SANCTUARY (Merlin, 2026-11-14): no dinosaur
+          // crosses a property line INTO an owned parcel — the
+          // step is refused at the line, never teleported through.
+          // (A dino already inside its owner's parcel moves
+          // freely within it; only crossing IN is blocked.)
+          if (stepBlockedByParcelLine({ x: pos.x, z: pos.z }, next, buildPropsRef.current.owners)) {
+            return false;
+          }
           pos.x = next.x;
           pos.z = next.z;
           return next.arrived;
@@ -4580,9 +4676,22 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
             const mul = beh.mode === 'sated' ? 0.55 : 1;
             if (a.walker) {
               const w = a.walker;
-              w.theta += (dt * w.speed * mul) / w.r;
-              pos.x = w.cx + Math.cos(w.theta) * w.r;
-              pos.z = w.cz + Math.sin(w.theta) * w.r;
+              // PARCEL SANCTUARY (Merlin, 2026-11-14): a circuit
+              // that crosses a property line must not carry the
+              // dino in — at the line it turns around and walks
+              // its circle the other way, patrolling the boundary
+              // instead of crossing it.
+              const dir = w.dir || 1;
+              const nextTheta = w.theta + (dir * dt * w.speed * mul) / w.r;
+              const nx = w.cx + Math.cos(nextTheta) * w.r;
+              const nz = w.cz + Math.sin(nextTheta) * w.r;
+              if (stepBlockedByParcelLine({ x: pos.x, z: pos.z }, { x: nx, z: nz }, buildPropsRef.current.owners)) {
+                w.dir = -dir;
+              } else {
+                w.theta = nextTheta;
+                pos.x = nx;
+                pos.z = nz;
+              }
             } else {
               // A stander strolls home if life took it away.
               const dHome = Math.hypot(a.home.x - pos.x, a.home.z - pos.z);
@@ -5310,7 +5419,10 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
           new THREE.Vector3(prev.x, prev.y, prev.z), segDir, 0, segLen + 0.5);
         const hits = rc.intersectObjects(scene.children, true);
         for (const h of hits) {
-          if (h.distance < 0.5) continue; // the walker's own body
+          // SHRUNKEN EYE (Merlin, 2026-11-14): the flying hook
+          // leaves from an eye inside the ground plants — skip
+          // the leaves in the walker's face, as in the tap ray.
+          if (h.distance < grappleMinHitDistM(shrinkRef.current.scale)) continue; // the walker's own body
           let o = h.object;
           let skip = false;
           while (o) {
@@ -5373,14 +5485,24 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
           builtOn.add(b.groundId);
           sig += `${b.groundId}:${b.pieces.length}|`;
         }
-        if (!builtOn.size) return staticColliders;
-        if (sig !== colliderCache.sig) {
-          colliderCache = {
-            sig,
-            list: staticColliders.filter((c) => !c.parcelId || !builtOn.has(c.parcelId)),
-          };
+        let list;
+        if (!builtOn.size) list = staticColliders;
+        else {
+          if (sig !== colliderCache.sig) {
+            colliderCache = {
+              sig,
+              list: staticColliders.filter((c) => !c.parcelId || !builtOn.has(c.parcelId)),
+            };
+          }
+          list = colliderCache.list;
         }
-        return colliderCache.list;
+        // INVISIBLE BARRIERS (Merlin, 2026-11-14): a staged
+        // object whose GLB failed to load never renders — its
+        // solid circle would be a wall around nothing. Drop those
+        // colliders the moment the load fails (the failure set
+        // only grows, so the filter is stable).
+        if (!failedStagedUrls.size) return list;
+        return list.filter((c) => !c.url || !failedStagedUrls.has(c.url));
       }
       const reducedMotion = typeof window !== 'undefined'
         && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -5752,15 +5874,32 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
       // notice. The ghost is not touched here: updateBuildGhost
       // sets its scale every frame it runs, and it only exists
       // once build mode has started (after this init block).
+      // SANCTUARY RENT (Merlin, 2026-11-14): the rent meter
+      // starts the moment the walker steps onto someone else's
+      // owned parcel — the existing 2 gold/min rent (1 to the
+      // owner, 1 to the house), one charge per entry. The world
+      // is display-only: it never calls the rent route itself —
+      // it REPORTS the entry to the page (onSanctuaryEntry) and
+      // the page charges it, idempotent on entryId.
+      let lastOwnersSeen = null;
       function applyParcelShrink() {
         const bp = buildPropsRef.current || {};
         const next = nextShrinkState(shrinkRef.current, walker.x, walker.z, bp.owners);
-        if (!next.changed) return;
+        // MINIATURE FOR EVERYONE (Merlin, 2026-11-14): a built
+        // piece's scale reads the OWNERS map now, not the
+        // walker's shrink — a neighbour's base renders miniature
+        // to a passerby too. Titles arriving late change the
+        // scale without the walker moving, so the re-scale also
+        // runs when the owners map itself changes.
+        const ownersChanged = bp.owners !== lastOwnersSeen;
+        lastOwnersSeen = bp.owners;
+        if (!next.changed && !ownersChanged) return;
         const was = shrinkRef.current.scale;
+        const wasParcel = shrinkRef.current.parcelId;
         shrinkRef.current = { parcelId: next.parcelId, scale: next.scale };
         scene.traverse((o) => {
           if (o.userData && o.userData.buildPiece) {
-            o.scale.setScalar(buildPieceScale(o.userData.buildPiece.parcelId, shrinkRef.current));
+            o.scale.setScalar(buildPieceScale(o.userData.buildPiece.parcelId, bp.owners));
           }
         });
         if (noticeRef.current && next.scale !== was) {
@@ -5769,6 +5908,16 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
               ? '↩️ Back to your full size.'
               : '🌀 You shrink to fit this parcel — its world is bigger than you now.',
           );
+        }
+        // Entering someone else's owned parcel starts the meter:
+        // report it to the page (which charges the rent) — the
+        // world itself never calls the rent route.
+        if (next.changed && next.parcelId !== wasParcel && next.scale === PARCEL_SHRINK_SCALE) {
+          const parcel = parcelAtWorld(walker.x, walker.z);
+          const email = bp.user && bp.user.email;
+          if (parcel && sanctuaryRentOwed(parcel, bp.owners, email)) {
+            sanctuaryEntryRef.current(parcel.id, sanctuaryEntryId(parcel.id, Date.now()));
+          }
         }
       }
       syncParcel(true);
@@ -5948,8 +6097,8 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         if (e.code === 'KeyE' && drivingRef.current) { exitVehicle(); return; }
         const bm = buildModeRef.current;
         if (bm.active) {
-          if (e.code === 'KeyR') { bm.rotY = snapRotation(bm.rotY + 15, bm.pieceId); bm.verdictKey = ''; bm.seatKey = ''; buildRotSyncRef.current(bm.rotY); return; }
-          if (e.code === 'KeyQ') { bm.rotY = snapRotation(bm.rotY - 15, bm.pieceId); bm.verdictKey = ''; bm.seatKey = ''; buildRotSyncRef.current(bm.rotY); return; }
+          if (e.code === 'KeyR') { bm.rotY = snapRotation(bm.rotY + 15, bm.pieceId); bm.turned = true; bm.verdictKey = ''; bm.seatKey = ''; buildRotSyncRef.current(bm.rotY); return; }
+          if (e.code === 'KeyQ') { bm.rotY = snapRotation(bm.rotY - 15, bm.pieceId); bm.turned = true; bm.verdictKey = ''; bm.seatKey = ''; buildRotSyncRef.current(bm.rotY); return; }
           if (e.code === 'KeyF') { bm.orientation = nextOrientation(bm.orientation); bm.verdictKey = ''; bm.seatKey = ''; buildOrientSyncRef.current(bm.orientation); return; }
           if (e.code === 'PageUp') { bm.yLift = Math.min(20, Math.round((bm.yLift + 0.25) * 100) / 100); bm.verdictKey = ''; buildLiftSyncRef.current(bm.yLift); e.preventDefault(); return; }
           if (e.code === 'PageDown') { bm.yLift = Math.max(0, Math.round((bm.yLift - 0.25) * 100) / 100); bm.verdictKey = ''; buildLiftSyncRef.current(bm.yLift); e.preventDefault(); return; }
@@ -6315,7 +6464,13 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         let point = null;
         const hits = raycaster.intersectObjects(scene.children, true);
         for (const h of hits) {
-          if (h.distance < 0.5) continue; // the walker's own body
+          // SHRUNKEN EYE (Merlin, 2026-11-14 — third grapple
+          // report): at 0.425 m the camera sits IN the ground
+          // plants, so a tap's ray meets a leaf a hand's breadth
+          // away and the hook attaches there — the pull arrives at
+          // once and nothing visible ever happens. The skip grows
+          // as the walker shrinks, past the leaves in the face.
+          if (h.distance < grappleMinHitDistM(shrinkRef.current.scale)) continue; // the walker's own body
           let o = h.object;
           let skip = false;
           while (o) {
@@ -6389,7 +6544,11 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
             fireGrappleAtTap(e);
           } catch (err) {
             console.error('[earth2] grapple fire failed:', err);
-            noticeRef.current('🪝 Grapple misfired — tap another object.');
+            // A failed fire never fails silently: the notice says
+            // WHY, so the next video shows the reason instead of
+            // silence (Merlin, 2026-11-14 — third grapple report).
+            const why = err && err.message ? String(err.message).slice(0, 80) : 'tap another object.';
+            noticeRef.current(`🪝 Grapple misfired — ${why}`);
           }
           return;
         }
@@ -6682,17 +6841,26 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         if (!parcel) return null;
         const rect = parcelWorldRect(parcel);
         const group = new THREE.Group();
+        // MINIATURE (Merlin, 2026-11-14): on an owned parcel the
+        // whole base renders miniature to everyone — the scale
+        // reads the owners map, and each piece's position scales
+        // toward the parcel center with its group, so the little
+        // base clusters in the middle of the parcel.
+        const owners = buildPropsRef.current.owners;
+        const pieceScale = buildPieceScale(build.groundId, owners);
         build.pieces.forEach((piece, i) => {
           const g = buildPieceGroup(THREE, piece.pieceId, piece.finish, piece.tint, piece.orientation);
           const wx = rect.minX + piece.x;
           const wz = rect.minZ + piece.z;
-          g.position.set(wx, heightAt(wx, wz) + (piece.y || 0), wz);
+          // STACKING SEAT (Merlin, 2026-11-14 — the floating
+          // white slabs in his video): the piece's HEIGHT scales
+          // with its group — a roof seated at y=3 on a 0.25x wall
+          // sits at 0.75 m, not 3 m up in thin air — and the
+          // ground read is taken at the miniature spot.
+          const m = miniaturePositionForParcel(build.groundId, wx, wz, owners);
+          g.position.set(m.x, heightAt(m.x, m.z) + (piece.y || 0) * pieceScale, m.z);
           g.rotation.y = ((piece.rotY || 0) * Math.PI) / 180;
-          // PARCEL SHRINK (Merlin, 2026-11-13): a piece on the
-          // parcel the walker is shrunk inside renders shrunken
-          // with them — including pieces placed before this law
-          // (no migration: the scale reads the live state).
-          g.scale.setScalar(buildPieceScale(build.groundId, shrinkRef.current));
+          g.scale.setScalar(pieceScale);
           g.userData.buildPiece = { parcelId: build.groundId, index: i };
           // Collect fire lights for the flicker loop.
           g.traverse((o) => {
@@ -6772,6 +6940,19 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         if (!ghostGroup || ghostPieceId !== bm.pieceId || ghostFinishKey !== finishKey) {
           if (ghostGroup) scene.remove(ghostGroup);
           ghostGroup = buildGhostGroup(THREE, bm.pieceId, bm.orientation, bm.finish, bm.tint);
+          // LOGICAL DEFAULT ORIENTATION (Merlin, 2026-11-14): a
+          // fresh piece faces the placer — its front (+Z: the
+          // porthole, the door, the fireplace opening) points at
+          // the walker, so a new wall shows its face, not its
+          // back. A manual turn sticks for that piece; picking a
+          // new piece starts un-turned and faces the placer again.
+          if (ghostPieceId !== bm.pieceId) bm.turned = false;
+          if (!bm.turned) {
+            bm.rotY = facingRotYForYaw(walker.yaw, bm.pieceId);
+            bm.verdictKey = '';
+            bm.seatKey = '';
+            buildRotSyncRef.current(bm.rotY);
+          }
           ghostPieceId = bm.pieceId;
           ghostOrient = bm.orientation;
           ghostFinishKey = finishKey;
@@ -6916,13 +7097,17 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         const wx = rect.minX + bm.ghostPlacement.x;
         const wz = rect.minZ + bm.ghostPlacement.z;
         ghostGroup.visible = true;
-        ghostGroup.position.set(wx, heightAt(wx, wz) + bm.ghostPlacement.y, wz);
+        // MINIATURE (Merlin, 2026-11-14): the ghost shows the
+        // piece where it will actually stand — position scaled
+        // toward the parcel center, height scaled with the group
+        // — so placing while small is WYSIWYG, same as the
+        // placed pieces in placeBuildUnit.
+        const gOwners = buildPropsRef.current.owners;
+        const gScale = buildPieceScale(bm.parcelId, gOwners);
+        const gm = miniaturePositionForParcel(bm.parcelId, wx, wz, gOwners);
+        ghostGroup.position.set(gm.x, heightAt(gm.x, gm.z) + bm.ghostPlacement.y * gScale, gm.z);
         ghostGroup.rotation.y = (bm.ghostPlacement.rotY * Math.PI) / 180;
-        // PARCEL SHRINK (Merlin, 2026-11-13): the ghost shows the
-        // piece at the scale it will actually stand at — shrunken
-        // on the parcel the walker is shrunk inside, full size
-        // anywhere else — so placing while small is WYSIWYG.
-        ghostGroup.scale.setScalar(buildPieceScale(bm.parcelId, shrinkRef.current));
+        ghostGroup.scale.setScalar(gScale);
       }
 
       // ── Placement: a crossing (Terrain Wave B) ──────────────
@@ -7448,7 +7633,10 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         for (const v of vehicles) {
           if (v.key === drivingRef.current) continue;
           const vst = vehicleStatesRef.current[v.key];
-          if (vst) dyn.push({ x: vst.x, z: vst.z, r: v.spec.radius + 0.35 });
+          // MINIATURE (Merlin, 2026-11-14): a parked machine's
+          // solid circle shrinks with the machine — a 2.75 m
+          // model plane must not carry a 5.55 m invisible wall.
+          if (vst) dyn.push({ x: vst.x, z: vst.z, r: (v.spec.radius + 0.35) * vehicleScaleFor(vst) });
         }
         for (const a of animals) {
           if (a.flyer || a.compy) continue;
@@ -7459,8 +7647,16 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
           }
         }
         const drivingId = drivingRef.current;
-        const dSpec = drivingId ? vehicleSpecForInstance(drivingId) : null;
         const dState = drivingId ? vehicleStatesRef.current[drivingId] : null;
+        // A parcel vehicle's slot is a ROLE ('lambo'), not a
+        // model slug — the ledger state carries the real slug
+        // ('earth1:wedge-supercar'), so it is the fallback when
+        // the registry + slot lookups miss (Merlin, 2026-11-14:
+        // without this the Lambo drove the same null-spec path
+        // the VTOL did — HUD on, walker on foot).
+        const dSpec = drivingId
+          ? (vehicleSpecForInstance(drivingId) || (dState && dState.slug ? modelSpec(dState.slug) : null))
+          : null;
         if (dSpec && dState && !buildModeRef.current.active) {
           // ── Driving: the pure step law (lib/earth2/vehicles.js)
           // owns the motion — terrain following, slope pitch/roll,
@@ -7567,6 +7763,19 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
             const stillGaraged = gHere != null && gHere < garageHere.surfaceY - 0.5;
             if (stillGaraged !== !!dState.garaged) stepped = { ...stepped, garaged: stillGaraged };
           }
+          // VEHICLE MINIATURE — BOARD-AND-LEAVE (Merlin,
+          // 2026-11-14): a machine driven across a property line
+          // flips scale with the crossing — boarding a shrunken
+          // machine and leaving the parcel brings rider and
+          // machine back to full size together (positions rescale
+          // from the parcel center, so the machine stays under
+          // the rider), and driving a full-size machine onto an
+          // owned parcel shrinks it onto the base. The garage
+          // ramp exit counts as leaving: the ramp surfaces
+          // outside the parcel, so the parcel check catches it.
+          // The walker follows the stepped state below, so rider
+          // and machine grow together at the boundary.
+          stepped = applyVehicleParcelScale(dState, stepped, buildPropsRef.current.owners);
           vehicleStatesRef.current[drivingId] = stepped;
           walker.x = stepped.x;
           walker.z = stepped.z;
@@ -7669,10 +7878,13 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
           const next = deckNear
             ? stepBridgeWalker(walker, walker.yaw, { fwd: fwdIn, strafe: strafeIn }, dt, {
               heightAt, waterDepthAt, bridgeHeightAt, colliders: walkCols, travel: travelNow,
-              speedScale: shrinkRef.current.scale, radiusM: walkerRadiusM(shrinkRef.current.scale),
+              // MINIATURE SPEED (Merlin, 2026-11-14): motion in
+              // miniature mode matches normal size — the speed
+              // multiplier is always 1, never the shrink scale.
+              speedScale: walkerMotionSpeedScale(), radiusM: walkerRadiusM(shrinkRef.current.scale),
             })
             : stepWorldWalker(walker, walker.yaw, { fwd: fwdIn, strafe: strafeIn }, dt, walkCols, travelNow,
-              { speedScale: shrinkRef.current.scale, radiusM: walkerRadiusM(shrinkRef.current.scale) });
+              { speedScale: walkerMotionSpeedScale(), radiusM: walkerRadiusM(shrinkRef.current.scale) });
           let nx = next.x, nz = next.z;
           if (walkerInGarage) {
             const c = garageClampPoint(walkerGarage, nx, nz);
@@ -7857,7 +8069,7 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
             // PARCEL SHRINK (Merlin, 2026-11-13): orbiting a
             // shrunken ghost from full-size distance would leave
             // it a speck — the orbit distance shrinks with it.
-            buildOrbit.dist = seed.dist * buildPieceScale(buildModeRef.current.parcelId, shrinkRef.current);
+            buildOrbit.dist = seed.dist * buildPieceScale(buildModeRef.current.parcelId, buildPropsRef.current.owners);
             buildOrbit.driving = true;
           }
           if (joyDeflected) {
@@ -7941,10 +8153,13 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
 
         // The fleet's board prompt: the nearest machine within
         // 3.5 m offers its verb (Drive / Ride / Fly), on
-        // threshold crossings only — the Hammond pattern.
+        // threshold crossings only — the Hammond pattern. The
+        // range reads in the walker's current scale (Merlin,
+        // 2026-11-14): a shrunken walker is offered a miniature
+        // machine from miniature distance.
         {
           let best = null;
-          let bestD = 3.5;
+          let bestD = 3.5 * shrinkRef.current.scale;
           if (!drivingRef.current && !buildModeRef.current.active) {
             const myKey = claimKeyForUser(buildPropsRef.current && buildPropsRef.current.user);
             for (const id of Object.keys(vehicleStatesRef.current)) {
@@ -9183,7 +9398,7 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
           <div className="flex items-center gap-3 rounded-full border border-sky-300/35 bg-[#081018]/90 px-4 py-2 text-zinc-100 shadow-xl backdrop-blur-md">
             <span className="text-[10px] font-black tracking-[0.18em] text-sky-200 whitespace-nowrap">
               {(() => {
-                const spec = vehicleSpecForInstance(driving);
+                const spec = drivingSpec;
                 if (spec?.air) return (driveInfo.alt || 0) > 2 ? '🛩️ AIR' : '🛩️ GND';
                 if (spec?.water) return '⛵';
                 return '🚗';
@@ -9191,7 +9406,7 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
             </span>
             <span className="text-[12px] font-bold text-white whitespace-nowrap">
               {(driveInfo.speed * 3.6).toFixed(0)} km/h
-              {vehicleSpecForInstance(driving)?.air ? ` · ${(driveInfo.alt || 0).toFixed(0)}m` : ''}
+              {drivingSpec?.air ? ` · ${(driveInfo.alt || 0).toFixed(0)}m` : ''}
             </span>
             <div className="h-1.5 w-16 overflow-hidden rounded-full bg-white/10">
               <div
@@ -9222,7 +9437,7 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
           (positions persist per device); tap-and-hold to climb
           or settle. Rendered at viewport level so they can live
           anywhere on screen. */}
-      {driving && vehicleSpecForInstance(driving)?.air && (
+      {driving && drivingSpec?.air && (
         <>
           {[
             { id: 'climb', icon: '▲', label: 'Climb', key: 'up' },
