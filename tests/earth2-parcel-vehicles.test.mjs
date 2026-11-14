@@ -8,6 +8,9 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 
 import {
   EARTH1_PARCEL_PREFIX,
@@ -28,6 +31,9 @@ import {
   isParcelVehicleId,
 } from '../lib/earth2/vehicles.js';
 import { BOAT_SLUG } from '../lib/earth2/fleet.js';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const scene = readFileSync(join(here, '..', 'components', 'earth2', 'Earth2World.jsx'), 'utf8');
 
 describe('parcel-vehicle catalog (Merlin, 2026-11-01)', () => {
   it('bridges every Earth garage vehicle under the earth1: namespace', () => {
@@ -175,5 +181,32 @@ describe('vehicleSpecForInstance — parcel-vehicle fallback (Merlin, 2026-11-14
     assert.equal(sanitizeInstanceStates({ [id]: { slug: 'vtol', x: 1, z: 1 } })[id].miniature, undefined);
     // Junk is not a flag.
     assert.equal(sanitizeInstanceStates({ [id]: { slug: 'vtol', x: 1, z: 1, miniature: 'yes' } })[id].miniature, undefined);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MINIATURE NAMEPLATE RANGE (Merlin, 2026-11-14 — fourth report:
+// the "Lamborghini Aventador" label floated for seconds with no
+// car visible while flying low). The car IS there — parked on an
+// owned parcel it renders 0.25x, a 1.15 m model — but its
+// nameplate advertised it from the full 130 m, so the label
+// promised a car the eye couldn't find. The plate's range now
+// shrinks with the machine, like its height already did.
+// ---------------------------------------------------------------------------
+describe('miniature vehicle nameplate range (scene wiring)', () => {
+  it('makeLabel keeps the base range so poseVehicle can scale it', () => {
+    assert.ok(scene.includes('baseMaxDist: maxDist'),
+      'each label must remember its unscaled range');
+  });
+  it('poseVehicle scales a miniature machine’s nameplate range with its scale', () => {
+    const fn = scene.slice(scene.indexOf('function poseVehicle(rec, st, t, dt)'));
+    assert.ok(fn.includes('l.maxDist = (l.baseMaxDist != null ? l.baseMaxDist : l.maxDist) * vScale;'),
+      'the plate range must shrink with the machine — a 0.25x car reads from ~32 m, not 130 m');
+    assert.ok(fn.includes('l.h = (rec.spec.eyeHeight + 0.9) * vScale;'),
+      'the plate height must keep dropping to the little machine');
+  });
+  it('the label loop gates on the scaled range', () => {
+    assert.ok(scene.includes('if (d > l.maxDist) { l.el.style.display = \'none\'; continue; }'),
+      'a plate past its (scaled) range must hide');
   });
 });

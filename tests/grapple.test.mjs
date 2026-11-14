@@ -298,3 +298,79 @@ describe('grappleMinHitDistM — the shrunken eye (Merlin, 2026-11-14: third gra
     assert.equal(grappleMinHitDistM(0), 1.0);
   });
 });
+
+describe('fire + pull end to end (Merlin, 2026-11-14 — fourth grapple report)', () => {
+  it('a throw at a 10 m target flies there, attaches, and the pull carries the walker to it', () => {
+    // The law, end to end: the hook flies at 60 m/s toward the
+    // tapped point; once it arrives the kinetic pull accelerates
+    // the walker to the anchor and lands there, never past it.
+    const target = { x: 10, z: 0 };
+    // grappleHookStep returns the new position only — the
+    // velocity lives with the caller, as in the scene.
+    let hx = 0, hz = 0;
+    const hvx = GRAPPLE_HOOK_SPEED_MPS, hvz = 0;
+    let attached = false;
+    for (let i = 0; i < 120; i++) {
+      const n = grappleHookStep({ x: hx, y: 1.7, z: hz, vx: hvx, vy: 0, vz: hvz }, 1 / 60);
+      hx = n.x; hz = n.z;
+      if (Math.hypot(hx - target.x, hz - target.z) <= 0.5) { attached = true; break; }
+    }
+    assert.ok(attached, 'the hook must reach the tapped point');
+    let walker = { x: 0, z: 0 };
+    let vel = { x: 0, z: 0 };
+    let arrived = false;
+    for (let i = 0; i < 600; i++) {
+      const r = grapplePullStep(walker, vel, target, 1 / 60);
+      walker = { x: r.x, z: r.z };
+      vel = { x: r.vx, z: r.vz };
+      if (r.arrived) { arrived = true; break; }
+    }
+    assert.ok(arrived, 'the pull must land the walker at the anchor');
+    assert.ok(Math.hypot(walker.x - target.x, walker.z - target.z) <= GRAPPLE_ARRIVE_DIST_M + 1e-9,
+      'the walker must stop at the anchor, not past it');
+  });
+  it('the tick steps the flying hook and applies the kinetic pull while pulling', () => {
+    assert.ok(scene.includes("if (grapple.flying && !grapple.attached) {"),
+      'the tick must step the flying hook');
+    assert.ok(scene.includes('const res = stepGrappleHook(dt);'),
+      'the tick must run the hook flight step');
+    assert.ok(scene.includes('if (grapple.pulling) {'),
+      'the tick must run the pull block while pulling');
+    assert.ok(scene.includes('const step = grapplePullStep('),
+      'the pull block must use the kinetic pull law');
+    assert.ok(scene.includes('grapple.pulling = true;'),
+      'attaching the hook must start the pull');
+  });
+});
+
+describe('visible rope + hook head (Merlin, 2026-11-14 — fourth grapple report: "not slinging the rope")', () => {
+  it('the rope is a real cylinder with width, not a 1 px line', () => {
+    // THREE.Line linewidth is ignored on phones — the old rope
+    // was invisible even when the throw worked, so the sling
+    // never showed. A cylinder has real width at any distance.
+    assert.ok(scene.includes('CylinderGeometry(0.035, 0.035, 1, 6, 1, true)'),
+      'the rope must be a cylinder with real width');
+    assert.ok(!scene.includes('new THREE.Line(geo, mat)'),
+      'no 1 px line rope must remain');
+    assert.ok(scene.includes('setFromUnitVectors(_ropeUp, _ropeDir)'),
+      'the rope must stretch between the hand and the hook/anchor every frame');
+  });
+  it('a bright hook head rides the rope far end, unlit so it reads at night', () => {
+    assert.ok(scene.includes('hookHead: null'), 'the grapple state must carry the hook head');
+    assert.ok(scene.includes('SphereGeometry(0.12, 10, 8)'), 'the hook head must be a visible sphere');
+    assert.ok(scene.includes("MeshBasicMaterial({ color: 0xffc44d })"),
+      'the hook head must be bright amber and unlit');
+    assert.ok(scene.includes('grapple.hookHead.position.set(bx, by, bz)'),
+      'the hook head must track the hook while flying and the anchor once attached');
+  });
+  it('hiding the rope hides the hook head too, and both are disposed', () => {
+    const fn = scene.slice(scene.indexOf('function hideGrappleRope()'));
+    assert.ok(fn.includes('scene.remove(grapple.hookHead)'), 'hide must remove the hook head');
+    assert.ok(fn.includes('grapple.hookHead.geometry.dispose()'), 'hide must dispose the hook head');
+    assert.ok(fn.includes('grapple.hookHead = null'), 'hide must clear the hook head');
+  });
+  it('the rope is posed from the first frame of the throw, not one frame late', () => {
+    const fn = scene.slice(scene.indexOf('function showGrappleRope()'));
+    assert.ok(fn.includes('updateGrappleRope();'), 'showing the rope must pose it at once');
+  });
+});

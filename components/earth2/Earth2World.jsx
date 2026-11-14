@@ -2118,8 +2118,13 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
       // Runs every second — cheap, and phones stay alive.
       function updateStagedVisibility() {
         if (!stagedCache.placements.length) return;
-        const px = walker.position.x;
-        const pz = walker.position.z;
+        // The walker is a plain { x, z, yaw, pitch } — it
+        // carries no .position field (Merlin, 2026-11-14: the
+        // fourth report — Earth 1 objects gone). Reading the
+        // missing field threw on the first call, so no staged
+        // clone or fitting ever entered the scene.
+        const px = walker.x;
+        const pz = walker.z;
         const r2 = STAGED_VISIBLE_M * STAGED_VISIBLE_M;
         for (let i = 0; i < stagedCache.placements.length; i++) {
           const rec = stagedCache.placements[i];
@@ -2191,7 +2196,7 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         el.style.willChange = 'transform';
         el.style.display = 'none';
         labelsRef.current && labelsRef.current.appendChild(el);
-        labels.push({ el, obj, h, maxDist, owner, kind });
+        labels.push({ el, obj, h, maxDist, baseMaxDist: maxDist, owner, kind });
       }
 
       function resolveRoles(modelScene) {
@@ -3408,6 +3413,11 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         for (const l of labels) {
           if (l.obj === rec.root && l.kind === 'vehicle') {
             l.h = (rec.spec.eyeHeight + 0.9) * vScale;
+            // MINIATURE (Merlin, 2026-11-14): the nameplate's
+            // range shrinks with the machine — a 1.15 m model
+            // car must not advertise itself from 130 m away
+            // while the eye can't find it.
+            l.maxDist = (l.baseMaxDist != null ? l.baseMaxDist : l.maxDist) * vScale;
           }
         }
         const sp = Math.abs(st.speed || 0);
@@ -5281,42 +5291,67 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         // Shared
         cooldownUntil: 0,
         rope: null, ropeUntil: 0, ropeBorn: 0,
+        hookHead: null, // the visible hook at the rope's far end
         standY: null,         // when set, the walker stands on this height (a perch)
       };
+      // Rope temps: the cylinder's axis is +Y; each frame it is
+      // stretched between the walker's hand and the hook/anchor.
+      const _ropeUp = new THREE.Vector3(0, 1, 0);
+      const _ropeDir = new THREE.Vector3();
       function hideGrappleRope() {
-        if (!grapple.rope) return;
-        scene.remove(grapple.rope);
-        grapple.rope.geometry.dispose();
-        grapple.rope.material.dispose();
-        grapple.rope = null;
+        if (grapple.rope) {
+          scene.remove(grapple.rope);
+          grapple.rope.geometry.dispose();
+          grapple.rope.material.dispose();
+          grapple.rope = null;
+        }
+        if (grapple.hookHead) {
+          scene.remove(grapple.hookHead);
+          grapple.hookHead.geometry.dispose();
+          grapple.hookHead.material.dispose();
+          grapple.hookHead = null;
+        }
       }
       function showGrappleRope() {
         hideGrappleRope();
-        const geo = new THREE.BufferGeometry();
-        const groundY = heightAt(walker.x, walker.z);
-        geo.setAttribute('position', new THREE.Float32BufferAttribute([
-          walker.x, groundY + 1.5 * shrinkRef.current.scale, walker.z,
-          grapple.anchorX, grapple.anchorY, grapple.anchorZ,
-        ], 3));
-        const mat = new THREE.LineBasicMaterial({ color: 0xd9a45b }); // rusty rope
-        grapple.rope = new THREE.Line(geo, mat);
+        // VISIBLE ROPE (Merlin, 2026-11-14 — fourth grapple
+        // report, "not slinging the rope"): the old rope was a
+        // 1 px THREE.Line — the linewidth is ignored on phones,
+        // so the sling was invisible even when the throw worked.
+        // The rope is now a real cylinder with a bright hook
+        // head at its far end, both unlit so they read at dusk
+        // and at night.
+        const geo = new THREE.CylinderGeometry(0.035, 0.035, 1, 6, 1, true);
+        const mat = new THREE.MeshBasicMaterial({ color: 0xd9a45b }); // rusty rope
+        grapple.rope = new THREE.Mesh(geo, mat);
         grapple.rope.frustumCulled = false;
-        grapple.ropeBorn = performance.now(); // for the stuck-rope failsafe
         scene.add(grapple.rope);
+        const headGeo = new THREE.SphereGeometry(0.12, 10, 8);
+        const headMat = new THREE.MeshBasicMaterial({ color: 0xffc44d }); // bright amber hook
+        grapple.hookHead = new THREE.Mesh(headGeo, headMat);
+        grapple.hookHead.frustumCulled = false;
+        scene.add(grapple.hookHead);
+        grapple.ropeBorn = performance.now(); // for the stuck-rope failsafe
+        updateGrappleRope();
       }
       function updateGrappleRope() {
         if (!grapple.rope) return;
-        const p = grapple.rope.geometry.attributes.position;
         const standY = grapple.standY != null ? grapple.standY : heightAt(walker.x, walker.z);
-        p.setXYZ(0, walker.x, standY + 1.5 * shrinkRef.current.scale, walker.z);
+        const ax = walker.x;
+        const ay = standY + 1.5 * shrinkRef.current.scale;
+        const az = walker.z;
         // While the hook flies, the rope's far end is the hook
         // itself; once attached, it's the anchor.
-        if (grapple.flying && !grapple.attached) {
-          p.setXYZ(1, grapple.hookX, grapple.hookY, grapple.hookZ);
-        } else {
-          p.setXYZ(1, grapple.anchorX, grapple.anchorY, grapple.anchorZ);
-        }
-        p.needsUpdate = true;
+        const bx = grapple.flying && !grapple.attached ? grapple.hookX : grapple.anchorX;
+        const by = grapple.flying && !grapple.attached ? grapple.hookY : grapple.anchorY;
+        const bz = grapple.flying && !grapple.attached ? grapple.hookZ : grapple.anchorZ;
+        const dx = bx - ax, dy = by - ay, dz = bz - az;
+        const len = Math.hypot(dx, dy, dz) || 0.001;
+        grapple.rope.position.set((ax + bx) / 2, (ay + by) / 2, (az + bz) / 2);
+        grapple.rope.scale.set(1, len, 1);
+        _ropeDir.set(dx / len, dy / len, dz / len);
+        grapple.rope.quaternion.setFromUnitVectors(_ropeUp, _ropeDir);
+        if (grapple.hookHead) grapple.hookHead.position.set(bx, by, bz);
       }
       // GRAPPLE — ARM, THEN TAP AN OBJECT (Merlin, 2026-11-13):
       // the 🪝 button arms the gun; the next tap on the scene

@@ -2,6 +2,9 @@
 // Staged Earth 1 objects on Earth 2: free parcels only, realm-proportional scales.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import {
   STAGED_SCALE_CAPS,
   scaleForRealm,
@@ -12,6 +15,9 @@ import {
 } from '../lib/earth2/staged-objects.js';
 import { STAGED_OBJECTS, STAGED_COUNT } from '../lib/earth2/staged-objects-data.js';
 import { isOwnableIndex } from '../lib/earth2/parcels.js';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const scene = readFileSync(join(here, '..', 'components', 'earth2', 'Earth2World.jsx'), 'utf8');
 
 describe('staged object data', () => {
   it('holds all 1,884 staged objects', () => {
@@ -88,5 +94,46 @@ describe('headingDeg — a deliberate 0 is a heading, not a missing value (Merli
     for (let i = 0; i < placements.length; i++) {
       assert.equal(again[i].headingDeg, placements[i].headingDeg, `${placements[i].key} heading must be deterministic`);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// STAGED VISIBILITY IN THE SCENE (Merlin, 2026-11-14 — fourth
+// report: "all our earth 1 objects that we moved to earth 2 are
+// not there"). The loader was fine — the staged bucket answers
+// 200 live and loadStagedBases decodes all 73 GLBs — but the
+// once-a-second visibility step read walker.position.x, and the
+// walker is a plain { x, z, yaw, pitch } with no .position, so
+// the step threw on its first call and no staged clone — nor any
+// interior, ladder, elevator or shard fitting, which rides the
+// same step — ever entered the scene. The world showed labels
+// and terrain with no Earth 1 structures anywhere.
+// ---------------------------------------------------------------------------
+describe('staged visibility in the scene (Earth 1 objects gone)', () => {
+  it('reads the walker position from walker.x / walker.z — never walker.position', () => {
+    const fn = scene.slice(
+      scene.indexOf('function updateStagedVisibility()'),
+      scene.indexOf('function rockGeoFor'),
+    );
+    assert.ok(fn.length > 500, 'updateStagedVisibility must exist in the scene');
+    assert.ok(fn.includes('const px = walker.x;'), 'visibility must read walker.x');
+    assert.ok(fn.includes('const pz = walker.z;'), 'visibility must read walker.z');
+    assert.ok(!scene.includes('walker.position'),
+      'the walker has no .position — reading it throws and no staged object ever renders');
+  });
+  it('refreshes staged visibility once a second from the frame loop', () => {
+    assert.ok(scene.includes('if (frameNo % 60 === 1) updateStagedVisibility();'),
+      'the tick must refresh who is near enough to see, once a second');
+  });
+  it('decodes the staged GLBs in the background and clones them into the staged group', () => {
+    assert.ok(scene.includes('loadStagedBases().catch('), 'the scene must decode the staged bases');
+    assert.ok(scene.includes('stagedGroup.add(clone)'), 'near placements must clone into the staged group');
+    assert.ok(scene.includes("stagedGroup.add(rec.fitting.group)"),
+      'procedural fittings must enter the scene through the same step');
+  });
+  it('a failed staged GLB still drops its collider instead of walling off nothing', () => {
+    assert.ok(scene.includes('failedStagedUrls.add(url)'), 'a failed base URL must be recorded');
+    assert.ok(scene.includes("list.filter((c) => !c.url || !failedStagedUrls.has(c.url))"),
+      'colliders of failed loads must drop');
   });
 });
