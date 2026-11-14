@@ -19,6 +19,7 @@ import * as THREE from 'three';
 import {
   DESCENT_PORTAL,
   GATES,
+  LAVA_DROP_NAME,
   PALACE,
   PORTALS,
   RUN_SPEED,
@@ -28,6 +29,7 @@ import {
   forward,
   makeTorches,
   makeWorld,
+  nearestLavaPool,
   nearestPortal,
   regionAt,
   right,
@@ -129,6 +131,17 @@ const regionLabelStyle = {
   border: '1px solid rgba(231, 229, 228, 0.35)',
 };
 
+// Lava-pool label: the pool is a drop, not scenery — the label names
+// where it takes you, like the arch labels name their realm.
+const lavaLabelStyle = {
+  ...portalLabelStyle,
+  fontSize: 13,
+  fontWeight: 700,
+  color: '#ffedd5',
+  background: 'rgba(40, 10, 0, 0.82)',
+  border: '1px solid rgba(255, 122, 26, 0.65)',
+};
+
 // --- static pieces ----------------------------------------------------------
 
 function Ground() {
@@ -154,6 +167,9 @@ function LavaPools({ pools }) {
             <circleGeometry args={[p.r, 24]} />
             <meshBasicMaterial color="#ff7a1a" transparent opacity={0.9} />
           </mesh>
+          <Html center distanceFactor={90} position={[0, 2.2, 0]} zIndexRange={[20, 0]} style={lavaLabelStyle}>
+            {LAVA_DROP_NAME}
+          </Html>
         </group>
       ))}
     </group>
@@ -652,10 +668,12 @@ function Embers({ reduced }) {
 
 // --- first-person camera rig -------------------------------------------------
 
-export function CameraRig({ playerRef, inputRef, onPortal, onRegion, reduced }) {
+export function CameraRig({ playerRef, inputRef, onPortal, onLava, lavaPools, onRegion, reduced }) {
   const { camera } = useThree();
   const lastTravelRef = useRef(0);
   const travelingRef = useRef(false);
+  const lastLavaRef = useRef(0);
+  const lavaTravelingRef = useRef(false);
   const lastRegionRef = useRef('');
 
   useFrame((state, dtRaw) => {
@@ -710,6 +728,22 @@ export function CameraRig({ playerRef, inputRef, onPortal, onRegion, reduced }) 
     } else {
       travelingRef.current = false;
     }
+
+    // Stepping into a lava pool drops the walker into the World
+    // Engine (Merlin, 2026-11-13) — the same once-per-entry guard
+    // as the arches, so standing in the lava re-fires the drop
+    // only after stepping back out. The drop rides the same vortex
+    // travel; the tube is the fall.
+    const pool = lavaPools ? nearestLavaPool(player.x, player.z, lavaPools) : null;
+    if (pool) {
+      if (!lavaTravelingRef.current && now - lastLavaRef.current > 1500) {
+        lavaTravelingRef.current = true;
+        lastLavaRef.current = now;
+        onLava(pool);
+      }
+    } else {
+      lavaTravelingRef.current = false;
+    }
   });
 
   return null;
@@ -717,7 +751,7 @@ export function CameraRig({ playerRef, inputRef, onPortal, onRegion, reduced }) 
 
 // --- the whole scene ---------------------------------------------------------
 
-export function NetherRealmScene({ playerRef, inputRef, onPortal, onRegion, reduced }) {
+export function NetherRealmScene({ playerRef, inputRef, onPortal, onLava, onRegion, reduced }) {
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
@@ -743,6 +777,8 @@ export function NetherRealmScene({ playerRef, inputRef, onPortal, onRegion, redu
         playerRef={playerRef}
         inputRef={inputRef}
         onPortal={onPortal}
+        onLava={onLava}
+        lavaPools={world.lavaPools}
         onRegion={onRegion}
         reduced={reduced}
       />

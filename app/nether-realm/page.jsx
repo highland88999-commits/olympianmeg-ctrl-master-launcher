@@ -8,7 +8,9 @@
 //
 // First-person walk. WebGL via @react-three/fiber + drei (the Erebus /
 // Cerberus stack), SceneContextGuard on the canvas, vortex travel on
-// the arches (the Styx pattern). Plain-English HUD, mobile-first:
+// the arches (the Styx pattern). Lava pools drop into the World Engine
+// (Merlin, Nov 13, 2026) — same vortex, the tube is the fall.
+// Plain-English HUD, mobile-first:
 // touch stick on the left, drag-to-look on the right, no desktop-only
 // controls. Reduced motion respected.
 
@@ -20,7 +22,7 @@ import { Canvas } from '@react-three/fiber';
 import { useSceneContextGuard } from '@/components/SceneContextGuard';
 import { useVortexTravel } from '@/components/VortexTravel';
 import { NetherRealmScene } from './world3d';
-import { GATES, PORTALS, SPAWN } from '@/lib/nether-realm/world';
+import { GATES, LAVA_DROP_NAME, LAVA_DROP_ROUTE, PORTALS, SPAWN } from '@/lib/nether-realm/world';
 import { createSoundEngine } from '@/lib/sound/engine';
 import { SEED_PROFILES } from '@/lib/sound/seed-profiles';
 import { HADES_PROFILES, ambientForRegion, shouldGrowl } from '@/lib/nether-realm/sounds';
@@ -163,6 +165,13 @@ export default function NetherRealmPage() {
     travel(portal.route, portal.label);
   }, [travel]);
 
+  // LAVA DROP (Merlin, 2026-11-13): stepping into a lava pool drops
+  // the walker into the World Engine — the build surface. Same vortex
+  // travel as the arches; the tube is the fall.
+  const onLava = useCallback(() => {
+    travel(LAVA_DROP_ROUTE, LAVA_DROP_NAME);
+  }, [travel]);
+
   const onRegion = useCallback((name) => {
     setRegion(name);
   }, []);
@@ -261,6 +270,7 @@ export default function NetherRealmPage() {
             playerRef={playerRef}
             inputRef={inputRef}
             onPortal={onPortal}
+            onLava={onLava}
             onRegion={onRegion}
             reduced={reduced}
           />
@@ -316,8 +326,8 @@ export default function NetherRealmPage() {
         </p>
         <p className="mt-3 rounded-full bg-black/55 px-4 py-2 text-xs text-stone-200">
           {touchUI
-            ? 'Left stick to walk · drag the right side to look around · walk through a glowing arch to travel'
-            : 'WASD or arrows to walk · drag to look around · Shift to run · walk through a glowing arch to travel'}
+            ? 'Left stick to walk · drag the right side to look around · walk through a glowing arch to travel · step into lava to drop into the World Engine'
+            : 'WASD or arrows to walk · drag to look around · Shift to run · walk through a glowing arch to travel · step into lava to drop into the World Engine'}
         </p>
       </div>
 
