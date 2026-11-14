@@ -27,6 +27,7 @@ import {
   GRAPPLE_FOLIAGE_SKIP_HEIGHT_M,
   GRAPPLE_ROPE_COLOR,
   GRAPPLE_ROPE_LINGER_MS,
+  GRAPPLE_ROPE_MAX_AGE_MS,
   isGrappleEquipped,
   isGrappleOwned,
   grappleOwnedUid,
@@ -53,8 +54,8 @@ const scene = readFileSync(join(repo, 'components', 'earth2', 'Earth2World.jsx')
 const interiorRoom = readFileSync(join(repo, 'lib', 'earth2', 'interior-room.js'), 'utf8');
 
 describe('grapple constants', () => {
-  it('reaches 40 m, rests 3 s between throws', () => {
-    assert.equal(GRAPPLE_RANGE_M, 40);
+  it('reaches 200 m, rests 3 s between throws', () => {
+    assert.equal(GRAPPLE_RANGE_M, 200);
     assert.equal(GRAPPLE_COOLDOWN_MS, 3000);
   });
   it('has kinetic teeth: fast hook, strong pull, capped speed', () => {
@@ -62,6 +63,14 @@ describe('grapple constants', () => {
     assert.ok(GRAPPLE_PULL_ACCEL > 0);
     assert.ok(GRAPPLE_PULL_MAX_SPEED > 0);
     assert.ok(GRAPPLE_ARRIVE_DIST_M > 0);
+  });
+  it('pins the 200 m numbers: 120 m/s hook, 40 m/s pull cap, 12 s rope age', () => {
+    // A 200 m throw crosses in ~1.7 s of flight; a 200 m pull
+    // lands in ~5.3 s; the rope lives long enough for both plus
+    // the 1 s linger (~8 s), with room under the 12 s cap.
+    assert.equal(GRAPPLE_HOOK_SPEED_MPS, 120);
+    assert.equal(GRAPPLE_PULL_MAX_SPEED, 40);
+    assert.equal(GRAPPLE_ROPE_MAX_AGE_MS, 12000);
   });
   it('names the seeded hook item id', () => {
     assert.equal(GRAPPLE_HOOK_ITEM_ID, 'rusty-grappling-hook');
@@ -97,13 +106,14 @@ describe('isGrappleOwned / grappleOwnedUid', () => {
 });
 
 describe('grappleRangeDecision', () => {
-  it('attaches at 40 m and under', () => {
+  it('attaches at 200 m and under', () => {
     assert.equal(grappleRangeDecision(0), 'hit');
-    assert.equal(grappleRangeDecision(40), 'hit');
+    assert.equal(grappleRangeDecision(200), 'hit');
+    assert.equal(grappleRangeDecision(120), 'hit');
   });
-  it('calls "too far" past 40 m', () => {
-    assert.equal(grappleRangeDecision(40.01), 'too-far');
-    assert.equal(grappleRangeDecision(120), 'too-far');
+  it('calls "too far" past 200 m', () => {
+    assert.equal(grappleRangeDecision(200.01), 'too-far');
+    assert.equal(grappleRangeDecision(250), 'too-far');
   });
   it('calls "nothing" when the ray found no ground at all', () => {
     assert.equal(grappleRangeDecision(Infinity), 'nothing');
@@ -258,6 +268,60 @@ describe('grapplePullStep', () => {
     assert.ok(Math.hypot(w.x - anchor.x, w.z - anchor.z) <= GRAPPLE_ARRIVE_DIST_M + 1e-9,
       `landed at ${w.x},${w.z}, anchor at ${anchor.x},${anchor.z}`);
   });
+  it('a full 200 m pull lands in reasonable time, never past the cap', () => {
+    // Merlin, 2026-11-14: the hook reaches 200 m, so the pull
+    // must cross 200 m too — in seconds, not a minute.
+    const anchor = { x: 200, z: 0 };
+    let w = { x: 0, z: 0 };
+    let v = { x: 0, z: 0 };
+    let arrived = false;
+    let frames = 0;
+    for (let i = 0; i < 600; i++) {
+      const r = grapplePullStep(w, v, anchor, 1 / 60);
+      const sp = Math.hypot(r.vx, r.vz);
+      assert.ok(sp <= GRAPPLE_PULL_MAX_SPEED + 1e-9, `speed ${sp} over cap`);
+      w = { x: r.x, z: r.z };
+      v = { x: r.vx, z: r.vz };
+      frames = i + 1;
+      if (r.arrived) { arrived = true; break; }
+    }
+    assert.ok(arrived, 'a 200 m pull must land');
+    assert.ok(frames <= 400, `200 m pull took ${frames} frames (${(frames / 60).toFixed(1)} s) — too slow`);
+    assert.ok(Math.hypot(w.x - anchor.x, w.z - anchor.z) <= GRAPPLE_ARRIVE_DIST_M + 1e-9,
+      'the walker must stop at the anchor, not past it');
+  });
+});
+
+describe('the rope outlives the longest throw (200 m range)', () => {
+  it('the rope max age covers flight + pull + linger, with room', () => {
+    // Worst case, measured by the law itself: a 200 m hook
+    // flight, a 200 m pull, then the 1 s linger — the rope must
+    // still be up when the walker lands, not hidden mid-pull by
+    // the old 6 s stuck-rope cap.
+    const anchor = { x: 200, z: 0 };
+    let w = { x: 0, z: 0 };
+    let v = { x: 0, z: 0 };
+    let pullFrames = 0;
+    for (let i = 0; i < 600; i++) {
+      const r = grapplePullStep(w, v, anchor, 1 / 60);
+      w = { x: r.x, z: r.z };
+      v = { x: r.vx, z: r.vz };
+      pullFrames = i + 1;
+      if (r.arrived) break;
+    }
+    const flightS = GRAPPLE_RANGE_M / GRAPPLE_HOOK_SPEED_MPS;
+    const pullS = pullFrames / 60;
+    const lingerS = GRAPPLE_ROPE_LINGER_MS / 1000;
+    const maxAgeS = GRAPPLE_ROPE_MAX_AGE_MS / 1000;
+    assert.ok(flightS + pullS + lingerS < maxAgeS,
+      `longest throw runs ${flightS.toFixed(1)} + ${pullS.toFixed(1)} + ${lingerS} = ${(flightS + pullS + lingerS).toFixed(1)} s, cap is ${maxAgeS} s`);
+  });
+  it('the scene failsafes the rope by the law, not a magic number', () => {
+    assert.ok(scene.includes('GRAPPLE_ROPE_MAX_AGE_MS'), 'the scene must use the rope age law');
+    assert.ok(scene.includes('performance.now() - grapple.ropeBorn > GRAPPLE_ROPE_MAX_AGE_MS'),
+      'the stuck-rope failsafe must read the law');
+    assert.ok(!scene.includes('grapple.ropeBorn > 6000'), 'the old 6 s rope cap must be gone');
+  });
 });
 
 describe('armed aim tap law (Merlin, 2026-11-13 — the gun seemed dead on his phone)', () => {
@@ -315,19 +379,28 @@ describe('grappleMinHitDistM — the shrunken eye (Merlin, 2026-11-14: third gra
 
 describe('fire + pull end to end (Merlin, 2026-11-14 — fourth grapple report)', () => {
   it('a throw at a 10 m target flies there, attaches, and the pull carries the walker to it', () => {
-    // The law, end to end: the hook flies at 60 m/s toward the
+    // The law, end to end: the hook flies at 120 m/s toward the
     // tapped point; once it arrives the kinetic pull accelerates
     // the walker to the anchor and lands there, never past it.
     const target = { x: 10, z: 0 };
     // grappleHookStep returns the new position only — the
-    // velocity lives with the caller, as in the scene.
+    // velocity lives with the caller, as in the scene. The
+    // attach check reads the flown SEGMENT, as the scene's
+    // segment raycast does — at 120 m/s one frame spans 2 m,
+    // so an endpoint check would step over the target.
     let hx = 0, hz = 0;
     const hvx = GRAPPLE_HOOK_SPEED_MPS, hvz = 0;
     let attached = false;
     for (let i = 0; i < 120; i++) {
+      const px = hx, pz = hz;
       const n = grappleHookStep({ x: hx, y: 1.7, z: hz, vx: hvx, vy: 0, vz: hvz }, 1 / 60);
       hx = n.x; hz = n.z;
-      if (Math.hypot(hx - target.x, hz - target.z) <= 0.5) { attached = true; break; }
+      const segLenSq = (hx - px) ** 2 + (hz - pz) ** 2;
+      const t = segLenSq > 0
+        ? Math.max(0, Math.min(1, ((target.x - px) * (hx - px) + (target.z - pz) * (hz - pz)) / segLenSq))
+        : 0;
+      const cx = px + (hx - px) * t, cz = pz + (hz - pz) * t;
+      if (Math.hypot(cx - target.x, cz - target.z) <= 0.5) { attached = true; break; }
     }
     assert.ok(attached, 'the hook must reach the tapped point');
     let walker = { x: 0, z: 0 };
@@ -464,7 +537,7 @@ function toyScene() {
 describe('grappleHitSkipped / grappleTapPoint — the shared skip, with a real raycaster', () => {
   it('the tap ray passes the flagged fern and lands on the rock behind it', () => {
     const { s } = toyScene();
-    const rc = new THREE.Raycaster(new THREE.Vector3(0, 0.5, 0), new THREE.Vector3(0, 0, 1), 0, 40);
+    const rc = new THREE.Raycaster(new THREE.Vector3(0, 0.5, 0), new THREE.Vector3(0, 0, 1), 0, GRAPPLE_RANGE_M);
     const hits = rc.intersectObjects(s.children, true);
     assert.ok(hits.length >= 2, 'the ray must meet both the fern and the rock');
     const point = grappleTapPoint(hits, 0.5);
@@ -474,7 +547,7 @@ describe('grappleHitSkipped / grappleTapPoint — the shared skip, with a real r
   it('without the flag the same ray catches the fern — the flag is what saves the throw', () => {
     const { s, fern } = toyScene();
     fern.userData.grappleSkip = false;
-    const rc = new THREE.Raycaster(new THREE.Vector3(0, 0.5, 0), new THREE.Vector3(0, 0, 1), 0, 40);
+    const rc = new THREE.Raycaster(new THREE.Vector3(0, 0.5, 0), new THREE.Vector3(0, 0, 1), 0, GRAPPLE_RANGE_M);
     const hits = rc.intersectObjects(s.children, true);
     const point = grappleTapPoint(hits, 0.5);
     assert.ok(Math.abs(point.z - 1.4) < 1e-6, `unflagged, the point must be the fern face at z=1.4, got z=${point.z}`);
@@ -482,7 +555,7 @@ describe('grappleHitSkipped / grappleTapPoint — the shared skip, with a real r
   it('a hit nearer than the own-body skip is ignored even without any flag', () => {
     const { s, fern } = toyScene();
     fern.userData.grappleSkip = false;
-    const rc = new THREE.Raycaster(new THREE.Vector3(0, 0.5, 0), new THREE.Vector3(0, 0, 1), 0, 40);
+    const rc = new THREE.Raycaster(new THREE.Vector3(0, 0.5, 0), new THREE.Vector3(0, 0, 1), 0, GRAPPLE_RANGE_M);
     const hits = rc.intersectObjects(s.children, true);
     // The fern face sits 1.4 m out — inside a 2 m skip, so the
     // tap must still land on the rock.
@@ -519,24 +592,33 @@ describe('tap → throw → rope → pull, end to end (fifth report)', () => {
   it('a tap on the rock throws the hook there, the rope shows, and the pull carries the walker to it', () => {
     // TAP: the ray passes the flagged fern and picks the rock.
     const { s } = toyScene();
-    const rc = new THREE.Raycaster(new THREE.Vector3(0, 0.5, 0), new THREE.Vector3(0, 0, 1), 0, 40);
+    const rc = new THREE.Raycaster(new THREE.Vector3(0, 0.5, 0), new THREE.Vector3(0, 0, 1), 0, GRAPPLE_RANGE_M);
     const hits = rc.intersectObjects(s.children, true);
     const point = grappleTapPoint(hits, grappleMinHitDistM(0.25));
     assert.ok(point, 'the tap must find a target past the leaves');
-    // RANGE: the rock face is 5 m out — inside the 40 m reach.
+    // RANGE: the rock face is 5 m out — inside the 200 m reach.
     const dist = Math.hypot(point.x - 0, point.y - 0.5, point.z - 0);
     assert.equal(grappleRangeDecision(dist), 'hit');
-    // THROW: the hook flies at 60 m/s toward the tapped point.
+    // THROW: the hook flies at 120 m/s toward the tapped point.
     const dir = { x: (point.x - 0) / dist, y: (point.y - 0.5) / dist, z: (point.z - 0) / dist };
     let hx = 0, hy = 0.5, hz = 0;
     let attached = false;
     for (let i = 0; i < 120; i++) {
+      const px = hx, py = hy, pz = hz;
       const n = grappleHookStep(
         { x: hx, y: hy, z: hz, vx: dir.x * GRAPPLE_HOOK_SPEED_MPS, vy: dir.y * GRAPPLE_HOOK_SPEED_MPS, vz: dir.z * GRAPPLE_HOOK_SPEED_MPS },
         1 / 60,
       );
       hx = n.x; hy = n.y; hz = n.z;
-      if (Math.hypot(hx - point.x, hy - point.y, hz - point.z) <= 0.5) { attached = true; break; }
+      // The scene attaches by raycasting the flown segment, not
+      // by landing on the point — at 120 m/s one frame spans 2 m,
+      // so an endpoint check would step over the target.
+      const segLenSq = (hx - px) ** 2 + (hy - py) ** 2 + (hz - pz) ** 2;
+      const t = segLenSq > 0
+        ? Math.max(0, Math.min(1, ((point.x - px) * (hx - px) + (point.y - py) * (hy - py) + (point.z - pz) * (hz - pz)) / segLenSq))
+        : 0;
+      const cx = px + (hx - px) * t, cy = py + (hy - py) * t, cz = pz + (hz - pz) * t;
+      if (Math.hypot(cx - point.x, cy - point.y, cz - point.z) <= 0.5) { attached = true; break; }
     }
     assert.ok(attached, 'the hook must reach the tapped point');
     // PULL: the kinetic pull carries the walker to the anchor.

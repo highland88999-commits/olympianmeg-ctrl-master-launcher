@@ -182,6 +182,7 @@ import {
   GRAPPLE_ARMED_TAP_LIMITS,
   GRAPPLE_ROPE_COLOR,
   GRAPPLE_ROPE_LINGER_MS,
+  GRAPPLE_ROPE_MAX_AGE_MS,
   grappleMinHitDistM,
   isGrappleSkippedFoliage,
   grappleHitSkipped,
@@ -5614,11 +5615,10 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
       // the nearest of a structure mesh hit (every resident
       // streamed root — builds, landforms, the museum, the
       // castle…) and the analytic terrain march (heightAt, the
-      // same ground the walker's feet read). Within 40 m the hook
-      // attaches and zips the walker to the attach point over
-      // about a second, with a slight arc; past 40 m it can't
-      // reach; on open sky there's nothing to grab. Foot only —
-      // never driving, never building.
+      // same ground the walker's feet read). Within 200 m the hook
+      // attaches and pulls the walker to the attach point; past
+      // 200 m it can't reach; on open sky there's nothing to grab.
+      // Foot only — never driving, never building.
       // KINETIC GRAPPLE (Merlin, 2026-11-03): hold-to-fire with
       // real physics. Press and hold the 🪝 button and the hook
       // flies out as a projectile along the camera's aim; release
@@ -6847,7 +6847,7 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
       // fair game" raycast the flying hook uses — every resident
       // mesh, plus the terrain march for open ground — with the
       // same skips (grappleSkip / isSky: shards are collectibles,
-      // never a target). A tap on open sky, or past the 40 m
+      // never a target). A tap on open sky, or past the 200 m
       // reach, keeps the gun armed so the user can tap another
       // object. On a good tap the gun stands down and the hook
       // flies; the button's 3 s reel-in follows.
@@ -8402,13 +8402,16 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
           // drops them back to the ground.
           // The rope follows the hook and the pull; once landed it
           // lingers a beat, then the scene lets it go. ROPE-STUCK
-          // FIX (Merlin, 2026-11-03): a hard 6-second cap — if the
-          // pull is interrupted the rope can never linger forever.
+          // FIX (Merlin, 2026-11-03): a hard cap on the rope's age
+          // — if the pull is interrupted the rope can never linger
+          // forever. The cap clears the longest legal throw: a
+          // 200 m flight (~1.7 s) + pull (~5.3 s) + 1 s linger
+          // is ~8 s, so 12 s (GRAPPLE_ROPE_MAX_AGE_MS) leaves room.
           if (grapple.rope) {
             if (grapple.pulling) updateGrappleRope();
             else if (grapple.ropeUntil && performance.now() > grapple.ropeUntil) hideGrappleRope();
-            // Failsafe: rope older than 6 s goes, no matter what.
-            if (grapple.ropeBorn && performance.now() - grapple.ropeBorn > 6000) hideGrappleRope();
+            // Failsafe: rope older than the max age goes, no matter what.
+            if (grapple.ropeBorn && performance.now() - grapple.ropeBorn > GRAPPLE_ROPE_MAX_AGE_MS) hideGrappleRope();
           }
           // FITTINGS (Merlin, 2026-11-13): shard pickup, shell
           // hiding, lift pads, ride easing, elevator platforms.
