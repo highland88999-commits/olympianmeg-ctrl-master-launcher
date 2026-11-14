@@ -43,6 +43,10 @@
   {
    "path": "/api/billboard-requests/renew-cron",
    "schedule": "0 8 * * *"
+  },
+  {
+   "path": "/api/earth2/shard-rollover",
+   "schedule": "0 0 1 * *"
   }
  ]
 }

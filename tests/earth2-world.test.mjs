@@ -641,7 +641,11 @@ describe('proximity streaming — the memory contract (Safari killed the all-at-
       'heightfield + ground colours match the coastline-reworked planet');
     assert.equal(worldCreatures().length, 67, 'placement plan unchanged');
     assert.equal(worldLandforms().length, 9, 'placement plan unchanged');
-    assert.equal(worldPlants().length, 109, 'placement plan unchanged');
+    // The plant count moved ONCE, deliberately: Merlin's 2026-11-13
+    // reed order (13 of 14 specced horsetail reeds placed) raised
+    // the placement guard so the 14th reed lands — 109 -> 110.
+    // The first 13 reeds are bit-identical (same seeded stream).
+    assert.equal(worldPlants().length, 110, 'placement plan unchanged');
     assert.equal(landingParcel().id, 'E2-1225', 'the landing meadow is the same parcel');
   });
 

@@ -104,7 +104,7 @@ import {
 } from '@/lib/earth2/sfx';
 import { bridgeHeightAt, bridgeDeckYAt, stepBridgeWalker, BRIDGE_DECK_WIDTH_M } from '@/lib/earth2/bridges';
 import { dressingColliders } from '@/lib/earth2/scatter';
-import { stagedPlacements, stagedColliders } from '@/lib/earth2/staged-objects';
+import { stagedPlacements } from '@/lib/earth2/staged-objects';
 import {
   NEST_SPECIES,
   EGG_MODEL_PATH,
@@ -143,6 +143,24 @@ import {
   grapplePullStep,
 } from '@/lib/earth2/grapple';
 import BackpackHud from '@/components/backpack/BackpackHud';
+import {
+  interiorSpecs,
+  ladderSpecs,
+  stagedCollidersWithDoors,
+  floorAltM,
+  doorSectorOk,
+} from '@/lib/earth2/fittings';
+import {
+  buildInteriorRoom,
+  buildLadderMesh,
+  buildElevatorMesh,
+  buildShardMesh,
+} from '@/lib/earth2/interior-room';
+import {
+  monthKey,
+  positionsForMonth,
+  withinPickupRadius,
+} from '@/lib/earth2/shard-cycle';
 import {
   sacCount,
   fossilItemsFromRecord,
@@ -1867,6 +1885,64 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         }
       }
 
+      // FITTINGS (Merlin, 2026-11-13): the procedural staged
+      // objects — 19 building interiors, 16 ladders/elevators,
+      // 53 aether shards. Built once here (real metres, flat
+      // plane) and recorded in stagedCache.placements alongside
+      // the GLBs, so the same 150 m distance cull governs them.
+      // Interiors anchor to their building's :single: GLB
+      // (lib/earth2/fittings.js — the 3 sun-base reservations are
+      // never built); shards use this month's positions.
+      const fittingState = {
+        interiors: [], // { kind, spec, group, liftPads, inScene }
+        climbs: [],    // { kind, spec, group, platform, hitbox, inScene }
+        shards: [],    // { kind, shardKey, group, x, z, collected, grantPending, retryAfter, inScene }
+        shellByKey: new Map(), // building :single: key -> interior fitting (shell hiding)
+      };
+      function loadFittings() {
+        for (const spec of interiorSpecs()) {
+          if (spec.anchorMissing) continue;
+          const { group, liftPads } = buildInteriorRoom(spec, heightAt(spec.x, spec.z));
+          const fitting = { kind: 'interior', spec, group, liftPads, inScene: false };
+          fittingState.interiors.push(fitting);
+          fittingState.shellByKey.set(spec.buildingKey, fitting);
+          stagedCache.placements.push({
+            p: { key: spec.buildingKey + ':interior', scaleM: spec.heightM, headingDeg: spec.headingDeg },
+            x: spec.x, z: spec.z, url: null, clone: null, fitting,
+          });
+        }
+        for (const spec of ladderSpecs()) {
+          if (spec.anchorMissing) continue;
+          const built = spec.kind === 'elevator'
+            ? buildElevatorMesh(spec, heightAt(spec.x, spec.z))
+            : buildLadderMesh(spec, heightAt(spec.x, spec.z));
+          const fitting = {
+            kind: spec.kind, spec, group: built.group,
+            platform: built.platform || null, hitbox: built.hitbox, inScene: false,
+          };
+          fittingState.climbs.push(fitting);
+          stagedCache.placements.push({
+            p: { key: spec.buildingKey + ':' + spec.kind, scaleM: spec.heightM, headingDeg: spec.headingDeg },
+            x: spec.x, z: spec.z, url: null, clone: null, fitting,
+          });
+        }
+        for (const pos of positionsForMonth(monthKey())) {
+          const { group } = buildShardMesh(pos.x, heightAt(pos.x, pos.z), pos.z);
+          const fitting = {
+            kind: 'shard', shardKey: pos.shardKey, group,
+            x: pos.x, z: pos.z, collected: false, grantPending: false, retryAfter: 0, inScene: false,
+            rec: null,
+          };
+          fittingState.shards.push(fitting);
+          const rec = {
+            p: { key: pos.shardKey, scaleM: 3, headingDeg: 0 },
+            x: pos.x, z: pos.z, url: null, clone: null, fitting,
+          };
+          stagedCache.placements.push(rec);
+          fitting.rec = rec;
+        }
+      }
+
       // Distance cull: keep only nearby staged objects in the scene.
       // Runs every second — cheap, and phones stay alive.
       function updateStagedVisibility() {
@@ -1879,6 +1955,25 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           const dx = rec.x - px;
           const dz = rec.z - pz;
           const near = dx * dx + dz * dz < r2;
+          // Procedural fittings: the group is built once and added
+          // / removed whole (no cloning). Collected shards stay out.
+          if (rec.fitting) {
+            if (rec.fitting.kind === 'shard' && rec.fitting.collected) {
+              if (rec.fitting.inScene) {
+                stagedGroup.remove(rec.fitting.group);
+                rec.fitting.inScene = false;
+              }
+              continue;
+            }
+            if (near && !rec.fitting.inScene) {
+              stagedGroup.add(rec.fitting.group);
+              rec.fitting.inScene = true;
+            } else if (!near && rec.fitting.inScene) {
+              stagedGroup.remove(rec.fitting.group);
+              rec.fitting.inScene = false;
+            }
+            continue;
+          }
           if (near && !rec.clone) {
             const base = stagedCache.bases.get(rec.url);
             if (!base) continue;
@@ -4894,7 +4989,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       // the build instead: its dressing colliders step aside
       // for as long as the build stands (currentColliders,
       // cached on the build signature).
-      const staticColliders = worldColliders().concat(dressingColliders()).concat(stagedColliders());
+      const staticColliders = worldColliders().concat(dressingColliders()).concat(stagedCollidersWithDoors());
       let colliderCache = { sig: '', list: staticColliders };
       function currentColliders() {
         const builds = (buildPropsRef.current && buildPropsRef.current.builds) || [];
@@ -4917,6 +5012,300 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       const reducedMotion = typeof window !== 'undefined'
         && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       let bobT = 0;
+
+      // ── FITTINGS RUNTIME (Merlin, 2026-11-13) ────────────────
+      // The ride: one altitude channel for lift floors, ladders and
+      // elevators (Earth 1's climb channel, flat-plane). While a ride
+      // holds, the eye base rides with it; walking out of the
+      // interior (lift) or away from the anchor (ladder/elevator)
+      // drops the walker back to the ground.
+      const ride = {
+        kind: null, // 'lift' | 'ladder' | 'elevator'
+        interiorId: null,
+        floor: 0,
+        targetFloor: 0,
+        altM: null,       // current ride altitude (null = on the ground)
+        targetAltM: null, // where the ride is heading
+        speed: 0,
+        anchorX: null,
+        anchorZ: null,
+        heightM: 0,
+        elevator: null, // the elevator fitting whose platform follows
+        padCooldownUntil: 0,
+        onPadKey: null,
+      };
+      const pickupEffects = [];
+      let shardLedgerWarned = false;
+      const SHARD_LOCAL_KEY = 'earth2-shards-collected';
+      function localCollectedSet() {
+        try {
+          const raw = window.localStorage.getItem(`${SHARD_LOCAL_KEY}:${monthKey()}`);
+          return new Set(raw ? JSON.parse(raw) : []);
+        } catch { return new Set(); }
+      }
+      function markShardCollectedLocal(shardKey) {
+        try {
+          const set = localCollectedSet();
+          set.add(shardKey);
+          window.localStorage.setItem(`${SHARD_LOCAL_KEY}:${monthKey()}`, JSON.stringify([...set]));
+        } catch { /* storage unavailable — the server is the record */ }
+      }
+      async function shardToken() {
+        try {
+          const { data } = await supabase.auth.getSession();
+          return data?.session?.access_token || null;
+        } catch { return null; }
+      }
+      // SHARD STATE: the month's positions + which shards are
+      // already collected come from the server (the aether ledger
+      // is the shared record). Until the aether SQL runs, the API
+      // answers 503 and the local deterministic positions +
+      // localStorage collected set stand.
+      async function syncShardState() {
+        const local = localCollectedSet();
+        for (const sh of fittingState.shards) {
+          if (local.has(sh.shardKey)) { sh.collected = true; sh.group.visible = false; }
+        }
+        const token = await shardToken();
+        if (!token) return;
+        let res;
+        try {
+          res = await fetch('/api/earth2/shard-collect', {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+        } catch { return; }
+        if (!res.ok) return;
+        const data = await res.json().catch(() => null);
+        if (!data || !Array.isArray(data.collected) || !Array.isArray(data.positions)) return;
+        const byKey = new Map(data.positions.map((p) => [p.shardKey, p]));
+        const collected = new Set(data.collected);
+        for (const sh of fittingState.shards) {
+          const pos = byKey.get(sh.shardKey);
+          if (pos) {
+            sh.x = pos.x;
+            sh.z = pos.z;
+            const gy = heightAt(pos.x, pos.z);
+            sh.group.position.set(pos.x, gy + 1.2, pos.z);
+            sh.group.userData.baseY = gy + 1.2;
+            if (sh.rec) { sh.rec.x = pos.x; sh.rec.z = pos.z; }
+          }
+          sh.collected = collected.has(sh.shardKey);
+          sh.group.visible = !sh.collected;
+          if (sh.collected) markShardCollectedLocal(sh.shardKey);
+        }
+      }
+      function spawnShardPickupEffect(sh) {
+        const geo = new THREE.SphereGeometry(0.5, 12, 8);
+        const mat = new THREE.MeshBasicMaterial({
+          color: 0xaef4ff, transparent: true, opacity: 0.9,
+          blending: THREE.AdditiveBlending, depthWrite: false,
+        });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(sh.x, heightAt(sh.x, sh.z) + 1.2, sh.z);
+        scene.add(mesh);
+        pickupEffects.push({ mesh, born: performance.now() });
+      }
+      // Collect one shard: the shard disappears at once with a
+      // pickup flash, and the grant goes through the real aether
+      // ledger. If the grant does not land (503 until the aether
+      // SQL runs, or a network blip), the shard comes back —
+      // nothing is fake-credited.
+      async function collectShard(sh) {
+        sh.grantPending = true;
+        sh.group.visible = false;
+        spawnShardPickupEffect(sh);
+        const token = await shardToken();
+        if (!token) {
+          sh.group.visible = true;
+          sh.grantPending = false;
+          sh.retryAfter = performance.now() + 60000;
+          if (!shardLedgerWarned) {
+            shardLedgerWarned = true;
+            noticeRef.current('◆ Sign in to collect aether shards.');
+          }
+          return;
+        }
+        let res;
+        try {
+          res = await fetch('/api/earth2/shard-collect', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ shardKey: sh.shardKey }),
+          });
+        } catch { res = null; }
+        if (!res || !res.ok) {
+          sh.group.visible = true;
+          sh.grantPending = false;
+          sh.retryAfter = performance.now() + 60000;
+          if (!shardLedgerWarned) {
+            shardLedgerWarned = true;
+            noticeRef.current(res && res.status === 503
+              ? '◆ The aether ledger isn’t connected yet — the shard will be here when it is.'
+              : '◆ Couldn’t reach the aether ledger — the shard is still here.');
+          }
+          return;
+        }
+        const data = await res.json().catch(() => null);
+        sh.grantPending = false;
+        sh.collected = true;
+        markShardCollectedLocal(sh.shardKey);
+        if (data && data.alreadyCollected) {
+          noticeRef.current('◆ That shard was already collected.');
+        } else {
+          noticeRef.current(`◆ +1 aether${data && typeof data.balance === 'number' ? ` (${data.balance} total)` : ''}.`);
+        }
+      }
+      // Double-tap a ladder/elevator to ride it (Earth 1's climb:
+      // double-click/double-tap toggles up/down). The walker lands
+      // on top and stays there until they walk off.
+      function rideFitting(fitting) {
+        if (ride.targetAltM != null) return; // a ride is already running
+        const spec = fitting.spec;
+        const up = ride.altM == null || ride.altM <= spec.heightM / 2;
+        const from = ride.altM ?? 0;
+        const to = up ? spec.heightM : 0;
+        ride.kind = spec.kind;
+        ride.anchorX = spec.x;
+        ride.anchorZ = spec.z;
+        ride.heightM = spec.heightM;
+        ride.elevator = spec.kind === 'elevator' ? fitting : null;
+        ride.interiorId = null;
+        ride.floor = 0;
+        ride.targetAltM = to;
+        ride.speed = Math.max(0.5, Math.abs(to - from) / 2.5);
+        ride.altM = from;
+        grapple.standY = null; // the ride owns the feet now, not a perch
+        noticeRef.current(up
+          ? (spec.kind === 'elevator' ? '🛗 Riding up — double-tap again to come down.' : '🪜 Climbing up — double-tap again to come down.')
+          : '⬇️ Coming down.');
+      }
+      // Per-frame fittings: shard spin + bob + proximity pickup,
+      // pickup-effect fade, shell hiding, lift pads, ride easing
+      // + walk-off, elevator platforms.
+      function updateFittings(dt) {
+        const now = performance.now();
+        const wx = walker.x;
+        const wz = walker.z;
+        // A grapple pull owns the walker's feet — a ride in progress
+        // ends when the hook pulls (the walker is going elsewhere).
+        if (grapple.pulling && (ride.altM != null || ride.targetAltM != null)) {
+          ride.altM = null; ride.targetAltM = null; ride.interiorId = null;
+          ride.floor = 0; ride.onPadKey = null; ride.elevator = null;
+          ride.anchorX = null; ride.anchorZ = null;
+        }
+        // Shards: spin + bob, and walking through one collects it.
+        for (const sh of fittingState.shards) {
+          if (!sh.inScene || sh.collected) continue;
+          sh.group.rotation.y += dt * 1.2;
+          sh.group.position.y = sh.group.userData.baseY + Math.sin(now / 500 + sh.x) * 0.15;
+          if (sh.grantPending || now < sh.retryAfter) continue;
+          if (Math.abs(wx - sh.x) > 30 || Math.abs(wz - sh.z) > 30) continue;
+          if (withinPickupRadius(sh, wx, wz)) collectShard(sh);
+        }
+        // Pickup effects: expand + fade, then go.
+        for (let i = pickupEffects.length - 1; i >= 0; i--) {
+          const eff = pickupEffects[i];
+          const age = (now - eff.born) / 1000;
+          if (age > 0.6) {
+            scene.remove(eff.mesh);
+            eff.mesh.geometry.dispose();
+            eff.mesh.material.dispose();
+            pickupEffects.splice(i, 1);
+            continue;
+          }
+          eff.mesh.scale.setScalar(1 + age * 6);
+          eff.mesh.material.opacity = 0.9 * (1 - age / 0.6);
+        }
+        // Interiors: shell hiding + lift pads.
+        for (const fit of fittingState.interiors) {
+          const spec = fit.spec;
+          const d = Math.hypot(wx - spec.x, wz - spec.z);
+          const inside = d < spec.radiusM - spec.wallM;
+          const approaching = d < spec.radiusM + 2 && doorSectorOk(spec, wx, wz);
+          const showRoom = inside || approaching;
+          // The shell hides while the walker is inside or on the
+          // door approach, so the lit room is what they see; the
+          // room itself only renders then, never poking through
+          // the shell from outside.
+          fit.group.visible = showRoom;
+          if (!fit.shellRec) {
+            fit.shellRec = stagedCache.placements.find((r) => r.p && r.p.key === spec.buildingKey) || null;
+          }
+          if (fit.shellRec && fit.shellRec.clone) fit.shellRec.clone.visible = !showRoom;
+          // Lift pads (multi-floor rooms): standing on a pad rides one floor.
+          if (spec.lift && inside && ride.targetAltM == null && now >= ride.padCooldownUntil) {
+            const currentFloor = ride.interiorId === spec.assetId ? ride.floor : 0;
+            for (const pad of fit.liftPads) {
+              if (pad.floor !== currentFloor) continue;
+              const padKey = `${spec.assetId}:${pad.kind}:${pad.floor}`;
+              if (ride.onPadKey === padKey) continue;
+              if (Math.hypot(wx - pad.x, wz - pad.z) > spec.lift.padRadiusM) continue;
+              const targetFloor = pad.kind === 'up' ? pad.floor + 1 : pad.floor - 1;
+              if (targetFloor < 0 || targetFloor >= spec.floors) continue;
+              const from = ride.altM ?? 0;
+              const to = floorAltM(spec, targetFloor);
+              ride.kind = 'lift';
+              ride.interiorId = spec.assetId;
+              ride.floor = currentFloor;
+              ride.targetFloor = targetFloor;
+              ride.anchorX = spec.x;
+              ride.anchorZ = spec.z;
+              ride.elevator = null;
+              ride.targetAltM = to;
+              ride.speed = Math.max(0.5, Math.abs(to - from) / 2.0);
+              ride.altM = from;
+              ride.onPadKey = padKey;
+              grapple.standY = null; // the lift owns the feet now, not a perch
+              noticeRef.current(pad.kind === 'up' ? '🛗 Lift up.' : '🛗 Lift down.');
+              break;
+            }
+          }
+          // Stepping off a pad clears the pad key so it can trigger again.
+          if (spec.lift && ride.onPadKey && ride.interiorId === spec.assetId) {
+            const pad = fit.liftPads.find((p) => `${spec.assetId}:${p.kind}:${p.floor}` === ride.onPadKey);
+            if (pad && Math.hypot(wx - pad.x, wz - pad.z) > spec.lift.padRadiusM) ride.onPadKey = null;
+          }
+        }
+        // Ride: ease toward the target, then hold.
+        if (ride.targetAltM != null && ride.altM != null) {
+          const diff = ride.targetAltM - ride.altM;
+          const step = ride.speed * dt;
+          if (Math.abs(diff) <= Math.max(step, 0.05)) {
+            ride.altM = ride.targetAltM;
+            ride.targetAltM = null;
+            if (ride.kind === 'lift') {
+              ride.floor = ride.targetFloor;
+              ride.padCooldownUntil = now + 1200;
+            }
+          } else {
+            ride.altM += Math.sign(diff) * step;
+          }
+        }
+        // Holding: a lift floor holds while the walker is inside
+        // the interior; a ladder/elevator perch holds while near
+        // the anchor. Walking off drops the walker to the ground.
+        if (ride.altM != null && ride.targetAltM == null) {
+          if (ride.kind === 'lift') {
+            const held = fittingState.interiors.find((f) => f.spec.assetId === ride.interiorId);
+            if (!held || Math.hypot(wx - held.spec.x, wz - held.spec.z) > held.spec.radiusM) {
+              ride.altM = null; ride.interiorId = null; ride.floor = 0; ride.onPadKey = null;
+            }
+          } else if (ride.anchorX != null) {
+            if (Math.hypot(wx - ride.anchorX, wz - ride.anchorZ) > 6) {
+              ride.altM = null; ride.anchorX = null; ride.anchorZ = null; ride.elevator = null;
+            }
+          }
+        }
+        // Elevator platforms follow their ride (and sink back when free).
+        for (const fit of fittingState.climbs) {
+          if (fit.kind !== 'elevator' || !fit.platform) continue;
+          const target = ride.elevator === fit && ride.altM != null ? ride.altM : 0;
+          const cur = fit.platform.position.y;
+          if (Math.abs(target - cur) > 0.01) {
+            fit.platform.position.y = cur + (target - cur) * Math.min(1, dt * 4);
+          }
+        }
+      }
       // BUILD-MODE ORBIT (Merlin, 2026-10-24): in build mode the
       // joystick swings the camera around the ghost instead of
       // walking the walker. yaw/pitch/dist describe the orbit
@@ -5481,6 +5870,10 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         if (onVehiclePlacedRef.current) onVehiclePlacedRef.current(vp);
         return true;
       }
+      // FITTINGS — DOUBLE-TAP TO RIDE (Merlin, 2026-11-13; Earth 1's
+      // climb): two taps within 350 ms and 40 px on a ladder or
+      // elevator. The last fitting tap, for the double-tap window.
+      let lastFittingTap = { time: 0, x: 0, y: 0 };
       function handleTap(e) {
         if (buildModeRef.current.active) { buildTap(e); return; }
         if (vehiclePlacementRef.current) {
@@ -5502,6 +5895,23 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           -((e.clientY - rect.top) / rect.height) * 2 + 1,
         );
         raycaster.setFromCamera(ndc, camera);
+        // FITTINGS — DOUBLE-TAP TO RIDE: a second tap within 350 ms
+        // and 40 px on a ladder or elevator rides it (up, or back
+        // down from the top). Single taps fall through to the
+        // existing targets below.
+        const nowTap = performance.now();
+        const isDoubleTap = nowTap - lastFittingTap.time < 350
+          && Math.hypot(e.clientX - lastFittingTap.x, e.clientY - lastFittingTap.y) < 40;
+        lastFittingTap = { time: nowTap, x: e.clientX, y: e.clientY };
+        if (isDoubleTap && fittingState.climbs.length) {
+          const climbHits = raycaster.intersectObjects(fittingState.climbs.map((c) => c.group), true);
+          if (climbHits.length) {
+            let obj = climbHits[0].object;
+            while (obj && !fittingState.climbs.some((c) => c.group === obj)) obj = obj.parent;
+            const fitting = obj ? fittingState.climbs.find((c) => c.group === obj) : null;
+            if (fitting) { rideFitting(fitting); return; }
+          }
+        }
         const targets = [
           ...mosquitos.map((mq) => mq.proxy),
           ...sacs.map((s) => s.group),
@@ -6305,6 +6715,14 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       loadStagedBases().catch((err) => {
         console.error('Staged objects failed to load:', err);
       });
+      // Fittings: the procedural staged objects (interiors, ladders/
+      // elevators, shards) build synchronously — no GLB to decode.
+      loadFittings();
+      // Shard state: the server's month positions + collected set
+      // (the aether ledger is the shared record). Until the aether
+      // SQL runs, the API answers 503 and the scene keeps the local
+      // deterministic positions + localStorage collected set.
+      syncShardState().catch(() => {});
 
       // Dino nests: load in the background with the staged objects.
       placeNests().catch(() => {});
@@ -6326,6 +6744,9 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         // Staged objects: refresh who's near enough to see, once a
         // second (every 60th frame). Keeps the phone alive.
         if (frameNo % 60 === 1) updateStagedVisibility();
+        // Shard state: re-sync with the server every 5 minutes, so
+        // a shard someone else collected disappears for everyone.
+        if (frameNo % 18000 === 1) syncShardState().catch(() => {});
         // Fire flicker (Merlin, 2026-11-03): torch and fire lights
         // breathe — their intensity wavers like real flame.
         // (Flickering lights register in flickerLights when placed.)
@@ -6687,6 +7108,11 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             // Failsafe: rope older than 6 s goes, no matter what.
             if (grapple.ropeBorn && performance.now() - grapple.ropeBorn > 6000) hideGrappleRope();
           }
+          // FITTINGS (Merlin, 2026-11-13): shard pickup, shell
+          // hiding, lift pads, ride easing, elevator platforms.
+          // Runs before the eye base is computed, so a ride
+          // altitude carries the eye.
+          updateFittings(dt);
           const deckY = bridgeHeightAt(walker.x, walker.z);
           const groundY = deckY != null ? deckY : heightAt(walker.x, walker.z);
           // KINETIC GRAPPLE — STAND UPON (Merlin, 2026-11-03): a
@@ -6703,6 +7129,13 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             }
           } else if (grapple.pulling && grapple.standY != null) {
             eyeBase = grapple.standY; // rising toward the perch mid-pull
+          }
+          // FITTINGS — RIDE (Merlin, 2026-11-13): a lift floor,
+          // ladder top or elevator ride carries the eye above the
+          // ground. It never stacks with a grapple pull (the pull
+          // owns the feet while it runs).
+          if (ride.altM != null && !grapple.pulling) {
+            eyeBase = groundY + ride.altM;
           }
           const depth = Math.max(0, WATER_Y - groundY);
           let bob = 0;
