@@ -33,7 +33,11 @@ describe('the spawn catalogue', () => {
       assert.ok(ENVS.has(s.env), `env ${s.env} for ${s.name}`);
       assert.ok(['listed', 'inferred'].includes(s.envSource), 'envSource');
       assert.ok(typeof s.sizeM === 'number' && s.sizeM > 0, `sizeM for ${s.name}`);
-      assert.ok(['listed', 'class-default'].includes(s.sizeSource), 'sizeSource');
+      assert.ok(['listed', 'estimated-genus', 'estimated-family',
+        'estimated-order', 'estimated-class', 'estimated-phylum',
+        'estimated-kingdom'].includes(s.sizeSource),
+      `sizeSource ${s.sizeSource} for ${s.name}`);
+      assert.ok(s.sizeSource !== 'class-default', `class-default left for ${s.name}`);
       assert.ok(typeof s.realm === 'string', 'realm');
     }
   });
@@ -68,5 +72,22 @@ describe('the spawn catalogue', () => {
     }
     // Insecta is 48% of the living list but only 8 of ~1,262 here.
     assert.ok((perClass.Insecta || 0) <= 8);
+  });
+
+  it('every species carries a size — spot checks from the Nov 14 order', () => {
+    // Apionsoma pectinatum was the card in Merlin's screenshot:
+    // "Size not listed in the dataset". It now carries an estimate.
+    const apionsoma = SPECIES_CATALOGUE.find(
+      (s) => s.name === 'Apionsoma (Edmondsius) pectinatum');
+    assert.ok(apionsoma, 'Apionsoma pectinatum in the catalogue');
+    assert.ok(apionsoma.sizeM > 0, 'Apionsoma has a size');
+    assert.ok(apionsoma.sizeSource.startsWith('estimated-'),
+      `Apionsoma sizeSource is ${apionsoma.sizeSource}`);
+    // Ginkgo biloba: the fixed comma parser recovers its real height
+    // ("Plant height 2,000 cm" is 20 m, not 0 m).
+    const ginkgo = SPECIES_CATALOGUE.find((s) => s.name === 'Ginkgo biloba');
+    assert.ok(ginkgo, 'Ginkgo biloba in the catalogue');
+    assert.equal(ginkgo.sizeSource, 'listed');
+    assert.equal(ginkgo.sizeM, 20);
   });
 });

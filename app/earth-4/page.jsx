@@ -203,10 +203,10 @@ export default function Earth4Page() {
     setGpsMsg(null);
   }, []);
 
+  // Every species now carries a size: 'listed' is a real measurement,
+  // anything else is a taxon-median estimate and reads with a ~ prefix.
   const sizeText = species
-    ? (species.sizeSource === "listed"
-      ? `≈ ${species.sizeM >= 1 ? `${species.sizeM.toFixed(2)} m` : `${Math.round(species.sizeM * 100)} cm`}`
-      : "Size not listed in the dataset")
+    ? `${species.sizeSource === "listed" ? "" : "~ "}${species.sizeM >= 1 ? `${species.sizeM.toFixed(2)} m` : `${Math.round(species.sizeM * 100)} cm`}`
     : "";
 
   return (
