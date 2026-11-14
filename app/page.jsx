@@ -273,6 +273,18 @@ function NexusHub() {
     window.location.href = '/earth-2';
   };
 
+  // Earth 3 + Earth 4 (Merlin, 2026-11-14): unlocked — the chooser
+  // buttons now take the user straight in, same as Earth 2.
+  const chooseEarth3 = () => {
+    setShowEarthChooser(false);
+    window.location.href = '/new-earth';
+  };
+
+  const chooseEarth4 = () => {
+    setShowEarthChooser(false);
+    window.location.href = '/earth-4';
+  };
+
   // Omega portal street light (Merlin, 2026-10-31): the Omega Arch's
   // portal now lives at the bottom of the Earth chooser instead of
   // behind the Sun. Works exactly like the arch did — the same
@@ -1164,8 +1176,8 @@ function NexusHub() {
       {/* Satellite drop → vortex tube: the fullscreen ride carries the
           user from the satellite's portal to the realm. */}
       {/* Earth chooser (Merlin, 2026-10-31): tapping the Earth planet
-          offers Earth 1 or Earth 2. Earth 2 is unlocked for all users.
-          Earth 3 (Merlin, 2026-11-03): listed as under construction. */}
+          offers Earth 1, Earth 2, Earth 3 or Earth 4 — all four
+          unlocked for all users (Merlin, 2026-11-14). */}
       {showEarthChooser && (
         <div
           className="fixed inset-0 flex items-center justify-center p-6"
@@ -1180,7 +1192,7 @@ function NexusHub() {
         >
           <div className="w-full max-w-sm rounded-2xl bg-slate-900/80 p-6 text-center shadow-2xl backdrop-blur-sm">
             <div className="mb-1 text-2xl font-extrabold text-white">Choose your Earth</div>
-            <div className="mb-5 text-sm text-slate-300">Four worlds. One tap. Two still being built.</div>
+            <div className="mb-5 text-sm text-slate-300">Four worlds. One tap.</div>
             <button
               type="button"
               onClick={chooseEarth1}
@@ -1211,35 +1223,35 @@ function NexusHub() {
                 <div className="text-sm opacity-90">Monsters, gunplay, land, building — unlock what you want.</div>
               </div>
             </button>
-            {/* Earth 3 (Merlin, 2026-11-03): under construction —
-                visible but not enterable. Tapping it says so. */}
+            {/* Earth 3 (Merlin, 2026-11-14): unlocked — tapping it
+                takes the user to /new-earth. */}
             <button
               type="button"
-              onClick={() => alert('🚧 Earth 3 is under construction. The boundless world is being built — check back soon.')}
-              className="mb-4 block w-full overflow-hidden rounded-xl text-left text-white opacity-60"
+              onClick={chooseEarth3}
+              className="mb-4 block w-full overflow-hidden rounded-xl text-left text-white transition hover:brightness-110"
               style={{
                 background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
               }}
             >
               <div className="px-4 py-4" style={{ background: 'linear-gradient(90deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.15) 60%, transparent 100%)' }}>
-                <div className="text-lg font-bold">🚧 Earth 3 <span className="text-xs font-normal uppercase tracking-widest text-amber-300">Under construction</span></div>
-                <div className="text-sm opacity-90">The boundless world. 10 billion tiles. Still being built.</div>
+                <div className="text-lg font-bold">🌍 Earth 3</div>
+                <div className="text-sm opacity-90">The boundless world. 10 billion tiles.</div>
               </div>
             </button>
-            {/* Earth 4 (Merlin, 2026-11-12): under construction —
-                visible but not enterable. Tapping it says so.
+            {/* Earth 4 (Merlin, 2026-11-14): unlocked — tapping it
+                takes the user to /earth-4.
                 True Earth size, fully explorable, true textures. */}
             <button
               type="button"
-              onClick={() => alert('🚧 Earth 4 is under construction. True Earth size, fully explorable, true textures — check back soon.')}
-              className="mb-4 block w-full overflow-hidden rounded-xl text-left text-white opacity-60"
+              onClick={chooseEarth4}
+              className="mb-4 block w-full overflow-hidden rounded-xl text-left text-white transition hover:brightness-110"
               style={{
                 background: 'linear-gradient(135deg, #0f2a1a 0%, #14532d 50%, #166534 100%)',
               }}
             >
               <div className="px-4 py-4" style={{ background: 'linear-gradient(90deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.15) 60%, transparent 100%)' }}>
-                <div className="text-lg font-bold">🚧 Earth 4 <span className="text-xs font-normal uppercase tracking-widest text-amber-300">Under construction</span></div>
-                <div className="text-sm opacity-90">True Earth size. Fully explorable. True textures. Still being built.</div>
+                <div className="text-lg font-bold">🌍 Earth 4</div>
+                <div className="text-sm opacity-90">True Earth size. Fully explorable. True textures.</div>
               </div>
             </button>
             <button
