@@ -13,6 +13,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  BACKPACK_ITEM_KINDS,
   BACKPACK_STYLES,
   DEFAULT_BACKPACK_STYLE,
   RETICLE_STYLES,
@@ -21,6 +22,7 @@ import {
   emptyBackpackRecord,
   sanitizeBackpackRecord,
   addItem,
+  itemsStack,
   removeItem,
   removeEntry,
   countItem,
@@ -399,5 +401,57 @@ describe('the lightsaber slot (Merlin, 2026-10-24: v1 name/description rule)', (
     const eq = setActiveWeapon(rec, lightsaberEntry(rec).uid, 'star-wars');
     assert.equal(equippedWeaponEntry(eq).name, 'Jedi Saber');
     assert.equal(eq.activeWeaponRealm, 'star-wars');
+  });
+});
+
+describe('raised dinos are backpack items (Merlin, 2026-11-14)', () => {
+  const dino = (species, bornAt, state = 'pack') => ({
+    id: 'dino-companion', kind: 'dino', name: `${species} (companion)`,
+    meta: { species, bornAt, dinoId: `dino-${species}-${bornAt}`, state, homeParcelId: null },
+  });
+
+  it("'dino' is a legal kind — the summon loop used to die here", () => {
+    // Before this, kind 'dino' was not in BACKPACK_ITEM_KINDS:
+    // createItem returned null and sanitize stripped every dino
+    // item on write — dismissing an ally deleted it, and the
+    // backpack summon could never fire.
+    assert.ok(BACKPACK_ITEM_KINDS.includes('dino'));
+    const item = createItem(dino('triceratops', 1000));
+    assert.ok(item, 'a dino item builds');
+    assert.equal(item.qty, 1);
+    assert.equal(item.kind, 'dino');
+  });
+
+  it('dino items survive sanitize with their meta intact', () => {
+    const rec = sanitizeBackpackRecord({
+      v: 1,
+      items: [dino('triceratops', 1000, 'out'), dino('velociraptor', 2000, 'home')],
+    });
+    assert.equal(rec.items.length, 2);
+    assert.equal(rec.items[0].meta.state, 'out');
+    assert.equal(rec.items[0].meta.dinoId, 'dino-triceratops-1000');
+    assert.equal(rec.items[1].meta.state, 'home');
+    assert.equal(rec.items[1].meta.bornAt, 2000);
+  });
+
+  it('two dinos never stack — one item per dino', () => {
+    const a = createItem(dino('triceratops', 1000));
+    const b = createItem(dino('triceratops', 1000));
+    assert.equal(itemsStack(a, b), false);
+    let rec = emptyBackpackRecord();
+    rec = addItem(rec, dino('triceratops', 1000));
+    rec = addItem(rec, dino('velociraptor', 2000));
+    rec = addItem(rec, dino('triceratops', 3000));
+    assert.equal(itemsOfKind(rec, 'dino').length, 3);
+    assert.equal(countItem(rec, 'dino-companion'), 3);
+  });
+
+  it('a dino leaves by uid, never by shared id', () => {
+    let rec = emptyBackpackRecord();
+    rec = addItem(rec, dino('triceratops', 1000));
+    rec = addItem(rec, dino('velociraptor', 2000));
+    const gone = removeEntry(rec, itemsOfKind(rec, 'dino')[0].uid);
+    assert.equal(itemsOfKind(gone, 'dino').length, 1);
+    assert.equal(itemsOfKind(gone, 'dino')[0].meta.species, 'velociraptor');
   });
 });

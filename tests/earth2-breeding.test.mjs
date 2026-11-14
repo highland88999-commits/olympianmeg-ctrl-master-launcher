@@ -15,7 +15,6 @@ import {
   JUVENILE_AGE_MS,
   ADULT_AGE_MS,
   EGG_ITEM_ID,
-  NO_LAND_MESSAGE,
   ALLY_FOLLOW_RANGE_M,
   ALLY_MAX_RANGE_M,
   ALLY_IDLE_RANGE_M,
@@ -27,6 +26,15 @@ import {
   NEST_SPECIES,
   NEST_LABEL_MAX_DIST_M,
   NEST_LABEL_HEIGHT_M,
+  STEAL_REACH_M,
+  isNestInStealReach,
+  RAISE_CAP_FREE,
+  RAISE_CAP_LANDOWNER,
+  DINO_ITEM_ID,
+  DINO_ITEM_KIND,
+  DINO_STATE_OUT,
+  DINO_STATE_HOME,
+  DINO_STATE_PACK,
   nestEggCount,
   makeNest,
   nestIsDangerous,
@@ -39,6 +47,20 @@ import {
   eggReadyToHatch,
   eggIsCold,
   canRaiseDino,
+  dinoIdFor,
+  dinoIdOf,
+  dinoDisplayName,
+  makeDinoItem,
+  isDinoItem,
+  dinoStateOf,
+  raisedDinoItems,
+  raiseCapFor,
+  countRaisedDinos,
+  canHatchMore,
+  raiseCapRefusal,
+  homeParcelFor,
+  homeSpotFor,
+  setDinoItemState,
   growthStage,
   growthT,
   growthScaleFor,
@@ -115,7 +137,7 @@ describe('eggs', () => {
   });
 });
 
-describe('the land gate', () => {
+describe('the land gate (who is a land owner)', () => {
   const rows = [
     { parcel_id: 'E2-0001', owner_email: 'owner@example.com' },
     { parcel_id: 'E2-0002', owner_email: 'someone@else.com' },
@@ -132,9 +154,124 @@ describe('the land gate', () => {
     assert.equal(canRaiseDino(rows, ''), false);
     assert.equal(canRaiseDino(null, 'owner@example.com'), false);
   });
+});
 
-  it('the refusal is plain English', () => {
-    assert.ok(NO_LAND_MESSAGE.includes('own land'));
+describe('raise caps (Merlin, 2026-11-14)', () => {
+  it('anyone may raise one dino; a land owner may raise four', () => {
+    assert.equal(RAISE_CAP_FREE, 1);
+    assert.equal(RAISE_CAP_LANDOWNER, 4);
+    assert.equal(raiseCapFor(false), 1);
+    assert.equal(raiseCapFor(true), 4);
+  });
+
+  it('the cap counts backpack dinos plus live allies, distinctly', () => {
+    const a = makeDinoItem('triceratops', 1000);
+    const b = makeDinoItem('velociraptor', 2000);
+    assert.equal(countRaisedDinos([], []), 0);
+    assert.equal(countRaisedDinos([a], []), 1);
+    assert.equal(countRaisedDinos([a, b], []), 2);
+    // A live ally with its item counts once, not twice.
+    assert.equal(countRaisedDinos([a], [dinoIdOf(a)]), 1);
+    // A live ally without an item still counts (record gap).
+    assert.equal(countRaisedDinos([a], ['dino-ghost-9']), 2);
+    // Eggs are not raised dinos.
+    assert.equal(countRaisedDinos([makeEggItem('triceratops', 1000)], []), 0);
+  });
+
+  it('canHatchMore opens and shuts at the cap', () => {
+    const one = [makeDinoItem('triceratops', 1000)];
+    assert.deepEqual(canHatchMore([], false, []), { ok: true, cap: 1, raised: 0 });
+    assert.deepEqual(canHatchMore(one, false, []), { ok: false, cap: 1, raised: 1 });
+    const four = [1, 2, 3, 4].map((i) => makeDinoItem('triceratops', i * 1000));
+    assert.deepEqual(canHatchMore(four.slice(0, 3), true, []), { ok: true, cap: 4, raised: 3 });
+    assert.deepEqual(canHatchMore(four, true, []), { ok: false, cap: 4, raised: 4 });
+  });
+
+  it('the refusal is plain English and names the way up', () => {
+    assert.equal(raiseCapRefusal(0, 1, false), null);
+    const free = raiseCapRefusal(1, 1, false);
+    assert.ok(free.includes('1 dino') && free.includes('Buy a parcel'), free);
+    const owner = raiseCapRefusal(4, 4, true);
+    assert.ok(owner.includes('4 dinos') && owner.includes('land owner'), owner);
+  });
+});
+
+describe('raised dinos are backpack items', () => {
+  it('makeDinoItem builds a dino-kind item with a stable id', () => {
+    const item = makeDinoItem('triceratops', 1000, { state: DINO_STATE_OUT, homeParcelId: 'E2-0619' });
+    assert.equal(item.id, DINO_ITEM_ID);
+    assert.equal(item.kind, DINO_ITEM_KIND);
+    assert.equal(item.qty, 1);
+    assert.equal(item.name, 'Triceratops (companion)');
+    assert.equal(item.meta.species, 'triceratops');
+    assert.equal(item.meta.bornAt, 1000);
+    assert.equal(item.meta.dinoId, 'dino-triceratops-1000');
+    assert.equal(item.meta.state, DINO_STATE_OUT);
+    assert.equal(item.meta.homeParcelId, 'E2-0619');
+    assert.ok(isDinoItem(item));
+    assert.equal(dinoIdOf(item), 'dino-triceratops-1000');
+    assert.equal(dinoStateOf(item), DINO_STATE_OUT);
+    assert.equal(isDinoItem(makeEggItem('triceratops', 1000)), false);
+  });
+
+  it('display names use the registry, never the slug', () => {
+    assert.equal(dinoDisplayName('triceratops'), 'Triceratops (companion)');
+    assert.equal(dinoDisplayName('tyrannosaurus-rex'), 'Tyrannosaurus rex (companion)');
+  });
+
+  it('legacy items without a state read as pack; ids derive', () => {
+    const legacy = { kind: 'dino', meta: { species: 'velociraptor', bornAt: 500 } };
+    assert.equal(dinoStateOf(legacy), DINO_STATE_PACK);
+    assert.equal(dinoIdOf(legacy), 'dino-velociraptor-500');
+    assert.ok(isDinoItem(legacy));
+  });
+
+  it('raisedDinoItems picks only dinos out of a mixed pack', () => {
+    const items = [makeEggItem('triceratops', 1), makeDinoItem('triceratops', 2), { id: 'x', kind: 'material', name: 'Rock', qty: 1, meta: {} }];
+    assert.equal(raisedDinoItems(items).length, 1);
+    assert.equal(raisedDinoItems(null).length, 0);
+  });
+
+  it('setDinoItemState flips one dino and leaves the rest alone', () => {
+    const a = makeDinoItem('triceratops', 1000);
+    const b = makeDinoItem('velociraptor', 2000);
+    const next = setDinoItemState([a, b], dinoIdOf(a), DINO_STATE_HOME, 'E2-0619');
+    assert.equal(dinoStateOf(next[0]), DINO_STATE_HOME);
+    assert.equal(next[0].meta.homeParcelId, 'E2-0619');
+    assert.equal(dinoStateOf(next[1]), DINO_STATE_PACK);
+    assert.equal(next[1].meta.homeParcelId, null);
+    // The item is never remade: same uid when one exists.
+    const withUid = [{ ...a, uid: 'u-1' }, b];
+    const nextUid = setDinoItemState(withUid, dinoIdOf(a), DINO_STATE_OUT);
+    assert.equal(nextUid[0].uid, 'u-1');
+    assert.equal(dinoStateOf(nextUid[0]), DINO_STATE_OUT);
+  });
+});
+
+describe('home on the land', () => {
+  it('homeParcelFor picks the first owned parcel, or null', () => {
+    const owned = [
+      { parcel_id: 'E2-0669', owner_email: 'owner@example.com' },
+      { parcel_id: 'E2-0619', owner_email: 'owner@example.com' },
+      { parcel_id: 'E2-0002', owner_email: 'someone@else.com' },
+    ];
+    assert.equal(homeParcelFor(owned, [], 'owner@example.com'), 'E2-0619');
+    assert.equal(homeParcelFor([], [], 'owner@example.com'), null);
+    assert.equal(homeParcelFor(owned, [], 'nobody@example.com'), null);
+    assert.equal(homeParcelFor(owned, [], ''), null);
+    // Claims count as ownership too.
+    assert.equal(homeParcelFor([], [{ parcel_id: 'E2-0719', owner_email: 'owner@example.com' }], 'owner@example.com'), 'E2-0719');
+  });
+
+  it('homeSpotFor is deterministic and near the parcel center', () => {
+    const center = { x: 100, z: -50 };
+    const a = homeSpotFor(center, 'dino-triceratops-1000');
+    const b = homeSpotFor(center, 'dino-triceratops-1000');
+    assert.deepEqual(a, b);
+    const d = Math.hypot(a.x - center.x, a.z - center.z);
+    assert.ok(d >= 3 && d <= 7, `spot ${d} m out`);
+    const c = homeSpotFor(center, 'dino-velociraptor-2000');
+    assert.ok(Math.hypot(a.x - c.x, a.z - c.z) > 0.01, 'two dinos do not stack');
   });
 });
 
@@ -364,5 +501,111 @@ describe('nest nameplates are wired into the scene', () => {
     assert.ok(scene.includes('nest.label.el.textContent = nestLabelText(nest.species, nest.eggs)'), 'count updates on steal');
     assert.ok(scene.includes('nest.label = null'), 'raided plate is dropped');
     assert.ok(scene.includes('l.el.remove()'), 'dropped plate leaves the DOM');
+  });
+});
+
+describe('raising rules are wired into the scene (Merlin, 2026-11-14)', () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const scene = readFileSync(join(here, '..', 'components', 'earth2', 'Earth2World.jsx'), 'utf8');
+
+  it('the hatch loop uses the cap, not the old land gate', () => {
+    assert.ok(scene.includes('canHatchMore('), 'hatch checks the cap');
+    assert.ok(scene.includes('raiseCapRefusal('), 'cap refusal is plain English');
+    assert.ok(!scene.includes('NO_LAND_MESSAGE'), 'the old no-land message is gone');
+    assert.ok(!scene.includes('no land, no dino'), 'the old gate comment is gone');
+  });
+
+  it('hatching mints the backpack record and spawns through the ref', () => {
+    assert.ok(scene.includes('makeDinoItem(dino.id, bornAt'), 'hatch mints the dino item');
+    assert.ok(scene.includes("state: DINO_STATE_OUT"), 'a hatch starts summoned');
+    assert.ok(scene.includes('spawnAllyRef.current(dino.id, bornAt'), 'spawn goes through the ref, not a bare call');
+    assert.ok(!scene.includes('spawnAlly(dino.id, Date.now())'), 'the bare spawnAlly call that threw is gone');
+  });
+
+  it('summon keeps the item in the pack and flips its state', () => {
+    assert.ok(scene.includes('summonDinoRef.current'), 'summon runs scene-side');
+    assert.ok(scene.includes('setDinoItemState(r.items || [], dinoId, DINO_STATE_OUT)'), 'summon flips state to out');
+    assert.ok(!scene.includes('items: (r.items || []).filter((it) => it !== dinoItem)'), 'summon no longer removes the item');
+  });
+
+  it('sending home routes through recall and puts the dino on its land', () => {
+    assert.ok(scene.includes('recallDinoRef.current'), 'recall runs scene-side');
+    assert.ok(scene.includes("mode: 'home'"), 'home dinos spawn in home mode');
+    assert.ok(scene.includes('PARCEL_SHRINK_SCALE'), 'home dinos render miniature, like builds');
+    assert.ok(scene.includes('driveHomeAllies(dt)'), 'home dinos graze on their own tick');
+    assert.ok(scene.includes("ally.mode === 'home'"), 'follow logic skips home dinos');
+  });
+
+  it('raised dinos restore on mount from the backpack record', () => {
+    assert.ok(scene.includes('Raised dinos restore on mount'), 'restore is explicit');
+    assert.ok(scene.includes('DINO_STATE_OUT'), 'out dinos rejoin the walker');
+    assert.ok(scene.includes("mode: 'home', homeX: spot.x, homeZ: spot.z"), 'home dinos return to their land');
+    assert.ok(scene.includes('homeSpotFor(c, dinoId)'), 'home spots are deterministic');
+    assert.ok(scene.includes('parcelCenterWorld(parcel)'), 'home is the parcel center');
+  });
+
+  it('the HUD lists only the hunting party', () => {
+    assert.ok(scene.includes("allies.filter((a) => a.mode !== 'home')"), 'home dinos stay out of the Allies line');
+    assert.ok(scene.includes('syncAllyHud()'), 'the HUD refreshes on every ally change');
+  });
+});
+
+describe('egg stealing is reachable (Merlin, 2026-11-14)', () => {
+  it('the steal reach is 6 m — forgiving when a parent mills near the ring', () => {
+    assert.equal(STEAL_REACH_M, 6);
+  });
+
+  it('a walker at the ring is in reach; a walker 7 m off is not', () => {
+    const nest = makeNest('nest-stegosaurus', 'stegosaurus', 100, 100, -1);
+    assert.equal(isNestInStealReach(101, 100, nest), true, 'a metre from the egg');
+    assert.equal(isNestInStealReach(105, 100, nest), true, '5 m — inside the reach');
+    assert.equal(isNestInStealReach(107, 100, nest), false, '7 m — too far');
+  });
+
+  it('a raided or empty nest is never in reach', () => {
+    const nest = makeNest('nest-stegosaurus', 'stegosaurus', 100, 100, -1);
+    assert.equal(isNestInStealReach(100, 100, { ...nest, raided: true }), false);
+    assert.equal(isNestInStealReach(100, 100, { ...nest, eggs: 0 }), false);
+  });
+});
+
+describe('the steal prompt is wired into the scene (Merlin, 2026-11-14)', () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const scene = readFileSync(join(here, '..', 'components', 'earth2', 'Earth2World.jsx'), 'utf8');
+
+  it('the prompt button lives at top level, not inside the collapsible CONTROLS panel', () => {
+    // ROOT CAUSE (proven by Merlin's two videos + the code): the
+    // button lived ONLY inside the CONTROLS (actions) E2Panel, and
+    // E2Panel unmounts its body when shrunk — {!collapsed && <div>
+    // {children}</div>}. On his phone the panel sat shrunk to its
+    // orb, so the button never rendered no matter how close he
+    // stood. The prompt must live outside that panel.
+    const panelOpen = scene.indexOf('layout={panelLayout.actions}');
+    assert.ok(panelOpen >= 0, 'the CONTROLS panel exists');
+    const panelClose = scene.indexOf('</E2Panel>', panelOpen);
+    assert.ok(panelClose > panelOpen, 'the panel closes');
+    const panelBody = scene.slice(panelOpen, panelClose);
+    assert.ok(!panelBody.includes('stealPrompt'), 'no steal prompt inside the collapsible panel');
+    assert.ok(scene.includes('STEAL PROMPT — TOP LEVEL'), 'the prompt renders at top level with its why');
+    assert.ok(scene.includes("stealPrompt && !driving && !buildMode"), 'the top-level prompt shows on foot only');
+  });
+
+  it('the steal tick uses the 6 m reach law, not the old 4 m literal', () => {
+    assert.ok(scene.includes('isNestInStealReach(walker.x, walker.z, nest)'), 'the tick reads the reach law');
+    assert.ok(!scene.includes('d < 4 && d < nearestD'), 'the old 4 m literal is gone');
+    assert.ok(scene.includes('STEAL_REACH_M'), 'the reach constant is imported');
+  });
+
+  it('tapping the egg steals it — the click Merlin tried first', () => {
+    assert.ok(scene.includes('...nests.map((n) => n.group)'), 'nest groups are tap targets');
+    assert.ok(scene.includes('group.userData.nestRef = record'), 'each nest group carries its record');
+    assert.ok(scene.includes('stealEggRef.current(tappedNest.id)'), 'an in-reach tap steals straight in');
+    assert.ok(scene.includes('Too far — walk up to the nest to steal the egg.'), 'an out-of-reach tap says so');
+    assert.ok(scene.includes('This nest is empty.'), 'an empty nest says so');
+  });
+
+  it('the steal handler takes a nest id from a tap, not just the live prompt', () => {
+    assert.ok(scene.includes('stealEggRef.current = async (nestId)'), 'the handler accepts a nest id');
+    assert.ok(scene.includes('stealPromptRef.current && stealPromptRef.current.nestId'), 'the button still resolves through the prompt');
   });
 });

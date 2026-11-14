@@ -41,6 +41,11 @@ import PortalGunCard from '@/components/PortalGunCard';
 const RETICLE_GLYPH = { crosshair: '✛', dot: '•', chevron: '»' };
 
 const KIND_GROUPS = [
+  // Raised dinos ride first (Merlin, 2026-11-14): they are the
+  // only entries you summon — the state line says where each one
+  // is (with you / at home / in the pack) and the tap summons or
+  // sends it home.
+  { kind: 'dino', label: 'Raised dinos', icon: '🦖' },
   { kind: 'material', label: 'Materials', icon: '🧪' },
   { kind: 'collectible', label: 'Collectibles', icon: '💠' },
   { kind: 'consumable', label: 'Consumables', icon: '🧴' },
@@ -91,8 +96,14 @@ function weaponLine(entry) {
  *     blank area of the backpack dialog's header row closes it
  *     (its minimized state); the close button and the title
  *     text keep their own behaviour.
+ *   onDinoSummon: raised dinos summon through this (the realm
+ *     spawns the dino beside the walker). onDinoRecall: the
+ *     matching send-home (the realm despawns it and the record
+ *     flips home / pack). A realm that passes neither shows its
+ *     dinos as plain rows — the record still travels with the
+ *     pack, and the next realm with a spawner can summon them.
  */
-export default function BackpackHud({ realm, realmLabel, combatApplies = false, displayNote = null, docked = false, homeFractions = null, headerDeadSpaceMinimize = false, onDinoSummon = null }) {
+export default function BackpackHud({ realm, realmLabel, combatApplies = false, displayNote = null, docked = false, homeFractions = null, headerDeadSpaceMinimize = false, onDinoSummon = null, onDinoRecall = null }) {
   const record = useBackpack();
   const [open, setOpen] = useState(false);
   const equipped = equippedWeaponEntry(record);
@@ -481,20 +492,38 @@ export default function BackpackHud({ realm, realmLabel, combatApplies = false, 
                 <div key={g.kind} style={{ marginTop: 10 }}>
                   <div style={{ fontWeight: 700, fontSize: 13 }}>{g.icon} {g.label}</div>
                   {items.map((it) => {
-                    // DINO SUMMON (Merlin, 2026-11-03): tapping a dino
-                    // in the backpack summons it to your side on the map.
-                    const isDino = it.kind === 'dino' && onDinoSummon;
+                    // DINO SUMMON (Merlin, 2026-11-03; recall
+                    // 2026-11-14): a raised dino summons from the
+                    // backpack to your side, and sends home again.
+                    // The row says where it is; the tap does the
+                    // move its state allows. Dinosaurs are
+                    // individuals (qty 1) — no × count on the row.
+                    const isDino = it.kind === 'dino';
+                    const dinoState = isDino && it.meta && typeof it.meta.state === 'string' ? it.meta.state : 'pack';
+                    const canSummon = isDino && dinoState !== 'out' && typeof onDinoSummon === 'function';
+                    const canRecall = isDino && dinoState === 'out' && typeof onDinoRecall === 'function';
+                    const dinoAction = canSummon ? 'summon' : canRecall ? 'recall' : null;
+                    const dinoNote = !isDino ? '' : dinoState === 'out'
+                      ? ' — with you'
+                      : dinoState === 'home'
+                        ? ` — at home on ${it.meta.homeParcelId || 'your land'}`
+                        : ' — in your pack';
+                    const dinoHint = dinoAction === 'summon'
+                      ? ' · tap to summon'
+                      : dinoAction === 'recall'
+                        ? ' · tap to send home'
+                        : '';
                     return (
                       <div
                         key={it.uid}
                         style={{
                           fontSize: 13, opacity: 0.85, padding: '0.15rem 0',
-                          ...(isDino ? { cursor: 'pointer', color: '#6ee7b7', fontWeight: 700 } : {}),
+                          ...(dinoAction ? { cursor: 'pointer', color: '#6ee7b7', fontWeight: 700 } : {}),
                         }}
-                        onClick={isDino ? () => onDinoSummon(it) : undefined}
+                        onClick={dinoAction === 'summon' ? () => onDinoSummon(it) : dinoAction === 'recall' ? () => onDinoRecall(it) : undefined}
                       >
-                        {isDino ? '🦖 ' : ''}{it.name} × {it.qty}
-                        {isDino && <span style={{ fontSize: 11, opacity: 0.7 }}> — tap to summon</span>}
+                        {isDino ? '🦖 ' : ''}{it.name}{isDino ? '' : ` × ${it.qty}`}
+                        {isDino && <span style={{ fontSize: 11, opacity: 0.7 }}>{dinoNote}{dinoHint}</span>}
                       </div>
                     );
                   })}

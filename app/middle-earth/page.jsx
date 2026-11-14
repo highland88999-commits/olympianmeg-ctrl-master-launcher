@@ -31,7 +31,9 @@ import {
 } from './orcs';
 import { damageBoss, bossSlowFactor, bossPhase } from './boss';
 import { RETICLE_BY_CLASS, equippedDamageForSlot, equippedReticleForSlot, equippedWeaponEntry } from '../../lib/backpack/backpack.js';
-import { updateBackpack, useBackpack } from '../../lib/backpack/store.js';
+import { getBackpackRecord, updateBackpack, useBackpack } from '../../lib/backpack/store.js';
+import { spawnCompanion, updateCompanions, removeCompanion, hasCompanion } from '../../lib/dino-companion.js';
+import { isDinoItem, dinoIdOf, dinoDisplayName, DINO_STATE_OUT, DINO_STATE_HOME, DINO_STATE_PACK, setDinoItemState } from '../../lib/earth2/breeding.js';
 import BackpackHud from '@/components/backpack/BackpackHud';
 import { createWalker, stepWalker, applyLook } from '@/lib/world/walk-controls';
 import { followCameraPose } from '@/lib/world/follow-camera';
@@ -77,6 +79,12 @@ export default function MiddleEarthPage() {
   const toastTimer = useRef(null);
   const introRef = useRef(false);
   const hunterRef = useRef(null);
+  // DINO COMPANIONS (Merlin, 2026-11-14): raised dinos ride the
+  // backpack across realms — the zone spawns 'out' dinos beside
+  // the walker and follows them; the HUD summons/recalls through
+  // dinoApiRef (the scene lives in the zone effect).
+  const companionsRef = useRef([]);
+  const dinoApiRef = useRef(null);
   const weaponRef = useRef('melee');
   const heroRef = useRef(null);
   // The backpack's equipped weapon, read at strike time (a ref so
@@ -383,6 +391,49 @@ export default function MiddleEarthPage() {
     const detachers = [];
     const spawn = zone.spawn || { x: 0, z: 95, yaw: Math.PI };
     const walker = createWalker({ x: spawn.x, z: spawn.z, yaw: spawn.yaw || 0, pitch: 0 });
+
+    // ── Dino companions (Merlin, 2026-11-14) ───────────────
+    // Raised dinos ride the backpack: 'out' dinos from the pack
+    // join the walker here, and the HUD summons/recalls through
+    // dinoApiRef. The record is the truth — the zone only renders
+    // it, so a dino follows its user across realms.
+    const companions = companionsRef.current;
+    const summonDino = async (dinoItem) => {
+      const species = dinoItem && dinoItem.meta ? dinoItem.meta.species : null;
+      if (!species) return;
+      const dinoId = dinoIdOf(dinoItem);
+      if (hasCompanion(companions, dinoId)) return;
+      const handle = await spawnCompanion({
+        scene, walker, groundHeight: zone.groundHeight,
+        species, bornAt: dinoItem.meta.bornAt || Date.now(), dinoId,
+      }).catch(() => null);
+      if (!handle || cancelled) return;
+      companions.push(handle);
+      updateBackpack((r) => ({ ...r, items: setDinoItemState(r.items || [], dinoId, DINO_STATE_OUT) }));
+      showToast(`🦖 ${dinoDisplayName(species)} joins you!`);
+    };
+    const recallDino = (dinoItem) => {
+      const species = dinoItem && dinoItem.meta ? dinoItem.meta.species : null;
+      if (!species) return;
+      const dinoId = dinoIdOf(dinoItem);
+      removeCompanion(companions, dinoId);
+      const homeParcelId = (dinoItem.meta && dinoItem.meta.homeParcelId) || null;
+      const state = homeParcelId ? DINO_STATE_HOME : DINO_STATE_PACK;
+      updateBackpack((r) => ({ ...r, items: setDinoItemState(r.items || [], dinoId, state, homeParcelId) }));
+      showToast(homeParcelId
+        ? `🦖 ${dinoDisplayName(species)} heads home to ${homeParcelId}.`
+        : `🦖 ${dinoDisplayName(species)} returns to your backpack.`);
+    };
+    dinoApiRef.current = { summon: summonDino, recall: recallDino };
+    // Restore: 'out' dinos from the pack join the walker here.
+    {
+      let rec = null;
+      try { rec = getBackpackRecord(); } catch { rec = null; }
+      for (const it of (rec && rec.items) || []) {
+        if (isDinoItem(it) && it.meta.state === DINO_STATE_OUT) void summonDino(it);
+      }
+    }
+
     const keys = createKeyInput();
     keys.attach();
     detachers.push(() => keys.detach());
@@ -697,6 +748,8 @@ export default function MiddleEarthPage() {
         b.mesh.material.opacity = Math.max(0, b.life / 0.6);
       }
 
+      // Dino companions follow the walker (their own step).
+      updateCompanions(companions, dt);
       zone.update(t, dt);
       renderer.render(scene, camera);
       raf = requestAnimationFrame(frame);
@@ -718,6 +771,10 @@ export default function MiddleEarthPage() {
         setCampaign(nc);
       } catch (e) { /* noop */ }
       try { zone.dispose(); } catch (e) { /* noop */ }
+      // Dino companions leave with the zone; the record keeps
+      // their state, so they rejoin in the next realm.
+      for (const h of companionsRef.current.splice(0)) { try { h.dispose(); } catch (e) { /* noop */ } }
+      dinoApiRef.current = null;
       scene.remove(zone.group);
       for (const b of blasts) {
         scene.remove(b.mesh);
@@ -982,7 +1039,9 @@ export default function MiddleEarthPage() {
               {hero.rangedLabel}
             </button>
             <span style={styles.killsChip}>⚔ {campaign.totalKills}</span>
-            <BackpackHud realm="middle-earth" realmLabel="Middle-earth" combatApplies docked />
+            <BackpackHud realm="middle-earth" realmLabel="Middle-earth" combatApplies docked
+              onDinoSummon={(it) => { if (dinoApiRef.current) dinoApiRef.current.summon(it); }}
+              onDinoRecall={(it) => { if (dinoApiRef.current) dinoApiRef.current.recall(it); }} />
           </div>
 
           {/* touch actions: the right-thumb column — strike, jump,

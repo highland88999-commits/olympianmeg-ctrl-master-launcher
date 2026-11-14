@@ -40,7 +40,9 @@ import {
 } from './spawns.js';
 import { RETICLE_BY_CLASS, equippedDamageForSlot, equippedReticleForSlot, equippedWeaponEntry } from '../../lib/backpack/backpack.js';
 import { boltKindFor, BOLT_STYLE, BOLT_SPEED, BOLT_MAX_LIFE } from './bolt-visual.js';
-import { updateBackpack, useBackpack } from '../../lib/backpack/store.js';
+import { updateBackpack, useBackpack, getBackpackRecord } from '../../lib/backpack/store.js';
+import { spawnCompanion, updateCompanions, removeCompanion, hasCompanion } from '../../lib/dino-companion.js';
+import { isDinoItem, dinoIdOf, dinoDisplayName, DINO_STATE_OUT, DINO_STATE_HOME, DINO_STATE_PACK, setDinoItemState } from '../../lib/earth2/breeding.js';
 import BackpackHud from '@/components/backpack/BackpackHud';
 import { roarToneFor, GHORRUM_LAUGH_TONE } from './behavior.js';
 import { playRoarTone } from './roar-audio.js';
@@ -71,6 +73,12 @@ export default function HollowEarthPage() {
   const joyRef = useRef({ x: 0, y: 0 });
   const worldRef = useRef(null);
   const walkerRef = useRef(null);
+  // DINO COMPANIONS (Merlin, 2026-11-14): raised dinos ride the
+  // backpack across realms — the world spawns 'out' dinos beside
+  // the walker and follows them; the HUD summons/recalls through
+  // dinoApiRef (the scene lives in the world effect).
+  const companionsRef = useRef([]);
+  const dinoApiRef = useRef(null);
   const hunterRef = useRef(null);
   const heroFigRef = useRef(null);
   const toastTimer = useRef(null);
@@ -219,6 +227,48 @@ export default function HollowEarthPage() {
     });
     worldRef.current = world;
     scene.add(world.group);
+
+    // ── Dino companions (Merlin, 2026-11-14) ───────────────
+    // Raised dinos ride the backpack: 'out' dinos from the pack
+    // join the walker here, and the HUD summons/recalls through
+    // dinoApiRef. The record is the truth — the world only
+    // renders it, so a dino follows its user across realms.
+    const companions = companionsRef.current;
+    const summonDino = async (dinoItem) => {
+      const species = dinoItem && dinoItem.meta ? dinoItem.meta.species : null;
+      if (!species) return;
+      const dinoId = dinoIdOf(dinoItem);
+      if (hasCompanion(companions, dinoId)) return;
+      const handle = await spawnCompanion({
+        scene, walker, groundHeight: world.groundHeight,
+        species, bornAt: dinoItem.meta.bornAt || Date.now(), dinoId,
+      }).catch(() => null);
+      if (!handle || !walkerRef.current) return;
+      companions.push(handle);
+      updateBackpack((r) => ({ ...r, items: setDinoItemState(r.items || [], dinoId, DINO_STATE_OUT) }));
+      notice(`🦖 ${dinoDisplayName(species)} joins you!`);
+    };
+    const recallDino = (dinoItem) => {
+      const species = dinoItem && dinoItem.meta ? dinoItem.meta.species : null;
+      if (!species) return;
+      const dinoId = dinoIdOf(dinoItem);
+      removeCompanion(companions, dinoId);
+      const homeParcelId = (dinoItem.meta && dinoItem.meta.homeParcelId) || null;
+      const state = homeParcelId ? DINO_STATE_HOME : DINO_STATE_PACK;
+      updateBackpack((r) => ({ ...r, items: setDinoItemState(r.items || [], dinoId, state, homeParcelId) }));
+      notice(homeParcelId
+        ? `🦖 ${dinoDisplayName(species)} heads home to ${homeParcelId}.`
+        : `🦖 ${dinoDisplayName(species)} returns to your backpack.`);
+    };
+    dinoApiRef.current = { summon: summonDino, recall: recallDino };
+    // Restore: 'out' dinos from the pack join the walker here.
+    {
+      let rec = null;
+      try { rec = getBackpackRecord(); } catch { rec = null; }
+      for (const it of (rec && rec.items) || []) {
+        if (isDinoItem(it) && it.meta.state === DINO_STATE_OUT) void summonDino(it);
+      }
+    }
 
     // The hunter's own figure, third-person follow: a small
     // stand-in trailing the walker so the hero is visible.
@@ -452,6 +502,8 @@ export default function HollowEarthPage() {
       // re-entry.
       if (DATA.gateOpen(campaignRef.current) && world.korus.dormant) world.korus.dormant = false;
       world.update(dt);
+      // Dino companions follow the walker (their own step).
+      updateCompanions(companions, dt);
       // Elemental sky: the sun/moon cycle + smoke haze retint
       // the sky and fog each frame (zone-owned colors).
       const cyc = world.cycleColors && world.cycleColors();
@@ -567,6 +619,10 @@ export default function HollowEarthPage() {
       for (const fx of impacts) { try { scene.remove(fx.mesh); fx.mesh.geometry.dispose(); fx.mesh.material.dispose(); } catch (e) { /* noop */ } }
       impacts.length = 0;
       if (dmgFlashTimer.current) clearTimeout(dmgFlashTimer.current);
+      // Dino companions leave with the world; the record keeps
+      // their state, so they rejoin in the next realm.
+      for (const h of companionsRef.current.splice(0)) { try { h.dispose(); } catch (e) { /* noop */ } }
+      dinoApiRef.current = null;
       renderer.dispose();
       worldRef.current = null;
       walkerRef.current = null;
@@ -764,7 +820,9 @@ export default function HollowEarthPage() {
         {/* The backpack's home: docked NEXT TO the main bar (a
             sibling of the pill, not inside it, so the 56px circle
             never stretches the pill) — same row, same gap. */}
-        <BackpackHud realm="hollow-earth" realmLabel="the Monsterverse" combatApplies docked />
+        <BackpackHud realm="hollow-earth" realmLabel="the Monsterverse" combatApplies docked
+          onDinoSummon={(it) => { if (dinoApiRef.current) dinoApiRef.current.summon(it); }}
+          onDinoRecall={(it) => { if (dinoApiRef.current) dinoApiRef.current.recall(it); }} />
         <div style={{ position: 'absolute', bottom: '4.5rem', left: '0.75rem' }}>
           <WalkJoystick size={118} onMove={(x, y) => { joyRef.current.x = x; joyRef.current.y = y; }} />
         </div>
