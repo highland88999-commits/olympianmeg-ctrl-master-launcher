@@ -140,6 +140,7 @@ export const SATELLITES: SatelliteEntry[] = [
   { key: "nav", route: "/nav", pos: "NAV", section: "GAMES", constellation: "ZEUS" },
   { key: "orun", route: "/orun", pos: "ORUN", section: "GAMES", constellation: "ZEUS" },
   { key: "new-earth", route: "/new-earth", pos: "HEPHAESTUS", section: "OBSERVATORY", constellation: "ARGUS" },
+  { key: "earth-4", route: "/earth-4", pos: "HEPHAESTUS", section: "OBSERVATORY", constellation: "ARGUS" },
   { key: "notepad", route: "/notepad", pos: "UTILITIES", section: "UTILITIES", constellation: "ARES" },
   { key: "calculator", route: "/calculator", pos: "UTILITIES", section: "UTILITIES", constellation: "ARES" },
   { key: "calendar", route: "/calendar", pos: "UTILITIES", section: "UTILITIES", constellation: "ARES" },
