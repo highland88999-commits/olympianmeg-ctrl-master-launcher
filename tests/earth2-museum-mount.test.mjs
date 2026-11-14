@@ -89,10 +89,10 @@ describe('the manifest — the museum and the founder behind the sealed door', (
     assert.ok(earth2ModelKeys().includes('hammond.glb'));
   });
 
-  it('delivery resolves ONLY through a signed URL — no public fallback', () => {
+  it('delivery resolves through a signed URL first, then the public fallback (fallback ON, 2026-11-13 — the seal flips back once the bucket is verified stocked and the public files are deleted)', () => {
     const museum = EARTH2_MODEL_BY_SLUG.get('museum');
-    assert.equal(EARTH2_PUBLIC_FALLBACK, false, 'the seal stands');
-    assert.equal(earth2ModelUrl(museum, null), null, 'no signed map, no model');
+    assert.equal(EARTH2_PUBLIC_FALLBACK, true, 'the fallback is the recovery path');
+    assert.equal(earth2ModelUrl(museum, null), museum.file, 'no signed map, fall back to the public file');
     assert.equal(
       earth2ModelUrl(museum, { 'museum.glb': 'https://signed.example/museum.glb' }),
       'https://signed.example/museum.glb',

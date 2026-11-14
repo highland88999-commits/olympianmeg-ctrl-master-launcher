@@ -1067,6 +1067,7 @@ function HubScene({
   onSunClick,
   onSunPullDone,
   sunPullRef,
+  onMoonClick,
   onContextLost,
   vgogh,
 }) {
@@ -1232,7 +1233,12 @@ function HubScene({
                 repair): its Billboard label bled through the street
                 sky as a faint "MOON" in Merlin's footage — same gate
                 as NavBeacons below, orbit views keep it. */}
-            {!['diving_to_street', 'earth_roam'].includes(appState) && <HubMoon />}
+            {!['diving_to_street', 'earth_roam'].includes(appState) && (
+              <HubMoon
+                freeroam={appState === 'hub_freeroam' || appState === 'on_bike'}
+                onSelect={appState === 'hub_freeroam' || appState === 'on_bike' ? onMoonClick : null}
+              />
+            )}
             {!['diving_to_street', 'earth_roam'].includes(appState) && <AsteroidField />}
             {/* Occasional twin-panel fighter fly-throughs across the
                 front vista (Merlin, 2026-10-23) — the lane, schedule

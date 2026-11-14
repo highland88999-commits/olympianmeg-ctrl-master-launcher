@@ -45,6 +45,12 @@ import {
   resolveFlightCollision,
 } from '../lib/hub-collision.js';
 import {
+  TOWER_BOX_HALF_SIDE,
+  towerCornerRadius,
+  towerFixedYaw,
+  pointToTowerBoxDistance,
+} from '../lib/tower-collider.js';
+import {
   createBikeFlightState,
   stepBikeFlight,
   bikeForward,
@@ -107,7 +113,10 @@ t(
   // Same no-crowding invariant, new direction: the satellites'
   // doubled flight colliders (110 + 22 reach) clear the innermost
   // planet's flight surface (195 − (11.8 hull + 1.8 collider pad)).
-  TOWER_ORBIT_RADIUS + 22 < GOD_BANDS[0].radius - (11.8 + 1.8)
+  // 2026-11-13 (billboards out): the towers wear oriented boxes now,
+  // so the reach is the box's outer corner radius, not R + 22 —
+  // lib/tower-collider.js towerCornerRadius.
+  towerCornerRadius(TOWER_ORBIT_RADIUS) < GOD_BANDS[0].radius - (11.8 + 1.8)
 );
 t(
   'parked bike stays clear of every tower collider (nearest is the on-axis tower)',
@@ -117,9 +126,12 @@ t(
   // guarantees is clearance: GodTower's collider doubled with the
   // towers (radius 22), and the bike parks 35 from that tower's
   // center — 13 clear of its collider surface.
+  // 2026-11-13 (billboards out): the towers wear oriented boxes now,
+  // so clearance is the point-to-box distance, not a sphere radius —
+  // lib/tower-collider.js pointToTowerBoxDistance.
   (() => {
     const bike = { x: BIKE_PARK_POS[0], y: BIKE_PARK_POS[1], z: BIKE_PARK_POS[2] };
-    return towerPositions.every((p) => dist3(P(p), bike) > 22);
+    return towerPositions.every((p) => pointToTowerBoxDistance(bike, p, towerFixedYaw(p)) > 0);
   })()
 );
 t(
@@ -144,10 +156,11 @@ t(
   // when the bands were the innermost ring. The planets now orbit at
   // 195–231, OUTSIDE the satellites; the bike is a hub fixture and
   // anchors to the satellite ring instead — just past the towers'
-  // doubled collider reach (110 + 22 = 132), within 15 of it.
+  // box-face reach (159.11 + 16.77 = 175.88), within 15 of it.
+  // 2026-11-13 (billboards out): the reach is the box face, not R + 22.
   (() => {
     const park = ORBIT_CENTER.z - BIKE_PARK_POS[2];
-    const reach = TOWER_ORBIT_RADIUS + 22;
+    const reach = TOWER_ORBIT_RADIUS + TOWER_BOX_HALF_SIDE;
     return park > reach && park < reach + 15;
   })()
 );
@@ -441,7 +454,7 @@ t('GodTower labels itself with the god name (billboard + hull)',
 t('GodTower takes the god color for name, panel backing, and buttons',
   gtSrc.includes('color={color}') && gtSrc.includes('btnHovered ? "#ffffff" : color'));
 t('GodTower registers its own solid collider',
-  gtSrc.includes('registerCollider(`tower-${god}`'));
+  gtSrc.includes('registerBoxCollider(') && gtSrc.includes('`tower-${god}`'));
 t('GodTower is memoized around the ad inventory',
   gtSrc.includes('export default memo(GodTower)'));
 const hsSrc2 = stripComments(readFileSync('components/HomeScene.jsx', 'utf8'));

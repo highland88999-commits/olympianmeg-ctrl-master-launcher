@@ -1,20 +1,27 @@
 // tests/tower-ring-spacing.test.mjs
-// The god towers moved OUT (Merlin, 2026-11-13: "move the god towers
-// out further, enough space for them to get by"). At ring 110 the 24
-// towers were 30.3 wide on 28.7 centres — overlapping each other with
-// no space between them at all. At ring 150 the chord is ~39.1,
-// leaving ~8.8 of clear space between adjacent tower boxes.
+// The god towers moved OUT — twice (Merlin, 2026-11-13). First 110 → 150
+// ("move the god towers out further, enough space for them to get by"):
+// at 110 the 24 towers were 30.3 wide on 28.7 centres — overlapping
+// each other with no space between them at all. At 150 the chord is
+// ~39.1, leaving ~8.8 of clear space between adjacent tower boxes —
+// but the towers still wore 3 sphere colliders r26 each, which
+// overlapped by 12.84 and formed a continuous wall: users could not
+// pass between the towers at all.
 //
-// 150 is the LARGEST radius that keeps the hub intact: the tower band
-// (150 + 22 = 172) must stay inside the innermost planet lane's
-// flight surface (195 − (11.8 hull + 1.8 pad) = 181.4), per
-// tests/hub-travel.test.js — any further out and the towers stand in
-// the satellite lanes. A fly-through gap between the towers (flight
-// colliders clear) would need a ring past 240, which breaks the
-// planets, Mars and the ads' readability from spawn — so this move
-// buys real daylight between the towers, not a flight lane through
-// them; the bike park moves with the ring (145 → 175) so the parked
-// bike stays clear of the nearest tower and of the planet lanes.
+// Then 150 → 159.11 (Merlin: "move the billboards further out ... I
+// need enough space for users to easily pass between them to explore
+// other places", refined: "perfect the geometry"): the towers stop
+// spinning, hold a fixed yaw square to the ring, and wear ONE oriented
+// box collider each (lib/tower-collider.js) — the box fits the square
+// body, so the gap between adjacent boxes is exactly the chord minus
+// the box width: an even 8.00 between every pair (5.60 spare for the
+// flyer at r1.2, 2.00 for the bike at r3.0). The planet lanes stay at
+// 195–231 — they cannot move out (planet 23 would hit Mars; sampled
+// over a full assembly rotation, 1440 steps, even +5.83 on the lanes
+// drops its Mars clearance to 56.89, below the 58 gate). The bike
+// park moves with the ring (175 → 178.09), centred in the window
+// between the tower boxes (175.88) and the innermost planet lane's
+// accent ring (180.30).
 //
 // Run: node --test tests/tower-ring-spacing.test.mjs (from the repo root)
 
@@ -38,6 +45,18 @@ import { SUN_CENTER, SUN_RADIUS } from '../lib/omega-arch.js';
 import { GOD_TOWER_SPOTS, TOWER_ORBIT_RADIUS } from '../lib/home-positions.js';
 import { TOWER_BAND, PLANET_BAND } from '../lib/hub-flight.js';
 import { PANEL_SCALE } from '../lib/tower-panels.js';
+import {
+  TOWER_BOX_HALF_SIDE,
+  TOWER_BOX_Y_CENTER,
+  TOWER_BOX_Y_HALF,
+  TOWER_GAP_TARGET,
+  towerChord,
+  towerGap,
+  towerCornerRadius,
+  towerInnerCornerRadius,
+  towerFixedYaw,
+  pointToTowerBoxDistance,
+} from '../lib/tower-collider.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, '..');
@@ -53,75 +72,178 @@ const GROUP_SCALE = parseFloat(scaleMatch[1]);
 
 const FACE_W = 12.64;
 const FACE_OFFSET = 0.24; // face mesh z inside TowerAdPanel
+const FLYER_R = 1.2; // HomeScene flyer radius
+const BIKE_R = 3.0; // HomeScene bike radius
 const SAT_RADIUS = 11.8; // GodOrbitRings SAT_RADIUS
 const SAT_RING_OUTER = SAT_RADIUS + 2.48 + 0.42; // accent torus + tube
-const TOWER_FLIGHT_R = 22; // GodTower flight collider / TOWER_BAND half-width
-const TOWER_COMPONENT_R = 26; // GodTower registerCollider radius (post billboard fix)
 
 const dist3 = (a, b) =>
   Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 const P = (arr) => ({ x: arr[0], y: arr[1], z: arr[2] });
 
-// Face plane distance from the tower axis (group units), corner
-// distance (group units), then world units via the group scale.
+// Face plane distance from the tower axis (group units), then world
+// units via the group scale — the box half-side by construction.
 const facePlane = MOUNT + FACE_OFFSET * PANEL_SCALE;
-const cornerGroup = facePlane * Math.SQRT2;
-const cornerWorld = cornerGroup * GROUP_SCALE;
+const boxHalfSide = facePlane * GROUP_SCALE;
 const faceWidthWorld = FACE_W * PANEL_SCALE * GROUP_SCALE;
 
 // Chord between adjacent tower centres (24 towers, evenly spaced).
-const chord =
-  2 * TOWER_ORBIT_RADIUS * Math.sin(Math.PI / GOD_TOWER_SPOTS.length);
+const chord = towerChord(TOWER_ORBIT_RADIUS);
 
-describe('tower ring spacing (moved out 110 -> 150)', () => {
-  it('ring radius is 150 and the bike park moved with it to 175', () => {
-    assert.equal(TOWER_ORBIT_RADIUS, 150);
-    assert.equal(BIKE_PARK_RADIUS, 175);
-  });
-
-  it('adjacent tower boxes stand apart with ~8.8 of clear space', () => {
-    const gap = chord - faceWidthWorld;
+describe('tower ring spacing (moved out 150 -> 159.11, box colliders)', () => {
+  it('box half-side matches the live face plane (mount + offset, scaled)', () => {
     assert.ok(
-      gap >= 8,
-      `chord ${chord.toFixed(2)} - face width ${faceWidthWorld.toFixed(2)} = ${gap.toFixed(2)}`
+      Math.abs(TOWER_BOX_HALF_SIDE - boxHalfSide) < 0.001,
+      `module ${TOWER_BOX_HALF_SIDE} vs source ${boxHalfSide.toFixed(3)}`
     );
   });
 
-  it('tower corners clear the innermost planet lane (accent ring)', () => {
-    const innerLaneEdge = GOD_BANDS[0].radius - SAT_RING_OUTER;
-    const towerOuter = TOWER_ORBIT_RADIUS + cornerWorld;
+  it('ring radius is 159.11 and the bike park moved with it to 178.09', () => {
+    assert.equal(TOWER_ORBIT_RADIUS, 159.11);
+    assert.equal(BIKE_PARK_RADIUS, 178.09);
+  });
+
+  it('clear gap between adjacent tower boxes is exactly 8.00', () => {
+    const gap = towerGap(TOWER_ORBIT_RADIUS);
     assert.ok(
-      towerOuter < innerLaneEdge,
-      `tower corner ${towerOuter.toFixed(2)} vs lane edge ${innerLaneEdge.toFixed(2)}`
+      Math.abs(gap - TOWER_GAP_TARGET) < 0.01,
+      `chord ${chord.toFixed(2)} - box width ${(2 * TOWER_BOX_HALF_SIDE).toFixed(2)} = ${gap.toFixed(2)}`
     );
   });
 
-  it('tower band stays inside the innermost planet flight surface', () => {
-    assert.equal(TOWER_BAND.inner, TOWER_ORBIT_RADIUS - TOWER_FLIGHT_R);
-    assert.equal(TOWER_BAND.outer, TOWER_ORBIT_RADIUS + TOWER_FLIGHT_R);
-    assert.ok(TOWER_BAND.outer < PLANET_BAND.inner);
-    assert.ok(
-      TOWER_ORBIT_RADIUS + TOWER_FLIGHT_R <
-        GOD_BANDS[0].radius - (SAT_RADIUS + 1.8)
-    );
-  });
-
-  it('parked bike clears every tower collider (component radius 26)', () => {
-    const bike = P(BIKE_PARK_POS);
-    for (const s of GOD_TOWER_SPOTS) {
-      const d = dist3(P(s.pos), bike);
+  it('the 8.00 gap is even across all 24 adjacent pairs', () => {
+    for (let i = 0; i < GOD_TOWER_SPOTS.length; i++) {
+      const a = P(GOD_TOWER_SPOTS[i].pos);
+      const b = P(GOD_TOWER_SPOTS[(i + 1) % GOD_TOWER_SPOTS.length].pos);
+      const pairChord = dist3(a, b);
+      const pairGap = pairChord - 2 * TOWER_BOX_HALF_SIDE;
       assert.ok(
-        d > TOWER_COMPONENT_R,
-        `${s.god} tower ${d.toFixed(2)} from bike`
+        Math.abs(pairGap - TOWER_GAP_TARGET) < 0.01,
+        `pair ${i}-${(i + 1) % 24}: chord ${pairChord.toFixed(2)} gap ${pairGap.toFixed(2)}`
       );
     }
   });
 
-  it('bike parks just outside the tower band, inside the planet lanes', () => {
+  it('flyer and bike both fit the gap with room to spare', () => {
+    const gap = towerGap(TOWER_ORBIT_RADIUS);
+    assert.ok(gap - 2 * FLYER_R >= 5.5, `flyer spare ${(gap - 2 * FLYER_R).toFixed(2)}`);
+    assert.ok(gap - 2 * BIKE_R >= 2.0, `bike spare ${(gap - 2 * BIKE_R).toFixed(2)}`);
+  });
+
+  it('faces stand apart too: 11.20 between adjacent face ends', () => {
+    const gap = chord - faceWidthWorld;
+    assert.ok(
+      Math.abs(gap - 11.2) < 0.01,
+      `chord ${chord.toFixed(2)} - face width ${faceWidthWorld.toFixed(2)} = ${gap.toFixed(2)}`
+    );
+  });
+
+  it('tower box corners clear the innermost planet lane (accent ring)', () => {
+    const innerLaneEdge = GOD_BANDS[0].radius - SAT_RING_OUTER;
+    const towerOuter = towerCornerRadius(TOWER_ORBIT_RADIUS);
+    assert.ok(
+      towerOuter < innerLaneEdge,
+      `tower corner ${towerOuter.toFixed(2)} vs lane edge ${innerLaneEdge.toFixed(2)}`
+    );
+    assert.ok(
+      innerLaneEdge - towerOuter > 3.5,
+      `corner margin ${(innerLaneEdge - towerOuter).toFixed(2)}`
+    );
+  });
+
+  it('tower band is the box footprint and stays inside the planet flight surface', () => {
+    assert.ok(
+      Math.abs(TOWER_BAND.inner - towerInnerCornerRadius(TOWER_ORBIT_RADIUS)) < 0.01,
+      `band inner ${TOWER_BAND.inner.toFixed(2)}`
+    );
+    assert.ok(
+      Math.abs(TOWER_BAND.outer - towerCornerRadius(TOWER_ORBIT_RADIUS)) < 0.01,
+      `band outer ${TOWER_BAND.outer.toFixed(2)}`
+    );
+    assert.ok(TOWER_BAND.outer < PLANET_BAND.inner);
+    assert.ok(
+      TOWER_BAND.outer < GOD_BANDS[0].radius - (SAT_RADIUS + 1.8),
+      `band outer ${TOWER_BAND.outer.toFixed(2)} vs flight surface ${(GOD_BANDS[0].radius - (SAT_RADIUS + 1.8)).toFixed(2)}`
+    );
+  });
+
+  it('GodTower registers one box collider per tower, no spheres', () => {
+    assert.ok(
+      towerSrc.includes('registerBoxCollider(') &&
+        towerSrc.includes('`tower-${god}`'),
+      'box collider registered'
+    );
+    assert.ok(
+      !/(?<![A-Za-z])registerCollider\(`tower-\$\{god\}`/.test(towerSrc),
+      'sphere collider gone (unregisterCollider cleanup does not count)'
+    );
+    assert.ok(
+      !towerSrc.includes('tower-${god}-top') && !towerSrc.includes('tower-${god}-bottom'),
+      'top/bottom spheres gone'
+    );
+    assert.ok(
+      towerSrc.includes('rotation={[0, fixedYaw, 0]}'),
+      'fixed yaw applied to the tower group'
+    );
+    assert.ok(
+      !towerSrc.includes('rotation.y +='),
+      'no more in-place spin'
+    );
+  });
+
+  it('fixed yaw squares each tower to the ring (panel 0 faces the hub centre)', () => {
+    for (const s of GOD_TOWER_SPOTS) {
+      const yaw = towerFixedYaw(s.pos);
+      // Group +Z after yaw must point from the tower at ORBIT_CENTER.
+      const dirX = Math.sin(yaw);
+      const dirZ = Math.cos(yaw);
+      const toCenterX = ORBIT_CENTER.x - s.pos[0];
+      const toCenterZ = ORBIT_CENTER.z - s.pos[2];
+      const len = Math.hypot(toCenterX, toCenterZ);
+      assert.ok(
+        Math.abs(dirX - toCenterX / len) < 0.001 &&
+          Math.abs(dirZ - toCenterZ / len) < 0.001,
+        `${s.god} yaw ${yaw.toFixed(3)}`
+      );
+    }
+  });
+
+  it('box vertical span covers pillar bottom to god-label top, plus the bob', () => {
+    // Pillar bottom −22.5 group (−36.00 world), label top +25.3 group
+    // (+40.48 world), bob ±0.5 — all inside [centre − half, centre + half].
+    const lo = TOWER_BOX_Y_CENTER - TOWER_BOX_Y_HALF;
+    const hi = TOWER_BOX_Y_CENTER + TOWER_BOX_Y_HALF;
+    assert.ok(lo <= -36.0 - 0.5, `box bottom ${lo.toFixed(2)}`);
+    assert.ok(hi >= 40.48 + 0.5, `box top ${hi.toFixed(2)}`);
+  });
+
+  it('parked bike clears every tower box (5+ clear of the nearest)', () => {
+    const bike = P(BIKE_PARK_POS);
+    let min = Infinity;
+    let nearest = '';
+    for (const s of GOD_TOWER_SPOTS) {
+      const d = pointToTowerBoxDistance(bike, s.pos, towerFixedYaw(s.pos));
+      assert.ok(d > 0, `${s.god} tower box contains the bike`);
+      if (d < min) {
+        min = d;
+        nearest = s.god;
+      }
+    }
+    assert.ok(min > 5, `nearest tower box (${nearest}) ${min.toFixed(2)} from bike`);
+  });
+
+  it('bike parks centred between the tower boxes and the planet lanes', () => {
     const park = ORBIT_CENTER.z - BIKE_PARK_POS[2];
-    assert.ok(park > TOWER_ORBIT_RADIUS + TOWER_FLIGHT_R);
-    assert.ok(park < TOWER_ORBIT_RADIUS + TOWER_FLIGHT_R + 15);
-    assert.ok(park < GOD_BANDS[0].radius - SAT_RING_OUTER);
+    const boxReach = TOWER_ORBIT_RADIUS + TOWER_BOX_HALF_SIDE;
+    const laneEdge = GOD_BANDS[0].radius - SAT_RING_OUTER;
+    assert.ok(park > boxReach, `park ${park} vs box reach ${boxReach.toFixed(2)}`);
+    assert.ok(park < laneEdge, `park ${park} vs lane edge ${laneEdge.toFixed(2)}`);
+    const below = park - boxReach;
+    const above = laneEdge - park;
+    assert.ok(
+      Math.abs(below - above) < 0.05,
+      `park centred: ${below.toFixed(2)} below, ${above.toFixed(2)} above`
+    );
   });
 
   it('towers clear Earth, Mars and the Sun', () => {
@@ -132,10 +254,10 @@ describe('tower ring spacing (moved out 110 -> 150)', () => {
     ];
     for (const [name, center, radius] of bodies) {
       for (const s of GOD_TOWER_SPOTS) {
-        const d = dist3(P(s.pos), center);
+        const d = pointToTowerBoxDistance(center, s.pos, towerFixedYaw(s.pos));
         assert.ok(
-          d > radius + TOWER_COMPONENT_R,
-          `${name} vs ${s.god} tower: ${d.toFixed(1)}`
+          d > radius,
+          `${name} vs ${s.god} tower box: ${d.toFixed(1)}`
         );
       }
     }

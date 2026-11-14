@@ -43,6 +43,7 @@ import HubTutorial from '@/components/HubTutorial';
 import PortalRoom from '@/components/PortalRoom';
 import { heavenUnlocked as portalHeavenUnlocked, usePortalProgress } from '@/lib/portal/progress';
 import { SUN_BASE_ROUTE } from '@/lib/sun-base';
+import { MOON_ROUTE } from '@/lib/moon';
 import {
   shouldShowHubTutorial,
   isHubTutorialSeen,
@@ -108,6 +109,13 @@ function NexusHub() {
     setSunFlash(true);
     window.setTimeout(() => router.push(SUN_BASE_ROUTE), 350);
   }, [router]);
+  // MOON LANDING (Merlin, Nov 13, 2026): clicking the Moon — or flying
+  // into it — rides the existing vortex tube to /moon (the one vortex
+  // system; satTube already routes on done, same as a satellite drop).
+  const handleMoonClick = useCallback(() => {
+    satTubeSkinsRef.current = pickVortexWraps(satTubeSkinsRef.current);
+    setSatTube({ route: MOON_ROUTE, name: 'The Moon' });
+  }, []);
   // Headless probe hook (nether-realm pattern): window.__sunBase.enter
   // starts the pull without raycasting the sun.
   useEffect(() => {
@@ -115,6 +123,13 @@ function NexusHub() {
       window.__sunBase = { enter: () => handleSunClick() };
     }
   }, [handleSunClick]);
+  // Headless probe hook (nether-realm pattern): window.__moon.enter
+  // starts the vortex to /moon without raycasting the Moon.
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.__moon = { enter: () => handleMoonClick() };
+    }
+  }, [handleMoonClick]);
   // Headless probe hook (nether-realm pattern): window.__portalRoom.open
   // lets a probe open the room and watch the boot → carousel without
   // raycasting a 3D disc. Render state lives in window.__hubPortals.
@@ -1089,6 +1104,7 @@ function NexusHub() {
         onHubPortal={handleHubPortal}
         onSunClick={handleSunClick}
         onSunPullDone={handleSunPullDone}
+        onMoonClick={handleMoonClick}
         sunPullRef={sunPullRef}
         heavenUnlocked={portalHeavenUnlocked(portalProgress)}
         onPlanetJump={handlePlanetJump}

@@ -28,6 +28,8 @@ import {
   EARTH2_MODELS,
   earth2PlacedModels,
   earth2PendingModels,
+  earth2ModelUrl,
+  modelDeliveryUrls,
 } from '../lib/earth2/models.js';
 import { resolveBones, normalizeJointName, resolveMosquitoRig, resolveBatWings, resolveSwimRig, resolveFlyerWings } from '../lib/earth2/bones.js';
 import { LAKE, SWIMMERS, FLYERS, lakeBedDepthAt, lakeBedYAt, surfacePhase } from '../lib/earth2/creatures.js';
@@ -785,5 +787,51 @@ describe('the chamber wiring', () => {
     assert.ok(!read('lib/earth2/creatures.js').includes("from 'three'"));
     assert.ok(!read('lib/earth2/gifts.js').includes("from 'three'"));
     assert.ok(!read('lib/earth2/blood-sacs.js').includes("from 'three'"));
+  });
+});
+
+describe('model delivery URLs (Merlin, 2026-11-13 — objects not rendered in Earth 2)', () => {
+  // A signed URL is minted per path WITHOUT checking the file
+  // exists — when the private bucket lacks the file, the signed
+  // URL 404s. The loader tries each URL in turn, so the public
+  // site file must always follow the signed URL.
+  const entry = { slug: 'tyrannosaurus-rex', file: '/models/earth2/tyrannosaurus-rex.glb' };
+  it('puts the signed URL first, then the public file', () => {
+    const signed = 'https://example.invalid/signed/tyrannosaurus-rex.glb?token=x';
+    assert.deepEqual(
+      modelDeliveryUrls(entry, { 'tyrannosaurus-rex.glb': signed }),
+      [signed, '/models/earth2/tyrannosaurus-rex.glb'],
+    );
+  });
+  it('returns just the public file when there is no signed URL (no duplicate)', () => {
+    assert.deepEqual(modelDeliveryUrls(entry, null), ['/models/earth2/tyrannosaurus-rex.glb']);
+    assert.deepEqual(modelDeliveryUrls(entry, {}), ['/models/earth2/tyrannosaurus-rex.glb']);
+  });
+  it('returns nothing when the entry has no public file (the signed key comes from the file)', () => {
+    // earth2ModelKey derives the store key from entry.file — with
+    // no file there is no key to look a signed URL up by, so a
+    // signed URL is unreachable and the list is empty.
+    const signed = 'https://example.invalid/signed/x.glb';
+    assert.deepEqual(
+      modelDeliveryUrls({ slug: 'tyrannosaurus-rex', file: null }, { 'tyrannosaurus-rex.glb': signed }),
+      [],
+    );
+  });
+  it('returns nothing when neither a signed URL nor a file exists', () => {
+    assert.deepEqual(modelDeliveryUrls({ slug: 'pachycephalosaurus', file: null }, null), []);
+    assert.deepEqual(modelDeliveryUrls(null, null), []);
+  });
+  it('both foundry loaders retry through the delivery list', () => {
+    const world = read('components/earth2/Earth2World.jsx');
+    const bay = read('components/earth2/DinosaurBay.jsx');
+    for (const [name, src] of [['Earth2World', world], ['DinosaurBay', bay]]) {
+      assert.ok(src.includes('modelDeliveryUrls(entry, signedModelUrls)'), `${name} must build the delivery list`);
+      assert.ok(src.includes('for (const url of urls)'), `${name} must try each delivery URL in turn`);
+      assert.ok(src.includes('model URL failed, trying public fallback'), `${name} must log the fallback`);
+      assert.ok(!src.includes('const url = earth2ModelUrl(entry, signedModelUrls);'),
+        `${name} must not load a single URL any more`);
+    }
+    assert.ok(earth2ModelUrl(entry, null).endsWith('tyrannosaurus-rex.glb'),
+      'the first URL still resolves through earth2ModelUrl');
   });
 });

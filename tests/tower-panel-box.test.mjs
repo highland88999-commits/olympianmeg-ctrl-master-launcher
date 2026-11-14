@@ -34,6 +34,11 @@ import { dirname, join } from 'node:path';
 
 import { PANEL_SCALE, billboardNumberFor, topLevelBillboardNumberFor, TOP_LEVEL_BADGE_BASE, middleLevelBillboardNumberFor, MIDDLE_LEVEL_BADGE_BASE, bottomLevelBillboardNumberFor, BOTTOM_LEVEL_BADGE_BASE, houseLevelSlot, HOUSE_FALLBACK_ENTRY } from '../lib/tower-panels.js';
 import { videoCoverFit } from '../lib/billboards/panel-video.js';
+import {
+  TOWER_BOX_HALF_SIDE,
+  TOWER_BOX_Y_CENTER,
+  TOWER_BOX_Y_HALF,
+} from '../lib/tower-collider.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, '..');
@@ -291,14 +296,32 @@ describe('tower levels', () => {
     assert.ok(4.5 < facePlaneDistance, 'cone max radius 4.5 < face plane distance 10.48: enclosed, not piercing');
   });
 
-  it('all three levels get colliders sized past the widened box corners', () => {
-    assert.ok(tower.includes('tower-${god}-top'), 'top collider id');
-    assert.ok(tower.includes('y: position[1] + 22.72'), 'top collider centre (14.2 x 1.6 outer)');
-    assert.ok(tower.includes('tower-${god}-bottom'), 'bottom collider id');
-    assert.ok(tower.includes('y: position[1] - 25.92'), 'bottom collider centre (16.2 x 1.6 outer)');
-    assert.equal(tower.split('}), 26);').length - 1, 3, 'all three collider radii are 26');
+  it('all three levels get one box collider covering the widened box', () => {
+    // 2026-11-13 (billboards out): the three r26 spheres are gone —
+    // one oriented box is the tower's solid body. The box IS the
+    // widened box (its faces are the face planes), so it covers every
+    // level by construction; this pins the vertical span instead.
+    assert.ok(tower.includes('registerBoxCollider('), 'box collider registered');
+    assert.ok(!tower.includes('tower-${god}-top'), 'top sphere gone');
+    assert.ok(!tower.includes('tower-${god}-bottom'), 'bottom sphere gone');
+    assert.ok(!/(?<![A-Za-z])registerCollider\(`tower-\$\{god\}`/.test(tower), 'sphere registration gone');
+    // Level box bands, group units → world (×1.6): L1 [8.8, 19.6],
+    // L2 [−6.4, 4.4], L3 [−21.6, −10.8]. All inside the box span.
+    const lo = TOWER_BOX_Y_CENTER - TOWER_BOX_Y_HALF;
+    const hi = TOWER_BOX_Y_CENTER + TOWER_BOX_Y_HALF;
+    assert.ok(lo <= -21.6 * 1.6, `box bottom ${lo.toFixed(2)} covers level 3`);
+    assert.ok(hi >= 19.6 * 1.6, `box top ${hi.toFixed(2)} covers level 1`);
+    // The box's plan extent is the widened box itself: half-side is
+    // the face plane, and its corner is the old corner distance.
     const cornerOuter = facePlaneDistance * Math.SQRT2 * 1.6;
-    assert.ok(cornerOuter + 0.8 < 26, `corner ${cornerOuter.toFixed(2)} outer + 0.8 bob < 26`);
+    assert.ok(
+      Math.abs(TOWER_BOX_HALF_SIDE - facePlaneDistance * 1.6) < 0.001,
+      `box half-side ${TOWER_BOX_HALF_SIDE} is the face plane`
+    );
+    assert.ok(
+      Math.abs(TOWER_BOX_HALF_SIDE * Math.SQRT2 - cornerOuter) < 0.01,
+      `box corner ${((TOWER_BOX_HALF_SIDE) * Math.SQRT2).toFixed(2)} matches ${cornerOuter.toFixed(2)}`
+    );
   });
 
   it('level names are internal only: no rendered text names a level', () => {

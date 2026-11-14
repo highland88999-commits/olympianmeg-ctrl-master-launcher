@@ -34,7 +34,7 @@
 // its name in the roster as failed instead of breaking the scene.
 
 import { useEffect, useRef, useState } from 'react';
-import { EARTH2_MODELS, EARTH2_MODEL_BY_SLUG, earth2PlacedModels, earth2PendingModels, earth2ModelUrl, fetchEarth2ModelUrls } from '@/lib/earth2/models';
+import { EARTH2_MODELS, EARTH2_MODEL_BY_SLUG, earth2PlacedModels, earth2PendingModels, modelDeliveryUrls, fetchEarth2ModelUrls } from '@/lib/earth2/models';
 import { supabase } from '@/lib/supabase';
 import { useBackpack, updateBackpack } from '@/lib/backpack/store';
 import { sacCount, collectSacInRecord } from '@/lib/backpack/earth2-bridge';
@@ -398,11 +398,27 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
       async function loadModel(entry) {
         // Locked delivery: the signed URL for this entry's key, or
         // the documented public fallback — never a hard-coded path.
-        const url = earth2ModelUrl(entry, signedModelUrls);
-        if (!url) throw new Error(`No delivery URL for ${entry.slug}`);
-        const gltf = await loader.loadAsync(url);
-        track(gltf.scene);
-        return gltf.scene;
+        // MODEL FALLBACK RETRY (Merlin, 2026-11-13): a signed
+        // store URL can 404 when the private bucket lacks the
+        // file, so each delivery URL is tried in turn — a missing
+        // store file still renders from the public site file
+        // instead of the object vanishing silently.
+        const urls = modelDeliveryUrls(entry, signedModelUrls);
+        if (!urls.length) throw new Error(`No delivery URL for ${entry.slug}`);
+        let lastErr = null;
+        for (const url of urls) {
+          try {
+            const gltf = await loader.loadAsync(url);
+            track(gltf.scene);
+            return gltf.scene;
+          } catch (err) {
+            lastErr = err;
+            if (url !== urls[urls.length - 1]) {
+              console.warn('[earth2] model URL failed, trying public fallback:', entry.slug, url);
+            }
+          }
+        }
+        throw lastErr;
       }
 
       function bonesOf(modelScene) {

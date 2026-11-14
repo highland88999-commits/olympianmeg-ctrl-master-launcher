@@ -18,10 +18,12 @@ import {
   moonPositionAt,
 } from '@/lib/hub-layout';
 import { registerCollider, unregisterCollider } from '@/lib/hub-collision';
+import { MOON_TRIGGER_RADIUS, isMoonTriggerPoint } from '@/lib/moon';
 
 // Procedural lunar surface: gray regolith, speckle noise, shaded craters.
-// Seeded so every client paints the same Moon.
-function makeMoonTexture() {
+// Seeded so every client paints the same Moon. Named export — the
+// /moon scene reuses this exact texture (one source of truth).
+export function makeMoonTexture() {
   const c = document.createElement('canvas');
   c.width = 512;
   c.height = 256;
@@ -72,9 +74,16 @@ function makeMoonTexture() {
   return tex;
 }
 
-export default function HubMoon() {
+// MOON LANDING (Merlin, Nov 13, 2026): the Moon is now a door.
+// onSelect (freeroam/bike only) opens the vortex to /moon on a tap;
+// flying into it enters too. The trigger is MOON_TRIGGER_RADIUS
+// (18.5) — 0.5 beyond the bike resting distance and 2.3 beyond the
+// free-fly resting distance, so pressing in lands and a fly-by does
+// not. Clicks are drag-guarded like the sun (e.delta > 10 = a drag).
+export default function HubMoon({ onSelect, freeroam }) {
   const groupRef = useRef();
   const tex = useMemo(makeMoonTexture, []);
+  const enteredRef = useRef(false);
 
   useEffect(() => () => tex.dispose(), [tex]);
 
@@ -90,11 +99,38 @@ export default function HubMoon() {
       // Barely-there self rotation for life.
       groupRef.current.rotation.y += delta * 0.01;
     }
+    // Fly-through: the camera inside the trigger radius enters.
+    if (freeroam && onSelect && !enteredRef.current) {
+      const cam = state.camera.position;
+      if (isMoonTriggerPoint({ x: cam.x, y: cam.y, z: cam.z }, p)) {
+        enteredRef.current = true;
+        onSelect();
+      }
+    }
+    // Re-arm once the camera leaves the trigger shell.
+    if (enteredRef.current) {
+      const cam = state.camera.position;
+      const d = Math.hypot(cam.x - p.x, cam.y - p.y, cam.z - p.z);
+      if (d > MOON_TRIGGER_RADIUS + 2) enteredRef.current = false;
+    }
   });
 
   return (
     <group ref={groupRef}>
-      <mesh>
+      <mesh
+        onClick={(e) => {
+          if (!freeroam || !onSelect) return;
+          if (e.delta > 10) return; // a drag, not a tap
+          e.stopPropagation();
+          onSelect();
+        }}
+        onPointerOver={() => {
+          if (freeroam && onSelect) document.body.style.cursor = 'pointer';
+        }}
+        onPointerOut={() => {
+          document.body.style.cursor = 'auto';
+        }}
+      >
         <sphereGeometry args={[MOON_RADIUS, 48, 32]} />
         {/* Matte regolith: high roughness, no metalness, no emissive — the
             texture does the work, nothing washes it out. */}

@@ -58,11 +58,13 @@
 // One static terrain draw (66k verts) + one water plane carry
 // the ground.
 //
-// Delivery stays locked exactly as the Bay's: owner-signed URLs
-// via /api/earth2/model-urls, resolved through lib/earth2/models.js.
+// Delivery is signed-first exactly as the Bay's: owner-signed URLs
+// via /api/earth2/model-urls, resolved through lib/earth2/models.js,
+// with the public-file fallback back ON (2026-11-13 — the VTOL never
+// rendered while the fallback was off; see lib/earth2/models.js).
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { EARTH2_MODEL_BY_SLUG, earth2ModelUrl, fetchEarth2ModelUrls } from '@/lib/earth2/models';
+import { EARTH2_MODEL_BY_SLUG, modelDeliveryUrls, fetchEarth2ModelUrls } from '@/lib/earth2/models';
 import { supabase } from '@/lib/supabase';
 import { resolveBones, normalizeJointName, resolveMosquitoRig, resolveBatWings, resolveSwimRig, resolveFlyerWings, resolveScarabLegs } from '@/lib/earth2/bones';
 import {
@@ -90,8 +92,27 @@ import {
   parcelVehicleId,
   parcelIdForParcelVehicleId,
   isParcelVehicleId,
+  tapRadiusForVehicle,
+  decideBoarding,
+  BOARDING_RANGE_M,
   BOAT_MIN_DEPTH_M,
 } from '@/lib/earth2/vehicles';
+import {
+  GARAGE_TRANSIT_SPIN_RAD_PER_SEC,
+  GARAGE_PORTAL_TRIGGER_M,
+  GARAGE_PORTAL_COOLDOWN_MS,
+  RISE_THROUGH_RATE_MPS,
+  RISE_THROUGH_CLEAR_M,
+  garageSpecForParcel,
+  garageGroundHeight,
+  clampToGarage,
+  garageRespawnHomeForVehicleKey,
+  saveLastLeft,
+  loadGaragePortals,
+  saveGaragePortal,
+  removeGaragePortal,
+} from '@/lib/earth2/garage';
+import { buildGarageRoom, buildGarageSurfacePortal } from '@/lib/earth2/garage-mesh';
 import { seedBaseVehicleStates } from '@/lib/earth2/base-vehicles';
 import { bridgedParcelModel, isEarth1ParcelSlug } from '@/lib/earth2/parcel-vehicle-catalog';
 import { integrityColor } from '@/lib/earth2/vehicle-damage';
@@ -137,6 +158,7 @@ import {
   GRAPPLE_RANGE_M,
   GRAPPLE_HOOK_SPEED_MPS,
   GRAPPLE_ARRIVE_DIST_M,
+  GRAPPLE_ARMED_TAP_LIMITS,
   isGrappleEquipped,
   isGrappleOwned,
   grappleOwnedUid,
@@ -275,6 +297,12 @@ import {
   tapPointInGhostFootprint,
   decideBuildTapAction,
 } from '@/lib/earth2/building';
+import {
+  nextShrinkState,
+  walkerEyeM,
+  walkerRadiusM,
+  buildPieceScale,
+} from '@/lib/earth2/parcel-shrink';
 import {
   GAMEPAD_BUTTONS,
   GAMEPAD_PROFILE_NAMES,
@@ -541,7 +569,7 @@ function E2Panel({ layout, onMove, onToggle, panelClass = '', headerClass = '', 
   );
 }
 
-export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOpenExchange, onFossilExchange, greetSignal, onParcelChange, onExit, buildUser, ownersByParcel, claims, builds, onBuildChange, buildRequest, gunplayUnlocked = true, vehiclePlacement = null, onVehiclePlaced = null } = {}) {
+export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLoaded = false, bloodSacs, onBloodSac, onOpenExchange, onFossilExchange, greetSignal, onParcelChange, onExit, buildUser, ownersByParcel, claims, builds, onBuildChange, buildRequest, gunplayUnlocked = true, vehiclePlacement = null, onVehiclePlaced = null } = {}) {
   const mountRef = useRef(null);
   const labelsRef = useRef(null);
   const [hud, setHud] = useState(null); // { parcel, biome, lat, lon, mine, home }
@@ -555,6 +583,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   // Breeding: hatched allies for the HUD (count + species names).
   const [allyHud, setAllyHud] = useState([]);
   const [deathFlash, setDeathFlash] = useState(false); // red flash when a predator catches the walker
+  const [garageFlash, setGarageFlash] = useState(false); // gold flash on a garage portal transit
   const [travel, setTravel] = useState(false);
   const [status, setStatus] = useState({});
   const [bootSlugs, setBootSlugs] = useState(null);
@@ -662,6 +691,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
     owners: ownersByParcel || null,
     claims: claims || [],
     builds: builds || [],
+    titlesLoaded: titlesLoaded === true,
     onBuildChange: typeof onBuildChange === 'function' ? onBuildChange : null,
   };
   const buildSceneRef = useRef({ refreshBuilds: null });
@@ -712,6 +742,12 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
     setBuildLevel(0);
     setBuildMsg(gate.text);
     setBuildMode(true);
+    // GARAGE (Merlin, 2026-11-13): the build menu gains the
+    // portal-placement function at purchase — the placed portal
+    // for this parcel (if any) loads into the menu state.
+    setGaragePortal(loadGaragePortals()[parcel.id] || null);
+    setPlacingGaragePortal(false);
+    placingGaragePortalRef.current = false;
     // The workbench opens on top of the expanded main controls
     // by default (the no-overlap rule) — so opening it shrinks
     // CONTROLS to its gold orb. The user re-expands with the
@@ -740,6 +776,10 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
     setEditIndex(null);
     setBuildLevel(0);
     setGhostState(null);
+    // GARAGE: leaving build mode stands the portal-placement
+    // function down.
+    setPlacingGaragePortal(false);
+    placingGaragePortalRef.current = false;
     // ORBIT RESET (Merlin, 2026-11-03): leaving build mode drops
     // the camera orbit — the joystick walks again, never orbits.
     if (buildOrbitResetRef.current) buildOrbitResetRef.current();
@@ -1101,6 +1141,30 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   const nearVehicleRef = useRef(null);
   const boardVehicleRef = useRef(() => {});
   const exitVehicleRef = useRef(() => {});
+  // ── Parcel sub-level garage (Merlin, 2026-11-13) ──────────────
+  // One garage template per OWNED parcel, below ground: the scene
+  // builds the room + ramp + wall portal for every parcel this
+  // account owns, keeps the specs in garageSpecsRef, and tracks
+  // which garage the walker is inside (garageInRef, a parcel id or
+  // null). The build menu gains a portal-placement function at
+  // purchase: placingGaragePortal arms the next world tap to drop
+  // the surface portal on the build parcel.
+  const garageSpecsRef = useRef(new Map()); // parcelId -> garage spec
+  const garageInRef = useRef(null); // parcelId of the garage the walker is in, or null
+  // ── Parcel shrink (Merlin, 2026-11-13) ──────────────────────
+  // The live shrink state: { parcelId, scale } — the parcel under
+  // the walker and the scale that goes with it (1 outside owned
+  // parcels, PARCEL_SHRINK_SCALE inside one). Owned by
+  // applyParcelShrink, read by the walker step, the eye, the
+  // ghost and the placed pieces. Start normal; the first frame
+  // settles it from the spawn parcel.
+  const shrinkRef = useRef({ parcelId: null, scale: 1 });
+  const garageRingsRef = useRef([]); // transit rings to spin at 1.4 rad/s
+  const garagePortalAtRef = useRef(0); // last portal transit (ms) — the once-per-entry guard
+  const placingGaragePortalRef = useRef(false);
+  const removeGaragePortalRef = useRef(() => {});
+  const [placingGaragePortal, setPlacingGaragePortal] = useState(false);
+  const [garagePortal, setGaragePortal] = useState(null); // { parcelId, x, z, yaw } | null
   // ── Grappling hook (Merlin, 2026-11-01) ──────────────────────
   // The hook's fire lives in the scene (it moves the walker), so
   // the HUD button calls through this ref door, on the
@@ -1819,12 +1883,31 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       async function loadModel(entry) {
         // Earth-garage imports (Merlin, 2026-11-01) are public site
         // files — no signed URL needed, serve them straight.
-        const url = earth2ModelUrl(entry, signedModelUrls)
-          || (isEarth1ParcelSlug(entry && entry.slug) && entry.file ? entry.file : null);
-        if (!url) throw new Error(`No delivery URL for ${entry.slug}`);
-        const gltf = await loader.loadAsync(url);
-        track(gltf.scene);
-        return gltf.scene;
+        // MODEL FALLBACK RETRY (Merlin, 2026-11-13): the signed
+        // store URL can 404 when the private bucket lacks the
+        // file, so each delivery URL is tried in turn — a missing
+        // store file still renders from the public site file
+        // instead of the object vanishing silently.
+        const urls = modelDeliveryUrls(entry, signedModelUrls);
+        // Earth-garage imports (Merlin, 2026-11-01) are public
+        // site files — they never live in the private store, so
+        // their file is the delivery even with the fallback off.
+        if (!urls.length && isEarth1ParcelSlug(entry && entry.slug) && entry.file) urls.push(entry.file);
+        if (!urls.length) throw new Error(`No delivery URL for ${entry.slug}`);
+        let lastErr = null;
+        for (const url of urls) {
+          try {
+            const gltf = await loader.loadAsync(url);
+            track(gltf.scene);
+            return gltf.scene;
+          } catch (err) {
+            lastErr = err;
+            if (url !== urls[urls.length - 1]) {
+              console.warn('[earth2] model URL failed, trying public fallback:', entry.slug, url);
+            }
+          }
+        }
+        throw lastErr;
       }
 
       // A session-wide base cache for the Commons dressing
@@ -3170,10 +3253,22 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           const root = new THREE.Group();
           root.rotation.order = 'YXZ';
           root.add(spin);
+          // BOARDING (Merlin, 2026-11-13): the root itself carries
+          // the vehicle tag, so tapping any VISIBLE part of the
+          // machine boards it — the walk-up climb in handleTap
+          // finds userData.vehicle on the root, not just on the
+          // invisible proxy sphere.
+          root.userData.vehicle = unit.instanceId;
           const st = vehicleStatesRef.current[unit.instanceId] || unit.state;
+          // A garaged machine seats on the garage floor, not on the
+          // surface above it. The seeded VTOL sits over its own
+          // garage footprint, so the flag — not the position — is
+          // what says "underground".
+          const gSpec = st.parcelId ? garageSpecsRef.current.get(st.parcelId) : null;
+          const gY = gSpec && st.garaged ? garageGroundHeight(gSpec, st.x, st.z) : null;
           root.position.set(
             st.x,
-            spec.water ? WATER_Y - spec.draft : heightAt(st.x, st.z) + (st.alt || 0),
+            spec.water ? WATER_Y - spec.draft : (gY != null ? gY : heightAt(st.x, st.z)) + (st.alt || 0),
             st.z,
           );
           root.rotation.y = st.heading || 0;
@@ -3193,8 +3288,12 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             wake.position.set(0, spec.draft + 0.04, -5.5);
             root.add(wake);
           }
+          // The tap proxy: a sphere covering the model's whole
+          // footprint (Merlin, 2026-11-13 — the old max(1.7, radius)
+          // left most of the Aventador untappable: tapping the nose
+          // or tail missed the sphere entirely).
           const proxy = new THREE.Mesh(
-            new THREE.SphereGeometry(Math.max(1.7, spec.radius), 8, 8),
+            new THREE.SphereGeometry(tapRadiusForVehicle(spec), 8, 8),
             new THREE.MeshBasicMaterial({ visible: false }),
           );
           proxy.position.y = 1;
@@ -3287,7 +3386,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         // neither takes a helm. (A beached boat still boards:
         // the helm simply won't answer, and E steps ashore.)
         if (st.wrecked) {
-          noticeRef.current(`💥 The ${spec.name} is a wreck — a fresh machine replaces her at home shortly.`);
+          noticeRef.current(`💥 The ${spec.name} is a wreck — a fresh machine replaces her ${isParcelVehicleId(id) ? 'in your garage' : 'at home'} shortly.`);
           return;
         }
         if (st.ditched) {
@@ -3308,8 +3407,23 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         let newlyClaimed = false;
         if (isParcelVehicleId(id)) {
           const parcelId = parcelIdForParcelVehicleId(id);
-          if (!parcelVehicleIsMine(parcelId)) {
-            noticeRef.current('🔒 This ride belongs to the landowner.');
+          // BOARDING (Merlin, 2026-11-13): the pure decision —
+          // titles still loading never reads as "not yours" (an
+          // empty owners map is a loading state, not a refusal),
+          // and the range is the walk-up law. The ownership law
+          // itself is unchanged: only the title holder boards.
+          const decision = decideBoarding({
+            isParcel: true,
+            isMine: parcelVehicleIsMine(parcelId),
+            ownersLoaded: buildPropsRef.current.titlesLoaded === true,
+            distanceM: Math.hypot(walker.x - st.x, walker.z - st.z),
+          });
+          if (decision !== 'ok') {
+            noticeRef.current(decision === 'titles-loading'
+              ? '⏳ Land titles are still loading — give it a moment, then tap again.'
+              : decision === 'locked'
+                ? '🔒 This ride belongs to the landowner.'
+                : `🚗 The ${spec.name} is parked out in the wilds — walk up to it to ${spec.verb.toLowerCase()} it.`);
             return;
           }
           // Title holder, cleared to board — and no claim stamp is
@@ -3325,7 +3439,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           newlyClaimed = true;
         }
         const d = Math.hypot(walker.x - st.x, walker.z - st.z);
-        if (d > 8.5) {
+        if (d > BOARDING_RANGE_M) {
           const inst = vehicleInstanceById(id);
           noticeRef.current(inst && inst.label
             ? `🚗 The ${inst.label} is parked out in the wilds — walk up to it to ${spec.verb.toLowerCase()} it.`
@@ -3430,6 +3544,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       }
       boardVehicleRef.current = (slug) => boardVehicle(slug);
       exitVehicleRef.current = () => exitVehicle();
+      removeGaragePortalRef.current = (parcelId) => removeGaragePortalMesh(parcelId);
       toggleDriveCamRef.current = () => {
         const next = driveCamRef.current === 'third' ? 'first' : 'third';
         driveCamRef.current = next;
@@ -3725,10 +3840,10 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         if (kind === 'submersion') {
           sfxSplash(5);
           vibrateFor({ kind: 'sinking' });
-          noticeRef.current(`🌊 The ${name} drowned — you step out unharmed. A fresh one replaces her at home.`);
+          noticeRef.current(`🌊 The ${name} drowned — you step out unharmed. A fresh one replaces her ${isParcelVehicleId(id) ? 'in your garage' : 'at home'}.`);
         } else {
           fireExplosion(st.x, (st.y != null ? st.y : heightAt(st.x, st.z)) + 1, st.z, 0);
-          noticeRef.current(`💥 The ${name} is wrecked! You step out unharmed — a fresh one replaces her at home.`);
+          noticeRef.current(`💥 The ${name} is wrecked! You step out unharmed — a fresh one replaces her ${isParcelVehicleId(id) ? 'in your garage' : 'at home'}.`);
         }
       }
 
@@ -4805,11 +4920,25 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       // ── The walker ───────────────────────────────────────────
       const spawnParcel = resolveSpawnParcel(spawnParcelId);
       const spawn = spawnPointFor(spawnParcel);
+      // REMEMBER WHERE THEY LEFT (Merlin, 2026-11-13): the map
+      // remembers where the user left — spawn the walker where
+      // they last left them, not at home base. Their vehicles
+      // already persist in the ledger at their last-left spots.
+      const lastLeft = spawnPoint && Number.isFinite(spawnPoint.x) && Number.isFinite(spawnPoint.z)
+        ? {
+          x: spawnPoint.x, z: spawnPoint.z,
+          yaw: Number.isFinite(spawnPoint.yaw) ? spawnPoint.yaw : 0,
+          inGarage: spawnPoint.inGarage === true,
+          parcelId: typeof spawnPoint.parcelId === 'string' ? spawnPoint.parcelId : null,
+        }
+        : null;
       const walker = {
-        x: spawn.x, z: spawn.z,
-        yaw: Math.atan2(spawn.x, spawn.z), // face the world's heart
+        x: lastLeft ? lastLeft.x : spawn.x,
+        z: lastLeft ? lastLeft.z : spawn.z,
+        yaw: lastLeft ? lastLeft.yaw : Math.atan2(spawn.x, spawn.z), // face the world's heart
         pitch: 0,
       };
+      if (lastLeft && lastLeft.inGarage && lastLeft.parcelId) garageInRef.current = lastLeft.parcelId;
       // The walker, as hunt prey (Merlin, 2026-10-31): a live adapter
       // for the stalk/chase machine — root.position IS the walker, so
       // hunts track the player in real time. No behaviour of its own
@@ -4821,6 +4950,194 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         entry: { scaleM: 1.8, name: 'you' },
         root: { position: walker }, beh: null, huntTarget: null, fleeFrom: null,
       };
+      // ── Parcel sub-level garage (Merlin, 2026-11-13) ──────────
+      // Every OWNED parcel gets a sub-level below ground where its
+      // vehicles are stored. One garage template, reused per parcel,
+      // under the parcel centre: a 26 x 18 m room 12 m down, a ramp
+      // out the south side, a wall portal on the north wall (the
+      // transit system) for walking out, daylight-hue lights. The
+      // build menu gains a portal-placement function at purchase:
+      // the owner places the surface portal, walks through it, and
+      // is down in the garage. Free Commons get no sub-level.
+      const garagePortalGroups = []; // placed surface portal groups (tap targets)
+      const placedGaragePortals = new Map(); // parcelId -> { group, ring, portal }
+      const garageRoomGroups = new Map(); // parcelId -> room group
+
+      // The ground under a point, garage-aware: inside a garage the
+      // floor (or the ramp slope) is the ground, not the surface.
+      function garageGroundYAt(x, z) {
+        const inId = garageInRef.current;
+        if (!inId) return heightAt(x, z);
+        const spec = garageSpecsRef.current.get(inId);
+        if (!spec) return heightAt(x, z);
+        const g = garageGroundHeight(spec, x, z);
+        return g != null ? g : heightAt(x, z);
+      }
+      function vehicleGroundYAt(st, x, z) {
+        if (st && st.garaged && st.parcelId) {
+          const spec = garageSpecsRef.current.get(st.parcelId);
+          if (spec) {
+            const g = garageGroundHeight(spec, x, z);
+            if (g != null) return g;
+          }
+        }
+        return heightAt(x, z);
+      }
+      // The walls hold — but only while underground. At the ramp
+      // top the ground IS the surface, so the clamp lets go and
+      // the machine (or the walker) drives out onto the parcel.
+      function garageClampPoint(spec, x, z) {
+        const g = garageGroundHeight(spec, x, z);
+        if (g == null || g >= spec.surfaceY - 0.5) return { x, z };
+        return clampToGarage(spec, x, z);
+      }
+      // The garage slot a parcel vehicle parks in: its index in the
+      // parcel's sorted vehicle-key list, so two machines never
+      // share a slot.
+      function garageSlotIndexForKey(parcelId, key) {
+        const keys = Object.keys(vehicleStatesRef.current)
+          .filter((k) => isParcelVehicleId(k) && parcelIdForParcelVehicleId(k) === parcelId)
+          .sort();
+        const idx = keys.indexOf(key);
+        return idx < 0 ? 0 : Math.min(idx, 1);
+      }
+      // Build the garage rooms for every parcel this account owns.
+      // The owners arrive with the state route, possibly after the
+      // world mounts, so the frame loop calls this until it sticks.
+      // A garaged machine already placed gets re-seated on the
+      // garage floor (the stream may have seated it on the surface
+      // before the spec existed).
+      function ensureGarages() {
+        const bp = buildPropsRef.current;
+        const owners = bp.owners;
+        if (!owners || typeof owners.get !== 'function' || !bp.user || !bp.user.email) return false;
+        const mine = String(bp.user.email).toLowerCase();
+        let built = false;
+        for (const [parcelId, row] of owners) {
+          if (!row || String(row.owner_email || '').toLowerCase() !== mine) continue;
+          if (garageSpecsRef.current.has(parcelId)) continue;
+          const parcel = parcelById(parcelId);
+          if (!parcel) continue;
+          const rect = parcelWorldRect(parcel);
+          const cx = (rect.minX + rect.maxX) / 2;
+          const cz = (rect.minZ + rect.maxZ) / 2;
+          const spec = garageSpecForParcel({ id: parcelId, cx, cz, surfaceY: heightAt(cx, cz) });
+          if (!spec) continue;
+          garageSpecsRef.current.set(parcelId, spec);
+          const builtRoom = buildGarageRoom(spec);
+          scene.add(builtRoom.group);
+          garageRoomGroups.set(parcelId, builtRoom.group);
+          garageRingsRef.current.push(builtRoom.ring);
+          built = true;
+          // A placed surface portal for this parcel goes up too.
+          const placed = loadGaragePortals()[parcelId];
+          if (placed) placeGaragePortalMesh(parcelId, placed);
+        }
+        if (built) {
+          for (const rec of vehicles) {
+            const vst = vehicleStatesRef.current[rec.key];
+            if (!vst || !vst.garaged || !vst.parcelId) continue;
+            const spec = garageSpecsRef.current.get(vst.parcelId);
+            if (!spec) continue;
+            const g = garageGroundHeight(spec, vst.x, vst.z);
+            if (g != null) rec.root.position.y = g + (vst.alt || 0);
+          }
+        }
+        return built;
+      }
+      // The placed surface portal, as a scene mesh.
+      function placeGaragePortalMesh(parcelId, portal) {
+        if (placedGaragePortals.has(parcelId)) removeGaragePortalMesh(parcelId);
+        const builtPortal = buildGarageSurfacePortal(parcelId);
+        builtPortal.group.position.set(portal.x, heightAt(portal.x, portal.z), portal.z);
+        builtPortal.group.rotation.y = portal.yaw || 0;
+        scene.add(builtPortal.group);
+        garagePortalGroups.push(builtPortal.group);
+        garageRingsRef.current.push(builtPortal.ring);
+        placedGaragePortals.set(parcelId, { group: builtPortal.group, ring: builtPortal.ring, portal });
+      }
+      function removeGaragePortalMesh(parcelId) {
+        const rec = placedGaragePortals.get(parcelId);
+        if (!rec) return;
+        scene.remove(rec.group);
+        const gi = garagePortalGroups.indexOf(rec.group);
+        if (gi >= 0) garagePortalGroups.splice(gi, 1);
+        const ri = garageRingsRef.current.indexOf(rec.ring);
+        if (ri >= 0) garageRingsRef.current.splice(ri, 1);
+        placedGaragePortals.delete(parcelId);
+      }
+      // The build menu's portal-placement function (Merlin,
+      // 2026-11-13): the owner taps the ground on their parcel
+      // and the surface portal goes up there. Owners only — the
+      // build menu itself is owner-gated, and this checks the
+      // title again before it writes anything.
+      function placeGaragePortalAt(parcelId, ground) {
+        const parcel = parcelById(parcelId);
+        if (!parcel) { noticeRef.current('That parcel is gone — portal cancelled.'); return false; }
+        if (!parcelVehicleIsMine(parcelId)) {
+          noticeRef.current('🔒 Only the landowner places a garage portal here.');
+          return false;
+        }
+        const rect = parcelWorldRect(parcel);
+        const inside = ground.x >= rect.minX && ground.x <= rect.maxX
+          && ground.z >= rect.minZ && ground.z <= rect.maxZ;
+        if (!inside) { noticeRef.current("That's outside your parcel — tap inside its borders."); return false; }
+        if (waterDepthAt(ground.x, ground.z) > 0) { noticeRef.current('The garage portal needs dry ground — tap the green.'); return false; }
+        const portal = { x: ground.x, z: ground.z, yaw: walker.yaw };
+        saveGaragePortal(parcelId, portal);
+        placeGaragePortalMesh(parcelId, portal);
+        if (!cancelled) setGaragePortal(portal);
+        noticeRef.current('🚪 Your garage portal stands — walk through it to go down to your vehicles.');
+        return true;
+      }
+      function flashGarageTransit() {
+        if (cancelled) return;
+        setGarageFlash(true);
+        setTimeout(() => { if (!cancelled) setGarageFlash(false); }, 600);
+      }
+      // Down through the placed portal, into the garage.
+      function enterGarage(parcelId) {
+        const now = performance.now();
+        if (now - garagePortalAtRef.current < GARAGE_PORTAL_COOLDOWN_MS) return;
+        garagePortalAtRef.current = now;
+        const spec = garageSpecsRef.current.get(parcelId);
+        if (!spec) { noticeRef.current('Your garage is still being built — give it a moment.'); return; }
+        if (drivingRef.current) exitVehicle();
+        walker.x = spec.entry.x;
+        walker.z = spec.entry.z;
+        walker.yaw = spec.entry.yaw;
+        garageInRef.current = parcelId;
+        saveLastLeft({ x: walker.x, z: walker.z, yaw: walker.yaw, parcelId, inGarage: true });
+        flashGarageTransit();
+        noticeRef.current('🚪 Down in your garage — drive up the ramp, or walk through the wall portal to leave.');
+      }
+      // Up through the wall portal (the transit system), back to
+      // ground level at the placed surface portal.
+      function exitGarage() {
+        const now = performance.now();
+        if (now - garagePortalAtRef.current < GARAGE_PORTAL_COOLDOWN_MS) return;
+        garagePortalAtRef.current = now;
+        const parcelId = garageInRef.current;
+        if (!parcelId) return;
+        const placed = placedGaragePortals.get(parcelId);
+        const spec = garageSpecsRef.current.get(parcelId);
+        if (placed) {
+          walker.x = placed.portal.x;
+          walker.z = placed.portal.z;
+        } else if (spec) {
+          walker.x = spec.cx;
+          walker.z = spec.cz;
+        }
+        walker.yaw = Math.atan2(walker.x, walker.z);
+        garageInRef.current = null;
+        saveLastLeft({ x: walker.x, z: walker.z, yaw: walker.yaw, parcelId, inGarage: false });
+        flashGarageTransit();
+        noticeRef.current('☀️ Back on the surface.');
+      }
+      // First try now — the owners usually arrived with the state
+      // route before the world mounted. The frame loop retries
+      // until it sticks.
+      ensureGarages();
       // ── The grappling hook (Merlin, 2026-11-01) ──────────────
       // His rusty hook fires from the camera's aim: the ray takes
       // the nearest of a structure mesh hit (every resident
@@ -4869,7 +5186,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         const geo = new THREE.BufferGeometry();
         const groundY = heightAt(walker.x, walker.z);
         geo.setAttribute('position', new THREE.Float32BufferAttribute([
-          walker.x, groundY + 1.5, walker.z,
+          walker.x, groundY + 1.5 * shrinkRef.current.scale, walker.z,
           grapple.anchorX, grapple.anchorY, grapple.anchorZ,
         ], 3));
         const mat = new THREE.LineBasicMaterial({ color: 0xd9a45b }); // rusty rope
@@ -4882,7 +5199,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         if (!grapple.rope) return;
         const p = grapple.rope.geometry.attributes.position;
         const standY = grapple.standY != null ? grapple.standY : heightAt(walker.x, walker.z);
-        p.setXYZ(0, walker.x, standY + 1.5, walker.z);
+        p.setXYZ(0, walker.x, standY + 1.5 * shrinkRef.current.scale, walker.z);
         // While the hook flies, the rope's far end is the hook
         // itself; once attached, it's the anchor.
         if (grapple.flying && !grapple.attached) {
@@ -4935,7 +5252,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           : new THREE.Vector3();
         if (!aimDir) camera.getWorldDirection(dir);
         grapple.hookX = walker.x;
-        grapple.hookY = heightAt(walker.x, walker.z) + WALK_EYE_M;
+        grapple.hookY = heightAt(walker.x, walker.z) + walkerEyeM(shrinkRef.current.scale);
         grapple.hookZ = walker.z;
         grapple.hookVX = dir.x * GRAPPLE_HOOK_SPEED_MPS;
         grapple.hookVY = dir.y * GRAPPLE_HOOK_SPEED_MPS;
@@ -5400,7 +5717,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             return { x: wx, y: heightAt(wx, wz) + (spot.y || 0), z: wz };
           }
         }
-        return { x: walker.x, y: heightAt(walker.x, walker.z), z: walker.z };
+        return { x: walker.x, y: garageGroundYAt(walker.x, walker.z), z: walker.z };
       }
       let castleNear = false;
       let hudParcel = null;
@@ -5426,8 +5743,37 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         }
         parcelChangeRef.current(p.id);
       }
+      // ── Parcel shrink (Merlin, 2026-11-13) ──────────────────
+      // Once a frame (after syncParcel) the shrink state settles
+      // from the parcel underfoot and the owners map. On a change
+      // the placed pieces re-scale to the new parcel — pieces on
+      // the shrunk parcel shrink with the walker, everything else
+      // grows back to full size — and the walker gets a plain
+      // notice. The ghost is not touched here: updateBuildGhost
+      // sets its scale every frame it runs, and it only exists
+      // once build mode has started (after this init block).
+      function applyParcelShrink() {
+        const bp = buildPropsRef.current || {};
+        const next = nextShrinkState(shrinkRef.current, walker.x, walker.z, bp.owners);
+        if (!next.changed) return;
+        const was = shrinkRef.current.scale;
+        shrinkRef.current = { parcelId: next.parcelId, scale: next.scale };
+        scene.traverse((o) => {
+          if (o.userData && o.userData.buildPiece) {
+            o.scale.setScalar(buildPieceScale(o.userData.buildPiece.parcelId, shrinkRef.current));
+          }
+        });
+        if (noticeRef.current && next.scale !== was) {
+          noticeRef.current(
+            next.scale === 1
+              ? '↩️ Back to your full size.'
+              : '🌀 You shrink to fit this parcel — its world is bigger than you now.',
+          );
+        }
+      }
       syncParcel(true);
-      camera.position.set(walker.x, heightAt(walker.x, walker.z) + WALK_EYE_M, walker.z);
+      applyParcelShrink();
+      camera.position.set(walker.x, garageGroundYAt(walker.x, walker.z) + walkerEyeM(shrinkRef.current.scale), walker.z);
       camera.rotation.set(0, walker.yaw, 0);
 
       // ── The environment tick: real time, real weather ──────
@@ -5746,6 +6092,22 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           -((e.clientY - rect.top) / rect.height) * 2 + 1,
         );
         raycaster.setFromCamera(ndc, camera);
+        // GARAGE PORTAL PLACEMENT (Merlin, 2026-11-13): while the
+        // build menu's portal-placement function is armed, the next
+        // tap drops the surface portal on the build parcel.
+        if (placingGaragePortalRef.current) {
+          const ground = tapGroundPoint();
+          if (!ground) {
+            noticeRef.current('Tap the ground on your parcel to place the garage portal.');
+            return;
+          }
+          const placed = placeGaragePortalAt(bm.parcelId, ground);
+          if (placed) {
+            placingGaragePortalRef.current = false;
+            if (!cancelled) setPlacingGaragePortal(false);
+          }
+          return;
+        }
         // Double-tap a placed piece = pick it up for relocation
         // (Merlin, 2026-10-23). One raycast against the build's
         // roots serves both tools: the same piece tapped twice
@@ -6020,7 +6382,15 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         // ladder or elevator while armed grapples to it — the
         // double-tap ride below only runs when unarmed.
         if (grappleArmedRef.current) {
-          fireGrappleAtTap(e);
+          // A failed fire never fails silently: the notice says
+          // so and the gun stays armed for another try (Merlin,
+          // 2026-11-13 — the gun seemed dead on his phone).
+          try {
+            fireGrappleAtTap(e);
+          } catch (err) {
+            console.error('[earth2] grapple fire failed:', err);
+            noticeRef.current('🪝 Grapple misfired — tap another object.');
+          }
           return;
         }
         const rect = renderer.domElement.getBoundingClientRect();
@@ -6051,6 +6421,14 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           ...mosquitos.map((mq) => mq.proxy),
           ...sacs.map((s) => s.group),
           ...vehicles.map((v) => v.proxy),
+          // BOARDING (Merlin, 2026-11-13): the visible roots too —
+          // the proxy alone missed the car's nose and tail, and the
+          // plane's wingtips. The walk-up climb finds
+          // userData.vehicle on the root.
+          ...vehicles.map((v) => v.root),
+          // GARAGE (Merlin, 2026-11-13): the placed surface portals
+          // are tap targets too — tapping one takes you down.
+          ...garagePortalGroups,
           // The hunt build: living land dinos are tap targets in
           // exploration mode (their roots carry userData.animalRef
           // from placement). Carcasses, flyers and the compy swarm
@@ -6092,16 +6470,22 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           return;
         }
         let obj = hits[0].object;
-        while (obj && !obj.userData.mosquito && !obj.userData.sacRef && !obj.userData.boneRef && !obj.userData.dracula && !obj.userData.hammond && !obj.userData.vehicle && !obj.userData.animalRef) {
+        while (obj && !obj.userData.mosquito && !obj.userData.sacRef && !obj.userData.boneRef && !obj.userData.dracula && !obj.userData.hammond && !obj.userData.vehicle && !obj.userData.animalRef && !obj.userData.garagePortal && !obj.userData.garageExit) {
           obj = obj.parent;
         }
         if (!obj) return;
+        // GARAGE (Merlin, 2026-11-13): tapping the placed surface
+        // portal takes the owner down to the garage; tapping the
+        // wall portal inside takes them back up to ground level.
+        // Both wear the transit graphics and turn at 1.4 rad/s.
+        if (obj.userData.garagePortal) enterGarage(obj.userData.garagePortal.parcelId);
+        else if (obj.userData.garageExit) exitGarage();
         // Merlin's reversal (2026-10-23): a tap on a vehicle
         // OPERATES it — boarding, with the walk-up prompt's own
         // range law (boardVehicle refuses past 8.5 m with a
         // pointer). Shooting belongs to guns with a reticle in
         // a later build; the mosquito tap-to-shoot is untouched.
-        if (obj.userData.vehicle) boardVehicle(obj.userData.vehicle);
+        else if (obj.userData.vehicle) boardVehicle(obj.userData.vehicle);
         else if (obj.userData.mosquito) shootMosquito(obj.userData.mosquito);
         else if (obj.userData.animalRef) {
           const target = obj.userData.animalRef;
@@ -6160,13 +6544,33 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         // path budget while never leaving the spot, and v2
         // silently reclassified those taps as drag-look. A real
         // drag ends far from its start, so it still never taps.
+        // ARMED AIM (Merlin, 2026-11-13): while the grapple gun
+        // is armed the user is aiming, not looking — the looser
+        // armed tap law rules, so a slow or wandering aim tap
+        // still fires the hook.
+        const limits = grappleArmedRef.current ? GRAPPLE_ARMED_TAP_LIMITS : undefined;
         if (classifyTapGesture({
           downX, downY,
           upX: e.clientX, upY: e.clientY,
           durationMs: performance.now() - downT,
-        })) handleTap(e);
+        }, limits)) handleTap(e);
       }
-      function onPointerCancel() { dragId = null; }
+      function onPointerCancel(e) {
+        const wasDrag = dragId;
+        dragId = null;
+        // PHONE TAP RESCUE (Merlin, 2026-11-13): a phone can
+        // cancel a touch instead of lifting it — while the
+        // grapple gun is armed, a cancelled press that looked
+        // like a tap still fires the hook, instead of the tap
+        // vanishing silently and the gun seeming dead.
+        if (wasDrag != null && grappleArmedRef.current && e && e.clientX != null && e.clientY != null) {
+          if (classifyTapGesture({
+            downX, downY,
+            upX: e.clientX, upY: e.clientY,
+            durationMs: performance.now() - downT,
+          }, GRAPPLE_ARMED_TAP_LIMITS)) handleTap(e);
+        }
+      }
       renderer.domElement.addEventListener('pointerdown', onPointerDown);
       renderer.domElement.addEventListener('pointermove', onPointerMove);
       renderer.domElement.addEventListener('pointerup', onPointerUp);
@@ -6284,6 +6688,11 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           const wz = rect.minZ + piece.z;
           g.position.set(wx, heightAt(wx, wz) + (piece.y || 0), wz);
           g.rotation.y = ((piece.rotY || 0) * Math.PI) / 180;
+          // PARCEL SHRINK (Merlin, 2026-11-13): a piece on the
+          // parcel the walker is shrunk inside renders shrunken
+          // with them — including pieces placed before this law
+          // (no migration: the scale reads the live state).
+          g.scale.setScalar(buildPieceScale(build.groundId, shrinkRef.current));
           g.userData.buildPiece = { parcelId: build.groundId, index: i };
           // Collect fire lights for the flicker loop.
           g.traverse((o) => {
@@ -6509,6 +6918,11 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         ghostGroup.visible = true;
         ghostGroup.position.set(wx, heightAt(wx, wz) + bm.ghostPlacement.y, wz);
         ghostGroup.rotation.y = (bm.ghostPlacement.rotY * Math.PI) / 180;
+        // PARCEL SHRINK (Merlin, 2026-11-13): the ghost shows the
+        // piece at the scale it will actually stand at — shrunken
+        // on the parcel the walker is shrunk inside, full size
+        // anywhere else — so placing while small is WYSIWYG.
+        ghostGroup.scale.setScalar(buildPieceScale(bm.parcelId, shrinkRef.current));
       }
 
       // ── Placement: a crossing (Terrain Wave B) ──────────────
@@ -6879,6 +7293,18 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         // Staged objects: refresh who's near enough to see, once a
         // second (every 60th frame). Keeps the phone alive.
         if (frameNo % 60 === 1) updateStagedVisibility();
+        // GARAGE (Merlin, 2026-11-13): the rooms build once the
+        // land titles arrive (the owners may land after the world
+        // mounts), and the last-left spot saves every 15 seconds
+        // so the map remembers where the user left.
+        if (frameNo % 60 === 1) ensureGarages();
+        if (frameNo % 900 === 1) {
+          saveLastLeft({
+            x: walker.x, z: walker.z, yaw: walker.yaw,
+            parcelId: garageInRef.current || (hudParcel ? hudParcel.id : null),
+            inGarage: garageInRef.current != null,
+          });
+        }
         // Shard state: re-sync with the server every 5 minutes, so
         // a shard someone else collected disappears for everyone.
         if (frameNo % 18000 === 1) syncShardState().catch(() => {});
@@ -6895,6 +7321,12 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         }
         const dt = Math.min(clock.getDelta(), 0.05);
         const t = clock.elapsedTime;
+        // GARAGE (Merlin, 2026-11-13): the transit rings — the
+        // wall portal and every placed surface portal — turn at
+        // ONE speed, 1.4 rad/s, the transit speed.
+        if (garageRingsRef.current.length) {
+          for (const ring of garageRingsRef.current) ring.rotation.z += GARAGE_TRANSIT_SPIN_RAD_PER_SEC * dt;
+        }
         const inp = inputRef.current;
 
         // v3 NO SLINGSHOT: the orbit park machine runs FIRST,
@@ -7039,6 +7471,11 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           // arrival is JUDGED by the damage law (descent, tilt,
           // slope) and billed to the integrity bar.
           const lift = dSpec.air ? (inp.keys.up ? 1 : 0) - (inp.keys.down ? 1 : 0) : 0;
+          // GARAGE (Merlin, 2026-11-13): the driven machine's
+          // garage, when it is parked in one.
+          const garageHere = dState.garaged && dState.parcelId
+            ? garageSpecsRef.current.get(dState.parcelId) : null;
+          const inGarage = !!(garageHere && garageGroundHeight(garageHere, dState.x, dState.z) != null);
           let dEnv;
           if (dSpec.water) {
             // Afloat: the water-depth read and the obstacles —
@@ -7080,11 +7517,56 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
               colliders: currentColliders().concat(dyn),
             };
           }
-          const stepped = stepVehicle(dState, dSpec, {
-            throttle: Math.max(-1, Math.min(1, fwdIn)),
-            steer: -strafeIn,
-            lift,
-          }, dt, dEnv);
+          // GARAGE — DRIVING OUT: inside the garage the floor (or
+          // the ramp slope) is the ground, and the surface
+          // colliders above the garage do not reach down here —
+          // the garage walls hold instead (the clamp below).
+          if (inGarage && !dSpec.water) {
+            dEnv = {
+              ...dEnv,
+              heightAt: (x, z) => garageGroundHeight(garageHere, x, z) ?? heightAt(x, z),
+              colliders: [],
+            };
+          }
+          // GARAGE — FLYING OUT (Merlin, 2026-11-13): a plane in
+          // the garage rises vertically out of the ground, passing
+          // through the property and the objects above — no
+          // collision during the rise. The ramp is for driving out.
+          // The rise answers to LIFT (not forward throttle), so
+          // the pilot can still taxi the plane up the ramp.
+          const rising = dSpec.air && inGarage && (dState.alt || 0) <= 0.02
+            && (dState.riseThrough === true || lift > 0);
+          let stepped;
+          if (rising) {
+            const yNow = (dState.y != null ? dState.y : vehicleGroundYAt(dState, dState.x, dState.z)) + RISE_THROUGH_RATE_MPS * dt;
+            const clear = yNow >= garageHere.surfaceY + RISE_THROUGH_CLEAR_M;
+            if (dState.riseThrough !== true) noticeRef.current('🛩️ Rising out through the ground — hold on.');
+            stepped = {
+              ...dState,
+              y: yNow,
+              alt: Math.max(0, yNow - heightAt(dState.x, dState.z)),
+              speed: 0, vspeed: RISE_THROUGH_RATE_MPS,
+              riseThrough: !clear,
+              garaged: !clear,
+            };
+            if (clear) noticeRef.current('☀️ Out through the roof — clear skies.');
+          } else {
+            stepped = stepVehicle(dState, dSpec, {
+              throttle: Math.max(-1, Math.min(1, fwdIn)),
+              steer: -strafeIn,
+              lift,
+            }, dt, dEnv);
+          }
+          // The garage walls hold while the machine is underground
+          // (the ramp top lets go — that is the way out), and the
+          // garaged flag follows the machine.
+          if (inGarage && (stepped.alt || 0) <= 0.02) {
+            const c = garageClampPoint(garageHere, stepped.x, stepped.z);
+            stepped = { ...stepped, x: c.x, z: c.z };
+            const gHere = garageGroundHeight(garageHere, stepped.x, stepped.z);
+            const stillGaraged = gHere != null && gHere < garageHere.surfaceY - 0.5;
+            if (stillGaraged !== !!dState.garaged) stepped = { ...stepped, garaged: stillGaraged };
+          }
           vehicleStatesRef.current[drivingId] = stepped;
           walker.x = stepped.x;
           walker.z = stepped.z;
@@ -7174,17 +7656,36 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           // the deck is ground, its sides are guarded by the
           // same wading wall that guards every shore, and the
           // ends are the only way off.
-          const walkCols = currentColliders().concat(dyn);
+          // GARAGE (Merlin, 2026-11-13): inside the garage the
+          // surface colliders above do not reach down here — the
+          // garage walls hold instead (the clamp below). Walking
+          // up the ramp past the surface clears the garage.
+          const walkerGarage = garageInRef.current
+            ? garageSpecsRef.current.get(garageInRef.current) : null;
+          const walkerInGarage = !!(walkerGarage && garageGroundHeight(walkerGarage, walker.x, walker.z) != null);
+          const walkCols = walkerInGarage ? [] : currentColliders().concat(dyn);
           const deckNear = bridgeHeightAt(walker.x, walker.z) != null
             || bridgeHeightAt(walker.x - Math.sin(walker.yaw) * 1.4, walker.z - Math.cos(walker.yaw) * 1.4) != null;
           const next = deckNear
             ? stepBridgeWalker(walker, walker.yaw, { fwd: fwdIn, strafe: strafeIn }, dt, {
               heightAt, waterDepthAt, bridgeHeightAt, colliders: walkCols, travel: travelNow,
+              speedScale: shrinkRef.current.scale, radiusM: walkerRadiusM(shrinkRef.current.scale),
             })
-            : stepWorldWalker(walker, walker.yaw, { fwd: fwdIn, strafe: strafeIn }, dt, walkCols, travelNow);
-          const movedDist = Math.hypot(next.x - walker.x, next.z - walker.z);
-          walker.x = next.x;
-          walker.z = next.z;
+            : stepWorldWalker(walker, walker.yaw, { fwd: fwdIn, strafe: strafeIn }, dt, walkCols, travelNow,
+              { speedScale: shrinkRef.current.scale, radiusM: walkerRadiusM(shrinkRef.current.scale) });
+          let nx = next.x, nz = next.z;
+          if (walkerInGarage) {
+            const c = garageClampPoint(walkerGarage, nx, nz);
+            nx = c.x; nz = c.z;
+            const gHere = garageGroundHeight(walkerGarage, nx, nz);
+            if (gHere == null || gHere >= walkerGarage.surfaceY - 0.5) {
+              garageInRef.current = null; // walked out up the ramp
+              saveLastLeft({ x: nx, z: nz, yaw: walker.yaw, parcelId: walkerGarage.parcelId, inGarage: false });
+            }
+          }
+          const movedDist = Math.hypot(nx - walker.x, nz - walker.z);
+          walker.x = nx;
+          walker.z = nz;
           // KINETIC GRAPPLE (Merlin, 2026-11-03): the hook flies
           // while the button is held; the walker is pulled by real
           // physics — velocity and acceleration toward the anchor.
@@ -7249,7 +7750,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           // altitude carries the eye.
           updateFittings(dt);
           const deckY = bridgeHeightAt(walker.x, walker.z);
-          const groundY = deckY != null ? deckY : heightAt(walker.x, walker.z);
+          const groundY = deckY != null ? deckY : garageGroundYAt(walker.x, walker.z);
           // KINETIC GRAPPLE — STAND UPON (Merlin, 2026-11-03): a
           // landed perch holds the walker's feet at the anchor's
           // height until they walk away from it.
@@ -7295,13 +7796,35 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           if (!buildOrbit.parked && !buildOrbit.driving) {
             camera.position.set(
               walker.x,
-              eyeBase + WALK_EYE_M - Math.min(depth, 1.1) * 0.3 + bob,
+              eyeBase + walkerEyeM(shrinkRef.current.scale) - Math.min(depth, 1.1) * 0.3 * shrinkRef.current.scale + bob * shrinkRef.current.scale,
               walker.z,
             );
           }
           camera.rotation.set(walker.pitch, walker.yaw, 0);
         }
         syncParcel(false);
+        applyParcelShrink();
+        // GARAGE — WALK INTO A PORTAL (Merlin, 2026-11-13): on
+        // foot (not driving, not building), walking into a placed
+        // surface portal takes the owner down to the garage, and
+        // walking into the wall portal inside brings them back up.
+        // The once-per-entry guard keeps the transit from firing
+        // every frame while the walker stands in the ring.
+        if (!drivingRef.current && !buildModeRef.current.active) {
+          if (garageInRef.current) {
+            const gSpec = garageSpecsRef.current.get(garageInRef.current);
+            if (gSpec && Math.hypot(walker.x - gSpec.wallPortal.x, walker.z - gSpec.wallPortal.z) < GARAGE_PORTAL_TRIGGER_M) {
+              exitGarage();
+            }
+          } else {
+            for (const [parcelId, rec] of placedGaragePortals) {
+              if (Math.hypot(walker.x - rec.portal.x, walker.z - rec.portal.z) < GARAGE_PORTAL_TRIGGER_M) {
+                enterGarage(parcelId);
+                break;
+              }
+            }
+          }
+        }
         // ── Build-mode orbit (Merlin, 2026-10-24; v3 NO SLINGSHOT)
         // In build mode the joystick swings the camera around
         // the ghost instead of walking the walker: left/right =
@@ -7331,7 +7854,10 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             );
             buildOrbit.yaw = seed.yaw;
             buildOrbit.pitch = seed.pitch;
-            buildOrbit.dist = seed.dist;
+            // PARCEL SHRINK (Merlin, 2026-11-13): orbiting a
+            // shrunken ghost from full-size distance would leave
+            // it a speck — the orbit distance shrinks with it.
+            buildOrbit.dist = seed.dist * buildPieceScale(buildModeRef.current.parcelId, shrinkRef.current);
             buildOrbit.driving = true;
           }
           if (joyDeflected) {
@@ -7447,7 +7973,18 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           for (const id of Object.keys(vehicleStatesRef.current)) {
             const vst = vehicleStatesRef.current[id];
             if (!vst || !vst.wrecked) continue;
-            const home = homeStateForInstance(id);
+            // DESTRUCTION (Merlin, 2026-11-13): a destroyed OWNED
+            // vehicle respawns IN ITS GARAGE; a destroyed PUBLIC
+            // vehicle respawns at its ORIGINAL SPAWN POINT (the
+            // fleet home). The garage home carries garaged: true,
+            // so the replacement seats on the garage floor.
+            let home = null;
+            if (isParcelVehicleId(id)) {
+              const parcelId = parcelIdForParcelVehicleId(id);
+              const gSpec = parcelId ? garageSpecsRef.current.get(parcelId) : null;
+              if (gSpec) home = garageRespawnHomeForVehicleKey(id, gSpec, garageSlotIndexForKey(parcelId, id));
+            }
+            if (!home) home = homeStateForInstance(id);
             if (!home) continue;
             const next = tickVehicleRespawn(vst, home, dt);
             if (next !== vst) {
@@ -7457,7 +7994,9 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
                 const nd = Math.hypot(walker.x - next.x, walker.z - next.z);
                 if (nd < 320) {
                   const spec2 = vehicleSpecForInstance(id);
-                  fireShimmer(next.x, spec2 && spec2.water ? WATER_Y + 0.8 : heightAt(next.x, next.z) + 1.2, next.z);
+                  const gSpec2 = next.garaged && next.parcelId ? garageSpecsRef.current.get(next.parcelId) : null;
+                  const gY2 = gSpec2 ? garageGroundHeight(gSpec2, next.x, next.z) : null;
+                  fireShimmer(next.x, spec2 && spec2.water ? WATER_Y + 0.8 : (gY2 != null ? gY2 : heightAt(next.x, next.z)) + 1.2, next.z);
                 }
               }
             }
@@ -7796,6 +8335,15 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       tick();
 
       cleanup = () => {
+        // REMEMBER WHERE THEY LEFT (Merlin, 2026-11-13): leaving
+        // Earth 2 writes the last-left spot, so the next entry
+        // spawns the user (and their vehicles, already in the
+        // ledger) where they left them.
+        saveLastLeft({
+          x: walker.x, z: walker.z, yaw: walker.yaw,
+          parcelId: garageInRef.current || (hudParcel ? hudParcel.id : null),
+          inGarage: garageInRef.current != null,
+        });
         cancelAnimationFrame(raf);
         ro.disconnect();
         window.removeEventListener('keydown', onKeyDown);
@@ -8033,6 +8581,9 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         )}
         {deathFlash && (
           <div className="pointer-events-none fixed inset-0 z-50 bg-red-600/45" aria-hidden="true" />
+        )}
+        {garageFlash && (
+          <div className="pointer-events-none fixed inset-0 z-50 bg-amber-400/35" aria-hidden="true" />
         )}
         <button
           type="button"
@@ -8318,6 +8869,57 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
                   {label}
                 </button>
               ))}
+            </div>
+
+            {/* GARAGE PORTAL (Merlin, 2026-11-13): when a user buys
+                a parcel, their build menu gains this portal
+                placement function — the portal leads down to the
+                parcel's sub-level garage, where their vehicles are
+                stored. Daylight-lit, ramp out for driving, wall
+                portal (transit system) out for walking. Owners
+                only — the build menu itself is owner-gated. */}
+            <div className="rounded-[1.5rem] border border-amber-300/40 bg-amber-400/10 px-3 py-2.5">
+              <div className="text-[13px] font-bold text-amber-50">🚪 Garage portal — your sub-level garage</div>
+              <p className="mt-0.5 text-[11px] leading-snug text-zinc-300">
+                Your vehicles live below this parcel, in daylight. Drive out up the ramp, or walk through the wall portal to come back up.
+              </p>
+              <div className="mt-2 flex gap-2">
+                <button
+                  type="button"
+                  aria-pressed={placingGaragePortal}
+                  onClick={() => {
+                    if (placingGaragePortal) {
+                      placingGaragePortalRef.current = false;
+                      setPlacingGaragePortal(false);
+                    } else {
+                      placingGaragePortalRef.current = true;
+                      setPlacingGaragePortal(true);
+                      setNotice('🚪 Tap the ground on your parcel to place the garage portal.');
+                    }
+                  }}
+                  className={`flex-1 rounded-full border px-3 py-2 text-[12px] font-bold transition ${
+                    placingGaragePortal
+                      ? 'border-amber-300/70 bg-amber-400/25 text-amber-50'
+                      : 'border-white/20 bg-white/5 text-zinc-200 hover:bg-white/10'
+                  }`}
+                >
+                  {placingGaragePortal ? '📍 Tap the ground to place it…' : garagePortal ? '↪️ Move the portal' : '🚪 Place garage portal'}
+                </button>
+                {garagePortal && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      removeGaragePortal(buildParcelId);
+                      removeGaragePortalRef.current(buildParcelId);
+                      setGaragePortal(null);
+                      setNotice('🚪 Garage portal removed — your vehicles stay in the garage below.');
+                    }}
+                    className="rounded-full border border-white/20 bg-white/5 px-3 py-2 text-[12px] font-bold text-zinc-200 transition hover:bg-white/10"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
             </div>
 
             {buildTool === 'place' ? (

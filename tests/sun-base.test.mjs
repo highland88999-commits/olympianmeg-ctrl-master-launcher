@@ -209,9 +209,9 @@ test('the sun-base route exists: picker, scene, walk rig, sign-in gate', () => {
 
   const scene = src('../components/SunBaseScene.jsx');
   assert.ok(scene.includes('buildInteriorRoom'), 'the room is the reserved interior factory');
-  assert.ok(scene.includes('WALK_SPEED') || scene.includes('3.2'), 'the rig walks');
+  assert.ok(scene.includes('SUN_BASE_WALK_SPEED_MPS'), 'the rig walks at the shrunken stride (0.64 m/s)');
   assert.ok(scene.includes('0.94'), 'walking clamps to the room inset');
-  assert.ok(scene.includes('EYE_HEIGHT') || scene.includes('1.7'), 'eye height is set');
+  assert.ok(scene.includes('SUN_BASE_EYE_HEIGHT_M'), 'eye height is the shrunken eye (0.34 m)');
 });
 
 test('no menu entry: the sun in the hub is the only door (dual-registry)', () => {

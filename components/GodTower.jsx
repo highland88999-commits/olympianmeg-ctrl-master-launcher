@@ -35,7 +35,12 @@ import { useFrame } from '@react-three/fiber';
 import { Billboard } from '@react-three/drei';
 import VanGoghText from './VanGoghText';
 import * as THREE from 'three';
-import { registerCollider, unregisterCollider } from '@/lib/hub-collision';
+import { registerBoxCollider, unregisterCollider } from '@/lib/hub-collision';
+import {
+  towerBoxHalfExtents,
+  towerFixedYaw,
+  TOWER_BOX_Y_CENTER,
+} from '@/lib/tower-collider';
 import {
   createBillboardFaceCanvas,
   drawCoverFit,
@@ -530,9 +535,17 @@ function TowerAdPanel({ slot, stakeTex, color, onLaunchExternal, badgeNumber }) 
 
 function GodTower({ god, color, position, onLaunchExternal, textures, panels = panelsForTower(0), towerIndex = 0 }) {
   const satelliteRef = useRef();
-  useFrame((state, delta) => {
+  // Fixed yaw, square to the ring (Merlin, 2026-11-13: billboards out,
+  // "perfect the geometry"): the tower no longer spins in place
+  // (0.15 rad/s), so its square body no longer sweeps a 23.71 circle
+  // that walled off the gaps between towers. Panel 0's face points at
+  // the hub centre — the inward face reads from spawn, the faces stand
+  // parallel/perpendicular to the radial direction, and the clear gap
+  // between adjacent boxes is an even 8.00 (lib/tower-collider.js).
+  // The bob stays: the tower still breathes ±0.5 vertically.
+  const fixedYaw = towerFixedYaw(position);
+  useFrame((state) => {
     if (satelliteRef.current) {
-      satelliteRef.current.rotation.y += delta * 0.15;
       // Bob around the mount point (inner group is already inside the
       // positioned outer group — offsetting by position[1] again would float
       // the tower at twice its height, away from its collider).
@@ -540,22 +553,25 @@ function GodTower({ god, color, position, onLaunchExternal, textures, panels = p
     }
   });
 
-  // Solid: generous spheres covering the body + the four ad panels
-  // of every level. All three use radius 26: the gapped box
-  // corners sit 23.71 outer, plus the ±0.8 outer bob, with margin
-  // to spare — so flight clearance scales with the wider box.
-  // Level 1's centre sits 14.2 inner units above level 2
-  // (22.72 outer), level 3's 16.2 below (25.92 outer).
+  // Solid: ONE oriented box, the tower's real square body (face plane
+  // 10.48 group units × 1.6 scale = 16.77 half-side; vertical centre
+  // +2.25, half 38.75 — pillar bottom to god-label top, plus the
+  // ±0.5 bob). The old 3 spheres r26 overlapped by 12.84 between
+  // adjacent towers and formed a continuous wall with no gap at all;
+  // the box leaves the measured 8.00 clear between neighbours.
+  // The centre getter uses the static mount position: the box's
+  // vertical half covers the bob, as the spheres' generosity did.
   useEffect(() => {
-    registerCollider(`tower-${god}`, () => ({ x: position[0], y: position[1], z: position[2] }), 26);
-    registerCollider(`tower-${god}-top`, () => ({ x: position[0], y: position[1] + 22.72, z: position[2] }), 26);
-    registerCollider(`tower-${god}-bottom`, () => ({ x: position[0], y: position[1] - 25.92, z: position[2] }), 26);
+    registerBoxCollider(
+      `tower-${god}`,
+      () => ({ x: position[0], y: position[1] + TOWER_BOX_Y_CENTER, z: position[2] }),
+      towerBoxHalfExtents(),
+      () => fixedYaw
+    );
     return () => {
       unregisterCollider(`tower-${god}`);
-      unregisterCollider(`tower-${god}-top`);
-      unregisterCollider(`tower-${god}-bottom`);
     };
-  }, [god, position]);
+  }, [god, position, fixedYaw]);
 
   const { propTex, bodyTex, hullTex, tailTex, adTex } = textures;
   const darkMetal = useMemo(() => new THREE.MeshStandardMaterial({ color: '#222222', metalness: 0.9, roughness: 0.2, emissive: '#121214', emissiveIntensity: 0.5 }), []);
@@ -571,7 +587,7 @@ function GodTower({ god, color, position, onLaunchExternal, textures, panels = p
           size. Body, skirt, propeller, name plates and the four ad
           panels (the AD SPACES, badges included) are all children of
           this group, so everything grows together, as ordered. */}
-      <group ref={satelliteRef} scale={[1.6, 1.6, 1.6]}>
+      <group ref={satelliteRef} scale={[1.6, 1.6, 1.6]} rotation={[0, fixedYaw, 0]}>
 
         {/* Floating god label, moved up with the pillar top (was
             y=16 over the old 12 top; now 24.5 over the new 20.5
@@ -640,8 +656,7 @@ function GodTower({ god, color, position, onLaunchExternal, textures, panels = p
             corner radius 14.82, so it reads as a cap) in the
             tower's dark metal — the existing metalwork language,
             reused for the breaks. Name bands are camera-facing
-            Billboards, so the god's name reads from any angle
-            while the tower rotates; the name is NOT also written
+            Billboards, so the god's name reads from any angle; the name is NOT also written
             on the pillar or above the box. Levels 1 and 3 reuse
             the same box (mount 10.12, same rotations, same
             face/border/backing) and the same TowerAdPanel with

@@ -33,6 +33,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { supabase } from '@/lib/supabase';
 import { OWNER_EMAIL } from '@/lib/owner';
+import { loadLastLeft } from '@/lib/earth2/garage';
 import { hasEarth2Access } from '@/lib/earth2/access';
 import {
   PARCELS,
@@ -394,6 +395,16 @@ export default function Earth2Page() {
     [myRows, homeChoice]
   );
   const homeParcel = homeBaseId ? parcelById(homeBaseId) : null;
+
+  // REMEMBER WHERE THEY LEFT (Merlin, 2026-11-13): the map
+  // remembers where the user left — the world spawns the walker
+  // at the last-left spot (and the vehicles already persist in
+  // the ledger at theirs). Read once per entry; a build request
+  // ("Build here") overrides it at the world props below.
+  const lastLeftSpawn = useMemo(
+    () => (gate === 'open' ? loadLastLeft() : null),
+    [gate]
+  );
 
   // The First Round Land Sale frame's data.
   const saleListings = useMemo(
@@ -1925,6 +1936,8 @@ export default function Earth2Page() {
       {walking && (
         <Earth2World
           spawnParcelId={buildSpawnId || homeBaseId}
+          spawnPoint={buildSpawnId ? null : lastLeftSpawn}
+          titlesLoaded={state != null}
           bloodSacs={blood.sacs}
           onBloodSac={collectSacFromBay}
           onFossilExchange={applyFossilPayout}

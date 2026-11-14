@@ -614,7 +614,12 @@ describe('the gate — the world lives behind the same lock as the Bay', () => {
   it('the world loads models only through the signed-door resolver', () => {
     const world = read('components/earth2/Earth2World.jsx');
     assert.ok(world.includes('fetchEarth2ModelUrls'), 'signed URLs fetched once');
-    assert.ok(world.includes('earth2ModelUrl'), 'every load resolved');
+    // MODEL FALLBACK RETRY (Merlin, 2026-11-13): loads resolve
+    // through modelDeliveryUrls — signed URL first, public file
+    // second — which itself resolves through earth2ModelUrl.
+    assert.ok(world.includes('modelDeliveryUrls'), 'every load resolved through the delivery list');
+    assert.ok(read('lib/earth2/models.js').includes('export function earth2ModelUrl'),
+      'the delivery list still resolves through the signed-door resolver');
     assert.ok(!world.includes('/models/earth2'), 'no hard-coded public path');
     assert.ok(world.includes('stepWorldWalker'), 'walking runs on the pure step');
     assert.ok(world.includes('heightAt'), 'feet read the shared heightfield');

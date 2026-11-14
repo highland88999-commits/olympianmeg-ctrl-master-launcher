@@ -19,6 +19,9 @@ import {
   GRAPPLE_PULL_ACCEL,
   GRAPPLE_PULL_MAX_SPEED,
   GRAPPLE_ARRIVE_DIST_M,
+  GRAPPLE_ARMED_TAP_LIMITS,
+  GRAPPLE_ARMED_TAP_MAX_DISPLACEMENT_PX,
+  GRAPPLE_ARMED_TAP_MAX_DURATION_MS,
   GRAPPLE_HOOK_ITEM_ID,
   isGrappleEquipped,
   isGrappleOwned,
@@ -28,6 +31,11 @@ import {
   grappleHookStep,
   grapplePullStep,
 } from '../lib/earth2/grapple.js';
+import {
+  classifyTapGesture,
+  TAP_MAX_DISPLACEMENT_PX,
+  TAP_MAX_DURATION_MS,
+} from '../lib/earth2/building.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, '..');
@@ -164,10 +172,11 @@ describe('hook button flow (scene wiring)', () => {
   });
   it('an armed scene tap fires the hook at the tapped object', () => {
     assert.ok(scene.includes('function fireGrappleAtTap(e)'), 'tap-to-target must exist');
-    assert.ok(
-      scene.includes('if (grappleArmedRef.current) {\n          fireGrappleAtTap(e);'),
-      'handleTap must route armed taps to the grapple',
-    );
+    const armedBranch = scene.slice(scene.indexOf('if (grappleArmedRef.current) {'));
+    assert.ok(armedBranch.includes('fireGrappleAtTap(e);'),
+      'handleTap must route armed taps to the grapple');
+    assert.ok(armedBranch.includes('try {') && armedBranch.includes('Grapple misfired'),
+      'a failed fire must be guarded and visible, never silent');
     assert.ok(scene.includes('startGrappleThrow({'), 'the tap must throw toward the tapped point');
     assert.ok(scene.includes('function startGrappleThrow(aimDir)'), 'the throw must take an aim');
   });
@@ -234,5 +243,38 @@ describe('grapplePullStep', () => {
     assert.ok(arrived, 'should arrive');
     assert.ok(Math.hypot(w.x - anchor.x, w.z - anchor.z) <= GRAPPLE_ARRIVE_DIST_M + 1e-9,
       `landed at ${w.x},${w.z}, anchor at ${anchor.x},${anchor.z}`);
+  });
+});
+
+describe('armed aim tap law (Merlin, 2026-11-13 — the gun seemed dead on his phone)', () => {
+  const tap = (dx, dy, ms) => ({ downX: 100, downY: 100, upX: 100 + dx, upY: 100 + dy, durationMs: ms });
+  it('the armed law is looser than the strict tap law', () => {
+    assert.ok(GRAPPLE_ARMED_TAP_MAX_DISPLACEMENT_PX > TAP_MAX_DISPLACEMENT_PX, 'armed allows more wander');
+    assert.ok(GRAPPLE_ARMED_TAP_MAX_DURATION_MS > TAP_MAX_DURATION_MS, 'armed allows a slower press');
+    assert.deepEqual(GRAPPLE_ARMED_TAP_LIMITS, {
+      maxDisplacementPx: GRAPPLE_ARMED_TAP_MAX_DISPLACEMENT_PX,
+      maxDurationMs: GRAPPLE_ARMED_TAP_MAX_DURATION_MS,
+    });
+  });
+  it('a slow, wandering aim tap fires when armed but not when unarmed', () => {
+    // 50 px wander, 1.2 s press: past the strict law, inside the armed law.
+    const g = tap(50, 0, 1200);
+    assert.equal(classifyTapGesture(g), false, 'strict law rejects it');
+    assert.equal(classifyTapGesture(g, GRAPPLE_ARMED_TAP_LIMITS), true, 'armed law accepts it');
+  });
+  it('a real drag still never taps, even when armed', () => {
+    assert.equal(classifyTapGesture(tap(200, 0, 300), GRAPPLE_ARMED_TAP_LIMITS), false, 'far drag');
+    assert.equal(classifyTapGesture(tap(0, 0, 3000), GRAPPLE_ARMED_TAP_LIMITS), false, 'long hold');
+    assert.equal(classifyTapGesture(tap(10, 0, 300), GRAPPLE_ARMED_TAP_LIMITS), true, 'quick close tap');
+  });
+  it('the scene wires the armed law into pointerup and rescues a cancelled tap', () => {
+    assert.ok(scene.includes('GRAPPLE_ARMED_TAP_LIMITS'), 'scene imports the armed limits');
+    assert.ok(scene.includes('grappleArmedRef.current ? GRAPPLE_ARMED_TAP_LIMITS : undefined'),
+      'pointerup uses the armed law only while armed');
+    assert.ok(scene.includes('function onPointerCancel(e)'), 'pointercancel takes the event');
+    assert.ok(scene.includes('PHONE TAP RESCUE'),
+      'pointercancel rescue is labelled');
+    assert.ok(scene.includes("noticeRef.current('🪝 Grapple misfired"),
+      'a failed fire shows a notice instead of failing silently');
   });
 });
