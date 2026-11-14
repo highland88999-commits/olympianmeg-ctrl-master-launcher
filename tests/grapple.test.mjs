@@ -8,6 +8,9 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 
 import {
   GRAPPLE_RANGE_M,
@@ -21,9 +24,15 @@ import {
   isGrappleOwned,
   grappleOwnedUid,
   grappleRangeDecision,
+  grappleButtonAction,
   grappleHookStep,
   grapplePullStep,
 } from '../lib/earth2/grapple.js';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const repo = join(here, '..');
+const scene = readFileSync(join(repo, 'components', 'earth2', 'Earth2World.jsx'), 'utf8');
+const interiorRoom = readFileSync(join(repo, 'lib', 'earth2', 'interior-room.js'), 'utf8');
 
 describe('grapple constants', () => {
   it('reaches 40 m, rests 3 s between throws', () => {
@@ -89,6 +98,95 @@ describe('grappleHookStep', () => {
     assert.equal(n.x, 30);
     assert.equal(n.y, 2);
     assert.equal(n.z, 0);
+  });
+});
+
+describe('grappleButtonAction', () => {
+  it('arms the gun when idle and unarmed', () => {
+    assert.equal(
+      grappleButtonAction({ armed: false, flying: false, pulling: false, cooling: false }),
+      'arm',
+    );
+  });
+  it('stands the gun down when armed and idle', () => {
+    assert.equal(
+      grappleButtonAction({ armed: true, flying: false, pulling: false, cooling: false }),
+      'disarm',
+    );
+  });
+  it('releases mid-flight or mid-pull, armed or not', () => {
+    assert.equal(
+      grappleButtonAction({ armed: true, flying: true, pulling: false, cooling: false }),
+      'release',
+    );
+    assert.equal(
+      grappleButtonAction({ armed: false, flying: false, pulling: true, cooling: false }),
+      'release',
+    );
+    assert.equal(
+      grappleButtonAction({ armed: true, flying: false, pulling: true, cooling: false }),
+      'release',
+    );
+  });
+  it('does nothing while reeling in', () => {
+    assert.equal(
+      grappleButtonAction({ armed: false, flying: false, pulling: false, cooling: true }),
+      'cooldown',
+    );
+    assert.equal(
+      grappleButtonAction({ armed: true, flying: false, pulling: false, cooling: true }),
+      'cooldown',
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// HOOK BUTTON FLOW (Merlin, 2026-11-13): the 🪝 button arms the gun;
+// while armed, a tap on the scene fires the hook at the tapped
+// object. Static wiring — the scene is too big to mount headless.
+// ---------------------------------------------------------------------------
+describe('hook button flow (scene wiring)', () => {
+  it('the button shows the armed state: aria-pressed and an ARMED label', () => {
+    assert.ok(scene.includes('aria-pressed={grappleArmed}'), 'button must expose the armed state');
+    assert.ok(scene.includes("grappleArmed ? 'ARMED' : 'HOOK'"), 'button must read ARMED when live');
+    assert.ok(
+      scene.includes('Grappling hook armed — tap an object to grapple to it'),
+      'armed button must say what a tap does next',
+    );
+  });
+  it('the button click decides through grappleButtonAction, never fires directly', () => {
+    assert.ok(scene.includes('grappleButtonAction({'), 'button must use the decision law');
+    assert.ok(scene.includes("action === 'arm'"), 'button must arm');
+    assert.ok(scene.includes("action === 'disarm'"), 'button must stand down');
+    assert.ok(scene.includes("action === 'release'"), 'button must release mid-flight / mid-pull');
+    assert.ok(!scene.includes("const status = grappleFireRef.current();\n            if (status === 'thrown')"),
+      'button must not fire the hook itself any more');
+  });
+  it('an armed scene tap fires the hook at the tapped object', () => {
+    assert.ok(scene.includes('function fireGrappleAtTap(e)'), 'tap-to-target must exist');
+    assert.ok(
+      scene.includes('if (grappleArmedRef.current) {\n          fireGrappleAtTap(e);'),
+      'handleTap must route armed taps to the grapple',
+    );
+    assert.ok(scene.includes('startGrappleThrow({'), 'the tap must throw toward the tapped point');
+    assert.ok(scene.includes('function startGrappleThrow(aimDir)'), 'the throw must take an aim');
+  });
+  it('the tap raycast skips shards, like the flying hook does', () => {
+    const fn = scene.slice(scene.indexOf('function fireGrappleAtTap(e)'));
+    assert.ok(fn.includes('grappleSkip'), 'tap targeting must skip grappleSkip objects');
+    assert.ok(fn.includes('isSky'), 'tap targeting must skip the sky');
+    assert.ok(interiorRoom.includes('group.userData.grappleSkip = true'), 'shards must carry grappleSkip');
+  });
+  it('a sky tap or a too-far tap keeps the gun armed', () => {
+    const fn = scene.slice(scene.indexOf('function fireGrappleAtTap(e)'));
+    assert.ok(fn.includes('Nothing to grab there.'), 'sky tap must say so');
+    assert.ok(fn.includes('Too far — get closer.'), 'too-far tap must say so');
+    assert.ok(fn.includes("grappleRangeDecision(dist) === 'too-far'"), 'range must gate the tap');
+  });
+  it('the scene reports live hook state to the button and stands down on teardown', () => {
+    assert.ok(scene.includes('grappleStateRef.current = () => ({'), 'scene must report hook state');
+    assert.ok(scene.includes('setGrappleArmed(false); // the gun stands down with the scene.'),
+      'teardown must stand the gun down');
   });
 });
 

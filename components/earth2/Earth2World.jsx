@@ -139,6 +139,7 @@ import {
   isGrappleOwned,
   grappleOwnedUid,
   grappleRangeDecision,
+  grappleButtonAction,
   grappleHookStep,
   grapplePullStep,
 } from '@/lib/earth2/grapple';
@@ -565,6 +566,12 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   // appears while his rusty hook is OWNED (in the backpack) — not
   // just when manually equipped. Tapping auto-equips on first use.
   // On foot only, never driving, never building.
+  // HOOK BUTTON FLOW (Merlin, 2026-11-13): tapping the button
+  // ARMS the gun (the button shows ARMED) — it never fires by
+  // itself. While armed, tapping an object in the scene fires
+  // the hook at that object; tapping the button again stands
+  // the gun down, and tapping it mid-flight or mid-pull
+  // releases the rope.
   const grappleEquipped = isGrappleEquipped(equippedWeaponEntry(backpackRecord));
   const grappleOwned = isGrappleOwned(backpackRecord);
   const grappleAvailable = grappleEquipped || grappleOwned;
@@ -1090,9 +1097,18 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
   // boardVehicleRef pattern. startGrappleThrow returns the
   // throw's outcome: 'thrown' | 'cooldown' | 'unavailable'.
   // releaseGrappleButton cancels a still-flying hook.
+  // HOOK BUTTON FLOW (Merlin, 2026-11-13): the button ARMS the
+  // gun — it never fires by itself. grappleArmed is the React
+  // state the button renders (armed styling + ARMED label);
+  // grappleArmedRef is the scene's mirror of it (handleTap
+  // reads the ref); grappleStateRef reports the hook's live
+  // state so the button can decide arm / disarm / release.
   const grappleFireRef = useRef(() => 'unavailable');
   const grappleReleaseRef = useRef(() => {});
+  const grappleArmedRef = useRef(false);
+  const grappleStateRef = useRef(() => ({ flying: false, pulling: false, cooling: false }));
   const [grappleCooling, setGrappleCooling] = useState(false);
+  const [grappleArmed, setGrappleArmed] = useState(false);
   const setHammondPanel = (open) => {
     hammondOpenRef.current = open;
     setHammondOpen(open);
@@ -4854,12 +4870,15 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         }
         p.needsUpdate = true;
       }
-      // GRAPPLE — TAP TO FIRE (Merlin, 2026-11-03): tap the 🪝
-      // button once and the hook flies along the camera's aim. It
-      // catches the first thing it hits (attach → the pull begins)
-      // or reels back on a miss. Tap again mid-pull to cut loose.
-      // Simple, no hold mechanic.
-      function startGrappleThrow() {
+      // GRAPPLE — ARM, THEN TAP AN OBJECT (Merlin, 2026-11-13):
+      // the 🪝 button arms the gun; the next tap on the scene
+      // fires the hook at the tapped object (aimDir — the unit
+      // direction from the eye to the tap point). With no aim
+      // the hook flies along the camera's aim, as before. It
+      // catches the first thing it hits (attach → the pull
+      // begins) or reels back on a miss. Tap again mid-flight
+      // or mid-pull to cut loose. Simple, no hold mechanic.
+      function startGrappleThrow(aimDir) {
         const now = performance.now();
         // Tap mid-pull: cut the rope, drop where you are.
         if (grapple.pulling) {
@@ -4886,9 +4905,13 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           noticeRef.current('🪝 Not while driving or building.');
           return 'unavailable';
         }
-        // The hook leaves from the walker's eye, along the aim.
-        const dir = new THREE.Vector3();
-        camera.getWorldDirection(dir);
+        // The hook leaves from the walker's eye — along the
+        // tapped object's direction when the gun was aimed by
+        // a tap, else along the camera's aim.
+        const dir = aimDir
+          ? new THREE.Vector3(aimDir.x, aimDir.y, aimDir.z).normalize()
+          : new THREE.Vector3();
+        if (!aimDir) camera.getWorldDirection(dir);
         grapple.hookX = walker.x;
         grapple.hookY = heightAt(walker.x, walker.z) + WALK_EYE_M;
         grapple.hookZ = walker.z;
@@ -4982,6 +5005,15 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       }
       grappleFireRef.current = startGrappleThrow;
       grappleReleaseRef.current = releaseGrappleButton;
+      // The button's live state door (HOOK BUTTON FLOW, Merlin,
+      // 2026-11-13): the HUD reads this to decide arm / disarm /
+      // release. The closure reads the grapple object, so it is
+      // always the live state, never a stale snapshot.
+      grappleStateRef.current = () => ({
+        flying: grapple.flying,
+        pulling: grapple.pulling,
+        cooling: performance.now() < grapple.cooldownUntil,
+      });
       // The solid world: the landforms' own colliders plus the
       // Commons dressing's (Terrain Wave B — rocks, boulders,
       // crater discs and tree trunks are solid, per Merlin).
@@ -5874,6 +5906,75 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
       // climb): two taps within 350 ms and 40 px on a ladder or
       // elevator. The last fitting tap, for the double-tap window.
       let lastFittingTap = { time: 0, x: 0, y: 0 };
+      // GRAPPLE — ARMED TAP TO TARGET (Merlin, 2026-11-13): the
+      // hook button arms the gun; the next tap on the scene fires
+      // the hook at the tapped object. The same "everything is
+      // fair game" raycast the flying hook uses — every resident
+      // mesh, plus the terrain march for open ground — with the
+      // same skips (grappleSkip / isSky: shards are collectibles,
+      // never a target). A tap on open sky, or past the 40 m
+      // reach, keeps the gun armed so the user can tap another
+      // object. On a good tap the gun stands down and the hook
+      // flies; the button's 3 s reel-in follows.
+      function fireGrappleAtTap(e) {
+        const rect = renderer.domElement.getBoundingClientRect();
+        if (!rect.width || !rect.height) return;
+        ndc.set(
+          ((e.clientX - rect.left) / rect.width) * 2 - 1,
+          -((e.clientY - rect.top) / rect.height) * 2 + 1,
+        );
+        raycaster.setFromCamera(ndc, camera);
+        const eye = raycaster.ray.origin;
+        const dir = raycaster.ray.direction;
+        let point = null;
+        const hits = raycaster.intersectObjects(scene.children, true);
+        for (const h of hits) {
+          if (h.distance < 0.5) continue; // the walker's own body
+          let o = h.object;
+          let skip = false;
+          while (o) {
+            if (o.userData && (o.userData.grappleSkip || o.userData.isSky)) { skip = true; break; }
+            o = o.parent;
+          }
+          if (skip) continue;
+          point = { x: h.point.x, y: h.point.y, z: h.point.z };
+          break;
+        }
+        if (!point) {
+          // Open ground: march the ray against the terrain the
+          // walker's feet read (the same ground the flying hook
+          // checks) — the terrain mesh itself may not raycast.
+          for (let t = 1; t <= GRAPPLE_RANGE_M; t += 1) {
+            const x = eye.x + dir.x * t;
+            const y = eye.y + dir.y * t;
+            const z = eye.z + dir.z * t;
+            const gy = heightAt(x, z);
+            if (y <= gy + 0.1) { point = { x, y: gy, z }; break; }
+          }
+        }
+        if (!point) {
+          noticeRef.current('🪝 Nothing to grab there.');
+          return; // stay armed — tap another object
+        }
+        const dist = Math.hypot(point.x - eye.x, point.y - eye.y, point.z - eye.z);
+        if (grappleRangeDecision(dist) === 'too-far') {
+          noticeRef.current('🪝 Too far — get closer.');
+          return; // stay armed
+        }
+        const status = startGrappleThrow({
+          x: point.x - eye.x,
+          y: point.y - eye.y,
+          z: point.z - eye.z,
+        });
+        if (status === 'thrown') {
+          grappleArmedRef.current = false;
+          setGrappleArmed(false);
+          setGrappleCooling(true);
+          setTimeout(() => setGrappleCooling(false), GRAPPLE_COOLDOWN_MS);
+        }
+        // 'cooldown' / 'unavailable': the throw itself said why;
+        // the gun stays armed so the next tap can try again.
+      }
       function handleTap(e) {
         if (buildModeRef.current.active) { buildTap(e); return; }
         if (vehiclePlacementRef.current) {
@@ -5888,6 +5989,16 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           return;
         }
         if (drivingRef.current) return;
+        // HOOK BUTTON FLOW (Merlin, 2026-11-13): while the gun
+        // is armed, a tap on the scene fires the hook at the
+        // tapped object instead of the usual tap targets
+        // (boarding, shooting, collecting, riding). A tap on a
+        // ladder or elevator while armed grapples to it — the
+        // double-tap ride below only runs when unarmed.
+        if (grappleArmedRef.current) {
+          fireGrappleAtTap(e);
+          return;
+        }
         const rect = renderer.domElement.getBoundingClientRect();
         if (!rect.width || !rect.height) return;
         ndc.set(
@@ -7674,6 +7785,9 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
           noticeRef.current('🪝 Hook not ready — re-enter Earth 2.');
           return 'unavailable';
         }; // GRAPPLE: the hook went with the scene.
+        grappleStateRef.current = () => ({ flying: false, pulling: false, cooling: false });
+        grappleArmedRef.current = false;
+        setGrappleArmed(false); // the gun stands down with the scene.
         hideGrappleRope();
         for (const l of labels) l.el.remove();
         for (const b of vehicleBars) b.el.remove();
@@ -8578,21 +8692,29 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         </div>
       )}
 
-      {/* Grappling hook — KINETIC (Merlin, 2026-11-03): while
-          his rusty hook is owned, a 🪝 button rides bottom-right —
-          right-thumb reachable, clear of the joystick — on foot
-          only (never driving, never building). First press
-          auto-equips the hook. PRESS AND HOLD to throw: the hook
-          flies out along the camera's aim; RELEASE before it
-          catches something and the throw cancels; once it
-          attaches, real physics pulls the walker to it. It needs
-          3 seconds to reel back in between throws. */}
+      {/* Grappling hook — KINETIC (Merlin, 2026-11-03) + HOOK
+          BUTTON FLOW (Merlin, 2026-11-13): while his rusty hook
+          is owned, a 🪝 button rides bottom-right — right-thumb
+          reachable, clear of the joystick — on foot only (never
+          driving, never building). First press auto-equips the
+          hook. TAP THE BUTTON to arm the gun: the button turns
+          solid amber and reads ARMED, so the live state is
+          always visible. While armed, TAP AN OBJECT in the
+          scene and the hook fires at it; tap the button again
+          to stand the gun down. Tap the button mid-flight or
+          mid-pull to cut loose. It needs 3 seconds to reel back
+          in between throws. */}
       {grappleAvailable && !driving && !buildMode && (
         <button
           key="grapple-hook-btn"
           type="button"
-          aria-label="Fire grappling hook"
-          title="Tap to fire the grappling hook — tap again to release"
+          aria-label={grappleArmed
+            ? 'Grappling hook armed — tap an object to grapple to it'
+            : 'Arm the grappling hook'}
+          aria-pressed={grappleArmed}
+          title={grappleArmed
+            ? 'Grapple armed — tap an object to hook it (tap the button again to stand down)'
+            : 'Tap to arm the grappling hook — then tap an object to hook it'}
           disabled={grappleCooling}
           onClick={(e) => {
             e.preventDefault();
@@ -8600,17 +8722,36 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
               const uid = grappleOwnedUid(backpackRecord);
               if (uid) updateBackpack((rec) => setActiveWeapon(rec, uid, 'earth2'));
             }
-            const status = grappleFireRef.current();
-            if (status === 'thrown') {
-              setGrappleCooling(true);
-              setTimeout(() => setGrappleCooling(false), GRAPPLE_COOLDOWN_MS);
+            const st = grappleStateRef.current();
+            const action = grappleButtonAction({
+              armed: grappleArmed,
+              flying: st.flying,
+              pulling: st.pulling,
+              cooling: st.cooling || grappleCooling,
+            });
+            if (action === 'release') {
+              // Mid-flight or mid-pull: the throw call cuts loose.
+              grappleFireRef.current();
+            } else if (action === 'arm') {
+              grappleArmedRef.current = true;
+              setGrappleArmed(true);
+              noticeRef.current('🪝 Grapple ready — tap an object to hook it.');
+            } else if (action === 'disarm') {
+              grappleArmedRef.current = false;
+              setGrappleArmed(false);
+              noticeRef.current('🪝 Grapple off.');
             }
+            // 'cooldown': the button is disabled while reeling in.
           }}
           onContextMenu={(e) => e.preventDefault()}
-          className="pointer-events-auto absolute bottom-3 right-3 z-20 flex h-16 w-16 flex-col items-center justify-center gap-0 rounded-full border-2 border-amber-300/60 bg-amber-400/25 text-2xl backdrop-blur transition active:scale-95 disabled:opacity-40 select-none touch-none"
+          className={`pointer-events-auto absolute bottom-3 right-3 z-20 flex h-16 w-16 flex-col items-center justify-center gap-0 rounded-full border-2 text-2xl backdrop-blur transition active:scale-95 disabled:opacity-40 select-none touch-none ${
+            grappleArmed
+              ? 'border-amber-200 bg-amber-400/70 ring-2 ring-amber-200/70'
+              : 'border-amber-300/60 bg-amber-400/25'
+          }`}
         >
           <span aria-hidden="true">🪝</span>
-          <span className="text-[8px] font-black tracking-[0.18em] text-amber-100">HOOK</span>
+          <span className="text-[8px] font-black tracking-[0.18em] text-amber-100">{grappleArmed ? 'ARMED' : 'HOOK'}</span>
         </button>
       )}
 
