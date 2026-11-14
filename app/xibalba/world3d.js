@@ -32,6 +32,13 @@ import {
   stepPosition,
 } from '@/lib/xibalba/world';
 import DayNightRig from '@/components/DayNightRig';
+import { LavaGlowDome } from '@/components/LavaGlow';
+import {
+  LAVA_GLOW_PIT_HALO_OPACITY,
+  LAVA_GLOW_PIT_LIGHT_DISTANCE,
+  LAVA_GLOW_PIT_LIGHT_INTENSITY,
+  LAVA_GLOW_VEIN_SHADOW_BLUR,
+} from '@/lib/nether-realm/lava-glow';
 import { NETHER_REALM_SHADE } from '@/lib/day-night';
 
 const ROCK = '#141118';
@@ -59,7 +66,7 @@ function groundTexture() {
   // Glowing veins.
   g.strokeStyle = LAVA;
   g.shadowColor = LAVA;
-  g.shadowBlur = 14;
+  g.shadowBlur = LAVA_GLOW_VEIN_SHADOW_BLUR;
   for (let i = 0; i < 26; i += 1) {
     let x = Math.random() * 1024;
     let y = Math.random() * 1024;
@@ -347,7 +354,7 @@ function PlaceOfFear({ pits, shades }) {
         <circleGeometry args={[80, 40]} />
         <meshStandardMaterial color="#0d0505" roughness={1} />
       </mesh>
-      <pointLight position={[0, 8, -230]} color="#ff3a1a" intensity={50} distance={105} />
+      <pointLight position={[0, 8, -230]} color="#ff3a1a" intensity={LAVA_GLOW_PIT_LIGHT_INTENSITY} distance={LAVA_GLOW_PIT_LIGHT_DISTANCE} />
       {teeth.map((t) => (
         <mesh key={t.key} position={[t.x, t.h / 2, t.z]}>
           <coneGeometry args={[3, t.h, 5]} />
@@ -358,8 +365,9 @@ function PlaceOfFear({ pits, shades }) {
         <group key={p.id} position={[p.x, 0, p.z]}>
           <mesh position={[0, 0.1, 0]} rotation={[-Math.PI / 2, 0, 0]}>
             <circleGeometry args={[p.r * 1.6, 20]} />
-            <meshBasicMaterial color={LAVA} transparent opacity={0.3} />
+            <meshBasicMaterial color={LAVA} transparent opacity={LAVA_GLOW_PIT_HALO_OPACITY} />
           </mesh>
+          <LavaGlowDome radius={p.r * 1.6} color={LAVA} height={2.5} />
           <mesh position={[0, 1.8, 0]}>
             <coneGeometry args={[p.r * 0.7, 3.6, 8]} />
             <meshBasicMaterial color="#ff2a1a" transparent opacity={0.9} />

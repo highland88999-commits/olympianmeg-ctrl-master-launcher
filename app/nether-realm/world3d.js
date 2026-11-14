@@ -38,6 +38,14 @@ import {
   stepPosition,
 } from '@/lib/nether-realm/world';
 import DayNightRig from '@/components/DayNightRig';
+import { LavaGlowDome, LavaPoolGlow } from '@/components/LavaGlow';
+import {
+  LAVA_GLOW_CRACK_OPACITY,
+  LAVA_GLOW_PIT_HALO_OPACITY,
+  LAVA_GLOW_PIT_LIGHT_DISTANCE,
+  LAVA_GLOW_PIT_LIGHT_INTENSITY,
+  LAVA_GLOW_VEIN_SHADOW_BLUR,
+} from '@/lib/nether-realm/lava-glow';
 import { NETHER_REALM_SHADE } from '@/lib/day-night';
 
 const ROCK = '#141118';
@@ -65,7 +73,7 @@ function groundTexture() {
   // Glowing lava veins.
   g.strokeStyle = LAVA;
   g.shadowColor = LAVA;
-  g.shadowBlur = 14;
+  g.shadowBlur = LAVA_GLOW_VEIN_SHADOW_BLUR;
   for (let i = 0; i < 26; i += 1) {
     let x = Math.random() * 1024;
     let y = Math.random() * 1024;
@@ -158,19 +166,12 @@ function Ground() {
   );
 }
 
-function LavaPools({ pools }) {
+function LavaPools({ pools, reduced }) {
   return (
     <group>
       {pools.map((p) => (
         <group key={p.id} position={[p.x, 0, p.z]}>
-          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.1, 0]}>
-            <circleGeometry args={[p.r * 1.5, 24]} />
-            <meshBasicMaterial color={LAVA} transparent opacity={0.22} />
-          </mesh>
-          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.12, 0]}>
-            <circleGeometry args={[p.r, 24]} />
-            <meshBasicMaterial color="#ff7a1a" transparent opacity={0.9} />
-          </mesh>
+          <LavaPoolGlow pool={p} color={LAVA} reduced={reduced} />
           <Html center distanceFactor={90} position={[0, 2.2, 0]} zIndexRange={[20, 0]} style={lavaLabelStyle}>
             {LAVA_DROP_NAME}
           </Html>
@@ -425,13 +426,14 @@ function Tartarus({ pits, shades, reduced }) {
         <circleGeometry args={[80, 40]} />
         <meshStandardMaterial color="#1c0505" roughness={1} />
       </mesh>
-      <pointLight position={[0, 8, -230]} color={LAVA} intensity={55} distance={110} />
+      <pointLight position={[0, 8, -230]} color={LAVA} intensity={LAVA_GLOW_PIT_LIGHT_INTENSITY} distance={LAVA_GLOW_PIT_LIGHT_DISTANCE} />
       {pits.map((p) => (
         <group key={p.id} position={[p.x, 0, p.z]}>
           <mesh position={[0, 0.1, 0]} rotation={[-Math.PI / 2, 0, 0]}>
             <circleGeometry args={[p.r * 1.6, 20]} />
-            <meshBasicMaterial color={LAVA} transparent opacity={0.3} />
+            <meshBasicMaterial color={LAVA} transparent opacity={LAVA_GLOW_PIT_HALO_OPACITY} />
           </mesh>
+          <LavaGlowDome radius={p.r * 1.6} color={LAVA} height={2.5} />
           <mesh
             ref={(m) => { pitRefs.current[p.id] = m; }}
             position={[0, 1.8, 0]}
@@ -520,8 +522,9 @@ function DescentPortal() {
       ))}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.1, 0]}>
         <circleGeometry args={[3, 20]} />
-        <meshBasicMaterial color={LAVA} transparent opacity={0.55} />
+        <meshBasicMaterial color={LAVA} transparent opacity={LAVA_GLOW_CRACK_OPACITY} />
       </mesh>
+      <LavaGlowDome radius={4.5} color={LAVA} height={1.2} />
       {/* the ring itself: a full standing stone circle, facing south
           toward the player who just came down */}
       <mesh position={[0, 4.5, 0]}>
@@ -789,7 +792,7 @@ export function NetherRealmScene({ playerRef, inputRef, onPortal, onLava, onRegi
         }}
       />
       <Ground />
-      <LavaPools pools={world.lavaPools} />
+      <LavaPools pools={world.lavaPools} reduced={reduced} />
       <River reduced={reduced} />
       <Bridge />
       <Gates />

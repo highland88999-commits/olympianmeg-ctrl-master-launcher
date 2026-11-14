@@ -32,6 +32,16 @@ import {
   stepPosition,
 } from '@/lib/hell/world';
 import DayNightRig from '@/components/DayNightRig';
+import { LavaGlowDome, LavaPoolGlow } from '@/components/LavaGlow';
+import {
+  LAVA_GLOW_CRACK_OPACITY,
+  LAVA_GLOW_LAKE_LIGHT_DISTANCE,
+  LAVA_GLOW_LAKE_LIGHT_INTENSITY,
+  LAVA_GLOW_PIT_HALO_OPACITY,
+  LAVA_GLOW_PIT_LIGHT_DISTANCE,
+  LAVA_GLOW_PIT_LIGHT_INTENSITY,
+  LAVA_GLOW_VEIN_SHADOW_BLUR,
+} from '@/lib/nether-realm/lava-glow';
 import { NETHER_REALM_SHADE } from '@/lib/day-night';
 
 const ROCK = '#141118';
@@ -59,7 +69,7 @@ function groundTexture() {
   // Glowing veins.
   g.strokeStyle = LAVA;
   g.shadowColor = LAVA;
-  g.shadowBlur = 14;
+  g.shadowBlur = LAVA_GLOW_VEIN_SHADOW_BLUR;
   for (let i = 0; i < 26; i += 1) {
     let x = Math.random() * 1024;
     let y = Math.random() * 1024;
@@ -141,19 +151,12 @@ function Ground() {
   );
 }
 
-function FirePools({ pools }) {
+function FirePools({ pools, reduced }) {
   return (
     <group>
       {pools.map((p) => (
         <group key={p.id} position={[p.x, 0, p.z]}>
-          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.1, 0]}>
-            <circleGeometry args={[p.r * 1.5, 24]} />
-            <meshBasicMaterial color={LAVA} transparent opacity={0.22} />
-          </mesh>
-          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.12, 0]}>
-            <circleGeometry args={[p.r, 24]} />
-            <meshBasicMaterial color="#ff7a1a" transparent opacity={0.9} />
-          </mesh>
+          <LavaPoolGlow pool={p} color={LAVA} reduced={reduced} />
         </group>
       ))}
     </group>
@@ -304,18 +307,62 @@ function WestRegion({ dressing, shades, reduced }) {
   );
 }
 
-function EastRegion({ dressing }) {
+function EastRegion({ dressing, reduced }) {
+  // Five flames breathing over the lake surface, same wave as the
+  // Tartarus pit cones — fixed offsets inside the lake disc so the
+  // fire reads from every side, not just from the bright spot.
+  const flames = [
+    { x: 25, z: 0 },
+    { x: 7.7, z: 23.8 },
+    { x: -20.2, z: 14.7 },
+    { x: -20.2, z: -14.7 },
+    { x: 7.7, z: -23.8 },
+  ];
+  const flameRefs = useRef([]);
+  useFrame((state) => {
+    if (reduced) return;
+    const t = state.clock.elapsedTime;
+    flameRefs.current.forEach((m, i) => {
+      if (!m) return;
+      const s = 1 + Math.sin(t * 3 + i * 2.1) * 0.12;
+      m.scale.set(s, 1 + Math.sin(t * 4 + i) * 0.15, s);
+    });
+  });
   return (
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[160, 0.05, -70]}>
         <circleGeometry args={[70, 40]} />
         <meshStandardMaterial color="#3d0d02" roughness={1} />
       </mesh>
+      {/* The lake surface itself, in three steps — mid glow, hot
+          middle, bright core — so the fire covers the lake instead of
+          one small dot on a dark disc. */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[160, 0.08, -70]}>
-        <circleGeometry args={[12, 24]} />
-        <meshBasicMaterial color="#ffe9a8" transparent opacity={0.45} />
+        <circleGeometry args={[55, 32]} />
+        <meshBasicMaterial color="#ff5a00" transparent opacity={0.35} />
       </mesh>
-      <pointLight position={[160, 10, -70]} color='#ff7a1a' intensity={45} distance={95} />
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[160, 0.1, -70]}>
+        <circleGeometry args={[30, 32]} />
+        <meshBasicMaterial color="#ff9a1a" transparent opacity={0.85} />
+      </mesh>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[160, 0.12, -70]}>
+        <circleGeometry args={[14, 24]} />
+        <meshBasicMaterial color="#ffd98a" transparent opacity={0.9} />
+      </mesh>
+      <group position={[160, 0, -70]}>
+        <LavaGlowDome radius={70} color="#ff5a00" height={6} opacity={0.12} />
+      </group>
+      <pointLight position={[160, 10, -70]} color='#ff7a1a' intensity={LAVA_GLOW_LAKE_LIGHT_INTENSITY} distance={LAVA_GLOW_LAKE_LIGHT_DISTANCE} />
+      {flames.map((f, i) => (
+        <mesh
+          key={i}
+          ref={(m) => { flameRefs.current[i] = m; }}
+          position={[160 + f.x, 2.5, -70 + f.z]}
+        >
+          <coneGeometry args={[2.2, 5, 8]} />
+          <meshBasicMaterial color="#ff7a1a" transparent opacity={0.9} />
+        </mesh>
+      ))}
       {dressing.map((p) => (
         <mesh key={p.id} position={[p.x, p.h / 2, p.z]}>
           <cylinderGeometry args={[0.9, 1.1, p.h, 10]} />
@@ -346,13 +393,14 @@ function NorthRegion({ dressing, shades, reduced }) {
         <circleGeometry args={[80, 40]} />
         <meshStandardMaterial color="#0e1a24" roughness={1} />
       </mesh>
-      <pointLight position={[0, 8, -230]} color='#9fd8ff' intensity={55} distance={110} />
+      <pointLight position={[0, 8, -230]} color='#9fd8ff' intensity={LAVA_GLOW_PIT_LIGHT_INTENSITY} distance={LAVA_GLOW_PIT_LIGHT_DISTANCE} />
       {dressing.map((p) => (
         <group key={p.id} position={[p.x, 0, p.z]}>
           <mesh position={[0, 0.1, 0]} rotation={[-Math.PI / 2, 0, 0]}>
             <circleGeometry args={[p.r * 1.6, 20]} />
-            <meshBasicMaterial color={LAVA} transparent opacity={0.3} />
+            <meshBasicMaterial color={LAVA} transparent opacity={LAVA_GLOW_PIT_HALO_OPACITY} />
           </mesh>
+          <LavaGlowDome radius={p.r * 1.6} color={LAVA} height={2.5} />
           <mesh
             ref={(m) => { pitRefs.current[p.id] = m; }}
             position={[0, 1.8, 0]}
@@ -439,8 +487,9 @@ function DescentPortal() {
       ))}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.1, 0]}>
         <circleGeometry args={[3, 20]} />
-        <meshBasicMaterial color={LAVA} transparent opacity={0.55} />
+        <meshBasicMaterial color={LAVA} transparent opacity={LAVA_GLOW_CRACK_OPACITY} />
       </mesh>
+      <LavaGlowDome radius={4.5} color={LAVA} height={1.2} />
       <mesh position={[0, 4.5, 0]}>
         <torusGeometry args={[DESCENT_PORTAL.radius, 0.7, 12, 32]} />
         <meshStandardMaterial color={STONE} roughness={0.9} />
@@ -686,13 +735,13 @@ export function HellScene({ playerRef, inputRef, onPortal, onRegion, reduced }) 
         }}
       />
       <Ground />
-      <FirePools pools={world.lavaPools} />
+      <FirePools pools={world.lavaPools} reduced={reduced} />
       <River reduced={reduced} />
       <Bridge />
       <Gates />
       <Landmark />
       <WestRegion dressing={world.plainStones} shades={world.shades} reduced={reduced} />
-      <EastRegion dressing={world.lakeFlames} />
+      <EastRegion dressing={world.lakeFlames} reduced={reduced} />
       <NorthRegion dressing={world.frozenSpikes} shades={world.shades} reduced={reduced} />
       <PortalArches />
       <DescentPortal />
