@@ -301,6 +301,21 @@ describe('the fleet as instances', () => {
     assert.equal(vehicleInstances().filter((i) => i.slug === 'earth1:wedge-supercar').length, 0);
   });
 
+  it('every scattered machine has a display name the page can render (Merlin, 2026-11-14)', () => {
+    // Live crash 2026-11-14 03:56 on /earth-2: the wild-fleet
+    // list read VEHICLE_SPECS[s.slug].name, and the 18 bridged
+    // earth1: slugs are not in that native registry —
+    // undefined.name crashed the whole page on render. The list
+    // resolves through modelSpec (native or bridged) with the
+    // spot label as the last fallback, so no spot can throw.
+    const spots = scatteredVehicleSpots();
+    assert.equal(spots.length, 27);
+    for (const s of spots) {
+      const name = modelSpec(s.slug)?.name || s.label;
+      assert.ok(typeof name === 'string' && name.length > 0, `${s.id} has a display name`);
+    }
+  });
+
   it('scattered machines stand on lawful, separated Commons spots', () => {
     const prot = protectedParcelIds();
     const spots = scatteredVehicleSpots();

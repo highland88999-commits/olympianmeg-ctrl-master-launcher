@@ -1160,7 +1160,7 @@ export default function Earth2Page() {
                 and its lake — a crossing roughly every six parcels, so no stretch of
                 shoreline is far from a deck. Walk them or drive them; the River Runner
                 passes beneath the arch. The two shallow ponds need no bridge (they never
-                stop a walker), and the west-edge river has no far bank to reach. Nine
+                stop a walker), and the west-edge river has no far bank to reach. {scatteredVehicleSpots().length}
                 more machines sleep out in the wilds on Free Commons, and three River
                 Runner boats ride at anchor — walk up to any of them and take the controls.
               </p>
@@ -1181,7 +1181,7 @@ export default function Earth2Page() {
                     {s.slug === 'speed-bike' ? '🏍️' : s.slug === 'scarab' ? '🪲' : '🛻'} {s.label}
                   </span>
                   <span className="block text-[11px] text-zinc-400">
-                    {VEHICLE_SPECS[s.slug].name} · parked on {s.parcelId}
+                    {(modelSpec(s.slug)?.name || s.label)} · parked on {s.parcelId}
                   </span>
                 </span>
                 <span className="shrink-0 rounded-full border border-emerald-300/40 bg-emerald-400/15 px-2.5 py-1 text-[11px] font-bold text-emerald-100">
