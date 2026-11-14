@@ -1,7 +1,7 @@
 // @ts-nocheck
 /* eslint-disable */
 'use client';
-import { useEffect, useState, useRef, useMemo } from 'react';
+import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { BackButton } from '@/components/ui';
 import Link from 'next/link';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
@@ -18,6 +18,7 @@ import {
   TUBE_RADIUS,
   RIDE_RADIUS,
 } from '@/lib/luge/track';
+import { createFinishGuard } from '@/lib/luge/finish-guard';
 import GoldCheckoutOption from '@/components/economy/GoldCheckoutOption';
 import { fx, unlockFx } from '@/lib/fx';
 import { resolveSurfaceCharacter } from '@/lib/characters/embodiment';
@@ -521,6 +522,10 @@ export default function LugeEngine() {
   const [eligibility, setEligibility] = useState(null);
   const [purchaseNote, setPurchaseNote] = useState('');
 
+  // Plain-English recording failure, shown on the menu board when a finished
+  // run could not be recorded server-side (it was silently swallowed before).
+  const [recordError, setRecordError] = useState('');
+
   // ---------- PvP race state ----------
   // Solo flow ('menu' -> 'pre_race_calibrate' -> 'racing' -> 'podium') is
   // untouched: every PvP field below is null/inactive unless a race room
@@ -570,6 +575,11 @@ export default function LugeEngine() {
   const baselineBeta = useRef(40); // Standard holding angle
   const tokenRef = useRef('');
   const raceStartRef = useRef(0); // Wall-clock ms when the current run began
+  // One finish, one recording (lib/luge/finish-guard.js): the race loop
+  // calls onFinish every frame past the line, so handleFinish claims the
+  // recording once per run and ignores the rest. Re-armed on race start.
+  const finishGuardRef = useRef(null);
+  if (finishGuardRef.current === null) finishGuardRef.current = createFinishGuard();
 
   const ownsArsenal = LUGE_PREMIUM_IDS.every((id) => ownedIds.has(id));
 
@@ -984,22 +994,30 @@ export default function LugeEngine() {
   // Stop PvP timers on unmount.
   useEffect(() => () => stopPvpTimers(), []);
 
+  // Refetch the global board for a course. Extracted so a finish can refresh
+  // it too — the board used to fetch only when the course changed, so a rider
+  // who had just finished still saw the pre-race (often empty) board and
+  // reasonably concluded the run was never recorded.
+  const boardCourseRef = useRef(0);
+  const refreshBoard = useCallback(async (courseId) => {
+    boardCourseRef.current = courseId;
+    try {
+      const res = await fetch(`/api/luge/leaderboard?course=${courseId}`);
+      const d = await res.json();
+      if (!d || !d.ok) return;
+      if (boardCourseRef.current !== courseId) return; // a newer course asked first
+      setPvpBoard(Array.isArray(d.entries) ? d.entries : []);
+      setPvpBoardNotice(d.notice || '');
+    } catch { /* offline: the board simply stays as-is */ }
+  }, []);
+
   // Global leaderboard board for the selected course (public, global).
   // Degrades honestly when the table isn't provisioned yet.
   useEffect(() => {
-    let on = true;
     setPvpBoard([]);
     setPvpBoardNotice('');
-    fetch(`/api/luge/leaderboard?course=${selectedCourse.id}`)
-      .then((r) => r.json())
-      .then((d) => {
-        if (!on || !d || !d.ok) return;
-        setPvpBoard(Array.isArray(d.entries) ? d.entries : []);
-        if (d.notice) setPvpBoardNotice(d.notice);
-      })
-      .catch(() => { /* offline: the board simply stays empty */ });
-    return () => { on = false; };
-  }, [selectedCourse.id]);
+    refreshBoard(selectedCourse.id);
+  }, [selectedCourse.id, refreshBoard]);
 
   const onCallsignChange = (v) => {
     const clean = String(v || '').slice(0, 24);
@@ -1034,6 +1052,8 @@ export default function LugeEngine() {
           // racer's finish time is comparable.
           attachRaceControls();
           raceStartRef.current = pvpStartsAtRef.current;
+          finishGuardRef.current.reset();
+          setRecordError('');
           pvpProgressRef.current = 0;
           pvpFinishedRef.current = false;
           pvpBeaconAtRef.current = 0;
@@ -1066,6 +1086,8 @@ export default function LugeEngine() {
     const start = () => {
       attachRaceControls();
       raceStartRef.current = Date.now();
+      finishGuardRef.current.reset();
+      setRecordError('');
       setGameState('racing');
     };
     if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
@@ -1129,6 +1151,12 @@ export default function LugeEngine() {
   }, []);
 
   const handleFinish = async () => {
+    // One finish, one recording: the race loop calls onFinish every frame
+    // once progress passes the line, and the first call awaits network
+    // round-trips before the scene unmounts. Without this claim a single
+    // finish recorded dozens of times (live Nov 13: ~50 leaderboard rows
+    // for one run). Later frames in the same run return here and do nothing.
+    if (!finishGuardRef.current.claim()) return;
     fx.gameWin(); // crossed the finish line: full fanfare
     detachRaceControls();
 
@@ -1146,6 +1174,20 @@ export default function LugeEngine() {
       await sendBeacon(true, runMs);
     }
 
+    // The token captured on mount goes stale after the 1-hour JWT expiry —
+    // a long session's finishes were answered 401 and swallowed silently.
+    // Refresh it at the finish line so the recording always carries a live
+    // token for this rider.
+    let finishToken = tokenRef.current;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.access_token) {
+        finishToken = session.access_token;
+        tokenRef.current = finishToken;
+      }
+    } catch { /* fall back to the mounted token */ }
+    const finishHeaders = { Authorization: `Bearer ${finishToken}`, 'Content-Type': 'application/json' };
+
     // Global leaderboard: every validated run — PvP or solo — can post a
     // time. Server-validated against the physics floor; a failed submit
     // never blocks the game.
@@ -1153,7 +1195,7 @@ export default function LugeEngine() {
       try {
         await fetch('/api/luge/leaderboard', {
           method: 'POST',
-          headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+          headers: finishHeaders,
           body: JSON.stringify({
             courseId: selectedCourse.id,
             runMs,
@@ -1165,28 +1207,44 @@ export default function LugeEngine() {
     };
 
     // Record the run server-side (anti-cheat validated there). A failed
-    // recording never blocks the game — the run still happened.
+    // recording never blocks the game — the run still happened — but it is
+    // now said out loud on the menu board instead of swallowed silently.
     let freshEligibility = eligibility;
     try {
-      await fetch('/api/luge/complete', {
+      const completeRes = await fetch('/api/luge/complete', {
         method: 'POST',
-        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        headers: finishHeaders,
         body: JSON.stringify({
           courseId: selectedCourse.id,
           runMs,
           sledId: finishSledId,
         }),
       });
-      const res = await fetch('/api/luge/eligibility', { headers: authHeaders() });
+      let completeData = null;
+      try { completeData = await completeRes.json(); } catch { /* non-JSON error page */ }
+      if (!completeRes.ok || !completeData?.ok) {
+        setRecordError(`Your run finished but was not recorded — ${completeData?.error || 'please run the course again.'}`);
+      } else {
+        setRecordError('');
+      }
+    } catch {
+      setRecordError('Your run finished but was not recorded — you may be offline. Run the course again when you are back online.');
+    }
+    try {
+      const res = await fetch('/api/luge/eligibility', { headers: finishHeaders });
       const data = await res.json();
       if (data && data.ok) {
         setEligibility(data);
         freshEligibility = data;
       }
     } catch {
-      // Offline or unprovisioned — the podium still works off this finish.
+      // Eligibility is a display refresh, never a blocker.
     }
     void submitGlobalTime();
+    // The board used to refresh only when the course changed, so a rider
+    // who had just finished still saw the pre-race board. Refresh it now
+    // so the new time is visible immediately.
+    void refreshBoard(selectedCourse.id);
 
     if (isPvp) {
       // The beacon poll keeps running: the results board fills in live as
@@ -1357,6 +1415,9 @@ export default function LugeEngine() {
             </h2>
             {pvpBoardNotice && (
               <p className="mb-2 text-[10px] text-zinc-500">{pvpBoardNotice}</p>
+            )}
+            {recordError && (
+              <p className="mb-2 text-[10px] text-amber-300">{recordError}</p>
             )}
             {pvpBoard.length === 0 && !pvpBoardNotice && (
               <p className="text-[10px] text-zinc-600">No times yet on this course — be the first.</p>
@@ -1805,6 +1866,9 @@ export default function LugeEngine() {
                 ? 'You have survived all 20 descents.'
                 : 'Another descent conquered.'}
           </p>
+          {recordError && (
+            <p className="mb-8 text-xs text-amber-300">{recordError}</p>
+          )}
 
           <div className="w-full max-w-2xl p-8 border rounded border-amber-500/50 bg-black/60 shadow-[0_0_50px_rgba(255,215,0,0.1)]">
             {redeemed ? (
