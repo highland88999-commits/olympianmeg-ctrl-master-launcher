@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import * as THREE from 'three';
 
 import {
   GRAPPLE_RANGE_M,
@@ -23,6 +24,9 @@ import {
   GRAPPLE_ARMED_TAP_MAX_DISPLACEMENT_PX,
   GRAPPLE_ARMED_TAP_MAX_DURATION_MS,
   GRAPPLE_HOOK_ITEM_ID,
+  GRAPPLE_FOLIAGE_SKIP_HEIGHT_M,
+  GRAPPLE_ROPE_COLOR,
+  GRAPPLE_ROPE_LINGER_MS,
   isGrappleEquipped,
   isGrappleOwned,
   grappleOwnedUid,
@@ -30,12 +34,18 @@ import {
   grappleButtonAction,
   grappleHookStep,
   grapplePullStep,
+  grappleMinHitDistM,
+  isGrappleSkippedFoliage,
+  grappleHitSkipped,
+  grappleTapPoint,
 } from '../lib/earth2/grapple.js';
 import {
   classifyTapGesture,
   TAP_MAX_DISPLACEMENT_PX,
   TAP_MAX_DURATION_MS,
 } from '../lib/earth2/building.js';
+import { EARTH2_MODEL_BY_SLUG } from '../lib/earth2/models.js';
+import { STAGED_OBJECTS } from '../lib/earth2/staged-objects-data.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, '..');
@@ -181,9 +191,13 @@ describe('hook button flow (scene wiring)', () => {
     assert.ok(scene.includes('function startGrappleThrow(aimDir)'), 'the throw must take an aim');
   });
   it('the tap raycast skips shards, like the flying hook does', () => {
+    // Both raycasts share one predicate now (grappleTapPoint /
+    // grappleHitSkipped) — the skip law itself is pinned by the
+    // grappleHitSkipped unit tests below, so this pins the wiring:
+    // the tap must use the shared predicate, and shards must
+    // still carry the flag the predicate reads.
     const fn = scene.slice(scene.indexOf('function fireGrappleAtTap(e)'));
-    assert.ok(fn.includes('grappleSkip'), 'tap targeting must skip grappleSkip objects');
-    assert.ok(fn.includes('isSky'), 'tap targeting must skip the sky');
+    assert.ok(fn.includes('grappleTapPoint(hits,'), 'tap targeting must use the shared skip');
     assert.ok(interiorRoom.includes('group.userData.grappleSkip = true'), 'shards must carry grappleSkip');
   });
   it('a sky tap or a too-far tap keeps the gun armed', () => {
@@ -372,5 +386,244 @@ describe('visible rope + hook head (Merlin, 2026-11-14 — fourth grapple report
   it('the rope is posed from the first frame of the throw, not one frame late', () => {
     const fn = scene.slice(scene.indexOf('function showGrappleRope()'));
     assert.ok(fn.includes('updateGrappleRope();'), 'showing the rope must pose it at once');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GROUND FOLIAGE (Merlin, 2026-11-14 — fifth grapple report): the
+// distance skip was not enough — the plants on his parcel stretch
+// past 1.0 m, so every throw still caught the first leaf. Short
+// plants are never a target now: the hook flies past their leaves.
+// ---------------------------------------------------------------------------
+describe('isGrappleSkippedFoliage — ground leaves, not targets', () => {
+  it('skips short plants, keeps tall trees grappleable', () => {
+    assert.equal(GRAPPLE_FOLIAGE_SKIP_HEIGHT_M, 4, 'the line sits in the clean gap (3 m cover, 7 m trees)');
+    assert.equal(isGrappleSkippedFoliage('plant', 0.6), true, 'fern ground cover');
+    assert.equal(isGrappleSkippedFoliage('plant', 3), true, 'cycad palm');
+    assert.equal(isGrappleSkippedFoliage('plant', 8), false, 'tree fern keeps its trunk');
+    assert.equal(isGrappleSkippedFoliage('vegetation', 2), true, 'shrub cluster');
+    assert.equal(isGrappleSkippedFoliage('vegetation', 22), false, 'lodgepole pine keeps its trunk');
+  });
+  it('only foliage kinds skip, and only with a real height', () => {
+    assert.equal(isGrappleSkippedFoliage('building', 2), false, 'a 2 m building is still a target');
+    assert.equal(isGrappleSkippedFoliage('dinosaur', 1), false, 'a small dino is still a target');
+    assert.equal(isGrappleSkippedFoliage('plant', undefined), false, 'no height, no skip');
+    assert.equal(isGrappleSkippedFoliage('plant', NaN), false, 'a bad height never skips');
+    assert.equal(isGrappleSkippedFoliage('plant', 4), false, 'exactly 4 m is a target, not leaves');
+  });
+});
+
+describe('ground foliage, against the real data', () => {
+  it('every native plant classifies on the right side of the line', () => {
+    const small = ['fern-ground-cover', 'club-moss', 'horsetail-reeds', 'cycad-palm', 'bennettitales'];
+    const tall = ['tree-fern', 'magnolia', 'ginkgo-tree', 'araucaria', 'giant-conifer'];
+    for (const slug of small) {
+      const e = EARTH2_MODEL_BY_SLUG.get(slug);
+      assert.ok(e, `model ${slug} must exist`);
+      assert.equal(isGrappleSkippedFoliage(e.kind, e.scaleM), true, `${slug} (${e.scaleM} m) must skip`);
+    }
+    for (const slug of tall) {
+      const e = EARTH2_MODEL_BY_SLUG.get(slug);
+      assert.ok(e, `model ${slug} must exist`);
+      assert.equal(isGrappleSkippedFoliage(e.kind, e.scaleM), false, `${slug} (${e.scaleM} m) must stay grappleable`);
+    }
+  });
+  it('every staged vegetation placement classifies: only tufts and shrubs skip', () => {
+    const veg = STAGED_OBJECTS.filter((o) => o.category === 'vegetation');
+    assert.equal(veg.length, 1141, 'staged vegetation count must match the inventory');
+    const skipped = veg.filter((o) => isGrappleSkippedFoliage(o.category, o.scaleM));
+    assert.equal(skipped.length, 448, 'only the 2 m tufts and shrubs skip');
+    assert.deepEqual(
+      [...new Set(skipped.map((o) => o.assetId))].sort(),
+      ['e002-prairie-grass-tufts', 'e020-shrub-cluster'],
+      'no tree may ever skip',
+    );
+    assert.equal(veg.length - skipped.length, 693, 'every staged tree stays grappleable');
+  });
+});
+
+// A toy scene for the raycaster tests: a flagged fern (a leaf
+// in the walker's face) in front of a rock (the real target).
+// The flag sits on the fern's GROUP, not the mesh — exactly as
+// the scene sets it at build time — so the ancestor walk is
+// what the test exercises.
+function toyScene() {
+  const s = new THREE.Scene();
+  const fern = new THREE.Group();
+  fern.userData.grappleSkip = true;
+  const fernMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 0.2), new THREE.MeshBasicMaterial());
+  fernMesh.position.set(0, 0.5, 1.5);
+  fern.add(fernMesh);
+  const rock = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), new THREE.MeshBasicMaterial());
+  rock.position.set(0, 1, 6);
+  s.add(fern, rock);
+  s.updateMatrixWorld(true);
+  return { s, fern, fernMesh, rock };
+}
+
+describe('grappleHitSkipped / grappleTapPoint — the shared skip, with a real raycaster', () => {
+  it('the tap ray passes the flagged fern and lands on the rock behind it', () => {
+    const { s } = toyScene();
+    const rc = new THREE.Raycaster(new THREE.Vector3(0, 0.5, 0), new THREE.Vector3(0, 0, 1), 0, 40);
+    const hits = rc.intersectObjects(s.children, true);
+    assert.ok(hits.length >= 2, 'the ray must meet both the fern and the rock');
+    const point = grappleTapPoint(hits, 0.5);
+    assert.ok(point, 'a target must remain after the skip');
+    assert.ok(Math.abs(point.z - 5) < 1e-6, `the point must be the rock face at z=5, got z=${point.z}`);
+  });
+  it('without the flag the same ray catches the fern — the flag is what saves the throw', () => {
+    const { s, fern } = toyScene();
+    fern.userData.grappleSkip = false;
+    const rc = new THREE.Raycaster(new THREE.Vector3(0, 0.5, 0), new THREE.Vector3(0, 0, 1), 0, 40);
+    const hits = rc.intersectObjects(s.children, true);
+    const point = grappleTapPoint(hits, 0.5);
+    assert.ok(Math.abs(point.z - 1.4) < 1e-6, `unflagged, the point must be the fern face at z=1.4, got z=${point.z}`);
+  });
+  it('a hit nearer than the own-body skip is ignored even without any flag', () => {
+    const { s, fern } = toyScene();
+    fern.userData.grappleSkip = false;
+    const rc = new THREE.Raycaster(new THREE.Vector3(0, 0.5, 0), new THREE.Vector3(0, 0, 1), 0, 40);
+    const hits = rc.intersectObjects(s.children, true);
+    // The fern face sits 1.4 m out — inside a 2 m skip, so the
+    // tap must still land on the rock.
+    const point = grappleTapPoint(hits, 2.0);
+    assert.ok(Math.abs(point.z - 5) < 1e-6, `inside the skip, the point must be the rock, got z=${point.z}`);
+  });
+  it('grappleHitSkipped walks ancestors: a flag on the group skips the mesh inside it', () => {
+    const { fernMesh, rock } = toyScene();
+    assert.equal(
+      grappleHitSkipped({ distance: 5, object: fernMesh }, 0.5), true,
+      'the mesh inherits the group flag',
+    );
+    assert.equal(
+      grappleHitSkipped({ distance: 5, object: rock }, 0.5), false,
+      'an unflagged mesh with unflagged parents never skips',
+    );
+  });
+  it('grappleHitSkipped also skips the sky, and returns null when nothing may catch', () => {
+    const sky = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+    sky.userData.isSky = true;
+    assert.equal(grappleHitSkipped({ distance: 5, object: sky }, 0.5), true, 'sky skips');
+    assert.equal(grappleTapPoint([], 0.5), null, 'no hits, no point');
+    assert.equal(grappleTapPoint(null, 0.5), null, 'no ray, no point');
+  });
+  it('both scene raycasts use the shared predicate', () => {
+    const hook = scene.slice(scene.indexOf('function stepGrappleHook'));
+    assert.ok(hook.includes('grappleHitSkipped(h,'), 'the flying hook must use the shared skip');
+    const tap = scene.slice(scene.indexOf('function fireGrappleAtTap(e)'));
+    assert.ok(tap.includes('grappleTapPoint(hits,'), 'the tap ray must use the shared skip');
+  });
+});
+
+describe('tap → throw → rope → pull, end to end (fifth report)', () => {
+  it('a tap on the rock throws the hook there, the rope shows, and the pull carries the walker to it', () => {
+    // TAP: the ray passes the flagged fern and picks the rock.
+    const { s } = toyScene();
+    const rc = new THREE.Raycaster(new THREE.Vector3(0, 0.5, 0), new THREE.Vector3(0, 0, 1), 0, 40);
+    const hits = rc.intersectObjects(s.children, true);
+    const point = grappleTapPoint(hits, grappleMinHitDistM(0.25));
+    assert.ok(point, 'the tap must find a target past the leaves');
+    // RANGE: the rock face is 5 m out — inside the 40 m reach.
+    const dist = Math.hypot(point.x - 0, point.y - 0.5, point.z - 0);
+    assert.equal(grappleRangeDecision(dist), 'hit');
+    // THROW: the hook flies at 60 m/s toward the tapped point.
+    const dir = { x: (point.x - 0) / dist, y: (point.y - 0.5) / dist, z: (point.z - 0) / dist };
+    let hx = 0, hy = 0.5, hz = 0;
+    let attached = false;
+    for (let i = 0; i < 120; i++) {
+      const n = grappleHookStep(
+        { x: hx, y: hy, z: hz, vx: dir.x * GRAPPLE_HOOK_SPEED_MPS, vy: dir.y * GRAPPLE_HOOK_SPEED_MPS, vz: dir.z * GRAPPLE_HOOK_SPEED_MPS },
+        1 / 60,
+      );
+      hx = n.x; hy = n.y; hz = n.z;
+      if (Math.hypot(hx - point.x, hy - point.y, hz - point.z) <= 0.5) { attached = true; break; }
+    }
+    assert.ok(attached, 'the hook must reach the tapped point');
+    // PULL: the kinetic pull carries the walker to the anchor.
+    let walker = { x: 0, z: 0 };
+    let vel = { x: 0, z: 0 };
+    let arrived = false;
+    for (let i = 0; i < 600; i++) {
+      const r = grapplePullStep(walker, vel, { x: point.x, z: point.z }, 1 / 60);
+      walker = { x: r.x, z: r.z };
+      vel = { x: r.vx, z: r.vz };
+      if (r.arrived) { arrived = true; break; }
+    }
+    assert.ok(arrived, 'the pull must land the walker at the anchor');
+    assert.ok(Math.hypot(walker.x - point.x, walker.z - point.z) <= GRAPPLE_ARRIVE_DIST_M + 1e-9,
+      'the walker must stop at the anchor, not past it');
+    // ROPE: the throw shows it — the scene wires the throw to the
+    // rope, and the rope is bright amber with a 1 s linger.
+    const throwFn = scene.slice(scene.indexOf('function startGrappleThrow(aimDir)'));
+    assert.ok(throwFn.includes('showGrappleRope();'), 'the throw must show the rope');
+    assert.equal(GRAPPLE_ROPE_COLOR, 0xffc44d, 'the rope must be bright amber');
+    assert.equal(GRAPPLE_ROPE_LINGER_MS, 1000, 'the rope must linger a full second after landing');
+  });
+});
+
+describe('the foliage flag is set where the meshes are built (fifth report)', () => {
+  it('native plants, dressing foliage, and staged clones all flag short plants', () => {
+    const plantFn = scene.slice(
+      scene.indexOf('async function placePlantSpecies'),
+      scene.indexOf('async function placeLandSpecies'),
+    );
+    assert.ok(
+      plantFn.includes('if (isGrappleSkippedFoliage(entry.kind, entry.scaleM)) root.userData.grappleSkip = true;'),
+      'native plants must flag short plants at build time',
+    );
+    const scatterFn = scene.slice(
+      scene.indexOf('async function placeScatterUnit'),
+      scene.indexOf('async function placeStreamUnit'),
+    );
+    assert.ok(
+      scatterFn.includes('if (isGrappleSkippedFoliage(entry.kind, entry.scaleM)) root.userData.grappleSkip = true;'),
+      'dressing foliage must flag short plants at build time',
+    );
+    const stagedFn = scene.slice(
+      scene.indexOf('function updateStagedVisibility()'),
+      scene.indexOf('// The dressing\'s procedural assets'),
+    );
+    assert.ok(
+      stagedFn.includes('if (isGrappleSkippedFoliage(rec.p.category, rec.p.scaleM)) clone.userData.grappleSkip = true;'),
+      'staged vegetation clones must flag short plants at build time',
+    );
+  });
+});
+
+describe('the notice renders at top level (fifth report)', () => {
+  it('the pill left the CONTROLS panel and sits below the steal button', () => {
+    const panelStart = scene.indexOf('🎛️ CONTROLS');
+    const panelEnd = scene.indexOf('</E2Panel>', panelStart);
+    const panelBody = scene.slice(panelStart, panelEnd);
+    assert.ok(!panelBody.includes('{notice && ('), 'the notice must not live inside the CONTROLS panel any more');
+    const stealIdx = scene.indexOf('STEAL PROMPT — TOP LEVEL');
+    const noticeIdx = scene.indexOf('NOTICE — TOP LEVEL');
+    assert.ok(stealIdx > 0 && noticeIdx > stealIdx, 'the notice must sit below the steal button, never over it');
+    const pillStart = scene.indexOf('{notice && (', noticeIdx);
+    const pill = scene.slice(pillStart, pillStart + 500);
+    assert.ok(pill.includes('pointer-events-none'), 'the notice must let taps through to the scene');
+    assert.ok(pill.includes('top-[4.5rem]'), 'the notice must sit below the steal button');
+    assert.ok(pill.includes('{notice}'), 'the pill must render the notice text');
+  });
+  it('the notice is not gated to on-foot-only: driving and building messages still show', () => {
+    const noticeIdx = scene.indexOf('NOTICE — TOP LEVEL');
+    const pillStart = scene.indexOf('{notice && (', noticeIdx);
+    const pill = scene.slice(pillStart, pillStart + 500);
+    assert.ok(!pill.includes('!driving'), 'no driving gate on the notice');
+    assert.ok(!pill.includes('!buildMode'), 'no build-mode gate on the notice');
+  });
+});
+
+describe('the rope reads on sand (fifth report)', () => {
+  it('the rope is bright amber, not rusty tan', () => {
+    assert.ok(!scene.includes('0xd9a45b'), 'no rusty-tan rope must remain');
+    assert.ok(scene.includes('GRAPPLE_ROPE_COLOR'), 'the scene must use the rope colour law');
+    assert.ok(scene.includes('MeshBasicMaterial({ color: GRAPPLE_ROPE_COLOR })'),
+      'the rope must be unlit bright amber');
+  });
+  it('the rope lingers a full second after landing', () => {
+    assert.ok(scene.includes('performance.now() + GRAPPLE_ROPE_LINGER_MS'),
+      'landing must linger by the law, not a magic number');
+    assert.ok(!scene.includes('performance.now() + 350'), 'the old 350 ms linger must be gone');
   });
 });

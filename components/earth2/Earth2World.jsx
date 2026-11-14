@@ -180,7 +180,12 @@ import {
   GRAPPLE_HOOK_SPEED_MPS,
   GRAPPLE_ARRIVE_DIST_M,
   GRAPPLE_ARMED_TAP_LIMITS,
+  GRAPPLE_ROPE_COLOR,
+  GRAPPLE_ROPE_LINGER_MS,
   grappleMinHitDistM,
+  isGrappleSkippedFoliage,
+  grappleHitSkipped,
+  grappleTapPoint,
   isGrappleEquipped,
   isGrappleOwned,
   grappleOwnedUid,
@@ -2208,6 +2213,14 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
             clone.scale.multiplyScalar(rec.p.scaleM);
             clone.rotation.y = (rec.p.headingDeg * Math.PI) / 180;
             clone.position.set(rec.x, heightAt(rec.x, rec.z), rec.z);
+            // GRAPPLE — GROUND FOLIAGE (Merlin, 2026-11-14, fifth
+            // report): staged grass tufts and shrub clusters carry
+            // grappleSkip, so both hook raycasts fly past their
+            // leaves to the real target behind them. Staged trees
+            // keep their trunks grappleable (see
+            // isGrappleSkippedFoliage — only 2 m tufts/shrubs
+            // fall under the 4 m line).
+            if (isGrappleSkippedFoliage(rec.p.category, rec.p.scaleM)) clone.userData.grappleSkip = true;
             clone.updateMatrixWorld(true);
             stagedGroup.add(clone);
             rec.clone = clone;
@@ -2480,6 +2493,12 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
             const holder = normalize(inst, entry);
             const root = new THREE.Group();
             root.add(holder);
+            // GRAPPLE — GROUND FOLIAGE (Merlin, 2026-11-14, fifth
+            // report): short plants carry grappleSkip, so both
+            // hook raycasts fly past their leaves to the real
+            // target behind them. Tall plants keep their trunks
+            // grappleable (see isGrappleSkippedFoliage).
+            if (isGrappleSkippedFoliage(entry.kind, entry.scaleM)) root.userData.grappleSkip = true;
             root.position.set(rec.x, heightAt(rec.x, rec.z) - 0.1, rec.z);
             root.rotation.y = rec.heading;
             root.scale.setScalar(rec.scale);
@@ -5655,7 +5674,7 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         // head at its far end, both unlit so they read at dusk
         // and at night.
         const geo = new THREE.CylinderGeometry(0.035, 0.035, 1, 6, 1, true);
-        const mat = new THREE.MeshBasicMaterial({ color: 0xd9a45b }); // rusty rope
+        const mat = new THREE.MeshBasicMaterial({ color: GRAPPLE_ROPE_COLOR }); // bright amber rope
         grapple.rope = new THREE.Mesh(geo, mat);
         grapple.rope.frustumCulled = false;
         scene.add(grapple.rope);
@@ -5788,16 +5807,11 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         const hits = rc.intersectObjects(scene.children, true);
         for (const h of hits) {
           // SHRUNKEN EYE (Merlin, 2026-11-14): the flying hook
-          // leaves from an eye inside the ground plants — skip
-          // the leaves in the walker's face, as in the tap ray.
-          if (h.distance < grappleMinHitDistM(shrinkRef.current.scale)) continue; // the walker's own body
-          let o = h.object;
-          let skip = false;
-          while (o) {
-            if (o.userData && (o.userData.grappleSkip || o.userData.isSky)) { skip = true; break; }
-            o = o.parent;
-          }
-          if (skip) continue;
+          // leaves from an eye inside the ground plants — the
+          // shared skip (grappleHitSkipped) passes the leaves in
+          // the walker's face, as in the tap ray, so the hook
+          // flies to the real target instead of the first leaf.
+          if (grappleHitSkipped(h, grappleMinHitDistM(shrinkRef.current.scale))) continue;
           attachGrapple(h.point.x, h.point.y, h.point.z);
           return 'attached';
         }
@@ -6847,26 +6861,12 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         raycaster.setFromCamera(ndc, camera);
         const eye = raycaster.ray.origin;
         const dir = raycaster.ray.direction;
-        let point = null;
+        // The tap's target is the first hit the hook may catch —
+        // the shared skip (grappleTapPoint) passes the leaves in
+        // a shrunken walker's face, shards, and sky, so the tap
+        // promises only what the flying hook can catch.
         const hits = raycaster.intersectObjects(scene.children, true);
-        for (const h of hits) {
-          // SHRUNKEN EYE (Merlin, 2026-11-14 — third grapple
-          // report): at 0.425 m the camera sits IN the ground
-          // plants, so a tap's ray meets a leaf a hand's breadth
-          // away and the hook attaches there — the pull arrives at
-          // once and nothing visible ever happens. The skip grows
-          // as the walker shrinks, past the leaves in the face.
-          if (h.distance < grappleMinHitDistM(shrinkRef.current.scale)) continue; // the walker's own body
-          let o = h.object;
-          let skip = false;
-          while (o) {
-            if (o.userData && (o.userData.grappleSkip || o.userData.isSky)) { skip = true; break; }
-            o = o.parent;
-          }
-          if (skip) continue;
-          point = { x: h.point.x, y: h.point.y, z: h.point.z };
-          break;
-        }
+        let point = grappleTapPoint(hits, grappleMinHitDistM(shrinkRef.current.scale));
         if (!point) {
           // Open ground: march the ray against the terrain the
           // walker's feet read (the same ground the flying hook
@@ -7602,6 +7602,13 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
             const holder = normalize(base.clone(), entry);
             const root = new THREE.Group();
             root.add(holder);
+            // GRAPPLE — GROUND FOLIAGE (Merlin, 2026-11-14, fifth
+            // report): short dressing plants carry grappleSkip,
+            // so both hook raycasts fly past their leaves to the
+            // real target behind them. Tall dressing trees keep
+            // their trunks grappleable (see
+            // isGrappleSkippedFoliage).
+            if (isGrappleSkippedFoliage(entry.kind, entry.scaleM)) root.userData.grappleSkip = true;
             root.position.set(f.x, heightAt(f.x, f.z) - 0.1, f.z);
             root.rotation.y = f.heading;
             root.scale.setScalar(f.scale);
@@ -8386,7 +8393,7 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
               // The perch holds until the walker walks off it.
               const perchY = Math.max(groundY, grapple.anchorY - 0.2);
               grapple.standY = perchY > groundY + 0.5 ? perchY : null;
-              grapple.ropeUntil = performance.now() + 350; // the rope lingers a beat, then goes
+              grapple.ropeUntil = performance.now() + GRAPPLE_ROPE_LINGER_MS; // the rope lingers a full second, then goes
             }
             if (grapple.rope) updateGrappleRope();
           }
@@ -9201,11 +9208,6 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
             </button>
           </div>
         )}
-        {notice && (
-          <p className="rounded-lg border border-amber-300/30 bg-amber-400/15 px-2.5 py-1.5 text-[11px] font-semibold leading-snug text-amber-100">
-            {notice}
-          </p>
-        )}
         {allyHud.length > 0 && (
           <p className="rounded-lg border border-sky-300/30 bg-sky-400/15 px-2.5 py-1.5 text-[11px] font-semibold leading-snug text-sky-100">
             🦖 Allies: {allyHud.map((a) => a.species).join(', ')}
@@ -9279,6 +9281,28 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
           🥚 Steal {stealPrompt.species} egg
           {stealPrompt.dangerous ? ' ⚠️' : ''}
         </button>
+      )}
+
+      {/* NOTICE — TOP LEVEL (Merlin, 2026-11-14, fifth grapple
+          report): every grapple message ("Grapple ready", "Hook
+          attached!", "Too far", "Grapple misfired") went through
+          this pill, and it lived ONLY inside the CONTROLS panel —
+          the panel unmounts its body when shrunk to its orb, and
+          on Merlin's phone the panel sat shrunk, so no grapple
+          message ever rendered. Same treatment the steal button
+          got: it lives here now, always on screen, panel or no
+          panel, just below the steal button so the two never
+          overlap. NO on-foot gate, unlike the steal button:
+          notices fire while driving and building too ("Land the
+          VTOL before stepping out", "Finish building first —
+          then drive"), and gating would eat exactly the feedback
+          that matters. It takes no action and is
+          pointer-events-none, so taps pass straight through it
+          to the scene. */}
+      {notice && (
+        <p className="pointer-events-none absolute left-1/2 top-[4.5rem] z-30 max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-lg border border-amber-300/30 bg-amber-400/15 px-2.5 py-1.5 text-center text-[11px] font-semibold leading-snug text-amber-100">
+          {notice}
+        </p>
       )}
 
       {/* Hammond's fossil exchange — the counter panel. Flow
