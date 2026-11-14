@@ -59,7 +59,15 @@ test('hub discs render lying flat, not as vertical doorways', () => {
   // Flat: the disc + ring meshes rotate -PI/2 about X (the Hades
   // ground-ring pattern). No standing-stone ring, no vertical arch.
   assert.ok(hub.includes('rotation={[-Math.PI / 2, 0, 0]}'), 'no horizontal rotation on the disc');
-  assert.ok(!hub.includes('torusGeometry'), 'a vertical doorway ring would be a torus, like the Descent');
+  // The one torus on a gate is the transit's gold exit ring, lying
+  // FLAT around the disc rim (Merlin, Nov 13 ~22:27) — a vertical
+  // doorway torus would stand upright instead.
+  const torusCount = (hub.match(/torusGeometry/g) || []).length;
+  assert.equal(torusCount, 1, 'exactly one torus: the flat gold transit ring');
+  assert.ok(
+    /<mesh rotation=\{\[-Math\.PI \/ 2, 0, 0\]\}[^>]*>\s*<torusGeometry/s.test(hub),
+    'the gold torus lies flat (rotation -PI/2), never upright'
+  );
 });
 
 // --- 2. Realm assignment ---

@@ -13,6 +13,17 @@
 // painter (lib/portal-swirl.js) — the same face every Concourse
 // portal wears — tinted per portal, instead of a new effect.
 //
+// TRANSIT GRAPHICS + ONE SPEED (Merlin, Nov 13 ~22:27): the gates
+// wear the portal transit system's own graphics — the vortex tube's
+// gold exit ring (app/nexus-vortex/components/VortexTubeRide.jsx)
+// and the aurora boot's conic ring (components/PortalRoom.jsx) —
+// and every turning part of every gate turns at ONE speed: the
+// transit tube's spin, TUBE_SPIN_RAD_PER_SEC (1.4 rad/s,
+// app/nexus-vortex/lib/tube.js), frame-rate independent via the
+// useFrame delta. Before this the face, the nanites and the aurora
+// fan each turned at a different fixed per-frame rate (0.004 /
+// 0.0012 / 0.0006) — none of them the transit's speed.
+//
 // The Heaven portal starts LOCKED: it is not rendered at all until
 // the traveller has made 1 Nether Realm visit (heavenUnlocked).
 // Clicking a disc calls onPortalClick('heaven' | 'nether'); the page
@@ -26,8 +37,14 @@ import { useFrame } from '@react-three/fiber';
 import { Billboard } from '@react-three/drei';
 import * as THREE from 'three';
 import { HEAVEN_PORTAL, NETHER_PORTAL } from '@/lib/portal/realms';
-import { paintPortalSwirl } from '@/lib/portal-swirl';
+import { paintPortalSwirl, paintAuroraBootRing } from '@/lib/portal-swirl';
+import { TUBE_SPIN_RAD_PER_SEC } from '@/app/nexus-vortex/lib/tube.js';
 import VanGoghText from './VanGoghText';
+
+// TRANSIT GOLD — the vortex tube's exit ring (VortexTubeRide: a gold
+// torus, 0xffd700, at the tube's far end). The gates wear the same
+// gold as a flat ring around the disc rim.
+const TRANSIT_GOLD = 0xffd700;
 
 // Deterministic PRNG (mulberry32) — the nanites must sit the same on
 // every mount; no Math.random in the render path.
@@ -69,6 +86,19 @@ function swirlTexture(palette) {
   return tex;
 }
 
+// The transit's aurora boot ring (PortalRoom boot conic disc), as a
+// flat ring texture for the gate. Same painter for both gates — the
+// tint comes from the disc, not from a second palette.
+function transitRingTexture() {
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 256;
+  paintAuroraBootRing(c.getContext('2d'), 256);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 function auroraShaftTexture() {
   const c = document.createElement('canvas');
   c.width = 64;
@@ -105,6 +135,7 @@ function nanitePositions(count, radius, seed) {
 // onClick is the R3F pointer handler (e.delta guard: a drag is not a tap).
 function PortalDisc({ def, palette, naniteColors, label, labelColor, onClick, lightColor, lightIntensity }) {
   const swirlTex = useMemo(() => swirlTexture(palette), [palette]);
+  const bootRingTex = useMemo(() => transitRingTexture(), []);
   const primary = useMemo(() => nanitePositions(320, def.radius - 2, 1337), [def.radius]);
   const secondary = useMemo(() => nanitePositions(160, def.radius - 12, 777), [def.radius]);
   const spinRef = useRef();
@@ -112,11 +143,16 @@ function PortalDisc({ def, palette, naniteColors, label, labelColor, onClick, li
   const lightRef = useRef();
   const frameRef = useRef(0);
 
-  useFrame((state) => {
+  // ONE SPEED (Merlin, Nov 13 ~22:27): the face, the nanites and the
+  // aurora fan all turn at the transit tube's spin —
+  // TUBE_SPIN_RAD_PER_SEC (1.4 rad/s) — frame-rate independent via
+  // the useFrame delta. No fixed per-frame rate anywhere.
+  useFrame((state, delta) => {
     frameRef.current += 1;
     const t = state.clock.elapsedTime;
-    if (spinRef.current) spinRef.current.rotation.y += 0.004;
-    if (naniteRef.current) naniteRef.current.rotation.y += 0.0012;
+    const spin = TUBE_SPIN_RAD_PER_SEC * delta;
+    if (spinRef.current) spinRef.current.rotation.y += spin;
+    if (naniteRef.current) naniteRef.current.rotation.y += spin;
     // Hades torch flicker wave (Earth 2): the portal light breathes
     // the same way the torch lights do — every 3rd frame.
     if (frameRef.current % 3 !== 1) return;
@@ -144,6 +180,21 @@ function PortalDisc({ def, palette, naniteColors, label, labelColor, onClick, li
         <mesh rotation={[-Math.PI / 2, 0, 0]} onClick={click}>
           <ringGeometry args={[def.ringRadius - 2.5, def.ringRadius, 48]} />
           <meshBasicMaterial color={lightColor} transparent opacity={0.95} side={THREE.DoubleSide} />
+        </mesh>
+        {/* TRANSIT GOLD — the vortex tube's exit ring, lying flat
+            around the disc rim (VortexTubeRide: gold torus 0xffd700).
+            A flat torus, not a vertical doorway: it turns with the
+            gate inside the spin group. */}
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.1, 0]} onClick={click}>
+          <torusGeometry args={[def.ringRadius - 1.25, 0.6, 12, 64]} />
+          <meshBasicMaterial color={TRANSIT_GOLD} transparent opacity={0.95} />
+        </mesh>
+        {/* TRANSIT AURORA — the PortalRoom boot's conic ring, just
+            inside the accent ring. Its colour sweep is directional,
+            so the shared spin is visible on the gate itself. */}
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.15, 0]} onClick={click}>
+          <ringGeometry args={[def.ringRadius - 5.5, def.ringRadius - 2.5, 48]} />
+          <meshBasicMaterial map={bootRingTex} transparent opacity={0.85} blending={THREE.AdditiveBlending} side={THREE.DoubleSide} depthWrite={false} />
         </mesh>
       </group>
       {/* nanites / light particles, swirling in the disc plane */}
@@ -192,9 +243,11 @@ function AuroraField() {
   );
   const fanRef = useRef();
   const frameRef = useRef(0);
-  useFrame((state) => {
+  // ONE SPEED (Merlin, Nov 13 ~22:27): the aurora fan turns with the
+  // gates — the transit tube's spin, frame-rate independent.
+  useFrame((state, delta) => {
     frameRef.current += 1;
-    if (fanRef.current) fanRef.current.rotation.y += 0.0006;
+    if (fanRef.current) fanRef.current.rotation.y += TUBE_SPIN_RAD_PER_SEC * delta;
     if (frameRef.current % 3 !== 1) return;
     const t = state.clock.elapsedTime;
     mat.opacity = 0.38 + 0.14 * Math.sin(t * 0.45) * Math.sin(t * 0.23 + 1.3);
