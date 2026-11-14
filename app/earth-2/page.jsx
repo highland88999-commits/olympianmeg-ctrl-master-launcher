@@ -178,7 +178,9 @@ export default function Earth2Page() {
         const raw = localStorage.getItem('earth2:vehicles:v1') || '{}';
         const states = JSON.parse(raw) || {};
         for (const row of json.vehicles) {
-          const vid = parcelVehicleId(row.parcel_id);
+          // Slotted key (Merlin, 2026-11-13): a row's slot is its
+          // slug; legacy rows without a slot fall back to it.
+          const vid = parcelVehicleId(row.parcel_id, row.vehicle_slot || row.vehicle_slug);
           states[vid] = {
             ...(states[vid] || {}),
             slug: row.vehicle_slug,

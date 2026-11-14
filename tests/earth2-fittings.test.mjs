@@ -134,18 +134,24 @@ describe('door-sector colliders', () => {
   it('attaches doors to exactly the 19 interior buildings', () => {
     const withDoors = stagedCollidersWithDoors();
     const plain = stagedColliders();
-    assert.equal(withDoors.length, plain.length);
+    // WALK-THROUGH TREES & ROCKS (Merlin, 2026-11-13): the
+    // door-bearing list is the staged list minus vegetation and
+    // terrain — buildings, landmarks and props only (138 of the
+    // 1,831 staged colliders). The door zip still runs first, so
+    // all 19 interior doors survive the filter.
+    assert.equal(withDoors.length, 138);
     const doored = withDoors.filter((c) => c.door);
     assert.equal(doored.length, 19);
     for (const c of doored) {
       assert.ok(c.door.bearingDeg >= 0 && c.door.bearingDeg < 360);
       assert.ok(c.door.doorWidthM > 0 && c.door.wallM > 0);
     }
-    // Untouched colliders keep their exact shape.
-    for (let i = 0; i < plain.length; i++) {
-      assert.equal(withDoors[i].x, plain[i].x);
-      assert.equal(withDoors[i].z, plain[i].z);
-      assert.equal(withDoors[i].r, plain[i].r);
+    // Untouched colliders keep their exact shape: every kept
+    // collider is one of the plain colliders, position for
+    // position.
+    const plainByPos = new Set(plain.map((c) => `${c.x},${c.z},${c.r}`));
+    for (const c of withDoors) {
+      assert.ok(plainByPos.has(`${c.x},${c.z},${c.r}`));
     }
   });
 

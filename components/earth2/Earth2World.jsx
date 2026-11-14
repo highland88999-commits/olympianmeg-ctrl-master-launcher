@@ -88,10 +88,11 @@ import {
   saveVehicleStates,
   tickVehicleRespawn,
   parcelVehicleId,
+  parcelIdForParcelVehicleId,
   isParcelVehicleId,
-  PARCEL_VEHICLE_PREFIX,
   BOAT_MIN_DEPTH_M,
 } from '@/lib/earth2/vehicles';
+import { seedBaseVehicleStates } from '@/lib/earth2/base-vehicles';
 import { bridgedParcelModel, isEarth1ParcelSlug } from '@/lib/earth2/parcel-vehicle-catalog';
 import { integrityColor } from '@/lib/earth2/vehicle-damage';
 import {
@@ -105,6 +106,7 @@ import {
 import { bridgeHeightAt, bridgeDeckYAt, stepBridgeWalker, BRIDGE_DECK_WIDTH_M } from '@/lib/earth2/bridges';
 import { dressingColliders } from '@/lib/earth2/scatter';
 import { stagedPlacements } from '@/lib/earth2/staged-objects';
+import { createLoadFailureRegistry, recordLoadFailure, loadFailureList } from '@/lib/earth2/load-failures';
 import {
   NEST_SPECIES,
   EGG_MODEL_PATH,
@@ -1082,7 +1084,15 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
     try { localStorage.setItem(FLIGHT_ORBS_KEY, JSON.stringify(orbs)); } catch { /* never breaks flight */ }
   };
   const vehicleStatesRef = useRef(null);
-  if (vehicleStatesRef.current === null) vehicleStatesRef.current = loadVehicleStates();
+  if (vehicleStatesRef.current === null) {
+    // BASE VEHICLES (Merlin, 2026-11-13): the VTOL + Lambo on
+    // Merlin's base (E2-0619) and Devan's (E2-0719) seed into the
+    // ledger on entry; the seed never overwrites a key that
+    // already exists, so a driven-away machine stays where its
+    // driver left it, and the owner's own pick stands.
+    vehicleStatesRef.current = seedBaseVehicleStates(loadVehicleStates());
+    saveVehicleStates(vehicleStatesRef.current);
+  }
   const drivingRef = useRef(null);
   // Drive camera: 'third' (behind + above, the default — Merlin,
   // 2026-11-01) or 'first' (driver's eye). Toggled from the HUD.
@@ -1851,6 +1861,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         bases: new Map(), // url -> normalized base scene (not in scene)
         placements: [], // { p, x, z, url, clone: null }
         activeKeys: new Set(),
+        failures: createLoadFailureRegistry(), // failed base URLs — visible, not silent
       };
       const STAGED_VISIBLE_M = 150;
 
@@ -1873,7 +1884,18 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
             base = gltf.scene;
             track(gltf.scene);
           } catch (err) {
-            continue; // a missing GLB skips its placements honestly
+            // LOAD-FAILURE VISIBILITY (Merlin, 2026-11-13): a
+            // missing GLB no longer vanishes silently — its URL
+            // and error are recorded (console.warn + the window
+            // registry the headless probe reads) so the missing
+            // object can be named and fixed. Its placements are
+            // still skipped honestly.
+            recordLoadFailure(stagedCache.failures, url, err);
+            console.warn('[earth2] staged GLB failed to load, placements skipped:', url, err);
+            if (typeof window !== 'undefined') {
+              window.__earth2LoadFailures = loadFailureList(stagedCache.failures);
+            }
+            continue;
           }
           // Normalize the base once: scale so its largest horizontal
           // extent is 1 m, base sitting at y=0.
@@ -3285,7 +3307,7 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         const myKey = claimKeyForUser(buildPropsRef.current && buildPropsRef.current.user);
         let newlyClaimed = false;
         if (isParcelVehicleId(id)) {
-          const parcelId = id.slice(PARCEL_VEHICLE_PREFIX.length);
+          const parcelId = parcelIdForParcelVehicleId(id);
           if (!parcelVehicleIsMine(parcelId)) {
             noticeRef.current('🔒 This ride belongs to the landowner.');
             return;
@@ -5015,8 +5037,10 @@ export default function Earth2World({ spawnParcelId, bloodSacs, onBloodSac, onOp
         cooling: performance.now() < grapple.cooldownUntil,
       });
       // The solid world: the landforms' own colliders plus the
-      // Commons dressing's (Terrain Wave B — rocks, boulders,
-      // crater discs and tree trunks are solid, per Merlin).
+      // Commons dressing's crater discs and the staged buildings/
+      // landmarks/props. TREES & ROCKS WALK-THROUGH (Merlin,
+      // 2026-11-13): no tree or rock anywhere in Earth 2 carries
+      // a collider — the walker passes through them all.
       // A parcel carrying a player's build lends its ground to
       // the build instead: its dressing colliders step aside
       // for as long as the build stands (currentColliders,

@@ -214,20 +214,17 @@ describe('Commons dressing — lawful, deterministic, solid', () => {
     }
   });
 
-  it('registers solids: rocks, crater discs at rim radius, tree trunks', () => {
+  it('registers solids: crater discs at rim radius only — trees and rocks walk through', () => {
     const cols = dressingColliders();
-    assert.ok(cols.length > 2000, `${cols.length} dressing colliders`);
-    const byKind = {};
+    // WALK-THROUGH TREES & ROCKS (Merlin, 2026-11-13 — reverses
+    // the 2026-10-23 solid law for Earth 2 only): tree trunks and
+    // rocks carry NO collider any more; the 77 crater discs stay
+    // solid, each at its rim radius.
+    assert.equal(cols.length, 77);
+    assert.ok(cols.every((c) => c.kind === 'crater'), 'only craters');
     for (const c of cols) {
-      byKind[c.kind] = (byKind[c.kind] || 0) + 1;
-      assert.ok(c.r > 0.2 && c.r <= 6.01, `${c.kind} collider radius sane (${c.r})`);
-      assert.ok(c.parcelId, 'every dressing collider names its parcel (builds step them aside)');
-    }
-    assert.ok(byKind.rock > 1500, 'rocks and boulders');
-    assert.ok(byKind.crater > 50, 'crater discs');
-    assert.ok(byKind.trunk > 300, 'tree trunks');
-    for (const c of cols.filter((x) => x.kind === 'crater')) {
       assert.ok(c.r >= 3 && c.r <= 6, 'a crater disc is its rim radius');
+      assert.ok(c.parcelId, 'every dressing collider names its parcel (builds step them aside)');
     }
   });
 

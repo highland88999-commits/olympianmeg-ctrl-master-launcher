@@ -1,7 +1,12 @@
 // app/api/earth2/parcel-vehicles/route.js
 // GET /api/earth2/parcel-vehicles — the caller's parcel vehicles.
 // POST /api/earth2/parcel-vehicles — park a vehicle on owned land
-//   (body: { parcelId, slug, x, z, heading }).
+//   (body: { parcelId, slug, x, z, heading, slot? }).
+//
+// One vehicle per SLOT (Merlin, 2026-11-13): the row key is
+// (parcel_id, vehicle_slot) — a base can hold a plane AND a
+// Lambo. A slot defaults to the slug and must equal it; the
+// legacy single-vehicle row is a row whose slot is its slug.
 //
 // Any signed-in user (Earth 2 is open to all, Merlin 2026-10-31).
 // OWNERSHIP LAW (Merlin, 2026-11-01): only the parcel's title holder
@@ -44,7 +49,7 @@ export async function GET(req) {
     if (!db) return NextResponse.json({ ok: true, vehicles: [], setupRequired: true });
     const { data, error } = await db
       .from('earth2_parcel_vehicles')
-      .select('parcel_id, owner_email, vehicle_slug, vehicle_name, vehicle_source, x, z, heading, updated_at')
+      .select('parcel_id, vehicle_slot, owner_email, vehicle_slug, vehicle_name, vehicle_source, x, z, heading, updated_at')
       .ilike('owner_email', user.email);
     if (error) {
       if (isMissingTable(error)) return NextResponse.json({ ok: true, vehicles: [], setupRequired: true });
@@ -64,11 +69,16 @@ export async function POST(req) {
     try { body = await req.json(); } catch { body = null; }
     const parcelId = body && typeof body.parcelId === 'string' ? body.parcelId : null;
     const slug = body && typeof body.slug === 'string' ? body.slug : null;
+    const slot = body && typeof body.slot === 'string' ? body.slot : slug;
     const x = body && Number.isFinite(body.x) ? body.x : null;
     const z = body && Number.isFinite(body.z) ? body.z : null;
     const heading = body && Number.isFinite(body.heading) ? body.heading : 0;
     if (!parcelId || !slug || x === null || z === null) {
       return NextResponse.json({ ok: false, error: 'parcelId, slug, x and z are required.' }, { status: 400 });
+    }
+    // A slotted key names its own machine: the slot must be the slug.
+    if (slot !== slug) {
+      return NextResponse.json({ ok: false, error: 'slot must match slug.' }, { status: 400 });
     }
     const spec = modelSpec(slug);
     if (!spec) {
@@ -84,6 +94,7 @@ export async function POST(req) {
     }
     const row = {
       parcel_id: parcelId,
+      vehicle_slot: slot,
       owner_email: titleEmail,
       vehicle_slug: slug,
       vehicle_name: spec.name,
@@ -95,7 +106,7 @@ export async function POST(req) {
     };
     const { error } = await db
       .from('earth2_parcel_vehicles')
-      .upsert(row, { onConflict: 'parcel_id' });
+      .upsert(row, { onConflict: 'parcel_id,vehicle_slot' });
     if (error) {
       if (isMissingTable(error)) return NextResponse.json({ ok: false, setupRequired: true });
       return NextResponse.json({ ok: false, error: 'Could not save the vehicle.' }, { status: 502 });
