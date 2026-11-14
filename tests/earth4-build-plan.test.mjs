@@ -10,9 +10,9 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  SIZE_WORDS, shapeForPart, positionOffset, normalizeEntry,
-  normalizePlan, planForSpecies, renderSizeFor, enforceBudget,
-  MAX_VISIBLE_PARTS, FALLBACK_PLANS, partPriority,
+  SIZE_WORDS, shapeForPart, positionOffset, sizeVector, distribution,
+  normalizeEntry, normalizePlan, planForSpecies, renderSizeFor,
+  enforceBudget, MAX_VISIBLE_PARTS, FALLBACK_PLANS, partPriority,
 } from '../lib/earth4/build-plan.js';
 
 import { SPECIES_CATALOGUE as CATALOGUE } from '../lib/earth4/species-catalogue.js';
@@ -129,9 +129,59 @@ describe('vocab maps', () => {
     assert.equal(shapeForPart('tail'), 'cone');
     assert.equal(shapeForPart('head'), 'sphere');
     assert.equal(shapeForPart('stem'), 'cylinder');
-    assert.equal(shapeForPart('leaves'), 'plane');
+    assert.equal(shapeForPart('leaves'), 'sphere');
+    assert.equal(shapeForPart('leaflets'), 'sphere');
+    assert.equal(shapeForPart('flowers'), 'sphere');
+    assert.equal(shapeForPart('branches'), 'cone');
+    assert.equal(shapeForPart('needles'), 'cone');
     assert.equal(shapeForPart('cap'), 'sphere');
     assert.equal(shapeForPart('shell valves'), 'sphere');
+  });
+
+  it('name-aware positions put volumes where they belong', () => {
+    // A head buried at x=0.32 reads as one ball with the body;
+    // forelegs and hindlegs at the same x read as one pair.
+    assert.deepEqual(positionOffset('anterior', 'head'), [0.36, 0.05, 0]);
+    assert.deepEqual(
+      positionOffset('anterior, paired lateral', 'eyes'), [0.38, 0.08, 0.09]);
+    assert.deepEqual(positionOffset('ventral', 'forelegs'), [0.2, -0.22, 0]);
+    assert.deepEqual(positionOffset('ventral', 'hindlegs'), [-0.2, -0.22, 0]);
+    assert.deepEqual(
+      positionOffset('anterior, paired lateral', 'ears'), [0.36, 0.12, 0.09]);
+    // Conifer tiers sit on the stem axis, not offset sideways.
+    assert.deepEqual(positionOffset('lateral', 'branches'), [0, 0.05, 0]);
+    assert.deepEqual(positionOffset('lateral', 'needles'), [0, 0.32, 0]);
+    // Plain word offsets are unchanged when no name is passed.
+    assert.deepEqual(positionOffset('anterior'), [0.32, 0, 0]);
+  });
+
+  it('foliage is a flattened puff, legs are stocky, cones are compact', () => {
+    assert.deepEqual(sizeVector('sphere', 'leaves', 0.38),
+      [0.456, 0.171, 0.456]);
+    assert.deepEqual(sizeVector('cylinder', 'forelegs', 0.24),
+      [0.108, 0.24, 0.108]);
+    assert.deepEqual(sizeVector('cone', 'branches', 0.38),
+      [0.251, 0.494, 0.251]);
+    assert.deepEqual(sizeVector('cone', 'needles', 0.14),
+      [0.154, 0.364, 0.154]);
+    assert.deepEqual(sizeVector('sphere', 'cones', 0.24),
+      [0.144, 0.096, 0.144]);
+  });
+
+  it('crowns ring, colonies cluster, valves flank', () => {
+    const canopy = (name) => distribution(
+      { name, count: 'many', position: 'lateral' });
+    assert.equal(canopy('leaves'), 'canopy');
+    assert.equal(canopy('flowers'), 'canopy');
+    assert.equal(canopy('fronds'), 'canopy');
+    assert.equal(canopy('cones'), 'canopy');
+    assert.equal(distribution(
+      { name: 'fruiting bodies', count: 'many', position: 'apical' }),
+      'ring');
+    assert.equal(distribution(
+      { name: 'branches', count: 'many', position: 'lateral' }), 'ring');
+    assert.equal(distribution(
+      { name: 'shell valves', count: 2, position: 'lateral' }), 'pair');
   });
 });
 
@@ -147,7 +197,7 @@ describe('normalizeEntry (raw build-map entries)', () => {
     assert.equal(byName.wings.kind, 'flap');
     assert.equal(byName.wings.shape, 'plane');
     assert.equal(byName['compound eyes'].count, 2);
-    assert.deepEqual(byName.head.pos, [0.32, 0, 0]);
+    assert.deepEqual(byName.head.pos, [0.36, 0.05, 0]);
     assert.deepEqual(byName.abdomen.pos, [-0.32, 0, 0]);
   });
 
@@ -178,14 +228,19 @@ describe('normalizeEntry (raw build-map entries)', () => {
     assert.deepEqual(caudal.rot, [0, 0, 0]);
   });
 
-  it('plant: roots and seeds skipped, leaves line up the stem', () => {
+  it('plant: roots and seeds skipped, leaves form a crown', () => {
     const plan = normalizeEntry(PLANT_ENTRY);
     assert.deepEqual(plan.dropped.sort(), ['roots', 'seeds']);
     assert.equal(plan.parts.length, 4);
     const leaves = plan.parts.find((p) => p.name === 'leaves');
-    assert.equal(leaves.count, 6); // "many" -> 6 for a line
-    assert.equal(leaves.dist, 'line');
-    assert.equal(leaves.shape, 'plane');
+    assert.equal(leaves.count, 6); // "many" -> 6 for a canopy
+    assert.equal(leaves.dist, 'canopy');
+    assert.equal(leaves.shape, 'sphere');
+    // Foliage is a flattened puff, not a flat blade.
+    assert.deepEqual(leaves.size, [0.456, 0.171, 0.456]);
+    const flowers = plan.parts.find((p) => p.name === 'flowers');
+    assert.equal(flowers.dist, 'canopy');
+    assert.equal(flowers.shape, 'sphere');
   });
 
   it('fungus: gills, mycelium and spores skipped', () => {
@@ -310,7 +365,7 @@ describe('compiled creature-plans.json', () => {
           `${name}: non-numeric part values`);
         assert.ok(['sphere', 'cylinder', 'cone', 'plane'].includes(t[2]));
         assert.ok(['single', 'repeat', 'flap'].includes(t[3]));
-        assert.ok(['single', 'pair', 'ring', 'line'].includes(t[4]));
+        assert.ok(['single', 'pair', 'ring', 'line', 'canopy'].includes(t[4]));
       }
     }
   });

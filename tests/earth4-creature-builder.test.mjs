@@ -58,6 +58,24 @@ function meshCost(plan, flying) {
     (n, p) => n + (p.kind === 'flap' && flying ? 2 : 1), 0);
 }
 
+/** World positions of an InstancedMesh's instances. */
+function instanceWorldPositions(mesh) {
+  // Update from the root: buildCreatureMesh leaves body.matrixWorld
+  // stale (the scale is set after the grounding pass), so updating
+  // from the mesh alone would return body units, not world metres.
+  let root = mesh;
+  while (root.parent) root = root.parent;
+  root.updateMatrixWorld(true);
+  const m = new THREE.Matrix4();
+  const out = [];
+  for (let i = 0; i < mesh.count; i++) {
+    mesh.getMatrixAt(i, m);
+    out.push(new THREE.Vector3().setFromMatrixPosition(m)
+      .applyMatrix4(mesh.matrixWorld));
+  }
+  return out;
+}
+
 describe('placeInstances', () => {
   it('pair mirrors across z and spreads along x', () => {
     const spots = placeInstances(
@@ -90,6 +108,50 @@ describe('placeInstances', () => {
       { pos: [0, 0.22, 0], count: 6, dist: 'line' }, 'Animalia');
     assert.ok(new Set(spines.map((s) => s.pos[0])).size > 1);
     assert.ok(spines.every((s) => s.pos[1] === 0.22));
+  });
+
+  it('canopy rings the crown in two tiers, centred on the stem', () => {
+    const spots = placeInstances(
+      { name: 'leaves', pos: [0, 0, 0.22], count: 6, dist: 'canopy' },
+      'Plantae');
+    assert.equal(spots.length, 6);
+    // All six sit in a crown band, not stacked up the stem.
+    const ys = spots.map((s) => s.pos[1]);
+    assert.ok(Math.min(...ys) >= 0.23, `lowest leaf ${Math.min(...ys)}`);
+    assert.ok(Math.max(...ys) - Math.min(...ys) <= 0.11);
+    // Centred on the stem axis (the lateral anchor offset ignored).
+    for (const s of spots) {
+      const r = Math.hypot(s.pos[0], s.pos[2]);
+      assert.ok(r >= 0.17 && r <= 0.25, `canopy radius ${r}`);
+    }
+    // Pine cones nestle tight, foliage defines the crown width.
+    const cones = placeInstances(
+      { name: 'cones', pos: [0, 0.4, 0], count: 6, dist: 'canopy' },
+      'Plantae');
+    assert.ok(cones.every((s) => Math.hypot(s.pos[0], s.pos[2]) <= 0.09));
+  });
+
+  it('line yaw is golden for plants, zero for animals', () => {
+    const leaves = placeInstances(
+      { pos: [0, 0.22, 0], count: 6, dist: 'line' }, 'Plantae');
+    assert.ok(leaves.some((s) => s.rotY !== 0));
+    const fins = placeInstances(
+      { pos: [0, 0.22, 0], count: 2, dist: 'line' }, 'Animalia');
+    assert.ok(fins.every((s) => s.rotY === 0),
+      'a dorsal fin yawed off the midline reads as a crossed fin');
+  });
+
+  it('conifer tiers ring tight, not at the 0.22 colony radius', () => {
+    const branches = placeInstances(
+      { name: 'branches', pos: [0, 0.05, 0], count: 8, dist: 'ring' },
+      'Plantae');
+    assert.ok(branches.every((s) =>
+      Math.abs(Math.hypot(s.pos[0], s.pos[2]) - 0.06) < 1e-9));
+    const fruiting = placeInstances(
+      { name: 'fruiting bodies', pos: [0, 0.4, 0], count: 8, dist: 'ring' },
+      'Fungi');
+    assert.ok(fruiting.every((s) =>
+      Math.abs(Math.hypot(s.pos[0], s.pos[2]) - 0.22) < 1e-9));
   });
 
   it('placement is deterministic', () => {
@@ -159,6 +221,26 @@ describe('buildCreatureMesh — representative species', () => {
     // InstancedMesh each, 2 instances apiece); eyes are a third.
     assert.equal(legs.length, 3);
     assert.deepEqual(legs.map((m) => m.count).sort(), [2, 2, 2]);
+    // The head reads as a head: proud of the body front, with the
+    // forelegs under the front quarter and the hindlegs under the
+    // rear — not one ball on four sticks bunched at the middle.
+    const plan = planForSpecies(PLANS, c);
+    const byName = Object.fromEntries(plan.parts.map((p) => [p.name, p]));
+    const bodyFront = byName.body.pos[0] + byName.body.size[0] / 2;
+    const headFront = byName.head.pos[0] + byName.head.size[0] / 2;
+    assert.ok(headFront - bodyFront > 0.1, 'head must clear the body front');
+    assert.equal(byName.forelegs.pos[0], 0.2);
+    assert.equal(byName.hindlegs.pos[0], -0.2);
+    assert.ok(byName.forelegs.size[0] > 0.1, 'legs must be stocky, not sticks');
+    // Eyes sit on the head and read dark, not floating and
+    // body-coloured. The eyes are the sphere InstancedMesh of 2.
+    const eyes = legs.find((m) => m.geometry.type === 'SphereGeometry');
+    assert.ok(eyes, 'eyes should be one InstancedMesh of 2');
+    const hsl = {};
+    eyes.material.color.getHSL(hsl);
+    assert.ok(hsl.l < 0.25, `eyes must be dark, lightness ${hsl.l}`);
+    assert.notEqual(eyes.material,
+      visibleMeshes(g).find((m) => !m.isInstancedMesh).material);
   });
 
   it('plant: stem and foliage, grounded, green leaves', () => {
@@ -171,6 +253,110 @@ describe('buildCreatureMesh — representative species', () => {
     // At least one mesh wears the shared leaf material (green).
     const leaf = vis.find((m) => m.material.color.getHex() === 0x3f8f3f);
     assert.ok(leaf, 'foliage should be leaf green');
+    // No flat blades anywhere: the foliage is volumetric puffs,
+    // and every leaf sits in the crown band — nothing at ground
+    // level, nothing stabbing into the ground.
+    assert.ok(!vis.some((m) => m.geometry.type === 'PlaneGeometry'),
+      'a tree must not be built from flat planes');
+    const leaves = vis.find((m) => m.isInstancedMesh && m.count === 6
+      && m.geometry.type === 'SphereGeometry');
+    assert.ok(leaves, 'leaves should be one InstancedMesh of 6 puffs');
+    const height = box.max.y - box.min.y;
+    for (const p of instanceWorldPositions(leaves)) {
+      assert.ok(p.y > 0.5 * height, `leaf at ${p.y} of ${height} — too low`);
+    }
+  });
+
+  it('conifer: two tiered cones, no sphere stack, pine silhouette', () => {
+    const c = creatureFor('Abies alba', { sizeM: 42 }); // clamps to 30 m
+    const g = buildCreatureMesh(c, PLANS);
+    const vis = visibleMeshes(g);
+    assert.equal(vis.length, 4);
+    const box = bodyBox(g);
+    const height = box.max.y - box.min.y;
+    const width = box.max.x - box.min.x;
+    // A pine is tall and narrow: the old sphere stack was 18 m
+    // wide and 37 m tall; the tiers step inward with height.
+    assert.ok(width / height < 0.55, `width/height ${width / height}`);
+    assert.ok(height > 25 && height < 30, `height ${height}`);
+    const tiers = vis.filter((m) => m.isInstancedMesh
+      && m.geometry.type === 'ConeGeometry');
+    assert.equal(tiers.length, 2, 'branches + needles, both cones');
+    assert.ok(tiers.every((m) => m.count === 8));
+    // The lower tier (branches, y ~14.7 m) is wider than the upper
+    // (needles, y ~22.8 m): the tiers step inward with height.
+    // Both rings share the same centre radius (0.06), so the
+    // comparison is on the outer extent — centre radius plus the
+    // cone's half-width, from the plan.
+    const plan = planForSpecies(PLANS, c);
+    const byName = Object.fromEntries(plan.parts.map((p) => [p.name, p]));
+    const s = plan.sizeM;
+    const tierStats = tiers.map((m) => {
+      const ps = instanceWorldPositions(m);
+      return {
+        y: ps.reduce((a, p) => a + p.y, 0) / ps.length,
+        r: Math.max(...ps.map((p) => Math.hypot(p.x, p.z))),
+      };
+    }).sort((a, b) => a.y - b.y);
+    const lowerOuter = tierStats[0].r + (byName.branches.size[0] / 2) * s;
+    const upperOuter = tierStats[1].r + (byName.needles.size[0] / 2) * s;
+    assert.ok(lowerOuter > upperOuter,
+      `tiers must step inward: ${lowerOuter} vs ${upperOuter}`);
+    assert.ok(Math.abs(tierStats[0].y - 14.7) < 0.5,
+      `lower tier y ${tierStats[0].y}`);
+    assert.ok(Math.abs(tierStats[1].y - 22.8) < 0.5,
+      `upper tier y ${tierStats[1].y}`);
+  });
+
+  it('fungus colony: fruiting bodies ring flat at ground level', () => {
+    const c = creatureFor('Archaeorhizomyces borealis', { sizeM: 0.31 });
+    const g = buildCreatureMesh(c, PLANS);
+    const vis = visibleMeshes(g);
+    assert.equal(vis.length, 1);
+    const inst = vis[0];
+    assert.ok(inst.isInstancedMesh && inst.count === 8);
+    const ps = instanceWorldPositions(inst);
+    const ys = ps.map((p) => p.y);
+    assert.ok(Math.max(...ys) - Math.min(...ys) < 1e-6,
+      'a colony is flat, not a vertical totem');
+    assert.ok(ps.every((p) => Math.abs(Math.hypot(p.x, p.z) - 0.068) < 0.01));
+    const box = bodyBox(g);
+    assert.ok((box.max.y - box.min.y) < 0.3 * (box.max.x - box.min.x),
+      'low and wide, not tall and stacked');
+  });
+
+  it('a flat plane yawed under YXZ stays flat (the acacia tilt bug)', () => {
+    // The acacia's leaf planes were rot.x = -PI/2 with a golden
+    // angle yaw; under the default XYZ order the yaw rolled the
+    // plane 40-90 degrees. buildPart composes rotations as YXZ:
+    // yaw first, then pitch, so the plane stays flat at any yaw.
+    for (const yaw of [0, 2.39996, 2 * 2.39996, 4.5]) {
+      const e = new THREE.Euler(-Math.PI / 2, yaw, 0, 'YXZ');
+      const n = new THREE.Vector3(0, 0, 1).applyQuaternion(
+        new THREE.Quaternion().setFromEuler(e));
+      assert.ok(Math.abs(n.x) < 1e-9 && Math.abs(n.y - 1) < 1e-9,
+        `yaw ${yaw}: normal ${n.toArray()}`);
+    }
+    // And the old order really does tilt — this pins the regression.
+    const bad = new THREE.Euler(-Math.PI / 2, 2.39996, 0, 'XYZ');
+    const nb = new THREE.Vector3(0, 0, 1).applyQuaternion(
+      new THREE.Quaternion().setFromEuler(bad));
+    assert.ok(Math.abs(nb.y - 1) > 0.3, `XYZ normal ${nb.toArray()}`);
+  });
+
+  it('shark dorsal fins stay in the midline, vertical', () => {
+    const c = creatureFor('Centrophorus isodon', { sizeM: 1, aquatic: true });
+    const g = buildCreatureMesh(c, PLANS);
+    const vis = visibleMeshes(g);
+    // The dorsal fins are the plane InstancedMesh whose instances
+    // sit on the midline (pectoral fins are paired across z).
+    const dorsal = vis.find((m) => m.isInstancedMesh
+      && m.geometry.type === 'PlaneGeometry' && m.count === 2
+      && instanceWorldPositions(m).every((p) => Math.abs(p.z) < 1e-9));
+    assert.ok(dorsal, 'two dorsal fins, one InstancedMesh');
+    const ps = instanceWorldPositions(dorsal);
+    assert.ok(new Set(ps.map((p) => p.x.toFixed(3))).size === 2,
+      'the two fins spread along the back');
   });
 
   it('fungus: cap and stipe, grounded', () => {
