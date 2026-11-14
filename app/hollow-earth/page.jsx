@@ -42,7 +42,7 @@ import { RETICLE_BY_CLASS, equippedDamageForSlot, equippedReticleForSlot, equipp
 import { boltKindFor, BOLT_STYLE, BOLT_SPEED, BOLT_MAX_LIFE } from './bolt-visual.js';
 import { updateBackpack, useBackpack, getBackpackRecord } from '../../lib/backpack/store.js';
 import { spawnCompanion, updateCompanions, removeCompanion, hasCompanion } from '../../lib/dino-companion.js';
-import { isDinoItem, dinoIdOf, dinoDisplayName, DINO_STATE_OUT, DINO_STATE_HOME, DINO_STATE_PACK, setDinoItemState } from '../../lib/earth2/breeding.js';
+import { isDinoItem, dinoIdOf, dinoDisplayName, DINO_STATE_OUT, DINO_STATE_PACK, setDinoItemState } from '../../lib/earth2/breeding.js';
 import BackpackHud from '@/components/backpack/BackpackHud';
 import { roarToneFor, GHORRUM_LAUGH_TONE } from './behavior.js';
 import { playRoarTone } from './roar-audio.js';
@@ -245,7 +245,7 @@ export default function HollowEarthPage() {
       }).catch(() => null);
       if (!handle || !walkerRef.current) return;
       companions.push(handle);
-      updateBackpack((r) => ({ ...r, items: setDinoItemState(r.items || [], dinoId, DINO_STATE_OUT) }));
+      updateBackpack((r) => ({ ...r, items: setDinoItemState(r.items || [], dinoId, DINO_STATE_OUT, undefined, true) }));
       notice(`🦖 ${dinoDisplayName(species)} joins you!`);
     };
     const recallDino = (dinoItem) => {
@@ -253,12 +253,11 @@ export default function HollowEarthPage() {
       if (!species) return;
       const dinoId = dinoIdOf(dinoItem);
       removeCompanion(companions, dinoId);
-      const homeParcelId = (dinoItem.meta && dinoItem.meta.homeParcelId) || null;
-      const state = homeParcelId ? DINO_STATE_HOME : DINO_STATE_PACK;
-      updateBackpack((r) => ({ ...r, items: setDinoItemState(r.items || [], dinoId, state, homeParcelId) }));
-      notice(homeParcelId
-        ? `🦖 ${dinoDisplayName(species)} heads home to ${homeParcelId}.`
-        : `🦖 ${dinoDisplayName(species)} returns to your backpack.`);
+      // The backpack IS home (Merlin, 2026-11-14): back to
+      // 'pack', travel cleared. No land home in this realm —
+      // the Earth 2 home copies live there, not here.
+      updateBackpack((r) => ({ ...r, items: setDinoItemState(r.items || [], dinoId, DINO_STATE_PACK, undefined, false) }));
+      notice(`🦖 ${dinoDisplayName(species)} returns to your backpack.`);
     };
     dinoApiRef.current = { summon: summonDino, recall: recallDino };
     // Restore: 'out' dinos from the pack join the walker here.

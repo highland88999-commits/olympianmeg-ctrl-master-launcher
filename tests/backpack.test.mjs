@@ -425,13 +425,20 @@ describe('raised dinos are backpack items (Merlin, 2026-11-14)', () => {
   it('dino items survive sanitize with their meta intact', () => {
     const rec = sanitizeBackpackRecord({
       v: 1,
-      items: [dino('triceratops', 1000, 'out'), dino('velociraptor', 2000, 'home')],
+      items: [dino('triceratops', 1000, 'out'), dino('velociraptor', 2000, 'pack')],
     });
     assert.equal(rec.items.length, 2);
     assert.equal(rec.items[0].meta.state, 'out');
     assert.equal(rec.items[0].meta.dinoId, 'dino-triceratops-1000');
-    assert.equal(rec.items[1].meta.state, 'home');
+    assert.equal(rec.items[1].meta.state, 'pack');
     assert.equal(rec.items[1].meta.bornAt, 2000);
+  });
+
+  it('the travel flag survives sanitize — it is the leaving-home memory', () => {
+    const travelling = dino('triceratops', 1000, 'pack');
+    travelling.meta.travel = true;
+    const rec = sanitizeBackpackRecord({ v: 1, items: [travelling] });
+    assert.equal(rec.items[0].meta.travel, true);
   });
 
   it('two dinos never stack — one item per dino', () => {

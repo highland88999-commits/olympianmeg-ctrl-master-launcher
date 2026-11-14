@@ -135,29 +135,33 @@ import {
   NEST_LABEL_MAX_DIST_M,
   NEST_LABEL_HEIGHT_M,
   DINO_STATE_OUT,
-  DINO_STATE_HOME,
   DINO_STATE_PACK,
+  LEGACY_DINO_STATE_HOME,
   makeNest,
   nestIsDangerous,
   nestLabelText,
+  nestSpeciesName,
   STEAL_REACH_M,
   isNestInStealReach,
   babyModelPath,
   makeEggItem,
   isEggItem,
-  eggReadyToHatch,
-  eggHatchInMs,
+  eggIsCold,
   canRaiseDino,
+  isOwnParcel,
   makeDinoItem,
   isDinoItem,
+  dinoStateOf,
   dinoIdFor,
   dinoIdOf,
   dinoDisplayName,
   canHatchMore,
   raiseCapRefusal,
   homeParcelFor,
-  homeSpotFor,
+  homeCopiesFor,
   setDinoItemState,
+  recallTravellersToPack,
+  dinosToSpawnOnLeaving,
   growthT,
   uniformScaleAt,
   rigScalesFor,
@@ -694,6 +698,10 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
   // species picker. Holds the egg waiting for its species choice.
   const [dinoPick, setDinoPick] = useState(null); // egg item | null
   const dinoPickRef = useRef(null);
+  // EGG HATCH (Merlin, 2026-11-14): the user taps the egg in the
+  // backpack and it hatches RIGHT AWAY — the HUD calls through
+  // this ref (no timer, no frame-loop hatch check).
+  const hatchEggRef = useRef(null);
   // v3 level: 0 = Ground, 1+ = L1, L2, … — one story (3 m) each.
   // Mirrored into buildModeRef.current.level, which the scene's
   // per-frame ghost sync reads; the state drives the toggle UI.
@@ -2670,12 +2678,21 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         setAllyHud(allies.filter((a) => a.mode !== 'home').map((a) => ({ id: a.id, species: a.species })));
       }
 
-      /** Remove a live ally by dino id (summon + send-home both
-       *  route through here); refreshes the HUD. */
-      function despawnAllyByDinoId(dinoId) {
-        const idx = allies.findIndex((a) => a.dinoId === dinoId);
+      /** Remove a live ally by dino id (summon + send-back both
+       *  route through here); refreshes the HUD. mode narrows
+       *  the removal: 'follow' never despawns a home copy and
+       *  'home' never despawns the travelling dino — a summon
+       *  or recall must not wipe the copies off the land (or
+       *  the other way round). A copy's name plate goes with
+       *  it. */
+      function despawnAllyByDinoId(dinoId, mode = null) {
+        const idx = allies.findIndex((a) => a.dinoId === dinoId && (mode == null || a.mode === mode));
         if (idx < 0) return null;
         const [ally] = allies.splice(idx, 1);
+        if (ally.label) {
+          ally.label.el.remove();
+          removeWhere(labels, (l) => l === ally.label);
+        }
         alliesGroup.remove(ally.root);
         syncAllyHud();
         return ally;
@@ -2757,6 +2774,13 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
           wanderStep: 0,
           wanderUntil: 0,
         };
+        // A home COPY wears a name plate — the owner needs to
+        // see who is grazing on their land (and the tap target
+        // to summon that dino out). A travelling dino needs no
+        // plate: the HUD already names it.
+        if (mode === 'home') {
+          ally.label = makeLabel(`🏠 ${nestSpeciesName(species)}`, root, 1.5, 140, null, `home-copy-${dinoId}`);
+        }
         allies.push(ally);
         syncAllyHud();
         return ally;
@@ -2764,11 +2788,17 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
       // Expose the spawner for backpack-tap summoning.
       spawnAllyRef.current = spawnAlly;
 
-      // ── Breeding: summon / recall (Merlin, 2026-11-14) ───────
+      // ── Breeding: summon / recall / hatch (Merlin, 2026-11-14)
       // The backpack HUD calls through these refs. The record is
-      // the truth: summon flips the item to 'out' and spawns the
-      // dino beside the walker; recall flips it home (land, or
-      // the backpack for the landless) and puts the dino there.
+      // the truth — and the backpack IS home: summon flips the
+      // item to 'out' and spawns the dino beside the walker;
+      // recall flips it to 'pack' and puts it back in the
+      // backpack. A home COPY is a scene entity, never an item:
+      // summon and recall touch only the travelling ('follow')
+      // ally, so the copies grazing on the land are never
+      // disturbed. The `travel` flag is the memory of who was
+      // out: a summon marks it, a send-back clears it, and
+      // leaving your parcel respawns only the marked ones.
       // An item that is missing (an ally from before the record
       // existed) is minted on the spot, so the dino is never lost.
       summonDinoRef.current = (dinoItem) => {
@@ -2779,11 +2809,12 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
           noticeRef.current(`🦖 ${dinoDisplayName(species)} is already with you.`);
           return;
         }
-        // Lift a home dino off its land before re-spawning it.
-        despawnAllyByDinoId(dinoId);
+        // Lift the travelling dino only — a home copy of the
+        // same dino keeps grazing on the land.
+        despawnAllyByDinoId(dinoId, 'follow');
         updateBackpack((r) => ({
           ...r,
-          items: setDinoItemState(r.items || [], dinoId, DINO_STATE_OUT),
+          items: setDinoItemState(r.items || [], dinoId, DINO_STATE_OUT, undefined, true),
         }));
         spawnAlly(species, dinoItem.meta.bornAt || Date.now(), { dinoId }).catch(() => {});
         noticeRef.current(`🦖 ${dinoDisplayName(species)} joins you!`);
@@ -2793,34 +2824,85 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         if (!species) return;
         const dinoId = dinoIdOf(dinoItem);
         const bornAt = dinoItem.meta.bornAt || Date.now();
-        // Home is the parcel on the record when the recall comes
-        // from the backpack; the tap-an-ally path passes the fresh
-        // home parcel in the item instead.
-        const homeParcelId = (dinoItem.meta && dinoItem.meta.homeParcelId) || null;
-        const state = homeParcelId ? DINO_STATE_HOME : DINO_STATE_PACK;
-        despawnAllyByDinoId(dinoId);
+        // The backpack IS home: back to 'pack', travel cleared.
+        // No home spawn here — the home copies are reconciled
+        // separately (ensureHomeCopies) and never disturb the
+        // travelling dino.
+        despawnAllyByDinoId(dinoId, 'follow');
         updateBackpack((r) => {
           const items = (r.items || []).slice();
           const i = items.findIndex((it) => isDinoItem(it) && dinoIdOf(it) === dinoId);
           if (i >= 0) {
-            items[i] = { ...items[i], meta: { ...items[i].meta, state, homeParcelId } };
+            items[i] = { ...items[i], meta: { ...items[i].meta, state: DINO_STATE_PACK, travel: false } };
           } else {
-            items.push(makeDinoItem(species, bornAt, { dinoId, state, homeParcelId }));
+            items.push(makeDinoItem(species, bornAt, { dinoId, state: DINO_STATE_PACK, travel: false }));
           }
           return { ...r, items };
         });
-        if (homeParcelId) {
-          const parcel = parcelById(homeParcelId);
-          if (parcel) {
-            const c = parcelCenterWorld(parcel);
-            const spot = homeSpotFor(c, dinoId);
-            spawnAlly(species, bornAt, { dinoId, mode: 'home', homeX: spot.x, homeZ: spot.z, parcelId: homeParcelId }).catch(() => {});
-            noticeRef.current(`🦖 ${dinoDisplayName(species)} heads home to ${homeParcelId}.`);
-            return;
-          }
-        }
         noticeRef.current(`🦖 ${dinoDisplayName(species)} returns to your backpack.`);
       };
+
+      // EGG HATCH (Merlin, 2026-11-14): the user taps the egg in
+      // the backpack and it hatches RIGHT AWAY — no wait, no
+      // timer. The tap opens the species picker; the baby
+      // hatches INTO the backpack (state 'pack', see the picker
+      // below). A cold egg (stolen over 24 h ago) refuses, and
+      // the raise cap still applies (1 for anyone, 4 for a
+      // land owner). The ownership list is a Map — pass it
+      // straight through; canRaiseDino reads Maps (Object.values
+      // of a Map is [] and silently made every landowner read as
+      // landless — found Nov 14 while remodelling home).
+      hatchEggRef.current = (eggItem) => {
+        if (!eggItem || !isEggItem(eggItem)) return;
+        if (eggIsCold(eggItem.meta, Date.now())) {
+          noticeRef.current('🥚 This egg has gone cold — it won\'t hatch.');
+          return;
+        }
+        const rec = getBackpackRecord();
+        const myEmail = (buildUser && buildUser.email) || '';
+        const isLandowner = canRaiseDino(ownersByParcel, myEmail) || canRaiseDino(claims || [], myEmail);
+        const { ok: canHatch, cap, raised } = canHatchMore(rec.items || [], isLandowner, allies.map((a) => a.dinoId));
+        if (!canHatch) {
+          noticeRef.current(`🥚 ${raiseCapRefusal(raised, cap, isLandowner)}`);
+          return;
+        }
+        // DINO SELECTION (Merlin, 2026-11-03): don't auto-hatch —
+        // open the species picker. The user chooses what hatches.
+        if (!dinoPickRef.current) {
+          dinoPickRef.current = eggItem;
+          setDinoPick(eggItem);
+        }
+      };
+
+      // ── Home: entering / leaving your parcel (Merlin, 2026-11-14)
+      // ENTERING your own parcel sends the travelling dinos back
+      // to the backpack — the home copies are the ones you meet
+      // there. The travel flag is NOT touched: it remembers who
+      // was out. LEAVING respawns ONLY the dinos that were out
+      // before you came home — the travel-marked ones — unless
+      // you changed the selection through the backpack while
+      // home (a summon marks, a send-back clears).
+      function enterHomeParcel() {
+        const rec = getBackpackRecord();
+        const out = (rec.items || []).filter((it) => isDinoItem(it) && dinoStateOf(it) === DINO_STATE_OUT);
+        if (!out.length) return;
+        for (const it of out) despawnAllyByDinoId(dinoIdOf(it), 'follow');
+        updateBackpack((r) => ({ ...r, items: recallTravellersToPack(r.items || []) }));
+        noticeRef.current('🏠 Home — your dinos rest in your backpack. The ones on your land are waiting.');
+      }
+      function leaveHomeParcel() {
+        const rec = getBackpackRecord();
+        const leaving = dinosToSpawnOnLeaving(rec.items || []);
+        let spawned = 0;
+        for (const it of leaving) {
+          const dinoId = dinoIdOf(it);
+          if (allies.some((a) => a.dinoId === dinoId && a.mode === 'follow')) continue;
+          updateBackpack((r) => ({ ...r, items: setDinoItemState(r.items || [], dinoId, DINO_STATE_OUT) }));
+          spawnAlly(it.meta.species, it.meta.bornAt || Date.now(), { dinoId }).catch(() => {});
+          spawned += 1;
+        }
+        if (spawned) noticeRef.current(`🦖 ${spawned === 1 ? 'Your dino joins' : 'Your dinos join'} you again!`);
+      }
 
       /** Growth tick: rig-scale allies, swap to adult at maturity. */
       async function growthTick() {
@@ -2956,6 +3038,38 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
           ally.root.position.set(nx, heightAt(nx, nz), nz);
           ally.root.rotation.y = Math.atan2(dx, dz);
           ally.state = 'idle';
+        }
+      }
+
+      // ── Home copies (Merlin, 2026-11-14) ─────────────────────
+      // A land owner has a COPY of each of their dinos at home
+      // on their land ALL the time — same species, same growth
+      // stage (bornAt rides along), miniature, grazing, never
+      // following, never fighting. Copies are scene entities
+      // derived from the backpack record (homeCopiesFor): this
+      // reconciler runs on mount and once a second, so a copy
+      // is never stranded when its item is recalled, hatched,
+      // or its owner logs out — and a landless user gets none.
+      // Copies are the owner's own: the record is device-local,
+      // so other visitors do not see them.
+      function ensureHomeCopies() {
+        const rec = getBackpackRecord();
+        const myEmail = (buildUser && buildUser.email) || '';
+        const owned = ownersByParcel || {};
+        const homeParcelId = homeParcelFor(owned, claims || [], myEmail);
+        let homeCenter = null;
+        if (homeParcelId) {
+          const parcel = parcelById(homeParcelId);
+          if (parcel) homeCenter = parcelCenterWorld(parcel);
+        }
+        const wanted = homeCopiesFor(rec.items || [], owned, claims || [], myEmail, homeCenter);
+        const wantedIds = new Set(wanted.map((w) => w.dinoId));
+        for (const ally of allies.filter((a) => a.mode === 'home')) {
+          if (!wantedIds.has(ally.dinoId)) despawnAllyByDinoId(ally.dinoId, 'home');
+        }
+        for (const w of wanted) {
+          if (allies.some((a) => a.dinoId === w.dinoId && a.mode === 'home')) continue;
+          spawnAlly(w.species, w.bornAt, { dinoId: w.dinoId, mode: 'home', homeX: w.spot.x, homeZ: w.spot.z, parcelId: w.homeParcelId }).catch(() => {});
         }
       }
 
@@ -6136,6 +6250,14 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
       // it REPORTS the entry to the page (onSanctuaryEntry) and
       // the page charges it, idempotent on entryId.
       let lastOwnersSeen = null;
+      // DINO HOME (Merlin, 2026-11-14): whether the walker stands
+      // on their OWN parcel, tracked on the same beat as the
+      // shrink — crossing the line sends the travelling dinos
+      // back to the backpack, leaving brings the travel-marked
+      // ones back out. Tracked on the parcel underfoot (with
+      // hysteresis), so border wobble never churns it — and late
+      // titles flip it too, the same as the re-scale above.
+      let wasAtHome = false;
       function applyParcelShrink() {
         const bp = buildPropsRef.current || {};
         const next = nextShrinkState(shrinkRef.current, walker.x, walker.z, bp.owners);
@@ -6147,6 +6269,16 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         // runs when the owners map itself changes.
         const ownersChanged = bp.owners !== lastOwnersSeen;
         lastOwnersSeen = bp.owners;
+        // DINO HOME (Merlin, 2026-11-14): runs BEFORE the early
+        // return below — a parcel change is not required (late
+        // titles can flip home-ness with the walker standing
+        // still), and the shrink parcel is the one underfoot
+        // whether or not it changed this frame.
+        const email = bp.user && bp.user.email;
+        const atHomeNow = isOwnParcel(bp.owners, next.parcelId, email);
+        if (atHomeNow && !wasAtHome) enterHomeParcel();
+        else if (!atHomeNow && wasAtHome) leaveHomeParcel();
+        wasAtHome = atHomeNow;
         if (!next.changed && !ownersChanged) return;
         const was = shrinkRef.current.scale;
         const wasParcel = shrinkRef.current.parcelId;
@@ -6859,29 +6991,28 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         ];
         const hits = raycaster.intersectObjects(targets, true);
         if (!hits.length) return;
-        // DINO SEND-HOME (Merlin, 2026-11-03; home rule 2026-11-14):
-        // tapping your ally sends it home — to live on your land
-        // when you own any, else back into the backpack. Tap the
-        // dino in the backpack to summon it beside you again.
+        // DINO SEND-BACK / SUMMON (Merlin, 2026-11-03; backpack-
+        // is-home 2026-11-14): tapping your travelling ally sends
+        // it back to the backpack; tapping a home COPY on your
+        // land summons that dino out beside you (the copy keeps
+        // grazing — it is a duplicate, not the dino itself).
         let tapObj = hits[0].object;
         while (tapObj && !allies.find((al) => al.root === tapObj)) {
           tapObj = tapObj.parent;
         }
         const tappedAlly = tapObj ? allies.find((al) => al.root === tapObj) : null;
         if (tappedAlly) {
-          // Fresh home parcel: ownership may have changed since
-          // the hatch, so the tap re-reads it (not the record).
-          const myEmail = (buildUser && buildUser.email) || '';
-          const owned = ownersByParcel || {};
-          const homeParcelId = homeParcelFor(Object.values(owned), claims || [], myEmail);
-          if (recallDinoRef.current) {
+          const dinoId = tappedAlly.dinoId || dinoIdFor(tappedAlly.species, tappedAlly.bornAt);
+          if (tappedAlly.mode === 'home') {
+            // A home copy: summon the dino out to your side.
+            if (summonDinoRef.current) {
+              summonDinoRef.current({
+                meta: { species: tappedAlly.species, bornAt: tappedAlly.bornAt, dinoId },
+              });
+            }
+          } else if (recallDinoRef.current) {
             recallDinoRef.current({
-              meta: {
-                species: tappedAlly.species,
-                bornAt: tappedAlly.bornAt,
-                dinoId: tappedAlly.dinoId || dinoIdFor(tappedAlly.species, tappedAlly.bornAt),
-                homeParcelId,
-              },
+              meta: { species: tappedAlly.species, bornAt: tappedAlly.bornAt, dinoId },
             });
           }
           return;
@@ -7735,27 +7866,42 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
 
       // Raised dinos restore on mount (Merlin, 2026-11-14): the
       // backpack record is the truth — 'out' dinos rejoin the
-      // walker, 'home' dinos return to their land. Before this,
-      // a reload lost every hatched dino (the ally lived only in
-      // the scene). Home parcels come from the ITEM, not the live
-      // titles — the owners may land after the world mounts.
+      // walker beside them. Before this, a reload lost every
+      // hatched dino (the ally lived only in the scene). A
+      // stored 'home' from the old build migrates to 'pack' —
+      // the backpack is home now; the land holds only copies
+      // (ensureHomeCopies below, reconciled from the record).
+      // Whether the walker starts at home is handled by the
+      // parcel hook in applyParcelShrink, which runs before
+      // this block: an 'out' dino already back in the pack by
+      // then is not spawned here, and late titles flip it on
+      // the next frame.
       {
         const rec = getBackpackRecord();
+        const migrated = [];
         for (const it of (rec.items || [])) {
           if (!isDinoItem(it)) continue;
           const dinoId = dinoIdOf(it);
           const bornAt = it.meta.bornAt || Date.now();
-          if (it.meta.state === DINO_STATE_OUT) {
+          if (it.meta.state === LEGACY_DINO_STATE_HOME) {
+            migrated.push(dinoId);
+          } else if (dinoStateOf(it) === DINO_STATE_OUT) {
             spawnAlly(it.meta.species, bornAt, { dinoId }).catch(() => {});
-          } else if (it.meta.state === DINO_STATE_HOME && it.meta.homeParcelId) {
-            const parcel = parcelById(it.meta.homeParcelId);
-            if (parcel) {
-              const c = parcelCenterWorld(parcel);
-              const spot = homeSpotFor(c, dinoId);
-              spawnAlly(it.meta.species, bornAt, { dinoId, mode: 'home', homeX: spot.x, homeZ: spot.z, parcelId: it.meta.homeParcelId }).catch(() => {});
-            }
           }
         }
+        if (migrated.length) {
+          // Legacy 'home' items (2026-11-14 build) become 'pack'
+          // in place — same item, same uid, travel untouched.
+          updateBackpack((r) => {
+            const items = (r.items || []).slice();
+            for (const dinoId of migrated) {
+              const i = items.findIndex((it) => isDinoItem(it) && dinoIdOf(it) === dinoId);
+              if (i >= 0) items[i] = { ...items[i], meta: { ...items[i].meta, state: DINO_STATE_PACK } };
+            }
+            return { ...r, items };
+          });
+        }
+        ensureHomeCopies();
       }
 
       // ── The frame ────────────────────────────────────────────
@@ -7779,7 +7925,11 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         // land titles arrive (the owners may land after the world
         // mounts), and the last-left spot saves every 15 seconds
         // so the map remembers where the user left.
+        // HOME COPIES (Merlin, 2026-11-14): reconciled on the
+        // same beat — a copy appears once its owner buys land,
+        // and vanishes once the dino leaves the record.
         if (frameNo % 60 === 1) ensureGarages();
+        if (frameNo % 60 === 1) ensureHomeCopies();
         if (frameNo % 900 === 1) {
           saveLastLeft({
             x: walker.x, z: walker.z, yaw: walker.yaw,
@@ -8694,39 +8844,15 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
             return a === b ? prev : prompt;
           });
         }
-        // Allies follow the walker every frame; home dinos graze.
+        // Allies follow the walker every frame; home copies graze.
         if (allies.length) {
           driveAllies(dt);
           driveHomeAllies(dt);
         }
-        // Hatch check: every ~5 s, look for ready eggs in the backpack.
-        if (frameNo % 300 === 1) {
-          const rec = getBackpackRecord();
-          const eggs = (rec.items || []).filter(isEggItem);
-          for (const egg of eggs) {
-            if (!eggReadyToHatch(egg.meta, Date.now())) continue;
-            // The raise cap (Merlin, 2026-11-14): anyone may raise
-            // ONE dino; a land owner may raise up to FOUR. The old
-            // "no land, no hatch" gate is gone.
-            const owned = ownersByParcel || {};
-            const ownedRows = Object.values(owned);
-            const myEmail = (buildUser && buildUser.email) || '';
-            const isLandowner = canRaiseDino(ownedRows, myEmail) || canRaiseDino(claims || [], myEmail);
-            const { ok: canHatch, cap, raised } = canHatchMore(rec.items || [], isLandowner, allies.map((a) => a.dinoId));
-            if (!canHatch) {
-              noticeRef.current(`🥚 ${raiseCapRefusal(raised, cap, isLandowner)}`);
-              continue;
-            }
-            // Hatch! Remove the egg, spawn the ally.
-            // DINO SELECTION (Merlin, 2026-11-03): don't auto-hatch —
-            // open the species picker. The user chooses what hatches.
-            if (!dinoPickRef.current) {
-              dinoPickRef.current = egg;
-              setDinoPick(egg);
-            }
-            break; // one egg at a time
-          }
-        }
+        // HATCH (Merlin, 2026-11-14): there is NO hatch check
+        // here any more — the 10-minute auto-hatch timer is
+        // gone. Hatching is user-caused: the user taps the egg
+        // in the backpack and hatchEggRef opens the picker.
         // Growth tick: every ~10 s, rig-scale allies.
         if (frameNo % 600 === 1 && allies.length) {
           growthTick().catch(() => {});
@@ -9130,7 +9256,8 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         homeFractions={e2BackpackHome} headerDeadSpaceMinimize
         displayNote="Earth 2 keeps its own arms for now — the pack rides along."
         onDinoSummon={(dinoItem) => { if (summonDinoRef.current) summonDinoRef.current(dinoItem); }}
-        onDinoRecall={(dinoItem) => { if (recallDinoRef.current) recallDinoRef.current(dinoItem); }} />
+        onDinoRecall={(dinoItem) => { if (recallDinoRef.current) recallDinoRef.current(dinoItem); }}
+        onEggHatch={(eggItem) => { if (hatchEggRef.current) hatchEggRef.current(eggItem); }} />
 
       {/* STEAL PROMPT — TOP LEVEL (Merlin, 2026-11-14): the green
           button lived ONLY inside the CONTROLS panel, and the panel
@@ -9931,7 +10058,10 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
 
       {/* DINO SELECTION (Merlin, 2026-11-03): the egg hatches into
           whatever species the user picks. The egg leaves the
-          backpack, the baby appears on the map. */}
+          backpack and the baby hatches INTO the backpack
+          (state 'pack') — no spawn until the user summons it.
+          Hatching is user-caused: the tap on the egg in the
+          backpack opened this picker (Merlin, 2026-11-14). */}
       {dinoPick && (
         <DinoSelectionMenu
           onPick={(dino) => {
@@ -9939,29 +10069,28 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
             if (egg) {
               // The hatch mints the raised-dino record: it rides
               // in the backpack (the cross-realm seat) with state
-              // 'out', so a reload never loses it — the scene
-              // restores 'out' dinos on mount. Home is the
-              // owner's first parcel, or the backpack when they
-              // own no land.
-              // (Fix, 2026-11-14: this used to call bare
-              // spawnAlly, which only exists inside the scene
-              // effect — picking a species threw, the egg was
-              // already gone, and no dino ever hatched. The spawn
-              // now goes through the ref, like the summon path.)
+              // 'pack' — the backpack IS home (Merlin,
+              // 2026-11-14). No spawn here: the baby waits in
+              // the pack until the user taps it to summon.
+              // Home parcel is kept on the record as a hint for
+              // the home copies. (Fix, 2026-11-14: this used to
+              // call bare spawnAlly, which only exists inside
+              // the scene effect — picking a species threw, the
+              // egg was already gone, and no dino ever hatched.
+              // The spawn now goes through the ref, like the
+              // summon path — and the hatch itself spawns
+              // nothing at all.)
               const bornAt = Date.now();
               const dinoId = dinoIdFor(dino.id, bornAt);
               const myEmail = (buildUser && buildUser.email) || '';
               const owned = ownersByParcel || {};
-              const homeParcelId = homeParcelFor(Object.values(owned), claims || [], myEmail);
-              const dinoItem = makeDinoItem(dino.id, bornAt, { dinoId, state: DINO_STATE_OUT, homeParcelId });
+              const homeParcelId = homeParcelFor(owned, claims || [], myEmail);
+              const dinoItem = makeDinoItem(dino.id, bornAt, { dinoId, state: DINO_STATE_PACK, homeParcelId, travel: false });
               updateBackpack((r) => {
                 const withoutEgg = { ...r, items: (r.items || []).filter((it) => it !== egg) };
                 return addDinoItem(withoutEgg, dinoItem);
               });
-              if (spawnAllyRef.current) {
-                spawnAllyRef.current(dino.id, bornAt, { dinoId }).catch(() => {});
-              }
-              noticeRef.current(`🥚 A baby ${dino.label} hatches!`);
+              noticeRef.current(`🥚 A baby ${dino.label} hatches — it lives in your backpack now. Tap it to summon.`);
             }
             dinoPickRef.current = null;
             setDinoPick(null);

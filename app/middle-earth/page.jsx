@@ -33,7 +33,7 @@ import { damageBoss, bossSlowFactor, bossPhase } from './boss';
 import { RETICLE_BY_CLASS, equippedDamageForSlot, equippedReticleForSlot, equippedWeaponEntry } from '../../lib/backpack/backpack.js';
 import { getBackpackRecord, updateBackpack, useBackpack } from '../../lib/backpack/store.js';
 import { spawnCompanion, updateCompanions, removeCompanion, hasCompanion } from '../../lib/dino-companion.js';
-import { isDinoItem, dinoIdOf, dinoDisplayName, DINO_STATE_OUT, DINO_STATE_HOME, DINO_STATE_PACK, setDinoItemState } from '../../lib/earth2/breeding.js';
+import { isDinoItem, dinoIdOf, dinoDisplayName, DINO_STATE_OUT, DINO_STATE_PACK, setDinoItemState } from '../../lib/earth2/breeding.js';
 import BackpackHud from '@/components/backpack/BackpackHud';
 import { createWalker, stepWalker, applyLook } from '@/lib/world/walk-controls';
 import { followCameraPose } from '@/lib/world/follow-camera';
@@ -409,7 +409,7 @@ export default function MiddleEarthPage() {
       }).catch(() => null);
       if (!handle || cancelled) return;
       companions.push(handle);
-      updateBackpack((r) => ({ ...r, items: setDinoItemState(r.items || [], dinoId, DINO_STATE_OUT) }));
+      updateBackpack((r) => ({ ...r, items: setDinoItemState(r.items || [], dinoId, DINO_STATE_OUT, undefined, true) }));
       showToast(`🦖 ${dinoDisplayName(species)} joins you!`);
     };
     const recallDino = (dinoItem) => {
@@ -417,12 +417,11 @@ export default function MiddleEarthPage() {
       if (!species) return;
       const dinoId = dinoIdOf(dinoItem);
       removeCompanion(companions, dinoId);
-      const homeParcelId = (dinoItem.meta && dinoItem.meta.homeParcelId) || null;
-      const state = homeParcelId ? DINO_STATE_HOME : DINO_STATE_PACK;
-      updateBackpack((r) => ({ ...r, items: setDinoItemState(r.items || [], dinoId, state, homeParcelId) }));
-      showToast(homeParcelId
-        ? `🦖 ${dinoDisplayName(species)} heads home to ${homeParcelId}.`
-        : `🦖 ${dinoDisplayName(species)} returns to your backpack.`);
+      // The backpack IS home (Merlin, 2026-11-14): back to
+      // 'pack', travel cleared. No land home in this realm —
+      // the Earth 2 home copies live there, not here.
+      updateBackpack((r) => ({ ...r, items: setDinoItemState(r.items || [], dinoId, DINO_STATE_PACK, undefined, false) }));
+      showToast(`🦖 ${dinoDisplayName(species)} returns to your backpack.`);
     };
     dinoApiRef.current = { summon: summonDino, recall: recallDino };
     // Restore: 'out' dinos from the pack join the walker here.

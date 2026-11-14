@@ -1,6 +1,7 @@
 // tests/earth2-breeding.test.mjs
 // EARTH 2 — DINO BREEDING (Merlin, 2026-11-03): nests, stolen
-// eggs, hatching behind the land gate, growth, and ally law.
+// eggs, tap-to-hatch into the backpack (the pack IS home),
+// home copies on the land, growth, and ally law.
 //
 // Run: node --test tests/earth2-breeding.test.mjs   (from repo root)
 
@@ -11,7 +12,6 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
-  EGG_HATCH_MS,
   JUVENILE_AGE_MS,
   ADULT_AGE_MS,
   EGG_ITEM_ID,
@@ -33,8 +33,8 @@ import {
   DINO_ITEM_ID,
   DINO_ITEM_KIND,
   DINO_STATE_OUT,
-  DINO_STATE_HOME,
   DINO_STATE_PACK,
+  LEGACY_DINO_STATE_HOME,
   nestEggCount,
   makeNest,
   nestIsDangerous,
@@ -43,10 +43,10 @@ import {
   eggName,
   makeEggItem,
   isEggItem,
-  eggHatchInMs,
-  eggReadyToHatch,
   eggIsCold,
   canRaiseDino,
+  ownedRowsOf,
+  isOwnParcel,
   dinoIdFor,
   dinoIdOf,
   dinoDisplayName,
@@ -60,7 +60,10 @@ import {
   raiseCapRefusal,
   homeParcelFor,
   homeSpotFor,
+  homeCopiesFor,
   setDinoItemState,
+  recallTravellersToPack,
+  dinosToSpawnOnLeaving,
   growthStage,
   growthT,
   growthScaleFor,
@@ -121,13 +124,22 @@ describe('eggs', () => {
     assert.equal(isEggItem({ id: 'rock' }), false);
   });
 
-  it('hatch timing: ready after EGG_HATCH_MS', () => {
-    const meta = { species: 'triceratops', stolenAt: 0 };
-    assert.equal(eggReadyToHatch(meta, EGG_HATCH_MS - 1), false);
-    assert.equal(eggReadyToHatch(meta, EGG_HATCH_MS), true);
-    assert.equal(eggReadyToHatch(meta, EGG_HATCH_MS + 5000), true);
-    assert.ok(eggHatchInMs(meta, 0) > 0);
-    assert.ok(eggHatchInMs(meta, EGG_HATCH_MS + 1) <= 0);
+  it('eggs hatch on tap — there is no hatch timer any more', () => {
+    // The 10-minute auto-hatch timer is GONE (Merlin, 2026-11-14):
+    // hatching is user-caused — the user taps the egg in the
+    // backpack and it hatches right away. The timer exports are
+    // gone from the law, and the scene holds no hatch check.
+    const here = dirname(fileURLToPath(import.meta.url));
+    const law = readFileSync(join(here, '..', 'lib', 'earth2', 'breeding.js'), 'utf8');
+    assert.ok(!law.includes('export const EGG_HATCH_MS'), 'the timer constant is gone');
+    assert.ok(!law.includes('export function eggHatchInMs'), 'the countdown helper is gone');
+    assert.ok(!law.includes('export function eggReadyToHatch'), 'the ready helper is gone');
+    const scene = readFileSync(join(here, '..', 'components', 'earth2', 'Earth2World.jsx'), 'utf8');
+    assert.ok(!scene.includes('eggReadyToHatch'), 'no hatch check in the frame loop');
+    assert.ok(!scene.includes('EGG_HATCH_MS'), 'no hatch timer in the scene');
+    assert.ok(scene.includes('hatchEggRef.current'), 'the backpack egg row hatches through a ref');
+    assert.ok(scene.includes('onEggHatch='), 'the HUD wires the egg tap');
+    assert.ok(scene.includes('eggIsCold('), 'a cold egg still refuses to hatch');
   });
 
   it('eggs go cold after 24 hours', () => {
@@ -153,6 +165,34 @@ describe('the land gate (who is a land owner)', () => {
     assert.equal(canRaiseDino([], 'owner@example.com'), false);
     assert.equal(canRaiseDino(rows, ''), false);
     assert.equal(canRaiseDino(null, 'owner@example.com'), false);
+  });
+
+  it('the owners list is a Map in the scene — it reads as one', () => {
+    // Found Nov 14, 2026 while remodelling home: the scene's
+    // ownersByParcel is a Map, and Object.values(aMap) is [] —
+    // every landowner silently read as landless. The law reads
+    // the Map itself now.
+    const map = new Map([
+      ['E2-0001', { parcel_id: 'E2-0001', owner_email: 'owner@example.com' }],
+      ['E2-0002', { parcel_id: 'E2-0002', owner_email: 'someone@else.com' }],
+    ]);
+    assert.equal(canRaiseDino(map, 'owner@example.com'), true);
+    assert.equal(canRaiseDino(map, 'nobody@example.com'), false);
+    assert.deepEqual(ownedRowsOf(map), rows);
+    assert.deepEqual(ownedRowsOf(rows), rows);
+    assert.deepEqual(ownedRowsOf({ 'E2-0001': rows[0] }), [rows[0]]);
+    assert.deepEqual(ownedRowsOf(null), []);
+  });
+
+  it('isOwnParcel names the parcel the user owns', () => {
+    const map = new Map([
+      ['E2-0619', { parcel_id: 'E2-0619', owner_email: 'owner@example.com' }],
+    ]);
+    assert.equal(isOwnParcel(map, 'E2-0619', 'owner@example.com'), true);
+    assert.equal(isOwnParcel(map, 'E2-0619', 'someone@else.com'), false);
+    assert.equal(isOwnParcel(map, 'E2-0002', 'owner@example.com'), false);
+    assert.equal(isOwnParcel(rows, 'E2-0001', 'owner@example.com'), true);
+    assert.equal(isOwnParcel(null, 'E2-0619', 'owner@example.com'), false);
   });
 });
 
@@ -208,6 +248,7 @@ describe('raised dinos are backpack items', () => {
     assert.equal(item.meta.dinoId, 'dino-triceratops-1000');
     assert.equal(item.meta.state, DINO_STATE_OUT);
     assert.equal(item.meta.homeParcelId, 'E2-0619');
+    assert.equal(item.meta.travel, false, 'a fresh hatch never travels');
     assert.ok(isDinoItem(item));
     assert.equal(dinoIdOf(item), 'dino-triceratops-1000');
     assert.equal(dinoStateOf(item), DINO_STATE_OUT);
@@ -232,14 +273,32 @@ describe('raised dinos are backpack items', () => {
     assert.equal(raisedDinoItems(null).length, 0);
   });
 
+  it('a stored legacy home state reads as pack — the backpack is home now', () => {
+    // The 2026-11-14 build stored unsummoned dinos as 'home'
+    // (living on the land). That state is gone: the backpack is
+    // home, the land holds only copies.
+    const legacy = { kind: 'dino', meta: { species: 'velociraptor', bornAt: 500, state: LEGACY_DINO_STATE_HOME, dinoId: 'dino-velociraptor-500' } };
+    assert.equal(LEGACY_DINO_STATE_HOME, 'home');
+    assert.equal(dinoStateOf(legacy), DINO_STATE_PACK);
+    const next = setDinoItemState([legacy], 'dino-velociraptor-500', LEGACY_DINO_STATE_HOME);
+    assert.equal(dinoStateOf(next[0]), DINO_STATE_PACK);
+  });
+
   it('setDinoItemState flips one dino and leaves the rest alone', () => {
     const a = makeDinoItem('triceratops', 1000);
     const b = makeDinoItem('velociraptor', 2000);
-    const next = setDinoItemState([a, b], dinoIdOf(a), DINO_STATE_HOME, 'E2-0619');
-    assert.equal(dinoStateOf(next[0]), DINO_STATE_HOME);
+    // A summon marks travel; a send-back clears it.
+    const next = setDinoItemState([a, b], dinoIdOf(a), DINO_STATE_OUT, 'E2-0619', true);
+    assert.equal(dinoStateOf(next[0]), DINO_STATE_OUT);
     assert.equal(next[0].meta.homeParcelId, 'E2-0619');
+    assert.equal(next[0].meta.travel, true);
     assert.equal(dinoStateOf(next[1]), DINO_STATE_PACK);
     assert.equal(next[1].meta.homeParcelId, null);
+    assert.equal(next[1].meta.travel, false);
+    // travel undefined leaves the flag as it was.
+    const kept = setDinoItemState(next, dinoIdOf(a), DINO_STATE_PACK);
+    assert.equal(dinoStateOf(kept[0]), DINO_STATE_PACK);
+    assert.equal(kept[0].meta.travel, true);
     // The item is never remade: same uid when one exists.
     const withUid = [{ ...a, uid: 'u-1' }, b];
     const nextUid = setDinoItemState(withUid, dinoIdOf(a), DINO_STATE_OUT);
@@ -248,19 +307,76 @@ describe('raised dinos are backpack items', () => {
   });
 });
 
-describe('home on the land', () => {
+describe('the backpack is home (Merlin, 2026-11-14)', () => {
+  const owned = [
+    { parcel_id: 'E2-0669', owner_email: 'owner@example.com' },
+    { parcel_id: 'E2-0619', owner_email: 'owner@example.com' },
+    { parcel_id: 'E2-0002', owner_email: 'someone@else.com' },
+  ];
+  const center = { x: 100, z: -50 };
+
   it('homeParcelFor picks the first owned parcel, or null', () => {
-    const owned = [
-      { parcel_id: 'E2-0669', owner_email: 'owner@example.com' },
-      { parcel_id: 'E2-0619', owner_email: 'owner@example.com' },
-      { parcel_id: 'E2-0002', owner_email: 'someone@else.com' },
-    ];
     assert.equal(homeParcelFor(owned, [], 'owner@example.com'), 'E2-0619');
     assert.equal(homeParcelFor([], [], 'owner@example.com'), null);
     assert.equal(homeParcelFor(owned, [], 'nobody@example.com'), null);
     assert.equal(homeParcelFor(owned, [], ''), null);
     // Claims count as ownership too.
     assert.equal(homeParcelFor([], [{ parcel_id: 'E2-0719', owner_email: 'owner@example.com' }], 'owner@example.com'), 'E2-0719');
+    // And it reads the scene's Map, not just arrays.
+    const map = new Map(owned.map((r) => [r.parcel_id, r]));
+    assert.equal(homeParcelFor(map, [], 'owner@example.com'), 'E2-0619');
+  });
+
+  it('entering home recalls the travellers to the pack — travel untouched', () => {
+    // The travel flag is the memory of who was out: entering
+    // flips state only, so leaving knows who to respawn.
+    const a = makeDinoItem('triceratops', 1000, { state: DINO_STATE_OUT, travel: true });
+    const b = makeDinoItem('velociraptor', 2000, { state: DINO_STATE_PACK, travel: false });
+    const next = recallTravellersToPack([a, b]);
+    assert.equal(dinoStateOf(next[0]), DINO_STATE_PACK);
+    assert.equal(next[0].meta.travel, true, 'the flag remembers it was out');
+    assert.equal(dinoStateOf(next[1]), DINO_STATE_PACK);
+    assert.equal(next[1].meta.travel, false);
+    assert.deepEqual(recallTravellersToPack([]), []);
+  });
+
+  it('leaving respawns only the travel-marked dinos in the pack', () => {
+    const out = makeDinoItem('triceratops', 1000, { state: DINO_STATE_OUT, travel: true });
+    const marked = makeDinoItem('velociraptor', 2000, { state: DINO_STATE_PACK, travel: true });
+    const unmarked = makeDinoItem('ankylosaurus', 3000, { state: DINO_STATE_PACK, travel: false });
+    const leaving = dinosToSpawnOnLeaving([out, marked, unmarked]);
+    assert.equal(leaving.length, 1, 'only the marked pack dino');
+    assert.equal(dinoIdOf(leaving[0]), dinoIdOf(marked));
+    // A summon marks, a send-back clears — so changing the
+    // selection through the backpack changes what leaves.
+    const reselected = setDinoItemState([marked, unmarked], dinoIdOf(unmarked), DINO_STATE_PACK, undefined, true);
+    assert.equal(dinosToSpawnOnLeaving(reselected).length, 2);
+    const cleared = setDinoItemState(reselected, dinoIdOf(marked), DINO_STATE_PACK, undefined, false);
+    assert.equal(dinosToSpawnOnLeaving(cleared).length, 1);
+    assert.equal(dinoIdOf(dinosToSpawnOnLeaving(cleared)[0]), dinoIdOf(unmarked));
+  });
+
+  it('home copies mirror the record — same species, same birth, a graze spot each', () => {
+    const items = [
+      makeDinoItem('triceratops', 1000, { state: DINO_STATE_OUT, travel: true }),
+      makeDinoItem('velociraptor', 2000, { state: DINO_STATE_PACK, travel: false }),
+    ];
+    const copies = homeCopiesFor(items, owned, [], 'owner@example.com', center);
+    assert.equal(copies.length, 2, 'one copy per raised dino');
+    assert.equal(copies[0].dinoId, dinoIdOf(items[0]));
+    assert.equal(copies[0].species, 'triceratops');
+    assert.equal(copies[0].bornAt, 1000, 'same growth stage as the raised dino');
+    assert.equal(copies[0].homeParcelId, 'E2-0619');
+    for (const c of copies) {
+      const d = Math.hypot(c.spot.x - center.x, c.spot.z - center.z);
+      assert.ok(d >= 3 && d <= 7, `copy spot ${d} m out`);
+    }
+    // Deterministic: the same record always draws the same copies.
+    assert.deepEqual(homeCopiesFor(items, owned, [], 'owner@example.com', center), copies);
+    // Landless: no home parcel, no copies.
+    assert.deepEqual(homeCopiesFor(items, [], [], 'owner@example.com', center), []);
+    assert.deepEqual(homeCopiesFor(items, owned, [], 'nobody@example.com', center), []);
+    assert.deepEqual(homeCopiesFor(items, owned, [], 'owner@example.com', null), []);
   });
 
   it('homeSpotFor is deterministic and near the parcel center', () => {
@@ -508,40 +624,68 @@ describe('raising rules are wired into the scene (Merlin, 2026-11-14)', () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const scene = readFileSync(join(here, '..', 'components', 'earth2', 'Earth2World.jsx'), 'utf8');
 
-  it('the hatch loop uses the cap, not the old land gate', () => {
+  it('the hatch is a tap, not a timer — the cap still applies', () => {
+    assert.ok(scene.includes('hatchEggRef.current'), 'the egg tap hatches through a ref');
     assert.ok(scene.includes('canHatchMore('), 'hatch checks the cap');
     assert.ok(scene.includes('raiseCapRefusal('), 'cap refusal is plain English');
+    assert.ok(!scene.includes('eggReadyToHatch'), 'no timer-gated hatch anywhere');
+    assert.ok(!scene.includes('EGG_HATCH_MS'), 'the 10-minute timer is gone');
     assert.ok(!scene.includes('NO_LAND_MESSAGE'), 'the old no-land message is gone');
     assert.ok(!scene.includes('no land, no dino'), 'the old gate comment is gone');
   });
 
-  it('hatching mints the backpack record and spawns through the ref', () => {
+  it('hatching mints the backpack record in pack state — no spawn', () => {
     assert.ok(scene.includes('makeDinoItem(dino.id, bornAt'), 'hatch mints the dino item');
-    assert.ok(scene.includes("state: DINO_STATE_OUT"), 'a hatch starts summoned');
-    assert.ok(scene.includes('spawnAllyRef.current(dino.id, bornAt'), 'spawn goes through the ref, not a bare call');
+    assert.ok(scene.includes("state: DINO_STATE_PACK, homeParcelId, travel: false"), 'a hatch lands in the backpack, travelling nowhere');
+    assert.ok(!scene.includes('spawnAllyRef.current(dino.id, bornAt'), 'the hatch spawns nothing — summoning is the user\'s tap');
+    assert.ok(scene.includes('lives in your backpack now'), 'the hatch notice says where the baby lives');
     assert.ok(!scene.includes('spawnAlly(dino.id, Date.now())'), 'the bare spawnAlly call that threw is gone');
   });
 
   it('summon keeps the item in the pack and flips its state', () => {
     assert.ok(scene.includes('summonDinoRef.current'), 'summon runs scene-side');
-    assert.ok(scene.includes('setDinoItemState(r.items || [], dinoId, DINO_STATE_OUT)'), 'summon flips state to out');
+    assert.ok(scene.includes('setDinoItemState(r.items || [], dinoId, DINO_STATE_OUT, undefined, true)'), 'summon flips state to out and marks travel');
+    assert.ok(scene.includes("despawnAllyByDinoId(dinoId, 'follow')"), 'summon lifts only the traveller — never a home copy');
     assert.ok(!scene.includes('items: (r.items || []).filter((it) => it !== dinoItem)'), 'summon no longer removes the item');
   });
 
-  it('sending home routes through recall and puts the dino on its land', () => {
+  it('sending back returns the dino to the backpack — the pack is home', () => {
     assert.ok(scene.includes('recallDinoRef.current'), 'recall runs scene-side');
-    assert.ok(scene.includes("mode: 'home'"), 'home dinos spawn in home mode');
-    assert.ok(scene.includes('PARCEL_SHRINK_SCALE'), 'home dinos render miniature, like builds');
-    assert.ok(scene.includes('driveHomeAllies(dt)'), 'home dinos graze on their own tick');
-    assert.ok(scene.includes("ally.mode === 'home'"), 'follow logic skips home dinos');
+    assert.ok(scene.includes('returns to your backpack'), 'the send-back notice names the pack');
+    assert.ok(!scene.includes('heads home to'), 'no dino is sent to live on the land any more');
+    assert.ok(!scene.includes("mode: 'home', homeX: spot.x"), 'recall spawns no home dino');
+  });
+
+  it('home copies are reconciled from the record, miniature and grazing', () => {
+    assert.ok(scene.includes('ensureHomeCopies()'), 'copies reconcile on mount and every second');
+    assert.ok(scene.includes("mode: 'home'"), 'copies spawn in home mode');
+    assert.ok(scene.includes('PARCEL_SHRINK_SCALE'), 'copies render miniature, like builds');
+    assert.ok(scene.includes('driveHomeAllies(dt)'), 'copies graze on their own tick');
+    assert.ok(scene.includes("ally.mode === 'home'"), 'follow logic skips copies');
+    assert.ok(scene.includes('🏠 ${nestSpeciesName(species)}'), 'copies wear a name plate');
+    assert.ok(scene.includes('homeCopiesFor('), 'the copy list comes from the law, not the scene');
+  });
+
+  it('tapping a home copy summons that dino out; tapping a traveller sends it back', () => {
+    assert.ok(scene.includes("tappedAlly.mode === 'home'"), 'a copy tap is a summon');
+    assert.ok(scene.includes('A home copy: summon the dino out to your side.'), 'the copy tap is explicit');
+  });
+
+  it('entering your parcel recalls travellers; leaving respawns only the marked ones', () => {
+    assert.ok(scene.includes('enterHomeParcel()'), 'entering home recalls the travellers');
+    assert.ok(scene.includes('leaveHomeParcel()'), 'leaving respawns the marked ones');
+    assert.ok(scene.includes('recallTravellersToPack('), 'entering flips out dinos to pack');
+    assert.ok(scene.includes('dinosToSpawnOnLeaving('), 'leaving reads the travel flags');
+    assert.ok(scene.includes('isOwnParcel('), 'home-ness reads the owners map, not a guess');
+    assert.ok(scene.includes('wasAtHome'), 'the crossing is tracked, so border wobble never churns it');
   });
 
   it('raised dinos restore on mount from the backpack record', () => {
     assert.ok(scene.includes('Raised dinos restore on mount'), 'restore is explicit');
     assert.ok(scene.includes('DINO_STATE_OUT'), 'out dinos rejoin the walker');
-    assert.ok(scene.includes("mode: 'home', homeX: spot.x, homeZ: spot.z"), 'home dinos return to their land');
-    assert.ok(scene.includes('homeSpotFor(c, dinoId)'), 'home spots are deterministic');
-    assert.ok(scene.includes('parcelCenterWorld(parcel)'), 'home is the parcel center');
+    assert.ok(scene.includes('LEGACY_DINO_STATE_HOME'), 'a stored home state migrates to pack');
+    assert.ok(scene.includes('ensureHomeCopies()'), 'copies restore from the record');
+    assert.ok(!scene.includes("mode: 'home', homeX: spot.x, homeZ: spot.z"), 'restore no longer spawns land dinos from the item');
   });
 
   it('the HUD lists only the hunting party', () => {

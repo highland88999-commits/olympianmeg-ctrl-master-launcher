@@ -36,6 +36,7 @@ import {
   weaponReticle,
 } from '@/lib/backpack/backpack';
 import { useBackpack, updateBackpack } from '@/lib/backpack/store';
+import { dinoStateOf, isEggItem } from '@/lib/earth2/breeding';
 import PortalGunCard from '@/components/PortalGunCard';
 
 const RETICLE_GLYPH = { crosshair: '✛', dot: '•', chevron: '»' };
@@ -98,12 +99,17 @@ function weaponLine(entry) {
  *     text keep their own behaviour.
  *   onDinoSummon: raised dinos summon through this (the realm
  *     spawns the dino beside the walker). onDinoRecall: the
- *     matching send-home (the realm despawns it and the record
- *     flips home / pack). A realm that passes neither shows its
- *     dinos as plain rows — the record still travels with the
- *     pack, and the next realm with a spawner can summon them.
+ *     matching send-back (the realm despawns it and the record
+ *     flips to 'pack' — the backpack IS home, Merlin 2026-11-14).
+ *   onEggHatch: tapping an egg in the pack hatches it RIGHT
+ *     AWAY (no wait — the 10-minute timer is gone, Merlin
+ *     2026-11-14): the realm opens the species picker and the
+ *     baby hatches into the backpack. A realm that passes
+ *     neither dino callback shows its dinos as plain rows — the
+ *     record still travels with the pack, and the next realm
+ *     with a spawner can summon them.
  */
-export default function BackpackHud({ realm, realmLabel, combatApplies = false, displayNote = null, docked = false, homeFractions = null, headerDeadSpaceMinimize = false, onDinoSummon = null, onDinoRecall = null }) {
+export default function BackpackHud({ realm, realmLabel, combatApplies = false, displayNote = null, docked = false, homeFractions = null, headerDeadSpaceMinimize = false, onDinoSummon = null, onDinoRecall = null, onEggHatch = null }) {
   const record = useBackpack();
   const [open, setOpen] = useState(false);
   const equipped = equippedWeaponEntry(record);
@@ -494,36 +500,52 @@ export default function BackpackHud({ realm, realmLabel, combatApplies = false, 
                   {items.map((it) => {
                     // DINO SUMMON (Merlin, 2026-11-03; recall
                     // 2026-11-14): a raised dino summons from the
-                    // backpack to your side, and sends home again.
-                    // The row says where it is; the tap does the
-                    // move its state allows. Dinosaurs are
-                    // individuals (qty 1) — no × count on the row.
+                    // backpack to your side, and sends back to
+                    // the backpack again — the pack IS home. The
+                    // row says where it is; the tap does the move
+                    // its state allows. Dinosaurs are individuals
+                    // (qty 1) — no × count on the row. A dino in
+                    // the pack with travel set reads as travelling
+                    // with you on leaving home.
                     const isDino = it.kind === 'dino';
-                    const dinoState = isDino && it.meta && typeof it.meta.state === 'string' ? it.meta.state : 'pack';
+                    const dinoState = isDino ? dinoStateOf(it) : 'pack';
                     const canSummon = isDino && dinoState !== 'out' && typeof onDinoSummon === 'function';
                     const canRecall = isDino && dinoState === 'out' && typeof onDinoRecall === 'function';
                     const dinoAction = canSummon ? 'summon' : canRecall ? 'recall' : null;
                     const dinoNote = !isDino ? '' : dinoState === 'out'
                       ? ' — with you'
-                      : dinoState === 'home'
-                        ? ` — at home on ${it.meta.homeParcelId || 'your land'}`
+                      : it.meta.travel === true
+                        ? ' — in your pack · travels with you'
                         : ' — in your pack';
                     const dinoHint = dinoAction === 'summon'
                       ? ' · tap to summon'
                       : dinoAction === 'recall'
-                        ? ' · tap to send home'
+                        ? ' · tap to send to pack'
                         : '';
+                    // EGG HATCH (Merlin, 2026-11-14): the user
+                    // taps the egg in the backpack and it hatches
+                    // RIGHT AWAY — no wait. The tap opens the
+                    // species picker; the baby hatches INTO the
+                    // backpack. A realm without onEggHatch shows
+                    // the egg as a plain row (it still travels
+                    // with the pack and hatches in Earth 2).
+                    const isEgg = isEggItem(it);
+                    const canHatch = isEgg && typeof onEggHatch === 'function';
+                    const eggAction = canHatch ? 'hatch' : null;
+                    const eggHint = eggAction === 'hatch' ? ' · tap to hatch 🐣' : '';
+                    const rowAction = dinoAction || eggAction;
                     return (
                       <div
                         key={it.uid}
                         style={{
                           fontSize: 13, opacity: 0.85, padding: '0.15rem 0',
-                          ...(dinoAction ? { cursor: 'pointer', color: '#6ee7b7', fontWeight: 700 } : {}),
+                          ...(rowAction ? { cursor: 'pointer', color: '#6ee7b7', fontWeight: 700 } : {}),
                         }}
-                        onClick={dinoAction === 'summon' ? () => onDinoSummon(it) : dinoAction === 'recall' ? () => onDinoRecall(it) : undefined}
+                        onClick={dinoAction === 'summon' ? () => onDinoSummon(it) : dinoAction === 'recall' ? () => onDinoRecall(it) : eggAction === 'hatch' ? () => onEggHatch(it) : undefined}
                       >
                         {isDino ? '🦖 ' : ''}{it.name}{isDino ? '' : ` × ${it.qty}`}
                         {isDino && <span style={{ fontSize: 11, opacity: 0.7 }}>{dinoNote}{dinoHint}</span>}
+                        {isEgg && eggAction && <span style={{ fontSize: 11, opacity: 0.7 }}>{eggHint}</span>}
                       </div>
                     );
                   })}

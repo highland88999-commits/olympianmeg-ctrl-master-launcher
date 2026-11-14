@@ -101,7 +101,7 @@ describe('realms wire summon + recall through the backpack', () => {
   it('Middle-earth passes both callbacks and steps companions', () => {
     const me = read('app/middle-earth/page.jsx');
     assert.ok(me.includes('onDinoSummon='), 'Middle-earth summons from the pack');
-    assert.ok(me.includes('onDinoRecall='), 'Middle-earth sends home from the pack');
+    assert.ok(me.includes('onDinoRecall='), 'Middle-earth sends back to the pack');
     assert.ok(me.includes('updateCompanions(companions, dt)'), 'companions step every frame');
     assert.ok(me.includes('dinoApiRef'), 'the HUD reaches the zone through a ref');
     assert.ok(me.includes('DINO_STATE_OUT'), 'out dinos restore on entry');
@@ -110,7 +110,7 @@ describe('realms wire summon + recall through the backpack', () => {
   it('Hollow Earth passes both callbacks and steps companions', () => {
     const he = read('app/hollow-earth/page.jsx');
     assert.ok(he.includes('onDinoSummon='), 'Hollow Earth summons from the pack');
-    assert.ok(he.includes('onDinoRecall='), 'Hollow Earth sends home from the pack');
+    assert.ok(he.includes('onDinoRecall='), 'Hollow Earth sends back to the pack');
     assert.ok(he.includes('updateCompanions(companions, dt)'), 'companions step every frame');
     assert.ok(he.includes('dinoApiRef'), 'the HUD reaches the world through a ref');
     assert.ok(he.includes('DINO_STATE_OUT'), 'out dinos restore on entry');
@@ -121,8 +121,18 @@ describe('realms wire summon + recall through the backpack', () => {
     assert.ok(hud.includes("kind: 'dino', label: 'Raised dinos'"), 'dinos have their own group');
     assert.ok(hud.includes('onDinoRecall'), 'the HUD takes a recall callback');
     assert.ok(hud.includes('— with you'), 'out dinos read as with you');
-    assert.ok(hud.includes('— at home on'), 'home dinos name their parcel');
-    assert.ok(hud.includes('tap to send home'), 'an out dino taps home');
-    assert.ok(hud.includes('tap to summon'), 'a home/pack dino taps to summon');
+    assert.ok(hud.includes('— in your pack'), 'pack dinos read as in the pack');
+    assert.ok(!hud.includes('— at home on'), 'no dino is sent to live on the land any more');
+    assert.ok(hud.includes('tap to send to pack'), 'an out dino taps back to the pack');
+    assert.ok(hud.includes('tap to summon'), 'a pack dino taps to summon');
+  });
+
+  it('the backpack HUD hatches eggs on tap — no wait', () => {
+    const hud = read('components/backpack/BackpackHud.jsx');
+    assert.ok(hud.includes('onEggHatch'), 'the HUD takes a hatch callback');
+    assert.ok(hud.includes('tap to hatch'), 'an egg row taps to hatch');
+    const scene = read('components/earth2/Earth2World.jsx');
+    assert.ok(scene.includes('onEggHatch='), 'Earth 2 wires the egg tap');
+    assert.ok(!scene.includes('EGG_HATCH_MS'), 'the 10-minute timer is gone');
   });
 });
