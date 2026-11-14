@@ -20,6 +20,7 @@ import Link from 'next/link';
 import { Canvas } from '@react-three/fiber';
 import { useSceneContextGuard } from '@/components/SceneContextGuard';
 import { useVortexTravel } from '@/components/VortexTravel';
+import { useRealmInfoFade } from '@/components/useRealmInfoFade';
 import { AnnwnScene } from './world3d';
 import { PORTALS, SPAWN } from '@/lib/annwn/world';
 
@@ -40,6 +41,7 @@ export default function AnnwnPage() {
   const regionRef = useRef(region);
   const [touchUI, setTouchUI] = useState(false);
   const [reduced, setReduced] = useState(false);
+  const { infoHidden, fadeInfo, restoreInfo, infoStyle } = useRealmInfoFade({ reduced });
   const [stick, setStick] = useState({ dx: 0, dy: 0, active: false });
 
   useEffect(() => {
@@ -184,7 +186,7 @@ export default function AnnwnPage() {
   };
 
   return (
-    <main className="fixed inset-0 overflow-hidden bg-black text-white" style={{ touchAction: 'none' }}>
+    <main className="fixed inset-0 overflow-hidden bg-black text-white" style={{ touchAction: 'none' }} onPointerDown={fadeInfo}>
       {/* 3D world */}
       <div
         className="absolute inset-0"
@@ -247,7 +249,7 @@ export default function AnnwnPage() {
       {/* HUD — plain English, nothing overlaps anything else. The title
           sits below the Leave button (pt-16); the hint sits above the
           global radio bar (bottom-20); the stick sits above it too. */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-col items-center px-4 pt-16 text-center">
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-col items-center px-4 pt-16 text-center" style={infoStyle} aria-hidden={infoHidden}>
         <h1 className="text-2xl font-bold tracking-[0.3em] text-slate-100 drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)]">
           ANNWN
         </h1>
@@ -272,6 +274,19 @@ export default function AnnwnPage() {
           ← Leave Annwn
         </Link>
       </div>
+
+      {/* Realm info restore — the faded HUD comes back with one tap. */}
+      {infoHidden && (
+        <button
+          type="button"
+          aria-label="Show realm information"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={restoreInfo}
+          className="absolute left-1/2 top-16 z-30 -translate-x-1/2 rounded-full border border-white/30 bg-black/60 px-3 py-1 text-xs font-semibold text-white"
+        >
+          ⓘ Info
+        </button>
+      )}
 
       {vortexOverlay}
     </main>
