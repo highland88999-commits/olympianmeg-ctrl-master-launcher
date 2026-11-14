@@ -133,8 +133,11 @@ import {
   EGG_MODEL_PATH,
   EGG_ITEM_ID,
   NO_LAND_MESSAGE,
+  NEST_LABEL_MAX_DIST_M,
+  NEST_LABEL_HEIGHT_M,
   makeNest,
   nestIsDangerous,
+  nestLabelText,
   babyModelPath,
   makeEggItem,
   isEggItem,
@@ -1036,6 +1039,9 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
     } else {
       setStealPrompt({ ...prompt, eggs: nest.eggs });
     }
+    // The nameplate follows the live count — and goes away with
+    // the last egg (Merlin, 2026-11-14).
+    nestLabelRef.current(nest);
     // 3. The parents are provoked — nearby creatures of this
     //    species aggro the walker (set via the scene's aggro hook).
     provokeParentsRef.current(nest.species, nest.x, nest.z);
@@ -1063,6 +1069,10 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
   stealPromptRef.current = stealPrompt;
   const nestsRef = useRef([]);
   const provokeParentsRef = useRef(() => {});
+  // Nest nameplates (Merlin, 2026-11-14): the steal handler lives
+  // outside the effect, so it reaches the label through this ref —
+  // the same bridge as provokeParentsRef.
+  const nestLabelRef = useRef(() => {});
   const openExchangeRef = useRef(() => {});
   openExchangeRef.current = () => {
     greetRef.current = true;
@@ -2196,7 +2206,9 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         el.style.willChange = 'transform';
         el.style.display = 'none';
         labelsRef.current && labelsRef.current.appendChild(el);
-        labels.push({ el, obj, h, maxDist, baseMaxDist: maxDist, owner, kind });
+        const rec = { el, obj, h, maxDist, baseMaxDist: maxDist, owner, kind };
+        labels.push(rec);
+        return rec;
       }
 
       function resolveRoles(modelScene) {
@@ -2574,7 +2586,20 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
             }
           }
           nestsGroup.add(group);
-          nests.push({ ...nest, group, eggMeshes });
+          // Nameplate (Merlin, 2026-11-14): nests were invisible —
+          // a twig ring with no label. Every nest wears its species
+          // and live egg count, readable from 200 m; the steal
+          // handler updates it (see nestLabelRef) and it goes away
+          // with the last egg.
+          const label = makeLabel(
+            nestLabelText(species, nest.eggs),
+            group,
+            NEST_LABEL_HEIGHT_M,
+            NEST_LABEL_MAX_DIST_M,
+            null,
+            'nest'
+          );
+          nests.push({ ...nest, group, eggMeshes, label });
         }
         // Sync the ref so the steal handler (outside the effect)
         // can find nests by id.
@@ -2777,6 +2802,25 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
           if (a.beh) {
             setBehaviourMode(a.beh, 'chase', dangerous ? Infinity : 20);
           }
+        }
+      };
+
+      // ── Breeding: nest nameplates (Merlin, 2026-11-14) ─────
+      // The steal handler calls this after taking an egg — the
+      // plate follows the live count, and goes away with the
+      // last egg (element removed from the DOM and the record
+      // spliced out of labels, the house removal pattern).
+      nestLabelRef.current = (nest) => {
+        if (!nest || !nest.label) return;
+        if (nest.raided || nest.eggs <= 0) {
+          removeWhere(labels, (l) => {
+            if (l !== nest.label) return false;
+            l.el.remove();
+            return true;
+          });
+          nest.label = null;
+        } else {
+          nest.label.el.textContent = nestLabelText(nest.species, nest.eggs);
         }
       };
 

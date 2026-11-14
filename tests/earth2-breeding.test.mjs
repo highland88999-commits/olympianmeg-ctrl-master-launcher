@@ -6,6 +6,9 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
   EGG_HATCH_MS,
@@ -21,9 +24,14 @@ import {
   BONE_GROUP_ARM,
   BONE_GROUP_LEG,
   BONE_GROWTH_SCALES,
+  NEST_SPECIES,
+  NEST_LABEL_MAX_DIST_M,
+  NEST_LABEL_HEIGHT_M,
   nestEggCount,
   makeNest,
   nestIsDangerous,
+  nestSpeciesName,
+  nestLabelText,
   eggName,
   makeEggItem,
   isEggItem,
@@ -294,5 +302,67 @@ describe('uniform hatch size', () => {
     assert.equal(uniformScaleAt(0, 0), UNIFORM_HATCH_SIZE_M);
     assert.equal(uniformScaleAt(-1, 12), UNIFORM_HATCH_SIZE_M);
     assert.equal(uniformScaleAt(2, 12), 12);
+  });
+});
+
+describe('nest nameplates (Merlin, 2026-11-14)', () => {
+  it('label text uses the display name and the live count', () => {
+    assert.equal(nestLabelText('triceratops', 3), '🥚 Triceratops Nest · 3 eggs');
+    assert.equal(nestLabelText('triceratops', 2), '🥚 Triceratops Nest · 2 eggs');
+    assert.equal(nestLabelText('triceratops', 1), '🥚 Triceratops Nest · 1 egg');
+    assert.equal(nestLabelText('triceratops', 0), '🥚 Triceratops Nest · 0 eggs');
+    assert.equal(nestLabelText('tyrannosaurus-rex', 1), '🥚 Tyrannosaurus rex Nest · 1 egg');
+  });
+
+  it('every nesting species resolves a display name — no raw slugs on plates', () => {
+    assert.ok(NEST_SPECIES.length >= 10, 'nesting species listed');
+    for (const slug of NEST_SPECIES) {
+      const name = nestSpeciesName(slug);
+      assert.ok(name && name !== slug, `${slug} has a display name`);
+      assert.ok(!nestLabelText(slug, 2).includes(slug), `${slug} plate shows the name, not the slug`);
+    }
+  });
+
+  it('counts clamp to whole eggs, never negative', () => {
+    assert.ok(nestLabelText('triceratops', -1).endsWith('0 eggs'));
+    assert.ok(nestLabelText('triceratops', 2.7).endsWith('2 eggs'));
+    assert.ok(nestLabelText('triceratops', null).endsWith('0 eggs'));
+  });
+
+  it('the plate reads from 200 m and floats above the nest', () => {
+    assert.equal(NEST_LABEL_MAX_DIST_M, 200);
+    assert.ok(NEST_LABEL_HEIGHT_M > 0, 'label floats above the ring');
+  });
+
+  it('a stolen egg drops the plate count — the raid ends it', () => {
+    // The steal loop, in law terms: eggs 3 → 2 → 1 → 0 (raided).
+    const nest = makeNest('nest-triceratops', 'triceratops', 0, 0, -1);
+    assert.ok(nest.eggs >= 1 && nest.eggs <= 3);
+    let shown = nestLabelText(nest.species, nest.eggs);
+    assert.ok(shown.includes(`${nest.eggs} egg`), 'plate opens on the live count');
+    nest.eggs -= 1;
+    shown = nestLabelText(nest.species, nest.eggs);
+    assert.ok(shown.includes(`${nest.eggs} egg`), 'plate follows the steal');
+    nest.eggs = 0;
+    nest.raided = true;
+    assert.equal(nestLabelText(nest.species, nest.eggs), '🥚 Triceratops Nest · 0 eggs');
+  });
+});
+
+describe('nest nameplates are wired into the scene', () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const scene = readFileSync(join(here, '..', 'components', 'earth2', 'Earth2World.jsx'), 'utf8');
+
+  it('placeNests gives every nest a nameplate', () => {
+    assert.ok(scene.includes('nestLabelText(species, nest.eggs)'), 'plate carries species + live count');
+    assert.ok(scene.includes('NEST_LABEL_MAX_DIST_M'), 'plate range comes from the law');
+    assert.ok(scene.includes("makeLabel("), 'plate uses the house label helper');
+  });
+
+  it('the steal handler updates the plate and drops it when raided', () => {
+    assert.ok(scene.includes('nestLabelRef.current(nest)'), 'steal refreshes the plate');
+    assert.ok(scene.includes('nest.label.el.textContent = nestLabelText(nest.species, nest.eggs)'), 'count updates on steal');
+    assert.ok(scene.includes('nest.label = null'), 'raided plate is dropped');
+    assert.ok(scene.includes('l.el.remove()'), 'dropped plate leaves the DOM');
   });
 });
