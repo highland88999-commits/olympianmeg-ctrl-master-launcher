@@ -294,7 +294,7 @@ export default function Earth4Page() {
             <div className="e4-card" role="dialog" aria-label={species.name}>
               <h2>{species.name}</h2>
               <div className="tag">{species.family ? `${species.family} · ` : ""}{species.class}{species.order ? ` · ${species.order}` : ""}</div>
-              <span className="vbadge">Placeholder model — the species is real</span>
+              <span className="vbadge">Procedural model — built from the anatomy plan</span>
               <p>
                 {ENV_LABEL[species.env] || species.env}
                 {species.realm ? ` · ${species.realm}` : ""}

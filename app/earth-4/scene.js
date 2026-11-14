@@ -18,11 +18,12 @@
 //     where the real sun is above that place, right now.
 //   * The wildlife is the world feed: real species from the
 //     catalogue, spawned by GPS (spawn 250 m, despawn 300 m).
-//   * The models are PLACEHOLDERS (procedural, per the spec):
-//     a bird is a flapping two-wing shape, a tree is a trunk and
-//     foliage, a fish is a long body under the water. The SPECIES
-//     is real; the shape is a stand-in until the anatomy build
-//     map produces real models. Tap one to see what it really is.
+//   * The models are PROCEDURAL, built from the anatomy plan:
+//     each real species is built at runtime from its compiled
+//     numeric plan (lib/earth4/creature-plans.json) — body, head,
+//     legs, wings, fins, cap and stem in their true arrangement,
+//     at most 6 meshes per creature. The SPECIES is real and the
+//     shape now follows its anatomy. Tap one to see what it is.
 
 import * as THREE from 'three';
 import { guardCanvasContext } from '../../lib/scene-context-guard.js';
@@ -34,6 +35,11 @@ import {
   SPAWN_RADIUS_M,
   REFRESH_SECONDS,
 } from '../../lib/earth4/spawner.js';
+import {
+  buildCreatureMesh,
+  CREATURE_SHARED_GEOMETRIES,
+} from '../../lib/earth4/creature-builder.js';
+import CREATURE_PLANS from '../../lib/earth4/creature-plans.json';
 import {
   START_PLACE,
   localFromLatLon,
@@ -312,136 +318,21 @@ function loadEsriOverlay(ctx) {
 }
 
 /* ============================================================
-   Placeholder species meshes — the spec's own wording:
-   procedural stand-ins for real species. The SPECIES is real;
-   the shape is a placeholder until the anatomy build map
-   produces real models. Colours are seeded by class (not the
+   Procedural species models — built from the anatomy plan.
+   Earth 4's creatures are real species, but their anatomy plans
+   are prose, not GLBs, and real GLBs for all 1,262 species would
+   be ~1.5–2.5 GB — far too much GPU-side for a phone. So each
+   creature is built at runtime from its compiled numeric plan
+   (lib/earth4/creature-plans.json, compiled from the anatomy
+   build map by ~/workspace/earth4/build-creature-plans.py):
+   primitive shapes, shared geometries and materials, at most 6
+   meshes per creature. Colours are seeded by class (not the
    species' real colour — the dataset holds one for only 0.3%
    of species, so no colour is claimed).
    ============================================================ */
 
-const matCache = new Map();
-function matFor(cls) {
-  if (!matCache.has(cls)) {
-    let h = 0;
-    for (let i = 0; i < cls.length; i++) h = (Math.imul(h, 31) + cls.charCodeAt(i)) >>> 0;
-    const hue = (h % 360) / 360;
-    const m = new THREE.MeshStandardMaterial({
-      color: new THREE.Color().setHSL(hue, 0.55, 0.45), roughness: 0.9,
-    });
-    m.userData.shared = true; // shared per class — never disposed per creature
-    matCache.set(cls, m);
-  }
-  return matCache.get(cls);
-}
-
-const trunkMat = new THREE.MeshStandardMaterial({ color: 0x6b4a2f, roughness: 1 });
-const leafMat = new THREE.MeshStandardMaterial({ color: 0x3f8f3f, roughness: 1 });
-const hitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
-trunkMat.userData.shared = true;
-leafMat.userData.shared = true;
-hitMat.userData.shared = true;
-const sphereGeo = new THREE.SphereGeometry(1, 12, 10);
-const coneGeo = new THREE.ConeGeometry(1, 1, 12);
-const cylGeo = new THREE.CylinderGeometry(1, 1, 1, 10);
-const wingGeo = new THREE.PlaneGeometry(1, 0.45);
-const icoGeo = new THREE.IcosahedronGeometry(1, 0);
-
-// Render size: the dataset's size where it holds one, clamped so
-// a 2 cm insect is still a visible speck and a 30 m whale does
-// not swallow the patch. The tap card always shows the REAL size
-// (or "not listed") — the clamp is a visibility rule, not a fact.
-function renderSize(c) {
-  return clamp(c.sizeM || 0.3, 0.05, 30);
-}
-
 function makeCreatureMesh(c) {
-  const s = renderSize(c);
-  const g = new THREE.Group();
-  const mat = matFor(c.class || 'Unknown');
-  const body = (sx, sy, sz, x, y, z, m) => {
-    const mesh = new THREE.Mesh(sphereGeo, m || mat);
-    mesh.scale.set(sx, sy, sz);
-    mesh.position.set(x, y, z);
-    g.add(mesh);
-    return mesh;
-  };
-  if (c.class === 'Aves') {
-    // Bird: a long body and two flapping wings.
-    body(s * 0.7, s * 0.32, s * 0.32, 0, 0, 0);
-    const wl = new THREE.Mesh(wingGeo, mat);
-    wl.scale.set(s * 1.1, s * 1.1, 1);
-    wl.position.set(-s * 0.3, 0.05, 0);
-    wl.rotation.x = -Math.PI / 2;
-    const wr = new THREE.Mesh(wingGeo, mat);
-    wr.scale.set(s * 1.1, s * 1.1, 1);
-    wr.position.set(s * 0.3, 0.05, 0);
-    wr.rotation.x = -Math.PI / 2;
-    g.add(wl); g.add(wr);
-    g.userData.wings = [wl, wr];
-    g.userData.phase = Math.random() * Math.PI * 2;
-  } else if (c.kingdom === 'Plantae') {
-    // Plant: a trunk and foliage sized by the dataset's height.
-    const trunk = new THREE.Mesh(cylGeo, trunkMat);
-    trunk.scale.set(s * 0.08, s * 0.6, s * 0.08);
-    trunk.position.y = s * 0.3;
-    g.add(trunk);
-    const crown = new THREE.Mesh(sphereGeo, leafMat);
-    crown.scale.set(s * 0.45, s * 0.4, s * 0.45);
-    crown.position.y = s * 0.75;
-    g.add(crown);
-    const crown2 = new THREE.Mesh(sphereGeo, leafMat);
-    crown2.scale.set(s * 0.3, s * 0.28, s * 0.3);
-    crown2.position.set(s * 0.2, s * 0.95, s * 0.1);
-    g.add(crown2);
-  } else if (c.kingdom === 'Fungi') {
-    // Fungus: a stem and a cap.
-    const stem = new THREE.Mesh(cylGeo, trunkMat);
-    stem.scale.set(s * 0.12, s * 0.6, s * 0.12);
-    stem.position.y = s * 0.3;
-    g.add(stem);
-    const cap = new THREE.Mesh(sphereGeo, mat);
-    cap.scale.set(s * 0.5, s * 0.25, s * 0.5);
-    cap.position.y = s * 0.62;
-    g.add(cap);
-  } else if (c.aquatic) {
-    // Fish: a long body and a tail fin, under the water.
-    body(s * 1.1, s * 0.28, s * 0.28, 0, 0, 0);
-    const tail = new THREE.Mesh(coneGeo, mat);
-    tail.scale.set(s * 0.4, s * 0.4, s * 0.1);
-    tail.rotation.z = Math.PI / 2;
-    tail.position.set(-s * 1.2, 0, 0);
-    g.add(tail);
-    g.userData.phase = Math.random() * Math.PI * 2;
-  } else if (c.kingdom === 'Animalia' && c.class === 'Mammalia') {
-    // Mammal: body, head, four legs.
-    body(s * 0.8, s * 0.45, s * 0.45, 0, s * 0.55, 0);
-    body(s * 0.28, s * 0.28, s * 0.28, s * 0.85, s * 0.75, 0);
-    for (const [lx, lz] of [[-0.5, 0.25], [0.5, 0.25], [-0.5, -0.25], [0.5, -0.25]]) {
-      const leg = new THREE.Mesh(cylGeo, mat);
-      leg.scale.set(s * 0.07, s * 0.5, s * 0.07);
-      leg.position.set(lx * s, s * 0.25, lz * s);
-      g.add(leg);
-    }
-  } else if (c.class === 'Insecta' || c.class === 'Arachnida') {
-    // Insect / spider: a tiny body and head.
-    body(s * 0.6, s * 0.4, s * 0.4, 0, s * 0.4, 0);
-    body(s * 0.25, s * 0.25, s * 0.25, s * 0.6, s * 0.45, 0);
-  } else {
-    // Everything else: a soft blob, honestly labelled by the tap card.
-    const blob = new THREE.Mesh(icoGeo, mat);
-    blob.scale.setScalar(s * 0.5);
-    blob.position.y = s * 0.25;
-    g.add(blob);
-  }
-  // The tap target: a generous invisible sphere so a phone tap lands.
-  const hit = new THREE.Mesh(sphereGeo, hitMat);
-  hit.scale.setScalar(Math.max(0.8, s));
-  hit.position.y = s * 0.4;
-  hit.userData.creatureId = c.id;
-  g.add(hit);
-  g.userData.hit = hit;
-  return g;
+  return buildCreatureMesh(c, CREATURE_PLANS);
 }
 
 function buildCreatures(ctx, S) {
@@ -453,9 +344,9 @@ function buildCreatures(ctx, S) {
   let refreshIn = 0;
 
   function removeCreature(id) {
-    // Creature meshes use only shared geometries and shared
-    // materials (matCache / trunk / leaf / hit) — nothing here
-    // is per-creature, so removal disposes nothing.
+    // Creature meshes use only the builder's shared geometries
+    // and shared materials — nothing here is per-creature, so
+    // removal disposes nothing.
     const live = ctx.creatures.get(id);
     if (!live) return;
     group.remove(live.mesh);
@@ -493,9 +384,12 @@ function buildCreatures(ctx, S) {
       live.mesh.position.set(live.data.x, live.data.y, live.data.z);
       live.mesh.rotation.y = live.data.heading;
       if (live.mesh.userData.wings) {
+        // The wing geometries are pre-flattened at geometry level,
+        // so rotation.x IS the flap angle: both tips rise and fall
+        // together (rotation.z only swept them fore-aft).
         const f = Math.sin(t * 10 + live.mesh.userData.phase) * 0.55;
-        live.mesh.userData.wings[0].rotation.z = f;
-        live.mesh.userData.wings[1].rotation.z = -f;
+        live.mesh.userData.wings[0].rotation.x = f;
+        live.mesh.userData.wings[1].rotation.x = -f;
       }
       if (live.data.aquatic) {
         live.mesh.rotation.z = Math.sin(t * 3 + live.mesh.userData.phase) * 0.12;
@@ -833,7 +727,7 @@ export function createWorld(canvas, cb) {
     window.removeEventListener('pointerup', onPointerUp);
     window.removeEventListener('pointercancel', onPointerUp);
     canvas.removeEventListener('touchmove', onTouchMove);
-    const SHARED_GEO = new Set([sphereGeo, coneGeo, cylGeo, wingGeo, icoGeo]);
+    const SHARED_GEO = CREATURE_SHARED_GEOMETRIES;
     scene.traverse((o) => {
       if (o.geometry && !SHARED_GEO.has(o.geometry)) o.geometry.dispose();
       const m = o.material;
