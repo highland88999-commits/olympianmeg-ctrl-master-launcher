@@ -73,7 +73,10 @@ describe('PART 1 — trees and rocks walk-through (Earth 2 only)', () => {
 
   it('commons dressing colliders are craters only — no trunk, no rock', () => {
     const cols = dressingColliders();
-    assert.equal(cols.length, 77);
+    // 78, not 77: the count follows the fleet — dressing spots
+    // retry past parked machines, so the Earth 1 garage homes
+    // reshuffled the seeded draws (see terrain-wave-b).
+    assert.equal(cols.length, 78);
     assert.ok(cols.every((c) => c.kind === 'crater'));
   });
 
@@ -95,9 +98,9 @@ describe('PART 1 — trees and rocks walk-through (Earth 2 only)', () => {
     assert.equal(vegOrTerrainKept, 0);
   });
 
-  it('the assembled walker list is 220 circles, down from 5,137 — trees/rocks gone everywhere', () => {
+  it('the assembled walker list is 221 circles, down from 5,137 — trees/rocks gone everywhere', () => {
     const total = worldColliders().length + dressingColliders().length + stagedCollidersWithDoors().length;
-    assert.equal(total, 220);
+    assert.equal(total, 221);
   });
 
   it('Earth 1 collision is untouched: trees and rocks still block there', () => {

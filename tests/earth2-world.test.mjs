@@ -37,6 +37,7 @@ import {
   isCastleParcel,
 } from '../lib/earth2/parcels.js';
 import { EARTH2_MODEL_BY_SLUG, earth2PlacedModels } from '../lib/earth2/models.js';
+import { VEHICLES } from '../lib/earth/vehicles.js';
 import {
   WORLD_CELL_M,
   WORLD_SIZE_M,
@@ -695,7 +696,13 @@ describe('proximity streaming — the memory contract (Safari killed the all-at-
       assert.ok(covered.includes(m.slug), `${m.slug} has a stream unit`);
     }
     assert.ok(covered.includes('compy-swarm'), 'the swarm streams with the cast');
-    assert.equal(covered.length, earth2PlacedModels().length + 1, 'the cast + the swarm, no more');
+    // The 18 bridged Earth 1 garage models (Merlin, 2026-11-14)
+    // stream as fleet units too — each is a distinct model, so
+    // each claims its own slug. The count is read off Earth's
+    // garage (minus the wedge-supercar, which lives on owned
+    // parcels), not off the units under test.
+    const earth1Streamed = VEHICLES.filter((v) => v.id !== 'wedge-supercar').length;
+    assert.equal(covered.length, earth2PlacedModels().length + 1 + earth1Streamed, 'the cast + the swarm + the Earth 1 garage, no more');
   });
 
   it('at spawn only the landing neighbourhood streams in — a strict subset of the cast', () => {

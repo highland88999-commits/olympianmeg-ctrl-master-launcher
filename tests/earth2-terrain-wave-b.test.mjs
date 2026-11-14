@@ -63,7 +63,10 @@ import {
   sanitizeInstanceStates,
   isParkedAtHome,
   vehicleSpecForInstance,
+  modelSpec,
 } from '../lib/earth2/vehicles.js';
+import { VEHICLES } from '../lib/earth/vehicles.js';
+import { bridgedParcelModel } from '../lib/earth2/parcel-vehicle-catalog.js';
 import {
   STREAM_RADII,
   worldStreamUnits,
@@ -218,9 +221,12 @@ describe('Commons dressing — lawful, deterministic, solid', () => {
     const cols = dressingColliders();
     // WALK-THROUGH TREES & ROCKS (Merlin, 2026-11-13 — reverses
     // the 2026-10-23 solid law for Earth 2 only): tree trunks and
-    // rocks carry NO collider any more; the 77 crater discs stay
-    // solid, each at its rim radius.
-    assert.equal(cols.length, 77);
+    // rocks carry NO collider any more; the 78 crater discs stay
+    // solid, each at its rim radius. The count follows the fleet:
+    // dressing spots retry past parked machines, so a new home
+    // reshuffles the seeded draws downstream — 77 before the
+    // Earth 1 garage machines parked, 78 after.
+    assert.equal(cols.length, 78);
     assert.ok(cols.every((c) => c.kind === 'crater'), 'only craters');
     for (const c of cols) {
       assert.ok(c.r >= 3 && c.r <= 6, 'a crater disc is its rim radius');
@@ -246,9 +252,9 @@ describe('Commons dressing — lawful, deterministic, solid', () => {
 });
 
 describe('the fleet as instances', () => {
-  it('is 4 airport + 9 scattered + 3 boats, airport ids untouched', () => {
+  it('is 4 airport + 27 scattered + 3 boats, airport ids untouched', () => {
     const inst = vehicleInstances();
-    assert.equal(inst.length, 16);
+    assert.equal(inst.length, 34);
     assert.deepEqual(inst.slice(0, 4).map((i) => i.id), AIRPORT_PARKING.map((s) => s.slug));
     for (const spot of AIRPORT_PARKING) {
       const home = vehicleInstanceById(spot.slug).home;
@@ -261,10 +267,44 @@ describe('the fleet as instances', () => {
     assert.equal(modelSlugForInstance('nope'), null);
   });
 
+  it('every Earth 1 garage machine is parked in the world (Merlin, 2026-11-14)', () => {
+    // "Make sure all 3d objects from earth one are migrated":
+    // every Earth 1 vehicle except the wedge-supercar (which
+    // already lives on Merlin's and Devan's parcels as the
+    // Lamborghini Aventador) stands as a public fleet machine
+    // on Free Commons, under its bridged earth1: slug, with a
+    // drive spec and a model file behind it.
+    const spots = scatteredVehicleSpots();
+    const earth1 = VEHICLES.filter((v) => v.id !== 'wedge-supercar');
+    assert.equal(earth1.length, 18);
+    for (const v of earth1) {
+      const slug = `earth1:${v.id}`;
+      const spot = spots.find((s) => s.slug === slug);
+      assert.ok(spot, `${slug} has a scattered spot`);
+      assert.equal(spot.id, `e1-${v.id}`);
+      assert.equal(spot.label, v.name);
+      const parcel = parcelById(spot.parcelId);
+      assert.equal(parcel.kind, 'commons', `${slug} on Free Commons`);
+      assert.ok(heightAt(spot.x, spot.z) > 0.5, `${slug} stands dry`);
+      const spec = modelSpec(slug);
+      assert.ok(spec, `${slug} resolves a drive spec`);
+      assert.equal(spec.earth1, true, `${slug} is a bridged import`);
+      const model = bridgedParcelModel(slug);
+      assert.ok(model && model.file === v.glbUrl, `${slug} loads from its Earth 1 file`);
+      const inst = vehicleInstanceById(spot.id);
+      assert.ok(inst, `${spot.id} is a fleet instance`);
+      assert.equal(vehicleSpecForInstance(spot.id).name, v.name, `${spot.id} boards as ${v.name}`);
+    }
+    // The wedge-supercar is NOT scattered: it already lives on
+    // owned parcels (Merlin E2-0619, Devan E2-0719) as the Lambo.
+    assert.equal(spots.filter((s) => s.slug === 'earth1:wedge-supercar').length, 0);
+    assert.equal(vehicleInstances().filter((i) => i.slug === 'earth1:wedge-supercar').length, 0);
+  });
+
   it('scattered machines stand on lawful, separated Commons spots', () => {
     const prot = protectedParcelIds();
     const spots = scatteredVehicleSpots();
-    assert.equal(spots.length, 9);
+    assert.equal(spots.length, 27);
     const homes = vehicleInstances().map((i) => i.home);
     for (const s of spots) {
       const parcel = parcelById(s.parcelId);
@@ -304,7 +344,7 @@ describe('the fleet as instances', () => {
       vtol: { x: -500, z: -380, heading: 0, speed: 0, alt: 12 },
     };
     const states = sanitizeInstanceStates(legacy);
-    assert.equal(Object.keys(states).length, 16);
+    assert.equal(Object.keys(states).length, 34);
     assert.equal(states.rover.x, -480);
     assert.equal(states.rover.speed, 0, 'a reloaded world never inherits motion');
     assert.equal(states.rover.alt, 0, 'a ground machine never inherits altitude');
@@ -411,9 +451,9 @@ describe('the stream plan — bridges, dressing, instances', () => {
 
   it('one unit per instance; each model claimed exactly once', () => {
     const units = vehicleStreamUnits(defaultInstanceStates());
-    assert.equal(units.length, 16);
+    assert.equal(units.length, 34);
     const claimed = units.flatMap((u) => u.slugs).sort();
-    assert.deepEqual(claimed, ['boat', 'rover', 'scarab', 'speed-bike', 'vtol']);
+    assert.deepEqual(claimed, ['boat', 'earth1:blue-sports-car', 'earth1:cruiser-bike', 'earth1:ghost-throttle', 'earth1:hauler', 'earth1:lifted-pickup', 'earth1:long-haul-rover', 'earth1:luxury-car', 'earth1:luxury-gt-1', 'earth1:luxury-gt-2', 'earth1:muscle-car', 'earth1:pickup-hd', 'earth1:rover', 'earth1:skiff', 'earth1:sport-bike', 'earth1:sports-car', 'earth1:street-racer', 'earth1:tatooine-rover', 'earth1:teardrop-coupe', 'rover', 'scarab', 'speed-bike', 'vtol']);
     for (const u of units) {
       assert.equal(u.key, `vehicle:${u.instanceId}`);
       assert.equal(u.state.slug, u.slug, 'the unit knows its model');
