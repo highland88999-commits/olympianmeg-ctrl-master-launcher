@@ -23,6 +23,7 @@ import {
   stepCreature,
 } from '../lib/earth4/spawner.js';
 import { SPECIES_CATALOGUE } from '../lib/earth4/species-catalogue.js';
+import { speciesRegionsAllow } from '../lib/earth4/species-regions.js';
 
 const ORIGIN = { lat: 53.95235, lon: -113.11636 }; // Redwater
 
@@ -171,6 +172,35 @@ describe('the environment rule', () => {
     assert.equal(isFlyingClass('Mammalia'), false);
     assert.equal(isAquaticEnv('marine'), true);
     assert.equal(isAquaticEnv('terrestrial'), false);
+  });
+});
+
+describe('the region rule', () => {
+  it('at Redwater, every creature lives there — no tropical-only species in Alberta', () => {
+    const list = creaturesNear(ORIGIN, 0, 0, 250, landGround);
+    for (const c of list) {
+      assert.equal(speciesRegionsAllow(c.name, c.lat, c.lon), true,
+        `${c.name} (regions ${c.regions.join(', ') || 'unrestricted'}) may not spawn at Redwater`);
+      assert.ok(Array.isArray(c.regions), `${c.name} carries no regions list`);
+      assert.ok(['listed', 'inferred-from-distribution', 'unrestricted'].includes(c.regionSource),
+        `${c.name} has unknown region source ${c.regionSource}`);
+    }
+    // The anchor: an Indomalaya-only worm never appears at Redwater.
+    assert.equal(list.some((c) => c.name === 'Pallisentis (Pallisentis) nagpurensis'), false);
+    // And something restricted does live here — the rule is not vacuous.
+    assert.ok(list.some((c) => c.regionSource !== 'unrestricted'),
+      'no restricted species at Redwater at all');
+  });
+
+  it('the same rule holds at the Amazon, and the cast differs by region', () => {
+    const amazon = { lat: -3.4653, lon: -62.2159 };
+    const list = creaturesNear(amazon, 0, 0, 250, landGround);
+    for (const c of list) {
+      assert.equal(speciesRegionsAllow(c.name, c.lat, c.lon), true,
+        `${c.name} may not spawn at the Amazon`);
+    }
+    // The Nearctic-only salamander never appears in the Amazon.
+    assert.equal(list.some((c) => c.name === 'Ambystoma macrodactylum'), false);
   });
 });
 
