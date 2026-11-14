@@ -1,14 +1,21 @@
 // NEW EARTH — Merlin's explorable vision of Earth's future.
-// Procedural Three.js world module. No external assets, no network requests.
-// Mobile-first, Safari-safe. Export contract:
+// Procedural Three.js world module. The landscape is built from
+// primitives; the dinosaurs are Earth 2's real GLB models,
+// loaded on demand through Earth 2's delivery path (signed
+// store URL first, public site file as fallback). Mobile-first,
+// Safari-safe. Export contract:
 //   LANDMARKS, TOUR, createWorld(canvas, cb) -> world API.
 
 import * as THREE from 'three';
 import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 import { dayNightFor, getDayNightPlace, requestDayNightPlace, applyDayNightRig } from '../../lib/day-night.js';
 import { dinosNear, stepDino, shouldDespawn, showcaseGround, SPAWN_RADIUS_M, REFRESH_SECONDS } from '../../lib/earth3/spawner.js';
+import { plantTrees, islandTreeSpeciesForIndex } from '../../lib/earth3/trees.js';
 import { tileToWorld, TILE_M } from '../../lib/earth3/terrain.js';
 import { tileIndexFromId } from '../../lib/earth3/claims.js';
+import { modelDeliveryUrls, fetchEarth2ModelUrls } from '../../lib/earth2/models.js';
+import { resolveBones, normalizeJointName } from '../../lib/earth2/bones.js';
+import { supabase } from '../../lib/supabase';
 
 /* ============================================================
    Landmarks — the page shell builds against this exact shape
@@ -678,16 +685,19 @@ function buildIsland(ctx) {
     roof.position.set(x, 10, z); g.add(roof);
   };
   hutAt(8, 4); hutAt(-10, -2); hutAt(2, -10);
-  // small trees on the island
-  const trunkM = new THREE.MeshStandardMaterial({ color: 0x6b4a2e, roughness: 1 });
-  const canM = new THREE.MeshStandardMaterial({ color: 0x3f8f4f, roughness: 1 });
+  // small real trees on the island (Merlin, 2026-11-14): the two
+  // smallest of Earth 2's trees, at their real heights, seated on
+  // the grass (top y 6.05, base bury 0.1). They ride the island
+  // group, so they bob with it.
   const spots = [[-4, 8], [12, -6], [-14, 8], [6, 12], [-2, -14], [14, 10]];
-  for (const [sx, sz] of spots) {
-    const tr = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.32, 1.8, 8), trunkM);
-    tr.position.set(sx, 6.9, sz); g.add(tr);
-    const ca = new THREE.Mesh(new THREE.IcosahedronGeometry(1.9, 1), canM);
-    ca.position.set(sx, 9, sz); ca.scale.y = 1.15; g.add(ca);
-  }
+  ctx.treeHandles.push(plantTrees({
+    parent: g,
+    placements: spots.map(([sx, sz], i) => ({
+      x: sx, z: sz, scale: 1, heading: (i * 2.39996) % (Math.PI * 2),
+    })),
+    speciesForIndex: islandTreeSpeciesForIndex,
+    groundY: 6.05,
+  }));
   ctx.gardens.push([-42, 179], [-58, 171]);
   // gentle bobbing
   anim.push((t) => {
@@ -772,14 +782,15 @@ function buildVegetation(ctx) {
   };
   const dummy = new THREE.Object3D();
   const col = new THREE.Color();
-  // ~300 instanced trees: trunk + blob canopy
+  // ~300 real trees (Merlin, 2026-11-14): Earth 2's tree models
+  // replace the procedural trunk + blob canopy. Placement is
+  // untouched — the same seeded stream, the same clearOf, the
+  // same per-tree scale — so every tree grows where the old one
+  // stood, only the look changes. The colour draws below still
+  // run so the rng stream stays identical for everything placed
+  // after the trees (flowers, plaques, ...).
   const N = 300;
-  const trunkGeo = new THREE.CylinderGeometry(0.25, 0.4, 2.2, 7);
-  const canGeo = new THREE.IcosahedronGeometry(2.4, 1);
-  const trunkMat = new THREE.MeshStandardMaterial({ roughness: 1 });
-  const canMat = new THREE.MeshStandardMaterial({ roughness: 1 });
-  const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, N);
-  const cans = new THREE.InstancedMesh(canGeo, canMat, N);
+  const placements = [];
   let placed = 0, guard = 0;
   while (placed < N && guard++ < 6000) {
     const a = rng() * Math.PI * 2, r = 246 * Math.sqrt(rng());
@@ -788,19 +799,18 @@ function buildVegetation(ctx) {
     const s = 0.8 + rng() * 0.7;
     dummy.position.set(x, 1.1 * s, z); dummy.scale.setScalar(s);
     dummy.rotation.set(0, rng() * Math.PI * 2, 0); dummy.updateMatrix();
-    trunks.setMatrixAt(placed, dummy.matrix);
-    trunks.setColorAt(placed, col.setHSL(0.07, 0.4, 0.22 + rng() * 0.08));
+    col.setHSL(0.07, 0.4, 0.22 + rng() * 0.08);
     dummy.position.set(x, 3.9 * s, z); dummy.scale.set(s, s * 1.15, s);
     dummy.updateMatrix();
-    cans.setMatrixAt(placed, dummy.matrix);
-    cans.setColorAt(placed, col.setHSL(0.3 + rng() * 0.06, 0.5, 0.28 + rng() * 0.1));
+    col.setHSL(0.3 + rng() * 0.06, 0.5, 0.28 + rng() * 0.1);
+    placements.push({ x, z, scale: s, heading: dummy.rotation.y });
     placed++;
   }
-  trunks.count = placed; cans.count = placed;
-  trunks.instanceMatrix.needsUpdate = true; cans.instanceMatrix.needsUpdate = true;
-  if (trunks.instanceColor) trunks.instanceColor.needsUpdate = true;
-  if (cans.instanceColor) cans.instanceColor.needsUpdate = true;
-  scene.add(trunks); scene.add(cans);
+  // Species are picked by placement index, not the scene rng —
+  // drawing from the stream would move every tree after this one.
+  // The models load async and pop in; a species whose GLB fails
+  // grows the old procedural tree instead, never a hole.
+  ctx.treeHandles.push(plantTrees({ parent: scene, placements }));
 
   // ~400 instanced flowers: stems + blossoms
   const F = 400;
@@ -894,12 +904,12 @@ function buildClaimMarker(ctx) {
 
 // One procedural dinosaur, built from primitives in unit space
 // (about 1 m long, facing +Z) and scaled to the species' real
-// length (scaleM from Earth 2's registry). No GLB, no network —
-// the showcase loads nothing external, and a procedural animal
-// is honest about what it is. Hide by diet (herbivores green,
-// carnivores grey-red, omnivores tan); bipeds stand on two big
-// hind legs with tiny arms, quadrupeds on four.
-function makeDinoMesh(d) {
+// length (scaleM from Earth 2's registry). Hide by diet
+// (herbivores green, carnivores grey-red, omnivores tan);
+// bipeds stand on two big hind legs with tiny arms, quadrupeds
+// on four. This is the FALLBACK only — a real GLB that fails
+// to load still leaves an animal standing there, never a hole.
+function makeProceduralDinoMesh(d) {
   const g = new THREE.Group();
   const hide = new THREE.MeshStandardMaterial({
     color: d.diet === 'herbivore' ? 0x5f8f4a : d.diet === 'carnivore' ? 0x7d5a5a : 0xa08c5a,
@@ -961,25 +971,195 @@ function makeDinoMesh(d) {
 // is applied to the MESH only (the circuit underneath never
 // bends), so a dino slides around a structure and rejoins its
 // path cleanly on the other side.
+//
+// REAL MODELS (Merlin, 2026-11-14): the animals are Earth 2's
+// real dino GLBs, loaded through Earth 2's own delivery path —
+// signed store URL first, public site file as fallback
+// (modelDeliveryUrls), decoded with the meshopt decoder, then
+// normalized exactly the way Earth 2 normalizes them (largest
+// horizontal extent = scaleM, feet at y=0) and turned so the
+// model's head faces the walk (facing measured off the rig).
+// One decode per species, cached; herd copies are
+// SkeletonUtils clones of the base (a plain .clone() breaks
+// skinned rigs). A species whose GLB fails to load falls back
+// to the procedural animal, never to nothing. Loads are async,
+// so a dino whose base is still in flight waits in
+// ctx.pendingDinos and appears when it lands — if the walker
+// has already moved past despawn by then, it never appears.
 function buildDinos(ctx, S) {
   const { scene, anim } = ctx;
   const group = new THREE.Group();
   scene.add(group);
   ctx.dinoGroup = group;
   ctx.dinos = new Map(); // id -> { data, mesh }
+  ctx.dinoBases = new Map(); // slug -> { status, spin, SkeletonUtils } | { status: 'loading', promise } | { status: 'failed' }
+  ctx.pendingDinos = new Set(); // ids awaiting their species' base
   const ground = showcaseGround();
   let refreshIn = 0;
+
+  // The owner-signed model URLs, best effort (Earth 2's exact
+  // pattern): signed in → signed URLs tried first; signed out
+  // or vault unavailable → null, and the public site file
+  // carries the load (EARTH2_PUBLIC_FALLBACK).
+  const signedUrlsPromise = (async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data && data.session && data.session.access_token;
+      if (!token) return null;
+      return await fetchEarth2ModelUrls({ token });
+    } catch {
+      return null;
+    }
+  })();
+
+  // The GLTF loader, decoded with meshopt — loaded lazily, the
+  // way Earth 2 loads it inside its scene effect, so the world
+  // pays nothing until the first dino is due.
+  let loaderPromise = null;
+  function dinoLoader() {
+    if (!loaderPromise) {
+      loaderPromise = (async () => {
+        const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
+        const { MeshoptDecoder } = await import('three/examples/jsm/libs/meshopt_decoder.module.js');
+        const SkeletonUtils = await import('three/examples/jsm/utils/SkeletonUtils.js');
+        const loader = new GLTFLoader();
+        loader.setMeshoptDecoder(MeshoptDecoder);
+        return { loader, SkeletonUtils };
+      })();
+    }
+    return loaderPromise;
+  }
+
+  // Earth 2's normalize, verbatim in law: wrap in a spin group,
+  // scale so the largest horizontal extent (scaleBasis 'length')
+  // is scaleM, centre on X/Z, feet at y=0.
+  function normalizeDinoScene(gltfScene, entry) {
+    const spin = new THREE.Group();
+    spin.add(gltfScene);
+    spin.updateMatrixWorld(true);
+    let box = new THREE.Box3().setFromObject(spin);
+    const size = box.getSize(new THREE.Vector3());
+    const extent = entry.scaleBasis === 'height' ? size.y : Math.max(size.x, size.z);
+    const k = extent > 0 ? entry.scaleM / extent : 1;
+    gltfScene.scale.multiplyScalar(k);
+    spin.updateMatrixWorld(true);
+    box = new THREE.Box3().setFromObject(spin);
+    const center = box.getCenter(new THREE.Vector3());
+    gltfScene.position.x -= center.x;
+    gltfScene.position.z -= center.z;
+    gltfScene.position.y -= box.min.y;
+    return spin;
+  }
+
+  // Earth 2's facing, verbatim in law: the yaw that turns the
+  // model's head-forward axis onto +Z, measured off the rig's
+  // head and pelvis bones (0 when the rig gives no axis).
+  function measureDinoFacing(modelScene) {
+    const holder = new THREE.Group();
+    holder.add(modelScene);
+    holder.updateMatrixWorld(true);
+    const bones = new Map();
+    modelScene.traverse((o) => {
+      if (o.isBone) bones.set(normalizeJointName(o.name), o);
+    });
+    const roles = resolveBones([...bones.keys()]);
+    const headBone = roles.head ? bones.get(normalizeJointName(roles.head)) || null : null;
+    const pelvisBone = roles.spine && roles.spine[0] ? bones.get(normalizeJointName(roles.spine[0])) || null : null;
+    if (headBone && pelvisBone) {
+      const hp = headBone.getWorldPosition(new THREE.Vector3());
+      const pp = pelvisBone.getWorldPosition(new THREE.Vector3());
+      const fx = hp.x - pp.x, fz = hp.z - pp.z;
+      if (Math.hypot(fx, fz) > 1e-4) return -Math.atan2(fx, fz);
+    }
+    return 0;
+  }
+
+  // One decode per species, cached on ctx (the world owns the
+  // bases; destroy() disposes them). Resolves to the ready base
+  // entry { spin, SkeletonUtils } or null when the GLB cannot
+  // be delivered — the caller falls back procedural.
+  function loadDinoBase(d) {
+    const cached = ctx.dinoBases.get(d.slug);
+    if (cached) {
+      if (cached.status === 'ready') return Promise.resolve(cached);
+      if (cached.status === 'failed') return Promise.resolve(null);
+      return cached.promise;
+    }
+    const promise = (async () => {
+      const entry = { slug: d.slug, file: d.file, scaleM: d.scaleM, scaleBasis: d.scaleBasis };
+      try {
+        const { loader, SkeletonUtils } = await dinoLoader();
+        const signedUrls = await signedUrlsPromise;
+        const urls = modelDeliveryUrls(entry, signedUrls);
+        if (!urls.length) throw new Error(`No delivery URL for ${d.slug}`);
+        let lastErr = null;
+        let modelScene = null;
+        for (const url of urls) {
+          try {
+            const gltf = await loader.loadAsync(url);
+            modelScene = gltf.scene;
+            break;
+          } catch (err) {
+            lastErr = err;
+            if (url !== urls[urls.length - 1]) {
+              console.warn('[new-earth] dino model URL failed, trying public fallback:', d.slug, url);
+            }
+          }
+        }
+        if (!modelScene) throw lastErr || new Error(`No delivery URL for ${d.slug}`);
+        const facingYaw = measureDinoFacing(modelScene);
+        const spin = normalizeDinoScene(modelScene, entry);
+        spin.rotation.y = facingYaw;
+        const ready = { status: 'ready', spin, SkeletonUtils };
+        ctx.dinoBases.set(d.slug, ready);
+        return ready;
+      } catch (err) {
+        console.warn('[new-earth] dino model failed to load, falling back procedural:', d.slug, err);
+        ctx.dinoBases.set(d.slug, { status: 'failed' });
+        return null;
+      }
+    })();
+    ctx.dinoBases.set(d.slug, { status: 'loading', promise });
+    return promise;
+  }
+
+  // A dino in the world: a root group (position + heading) over
+  // the animal itself. Real model: a SkeletonUtils clone of the
+  // cached base spin (facing already baked in) — the clone
+  // shares the base's geometry, so removeDino must never
+  // dispose it. Procedural fallback: the primitive animal.
+  function spawnDinoMesh(d, baseEntry) {
+    let inner;
+    if (baseEntry && baseEntry.spin) {
+      inner = baseEntry.SkeletonUtils.clone(baseEntry.spin);
+    } else {
+      inner = makeProceduralDinoMesh(d);
+    }
+    const root = new THREE.Group();
+    root.add(inner);
+    root.userData.sharedGeometry = Boolean(baseEntry && baseEntry.spin);
+    root.position.set(d.x, d.y, d.z);
+    root.rotation.y = d.heading;
+    group.add(root);
+    ctx.dinos.set(d.id, { data: d, mesh: root });
+    ctx.pendingDinos.delete(d.id);
+  }
 
   function removeDino(id) {
     const live = ctx.dinos.get(id);
     if (!live) return;
     group.remove(live.mesh);
-    live.mesh.traverse((o) => {
-      if (o.geometry) o.geometry.dispose();
-      const m = o.material;
-      if (Array.isArray(m)) m.forEach((x) => x.dispose());
-      else if (m) m.dispose();
-    });
+    // GLB clones share the cached base's geometry and materials
+    // — disposing them would gut the base for every later dino.
+    // Only the procedural fallback owns its geometry.
+    if (!live.mesh.userData.sharedGeometry) {
+      live.mesh.traverse((o) => {
+        if (o.geometry) o.geometry.dispose();
+        const m = o.material;
+        if (Array.isArray(m)) m.forEach((x) => x.dispose());
+        else if (m) m.dispose();
+      });
+    }
     ctx.dinos.delete(id);
   }
 
@@ -989,12 +1169,27 @@ function buildDinos(ctx, S) {
       refreshIn = REFRESH_SECONDS;
       const fresh = dinosNear(S.pos.x, S.pos.z, SPAWN_RADIUS_M, ground);
       for (const d of fresh) {
-        if (ctx.dinos.has(d.id)) continue;
-        const mesh = makeDinoMesh(d);
-        mesh.position.set(d.x, d.y, d.z);
-        mesh.rotation.y = d.heading;
-        group.add(mesh);
-        ctx.dinos.set(d.id, { data: d, mesh });
+        if (ctx.dinos.has(d.id) || ctx.pendingDinos.has(d.id)) continue;
+        const cached = ctx.dinoBases.get(d.slug);
+        if (cached && cached.status === 'ready') {
+          spawnDinoMesh(d, cached);
+          continue;
+        }
+        if (cached && cached.status === 'failed') {
+          spawnDinoMesh(d, null);
+          continue;
+        }
+        ctx.pendingDinos.add(d.id);
+        loadDinoBase(d).then((baseEntry) => {
+          if (ctx.destroyed || ctx.dinos.has(d.id) || !ctx.pendingDinos.has(d.id)) return;
+          // Still wanted? The walker may have moved on while the
+          // GLB was in flight — a dino past despawn never appears.
+          if (shouldDespawn(d, S.pos.x, S.pos.z)) {
+            ctx.pendingDinos.delete(d.id);
+            return;
+          }
+          spawnDinoMesh(d, baseEntry);
+        });
       }
       for (const [id, live] of [...ctx.dinos]) {
         if (shouldDespawn(live.data, S.pos.x, S.pos.z)) removeDino(id);
@@ -1101,6 +1296,7 @@ export function createWorld(canvas, cb) {
     anim: [],
     plaques: [],
     gardens: [],
+    treeHandles: [],
     tex: { soft: softCircleTexture(), cloud: cloudTexture() },
   };
 
@@ -1374,6 +1570,7 @@ export function createWorld(canvas, cb) {
   function destroy() {
     contextGuard.dispose();
     destroyed = true;
+    ctx.destroyed = true; // late dino loads never add to a dead scene
     cancelAnimationFrame(raf);
     canvas.removeEventListener('pointerdown', onPointerDown);
     window.removeEventListener('pointermove', onPointerMove);
@@ -1389,6 +1586,24 @@ export function createWorld(canvas, cb) {
     for (const k of Object.keys(ctx.tex)) ctx.tex[k].dispose();
     ctx.anim.length = 0; ctx.plaques.length = 0; ctx.gardens.length = 0;
     if (ctx.dinos) ctx.dinos.clear();
+    // The cached dino bases live off-scene, so the traverse above
+    // never reaches them — dispose them here (a repeat dispose of
+    // geometry the clones already released is harmless).
+    if (ctx.dinoBases) {
+      for (const entry of ctx.dinoBases.values()) {
+        if (entry && entry.spin) {
+          entry.spin.traverse((o) => {
+            if (o.geometry) o.geometry.dispose();
+            const m = o.material;
+            if (Array.isArray(m)) m.forEach((x) => x.dispose());
+            else if (m) m.dispose();
+          });
+        }
+      }
+      ctx.dinoBases.clear();
+    }
+    if (ctx.pendingDinos) ctx.pendingDinos.clear();
+    for (const h of ctx.treeHandles || []) h.cancel();
     renderer.dispose();
     if (renderer.forceContextLoss) renderer.forceContextLoss();
   }

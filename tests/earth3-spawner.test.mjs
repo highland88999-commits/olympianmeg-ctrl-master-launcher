@@ -49,7 +49,7 @@ describe('the cast: Earth 2\u2019s real dinosaurs, nothing invented', () => {
     assert.equal(pachy.status, 'awaiting-upload');
     assert.equal(pachy.file, null);
   });
-  it('every species carries the registry\u2019s own size, diet and posture', () => {
+  it('every species carries the registry\u2019s own size, diet, posture, file and scale basis', () => {
     for (const s of DINO_SPECIES) {
       const m = EARTH2_MODELS.find((x) => x.slug === s.slug);
       assert.equal(s.name, m.name);
@@ -57,7 +57,22 @@ describe('the cast: Earth 2\u2019s real dinosaurs, nothing invented', () => {
       assert.equal(s.diet, m.diet);
       assert.equal(s.social, m.social);
       assert.equal(s.posture, m.posture);
+      assert.equal(s.file, m.file);
+      assert.equal(s.scaleBasis, m.scaleBasis);
       assert.ok(s.scaleM > 0, `${s.slug} has no size`);
+      assert.ok(
+        typeof s.file === 'string' && s.file.startsWith('/models/earth2/') && s.file.endsWith('.glb'),
+        `${s.slug} has no model file: ${s.file}`
+      );
+    }
+  });
+  it('dinosNear records carry the model file and scale basis', () => {
+    const list = dinosNear(0, 0, 150, flatLand);
+    assert.ok(list.length > 0);
+    for (const d of list) {
+      const m = EARTH2_MODELS.find((x) => x.slug === d.slug);
+      assert.equal(d.file, m.file);
+      assert.equal(d.scaleBasis, m.scaleBasis);
     }
   });
   it('holds Earth 2\u2019s distances and cap', () => {
