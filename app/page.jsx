@@ -42,6 +42,7 @@ import { useRadio } from '@/components/radio/RadioProvider';
 import HubTutorial from '@/components/HubTutorial';
 import PortalRoom from '@/components/PortalRoom';
 import { heavenUnlocked as portalHeavenUnlocked, usePortalProgress } from '@/lib/portal/progress';
+import { SUN_BASE_ROUTE } from '@/lib/sun-base';
 import {
   shouldShowHubTutorial,
   isHubTutorialSeen,
@@ -84,6 +85,36 @@ function NexusHub() {
   const [portalRoomSide, setPortalRoomSide] = useState(null); // 'heaven' | 'nether' | null
   const portalProgress = usePortalProgress();
   const handleHubPortal = useCallback((side) => setPortalRoomSide(side), []);
+  // SUN BASE (Merlin, 2026-11-13): clicking the sun PULLS the user
+  // into it — the pull is driven inside the Canvas by SequenceController
+  // (sunPullRef is the shared mutable request: active/done/from/target/
+  // startMs/progress). When the pull lands, a gold flash swallows the
+  // screen and the base route opens. The flash is the cut: the camera
+  // is already deep inside the sun's glare, so gold is what the user
+  // is looking at when the page changes.
+  const sunPullRef = useRef({ active: false, done: false, from: null, target: null, startMs: 0, progress: 0 });
+  const [sunFlash, setSunFlash] = useState(false);
+  const handleSunClick = useCallback(() => {
+    const r = sunPullRef.current;
+    if (r.active) return;
+    r.active = true;
+    r.done = false;
+    r.from = null;
+    r.target = null;
+    r.startMs = 0;
+    r.progress = 0;
+  }, []);
+  const handleSunPullDone = useCallback(() => {
+    setSunFlash(true);
+    window.setTimeout(() => router.push(SUN_BASE_ROUTE), 350);
+  }, [router]);
+  // Headless probe hook (nether-realm pattern): window.__sunBase.enter
+  // starts the pull without raycasting the sun.
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.__sunBase = { enter: () => handleSunClick() };
+    }
+  }, [handleSunClick]);
   // Headless probe hook (nether-realm pattern): window.__portalRoom.open
   // lets a probe open the room and watch the boot → carousel without
   // raycasting a 3D disc. Render state lives in window.__hubPortals.
@@ -1056,6 +1087,9 @@ function NexusHub() {
         targetRoute={targetRouteRef.current}
         onSatellitePortal={handleSatellitePortal}
         onHubPortal={handleHubPortal}
+        onSunClick={handleSunClick}
+        onSunPullDone={handleSunPullDone}
+        sunPullRef={sunPullRef}
         heavenUnlocked={portalHeavenUnlocked(portalProgress)}
         onPlanetJump={handlePlanetJump}
         pendingJump={pendingJump}
@@ -1100,6 +1134,17 @@ function NexusHub() {
         open={!!portalRoomSide}
         onClose={() => setPortalRoomSide(null)}
       />
+      {/* Sun-base pull flash: the gold cut as the pull lands and the
+          base route opens — the camera is already inside the sun. */}
+      {sunFlash && (
+        <div
+          aria-hidden="true"
+          style={{
+            position: 'fixed', inset: 0, zIndex: 2147483647, pointerEvents: 'none',
+            background: 'radial-gradient(90% 90% at 50% 50%, #fff7d6 0%, #ffd98a 45%, #ff9a3c 100%)',
+          }}
+        />
+      )}
       {/* Satellite drop → vortex tube: the fullscreen ride carries the
           user from the satellite's portal to the realm. */}
       {/* Earth chooser (Merlin, 2026-10-31): tapping the Earth planet

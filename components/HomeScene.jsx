@@ -8,12 +8,13 @@
 // byte-identical to the inline version — this is a pure code-split.
 import { useState, useEffect, useRef, useMemo, Suspense, Component, cloneElement, isValidElement } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { Stars } from '@react-three/drei';
+import { Stars, Billboard } from '@react-three/drei';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { useRouter } from 'next/navigation';
 import GodOrbitRings from './GodOrbitRings';
 import HubPortals from './HubPortals';
+import VanGoghText from './VanGoghText';
 import NexusEarth from './NexusEarth';
 import { MarsRealmContent } from './mars/MarsScene';
 import { PlanetRealmContent } from './planets/PlanetRealmContent';
@@ -23,6 +24,8 @@ import HubTieFlight from './HubTieFlight';
 import NavBeacons from './NavBeacons';
 import EarthFlightController from './EarthFlightController';
 import { ORBIT_CENTER, EARTH_CENTER, EARTH_RADIUS, GOD_BANDS, MARS_CENTER, MARS_RADIUS, PLANETS, SYSTEM_RING_RADII, SYSTEM_RING_TILTS, BIKE_PARK_POS, RIDER_OFFSET, BIKE_LOOK_AHEAD } from '../lib/god-orbits';
+import { SUN_CENTER } from '../lib/omega-arch';
+import { SUN_BASE_TRIGGER_RADIUS, pullEasedProgress } from '../lib/sun-base';
 import { FREE_FLY_SPEED, BIKE_TUNING } from '../lib/hub-layout';
 import { registerCollider, unregisterCollider, resolveFlightCollision } from '../lib/hub-collision';
 import { createBikeFlightState, stepBikeFlight, rotateOffsetByYaw, bikeForward } from '../lib/bike-flight';
@@ -256,8 +259,21 @@ function UserPlanets() {
   );
 }
 
-function SunBackground() {
+// SUN BASE ENTRY (Merlin, Nov 13, 2026): the sun is the door to
+// the user's own base inside it — same concept as the Heaven portal.
+// Click/tap the sun and it PULLS the user in (the camera is visibly
+// drawn toward and into the sun, the sun flaring as you close — the
+// pull lives in SequenceController, driven by sunPullRef); or fly
+// through it — pressing into the sun's surface enters, the same way
+// the Omega Arch's vortex is a pass-through. The sun itself is
+// unchanged (same centre, same radius, same collider): entry is
+// wired onto the backdrop body that was already there.
+function SunBackground({ onSelect, freeroam, sunPullRef }) {
   const sunRef = useRef();
+  const haloRef = useRef();
+  const haloMatRef = useRef();
+  const lightRef = useRef();
+  const enteredRef = useRef(false);
   const [sunMap, setSunMap] = useState(null);
   const [glowMap, setGlowMap] = useState(null);
   
@@ -290,32 +306,85 @@ function SunBackground() {
     return () => { isMounted = false; glow.dispose(); };
   }, []);
 
-  useFrame((state, delta) => { if (sunRef.current) sunRef.current.rotation.y += delta * 0.01; });
-  
+  useFrame((state, delta) => {
+    if (sunRef.current) sunRef.current.rotation.y += delta * 0.01;
+    // PULL FLARE — while the pull runs, the halo swells and the
+    // sun's light climbs: the sun visibly swallows the screen as
+    // the camera is drawn in. Progress is written by
+    // SequenceController's pull branch (0 at the tap, 1 at entry).
+    const pull = sunPullRef && sunPullRef.current;
+    const p = pull ? (pull.progress || 0) : 0;
+    if (haloRef.current) {
+      const s = 645 * (1 + 0.7 * p);
+      haloRef.current.scale.set(s, s, 1);
+    }
+    if (haloMatRef.current) haloMatRef.current.opacity = 0.95 + 0.05 * p;
+    if (lightRef.current) lightRef.current.intensity = 4.0 + 40 * p;
+    // FLY-THROUGH ENTRY — pressing into the sun's surface enters
+    // the base (the Omega Arch pattern: a useFrame distance check,
+    // guarded so it fires once). The trigger sits just outside the
+    // collider's resting distance (lib/sun-base.js), so a fly-by
+    // more than ~3.5 units off the surface does not enter.
+    if (freeroam && onSelect && !enteredRef.current && !(pull && pull.active)) {
+      const c = state.camera.position;
+      const dx = c.x - SUN_CENTER.x;
+      const dy = c.y - SUN_CENTER.y;
+      const dz = c.z - SUN_CENTER.z;
+      const r = SUN_BASE_TRIGGER_RADIUS;
+      if (dx * dx + dy * dy + dz * dz <= r * r) {
+        enteredRef.current = true;
+        onSelect();
+      }
+    }
+  });
+
+  // Click = pull: a tap on the sun (not a drag — the PortalDisc
+  // e.delta rule) starts the draw-in. Gated to freeroam/bike by
+  // the parent, exactly like the Earth/Mars dive onSelects.
+  const clickSun = (e) => {
+    if (e.delta > 10) return; // drag, not a tap (BillboardMonument rule)
+    e.stopPropagation();
+    if (onSelect) onSelect();
+  };
+  const pointerProps =
+    freeroam && onSelect
+      ? {
+          onClick: clickSun,
+          onPointerOver: (e) => {
+            e.stopPropagation();
+            document.body.style.cursor = 'pointer';
+          },
+          onPointerOut: () => {
+            document.body.style.cursor = '';
+          },
+        }
+      : {};
+
   if (!sunMap) return null;
 
   return (
     <>
       <group position={[0, 158.75, 662.5]}>
-        <mesh ref={sunRef}>
+        <mesh ref={sunRef} {...pointerProps}>
           <sphereGeometry args={[67.5, 64, 64]} />
           <meshBasicMaterial map={sunMap} color="#ffcc66" toneMapped={false} />
         </mesh>
 
-        <mesh scale={[1.1, 1.1, 1.1]}>
+        <mesh scale={[1.1, 1.1, 1.1]} {...pointerProps}>
           <sphereGeometry args={[67.5, 64, 64]} />
           <meshBasicMaterial color="#ffaa55" transparent opacity={0.4} blending={THREE.AdditiveBlending} toneMapped={false} />
         </mesh>
 
-        <mesh scale={[1.3, 1.3, 1.3]}>
+        <mesh scale={[1.3, 1.3, 1.3]} {...pointerProps}>
           <sphereGeometry args={[67.5, 64, 64]} />
           <meshBasicMaterial color="#ff6600" transparent opacity={0.15} blending={THREE.AdditiveBlending} toneMapped={false} />
         </mesh>
 
         {/* Light bleed: camera-facing halo, luminous from every angle */}
         {glowMap && (
-          <sprite scale={[645, 645, 1]}>
+          <sprite ref={haloRef} scale={[645, 645, 1]}>
             <spriteMaterial
+              ref={haloMatRef}
               map={glowMap}
               color="#ffe2a8"
               transparent
@@ -326,8 +395,16 @@ function SunBackground() {
             />
           </sprite>
         )}
-        
-        <pointLight color="#ffd27f" intensity={4.0} distance={800} decay={1.5} position={[0, 0, 0]} />
+
+        {/* The door's name, floating just above the surface so the
+            sun reads as an entrance from anywhere in the hub. */}
+        <Billboard position={[0, 82, 0]}>
+          <VanGoghText fontSize={4} color="#ffd98a" letterSpacing={0.3} fontWeight="bold">
+            SUN BASE
+          </VanGoghText>
+        </Billboard>
+
+        <pointLight ref={lightRef} color="#ffd27f" intensity={4.0} distance={800} decay={1.5} position={[0, 0, 0]} />
       </group>
 
       <directionalLight
@@ -348,7 +425,7 @@ function SunBackground() {
   );
 }
 
-function SequenceController({ launchState, setLaunchState, portalTex, payloadTex, targetRoute, controls, flightAxis, dropTarget, bikeRef, onBikeDismount, onSatellitePortal }) {
+function SequenceController({ launchState, setLaunchState, portalTex, payloadTex, targetRoute, controls, flightAxis, dropTarget, bikeRef, onBikeDismount, onSatellitePortal, sunPullRef, onSunPullDone }) {
   const { camera } = useThree();
   const router = useRouter(); 
   const bulletRef = useRef();
@@ -369,6 +446,45 @@ function SequenceController({ launchState, setLaunchState, portalTex, payloadTex
   const PORTAL_POS = [dropTarget[0], ATMOSPHERE_Y, dropTarget[2]];
 
   useFrame((state, delta) => {
+    // SUN BASE PULL (Merlin, Nov 13 ~22:18): clicking the sun PULLS
+    // the user into it — the camera is visibly drawn toward and into
+    // the sun, accelerating (ease-in cubic, lib/sun-base.js), the sun
+    // flaring as you close (SunBackground reads pull.progress).
+    // The pull owns the camera for its 1.4 s: it runs before every
+    // launch-state branch, from freeroam and from the bike alike,
+    // and hands off to onSunPullDone exactly once at the end.
+    const pull = sunPullRef && sunPullRef.current;
+    if (pull && pull.active) {
+      if (!pull.from) {
+        pull.from = camera.position.clone();
+        pull.startMs = performance.now();
+        // Fly straight at the centre and stop 18 units short of it —
+        // deep inside the sun's glare, so the screen is full gold
+        // when the base opens. Direction is the approach line, so a
+        // fly-through pull continues the line the user was already on.
+        const dir = new THREE.Vector3().subVectors(
+          pull.from,
+          new THREE.Vector3(SUN_CENTER.x, SUN_CENTER.y, SUN_CENTER.z)
+        );
+        if (dir.lengthSq() < 1) dir.set(0, 0, -1);
+        dir.normalize();
+        pull.target = new THREE.Vector3(
+          SUN_CENTER.x + dir.x * 18,
+          SUN_CENTER.y + dir.y * 18,
+          SUN_CENTER.z + dir.z * 18
+        );
+      }
+      const p = pullEasedProgress(performance.now() - pull.startMs);
+      pull.progress = p;
+      camera.position.lerpVectors(pull.from, pull.target, p);
+      camera.lookAt(SUN_CENTER.x, SUN_CENTER.y, SUN_CENTER.z);
+      if (p >= 1 && !pull.done) {
+        pull.done = true;
+        pull.active = false;
+        if (typeof onSunPullDone === 'function') onSunPullDone();
+      }
+      return;
+    }
     if (launchState === 'hub_intro') {
       // Spawn in the middle: the camera sits at the constellation's center,
       // ringed by the 10 god bands, and makes one full slow revolution —
@@ -948,6 +1064,9 @@ function HubScene({
   onSatellitePortal,
   onHubPortal,
   heavenUnlocked,
+  onSunClick,
+  onSunPullDone,
+  sunPullRef,
   onContextLost,
   vgogh,
 }) {
@@ -1060,7 +1179,13 @@ function HubScene({
             />
           ) : (
           <>
-            {!['diving_to_street', 'earth_roam'].includes(appState) && <SunBackground />}
+            {!['diving_to_street', 'earth_roam'].includes(appState) && (
+              <SunBackground
+                freeroam={appState === 'hub_freeroam' || appState === 'on_bike'}
+                onSelect={appState === 'hub_freeroam' || appState === 'on_bike' ? onSunClick : null}
+                sunPullRef={sunPullRef}
+              />
+            )}
             {/* THE OMEGA ARCH + EARTH 2 DOOR — REMOVED 2026-10-31 (Merlin):
                 both portals stood just beyond the Sun; the Omega portal
                 now lives as a street-light lamp at the bottom of the
@@ -1140,6 +1265,8 @@ function HubScene({
           bikeRef={bikeRef}
           onBikeDismount={onBikeDismount}
           onSatellitePortal={onSatellitePortal}
+          sunPullRef={sunPullRef}
+          onSunPullDone={onSunPullDone}
         />
 
         <EarthFlightController
