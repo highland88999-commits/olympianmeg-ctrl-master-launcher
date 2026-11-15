@@ -11,9 +11,18 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+
+import {
+  cgiForWeapon,
+  cgiForClass,
+  firingForClass,
+  MODEL_BY_ID,
+  FIRING_KINDS,
+  PROCEDURAL_BUILDS,
+} from '../lib/weapons/cgi.js';
 
 import {
   FORGE_WEAPONS,
@@ -197,7 +206,7 @@ describe('the seating (master portal rule)', () => {
   it('the Portal Room roster includes the forge (roster = registry − the room)', () => {
     const en = JSON.parse(read('lib/i18n/locales/en.json'));
     const roster = buildPortalRoster(SATELLITES, (k) => en[`sat.${k}.title`], (k) => en[`sat.${k}.subtitle`]);
-    assert.equal(roster.length, 180); // Monsterverse seat adcdb3cd: roster 174→175; Social Media Cheat Code seat: 175→176; Dodgeball seat: 176→177; Request a Billboard seat: 177→178; Collapse Run seat: 178→179; Quidditch seat: 179→180
+    assert.equal(roster.length, 212); // Monsterverse seat adcdb3cd: roster 174→175; Social Media Cheat Code seat: 175→176; Dodgeball seat: 176→177; Request a Billboard seat: 177→178; Collapse Run seat: 178→179; Quidditch seat: 179→180; Omega 500 seat: 194→195 (the old 180 pin was stale); Hades seats: 195→197; nether-realms homes: 197→209 (Nov 12, 2026); Earth 4 seat: 209→210 (Nov 14, 2026); Moon + Sun Base seats: 210→212 (Nov 14, 2026)
     const seat = roster.find((p) => p.key === 'weapons-forge');
     assert.ok(seat);
     assert.equal(seat.title, 'Weapons Forge');
@@ -206,5 +215,92 @@ describe('the seating (master portal rule)', () => {
   it('the route file and page exist where the registry points', () => {
     assert.ok(read('app/weapons-forge/page.jsx').includes('Weapons Forge'));
     assert.ok(read('app/api/weapons-forge/route.js').includes('merge_account_preferences'));
+  });
+});
+
+describe('the CGI stamping (Merlin, 2026-11-15)', () => {
+  it('the shared spec covers every catalogue weapon: model + firing', () => {
+    assert.equal(Object.keys(MODEL_BY_ID).length, 13, 'one model per catalogue weapon');
+    for (const w of FORGE_WEAPONS) {
+      const spec = cgiForWeapon({ id: w.id, weaponClass: w.weaponClass });
+      assert.ok(spec.model && spec.firing, w.id);
+      assert.ok(FIRING_KINDS.includes(spec.firing.kind), `${w.id}: firing kind`);
+      assert.ok(Number.isFinite(spec.firing.speedMps) && spec.firing.speedMps > 0, `${w.id}: speed`);
+      assert.ok(Number.isFinite(spec.firing.rangeM) && spec.firing.rangeM > 0, `${w.id}: range`);
+      if (spec.model.kind === 'glb') {
+        assert.ok(spec.model.src.startsWith('/models/weapons/'), `${w.id}: glb under weapons`);
+        assert.ok(existsSync(join(repo, 'public', spec.model.src)), `${w.id}: ${spec.model.src} on disk`);
+      } else {
+        assert.equal(spec.model.kind, 'procedural');
+        assert.ok(PROCEDURAL_BUILDS.includes(spec.model.build), `${w.id}: known build`);
+      }
+    }
+  });
+
+  it('the revolver shows the real revolver GLB', () => {
+    const spec = cgiForWeapon({ id: 'ember-revolver', weaponClass: 'firearm' });
+    assert.deepEqual(spec.model, { kind: 'glb', src: '/models/weapons/revolver-handgun.glb' });
+    assert.equal(spec.firing.kind, 'bullet');
+  });
+
+  it('the Flint Shiv is the one procedural catalogue weapon', () => {
+    const spec = cgiForWeapon({ id: 'flint-shiv', weaponClass: 'blade' });
+    assert.deepEqual(spec.model, { kind: 'procedural', build: 'blade' });
+    assert.equal(spec.firing.kind, 'swing');
+  });
+
+  it('unknown ids fall back to the class procedural model; unknown classes default to blade', () => {
+    assert.deepEqual(
+      cgiForWeapon({ id: 'no-such-weapon', weaponClass: 'bow' }).model,
+      { kind: 'procedural', build: 'bow' }
+    );
+    assert.deepEqual(firingForClass('no-such-class'), firingForClass('blade'));
+    assert.deepEqual(cgiForClass('no-such-class'), cgiForClass('blade'));
+  });
+
+  it('every forged item carries meta.cgi beside the reticle — and survives sanitize', () => {
+    for (const w of FORGE_WEAPONS) {
+      const item = weaponItemFor(w, 'test');
+      assert.ok(item.meta.cgi, w.id);
+      assert.deepEqual(item.meta.cgi, cgiForWeapon({ id: w.id, weaponClass: w.weaponClass }), w.id);
+      assert.ok(RETICLE_STYLES.includes(item.meta.reticle.style), `${w.id}: reticle untouched`);
+      // The meta-size law: cgi must not push the meta over 2400
+      // chars, or sanitize would wipe the whole meta (reticle too).
+      assert.ok(JSON.stringify(item.meta).length < 2400, `${w.id}: meta fits the law`);
+      const clean = sanitizeBackpackRecord({ ...emptyBackpackRecord(), items: [item] });
+      assert.deepEqual(clean.items[0].meta.cgi, item.meta.cgi, `${w.id}: cgi survives sanitize`);
+    }
+  });
+
+  it('a forged weapon shelved by applyForgeToRecord carries its CGI', () => {
+    const res = applyForgeToRecord(stockedRecord(), forgeWeaponById('ember-revolver'), 'cgi-key-1');
+    assert.equal(res.ok, true);
+    const weapons = itemsOfKind(res.record, 'weapon');
+    assert.equal(weapons.length, 1);
+    assert.deepEqual(weapons[0].meta.cgi.model, { kind: 'glb', src: '/models/weapons/revolver-handgun.glb' });
+    assert.equal(weapons[0].meta.cgi.firing.kind, 'bullet');
+    assert.equal(weapons[0].meta.reticle.style, 'crosshair');
+  });
+
+  it('a weapon known only by name still gets a blade CGI', () => {
+    const item = weaponItemForName('Mystery Blade of Testing', 'gift');
+    assert.deepEqual(item.meta.cgi, { model: { kind: 'procedural', build: 'blade' }, firing: firingForClass('blade') });
+  });
+
+  it('the forge route returns the cgi spec with the forged weapon', () => {
+    const src = read('app/api/weapons-forge/route.js');
+    assert.ok(src.includes('cgiForWeapon'), 'route imports the shared spec');
+    assert.ok(src.includes('cgi: cgiForWeapon'), 'success + duplicate responses carry cgi');
+  });
+
+  it('the shelf previews every weapon’s CGI on one shared stage', () => {
+    const src = read('app/weapons-forge/page.jsx');
+    assert.ok(src.includes('WeaponPreview'), 'shared preview component');
+    assert.ok(src.includes('cgiForWeapon'), 'page reads the shared spec');
+    assert.ok(src.includes('GLTFLoader'), 'GLB models load through the loader');
+    assert.ok(src.includes('buildProcedural'), 'procedural builds render without a file');
+    assert.ok(src.includes('ember-revolver'), 'the revolver leads the viewer');
+    assert.ok(src.includes('CGI:'), 'every card shows its CGI line');
+    assert.ok(src.includes('👁 Preview'), 'every card offers its preview');
   });
 });

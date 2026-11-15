@@ -39,6 +39,7 @@ import {
   sanitizeAiText,
 } from '@/lib/backpack/patrons';
 import { geminiGenerate, requireGeminiKey } from '@/lib/artemis/server';
+import { cgiForClass } from '@/lib/weapons/cgi';
 
 /** The one honest message for every AI-down path. */
 const AI_UNAVAILABLE_MESSAGE = "The forge's AI is unavailable right now.";
@@ -161,6 +162,10 @@ export const POST = noCache(
         rarity: validated.spec.rarity,
         description: validated.spec.description,
         forgedBy: patron,
+        // The commissioned weapon's CGI — derived from its actual
+        // class (procedural model + class firing behaviour), the
+        // same spec stamped onto its backpack entry as meta.cgi.
+        cgi: cgiForClass(validated.spec.weaponClass),
       },
       backpack: savedRecord,
     });

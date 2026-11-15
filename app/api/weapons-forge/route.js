@@ -39,6 +39,7 @@ import {
   forgeAffordability,
   applyForgeToRecord,
 } from '@/lib/backpack/weapons';
+import { cgiForWeapon } from '@/lib/weapons/cgi';
 import {
   loadRefineryRow,
   saveRefinerySave,
@@ -103,7 +104,13 @@ export const POST = noCache(
     if (idemKey && record.forgeKeys.includes(idemKey)) {
       let bars = null;
       try { bars = (await readBars(userId, client)).bars; } catch { bars = null; }
-      return NextResponse.json({ ok: true, duplicate: true, backpack: record, bars });
+      return NextResponse.json({
+        ok: true,
+        duplicate: true,
+        backpack: record,
+        bars,
+        cgi: cgiForWeapon({ id: weapon.id, weaponClass: weapon.weaponClass }),
+      });
     }
 
     // Bars: read the balance of record.
@@ -164,6 +171,12 @@ export const POST = noCache(
       }
     }
 
-    return NextResponse.json({ ok: true, backpack: savedRecord, bars, weapon: weapon.name });
+    return NextResponse.json({
+      ok: true,
+      backpack: savedRecord,
+      bars,
+      weapon: weapon.name,
+      cgi: cgiForWeapon({ id: weapon.id, weaponClass: weapon.weaponClass }),
+    });
   })
 );

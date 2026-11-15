@@ -3301,6 +3301,7 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
       const sacs = []; // { group, core, baseY }
       const bones = []; // { group, drops, carcass, baseY } — dino kill bone piles (Merlin, 2026-10-31)
       const bursts = []; // { points, vels, life }
+      const tracers = []; // { mesh, life } — visible gun tracers, muzzle to hit
       const swarmBats = [];
       const drac = {
         machine: createDraculaMachine(),
@@ -4076,6 +4077,30 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         bursts.push({ points, vels, life: 0 });
       }
 
+      // ── Visible gunfire (Merlin, 2026-11-15) ────────────────
+      // The hunter's gun already cracked and burst on the hit —
+      // but no shot ever travelled from the walker to the target.
+      // A tracer is a stretched gold slug from the muzzle (walker
+      // chest height) to the hit point, gone in ~0.14 s, plus a
+      // gold burst at the muzzle as the flash. Same gun, same
+      // shots — shootDino and shootMosquito both call it.
+      function gunMuzzle() {
+        return new THREE.Vector3(walker.x, heightAt(walker.x, walker.z) + 1.35, walker.z);
+      }
+      function spawnTracer(from, to, colorHex) {
+        const dir = new THREE.Vector3().subVectors(to, from);
+        const len = dir.length();
+        if (len < 0.1) return;
+        const geo = new THREE.BoxGeometry(0.05, 0.05, len);
+        const mat = new THREE.MeshBasicMaterial({ color: colorHex, transparent: true, opacity: 0.95, depthWrite: false });
+        const tracer = new THREE.Mesh(geo, mat);
+        tracer.position.copy(from).addScaledVector(dir, 0.5);
+        tracer.lookAt(to.x, to.y, to.z);
+        scene.add(tracer);
+        track(tracer);
+        tracers.push({ mesh: tracer, life: 0 });
+      }
+
       // ── Vehicles Phase 2: explosion FX, integrity bars, the
       // shot path, and the driven machine's damage feedback ────
       // One pooled burst rig serves every explosion and every
@@ -4491,6 +4516,8 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         if (mq.phase === 'falling' || mq.phase === 'gone') return;
         mq.willDropSac = mosquitoDropsSac(mq.phase);
         spawnBurst(mq.group.position, mq.willDropSac ? 0xd42a2a : 0x9a958c);
+        // The visible shot, same gun as the dino hunt.
+        spawnTracer(gunMuzzle(), mq.group.position, 0xffd27a);
         sfxShot();
         if (!mq.willDropSac) {
           noticeRef.current("It hadn't drunk yet — no sac. Shoot the swollen red ones.");
@@ -4522,6 +4549,11 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         hitAt.y += (a.entry.scaleM || 2) * 0.55;
         spawnBurst(hitAt, 0xd42a2a);
         spawnBurst(hitAt, 0xf5f0e6);
+        // The visible shot: tracer from the muzzle to the hit,
+        // gold burst at the muzzle as the flash.
+        const muzzle = gunMuzzle();
+        spawnTracer(muzzle, hitAt, 0xffd27a);
+        spawnBurst(muzzle, 0xffd27a);
         sfxShot();
         if (a.hp > 0) {
           // Still standing: it knows it's been shot — a wounded
@@ -8859,6 +8891,17 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
           if (b.life > 0.45) {
             scene.remove(b.points);
             bursts.splice(i, 1);
+          }
+        }
+        for (let i = tracers.length - 1; i >= 0; i--) {
+          const tr = tracers[i];
+          tr.life += dt;
+          tr.mesh.material.opacity = Math.max(0, 0.95 * (1 - tr.life / 0.14));
+          if (tr.life > 0.14) {
+            scene.remove(tr.mesh);
+            try { tr.mesh.geometry.dispose(); } catch (e) { /* noop */ }
+            try { tr.mesh.material.dispose(); } catch (e) { /* noop */ }
+            tracers.splice(i, 1);
           }
         }
         for (const s of sway) {

@@ -31,7 +31,13 @@ import {
 } from './orcs';
 import { damageBoss, bossSlowFactor, bossPhase } from './boss';
 import { orcLifeFor, bossLifeFor } from './operators.js';
-import { RETICLE_BY_CLASS, equippedDamageForSlot, equippedReticleForSlot, equippedWeaponEntry } from '../../lib/backpack/backpack.js';
+import { RETICLE_BY_CLASS, equippedDamageForSlot, equippedReticleForSlot, equippedWeaponEntry, weaponHand } from '../../lib/backpack/backpack.js';
+import {
+  cgiForWeapon, rangedFiringFor, meleeFiringFor,
+  spawnProjectile, stepProjectile,
+  buildProjectileMesh, buildSwingArc, buildMuzzleFlash,
+  loadWeaponGroup, mountWeaponInHand,
+} from '../../lib/weapons/cgi.js';
 import { getBackpackRecord, updateBackpack, useBackpack } from '../../lib/backpack/store.js';
 import { spawnCompanion, updateCompanions, removeCompanion, hasCompanion } from '../../lib/dino-companion.js';
 import { isDinoItem, dinoIdOf, dinoDisplayName, DINO_STATE_OUT, DINO_STATE_PACK, setDinoItemState } from '../../lib/earth2/breeding.js';
@@ -94,6 +100,9 @@ export default function MiddleEarthPage() {
   const equippedRef = useRef(null);
   useEffect(() => { equippedRef.current = equippedWeaponEntry(pack); }, [pack]);
   const playerFigRef = useRef(null);
+  /* The hero's in-hand weapon mount, assigned in the zone effect:
+   * { swap } re-mounts when the pack or the hand changes. */
+  const handWeaponRef = useRef(null);
   const playerSwingRef = useRef(0);
   /* Strike motion: which hand swung (the raise reads differently for
    * a staff blast than for a blade), the walk-cycle phase, and the
@@ -153,6 +162,11 @@ export default function MiddleEarthPage() {
   useEffect(() => { introRef.current = intro; }, [intro]);
   useEffect(() => { campaignRef.current = campaign; }, [campaign]);
   useEffect(() => { weaponRef.current = weapon; }, [weapon]);
+  /* A mid-hunt equip (or hand swap) re-mounts the hero's weapon:
+   * the zone effect owns the scene, this only asks it to swap. */
+  useEffect(() => {
+    if (handWeaponRef.current) handWeaponRef.current.swap();
+  }, [pack, weapon]);
   useEffect(() => { elapsedMirror.current = elapsed; }, [elapsed]);
   useEffect(() => { beatOverlayRef.current = beatOverlay; }, [beatOverlay]);
   useEffect(() => { fallenRef.current = fallen; }, [fallen]);
@@ -391,6 +405,66 @@ export default function MiddleEarthPage() {
       playerFigRef.current = playerFig;
     } catch (e) { playerFig = null; }
 
+    /* The hero's hand carries a weapon (lib/weapons/cgi.js): the
+     * equipped weapon when it arms the hand in use, else the
+     * hero's own — staff for the wizard, bow for the archers,
+     * mace for the dwarf's axe, sword for the rest. The GLB when
+     * one exists, the procedural build when it does not or fails
+     * to load. Swaps live through handWeaponRef (the pack/weapon
+     * effect above calls swap); the zone cleanup disposes it. */
+    const handWeapon = { group: null, token: 0 };
+    const disposeHandGroup = (group) => {
+      if (!group) return;
+      group.traverse((o) => {
+        if (o.isMesh) {
+          if (o.geometry) { try { o.geometry.dispose(); } catch (e) { /* noop */ } }
+          const mats = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : []);
+          for (const m of mats) { try { m.dispose(); } catch (e) { /* noop */ } }
+        }
+      });
+    };
+    const nativeWeaponClassFor = (hero, hand) => {
+      if (hand === 'ranged') return hero.ranged.kind === 'staff' ? 'staff' : 'bow';
+      if (hero.key === 'wizard') return 'staff';
+      if (hero.key === 'dwarf') return 'blunt'; // the axe, swung like a maul
+      return 'blade';
+    };
+    const nativePresetIdFor = (wc) => (
+      wc === 'staff' ? 'preset-staff'
+        : wc === 'bow' ? 'preset-bow'
+          : wc === 'blunt' ? 'preset-mace'
+            : 'preset-sword'
+    );
+    const mountHandWeapon = async () => {
+      const myToken = ++handWeapon.token;
+      const hero = heroRef.current;
+      if (!hero || !playerBody) return;
+      const eq = equippedRef.current;
+      const hand = weaponRef.current;
+      let wc;
+      let id;
+      if (eq && weaponHand(eq) === hand) {
+        wc = (eq.meta && eq.meta.weaponClass) || nativeWeaponClassFor(hero, hand);
+        id = eq.id;
+      } else {
+        wc = nativeWeaponClassFor(hero, hand);
+        id = nativePresetIdFor(wc);
+      }
+      const group = await loadWeaponGroup(THREE, cgiForWeapon({ id, weaponClass: wc }));
+      if (cancelled || myToken !== handWeapon.token || !playerBody || !group) {
+        if (group) disposeHandGroup(group);
+        return;
+      }
+      if (handWeapon.group) {
+        playerBody.remove(handWeapon.group);
+        disposeHandGroup(handWeapon.group);
+      }
+      mountWeaponInHand(THREE, playerBody, group, { weaponClass: wc, height: hero.height });
+      handWeapon.group = group;
+    };
+    handWeaponRef.current = { swap: mountHandWeapon };
+    mountHandWeapon();
+
     const detachers = [];
     const spawn = zone.spawn || { x: 0, z: 95, yaw: Math.PI };
     const walker = createWalker({ x: spawn.x, z: spawn.z, yaw: spawn.yaw || 0, pitch: 0 });
@@ -463,32 +537,56 @@ export default function MiddleEarthPage() {
       }
     };
 
-    /* Ranged-shot visuals: a short-lived glowing bolt that leaves
-     * the staff tip (or bow hand) along the aim. Cosmetic only —
-     * damage already landed (or missed) in strike(); the bolt never
-     * decides anything. Shared geometry, one material per bolt (so
-     * concurrent bolts fade independently); the frame loop flies
-     * and fades them, the effect cleanup removes stragglers. */
-    const blastGeo = new THREE.SphereGeometry(0.09, 10, 8);
-    const blasts = [];
-    const spawnBlast = () => {
+    /* Visible shots: every strike flies a real projectile record
+     * (lib/weapons/cgi.js) — a revolver bullet with muzzle flash
+     * and tracer when a firearm arms the ranged hand, an arrow
+     * for a bow, a blast for a staff; melee draws a swing arc.
+     * Cosmetic only — damage already landed (or missed) in
+     * strike(); the shot never decides anything. The frame loop
+     * steps the records and fades them; the effect cleanup
+     * removes stragglers. */
+    const shots = []; // { record, built, life }
+    const arcs = []; // { built, life }
+    const flashes = []; // { built, life }
+    const shotOrigin = () => {
       const h = heroRef.current;
-      if (!h) return;
+      if (!h) return null;
       const fx = -Math.sin(walker.yaw), fz = -Math.cos(walker.yaw);
       const rx = -fz, rz = fx; // right-hand side, walker facing convention
       const gy = zone.groundHeight(walker.pos.x, walker.pos.z);
-      const mat = new THREE.MeshBasicMaterial({
-        color: h.ranged.kind === 'staff' ? 0xc084fc : 0xf5d67a,
-        transparent: true, fog: false,
+      return {
+        origin: [
+          walker.pos.x + fx * 0.4 + rx * 0.45,
+          gy + h.height * 0.85,
+          walker.pos.z + fz * 0.4 + rz * 0.45,
+        ],
+        dir: [fx, 0, fz],
+      };
+    };
+    const spawnShot = (firing, rangeM) => {
+      const o = shotOrigin();
+      if (!o || !firing) return;
+      const record = spawnProjectile(firing, o.origin, o.dir, performance.now() / 1000, rangeM);
+      const built = buildProjectileMesh(THREE, record);
+      scene.add(built.group);
+      shots.push({ record, built, life: (rangeM || firing.rangeM) / firing.speedMps + 0.1 });
+      if (firing.kind === 'bullet') {
+        const flash = buildMuzzleFlash(THREE, o.origin, firing.tracerColor);
+        scene.add(flash.sprite);
+        flashes.push({ built: flash, life: flash.life });
+      }
+    };
+    const spawnSwing = (firing) => {
+      const h = heroRef.current;
+      if (!h) return;
+      const built = buildSwingArc(THREE, {
+        origin: [walker.pos.x, zone.groundHeight(walker.pos.x, walker.pos.z) + h.height * 0.62, walker.pos.z],
+        yaw: aimYawFromWalker(walker.yaw),
+        kind: firing && firing.kind === 'thrust' ? 'thrust' : 'swing',
+        color: '#ffe9b0',
       });
-      const mesh = new THREE.Mesh(blastGeo, mat);
-      mesh.position.set(
-        walker.pos.x + fx * 0.4 + rx * 0.45,
-        gy + h.height * 0.85,
-        walker.pos.z + fz * 0.4 + rz * 0.45,
-      );
-      scene.add(mesh);
-      blasts.push({ mesh, vx: fx * 30, vz: fz * 30, life: 0.6 });
+      scene.add(built.mesh);
+      arcs.push({ built, life: built.life });
     };
 
     /* Combat input: a tap strikes with the hand in use — on TAP
@@ -520,7 +618,26 @@ export default function MiddleEarthPage() {
       if (wasReady) {
         playerSwingRef.current = 0.25;
         playerSwingKindRef.current = ranged ? 'ranged' : 'melee';
-        if (ranged) spawnBlast();
+        const eq = equippedRef.current;
+        if (ranged) {
+          // The ranged hand fires what arms it: an equipped
+          // firearm shoots real bullets, a bow arrows, else the
+          // hero's own bow/staff. The record flies the strike's
+          // own range, so the shot lands where the hit was decided.
+          spawnShot(
+            rangedFiringFor({
+              equippedId: eq && eq.id,
+              equippedClass: eq && eq.meta && eq.meta.weaponClass,
+              heroKind: h.ranged.kind,
+            }),
+            h.ranged.range,
+          );
+        } else {
+          spawnSwing(meleeFiringFor({
+            equippedId: eq && eq.id,
+            equippedClass: eq && eq.meta && eq.meta.weaponClass,
+          }));
+        }
       }
       if (!hit) return;
       if (ranged) zone.hunt.noteLoud(walker.pos.x, walker.pos.z);
@@ -753,19 +870,41 @@ export default function MiddleEarthPage() {
         }
       }
 
-      /* ranged bolts: fly straight, fade out, then leave the scene */
-      for (let i = blasts.length - 1; i >= 0; i--) {
-        const b = blasts[i];
-        b.life -= dt;
-        if (b.life <= 0) {
-          scene.remove(b.mesh);
-          try { b.mesh.material.dispose(); } catch (e) { /* noop */ }
-          blasts.splice(i, 1);
+      /* visible shots: step the records, fly the meshes, fade out */
+      for (let i = shots.length - 1; i >= 0; i--) {
+        const s = shots[i];
+        s.life -= dt;
+        const impacted = stepProjectile(s.record, dt);
+        s.built.group.position.set(s.record.pos[0], s.record.pos[1], s.record.pos[2]);
+        if (impacted || s.life <= 0) {
+          scene.remove(s.built.group);
+          try { s.built.dispose(); } catch (e) { /* noop */ }
+          shots.splice(i, 1);
+        }
+      }
+      for (let i = arcs.length - 1; i >= 0; i--) {
+        const a = arcs[i];
+        a.life -= dt;
+        if (a.life <= 0) {
+          scene.remove(a.built.mesh);
+          try { a.built.dispose(); } catch (e) { /* noop */ }
+          arcs.splice(i, 1);
           continue;
         }
-        b.mesh.position.x += b.vx * dt;
-        b.mesh.position.z += b.vz * dt;
-        b.mesh.material.opacity = Math.max(0, b.life / 0.6);
+        a.built.mesh.material.opacity = Math.max(0, (a.life / a.built.life) * 0.9);
+      }
+      for (let i = flashes.length - 1; i >= 0; i--) {
+        const f = flashes[i];
+        f.life -= dt;
+        if (f.life <= 0) {
+          scene.remove(f.built.sprite);
+          try { f.built.dispose(); } catch (e) { /* noop */ }
+          flashes.splice(i, 1);
+          continue;
+        }
+        f.built.sprite.material.opacity = Math.max(0, f.life / f.built.life);
+        const sc = 1.4 + (1 - f.life / f.built.life) * 0.8;
+        f.built.sprite.scale.set(sc, sc, 1);
       }
 
       // Dino companions follow the walker (their own step).
@@ -796,11 +935,24 @@ export default function MiddleEarthPage() {
       for (const h of companionsRef.current.splice(0)) { try { h.dispose(); } catch (e) { /* noop */ } }
       dinoApiRef.current = null;
       scene.remove(zone.group);
-      for (const b of blasts) {
-        scene.remove(b.mesh);
-        try { b.mesh.material.dispose(); } catch (e) { /* noop */ }
+      for (const s of shots) {
+        scene.remove(s.built.group);
+        try { s.built.dispose(); } catch (e) { /* noop */ }
       }
-      try { blastGeo.dispose(); } catch (e) { /* noop */ }
+      for (const a of arcs) {
+        scene.remove(a.built.mesh);
+        try { a.built.dispose(); } catch (e) { /* noop */ }
+      }
+      for (const f of flashes) {
+        scene.remove(f.built.sprite);
+        try { f.built.dispose(); } catch (e) { /* noop */ }
+      }
+      handWeaponRef.current = null;
+      if (handWeapon.group) {
+        if (playerBody) playerBody.remove(handWeapon.group);
+        disposeHandGroup(handWeapon.group);
+        handWeapon.group = null;
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, podId, entry]);
@@ -826,14 +978,6 @@ export default function MiddleEarthPage() {
       {goalHud ? (<> · 🧭 {goalHud.label} {goalHud.dist}m <span style={{ display: 'inline-block', transform: `rotate(${goalHud.deg}deg)` }}>↑</span></>) : null}
     </>
   );
-  /* hunt pill clearance: below the open mission card, below the
-   * tucked chip, in its old spot when no mission is active */
-  const huntTop = activeMission
-    ? (missionHudCollapsed
-      ? 'max(10.2rem, calc(env(safe-area-inset-top) + 9.7rem))'
-      : 'max(13.4rem, calc(env(safe-area-inset-top) + 12.9rem))')
-    : styles.huntChip.top;
-
   return (
     <div style={styles.root}>
       <style>{'@keyframes meFade { from { opacity: 0; } to { opacity: 1; } } @keyframes mePulse { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }'}</style>
@@ -986,50 +1130,57 @@ export default function MiddleEarthPage() {
       {/* ================= ZONE HUD ================= */}
       {mode === 'zone' && pod && (
         <>
-          <div style={{ ...styles.topBar, top: BANNER_CLEAR }}>
-            <button style={styles.ghostBtn} onClick={() => { setMode('map'); setEntry(null); }}>🗺 Map</button>
-            <div style={styles.zoneTitle}>{pod.name} · {hero.name}</div>
-            <div style={styles.hpWrap}>
-              <div style={styles.hpLabel}>♥ {Math.max(0, Math.round(hp))}</div>
-              <div style={styles.hpOuter}><div style={{ ...styles.hpInner, width: `${Math.max(0, (hp / hero.maxHp) * 100)}%` }} /></div>
+          {/* the top band, stacked in normal flow — header row,
+              objective row, hunt row, each its own band, none on
+              top of another (Nov 15 phone video: the old absolute
+              stack clipped the hunt pill at the left edge and the
+              mission card sat on the header). The container is
+              pointer-events-none; the tappable rows opt back in. */}
+          <div style={styles.hudTop}>
+            <div style={styles.topBar}>
+              <button style={styles.ghostBtn} onClick={() => { setMode('map'); setEntry(null); }}>🗺 Map</button>
+              <div style={styles.zoneTitle}>{pod.name} · {hero.name}</div>
+              <div style={styles.hpWrap}>
+                <div style={styles.hpLabel}>♥ {Math.max(0, Math.round(hp))}</div>
+                <div style={styles.hpOuter}><div style={{ ...styles.hpInner, width: `${Math.max(0, (hp / hero.maxHp) * 100)}%` }} /></div>
+              </div>
             </div>
+
+            {activeMission && !intro && !beatOverlay && (
+              missionHudCollapsed ? (
+                <button style={styles.missionChip} onClick={expandMissionHud} title="Tap to open the mission card">
+                  🎯 {activeMission.title} · {missionStateLine}
+                </button>
+              ) : (
+                <div style={{ ...styles.missionHud, cursor: 'pointer' }} onClick={() => setMissionHudCollapsed(true)} title="Tap to tuck away">
+                  <div style={styles.missionHudTitle}>🎯 {activeMission.title} <span style={{ fontSize: '0.8rem' }}>▾</span></div>
+                  <div style={styles.missionHudObj}>{activeMission.objective}</div>
+                  <div style={styles.missionHudState}>{missionStateLine}</div>
+                </div>
+              )
+            )}
+
+            {entry && entry.kind === 'roam' && (
+              roamCard ? (
+                <div style={styles.roamCardFull}>
+                  <div style={styles.roamCardTitle}>🧭 Free Roam — {pod.name}</div>
+                  <div>No objectives. The hunt still counts: every orc you fell feeds the campaign.</div>
+                </div>
+              ) : (
+                <div style={styles.roamChip}>🧭 Free Roam</div>
+              )
+            )}
+
+            {/* the hunt meter: readable danger, always visible,
+                in its own row below the objective — it wraps
+                instead of running off the screen edge. */}
+            {huntHud && (
+              <div style={styles.huntChip}>
+                🔥 The hunt: {huntHud.level} · {huntHud.heat}
+                {senseHud ? <span style={styles.senseText}> · {senseHud}</span> : null}
+              </div>
+            )}
           </div>
-
-          {/* the hunt meter: readable danger, always visible.
-              It sits below the mission card when the card is open,
-              and below the tucked chip when it is not — never
-              half-hidden behind either. */}
-          {huntHud && (
-            <div style={{ ...styles.huntChip, top: huntTop }}>
-              🔥 The hunt: {huntHud.level} · {huntHud.heat}
-              {senseHud ? <span style={styles.senseText}> · {senseHud}</span> : null}
-            </div>
-          )}
-
-          {entry && entry.kind === 'roam' && (
-            roamCard ? (
-              <div style={styles.roamCardFull}>
-                <div style={styles.roamCardTitle}>🧭 Free Roam — {pod.name}</div>
-                <div>No objectives. The hunt still counts: every orc you fell feeds the campaign.</div>
-              </div>
-            ) : (
-              <div style={styles.roamChip}>🧭 Free Roam</div>
-            )
-          )}
-
-          {activeMission && !intro && !beatOverlay && (
-            missionHudCollapsed ? (
-              <button style={styles.missionChip} onClick={expandMissionHud} title="Tap to open the mission card">
-                🎯 {activeMission.title} · {missionStateLine}
-              </button>
-            ) : (
-              <div style={{ ...styles.missionHud, cursor: 'pointer' }} onClick={() => setMissionHudCollapsed(true)} title="Tap to tuck away">
-                <div style={styles.missionHudTitle}>🎯 {activeMission.title} <span style={{ fontSize: '0.8rem' }}>▾</span></div>
-                <div style={styles.missionHudObj}>{activeMission.objective}</div>
-                <div style={styles.missionHudState}>{missionStateLine}</div>
-              </div>
-            )
-          )}
 
           {bossHud && bossHud.state !== 'ready' && (
             <div style={styles.bossBar}>
@@ -1172,7 +1323,7 @@ const styles = {
   objective: { color: GOLD, marginTop: '0.6rem' },
   campaignStrip: { display: 'flex', gap: '1.2rem', justifyContent: 'center', flexWrap: 'wrap', margin: '1rem 0 1.2rem', color: '#cfc49c', fontSize: '0.92rem' },
   primaryBtn: { background: GOLD, color: '#221a08', border: 'none', borderRadius: 10, padding: '0.7rem 1.5rem', fontSize: '1rem', fontFamily: 'Georgia, serif', cursor: 'pointer', marginTop: '0.6rem' },
-  ghostBtn: { background: 'rgba(16,20,12,0.75)', color: '#f0e6c8', border: `1px solid ${GOLD}`, borderRadius: 8, padding: '0.4rem 0.8rem', cursor: 'pointer', fontFamily: 'Georgia, serif' },
+  ghostBtn: { background: 'rgba(16,20,12,0.75)', color: '#f0e6c8', border: `1px solid ${GOLD}`, borderRadius: 8, padding: '0.4rem 0.8rem', cursor: 'pointer', fontFamily: 'Georgia, serif', flexShrink: 0, whiteSpace: 'nowrap' },
   ghostBtnBlock: { display: 'block', margin: '0.7rem auto 0', background: 'none', border: 'none', color: '#cfc49c', cursor: 'pointer', fontFamily: 'Georgia, serif', textDecoration: 'underline' },
   mapWrap: { position: 'absolute', inset: 0, overflowY: 'auto', padding: `calc(${BANNER_CLEAR}) 1rem calc(${CARD_CLEAR})`, background: 'radial-gradient(ellipse at 50% 30%, #243118 0%, #10130c 70%)', zIndex: 20 },
   mapHead: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', maxWidth: 880, margin: '0 auto 1rem' },
@@ -1203,22 +1354,28 @@ const styles = {
   missionMeta: { color: '#bdb28c', fontSize: '0.85rem' },
   roamBtn: { background: 'rgba(216,178,92,0.14)', border: `1px solid ${GOLD}`, borderRadius: 10, color: '#f5ecc9', padding: '0.55rem 0.8rem', cursor: 'pointer', fontFamily: 'Georgia, serif', textAlign: 'left' },
   bossNote: { color: '#e8d9a8', fontSize: '0.9rem', marginTop: '0.3rem' },
-  topBar: { position: 'absolute', left: '0.8rem', right: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.8rem', zIndex: 10 },
-  zoneTitle: { fontSize: '1.05rem', color: '#f5ecc9', textShadow: '0 1px 4px rgba(0,0,0,0.7)' },
-  hpWrap: { marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.5rem' },
+  /* the top band, stacked in normal flow: one flex column, the
+   * header row full-width, the objective and hunt rows centred
+   * in their own bands below it. Nothing here is absolutely
+   * positioned against a guessed rem offset, so no row can sit
+   * on another on a narrow phone — the Nov 15 overlap fix. */
+  hudTop: { position: 'absolute', top: 'max(0.6rem, env(safe-area-inset-top))', left: '0.8rem', right: '0.8rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.4rem', zIndex: 10, pointerEvents: 'none' },
+  topBar: { display: 'flex', alignItems: 'center', gap: '0.6rem', width: '100%', pointerEvents: 'auto' },
+  zoneTitle: { flex: '1 1 auto', minWidth: 0, fontSize: '1.05rem', color: '#f5ecc9', textShadow: '0 1px 4px rgba(0,0,0,0.7)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+  hpWrap: { marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 },
   hpLabel: { color: '#ffb3a0', fontSize: '0.95rem', textShadow: '0 1px 3px rgba(0,0,0,0.8)' },
   hpOuter: { width: 110, height: 9, background: 'rgba(0,0,0,0.5)', borderRadius: 5, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.25)' },
   hpInner: { height: '100%', background: '#c8452c', transition: 'width 0.25s ease' },
-  huntChip: { position: 'absolute', top: 'max(9.6rem, calc(env(safe-area-inset-top) + 9.1rem))', left: '50%', transform: 'translateX(-50%)', background: 'rgba(16,20,12,0.78)', border: '1px solid rgba(216,178,92,0.45)', borderRadius: 999, padding: '0.3rem 0.9rem', fontSize: '0.88rem', zIndex: 9, color: '#e8d9a8', whiteSpace: 'nowrap' },
+  huntChip: { background: 'rgba(16,20,12,0.78)', border: '1px solid rgba(216,178,92,0.45)', borderRadius: 999, padding: '0.35rem 0.9rem', fontSize: '0.88rem', color: '#e8d9a8', maxWidth: '100%', textAlign: 'center', lineHeight: 1.45, pointerEvents: 'none' },
   senseText: { color: '#bcd6ff' },
-  roamCardFull: { position: 'absolute', top: '22%', left: '50%', transform: 'translateX(-50%)', maxWidth: 420, width: 'calc(100% - 2rem)', background: 'rgba(16,20,12,0.9)', border: `1px solid ${GOLD}`, borderRadius: 14, padding: '1rem 1.2rem', textAlign: 'center', zIndex: 9, animation: 'meFade 0.4s ease', lineHeight: 1.5 },
+  roamCardFull: { maxWidth: 420, width: '100%', background: 'rgba(16,20,12,0.9)', border: `1px solid ${GOLD}`, borderRadius: 14, padding: '1rem 1.2rem', textAlign: 'center', animation: 'meFade 0.4s ease', lineHeight: 1.5 },
   roamCardTitle: { color: '#f5ecc9', marginBottom: '0.3rem', fontSize: '1.05rem' },
-  roamChip: { position: 'absolute', top: 'max(6.5rem, calc(env(safe-area-inset-top) + 6rem))', left: '50%', transform: 'translateX(-50%)', background: 'rgba(16,20,12,0.75)', border: '1px solid rgba(216,178,92,0.5)', borderRadius: 999, padding: '0.25rem 0.8rem', fontSize: '0.85rem', zIndex: 9 },
-  missionHud: { position: 'absolute', top: 'max(6.2rem, calc(env(safe-area-inset-top) + 5.7rem))', left: '50%', transform: 'translateX(-50%)', background: 'rgba(16,20,12,0.82)', border: '1px solid rgba(216,178,92,0.55)', borderRadius: 12, padding: '0.55rem 0.9rem', textAlign: 'center', zIndex: 9, maxWidth: 'calc(100% - 2rem)' },
+  roamChip: { background: 'rgba(16,20,12,0.75)', border: '1px solid rgba(216,178,92,0.5)', borderRadius: 999, padding: '0.25rem 0.8rem', fontSize: '0.85rem' },
+  missionHud: { background: 'rgba(16,20,12,0.82)', border: '1px solid rgba(216,178,92,0.55)', borderRadius: 12, padding: '0.55rem 0.9rem', textAlign: 'center', maxWidth: '100%', pointerEvents: 'auto' },
   missionHudTitle: { color: '#f5ecc9', fontSize: '0.98rem' },
   missionHudObj: { color: '#cfc49c', fontSize: '0.85rem' },
   missionHudState: { color: GOLD, fontSize: '0.85rem', marginTop: '0.15rem' },
-  missionChip: { position: 'absolute', top: 'max(6.2rem, calc(env(safe-area-inset-top) + 5.7rem))', left: '50%', transform: 'translateX(-50%)', background: 'rgba(16,20,12,0.82)', border: '1px solid rgba(216,178,92,0.55)', borderRadius: 12, padding: '0.45rem 0.9rem', textAlign: 'center', zIndex: 9, maxWidth: 'calc(100% - 2rem)', color: '#f5ecc9', fontSize: '0.88rem', fontFamily: 'Georgia, serif', cursor: 'pointer', lineHeight: 1.45 },
+  missionChip: { background: 'rgba(16,20,12,0.82)', border: '1px solid rgba(216,178,92,0.55)', borderRadius: 12, padding: '0.45rem 0.9rem', textAlign: 'center', maxWidth: '100%', color: '#f5ecc9', fontSize: '0.88rem', fontFamily: 'Georgia, serif', cursor: 'pointer', lineHeight: 1.45, pointerEvents: 'auto' },
   bossBar: { position: 'absolute', bottom: 'max(6rem, calc(env(safe-area-inset-bottom) + 5.5rem))', left: '50%', transform: 'translateX(-50%)', width: 'min(520px, calc(100% - 2rem))', zIndex: 9, textAlign: 'center' },
   bossName: { letterSpacing: '0.22em', fontSize: '0.8rem', color: '#dfe9ff', textShadow: '0 1px 4px rgba(0,0,0,0.9)', marginBottom: '0.3rem' },
   bossOuter: { height: 12, background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(191,216,255,0.6)', borderRadius: 6, overflow: 'hidden' },
@@ -1227,18 +1384,18 @@ const styles = {
   reticle: { position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 8, pointerEvents: 'none', color: 'rgba(255,244,200,0.9)', textShadow: '0 0 6px rgba(0,0,0,0.8)' },
   chevron: { fontSize: '2rem', lineHeight: 1, display: 'block' },
   dot: { fontSize: '1.6rem', lineHeight: 1, display: 'block' },
-  weaponBar: { position: 'absolute', right: '0.8rem', display: 'flex', gap: '0.45rem', alignItems: 'center', zIndex: 10 },
-  weaponBtn: { background: 'rgba(16,20,12,0.8)', color: '#cfc49c', border: '1px solid rgba(216,178,92,0.5)', borderRadius: 999, padding: '0.45rem 0.9rem', cursor: 'pointer', fontFamily: 'Georgia, serif', fontSize: '0.9rem' },
-  weaponBtnOn: { background: GOLD, color: '#221a08', border: `1px solid ${GOLD}` },
-  killsChip: { background: 'rgba(16,20,12,0.8)', border: '1px solid rgba(216,178,92,0.4)', borderRadius: 999, padding: '0.45rem 0.75rem', fontSize: '0.9rem', color: '#e8d9a8' },
+  weaponBar: { position: 'absolute', right: '0.8rem', bottom: BOTTOM_CLEAR, display: 'flex', gap: '0.45rem', alignItems: 'center', justifyContent: 'flex-end', maxWidth: 'calc(100% - 1.6rem)', zIndex: 10 },
+  weaponBtn: { background: 'rgba(16,20,12,0.8)', color: '#cfc49c', border: '1px solid rgba(216,178,92,0.5)', borderRadius: 999, padding: '0.5rem 0.85rem', minHeight: 44, display: 'flex', alignItems: 'center', cursor: 'pointer', fontFamily: 'Georgia, serif', fontSize: '0.9rem', whiteSpace: 'nowrap' },
+  weaponBtnOn: { background: GOLD, color: '#221a08', border: `1px solid ${GOLD}`, fontWeight: '700' },
+  killsChip: { background: 'rgba(16,20,12,0.8)', border: '1px solid rgba(216,178,92,0.4)', borderRadius: 999, padding: '0.5rem 0.75rem', fontSize: '0.95rem', fontWeight: '700', color: '#e8d9a8', whiteSpace: 'nowrap' },
   /* touch controls: the stick bottom-left, the action column
    * mid-right, the hint above the stick — each its own cluster,
    * none of them on top of another control */
   stickWrap: { position: 'absolute', left: '0.8rem', bottom: BOTTOM_CLEAR, zIndex: 10 },
-  actionCol: { position: 'absolute', right: '0.8rem', top: '50%', transform: 'translateY(-50%)', display: 'flex', flexDirection: 'column', gap: '0.6rem', zIndex: 10, alignItems: 'center' },
-  strikeBtn: { width: 64, height: 64, borderRadius: '50%', background: 'rgba(216,178,92,0.92)', color: '#221a08', border: `1px solid ${GOLD}`, fontSize: '1.4rem', cursor: 'pointer', fontFamily: 'Georgia, serif', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', lineHeight: 1 },
+  actionCol: { position: 'absolute', right: '0.8rem', top: '50%', transform: 'translateY(-50%)', display: 'flex', flexDirection: 'column', gap: '0.7rem', zIndex: 10, alignItems: 'center' },
+  strikeBtn: { width: 68, height: 68, borderRadius: '50%', background: 'rgba(216,178,92,0.92)', color: '#221a08', border: `1px solid ${GOLD}`, fontSize: '1.4rem', cursor: 'pointer', fontFamily: 'Georgia, serif', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', lineHeight: 1 },
   strikeLabel: { fontSize: '0.6rem', marginTop: '0.1rem' },
-  actionBtn: { width: 52, height: 52, borderRadius: '50%', background: 'rgba(16,20,12,0.8)', color: '#f0e6c8', border: '1px solid rgba(216,178,92,0.5)', fontSize: '1.1rem', cursor: 'pointer', fontFamily: 'Georgia, serif', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', lineHeight: 1 },
+  actionBtn: { width: 56, height: 56, borderRadius: '50%', background: 'rgba(16,20,12,0.8)', color: '#f0e6c8', border: '1px solid rgba(216,178,92,0.5)', fontSize: '1.1rem', cursor: 'pointer', fontFamily: 'Georgia, serif', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', lineHeight: 1 },
   actionBtnOn: { background: GOLD, color: '#221a08' },
   actionLabel: { fontSize: '0.55rem', marginTop: '0.1rem' },
   strikeHint: { position: 'absolute', left: '0.8rem', bottom: 'max(9.8rem, calc(env(safe-area-inset-bottom) + 9.3rem))', zIndex: 9, color: '#f5ecc9', background: 'rgba(16,20,12,0.75)', border: '1px solid rgba(216,178,92,0.5)', borderRadius: 999, padding: '0.3rem 0.8rem', fontSize: '0.82rem', pointerEvents: 'none', maxWidth: 'calc(100% - 2rem)' },
