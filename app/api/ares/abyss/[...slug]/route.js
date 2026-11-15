@@ -12,17 +12,29 @@ function visitorIp(request) {
   return request.headers.get('x-real-ip') || 'unknown';
 }
 
-async function serve(request) {
+async function serve(request, ctx) {
   try {
     await bumpTrapHit(visitorIp(request));
   } catch { /* the sandbox serves even if the record fails */ }
-  return abyssResponse();
+  // Pass the requested subpath into the maze page builder so each
+  // subpath serves its own deterministic fake page; the hit count
+  // still bumps once per visit, as before.
+  let subpath = '';
+  try {
+    const params = ctx ? await ctx.params : null;
+    const parts = params && Array.isArray(params.slug) ? params.slug : [];
+    subpath = parts.join('/');
+    const url = new URL(request.url);
+    const q = url.searchParams.get('q');
+    if (q) subpath += `?q=${encodeURIComponent(q)}`;
+  } catch { /* fall back to the index page */ }
+  return abyssResponse(subpath);
 }
 
-export async function GET(request) {
-  return serve(request);
+export async function GET(request, ctx) {
+  return serve(request, ctx);
 }
 
-export async function POST(request) {
-  return serve(request);
+export async function POST(request, ctx) {
+  return serve(request, ctx);
 }

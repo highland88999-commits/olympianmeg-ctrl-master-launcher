@@ -35,7 +35,7 @@ async function serve(request) {
       await bumpTrapHit(ip);
     }
   } catch { /* the sandbox serves even if the record fails */ }
-  return abyssResponse();
+  return abyssResponse('');
 }
 
 export async function GET(request) {
