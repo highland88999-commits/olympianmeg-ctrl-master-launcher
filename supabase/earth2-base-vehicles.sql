@@ -26,6 +26,17 @@
 -- owner_email here is stamped from the earth2_parcels title, and
 -- only the title holder may board. If the land ever changes
 -- hands, the title decides and this assignment is re-pointed.
+--
+-- CORRECTION (2026-11-15 ~03:21): the first run of this file
+-- FAILED (42703) — the live table already exists from an earlier
+-- migration WITHOUT a vehicle_slot column, so CREATE TABLE IF NOT
+-- EXISTS was a no-op and the INSERT named a missing column. The
+-- route (app/api/earth2/parcel-vehicles/route.js) reads and
+-- upserts vehicle_slot, so the fix is a MIGRATION, not a new
+-- table: add the column, backfill legacy rows with their slug
+-- (the route's own rule: a legacy single-vehicle row is a row
+-- whose slot is its slug), make it NOT NULL, add the unique
+-- (parcel_id, vehicle_slot) key the upsert needs, then seed.
 
 create table if not exists public.earth2_parcel_vehicles (
   parcel_id text not null,
@@ -44,6 +55,31 @@ create table if not exists public.earth2_parcel_vehicles (
 alter table public.earth2_parcel_vehicles enable row level security;
 -- No client policies: the parcel-vehicles route reads/writes
 -- through the service-role client only (owner-gated in code).
+
+-- Migrate the pre-existing table into the slotted schema.
+alter table public.earth2_parcel_vehicles
+  add column if not exists vehicle_slot text;
+update public.earth2_parcel_vehicles
+  set vehicle_slot = vehicle_slug
+  where vehicle_slot is null;
+alter table public.earth2_parcel_vehicles
+  alter column vehicle_slot set not null;
+-- The route upserts onConflict 'parcel_id,vehicle_slot'.
+alter table public.earth2_parcel_vehicles
+  add constraint earth2_parcel_vehicles_slot_key
+  unique (parcel_id, vehicle_slot);
+-- CORRECTION 2 (2026-11-15 ~03:24): the re-run failed 23505 — the
+-- live table's primary key is on parcel_id ALONE (pre-check:
+-- earth2_parcel_vehicles_pkey = PRIMARY KEY (parcel_id)), and a
+-- legacy E2-0619 row already exists. One vehicle per parcel can
+-- never hold a plane AND a Lambo, so the legacy PK has to go: the
+-- slotted key above becomes the table's uniqueness. Drop it here.
+-- LESSON (same night): the SQL Editor runs a pasted script as ONE
+-- transaction — when the INSERT failed, the ADD COLUMN / backfill /
+-- unique-key steps rolled back with it, so the column does NOT
+-- exist yet. This file must run as ONE block, all steps together.
+alter table public.earth2_parcel_vehicles
+  drop constraint if exists earth2_parcel_vehicles_pkey;
 
 insert into public.earth2_parcel_vehicles
   (parcel_id, vehicle_slot, owner_email, vehicle_slug, vehicle_name, vehicle_source, x, z, heading, updated_at)

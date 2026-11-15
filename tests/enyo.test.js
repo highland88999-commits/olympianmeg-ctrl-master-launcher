@@ -368,7 +368,12 @@ t('skill: recruit less accurate than veteran', BOT_SKILLS.recruit.accuracyMul < 
   const page = strip(readFileSync('app/enyo/page.jsx', 'utf8'));
   t('page: use client', page.includes("'use client'"));
   t('page: pointer lock', /requestPointerLock/.test(page));
-  t('page: three maps', /Ruined Plaza/.test(page) && /Neon Depot/.test(page) && /Dust Hollow/.test(page));
+  // The three maps live in lib/enyo/maps.js (extracted verbatim from
+  // page.jsx 2026-11-15 so the dressing + tests can share them); the
+  // page imports them from there.
+  const mapsSrc = strip(readFileSync('lib/enyo/maps.js', 'utf8'));
+  t('page: three maps', /Ruined Plaza/.test(mapsSrc) && /Neon Depot/.test(mapsSrc) && /Dust Hollow/.test(mapsSrc));
+  t('page: maps imported from lib/enyo/maps', /from '@\/lib\/enyo\/maps'/.test(page));
   t('page: wasd + mobile', /wasd/i.test(page) && /touch/i.test(page));
   t('page: reduced motion', /prefers-reduced-motion/.test(page));
   t('page: no telemetry/fetch', !/fetch\(|central_telemetry|phone.?home|supabase|https?:\/\//i.test(page));

@@ -13,6 +13,7 @@
 
 import * as THREE from 'three';
 import { buildArena, ARENA_META } from './arenas.js';
+import { buildArenaDressing } from '../../lib/kombat/arena-cgi.js';
 import { brawlSpawnPositions } from '../../lib/kombat/brawl-rules.js';
 import {
   mulberry32, rr, wmat, canvasTexture, PAINTERS, windowsTexture,
@@ -268,14 +269,21 @@ export function buildBrawlArena(index) {
   cfg.build(surround, mulberry32(900 + index * 17));
   stage.group.add(surround);
 
+  // ---- CGI upgrade (2026-11-15): fighting pit, brazier ring, embers,
+  // haze, fake rim light, crowd towers — all outside the play circle,
+  // zero real lights (see lib/kombat/arena-cgi.js) ----
+  const dressing = buildArenaDressing(index, radius);
+  stage.group.add(dressing.group);
+
   let t = 0;
   const update = (dt, elapsed) => {
     t += dt;
     stage.update(dt, elapsed);
+    dressing.update(dt, elapsed);
     ringMat.opacity = 0.32 + Math.sin(t * 2.2) * 0.1;
   };
 
-  return { ...stage, update, meta, radius };
+  return { ...stage, update, meta, radius, dressing: dressing.counts };
 }
 
 /** Spawn points for n fighters inside the arena circle. */
