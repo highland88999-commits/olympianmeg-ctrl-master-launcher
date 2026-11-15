@@ -123,8 +123,14 @@ export async function middleware(req) {
 
   // 2b. Trapped in the abyss? Every later request from a trapped source
   // falls straight back into the sandbox until the keeper releases it.
+  // RUSSIAN DOLLS (Merlin, 2026-11-15): a trapped source asking for a
+  // path outside the abyss is trying to break out. The attempted path
+  // rides along as ?escape= so the abyss can tell an escape attempt
+  // from a maze click and drop the prisoner one doll deeper.
   if (sentinelOn && ip !== 'unknown' && (await isTrapped(req, ip))) {
-    return NextResponse.rewrite(new URL('/api/ares/abyss', req.url));
+    const dest = new URL('/api/ares/abyss', req.url);
+    dest.searchParams.set('escape', url.pathname);
+    return NextResponse.rewrite(dest);
   }
 
   // 3. Bot heuristics.
