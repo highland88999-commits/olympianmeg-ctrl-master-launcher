@@ -35,6 +35,8 @@ import {
   makeVoyageBackpack, loadVoyageBackpack, saveVoyageBackpack, addItem, removeItem,
   findItem, syncCaptainFromBackpack, syncBackpackFromCaptain,
 } from './voyage-backpack.js';
+import { krakenLife, foeShipLife, lifeLine } from './operators.js';
+import { crewWatchLine } from './humanoid-operators.js';
 import {
   createDuelRoom, joinDuelRoom, getCaptainId, DuelSync,
   getRoom, setRoomStatus, ROOM_STATUS,
@@ -1569,7 +1571,7 @@ export default function DutchmanPage() {
           reloadStbd: p.reloadStbd <= 0 ? 1 : 1 - p.reloadStbd / rt,
           enemies: G.mode === 'solo' ? world.enemies.filter((e) => e.alive).length : 1,
           enemyHull: G.mode === 'duel' && G.remote ? Math.max(0, Math.round(G.remote.hull)) : null,
-          foeHull: foe ? { name: foe.name, hull: Math.max(0, Math.round(foe.hull)), maxHull: foe.maxHull } : null,
+          foeHull: foe ? { name: foe.name, hull: Math.max(0, Math.round(foe.hull)), maxHull: foe.maxHull, lifeLine: lifeLine(foeShipLife(foe, p)) + crewWatchLine(foe, p) } : null,
           // Voyage snapshot.
           level: world.captain.level || 1,
           sinkings: world.captain.sinkings || 0,
@@ -1587,7 +1589,7 @@ export default function DutchmanPage() {
           nearFoe,
           nearSlot,
           ashoreIslandName: G.ashore ? (G.ashore.island.name || 'the island') : null,
-          kraken: world.kraken ? { state: world.kraken.state, hits: world.kraken.hits || 0 } : null,
+          kraken: world.kraken ? { state: world.kraken.state, hits: world.kraken.hits || 0, lifeLine: lifeLine(krakenLife(world)) } : null,
           fleet: world.fleet.map((f) => ({
             id: f.id, name: f.name,
             hull: Math.max(0, Math.round(f.hull)), maxHull: f.maxHull,
@@ -2020,6 +2022,7 @@ export default function DutchmanPage() {
                   <div className="mt-1.5">
                     <p className="text-[9px] tracking-widest text-orange-300/80">FOE — {hud.foeHull.name.toUpperCase()} {hud.foeHull.hull}</p>
                     <div className="h-1.5 rounded-full bg-zinc-800"><div className="h-full rounded-full bg-orange-500" style={{ width: `${(hud.foeHull.hull / hud.foeHull.maxHull) * 100}%` }} /></div>
+                    {hud.foeHull.lifeLine && (<p className="mt-0.5 text-[9px] text-zinc-400">{hud.foeHull.lifeLine}</p>)}
                   </div>
                 )}
               </div>
@@ -2029,10 +2032,13 @@ export default function DutchmanPage() {
 
           {/* kraken banner (solo only) */}
           {mode === 'solo' && hud.kraken && (
-            <div className="pointer-events-none absolute inset-x-0 top-[76px] z-10 flex justify-center px-4">
+            <div className="pointer-events-none absolute inset-x-0 top-[76px] z-10 flex flex-col items-center gap-1 px-4">
               <p className="rounded-full border border-red-500/70 bg-red-950/80 px-4 py-1.5 text-xs font-black tracking-widest text-red-200 backdrop-blur">
                 🐙 KRAKEN — hits {hud.kraken.hits}/12
               </p>
+              {hud.kraken.lifeLine && (
+                <p className="rounded-full bg-black/60 px-3 py-0.5 text-[10px] text-red-200/80 backdrop-blur">{hud.kraken.lifeLine}</p>
+              )}
             </div>
           )}
 
