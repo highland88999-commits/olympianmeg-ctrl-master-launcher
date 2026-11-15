@@ -5,6 +5,9 @@ import dynamic from "next/dynamic";
 import { timeOfDay01, getDayNightPlace, requestDayNightPlace } from "@/lib/day-night";
 import { IcSunrise, IcSun, IcSunset, IcMoon, IcClose, IcRoute, IcBolt, IcCloudRain } from "@/app/artemis-ui/icons";
 import { JUPITER2_SEED, LIGHTNING_MONSTER_COUNT, DEMOBAT_COUNT } from "@/lib/jupiter2/profile";
+import { LIGHTNING_MONSTER_MODELS, DEMOBAT_MODEL_ID, modelUrlFor } from "@/lib/jupiter2/models";
+import { prefetchHawkins } from "@/lib/hawkins/loader";
+import { preloadGlb } from "@/app/hollow-earth/model-loader";
 
 // R3F scene loads client-side only (WebGL).
 const Jupiter2Scene = dynamic(() => import("@/components/jupiter2/Jupiter2Scene"), {
@@ -70,6 +73,13 @@ export default function Jupiter2Page() {
 
   useEffect(() => {
     document.title = "Jupiter 2 — Inside the Storm";
+  }, []);
+
+  // Warm the creature downloads before the scene mounts, so the
+  // first monsters and bats appear from cache, not cold fetch.
+  useEffect(() => {
+    prefetchHawkins(DEMOBAT_MODEL_ID);
+    LIGHTNING_MONSTER_MODELS.forEach((m) => preloadGlb(modelUrlFor(m.key)));
   }, []);
 
   function select(sel) {

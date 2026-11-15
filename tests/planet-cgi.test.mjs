@@ -239,6 +239,24 @@ describe('planet motion', () => {
     assert.equal(lightningFlash(PLANET_CGI_EPOCH_MS + 450, 't'), lightningFlash(PLANET_CGI_EPOCH_MS + 450, 't'));
   });
 
+  it('the flash chance is tunable per storm — 0 never flashes, 1 always flashes', () => {
+    let none = 0;
+    let all = 0;
+    for (let i = 0; i < 400; i++) {
+      if (lightningFlash(PLANET_CGI_EPOCH_MS + i * 90, 't', 9000, 0) > 0) none++;
+      if (lightningFlash(PLANET_CGI_EPOCH_MS + i * 90, 't', 9000, 1) > 0) all++;
+    }
+    assert.equal(none, 0, 'chance 0 never flashes');
+    assert.equal(all, 400, 'chance 1 flashes every slice');
+    // The default is the old rate (0.14): callers that pass no
+    // chance keep exactly the sky they had.
+    let def = 0;
+    for (let i = 0; i < 400; i++) {
+      if (lightningFlash(PLANET_CGI_EPOCH_MS + i * 90, 't') > 0) def++;
+    }
+    assert.ok(def > 0 && def < 200, `default rate still occasional (${def}/400)`);
+  });
+
   it('dust devils live, wander and die on a 40 s cycle', () => {
     const d0 = devilFor(0, PLANET_CGI_EPOCH_MS + 1000);
     assert.ok(d0.alive);

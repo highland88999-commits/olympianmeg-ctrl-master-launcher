@@ -3,12 +3,18 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Html } from '@react-three/drei';
 import * as THREE from 'three';
-import { planetMaps, spotSwirlTexture } from '@/lib/planet-cgi/textures';
-import { makeDustField, updateDustField, bandFlowOffset, PLANET_CGI_EPOCH_MS } from '@/lib/planet-cgi/motion';
+import { planetMaps, spotSwirlTexture, cloudLayerTexture } from '@/lib/planet-cgi/textures';
+import { makeDustField, updateDustField, bandFlowOffset, spinAngle, PLANET_CGI_EPOCH_MS } from '@/lib/planet-cgi/motion';
 import {
   JUPITER2_SEED, WALK_SPEED, MOVE_R, EYE_HEIGHT,
-  LEVER_POSITION, LIGHTNING_MONSTER_COUNT, DEMOBAT_COUNT, groundHeight, jupiter2Sky,
+  LEVER_POSITION, DEMOBAT_COUNT, groundHeight, jupiter2Sky,
 } from '@/lib/jupiter2/profile';
+import {
+  LIGHTNING_MONSTER_MODELS, DEMOBAT_MODEL_ID, DEMOBAT_HEIGHT_M, modelUrlFor,
+} from '@/lib/jupiter2/models';
+import { instantiateHawkins } from '@/lib/hawkins/loader';
+import { hawkinsModel } from '@/lib/hawkins/models';
+import { kickOffGlb } from '@/app/hollow-earth/model-loader';
 import {
   createSpeederState, summonSpeeder, dismissSpeeder, dismountSpeeder, stepSpeeder, SPEEDER_SPEED,
   SPEEDER_MOUNTED_EYE_M,
@@ -18,7 +24,7 @@ import {
 } from '@/lib/jupiter2/lever';
 import { lifeFor, homeFor } from '@/lib/jupiter2/operators';
 import { flashAt, boltFor, rainBases, stormIntensity, RAIN_COUNT, WIND } from '@/lib/jupiter2/storm';
-import { buildLightningMonster, buildDemobat, buildSpeeder, buildOblivionLever } from '@/lib/jupiter2/meshes';
+import { buildSpeeder, buildOblivionLever } from '@/lib/jupiter2/meshes';
 
 // JUPITER 2 — walkable storm surface (Merlin, Nov 15 ~01:11, spec Nov 10).
 // The user stands ON the cloud deck INSIDE the storm at street level:
@@ -26,10 +32,17 @@ import { buildLightningMonster, buildDemobat, buildSpeeder, buildOblivionLever }
 // summons per user (Earth 1's summon contract), lightning monsters
 // walk the deck, demobats circle overhead, and a glowing green
 // oblivion lever stands on the deck behind a confirm gate.
-// Procedural CGI only — no Tripo, no GLB. Day/night runs the shared
-// law (timeOfDay01, real clock by default, page-driven like Mars).
+// The creatures are REAL GLBs now (Merlin, Nov 15 ~14:44): the
+// lightning monsters are the Monsterverse lightning seats and the
+// demobats the Hawkins GLB — no WebGL placeholders. The speeder
+// and the lever stay procedural. Day/night runs the shared law
+// (timeOfDay01, real clock by default, page-driven like Mars).
 
 const ACCENT = '#e8a35c';
+
+// The Hawkins loader normalizes the demobat to its manifest height
+// (7 Hawkins units); Jupiter 2 stands it DEMOBAT_HEIGHT_M tall.
+const DEMOBAT_SCALE = DEMOBAT_HEIGHT_M / ((hawkinsModel(DEMOBAT_MODEL_ID) || {}).heightUnits || 7);
 
 function useKeys(inputRef) {
   useEffect(() => {
@@ -226,6 +239,11 @@ export function Jupiter2TouchControls({ inputRef, riding }) {
 }
 
 // --- storm rig: rain, lightning, haze -------------------------------------
+// MORE LIGHTNING (Merlin, Nov 15 ~14:44) + the CGI atmosphere
+// treatment: a drifting storm-cloud dome overhead, a low murk
+// layer under the haze, a lightning-lit sky wash, and twin bolts
+// on the hard flashes. Emissive flashes only — no new real lights;
+// the one flash light is the existing directional, driven harder.
 function StormRig({ dayF }) {
   const rainGeo = useMemo(() => {
     const bases = rainBases();
@@ -240,18 +258,37 @@ function StormRig({ dayF }) {
     color: '#9fc4d8', size: 0.14, transparent: true, opacity: 0.65, depthWrite: false, sizeAttenuation: true,
   }), []);
   const haze = useMemo(() => makeDustField({
-    count: 260, width: 170, height: 10, depth: 170, yBase: 0.3,
+    count: 520, width: 170, height: 10, depth: 170, yBase: 0.3,
     seed: JUPITER2_SEED + '-haze', color: '#c9a06a', size: 0.35, opacity: 0.4,
+  }), []);
+  const murk = useMemo(() => makeDustField({
+    count: 260, width: 170, height: 4, depth: 170, yBase: 0.1,
+    seed: JUPITER2_SEED + '-murk', color: '#7a4a28', size: 0.5, opacity: 0.5,
+  }), []);
+  const cloudMat = useMemo(() => {
+    const map = cloudLayerTexture(`${JUPITER2_SEED}-storm-clouds`);
+    map.needsUpdate = true;
+    return new THREE.MeshBasicMaterial({
+      map, transparent: true, opacity: 0.45, side: THREE.BackSide, fog: false, depthWrite: false,
+    });
+  }, []);
+  const washMat = useMemo(() => new THREE.MeshBasicMaterial({
+    color: '#cfe8ff', transparent: true, opacity: 0, side: THREE.BackSide,
+    fog: false, blending: THREE.AdditiveBlending, depthWrite: false,
   }), []);
   const flashLight = useRef();
   const boltRef = useRef();
+  const twinRef = useRef();
   const boltGeo = useMemo(() => new THREE.BufferGeometry(), []);
+  const twinGeo = useMemo(() => new THREE.BufferGeometry(), []);
   const lastSlot = useRef(-1);
 
   useEffect(() => () => {
-    rainGeo.dispose(); rainMat.dispose(); boltGeo.dispose();
+    rainGeo.dispose(); rainMat.dispose(); boltGeo.dispose(); twinGeo.dispose();
     haze.geometry.dispose(); haze.material.dispose();
-  }, [rainGeo, rainMat, boltGeo, haze]);
+    murk.geometry.dispose(); murk.material.dispose();
+    cloudMat.map.dispose(); cloudMat.dispose(); washMat.dispose();
+  }, [rainGeo, rainMat, boltGeo, twinGeo, haze, murk, cloudMat, washMat]);
 
   useFrame(({ camera }) => {
     const now = Date.now();
@@ -275,11 +312,21 @@ function StormRig({ dayF }) {
     attr.needsUpdate = true;
     updateDustField(haze, now);
     haze.material.opacity = (0.2 + 0.3 * stormIntensity(now)) * (0.5 + 0.5 * dayF);
-    // Lightning: the seeded flash drives a real light + a bolt.
+    updateDustField(murk, now);
+    murk.material.opacity = (0.25 + 0.25 * stormIntensity(now)) * (0.5 + 0.5 * dayF);
+    // The storm-cloud dome drifts with the wind, a touch faster
+    // than the sky bands beneath it (the kit's cloud law: clouds
+    // turn ~1.35x the surface).
+    cloudMat.map.offset.x = bandFlowOffset(0.004, now);
+    cloudMat.map.needsUpdate = true;
+    // Lightning: the seeded flash drives the real light, the sky
+    // wash, and one bolt — two on the hard flashes.
     const flash = flashAt(now);
-    if (flashLight.current) flashLight.current.intensity = flash * 5;
+    if (flashLight.current) flashLight.current.intensity = flash * 8;
+    washMat.opacity = flash * 0.3;
     const slot = Math.floor((now - PLANET_CGI_EPOCH_MS) / 90);
     const line = boltRef.current;
+    const twin = twinRef.current;
     if (line) {
       if (flash >= 0.45 && slot !== lastSlot.current) {
         lastSlot.current = slot;
@@ -287,8 +334,18 @@ function StormRig({ dayF }) {
         const pts = bolt.points.map((p) => new THREE.Vector3(p.x, p.y, p.z));
         boltGeo.setFromPoints(pts);
         line.visible = true;
+        if (twin) {
+          const bolt2 = boltFor(now + 47);
+          if (flash >= 0.7 && bolt2.points.length >= 8) {
+            twinGeo.setFromPoints(bolt2.points.map((p) => new THREE.Vector3(p.x, p.y, p.z)));
+            twin.visible = true;
+          } else {
+            twin.visible = false;
+          }
+        }
       } else if (flash < 0.2) {
         line.visible = false;
+        if (twin) twin.visible = false;
       }
     }
   });
@@ -297,8 +354,20 @@ function StormRig({ dayF }) {
     <>
       <points geometry={rainGeo} material={rainMat} frustumCulled={false} />
       <primitive object={haze} />
+      <primitive object={murk} />
+      {/* storm-cloud dome — textured cloud streaks overhead, drifting */}
+      <mesh material={cloudMat}>
+        <sphereGeometry args={[380, 32, 24]} />
+      </mesh>
+      {/* lightning-lit sky — the whole dome flares with each crack */}
+      <mesh material={washMat}>
+        <sphereGeometry args={[410, 32, 24]} />
+      </mesh>
       <directionalLight ref={flashLight} position={[20, 50, -10]} intensity={0} color="#cfe8ff" />
       <line ref={boltRef} geometry={boltGeo} visible={false}>
+        <lineBasicMaterial color="#d6ecff" transparent opacity={0.95} />
+      </line>
+      <line ref={twinRef} geometry={twinGeo} visible={false}>
         <lineBasicMaterial color="#d6ecff" transparent opacity={0.95} />
       </line>
     </>
@@ -306,33 +375,60 @@ function StormRig({ dayF }) {
 }
 
 // --- creatures ---------------------------------------------------------------
+// REAL MODELS now (Merlin, Nov 15 ~14:44) — no placeholders. The
+// lightning monsters are the Monsterverse lightning seats, the
+// demobats the Hawkins GLB. Each creature owns a holder group the
+// driver moves; the GLB mounts inside it once its load lands, so
+// a creature is simply absent until its model arrives — never a
+// stand-in. No death law: they persist (operators.js).
 function Creatures({ onSelect }) {
-  const monsters = useMemo(() => Array.from({ length: LIGHTNING_MONSTER_COUNT }, (_, i) => {
+  const monsters = useMemo(() => LIGHTNING_MONSTER_MODELS.map((model, i) => {
     const home = homeFor('lightning-monster', i);
-    const group = buildLightningMonster(0.9 + (i % 3) * 0.25);
+    const group = new THREE.Group();
     group.position.set(home.x, groundHeight(home.x, home.z), home.z);
-    return { id: `lightning-monster_${i}`, kind: 'lightning-monster', index: i, group, home, phase: i * 1.3, wander: 0, tx: home.x, tz: home.z };
+    return { id: `lightning-monster_${i}`, kind: 'lightning-monster', index: i, model, group, home, phase: i * 1.3, wander: 0, tx: home.x, tz: home.z };
   }), []);
   const bats = useMemo(() => Array.from({ length: DEMOBAT_COUNT }, (_, i) => {
     const home = homeFor('demobat', i);
-    const group = buildDemobat(0.9 + (i % 2) * 0.3);
+    const group = new THREE.Group();
     group.position.set(home.x, 14 + (i % 4) * 3, home.z);
-    return { id: `demobat_${i}`, kind: 'demobat', index: i, group, home, phase: i * 0.9, angle: i * 0.7, radius: 12 + (i % 4) * 6 };
+    return { id: `demobat_${i}`, kind: 'demobat', index: i, group, home, phase: i * 0.9, angle: i * 0.7, radius: 12 + (i % 4) * 6, handle: null };
   }), []);
-  useEffect(() => () => {
-    [...monsters, ...bats].forEach((c) => c.group.traverse((o) => {
-      if (o.geometry) o.geometry.dispose();
-      if (o.material && !o.material.userData?.shared) {
-        if (Array.isArray(o.material)) o.material.forEach((m) => m.dispose());
-        else o.material.dispose();
-      }
-    }));
+  const mountedRef = useRef(true);
+  const kickedBats = useRef(new Set());
+
+  useEffect(() => {
+    mountedRef.current = true;
+    // Monsterverse lightning GLBs into the monster holders — the
+    // drop-in loader scales each to its design height, varied a
+    // touch per slot so the two Voltas do not read as twins.
+    monsters.forEach((m, i) => {
+      const heightM = m.model.heightM * (0.95 + (i % 3) * 0.08);
+      kickOffGlb(m.group, modelUrlFor(m.model.key), heightM);
+    });
+    // Hawkins demobats — one shared download, one independent
+    // skeleton clone each, wings flapped by the Hawkins rig.
+    bats.forEach((b) => {
+      if (kickedBats.current.has(b.id)) return;
+      kickedBats.current.add(b.id);
+      instantiateHawkins(DEMOBAT_MODEL_ID).then((handle) => {
+        if (!mountedRef.current || !handle) return;
+        handle.group.scale.setScalar(DEMOBAT_SCALE);
+        b.group.add(handle.group);
+        b.handle = handle;
+      }).catch(() => {});
+    });
+    return () => {
+      mountedRef.current = false;
+      bats.forEach((b) => { if (b.handle) { b.handle.dispose(); b.handle = null; } });
+      // The lightning clones stay owned by the model-loader cache —
+      // their geometries are shared with the cached master scene and
+      // must not be disposed here.
+    };
   }, [monsters, bats]);
 
   useFrame((state) => {
     const t = state.clock.elapsedTime;
-    const now = Date.now();
-    const flash = flashAt(now);
     for (const m of monsters) {
       // Slow wander across the deck, retargeting every few seconds.
       m.wander -= 0.016;
@@ -348,10 +444,9 @@ function Creatures({ onSelect }) {
       p.x += (dx / len) * 1.1 * 0.016;
       p.z += (dz / len) * 1.1 * 0.016;
       p.y = groundHeight(p.x, p.z);
+      // The GLBs face +Z in bind pose (Hollow Earth faceYaw law:
+      // faceYaw = atan2 of travel), so this walks them forward.
       m.group.rotation.y = Math.atan2(dx, dz);
-      // The core flares with the lightning — it feeds on the storm.
-      const core = m.group.userData.glow;
-      if (core) core.scale.setScalar(1 + flash * 0.9 + Math.sin(t * 2 + m.phase) * 0.1);
     }
     for (const b of bats) {
       b.angle += 0.016 * 0.22;
@@ -362,8 +457,8 @@ function Creatures({ onSelect }) {
       const npos = new THREE.Vector3(nx, ny, nz);
       b.group.lookAt(npos);
       p.copy(npos);
-      const flap = Math.sin(t * 7 + b.phase) * 0.6;
-      b.group.userData.wings.forEach((w, i) => { w.rotation.z = (i === 0 ? -1 : 1) * (0.35 + flap); });
+      // The Hawkins rig flaps the arm-chain wings (2.6 Hz).
+      if (b.handle && b.handle.update) b.handle.update(t, { phase: b.phase });
     }
   });
 
@@ -426,7 +521,11 @@ function SceneContent({ timeOfDay, mode, inputRef, speederRef, walkerRef, leverS
     map.repeat.set(2, 1);
     return new THREE.MeshBasicMaterial({ map, side: THREE.BackSide, fog: false });
   }, []);
-  const spotTex = useMemo(() => spotSwirlTexture(), []);
+  const spotTex = useMemo(() => {
+    const tex = spotSwirlTexture();
+    tex.center.set(0.5, 0.5);
+    return tex;
+  }, []);
   const speederGroup = useMemo(() => buildSpeeder(), []);
   const leverGroup = useMemo(() => buildOblivionLever(), []);
 
@@ -439,6 +538,8 @@ function SceneContent({ timeOfDay, mode, inputRef, speederRef, walkerRef, leverS
     const now = Date.now();
     skyMat.map.offset.x = bandFlowOffset(0.003, now);
     skyMat.map.needsUpdate = true;
+    // The Great Red Spot turns slowly — a full turn in ~5 min.
+    spotTex.rotation = spinAngle(0.02, now);
   });
   // Speeder mesh follows its state; lever arm tilts when pulled.
   useFrame(() => {

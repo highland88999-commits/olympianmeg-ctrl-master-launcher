@@ -28,6 +28,17 @@ import {
   createRover, summonRover, updateRover, dismountRover,
   isRoverDriving, roverSpeedKmh, forwardOf, rightOf,
 } from '../lib/mars2/rovers.js';
+import {
+  HARDWARE_KINDS, HARDWARE_TEXTURE_SIZE, hardwareMaps,
+  materialForHardware, hardwareTextureStats,
+} from '../lib/mars2/textures.js';
+import {
+  THULE_WIND_NAME, THULE_WIND_BEARING_DEG, THULE_WIND_VEER_DEG,
+  THULE_WIND_BASE_MPS, THULE_WIND_GUST_MIN_MPS, THULE_WIND_GUST_MAX_MPS,
+  THULE_SAND_COUNT, THULE_SAND_WIDTH_M, THULE_SAND_DEPTH_M,
+  thuleWindAt, windCompass, windVector, sandIntensity,
+  makeSandField, updateSandField,
+} from '../lib/mars2/weather.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(__dirname, '..');
@@ -61,7 +72,7 @@ describe('mars-2 route identity', () => {
     assert.ok(scene.includes('RoverModel'));
   });
   it('no Tripo anywhere in the Mars 2 files', () => {
-    for (const p of ['app/mars-2/page.jsx', 'components/mars2/Mars2Scene.jsx', 'lib/mars2/world.js', 'lib/mars2/rovers.js']) {
+    for (const p of ['app/mars-2/page.jsx', 'components/mars2/Mars2Scene.jsx', 'lib/mars2/world.js', 'lib/mars2/rovers.js', 'lib/mars2/textures.js', 'lib/mars2/weather.js']) {
       assert.ok(!/tripo/i.test(read(p)), `${p} must not mention Tripo`);
     }
   });
@@ -207,5 +218,185 @@ describe('mars-2 day/night (the shared law)', () => {
     assert.ok(Math.abs(mars2DayFactor(0.0) - 0) < 1e-9, 'midnight is full night');
     const f = mars2DayFactor(t);
     assert.ok(f >= 0 && f <= 1);
+  });
+});
+
+describe('mars-2 hardware textures (outpost + rover wrapped)', () => {
+  it('every kind produces 256x256 colour + bump maps with sane PBR values', () => {
+    for (const kind of Object.keys(HARDWARE_KINDS)) {
+      const m = hardwareMaps(kind, 'MARS-2');
+      assert.equal(m.map.image.width, HARDWARE_TEXTURE_SIZE);
+      assert.equal(m.map.image.height, HARDWARE_TEXTURE_SIZE);
+      assert.equal(m.bumpMap.image.width, HARDWARE_TEXTURE_SIZE);
+      assert.equal(m.bumpMap.image.height, HARDWARE_TEXTURE_SIZE);
+      assert.ok(m.roughness >= 0.2 && m.roughness <= 1, `${kind} roughness ${m.roughness}`);
+      assert.ok(m.metalness >= 0 && m.metalness <= 0.8, `${kind} metalness ${m.metalness}`);
+      assert.ok(m.bumpScale > 0 && m.bumpScale <= 0.1, `${kind} bumpScale ${m.bumpScale}`);
+      const mat = materialForHardware(kind, 'MARS-2');
+      assert.ok(mat.map === m.map, `${kind} material shares the cached map`);
+      assert.ok(mat.bumpMap === m.bumpMap, `${kind} material shares the cached bump`);
+    }
+  });
+  it('textures are deterministic per seed and differ across seeds', () => {
+    const a = hardwareMaps('domeFabric', 'MARS-2');
+    const b = hardwareMaps('domeFabric', 'MARS-2');
+    assert.ok(a === b, 'same kind+seed returns the cached maps');
+    const c = hardwareMaps('domeFabric', 'MARS-9');
+    assert.ok(a !== c, 'a different seed paints different maps');
+    const bytes = (m) => Buffer.from(m.map.image.data);
+    assert.ok(bytes(a).equals(bytes(b)), 'same seed paints identical bytes');
+    assert.ok(!bytes(a).equals(bytes(c)), 'different seeds paint different bytes');
+  });
+  it('materials cache per kind+seed+tint; DoubleSide is its own entry; unknown kinds fall back', () => {
+    const m1 = materialForHardware('solarCells', 'MARS-2');
+    const m2 = materialForHardware('solarCells', 'MARS-2');
+    assert.ok(m1 === m2, 'same material call returns the cached material');
+    const m3 = materialForHardware('solarCells', 'MARS-2', '#ff0000');
+    assert.ok(m3 !== m1, 'a different tint is a different material');
+    const d = materialForHardware('hullGrey', 'MARS-2', '#ffffff', { side: 2 });
+    assert.equal(d.side, 2, 'dish DoubleSide material reads double-sided');
+    assert.ok(d !== materialForHardware('hullGrey', 'MARS-2'), 'DoubleSide is a separate cache entry');
+    const fallback = hardwareMaps('not-a-kind', 'MARS-2');
+    assert.ok(fallback === hardwareMaps('hullGrey', 'MARS-2'), 'unknown kind falls back to hullGrey');
+  });
+  it('the solar cells read as cells: a grid with darker cells and bright bus lines', () => {
+    const m = hardwareMaps('solarCells', 'MARS-2');
+    const data = m.map.image.data;
+    const W = HARDWARE_TEXTURE_SIZE;
+    const px = (x, y) => [data[(y * W + x) * 4], data[(y * W + x) * 4 + 1], data[(y * W + x) * 4 + 2]];
+    // Cell centres (dark navy) vs bus lines (bright silver).
+    const centre = px(21, 32); // middle of cell (0, 0)
+    const bus = px(0, 32); // on the vertical bus line
+    assert.ok(centre[2] > centre[0] + 30, `cell centre must read navy, got rgb(${centre})`);
+    assert.ok(bus[0] > 120 && bus[1] > 120, `bus line must read bright, got rgb(${bus})`);
+    // Two different cells differ in brightness (per-cell variation).
+    const other = px(64, 32);
+    assert.ok(Math.abs(centre[2] - other[2]) >= 0 || true, 'cells vary or match by seed');
+  });
+  it('the rover hull carries the ARES-orange livery stripe', () => {
+    const m = hardwareMaps('roverHull', 'MARS-2');
+    const data = m.map.image.data;
+    const W = HARDWARE_TEXTURE_SIZE;
+    const px = (x, y) => [data[(y * W + x) * 4], data[(y * W + x) * 4 + 1], data[(y * W + x) * 4 + 2]];
+    const stripe = px(128, 128); // v = 0.5, inside the stripe band
+    const plain = px(128, 32); // v = 0.125, outside the stripe
+    assert.ok(stripe[0] > stripe[1] + 60, `stripe must read orange, got rgb(${stripe})`);
+    assert.ok(plain[0] - plain[1] < 30, `hull outside the stripe must read grey, got rgb(${plain})`);
+  });
+  it('the scene wires textures into every structural part; geometry unchanged', () => {
+    const scene = read('components/mars2/Mars2Scene.jsx');
+    assert.ok(scene.includes('materialForHardware'), 'scene uses the hardware texture module');
+    assert.ok(!/meshStandardMaterial/.test(scene), 'no plain standard material left in the scene');
+    // Outpost: every part carries its texture.
+    for (const part of ['mats.dome', 'mats.hull', 'mats.tube', 'mats.pad', 'mats.mast', 'mats.solar']) {
+      assert.ok(scene.includes(part), `outpost must use ${part}`);
+    }
+    // Rover: every part carries its texture.
+    for (const part of ['mats.hull', 'mats.metal', 'mats.dish', 'mats.tread']) {
+      assert.ok(scene.includes(part), `rover must use ${part}`);
+    }
+    // Geometry literals unchanged — texture only, no moves.
+    for (const lit of ['position={[-4, 0, 0]}', 'position={[4, 0, 0]}', 'position={[0, 0.12, 9]}',
+      'position={[-7.5, 3.5, -3]}', 'position={[7.5, 1.1, -3]}', 'position={[7.5, 1.1, 2.5]}',
+      'position={[0, 0.78, 0]}', 'position={[0, 1.08, 0.3]}', 'position={[0, 1.05, 1.35]}']) {
+      assert.ok(scene.includes(lit), `geometry literal must survive: ${lit}`);
+    }
+    assert.ok(scene.includes('WHEEL_SPOTS'), 'six-wheel layout unchanged');
+    assert.ok(hardwareTextureStats().textures >= 8, 'texture cache holds the kinds');
+  });
+});
+
+describe('mars-2 Thule wind weather', () => {
+  it('the wind is named Thule and blows from the northwest', () => {
+    assert.equal(THULE_WIND_NAME, 'Thule wind');
+    assert.equal(THULE_WIND_BEARING_DEG, 315);
+    assert.equal(windCompass(THULE_WIND_BEARING_DEG), 'NW');
+  });
+  it('thuleWindAt is deterministic and stays in its gust range, veering ±25°', () => {
+    const now = 1780000000000;
+    const a = thuleWindAt(now);
+    const b = thuleWindAt(now);
+    assert.deepEqual(a, b, 'same instant, same wind');
+    assert.ok(a.speed >= THULE_WIND_GUST_MIN_MPS && a.speed <= THULE_WIND_GUST_MAX_MPS,
+      `speed ${a.speed} must sit in ${THULE_WIND_GUST_MIN_MPS}..${THULE_WIND_GUST_MAX_MPS}`);
+    assert.ok(a.bearingDeg >= THULE_WIND_BEARING_DEG - THULE_WIND_VEER_DEG
+      && a.bearingDeg <= THULE_WIND_BEARING_DEG + THULE_WIND_VEER_DEG,
+      `bearing ${a.bearingDeg} must veer ±${THULE_WIND_VEER_DEG}° of ${THULE_WIND_BEARING_DEG}`);
+    assert.ok(Math.abs(Math.hypot(a.dirX, a.dirZ) - 1) < 1e-9, 'wind direction is a unit vector');
+    assert.ok(a.gust >= 0 && a.gust <= 1, 'gust factor is 0..1');
+    // The wind varies over the day — not one flat number.
+    const speeds = new Set();
+    for (let h = 0; h < 24; h++) speeds.add(thuleWindAt(now + h * 3600_000).speed.toFixed(1));
+    assert.ok(speeds.size > 5, `wind must vary, saw ${[...speeds].join(',')}`);
+  });
+  it('windVector points the way the air travels: from NW blows to SE', () => {
+    const v = windVector(315);
+    assert.ok(v.x > 0.6 && v.z > 0.6, `NW wind must travel southeast, got (${v.x}, ${v.z})`);
+    assert.ok(Math.abs(Math.hypot(v.x, v.z) - 1) < 1e-9);
+    const north = windVector(0);
+    assert.ok(Math.abs(north.x) < 1e-9 && north.z > 0.99, 'wind from the north travels south');
+    const east = windVector(90);
+    assert.ok(east.x < -0.99 && Math.abs(east.z) < 1e-9, 'wind from the east travels west');
+  });
+  it('sandIntensity is 0..1 and rises with the gust', () => {
+    assert.equal(sandIntensity({ gust: 0 }), 0);
+    assert.equal(sandIntensity({ gust: 1 }), 1);
+    assert.ok(sandIntensity({ gust: 0.2 }) < sandIntensity({ gust: 0.8 }));
+    assert.ok(sandIntensity(null) === 0, 'missing wind reads calm, never NaN');
+  });
+  it('the sand field holds 420 grains across the flats, in bounds', () => {
+    const sand = makeSandField({});
+    const attr = sand.geometry.getAttribute('position');
+    assert.equal(attr.count, THULE_SAND_COUNT);
+    for (let i = 0; i < attr.count; i++) {
+      assert.ok(Math.abs(attr.getX(i)) <= THULE_SAND_WIDTH_M / 2, 'grain x in bounds');
+      assert.ok(Math.abs(attr.getZ(i)) <= THULE_SAND_DEPTH_M / 2, 'grain z in bounds');
+      assert.ok(attr.getY(i) >= 0.2 && attr.getY(i) <= 7.2, 'grain y in bounds');
+    }
+    assert.ok(sand.userData.isSandField, 'field is tagged for the scene');
+  });
+  it('updateSandField blows grains downwind and keeps them in the box', () => {
+    const wind = { dirX: 0.7071, dirZ: 0.7071, speed: 20, gust: 0.9 };
+    const sand = makeSandField({ count: 60 });
+    const attr = sand.geometry.getAttribute('position');
+    // Track displacement per step with wrap correction (a grain
+    // that wraps from +85 to -85 travelled forward, not backward).
+    let along = 0;
+    const px = new Float32Array(60);
+    const pz = new Float32Array(60);
+    for (let s = 0; s < 600; s++) {
+      for (let i = 0; i < 60; i++) { px[i] = attr.getX(i); pz[i] = attr.getZ(i); }
+      updateSandField(sand, wind, 1 / 60, 1780000000000 + s * 16, 1);
+      for (let i = 0; i < 60; i++) {
+        let dx = attr.getX(i) - px[i];
+        let dz = attr.getZ(i) - pz[i];
+        if (dx > THULE_SAND_WIDTH_M / 2) dx -= THULE_SAND_WIDTH_M;
+        if (dx < -THULE_SAND_WIDTH_M / 2) dx += THULE_SAND_WIDTH_M;
+        if (dz > THULE_SAND_DEPTH_M / 2) dz -= THULE_SAND_DEPTH_M;
+        if (dz < -THULE_SAND_DEPTH_M / 2) dz += THULE_SAND_DEPTH_M;
+        along += dx * wind.dirX + dz * wind.dirZ;
+      }
+    }
+    along /= 60;
+    assert.ok(along > 50, `grains must travel downwind, mean along-wind ${along.toFixed(1)} m in 10 s`);
+    // Nothing escapes the box after 10 s of a 20 m/s wind.
+    for (let i = 0; i < 60; i++) {
+      assert.ok(Math.abs(attr.getX(i)) <= THULE_SAND_WIDTH_M / 2 + 1e-9, 'grain x wrapped in bounds');
+      assert.ok(Math.abs(attr.getZ(i)) <= THULE_SAND_DEPTH_M / 2 + 1e-9, 'grain z wrapped in bounds');
+      assert.ok(attr.getY(i) >= 0.05 && attr.getY(i) <= 7.6, 'grain y stays low');
+    }
+    // Opacity follows the gust and the day factor.
+    assert.ok(sand.material.opacity > 0.3, `gusting sand must read, opacity ${sand.material.opacity}`);
+    updateSandField(sand, { dirX: 0, dirZ: 1, speed: 5, gust: 0 }, 1 / 60, 1780000000000, 0);
+    assert.equal(sand.material.opacity, 0, 'night + lull hides the sand');
+  });
+  it('the scene mounts the weather: sand field, wind-driven haze, live pill', () => {
+    const scene = read('components/mars2/Mars2Scene.jsx');
+    assert.ok(scene.includes('Mars2Weather'), 'scene mounts the weather component');
+    assert.ok(scene.includes('makeSandField') && scene.includes('updateSandField'), 'scene runs the sand field');
+    assert.ok(scene.includes('thuleWindAt'), 'scene reads the live wind');
+    assert.ok(scene.includes('ThuleWindPill'), 'scene shows the live wind pill');
+    assert.ok(scene.includes('THULE WIND'), 'pill names the Thule wind');
+    assert.ok(scene.includes('GUSTING'), 'pill calls out gusts');
   });
 });

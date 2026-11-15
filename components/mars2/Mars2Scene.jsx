@@ -10,6 +10,8 @@ import DayNightRig from '@/components/DayNightRig';
 import { TouchControls } from '@/components/mars/MarsScene';
 import BackpackHud from '@/components/backpack/BackpackHud';
 import { mars2DayFactor, outpostSite, WORLD_RADIUS, WALKER_SPAWN, EYE_HEIGHT } from '@/lib/mars2/world';
+import { materialForHardware } from '@/lib/mars2/textures';
+import { thuleWindAt, makeSandField, updateSandField, windCompass } from '@/lib/mars2/weather';
 import {
   WALK_SPEED_MPS, ROVER_WHEEL_RADIUS_M, ROVER_WHEEL_COUNT,
   summonRover, updateRover, dismountRover, roverSpeedKmh,
@@ -171,6 +173,11 @@ function Mars2Cgi({ profile, dayF }) {
     dust.material.opacity = 0.18 + 0.34 * dayF;
     const t = (now - PLANET_CGI_EPOCH_MS) / 1000;
     const vis = 0.45 + 0.55 * dayF;
+    // The Thule wind pushes the haze downwind too — the same wind
+    // the sand field rides (lib/mars2/weather.js).
+    const wind = thuleWindAt(now);
+    const windX = wind.dirX * wind.speed * 0.9;
+    const windZ = wind.dirZ * wind.speed * 0.9;
     for (let i = 0; i < DUST_DEVIL_COUNT; i++) {
       const d = devilFor(i, now, DUST_DEVIL_AREA);
       const g = devilRefs.current[i];
@@ -186,8 +193,8 @@ function Mars2Cgi({ profile, dayF }) {
     }
     for (let i = 0; i < haze.list.length; i++) {
       const h = haze.list[i];
-      h.sprite.position.x = h.baseX + Math.sin(t * 0.02 + h.phase) * 9;
-      h.sprite.position.z = h.baseZ + Math.cos(t * 0.016 + h.phase) * 9;
+      h.sprite.position.x = h.baseX + Math.sin(t * 0.02 + h.phase) * 9 + windX;
+      h.sprite.position.z = h.baseZ + Math.cos(t * 0.016 + h.phase) * 9 + windZ;
       const breathe = 0.5 + 0.5 * Math.sin(t * 0.045 + h.phase * 2.3);
       h.sprite.material.opacity = (0.04 + 0.10 * breathe) * (0.45 + 0.55 * dayF);
     }
@@ -206,6 +213,26 @@ function Mars2Cgi({ profile, dayF }) {
       ))}
     </>
   );
+}
+
+// --- Thule wind + blowing sand --------------------------------------------
+// Merlin's weather system: the Thule wind owns a direction and a
+// speed that vary on the real clock (lib/mars2/weather.js), and the
+// sand blows with it — 420 grains advected downwind, thicker in
+// gusts, thin in the lulls. One Points field, no new lights, no
+// per-frame allocations.
+function Mars2Weather({ profile, dayF }) {
+  const sand = useMemo(() => makeSandField({ seed: profile.seed + '-thule' }), [profile]);
+  useEffect(() => () => {
+    sand.geometry.dispose();
+    sand.material.dispose();
+  }, [sand]);
+  useFrame((state, rawDt) => {
+    const now = Date.now();
+    const wind = thuleWindAt(now);
+    updateSandField(sand, wind, Math.min(rawDt, 0.05), now, 0.45 + 0.55 * dayF);
+  });
+  return <primitive object={sand} />;
 }
 
 // --- starfield ---------------------------------------------------------------
@@ -241,51 +268,56 @@ function Mars2Stars({ profile, opacity }) {
 // --- ARES outpost ------------------------------------------------------------
 // The rovers' home: two habitat domes, a connector tube, a landing
 // pad, a comms mast and solar panels — procedural, no models.
-// Labelled, so the walker spawns looking at somewhere to drive to.
+// Wrapped in texture (lib/mars2/textures.js): dusty habitat fabric,
+// worn orange hull, scuffed pad deck, dusty solar cells, brushed
+// mast. Labelled, so the walker spawns looking at somewhere to
+// drive to. Layout and positions are exactly as built — texture
+// only, no geometry moves.
 function Outpost({ profile }) {
   const site = useMemo(() => outpostSite(profile), [profile]);
+  const mats = useMemo(() => ({
+    dome: materialForHardware('domeFabric', profile.seed),
+    hull: materialForHardware('hullOrange', profile.seed),
+    tube: materialForHardware('hullGrey', profile.seed),
+    pad: materialForHardware('padDeck', profile.seed),
+    mast: materialForHardware('brushedMetal', profile.seed),
+    solar: materialForHardware('solarCells', profile.seed),
+  }), [profile]);
   return (
     <group position={[site.x, site.y, site.z]} rotation={[0, site.angle, 0]}>
       {/* habitat domes */}
-      <mesh position={[-4, 0, 0]}>
+      <mesh position={[-4, 0, 0]} material={mats.dome}>
         <sphereGeometry args={[3.2, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2]} />
-        <meshStandardMaterial color="#e8ded2" roughness={0.6} metalness={0.1} />
       </mesh>
-      <mesh position={[4, 0, 0]}>
+      <mesh position={[4, 0, 0]} material={mats.hull}>
         <sphereGeometry args={[2.4, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2]} />
-        <meshStandardMaterial color="#d96f3a" roughness={0.6} metalness={0.1} />
       </mesh>
       {/* connector tube between domes */}
-      <mesh position={[0, 0.9, 0]} rotation={[0, 0, Math.PI / 2]}>
+      <mesh position={[0, 0.9, 0]} rotation={[0, 0, Math.PI / 2]} material={mats.tube}>
         <cylinderGeometry args={[0.9, 0.9, 5.4, 16]} />
-        <meshStandardMaterial color="#c9b8a6" roughness={0.5} metalness={0.3} />
       </mesh>
       {/* landing pad + ring */}
-      <mesh position={[0, 0.12, 9]}>
+      <mesh position={[0, 0.12, 9]} material={mats.pad}>
         <cylinderGeometry args={[5, 5, 0.24, 32]} />
-        <meshStandardMaterial color="#4a4038" roughness={0.9} metalness={0.2} />
       </mesh>
       <mesh position={[0, 0.26, 9]} rotation={[-Math.PI / 2, 0, 0]}>
         <ringGeometry args={[4.1, 4.6, 32]} />
         <meshBasicMaterial color="#ffb37a" side={THREE.DoubleSide} transparent opacity={0.8} />
       </mesh>
       {/* comms mast + beacon */}
-      <mesh position={[-7.5, 3.5, -3]}>
+      <mesh position={[-7.5, 3.5, -3]} material={mats.mast}>
         <cylinderGeometry args={[0.08, 0.12, 7, 8]} />
-        <meshStandardMaterial color="#8a8f96" roughness={0.4} metalness={0.8} />
       </mesh>
       <mesh position={[-7.5, 7.2, -3]}>
         <sphereGeometry args={[0.28, 12, 12]} />
         <meshBasicMaterial color="#ff5a3c" />
       </mesh>
       {/* solar panels */}
-      <mesh position={[7.5, 1.1, -3]} rotation={[0, 0.4, -0.5]}>
+      <mesh position={[7.5, 1.1, -3]} rotation={[0, 0.4, -0.5]} material={mats.solar}>
         <boxGeometry args={[3.4, 0.08, 2.2]} />
-        <meshStandardMaterial color="#1c2f6e" roughness={0.25} metalness={0.7} />
       </mesh>
-      <mesh position={[7.5, 1.1, 2.5]} rotation={[0, 0.4, -0.5]}>
+      <mesh position={[7.5, 1.1, 2.5]} rotation={[0, 0.4, -0.5]} material={mats.solar}>
         <boxGeometry args={[3.4, 0.08, 2.2]} />
-        <meshStandardMaterial color="#1c2f6e" roughness={0.25} metalness={0.7} />
       </mesh>
       <Html position={[0, 7.5, 0]} center distanceFactor={60} style={{ pointerEvents: 'none' }}>
         <div style={{
@@ -317,6 +349,15 @@ function RoverModel({ roverRef }) {
   const groupRef = useRef();
   const spinRefs = useRef([]);
   const steerRefs = useRef([]);
+  // Wrapped in texture (lib/mars2/textures.js): dusty livery hull,
+  // chevron-tread wheels, brushed mast and arms. Same rover, same
+  // physics, same speed — texture only.
+  const mats = useMemo(() => ({
+    hull: materialForHardware('roverHull', 'MARS-2'),
+    metal: materialForHardware('brushedMetal', 'MARS-2'),
+    dish: materialForHardware('hullGrey', 'MARS-2', '#ffffff', { side: THREE.DoubleSide }),
+    tread: materialForHardware('wheelTread', 'MARS-2'),
+  }), []);
   useFrame(() => {
     const g = groupRef.current;
     const rover = roverRef.current;
@@ -335,27 +376,22 @@ function RoverModel({ roverRef }) {
   return (
     <group ref={groupRef} visible={false}>
       {/* chassis + deck */}
-      <mesh position={[0, 0.78, 0]}>
+      <mesh position={[0, 0.78, 0]} material={mats.hull}>
         <boxGeometry args={[1.7, 0.42, 2.9]} />
-        <meshStandardMaterial color="#c8ccd2" roughness={0.45} metalness={0.6} />
       </mesh>
-      <mesh position={[0, 1.08, 0.3]}>
+      <mesh position={[0, 1.08, 0.3]} material={mats.metal}>
         <boxGeometry args={[1.3, 0.22, 1.9]} />
-        <meshStandardMaterial color="#8a8f96" roughness={0.5} metalness={0.55} />
       </mesh>
       {/* RTG at the rear */}
-      <mesh position={[0, 1.05, 1.35]} rotation={[Math.PI / 2, 0, 0]}>
+      <mesh position={[0, 1.05, 1.35]} rotation={[Math.PI / 2, 0, 0]} material={mats.metal}>
         <cylinderGeometry args={[0.22, 0.22, 0.7, 16]} />
-        <meshStandardMaterial color="#3a3f46" roughness={0.4} metalness={0.7} />
       </mesh>
       {/* camera mast + head, up front */}
-      <mesh position={[-0.45, 1.65, -1.15]}>
+      <mesh position={[-0.45, 1.65, -1.15]} material={mats.metal}>
         <cylinderGeometry args={[0.05, 0.07, 1.1, 8]} />
-        <meshStandardMaterial color="#6a6f76" roughness={0.4} metalness={0.7} />
       </mesh>
-      <mesh position={[-0.45, 2.25, -1.15]}>
+      <mesh position={[-0.45, 2.25, -1.15]} material={mats.hull}>
         <boxGeometry args={[0.55, 0.2, 0.22]} />
-        <meshStandardMaterial color="#d8dce2" roughness={0.4} metalness={0.6} />
       </mesh>
       <mesh position={[-0.62, 2.25, -1.28]} rotation={[Math.PI / 2, 0, 0]}>
         <cylinderGeometry args={[0.07, 0.07, 0.06, 12]} />
@@ -366,13 +402,11 @@ function RoverModel({ roverRef }) {
         <meshBasicMaterial color="#111418" />
       </mesh>
       {/* high-gain antenna dish, rear deck */}
-      <mesh position={[0.45, 1.35, 1.0]} rotation={[0.5, 0, 0]}>
+      <mesh position={[0.45, 1.35, 1.0]} rotation={[0.5, 0, 0]} material={mats.dish}>
         <coneGeometry args={[0.42, 0.22, 24, 1, true]} />
-        <meshStandardMaterial color="#e8e2d4" roughness={0.35} metalness={0.4} side={THREE.DoubleSide} />
       </mesh>
-      <mesh position={[0.45, 1.2, 1.0]}>
+      <mesh position={[0.45, 1.2, 1.0]} material={mats.metal}>
         <cylinderGeometry args={[0.03, 0.03, 0.35, 8]} />
-        <meshStandardMaterial color="#6a6f76" roughness={0.4} metalness={0.7} />
       </mesh>
       {/* headlights */}
       <mesh position={[-0.55, 0.85, -1.48]}>
@@ -388,19 +422,16 @@ function RoverModel({ roverRef }) {
         <group key={i} position={[spot.x, ROVER_WHEEL_RADIUS_M, spot.z]}
           ref={(el) => { if (spot.front) steerRefs.current[i] = el; }}>
           <group ref={(el) => { spinRefs.current[i] = el; }}>
-            <mesh rotation={[0, 0, Math.PI / 2]}>
+            <mesh rotation={[0, 0, Math.PI / 2]} material={mats.tread}>
               <cylinderGeometry args={[ROVER_WHEEL_RADIUS_M, ROVER_WHEEL_RADIUS_M, 0.3, 20]} />
-              <meshStandardMaterial color="#2a2320" roughness={0.95} metalness={0.1} />
             </mesh>
-            <mesh rotation={[0, 0, Math.PI / 2]}>
+            <mesh rotation={[0, 0, Math.PI / 2]} material={mats.metal}>
               <cylinderGeometry args={[0.2, 0.2, 0.32, 12]} />
-              <meshStandardMaterial color="#9aa0a8" roughness={0.4} metalness={0.7} />
             </mesh>
           </group>
           {/* rocker arm up to the chassis */}
-          <mesh position={[(spot.x < 0 ? 0.35 : -0.35), 0.32, 0]} rotation={[0, 0, spot.x < 0 ? -0.5 : 0.5]}>
+          <mesh position={[(spot.x < 0 ? 0.35 : -0.35), 0.32, 0]} rotation={[0, 0, spot.x < 0 ? -0.5 : 0.5]} material={mats.metal}>
             <boxGeometry args={[0.7, 0.08, 0.12]} />
-            <meshStandardMaterial color="#7a7f86" roughness={0.5} metalness={0.6} />
           </mesh>
         </group>
       ))}
@@ -565,6 +596,7 @@ function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverCha
       <Mars2Terrain profile={profile} />
       <OlympusMons profile={profile} />
       <Mars2Cgi profile={profile} dayF={dayF} />
+      <Mars2Weather profile={profile} dayF={dayF} />
       <Outpost profile={profile} />
       <RoverModel roverRef={roverRef} />
 
@@ -581,6 +613,28 @@ function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverCha
         />
       )}
     </>
+  );
+}
+
+// --- Thule wind readout ------------------------------------------------------
+// A small live pill (top-right of the stage): the wind's speed and
+// compass bearing, refreshed once a second. "GUSTING" when the
+// gust factor is high — so the weather is readable, not just felt.
+function ThuleWindPill() {
+  const [wind, setWind] = useState(() => thuleWindAt(Date.now()));
+  useEffect(() => {
+    const id = setInterval(() => setWind(thuleWindAt(Date.now())), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <div style={{
+      position: 'absolute', top: 10, right: 10, zIndex: 5,
+      color: '#ffe3cc', fontSize: 11, letterSpacing: 2, textShadow: '0 1px 4px #000',
+      background: 'rgba(0,0,0,0.35)', padding: '6px 12px', borderRadius: 8,
+      pointerEvents: 'none', whiteSpace: 'nowrap',
+    }}>
+      🌬 THULE WIND {wind.speed.toFixed(0)} m/s {windCompass(wind.bearingDeg)}{wind.gust > 0.6 ? ' · GUSTING' : ''}
+    </div>
   );
 }
 
@@ -621,6 +675,7 @@ export default function Mars2Scene({
           {mode === 'walk' ? 'STICK / WASD MOVE · DRAG LOOK' : 'STICK / WASD DRIVE · DRAG TO SWING CAMERA'}
         </div>
       )}
+      <ThuleWindPill />
       {mode !== 'orbit' && <TouchControls inputRef={inputRef} fly={false} />}
       <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 5 }}>
         <BackpackHud realm="mars" realmLabel="Mars 2" docked
