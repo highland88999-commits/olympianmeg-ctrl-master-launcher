@@ -11,6 +11,26 @@
 
 import * as THREE from 'three';
 import { waveHeight, ISLAND } from './engine.js';
+import { dayNightFor, getDayNightPlace } from '../../lib/day-night.js';
+
+/**
+ * Night factor for the Dutchman (0.15 day … 1 night) from the real
+ * clock via the shared day/night law (lib/day-night.js): the
+ * walker's real lat/lon when granted, Sydney when not. Falls back
+ * to 1 (full night — this is a night storm world) only if no place
+ * is available at all or the law throws.
+ */
+export function dutchmanNightFactor(nowMs = Date.now()) {
+  try {
+    const place = getDayNightPlace();
+    if (!place || typeof place.lat !== 'number' || typeof place.lon !== 'number') return 1;
+    const { night } = dayNightFor(nowMs, place.lat, place.lon);
+    const n = typeof night === 'number' ? night : 1;
+    return 0.15 + 0.85 * Math.max(0, Math.min(1, n));
+  } catch {
+    return 1;
+  }
+}
 
 const TAU = Math.PI * 2;
 
@@ -29,6 +49,46 @@ function radialTexture(inner, outer, size = 128) {
 // Deterministic 0..1 wobble from an island seed + angle.
 function wob(seed, a, k) {
   return Math.sin(a * k + seed * 0.0013) * 0.5 + Math.sin(a * (k + 4) - seed * 0.0021) * 0.5;
+}
+
+/** Procedural wood texture: brown planks with grain lines (docks). */
+function dockWoodTexture() {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#5a3d22'; g.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 8; i++) {
+    g.fillStyle = i % 2 ? '#63452a' : '#54391f';
+    g.fillRect(0, i * 32, 256, 30);
+    g.fillStyle = 'rgba(0,0,0,0.55)'; g.fillRect(0, i * 32 + 30, 256, 2);
+    // grain lines
+    g.strokeStyle = 'rgba(0,0,0,0.25)';
+    g.lineWidth = 1;
+    for (let k = 0; k < 4; k++) {
+      const y = i * 32 + 5 + k * 6 + (i % 3);
+      g.beginPath();
+      g.moveTo(0, y);
+      g.bezierCurveTo(80, y + 2, 170, y - 2, 256, y + 1);
+      g.stroke();
+    }
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
+
+/** Floating name plate (canvas text sprite, same pattern as the page's ⚓ marker). */
+function namePlateTexture(name) {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 128;
+  const g = c.getContext('2d');
+  g.font = 'bold 56px Georgia, serif';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.lineWidth = 8; g.strokeStyle = 'rgba(0,0,0,0.85)';
+  g.strokeText(name, 256, 64);
+  g.fillStyle = '#ffd76a';
+  g.fillText(name, 256, 64);
+  return new THREE.CanvasTexture(c);
 }
 
 /** Island height at a local fraction f (0 = peak, 1 = beach) and angle. */
@@ -117,6 +177,19 @@ export function createIslands(scene, islands) {
   });
   const wispTex = radialTexture('rgba(140,255,210,0.95)', 'rgba(40,255,170,0)', 128);
   const wisps = [];
+  // Torches: one shared flickering PointLight per island (light budget
+  // = at most one light per island that has torches or a brazier, i.e.
+  // <= 8 lights for the 8-island ring), flames flicker per torch.
+  const flameTex = radialTexture('rgba(255,220,120,1)', 'rgba(255,90,10,0)', 128);
+  const dockTex = dockWoodTexture();
+  const dockMat = new THREE.MeshStandardMaterial({ map: dockTex, roughness: 0.9 });
+  const postMat = new THREE.MeshStandardMaterial({ color: 0x2e1f12, roughness: 1 });
+  const goldMat = new THREE.MeshStandardMaterial({
+    color: 0x8a6a1f, roughness: 0.35, metalness: 0.8,
+    emissive: new THREE.Color(0x6a4a00), emissiveIntensity: 0.5,
+  });
+  const islandLights = []; // { light, flames: [{s, phase, base}], phase }
+  let nightFNow = 1; // last night factor handed to update(t, nightF)
 
   for (const isl of islands) {
     const ig = new THREE.Group();
@@ -156,20 +229,146 @@ export function createIslands(scene, islands) {
     ig.add(wisp);
     wisps.push({ s: wisp, phase: isl.seed % 10 });
 
+    // Island name plate — a small floating text sprite over the peak.
+    // Always visible, small; skipped when the engine gives no name.
+    if (typeof isl.name === 'string' && isl.name) {
+      const plate = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: namePlateTexture(isl.name), transparent: true, depthWrite: false,
+      }));
+      plate.scale.set(22, 5.5, 1);
+      plate.position.set(0, isl.h + 17, 0);
+      ig.add(plate);
+    }
+
+    // Dock — a wooden pier from the dock point out to sea along
+    // dock.angle. Plank positions come from dock.x/z + dock.angle
+    // (never re-derived); dock.x/z is the shore end of the pier.
+    const dock = isl.dock;
+    const hasDock = dock && typeof dock.x === 'number' && typeof dock.z === 'number'
+      && typeof dock.angle === 'number';
+    const dockDir = hasDock ? { x: Math.sin(dock.angle), z: Math.cos(dock.angle) } : null;
+    const PIER_LEN = 18;
+    if (hasDock) {
+      const pier = new THREE.Group();
+      const plankCount = 9;
+      for (let k = 0; k < plankCount; k++) {
+        const d = k * 2 + 1.1;
+        const plank = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.28, 2.0), dockMat);
+        plank.position.set(dock.x + dockDir.x * d, 1.5, dock.z + dockDir.z * d);
+        plank.rotation.y = dock.angle;
+        pier.add(plank);
+        // Support piles under every third plank.
+        if (k % 3 === 0) {
+          for (const s of [-1, 1]) {
+            const pile = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 3.2, 6), postMat);
+            pile.position.set(
+              dock.x + dockDir.x * d - dockDir.z * s * 1.3, 0.2,
+              dock.z + dockDir.z * d + dockDir.x * s * 1.3,
+            );
+            pier.add(pile);
+          }
+        }
+      }
+      // Two mooring posts at the seaward end.
+      for (const s of [-1, 1]) {
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.26, 3.6, 8), postMat);
+        post.position.set(
+          dock.x + dockDir.x * PIER_LEN - dockDir.z * s * 1.7, 1.9,
+          dock.z + dockDir.z * PIER_LEN + dockDir.x * s * 1.7,
+        );
+        pier.add(post);
+      }
+      group.add(pier);
+    }
+
+    // Torches + slot-machine brazier. One shared light per island.
+    const flames = []; // { s, phase, base } — flame sprites to flicker
+    const torchList = Array.isArray(isl.torches) ? isl.torches : [];
+    for (const tp of torchList) {
+      if (!tp || typeof tp.x !== 'number' || typeof tp.z !== 'number') continue;
+      // Post base sits on the island slope at that spot.
+      const lx = tp.x - isl.x, lz = tp.z - isl.z;
+      const f = Math.min(1, Math.hypot(lx, lz) / Math.max(1, isl.r));
+      const baseY = profileH(isl, f, Math.atan2(lz, lx));
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.2, 2.5, 6), postMat);
+      post.position.set(tp.x, baseY + 1.25, tp.z);
+      group.add(post);
+      const flame = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: flameTex, transparent: true, opacity: 0.95, depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      }));
+      flame.position.set(tp.x, baseY + 3.1, tp.z);
+      flame.scale.set(2.4, 3.4, 1);
+      group.add(flame);
+      flames.push({ s: flame, phase: (tp.x * 0.7 + tp.z * 1.3) % 10, base: 2.4 });
+    }
+    // Brazier at the slot-machine spot — gold-trimmed bowl, bigger
+    // flame. The contract gives no slot-machine coordinates, so it
+    // sits beside the dock (or the first torch / beach when no dock).
+    if (isl.hasSlotMachine) {
+      const bx = hasDock ? dock.x - dockDir.z * 4 : (torchList[0] ? torchList[0].x + 4 : isl.x + isl.r * 0.5);
+      const bz = hasDock ? dock.z + dockDir.x * 4 : (torchList[0] ? torchList[0].z : isl.z + isl.r * 0.5);
+      const blx = bx - isl.x, blz = bz - isl.z;
+      const bf = Math.min(1, Math.hypot(blx, blz) / Math.max(1, isl.r));
+      const baseY = profileH(isl, bf, Math.atan2(blz, blx));
+      const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.45, 1.6, 8), postMat);
+      stand.position.set(bx, baseY + 0.8, bz);
+      group.add(stand);
+      const bowl = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 0.5, 0.8, 10), goldMat);
+      bowl.position.set(bx, baseY + 1.9, bz);
+      group.add(bowl);
+      const flame = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: flameTex, transparent: true, opacity: 0.95, depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      }));
+      flame.position.set(bx, baseY + 3.2, bz);
+      flame.scale.set(4.5, 6, 1);
+      group.add(flame);
+      flames.push({ s: flame, phase: 3.7, base: 4.5 });
+    }
+    if (flames.length > 0) {
+      // One light per island, parked at the dock (or first flame).
+      const lx = hasDock ? dock.x + dockDir.x * 9 : flames[0].s.position.x;
+      const lz = hasDock ? dock.z + dockDir.z * 9 : flames[0].s.position.z;
+      const light = new THREE.PointLight(0xff8a2a, 0, 60, 1.8);
+      light.position.set(lx, 5, lz);
+      group.add(light);
+      islandLights.push({ light, flames, phase: isl.seed % 10 });
+    }
+
     group.add(ig);
   }
   scene.add(group);
-  return {
+  const api = {
     group,
-    update(t) {
+    get nightF() { return nightFNow; },
+    update(t, nightF = 1) {
+      nightFNow = typeof nightF === 'number' ? Math.max(0, Math.min(1, nightF)) : 1;
       for (const w of wisps) {
         const k = 0.6 + 0.3 * Math.sin(t * 1.4 + w.phase);
         w.s.material.opacity = k;
         const sc = 19 + Math.sin(t * 0.9 + w.phase) * 2;
         w.s.scale.set(sc, sc, 1);
       }
+      // Torches: lit at night, bare posts by day. The night factor
+      // runs 0.15 (day) … 1 (night), so litK is 0 at day and 1 at
+      // night; flames and the shared island light scale with it and
+      // flicker like the nether torch lights.
+      const litK = Math.max(0, Math.min(1, (nightFNow - 0.15) / 0.85));
+      for (const entry of islandLights) {
+        for (const fl of entry.flames) {
+          const flick = 0.75 + 0.25 * Math.sin(t * 11 + fl.phase) * Math.sin(t * 5.3 + fl.phase * 2);
+          const sc = fl.base * flick;
+          fl.s.visible = litK > 0.02;
+          fl.s.scale.set(sc, sc * 1.4, 1);
+          fl.s.material.opacity = 0.95 * litK;
+        }
+        entry.light.intensity = (24 + 6 * Math.sin(t * 13 + entry.phase * 3.1)
+          * Math.sin(t * 5.7 + entry.phase)) * litK;
+      }
     },
   };
+  return api;
 }
 
 // ---------------------------------------------------------------------------

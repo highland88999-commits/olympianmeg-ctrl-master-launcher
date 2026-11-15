@@ -60,6 +60,55 @@ function sailTexture(tint = '#cfd4c8') {
   return new THREE.CanvasTexture(c);
 }
 
+/** Emblem sprite texture (gold star / skull …) for gilded + legendary sails. */
+function emblemTexture(symbol, colour = '#ffd76a') {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  g.font = '84px serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.lineWidth = 6; g.strokeStyle = 'rgba(0,0,0,0.8)';
+  g.strokeText(symbol, 64, 70);
+  g.fillStyle = colour;
+  g.fillText(symbol, 64, 70);
+  return new THREE.CanvasTexture(c);
+}
+
+// ---------------------------------------------------------------------------
+// Skins — colour-only tints over the shared hull geometry. Sail tint is
+// a material colour multiplier over the (light) sailcloth texture, so
+// 'crimson' black sails and 'gilded' gold sails need no new geometry.
+// ---------------------------------------------------------------------------
+
+export const SKIN_TINTS = {
+  dutchman: {
+    hull: 0x201712, hullEmissive: 0x03231a, hullEmissiveIntensity: 0.4,
+    trim: 0x00ff9d, trimEmissiveIntensity: 0.9,
+    sail: 0xffffff, sailEmissive: 0x0a3d2a, light: 0x2bff9d, emblem: null,
+  },
+  ghost: {
+    hull: 0x2c3e4a, hullEmissive: 0x14324a, hullEmissiveIntensity: 0.6,
+    trim: 0x66c2ff, trimEmissiveIntensity: 1.2,
+    sail: 0xcfe8d8, sailEmissive: 0x9fd8ff, light: 0x66c2ff, emblem: null,
+  },
+  crimson: {
+    hull: 0x3a0d0d, hullEmissive: 0x200000, hullEmissiveIntensity: 0.4,
+    trim: 0xff2a2a, trimEmissiveIntensity: 1.0,
+    sail: 0x181818, sailEmissive: 0x1a0505, light: 0xff4040, emblem: null,
+  },
+  midnight: {
+    hull: 0x0a0a12, hullEmissive: 0x050510, hullEmissiveIntensity: 0.4,
+    trim: 0x3355ff, trimEmissiveIntensity: 0.5,
+    sail: 0x141428, sailEmissive: 0x0a0a20, light: 0x4455ff, emblem: null,
+  },
+  gilded: {
+    hull: 0x2a1c08, hullEmissive: 0x1a0f00, hullEmissiveIntensity: 0.4,
+    trim: 0xffc040, trimEmissiveIntensity: 1.0,
+    sail: 0xf0d890, sailEmissive: 0x332200, light: 0xffc040,
+    emblem: '✦', emblemColor: '#ffd76a',
+  },
+};
+export const SKIN_IDS = Object.keys(SKIN_TINTS);
+
 /** Lofted hull geometry. Bow at +Z. */
 function hullGeometry(L, B, ghost) {
   const N = 16; // sections along length
@@ -118,9 +167,11 @@ function makeSail(w, h, tex, ghost) {
  *   muzzle(side, i) -> world position of a cannon muzzle,
  *   cannons: { port: [Object3D], stbd: [Object3D] }
  */
-export function buildShip({ ghost = false } = {}) {
+export function buildShip({ ghost = false, skin = null, sizeScale = 1 } = {}) {
   const L = SHIP.length, B = SHIP.beam;
   const g = new THREE.Group();
+  // The skin is applied at the end via setSkin() over _skinMats, so a
+  // live ship can be re-tinted without rebuilding any geometry.
 
   const hullMat = new THREE.MeshStandardMaterial({
     color: ghost ? 0x3a4a55 : 0x1c1410,
@@ -138,16 +189,13 @@ export function buildShip({ ghost = false } = {}) {
 
   // --- hull ---
   const { geo: hullGeo } = hullGeometry(L, B, ghost);
-  const hull = new THREE.Mesh(hullGeo, new THREE.MeshStandardMaterial({
-    ...hullMat, side: THREE.DoubleSide,
-  }));
-  // copy props manually (spread of material loses prototype) — rebuild:
-  hull.material = new THREE.MeshStandardMaterial({
+  const hullMat2 = new THREE.MeshStandardMaterial({
     color: ghost ? 0x2c3e4a : 0x201712,
     roughness: 0.85, metalness: 0.1, side: THREE.DoubleSide,
     emissive: new THREE.Color(ghost ? 0x14324a : 0x03231a),
     emissiveIntensity: ghost ? 0.6 : 0.4,
   });
+  const hull = new THREE.Mesh(hullGeo, hullMat2);
   g.add(hull);
 
   // --- gunwale trim: glowing rail line (tube along the sheer) ---
@@ -183,10 +231,13 @@ export function buildShip({ ghost = false } = {}) {
   castleRoof.position.set(0, 4.85, -L / 2 + 3.4);
   g.add(castleRoof);
   // stern lanterns
+  const lampMats = [];
   for (const sx of [-1, 0, 1]) {
+    const lampMat = new THREE.MeshStandardMaterial({ color: 0x111111, emissive: new THREE.Color(ghost ? 0x66c2ff : 0x39ff9d), emissiveIntensity: 2.2 });
+    lampMats.push(lampMat);
     const lamp = new THREE.Mesh(
       new THREE.SphereGeometry(0.22, 8, 8),
-      new THREE.MeshStandardMaterial({ color: 0x111111, emissive: new THREE.Color(ghost ? 0x66c2ff : 0x39ff9d), emissiveIntensity: 2.2 })
+      lampMat
     );
     lamp.position.set(sx * B * 0.28, 4.4, -L / 2 + 1.05);
     g.add(lamp);
@@ -322,7 +373,31 @@ export function buildShip({ ghost = false } = {}) {
     return out.add(off);
   }
 
-  g.userData = { sails, flag, crewGroup, setCrew, setSails, muzzle, cannons, ghost, deckLight };
+  // --- skins: collect the tintable materials (colour only — the
+  // geometry above is shared by every skin and legendary variant).
+  const sailMats = [];
+  const pennantMats = [];
+  for (const s of sails) {
+    if (s.material && s.material.isMeshStandardMaterial) sailMats.push(s.material);
+    else if (s.material) pennantMats.push(s.material);
+  }
+  const emblem = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: emblemTexture('✦', '#ffd76a'), transparent: true, depthWrite: false,
+  }));
+  emblem.scale.set(4.5, 4.5, 1);
+  emblem.position.set(0, 12.5, 2.4);
+  emblem.visible = false;
+  g.add(emblem);
+  const skinMats = {
+    hull: [hullMat, hullMat2], trim: [trimMat],
+    sail: sailMats, pennant: pennantMats, lamp: lampMats,
+    crew: [crewMat], deckLight,
+  };
+  const skinId = skin || (ghost ? 'ghost' : 'dutchman');
+  g.userData = { sails, flag, crewGroup, setCrew, setSails, muzzle, cannons, ghost, deckLight, _skinMats: skinMats, skin: skinId, emblem };
+  setSkin(g, skinId);
+  // Level size is visual only — a uniform scale so a levelled ship reads bigger.
+  g.scale.setScalar(typeof sizeScale === 'number' && sizeScale > 0 ? sizeScale : 1);
   return g;
 }
 
@@ -357,4 +432,147 @@ export function animateShip(g, t, dt) {
 /** AI ghost ship: paler rigging, thinner presence. */
 export function buildGhostShip() {
   return buildShip({ ghost: true });
+}
+
+// ---------------------------------------------------------------------------
+// Skins — re-tint a live ship group (colour only, no rebuild).
+// ---------------------------------------------------------------------------
+
+function applyTintToMats(mats, tint) {
+  if (!mats || !tint) return;
+  for (const m of mats.hull || []) {
+    m.color.set(tint.hull);
+    if (m.emissive) m.emissive.set(tint.hullEmissive);
+    if (typeof tint.hullEmissiveIntensity === 'number') m.emissiveIntensity = tint.hullEmissiveIntensity;
+  }
+  for (const m of mats.trim || []) {
+    m.color.set(tint.trim);
+    if (m.emissive) m.emissive.set(tint.trim);
+    if (typeof tint.trimEmissiveIntensity === 'number') m.emissiveIntensity = tint.trimEmissiveIntensity;
+  }
+  for (const m of mats.sail || []) {
+    m.color.set(tint.sail);
+    if (m.emissive) m.emissive.set(tint.sailEmissive);
+  }
+  for (const m of mats.pennant || []) m.color.set(tint.trim);
+  for (const m of mats.lamp || []) {
+    if (m.emissive) m.emissive.set(tint.trim);
+  }
+  for (const m of mats.crew || []) {
+    if (m.emissive) m.emissive.set(tint.trim);
+  }
+  if (mats.deckLight && typeof tint.light === 'number') mats.deckLight.color.set(tint.light);
+}
+
+/**
+ * Re-tint a live ship group built by buildShip()/buildLegendaryShip().
+ * The page calls this when the player buys or changes a skin.
+ * Unknown skin ids fall back to 'dutchman'. Returns false when the
+ * group was not built by this builder (no _skinMats).
+ */
+export function setSkin(group, skinId) {
+  const tint = SKIN_TINTS[skinId] || SKIN_TINTS.dutchman;
+  const mats = group && group.userData && group.userData._skinMats;
+  if (!mats) return false;
+  applyTintToMats(mats, tint);
+  const emblem = group.userData.emblem;
+  if (emblem) {
+    if (tint.emblem) {
+      if (emblem.material.map) emblem.material.map.dispose();
+      emblem.material.map = emblemTexture(tint.emblem, tint.emblemColor || '#ffd76a');
+      emblem.material.needsUpdate = true;
+      emblem.visible = true;
+    } else {
+      emblem.visible = false;
+    }
+  }
+  group.userData.skin = SKIN_TINTS[skinId] ? skinId : 'dutchman';
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Legendary ships — colour / emblem / sail-shape differences on the
+// shared hull geometry. No new hulls. LEGENDARY_SKIN_TINTS is the
+// preview table for the page.
+// ---------------------------------------------------------------------------
+
+export const LEGENDARY_DEFS = {
+  'queen-anne': {
+    name: "Queen Anne's Revenge", ghost: false, skin: 'crimson',
+    hull: 0x0a0a0a, hullEmissive: 0x100000, trim: 0xff2a1a,
+    sail: 0x8a1414, sailEmissive: 0x400000, light: 0xff3020,
+    emblem: '💀', emblemColor: '#ffffff',
+  },
+  'mary-celeste': {
+    name: 'Mary Celeste', ghost: false, skin: 'ghost',
+    hull: 0x6a6a66, hullEmissive: 0x222222, trim: 0x9aa0a0,
+    sail: 0xf2f0e8, sailEmissive: 0x555550, light: 0xcfd8d8, emblem: null,
+  },
+  caleuche: {
+    name: 'Caleuche', ghost: true, skin: 'ghost',
+    hull: 0x14302e, hullEmissive: 0x0a2a20, trim: 0x2affc0,
+    sail: 0x9fe8d8, sailEmissive: 0x2affc0, light: 0x2affc0, emblem: null,
+  },
+  palatine: {
+    name: 'Palatine', ghost: false, skin: 'crimson',
+    hull: 0x1a0f08, hullEmissive: 0x2a0f00, trim: 0xff7a1a,
+    sail: 0x3a2412, sailEmissive: 0x301505, light: 0xff7a1a, emblem: null,
+  },
+  'lady-lovibond': {
+    name: 'Lady Lovibond', ghost: false, skin: 'gilded',
+    hull: 0xf0ead8, hullEmissive: 0x403820, trim: 0xffc040,
+    sail: 0xfff8e8, sailEmissive: 0x444020, light: 0xffd76a,
+    emblem: '✦', emblemColor: '#ffd76a',
+  },
+  'widows-wake': {
+    name: "Widow's Wake", ghost: false, skin: 'midnight',
+    hull: 0x0d0a14, hullEmissive: 0x120a24, trim: 0x8a3aff,
+    sail: 0x241533, sailEmissive: 0x1a0a30, light: 0x8a3aff,
+    emblem: null, tattered: true,
+  },
+};
+export const LEGENDARY_SKIN_TINTS = LEGENDARY_DEFS;
+export const LEGENDARY_SHIP_IDS = Object.keys(LEGENDARY_DEFS);
+
+/**
+ * Build a legendary ship by def id. Unknown ids fall back to
+ * queen-anne. opts: { sizeScale } (default 1, visual only).
+ */
+export function buildLegendaryShip(shipDefId, opts = {}) {
+  const def = LEGENDARY_DEFS[shipDefId] || LEGENDARY_DEFS['queen-anne'];
+  const g = buildShip({
+    ghost: !!def.ghost,
+    skin: def.skin || 'dutchman',
+    sizeScale: typeof opts.sizeScale === 'number' ? opts.sizeScale : 1,
+  });
+  const mats = g.userData._skinMats;
+  if (mats) {
+    applyTintToMats(mats, {
+      hull: def.hull, hullEmissive: def.hullEmissive, hullEmissiveIntensity: 0.5,
+      trim: def.trim, trimEmissiveIntensity: 1.0,
+      sail: def.sail, sailEmissive: def.sailEmissive, light: def.light,
+    });
+  }
+  const emblem = g.userData.emblem;
+  if (emblem) {
+    if (def.emblem) {
+      if (emblem.material.map) emblem.material.map.dispose();
+      emblem.material.map = emblemTexture(def.emblem, def.emblemColor || '#ffd76a');
+      emblem.material.needsUpdate = true;
+      emblem.visible = true;
+    } else {
+      emblem.visible = false;
+    }
+  }
+  if (def.tattered) {
+    // Tattered sails read narrower / ragged — a sail-shape difference
+    // on the shared sails, no new geometry.
+    for (const s of g.userData.sails) {
+      if (s !== g.userData.flag) s.scale.x = 0.85;
+    }
+  }
+  g.userData.legendary = LEGENDARY_DEFS[shipDefId] ? shipDefId : 'queen-anne';
+  g.userData.shipDefId = g.userData.legendary;
+  g.userData.skin = def.skin || 'dutchman';
+  return g;
 }

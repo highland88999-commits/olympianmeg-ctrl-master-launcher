@@ -6,6 +6,15 @@
 
 export const TAU = Math.PI * 2;
 
+// Voyage systems (levels, kraken, mega souls, respawn) live in voyage.js
+// and call back into this module; this import is runtime-only — neither
+// module reads the other's bindings at evaluation time, so the cycle
+// is safe in ESM.
+import {
+  levelFor, applyLevelStats, stepMegaSouls, stepKraken,
+  respawnPlayer, syncCaptain, dressIslands,
+} from './voyage.js';
+
 // ---------------------------------------------------------------------------
 // Tunables
 // ---------------------------------------------------------------------------
@@ -152,6 +161,21 @@ export function makeShip({ name = 'Ship', isPlayer = false, x = 0, z = 0, headin
     sinkT: 0,
     _crewStart: crew,  // souls a wreck releases: one per crewman aboard
     _hullAtCrewLoss: SHIP.maxHull,
+    // Voyage fields (voyage.js): level, shield and progression.
+    level: 1,
+    sinkings: 0,
+    shield: 25,
+    maxShield: 25,
+    megaSouls: 0,
+    skin: 'dutchman',
+    shipDefId: 'dutchman',
+    upgrades: {},      // cannons/hull/shieldCap/repair/krakenBane
+    cannonsPerSide: SHIP.cannonsPerSide,
+    sizeScale: 1,
+    invulnT: 0,        // seconds of damage immunity (after respawn)
+    krakenKills: 0,
+    _wreckX: null,     // where she went down (respawn measures from here)
+    _wreckZ: null,
   };
 }
 
@@ -213,10 +237,14 @@ export function stepShip(ship, dt, wind) {
   ship.z += ship.vz * dt;
   ship.reloadPort = Math.max(0, ship.reloadPort - dt);
   ship.reloadStbd = Math.max(0, ship.reloadStbd - dt);
+  if (ship.invulnT > 0) ship.invulnT = Math.max(0, ship.invulnT - dt);
   // Slow hull repair by a well-crewed ship — kept slow on purpose, so
   // damage taken in a fight sticks instead of washing straight out.
+  // Master Carpenter upgrades multiply the rate: 1 + 0.5 per rank.
+  // Repair heals hull only — the shield never regenerates passively.
   if (ship.crew >= 6 && ship.hull < ship.maxHull) {
-    ship.hull = Math.min(ship.maxHull, ship.hull + (ship.crew / 6) * SHIP.repairRate * dt);
+    const repairMult = 1 + 0.5 * ((ship.upgrades && ship.upgrades.repair) || 0);
+    ship.hull = Math.min(ship.maxHull, ship.hull + (ship.crew / 6) * SHIP.repairRate * repairMult * dt);
   }
 }
 
@@ -237,14 +265,16 @@ export function fireBroadside(ship, side, now = 0) {
   const key = side === 'port' ? 'reloadPort' : 'reloadStbd';
   if (!ship.alive || ship[key] > 0) return { balls: [], fired: false };
   ship[key] = reloadTime(ship);
-  const n = SHIP.cannonsPerSide;
+  // Broadside size reads the SHIP, not the SHIP const — levels and
+  // upgrades raise cannonsPerSide per ship.
+  const n = Math.max(1, ship.cannonsPerSide || SHIP.cannonsPerSide);
   // Broadside direction: perpendicular to heading. Port = left of bow.
   const sideSign = side === 'port' ? -1 : 1;
   const dirA = ship.heading + sideSign * Math.PI / 2;
   const balls = [];
   for (let i = 0; i < n; i++) {
-    // Cannons spaced along the hull.
-    const along = (i / (n - 1) - 0.5) * SHIP.length * 0.7;
+    // Cannons spaced along the hull (a single cannon sits amidships).
+    const along = n > 1 ? (i / (n - 1) - 0.5) * SHIP.length * 0.7 : 0;
     const mx = ship.x + Math.sin(ship.heading) * along + Math.sin(dirA) * (SHIP.beam / 2);
     const mz = ship.z + Math.cos(ship.heading) * along + Math.cos(dirA) * (SHIP.beam / 2);
     const spread = (i % 2 === 0 ? 1 : -1) * 0.02 * (i + 1);
@@ -275,7 +305,7 @@ export function fireBroadside(ship, side, now = 0) {
  * splash harmlessly beyond it, so a whole engagement could land
  * nothing (Merlin, 2026-11-14: 147 s of broadsides, zero damage).
  */
-export function stepBalls(balls, ships, souls, dt, t, events, rng) {
+export function stepBalls(balls, ships, souls, dt, t, events, rng, kraken = null) {
   const range2 = SHIP.cannonRange * SHIP.cannonRange;
   for (let i = balls.length - 1; i >= 0; i--) {
     const b = balls[i];
@@ -285,6 +315,22 @@ export function stepBalls(balls, ships, souls, dt, t, events, rng) {
     b.x += b.vx * dt; b.y += b.vy * dt; b.z += b.vz * dt;
     const wh = waveHeight(b.x, b.z, t);
     let dead = b.life <= 0;
+    // Kraken hit: a ball within 10 m of the kraken centre while y < 15,
+    // only while it is attacking. Each ball deals 5 damage, 10 with
+    // kraken-bane (looked up from the firing ship's upgrades); the
+    // kraken dies at hp <= 0 (stepKraken converts 'dying'). 60 hp means
+    // 12 hits without the bane, 6 with it. `hits` still counts balls
+    // landed, for the HUD's n/12 display.
+    if (!dead && kraken && kraken.state === 'attack' && b.y < 15 &&
+        dist2(b.x, b.z, kraken.x, kraken.z) < 10 * 10) {
+      const firing = ships.find((s) => s.id === b.fromId);
+      const bane = firing && firing.upgrades && firing.upgrades.krakenBane;
+      kraken.hits += 1;
+      kraken.hp -= 5 + (bane ? 5 : 0);
+      events.push({ type: 'krakenHit', hits: kraken.hits, hp: kraken.hp, x: b.x, z: b.z });
+      if (kraken.hp <= 0) kraken.state = 'dying';
+      dead = true;
+    }
     // Hull crossing: the ball is inside the hittable band — test the
     // center line now, while it is over the ship, not at the water.
     if (!dead && b.y > wh - 1.5 && b.y < SHIP.hullTopY) {
@@ -346,8 +392,13 @@ export function distToCenterline2(x, z, ship) {
 
 export function damageShip(ship, dmg, events, souls, rng, x, z) {
   if (!ship.alive) return;
-  ship.hull -= dmg;
-  // Crew loss every 25 hull damage.
+  // Invulnerability (after respawn): damage is a no-op, no events.
+  if (ship.invulnT > 0) return;
+  // The shield absorbs damage before the hull does. Crew loss tracks
+  // HULL damage only, so a shielded hit costs no crew.
+  const absorbed = Math.min(ship.shield || 0, dmg);
+  ship.shield = (ship.shield || 0) - absorbed;
+  ship.hull -= (dmg - absorbed);
   if (ship._hullAtCrewLoss - ship.hull >= SHIP.crewPerHullLoss) {
     ship._hullAtCrewLoss = ship.hull;
     if (ship.crew > 0) {
@@ -361,6 +412,7 @@ export function damageShip(ship, dmg, events, souls, rng, x, z) {
     ship.sinking = true;
     ship.burning = true; // wreck fire — the 3D layer reads this
     ship.sinkT = 0;
+    if (ship.isPlayer) { ship._wreckX = ship.x; ship._wreckZ = ship.z; }
     events.push({ type: 'sunk', shipId: ship.id, x: ship.x, z: ship.z, name: ship.name });
     // The dead release their souls — one per crewman lost with the
     // ship (everyone aboard, including those already lost to damage
@@ -406,7 +458,13 @@ export function stepSouls(souls, ships, dt, t, events) {
         if (dist2(s.x, s.z, sh.x, sh.z) < pr2) {
           if (sh.crew < SHIP.maxCrew) sh.crew += 1;
           sh.souls += 1;
-          sh.hull = Math.min(sh.maxHull, sh.hull + SHIP.soulHeal);
+          // A soul feeds the shield first (+15, no hull heal) when the
+          // shield is below its cap; otherwise it heals hull +4 as before.
+          if ((sh.shield || 0) < (sh.maxShield || 0)) {
+            sh.shield = Math.min(sh.maxShield, (sh.shield || 0) + 15);
+          } else {
+            sh.hull = Math.min(sh.maxHull, sh.hull + SHIP.soulHeal);
+          }
           events.push({ type: 'soul', shipId: sh.id, x: s.x, z: s.z });
           claimed = true;
           break;
@@ -573,7 +631,7 @@ export function stepChests(world, events) {
 
 export function makeWorld(seed = 1234) {
   const rng = makeRng(seed ^ 0x9e37);
-  const islands = makeIslands(rng);
+  const islands = dressIslands(makeIslands(rng));
   const chests = makeChests(rng, islands);
   return {
     t: 0,
@@ -587,6 +645,18 @@ export function makeWorld(seed = 1234) {
     islands,
     chests,
     wave: 0, // difficulty wave
+    // Voyage state (voyage.js): the per-voyage captain, the fleet,
+    // mega souls, the kraken and the solo/duel mode.
+    mode: 'solo', // the page sets world.mode = 'duel' for duels
+    captain: {
+      sinkings: 0, level: 1, souls: 0, megaSouls: 0, krakenKills: 0,
+      skinsOwned: ['dutchman'], shipsOwned: ['dutchman'],
+    },
+    fleet: [],
+    megaSouls: [],
+    kraken: null,
+    krakenTimer: 0,
+    krakenThreshold: 360 + rng() * 240, // 6–10 min until the first kraken
   };
 }
 
@@ -611,6 +681,7 @@ export function stepWorld(world, input, dt) {
   const ev = world.events;
   stepWind(world.wind, dt);
   const p = world.player;
+  const soulsBefore = p.souls;
   p.rudder = clamp(input.rudder || 0, -1, 1);
   if (input.sails) p.sails = input.sails;
   // No throttle in the input means full ahead (the old behaviour).
@@ -627,7 +698,10 @@ export function stepWorld(world, input, dt) {
     }
   }
 
+  // Balls can hit fleet escorts too (they are no longer invulnerable);
+  // souls stay the captain's currency — followers never collect them.
   const ships = [p, ...world.enemies];
+  const ballShips = [p, ...(world.fleet || []), ...world.enemies];
   for (const e of world.enemies) {
     const side = stepAI(e, p, world.wind, dt);
     collideIslands(e, world.islands);
@@ -640,9 +714,37 @@ export function stepWorld(world, input, dt) {
     }
   }
 
-  stepBalls(world.balls, ships, world.souls, dt, world.t, ev, world.rng);
+  stepBalls(world.balls, ballShips, world.souls, dt, world.t, ev, world.rng, world.kraken || null);
   stepSouls(world.souls, ships, dt, world.t, ev);
+  stepKraken(world, dt, ev, world.rng);
+  stepMegaSouls(world, dt, ev);
   stepChests(world, ev);
+
+  // Level-ups: only sunk ENEMY SHIPS count (not the kraken, not the player).
+  // Scan the whole tick's event list — stepWorld drains it every tick, so
+  // everything in it was generated by this tick (including a wreck
+  // finished by a kraken strike or a direct damageShip call).
+  for (let i = 0; i < ev.length; i++) {
+    const e = ev[i];
+    if (e.type !== 'sunk') continue;
+    if (!world.enemies.some((en) => en.id === e.shipId)) continue;
+    const cap = world.captain;
+    cap.sinkings += 1;
+    const level = levelFor(cap.sinkings);
+    if (level > cap.level) {
+      const prevLevel = cap.level;
+      cap.level = level;
+      applyLevelStats(p, prevLevel, level);
+      ev.push({ type: 'levelUp', level, prevLevel, shipId: p.id });
+    }
+  }
+
+  // Solo respawn: after the sinking cinematic, the Dutchman rises again.
+  // Duels keep the existing game-over (the page ends the duel).
+  if (world.mode !== 'duel' && !p.alive && p.sinkT > SHIP.sinkTime + 1) {
+    // respawnPlayer pushes the {type:'respawn'} event itself.
+    respawnPlayer(world, world.rng);
+  }
 
   // Remove fully-sunk enemies after their sinking cinematic.
   for (let i = world.enemies.length - 1; i >= 0; i--) {
@@ -650,10 +752,24 @@ export function stepWorld(world, input, dt) {
     if (!e.alive && e.sinkT > SHIP.sinkTime + 2) world.enemies.splice(i, 1);
   }
 
+  // A sunk escort is gone for the voyage (the player still owns her —
+  // she sails again next voyage from the fleet menu), and her group
+  // leaves the scene once the engine drops her from world.fleet.
+  for (let i = (world.fleet || []).length - 1; i >= 0; i--) {
+    const f = world.fleet[i];
+    if (!f.alive && f.sinkT > SHIP.sinkTime + 2) {
+      world.fleet.splice(i, 1);
+      ev.push({ type: 'fleetSunk', shipId: f.id, name: f.name });
+    }
+  }
+
   // Next wave when the sea is clear.
   if (p.alive && world.enemies.length === 0 && world.wave > 0) {
     spawnWave(world, Math.min(1 + Math.floor(world.wave / 2), 3));
   }
+
+  // Mirror the captain onto the player ship for the HUD.
+  syncCaptain(world, soulsBefore);
 
   const out = ev.slice();
   ev.length = 0;

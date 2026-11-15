@@ -154,6 +154,9 @@ test('distToCenterline2 measures the ship as a line, not a point', () => {
 
 test('a ball crossing the hull band mid-flight scores a direct hit', () => {
   const target = makeShip({ x: 0, z: 0, heading: 0 });
+  // The shield absorbs before the hull: strip it so this test proves
+  // the hull-band hit underneath the shield rule.
+  target.shield = 0;
   const balls = [{
     x: -30, y: 3.0, z: 0, vx: 58, vy: 0, vz: 0,
     fromId: 'other', delay: 0, life: 6,
@@ -165,6 +168,13 @@ test('a ball crossing the hull band mid-flight scores a direct hit', () => {
   assert.equal(target.hull, SHIP.maxHull - SHIP.dmgDirect);
   assert.equal(events.filter((e) => e.type === 'hit').length, 1);
   assert.equal(events.find((e) => e.type === 'hit').dmg, SHIP.dmgDirect);
+  // Shield first: a fresh ship with shield 25 takes the same 5 damage
+  // to the shield, and the hull stays whole.
+  const shielded = makeShip({ x: 0, z: 0, heading: 0 });
+  assert.equal(shielded.shield, 25);
+  damageShip(shielded, SHIP.dmgDirect, [], [], () => 0.5, 0, 0);
+  assert.equal(shielded.hull, SHIP.maxHull);
+  assert.equal(shielded.shield, 25 - SHIP.dmgDirect);
 });
 
 test('a ball passing clear of the ship does not hit', () => {
@@ -187,6 +197,9 @@ test('a ball passing clear of the ship does not hit', () => {
 
 test('a near miss in the water still splashes the hull', () => {
   const target = makeShip({ x: 0, z: 0, heading: 0 });
+  // Shield stripped so the splash reaches the hull (see the direct-hit
+  // test above for the shield-first rule).
+  target.shield = 0;
   // Dropped straight down 6 m off the center line: outside the 4.2 m
   // direct-hit radius, inside the 12 m splash radius.
   const balls = [{
@@ -240,6 +253,9 @@ test('a wreck burns, sinks, and releases one soul per crewman aboard', () => {
   const ev = [];
   const ai = makeAI(0, 100, 100, 1); // crew 6, hull 80
   assert.equal(ai.crew, 6);
+  // Shield stripped so the killing blow reaches the hull (see the
+  // direct-hit test above for the shield-first rule).
+  ai.shield = 0;
   damageShip(ai, ai.hull, ev, souls, () => 0.5, ai.x, ai.z);
   assert.equal(ai.hull, 0);
   assert.equal(ai.alive, false);
@@ -495,7 +511,8 @@ test('page.jsx wires the world: builds isles + chests, syncs them, pays chests',
   assert.ok(pageSrc.includes('createIslands(scene, world.islands)'));
   assert.ok(pageSrc.includes('createChests(scene, world.chests)'));
   assert.ok(pageSrc.includes('G.chests.sync(world.chests, t)'));
-  assert.ok(pageSrc.includes('G.islands.update(t)'));
+  assert.ok(pageSrc.includes('G.islands.update(t, G.nightF)'), 'must sync islands with the night factor for torches');
+  assert.ok(pageSrc.includes('dutchmanNightFactor()'), 'must drive the night factor from the shared day/night law');
   assert.ok(pageSrc.includes("e.type === 'chest'"), 'must handle the chest event');
   assert.ok(pageSrc.includes('collideIslands(p, world.islands)'));
   assert.ok(pageSrc.includes('stepChests(world, ev)'));

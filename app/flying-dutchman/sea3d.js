@@ -396,3 +396,448 @@ export function createFirePool(scene, max = 4) {
     },
   };
 }
+
+// ---------------------------------------------------------------------------
+// Kraken — one pooled group, driven by world.kraken.
+// ---------------------------------------------------------------------------
+
+/** Deterministic RNG (mulberry32) — the kraken / sea-life look is fixed. */
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a |= 0; a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const KRAKEN_TAU = Math.PI * 2;
+
+/** Mottled dark red-green hide for the kraken body (procedural). */
+function krakenHideTexture(seed) {
+  const rng = mulberry32(seed);
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#2a1f1a'; g.fillRect(0, 0, 256, 256);
+  const blotches = ['#3d2a1e', '#1e3326', '#4a1f1a', '#26331f', '#33241c'];
+  for (let i = 0; i < 90; i++) {
+    g.fillStyle = blotches[Math.floor(rng() * blotches.length)];
+    g.globalAlpha = 0.25 + rng() * 0.45;
+    const r = 6 + rng() * 26;
+    g.beginPath();
+    g.ellipse(rng() * 256, rng() * 256, r, r * (0.5 + rng() * 0.8), rng() * Math.PI, 0, KRAKEN_TAU);
+    g.fill();
+  }
+  g.globalAlpha = 1;
+  return new THREE.CanvasTexture(c);
+}
+
+/**
+ * One tentacle: 8 nested tapered cylinder segments so it can whip
+ * and curl (each pivot bends a little more than the last).
+ */
+function buildTentacle(mat, length, baseR) {
+  const root = new THREE.Group();
+  const segs = [];
+  const N = 8;
+  const segLen = length / N;
+  let parent = root;
+  for (let i = 0; i < N; i++) {
+    const r0 = baseR * (1 - (i / N) * 0.85);
+    const r1 = baseR * (1 - ((i + 1) / N) * 0.85);
+    const pivot = new THREE.Group();
+    pivot.position.y = i === 0 ? 0 : segLen;
+    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(r1, r0, segLen * 1.15, 7), mat);
+    mesh.position.y = segLen / 2;
+    pivot.add(mesh);
+    parent.add(pivot);
+    segs.push(pivot);
+    parent = pivot;
+  }
+  return { root, segs };
+}
+
+/**
+ * The kraken. Returns { group, sync(kraken, t) }.
+ * kraken: null | { state:'warning'|'attack'|'dying', x, z, t, hits, hp,
+ *   tentacles:[{angle, phase} x6] } — missing fields render nothing
+ *   for that part, never crash. State timing is tracked internally
+ *   from the frame clock t, so it works whatever kraken.t means.
+ */
+export function createKraken(scene) {
+  const group = new THREE.Group();
+  group.visible = false;
+
+  // Dark water disc — the warning ring the tentacles rise out of.
+  const discMat = new THREE.MeshBasicMaterial({
+    color: 0x06110c, transparent: true, opacity: 0.55, depthWrite: false,
+  });
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(25, 32), discMat);
+  disc.rotation.x = -Math.PI / 2;
+  disc.position.y = 0.4;
+  group.add(disc);
+
+  // Central body dome — only in attack / dying.
+  const bodyMat = new THREE.MeshStandardMaterial({
+    map: krakenHideTexture(4242), color: 0xffffff, roughness: 0.9,
+    emissive: new THREE.Color(0x1a0505), emissiveIntensity: 0.4,
+  });
+  const body = new THREE.Group();
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(9, 20, 12, 0, KRAKEN_TAU, 0, Math.PI / 2), bodyMat);
+  dome.scale.y = 0.75;
+  dome.position.y = 0;
+  body.add(dome);
+  const eyeMat = new THREE.MeshStandardMaterial({
+    color: 0xe8f5d0, emissive: new THREE.Color(0xd8ffb0), emissiveIntensity: 1.6, roughness: 0.3,
+  });
+  const eyes = [];
+  for (const sx of [-1, 1]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(1.1, 10, 10), eyeMat);
+    eye.position.set(sx * 3.4, 4.2, 7.2);
+    body.add(eye);
+    eyes.push(eye);
+  }
+  body.visible = false;
+  group.add(body);
+
+  // Six tentacles, seeded so the beast looks the same every voyage.
+  const rng = mulberry32(1337);
+  const tentMat = new THREE.MeshStandardMaterial({
+    color: 0x2a3d2a, roughness: 0.85,
+    emissive: new THREE.Color(0x0a1a10), emissiveIntensity: 0.5,
+  });
+  const tentacles = [];
+  for (let i = 0; i < 6; i++) {
+    const len = 14 + rng() * 5;
+    const tn = buildTentacle(tentMat, len, 1.3 + rng() * 0.3);
+    tn.baseAngle = (i / 6) * KRAKEN_TAU;
+    tn.basePhase = rng() * KRAKEN_TAU;
+    tn.len = len;
+    group.add(tn.root);
+    tentacles.push(tn);
+  }
+
+  scene.add(group);
+  let prevState = null;
+  let stateStartT = 0;
+
+  return {
+    group,
+    sync(kraken, t) {
+      if (!kraken || !kraken.state || typeof kraken.x !== 'number' || typeof kraken.z !== 'number') {
+        group.visible = false;
+        prevState = null;
+        return;
+      }
+      if (kraken.state !== prevState) { prevState = kraken.state; stateStartT = t; }
+      const elapsed = Math.max(0, t - stateStartT);
+      const wh = waveHeight(kraken.x, kraken.z, t);
+      group.visible = true;
+      group.position.set(kraken.x, wh, kraken.z);
+
+      const data = Array.isArray(kraken.tentacles) ? kraken.tentacles : null;
+      if (kraken.state === 'warning') {
+        const rise = Math.min(1, elapsed / 2);
+        disc.visible = true;
+        discMat.opacity = 0.55;
+        body.visible = false;
+        group.position.y = wh;
+        for (let i = 0; i < tentacles.length; i++) {
+          const tn = tentacles[i];
+          const d = data && data[i] ? data[i] : null;
+          const a = d && typeof d.angle === 'number' ? d.angle : tn.baseAngle;
+          const phase = d && typeof d.phase === 'number' ? d.phase : tn.basePhase;
+          const rad = 13 + (i % 2) * 4;
+          tn.root.position.set(Math.cos(a) * rad, -4 + rise * 4, Math.sin(a) * rad);
+          tn.root.scale.y = 0.3 + 0.7 * rise;
+          // Swaying, tips above the water.
+          const lean = 0.25 + 0.12 * Math.sin(t * 0.8 + phase);
+          tn.root.rotation.x = Math.sin(a) * lean;
+          tn.root.rotation.z = -Math.cos(a) * lean;
+          for (let s = 0; s < tn.segs.length; s++) {
+            tn.segs[s].rotation.x = Math.sin(t * 1.1 + phase + s * 0.55) * 0.16;
+            tn.segs[s].rotation.z = Math.cos(t * 0.9 + phase + s * 0.5) * 0.14;
+          }
+        }
+      } else if (kraken.state === 'attack') {
+        const rise = Math.min(1, elapsed / 1.2);
+        disc.visible = true;
+        discMat.opacity = 0.55;
+        body.visible = true;
+        body.position.y = -3 + rise * 3;
+        body.scale.setScalar(0.6 + 0.4 * rise);
+        // Eyes flare when the beast has taken hits.
+        const hits = typeof kraken.hits === 'number' ? kraken.hits : 0;
+        eyeMat.emissiveIntensity = 1.6 + Math.min(1.5, hits * 0.2);
+        for (let i = 0; i < tentacles.length; i++) {
+          const tn = tentacles[i];
+          const d = data && data[i] ? data[i] : null;
+          const a = d && typeof d.angle === 'number' ? d.angle : tn.baseAngle;
+          const phase = d && typeof d.phase === 'number' ? d.phase : tn.basePhase;
+          const rad = 12 + (i % 2) * 5;
+          tn.root.position.set(Math.cos(a) * rad, 0, Math.sin(a) * rad);
+          tn.root.scale.y = 1;
+          // Lashing: the whole tentacle whips, and the tip curls down
+          // to slap the water on its cycle.
+          const whip = Math.sin(t * 2.6 + phase);
+          const dip = Math.max(0, Math.sin(t * 0.9 + phase * 2));
+          const lean = 0.35 + whip * 0.35 + dip * 0.55;
+          tn.root.rotation.x = Math.sin(a) * lean;
+          tn.root.rotation.z = -Math.cos(a) * lean;
+          for (let s = 0; s < tn.segs.length; s++) {
+            tn.segs[s].rotation.x = Math.sin(t * 3.2 + phase + s * 0.6) * 0.4 + dip * s * 0.16;
+            tn.segs[s].rotation.z = Math.cos(t * 2.8 + phase + s * 0.55) * 0.35;
+          }
+        }
+      } else { // 'dying' (and any unknown state: sink away, never crash)
+        const sink = Math.min(1, elapsed / 2.5);
+        disc.visible = true;
+        discMat.opacity = 0.55 * (1 - sink);
+        body.visible = sink < 0.85;
+        body.position.y = -sink * 9;
+        group.position.y = wh - sink * 3;
+        for (let i = 0; i < tentacles.length; i++) {
+          const tn = tentacles[i];
+          const d = data && data[i] ? data[i] : null;
+          const a = d && typeof d.angle === 'number' ? d.angle : tn.baseAngle;
+          const phase = d && typeof d.phase === 'number' ? d.phase : tn.basePhase;
+          const rad = 13 + (i % 2) * 4;
+          tn.root.position.set(Math.cos(a) * rad, -sink * 6, Math.sin(a) * rad);
+          tn.root.scale.y = 1 - sink * 0.75;
+          const lean = 0.2 + 0.1 * Math.sin(t * 0.7 + phase);
+          tn.root.rotation.x = Math.sin(a) * lean;
+          tn.root.rotation.z = -Math.cos(a) * lean;
+          for (let s = 0; s < tn.segs.length; s++) {
+            tn.segs[s].rotation.x = Math.sin(t * 0.8 + phase + s * 0.5) * 0.12 * (1 - sink);
+            tn.segs[s].rotation.z = Math.cos(t * 0.7 + phase + s * 0.5) * 0.1 * (1 - sink);
+          }
+        }
+        if (sink >= 1) group.visible = false;
+      }
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Mega souls — gold, 2.5x normal wisps. Mirrors createSoulPool.
+// ---------------------------------------------------------------------------
+
+export function createMegaSoulPool(scene, max = 5) {
+  const tex = radialTexture('rgba(255,220,110,1)', 'rgba(255,170,20,0)', 128);
+  const items = [];
+  for (let i = 0; i < max; i++) {
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: tex, transparent: true, opacity: 0.95, depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    }));
+    s.visible = false;
+    scene.add(s);
+    items.push(s);
+  }
+  return {
+    sync(megaSouls, t) {
+      if (!Array.isArray(megaSouls)) { for (const s of items) s.visible = false; return; }
+      for (const s of items) s.visible = false;
+      for (let i = 0; i < Math.min(megaSouls.length, max); i++) {
+        const w = megaSouls[i];
+        if (!w || typeof w.x !== 'number' || typeof w.z !== 'number') continue;
+        const m = items[i];
+        const phase = typeof w.phase === 'number' ? w.phase : i * 1.7;
+        m.visible = true;
+        // Slower pulse, gentle rise-and-fall, 2.5x a normal wisp.
+        m.position.set(w.x, waveHeight(w.x, w.z, t) + 3 + Math.sin(t * 1.2 + phase) * 1.1, w.z);
+        const sc = 6.5 + Math.sin(t * 1.6 + phase) * 0.9;
+        m.scale.set(sc, sc, 1);
+        m.material.opacity = Math.min(0.98, (typeof w.life === 'number' ? w.life : 6) / 6);
+      }
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Seagulls — 2 flocks of 3, circling the two nearest-to-spawn islands
+// (islands[0] and islands[1] by index — deterministic). Pure function
+// of t; the page calls sync(t) every frame.
+// ---------------------------------------------------------------------------
+
+function buildGull() {
+  const g = new THREE.Group();
+  const white = new THREE.MeshStandardMaterial({ color: 0xf2f2ee, roughness: 0.9 });
+  const body = new THREE.Mesh(new THREE.ConeGeometry(0.32, 1.3, 6), white);
+  body.rotation.x = Math.PI / 2; // point forward (+Z)
+  body.scale.set(1, 1, 0.45); // flattened — applied after rotation, flattens Y
+  g.add(body);
+  const wings = [];
+  for (const s of [1, -1]) {
+    const pivot = new THREE.Group();
+    pivot.position.set(s * 0.2, 0.05, 0);
+    const wing = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.05, 0.55), white);
+    wing.position.x = s * 0.85;
+    pivot.add(wing);
+    g.add(pivot);
+    wings.push({ pivot, side: s });
+  }
+  return { group: g, wings };
+}
+
+export function createGulls(scene, islands) {
+  const group = new THREE.Group();
+  const flocks = [];
+  const list = Array.isArray(islands) ? islands : [];
+  for (let f = 0; f < 2; f++) {
+    const isl = list[f];
+    if (!isl || typeof isl.x !== 'number' || typeof isl.z !== 'number') continue;
+    const flock = {
+      cx: isl.x, cz: isl.z,
+      radius: (typeof isl.r === 'number' ? isl.r : 60) + 25,
+      height: 25 + f * 8,
+      phase0: f * 2.4,
+      gulls: [],
+    };
+    for (let k = 0; k < 3; k++) {
+      const gull = buildGull();
+      gull.phase = (k / 3) * KRAKEN_TAU;
+      group.add(gull.group);
+      flock.gulls.push(gull);
+    }
+    flocks.push(flock);
+  }
+  scene.add(group);
+  return {
+    group,
+    sync(t) {
+      for (const flock of flocks) {
+        for (const gull of flock.gulls) {
+          const a = flock.phase0 + t * 0.15 + gull.phase;
+          const x = flock.cx + Math.cos(a) * flock.radius;
+          const z = flock.cz + Math.sin(a) * flock.radius;
+          gull.group.position.set(x, flock.height + Math.sin(t * 0.9 + gull.phase) * 2, z);
+          // Face along the circle (tangent).
+          gull.group.rotation.y = -a;
+          const flap = Math.sin(t * 6 + gull.phase * 3) * 0.7;
+          for (const w of gull.wings) {
+            w.pivot.rotation.z = w.side > 0 ? flap : -flap;
+          }
+        }
+      }
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Sea life — dolphins / flying fish breaching near the player.
+// Seeded schedule (fixed seed 1337): a breach every 45–90 s, one at a
+// time, arcing ~1.2 s and peaking ~4 m, then a small splash.
+// ---------------------------------------------------------------------------
+
+export function createSeaLife(scene) {
+  const rng = mulberry32(1337);
+  const group = new THREE.Group();
+
+  // Dolphin: dark grey elongated body + dorsal fin, ~3 m.
+  const dolphin = new THREE.Group();
+  {
+    const grey = new THREE.MeshStandardMaterial({ color: 0x3a4a52, roughness: 0.6 });
+    const bodyM = new THREE.Mesh(new THREE.SphereGeometry(0.55, 10, 8), grey);
+    bodyM.scale.set(0.8, 0.8, 2.8);
+    dolphin.add(bodyM);
+    const fin = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.9, 4), grey);
+    fin.position.set(0, 0.55, 0.2);
+    fin.scale.set(1, 1, 0.25);
+    fin.rotation.x = -0.4;
+    dolphin.add(fin);
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.08, 0.5), grey);
+    tail.position.set(0, 0.05, -1.6);
+    dolphin.add(tail);
+  }
+  // Flying fish: a small silver dart.
+  const fish = new THREE.Group();
+  {
+    const silver = new THREE.MeshStandardMaterial({
+      color: 0xc8d4d8, roughness: 0.3, metalness: 0.7,
+    });
+    const bodyM = new THREE.Mesh(new THREE.ConeGeometry(0.22, 1.4, 6), silver);
+    bodyM.rotation.x = Math.PI / 2;
+    fish.add(bodyM);
+    const wing = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.04, 0.4), silver);
+    wing.position.set(0, 0.12, 0.1);
+    fish.add(wing);
+  }
+  dolphin.visible = false;
+  fish.visible = false;
+  group.add(dolphin, fish);
+
+  const splashTex = radialTexture('rgba(220,240,250,0.95)', 'rgba(220,240,250,0)', 128);
+  const splash = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: splashTex, transparent: true, opacity: 0, depthWrite: false,
+  }));
+  splash.visible = false;
+  scene.add(splash);
+  scene.add(group);
+
+  let nextBreachT = null;
+  let active = null; // { startT, x, z, bearing, kind, endX, endZ }
+  let splashT = -1e9;
+  let splashX = 0, splashZ = 0;
+
+  return {
+    group,
+    sync(t, playerX, playerZ) {
+      const px = typeof playerX === 'number' ? playerX : 0;
+      const pz = typeof playerZ === 'number' ? playerZ : 0;
+      if (nextBreachT === null) nextBreachT = t + 45 + rng() * 45;
+
+      // Start a breach when its time comes (never more than one).
+      if (!active && t >= nextBreachT) {
+        const kind = rng() < 0.6 ? 'dolphin' : 'fish';
+        const bearing = rng() * KRAKEN_TAU;
+        const dist = 40 + rng() * 40;
+        active = {
+          startT: t, kind, bearing,
+          x: px + Math.sin(bearing) * dist,
+          z: pz + Math.cos(bearing) * dist,
+        };
+      }
+
+      if (active) {
+        const p = (t - active.startT) / 1.2;
+        if (p >= 1) {
+          // Re-entry: hide the creature, pop a small splash, schedule next.
+          splashX = active.x + Math.sin(active.bearing) * 10;
+          splashZ = active.z + Math.cos(active.bearing) * 10;
+          splashT = t;
+          dolphin.visible = false;
+          fish.visible = false;
+          active = null;
+          nextBreachT = t + 45 + rng() * 45;
+        } else {
+          const cx = active.x + Math.sin(active.bearing) * 10 * p;
+          const cz = active.z + Math.cos(active.bearing) * 10 * p;
+          const wh = waveHeight(cx, cz, t);
+          const y = wh + 4 * Math.sin(Math.PI * p) + 0.4;
+          const creature = active.kind === 'dolphin' ? dolphin : fish;
+          creature.visible = true;
+          (active.kind === 'dolphin' ? fish : dolphin).visible = false;
+          creature.position.set(cx, y, cz);
+          creature.rotation.y = active.bearing;
+          // Nose up on the way out, nose down on the way back in.
+          creature.rotation.x = -Math.cos(Math.PI * p) * 0.6;
+        }
+      }
+
+      // Splash fades over ~0.6 s after re-entry.
+      const sk = (t - splashT) / 0.6;
+      if (sk >= 0 && sk < 1) {
+        splash.visible = true;
+        splash.position.set(splashX, waveHeight(splashX, splashZ, t) + 1, splashZ);
+        splash.material.opacity = 0.9 * (1 - sk);
+        const sc = 4 + sk * 5;
+        splash.scale.set(sc, sc * 1.3, 1);
+      } else {
+        splash.visible = false;
+      }
+    },
+  };
+}
